@@ -87,6 +87,22 @@ class RecoilJets : public SubsysReco
   void enableVzCut (bool f = true) { m_useVzCut = f;        }
   void setCentralityEdges(const std::vector<int>& e) { m_centEdges = e; }
 
+  // ---- data type (controls Au+Au-only logic like centrality) -------------
+  enum class DataType { kPP, kAuAu };
+
+  // string-friendly setter for Fun4All macros
+  void setDataType(const std::string& s)
+  {
+      const std::string t = s;
+      if (t=="isAuAu" || t=="AuAu" || t=="AUAU") m_isAuAu = true;
+      else                                       m_isAuAu = false; // default: pp
+  }
+  // type-safe setter (optional)
+  void setDataType(DataType t) { m_isAuAu = (t==DataType::kAuAu); }
+
+  // query
+  bool isAuAu() const { return m_isAuAu; }
+
     // Photon-isolation configuration (PPG12-style baseline)
     //   coneR        : isolation cone ΔR
     //   isoFrac      : (ΣE_T in cone excluding tag) / E_T^γ  < isoFrac
@@ -134,12 +150,16 @@ class RecoilJets : public SubsysReco
   // ======================================================================
   // 3) Configuration & run‑time state
   // ======================================================================
-  // --- run‑wide -----------------------------------------------------------
+  // --- run-wide -----------------------------------------------------------
   int         m_runNumber   = -1;
   bool        verbose       = true;
   double      m_vzCut       = 10.;        // [cm]
   double      m_towMinE   {0.050};
   bool        m_useVzCut    = true;
+
+  // data-type flag (pp vs Au+Au); controls centrality path etc.
+  bool        m_isAuAu      = false;      // default: p+p
+    
   const GlobalVertex* m_vtx {nullptr};
   double m_vx {0.}, m_vy {0.}, m_vz {0.};
   std::vector<unsigned> m_epdKey;
@@ -152,27 +172,6 @@ class RecoilJets : public SubsysReco
   TriggerAnalyzer*  trigAna  = nullptr;
   std::size_t       event_count = 0;
 
-  // --- trigger bookkeeping if using TriggerAnalyzer package -----------------------------------------------
-//  std::map<std::string, std::string> triggerNameMap {
-//        {"MBD N&S >= 2", "MBD_NandS_geq_2"}};
-    
-  // --- trigger bookkeeping :  bit‑index  →  human‑readable key ----------
-  std::map<int, std::string> triggerNameMap = {
-      {10, "MBD_NS_geq_2"},
-      {11, "MBD_NS_geq_1"},
-      {12, "MBD_NS_geq_2_vtx_lt_10"},
-      {13, "MBD_NS_geq_2_vtx_lt_30"},
-      {14, "MBD_NS_geq_2_vtx_lt_150"},
-      {15, "MBD_NS_geq_1_vtx_lt_10"},
-      {16, "photon_6_plus_MBD_NS_geq_2_vtx_lt_10"},
-      {17, "photon_8_plus_MBD_NS_geq_2_vtx_lt_10"},
-      {18, "photon_10_plus_MBD_NS_geq_2_vtx_lt_10"},
-      {19, "photon_12_plus_MBD_NS_geq_2_vtx_lt_10"},
-      {20, "photon_6_plus_MBD_NS_geq_2_vtx_lt_150"},
-      {21, "photon_8_plus_MBD_NS_geq_2_vtx_lt_150"},
-      {22, "photon_10_plus_MBD_NS_geq_2_vtx_lt_150"},
-      {23, "photon_12_plus_MBD_NS_geq_2_vtx_lt_150"}
-  };
     
   std::map<std::string, HistMap>     qaHistogramsByTrigger;
   // ── trigger QA helpers ────────────────────────────────────────────────
@@ -209,9 +208,77 @@ class RecoilJets : public SubsysReco
   EpdGeom*             m_epdgeom  = nullptr;
   EventplaneinfoMap*   m_epmap    = nullptr;   // pointer to EventplaneinfoMap
   RawClusterContainer* m_clus     = nullptr;
-
-
   // --------------------------------------------------------------------------
+
+  /*
+    TriggerFunctionality pp
+  */
+  std::map<std::string,std::string> triggerNameMap_pp {
+      {"MBD N&S >= 1",          "MBD_NandS_geq_1"},
+//        {"Jet 8 GeV + MBD NS >= 1","Jet_8_GeV_plus_MBD_NS_geq_1"},
+//        {"Jet 10 GeV + MBD NS >= 1","Jet_10_GeV_plus_MBD_NS_geq_1"},
+//        {"Jet 12 GeV + MBD NS >= 1","Jet_12_GeV_plus_MBD_NS_geq_1"},
+      {"Photon 3 GeV + MBD NS >= 1","Photon_3_GeV_plus_MBD_NS_geq_1"},
+      {"Photon 4 GeV + MBD NS >= 1","Photon_4_GeV_plus_MBD_NS_geq_1"},
+      {"Photon 5 GeV + MBD NS >= 1","Photon_5_GeV_plus_MBD_NS_geq_1"}
+  };
+  std::map<int,std::string>* activeTriggerNameMap_pp{nullptr};
+    
+      
+ /*
+  TriggerFunctionality AuAu
+  */
+  // --- trigger bookkeeping :  bit‑index  →  human‑readable key ----------
+  std::map<int, std::string> triggerNameMapAuAu = {
+        {10, "MBD_NS_geq_2"},
+        {11, "MBD_NS_geq_1"},
+        {12, "MBD_NS_geq_2_vtx_lt_10"},
+        {13, "MBD_NS_geq_2_vtx_lt_30"},
+        {14, "MBD_NS_geq_2_vtx_lt_150"},
+        {15, "MBD_NS_geq_1_vtx_lt_10"},
+        {16, "photon_6_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {17, "photon_8_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {18, "photon_10_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {19, "photon_12_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {20, "photon_6_plus_MBD_NS_geq_2_vtx_lt_150"},
+        {21, "photon_8_plus_MBD_NS_geq_2_vtx_lt_150"},
+        {22, "photon_10_plus_MBD_NS_geq_2_vtx_lt_150"},
+        {23, "photon_12_plus_MBD_NS_geq_2_vtx_lt_150"}
+  };
+      
+  std::string bitsetToList(uint64_t word) const;
+  inline std::vector<int> extractTriggerBits(uint64_t b_gl1_scaledvec, [[maybe_unused]]int entry) {
+          std::vector<int> trig_bits;
+          std::bitset<64> bits(b_gl1_scaledvec);
+  //        if (verbose) {
+  //            std::cout << "Processing entry " << entry << ", gl1_scaledvec (bits): " << bits.to_string() << std::endl;
+  //        }
+  //
+          for (unsigned int bit = 0; bit < 64; bit++) {
+              if (((b_gl1_scaledvec >> bit) & 0x1U) == 0x1U) {
+                  trig_bits.push_back(bit);
+              }
+          }
+          return trig_bits;
+  }
+
+  // Inline function to check trigger condition
+  inline bool checkTriggerCondition(const std::vector<int> &trig_bits, int inputBit) {
+          for (const int &bit : trig_bits) {
+              if (bit == inputBit) {
+  //                if (verbose) {
+  //                    std::cout << "  Trigger condition met with bit: " << bit << std::endl;
+  //                }
+                  
+                  return true;
+              }
+          }
+  //        if (verbose) {
+  //            std::cout << "  No relevant trigger conditions met." << std::endl;
+  //        }
+          
+          return false;
+  }
 
 };
 #endif  // RECOILJETS_H

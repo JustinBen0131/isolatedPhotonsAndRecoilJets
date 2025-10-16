@@ -425,6 +425,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   recoilJets->setVzCut(10.);
   recoilJets->enableVzCut(true);
   recoilJets->setVerbose(0);
+  recoilJets->setDataType("isAuAu");  // or "isPP"
   se->registerSubsystem(recoilJets);
     
 

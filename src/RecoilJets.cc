@@ -289,12 +289,12 @@ void RecoilJets::createHistos_Data()
 
 
 // ======================================================================
-//  process_event – one‑event driver, with streamlined logging
+//  process_event – one-event driver, pp/Au+Au aware trigger gating
 // ======================================================================
 int RecoilJets::process_event(PHCompositeNode* topNode)
 {
   /* ------------------------------------------------------------------ */
-  /* 0.  Banner & running counter                                       */
+  /* 0) Banner & counter                                                */
   /* ------------------------------------------------------------------ */
   ++event_count;
   PROGRESS("=================================   event "
@@ -303,100 +303,163 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
            << Verbosity() << ')');
 
   /* ------------------------------------------------------------------ */
-  /* 1.  Mandatory node check                                           */
+  /* 1) Mandatory nodes                                                 */
   /* ------------------------------------------------------------------ */
   LOG(4, CLR_BLUE, "  [process_event] – node sanity");
   if (!fetchNodes(topNode))
   {
     LOG(4, CLR_YELLOW,
-        "    mandatory node missing OR not Au+Au minimum‑bias →  ABORTEVENT");
+        "    mandatory node(s) missing → ABORTEVENT");
     return Fun4AllReturnCodes::ABORTEVENT;
   }
 
   /* ------------------------------------------------------------------ */
-  /* 2.  Build the SEPD channel map on the fly (first event only)       */
+  /* 2) Trigger gating (pp vs Au+Au)                                    */
+  /*     - pp:  TriggerAnalyzer, require "MBD N&S >= 1"                 */
+  /*     - Au+Au: use existing firstEventCuts() (MB+trigger gate)       */
   /* ------------------------------------------------------------------ */
-  if (!m_sepdMapReady)
+  std::vector<std::string> activeTrig;  // short keys used for booking/filling
+
+  if (!m_isAuAu)
   {
-    LOG(5, CLR_BLUE, "    building SEPD channel map …");
-    m_sepd = findNode::getClass<TowerInfoContainer>(topNode,
-                                                    "TOWERINFO_CALIB_SEPD");
-    if (!m_sepd)
+    // -------- p+p path -------------------------------------------------
+    if (!trigAna)
     {
-      LOG(4, CLR_YELLOW,
-          "    SEPD container not yet present – event skipped");
+      std::cerr << "[ERROR] No TriggerAnalyzer pointer in pp mode!\n";
       return Fun4AllReturnCodes::ABORTEVENT;
     }
-    buildSepdChannelMap();     // sets m_sepdMapReady = true
+
+    if (Verbosity() > 0)
+      std::cout << "[DEBUG] pp mode: decoding GL1 triggers …" << std::endl;
+
+    trigAna->decodeTriggers(topNode);
+
+    // Build "short-name" list from DB-name map
+    activeTrig.clear();
+    activeTrig.reserve(triggerNameMap_pp.size());
+    for (const auto& kv : triggerNameMap_pp)
+    {
+      const std::string& dbName   = kv.first;   // GL1/DB name
+      const std::string& shortKey = kv.second;  // histogram-friendly short name
+      if (trigAna->didTriggerFire(dbName))
+      {
+        activeTrig.push_back(shortKey);
+        if (Verbosity() > 0)
+          std::cout << "Trigger fired: \"" << dbName
+                    << "\" → short \"" << shortKey << "\"\n";
+      }
+    }
+
+    // Require "MBD N&S >= 1" in pp
+    const char* requiredShort = "MBD_NandS_geq_1";
+    bool haveRequired = false;
+    for (const auto& s : activeTrig) { if (s == requiredShort) { haveRequired = true; break; } }
+
+    if (!haveRequired)
+    {
+      if (Verbosity() > 0)
+        std::cout << "[trigger-gate] pp event skipped: required \"MBD N&S >= 1\" not active.\n";
+      // Soft-skip: do not fill anything for this event
+      return Fun4AllReturnCodes::EVENT_OK;
+    }
+
+    // Ensure we always have at least one tag
+    if (activeTrig.empty()) activeTrig.emplace_back("ALL");
+  }
+  else
+  {
+    // -------- Au+Au path ----------------------------------------------
+    if (!firstEventCuts(topNode, activeTrig))
+    {
+      ++m_evtNoTrig;
+      LOG(4, CLR_YELLOW, "    event rejected by MB/Trigger gate – skip");
+      return Fun4AllReturnCodes::ABORTEVENT;
+    }
+    // Some configurations of firstEventCuts may not supply names; keep consistent
+    if (activeTrig.empty()) activeTrig.emplace_back("ALL");
   }
 
   /* ------------------------------------------------------------------ */
-  /* 3.  Combined MB‑and‑Trigger gate (fills h_MBTrigCorr)              */
+  /* 3) Vertex-z QA                                                     */
   /* ------------------------------------------------------------------ */
-  std::vector<std::string> activeTrig;
-  if (!firstEventCuts(topNode, activeTrig))
+  for (const auto& t : activeTrig)
+  {
+    auto itTrig = qaHistogramsByTrigger.find(t);
+    if (itTrig != qaHistogramsByTrigger.end())
     {
-        ++m_evtNoTrig;                   // keep previous statistics
-        LOG(4, CLR_YELLOW,
-            "    event rejected by MB/Trigger gate – skip");
-        return Fun4AllReturnCodes::ABORTEVENT;
+      auto& H = itTrig->second;
+      if (auto hit = H.find("h_vertexZ"); hit != H.end())
+        static_cast<TH1F*>(hit->second)->Fill(m_vz);
     }
+  }
 
-    /* 4.  Vertex‑z QA  -------------------------------------- */
-    for (const auto& t : activeTrig) {
-        static_cast<TH1F*>(qaHistogramsByTrigger[t]["h_vertexZ"])
-            ->Fill(m_vz);
-    }
-
-
-    /* ------------------------------------------------------------------ */
-    /* 5.  Centrality lookup & diagnostics                                */
-    /*      (must precede detector‑level QA so centrality clones fill)    */
-    /* ------------------------------------------------------------------ */
+  /* ------------------------------------------------------------------ */
+  /* 4) Centrality lookup (Au+Au only)                                  */
+  /*     Keep m_centBin = -1 in pp (acts as minimum-bias)               */
+  /* ------------------------------------------------------------------ */
+  if (m_isAuAu)
+  {
     CentralityInfo* central =
-          findNode::getClass<CentralityInfo>(topNode, "CentralityInfo");
+      findNode::getClass<CentralityInfo>(topNode, "CentralityInfo");
 
     if (!central)
     {
-        LOG(4, CLR_YELLOW,
-            "    CentralityInfo node missing – skip");
-        return Fun4AllReturnCodes::ABORTEVENT;
+      LOG(4, CLR_YELLOW,
+          "    CentralityInfo node missing (Au+Au) – ABORTEVENT");
+      return Fun4AllReturnCodes::ABORTEVENT;
     }
 
     const float centile =
-        central->get_centrality_bin(CentralityInfo::PROP::mbd_NS);
+      central->get_centrality_bin(CentralityInfo::PROP::mbd_NS);
 
     if (!std::isfinite(centile) || centile < 0.f)
     {
-        LOG(4, CLR_YELLOW,
-          "    mbd_NS centile invalid – treating as minimum‑bias (0 – 100 %)");
-        m_centBin = -1;                          // minimum‑bias
+      LOG(4, CLR_YELLOW,
+          "    invalid mbd_NS centile – treating as minimum-bias (0–100%)");
+      m_centBin = -1;
     }
     else
     {
-        m_centBin = static_cast<int>(centile);
-        LOG(5, CLR_GREEN, "    centrality bin = " << m_centBin << '%');
+      m_centBin = static_cast<int>(centile);
+      LOG(5, CLR_GREEN, "    centrality bin = " << m_centBin << '%');
     }
 
-    /* centrality histogram (filled once the value is validated) -------- */
-    if (centile >= 0.f && centile <= 100.f) {
-        for (const auto& t : activeTrig) {
-            static_cast<TH1F*>(qaHistogramsByTrigger[t]["h_centrality"])
-                ->Fill(centile);
-        }
-    }
-
-    /* guard: vz must be reasonable for centrality calibration ---------- */
-    if (!std::isfinite(m_vz) || std::abs(m_vz) > 60.0)
+    // Fill centrality histogram if booked under each active trigger
+    if (centile >= 0.f && centile <= 100.f)
     {
-        LOG(4, CLR_YELLOW,
-            "    Vertex‑z (" << m_vz
-            << " cm) outside calibration bounds – skip event");
-        return Fun4AllReturnCodes::ABORTEVENT;
+      for (const auto& t : activeTrig)
+      {
+        auto itTrig = qaHistogramsByTrigger.find(t);
+        if (itTrig != qaHistogramsByTrigger.end())
+        {
+          auto& H = itTrig->second;
+          if (auto hc = H.find("h_centrality"); hc != H.end())
+            static_cast<TH1F*>(hc->second)->Fill(centile);
+        }
+      }
     }
+  }
+  else
+  {
+    // pp: no centrality
+    m_centBin = -1;
+  }
 
-    LOG(4, CLR_GREEN, "  [process_event] – completed OK");
-    return Fun4AllReturnCodes::EVENT_OK;
+  /* ------------------------------------------------------------------ */
+  /* 5) Vertex-z guard (applies to both, primarily relevant for Au+Au)  */
+  /* ------------------------------------------------------------------ */
+  if (!std::isfinite(m_vz) || std::abs(m_vz) > 60.0)
+  {
+    LOG(4, CLR_YELLOW,
+        "    Vertex-z (" << m_vz << " cm) outside bounds – skip event");
+    return Fun4AllReturnCodes::ABORTEVENT;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 6) Done – downstream (QA/correlations/etc.) will use activeTrig    */
+  /* ------------------------------------------------------------------ */
+  LOG(4, CLR_GREEN, "  [process_event] – completed OK");
+  return Fun4AllReturnCodes::EVENT_OK;
 }
 
 
@@ -598,91 +661,3 @@ int RecoilJets::End(PHCompositeNode*)
 
 void RecoilJets::Print(const std::string&) const
 { /* nothing to print beyond ROOT histograms */ }
-
-
-float RecoilJets::calculateET(float eta, float phi, float dR, int layer, float min_E) // layer: 0 EMCal, 1 IHCal, 2 OHCal
-{
-  float ET = 0;
-  RawTowerGeomContainer *geomcontainer = nullptr;
-  TowerInfoContainer *towercontainer = nullptr;
-  // TowerInfoContainer *waveformcontainer = nullptr;
-  RawTowerDefs::CalorimeterId caloid = RawTowerDefs::CalorimeterId::CEMC;
-
-  if (layer == 0)
-  {
-    geomcontainer = geomEM;
-
-    // for debug
-    // std::string towerNodeName = "WAVEFORM_CEMC";
-    // waveformcontainer = findNode::getClass<TowerInfoContainer>(topNodeptr, towerNodeName);
-    towercontainer = emcTowerContainer;
-
-    caloid = RawTowerDefs::CalorimeterId::CEMC;
-  }
-  else if (layer == 1)
-  {
-    geomcontainer = geomIH;
-    towercontainer = ihcalTowerContainer;
-    caloid = RawTowerDefs::CalorimeterId::HCALIN;
-  }
-  else if (layer == 2)
-  {
-    geomcontainer = geomOH;
-    towercontainer = ohcalTowerContainer;
-    caloid = RawTowerDefs::CalorimeterId::HCALOUT;
-  }
-  else
-  {
-    std::cout << "Invalid layer" << std::endl;
-    return ET;
-  }
-  float ntowers = towercontainer->size();
-  for (unsigned int channel = 0; channel < ntowers; channel++)
-  {
-    TowerInfo *tower = towercontainer->get_tower_at_channel(channel);
-    if (!tower)
-    {
-      continue;
-    }
-    if (tower->get_isGood() == false)
-    {
-      continue;
-    }
-
-    unsigned int towerkey = towercontainer->encode_key(channel);
-    int ieta = towercontainer->getTowerEtaBin(towerkey);
-    int iphi = towercontainer->getTowerPhiBin(towerkey);
-    RawTowerDefs::keytype key = RawTowerDefs::encode_towerid(caloid, ieta, iphi);
-    RawTowerGeom *tower_geom = geomcontainer->get_tower_geometry(key);
-    double this_phi = tower_geom->get_phi();
-    double this_eta = getTowerEta(tower_geom, 0, 0, vertexz);
-
-    if (layer == 0)
-    {
-      if (tower->get_energy() < -10)
-      {
-        std::cout << "!!!!!!!!!!!!!!!!energy: " << tower->get_energy() << " chi2: " << tower->get_chi2() << " ieta: " << ieta << " iphi: " << iphi << " eta: " << this_eta << " phi: " << this_phi << std::endl;
-        std::cout << "!!!!!!!!!!!!!!!!!is_ZS: " << tower->get_isZS() << " is_good: " << tower->get_isGood() << std::endl;
-        /*
-        TowerInfo *waveform = waveformcontainer->get_tower_at_channel(channel);
-        std::cout<<"!!!!!!!!!!!!!!!! ";
-        int nsamples = 16;
-        for(int i = 0; i<nsamples; i++){
-          std::cout<<waveform->get_waveform_value(i)<<" ";
-        }
-        std::cout<<std::endl;
-        */
-      }
-    }
-
-    if (deltaR(eta, this_eta, phi, this_phi) < dR)
-    {
-      if(tower->get_energy() > min_E)
-      {
-        ET += tower->get_energy() / cosh(this_eta);
-      }
-    }
-  }
-  return ET;
-}
-
