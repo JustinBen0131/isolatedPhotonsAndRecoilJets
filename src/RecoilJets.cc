@@ -156,7 +156,7 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
         LOG(1, CLR_YELLOW,
             "  – MinimumBiasInfo node missing (treating as !MB)");
 
-  /* NOTE: Actual rejection is done in firstEventCuts(), so we only
+  /* NOTE: Actual rejection is done in firstEventCuts(), so only
    *       cache m_isMinBias here and keep processing. */
 
     
@@ -305,24 +305,42 @@ int RecoilJets::Init(PHCompositeNode* topNode)
 
 int RecoilJets::InitRun(PHCompositeNode* /*topNode*/)
 {
-  /* 0. banner -------------------------------------------------------- */
   const uint64_t run = recoConsts::instance()->get_uint64Flag("TIMESTAMP", 0);
   LOG(1, CLR_BLUE, "[InitRun] ------------------------------------------------------------");
   LOG(1, CLR_BLUE, "[InitRun] Starting InitRun  –  TIMESTAMP = " << run);
 
-  /* 3. sanity‑check user centrality edges --------------------------- */
-  if (m_centEdges.empty())
-    LOG(0, CLR_YELLOW, "[InitRun] WARNING: centrality edges vector is EMPTY");
-  else
+  // Dataset flag + configured binning
+  LOG(1, CLR_GREEN, "[InitRun] Dataset      : " << (m_isAuAu ? "Au+Au" : "p+p"));
   {
-    bool mono = std::is_sorted(m_centEdges.begin(), m_centEdges.end());
-    if (!mono)
-      LOG(0, CLR_YELLOW, "[InitRun] WARNING: centrality edges not monotonic");
+    std::ostringstream os;
+    os << "[InitRun] gamma-ET bins: {";
+    for (std::size_t i = 0; i+1 < m_gammaEtBins.size(); ++i)
+      os << (i? ", ":" ") << m_gammaEtBins[i] << "–" << m_gammaEtBins[i+1];
+    os << " }";
+    LOG(1, CLR_GREEN, os.str());
+  }
+  if (m_isAuAu)
+  {
+    if (m_centEdges.empty())
+      LOG(0, CLR_YELLOW, "[InitRun] WARNING: centrality edges vector is EMPTY");
+    else
+    {
+      bool mono = std::is_sorted(m_centEdges.begin(), m_centEdges.end());
+      if (!mono)
+        LOG(0, CLR_YELLOW, "[InitRun] WARNING: centrality edges not monotonic");
+      std::ostringstream oc;
+      oc << "[InitRun] centrality bins: {";
+      for (std::size_t i = 0; i+1 < m_centEdges.size(); ++i)
+        oc << (i? ", ":" ") << m_centEdges[i] << "–" << m_centEdges[i+1];
+      oc << " }";
+      LOG(1, CLR_GREEN, oc.str());
+    }
   }
 
   LOG(1, CLR_BLUE, "[InitRun] InitRun completed successfully");
   return Fun4AllReturnCodes::EVENT_OK;
 }
+
 
 
 
@@ -450,10 +468,9 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
   /* 0) Banner & counter                                                */
   /* ------------------------------------------------------------------ */
   ++event_count;
-  PROGRESS("=================================   event "
-           << std::setw(4) << event_count
-           << "   =====================================  (Verb="
-           << Verbosity() << ')');
+  std::cout << "==================== processing event "
+              << std::setw(6) << event_count
+              << " ====================" << std::endl;
 
   /* ------------------------------------------------------------------ */
   /* 1) Mandatory nodes                                                 */
@@ -652,17 +669,66 @@ int RecoilJets::End(PHCompositeNode*)
             << static_cast<Long64_t>(h->GetEntries()) << '\n';
         }
   }
-  out->cd("triggerQA");
-  if (h_MBTrigCorr && h_MBTrigCorr->GetEntries() > 0) h_MBTrigCorr->Write();
 
-  //--------------------------------------------------------------------
-  // 4.  Write footer & close the file
-  //--------------------------------------------------------------------
+  // ------------------ Analysis summary (verbosity-controlled) ------------------
   if (Verbosity() >= 1)
-      std::cout << "\nOutput ROOT file →  " << out->GetName() << "\n\n";
-    
+  {
+      std::cout << "\n\033[1mSelection summary (dataset: " << (m_isAuAu ? "Au+Au" : "p+p")
+                << ", events=" << event_count << ")\033[0m\n";
+      for (const auto& kvT : m_catByTrig)
+      {
+        const std::string& trig = kvT.first;
+        std::cout << "\n\033[1mTrigger: " << trig << "\033[0m\n";
+        std::cout << "slice                                 |   seen |  tight | nonTgt | isoPass | isoFail |   SBtot |  SBpass\n";
+        std::cout << "--------------------------------------+--------+--------+--------+---------+---------+--------+--------\n";
+
+        // Ordered print by slice label
+        std::vector<std::string> keys;
+        keys.reserve(kvT.second.size());
+        for (auto& s : kvT.second) keys.push_back(s.first);
+        std::sort(keys.begin(), keys.end());
+
+        for (const auto& sfx : keys)
+        {
+          const CatStat& S = kvT.second.at(sfx);
+          std::ostringstream lab; lab << (sfx.empty() ? "<all>" : sfx);
+          std::cout << std::left  << std::setw(38) << lab.str() << " | "
+                    << std::right << std::setw(6)  << S.seen     << " | "
+                    << std::setw(6)  << S.tight    << " | "
+                    << std::setw(6)  << S.nonTight << " | "
+                    << std::setw(7)  << S.isoPass  << " | "
+                    << std::setw(7)  << S.isoFail  << " | "
+                    << std::setw(6)  << S.idSB_total << " | "
+                    << std::setw(6)  << S.idSB_pass  << "\n";
+        }
+      }
+
+      // Histogram fill counts (analysis set)
+      if (!m_histFill.empty())
+      {
+        std::cout << "\n\033[1mHistogram fills (analysis set)\033[0m\n";
+        std::cout << "trigger::histogram                               | fills\n";
+        std::cout << "-----------------------------------------------+-------\n";
+        // Stable, alphabetical
+        std::vector<std::pair<std::string,std::size_t>> vv(m_histFill.begin(), m_histFill.end());
+        std::sort(vv.begin(), vv.end(),
+                  [](auto& a, auto& b){ return a.first < b.first; });
+        for (const auto& p : vv)
+        {
+          std::cout << std::left  << std::setw(47) << p.first
+                    << " | " << std::right << std::setw(5) << p.second << "\n";
+        }
+      }
+  }
+  // ---------------------------------------------------------------------------
+
+  // 4.  Write footer & close the file
+  if (Verbosity() >= 1)
+        std::cout << "\nOutput ROOT file →  " << out->GetName() << "\n\n";
+
   info(1, "writing TFile footer and closing ("+std::to_string(nHistWritten)
-           +" / "+std::to_string(nHistExpected)+" objects written)");
+             +" / "+std::to_string(nHistExpected)+" objects written)");
+
 
   try      { out->Close(); }
   catch (const std::exception& e)
@@ -764,7 +830,11 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
             {
               const double xJ = bestPt / et;
               for (const auto& trigShort : activeTrig)
-                getOrBookXJHist(trigShort, etIdx, (m_isAuAu ? centIdx : -1))->Fill(xJ);
+              {
+                auto* hx = getOrBookXJHist(trigShort, etIdx, (m_isAuAu ? centIdx : -1));
+                hx->Fill(xJ);
+                bumpHistFill(trigShort, std::string("h_xJ") + suffixForBins(etIdx, (m_isAuAu ? centIdx : -1)));
+              }
             }
           }
         }
@@ -952,6 +1022,69 @@ TH1F* RecoilJets::getOrBookXJHist(const std::string& trig, int etIdx, int centId
   return h;
 }
 
+TH1F* RecoilJets::getOrBookIsoHist(const std::string& trig, int etIdx, int centIdx)
+{
+  const std::string base = "h_Eiso";
+  const std::string name = base + suffixForBins(etIdx, centIdx);
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+    return dynamic_cast<TH1F*>(it->second);
+
+  TDirectory* cur = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  dir->cd();
+
+  auto* h = new TH1F(name.c_str(),
+                     (name+";E_{T}^{iso} [GeV];Entries").c_str(),
+                     120, 0.0, 12.0);
+  H[name] = h;
+
+  if (cur) cur->cd();
+  return h;
+}
+
+// Record a histogram fill (for end-of-job diagnostics)
+void RecoilJets::bumpHistFill(const std::string& trig, const std::string& hnameWithSuffix)
+{
+  m_histFill[trig + "::" + hnameWithSuffix] += 1;
+}
+
+// Book a shower-shape histogram for a given variable and tag
+TH1F* RecoilJets::getOrBookSSHist(const std::string& trig,
+                                  const std::string& varKey,
+                                  const std::string& tagKey,
+                                  int etIdx, int centIdx)
+{
+  const std::string base = "h_ss_" + varKey + "_" + tagKey;
+  const std::string name = base + suffixForBins(etIdx, centIdx);
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+    return dynamic_cast<TH1F*>(it->second);
+
+  // Choose safe, generic ranges
+  int    nb = 120;
+  double lo = 0.0, hi = 1.2;
+  if (varKey == "weta" || varKey == "wphi") { nb = 120; lo = 0.0; hi = 1.2; }
+  else if (varKey == "et1")                 { nb = 120; lo = 0.0; hi = 1.2; }
+  else if (varKey == "e11e33" || varKey == "e32e35") { nb = 120; lo = 0.0; hi = 1.2; }
+
+  TDirectory* cur = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  dir->cd();
+
+  const std::string title = base + ";"+varKey+";Entries";
+  auto* h = new TH1F(name.c_str(), title.c_str(), nb, lo, hi);
+  H[name] = h;
+
+  if (cur) cur->cd();
+  return h;
+}
+
+
 
 
 void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
@@ -962,33 +1095,88 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
                                       PHCompositeNode* topNode)
 {
   const int etIdx = findEtBin(et_gamma);
-  if (etIdx < 0) return;
+  if (etIdx < 0 || !clus) return;
 
-  const bool iso = isIsolated(clus, et_gamma, topNode);
+  // Slice key (used for stats & histogram names)
+  const std::string slice = suffixForBins(etIdx, (m_isAuAu ? centIdx : -1));
+
+  // Compute iso and record the Eiso distribution
+  const double eiso_et = eiso(clus, topNode);
+  {
+    auto* h = getOrBookIsoHist(trig, etIdx, (m_isAuAu ? centIdx : -1));
+    h->Fill(eiso_et);
+    bumpHistFill(trig, "h_Eiso" + slice);
+  }
+
+  // Categorize per selection
+  const bool iso = (eiso_et < (m_isoA + m_isoB * et_gamma));
   const TightTag tag = classifyPhotonTightness(v);
 
-  const std::string bTight      = "h_tightCount_ET";
-  const std::string bNonTight   = "h_nonTightCount_ET";
-  const std::string bIso        = "h_isolatedCount_ET";
-  const std::string bNonIso     = "h_nonIsolatedCount_ET";
+  // Update per-slice counters
+  auto& S = m_catByTrig[trig][slice];
+  S.seen += 1;
+  (tag == TightTag::kTight ? S.tight : S.nonTight) += 1;
+  (iso ? S.isoPass : S.isoFail) += 1;
 
-  // existing marginal counters (ID-only and ISO-only)
+  // Fill per-variable shower-shape histos for tight/nonTight only
+  if (tag == TightTag::kTight || tag == TightTag::kNonTight)
+  {
+    const std::string tagKey = (tag == TightTag::kTight) ? "tight" : "nontight";
+    auto fillSS = [&](const std::string& key, double val)
+    {
+      auto* h = getOrBookSSHist(trig, key, tagKey, etIdx, (m_isAuAu ? centIdx : -1));
+      h->Fill(val);
+      bumpHistFill(trig, "h_ss_" + key + "_" + tagKey + slice);
+    };
+    fillSS("weta",   v.weta_cogx);
+    fillSS("wphi",   v.wphi_cogx);
+    fillSS("et1",    v.et1);
+    fillSS("e11e33", v.e11_over_e33);
+    fillSS("e32e35", v.e32_over_e35);
+  }
+
+  // Fill (and track) the marginal counters
   if (tag == TightTag::kTight)
-    getOrBookCountHist(trig, bTight,    etIdx, (m_isAuAu ? centIdx : -1))->Fill(1);
+  {
+    auto* h = getOrBookCountHist(trig, "h_tightCount_ET", etIdx, (m_isAuAu ? centIdx : -1));
+    h->Fill(1);
+    bumpHistFill(trig, "h_tightCount_ET" + slice);
+  }
   else
-    getOrBookCountHist(trig, bNonTight, etIdx, (m_isAuAu ? centIdx : -1))->Fill(1);
+  {
+    auto* h = getOrBookCountHist(trig, "h_nonTightCount_ET", etIdx, (m_isAuAu ? centIdx : -1));
+    h->Fill(1);
+    bumpHistFill(trig, "h_nonTightCount_ET" + slice);
+  }
 
   if (iso)
-    getOrBookCountHist(trig, bIso,    etIdx, (m_isAuAu ? centIdx : -1))->Fill(1);
+  {
+    auto* h = getOrBookCountHist(trig, "h_isolatedCount_ET", etIdx, (m_isAuAu ? centIdx : -1));
+    h->Fill(1);
+    bumpHistFill(trig, "h_isolatedCount_ET" + slice);
+  }
   else
-    getOrBookCountHist(trig, bNonIso, etIdx, (m_isAuAu ? centIdx : -1))->Fill(1);
+  {
+    auto* h = getOrBookCountHist(trig, "h_nonIsolatedCount_ET", etIdx, (m_isAuAu ? centIdx : -1));
+    h->Fill(1);
+    bumpHistFill(trig, "h_nonIsolatedCount_ET" + slice);
+  }
 
-  // ID-sideband (fail ≥2 tight cuts) isolation-fraction counters
-  // total = all NonTight; pass = NonTight that also pass isolation
+  // ID-sideband (fail ≥2 tight cuts)
   if (tag == TightTag::kNonTight)
   {
-    getOrBookCountHist(trig, "h_idSB_total", etIdx, (m_isAuAu ? centIdx : -1))->Fill(1);
+    S.idSB_total += 1;
+    {
+      auto* h = getOrBookCountHist(trig, "h_idSB_total", etIdx, (m_isAuAu ? centIdx : -1));
+      h->Fill(1);
+      bumpHistFill(trig, "h_idSB_total" + slice);
+    }
     if (iso)
-      getOrBookCountHist(trig, "h_idSB_pass",  etIdx, (m_isAuAu ? centIdx : -1))->Fill(1);
+    {
+      S.idSB_pass += 1;
+      auto* h = getOrBookCountHist(trig, "h_idSB_pass", etIdx, (m_isAuAu ? centIdx : -1));
+      h->Fill(1);
+      bumpHistFill(trig, "h_idSB_pass" + slice);
+    }
   }
 }

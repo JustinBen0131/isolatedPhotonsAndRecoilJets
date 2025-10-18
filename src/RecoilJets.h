@@ -250,8 +250,26 @@ class RecoilJets : public SubsysReco
   std::size_t   m_evtNoTrig = 0;  // count events rejected by MB/trigger gate
 
   std::map<std::string, HistMap>     qaHistogramsByTrigger;
-  TH2I* h_MBTrigCorr   = nullptr;                 // 2‑D map: MinBias × Trigger
-  std::unordered_map<std::string,int> m_trigBin;  // trigger‑key → x‑bin index
+  TH2I* h_MBTrigCorr   = nullptr;                 // 2-D map: MinBias × Trigger
+  std::unordered_map<std::string,int> m_trigBin;  // trigger-key → x-bin index
+
+  // ---------- Analysis bookkeeping for verbose end-of-job summaries ----------
+  struct CatStat {
+      std::size_t seen{0};
+      std::size_t tight{0};
+      std::size_t nonTight{0};
+      std::size_t isoPass{0};
+      std::size_t isoFail{0};
+      std::size_t idSB_total{0};
+      std::size_t idSB_pass{0};
+  };
+  // Per trigger -> per slice suffix (e.g., "_ET_10_12[_cent_0_10]") → counters
+  std::map<std::string, std::map<std::string, CatStat>> m_catByTrig;
+  // Histogram fill counts: "<trig>::<histNameWithSuffix>" → fills
+  std::map<std::string, std::size_t> m_histFill;
+
+  // Helper to record histogram fills
+  void bumpHistFill(const std::string& trig, const std::string& hnameWithSuffix);
 
   // first‑event gate: MB + trigger selection (declared here, defined in .cc)
   bool firstEventCuts(PHCompositeNode*   topNode,
@@ -340,17 +358,27 @@ class RecoilJets : public SubsysReco
   int  findCentBin(int cent) const;                // returns -1 if out-of-range
   std::string suffixForBins(int etIdx, int centIdx) const;
   TH1I* getOrBookCountHist(const std::string& trig,
-                               const std::string& base,
-                               int etIdx, int centIdx);
+                                   const std::string& base,
+                                   int etIdx, int centIdx);
   // xJ histogram booker: h_xJ + suffixForBins(ET[,cent])
   TH1F* getOrBookXJHist(const std::string& trig, int etIdx, int centIdx);
+  // Eiso histogram booker: h_Eiso + suffixForBins(ET[,cent])
+  TH1F* getOrBookIsoHist(const std::string& trig, int etIdx, int centIdx);
+  // Shower-shape histogram booker:
+  //    h_ss_<varKey>_<tagKey> + suffixForBins(ET[,cent])
+  //    varKey ∈ { weta, wphi, et1, e11e33, e32e35 }, tagKey ∈ { tight, nontight }
+  TH1F* getOrBookSSHist(const std::string& trig,
+                          const std::string& varKey,
+                          const std::string& tagKey,
+                          int etIdx, int centIdx);
 
   void  fillIsoSSTagCounters(const std::string& trig,
-                                 const RawCluster* clus,
-                                 const SSVars& v,
-                                 double et_gamma,
-                                 int centIdx,
-                                 PHCompositeNode* topNode);
+                                   const RawCluster* clus,
+                                   const SSVars& v,
+                                   double et_gamma,
+                                   int centIdx,
+                                   PHCompositeNode* topNode);
+
 
   SSVars makeSSFromPhoton(const PhotonClusterv1* pho, double et) const;
   void   processCandidates(PHCompositeNode* topNode,
