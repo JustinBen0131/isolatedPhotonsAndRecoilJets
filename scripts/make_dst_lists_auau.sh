@@ -8,10 +8,46 @@
 #  • Runtime ≥ 300 s
 #  • GL1 .evt counts ≥ 1×10^5
 #
+# Optional gates (OFF by default — enable via CLI arguments):
+#  • removeBadTowerMaps
+#      Require a CEMC bad-tower map to exist in the CDB for the run.
+#      When enabled:
+#        – Stage 6 (“Bad-tower map available (CEMC)”) appears in the summary.
+#        – Runs dropped by this gate are printed and saved to:
+#          /sphenix/u/patsfan753/scratch/thesisAnalysis/dst_lists_auau/runs_missing_bad_tower_map.txt
+#
+#  • MBD_NS_GEQ2_VTX_150
+#      Require GL1 trigger “MBD N&S >= 2, vtx < 150 cm” to be enabled (scaledown != -1).
+#      When enabled:
+#        – Stage 7 (“MBD_NS_geq_2_vtx_lt_150 active (scaledown != -1)”) appears in the summary.
+#        – Runs dropped by this gate are printed and saved to:
+#          /sphenix/u/patsfan753/scratch/thesisAnalysis/dst_lists_auau/runs_missing_MBD_NS_geq_2_vtx_lt_150.txt
+#
+# Notes on the summary table:
+#  • Stages 2–7 are always shown. If an optional gate is not used, its stage mirrors the
+#    previous stage so the table shape remains fixed.
+#  • The final “8) FINAL GOLDEN (2∩3∩4∩5∩maps∩trig)” row always reflects the Stage-7 totals.
+#
+# Usage examples:
+#   ./make_dst_lists_auau.sh
+#       → Standard GOLDEN selection (no optional gates)
+#
+#   ./make_dst_lists_auau.sh removeBadTowerMaps
+#       → GOLDEN selection + drop runs missing CEMC bad-tower maps
+#
+#   ./make_dst_lists_auau.sh MBD_NS_GEQ2_VTX_150
+#       → GOLDEN selection + require the MBD_NS_geq_2_vtx_lt_150 trigger to be enabled
+#
+#   ./make_dst_lists_auau.sh removeBadTowerMaps MBD_NS_GEQ2_VTX_150
+#       → GOLDEN selection + both optional gates applied (maps then trigger)
+#
 # Files written (and ONLY these):
 #   /sphenix/u/patsfan753/scratch/thesisAnalysis/dst_lists_auau/run3goldenruns.txt
 #   /sphenix/u/patsfan753/scratch/thesisAnalysis/dst_lists_auau/DST_CALOFITTING_run3auau_new_newcdbtag_v008-<run8>.list
+#   (optional) runs_missing_bad_tower_map.txt
+#   (optional) runs_missing_MBD_NS_geq_2_vtx_lt_150.txt
 ###############################################################################
+
 set -euo pipefail
 IFS=$'\n\t' ; shopt -s nullglob
 
@@ -31,6 +67,22 @@ PREFIX="DST_CALOFITTING"
 MIN_RUNTIME=300
 MIN_GL1_EVT=100000
 OUT_DIR="/sphenix/u/patsfan753/scratch/thesisAnalysis/dst_lists_auau"
+
+# Optional CLI flags:
+#  • 'removeBadTowerMaps' → drop runs without a CEMC bad-tower map
+#  • 'MBD_NS_GEQ2_VTX_150' → keep only runs where this trigger is enabled (scaledown != -1)
+REMOVE_BAD_TOWER_MAPS=false
+FILTER_MBD_NS_GEQ2_VTX_150=false
+TRIG_BIT=14
+TRIG_NAME_DB="MBD N&S >= 2, vtx < 150 cm"
+TRIG_KEY="MBD_NS_geq_2_vtx_lt_150"
+
+for arg in "$@"; do
+  [[ "$arg" == "removeBadTowerMaps" ]] && REMOVE_BAD_TOWER_MAPS=true
+  [[ "$arg" == "MBD_NS_GEQ2_VTX_150" ]] && FILTER_MBD_NS_GEQ2_VTX_150=true
+done
+
+
 
 # ---------- Env checks ----------
 command -v CreateDstList.pl >/dev/null 2>&1 || fatal "CreateDstList.pl not found in PATH."
@@ -213,13 +265,144 @@ for r in "${RUNS_ALL[@]}"; do
   fi
 done
 
+# ---------- Stage 6 (optional): Bad-tower map availability (CEMC) ----------
+RUNS_MISSING_MAPS=()
+if $REMOVE_BAD_TOWER_MAPS; then
+  CDB_DIR="/cvmfs/sphenix.sdcc.bnl.gov/calibrations/sphnxpro/cdb/CEMC_BadTowerMap"
+  say "Checking availability of CEMC bad-tower maps (CDB)…"
+  say "CDB directory: ${BOLD}${CDB_DIR}${RESET}"
+
+  MAP_FILE_COUNT=$(find "$CDB_DIR" -type f 2>/dev/null | wc -l | tr -d ' ')
+  say "Total files under CDB dir: ${BOLD}${MAP_FILE_COUNT}${RESET}"
+
+  say "Sampling first 30 CDB files and extracted run ids:"
+  mapfile -t _MAP_FILES_SAMPLE < <(find "$CDB_DIR" -type f 2>/dev/null | head -n 30)
+  idx=0
+  for f in "${_MAP_FILES_SAMPLE[@]}"; do
+    ((idx+=1))
+    rid=$(echo "$f" | sed -E 's#.*[^0-9]([0-9]{5,8})[^0-9]*$#\1#')
+    printf "    [%02d] %s -> runid=%s\n" "$idx" "$f" "${rid:-N/A}"
+  done
+
+  mapfile -t _MAP_RUNS < <(
+    find "$CDB_DIR" -type f 2>/dev/null \
+    | sed -E 's#.*[^0-9]([0-9]{5,8})[^0-9]*$#\1#' \
+    | awk '{ printf "%d\n", $1 }' \
+    | sort -u
+  )
+
+  say "Unique run-ids extracted from CDB: ${BOLD}${#_MAP_RUNS[@]}${RESET}"
+
+  printf '%s\n' "${_MAP_RUNS[@]}"                 > "${OUT_DIR}/debug_map_runids.txt"
+  printf '%s\n' "${RUNS_GOLDEN_FINAL[@]}"         > "${OUT_DIR}/debug_golden_before_mapgate.txt"
+
+  if ((${#_MAP_RUNS[@]})); then
+    say "CDB run-ids (first 20): $(printf '%s ' "${_MAP_RUNS[@]:0:20}")"
+    tail_start=$(( ${#_MAP_RUNS[@]} > 20 ? ${#_MAP_RUNS[@]}-20 : 0 ))
+    say "CDB run-ids (last 20):  $(printf '%s ' "${_MAP_RUNS[@]:$tail_start}")"
+  fi
+
+  declare -A MAPSET
+  for r in "${_MAP_RUNS[@]}"; do MAPSET["$r"]=1; done
+
+  RUNS_WITH_MAP=()
+  RUNS_GOLDEN_FINAL_BEFORE_MAP=("${RUNS_GOLDEN_FINAL[@]}")
+  for r in "${RUNS_GOLDEN_FINAL[@]}"; do
+    if [[ -n "${MAPSET[$r]:-}" ]]; then
+      RUNS_WITH_MAP+=("$r")
+    else
+      RUNS_MISSING_MAPS+=("$r")
+    fi
+  done
+  RUNS_GOLDEN_FINAL=("${RUNS_WITH_MAP[@]}")
+
+  printf '%s\n' "${RUNS_GOLDEN_FINAL_BEFORE_MAP[@]}" > "${OUT_DIR}/debug_golden_before_mapgate_dup.txt"
+  printf '%s\n' "${RUNS_GOLDEN_FINAL[@]}"            > "${OUT_DIR}/debug_golden_after_mapgate.txt"
+  printf '%s\n' "${RUNS_MISSING_MAPS[@]}"            > "${OUT_DIR}/debug_missing_map_runs.txt"
+
+  say "Map-gate summary:"
+  say "  Golden runs before map gate : ${BOLD}${#RUNS_GOLDEN_FINAL_BEFORE_MAP[@]}${RESET}"
+  say "  Golden runs WITH maps       : ${BOLD}${#RUNS_GOLDEN_FINAL[@]}${RESET}"
+  say "  Golden runs MISSING maps    : ${BOLD}${#RUNS_MISSING_MAPS[@]}${RESET}"
+
+  if ((${#RUNS_GOLDEN_FINAL[@]})); then
+    say "  Sample WITH maps (first 20): $(printf '%08d ' "${RUNS_GOLDEN_FINAL[@]:0:20}")"
+  else
+    warn "  No runs passed the map gate (WITH maps = 0)."
+  fi
+  if ((${#RUNS_MISSING_MAPS[@]})); then
+    say "  Sample MISSING maps (first 20): $(printf '%08d ' "${RUNS_MISSING_MAPS[@]:0:20}")"
+  fi
+
+  say "Directory listing sample from CDB (depth 2, first 40 entries):"
+  find "$CDB_DIR" -maxdepth 2 -type f 2>/dev/null | head -n 40 | sed 's/^/    /'
+
+  # Note about normalization
+  say "Note: run-id normalization uses integer conversion (drops leading zeros)."
+
+  # Record Stage 6 scalars (post-map gate)
+  s6_runs=${#RUNS_GOLDEN_FINAL[@]}
+  read s6_ev s6_rt < <(_sum_ev_rt_over RUNS_GOLDEN_FINAL)
+fi
+
+# ---------- Stage 7 (optional): Require trigger active (scaledown != -1) ----------
+RUNS_MISSING_TRIG=()
+if $FILTER_MBD_NS_GEQ2_VTX_150; then
+  say "Applying trigger gate: ${BOLD}${TRIG_NAME_DB}${RESET}  (bit=${TRIG_BIT}, scaledown != -1)"
+  RUNS_GOLDEN_FINAL_BEFORE_TRIG=("${RUNS_GOLDEN_FINAL[@]}")
+  RUNS_WITH_TRIG=()
+  for r in "${RUNS_GOLDEN_FINAL[@]}"; do
+    val=$(sql "SELECT scaledown${TRIG_BIT} FROM gl1_scaledown WHERE runnumber=${r};" | tr -d '[:space:]')
+    # treat empty as disabled
+    if [[ -n "$val" && "$val" != "-1" ]]; then
+      RUNS_WITH_TRIG+=("$r")
+    else
+      RUNS_MISSING_TRIG+=("$r")
+    fi
+  done
+  RUNS_GOLDEN_FINAL=("${RUNS_WITH_TRIG[@]}")
+
+  # Record Stage 7 scalars (post-trigger gate)
+  s7_runs=${#RUNS_GOLDEN_FINAL[@]}
+  read s7_ev s7_rt < <(_sum_ev_rt_over RUNS_GOLDEN_FINAL)
+
+  printf '%s\n' "${RUNS_MISSING_TRIG[@]}" > "${OUT_DIR}/runs_missing_${TRIG_KEY}.txt"
+  say "Trigger gate summary:"
+  say "  Golden runs WITH ${TRIG_KEY} : ${BOLD}${#RUNS_GOLDEN_FINAL[@]}${RESET}"
+  say "  Golden runs MISSING trigger  : ${BOLD}${#RUNS_MISSING_TRIG[@]}${RESET}"
+fi
+
+
+
 # ---------- Per-stage scalars ----------
 s1_runs=${#STAGE1_LIST[@]}; read s1_ev s1_rt < <(printf '%s\t%s\n' "$tot_ev_all" "$tot_rt_all")
 s2_runs=${#STAGE2_LIST[@]}; read s2_ev s2_rt < <(_sum_ev_rt_over STAGE2_LIST)
 s3_runs=${#STAGE3_LIST[@]}; read s3_ev s3_rt < <(_sum_ev_rt_over STAGE3_LIST)
 s4_runs=${#STAGE4_LIST[@]}; read s4_ev s4_rt < <(_sum_ev_rt_over STAGE4_LIST)
 s5_runs=${#STAGE5_LIST[@]}; read s5_ev s5_rt < <(_sum_ev_rt_over STAGE5_LIST)
-gold_runs=${#RUNS_GOLDEN_FINAL[@]}; read gold_ev gold_rt < <(_sum_ev_rt_over RUNS_GOLDEN_FINAL)
+
+# Ensure Stage 6 exists: if maps gate was not applied, Stage 6 = Stage 5
+if ! $REMOVE_BAD_TOWER_MAPS; then
+  s6_runs=$s5_runs
+  s6_ev=$s5_ev
+  s6_rt=$s5_rt
+fi
+
+# Ensure Stage 7 exists: if trigger gate was not applied, Stage 7 = Stage 6
+if ! $FILTER_MBD_NS_GEQ2_VTX_150; then
+  s7_runs=$s6_runs
+  s7_ev=$s6_ev
+  s7_rt=$s6_rt
+fi
+
+# Final “gold” = Stage 7 (fixed final stage layout)
+gold_runs=$s7_runs
+gold_ev=$s7_ev
+gold_rt=$s7_rt
+
+
+
+
 
 pct() { local p=${1:-0} t=${2:-1}; [[ "$t" -eq 0 ]] && printf "0.00" || printf "%0.2f" "$(bc -l <<< "100.0*$p/$t")"; }
 
@@ -227,9 +410,15 @@ pct() { local p=${1:-0} t=${2:-1}; [[ "$t" -eq 0 ]] && printf "0.00" || printf "
 # cuts[] rows: "key|label|runs|events|drop"
 declare -a CUTS
 CUTS+=("magnet|2) MAGNET ON (magnet_info=='t')|${s2_runs}|${s2_ev}|$((s1_runs - s2_runs))")
-CUTS+=("caloqa|3) Calo QA GOLDEN (EMC∩IHC∩OHC)|${s3_runs}|${s3_ev}|$((s1_runs - s3_runs))")
-CUTS+=("runtime|4) Runtime ≥ ${MIN_RUNTIME}s|${s4_runs}|${s4_ev}|$((s1_runs - s4_runs))")
-CUTS+=("gl1|5) GL1 .evt ≥ ${MIN_GL1_EVT}|${s5_runs}|${s5_ev}|$((s1_runs - s5_runs))")
+CUTS+=("caloqa|3) Calo QA GOLDEN (EMC+IHC+OHC)|${s3_runs}|${s3_ev}|$((s1_runs - s3_runs))")
+CUTS+=("runtime|4) Runtime >= ${MIN_RUNTIME}s|${s4_runs}|${s4_ev}|$((s1_runs - s4_runs))")
+CUTS+=("gl1|5) GL1 .evt >= ${MIN_GL1_EVT}|${s5_runs}|${s5_ev}|$((s1_runs - s5_runs))")
+CUTS+=("maps|6) Bad-tower map available (CEMC)|${s6_runs}|${s6_ev}|$((s1_runs - s6_runs))")
+CUTS+=("trig|7) ${TRIG_KEY} active|${s7_runs}|${s7_ev}|$((s1_runs - s7_runs))")
+
+
+
+
 
 # Sort by drop ascending (least → most), stable on ties by label
 SORTED=$(printf '%s\n' "${CUTS[@]}" | awk -F'|' '{printf "%09d|%s|%s|%s|%s\n",$5,$1,$2,$3,$4}' | sort -n)
@@ -254,32 +443,35 @@ printf "  %-*s | %*s | %*s | %*s\n" \
   $LBLW "Stage" $EVW ".evt Events" $RUNW "Runs" $RETW "(retained)"
 # header underline
 printf "  %-${LBLW}s-+-%-${EVW}s-+-%-${RUNW}s-+-%-${RETW}s\n" \
-  "$(printf '─%.0s' $(seq $LBLW))" \
-  "$(printf '─%.0s' $(seq $EVW))"  \
-  "$(printf '─%.0s' $(seq $RUNW))" \
-  "$(printf '─%.0s' $(seq $RETW))"
+  "$(printf '%*s' "$LBLW" '' | tr ' ' '-')" \
+  "$(printf '%*s' "$EVW"  '' | tr ' ' '-')" \
+  "$(printf '%*s' "$RUNW" '' | tr ' ' '-')" \
+  "$(printf '%*s' "$RETW" '' | tr ' ' '-')"
 
 # Stage 1
-printf "  %-*s | %*s | %*s | %*.2f%%\n" \
-  $LBLW "1) All (CreateDstList printruns)" \
+printf "  %-*.*s | %*s | %*s | %*.2f%%\n" \
+  $LBLW $LBLW "1) All (CreateDstList printruns)" \
   $EVW "$s1_ev" $RUNW "$s1_runs" $RETW 100.00
 
 # Sorted cuts (least → most drop)
 while IFS='|' read -r drop key label runs ev ; do
   rpct=$(pct "$runs" "$s1_runs")
-  printf "  %-*s | %*s | %*s | %*.2f%%\n" \
-    $LBLW "$label" \
+  printf "  %-*.*s | %*s | %*s | %*.2f%%\n" \
+    $LBLW $LBLW "$label" \
     $EVW "$ev" \
     $RUNW "$runs" \
     $RETW "$rpct"
 done <<< "$SORTED"
 
-# Final line
-printf "  %-*s | %*s | %*s | %*.2f%%\n" \
-  $LBLW "6) FINAL GOLDEN (2∩3∩4∩5)" \
+# Final line (fixed shape)
+_finalStage="8) FINAL GOLDEN (2+3+4+5+maps+trig)"
+printf "  %-*.*s | %*s | %*s | %*.2f%%\n" \
+  $LBLW $LBLW "$_finalStage" \
   $EVW "$gold_ev" \
   $RUNW "$gold_runs" \
   $RETW "$(pct "$gold_runs" "$s1_runs")"
+
+
 
 draw_hr
 printf "  %-24s %10.2f h   |  %-24s %10.2f h\n" \
@@ -293,7 +485,34 @@ printf "    • %-22s : %5d\n" "Calo QA not GOLDEN" "$(( s1_runs - s3_runs ))"
 printf "    • %-22s : %5d\n" "Runtime < ${MIN_RUNTIME}s" "$rej_short"
 printf "    • %-22s : %5d\n" "GL1 .evt < ${MIN_GL1_EVT}" "$rej_lowevt"
 printf "    • %-22s : %5d\n" "Runtime+GL1 both fail" "$rej_both"
+if $REMOVE_BAD_TOWER_MAPS; then
+  printf "    • %-22s : %5d\n" "Missing bad-tower map" "$(( ${#RUNS_MISSING_MAPS[@]} ))"
+fi
 echo
+
+# Only list missing-map runs if the gate was applied
+if $REMOVE_BAD_TOWER_MAPS && ((${#RUNS_MISSING_MAPS[@]})); then
+  echo "  Runs removed due to missing CEMC bad-tower maps:"
+  for r in "${RUNS_MISSING_MAPS[@]}"; do
+    printf "    %08d\n" "$((10#$r))"
+  done
+  printf '%s\n' "${RUNS_MISSING_MAPS[@]}" > "${OUT_DIR}/runs_missing_bad_tower_map.txt"
+  echo "  Saved list → ${OUT_DIR}/runs_missing_bad_tower_map.txt"
+  echo
+fi
+
+# Only list runs that failed the trigger gate if the gate was applied
+if $FILTER_MBD_NS_GEQ2_VTX_150 && ((${#RUNS_MISSING_TRIG[@]})); then
+  echo "  Runs removed due to disabled trigger (${TRIG_KEY}):"
+  for r in "${RUNS_MISSING_TRIG[@]}"; do
+    printf "    %08d\n" "$((10#$r))"
+  done
+  printf '%s\n' "${RUNS_MISSING_TRIG[@]}" > "${OUT_DIR}/runs_missing_${TRIG_KEY}.txt"
+  echo "  Saved list → ${OUT_DIR}/runs_missing_${TRIG_KEY}.txt"
+  echo
+fi
+
+
 
 # ==================== Trigger summary (FINAL GOLDEN ONLY; no scaledown) ====================
 # Aggregates over RUNS_GOLDEN_FINAL using gl1_scalers only:

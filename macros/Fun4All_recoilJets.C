@@ -7,12 +7,11 @@
 //======================================================================
 #pragma once
 #if defined(__CINT__) || defined(__CLING__)
-  R__ADD_INCLUDE_PATH($OFFLINE_MAIN/include)
+  R__ADD_INCLUDE_PATH(/sphenix/u/patsfan753/thesisAnalysis/install/include)
 #endif
 #if defined(__CLING__)
-  #pragma cling add_include_path("$ENV{OFFLINE_MAIN}/include")
+  #pragma cling add_include_path("/sphenix/u/patsfan753/thesisAnalysis/install/include")
 #endif
-
 #if ROOT_VERSION_CODE >= ROOT_VERSION(6,00,0)
 
 //–––– Standard Fun4All / sPHENIX ––––––––––––––––––––––––––––––––––––––
@@ -32,16 +31,18 @@
 
 #include <ffamodules/FlagHandler.h>
 #include <ffamodules/CDBInterface.h>
+#include <clusteriso/ClusterIso.h>
 #include <calotrigger/TriggerRunInfoReco.h>
 #include <calobase/RawTowerGeomContainer_Cylinderv1.h>
 #include <caloreco/CaloGeomMapping.h>
 #include <caloreco/RawClusterPositionCorrection.h>
 #include <calobase/RawTowerGeom.h>
 #include <caloreco/RawTowerCalibration.h>
+#include <caloreco/PhotonClusterBuilder.h>
 #include <jetbase/Jet.h>
+
 #include <jetbase/FastJetOptions.h>
 #include <jetbackground/FastJetAlgoSub.h>
-#include <zdcinfo/ZdcReco.h>
 #include <globalvertex/GlobalVertexReco.h>
 #include <caloreco/CaloTowerCalib.h>
 #include <eventplaneinfo/EventPlaneReco.h>
@@ -69,9 +70,16 @@
 #include <sstream>
 #include <stdexcept>
 #include <vector>
+#include <cstdlib>     // getenv
+#include <algorithm>   // std::transform
+#include <cctype>      // std::tolower
 #include <Calo_Calib.C>
 
-//–––– ROOT libraries –––––––––––––––––––––––––––––––––––––––––––––––––––
+// Ensure local CaloBase/CaloReco (with PhotonClusterBuilder, RawClusterv2, etc.)
+R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_io.so)
+R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)
+
+// Rest of the stack from the environment
 R__LOAD_LIBRARY(libfun4all.so)
 R__LOAD_LIBRARY(libffarawobjects.so)
 R__LOAD_LIBRARY(libcaloTreeGen.so)
@@ -84,9 +92,12 @@ R__LOAD_LIBRARY(libeventplaneinfo.so)
 R__LOAD_LIBRARY(libcentrality.so)      // always
 R__LOAD_LIBRARY(libcentrality_io.so)   // if you instantiate CentralityReco
 R__LOAD_LIBRARY(libcalotrigger.so)
-R__LOAD_LIBRARY( libzdcinfo.so )
+R__LOAD_LIBRARY(libzdcinfo.so)
 R__LOAD_LIBRARY(libmbd.so)
-R__LOAD_LIBRARY(/sphenix/user/patsfan753/install/lib/libEMCalSEPD.so)
+
+// Your local ClusterIso + RecoilJets (load ClusterIso first)
+R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libClusterIso.so)
+R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libRecoilJets.so)
 
 //======================================================================
 //  Convenience helpers
@@ -161,17 +172,54 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
       detail::bail("failed to extract run number from first file: " + firstFile);
 
   if (verbose)
-      std::cout << "[INFO] Run=" << run << "  Seg=" << seg
-                << "  (" << files.size() << " files)\n";
+        std::cout << "[INFO] Run=" << run << "  Seg=" << seg
+                  << "  (" << files.size() << " files)\n";
 
-  //--------------------------------------------------------------------
-  // 2.  Global run flags
-  //--------------------------------------------------------------------
+  // --------------------------------------------------------------------
+  // Global verbosity control (RJ_VERBOSITY from env; defaults to 10;
+  // Condor detection → 0). Also silences std::cout/cerr globally when 0.
+  // --------------------------------------------------------------------
+  int vlevel = 10;
+  if (const char* venv = std::getenv("RJ_VERBOSITY"))
+  {
+      try { vlevel = std::stoi(venv); } catch (...) { vlevel = 10; }
+  }
+  else
+  {
+      // Detect Condor jobs defensively; default to quiet in batch.
+      if (std::getenv("_CONDOR_SCRATCH_DIR") || std::getenv("_CONDOR_JOB_AD"))
+        vlevel = 0;
+  }
+
+    // RAII silence for global std::cout/cerr if vlevel==0
+    struct ScopedSilence {
+      std::ofstream sink;
+      std::streambuf* cout_save = nullptr;
+      std::streambuf* cerr_save = nullptr;
+      bool active = false;
+      void enable() {
+        if (active) return;
+        sink.open("/dev/null");
+        cout_save = std::cout.rdbuf(sink.rdbuf());
+        cerr_save = std::cerr.rdbuf(sink.rdbuf());
+        active = true;
+      }
+      ~ScopedSilence() {
+        if (active) {
+          std::cout.rdbuf(cout_save);
+          std::cerr.rdbuf(cerr_save);
+        }
+      }
+    } _silence;
+
+    if (vlevel == 0) _silence.enable();
+
+
   recoConsts* rc = recoConsts::instance();
   rc->set_StringFlag("CDB_GLOBALTAG","newcdbtag");
   rc->set_uint64Flag("TIMESTAMP",     run);
-  CDBInterface::instance() -> Verbosity(1);
-    
+  CDBInterface::instance() -> Verbosity(vlevel);
+
   std::unique_ptr<FlagHandler> flag = std::make_unique<FlagHandler>();
   se->registerSubsystem(flag.get());
     
@@ -187,13 +235,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
       geom->set_UseDetailedGeometry(false);   // (optional, but nice)
       se->registerSubsystem(geom);
   }
-//  CaloGeomMapping* geomMap = new CaloGeomMapping("CEMC_GeomFiller");
-//  geomMap->set_detector_name("CEMC");
-//  geomMap->set_UseDetailedGeometry(true);   // we want the 8-vertex blocks
-//  geomMap->Verbosity(0);
-//  se->registerSubsystem(geomMap);           // register *before* anything that uses it
-//
-    
+
   //////////////////////////////
   // set statuses on raw towers
   std::cout << "status setters" << std::endl;
@@ -243,8 +285,8 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
 
   std::cout << "Calibrating sEPD" << std::endl;
   std::unique_ptr<EpdReco> epdreco = std::make_unique<EpdReco>();
-  epdreco->Verbosity(0);
-  se->registerSubsystem(epdreco.get());
+  epdreco->Verbosity(vlevel);
+  se->registerSubsystem(epdreco.release());
 
   // // MBD/BBC Reconstruction
   std::cout << "Calibrating MBD" << std::endl;
@@ -255,15 +297,15 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   std::unique_ptr<ZdcReco> zdcreco = std::make_unique<ZdcReco>();
   zdcreco->set_zdc1_cut(0.0);
   zdcreco->set_zdc2_cut(0.0);
-  se->registerSubsystem(zdcreco.get());
+  se->registerSubsystem(zdcreco.release());
     
   std::cout << "Retrieving Vtx Info" << std::endl;
   std::unique_ptr<GlobalVertexReco> gvertex = std::make_unique<GlobalVertexReco>();
-  se->registerSubsystem(gvertex.get());
+  se->registerSubsystem(gvertex.release());
     
   std::cout << "building minbias classifier" << std::endl;
   auto* mb = new MinimumBiasClassifier();
-  mb->Verbosity(0);
+  mb->Verbosity(vlevel);
   mb->setOverwriteScale(
         "/cvmfs/sphenix.sdcc.bnl.gov/calibrations/sphnxpro/cdb/CentralityScale/42/6b/426bc1b56ba544201b0213766bee9478_cdb_centrality_scale_54912.root");
   se->registerSubsystem(mb);
@@ -271,7 +313,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
     
   std::cout << "building centrality classifier" << std::endl;
   auto* cent = new CentralityReco();
-  cent->Verbosity(0);
+  cent->Verbosity(vlevel);
   cent->setOverwriteScale(
         "/cvmfs/sphenix.sdcc.bnl.gov/calibrations/sphnxpro/cdb/CentralityScale/42/6b/426bc1b56ba544201b0213766bee9478_cdb_centrality_scale_54912.root");
   se->registerSubsystem(cent);
@@ -280,21 +322,19 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   std::cout << "building EP info" << std::endl;
   std::unique_ptr<EventPlaneReco> epreco = std::make_unique<EventPlaneReco>();
   epreco->set_sepd_epreco(true);
-  epreco->Verbosity(0);
-  se->registerSubsystem(epreco.get());
+  epreco->Verbosity(vlevel);
+  se->registerSubsystem(epreco.release());
 
-
-    
-    //--------------------------------------------------------------------
-    // 3d)  HI‑style tower‑jet background subtraction (+ jet reco)
-    //--------------------------------------------------------------------
-    {
-      auto banner = [](const std::string& m)
+  //--------------------------------------------------------------------
+  // 3d)  HI‑style tower‑jet background subtraction (+ jet reco)
+  //--------------------------------------------------------------------
+  {
+      auto banner = [&](const std::string& m)
       {
-        std::cout << "\n[BG‑SUB] >>> " << m << std::endl;
+        if (vlevel > 0) std::cout << "\n[BG‑SUB] >>> " << m << std::endl;
       };
 
-      const int vLvl = 0;   // crank up the Chat‑level verbosity
+      const int vLvl = vlevel;   // align module verbosity with the global flag
 
       /* (i) – EMCal re‑towering ------------------------------------------- */
       banner("(i)  Retowering EMCal to 0.025×0.025 towers");
@@ -389,7 +429,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
         subReco->add_input(new TowerJetInput(Jet::HCALOUT_TOWERINFO_SUB1, "TOWERINFO_CALIB"));
         subReco->add_algo(detail::fjAlgo(R), algoSub);
         subReco->set_algo_node("ANTIKT");
-        subReco->set_input_node("TOWER");
+        subReco->set_input_node("TOWERINFO_CALIB");
         subReco->Verbosity(vLvl);
         se->registerSubsystem(subReco);
 
@@ -413,21 +453,43 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
           se->registerSubsystem(casj);
         }
       } // end radius loop
-    }   // end 3d‑block
+  }   // end 3d‑block
 
   // 3e) Run‑information helper (optional but handy)
   auto* trigInfo = new TriggerRunInfoReco();
-  trigInfo->Verbosity(0);
+  trigInfo->Verbosity(vlevel);
   se->registerSubsystem(trigInfo);
 
-  // 3f) User analysis module – must come *last*
   auto* recoilJets = new RecoilJets(outRoot);
   recoilJets->setVzCut(10.);
   recoilJets->enableVzCut(true);
-  recoilJets->setVerbose(0);
-  recoilJets->setDataType("isAuAu");  // or "isPP"
+
+  // Use the already-defined global vlevel
+  recoilJets->setVerbose(vlevel);
+  if (verbose) std::cout << "[INFO] RJ_VERBOSITY → " << vlevel << '\n';
+  // Pick data-type from environment RJ_DATASET (isPP / isAuAu), case-insensitive.
+  // Fallback heuristic (if env missing): run < 60000 → isPP, else isAuAu.
+  std::string dtype = "isAuAu";
+  if (const char* env = std::getenv("RJ_DATASET"))
+  {
+      std::string s = detail::trim(std::string(env));
+      std::string sLower = s;
+      std::transform(sLower.begin(), sLower.end(), sLower.begin(),
+                     [](unsigned char c){ return std::tolower(c); });
+      if (sLower == "ispp" || sLower == "pp")               dtype = "isPP";
+      else if (sLower == "isauau" || sLower == "auau" || sLower == "aa")
+                                                           dtype = "isAuAu";
+  }
+  else
+  {
+      // Heuristic: Run-2 p+p (~47k) vs Run-3 Au+Au (~66k+)
+      if (run < 60000) dtype = "isPP";
+  }
+
+  if (verbose) std::cout << "[INFO] RJ_DATASET → " << dtype << '\n';
+  recoilJets->setDataType(dtype.c_str());
+
   se->registerSubsystem(recoilJets);
-    
 
   //--------------------------------------------------------------------
   // 5.  Run

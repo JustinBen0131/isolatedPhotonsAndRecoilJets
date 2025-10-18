@@ -1,50 +1,135 @@
 #!/usr/bin/env bash
 ###############################################################################
-# RecoilJets_Condor_submit.sh  —  one-stop driver for local & Condor running
+# RecoilJets_Condor_submit.sh — one-stop driver for LOCAL testing and CONDOR
+# batch submission of the sPHENIX RecoilJets analysis (DATA ONLY; no MC).
 #
-# WHAT THIS SCRIPT DOES (DATA ONLY; NO SIM):
-#   • Supports two datasets: isPP and isAuAu
-#   • Reads golden run lists and per-run .list files you provided
-#   • Splits each run’s .list into fixed-size groups (no cross-run mixing)
-#   • Builds Condor submit files and queues one job per group
-#   • Optionally: create “rounds” (segments) of runs with a job cap
-#   • Local test mode: run first file of the first run for N events
+# OVERVIEW
+#   • Two datasets are supported: isPP and isAuAu.
+#   • Input comes from per‑run *.list files (one ROOT path per line).
+#   • Jobs never mix files across runs. Each job processes a fixed-size group
+#     of files from a single run (grouping is configurable).
+#   • Optional “rounds” (segments) let you cap the total number of jobs
+#     per submit wave; you can submit a specific round later.
 #
-# DIRECTORY ASSUMPTIONS (from your message):
-#   Base:  /sphenix/u/patsfan753/scratch/thesisAnalysis
-#     • Fun4All macro:     ${BASE}/Fun4All_recoilJets.C
-#     • Golden lists:
-#         - PP:   ${BASE}/Full_ppGoldenRunList_Version3.list
-#         - AuAu: ${BASE}/Full_AuAuGoldenRunList_Version1_personal.list
-#     • Per-run input lists:
-#         - PP:   ${BASE}/dst_lists_pp/dst_calofitting-<run8>.list
-#         - AuAu: ${BASE}/dst_lists_auau/dst_calofitting-<run8>.list
-#     • Condor staging (this script creates):
-#         - ${BASE}/condor_lists/<pp|auau>/*.list      (grouped lists)
-#         - ${BASE}/condor_segments/<pp|auau>/*.txt    (rounds of runs)
-#     • Condor logs (requested):
-#         - ${BASE}/stdout, ${BASE}/error, ${BASE}/log
+# DATASET TOKENS (case-insensitive)
+#   isPP  | pp  | PP    → proton-proton
+#   isAuAu| auau| AA    → Au+Au
 #
-# OUTPUT DESTINATION:
+# DIRECTORY LAYOUT (fixed)
+#   BASE          = /sphenix/u/patsfan753/scratch/thesisAnalysis
+#   MACRO         = ${BASE}/macros/Fun4All_recoilJets.C   # for display only here
+#   EXE (wrapper) = ${BASE}/RecoilJets_Condor.sh          # actually runs the macro
+#
+# INPUTS YOU PROVIDE
+#   Golden run lists:
+#     • PP  : ${BASE}/Full_ppGoldenRunList_Version3.list
+#     • AuAu: ${BASE}/Full_AuAuGoldenRunList_Version1_personal.list
+#   Per-run file lists (one per run8):
+#     • PP  : ${BASE}/dst_lists_pp/dst_calofitting-<run8>.list
+#     • AuAu: ${BASE}/dst_lists_auau/dst_calofitting-<run8>.list
+#
+# ARTIFACTS THIS SCRIPT CREATES (and where)
+#   Grouped chunk lists (per run) — used by Condor jobs:
+#     ${BASE}/condor_lists/<pp|auau>/run<run8>_grpNNN.list
+#     • CLEANING: When grouping a given run, all existing run<run8>_grp*.list
+#       in that dataset’s condor_lists directory are removed first, then
+#       regenerated according to the current groupSize.
+#
+#   Round (segment) files — lists of run8 identifiers that define a “round”:
+#     ${BASE}/condor_segments/<pp|auau>/goldenRuns_<tag>_segment<k>.txt
+#     • CLEANING: When you run `splitGoldenRunList`, all existing
+#       goldenRuns_<tag>_segment*.txt for that dataset are deleted and
+#       re-created using the current groupSize and maxJobs cap.
+#
+#   Condor submit files (auto-named):
+#     ${BASE}/RecoilJets_<tag>_YYYYMMDD_HHMMSS.sub
+#     • Settings baked in: request_memory=2000MB, should_transfer_files=NO,
+#       stream_output/error=True, getenv=True.
+#     • One queued job per chunk list line (i.e., one job per group).
+#     • Environment exported to each job:
+#         RJ_DATASET=<isPP|isAuAu>   (used by the macro to set data type)
+#         RJ_VERBOSITY=0             (quiet macro in batch by default)
+#
+# LOG/STDOUT/STDERR DIRECTORIES (auto-created)
+#   ${BASE}/log     — Condor *.log
+#   ${BASE}/stdout  — Condor *.out
+#   ${BASE}/error   — Condor *.err
+#
+# OUTPUT ROOT FILE DESTINATION TREE (used by the wrapper EXE)
 #   • PP  → /sphenix/tg/tg01/bulk/jbennett/thesisAna/pp/<run8>/
 #   • AuAu→ /sphenix/tg/tg01/bulk/jbennett/thesisAna/auau/<run8>/
 #
-# USAGE EXAMPLES:
-#   # Local quick check on PP (first run, first file), 5000 events:
-#   ./RecoilJets_Condor_submit.sh isPP  local 5000
+# VERBOSITY POLICY (propagates to the Fun4All macro via RJ_VERBOSITY)
+#   • LOCAL mode: default RJ_VERBOSITY=10 (chatty). You can override with:
+#       - trailing token  VERBOSE=N   (preferred), or
+#       - environment     VERBOSE=N   (fallback)
+#     The script exports RJ_VERBOSITY accordingly to the wrapper.
+#   • CONDOR mode: RJ_VERBOSITY is forced to 0 in the submit file.
 #
-#   # Create round files (segments) for AuAu with group size 3 and 15000 job cap:
-#   ./RecoilJets_Condor_submit.sh isAuAu splitGoldenRunList groupSize 3 maxJobs 15000
+# COMMANDS (argument grammar and exact behavior)
 #
-#   # Submit AuAu “round 1” with the defaults (groupSize=3, maxJobs=15000):
-#   ./RecoilJets_Condor_submit.sh isAuAu condor round 1
+#   1) LOCAL quick test on the FIRST RUN (first file only)
+#      $ ./RecoilJets_Condor_submit.sh <isPP|isAuAu> local [Nevents] [VERBOSE=N]
+#        • Picks the first uncommented run from the dataset’s golden list.
+#        • Uses only the first file of that run’s per‑run list.
+#        • Creates a temporary chunk list:
+#            ${BASE}/condor_lists/<tag>/run<run8>_LOCAL_firstfile.list
+#        • Invokes the wrapper with:
+#            RJ_DATASET=<dataset>, RJ_VERBOSITY=<10 or override>,
+#            nevents=<Nevents or 5000 default>.
 #
-#   # Submit PP “round 2” but only the first group job of each run (smoke test):
-#   ./RecoilJets_Condor_submit.sh isPP condor round 2 firstChunk
+#   2) PREPARE ROUND FILES (segment the golden list by job budget)
+#      $ ./RecoilJets_Condor_submit.sh <isPP|isAuAu> splitGoldenRunList \
+#            [groupSize N] [maxJobs M]
+#        • Computes number of jobs per run as ceil(nFiles / groupSize).
+#        • Sequentially fills round<k> until adding next run would exceed cap M,
+#          then starts a new round file.
+#        • Writes: ${BASE}/condor_segments/<tag>/goldenRuns_<tag>_segment<k>.txt
+#        • CLEANING: deletes all previous segment*.txt for this dataset first.
 #
-#   # Submit PP without pre-splitting (all runs currently in the golden list):
-#   ./RecoilJets_Condor_submit.sh isPP condor all
+#   3) SUBMIT A SPECIFIC ROUND TO CONDOR
+#      $ ./RecoilJets_Condor_submit.sh <isPP|isAuAu> condor round <K> \
+#            [groupSize N] [firstChunk]
+#        • Reads runs from the prebuilt round file <K>.
+#        • Regroups each run’s per‑run list using the (possibly overridden)
+#          groupSize and queues one job per group.
+#        • If ‘firstChunk’ is provided, only the first group of each run is
+#          submitted (smoke test).
+#        • RJ_DATASET is exported; RJ_VERBOSITY is forced to 0.
+#        • NOTE: maxJobs is IGNORED here — it’s only used by splitGoldenRunList.
+#
+#   4) SUBMIT ALL RUNS CURRENTLY IN THE GOLDEN LIST
+#      $ ./RecoilJets_Condor_submit.sh <isPP|isAuAu> condor all [groupSize N]
+#        • Builds a temporary ALL‑runs source from the golden list and submits.
+#        • Regroups with the given groupSize if provided.
+#        • RJ_DATASET is exported; RJ_VERBOSITY is forced to 0.
+#        • NOTE: ‘firstChunk’ is NOT supported in ‘condor all’.
+#        • NOTE: maxJobs is IGNORED here.
+#
+# OPTIONS (placement matters)
+#   • Place [groupSize N] and [maxJobs M] AFTER the subcommand, exactly as in
+#     the examples below (the parser expects this order).
+#
+# EXAMPLES
+#   • Local quick check (PP, first run’s first file), 5000 events, verbose=10:
+#       ./RecoilJets_Condor_submit.sh isPP  local 5000
+#   • Local with explicit verbosity 4 (events default to 5000 when VERBOSE=N
+#     is given as the 3rd token):
+#       ./RecoilJets_Condor_submit.sh isAuAu local VERBOSE=4
+#   • Make round files for AuAu with 3 files/job and cap of 15000 jobs/round:
+#       ./RecoilJets_Condor_submit.sh isAuAu splitGoldenRunList groupSize 3 maxJobs 15000
+#   • Submit AuAu round 1 (uses existing segment file):
+#       ./RecoilJets_Condor_submit.sh isAuAu condor round 1
+#   • Submit PP round 2 but only the first chunk per run:
+#       ./RecoilJets_Condor_submit.sh isPP  condor round 2 firstChunk
+#   • Submit ALL PP runs with 4 files per job:
+#       ./RecoilJets_Condor_submit.sh isPP  condor all groupSize 4
+#
+# REQUIREMENTS
+#   • condor_submit must be on PATH for Condor submissions.
+#   • Golden lists and per‑run list files must exist as described above.
 ###############################################################################
+
 set -euo pipefail
 
 # ------------------------ Pretty printing ------------------
@@ -55,7 +140,7 @@ err()  { printf "${RED}✘ %s${RST}\n" "$*" >&2; }
 
 # ------------------------ Fixed paths ----------------------
 BASE="/sphenix/u/patsfan753/scratch/thesisAnalysis"
-MACRO="${BASE}/Fun4All_recoilJets.C"
+MACRO="${BASE}/macros/Fun4All_recoilJets.C"
 EXE="${BASE}/RecoilJets_Condor.sh"
 
 # Logs (as requested)
@@ -231,6 +316,8 @@ request_memory= 2000MB
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
+# Force dataset & quiet macro on Condor:
+environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0
 SUB
 
   local queued=0
@@ -288,9 +375,20 @@ echo
 # ------------------------ Actions --------------------------
 case "$ACTION" in
   local)
-    # Run locally on the FIRST file of the FIRST run, for N events (default LOCAL_EVENTS)
+    # Events and local verbosity policy:
+    #   - default events: LOCAL_EVENTS
+    #   - default verbosity: 10
+    #   - allow override via a trailing "VERBOSE=N" token or environment VERBOSE
     nevt="${3:-$LOCAL_EVENTS}"
-    say "Local test on ${DATASET}  (events=${nevt})"
+    local_v_override=""
+    if [[ "${3:-}" =~ ^VERBOSE=([0-9]+)$ ]]; then
+      local_v_override="${BASH_REMATCH[1]}"
+      nevt="$LOCAL_EVENTS"
+    elif [[ "${4:-}" =~ ^VERBOSE=([0-9]+)$ ]]; then
+      local_v_override="${BASH_REMATCH[1]}"
+    fi
+    RJV="${local_v_override:-${VERBOSE:-10}}"
+    say "Local test on ${DATASET}  (events=${nevt}, RJ_VERBOSITY=${RJV})"
 
     [[ -s "$GOLDEN" ]] || { err "Golden list is empty: $GOLDEN"; exit 6; }
     first_run="$(grep -m1 -E '^[0-9]+' "$GOLDEN" | head -n1 || true)"
@@ -305,7 +403,7 @@ case "$ACTION" in
     head -n 1 "$src" > "$tmp"
     say "Temp list → $tmp"
     say "Invoking wrapper locally…"
-    RJ_DATASET="$DATASET" bash "$EXE" "$r8" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
+    RJ_DATASET="$DATASET" RJ_VERBOSITY="$RJV" bash "$EXE" "$r8" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
     ;;
 
   splitGoldenRunList)

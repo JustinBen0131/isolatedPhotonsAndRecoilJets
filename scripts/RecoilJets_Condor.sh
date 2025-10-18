@@ -26,7 +26,7 @@ dest_base="${8:-}"                  # If empty, we derive from dataset
 
 # ------------------------ Fixed paths ----------------------
 BASE="/sphenix/u/patsfan753/scratch/thesisAnalysis"
-MACRO="${BASE}/Fun4All_recoilJets.C"
+MACRO="${BASE}/macros/Fun4All_recoilJets.C"
 
 # Condor logging (handled by submit file), but we echo as well
 echo "====================================================================="

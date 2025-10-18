@@ -9,6 +9,7 @@
 #include <phool/getClass.h>
 #include <phool/recoConsts.h>
 #include <jetbase/JetContainer.h>
+#include <jetbase/Jet.h>
 #include <array>
 //––– ROOT & CLHEP ----------------------------------------------------------
 #include <TProfile.h>
@@ -26,6 +27,10 @@
 #include <calobase/TowerInfoDefs.h>
 #include <calobase/TowerInfoContainer.h>
 #include <calobase/RawCluster.h>
+#include <calobase/PhotonClusterContainer.h>
+#include <calobase/PhotonClusterv1.h>
+#include <clusteriso/ClusterIso.h>
+
 #include <calobase/RawTowerGeomContainer_Cylinderv1.h>
 #include <calobase/RawClusterUtility.h>
 #include <mbd/MbdPmtHit.h>
@@ -54,6 +59,7 @@
 #include <regex>
 #include <tuple>
 
+
 #ifdef _OPENMP
   #include <omp.h>
 #endif
@@ -79,6 +85,9 @@
         if (static_cast<int>(Verbosity()) >= 1)                           \
             std::cout << CLR_CYAN << MSG << CLR_RESET << std::endl;       \
     } while (false)
+
+
+using namespace PhoIDCuts;
 //==========================================================================
 //  ctor
 //==========================================================================
@@ -128,6 +137,92 @@ bool RecoilJets::getCentralitySlice(int& lo,
   }
   return hasSlice;
 }
+
+//==========================================================================
+//  fetchNodes – check presence of all required nodes & cache pointers
+//==========================================================================
+bool RecoilJets::fetchNodes(PHCompositeNode* top)
+{
+    
+  /* ------------------------------------------------------------------ */
+  /* 0.  Minimum‑bias information         */
+  /* ------------------------------------------------------------------ */
+  m_isMinBias = false;                                // reset per event
+
+  if (auto* mbInfo = findNode::getClass<MinimumBiasInfo>(top,
+                                                           "MinimumBiasInfo"))
+        m_isMinBias = mbInfo->isAuAuMinimumBias();
+  else
+        LOG(1, CLR_YELLOW,
+            "  – MinimumBiasInfo node missing (treating as !MB)");
+
+  /* NOTE: Actual rejection is done in firstEventCuts(), so we only
+   *       cache m_isMinBias here and keep processing. */
+
+    
+  /* ––– primary vertex –––––––––––––––––––––––––––––––––––––––––––––––– */
+  GlobalVertexMap* vmap = findNode::getClass<GlobalVertexMap>(top,"GlobalVertexMap");
+  m_vtx = nullptr; m_vx = m_vy = m_vz = 0.;
+
+  if (!vmap)          { LOG(1, CLR_YELLOW, "  – GlobalVertexMap node **missing** → skip event"); return false; }
+  if (vmap->empty())  { LOG(2, CLR_YELLOW, "  – GlobalVertexMap is **empty** → skip event");     return false; }
+
+  m_vtx = vmap->begin()->second;
+  if (!m_vtx)         { LOG(1, CLR_YELLOW, "  – vertex pointer null → skip event");              return false; }
+
+  m_vx = m_vtx->get_x();
+  m_vy = m_vtx->get_y();
+  m_vz = m_vtx->get_z();
+
+  /* ––– calorimeter towers & geometry –––––––––––––––––––––––––––––––– */
+  m_calo.clear();
+  for (const auto& ci : m_caloInfo)
+  {
+    const std::string node = std::get<0>(ci),
+                      geo  = std::get<1>(ci),
+                      lbl  = std::get<2>(ci);
+
+    auto* tw = findNode::getClass<TowerInfoContainer>(top, node);
+    auto* ge = findNode::getClass<RawTowerGeomContainer>(top, geo);
+    if (!tw || !ge)
+    { LOG(2, CLR_YELLOW, "  – missing " << lbl << " nodes → skip"); return false; }
+
+    m_calo[lbl] = { tw, ge, 0. };
+  }
+
+  /* ––– remaining detectors –––––––––––––––––––––––––––––––––––––––––– */
+  m_sepd     = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_SEPD");
+  m_mbdpmts  = findNode::getClass<MbdPmtContainer  >(top, "MbdPmtContainer");
+  m_mbdgeom  = findNode::getClass<MbdGeom         >(top, "MbdGeom");
+  m_epdgeom  = findNode::getClass<EpdGeom         >(top, "TOWERGEOM_EPD");
+  m_epmap    = findNode::getClass<EventplaneinfoMap>(top, "EventplaneinfoMap");
+  m_clus     = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC");
+  m_photons  = findNode::getClass<PhotonClusterContainer>(top, "PHOTONCLUSTER_CEMC"); // from PhotonClusterBuilder
+
+  // --- UE-subtracted jet containers (SUB1) --------------------------------
+  m_jets.clear();
+  for (const auto& rk : kJetRadii)
+  {
+      const std::string rKey = rk.first;   // "r02"
+      const std::string node = rk.second;  // e.g. "AntiKt_TowerInfo_HIRecoSeedsSub_r02"
+      auto* jc = findNode::getClass<JetContainer>(top, node);
+      if (!jc)
+        LOG(2, CLR_YELLOW, "  – jet node missing: " << node << " (xJ disabled for " << rKey << ")");
+      m_jets[rKey] = jc; // may be nullptr; we check later
+  }
+
+  const bool ok_sepd = (m_sepd && m_epdgeom);
+  const bool ok_mbd  = (m_mbdpmts && m_mbdgeom);
+
+  if (!ok_sepd || !ok_mbd)
+  {
+        LOG(2, CLR_YELLOW, "  – missing mandatory SEPD and/or MBD nodes → skip event");
+        return false;
+  }
+  return true;
+}
+
+
 
 
 int RecoilJets::Init(PHCompositeNode* topNode)
@@ -233,58 +328,57 @@ int RecoilJets::InitRun(PHCompositeNode* topNode)
 
 void RecoilJets::createHistos_Data()
 {
-  for (const auto& kv : triggerNameMap)
+  // Book per-trigger counters for whichever data type we’re running
+  if (m_isAuAu)
   {
-    const std::string trig = kv.second;
-    if (Verbosity() > 1)
-      std::cout << CLR_BLUE << "  ├─ trigger \"" << trig
-                << "\" – booking scalar QA" << CLR_RESET << std::endl;
-
-    out->mkdir(trig.c_str())->cd();
-    HistMap& H = qaHistogramsByTrigger[trig];
-
-    bookEventPlaneCentralityQA(trig, H);
-    bookPhotonJetQA(trig, H);
-      
-    H["h_vertexZ"] = new TH1F(("h_vertexZ_" + trig).c_str(),
-                                "Primary vertex z;z_{vtx} [cm]",
-                                240, -60., 60.);
-      
-    H["h_centrality"] =
-          new TH1F(("h_centrality_" + trig).c_str(),
-                   "Centrality percentile (MBD);centrality [%];Events",
-                   100, 0., 100.);
-      
-    H["cnt_"+trig+"_raw"] =
-          new TH1I(("cnt_"+trig+"_raw").c_str(),
-                   (trig+" – raw bit fired;flag;Events").c_str(),
-                   1, 0.5, 1.5);
-
-    H["cnt_"+trig+"_live"] =
-          new TH1I(("cnt_"+trig+"_live").c_str(),
-                   (trig+" – live bit fired;flag;Events").c_str(),
-                   1, 0.5, 1.5);
-
-    H["cnt_"+trig+"_scaled"] =
-          new TH1I(("cnt_"+trig+"_scaled").c_str(),
-                   (trig+" – scaled bit fired;flag;Events").c_str(),
-                   1, 0.5, 1.5);
-      
-      /* ── vertex‑cut compliance histogram ─────────────────────────────── */
-    if (int vCut = extractVtxCut(trig); vCut > 0)
+    for (const auto& kv : triggerNameMapAuAu)    // kv: std::pair<int,std::string>
     {
-        auto* h = new TH1I(Form("h_vtxRelToCut_%s", trig.c_str()),
-                           Form("|z_{vtx}| vs trigger‑cut = %d cm;relation;Events", vCut),
-                           3, 0.5, 3.5);
-        h->GetXaxis()->SetBinLabel(1, "< cut");
-        h->GetXaxis()->SetBinLabel(2, "= cut");
-        h->GetXaxis()->SetBinLabel(3, "> cut");
-        H[h->GetName()] = h;
+      const std::string trig = kv.second;
+      if (Verbosity() > 1)
+        std::cout << CLR_BLUE << "  ├─ trigger \"" << trig
+                  << "\" – booking trigger counter" << CLR_RESET << std::endl;
+
+      TDirectory* dir = out->GetDirectory(trig.c_str());
+      if (!dir) dir = out->mkdir(trig.c_str());
+      dir->cd();
+
+      HistMap& H = qaHistogramsByTrigger[trig];
+      const std::string hname = "cnt_" + trig;
+      if (H.find(hname) == H.end())
+      {
+        auto* h = new TH1I(hname.c_str(), (hname+";count;entries").c_str(), 1, 0.5, 1.5);
+        h->GetXaxis()->SetBinLabel(1, "count");
+        H[hname] = h;
+      }
+      out->cd();
     }
-      
-    out->cd();
+  }
+  else
+  {
+    for (const auto& kv : triggerNameMap_pp)     // kv: std::pair<std::string,std::string>
+    {
+      const std::string trig = kv.second;
+      if (Verbosity() > 1)
+        std::cout << CLR_BLUE << "  ├─ trigger \"" << trig
+                  << "\" – booking trigger counter" << CLR_RESET << std::endl;
+
+      TDirectory* dir = out->GetDirectory(trig.c_str());
+      if (!dir) dir = out->mkdir(trig.c_str());
+      dir->cd();
+
+      HistMap& H = qaHistogramsByTrigger[trig];
+      const std::string hname = "cnt_" + trig;
+      if (H.find(hname) == H.end())
+      {
+        auto* h = new TH1I(hname.c_str(), (hname+";count;entries").c_str(), 1, 0.5, 1.5);
+        h->GetXaxis()->SetBinLabel(1, "count");
+        H[hname] = h;
+      }
+      out->cd();
+    }
   }
 }
+
 
 
 
@@ -379,19 +473,26 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     if (activeTrig.empty()) activeTrig.emplace_back("ALL");
   }
 
-  /* ------------------------------------------------------------------ */
-  /* 3) Vertex-z QA                                                     */
-  /* ------------------------------------------------------------------ */
-  for (const auto& t : activeTrig)
-  {
-    auto itTrig = qaHistogramsByTrigger.find(t);
-    if (itTrig != qaHistogramsByTrigger.end())
+    /* ------------------------------------------------------------------ */
+    /* 3) Trigger counters (one per trigger) + Vertex-z QA                */
+    /* ------------------------------------------------------------------ */
+
+    // Bump the per-trigger counter once per accepted event
+    for (const auto& t : activeTrig)
     {
-      auto& H = itTrig->second;
-      if (auto hit = H.find("h_vertexZ"); hit != H.end())
-        static_cast<TH1F*>(hit->second)->Fill(m_vz);
+      auto itTrig = qaHistogramsByTrigger.find(t);
+      if (itTrig != qaHistogramsByTrigger.end())
+      {
+        auto& H = itTrig->second;
+        const std::string hname = "cnt_" + t;
+        if (auto hc = H.find(hname); hc != H.end())
+          static_cast<TH1I*>(hc->second)->Fill(1);
+
+        // Optional existing vertex QA (kept intact)
+        if (auto hvz = H.find("h_vertexZ"); hvz != H.end())
+          static_cast<TH1F*>(hvz->second)->Fill(m_vz);
+      }
     }
-  }
 
   /* ------------------------------------------------------------------ */
   /* 4) Centrality lookup (Au+Au only)                                  */
@@ -455,85 +556,11 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     return Fun4AllReturnCodes::ABORTEVENT;
   }
 
-  /* ------------------------------------------------------------------ */
-  /* 6) Done – downstream (QA/correlations/etc.) will use activeTrig    */
-  /* ------------------------------------------------------------------ */
+  processCandidates(topNode, activeTrig);
+    
   LOG(4, CLR_GREEN, "  [process_event] – completed OK");
   return Fun4AllReturnCodes::EVENT_OK;
 }
-
-
-//==========================================================================
-//  fetchNodes – check presence of all required nodes & cache pointers
-//==========================================================================
-bool RecoilJets::fetchNodes(PHCompositeNode* top)
-{
-    
-  /* ------------------------------------------------------------------ */
-  /* 0.  Minimum‑bias information         */
-  /* ------------------------------------------------------------------ */
-  m_isMinBias = false;                                // reset per event
-
-  if (auto* mbInfo = findNode::getClass<MinimumBiasInfo>(top,
-                                                           "MinimumBiasInfo"))
-        m_isMinBias = mbInfo->isAuAuMinimumBias();
-  else
-        LOG(1, CLR_YELLOW,
-            "  – MinimumBiasInfo node missing (treating as !MB)");
-
-  /* NOTE: Actual rejection is done in firstEventCuts(), so we only
-   *       cache m_isMinBias here and keep processing. */
-
-    
-  /* ––– primary vertex –––––––––––––––––––––––––––––––––––––––––––––––– */
-  GlobalVertexMap* vmap = findNode::getClass<GlobalVertexMap>(top,"GlobalVertexMap");
-  m_vtx = nullptr; m_vx = m_vy = m_vz = 0.;
-
-  if (!vmap)          { LOG(1, CLR_YELLOW, "  – GlobalVertexMap node **missing** → skip event"); return false; }
-  if (vmap->empty())  { LOG(2, CLR_YELLOW, "  – GlobalVertexMap is **empty** → skip event");     return false; }
-
-  m_vtx = vmap->begin()->second;
-  if (!m_vtx)         { LOG(1, CLR_YELLOW, "  – vertex pointer null → skip event");              return false; }
-
-  m_vx = m_vtx->get_x();
-  m_vy = m_vtx->get_y();
-  m_vz = m_vtx->get_z();
-
-  /* ––– calorimeter towers & geometry –––––––––––––––––––––––––––––––– */
-  m_calo.clear();
-  for (const auto& ci : m_caloInfo)
-  {
-    const std::string node = std::get<0>(ci),
-                      geo  = std::get<1>(ci),
-                      lbl  = std::get<2>(ci);
-
-    auto* tw = findNode::getClass<TowerInfoContainer>(top, node);
-    auto* ge = findNode::getClass<RawTowerGeomContainer>(top, geo);
-    if (!tw || !ge)
-    { LOG(2, CLR_YELLOW, "  – missing " << lbl << " nodes → skip"); return false; }
-
-    m_calo[lbl] = { tw, ge, 0. };
-  }
-
-  /* ––– remaining detectors –––––––––––––––––––––––––––––––––––––––––– */
-  m_sepd     = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_SEPD");
-  m_mbdpmts  = findNode::getClass<MbdPmtContainer  >(top, "MbdPmtContainer");
-  m_mbdgeom  = findNode::getClass<MbdGeom         >(top, "MbdGeom");
-  m_epdgeom  = findNode::getClass<EpdGeom         >(top, "TOWERGEOM_EPD");
-  m_epmap    = findNode::getClass<EventplaneinfoMap>(top, "EventplaneinfoMap");
-  m_clus     = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC");
-
-  const bool ok_sepd = (m_sepd && m_epdgeom);
-  const bool ok_mbd  = (m_mbdpmts && m_mbdgeom);
-
-  if (!ok_sepd || !ok_mbd)
-  {
-    LOG(2, CLR_YELLOW, "  – missing mandatory SEPD and/or MBD nodes → skip event");
-    return false;
-  }
-  return true;
-}
-
 
 
 int RecoilJets::ResetEvent(PHCompositeNode*)
@@ -620,22 +647,6 @@ int RecoilJets::End(PHCompositeNode*)
             << std::right<< std::setw(10)
             << static_cast<Long64_t>(h->GetEntries()) << '\n';
         }
-    if (!m_totStat.empty())
-    {
-      std::cout << "-------------------------------------------------------------------------------\n"
-                << "\n\033[1mπ0‑QA cut summary (all events)\033[0m\n"
-                << "\033[1mcut‑key                                    │ tested        passed    eff[%]\033[0m\n"
-                << "--------------------------------------------------------------------------\n";
-      for (const auto& [key, s] : m_totStat)
-      {
-        const double eff = s.tested ? 100.*s.passed / s.tested : 0.;
-        std::cout << std::left  << std::setw(44) << key << " │ "
-                  << std::right << std::setw(12) << s.tested
-                  << std::setw(12) << s.passed
-                  << std::setw(9)  << std::fixed << std::setprecision(2) << eff << '\n';
-      }
-      std::cout << "--------------------------------------------------------------------------\n";
-    }
   }
   out->cd("triggerQA");
   if (h_MBTrigCorr && h_MBTrigCorr->GetEntries() > 0) h_MBTrigCorr->Write();
@@ -659,5 +670,298 @@ int RecoilJets::End(PHCompositeNode*)
 }
 
 
-void RecoilJets::Print(const std::string&) const
-{ /* nothing to print beyond ROOT histograms */ }
+// Build SSVars from PhotonClusterv1 (names come from PhotonClusterBuilder)
+RecoilJets::SSVars RecoilJets::makeSSFromPhoton(const PhotonClusterv1* pho, double et) const
+{
+  SSVars v{};
+  const double weta_cogx = pho->get_shower_shape_parameter("weta_cogx");
+  const double wphi_cogx = pho->get_shower_shape_parameter("wphi_cogx");
+  const double et1       = pho->get_shower_shape_parameter("et1");
+
+  const double e11 = pho->get_shower_shape_parameter("e11");
+  const double e33 = pho->get_shower_shape_parameter("e33");
+  const double e32 = pho->get_shower_shape_parameter("e32");
+  const double e35 = pho->get_shower_shape_parameter("e35");
+
+  v.weta_cogx     = weta_cogx;
+  v.wphi_cogx     = wphi_cogx;
+  v.et1           = et1;
+  v.e11_over_e33  = (e33 > 0.0) ? (e11 / e33) : 0.0;
+  v.e32_over_e35  = (e35 > 0.0) ? (e32 / e35) : 0.0;
+  v.et_gamma      = et;
+  return v;
+}
+
+// Centralized candidate processing for the event
+void RecoilJets::processCandidates(PHCompositeNode* topNode,
+                                   const std::vector<std::string>& activeTrig)
+{
+  // centrality bin index (Au+Au only, else -1)
+  const int centIdx = (m_isAuAu ? findCentBin(m_centBin) : -1);
+
+  // Prefer photons (full shower shapes) if available
+  if (m_photons)
+  {
+    PhotonClusterContainer::ConstRange prange = m_photons->getClusters();
+    for (auto pit = prange.first; pit != prange.second; ++pit)
+    {
+      const auto* pho = dynamic_cast<const PhotonClusterv1*>(pit->second);
+      if (!pho) continue;
+
+      // Vertex-corrected eta if present (PhotonClusterBuilder writes "cluster_eta")
+      double eta = pho->get_shower_shape_parameter("cluster_eta");
+      if (!std::isfinite(eta) || eta == 0.0) eta = pho->get_eta();
+
+      const double et = pho->get_energy() / std::cosh(eta);
+      const int etIdx = findEtBin(et);
+      if (etIdx < 0) continue;
+
+      // Build SSVars and fill
+      const SSVars v = makeSSFromPhoton(pho, et);
+      for (const auto& trigShort : activeTrig)
+          fillIsoSSTagCounters(trigShort, static_cast<const RawCluster*>(pho), v, et, centIdx, topNode);
+
+      // --- xJ for tight + isolated photons (away-side leading jet) ---
+      const bool iso = isIsolated(static_cast<const RawCluster*>(pho), et, topNode);
+      const TightTag tightTag = classifyPhotonTightness(v);
+
+      if (iso && tightTag == TightTag::kTight)
+      {
+          // Photon azimuth (prefer builder-provided; fallback to RawCluster phi)
+          double phi_gamma = pho->get_shower_shape_parameter("cluster_phi");
+          if (!std::isfinite(phi_gamma))
+            phi_gamma = static_cast<const RawCluster*>(pho)->get_phi();
+
+          // Use r02 jets by default (better subtraction in your macro)
+          JetContainer* jets = nullptr;
+          if (auto it = m_jets.find("r02"); it != m_jets.end()) jets = it->second;
+
+          if (jets)
+          {
+            double bestPt = -1.0;
+            for (const Jet* j : *jets)
+            {
+              if (!j) continue;
+              const double dphi = std::fabs(TVector2::Phi_mpi_pi(j->get_phi() - phi_gamma));
+              if (dphi < m_minBackToBack) continue;   // back-to-back (default 7π/8)
+              const double pt = j->get_pt();
+              if (pt < m_minJetPt) continue;          // small technical floor
+              if (pt > bestPt) bestPt = pt;
+            }
+
+            if (bestPt > 0.0)
+            {
+              const double xJ = bestPt / et;
+              for (const auto& trigShort : activeTrig)
+                getOrBookXJHist(trigShort, etIdx, (m_isAuAu ? centIdx : -1))->Fill(xJ);
+            }
+          }
+        }
+      }
+      return;
+
+  }
+
+  // Fallback: RawCluster – isolation only (no SS windows available)
+  if (m_clus)
+  {
+    RawClusterContainer::ConstRange range = m_clus->getClusters();
+    for (auto it = range.first; it != range.second; ++it)
+    {
+      const RawCluster* clus = it->second;
+      if (!clus) continue;
+
+      // If you want vertex-corrected eta:
+      // const double eta = RawClusterUtility::GetPseudorapidity(*clus, CLHEP::Hep3Vector(0,0,m_vz));
+      const double eta = clus->get_eta();
+      const double et  = clus->get_energy() / std::cosh(eta);
+
+      const int etIdx = findEtBin(et);
+      if (etIdx < 0) continue;
+
+      const bool iso = isIsolated(clus, et, topNode);
+
+      for (const auto& trigShort : activeTrig)
+      {
+        if (iso)
+          getOrBookCountHist(trigShort, "h_isolatedCount_ET",    etIdx, (m_isAuAu ? centIdx : -1))->Fill(1);
+        else
+          getOrBookCountHist(trigShort, "h_nonIsolatedCount_ET", etIdx, (m_isAuAu ? centIdx : -1))->Fill(1);
+      }
+    }
+  }
+}
+
+
+
+bool RecoilJets::passesPhotonPreselection(const SSVars& v)
+{
+  const bool pass_e11e33 = (v.e11_over_e33 < PRE_E11E33_MAX);
+  const bool pass_et1    = in_open_interval(v.et1, PRE_ET1_MIN, PRE_ET1_MAX);
+  const bool pass_e32e35 = in_open_interval(v.e32_over_e35, PRE_E32E35_MIN, PRE_E32E35_MAX);
+  const bool pass_weta   = (v.weta_cogx < PRE_WETA_MAX);
+  return pass_e11e33 && pass_et1 && pass_e32e35 && pass_weta;
+}
+
+RecoilJets::TightTag RecoilJets::classifyPhotonTightness(const SSVars& v)
+{
+  if (!passesPhotonPreselection(v)) return TightTag::kPreselectionFail;
+
+  const double w_hi = tight_w_hi(v.et_gamma);
+  const bool pass_weta   = in_open_interval(v.weta_cogx,  TIGHT_W_LO, w_hi);
+  const bool pass_wphi   = in_open_interval(v.wphi_cogx,  TIGHT_W_LO, w_hi);
+  const bool pass_e11e33 = in_open_interval(v.e11_over_e33, TIGHT_E11E33_MIN, TIGHT_E11E33_MAX);
+  const bool pass_et1    = in_open_interval(v.et1,          TIGHT_ET1_MIN,    TIGHT_ET1_MAX);
+  const bool pass_e32e35 = in_open_interval(v.e32_over_e35, TIGHT_E32E35_MIN, TIGHT_E32E35_MAX);
+
+  int n_fail = (!pass_weta) + (!pass_wphi) + (!pass_e11e33) + (!pass_et1) + (!pass_e32e35);
+  if (n_fail == 0) return TightTag::kTight;
+  if (n_fail >= 2) return TightTag::kNonTight;
+  return TightTag::kNeither;
+}
+
+
+void RecoilJets::setIsolationWP(double aGeV, double bPerGeV,
+                                double sideGapGeV, double coneR, double towerMin)
+{
+  m_isoA      = aGeV;
+  m_isoB      = bPerGeV;
+  m_isoGap    = sideGapGeV;
+  m_isoConeR  = std::max(0.05, coneR);
+  m_isoTowMin = std::max(0.0, towerMin);
+}
+
+double RecoilJets::eiso(const RawCluster* clus, PHCompositeNode* topNode) const
+{
+  if (!clus || !topNode) return 0.0;
+  ClusterIso iso;
+  // NOTE: adjust arguments if your ClusterIso::get_et_iso signature differs.
+  const double eiso_et = iso.get_et_iso(topNode, const_cast<RawCluster*>(clus),
+                                        m_isoConeR, m_isoTowMin);
+  return eiso_et;
+}
+
+bool RecoilJets::isIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const
+{
+  const double thr  = m_isoA + m_isoB * et_gamma;
+  const double eiso = this->eiso(clus, topNode);
+  return (eiso < thr);
+}
+
+bool RecoilJets::isNonIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const
+{
+  const double thr  = m_isoA + m_isoB * et_gamma + m_isoGap;
+  const double eiso = this->eiso(clus, topNode);
+  return (eiso >= thr);
+}
+
+// ---------- E_T / centrality bin helpers ----------
+int RecoilJets::findEtBin(double et) const
+{
+  if (m_gammaEtBins.size() < 2) return -1;
+  for (size_t i=0; i+1<m_gammaEtBins.size(); ++i)
+    if (et >= m_gammaEtBins[i] && et < m_gammaEtBins[i+1]) return static_cast<int>(i);
+  return -1;
+}
+
+int RecoilJets::findCentBin(int cent) const
+{
+  if (m_centEdges.size() < 2) return -1;
+  for (size_t i=0; i+1<m_centEdges.size(); ++i)
+    if (cent >= m_centEdges[i] && cent < m_centEdges[i+1]) return static_cast<int>(i);
+  return -1;
+}
+
+// suffix: _ET_lo_hi  [ _cent_clo_chi only if isAuAu & centIdx>=0 ]
+std::string RecoilJets::suffixForBins(int etIdx, int centIdx) const
+{
+  std::ostringstream s;
+  if (etIdx >= 0) {
+    const double lo = m_gammaEtBins[etIdx];
+    const double hi = m_gammaEtBins[etIdx+1];
+    s << "_ET_" << std::fixed << std::setprecision(0) << lo << '_' << hi;
+  }
+  if (m_isAuAu && centIdx >= 0) {
+    const int clo = m_centEdges[centIdx];
+    const int chi = m_centEdges[centIdx+1];
+    s << "_cent_" << clo << '_' << chi;
+  }
+  return s.str();
+}
+
+TH1I* RecoilJets::getOrBookCountHist(const std::string& trig,
+                                     const std::string& base,
+                                     int etIdx, int centIdx)
+{
+  const std::string name = base + suffixForBins(etIdx, centIdx);
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+    return dynamic_cast<TH1I*>(it->second);
+
+  TDirectory* cur = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  dir->cd();
+
+  auto* h = new TH1I(name.c_str(), (name+";count;entries").c_str(), 1, 0.5, 1.5);
+  h->GetXaxis()->SetBinLabel(1,"count");
+  H[name] = h;
+
+  if (cur) cur->cd();
+  return h;
+}
+
+TH1F* RecoilJets::getOrBookXJHist(const std::string& trig, int etIdx, int centIdx)
+{
+  const std::string base = "h_xJ";
+  const std::string name = base + suffixForBins(etIdx, centIdx); // h_xJ_ET_lo_hi[_cent_clo_chi]
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+    return dynamic_cast<TH1F*>(it->second);
+
+  TDirectory* cur = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  dir->cd();
+
+  auto* h = new TH1F(name.c_str(),
+                     (name+";x_{J}=p_{T}^{jet}/E_{T}^{#gamma};Entries").c_str(),
+                     60, 0.0, 3.0);
+  H[name] = h;
+
+  if (cur) cur->cd();
+  return h;
+}
+
+
+
+void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
+                                      const RawCluster* clus,
+                                      const SSVars& v,
+                                      double et_gamma,
+                                      int centIdx,
+                                      PHCompositeNode* topNode)
+{
+  const int etIdx = findEtBin(et_gamma);
+  if (etIdx < 0) return;
+
+  const bool iso = isIsolated(clus, et_gamma, topNode);
+  const TightTag tag = classifyPhotonTightness(v);
+
+  const std::string bTight    = "h_tightCount_ET";
+  const std::string bNonTight = "h_nonTightCount_ET";
+  const std::string bIso      = "h_isolatedCount_ET";
+  const std::string bNonIso   = "h_nonIsolatedCount_ET";
+
+  // create/fill exactly the four histograms requested
+  if (tag == TightTag::kTight)
+    getOrBookCountHist(trig, bTight,    etIdx, (m_isAuAu ? centIdx : -1))->Fill(1);
+  else
+    getOrBookCountHist(trig, bNonTight, etIdx, (m_isAuAu ? centIdx : -1))->Fill(1);
+
+  if (iso)
+    getOrBookCountHist(trig, bIso,    etIdx, (m_isAuAu ? centIdx : -1))->Fill(1);
+  else
+    getOrBookCountHist(trig, bNonIso, etIdx, (m_isAuAu ? centIdx : -1))->Fill(1);
+}
