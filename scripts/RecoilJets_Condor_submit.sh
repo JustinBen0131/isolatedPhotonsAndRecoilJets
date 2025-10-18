@@ -295,6 +295,42 @@ split_golden() {
   say "Total runs=${BOLD}${total_runs}${RST}, total condensed jobs≈${BOLD}${total_jobs}${RST}"
 }
 
+# Dry-run job count for a hypothetical "condor all" at current GROUP_SIZE
+#   check_jobs_all
+# Reads the golden list and per-run lists; prints totals only. No side effects.
+check_jobs_all() {
+  local gs="$GROUP_SIZE"
+  [[ -s "$GOLDEN" ]] || { err "Golden run list not found or empty: $GOLDEN"; exit 4; }
+
+  local total_runs=0 total_files=0 total_jobs=0 missing=0
+
+  while IFS= read -r rn; do
+    [[ -z "$rn" || "$rn" =~ ^# ]] && continue
+    local r8; r8="$(run8 "$rn")"
+    local lf="${LIST_DIR}/dst_calofitting-${r8}.list"
+
+    if [[ ! -s "$lf" ]]; then
+      warn "No per-run list for ${r8}; skipping"
+      ((missing++))
+      continue
+    fi
+
+    local nfiles; nfiles=$(wc -l < "$lf" | awk '{print $1}')
+    local nj;     nj=$(ceil_div "$nfiles" "$gs")
+
+    (( total_runs  += 1    ))
+    (( total_files += nfiles ))
+    (( total_jobs  += nj   ))
+  done < "$GOLDEN"
+
+  say "CHECKJOBS (dataset=${DATASET})"
+  say "  groupSize         : ${gs}"
+  say "  runs (with lists) : ${total_runs}"
+  say "  total input files : ${total_files}"
+  say "  total jobs (all)  : ${total_jobs}"
+  (( missing > 0 )) && warn "runs skipped due to missing per-run lists: ${missing}"
+}
+
 # Submit a set of runs (from a round file or the whole golden list) to Condor
 #   submit_condor <runs_source> [firstChunk]
 submit_condor() {
@@ -350,17 +386,40 @@ SUB
 # ------------------------ Parse CLI ------------------------
 [[ $# -ge 1 ]] || usage
 resolve_dataset "$1"
-ACTION="${2:-condor}"
 
-# Allow optional overrides: groupSize N   maxJobs M
-shift_ct=2
-while [[ $# -gt $shift_ct ]]; do
-  case "${!shift_ct}" in
-    groupSize) GROUP_SIZE="${!((shift_ct+1))}"; shift_ct=$((shift_ct+2)) ;;
-    maxJobs)   MAX_JOBS="${!((shift_ct+1))}";   shift_ct=$((shift_ct+2)) ;;
-    *) break ;;
+# Parse remaining tokens (order-agnostic):
+ACTION=""
+tokens=( "${@:2}" )
+for (( idx=0; idx<${#tokens[@]}; idx++ )); do
+  tok="${tokens[$idx]}"
+  case "$tok" in
+    local|condor|splitGoldenRunList)
+      ACTION="$tok"
+      ;;
+    groupSize)
+      next=$((idx+1))
+      [[ $next -lt ${#tokens[@]} ]] || { err "groupSize requires a value"; exit 2; }
+      GROUP_SIZE="${tokens[$next]}"
+      idx=$next
+      ;;
+    maxJobs)
+      next=$((idx+1))
+      [[ $next -lt ${#tokens[@]} ]] || { err "maxJobs requires a value"; exit 2; }
+      MAX_JOBS="${tokens[$next]}"
+      idx=$next
+      ;;
+    CHECKJOBS)
+      ACTION="CHECKJOBS"
+      ;;
+    *)
+      :  # ignore unrecognized tokens for CHECKJOBS use-case
+      ;;
   esac
 done
+
+# Default action if none provided
+: "${ACTION:=condor}"
+
 
 say "Dataset=${BOLD}${DATASET}${RST}  Tag=${TAG}"
 say "Macro=${MACRO}"
@@ -374,6 +433,12 @@ echo
 
 # ------------------------ Actions --------------------------
 case "$ACTION" in
+  CHECKJOBS)
+    # Dry-run: just report how many jobs a "condor all" would submit at this GROUP_SIZE
+    check_jobs_all
+    exit 0
+    ;;
+
   local)
     # Events and local verbosity policy:
     #   - default events: LOCAL_EVENTS

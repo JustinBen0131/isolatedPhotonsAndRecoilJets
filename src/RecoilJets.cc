@@ -342,8 +342,6 @@ int RecoilJets::InitRun(PHCompositeNode* /*topNode*/)
 }
 
 
-
-
 void RecoilJets::createHistos_Data()
 {
   // Book per-trigger counters for whichever data type we’re running
@@ -785,13 +783,17 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
         double eta = pho->get_shower_shape_parameter("cluster_eta");
         if (!std::isfinite(eta) || eta == 0.0)
         {
-          if (rc) eta = RawClusterUtility::GetPseudorapidity(*rc, CLHEP::Hep3Vector(0,0,m_vz));
-          else     continue; // cannot determine eta → skip
+            if (rc) eta = RawClusterUtility::GetPseudorapidity(*rc, CLHEP::Hep3Vector(0,0,m_vz));
+            else     continue; // cannot determine eta → skip
         }
+
+        // Global fiducial (PPG-12): |eta^gamma| < m_etaAbsMax (default 0.7)
+        if (!std::isfinite(eta) || std::fabs(eta) >= m_etaAbsMax) continue;
 
         const double et = pho->get_energy() / std::cosh(eta);
         const int etIdx = findEtBin(et);
         if (etIdx < 0) continue;
+
 
         // Build SSVars
         const SSVars v = makeSSFromPhoton(pho, et);
@@ -853,11 +855,13 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
       if (!clus) continue;
 
       const double eta = RawClusterUtility::GetPseudorapidity(*clus, CLHEP::Hep3Vector(0,0,m_vz));
+      if (!std::isfinite(eta) || std::fabs(eta) >= m_etaAbsMax) continue;
 
       const double et  = clus->get_energy() / std::cosh(eta);
 
       const int etIdx = findEtBin(et);
       if (etIdx < 0) continue;
+
 
       const bool iso = isIsolated(clus, et, topNode);
 

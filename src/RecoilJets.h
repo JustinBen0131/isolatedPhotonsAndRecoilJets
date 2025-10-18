@@ -118,21 +118,25 @@ class RecoilJets : public SubsysReco
   void enableVzCut (bool f = true) { m_useVzCut = f;        }
   void setCentralityEdges(const std::vector<int>& e) { m_centEdges = e; }
 
+  // Global photon fiducial (PPG-12): |eta^gamma| < 0.7 by default
+  void setEtaAbsMax(double a) { m_etaAbsMax = std::max(0.0, a); }
+
   // ---- data type (controls Au+Au-only logic like centrality) -------------
   enum class DataType { kPP, kAuAu };
 
   // string-friendly setter for Fun4All macros
   void setDataType(const std::string& s)
   {
-      const std::string t = s;
-      if (t=="isAuAu" || t=="AuAu" || t=="AUAU") m_isAuAu = true;
-      else                                       m_isAuAu = false; // default: pp
+        const std::string t = s;
+        if (t=="isAuAu" || t=="AuAu" || t=="AUAU") m_isAuAu = true;
+        else                                       m_isAuAu = false; // default: pp
   }
   // type-safe setter (optional)
   void setDataType(DataType t) { m_isAuAu = (t==DataType::kAuAu); }
 
   // query
   bool isAuAu() const { return m_isAuAu; }
+
 
   // ---------- Shower‑shape selection (PPG‑12 style) ------------------------
   struct SSVars {
@@ -222,9 +226,12 @@ class RecoilJets : public SubsysReco
   // --- run-wide -----------------------------------------------------------
   int         m_runNumber   = -1;
   bool        verbose       = true;
-  double      m_vzCut       = 10.;        // [cm]
+  double      m_vzCut       = 30.;        // [cm]
   double      m_towMinE     {0.050};
   bool        m_useVzCut    = true;
+
+  // PPG-12 photon fiducial: |eta^gamma| < 0.7
+  double      m_etaAbsMax   {0.7};
 
   // data-type flag (pp vs Au+Au); controls centrality path etc.
   bool        m_isAuAu      = false;      // default: p+p
