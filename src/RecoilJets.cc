@@ -303,7 +303,7 @@ int RecoilJets::Init(PHCompositeNode* topNode)
 }
 
 
-int RecoilJets::InitRun(PHCompositeNode* topNode)
+int RecoilJets::InitRun(PHCompositeNode* /*topNode*/)
 {
   /* 0. banner -------------------------------------------------------- */
   const uint64_t run = recoConsts::instance()->get_uint64Flag("TIMESTAMP", 0);
@@ -381,6 +381,65 @@ void RecoilJets::createHistos_Data()
 
 
 
+bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
+                                std::vector<std::string>& activeTrig)
+{
+  activeTrig.clear();
+
+  if (!m_isAuAu)
+  {
+    // ---------- p+p path: require "MBD N&S >= 1" via TriggerAnalyzer ----------
+    if (!trigAna) return false;
+
+    trigAna->decodeTriggers(topNode);
+
+    for (const auto& kv : triggerNameMap_pp)
+    {
+      const std::string& dbName   = kv.first;   // GL1/DB name
+      const std::string& shortKey = kv.second;  // histogram-friendly short key
+      if (trigAna->didTriggerFire(dbName))
+        activeTrig.push_back(shortKey);
+    }
+
+    // Strict pp gate: must have the MB short key present
+    const char* requiredShort = "MBD_NandS_geq_1";
+    const bool haveRequired =
+      std::find(activeTrig.begin(), activeTrig.end(), requiredShort) != activeTrig.end();
+    if (!haveRequired) return false;
+  }
+  else
+  {
+    // ---------- Au+Au path: MB + any scaled bit from the map ----------
+    if (!m_isMinBias) return false;
+
+    uint64_t wScaled = 0;
+    if (auto* gl1 = findNode::getClass<Gl1Packet>(topNode, "GL1Packet"))
+      wScaled = gl1->lValue(0, "ScaledVector");
+    else if (auto* gl1b = findNode::getClass<Gl1Packet>(topNode, "14001"))
+      wScaled = gl1b->lValue(0, "ScaledVector");
+
+    if (wScaled)
+    {
+      const auto bits = extractTriggerBits(wScaled, static_cast<int>(event_count));
+      for (const auto& [bit, key] : triggerNameMapAuAu)
+        if (checkTriggerCondition(bits, bit))
+          activeTrig.push_back(key);
+    }
+
+    if (activeTrig.empty()) return false;
+  }
+
+  // ---------- Global |vz| veto (applies to both datasets) ----------
+  if (m_useVzCut && std::fabs(m_vz) >= m_vzCut) return false;
+
+  // Uniform downstream behavior
+  if (activeTrig.empty()) activeTrig.emplace_back("ALL");
+
+  return true;
+}
+
+
+
 
 // ======================================================================
 //  process_event – one-event driver, pp/Au+Au aware trigger gating
@@ -408,78 +467,23 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
   }
 
   /* ------------------------------------------------------------------ */
-  /* 2) Trigger gating (pp vs Au+Au)                                    */
-  /*     - pp:  TriggerAnalyzer, require "MBD N&S >= 1"                 */
-  /*     - Au+Au: use existing firstEventCuts() (MB+trigger gate)       */
+  /* 2) Trigger gating (pp & Au+Au) — unified in firstEventCuts()       */
   /* ------------------------------------------------------------------ */
-  std::vector<std::string> activeTrig;  // short keys used for booking/filling
-
-  if (!m_isAuAu)
+  std::vector<std::string> activeTrig;
+  if (!firstEventCuts(topNode, activeTrig))
   {
-    // -------- p+p path -------------------------------------------------
-    if (!trigAna)
-    {
-      std::cerr << "[ERROR] No TriggerAnalyzer pointer in pp mode!\n";
-      return Fun4AllReturnCodes::ABORTEVENT;
-    }
-
-    if (Verbosity() > 0)
-      std::cout << "[DEBUG] pp mode: decoding GL1 triggers …" << std::endl;
-
-    trigAna->decodeTriggers(topNode);
-
-    // Build "short-name" list from DB-name map
-    activeTrig.clear();
-    activeTrig.reserve(triggerNameMap_pp.size());
-    for (const auto& kv : triggerNameMap_pp)
-    {
-      const std::string& dbName   = kv.first;   // GL1/DB name
-      const std::string& shortKey = kv.second;  // histogram-friendly short name
-      if (trigAna->didTriggerFire(dbName))
-      {
-        activeTrig.push_back(shortKey);
-        if (Verbosity() > 0)
-          std::cout << "Trigger fired: \"" << dbName
-                    << "\" → short \"" << shortKey << "\"\n";
-      }
-    }
-
-    // Require "MBD N&S >= 1" in pp
-    const char* requiredShort = "MBD_NandS_geq_1";
-    bool haveRequired = false;
-    for (const auto& s : activeTrig) { if (s == requiredShort) { haveRequired = true; break; } }
-
-    if (!haveRequired)
-    {
-      if (Verbosity() > 0)
-        std::cout << "[trigger-gate] pp event skipped: required \"MBD N&S >= 1\" not active.\n";
-      // Soft-skip: do not fill anything for this event
-      return Fun4AllReturnCodes::EVENT_OK;
-    }
-
-    // Ensure we always have at least one tag
-    if (activeTrig.empty()) activeTrig.emplace_back("ALL");
-  }
-  else
-  {
-    // -------- Au+Au path ----------------------------------------------
-    if (!firstEventCuts(topNode, activeTrig))
-    {
       ++m_evtNoTrig;
-      LOG(4, CLR_YELLOW, "    event rejected by MB/Trigger gate – skip");
+      LOG(4, CLR_YELLOW, "    event rejected by MB/Trigger/Vz gate – skip");
       return Fun4AllReturnCodes::ABORTEVENT;
-    }
-    // Some configurations of firstEventCuts may not supply names; keep consistent
-    if (activeTrig.empty()) activeTrig.emplace_back("ALL");
   }
 
-    /* ------------------------------------------------------------------ */
-    /* 3) Trigger counters (one per trigger) + Vertex-z QA                */
-    /* ------------------------------------------------------------------ */
+  /* ------------------------------------------------------------------ */
+  /* 3) Trigger counters (one per trigger) + Vertex-z QA                */
+  /* ------------------------------------------------------------------ */
 
-    // Bump the per-trigger counter once per accepted event
-    for (const auto& t : activeTrig)
-    {
+  // Bump the per-trigger counter once per accepted event
+  for (const auto& t : activeTrig)
+  {
       auto itTrig = qaHistogramsByTrigger.find(t);
       if (itTrig != qaHistogramsByTrigger.end())
       {
@@ -492,7 +496,7 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         if (auto hvz = H.find("h_vertexZ"); hvz != H.end())
           static_cast<TH1F*>(hvz->second)->Fill(m_vz);
       }
-    }
+  }
 
   /* ------------------------------------------------------------------ */
   /* 4) Centrality lookup (Au+Au only)                                  */
@@ -699,40 +703,47 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
   // centrality bin index (Au+Au only, else -1)
   const int centIdx = (m_isAuAu ? findCentBin(m_centBin) : -1);
 
-  // Prefer photons (full shower shapes) if available
-  if (m_photons)
-  {
-    PhotonClusterContainer::ConstRange prange = m_photons->getClusters();
-    for (auto pit = prange.first; pit != prange.second; ++pit)
+    // Prefer photons (full shower shapes) if available
+    if (m_photons)
     {
-      const auto* pho = dynamic_cast<const PhotonClusterv1*>(pit->second);
-      if (!pho) continue;
-
-      // Vertex-corrected eta if present (PhotonClusterBuilder writes "cluster_eta")
-      double eta = pho->get_shower_shape_parameter("cluster_eta");
-      if (!std::isfinite(eta) || eta == 0.0) eta = pho->get_eta();
-
-      const double et = pho->get_energy() / std::cosh(eta);
-      const int etIdx = findEtBin(et);
-      if (etIdx < 0) continue;
-
-      // Build SSVars and fill
-      const SSVars v = makeSSFromPhoton(pho, et);
-      for (const auto& trigShort : activeTrig)
-          fillIsoSSTagCounters(trigShort, static_cast<const RawCluster*>(pho), v, et, centIdx, topNode);
-
-      // --- xJ for tight + isolated photons (away-side leading jet) ---
-      const bool iso = isIsolated(static_cast<const RawCluster*>(pho), et, topNode);
-      const TightTag tightTag = classifyPhotonTightness(v);
-
-      if (iso && tightTag == TightTag::kTight)
+      PhotonClusterContainer::ConstRange prange = m_photons->getClusters();
+      for (auto pit = prange.first; pit != prange.second; ++pit)
       {
-          // Photon azimuth (prefer builder-provided; fallback to RawCluster phi)
-          double phi_gamma = pho->get_shower_shape_parameter("cluster_phi");
-          if (!std::isfinite(phi_gamma))
-            phi_gamma = static_cast<const RawCluster*>(pho)->get_phi();
+        const auto* pho = dynamic_cast<const PhotonClusterv1*>(pit->second);
+        if (!pho) continue;
 
-          // Use r02 jets by default (better subtraction in your macro)
+        // If the underlying object is also a RawCluster, grab it
+        const RawCluster* rc = dynamic_cast<const RawCluster*>(pit->second);
+
+        // Eta: prefer builder-provided; else derive (if RawCluster available)
+        double eta = pho->get_shower_shape_parameter("cluster_eta");
+        if (!std::isfinite(eta) || eta == 0.0)
+        {
+          if (rc) eta = RawClusterUtility::GetPseudorapidity(*rc, CLHEP::Hep3Vector(0,0,m_vz));
+          else     continue; // cannot determine eta → skip
+        }
+
+        const double et = pho->get_energy() / std::cosh(eta);
+        const int etIdx = findEtBin(et);
+        if (etIdx < 0) continue;
+
+        // Build SSVars
+        const SSVars v = makeSSFromPhoton(pho, et);
+
+        // Fill ID/ISO counters only if we can evaluate isolation (need RawCluster*)
+        if (rc)
+          for (const auto& trigShort : activeTrig)
+            fillIsoSSTagCounters(trigShort, rc, v, et, centIdx, topNode);
+
+        // xJ requires a valid φ; use builder-provided value only
+        double phi_gamma = pho->get_shower_shape_parameter("cluster_phi");
+        if (!std::isfinite(phi_gamma)) continue;
+
+        const bool iso = (rc ? isIsolated(rc, et, topNode) : false);
+        const TightTag tightTag = classifyPhotonTightness(v);
+
+        if (iso && tightTag == TightTag::kTight)
+        {
           JetContainer* jets = nullptr;
           if (auto it = m_jets.find("r02"); it != m_jets.end()) jets = it->second;
 
@@ -745,7 +756,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
               const double dphi = std::fabs(TVector2::Phi_mpi_pi(j->get_phi() - phi_gamma));
               if (dphi < m_minBackToBack) continue;   // back-to-back (default 7π/8)
               const double pt = j->get_pt();
-              if (pt < m_minJetPt) continue;          // small technical floor
+              if (pt < m_minJetPt) continue;
               if (pt > bestPt) bestPt = pt;
             }
 
@@ -759,8 +770,8 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
         }
       }
       return;
+    }
 
-  }
 
   // Fallback: RawCluster – isolation only (no SS windows available)
   if (m_clus)
@@ -771,9 +782,8 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
       const RawCluster* clus = it->second;
       if (!clus) continue;
 
-      // If you want vertex-corrected eta:
-      // const double eta = RawClusterUtility::GetPseudorapidity(*clus, CLHEP::Hep3Vector(0,0,m_vz));
-      const double eta = clus->get_eta();
+      const double eta = RawClusterUtility::GetPseudorapidity(*clus, CLHEP::Hep3Vector(0,0,m_vz));
+
       const double et  = clus->get_energy() / std::cosh(eta);
 
       const int etIdx = findEtBin(et);
@@ -831,15 +841,23 @@ void RecoilJets::setIsolationWP(double aGeV, double bPerGeV,
   m_isoTowMin = std::max(0.0, towerMin);
 }
 
-double RecoilJets::eiso(const RawCluster* clus, PHCompositeNode* topNode) const
+double RecoilJets::eiso(const RawCluster* clus, PHCompositeNode* /*topNode*/) const
 {
-  if (!clus || !topNode) return 0.0;
-  ClusterIso iso;
-  // NOTE: adjust arguments if your ClusterIso::get_et_iso signature differs.
-  const double eiso_et = iso.get_et_iso(topNode, const_cast<RawCluster*>(clus),
-                                        m_isoConeR, m_isoTowMin);
-  return eiso_et;
+  if (!clus) return 0.0;
+
+  // ClusterIso stores isolation keyed by cone size in tenths (R=0.3 -> 3)
+  int cone10 = static_cast<int>(std::lround(10.0 * m_isoConeR));
+  if (cone10 < 1) cone10 = 1;
+
+  // Prefer UE-subtracted isolation if present; fall back to unsubtracted.
+  // The 3rd flag corresponds to the TowerInfo-based calculation.
+  double iso = clus->get_et_iso(cone10, /*subtracted=*/true,  /*towerinfo=*/true);
+  if (!std::isfinite(iso) || iso <= 0.0)
+    iso = clus->get_et_iso(cone10, /*subtracted=*/false, /*towerinfo=*/true);
+
+  return std::isfinite(iso) ? iso : 0.0;
 }
+
 
 bool RecoilJets::isIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const
 {
@@ -949,12 +967,12 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
   const bool iso = isIsolated(clus, et_gamma, topNode);
   const TightTag tag = classifyPhotonTightness(v);
 
-  const std::string bTight    = "h_tightCount_ET";
-  const std::string bNonTight = "h_nonTightCount_ET";
-  const std::string bIso      = "h_isolatedCount_ET";
-  const std::string bNonIso   = "h_nonIsolatedCount_ET";
+  const std::string bTight      = "h_tightCount_ET";
+  const std::string bNonTight   = "h_nonTightCount_ET";
+  const std::string bIso        = "h_isolatedCount_ET";
+  const std::string bNonIso     = "h_nonIsolatedCount_ET";
 
-  // create/fill exactly the four histograms requested
+  // existing marginal counters (ID-only and ISO-only)
   if (tag == TightTag::kTight)
     getOrBookCountHist(trig, bTight,    etIdx, (m_isAuAu ? centIdx : -1))->Fill(1);
   else
@@ -964,4 +982,13 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
     getOrBookCountHist(trig, bIso,    etIdx, (m_isAuAu ? centIdx : -1))->Fill(1);
   else
     getOrBookCountHist(trig, bNonIso, etIdx, (m_isAuAu ? centIdx : -1))->Fill(1);
+
+  // ID-sideband (fail ≥2 tight cuts) isolation-fraction counters
+  // total = all NonTight; pass = NonTight that also pass isolation
+  if (tag == TightTag::kNonTight)
+  {
+    getOrBookCountHist(trig, "h_idSB_total", etIdx, (m_isAuAu ? centIdx : -1))->Fill(1);
+    if (iso)
+      getOrBookCountHist(trig, "h_idSB_pass",  etIdx, (m_isAuAu ? centIdx : -1))->Fill(1);
+  }
 }

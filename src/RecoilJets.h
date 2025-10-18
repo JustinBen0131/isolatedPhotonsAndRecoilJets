@@ -61,7 +61,6 @@ class PhotonClusterv1;
 class PhotonClusterContainer;
 
 // ---------------- PPG-12 working-point constants (Table 4) -----------------
-// ---------------- PPG-12 working-point constants (Table 4) -----------------
 namespace PhoIDCuts {
   // Pre-selection windows
   inline constexpr double PRE_E11E33_MAX = 0.98;
@@ -241,7 +240,7 @@ class RecoilJets : public SubsysReco
   std::map<std::string,int> m_centIdxCache; // "0_10" → 0, etc.
 
   // E_T^γ bin edges (user‑editable); default aligns with your plots
-  std::vector<double> m_gammaEtBins{2,4,6,8,10,12,15,20,30};
+  std::vector<double> m_gammaEtBins{10,12,15,18,20,24,30};
 
   // Output file & QA store
   std::string  Outfile;

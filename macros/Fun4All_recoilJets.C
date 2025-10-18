@@ -1,10 +1,6 @@
 //======================================================================
-//  Fun4All_recoilJets.C  – ana.495‑compatible driver
+//  Fun4All_recoilJets.C
 //  --------------------------------------------------------------------
-//  * No dependency on CaloGeomInit or MbdGeomReco (not shipped with ana).
-//  * Lots of run‑time sanity checks to pinpoint problems quickly.
-//  * Fails hard (std::runtime_error) on any unrecoverable condition.
-//======================================================================
 #pragma once
 #if defined(__CINT__) || defined(__CLING__)
   R__ADD_INCLUDE_PATH(/sphenix/u/patsfan753/thesisAnalysis/install/include)
@@ -459,9 +455,17 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   auto* trigInfo = new TriggerRunInfoReco();
   trigInfo->Verbosity(vlevel);
   se->registerSubsystem(trigInfo);
+    
+  // Compute cluster isolation once per event (writes RawCluster::set_et_iso)
+  auto* clIso = new ClusterIso("ClusterIso",
+                                 /*eTCut=*/0.0f,
+                                 /*coneSize=*/3,           // R=0.3
+                                 /*do_subtracted=*/true,
+                                 /*do_unsubtracted=*/true);
+  se->registerSubsystem(clIso);
 
   auto* recoilJets = new RecoilJets(outRoot);
-  recoilJets->setVzCut(10.);
+  recoilJets->setVzCut(30.);
   recoilJets->enableVzCut(true);
 
   // Use the already-defined global vlevel
