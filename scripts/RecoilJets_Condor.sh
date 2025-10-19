@@ -43,11 +43,15 @@ export HOME="/sphenix/u/${LOGNAME}"
 
 # sPHENIX offline setup (system + local area for custom libs)
 MYINSTALL="/sphenix/user/${USER}/install"
+
+# Disable 'nounset' while sourcing env scripts; they may read unset vars (e.g. PGHOST)
+set +u
 source /opt/sphenix/core/bin/sphenix_setup.sh -n
 if [[ -d "$MYINSTALL" ]]; then
   # do not fail if local area is not present; macro has R__LOAD_LIBRARY with absolute path
   source /opt/sphenix/core/bin/setup_local.sh "$MYINSTALL" || true
 fi
+set -u
 
 # ------------------------ Dataset routing ------------------
 # Normalize dataset and set defaults:

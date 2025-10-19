@@ -421,15 +421,18 @@ done
 : "${ACTION:=condor}"
 
 
-say "Dataset=${BOLD}${DATASET}${RST}  Tag=${TAG}"
-say "Macro=${MACRO}"
-say "Input lists dir=${LIST_DIR}"
-say "Golden runs=${GOLDEN}"
-say "Stage dir=${STAGE_DIR}"
-say "Rounds dir=${ROUND_DIR}"
-say "Dest base=${DEST_BASE}"
-say "Group size=${GROUP_SIZE}, Max jobs/round=${MAX_JOBS}"
-echo
+# Only print the full banner when we're actually running work (not CHECKJOBS)
+if [[ "$ACTION" != "CHECKJOBS" ]]; then
+  say "Dataset=${BOLD}${DATASET}${RST}  Tag=${TAG}"
+  say "Macro=${MACRO}"
+  say "Input lists dir=${LIST_DIR}"
+  say "Golden runs=${GOLDEN}"
+  say "Stage dir=${STAGE_DIR}"
+  say "Rounds dir=${ROUND_DIR}"
+  say "Dest base=${DEST_BASE}"
+  say "Group size=${GROUP_SIZE}, Max jobs/round=${MAX_JOBS}"
+  echo
+fi
 
 # ------------------------ Actions --------------------------
 case "$ACTION" in
@@ -440,19 +443,18 @@ case "$ACTION" in
     ;;
 
   local)
-    # Events and local verbosity policy:
-    #   - default events: LOCAL_EVENTS
-    #   - default verbosity: 10
-    #   - allow override via a trailing "VERBOSE=N" token or environment VERBOSE
-    nevt="${3:-$LOCAL_EVENTS}"
-    local_v_override=""
-    if [[ "${3:-}" =~ ^VERBOSE=([0-9]+)$ ]]; then
-      local_v_override="${BASH_REMATCH[1]}"
-      nevt="$LOCAL_EVENTS"
-    elif [[ "${4:-}" =~ ^VERBOSE=([0-9]+)$ ]]; then
-      local_v_override="${BASH_REMATCH[1]}"
-    fi
-    RJV="${local_v_override:-${VERBOSE:-10}}"
+    # Parse optional [Nevents] and VERBOSE=N from tokens after 'local'
+    nevt="$LOCAL_EVENTS"
+    RJV="10"                     # default for local runs; ignore any env VERBOSE
+    rest=( "${@:3}" )
+    for t in "${rest[@]}"; do
+      if [[ "$t" =~ ^VERBOSE=([0-9]+)$ ]]; then
+        RJV="${BASH_REMATCH[1]}"
+      elif [[ "$t" =~ ^[0-9]+$ ]]; then
+        nevt="$t"
+      fi
+    done
+
     say "Local test on ${DATASET}  (events=${nevt}, RJ_VERBOSITY=${RJV})"
 
     [[ -s "$GOLDEN" ]] || { err "Golden list is empty: $GOLDEN"; exit 6; }

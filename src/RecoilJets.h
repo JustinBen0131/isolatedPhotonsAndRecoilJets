@@ -22,6 +22,7 @@
 //––– sPHENIX objects ––––––––––––––––––––––––––––––––––––––––––––––––––––––
 #include <calobase/TowerInfoContainer.h>
 #include <calobase/TowerInfoDefs.h>
+#include <calobase/RawTowerGeomContainer.h>           // <-- required base
 #include <calobase/RawTowerGeomContainer_Cylinderv1.h>
 #include <calobase/RawTowerGeom.h>
 #include <calobase/RawClusterContainer.h>
@@ -94,9 +95,10 @@ namespace PhoIDCuts {
 class RecoilJets : public SubsysReco
 {
  public:
-  // Anti-kT HI reco seeds
-  static constexpr std::array<std::pair<const char*, const char*>, 1> kJetRadii {{
-            {"r02", "AntiKt_TowerInfo_HIRecoSeedsSub_r02"}
+  // Jet node names per radius for pp (raw) and Au+Au (UE-subtracted)
+  struct JetNodeMap { const char* key; const char* pp_node; const char* aa_node; };
+  static constexpr std::array<JetNodeMap, 1> kJetRadii {{
+      {"r02", "AntiKt_TowerInfo_PPJetsRaw_r02", "AntiKt_TowerInfo_HIRecoSeedsSub_r02"}
   }};
 
   // ---------- construction / destruction ----------------------------------
@@ -284,7 +286,7 @@ class RecoilJets : public SubsysReco
 
   // --- detector lists -----------------------------------------------------
   const std::vector<std::tuple<std::string,std::string,std::string>> m_caloInfo {
-        {"TOWERINFO_CALIB_CEMC",   "TOWERGEOM_CEMC_DETAILED",   "CEMC"},
+        {"TOWERINFO_CALIB_CEMC",   "TOWERGEOM_CEMC",   "CEMC"},
         {"TOWERINFO_CALIB_HCALIN", "TOWERGEOM_HCALIN", "IHCAL"},
         {"TOWERINFO_CALIB_HCALOUT","TOWERGEOM_HCALOUT","OHCAL"} };
 

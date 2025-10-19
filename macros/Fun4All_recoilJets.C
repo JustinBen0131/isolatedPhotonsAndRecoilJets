@@ -23,7 +23,7 @@
 #include <caloreco/CaloWaveformProcessing.h>
 #include <caloreco/CaloTowerBuilder.h>
 #include <phool/PHNodeIterator.h>
-#include <phool/PHIODataNode.h>         // for PHIODataNode
+#include <phool/PHIODataNode.h>
 
 #include <ffamodules/FlagHandler.h>
 #include <ffamodules/CDBInterface.h>
@@ -41,12 +41,10 @@
 #include <jetbackground/FastJetAlgoSub.h>
 #include <globalvertex/GlobalVertexReco.h>
 #include <caloreco/CaloTowerCalib.h>
-#include <eventplaneinfo/EventPlaneReco.h>
-#include <eventplaneinfo/Eventplaneinfo.h>
+
 #include <centrality/CentralityReco.h>
 #include <mbd/MbdEvent.h>
 #include <mbd/MbdReco.h>
-#include <calotrigger/MinimumBiasClassifier.h>   // optional but handy
 #include <zdcinfo/ZdcReco.h>
 #include <phool/recoConsts.h>
 #include <phool/PHRandomSeed.h>
@@ -57,8 +55,7 @@
 #include <jetbackground/DetermineTowerBackground.h>
 #include <jetbackground/SubtractTowers.h>
 #include <jetbackground/CopyAndSubtractJets.h>
-#include <epd/EpdReco.h>
-#include "/sphenix/u/patsfan753/scratch/emcalSEPDcorrelations/src/RecoilJets.h"
+#include "/sphenix/u/patsfan753/scratch/thesisAnalysis/src/RecoilJets.h"
 
 // C / C++
 #include <fstream>
@@ -82,9 +79,7 @@ R__LOAD_LIBRARY(libcaloTreeGen.so)
 R__LOAD_LIBRARY(libjetbackground.so)
 R__LOAD_LIBRARY(libg4jets.so)
 R__LOAD_LIBRARY(libjetbase.so)
-R__LOAD_LIBRARY(libepd.so)
 R__LOAD_LIBRARY(libglobalvertex.so)
-R__LOAD_LIBRARY(libeventplaneinfo.so)
 R__LOAD_LIBRARY(libcentrality.so)      // always
 R__LOAD_LIBRARY(libcentrality_io.so)   // if you instantiate CentralityReco
 R__LOAD_LIBRARY(libcalotrigger.so)
@@ -92,7 +87,7 @@ R__LOAD_LIBRARY(libzdcinfo.so)
 R__LOAD_LIBRARY(libmbd.so)
 
 // Your local ClusterIso + RecoilJets (load ClusterIso first)
-R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libClusterIso.so)
+R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libclusteriso.so)
 R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libRecoilJets.so)
 
 //======================================================================
@@ -108,7 +103,7 @@ namespace detail
     throw std::runtime_error(oss.str());
   }
 
-  /// Trim whitespace from both ends (for robust list‑file parsing)
+  /// Trim whitespace from both ends (for robust list-file parsing)
   inline std::string trim(std::string s)
   {
     const char* ws = " \t\r\n";
@@ -122,7 +117,9 @@ namespace detail
 {
   inline FastJetAlgoSub* fjAlgo(const float R)
   {
-    FastJetOptions o({Jet::ANTIKT, Jet::SRC::VOID, R, /*ptmin*/0.0, /*verbosity*/0});
+    // FastJetOptions initializer-list order in this release is:
+    // { algo, source, R, ptmin, verbosity }
+    FastJetOptions o({Jet::ANTIKT, Jet::SRC::VOID, R, 0.0, 0});
     return new FastJetAlgoSub(o);
   }
 }
@@ -138,10 +135,12 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   //--------------------------------------------------------------------
   // 0.  Banner & basic environment sanity
   //--------------------------------------------------------------------
-  std::cout << "\n>>> Fun4All_recoilJets – ana.495 driver <<<\n"
-            << "    Input list : " << listFile  << '\n'
-            << "    Output file: " << outRoot   << '\n'
-            << "    nEvents    : " << nEvents   << (nEvents==0? " (all)\n":"\n");
+  if (verbose) {
+      std::cout << "\n>>> Fun4All_recoilJets – ana.495 driver <<<\n"
+                << "    Input list : " << listFile  << '\n'
+                << "    Output file: " << outRoot   << '\n'
+                << "    nEvents    : " << nEvents   << (nEvents==0? " (all)\n":"\n");
+  }
 
   Fun4AllServer* se = Fun4AllServer::instance();
   if (!se) detail::bail("unable to obtain Fun4AllServer instance!");
@@ -187,30 +186,32 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
         vlevel = 0;
   }
 
-    // RAII silence for global std::cout/cerr if vlevel==0
-    struct ScopedSilence {
-      std::ofstream sink;
-      std::streambuf* cout_save = nullptr;
-      std::streambuf* cerr_save = nullptr;
-      bool active = false;
-      void enable() {
-        if (active) return;
-        sink.open("/dev/null");
-        cout_save = std::cout.rdbuf(sink.rdbuf());
-        cerr_save = std::cerr.rdbuf(sink.rdbuf());
-        active = true;
+  // RAII silence for global std::cout/cerr if vlevel==0
+  struct ScopedSilence {
+    std::ofstream   sink;
+    std::streambuf* cout_save = nullptr;
+    std::streambuf* cerr_save = nullptr;
+    bool active = false;
+    void enable() {
+      if (active) return;
+      sink.open("/dev/null");
+      cout_save = std::cout.rdbuf(sink.rdbuf());
+      cerr_save = std::cerr.rdbuf(sink.rdbuf());
+      active = true;
+    }
+    ~ScopedSilence() {
+      if (active) {
+        std::cout.rdbuf(cout_save);
+        std::cerr.rdbuf(cerr_save);
       }
-      ~ScopedSilence() {
-        if (active) {
-          std::cout.rdbuf(cout_save);
-          std::cerr.rdbuf(cerr_save);
-        }
-      }
-    } _silence;
+    }
+  } _silence;
 
-    if (vlevel == 0) _silence.enable();
+  if (vlevel == 0) _silence.enable();
 
-
+  // --------------------------------------------------------------------
+  // 2.  CDB + IO managers
+  // --------------------------------------------------------------------
   recoConsts* rc = recoConsts::instance();
   rc->set_StringFlag("CDB_GLOBALTAG","newcdbtag");
   rc->set_uint64Flag("TIMESTAMP",     run);
@@ -218,28 +219,28 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
 
   std::unique_ptr<FlagHandler> flag = std::make_unique<FlagHandler>();
   se->registerSubsystem(flag.get());
-    
+
   auto* inDST = new Fun4AllDstInputManager("DSTcalofitting");
   for (const auto& f : files) inDST->AddFile(f);
   se->registerInputManager(inDST);
 
-    
+  // --------------------------------------------------------------------
+  // 3.  Geometry + status + calibration + clustering
+  // --------------------------------------------------------------------
   for (const std::string& det : {"CEMC","HCALIN","HCALOUT"})
-    {
-      auto *geom = new CaloGeomMapping(("Geom_"+det).c_str());
-      geom->set_detector_name(det);          // << detector tag
-      geom->set_UseDetailedGeometry(false);   // (optional, but nice)
-      se->registerSubsystem(geom);
+  {
+    auto *geom = new CaloGeomMapping(("Geom_"+det).c_str());
+    geom->set_detector_name(det);
+    geom->set_UseDetailedGeometry(false);
+    se->registerSubsystem(geom);
   }
 
-  //////////////////////////////
-  // set statuses on raw towers
-  std::cout << "status setters" << std::endl;
+  if (vlevel > 0) std::cout << "status setters" << std::endl;
   CaloTowerStatus *statusEMC = new CaloTowerStatus("CEMCSTATUS");
   statusEMC->set_detector_type(CaloTowerDefs::CEMC);
   statusEMC->set_time_cut(1);
   se->registerSubsystem(statusEMC);
-    
+
   CaloTowerStatus *statusHCalIn = new CaloTowerStatus("HCALINSTATUS");
   statusHCalIn->set_detector_type(CaloTowerDefs::HCALIN);
   statusHCalIn->set_time_cut(2);
@@ -250,89 +251,99 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   statusHCALOUT->set_time_cut(2);
   se->registerSubsystem(statusHCALOUT);
 
-
-  ////////////////////
-  // Calibrate towers
-  std::cout << "Calibrating EMCal" << std::endl;
+  if (vlevel > 0) std::cout << "Calibrating EMCal" << std::endl;
   CaloTowerCalib *calibEMC = new CaloTowerCalib("CEMCCALIB");
   calibEMC->set_detector_type(CaloTowerDefs::CEMC);
   se->registerSubsystem(calibEMC);
 
-  std::cout << "Calibrating OHcal" << std::endl;
+  if (vlevel > 0) std::cout << "Calibrating OHcal" << std::endl;
   CaloTowerCalib *calibOHCal = new CaloTowerCalib("HCALOUT");
   calibOHCal->set_detector_type(CaloTowerDefs::HCALOUT);
   se->registerSubsystem(calibOHCal);
 
-  std::cout << "Calibrating IHcal" << std::endl;
+  if (vlevel > 0) std::cout << "Calibrating IHcal" << std::endl;
   CaloTowerCalib *calibIHCal = new CaloTowerCalib("HCALIN");
   calibIHCal->set_detector_type(CaloTowerDefs::HCALIN);
   se->registerSubsystem(calibIHCal);
-    
-  std::cout << "Building clusters" << std::endl;
+
+  if (vlevel > 0) std::cout << "Building clusters" << std::endl;
   RawClusterBuilderTemplate *ClusterBuilder = new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate");
   ClusterBuilder->Detector("CEMC");
-  ClusterBuilder->set_threshold_energy(0.070);  // for when using basic calibration
+  ClusterBuilder->set_threshold_energy(0.070);
   std::string emc_prof = getenv("CALIBRATIONROOT");
   emc_prof += "/EmcProfile/CEMCprof_Thresh30MeV.root";
   ClusterBuilder->LoadProfile(emc_prof);
-  ClusterBuilder->set_UseTowerInfo(1);  // to use towerinfo objects rather than old RawTower
-  ClusterBuilder->set_UseAltZVertex(1); // Use MBD Vertex for vertex-based corrections
+  ClusterBuilder->set_UseTowerInfo(1);
+  ClusterBuilder->set_UseAltZVertex(1);
   se->registerSubsystem(ClusterBuilder);
 
-  std::cout << "Calibrating sEPD" << std::endl;
-  std::unique_ptr<EpdReco> epdreco = std::make_unique<EpdReco>();
-  epdreco->Verbosity(vlevel);
-  se->registerSubsystem(epdreco.release());
+    // Build photon clusters so PHOTONCLUSTER_CEMC exists
+    auto* photonBuilder = new PhotonClusterBuilder("PhotonClusterBuilder");
+    // input RawCluster node produced above:
+    photonBuilder->set_input_cluster_node("CLUSTERINFO_CEMC");
+    // output Photon cluster node expected by RecoilJets:
+    photonBuilder->set_output_photon_node("PHOTONCLUSTER_CEMC");
+    photonBuilder->Verbosity(vlevel);
+    se->registerSubsystem(photonBuilder);
 
-  // // MBD/BBC Reconstruction
-  std::cout << "Calibrating MBD" << std::endl;
+  if (vlevel > 0) std::cout << "Calibrating MBD" << std::endl;
   std::unique_ptr<MbdReco> mbdreco = std::make_unique<MbdReco>();
   se->registerSubsystem(mbdreco.release());
 
-  std::cout << "Calibrating ZDC" << std::endl;
+  if (vlevel > 0) std::cout << "Calibrating ZDC" << std::endl;
   std::unique_ptr<ZdcReco> zdcreco = std::make_unique<ZdcReco>();
   zdcreco->set_zdc1_cut(0.0);
   zdcreco->set_zdc2_cut(0.0);
   se->registerSubsystem(zdcreco.release());
-    
-  std::cout << "Retrieving Vtx Info" << std::endl;
+
+  if (vlevel > 0) std::cout << "Retrieving Vtx Info" << std::endl;
   std::unique_ptr<GlobalVertexReco> gvertex = std::make_unique<GlobalVertexReco>();
   se->registerSubsystem(gvertex.release());
-    
-  std::cout << "building minbias classifier" << std::endl;
-  auto* mb = new MinimumBiasClassifier();
-  mb->Verbosity(vlevel);
-  mb->setOverwriteScale(
-        "/cvmfs/sphenix.sdcc.bnl.gov/calibrations/sphnxpro/cdb/CentralityScale/42/6b/426bc1b56ba544201b0213766bee9478_cdb_centrality_scale_54912.root");
-  se->registerSubsystem(mb);
 
-    
-  std::cout << "building centrality classifier" << std::endl;
-  auto* cent = new CentralityReco();
-  cent->Verbosity(vlevel);
-  cent->setOverwriteScale(
-        "/cvmfs/sphenix.sdcc.bnl.gov/calibrations/sphnxpro/cdb/CentralityScale/42/6b/426bc1b56ba544201b0213766bee9478_cdb_centrality_scale_54912.root");
-  se->registerSubsystem(cent);
-    
-    
-  std::cout << "building EP info" << std::endl;
-  std::unique_ptr<EventPlaneReco> epreco = std::make_unique<EventPlaneReco>();
-  epreco->set_sepd_epreco(true);
-  epreco->Verbosity(vlevel);
-  se->registerSubsystem(epreco.release());
+  // Decide dataset early so we can gate Au+Au-only modules (centrality)
+  bool isAuAuData = true;
+  if (const char* env = std::getenv("RJ_DATASET"))
+  {
+      std::string s = detail::trim(std::string(env));
+      std::string sLower = s;
+      std::transform(sLower.begin(), sLower.end(), sLower.begin(),
+                     [](unsigned char c){ return std::tolower(c); });
+      isAuAuData = !(sLower == "ispp" || sLower == "pp");
+  }
+  else
+  {
+      // Fallback heuristic based on known pp runs: ≤ 53864 → p+p, > 53864 → Au+Au
+      isAuAuData = (run > 53864);
+  }
 
-  //--------------------------------------------------------------------
-  // 3d)  HI‑style tower‑jet background subtraction (+ jet reco)
-  //--------------------------------------------------------------------
+  if (isAuAuData)
+  {
+      if (vlevel > 0) std::cout << "building centrality classifier (Au+Au)" << std::endl;
+      auto* cent = new CentralityReco();
+      cent->Verbosity(vlevel);
+      cent->setOverwriteScale(
+              "/cvmfs/sphenix.sdcc.bnl.gov/calibrations/sphnxpro/cdb/CentralityScale/42/6b/426bc1b56ba544201b0213766bee9478_cdb_centrality_scale_54912.root");
+      se->registerSubsystem(cent);
+  }
+  else
+  {
+        if (vlevel > 0) std::cout << "[pp dataset] skipping CentralityReco" << std::endl;
+  }
+
+  // --------------------------------------------------------------------
+  // 4.  Jet reconstruction
+  //   • Au+Au: HI-style retower + ρ subtraction (as before)
+  //   • p+p  : simple raw Anti-kT jets on calibrated towers (no retower)
+  // --------------------------------------------------------------------
+  if (isAuAuData)
   {
       auto banner = [&](const std::string& m)
       {
-        if (vlevel > 0) std::cout << "\n[BG‑SUB] >>> " << m << std::endl;
+        if (vlevel > 0) std::cout << "\n[BG-SUB] >>> " << m << std::endl;
       };
+      const int vLvl = vlevel;
 
-      const int vLvl = vlevel;   // align module verbosity with the global flag
-
-      /* (i) – EMCal re‑towering ------------------------------------------- */
+      // (i) Retower EMCal
       banner("(i)  Retowering EMCal to 0.025×0.025 towers");
       auto* rcemc = new RetowerCEMC("RetowerCEMC");
       rcemc->set_towerinfo(true);
@@ -341,42 +352,41 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
       rcemc->Verbosity(vLvl);
       se->registerSubsystem(rcemc);
 
-      /* (ii‑0) – Make sure DST/TOWER subtree exists ----------------------- */
+      // Ensure DST/TOWER branch exists
       class EnsureTowerNode final : public SubsysReco
       {
        public:
         int InitRun(PHCompositeNode* top) override
         {
           PHNodeIterator it(top);
-          auto* dst = dynamic_cast<PHCompositeNode*>(it.findFirst(
-                        "PHCompositeNode", "DST"));
+          auto* dst = dynamic_cast<PHCompositeNode*>(it.findFirst("PHCompositeNode","DST"));
           if (!dst) return Fun4AllReturnCodes::ABORTRUN;
-
           PHNodeIterator dstIt(dst);
-          auto* tw = dynamic_cast<PHCompositeNode*>(dstIt.findFirst(
-                       "PHCompositeNode", "TOWER"));
+          auto* tw = dynamic_cast<PHCompositeNode*>(dstIt.findFirst("PHCompositeNode","TOWER"));
           if (!tw)
           {
             tw = new PHCompositeNode("TOWER");
             dst->addNode(tw);
-            std::cout << "[EnsureTowerNode]  created DST/TOWER branch\n";
+            if (std::getenv("RJ_VERBOSITY") && std::atoi(std::getenv("RJ_VERBOSITY")) > 0)
+              std::cout << "[EnsureTowerNode]  created DST/TOWER branch\n";
           }
           return Fun4AllReturnCodes::EVENT_OK;
         }
       };
       se->registerSubsystem(new EnsureTowerNode());
 
-      /* loop over all configured jet radii -------------------------------- */
-      for (const auto& [radKey, algoSub] : RecoilJets::kJetRadii)
+      // (ii) RAW jets + (iii) backgrounds + (iv) subtract + (v) SUB1 jets + (vi) residual
+      for (const auto& jnm : RecoilJets::kJetRadii)
       {
-        const int   D = std::stoi(std::string(radKey).substr(1));   // r02→2, r04→4
+        const std::string radKey = jnm.key;           // dataset-aware map key (e.g., "r02")
+        const int   D = std::stoi(radKey.substr(1));
         const float R = 0.1f * D;
 
-        const std::string rawRecoName = "HIRecoSeedsRaw_" + std::string(radKey);
-        const std::string subRecoName = "HIRecoSeedsSub_" + std::string(radKey);
+        const std::string rawRecoName = "HIRecoSeedsRaw_" + radKey;
+        const std::string subRecoName = "HIRecoSeedsSub_" + radKey;
         const std::string algoRaw     = "AntiKt_TowerInfo_" + rawRecoName;
 
-        banner("(ii)  Reconstructing RAW Anti‑kT jets  R=" + std::to_string(R));
+        banner("(ii)  Reconstructing RAW Anti-kT jets  R=" + std::to_string(R));
         auto* seedReco = new JetReco(rawRecoName);
         seedReco->add_input(new TowerJetInput(Jet::CEMC_TOWERINFO_RETOWER, "TOWERINFO_CALIB"));
         seedReco->add_input(new TowerJetInput(Jet::HCALIN_TOWERINFO,       "TOWERINFO_CALIB"));
@@ -387,10 +397,9 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
         seedReco->Verbosity(vLvl);
         se->registerSubsystem(seedReco);
 
-        /* ───── background and subtraction are executed only for r02 ───── */
         if (radKey == std::string("r02"))
         {
-          banner("(iii‑a)  UE density ρ from RAW jets (Sub1)");
+          banner("(iii-a)  UE density ρ from RAW jets (Sub1)");
           auto* dtb1 = new DetermineTowerBackground("DetTowerBkg_Sub1_r02");
           dtb1->SetBackgroundOutputName("TowerInfoBackground_Sub1");
           dtb1->SetSeedType(0);
@@ -400,7 +409,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
           dtb1->Verbosity(vLvl);
           se->registerSubsystem(dtb1);
 
-          banner("(iii‑b)  UE density ρ for tower subtraction (Sub2)");
+          banner("(iii-b)  UE density ρ for tower subtraction (Sub2)");
           auto* dtb2 = new DetermineTowerBackground("DetTowerBkg_Sub2_r02");
           dtb2->SetBackgroundOutputName("TowerInfoBackground_Sub2");
           dtb2->SetSeedType(0);
@@ -410,7 +419,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
           dtb2->Verbosity(vLvl);
           se->registerSubsystem(dtb2);
 
-          banner("(iv)  Subtracting ρ·A tower‑by‑tower  → *_SUB1");
+          banner("(iv)  Subtracting ρ·A tower-by-tower  → *_SUB1");
           auto* st = new SubtractTowers("SubtractTowers_Sub1");
           st->set_towerinfo(true);
           st->set_towerNodePrefix("TOWERINFO_CALIB");
@@ -418,12 +427,12 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
           se->registerSubsystem(st);
         }
 
-        banner("(v)  Reconstructing jets on UE‑subtracted towers  R=" + std::to_string(R));
+        banner("(v)  Reconstructing jets on UE-subtracted towers  R=" + std::to_string(R));
         auto* subReco = new JetReco(subRecoName);
-        subReco->add_input(new TowerJetInput(Jet::CEMC_TOWERINFO_SUB1, "TOWERINFO_CALIB"));
+        subReco->add_input(new TowerJetInput(Jet::CEMC_TOWERINFO_SUB1,   "TOWERINFO_CALIB"));
         subReco->add_input(new TowerJetInput(Jet::HCALIN_TOWERINFO_SUB1, "TOWERINFO_CALIB"));
-        subReco->add_input(new TowerJetInput(Jet::HCALOUT_TOWERINFO_SUB1, "TOWERINFO_CALIB"));
-        subReco->add_algo(detail::fjAlgo(R), algoSub);
+        subReco->add_input(new TowerJetInput(Jet::HCALOUT_TOWERINFO_SUB1,"TOWERINFO_CALIB"));
+        subReco->add_algo(detail::fjAlgo(R), jnm.aa_node);   // dataset-aware Au+Au node name
         subReco->set_algo_node("ANTIKT");
         subReco->set_input_node("TOWERINFO_CALIB");
         subReco->Verbosity(vLvl);
@@ -431,7 +440,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
 
         if (radKey == std::string("r02"))
         {
-          banner("(vi‑a)  UE density ρ from SUB1 jets (Sub3)");
+          banner("(vi-a)  UE density ρ from SUB1 jets (Sub3)");
           auto* dtb3 = new DetermineTowerBackground("DetTowerBkg_Sub3_r02");
           dtb3->SetBackgroundOutputName("TowerInfoBackground_Sub3");
           dtb3->SetSeedType(1);
@@ -441,27 +450,59 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
           dtb3->Verbosity(vLvl);
           se->registerSubsystem(dtb3);
 
-          banner("(vi‑b)  Copy jets + residual subtraction");
+          banner("(vi-b)  Copy jets + residual subtraction");
           auto* casj = new CopyAndSubtractJets("CopyAndSubtractJets_r02");
           casj->set_towerinfo(true);
           casj->set_towerNodePrefix("TOWERINFO_CALIB");
           casj->Verbosity(vLvl);
           se->registerSubsystem(casj);
         }
-      } // end radius loop
-  }   // end 3d‑block
+      } // radii
+  }   // Au+Au chain
+  else
+  {
+    // p+p: simple raw Anti-kT jets on calibrated towers (no retower/ρ subtraction)
+    auto banner = [&](const std::string& m)
+    {
+      if (vlevel > 0) std::cout << "\n[PP-JETS] >>> " << m << std::endl;
+    };
+    for (const auto& jnm : RecoilJets::kJetRadii)
+    {
+      const std::string radKey = jnm.key;
+      const int   D = std::stoi(radKey.substr(1));
+      const float R = 0.1f * D;
 
-  // 3e) Run‑information helper (optional but handy)
+      const std::string recoName = "PPJetsRaw_" + radKey;
+
+      banner("Reconstructing raw Anti-kT jets  R=" + std::to_string(R));
+      auto* jpp = new JetReco(recoName);
+      jpp->add_input(new TowerJetInput(Jet::CEMC_TOWERINFO,    "TOWERINFO_CALIB"));
+      jpp->add_input(new TowerJetInput(Jet::HCALIN_TOWERINFO,  "TOWERINFO_CALIB"));
+      jpp->add_input(new TowerJetInput(Jet::HCALOUT_TOWERINFO, "TOWERINFO_CALIB"));
+      jpp->add_algo(detail::fjAlgo(R), jnm.pp_node);           // dataset-aware pp node name
+      jpp->set_algo_node("ANTIKT");
+      jpp->set_input_node("TOWERINFO_CALIB");
+      jpp->Verbosity(vlevel);
+      se->registerSubsystem(jpp);
+    }
+  }
+
+  // --------------------------------------------------------------------
+  // 5.  Run-information helper (optional but handy)
+  // --------------------------------------------------------------------
   auto* trigInfo = new TriggerRunInfoReco();
   trigInfo->Verbosity(vlevel);
   se->registerSubsystem(trigInfo);
-    
+
   // Compute cluster isolation once per event (writes RawCluster::set_et_iso)
+  // Only compute UE-subtracted isolation in Au+Au (SUB1 nodes exist there).
+  const bool do_subtracted = isAuAuData;
   auto* clIso = new ClusterIso("ClusterIso",
-                                 /*eTCut=*/0.0f,
-                                 /*coneSize=*/3,           // R=0.3
-                                 /*do_subtracted=*/true,
-                                 /*do_unsubtracted=*/true);
+                               /*eTCut=*/0.0f,
+                               /*coneSize=*/3,           // R=0.3
+                               /*do_subtracted=*/do_subtracted,
+                               /*do_unsubtracted=*/true);
+  clIso->Verbosity(0);
   se->registerSubsystem(clIso);
 
   auto* recoilJets = new RecoilJets(outRoot);
@@ -471,23 +512,20 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   // Use the already-defined global vlevel
   recoilJets->setVerbose(vlevel);
   if (verbose) std::cout << "[INFO] RJ_VERBOSITY → " << vlevel << '\n';
-  // Pick data-type from environment RJ_DATASET (isPP / isAuAu), case-insensitive.
-  // Fallback heuristic (if env missing): run < 60000 → isPP, else isAuAu.
+  // Pick data-type from environment RJ_DATASET (isPP / isAu+Au), case-insensitive.
+  // Fallback: ≤ 53864 → isPP, > 53864 → isAuAu.
   std::string dtype = "isAuAu";
   if (const char* env = std::getenv("RJ_DATASET"))
   {
-      std::string s = detail::trim(std::string(env));
-      std::string sLower = s;
-      std::transform(sLower.begin(), sLower.end(), sLower.begin(),
-                     [](unsigned char c){ return std::tolower(c); });
-      if (sLower == "ispp" || sLower == "pp")               dtype = "isPP";
-      else if (sLower == "isauau" || sLower == "auau" || sLower == "aa")
-                                                           dtype = "isAuAu";
+          std::string s = detail::trim(std::string(env));
+          std::string sLower = s;
+          std::transform(sLower.begin(), sLower.end(), sLower.begin(),
+                         [](unsigned char c){ return std::tolower(c); });
+          dtype = (sLower == "ispp" || sLower == "pp") ? "isPP" : "isAuAu";
   }
   else
   {
-      // Heuristic: Run-2 p+p (~47k) vs Run-3 Au+Au (~66k+)
-      if (run < 60000) dtype = "isPP";
+          dtype = (run <= 53864) ? "isPP" : "isAuAu";
   }
 
   if (verbose) std::cout << "[INFO] RJ_DATASET → " << dtype << '\n';
@@ -496,7 +534,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   se->registerSubsystem(recoilJets);
 
   //--------------------------------------------------------------------
-  // 5.  Run
+  // 6.  Run
   //--------------------------------------------------------------------
   try
   {
@@ -511,10 +549,9 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   }
 
 //  //--------------------------------------------------------------------
-//  // 6.  Clean exit
+//  // 7.  Clean exit
 //  //--------------------------------------------------------------------
 //  gSystem->Exit(0);
 }
 
 #endif   // ROOT_VERSION guard
-
