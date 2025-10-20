@@ -28,6 +28,7 @@
 #include <calobase/RawClusterContainer.h>
 #include <globalvertex/GlobalVertexMap.h>
 #include <mbd/MbdGeom.h>
+#include "/sphenix/u/patsfan753/scratch/thesisAnalysis/coresoftware_local/offline/packages/CaloReco/PhotonClusterBuilder.h"
 #include <mbd/MbdPmtContainer.h>
 #include <epd/EpdGeom.h>
 #include <epd/EpdReco.h>
@@ -249,7 +250,7 @@ class RecoilJets : public SubsysReco
   std::map<std::string,int> m_centIdxCache; // "0_10" → 0, etc.
 
   // E_T^γ bin edges (user‑editable); default aligns with your plots
-  std::vector<double> m_gammaEtBins{10,12,15,18,20,24,30};
+  std::vector<double> m_gammaEtBins{2, 4, 6, 8, 10, 12, 15, 18, 20, 24, 30};
 
   // Output file & QA store
   std::string  Outfile;
@@ -262,27 +263,91 @@ class RecoilJets : public SubsysReco
   TH2I* h_MBTrigCorr   = nullptr;                 // 2-D map: MinBias × Trigger
   std::unordered_map<std::string,int> m_trigBin;  // trigger-key → x-bin index
 
-  // ---------- Analysis bookkeeping for verbose end-of-job summaries ----------
-  struct CatStat {
-      std::size_t seen{0};
-      std::size_t tight{0};
-      std::size_t nonTight{0};
-      std::size_t isoPass{0};
-      std::size_t isoFail{0};
-      std::size_t idSB_total{0};
-      std::size_t idSB_pass{0};
-  };
+    struct CatStat {
+        // photons that reached preselection (this slice)
+        std::size_t seen{0};
+
+        // LEGACY (kept for compatibility; not used in new table)
+        std::size_t tight{0};
+        std::size_t nonTight{0};
+        std::size_t isoPass{0};
+        std::size_t isoFail{0};
+
+        // New 2×2 joint categories (exactly one increments per preselection-passed photon)
+        std::size_t n_iso_tight{0};        // isolated ∧ tight
+        std::size_t n_nonIso_tight{0};     // ¬isolated ∧ tight
+        std::size_t n_iso_nonTight{0};     // isolated ∧ ¬tight (NonTight or Neither)
+        std::size_t n_nonIso_nonTight{0};  // ¬isolated ∧ ¬tight
+
+        // ID sideband bookkeeping (unchanged)
+        std::size_t idSB_total{0};
+        std::size_t idSB_pass{0};
+    };
+
+    
   // Per trigger -> per slice suffix (e.g., "_ET_10_12[_cent_0_10]") → counters
   std::map<std::string, std::map<std::string, CatStat>> m_catByTrig;
-  // Histogram fill counts: "<trig>::<histNameWithSuffix>" → fills
-  std::map<std::string, std::size_t> m_histFill;
+    // Histogram fill counts: "<trig>::<histNameWithSuffix>" → fills
+    std::map<std::string, std::size_t> m_histFill;
 
-  // Helper to record histogram fills
-  void bumpHistFill(const std::string& trig, const std::string& hnameWithSuffix);
+    // ---------- Run-wide cutflow bookkeeping ----------
+    enum class EventReject : uint8_t { None = 0, Trigger = 1, Vz = 2 };
 
-  // first‑event gate: MB + trigger selection (declared here, defined in .cc)
-  bool firstEventCuts(PHCompositeNode*   topNode,
-                      std::vector<std::string>& activeTrig);
+    struct CutBookkeeping
+    {
+      // Events
+      std::size_t evt_seen{0};
+      std::size_t evt_fail_trigger{0};
+      std::size_t evt_fail_vz{0};
+      std::size_t evt_accepted{0};
+
+      // Photon candidates from PHOTONCLUSTER_CEMC path
+      std::size_t pho_total{0};
+      std::size_t pho_early_E{0};
+      std::size_t pho_eta_fail{0};
+      std::size_t pho_etbin_out{0};
+      std::size_t pho_noRC{0};
+      std::size_t pho_reached_pre_iso{0};  // reached the preselection+isolation step
+
+      // Preselection breakdown (fail reasons)
+      std::size_t pre_fail_weta{0};
+      std::size_t pre_fail_et1_low{0};
+      std::size_t pre_fail_et1_high{0};
+      std::size_t pre_fail_e11e33_high{0};
+      std::size_t pre_fail_e32e35_low{0};
+      std::size_t pre_fail_e32e35_high{0};
+      std::size_t pre_pass{0};
+
+      // Tight classification breakdown (among preselection-passed)
+      std::size_t tight_tight{0};
+      std::size_t tight_neither{0};    // exactly 1 tight cut failed
+      std::size_t tight_nonTight{0};   // ≥2 tight cuts failed
+
+      // Per-tight-cut failures (counted over all preselection-passed)
+      std::size_t tight_fail_weta{0};
+      std::size_t tight_fail_wphi{0};
+      std::size_t tight_fail_et1{0};
+      std::size_t tight_fail_e11e33{0};
+      std::size_t tight_fail_e32e35{0};
+
+      // Isolation
+      std::size_t iso_pass{0};
+      std::size_t iso_fail{0};
+    };
+
+    CutBookkeeping m_bk;
+    EventReject    m_lastReject{EventReject::None};
+
+
+    // Helper to record histogram fills
+    void bumpHistFill(const std::string& trig, const std::string& hnameWithSuffix);
+
+    // Human-readable, tabulated end-of-job summary
+    void printCutSummary() const;
+
+    // first-event gate: MB + trigger selection (declared here, defined in .cc)
+    bool firstEventCuts(PHCompositeNode*   topNode,
+                        std::vector<std::string>& activeTrig);
 
   // --- detector lists -----------------------------------------------------
   const std::vector<std::tuple<std::string,std::string,std::string>> m_caloInfo {
@@ -315,9 +380,9 @@ class RecoilJets : public SubsysReco
   // Triggers (as in your code) – pp & Au+Au name maps
   // --------------------------------------------------------------------------
   std::map<std::string,std::string> triggerNameMap_pp {
-      {"MBD N&S >= 1",          "MBD_NandS_geq_1"}
+ //     {"MBD N&S >= 1",          "MBD_NandS_geq_1"},
 //      {"Photon 3 GeV + MBD NS >= 1","Photon_3_GeV_plus_MBD_NS_geq_1"},
-//      {"Photon 4 GeV + MBD NS >= 1","Photon_4_GeV_plus_MBD_NS_geq_1"},
+      {"Photon 4 GeV + MBD NS >= 1","Photon_4_GeV_plus_MBD_NS_geq_1"}
 //      {"Photon 5 GeV + MBD NS >= 1","Photon_5_GeV_plus_MBD_NS_geq_1"}
   };
   std::map<int,std::string>* activeTriggerNameMap_pp{nullptr};
@@ -373,6 +438,7 @@ class RecoilJets : public SubsysReco
   TH1F* getOrBookXJHist(const std::string& trig, int etIdx, int centIdx);
   // Eiso histogram booker: h_Eiso + suffixForBins(ET[,cent])
   TH1F* getOrBookIsoHist(const std::string& trig, int etIdx, int centIdx);
+    
   // Shower-shape histogram booker:
   //    h_ss_<varKey>_<tagKey> + suffixForBins(ET[,cent])
   //    varKey ∈ { weta, wphi, et1, e11e33, e32e35 }, tagKey ∈ { tight, nontight }

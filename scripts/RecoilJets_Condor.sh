@@ -42,7 +42,7 @@ export LOGNAME="${LOGNAME:-$USER}"
 export HOME="/sphenix/u/${LOGNAME}"
 
 # sPHENIX offline setup (system + local area for custom libs)
-MYINSTALL="/sphenix/user/${USER}/install"
+MYINSTALL="/sphenix/u/${USER}/thesisAnalysis/install"
 
 # Disable 'nounset' while sourcing env scripts; they may read unset vars (e.g. PGHOST)
 set +u

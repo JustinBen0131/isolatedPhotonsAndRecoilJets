@@ -168,6 +168,7 @@ AA_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/auau"
 GROUP_SIZE=3         # files per Condor job (never mixes runs)
 MAX_JOBS=15000      # job budget per round file
 LOCAL_EVENTS=5000   # default N for "local" if not given
+TRIGGER_BIT=""      # optional: filter runs by GL1 scaledown bit (e.g., TRIGGER=26)
 
 # ------------------------ Helpers --------------------------
 usage() {
@@ -175,15 +176,18 @@ usage() {
 ${BOLD}Usage:${RST}
   ${BOLD}$0 <isPP|isAuAu> local [Nevents]${RST}
   ${BOLD}$0 <isPP|isAuAu> splitGoldenRunList [groupSize N] [maxJobs M]${RST}
+  ${BOLD}$0 <isPP|isAuAu> condor testJob${RST}
   ${BOLD}$0 <isPP|isAuAu> condor round <N> [groupSize N] [maxJobs M] [firstChunk]${RST}
   ${BOLD}$0 <isPP|isAuAu> condor all [groupSize N]${RST}
 
 Examples:
-  $0 isPP local 5000
+  $0 isPP  local 5000
   $0 isAuAu splitGoldenRunList groupSize 3 maxJobs 12000
   $0 isAuAu condor round 1
   $0 isPP  condor round 2 firstChunk
   $0 isPP  condor all groupSize 4
+  $0 isPP  condor testJob
+  $0 isAuAu condor testJob
 USAGE
   exit 2
 }
@@ -221,6 +225,19 @@ ceil_div() { local n="$1" d="$2"; echo $(( (n + d - 1) / d )); }
 
 # Format run to 8 digits
 run8() { printf "%08d" "$((10#$1))"; }
+
+# Check if a GL1 trigger bit is active for a run (scaledown != -1).
+# Usage: is_trigger_active <run8> <bit> ; returns 0 if active, 1 otherwise.
+is_trigger_active() {
+  local run8="$1" bit="$2"
+  [[ -z "$bit" ]] && return 0
+  local run_dec=$((10#$run8))
+  local val
+  val=$(psql -h sphnxdaqdbreplica -d daq -At -q -F $'\t' \
+        -c "SELECT scaledown${bit} FROM gl1_scaledown WHERE runnumber=${run_dec};" \
+        | tr -d '[:space:]')
+  [[ -n "$val" && "$val" != "-1" ]]
+}
 
 # Build per-run grouped list files; prints absolute paths to grouped lists, one per line
 #   make_groups <run8> <groupSize>  → writes STAGE_DIR/run<run8>_grpXXX.list files
@@ -359,6 +376,15 @@ SUB
   local queued=0
   while IFS= read -r r8; do
     [[ -z "$r8" || "$r8" =~ ^# ]] && continue
+
+    # Optional trigger filter: require GL1 scaledown bit to be active
+    if [[ -n "${TRIGGER_BIT}" ]]; then
+      if ! is_trigger_active "$r8" "$TRIGGER_BIT"; then
+        say "Skipping run ${r8} (trigger bit ${TRIGGER_BIT} not active)"
+        continue
+      fi
+    fi
+
     # Build group lists for this run
     mapfile -t groups < <( make_groups "$r8" "$GROUP_SIZE" )
     (( ${#groups[@]} )) || { warn "No groups produced for run $r8; skipping"; continue; }
@@ -408,6 +434,10 @@ for (( idx=0; idx<${#tokens[@]}; idx++ )); do
       MAX_JOBS="${tokens[$next]}"
       idx=$next
       ;;
+    TRIGGER=*)
+      TRIGGER_BIT="${tok#TRIGGER=}"
+      [[ "$TRIGGER_BIT" =~ ^[0-9]+$ ]] || { err "TRIGGER must be an integer bit index (e.g., TRIGGER=26)"; exit 2; }
+      ;;
     CHECKJOBS)
       ACTION="CHECKJOBS"
       ;;
@@ -420,6 +450,10 @@ done
 # Default action if none provided
 : "${ACTION:=condor}"
 
+# If a trigger filter is requested, require psql
+if [[ -n "${TRIGGER_BIT}" ]]; then
+  need_cmd psql
+fi
 
 # Only print the full banner when we're actually running work (not CHECKJOBS)
 if [[ "$ACTION" != "CHECKJOBS" ]]; then
@@ -430,6 +464,9 @@ if [[ "$ACTION" != "CHECKJOBS" ]]; then
   say "Stage dir=${STAGE_DIR}"
   say "Rounds dir=${ROUND_DIR}"
   say "Dest base=${DEST_BASE}"
+  if [[ -n "${TRIGGER_BIT}" ]]; then
+    say "Trigger filter      : bit=${TRIGGER_BIT} (scaledown != -1 required)"
+  fi
   say "Group size=${GROUP_SIZE}, Max jobs/round=${MAX_JOBS}"
   echo
 fi
@@ -458,9 +495,20 @@ case "$ACTION" in
     say "Local test on ${DATASET}  (events=${nevt}, RJ_VERBOSITY=${RJV})"
 
     [[ -s "$GOLDEN" ]] || { err "Golden list is empty: $GOLDEN"; exit 6; }
-    first_run="$(grep -m1 -E '^[0-9]+' "$GOLDEN" | head -n1 || true)"
-    [[ -n "$first_run" ]] || { err "No run found in $GOLDEN"; exit 6; }
-    r8="$(run8 "$first_run")"
+
+    # Pick first golden run; if TRIGGER_BIT set, pick the first run with that bit active
+    r8=""
+    while IFS= read -r rn; do
+      [[ -z "$rn" || "$rn" =~ ^# ]] && continue
+      cand="$(run8 "$rn")"
+      if [[ -n "${TRIGGER_BIT}" ]]; then
+        if is_trigger_active "$cand" "$TRIGGER_BIT"; then r8="$cand"; break; fi
+      else
+        r8="$cand"; break
+      fi
+    done < "$GOLDEN"
+
+    [[ -n "$r8" ]] || { err "No run in $GOLDEN satisfies the requested trigger filter (TRIGGER=${TRIGGER_BIT:-none})."; exit 6; }
 
     src="${LIST_DIR}/dst_calofitting-${r8}.list"
     [[ -s "$src" ]] || { err "Per-run list missing or empty: $src"; exit 7; }
@@ -478,9 +526,56 @@ case "$ACTION" in
     ;;
 
   condor)
-    # condor round <N> [firstChunk]    or    condor all
+    # condor testJob | condor round <N> [firstChunk] | condor all
     submode="${3:-}"
     case "$submode" in
+      testJob)
+        # Single smoke-test on first golden run:
+        # - groupSize=1 (one file per job)
+        # - submit only the first chunk
+        # - RJ_VERBOSITY=10 in the submit file
+        [[ -s "$GOLDEN" ]] || { err "Golden list is empty: $GOLDEN"; exit 6; }
+        r8=""
+        while IFS= read -r rn; do
+          [[ -z "$rn" || "$rn" =~ ^# ]] && continue
+          cand="$(run8 "$rn")"
+          if [[ -n "${TRIGGER_BIT}" ]]; then
+            if is_trigger_active "$cand" "$TRIGGER_BIT"; then r8="$cand"; break; fi
+          else
+            r8="$cand"; break
+          fi
+        done < "$GOLDEN"
+        [[ -n "$r8" ]] || { err "No run in $GOLDEN satisfies the requested trigger filter (TRIGGER=${TRIGGER_BIT:-none})."; exit 6; }
+
+        # Build group lists with groupSize=1 and take only the first chunk
+        mapfile -t groups < <( make_groups "$r8" 1 )
+        (( ${#groups[@]} )) || { err "No groups produced for run $r8"; exit 9; }
+        glist="${groups[0]}"
+
+        stamp="$(date +%Y%m%d_%H%M%S)"
+        sub="${BASE}/RecoilJets_${TAG}_${stamp}_TEST.sub"
+
+        cat > "$sub" <<SUB
+universe      = vanilla
+executable    = ${EXE}
+initialdir    = ${BASE}
+getenv        = True
+log           = ${LOG_DIR}/job.\$(Cluster).\$(Process).log
+output        = ${OUT_DIR}/job.\$(Cluster).\$(Process).out
+error         = ${ERR_DIR}/job.\$(Cluster).\$(Process).err
+request_memory= 2000MB
+should_transfer_files = NO
+stream_output = True
+stream_error  = True
+# TESTJOB: Verbose macro on Condor
+environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=10
+arguments     = ${r8} ${glist} ${DATASET} \$(Cluster) 0 1 NONE ${DEST_BASE}
+queue
+SUB
+        say "Submitting 1 test job on run ${BOLD}${r8}${RST} (first chunk, groupSize=1) → $(basename "$sub")"
+        need_cmd condor_submit
+        condor_submit "$sub"
+        ;;
       round)
         seg="${4:?round number required}"
         firstChunk="${5:-}"

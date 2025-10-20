@@ -24,7 +24,7 @@
 #include <caloreco/CaloTowerBuilder.h>
 #include <phool/PHNodeIterator.h>
 #include <phool/PHIODataNode.h>
-
+#include <calotrigger/MinimumBiasClassifier.h>
 #include <ffamodules/FlagHandler.h>
 #include <ffamodules/CDBInterface.h>
 #include <clusteriso/ClusterIso.h>
@@ -57,7 +57,6 @@
 #include <jetbackground/CopyAndSubtractJets.h>
 #include "/sphenix/u/patsfan753/scratch/thesisAnalysis/src/RecoilJets.h"
 
-// C / C++
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -66,13 +65,17 @@
 #include <cstdlib>     // getenv
 #include <algorithm>   // std::transform
 #include <cctype>      // std::tolower
+#include <dlfcn.h>     // dlopen RTLD_NOLOAD
+#include <TSystem.h>   // gSystem, GetBuildArch/Compiler info
 #include <Calo_Calib.C>
 
-// Ensure local CaloBase/CaloReco (with PhotonClusterBuilder, RawClusterv2, etc.)
-R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_io.so)
+// Load your local overrides FIRST so their symbols/dictionaries win
 R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)
+R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_io.so)
+R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libclusteriso.so)
+R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libRecoilJets.so)
 
-// Rest of the stack from the environment
+// Then load the rest of the environment stack
 R__LOAD_LIBRARY(libfun4all.so)
 R__LOAD_LIBRARY(libffarawobjects.so)
 R__LOAD_LIBRARY(libcaloTreeGen.so)
@@ -86,9 +89,6 @@ R__LOAD_LIBRARY(libcalotrigger.so)
 R__LOAD_LIBRARY(libzdcinfo.so)
 R__LOAD_LIBRARY(libmbd.so)
 
-// Your local ClusterIso + RecoilJets (load ClusterIso first)
-R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libclusteriso.so)
-R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libRecoilJets.so)
 
 //======================================================================
 //  Convenience helpers
@@ -117,13 +117,15 @@ namespace detail
 {
   inline FastJetAlgoSub* fjAlgo(const float R)
   {
-    // FastJetOptions initializer-list order in this release is:
-    // { algo, source, R, ptmin, verbosity }
-    FastJetOptions o({Jet::ANTIKT, Jet::SRC::VOID, R, 0.0, 0});
+    FastJetOptions o;                 // use the fields that actually exist in your header
+    o.algo            = Jet::ANTIKT; // algorithm
+    o.jet_R           = R;           // jet radius
+    o.use_jet_min_pt  = true;        // enable a ptmin
+    o.jet_min_pt      = 0.0f;        // ptmin value
+    o.verbosity       = 0;           // quiet
     return new FastJetAlgoSub(o);
   }
 }
-
 //======================================================================
 //  The actual steering macro
 //======================================================================
@@ -277,14 +279,6 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   ClusterBuilder->set_UseAltZVertex(1);
   se->registerSubsystem(ClusterBuilder);
 
-    // Build photon clusters so PHOTONCLUSTER_CEMC exists
-    auto* photonBuilder = new PhotonClusterBuilder("PhotonClusterBuilder");
-    // input RawCluster node produced above:
-    photonBuilder->set_input_cluster_node("CLUSTERINFO_CEMC");
-    // output Photon cluster node expected by RecoilJets:
-    photonBuilder->set_output_photon_node("PHOTONCLUSTER_CEMC");
-    photonBuilder->Verbosity(vlevel);
-    se->registerSubsystem(photonBuilder);
 
   if (vlevel > 0) std::cout << "Calibrating MBD" << std::endl;
   std::unique_ptr<MbdReco> mbdreco = std::make_unique<MbdReco>();
@@ -318,9 +312,16 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
 
   if (isAuAuData)
   {
+      std::cout << "building minbias classifier" << std::endl;
+      auto* mb = new MinimumBiasClassifier();
+      mb->Verbosity(0);
+      mb->setOverwriteScale(
+            "/cvmfs/sphenix.sdcc.bnl.gov/calibrations/sphnxpro/cdb/CentralityScale/42/6b/426bc1b56ba544201b0213766bee9478_cdb_centrality_scale_54912.root");
+      se->registerSubsystem(mb);
+      
       if (vlevel > 0) std::cout << "building centrality classifier (Au+Au)" << std::endl;
       auto* cent = new CentralityReco();
-      cent->Verbosity(vlevel);
+      cent->Verbosity(0);
       cent->setOverwriteScale(
               "/cvmfs/sphenix.sdcc.bnl.gov/calibrations/sphnxpro/cdb/CentralityScale/42/6b/426bc1b56ba544201b0213766bee9478_cdb_centrality_scale_54912.root");
       se->registerSubsystem(cent);
@@ -349,7 +350,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
       rcemc->set_towerinfo(true);
       rcemc->set_frac_cut(0.50);
       rcemc->set_towerNodePrefix("TOWERINFO_CALIB");
-      rcemc->Verbosity(vLvl);
+      rcemc->Verbosity(0);
       se->registerSubsystem(rcemc);
 
       // Ensure DST/TOWER branch exists
@@ -394,7 +395,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
         seedReco->add_algo(detail::fjAlgo(R), algoRaw);
         seedReco->set_algo_node("ANTIKT");
         seedReco->set_input_node("TOWERINFO_CALIB");
-        seedReco->Verbosity(vLvl);
+        seedReco->Verbosity(0);
         se->registerSubsystem(seedReco);
 
         if (radKey == std::string("r02"))
@@ -406,7 +407,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
           dtb1->SetSeedJetD(D);
           dtb1->set_towerinfo(true);
           dtb1->set_towerNodePrefix("TOWERINFO_CALIB");
-          dtb1->Verbosity(vLvl);
+          dtb1->Verbosity(0);
           se->registerSubsystem(dtb1);
 
           banner("(iii-b)  UE density ρ for tower subtraction (Sub2)");
@@ -416,14 +417,14 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
           dtb2->SetSeedJetD(D);
           dtb2->set_towerinfo(true);
           dtb2->set_towerNodePrefix("TOWERINFO_CALIB");
-          dtb2->Verbosity(vLvl);
+          dtb2->Verbosity(0);
           se->registerSubsystem(dtb2);
 
           banner("(iv)  Subtracting ρ·A tower-by-tower  → *_SUB1");
           auto* st = new SubtractTowers("SubtractTowers_Sub1");
           st->set_towerinfo(true);
           st->set_towerNodePrefix("TOWERINFO_CALIB");
-          st->Verbosity(vLvl);
+          st->Verbosity(0);
           se->registerSubsystem(st);
         }
 
@@ -435,7 +436,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
         subReco->add_algo(detail::fjAlgo(R), jnm.aa_node);   // dataset-aware Au+Au node name
         subReco->set_algo_node("ANTIKT");
         subReco->set_input_node("TOWERINFO_CALIB");
-        subReco->Verbosity(vLvl);
+        subReco->Verbosity(0);
         se->registerSubsystem(subReco);
 
         if (radKey == std::string("r02"))
@@ -447,14 +448,14 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
           dtb3->SetSeedJetD(D);
           dtb3->set_towerinfo(true);
           dtb3->set_towerNodePrefix("TOWERINFO_CALIB");
-          dtb3->Verbosity(vLvl);
+          dtb3->Verbosity(0);
           se->registerSubsystem(dtb3);
 
           banner("(vi-b)  Copy jets + residual subtraction");
           auto* casj = new CopyAndSubtractJets("CopyAndSubtractJets_r02");
           casj->set_towerinfo(true);
           casj->set_towerNodePrefix("TOWERINFO_CALIB");
-          casj->Verbosity(vLvl);
+          casj->Verbosity(0);
           se->registerSubsystem(casj);
         }
       } // radii
@@ -482,7 +483,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
       jpp->add_algo(detail::fjAlgo(R), jnm.pp_node);           // dataset-aware pp node name
       jpp->set_algo_node("ANTIKT");
       jpp->set_input_node("TOWERINFO_CALIB");
-      jpp->Verbosity(vlevel);
+      jpp->Verbosity(0);
       se->registerSubsystem(jpp);
     }
   }
@@ -493,22 +494,30 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   auto* trigInfo = new TriggerRunInfoReco();
   trigInfo->Verbosity(vlevel);
   se->registerSubsystem(trigInfo);
-
+    
   // Compute cluster isolation once per event (writes RawCluster::set_et_iso)
   // Only compute UE-subtracted isolation in Au+Au (SUB1 nodes exist there).
   const bool do_subtracted = isAuAuData;
   auto* clIso = new ClusterIso("ClusterIso",
-                               /*eTCut=*/0.0f,
-                               /*coneSize=*/3,           // R=0.3
-                               /*do_subtracted=*/do_subtracted,
-                               /*do_unsubtracted=*/true);
+                                 /*eTCut=*/0.0f,
+                                 /*coneSize=*/3,           // R=0.3
+                                 /*do_subtracted=*/do_subtracted,
+                                 /*do_unsubtracted=*/true);
   clIso->Verbosity(0);
   se->registerSubsystem(clIso);
+    
+  // Build photon clusters
+  auto* photonBuilder = new PhotonClusterBuilder("PhotonClusterBuilder");
+  photonBuilder->set_input_cluster_node("CLUSTERINFO_CEMC");
+  photonBuilder->set_output_photon_node("PHOTONCLUSTER_CEMC");
+  photonBuilder->set_ET_threshold(0.07);
+  photonBuilder->Verbosity(0);
+  se->registerSubsystem(photonBuilder);
 
   auto* recoilJets = new RecoilJets(outRoot);
   recoilJets->setVzCut(30.);
   recoilJets->enableVzCut(true);
-
+  recoilJets->setIsolationWP(1.08128, 0.0299107, 1.0,   0.30,  0.0);
   // Use the already-defined global vlevel
   recoilJets->setVerbose(vlevel);
   if (verbose) std::cout << "[INFO] RJ_VERBOSITY → " << vlevel << '\n';

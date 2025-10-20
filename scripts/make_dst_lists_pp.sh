@@ -60,4 +60,3 @@ echo "----------------------------------------"
 echo "Requested runs: $total"
 echo "List files made: $made"
 echo "Done. Files are in: $OUT_DIR"
-

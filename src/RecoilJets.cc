@@ -27,8 +27,9 @@
 #include <calobase/TowerInfoDefs.h>
 #include <calobase/TowerInfoContainer.h>
 #include <calobase/RawCluster.h>
-#include <calobase/PhotonClusterContainer.h>
-#include <calobase/PhotonClusterv1.h>
+#include "/sphenix/u/patsfan753/scratch/thesisAnalysis/coresoftware_local/offline/packages/CaloBase/PhotonClusterContainer.h"
+#include "/sphenix/u/patsfan753/scratch/thesisAnalysis/coresoftware_local/offline/packages/CaloBase/PhotonClusterv1.h"
+#include "/sphenix/u/patsfan753/scratch/thesisAnalysis/coresoftware_local/offline/packages/CaloReco/PhotonClusterBuilder.h"
 #include <clusteriso/ClusterIso.h>
 #include <calobase/RawTowerGeomContainer.h>           // <-- required base
 #include <calobase/RawTowerGeomContainer_Cylinderv1.h>
@@ -54,20 +55,21 @@
   #include <omp.h>
 #endif
 
-//–––––––– helpers ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 #define CLR_BLUE   "\033[1;34m"
 #define CLR_CYAN   "\033[1;36m"
 #define CLR_GREEN  "\033[1;32m"
 #define CLR_YELLOW "\033[1;33m"
 #define CLR_MAGENTA "\033[1;35m"
+#define CLR_RED    "\033[1;31m"
 #define CLR_RESET  "\033[0m"
 
 #undef  LOG
 #define LOG(lvl, colour, msg)                                           \
   do {                                                                  \
     if (static_cast<int>(Verbosity()) >= static_cast<int>(lvl))         \
-      std::cout << colour << msg << CLR_RESET << std::endl;             \
+      std::cout << (colour) << msg << CLR_RESET << std::endl;           \
   } while (false)
+
 
 /** Always print, independent of Verbosity() */
 #define PROGRESS(MSG)                                                     \
@@ -78,6 +80,19 @@
 
 
 using namespace PhoIDCuts;
+
+// Friendly label for printing tight category
+static const char* tightTagName(RecoilJets::TightTag t)
+{
+  switch (t) {
+    case RecoilJets::TightTag::kPreselectionFail: return "PreselectionFail";
+    case RecoilJets::TightTag::kTight:            return "Tight";
+    case RecoilJets::TightTag::kNonTight:         return "NonTight(>=2)";
+    case RecoilJets::TightTag::kNeither:          return "Neither(1 fail)";
+    default:                                      return "UNKNOWN";
+  }
+}
+
 //==========================================================================
 //  ctor
 //==========================================================================
@@ -326,52 +341,79 @@ int RecoilJets::InitRun(PHCompositeNode* /*topNode*/)
 
 void RecoilJets::createHistos_Data()
 {
-  // Book per-trigger counters for whichever data type we’re running
+  // Common vertex histogram binning (match your |vz| cut of 60 cm)
+  const int    nbVz  = 120;
+  const double vzMin = -60.0;
+  const double vzMax =  60.0;
+
   if (m_isAuAu)
   {
-    for (const auto& kv : triggerNameMapAuAu)    // kv: std::pair<int,std::string>
+    for (const auto& kv : triggerNameMapAuAu) // kv: std::pair<int,std::string>
     {
       const std::string trig = kv.second;
-      if (Verbosity() > 1)
-        std::cout << CLR_BLUE << "  ├─ trigger \"" << trig
-                  << "\" – booking trigger counter" << CLR_RESET << std::endl;
 
+      // Make sure the trigger directory exists
       TDirectory* dir = out->GetDirectory(trig.c_str());
       if (!dir) dir = out->mkdir(trig.c_str());
       dir->cd();
 
       HistMap& H = qaHistogramsByTrigger[trig];
-      const std::string hname = "cnt_" + trig;
-      if (H.find(hname) == H.end())
+
+      // 1) per-trigger event counter
+      const std::string hcnt = "cnt_" + trig;
+      if (H.find(hcnt) == H.end())
       {
-        auto* h = new TH1I(hname.c_str(), (hname+";count;entries").c_str(), 1, 0.5, 1.5);
+        auto* h = new TH1I(hcnt.c_str(), (hcnt + ";count;entries").c_str(), 1, 0.5, 1.5);
         h->GetXaxis()->SetBinLabel(1, "count");
-        H[hname] = h;
+        H[hcnt] = h;
       }
+
+      // 2) vertex-z QA (this is the one you fill later)
+      if (H.find("h_vertexZ") == H.end())
+      {
+        auto* hvz = new TH1F("h_vertexZ", "h_vertexZ;v_{z} [cm];Entries", nbVz, vzMin, vzMax);
+        H["h_vertexZ"] = hvz;
+      }
+
+      // 3) centrality QA (you conditionally fill this later in Au+Au)
+      if (H.find("h_centrality") == H.end())
+      {
+        auto* hc = new TH1F("h_centrality", "h_centrality;Centrality [%];Entries", 100, 0.0, 100.0);
+        H["h_centrality"] = hc;
+      }
+
       out->cd();
     }
   }
   else
   {
-    for (const auto& kv : triggerNameMap_pp)     // kv: std::pair<std::string,std::string>
+    for (const auto& kv : triggerNameMap_pp) // kv: std::pair<std::string,std::string>
     {
       const std::string trig = kv.second;
-      if (Verbosity() > 1)
-        std::cout << CLR_BLUE << "  ├─ trigger \"" << trig
-                  << "\" – booking trigger counter" << CLR_RESET << std::endl;
 
+      // Make sure the trigger directory exists
       TDirectory* dir = out->GetDirectory(trig.c_str());
       if (!dir) dir = out->mkdir(trig.c_str());
       dir->cd();
 
       HistMap& H = qaHistogramsByTrigger[trig];
-      const std::string hname = "cnt_" + trig;
-      if (H.find(hname) == H.end())
+
+      // 1) per-trigger event counter
+      const std::string hcnt = "cnt_" + trig;
+      if (H.find(hcnt) == H.end())
       {
-        auto* h = new TH1I(hname.c_str(), (hname+";count;entries").c_str(), 1, 0.5, 1.5);
+        auto* h = new TH1I(hcnt.c_str(), (hcnt + ";count;entries").c_str(), 1, 0.5, 1.5);
         h->GetXaxis()->SetBinLabel(1, "count");
-        H[hname] = h;
+        H[hcnt] = h;
       }
+
+      // 2) vertex-z QA (this is the one you fill later)
+      if (H.find("h_vertexZ") == H.end())
+      {
+        auto* hvz = new TH1F("h_vertexZ", "h_vertexZ;v_{z} [cm];Entries", nbVz, vzMin, vzMax);
+        H["h_vertexZ"] = hvz;
+      }
+
       out->cd();
     }
   }
@@ -382,28 +424,26 @@ void RecoilJets::createHistos_Data()
 bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
                                 std::vector<std::string>& activeTrig)
 {
+  m_lastReject = EventReject::None;
   activeTrig.clear();
 
   if (!m_isAuAu)
   {
-    // ---------- p+p path: require "MBD N&S >= 1" via TriggerAnalyzer ----------
-    if (!trigAna) return false;
+    // ---------- p+p path: accept if ANY configured pp trigger fired ----------
+    if (!trigAna) { m_lastReject = EventReject::Trigger; return false; }
 
     trigAna->decodeTriggers(topNode);
 
     for (const auto& kv : triggerNameMap_pp)
     {
       const std::string& dbName   = kv.first;   // GL1/DB name
-      const std::string& shortKey = kv.second;  // histogram-friendly short key
+      const std::string& shortKey = kv.second;  // friendly key
       if (trigAna->didTriggerFire(dbName))
         activeTrig.push_back(shortKey);
     }
 
-    // Strict pp gate: must have the MB short key present
-    const char* requiredShort = "MBD_NandS_geq_1";
-    const bool haveRequired =
-      std::find(activeTrig.begin(), activeTrig.end(), requiredShort) != activeTrig.end();
-    if (!haveRequired) return false;
+    // Gate: at least one of the configured pp triggers must have fired
+    if (activeTrig.empty()) { m_lastReject = EventReject::Trigger; return false; }
   }
   else
   {
@@ -422,32 +462,36 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
           activeTrig.push_back(key);
     }
 
-    if (activeTrig.empty()) return false;
+    if (activeTrig.empty()) { m_lastReject = EventReject::Trigger; return false; }
   }
+
   // ---------- Global |vz| veto (applies to both datasets) ----------
-  if (m_useVzCut && std::fabs(m_vz) >= m_vzCut) return false;
+  if (m_useVzCut && std::fabs(m_vz) >= m_vzCut)
+  {
+    m_lastReject = EventReject::Vz;
+    return false;
+  }
 
   // Uniform downstream behavior
   if (activeTrig.empty()) activeTrig.emplace_back("ALL");
 
+  m_lastReject = EventReject::None;
   return true;
 }
 
 
 
 
-// ======================================================================
-//  process_event – one-event driver, pp/Au+Au aware trigger gating
-// ======================================================================
 int RecoilJets::process_event(PHCompositeNode* topNode)
 {
   /* ------------------------------------------------------------------ */
   /* 0) Banner & counter                                                */
   /* ------------------------------------------------------------------ */
   ++event_count;
+  ++m_bk.evt_seen;
   std::cout << "==================== processing event "
-              << std::setw(6) << event_count
-              << " ====================" << std::endl;
+            << std::setw(6) << event_count
+            << " ====================" << std::endl;
 
   /* ------------------------------------------------------------------ */
   /* 1) Mandatory nodes                                                 */
@@ -455,8 +499,7 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
   LOG(4, CLR_BLUE, "  [process_event] – node sanity");
   if (!fetchNodes(topNode))
   {
-    LOG(4, CLR_YELLOW,
-        "    mandatory node(s) missing → ABORTEVENT");
+    LOG(4, CLR_YELLOW, "    mandatory node(s) missing → ABORTEVENT");
     return Fun4AllReturnCodes::ABORTEVENT;
   }
 
@@ -466,11 +509,13 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
   std::vector<std::string> activeTrig;
   if (!firstEventCuts(topNode, activeTrig))
   {
-      ++m_evtNoTrig;
-      LOG(4, CLR_YELLOW, "    event rejected by MB/Trigger/Vz gate – skip");
-      return Fun4AllReturnCodes::ABORTEVENT;
-  }
+    ++m_evtNoTrig;  // keep your legacy counter
+    if (m_lastReject == EventReject::Trigger) ++m_bk.evt_fail_trigger;
+    else if (m_lastReject == EventReject::Vz) ++m_bk.evt_fail_vz;
 
+    LOG(4, CLR_YELLOW, "    event rejected by MB/Trigger/Vz gate – skip");
+    return Fun4AllReturnCodes::ABORTEVENT;
+  }
   /* ------------------------------------------------------------------ */
   /* 3) Trigger counters (one per trigger) + Vertex-z QA                */
   /* ------------------------------------------------------------------ */
@@ -555,11 +600,11 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
   }
 
   processCandidates(topNode, activeTrig);
-    
+
+  ++m_bk.evt_accepted;
   LOG(4, CLR_GREEN, "  [process_event] – completed OK");
   return Fun4AllReturnCodes::EVENT_OK;
 }
-
 
 int RecoilJets::ResetEvent(PHCompositeNode*)
 {
@@ -647,61 +692,46 @@ int RecoilJets::End(PHCompositeNode*)
         }
   }
 
-  // ------------------ Analysis summary (verbosity-controlled) ------------------
-  if (Verbosity() >= 1)
-  {
-      std::cout << "\n\033[1mSelection summary (dataset: " << (m_isAuAu ? "Au+Au" : "p+p")
-                << ", events=" << event_count << ")\033[0m\n";
-      for (const auto& kvT : m_catByTrig)
-      {
-        const std::string& trig = kvT.first;
-        std::cout << "\n\033[1mTrigger: " << trig << "\033[0m\n";
-        std::cout << "slice                                 |   seen |  tight | nonTgt | isoPass | isoFail |   SBtot |  SBpass\n";
-        std::cout << "--------------------------------------+--------+--------+--------+---------+---------+--------+--------\n";
-
-        // Ordered print by slice label
-        std::vector<std::string> keys;
-        keys.reserve(kvT.second.size());
-        for (auto& s : kvT.second) keys.push_back(s.first);
-        std::sort(keys.begin(), keys.end());
-
-        for (const auto& sfx : keys)
+    // ------------------ Analysis summary (verbosity-controlled) ------------------
+    if (Verbosity() >= 1)
+    {
+        std::cout << "\n\033[1mSelection summary (dataset: " << (m_isAuAu ? "Au+Au" : "p+p")
+                  << ", events=" << event_count << ")\033[0m\n";
+        for (const auto& kvT : m_catByTrig)
         {
-          const CatStat& S = kvT.second.at(sfx);
-          std::ostringstream lab; lab << (sfx.empty() ? "<all>" : sfx);
-          std::cout << std::left  << std::setw(38) << lab.str() << " | "
-                    << std::right << std::setw(6)  << S.seen     << " | "
-                    << std::setw(6)  << S.tight    << " | "
-                    << std::setw(6)  << S.nonTight << " | "
-                    << std::setw(7)  << S.isoPass  << " | "
-                    << std::setw(7)  << S.isoFail  << " | "
-                    << std::setw(6)  << S.idSB_total << " | "
-                    << std::setw(6)  << S.idSB_pass  << "\n";
-        }
-      }
+          const std::string& trig = kvT.first;
+          std::cout << "\n\033[1mTrigger: " << trig << "\033[0m\n";
+            std::cout << "slice                                 | iso∧tight | ¬iso∧tight | iso∧¬tight | ¬iso∧¬tight |   seen | SBtot | SBpass\n";
+            std::cout << "--------------------------------------+-----------+------------+------------+-------------+--------+-------+-------\n";
+            // Ordered print by slice label
+            std::vector<std::string> keys;
+            keys.reserve(kvT.second.size());
+            for (auto& s : kvT.second) keys.push_back(s.first);
+            std::sort(keys.begin(), keys.end());
+            for (const auto& sfx : keys)
+            {
+              const CatStat& S = kvT.second.at(sfx);
+              std::ostringstream lab; lab << (sfx.empty() ? "<all>" : sfx);
+              std::cout << std::left  << std::setw(38) << lab.str() << " | "
+                        << std::right << std::setw(9)  << S.n_iso_tight        << " | "
+                        << std::setw(10) << S.n_nonIso_tight     << " | "
+                        << std::setw(10) << S.n_iso_nonTight     << " | "
+                        << std::setw(11) << S.n_nonIso_nonTight  << " | "
+                        << std::setw(6)  << S.seen               << " | "
+                        << std::setw(5)  << S.idSB_total         << " | "
+                        << std::setw(5)  << S.idSB_pass          << "\n";
+            }
 
-      // Histogram fill counts (analysis set)
-      if (!m_histFill.empty())
-      {
-        std::cout << "\n\033[1mHistogram fills (analysis set)\033[0m\n";
-        std::cout << "trigger::histogram                               | fills\n";
-        std::cout << "-----------------------------------------------+-------\n";
-        // Stable, alphabetical
-        std::vector<std::pair<std::string,std::size_t>> vv(m_histFill.begin(), m_histFill.end());
-        std::sort(vv.begin(), vv.end(),
-                  [](auto& a, auto& b){ return a.first < b.first; });
-        for (const auto& p : vv)
-        {
-          std::cout << std::left  << std::setw(47) << p.first
-                    << " | " << std::right << std::setw(5) << p.second << "\n";
         }
-      }
-  }
-  // ---------------------------------------------------------------------------
 
-  // 4.  Write footer & close the file
-  if (Verbosity() >= 1)
-        std::cout << "\nOutput ROOT file →  " << out->GetName() << "\n\n";
+        // NEW: job-wide meticulous cutflow
+        printCutSummary();
+    }
+    // ---------------------------------------------------------------------------
+
+    // 4.  Write footer & close the file
+    if (Verbosity() >= 1)
+          std::cout << "\nOutput ROOT file →  " << out->GetName() << "\n\n";
 
   info(1, "writing TFile footer and closing ("+std::to_string(nHistWritten)
              +" / "+std::to_string(nHistExpected)+" objects written)");
@@ -749,7 +779,6 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
     LOG(0, CLR_YELLOW, "  [processCandidates] topNode == nullptr – aborting this event");
     return;
   }
-
   if (activeTrig.empty())
   {
     LOG(0, CLR_YELLOW, "  [processCandidates] activeTrig is EMPTY – nothing to fill this event");
@@ -770,7 +799,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
     return;
   }
 
-  // -------- PHOTON path (preferred; full shower shapes) ---------------------
+  // ========================= PHOTON path (preferred) ========================
   if (m_photons)
   {
     PhotonClusterContainer::ConstRange prange = m_photons->getClusters();
@@ -782,185 +811,318 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
     if (nPho == 0)
       LOG(3, CLR_YELLOW, "    [processCandidates] photon container is EMPTY for this event");
 
-    std::size_t nUsed  = 0;
+    // Per-event counters
+    std::size_t nUsed = 0;
     std::size_t nSkipEta = 0, nSkipEtBin = 0, nSkipPhi = 0, nNoRC = 0, nNotIso = 0, nNotTight = 0;
 
-    try
-    {
-      int iPho = 0;
-      for (auto pit = prange.first; pit != prange.second; ++pit, ++iPho)
+      try
       {
-        // Concrete type check
-        const auto* pho = dynamic_cast<const PhotonClusterv1*>(pit->second);
-        if (!pho)
+        int iPho = 0;
+        for (auto pit = prange.first; pit != prange.second; ++pit, ++iPho)
         {
-          LOG(5, CLR_YELLOW, "      [pho#" << iPho << "] pointer is not PhotonClusterv1 – skipping");
-          continue;
-        }
-
-        // If the underlying object is also a RawCluster, grab it (needed for ISO)
-        const RawCluster* rc = dynamic_cast<const RawCluster*>(pit->second);
-
-        // Eta: prefer builder-provided; else derive (if RawCluster available)
-        double eta = pho->get_shower_shape_parameter("cluster_eta");
-        if (!std::isfinite(eta) || eta == 0.0)
-        {
-          if (rc) eta = RawClusterUtility::GetPseudorapidity(*rc, CLHEP::Hep3Vector(0,0,m_vz));
-          else
+          // Concrete types
+          const auto* pho = dynamic_cast<const PhotonClusterv1*>(pit->second);
+          if (!pho)
           {
-            ++nSkipEta;
-            LOG(5, CLR_YELLOW, "      [pho#" << iPho << "] cannot determine eta (no rc and builder eta invalid) – skip");
+            LOG(5, CLR_YELLOW, "      [pho#" << iPho << "] pointer is not PhotonClusterv1 – skipping");
             continue;
           }
-        }
 
-        // Global fiducial (PPG-12): |eta^gamma| < m_etaAbsMax (default 0.7)
-        if (!std::isfinite(eta) || std::fabs(eta) >= m_etaAbsMax)
-        {
-          ++nSkipEta;
-          if (Verbosity() >= 5)
-            LOG(5, CLR_YELLOW, "      [pho#" << iPho << "] |eta|=" << std::fabs(eta)
-                                             << " outside fiducial (max=" << m_etaAbsMax << ") – skip");
-          continue;
-        }
+          // Underlying RawCluster is needed to build kinematics at the event vertex
+          const RawCluster* rc = dynamic_cast<const RawCluster*>(pit->second);
+          if (!rc)
+          {
+            ++nNoRC; ++m_bk.pho_noRC;
+            if (Verbosity() >= 5)
+              LOG(5, CLR_YELLOW, "      [pho#" << iPho << "] RawCluster pointer is NULL – cannot compute kinematics");
+            continue;
+          }
 
-        const double energy = pho->get_energy();
-        if (!std::isfinite(energy) || energy <= 0.0)
-        {
-          ++nSkipEtBin;
-          LOG(5, CLR_YELLOW, "      [pho#" << iPho << "] non-positive or NaN energy=" << energy << " – skip");
-          continue;
-        }
+          ++m_bk.pho_total;
 
-        const double et = energy / std::cosh(eta);
-        if (!std::isfinite(et) || et <= 0.0)
-        {
-          ++nSkipEtBin;
-          LOG(5, CLR_YELLOW, "      [pho#" << iPho << "] invalid ET=" << et << " (E=" << energy << ", eta=" << eta << ") – skip");
-          continue;
-        }
+          // Build 4-vector and kinematics from vertex
+          const CLHEP::Hep3Vector vtx_vec(0, 0, m_vz);
+          const CLHEP::Hep3Vector p_vec  = RawClusterUtility::GetEVec(*rc, vtx_vec);
 
-        const int etIdx = findEtBin(et);
-        if (etIdx < 0)
-        {
-          ++nSkipEtBin;
-          if (Verbosity() >= 5)
-            LOG(5, CLR_YELLOW, "      [pho#" << iPho << "] ET=" << et << " not in configured ET bins – skip");
-          continue;
-        }
+          const double eta    = p_vec.pseudoRapidity();
+          const double phi    = p_vec.phi();
+          const double pt_dbg = p_vec.perp();
+          const double energy = rc->get_energy();
 
-        // Build SSVars (basic validation only; keep logic identical)
-        const SSVars v = makeSSFromPhoton(pho, et);
+          // -------- early ET gate (2 GeV) --------------------------------------
+          constexpr double kMinEtGamma = 2.0; // GeV
 
-        // Fill ID/ISO counters only if we can evaluate isolation (need RawCluster*)
-        if (rc)
-        {
-          for (const auto& trigShort : activeTrig)
-            fillIsoSSTagCounters(trigShort, rc, v, et, centIdx, topNode);
-        }
-        else
-        {
-          ++nNoRC;
-          if (Verbosity() >= 5)
-            LOG(5, CLR_YELLOW, "      [pho#" << iPho << "] RawCluster pointer is NULL – cannot compute isolation counters");
-        }
+          // quick reject: E < 2 GeV implies ET < 2 GeV for any η
+          if (energy < kMinEtGamma)
+          {
+            ++nSkipEtBin; ++m_bk.pho_early_E;
+            if (Verbosity() >= 6)
+              LOG(6, CLR_YELLOW, "      [pho#" << iPho << "] early reject (E<2 GeV): E=" << energy);
+            continue;
+          }
 
-        // xJ requires a valid φ (builder-provided only)
-        double phi_gamma = pho->get_shower_shape_parameter("cluster_phi");
-        if (!std::isfinite(phi_gamma))
-        {
-          ++nSkipPhi;
-          if (Verbosity() >= 5)
-            LOG(5, CLR_YELLOW, "      [pho#" << iPho << "] cluster_phi invalid – skip xJ step");
-          continue;
-        }
+          // |η| cut (need η for ET)
+          if (!std::isfinite(eta) || std::fabs(eta) >= m_etaAbsMax)
+          {
+            ++nSkipEta; ++m_bk.pho_eta_fail;
+            if (Verbosity() >= 2)
+            {
+              const double et_dbg = std::isfinite(eta) ? energy / std::cosh(eta) : 0.0;
+              std::cout << CLR_MAGENTA
+                        << "      [skip:eta pho#" << iPho << "]"
+                        << "  ET=" << std::fixed << std::setprecision(2) << et_dbg
+                        << "  E="  << std::fixed << std::setprecision(2) << energy
+                        << "  pT=" << std::fixed << std::setprecision(2) << pt_dbg
+                        << "  eta="<< std::fixed << std::setprecision(3) << eta
+                        << "  phi="<< std::fixed << std::setprecision(3) << phi
+                        << "  (|eta|>=" << m_etaAbsMax << ")"
+                        << CLR_RESET << std::endl;
+            }
+            continue;
+          }
 
-        const bool iso = (rc ? isIsolated(rc, et, topNode) : false);
-        const TightTag tightTag = classifyPhotonTightness(v);
+          // Compute ET and enforce the 2 GeV gate *before* anything else
+          const double et  = energy / std::cosh(eta);
+          if (!std::isfinite(et) || et < kMinEtGamma)
+          {
+            ++nSkipEtBin; ++m_bk.pho_early_E;
+            if (Verbosity() >= 6)
+              LOG(6, CLR_YELLOW, "      [pho#" << iPho << "] early reject (ET<2 GeV): ET=" << et);
+            continue;
+          }
 
-        if (!(iso && tightTag == TightTag::kTight))
-        {
-          if (!iso)      ++nNotIso;
-          if (tightTag != TightTag::kTight) ++nNotTight;
-          if (Verbosity() >= 6)
-            LOG(6, CLR_BLUE, "      [pho#" << iPho << "] NOT used for xJ (iso=" << iso
-                                           << ", tightTag=" << static_cast<int>(tightTag) << ")");
-          continue;
-        }
+          // Now do your configured ET binning (for the QA counters)
+          const int etIdx = findEtBin(et);
+          if (etIdx < 0)
+          {
+            ++nSkipEtBin; ++m_bk.pho_etbin_out;
+            if (Verbosity() >= 2)
+            {
+              std::cout << CLR_MAGENTA
+                        << "      [skip:ETbin pho#" << iPho << "]"
+                        << "  ET=" << std::fixed << std::setprecision(2) << et
+                        << "  E="  << std::fixed << std::setprecision(2) << energy
+                        << "  pT=" << std::fixed << std::setprecision(2) << pt_dbg
+                        << "  eta="<< std::fixed << std::setprecision(3) << eta
+                        << "  phi="<< std::fixed << std::setprecision(3) << phi
+                        << CLR_RESET << std::endl;
+            }
+            continue;
+          }
 
-        // Dataset-aware r02 jet container
-        JetContainer* jets = nullptr;
-        if (auto it = m_jets.find("r02"); it != m_jets.end()) jets = it->second;
+            // φ to use for jet matching (used later for jet scan)
+            const double phi_gamma = phi;
 
-        if (!jets)
-        {
-          LOG(3, CLR_YELLOW, "      [pho#" << iPho << "] jet container r02 is nullptr – cannot form xJ");
-          continue;
-        }
+            // ---- Unconditional Eiso fill (per ET/[cent] slice), BEFORE any pre-selection ----
+            {
+              const int effCentIdx = (m_isAuAu ? centIdx : -1);
+              const std::string slice = suffixForBins(etIdx, effCentIdx);
+              const double eiso_val = eiso(rc, topNode);
+              for (const auto& trigShort : activeTrig)
+              {
+                if (auto* hIso = getOrBookIsoHist(trigShort, etIdx, effCentIdx))
+                {
+                  hIso->Fill(eiso_val);
+                  bumpHistFill(trigShort, std::string("h_Eiso") + slice);
+                }
+              }
+            }
 
-        // Debug: show how many jets and print the first few
-        const std::size_t nj = jets->size();
-        LOG(4, CLR_BLUE, "      [pho#" << iPho << "] r02 jet container size = " << nj);
-        if (Verbosity() >= 5 && nj > 0)
-        {
-          int shown = 0;
+            // 1) Build shower-shape inputs (for preselection and tightness)
+            const SSVars v = makeSSFromPhoton(pho, et);
+            ++m_bk.pho_reached_pre_iso;
+
+            // ---------- Preselection breakdown (count by criterion) ----------
+            const bool pass_e11e33 = (v.e11_over_e33 < PRE_E11E33_MAX);
+            const bool pass_et1    = in_open_interval(v.et1, PRE_ET1_MIN, PRE_ET1_MAX);
+            const bool pass_e32e35 = in_open_interval(v.e32_over_e35, PRE_E32E35_MIN, PRE_E32E35_MAX);
+            const bool pass_weta   = (v.weta_cogx < PRE_WETA_MAX);
+
+            bool pre_ok = pass_e11e33 && pass_et1 && pass_e32e35 && pass_weta;
+            if (!pre_ok)
+            {
+              // 3) Book/fill per-cut, per-bin FAILURE histograms
+              const int effCentIdx = (m_isAuAu ? centIdx : -1);
+              const std::string slice = suffixForBins(etIdx, effCentIdx);
+
+              for (const auto& trigShort : activeTrig)
+              {
+                if (!pass_weta)
+                {
+                  if (auto* h = getOrBookCountHist(trigShort, "h_preFail_weta", etIdx, effCentIdx))
+                  { h->Fill(1); bumpHistFill(trigShort, std::string("h_preFail_weta") + slice); }
+                }
+                if (!pass_et1)
+                {
+                  const char* base = (v.et1 <= PRE_ET1_MIN) ? "h_preFail_et1_low" : "h_preFail_et1_high";
+                  if (auto* h = getOrBookCountHist(trigShort, base, etIdx, effCentIdx))
+                  { h->Fill(1); bumpHistFill(trigShort, std::string(base) + slice); }
+                }
+                if (!pass_e11e33)
+                {
+                  if (auto* h = getOrBookCountHist(trigShort, "h_preFail_e11e33_high", etIdx, effCentIdx))
+                  { h->Fill(1); bumpHistFill(trigShort, std::string("h_preFail_e11e33_high") + slice); }
+                }
+                if (!pass_e32e35)
+                {
+                  const char* base = (v.e32_over_e35 <= PRE_E32E35_MIN) ? "h_preFail_e32e35_low" : "h_preFail_e32e35_high";
+                  if (auto* h = getOrBookCountHist(trigShort, base, etIdx, effCentIdx))
+                  { h->Fill(1); bumpHistFill(trigShort, std::string(base) + slice); }
+                }
+              }
+
+              // Maintain existing bookkeeping
+              if (!pass_weta)   ++m_bk.pre_fail_weta;
+              if (!pass_et1)    { if (v.et1 <= PRE_ET1_MIN) ++m_bk.pre_fail_et1_low; else ++m_bk.pre_fail_et1_high; }
+              if (!pass_e11e33) ++m_bk.pre_fail_e11e33_high;
+              if (!pass_e32e35) { if (v.e32_over_e35 <= PRE_E32E35_MIN) ++m_bk.pre_fail_e32e35_low; else ++m_bk.pre_fail_e32e35_high; }
+
+              // 4) Human-readable, single-line diagnostic with ALL values and reasons
+              if (Verbosity() >= 4)
+              {
+                const char* et1_state    = pass_et1    ? "PASS" : (v.et1 <= PRE_ET1_MIN ? "FAIL(low)" : "FAIL(high)");
+                const char* e32e35_state = pass_e32e35 ? "PASS" : (v.e32_over_e35 <= PRE_E32E35_MIN ? "FAIL(low)" : "FAIL(high)");
+
+                std::ostringstream msg;
+                msg << "      [pho#" << iPho << "] preselection FAIL"
+                    << " | weta="    << std::fixed << std::setprecision(3) << v.weta_cogx
+                    << "  cut:<"     << PRE_WETA_MAX       << " → " << (pass_weta ? "PASS" : "FAIL")
+                    << " | et1="     << std::fixed << std::setprecision(3) << v.et1
+                    << "  cut:("     << PRE_ET1_MIN        << "," << PRE_ET1_MAX       << ") → " << et1_state
+                    << " | e11/e33=" << std::fixed << std::setprecision(3) << v.e11_over_e33
+                    << "  cut:<"     << PRE_E11E33_MAX     << " → " << (pass_e11e33 ? "PASS" : "FAIL")
+                    << " | e32/e35=" << std::fixed << std::setprecision(3) << v.e32_over_e35
+                    << "  cut:("     << PRE_E32E35_MIN     << "," << PRE_E32E35_MAX    << ") → " << e32e35_state
+                    << " | ET^γ="    << std::fixed << std::setprecision(2) << v.et_gamma;
+                LOG(4, CLR_MAGENTA, msg.str());
+              }
+
+              ++nNotTight; // keep legacy counter of “not usable” for xJ
+              continue;
+            }
+
+            // NEW: very clear PASS line in bright red
+            if (Verbosity() >= 4)
+            {
+              std::ostringstream msg;
+              msg << "      [pho#" << iPho << "] preselection PASS"
+                  << " | weta="    << std::fixed << std::setprecision(3) << v.weta_cogx  << "  cut:<"  << PRE_WETA_MAX    << " → PASS"
+                  << " | et1="     << std::fixed << std::setprecision(3) << v.et1        << "  cut:("  << PRE_ET1_MIN     << "," << PRE_ET1_MAX     << ") → PASS"
+                  << " | e11/e33=" << std::fixed << std::setprecision(3) << v.e11_over_e33 << "  cut:<" << PRE_E11E33_MAX  << " → PASS"
+                  << " | e32/e35=" << std::fixed << std::setprecision(3) << v.e32_over_e35 << "  cut:(" << PRE_E32E35_MIN  << "," << PRE_E32E35_MAX  << ") → PASS"
+                  << " | ET^γ="    << std::fixed << std::setprecision(2) << v.et_gamma;
+              LOG(4, CLR_RED, msg.str());
+            }
+            ++m_bk.pre_pass;
+
+
+          // ---------- Isolation (count pass/fail) ----------
+          const bool iso = isIsolated(rc, et, topNode);
+          if (iso) ++m_bk.iso_pass; else ++m_bk.iso_fail;
+
+          // ---------- Tight classification breakdown ----------
+          const double w_hi = tight_w_hi(v.et_gamma);
+          const bool t_weta   = in_open_interval(v.weta_cogx,  TIGHT_W_LO, w_hi);
+          const bool t_wphi   = in_open_interval(v.wphi_cogx,  TIGHT_W_LO, w_hi);
+          const bool t_e11e33 = in_open_interval(v.e11_over_e33, TIGHT_E11E33_MIN, TIGHT_E11E33_MAX);
+          const bool t_et1    = in_open_interval(v.et1,          TIGHT_ET1_MIN,    TIGHT_ET1_MAX);
+          const bool t_e32e35 = in_open_interval(v.e32_over_e35, TIGHT_E32E35_MIN, TIGHT_E32E35_MAX);
+
+          int tight_fails = 0;
+          if (!t_weta)   { ++m_bk.tight_fail_weta;   ++tight_fails; }
+          if (!t_wphi)   { ++m_bk.tight_fail_wphi;   ++tight_fails; }
+          if (!t_e11e33) { ++m_bk.tight_fail_e11e33; ++tight_fails; }
+          if (!t_et1)    { ++m_bk.tight_fail_et1;    ++tight_fails; }
+          if (!t_e32e35) { ++m_bk.tight_fail_e32e35; ++tight_fails; }
+
+            RecoilJets::TightTag tightTag;
+            if (tight_fails == 0)      { tightTag = TightTag::kTight;      ++m_bk.tight_tight; }
+            else if (tight_fails >= 2) { tightTag = TightTag::kNonTight;   ++m_bk.tight_nonTight; }
+            else                       { tightTag = TightTag::kNeither;    ++m_bk.tight_neither; }
+
+            // NEW: record the 2×2 (iso, tight) category + SS variable hists
+            // This also fills h_Eiso once and prints a detailed decision line.
+            for (const auto& trigShort : activeTrig)
+            {
+              fillIsoSSTagCounters(trigShort, rc, v, et, centIdx, topNode);
+            }
+
+            // Your original xJ usable gate (unchanged)
+            if (!(iso && tightTag == TightTag::kTight))
+            {
+              if (!iso) ++nNotIso;
+              if (tightTag != TightTag::kTight) ++nNotTight;
+              if (Verbosity() >= 6)
+                LOG(6, CLR_BLUE, "      [pho#" << iPho << "] NOT used for xJ (iso=" << iso
+                                               << ", tightTag=" << tightTagName(tightTag) << ")");
+              continue;
+            }
+
+
+          // r02 jet container
+          JetContainer* jets = nullptr;
+          if (auto itJ = m_jets.find("r02"); itJ != m_jets.end()) jets = itJ->second;
+          if (!jets)
+          {
+            LOG(3, CLR_YELLOW, "      [pho#" << iPho << "] jet container r02 is nullptr – cannot form xJ");
+            continue;
+          }
+
+          // Scan jets for away-side match
+          int nPassDphi = 0, nPassPt = 0;
+          double bestPt = -1.0;
           for (const Jet* j : *jets)
           {
             if (!j) continue;
-            if (shown < 5)
-            {
-              LOG(5, CLR_CYAN, "        jet " << shown
-                    << "  pt="  << std::fixed << std::setprecision(2) << j->get_pt()
-                    << "  eta=" << std::setprecision(3) << j->get_eta()
-                    << "  phi=" << std::setprecision(3) << j->get_phi());
-              ++shown;
-            }
-            else break;
+            const double dphi = std::fabs(TVector2::Phi_mpi_pi(j->get_phi() - phi_gamma));
+            if (dphi >= m_minBackToBack) ++nPassDphi; else continue;
+
+            const double jpt = j->get_pt();
+            if (jpt >= m_minJetPt)      ++nPassPt;   else continue;
+
+            if (jpt > bestPt) bestPt = jpt;
           }
-        }
 
-        // Scan jets for away-side match
-        int nPassDphi = 0, nPassPt = 0;
-        double bestPt = -1.0;
-        for (const Jet* j : *jets)
-        {
-          if (!j) continue;
-          const double dphi = std::fabs(TVector2::Phi_mpi_pi(j->get_phi() - phi_gamma));
-          if (dphi >= m_minBackToBack) ++nPassDphi; else continue;
-
-          const double pt = j->get_pt();
-          if (pt >= m_minJetPt)        ++nPassPt;   else continue;
-
-          if (pt > bestPt) bestPt = pt;
-        }
-
-        if (bestPt > 0.0)
-        {
-          const double xJ = bestPt / et;
-          if (Verbosity() >= 5)
-            LOG(5, CLR_GREEN, "      [pho#" << iPho << "] xJ = " << std::fixed << std::setprecision(3)
-                                            << xJ << "  (bestPt=" << bestPt
-                                            << ", ET^γ=" << et
-                                            << ", passed dphi=" << nPassDphi
-                                            << ", passed pt=" << nPassPt << ")");
-
-          for (const auto& trigShort : activeTrig)
+          if (bestPt > 0.0)
           {
-            auto* hx = getOrBookXJHist(trigShort, etIdx, (m_isAuAu ? centIdx : -1));
-            hx->Fill(xJ);
-            bumpHistFill(trigShort, std::string("h_xJ") + suffixForBins(etIdx, (m_isAuAu ? centIdx : -1)));
+            const double xJ = bestPt / et;
+            if (Verbosity() >= 5)
+              LOG(5, CLR_GREEN, "      [pho#" << iPho << "] xJ = " << std::fixed << std::setprecision(3)
+                                              << xJ << "  (bestPt=" << bestPt
+                                              << ", ET^γ=" << et
+                                              << ", passed dphi=" << nPassDphi
+                                              << ", passed pt=" << nPassPt << ")");
+
+            for (const auto& trigShort : activeTrig)
+            {
+              if (auto* hx = getOrBookXJHist(trigShort, etIdx, (m_isAuAu ? centIdx : -1)))
+              {
+                hx->Fill(xJ);
+                bumpHistFill(trigShort, std::string("h_xJ") + suffixForBins(etIdx, (m_isAuAu ? centIdx : -1)));
+              }
+            }
+            ++nUsed;
           }
-          ++nUsed;
-        }
-        else
-        {
-          LOG(4, CLR_YELLOW, "      [pho#" << iPho << "] no away-side jet passes Δφ/pt cuts (bestPt ≤ 0)"
-                                           << "  [passed dphi=" << nPassDphi
-                                           << ", passed pt=" << nPassPt
-                                           << ", minBackToBack=" << m_minBackToBack
-                                           << ", minJetPt=" << m_minJetPt << "]");
-        }
-      } // photon loop
+          else
+          {
+            LOG(4, CLR_YELLOW, "      [pho#" << iPho << "] no away-side jet passes Δφ/pt cuts (bestPt ≤ 0)"
+                                             << "  [passed dphi=" << nPassDphi
+                                             << ", passed pt=" << nPassPt
+                                             << ", minBackToBack=" << m_minBackToBack
+                                             << ", minJetPt=" << m_minJetPt << "]");
+          }
+        } // photon loop
+          
+          
+      // Summary for photon path
+      if (Verbosity() >= 4)
+        LOG(4, CLR_BLUE, "    [processCandidates] photon summary: used=" << nUsed
+                                << "  skipEta=" << nSkipEta
+                                << "  skipEtBin=" << nSkipEtBin
+                                << "  skipPhi=" << nSkipPhi
+                                << "  noRC=" << nNoRC
+                                << "  notIso=" << nNotIso
+                                << "  notTight=" << nNotTight);
     }
     catch (const std::exception& e)
     {
@@ -971,20 +1133,10 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
       LOG(0, CLR_YELLOW, "    [processCandidates] UNKNOWN exception in photon path");
     }
 
-    // Summary for photon path
-    if (Verbosity() >= 4)
-      LOG(4, CLR_BLUE, "    [processCandidates] photon summary: used=" << nUsed
-                                  << "  skipEta=" << nSkipEta
-                                  << "  skipEtBin=" << nSkipEtBin
-                                  << "  skipPhi=" << nSkipPhi
-                                  << "  noRC=" << nNoRC
-                                  << "  notIso=" << nNotIso
-                                  << "  notTight=" << nNotTight);
-
     return; // keep original behavior: prefer photon path and return
-  }
+  } // end photon path
 
-  // -------- FALLBACK: RawCluster – isolation only (no SS windows) ----------
+  // =================== FALLBACK: RawCluster (no SS windows) =================
   if (m_clus)
   {
     RawClusterContainer::ConstRange range = m_clus->getClusters();
@@ -1010,24 +1162,42 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
           continue;
         }
 
-        const double eta = RawClusterUtility::GetPseudorapidity(*clus, CLHEP::Hep3Vector(0,0,m_vz));
+        // Build 4-vector and kinematics from vertex
+        const CLHEP::Hep3Vector vtx_vec(0, 0, m_vz);
+        const CLHEP::Hep3Vector p_vec  = RawClusterUtility::GetEVec(*clus, vtx_vec);
+
+        const double eta    = p_vec.pseudoRapidity();
+        const double phi    = p_vec.phi();
+        const double pt_dbg = p_vec.perp();
+        const double energy = clus->get_energy();
+
+        // |η| cut
         if (!std::isfinite(eta) || std::fabs(eta) >= m_etaAbsMax)
         {
           ++nSkipEta;
-          if (Verbosity() >= 5)
-            LOG(5, CLR_YELLOW, "      [clus#" << iCl << "] |eta|=" << std::fabs(eta)
-                                              << " outside fiducial (max=" << m_etaAbsMax << ") – skip");
+          if (Verbosity() >= 2)
+          {
+            const double et_dbg = std::isfinite(eta) ? energy / std::cosh(eta) : 0.0;
+            std::cout << CLR_MAGENTA
+                      << "      [skip:eta clus#" << iCl << "]"
+                      << "  ET=" << std::fixed << std::setprecision(2) << et_dbg
+                      << "  E="  << std::fixed << std::setprecision(2) << energy
+                      << "  pT=" << std::fixed << std::setprecision(2) << pt_dbg
+                      << "  eta="<< std::fixed << std::setprecision(3) << eta
+                      << "  phi="<< std::fixed << std::setprecision(3) << phi
+                      << "  (|eta|>=" << m_etaAbsMax << ")"
+                      << CLR_RESET << std::endl;
+          }
           continue;
         }
 
-        const double energy = clus->get_energy();
+        // ET and binning
         if (!std::isfinite(energy) || energy <= 0.0)
         {
           ++nSkipEtBin;
           LOG(5, CLR_YELLOW, "      [clus#" << iCl << "] non-positive or NaN energy=" << energy << " – skip");
           continue;
         }
-
         const double et  = energy / std::cosh(eta);
         if (!std::isfinite(et) || et <= 0.0)
         {
@@ -1040,25 +1210,37 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
         if (etIdx < 0)
         {
           ++nSkipEtBin;
-          if (Verbosity() >= 5)
-            LOG(5, CLR_YELLOW, "      [clus#" << iCl << "] ET=" << et << " not in configured ET bins – skip");
+          if (Verbosity() >= 2)
+          {
+            std::cout << CLR_MAGENTA
+                      << "      [skip:ETbin clus#" << iCl << "]"
+                      << "  ET=" << std::fixed << std::setprecision(2) << et
+                      << "  E="  << std::fixed << std::setprecision(2) << energy
+                      << "  pT=" << std::fixed << std::setprecision(2) << pt_dbg
+                      << "  eta="<< std::fixed << std::setprecision(3) << eta
+                      << "  phi="<< std::fixed << std::setprecision(3) << phi
+                      << CLR_RESET << std::endl;
+          }
           continue;
         }
 
+        // Isolation-only QA in fallback path
         const bool iso = isIsolated(clus, et, topNode);
         for (const auto& trigShort : activeTrig)
         {
           if (iso)
-          {
             getOrBookCountHist(trigShort, "h_isolatedCount_ET",    etIdx, (m_isAuAu ? centIdx : -1))->Fill(1);
-          }
           else
-          {
             getOrBookCountHist(trigShort, "h_nonIsolatedCount_ET", etIdx, (m_isAuAu ? centIdx : -1))->Fill(1);
-          }
         }
         (iso ? ++nIso : ++nNonIso);
       } // cluster loop
+
+      if (Verbosity() >= 4)
+        LOG(4, CLR_BLUE, "    [processCandidates] cluster summary: iso=" << nIso
+                                << "  nonIso=" << nNonIso
+                                << "  skipEta=" << nSkipEta
+                                << "  skipEtBin=" << nSkipEtBin);
     }
     catch (const std::exception& e)
     {
@@ -1068,15 +1250,8 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
     {
       LOG(0, CLR_YELLOW, "    [processCandidates] UNKNOWN exception in cluster fallback");
     }
-
-    if (Verbosity() >= 4)
-      LOG(4, CLR_BLUE, "    [processCandidates] cluster summary: iso=" << nIso
-                                  << "  nonIso=" << nNonIso
-                                  << "  skipEta=" << nSkipEta
-                                  << "  skipEtBin=" << nSkipEtBin);
-  }
+  } // end cluster fallback
 }
-
 
 
 
@@ -1119,15 +1294,25 @@ bool RecoilJets::passesPhotonPreselection(const SSVars& v)
 
   const bool pass_all = pass_e11e33 && pass_et1 && pass_e32e35 && pass_weta;
 
-  if (!pass_all && Verbosity() >= 4)
+  if (Verbosity() >= 4)
   {
-    LOG(4, CLR_YELLOW,
-        "  [passesPhotonPreselection] FAILED: weta=" << v.weta_cogx
-        << ", et1=" << v.et1
-        << ", e11/e33=" << v.e11_over_e33
-        << ", e32/e35=" << v.e32_over_e35);
+      if (!pass_all)
+      {
+        LOG(4, CLR_YELLOW,
+            "  [passesPhotonPreselection] FAILED: weta=" << v.weta_cogx
+            << ", et1=" << v.et1
+            << ", e11/e33=" << v.e11_over_e33
+            << ", e32/e35=" << v.e32_over_e35);
+      }
+      else
+      {
+        LOG(4, CLR_RED,
+            "  [passesPhotonPreselection] PASS: weta=" << v.weta_cogx
+            << ", et1=" << v.et1
+            << ", e11/e33=" << v.e11_over_e33
+            << ", e32/e35=" << v.e32_over_e35);
+      }
   }
-
   return pass_all;
 }
 
@@ -1176,11 +1361,16 @@ RecoilJets::TightTag RecoilJets::classifyPhotonTightness(const SSVars& v)
   else if (n_fail >= 2) tag = TightTag::kNonTight;
   else                  tag = TightTag::kNeither;
 
-  if (Verbosity() >= 4)
-    LOG(4, CLR_GREEN, "  [classifyPhotonTightness] n_fail=" << n_fail
-                        << " → tag=" << static_cast<int>(tag));
+    if (Verbosity() >= 4)
+    {
+      const char* tagName = tightTagName(tag);
+      const char* colour  = (tag == TightTag::kTight) ? CLR_RED : CLR_GREEN;
+      LOG(4, colour, "  [classifyPhotonTightness] n_fail=" << n_fail
+                      << " → tag=" << tagName);
+    }
 
-  return tag;
+    return tag;
+
 }
 
 
@@ -1226,11 +1416,7 @@ double RecoilJets::eiso(const RawCluster* clus, PHCompositeNode* /*topNode*/) co
   {
     if (Verbosity() >= 3)
       LOG(3, CLR_YELLOW, "  [eiso] clus==nullptr → return 0");
-  #ifdef __cpp_lib_isfinite
     return 0.0;
-  #else
-    return 0.0;
-  #endif
   }
 
   // ClusterIso stores isolation keyed by cone size in tenths (R=0.3 → 3)
@@ -1242,29 +1428,41 @@ double RecoilJets::eiso(const RawCluster* clus, PHCompositeNode* /*topNode*/) co
     cone10 = 1;
   }
 
-  // Prefer UE-subtracted; fallback to unsubtracted if invalid
-  double iso_sub = clus->get_et_iso(cone10, /*subtracted=*/true,  /*towerinfo=*/true);
-  double iso_uns = clus->get_et_iso(cone10, /*subtracted=*/false, /*towerinfo=*/true);
+  // Read both for diagnostics
+  const double iso_sub = clus->get_et_iso(cone10, /*subtracted=*/true,  /*towerinfo=*/true);
+  const double iso_uns = clus->get_et_iso(cone10, /*subtracted=*/false, /*towerinfo=*/true);
 
-  bool sub_ok = std::isfinite(iso_sub) && (iso_sub > 0.0 || iso_uns <= 0.0);
-  double iso  = sub_ok ? iso_sub : iso_uns;
+  // Selection policy:
+  //   • Au+Au  -> FORCE UE-subtracted (iso_sub). If non-finite, return 0.
+  //   • p+p    -> Prefer unsubtracted (iso_uns). If non-finite, fall back to iso_sub. If still bad, return 0.
+  double iso = 0.0;
+  const char* used_label = nullptr;
 
-  if (!std::isfinite(iso))
+  if (m_isAuAu)
   {
-    if (Verbosity() >= 3)
-      LOG(3, CLR_YELLOW, "  [eiso] non-finite iso (sub=" << iso_sub << ", uns=" << iso_uns << ") → return 0");
-    return 0.0;
+    iso = std::isfinite(iso_sub) ? iso_sub : 0.0;
+    used_label = "sub(AuAu)";
+  }
+  else
+  {
+    if (std::isfinite(iso_uns))       { iso = iso_uns; used_label = "uns(pp)"; }
+    else if (std::isfinite(iso_sub))  { iso = iso_sub; used_label = "sub(fallback)"; }
+    else                              { iso = 0.0;     used_label = "invalid→0"; }
   }
 
-  if (Verbosity() >= 5)
-  {
-    LOG(5, CLR_BLUE, "  [eiso] cone10=" << cone10
-            << "  iso_sub=" << iso_sub << "  iso_uns=" << iso_uns
-            << "  used=" << iso << (sub_ok ? " (sub)" : " (uns)"));
-  }
-  return (iso < 0.0 ? 0.0 : iso); // guard tiny negatives
+    // Final guard: only sanitize NaN/Inf. Preserve negative UE-subtracted isolation.
+    if (!std::isfinite(iso)) iso = 0.0;
+
+    if (Verbosity() >= 5)
+    {
+      LOG(5, CLR_BLUE, "  [eiso] cone10=" << cone10
+              << "  iso_sub=" << iso_sub << "  iso_uns=" << iso_uns
+              << "  used=" << iso << " (" << used_label << ")");
+    }
+
+    return iso;
+
 }
-
 
 bool RecoilJets::isIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const
 {
@@ -1275,14 +1473,16 @@ bool RecoilJets::isIsolated(const RawCluster* clus, double et_gamma, PHComposite
     return false;
   }
 
-  const double thr  = m_isoA + m_isoB * et_gamma;
-  const double eiso_val = this->eiso(clus, topNode);
+    const double thr  = m_isoA + m_isoB * et_gamma;
+    const double eiso_val = this->eiso(clus, topNode);
+    const bool passIso = (eiso_val < thr);
 
-  if (Verbosity() >= 5)
-    LOG(5, CLR_BLUE, "  [isIsolated] ET^γ=" << et_gamma << "  thr=" << thr << "  eiso=" << eiso_val
-                        << "  pass=" << (eiso_val < thr));
+    if (Verbosity() >= 5)
+        LOG(5, (passIso ? CLR_RED : CLR_YELLOW),
+            "  [isIsolated] ET^γ=" << et_gamma << "  thr=" << thr << "  eiso=" << eiso_val
+            << "  pass=" << (passIso ? 1 : 0));
 
-  return (eiso_val < thr);
+    return passIso;
 }
 
 
@@ -1594,8 +1794,8 @@ TH1F* RecoilJets::getOrBookIsoHist(const std::string& trig, int etIdx, int centI
   dir->cd();
 
   // Binning chosen to match your previous layout
-  const int    nbins = 120;
-  const double xmin  = 0.0;
+  const int    nbins = 170;
+  const double xmin  = -5.0;
   const double xmax  = 12.0;
 
   const std::string title = name + ";E_{T}^{iso} [GeV];Entries";
@@ -1758,105 +1958,98 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
   const int effCentIdx = (m_isAuAu ? centIdx : -1);
   const std::string slice = suffixForBins(etIdx, effCentIdx);
 
-  // Isolation value and its histogram
+  // --- Isolation decision (Eiso histogram is filled unconditionally in the photon loop) ---
   const double eiso_et = eiso(clus, topNode);
-  if (auto* hIso = getOrBookIsoHist(trig, etIdx, effCentIdx))
+  const double thrIso  = (m_isoA + m_isoB * et_gamma);
+  const bool   iso     = (eiso_et < thrIso);
+
+
+  // --- Tight sub-cuts (for printing & category) ---
+  const double w_hi = tight_w_hi(v.et_gamma);
+  const bool pass_weta   = in_open_interval(v.weta_cogx,  TIGHT_W_LO, w_hi);
+  const bool pass_wphi   = in_open_interval(v.wphi_cogx,  TIGHT_W_LO, w_hi);
+  const bool pass_e11e33 = in_open_interval(v.e11_over_e33, TIGHT_E11E33_MIN, TIGHT_E11E33_MAX);
+  const bool pass_et1    = in_open_interval(v.et1,          TIGHT_ET1_MIN,    TIGHT_ET1_MAX);
+  const bool pass_e32e35 = in_open_interval(v.e32_over_e35, TIGHT_E32E35_MIN, TIGHT_E32E35_MAX);
+
+  const int tight_fails  = (!pass_weta) + (!pass_wphi) + (!pass_e11e33) + (!pass_et1) + (!pass_e32e35);
+  TightTag tag;
+  if (tight_fails == 0)      tag = TightTag::kTight;
+  else if (tight_fails >= 2) tag = TightTag::kNonTight;
+  else                       tag = TightTag::kNeither;
+
+  // --- Update per-slice counters (bookkeeping only) ---
+  auto& S = m_catByTrig[trig][slice];
+  S.seen += 1;
+
+  // --- Choose 2×2 category and fill its COUNT histogram ---
+  const char* comboBase = nullptr;     // base name for count histogram
+  const char* comboKeySS = nullptr;    // tagKey for SS histograms
+  if (iso && tag == TightTag::kTight)           { comboBase = "h_isIsolated_isTight";    comboKeySS = "isIsolated_isTight";    ++S.n_iso_tight; }
+  else if (!iso && tag == TightTag::kTight)     { comboBase = "h_notIsolated_isTight";   comboKeySS = "notIsolated_isTight";   ++S.n_nonIso_tight; }
+  else if (iso && tag != TightTag::kTight)      { comboBase = "h_isIsolated_notTight";   comboKeySS = "isIsolated_notTight";   ++S.n_iso_nonTight; }
+  else                                           { comboBase = "h_notIsolated_notTight"; comboKeySS = "notIsolated_notTight"; ++S.n_nonIso_nonTight; }
+
+  if (auto* hc = getOrBookCountHist(trig, comboBase, etIdx, effCentIdx))
   {
-    hIso->Fill(eiso_et);
-    bumpHistFill(trig, "h_Eiso" + slice);
+    hc->Fill(1);
+    bumpHistFill(trig, std::string(comboBase) + slice);
   }
   else
   {
-    LOG(2, CLR_YELLOW, "  [fillIsoSSTagCounters] getOrBookIsoHist returned nullptr for slice \"" << slice << '"');
+    LOG(2, CLR_YELLOW, "  [fillIsoSSTagCounters] getOrBookCountHist returned nullptr for \"" << comboBase
+                       << "\" slice=\"" << slice << '"');
   }
 
-  // Selections
-  const double thrIso = (m_isoA + m_isoB * et_gamma);
-  const bool   iso    = (eiso_et < thrIso);
-  const TightTag tag  = classifyPhotonTightness(v);
-
-  if (Verbosity() >= 5)
-  {
-    LOG(5, CLR_BLUE, "    [fillIsoSSTagCounters] slice=\"" << slice
-        << "\" eiso=" << eiso_et << " thrIso=" << thrIso
-        << " isoPass=" << iso
-        << " tightTag=" << static_cast<int>(tag));
-  }
-
-  // Update per-slice counters (in-memory bookkeeping)
-  auto& S = m_catByTrig[trig][slice];
-  S.seen += 1;
-  (tag == TightTag::kTight ? S.tight : S.nonTight) += 1;
-  (iso ? S.isoPass : S.isoFail) += 1;
-
-  // Shower-shape histograms for tight/nontight only
-  if (tag == TightTag::kTight || tag == TightTag::kNonTight)
-  {
-    const std::string tagKey = (tag == TightTag::kTight) ? "tight" : "nontight";
-    auto fillSS = [&](const std::string& key, double val)
+    if (Verbosity() >= 5)
     {
-      if (auto* h = getOrBookSSHist(trig, key, tagKey, etIdx, effCentIdx))
-      {
-        h->Fill(val);
-        bumpHistFill(trig, "h_ss_" + key + "_" + tagKey + slice);
-      }
-      else
-      {
-        LOG(2, CLR_YELLOW, "    [fillSS] getOrBookSSHist returned nullptr for key=\"" << key
-            << "\" tagKey=\"" << tagKey << "\" slice=\"" << slice << '"');
-      }
-    };
+      std::ostringstream os;
+      os << "    [fill] trig=\"" << trig << "\" slice=\"" << slice << "\" → "
+         << comboBase
+         << " | Eiso=" << std::fixed << std::setprecision(3) << eiso_et
+         << " thr=" << std::fixed << std::setprecision(3) << thrIso
+         << " iso=" << (iso ? "PASS" : "FAIL")
+         << " | tight=" << tightTagName(tag)
+         << " [weta "    << (pass_weta   ? "PASS" : "FAIL")
+         << ", wphi "    << (pass_wphi   ? "PASS" : "FAIL")
+         << ", e11/e33 " << (pass_e11e33 ? "PASS" : "FAIL")
+         << ", et1 "     << (pass_et1    ? "PASS" : "FAIL")
+         << ", e32/e35 " << (pass_e32e35 ? "PASS" : "FAIL")
+         << "]";
+      const char* colour = (iso || tag == TightTag::kTight) ? CLR_RED : CLR_CYAN;
+      LOG(5, colour, os.str());
+    }
 
-    fillSS("weta",   v.weta_cogx);
-    fillSS("wphi",   v.wphi_cogx);
-    fillSS("et1",    v.et1);
-    fillSS("e11e33", v.e11_over_e33);
-    fillSS("e32e35", v.e32_over_e35);
-  }
 
-  // Marginal counters (h_tight/nonTight & h_iso/nonIso)
+  // --- SS variable histograms for THIS category (always) ---
+  auto fillSS = [&](const std::string& key, double val)
   {
-    const char* name = (tag == TightTag::kTight) ? "h_tightCount_ET" : "h_nonTightCount_ET";
-    if (auto* h = getOrBookCountHist(trig, name, etIdx, effCentIdx))
+    if (auto* h = getOrBookSSHist(trig, key, comboKeySS, etIdx, effCentIdx))
     {
-      h->Fill(1);
-      bumpHistFill(trig, std::string(name) + slice);
+      h->Fill(val);
+      bumpHistFill(trig, "h_ss_" + key + "_" + comboKeySS + slice);
     }
     else
     {
-      LOG(2, CLR_YELLOW, "  [fillIsoSSTagCounters] getOrBookCountHist returned nullptr for \"" << name
-                         << "\" slice=\"" << slice << '"');
+      LOG(2, CLR_YELLOW, "    [fillSS] getOrBookSSHist returned nullptr for key=\"" << key
+          << "\" tagKey=\"" << comboKeySS << "\" slice=\"" << slice << '"');
     }
-  }
-  {
-    const char* name = (iso ? "h_isolatedCount_ET" : "h_nonIsolatedCount_ET");
-    if (auto* h = getOrBookCountHist(trig, name, etIdx, effCentIdx))
-    {
-      h->Fill(1);
-      bumpHistFill(trig, std::string(name) + slice);
-    }
-    else
-    {
-      LOG(2, CLR_YELLOW, "  [fillIsoSSTagCounters] getOrBookCountHist returned nullptr for \"" << name
-                         << "\" slice=\"" << slice << '"');
-    }
-  }
+  };
+  fillSS("weta",   v.weta_cogx);
+  fillSS("wphi",   v.wphi_cogx);
+  fillSS("et1",    v.et1);
+  fillSS("e11e33", v.e11_over_e33);
+  fillSS("e32e35", v.e32_over_e35);
 
-  // ID sideband bookkeeping (fail ≥ 2 tight cuts)
+  // --- Optional: ID sideband bookkeeping (unchanged behavior) ---
   if (tag == TightTag::kNonTight)
   {
     S.idSB_total += 1;
-
     if (auto* h = getOrBookCountHist(trig, "h_idSB_total", etIdx, effCentIdx))
     {
       h->Fill(1);
       bumpHistFill(trig, "h_idSB_total" + slice);
     }
-    else
-    {
-      LOG(2, CLR_YELLOW, "  [fillIsoSSTagCounters] getOrBookCountHist nullptr for h_idSB_total slice \"" << slice << '"');
-    }
-
     if (iso)
     {
       S.idSB_pass += 1;
@@ -1865,10 +2058,68 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
         h->Fill(1);
         bumpHistFill(trig, "h_idSB_pass" + slice);
       }
-      else
-      {
-        LOG(2, CLR_YELLOW, "  [fillIsoSSTagCounters] getOrBookCountHist nullptr for h_idSB_pass slice \"" << slice << '"');
-      }
     }
   }
+}
+
+
+void RecoilJets::printCutSummary() const
+{
+  using std::cout; using std::endl; using std::setw; using std::left; using std::right;
+
+  cout << "\n\033[1mJob-wide cutflow summary\033[0m\n";
+
+  // Events
+  cout << "\n\033[1mEvents\033[0m\n";
+  cout << "metric              | value\n"
+          "--------------------+-------\n";
+  cout << left << setw(20) << "seen"            << " | " << right << setw(7) << m_bk.evt_seen         << '\n';
+  cout << left << setw(20) << "fail(trigger)"   << " | " << right << setw(7) << m_bk.evt_fail_trigger << '\n';
+  cout << left << setw(20) << "fail(|vz|)"      << " | " << right << setw(7) << m_bk.evt_fail_vz      << '\n';
+  cout << left << setw(20) << "accepted"        << " | " << right << setw(7) << m_bk.evt_accepted     << '\n';
+
+  // Photon candidates: high-level
+  cout << "\n\033[1mPhoton candidates (PHOTONCLUSTER_CEMC)\033[0m\n";
+  cout << "metric                         | value\n"
+          "-------------------------------+-------\n";
+  cout << left << setw(31) << "total (container)"          << " | " << right << setw(7) << m_bk.pho_total           << '\n';
+  cout << left << setw(31) << "early reject: E<2 GeV"      << " | " << right << setw(7) << m_bk.pho_early_E         << '\n';
+  cout << left << setw(31) << "fail |eta| fiducial"        << " | " << right << setw(7) << m_bk.pho_eta_fail        << '\n';
+  cout << left << setw(31) << "fail ET bin (out of range)" << " | " << right << setw(7) << m_bk.pho_etbin_out       << '\n';
+  cout << left << setw(31) << "no RawCluster ptr"          << " | " << right << setw(7) << m_bk.pho_noRC            << '\n';
+  cout << left << setw(31) << "reached pre+iso step"       << " | " << right << setw(7) << m_bk.pho_reached_pre_iso << '\n';
+
+  // Preselection breakdown
+  cout << "\n\033[1mPreselection (among reached pre+iso)\033[0m\n";
+  cout << "outcome/criterion              | count\n"
+          "-------------------------------+-------\n";
+  cout << left << setw(31) << "pass preselection"          << " | " << right << setw(7) << m_bk.pre_pass             << '\n';
+  cout << left << setw(31) << "fail weta >= 0.60"          << " | " << right << setw(7) << m_bk.pre_fail_weta        << '\n';
+  cout << left << setw(31) << "fail et1 < 0.60"            << " | " << right << setw(7) << m_bk.pre_fail_et1_low     << '\n';
+  cout << left << setw(31) << "fail et1 > 1.00"            << " | " << right << setw(7) << m_bk.pre_fail_et1_high    << '\n';
+  cout << left << setw(31) << "fail e11/e33 >= 0.98"       << " | " << right << setw(7) << m_bk.pre_fail_e11e33_high << '\n';
+  cout << left << setw(31) << "fail e32/e35 < 0.80"        << " | " << right << setw(7) << m_bk.pre_fail_e32e35_low  << '\n';
+  cout << left << setw(31) << "fail e32/e35 > 1.00"        << " | " << right << setw(7) << m_bk.pre_fail_e32e35_high << '\n';
+
+  // Tight classification (for preselection-passed)
+  cout << "\n\033[1mTight classification (preselection-passed)\033[0m\n";
+  cout << "category                       | count\n"
+          "-------------------------------+-------\n";
+  cout << left << setw(31) << "Tight (all 5 pass)"         << " | " << right << setw(7) << m_bk.tight_tight     << '\n';
+  cout << left << setw(31) << "Neither (exactly 1 fail)"   << " | " << right << setw(7) << m_bk.tight_neither   << '\n';
+  cout << left << setw(31) << "Non-Tight (>=2 fail)"       << " | " << right << setw(7) << m_bk.tight_nonTight  << '\n';
+
+  cout << "— per-cut fails —\n";
+  cout << left << setw(31) << "fail weta tight"            << " | " << right << setw(7) << m_bk.tight_fail_weta   << '\n';
+  cout << left << setw(31) << "fail wphi tight"            << " | " << right << setw(7) << m_bk.tight_fail_wphi   << '\n';
+  cout << left << setw(31) << "fail et1 tight"             << " | " << right << setw(7) << m_bk.tight_fail_et1    << '\n';
+  cout << left << setw(31) << "fail e11/e33 tight"         << " | " << right << setw(7) << m_bk.tight_fail_e11e33 << '\n';
+  cout << left << setw(31) << "fail e32/e35 tight"         << " | " << right << setw(7) << m_bk.tight_fail_e32e35 << '\n';
+
+  // Isolation
+  cout << "\n\033[1mIsolation (preselection-passed)\033[0m\n";
+  cout << "outcome                        | count\n"
+          "-------------------------------+-------\n";
+  cout << left << setw(31) << "isolated (pass)"            << " | " << right << setw(7) << m_bk.iso_pass         << '\n';
+  cout << left << setw(31) << "non-isolated (fail)"        << " | " << right << setw(7) << m_bk.iso_fail         << '\n';
 }
