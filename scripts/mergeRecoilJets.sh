@@ -106,9 +106,9 @@ emit_hadd_wrapper() {
 set -eo pipefail
 set +u
 export USER="$(id -un)"; export LOGNAME="$USER"; export HOME="/sphenix/u/$USER"
-MYINSTALL="/sphenix/user/$USER/install"
+MYINSTALL="/sphenix/u/$USER/thesisAnalysis/install"
 source /opt/sphenix/core/bin/sphenix_setup.sh -n
-source /opt/sphenix/core/bin/setup_local.sh "$MYINSTALL"
+source /opt/sphenix/core/bin/setup_local.sh "$MYINSTALL" || true
 set -u
 if [[ $# -ne 2 ]]; then
   echo "[ERROR] Usage: $0 <listfile> <outroot>" >&2
@@ -211,8 +211,8 @@ output     = $OUT_DIR/recoil.\$(Cluster).\$(Process).out
 error      = $ERR_DIR/recoil.\$(Cluster).\$(Process).err
 log        = $LOG_DIR/recoil.\$(Cluster).\$(Process).log
 request_memory = 2GB
-should_transfer_files   = YES
-when_to_transfer_output = ON_EXIT
+getenv = True
+should_transfer_files = NO
 stream_output = True
 stream_error  = True
 EOT
@@ -272,8 +272,8 @@ output     = $OUT_DIR/recoil.final.\$(Cluster).\$(Process).out
 error      = $ERR_DIR/recoil.final.\$(Cluster).\$(Process).err
 log        = $LOG_DIR/recoil.final.\$(Cluster).\$(Process).log
 request_memory = 3GB
-should_transfer_files   = YES
-when_to_transfer_output = ON_EXIT
+getenv = True
+should_transfer_files = NO
 stream_output = True
 stream_error  = True
 arguments = $LIST $FINAL

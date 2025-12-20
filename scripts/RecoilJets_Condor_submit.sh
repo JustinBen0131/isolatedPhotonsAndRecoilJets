@@ -166,7 +166,7 @@ AA_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/auau"
 
 # ------------------------ Defaults -------------------------
 GROUP_SIZE=3         # files per Condor job (never mixes runs)
-MAX_JOBS=15000      # job budget per round file
+MAX_JOBS=50000      # job budget per round file
 LOCAL_EVENTS=5000   # default N for "local" if not given
 TRIGGER_BIT=""      # optional: filter runs by GL1 scaledown bit (e.g., TRIGGER=26)
 
@@ -374,8 +374,9 @@ environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0
 SUB
 
   local queued=0
-  while IFS= read -r r8; do
-    [[ -z "$r8" || "$r8" =~ ^# ]] && continue
+  while IFS= read -r r8_raw; do
+    [[ -z "$r8_raw" || "$r8_raw" =~ ^# ]] && continue
+    r8="$(run8 "$r8_raw")"   # ← zero-pad to 8 digits
 
     # Optional trigger filter: require GL1 scaledown bit to be active
     if [[ -n "${TRIGGER_BIT}" ]]; then
@@ -387,6 +388,7 @@ SUB
 
     # Build group lists for this run
     mapfile -t groups < <( make_groups "$r8" "$GROUP_SIZE" )
+
     (( ${#groups[@]} )) || { warn "No groups produced for run $r8; skipping"; continue; }
 
     # If "firstChunk" is requested, only submit the first group (smoke test)
