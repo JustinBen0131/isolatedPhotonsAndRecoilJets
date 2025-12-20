@@ -55,16 +55,42 @@ set -u
 
 # ------------------------ Dataset routing ------------------
 # Normalize dataset and set defaults:
+#  - isSim runs the pp-style chain in the macro (RJ_DATASET=isPP)
+#  - but we keep analysis_tag=isSim for output naming and export RJ_IS_SIM=1
+analysis_tag="isAuAu"
 case "$dataset_raw" in
-  isPP|pp|PP)     dataset="isPP" ;;
-  isAuAu|auau|AA) dataset="isAuAu" ;;
-  *)              echo "[WARN] Unknown dataset '$dataset_raw' → defaulting to 'isAuAu'"; dataset="isAuAu" ;;
+  isPP|pp|PP)
+    dataset="isPP"
+    analysis_tag="isPP"
+    export RJ_DATASET="isPP"
+    export RJ_IS_SIM=0
+    ;;
+  isAuAu|auau|AA)
+    dataset="isAuAu"
+    analysis_tag="isAuAu"
+    export RJ_DATASET="isAuAu"
+    export RJ_IS_SIM=0
+    ;;
+  isSim|sim|SIM)
+    dataset="isPP"
+    analysis_tag="isSim"
+    export RJ_DATASET="isPP"
+    export RJ_IS_SIM=1
+    ;;
+  *)
+    echo "[WARN] Unknown dataset '$dataset_raw' → defaulting to 'isAuAu'"
+    dataset="isAuAu"
+    analysis_tag="isAuAu"
+    export RJ_DATASET="isAuAu"
+    export RJ_IS_SIM=0
+    ;;
 esac
-export RJ_DATASET="$dataset"   # Fun4All macro will read this and call setDataType()
 
 # Destination base (if not supplied as arg 8)
 if [[ -z "$dest_base" ]]; then
-  if [[ "$dataset" == "isPP" ]]; then
+  if [[ "$analysis_tag" == "isSim" ]]; then
+    dest_base="/sphenix/tg/tg01/bulk/jbennett/thesisAna"
+  elif [[ "$dataset" == "isPP" ]]; then
     dest_base="/sphenix/tg/tg01/bulk/jbennett/thesisAna/pp"
   else
     dest_base="/sphenix/tg/tg01/bulk/jbennett/thesisAna/auau"
@@ -79,7 +105,7 @@ mkdir -p "$out_dir"
 # The output file name follows the chunk list name (group name) for consistency
 chunk_base="$(basename "$chunk_list")"               # e.g. run00048721_grp001.list
 chunk_tag="${chunk_base%.list}"                      # e.g. run00048721_grp001
-out_root="${out_dir}/RecoilJets_${dataset}_${chunk_tag}.root"
+out_root="${out_dir}/RecoilJets_${analysis_tag}_${chunk_tag}.root"
 
 echo "[INFO] Output path = $out_root"
 

@@ -170,24 +170,50 @@ MAX_JOBS=50000      # job budget per round file
 LOCAL_EVENTS=5000   # default N for "local" if not given
 TRIGGER_BIT=""      # optional: filter runs by GL1 scaledown bit (e.g., TRIGGER=26)
 
+# ------------------------ Simulation (MC) defaults --------
+# isSim mode uses a single master list per sample:
+#   ${SIM_ROOT}/${SIM_SAMPLE}/DST_CALO_CLUSTER.matched.list   (preferred)
+# or:
+#   ${SIM_ROOT}/${SIM_SAMPLE}/DST_CALO_CLUSTER.list           (fallback)
+SIM_ROOT="${BASE}/simListFiles"
+SIM_SAMPLE_DEFAULT="run28_photonjet10"
+SIM_SAMPLE="${SIM_SAMPLE_DEFAULT}"
+SIM_LIST_PREFERRED="DST_CALO_CLUSTER.matched.list"
+SIM_LIST_FALLBACK="DST_CALO_CLUSTER.list"
+
+# Output dir for sim is: ${SIM_DEST_BASE}/${SIM_SAMPLE}
+SIM_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna"
+
 # ------------------------ Helpers --------------------------
 usage() {
   cat <<USAGE
 ${BOLD}Usage:${RST}
-  ${BOLD}$0 <isPP|isAuAu> local [Nevents]${RST}
+
+${BOLD}DATA modes:${RST}
+  ${BOLD}$0 <isPP|isAuAu> local [Nevents] [VERBOSE=N]${RST}
+  ${BOLD}$0 <isPP|isAuAu> CHECKJOBS [groupSize N]${RST}
   ${BOLD}$0 <isPP|isAuAu> splitGoldenRunList [groupSize N] [maxJobs M]${RST}
   ${BOLD}$0 <isPP|isAuAu> condor testJob${RST}
-  ${BOLD}$0 <isPP|isAuAu> condor round <N> [groupSize N] [maxJobs M] [firstChunk]${RST}
+  ${BOLD}$0 <isPP|isAuAu> condor round <N> [groupSize N] [firstChunk]${RST}
   ${BOLD}$0 <isPP|isAuAu> condor all [groupSize N]${RST}
+
+${BOLD}SIM mode:${RST}
+  ${BOLD}$0 isSim local [Nevents] [VERBOSE=N] [SAMPLE=run28_photonjet10]${RST}
+  ${BOLD}$0 isSim CHECKJOBS [groupSize N] [SAMPLE=run28_photonjet10]${RST}
+  ${BOLD}$0 isSim condorTest [SAMPLE=run28_photonjet10]${RST}
+  ${BOLD}$0 isSim condorDoAll [groupSize N] [SAMPLE=run28_photonjet10]${RST}
 
 Examples:
   $0 isPP  local 5000
   $0 isAuAu splitGoldenRunList groupSize 3 maxJobs 12000
   $0 isAuAu condor round 1
-  $0 isPP  condor round 2 firstChunk
   $0 isPP  condor all groupSize 4
-  $0 isPP  condor testJob
-  $0 isAuAu condor testJob
+  $0 isPP  CHECKJOBS groupSize 4
+
+  $0 isSim CHECKJOBS groupSize 5
+  $0 isSim local 5000
+  $0 isSim condorTest
+  $0 isSim condorDoAll groupSize 5
 USAGE
   exit 2
 }
@@ -211,10 +237,18 @@ resolve_dataset() {
       DEST_BASE="$AA_DEST_BASE"
       TAG="auau"
       ;;
+    isSim|sim|SIM)
+      DATASET="isSim"
+      GOLDEN=""        # not used in sim mode
+      LIST_DIR=""      # not used in sim mode
+      DEST_BASE="$SIM_DEST_BASE"   # output dir will be DEST_BASE/SIM_SAMPLE
+      TAG="sim"
+      ;;
     *)
       usage
       ;;
   esac
+
   STAGE_DIR="${STAGE_ROOT}/${TAG}"
   ROUND_DIR="${ROUND_ROOT}/${TAG}"
   mkdir -p "$STAGE_DIR" "$ROUND_DIR" "$LOG_DIR" "$OUT_DIR" "$ERR_DIR"
@@ -264,6 +298,94 @@ make_groups() {
     start=$(( end + 1 ))
     g=$(( g + 1 ))
   done
+}
+
+# ------------------------ Simulation helpers --------------------------
+# Initializes paths for isSim mode and prepares a cleaned master list.
+sim_init() {
+  SIM_DIR="${SIM_ROOT}/${SIM_SAMPLE}"
+  [[ -d "$SIM_DIR" ]] || { err "Sim sample directory not found: $SIM_DIR"; exit 20; }
+
+  local preferred="${SIM_DIR}/${SIM_LIST_PREFERRED}"
+  local fallback="${SIM_DIR}/${SIM_LIST_FALLBACK}"
+
+  if [[ -s "$preferred" ]]; then
+    SIM_MASTER_LIST="$preferred"
+  elif [[ -s "$fallback" ]]; then
+    SIM_MASTER_LIST="$fallback"
+  else
+    err "No DST_CALO_CLUSTER list found in $SIM_DIR (looked for: $preferred and $fallback)"
+    exit 21
+  fi
+
+  SIM_STAGE_DIR="${STAGE_DIR}/${SIM_SAMPLE}"
+  mkdir -p "$SIM_STAGE_DIR"
+
+  # Clean master list: strip blank lines + comment lines
+  SIM_CLEAN_LIST="${SIM_STAGE_DIR}/sim_${SIM_SAMPLE}_MASTER_CLEAN.list"
+  grep -E -v '^[[:space:]]*($|#)' "$SIM_MASTER_LIST" > "$SIM_CLEAN_LIST" || true
+  [[ -s "$SIM_CLEAN_LIST" ]] || { err "Sim master list is empty after cleaning: $SIM_MASTER_LIST"; exit 22; }
+
+  SIM_OUT_DIR="${DEST_BASE}/${SIM_SAMPLE}"
+  mkdir -p "$SIM_OUT_DIR"
+
+  SIM_JOB_PREFIX="sim_${SIM_SAMPLE}"
+}
+
+# Build grouped chunk lists for isSim (one job per chunk list)
+make_sim_groups() {
+  local gs="$1"
+  sim_init
+
+  rm -f "${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_grp"*.list 2>/dev/null || true
+
+  local nfiles; nfiles=$(wc -l < "$SIM_CLEAN_LIST" | awk '{print $1}')
+  local ngroups; ngroups=$(ceil_div "$nfiles" "$gs")
+
+  local start=1
+  local g=1
+  while (( g <= ngroups )); do
+    local end=$(( start + gs - 1 ))
+    local out="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_grp$(printf "%03d" "$g").list"
+    if (( end > nfiles )); then end="$nfiles"; fi
+    sed -n "${start},${end}p" "$SIM_CLEAN_LIST" > "$out"
+    echo "$out"
+    start=$(( end + 1 ))
+    g=$(( g + 1 ))
+  done
+}
+
+# Dry-run job count for isSim
+check_jobs_sim() {
+  local gs="$GROUP_SIZE"
+  sim_init
+
+  local nfiles; nfiles=$(wc -l < "$SIM_CLEAN_LIST" | awk '{print $1}')
+  local njobs; njobs=$(ceil_div "$nfiles" "$gs")
+
+  say "CHECKJOBS (dataset=isSim, sample=${SIM_SAMPLE})"
+  say "  groupSize         : ${gs}"
+  say "  total input files : ${nfiles}"
+  say "  total jobs (all)  : ${njobs}"
+  say "  master list       : ${SIM_MASTER_LIST}"
+}
+
+# Wipe previous sim outputs + sim-tagged logs/out/err (ONLY used before condorDoAll)
+wipe_sim_artifacts() {
+  sim_init
+
+  say "WIPING previous isSim artifacts for sample ${BOLD}${SIM_SAMPLE}${RST}"
+  say "  Output ROOT dir : ${SIM_OUT_DIR}"
+  say "  Logs prefix     : ${SIM_JOB_PREFIX}"
+
+  rm -f "${SIM_OUT_DIR}/RecoilJets_"*.root 2>/dev/null || true
+  rm -f "${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_grp"*.list 2>/dev/null || true
+  rm -f "${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_LOCAL_"*.list 2>/dev/null || true
+  rm -f "${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_condorTest_"*.list 2>/dev/null || true
+
+  rm -f "${LOG_DIR}/${SIM_JOB_PREFIX}.job."*.log 2>/dev/null || true
+  rm -f "${OUT_DIR}/${SIM_JOB_PREFIX}.job."*.out 2>/dev/null || true
+  rm -f "${ERR_DIR}/${SIM_JOB_PREFIX}.job."*.err 2>/dev/null || true
 }
 
 # Split golden run list into “round” files so that each round’s sum of jobs
@@ -421,7 +543,7 @@ tokens=( "${@:2}" )
 for (( idx=0; idx<${#tokens[@]}; idx++ )); do
   tok="${tokens[$idx]}"
   case "$tok" in
-    local|condor|splitGoldenRunList)
+    local|condor|splitGoldenRunList|condorTest|condorDoAll)
       ACTION="$tok"
       ;;
     groupSize)
@@ -440,17 +562,26 @@ for (( idx=0; idx<${#tokens[@]}; idx++ )); do
       TRIGGER_BIT="${tok#TRIGGER=}"
       [[ "$TRIGGER_BIT" =~ ^[0-9]+$ ]] || { err "TRIGGER must be an integer bit index (e.g., TRIGGER=26)"; exit 2; }
       ;;
+    SAMPLE=*)
+      SIM_SAMPLE="${tok#SAMPLE=}"
+      ;;
     CHECKJOBS)
       ACTION="CHECKJOBS"
       ;;
     *)
-      :  # ignore unrecognized tokens for CHECKJOBS use-case
+      :  # ignore unrecognized tokens
       ;;
   esac
 done
 
 # Default action if none provided
-: "${ACTION:=condor}"
+if [[ -z "$ACTION" ]]; then
+  if [[ "$DATASET" == "isSim" ]]; then
+    ACTION="CHECKJOBS"
+  else
+    ACTION="condor"
+  fi
+fi
 
 # If a trigger filter is requested, require psql
 if [[ -n "${TRIGGER_BIT}" ]]; then
@@ -476,15 +607,19 @@ fi
 # ------------------------ Actions --------------------------
 case "$ACTION" in
   CHECKJOBS)
-    # Dry-run: just report how many jobs a "condor all" would submit at this GROUP_SIZE
-    check_jobs_all
+    # Dry-run only
+    if [[ "$DATASET" == "isSim" ]]; then
+      check_jobs_sim
+    else
+      check_jobs_all
+    fi
     exit 0
     ;;
 
   local)
     # Parse optional [Nevents] and VERBOSE=N from tokens after 'local'
     nevt="$LOCAL_EVENTS"
-    RJV="10"                     # default for local runs; ignore any env VERBOSE
+    RJV="10"                     # default for local runs
     rest=( "${@:3}" )
     for t in "${rest[@]}"; do
       if [[ "$t" =~ ^VERBOSE=([0-9]+)$ ]]; then
@@ -494,48 +629,132 @@ case "$ACTION" in
       fi
     done
 
-    say "Local test on ${DATASET}  (events=${nevt}, RJ_VERBOSITY=${RJV})"
+    if [[ "$DATASET" == "isSim" ]]; then
+      sim_init
+      say "Local test on isSim sample=${SIM_SAMPLE} (events=${nevt}, RJ_VERBOSITY=${RJV})"
 
-    [[ -s "$GOLDEN" ]] || { err "Golden list is empty: $GOLDEN"; exit 6; }
+      tmp="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_LOCAL_firstfile.list"
+      head -n 1 "$SIM_CLEAN_LIST" > "$tmp"
+      say "Temp list → $tmp"
+      say "Invoking wrapper locally…"
 
-    # Pick first golden run; if TRIGGER_BIT set, pick the first run with that bit active
-    r8=""
-    while IFS= read -r rn; do
-      [[ -z "$rn" || "$rn" =~ ^# ]] && continue
-      cand="$(run8 "$rn")"
-      if [[ -n "${TRIGGER_BIT}" ]]; then
-        if is_trigger_active "$cand" "$TRIGGER_BIT"; then r8="$cand"; break; fi
-      else
-        r8="$cand"; break
-      fi
-    done < "$GOLDEN"
+      RJ_VERBOSITY="$RJV" bash "$EXE" "$SIM_SAMPLE" "$tmp" "isSim" LOCAL "$nevt" 1 NONE "$DEST_BASE"
+    else
+      say "Local test on ${DATASET}  (events=${nevt}, RJ_VERBOSITY=${RJV})"
 
-    [[ -n "$r8" ]] || { err "No run in $GOLDEN satisfies the requested trigger filter (TRIGGER=${TRIGGER_BIT:-none})."; exit 6; }
+      [[ -s "$GOLDEN" ]] || { err "Golden list is empty: $GOLDEN"; exit 6; }
 
-    src="${LIST_DIR}/dst_calofitting-${r8}.list"
-    [[ -s "$src" ]] || { err "Per-run list missing or empty: $src"; exit 7; }
+      # Pick first golden run; if TRIGGER_BIT set, pick the first run with that bit active
+      r8=""
+      while IFS= read -r rn; do
+        [[ -z "$rn" || "$rn" =~ ^# ]] && continue
+        cand="$(run8 "$rn")"
+        if [[ -n "${TRIGGER_BIT}" ]]; then
+          if is_trigger_active "$cand" "$TRIGGER_BIT"; then r8="$cand"; break; fi
+        else
+          r8="$cand"; break
+        fi
+      done < "$GOLDEN"
 
-    # Build a 1-file list (first file only)
-    tmp="${STAGE_DIR}/run${r8}_LOCAL_firstfile.list"
-    head -n 1 "$src" > "$tmp"
-    say "Temp list → $tmp"
-    say "Invoking wrapper locally…"
-    RJ_DATASET="$DATASET" RJ_VERBOSITY="$RJV" bash "$EXE" "$r8" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
+      [[ -n "$r8" ]] || { err "No run in $GOLDEN satisfies the requested trigger filter (TRIGGER=${TRIGGER_BIT:-none})."; exit 6; }
+
+      src="${LIST_DIR}/dst_calofitting-${r8}.list"
+      [[ -s "$src" ]] || { err "Per-run list missing or empty: $src"; exit 7; }
+
+      # Build a 1-file list (first file only)
+      tmp="${STAGE_DIR}/run${r8}_LOCAL_firstfile.list"
+      head -n 1 "$src" > "$tmp"
+      say "Temp list → $tmp"
+      say "Invoking wrapper locally…"
+      RJ_DATASET="$DATASET" RJ_VERBOSITY="$RJV" bash "$EXE" "$r8" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
+    fi
+    ;;
+
+  condorTest)
+    # One verbose Condor job on first sim file
+    [[ "$DATASET" == "isSim" ]] || { err "condorTest is only valid for isSim"; exit 2; }
+    need_cmd condor_submit
+    sim_init
+
+    tmp="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_condorTest_firstfile.list"
+    head -n 1 "$SIM_CLEAN_LIST" > "$tmp"
+
+    stamp="$(date +%Y%m%d_%H%M%S)"
+    sub="${BASE}/RecoilJets_sim_${SIM_SAMPLE}_${stamp}_TEST.sub"
+
+    cat > "$sub" <<SUB
+universe      = vanilla
+executable    = ${EXE}
+initialdir    = ${BASE}
+getenv        = True
+log           = ${LOG_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).log
+output        = ${OUT_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).out
+error         = ${ERR_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).err
+request_memory= 2000MB
+should_transfer_files = NO
+stream_output = True
+stream_error  = True
+environment   = RJ_VERBOSITY=10
+arguments     = ${SIM_SAMPLE} ${tmp} isSim \$(Cluster) 0 1 NONE ${DEST_BASE}
+queue
+SUB
+
+    say "Submitting 1 isSim condorTest job (sample=${SIM_SAMPLE}) → $(basename "$sub")"
+    condor_submit "$sub"
+    ;;
+
+  condorDoAll)
+    # Submit all sim files in grouped chunks. MUST wipe outputs/logs first.
+    [[ "$DATASET" == "isSim" ]] || { err "condorDoAll is only valid for isSim"; exit 2; }
+    need_cmd condor_submit
+
+    wipe_sim_artifacts
+
+    mapfile -t groups < <( make_sim_groups "$GROUP_SIZE" )
+    (( ${#groups[@]} )) || { err "No sim groups produced (sample=${SIM_SAMPLE})"; exit 30; }
+
+    stamp="$(date +%Y%m%d_%H%M%S)"
+    sub="${BASE}/RecoilJets_sim_${SIM_SAMPLE}_${stamp}.sub"
+
+    cat > "$sub" <<SUB
+universe      = vanilla
+executable    = ${EXE}
+initialdir    = ${BASE}
+getenv        = True
+log           = ${LOG_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).log
+output        = ${OUT_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).out
+error         = ${ERR_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).err
+request_memory= 2000MB
+should_transfer_files = NO
+stream_output = True
+stream_error  = True
+environment   = RJ_VERBOSITY=0
+SUB
+
+    gidx=0
+    for glist in "${groups[@]}"; do
+      (( gidx+=1 ))
+      printf 'arguments = %s %s %s $(Cluster) 0 %d NONE %s\nqueue\n\n' \
+             "$SIM_SAMPLE" "$glist" "isSim" "$gidx" "$DEST_BASE" >> "$sub"
+    done
+
+    say "Submitting isSim condorDoAll (sample=${SIM_SAMPLE}, groupSize=${GROUP_SIZE}) → jobs=${BOLD}${#groups[@]}${RST}"
+    say "Output ROOT dir: ${DEST_BASE}/${SIM_SAMPLE}"
+    condor_submit "$sub"
     ;;
 
   splitGoldenRunList)
+    [[ "$DATASET" == "isSim" ]] && { err "splitGoldenRunList is not used in isSim mode"; exit 2; }
     split_golden "$GROUP_SIZE" "$MAX_JOBS"
     ;;
 
   condor)
-    # condor testJob | condor round <N> [firstChunk] | condor all
+    [[ "$DATASET" == "isSim" ]] && { err "Use: isSim condorTest | isSim condorDoAll (not 'condor')"; exit 2; }
+
+    # DATA ONLY: condor testJob | condor round <N> [firstChunk] | condor all
     submode="${3:-}"
     case "$submode" in
       testJob)
-        # Single smoke-test on first golden run:
-        # - groupSize=1 (one file per job)
-        # - submit only the first chunk
-        # - RJ_VERBOSITY=10 in the submit file
         [[ -s "$GOLDEN" ]] || { err "Golden list is empty: $GOLDEN"; exit 6; }
         r8=""
         while IFS= read -r rn; do
@@ -549,7 +768,6 @@ case "$ACTION" in
         done < "$GOLDEN"
         [[ -n "$r8" ]] || { err "No run in $GOLDEN satisfies the requested trigger filter (TRIGGER=${TRIGGER_BIT:-none})."; exit 6; }
 
-        # Build group lists with groupSize=1 and take only the first chunk
         mapfile -t groups < <( make_groups "$r8" 1 )
         (( ${#groups[@]} )) || { err "No groups produced for run $r8"; exit 9; }
         glist="${groups[0]}"
@@ -569,13 +787,11 @@ request_memory= 2000MB
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
-# TESTJOB: Verbose macro on Condor
 environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=10
 arguments     = ${r8} ${glist} ${DATASET} \$(Cluster) 0 1 NONE ${DEST_BASE}
 queue
 SUB
         say "Submitting 1 test job on run ${BOLD}${r8}${RST} (first chunk, groupSize=1) → $(basename "$sub")"
-        need_cmd condor_submit
         condor_submit "$sub"
         ;;
       round)
@@ -586,8 +802,6 @@ SUB
         submit_condor "$round_file" "$firstChunk"
         ;;
       all|"")
-        # Submit all runs currently in GOLDEN (no round cap)
-        # Write a temp "all runs" source file
         tmp_src="${ROUND_DIR}/ALL_${TAG}_$(date +%s).txt"
         grep -E '^[0-9]+' "$GOLDEN" > "$tmp_src"
         submit_condor "$tmp_src"

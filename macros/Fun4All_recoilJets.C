@@ -163,14 +163,47 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   if (files.empty())
       detail::bail("input list \"" + std::string(listFile) + "\" is empty");
 
-  const std::string& firstFile = files.front();
-  const auto [run, seg]        = Fun4AllUtils::GetRunSegment(firstFile);
-  if (run <= 0)
-      detail::bail("failed to extract run number from first file: " + firstFile);
+    const std::string& firstFile = files.front();
 
-  if (verbose)
-        std::cout << "[INFO] Run=" << run << "  Seg=" << seg
-                  << "  (" << files.size() << " files)\n";
+    // Wrapper sets RJ_IS_SIM=1 in isSim mode
+    const bool isSim = (std::getenv("RJ_IS_SIM") && (std::atoi(std::getenv("RJ_IS_SIM")) != 0));
+
+    auto runSegPair = Fun4AllUtils::GetRunSegment(firstFile);
+    int run = runSegPair.first;
+    int seg = runSegPair.second;
+
+    if (run <= 0)
+    {
+      if (isSim)
+      {
+        // If the filename doesn't encode a run number, use a safe CDB timestamp.
+        run = 1;
+        seg = 0;
+
+        // Optional override if you ever want it:
+        //   export RJ_CDB_TIMESTAMP=XXXX
+        if (const char* ts = std::getenv("RJ_CDB_TIMESTAMP"))
+        {
+          try
+          {
+            const int t = std::stoi(ts);
+            if (t > 0) run = t;
+          }
+          catch (...) { /* keep default */ }
+        }
+
+        if (verbose)
+          std::cout << "[INFO] Simulation mode: run/seg not in filename → using TIMESTAMP=" << run << "\n";
+      }
+      else
+      {
+        detail::bail("failed to extract run number from first file: " + firstFile);
+      }
+    }
+
+    if (verbose)
+          std::cout << "[INFO] Run=" << run << "  Seg=" << seg
+                    << "  (" << files.size() << " files)\n";
 
   // --------------------------------------------------------------------
   // Global verbosity control (RJ_VERBOSITY from env; defaults to 10;
@@ -491,10 +524,17 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   // --------------------------------------------------------------------
   // 5.  Run-information helper (optional but handy)
   // --------------------------------------------------------------------
-  auto* trigInfo = new TriggerRunInfoReco();
-  trigInfo->Verbosity(vlevel);
-  se->registerSubsystem(trigInfo);
-    
+    if (!isSim)
+    {
+      auto* trigInfo = new TriggerRunInfoReco();
+      trigInfo->Verbosity(vlevel);
+      se->registerSubsystem(trigInfo);
+    }
+    else
+    {
+      if (vlevel > 0) std::cout << "[isSim] skipping TriggerRunInfoReco" << std::endl;
+    }
+
   // Compute cluster isolation once per event (writes RawCluster::set_et_iso)
   // Only compute UE-subtracted isolation in Au+Au (SUB1 nodes exist there).
   const bool do_subtracted = isAuAuData;
