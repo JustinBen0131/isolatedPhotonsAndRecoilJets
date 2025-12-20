@@ -1,0 +1,4 @@
+[submodule "coresoftware_local"]
+	path = coresoftware_local
+	url = https://github.com/sPHENIX-Collaboration/coresoftware.git
+	branch = master
