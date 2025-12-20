@@ -1,0 +1,114 @@
+#include "PHHepMCGenEventv1.h"
+
+#include <HepMC/GenEvent.h>
+#include <HepMC/SimpleVector.h>  // for FourVector
+
+#include <CLHEP/Vector/Boost.h>
+#include <CLHEP/Vector/LorentzRotation.h>
+#include <CLHEP/Vector/LorentzVector.h>
+#include <CLHEP/Vector/Rotation.h>
+
+#include <iostream>  // for cout
+#include <map>       // for map
+#include <sstream>
+#include <utility>  // for swap
+
+PHHepMCGenEventv1::PHHepMCGenEventv1()
+  : m_boost_beta_vector(0, 0, 0)
+  , m_rotation_vector(0, 0, 1)
+  , m_rotation_angle(0)
+
+{
+}
+
+PHHepMCGenEventv1::PHHepMCGenEventv1(const PHHepMCGenEventv1& event)
+  : PHHepMCGenEvent(event)
+  , m_boost_beta_vector(event.get_boost_beta_vector())
+  , m_rotation_vector(event.get_rotation_vector())
+  , m_rotation_angle(event.get_rotation_angle())
+  , m_psi_n(event.get_flow_psi_map())
+{
+  return;
+}
+
+PHHepMCGenEventv1& PHHepMCGenEventv1::operator=(const PHHepMCGenEventv1& event)
+{
+  if (&event == this)
+  {
+    return *this;
+  }
+
+  Reset();
+
+  _embedding_id = event.get_embedding_id();
+  _isSimulated = event.is_simulated();
+  _theEvt = new HepMC::GenEvent(*event.getEvent());
+
+  return *this;
+}
+
+void PHHepMCGenEventv1::Reset()
+{
+  PHHepMCGenEvent::Reset();
+
+  m_boost_beta_vector.set(0, 0, 0);
+  m_rotation_vector.set(0, 0, 1);
+  m_rotation_angle = 0;
+  m_psi_n.clear();
+}
+
+//_____________________________________________________________________________
+void PHHepMCGenEventv1::identify(std::ostream& os) const
+{
+  PHHepMCGenEvent::identify(os);
+
+  os << " m_boost_beta_vector = (" << m_boost_beta_vector.x() << "," << m_boost_beta_vector.y() << "," << m_boost_beta_vector.z() << ") " << std::endl;
+  os << " m_rotation_vector = (" << m_rotation_vector.x() << "," << m_rotation_vector.y() << "," << m_rotation_vector.z() << ") by " << m_rotation_angle << " rad" << std::endl;
+  if (!m_psi_n.empty())
+  {
+    os << " Reaction plane angles psi_n from hijing flowAfterburner: ";
+    for (const auto& it : m_psi_n)
+    {
+      os << " n=" << it.first << " psi_n=" << it.second << "; ";
+    }
+    os << std::endl;
+  }
+
+  static const CLHEP::HepLorentzVector zp_lightcone(0, 0, 1, 1);
+  static const CLHEP::HepLorentzVector zm_lightcone(0, 0, -1, 1);
+
+  os << " HepMC Frame unit light cone vector along +z axis " << zp_lightcone << " translate to lab at : "
+     << (get_LorentzRotation_EvtGen2Lab() * zp_lightcone)
+     << std::endl;
+  os << " HepMC Frame unit light cone vector along -z axis  " << zm_lightcone << " translate to lab at : "
+     << (get_LorentzRotation_EvtGen2Lab() * zm_lightcone)
+     << std::endl;
+
+  return;
+}
+
+CLHEP::HepLorentzRotation PHHepMCGenEventv1::get_LorentzRotation_EvtGen2Lab() const
+{
+  CLHEP::HepBoost boost(m_boost_beta_vector.x(), m_boost_beta_vector.y(), m_boost_beta_vector.z());
+  CLHEP::Hep3Vector axis(m_rotation_vector.x(), m_rotation_vector.y(), m_rotation_vector.z());
+  CLHEP::HepRotation rotation(axis, m_rotation_angle);
+
+  return CLHEP::HepLorentzRotation(boost, rotation);
+}
+
+CLHEP::HepLorentzRotation PHHepMCGenEventv1::get_LorentzRotation_Lab2EvtGen() const
+{
+  return get_LorentzRotation_EvtGen2Lab().inverse();
+}
+
+float PHHepMCGenEventv1::get_flow_psi(unsigned int n) const
+{
+  auto it = m_psi_n.find(n);
+  if (it != m_psi_n.end())
+  {
+    return it->second;
+  }
+
+  std::cout << "PHHepMCGenEventv1::get_flow_psi - Warning - requested reaction plane angle psi_n for n=" << n << " does not exist. Returning 0.0" << std::endl;
+  return 0.0F;
+}
