@@ -72,9 +72,9 @@ namespace PhoIDCuts {
   inline constexpr double PRE_E32E35_MAX = 1.00;
   inline constexpr double PRE_WETA_MAX   = 0.60;  // only η width is capped
 
-  // Tight windows (two carry E_T dependence)
-  inline constexpr double TIGHT_W_LO     = 0.0;   // 0 < w < 0.15 + 0.006 E_T
-  inline double tight_w_hi(double et_gamma) { return 0.15 + 0.006 * et_gamma; }
+  // Tight windows (two carry pT dependence; for photons pT == ET)
+  inline constexpr double TIGHT_W_LO     = 0.0;   // 0 < w < 0.15 + 0.006 pT
+  inline double tight_w_hi(double pt_gamma) { return 0.15 + 0.006 * pt_gamma; }
 
   inline constexpr double TIGHT_E11E33_MIN = 0.40;
   inline constexpr double TIGHT_E11E33_MAX = 0.98;
@@ -171,7 +171,7 @@ class RecoilJets : public SubsysReco
     double et1;             // 2×2 core fraction proxy used in note
     double e11_over_e33;    // E11/E33 compactness
     double e32_over_e35;    // strip ratio (3×2 over 3×5, CoG-aligned)
-    double et_gamma;        // photon candidate E_T (GeV) for E_T-dependent width caps
+    double pt_gamma;        // photon candidate pT (GeV) used everywhere for binning & width caps
   };
 
   enum class TightTag : uint8_t {
@@ -221,9 +221,13 @@ class RecoilJets : public SubsysReco
   bool isNonIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const;
 
   // ---------- Binning controls (user-editable arrays) ----------------------
-  // Configure E_T^γ bin edges (must be size>=2, monotonically increasing).
-  void setGammaEtBins(const std::vector<double>& edges) { if (edges.size()>=2) m_gammaEtBins = edges; }
-  // Configure centrality edges (already available via setCentralityEdges()).
+  // Configure photon pT bin edges (must be size>=2, monotonically increasing).
+  void setGammaPtBins(const std::vector<double>& edges) { if (edges.size()>=2) m_gammaPtBins = edges; }
+
+  // Backward-compatible alias (if any macros still call the old name)
+  void setGammaEtBins(const std::vector<double>& edges) { setGammaPtBins(edges); }
+
+    // Configure centrality edges (already available via setCentralityEdges()).
 
  private:
   // ======================================================================
@@ -275,8 +279,8 @@ class RecoilJets : public SubsysReco
   int              m_centBin   = -1;   // 0…99
   std::map<std::string,int> m_centIdxCache; // "0_10" → 0, etc.
 
-  // E_T^γ bin edges (user‑editable); default aligns with your plots
-  std::vector<double> m_gammaEtBins{2, 4, 6, 8, 10, 12, 15, 18, 20, 24, 30};
+  // Photon pT bin edges used everywhere for slicing & JES calibration
+  std::vector<double> m_gammaPtBins {10, 15, 20, 50};
 
   // Output file & QA store
   std::string  Outfile;
@@ -453,45 +457,55 @@ class RecoilJets : public SubsysReco
   double m_hadFrac    {0.10};
   double m_minBackToBack {7.0*M_PI/8.0};
 
-    // ---------- Internal helpers for photon pT(/centrality) binning & counters -------
-    // NOTE: findEtBin + m_gammaEtBins are now treated as photon pT binning for JES work.
-    int  findEtBin(double et) const;                 // returns -1 if out-of-range
-    int  findCentBin(int cent) const;                // returns -1 if out-of-range
-    std::string suffixForBins(int etIdx, int centIdx) const;
+  // ---------- Internal helpers for photon pT(/centrality) binning & counters -------
+  // NOTE: findPtBin + m_gammaPtBins define the photon pT slicing used everywhere (including JES calibration).
+  int  findPtBin(double pt) const;                 // returns -1 if out-of-range
+  int  findCentBin(int cent) const;                // returns -1 if out-of-range
+  std::string suffixForBins(int ptIdx, int centIdx) const;
 
-    TH1I* getOrBookCountHist(const std::string& trig,
+  TH1I* getOrBookCountHist(const std::string& trig,
                              const std::string& base,
-                             int etIdx, int centIdx);
+                             int ptIdx, int centIdx);
 
-    // Existing 1D spectra (now pT-sliced via suffixForBins)
-    TH1F* getOrBookXJHist (const std::string& trig, int etIdx, int centIdx);
-    TH1F* getOrBookIsoHist(const std::string& trig, int etIdx, int centIdx);
+    // 1D spectra (pT^gamma-sliced via suffixForBins)
+    TH1F* getOrBookXJHist (const std::string& trig, int ptIdx, int centIdx);
+    TH1F* getOrBookIsoHist(const std::string& trig, int ptIdx, int centIdx);
 
-    // NEW: JES calibration primitives (filled only for iso∧tight γ + matched recoil jet)
-    TH1F* getOrBookJet1PtHist(const std::string& trig, int etIdx, int centIdx);
-    TH1F* getOrBookJet2PtHist(const std::string& trig, int etIdx, int centIdx);
-    TH1F* getOrBookAlphaHist (const std::string& trig, int etIdx, int centIdx);
+    // NEW: pure isolation QA (independent of preselection/tightness)
+    // Component spectra use the same slicing rules as h_Eiso.
+    TH1F* getOrBookIsoPartHist(const std::string& trig,
+                               const std::string& base,
+                               const std::string& xAxisTitle,
+                               int ptIdx, int centIdx);
 
-    // NEW: correlation-preserving TH3s (pTγ is an axis; centrality suffix only)
-    TH3F* getOrBookJES3_xJ_alphaHist      (const std::string& trig, int centIdx);
-    TH3F* getOrBookJES3_jet1Pt_alphaHist  (const std::string& trig, int centIdx);
+    // NEW: 2-bin (PASS/FAIL) isolation decision counter hist (same slicing rules)
+    TH1I* getOrBookIsoDecisionHist(const std::string& trig, int ptIdx, int centIdx);
 
-    // Shower-shape histogram booker:
-    //    h_ss_<varKey>_<tagKey> + suffixForBins(pT[,cent])
-    TH1F* getOrBookSSHist(const std::string& trig,
+
+  // JES calibration primitives (filled only for iso∧tight γ + matched recoil jet)
+  TH1F* getOrBookJet1PtHist(const std::string& trig, int ptIdx, int centIdx);
+  TH1F* getOrBookJet2PtHist(const std::string& trig, int ptIdx, int centIdx);
+  TH1F* getOrBookAlphaHist (const std::string& trig, int ptIdx, int centIdx);
+
+  // Correlation-preserving TH3s (pT^gamma is an axis; centrality suffix only)
+  TH3F* getOrBookJES3_xJ_alphaHist      (const std::string& trig, int centIdx);
+  TH3F* getOrBookJES3_jet1Pt_alphaHist  (const std::string& trig, int centIdx);
+
+  // Shower-shape histogram booker:
+  //    h_ss_<varKey>_<tagKey> + suffixForBins(pT[,cent])
+  TH1F* getOrBookSSHist(const std::string& trig,
                           const std::string& varKey,
                           const std::string& tagKey,
-                          int etIdx, int centIdx);
+                          int ptIdx, int centIdx);
 
   void  fillIsoSSTagCounters(const std::string& trig,
-                                   const RawCluster* clus,
-                                   const SSVars& v,
-                                   double et_gamma,
-                                   int centIdx,
-                                   PHCompositeNode* topNode);
+                              const RawCluster* clus,
+                              const SSVars& v,
+                              double pt_gamma,
+                              int centIdx,
+                              PHCompositeNode* topNode);
 
-
-  SSVars makeSSFromPhoton(const PhotonClusterv1* pho, double et) const;
+  SSVars makeSSFromPhoton(const PhotonClusterv1* pho, double pt_gamma) const;
   void   processCandidates(PHCompositeNode* topNode,
                                const std::vector<std::string>& activeTrig);
 
