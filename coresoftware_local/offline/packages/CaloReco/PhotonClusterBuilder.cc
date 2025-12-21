@@ -208,12 +208,27 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
 
     PhotonClusterv1* photon = new PhotonClusterv1(*rc);
 
+    // ------------------------------------------------------------------
+    // Persist the EXACT kinematic definitions used by PhotonClusterBuilder
+    // so downstream (e.g. RecoilJets) can use *the same* vertex + ET/pT.
+    //
+    // NOTE:
+    //  - Builder vertex is MBD z (m_vertex)
+    //  - Here ET is computed as E/cosh(eta) using the same eta used for threshold.
+    //  - For photons (massless assumption), pT == ET when definitions are consistent.
+    // ------------------------------------------------------------------
+    photon->set_shower_shape_parameter("vertex_z",   m_vertex);
+    photon->set_shower_shape_parameter("cluster_eta", eta);
+    photon->set_shower_shape_parameter("cluster_phi", phi);
+    photon->set_shower_shape_parameter("cluster_et",  ET);
+    photon->set_shower_shape_parameter("cluster_pt",  ET);
+
     calculate_shower_shapes(rc, photon, eta, phi);
     //this is defensive coding, if do bdt is set false the bdt object should be nullptr
     //and this method will simply pass
     if (m_do_bdt)
     {
-      calculate_bdt_score(photon);
+        calculate_bdt_score(photon);
     }
 
     m_photon_container->AddCluster(photon);

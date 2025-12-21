@@ -165,8 +165,22 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
 
     const std::string& firstFile = files.front();
 
-    // Wrapper sets RJ_IS_SIM=1 in isSim mode
-    const bool isSim = (std::getenv("RJ_IS_SIM") && (std::atoi(std::getenv("RJ_IS_SIM")) != 0));
+    // Simulation detection:
+    //  - primary: RJ_DATASET=isSim
+    //  - fallback: RJ_IS_SIM=1 (wrapper sets this)
+    bool isSim = false;
+    if (const char* ds = std::getenv("RJ_DATASET"))
+    {
+      std::string s = detail::trim(std::string(ds));
+      std::transform(s.begin(), s.end(), s.begin(),
+                     [](unsigned char c){ return std::tolower(c); });
+      if (s == "issim" || s == "sim") isSim = true;
+    }
+    if (!isSim)
+    {
+      if (const char* f = std::getenv("RJ_IS_SIM"))
+        isSim = (std::atoi(f) != 0);
+    }
 
     auto runSegPair = Fun4AllUtils::GetRunSegment(firstFile);
     int run = runSegPair.first;
@@ -327,21 +341,41 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   std::unique_ptr<GlobalVertexReco> gvertex = std::make_unique<GlobalVertexReco>();
   se->registerSubsystem(gvertex.release());
 
-  // Decide dataset early so we can gate Au+Au-only modules (centrality)
-  bool isAuAuData = true;
-  if (const char* env = std::getenv("RJ_DATASET"))
-  {
-      std::string s = detail::trim(std::string(env));
-      std::string sLower = s;
-      std::transform(sLower.begin(), sLower.end(), sLower.begin(),
-                     [](unsigned char c){ return std::tolower(c); });
-      isAuAuData = !(sLower == "ispp" || sLower == "pp");
-  }
-  else
-  {
-      // Fallback heuristic based on known pp runs: ≤ 53864 → p+p, > 53864 → Au+Au
-      isAuAuData = (run > 53864);
-  }
+    // Decide dataset early so we can gate Au+Au-only modules (centrality)
+    // IMPORTANT: isSim should behave like pp-style reconstruction here.
+    bool isAuAuData = true;
+
+    if (const char* env = std::getenv("RJ_DATASET"))
+    {
+        std::string s = detail::trim(std::string(env));
+        std::string sLower = s;
+        std::transform(sLower.begin(), sLower.end(), sLower.begin(),
+                       [](unsigned char c){ return std::tolower(c); });
+
+        if (sLower == "issim" || sLower == "sim")
+        {
+          isSim = true;        // ensure consistency even if RJ_IS_SIM wasn't set
+          isAuAuData = false;  // sim uses pp-style chain
+        }
+        else if (sLower == "ispp" || sLower == "pp")
+        {
+          isAuAuData = false;
+        }
+        else if (sLower == "isauau" || sLower == "auau" || sLower == "aa")
+        {
+          isAuAuData = true;
+        }
+        else
+        {
+          // Unknown token: fallback heuristic based on known pp runs
+          isAuAuData = (run > 53864);
+        }
+    }
+    else
+    {
+        // Fallback heuristic based on known pp runs: ≤ 53864 → p+p, > 53864 → Au+Au
+        isAuAuData = (run > 53864);
+    }
 
   if (isAuAuData)
   {
@@ -561,24 +595,27 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   // Use the already-defined global vlevel
   recoilJets->setVerbose(vlevel);
   if (verbose) std::cout << "[INFO] RJ_VERBOSITY → " << vlevel << '\n';
-  // Pick data-type from environment RJ_DATASET (isPP / isAu+Au), case-insensitive.
+  // Pick analysis type for the module (isPP / isAuAu / isSim), case-insensitive.
   // Fallback: ≤ 53864 → isPP, > 53864 → isAuAu.
   std::string dtype = "isAuAu";
   if (const char* env = std::getenv("RJ_DATASET"))
   {
-          std::string s = detail::trim(std::string(env));
-          std::string sLower = s;
-          std::transform(sLower.begin(), sLower.end(), sLower.begin(),
-                         [](unsigned char c){ return std::tolower(c); });
-          dtype = (sLower == "ispp" || sLower == "pp") ? "isPP" : "isAuAu";
-  }
-  else
-  {
-          dtype = (run <= 53864) ? "isPP" : "isAuAu";
+            std::string s = detail::trim(std::string(env));
+            std::string sLower = s;
+            std::transform(sLower.begin(), sLower.end(), sLower.begin(),
+                           [](unsigned char c){ return std::tolower(c); });
+
+            if (sLower == "issim" || sLower == "sim")      dtype = "isSim";
+            else if (sLower == "ispp" || sLower == "pp")   dtype = "isPP";
+            else                                           dtype = "isAuAu";
+    }
+    else
+    {
+            dtype = (run <= 53864) ? "isPP" : "isAuAu";
   }
 
   if (verbose) std::cout << "[INFO] RJ_DATASET → " << dtype << '\n';
-  recoilJets->setDataType(dtype.c_str());
+  recoilJets->setDataType(dtype);
 
   se->registerSubsystem(recoilJets);
 

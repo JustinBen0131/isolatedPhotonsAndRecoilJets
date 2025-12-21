@@ -15,7 +15,7 @@
 set -euo pipefail
 
 # ------------------------ Arguments ------------------------
-run8="${1:?run8 required (8-digit)}"
+run8="${1:?run8 (DATA) or SIM_SAMPLE (SIM) required}"
 chunk_list="${2:?chunk list (.list) required}"
 dataset_raw="${3:-isAuAu}"          # isPP | isAuAu
 cluster_id="${4:-LOCAL}"            # informational
@@ -55,8 +55,8 @@ set -u
 
 # ------------------------ Dataset routing ------------------
 # Normalize dataset and set defaults:
-#  - isSim runs the pp-style chain in the macro (RJ_DATASET=isPP)
-#  - but we keep analysis_tag=isSim for output naming and export RJ_IS_SIM=1
+#  - isSim must remain isSim end-to-end so the analysis module can detect it.
+#  - Fun4All macro will treat isSim as pp-style reconstruction internally.
 analysis_tag="isAuAu"
 case "$dataset_raw" in
   isPP|pp|PP)
@@ -72,9 +72,9 @@ case "$dataset_raw" in
     export RJ_IS_SIM=0
     ;;
   isSim|sim|SIM)
-    dataset="isPP"
+    dataset="isSim"
     analysis_tag="isSim"
-    export RJ_DATASET="isPP"
+    export RJ_DATASET="isSim"
     export RJ_IS_SIM=1
     ;;
   *)

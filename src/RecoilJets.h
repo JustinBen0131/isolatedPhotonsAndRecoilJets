@@ -124,21 +124,44 @@ class RecoilJets : public SubsysReco
   // Global photon fiducial (PPG-12): |eta^gamma| < 0.7 by default
   void setEtaAbsMax(double a) { m_etaAbsMax = std::max(0.0, a); }
 
-  // ---- data type (controls Au+Au-only logic like centrality) -------------
-  enum class DataType { kPP, kAuAu };
+    // ---- data type (pp vs Au+Au) and sim flag ------------------------------
+    enum class DataType { kPP, kAuAu };
 
-  // string-friendly setter for Fun4All macros
-  void setDataType(const std::string& s)
-  {
-        const std::string t = s;
-        if (t=="isAuAu" || t=="AuAu" || t=="AUAU") m_isAuAu = true;
-        else                                       m_isAuAu = false; // default: pp
-  }
-  // type-safe setter (optional)
-  void setDataType(DataType t) { m_isAuAu = (t==DataType::kAuAu); }
+    // string-friendly setter for Fun4All macros
+    // Accepted tokens:
+    //   isPP / pp
+    //   isAuAu / auau
+    //   isSim / sim   (simulation; pp-style logic but trigger-dependent code can be skipped)
+    void setDataType(const std::string& s)
+    {
+          const std::string t = s;
 
-  // query
-  bool isAuAu() const { return m_isAuAu; }
+          // Simulation token
+          if (t=="isSim" || t=="issim" || t=="sim" || t=="SIM" || t=="Sim")
+          {
+            m_isSim = true;
+            m_isAuAu = false;   // sim behaves like pp-type for Au+Au gating
+            return;
+          }
+
+          // Data tokens
+          m_isSim = false;
+          if (t=="isAuAu" || t=="AuAu" || t=="AUAU" || t=="auau" || t=="AA")
+            m_isAuAu = true;
+          else
+            m_isAuAu = false; // default: pp
+    }
+
+    // type-safe setter (optional)
+    void setDataType(DataType t)
+    {
+          m_isSim = false;
+          m_isAuAu = (t==DataType::kAuAu);
+    }
+
+    // queries
+    bool isAuAu() const { return m_isAuAu; }
+    bool isSim()  const { return m_isSim;  }
 
 
   // ---------- Shower‑shape selection (PPG‑12 style) ------------------------
@@ -236,8 +259,11 @@ class RecoilJets : public SubsysReco
   // PPG-12 photon fiducial: |eta^gamma| < 0.7
   double      m_etaAbsMax   {0.7};
 
-  // data-type flag (pp vs Au+Au); controls centrality path etc.
+  // data-type flags:
+  //   m_isAuAu: controls Au+Au-only logic (centrality path, UE-subtracted jets, etc.)
+  //   m_isSim : marks simulation so trigger/GL1-dependent logic can be skipped
   bool        m_isAuAu      = false;      // default: p+p
+  bool        m_isSim       = false;      // default: data
 
   // vertex & caches
   const GlobalVertex* m_vtx {nullptr};
@@ -427,22 +453,32 @@ class RecoilJets : public SubsysReco
   double m_hadFrac    {0.10};
   double m_minBackToBack {7.0*M_PI/8.0};
 
-  // ---------- Internal helpers for E_T/centrality binning & counters -------
-  int  findEtBin(double et) const;                 // returns -1 if out-of-range
-  int  findCentBin(int cent) const;                // returns -1 if out-of-range
-  std::string suffixForBins(int etIdx, int centIdx) const;
-  TH1I* getOrBookCountHist(const std::string& trig,
-                                   const std::string& base,
-                                   int etIdx, int centIdx);
-  // xJ histogram booker: h_xJ + suffixForBins(ET[,cent])
-  TH1F* getOrBookXJHist(const std::string& trig, int etIdx, int centIdx);
-  // Eiso histogram booker: h_Eiso + suffixForBins(ET[,cent])
-  TH1F* getOrBookIsoHist(const std::string& trig, int etIdx, int centIdx);
-    
-  // Shower-shape histogram booker:
-  //    h_ss_<varKey>_<tagKey> + suffixForBins(ET[,cent])
-  //    varKey ∈ { weta, wphi, et1, e11e33, e32e35 }, tagKey ∈ { tight, nontight }
-  TH1F* getOrBookSSHist(const std::string& trig,
+    // ---------- Internal helpers for photon pT(/centrality) binning & counters -------
+    // NOTE: findEtBin + m_gammaEtBins are now treated as photon pT binning for JES work.
+    int  findEtBin(double et) const;                 // returns -1 if out-of-range
+    int  findCentBin(int cent) const;                // returns -1 if out-of-range
+    std::string suffixForBins(int etIdx, int centIdx) const;
+
+    TH1I* getOrBookCountHist(const std::string& trig,
+                             const std::string& base,
+                             int etIdx, int centIdx);
+
+    // Existing 1D spectra (now pT-sliced via suffixForBins)
+    TH1F* getOrBookXJHist (const std::string& trig, int etIdx, int centIdx);
+    TH1F* getOrBookIsoHist(const std::string& trig, int etIdx, int centIdx);
+
+    // NEW: JES calibration primitives (filled only for iso∧tight γ + matched recoil jet)
+    TH1F* getOrBookJet1PtHist(const std::string& trig, int etIdx, int centIdx);
+    TH1F* getOrBookJet2PtHist(const std::string& trig, int etIdx, int centIdx);
+    TH1F* getOrBookAlphaHist (const std::string& trig, int etIdx, int centIdx);
+
+    // NEW: correlation-preserving TH3s (pTγ is an axis; centrality suffix only)
+    TH3F* getOrBookJES3_xJ_alphaHist      (const std::string& trig, int centIdx);
+    TH3F* getOrBookJES3_jet1Pt_alphaHist  (const std::string& trig, int centIdx);
+
+    // Shower-shape histogram booker:
+    //    h_ss_<varKey>_<tagKey> + suffixForBins(pT[,cent])
+    TH1F* getOrBookSSHist(const std::string& trig,
                           const std::string& varKey,
                           const std::string& tagKey,
                           int etIdx, int centIdx);

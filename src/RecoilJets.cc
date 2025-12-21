@@ -23,6 +23,8 @@
 #include <ffamodules/CDBInterface.h>
 //––– sPHENIX objects -------------------------------------------------------
 #include <globalvertex/GlobalVertex.h>
+#include <globalvertex/MbdVertex.h>
+#include <globalvertex/MbdVertexMap.h>
 #include <calobase/TowerInfo.h>
 #include <calobase/TowerInfoDefs.h>
 #include <calobase/TowerInfoContainer.h>
@@ -145,22 +147,67 @@ bool RecoilJets::getCentralitySlice(int& lo,
 
 bool RecoilJets::fetchNodes(PHCompositeNode* top)
 {
-  /* ––– primary vertex –––––––––––––––––––––––––––––––––––––––––––––––– */
-  GlobalVertexMap* vmap = findNode::getClass<GlobalVertexMap>(top, "GlobalVertexMap");
-  m_vtx = nullptr; m_vx = m_vy = m_vz = 0.;
+  /* ––– primary vertex ––––––––––––––––––––––––––––––––––––––––––––––––
+     *
+     * PhotonClusterBuilder uses MbdVertexMap(z) to compute cluster eta/phi
+     * and the ET threshold. To keep RecoilJets fully consistent, we prefer
+     * the SAME MBD z here.
+     *
+     * We still optionally read GlobalVertexMap so m_vtx/m_vx/m_vy remain
+     * available for any legacy/diagnostic usage, but m_vz (used everywhere
+     * in RecoilJets kinematics) will match the builder when MBD exists.
+  * ------------------------------------------------------------------ */
+  GlobalVertexMap* gvmap  = findNode::getClass<GlobalVertexMap>(top, "GlobalVertexMap");
+  MbdVertexMap*    mbdmap = findNode::getClass<MbdVertexMap>(top, "MbdVertexMap");
 
-  if (!vmap)         { LOG(1, CLR_YELLOW, "  – GlobalVertexMap node **missing** → skip event"); return false; }
-  if (vmap->empty()) { LOG(2, CLR_YELLOW, "  – GlobalVertexMap is **empty** → skip event");     return false; }
+  m_vtx = nullptr; m_vx = m_vy = 0.0; m_vz = 0.0;
 
-  m_vtx = vmap->begin()->second;
-  if (!m_vtx)        { LOG(1, CLR_YELLOW, "  – vertex pointer null → skip event");              return false; }
+  // (Optional) keep GlobalVertex pointer for x/y diagnostics
+  if (gvmap && !gvmap->empty())
+    {
+      m_vtx = gvmap->begin()->second;
+      if (m_vtx)
+      {
+        m_vx = m_vtx->get_x();
+        m_vy = m_vtx->get_y();
+      }
+    }
 
-  m_vx = m_vtx->get_x();
-  m_vy = m_vtx->get_y();
-  m_vz = m_vtx->get_z();
+    // Prefer MBD z (matches PhotonClusterBuilder)
+    bool haveVz = false;
+    if (mbdmap && !mbdmap->empty())
+    {
+      MbdVertex* mv = mbdmap->begin()->second;
+      if (mv)
+      {
+        m_vz = mv->get_z();
+        haveVz = std::isfinite(m_vz);
+      }
+  }
+
+  // Fallback: use GlobalVertex z ONLY if MBD is unavailable
+  if (!haveVz)
+  {
+      if (!gvmap)         { LOG(1, CLR_YELLOW, "  – MbdVertexMap missing AND GlobalVertexMap missing → skip event"); return false; }
+      if (gvmap->empty()) { LOG(2, CLR_YELLOW, "  – MbdVertexMap missing AND GlobalVertexMap empty → skip event");   return false; }
+
+      m_vtx = gvmap->begin()->second;
+      if (!m_vtx)         { LOG(1, CLR_YELLOW, "  – MbdVertexMap missing AND Global vertex pointer null → skip event"); return false; }
+
+      m_vx = m_vtx->get_x();
+      m_vy = m_vtx->get_y();
+      m_vz = m_vtx->get_z();
+      haveVz = std::isfinite(m_vz);
+  }
+
+  if (!haveVz)
+  {
+      LOG(1, CLR_YELLOW, "  – vertex z is non-finite → skip event");
+      return false;
+  }
 
   LOG(4, CLR_BLUE, "    [fetchNodes] dataset=" << (m_isAuAu ? "Au+Au" : "p+p")
-                                              << "  vz=" << std::fixed << std::setprecision(2) << m_vz);
+                                                << "  vz(used)=" << std::fixed << std::setprecision(2) << m_vz);
 
   /* ––– calorimeter towers & geometry –––––––––––––––––––––––––––––––– */
   m_calo.clear();
@@ -346,6 +393,50 @@ void RecoilJets::createHistos_Data()
   const double vzMin = -60.0;
   const double vzMax =  60.0;
 
+  // ------------------------------------------------------------------
+  // SIMULATION MODE: do NOT depend on trigger names.
+  // Everything goes under a single directory: /SIM/
+  // ------------------------------------------------------------------
+  if (m_isSim)
+  {
+    const std::string trig = "SIM";
+
+    TDirectory* dir = out->GetDirectory(trig.c_str());
+    if (!dir) dir = out->mkdir(trig.c_str());
+    dir->cd();
+
+    HistMap& H = qaHistogramsByTrigger[trig];
+
+    // 1) per-job event counter (SIM)
+    const std::string hcnt = "cnt_" + trig;
+    if (H.find(hcnt) == H.end())
+    {
+      auto* h = new TH1I(hcnt.c_str(), (hcnt + ";count;entries").c_str(), 1, 0.5, 1.5);
+      h->GetXaxis()->SetBinLabel(1, "count");
+      H[hcnt] = h;
+    }
+
+    // 2) vertex-z QA
+    if (H.find("h_vertexZ") == H.end())
+    {
+      auto* hvz = new TH1F("h_vertexZ", "h_vertexZ;v_{z} [cm];Entries", nbVz, vzMin, vzMax);
+      H["h_vertexZ"] = hvz;
+    }
+
+    // Optional: if you ever run a HI-like sim with centrality available
+    if (m_isAuAu && H.find("h_centrality") == H.end())
+    {
+      auto* hc = new TH1F("h_centrality", "h_centrality;Centrality [%];Entries", 100, 0.0, 100.0);
+      H["h_centrality"] = hc;
+    }
+
+    out->cd();
+    return;
+  }
+
+  // ------------------------------------------------------------------
+  // DATA MODE (existing behavior): per-trigger directories
+  // ------------------------------------------------------------------
   if (m_isAuAu)
   {
     for (const auto& kv : triggerNameMapAuAu) // kv: std::pair<int,std::string>
@@ -368,14 +459,14 @@ void RecoilJets::createHistos_Data()
         H[hcnt] = h;
       }
 
-      // 2) vertex-z QA (this is the one you fill later)
+      // 2) vertex-z QA
       if (H.find("h_vertexZ") == H.end())
       {
         auto* hvz = new TH1F("h_vertexZ", "h_vertexZ;v_{z} [cm];Entries", nbVz, vzMin, vzMax);
         H["h_vertexZ"] = hvz;
       }
 
-      // 3) centrality QA (you conditionally fill this later in Au+Au)
+      // 3) centrality QA (Au+Au only)
       if (H.find("h_centrality") == H.end())
       {
         auto* hc = new TH1F("h_centrality", "h_centrality;Centrality [%];Entries", 100, 0.0, 100.0);
@@ -407,7 +498,7 @@ void RecoilJets::createHistos_Data()
         H[hcnt] = h;
       }
 
-      // 2) vertex-z QA (this is the one you fill later)
+      // 2) vertex-z QA
       if (H.find("h_vertexZ") == H.end())
       {
         auto* hvz = new TH1F("h_vertexZ", "h_vertexZ;v_{z} [cm];Entries", nbVz, vzMin, vzMax);
@@ -426,6 +517,26 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
 {
   m_lastReject = EventReject::None;
   activeTrig.clear();
+
+  // ------------------------------------------------------------------
+  // SIMULATION MODE:
+  //   - skip ALL trigger logic
+  //   - fill everything under a single key: "SIM"
+  //   - still apply the global |vz| cut if enabled
+  // ------------------------------------------------------------------
+  if (m_isSim)
+  {
+    activeTrig.emplace_back("SIM");
+
+    if (m_useVzCut && std::fabs(m_vz) >= m_vzCut)
+    {
+      m_lastReject = EventReject::Vz;
+      return false;
+    }
+
+    m_lastReject = EventReject::None;
+    return true;
+  }
 
   if (!m_isAuAu)
   {
@@ -840,14 +951,31 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
 
           ++m_bk.pho_total;
 
-          // Build 4-vector and kinematics from vertex
-          const CLHEP::Hep3Vector vtx_vec(0, 0, m_vz);
-          const CLHEP::Hep3Vector p_vec  = RawClusterUtility::GetEVec(*rc, vtx_vec);
-
-          const double eta    = p_vec.pseudoRapidity();
-          const double phi    = p_vec.phi();
-          const double pt_dbg = p_vec.perp();
+          // --------------------------------------------------------------
+          // Use the EXACT kinematics produced by PhotonClusterBuilder:
+          //   - vertex_z    (MBD z used in builder)
+          //   - cluster_eta / cluster_phi
+          //   - cluster_pt / cluster_et
+          //
+          // This prevents ET/pT mismatches from recomputing with a different
+          // vertex choice or a different construction path.
+          // --------------------------------------------------------------
+          double eta    = pho->get_shower_shape_parameter("cluster_eta");
+          double phi    = pho->get_shower_shape_parameter("cluster_phi");
+          double pt_dbg = pho->get_shower_shape_parameter("cluster_pt");
           const double energy = rc->get_energy();
+
+          // Defensive fallback for older DSTs (or if params missing):
+          // recompute using m_vz (which fetchNodes now prefers from MBD).
+          if (!std::isfinite(eta) || !std::isfinite(phi) || !std::isfinite(pt_dbg))
+            {
+              const CLHEP::Hep3Vector vtx_vec(0, 0, m_vz);
+              const CLHEP::Hep3Vector p_vec  = RawClusterUtility::GetEVec(*rc, vtx_vec);
+
+              eta    = p_vec.pseudoRapidity();
+              phi    = p_vec.phi();
+              pt_dbg = p_vec.perp();
+          }
 
           // -------- early ET gate (2 GeV) --------------------------------------
           constexpr double kMinEtGamma = 2.0; // GeV
@@ -882,7 +1010,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
           }
 
           // Compute ET and enforce the 2 GeV gate *before* anything else
-          const double et  = energy / std::cosh(eta);
+          const double et  = pt_dbg;  // use cluster pT (transverse momentum) as the slicing scale
           if (!std::isfinite(et) || et < kMinEtGamma)
           {
             ++nSkipEtBin; ++m_bk.pho_early_E;
@@ -1068,49 +1196,134 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
             continue;
           }
 
-          // Scan jets for away-side match
-          int nPassDphi = 0, nPassPt = 0;
-          double bestPt = -1.0;
-          for (const Jet* j : *jets)
-          {
-            if (!j) continue;
-            const double dphi = std::fabs(TVector2::Phi_mpi_pi(j->get_phi() - phi_gamma));
-            if (dphi >= m_minBackToBack) ++nPassDphi; else continue;
+            // Scan jets:
+            //   1) find leading recoil jet (away-side, Δφ cut) -> jet1
+            //   2) find leading/subleading jets in the event (pT-ranked) -> jet2 for alpha
+            int nPassDphi = 0, nPassPt = 0;
 
-            const double jpt = j->get_pt();
-            if (jpt >= m_minJetPt)      ++nPassPt;   else continue;
+            double bestPt = -1.0;
+            const Jet* bestJet = nullptr;
 
-            if (jpt > bestPt) bestPt = jpt;
-          }
+            double all1Pt = -1.0;
+            const Jet* all1Jet = nullptr;
+            double all2Pt = -1.0;
+            const Jet* all2Jet = nullptr;
 
-          if (bestPt > 0.0)
-          {
-            const double xJ = bestPt / et;
-            if (Verbosity() >= 5)
-              LOG(5, CLR_GREEN, "      [pho#" << iPho << "] xJ = " << std::fixed << std::setprecision(3)
-                                              << xJ << "  (bestPt=" << bestPt
-                                              << ", ET^γ=" << et
-                                              << ", passed dphi=" << nPassDphi
-                                              << ", passed pt=" << nPassPt << ")");
-
-            for (const auto& trigShort : activeTrig)
+            for (const Jet* j : *jets)
             {
-              if (auto* hx = getOrBookXJHist(trigShort, etIdx, (m_isAuAu ? centIdx : -1)))
+              if (!j) continue;
+
+              const double jpt = j->get_pt();
+              if (jpt < m_minJetPt) continue; // common floor for both recoil and jet2 definition
+
+              // Track top-2 jets in the event by pT (for "jet2" definition)
+              if (jpt > all1Pt)
               {
-                hx->Fill(xJ);
-                bumpHistFill(trigShort, std::string("h_xJ") + suffixForBins(etIdx, (m_isAuAu ? centIdx : -1)));
+                all2Pt = all1Pt; all2Jet = all1Jet;
+                all1Pt = jpt;    all1Jet = j;
+              }
+              else if (jpt > all2Pt)
+              {
+                all2Pt = jpt; all2Jet = j;
+              }
+
+              // Recoil selection (away-side of photon)
+              const double dphi = std::fabs(TVector2::Phi_mpi_pi(j->get_phi() - phi_gamma));
+              if (dphi >= m_minBackToBack)
+              {
+                ++nPassDphi;
+                ++nPassPt;
+
+                if (jpt > bestPt)
+                {
+                  bestPt = jpt;
+                  bestJet = j;
+                }
               }
             }
-            ++nUsed;
-          }
-          else
-          {
-            LOG(4, CLR_YELLOW, "      [pho#" << iPho << "] no away-side jet passes Δφ/pt cuts (bestPt ≤ 0)"
-                                             << "  [passed dphi=" << nPassDphi
-                                             << ", passed pt=" << nPassPt
-                                             << ", minBackToBack=" << m_minBackToBack
-                                             << ", minJetPt=" << m_minJetPt << "]");
-          }
+
+            if (bestPt > 0.0)
+            {
+              // xJ uses photon pT (your variable 'et' is the photon transverse scale)
+              const double xJ = bestPt / et;
+
+              // Define jet2 as the highest-pT jet excluding the recoil jet1.
+              // If none exists, jet2Pt=0 so alpha=0 (keeps "no extra jet" events in alpha cuts).
+              double jet2Pt = 0.0;
+              if (all1Jet && all1Jet != bestJet) jet2Pt = std::max(0.0, all1Pt);
+              else if (all2Jet && all2Jet != bestJet) jet2Pt = std::max(0.0, all2Pt);
+              else jet2Pt = 0.0;
+
+              const double alpha = (et > 0.0 ? (jet2Pt / et) : 0.0);
+
+              if (Verbosity() >= 5)
+                LOG(5, CLR_GREEN, "      [pho#" << iPho << "] xJ = " << std::fixed << std::setprecision(3)
+                                                << xJ
+                                                << "  jet1Pt=" << bestPt
+                                                << "  jet2Pt=" << jet2Pt
+                                                << "  alpha=" << alpha
+                                                << "  (pT^γ=" << et
+                                                << ", passed dphi=" << nPassDphi
+                                                << ", passed pt=" << nPassPt << ")");
+
+              const int effCentIdx = (m_isAuAu ? centIdx : -1);
+              const std::string slice = suffixForBins(etIdx, effCentIdx);
+              const std::string centOnly = suffixForBins(-1, effCentIdx);
+
+              for (const auto& trigShort : activeTrig)
+              {
+                // 1) Your existing xJ spectrum (per pT bin)
+                if (auto* hx = getOrBookXJHist(trigShort, etIdx, effCentIdx))
+                {
+                  hx->Fill(xJ);
+                  bumpHistFill(trigShort, std::string("h_xJ") + slice);
+                }
+
+                // 2) NEW: jet1 pT spectrum (per pT bin)
+                if (auto* hj1 = getOrBookJet1PtHist(trigShort, etIdx, effCentIdx))
+                {
+                  hj1->Fill(bestPt);
+                  bumpHistFill(trigShort, std::string("h_jet1Pt") + slice);
+                }
+
+                // 3) NEW: jet2 pT spectrum (per pT bin)
+                if (auto* hj2 = getOrBookJet2PtHist(trigShort, etIdx, effCentIdx))
+                {
+                  hj2->Fill(jet2Pt);
+                  bumpHistFill(trigShort, std::string("h_jet2Pt") + slice);
+                }
+
+                // 4) NEW: alpha spectrum (per pT bin)
+                if (auto* ha = getOrBookAlphaHist(trigShort, etIdx, effCentIdx))
+                {
+                  ha->Fill(alpha);
+                  bumpHistFill(trigShort, std::string("h_alpha") + slice);
+                }
+
+                // 5) NEW: TH3 correlations (cent-only suffix; pTγ is an axis)
+                if (auto* h3x = getOrBookJES3_xJ_alphaHist(trigShort, effCentIdx))
+                {
+                  h3x->Fill(et, xJ, alpha);
+                  bumpHistFill(trigShort, std::string("h_JES3_pT_xJ_alpha") + centOnly);
+                }
+
+                if (auto* h3j = getOrBookJES3_jet1Pt_alphaHist(trigShort, effCentIdx))
+                {
+                  h3j->Fill(et, bestPt, alpha);
+                  bumpHistFill(trigShort, std::string("h_JES3_pT_jet1Pt_alpha") + centOnly);
+                }
+              }
+
+              ++nUsed;
+            }
+            else
+            {
+              LOG(4, CLR_YELLOW, "      [pho#" << iPho << "] no away-side jet passes Δφ/pt cuts (bestPt ≤ 0)"
+                                               << "  [passed dphi=" << nPassDphi
+                                               << ", passed pt=" << nPassPt
+                                               << ", minBackToBack=" << m_minBackToBack
+                                               << ", minJetPt=" << m_minJetPt << "]");
+            }
         } // photon loop
           
           
@@ -1198,7 +1411,8 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
           LOG(5, CLR_YELLOW, "      [clus#" << iCl << "] non-positive or NaN energy=" << energy << " – skip");
           continue;
         }
-        const double et  = energy / std::cosh(eta);
+        const double et  = pt_dbg;  // use cluster pT (transverse momentum) as the slicing scale
+
         if (!std::isfinite(et) || et <= 0.0)
         {
           ++nSkipEtBin;
@@ -1576,16 +1790,21 @@ int RecoilJets::findCentBin(int cent) const
 std::string RecoilJets::suffixForBins(int etIdx, int centIdx) const
 {
   std::ostringstream s;
+
+  // Photon pT slicing (uses m_gammaEtBins as the configured pT bin edges)
   if (etIdx >= 0) {
     const double lo = m_gammaEtBins[etIdx];
     const double hi = m_gammaEtBins[etIdx+1];
-    s << "_ET_" << std::fixed << std::setprecision(0) << lo << '_' << hi;
+    s << "_pT_" << std::fixed << std::setprecision(0) << lo << '_' << hi;
   }
+
+  // Centrality slicing (Au+Au only, and only if centIdx>=0)
   if (m_isAuAu && centIdx >= 0) {
     const int clo = m_centEdges[centIdx];
     const int chi = m_centEdges[centIdx+1];
     s << "_cent_" << clo << '_' << chi;
   }
+
   return s.str();
 }
 
@@ -1717,12 +1936,13 @@ TH1F* RecoilJets::getOrBookXJHist(const std::string& trig, int etIdx, int centId
 
   dir->cd();
 
-  // Binning chosen for visibility: 60 bins in [0,3]
+  // 60 bins in [0,3]
   const int    nbins = 60;
   const double xmin  = 0.0;
   const double xmax  = 3.0;
 
-  const std::string title = name + ";x_{J}=p_{T}^{jet}/E_{T}^{#gamma};Entries";
+  // NOTE: now explicitly labeled as pTγ in the title
+  const std::string title = name + ";x_{J}=p_{T}^{jet}/p_{T}^{#gamma};Entries";
 
   if (Verbosity() >= 5)
     LOG(5, CLR_BLUE, "    [getOrBookXJHist] booking TH1F name=\"" << name
@@ -1736,6 +1956,215 @@ TH1F* RecoilJets::getOrBookXJHist(const std::string& trig, int etIdx, int centId
     if (prevDir) prevDir->cd();
     return nullptr;
   }
+  H[name] = h;
+
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+
+// ------------------------------------------------------------------
+// NEW: Leading recoil jet pT distribution (same slicing as h_xJ)
+// ------------------------------------------------------------------
+TH1F* RecoilJets::getOrBookJet1PtHist(const std::string& trig, int etIdx, int centIdx)
+{
+  const std::string base   = "h_jet1Pt";
+  const std::string suffix = suffixForBins(etIdx, centIdx);
+  const std::string name   = base + suffix;
+
+  if (trig.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+    if (auto* h = dynamic_cast<TH1F*>(it->second)) return h;
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+
+  dir->cd();
+
+  const int    nb = 120;
+  const double lo = 0.0;
+  const double hi = 60.0;
+
+  const std::string title = name + ";p_{T}^{jet1} [GeV];Entries";
+  auto* h = new TH1F(name.c_str(), title.c_str(), nb, lo, hi);
+  H[name] = h;
+
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+
+// ------------------------------------------------------------------
+// NEW: Subleading jet pT distribution (same slicing as h_xJ)
+// ------------------------------------------------------------------
+TH1F* RecoilJets::getOrBookJet2PtHist(const std::string& trig, int etIdx, int centIdx)
+{
+  const std::string base   = "h_jet2Pt";
+  const std::string suffix = suffixForBins(etIdx, centIdx);
+  const std::string name   = base + suffix;
+
+  if (trig.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+    if (auto* h = dynamic_cast<TH1F*>(it->second)) return h;
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+
+  dir->cd();
+
+  const int    nb = 120;
+  const double lo = 0.0;
+  const double hi = 60.0;
+
+  const std::string title = name + ";p_{T}^{jet2} [GeV];Entries";
+  auto* h = new TH1F(name.c_str(), title.c_str(), nb, lo, hi);
+  H[name] = h;
+
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+
+// ------------------------------------------------------------------
+// NEW: alpha = pTjet2 / pTgamma (same slicing as h_xJ)
+// ------------------------------------------------------------------
+TH1F* RecoilJets::getOrBookAlphaHist(const std::string& trig, int etIdx, int centIdx)
+{
+  const std::string base   = "h_alpha";
+  const std::string suffix = suffixForBins(etIdx, centIdx);
+  const std::string name   = base + suffix;
+
+  if (trig.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+    if (auto* h = dynamic_cast<TH1F*>(it->second)) return h;
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+
+  dir->cd();
+
+  const int    nb = 60;
+  const double lo = 0.0;
+  const double hi = 2.0;
+
+  const std::string title = name + ";#alpha=p_{T}^{jet2}/p_{T}^{#gamma};Entries";
+  auto* h = new TH1F(name.c_str(), title.c_str(), nb, lo, hi);
+  H[name] = h;
+
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+
+// ------------------------------------------------------------------
+// NEW: TH3 for xJ vs alpha vs pTgamma (centrality suffix only)
+// ------------------------------------------------------------------
+TH3F* RecoilJets::getOrBookJES3_xJ_alphaHist(const std::string& trig, int centIdx)
+{
+  const std::string base   = "h_JES3_pT_xJ_alpha";
+  const std::string suffix = suffixForBins(-1, centIdx); // cent-only (no pT suffix)
+  const std::string name   = base + suffix;
+
+  if (trig.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+    if (auto* h = dynamic_cast<TH3F*>(it->second)) return h;
+
+  if (!out || !out->IsOpen()) return nullptr;
+  if (m_gammaEtBins.size() < 2) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+
+  dir->cd();
+
+  const int nx = static_cast<int>(m_gammaEtBins.size()) - 1;
+  const double* xbins = m_gammaEtBins.data();
+
+  const int ny = 60;
+  const double ylo = 0.0, yhi = 3.0;   // xJ
+
+  const int nz = 40;
+  const double zlo = 0.0, zhi = 2.0;   // alpha
+
+  const std::string title =
+    name + ";p_{T}^{#gamma} [GeV];x_{J}=p_{T}^{jet1}/p_{T}^{#gamma};#alpha=p_{T}^{jet2}/p_{T}^{#gamma}";
+
+  auto* h = new TH3F(name.c_str(), title.c_str(),
+                     nx, xbins,
+                     ny, ylo, yhi,
+                     nz, zlo, zhi);
+
+  H[name] = h;
+
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+
+// ------------------------------------------------------------------
+// NEW: TH3 for jet1Pt vs alpha vs pTgamma (centrality suffix only)
+// ------------------------------------------------------------------
+TH3F* RecoilJets::getOrBookJES3_jet1Pt_alphaHist(const std::string& trig, int centIdx)
+{
+  const std::string base   = "h_JES3_pT_jet1Pt_alpha";
+  const std::string suffix = suffixForBins(-1, centIdx); // cent-only
+  const std::string name   = base + suffix;
+
+  if (trig.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+    if (auto* h = dynamic_cast<TH3F*>(it->second)) return h;
+
+  if (!out || !out->IsOpen()) return nullptr;
+  if (m_gammaEtBins.size() < 2) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+
+  dir->cd();
+
+  const int nx = static_cast<int>(m_gammaEtBins.size()) - 1;
+  const double* xbins = m_gammaEtBins.data();
+
+  const int ny = 120;
+  const double ylo = 0.0, yhi = 60.0;  // jet1Pt
+
+  const int nz = 40;
+  const double zlo = 0.0, zhi = 2.0;   // alpha
+
+  const std::string title =
+    name + ";p_{T}^{#gamma} [GeV];p_{T}^{jet1} [GeV];#alpha=p_{T}^{jet2}/p_{T}^{#gamma}";
+
+  auto* h = new TH3F(name.c_str(), title.c_str(),
+                     nx, xbins,
+                     ny, ylo, yhi,
+                     nz, zlo, zhi);
+
   H[name] = h;
 
   if (prevDir) prevDir->cd();
