@@ -1,7 +1,3 @@
-//==========================================================================
-//  sPHENIX EMCal × sEPD × MBD correlator
-//  Implementation file  – no duplicated definitions
-//==========================================================================
 #include "RecoilJets.h"
 //––– Fun4All / PHOOL -------------------------------------------------------
 #include <fun4all/Fun4AllReturnCodes.h>
@@ -29,7 +25,6 @@
 #include <calobase/TowerInfoDefs.h>
 #include <calobase/TowerInfoContainer.h>
 #include <calobase/RawCluster.h>
-#include "/sphenix/u/patsfan753/scratch/thesisAnalysis/coresoftware_local/offline/packages/CaloBase/PhotonClusterContainer.h"
 #include "/sphenix/u/patsfan753/scratch/thesisAnalysis/coresoftware_local/offline/packages/CaloBase/PhotonClusterv1.h"
 #include "/sphenix/u/patsfan753/scratch/thesisAnalysis/coresoftware_local/offline/packages/CaloReco/PhotonClusterBuilder.h"
 #include <clusteriso/ClusterIso.h>
@@ -153,7 +148,7 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
      * and the ET threshold. To keep RecoilJets fully consistent, we prefer
      * the SAME MBD z here.
      *
-     * We still optionally read GlobalVertexMap so m_vtx/m_vx/m_vy remain
+     * Still optionally read GlobalVertexMap so m_vtx/m_vx/m_vy remain
      * available for any legacy/diagnostic usage, but m_vz (used everywhere
      * in RecoilJets kinematics) will match the builder when MBD exists.
   * ------------------------------------------------------------------ */
@@ -749,7 +744,7 @@ int RecoilJets::Reset(PHCompositeNode*)
 }
 
 // --------------------------------------------------------------------------
-//  End – enhanced diagnostics, robust against dangling pointers
+//  End – Diagnostics, robust against dangling pointers
 // --------------------------------------------------------------------------
 int RecoilJets::End(PHCompositeNode*)
 {
@@ -853,7 +848,7 @@ int RecoilJets::End(PHCompositeNode*)
 
         }
 
-        // NEW: job-wide meticulous cutflow
+        // job-wide cutflow
         printCutSummary();
     }
     // ---------------------------------------------------------------------------
@@ -870,7 +865,7 @@ int RecoilJets::End(PHCompositeNode*)
   catch (const std::exception& e)
   { warn("Exception during TFile::Write/Close – "+std::string(e.what())); }
 
-  delete out; out = nullptr;          // safe: we no longer dereference histos
+  delete out; out = nullptr;          
   info(0, "Done.");
   return Fun4AllReturnCodes::EVENT_OK;
 }
@@ -928,7 +923,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
     return;
   }
 
-  // ========================= PHOTON path (preferred) ========================
+  // ========================= PHOTON path ========================
   if (m_photons)
   {
     PhotonClusterContainer::ConstRange prange = m_photons->getClusters();
@@ -956,25 +951,27 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
         double leadPhiGamma     = 0.0;
 
         int iPho = 0;
+        int iPho = 0;
         for (auto pit = prange.first; pit != prange.second; ++pit, ++iPho)
         {
-        // Concrete types
-        const auto* pho = dynamic_cast<const PhotonClusterv1*>(pit->second);
-        if (!pho)
-        {
-          LOG(5, CLR_YELLOW, "      [pho#" << iPho << "] pointer is not PhotonClusterv1 – skipping");
-          continue;
-        }
+          // Concrete type: PhotonClusterv1
+          const auto* pho = dynamic_cast<const PhotonClusterv1*>(pit->second);
+          if (!pho)
+          {
+              LOG(5, CLR_YELLOW, "      [pho#" << iPho << "] pointer is not PhotonClusterv1 – skipping");
+              continue;
+          }
 
-        // Underlying RawCluster is needed to build kinematics at the event vertex
-        const RawCluster* rc = dynamic_cast<const RawCluster*>(pit->second);
-        if (!rc)
-        {
-          ++nNoRC; ++m_bk.pho_noRC;
-          if (Verbosity() >= 5)
-            LOG(5, CLR_YELLOW, "      [pho#" << iPho << "] RawCluster pointer is NULL – cannot compute kinematics");
-          continue;
-        }
+          // Use the same object through the RawCluster interface
+          const RawCluster* rc = static_cast<const RawCluster*>(pho);
+          if (!rc)
+          {
+              ++nNoRC; ++m_bk.pho_noRC;
+              if (Verbosity() >= 5)
+                LOG(5, CLR_YELLOW, "      [pho#" << iPho << "] RawCluster pointer is NULL – cannot compute kinematics");
+              continue;
+         }
+
 
         ++m_bk.pho_total;
 
@@ -999,12 +996,12 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
             LOG(0, CLR_YELLOW,
                 "      [pho#" << iPho << "] PhotonClusterBuilder kinematics are non-finite/missing: "
                 << "eta=" << eta << " phi=" << phi << " pt=" << pt_gamma
-                << " → skipping candidate (no RawClusterUtility fallback allowed).");
+                << " → skipping candidate.");
             continue;
         }
 
         // -------- early transverse-scale gate (fast reject) ---------------
-        constexpr double kMinPtGamma = 2.0; // GeV (kept as a fast sanity floor)
+        constexpr double kMinPtGamma = 5.0; // GeV (kept as a fast sanity floor)
 
         // quick reject: E < 2 GeV implies pT < 2 GeV for any η
         if (energy < kMinPtGamma)
@@ -1269,14 +1266,14 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
         else if (tight_fails >= 2) { tightTag = TightTag::kNonTight;   ++m_bk.tight_nonTight; }
         else                       { tightTag = TightTag::kNeither;    ++m_bk.tight_neither; }
 
-        // NEW: record the 2×2 (iso, tight) category + SS variable hists
+        // record the 2×2 (iso, tight) category + SS variable hists
         // This also fills h_Eiso once and prints a detailed decision line.
         for (const auto& trigShort : activeTrig)
         {
           fillIsoSSTagCounters(trigShort, rc, v, pt_gamma, centIdx, topNode);
         }
 
-            // Your original xJ usable gate (unchanged)
+            //  original xJ usable gate
             if (!(iso && tightTag == TightTag::kTight))
             {
               if (!iso) ++nNotIso;
@@ -1366,7 +1363,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 double all2Pt = -1.0;
                 const Jet* all2Jet = nullptr;
 
-                // NEW: max |Δφ| over jets that pass pT+eta (even if they fail the Δφ cut)
+                // max |Δφ| over jets that pass pT+eta (even if they fail the Δφ cut)
                 double maxDphi = -1.0;
 
                 for (const Jet* j : *jets)
@@ -1565,14 +1562,9 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
 
     return; // keep original behavior: prefer photon path and return
   } // end photon path
-
-  // =================== NO RawCluster fallback ===============================
-  // We require PhotonClusterBuilder products for ALL photon kinematics.
-  // If PHOTONCLUSTER_CEMC is missing, do NOT silently switch definitions.
+  // Require PhotonClusterBuilder products for ALL photon kinematics.
   LOG(0, CLR_YELLOW,
-        "  [processCandidates] PHOTONCLUSTER_CEMC is MISSING for this event. "
-        "Refusing RawCluster fallback to prevent inconsistent photon kinematics. "
-        "This usually means PhotonClusterBuilder was not run (or node name mismatch) in the macro/DST.");
+        "  [processCandidates] PHOTONCLUSTER_CEMC is MISSING for this event. ");
 
   return;
 }
@@ -1667,14 +1659,14 @@ RecoilJets::TightTag RecoilJets::classifyPhotonTightness(const SSVars& v)
 
   if (Verbosity() >= 5)
   {
-    LOG(5, CLR_BLUE,
-        "  [classifyPhotonTightness] ET^γ=" << v.et_gamma
-        << " → w_hi=" << w_hi
-        << " | weta=" << v.weta_cogx << " ok=" << pass_weta
-        << " | wphi=" << v.wphi_cogx << " ok=" << pass_wphi
-        << " | e11/e33=" << v.e11_over_e33 << " ok=" << pass_e11e33
-        << " | et1=" << v.et1 << " ok=" << pass_et1
-        << " | e32/e35=" << v.e32_over_e35 << " ok=" << pass_e32e35);
+      LOG(5, CLR_BLUE,
+          "  [classifyPhotonTightness] pT^γ=" << v.pt_gamma
+          << " → w_hi=" << w_hi
+          << " | weta=" << v.weta_cogx << " ok=" << pass_weta
+          << " | wphi=" << v.wphi_cogx << " ok=" << pass_wphi
+          << " | e11/e33=" << v.e11_over_e33 << " ok=" << pass_e11e33
+          << " | et1=" << v.et1 << " ok=" << pass_et1
+          << " | e32/e35=" << v.e32_over_e35 << " ok=" << pass_e32e35);
   }
 
   const int n_fail = (!pass_weta) + (!pass_wphi) + (!pass_e11e33) + (!pass_et1) + (!pass_e32e35);
@@ -2245,10 +2237,25 @@ TH3F* RecoilJets::getOrBookJES3_xJ_alphaHist(const std::string& trig, int centId
   const std::string title =
     name + ";p_{T}^{#gamma} [GeV];x_{J}=p_{T}^{jet1}/p_{T}^{#gamma};#alpha=p_{T}^{jet2}/p_{T}^{#gamma}";
 
+  // ROOT does not provide a TH3F ctor with variable bins on only one axis.
+  // Build uniform bin-edge arrays for y and z, then use the (xbins,ybins,zbins) ctor.
+  std::vector<double> ybins(ny + 1);
+  for (int i = 0; i <= ny; ++i)
+  {
+      ybins[i] = ylo + (yhi - ylo) * (static_cast<double>(i) / ny);
+  }
+
+  std::vector<double> zbins(nz + 1);
+  for (int i = 0; i <= nz; ++i)
+  {
+      zbins[i] = zlo + (zhi - zlo) * (static_cast<double>(i) / nz);
+  }
+
   auto* h = new TH3F(name.c_str(), title.c_str(),
-                     nx, xbins,
-                     ny, ylo, yhi,
-                     nz, zlo, zhi);
+                       nx, xbins,
+                       ny, ybins.data(),
+                       nz, zbins.data());
+
 
   H[name] = h;
 
@@ -2294,10 +2301,25 @@ TH3F* RecoilJets::getOrBookJES3_jet1Pt_alphaHist(const std::string& trig, int ce
   const std::string title =
     name + ";p_{T}^{#gamma} [GeV];p_{T}^{jet1} [GeV];#alpha=p_{T}^{jet2}/p_{T}^{#gamma}";
 
+  // ROOT does not provide a TH3F ctor with variable bins on only one axis.
+  // Build uniform bin-edge arrays for y and z, then use the (xbins,ybins,zbins) ctor.
+  std::vector<double> ybins(ny + 1);
+  for (int i = 0; i <= ny; ++i)
+  {
+      ybins[i] = ylo + (yhi - ylo) * (static_cast<double>(i) / ny);
+  }
+
+  std::vector<double> zbins(nz + 1);
+  for (int i = 0; i <= nz; ++i)
+  {
+      zbins[i] = zlo + (zhi - zlo) * (static_cast<double>(i) / nz);
+  }
+
   auto* h = new TH3F(name.c_str(), title.c_str(),
-                     nx, xbins,
-                     ny, ylo, yhi,
-                     nz, zlo, zhi);
+                       nx, xbins,
+                       ny, ybins.data(),
+                       nz, zbins.data());
+
 
   H[name] = h;
 
@@ -3190,7 +3212,7 @@ TH1F* RecoilJets::getOrBookSSHist(const std::string& trig,
 void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
                                       const RawCluster* clus,
                                       const SSVars& v,
-                                      double et_gamma,
+                                      double pt_gamma,
                                       int centIdx,
                                       PHCompositeNode* topNode)
 {
@@ -3204,7 +3226,7 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
   if (ptIdx < 0)
   {
     if (Verbosity() >= 4)
-      LOG(4, CLR_YELLOW, "  [fillIsoSSTagCounters] ET bin not found for ET^γ=" << pt_gamma
+      LOG(4, CLR_YELLOW, "  [fillIsoSSTagCounters] pT bin not found for pT^γ=" << pt_gamma
                           << " – skipping fills");
     return;
   }
@@ -3214,7 +3236,7 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
 
   // --- Isolation decision (Eiso histogram is filled unconditionally in the photon loop) ---
   const double eiso_et = eiso(clus, topNode);
-  const double thrIso  = (m_isoA + m_isoB * et_gamma);
+  const double thrIso  = (m_isoA + m_isoB * pt_gamma);
   const bool   iso     = (eiso_et < thrIso);
 
 

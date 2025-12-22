@@ -126,44 +126,44 @@ class RecoilJets : public SubsysReco
   // Global photon fiducial (PPG-12): |eta^gamma| < 0.7 by default
   void setEtaAbsMax(double a) { m_etaAbsMax = std::max(0.0, a); }
 
-    // ---- data type (pp vs Au+Au) and sim flag ------------------------------
-    enum class DataType { kPP, kAuAu };
+  // ---- data type (pp vs Au+Au) and sim flag ------------------------------
+  enum class DataType { kPP, kAuAu };
 
-    // string-friendly setter for Fun4All macros
-    // Accepted tokens:
-    //   isPP / pp
-    //   isAuAu / auau
-    //   isSim / sim   (simulation; pp-style logic but trigger-dependent code can be skipped)
-    void setDataType(const std::string& s)
-    {
-          const std::string t = s;
+  // string-friendly setter for Fun4All macros
+  // Accepted tokens:
+  //   isPP / pp
+  //   isAuAu / auau
+  //   isSim / sim   (simulation; pp-style logic but trigger-dependent code can be skipped)
+  void setDataType(const std::string& s)
+  {
+      const std::string t = s;
 
-          // Simulation token
-          if (t=="isSim" || t=="issim" || t=="sim" || t=="SIM" || t=="Sim")
-          {
-            m_isSim = true;
-            m_isAuAu = false;   // sim behaves like pp-type for Au+Au gating
-            return;
-          }
+      // Simulation token
+      if (t=="isSim" || t=="issim" || t=="sim" || t=="SIM" || t=="Sim")
+      {
+          m_isSim = true;
+          m_isAuAu = false;   // sim behaves like pp-type for Au+Au gating
+          return;
+      }
 
-          // Data tokens
-          m_isSim = false;
-          if (t=="isAuAu" || t=="AuAu" || t=="AUAU" || t=="auau" || t=="AA")
-            m_isAuAu = true;
-          else
-            m_isAuAu = false; // default: pp
-    }
+      // Data tokens
+      m_isSim = false;
+      if (t=="isAuAu" || t=="AuAu" || t=="AUAU" || t=="auau" || t=="AA")
+      m_isAuAu = true;
+      else
+        m_isAuAu = false; // default: pp
+  }
 
-    // type-safe setter (optional)
-    void setDataType(DataType t)
-    {
-          m_isSim = false;
-          m_isAuAu = (t==DataType::kAuAu);
-    }
+   // type-safe setter (optional)
+  void setDataType(DataType t)
+  {
+      m_isSim = false;
+      m_isAuAu = (t==DataType::kAuAu);
+  }
 
-    // queries
-    bool isAuAu() const { return m_isAuAu; }
-    bool isSim()  const { return m_isSim;  }
+  // queries
+  bool isAuAu() const { return m_isAuAu; }
+  bool isSim()  const { return m_isSim;  }
 
 
   // ---------- Shower‑shape selection (PPG‑12 style) ------------------------
@@ -426,7 +426,7 @@ class RecoilJets : public SubsysReco
   // --------------------------------------------------------------------------
   std::map<std::string,std::string> triggerNameMap_pp {
  //     {"MBD N&S >= 1",          "MBD_NandS_geq_1"},
-//      {"Photon 3 GeV + MBD NS >= 1","Photon_3_GeV_plus_MBD_NS_geq_1"},
+ //      {"Photon 3 GeV + MBD NS >= 1","Photon_3_GeV_plus_MBD_NS_geq_1"},
       {"Photon 4 GeV + MBD NS >= 1","Photon_4_GeV_plus_MBD_NS_geq_1"}
 //      {"Photon 5 GeV + MBD NS >= 1","Photon_5_GeV_plus_MBD_NS_geq_1"}
   };
