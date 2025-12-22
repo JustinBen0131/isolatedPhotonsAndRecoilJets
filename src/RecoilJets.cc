@@ -718,6 +718,16 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     return Fun4AllReturnCodes::ABORTEVENT;
   }
 
+  /* ------------------------------------------------------------------ */
+  /* 6) Pure jet QA (independent of photon pipeline)                     */
+  /*     Filled once per accepted event, after centrality/vz.            */
+  /* ------------------------------------------------------------------ */
+  const int centIdxForJets = (m_isAuAu ? findCentBin(m_centBin) : -1);
+  for (const auto& jnm : kJetRadii)
+  {
+      fillInclusiveJetQA(activeTrig, centIdxForJets, jnm.key);
+  }
+
   processCandidates(topNode, activeTrig);
 
   ++m_bk.evt_accepted;
@@ -1307,143 +1317,226 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
         if (haveLeadIsoTight)
         {
           // r02 jet container
-          JetContainer* jets = nullptr;
-          if (auto itJ = m_jets.find("r02"); itJ != m_jets.end()) jets = itJ->second;
-          if (!jets)
-          {
-            LOG(3, CLR_YELLOW, "      [lead pho#" << leadPhoIndex << "] jet container r02 is nullptr – cannot form xJ");
-          }
-          else
-          {
-            // Scan jets:
-            //   1) find leading recoil jet (away-side, Δφ cut) -> jet1
-            //   2) find leading/subleading jets in the event (pT-ranked) -> jet2 for alpha
-            int nPassDphi = 0, nPassPt = 0;
+            JetContainer* jets = nullptr;
+            if (auto itJ = m_jets.find("r02"); itJ != m_jets.end()) jets = itJ->second;
 
-            double bestPt = -1.0;
-            const Jet* bestJet = nullptr;
+            // Centrality index used for matching-QA (centrality-only suffix in Au+Au)
+            const int effCentIdx_M = (m_isAuAu ? centIdx : -1);
 
-            double all1Pt = -1.0;
-            const Jet* all1Jet = nullptr;
-            double all2Pt = -1.0;
-            const Jet* all2Jet = nullptr;
-
-            for (const Jet* j : *jets)
+            if (!jets)
             {
-              if (!j) continue;
+              LOG(3, CLR_YELLOW, "      [lead pho#" << leadPhoIndex << "] jet container r02 is nullptr – cannot form xJ");
 
-              const double jpt = j->get_pt();
-              if (jpt < m_minJetPt) continue; // common floor for both recoil and jet2 definition
-
-              // Track top-2 jets in the event by pT (for "jet2" definition)
-              if (jpt > all1Pt)
-              {
-                all2Pt = all1Pt; all2Jet = all1Jet;
-                all1Pt = jpt;    all1Jet = j;
-              }
-              else if (jpt > all2Pt)
-              {
-                all2Pt = jpt; all2Jet = j;
-              }
-
-              // Recoil selection (away-side of LEADING photon)
-              const double dphi = std::fabs(TVector2::Phi_mpi_pi(j->get_phi() - leadPhiGamma));
-              if (dphi >= m_minBackToBack)
-              {
-                ++nPassDphi;
-                ++nPassPt;
-
-                if (jpt > bestPt)
-                {
-                  bestPt  = jpt;
-                  bestJet = j;
-                }
-              }
-            }
-
-            if (bestPt > 0.0)
-            {
-              // xJ uses photon pT
-              const double xJ = bestPt / leadPtGamma;
-
-              // Define jet2 as the highest-pT jet excluding the recoil jet1.
-              // If none exists, jet2Pt=0 so alpha=0 (keeps "no extra jet" events in alpha cuts).
-              double jet2Pt = 0.0;
-              if (all1Jet && all1Jet != bestJet) jet2Pt = std::max(0.0, all1Pt);
-              else if (all2Jet && all2Jet != bestJet) jet2Pt = std::max(0.0, all2Pt);
-              else jet2Pt = 0.0;
-
-              const double alpha = (leadPtGamma > 0.0 ? (jet2Pt / leadPtGamma) : 0.0);
-
-              if (Verbosity() >= 5)
-                LOG(5, CLR_GREEN, "      [lead pho#" << leadPhoIndex << "] xJ = " << std::fixed << std::setprecision(3)
-                                                << xJ
-                                                << "  jet1Pt=" << bestPt
-                                                << "  jet2Pt=" << jet2Pt
-                                                << "  alpha=" << alpha
-                                                << "  (pT^{#gamma}=" << leadPtGamma
-                                                << ", passed dphi=" << nPassDphi
-                                                << ", passed pt=" << nPassPt << ")");
-
-              const int effCentIdx = (m_isAuAu ? centIdx : -1);
-              const std::string slice    = suffixForBins(leadPtIdx, effCentIdx);
-              const std::string centOnly = suffixForBins(-1,        effCentIdx);
+              // Still fill matching-QA once per event-leading iso∧tight photon
+              // (treat as "NoJetPt" and maxDphi underflow sentinel).
+              const int    status = 1;      // NoJetPt
+              const double maxDphiFill = -0.01; // underflow sentinel (no jets pT+eta)
 
               for (const auto& trigShort : activeTrig)
               {
-                // 1) xJ spectrum (per pT bin)
-                if (auto* hx = getOrBookXJHist(trigShort, leadPtIdx, effCentIdx))
-                {
-                  hx->Fill(xJ);
-                  bumpHistFill(trigShort, std::string("h_xJ") + slice);
-                }
+                if (auto* hs = getOrBookMatchStatusVsPtGamma(trigShort, effCentIdx_M))
+                { hs->Fill(leadPtGamma, status); bumpHistFill(trigShort, hs->GetName()); }
 
-                // 2) jet1 pT spectrum (per pT bin)
-                if (auto* hj1 = getOrBookJet1PtHist(trigShort, leadPtIdx, effCentIdx))
-                {
-                  hj1->Fill(bestPt);
-                  bumpHistFill(trigShort, std::string("h_jet1Pt") + slice);
-                }
+                if (auto* hm = getOrBookMatchMaxDphiVsPtGamma(trigShort, effCentIdx_M))
+                { hm->Fill(leadPtGamma, maxDphiFill); bumpHistFill(trigShort, hm->GetName()); }
 
-                // 3) jet2 pT spectrum (per pT bin)
-                if (auto* hj2 = getOrBookJet2PtHist(trigShort, leadPtIdx, effCentIdx))
-                {
-                  hj2->Fill(jet2Pt);
-                  bumpHistFill(trigShort, std::string("h_jet2Pt") + slice);
-                }
-
-                // 4) alpha spectrum (per pT bin)
-                if (auto* ha = getOrBookAlphaHist(trigShort, leadPtIdx, effCentIdx))
-                {
-                  ha->Fill(alpha);
-                  bumpHistFill(trigShort, std::string("h_alpha") + slice);
-                }
-
-                // 5) TH3 correlations (cent-only suffix; pT^gamma is an axis)
-                if (auto* h3x = getOrBookJES3_xJ_alphaHist(trigShort, effCentIdx))
-                {
-                  h3x->Fill(leadPtGamma, xJ, alpha);
-                  bumpHistFill(trigShort, std::string("h_JES3_pT_xJ_alpha") + centOnly);
-                }
-
-                if (auto* h3j = getOrBookJES3_jet1Pt_alphaHist(trigShort, effCentIdx))
-                {
-                  h3j->Fill(leadPtGamma, bestPt, alpha);
-                  bumpHistFill(trigShort, std::string("h_JES3_pT_jet1Pt_alpha") + centOnly);
-                }
+                if (auto* pn = getOrBookNRecoilJetsVsPtGamma(trigShort, effCentIdx_M))
+                { pn->Fill(leadPtGamma, 0.0); bumpHistFill(trigShort, pn->GetName()); }
               }
-
-              ++nUsed;
             }
             else
             {
-              LOG(4, CLR_YELLOW, "      [lead pho#" << leadPhoIndex << "] no away-side jet passes Δφ/pt cuts (bestPt ≤ 0)"
-                                               << "  [passed dphi=" << nPassDphi
-                                               << ", passed pt=" << nPassPt
-                                               << ", minBackToBack=" << m_minBackToBack
-                                               << ", minJetPt=" << m_minJetPt << "]");
+                // Scan jets (R=0.2):
+                //   - baseline pT gate:        pT > m_minJetPt
+                //   - fiducial containment:    |eta_jet| < m_jetEtaAbsMax
+                //
+                // Apply the SAME fiducial cut to:
+                //   * recoil jet1 (away-side)
+                //   * the jet2 candidate used for alpha
+                // so alpha/xJ are not polluted by edge / partial-containment jets.
+                int nPassPt   = 0;
+                int nPassEta  = 0;
+                int nPassDphi = 0;
+
+                double bestPt = -1.0;
+                const Jet* bestJet = nullptr;
+
+                double all1Pt = -1.0;
+                const Jet* all1Jet = nullptr;
+                double all2Pt = -1.0;
+                const Jet* all2Jet = nullptr;
+
+                // NEW: max |Δφ| over jets that pass pT+eta (even if they fail the Δφ cut)
+                double maxDphi = -1.0;
+
+                for (const Jet* j : *jets)
+                {
+                  if (!j) continue;
+
+                  const double jpt  = j->get_pt();
+                  const double jeta = j->get_eta();
+                  const double jphi = j->get_phi();
+
+                  if (!std::isfinite(jpt) || !std::isfinite(jeta) || !std::isfinite(jphi)) continue;
+                  if (jpt < m_minJetPt) continue;
+                  ++nPassPt;
+
+                  // Fiducial acceptance (jet-axis containment)
+                  if (std::fabs(jeta) >= m_jetEtaAbsMax) continue;
+                  ++nPassEta;
+
+                  // Track top-2 jets in the event by pT (for "jet2" definition)
+                  if (jpt > all1Pt)
+                  {
+                    all2Pt = all1Pt; all2Jet = all1Jet;
+                    all1Pt = jpt;    all1Jet = j;
+                  }
+                  else if (jpt > all2Pt)
+                  {
+                    all2Pt = jpt; all2Jet = j;
+                  }
+
+                  // Δφ for diagnostics and recoil selection (away-side of LEADING photon)
+                  const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(jphi - leadPhiGamma));
+                  if (std::isfinite(dphiAbs) && dphiAbs > maxDphi) maxDphi = dphiAbs;
+
+                  if (dphiAbs >= m_minBackToBack)
+                  {
+                    ++nPassDphi;
+
+                    if (jpt > bestPt)
+                    {
+                      bestPt  = jpt;
+                      bestJet = j;
+                    }
+                  }
+                }
+
+                // NEW: matching status category (filled once per event-leading iso∧tight photon)
+                int status = 0;
+                if (nPassPt == 0)                 status = 1; // NoJetPt
+                else if (nPassEta == 0)           status = 2; // NoJetEta
+                else if (nPassDphi == 0 || !bestJet) status = 3; // NoBackToBack
+                else                               status = 4; // Matched
+
+                // NEW: maxDphi fill value (underflow sentinel if no jets pass pT+eta)
+                const double maxDphiFill = (maxDphi >= 0.0 ? maxDphi : -0.01);
+
+                // NEW: fill matching-QA histograms (centrality-only suffix; pTgamma is axis)
+                for (const auto& trigShort : activeTrig)
+                {
+                  if (auto* hs = getOrBookMatchStatusVsPtGamma(trigShort, effCentIdx_M))
+                  { hs->Fill(leadPtGamma, status); bumpHistFill(trigShort, hs->GetName()); }
+
+                  if (auto* hm = getOrBookMatchMaxDphiVsPtGamma(trigShort, effCentIdx_M))
+                  { hm->Fill(leadPtGamma, maxDphiFill); bumpHistFill(trigShort, hm->GetName()); }
+
+                  if (auto* pn = getOrBookNRecoilJetsVsPtGamma(trigShort, effCentIdx_M))
+                  { pn->Fill(leadPtGamma, static_cast<double>(nPassDphi)); bumpHistFill(trigShort, pn->GetName()); }
+
+                  // Fill selected recoil Δφ only when matched
+                  if (bestJet)
+                  {
+                    const double dphiSel = std::fabs(TVector2::Phi_mpi_pi(bestJet->get_phi() - leadPhiGamma));
+                    if (auto* hd = getOrBookMatchDphiVsPtGamma(trigShort, effCentIdx_M))
+                    { hd->Fill(leadPtGamma, dphiSel); bumpHistFill(trigShort, hd->GetName()); }
+
+                    // Optional: is selected recoil the leading jet among pT+eta jets?
+                    const double isLeading = (all1Jet && bestJet == all1Jet) ? 1.0 : 0.0;
+                    if (auto* hl = getOrBookRecoilIsLeadingVsPtGamma(trigShort, effCentIdx_M))
+                    { hl->Fill(leadPtGamma, isLeading); bumpHistFill(trigShort, hl->GetName()); }
+                  }
+                }
+
+                // Keep your physics-output fills unchanged (xJ, jet1/2 pT, alpha, JES3)
+                if (bestPt > 0.0 && bestJet)
+                {
+                  // xJ uses photon pT
+                  const double xJ = bestPt / leadPtGamma;
+
+                  // Define jet2 as the highest-pT jet excluding the recoil jet1.
+                  // If none exists, jet2Pt=0 and jet2Jet=nullptr, so alpha=0.
+                  const Jet* jet2Jet = nullptr;
+                  double jet2Pt = 0.0;
+                  if (all1Jet && all1Jet != bestJet)      { jet2Jet = all1Jet; jet2Pt = all1Pt; }
+                  else if (all2Jet && all2Jet != bestJet) { jet2Jet = all2Jet; jet2Pt = all2Pt; }
+                  jet2Pt = std::max(0.0, jet2Pt);
+
+                  const double alpha = (leadPtGamma > 0.0 ? (jet2Pt / leadPtGamma) : 0.0);
+
+                  if (Verbosity() >= 5)
+                    LOG(5, CLR_GREEN, "      [lead pho#" << leadPhoIndex << "] xJ = " << std::fixed << std::setprecision(3)
+                                                    << xJ
+                                                    << "  jet1Pt=" << bestPt
+                                                    << "  jet2Pt=" << jet2Pt
+                                                    << "  alpha=" << alpha
+                                                    << "  (pT^{#gamma}=" << leadPtGamma
+                                                    << ", passed dphi=" << nPassDphi
+                                                    << ", passed pt=" << nPassPt << ")");
+
+                  const int effCentIdx = (m_isAuAu ? centIdx : -1);
+                  const std::string slice    = suffixForBins(leadPtIdx, effCentIdx);
+                  const std::string centOnly = suffixForBins(-1,        effCentIdx);
+
+                  // Jet-only QA for the recoil selection (jet1) and alpha jet (jet2)
+                  // Uses the SAME pT^gamma/centrality slicing as the xJ/JES histograms.
+                  fillSelectedJetQA(activeTrig, leadPtIdx, effCentIdx, "r02", bestJet, jet2Jet);
+
+                  for (const auto& trigShort : activeTrig)
+                  {
+                    // 1) xJ spectrum (per pT bin)
+                    if (auto* hx = getOrBookXJHist(trigShort, leadPtIdx, effCentIdx))
+                    {
+                      hx->Fill(xJ);
+                      bumpHistFill(trigShort, std::string("h_xJ") + slice);
+                    }
+
+                    // 2) jet1 pT spectrum (per pT bin)
+                    if (auto* hj1 = getOrBookJet1PtHist(trigShort, leadPtIdx, effCentIdx))
+                    {
+                      hj1->Fill(bestPt);
+                      bumpHistFill(trigShort, std::string("h_jet1Pt") + slice);
+                    }
+
+                    // 3) jet2 pT spectrum (per pT bin)
+                    if (auto* hj2 = getOrBookJet2PtHist(trigShort, leadPtIdx, effCentIdx))
+                    {
+                      hj2->Fill(jet2Pt);
+                      bumpHistFill(trigShort, std::string("h_jet2Pt") + slice);
+                    }
+
+                    // 4) alpha spectrum (per pT bin)
+                    if (auto* ha = getOrBookAlphaHist(trigShort, leadPtIdx, effCentIdx))
+                    {
+                      ha->Fill(alpha);
+                      bumpHistFill(trigShort, std::string("h_alpha") + slice);
+                    }
+
+                    // 5) TH3 correlations (cent-only suffix; pT^gamma is an axis)
+                    if (auto* h3x = getOrBookJES3_xJ_alphaHist(trigShort, effCentIdx))
+                    {
+                      h3x->Fill(leadPtGamma, xJ, alpha);
+                      bumpHistFill(trigShort, std::string("h_JES3_pT_xJ_alpha") + centOnly);
+                    }
+
+                    if (auto* h3j = getOrBookJES3_jet1Pt_alphaHist(trigShort, effCentIdx))
+                    {
+                      h3j->Fill(leadPtGamma, bestPt, alpha);
+                      bumpHistFill(trigShort, std::string("h_JES3_pT_jet1Pt_alpha") + centOnly);
+                    }
+                  }
+
+                  ++nUsed;
+                }
+                else
+                {
+                  LOG(4, CLR_YELLOW, "      [lead pho#" << leadPhoIndex << "] no away-side jet passes Δφ/pt cuts (bestPt ≤ 0)"
+                                                   << "  [passed dphi=" << nPassDphi
+                                                   << ", passed pt=" << nPassPt
+                                                   << ", minBackToBack=" << m_minBackToBack
+                                                   << ", minJetPt=" << m_minJetPt << "]");
+                }
             }
-          }
         }
         else
         {
@@ -2213,6 +2306,230 @@ TH3F* RecoilJets::getOrBookJES3_jet1Pt_alphaHist(const std::string& trig, int ce
 }
 
 
+// ============================================================================
+//  Matching-QA bookers (centrality suffix only; pT^gamma is an axis)
+// ============================================================================
+
+TH2F* RecoilJets::getOrBookMatchDphiVsPtGamma(const std::string& trig, int centIdx)
+{
+  const std::string base   = "h_match_dphi_vs_pTgamma";
+  const std::string suffix = suffixForBins(-1, centIdx);   // centrality-only
+  const std::string name   = base + suffix;
+
+  if (trig.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+  if (m_gammaPtBins.size() < 2) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+
+  dir->cd();
+
+  const int nx = static_cast<int>(m_gammaPtBins.size()) - 1;
+  const double* xbins = m_gammaPtBins.data();
+
+  const int ny = 64;
+  const double ylo = 0.0;
+  const double yhi = M_PI;
+
+  const std::string title =
+    name + ";p_{T}^{#gamma} [GeV];|#Delta#phi(#gamma, recoil jet)| [rad]";
+
+  auto* h = new TH2F(name.c_str(), title.c_str(), nx, xbins, ny, ylo, yhi);
+  H[name] = h;
+
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+TH2F* RecoilJets::getOrBookMatchStatusVsPtGamma(const std::string& trig, int centIdx)
+{
+  const std::string base   = "h_match_status_vs_pTgamma";
+  const std::string suffix = suffixForBins(-1, centIdx);   // centrality-only
+  const std::string name   = base + suffix;
+
+  if (trig.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+  if (m_gammaPtBins.size() < 2) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+
+  dir->cd();
+
+  const int nx = static_cast<int>(m_gammaPtBins.size()) - 1;
+  const double* xbins = m_gammaPtBins.data();
+
+  const int ny = 4;
+  const double ylo = 0.5;
+  const double yhi = 4.5;
+
+  const std::string title =
+    name + ";p_{T}^{#gamma} [GeV];match status";
+
+  auto* h = new TH2F(name.c_str(), title.c_str(), nx, xbins, ny, ylo, yhi);
+
+  h->GetYaxis()->SetBinLabel(1, "NoJetPt");
+  h->GetYaxis()->SetBinLabel(2, "NoJetEta");
+  h->GetYaxis()->SetBinLabel(3, "NoBackToBack");
+  h->GetYaxis()->SetBinLabel(4, "Matched");
+
+  H[name] = h;
+
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+TH2F* RecoilJets::getOrBookMatchMaxDphiVsPtGamma(const std::string& trig, int centIdx)
+{
+  const std::string base   = "h_match_maxdphi_vs_pTgamma";
+  const std::string suffix = suffixForBins(-1, centIdx);   // centrality-only
+  const std::string name   = base + suffix;
+
+  if (trig.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+  if (m_gammaPtBins.size() < 2) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+
+  dir->cd();
+
+  const int nx = static_cast<int>(m_gammaPtBins.size()) - 1;
+  const double* xbins = m_gammaPtBins.data();
+
+  const int ny = 64;
+  const double ylo = 0.0;
+  const double yhi = M_PI;
+
+  const std::string title =
+    name + ";p_{T}^{#gamma} [GeV];max |#Delta#phi(#gamma, jet)| over jets passing p_{T}+|#eta| [rad]";
+
+  auto* h = new TH2F(name.c_str(), title.c_str(), nx, xbins, ny, ylo, yhi);
+  H[name] = h;
+
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+TProfile* RecoilJets::getOrBookNRecoilJetsVsPtGamma(const std::string& trig, int centIdx)
+{
+  const std::string base   = "p_nRecoilJets_vs_pTgamma";
+  const std::string suffix = suffixForBins(-1, centIdx);   // centrality-only
+  const std::string name   = base + suffix;
+
+  if (trig.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* p = dynamic_cast<TProfile*>(it->second)) return p;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+  if (m_gammaPtBins.size() < 2) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+
+  dir->cd();
+
+  const int nx = static_cast<int>(m_gammaPtBins.size()) - 1;
+  const double* xbins = m_gammaPtBins.data();
+
+  const std::string title =
+    name + ";p_{T}^{#gamma} [GeV];#LT N_{recoil jets} #GT (jets passing p_{T}+|#eta|+#Delta#phi cut)";
+
+  auto* p = new TProfile(name.c_str(), title.c_str(), nx, xbins, 0.0, 50.0);
+  H[name] = p;
+
+  if (prevDir) prevDir->cd();
+  return p;
+}
+
+TH2F* RecoilJets::getOrBookRecoilIsLeadingVsPtGamma(const std::string& trig, int centIdx)
+{
+  const std::string base   = "h_recoilIsLeading_vs_pTgamma";
+  const std::string suffix = suffixForBins(-1, centIdx);   // centrality-only
+  const std::string name   = base + suffix;
+
+  if (trig.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+  if (m_gammaPtBins.size() < 2) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+
+  dir->cd();
+
+  const int nx = static_cast<int>(m_gammaPtBins.size()) - 1;
+  const double* xbins = m_gammaPtBins.data();
+
+  const int ny = 2;
+  const double ylo = -0.5;
+  const double yhi =  1.5;
+
+  const std::string title =
+    name + ";p_{T}^{#gamma} [GeV];recoil jet is leading jet (p_{T}+|#eta| set)";
+
+  auto* h = new TH2F(name.c_str(), title.c_str(), nx, xbins, ny, ylo, yhi);
+  h->GetYaxis()->SetBinLabel(1, "NotLeading");
+  h->GetYaxis()->SetBinLabel(2, "Leading");
+
+  H[name] = h;
+
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+
+// ============================================================================
+//  Your original getOrBookIsoHist (UNCHANGED) follows
+// ============================================================================
+
 TH1F* RecoilJets::getOrBookIsoHist(const std::string& trig, int etIdx, int centIdx)
 {
   const std::string base   = "h_Eiso";
@@ -2431,6 +2748,331 @@ TH1I* RecoilJets::getOrBookIsoDecisionHist(const std::string& trig, int ptIdx, i
 
 
 
+// ============================================================================
+//  Jet QA helpers (generic bookers + fillers)
+//  - Naming:  <base>_<rKey> + suffixForBins(ptIdx,centIdx)
+//  - Pure jet QA uses ptIdx = -1 (centrality-only suffix in AuAu)
+// ============================================================================
+
+TH1I* RecoilJets::getOrBookJetQA1I(const std::string& trig,
+                                  const std::string& base,
+                                  const std::string& xAxisTitle,
+                                  const std::string& rKey,
+                                  int ptIdx, int centIdx,
+                                  int nbins, double xmin, double xmax)
+{
+  const std::string suffix = suffixForBins(ptIdx, centIdx);
+  const std::string name   = base + "_" + rKey + suffix;
+
+  if (trig.empty() || base.empty() || rKey.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH1I*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+
+  dir->cd();
+
+  const std::string xlab  = (xAxisTitle.empty() ? base : xAxisTitle);
+  const std::string title = name + ";" + xlab + ";Entries";
+
+  auto* h = new TH1I(name.c_str(), title.c_str(), nbins, xmin, xmax);
+  H[name] = h;
+
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+
+TH1F* RecoilJets::getOrBookJetQA1F(const std::string& trig,
+                                  const std::string& base,
+                                  const std::string& xAxisTitle,
+                                  const std::string& rKey,
+                                  int ptIdx, int centIdx,
+                                  int nbins, double xmin, double xmax)
+{
+  const std::string suffix = suffixForBins(ptIdx, centIdx);
+  const std::string name   = base + "_" + rKey + suffix;
+
+  if (trig.empty() || base.empty() || rKey.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH1F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+
+  dir->cd();
+
+  const std::string xlab  = (xAxisTitle.empty() ? base : xAxisTitle);
+  const std::string title = name + ";" + xlab + ";Entries";
+
+  auto* h = new TH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
+  H[name] = h;
+
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+
+TH2F* RecoilJets::getOrBookJetQA2F(const std::string& trig,
+                                  const std::string& base,
+                                  const std::string& xAxisTitle,
+                                  const std::string& yAxisTitle,
+                                  const std::string& rKey,
+                                  int ptIdx, int centIdx,
+                                  int nxbins, double xmin, double xmax,
+                                  int nybins, double ymin, double ymax)
+{
+  const std::string suffix = suffixForBins(ptIdx, centIdx);
+  const std::string name   = base + "_" + rKey + suffix;
+
+  if (trig.empty() || base.empty() || rKey.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+
+  dir->cd();
+
+  const std::string xlab  = (xAxisTitle.empty() ? "x" : xAxisTitle);
+  const std::string ylab  = (yAxisTitle.empty() ? "y" : yAxisTitle);
+  const std::string title = name + ";" + xlab + ";" + ylab;
+
+  auto* h = new TH2F(name.c_str(), title.c_str(),
+                     nxbins, xmin, xmax,
+                     nybins, ymin, ymax);
+  H[name] = h;
+
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+
+// ---------------------------- Pure jet QA filler ----------------------------
+void RecoilJets::fillInclusiveJetQA(const std::vector<std::string>& activeTrig,
+                                   int centIdx,
+                                   const std::string& rKey)
+{
+  if (activeTrig.empty()) return;
+
+  JetContainer* jets = nullptr;
+  if (auto it = m_jets.find(rKey); it != m_jets.end()) jets = it->second;
+  if (!jets) return;
+
+  const int effCentIdx = (m_isAuAu ? centIdx : -1);
+
+  // Event-level (fiducial jets only)
+  int    nJetsFid = 0;
+  double HT       = 0.0;
+  double leadPt   = -1.0;
+  double leadEta  = 0.0;
+  double leadPhi  = 0.0;
+  double subPt    = -1.0;
+
+  constexpr int    nbPt  = 200;  constexpr double ptLo  = 0.0;   constexpr double ptHi  = 100.0;
+  constexpr int    nbEta = 120;  constexpr double etaLo = -1.2;  constexpr double etaHi =  1.2;
+  constexpr int    nbPhi = 128;  constexpr double phiLo = -M_PI; constexpr double phiHi =  M_PI;
+
+  constexpr int    nbMass = 120; constexpr double mLo = 0.0;     constexpr double mHi = 30.0;
+
+  // 2D occupancy and mass-vs-pt
+  constexpr int    nbEta2 = 60;
+  constexpr int    nbPhi2 = 64;
+  constexpr int    nbPt2  = 100;
+  constexpr int    nbM2   = 80;
+  constexpr double m2Hi   = 20.0;
+
+  // Loop over jets once; fill "all" first (pT cut only), then "incl" (fiducial)
+  for (const Jet* j : *jets)
+  {
+    if (!j) continue;
+
+    const double pt  = j->get_pt();
+    const double eta = j->get_eta();
+
+    if (!std::isfinite(pt) || !std::isfinite(eta)) continue;
+    if (pt < m_minJetPt) continue;
+
+    const double phi = TVector2::Phi_mpi_pi(j->get_phi());
+    const double mass = j->get_mass();
+
+    // ----------------- "all": pT cut only (no eta acceptance) -----------------
+    for (const auto& trigShort : activeTrig)
+    {
+      if (auto* h = getOrBookJetQA1F(trigShort, "h_jetPt_all", "p_{T}^{jet} [GeV]", rKey, -1, effCentIdx, nbPt, ptLo, ptHi))
+      { h->Fill(pt); bumpHistFill(trigShort, h->GetName()); }
+
+      if (auto* h = getOrBookJetQA1F(trigShort, "h_jetEta_all", "#eta^{jet}", rKey, -1, effCentIdx, nbEta, etaLo, etaHi))
+      { h->Fill(eta); bumpHistFill(trigShort, h->GetName()); }
+
+      if (auto* h = getOrBookJetQA1F(trigShort, "h_jetPhi_all", "#phi^{jet} [rad]", rKey, -1, effCentIdx, nbPhi, phiLo, phiHi))
+      { h->Fill(phi); bumpHistFill(trigShort, h->GetName()); }
+
+      if (auto* h2 = getOrBookJetQA2F(trigShort, "h_jetEtaPhi_all", "#eta^{jet}", "#phi^{jet} [rad]",
+                                      rKey, -1, effCentIdx, nbEta2, etaLo, etaHi, nbPhi2, phiLo, phiHi))
+      { h2->Fill(eta, phi); bumpHistFill(trigShort, h2->GetName()); }
+
+      if (std::isfinite(mass) && mass >= 0.0)
+      {
+        if (auto* hm = getOrBookJetQA1F(trigShort, "h_jetMass_all", "m^{jet} [GeV]", rKey, -1, effCentIdx, nbMass, mLo, mHi))
+        { hm->Fill(mass); bumpHistFill(trigShort, hm->GetName()); }
+
+        if (auto* h2m = getOrBookJetQA2F(trigShort, "h_jetMassVsPt_all", "p_{T}^{jet} [GeV]", "m^{jet} [GeV]",
+                                         rKey, -1, effCentIdx, nbPt2, ptLo, ptHi, nbM2, mLo, m2Hi))
+        { h2m->Fill(pt, mass); bumpHistFill(trigShort, h2m->GetName()); }
+      }
+    }
+
+    // ----------------- "incl": fiducial jets used for analysis ----------------
+    if (std::fabs(eta) >= m_jetEtaAbsMax) continue;
+
+    ++nJetsFid;
+    HT += pt;
+
+    if (pt > leadPt)
+    {
+      subPt   = leadPt;
+      leadPt  = pt;
+      leadEta = eta;
+      leadPhi = phi;
+    }
+    else if (pt > subPt)
+    {
+      subPt = pt;
+    }
+
+    for (const auto& trigShort : activeTrig)
+    {
+      if (auto* h = getOrBookJetQA1F(trigShort, "h_jetPt_incl", "p_{T}^{jet} [GeV]", rKey, -1, effCentIdx, nbPt, ptLo, ptHi))
+      { h->Fill(pt); bumpHistFill(trigShort, h->GetName()); }
+
+      if (auto* h = getOrBookJetQA1F(trigShort, "h_jetEta_incl", "#eta^{jet}", rKey, -1, effCentIdx, nbEta, etaLo, etaHi))
+      { h->Fill(eta); bumpHistFill(trigShort, h->GetName()); }
+
+      if (auto* h = getOrBookJetQA1F(trigShort, "h_jetPhi_incl", "#phi^{jet} [rad]", rKey, -1, effCentIdx, nbPhi, phiLo, phiHi))
+      { h->Fill(phi); bumpHistFill(trigShort, h->GetName()); }
+
+      if (auto* h2 = getOrBookJetQA2F(trigShort, "h_jetEtaPhi_incl", "#eta^{jet}", "#phi^{jet} [rad]",
+                                      rKey, -1, effCentIdx, nbEta2, etaLo, etaHi, nbPhi2, phiLo, phiHi))
+      { h2->Fill(eta, phi); bumpHistFill(trigShort, h2->GetName()); }
+
+      if (std::isfinite(mass) && mass >= 0.0)
+      {
+        if (auto* hm = getOrBookJetQA1F(trigShort, "h_jetMass_incl", "m^{jet} [GeV]", rKey, -1, effCentIdx, nbMass, mLo, mHi))
+        { hm->Fill(mass); bumpHistFill(trigShort, hm->GetName()); }
+
+        if (auto* h2m = getOrBookJetQA2F(trigShort, "h_jetMassVsPt_incl", "p_{T}^{jet} [GeV]", "m^{jet} [GeV]",
+                                         rKey, -1, effCentIdx, nbPt2, ptLo, ptHi, nbM2, mLo, m2Hi))
+        { h2m->Fill(pt, mass); bumpHistFill(trigShort, h2m->GetName()); }
+      }
+    }
+  }
+
+  // Event-level histograms (fiducial jets only)
+  for (const auto& trigShort : activeTrig)
+  {
+    if (auto* h = getOrBookJetQA1I(trigShort, "h_nJets", "N_{jets}", rKey, -1, effCentIdx, 100, 0.0, 100.0))
+    { h->Fill(nJetsFid); bumpHistFill(trigShort, h->GetName()); }
+
+    if (auto* h = getOrBookJetQA1F(trigShort, "h_HT", "H_{T} [GeV]", rKey, -1, effCentIdx, 300, 0.0, 150.0))
+    { h->Fill(HT); bumpHistFill(trigShort, h->GetName()); }
+
+    if (leadPt >= 0.0)
+    {
+      if (auto* h = getOrBookJetQA1F(trigShort, "h_leadJetPt", "p_{T}^{lead jet} [GeV]", rKey, -1, effCentIdx, 200, 0.0, 100.0))
+      { h->Fill(leadPt); bumpHistFill(trigShort, h->GetName()); }
+
+      if (auto* h = getOrBookJetQA1F(trigShort, "h_leadJetEta", "#eta^{lead jet}", rKey, -1, effCentIdx, 120, -1.2, 1.2))
+      { h->Fill(leadEta); bumpHistFill(trigShort, h->GetName()); }
+
+      if (auto* h = getOrBookJetQA1F(trigShort, "h_leadJetPhi", "#phi^{lead jet} [rad]", rKey, -1, effCentIdx, 128, -M_PI, M_PI))
+      { h->Fill(leadPhi); bumpHistFill(trigShort, h->GetName()); }
+    }
+
+    if (subPt >= 0.0)
+    {
+      if (auto* h = getOrBookJetQA1F(trigShort, "h_subleadJetPt", "p_{T}^{sublead jet} [GeV]", rKey, -1, effCentIdx, 200, 0.0, 100.0))
+      { h->Fill(subPt); bumpHistFill(trigShort, h->GetName()); }
+    }
+  }
+}
+
+
+// ----------------------- Selected jet QA (gamma+jet jets) -----------------------
+void RecoilJets::fillSelectedJetQA(const std::vector<std::string>& activeTrig,
+                                  int ptIdx, int centIdx,
+                                  const std::string& rKey,
+                                  const Jet* jet1,
+                                  const Jet* jet2)
+{
+  if (activeTrig.empty() || !jet1) return;
+
+  const int effCentIdx = (m_isAuAu ? centIdx : -1);
+
+  const double eta1 = jet1->get_eta();
+  const double phi1 = TVector2::Phi_mpi_pi(jet1->get_phi());
+  const double m1   = jet1->get_mass();
+
+  for (const auto& trigShort : activeTrig)
+  {
+    if (auto* h = getOrBookJetQA1F(trigShort, "h_jet1Eta_sel", "#eta^{jet1}", rKey, ptIdx, effCentIdx, 120, -1.2, 1.2))
+    { h->Fill(eta1); bumpHistFill(trigShort, h->GetName()); }
+
+    if (auto* h = getOrBookJetQA1F(trigShort, "h_jet1Phi_sel", "#phi^{jet1} [rad]", rKey, ptIdx, effCentIdx, 128, -M_PI, M_PI))
+    { h->Fill(phi1); bumpHistFill(trigShort, h->GetName()); }
+
+    if (std::isfinite(m1) && m1 >= 0.0)
+    {
+      if (auto* h = getOrBookJetQA1F(trigShort, "h_jet1Mass_sel", "m^{jet1} [GeV]", rKey, ptIdx, effCentIdx, 120, 0.0, 30.0))
+      { h->Fill(m1); bumpHistFill(trigShort, h->GetName()); }
+    }
+
+    if (jet2)
+    {
+      const double eta2 = jet2->get_eta();
+      const double phi2 = TVector2::Phi_mpi_pi(jet2->get_phi());
+
+      if (auto* h = getOrBookJetQA1F(trigShort, "h_jet2Eta_sel", "#eta^{jet2}", rKey, ptIdx, effCentIdx, 120, -1.2, 1.2))
+      { h->Fill(eta2); bumpHistFill(trigShort, h->GetName()); }
+
+      if (auto* h = getOrBookJetQA1F(trigShort, "h_jet2Phi_sel", "#phi^{jet2} [rad]", rKey, ptIdx, effCentIdx, 128, -M_PI, M_PI))
+      { h->Fill(phi2); bumpHistFill(trigShort, h->GetName()); }
+    }
+  }
+}
+
+
 // Record a histogram fill (for end-of-job diagnostics)
 void RecoilJets::bumpHistFill(const std::string& trig, const std::string& hnameWithSuffix)
 {
@@ -2613,8 +3255,8 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
                        << "\" slice=\"" << slice << '"');
   }
 
-    if (Verbosity() >= 5)
-    {
+  if (Verbosity() >= 5)
+  {
       std::ostringstream os;
       os << "    [fill] trig=\"" << trig << "\" slice=\"" << slice << "\" → "
          << comboBase
@@ -2630,7 +3272,7 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
          << "]";
       const char* colour = (iso || tag == TightTag::kTight) ? CLR_RED : CLR_CYAN;
       LOG(5, colour, os.str());
-    }
+  }
 
 
   // --- SS variable histograms for THIS category (always) ---

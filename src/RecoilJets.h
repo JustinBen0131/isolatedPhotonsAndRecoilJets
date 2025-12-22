@@ -61,6 +61,8 @@ class PHCompositeNode;
 class RawCluster;
 class PhotonClusterv1;
 class PhotonClusterContainer;
+class Jet;       // forward declaration for jet QA helpers
+class TProfile;  // forward declaration (matching-QA profile)
 
 // ---------------- PPG-12 working-point constants (Table 4) -----------------
 namespace PhoIDCuts {
@@ -208,8 +210,14 @@ class RecoilJets : public SubsysReco
                         double coneR     = 0.3,
                         double towerMin  = 0.060);
 
-  // Optional: minimum away-side jet pT used for xJ (GeV)
+  // Jet selection baseline (applies to jet QA + away-side jet scans for xJ)
+  // This is intentionally a reco-level technical floor.
   void setMinJetPt(double pt) { m_minJetPt = std::max(0.0, pt); }
+
+  // Jet fiducial acceptance for the *jet axis*.
+  // Defensible first-pass for R=0.2 barrel TowerInfo jets:
+  //   |eta_jet| < (eta_max_calo - R) ≈ 1.1 - 0.2 = 0.9
+  void setJetEtaAbsMax(double a) { m_jetEtaAbsMax = std::max(0.0, a); }
 
   // Compute Eiso for a cluster (EMCal+iHCal+oHCal in ΔR=coneR, excl. the cluster)
   double eiso(const RawCluster* clus, PHCompositeNode* topNode) const;
@@ -403,8 +411,15 @@ class RecoilJets : public SubsysReco
 
   // Jet containers keyed by radius tag ("r02", "r04", …); we’ll use r02
   std::map<std::string, JetContainer*> m_jets;
-  // Small technical floor for away-side jets when forming xJ (GeV)
-  double m_minJetPt {5.0};
+    // Jet selection baseline pT floor (GeV) used for:
+    //   - pure jet QA (to suppress pathological ultra-low-pT jets)
+    //   - recoil jet scan for xJ
+    double m_minJetPt {5.0};
+
+    // Jet fiducial acceptance (jet axis).
+    // Default is a containment-motivated first pass for R=0.2:
+    //   |eta_jet| < 0.9
+    double m_jetEtaAbsMax {0.9};
 
   // --------------------------------------------------------------------------
   // Triggers (as in your code) – pp & Au+Au name maps
@@ -457,6 +472,7 @@ class RecoilJets : public SubsysReco
   double m_hadFrac    {0.10};
   double m_minBackToBack {7.0*M_PI/8.0};
 
+
   // ---------- Internal helpers for photon pT(/centrality) binning & counters -------
   // NOTE: findPtBin + m_gammaPtBins define the photon pT slicing used everywhere (including JES calibration).
   int  findPtBin(double pt) const;                 // returns -1 if out-of-range
@@ -491,24 +507,69 @@ class RecoilJets : public SubsysReco
   TH3F* getOrBookJES3_xJ_alphaHist      (const std::string& trig, int centIdx);
   TH3F* getOrBookJES3_jet1Pt_alphaHist  (const std::string& trig, int centIdx);
 
-  // Shower-shape histogram booker:
-  //    h_ss_<varKey>_<tagKey> + suffixForBins(pT[,cent])
-  TH1F* getOrBookSSHist(const std::string& trig,
-                          const std::string& varKey,
-                          const std::string& tagKey,
-                          int ptIdx, int centIdx);
+   // ---------------------- Matching-QA (centrality suffix only) ----------------------
+   // NOTE: pT^gamma is an axis (m_gammaPtBins). Do NOT pT-slice these in the name.
+   TH2F*     getOrBookMatchDphiVsPtGamma       (const std::string& trig, int centIdx);
+   TH2F*     getOrBookMatchStatusVsPtGamma     (const std::string& trig, int centIdx);
+   TH2F*     getOrBookMatchMaxDphiVsPtGamma    (const std::string& trig, int centIdx);
 
-  void  fillIsoSSTagCounters(const std::string& trig,
-                              const RawCluster* clus,
-                              const SSVars& v,
-                              double pt_gamma,
-                              int centIdx,
-                              PHCompositeNode* topNode);
+   // Optional, still low-bloat:
+   TProfile* getOrBookNRecoilJetsVsPtGamma     (const std::string& trig, int centIdx);
+   TH2F*     getOrBookRecoilIsLeadingVsPtGamma (const std::string& trig, int centIdx);
 
-  SSVars makeSSFromPhoton(const PhotonClusterv1* pho, double pt_gamma) const;
-  void   processCandidates(PHCompositeNode* topNode,
-                               const std::vector<std::string>& activeTrig);
+   // Shower-shape histogram booker:
+   //    h_ss_<varKey>_<tagKey> + suffixForBins(pT[,cent])
+   TH1F* getOrBookSSHist(const std::string& trig,
+                              const std::string& varKey,
+                              const std::string& tagKey,
+                              int ptIdx, int centIdx);
 
-};
+    void  fillIsoSSTagCounters(const std::string& trig,
+                                const RawCluster* clus,
+                                const SSVars& v,
+                                double pt_gamma,
+                                int centIdx,
+                                PHCompositeNode* topNode);
+
+    // ---------------------- Pure jet QA (photon-independent) ----------------------
+    void fillInclusiveJetQA(const std::vector<std::string>& activeTrig,
+                            int centIdx,
+                            const std::string& rKey);
+
+    // ---------------- Jet-only QA for jets used in the gamma+jet step -------------
+    void fillSelectedJetQA(const std::vector<std::string>& activeTrig,
+                           int ptIdx, int centIdx,
+                           const std::string& rKey,
+                           const Jet* jet1,
+                           const Jet* jet2);
+
+    // --------------- Generic jet-QA histogram bookers (uses suffixForBins) --------
+    TH1I* getOrBookJetQA1I(const std::string& trig,
+                           const std::string& base,
+                           const std::string& xAxisTitle,
+                           const std::string& rKey,
+                           int ptIdx, int centIdx,
+                           int nbins, double xmin, double xmax);
+
+    TH1F* getOrBookJetQA1F(const std::string& trig,
+                           const std::string& base,
+                           const std::string& xAxisTitle,
+                           const std::string& rKey,
+                           int ptIdx, int centIdx,
+                           int nbins, double xmin, double xmax);
+
+    TH2F* getOrBookJetQA2F(const std::string& trig,
+                           const std::string& base,
+                           const std::string& xAxisTitle,
+                           const std::string& yAxisTitle,
+                           const std::string& rKey,
+                           int ptIdx, int centIdx,
+                           int nxbins, double xmin, double xmax,
+                           int nybins, double ymin, double ymax);
+
+    SSVars makeSSFromPhoton(const PhotonClusterv1* pho, double pt_gamma) const;
+    void   processCandidates(PHCompositeNode* topNode,
+                                 const std::vector<std::string>& activeTrig);
+  };
 
 #endif  // RECOILJETS_H
