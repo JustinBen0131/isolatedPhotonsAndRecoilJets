@@ -301,7 +301,7 @@ class RecoilJets : public SubsysReco
   TH2I* h_MBTrigCorr   = nullptr;                 // 2-D map: MinBias × Trigger
   std::unordered_map<std::string,int> m_trigBin;  // trigger-key → x-bin index
 
-    struct CatStat {
+  struct CatStat {
         // photons that reached preselection (this slice)
         std::size_t seen{0};
 
@@ -320,19 +320,19 @@ class RecoilJets : public SubsysReco
         // ID sideband bookkeeping (unchanged)
         std::size_t idSB_total{0};
         std::size_t idSB_pass{0};
-    };
+  };
 
     
   // Per trigger -> per slice suffix (e.g., "_ET_10_12[_cent_0_10]") → counters
   std::map<std::string, std::map<std::string, CatStat>> m_catByTrig;
-    // Histogram fill counts: "<trig>::<histNameWithSuffix>" → fills
-    std::map<std::string, std::size_t> m_histFill;
+  // Histogram fill counts: "<trig>::<histNameWithSuffix>" → fills
+  std::map<std::string, std::size_t> m_histFill;
 
-    // ---------- Run-wide cutflow bookkeeping ----------
-    enum class EventReject : uint8_t { None = 0, Trigger = 1, Vz = 2 };
+  // ---------- Run-wide cutflow bookkeeping ----------
+  enum class EventReject : uint8_t { None = 0, Trigger = 1, Vz = 2 };
 
-    struct CutBookkeeping
-    {
+  struct CutBookkeeping
+  {
       // Events
       std::size_t evt_seen{0};
       std::size_t evt_fail_trigger{0};
@@ -371,20 +371,20 @@ class RecoilJets : public SubsysReco
       // Isolation
       std::size_t iso_pass{0};
       std::size_t iso_fail{0};
-    };
+  };
 
-    CutBookkeeping m_bk;
-    EventReject    m_lastReject{EventReject::None};
+  CutBookkeeping m_bk;
+  EventReject    m_lastReject{EventReject::None};
 
 
-    // Helper to record histogram fills
-    void bumpHistFill(const std::string& trig, const std::string& hnameWithSuffix);
+  // Helper to record histogram fills
+  void bumpHistFill(const std::string& trig, const std::string& hnameWithSuffix);
 
-    // Human-readable, tabulated end-of-job summary
-    void printCutSummary() const;
+  // Human-readable, tabulated end-of-job summary
+  void printCutSummary() const;
 
-    // first-event gate: MB + trigger selection (declared here, defined in .cc)
-    bool firstEventCuts(PHCompositeNode*   topNode,
+  // first-event gate: MB + trigger selection (declared here, defined in .cc)
+  bool firstEventCuts(PHCompositeNode*   topNode,
                         std::vector<std::string>& activeTrig);
 
   // --- detector lists -----------------------------------------------------
@@ -483,19 +483,19 @@ class RecoilJets : public SubsysReco
                              const std::string& base,
                              int ptIdx, int centIdx);
 
-    // 1D spectra (pT^gamma-sliced via suffixForBins)
-    TH1F* getOrBookXJHist (const std::string& trig, int ptIdx, int centIdx);
-    TH1F* getOrBookIsoHist(const std::string& trig, int ptIdx, int centIdx);
+  // 1D spectra (pT^gamma-sliced via suffixForBins)
+  TH1F* getOrBookXJHist (const std::string& trig, int ptIdx, int centIdx);
+  TH1F* getOrBookIsoHist(const std::string& trig, int ptIdx, int centIdx);
 
-    // NEW: pure isolation QA (independent of preselection/tightness)
-    // Component spectra use the same slicing rules as h_Eiso.
-    TH1F* getOrBookIsoPartHist(const std::string& trig,
+  // NEW: pure isolation QA (independent of preselection/tightness)
+  // Component spectra use the same slicing rules as h_Eiso.
+  TH1F* getOrBookIsoPartHist(const std::string& trig,
                                const std::string& base,
                                const std::string& xAxisTitle,
                                int ptIdx, int centIdx);
 
-    // NEW: 2-bin (PASS/FAIL) isolation decision counter hist (same slicing rules)
-    TH1I* getOrBookIsoDecisionHist(const std::string& trig, int ptIdx, int centIdx);
+  // NEW: 2-bin (PASS/FAIL) isolation decision counter hist (same slicing rules)
+  TH1I* getOrBookIsoDecisionHist(const std::string& trig, int ptIdx, int centIdx);
 
 
   // JES calibration primitives (filled only for iso∧tight γ + matched recoil jet)
@@ -507,58 +507,57 @@ class RecoilJets : public SubsysReco
   TH3F* getOrBookJES3_xJ_alphaHist      (const std::string& trig, int centIdx);
   TH3F* getOrBookJES3_jet1Pt_alphaHist  (const std::string& trig, int centIdx);
 
-   // ---------------------- Matching-QA (centrality suffix only) ----------------------
-   // NOTE: pT^gamma is an axis (m_gammaPtBins). Do NOT pT-slice these in the name.
-   TH2F*     getOrBookMatchDphiVsPtGamma       (const std::string& trig, int centIdx);
-   TH2F*     getOrBookMatchStatusVsPtGamma     (const std::string& trig, int centIdx);
-   TH2F*     getOrBookMatchMaxDphiVsPtGamma    (const std::string& trig, int centIdx);
+  // ---------------------- Matching-QA (centrality suffix only) ----------------------
+  // NOTE: pT^gamma is an axis (m_gammaPtBins). Do NOT pT-slice these in the name.
+  TH2F*     getOrBookMatchDphiVsPtGamma       (const std::string& trig, int centIdx);
+  TH2F*     getOrBookMatchStatusVsPtGamma     (const std::string& trig, int centIdx);
+  TH2F*     getOrBookMatchMaxDphiVsPtGamma    (const std::string& trig, int centIdx);
 
-   // Optional, still low-bloat:
-   TProfile* getOrBookNRecoilJetsVsPtGamma     (const std::string& trig, int centIdx);
-   TH2F*     getOrBookRecoilIsLeadingVsPtGamma (const std::string& trig, int centIdx);
+  TProfile* getOrBookNRecoilJetsVsPtGamma     (const std::string& trig, int centIdx);
+  TH2F*     getOrBookRecoilIsLeadingVsPtGamma (const std::string& trig, int centIdx);
 
-   // Shower-shape histogram booker:
-   //    h_ss_<varKey>_<tagKey> + suffixForBins(pT[,cent])
-   TH1F* getOrBookSSHist(const std::string& trig,
+  // Shower-shape histogram booker:
+  //    h_ss_<varKey>_<tagKey> + suffixForBins(pT[,cent])
+  TH1F* getOrBookSSHist(const std::string& trig,
                               const std::string& varKey,
                               const std::string& tagKey,
                               int ptIdx, int centIdx);
 
-    void  fillIsoSSTagCounters(const std::string& trig,
+  void  fillIsoSSTagCounters(const std::string& trig,
                                 const RawCluster* clus,
                                 const SSVars& v,
                                 double pt_gamma,
                                 int centIdx,
                                 PHCompositeNode* topNode);
 
-    // ---------------------- Pure jet QA (photon-independent) ----------------------
-    void fillInclusiveJetQA(const std::vector<std::string>& activeTrig,
+  // ---------------------- Pure jet QA (photon-independent) ----------------------
+  void fillInclusiveJetQA(const std::vector<std::string>& activeTrig,
                             int centIdx,
                             const std::string& rKey);
 
-    // ---------------- Jet-only QA for jets used in the gamma+jet step -------------
-    void fillSelectedJetQA(const std::vector<std::string>& activeTrig,
+  // ---------------- Jet-only QA for jets used in the gamma+jet step -------------
+  void fillSelectedJetQA(const std::vector<std::string>& activeTrig,
                            int ptIdx, int centIdx,
                            const std::string& rKey,
                            const Jet* jet1,
                            const Jet* jet2);
 
-    // --------------- Generic jet-QA histogram bookers (uses suffixForBins) --------
-    TH1I* getOrBookJetQA1I(const std::string& trig,
+  // --------------- Generic jet-QA histogram bookers (uses suffixForBins) --------
+  TH1I* getOrBookJetQA1I(const std::string& trig,
                            const std::string& base,
                            const std::string& xAxisTitle,
                            const std::string& rKey,
                            int ptIdx, int centIdx,
                            int nbins, double xmin, double xmax);
 
-    TH1F* getOrBookJetQA1F(const std::string& trig,
+  TH1F* getOrBookJetQA1F(const std::string& trig,
                            const std::string& base,
                            const std::string& xAxisTitle,
                            const std::string& rKey,
                            int ptIdx, int centIdx,
                            int nbins, double xmin, double xmax);
 
-    TH2F* getOrBookJetQA2F(const std::string& trig,
+  TH2F* getOrBookJetQA2F(const std::string& trig,
                            const std::string& base,
                            const std::string& xAxisTitle,
                            const std::string& yAxisTitle,
@@ -567,8 +566,8 @@ class RecoilJets : public SubsysReco
                            int nxbins, double xmin, double xmax,
                            int nybins, double ymin, double ymax);
 
-    SSVars makeSSFromPhoton(const PhotonClusterv1* pho, double pt_gamma) const;
-    void   processCandidates(PHCompositeNode* topNode,
+  SSVars makeSSFromPhoton(const PhotonClusterv1* pho, double pt_gamma) const;
+  void   processCandidates(PHCompositeNode* topNode,
                                  const std::vector<std::string>& activeTrig);
   };
 
