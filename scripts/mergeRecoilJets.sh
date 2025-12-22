@@ -148,6 +148,182 @@ make_run_list() {
 
 # ---------- Parse CLI ----------
 [[ $# -ge 2 ]] || usage
+
+# ============================================================
+# SIM mode:
+#   ./mergeRecoilJets.sh isSim firstRound  [groupSize N] [SAMPLE=run28_photonjet10]
+#   ./mergeRecoilJets.sh isSim secondRound [condor]      [SAMPLE=run28_photonjet10]
+#   - firstRound  : Condor hadd of *existing sim outputs* in groups of groupSize
+#   - secondRound : merge firstRound partials into ONE final file
+# Output directory (as requested):
+#   /sphenix/u/patsfan753/scratch/thesisAnalysis/output/<simTag>
+# where simTag defaults to suffix after last "_" in SAMPLE:
+#   run28_photonjet10 -> photonjet10
+# ============================================================
+if [[ "${1}" =~ ^(isSim|sim|SIM)$ ]]; then
+  SIM_ACTION="${2:-}"
+  shift 2
+
+  # Defaults (overrideable)
+  SIM_SAMPLE="run28_photonjet10"
+  SIM_GROUP_SIZE="200"          # number of ROOT files per firstRound hadd
+  SIM_PREFER_CONDOR=false       # only used for secondRound
+
+  # Parse optional tokens
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      groupSize)
+        [[ $# -ge 2 ]] || { err "groupSize requires a value"; exit 2; }
+        SIM_GROUP_SIZE="$2"
+        shift 2
+        ;;
+      SAMPLE=*)
+        SIM_SAMPLE="${1#SAMPLE=}"
+        shift
+        ;;
+      condor)
+        SIM_PREFER_CONDOR=true
+        shift
+        ;;
+      *)
+        # ignore unknown tokens to stay backward-compatible
+        shift
+        ;;
+    esac
+  done
+
+  [[ "$SIM_GROUP_SIZE" =~ ^[0-9]+$ ]] || { err "groupSize must be an integer"; exit 2; }
+  (( SIM_GROUP_SIZE > 0 )) || { err "groupSize must be > 0"; exit 2; }
+
+  # Input sim outputs live here (your RecoilJets sim job output directory)
+  SIM_INPUT_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna"
+  SIM_INPUT_DIR="${SIM_INPUT_BASE}/${SIM_SAMPLE}"
+
+  [[ -d "$SIM_INPUT_DIR" ]] || { err "SIM input directory not found: $SIM_INPUT_DIR"; exit 20; }
+
+  # Output tag + dir (your requested: output/photonjet10)
+  SIM_TAG="${SIM_SAMPLE##*_}"
+  DEST_DIR="${OUT_BASE}/${SIM_TAG}"
+  mkdir -p "$DEST_DIR" "$LOG_DIR" "$OUT_DIR" "$ERR_DIR" "$TMP_DIR"
+
+  say "Dataset : ${BOLD}isSim${RST}"
+  say "Sample  : ${BOLD}${SIM_SAMPLE}${RST}"
+  say "Input   : ${SIM_INPUT_DIR}"
+  say "Output  : ${DEST_DIR}"
+  say "groupSize (merge) : ${SIM_GROUP_SIZE}"
+  echo
+
+  # Collect the existing sim ROOT outputs produced by your RecoilJets jobs
+  mapfile -t SIM_INPUTS < <(find "$SIM_INPUT_DIR" -maxdepth 1 -type f -name "*.root" | sort -V || true)
+  if (( ${#SIM_INPUTS[@]} == 0 )); then
+    err "No *.root files found in: $SIM_INPUT_DIR"
+    exit 21
+  fi
+
+  SIM_PARTIAL_PREFIX="chunkMerge_${SIM_TAG}_grp"
+  SIM_FINAL="${DEST_DIR}/${FINAL_PREFIX}_${SIM_TAG}_ALL.root"
+
+  if [[ "$SIM_ACTION" == "firstRound" ]]; then
+    need_cmd condor_submit
+
+    say "SIM firstRound: ${#SIM_INPUTS[@]} inputs -> grouped hadd jobs on Condor"
+
+    # Clean previous sim partials + final (ONLY sim-tagged files)
+    find "$DEST_DIR" -maxdepth 1 -type f \
+      \( -name "${SIM_PARTIAL_PREFIX}*.root" -o -name "${FINAL_PREFIX}_${SIM_TAG}_ALL.root" \) -delete || true
+
+    emit_hadd_wrapper "$CONDOR_EXEC"
+
+    SUB="${TMP_DIR}/recoil_sim_${SIM_TAG}_firstRound.sub"
+    rm -f "$SUB"
+    cat > "$SUB" <<EOT
+universe   = vanilla
+executable = $CONDOR_EXEC
+output     = $OUT_DIR/recoil.sim.${SIM_TAG}.\$(Cluster).\$(Process).out
+error      = $ERR_DIR/recoil.sim.${SIM_TAG}.\$(Cluster).\$(Process).err
+log        = $LOG_DIR/recoil.sim.${SIM_TAG}.\$(Cluster).\$(Process).log
+request_memory = 4GB
+getenv = True
+should_transfer_files = NO
+stream_output = True
+stream_error  = True
+EOT
+
+    total="${#SIM_INPUTS[@]}"
+    grp=0
+
+    # Build listfiles + one Condor job per group
+    for ((i=0; i<total; i+=SIM_GROUP_SIZE)); do
+      (( grp+=1 ))
+      grpTag="$(printf "%03d" "$grp")"
+
+      listfile="${TMP_DIR}/sim_${SIM_TAG}_grp${grpTag}.txt"
+      : > "$listfile"
+
+      for ((j=i; j<i+SIM_GROUP_SIZE && j<total; j++)); do
+        printf "%s\n" "${SIM_INPUTS[$j]}" >> "$listfile"
+      done
+
+      out="${DEST_DIR}/${SIM_PARTIAL_PREFIX}${grpTag}.root"
+      printf 'arguments = %s %s\nqueue\n\n' "$listfile" "$out" >> "$SUB"
+    done
+
+    say "Submitting ${BOLD}${grp}${RST} firstRound Condor merge jobs → $(basename "$SUB")"
+    condor_submit "$SUB"
+    say "FirstRound submitted. Partials will appear under: ${DEST_DIR}"
+    exit 0
+
+  elif [[ "$SIM_ACTION" == "secondRound" ]]; then
+    # Merge the firstRound partials into ONE final file
+    mapfile -t partials < <(ls -1 "${DEST_DIR}/${SIM_PARTIAL_PREFIX}"*.root 2>/dev/null | sort -V || true)
+    if (( ${#partials[@]} == 0 )); then
+      err "No firstRound partials found in ${DEST_DIR} (expected ${SIM_PARTIAL_PREFIX}*.root). Run: ./mergeRecoilJets.sh isSim firstRound"
+      exit 22
+    fi
+
+    LIST="${TMP_DIR}/sim_${SIM_TAG}_partialList.txt"
+    printf "%s\n" "${partials[@]}" > "$LIST"
+
+    say "SIM secondRound: ${#partials[@]} partials -> ${SIM_FINAL}"
+
+    if $SIM_PREFER_CONDOR; then
+      need_cmd condor_submit
+      emit_hadd_wrapper "$CONDOR_EXEC"
+
+      SUB="${TMP_DIR}/recoil_sim_${SIM_TAG}_secondRound.sub"
+      rm -f "$SUB"
+      cat > "$SUB" <<EOT
+universe   = vanilla
+executable = $CONDOR_EXEC
+output     = $OUT_DIR/recoil.sim.${SIM_TAG}.final.\$(Cluster).\$(Process).out
+error      = $ERR_DIR/recoil.sim.${SIM_TAG}.final.\$(Cluster).\$(Process).err
+log        = $LOG_DIR/recoil.sim.${SIM_TAG}.final.\$(Cluster).\$(Process).log
+request_memory = 6GB
+getenv = True
+should_transfer_files = NO
+stream_output = True
+stream_error  = True
+arguments = $LIST $SIM_FINAL
+queue
+EOT
+      say "Submitting secondRound final merge on Condor → $(basename "$SUB")"
+      condor_submit "$SUB"
+    else
+      say "Running secondRound final merge locally (ROOT hadd)…"
+      hadd -v 3 -f "$SIM_FINAL" @"$LIST"
+      say "Created ${SIM_FINAL}"
+    fi
+
+    exit 0
+  else
+    err "Unknown isSim action '${SIM_ACTION}'. Allowed: firstRound | secondRound"
+    exit 2
+  fi
+fi
+
+# ============================================================
+# Existing DATA behavior (unchanged): condor/addChunks/checkFileOutput
+# ============================================================
 MODE="$1"
 DATASET_REQ="$2"
 SUBMODE="${3:-}"
