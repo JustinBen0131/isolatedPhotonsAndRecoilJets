@@ -28,7 +28,7 @@
 #include "/sphenix/u/patsfan753/scratch/thesisAnalysis/coresoftware_local/offline/packages/CaloBase/PhotonClusterv1.h"
 #include "/sphenix/u/patsfan753/scratch/thesisAnalysis/coresoftware_local/offline/packages/CaloReco/PhotonClusterBuilder.h"
 #include <clusteriso/ClusterIso.h>
-#include <calobase/RawTowerGeomContainer.h>           // <-- required base
+#include <calobase/RawTowerGeomContainer.h>
 #include <calobase/RawTowerGeomContainer_Cylinderv1.h>
 #include <calobase/RawClusterUtility.h>
 #include <mbd/MbdPmtHit.h>
@@ -225,7 +225,7 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
 
   /* ––– clusters & photons ––––––––––––––––––––––––––––––––––––––––––– */
   m_clus    = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC");
-  m_photons = findNode::getClass<PhotonClusterContainer>(top, "PHOTONCLUSTER_CEMC");
+  m_photons = findNode::getClass<RawClusterContainer>(top, "PHOTONCLUSTER_CEMC");
 
   if (m_clus)
   {
@@ -438,7 +438,7 @@ void RecoilJets::createHistos_Data()
   }
 
   // ------------------------------------------------------------------
-  // DATA MODE (existing behavior): per-trigger directories
+  // DATA MODE: per-trigger directories
   // ------------------------------------------------------------------
   if (m_isAuAu)
   {
@@ -926,7 +926,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
   // ========================= PHOTON path ========================
   if (m_photons)
   {
-    PhotonClusterContainer::ConstRange prange = m_photons->getClusters();
+    RawClusterContainer::ConstRange prange = m_photons->getClusters();
 
     // Quick emptiness check
     std::size_t nPho = 0;
@@ -941,36 +941,29 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
 
     try
     {
-        // ---- Event-level de-duplication for jet matching / JES fills ----
-        // If multiple photons pass (iso ∧ tight) in the same event, keep ONLY
-        // the leading one in pT^gamma and do jet matching + JES3 fills once.
-        bool   haveLeadIsoTight = false;
-        int    leadPhoIndex     = -1;
-        int    leadPtIdx        = -1;
-        double leadPtGamma      = -1.0;
-        double leadPhiGamma     = 0.0;
-
-        int iPho = 0;
-        int iPho = 0;
-        for (auto pit = prange.first; pit != prange.second; ++pit, ++iPho)
+       // ---- Event-level de-duplication for jet matching / JES fills ----
+       // If multiple photons pass (iso ∧ tight) in the same event, keep ONLY
+       // the leading one in pT^gamma and do jet matching + JES3 fills once.
+       bool   haveLeadIsoTight = false;
+       int    leadPhoIndex     = -1;
+       int    leadPtIdx        = -1;
+       double leadPtGamma      = -1.0;
+       double leadPhiGamma     = 0.0;
+        
+       int iPho = 0;
+       for (auto pit = prange.first; pit != prange.second; ++pit, ++iPho)
+       {
+        // Concrete type: PhotonClusterv1
+        const auto* pho = dynamic_cast<const PhotonClusterv1*>(pit->second);
+        if (!pho)
         {
-          // Concrete type: PhotonClusterv1
-          const auto* pho = dynamic_cast<const PhotonClusterv1*>(pit->second);
-          if (!pho)
-          {
               LOG(5, CLR_YELLOW, "      [pho#" << iPho << "] pointer is not PhotonClusterv1 – skipping");
               continue;
-          }
+        }
 
-          // Use the same object through the RawCluster interface
-          const RawCluster* rc = static_cast<const RawCluster*>(pho);
-          if (!rc)
-          {
-              ++nNoRC; ++m_bk.pho_noRC;
-              if (Verbosity() >= 5)
-                LOG(5, CLR_YELLOW, "      [pho#" << iPho << "] RawCluster pointer is NULL – cannot compute kinematics");
-              continue;
-         }
+        // Upcast through inheritance (no RTTI, no second cast)
+        const RawCluster* rc = pho;
+
 
 
         ++m_bk.pho_total;

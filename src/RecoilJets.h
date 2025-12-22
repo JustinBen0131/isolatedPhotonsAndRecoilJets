@@ -60,7 +60,6 @@ class Fun4AllHistoManager;
 class PHCompositeNode;
 class RawCluster;
 class PhotonClusterv1;
-class PhotonClusterContainer;
 class Jet;       // forward declaration for jet QA helpers
 class TProfile;  // forward declaration (matching-QA profile)
 
@@ -407,7 +406,9 @@ class RecoilJets : public SubsysReco
   EpdGeom*             m_epdgeom  = nullptr;
   EventplaneinfoMap*   m_epmap    = nullptr;
   RawClusterContainer* m_clus     = nullptr;
-  PhotonClusterContainer* m_photons = nullptr;
+  // PhotonClusterBuilder outputs PHOTONCLUSTER_CEMC as a RawClusterContainer
+  // holding PhotonClusterv1 objects.
+  RawClusterContainer* m_photons  = nullptr;
 
   // Jet containers keyed by radius tag ("r02", "r04", …); we’ll use r02
   std::map<std::string, JetContainer*> m_jets;
