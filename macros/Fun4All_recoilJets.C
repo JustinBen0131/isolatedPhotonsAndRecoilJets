@@ -117,12 +117,12 @@ namespace detail
 {
   inline FastJetAlgoSub* fjAlgo(const float R)
   {
-    FastJetOptions o;                 // use the fields that actually exist in your header
-    o.algo            = Jet::ANTIKT; // algorithm
-    o.jet_R           = R;           // jet radius
-    o.use_jet_min_pt  = true;        // enable a ptmin
-    o.jet_min_pt      = 0.0f;        // ptmin value
-    o.verbosity       = 0;           // quiet
+    FastJetOptions o{};               // IMPORTANT: value-initialize ALL fields to safe defaults
+    o.algo            = Jet::ANTIKT;  // algorithm
+    o.jet_R           = R;            // jet radius
+    o.use_jet_min_pt  = true;         // enable a ptmin
+    o.jet_min_pt      = 0.0f;         // ptmin value
+    o.verbosity       = 0;            // quiet
     return new FastJetAlgoSub(o);
   }
 }
@@ -263,26 +263,79 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   // --------------------------------------------------------------------
   recoConsts* rc = recoConsts::instance();
   rc->set_StringFlag("CDB_GLOBALTAG","newcdbtag");
-  rc->set_uint64Flag("TIMESTAMP",     run);
-  CDBInterface::instance() -> Verbosity(vlevel);
 
-  std::unique_ptr<FlagHandler> flag = std::make_unique<FlagHandler>();
-  se->registerSubsystem(flag.get());
+  // Use run number as timestamp for real data.
+  // For simulation, "run" like 28 is not a valid CDB timestamp for calo calibrations.
+  unsigned long long cdbts = static_cast<unsigned long long>(run);
+
+  if (isSim)
+  {
+      // Pick a known-good pp timestamp that has EMCal calibration payloads available.
+      cdbts = 47289ULL;
+
+      // Optional override:
+      //   export RJ_CDB_TIMESTAMP=47289
+      if (const char* ts = std::getenv("RJ_CDB_TIMESTAMP"))
+      {
+        char* end = nullptr;
+        unsigned long long tmp = std::strtoull(ts, &end, 10);
+        if (end != ts && tmp > 0ULL) cdbts = tmp;
+      }
+  }
+
+  rc->set_uint64Flag("TIMESTAMP", cdbts);
+  CDBInterface::instance()->Verbosity(vlevel);
+
+  auto* flag = new FlagHandler();
+  se->registerSubsystem(flag);
 
   auto* inDST = new Fun4AllDstInputManager("DSTcalofitting");
   for (const auto& f : files) inDST->AddFile(f);
   se->registerInputManager(inDST);
 
-  // --------------------------------------------------------------------
-  // 3.  Geometry + status + calibration + clustering
-  // --------------------------------------------------------------------
-  for (const std::string& det : {"CEMC","HCALIN","HCALOUT"})
-  {
-    auto *geom = new CaloGeomMapping(("Geom_"+det).c_str());
-    geom->set_detector_name(det);
-    geom->set_UseDetailedGeometry(false);
-    se->registerSubsystem(geom);
-  }
+    // --------------------------------------------------------------------
+    // 3.  Geometry + status + calibration + clustering
+    // --------------------------------------------------------------------
+    //
+    // IMPORTANT:
+    // RawClusterBuilderTemplate::process_event() ALWAYS requires "TOWERGEOM_CEMC".
+    // But CaloGeomMapping with UseDetailedGeometry(true) publishes ONLY
+    // "TOWERGEOM_CEMC_DETAILED" for CEMC.
+    // So we ALWAYS create the legacy node (TOWERGEOM_CEMC), and optionally
+    // also create the detailed node (TOWERGEOM_CEMC_DETAILED).
+    //
+    bool useDetailedCemcGeom = true;  // keep your current behavior by default
+    if (const char* env = std::getenv("RJ_DETAILED_CEMC_GEOM"))
+    {
+      useDetailedCemcGeom = (std::atoi(env) != 0);
+    }
+
+    // Always publish the legacy/simple CEMC geometry node: TOWERGEOM_CEMC
+    {
+      auto* geomCemcLegacy = new CaloGeomMapping("Geom_CEMC");
+      geomCemcLegacy->set_detector_name("CEMC");
+      geomCemcLegacy->set_UseDetailedGeometry(false);
+      se->registerSubsystem(geomCemcLegacy);
+    }
+
+    // Optionally publish the detailed CEMC geometry node: TOWERGEOM_CEMC_DETAILED
+    if (useDetailedCemcGeom)
+    {
+      auto* geomCemcDetailed = new CaloGeomMapping("Geom_CEMC_DETAILED");
+      geomCemcDetailed->set_detector_name("CEMC");
+      geomCemcDetailed->set_UseDetailedGeometry(true);
+      se->registerSubsystem(geomCemcDetailed);
+    }
+
+    // HCAL nodes (detailed not supported; CaloGeomMapping will fall back internally)
+    for (const std::string& det : {"HCALIN","HCALOUT"})
+    {
+      auto* geom = new CaloGeomMapping(("Geom_" + det).c_str());
+      geom->set_detector_name(det);
+      geom->set_UseDetailedGeometry(true);
+      se->registerSubsystem(geom);
+    }
+
 
   if (vlevel > 0) std::cout << "status setters" << std::endl;
   CaloTowerStatus *statusEMC = new CaloTowerStatus("CEMCSTATUS");
@@ -331,11 +384,19 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   std::unique_ptr<MbdReco> mbdreco = std::make_unique<MbdReco>();
   se->registerSubsystem(mbdreco.release());
 
-  if (vlevel > 0) std::cout << "Calibrating ZDC" << std::endl;
-  std::unique_ptr<ZdcReco> zdcreco = std::make_unique<ZdcReco>();
-  zdcreco->set_zdc1_cut(0.0);
-  zdcreco->set_zdc2_cut(0.0);
-  se->registerSubsystem(zdcreco.release());
+  if (!isSim)
+    {
+      if (vlevel > 0) std::cout << "Calibrating ZDC" << std::endl;
+      auto* zdcreco = new ZdcReco();
+      zdcreco->set_zdc1_cut(0.0);
+      zdcreco->set_zdc2_cut(0.0);
+      se->registerSubsystem(zdcreco);
+    }
+    else
+    {
+      if (vlevel > 0) std::cout << "[isSim] skipping ZdcReco (sim DST has no TOWERS_ZDC)" << std::endl;
+  }
+
 
   if (vlevel > 0) std::cout << "Retrieving Vtx Info" << std::endl;
   std::unique_ptr<GlobalVertexReco> gvertex = std::make_unique<GlobalVertexReco>();
@@ -472,7 +533,6 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
           dtb1->SetBackgroundOutputName("TowerInfoBackground_Sub1");
           dtb1->SetSeedType(0);
           dtb1->SetSeedJetD(D);
-          dtb1->set_towerinfo(true);
           dtb1->set_towerNodePrefix("TOWERINFO_CALIB");
           dtb1->Verbosity(0);
           se->registerSubsystem(dtb1);
@@ -482,7 +542,6 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
           dtb2->SetBackgroundOutputName("TowerInfoBackground_Sub2");
           dtb2->SetSeedType(0);
           dtb2->SetSeedJetD(D);
-          dtb2->set_towerinfo(true);
           dtb2->set_towerNodePrefix("TOWERINFO_CALIB");
           dtb2->Verbosity(0);
           se->registerSubsystem(dtb2);
@@ -513,7 +572,6 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
           dtb3->SetBackgroundOutputName("TowerInfoBackground_Sub3");
           dtb3->SetSeedType(1);
           dtb3->SetSeedJetD(D);
-          dtb3->set_towerinfo(true);
           dtb3->set_towerNodePrefix("TOWERINFO_CALIB");
           dtb3->Verbosity(0);
           se->registerSubsystem(dtb3);

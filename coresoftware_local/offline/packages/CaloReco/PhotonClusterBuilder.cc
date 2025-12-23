@@ -82,12 +82,20 @@ int PhotonClusterBuilder::InitRun(PHCompositeNode* topNode)
     return Fun4AllReturnCodes::ABORTRUN;
   }
 
-  m_geomEM = findNode::getClass<RawTowerGeomContainer>(topNode, "TOWERGEOM_CEMC");
-  if (!m_geomEM)
-  {
-    std::cerr << Name() << ": could not find RawTowerGeomContainer node 'TOWERGEOM_CEMC'" << std::endl;
-    return Fun4AllReturnCodes::ABORTRUN;
-  }
+    m_geomEM = findNode::getClass<RawTowerGeomContainer>(topNode, "TOWERGEOM_CEMC");
+    if (!m_geomEM)
+    {
+      m_geomEM = findNode::getClass<RawTowerGeomContainer>(topNode, "TOWERGEOM_CEMC_DETAILED");
+    }
+
+    if (!m_geomEM)
+    {
+      std::cerr << Name()
+                << ": could not find RawTowerGeomContainer node 'TOWERGEOM_CEMC' "
+                << "(or fallback 'TOWERGEOM_CEMC_DETAILED')"
+                << std::endl;
+      return Fun4AllReturnCodes::ABORTRUN;
+    }
 
   m_ihcal_tower_container = findNode::getClass<TowerInfoContainer>(topNode, "TOWERINFO_CALIB_HCALIN");
   if (!m_ihcal_tower_container)
