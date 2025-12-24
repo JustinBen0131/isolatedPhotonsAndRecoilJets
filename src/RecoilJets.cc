@@ -22,6 +22,8 @@
 #include <globalvertex/MbdVertex.h>
 #include <globalvertex/MbdVertexMap.h>
 #include <calobase/TowerInfo.h>
+#include <g4main/PHG4TruthInfoContainer.h>
+#include <g4main/PHG4VtxPoint.h>
 #include <calobase/TowerInfoDefs.h>
 #include <calobase/TowerInfoContainer.h>
 #include <calobase/RawCluster.h>
@@ -142,68 +144,163 @@ bool RecoilJets::getCentralitySlice(int& lo,
 
 bool RecoilJets::fetchNodes(PHCompositeNode* top)
 {
-  /* ––– primary vertex ––––––––––––––––––––––––––––––––––––––––––––––––
+    /* ––– primary vertex ––––––––––––––––––––––––––––––––––––––––––––––––
      *
-     * PhotonClusterBuilder uses MbdVertexMap(z) to compute cluster eta/phi
-     * and the ET threshold. To keep RecoilJets fully consistent, we prefer
-     * the SAME MBD z here.
+     * Keep RecoilJets consistent with PhotonClusterBuilder:
+     *  - Prefer MBD z when available.
+     *  - Fallback to GlobalVertex z only if MBD is missing/empty.
      *
-     * Still optionally read GlobalVertexMap so m_vtx/m_vx/m_vy remain
-     * available for any legacy/diagnostic usage, but m_vz (used everywhere
-     * in RecoilJets kinematics) will match the builder when MBD exists.
-  * ------------------------------------------------------------------ */
-  GlobalVertexMap* gvmap  = findNode::getClass<GlobalVertexMap>(top, "GlobalVertexMap");
-  MbdVertexMap*    mbdmap = findNode::getClass<MbdVertexMap>(top, "MbdVertexMap");
+     * Reduce noise: only print MBD vs Global comparison when they DISAGREE
+     * beyond a small tolerance (or at very high verbosity).
+     * ------------------------------------------------------------------ */
+    GlobalVertexMap* gvmap  = findNode::getClass<GlobalVertexMap>(top, "GlobalVertexMap");
+    MbdVertexMap*    mbdmap = findNode::getClass<MbdVertexMap>(top, "MbdVertexMap");
 
-  m_vtx = nullptr; m_vx = m_vy = 0.0; m_vz = 0.0;
+    // Detect sim mode from env (wrapper exports this); keeps DATA behavior unchanged.
+    bool isSim = false;
+    if (const char* ds = std::getenv("RJ_DATASET"))
+    {
+      std::string s = ds;
+      std::transform(s.begin(), s.end(), s.begin(),
+                     [](unsigned char c){ return std::tolower(c); });
+      if (s == "issim" || s == "sim") isSim = true;
+    }
+    if (!isSim)
+    {
+      if (const char* f = std::getenv("RJ_IS_SIM"))
+        isSim = (std::atoi(f) != 0);
+    }
 
-  // (Optional) keep GlobalVertex pointer for x/y diagnostics
-  if (gvmap && !gvmap->empty())
+    // Defaults
+    m_vtx = nullptr;
+    m_vx  = 0.0;
+    m_vy  = 0.0;
+    m_vz  = 0.0;
+
+    double gv_z    = std::numeric_limits<double>::quiet_NaN();
+    double mbd_z   = std::numeric_limits<double>::quiet_NaN();
+    double truth_x = std::numeric_limits<double>::quiet_NaN();
+    double truth_y = std::numeric_limits<double>::quiet_NaN();
+    double truth_z = std::numeric_limits<double>::quiet_NaN();
+
+    bool haveGVZ    = false;
+    bool haveMBDZ   = false;
+    bool haveTruthZ = false;
+
+    // ------------------------------------------------------------------
+    // SIM ONLY: truth vertex from G4TruthInfo (requires paired G4Hits DST)
+    // ------------------------------------------------------------------
+    if (isSim)
+    {
+      auto* truth = findNode::getClass<PHG4TruthInfoContainer>(top, "G4TruthInfo");
+      if (!truth)
+      {
+        LOG(3, CLR_YELLOW, "    [fetchNodes] isSim: G4TruthInfo missing (did you load paired G4Hits DST?)");
+      }
+      else
+      {
+        auto vr = truth->GetPrimaryVtxRange();
+        if (vr.first == vr.second || !vr.first->second)
+        {
+          LOG(3, CLR_YELLOW, "    [fetchNodes] isSim: G4TruthInfo has no primary vertex");
+        }
+        else
+        {
+          const PHG4VtxPoint* vtx = vr.first->second;
+          truth_x = vtx->get_x();
+          truth_y = vtx->get_y();
+          truth_z = vtx->get_z();
+          haveTruthZ = std::isfinite(truth_z);
+        }
+      }
+    }
+
+    // GlobalVertex (keep pointer + x/y for optional diagnostics)
+    if (gvmap && !gvmap->empty())
     {
       m_vtx = gvmap->begin()->second;
       if (m_vtx)
       {
-        m_vx = m_vtx->get_x();
-        m_vy = m_vtx->get_y();
+        m_vx  = m_vtx->get_x();
+        m_vy  = m_vtx->get_y();
+        gv_z  = m_vtx->get_z();
+        haveGVZ = std::isfinite(gv_z);
       }
     }
 
-    // Prefer MBD z (matches PhotonClusterBuilder)
-    bool haveVz = false;
+    // MBD z (preferred for consistency with PhotonClusterBuilder)
     if (mbdmap && !mbdmap->empty())
     {
       MbdVertex* mv = mbdmap->begin()->second;
       if (mv)
       {
-        m_vz = mv->get_z();
-        haveVz = std::isfinite(m_vz);
+        mbd_z    = mv->get_z();
+        haveMBDZ = std::isfinite(mbd_z);
       }
-  }
+    }
 
-  // Fallback: use GlobalVertex z ONLY if MBD is unavailable
-  if (!haveVz)
-  {
-      if (!gvmap)         { LOG(1, CLR_YELLOW, "  – MbdVertexMap missing AND GlobalVertexMap missing → skip event"); return false; }
-      if (gvmap->empty()) { LOG(2, CLR_YELLOW, "  – MbdVertexMap missing AND GlobalVertexMap empty → skip event");   return false; }
+    // Choose the z we will USE:
+    //   • isSim : TRUTH (if present) → else fall back to MBD → else Global
+    //   • data  : MBD → else Global
+    const char* vz_source = "none";
+    if (isSim && haveTruthZ)
+    {
+      m_vx = static_cast<float>(truth_x);
+      m_vy = static_cast<float>(truth_y);
+      m_vz = static_cast<float>(truth_z);
+      vz_source = "TRUTH";
+    }
+    else if (haveMBDZ)
+    {
+      m_vz = static_cast<float>(mbd_z);
+      vz_source = "MBD";
+    }
+    else if (haveGVZ)
+    {
+      m_vz = static_cast<float>(gv_z);
+      vz_source = "Global";
+    }
+    else
+    {
+      if (isSim)
+      {
+        LOG(2, CLR_YELLOW, "    [fetchNodes] isSim: no usable truth vertex AND no reco vertex → skip event");
+      }
 
-      m_vtx = gvmap->begin()->second;
-      if (!m_vtx)         { LOG(1, CLR_YELLOW, "  – MbdVertexMap missing AND Global vertex pointer null → skip event"); return false; }
+      if (!mbdmap)              { LOG(1, CLR_YELLOW, "  – MbdVertexMap missing"); }
+      else if (mbdmap->empty()) { LOG(2, CLR_YELLOW, "  – MbdVertexMap exists but is empty"); }
+      else                      { LOG(2, CLR_YELLOW, "  – MbdVertexMap exists but z is non-finite/null"); }
 
-      m_vx = m_vtx->get_x();
-      m_vy = m_vtx->get_y();
-      m_vz = m_vtx->get_z();
-      haveVz = std::isfinite(m_vz);
-  }
+      if (!gvmap)               { LOG(1, CLR_YELLOW, "  – GlobalVertexMap missing"); }
+      else if (gvmap->empty())  { LOG(2, CLR_YELLOW, "  – GlobalVertexMap exists but is empty"); }
+      else                      { LOG(2, CLR_YELLOW, "  – GlobalVertexMap exists but z is non-finite/null"); }
 
-  if (!haveVz)
-  {
-      LOG(1, CLR_YELLOW, "  – vertex z is non-finite → skip event");
+      LOG(1, CLR_YELLOW, "  – no usable vertex z → skip event");
       return false;
-  }
+    }
 
-  LOG(4, CLR_BLUE, "    [fetchNodes] dataset=" << (m_isAuAu ? "Au+Au" : "p+p")
-                                                << "  vz(used)=" << std::fixed << std::setprecision(2) << m_vz);
+    // Print comparison ONLY if it matters (keep your original behavior for DATA)
+    if (!isSim && haveMBDZ && haveGVZ)
+    {
+      const double dz = mbd_z - gv_z;
+      constexpr double kDzPrint = 1e-3; // 0.001 cm = 10 microns (tune if you want)
 
+      if (std::fabs(dz) > kDzPrint || Verbosity() >= 7)
+      {
+        LOG(3, CLR_BLUE,
+            "  – vertex compare: vz(MBD)=" << std::fixed << std::setprecision(3) << mbd_z
+            << "  vz(Global)=" << std::fixed << std::setprecision(3) << gv_z
+            << "  Δz(MBD-Global)=" << std::fixed << std::setprecision(3) << dz);
+      }
+    }
+
+    LOG(4, CLR_BLUE,
+        "    [fetchNodes] dataset=" << (isSim ? "SIM" : (m_isAuAu ? "Au+Au" : "p+p"))
+        << "  vz(used)=" << std::fixed << std::setprecision(2) << m_vz
+        << "  (source=" << vz_source << ")");
+
+    
+    
   /* ––– calorimeter towers & geometry –––––––––––––––––––––––––––––––– */
   m_calo.clear();
   for (const auto& ci : m_caloInfo)
@@ -521,11 +618,30 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
   m_lastReject = EventReject::None;
   activeTrig.clear();
 
+  // Small helper for printing lists
+  auto joinList = [](const std::vector<std::string>& v, const char* sep) -> std::string
+  {
+    std::ostringstream os;
+    for (std::size_t i = 0; i < v.size(); ++i)
+    {
+      if (i) os << sep;
+      os << v[i];
+    }
+    return os.str();
+  };
+
+  // Grab GL1 scaled vector for diagnostics (works for pp & Au+Au if node exists)
+  uint64_t gl1Scaled = 0;
+  {
+    Gl1Packet* gl1 = findNode::getClass<Gl1Packet>(topNode, "GL1Packet");
+    if (!gl1) gl1 = findNode::getClass<Gl1Packet>(topNode, "14001");
+    if (gl1) gl1Scaled = gl1->lValue(0, "ScaledVector");
+  }
+
   // ------------------------------------------------------------------
   // SIMULATION MODE:
-  //   - skip ALL trigger logic
-  //   - fill everything under a single key: "SIM"
-  //   - still apply the global |vz| cut if enabled
+  //   - skip trigger logic
+  //   - still apply global |vz| cut if enabled
   // ------------------------------------------------------------------
   if (m_isSim)
   {
@@ -534,39 +650,113 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
     if (m_useVzCut && std::fabs(m_vz) >= m_vzCut)
     {
       m_lastReject = EventReject::Vz;
+      if (Verbosity() >= 4)
+      {
+        std::ostringstream os;
+        os << "    [firstEventCuts] REJECT (SIM |vz| cut)"
+           << " | vz=" << std::fixed << std::setprecision(3) << m_vz
+           << " | |vz|cut=" << m_vzCut;
+        LOG(4, CLR_YELLOW, os.str());
+      }
       return false;
+    }
+
+    if (Verbosity() >= 4)
+    {
+      std::ostringstream os;
+      os << "    [firstEventCuts] ACCEPT (SIM)"
+         << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
+      if (m_useVzCut) os << " (|vz|cut=" << m_vzCut << ")";
+      LOG(4, CLR_GREEN, os.str());
     }
 
     m_lastReject = EventReject::None;
     return true;
   }
 
+  // ------------------------------------------------------------------
+  // DATA MODE
+  // ------------------------------------------------------------------
   if (!m_isAuAu)
   {
-    // ---------- p+p path: accept if ANY configured pp trigger fired ----------
-    if (!trigAna) { m_lastReject = EventReject::Trigger; return false; }
+    // ---------- p+p: accept if ANY configured pp trigger fired ----------
+    if (!trigAna)
+    {
+      m_lastReject = EventReject::Trigger;
+      LOG(3, CLR_YELLOW, "    [firstEventCuts] REJECT (p+p): trigAna == nullptr (TriggerAnalyzer missing)");
+      return false;
+    }
 
     trigAna->decodeTriggers(topNode);
+
+    std::vector<std::string> firedDb;
+    std::vector<std::string> checkedLines;
+    firedDb.reserve(triggerNameMap_pp.size());
+    checkedLines.reserve(triggerNameMap_pp.size());
 
     for (const auto& kv : triggerNameMap_pp)
     {
       const std::string& dbName   = kv.first;   // GL1/DB name
       const std::string& shortKey = kv.second;  // friendly key
-      if (trigAna->didTriggerFire(dbName))
-        activeTrig.push_back(shortKey);
+
+      const bool fired = trigAna->didTriggerFire(dbName);
+      checkedLines.push_back(dbName + "->" + (fired ? "1" : "0") + " (" + shortKey + ")");
+      if (fired) activeTrig.push_back(shortKey);
+      if (fired) firedDb.push_back(dbName);
+
+      if (Verbosity() >= 6)
+      {
+        LOG(6, CLR_CYAN,
+            "      [pp trigger] " << dbName
+            << " fired=" << (fired ? 1 : 0)
+            << "  shortKey=\"" << shortKey << "\"");
+      }
     }
 
-    // Gate: at least one of the configured pp triggers must have fired
-    if (activeTrig.empty()) { m_lastReject = EventReject::Trigger; return false; }
+    if (activeTrig.empty())
+    {
+      m_lastReject = EventReject::Trigger;
+
+      if (Verbosity() >= 4)
+      {
+        std::ostringstream os;
+        os << "    [firstEventCuts] REJECT (p+p Trigger): no configured pp triggers fired"
+           << " | checked={" << joinList(checkedLines, ", ") << "}"
+           << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
+        if (m_useVzCut) os << " (|vz|cut=" << m_vzCut << ")";
+        if (gl1Scaled) os << " | GL1Scaled=0x" << std::hex << gl1Scaled << std::dec;
+        LOG(4, CLR_YELLOW, os.str());
+      }
+      return false;
+    }
+
+    if (Verbosity() >= 4)
+    {
+      std::ostringstream os;
+      os << "    [firstEventCuts] Trigger PASS (p+p)"
+         << " | activeTrig={" << joinList(activeTrig, ", ") << "}"
+         << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
+      if (gl1Scaled) os << " | GL1Scaled=0x" << std::hex << gl1Scaled << std::dec;
+      LOG(4, CLR_GREEN, os.str());
+    }
   }
   else
   {
-    // ---------- Au+Au path: use scaled GL1 bits only (no MB pre-gate) ----------
+    // ---------- Au+Au: scaled GL1 bits only ----------
     uint64_t wScaled = 0;
     if (auto* gl1 = findNode::getClass<Gl1Packet>(topNode, "GL1Packet"))
       wScaled = gl1->lValue(0, "ScaledVector");
     else if (auto* gl1b = findNode::getClass<Gl1Packet>(topNode, "14001"))
       wScaled = gl1b->lValue(0, "ScaledVector");
+
+    if (Verbosity() >= 6)
+    {
+      std::ostringstream os;
+      os << "    [AuAu trigger] ScaledVector="
+         << "0x" << std::hex << wScaled << std::dec
+         << " (event_count=" << event_count << ")";
+      LOG(6, CLR_CYAN, os.str());
+    }
 
     if (wScaled)
     {
@@ -576,13 +766,46 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
           activeTrig.push_back(key);
     }
 
-    if (activeTrig.empty()) { m_lastReject = EventReject::Trigger; return false; }
+    if (activeTrig.empty())
+    {
+      m_lastReject = EventReject::Trigger;
+
+      if (Verbosity() >= 4)
+      {
+        std::ostringstream os;
+        os << "    [firstEventCuts] REJECT (Au+Au Trigger): no configured scaled triggers fired"
+           << " | ScaledVector=0x" << std::hex << wScaled << std::dec
+           << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
+        if (m_useVzCut) os << " (|vz|cut=" << m_vzCut << ")";
+        LOG(4, CLR_YELLOW, os.str());
+      }
+      return false;
+    }
+
+    if (Verbosity() >= 4)
+    {
+      std::ostringstream os;
+      os << "    [firstEventCuts] Trigger PASS (Au+Au)"
+         << " | activeTrig={" << joinList(activeTrig, ", ") << "}"
+         << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
+      LOG(4, CLR_GREEN, os.str());
+    }
   }
 
-  // ---------- Global |vz| veto (applies to both datasets) ----------
+  // ---------- Global |vz| veto ----------
   if (m_useVzCut && std::fabs(m_vz) >= m_vzCut)
   {
     m_lastReject = EventReject::Vz;
+
+    if (Verbosity() >= 4)
+    {
+      std::ostringstream os;
+      os << "    [firstEventCuts] REJECT (|vz| cut)"
+         << " | vz=" << std::fixed << std::setprecision(3) << m_vz
+         << " | |vz|cut=" << m_vzCut
+         << " | triggers={" << joinList(activeTrig, ", ") << "}";
+      LOG(4, CLR_YELLOW, os.str());
+    }
     return false;
   }
 
@@ -590,6 +813,17 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
   if (activeTrig.empty()) activeTrig.emplace_back("ALL");
 
   m_lastReject = EventReject::None;
+
+  if (Verbosity() >= 4)
+  {
+    std::ostringstream os;
+    os << "    [firstEventCuts] ACCEPT"
+       << " | triggers={" << joinList(activeTrig, ", ") << "}"
+       << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
+    if (m_useVzCut) os << " (|vz|cut=" << m_vzCut << ")";
+    LOG(4, CLR_GREEN, os.str());
+  }
+
   return true;
 }
 
@@ -620,36 +854,64 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
   /* ------------------------------------------------------------------ */
   /* 2) Trigger gating (pp & Au+Au) — unified in firstEventCuts()       */
   /* ------------------------------------------------------------------ */
-  std::vector<std::string> activeTrig;
-  if (!firstEventCuts(topNode, activeTrig))
-  {
-    ++m_evtNoTrig;  // keep your legacy counter
-    if (m_lastReject == EventReject::Trigger) ++m_bk.evt_fail_trigger;
-    else if (m_lastReject == EventReject::Vz) ++m_bk.evt_fail_vz;
+    std::vector<std::string> activeTrig;
+    if (!firstEventCuts(topNode, activeTrig))
+    {
+      ++m_evtNoTrig;  // keep your legacy counter
+      if (m_lastReject == EventReject::Trigger) ++m_bk.evt_fail_trigger;
+      else if (m_lastReject == EventReject::Vz) ++m_bk.evt_fail_vz;
 
-    LOG(4, CLR_YELLOW, "    event rejected by MB/Trigger/Vz gate – skip");
-    return Fun4AllReturnCodes::ABORTEVENT;
-  }
+      const char* why = "UNKNOWN";
+      if (m_lastReject == EventReject::Trigger) why = "Trigger";
+      else if (m_lastReject == EventReject::Vz) why = "|vz|";
+
+      std::ostringstream os;
+      os << "    event rejected by " << why << " gate – skip"
+         << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
+      if (m_useVzCut) os << " (|vz|cut=" << m_vzCut << ")";
+      os << " | nActiveTrig=" << activeTrig.size();
+
+      if (!activeTrig.empty())
+      {
+        os << " | triggers={";
+        for (std::size_t i = 0; i < activeTrig.size(); ++i)
+        {
+          if (i) os << ", ";
+          os << activeTrig[i];
+        }
+        os << "}";
+      }
+
+      LOG(4, CLR_YELLOW, os.str());
+      return Fun4AllReturnCodes::ABORTEVENT;
+    }
   /* ------------------------------------------------------------------ */
   /* 3) Trigger counters (one per trigger) + Vertex-z QA                */
   /* ------------------------------------------------------------------ */
 
-  // Bump the per-trigger counter once per accepted event
-  for (const auto& t : activeTrig)
-  {
+    // Bump the per-trigger counter once per accepted event (and LOG fills via bumpHistFill)
+    for (const auto& t : activeTrig)
+    {
       auto itTrig = qaHistogramsByTrigger.find(t);
-      if (itTrig != qaHistogramsByTrigger.end())
-      {
-        auto& H = itTrig->second;
-        const std::string hname = "cnt_" + t;
-        if (auto hc = H.find(hname); hc != H.end())
-          static_cast<TH1I*>(hc->second)->Fill(1);
+      if (itTrig == qaHistogramsByTrigger.end()) continue;
 
-        // Optional existing vertex QA (kept intact)
-        if (auto hvz = H.find("h_vertexZ"); hvz != H.end())
-          static_cast<TH1F*>(hvz->second)->Fill(m_vz);
+      auto& H = itTrig->second;
+
+      // (1) per-trigger event counter
+      const std::string hcnt = "cnt_" + t;
+      if (auto hc = H.find(hcnt); hc != H.end())
+      {
+        static_cast<TH1I*>(hc->second)->Fill(1);
+        bumpHistFill(t, hcnt);
       }
-  }
+
+      // (2) vertex-z QA
+      if (auto hvz = H.find("h_vertexZ"); hvz != H.end())
+      {
+        static_cast<TH1F*>(hvz->second)->Fill(m_vz);
+        bumpHistFill(t, "h_vertexZ");
+      }
+    }
 
   /* ------------------------------------------------------------------ */
   /* 4) Centrality lookup (Au+Au only)                                  */
@@ -683,19 +945,21 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     }
 
     // Fill centrality histogram if booked under each active trigger
-    if (centile >= 0.f && centile <= 100.f)
-    {
-      for (const auto& t : activeTrig)
+      if (centile >= 0.f && centile <= 100.f)
       {
-        auto itTrig = qaHistogramsByTrigger.find(t);
-        if (itTrig != qaHistogramsByTrigger.end())
+        for (const auto& t : activeTrig)
         {
+          auto itTrig = qaHistogramsByTrigger.find(t);
+          if (itTrig == qaHistogramsByTrigger.end()) continue;
+
           auto& H = itTrig->second;
           if (auto hc = H.find("h_centrality"); hc != H.end())
+          {
             static_cast<TH1F*>(hc->second)->Fill(centile);
+            bumpHistFill(t, "h_centrality");
+          }
         }
       }
-    }
   }
   else
   {
@@ -875,6 +1139,16 @@ int RecoilJets::End(PHCompositeNode*)
 RecoilJets::SSVars RecoilJets::makeSSFromPhoton(const PhotonClusterv1* pho, double pt_gamma) const
 {
   SSVars v{};
+  v.pt_gamma = pt_gamma;
+
+  if (!pho)
+  {
+    if (Verbosity() >= 3)
+      LOG(3, CLR_YELLOW, "  [makeSSFromPhoton] pho==nullptr → returning default SSVars");
+    return v;
+  }
+
+  // Raw stored shower-shape parameters (PhotonClusterBuilder names)
   const double weta_cogx = pho->get_shower_shape_parameter("weta_cogx");
   const double wphi_cogx = pho->get_shower_shape_parameter("wphi_cogx");
   const double et1       = pho->get_shower_shape_parameter("et1");
@@ -884,12 +1158,41 @@ RecoilJets::SSVars RecoilJets::makeSSFromPhoton(const PhotonClusterv1* pho, doub
   const double e32 = pho->get_shower_shape_parameter("e32");
   const double e35 = pho->get_shower_shape_parameter("e35");
 
-  v.weta_cogx     = weta_cogx;
-  v.wphi_cogx     = wphi_cogx;
-  v.et1           = et1;
-  v.e11_over_e33  = (e33 > 0.0) ? (e11 / e33) : 0.0;
-  v.e32_over_e35  = (e35 > 0.0) ? (e32 / e35) : 0.0;
-  v.pt_gamma      = pt_gamma;
+  // Derived ratios (protect denominators)
+  const double e11_over_e33_raw = (e33 > 0.0) ? (e11 / e33) : std::numeric_limits<double>::quiet_NaN();
+  const double e32_over_e35_raw = (e35 > 0.0) ? (e32 / e35) : std::numeric_limits<double>::quiet_NaN();
+
+  v.weta_cogx    = weta_cogx;
+  v.wphi_cogx    = wphi_cogx;
+  v.et1          = et1;
+  v.e11_over_e33 = std::isfinite(e11_over_e33_raw) ? e11_over_e33_raw : 0.0;
+  v.e32_over_e35 = std::isfinite(e32_over_e35_raw) ? e32_over_e35_raw : 0.0;
+
+  // Print only when:
+  //   - Verbosity >= 8 (always), OR
+  //   - Verbosity >= 6 and something looks wrong (non-finite / denom<=0)
+  const bool bad =
+      !std::isfinite(weta_cogx) || !std::isfinite(wphi_cogx) || !std::isfinite(et1) ||
+      !std::isfinite(e11) || !std::isfinite(e33) || !std::isfinite(e32) || !std::isfinite(e35) ||
+      (e33 <= 0.0) || (e35 <= 0.0);
+
+  if (Verbosity() >= 8 || (Verbosity() >= 6 && bad))
+  {
+    std::ostringstream os;
+    os << "      [SS extract] pT^γ=" << std::fixed << std::setprecision(2) << pt_gamma
+       << " | weta_cogx=" << std::setprecision(4) << weta_cogx
+       << " wphi_cogx=" << std::setprecision(4) << wphi_cogx
+       << " et1=" << std::setprecision(4) << et1
+       << " | e11=" << std::setprecision(4) << e11
+       << " e33=" << std::setprecision(4) << e33
+       << " (e11/e33=" << std::setprecision(4) << (std::isfinite(e11_over_e33_raw) ? e11_over_e33_raw : -999.0) << ")"
+       << " | e32=" << std::setprecision(4) << e32
+       << " e35=" << std::setprecision(4) << e35
+       << " (e32/e35=" << std::setprecision(4) << (std::isfinite(e32_over_e35_raw) ? e32_over_e35_raw : -999.0) << ")";
+    if (bad) os << "  [WARN]";
+    LOG(6, bad ? CLR_YELLOW : CLR_BLUE, os.str());
+  }
+
   return v;
 }
 
@@ -910,11 +1213,26 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
   }
 
   // Centrality bin index (Au+Au only, else -1)
-  const int centIdx = (m_isAuAu ? findCentBin(m_centBin) : -1);
-  LOG(4, CLR_BLUE, "  [processCandidates] dataset=" << (m_isAuAu ? "Au+Au" : "p+p")
-                                                   << "  centIdx=" << centIdx
-                                                   << "  m_centBin=" << m_centBin
-                                                   << "  nTriggers=" << activeTrig.size());
+    const int centIdx = (m_isAuAu ? findCentBin(m_centBin) : -1);
+
+    if (Verbosity() >= 4)
+    {
+      std::ostringstream os;
+      os << "  [processCandidates] dataset=" << (m_isAuAu ? "Au+Au" : "p+p")
+         << "  centIdx=" << centIdx
+         << "  m_centBin=" << m_centBin
+         << "  nTriggers=" << activeTrig.size()
+         << "  triggers={";
+
+      for (std::size_t i = 0; i < activeTrig.size(); ++i)
+      {
+        if (i) os << ", ";
+        os << activeTrig[i];
+      }
+      os << "}";
+
+      LOG(4, CLR_BLUE, os.str());
+    }
 
   // If neither photons nor clusters are present, we cannot do anything
   if (!m_photons && !m_clus)
@@ -993,17 +1311,31 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
             continue;
         }
 
-        // -------- early transverse-scale gate (fast reject) ---------------
-        constexpr double kMinPtGamma = 5.0; // GeV (kept as a fast sanity floor)
+           // -------- early transverse-scale gate (fast reject) ---------------
+           constexpr double kMinPtGamma = 5.0; // GeV (sanity floor for debug + CPU protection)
 
-        // quick reject: E < 2 GeV implies pT < 2 GeV for any η
-        if (energy < kMinPtGamma)
-        {
-          ++nSkipEtBin; ++m_bk.pho_early_E;
-          if (Verbosity() >= 6)
-            LOG(6, CLR_YELLOW, "      [pho#" << iPho << "] early reject (E<2 GeV): E=" << energy);
-          continue;
-        }
+           // Early reject: soft cluster. Print full PhotonClusterBuilder kinematics so
+           // you can see immediately why nothing ever reaches iso/tight.
+           if (energy < kMinPtGamma)
+           {
+             ++nSkipEtBin; ++m_bk.pho_early_E;
+
+             if (Verbosity() >= 6)
+             {
+               const int dbgPtIdx = findPtBin(pt_gamma);
+
+               std::ostringstream os;
+               os << "      [pho#" << iPho << "] early reject (soft cluster)"
+                  << " | E="   << std::fixed << std::setprecision(2) << energy
+                  << " < "     << kMinPtGamma
+                  << " | pT="  << std::fixed << std::setprecision(2) << pt_gamma
+                  << " | eta=" << std::fixed << std::setprecision(3) << eta
+                  << " | phi=" << std::fixed << std::setprecision(3) << phi
+                  << " | pTbinIdx=" << dbgPtIdx;
+               LOG(6, CLR_YELLOW, os.str());
+             }
+             continue;
+           }
 
         // |η| fiducial cut
         if (!std::isfinite(eta) || std::fabs(eta) >= m_etaAbsMax)
@@ -1023,14 +1355,27 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
           continue;
         }
 
-        // Enforce a minimal transverse scale sanity floor
-        if (!std::isfinite(pt_gamma) || pt_gamma < kMinPtGamma)
-        {
-          ++nSkipEtBin; ++m_bk.pho_early_E;
-          if (Verbosity() >= 6)
-            LOG(6, CLR_YELLOW, "      [pho#" << iPho << "] early reject (pT<2 GeV): pT=" << pt_gamma);
-          continue;
-        }
+           // Enforce a minimal transverse scale sanity floor
+           if (!std::isfinite(pt_gamma) || pt_gamma < kMinPtGamma)
+           {
+             ++nSkipEtBin; ++m_bk.pho_early_E;
+
+             if (Verbosity() >= 6)
+             {
+               const int dbgPtIdx = findPtBin(pt_gamma);
+
+               std::ostringstream os;
+               os << "      [pho#" << iPho << "] early reject (pT floor)"
+                  << " | pT="  << std::fixed << std::setprecision(2) << pt_gamma
+                  << " < "     << kMinPtGamma
+                  << " | E="   << std::fixed << std::setprecision(2) << energy
+                  << " | eta=" << std::fixed << std::setprecision(3) << eta
+                  << " | phi=" << std::fixed << std::setprecision(3) << phi
+                  << " | pTbinIdx=" << dbgPtIdx;
+               LOG(6, CLR_YELLOW, os.str());
+             }
+             continue;
+           }
 
         // Now do your configured pT binning (drives ALL pT-sliced histograms + JES objects)
         const int ptIdx = findPtBin(pt_gamma);
@@ -3014,33 +3359,56 @@ void RecoilJets::fillInclusiveJetQA(const std::vector<std::string>& activeTrig,
     }
   }
 
-  // Event-level histograms (fiducial jets only)
-  for (const auto& trigShort : activeTrig)
-  {
-    if (auto* h = getOrBookJetQA1I(trigShort, "h_nJets", "N_{jets}", rKey, -1, effCentIdx, 100, 0.0, 100.0))
-    { h->Fill(nJetsFid); bumpHistFill(trigShort, h->GetName()); }
-
-    if (auto* h = getOrBookJetQA1F(trigShort, "h_HT", "H_{T} [GeV]", rKey, -1, effCentIdx, 300, 0.0, 150.0))
-    { h->Fill(HT); bumpHistFill(trigShort, h->GetName()); }
-
-    if (leadPt >= 0.0)
+    // Per-event jet summary (printed once per rKey, not once per trigger)
+    if (Verbosity() >= 6)
     {
-      if (auto* h = getOrBookJetQA1F(trigShort, "h_leadJetPt", "p_{T}^{lead jet} [GeV]", rKey, -1, effCentIdx, 200, 0.0, 100.0))
-      { h->Fill(leadPt); bumpHistFill(trigShort, h->GetName()); }
+      std::ostringstream os;
+      os << "    [jetQA:event] rKey=" << rKey
+         << " | jets(container)=" << jets->size()
+         << " | fiducial jets (pT>" << m_minJetPt << ", |eta|<" << m_jetEtaAbsMax << ")=" << nJetsFid
+         << " | HT=" << std::fixed << std::setprecision(2) << HT;
 
-      if (auto* h = getOrBookJetQA1F(trigShort, "h_leadJetEta", "#eta^{lead jet}", rKey, -1, effCentIdx, 120, -1.2, 1.2))
-      { h->Fill(leadEta); bumpHistFill(trigShort, h->GetName()); }
+      if (leadPt >= 0.0)
+      {
+        os << " | lead=(pT=" << std::fixed << std::setprecision(2) << leadPt
+           << ", eta=" << std::fixed << std::setprecision(3) << leadEta
+           << ", phi=" << std::fixed << std::setprecision(3) << leadPhi << ")";
+      }
+      if (subPt >= 0.0)
+      {
+        os << " | sublead pT=" << std::fixed << std::setprecision(2) << subPt;
+      }
 
-      if (auto* h = getOrBookJetQA1F(trigShort, "h_leadJetPhi", "#phi^{lead jet} [rad]", rKey, -1, effCentIdx, 128, -M_PI, M_PI))
-      { h->Fill(leadPhi); bumpHistFill(trigShort, h->GetName()); }
+      LOG(6, CLR_CYAN, os.str());
     }
 
-    if (subPt >= 0.0)
+    // Event-level histograms (fiducial jets only)
+    for (const auto& trigShort : activeTrig)
     {
-      if (auto* h = getOrBookJetQA1F(trigShort, "h_subleadJetPt", "p_{T}^{sublead jet} [GeV]", rKey, -1, effCentIdx, 200, 0.0, 100.0))
-      { h->Fill(subPt); bumpHistFill(trigShort, h->GetName()); }
+      if (auto* h = getOrBookJetQA1I(trigShort, "h_nJets", "N_{jets}", rKey, -1, effCentIdx, 100, 0.0, 100.0))
+      { h->Fill(nJetsFid); bumpHistFill(trigShort, h->GetName()); }
+
+      if (auto* h = getOrBookJetQA1F(trigShort, "h_HT", "H_{T} [GeV]", rKey, -1, effCentIdx, 300, 0.0, 150.0))
+      { h->Fill(HT); bumpHistFill(trigShort, h->GetName()); }
+
+      if (leadPt >= 0.0)
+      {
+        if (auto* h = getOrBookJetQA1F(trigShort, "h_leadJetPt", "p_{T}^{lead jet} [GeV]", rKey, -1, effCentIdx, 200, 0.0, 100.0))
+        { h->Fill(leadPt); bumpHistFill(trigShort, h->GetName()); }
+
+        if (auto* h = getOrBookJetQA1F(trigShort, "h_leadJetEta", "#eta^{lead jet}", rKey, -1, effCentIdx, 120, -1.2, 1.2))
+        { h->Fill(leadEta); bumpHistFill(trigShort, h->GetName()); }
+
+        if (auto* h = getOrBookJetQA1F(trigShort, "h_leadJetPhi", "#phi^{lead jet} [rad]", rKey, -1, effCentIdx, 128, -M_PI, M_PI))
+        { h->Fill(leadPhi); bumpHistFill(trigShort, h->GetName()); }
+      }
+
+      if (subPt >= 0.0)
+      {
+        if (auto* h = getOrBookJetQA1F(trigShort, "h_subleadJetPt", "p_{T}^{sublead jet} [GeV]", rKey, -1, effCentIdx, 200, 0.0, 100.0))
+        { h->Fill(subPt); bumpHistFill(trigShort, h->GetName()); }
+      }
     }
-  }
 }
 
 
@@ -3097,20 +3465,142 @@ void RecoilJets::bumpHistFill(const std::string& trig, const std::string& hnameW
            << "\", \"" << hnameWithSuffix << "\") – ignoring");
     return;
   }
+
+  // ------------------------------------------------------------------
+  // (A) Job-wide fill counter (used by your End() summary)
+  // ------------------------------------------------------------------
   const std::string key = trig + "::" + hnameWithSuffix;
+
+  bool firstThisHist = false;
+  long long jobCount = 0;
+
   auto it = m_histFill.find(key);
   if (it == m_histFill.end())
   {
     m_histFill.emplace(key, 1);
+    firstThisHist = true;
+    jobCount = 1;
+
+    // Keep your old "first fill" behavior (useful at medium verbosity)
     if (Verbosity() >= 6)
       LOG(6, CLR_BLUE, "    [bumpHistFill] first fill → \"" << key << "\" = 1");
   }
   else
   {
     ++(it->second);
-    if (Verbosity() >= 7)
-      LOG(7, CLR_BLUE, "    [bumpHistFill] ++ \"" << key << "\" → " << it->second);
+    jobCount = it->second;
   }
+
+  // ------------------------------------------------------------------
+  // (B) Per-fill logging (ONLY at high verbosity), rate-limited per event
+  //
+  //  Verbosity() >= 7: prints fill lines
+  //  Verbosity() >= 8: larger budget (more lines per event)
+  //  Verbosity() >= 9: essentially unlimited
+  //
+  //  Optional filter:
+  //    export RJ_HIST_VERBOSE_REGEX='h_ss_|h_Eiso|h_xJ'
+  //  ------------------------------------------------------------------
+  const int v = static_cast<int>(Verbosity());
+  if (v < 7) return;
+
+  // ---- optional regex filter (match on "trig::hist") -----------------
+  static bool cfgInit = false;
+  static bool useFilter = false;
+  static std::regex filter;
+
+  if (!cfgInit)
+  {
+    cfgInit = true;
+    if (gSystem)
+    {
+      const char* re = gSystem->Getenv("RJ_HIST_VERBOSE_REGEX");
+      if (re && std::string(re).size() > 0)
+      {
+        try
+        {
+          filter = std::regex(re);
+          useFilter = true;
+          std::cout << CLR_CYAN
+                    << "[RecoilJets] RJ_HIST_VERBOSE_REGEX enabled: \"" << re << "\""
+                    << CLR_RESET << std::endl;
+        }
+        catch (...)
+        {
+          useFilter = false;
+          std::cout << CLR_YELLOW
+                    << "[RecoilJets] RJ_HIST_VERBOSE_REGEX is invalid — ignoring filter"
+                    << CLR_RESET << std::endl;
+        }
+      }
+    }
+  }
+
+  if (useFilter)
+  {
+    if (!std::regex_search(key, filter) && !std::regex_search(hnameWithSuffix, filter))
+      return;
+  }
+
+  // ---- per-event print budget ---------------------------------------
+  const long long evt = static_cast<long long>(event_count);
+
+  static long long lastEvt = -1;
+  static int linesThisEvt = 0;
+  static bool warnedThisEvt = false;
+
+  if (evt != lastEvt)
+  {
+    lastEvt = evt;
+    linesThisEvt = 0;
+    warnedThisEvt = false;
+  }
+
+  int cap = 200;
+  if (v >= 9) cap = 100000000;   // effectively unlimited
+  else if (v >= 8) cap = 2000;   // heavy but still bounded
+  else             cap = 200;    // safe default
+
+  if (linesThisEvt >= cap)
+  {
+    if (!warnedThisEvt)
+    {
+      warnedThisEvt = true;
+      LOG(6, CLR_YELLOW,
+          "    [HFill] (evt=" << evt << ") print budget reached (cap=" << cap
+          << "). Suppressing further histogram-fill prints this event. "
+          << "Raise Verbosity() to >=9 for unlimited, or set RJ_HIST_VERBOSE_REGEX to narrow output.");
+    }
+    return;
+  }
+  ++linesThisEvt;
+
+  // ---- resolve TObject for type + entries (best-effort) --------------
+  TObject* obj = nullptr;
+  auto itTrig = qaHistogramsByTrigger.find(trig);
+  if (itTrig != qaHistogramsByTrigger.end())
+  {
+    auto itObj = itTrig->second.find(hnameWithSuffix);
+    if (itObj != itTrig->second.end()) obj = itObj->second;
+  }
+
+  const char* cls = obj ? obj->ClassName() : "unresolved";
+  long long entries = -1;
+  if (auto* h = dynamic_cast<TH1*>(obj)) entries = static_cast<long long>(h->GetEntries());
+
+  std::ostringstream os;
+  os << "    [HFill] evt=" << evt
+     << " trig=\"" << trig << "\""
+     << " hist=\"" << hnameWithSuffix << "\""
+     << " type=" << cls;
+
+  if (entries >= 0) os << " entries=" << entries;
+  os << " jobCount=" << jobCount;
+
+  if (firstThisHist) os << " (first-time)";
+
+  const char* col = firstThisHist ? CLR_GREEN : CLR_CYAN;
+  LOG(7, col, os.str());
 }
 
 
@@ -3270,24 +3760,114 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
                        << "\" slice=\"" << slice << '"');
   }
 
-  if (Verbosity() >= 5)
-  {
-      std::ostringstream os;
-      os << "    [fill] trig=\"" << trig << "\" slice=\"" << slice << "\" → "
-         << comboBase
-         << " | Eiso=" << std::fixed << std::setprecision(3) << eiso_et
-         << " thr=" << std::fixed << std::setprecision(3) << thrIso
-         << " iso=" << (iso ? "PASS" : "FAIL")
-         << " | tight=" << tightTagName(tag)
-         << " [weta "    << (pass_weta   ? "PASS" : "FAIL")
-         << ", wphi "    << (pass_wphi   ? "PASS" : "FAIL")
-         << ", e11/e33 " << (pass_e11e33 ? "PASS" : "FAIL")
-         << ", et1 "     << (pass_et1    ? "PASS" : "FAIL")
-         << ", e32/e35 " << (pass_e32e35 ? "PASS" : "FAIL")
-         << "]";
-      const char* colour = (iso || tag == TightTag::kTight) ? CLR_RED : CLR_CYAN;
-      LOG(5, colour, os.str());
-  }
+    if (Verbosity() >= 5)
+    {
+      // Names of the histograms filled by THIS call (explicit + copy/paste friendly)
+      const std::string hCountName = std::string(comboBase) + slice;
+      const std::string hWetaName  = "h_ss_weta_"   + std::string(comboKeySS) + slice;
+      const std::string hWphiName  = "h_ss_wphi_"   + std::string(comboKeySS) + slice;
+      const std::string hEt1Name   = "h_ss_et1_"    + std::string(comboKeySS) + slice;
+      const std::string hE11Name   = "h_ss_e11e33_" + std::string(comboKeySS) + slice;
+      const std::string hE32Name   = "h_ss_e32e35_" + std::string(comboKeySS) + slice;
+
+      // Optional: break isolation into PhotonClusterBuilder components (best-effort)
+      double iso_em = std::numeric_limits<double>::quiet_NaN();
+      double iso_hi = std::numeric_limits<double>::quiet_NaN();
+      double iso_ho = std::numeric_limits<double>::quiet_NaN();
+
+      const int cone10 = static_cast<int>(std::lround(10.0 * m_isoConeR));
+      const char* k_em = nullptr;
+      const char* k_hi = nullptr;
+      const char* k_ho = nullptr;
+
+      if (cone10 == 3)      { k_em = "iso_03_emcal"; k_hi = "iso_03_hcalin"; k_ho = "iso_03_hcalout"; }
+      else if (cone10 == 4) { k_em = "iso_04_emcal"; k_hi = "iso_04_hcalin"; k_ho = "iso_04_hcalout"; }
+
+      if (k_em && k_hi && k_ho)
+      {
+        if (auto* pho = dynamic_cast<const PhotonClusterv1*>(clus))
+        {
+          iso_em = pho->get_shower_shape_parameter(k_em);
+          iso_hi = pho->get_shower_shape_parameter(k_hi);
+          iso_ho = pho->get_shower_shape_parameter(k_ho);
+        }
+      }
+
+      // (1) Compact summary line (always at v>=5)
+      {
+        std::ostringstream os;
+        os << "    [SS+Iso] trig=\"" << trig << "\" slice=\"" << slice << "\""
+           << " pT^γ=" << std::fixed << std::setprecision(2) << pt_gamma
+           << " | Eiso=" << std::setprecision(3) << eiso_et
+           << " thr=" << std::setprecision(3) << thrIso
+           << " → iso=" << (iso ? "PASS" : "FAIL")
+           << " | tight=" << tightTagName(tag) << " (fails=" << tight_fails << ")"
+           << " | w_hi=" << std::setprecision(3) << w_hi;
+        const char* colour = (iso && tag == TightTag::kTight) ? CLR_RED : CLR_CYAN;
+        LOG(5, colour, os.str());
+      }
+
+      // (2) Structured details (only at v>=6)
+      if (Verbosity() >= 6)
+      {
+        // Isolation breakdown
+        {
+          std::ostringstream os;
+          os << "      [iso parts] coneR=" << std::fixed << std::setprecision(2) << m_isoConeR
+             << " : ";
+          if (std::isfinite(iso_em) && std::isfinite(iso_hi) && std::isfinite(iso_ho))
+          {
+            os << k_em << "=" << std::setprecision(3) << iso_em
+               << " " << k_hi << "=" << std::setprecision(3) << iso_hi
+               << " " << k_ho << "=" << std::setprecision(3) << iso_ho
+               << " → total=" << std::setprecision(3) << (iso_em + iso_hi + iso_ho);
+          }
+          else
+          {
+            os << "(components unavailable) total(Eiso)=" << std::setprecision(3) << eiso_et;
+          }
+          os << " | thr(A+B*pT)=" << std::setprecision(3) << thrIso;
+          LOG(6, CLR_BLUE, os.str());
+        }
+
+        // Shower-shape values + cut windows (tight)
+        {
+          std::ostringstream os;
+          os << "      [SS vars] "
+             << "weta=" << std::fixed << std::setprecision(3) << v.weta_cogx
+             << " ∈ (" << TIGHT_W_LO << "," << std::setprecision(3) << w_hi << ") → " << (pass_weta ? "PASS" : "FAIL")
+             << " | wphi=" << std::setprecision(3) << v.wphi_cogx
+             << " ∈ (" << TIGHT_W_LO << "," << std::setprecision(3) << w_hi << ") → " << (pass_wphi ? "PASS" : "FAIL")
+             << " | et1=" << std::setprecision(3) << v.et1
+             << " ∈ (" << TIGHT_ET1_MIN << "," << TIGHT_ET1_MAX << ") → " << (pass_et1 ? "PASS" : "FAIL")
+             << " | e11/e33=" << std::setprecision(3) << v.e11_over_e33
+             << " ∈ (" << TIGHT_E11E33_MIN << "," << TIGHT_E11E33_MAX << ") → " << (pass_e11e33 ? "PASS" : "FAIL")
+             << " | e32/e35=" << std::setprecision(3) << v.e32_over_e35
+             << " ∈ (" << TIGHT_E32E35_MIN << "," << TIGHT_E32E35_MAX << ") → " << (pass_e32e35 ? "PASS" : "FAIL");
+          LOG(6, CLR_BLUE, os.str());
+        }
+
+        // Exact histogram names filled by this call
+        {
+          std::ostringstream os;
+          os << "      [hists] "
+             << hCountName << ", "
+             << hWetaName << ", "
+             << hWphiName << ", "
+             << hEt1Name  << ", "
+             << hE11Name  << ", "
+             << hE32Name;
+
+          if (tag == TightTag::kNonTight)
+          {
+            os << ", h_idSB_total" << slice;
+            if (iso) os << ", h_idSB_pass" << slice;
+          }
+
+          LOG(6, CLR_GREEN, os.str());
+        }
+      }
+    }
 
 
   // --- SS variable histograms for THIS category (always) ---

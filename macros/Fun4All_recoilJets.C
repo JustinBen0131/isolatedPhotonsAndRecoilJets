@@ -72,7 +72,6 @@
 // Load your local overrides FIRST so their symbols/dictionaries win
 R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)
 R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_io.so)
-R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libclusteriso.so)
 R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libRecoilJets.so)
 
 // Then load the rest of the environment stack
@@ -154,16 +153,35 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   if (!list.is_open())
       detail::bail("cannot open input list \"" + std::string(listFile) + "\"");
 
-  std::vector<std::string> files;
-  for (std::string line; std::getline(list, line); )
-  {
-      line = detail::trim(line);
-      if (!line.empty()) files.emplace_back(line);
-  }
-  if (files.empty())
-      detail::bail("input list \"" + std::string(listFile) + "\" is empty");
+    // ---------------------------------------------------------------
+    // Parse list file
+    //   DATA:  1 column  -> calo DST
+    //   SIM :  2 columns -> calo DST + G4Hits DST (paired per line)
+    // ---------------------------------------------------------------
+    std::vector<std::string> filesCalo;
+    std::vector<std::string> filesG4;
 
-    const std::string& firstFile = files.front();
+    for (std::string line; std::getline(list, line); )
+    {
+        line = detail::trim(line);
+        if (line.empty()) continue;
+        if (!line.empty() && line[0] == '#') continue;
+
+        std::istringstream iss(line);
+        std::string f1, f2;
+        iss >> f1;
+        iss >> f2; // may be empty in DATA lists
+
+        if (f1.empty()) continue;
+
+        filesCalo.emplace_back(f1);
+        if (!f2.empty() && f2 != "NONE") filesG4.emplace_back(f2);
+    }
+
+    if (filesCalo.empty())
+        detail::bail("input list \"" + std::string(listFile) + "\" is empty");
+
+    const std::string& firstFile = filesCalo.front(); // used for GetRunSegment
 
     // Simulation detection:
     //  - primary: RJ_DATASET=isSim
@@ -217,7 +235,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
 
     if (verbose)
           std::cout << "[INFO] Run=" << run << "  Seg=" << seg
-                    << "  (" << files.size() << " files)\n";
+                    << "  (" << filesCalo.size() << " files)\n";
 
   // --------------------------------------------------------------------
   // Global verbosity control (RJ_VERBOSITY from env; defaults to 10;
@@ -284,14 +302,37 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   }
 
   rc->set_uint64Flag("TIMESTAMP", cdbts);
-  CDBInterface::instance()->Verbosity(vlevel);
+  CDBInterface::instance()->Verbosity(0);
 
   auto* flag = new FlagHandler();
   se->registerSubsystem(flag);
 
-  auto* inDST = new Fun4AllDstInputManager("DSTcalofitting");
-  for (const auto& f : files) inDST->AddFile(f);
-  se->registerInputManager(inDST);
+    // ------------------ Calo cluster DST (always) -------------------
+    auto* inCalo = new Fun4AllDstInputManager("DST_CALO_CLUSTER_IN");
+    for (const auto& f : filesCalo) inCalo->AddFile(f);
+    se->registerInputManager(inCalo);
+
+    // ------------------ G4Hits DST (SIM only) ------------------------
+    if (isSim)
+    {
+      // Require strict 1:1 file pairing (one G4 file per calo file line)
+      if (filesG4.size() != filesCalo.size())
+      {
+        std::ostringstream os;
+        os << "isSim requires a 2-column paired list with equal lengths:\n"
+           << "  filesCalo=" << filesCalo.size() << "\n"
+           << "  filesG4  =" << filesG4.size()  << "\n"
+           << "Fix by making a paired list per line: <DST_CALO_CLUSTER> <G4Hits>";
+        detail::bail(os.str());
+      }
+
+      auto* inG4 = new Fun4AllDstInputManager("DST_G4HITS_IN");
+      for (const auto& f : filesG4) inG4->AddFile(f);
+      se->registerInputManager(inG4);
+
+      if (verbose)
+        std::cout << "[INFO] isSim: registered paired input managers (Calo + G4Hits)\n";
+    }
 
     // --------------------------------------------------------------------
     // 3.  Geometry + status + calibration + clustering
@@ -626,17 +667,6 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
     {
       if (vlevel > 0) std::cout << "[isSim] skipping TriggerRunInfoReco" << std::endl;
     }
-
-  // Compute cluster isolation once per event (writes RawCluster::set_et_iso)
-  // Only compute UE-subtracted isolation in Au+Au (SUB1 nodes exist there).
-  const bool do_subtracted = isAuAuData;
-  auto* clIso = new ClusterIso("ClusterIso",
-                                 /*eTCut=*/0.0f,
-                                 /*coneSize=*/3,           // R=0.3
-                                 /*do_subtracted=*/do_subtracted,
-                                 /*do_unsubtracted=*/true);
-  clIso->Verbosity(0);
-  se->registerSubsystem(clIso);
     
   // Build photon clusters
   auto* photonBuilder = new PhotonClusterBuilder("PhotonClusterBuilder");

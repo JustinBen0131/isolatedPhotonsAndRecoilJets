@@ -178,6 +178,9 @@ TRIGGER_BIT=""      # optional: filter runs by GL1 scaledown bit (e.g., TRIGGER=
 SIM_ROOT="${BASE}/simListFiles"
 SIM_SAMPLE_DEFAULT="run28_photonjet10"
 SIM_SAMPLE="${SIM_SAMPLE_DEFAULT}"
+SIM_PAIR_LIST="DST_CALO_CLUSTER__G4Hits.pairs.list"
+
+# (Legacy: kept for reference; not used once SIM_PAIR_LIST exists)
 SIM_LIST_PREFERRED="DST_CALO_CLUSTER.matched.list"
 SIM_LIST_FALLBACK="DST_CALO_CLUSTER.list"
 
@@ -306,25 +309,24 @@ sim_init() {
   SIM_DIR="${SIM_ROOT}/${SIM_SAMPLE}"
   [[ -d "$SIM_DIR" ]] || { err "Sim sample directory not found: $SIM_DIR"; exit 20; }
 
-  local preferred="${SIM_DIR}/${SIM_LIST_PREFERRED}"
-  local fallback="${SIM_DIR}/${SIM_LIST_FALLBACK}"
+  local pair="${SIM_DIR}/${SIM_PAIR_LIST}"
 
-  if [[ -s "$preferred" ]]; then
-    SIM_MASTER_LIST="$preferred"
-  elif [[ -s "$fallback" ]]; then
-    SIM_MASTER_LIST="$fallback"
+  if [[ -s "$pair" ]]; then
+    SIM_MASTER_LIST="$pair"
   else
-    err "No DST_CALO_CLUSTER list found in $SIM_DIR (looked for: $preferred and $fallback)"
-    exit 21
+    err "Missing paired SIM list: $pair"
+    err "Create it in ${SIM_DIR} with:"
+    err "  paste DST_CALO_CLUSTER.matched.list G4Hits.matched.list > ${SIM_PAIR_LIST}"
+    exit 23
   fi
 
   SIM_STAGE_DIR="${STAGE_DIR}/${SIM_SAMPLE}"
   mkdir -p "$SIM_STAGE_DIR"
 
-  # Clean master list: strip blank lines + comment lines
-  SIM_CLEAN_LIST="${SIM_STAGE_DIR}/sim_${SIM_SAMPLE}_MASTER_CLEAN.list"
+  # Clean master list: strip blank lines + comment lines (keeps 2 columns!)
+  SIM_CLEAN_LIST="${SIM_STAGE_DIR}/sim_${SIM_SAMPLE}_PAIR_MASTER_CLEAN.list"
   grep -E -v '^[[:space:]]*($|#)' "$SIM_MASTER_LIST" > "$SIM_CLEAN_LIST" || true
-  [[ -s "$SIM_CLEAN_LIST" ]] || { err "Sim master list is empty after cleaning: $SIM_MASTER_LIST"; exit 22; }
+  [[ -s "$SIM_CLEAN_LIST" ]] || { err "Sim paired master list is empty after cleaning: $SIM_MASTER_LIST"; exit 22; }
 
   SIM_OUT_DIR="${DEST_BASE}/${SIM_SAMPLE}"
   mkdir -p "$SIM_OUT_DIR"
