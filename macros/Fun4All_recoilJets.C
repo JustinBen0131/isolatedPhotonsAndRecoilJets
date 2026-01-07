@@ -501,158 +501,23 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   }
 
   // --------------------------------------------------------------------
-  // 4.  Jet reconstruction
-  //   • Au+Au: HI-style retower + ρ subtraction (as before)
-  //   • p+p  : simple raw Anti-kT jets on calibrated towers (no retower)
+  // 4.  Jet reconstruction (delegated to standard HIJetReco macro)
   // --------------------------------------------------------------------
-  if (isAuAuData)
-  {
-      auto banner = [&](const std::string& m)
-      {
-        if (vlevel > 0) std::cout << "\n[BG-SUB] >>> " << m << std::endl;
-      };
-      const int vLvl = vlevel;
+  if (vlevel > 0)
+      std::cout << "\n[INFO] Delegating jet reconstruction to HIJetReco() from macro/HIJetReco.C\n";
 
-      // (i) Retower EMCal
-      banner("(i)  Retowering EMCal to 0.025×0.025 towers");
-      auto* rcemc = new RetowerCEMC("RetowerCEMC");
-      rcemc->set_towerinfo(true);
-      rcemc->set_frac_cut(0.50);
-      rcemc->set_towerNodePrefix("TOWERINFO_CALIB");
-      rcemc->Verbosity(0);
-      se->registerSubsystem(rcemc);
+  // Configure HIJET options (optional adjustments)
+  Enable::HIJETS        = true;
+  Enable::HIJETS_VERBOSITY = vlevel;
+  Enable::HIJETS_MC     = isSim;       // run truth jets if simulation
+  Enable::HIJETS_TRUTH  = isSim;       // enable truth jets for MC
+  Enable::HIJETS_TOWER  = true;        // use tower jets
+  Enable::HIJETS_TRACK  = false;       // disable track jets for now
+  Enable::HIJETS_PFLOW  = false;       // disable particle flow jets
 
-      // Ensure DST/TOWER branch exists
-      class EnsureTowerNode final : public SubsysReco
-      {
-       public:
-        int InitRun(PHCompositeNode* top) override
-        {
-          PHNodeIterator it(top);
-          auto* dst = dynamic_cast<PHCompositeNode*>(it.findFirst("PHCompositeNode","DST"));
-          if (!dst) return Fun4AllReturnCodes::ABORTRUN;
-          PHNodeIterator dstIt(dst);
-          auto* tw = dynamic_cast<PHCompositeNode*>(dstIt.findFirst("PHCompositeNode","TOWER"));
-          if (!tw)
-          {
-            tw = new PHCompositeNode("TOWER");
-            dst->addNode(tw);
-            if (std::getenv("RJ_VERBOSITY") && std::atoi(std::getenv("RJ_VERBOSITY")) > 0)
-              std::cout << "[EnsureTowerNode]  created DST/TOWER branch\n";
-          }
-          return Fun4AllReturnCodes::EVENT_OK;
-        }
-      };
-      se->registerSubsystem(new EnsureTowerNode());
+  // Call the HI jet reconstruction routine (from your included HIJetReco.C)
+  HIJetReco();
 
-      // (ii) RAW jets + (iii) backgrounds + (iv) subtract + (v) SUB1 jets + (vi) residual
-      for (const auto& jnm : RecoilJets::kJetRadii)
-      {
-        const std::string radKey = jnm.key;           // dataset-aware map key (e.g., "r02")
-        const int   D = std::stoi(radKey.substr(1));
-        const float R = 0.1f * D;
-
-        const std::string rawRecoName = "HIRecoSeedsRaw_" + radKey;
-        const std::string subRecoName = "HIRecoSeedsSub_" + radKey;
-        const std::string algoRaw     = "AntiKt_TowerInfo_" + rawRecoName;
-
-        banner("(ii)  Reconstructing RAW Anti-kT jets  R=" + std::to_string(R));
-        auto* seedReco = new JetReco(rawRecoName);
-        seedReco->add_input(new TowerJetInput(Jet::CEMC_TOWERINFO_RETOWER, "TOWERINFO_CALIB"));
-        seedReco->add_input(new TowerJetInput(Jet::HCALIN_TOWERINFO,       "TOWERINFO_CALIB"));
-        seedReco->add_input(new TowerJetInput(Jet::HCALOUT_TOWERINFO,      "TOWERINFO_CALIB"));
-        seedReco->add_algo(detail::fjAlgo(R), algoRaw);
-        seedReco->set_algo_node("ANTIKT");
-        seedReco->set_input_node("TOWERINFO_CALIB");
-        seedReco->Verbosity(0);
-        se->registerSubsystem(seedReco);
-
-        if (radKey == std::string("r02"))
-        {
-          banner("(iii-a)  UE density ρ from RAW jets (Sub1)");
-          auto* dtb1 = new DetermineTowerBackground("DetTowerBkg_Sub1_r02");
-          dtb1->SetBackgroundOutputName("TowerInfoBackground_Sub1");
-          dtb1->SetSeedType(0);
-          dtb1->SetSeedJetD(D);
-          dtb1->set_towerNodePrefix("TOWERINFO_CALIB");
-          dtb1->Verbosity(0);
-          se->registerSubsystem(dtb1);
-
-          banner("(iii-b)  UE density ρ for tower subtraction (Sub2)");
-          auto* dtb2 = new DetermineTowerBackground("DetTowerBkg_Sub2_r02");
-          dtb2->SetBackgroundOutputName("TowerInfoBackground_Sub2");
-          dtb2->SetSeedType(0);
-          dtb2->SetSeedJetD(D);
-          dtb2->set_towerNodePrefix("TOWERINFO_CALIB");
-          dtb2->Verbosity(0);
-          se->registerSubsystem(dtb2);
-
-          banner("(iv)  Subtracting ρ·A tower-by-tower  → *_SUB1");
-          auto* st = new SubtractTowers("SubtractTowers_Sub1");
-          st->set_towerinfo(true);
-          st->set_towerNodePrefix("TOWERINFO_CALIB");
-          st->Verbosity(0);
-          se->registerSubsystem(st);
-        }
-
-        banner("(v)  Reconstructing jets on UE-subtracted towers  R=" + std::to_string(R));
-        auto* subReco = new JetReco(subRecoName);
-        subReco->add_input(new TowerJetInput(Jet::CEMC_TOWERINFO_SUB1,   "TOWERINFO_CALIB"));
-        subReco->add_input(new TowerJetInput(Jet::HCALIN_TOWERINFO_SUB1, "TOWERINFO_CALIB"));
-        subReco->add_input(new TowerJetInput(Jet::HCALOUT_TOWERINFO_SUB1,"TOWERINFO_CALIB"));
-        subReco->add_algo(detail::fjAlgo(R), jnm.aa_node);   // dataset-aware Au+Au node name
-        subReco->set_algo_node("ANTIKT");
-        subReco->set_input_node("TOWERINFO_CALIB");
-        subReco->Verbosity(0);
-        se->registerSubsystem(subReco);
-
-        if (radKey == std::string("r02"))
-        {
-          banner("(vi-a)  UE density ρ from SUB1 jets (Sub3)");
-          auto* dtb3 = new DetermineTowerBackground("DetTowerBkg_Sub3_r02");
-          dtb3->SetBackgroundOutputName("TowerInfoBackground_Sub3");
-          dtb3->SetSeedType(1);
-          dtb3->SetSeedJetD(D);
-          dtb3->set_towerNodePrefix("TOWERINFO_CALIB");
-          dtb3->Verbosity(0);
-          se->registerSubsystem(dtb3);
-
-          banner("(vi-b)  Copy jets + residual subtraction");
-          auto* casj = new CopyAndSubtractJets("CopyAndSubtractJets_r02");
-          casj->set_towerinfo(true);
-          casj->set_towerNodePrefix("TOWERINFO_CALIB");
-          casj->Verbosity(0);
-          se->registerSubsystem(casj);
-        }
-      } // radii
-  }   // Au+Au chain
-  else
-  {
-    // p+p: simple raw Anti-kT jets on calibrated towers (no retower/ρ subtraction)
-    auto banner = [&](const std::string& m)
-    {
-      if (vlevel > 0) std::cout << "\n[PP-JETS] >>> " << m << std::endl;
-    };
-    for (const auto& jnm : RecoilJets::kJetRadii)
-    {
-      const std::string radKey = jnm.key;
-      const int   D = std::stoi(radKey.substr(1));
-      const float R = 0.1f * D;
-
-      const std::string recoName = "PPJetsRaw_" + radKey;
-
-      banner("Reconstructing raw Anti-kT jets  R=" + std::to_string(R));
-      auto* jpp = new JetReco(recoName);
-      jpp->add_input(new TowerJetInput(Jet::CEMC_TOWERINFO,    "TOWERINFO_CALIB"));
-      jpp->add_input(new TowerJetInput(Jet::HCALIN_TOWERINFO,  "TOWERINFO_CALIB"));
-      jpp->add_input(new TowerJetInput(Jet::HCALOUT_TOWERINFO, "TOWERINFO_CALIB"));
-      jpp->add_algo(detail::fjAlgo(R), jnm.pp_node);           // dataset-aware pp node name
-      jpp->set_algo_node("ANTIKT");
-      jpp->set_input_node("TOWERINFO_CALIB");
-      jpp->Verbosity(0);
-      se->registerSubsystem(jpp);
-    }
-  }
 
   // --------------------------------------------------------------------
   // 5.  Run-information helper (optional but handy)
