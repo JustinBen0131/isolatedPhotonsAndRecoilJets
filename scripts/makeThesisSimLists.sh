@@ -51,7 +51,8 @@ VERBOSE="true"
 # Fixed parameters for THIS script: Run-28 Pythia8 photon+jet (filesystem truth)
 # We will NOT use the catalog. We will scan lustre directories directly.
 RUNNUM="28"
-PHOTONJET_SAMPLES=( "photonjet5" "photonjet10" "photonjet20" )
+#PHOTONJET_SAMPLES=( "photonjet5" "photonjet10" "photonjet20" )
+PHOTONJET_SAMPLES=( "photonjet10" )
 
 # Source base (what you just proved exists)
 MDC2_BASE="/sphenix/lustre01/sphnxpro/mdc2/js_pp200_signal"
@@ -91,7 +92,92 @@ say()  { if [[ "$VERBOSE" == "true" ]]; then echo "[INFO $(ts)] $*" >&2; fi; }
 dbg()  { if [[ "$DEBUG" == "true" ]]; then echo "[DBG  $(ts)] $*" >&2; fi; }
 warn() { echo "[WARN $(ts)] $*" >&2; }
 die()  { echo "[ERR  $(ts)] $*" >&2; exit 1; }
-rule() { echo "-------------------------------------------------------------------------------" >&2; }
+# Pretty separator + step counter (all output goes to STDERR)
+RULE_W=79
+rule() { printf '%*s\n' "$RULE_W" '' | tr ' ' '-' >&2; }
+
+STEP=0
+step() {
+  STEP=$((STEP + 1))
+  printf '[STEP %02d] %s\n' "$STEP" "$*" >&2
+}
+
+# Safe line counter (never trips set -e)
+count_lines() {
+  local f="$1"
+  if [[ -f "$f" ]]; then
+    local n
+    n="$(wc -l "$f" 2>/dev/null | awk '{print $1}' || true)"
+    [[ -n "$n" ]] && echo "$n" || echo "0"
+  else
+    echo "MISSING"
+  fi
+}
+
+# Global run summary accumulators (filled per PACK, printed at end)
+START_EPOCH="$(date +%s)"
+START_HUMAN="$(ts)"
+
+declare -a PACK_ORDER=()
+declare -A PACK_OUTDIR=()
+declare -A PACK_REMOVED=()
+declare -A PACK_RAW_COUNTS=()
+declare -A PACK_MATCH_COUNTS=()
+declare -A PACK_PAIR_COUNTS=()
+
+record_pack() {
+  local tag="$1"
+  local outdir="$2"
+
+  PACK_ORDER+=( "$tag" )
+  PACK_OUTDIR["$tag"]="$outdir"
+
+  PACK_RAW_COUNTS["$tag"]="DST_CALO_CLUSTER=$(count_lines "${outdir}/DST_CALO_CLUSTER.list")  G4Hits=$(count_lines "${outdir}/G4Hits.list")  DST_JETS=$(count_lines "${outdir}/DST_JETS.list")"
+  PACK_MATCH_COUNTS["$tag"]="DST_CALO_CLUSTER=$(count_lines "${outdir}/DST_CALO_CLUSTER.matched.list")  G4Hits=$(count_lines "${outdir}/G4Hits.matched.list")  DST_JETS=$(count_lines "${outdir}/DST_JETS.matched.list")"
+  PACK_PAIR_COUNTS["$tag"]="Calo__G4Hits=$(count_lines "${outdir}/DST_CALO_CLUSTER__G4Hits.pairs.list")  Calo__DST_JETS=$(count_lines "${outdir}/DST_CALO_CLUSTER__DST_JETS.pairs.list")  Triplets=$(count_lines "${outdir}/DST_CALO_CLUSTER__G4Hits__DST_JETS.triplets.list")"
+}
+
+final_summary() {
+  local end_epoch end_human dt
+  end_epoch="$(date +%s)"
+  end_human="$(ts)"
+  dt=$(( end_epoch - START_EPOCH ))
+
+  rule
+  echo "[FINAL SUMMARY] makeThesisSimLists.sh" >&2
+  echo "Started : ${START_HUMAN}" >&2
+  echo "Finished: ${end_human}" >&2
+  echo "Runtime : ${dt}s" >&2
+  echo "OUTROOT : ${OUTROOT}" >&2
+  echo "Packs   : ${#PACK_ORDER[@]}" >&2
+  echo "" >&2
+
+  local i=0
+  local tag
+  for tag in "${PACK_ORDER[@]}"; do
+    i=$((i + 1))
+    local outdir="${PACK_OUTDIR[$tag]}"
+
+    echo "[$i] ${tag}" >&2
+    echo "    outdir  : ${outdir}" >&2
+    echo "    cleanup : ${PACK_REMOVED[$tag]:-(none)}" >&2
+    echo "    raw     : ${PACK_RAW_COUNTS[$tag]:-N/A}" >&2
+    echo "    matched : ${PACK_MATCH_COUNTS[$tag]:-N/A}" >&2
+    echo "    pairs   : ${PACK_PAIR_COUNTS[$tag]:-N/A}" >&2
+    echo "    report  : ${outdir}/pair_report.txt" >&2
+    echo "    summary : ${outdir}/summary.txt" >&2
+    echo "    pipeline input (paired list):" >&2
+    echo "      ${outdir}/DST_CALO_CLUSTER__G4Hits.pairs.list" >&2
+
+    if [[ -d "$outdir" ]]; then
+      echo "    files created in outdir:" >&2
+      ls -1 "$outdir" 2>/dev/null | sed 's/^/      - /' >&2 || true
+    fi
+    echo "" >&2
+  done
+
+  rule
+}
 
 # Print a hard, immediate failure context on any error
 on_err() {
@@ -175,113 +261,180 @@ pair_check() {
 
   say "Pairing check (anchor=${anchor}) → ${report}"
 
-  local ak="${outdir}/${anchor}"
-  [[ -s "$ak" ]] || { warn "Anchor list missing or empty: ${anchor}"; return 0; }
+  local anchor_list="${outdir}/${anchor}"
+  [[ -s "$anchor_list" ]] || die "Anchor list missing/empty: ${anchor_list}"
 
-  # Temp dir (function-local cleanup; no global EXIT trap)
+  # Temp dir (function-local cleanup)
   local tmpdir; tmpdir="$(mktemp -d)"
   trap '[[ -n "${tmpdir:-}" ]] && rm -rf "${tmpdir}"' RETURN
 
-  # Build anchor keys and a key->path map
+  local anchor_base="${anchor%.list}"
+
+  # ---------------- Build anchor keys + map ----------------
   awk '
-    function key_of(path,    b, n, a, last, prev) {
+    function key_of(path,    b, n, a) {
       b=path; sub(/^.*\//,"",b); sub(/\.root$/,"",b);
       n=split(b,a,"-");
       if(n>=2 && a[n] ~ /^[0-9]+$/ && a[n-1] ~ /^[0-9]+$/) return a[n-1] "-" a[n];
       return b;
     }
-    { k=key_of($0); print k }' "$ak" | sort -u > "${tmpdir}/anchor.keys"
+    { print key_of($0) }' "$anchor_list" | sort -u > "${tmpdir}/${anchor_base}.keys"
 
   awk '
-    function key_of(path,    b, n, a, last, prev) {
+    function key_of(path,    b, n, a) {
       b=path; sub(/^.*\//,"",b); sub(/\.root$/,"",b);
       n=split(b,a,"-");
       if(n>=2 && a[n] ~ /^[0-9]+$/ && a[n-1] ~ /^[0-9]+$/) return a[n-1] "-" a[n];
       return b;
     }
-    { k=key_of($0); print k "\t" $0 }' "$ak" > "${tmpdir}/anchor.map"
+    { k=key_of($0); print k "\t" $0 }' "$anchor_list" > "${tmpdir}/${anchor_base}.map"
 
-  local a_count; a_count=$(wc -l < "${tmpdir}/anchor.keys" | tr -d ' ')
+  local a_count; a_count=$(wc -l < "${tmpdir}/${anchor_base}.keys" | tr -d ' ')
   printf "ANCHOR: %s  keys=%d\n" "$anchor" "$a_count" | tee -a "$report"
 
-  # For each other list, compute intersection and (optionally) write matched lists
+  # common_all starts as anchor.keys, then intersect with each other.keys
+  cp -f "${tmpdir}/${anchor_base}.keys" "${tmpdir}/common_all.keys"
+
+  # Store maps so we can write matched/pairs AFTER the final intersection is known
+  declare -A MAP
+  MAP["${anchor_base}"]="${tmpdir}/${anchor_base}.map"
+
+  # ---------------- Process each required "other" list ----------------
+  local oname
   for oname in "${others[@]}"; do
-    local ok="${outdir}/${oname}"
-    if [[ ! -s "$ok" ]]; then
-      printf "LIST  : %s  (missing/empty)\n" "$oname" | tee -a "$report"
-      continue
-    fi
+    local other_list="${outdir}/${oname}"
+    [[ -s "$other_list" ]] || die "Required list missing/empty: ${other_list}"
 
-    # other keys and map
+    local obase="${oname%.list}"
+
+    # other keys + map
     awk '
-      function key_of(path,    b, n, a, last, prev) {
+      function key_of(path,    b, n, a) {
         b=path; sub(/^.*\//,"",b); sub(/\.root$/,"",b);
         n=split(b,a,"-");
         if(n>=2 && a[n] ~ /^[0-9]+$/ && a[n-1] ~ /^[0-9]+$/) return a[n-1] "-" a[n];
         return b;
       }
-      { k=key_of($0); print k }' "$ok" | sort -u > "${tmpdir}/other.keys"
+      { print key_of($0) }' "$other_list" | sort -u > "${tmpdir}/${obase}.keys"
 
     awk '
-      function key_of(path,    b, n, a, last, prev) {
+      function key_of(path,    b, n, a) {
         b=path; sub(/^.*\//,"",b); sub(/\.root$/,"",b);
         n=split(b,a,"-");
         if(n>=2 && a[n] ~ /^[0-9]+$/ && a[n-1] ~ /^[0-9]+$/) return a[n-1] "-" a[n];
         return b;
       }
-      { k=key_of($0); print k "\t" $0 }' "$ok" > "${tmpdir}/other.map"
+      { k=key_of($0); print k "\t" $0 }' "$other_list" > "${tmpdir}/${obase}.map"
 
-    # Intersections and diffs
-    comm -12 "${tmpdir}/anchor.keys" "${tmpdir}/other.keys" > "${tmpdir}/common.keys"
-    comm -23 "${tmpdir}/anchor.keys" "${tmpdir}/other.keys" > "${tmpdir}/missing_in_other.keys"
-    comm -13 "${tmpdir}/anchor.keys" "${tmpdir}/other.keys" > "${tmpdir}/extra_in_other.keys"
+    MAP["${obase}"]="${tmpdir}/${obase}.map"
+
+    # reporting vs ANCHOR (not vs common_all)
+    comm -12 "${tmpdir}/${anchor_base}.keys" "${tmpdir}/${obase}.keys" > "${tmpdir}/common_${obase}.keys"
+    comm -23 "${tmpdir}/${anchor_base}.keys" "${tmpdir}/${obase}.keys" > "${tmpdir}/missing_in_${obase}.keys"
+    comm -13 "${tmpdir}/${anchor_base}.keys" "${tmpdir}/${obase}.keys" > "${tmpdir}/extra_in_${obase}.keys"
 
     local c_count m_count e_count
-    c_count=$(wc -l < "${tmpdir}/common.keys" | tr -d ' ')
-    m_count=$(wc -l < "${tmpdir}/missing_in_other.keys" | tr -d ' ')
-    e_count=$(wc -l < "${tmpdir}/extra_in_other.keys" | tr -d ' ')
+    c_count=$(wc -l < "${tmpdir}/common_${obase}.keys" | tr -d ' ')
+    m_count=$(wc -l < "${tmpdir}/missing_in_${obase}.keys" | tr -d ' ')
+    e_count=$(wc -l < "${tmpdir}/extra_in_${obase}.keys" | tr -d ' ')
 
     printf "LIST  : %s  common=%d / %d (%.1f%%)  missing=%d  extra=%d\n" \
-      "$oname" "$c_count" "$a_count" "$(awk -v c="$c_count" -v a="$a_count" 'BEGIN{if(a>0) printf("%.1f",100*c/a); else print "0.0"}')" \
+      "$oname" "$c_count" "$a_count" \
+      "$(awk -v c="$c_count" -v a="$a_count" 'BEGIN{if(a>0) printf("%.1f",100*c/a); else print "0.0"}')" \
       "$m_count" "$e_count" | tee -a "$report"
 
-    # Write detailed “what’s missing” key list + sample
+    # write missing keys file + sample (useful diagnostics)
     if (( m_count > 0 )); then
-      local miss_keys="${outdir}/missing_in_${oname%.list}.keys"
-      cp -f "${tmpdir}/missing_in_other.keys" "$miss_keys"
-      printf "  missing-keys file → %s\n" "$miss_keys" | tee -a "$report"
+      local miss_keys_out="${outdir}/missing_in_${obase}.keys"
+      cp -f "${tmpdir}/missing_in_${obase}.keys" "$miss_keys_out"
+      printf "  missing-keys file → %s\n" "$miss_keys_out" | tee -a "$report"
       printf "  sample missing → " | tee -a "$report"
-      head -n 8 "${tmpdir}/missing_in_other.keys" | paste -sd',' - | tee -a "$report"
+      head -n 8 "${tmpdir}/missing_in_${obase}.keys" | paste -sd',' - | tee -a "$report"
       echo | tee -a "$report"
     fi
 
-    # --- New behavior: produce matched-only lists for this pair ---
-    # Anchor matched list
-    local anchor_matched="${outdir}/${anchor%.list}.matched.list"
-    awk 'NR==FNR{keep[$1]=1; next} ($1 in keep){print $2}' \
-      "${tmpdir}/common.keys" "${tmpdir}/anchor.map" | sort -V > "$anchor_matched"
-
-    # Other matched list
-    local other_matched="${outdir}/${oname%.list}.matched.list"
-    awk 'NR==FNR{keep[$1]=1; next} ($1 in keep){print $2}' \
-      "${tmpdir}/common.keys" "${tmpdir}/other.map" | sort -V > "$other_matched"
-
-    # Dropped-from-anchor paths (those anchor keys missing in other)
-    local dropped_anchor="${outdir}/dropped_from_${anchor%.list}_vs_${oname%.list}.list"
+    # dropped-from-anchor paths (anchor keys missing in this other list)
+    local dropped_anchor="${outdir}/dropped_from_${anchor_base}_vs_${obase}.list"
     awk 'NR==FNR{drop[$1]=1; next} ($1 in drop){print $2}' \
-      "${tmpdir}/missing_in_other.keys" "${tmpdir}/anchor.map" | sort -V > "$dropped_anchor"
+      "${tmpdir}/missing_in_${obase}.keys" "${tmpdir}/${anchor_base}.map" | sort -V > "$dropped_anchor"
 
-    local n_anchor_matched n_other_matched n_dropped
-    n_anchor_matched=$(wc -l < "$anchor_matched" | tr -d ' ')
-    n_other_matched=$(wc -l < "$other_matched" | tr -d ' ')
-    n_dropped=$(wc -l < "$dropped_anchor" | tr -d ' ')
-
-    printf "  MATCHED OUTPUTS:\n" | tee -a "$report"
-    printf "    %s  (%d)\n" "$(basename "$anchor_matched")" "$n_anchor_matched" | tee -a "$report"
-    printf "    %s  (%d)\n" "$(basename "$other_matched")" "$n_other_matched" | tee -a "$report"
-    printf "  DROPPED FROM ANCHOR (because missing in %s): %s  (%d)\n" \
-      "$oname" "$(basename "$dropped_anchor")" "$n_dropped" | tee -a "$report"
+    # update common_all = intersection(common_all, other.keys)
+    comm -12 "${tmpdir}/common_all.keys" "${tmpdir}/${obase}.keys" > "${tmpdir}/common_all.next"
+    mv -f "${tmpdir}/common_all.next" "${tmpdir}/common_all.keys"
   done
+
+  local common_all_count
+  common_all_count=$(wc -l < "${tmpdir}/common_all.keys" | tr -d ' ')
+  printf "COMMON(all lists): keys=%d\n" "$common_all_count" | tee -a "$report"
+
+  (( common_all_count > 0 )) || die "No common segment keys across ALL lists in ${outdir}. See: ${report}"
+
+  # ---------------- Write matched lists (aligned to common_all) ----------------
+  local anchor_matched="${outdir}/${anchor_base}.matched.list"
+  awk 'NR==FNR{keys[++n]=$1; next} {path[$1]=$2}
+       END{for(i=1;i<=n;i++){k=keys[i]; if(k in path) print path[k]}}' \
+      "${tmpdir}/common_all.keys" "${MAP[$anchor_base]}" > "$anchor_matched"
+
+  for oname in "${others[@]}"; do
+    local obase="${oname%.list}"
+    local other_matched="${outdir}/${obase}.matched.list"
+    awk 'NR==FNR{keys[++n]=$1; next} {path[$1]=$2}
+         END{for(i=1;i<=n;i++){k=keys[i]; if(k in path) print path[k]}}' \
+        "${tmpdir}/common_all.keys" "${MAP[$obase]}" > "$other_matched"
+  done
+
+  # ---------------- Write 2-column pair lists (aligned to common_all) ----------------
+  for oname in "${others[@]}"; do
+    local obase="${oname%.list}"
+    local pairfile="${outdir}/${anchor_base}__${obase}.pairs.list"
+
+    awk '
+      FNR==NR { keys[++n]=$1; next }
+      FILENAME==ARGV[2] { a[$1]=$2; next }
+      FILENAME==ARGV[3] { b[$1]=$2; next }
+      END {
+        for(i=1;i<=n;i++){
+          k=keys[i];
+          if((k in a) && (k in b)) print a[k], b[k];
+        }
+      }' "${tmpdir}/common_all.keys" "${MAP[$anchor_base]}" "${MAP[$obase]}" > "$pairfile"
+  done
+
+  # ---------------- Optional: 3-column triplets list (aligned to common_all) ----------------
+  if [[ -n "${MAP[G4Hits]:-}" && -n "${MAP[DST_JETS]:-}" ]]; then
+    local trip="${outdir}/${anchor_base}__G4Hits__DST_JETS.triplets.list"
+    awk '
+      FNR==NR { keys[++n]=$1; next }
+      FILENAME==ARGV[2] { a[$1]=$2; next }
+      FILENAME==ARGV[3] { b[$1]=$2; next }
+      FILENAME==ARGV[4] { c[$1]=$2; next }
+      END {
+        for(i=1;i<=n;i++){
+          k=keys[i];
+          if((k in a) && (k in b) && (k in c)) print a[k], b[k], c[k];
+        }
+      }' "${tmpdir}/common_all.keys" "${MAP[$anchor_base]}" "${MAP[G4Hits]}" "${MAP[DST_JETS]}" > "$trip"
+  fi
+
+  # ---------------- Report what we produced ----------------
+  printf "MATCHED OUTPUTS (common across ALL lists):\n" | tee -a "$report"
+  printf "  %s (%d)\n" "$(basename "$anchor_matched")" "$(wc -l < "$anchor_matched" | tr -d ' ')" | tee -a "$report"
+  for oname in "${others[@]}"; do
+    local obase="${oname%.list}"
+    local other_matched="${outdir}/${obase}.matched.list"
+    printf "  %s (%d)\n" "$(basename "$other_matched")" "$(wc -l < "$other_matched" | tr -d ' ')" | tee -a "$report"
+  done
+
+  printf "PAIR/TRIPLET LISTS:\n" | tee -a "$report"
+  for oname in "${others[@]}"; do
+    local obase="${oname%.list}"
+    local pairfile="${outdir}/${anchor_base}__${obase}.pairs.list"
+    printf "  %s (%d)\n" "$(basename "$pairfile")" "$(wc -l < "$pairfile" | tr -d ' ')" | tee -a "$report"
+  done
+  if [[ -f "${outdir}/${anchor_base}__G4Hits__DST_JETS.triplets.list" ]]; then
+    printf "  %s (%d)\n" "$(basename "${outdir}/${anchor_base}__G4Hits__DST_JETS.triplets.list")" \
+      "$(wc -l < "${outdir}/${anchor_base}__G4Hits__DST_JETS.triplets.list" | tr -d ' ')" | tee -a "$report"
+  fi
 }
 
 preview_head() {
@@ -298,10 +451,21 @@ build_pack() {
   local tag="run${RUNNUM}_${sample}"
   local outdir="${OUTROOT}/${tag}"
 
-  # Start fresh every time
+  step "BEGIN PACK: ${tag}"
+
+  # Start fresh every time (and remember what we removed for the final summary)
   if [[ -d "$outdir" ]]; then
+    local n_old
+    n_old=$(find "$outdir" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
+    PACK_REMOVED["$tag"]="removed existing outdir (files=${n_old})"
+    step "Cleanup: removing existing outdir → ${outdir} (files=${n_old})"
     rm -rf "$outdir"
+  else
+    PACK_REMOVED["$tag"]="none (outdir did not exist)"
+    step "Cleanup: no prior outdir to remove → ${outdir}"
   fi
+
+  step "Create: output directory → ${outdir}"
   mkdir -p "$outdir"
 
   # Source directories (exactly as on lustre)
@@ -341,36 +505,79 @@ build_pack() {
     preview_head "$out" "$HEAD_TAIL_LINES"
   }
 
-  # Raw lists (everything that exists on lustre)
+  step "Write raw lists (filesystem scan → *.list)"
   write_list "$calodir" "${outdir}/DST_CALO_CLUSTER.list" "DST_CALO_CLUSTER (calocluster) [ANCHOR]"
   write_list "$g4dir"   "${outdir}/G4Hits.list"          "G4Hits (g4hits)"
   write_list "$jetsdir" "${outdir}/DST_JETS.list"        "DST_JETS (nopileup/jets)"
 
-  # Match everything to the anchor (calocluster) and write *.matched.list outputs
+  step "Pairing check + generate matched/pairs/triplets (key-aligned)"
   pair_check "$outdir" "DST_CALO_CLUSTER.list" \
     "G4Hits.list" "DST_JETS.list"
 
-  # Summary counts: raw + matched
+  step "Write summary.txt (counts + pointers)"
   {
     echo "================ PACK SUMMARY ================"
-    echo "Tag: ${tag}"
+    echo "Tag   : ${tag}"
+    echo "Outdir: ${outdir}"
     echo ""
-    echo "-- Raw list counts --"
+
+    echo "-- Raw list counts (filesystem scan) --"
     for f in DST_CALO_CLUSTER G4Hits DST_JETS; do
-      printf "%-16s : %6d\n" "${f}" "$(wc -l < "${outdir}/${f}.list" | tr -d ' ')"
+      printf "%-26s : %6d  (%s)\n" \
+        "${f}.list" \
+        "$(wc -l < "${outdir}/${f}.list" | tr -d ' ')" \
+        "${outdir}/${f}.list"
     done
     echo ""
-    echo "-- Matched-to-anchor counts (recommended) --"
+
+    echo "-- Matched counts (intersection across ALL lists) --"
     for f in DST_CALO_CLUSTER G4Hits DST_JETS; do
-      printf "%-24s : %6d\n" "${f}.matched" "$(wc -l < "${outdir}/${f}.matched.list" | tr -d ' ')"
+      printf "%-26s : %6d  (%s)\n" \
+        "${f}.matched.list" \
+        "$(wc -l < "${outdir}/${f}.matched.list" | tr -d ' ')" \
+        "${outdir}/${f}.matched.list"
     done
+    echo ""
+
+    echo "-- Pair / triplet lists (key-aligned) --"
+    printf "%-26s : %6d  (%s)\n" \
+      "DST_CALO_CLUSTER__G4Hits.pairs.list" \
+      "$(wc -l < "${outdir}/DST_CALO_CLUSTER__G4Hits.pairs.list" | tr -d ' ')" \
+      "${outdir}/DST_CALO_CLUSTER__G4Hits.pairs.list"
+
+    printf "%-26s : %6d  (%s)\n" \
+      "DST_CALO_CLUSTER__DST_JETS.pairs.list" \
+      "$(wc -l < "${outdir}/DST_CALO_CLUSTER__DST_JETS.pairs.list" | tr -d ' ')" \
+      "${outdir}/DST_CALO_CLUSTER__DST_JETS.pairs.list"
+
+    if [[ -f "${outdir}/DST_CALO_CLUSTER__G4Hits__DST_JETS.triplets.list" ]]; then
+      printf "%-26s : %6d  (%s)\n" \
+        "DST_CALO_CLUSTER__G4Hits__DST_JETS.triplets.list" \
+        "$(wc -l < "${outdir}/DST_CALO_CLUSTER__G4Hits__DST_JETS.triplets.list" | tr -d ' ')" \
+        "${outdir}/DST_CALO_CLUSTER__G4Hits__DST_JETS.triplets.list"
+    fi
+
+    echo ""
+    echo "-- Diagnostics --"
+    echo "pair_report.txt : ${outdir}/pair_report.txt"
+    echo "summary.txt     : ${outdir}/summary.txt"
+    echo "dropped lists   : ${outdir}/dropped_from_*.list"
+    echo "missing keys    : ${outdir}/missing_in_*.keys (only if any missing)"
     echo "============================================="
   } | tee "${outdir}/summary.txt"
 
-  say "Final recommended inputs (matched to calocluster):"
-  say "  ${outdir}/DST_CALO_CLUSTER.matched.list"
-  say "  ${outdir}/G4Hits.matched.list"
-  say "  ${outdir}/DST_JETS.matched.list"
+  say "Final recommended inputs:"
+  say "  (1) Calo + G4Hits paired list (USED BY YOUR PIPELINE):"
+  say "      ${outdir}/DST_CALO_CLUSTER__G4Hits.pairs.list"
+  say "  (2) Matched single-column lists (same key-order):"
+  say "      ${outdir}/DST_CALO_CLUSTER.matched.list"
+  say "      ${outdir}/G4Hits.matched.list"
+  say "      ${outdir}/DST_JETS.matched.list"
+  say "  (3) Optional convenience:"
+  say "      ${outdir}/DST_CALO_CLUSTER__G4Hits__DST_JETS.triplets.list"
+
+  record_pack "$tag" "$outdir"
+  step "END PACK: ${tag}"
 
   rule
   echo "[DONE $(ts)] Lists & diagnostics ready → ${outdir}" >&2
@@ -535,6 +742,6 @@ for sample in "${PHOTONJET_SAMPLES[@]}"; do
   build_pack "$sample"
 done
 
-rule
+final_summary
 say "All packs completed. Root: ${OUTROOT}"
 

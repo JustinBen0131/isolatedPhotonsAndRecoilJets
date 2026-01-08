@@ -178,7 +178,7 @@ TRIGGER_BIT=""      # optional: filter runs by GL1 scaledown bit (e.g., TRIGGER=
 SIM_ROOT="${BASE}/simListFiles"
 SIM_SAMPLE_DEFAULT="run28_photonjet10"
 SIM_SAMPLE="${SIM_SAMPLE_DEFAULT}"
-SIM_PAIR_LIST="DST_CALO_CLUSTER__G4Hits.pairs.list"
+SIM_PAIR_LIST="DST_CALO_CLUSTER__G4Hits__DST_JETS.triplets.list"
 
 # (Legacy: kept for reference; not used once SIM_PAIR_LIST exists)
 SIM_LIST_PREFERRED="DST_CALO_CLUSTER.matched.list"

@@ -36,6 +36,7 @@
 #include <caloreco/RawTowerCalibration.h>
 #include <caloreco/PhotonClusterBuilder.h>
 #include <jetbase/Jet.h>
+#include <g4jets/TruthJetInput.h>
 
 #include <jetbase/FastJetOptions.h>
 #include <jetbackground/FastJetAlgoSub.h>
@@ -153,42 +154,49 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   if (!list.is_open())
       detail::bail("cannot open input list \"" + std::string(listFile) + "\"");
 
-    // ---------------------------------------------------------------
-    // Parse list file
-    //   DATA:  1 column  -> calo DST
-    //   SIM :  2 columns -> calo DST + G4Hits DST (paired per line)
-    // ---------------------------------------------------------------
-    std::vector<std::string> filesCalo;
-    std::vector<std::string> filesG4;
+  // ---------------------------------------------------------------
+  // Parse list file
+  //   DATA:  1 column  -> calo DST
+  //   SIM :  2 columns -> calo DST + G4Hits DST (paired per line)
+  // ---------------------------------------------------------------
+  std::vector<std::string> filesCalo;
+  std::vector<std::string> filesG4;
+  std::vector<std::string> filesJets;
 
-    for (std::string line; std::getline(list, line); )
-    {
+  for (std::string line; std::getline(list, line); )
+  {
         line = detail::trim(line);
         if (line.empty()) continue;
         if (!line.empty() && line[0] == '#') continue;
 
+        // Columns:
+        //   DATA : <DST_CALO_CLUSTER>
+        //   SIM  : <DST_CALO_CLUSTER> <G4Hits> [DST_JETS]
         std::istringstream iss(line);
-        std::string f1, f2;
-        iss >> f1;
-        iss >> f2; // may be empty in DATA lists
+        std::string fCalo, fG4, fJets;
+        iss >> fCalo >> fG4 >> fJets;
 
-        if (f1.empty()) continue;
+        if (fCalo.empty()) continue;
 
-        filesCalo.emplace_back(f1);
-        if (!f2.empty() && f2 != "NONE") filesG4.emplace_back(f2);
-    }
+        filesCalo.emplace_back(fCalo);
 
-    if (filesCalo.empty())
+        // Keep vectors key-aligned (same length as filesCalo):
+        // empty string == "not provided on this line"
+        filesG4.emplace_back((!fG4.empty() && fG4 != "NONE") ? fG4 : std::string{});
+        filesJets.emplace_back((!fJets.empty() && fJets != "NONE") ? fJets : std::string{});
+  }
+
+  if (filesCalo.empty())
         detail::bail("input list \"" + std::string(listFile) + "\" is empty");
 
-    const std::string& firstFile = filesCalo.front(); // used for GetRunSegment
+  const std::string& firstFile = filesCalo.front(); // used for GetRunSegment
 
-    // Simulation detection:
-    //  - primary: RJ_DATASET=isSim
-    //  - fallback: RJ_IS_SIM=1 (wrapper sets this)
-    bool isSim = false;
-    if (const char* ds = std::getenv("RJ_DATASET"))
-    {
+  // Simulation detection:
+  //  - primary: RJ_DATASET=isSim
+  //  - fallback: RJ_IS_SIM=1 (wrapper sets this)
+  bool isSim = false;
+  if (const char* ds = std::getenv("RJ_DATASET"))
+  {
       std::string s = detail::trim(std::string(ds));
       std::transform(s.begin(), s.end(), s.begin(),
                      [](unsigned char c){ return std::tolower(c); });
@@ -198,14 +206,14 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
     {
       if (const char* f = std::getenv("RJ_IS_SIM"))
         isSim = (std::atoi(f) != 0);
-    }
+  }
 
-    auto runSegPair = Fun4AllUtils::GetRunSegment(firstFile);
-    int run = runSegPair.first;
-    int seg = runSegPair.second;
+  auto runSegPair = Fun4AllUtils::GetRunSegment(firstFile);
+  int run = runSegPair.first;
+  int seg = runSegPair.second;
 
-    if (run <= 0)
-    {
+  if (run <= 0)
+  {
       if (isSim)
       {
         // If the filename doesn't encode a run number, use a safe CDB timestamp.
@@ -231,9 +239,9 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
       {
         detail::bail("failed to extract run number from first file: " + firstFile);
       }
-    }
+  }
 
-    if (verbose)
+  if (verbose)
           std::cout << "[INFO] Run=" << run << "  Seg=" << seg
                     << "  (" << filesCalo.size() << " files)\n";
 
@@ -307,22 +315,90 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   auto* flag = new FlagHandler();
   se->registerSubsystem(flag);
 
-    // ------------------ Calo cluster DST (always) -------------------
-    auto* inCalo = new Fun4AllDstInputManager("DST_CALO_CLUSTER_IN");
-    for (const auto& f : filesCalo) inCalo->AddFile(f);
-    se->registerInputManager(inCalo);
+  // ------------------------------------------------------------------
+  // Decide how to source truth jets in SIM:
+  //
+  //   RJ_TRUTH_JETS_MODE=AUTO  (default)
+  //       - if list has 3rd column (DST_JETS): read jets directly from DST
+  //       - otherwise: build truth jets from TRUTH particles (TruthJetInput)
+  //
+  //   RJ_TRUTH_JETS_MODE=DST
+  //       - require 3rd column (DST_JETS) and read truth jets from DST
+  //
+  //   RJ_TRUTH_JETS_MODE=BUILD
+  //       - ignore 3rd column and build truth jets from TRUTH particles
+  //
+  //   RJ_TRUTH_JETS_MODE=BOTH
+  //       - read DST jets AND also build a second "from particles" truth-jet
+  //         collection under a different node name for QA comparisons
+  // ------------------------------------------------------------------
+  bool useDSTTruthJets = false;
+  bool buildTruthJetsFromParticles = false;
+  bool buildTruthJetsAsAltNode = false;   // only true in BOTH mode
 
-    // ------------------ G4Hits DST (SIM only) ------------------------
-    if (isSim)
+  auto all_nonempty = [](const std::vector<std::string>& v) -> bool
+  {
+      if (v.empty()) return false;
+      for (const auto& s : v) if (s.empty()) return false;
+      return true;
+    };
+
+    const bool listHasG4   = all_nonempty(filesG4);
+    const bool listHasJets = all_nonempty(filesJets);
+
+    // Normalize env token to lowercase
+    auto env_lower = [](const char* key, const std::string& def) -> std::string
     {
+      const char* raw = std::getenv(key);
+      std::string s = raw ? detail::trim(std::string(raw)) : def;
+      std::transform(s.begin(), s.end(), s.begin(),
+                     [](unsigned char c){ return std::tolower(c); });
+      return s;
+    };
+
+    const std::string truthMode = env_lower("RJ_TRUTH_JETS_MODE", "auto");
+    if (truthMode == "dst")
+    {
+      useDSTTruthJets = true;
+      buildTruthJetsFromParticles = false;
+      buildTruthJetsAsAltNode = false;
+    }
+    else if (truthMode == "build")
+    {
+      useDSTTruthJets = false;
+      buildTruthJetsFromParticles = true;
+      buildTruthJetsAsAltNode = false;
+    }
+    else if (truthMode == "both")
+    {
+      useDSTTruthJets = true;
+      buildTruthJetsFromParticles = true;
+      buildTruthJetsAsAltNode = true;
+    }
+    else
+    {
+      // AUTO (or any unrecognized token): prefer DST truth jets if provided
+      useDSTTruthJets = listHasJets;
+      buildTruthJetsFromParticles = !listHasJets;
+      buildTruthJetsAsAltNode = false;
+  }
+
+  // ------------------ Calo cluster DST (always) -------------------
+  auto* inCalo = new Fun4AllDstInputManager("DST_CALO_CLUSTER_IN");
+  for (const auto& f : filesCalo) inCalo->AddFile(f);
+  se->registerInputManager(inCalo);
+
+  // ------------------ G4Hits DST (SIM only) ------------------------
+  if (isSim)
+  {
       // Require strict 1:1 file pairing (one G4 file per calo file line)
-      if (filesG4.size() != filesCalo.size())
+      if (!listHasG4)
       {
         std::ostringstream os;
-        os << "isSim requires a 2-column paired list with equal lengths:\n"
-           << "  filesCalo=" << filesCalo.size() << "\n"
-           << "  filesG4  =" << filesG4.size()  << "\n"
-           << "Fix by making a paired list per line: <DST_CALO_CLUSTER> <G4Hits>";
+        os << "isSim requires G4Hits paired 1:1 with calo files.\n"
+           << "Input list must be 2 or 3 columns per line:\n"
+           << "  <DST_CALO_CLUSTER> <G4Hits> [DST_JETS]\n"
+           << "But your list is missing the G4Hits column on at least one line.";
         detail::bail(os.str());
       }
 
@@ -334,20 +410,49 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
         std::cout << "[INFO] isSim: registered paired input managers (Calo + G4Hits)\n";
     }
 
-    // --------------------------------------------------------------------
-    // 3.  Geometry + status + calibration + clustering
-    // --------------------------------------------------------------------
-    //
-    // IMPORTANT:
-    // RawClusterBuilderTemplate::process_event() ALWAYS requires "TOWERGEOM_CEMC".
-    // But CaloGeomMapping with UseDetailedGeometry(true) publishes ONLY
-    // "TOWERGEOM_CEMC_DETAILED" for CEMC.
-    // So we ALWAYS create the legacy node (TOWERGEOM_CEMC), and optionally
-    // also create the detailed node (TOWERGEOM_CEMC_DETAILED).
-    //
-    bool useDetailedCemcGeom = true;  // keep your current behavior by default
-    if (const char* env = std::getenv("RJ_DETAILED_CEMC_GEOM"))
+    // ------------------ Jets DST (SIM optional; for truth jets) -------
+    if (isSim && useDSTTruthJets)
     {
+      if (!listHasJets)
+      {
+        std::ostringstream os;
+        os << "RJ_TRUTH_JETS_MODE=" << truthMode << " requires a 3-column list:\n"
+           << "  <DST_CALO_CLUSTER> <G4Hits> <DST_JETS>\n"
+           << "Use the triplet list you generated (e.g. DST_CALO_CLUSTER__G4Hits__DST_JETS.triplets.list).";
+        detail::bail(os.str());
+      }
+
+      auto* inJets = new Fun4AllDstInputManager("DST_JETS_IN");
+      for (const auto& f : filesJets) inJets->AddFile(f);
+      se->registerInputManager(inJets);
+
+      if (verbose)
+        std::cout << "[INFO] isSim: registered DST_JETS input manager (truth jets from DST)\n";
+    }
+
+    if (verbose && isSim)
+    {
+      std::cout << "[INFO] Truth-jet mode (RJ_TRUTH_JETS_MODE=" << truthMode << "): "
+                << (useDSTTruthJets ? "DST" : "")
+                << ((useDSTTruthJets && buildTruthJetsFromParticles) ? "+" : "")
+                << (buildTruthJetsFromParticles ? "BUILD" : "")
+                << "\n";
+  }
+
+  // --------------------------------------------------------------------
+  // 3.  Geometry + status + calibration + clustering
+  // --------------------------------------------------------------------
+  //
+  // IMPORTANT:
+  // RawClusterBuilderTemplate::process_event() ALWAYS requires "TOWERGEOM_CEMC".
+  // But CaloGeomMapping with UseDetailedGeometry(true) publishes ONLY
+  // "TOWERGEOM_CEMC_DETAILED" for CEMC.
+  // So we ALWAYS create the legacy node (TOWERGEOM_CEMC), and optionally
+  // also create the detailed node (TOWERGEOM_CEMC_DETAILED).
+  //
+  bool useDetailedCemcGeom = true;  // keep your current behavior by default
+  if (const char* env = std::getenv("RJ_DETAILED_CEMC_GEOM"))
+  {
       useDetailedCemcGeom = (std::atoi(env) != 0);
     }
 
@@ -375,7 +480,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
       geom->set_detector_name(det);
       geom->set_UseDetailedGeometry(true);
       se->registerSubsystem(geom);
-    }
+  }
 
 
   if (vlevel > 0) std::cout << "status setters" << std::endl;
@@ -443,12 +548,12 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   std::unique_ptr<GlobalVertexReco> gvertex = std::make_unique<GlobalVertexReco>();
   se->registerSubsystem(gvertex.release());
 
-    // Decide dataset early so we can gate Au+Au-only modules (centrality)
-    // IMPORTANT: isSim should behave like pp-style reconstruction here.
-    bool isAuAuData = true;
+  // Decide dataset early so we can gate Au+Au-only modules (centrality)
+  // IMPORTANT: isSim should behave like pp-style reconstruction here.
+  bool isAuAuData = true;
 
-    if (const char* env = std::getenv("RJ_DATASET"))
-    {
+  if (const char* env = std::getenv("RJ_DATASET"))
+  {
         std::string s = detail::trim(std::string(env));
         std::string sLower = s;
         std::transform(sLower.begin(), sLower.end(), sLower.begin(),
@@ -499,30 +604,97 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   {
         if (vlevel > 0) std::cout << "[pp dataset] skipping CentralityReco" << std::endl;
   }
-
+    
   // --------------------------------------------------------------------
-  // 4.  Jet reconstruction (delegated to standard HIJetReco macro)
+  // 4. Jet reconstruction / jet inputs
+  //
+  // Analysis radii policy (ALL datasets): ONLY r02 and r04 (defined in RecoilJets::kJetRadii)
+  //
+  // SIM:
+  //   - Reco jets: build from calibrated towerinfo (TOWERINFO_CALIB)
+  //   - Truth jets:
+  //       * if useDSTTruthJets: read from DST_JETS (already loaded by DST_JETS_IN)
+  //       * if buildTruthJetsFromParticles: build from TRUTH particles (TruthJetInput)
   // --------------------------------------------------------------------
-  if (vlevel > 0)
-      std::cout << "\n[INFO] Delegating jet reconstruction to HIJetReco() from macro/HIJetReco.C\n";
 
-  // Configure HIJET options (optional adjustments)
-  Enable::HIJETS        = true;
-  Enable::HIJETS_VERBOSITY = vlevel;
-  Enable::HIJETS_MC     = isSim;       // run truth jets if simulation
-  Enable::HIJETS_TRUTH  = isSim;       // enable truth jets for MC
-  Enable::HIJETS_TOWER  = true;        // use tower jets
-  Enable::HIJETS_TRACK  = false;       // disable track jets for now
-  Enable::HIJETS_PFLOW  = false;       // disable particle flow jets
+  // ---------------------- Reco jets (no UE subtraction) ----------------------
+  for (const auto& jnm : RecoilJets::kJetRadii)
+  {
+      const std::string radKey = jnm.key;            // "r02" or "r04"
+      const int   D = std::stoi(radKey.substr(1));   // 2 or 4
+      const float R = 0.1f * D;                      // 0.2 or 0.4
 
-  // Call the HI jet reconstruction routine (from your included HIJetReco.C)
-  HIJetReco();
+      const std::string recoNode = jnm.pp_node;      // built from towers as PPJetsRaw_*
+      const std::string recoName = std::string("JetsReco_") + (isSim ? "Sim_" : "Data_") + radKey;
+
+      auto* jreco = new JetReco(recoName);
+      jreco->add_input(new TowerJetInput(Jet::CEMC_TOWERINFO,    "TOWERINFO_CALIB"));
+      jreco->add_input(new TowerJetInput(Jet::HCALIN_TOWERINFO,  "TOWERINFO_CALIB"));
+      jreco->add_input(new TowerJetInput(Jet::HCALOUT_TOWERINFO, "TOWERINFO_CALIB"));
+      jreco->add_algo(detail::fjAlgo(R), recoNode);
+      jreco->set_algo_node("ANTIKT");
+      jreco->set_input_node("TOWERINFO_CALIB");
+      jreco->Verbosity(vlevel);
+      se->registerSubsystem(jreco);
+
+      if (vlevel > 0)
+        std::cout << "[INFO] (" << (isSim ? "isSim" : "data") << ") reco jets: built "
+                  << recoNode << " (R=" << R << ") from TOWERINFO_CALIB\n";
+  }
+
+  // ---------------------- Truth jets -----------------------------------------
+  // If useDSTTruthJets==true: they already exist from DST_JETS_IN.
+  // If buildTruthJetsFromParticles==true: build them from TRUTH particles here.
+  if (isSim && buildTruthJetsFromParticles)
+    {
+      if (vlevel > 0)
+      {
+        if (useDSTTruthJets)
+          std::cout << "[INFO] (isSim) truth jets: ALSO building from TRUTH particles (QA 'both' mode)\n";
+        else
+          std::cout << "[INFO] (isSim) truth jets: building from TRUTH particles (no DST_JETS)\n";
+      }
+
+      for (const auto& jnm : RecoilJets::kJetRadii)
+      {
+        const std::string radKey = jnm.key;          // "r02" or "r04"
+        const int   D = std::stoi(radKey.substr(1));
+        const float R = 0.1f * D;
+
+        auto* truthReco = new JetReco(std::string("TruthJetReco_FromParticles_") + radKey);
+        auto* tji = new TruthJetInput(Jet::PARTICLE);
+        tji->add_embedding_flag(1);  // pythia/herwig particles only
+        truthReco->add_input(tji);
+
+        // Node naming:
+        //  - If we're NOT reading DST jets, keep canonical name "AntiKt_Truth_<rKey>"
+        //  - If we ARE reading DST jets too (BOTH mode), avoid collisions
+        const std::string truthNode = (useDSTTruthJets && buildTruthJetsAsAltNode)
+                                    ? (std::string("AntiKt_TruthFromParticles_") + radKey)
+                                    : (std::string("AntiKt_Truth_") + radKey);
+
+        truthReco->add_algo(detail::fjAlgo(R), truthNode);
+        truthReco->set_algo_node("ANTIKT");
+        truthReco->set_input_node("TRUTH");
+        truthReco->Verbosity(vlevel);
+        se->registerSubsystem(truthReco);
+
+        if (vlevel > 0)
+          std::cout << "[INFO] (isSim) truth jets: produced node " << truthNode
+                    << " (R=" << R << ")\n";
+      }
+    }
+    else if (isSim && useDSTTruthJets && vlevel > 0)
+    {
+      std::cout << "[INFO] (isSim) truth jets: using nodes from DST_JETS (no TruthJetInput reco)\n";
+  }
+
 
 
   // --------------------------------------------------------------------
   // 5.  Run-information helper (optional but handy)
   // --------------------------------------------------------------------
-    if (!isSim)
+  if (!isSim)
     {
       auto* trigInfo = new TriggerRunInfoReco();
       trigInfo->Verbosity(vlevel);
@@ -531,7 +703,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
     else
     {
       if (vlevel > 0) std::cout << "[isSim] skipping TriggerRunInfoReco" << std::endl;
-    }
+  }
     
   // Build photon clusters
   auto* photonBuilder = new PhotonClusterBuilder("PhotonClusterBuilder");
