@@ -84,6 +84,23 @@ class RawCluster;
 class PhotonClusterv1;
 class Jet;
 
+// g4eval: used for truth↔reco association of EMCal clusters
+class CaloRawClusterEval;
+
+// HepMC forward declarations (truth signal definition)
+namespace HepMC
+{
+  class GenEvent;
+  class GenParticle;
+}
+
+// HepMC forward declarations (used by unified truth signal classifier)
+namespace HepMC
+{
+  class GenEvent;
+  class GenParticle;
+}
+
 // ============================================================================
 // Photon ID working points / helper functions  (PPG12 Table 4)
 // ============================================================================
@@ -180,8 +197,6 @@ public:
     long long n_iso_nonTight     = 0;
     long long n_nonIso_nonTight  = 0;
     long long seen               = 0;
-    long long idSB_total         = 0;
-    long long idSB_pass          = 0;
   };
 
   // Job-wide bookkeeping counters printed in printCutSummary()
@@ -314,7 +329,17 @@ public:
     m_vzCut    = static_cast<float>(vz);
   }
 
-  void setGammaPtBins(const std::vector<double>& bins) { m_gammaPtBins = bins; }
+  void setGammaPtBins(const std::vector<double>& /*bins*/)
+    {
+      // Canonical pT^gamma binning for ALL photon-binned histograms (reco + truth):
+      //   [10,12,14,16,18,20,22,24,26,35] GeV
+      //
+      // NOTE: Unfolding histograms book their own extended pT^gamma binning:
+      //   reco : [8,10] + (canonical bins) + [35,40]
+      //   truth: [5,8] + [8,10] + (canonical bins) + [35,40]
+      m_gammaPtBins = {10,12,14,16,18,20,22,24,26,35};
+  }
+
   void setCentEdges(const std::vector<int>& edges)     { m_centEdges = edges; }
 
   // Isolation WP (implemented in .cc)
@@ -361,6 +386,37 @@ private:
   bool   isIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const;
   bool   isNonIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const;
 
+    // Unified truth-MC signal definition for "isolated prompt photon" (SIM only)
+    // Definition
+    //   |eta| < 0.7, PID=22, status=1 (final state),
+    //   prompt classification via CaloAna photon_type logic:
+    //     - walk back photon-in/photon-out vertices
+    //     - direct=1 if 2->2 with |pdg|<=22 on all legs
+    //     - frag  =2 if 1->2 with |incoming pdg|<=11 and outgoing contains incoming pid (and photon)
+    //   and truth isolation ETiso_truth < 4 GeV where (CaloAna truth-iso):
+    //     ETiso = sum_{ΔR<0.3} Et(final-state)  -  sum_{ΔR<0.001} Et(final-state)
+    //     (the ΔR<0.001 subtraction removes the photon itself, and any ultra-merged pieces).
+  bool isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
+                                          const HepMC::GenParticle* pho,
+                                          double& isoEt) const;
+    
+  // Unified truth→reco photon matching using CaloRawClusterEval.
+  // Match requirements:
+  //   - reco |eta| < 0.7, reco pT > 5 GeV
+  //   - ΔR(truth,reco) < 0.05
+  //   - reco cluster’s BEST-MATCHED truth primary (by deposited energy) has same barcode as truth photon
+  // Chooses the candidate with the largest energy contribution (tie-breaker: smallest ΔR).
+  bool findRecoPhotonMatchedToTruthSignal(const HepMC::GenEvent* evt,
+                                           const HepMC::GenParticle* truthPho,
+                                           CaloRawClusterEval& clustereval,
+                                           const RawCluster*& recoPho,
+                                           double& recoPt,
+                                           double& recoEta,
+                                           double& recoPhi,
+                                           double& drBest,
+                                           float& eContribBest) const;
+
+
   // -------------------------------------------------------------------------
   // Binning helpers
   // -------------------------------------------------------------------------
@@ -368,20 +424,35 @@ private:
   int         findCentBin(int cent) const;
   std::string suffixForBins(int ptIdx, int centIdx) const;
 
-  // -------------------------------------------------------------------------
-  // Histogram utilities (bookers)
-  // -------------------------------------------------------------------------
-  TH1I* getOrBookCountHist(const std::string& trig,
-                           const std::string& base,
-                           int ptIdx, int centIdx);
-
-  // Isolation spectra
-  TH1F* getOrBookIsoHist(const std::string& trig, int ptIdx, int centIdx);
-  TH1F* getOrBookIsoPartHist(const std::string& trig,
+    // -------------------------------------------------------------------------
+    // Histogram utilities (bookers)
+    // -------------------------------------------------------------------------
+    TH1I* getOrBookCountHist(const std::string& trig,
                              const std::string& base,
-                             const std::string& xAxisTitle,
                              int ptIdx, int centIdx);
-  TH1I* getOrBookIsoDecisionHist(const std::string& trig, int ptIdx, int centIdx);
+
+    // Isolation spectra (reco)
+    TH1F* getOrBookIsoHist(const std::string& trig, int ptIdx, int centIdx);
+    TH1F* getOrBookIsoPartHist(const std::string& trig,
+                                 const std::string& base,
+                                 const std::string& xAxisTitle,
+                                 int ptIdx, int centIdx);
+    TH1I* getOrBookIsoDecisionHist(const std::string& trig, int ptIdx, int centIdx);
+
+    // -------------------------------------------------------------------------
+    // SIM ONLY: matched truth-signal → reco ABCD leakage counters (per pT[/cent] slice)
+    //   bins: 1=A, 2=B, 3=C, 4=D
+    // -------------------------------------------------------------------------
+    TH1I* getOrBookSigABCDLeakageHist(const std::string& trig, int ptIdx, int centIdx);
+
+  // Isolation QA (truth, SIM only)
+  // These are NOT sliced; they live in the trigger directory (SIM => /SIM/).
+  TH1F* getOrBookTruthIsoHist(const std::string& trig,
+                                const std::string& name,
+                                int nbins, double xmin, double xmax);
+
+  TH1I* getOrBookTruthIsoDecisionHist(const std::string& trig,
+                                        const std::string& name);
 
   // Shower-shape distributions
   TH1F* getOrBookSSHist(const std::string& trig,
@@ -391,17 +462,40 @@ private:
 
   // Physics outputs (already radius-tagged in your .cc)
   TH1F* getOrBookXJHist(const std::string& trig,
-                        const std::string& rKey,
-                        int ptIdx, int centIdx);
+                          const std::string& rKey,
+                          int ptIdx, int centIdx);
   TH1F* getOrBookJet1PtHist(const std::string& trig,
-                            const std::string& rKey,
-                            int ptIdx, int centIdx);
+                              const std::string& rKey,
+                              int ptIdx, int centIdx);
   TH1F* getOrBookJet2PtHist(const std::string& trig,
-                            const std::string& rKey,
-                            int ptIdx, int centIdx);
+                              const std::string& rKey,
+                              int ptIdx, int centIdx);
   TH1F* getOrBookAlphaHist(const std::string& trig,
-                           const std::string& rKey,
-                           int ptIdx, int centIdx);
+                             const std::string& rKey,
+                             int ptIdx, int centIdx);
+
+  // -------------------------------------------------------------------------
+  // inclusive γ–jet unfolding histograms (ATLAS-style 2D in (pT^γ, xJγ))
+  //
+  //  - Reco (DATA + MC):
+  //      h2_unfoldReco_pTgamma_xJ_incl_<rKey><centSuffix>
+  //
+  //  - Truth (MC):
+  //      h2_unfoldTruth_pTgamma_xJ_incl_<rKey><centSuffix>
+  //
+  //  - Response (MC, matched truth↔reco pairs):
+  //      h2_unfoldResponse_pTgamma_xJ_incl_<rKey><centSuffix>
+  //    stored as global-bin(truth) vs global-bin(reco), using TH2::FindBin().
+  //
+  //  - Fakes/Misses (MC, for closure / response completeness):
+  //      h2_unfoldRecoFakes_pTgamma_xJ_incl_<rKey><centSuffix>
+  //      h2_unfoldTruthMisses_pTgamma_xJ_incl_<rKey><centSuffix>
+  // -------------------------------------------------------------------------
+  TH2F* getOrBookUnfoldRecoPtXJIncl   (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookUnfoldTruthPtXJIncl  (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookUnfoldResponsePtXJIncl(const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookUnfoldRecoFakesPtXJIncl (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookUnfoldTruthMissesPtXJIncl(const std::string& trig, const std::string& rKey, int centIdx);
 
   // -------------------------------------------------------------------------
   // NEW / REQUIRED: radius-tagged matching-QA bookers
@@ -516,7 +610,8 @@ private:
 
   // Photon fiducial + binning
   double m_etaAbsMax = 0.7;           // photon |eta| cut
-  std::vector<double> m_gammaPtBins;  // photon pT bin edges (must be configured)
+  std::vector<double> m_gammaPtBins = {10,12,14,16,18,20,22,24,26,35};  // canonical photon pT bin edges
+
 
   // Isolation WP (PPG12 nominal)
   double m_isoA      = 1.08128;
@@ -526,7 +621,7 @@ private:
   double m_isoTowMin = 0.0;
 
   // Jet selection WP
-  double m_minJetPt      = 5.0;
+  double m_minJetPt      = 10.0;
   double m_minBackToBack = 2.8;    // radians
 
   // Legacy "primary" reco jet key (still used for printing/overrides only)

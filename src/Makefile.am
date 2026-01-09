@@ -1,25 +1,37 @@
 AUTOMAKE_OPTIONS = foreign
 
-lib_LTLIBRARIES = \
-    libRecoilJets.la
+# --------------------------------------------------------------------
+# Compiler / linker flags (prefix-resolved by ./configure)
+# --------------------------------------------------------------------
+# NOTE:
+#  - Some sPHENIX external headers (CLHEP/HepMC2) trigger warnings under C++20.
+#  - In many environments, -Werror may be injected via CXXFLAGS, causing those
+#    external warnings to become fatal.
+#  - Putting -Wno-error in AM_CXXFLAGS ensures it appears AFTER CXXFLAGS and
+#    disables "warnings as errors" without removing your warning flags.
+AM_CXXFLAGS  = -std=c++20 -Wall -Wextra -Wshadow -Wno-error
 
-AM_LDFLAGS = \
+CXXFLAGS += -Wno-error
+
+AM_CPPFLAGS  = \
+  -I$(includedir) \
+  -isystem$(OFFLINE_MAIN)/include \
+  -isystem$(ROOTSYS)/include
+
+AM_LDFLAGS   = \
   -L$(libdir) \
   -L$(OFFLINE_MAIN)/lib \
   -L$(OFFLINE_MAIN)/lib64
 
-AM_CPPFLAGS = \
-  -I$(includedir) \
-  -I$(OFFLINE_MAIN)/include \
-  -isystem$(ROOTSYS)/include
+# --------------------------------------------------------------------
+# Library to build and install
+# --------------------------------------------------------------------
+lib_LTLIBRARIES = libRecoilJets.la
 
-pkginclude_HEADERS = \
-  RecoilJets.h
+libRecoilJets_la_SOURCES = \
+  RecoilJets.cc
 
-libcaloana_la_SOURCES = \
-  RecoilJets.cc 
-
-libcaloana_la_LIBADD = \
+libRecoilJets_la_LIBADD = \
   -lcalo_io \
   -lphool \
   -lcalotrigger \
@@ -31,27 +43,31 @@ libcaloana_la_LIBADD = \
   -lg4detectors_io \
   -lphg4hit
 
+# Avoid undefined symbols with libtool; give a basic version-info
+libRecoilJets_la_LDFLAGS = -no-undefined -version-info 0:0:0
 
-################################################
-# linking tests
+# Install public headers
+pkginclude_HEADERS = \
+  RecoilJets.h
 
-noinst_PROGRAMS = \
-  testexternals
-
+# --------------------------------------------------------------------
+# Small link test against the lib we build here
+# --------------------------------------------------------------------
+noinst_PROGRAMS = testexternals
 testexternals_SOURCES = testexternals.C
-testexternals_LDADD = libRecoilJets.la
+testexternals_LDADD   = libRecoilJets.la
 
+# Generate a tiny main if it doesn't exist
 testexternals.C:
-	echo "//*** this is a generated file. Do not commit, do not edit" > $@
-	echo "int main()" >> $@
-	echo "{" >> $@
-	echo "  return 0;" >> $@
-	echo "}" >> $@
+	@echo "//*** this is a generated file. Do not commit, do not edit" > $@
+	@echo "int main(){ return 0; }" >> $@
 
-# Rule for generating table CINT dictionaries.
+# Optional: ROOT CINT dictionary rule (kept from your file, if you need it)
 %_Dict.cc: %.h %LinkDef.h
 	rootcint -f $@ @CINTDEFS@ -c $(DEFAULT_INCLUDES) $(AM_CPPFLAGS) $^
 
+# Clean extras
 clean-local:
-	rm -f $(BUILT_SOURCES)
+	rm -f testexternals.C
+
 
