@@ -418,6 +418,23 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
   // ------------------------------------------------------------------
   m_clus    = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC");
   m_photons = findNode::getClass<RawClusterContainer>(top, "PHOTONCLUSTER_CEMC");
+    
+    if (Verbosity() >= 3)
+    {
+      auto countClusters = [](RawClusterContainer* c) -> size_t
+      {
+        if (!c) return 0;
+        size_t n = 0;
+        auto r = c->getClusters();
+        for (auto it = r.first; it != r.second; ++it) ++n;
+        return n;
+      };
+
+      LOG(3, CLR_CYAN,
+          "    [fetchNodes] sizes: CLUSTERINFO_CEMC=" << countClusters(m_clus)
+          << " | PHOTONCLUSTER_CEMC=" << countClusters(m_photons));
+    }
+
 
   if (!m_photons)
   {
@@ -1331,54 +1348,39 @@ int RecoilJets::End(PHCompositeNode*)
     }
   }
 
-  //--------------------------------------------------------------------
-  // 4. Analysis summary (verbosity-controlled)
-  //--------------------------------------------------------------------
-  if (Verbosity() >= 1)
-  {
-    std::cout << "\n\033[1mSelection summary (dataset: " << (m_isAuAu ? "Au+Au" : "p+p")
-              << ", events=" << event_count << ")\033[0m\n";
-
-    for (const auto& kvT : m_catByTrig)
+    // --------------------------------------------------------------------
+    // 4. Analysis summary (verbosity-controlled)
+    // --------------------------------------------------------------------
+    if (Verbosity() >= 1)
     {
-      const std::string& trig = kvT.first;
+      const char* dsLabel = (m_isSim ? "SIM" : (m_isAuAu ? "Au+Au" : "p+p"));
 
-      std::cout << "\n\033[1mTrigger: " << trig << "\033[0m\n";
+      std::cout << "\n\033[1mSelection summary (dataset: " << dsLabel
+                << ", events=" << event_count << ")\033[0m\n";
 
-      // -------------------------------------------------------------------------
-      // ABCD purity regions (PPG12) as IMPLEMENTED in fillIsoSSTagCounters():
-      //   - iso:   Eiso < thrIso
-      //   - nSB:   Eiso > thrIso + gap   (strict non-isolated sideband)
-      //   - GAP:   [thrIso, thrIso+gap] excluded from ABCD
-      //   - NT2:   non-tight = fails >= 2 of the 5 tight-ID cuts
-      //   - Neither(1 fail) is EXCLUDED from ABCD filling
-      //
-      // Column meaning (matches CatStat counters):
-      //   A = iso ∧ Tight
-      //   B = nSB ∧ Tight
-      //   C = iso ∧ NT2
-      //   D = nSB ∧ NT2
-      //
-      // seen  = number of candidates that actually ENTERED ABCD (gap+neither excluded)
-      // IDtot/IDpas correspond to idSB_total/idSB_pass (your existing bookkeeping)
-      // -------------------------------------------------------------------------
-      std::cout << "ABCD (PPG12): iso=Eiso<thrIso; nSB=Eiso>thrIso+gap; GAP excluded; "
-                   "NT2=non-tight(>=2 fails); Neither(1 fail) excluded.\n";
-
-      std::cout << "slice                                 |  A(iso,T) | B(nSB,T)   | C(iso,NT2) | D(nSB,NT2)  |  seen\n";
-      std::cout << "--------------------------------------+-----------+-----------+------------+-------------+-------\n";
-
-      // Ordered print by slice label
-      std::vector<std::string> keys;
-      keys.reserve(kvT.second.size());
-      for (const auto& s : kvT.second) keys.push_back(s.first);
-      std::sort(keys.begin(), keys.end());
-
-      for (const auto& sfx : keys)
+      // -------------------- ABCD summary (existing) --------------------
+      for (const auto& kvT : m_catByTrig)
       {
-        const CatStat& S = kvT.second.at(sfx);
-        std::ostringstream lab;
-        lab << (sfx.empty() ? "<all>" : sfx);
+        const std::string& trig = kvT.first;
+
+        std::cout << "\n\033[1mTrigger: " << trig << "\033[0m\n";
+
+        std::cout << "ABCD (PPG12): iso=Eiso<thrIso; nSB=Eiso>thrIso+gap; GAP excluded; "
+                     "NT2=non-tight(>=2 fails); Neither(1 fail) excluded.\n";
+
+        std::cout << "slice                                 |  A(iso,T) | B(nSB,T)   | C(iso,NT2) | D(nSB,NT2)  |  seen\n";
+        std::cout << "--------------------------------------+-----------+-----------+------------+-------------+-------\n";
+
+        std::vector<std::string> keys;
+        keys.reserve(kvT.second.size());
+        for (const auto& s : kvT.second) keys.push_back(s.first);
+        std::sort(keys.begin(), keys.end());
+
+        for (const auto& sfx : keys)
+        {
+          const CatStat& S = kvT.second.at(sfx);
+          std::ostringstream lab;
+          lab << (sfx.empty() ? "<all>" : sfx);
 
           std::cout << std::left  << std::setw(38) << lab.str() << " | "
                     << std::right << std::setw(9)  << S.n_iso_tight       << " | "
@@ -1386,12 +1388,380 @@ int RecoilJets::End(PHCompositeNode*)
                     << std::setw(10) << S.n_iso_nonTight    << " | "
                     << std::setw(11) << S.n_nonIso_nonTight << " | "
                     << std::setw(5)  << S.seen              << "\n";
+        }
+      }
+
+      // -------------------- Photon cutflow (existing) --------------------
+      printCutSummary();
+
+      // =========================================================================
+      // NEW: Jet matching + unfolding summary (computed from already-filled hists)
+      //
+      // Notes:
+      //  - "match status" is filled ONCE per event that has a leading iso∧tight γ
+      //    (one fill per rKey), using:
+      //      1=NoJetPt, 2=NoJetEta, 3=NoBackToBack, 4=Matched
+      //  - Unfolding TH2 "reco" is filled once per (leading iso∧tight γ) × (each recoil jet).
+      // =========================================================================
+      auto starts_with = [](const std::string& s, const std::string& pfx) -> bool
+      {
+        return (s.size() >= pfx.size() && std::equal(pfx.begin(), pfx.end(), s.begin()));
+      };
+
+      auto fmt_frac = [](double num, double den) -> std::string
+      {
+        std::ostringstream os;
+        if (den <= 0.0) { os << "n/a"; return os.str(); }
+        os << std::fixed << std::setprecision(3) << (num / den);
+        return os.str();
+      };
+
+      struct TH2Stats { double entries = 0.0; double inrange = 0.0; double meanY = std::numeric_limits<double>::quiet_NaN(); };
+
+      auto th2_y_stats = [&](const TH2* h) -> TH2Stats
+      {
+        TH2Stats S;
+        if (!h) return S;
+
+        S.entries = h->GetEntries();
+
+        const int nx = h->GetNbinsX();
+        const int ny = h->GetNbinsY();
+
+        double sumW = 0.0;
+        double sumY = 0.0;
+
+        for (int ix = 1; ix <= nx; ++ix)
+        {
+          for (int iy = 1; iy <= ny; ++iy)
+          {
+            const double w = h->GetBinContent(ix, iy);
+            if (w == 0.0) continue;
+            const double y = h->GetYaxis()->GetBinCenter(iy);
+            sumW += w;
+            sumY += w * y;
+          }
+        }
+
+        S.inrange = sumW;
+        if (sumW > 0.0) S.meanY = sumY / sumW;
+        return S;
+      };
+
+      auto sum_th1_by_prefix = [&](const HistMap& H, const std::string& pfx,
+                                   double& outEntries, double& outMean) -> void
+      {
+        double n = 0.0;
+        double sumMean = 0.0;
+
+        for (const auto& kv : H)
+        {
+          const std::string& name = kv.first;
+          if (!starts_with(name, pfx)) continue;
+          const TH1* h = dynamic_cast<const TH1*>(kv.second);
+          if (!h) continue;
+
+          const double e = static_cast<double>(h->GetEntries());
+          if (e <= 0.0) continue;
+
+          n += e;
+          sumMean += h->GetMean() * e;
+        }
+
+        outEntries = n;
+        outMean    = (n > 0.0 ? (sumMean / n) : std::numeric_limits<double>::quiet_NaN());
+      };
+
+      std::cout << "\n\033[1mJet matching summary (leading iso\u2227tight photons)\033[0m\n";
+      std::cout << "Jet cuts: pT > " << std::fixed << std::setprecision(2) << m_minJetPt
+                << " GeV, |Δφ(γ,jet)| >= " << std::setprecision(3) << m_minBackToBack
+                << ", fiducial |η_jet| < 1.1 - R\n";
+
+      for (const auto& trigPair : qaHistogramsByTrigger)
+      {
+        const std::string& trig = trigPair.first;
+        const HistMap&      H   = trigPair.second;
+
+        std::cout << "\n\033[1mTrigger: " << trig << "\033[0m\n";
+
+        std::cout << "rKey  | |eta|< (1.1-R) | Nlead(iso\u2227tight) | NoJetPt | NoJetEta | NoBackToBack | Matched | fMatched | fBackToBack(given jets)\n";
+        std::cout << "------+---------------+------------------+---------+----------+-------------+---------+---------+--------------------------\n";
+
+        for (const auto& jnm : kJetRadii)
+        {
+          const std::string rKey = jnm.key;
+          const double etaMax = jetEtaAbsMaxForRKey(rKey);
+
+          // Collect ALL match-status histograms for this rKey (includes centrality-sliced ones in Au+Au)
+          const std::string pfxStatus = std::string("h_match_status_vs_pTgamma_") + rKey;
+
+          std::vector<const TH2*> statusHists;
+          for (const auto& kv : H)
+          {
+            if (!starts_with(kv.first, pfxStatus)) continue;
+            if (auto* h = dynamic_cast<const TH2*>(kv.second)) statusHists.push_back(h);
+          }
+
+          double c1 = 0.0, c2 = 0.0, c3 = 0.0, c4 = 0.0;
+          std::vector<std::array<double, 5>> perX; // [ix][1..4]
+
+          if (!statusHists.empty())
+          {
+            const int nx0 = statusHists.front()->GetNbinsX();
+            perX.assign(static_cast<std::size_t>(nx0 + 1), std::array<double, 5>{0,0,0,0,0});
+
+            for (const TH2* h : statusHists)
+            {
+              const int nx = h->GetNbinsX();
+              const int ny = h->GetNbinsY();
+              if (nx != nx0 || ny < 4) continue;
+
+              for (int ix = 1; ix <= nx; ++ix)
+              {
+                const double v1 = h->GetBinContent(ix, 1);
+                const double v2 = h->GetBinContent(ix, 2);
+                const double v3 = h->GetBinContent(ix, 3);
+                const double v4 = h->GetBinContent(ix, 4);
+
+                c1 += v1; c2 += v2; c3 += v3; c4 += v4;
+
+                perX[ix][1] += v1;
+                perX[ix][2] += v2;
+                perX[ix][3] += v3;
+                perX[ix][4] += v4;
+              }
+            }
+          }
+
+          const double nLead = c1 + c2 + c3 + c4;
+          const double nJetsExist = c3 + c4;
+
+          std::cout << std::left << std::setw(4) << rKey << " | "
+                    << std::right << std::setw(13) << std::fixed << std::setprecision(2) << etaMax << " | "
+                    << std::setw(16) << static_cast<long long>(std::llround(nLead)) << " | "
+                    << std::setw(7)  << static_cast<long long>(std::llround(c1)) << " | "
+                    << std::setw(8)  << static_cast<long long>(std::llround(c2)) << " | "
+                    << std::setw(11) << static_cast<long long>(std::llround(c3)) << " | "
+                    << std::setw(7)  << static_cast<long long>(std::llround(c4)) << " | "
+                    << std::setw(7)  << fmt_frac(c4, nLead) << " | "
+                    << std::setw(24) << fmt_frac(c4, nJetsExist)
+                    << "\n";
+
+          // Optional per-pTγ-bin breakdown (very useful for debugging)
+          if (Verbosity() >= 2 && !statusHists.empty())
+          {
+            const TH2* href = statusHists.front();
+            const int nx = href->GetNbinsX();
+
+            std::cout << "    per-pTγ match status (" << rKey << "):\n";
+            std::cout << "    pTγ bin     | NoJetPt | NoJetEta | NoBackToBack | Matched | N\n";
+            std::cout << "    ------------+---------+----------+-------------+---------+------\n";
+
+            for (int ix = 1; ix <= nx; ++ix)
+            {
+              const double lo = href->GetXaxis()->GetBinLowEdge(ix);
+              const double hi = href->GetXaxis()->GetBinUpEdge(ix);
+
+              const double b1 = perX[ix][1];
+              const double b2 = perX[ix][2];
+              const double b3 = perX[ix][3];
+              const double b4 = perX[ix][4];
+              const double bt = b1 + b2 + b3 + b4;
+
+              if (bt <= 0.0) continue;
+
+              std::ostringstream lab;
+              lab << std::fixed << std::setprecision(0) << lo << "–" << hi;
+
+              std::cout << "    " << std::left << std::setw(12) << lab.str() << " | "
+                        << std::right << std::setw(7)  << static_cast<long long>(std::llround(b1)) << " | "
+                        << std::setw(8)  << static_cast<long long>(std::llround(b2)) << " | "
+                        << std::setw(11) << static_cast<long long>(std::llround(b3)) << " | "
+                        << std::setw(7)  << static_cast<long long>(std::llround(b4)) << " | "
+                        << std::setw(6)  << static_cast<long long>(std::llround(bt)) << "\n";
+            }
+          }
+
+          // -------------------- matched-only / jet-physics summaries --------------------
+          // Mean max|dphi| over events that had >=1 jet passing pT+eta (NoBackToBack + Matched)
+          const std::string pfxMaxDphi = std::string("h_match_maxdphi_vs_pTgamma_") + rKey;
+          TH2Stats Smax;
+          {
+            double sumEntries = 0.0;
+            double sumInRange = 0.0;
+            double sumMeanYw  = 0.0;
+
+            int nUsed = 0;
+            for (const auto& kv : H)
+            {
+              if (!starts_with(kv.first, pfxMaxDphi)) continue;
+              const TH2* h = dynamic_cast<const TH2*>(kv.second);
+              if (!h) continue;
+
+              TH2Stats s = th2_y_stats(h);
+              sumEntries += s.entries;
+              sumInRange += s.inrange;
+              if (std::isfinite(s.meanY) && s.inrange > 0.0)
+              {
+                sumMeanYw += s.meanY * s.inrange;
+                ++nUsed;
+              }
+            }
+
+            Smax.entries = sumEntries;
+            Smax.inrange = sumInRange;
+            if (sumInRange > 0.0) Smax.meanY = sumMeanYw / sumInRange;
+          }
+
+          // Mean |dphi| for matched recoil jet1 (only filled when Matched)
+          const std::string pfxDphi = std::string("h_match_dphi_vs_pTgamma_") + rKey;
+          TH2Stats Sdphi;
+          {
+            double sumEntries = 0.0;
+            double sumInRange = 0.0;
+            double sumMeanYw  = 0.0;
+
+            int nUsed = 0;
+            for (const auto& kv : H)
+            {
+              if (!starts_with(kv.first, pfxDphi)) continue;
+              const TH2* h = dynamic_cast<const TH2*>(kv.second);
+              if (!h) continue;
+
+              TH2Stats s = th2_y_stats(h);
+              sumEntries += s.entries;
+              sumInRange += s.inrange;
+              if (std::isfinite(s.meanY) && s.inrange > 0.0)
+              {
+                sumMeanYw += s.meanY * s.inrange;
+                ++nUsed;
+              }
+            }
+
+            Sdphi.entries = sumEntries;
+            Sdphi.inrange = sumInRange;
+            if (sumInRange > 0.0) Sdphi.meanY = sumMeanYw / sumInRange;
+          }
+
+          // Mean <N recoil jets> from the profile (if present)
+          const std::string pfxNrecoil = std::string("p_nRecoilJets_vs_pTgamma_") + rKey;
+          double profEntries = 0.0;
+          double profSum     = 0.0;
+          for (const auto& kv : H)
+          {
+            if (!starts_with(kv.first, pfxNrecoil)) continue;
+            const TProfile* p = dynamic_cast<const TProfile*>(kv.second);
+            if (!p) continue;
+
+            const int nx = p->GetNbinsX();
+            for (int ix = 1; ix <= nx; ++ix)
+            {
+              const double e = p->GetBinEntries(ix);
+              if (e <= 0.0) continue;
+              profEntries += e;
+              profSum     += p->GetBinContent(ix) * e;
+            }
+          }
+          const double meanNrecoil = (profEntries > 0.0 ? profSum / profEntries : std::numeric_limits<double>::quiet_NaN());
+
+          // Matched recoil-jet outputs (leading recoil jet only)
+          double xjN=0.0, xjMean=std::numeric_limits<double>::quiet_NaN();
+          double aN =0.0, aMean =std::numeric_limits<double>::quiet_NaN();
+          double j1N=0.0, j1Mean=std::numeric_limits<double>::quiet_NaN();
+
+          sum_th1_by_prefix(H, std::string("h_xJ_")     + rKey, xjN, xjMean);
+          sum_th1_by_prefix(H, std::string("h_alpha_")  + rKey, aN,  aMean);
+          sum_th1_by_prefix(H, std::string("h_jet1Pt_") + rKey, j1N, j1Mean);
+
+            auto sum_th2_prefix = [&](const std::string& pfx) -> TH2Stats
+            {
+              TH2Stats stats;
+              double sumEntries = 0.0, sumInRange = 0.0, sumMeanYw = 0.0;
+
+              for (const auto& kv : H)
+              {
+                if (!starts_with(kv.first, pfx)) continue;
+                const TH2* h = dynamic_cast<const TH2*>(kv.second);
+                if (!h) continue;
+
+                TH2Stats s = th2_y_stats(h);
+                sumEntries += s.entries;
+                sumInRange += s.inrange;
+                if (std::isfinite(s.meanY) && s.inrange > 0.0)
+                  sumMeanYw += s.meanY * s.inrange;
+              }
+
+              stats.entries = sumEntries;
+              stats.inrange = sumInRange;
+              if (sumInRange > 0.0) stats.meanY = sumMeanYw / sumInRange;
+              return stats;
+            };
+
+          const TH2Stats Ureco  = sum_th2_prefix(std::string("h2_unfoldReco_pTgamma_xJ_incl_")       + rKey);
+          const TH2Stats Utruth = sum_th2_prefix(std::string("h2_unfoldTruth_pTgamma_xJ_incl_")      + rKey);
+          const TH2Stats Ufakes = sum_th2_prefix(std::string("h2_unfoldRecoFakes_pTgamma_xJ_incl_")  + rKey);
+          const TH2Stats Umiss  = sum_th2_prefix(std::string("h2_unfoldTruthMisses_pTgamma_xJ_incl_")+ rKey);
+
+          // Response is "global bin vs global bin" => only count fills
+          double rspEntries = 0.0;
+          {
+            const std::string pfxRsp = std::string("h2_unfoldResponse_pTgamma_xJ_incl_") + rKey;
+            for (const auto& kv : H)
+            {
+              if (!starts_with(kv.first, pfxRsp)) continue;
+              const TH2* h = dynamic_cast<const TH2*>(kv.second);
+              if (!h) continue;
+              rspEntries += h->GetEntries();
+            }
+          }
+
+          // Print the “extra” stats only if something exists
+          if (nLead > 0.0 || xjN > 0.0 || Ureco.entries > 0.0 || Utruth.entries > 0.0 || rspEntries > 0.0)
+          {
+            std::cout << "    " << rKey << " details:\n";
+            if (std::isfinite(meanNrecoil))
+              std::cout << "      <N_recoil jets> (profile): " << std::fixed << std::setprecision(3) << meanNrecoil
+                        << " (entries=" << static_cast<long long>(std::llround(profEntries)) << ")\n";
+
+            if (std::isfinite(Smax.meanY))
+              std::cout << "      <max|Δφ|> over jets passing pT+eta: " << std::fixed << std::setprecision(3) << Smax.meanY
+                        << " rad (in-range fills=" << static_cast<long long>(std::llround(Smax.inrange)) << ")\n";
+
+            if (std::isfinite(Sdphi.meanY))
+              std::cout << "      <|Δφ(γ,jet1)|> for matched events: " << std::fixed << std::setprecision(3) << Sdphi.meanY
+                        << " rad (fills=" << static_cast<long long>(std::llround(Sdphi.inrange)) << ")\n";
+
+            if (xjN > 0.0)
+              std::cout << "      xJ fills=" << static_cast<long long>(std::llround(xjN))
+                        << "  <xJ>=" << std::fixed << std::setprecision(3) << xjMean << "\n";
+
+            if (j1N > 0.0)
+              std::cout << "      jet1 pT fills=" << static_cast<long long>(std::llround(j1N))
+                        << "  <pT_jet1>=" << std::fixed << std::setprecision(3) << j1Mean << " GeV\n";
+
+            if (aN > 0.0)
+              std::cout << "      alpha fills=" << static_cast<long long>(std::llround(aN))
+                        << "  <alpha>=" << std::fixed << std::setprecision(3) << aMean << "\n";
+
+            std::cout << "      Unfolding (inclusive pairing):\n";
+            std::cout << "        reco pairs:   entries=" << static_cast<long long>(std::llround(Ureco.entries))
+                      << "  in-range=" << static_cast<long long>(std::llround(Ureco.inrange))
+                      << "  <xJ>=" << (std::isfinite(Ureco.meanY) ? (static_cast<std::ostringstream&&>(std::ostringstream() << std::fixed << std::setprecision(3) << Ureco.meanY).str()) : std::string("n/a"))
+                      << "\n";
+            std::cout << "        truth pairs:  entries=" << static_cast<long long>(std::llround(Utruth.entries))
+                      << "  in-range=" << static_cast<long long>(std::llround(Utruth.inrange))
+                      << "  <xJ>=" << (std::isfinite(Utruth.meanY) ? (static_cast<std::ostringstream&&>(std::ostringstream() << std::fixed << std::setprecision(3) << Utruth.meanY).str()) : std::string("n/a"))
+                      << "\n";
+            std::cout << "        response fills (global-bin TH2): entries=" << static_cast<long long>(std::llround(rspEntries)) << "\n";
+            std::cout << "        reco fakes:   entries=" << static_cast<long long>(std::llround(Ufakes.entries))
+                      << "  in-range=" << static_cast<long long>(std::llround(Ufakes.inrange)) << "\n";
+            std::cout << "        truth misses: entries=" << static_cast<long long>(std::llround(Umiss.entries))
+                      << "  in-range=" << static_cast<long long>(std::llround(Umiss.inrange)) << "\n";
+          }
+        }
       }
     }
 
-    // Job-wide cutflow (unchanged)
-    printCutSummary();
-  }
 
   //--------------------------------------------------------------------
   // 5. Write footer & close the file
