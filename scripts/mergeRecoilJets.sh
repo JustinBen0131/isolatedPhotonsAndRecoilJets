@@ -1,38 +1,92 @@
 #!/usr/bin/env bash
 ###############################################################################
-# mergeRecoilJets.sh
+# mergeRecoilJets.sh  —  FAST REFERENCE
 #
-# Data-only hierarchical merge, tailored to RecoilJets_Condor_submit.sh outputs.
+# PURPOSE
+#   Merge RecoilJets outputs produced by RecoilJets_Condor_submit.sh /
+#   RecoilJets_Condor.sh. Supports:
+#     • DATA (pp, auau): per-run merge → then grand-total merge
+#     • SIM  (isSim):   two-step chunk merge (firstRound → secondRound)
 #
-# STAGE 1 (CONDOR, one job per run):
-#   • Find per-run data outputs produced by RecoilJets:
-#       PP   : /sphenix/tg/tg01/bulk/jbennett/thesisAna/pp/<run8>/*.root
-#       AuAu : /sphenix/tg/tg01/bulk/jbennett/thesisAna/auau/<run8>/*.root
-#   • Build a list file per run (sorted).
-#   • Submit exactly one hadd job per run → partial:
-#       /sphenix/u/patsfan753/scratch/thesisAnalysis/output/<tag>/chunkMerge_run_<run8>.root
+# INPUT ROOT LOCATIONS (what you are merging)
+#   DATA:
+#     pp   : /sphenix/tg/tg01/bulk/jbennett/thesisAna/pp/<run8>/*.root
+#     auau : /sphenix/tg/tg01/bulk/jbennett/thesisAna/auau/<run8>/*.root
+#   SIM:
+#     SAMPLE dir: /sphenix/tg/tg01/bulk/jbennett/thesisAna/<SAMPLE>/*.root
+#       e.g.      /sphenix/tg/tg01/bulk/jbennett/thesisAna/run28_photonjet10/*.root
 #
-# STAGE 2 (ADDCHUNKS, local or Condor):
-#   • Merge all partials chunkMerge_run_*.root in that <tag> output dir into:
-#       /sphenix/u/patsfan753/scratch/thesisAnalysis/output/<tag>/RecoilJets_<tag>_ALL.root
+# OUTPUT MERGE LOCATION (where merged artifacts are written)
+#   /sphenix/u/patsfan753/scratch/thesisAnalysis/output/<tag>/
+#     DATA tags: pp | auau
+#     SIM  tag : simTag = suffix after last "_" in SAMPLE
+#               run28_photonjet10 → photonjet10
 #
-# USAGE
-#   ./mergeRecoilJets.sh condor <pp|auau> [test|firstHalf]
-#   ./mergeRecoilJets.sh addChunks <pp|auau> [condor]
-#   ./mergeRecoilJets.sh checkFileOutput <pp|auau>
+# ─────────────────────────────────────────────────────────────────────────────
+# QUICK COMMANDS (copy/paste)
 #
-# EXAMPLES
+# DATA: inventory only (no merges)
+#   ./mergeRecoilJets.sh checkFileOutput pp
+#   ./mergeRecoilJets.sh checkFileOutput auau
+#
+# DATA: stage-1 per-run partials (Condor; one hadd job per run)
 #   ./mergeRecoilJets.sh condor pp
+#   ./mergeRecoilJets.sh condor pp test
 #   ./mergeRecoilJets.sh condor auau firstHalf
+#
+# DATA: stage-2 grand total (merge all per-run partials)
 #   ./mergeRecoilJets.sh addChunks pp
+#   ./mergeRecoilJets.sh addChunks pp condor
+#   ./mergeRecoilJets.sh addChunks auau
 #   ./mergeRecoilJets.sh addChunks auau condor
 #
+# SIM: firstRound (Condor chunk-partials; groupSize = files per hadd)
+#   ./mergeRecoilJets.sh isSim firstRound groupSize 300 SAMPLE=run28_photonjet10
+#
+# SIM: secondRound (final merge of chunk-partials)
+#   ./mergeRecoilJets.sh isSim secondRound SAMPLE=run28_photonjet10
+#   ./mergeRecoilJets.sh isSim secondRound condor SAMPLE=run28_photonjet10
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# WHAT EACH MODE PRODUCES
+#
+# DATA stage-1 outputs (per-run partials):
+#   /.../output/<pp|auau>/chunkMerge_run_<run8>.root
+#
+# DATA stage-2 output (grand total):
+#   /.../output/<pp|auau>/RecoilJets_<pp|auau>_ALL.root
+#
+# SIM firstRound outputs (chunk-partials):
+#   /.../output/<simTag>/chunkMerge_<simTag>_grpNNN.root
+#
+# SIM secondRound output (final):
+#   /.../output/<simTag>/RecoilJets_<simTag>_ALL.root
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# SAFETY / RESUME BEHAVIOR (DATA stage-1)
+#   • This script NEVER runs condor_rm (it will not kill jobs).
+#   • When building per-run hadd lists, it EXCLUDES any output ROOT file whose
+#     producing RecoilJets_Condor.sh job is still present in condor_q
+#     (IDLE/RUNNING/HELD/TRANSFERRING/SUSPENDED). This prevents merging
+#     partially-produced outputs.
+#
+# TESTING (NO side effects)
+#   DRYRUN=1      → NO deletions, NO hadd, NO condor_submit (prints the plan)
+#   SKIP_TRACE=1  → prints per-run totals/busy/eligible counts
+#   Example:
+#     DRYRUN=1 SKIP_TRACE=1 ./mergeRecoilJets.sh condor pp test
+#
 # NOTES
-#   • We intentionally use one Condor job per run (simple, robust).
-#   • Inputs per run are all *.root files in that run’s directory (maxdepth=1).
-#   • Sorting uses -V (version sort) to keep natural order of chunk indices.
+#   • Only top-level *.root files are considered (maxdepth=1).
+#   • Sorting uses: sort -V (natural ordering of chunk indices).
 ###############################################################################
 set -euo pipefail
+
+# DRYRUN=1  -> NO deletions, NO hadd, NO condor_submit. Only prints what would happen.
+DRYRUN="${DRYRUN:-0}"
+
+# SKIP_TRACE=1 -> print per-run (total/busy/eligible) summaries during planning/submission.
+SKIP_TRACE="${SKIP_TRACE:-0}"
 
 # ---------- Pretty printing ----------
 BOLD=$'\e[1m'; RED=$'\e[31m'; YEL=$'\e[33m'; GRN=$'\e[32m'; BLU=$'\e[34m'; RST=$'\e[0m'
@@ -135,14 +189,116 @@ discover_runs() {
   RUNS=( "${valid[@]}" )
 }
 
+# -----------------------------------------------------------------------------
+# Active-job skiplist
+#   Build ONCE per script run: list of output ROOT files that correspond to
+#   RecoilJets_Condor.sh jobs currently still in condor_q (IDLE/RUNNING/HELD/etc).
+#   Those files are excluded from per-run hadd inputs.
+# -----------------------------------------------------------------------------
+SKIP_BUILT=0
+SKIP_FILE=""
+
+build_active_skiplist() {
+  (( SKIP_BUILT )) && return 0
+
+  SKIP_FILE="${TMP_DIR}/skip_active_RecoilJets_${TAG}.txt"
+  : > "$SKIP_FILE"
+
+  local want="isPP"
+  [[ "$TAG" == "auau" ]] && want="isAuAu"
+
+  if command -v condor_q >/dev/null 2>&1; then
+    (
+      set +e +o pipefail
+      condor_q "${USER:-$(id -un)}" \
+        -constraint 'regexp("RecoilJets_Condor.sh",Cmd) && (JobStatus==1 || JobStatus==2 || JobStatus==5 || JobStatus==6 || JobStatus==7)' \
+        -af Args 2>/dev/null |
+      awk -v want="$want" '
+        # Args format (from your submit):
+        #   run8  chunkList  isPP|isAuAu  Cluster  0  grpIdx  NONE  destBase
+        ($3 == want) {
+          run  = $1
+          lst  = $2
+          ds   = $3
+          dest = $NF
+          if (run=="" || lst=="" || dest=="") next
+
+          # chunk tag = basename(list) without .list
+          n = lst
+          sub(/^.*\//,"",n)
+          sub(/\.list$/,"",n)
+
+          # output ROOT path matches RecoilJets_Condor.sh naming:
+          #   destBase/run8/RecoilJets_<ds>_<chunkTag>.root
+          printf "%s/%s/RecoilJets_%s_%s.root\n", dest, run, ds, n
+        }
+      ' | sort -u > "$SKIP_FILE"
+    ) || true
+  fi
+
+  SKIP_BUILT=1
+
+  local nskip
+  nskip=$(wc -l < "$SKIP_FILE" | awk '{print $1}')
+  local want2="isPP"
+  [[ "$TAG" == "auau" ]] && want2="isAuAu"
+
+  if (( nskip > 0 )); then
+    printf "${YEL}⚠${RST} [skiplist] %d active %s outputs will be excluded (from condor_q)\n" "$nskip" "$want2" >&2
+    (( SKIP_TRACE )) && { printf "${DIM:-}${YEL}⚠${RST} [skiplist] first 5:\n" >&2; head -n 5 "$SKIP_FILE" >&2; }
+  else
+    printf "${GRN}✔${RST} [skiplist] No active %s RecoilJets jobs found in condor_q\n" "$want2" >&2
+  fi
+}
+
 # Build a per-run list of files (sorted) to be merged
+# NEW behavior:
+#   - Excludes any outputs whose producing RecoilJets_Condor.sh job is still in condor_q.
+#   - Supports DRYRUN=1 / SKIP_TRACE=1 summaries without polluting stdout (list path only).
 make_run_list() {
   local run8="$1"
   local srcdir="${RUN_BASE}/${run8}"
   local list="${TMP_DIR}/run_${run8}.txt"
-  # Only top-level ROOT files; version-sorted
-  find "$srcdir" -maxdepth 1 -type f -name "*.root" | sort -V > "$list"
-  [[ -s "$list" ]] || return 1
+  local all="${list}.00_all"
+
+  build_active_skiplist
+
+  # 1) All ROOTs on disk for this run
+  find "$srcdir" -maxdepth 1 -type f -name "*.root" | sort -V > "$all"
+  [[ -s "$all" ]] || { rm -f "$all" 2>/dev/null || true; return 1; }
+
+  local total busy_present eligible busy_inq
+  total=$(wc -l < "$all" | awk '{print $1}')
+
+  # 2) Count how many ACTIVE-job outputs are already present on disk (intersection)
+  busy_present=0
+  if [[ -s "$SKIP_FILE" ]]; then
+    busy_present=$(grep -F -x -f "$SKIP_FILE" "$all" 2>/dev/null | wc -l | awk '{print $1}')
+  fi
+
+  # 3) Remove active-job outputs from the input list
+  if [[ -s "$SKIP_FILE" ]]; then
+    grep -F -v -f "$SKIP_FILE" "$all" > "$list" || true
+    rm -f "$all" 2>/dev/null || true
+  else
+    mv "$all" "$list"
+  fi
+
+  [[ -s "$list" ]] || { rm -f "$list" 2>/dev/null || true; return 1; }
+
+  eligible=$(wc -l < "$list" | awk '{print $1}')
+
+  # Optional: how many outputs for this run are still in condor_q (may not exist yet)
+  busy_inq=0
+  if [[ -s "$SKIP_FILE" ]]; then
+    busy_inq=$(awk -v pre="${RUN_BASE}/${run8}/" 'index($0,pre)==1{c++} END{print c+0}' "$SKIP_FILE")
+  fi
+
+  if (( DRYRUN )) || (( SKIP_TRACE )); then
+    printf "${BLU}➜${RST} [run ${run8}] total=%d  busyInQ=%d  busyPresent=%d  eligible=%d\n" \
+      "$total" "$busy_inq" "$busy_present" "$eligible" >&2
+  fi
+
   echo "$list"
 }
 
@@ -345,16 +501,48 @@ if [[ "$MODE" == "checkFileOutput" ]]; then
     warn "No runs found with *.root files."
     exit 0
   fi
-  # Show a succinct summary per run
+
+  # Build the active-job skiplist once (read-only condor_q)
+  build_active_skiplist
+
+  say "Per-run summary (TOTAL vs BUSY in condor_q vs BUSY present on disk vs ELIGIBLE)"
+  printf "  %-10s  %8s  %8s  %12s  %10s\n" "run" "total" "busyInQ" "busyPresent" "eligible"
+  printf "  %-10s  %8s  %8s  %12s  %10s\n" "----------" "--------" "--------" "------------" "----------"
+
+  eligibleRuns=0
   for r in "${RUNS[@]}"; do
-    n=$(find "${RUN_BASE}/${r}" -maxdepth 1 -type f -name "*.root" | wc -l | awk '{print $1}')
-    printf "  run %-8s : %5d files\n" "$r" "$n"
+    srcdir="${RUN_BASE}/${r}"
+
+    # list all present ROOTs (absolute paths)
+    all="${TMP_DIR}/check_${r}.all.txt"
+    find "$srcdir" -maxdepth 1 -type f -name "*.root" | sort -V > "$all"
+    total=$(wc -l < "$all" | awk '{print $1}')
+
+    busyInQ=0
+    busyPresent=0
+    if [[ -s "$SKIP_FILE" ]]; then
+      busyInQ=$(awk -v pre="${RUN_BASE}/${r}/" 'index($0,pre)==1{c++} END{print c+0}' "$SKIP_FILE")
+      busyPresent=$(grep -F -x -f "$SKIP_FILE" "$all" 2>/dev/null | wc -l | awk '{print $1}')
+    fi
+
+    eligible=$(( total - busyPresent ))
+    (( eligible > 0 )) && (( eligibleRuns += 1 ))
+
+    printf "  %-10s  %8d  %8d  %12d  %10d\n" "$r" "$total" "$busyInQ" "$busyPresent" "$eligible"
+    rm -f "$all" 2>/dev/null || true
   done
+
+  say "Eligible runs (eligible>0): ${eligibleRuns} / ${#RUNS[@]}"
+  say "NOTE: This mode only REPORTS. It does not delete files, submit jobs, or run hadd."
   exit 0
 fi
 
 if [[ "$MODE" == "condor" ]]; then
-  need_cmd condor_submit
+  if (( DRYRUN )); then
+    warn "DRYRUN=1 → planning only (NO deletes, NO condor_submit, NO hadd). Reading condor_q is safe."
+  else
+    need_cmd condor_submit
+  fi
 
   say "Preparing per-run Condor merges (one job per run)"
   discover_runs "$RUN_BASE"
@@ -371,7 +559,28 @@ if [[ "$MODE" == "condor" ]]; then
     * )          err "Unknown submode '$SUBMODE' (allowed: test, firstHalf)"; exit 6 ;;
   esac
 
-  # Clean slate policy for this dataset's output dir
+  # Build the skiplist once up-front (read-only condor_q)
+  build_active_skiplist
+
+  if (( DRYRUN )); then
+    say "DRYRUN plan: which per-run partial merges WOULD be submitted"
+    planned=0
+    for r in "${RUNS[@]}"; do
+      listfile="$(make_run_list "$r" || true)"
+      if [[ -z "${listfile:-}" || ! -s "$listfile" ]]; then
+        warn "Run $r: no eligible ROOT files after skipping active jobs (or list build failed)"
+        continue
+      fi
+      nfiles=$(wc -l < "$listfile" | awk '{print $1}')
+      out="${DEST_DIR}/${PARTIAL_PREFIX}_${r}.root"
+      say "  would merge run ${r}: inputs=${nfiles} -> ${out}"
+      ((planned+=1))
+    done
+    say "DRYRUN summary: planned runs=${planned}. (No files deleted; no jobs submitted.)"
+    exit 0
+  fi
+
+  # Normal mode: clean slate for partials/final in DEST_DIR only (does not touch running jobs)
   say "Cleaning old partials/final in ${DEST_DIR}"
   find "$DEST_DIR" -maxdepth 1 -type f \
        \( -name "${PARTIAL_PREFIX}_*.root" -o -name "${FINAL_PREFIX}_${TAG}_ALL.root" \) -delete || true
@@ -397,7 +606,7 @@ EOT
   for r in "${RUNS[@]}"; do
     listfile="$(make_run_list "$r" || true)"
     if [[ -z "${listfile:-}" || ! -s "$listfile" ]]; then
-      warn "Run $r has no files (or list build failed); skipping"
+      warn "Run $r: no eligible files after skipping active jobs; skipping merge submit"
       continue
     fi
     out="${DEST_DIR}/${PARTIAL_PREFIX}_${r}.root"
@@ -406,7 +615,7 @@ EOT
   done
 
   if (( queued == 0 )); then
-    err "No Condor jobs to submit (no non-empty run lists)."
+    err "No Condor jobs to submit (no non-empty eligible run lists)."
     exit 7
   fi
 
