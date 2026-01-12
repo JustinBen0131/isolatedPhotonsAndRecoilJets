@@ -4,11 +4,13 @@
 //
 // Self-contained offline reader/plotter for RecoilJets outputs (PP + photonJet10 SIM only).
 // Auto-executes at load and exits with nonzero on failure.
+#include "AnalyzeRecoilJets.h"
 
 #include <TFile.h>
 #include <TDirectory.h>
 #include <TKey.h>
 #include <TObject.h>
+#include <TNamed.h>
 
 #include <TH1.h>
 #include <TH1F.h>
@@ -54,12 +56,15 @@ namespace ARJ
   using std::vector;
   using std::map;
 
-  // =============================================================================
-  // GLOBAL USER TOGGLES (EDIT HERE)
-  // =============================================================================
-  bool isPPdataOnly   = false;
-  bool isSimOnly      = true;
-  bool isSimAndDataPP = false;
+    // =============================================================================
+    // GLOBAL USER TOGGLES (EDIT HERE)
+    // =============================================================================
+    bool isPPdataOnly              = false;
+    bool isSimOnly                 = true;
+    bool isSimAndDataPP            = false;
+
+    // NEW: combine photonJet10 + photonJet20 SIM into one merged SIM file (weighted)
+    bool isSimOnlyWithPhoton10and20 = false;
 
   double vzCutCm = 30.0;  // displayed range [-vzCutCm,+vzCutCm] and 0.5 cm display bin width
 
@@ -69,11 +74,19 @@ namespace ARJ
   static const string kTriggerPP = "Photon_4_GeV_plus_MBD_NS_geq_1";
   static const string kDirSIM    = "SIM";
 
-  static const string kInPP  = "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp/RecoilJets_pp_ALL.root";
-  static const string kInSIM = "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10_SIM/RecoilJets_photonjet10_ALL.root";
+    static const string kInPP    = "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp/RecoilJets_pp_ALL.root";
 
-  static const string kOutPPBase  = "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp";
-  static const string kOutSIMBase = "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10_SIM";
+    // SIM inputs (two samples)
+    static const string kInSIM10 = "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10_SIM/RecoilJets_photonjet10_ALL.root";
+    static const string kInSIM20 = "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet20_SIM/RecoilJets_photonjet20_ALL.root";
+
+    static const string kOutPPBase   = "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp";
+
+    // Keep the SIM output base as you like (this is where merged file will be written too)
+    static const string kOutSIMBase  = "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10_SIM";
+
+    // NEW: merged SIM output root file (written before analysis when isSimOnlyWithPhoton10and20=true)
+    static const string kMergedSIMOut = "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10_SIM/RecoilJets_photonjet10plus20_MERGED.root";
 
   // Photon pT bin edges used for *_pT_<lo>_<hi> suffixes
   static const int kNPtBins = 9;
@@ -361,54 +374,332 @@ namespace ARJ
     c.SaveAs(filepath.c_str());
   }
 
-static void NormalizeToUnitArea(TH1* h)
-{
-  if (!h) return;
-  const double integral = h->Integral(0, h->GetNbinsX() + 1);
-  if (integral > 0.0) h->Scale(1.0 / integral);
-}
-
-// Normalize using ONLY the visible bins in a given x-range (useful for overlays
-// when truth and reco histograms have different x-axis ranges).
-static void NormalizeToUnitAreaInRange(TH1* h, double xmin, double xmax)
-{
-  if (!h) return;
-  const int b1 = h->GetXaxis()->FindBin(xmin + 1e-9);
-  const int b2 = h->GetXaxis()->FindBin(xmax - 1e-9);
-  const double integral = h->Integral(b1, b2);
-  if (integral > 0.0) h->Scale(1.0 / integral);
-}
-
-// Build an "inclusive over pTgamma bins" reco histogram by summing the pT-sliced family:
-//   histBase + "_pT_lo_hi"  for i=0..kNPtBins-1
-// Example: histBase="h_Eiso" produces h_Eiso_pT_10_12 + ... + h_Eiso_pT_26_35.
-static TH1* SumRecoPtSlicedTH1(Dataset& ds, const string& histBase)
-{
-  TH1* sum = nullptr;
-
-  for (int i = 0; i < kNPtBins; ++i)
-  {
-    const PtBin& b = PtBins()[i];
-    const string hname = histBase + b.suffix;
-
-    TH1* h = GetObj<TH1>(ds, hname, false, false, true);
-    if (!h) continue;
-
-    if (!sum)
+    // =============================================================================
+    // NEW: Merge photonJet10 + photonJet20 SIM files into one weighted ROOT file.
+    //
+    // Weighting (simple + defensible first pass):
+    //   w = sigma_pb / N_events
+    // and merged hist = w10*h10 + w20*h20
+    //
+    // N_events is read from: cnt_<topDirName> bin1 content (same logic as ReadEventCount()).
+    //
+    // This produces histograms in "cross-section units" (pb) per bin.
+    // =============================================================================
+    static double ReadEventCountFromFile(TFile* f, const string& topDirName)
     {
-      sum = CloneTH1(h, histBase + "_INCLUSIVE_overPt");
-      if (sum)
+      if (!f) return 0.0;
+      TDirectory* d = f->GetDirectory(topDirName.c_str());
+      if (!d) return 0.0;
+
+      TH1* cnt = dynamic_cast<TH1*>(d->Get(("cnt_" + topDirName).c_str()));
+      if (!cnt) return 0.0;
+      return cnt->GetBinContent(1);
+    }
+
+    static void CopyAndScaleAddRecursive(TDirectory* outDir,
+                                         TDirectory* d10, double w10,
+                                         TDirectory* d20, double w20)
+    {
+      if (!outDir) return;
+      if (!d10 && !d20) return;
+
+      // Helper: is this key a directory?
+      auto IsDirClass = [](const std::string& cls)->bool
       {
-        sum->Reset("ICES");
-        sum->SetDirectory(nullptr);
+        return (cls == "TDirectoryFile" || cls == "TDirectory");
+      };
+
+      // Track names processed so we can do "union of keys" cleanly.
+      std::set<std::string> seen;
+
+      // -----------------------------
+      // Pass 1: iterate d10 keys (if present)
+      // -----------------------------
+      if (d10)
+      {
+        TIter next(d10->GetListOfKeys());
+        while (TKey* key = (TKey*)next())
+        {
+          const std::string name = key->GetName();
+          const std::string cls  = key->GetClassName();
+          seen.insert(name);
+
+          // Directory case
+          if (IsDirClass(cls))
+          {
+            TDirectory* sub10 = dynamic_cast<TDirectory*>(d10->Get(name.c_str()));
+            TDirectory* sub20 = (d20 ? dynamic_cast<TDirectory*>(d20->Get(name.c_str())) : nullptr);
+
+            outDir->cd();
+            TDirectory* subOut = outDir->mkdir(name.c_str());
+            if (!subOut) continue;
+
+            CopyAndScaleAddRecursive(subOut, sub10, w10, sub20, w20);
+            continue;
+          }
+
+          TObject* o10 = d10->Get(name.c_str());
+          TObject* o20 = (d20 ? d20->Get(name.c_str()) : nullptr);
+
+          // Histogram-like objects (TH1 includes TH1/TH2/TH3/TProfile/...)
+          if (auto* h10 = dynamic_cast<TH1*>(o10))
+          {
+            outDir->cd();
+
+            TH1* h = dynamic_cast<TH1*>(h10->Clone(name.c_str()));
+            if (!h) continue;
+            h->SetDirectory(outDir);
+
+            // Make sure errors exist if we are going to scale/add
+            if (h->GetSumw2N() == 0) h->Sumw2();
+
+            // Contribution from 10
+            if (w10 != 0.0) h->Scale(w10);
+
+            // Contribution from 20
+            if (auto* h20 = dynamic_cast<TH1*>(o20))
+            {
+              TH1* tmp = dynamic_cast<TH1*>(h20->Clone((name + "_tmp20").c_str()));
+              if (tmp)
+              {
+                tmp->SetDirectory(nullptr);
+                if (tmp->GetSumw2N() == 0) tmp->Sumw2();
+                if (w20 != 0.0) tmp->Scale(w20);
+                h->Add(tmp);
+                delete tmp;
+              }
+            }
+
+            h->Write(name.c_str(), TObject::kOverwrite);
+            continue;
+          }
+
+          // Non-hist objects: copy from 10 as baseline
+          outDir->cd();
+          if (o10)
+          {
+            TObject* c = o10->Clone(name.c_str());
+            if (c) c->Write(name.c_str(), TObject::kOverwrite);
+          }
+        }
+      }
+
+      // -----------------------------
+      // Pass 2: iterate d20 keys not seen in d10
+      // -----------------------------
+      if (d20)
+      {
+        TIter next(d20->GetListOfKeys());
+        while (TKey* key = (TKey*)next())
+        {
+          const std::string name = key->GetName();
+          const std::string cls  = key->GetClassName();
+
+          if (seen.count(name)) continue; // already handled in pass 1
+
+          // Directory only in 20
+          if (IsDirClass(cls))
+          {
+            TDirectory* sub20 = dynamic_cast<TDirectory*>(d20->Get(name.c_str()));
+            if (!sub20) continue;
+
+            outDir->cd();
+            TDirectory* subOut = outDir->mkdir(name.c_str());
+            if (!subOut) continue;
+
+            CopyAndScaleAddRecursive(subOut, nullptr, 0.0, sub20, w20);
+            continue;
+          }
+
+          TObject* o20 = d20->Get(name.c_str());
+
+          // Histogram only in 20: scale by w20 and write
+          if (auto* h20 = dynamic_cast<TH1*>(o20))
+          {
+            outDir->cd();
+            TH1* h = dynamic_cast<TH1*>(h20->Clone(name.c_str()));
+            if (!h) continue;
+            h->SetDirectory(outDir);
+            if (h->GetSumw2N() == 0) h->Sumw2();
+            if (w20 != 0.0) h->Scale(w20);
+            h->Write(name.c_str(), TObject::kOverwrite);
+            continue;
+          }
+
+          // Other object only in 20: copy as-is
+          outDir->cd();
+          if (o20)
+          {
+            TObject* c = o20->Clone(name.c_str());
+            if (c) c->Write(name.c_str(), TObject::kOverwrite);
+          }
+        }
       }
     }
 
-    if (sum) sum->Add(h);
-  }
+    static bool BuildMergedSIMFile_Photon10And20(const string& in10,
+                                                 const string& in20,
+                                                 const string& outMerged,
+                                                 const string& topDirName,
+                                                 double sigma10_pb,
+                                                 double sigma20_pb)
+    {
+      cout << ANSI_BOLD_CYN
+           << "\n[MERGE SIM] Building merged SIM file with cross-section weights\n"
+           << "  in10 = " << in10 << "\n"
+           << "  in20 = " << in20 << "\n"
+           << "  out  = " << outMerged << "\n"
+           << "  topDir = " << topDirName << "\n"
+           << ANSI_RESET;
 
-  return sum;
-}
+      TFile* f10 = TFile::Open(in10.c_str(), "READ");
+      TFile* f20 = TFile::Open(in20.c_str(), "READ");
+      if (!f10 || f10->IsZombie() || !f20 || f20->IsZombie())
+      {
+        cout << ANSI_BOLD_RED << "[MERGE SIM][FATAL] Cannot open one of the input SIM files." << ANSI_RESET << "\n";
+        if (f10) f10->Close();
+        if (f20) f20->Close();
+        return false;
+      }
+
+      TDirectory* d10 = f10->GetDirectory(topDirName.c_str());
+      TDirectory* d20 = f20->GetDirectory(topDirName.c_str());
+      if (!d10 || !d20)
+      {
+        cout << ANSI_BOLD_RED << "[MERGE SIM][FATAL] Missing topDir in one of the SIM files." << ANSI_RESET << "\n";
+        f10->Close(); f20->Close();
+        return false;
+      }
+
+      const double N10 = ReadEventCountFromFile(f10, topDirName);
+      const double N20 = ReadEventCountFromFile(f20, topDirName);
+
+      cout << ANSI_BOLD_YEL
+           << "[MERGE SIM] Event counts from cnt_" << topDirName << " bin1:\n"
+           << "  N10 = " << std::fixed << std::setprecision(0) << N10 << "\n"
+           << "  N20 = " << std::fixed << std::setprecision(0) << N20 << "\n"
+           << ANSI_RESET;
+
+      if (N10 <= 0.0 || N20 <= 0.0)
+      {
+        cout << ANSI_BOLD_RED << "[MERGE SIM][FATAL] N10 or N20 <= 0 (cannot compute weights)." << ANSI_RESET << "\n";
+        f10->Close(); f20->Close();
+        return false;
+      }
+
+      const double w10 = sigma10_pb / N10;
+      const double w20 = sigma20_pb / N20;
+
+      const double sigmaTot = sigma10_pb + sigma20_pb;
+      const double f10 = (sigmaTot > 0.0) ? (sigma10_pb / sigmaTot) : 0.0;
+      const double f20 = (sigmaTot > 0.0) ? (sigma20_pb / sigmaTot) : 0.0;
+
+      // Effective luminosity of the merged MC (pb^-1)
+      const double Leff = (sigma10_pb > 0.0 ? (N10 / sigma10_pb) : 0.0)
+                          + (sigma20_pb > 0.0 ? (N20 / sigma20_pb) : 0.0);
+
+      cout << ANSI_BOLD_YEL
+             << "[MERGE SIM] Cross sections (pb): sigma10=" << sigma10_pb
+             << "  sigma20=" << sigma20_pb
+             << "  sigmaTot=" << sigmaTot << "\n"
+             << "[MERGE SIM] Slice fractions:     f10=" << std::setprecision(6) << f10
+             << "  f20=" << std::setprecision(6) << f20 << "\n"
+             << "[MERGE SIM] Per-event weights:   w10=" << std::setprecision(12) << w10
+             << "  w20=" << std::setprecision(12) << w20 << "   [pb/event]\n"
+             << "[MERGE SIM] Effective Lumi:      Leff=" << std::setprecision(6) << Leff << "   [pb^{-1}]\n"
+             << ANSI_RESET;
+
+      EnsureParentDirForFile(outMerged);
+      TFile* fout = TFile::Open(outMerged.c_str(), "RECREATE");
+      if (!fout || fout->IsZombie())
+      {
+        cout << ANSI_BOLD_RED << "[MERGE SIM][FATAL] Cannot create merged output file." << ANSI_RESET << "\n";
+        f10->Close(); f20->Close();
+        return false;
+      }
+
+      // Create the output topDir (SIM)
+      fout->cd();
+      TDirectory* outTop = fout->mkdir(topDirName.c_str());
+      if (!outTop)
+      {
+        cout << ANSI_BOLD_RED << "[MERGE SIM][FATAL] Cannot create topDir in merged output." << ANSI_RESET << "\n";
+        fout->Close(); f10->Close(); f20->Close();
+        return false;
+      }
+
+      // Copy/merge everything under topDir recursively (weighted)
+      CopyAndScaleAddRecursive(outTop, d10, w10, d20, w20);
+
+      // Write a simple merge summary text object into the file (optional but handy)
+      outTop->cd();
+      TNamed meta("MERGE_INFO",
+        TString::Format("Merged photonJet10+20. N10=%.0f N20=%.0f sigma10=%.6f pb sigma20=%.6f pb w10=%.12g w20=%.12g",
+                        N10, N20, sigma10_pb, sigma20_pb, w10, w20).Data());
+      meta.Write("MERGE_INFO", TObject::kOverwrite);
+
+      fout->Write();
+      fout->Close();
+      f10->Close();
+      f20->Close();
+
+      cout << ANSI_BOLD_CYN
+           << "[MERGE SIM] Done. Merged file written: " << outMerged << "\n"
+           << "[MERGE SIM] NOTE: histograms are now weighted (units ~ pb per bin). Entries are no longer raw event counts.\n"
+           << ANSI_RESET;
+
+      return true;
+    }
+
+
+    static void NormalizeToUnitArea(TH1* h)
+    {
+      if (!h) return;
+      const double integral = h->Integral(0, h->GetNbinsX() + 1);
+      if (integral > 0.0) h->Scale(1.0 / integral);
+    }
+
+    // Normalize using ONLY the visible bins in a given x-range (useful for overlays
+    // when truth and reco histograms have different x-axis ranges).
+    static void NormalizeToUnitAreaInRange(TH1* h, double xmin, double xmax)
+    {
+      if (!h) return;
+      const int b1 = h->GetXaxis()->FindBin(xmin + 1e-9);
+      const int b2 = h->GetXaxis()->FindBin(xmax - 1e-9);
+      const double integral = h->Integral(b1, b2);
+      if (integral > 0.0) h->Scale(1.0 / integral);
+    }
+
+    // Build an "inclusive over pTgamma bins" reco histogram by summing the pT-sliced family:
+    //   histBase + "_pT_lo_hi"  for i=0..kNPtBins-1
+    // Example: histBase="h_Eiso" produces h_Eiso_pT_10_12 + ... + h_Eiso_pT_26_35.
+    static TH1* SumRecoPtSlicedTH1(Dataset& ds, const string& histBase)
+    {
+      TH1* sum = nullptr;
+
+      for (int i = 0; i < kNPtBins; ++i)
+      {
+        const PtBin& b = PtBins()[i];
+        const string hname = histBase + b.suffix;
+
+        TH1* h = GetObj<TH1>(ds, hname, false, false, true);
+        if (!h) continue;
+
+        if (!sum)
+        {
+          sum = CloneTH1(h, histBase + "_INCLUSIVE_overPt");
+          if (sum)
+          {
+            sum->Reset("ICES");
+            sum->SetDirectory(nullptr);
+          }
+        }
+
+        if (sum) sum->Add(h);
+      }
+
+      return sum;
+    }
 
   static void DrawFidEtaLines1D(double etaAbs)
   {
@@ -6119,14 +6410,15 @@ static TH1* SumRecoPtSlicedTH1(Dataset& ds, const string& histBase)
   // =============================================================================
   // High-level runner
   // =============================================================================
-  static bool ExactlyOneModeSet()
-  {
-    const int nTrue =
-      (isPPdataOnly ? 1 : 0) +
-      (isSimOnly ? 1 : 0) +
-      (isSimAndDataPP ? 1 : 0);
-    return (nTrue == 1);
-  }
+    static bool ExactlyOneModeSet()
+    {
+      const int nTrue =
+        (isPPdataOnly ? 1 : 0) +
+        (isSimOnly ? 1 : 0) +
+        (isSimAndDataPP ? 1 : 0) +
+        (isSimOnlyWithPhoton10and20 ? 1 : 0);
+      return (nTrue == 1);
+    }
 
   static int Run()
   {
@@ -6143,10 +6435,31 @@ static TH1* SumRecoPtSlicedTH1(Dataset& ds, const string& histBase)
       return 1;
     }
 
-    const bool doPP  = isPPdataOnly || isSimAndDataPP;
-    const bool doSIM = isSimOnly    || isSimAndDataPP;
+      const bool doPP  = isPPdataOnly || isSimAndDataPP;
+      const bool doSIM = isSimOnly || isSimAndDataPP || isSimOnlyWithPhoton10and20;
 
-      // REPLACE WITH THIS (construct in-place; no copying of Dataset / std::ofstream)
+      // If requested, build the merged SIM file first (photonJet10 + photonJet20)
+      if (isSimOnlyWithPhoton10and20)
+      {
+        // cross sections provided by you (pb)
+        const double sigma10_pb = 6692.7611;
+        const double sigma20_pb = 105.79868;
+
+        const bool okMerge = BuildMergedSIMFile_Photon10And20(
+          kInSIM10, kInSIM20,
+          kMergedSIMOut,
+          kDirSIM,
+          sigma10_pb, sigma20_pb
+        );
+
+        if (!okMerge)
+        {
+          cerr << ANSI_BOLD_RED << "[FATAL] SIM merge failed; aborting." << ANSI_RESET << "\n";
+          return 99;
+        }
+      }
+
+      // Build dataset list
       vector<Dataset> datasets;
       datasets.reserve(2);
 
@@ -6158,7 +6471,10 @@ static TH1* SumRecoPtSlicedTH1(Dataset& ds, const string& histBase)
         sim.isSim      = true;
         sim.trigger    = "";
         sim.topDirName = kDirSIM;
-        sim.inFilePath = kInSIM;
+
+        // Choose input SIM file depending on toggle
+        sim.inFilePath = isSimOnlyWithPhoton10and20 ? kMergedSIMOut : kInSIM10;
+
         sim.outBase    = kOutSIMBase;
       }
 
