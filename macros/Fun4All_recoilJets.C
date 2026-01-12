@@ -514,16 +514,32 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   calibIHCal->set_detector_type(CaloTowerDefs::HCALIN);
   se->registerSubsystem(calibIHCal);
 
-  if (vlevel > 0) std::cout << "Building clusters" << std::endl;
-  RawClusterBuilderTemplate *ClusterBuilder = new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate");
-  ClusterBuilder->Detector("CEMC");
-  ClusterBuilder->set_threshold_energy(0.070);
-  std::string emc_prof = getenv("CALIBRATIONROOT");
-  emc_prof += "/EmcProfile/CEMCprof_Thresh30MeV.root";
-  ClusterBuilder->LoadProfile(emc_prof);
-  ClusterBuilder->set_UseTowerInfo(1);
-  ClusterBuilder->set_UseAltZVertex(1);
-  se->registerSubsystem(ClusterBuilder);
+    // ------------------------------------------------------------------
+    // Cluster building:
+    //  - DATA: build clusters from calibrated towers
+    //  - SIM : the DST already contains CLUSTERINFO_CEMC, so do NOT rebuild it
+    //         (rebuilding causes "node already exists" and can leave the container empty/undefined)
+    // ------------------------------------------------------------------
+    if (!isSim)
+    {
+      if (vlevel > 0) std::cout << "Building clusters (DATA)" << std::endl;
+
+      RawClusterBuilderTemplate *ClusterBuilder = new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate");
+      ClusterBuilder->Detector("CEMC");
+      ClusterBuilder->set_threshold_energy(0.070);
+
+      std::string emc_prof = getenv("CALIBRATIONROOT");
+      emc_prof += "/EmcProfile/CEMCprof_Thresh30MeV.root";
+      ClusterBuilder->LoadProfile(emc_prof);
+
+      ClusterBuilder->set_UseTowerInfo(1);
+      ClusterBuilder->set_UseAltZVertex(1);
+      se->registerSubsystem(ClusterBuilder);
+    }
+    else
+    {
+      if (vlevel > 0) std::cout << "[isSim] skipping RawClusterBuilderTemplate (CLUSTERINFO_CEMC already in DST)" << std::endl;
+    }
 
 
   if (vlevel > 0) std::cout << "Calibrating MBD" << std::endl;
@@ -634,7 +650,10 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
       jreco->add_algo(detail::fjAlgo(R), recoNode);
       jreco->set_algo_node("ANTIKT");
       jreco->set_input_node("TOWERINFO_CALIB");
-      jreco->Verbosity(vlevel);
+
+      // JetReco prints huge per-jet dumps at high verbosity (>=8). Keep it quiet.
+      jreco->Verbosity(0);
+
       se->registerSubsystem(jreco);
 
       if (vlevel > 0)
@@ -673,11 +692,14 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
                                     ? (std::string("AntiKt_TruthFromParticles_") + radKey)
                                     : (std::string("AntiKt_Truth_") + radKey);
 
-        truthReco->add_algo(detail::fjAlgo(R), truthNode);
-        truthReco->set_algo_node("ANTIKT");
-        truthReco->set_input_node("TRUTH");
-        truthReco->Verbosity(vlevel);
-        se->registerSubsystem(truthReco);
+          truthReco->add_algo(detail::fjAlgo(R), truthNode);
+          truthReco->set_algo_node("ANTIKT");
+          truthReco->set_input_node("TRUTH");
+
+          // Same deal for truth-jet reco: keep JetReco quiet.
+          truthReco->Verbosity(0);
+
+          se->registerSubsystem(truthReco);
 
         if (vlevel > 0)
           std::cout << "[INFO] (isSim) truth jets: produced node " << truthNode
@@ -710,15 +732,16 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   photonBuilder->set_input_cluster_node("CLUSTERINFO_CEMC");
   photonBuilder->set_output_photon_node("PHOTONCLUSTER_CEMC");
   photonBuilder->set_ET_threshold(0.07);
-  photonBuilder->Verbosity(0);
+  photonBuilder->Verbosity(2);
   se->registerSubsystem(photonBuilder);
 
   auto* recoilJets = new RecoilJets(outRoot);
-  recoilJets->setVzCut(30.);
-  recoilJets->enableVzCut(true);
-  recoilJets->setIsolationWP(1.08128, 0.0299107, 1.0,   0.30,  0.0);
-  // Use the already-defined global vlevel
-  recoilJets->setVerbose(vlevel);
+
+  recoilJets->setUseVzCut(true, 30.0);
+  recoilJets->setIsolationWP(1.08128, 0.0299107, 1.0, 0.30, 0.0);
+
+  // RecoilJets inherits SubsysReco::Verbosity(int)
+  recoilJets->Verbosity(vlevel);
   if (verbose) std::cout << "[INFO] RJ_VERBOSITY → " << vlevel << '\n';
   // Pick analysis type for the module (isPP / isAuAu / isSim), case-insensitive.
   // Fallback: ≤ 53864 → isPP, > 53864 → isAuAu.

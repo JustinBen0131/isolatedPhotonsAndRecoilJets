@@ -1,0 +1,18 @@
+# missing_hists.txt for dataset=SIM topDir=SIM input=/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10_SIM/RecoilJets_photonjet10_ALL.root
+# Each line: <fullpath> :: <reason>
+
+SIM/h_preFail_et1_high_pT_20_22 :: MISSING
+SIM/h_preFail_et1_high_pT_22_24 :: MISSING
+SIM/h_preFail_et1_high_pT_24_26 :: MISSING
+SIM/h_preFail_et1_high_pT_26_35 :: MISSING
+SIM/h_notIsolated_notTight_pT_26_35 :: MISSING
+SIM/h_ss_weta_notIsolated_notTight_pT_26_35 :: MISSING
+SIM/h_ss_weta_notIsolated_notTight_pT_26_35 :: MISSING
+SIM/h_ss_wphi_notIsolated_notTight_pT_26_35 :: MISSING
+SIM/h_ss_wphi_notIsolated_notTight_pT_26_35 :: MISSING
+SIM/h_ss_e11e33_notIsolated_notTight_pT_26_35 :: MISSING
+SIM/h_ss_e11e33_notIsolated_notTight_pT_26_35 :: MISSING
+SIM/h_ss_e32e35_notIsolated_notTight_pT_26_35 :: MISSING
+SIM/h_ss_e32e35_notIsolated_notTight_pT_26_35 :: MISSING
+SIM/h_ss_et1_notIsolated_notTight_pT_26_35 :: MISSING
+SIM/h_ss_et1_notIsolated_notTight_pT_26_35 :: MISSING

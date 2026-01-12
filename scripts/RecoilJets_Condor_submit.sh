@@ -475,8 +475,59 @@ check_jobs_all() {
 # Submit a set of runs (from a round file or the whole golden list) to Condor
 #   submit_condor <runs_source> [firstChunk]
 submit_condor() {
-  local source="$1" first_chunk="${2:-}"
+  local source="$1"
+  local first_chunk="${2:-}"
+  local wipe_mode="${3:-never}"   # never | once | always
+
   [[ -s "$source" ]] || { err "Run source not found or empty: $source"; exit 5; }
+
+  # -------------------------------------------------------------------
+  # DATA output wipe policy (pp/auau only):
+  #   wipe_mode=always -> wipe DEST_BASE every time before submit
+  #   wipe_mode=once   -> wipe DEST_BASE only if stamp is not present
+  #   wipe_mode=never  -> never wipe
+  #
+  # Stamp file lives in BASE and persists across rounds:
+  #   ${BASE}/.RJ_OUTPUTS_WIPED_<tag>.stamp
+  # -------------------------------------------------------------------
+  if [[ "$DATASET" != "isSim" ]]; then
+    local stamp_file="${BASE}/.RJ_OUTPUTS_WIPED_${TAG}.stamp"
+    local do_wipe=0
+
+    if [[ "$wipe_mode" == "always" ]]; then
+      do_wipe=1
+    elif [[ "$wipe_mode" == "once" ]]; then
+      [[ -f "$stamp_file" ]] || do_wipe=1
+    fi
+
+    if (( do_wipe )); then
+      # Safety checks to avoid catastrophic wipes
+      [[ -n "${DEST_BASE:-}" ]] || { err "DEST_BASE is empty; refusing to wipe."; exit 60; }
+      [[ "$DEST_BASE" != "/" ]] || { err "DEST_BASE is '/' ; refusing to wipe."; exit 60; }
+
+      case "$DEST_BASE" in
+        */thesisAna/pp|*/thesisAna/auau) ;;
+        *)
+          err "Refusing to wipe DEST_BASE='$DEST_BASE' (not an expected thesisAna/{pp|auau} path)"
+          exit 61
+          ;;
+      esac
+
+      say "WIPING OUTPUT TREE (dataset=${DATASET}, mode=${wipe_mode}) → ${DEST_BASE}"
+      mkdir -p "$DEST_BASE"
+
+      # Remove everything *inside* DEST_BASE (files + subdirs), keep DEST_BASE itself
+      find "$DEST_BASE" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+
+      date +"%Y-%m-%d %H:%M:%S" > "$stamp_file"
+      say "Wipe complete. Stamp written: $stamp_file"
+      say "To force another wipe later, delete the stamp: rm -f $stamp_file"
+    else
+      if [[ "$wipe_mode" != "never" ]]; then
+        say "Not wiping outputs (mode=${wipe_mode}); stamp exists: ${BASE}/.RJ_OUTPUTS_WIPED_${TAG}.stamp"
+      fi
+    fi
+  fi
 
   local stamp; stamp="$(date +%Y%m%d_%H%M%S)"
   local sub="${BASE}/RecoilJets_${TAG}_${stamp}.sub"
@@ -498,9 +549,33 @@ environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0
 SUB
 
   local queued=0
+  local run_counter=0
+  local t0; t0="$(date +%s)"
+
+  # Controls:
+  #   RJ_SUBMIT_TRACE=1               -> print one line per run
+  #   RJ_SUBMIT_PROGRESS_EVERY=25     -> print progress every N runs (default 25)
+  local submit_trace="${RJ_SUBMIT_TRACE:-0}"
+  local progress_every="${RJ_SUBMIT_PROGRESS_EVERY:-25}"
+  [[ "$progress_every" =~ ^[0-9]+$ ]] || progress_every=25
+  (( progress_every > 0 )) || progress_every=25
+
+  say "Building Condor submit file: $(basename "$sub")"
+  say "Progress: export RJ_SUBMIT_TRACE=1 for per-run lines (or set RJ_SUBMIT_PROGRESS_EVERY=N)"
+
   while IFS= read -r r8_raw; do
     [[ -z "$r8_raw" || "$r8_raw" =~ ^# ]] && continue
     r8="$(run8 "$r8_raw")"   # ← zero-pad to 8 digits
+    (( run_counter+=1 ))
+
+    if (( submit_trace )); then
+      say "[submit] run ${r8} (run #${run_counter})"
+    elif (( run_counter % progress_every == 0 )); then
+      local now elapsed
+      now="$(date +%s)"
+      elapsed=$(( now - t0 ))
+      say "[submit] processed ${run_counter} runs, queued ${queued} jobs so far (elapsed ${elapsed}s)"
+    fi
 
     # Optional trigger filter: require GL1 scaledown bit to be active
     if [[ -n "${TRIGGER_BIT}" ]]; then
@@ -515,19 +590,24 @@ SUB
 
     (( ${#groups[@]} )) || { warn "No groups produced for run $r8; skipping"; continue; }
 
+    if (( submit_trace )); then
+      say "    files per job=${GROUP_SIZE} -> groups produced=${#groups[@]}"
+    fi
+
     # If "firstChunk" is requested, only submit the first group (smoke test)
     if [[ "$first_chunk" == "firstChunk" ]]; then
       groups=( "${groups[0]}" )
+      (( submit_trace )) && say "    firstChunk enabled -> submitting 1 group for run ${r8}"
     fi
 
     local gidx=0
     for glist in "${groups[@]}"; do
       (( gidx+=1 ))
-      # args: <run8> <chunkList> <isPP|isAuAu> <Cluster> <nEvents=0> <chunkIdx> NONE <destBase>
       printf 'arguments = %s %s %s $(Cluster) 0 %d NONE %s\nqueue\n\n' \
              "$r8" "$glist" "$DATASET" "$gidx" "$DEST_BASE" >> "$sub"
       (( queued+=1 ))
     done
+
   done < "$source"
 
   say "Submitting ${BOLD}${queued}${RST} jobs → $(basename "$sub")"
@@ -801,12 +881,18 @@ SUB
         firstChunk="${5:-}"
         round_file="${ROUND_DIR}/goldenRuns_${TAG}_segment${seg}.txt"
         [[ -s "$round_file" ]] || { err "Round file not found: $round_file. Run 'splitGoldenRunList' first."; exit 8; }
-        submit_condor "$round_file" "$firstChunk"
+
+        # Wipe outputs only the FIRST time you submit any round (stamp-based)
+        submit_condor "$round_file" "$firstChunk" "once"
         ;;
       all|"")
+        say "Preparing CONDOR ALL submission (dataset=${DATASET}, groupSize=${GROUP_SIZE})"
+        say "This step generates per-run grouped chunk lists and a large submit file before calling condor_submit."
         tmp_src="${ROUND_DIR}/ALL_${TAG}_$(date +%s).txt"
         grep -E '^[0-9]+' "$GOLDEN" > "$tmp_src"
-        submit_condor "$tmp_src"
+
+        # Always wipe outputs before a full 'condor all' submit
+        submit_condor "$tmp_src" "" "always"
         ;;
       *)
         usage

@@ -52,7 +52,7 @@ VERBOSE="true"
 # We will NOT use the catalog. We will scan lustre directories directly.
 RUNNUM="28"
 #PHOTONJET_SAMPLES=( "photonjet5" "photonjet10" "photonjet20" )
-PHOTONJET_SAMPLES=( "photonjet10" )
+PHOTONJET_SAMPLES=( "photonjet5" "photonjet10" "photonjet20" "photonjet30" )
 
 # Source base (what you just proved exists)
 MDC2_BASE="/sphenix/lustre01/sphnxpro/mdc2/js_pp200_signal"
