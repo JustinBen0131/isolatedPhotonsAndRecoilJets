@@ -1958,23 +1958,53 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
           int nTruthSig = 0;
           int nTruthSigMatched = 0;
 
-          for (auto it = evt->particles_begin(); it != evt->particles_end(); ++it)
-          {
-            const HepMC::GenParticle* p = *it;
-            if (!p) continue;
+            for (auto it = evt->particles_begin(); it != evt->particles_end(); ++it)
+            {
+              const HepMC::GenParticle* p = *it;
+              if (!p) continue;
 
-            double isoEtTruth = 0.0;
-            if (!isTruthPromptIsolatedSignalPhoton(evt, p, isoEtTruth)) continue;
-            ++nTruthSig;
+              // Truth isolation is computed inside isTruthPromptIsolatedSignalPhoton(...)
+              // for prompt (direct/frag) final-state photons in acceptance.
+              double isoEtTruth = std::numeric_limits<double>::quiet_NaN();
+              const bool passTruthIso = isTruthPromptIsolatedSignalPhoton(evt, p, isoEtTruth);
 
-            const RawCluster* recoMatch = nullptr;
-            double rPt = 0.0, rEta = 0.0, rPhi = 0.0, drBest = 1e9;
-            float  eBest = -1.0f;
+              // ---------------------------
+              // NEW: Truth isolation QA (SIM)
+              // ---------------------------
+              // Fill the isoEtTruth distribution for ALL prompt truth photons where isoEtTruth was computed
+              // (this includes both PASS and FAIL of the iso cut).
+              if (std::isfinite(isoEtTruth))
+              {
+                for (const auto& trigShort : activeTrig)
+                {
+                  // Distribution
+                  if (auto* hIsoT = getOrBookTruthIsoHist(trigShort, "h_EisoTruth", 200, 0.0, 50.0))
+                  {
+                    hIsoT->Fill(isoEtTruth);
+                    bumpHistFill(trigShort, hIsoT->GetName());
+                  }
 
-            if (!findRecoPhotonMatchedToTruthSignal(evt, p, clustereval,
-                                                   recoMatch, rPt, rEta, rPhi, drBest, eBest))
-              continue;
-            ++nTruthSigMatched;
+                  // PASS/FAIL decision (bin1=PASS, bin2=FAIL)
+                  if (auto* hDecT = getOrBookTruthIsoDecisionHist(trigShort, "h_EisoTruthDecision"))
+                  {
+                    hDecT->Fill(passTruthIso ? 1 : 2);
+                    bumpHistFill(trigShort, hDecT->GetName());
+                  }
+                }
+              }
+
+              // Keep your original leakage logic: only proceed for isolated truth-signal photons
+              if (!passTruthIso) continue;
+              ++nTruthSig;
+
+              const RawCluster* recoMatch = nullptr;
+              double rPt = 0.0, rEta = 0.0, rPhi = 0.0, drBest = 1e9;
+              float  eBest = -1.0f;
+
+              if (!findRecoPhotonMatchedToTruthSignal(evt, p, clustereval,
+                                                     recoMatch, rPt, rEta, rPhi, drBest, eBest))
+                continue;
+              ++nTruthSigMatched;
 
             const auto* recoPho = dynamic_cast<const PhotonClusterv1*>(recoMatch);
             if (!recoPho) continue;
@@ -2782,10 +2812,13 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 const Jet* rj = recoJetsFid[irj];
                 if (!rj) continue;
 
-                const double jpt = rj->get_pt();
+                const double jpt  = rj->get_pt();
+                const double jphi = rj->get_phi();
                 if (!std::isfinite(jpt) || jpt <= 0.0) continue;
+                if (!std::isfinite(jphi)) continue;
 
-                const double xJr = jpt / leadPtGamma;
+                const double xJr     = jpt / leadPtGamma;
+                const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(jphi - leadPhiGamma));
 
                 for (const auto& trigShort : activeTrig)
                 {
@@ -2793,6 +2826,13 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                   {
                     h2->Fill(leadPtGamma, xJr);
                     bumpHistFill(trigShort, h2->GetName());
+                  }
+
+                  // NEW: inclusive |Δphi(γ,jet)| for each recoil jet passing cuts
+                  if (auto* h2d = getOrBookUnfoldRecoPtDphiIncl(trigShort, rKey, effCentIdx_M))
+                  {
+                    h2d->Fill(leadPtGamma, dphiAbs);
+                    bumpHistFill(trigShort, h2d->GetName());
                   }
                 }
               }
@@ -2844,18 +2884,25 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                     truthJetsFid.push_back(tj);
                     truthJetsFidIsRecoil.push_back(isRecoil ? 1 : 0);
 
-                    if (isRecoil)
-                    {
-                      const double xJt = ptj / tPt;
-                      for (const auto& trigShort : activeTrig)
+                      if (isRecoil)
                       {
-                        if (auto* h2t = getOrBookUnfoldTruthPtXJIncl(trigShort, rKey, effCentIdx_M))
+                        const double xJt = ptj / tPt;
+                        for (const auto& trigShort : activeTrig)
                         {
-                          h2t->Fill(tPt, xJt);
-                          bumpHistFill(trigShort, h2t->GetName());
+                          if (auto* h2t = getOrBookUnfoldTruthPtXJIncl(trigShort, rKey, effCentIdx_M))
+                          {
+                            h2t->Fill(tPt, xJt);
+                            bumpHistFill(trigShort, h2t->GetName());
+                          }
+
+                          // NEW: inclusive |Δphi(γ,jet)| for each TRUTH recoil jet passing cuts
+                          if (auto* h2dt = getOrBookUnfoldTruthPtDphiIncl(trigShort, rKey, effCentIdx_M))
+                          {
+                            h2dt->Fill(tPt, dphiAbs);
+                            bumpHistFill(trigShort, h2dt->GetName());
+                          }
                         }
                       }
-                    }
                   }
 
                   // 2) Jet ΔR matching (fiducial jets only) to build response + fakes/misses
@@ -4130,6 +4177,94 @@ TH2F* RecoilJets::getOrBookUnfoldRecoPtXJIncl(const std::string& trig,
   return h;
 }
 
+TH2F* RecoilJets::getOrBookUnfoldRecoPtDphiIncl(const std::string& trig,
+                                              const std::string& rKey,
+                                              int centIdx)
+{
+    const std::string base   = "h2_unfoldReco_pTgamma_dphi_incl";
+    const std::string suffix = suffixForBins(-1, centIdx);   // centrality-only (Au+Au); empty in pp
+    const std::string name   = base + "_" + rKey + suffix;
+
+    if (trig.empty() || rKey.empty()) return nullptr;
+
+    auto& H = qaHistogramsByTrigger[trig];
+    if (auto it = H.find(name); it != H.end())
+    {
+      if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+      H.erase(it);
+    }
+
+    if (!out || !out->IsOpen()) return nullptr;
+
+    TDirectory* const prevDir = gDirectory;
+    TDirectory* dir = out->GetDirectory(trig.c_str());
+    if (!dir) dir = out->mkdir(trig.c_str());
+    if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+    dir->cd();
+
+    // Must match reco pTγ unfolding binning you already use
+    static const std::vector<double> kPtReco = {8,10,12,14,16,18,20,22,24,26,35,40};
+
+    const int nx = static_cast<int>(kPtReco.size()) - 1;
+    const int ny = 64;
+
+    const std::string title =
+      name + ";p_{T}^{#gamma,reco} [GeV];|#Delta#phi(#gamma,jet)| [rad]";
+
+    auto* h = new TH2F(name.c_str(), title.c_str(),
+                       nx, kPtReco.data(),
+                       ny, 0.0, M_PI);
+    h->Sumw2();
+
+    H[name] = h;
+    if (prevDir) prevDir->cd();
+    return h;
+}
+
+TH2F* RecoilJets::getOrBookUnfoldTruthPtDphiIncl(const std::string& trig,
+                                               const std::string& rKey,
+                                               int centIdx)
+{
+    const std::string base   = "h2_unfoldTruth_pTgamma_dphi_incl";
+    const std::string suffix = suffixForBins(-1, centIdx);
+    const std::string name   = base + "_" + rKey + suffix;
+
+    if (trig.empty() || rKey.empty()) return nullptr;
+
+    auto& H = qaHistogramsByTrigger[trig];
+    if (auto it = H.find(name); it != H.end())
+    {
+      if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+      H.erase(it);
+    }
+
+    if (!out || !out->IsOpen()) return nullptr;
+
+    TDirectory* const prevDir = gDirectory;
+    TDirectory* dir = out->GetDirectory(trig.c_str());
+    if (!dir) dir = out->mkdir(trig.c_str());
+    if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+    dir->cd();
+
+    // Must match truth pTγ unfolding binning you already use
+    static const std::vector<double> kPtTruth = {5,8,10,12,14,16,18,20,22,24,26,35,40};
+
+    const int nx = static_cast<int>(kPtTruth.size()) - 1;
+    const int ny = 64;
+
+    const std::string title =
+      name + ";p_{T}^{#gamma,truth} [GeV];|#Delta#phi(#gamma^{truth},jet^{truth})| [rad]";
+
+    auto* h = new TH2F(name.c_str(), title.c_str(),
+                       nx, kPtTruth.data(),
+                       ny, 0.0, M_PI);
+    h->Sumw2();
+
+    H[name] = h;
+    if (prevDir) prevDir->cd();
+    return h;
+}
+
 TH2F* RecoilJets::getOrBookUnfoldTruthPtXJIncl(const std::string& trig,
                                                const std::string& rKey,
                                                int centIdx)
@@ -5179,6 +5314,72 @@ TH1I* RecoilJets::getOrBookIsoDecisionHist(const std::string& trig, int ptIdx, i
   return h;
 }
 
+
+// ============================================================================
+//  SIM-only truth isolation QA bookers
+//    - stored directly in the trigger directory (SIM => /SIM/)
+//    - NOT sliced by pT/centrality (these are global truth QA histograms)
+// ============================================================================
+
+TH1F* RecoilJets::getOrBookTruthIsoHist(const std::string& trig,
+                                       const std::string& name,
+                                       int nbins, double xmin, double xmax)
+{
+  if (trig.empty() || name.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH1F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+  dir->cd();
+
+  const std::string title = name + ";E_{T}^{iso,truth} [GeV];Entries";
+  auto* h = new TH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
+  h->Sumw2();
+  H[name] = h;
+
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+TH1I* RecoilJets::getOrBookTruthIsoDecisionHist(const std::string& trig,
+                                               const std::string& name)
+{
+  if (trig.empty() || name.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH1I*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+  dir->cd();
+
+  const std::string title = name + ";Truth isolation cut decision;Entries";
+  auto* h = new TH1I(name.c_str(), title.c_str(), 2, 0.5, 2.5);
+  h->GetXaxis()->SetBinLabel(1, "PASS");
+  h->GetXaxis()->SetBinLabel(2, "FAIL");
+  H[name] = h;
+
+  if (prevDir) prevDir->cd();
+  return h;
+}
 
 // ------------------------------------------------------------------
 // NEW (SIM only): matched truth-signal → reco ABCD leakage histogram

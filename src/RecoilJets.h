@@ -491,11 +491,16 @@ private:
   //      h2_unfoldRecoFakes_pTgamma_xJ_incl_<rKey><centSuffix>
   //      h2_unfoldTruthMisses_pTgamma_xJ_incl_<rKey><centSuffix>
   // -------------------------------------------------------------------------
-  TH2F* getOrBookUnfoldRecoPtXJIncl   (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookUnfoldTruthPtXJIncl  (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookUnfoldResponsePtXJIncl(const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookUnfoldRecoFakesPtXJIncl (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookUnfoldTruthMissesPtXJIncl(const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookUnfoldRecoPtXJIncl      (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookUnfoldTruthPtXJIncl     (const std::string& trig, const std::string& rKey, int centIdx);
+
+    // NEW: inclusive |Δphi(gamma,jet)| per recoil jet that passes pT+eta+recoil Δphi cuts
+    TH2F* getOrBookUnfoldRecoPtDphiIncl    (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookUnfoldTruthPtDphiIncl   (const std::string& trig, const std::string& rKey, int centIdx);
+
+    TH2F* getOrBookUnfoldResponsePtXJIncl  (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookUnfoldRecoFakesPtXJIncl (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookUnfoldTruthMissesPtXJIncl(const std::string& trig, const std::string& rKey, int centIdx);
 
   // -------------------------------------------------------------------------
   // NEW / REQUIRED: radius-tagged matching-QA bookers

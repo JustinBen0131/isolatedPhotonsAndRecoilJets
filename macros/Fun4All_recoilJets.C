@@ -52,6 +52,7 @@
 #include <jetbase/FastJetOptions.h>
 #include <jetbase/JetReco.h>
 #include <jetbase/TowerJetInput.h>
+#include <jetbase/JetCalib.h>
 #include <jetbackground/RetowerCEMC.h>
 #include <jetbackground/DetermineTowerBackground.h>
 #include <jetbackground/SubtractTowers.h>
@@ -126,6 +127,55 @@ namespace detail
     return new FastJetAlgoSub(o);
   }
 }
+
+// ============================================================================
+// Ensure the composite nodes JetCalib hard-requires exist.
+// JetCalib::CreateNodeTree requires BOTH:
+//   - PHCompositeNode "ANTIKT"
+//   - PHCompositeNode "TOWER"
+// Your pp DSTs often don't have "TOWER", so JetCalib aborts the run.
+// ============================================================================
+class EnsureJetCalibNodes final : public SubsysReco
+{
+ public:
+  explicit EnsureJetCalibNodes(const std::string& name="EnsureJetCalibNodes")
+    : SubsysReco(name) {}
+
+  int InitRun(PHCompositeNode* topNode) override
+  {
+    PHNodeIterator iter(topNode);
+
+    auto* dstNode = dynamic_cast<PHCompositeNode*>(iter.findFirst("PHCompositeNode", "DST"));
+    if (!dstNode)
+    {
+      std::cerr << "[EnsureJetCalibNodes] FATAL: DST node not found\n";
+      return Fun4AllReturnCodes::ABORTRUN;
+    }
+
+    // JetCalib requires ANTIKT to exist
+    auto* antiktNode = dynamic_cast<PHCompositeNode*>(iter.findFirst("PHCompositeNode", "ANTIKT"));
+    if (!antiktNode)
+    {
+      antiktNode = new PHCompositeNode("ANTIKT");
+      dstNode->addNode(antiktNode);
+      if (Verbosity() > 0)
+        std::cout << "[EnsureJetCalibNodes] created DST/ANTIKT composite node\n";
+    }
+
+    // JetCalib requires TOWER to exist (this is what you're missing)
+    auto* towerNode = dynamic_cast<PHCompositeNode*>(iter.findFirst("PHCompositeNode", "TOWER"));
+    if (!towerNode)
+    {
+      towerNode = new PHCompositeNode("TOWER");
+      dstNode->addNode(towerNode);
+      if (Verbosity() > 0)
+        std::cout << "[EnsureJetCalibNodes] created DST/TOWER composite node\n";
+    }
+
+    return Fun4AllReturnCodes::EVENT_OK;
+  }
+};
+
 //======================================================================
 //  The actual steering macro
 //======================================================================
@@ -621,46 +671,101 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
         if (vlevel > 0) std::cout << "[pp dataset] skipping CentralityReco" << std::endl;
   }
     
-  // --------------------------------------------------------------------
-  // 4. Jet reconstruction / jet inputs
-  //
-  // Analysis radii policy (ALL datasets): ONLY r02 and r04 (defined in RecoilJets::kJetRadii)
-  //
-  // SIM:
-  //   - Reco jets: build from calibrated towerinfo (TOWERINFO_CALIB)
-  //   - Truth jets:
-  //       * if useDSTTruthJets: read from DST_JETS (already loaded by DST_JETS_IN)
-  //       * if buildTruthJetsFromParticles: build from TRUTH particles (TruthJetInput)
-  // --------------------------------------------------------------------
+    // ---------------------- Reco jets + JES calibration (pp-style only) ----------------------
+    //
+    // IMPORTANT:
+    // JetCalib::CreateNodeTree() requires a PHCompositeNode named "TOWER".
+    // Many pp DSTs do NOT have it, so JetCalib aborts unless we create it.
+    // We register EnsureJetCalibNodes once (only when we intend to run JetCalib).
+    //
+    const bool doJetCalibAny = (!isAuAuData);
+    if (doJetCalibAny)
+    {
+      auto* ensure = new EnsureJetCalibNodes("EnsureJetCalibNodes_forJES");
+      // keep this modest; set RJ_JETCALIB_NODE_VERBOSE=1 for prints
+      int nodeV = 0;
+      if (const char* env = std::getenv("RJ_JETCALIB_NODE_VERBOSE")) nodeV = std::atoi(env);
+      ensure->Verbosity(nodeV);
+      se->registerSubsystem(ensure);
 
-  // ---------------------- Reco jets (no UE subtraction) ----------------------
-  for (const auto& jnm : RecoilJets::kJetRadii)
-  {
+      if (vlevel > 0)
+        std::cout << "[INFO] JES: enabling JetCalib => ensuring DST/TOWER exists (JetCalib requirement)\n";
+    }
+
+    // Optional: control JetCalib verbosity independently
+    int jetcalV = 1; // default: show InitRun/process_event messages
+    if (const char* env = std::getenv("RJ_JETCALIB_VERBOSITY"))
+    {
+      jetcalV = std::atoi(env);
+    }
+
+    for (const auto& jnm : RecoilJets::kJetRadii)
+    {
       const std::string radKey = jnm.key;            // "r02" or "r04"
       const int   D = std::stoi(radKey.substr(1));   // 2 or 4
       const float R = 0.1f * D;                      // 0.2 or 0.4
 
-      const std::string recoNode = jnm.pp_node;      // built from towers as PPJetsRaw_*
+      // Canonical node name that RecoilJets reads (from RecoilJets::kJetRadii)
+      const std::string calibNode = jnm.pp_node;
+
+      // Apply JES calibration for pp-like chains (pp data + pp-style SIM)
+      const bool doJetCalib = (!isAuAuData);
+
+      // If calibrating: build RAW jets to a separate node to avoid name collision
+      const std::string rawNode = doJetCalib ? (calibNode + "_RAW") : calibNode;
+
+      // ---------------------- JetReco (build jets) ----------------------
       const std::string recoName = std::string("JetsReco_") + (isSim ? "Sim_" : "Data_") + radKey;
 
       auto* jreco = new JetReco(recoName);
       jreco->add_input(new TowerJetInput(Jet::CEMC_TOWERINFO,    "TOWERINFO_CALIB"));
       jreco->add_input(new TowerJetInput(Jet::HCALIN_TOWERINFO,  "TOWERINFO_CALIB"));
       jreco->add_input(new TowerJetInput(Jet::HCALOUT_TOWERINFO, "TOWERINFO_CALIB"));
-      jreco->add_algo(detail::fjAlgo(R), recoNode);
+
+      jreco->add_algo(detail::fjAlgo(R), rawNode);
       jreco->set_algo_node("ANTIKT");
       jreco->set_input_node("TOWERINFO_CALIB");
 
-      // JetReco prints huge per-jet dumps at high verbosity (>=8). Keep it quiet.
-      jreco->Verbosity(0);
+      // If you want JetReco debug: export RJ_JETRECO_VERBOSITY=1
+      int jetrecoV = 0;
+      if (const char* env = std::getenv("RJ_JETRECO_VERBOSITY")) jetrecoV = std::atoi(env);
+      jreco->Verbosity(jetrecoV);
 
       se->registerSubsystem(jreco);
 
       if (vlevel > 0)
+      {
         std::cout << "[INFO] (" << (isSim ? "isSim" : "data") << ") reco jets: built "
-                  << recoNode << " (R=" << R << ") from TOWERINFO_CALIB\n";
-  }
+                  << rawNode << " (R=" << R << ") from TOWERINFO_CALIB\n";
+      }
 
+      // ---------------------- JetCalib (apply JES) ----------------------
+      if (doJetCalib)
+      {
+        auto* jcal = new JetCalib(std::string("JetCalib_") + radKey);
+
+        // JetCalib reads RAW jets and writes CALIB jets into the canonical node
+        jcal->set_InputNode(rawNode);
+        jcal->set_OutputNode(calibNode);
+
+        jcal->set_JetRadius(R);
+        jcal->set_ZvrtxNode("GlobalVertexMap");  // what JetCalib expects
+
+        // Full pp JES: Zvrtx + eta dependent
+        jcal->set_ApplyZvrtxDependentCalib(true);
+        jcal->set_ApplyEtaDependentCalib(true);
+
+        jcal->Verbosity(jetcalV);
+        se->registerSubsystem(jcal);
+
+        if (vlevel > 0)
+        {
+          std::cout << "[INFO] JES calib enabled: " << rawNode << " -> " << calibNode
+                    << " (R=" << R << ", Zvrtx+eta dependent, JetCalibVerbosity=" << jetcalV << ")\n";
+        }
+      }
+  }
+    
   // ---------------------- Truth jets -----------------------------------------
   // If useDSTTruthJets==true: they already exist from DST_JETS_IN.
   // If buildTruthJetsFromParticles==true: build them from TRUTH particles here.
