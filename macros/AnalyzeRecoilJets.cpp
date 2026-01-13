@@ -4,7 +4,7 @@
 //   root -l -q AnalyzeRecoilJets_NEW.cpp
 // -----------------------------------------------------------------------------
 
-#include "AnalyzeRecoilJets_NEW.h"
+#include "AnalyzeRecoilJets.h"
 
 namespace ARJ
 {
@@ -132,7 +132,7 @@ namespace ARJ
             // pad layout
             if (compact)
             {
-                gPad->SetLeftMargin(0.15);
+                gPad->SetLeftMargin(0.17);
                 gPad->SetRightMargin(0.08);
                 gPad->SetTopMargin(0.14);
                 gPad->SetBottomMargin(0.46);
@@ -164,12 +164,16 @@ namespace ARJ
 
             for (int ib = 1; ib <= 8; ++ib) hAxis->GetXaxis()->SetBinLabel(ib, xLabels[ib-1]);
 
-            hAxis->GetYaxis()->SetTitle("Preselection fail counts");
+            hAxis->GetYaxis()->SetTitle("Fail counts");
             hAxis->GetXaxis()->SetTitle("");
             hAxis->GetXaxis()->LabelsOption("v");
-            hAxis->GetXaxis()->SetLabelSize(compact ? 0.065 : 0.040);
+
+            hAxis->GetXaxis()->SetLabelSize(compact ? 0.065 : 0.055);
             hAxis->GetXaxis()->SetLabelOffset(compact ? 0.018 : 0.012);
-            hAxis->GetYaxis()->SetTitleOffset(compact ? 1.55 : 1.25);
+
+            // Y-axis title: bigger + closer in the 3x3 table
+            hAxis->GetYaxis()->SetTitleSize(compact ? 0.065 : 0.055);
+            hAxis->GetYaxis()->SetTitleOffset(compact ? 1.05 : 1.05);
 
             hAxis->SetLineColor(1);
             hAxis->SetLineWidth(2);
@@ -209,7 +213,7 @@ namespace ARJ
             TLatex t;
             t.SetTextFont(42);
             t.SetTextAlign(22); // centered
-            t.SetTextSize(compact ? 0.045 : 0.030);
+            t.SetTextSize(compact ? 0.055 : 0.034);
 
 
             for (int ib = 1; ib <= 8; ++ib)
@@ -242,15 +246,15 @@ namespace ARJ
 
               // pT range (top-left) — larger, replaces where "inclusive fails" used to sit
               tt.SetTextAlign(13);   // left, top
-              tt.SetTextSize(0.070);
-              tt.DrawLatex(0.16, 0.93,
+              tt.SetTextSize(0.07);
+              tt.DrawLatex(0.2, 0.8,
                 TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data()
               );
 
               // "Inclusive Fails" (top-right)
               tt.SetTextAlign(33);   // right, top
-              tt.SetTextSize(0.055);
-              tt.DrawLatex(0.95, 0.93, "Inclusive Fails");
+              tt.SetTextSize(0.062);
+              tt.DrawLatex(0.88, 0.93, "Inclusive Fails (Preselection)");
             }
 
             if (keepAlive) keepAlive->push_back(hAxis);
@@ -705,6 +709,150 @@ namespace ARJ
           cout << ANSI_BOLD_YEL << "[WARN] No nonzero A_sig_MC found; leakage correction will be unavailable.\n" << ANSI_RESET;
         }
       }
+  
+      static void Make3x3Table_ABCDCounts(Dataset& ds,
+                                         const string& outDir,
+                                         const string& outName,
+                                         const vector<string>& commonLines)
+      {
+        EnsureDir(outDir);
+
+        const char* xLabelsABCD[4] = {"N_{A}", "N_{B}", "N_{C}", "N_{D}"};
+        const int   colorsABCD[4]  = {kGreen+2, kRed+1, kAzure+1, kMagenta+1};
+
+        // Wider canvas for readability
+        TCanvas c(
+          TString::Format("c_abcd_cnt_tbl_%s", ds.label.c_str()).Data(),
+          "c_abcd_cnt_tbl", 2400, 1400
+        );
+        c.Divide(3,3, 0.002, 0.002);
+
+        vector<TObject*> keepAlive;
+        keepAlive.reserve(kNPtBins * (1 + 4));
+
+        const auto& bins = PtBins();
+
+        for (int i = 0; i < kNPtBins; ++i)
+        {
+          c.cd(i+1);
+          if (!gPad) continue;
+
+          // Match your preselection-table style
+          gPad->SetLeftMargin(0.17);
+          gPad->SetRightMargin(0.08);
+          gPad->SetTopMargin(0.14);
+          gPad->SetBottomMargin(0.38);
+          gPad->SetTicks(1,1);
+
+          const PtBin& b   = bins[i];
+          const string suf = b.suffix;
+
+          // Read counts from the existing 1-bin histograms
+          const double A = Read1BinCount(ds, "h_isIsolated_isTight"     + suf);
+          const double B = Read1BinCount(ds, "h_notIsolated_isTight"    + suf);
+          const double Cc = Read1BinCount(ds, "h_isIsolated_notTight"   + suf);
+          const double D = Read1BinCount(ds, "h_notIsolated_notTight"   + suf);
+
+          const double vals[4] = {A, B, Cc, D};
+
+          double ymax = 0.0;
+          for (int ib = 0; ib < 4; ++ib) ymax = std::max(ymax, vals[ib]);
+          const double yMaxPlot = (ymax > 0.0) ? (1.35 * ymax) : 1.0;
+
+          // Axis frame
+          TH1F* hAxis = new TH1F(
+            TString::Format("h_abcdCntAxis_%s_%s", ds.label.c_str(), b.folder.c_str()).Data(),
+            "",
+            4, 0.5, 4.5
+          );
+          hAxis->SetDirectory(nullptr);
+          hAxis->SetStats(0);
+          hAxis->SetMinimum(0.0);
+          hAxis->SetMaximum(yMaxPlot);
+
+          for (int ib = 1; ib <= 4; ++ib) hAxis->GetXaxis()->SetBinLabel(ib, xLabelsABCD[ib-1]);
+
+          hAxis->GetYaxis()->SetTitle("Counts");
+          hAxis->GetXaxis()->SetTitle("");
+          hAxis->GetXaxis()->LabelsOption("h"); // horizontal labels; only 4 bins
+          hAxis->GetXaxis()->SetLabelSize(0.080);
+          hAxis->GetXaxis()->SetLabelOffset(0.012);
+
+          hAxis->GetYaxis()->SetTitleSize(0.065);
+          hAxis->GetYaxis()->SetTitleOffset(1.05);
+          hAxis->GetYaxis()->SetLabelSize(0.055);
+
+          hAxis->SetLineColor(1);
+          hAxis->SetLineWidth(2);
+          hAxis->SetFillStyle(0);
+          hAxis->Draw("hist");
+
+          // Bars (solid)
+          for (int ib = 1; ib <= 4; ++ib)
+          {
+            TH1F* hb = new TH1F(
+              TString::Format("h_abcdCntBar_%s_%s_b%d", ds.label.c_str(), b.folder.c_str(), ib).Data(),
+              "",
+              4, 0.5, 4.5
+            );
+            hb->SetDirectory(nullptr);
+            hb->SetStats(0);
+
+            hb->SetBinContent(ib, vals[ib-1]);
+            hb->SetFillStyle(1001);
+            hb->SetFillColor(colorsABCD[ib-1]);
+            hb->SetLineColor(1);
+            hb->SetLineWidth(2);
+
+            hb->SetBarWidth(0.90);
+            hb->SetBarOffset(0.05);
+
+            hb->Draw("BAR SAME");
+            keepAlive.push_back(hb);
+          }
+
+          // Numeric labels above bars
+          TLatex t;
+          t.SetTextFont(42);
+          t.SetTextAlign(22);
+          t.SetTextSize(0.060);
+
+          for (int ib = 1; ib <= 4; ++ib)
+          {
+            const double y = vals[ib-1];
+            if (y <= 0.0) continue;
+
+            const double x = hAxis->GetXaxis()->GetBinCenter(ib);
+            const double yText = std::min(y + 0.03*yMaxPlot, 0.95*yMaxPlot);
+            t.DrawLatex(x, yText, TString::Format("%.0f", y).Data());
+          }
+
+          // Top annotations (NDC)
+          TLatex tt;
+          tt.SetTextFont(42);
+          tt.SetNDC();
+
+          // Title (top-right)
+          tt.SetTextAlign(33);   // right, top
+          tt.SetTextSize(0.062);
+          tt.DrawLatex(0.95, 0.93, "ABCD counts");
+
+          // pT bin (centered horizontally, same vertical band as title)
+          tt.SetTextAlign(23);   // center, top
+          tt.SetTextSize(0.070);
+          tt.DrawLatex(0.50, 0.93,
+              TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data()
+          );
+
+          keepAlive.push_back(hAxis);
+        }
+
+        SaveCanvas(c, JoinPath(outDir, outName));
+
+        for (auto* obj : keepAlive) delete obj;
+      }
+
+  
 
       static void Make3x3Table_SSOverlay(Dataset& ds,
                                           const string& varKey,
@@ -837,67 +985,82 @@ namespace ARJ
 
         for (int i = 0; i < kNPtBins; ++i)
         {
-          const PtBin& b = PtBins()[i];
-          const string& suf = b.suffix;
+            const PtBin& b = PtBins()[i];
+            const string& suf = b.suffix;
 
-          const double A = Read1BinCount(ds, "h_isIsolated_isTight" + suf);
-          const double B = Read1BinCount(ds, "h_notIsolated_isTight" + suf);
-          const double C = Read1BinCount(ds, "h_isIsolated_notTight" + suf);
-          const double D = Read1BinCount(ds, "h_notIsolated_notTight" + suf);
+            const double A = Read1BinCount(ds, "h_isIsolated_isTight" + suf);
+            const double B = Read1BinCount(ds, "h_notIsolated_isTight" + suf);
+            const double C = Read1BinCount(ds, "h_isIsolated_notTight" + suf);
+            const double D = Read1BinCount(ds, "h_notIsolated_notTight" + suf);
 
-          double Asig = 0.0;
-          double Praw = 0.0;
-          if (A > 0.0 && D > 0.0)
-          {
-            Asig = A - B*(C/D);
-            if (Asig < 0.0) Asig = 0.0;
-            Praw = Asig / A;
-          }
-
-          purityRaw[i] = Praw;
-
-          double Pc = Praw;
-          bool okCorr = false;
-          if (lf.available)
-          {
-            double SA = 0.0;
-            const bool ok = SolveLeakageCorrectedSA(A,B,C,D, lf.fB[i], lf.fC[i], lf.fD[i], SA);
-            if (ok && A > 0.0)
+            double Asig = 0.0;
+            double Praw = 0.0;
+            if (A > 0.0 && D > 0.0)
             {
-              Pc = SA / A;
-              okCorr = true;
+              Asig = A - B*(C/D);
+              if (Asig < 0.0) Asig = 0.0;
+              Praw = Asig / A;
             }
-            else
+
+            purityRaw[i] = Praw;
+
+            double Pc = Praw;
+            bool okCorr = false;
+            if (lf.available)
             {
-              Pc = Praw;
-              okCorr = false;
+              double SA = 0.0;
+              const bool ok = SolveLeakageCorrectedSA(A,B,C,D, lf.fB[i], lf.fC[i], lf.fD[i], SA);
+              if (ok && A > 0.0)
+              {
+                Pc = SA / A;
+                okCorr = true;
+              }
+              else
+              {
+                Pc = Praw;
+                okCorr = false;
+              }
+            }
+
+            purityCorr[i] = Pc;
+            hasCorr[i]    = okCorr;
+
+            cout << std::left << std::setw(wBin) << b.label
+                 << std::right
+                 << std::setw(wN) << std::fixed << std::setprecision(0) << A
+                 << std::setw(wN) << B
+                 << std::setw(wN) << C
+                 << std::setw(wN) << D
+                 << std::setw(wN) << Asig
+                 << std::setw(wN) << std::fixed << std::setprecision(4) << Praw
+                 << std::setw(wN) << std::fixed << std::setprecision(4) << Pc
+                 << "\n";
+
+            if (lf.available && !okCorr)
+            {
+              cout << ANSI_BOLD_YEL << "  [WARN] leakage solver failed for pT " << b.label
+                   << " (fallback to raw)" << ANSI_RESET << "\n";
             }
           }
 
-          purityCorr[i] = Pc;
-          hasCorr[i]    = okCorr;
-
-          cout << std::left << std::setw(wBin) << b.label
-               << std::right
-               << std::setw(wN) << std::fixed << std::setprecision(0) << A
-               << std::setw(wN) << B
-               << std::setw(wN) << C
-               << std::setw(wN) << D
-               << std::setw(wN) << Asig
-               << std::setw(wN) << std::fixed << std::setprecision(4) << Praw
-               << std::setw(wN) << std::fixed << std::setprecision(4) << Pc
-               << "\n";
-
-          if (lf.available && !okCorr)
+          // ---------------------------------------------------------------------------
+          // 3x3 table of ABCD region counts (N_A, N_B, N_C, N_D) vs pT bin
+          // ---------------------------------------------------------------------------
           {
-            cout << ANSI_BOLD_YEL << "  [WARN] leakage solver failed for pT " << b.label
-                 << " (fallback to raw)" << ANSI_RESET << "\n";
-          }
-        }
+            const string cntDir = JoinPath(outDir, "ABCDCounts");
+            EnsureDir(cntDir);
 
-        // purity_raw plot
-        {
-          TH1F hPur("hPurRaw","hPurRaw", kNPtBins, 0.5, kNPtBins + 0.5);
+            vector<string> cntCommon;
+            cntCommon.push_back("ABCD regions (preselection pass)");
+            cntCommon.push_back("A=iso&tight   B=nonIso&tight");
+            cntCommon.push_back("C=iso&nonTight   D=nonIso&nonTight");
+
+            Make3x3Table_ABCDCounts(ds, cntDir, "table3x3_ABCDCounts.png", cntCommon);
+          }
+
+          // purity_raw plot
+          {
+            TH1F hPur("hPurRaw","hPurRaw", kNPtBins, 0.5, kNPtBins + 0.5);
           hPur.SetDirectory(nullptr);
           hPur.GetYaxis()->SetRangeUser(0.0, 1.05);
           hPur.GetXaxis()->SetTitle("p_{T}^{#gamma} bin");
@@ -4701,8 +4864,6 @@ namespace ARJ
             // (Functionality and outputs preserved exactly.)
             // =============================================================================
             JES3_InSituResidualCalibration_MaybeRun(ds);
-
-            RunInSituJES3ResidualCalibration();
         }
 
 
@@ -6029,7 +6190,12 @@ namespace ARJ
       ds.missingOut.open(missPath.c_str());
       ds.missingCount = 0;
 
-      return true;
+      // reset coverage tracking
+      ds.requestCounts.clear();
+      ds.missingCounts.clear();
+      ds.missingReason.clear();
+
+        return true;
     }
 
     inline void CloseDataset(Dataset& ds)
@@ -6350,13 +6516,166 @@ namespace ARJ
       // ---------------------------------------------------------------------------
       cout << ANSI_BOLD_CYN << "\n[STEP 7] Summary + close\n" << ANSI_RESET;
 
-      cout << ANSI_BOLD_CYN << "\n[SUMMARY] Missing-object logs" << ANSI_RESET << "\n";
+      cout << ANSI_BOLD_CYN << "\n[SUMMARY] Histogram coverage (requested vs in-file)" << ANSI_RESET << "\n";
+
+      auto IsHistLikeClass = [](const string& cls) -> bool
+      {
+        // Inventory class names are like: TH1F, TH2D, TH3F, TProfile, TProfile2D, TProfile3D, ...
+        return (cls.rfind("TH", 0) == 0) || (cls.rfind("TProfile", 0) == 0);
+      };
+
+      auto PrintTopList = [&](const vector<string>& v, const string& title, int nShow)
+      {
+        if (v.empty()) return;
+        cout << "    " << title << " (showing up to " << nShow << "):\n";
+        const int n = std::min((int)v.size(), nShow);
+        for (int i = 0; i < n; ++i)
+        {
+          cout << "      - " << v[i] << "\n";
+        }
+      };
+
       for (auto& ds : datasets)
       {
-        const string missPath = JoinPath(ds.outBase, "missing_hists_" + ds.label + ".txt");
-        cout << "  " << ds.label
-             << " : missingCount=" << ds.missingCount
-             << "  log=" << missPath << "\n";
+        const string missRawPath = JoinPath(ds.outBase, "missing_hists_" + ds.label + ".txt");
+        const string missTabPath = JoinPath(ds.outBase, "missing_hists_" + ds.label + "_TABULATED.txt");
+        const string unusedPath  = JoinPath(ds.outBase, "unused_hists_" + ds.label + ".txt");
+        const string reqPath     = JoinPath(ds.outBase, "requested_hists_" + ds.label + ".txt");
+
+        // --- Requested (unique fullpaths) ---
+        std::set<string> requested;
+        for (const auto& kv : ds.requestCounts) requested.insert(kv.first);
+
+        // --- Inventory everything under topDir, then keep only histogram-like objects ---
+        vector<InvItem> items;
+        CollectInventoryRecursive(ds.topDir, ds.topDirName + "/", items);
+
+        std::set<string> available;
+        map<string, InvItem> invByPath;
+        for (const auto& it : items)
+        {
+          if (!IsHistLikeClass(it.cls)) continue;
+          available.insert(it.path);
+          invByPath[it.path] = it;
+        }
+
+        // --- Requested-but-not-in-file (called by code, missing from ROOT file) ---
+        vector<string> reqMissing;
+        reqMissing.reserve(requested.size());
+        for (const auto& p : requested)
+        {
+          if (available.find(p) == available.end()) reqMissing.push_back(p);
+        }
+
+        // --- In-file-but-unused (present in ROOT, never requested by code) ---
+        vector<string> unused;
+        unused.reserve(available.size());
+        for (const auto& p : available)
+        {
+          if (requested.find(p) == requested.end()) unused.push_back(p);
+        }
+
+        // --- Write: requested list (what the code tried to read) ---
+        {
+          vector<string> lines;
+          lines.push_back("path\tcalls");
+          for (const auto& p : requested)
+          {
+            const int calls = (ds.requestCounts.count(p) ? ds.requestCounts.at(p) : 0);
+            std::ostringstream s;
+            s << p << "\t" << calls;
+            lines.push_back(s.str());
+          }
+          WriteTextFile(reqPath, lines);
+        }
+
+        // --- Write: tabulated missing summary ---
+        //     Section 1: requested-but-not-in-file  (true missing)
+        //     Section 2: logged issues that DO exist in the file (e.g., ZERO_ENTRIES, WRONG_TYPE)
+        {
+          vector<string> lines;
+
+          lines.push_back("[REQUESTED_BUT_NOT_IN_FILE]");
+          lines.push_back("path\tcalls\tloggedCount\tlastReason");
+          for (const auto& p : reqMissing)
+          {
+            const int calls  = (ds.requestCounts.count(p) ? ds.requestCounts.at(p) : 0);
+            const int logged = (ds.missingCounts.count(p) ? ds.missingCounts.at(p) : 0);
+
+            string reason = "NOT_IN_FILE";
+            auto itR = ds.missingReason.find(p);
+            if (itR != ds.missingReason.end()) reason = itR->second;
+
+            std::ostringstream s;
+            s << p << "\t" << calls << "\t" << logged << "\t" << reason;
+            lines.push_back(s.str());
+          }
+
+          lines.push_back("");
+          lines.push_back("[LOGGED_ISSUES_PRESENT_IN_FILE]");
+          lines.push_back("path\tcalls\tloggedCount\tlastReason");
+          for (const auto& kv : ds.missingCounts)
+          {
+            const string& p = kv.first;
+
+            // If it isn't in-file, it belongs to the section above
+            if (available.find(p) == available.end()) continue;
+
+            const int calls  = (ds.requestCounts.count(p) ? ds.requestCounts.at(p) : 0);
+            const int logged = kv.second;
+
+            string reason = "(unknown)";
+            auto itR = ds.missingReason.find(p);
+            if (itR != ds.missingReason.end()) reason = itR->second;
+
+            std::ostringstream s;
+            s << p << "\t" << calls << "\t" << logged << "\t" << reason;
+            lines.push_back(s.str());
+          }
+
+          WriteTextFile(missTabPath, lines);
+        }
+
+        // --- Write: unused list (in-file but never requested) ---
+        {
+          vector<string> lines;
+          lines.push_back("path\tclass\tentries");
+          for (const auto& p : unused)
+          {
+            auto it = invByPath.find(p);
+            if (it == invByPath.end())
+            {
+              lines.push_back(p + "\t(n/a)\t(n/a)");
+              continue;
+            }
+
+            std::ostringstream ent;
+            if (it->second.entries < 0) ent << "n/a";
+            else ent << std::fixed << std::setprecision(0) << it->second.entries;
+
+            std::ostringstream s;
+            s << it->second.path << "\t" << it->second.cls << "\t" << ent.str();
+            lines.push_back(s.str());
+          }
+          WriteTextFile(unusedPath, lines);
+        }
+
+        // --- Terminal summary (clear + actionable) ---
+        cout << ANSI_BOLD_CYN << "\n  [" << ds.label << "] Histogram I/O coverage" << ANSI_RESET << "\n";
+        cout << "    topDir                 : " << ds.topDirName << "\n";
+        cout << "    requested (unique)     : " << requested.size()
+             << "   (full list: " << reqPath << ")\n";
+        cout << "    in file (unique hists) : " << available.size() << "\n";
+        cout << "    requested but missing  : " << reqMissing.size()
+             << "   (tabulated: " << missTabPath << ")\n";
+        cout << "    in file but unused     : " << unused.size()
+             << "   (tabulated: " << unusedPath << ")\n";
+        cout << "    missing-object log     : occurrences=" << ds.missingCount
+             << "  uniqueLogged=" << ds.missingCounts.size()
+             << "  rawLog=" << missRawPath << "\n";
+
+        PrintTopList(reqMissing, "Requested-but-not-in-file", 10);
+        PrintTopList(unused, "In-file-but-unused", 10);
       }
 
       cout << "\n  -> Closing datasets...\n";

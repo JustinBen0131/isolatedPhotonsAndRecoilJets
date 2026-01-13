@@ -12,7 +12,7 @@
 #include <TFile.h>
 #include <TDirectory.h>
 #include <TKey.h>
-#include <TIter.h>
+#include <TIterator.h>
 #include <TObject.h>
 #include <TNamed.h>
 #include <TAxis.h>
@@ -118,9 +118,11 @@ namespace ARJ
   // =============================================================================
   inline const string ANSI_RESET    = "\033[0m";
   inline const string ANSI_BOLD_RED = "\033[1;31m";
-  inline const string ANSI_BOLD_CYN = "\033[1;36m";
+  inline const string ANSI_BOLD_GRN = "\033[1;32m";
   inline const string ANSI_BOLD_YEL = "\033[1;33m";
+  inline const string ANSI_BOLD_CYN = "\033[1;36m";
   inline const string ANSI_DIM      = "\033[2m";
+
 
   // =============================================================================
   // Small data structures
@@ -176,26 +178,33 @@ namespace ARJ
   // Non-copyable but movable (safe for std::vector)
   struct Dataset
   {
-    string label;       // "SIM" or "DATA"
-    bool   isSim = false;
+      string label;       // "SIM" or "DATA"
+      bool   isSim = false;
 
-    string trigger;     // for data
-    string topDirName;  // "SIM" or trigger
+      string trigger;     // for data
+      string topDirName;  // "SIM" or trigger
 
-    string inFilePath;
-    string outBase;
+      string inFilePath;
+      string outBase;
 
-    TFile*      file   = nullptr;
-    TDirectory* topDir = nullptr;
+      TFile*      file   = nullptr;
+      TDirectory* topDir = nullptr;
 
-    std::ofstream missingOut;
-    int missingCount = 0;
+      // Existing raw missing-object log (one line per failure occurrence)
+      std::ofstream missingOut;
+      int missingCount = 0;
 
-    Dataset() = default;
-    Dataset(const Dataset&) = delete;
-    Dataset& operator=(const Dataset&) = delete;
-    Dataset(Dataset&&) noexcept = default;
-    Dataset& operator=(Dataset&&) noexcept = default;
+      // NEW: Tracking for end-of-job histogram coverage summary
+      // Key is ALWAYS the full path as printed in inventory:  "<topDirName>/<relName>"
+      map<string, int>    requestCounts;   // fullpath -> #times GetObj was called
+      map<string, int>    missingCounts;   // fullpath -> #times LogMissing fired
+      map<string, string> missingReason;   // fullpath -> last recorded reason string
+
+      Dataset() = default;
+      Dataset(const Dataset&) = delete;
+      Dataset& operator=(const Dataset&) = delete;
+      Dataset(Dataset&&) noexcept = default;
+      Dataset& operator=(Dataset&&) noexcept = default;
   };
 
   struct MatchCache
@@ -254,11 +263,15 @@ namespace ARJ
 
   inline void LogMissing(Dataset& ds, const string& fullpath, const string& reason)
   {
-    if (ds.missingOut.is_open())
-    {
-      ds.missingOut << fullpath << " :: " << reason << "\n";
-    }
-    ds.missingCount++;
+      if (ds.missingOut.is_open())
+      {
+        ds.missingOut << fullpath << " :: " << reason << "\n";
+      }
+      ds.missingCount++;
+
+      // NEW: tabulate unique missing objects (and how often they were missing)
+      ds.missingCounts[fullpath]++;
+      ds.missingReason[fullpath] = reason;
   }
 
   // =============================================================================
@@ -275,8 +288,10 @@ namespace ARJ
     // PP-only pass: ignore centrality-tagged objects if caller accidentally asks.
     if (relName.find("_cent_") != string::npos) return nullptr;
 
-    TObject* obj = ds.topDir->Get(relName.c_str());
     const string fp = FullPath(ds, relName);
+    ds.requestCounts[fp]++;
+
+    TObject* obj = ds.topDir->Get(relName.c_str());
 
     if (!obj)
     {
