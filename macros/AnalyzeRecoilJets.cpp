@@ -1,7 +1,7 @@
 // AnalyzeRecoilJets.cpp
 //
 // Usage (ROOT):
-//   root -l -q AnalyzeRecoilJets_NEW.cpp
+//   root -l -q AnalyzeRecoilJets.cpp
 // -----------------------------------------------------------------------------
 
 #include "AnalyzeRecoilJets.h"
@@ -104,7 +104,7 @@ namespace ARJ
             "w_{#eta}^{cogX} < 0.6"
           };
 
-          // Clean, distinct solid colors per bin (presentation-safe, ROOT built-ins)
+          // Clean, distinct solid colors per bin
           const int binColors[8] = {
             kGray+1,
             kGreen+2,
@@ -411,7 +411,6 @@ namespace ARJ
       // -------------------------------------------------------------------------
       // Helper: RECO / DATA isolation QA (3x3 tables + per-pT bin plots)
       //   - This is the "general isolation" part that runs for both data and sim.
-      //   - Preserves all filenames, directory structure, and plot calls.
       // -------------------------------------------------------------------------
       void RunIsolationQA_Reco(Dataset& ds, const string& outDir)
       {
@@ -458,8 +457,7 @@ namespace ARJ
 
       // -------------------------------------------------------------------------
       // Helper: SIM-only TRUTH isolation QA (truth distributions + reco-inclusive
-      // overlay + decision hist). This is exactly your existing SIM block, moved
-      // into a dedicated function for maintainability.
+      // overlay + decision hist).
       // -------------------------------------------------------------------------
       void RunIsolationQA_TruthSim(Dataset& ds, const string& outDir)
       {
@@ -851,8 +849,6 @@ namespace ARJ
 
         for (auto* obj : keepAlive) delete obj;
       }
-
-  
 
       static void Make3x3Table_SSOverlay(Dataset& ds,
                                           const string& varKey,
@@ -3263,8 +3259,8 @@ namespace ARJ
 
             auto IsPreferredMergedSIM = [&](const Dataset& s)->bool
             {
-              // Only relevant if merging was requested; prefer merged-looking SIM.
-              if (!isSimOnlyWithPhoton10and20) return true;
+              // Only relevant if the user selected the merged photonJet10+20 SIM sample.
+              if (CurrentSimSample() != SimSample::kPhotonJet10And20Merged) return true;
 
               const std::string hay =
                 s.label + " " + s.topDirName + " " + s.inFilePath;
@@ -3512,9 +3508,7 @@ namespace ARJ
                    << "\n============================================================\n"
                    << "[JES3 InSitu] Residual calibration (DATA vs SIM, reco xJ peak)\n"
                    << "  DATA: " << dataDs.label << "  trigger=" << dataDs.trigger << "\n"
-                   << "  SIM : " << simDs.label
-                   << (isSimOnlyWithPhoton10and20 ? "  (prefer merged if available)" : "")
-                   << "\n"
+                   << "  SIM : " << simDs.label << "  (" << SimSampleLabel(CurrentSimSample()) << ")\n"
                    << "  Output -> " << insBase << "\n"
                    << "============================================================\n"
                    << ANSI_RESET;
@@ -6147,14 +6141,11 @@ namespace ARJ
         // =============================================================================
         // High-level runner
         // =============================================================================
+        // NOTE: Run-mode validation now lives in AnalyzeRecoilJets.h (ValidateRunConfig()).
+        // This wrapper is kept only to avoid stale references inside the analysis namespace.
         static bool ExactlyOneModeSet()
         {
-          const int nTrue =
-            (isPPdataOnly ? 1 : 0) +
-            (isSimOnly ? 1 : 0) +
-            (isSimAndDataPP ? 1 : 0) +
-            (isSimOnlyWithPhoton10and20 ? 1 : 0);
-          return (nTrue == 1);
+            return ValidateRunConfig(nullptr);
         }
 
 
@@ -6206,62 +6197,67 @@ namespace ARJ
 
     inline vector<Dataset> BuildDatasets(RunMode mode)
     {
-      vector<Dataset> datasets;
+        vector<Dataset> datasets;
 
-      const bool doSim = (mode == RunMode::kSimOnly ||
-                          mode == RunMode::kSimAndDataPP ||
-                          mode == RunMode::kSimOnlyMergedPhoton10And20);
+        const bool doSim = (mode == RunMode::kSimOnly ||
+                            mode == RunMode::kSimAndDataPP);
 
-      const bool doPP  = (mode == RunMode::kPPDataOnly ||
-                          mode == RunMode::kSimAndDataPP);
+        const bool doPP  = (mode == RunMode::kPPDataOnly ||
+                            mode == RunMode::kSimAndDataPP);
 
-      if (doSim)
-      {
-        Dataset ds;
-        ds.label      = "SIM";
-        ds.isSim      = true;
-        ds.trigger    = "";
-        ds.topDirName = kDirSIM;
-        ds.inFilePath = (mode == RunMode::kSimOnlyMergedPhoton10And20) ? kMergedSIMOut : kInSIM10;
-        ds.outBase    = kOutSIMBase;
-        datasets.push_back(std::move(ds));
-      }
+        const SimSample ss = CurrentSimSample();
 
-      if (doPP)
-      {
-        Dataset ds;
-        ds.label      = "DATA_PP";
-        ds.isSim      = false;
-        ds.trigger    = kTriggerPP;
-        ds.topDirName = kTriggerPP;
-        ds.inFilePath = kInPP;
-        ds.outBase    = kOutPPBase;
-        datasets.push_back(std::move(ds));
-      }
+        if (doSim)
+        {
+          Dataset ds;
+          ds.label      = "SIM";
+          ds.isSim      = true;
+          ds.trigger    = "";
+          ds.topDirName = kDirSIM;
+          ds.inFilePath = SimInputPathForSample(ss);
+          ds.outBase    = SimOutBaseForSample(ss);
+          datasets.push_back(std::move(ds));
+        }
 
-      return datasets;
+        if (doPP)
+        {
+          Dataset ds;
+          ds.label      = "DATA_PP";
+          ds.isSim      = false;
+          ds.trigger    = kTriggerPP;
+          ds.topDirName = kTriggerPP;
+          ds.inFilePath = kInPP;
+          ds.outBase    = kOutPPBase;
+          datasets.push_back(std::move(ds));
+        }
+
+        return datasets;
     }
 
     inline bool MaybeBuildMergedSIM(RunMode mode)
     {
-      if (mode != RunMode::kSimOnlyMergedPhoton10And20) return true;
+        // Only relevant when a SIM-including mode is running AND the merged SIM sample was selected.
+        if (mode == RunMode::kPPDataOnly) return true;
 
-      const bool ok = BuildMergedSIMFile_Photon10And20(
-        kInSIM10,
-        kInSIM20,
-        kMergedSIMOut,
-        kDirSIM,
-        6692.7611,
-        105.79868
-      );
+        const SimSample ss = CurrentSimSample();
+        if (ss != SimSample::kPhotonJet10And20Merged) return true;
 
-      if (!ok)
-      {
-        cout << ANSI_BOLD_RED << "[FATAL] Failed to build merged SIM file." << ANSI_RESET << "\n";
-        return false;
-      }
+        const bool ok = BuildMergedSIMFile_Photon10And20(
+          kInSIM10,
+          kInSIM20,
+          kMergedSIMOut,
+          kDirSIM,
+          6692.7611,
+          105.79868
+        );
 
-      return true;
+        if (!ok)
+        {
+          cout << ANSI_BOLD_RED << "[FATAL] Failed to build merged SIM file." << ANSI_RESET << "\n";
+          return false;
+        }
+
+        return true;
     }
   } // namespace driver
 
@@ -6288,26 +6284,32 @@ namespace ARJ
       cout << ANSI_BOLD_CYN << "\n[STEP 0] Run-mode validation\n" << ANSI_RESET;
 
       cout << "  Toggles:\n"
-           << "    isPPdataOnly             = " << (isPPdataOnly ? "true" : "false") << "\n"
-           << "    isSimOnly                = " << (isSimOnly ? "true" : "false") << "\n"
-           << "    isSimAndDataPP           = " << (isSimAndDataPP ? "true" : "false") << "\n"
-           << "    isSimOnlyWithPhoton10and20 = " << (isSimOnlyWithPhoton10and20 ? "true" : "false") << "\n";
+           << "    isPPdataOnly         = " << (isPPdataOnly ? "true" : "false") << "\n"
+           << "    isSimAndDataPP       = " << (isSimAndDataPP ? "true" : "false") << "\n"
+           << "    isPhotonJet10        = " << (isPhotonJet10 ? "true" : "false") << "\n"
+           << "    isPhotonJet20        = " << (isPhotonJet20 ? "true" : "false") << "\n"
+           << "    bothPhoton10and20sim = " << (bothPhoton10and20sim ? "true" : "false") << "\n";
 
-      if (!ExactlyOneModeSet())
+      string cfgErr;
+      if (!ValidateRunConfig(&cfgErr))
       {
         cout << ANSI_BOLD_RED
-             << "[FATAL] Exactly one run-mode toggle must be true.\n"
-             << "  isPPdataOnly=" << isPPdataOnly
-             << "  isSimOnly=" << isSimOnly
-             << "  isSimAndDataPP=" << isSimAndDataPP
-             << "  isSimOnlyWithPhoton10and20=" << isSimOnlyWithPhoton10and20
-             << "\n"
+             << "[FATAL] Invalid run configuration:\n"
+             << "  " << cfgErr << "\n"
              << ANSI_RESET;
         return 1;
       }
 
-      const RunMode mode = CurrentRunMode();
-      cout << ANSI_BOLD_YEL << "  -> Selected mode: " << RunModeLabel(mode) << ANSI_RESET << "\n";
+      const RunMode mode   = CurrentRunMode();
+      const SimSample ss   = CurrentSimSample();
+
+      cout << ANSI_BOLD_YEL << "  -> Selected mode: " << RunModeLabel(mode);
+      if (mode != RunMode::kPPDataOnly)
+      {
+        cout << "  |  SIM sample: " << SimSampleLabel(ss)
+             << "  |  SIM outBase: " << SimOutBaseForSample(ss);
+      }
+      cout << ANSI_RESET << "\n";
 
       // ---------------------------------------------------------------------------
       // Optional SIM slice merge

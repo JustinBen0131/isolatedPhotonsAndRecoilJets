@@ -72,37 +72,51 @@ namespace ARJ
   // =============================================================================
   // GLOBAL USER TOGGLES (EDIT HERE)
   // =============================================================================
-  inline bool isPPdataOnly               = false;
-  inline bool isSimOnly                  = true;
-  inline bool isSimAndDataPP             = false;
-  inline bool isSimOnlyWithPhoton10and20 = false;
+  // Run-mode toggles:
+  //   - PP only:       isPPdataOnly = true
+  //   - SIM only:      isPPdataOnly = false AND isSimAndDataPP = false
+  //   - SIM + PP data: isSimAndDataPP = true
+  inline bool isPPdataOnly   = false;
+  inline bool isSimAndDataPP = false;
+
+  // SIM sample selection toggles (choose EXACTLY ONE for any SIM-including run)
+  inline bool isPhotonJet10        = true;
+  inline bool isPhotonJet20        = false;
+  inline bool bothPhoton10and20sim = false;
 
   // Displayed range [-vzCutCm,+vzCutCm] and 0.5 cm display bin width
   inline double vzCutCm = 30.0;
 
   // =============================================================================
-  // FIXED INPUTS (pp + photonJet10 SIM only)
+  // FIXED INPUTS (pp + photonJet10/20 SIM)
   // =============================================================================
   inline const string kTriggerPP = "Photon_4_GeV_plus_MBD_NS_geq_1";
   inline const string kDirSIM    = "SIM";
 
   inline const string kInPP =
-    "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp/RecoilJets_pp_ALL.root";
+      "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp/RecoilJets_pp_ALL.root";
 
   inline const string kInSIM10 =
-    "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10_SIM/RecoilJets_photonjet10_ALL.root";
+      "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10_SIM/RecoilJets_photonjet10_ALL.root";
 
   inline const string kInSIM20 =
-    "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet20_SIM/RecoilJets_photonjet20_ALL.root";
+      "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet20_SIM/RecoilJets_photonjet20_ALL.root";
 
   inline const string kOutPPBase =
-    "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp";
+      "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp";
 
-  inline const string kOutSIMBase =
-    "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10_SIM";
+  // SIM outputs are routed by the SIM sample toggle(s) above:
+  inline const string kOutSIM10Base =
+      "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10_SIM";
+
+  inline const string kOutSIM20Base =
+      "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet20_SIM";
+
+  inline const string kOutSIMMergedBase =
+      "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10and20merged_SIM";
 
   inline const string kMergedSIMOut =
-    "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10_SIM/RecoilJets_photonjet10plus20_MERGED.root";
+      "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10and20merged_SIM/RecoilJets_photonjet10plus20_MERGED.root";
 
   // =============================================================================
   // Binning
@@ -1362,51 +1376,155 @@ namespace ARJ
   }
 
   // =============================================================================
-  // Run-mode guard (moved out of cpp)
+  // Run mode + SIM sample helpers
   // =============================================================================
-  inline bool ExactlyOneModeSet()
+  enum class SimSample
+    {
+      kNone,
+      kPhotonJet10,
+      kPhotonJet20,
+      kPhotonJet10And20Merged,
+      kInvalid
+  };
+
+  inline SimSample CurrentSimSample()
   {
-    const int nTrue =
-      (isPPdataOnly ? 1 : 0) +
-      (isSimOnly ? 1 : 0) +
-      (isSimAndDataPP ? 1 : 0) +
-      (isSimOnlyWithPhoton10and20 ? 1 : 0);
-    return (nTrue == 1);
+      const int nTrue =
+        (isPhotonJet10 ? 1 : 0) +
+        (isPhotonJet20 ? 1 : 0) +
+        (bothPhoton10and20sim ? 1 : 0);
+
+      if (nTrue == 0) return SimSample::kNone;
+      if (nTrue != 1) return SimSample::kInvalid;
+
+      if (isPhotonJet10)        return SimSample::kPhotonJet10;
+      if (isPhotonJet20)        return SimSample::kPhotonJet20;
+      if (bothPhoton10and20sim) return SimSample::kPhotonJet10And20Merged;
+      return SimSample::kInvalid;
   }
 
+  inline string SimSampleLabel(SimSample s)
+  {
+      switch (s)
+      {
+        case SimSample::kNone:                  return "NONE";
+        case SimSample::kPhotonJet10:           return "photonJet10";
+        case SimSample::kPhotonJet20:           return "photonJet20";
+        case SimSample::kPhotonJet10And20Merged:return "photonJet10and20merged";
+        default:                                return "INVALID";
+      }
+  }
+
+  inline string SimInputPathForSample(SimSample s)
+  {
+      switch (s)
+      {
+        case SimSample::kPhotonJet10:            return kInSIM10;
+        case SimSample::kPhotonJet20:            return kInSIM20;
+        case SimSample::kPhotonJet10And20Merged: return kMergedSIMOut;
+        default:                                 return "";
+      }
+  }
+
+  inline string SimOutBaseForSample(SimSample s)
+  {
+      switch (s)
+      {
+        case SimSample::kPhotonJet10:            return kOutSIM10Base;
+        case SimSample::kPhotonJet20:            return kOutSIM20Base;
+        case SimSample::kPhotonJet10And20Merged: return kOutSIMMergedBase;
+        default:                                 return "";
+      }
+  }
+
+  inline bool ValidateRunConfig(string* errMsg = nullptr)
+  {
+      // Disallow contradictory run-mode toggles.
+      if (isPPdataOnly && isSimAndDataPP)
+      {
+        if (errMsg) *errMsg = "Both isPPdataOnly and isSimAndDataPP are true. Choose only one.";
+        return false;
+      }
+
+      const SimSample ss = CurrentSimSample();
+
+      // PP-only run: SIM sample toggles must be OFF.
+      if (isPPdataOnly)
+      {
+        if (ss != SimSample::kNone)
+        {
+          if (errMsg)
+          {
+            *errMsg =
+              "PP-data-only mode selected, but a SIM sample toggle is set. "
+              "Set isPhotonJet10=false, isPhotonJet20=false, bothPhoton10and20sim=false.";
+          }
+          return false;
+        }
+        return true;
+      }
+
+      // Any non-PP-only run includes SIM (either SIM-only or SIM+PP).
+      if (ss == SimSample::kNone)
+      {
+        if (errMsg)
+        {
+          *errMsg =
+            "SIM is required (SIM-only or SIM+PP), but no SIM sample was selected. "
+            "Set exactly one of: isPhotonJet10, isPhotonJet20, bothPhoton10and20sim.";
+        }
+        return false;
+      }
+
+      if (ss == SimSample::kInvalid)
+      {
+        if (errMsg)
+        {
+          *errMsg =
+            "Invalid SIM sample toggle combination. "
+            "Set EXACTLY ONE of: isPhotonJet10, isPhotonJet20, bothPhoton10and20sim. "
+            "If bothPhoton10and20sim=true, the other two must be false.";
+        }
+        return false;
+      }
+
+      return true;
+  }
+
+  // Backwards-compatible name used by older guard code paths.
+  inline bool ExactlyOneModeSet()
+  {
+      return ValidateRunConfig(nullptr);
+  }
 
   // =============================================================================
   // Run mode helpers
   // =============================================================================
   enum class RunMode
   {
-    kPPDataOnly,
-    kSimOnly,
-    kSimAndDataPP,
-    kSimOnlyMergedPhoton10And20,
-    kInvalid
+      kPPDataOnly,
+      kSimOnly,
+      kSimAndDataPP,
+      kInvalid
   };
 
   inline RunMode CurrentRunMode()
   {
-    if (!ExactlyOneModeSet()) return RunMode::kInvalid;
-    if (isPPdataOnly)               return RunMode::kPPDataOnly;
-    if (isSimOnly)                  return RunMode::kSimOnly;
-    if (isSimAndDataPP)             return RunMode::kSimAndDataPP;
-    if (isSimOnlyWithPhoton10and20) return RunMode::kSimOnlyMergedPhoton10And20;
-    return RunMode::kInvalid;
+      if (!ValidateRunConfig(nullptr)) return RunMode::kInvalid;
+      if (isPPdataOnly)   return RunMode::kPPDataOnly;
+      if (isSimAndDataPP) return RunMode::kSimAndDataPP;
+      return RunMode::kSimOnly;
   }
 
   inline string RunModeLabel(RunMode m)
   {
-    switch (m)
-    {
-      case RunMode::kPPDataOnly:               return "PP_DATA_ONLY";
-      case RunMode::kSimOnly:                  return "SIM_ONLY";
-      case RunMode::kSimAndDataPP:             return "SIM_AND_DATA_PP";
-      case RunMode::kSimOnlyMergedPhoton10And20:return "SIM_ONLY_MERGED_PHOTON10AND20";
-      default:                                 return "INVALID";
-    }
+      switch (m)
+      {
+        case RunMode::kPPDataOnly:   return "PP_DATA_ONLY";
+        case RunMode::kSimOnly:      return "SIM_ONLY";
+        case RunMode::kSimAndDataPP: return "SIM_AND_DATA_PP";
+        default:                     return "INVALID";
+      }
   }
 
 
