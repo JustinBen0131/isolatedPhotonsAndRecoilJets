@@ -59,11 +59,8 @@ namespace ARJ
       // =============================================================================
       // Section 2: preselection fail counters (terminal only)
       // =============================================================================
-      // [moved to header] Read1BinCount
-
-
-        void RunPreselectionFailureTable(Dataset& ds)
-        {
+      void RunPreselectionFailureTable(Dataset& ds)
+      {
           cout << ANSI_BOLD_CYN << "\n==============================\n"
                << "[SECTION 2] PRESELECTION FAIL QA (TERMINAL + PLOTS) (" << ds.label << ")\n"
                << "==============================" << ANSI_RESET << "\n";
@@ -135,10 +132,10 @@ namespace ARJ
             // pad layout
             if (compact)
             {
-              gPad->SetLeftMargin(0.16);
-              gPad->SetRightMargin(0.05);
-              gPad->SetTopMargin(0.16);
-              gPad->SetBottomMargin(0.38);
+                gPad->SetLeftMargin(0.15);
+                gPad->SetRightMargin(0.08);
+                gPad->SetTopMargin(0.14);
+                gPad->SetBottomMargin(0.46);
             }
             else
             {
@@ -170,8 +167,8 @@ namespace ARJ
             hAxis->GetYaxis()->SetTitle("Preselection fail counts");
             hAxis->GetXaxis()->SetTitle("");
             hAxis->GetXaxis()->LabelsOption("v");
-            hAxis->GetXaxis()->SetLabelSize(compact ? 0.055 : 0.040);
-            hAxis->GetXaxis()->SetLabelOffset(0.012);
+            hAxis->GetXaxis()->SetLabelSize(compact ? 0.065 : 0.040);
+            hAxis->GetXaxis()->SetLabelOffset(compact ? 0.018 : 0.012);
             hAxis->GetYaxis()->SetTitleOffset(compact ? 1.55 : 1.25);
 
             hAxis->SetLineColor(1);
@@ -212,7 +209,8 @@ namespace ARJ
             TLatex t;
             t.SetTextFont(42);
             t.SetTextAlign(22); // centered
-            t.SetTextSize(compact ? 0.038 : 0.030);
+            t.SetTextSize(compact ? 0.045 : 0.030);
+
 
             for (int ib = 1; ib <= 8; ++ib)
             {
@@ -237,9 +235,22 @@ namespace ARJ
             }
             else
             {
-              box.push_back(TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data());
-              box.push_back("inclusive fails");
-              DrawLatexLines(0.16, 0.93, box, 0.055, 0.065);
+              // --- Compact table annotation (NDC) ---
+              TLatex tt;
+              tt.SetTextFont(42);
+              tt.SetNDC();
+
+              // pT range (top-left) — larger, replaces where "inclusive fails" used to sit
+              tt.SetTextAlign(13);   // left, top
+              tt.SetTextSize(0.070);
+              tt.DrawLatex(0.16, 0.93,
+                TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data()
+              );
+
+              // "Inclusive Fails" (top-right)
+              tt.SetTextAlign(33);   // right, top
+              tt.SetTextSize(0.055);
+              tt.DrawLatex(0.95, 0.93, "Inclusive Fails");
             }
 
             if (keepAlive) keepAlive->push_back(hAxis);
@@ -316,14 +327,14 @@ namespace ARJ
           }
 
           // ---------------------------------------------------------------------------
-          // NEW: 3x3 summary table (pT bins in order)
+          // 3x3 summary table (pT bins in order)
           // ---------------------------------------------------------------------------
           {
             TCanvas cTbl(
-              TString::Format("c_preFail_table3x3_%s", ds.label.c_str()).Data(),
-              "c_preFail_table3x3", 1500, 1200
+                TString::Format("c_preFail_table3x3_%s", ds.label.c_str()).Data(),
+                "c_preFail_table3x3", 2400, 1400
             );
-            cTbl.Divide(3,3, 0.001, 0.001);
+            cTbl.Divide(3,3, 0.002, 0.002);
 
             vector<TObject*> keepTbl;
             for (int i = 0; i < kNPtBins; ++i)
@@ -347,7 +358,7 @@ namespace ARJ
                << "Per-bin plots written under: " << outDir << "\n"
                << "3x3 table written to: " << JoinPath(outDir, "table3x3_preselectionFails.png") << "\n"
                << ANSI_RESET;
-        }
+      }
 
       // =============================================================================
       // Section 3: general isolation QA
@@ -393,19 +404,13 @@ namespace ARJ
         }
       }
 
-      void RunIsolationQA(Dataset& ds)
+      // -------------------------------------------------------------------------
+      // Helper: RECO / DATA isolation QA (3x3 tables + per-pT bin plots)
+      //   - This is the "general isolation" part that runs for both data and sim.
+      //   - Preserves all filenames, directory structure, and plot calls.
+      // -------------------------------------------------------------------------
+      void RunIsolationQA_Reco(Dataset& ds, const string& outDir)
       {
-        cout << ANSI_BOLD_CYN << "\n==============================\n"
-             << "[SECTION 3] GENERAL ISOLATION QA (" << ds.label << ")\n"
-             << "==============================" << ANSI_RESET << "\n";
-
-        string outDir;
-        if (ds.isSim) outDir = JoinPath(ds.outBase, "isoQAgeneral");
-        else          outDir = JoinPath(ds.outBase, "isoQAgeneral/" + ds.trigger);
-
-        EnsureDir(outDir);
-        for (const auto& b : PtBins()) EnsureDir(JoinPath(outDir, b.folder));
-
         vector<string> common;
         common.push_back("Cuts: p_{T}^{#gamma} #geq 5 GeV, |#eta^{#gamma}| < 0.7");
 
@@ -419,11 +424,13 @@ namespace ARJ
 
         for (const auto& def : isoHists)
         {
+          // 3x3 table over pT bins
           Make3x3Table_TH1(ds, def.base, outDir,
                            string("table3x3_") + def.outStem + ".png",
                            "E_{iso} [GeV]", "Counts",
                            false, false, common);
 
+          // Per pT bin plots
           for (int i = 0; i < kNPtBins; ++i)
           {
             const PtBin& b = PtBins()[i];
@@ -443,173 +450,187 @@ namespace ARJ
             delete hc;
           }
         }
+      }
 
-          PrintIsoDecisionTable(ds);
+      // -------------------------------------------------------------------------
+      // Helper: SIM-only TRUTH isolation QA (truth distributions + reco-inclusive
+      // overlay + decision hist). This is exactly your existing SIM block, moved
+      // into a dedicated function for maintainability.
+      // -------------------------------------------------------------------------
+      void RunIsolationQA_TruthSim(Dataset& ds, const string& outDir)
+      {
+        const string truthDir = JoinPath(outDir, "TruthIsolation");
+        EnsureDir(truthDir);
 
-          // -------------------------------------------------------------------------
-          // NEW (SIM only): TRUTH isolation QA (read what RecoilJets writes under /SIM/)
-          //
-          // Expected histograms written by RecoilJets (SIM):
-          //   - h_EisoTruth
-          //   - h_EisoTruthDecision   (bin 1=PASS, bin 2=FAIL)
-          //
-          // We also build a RECO "inclusive over pTgamma bins" isolation histogram by summing:
-          //   - h_Eiso_pT_*  (your existing reco iso QA family)
-          //
-          // Then we make:
-          //   1) truth-only counts + shape
-          //   2) reco-inclusive counts + shape
-          //   3) overlay truth vs reco (shape) in common x-range (typically [0,12] GeV)
-          // -------------------------------------------------------------------------
-          if (ds.isSim)
+        // --- Read truth histograms (unsliced; live directly in /SIM/) ---
+        TH1* hTruthIso = GetObj<TH1>(ds, "h_EisoTruth", true, true, true);
+        TH1* hTruthDec = GetObj<TH1>(ds, "h_EisoTruthDecision", true, true, true);
+
+        // --- Build reco-inclusive histogram by summing pT-sliced reco iso ---
+        TH1* hRecoIsoSum = SumRecoPtSlicedTH1(ds, "h_Eiso");
+
+        // 1) Truth isolation distribution (counts + shape)
+        if (hTruthIso)
+        {
+          TH1* htCounts = CloneTH1(hTruthIso, "h_EisoTruth_counts_clone");
+          TH1* htShape  = CloneTH1(hTruthIso, "h_EisoTruth_shape_clone");
+
+          vector<string> lines = {
+            "Truth isolation (prompt #gamma candidates in acceptance)",
+            "Histogram: h_EisoTruth (SIM-only)"
+          };
+
+          if (htCounts)
           {
-            const string truthDir = JoinPath(outDir, "TruthIsolation");
-            EnsureDir(truthDir);
+            DrawAndSaveTH1_Common(ds, htCounts,
+              JoinPath(truthDir, "truthIso_counts.png"),
+              "E_{T}^{iso,truth} [GeV]", "Counts", lines, false);
+            delete htCounts;
+          }
 
-            // --- Read truth histograms (unsliced; live directly in /SIM/) ---
-            TH1* hTruthIso = GetObj<TH1>(ds, "h_EisoTruth", true, true, true);
-            TH1* hTruthDec = GetObj<TH1>(ds, "h_EisoTruthDecision", true, true, true);
-
-            // --- Build reco-inclusive histogram by summing pT-sliced reco iso ---
-            TH1* hRecoIsoSum = SumRecoPtSlicedTH1(ds, "h_Eiso");
-
-            // 1) Truth isolation distribution (counts + shape)
-            if (hTruthIso)
-            {
-              TH1* htCounts = CloneTH1(hTruthIso, "h_EisoTruth_counts_clone");
-              TH1* htShape  = CloneTH1(hTruthIso, "h_EisoTruth_shape_clone");
-
-              vector<string> lines = {
-                "Truth isolation (prompt #gamma candidates in acceptance)",
-                "Histogram: h_EisoTruth (SIM-only)"
-              };
-
-              if (htCounts)
-              {
-                DrawAndSaveTH1_Common(ds, htCounts,
-                  JoinPath(truthDir, "truthIso_counts.png"),
-                  "E_{T}^{iso,truth} [GeV]", "Counts", lines, false);
-                delete htCounts;
-              }
-
-              if (htShape)
-              {
-                NormalizeToUnitArea(htShape);
-                DrawAndSaveTH1_Common(ds, htShape,
-                  JoinPath(truthDir, "truthIso_shape.png"),
-                  "E_{T}^{iso,truth} [GeV]", "A.U.", lines, false);
-                delete htShape;
-              }
-            }
-
-            // 2) Truth isolation decision (PASS/FAIL)
-            if (hTruthDec)
-            {
-              TH1* hd = CloneTH1(hTruthDec, "h_EisoTruthDecision_clone");
-              vector<string> lines = {
-                "Truth isolation decision",
-                "Histogram: h_EisoTruthDecision (SIM-only)",
-                "bin1=PASS, bin2=FAIL"
-              };
-
-              if (hd)
-              {
-                DrawAndSaveTH1_Common(ds, hd,
-                  JoinPath(truthDir, "truthIsoDecision.png"),
-                  "Decision", "Counts", lines, false);
-                delete hd;
-              }
-            }
-
-            // 3) Reco inclusive iso (counts + shape)
-            if (hRecoIsoSum)
-            {
-              TH1* hrCounts = CloneTH1(hRecoIsoSum, "h_EisoRecoInclusive_counts_clone");
-              TH1* hrShape  = CloneTH1(hRecoIsoSum, "h_EisoRecoInclusive_shape_clone");
-
-              vector<string> lines = {
-                "Reco isolation (inclusive over p_{T}^{#gamma} bins)",
-                "Built offline by summing h_Eiso_pT_*"
-              };
-
-              if (hrCounts)
-              {
-                DrawAndSaveTH1_Common(ds, hrCounts,
-                  JoinPath(truthDir, "recoIsoInclusive_counts.png"),
-                  "E_{T}^{iso,reco} [GeV]", "Counts", lines, false);
-                delete hrCounts;
-              }
-
-              if (hrShape)
-              {
-                NormalizeToUnitArea(hrShape);
-                DrawAndSaveTH1_Common(ds, hrShape,
-                  JoinPath(truthDir, "recoIsoInclusive_shape.png"),
-                  "E_{T}^{iso,reco} [GeV]", "A.U.", lines, false);
-                delete hrShape;
-              }
-
-              delete hRecoIsoSum;
-              hRecoIsoSum = nullptr;
-            }
-
-            // 4) Overlay truth vs reco (shape) in common x-range
-            // Choose overlap range automatically:
-            //   reco typically ~[-5,12], truth often ~[0,50] => overlap ~[0,12].
-            if (hTruthIso)
-            {
-              // Rebuild reco sum again for overlay (we deleted it above after saving).
-              TH1* hRecoIsoSum2 = SumRecoPtSlicedTH1(ds, "h_Eiso");
-
-              if (hRecoIsoSum2)
-              {
-                TH1* ht = CloneTH1(hTruthIso,  "h_EisoTruth_forOverlay");
-                TH1* hr = CloneTH1(hRecoIsoSum2, "h_EisoReco_forOverlay");
-
-                if (ht && hr)
-                {
-                  // Determine overlap range from histogram axes
-                  const double xmin = std::max(ht->GetXaxis()->GetXmin(), hr->GetXaxis()->GetXmin());
-                  const double xmax = std::min(ht->GetXaxis()->GetXmax(), hr->GetXaxis()->GetXmax());
-
-                  // Guard against bad overlap
-                  double xlo = xmin;
-                  double xhi = xmax;
-                  if (!(std::isfinite(xlo) && std::isfinite(xhi) && xhi > xlo))
-                  {
-                    // fallback to a typical common window
-                    xlo = 0.0;
-                    xhi = 12.0;
-                  }
-
-                  // Normalize ONLY over the common visible range and draw the overlay
-                  NormalizeToUnitAreaInRange(ht, xlo, xhi);
-                  NormalizeToUnitAreaInRange(hr, xlo, xhi);
-
-                  // Draw only the overlap window for a fair visual comparison
-                  ht->GetXaxis()->SetRangeUser(xlo, xhi);
-                  hr->GetXaxis()->SetRangeUser(xlo, xhi);
-
-                  vector<string> extra = {
-                    "Overlay (shape): truth vs reco isolation",
-                    TString::Format("Normalized in-range: [%.2f, %.2f] GeV", xlo, xhi).Data(),
-                    "Truth: h_EisoTruth   |   Reco: sum of h_Eiso_pT_*"
-                  };
-
-                  DrawOverlayTwoTH1(ds, ht, hr,
-                    "Truth isolation", "Reco isolation (inclusive)",
-                    JoinPath(truthDir, "overlay_truthIso_vs_recoIso_shape.png"),
-                    "E_{T}^{iso} [GeV]", "A.U.", extra, false);
-                }
-
-                if (ht) delete ht;
-                if (hr) delete hr;
-
-                delete hRecoIsoSum2;
-              }
-            }
+          if (htShape)
+          {
+            NormalizeToUnitArea(htShape);
+            DrawAndSaveTH1_Common(ds, htShape,
+              JoinPath(truthDir, "truthIso_shape.png"),
+              "E_{T}^{iso,truth} [GeV]", "A.U.", lines, false);
+            delete htShape;
           }
         }
+
+        // 2) Truth isolation decision (PASS/FAIL)
+        if (hTruthDec)
+        {
+          TH1* hd = CloneTH1(hTruthDec, "h_EisoTruthDecision_clone");
+          vector<string> lines = {
+            "Truth isolation decision",
+            "Histogram: h_EisoTruthDecision (SIM-only)",
+            "bin1=PASS, bin2=FAIL"
+          };
+
+          if (hd)
+          {
+            DrawAndSaveTH1_Common(ds, hd,
+              JoinPath(truthDir, "truthIsoDecision.png"),
+              "Decision", "Counts", lines, false);
+            delete hd;
+          }
+        }
+
+        // 3) Reco inclusive iso (counts + shape)
+        if (hRecoIsoSum)
+        {
+          TH1* hrCounts = CloneTH1(hRecoIsoSum, "h_EisoRecoInclusive_counts_clone");
+          TH1* hrShape  = CloneTH1(hRecoIsoSum, "h_EisoRecoInclusive_shape_clone");
+
+          vector<string> lines = {
+            "Reco isolation (inclusive over p_{T}^{#gamma} bins)",
+            "Built offline by summing h_Eiso_pT_*"
+          };
+
+          if (hrCounts)
+          {
+            DrawAndSaveTH1_Common(ds, hrCounts,
+              JoinPath(truthDir, "recoIsoInclusive_counts.png"),
+              "E_{T}^{iso,reco} [GeV]", "Counts", lines, false);
+            delete hrCounts;
+          }
+
+          if (hrShape)
+          {
+            NormalizeToUnitArea(hrShape);
+            DrawAndSaveTH1_Common(ds, hrShape,
+              JoinPath(truthDir, "recoIsoInclusive_shape.png"),
+              "E_{T}^{iso,reco} [GeV]", "A.U.", lines, false);
+            delete hrShape;
+          }
+
+          delete hRecoIsoSum;
+          hRecoIsoSum = nullptr;
+        }
+
+        // 4) Overlay truth vs reco (shape) in common x-range
+        // Choose overlap range automatically:
+        //   reco typically ~[-5,12], truth often ~[0,50] => overlap ~[0,12].
+        if (hTruthIso)
+        {
+          // Rebuild reco sum again for overlay (we deleted it above after saving).
+          TH1* hRecoIsoSum2 = SumRecoPtSlicedTH1(ds, "h_Eiso");
+
+          if (hRecoIsoSum2)
+          {
+            TH1* ht = CloneTH1(hTruthIso,   "h_EisoTruth_forOverlay");
+            TH1* hr = CloneTH1(hRecoIsoSum2,"h_EisoReco_forOverlay");
+
+            if (ht && hr)
+            {
+              // Determine overlap range from histogram axes
+              const double xmin = std::max(ht->GetXaxis()->GetXmin(), hr->GetXaxis()->GetXmin());
+              const double xmax = std::min(ht->GetXaxis()->GetXmax(), hr->GetXaxis()->GetXmax());
+
+              // Guard against bad overlap
+              double xlo = xmin;
+              double xhi = xmax;
+              if (!(std::isfinite(xlo) && std::isfinite(xhi) && xhi > xlo))
+              {
+                // fallback to a typical common window
+                xlo = 0.0;
+                xhi = 12.0;
+              }
+
+              // Normalize ONLY over the common visible range and draw the overlay
+              NormalizeToUnitAreaInRange(ht, xlo, xhi);
+              NormalizeToUnitAreaInRange(hr, xlo, xhi);
+
+              // Draw only the overlap window for a fair visual comparison
+              ht->GetXaxis()->SetRangeUser(xlo, xhi);
+              hr->GetXaxis()->SetRangeUser(xlo, xhi);
+
+              vector<string> extra = {
+                "Overlay (shape): truth vs reco isolation",
+                TString::Format("Normalized in-range: [%.2f, %.2f] GeV", xlo, xhi).Data(),
+                "Truth: h_EisoTruth   |   Reco: sum of h_Eiso_pT_*"
+              };
+
+              DrawOverlayTwoTH1(ds, ht, hr,
+                "Truth isolation", "Reco isolation (inclusive)",
+                JoinPath(truthDir, "overlay_truthIso_vs_recoIso_shape.png"),
+                "E_{T}^{iso} [GeV]", "A.U.", extra, false);
+            }
+
+            if (ht) delete ht;
+            if (hr) delete hr;
+
+            delete hRecoIsoSum2;
+          }
+        }
+      }
+
+      void RunIsolationQA(Dataset& ds)
+      {
+        cout << ANSI_BOLD_CYN << "\n==============================\n"
+             << "[SECTION 3] GENERAL ISOLATION QA (" << ds.label << ")\n"
+             << "==============================" << ANSI_RESET << "\n";
+
+        string outDir;
+        if (ds.isSim) outDir = JoinPath(ds.outBase, "isoQAgeneral");
+        else          outDir = JoinPath(ds.outBase, "isoQAgeneral/" + ds.trigger);
+
+        EnsureDir(outDir);
+        for (const auto& b : PtBins()) EnsureDir(JoinPath(outDir, b.folder));
+
+        // 1) RECO/DATA isolation QA (always runs)
+        RunIsolationQA_Reco(ds, outDir);
+
+        // 2) Keep exactly where you had it before (after reco plots, before truth block)
+        PrintIsoDecisionTable(ds);
+
+        // 3) SIM-only truth isolation QA + overlays (only runs in SIM)
+        if (ds.isSim)
+        {
+          RunIsolationQA_TruthSim(ds, outDir);
+        }
+      }
 
       // =============================================================================
       // Section 4: ABCD QA + purity + SS overlays + SIM leakage factors
@@ -685,7 +706,7 @@ namespace ARJ
         }
       }
 
-        static void Make3x3Table_SSOverlay(Dataset& ds,
+      static void Make3x3Table_SSOverlay(Dataset& ds,
                                           const string& varKey,
                                           const string& outDir,
                                           const string& outName,
@@ -780,7 +801,7 @@ namespace ARJ
 
           // Cleanup AFTER saving
           for (auto* h : keepAlive) delete h;
-        }
+      }
 
       void RunABCDPurityAndSidebandSubtraction(Dataset& ds, const LeakageFactors& lf)
       {
@@ -1060,18 +1081,6 @@ namespace ARJ
       // =============================================================================
       // Section 5: Jet QA + recoil jet QA suite
       // =============================================================================
-      // [moved to header] DetermineNevtForRKey
-
-
-      // [moved to header] WriteTextFile
-
-
-      // [moved to header] WriteJetSummaryTxt
-
-
-      // [moved to header] DrawOverlayTwoTH1
-
-
       static void PlotJetQA_AllOrIncl(Dataset& ds,
                                      const string& baseOut,
                                      const string& modeTag, // "all" or "incl"
@@ -1396,121 +1405,154 @@ namespace ARJ
         }
       }
 
-      // =============================================================================
-      // Section 5C: Match QA (cache NphoLead/NphoMatched)
-      // =============================================================================
-      // [moved to header] InitMatchCache
-
-
-      // [moved to header] FindPtBinIndexByEdges
-
-
       void RunMatchQA(Dataset& ds, MatchCache& mc)
       {
-        cout << ANSI_BOLD_CYN << "\n==============================\n"
-             << "[SECTION 5C] #gamma-jet MatchQA (" << ds.label << ")\n"
-             << "==============================" << ANSI_RESET << "\n";
+            cout << ANSI_BOLD_CYN << "\n==============================\n"
+                 << "[SECTION 5C] #gamma-jet MatchQA (" << ds.label << ")\n"
+                 << "==============================" << ANSI_RESET << "\n";
 
-        InitMatchCache(mc);
+            // Reset/prepare cache (used later for r02/r04 overlays)
+            InitMatchCache(mc);
 
-        string baseOut;
-        if (ds.isSim) baseOut = JoinPath(ds.outBase, "RecoilJetQA/MatchQA");
-        else          baseOut = JoinPath(ds.outBase, "RecoilJetQA/MatchQA/" + ds.trigger);
-        EnsureDir(baseOut);
+            // -------------------------------------------------------------------------
+            // Output base directory
+            // -------------------------------------------------------------------------
+            string baseOut;
+            if (ds.isSim) baseOut = JoinPath(ds.outBase, "RecoilJetQA/MatchQA");
+            else          baseOut = JoinPath(ds.outBase, "RecoilJetQA/MatchQA/" + ds.trigger);
+            EnsureDir(baseOut);
 
-        for (const auto& rKey : kRKeys)
-        {
-          const string rOut    = JoinPath(baseOut, rKey);
-          const string dir2D   = JoinPath(rOut, "2D");
-          const string dirProj = JoinPath(rOut, "projections");
-          EnsureDir(dir2D);
-          EnsureDir(dirProj);
-
-          vector<string> notes;
-
-          TH2* hStatus = GetObj<TH2>(ds, "h_match_status_vs_pTgamma_" + rKey, true, true, true);
-          if (hStatus)
-          {
-            TH2* hc = CloneTH2(hStatus, "status_clone");
-            DrawAndSaveTH2_Common(ds, hc,
-              JoinPath(dir2D, "match_status_vs_pTgamma.png"),
-              "p_{T}^{#gamma} [GeV]", "Status", "Counts",
-              {string("Match status vs p_{T}^{#gamma}"), rKey + TString::Format(" (R=%.1f)", RFromKey(rKey)).Data()},
-              false);
-            delete hc;
-
-            vector<double> x(kNPtBins, 0.0);
-            vector<double> f1(kNPtBins, 0.0), f2(kNPtBins, 0.0), f3(kNPtBins, 0.0), f4(kNPtBins, 0.0);
-
-            double totAll = 0.0, tot1=0.0, tot2=0.0, tot3=0.0, tot4=0.0;
-
-            for (int i = 0; i < kNPtBins; ++i)
+            // -------------------------------------------------------------------------
+            // Small structs for cleanliness
+            // -------------------------------------------------------------------------
+            struct MatchDirs
             {
-              const PtBin& b = PtBins()[i];
-              x[i] = 0.5*(b.lo + b.hi);
+              string rOut;
+              string dir2D;
+              string dirProj;
+            };
 
-              const int xbin = i+1;
-              const double n1 = hStatus->GetBinContent(xbin, 1);
-              const double n2 = hStatus->GetBinContent(xbin, 2);
-              const double n3 = hStatus->GetBinContent(xbin, 3);
-              const double n4 = hStatus->GetBinContent(xbin, 4);
+            auto MakeDirsForRKey = [&](const string& rKey)->MatchDirs
+            {
+              MatchDirs D;
+              D.rOut    = JoinPath(baseOut, rKey);
+              D.dir2D   = JoinPath(D.rOut, "2D");
+              D.dirProj = JoinPath(D.rOut, "projections");
+              EnsureDir(D.rOut);
+              EnsureDir(D.dir2D);
+              EnsureDir(D.dirProj);
+              return D;
+            };
 
-              const double nLead = n1+n2+n3+n4;
-              mc.NphoLead[rKey][i]    = nLead;
-              mc.NphoMatched[rKey][i] = n4;
+            auto RLabel = [&](const string& rKey)->string
+            {
+              return TString::Format(" (R=%.1f)", RFromKey(rKey)).Data();
+            };
 
-              f1[i] = (nLead>0)? n1/nLead : 0.0;
-              f2[i] = (nLead>0)? n2/nLead : 0.0;
-              f3[i] = (nLead>0)? n3/nLead : 0.0;
-              f4[i] = (nLead>0)? n4/nLead : 0.0;
+            // -------------------------------------------------------------------------
+            // Helper: draw match status TH2 + compute per-pT fractions + fill MatchCache
+            // -------------------------------------------------------------------------
+            auto HandleMatchStatus =
+              [&](const string& rKey,
+                  const MatchDirs& D,
+                  vector<string>& notes)->TH2*
+            {
+              TH2* hStatus = GetObj<TH2>(ds, "h_match_status_vs_pTgamma_" + rKey, true, true, true);
+              if (!hStatus)
+              {
+                notes.push_back("Missing h_match_status_vs_pTgamma_" + rKey);
+                return nullptr;
+              }
 
-              totAll += nLead;
-              tot1 += n1; tot2 += n2; tot3 += n3; tot4 += n4;
-            }
+              // 2D plot (existing behavior)
+              {
+                TH2* hc = CloneTH2(hStatus, "status_clone");
+                DrawAndSaveTH2_Common(ds, hc,
+                  JoinPath(D.dir2D, "match_status_vs_pTgamma.png"),
+                  "p_{T}^{#gamma} [GeV]", "Status", "Counts",
+                  {string("Match status vs p_{T}^{#gamma}"), rKey + RLabel(rKey)},
+                  false);
+                delete hc;
+              }
 
-              // fractions plot (existing)
-              TCanvas c("c_frac","c_frac",900,700);
-              ApplyCanvasMargins1D(c);
+              // Compute per-bin fractions from status bins
+              // Status binning (Y):
+              //   1 = NoJetPt
+              //   2 = NoJetEta
+              //   3 = NoBackToBack
+              //   4 = Matched
+              vector<double> x(kNPtBins, 0.0);
+              vector<double> f1(kNPtBins, 0.0), f2(kNPtBins, 0.0), f3(kNPtBins, 0.0), f4(kNPtBins, 0.0);
 
-              TGraph g1(kNPtBins, &x[0], &f1[0]);
-              TGraph g2(kNPtBins, &x[0], &f2[0]);
-              TGraph g3(kNPtBins, &x[0], &f3[0]);
-              TGraph g4(kNPtBins, &x[0], &f4[0]);
+              double totAll = 0.0, tot1=0.0, tot2=0.0, tot3=0.0, tot4=0.0;
 
-              g1.SetLineWidth(2); g2.SetLineWidth(2); g3.SetLineWidth(2); g4.SetLineWidth(2);
-              g1.SetMarkerStyle(20); g2.SetMarkerStyle(21); g3.SetMarkerStyle(22); g4.SetMarkerStyle(24);
-              g1.SetLineColor(1); g2.SetLineColor(2); g3.SetLineColor(4); g4.SetLineColor(6);
-              g1.SetMarkerColor(1); g2.SetMarkerColor(2); g3.SetMarkerColor(4); g4.SetMarkerColor(6);
+              for (int i = 0; i < kNPtBins; ++i)
+              {
+                const PtBin& b = PtBins()[i];
+                x[i] = 0.5*(b.lo + b.hi);
 
-              TMultiGraph mg;
-              mg.Add(&g1, "LP"); mg.Add(&g2, "LP"); mg.Add(&g3, "LP"); mg.Add(&g4, "LP");
-              mg.Draw("A");
-              mg.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
-              mg.GetYaxis()->SetTitle("Fraction");
-              mg.SetMinimum(0.0); mg.SetMaximum(1.05);
+                const int xbin = i+1;
+                const double n1 = hStatus->GetBinContent(xbin, 1);
+                const double n2 = hStatus->GetBinContent(xbin, 2);
+                const double n3 = hStatus->GetBinContent(xbin, 3);
+                const double n4 = hStatus->GetBinContent(xbin, 4);
 
-              TLegend leg(0.55,0.70,0.92,0.90);
-              leg.SetTextFont(42);
-              leg.SetTextSize(0.030);
-              leg.AddEntry(&g1, "NoJetPt", "lp");
-              leg.AddEntry(&g2, "NoJetEta", "lp");
-              leg.AddEntry(&g3, "NoBackToBack", "lp");
-              leg.AddEntry(&g4, "Matched", "lp");
-              leg.Draw();
+                const double nLead = n1+n2+n3+n4;
+                mc.NphoLead[rKey][i]    = nLead;
+                mc.NphoMatched[rKey][i] = n4;
 
-              DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-              DrawLatexLines(0.14,0.78, {string("Match status fractions vs p_{T}^{#gamma}"), rKey}, 0.030, 0.040);
-              SaveCanvas(c, JoinPath(dirProj, "match_status_fractions_vs_pTgamma.png"));
+                f1[i] = (nLead>0)? n1/nLead : 0.0;
+                f2[i] = (nLead>0)? n2/nLead : 0.0;
+                f3[i] = (nLead>0)? n3/nLead : 0.0;
+                f4[i] = (nLead>0)? n4/nLead : 0.0;
 
-              // -----------------------------------------------------------------------------
-              // NEW: efficiency-style summaries (presentation-ready)
-              // Definitions from your status bins (per pTgamma bin):
+                totAll += nLead;
+                tot1 += n1; tot2 += n2; tot3 += n3; tot4 += n4;
+              }
+
+              // Fractions plot (existing)
+              {
+                TCanvas c("c_frac","c_frac",900,700);
+                ApplyCanvasMargins1D(c);
+
+                TGraph g1(kNPtBins, &x[0], &f1[0]);
+                TGraph g2(kNPtBins, &x[0], &f2[0]);
+                TGraph g3(kNPtBins, &x[0], &f3[0]);
+                TGraph g4(kNPtBins, &x[0], &f4[0]);
+
+                g1.SetLineWidth(2); g2.SetLineWidth(2); g3.SetLineWidth(2); g4.SetLineWidth(2);
+                g1.SetMarkerStyle(20); g2.SetMarkerStyle(21); g3.SetMarkerStyle(22); g4.SetMarkerStyle(24);
+                g1.SetLineColor(1); g2.SetLineColor(2); g3.SetLineColor(4); g4.SetLineColor(6);
+                g1.SetMarkerColor(1); g2.SetMarkerColor(2); g3.SetMarkerColor(4); g4.SetMarkerColor(6);
+
+                TMultiGraph mg;
+                mg.Add(&g1, "LP"); mg.Add(&g2, "LP"); mg.Add(&g3, "LP"); mg.Add(&g4, "LP");
+                mg.Draw("A");
+                mg.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
+                mg.GetYaxis()->SetTitle("Fraction");
+                mg.SetMinimum(0.0); mg.SetMaximum(1.05);
+
+                TLegend leg(0.55,0.70,0.92,0.90);
+                leg.SetTextFont(42);
+                leg.SetTextSize(0.030);
+                leg.AddEntry(&g1, "NoJetPt", "lp");
+                leg.AddEntry(&g2, "NoJetEta", "lp");
+                leg.AddEntry(&g3, "NoBackToBack", "lp");
+                leg.AddEntry(&g4, "Matched", "lp");
+                leg.Draw();
+
+                DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+                DrawLatexLines(0.14,0.78, {string("Match status fractions vs p_{T}^{#gamma}"), rKey}, 0.030, 0.040);
+                SaveCanvas(c, JoinPath(D.dirProj, "match_status_fractions_vs_pTgamma.png"));
+              }
+
+              // Efficiency-style summaries (your added functionality)
+              // Definitions:
               //   f_pT  = (N2+N3+N4)/Ntot
               //   f_fid = (N3+N4)/Ntot
               //   f_b2b = (N4)/Ntot
               //   P(fid|pt)  = (N3+N4)/(N2+N3+N4)
               //   P(b2b|fid) = (N4)/(N3+N4)
-              // -----------------------------------------------------------------------------
               vector<double> fPt(kNPtBins, 0.0), fFid(kNPtBins, 0.0), fB2B(kNPtBins, 0.0);
               vector<double> pFidGivenPt(kNPtBins, 0.0), pB2BGivenFid(kNPtBins, 0.0);
 
@@ -1526,15 +1568,14 @@ namespace ARJ
                 const double nPassPt  = n2 + n3 + n4;
                 const double nPassFid = n3 + n4;
 
-                fPt[i]          = SafeDivide(nPassPt,  nTot,    0.0);
-                fFid[i]         = SafeDivide(nPassFid, nTot,    0.0);
-                fB2B[i]         = SafeDivide(n4,       nTot,    0.0);
-                pFidGivenPt[i]  = SafeDivide(nPassFid, nPassPt, 0.0);
-                pB2BGivenFid[i] = SafeDivide(n4,       nPassFid,0.0);
+                fPt[i]          = SafeDivide(nPassPt,  nTot,     0.0);
+                fFid[i]         = SafeDivide(nPassFid, nTot,     0.0);
+                fB2B[i]         = SafeDivide(n4,       nTot,     0.0);
+                pFidGivenPt[i]  = SafeDivide(nPassFid, nPassPt,  0.0);
+                pB2BGivenFid[i] = SafeDivide(n4,       nPassFid, 0.0);
               }
 
-              // Put these into a dedicated output folder (keeps your structure clean)
-              const string dirEff = JoinPath(rOut, "efficiencies");
+              const string dirEff = JoinPath(D.rOut, "efficiencies");
               EnsureDir(dirEff);
 
               // (A) Selection efficiencies vs pTgamma
@@ -1546,11 +1587,10 @@ namespace ARJ
                 TGraph gFid(kNPtBins, &x[0], &fFid[0]);
                 TGraph gB2B(kNPtBins, &x[0], &fB2B[0]);
 
-                gPt.SetLineWidth(2);  gFid.SetLineWidth(2);  gB2B.SetLineWidth(2);
+                gPt.SetLineWidth(2);   gFid.SetLineWidth(2);   gB2B.SetLineWidth(2);
                 gPt.SetMarkerStyle(20); gFid.SetMarkerStyle(21); gB2B.SetMarkerStyle(24);
-
-                gPt.SetLineColor(1);  gFid.SetLineColor(2);  gB2B.SetLineColor(4);
-                gPt.SetMarkerColor(1);gFid.SetMarkerColor(2);gB2B.SetMarkerColor(4);
+                gPt.SetLineColor(1);   gFid.SetLineColor(2);   gB2B.SetLineColor(4);
+                gPt.SetMarkerColor(1); gFid.SetMarkerColor(2); gB2B.SetMarkerColor(4);
 
                 TMultiGraph mg2;
                 mg2.Add(&gPt,  "LP");
@@ -1613,9 +1653,8 @@ namespace ARJ
                 SaveCanvas(c3, JoinPath(dirEff, "match_efficiencies_conditionals_vs_pTgamma.png"));
               }
 
-              // summary.txt + terminal table (better tabulation)
+              // Terminal table + summary.txt (your added functionality)
               {
-                // ---------------- Terminal table (what you want) ----------------
                 cout << ANSI_BOLD_CYN
                      << "\n[MatchStatus table] " << ds.label << "  rKey=" << rKey
                      << " (R=" << std::fixed << std::setprecision(1) << RFromKey(rKey) << ")\n"
@@ -1644,7 +1683,7 @@ namespace ARJ
 
                 cout << string(wPt + 5*wN + 3 + 4*wFrac + 3 + 2*wFrac, '-') << "\n";
 
-                // Per pT bin: use the same counts you already extracted from the TH2
+                // Per pT bin
                 for (int i = 0; i < kNPtBins; ++i)
                 {
                   const PtBin& b = PtBins()[i];
@@ -1655,21 +1694,17 @@ namespace ARJ
                   const double n3 = hStatus->GetBinContent(xbin, 3);
                   const double n4 = hStatus->GetBinContent(xbin, 4);
 
-                  const double nTot   = n1 + n2 + n3 + n4;
-                  const double nPassPt = n2 + n3 + n4;      // jets pass pT (i.e. not NoJetPt)
-                  const double nPassFid = n3 + n4;          // jets pass pT+eta
-                  const double nPassB2B = n4;               // matched
+                  const double nTot    = n1 + n2 + n3 + n4;
+                  const double nPassPt = n2 + n3 + n4;
+                  const double nPassFid = n3 + n4;
 
                   const double fMatch = SafeDivide(n4, nTot, 0.0);
                   const double fNoPt  = SafeDivide(n1, nTot, 0.0);
                   const double fNoEta = SafeDivide(n2, nTot, 0.0);
                   const double fNoB2B = SafeDivide(n3, nTot, 0.0);
 
-                  // conditional diagnostics:
-                  // P(fiducial jet exists | at least one jet passes pT)
                   const double p_fid_given_pt  = SafeDivide(nPassFid, nPassPt, 0.0);
-                  // P(back-to-back exists | fiducial jet exists)
-                  const double p_b2b_given_fid = SafeDivide(nPassB2B, nPassFid, 0.0);
+                  const double p_b2b_given_fid = SafeDivide(n4, nPassFid, 0.0);
 
                   cout << std::left << std::setw(wPt) << b.label
                        << std::right
@@ -1689,21 +1724,38 @@ namespace ARJ
                        << "\n";
                 }
 
-                // Integrated summary line
-                const double fMatchAll = SafeDivide(tot4, totAll, 0.0);
-                const double fNoPtAll  = SafeDivide(tot1, totAll, 0.0);
-                const double fNoEtaAll = SafeDivide(tot2, totAll, 0.0);
-                const double fNoB2BAll = SafeDivide(tot3, totAll, 0.0);
+                // Integrated summary
+                const double totAll = (mc.NphoLead[rKey][0] + mc.NphoLead[rKey][1] + mc.NphoLead[rKey][2] +
+                                       mc.NphoLead[rKey][3] + mc.NphoLead[rKey][4] + mc.NphoLead[rKey][5] +
+                                       mc.NphoLead[rKey][6] + mc.NphoLead[rKey][7] + mc.NphoLead[rKey][8]);
 
-                const double passPtAll  = tot2 + tot3 + tot4;
-                const double passFidAll = tot3 + tot4;
+                // Recompute integrated totals directly from TH2 (exact)
+                double I1=0, I2=0, I3=0, I4=0, IAll=0;
+                for (int i = 0; i < kNPtBins; ++i)
+                {
+                  const int xbin = i+1;
+                  const double n1 = hStatus->GetBinContent(xbin, 1);
+                  const double n2 = hStatus->GetBinContent(xbin, 2);
+                  const double n3 = hStatus->GetBinContent(xbin, 3);
+                  const double n4 = hStatus->GetBinContent(xbin, 4);
+                  const double nTot = n1+n2+n3+n4;
+                  I1 += n1; I2 += n2; I3 += n3; I4 += n4; IAll += nTot;
+                }
+
+                const double fMatchAll = SafeDivide(I4, IAll, 0.0);
+                const double fNoPtAll  = SafeDivide(I1, IAll, 0.0);
+                const double fNoEtaAll = SafeDivide(I2, IAll, 0.0);
+                const double fNoB2BAll = SafeDivide(I3, IAll, 0.0);
+
+                const double passPtAll  = I2 + I3 + I4;
+                const double passFidAll = I3 + I4;
 
                 const double p_fid_given_pt_all  = SafeDivide(passFidAll, passPtAll, 0.0);
-                const double p_b2b_given_fid_all = SafeDivide(tot4, passFidAll, 0.0);
+                const double p_b2b_given_fid_all = SafeDivide(I4, passFidAll, 0.0);
 
-                cout << string(wPt + 5*wN + 3 + 4*wFrac + 3 + 2*wFrac, '-') << "\n";
+                cout << string(10 + 5*12 + 3 + 4*10 + 3 + 2*10, '-') << "\n";
                 cout << ANSI_BOLD_YEL
-                     << "Integrated: N=" << std::fixed << std::setprecision(0) << totAll
+                     << "Integrated: N=" << std::fixed << std::setprecision(0) << IAll
                      << "  fMatch=" << std::setprecision(4) << fMatchAll
                      << "  fNoPt=" << fNoPtAll
                      << "  fNoEta=" << fNoEtaAll
@@ -1712,19 +1764,18 @@ namespace ARJ
                      << "  P(b2b|fid)=" << p_b2b_given_fid_all
                      << ANSI_RESET << "\n";
 
-                // ---------------- Keep your summary.txt file output too ----------------
                 vector<string> s;
                 s.push_back(string("MatchQA summary (") + ds.label + ")");
                 s.push_back(string("rKey: ") + rKey + TString::Format("  R=%.1f", RFromKey(rKey)).Data());
                 s.push_back("");
-                s.push_back(TString::Format("Total leading photons: %.0f", totAll).Data());
+                s.push_back(TString::Format("Total leading photons: %.0f", IAll).Data());
                 s.push_back("Integrated fractions:");
-                s.push_back(TString::Format("  f_NoJetPt      = %.6f", SafeDivide(tot1, totAll, 0.0)).Data());
-                s.push_back(TString::Format("  f_NoJetEta     = %.6f", SafeDivide(tot2, totAll, 0.0)).Data());
-                s.push_back(TString::Format("  f_NoBackToBack = %.6f", SafeDivide(tot3, totAll, 0.0)).Data());
-                s.push_back(TString::Format("  f_Matched      = %.6f", SafeDivide(tot4, totAll, 0.0)).Data());
+                s.push_back(TString::Format("  f_NoJetPt      = %.6f", SafeDivide(I1, IAll, 0.0)).Data());
+                s.push_back(TString::Format("  f_NoJetEta     = %.6f", SafeDivide(I2, IAll, 0.0)).Data());
+                s.push_back(TString::Format("  f_NoBackToBack = %.6f", SafeDivide(I3, IAll, 0.0)).Data());
+                s.push_back(TString::Format("  f_Matched      = %.6f", SafeDivide(I4, IAll, 0.0)).Data());
                 s.push_back("");
-                s.push_back(TString::Format("Conditional diagnostics (integrated):").Data());
+                s.push_back("Conditional diagnostics (integrated):");
                 s.push_back(TString::Format("  P(fiducial | pass pT)  = %.6f", p_fid_given_pt_all).Data());
                 s.push_back(TString::Format("  P(back-to-back | fid)  = %.6f", p_b2b_given_fid_all).Data());
                 s.push_back("");
@@ -1747,7 +1798,7 @@ namespace ARJ
                   const double p_b2b_given_fid = SafeDivide(n4, nPassFid, 0.0);
 
                   s.push_back(TString::Format(
-                    "  %s  N=%0.f  NoPt=%0.f  NoEta=%0.f  NoB2B=%0.f  Match=%0.f  fMatch=%.6f  P(fid|pt)=%.6f  P(b2b|fid)=%.6f",
+                    "  %s  N=%.0f  NoPt=%.0f  NoEta=%.0f  NoB2B=%.0f  Match=%.0f  fMatch=%.6f  P(fid|pt)=%.6f  P(b2b|fid)=%.6f",
                     b.label.c_str(), nTot, n1, n2, n3, n4,
                     SafeDivide(n4, nTot, 0.0),
                     p_fid_given_pt,
@@ -1761,91 +1812,106 @@ namespace ARJ
                   s.push_back("NOTES:");
                   for (const auto& n : notes) s.push_back(string("  - ") + n);
                 }
-                WriteTextFile(JoinPath(rOut, "summary.txt"), s);
+
+                WriteTextFile(JoinPath(D.rOut, "summary.txt"), s);
               }
-          }
-          else
-          {
-            notes.push_back("Missing h_match_status_vs_pTgamma_" + rKey);
-          }
 
-          // maxdphi
-          if (TH2* hMax = GetObj<TH2>(ds, "h_match_maxdphi_vs_pTgamma_" + rKey, true, true, true))
-          {
-            TH2* hc = CloneTH2(hMax, "maxdphi_clone");
-            DrawAndSaveTH2_Common(ds, hc,
-              JoinPath(dir2D, "match_maxdphi_vs_pTgamma.png"),
-              "p_{T}^{#gamma} [GeV]", "max|#Delta#phi| [rad]", "Counts",
-              {string("max|#Delta#phi(#gamma,jet)| vs p_{T}^{#gamma}"), rKey}, false);
-            delete hc;
+              return hStatus;
+            };
 
-            vector<double> x(kNPtBins, 0.0), y(kNPtBins, 0.0);
-            for (int i = 0; i < kNPtBins; ++i)
+            // -------------------------------------------------------------------------
+            // Helper: maxdphi QA (existing behavior)
+            // -------------------------------------------------------------------------
+            auto HandleMaxDphi =
+              [&](const string& rKey, const MatchDirs& D)
             {
-              const PtBin& b = PtBins()[i];
-              x[i] = 0.5*(b.lo + b.hi);
-              TH1D* proj = hMax->ProjectionY("tmp_maxdphi_py", i+1, i+1);
-              y[i] = proj ? proj->GetMean() : 0.0;
-              if (proj) delete proj;
-            }
+              if (TH2* hMax = GetObj<TH2>(ds, "h_match_maxdphi_vs_pTgamma_" + rKey, true, true, true))
+              {
+                TH2* hc = CloneTH2(hMax, "maxdphi_clone");
+                DrawAndSaveTH2_Common(ds, hc,
+                  JoinPath(D.dir2D, "match_maxdphi_vs_pTgamma.png"),
+                  "p_{T}^{#gamma} [GeV]", "max|#Delta#phi| [rad]", "Counts",
+                  {string("max|#Delta#phi(#gamma,jet)| vs p_{T}^{#gamma}"), rKey}, false);
+                delete hc;
 
-            TCanvas c("c_meanmax","c_meanmax",900,700);
-            ApplyCanvasMargins1D(c);
-            TGraph g(kNPtBins, &x[0], &y[0]);
-            g.SetLineWidth(2);
-            g.SetMarkerStyle(20);
-            g.Draw("ALP");
-            g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
-            g.GetYaxis()->SetTitle("<max|#Delta#phi|> [rad]");
-            g.SetMinimum(0.0);
-            g.SetMaximum(TMath::Pi());
+                vector<double> x(kNPtBins, 0.0), y(kNPtBins, 0.0);
+                for (int i = 0; i < kNPtBins; ++i)
+                {
+                  const PtBin& b = PtBins()[i];
+                  x[i] = 0.5*(b.lo + b.hi);
+                  TH1D* proj = hMax->ProjectionY("tmp_maxdphi_py", i+1, i+1);
+                  y[i] = proj ? proj->GetMean() : 0.0;
+                  if (proj) delete proj;
+                }
 
-            DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-            DrawLatexLines(0.14,0.78, {string("Mean max|#Delta#phi| vs p_{T}^{#gamma}"), rKey}, 0.030, 0.040);
+                TCanvas c("c_meanmax","c_meanmax",900,700);
+                ApplyCanvasMargins1D(c);
+                TGraph g(kNPtBins, &x[0], &y[0]);
+                g.SetLineWidth(2);
+                g.SetMarkerStyle(20);
+                g.Draw("ALP");
+                g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
+                g.GetYaxis()->SetTitle("<max|#Delta#phi|> [rad]");
+                g.SetMinimum(0.0);
+                g.SetMaximum(TMath::Pi());
 
-            SaveCanvas(c, JoinPath(dirProj, "mean_maxdphi_vs_pTgamma.png"));
-          }
+                DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+                DrawLatexLines(0.14,0.78, {string("Mean max|#Delta#phi| vs p_{T}^{#gamma}"), rKey}, 0.030, 0.040);
 
-          // profile nRecoil
-          if (TProfile* pN = GetObj<TProfile>(ds, "p_nRecoilJets_vs_pTgamma_" + rKey, true, true, true))
-          {
-            TProfile* pc = (TProfile*)pN->Clone("p_clone");
-            pc->SetDirectory(nullptr);
-            DrawAndSaveTH1_Common(ds, (TH1*)pc,
-              JoinPath(dirProj, "profile_nRecoilJets_vs_pTgamma.png"),
-              "p_{T}^{#gamma} [GeV]", "<N_{recoil jets}>",
-              {string("Mean recoil-jet multiplicity vs p_{T}^{#gamma}"), rKey}, false);
-            delete pc;
-          }
+                SaveCanvas(c, JoinPath(D.dirProj, "mean_maxdphi_vs_pTgamma.png"));
+              }
+            };
 
-            // additional matching QA: |Δphi| projections (1D) + clean pT-dependent + pT-integrated outputs
-            // Using ONLY what is already in the RecoilJets output:
-            //  - h_match_dphi_vs_pTgamma_rKey    : |Δphi(γ, recoilJet1)| for matched events only
-            //  - h_match_maxdphi_vs_pTgamma_rKey : max|Δphi(γ, fid jet)| for all events (no-fid-jet -> underflow)
-            if (TH2* hDphi = GetObj<TH2>(ds, "h_match_dphi_vs_pTgamma_" + rKey, true, true, true))
+            // -------------------------------------------------------------------------
+            // Helper: profile nRecoil jets vs pTgamma (existing behavior)
+            // -------------------------------------------------------------------------
+            auto HandleNRecoilProfile =
+              [&](const string& rKey, const MatchDirs& D)
             {
-              // ---------------------------------------------------------------------
+              if (TProfile* pN = GetObj<TProfile>(ds, "p_nRecoilJets_vs_pTgamma_" + rKey, true, true, true))
+              {
+                TProfile* pc = (TProfile*)pN->Clone("p_clone");
+                pc->SetDirectory(nullptr);
+                DrawAndSaveTH1_Common(ds, (TH1*)pc,
+                  JoinPath(D.dirProj, "profile_nRecoilJets_vs_pTgamma.png"),
+                  "p_{T}^{#gamma} [GeV]", "<N_{recoil jets}>",
+                  {string("Mean recoil-jet multiplicity vs p_{T}^{#gamma}"), rKey}, false);
+                delete pc;
+              }
+            };
+
+            // -------------------------------------------------------------------------
+            // Helper: additional Δφ matching QA suite (your large added block, organized)
+            // -------------------------------------------------------------------------
+            auto HandleDeltaPhiSuite =
+              [&](const string& rKey, const MatchDirs& D)
+            {
+              // Uses:
+              //  - h_match_dphi_vs_pTgamma_rKey    : |Δphi(γ, recoilJet1)| for matched events only
+              //  - h_match_maxdphi_vs_pTgamma_rKey : max|Δphi(γ, fid jet)| for all events (no-fid-jet -> underflow)
+              TH2* hDphi = GetObj<TH2>(ds, "h_match_dphi_vs_pTgamma_" + rKey, true, true, true);
+              if (!hDphi) return;
+
               // Keep existing 2D plot (matched recoilJet1 only)
-              // ---------------------------------------------------------------------
-              TH2* hc = CloneTH2(hDphi,
-                TString::Format("dphi_clone_%s_%s", ds.label.c_str(), rKey.c_str()).Data()
-              );
+              {
+                TH2* hc = CloneTH2(hDphi,
+                  TString::Format("dphi_clone_%s_%s", ds.label.c_str(), rKey.c_str()).Data()
+                );
 
-              DrawAndSaveTH2_Common(ds, hc,
-                JoinPath(dir2D, "match_dphi_vs_pTgamma.png"),
-                "p_{T}^{#gamma} [GeV]", "|#Delta#phi| [rad]", "Counts",
-                {string("|#Delta#phi(#gamma,recoilJet1)| vs p_{T}^{#gamma} (matched only)"), rKey},
-                false);
+                DrawAndSaveTH2_Common(ds, hc,
+                  JoinPath(D.dir2D, "match_dphi_vs_pTgamma.png"),
+                  "p_{T}^{#gamma} [GeV]", "|#Delta#phi| [rad]", "Counts",
+                  {string("|#Delta#phi(#gamma,recoilJet1)| vs p_{T}^{#gamma} (matched only)"), rKey},
+                  false);
 
-              delete hc;
+                delete hc;
+              }
 
               // Optional companion TH2: max|Δphi| over fid jets (filled for all events)
               TH2* hMax = GetObj<TH2>(ds, "h_match_maxdphi_vs_pTgamma_" + rKey, false, false, false);
 
-              // ---------------------------------------------------------------------
               // Output directories (clean + organized)
-              // ---------------------------------------------------------------------
-              const string dirDphi = JoinPath(dirProj, "deltaPhi");
+              const string dirDphi = JoinPath(D.dirProj, "deltaPhi");
               const string dirJet1 = JoinPath(dirDphi, "recoilJet1");
               const string dirMax  = JoinPath(dirDphi, "maxDphi");
               const string dirOv   = JoinPath(dirDphi, "overlays");
@@ -1862,9 +1928,7 @@ namespace ARJ
                 EnsureDir(JoinPath(dirOv,   b.folder));
               }
 
-              // ---------------------------------------------------------------------
               // Helpers: visible-area normalization + safe projections with unique names
-              // ---------------------------------------------------------------------
               auto NormalizeVisible = [](TH1* h)
               {
                 if (!h) return;
@@ -1903,9 +1967,7 @@ namespace ARJ
                      << ANSI_RESET;
               }
 
-              // ---------------------------------------------------------------------
-              // pT-INDEPENDENT (integrated over all pTγ bins): recoilJet1 |Δphi|
-              // ---------------------------------------------------------------------
+              // pT-INDEPENDENT: recoilJet1 |Δphi| integrated
               {
                 TH1D* pAll = ProjY_AllX(
                   hDphi,
@@ -1939,9 +2001,7 @@ namespace ARJ
                 }
               }
 
-              // ---------------------------------------------------------------------
-              // pT-INDEPENDENT (integrated): max|Δphi| (fid jets), if available
-              // ---------------------------------------------------------------------
+              // pT-INDEPENDENT: max|Δphi| integrated
               TH1* maxShapeForIntegratedOverlay = nullptr;
 
               if (hMax)
@@ -1973,7 +2033,6 @@ namespace ARJ
                     JoinPath(dirMax, "maxDphi_integrated_shape.png"),
                     "max|#Delta#phi| [rad]", "A.U.", lines, false);
 
-                  // keep a copy alive for the integrated overlay plot
                   maxShapeForIntegratedOverlay = CloneTH1(pShape,
                     TString::Format("p_maxDphi_allShape_forOv_%s_%s", ds.label.c_str(), rKey.c_str()).Data()
                   );
@@ -1983,9 +2042,7 @@ namespace ARJ
                 }
               }
 
-              // ---------------------------------------------------------------------
-              // pT-INDEPENDENT overlay (shape): recoilJet1 |Δphi| vs max|Δphi|
-              // ---------------------------------------------------------------------
+              // pT-INDEPENDENT overlay (shape): recoilJet1 vs max|Δphi|
               if (hMax && maxShapeForIntegratedOverlay)
               {
                 TH1D* pJet1All = ProjY_AllX(
@@ -2018,15 +2075,12 @@ namespace ARJ
                 maxShapeForIntegratedOverlay = nullptr;
               }
 
-              // ---------------------------------------------------------------------
-              // PER-pT BIN: projections + overlays
-              // ---------------------------------------------------------------------
+              // PER-pT bin: projections + overlays
               for (int i = 0; i < nPtUse; ++i)
               {
                 const PtBin& b = PtBins()[i];
                 const int xbin = i + 1;
 
-                // recoilJet1 |Δphi| (matched)
                 TH1D* p1 = ProjY_AtXbin(
                   hDphi, xbin,
                   TString::Format("p_dphiJet1_%s_%s_%s", ds.label.c_str(), rKey.c_str(), b.folder.c_str()).Data()
@@ -2057,7 +2111,6 @@ namespace ARJ
                   delete p1Shape;
                 }
 
-                // max|Δphi| (fid jets)
                 TH1D* pM = nullptr;
                 if (hMax)
                 {
@@ -2092,7 +2145,7 @@ namespace ARJ
                   }
                 }
 
-                // Overlay (shape): recoilJet1 vs max|Δphi| for this pT bin
+                // Overlay (shape): recoilJet1 vs max|Δphi|
                 if (p1 && pM)
                 {
                   TH1* a = CloneTH1(p1,
@@ -2123,9 +2176,7 @@ namespace ARJ
                 if (pM) delete pM;
               }
 
-              // ---------------------------------------------------------------------
-              // 3x3 tables (shape): jet1 dphi, maxDphi, and overlay jet1 vs maxDphi
-              // ---------------------------------------------------------------------
+              // 3x3 tables (shape): jet1 dphi and maxDphi and overlay table
               auto Make3x3Table_ProjYShape =
                 [&](TH2* h2,
                     const string& canvasTag,
@@ -2194,7 +2245,7 @@ namespace ARJ
                   lines.push_back(TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data());
                   DrawLatexLines(0.16, 0.90, lines, 0.040, 0.050);
 
-                  keep.push_back(p); // delete after SaveCanvas
+                  keep.push_back(p);
                 }
 
                 SaveCanvas(c, outPng);
@@ -2244,7 +2295,7 @@ namespace ARJ
                 );
                 c.Divide(3,3, 0.001, 0.001);
 
-                vector<TObject*> keep; // keep hists + legends alive until SaveCanvas
+                vector<TObject*> keep;
                 keep.reserve(3 * kNPtBins);
 
                 for (int i = 0; i < kNPtBins; ++i)
@@ -2331,160 +2382,175 @@ namespace ARJ
 
                 for (auto* obj : keep) delete obj;
               }
-            }
+            };
 
-          if (TH2* hRL = GetObj<TH2>(ds, "h_recoilIsLeading_vs_pTgamma_" + rKey, true, true, true))
-          {
-            TH2* hc = CloneTH2(hRL, "recoilLead_clone");
-            DrawAndSaveTH2_Common(ds, hc,
-              JoinPath(dir2D, "recoilIsLeading_vs_pTgamma.png"),
-              "p_{T}^{#gamma} [GeV]", "Status", "Counts",
-              {string("Recoil jet is leading? vs p_{T}^{#gamma}"), rKey}, false);
-            delete hc;
-
-            vector<double> x(kNPtBins, 0.0), y(kNPtBins, 0.0);
-            for (int i = 0; i < kNPtBins; ++i)
+            // -------------------------------------------------------------------------
+            // Helper: recoilIsLeading vs pTgamma + fraction plot
+            // -------------------------------------------------------------------------
+            auto HandleRecoilIsLeading =
+              [&](const string& rKey, const MatchDirs& D)
             {
-              const PtBin& b = PtBins()[i];
-              x[i] = 0.5*(b.lo + b.hi);
-              const double nNot = hRL->GetBinContent(i+1, 1);
-              const double nYes = hRL->GetBinContent(i+1, 2);
-              const double ntot = nNot + nYes;
-              y[i] = (ntot > 0.0) ? (nYes/ntot) : 0.0;
+              if (TH2* hRL = GetObj<TH2>(ds, "h_recoilIsLeading_vs_pTgamma_" + rKey, true, true, true))
+              {
+                TH2* hc = CloneTH2(hRL, "recoilLead_clone");
+                DrawAndSaveTH2_Common(ds, hc,
+                  JoinPath(D.dir2D, "recoilIsLeading_vs_pTgamma.png"),
+                  "p_{T}^{#gamma} [GeV]", "Status", "Counts",
+                  {string("Recoil jet is leading? vs p_{T}^{#gamma}"), rKey}, false);
+                delete hc;
+
+                vector<double> x(kNPtBins, 0.0), y(kNPtBins, 0.0);
+                for (int i = 0; i < kNPtBins; ++i)
+                {
+                  const PtBin& b = PtBins()[i];
+                  x[i] = 0.5*(b.lo + b.hi);
+                  const double nNot = hRL->GetBinContent(i+1, 1);
+                  const double nYes = hRL->GetBinContent(i+1, 2);
+                  const double ntot = nNot + nYes;
+                  y[i] = (ntot > 0.0) ? (nYes/ntot) : 0.0;
+                }
+
+                TCanvas c("c_flead","c_flead",900,700);
+                ApplyCanvasMargins1D(c);
+                TGraph g(kNPtBins, &x[0], &y[0]);
+                g.SetLineWidth(2);
+                g.SetMarkerStyle(20);
+                g.Draw("ALP");
+                g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
+                g.GetYaxis()->SetTitle("f(recoilJet1 is leading)");
+                g.SetMinimum(0.0); g.SetMaximum(1.05);
+
+                DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+                DrawLatexLines(0.14,0.78, {string("Fraction recoilJet1 is leading vs p_{T}^{#gamma}"), rKey}, 0.030, 0.040);
+
+                SaveCanvas(c, JoinPath(D.dirProj, "fraction_recoilIsLeading_vs_pTgamma.png"));
+              }
+            };
+
+            // -------------------------------------------------------------------------
+            // MAIN LOOP: per rKey
+            // -------------------------------------------------------------------------
+            for (const auto& rKey : kRKeys)
+            {
+              const MatchDirs D = MakeDirsForRKey(rKey);
+
+              // Keep notes for summary.txt
+              vector<string> notes;
+
+              // Match status (plots + cache fill + efficiencies + table + summary.txt)
+              TH2* hStatus = HandleMatchStatus(rKey, D, notes);
+
+              // Other QA blocks (independent)
+              HandleMaxDphi(rKey, D);
+              HandleNRecoilProfile(rKey, D);
+
+              // Your extended Δφ suite (only runs if h_match_dphi exists)
+              HandleDeltaPhiSuite(rKey, D);
+
+              // recoil-is-leading
+              HandleRecoilIsLeading(rKey, D);
+
+              // If status histogram missing, we at least print a warning + optional note (keeps behavior safe)
+              if (!hStatus && !notes.empty())
+              {
+                cout << ANSI_BOLD_YEL << "[WARN] MatchQA: missing status hist for " << ds.label << " " << rKey << ANSI_RESET << "\n";
+              }
             }
 
-            TCanvas c("c_flead","c_flead",900,700);
-            ApplyCanvasMargins1D(c);
-            TGraph g(kNPtBins, &x[0], &y[0]);
-            g.SetLineWidth(2);
-            g.SetMarkerStyle(20);
-            g.Draw("ALP");
-            g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
-            g.GetYaxis()->SetTitle("f(recoilJet1 is leading)");
-            g.SetMinimum(0.0); g.SetMaximum(1.05);
+            // -------------------------------------------------------------------------
+            // OVERLAYS ACROSS rKeys (uses MatchCache filled from status hist)
+            // -------------------------------------------------------------------------
+            {
+              const string overDir = JoinPath(baseOut, "overlays");
+              EnsureDir(overDir);
 
-            DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-            DrawLatexLines(0.14,0.78, {string("Fraction recoilJet1 is leading vs p_{T}^{#gamma}"), rKey}, 0.030, 0.040);
+              vector<double> x(kNPtBins, 0.0), y02(kNPtBins, 0.0), y04(kNPtBins, 0.0);
+              for (int i = 0; i < kNPtBins; ++i)
+              {
+                const PtBin& b = PtBins()[i];
+                x[i] = 0.5*(b.lo + b.hi);
 
-            SaveCanvas(c, JoinPath(dirProj, "fraction_recoilIsLeading_vs_pTgamma.png"));
-          }
+                const double l02 = mc.NphoLead["r02"][i];
+                const double l04 = mc.NphoLead["r04"][i];
+                const double m02 = mc.NphoMatched["r02"][i];
+                const double m04 = mc.NphoMatched["r04"][i];
+
+                y02[i] = (l02 > 0.0) ? (m02/l02) : 0.0;
+                y04[i] = (l04 > 0.0) ? (m04/l04) : 0.0;
+              }
+
+              // Matched fraction overlay (existing)
+              {
+                TCanvas c("c_ov_match","c_ov_match",900,700);
+                ApplyCanvasMargins1D(c);
+
+                TGraph g02(kNPtBins, &x[0], &y02[0]);
+                TGraph g04(kNPtBins, &x[0], &y04[0]);
+                g02.SetLineWidth(2); g04.SetLineWidth(2);
+                g02.SetMarkerStyle(20); g04.SetMarkerStyle(24);
+                g02.SetLineColor(1); g04.SetLineColor(2);
+                g02.SetMarkerColor(1); g04.SetMarkerColor(2);
+
+                g02.Draw("ALP");
+                g02.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
+                g02.GetYaxis()->SetTitle("Matched fraction");
+                g02.SetMinimum(0.0); g02.SetMaximum(1.05);
+                g04.Draw("LP same");
+
+                TLegend leg(0.62,0.78,0.92,0.90);
+                leg.SetTextFont(42);
+                leg.SetTextSize(0.033);
+                leg.AddEntry(&g02, "r02 (R=0.2)", "lp");
+                leg.AddEntry(&g04, "r04 (R=0.4)", "lp");
+                leg.Draw();
+
+                DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+                DrawLatexLines(0.14,0.78, {"Overlay: Matched fraction vs p_{T}^{#gamma}"}, 0.030, 0.040);
+
+                SaveCanvas(c, JoinPath(overDir, "overlay_matched_fraction_r02_vs_r04.png"));
+              }
+
+              // mean nRecoil jets overlay if profiles exist (existing)
+              {
+                TProfile* p02 = GetObj<TProfile>(ds, "p_nRecoilJets_vs_pTgamma_r02", true, true, true);
+                TProfile* p04 = GetObj<TProfile>(ds, "p_nRecoilJets_vs_pTgamma_r04", true, true, true);
+                if (p02 && p04)
+                {
+                  TProfile* a = (TProfile*)p02->Clone("p02c"); a->SetDirectory(nullptr);
+                  TProfile* b = (TProfile*)p04->Clone("p04c"); b->SetDirectory(nullptr);
+
+                  a->SetLineWidth(2); b->SetLineWidth(2);
+                  a->SetMarkerStyle(20); b->SetMarkerStyle(24);
+                  a->SetLineColor(1); b->SetLineColor(2);
+                  a->SetMarkerColor(1); b->SetMarkerColor(2);
+
+                  TCanvas c2("c_ov_nrecoil","c_ov_nrecoil",900,700);
+                  ApplyCanvasMargins1D(c2);
+
+                  a->SetTitle("");
+                  a->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                  a->GetYaxis()->SetTitle("<N_{recoil jets}>");
+                  a->Draw("E1");
+                  b->Draw("E1 same");
+
+                  TLegend leg2(0.62,0.25,0.92,0.4);
+                  leg2.SetTextFont(42);
+                  leg2.SetTextSize(0.035);
+                  leg2.AddEntry(a, "r02 (R=0.2)", "lp");
+                  leg2.AddEntry(b, "r04 (R=0.4)", "lp");
+                  leg2.Draw();
+
+                  DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+                  DrawLatexLines(0.14,0.78, {"Overlay: <N_{recoil jets}> vs p_{T}^{#gamma}"}, 0.030, 0.040);
+
+                  SaveCanvas(c2, JoinPath(overDir, "overlay_mean_nRecoilJets_r02_vs_r04.png"));
+
+                  delete a;
+                  delete b;
+                }
+              }
+           }
         }
-
-        // overlays across rKeys
-        {
-          const string overDir = JoinPath(baseOut, "overlays");
-          EnsureDir(overDir);
-
-          vector<double> x(kNPtBins, 0.0), y02(kNPtBins, 0.0), y04(kNPtBins, 0.0);
-          for (int i = 0; i < kNPtBins; ++i)
-          {
-            const PtBin& b = PtBins()[i];
-            x[i] = 0.5*(b.lo + b.hi);
-            const double l02 = mc.NphoLead["r02"][i];
-            const double l04 = mc.NphoLead["r04"][i];
-            const double m02 = mc.NphoMatched["r02"][i];
-            const double m04 = mc.NphoMatched["r04"][i];
-            y02[i] = (l02 > 0.0) ? (m02/l02) : 0.0;
-            y04[i] = (l04 > 0.0) ? (m04/l04) : 0.0;
-          }
-
-          TCanvas c("c_ov_match","c_ov_match",900,700);
-          ApplyCanvasMargins1D(c);
-
-          TGraph g02(kNPtBins, &x[0], &y02[0]);
-          TGraph g04(kNPtBins, &x[0], &y04[0]);
-          g02.SetLineWidth(2); g04.SetLineWidth(2);
-          g02.SetMarkerStyle(20); g04.SetMarkerStyle(24);
-          g02.SetLineColor(1); g04.SetLineColor(2);
-          g02.SetMarkerColor(1); g04.SetMarkerColor(2);
-
-          g02.Draw("ALP");
-          g02.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
-          g02.GetYaxis()->SetTitle("Matched fraction");
-          g02.SetMinimum(0.0); g02.SetMaximum(1.05);
-          g04.Draw("LP same");
-
-          TLegend leg(0.62,0.78,0.92,0.90);
-          leg.SetTextFont(42);
-          leg.SetTextSize(0.033);
-          leg.AddEntry(&g02, "r02 (R=0.2)", "lp");
-          leg.AddEntry(&g04, "r04 (R=0.4)", "lp");
-          leg.Draw();
-
-          DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-          DrawLatexLines(0.14,0.78, {"Overlay: Matched fraction vs p_{T}^{#gamma}"}, 0.030, 0.040);
-
-          SaveCanvas(c, JoinPath(overDir, "overlay_matched_fraction_r02_vs_r04.png"));
-
-          // mean nRecoil jets overlay if profiles exist
-          TProfile* p02 = GetObj<TProfile>(ds, "p_nRecoilJets_vs_pTgamma_r02", true, true, true);
-          TProfile* p04 = GetObj<TProfile>(ds, "p_nRecoilJets_vs_pTgamma_r04", true, true, true);
-          if (p02 && p04)
-          {
-            TProfile* a = (TProfile*)p02->Clone("p02c"); a->SetDirectory(nullptr);
-            TProfile* b = (TProfile*)p04->Clone("p04c"); b->SetDirectory(nullptr);
-
-            a->SetLineWidth(2); b->SetLineWidth(2);
-            a->SetMarkerStyle(20); b->SetMarkerStyle(24);
-            a->SetLineColor(1); b->SetLineColor(2);
-            a->SetMarkerColor(1); b->SetMarkerColor(2);
-
-            TCanvas c2("c_ov_nrecoil","c_ov_nrecoil",900,700);
-            ApplyCanvasMargins1D(c2);
-
-            a->SetTitle("");
-            a->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-            a->GetYaxis()->SetTitle("<N_{recoil jets}>");
-            a->Draw("E1");
-            b->Draw("E1 same");
-
-            TLegend leg2(0.62,0.25,0.92,0.4);
-            leg2.SetTextFont(42);
-            leg2.SetTextSize(0.035);
-            leg2.AddEntry(a, "r02 (R=0.2)", "lp");
-            leg2.AddEntry(b, "r04 (R=0.4)", "lp");
-            leg2.Draw();
-
-            DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-            DrawLatexLines(0.14,0.78, {"Overlay: <N_{recoil jets}> vs p_{T}^{#gamma}"}, 0.030, 0.040);
-
-            SaveCanvas(c2, JoinPath(overDir, "overlay_mean_nRecoilJets_r02_vs_r04.png"));
-
-            delete a; delete b;
-          }
-        }
-      }
-
-        // =============================================================================
-        // Helpers for TH3/TProfile3D projections at a fixed X-bin
-        // =============================================================================
-      // [moved to header] AxisBinLabel
-
-
-      // [moved to header] ProjectYZ_AtXbin_TH3
-
-
-
-        // Project Y from a TH3 at a fixed X-bin (integrated over Z)
-      // [moved to header] ProjectY_AtXbin_TH3
-
-
-        // NEW: Project Y from a TH3 at fixed X-bin AND restricted Z-bin range (e.g. alpha cuts)
-      // [moved to header] ProjectY_AtXbin_AndZRange_TH3
-
-
-        // NEW: Convenience wrapper for "alpha < alphaMax" selections on Z axis.
-        // Interprets as: alpha in [Zmin, alphaMax) (approx via a tiny epsilon).
-      // [moved to header] ProjectY_AtXbin_AndAlphaMax_TH3
-
-
-
-        // Project Z from a TH3 at a fixed X-bin (integrated over Y)
-      // [moved to header] ProjectZ_AtXbin_TH3
-
-
-      // [moved to header] ProjectYZ_AtXbin_Profile3D
-
 
         // =============================================================================
         // Section 5D: SelectedJetQA (jet1/jet2 distributions per pTgamma bin)
@@ -2638,493 +2704,1610 @@ namespace ARJ
         // =============================================================================
         void RunXJAlphaQA(Dataset& ds)
         {
-          cout << ANSI_BOLD_CYN << "\n==============================\n"
-               << "[SECTION 5E] x_{J} and #alpha QA (" << ds.label << ")\n"
-               << "==============================" << ANSI_RESET << "\n";
+            cout << ANSI_BOLD_CYN << "\n==============================\n"
+                 << "[SECTION 5E] x_{J} and #alpha QA (" << ds.label << ")\n"
+                 << "==============================" << ANSI_RESET << "\n";
 
-          string outDir = ds.isSim
-            ? JoinPath(ds.outBase, "RecoilJetQA/xJAlpha")
-            : JoinPath(ds.outBase, "RecoilJetQA/xJAlpha/" + ds.trigger);
+            string outDir = ds.isSim
+              ? JoinPath(ds.outBase, "RecoilJetQA/xJAlpha")
+              : JoinPath(ds.outBase, "RecoilJetQA/xJAlpha/" + ds.trigger);
 
-          EnsureDir(outDir);
+            EnsureDir(outDir);
 
-          vector<string> common;
-          common.push_back("Selected recoil-jet kinematics (after matching)");
-          common.push_back("Jets: p_{T}^{jet} #geq 10 GeV");
+            vector<string> common;
+            common.push_back("Selected recoil-jet kinematics (after matching)");
+            common.push_back("Jets: p_{T}^{jet} #geq 10 GeV");
 
-          // Terminal summary tables
-          for (const auto& rKey : kRKeys)
-          {
-            const double R = RFromKey(rKey);
+            // ---------------------------------------------------------------------------
+            // Local helpers (refactor only: same plots, same filenames, same styles)
+            // ---------------------------------------------------------------------------
 
-            cout << ANSI_BOLD_CYN
-                 << "\n[xJ/alpha summary] " << ds.label << "  rKey=" << rKey
-                 << " (R=" << std::fixed << std::setprecision(1) << R << ")\n"
-                 << ANSI_RESET;
-
-            const int wPt = 10;
-            const int wN  = 12;
-            const int wM  = 12;
-
-            cout << std::left << std::setw(wPt) << "pTbin"
-                 << std::right
-                 << std::setw(wN) << "N"
-                 << std::setw(wM) << "<xJ>"
-                 << std::setw(wM) << "<alpha>"
-                 << "\n";
-            cout << string(wPt + wN + 2*wM, '-') << "\n";
-
-            vector<string> lines;
-            lines.push_back(string("xJ/alpha summary (") + ds.label + ")");
-            lines.push_back(string("rKey: ") + rKey + TString::Format("  R=%.1f", R).Data());
-            lines.push_back("");
-
-            // Directories per rKey
-            const string rOut = JoinPath(outDir, rKey);
-            const string dirXJ    = JoinPath(rOut, "xJ");
-            const string dirAlpha = JoinPath(rOut, "alpha");
-            const string dirOv    = JoinPath(rOut, "overlays");
-            EnsureDir(rOut);
-            EnsureDir(dirXJ);
-            EnsureDir(dirAlpha);
-            EnsureDir(dirOv);
-            for (const auto& b : PtBins())
+            struct XJAlphaDirs
             {
-              EnsureDir(JoinPath(dirXJ, b.folder));
-              EnsureDir(JoinPath(dirAlpha, b.folder));
-            }
+              string rOut;
+              string dirXJ;
+              string dirAlpha;
+              string dirOv;
+            };
 
-            // 3x3 tables (shape normalized) for xJ and alpha
-            Make3x3Table_TH1(ds, "h_xJ_" + rKey, dirXJ,
-                             "table3x3_xJ_shape.png",
-                             "x_{J}", "A.U.",
-                             false, true, common);
-
-            Make3x3Table_TH1(ds, "h_alpha_" + rKey, dirAlpha,
-                             "table3x3_alpha_shape.png",
-                             "#alpha", "A.U.",
-                             false, true, common);
-
-            // Per-bin xJ/alpha plots + collect means for an overlay graph
-            vector<double> xCenters(kNPtBins, 0.0);
-            vector<double> meanXJ(kNPtBins, 0.0);
-            vector<double> meanA (kNPtBins, 0.0);
-
-            for (int i = 0; i < kNPtBins; ++i)
+            auto PrintRKeySummaryHeader =
+              [&](const string& rKey, double R)
             {
-              const PtBin& b = PtBins()[i];
-              xCenters[i] = 0.5*(b.lo + b.hi);
+              cout << ANSI_BOLD_CYN
+                   << "\n[xJ/alpha summary] " << ds.label << "  rKey=" << rKey
+                   << " (R=" << std::fixed << std::setprecision(1) << R << ")\n"
+                   << ANSI_RESET;
+            };
 
-              TH1* hx = GetObj<TH1>(ds, "h_xJ_" + rKey + b.suffix, true, true, true);
-              TH1* ha = GetObj<TH1>(ds, "h_alpha_" + rKey + b.suffix, true, true, true);
-
-              const double N = hx ? hx->GetEntries() : 0.0;
-              const double mx = hx ? hx->GetMean() : 0.0;
-              const double ma = ha ? ha->GetMean() : 0.0;
-
-              meanXJ[i] = mx;
-              meanA[i]  = ma;
-
-              cout << std::left << std::setw(wPt) << b.label
+            auto PrintTableHeader =
+              [&](int wPt, int wN, int wM)
+            {
+              cout << std::left << std::setw(wPt) << "pTbin"
                    << std::right
-                   << std::setw(wN) << std::fixed << std::setprecision(0) << N
-                   << std::setw(wM) << std::fixed << std::setprecision(4) << mx
-                   << std::setw(wM) << std::fixed << std::setprecision(4) << ma
+                   << std::setw(wN) << "N"
+                   << std::setw(wM) << "<xJ>"
+                   << std::setw(wM) << "<alpha>"
                    << "\n";
+              cout << string(wPt + wN + 2*wM, '-') << "\n";
+            };
 
-              lines.push_back(TString::Format(
-                "pT=%s  N=%.0f  <xJ>=%.6f  <alpha>=%.6f",
-                b.label.c_str(), N, mx, ma
-              ).Data());
+            auto InitSummaryLines =
+              [&](const string& rKey, double R)->vector<string>
+            {
+              vector<string> lines;
+              lines.push_back(string("xJ/alpha summary (") + ds.label + ")");
+              lines.push_back(string("rKey: ") + rKey + TString::Format("  R=%.1f", R).Data());
+              lines.push_back("");
+              return lines;
+            };
 
-              // xJ plot (shape)
-              if (hx)
+            auto MakeDirsForRKey =
+              [&](const string& rKey)->XJAlphaDirs
+            {
+              XJAlphaDirs D;
+              D.rOut     = JoinPath(outDir, rKey);
+              D.dirXJ    = JoinPath(D.rOut, "xJ");
+              D.dirAlpha = JoinPath(D.rOut, "alpha");
+              D.dirOv    = JoinPath(D.rOut, "overlays");
+
+              EnsureDir(D.rOut);
+              EnsureDir(D.dirXJ);
+              EnsureDir(D.dirAlpha);
+              EnsureDir(D.dirOv);
+
+              for (const auto& b : PtBins())
               {
-                TH1* hc = CloneTH1(hx, TString::Format("xJ_%s_%d", rKey.c_str(), i).Data());
-                if (hc)
-                {
-                  NormalizeToUnitArea(hc);
-                  vector<string> extra = common;
-                  extra.push_back(TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data());
-                  extra.push_back(TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data());
-                  DrawAndSaveTH1_Common(ds, hc,
-                    JoinPath(dirXJ, b.folder + "/xJ_shape_" + b.folder + ".png"),
-                    "x_{J}", "A.U.", extra, false);
-                  delete hc;
-                }
+                EnsureDir(JoinPath(D.dirXJ, b.folder));
+                EnsureDir(JoinPath(D.dirAlpha, b.folder));
               }
 
-              // alpha plot (shape)
-              if (ha)
-              {
-                TH1* hc = CloneTH1(ha, TString::Format("alpha_%s_%d", rKey.c_str(), i).Data());
-                if (hc)
-                {
-                  NormalizeToUnitArea(hc);
-                  vector<string> extra = common;
-                  extra.push_back(TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data());
-                  extra.push_back(TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data());
-                  DrawAndSaveTH1_Common(ds, hc,
-                    JoinPath(dirAlpha, b.folder + "/alpha_shape_" + b.folder + ".png"),
-                    "#alpha", "A.U.", extra, false);
-                  delete hc;
-                }
-              }
-            }
+              return D;
+            };
 
-            // Write summary file
-            WriteTextFile(JoinPath(rOut, "summary_xJ_alpha.txt"), lines);
-
-            // Overlay: mean xJ vs pTgamma and mean alpha vs pTgamma
+            auto MakeShapeTablesForRKey =
+              [&](const string& rKey, const XJAlphaDirs& D)
             {
-              TCanvas c1(TString::Format("c_meanxJ_%s", rKey.c_str()).Data(), "c_meanxJ", 900, 700);
-              ApplyCanvasMargins1D(c1);
-              TGraph g(kNPtBins, &xCenters[0], &meanXJ[0]);
-              g.SetLineWidth(2);
-              g.SetMarkerStyle(20);
-              g.Draw("ALP");
-              g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
-              g.GetYaxis()->SetTitle("<x_{J}>");
-              g.SetMinimum(0.0);
-              g.SetMaximum(1.2);
+              Make3x3Table_TH1(ds, "h_xJ_" + rKey, D.dirXJ,
+                               "table3x3_xJ_shape.png",
+                               "x_{J}", "A.U.",
+                               false, true, common);
 
-              DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-              DrawLatexLines(0.14,0.78, {string("Mean x_{J} vs p_{T}^{#gamma}"), rKey}, 0.030, 0.040);
-              SaveCanvas(c1, JoinPath(dirOv, "mean_xJ_vs_pTgamma.png"));
-            }
+              Make3x3Table_TH1(ds, "h_alpha_" + rKey, D.dirAlpha,
+                               "table3x3_alpha_shape.png",
+                               "#alpha", "A.U.",
+                               false, true, common);
+            };
+
+            struct MeansPack
             {
-              TCanvas c2(TString::Format("c_meana_%s", rKey.c_str()).Data(), "c_meana", 900, 700);
-              ApplyCanvasMargins1D(c2);
-              TGraph g(kNPtBins, &xCenters[0], &meanA[0]);
-              g.SetLineWidth(2);
-              g.SetMarkerStyle(20);
-              g.Draw("ALP");
-              g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
-              g.GetYaxis()->SetTitle("<#alpha>");
-              g.SetMinimum(0.0);
-              g.SetMaximum(1.0);
+              vector<double> xCenters;
+              vector<double> meanXJ;
+              vector<double> meanA;
+            };
 
-              DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-              DrawLatexLines(0.14,0.78, {string("Mean #alpha vs p_{T}^{#gamma}"), rKey}, 0.030, 0.040);
-              SaveCanvas(c2, JoinPath(dirOv, "mean_alpha_vs_pTgamma.png"));
-            }
-          }
-
-          // Overlay across rKeys for mean xJ (r02 vs r04)
-          {
-            // Compute means for both rKeys quickly from the histograms (if present)
-            map<string, vector<double> > meanXJ;
-            map<string, vector<double> > meanA;
-            for (const auto& rKey : kRKeys)
+            auto FillPerBinPlotsAndMeans =
+              [&](const string& rKey, double R, const XJAlphaDirs& D,
+                  int wPt, int wN, int wM,
+                  vector<string>& summaryLines)->MeansPack
             {
-              meanXJ[rKey] = vector<double>(kNPtBins, 0.0);
-              meanA[rKey]  = vector<double>(kNPtBins, 0.0);
+              MeansPack M;
+              M.xCenters.assign(kNPtBins, 0.0);
+              M.meanXJ.assign(kNPtBins, 0.0);
+              M.meanA.assign(kNPtBins, 0.0);
+
               for (int i = 0; i < kNPtBins; ++i)
               {
                 const PtBin& b = PtBins()[i];
-                TH1* hx = GetObj<TH1>(ds, "h_xJ_" + rKey + b.suffix, false, false, false);
-                TH1* ha = GetObj<TH1>(ds, "h_alpha_" + rKey + b.suffix, false, false, false);
-                meanXJ[rKey][i] = hx ? hx->GetMean() : 0.0;
-                meanA[rKey][i]  = ha ? ha->GetMean() : 0.0;
+                M.xCenters[i] = 0.5*(b.lo + b.hi);
+
+                TH1* hx = GetObj<TH1>(ds, "h_xJ_" + rKey + b.suffix, true, true, true);
+                TH1* ha = GetObj<TH1>(ds, "h_alpha_" + rKey + b.suffix, true, true, true);
+
+                const double N  = hx ? hx->GetEntries() : 0.0;
+                const double mx = hx ? hx->GetMean()    : 0.0;
+                const double ma = ha ? ha->GetMean()    : 0.0;
+
+                M.meanXJ[i] = mx;
+                M.meanA[i]  = ma;
+
+                cout << std::left << std::setw(wPt) << b.label
+                     << std::right
+                     << std::setw(wN) << std::fixed << std::setprecision(0) << N
+                     << std::setw(wM) << std::fixed << std::setprecision(4) << mx
+                     << std::setw(wM) << std::fixed << std::setprecision(4) << ma
+                     << "\n";
+
+                summaryLines.push_back(TString::Format(
+                  "pT=%s  N=%.0f  <xJ>=%.6f  <alpha>=%.6f",
+                  b.label.c_str(), N, mx, ma
+                ).Data());
+
+                // xJ plot (shape)
+                if (hx)
+                {
+                  TH1* hc = CloneTH1(hx, TString::Format("xJ_%s_%d", rKey.c_str(), i).Data());
+                  if (hc)
+                  {
+                    NormalizeToUnitArea(hc);
+                    vector<string> extra = common;
+                    extra.push_back(TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data());
+                    extra.push_back(TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data());
+                    DrawAndSaveTH1_Common(ds, hc,
+                      JoinPath(D.dirXJ, b.folder + "/xJ_shape_" + b.folder + ".png"),
+                      "x_{J}", "A.U.", extra, false);
+                    delete hc;
+                  }
+                }
+
+                // alpha plot (shape)
+                if (ha)
+                {
+                  TH1* hc = CloneTH1(ha, TString::Format("alpha_%s_%d", rKey.c_str(), i).Data());
+                  if (hc)
+                  {
+                    NormalizeToUnitArea(hc);
+                    vector<string> extra = common;
+                    extra.push_back(TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data());
+                    extra.push_back(TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data());
+                    DrawAndSaveTH1_Common(ds, hc,
+                      JoinPath(D.dirAlpha, b.folder + "/alpha_shape_" + b.folder + ".png"),
+                      "#alpha", "A.U.", extra, false);
+                    delete hc;
+                  }
+                }
+              }
+
+              return M;
+            };
+
+            auto DrawMeanOverlaysForRKey =
+              [&](const string& rKey, const XJAlphaDirs& D, const MeansPack& M)
+            {
+              // mean xJ vs pTgamma
+              {
+                TCanvas c1(TString::Format("c_meanxJ_%s", rKey.c_str()).Data(), "c_meanxJ", 900, 700);
+                ApplyCanvasMargins1D(c1);
+                TGraph g(kNPtBins, &M.xCenters[0], &M.meanXJ[0]);
+                g.SetLineWidth(2);
+                g.SetMarkerStyle(20);
+                g.Draw("ALP");
+                g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
+                g.GetYaxis()->SetTitle("<x_{J}>");
+                g.SetMinimum(0.0);
+                g.SetMaximum(1.2);
+
+                DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+                DrawLatexLines(0.14,0.78, {string("Mean x_{J} vs p_{T}^{#gamma}"), rKey}, 0.030, 0.040);
+                SaveCanvas(c1, JoinPath(D.dirOv, "mean_xJ_vs_pTgamma.png"));
+              }
+
+              // mean alpha vs pTgamma
+              {
+                TCanvas c2(TString::Format("c_meana_%s", rKey.c_str()).Data(), "c_meana", 900, 700);
+                ApplyCanvasMargins1D(c2);
+                TGraph g(kNPtBins, &M.xCenters[0], &M.meanA[0]);
+                g.SetLineWidth(2);
+                g.SetMarkerStyle(20);
+                g.Draw("ALP");
+                g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
+                g.GetYaxis()->SetTitle("<#alpha>");
+                g.SetMinimum(0.0);
+                g.SetMaximum(1.0);
+
+                DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+                DrawLatexLines(0.14,0.78, {string("Mean #alpha vs p_{T}^{#gamma}"), rKey}, 0.030, 0.040);
+                SaveCanvas(c2, JoinPath(D.dirOv, "mean_alpha_vs_pTgamma.png"));
+              }
+            };
+
+            auto ComputeMeansAcrossRKeys =
+              [&](map<string, vector<double> >& meanXJ,
+                  map<string, vector<double> >& meanA)
+            {
+              meanXJ.clear();
+              meanA.clear();
+
+              for (const auto& rKey : kRKeys)
+              {
+                meanXJ[rKey] = vector<double>(kNPtBins, 0.0);
+                meanA[rKey]  = vector<double>(kNPtBins, 0.0);
+
+                for (int i = 0; i < kNPtBins; ++i)
+                {
+                  const PtBin& b = PtBins()[i];
+                  TH1* hx = GetObj<TH1>(ds, "h_xJ_" + rKey + b.suffix, false, false, false);
+                  TH1* ha = GetObj<TH1>(ds, "h_alpha_" + rKey + b.suffix, false, false, false);
+                  meanXJ[rKey][i] = hx ? hx->GetMean() : 0.0;
+                  meanA[rKey][i]  = ha ? ha->GetMean() : 0.0;
+                }
+              }
+            };
+
+            auto DrawRKeyOverlayGraphs =
+              [&](const string& overDir,
+                  const vector<double>& x,
+                  const map<string, vector<double> >& meanXJ,
+                  const map<string, vector<double> >& meanA)
+            {
+              // mean xJ overlay
+              {
+                TCanvas c("c_ov_meanxJ","c_ov_meanxJ",900,700);
+                ApplyCanvasMargins1D(c);
+
+                TGraph g02(kNPtBins, &x[0], &meanXJ.at("r02")[0]);
+                TGraph g04(kNPtBins, &x[0], &meanXJ.at("r04")[0]);
+                g02.SetLineWidth(2); g04.SetLineWidth(2);
+                g02.SetMarkerStyle(20); g04.SetMarkerStyle(24);
+                g02.SetLineColor(1); g04.SetLineColor(2);
+                g02.SetMarkerColor(1); g04.SetMarkerColor(2);
+
+                g02.Draw("ALP");
+                g02.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
+                g02.GetYaxis()->SetTitle("<x_{J}>");
+                g02.SetMinimum(0.0);
+                g02.SetMaximum(1.2);
+                g04.Draw("LP same");
+
+                TLegend leg(0.62,0.78,0.92,0.90);
+                leg.SetTextFont(42);
+                leg.SetTextSize(0.033);
+                leg.AddEntry(&g02, "r02 (R=0.2)", "lp");
+                leg.AddEntry(&g04, "r04 (R=0.4)", "lp");
+                leg.Draw();
+
+                DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+                DrawLatexLines(0.14,0.78, {"Overlay: <x_{J}> vs p_{T}^{#gamma}"}, 0.030, 0.040);
+
+                SaveCanvas(c, JoinPath(overDir, "overlay_mean_xJ_r02_vs_r04.png"));
+              }
+
+              // mean alpha overlay
+              {
+                TCanvas c("c_ov_meana","c_ov_meana",900,700);
+                ApplyCanvasMargins1D(c);
+
+                TGraph g02(kNPtBins, &x[0], &meanA.at("r02")[0]);
+                TGraph g04(kNPtBins, &x[0], &meanA.at("r04")[0]);
+                g02.SetLineWidth(2); g04.SetLineWidth(2);
+                g02.SetMarkerStyle(20); g04.SetMarkerStyle(24);
+                g02.SetLineColor(1); g04.SetLineColor(2);
+                g02.SetMarkerColor(1); g04.SetMarkerColor(2);
+
+                g02.Draw("ALP");
+                g02.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
+                g02.GetYaxis()->SetTitle("<#alpha>");
+                g02.SetMinimum(0.0);
+                g02.SetMaximum(1.0);
+                g04.Draw("LP same");
+
+                TLegend leg(0.62,0.78,0.92,0.90);
+                leg.SetTextFont(42);
+                leg.SetTextSize(0.033);
+                leg.AddEntry(&g02, "r02 (R=0.2)", "lp");
+                leg.AddEntry(&g04, "r04 (R=0.4)", "lp");
+                leg.Draw();
+
+                DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+                DrawLatexLines(0.14,0.78, {"Overlay: <#alpha> vs p_{T}^{#gamma}"}, 0.030, 0.040);
+
+                SaveCanvas(c, JoinPath(overDir, "overlay_mean_alpha_r02_vs_r04.png"));
+              }
+            };
+
+            // ---------------------------------------------------------------------------
+            // 1) Per-rKey: tables, per-bin plots, per-rKey overlays, text summaries
+            // ---------------------------------------------------------------------------
+
+            for (const auto& rKey : kRKeys)
+            {
+              const double R = RFromKey(rKey);
+
+              PrintRKeySummaryHeader(rKey, R);
+
+              const int wPt = 10;
+              const int wN  = 12;
+              const int wM  = 12;
+
+              PrintTableHeader(wPt, wN, wM);
+
+              vector<string> lines = InitSummaryLines(rKey, R);
+
+              const XJAlphaDirs D = MakeDirsForRKey(rKey);
+
+              MakeShapeTablesForRKey(rKey, D);
+
+              MeansPack M = FillPerBinPlotsAndMeans(rKey, R, D, wPt, wN, wM, lines);
+
+              WriteTextFile(JoinPath(D.rOut, "summary_xJ_alpha.txt"), lines);
+
+              DrawMeanOverlaysForRKey(rKey, D, M);
+            }
+
+            // ---------------------------------------------------------------------------
+            // 2) Overlay across rKeys (r02 vs r04) for mean xJ and mean alpha
+            // ---------------------------------------------------------------------------
+
+            {
+              map<string, vector<double> > meanXJ;
+              map<string, vector<double> > meanA;
+              ComputeMeansAcrossRKeys(meanXJ, meanA);
+
+              vector<double> x(kNPtBins, 0.0);
+              for (int i = 0; i < kNPtBins; ++i) x[i] = 0.5*(PtBins()[i].lo + PtBins()[i].hi);
+
+              const string overDir = JoinPath(outDir, "overlays");
+              EnsureDir(overDir);
+
+              DrawRKeyOverlayGraphs(overDir, x, meanXJ, meanA);
+            }
+        }
+  
+  
+  
+        // =============================================================================
+        // JES3 In-situ residual calibration (DATA vs SIM) using reco-only JES3 TH3s.
+        //
+        // This function is designed to be called once per dataset from inside RunJES3QA.
+        // It internally caches pointers to the SIM dataset and all DATA datasets seen,
+        // and only runs the calibration once SIM+DATA are both available.
+        //
+        // Enabled ONLY when:
+        //   inline bool isSimAndDataPP = true;
+        //
+        // Output + behavior matches the previously inlined lambda block.
+        // =============================================================================
+        void JES3_InSituResidualCalibration_MaybeRun(Dataset& ds)
+        {
+            if (!isSimAndDataPP) return;
+
+            // ---- Cross-call cache (RunJES3QA is invoked once per dataset) ----
+            struct InSituCache
+            {
+              Dataset* sim = nullptr;                   // chosen SIM dataset
+              std::vector<Dataset*> data;              // all DATA datasets seen
+              std::set<std::string> doneDataLabels;    // which DATA labels already processed
+            };
+            static InSituCache C;
+
+            auto ContainsAny = [&](const std::string& s, const std::vector<std::string>& needles)->bool
+            {
+              for (const auto& n : needles)
+              {
+                if (s.find(n) != std::string::npos) return true;
+              }
+              return false;
+            };
+
+            auto IsPreferredMergedSIM = [&](const Dataset& s)->bool
+            {
+              // Only relevant if merging was requested; prefer merged-looking SIM.
+              if (!isSimOnlyWithPhoton10and20) return true;
+
+              const std::string hay =
+                s.label + " " + s.topDirName + " " + s.inFilePath;
+
+              return ContainsAny(hay, {"Merged","merged","10and20","10And20","photon10and20","photonJet10and20","Photon10and20"});
+            };
+
+            auto RegisterDataset = [&](Dataset& cur)
+            {
+              if (cur.isSim)
+              {
+                if (!C.sim)
+                {
+                  C.sim = &cur;
+                }
+                else
+                {
+                  const bool oldPref = IsPreferredMergedSIM(*C.sim);
+                  const bool newPref = IsPreferredMergedSIM(cur);
+                  if (newPref && !oldPref)
+                  {
+                    C.sim = &cur;
+                  }
+                }
+              }
+              else
+              {
+                bool exists = false;
+                for (auto* p : C.data)
+                {
+                  if (p && p->label == cur.label) { exists = true; break; }
+                }
+                if (!exists) C.data.push_back(&cur);
+              }
+            };
+
+            RegisterDataset(ds);
+
+            // Need both SIM and at least one DATA dataset before we can do anything.
+            if (!C.sim) return;
+            if (C.data.empty()) return;
+
+            // ---- Peak fit helper (iterative Gaussian) ----
+            struct PeakFitResult
+            {
+              bool   ok    = false;
+              double mu    = 0.0;
+              double sigma = 0.0;
+
+              double x0    = 0.0;   // initial max-bin center guess
+
+              double r1Lo  = 0.0;
+              double r1Hi  = 0.0;
+              double r2Lo  = 0.0;
+              double r2Hi  = 0.0;
+
+              double chi2  = 0.0;
+              int    ndf   = 0;
+            };
+
+            auto ClampRangeToAxis = [&](const TAxis* ax, double& lo, double& hi)
+            {
+              if (!ax) return;
+              const double xmin = ax->GetXmin();
+              const double xmax = ax->GetXmax();
+              if (lo < xmin) lo = xmin;
+              if (hi > xmax) hi = xmax;
+              if (hi <= lo)
+              {
+                lo = xmin;
+                hi = xmax;
+              }
+            };
+
+            auto FitPeakIterativeGaussian = [&](TH1* h)->PeakFitResult
+            {
+              PeakFitResult R;
+              if (!h) return R;
+              if (h->GetEntries() <= 0.0) return R;
+
+              const TAxis* ax = h->GetXaxis();
+              if (!ax) return R;
+
+              const int bMax = h->GetMaximumBin();
+              R.x0 = ax->GetBinCenter(bMax);
+
+              // Fit #1: [x0-0.15, x0+0.15]
+              R.r1Lo = R.x0 - 0.15;
+              R.r1Hi = R.x0 + 0.15;
+              ClampRangeToAxis(ax, R.r1Lo, R.r1Hi);
+
+              TF1 f1("f1_gaus","gaus", R.r1Lo, R.r1Hi);
+              f1.SetLineWidth(2);
+              h->Fit(&f1, "RQ0S");
+
+              const double mu1 = f1.GetParameter(1);
+              const double s1  = std::fabs(f1.GetParameter(2));
+              const double sForRange = (s1 > 0.0 ? s1 : 0.10);
+
+              // Fit #2: [mu1-1.5*sigma1, mu1+1.5*sigma1]
+              R.r2Lo = mu1 - 1.5*sForRange;
+              R.r2Hi = mu1 + 1.5*sForRange;
+              ClampRangeToAxis(ax, R.r2Lo, R.r2Hi);
+
+              TF1 f2("f2_gaus","gaus", R.r2Lo, R.r2Hi);
+              f2.SetLineWidth(2);
+              h->Fit(&f2, "RQ0S");
+
+              R.mu    = f2.GetParameter(1);
+              R.sigma = std::fabs(f2.GetParameter(2));
+              R.chi2  = f2.GetChisquare();
+              R.ndf   = f2.GetNDF();
+
+              R.ok = std::isfinite(R.mu) && std::isfinite(R.sigma) && (R.sigma > 0.0);
+              return R;
+            };
+
+            // ---- Drawing helper: 1D hist with Gaussian overlay and annotation ----
+            auto DrawXJWithFit =
+              [&](Dataset& outDs,
+                  TH1* h,
+                  const PeakFitResult& fit,
+                  const std::string& outPng,
+                  const std::string& xTitle,
+                  const std::vector<std::string>& lines,
+                  int colorHist,
+                  int colorFit)
+            {
+              if (!h) return;
+
+              TCanvas c(TString::Format("c_insitu_%s", outPng.c_str()).Data(), "c_insitu", 900, 700);
+              ApplyCanvasMargins1D(c);
+
+              h->SetTitle("");
+              h->SetLineWidth(2);
+              h->SetMarkerStyle(20);
+              h->SetMarkerSize(1.00);
+              h->SetLineColor(colorHist);
+              h->SetMarkerColor(colorHist);
+              h->SetFillStyle(0);
+
+              h->GetXaxis()->SetTitle(xTitle.c_str());
+              h->GetYaxis()->SetTitle("Counts");
+
+              const double ymax = h->GetMaximum();
+              if (ymax > 0.0) h->SetMaximum(ymax * 1.25);
+
+              h->Draw("E1");
+
+              if (fit.ok)
+              {
+                TF1 f("f_gaus_draw","gaus", fit.r2Lo, fit.r2Hi);
+                f.SetLineColor(colorFit);
+                f.SetLineWidth(2);
+                f.SetParameters(h->GetMaximum(), fit.mu, fit.sigma);
+                f.Draw("same");
+
+                TLine l1(fit.r2Lo, 0.0, fit.r2Lo, h->GetMaximum());
+                TLine l2(fit.r2Hi, 0.0, fit.r2Hi, h->GetMaximum());
+                l1.SetLineStyle(2); l2.SetLineStyle(2);
+                l1.SetLineColor(colorFit); l2.SetLineColor(colorFit);
+                l1.Draw("same"); l2.Draw("same");
+              }
+
+              DrawLatexLines(0.14, 0.92, DefaultHeaderLines(outDs), 0.034, 0.045);
+              DrawLatexLines(0.14, 0.80, lines, 0.030, 0.040);
+
+              SaveCanvas(c, outPng);
+            };
+
+            // ---- Drawing helper: overlay DATA vs MC (shape) ----
+            auto DrawOverlayDataVsMCShape =
+              [&](Dataset& outDs,
+                  TH1* hData,
+                  TH1* hMC,
+                  const std::string& outPng,
+                  const std::vector<std::string>& lines)
+            {
+              if (!hData || !hMC) return;
+
+              TH1* d = CloneTH1(hData, "hData_shape_tmp");
+              TH1* m = CloneTH1(hMC,   "hMC_shape_tmp");
+              if (!d || !m)
+              {
+                if (d) delete d;
+                if (m) delete m;
+                return;
+              }
+
+              NormalizeToUnitArea(d);
+              NormalizeToUnitArea(m);
+
+              TCanvas c(TString::Format("c_ov_insitu_%s", outPng.c_str()).Data(), "c_ov_insitu", 900, 700);
+              ApplyCanvasMargins1D(c);
+
+              d->SetTitle("");
+              d->SetLineWidth(2);
+              d->SetMarkerStyle(20);
+              d->SetMarkerSize(1.00);
+              d->SetLineColor(1);
+              d->SetMarkerColor(1);
+
+              m->SetLineWidth(2);
+              m->SetMarkerStyle(24);
+              m->SetMarkerSize(1.00);
+              m->SetLineColor(2);
+              m->SetMarkerColor(2);
+
+              d->GetXaxis()->SetTitle("x_{J#gamma}");
+              d->GetYaxis()->SetTitle("A.U.");
+
+              const double ymax = std::max(d->GetMaximum(), m->GetMaximum());
+              if (ymax > 0.0) d->SetMaximum(ymax * 1.25);
+
+              d->Draw("E1");
+              m->Draw("E1 same");
+
+              TLegend leg(0.62, 0.78, 0.92, 0.90);
+              leg.SetTextFont(42);
+              leg.SetTextSize(0.033);
+              leg.AddEntry(d, "DATA (shape)", "ep");
+              leg.AddEntry(m, "MC (shape)",   "ep");
+              leg.Draw();
+
+              DrawLatexLines(0.14, 0.92, DefaultHeaderLines(outDs), 0.034, 0.045);
+              DrawLatexLines(0.14, 0.80, lines, 0.030, 0.040);
+
+              SaveCanvas(c, outPng);
+
+              delete d;
+              delete m;
+            };
+
+            auto RunPair = [&](Dataset& dataDs, Dataset& simDs)
+            {
+              const std::string dataOutDir =
+                dataDs.isSim
+                  ? JoinPath(dataDs.outBase, "RecoilJetQA/JES3")
+                  : JoinPath(dataDs.outBase, "RecoilJetQA/JES3/" + dataDs.trigger);
+
+              const std::string insBase = JoinPath(dataOutDir, "inSituResidualCalibration");
+              EnsureDir(insBase);
+
+              cout << ANSI_BOLD_CYN
+                   << "\n============================================================\n"
+                   << "[JES3 InSitu] Residual calibration (DATA vs SIM, reco xJ peak)\n"
+                   << "  DATA: " << dataDs.label << "  trigger=" << dataDs.trigger << "\n"
+                   << "  SIM : " << simDs.label
+                   << (isSimOnlyWithPhoton10and20 ? "  (prefer merged if available)" : "")
+                   << "\n"
+                   << "  Output -> " << insBase << "\n"
+                   << "============================================================\n"
+                   << ANSI_RESET;
+
+              for (const auto& rKey : kRKeys)
+              {
+                const double R = RFromKey(rKey);
+
+                TH3* hData = GetObj<TH3>(dataDs, "h_JES3_pT_xJ_alpha_" + rKey, false, false, false);
+                TH3* hMC   = GetObj<TH3>(simDs,  "h_JES3_pT_xJ_alpha_" + rKey, false, false, false);
+
+                if (!hData || !hMC)
+                {
+                  cout << ANSI_BOLD_YEL
+                       << "[WARN] [JES3 InSitu] Missing reco JES3 xJ TH3 for rKey=" << rKey
+                       << "  (DATA=" << (hData ? "OK" : "MISSING")
+                       << ", SIM="  << (hMC   ? "OK" : "MISSING") << ")"
+                       << ANSI_RESET << "\n";
+                  continue;
+                }
+
+                const TAxis* axD = hData->GetXaxis();
+                const TAxis* axM = hMC->GetXaxis();
+                const int nPtD = axD ? axD->GetNbins() : 0;
+                const int nPtM = axM ? axM->GetNbins() : 0;
+                const int nPt  = std::min(nPtD, nPtM);
+
+                if (nPt <= 0)
+                {
+                  cout << ANSI_BOLD_YEL
+                       << "[WARN] [JES3 InSitu] nPt<=0 for rKey=" << rKey << ANSI_RESET << "\n";
+                  continue;
+                }
+                if (nPtD != nPtM)
+                {
+                  cout << ANSI_BOLD_YEL
+                       << "[WARN] [JES3 InSitu] pT axis mismatch for rKey=" << rKey
+                       << "  DATA nPt=" << nPtD << "  SIM nPt=" << nPtM
+                       << "  -> using nPt=" << nPt
+                       << ANSI_RESET << "\n";
+                }
+
+                const std::string rDir   = JoinPath(insBase, rKey);
+                const std::string perDir = JoinPath(rDir, "perPtBin");
+                EnsureDir(rDir);
+                EnsureDir(perDir);
+
+                cout << ANSI_BOLD_CYN
+                     << "\n[JES3 InSitu peak-fit table] rKey=" << rKey
+                     << " (R=" << std::fixed << std::setprecision(1) << R << ")\n"
+                     << ANSI_RESET;
+
+                const int wPt   = 16;
+                const int wN    = 12;
+                const int wMu   = 10;
+                const int wSig  = 10;
+                const int wCorr = 12;
+
+                cout << std::left  << std::setw(wPt)   << "pTgamma bin"
+                     << std::right << std::setw(wN)    << "N(data)"
+                     << std::setw(wMu)   << "muD"
+                     << std::setw(wSig)  << "sigD"
+                     << std::setw(wN)    << "N(MC)"
+                     << std::setw(wMu)   << "muMC"
+                     << std::setw(wSig)  << "sigMC"
+                     << std::setw(wCorr) << "MC/Data"
+                     << "\n";
+                cout << std::string(wPt + 2*wN + 2*wMu + 2*wSig + wCorr, '-') << "\n";
+
+                std::vector<std::string> sum;
+                sum.push_back(std::string("JES3 in-situ residual (DATA vs SIM)"));
+                sum.push_back(std::string("DATA: ") + dataDs.label + "  trigger=" + dataDs.trigger);
+                sum.push_back(std::string("SIM : ") + simDs.label);
+                sum.push_back(std::string("rKey: ") + rKey + TString::Format("  R=%.1f", R).Data());
+                sum.push_back("");
+                sum.push_back("Recipe:");
+                sum.push_back("  H_i(xJ) = ProjY( h_JES3_pT_xJ_alpha | X=pTgamma bin i, integrate all alpha )");
+                sum.push_back("  Peak proxy R_i from iterative Gaussian:");
+                sum.push_back("    x0=max-bin center; fit1 [x0±0.15]; refit2 [mu1±1.5*sigma1]; R_i=mu2");
+                sum.push_back("  Residual correction factor (apply to DATA jets):  C_i = (R_i^MC / R_i^DATA)");
+                sum.push_back("");
+
+                std::vector<double> ptCenters(nPt, 0.0);
+                std::vector<double> muD(nPt, 0.0),  muM(nPt, 0.0);
+                std::vector<double> sdD(nPt, 0.0),  sdM(nPt, 0.0);
+                std::vector<double> cf (nPt, 0.0);
+
+                for (int ib = 1; ib <= nPt; ++ib)
+                {
+                  const std::string ptLab = AxisBinLabel(axD, ib, "GeV", 0);
+                  const double xC = 0.5 * (axD->GetBinLowEdge(ib) + axD->GetBinUpEdge(ib));
+                  ptCenters[ib-1] = xC;
+
+                  TH1* hd = ProjectY_AtXbin_TH3(hData, ib,
+                    TString::Format("insitu_xJ_data_%s_%d_%s", rKey.c_str(), ib, dataDs.label.c_str()).Data()
+                  );
+                  TH1* hm = ProjectY_AtXbin_TH3(hMC,   ib,
+                    TString::Format("insitu_xJ_mc_%s_%d_%s",   rKey.c_str(), ib, simDs.label.c_str()).Data()
+                  );
+
+                  if (hd) { hd->SetDirectory(nullptr); EnsureSumw2(hd); }
+                  if (hm) { hm->SetDirectory(nullptr); EnsureSumw2(hm); }
+
+                  const double nData = hd ? hd->GetEntries() : 0.0;
+                  const double nMC   = hm ? hm->GetEntries() : 0.0;
+
+                  PeakFitResult fD = FitPeakIterativeGaussian(hd);
+                  PeakFitResult fM = FitPeakIterativeGaussian(hm);
+
+                  muD[ib-1] = fD.ok ? fD.mu    : 0.0;
+                  sdD[ib-1] = fD.ok ? fD.sigma : 0.0;
+                  muM[ib-1] = fM.ok ? fM.mu    : 0.0;
+                  sdM[ib-1] = fM.ok ? fM.sigma : 0.0;
+
+                  cf[ib-1]  = (fD.ok && fM.ok) ? SafeDivide(fM.mu, fD.mu, 0.0) : 0.0;
+
+                  cout << std::left  << std::setw(wPt) << ptLab
+                       << std::right << std::setw(wN)  << std::fixed << std::setprecision(0) << nData
+                       << std::setw(wMu) << std::fixed << std::setprecision(4) << muD[ib-1]
+                       << std::setw(wSig)<< std::fixed << std::setprecision(4) << sdD[ib-1]
+                       << std::setw(wN)  << std::fixed << std::setprecision(0) << nMC
+                       << std::setw(wMu) << std::fixed << std::setprecision(4) << muM[ib-1]
+                       << std::setw(wSig)<< std::fixed << std::setprecision(4) << sdM[ib-1]
+                       << std::setw(wCorr)<< std::fixed << std::setprecision(4) << cf[ib-1]
+                       << "\n";
+
+                  sum.push_back(TString::Format(
+                    "pT=%s  Ndata=%.0f muD=%.6f sigD=%.6f  Nmc=%.0f muMC=%.6f sigMC=%.6f  C=muMC/muD=%.6f",
+                    ptLab.c_str(),
+                    nData, muD[ib-1], sdD[ib-1],
+                    nMC,   muM[ib-1], sdM[ib-1],
+                    cf[ib-1]
+                  ).Data());
+
+                  if (hd)
+                  {
+                    std::vector<std::string> lines = {
+                      "In-situ JES3 residual (DATA): x_{J#gamma}",
+                      TString::Format("DATA: %s", dataDs.label.c_str()).Data(),
+                      TString::Format("SIM : %s", simDs.label.c_str()).Data(),
+                      TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                      TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data(),
+                      TString::Format("Peak fit: mu=%.4f  sigma=%.4f", muD[ib-1], sdD[ib-1]).Data(),
+                      TString::Format("Fit2 range: [%.3f, %.3f]", fD.r2Lo, fD.r2Hi).Data()
+                    };
+
+                    DrawXJWithFit(
+                      dataDs, hd, fD,
+                      JoinPath(perDir, TString::Format("xJ_data_fit_pTbin%d.png", ib).Data()),
+                      "x_{J#gamma}", lines,
+                      1, 4
+                    );
+                  }
+
+                  if (hm)
+                  {
+                    std::vector<std::string> lines = {
+                      "In-situ JES3 residual (SIM/MC): x_{J#gamma}",
+                      TString::Format("DATA: %s", dataDs.label.c_str()).Data(),
+                      TString::Format("SIM : %s", simDs.label.c_str()).Data(),
+                      TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                      TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data(),
+                      TString::Format("Peak fit: mu=%.4f  sigma=%.4f", muM[ib-1], sdM[ib-1]).Data(),
+                      TString::Format("Fit2 range: [%.3f, %.3f]", fM.r2Lo, fM.r2Hi).Data()
+                    };
+
+                    DrawXJWithFit(
+                      simDs, hm, fM,
+                      JoinPath(perDir, TString::Format("xJ_mc_fit_pTbin%d.png", ib).Data()),
+                      "x_{J#gamma}", lines,
+                      2, 4
+                    );
+                  }
+
+                  if (hd && hm)
+                  {
+                    std::vector<std::string> lines = {
+                      "In-situ JES3 residual overlay (shape): DATA vs MC",
+                      TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                      TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data(),
+                      TString::Format("mu(DATA)=%.4f  mu(MC)=%.4f  C=MC/DATA=%.4f", muD[ib-1], muM[ib-1], cf[ib-1]).Data()
+                    };
+
+                    DrawOverlayDataVsMCShape(
+                      dataDs,
+                      hd, hm,
+                      JoinPath(perDir, TString::Format("overlay_data_vs_mc_shape_pTbin%d.png", ib).Data()),
+                      lines
+                    );
+                  }
+
+                  if (hd) delete hd;
+                  if (hm) delete hm;
+                }
+
+                WriteTextFile(JoinPath(rDir, "summary_inSituResidual.txt"), sum);
+
+                // Graphs
+                {
+                  TCanvas c1(TString::Format("c_mu_vs_pt_%s_%s", dataDs.label.c_str(), rKey.c_str()).Data(), "c_mu_vs_pt", 900, 700);
+                  ApplyCanvasMargins1D(c1);
+
+                  TGraph gD(nPt, &ptCenters[0], &muD[0]);
+                  TGraph gM(nPt, &ptCenters[0], &muM[0]);
+
+                  gD.SetLineWidth(2);
+                  gD.SetMarkerStyle(20);
+                  gD.SetLineColor(1);
+                  gD.SetMarkerColor(1);
+
+                  gM.SetLineWidth(2);
+                  gM.SetMarkerStyle(24);
+                  gM.SetLineColor(2);
+                  gM.SetMarkerColor(2);
+
+                  gD.Draw("ALP");
+                  gD.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
+                  gD.GetYaxis()->SetTitle("Peak x_{J#gamma} (Gaussian #mu)");
+                  gM.Draw("LP same");
+
+                  TLegend leg(0.62, 0.78, 0.92, 0.90);
+                  leg.SetTextFont(42);
+                  leg.SetTextSize(0.033);
+                  leg.AddEntry(&gD, "DATA: R_{i} = #mu", "lp");
+                  leg.AddEntry(&gM, "MC  : R_{i} = #mu", "lp");
+                  leg.Draw();
+
+                  DrawLatexLines(0.14, 0.92, DefaultHeaderLines(dataDs), 0.034, 0.045);
+                  DrawLatexLines(0.14, 0.78,
+                    {
+                      "In-situ JES3 residual calibration",
+                      TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                      TString::Format("DATA=%s   SIM=%s", dataDs.label.c_str(), simDs.label.c_str()).Data()
+                    },
+                    0.030, 0.040
+                  );
+
+                  SaveCanvas(c1, JoinPath(rDir, "graph_peakMu_vs_pTgamma_DATA_vs_MC.png"));
+                }
+
+                {
+                  TCanvas c2(TString::Format("c_cf_vs_pt_%s_%s", dataDs.label.c_str(), rKey.c_str()).Data(), "c_cf_vs_pt", 900, 700);
+                  ApplyCanvasMargins1D(c2);
+
+                  TGraph gC(nPt, &ptCenters[0], &cf[0]);
+                  gC.SetLineWidth(2);
+                  gC.SetMarkerStyle(20);
+                  gC.Draw("ALP");
+
+                  gC.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
+                  gC.GetYaxis()->SetTitle("Residual correction C_{i} = R_{i}^{MC} / R_{i}^{DATA}");
+
+                  DrawLatexLines(0.14, 0.92, DefaultHeaderLines(dataDs), 0.034, 0.045);
+                  DrawLatexLines(0.14, 0.78,
+                    {
+                      "In-situ JES3 residual correction factor",
+                      TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                      "Apply to DATA jet p_{T}:  p_{T}^{jet,corr} = C_{i} #times p_{T}^{jet}"
+                    },
+                    0.030, 0.040
+                  );
+
+                  SaveCanvas(c2, JoinPath(rDir, "graph_residualCorrection_MCOverDATA_vs_pTgamma.png"));
+                }
+
+                {
+                  std::vector<std::string> corr;
+                  corr.push_back("pTgamma_bin  ptCenter  mu_DATA  mu_MC  C=MC/DATA");
+                  for (int i = 0; i < nPt; ++i)
+                  {
+                    const std::string ptLab = AxisBinLabel(axD, i+1, "GeV", 0);
+                    corr.push_back(TString::Format(
+                      "%s  %.3f  %.6f  %.6f  %.6f",
+                      ptLab.c_str(), ptCenters[i], muD[i], muM[i], cf[i]
+                    ).Data());
+                  }
+                  WriteTextFile(JoinPath(rDir, "correctionFactors_MCOverDATA.txt"), corr);
+                }
+              }
+            };
+
+            // Run on every DATA dataset not yet processed, once SIM is available.
+            for (Dataset* d : C.data)
+            {
+              if (!d) continue;
+              if (C.doneDataLabels.count(d->label)) continue;
+
+              RunPair(*d, *C.sim);
+              C.doneDataLabels.insert(d->label);
+            }
+        }
+  
+  
+        // =============================================================================
+        // JES3 r02 vs r04 overlays (SIM only)
+        //
+        // Implements the full functionality of the previous RunR02R04Overlays lambda:
+        //   - TRUTH xJ integrated over alpha
+        //   - RECO  xJ integrated over alpha
+        //   - RECO  xJ with alpha cuts
+        //
+        // Output under:
+        //   <outDir>/r02_r04/...
+        //
+        // Colors and styling preserved.
+        // =============================================================================
+        void JES3_R02R04Overlays_MaybeRun(Dataset& ds, const std::string& outDir)
+        {
+            if (!ds.isSim) return;
+
+            const std::string ovBase = JoinPath(outDir, "r02_r04");
+            EnsureDir(ovBase);
+
+            auto AlphaTag = [&](double aMax)->std::string
+            {
+              std::ostringstream s;
+              s << std::fixed << std::setprecision(2) << aMax;
+              std::string t = s.str();
+              std::replace(t.begin(), t.end(), '.', 'p');
+              return std::string("alphaLT") + t;
+            };
+
+            auto DrawOverlayPair_TH3xJ =
+              [&](const TH3* h02, const TH3* h04,
+                  const std::string& outDirHere,
+                  const std::string& xTitle,
+                  const std::vector<std::string>& headerLines,
+                  bool useAlphaCut,
+                  double alphaMax)
+            {
+              if (!h02 || !h04) return;
+
+              EnsureDir(outDirHere);
+
+              const int n02 = h02->GetXaxis()->GetNbins();
+              const int n04 = h04->GetXaxis()->GetNbins();
+              const int nPt = std::min(n02, n04);
+
+              // Per-bin overlay PNGs
+              for (int ib = 1; ib <= nPt; ++ib)
+              {
+                TH1* a = nullptr;
+                TH1* b = nullptr;
+
+                if (useAlphaCut)
+                {
+                  a = ProjectY_AtXbin_AndAlphaMax_TH3(h02, ib, alphaMax,
+                        TString::Format("xJ_ov_r02_alphaLT%.2f_b%d", alphaMax, ib).Data());
+                  b = ProjectY_AtXbin_AndAlphaMax_TH3(h04, ib, alphaMax,
+                        TString::Format("xJ_ov_r04_alphaLT%.2f_b%d", alphaMax, ib).Data());
+                }
+                else
+                {
+                  a = ProjectY_AtXbin_TH3(h02, ib, TString::Format("xJ_ov_r02_int_b%d", ib).Data());
+                  b = ProjectY_AtXbin_TH3(h04, ib, TString::Format("xJ_ov_r04_int_b%d", ib).Data());
+                }
+
+                if (!a && !b) { if (a) delete a; if (b) delete b; continue; }
+
+                const std::string ptLab = AxisBinLabel(h02->GetXaxis(), ib, "GeV", 0);
+
+                TCanvas c(TString::Format("c_ov_%s_%d", outDirHere.c_str(), ib).Data(), "c_ov", 900, 700);
+                ApplyCanvasMargins1D(c);
+
+                // Style: force clean, filled markers and matching error-bar colors
+                if (a)
+                {
+                  a->SetDirectory(nullptr);
+                  EnsureSumw2(a);
+
+                  a->SetTitle("");
+                  a->SetLineWidth(2);
+                  a->SetLineColor(2);      // red
+                  a->SetMarkerStyle(20);   // filled circle
+                  a->SetMarkerSize(1.05);
+                  a->SetMarkerColor(2);
+                  a->SetFillStyle(0);
+
+                  a->GetXaxis()->SetTitle(xTitle.c_str());
+                  a->GetYaxis()->SetTitle("Counts");
+                }
+                if (b)
+                {
+                  b->SetDirectory(nullptr);
+                  EnsureSumw2(b);
+
+                  b->SetTitle("");
+                  b->SetLineWidth(2);
+                  b->SetLineColor(4);      // blue
+                  b->SetMarkerStyle(20);   // filled circle
+                  b->SetMarkerSize(1.05);
+                  b->SetMarkerColor(4);
+                  b->SetFillStyle(0);
+
+                  b->GetXaxis()->SetTitle(xTitle.c_str());
+                  b->GetYaxis()->SetTitle("Counts");
+                }
+
+                TH1* first  = a ? a : b;
+                TH1* second = (first == a) ? b : a;
+
+                double ymax = 0.0;
+                if (a) ymax = std::max(ymax, a->GetMaximum());
+                if (b) ymax = std::max(ymax, b->GetMaximum());
+                if (first) first->SetMaximum(ymax * 1.25);
+
+                // Draw with error bars + markers
+                if (first)  first->Draw("E1");
+                if (second) second->Draw("E1 same");
+
+                // Legend should reflect markers+errors
+                TLegend leg(0.70, 0.78, 0.92, 0.90);
+                leg.SetTextFont(42);
+                leg.SetTextSize(0.035);
+                if (a) leg.AddEntry(a, "r02 (red)", "ep");
+                if (b) leg.AddEntry(b, "r04 (blue)", "ep");
+                leg.Draw();
+
+                // Header stays at top-left
+                DrawLatexLines(0.14, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+
+                // Info block just under the header
+                std::vector<std::string> lines = headerLines;
+                lines.push_back(TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data());
+                if (useAlphaCut) lines.push_back(TString::Format("#alpha < %.2f", alphaMax).Data());
+                DrawLatexLines(0.14, 0.875, lines, 0.030, 0.038);
+
+                SaveCanvas(c, JoinPath(outDirHere, TString::Format("overlay_pTbin%d.png", ib).Data()));
+
+                if (a) delete a;
+                if (b) delete b;
+              }
+
+              // 3x3 table(s) of overlays (linear y only)
+              const int perPage = 9;
+              int page = 0;
+
+              for (int start = 1; start <= nPt; start += perPage)
+              {
+                ++page;
+
+                TCanvas c(
+                  TString::Format("c_tbl_%s_p%d", outDirHere.c_str(), page).Data(),
+                  "c_tbl_overlay", 1500, 1200
+                );
+                c.Divide(3,3, 0.001, 0.001);
+
+                std::vector<TH1*> keep;
+                keep.reserve(2 * perPage);
+
+                for (int k = 0; k < perPage; ++k)
+                {
+                  const int ib = start + k;
+                  c.cd(k+1);
+
+                  gPad->SetLeftMargin(0.14);
+                  gPad->SetRightMargin(0.05);
+                  gPad->SetBottomMargin(0.14);
+                  gPad->SetTopMargin(0.10);
+                  gPad->SetLogy(false);
+
+                  if (ib > nPt)
+                  {
+                    TLatex t;
+                    t.SetNDC(true);
+                    t.SetTextFont(42);
+                    t.SetTextSize(0.06);
+                    t.DrawLatex(0.20, 0.55, "EMPTY");
+                    continue;
+                  }
+
+                  TH1* a = nullptr;
+                  TH1* b = nullptr;
+
+                  if (useAlphaCut)
+                  {
+                    a = ProjectY_AtXbin_AndAlphaMax_TH3(h02, ib, alphaMax,
+                          TString::Format("tbl_r02_alphaLT%.2f_p%d_b%d", alphaMax, page, ib).Data());
+                    b = ProjectY_AtXbin_AndAlphaMax_TH3(h04, ib, alphaMax,
+                          TString::Format("tbl_r04_alphaLT%.2f_p%d_b%d", alphaMax, page, ib).Data());
+                  }
+                  else
+                  {
+                    a = ProjectY_AtXbin_TH3(h02, ib, TString::Format("tbl_r02_int_p%d_b%d", page, ib).Data());
+                    b = ProjectY_AtXbin_TH3(h04, ib, TString::Format("tbl_r04_int_p%d_b%d", page, ib).Data());
+                  }
+
+                  if (!a && !b)
+                  {
+                    TLatex t;
+                    t.SetNDC(true);
+                    t.SetTextFont(42);
+                    t.SetTextSize(0.06);
+                    t.DrawLatex(0.15, 0.55, "MISSING");
+                    continue;
+                  }
+
+                  // Style (must set marker color or ROOT will look black in small pads)
+                  if (a)
+                  {
+                    a->SetDirectory(nullptr);
+                    EnsureSumw2(a);
+
+                    a->SetTitle("");
+                    a->SetLineWidth(2);
+                    a->SetLineColor(2);
+                    a->SetMarkerStyle(20);
+                    a->SetMarkerSize(0.95);
+                    a->SetMarkerColor(2);
+                    a->SetFillStyle(0);
+
+                    a->GetXaxis()->SetTitle(xTitle.c_str());
+                    a->GetYaxis()->SetTitle("Counts");
+                  }
+                  if (b)
+                  {
+                    b->SetDirectory(nullptr);
+                    EnsureSumw2(b);
+
+                    b->SetTitle("");
+                    b->SetLineWidth(2);
+                    b->SetLineColor(4);
+                    b->SetMarkerStyle(20);
+                    b->SetMarkerSize(0.95);
+                    b->SetMarkerColor(4);
+                    b->SetFillStyle(0);
+
+                    b->GetXaxis()->SetTitle(xTitle.c_str());
+                    b->GetYaxis()->SetTitle("Counts");
+                  }
+
+                  TH1* first  = a ? a : b;
+                  TH1* second = (first == a) ? b : a;
+
+                  double ymax = 0.0;
+                  if (a) ymax = std::max(ymax, a->GetMaximum());
+                  if (b) ymax = std::max(ymax, b->GetMaximum());
+                  if (first) first->SetMaximum(ymax * 1.25);
+
+                  if (first)  first->Draw("E1");
+                  if (second) second->Draw("E1 same");
+
+                  // Big centered title per pad (kept as in your helper)
+                  const std::string ptLab = AxisBinLabel(h02->GetXaxis(), ib, "GeV", 0);
+
+                  TLatex ttitle;
+                  ttitle.SetNDC(true);
+                  ttitle.SetTextFont(42);
+                  ttitle.SetTextAlign(22);
+                  ttitle.SetTextSize(0.060);
+                  ttitle.DrawLatex(
+                    0.50, 0.95,
+                    TString::Format("Truth-level x_{J#gamma}, p_{T}^{#gamma} = %s", ptLab.c_str()).Data()
+                  );
+
+                  // Legend top-right (requested); no overlay text
+                  TLegend leg(0.8, 0.75, 0.88, 0.9);
+                  leg.SetTextFont(42);
+                  leg.SetTextSize(0.055);
+                  leg.SetFillStyle(0);
+                  leg.SetBorderSize(0);
+                  if (a) leg.AddEntry(a, "r02", "ep");
+                  if (b) leg.AddEntry(b, "r04", "ep");
+                  leg.DrawClone();
+
+                  if (useAlphaCut)
+                  {
+                    TLatex talpha;
+                    talpha.SetNDC(true);
+                    talpha.SetTextFont(42);
+                    talpha.SetTextAlign(13);
+                    talpha.SetTextSize(0.045);
+                    talpha.DrawLatex(0.16, 0.86, TString::Format("#alpha < %.2f", alphaMax).Data());
+                  }
+
+                  if (a) keep.push_back(a);
+                  if (b) keep.push_back(b);
+                }
+
+                std::string outName;
+                if (nPt <= perPage)
+                {
+                  outName = useAlphaCut
+                    ? TString::Format("table3x3_overlay_alphaLT%.2f.png", alphaMax).Data()
+                    : "table3x3_overlay_integratedAlpha.png";
+                }
+                else
+                {
+                  outName = useAlphaCut
+                    ? TString::Format("table3x3_overlay_alphaLT%.2f_page%d.png", alphaMax, page).Data()
+                    : TString::Format("table3x3_overlay_integratedAlpha_page%d.png", page).Data();
+                }
+
+                SaveCanvas(c, JoinPath(outDirHere, outName));
+
+                for (auto* h : keep) delete h;
+              }
+            };
+
+            // -------------------- TRUTH (existing): integrated alpha --------------------
+            TH3* hTr02 = GetObj<TH3>(ds, "h_JES3Truth_pT_xJ_alpha_r02", true, true, true);
+            TH3* hTr04 = GetObj<TH3>(ds, "h_JES3Truth_pT_xJ_alpha_r04", true, true, true);
+
+            if (hTr02 && hTr04)
+            {
+              const std::string ovTruth = JoinPath(ovBase, "xJ_truth_integratedAlpha");
+              DrawOverlayPair_TH3xJ(
+                hTr02, hTr04,
+                ovTruth,
+                "x_{J#gamma}^{truth}",
+                {"TRUTH: x_{J#gamma}^{truth}", "Overlay: r02 red, r04 blue"},
+                false, 0.0
+              );
+            }
+            else
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] TRUTH overlay skipped: missing h_JES3Truth_pT_xJ_alpha_r02 or r04 in dataset " << ds.label
+                   << ANSI_RESET << "\n";
+            }
+
+            // -------------------- RECO (existing): integrated alpha --------------------
+            TH3* hRe02 = GetObj<TH3>(ds, "h_JES3_pT_xJ_alpha_r02", true, true, true);
+            TH3* hRe04 = GetObj<TH3>(ds, "h_JES3_pT_xJ_alpha_r04", true, true, true);
+
+            if (hRe02 && hRe04)
+            {
+              const std::string ovReco = JoinPath(ovBase, "xJ_reco_integratedAlpha");
+              DrawOverlayPair_TH3xJ(
+                hRe02, hRe04,
+                ovReco,
+                "x_{J#gamma}",
+                {"RECO: x_{J#gamma}", "Overlay: r02 red, r04 blue"},
+                false, 0.0
+              );
+
+              // -------------------- RECO (existing): alpha-cut overlays --------------------
+              const std::vector<double> alphaMaxCuts = {0.20, 0.30, 0.40, 0.50};
+              const std::string ovRecoCutsBase = JoinPath(ovBase, "xJ_reco_alphaCuts");
+              EnsureDir(ovRecoCutsBase);
+
+              for (double aMax : alphaMaxCuts)
+              {
+                const std::string aDir = JoinPath(ovRecoCutsBase, AlphaTag(aMax));
+                DrawOverlayPair_TH3xJ(
+                  hRe02, hRe04,
+                  aDir,
+                  "x_{J#gamma}",
+                  {"RECO: x_{J#gamma}", "Overlay: r02 red, r04 blue"},
+                  true, aMax
+                );
               }
             }
-
-            vector<double> x(kNPtBins, 0.0);
-            for (int i = 0; i < kNPtBins; ++i) x[i] = 0.5*(PtBins()[i].lo + PtBins()[i].hi);
-
-            const string overDir = JoinPath(outDir, "overlays");
-            EnsureDir(overDir);
-
-            // mean xJ overlay
+            else
             {
-              TCanvas c("c_ov_meanxJ","c_ov_meanxJ",900,700);
-              ApplyCanvasMargins1D(c);
-
-              TGraph g02(kNPtBins, &x[0], &meanXJ["r02"][0]);
-              TGraph g04(kNPtBins, &x[0], &meanXJ["r04"][0]);
-              g02.SetLineWidth(2); g04.SetLineWidth(2);
-              g02.SetMarkerStyle(20); g04.SetMarkerStyle(24);
-              g02.SetLineColor(1); g04.SetLineColor(2);
-              g02.SetMarkerColor(1); g04.SetMarkerColor(2);
-
-              g02.Draw("ALP");
-              g02.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
-              g02.GetYaxis()->SetTitle("<x_{J}>");
-              g02.SetMinimum(0.0);
-              g02.SetMaximum(1.2);
-              g04.Draw("LP same");
-
-              TLegend leg(0.62,0.78,0.92,0.90);
-              leg.SetTextFont(42);
-              leg.SetTextSize(0.033);
-              leg.AddEntry(&g02, "r02 (R=0.2)", "lp");
-              leg.AddEntry(&g04, "r04 (R=0.4)", "lp");
-              leg.Draw();
-
-              DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-              DrawLatexLines(0.14,0.78, {"Overlay: <x_{J}> vs p_{T}^{#gamma}"}, 0.030, 0.040);
-
-              SaveCanvas(c, JoinPath(overDir, "overlay_mean_xJ_r02_vs_r04.png"));
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] RECO overlays skipped: missing h_JES3_pT_xJ_alpha_r02 or r04 in dataset " << ds.label
+                   << ANSI_RESET << "\n";
             }
-
-            // mean alpha overlay
-            {
-              TCanvas c("c_ov_meana","c_ov_meana",900,700);
-              ApplyCanvasMargins1D(c);
-
-              TGraph g02(kNPtBins, &x[0], &meanA["r02"][0]);
-              TGraph g04(kNPtBins, &x[0], &meanA["r04"][0]);
-              g02.SetLineWidth(2); g04.SetLineWidth(2);
-              g02.SetMarkerStyle(20); g04.SetMarkerStyle(24);
-              g02.SetLineColor(1); g04.SetLineColor(2);
-              g02.SetMarkerColor(1); g04.SetMarkerColor(2);
-
-              g02.Draw("ALP");
-              g02.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
-              g02.GetYaxis()->SetTitle("<#alpha>");
-              g02.SetMinimum(0.0);
-              g02.SetMaximum(1.0);
-              g04.Draw("LP same");
-
-              TLegend leg(0.62,0.78,0.92,0.90);
-              leg.SetTextFont(42);
-              leg.SetTextSize(0.033);
-              leg.AddEntry(&g02, "r02 (R=0.2)", "lp");
-              leg.AddEntry(&g04, "r04 (R=0.4)", "lp");
-              leg.Draw();
-
-              DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-              DrawLatexLines(0.14,0.78, {"Overlay: <#alpha> vs p_{T}^{#gamma}"}, 0.030, 0.040);
-
-              SaveCanvas(c, JoinPath(overDir, "overlay_mean_alpha_r02_vs_r04.png"));
-            }
-          }
         }
 
         void RunJES3QA(Dataset& ds)
         {
-          cout << ANSI_BOLD_CYN << "\n==============================\n"
-               << "[SECTION 5F] JES3 QA (3D maps) (" << ds.label << ")\n"
-               << "==============================" << ANSI_RESET << "\n";
+            cout << ANSI_BOLD_CYN << "\n==============================\n"
+                 << "[SECTION 5F] JES3 QA (3D maps) (" << ds.label << ")\n"
+                 << "==============================" << ANSI_RESET << "\n";
 
-          string outDir = ds.isSim
-            ? JoinPath(ds.outBase, "RecoilJetQA/JES3")
-            : JoinPath(ds.outBase, "RecoilJetQA/JES3/" + ds.trigger);
+            string outDir = ds.isSim
+              ? JoinPath(ds.outBase, "RecoilJetQA/JES3")
+              : JoinPath(ds.outBase, "RecoilJetQA/JES3/" + ds.trigger);
 
-          EnsureDir(outDir);
+            EnsureDir(outDir);
 
-          // =============================================================================
-          // Per-rKey JES3: keep existing outputs + add:
-          //  - 3x3 xJ tables (linear) [EXISTING]
-          //  - 3x3 xJ tables (logy)   [NEW, additional]
-          // =============================================================================
-          for (const auto& rKey : kRKeys)
-          {
-            const double R = RFromKey(rKey);
+            // ---------------------------------------------------------------------------
+            // Local helpers (pure refactor: output + filenames + logic unchanged)
+            // ---------------------------------------------------------------------------
 
-            const string rOut     = JoinPath(outDir, rKey);
-            const string dir2D    = JoinPath(rOut, "2DMaps");
-            const string dirSumm  = JoinPath(rOut, "summaries");
-
-            // xJ(=Y) projections after integrating over alpha(=Z)
-            const string dirXJProj      = JoinPath(rOut, "xJ_fromJES3");
-            const string dirXJProjReco  = JoinPath(dirXJProj, "RECO");
-            const string dirXJProjTruth = JoinPath(dirXJProj, "TRUTH");
-
-            EnsureDir(rOut);
-            EnsureDir(dir2D);
-            EnsureDir(dirSumm);
-            EnsureDir(dirXJProj);
-            EnsureDir(dirXJProjReco);
-            EnsureDir(dirXJProjTruth);
-
-            TH3* hReco_xJ  = GetObj<TH3>(ds, "h_JES3_pT_xJ_alpha_" + rKey, true, true, true);
-            TH3* hTrut_xJ  = GetObj<TH3>(ds, "h_JES3Truth_pT_xJ_alpha_" + rKey, true, true, true);
-            TH3* hReco_j1  = GetObj<TH3>(ds, "h_JES3_pT_jet1Pt_alpha_" + rKey, true, true, true);
-            TH3* hTrut_j1  = GetObj<TH3>(ds, "h_JES3Truth_pT_jet1Pt_alpha_" + rKey, true, true, true);
-
-            if (!hReco_xJ && !hTrut_xJ && !hReco_j1 && !hTrut_j1)
+            auto PrintMeansTableHeader =
+              [&](const string& rKey, double R, int wPt, int wN, int wM)
             {
-              cout << ANSI_BOLD_YEL << "[WARN] No JES3 TH3 histograms for " << ds.label << " " << rKey << ANSI_RESET << "\n";
-              continue;
-            }
+              cout << ANSI_BOLD_CYN
+                   << "\n[JES3 means] " << ds.label << "  rKey=" << rKey
+                   << " (R=" << std::fixed << std::setprecision(1) << R << ")\n"
+                   << ANSI_RESET;
 
-            // pT axis from available hist
-            const TAxis* axPt =
-              (hReco_xJ ? hReco_xJ->GetXaxis()
-              : (hReco_j1 ? hReco_j1->GetXaxis()
-              : (hTrut_xJ ? hTrut_xJ->GetXaxis()
-              : (hTrut_j1 ? hTrut_j1->GetXaxis() : nullptr))));
-
-            const int nPt = (axPt ? axPt->GetNbins() : 0);
-
-            if (nPt <= 0)
-            {
-              cout << ANSI_BOLD_YEL << "[WARN] JES3: could not determine pT binning (nPt<=0) for " << ds.label << " " << rKey << ANSI_RESET << "\n";
-              continue;
-            }
-
-            // Terminal table: means per pT bin
-            cout << ANSI_BOLD_CYN
-                 << "\n[JES3 means] " << ds.label << "  rKey=" << rKey
-                 << " (R=" << std::fixed << std::setprecision(1) << R << ")\n"
-                 << ANSI_RESET;
-
-            const int wPt = 16;
-            const int wN  = 12;
-            const int wM  = 12;
-
-            cout << std::left << std::setw(wPt) << "pTgamma bin"
-                 << std::right
-                 << std::setw(wN) << "N(reco)"
-                 << std::setw(wM) << "<xJ>_re"
-                 << std::setw(wM) << "<a>_re"
-                 << std::setw(wN) << "N(tru)"
-                 << std::setw(wM) << "<xJ>_tr"
-                 << std::setw(wM) << "<a>_tr"
-                 << "\n";
-            cout << string(wPt + 2*wN + 4*wM, '-') << "\n";
-
-            vector<string> sumLines;
-            sumLines.push_back(string("JES3 summary (") + ds.label + ")");
-            sumLines.push_back(string("rKey: ") + rKey + TString::Format("  R=%.1f", R).Data());
-            sumLines.push_back("");
-            sumLines.push_back("NOTE (requested):");
-            sumLines.push_back("  RECO truth-match (MC only): |#eta_{reco}|<0.7, p_{T,reco}>5 GeV, #DeltaR<0.05, best match via CaloRawClusterEval.");
-            sumLines.push_back("  TRUTH prompt #gamma (MC): |#eta_{truth}|<0.7, PID=22 final-state, direct/frag via HEPMC history.");
-            sumLines.push_back("  TRUTH iso (MC): E_{T}^{iso,truth} = #Sigma E_{T}(#DeltaR<0.3, excl. #gamma).");
-            sumLines.push_back("");
-
-            // For each pT bin: maps + 1D xJ distributions integrated over alpha
-            for (int ib = 1; ib <= nPt; ++ib)
-            {
-              const string ptLab = AxisBinLabel(axPt, ib, "GeV", 0);
-
-              double nRe = 0, mxRe = 0, maRe = 0;
-              double nTr = 0, mxTr = 0, maTr = 0;
-
-              TH1* xJ_re = nullptr;
-              TH1* a_re  = nullptr;
-
-              TH1* xJ_tr = nullptr;
-              TH1* a_tr  = nullptr;
-
-              if (hReco_xJ)
-              {
-                xJ_re = ProjectY_AtXbin_TH3(hReco_xJ, ib, TString::Format("jes3_xJ_re_%s_%d", rKey.c_str(), ib).Data());
-                a_re  = ProjectZ_AtXbin_TH3(hReco_xJ, ib, TString::Format("jes3_a_re_%s_%d", rKey.c_str(), ib).Data());
-
-                if (xJ_re)
-                {
-                  xJ_re->SetName(TString::Format("h_xJ_re_%s_pTbin%d", rKey.c_str(), ib).Data());
-                  nRe  = xJ_re->GetEntries();
-                  mxRe = xJ_re->GetMean();
-                }
-                if (a_re)
-                {
-                  a_re->SetName(TString::Format("h_a_re_%s_pTbin%d", rKey.c_str(), ib).Data());
-                  maRe = a_re->GetMean();
-                }
-              }
-
-              if (hTrut_xJ)
-              {
-                xJ_tr = ProjectY_AtXbin_TH3(hTrut_xJ, ib, TString::Format("jes3_xJ_tr_%s_%d", rKey.c_str(), ib).Data());
-                a_tr  = ProjectZ_AtXbin_TH3(hTrut_xJ, ib, TString::Format("jes3_a_tr_%s_%d", rKey.c_str(), ib).Data());
-
-                if (xJ_tr)
-                {
-                  xJ_tr->SetName(TString::Format("h_xJ_tr_%s_pTbin%d", rKey.c_str(), ib).Data());
-                  nTr  = xJ_tr->GetEntries();
-                  mxTr = xJ_tr->GetMean();
-                }
-                if (a_tr)
-                {
-                  a_tr->SetName(TString::Format("h_a_tr_%s_pTbin%d", rKey.c_str(), ib).Data());
-                  maTr = a_tr->GetMean();
-                }
-              }
-
-              cout << std::left << std::setw(wPt) << ptLab
+              cout << std::left << std::setw(wPt) << "pTgamma bin"
                    << std::right
-                   << std::setw(wN) << std::fixed << std::setprecision(0) << nRe
-                   << std::setw(wM) << std::fixed << std::setprecision(4) << mxRe
-                   << std::setw(wM) << std::fixed << std::setprecision(4) << maRe
-                   << std::setw(wN) << std::fixed << std::setprecision(0) << nTr
-                   << std::setw(wM) << std::fixed << std::setprecision(4) << mxTr
-                   << std::setw(wM) << std::fixed << std::setprecision(4) << maTr
+                   << std::setw(wN) << "N(reco)"
+                   << std::setw(wM) << "<xJ>_re"
+                   << std::setw(wM) << "<a>_re"
+                   << std::setw(wN) << "N(tru)"
+                   << std::setw(wM) << "<xJ>_tr"
+                   << std::setw(wM) << "<a>_tr"
                    << "\n";
+              cout << string(wPt + 2*wN + 4*wM, '-') << "\n";
+            };
 
-              sumLines.push_back(TString::Format(
-                "pTgamma=%s  Nre=%.0f  <xJ>re=%.6f  <a>re=%.6f  Ntr=%.0f  <xJ>tr=%.6f  <a>tr=%.6f",
-                ptLab.c_str(), nRe, mxRe, maRe, nTr, mxTr, maTr
-              ).Data());
+            auto InitSummaryLines =
+              [&](const string& rKey, double R)->vector<string>
+            {
+              vector<string> sumLines;
+              sumLines.push_back(string("JES3 summary (") + ds.label + ")");
+              sumLines.push_back(string("rKey: ") + rKey + TString::Format("  R=%.1f", R).Data());
+              sumLines.push_back("");
+              sumLines.push_back("NOTE (requested):");
+              sumLines.push_back("  RECO truth-match (MC only): |#eta_{reco}|<0.7, p_{T,reco}>5 GeV, #DeltaR<0.05, best match via CaloRawClusterEval.");
+              sumLines.push_back("  TRUTH prompt #gamma (MC): |#eta_{truth}|<0.7, PID=22 final-state, direct/frag via HEPMC history.");
+              sumLines.push_back("  TRUTH iso (MC): E_{T}^{iso,truth} = #Sigma E_{T}(#DeltaR<0.3, excl. #gamma).");
+              sumLines.push_back("");
+              return sumLines;
+            };
 
-                // Save xJ distributions (integrated over alpha) as individual PNGs
-                if (xJ_re)
+            auto PickPtAxis =
+              [&](TH3* hReco_xJ, TH3* hReco_j1, TH3* hTrut_xJ, TH3* hTrut_j1)->const TAxis*
+            {
+              return
+                (hReco_xJ ? hReco_xJ->GetXaxis()
+                : (hReco_j1 ? hReco_j1->GetXaxis()
+                : (hTrut_xJ ? hTrut_xJ->GetXaxis()
+                : (hTrut_j1 ? hTrut_j1->GetXaxis() : nullptr))));
+            };
+
+            struct Jes3Dirs
+            {
+              string rOut;
+              string dir2D;
+              string dirSumm;
+              string dirXJProj;
+              string dirXJProjReco;
+              string dirXJProjTruth;
+            };
+
+            auto MakeJes3Dirs =
+              [&](const string& rKey, double /*R*/)->Jes3Dirs
+            {
+              Jes3Dirs D;
+              D.rOut     = JoinPath(outDir, rKey);
+              D.dir2D    = JoinPath(D.rOut, "2DMaps");
+              D.dirSumm  = JoinPath(D.rOut, "summaries");
+
+              // xJ(=Y) projections after integrating over alpha(=Z)
+              D.dirXJProj      = JoinPath(D.rOut, "xJ_fromJES3");
+              D.dirXJProjReco  = JoinPath(D.dirXJProj, "RECO");
+              D.dirXJProjTruth = JoinPath(D.dirXJProj, "TRUTH");
+
+              EnsureDir(D.rOut);
+              EnsureDir(D.dir2D);
+              EnsureDir(D.dirSumm);
+              EnsureDir(D.dirXJProj);
+              EnsureDir(D.dirXJProjReco);
+              EnsureDir(D.dirXJProjTruth);
+
+              return D;
+            };
+
+            struct Jes3Hists
+            {
+              TH3* hReco_xJ = nullptr;
+              TH3* hTrut_xJ = nullptr;
+              TH3* hReco_j1 = nullptr;
+              TH3* hTrut_j1 = nullptr;
+            };
+
+            auto LoadJes3Hists =
+              [&](const string& rKey)->Jes3Hists
+            {
+              Jes3Hists H;
+              H.hReco_xJ  = GetObj<TH3>(ds, "h_JES3_pT_xJ_alpha_" + rKey, true, true, true);
+              H.hTrut_xJ  = GetObj<TH3>(ds, "h_JES3Truth_pT_xJ_alpha_" + rKey, true, true, true);
+              H.hReco_j1  = GetObj<TH3>(ds, "h_JES3_pT_jet1Pt_alpha_" + rKey, true, true, true);
+              H.hTrut_j1  = GetObj<TH3>(ds, "h_JES3Truth_pT_jet1Pt_alpha_" + rKey, true, true, true);
+              return H;
+            };
+
+            auto HasAnyJes3 =
+              [&](const Jes3Hists& H)->bool
+            {
+              return (H.hReco_xJ || H.hTrut_xJ || H.hReco_j1 || H.hTrut_j1);
+            };
+
+            // ---------------------------------------------------------------------------
+            // Per-rKey JES3 (main body)
+            // ---------------------------------------------------------------------------
+
+            auto ProcessOneRKey =
+              [&](const string& rKey)
+            {
+              const double R = RFromKey(rKey);
+
+              const Jes3Dirs  D = MakeJes3Dirs(rKey, R);
+              const Jes3Hists H = LoadJes3Hists(rKey);
+
+              if (!HasAnyJes3(H))
+              {
+                cout << ANSI_BOLD_YEL << "[WARN] No JES3 TH3 histograms for " << ds.label << " " << rKey << ANSI_RESET << "\n";
+                return;
+              }
+
+              // pT axis from available hist
+              const TAxis* axPt = PickPtAxis(H.hReco_xJ, H.hReco_j1, H.hTrut_xJ, H.hTrut_j1);
+              const int nPt = (axPt ? axPt->GetNbins() : 0);
+
+              if (nPt <= 0)
+              {
+                cout << ANSI_BOLD_YEL << "[WARN] JES3: could not determine pT binning (nPt<=0) for " << ds.label << " " << rKey << ANSI_RESET << "\n";
+                return;
+              }
+
+              const int wPt = 16;
+              const int wN  = 12;
+              const int wM  = 12;
+
+              PrintMeansTableHeader(rKey, R, wPt, wN, wM);
+
+              vector<string> sumLines = InitSummaryLines(rKey, R);
+
+              struct BinPack
+              {
+                string ptLab;
+
+                double nRe = 0, mxRe = 0, maRe = 0;
+                double nTr = 0, mxTr = 0, maTr = 0;
+
+                TH1* xJ_re = nullptr;
+                TH1* a_re  = nullptr;
+                TH1* xJ_tr = nullptr;
+                TH1* a_tr  = nullptr;
+              };
+
+              auto BuildBinPack =
+                [&](int ib)->BinPack
+              {
+                BinPack P;
+                P.ptLab = AxisBinLabel(axPt, ib, "GeV", 0);
+
+                if (H.hReco_xJ)
                 {
-                  // (1) Inclusive in alpha (existing behavior)
-                  vector<string> lines = {
-                    "JES3 (RECO): x_{J#gamma}",
-                    TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
-                    TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data(),
-                    "Projection: integrated over #alpha",
-                    "Filled with: (p_{T}^{#gamma}, x_{J#gamma}, #alpha)"
-                  };
+                  P.xJ_re = ProjectY_AtXbin_TH3(H.hReco_xJ, ib, TString::Format("jes3_xJ_re_%s_%d", rKey.c_str(), ib).Data());
+                  P.a_re  = ProjectZ_AtXbin_TH3(H.hReco_xJ, ib, TString::Format("jes3_a_re_%s_%d", rKey.c_str(), ib).Data());
 
-                    DrawAndSaveTH1_Common(ds, xJ_re,
-                      JoinPath(dirXJProjReco, TString::Format("xJ_reco_integratedAlpha_pTbin%d.png", ib).Data()),
-                      "x_{J#gamma}", "Counts", lines, false, false, 0.0, "E1");
-
-
-                  // (2) NEW: alpha-cut variants (presentation-driven)
-                  // Adjust cut values freely; these are "reasonable" to see shape evolution.
-                  const vector<double> alphaMaxCuts = {0.20, 0.30, 0.40, 0.50};
-
-                  auto AlphaTag = [&](double aMax)->string
+                  if (P.xJ_re)
                   {
-                    std::ostringstream s;
-                    s << std::fixed << std::setprecision(2) << aMax;  // e.g. "0.20"
-                    string t = s.str();
-                    std::replace(t.begin(), t.end(), '.', 'p');       // -> "0p20"
-                    return string("alphaLT") + t;                     // -> "alphaLT0p20"
-                  };
-
-                  const string dirAlphaBase = JoinPath(dirXJProjReco, "alphaCuts");
-                  EnsureDir(dirAlphaBase);
-
-                  for (double aMax : alphaMaxCuts)
+                    P.xJ_re->SetName(TString::Format("h_xJ_re_%s_pTbin%d", rKey.c_str(), ib).Data());
+                    P.nRe  = P.xJ_re->GetEntries();
+                    P.mxRe = P.xJ_re->GetMean();
+                  }
+                  if (P.a_re)
                   {
-                    const string aTag = AlphaTag(aMax);
-                    const string aDir = JoinPath(dirAlphaBase, aTag);
-                    EnsureDir(aDir);
-
-                    TH1* xJ_cut = ProjectY_AtXbin_AndAlphaMax_TH3(
-                      hReco_xJ, ib, aMax,
-                      TString::Format("jes3_xJ_re_%s_%d_%s", rKey.c_str(), ib, aTag.c_str()).Data()
-                    );
-
-                    if (!xJ_cut) continue;
-
-                    vector<string> linesCut = {
-                      "JES3 (RECO): x_{J#gamma}",
-                      TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
-                      TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data(),
-                      TString::Format("#alpha cut: #alpha < %.2f", aMax).Data(),
-                      "Projection: integrate only selected #alpha bins"
-                    };
-
-                      DrawAndSaveTH1_Common(ds, xJ_cut,
-                        JoinPath(aDir, TString::Format("xJ_reco_alphaCut_%s_pTbin%d.png", aTag.c_str(), ib).Data()),
-                        "x_{J#gamma}", "Counts", linesCut, false, false, 0.0, "E1");
-
-
-                    delete xJ_cut;
+                    P.a_re->SetName(TString::Format("h_a_re_%s_pTbin%d", rKey.c_str(), ib).Data());
+                    P.maRe = P.a_re->GetMean();
                   }
                 }
 
-              if (xJ_tr)
+                if (H.hTrut_xJ)
+                {
+                  P.xJ_tr = ProjectY_AtXbin_TH3(H.hTrut_xJ, ib, TString::Format("jes3_xJ_tr_%s_%d", rKey.c_str(), ib).Data());
+                  P.a_tr  = ProjectZ_AtXbin_TH3(H.hTrut_xJ, ib, TString::Format("jes3_a_tr_%s_%d", rKey.c_str(), ib).Data());
+
+                  if (P.xJ_tr)
+                  {
+                    P.xJ_tr->SetName(TString::Format("h_xJ_tr_%s_pTbin%d", rKey.c_str(), ib).Data());
+                    P.nTr  = P.xJ_tr->GetEntries();
+                    P.mxTr = P.xJ_tr->GetMean();
+                  }
+                  if (P.a_tr)
+                  {
+                    P.a_tr->SetName(TString::Format("h_a_tr_%s_pTbin%d", rKey.c_str(), ib).Data());
+                    P.maTr = P.a_tr->GetMean();
+                  }
+                }
+
+                return P;
+              };
+
+              auto CleanupBinPack =
+                [&](BinPack& P)
               {
+                if (P.xJ_re) delete P.xJ_re;
+                if (P.a_re)  delete P.a_re;
+                if (P.xJ_tr) delete P.xJ_tr;
+                if (P.a_tr)  delete P.a_tr;
+
+                P.xJ_re = nullptr;
+                P.a_re  = nullptr;
+                P.xJ_tr = nullptr;
+                P.a_tr  = nullptr;
+              };
+
+              auto SaveXJRecoPNGs =
+                [&](TH1* xJ_re, int ib, const string& ptLab)
+              {
+                if (!xJ_re) return;
+
+                // (1) Inclusive in alpha
+                vector<string> lines = {
+                  "JES3 (RECO): x_{J#gamma}",
+                  TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                  TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data(),
+                  "Projection: integrated over #alpha",
+                  "Filled with: (p_{T}^{#gamma}, x_{J#gamma}, #alpha)"
+                };
+
+                DrawAndSaveTH1_Common(ds, xJ_re,
+                  JoinPath(D.dirXJProjReco, TString::Format("xJ_reco_integratedAlpha_pTbin%d.png", ib).Data()),
+                  "x_{J#gamma}", "Counts", lines, false, false, 0.0, "E1");
+
+                // (2) NEW: alpha-cut variants (presentation-driven)
+                // Adjust cut values freely; these are "reasonable" to see shape evolution.
+                const vector<double> alphaMaxCuts = {0.20, 0.30, 0.40, 0.50};
+
+                auto AlphaTag = [&](double aMax)->string
+                {
+                  std::ostringstream s;
+                  s << std::fixed << std::setprecision(2) << aMax;  // e.g. "0.20"
+                  string t = s.str();
+                  std::replace(t.begin(), t.end(), '.', 'p');       // -> "0p20"
+                  return string("alphaLT") + t;                     // -> "alphaLT0p20"
+                };
+
+                const string dirAlphaBase = JoinPath(D.dirXJProjReco, "alphaCuts");
+                EnsureDir(dirAlphaBase);
+
+                for (double aMax : alphaMaxCuts)
+                {
+                  const string aTag = AlphaTag(aMax);
+                  const string aDir = JoinPath(dirAlphaBase, aTag);
+                  EnsureDir(aDir);
+
+                  TH1* xJ_cut = ProjectY_AtXbin_AndAlphaMax_TH3(
+                    H.hReco_xJ, ib, aMax,
+                    TString::Format("jes3_xJ_re_%s_%d_%s", rKey.c_str(), ib, aTag.c_str()).Data()
+                  );
+
+                  if (!xJ_cut) continue;
+
+                  vector<string> linesCut = {
+                    "JES3 (RECO): x_{J#gamma}",
+                    TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                    TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data(),
+                    TString::Format("#alpha cut: #alpha < %.2f", aMax).Data(),
+                    "Projection: integrate only selected #alpha bins"
+                  };
+
+                  DrawAndSaveTH1_Common(ds, xJ_cut,
+                    JoinPath(aDir, TString::Format("xJ_reco_alphaCut_%s_pTbin%d.png", aTag.c_str(), ib).Data()),
+                    "x_{J#gamma}", "Counts", linesCut, false, false, 0.0, "E1");
+
+                  delete xJ_cut;
+                }
+              };
+
+              auto SaveXJTruthPNGs =
+                [&](TH1* xJ_tr, int ib, const string& ptLab)
+              {
+                if (!xJ_tr) return;
+
                 vector<string> lines = {
                   "JES3 (TRUTH): x_{J#gamma}^{truth}",
                   TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
@@ -3132,86 +4315,118 @@ namespace ARJ
                   "Filled with: (tPt, xJt=tj1Pt/tPt, aT=tj2Pt/tPt)"
                 };
 
-                  DrawAndSaveTH1_Common(ds, xJ_tr,
-                    JoinPath(dirXJProjTruth, TString::Format("xJ_truth_integratedAlpha_pTbin%d.png", ib).Data()),
-                    "x_{J#gamma}^{truth}", "Counts", lines, false, false, 0.0, "E1");
+                DrawAndSaveTH1_Common(ds, xJ_tr,
+                  JoinPath(D.dirXJProjTruth, TString::Format("xJ_truth_integratedAlpha_pTbin%d.png", ib).Data()),
+                  "x_{J#gamma}^{truth}", "Counts", lines, false, false, 0.0, "E1");
+              };
 
-              }
-
-              // Existing behavior: RECO/TRUTH xJ-alpha maps and jet1Pt-alpha maps
-              if (hReco_xJ)
+              auto SaveJes3Maps2D_ForBin =
+                [&](int ib, const string& ptLab)
               {
-                TH2* h2 = ProjectYZ_AtXbin_TH3(hReco_xJ, ib, TString::Format("jes3_xJalpha_re_%s_%d", rKey.c_str(), ib).Data());
-                if (h2)
-                {
-                  vector<string> lines = {
-                    "JES3 (RECO): x_{J} vs #alpha",
-                    TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
-                    TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data()
-                  };
-                  DrawAndSaveTH2_Common(ds, h2,
-                    JoinPath(dir2D, TString::Format("jes3_reco_xJ_vs_alpha_pTbin%d.png", ib).Data()),
-                    "x_{J}", "#alpha", "Counts", lines, true);
-                  delete h2;
-                }
-              }
+                // Existing behavior: RECO/TRUTH xJ-alpha maps and jet1Pt-alpha maps
 
-              if (hTrut_xJ)
+                if (H.hReco_xJ)
+                {
+                  TH2* h2 = ProjectYZ_AtXbin_TH3(H.hReco_xJ, ib, TString::Format("jes3_xJalpha_re_%s_%d", rKey.c_str(), ib).Data());
+                  if (h2)
+                  {
+                    vector<string> lines = {
+                      "JES3 (RECO): x_{J} vs #alpha",
+                      TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                      TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data()
+                    };
+                    DrawAndSaveTH2_Common(ds, h2,
+                      JoinPath(D.dir2D, TString::Format("jes3_reco_xJ_vs_alpha_pTbin%d.png", ib).Data()),
+                      "x_{J}", "#alpha", "Counts", lines, true);
+                    delete h2;
+                  }
+                }
+
+                if (H.hTrut_xJ)
+                {
+                  TH2* h2 = ProjectYZ_AtXbin_TH3(H.hTrut_xJ, ib, TString::Format("jes3_xJalpha_tr_%s_%d", rKey.c_str(), ib).Data());
+                  if (h2)
+                  {
+                    vector<string> lines = {
+                      "JES3 (TRUTH): x_{J} vs #alpha",
+                      TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                      TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data()
+                    };
+                    DrawAndSaveTH2_Common(ds, h2,
+                      JoinPath(D.dir2D, TString::Format("jes3_truth_xJ_vs_alpha_pTbin%d.png", ib).Data()),
+                      "x_{J}", "#alpha", "Counts", lines, true);
+                    delete h2;
+                  }
+                }
+
+                if (H.hReco_j1)
+                {
+                  TH2* h2 = ProjectYZ_AtXbin_TH3(H.hReco_j1, ib, TString::Format("jes3_j1alpha_re_%s_%d", rKey.c_str(), ib).Data());
+                  if (h2)
+                  {
+                    vector<string> lines = {
+                      "JES3 (RECO): p_{T}^{jet1} vs #alpha",
+                      TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                      TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data()
+                    };
+                    DrawAndSaveTH2_Common(ds, h2,
+                      JoinPath(D.dir2D, TString::Format("jes3_reco_jet1Pt_vs_alpha_pTbin%d.png", ib).Data()),
+                      "p_{T}^{jet1} [GeV]", "#alpha", "Counts", lines, true);
+                    delete h2;
+                  }
+                }
+
+                if (H.hTrut_j1)
+                {
+                  TH2* h2 = ProjectYZ_AtXbin_TH3(H.hTrut_j1, ib, TString::Format("jes3_j1alpha_tr_%s_%d", rKey.c_str(), ib).Data());
+                  if (h2)
+                  {
+                    vector<string> lines = {
+                      "JES3 (TRUTH): p_{T}^{jet1} vs #alpha",
+                      TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                      TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data()
+                    };
+                    DrawAndSaveTH2_Common(ds, h2,
+                      JoinPath(D.dir2D, TString::Format("jes3_truth_jet1Pt_vs_alpha_pTbin%d.png", ib).Data()),
+                      "p_{T}^{jet1} [GeV]", "#alpha", "Counts", lines, true);
+                    delete h2;
+                  }
+                }
+              };
+
+              // For each pT bin: terminal table + summary + plots
+              for (int ib = 1; ib <= nPt; ++ib)
               {
-                TH2* h2 = ProjectYZ_AtXbin_TH3(hTrut_xJ, ib, TString::Format("jes3_xJalpha_tr_%s_%d", rKey.c_str(), ib).Data());
-                if (h2)
-                {
-                  vector<string> lines = {
-                    "JES3 (TRUTH): x_{J} vs #alpha",
-                    TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
-                    TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data()
-                  };
-                  DrawAndSaveTH2_Common(ds, h2,
-                    JoinPath(dir2D, TString::Format("jes3_truth_xJ_vs_alpha_pTbin%d.png", ib).Data()),
-                    "x_{J}", "#alpha", "Counts", lines, true);
-                  delete h2;
-                }
+                BinPack P = BuildBinPack(ib);
+
+                cout << std::left << std::setw(wPt) << P.ptLab
+                     << std::right
+                     << std::setw(wN) << std::fixed << std::setprecision(0) << P.nRe
+                     << std::setw(wM) << std::fixed << std::setprecision(4) << P.mxRe
+                     << std::setw(wM) << std::fixed << std::setprecision(4) << P.maRe
+                     << std::setw(wN) << std::fixed << std::setprecision(0) << P.nTr
+                     << std::setw(wM) << std::fixed << std::setprecision(4) << P.mxTr
+                     << std::setw(wM) << std::fixed << std::setprecision(4) << P.maTr
+                     << "\n";
+
+                sumLines.push_back(TString::Format(
+                  "pTgamma=%s  Nre=%.0f  <xJ>re=%.6f  <a>re=%.6f  Ntr=%.0f  <xJ>tr=%.6f  <a>tr=%.6f",
+                  P.ptLab.c_str(), P.nRe, P.mxRe, P.maRe, P.nTr, P.mxTr, P.maTr
+                ).Data());
+
+                // Save xJ distributions (integrated over alpha) as individual PNGs
+                SaveXJRecoPNGs(P.xJ_re, ib, P.ptLab);
+                SaveXJTruthPNGs(P.xJ_tr, ib, P.ptLab);
+
+                // Existing behavior: RECO/TRUTH xJ-alpha maps and jet1Pt-alpha maps
+                SaveJes3Maps2D_ForBin(ib, P.ptLab);
+
+                CleanupBinPack(P);
               }
 
-              if (hReco_j1)
-              {
-                TH2* h2 = ProjectYZ_AtXbin_TH3(hReco_j1, ib, TString::Format("jes3_j1alpha_re_%s_%d", rKey.c_str(), ib).Data());
-                if (h2)
-                {
-                  vector<string> lines = {
-                    "JES3 (RECO): p_{T}^{jet1} vs #alpha",
-                    TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
-                    TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data()
-                  };
-                  DrawAndSaveTH2_Common(ds, h2,
-                    JoinPath(dir2D, TString::Format("jes3_reco_jet1Pt_vs_alpha_pTbin%d.png", ib).Data()),
-                    "p_{T}^{jet1} [GeV]", "#alpha", "Counts", lines, true);
-                  delete h2;
-                }
-              }
-
-              if (hTrut_j1)
-              {
-                TH2* h2 = ProjectYZ_AtXbin_TH3(hTrut_j1, ib, TString::Format("jes3_j1alpha_tr_%s_%d", rKey.c_str(), ib).Data());
-                if (h2)
-                {
-                  vector<string> lines = {
-                    "JES3 (TRUTH): p_{T}^{jet1} vs #alpha",
-                    TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
-                    TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data()
-                  };
-                  DrawAndSaveTH2_Common(ds, h2,
-                    JoinPath(dir2D, TString::Format("jes3_truth_jet1Pt_vs_alpha_pTbin%d.png", ib).Data()),
-                    "p_{T}^{jet1} [GeV]", "#alpha", "Counts", lines, true);
-                  delete h2;
-                }
-              }
-
-              if (xJ_re) delete xJ_re;
-              if (a_re)  delete a_re;
-              if (xJ_tr) delete xJ_tr;
-              if (a_tr)  delete a_tr;
-            }
+              // -------------------------------------------------------------------------
+              // 3x3 tables + text summary (existing behavior preserved)
+              // -------------------------------------------------------------------------
 
               auto Make3x3Table_xJ_FromTH3 =
                 [&](const TH3* h3, const string& outBaseDir, const string& tag, bool logy)
@@ -3266,7 +4481,7 @@ namespace ARJ
                       h3, ib,
                       TString::Format("jes3_xJ_tbl_%s_%s_%s_%d",
                         rKey.c_str(), tag.c_str(), logy ? "logy" : "lin", ib).Data()
-                    );
+                      );
 
                     if (!hx)
                     {
@@ -3278,25 +4493,24 @@ namespace ARJ
                       continue;
                     }
 
-                      hx->SetDirectory(nullptr);
-                      EnsureSumw2(hx);
+                    hx->SetDirectory(nullptr);
+                    EnsureSumw2(hx);
 
-                      hx->SetLineWidth(2);
-                      hx->SetMarkerStyle(20);
-                      hx->SetMarkerSize(1.0);
+                    hx->SetLineWidth(2);
+                    hx->SetMarkerStyle(20);
+                    hx->SetMarkerSize(1.0);
 
-                      hx->SetTitle("");
-                      hx->GetXaxis()->SetTitle((tag == "TRUTH") ? "x_{J#gamma}^{truth}" : "x_{J#gamma}");
-                      hx->GetYaxis()->SetTitle("Counts");
+                    hx->SetTitle("");
+                    hx->GetXaxis()->SetTitle((tag == "TRUTH") ? "x_{J#gamma}^{truth}" : "x_{J#gamma}");
+                    hx->GetYaxis()->SetTitle("Counts");
 
-                      if (logy)
-                      {
-                        const double minPos = SmallestPositiveBinContent(hx);
-                        hx->SetMinimum((minPos > 0.0) ? (0.5 * minPos) : 1e-6);
-                      }
+                    if (logy)
+                    {
+                      const double minPos = SmallestPositiveBinContent(hx);
+                      hx->SetMinimum((minPos > 0.0) ? (0.5 * minPos) : 1e-6);
+                    }
 
-                      hx->Draw("E1");
-
+                    hx->Draw("E1");
 
                     const string ptLab = AxisBinLabel(h3->GetXaxis(), ib, "GeV", 0);
 
@@ -3395,18 +4609,17 @@ namespace ARJ
                       continue;
                     }
 
-                      hx->SetDirectory(nullptr);
-                      EnsureSumw2(hx);
+                    hx->SetDirectory(nullptr);
+                    EnsureSumw2(hx);
 
-                      hx->SetLineWidth(2);
-                      hx->SetMarkerStyle(20);
-                      hx->SetMarkerSize(1.0);
+                    hx->SetLineWidth(2);
+                    hx->SetMarkerStyle(20);
+                    hx->SetMarkerSize(1.0);
 
-                      hx->SetTitle("");
-                      hx->GetXaxis()->SetTitle((tag == "TRUTH") ? "x_{J#gamma}^{truth}" : "x_{J#gamma}");
-                      hx->GetYaxis()->SetTitle("Counts");
-                      hx->Draw("E1");
-
+                    hx->SetTitle("");
+                    hx->GetXaxis()->SetTitle((tag == "TRUTH") ? "x_{J#gamma}^{truth}" : "x_{J#gamma}");
+                    hx->GetYaxis()->SetTitle("Counts");
+                    hx->Draw("E1");
 
                     const string ptLab = AxisBinLabel(h3->GetXaxis(), ib, "GeV", 0);
 
@@ -3437,13 +4650,13 @@ namespace ARJ
               };
 
               // Keep existing integrated-alpha tables (linear + logy)
-              Make3x3Table_xJ_FromTH3(hReco_xJ, dirXJProjReco,  "RECO",  false);
-              Make3x3Table_xJ_FromTH3(hTrut_xJ, dirXJProjTruth, "TRUTH", false);
-              Make3x3Table_xJ_FromTH3(hReco_xJ, dirXJProjReco,  "RECO",  true);
-              Make3x3Table_xJ_FromTH3(hTrut_xJ, dirXJProjTruth, "TRUTH", true);
+              Make3x3Table_xJ_FromTH3(H.hReco_xJ, D.dirXJProjReco,  "RECO",  false);
+              Make3x3Table_xJ_FromTH3(H.hTrut_xJ, D.dirXJProjTruth, "TRUTH", false);
+              Make3x3Table_xJ_FromTH3(H.hReco_xJ, D.dirXJProjReco,  "RECO",  true);
+              Make3x3Table_xJ_FromTH3(H.hTrut_xJ, D.dirXJProjTruth, "TRUTH", true);
 
               // NEW: RECO alpha-cut tables into subfolders (requested)
-              if (hReco_xJ)
+              if (H.hReco_xJ)
               {
                 const vector<double> alphaMaxCuts = {0.20, 0.30, 0.40, 0.50};
 
@@ -3456,388 +4669,40 @@ namespace ARJ
                   return string("alphaLT") + t;
                 };
 
-                const string dirAlphaBase = JoinPath(dirXJProjReco, "alphaCuts");
+                const string dirAlphaBase = JoinPath(D.dirXJProjReco, "alphaCuts");
                 EnsureDir(dirAlphaBase);
 
                 for (double aMax : alphaMaxCuts)
                 {
                   const string aDir = JoinPath(dirAlphaBase, AlphaTag(aMax));
                   EnsureDir(aDir);
-                  Make3x3Table_xJ_FromTH3_AlphaCut(hReco_xJ, aDir, "RECO", aMax);
+                  Make3x3Table_xJ_FromTH3_AlphaCut(H.hReco_xJ, aDir, "RECO", aMax);
                 }
               }
 
-              WriteTextFile(JoinPath(dirSumm, "summary_JES3_means.txt"), sumLines);
-
-          }
+              WriteTextFile(JoinPath(D.dirSumm, "summary_JES3_means.txt"), sumLines);
+            };
 
             // =============================================================================
-            // NEW: r02 vs r04 overlays
-            //   - TRUTH xJ integrated over alpha (existing behavior preserved)
-            //   - RECO  xJ integrated over alpha (NEW)
-            //   - RECO  xJ with alpha cuts (NEW; requested)
-            // Output under: <outDir>/r02_r04/
-            // Colors: r02 red, r04 blue
+            // Per-rKey JES3: keep existing outputs + add:
+            //  - 3x3 xJ tables (linear) [EXISTING]
+            //  - 3x3 xJ tables (logy)   [NEW, additional]
             // =============================================================================
-            if (ds.isSim)
+            for (const auto& rKey : kRKeys)
             {
-              const string ovBase = JoinPath(outDir, "r02_r04");
-              EnsureDir(ovBase);
-
-              auto AlphaTag = [&](double aMax)->string
-              {
-                std::ostringstream s;
-                s << std::fixed << std::setprecision(2) << aMax;
-                string t = s.str();
-                std::replace(t.begin(), t.end(), '.', 'p');
-                return string("alphaLT") + t;
-              };
-
-              auto DrawOverlayPair_TH3xJ =
-                [&](const TH3* h02, const TH3* h04,
-                    const string& outDirHere,
-                    const string& xTitle,
-                    const vector<string>& headerLines,
-                    bool useAlphaCut,
-                    double alphaMax)
-              {
-                if (!h02 || !h04) return;
-
-                EnsureDir(outDirHere);
-
-                const int n02 = h02->GetXaxis()->GetNbins();
-                const int n04 = h04->GetXaxis()->GetNbins();
-                const int nPt = std::min(n02, n04);
-
-                // Per-bin overlay PNGs
-                for (int ib = 1; ib <= nPt; ++ib)
-                {
-                  TH1* a = nullptr;
-                  TH1* b = nullptr;
-
-                  if (useAlphaCut)
-                  {
-                    a = ProjectY_AtXbin_AndAlphaMax_TH3(h02, ib, alphaMax,
-                          TString::Format("xJ_ov_r02_alphaLT%.2f_b%d", alphaMax, ib).Data());
-                    b = ProjectY_AtXbin_AndAlphaMax_TH3(h04, ib, alphaMax,
-                          TString::Format("xJ_ov_r04_alphaLT%.2f_b%d", alphaMax, ib).Data());
-                  }
-                  else
-                  {
-                    a = ProjectY_AtXbin_TH3(h02, ib, TString::Format("xJ_ov_r02_int_b%d", ib).Data());
-                    b = ProjectY_AtXbin_TH3(h04, ib, TString::Format("xJ_ov_r04_int_b%d", ib).Data());
-                  }
-
-                  if (!a && !b) { if (a) delete a; if (b) delete b; continue; }
-
-                  const string ptLab = AxisBinLabel(h02->GetXaxis(), ib, "GeV", 0);
-
-                  TCanvas c(TString::Format("c_ov_%s_%d", outDirHere.c_str(), ib).Data(), "c_ov", 900, 700);
-                  ApplyCanvasMargins1D(c);
-
-                    // Style: force clean, filled markers and matching error-bar colors
-                    if (a)
-                    {
-                      a->SetDirectory(nullptr);
-                      EnsureSumw2(a);
-
-                      a->SetTitle("");
-                      a->SetLineWidth(2);
-                      a->SetLineColor(2);      // red
-                      a->SetMarkerStyle(20);   // filled circle
-                      a->SetMarkerSize(1.05);
-                      a->SetMarkerColor(2);
-                      a->SetFillStyle(0);
-
-                      a->GetXaxis()->SetTitle(xTitle.c_str());
-                      a->GetYaxis()->SetTitle("Counts");
-                    }
-                    if (b)
-                    {
-                      b->SetDirectory(nullptr);
-                      EnsureSumw2(b);
-
-                      b->SetTitle("");
-                      b->SetLineWidth(2);
-                      b->SetLineColor(4);      // blue
-                      b->SetMarkerStyle(20);   // filled circle (also filled for blue)
-                      b->SetMarkerSize(1.05);
-                      b->SetMarkerColor(4);
-                      b->SetFillStyle(0);
-
-                      b->GetXaxis()->SetTitle(xTitle.c_str());
-                      b->GetYaxis()->SetTitle("Counts");
-                    }
-
-                    TH1* first  = a ? a : b;
-                    TH1* second = (first == a) ? b : a;
-
-                    double ymax = 0.0;
-                    if (a) ymax = std::max(ymax, a->GetMaximum());
-                    if (b) ymax = std::max(ymax, b->GetMaximum());
-                    if (first) first->SetMaximum(ymax * 1.25);
-
-                    // Draw with error bars + markers (no open circles, no black defaults)
-                    if (first)  first->Draw("E1");
-                    if (second) second->Draw("E1 same");
-
-                    // Legend should reflect markers+errors (not just lines)
-                    TLegend leg(0.70, 0.78, 0.92, 0.90);
-                    leg.SetTextFont(42);
-                    leg.SetTextSize(0.035);
-                    if (a) leg.AddEntry(a, "r02 (red)", "ep");
-                    if (b) leg.AddEntry(b, "r04 (blue)", "ep");
-                    leg.Draw();
-
-                    // Header stays at top-left
-                    DrawLatexLines(0.14, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-
-                    // Move this info block UP so it sits just under the header
-                    vector<string> lines = headerLines;
-                    lines.push_back(TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data());
-                    if (useAlphaCut) lines.push_back(TString::Format("#alpha < %.2f", alphaMax).Data());
-                    DrawLatexLines(0.14, 0.875, lines, 0.030, 0.038);
-
-                  SaveCanvas(c, JoinPath(outDirHere,
-                    TString::Format("overlay_pTbin%d.png", ib).Data()
-                  ));
-
-                  if (a) delete a;
-                  if (b) delete b;
-                }
-
-                // 3x3 table(s) of overlays (linear y only)
-                const int perPage = 9;
-                int page = 0;
-
-                for (int start = 1; start <= nPt; start += perPage)
-                {
-                  ++page;
-
-                  TCanvas c(
-                    TString::Format("c_tbl_%s_p%d", outDirHere.c_str(), page).Data(),
-                    "c_tbl_overlay", 1500, 1200
-                  );
-                  c.Divide(3,3, 0.001, 0.001);
-
-                  std::vector<TH1*> keep;
-                  keep.reserve(2 * perPage);
-
-                  for (int k = 0; k < perPage; ++k)
-                  {
-                    const int ib = start + k;
-                    c.cd(k+1);
-
-                    gPad->SetLeftMargin(0.14);
-                    gPad->SetRightMargin(0.05);
-                    gPad->SetBottomMargin(0.14);
-                    gPad->SetTopMargin(0.10);
-                    gPad->SetLogy(false);
-
-                    if (ib > nPt)
-                    {
-                      TLatex t;
-                      t.SetNDC(true);
-                      t.SetTextFont(42);
-                      t.SetTextSize(0.06);
-                      t.DrawLatex(0.20, 0.55, "EMPTY");
-                      continue;
-                    }
-
-                    TH1* a = nullptr;
-                    TH1* b = nullptr;
-
-                    if (useAlphaCut)
-                    {
-                      a = ProjectY_AtXbin_AndAlphaMax_TH3(h02, ib, alphaMax,
-                            TString::Format("tbl_r02_alphaLT%.2f_p%d_b%d", alphaMax, page, ib).Data());
-                      b = ProjectY_AtXbin_AndAlphaMax_TH3(h04, ib, alphaMax,
-                            TString::Format("tbl_r04_alphaLT%.2f_p%d_b%d", alphaMax, page, ib).Data());
-                    }
-                    else
-                    {
-                      a = ProjectY_AtXbin_TH3(h02, ib, TString::Format("tbl_r02_int_p%d_b%d", page, ib).Data());
-                      b = ProjectY_AtXbin_TH3(h04, ib, TString::Format("tbl_r04_int_p%d_b%d", page, ib).Data());
-                    }
-
-                    if (!a && !b)
-                    {
-                      TLatex t;
-                      t.SetNDC(true);
-                      t.SetTextFont(42);
-                      t.SetTextSize(0.06);
-                      t.DrawLatex(0.15, 0.55, "MISSING");
-                      continue;
-                    }
-
-                      // --- Style (must set marker color or ROOT will look "black" in small pads) ---
-                      if (a)
-                      {
-                        a->SetDirectory(nullptr);
-                        EnsureSumw2(a);
-
-                        a->SetTitle("");
-                        a->SetLineWidth(2);
-                        a->SetLineColor(2);      // r02 red
-                        a->SetMarkerStyle(20);   // filled circle
-                        a->SetMarkerSize(0.95);
-                        a->SetMarkerColor(2);
-                        a->SetFillStyle(0);
-
-                        a->GetXaxis()->SetTitle(xTitle.c_str());
-                        a->GetYaxis()->SetTitle("Counts");
-                      }
-                      if (b)
-                      {
-                        b->SetDirectory(nullptr);
-                        EnsureSumw2(b);
-
-                        b->SetTitle("");
-                        b->SetLineWidth(2);
-                        b->SetLineColor(4);      // r04 blue
-                        b->SetMarkerStyle(20);   // filled circle
-                        b->SetMarkerSize(0.95);
-                        b->SetMarkerColor(4);
-                        b->SetFillStyle(0);
-
-                        b->GetXaxis()->SetTitle(xTitle.c_str());
-                        b->GetYaxis()->SetTitle("Counts");
-                      }
-
-                      TH1* first  = a ? a : b;
-                      TH1* second = (first == a) ? b : a;
-
-                      // Common y-max so r02/r04 share the same scale in this pad
-                      double ymax = 0.0;
-                      if (a) ymax = std::max(ymax, a->GetMaximum());
-                      if (b) ymax = std::max(ymax, b->GetMaximum());
-                      if (first) first->SetMaximum(ymax * 1.25);
-
-                      // Draw points+errors
-                      if (first)  first->Draw("E1");
-                      if (second) second->Draw("E1 same");
-
-                      // ---- Big centered title per pad (requested) ----
-                      const string ptLab = AxisBinLabel(h02->GetXaxis(), ib, "GeV", 0);
-
-                      TLatex ttitle;
-                      ttitle.SetNDC(true);
-                      ttitle.SetTextFont(42);
-                      ttitle.SetTextAlign(22);     // centered
-                      ttitle.SetTextSize(0.060);   // "large" for 3x3 pads
-                      ttitle.DrawLatex(
-                        0.50, 0.95,
-                        TString::Format("Truth-level x_{J#gamma}, p_{T}^{#gamma} = %s", ptLab.c_str()).Data()
-                      );
-
-                      // ---- Legend top-right (requested); no "Overlay ..." text ----
-                      TLegend leg(0.8, 0.75, 0.88, 0.9);
-                      leg.SetTextFont(42);
-                      leg.SetTextSize(0.055);
-                      leg.SetFillStyle(0);
-                      leg.SetBorderSize(0);
-                      if (a) leg.AddEntry(a, "r02", "ep");
-                      if (b) leg.AddEntry(b, "r04", "ep");
-                      leg.DrawClone();
-
-
-                      // Optional: if you want alpha-cut info, keep it subtle (comment out if not wanted)
-                      if (useAlphaCut)
-                      {
-                        TLatex talpha;
-                        talpha.SetNDC(true);
-                        talpha.SetTextFont(42);
-                        talpha.SetTextAlign(13);   // left-top
-                        talpha.SetTextSize(0.045);
-                        talpha.DrawLatex(0.16, 0.86, TString::Format("#alpha < %.2f", alphaMax).Data());
-                      }
-
-                    if (a) keep.push_back(a);
-                    if (b) keep.push_back(b);
-                  }
-
-                  string outName;
-                  if (nPt <= perPage)
-                  {
-                    outName = useAlphaCut
-                      ? TString::Format("table3x3_overlay_alphaLT%.2f.png", alphaMax).Data()
-                      : "table3x3_overlay_integratedAlpha.png";
-                  }
-                  else
-                  {
-                    outName = useAlphaCut
-                      ? TString::Format("table3x3_overlay_alphaLT%.2f_page%d.png", alphaMax, page).Data()
-                      : TString::Format("table3x3_overlay_integratedAlpha_page%d.png", page).Data();
-                  }
-
-                  SaveCanvas(c, JoinPath(outDirHere, outName));
-
-                  for (auto* h : keep) delete h;
-                }
-              };
-
-              // -------------------- TRUTH (existing): integrated alpha --------------------
-              TH3* hTr02 = GetObj<TH3>(ds, "h_JES3Truth_pT_xJ_alpha_r02", true, true, true);
-              TH3* hTr04 = GetObj<TH3>(ds, "h_JES3Truth_pT_xJ_alpha_r04", true, true, true);
-
-              if (hTr02 && hTr04)
-              {
-                const string ovTruth = JoinPath(ovBase, "xJ_truth_integratedAlpha");
-                DrawOverlayPair_TH3xJ(
-                  hTr02, hTr04,
-                  ovTruth,
-                  "x_{J#gamma}^{truth}",
-                  {"TRUTH: x_{J#gamma}^{truth}", "Overlay: r02 red, r04 blue"},
-                  false, 0.0
-                );
-              }
-              else
-              {
-                cout << ANSI_BOLD_YEL
-                     << "[WARN] TRUTH overlay skipped: missing h_JES3Truth_pT_xJ_alpha_r02 or r04 in dataset " << ds.label
-                     << ANSI_RESET << "\n";
-              }
-
-              // -------------------- RECO (NEW): integrated alpha --------------------
-              TH3* hRe02 = GetObj<TH3>(ds, "h_JES3_pT_xJ_alpha_r02", true, true, true);
-              TH3* hRe04 = GetObj<TH3>(ds, "h_JES3_pT_xJ_alpha_r04", true, true, true);
-
-              if (hRe02 && hRe04)
-              {
-                const string ovReco = JoinPath(ovBase, "xJ_reco_integratedAlpha");
-                DrawOverlayPair_TH3xJ(
-                  hRe02, hRe04,
-                  ovReco,
-                  "x_{J#gamma}",
-                  {"RECO: x_{J#gamma}", "Overlay: r02 red, r04 blue"},
-                  false, 0.0
-                );
-
-                // -------------------- RECO (NEW): alpha-cut overlays --------------------
-                const vector<double> alphaMaxCuts = {0.20, 0.30, 0.40, 0.50};
-                const string ovRecoCutsBase = JoinPath(ovBase, "xJ_reco_alphaCuts");
-                EnsureDir(ovRecoCutsBase);
-
-                for (double aMax : alphaMaxCuts)
-                {
-                  const string aDir = JoinPath(ovRecoCutsBase, AlphaTag(aMax));
-                  DrawOverlayPair_TH3xJ(
-                    hRe02, hRe04,
-                    aDir,
-                    "x_{J#gamma}",
-                    {"RECO: x_{J#gamma}", "Overlay: r02 red, r04 blue"},
-                    true, aMax
-                  );
-                }
-              }
-              else
-              {
-                cout << ANSI_BOLD_YEL
-                     << "[WARN] RECO overlays skipped: missing h_JES3_pT_xJ_alpha_r02 or r04 in dataset " << ds.label
-                     << ANSI_RESET << "\n";
-              }
+              ProcessOneRKey(rKey);
             }
 
+            JES3_R02R04Overlays_MaybeRun(ds, outDir);
+            
+            // =============================================================================
+            // In-situ JES3 residual calibration (DATA vs SIM) using reco-only JES3 TH3s.
+            // Refactored: implemented as a helper function defined above RunJES3QA.
+            // (Functionality and outputs preserved exactly.)
+            // =============================================================================
+            JES3_InSituResidualCalibration_MaybeRun(ds);
+
+            RunInSituJES3ResidualCalibration();
         }
 
 
@@ -4014,397 +4879,123 @@ namespace ARJ
         // =============================================================================
         void RunUnfoldingQA(Dataset& ds)
         {
-          cout << ANSI_BOLD_CYN << "\n==============================\n"
-               << "[SECTION 5H] Unfolding QA (pTgamma,xJ) (" << ds.label << ")\n"
-               << "==============================" << ANSI_RESET << "\n";
+            cout << ANSI_BOLD_CYN << "\n==============================\n"
+                 << "[SECTION 5H] Unfolding QA (pTgamma,xJ) (" << ds.label << ")\n"
+                 << "==============================" << ANSI_RESET << "\n";
 
-          string outDir = ds.isSim
-            ? JoinPath(ds.outBase, "RecoilJetQA/Unfolding")
-            : JoinPath(ds.outBase, "RecoilJetQA/Unfolding/" + ds.trigger);
+            string outDir = ds.isSim
+              ? JoinPath(ds.outBase, "RecoilJetQA/Unfolding")
+              : JoinPath(ds.outBase, "RecoilJetQA/Unfolding/" + ds.trigger);
 
-          EnsureDir(outDir);
+            EnsureDir(outDir);
 
-          for (const auto& rKey : kRKeys)
-          {
-            const double R = RFromKey(rKey);
+            // --------------------------------------------------------------------------
+            // Helpers (refactor-only: preserve filenames, directory structure, logic)
+            // --------------------------------------------------------------------------
 
-            const string rOut = JoinPath(outDir, rKey);
-            EnsureDir(rOut);
+            struct UnfoldHists
+            {
+              // Core xJ unfolding hists
+              TH2* hReco   = nullptr;
+              TH2* hTruth  = nullptr;
+              TH2* hFakes  = nullptr;
+              TH2* hMisses = nullptr;
+              TH2* hResp   = nullptr;
 
-              // Core histograms (xJ unfolding)
-              TH2* hReco   = GetObj<TH2>(ds, "h2_unfoldReco_pTgamma_xJ_incl_" + rKey, true, true, true);
-              TH2* hTruth  = GetObj<TH2>(ds, "h2_unfoldTruth_pTgamma_xJ_incl_" + rKey, true, true, true);
-              TH2* hFakes  = GetObj<TH2>(ds, "h2_unfoldRecoFakes_pTgamma_xJ_incl_" + rKey, true, true, true);
-              TH2* hMisses = GetObj<TH2>(ds, "h2_unfoldTruthMisses_pTgamma_xJ_incl_" + rKey, true, true, true);
-              TH2* hResp   = GetObj<TH2>(ds, "h2_unfoldResponse_pTgamma_xJ_incl_" + rKey, true, true, true);
+              // Δphi unfolding (inclusive)
+              TH2* hRecoDphi  = nullptr;
+              TH2* hTruthDphi = nullptr;
+            };
 
-              // NEW histograms (Δphi unfolding; inclusive over recoil jets passing your recoil cut)
-              TH2* hRecoDphi  = GetObj<TH2>(ds, "h2_unfoldReco_pTgamma_dphi_incl_" + rKey, true, true, true);
-              TH2* hTruthDphi = GetObj<TH2>(ds, "h2_unfoldTruth_pTgamma_dphi_incl_" + rKey, true, true, true);
+            auto LoadUnfoldHists = [&](const string& rKey)->UnfoldHists
+            {
+              UnfoldHists H;
 
-              if (!hReco && !hTruth && !hResp && !hRecoDphi && !hTruthDphi)
-              {
-                cout << ANSI_BOLD_YEL << "[WARN] No unfolding histograms found for " << ds.label << " " << rKey << ANSI_RESET << "\n";
-                continue;
-              }
+              H.hReco   = GetObj<TH2>(ds, "h2_unfoldReco_pTgamma_xJ_incl_" + rKey, true, true, true);
+              H.hTruth  = GetObj<TH2>(ds, "h2_unfoldTruth_pTgamma_xJ_incl_" + rKey, true, true, true);
+              H.hFakes  = GetObj<TH2>(ds, "h2_unfoldRecoFakes_pTgamma_xJ_incl_" + rKey, true, true, true);
+              H.hMisses = GetObj<TH2>(ds, "h2_unfoldTruthMisses_pTgamma_xJ_incl_" + rKey, true, true, true);
+              H.hResp   = GetObj<TH2>(ds, "h2_unfoldResponse_pTgamma_xJ_incl_" + rKey, true, true, true);
 
-            // 2D maps (presentation-ready)
-            auto save2D = [&](TH2* h, const string& fname, const string& xTitle, const string& yTitle, const string& zTitle,
-                              const vector<string>& extra, bool logz)
+              H.hRecoDphi  = GetObj<TH2>(ds, "h2_unfoldReco_pTgamma_dphi_incl_" + rKey, true, true, true);
+              H.hTruthDphi = GetObj<TH2>(ds, "h2_unfoldTruth_pTgamma_dphi_incl_" + rKey, true, true, true);
+
+              return H;
+            };
+
+            auto HasAnyUnfold = [&](const UnfoldHists& H)->bool
+            {
+              return (H.hReco || H.hTruth || H.hResp || H.hRecoDphi || H.hTruthDphi);
+            };
+
+            // 2D map saver (kept identical to your lambda save2D)
+            auto Save2D =
+              [&](const string& outBaseDir,
+                  TH2* h,
+                  const string& fname,
+                  const string& xTitle,
+                  const string& yTitle,
+                  const string& zTitle,
+                  const vector<string>& extra,
+                  bool logz)
             {
               if (!h) return;
               TH2* hc = CloneTH2(h, fname + "_clone");
               if (!hc) return;
               DrawAndSaveTH2_Common(ds, hc,
-                JoinPath(rOut, fname),
+                JoinPath(outBaseDir, fname),
                 xTitle, yTitle, zTitle,
                 extra, logz);
               delete hc;
             };
 
-            save2D(hReco,   "unfold_reco_pTgamma_vs_xJ.png",
-                   "p_{T}^{#gamma,reco} [GeV]", "x_{J#gamma}^{reco}", "Counts",
-                   {string("Unfold input: RECO counts"), rKey + TString::Format(" (R=%.1f)", R).Data()},
-                   true);
+            // --------------------------------------------------------------------------
+            // Part A (runs for SIM + DATA): core xJ unfolding 2D inputs + response visuals
+            //   - preserves all filenames you had for these products
+            // --------------------------------------------------------------------------
+            auto RunCoreUnfolding2D =
+              [&](const string& rKey, double R, const string& rOut, const UnfoldHists& H)
+            {
+              // Core 2D maps (presentation-ready)
+              Save2D(rOut, H.hReco,   "unfold_reco_pTgamma_vs_xJ.png",
+                     "p_{T}^{#gamma,reco} [GeV]",  "x_{J#gamma}^{reco}",  "Counts",
+                     {string("Unfold input: RECO counts"), rKey + TString::Format(" (R=%.1f)", R).Data()},
+                     true);
 
-            save2D(hTruth,  "unfold_truth_pTgamma_vs_xJ.png",
-                   "p_{T}^{#gamma,truth} [GeV]", "x_{J#gamma}^{truth}", "Counts",
-                   {string("Unfold truth: TRUTH counts"), rKey + TString::Format(" (R=%.1f)", R).Data()},
-                   true);
+              Save2D(rOut, H.hTruth,  "unfold_truth_pTgamma_vs_xJ.png",
+                     "p_{T}^{#gamma,truth} [GeV]", "x_{J#gamma}^{truth}", "Counts",
+                     {string("Unfold truth: TRUTH counts"), rKey + TString::Format(" (R=%.1f)", R).Data()},
+                     true);
 
-            save2D(hFakes,  "unfold_recoFakes_pTgamma_vs_xJ.png",
-                   "p_{T}^{#gamma,reco} [GeV]", "x_{J#gamma}^{reco}", "Counts (fakes)",
-                   {string("Unfold input: RECO fakes"), rKey + TString::Format(" (R=%.1f)", R).Data()},
-                   true);
+              Save2D(rOut, H.hFakes,  "unfold_recoFakes_pTgamma_vs_xJ.png",
+                     "p_{T}^{#gamma,reco} [GeV]",  "x_{J#gamma}^{reco}",  "Counts (fakes)",
+                     {string("Unfold input: RECO fakes"), rKey + TString::Format(" (R=%.1f)", R).Data()},
+                     true);
 
-              // -------------------------------------------------------------------------
-              // NEW: Δphi unfolding inputs (2D maps + 1D projections) in an organized folder
-              // -------------------------------------------------------------------------
-              if (hRecoDphi || hTruthDphi)
+              // Response matrix (SCAT) (kept exactly as your block)
+              if (H.hResp)
               {
-                const string dphiDir = JoinPath(rOut, "deltaPhiInclusive");
-                const string dphiRecoDir  = JoinPath(dphiDir, "RECO");
-                const string dphiTruthDir = JoinPath(dphiDir, "TRUTH");
-                const string dphiProjDir  = JoinPath(dphiDir, "projections");
-                EnsureDir(dphiDir);
-                EnsureDir(dphiRecoDir);
-                EnsureDir(dphiTruthDir);
-                EnsureDir(dphiProjDir);
-
-                // 2D maps (presentation-ready)
-                save2D(hRecoDphi,  "unfold_reco_pTgamma_vs_absDphi.png",
-                       "p_{T}^{#gamma,reco} [GeV]", "|#Delta#phi(#gamma,jet)| [rad]", "Counts",
-                       {string("Unfold input: RECO |#Delta#phi| (inclusive over recoil jets)"),
-                        rKey + TString::Format(" (R=%.1f)", R).Data()},
-                       true);
-
-                save2D(hTruthDphi, "unfold_truth_pTgamma_vs_absDphi.png",
-                       "p_{T}^{#gamma,truth} [GeV]", "|#Delta#phi(#gamma,jet)| [rad]", "Counts",
-                       {string("Unfold truth: TRUTH |#Delta#phi| (inclusive over truth recoil jets)"),
-                        rKey + TString::Format(" (R=%.1f)", R).Data()},
-                       true);
-
-                // Helpers: ProjectionY + visible-bin normalization
-                auto ProjY_AllX = [&](TH2* h2, const string& newName)->TH1D*
-                {
-                  if (!h2) return nullptr;
-                  const int nx = h2->GetXaxis()->GetNbins();
-                  TH1D* p = h2->ProjectionY(newName.c_str(), 1, nx);
-                  if (p) p->SetDirectory(nullptr);
-                  return p;
-                };
-
-                auto ProjY_AtXbin = [&](TH2* h2, int xbin, const string& newName)->TH1D*
-                {
-                  if (!h2) return nullptr;
-                  TH1D* p = h2->ProjectionY(newName.c_str(), xbin, xbin);
-                  if (p) p->SetDirectory(nullptr);
-                  return p;
-                };
-
-                auto NormalizeVisible = [&](TH1* h)
-                {
-                  if (!h) return;
-                  const int nb = h->GetNbinsX();
-                  const double integral = h->Integral(1, nb); // exclude under/overflow
-                  if (integral > 0.0) h->Scale(1.0 / integral);
-                };
-
-                // -------------------------
-                // 1D integrated over pTγ
-                // -------------------------
-                if (hRecoDphi)
-                {
-                  TH1D* p = ProjY_AllX(hRecoDphi, TString::Format("p_absDphi_reco_all_%s_%s", ds.label.c_str(), rKey.c_str()).Data());
-                  if (p)
-                  {
-                    vector<string> lines = {
-                      "RECO inclusive |#Delta#phi(#gamma,jet)| (all p_{T}^{#gamma})",
-                      TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data()
-                    };
-
-                    DrawAndSaveTH1_Common(ds, p,
-                      JoinPath(dphiRecoDir, "absDphi_integrated_counts.png"),
-                      "|#Delta#phi| [rad]", "Counts", lines, false, false, 0.0, "E1");
-
-                    TH1* ps = CloneTH1(p, TString::Format("p_absDphi_reco_all_shape_%s_%s", ds.label.c_str(), rKey.c_str()).Data());
-                    NormalizeVisible(ps);
-
-                    DrawAndSaveTH1_Common(ds, ps,
-                      JoinPath(dphiRecoDir, "absDphi_integrated_shape.png"),
-                      "|#Delta#phi| [rad]", "A.U.", lines, false, false, 0.0, "E1");
-
-                    delete ps;
-                    delete p;
-                  }
-                }
-
-                if (hTruthDphi)
-                {
-                  TH1D* p = ProjY_AllX(hTruthDphi, TString::Format("p_absDphi_truth_all_%s_%s", ds.label.c_str(), rKey.c_str()).Data());
-                  if (p)
-                  {
-                    vector<string> lines = {
-                      "TRUTH inclusive |#Delta#phi(#gamma,jet)| (all p_{T}^{#gamma})",
-                      TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data()
-                    };
-
-                    DrawAndSaveTH1_Common(ds, p,
-                      JoinPath(dphiTruthDir, "absDphi_integrated_counts.png"),
-                      "|#Delta#phi| [rad]", "Counts", lines, false, false, 0.0, "E1");
-
-                    TH1* ps = CloneTH1(p, TString::Format("p_absDphi_truth_all_shape_%s_%s", ds.label.c_str(), rKey.c_str()).Data());
-                    NormalizeVisible(ps);
-
-                    DrawAndSaveTH1_Common(ds, ps,
-                      JoinPath(dphiTruthDir, "absDphi_integrated_shape.png"),
-                      "|#Delta#phi| [rad]", "A.U.", lines, false, false, 0.0, "E1");
-
-                    delete ps;
-                    delete p;
-                  }
-                }
-
-                // -------------------------
-                // Per-pTγ projections + 3×3 tables (shape)
-                // -------------------------
-                auto Make3x3Table_DphiShape =
-                  [&](TH2* h2, const string& outPng, const string& titlePrefix)
-                {
-                  if (!h2) return;
-
-                  const int nPt = h2->GetXaxis()->GetNbins();
-                  const int perPage = 9;
-                  int page = 0;
-
-                  for (int start = 1; start <= nPt; start += perPage)
-                  {
-                    ++page;
-
-                    TCanvas c(
-                      TString::Format("c_tbl_absDphi_%s_%s_p%d", ds.label.c_str(), rKey.c_str(), page).Data(),
-                      "c_tbl_absDphi", 1500, 1200
-                    );
-                    c.Divide(3,3, 0.001, 0.001);
-
-                    vector<TH1*> keep;
-                    keep.reserve(perPage);
-
-                    for (int k = 0; k < perPage; ++k)
-                    {
-                      const int ib = start + k;
-                      c.cd(k+1);
-
-                      gPad->SetLeftMargin(0.14);
-                      gPad->SetRightMargin(0.05);
-                      gPad->SetBottomMargin(0.14);
-                      gPad->SetTopMargin(0.10);
-
-                      if (ib > nPt)
-                      {
-                        TLatex t;
-                        t.SetNDC(true);
-                        t.SetTextFont(42);
-                        t.SetTextSize(0.06);
-                        t.DrawLatex(0.20, 0.55, "EMPTY");
-                        continue;
-                      }
-
-                      TH1D* p = ProjY_AtXbin(h2, ib,
-                        TString::Format("p_absDphi_tbl_%s_%s_%d", ds.label.c_str(), rKey.c_str(), ib).Data()
-                      );
-
-                      if (!p || p->GetEntries() <= 0.0)
-                      {
-                        if (p) delete p;
-                        TLatex t;
-                        t.SetNDC(true);
-                        t.SetTextFont(42);
-                        t.SetTextSize(0.06);
-                        t.DrawLatex(0.15, 0.55, "MISSING");
-                        continue;
-                      }
-
-                      NormalizeVisible(p);
-                      p->SetTitle("");
-                      p->SetLineWidth(2);
-                      p->SetMarkerStyle(20);
-                      p->SetMarkerSize(1.0);
-                      p->GetXaxis()->SetTitle("|#Delta#phi| [rad]");
-                      p->GetYaxis()->SetTitle("A.U.");
-                      p->Draw("E1");
-
-                      const string ptLab = AxisBinLabel(h2->GetXaxis(), ib, "GeV", 0);
-
-                      TLatex tt;
-                      tt.SetNDC(true);
-                      tt.SetTextFont(42);
-                      tt.SetTextAlign(22);
-                      tt.SetTextSize(0.060);
-                      tt.DrawLatex(0.50, 0.95,
-                        TString::Format("%s, p_{T}^{#gamma} = %s", titlePrefix.c_str(), ptLab.c_str()).Data()
-                      );
-
-                      keep.push_back(p);
-                    }
-
-                    string nameOut;
-                    if (nPt <= perPage)
-                    {
-                      nameOut = outPng;
-                    }
-                    else
-                    {
-                      const size_t pos = outPng.find(".png");
-                      const string stem = (pos == string::npos) ? outPng : outPng.substr(0, pos);
-                      nameOut = TString::Format("%s_page%d.png", stem.c_str(), page).Data();
-                    }
-
-                    SaveCanvas(c, JoinPath(dphiProjDir, nameOut));
-
-                    for (auto* h : keep) delete h;
-                  }
-                };
-
-                // Produce 3×3 tables (shape) for reco + truth
-                if (hRecoDphi)
-                {
-                  Make3x3Table_DphiShape(hRecoDphi,
-                    "table3x3_absDphi_RECO_shape.png",
-                    "Reco-level |#Delta#phi(#gamma,jet)|"
-                  );
-
-                  // Also save per-pT bin plots (counts + shape)
-                  const int nPtUse = std::min((int)PtBins().size(), hRecoDphi->GetXaxis()->GetNbins());
-                  for (int i = 0; i < nPtUse; ++i)
-                  {
-                    const PtBin& b = PtBins()[i];
-                    const int xbin = i + 1;
-
-                    TH1D* p = ProjY_AtXbin(hRecoDphi, xbin,
-                      TString::Format("p_absDphi_reco_%s_%s_%s", ds.label.c_str(), rKey.c_str(), b.folder.c_str()).Data()
-                    );
-                    if (!p) continue;
-
-                    const string perDir = JoinPath(dphiRecoDir, b.folder);
-                    EnsureDir(perDir);
-
-                    vector<string> lines = {
-                      "RECO inclusive |#Delta#phi(#gamma,jet)|",
-                      TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
-                      TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data()
-                    };
-
-                    DrawAndSaveTH1_Common(ds, p,
-                      JoinPath(perDir, "absDphi_counts.png"),
-                      "|#Delta#phi| [rad]", "Counts", lines, false, false, 0.0, "E1");
-
-                    TH1* ps = CloneTH1(p, TString::Format("p_absDphi_reco_shape_%s_%s_%d", ds.label.c_str(), rKey.c_str(), i).Data());
-                    NormalizeVisible(ps);
-
-                    DrawAndSaveTH1_Common(ds, ps,
-                      JoinPath(perDir, "absDphi_shape.png"),
-                      "|#Delta#phi| [rad]", "A.U.", lines, false, false, 0.0, "E1");
-
-                    delete ps;
-                    delete p;
-                  }
-                }
-
-                if (hTruthDphi)
-                {
-                  Make3x3Table_DphiShape(hTruthDphi,
-                    "table3x3_absDphi_TRUTH_shape.png",
-                    "Truth-level |#Delta#phi(#gamma,jet)|"
-                  );
-
-                  // Also save per-pT bin plots (counts + shape)
-                  const int nPtUse = std::min((int)PtBins().size(), hTruthDphi->GetXaxis()->GetNbins());
-                  for (int i = 0; i < nPtUse; ++i)
-                  {
-                    const PtBin& b = PtBins()[i];
-                    const int xbin = i + 1;
-
-                    TH1D* p = ProjY_AtXbin(hTruthDphi, xbin,
-                      TString::Format("p_absDphi_truth_%s_%s_%s", ds.label.c_str(), rKey.c_str(), b.folder.c_str()).Data()
-                    );
-                    if (!p) continue;
-
-                    const string perDir = JoinPath(dphiTruthDir, b.folder);
-                    EnsureDir(perDir);
-
-                    vector<string> lines = {
-                      "TRUTH inclusive |#Delta#phi(#gamma,jet)|",
-                      TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
-                      TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data()
-                    };
-
-                    DrawAndSaveTH1_Common(ds, p,
-                      JoinPath(perDir, "absDphi_counts.png"),
-                      "|#Delta#phi| [rad]", "Counts", lines, false, false, 0.0, "E1");
-
-                    TH1* ps = CloneTH1(p, TString::Format("p_absDphi_truth_shape_%s_%s_%d", ds.label.c_str(), rKey.c_str(), i).Data());
-                    NormalizeVisible(ps);
-
-                    DrawAndSaveTH1_Common(ds, ps,
-                      JoinPath(perDir, "absDphi_shape.png"),
-                      "|#Delta#phi| [rad]", "A.U.", lines, false, false, 0.0, "E1");
-
-                    delete ps;
-                    delete p;
-                  }
-                }
-              }
-
-              // Response matrix is global-bin indexing; logz is essential
-              // Response matrix (global-bin indexing): draw as sparse scatter (like your screenshot)
-              if (hResp)
-              {
-                TH2* hc = CloneTH2(hResp, "resp_scatter_clone");
+                TH2* hc = CloneTH2(H.hResp, "resp_scatter_clone");
                 if (hc)
                 {
-                  // Temporarily enable stats box for this plot only
                   const int oldOptStat = gStyle->GetOptStat();
-                  gStyle->SetOptStat(1110);   // Entries / Mean / Std Dev style box
+                  gStyle->SetOptStat(1110);
                   hc->SetStats(1);
 
                   TCanvas c("c_resp_scatter","c_resp_scatter",950,780);
                   ApplyCanvasMargins2D(c);
 
-                  // If you want the exact "blue dot" sparse look:
-                  // SCAT draws one marker per nonzero bin, colored by marker settings (not a palette).
                   hc->SetTitle("");
                   hc->GetXaxis()->SetTitle("global bin (truth: p_{T}^{#gamma}, x_{J})");
                   hc->GetYaxis()->SetTitle("global bin (reco: p_{T}^{#gamma}, x_{J})");
                   hc->GetZaxis()->SetTitle("Counts");
 
-                  hc->SetMarkerStyle(6);      // tiny solid marker
+                  hc->SetMarkerStyle(6);
                   hc->SetMarkerSize(0.6);
                   hc->SetMarkerColor(kBlue+1);
 
                   hc->Draw("SCAT");
 
-                  // Optional header text (matches your other outputs)
                   DrawLatexLines(0.14, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
                   DrawLatexLines(0.14, 0.84,
                     { "Unfold response matrix (global-bin indexing)",
@@ -4413,696 +5004,988 @@ namespace ARJ
 
                   SaveCanvas(c, JoinPath(rOut, "unfold_response_globalTruth_vs_globalReco_SCAT.png"));
 
-                  // Restore previous stats setting
                   gStyle->SetOptStat(oldOptStat);
-
                   delete hc;
                 }
               }
+            };
 
+            // --------------------------------------------------------------------------
+            // Part B (SIM-centric): Δphi unfolding inputs + projections (only runs if present)
+            // --------------------------------------------------------------------------
+            auto RunDeltaPhiUnfoldingQA =
+              [&](const string& rKey, double R, const string& rOut, const UnfoldHists& H)
+            {
+              if (!(H.hRecoDphi || H.hTruthDphi)) return;
 
-              // -------------------------------------------------------------------------
-              // NEW OUTPUT (requested):
-              // "2D within 2D" response visualization for 2D unfolding in (pTgamma, xJ).
-              //
-              // Your writer fills:
-              //   gTruth = h2Truth->FindBin(tPt, xJt)
-              //   gReco  = h2Reco ->FindBin(rPt, xJr)
-              //   hResp->Fill(gTruth, gReco)
-              //
-              // Here we DE-FLATTEN that into blocks:
-              //   Outer grid:  (truth pT bin index) x (reco pT bin index)
-              //   Each cell:   TH2 of (xJ truth bin index) vs (xJ reco bin index)
-              //
-              // Output folder:
-              //   <outBase>/RecoilJetQA/Unfolding/<rKey>/ResponseBlockMatrix/
-              // -------------------------------------------------------------------------
-              if (hResp && hTruth && hReco)
+              const string dphiDir = JoinPath(rOut, "deltaPhiInclusive");
+              const string dphiRecoDir  = JoinPath(dphiDir, "RECO");
+              const string dphiTruthDir = JoinPath(dphiDir, "TRUTH");
+              const string dphiProjDir  = JoinPath(dphiDir, "projections");
+              EnsureDir(dphiDir);
+              EnsureDir(dphiRecoDir);
+              EnsureDir(dphiTruthDir);
+              EnsureDir(dphiProjDir);
+
+              // 2D maps (presentation-ready) — NOTE: uses Save2D with rOut path to preserve your output name
+              Save2D(rOut, H.hRecoDphi,  "unfold_reco_pTgamma_vs_absDphi.png",
+                     "p_{T}^{#gamma,reco} [GeV]",  "|#Delta#phi(#gamma,jet)| [rad]", "Counts",
+                     {string("Unfold input: RECO |#Delta#phi| (inclusive over recoil jets)"),
+                      rKey + TString::Format(" (R=%.1f)", R).Data()},
+                     true);
+
+              Save2D(rOut, H.hTruthDphi, "unfold_truth_pTgamma_vs_absDphi.png",
+                     "p_{T}^{#gamma,truth} [GeV]", "|#Delta#phi(#gamma,jet)| [rad]", "Counts",
+                     {string("Unfold truth: TRUTH |#Delta#phi| (inclusive over truth recoil jets)"),
+                      rKey + TString::Format(" (R=%.1f)", R).Data()},
+                     true);
+
+              // Helpers: ProjectionY + visible-bin normalization
+              auto ProjY_AllX = [&](TH2* h2, const string& newName)->TH1D*
               {
-                const string blockDir = JoinPath(rOut, "ResponseBlockMatrix");
-                EnsureDir(blockDir);
+                if (!h2) return nullptr;
+                const int nx = h2->GetXaxis()->GetNbins();
+                TH1D* p = h2->ProjectionY(newName.c_str(), 1, nx);
+                if (p) p->SetDirectory(nullptr);
+                return p;
+              };
 
-                const int nPtTruth = hTruth->GetXaxis()->GetNbins();
-                const int nPtReco  = hReco ->GetXaxis()->GetNbins();
-                const int nXJTruth = hTruth->GetYaxis()->GetNbins();
-                const int nXJReco  = hReco ->GetYaxis()->GetNbins();
+              auto ProjY_AtXbin = [&](TH2* h2, int xbin, const string& newName)->TH1D*
+              {
+                if (!h2) return nullptr;
+                TH1D* p = h2->ProjectionY(newName.c_str(), xbin, xbin);
+                if (p) p->SetDirectory(nullptr);
+                return p;
+              };
 
-                // Expected number of TH2 global bins used by TH2::FindBin / TH2::GetBin:
-                const int nGlobTruth = (nPtTruth + 2) * (nXJTruth + 2);
-                const int nGlobReco  = (nPtReco  + 2) * (nXJReco  + 2);
+              auto NormalizeVisible = [&](TH1* h)
+              {
+                if (!h) return;
+                const int nb = h->GetNbinsX();
+                const double integral = h->Integral(1, nb);
+                if (integral > 0.0) h->Scale(1.0 / integral);
+              };
 
-                if (hResp->GetNbinsX() != nGlobTruth || hResp->GetNbinsY() != nGlobReco)
+              // 1D integrated over pTγ
+              if (H.hRecoDphi)
+              {
+                TH1D* p = ProjY_AllX(H.hRecoDphi, TString::Format("p_absDphi_reco_all_%s_%s", ds.label.c_str(), rKey.c_str()).Data());
+                if (p)
                 {
-                  cout << ANSI_BOLD_YEL
-                       << "[WARN] ResponseBlockMatrix skipped: hResp global-bin dimensions do not match hTruth/hReco.\n"
-                       << "  dataset=" << ds.label << "  rKey=" << rKey << "\n"
-                       << "  hResp nx,ny = " << hResp->GetNbinsX() << "," << hResp->GetNbinsY() << "\n"
-                       << "  expected   = " << nGlobTruth << "," << nGlobReco
-                       << ANSI_RESET << "\n";
+                  vector<string> lines = {
+                    "RECO inclusive |#Delta#phi(#gamma,jet)| (all p_{T}^{#gamma})",
+                    TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data()
+                  };
+
+                  DrawAndSaveTH1_Common(ds, p,
+                    JoinPath(dphiRecoDir, "absDphi_integrated_counts.png"),
+                    "|#Delta#phi| [rad]", "Counts", lines, false, false, 0.0, "E1");
+
+                  TH1* ps = CloneTH1(p, TString::Format("p_absDphi_reco_all_shape_%s_%s", ds.label.c_str(), rKey.c_str()).Data());
+                  NormalizeVisible(ps);
+
+                  DrawAndSaveTH1_Common(ds, ps,
+                    JoinPath(dphiRecoDir, "absDphi_integrated_shape.png"),
+                    "|#Delta#phi| [rad]", "A.U.", lines, false, false, 0.0, "E1");
+
+                  delete ps;
+                  delete p;
                 }
-                else
+              }
+
+              if (H.hTruthDphi)
+              {
+                TH1D* p = ProjY_AllX(H.hTruthDphi, TString::Format("p_absDphi_truth_all_%s_%s", ds.label.c_str(), rKey.c_str()).Data());
+                if (p)
                 {
-                  // ---------------------------------------------------------------------
-                  // (A) Write mapping file: global-bin -> (ptBin, xJBin) including under/overflow bins
-                  // ---------------------------------------------------------------------
-                  vector<string> mapLines;
-                  mapLines.push_back("globalBinMapping_truthReco.txt");
-                  mapLines.push_back(string("Dataset: ") + ds.label);
-                  mapLines.push_back(string("rKey: ") + rKey + TString::Format(" (R=%.1f)", R).Data());
-                  mapLines.push_back("");
-                  mapLines.push_back("NOTE: global bin indices are the TH2 internal indices returned by TH2::GetBin/FindBin.");
-                  mapLines.push_back("      We list ALL bins including ROOT underflow/overflow (bin=0 and bin=nbins+1).");
-                  mapLines.push_back("");
+                  vector<string> lines = {
+                    "TRUTH inclusive |#Delta#phi(#gamma,jet)| (all p_{T}^{#gamma})",
+                    TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data()
+                  };
 
-                  mapLines.push_back("[TRUTH] gTruth = hTruth->GetBin(ptBin, xJBin)");
-                  mapLines.push_back("Columns: gTruth  ptBin  xJBin  pT_range  xJ_range");
-                  for (int ipt = 0; ipt <= nPtTruth + 1; ++ipt)
+                  DrawAndSaveTH1_Common(ds, p,
+                    JoinPath(dphiTruthDir, "absDphi_integrated_counts.png"),
+                    "|#Delta#phi| [rad]", "Counts", lines, false, false, 0.0, "E1");
+
+                  TH1* ps = CloneTH1(p, TString::Format("p_absDphi_truth_all_shape_%s_%s", ds.label.c_str(), rKey.c_str()).Data());
+                  NormalizeVisible(ps);
+
+                  DrawAndSaveTH1_Common(ds, ps,
+                    JoinPath(dphiTruthDir, "absDphi_integrated_shape.png"),
+                    "|#Delta#phi| [rad]", "A.U.", lines, false, false, 0.0, "E1");
+
+                  delete ps;
+                  delete p;
+                }
+              }
+
+              // Per-pTγ projections + 3×3 tables (shape)
+              auto Make3x3Table_DphiShape =
+                [&](TH2* h2, const string& outPng, const string& titlePrefix)
+              {
+                if (!h2) return;
+
+                const int nPt = h2->GetXaxis()->GetNbins();
+                const int perPage = 9;
+                int page = 0;
+
+                for (int start = 1; start <= nPt; start += perPage)
+                {
+                  ++page;
+
+                  TCanvas c(
+                    TString::Format("c_tbl_absDphi_%s_%s_p%d", ds.label.c_str(), rKey.c_str(), page).Data(),
+                    "c_tbl_absDphi", 1500, 1200
+                  );
+                  c.Divide(3,3, 0.001, 0.001);
+
+                  vector<TH1*> keep;
+                  keep.reserve(perPage);
+
+                  for (int k = 0; k < perPage; ++k)
                   {
-                    for (int ixj = 0; ixj <= nXJTruth + 1; ++ixj)
+                    const int ib = start + k;
+                    c.cd(k+1);
+
+                    gPad->SetLeftMargin(0.14);
+                    gPad->SetRightMargin(0.05);
+                    gPad->SetBottomMargin(0.14);
+                    gPad->SetTopMargin(0.10);
+
+                    if (ib > nPt)
                     {
-                      const int g = hTruth->GetBin(ipt, ixj);
-
-                      string ptStr;
-                      if (ipt == 0) ptStr = "UNDERFLOW";
-                      else if (ipt == nPtTruth + 1) ptStr = "OVERFLOW";
-                      else ptStr = AxisBinLabel(hTruth->GetXaxis(), ipt, "GeV", 0);
-
-                      string xjStr;
-                      if (ixj == 0) xjStr = "UNDERFLOW";
-                      else if (ixj == nXJTruth + 1) xjStr = "OVERFLOW";
-                      else xjStr = AxisBinLabel(hTruth->GetYaxis(), ixj, "", 2);
-
-                      mapLines.push_back(
-                        TString::Format("%4d  %2d  %2d  %s  %s",
-                                        g, ipt, ixj, ptStr.c_str(), xjStr.c_str()).Data()
-                      );
+                      TLatex t;
+                      t.SetNDC(true);
+                      t.SetTextFont(42);
+                      t.SetTextSize(0.06);
+                      t.DrawLatex(0.20, 0.55, "EMPTY");
+                      continue;
                     }
+
+                    TH1D* p = ProjY_AtXbin(h2, ib,
+                      TString::Format("p_absDphi_tbl_%s_%s_%d", ds.label.c_str(), rKey.c_str(), ib).Data()
+                    );
+
+                    if (!p || p->GetEntries() <= 0.0)
+                    {
+                      if (p) delete p;
+                      TLatex t;
+                      t.SetNDC(true);
+                      t.SetTextFont(42);
+                      t.SetTextSize(0.06);
+                      t.DrawLatex(0.15, 0.55, "MISSING");
+                      continue;
+                    }
+
+                    NormalizeVisible(p);
+                    p->SetTitle("");
+                    p->SetLineWidth(2);
+                    p->SetMarkerStyle(20);
+                    p->SetMarkerSize(1.0);
+                    p->GetXaxis()->SetTitle("|#Delta#phi| [rad]");
+                    p->GetYaxis()->SetTitle("A.U.");
+                    p->Draw("E1");
+
+                    const string ptLab = AxisBinLabel(h2->GetXaxis(), ib, "GeV", 0);
+
+                    TLatex tt;
+                    tt.SetNDC(true);
+                    tt.SetTextFont(42);
+                    tt.SetTextAlign(22);
+                    tt.SetTextSize(0.060);
+                    tt.DrawLatex(0.50, 0.95,
+                      TString::Format("%s, p_{T}^{#gamma} = %s", titlePrefix.c_str(), ptLab.c_str()).Data()
+                    );
+
+                    keep.push_back(p);
                   }
 
-                  mapLines.push_back("");
-                  mapLines.push_back("[RECO] gReco = hReco->GetBin(ptBin, xJBin)");
-                  mapLines.push_back("Columns: gReco  ptBin  xJBin  pT_range  xJ_range");
-                  for (int ipt = 0; ipt <= nPtReco + 1; ++ipt)
+                  string nameOut;
+                  if (nPt <= perPage)
                   {
-                    for (int ixj = 0; ixj <= nXJReco + 1; ++ixj)
-                    {
-                      const int g = hReco->GetBin(ipt, ixj);
-
-                      string ptStr;
-                      if (ipt == 0) ptStr = "UNDERFLOW";
-                      else if (ipt == nPtReco + 1) ptStr = "OVERFLOW";
-                      else ptStr = AxisBinLabel(hReco->GetXaxis(), ipt, "GeV", 0);
-
-                      string xjStr;
-                      if (ixj == 0) xjStr = "UNDERFLOW";
-                      else if (ixj == nXJReco + 1) xjStr = "OVERFLOW";
-                      else xjStr = AxisBinLabel(hReco->GetYaxis(), ixj, "", 2);
-
-                      mapLines.push_back(
-                        TString::Format("%4d  %2d  %2d  %s  %s",
-                                        g, ipt, ixj, ptStr.c_str(), xjStr.c_str()).Data()
-                      );
-                    }
+                    nameOut = outPng;
+                  }
+                  else
+                  {
+                    const size_t pos = outPng.find(".png");
+                    const string stem = (pos == string::npos) ? outPng : outPng.substr(0, pos);
+                    nameOut = TString::Format("%s_page%d.png", stem.c_str(), page).Data();
                   }
 
-                  WriteTextFile(JoinPath(blockDir, "globalBinMapping_truthReco.txt"), mapLines);
+                  SaveCanvas(c, JoinPath(dphiProjDir, nameOut));
+                  for (auto* h : keep) delete h;
+                }
+              };
 
-                  // ---------------------------------------------------------------------
-                  // (B) Compute a consistent z-range across ALL (ptTruth, ptReco, xJTruth, xJReco)
-                  //     so the block-matrix uses the same palette scale everywhere.
-                  // ---------------------------------------------------------------------
-                  double zMax = 0.0;
-                  double zMinPos = std::numeric_limits<double>::max();
+              // 3×3 tables + per-pT bin plots (counts + shape)
+              if (H.hRecoDphi)
+              {
+                Make3x3Table_DphiShape(H.hRecoDphi,
+                  "table3x3_absDphi_RECO_shape.png",
+                  "Reco-level |#Delta#phi(#gamma,jet)|"
+                );
 
+                const int nPtUse = std::min((int)PtBins().size(), H.hRecoDphi->GetXaxis()->GetNbins());
+                for (int i = 0; i < nPtUse; ++i)
+                {
+                  const PtBin& b = PtBins()[i];
+                  const int xbin = i + 1;
+
+                  TH1D* p = ProjY_AtXbin(H.hRecoDphi, xbin,
+                    TString::Format("p_absDphi_reco_%s_%s_%s", ds.label.c_str(), rKey.c_str(), b.folder.c_str()).Data()
+                  );
+                  if (!p) continue;
+
+                  const string perDir = JoinPath(dphiRecoDir, b.folder);
+                  EnsureDir(perDir);
+
+                  vector<string> lines = {
+                    "RECO inclusive |#Delta#phi(#gamma,jet)|",
+                    TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                    TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data()
+                  };
+
+                  DrawAndSaveTH1_Common(ds, p,
+                    JoinPath(perDir, "absDphi_counts.png"),
+                    "|#Delta#phi| [rad]", "Counts", lines, false, false, 0.0, "E1");
+
+                  TH1* ps = CloneTH1(p, TString::Format("p_absDphi_reco_shape_%s_%s_%d", ds.label.c_str(), rKey.c_str(), i).Data());
+                  NormalizeVisible(ps);
+
+                  DrawAndSaveTH1_Common(ds, ps,
+                    JoinPath(perDir, "absDphi_shape.png"),
+                    "|#Delta#phi| [rad]", "A.U.", lines, false, false, 0.0, "E1");
+
+                  delete ps;
+                  delete p;
+                }
+              }
+
+              if (H.hTruthDphi)
+              {
+                Make3x3Table_DphiShape(H.hTruthDphi,
+                  "table3x3_absDphi_TRUTH_shape.png",
+                  "Truth-level |#Delta#phi(#gamma,jet)|"
+                );
+
+                const int nPtUse = std::min((int)PtBins().size(), H.hTruthDphi->GetXaxis()->GetNbins());
+                for (int i = 0; i < nPtUse; ++i)
+                {
+                  const PtBin& b = PtBins()[i];
+                  const int xbin = i + 1;
+
+                  TH1D* p = ProjY_AtXbin(H.hTruthDphi, xbin,
+                    TString::Format("p_absDphi_truth_%s_%s_%s", ds.label.c_str(), rKey.c_str(), b.folder.c_str()).Data()
+                  );
+                  if (!p) continue;
+
+                  const string perDir = JoinPath(dphiTruthDir, b.folder);
+                  EnsureDir(perDir);
+
+                  vector<string> lines = {
+                    "TRUTH inclusive |#Delta#phi(#gamma,jet)|",
+                    TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                    TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data()
+                  };
+
+                  DrawAndSaveTH1_Common(ds, p,
+                    JoinPath(perDir, "absDphi_counts.png"),
+                    "|#Delta#phi| [rad]", "Counts", lines, false, false, 0.0, "E1");
+
+                  TH1* ps = CloneTH1(p, TString::Format("p_absDphi_truth_shape_%s_%s_%d", ds.label.c_str(), rKey.c_str(), i).Data());
+                  NormalizeVisible(ps);
+
+                  DrawAndSaveTH1_Common(ds, ps,
+                    JoinPath(perDir, "absDphi_shape.png"),
+                    "|#Delta#phi| [rad]", "A.U.", lines, false, false, 0.0, "E1");
+
+                  delete ps;
+                  delete p;
+                }
+              }
+            };
+
+            // --------------------------------------------------------------------------
+            // Part C (SIM-only): response de-flattening into block matrices
+            //   - This is your "2D within 2D" visualization (requires hResp + hTruth + hReco)
+            // --------------------------------------------------------------------------
+            auto RunResponseBlockMatrixQA =
+              [&](const string& rKey, double R, const string& rOut, const UnfoldHists& H)
+            {
+              if (!(H.hResp && H.hTruth && H.hReco)) return;
+
+              const string blockDir = JoinPath(rOut, "ResponseBlockMatrix");
+              EnsureDir(blockDir);
+
+              const int nPtTruth = H.hTruth->GetXaxis()->GetNbins();
+              const int nPtReco  = H.hReco ->GetXaxis()->GetNbins();
+              const int nXJTruth = H.hTruth->GetYaxis()->GetNbins();
+              const int nXJReco  = H.hReco ->GetYaxis()->GetNbins();
+
+              const int nGlobTruth = (nPtTruth + 2) * (nXJTruth + 2);
+              const int nGlobReco  = (nPtReco  + 2) * (nXJReco  + 2);
+
+              if (H.hResp->GetNbinsX() != nGlobTruth || H.hResp->GetNbinsY() != nGlobReco)
+              {
+                cout << ANSI_BOLD_YEL
+                     << "[WARN] ResponseBlockMatrix skipped: hResp global-bin dimensions do not match hTruth/hReco.\n"
+                     << "  dataset=" << ds.label << "  rKey=" << rKey << "\n"
+                     << "  hResp nx,ny = " << H.hResp->GetNbinsX() << "," << H.hResp->GetNbinsY() << "\n"
+                     << "  expected   = " << nGlobTruth << "," << nGlobReco
+                     << ANSI_RESET << "\n";
+                return;
+              }
+
+              // (A) mapping file
+              vector<string> mapLines;
+              mapLines.push_back("globalBinMapping_truthReco.txt");
+              mapLines.push_back(string("Dataset: ") + ds.label);
+              mapLines.push_back(string("rKey: ") + rKey + TString::Format(" (R=%.1f)", R).Data());
+              mapLines.push_back("");
+              mapLines.push_back("NOTE: global bin indices are the TH2 internal indices returned by TH2::GetBin/FindBin.");
+              mapLines.push_back("      We list ALL bins including ROOT underflow/overflow (bin=0 and bin=nbins+1).");
+              mapLines.push_back("");
+
+              mapLines.push_back("[TRUTH] gTruth = hTruth->GetBin(ptBin, xJBin)");
+              mapLines.push_back("Columns: gTruth  ptBin  xJBin  pT_range  xJ_range");
+              for (int ipt = 0; ipt <= nPtTruth + 1; ++ipt)
+              {
+                for (int ixj = 0; ixj <= nXJTruth + 1; ++ixj)
+                {
+                  const int g = H.hTruth->GetBin(ipt, ixj);
+
+                  string ptStr;
+                  if (ipt == 0) ptStr = "UNDERFLOW";
+                  else if (ipt == nPtTruth + 1) ptStr = "OVERFLOW";
+                  else ptStr = AxisBinLabel(H.hTruth->GetXaxis(), ipt, "GeV", 0);
+
+                  string xjStr;
+                  if (ixj == 0) xjStr = "UNDERFLOW";
+                  else if (ixj == nXJTruth + 1) xjStr = "OVERFLOW";
+                  else xjStr = AxisBinLabel(H.hTruth->GetYaxis(), ixj, "", 2);
+
+                  mapLines.push_back(
+                    TString::Format("%4d  %2d  %2d  %s  %s",
+                                    g, ipt, ixj, ptStr.c_str(), xjStr.c_str()).Data()
+                  );
+                }
+              }
+
+              mapLines.push_back("");
+              mapLines.push_back("[RECO] gReco = hReco->GetBin(ptBin, xJBin)");
+              mapLines.push_back("Columns: gReco  ptBin  xJBin  pT_range  xJ_range");
+              for (int ipt = 0; ipt <= nPtReco + 1; ++ipt)
+              {
+                for (int ixj = 0; ixj <= nXJReco + 1; ++ixj)
+                {
+                  const int g = H.hReco->GetBin(ipt, ixj);
+
+                  string ptStr;
+                  if (ipt == 0) ptStr = "UNDERFLOW";
+                  else if (ipt == nPtReco + 1) ptStr = "OVERFLOW";
+                  else ptStr = AxisBinLabel(H.hReco->GetXaxis(), ipt, "GeV", 0);
+
+                  string xjStr;
+                  if (ixj == 0) xjStr = "UNDERFLOW";
+                  else if (ixj == nXJReco + 1) xjStr = "OVERFLOW";
+                  else xjStr = AxisBinLabel(H.hReco->GetYaxis(), ixj, "", 2);
+
+                  mapLines.push_back(
+                    TString::Format("%4d  %2d  %2d  %s  %s",
+                                    g, ipt, ixj, ptStr.c_str(), xjStr.c_str()).Data()
+                  );
+                }
+              }
+
+              WriteTextFile(JoinPath(blockDir, "globalBinMapping_truthReco.txt"), mapLines);
+
+              // (B) consistent z-range
+              double zMax = 0.0;
+              double zMinPos = std::numeric_limits<double>::max();
+
+              for (int iptT = 1; iptT <= nPtTruth; ++iptT)
+              {
+                for (int iptR = 1; iptR <= nPtReco; ++iptR)
+                {
+                  for (int ixjt = 1; ixjt <= nXJTruth; ++ixjt)
+                  {
+                    const int gT = H.hTruth->GetBin(iptT, ixjt);
+                    const int bx = H.hResp->GetXaxis()->FindBin((double)gT);
+
+                    for (int ixjr = 1; ixjr <= nXJReco; ++ixjr)
+                    {
+                      const int gR = H.hReco->GetBin(iptR, ixjr);
+                      const int by = H.hResp->GetYaxis()->FindBin((double)gR);
+
+                      const double v = H.hResp->GetBinContent(bx, by);
+                      if (v > zMax) zMax = v;
+                      if (v > 0.0 && v < zMinPos) zMinPos = v;
+                    }
+                  }
+                }
+              }
+              if (!std::isfinite(zMinPos) || zMinPos == std::numeric_limits<double>::max())
+              {
+                zMinPos = 1e-6;
+              }
+
+              // (C) build one subresponse
+              auto MakeSubResponse =
+                [&](int iptTruth, int iptReco, const string& name)->TH2F*
+              {
+                TH2F* hsub = new TH2F(
+                  name.c_str(), "",
+                  nXJTruth, 0.5, nXJTruth + 0.5,
+                  nXJReco,  0.5, nXJReco  + 0.5
+                );
+                hsub->SetDirectory(nullptr);
+                hsub->SetStats(0);
+                hsub->GetXaxis()->SetTitle("truth x_{J} bin index");
+                hsub->GetYaxis()->SetTitle("reco x_{J} bin index");
+
+                for (int ixjt = 1; ixjt <= nXJTruth; ++ixjt)
+                {
+                  const int gT = H.hTruth->GetBin(iptTruth, ixjt);
+                  const int bx = H.hResp->GetXaxis()->FindBin((double)gT);
+
+                  for (int ixjr = 1; ixjr <= nXJReco; ++ixjr)
+                  {
+                    const int gR = H.hReco->GetBin(iptReco, ixjr);
+                    const int by = H.hResp->GetYaxis()->FindBin((double)gR);
+
+                    hsub->SetBinContent(ixjt, ixjr, H.hResp->GetBinContent(bx, by));
+                    hsub->SetBinError  (ixjt, ixjr, H.hResp->GetBinError  (bx, by));
+                  }
+                }
+                return hsub;
+              };
+
+              // (D) draw block matrix
+              auto DrawBlockMatrix =
+                [&](bool logz, const string& outStem)
+              {
+                const int cw = std::max(1400, 220 * nPtTruth);
+                const int ch = std::max(1200, 220 * nPtReco);
+
+                TCanvas c(
+                  TString::Format("c_respBlocks_%s_%s_%s",
+                                  ds.label.c_str(), rKey.c_str(), logz ? "logz" : "lin").Data(),
+                  "c_respBlocks",
+                  cw, ch
+                );
+                c.Divide(nPtTruth, nPtReco, 0.001, 0.001);
+
+                vector<TH2*> keep;
+                keep.reserve(nPtTruth * nPtReco);
+
+                for (int iptR = 1; iptR <= nPtReco; ++iptR)
+                {
                   for (int iptT = 1; iptT <= nPtTruth; ++iptT)
                   {
-                    for (int iptR = 1; iptR <= nPtReco; ++iptR)
-                    {
-                      for (int ixjt = 1; ixjt <= nXJTruth; ++ixjt)
-                      {
-                        const int gT = hTruth->GetBin(iptT, ixjt);
-                        const int bx = hResp->GetXaxis()->FindBin((double)gT);
+                    const int padIdx = (iptR - 1) * nPtTruth + iptT;
+                    c.cd(padIdx);
 
-                        for (int ixjr = 1; ixjr <= nXJReco; ++ixjr)
-                        {
-                          const int gR = hReco->GetBin(iptR, ixjr);
-                          const int by = hResp->GetYaxis()->FindBin((double)gR);
+                    gPad->SetLeftMargin(0.12);
+                    gPad->SetRightMargin(0.03);
+                    gPad->SetBottomMargin(0.12);
+                    gPad->SetTopMargin(0.10);
+                    gPad->SetTicks(1,1);
+                    gPad->SetLogz(logz);
 
-                          const double v = hResp->GetBinContent(bx, by);
-                          if (v > zMax) zMax = v;
-                          if (v > 0.0 && v < zMinPos) zMinPos = v;
-                        }
-                      }
-                    }
-                  }
-                  if (!std::isfinite(zMinPos) || zMinPos == std::numeric_limits<double>::max())
-                  {
-                    zMinPos = 1e-6;
-                  }
-
-                  // ---------------------------------------------------------------------
-                  // (C) Helper: build one (xJtruthBinIdx vs xJrecoBinIdx) submatrix for a fixed (ptTruthBin, ptRecoBin)
-                  // ---------------------------------------------------------------------
-                  auto MakeSubResponse =
-                    [&](int iptTruth, int iptReco, const string& name)->TH2F*
-                  {
-                    TH2F* hsub = new TH2F(
-                      name.c_str(), "",
-                      nXJTruth, 0.5, nXJTruth + 0.5,
-                      nXJReco,  0.5, nXJReco  + 0.5
+                    TH2F* hsub = MakeSubResponse(
+                      iptT, iptR,
+                      TString::Format("h_respBlock_%s_%s_t%d_r%d_%s",
+                                      ds.label.c_str(), rKey.c_str(), iptT, iptR, logz ? "logz" : "lin").Data()
                     );
-                    hsub->SetDirectory(nullptr);
-                    hsub->SetStats(0);
-                    hsub->GetXaxis()->SetTitle("truth x_{J} bin index");
-                    hsub->GetYaxis()->SetTitle("reco x_{J} bin index");
+                    if (!hsub) continue;
 
-                    for (int ixjt = 1; ixjt <= nXJTruth; ++ixjt)
+                    if (zMax > 0.0) hsub->SetMaximum(zMax);
+                    if (logz) hsub->SetMinimum(std::max(0.5 * zMinPos, 1e-6));
+                    else      hsub->SetMinimum(0.0);
+
+                    const bool showX = (iptR == nPtReco);
+                    const bool showY = (iptT == 1);
+
+                    hsub->GetXaxis()->SetLabelSize(showX ? 0.08 : 0.0);
+                    hsub->GetYaxis()->SetLabelSize(showY ? 0.08 : 0.0);
+                    hsub->GetXaxis()->SetTitleSize(showX ? 0.09 : 0.0);
+                    hsub->GetYaxis()->SetTitleSize(showY ? 0.09 : 0.0);
+                    hsub->GetXaxis()->SetTitleOffset(0.90);
+                    hsub->GetYaxis()->SetTitleOffset(0.90);
+
+                    hsub->SetTitle("");
+                    hsub->Draw("COL");
+
+                    if (iptR == 1)
                     {
-                      const int gT = hTruth->GetBin(iptTruth, ixjt);
-                      const int bx = hResp->GetXaxis()->FindBin((double)gT);
-
-                      for (int ixjr = 1; ixjr <= nXJReco; ++ixjr)
-                      {
-                        const int gR = hReco->GetBin(iptReco, ixjr);
-                        const int by = hResp->GetYaxis()->FindBin((double)gR);
-
-                        hsub->SetBinContent(ixjt, ixjr, hResp->GetBinContent(bx, by));
-                        hsub->SetBinError  (ixjt, ixjr, hResp->GetBinError  (bx, by));
-                      }
-                    }
-                    return hsub;
-                  };
-
-                  // ---------------------------------------------------------------------
-                  // (D) Draw & save the full "2D within 2D" block matrix:
-                  //     columns = truth pT bins, rows = reco pT bins
-                  // ---------------------------------------------------------------------
-                  auto DrawBlockMatrix =
-                    [&](bool logz, const string& outStem)
-                  {
-                    const int cw = std::max(1400, 220 * nPtTruth);
-                    const int ch = std::max(1200, 220 * nPtReco);
-
-                    TCanvas c(
-                      TString::Format("c_respBlocks_%s_%s_%s",
-                                      ds.label.c_str(), rKey.c_str(), logz ? "logz" : "lin").Data(),
-                      "c_respBlocks",
-                      cw, ch
-                    );
-                    c.Divide(nPtTruth, nPtReco, 0.001, 0.001);
-
-                    vector<TH2*> keep;
-                    keep.reserve(nPtTruth * nPtReco);
-
-                    for (int iptR = 1; iptR <= nPtReco; ++iptR)
-                    {
-                      for (int iptT = 1; iptT <= nPtTruth; ++iptT)
-                      {
-                        const int padIdx = (iptR - 1) * nPtTruth + iptT;
-                        c.cd(padIdx);
-
-                        gPad->SetLeftMargin(0.12);
-                        gPad->SetRightMargin(0.03);
-                        gPad->SetBottomMargin(0.12);
-                        gPad->SetTopMargin(0.10);
-                        gPad->SetTicks(1,1);
-                        gPad->SetLogz(logz);
-
-                        TH2F* hsub = MakeSubResponse(
-                          iptT, iptR,
-                          TString::Format("h_respBlock_%s_%s_t%d_r%d_%s",
-                                          ds.label.c_str(), rKey.c_str(), iptT, iptR, logz ? "logz" : "lin").Data()
-                        );
-
-                        if (!hsub) continue;
-
-                        if (zMax > 0.0) hsub->SetMaximum(zMax);
-                        if (logz) hsub->SetMinimum(std::max(0.5 * zMinPos, 1e-6));
-                        else      hsub->SetMinimum(0.0);
-
-                        // Only show x labels on bottom row, y labels on left column (otherwise too crowded).
-                        const bool showX = (iptR == nPtReco);
-                        const bool showY = (iptT == 1);
-
-                        hsub->GetXaxis()->SetLabelSize(showX ? 0.08 : 0.0);
-                        hsub->GetYaxis()->SetLabelSize(showY ? 0.08 : 0.0);
-                        hsub->GetXaxis()->SetTitleSize(showX ? 0.09 : 0.0);
-                        hsub->GetYaxis()->SetTitleSize(showY ? 0.09 : 0.0);
-                        hsub->GetXaxis()->SetTitleOffset(0.90);
-                        hsub->GetYaxis()->SetTitleOffset(0.90);
-
-                        hsub->SetTitle("");
-                        hsub->Draw("COL");
-
-                        // Column labels (top row): truth pT bin index + range
-                        if (iptR == 1)
-                        {
-                          const string ptLab = AxisBinLabel(hTruth->GetXaxis(), iptT, "GeV", 0);
-                          TLatex t;
-                          t.SetNDC(true);
-                          t.SetTextFont(42);
-                          t.SetTextSize(0.09);
-                          t.DrawLatex(0.05, 0.92,
-                            TString::Format("T%d %s", iptT, ptLab.c_str()).Data()
-                          );
-                        }
-
-                        // Row labels (left column): reco pT bin index + range
-                        if (iptT == 1)
-                        {
-                          const string ptLab = AxisBinLabel(hReco->GetXaxis(), iptR, "GeV", 0);
-                          TLatex t;
-                          t.SetNDC(true);
-                          t.SetTextFont(42);
-                          t.SetTextSize(0.09);
-                          t.DrawLatex(0.05, 0.82,
-                            TString::Format("R%d %s", iptR, ptLab.c_str()).Data()
-                          );
-                        }
-
-                        keep.push_back(hsub);
-                      }
+                      const string ptLab = AxisBinLabel(H.hTruth->GetXaxis(), iptT, "GeV", 0);
+                      TLatex t;
+                      t.SetNDC(true);
+                      t.SetTextFont(42);
+                      t.SetTextSize(0.09);
+                      t.DrawLatex(0.05, 0.92,
+                        TString::Format("T%d %s", iptT, ptLab.c_str()).Data()
+                      );
                     }
 
-                    SaveCanvas(c, JoinPath(blockDir, outStem + (logz ? "_logz.png" : "_lin.png")));
-                    SaveCanvas(c, JoinPath(blockDir, outStem + (logz ? "_logz.pdf" : "_lin.pdf")));
+                    if (iptT == 1)
+                    {
+                      const string ptLab = AxisBinLabel(H.hReco->GetXaxis(), iptR, "GeV", 0);
+                      TLatex t;
+                      t.SetNDC(true);
+                      t.SetTextFont(42);
+                      t.SetTextSize(0.09);
+                      t.DrawLatex(0.05, 0.82,
+                        TString::Format("R%d %s", iptR, ptLab.c_str()).Data()
+                      );
+                    }
 
-                    for (auto* h : keep) delete h;
-                  };
-
-                  DrawBlockMatrix(false, "responseBlockMatrix_xJreco_vs_xJtruth_byPtBins");
-                  DrawBlockMatrix(true,  "responseBlockMatrix_xJreco_vs_xJtruth_byPtBins");
+                    keep.push_back(hsub);
+                  }
                 }
-              }
 
-              // -------------------------------------------------------------------------
-              // Terminal + file summaries: efficiency/purity per pTgamma bin (integrated over xJ)
-              // PLUS: NEW "purity distributions" vs xJ per pT bin + 2D maps (SIM only)
-              // -------------------------------------------------------------------------
-              if (hReco && hTruth)
+                SaveCanvas(c, JoinPath(blockDir, outStem + (logz ? "_logz.png" : "_lin.png")));
+                SaveCanvas(c, JoinPath(blockDir, outStem + (logz ? "_logz.pdf" : "_lin.pdf")));
+
+                for (auto* h : keep) delete h;
+              };
+
+              DrawBlockMatrix(false, "responseBlockMatrix_xJreco_vs_xJtruth_byPtBins");
+              DrawBlockMatrix(true,  "responseBlockMatrix_xJreco_vs_xJtruth_byPtBins");
+            };
+
+            // --------------------------------------------------------------------------
+            // Part D (SIM only in practice, but safe on data): efficiency/purity summary,
+            // 2D maps, xJ distributions, overlays, and summary text.
+            //   - This is your big terminal table + all outputs under efficiencyPurity/
+            // --------------------------------------------------------------------------
+            auto RunEfficiencyPurityQA =
+              [&](const string& rKey, double R, const string& rOut, const UnfoldHists& H)
+            {
+              if (!(H.hReco && H.hTruth)) return;
+
+              const int nPtReco  = H.hReco->GetXaxis()->GetNbins();
+              const int nPtTruth = H.hTruth->GetXaxis()->GetNbins();
+              const int nPt = std::min(nPtReco, nPtTruth);
+
+              const string dirEP = JoinPath(rOut, "efficiencyPurity");
+              const string dirEP_Maps = JoinPath(dirEP, "maps2D");
+              const string dirEP_XJ   = JoinPath(dirEP, "xJ_distributions");
+              EnsureDir(dirEP);
+              EnsureDir(dirEP_Maps);
+              EnsureDir(dirEP_XJ);
+
+              cout << ANSI_BOLD_CYN << "\n[Unfolding table] " << ds.label << "  rKey=" << rKey
+                   << " (R=" << std::fixed << std::setprecision(1) << R << ")\n" << ANSI_RESET;
+
+              const int wPt = 16;
+              const int wN  = 14;
+              const int wF  = 12;
+
+              cout << std::left << std::setw(wPt) << "pTgamma bin"
+                   << std::right
+                   << std::setw(wN) << "N_truth"
+                   << std::setw(wN) << "N_miss"
+                   << std::setw(wF) << "eff"
+                   << std::setw(wN) << "N_reco"
+                   << std::setw(wN) << "N_fake"
+                   << std::setw(wF) << "pur"
+                   << "\n";
+              cout << string(wPt + 4*wN + 2*wF, '-') << "\n";
+
+              vector<string> lines;
+              lines.push_back(string("Unfolding efficiency/purity summary (") + ds.label + ")");
+              lines.push_back(string("rKey: ") + rKey + TString::Format("  R=%.1f", R).Data());
+              lines.push_back("");
+              lines.push_back("Definitions:");
+              lines.push_back("  efficiency(truth->reco) = (N_truth - N_miss) / N_truth");
+              lines.push_back("  purity(reco sample)     = (N_reco  - N_fake) / N_reco");
+              lines.push_back("");
+
+              vector<double> xCenters(nPt, 0.0);
+              vector<double> effVsPt(nPt, 0.0);
+              vector<double> purVsPt(nPt, 0.0);
+
+              // 2D efficiency map (if misses exist)
+              if (H.hMisses)
               {
-                const int nPtReco  = hReco->GetXaxis()->GetNbins();
-                const int nPtTruth = hTruth->GetXaxis()->GetNbins();
-                const int nPt = std::min(nPtReco, nPtTruth);
-
-                // Output structure for the new presentation products
-                const string dirEP = JoinPath(rOut, "efficiencyPurity");
-                const string dirEP_Maps = JoinPath(dirEP, "maps2D");
-                const string dirEP_XJ   = JoinPath(dirEP, "xJ_distributions");
-                EnsureDir(dirEP);
-                EnsureDir(dirEP_Maps);
-                EnsureDir(dirEP_XJ);
-
-                cout << ANSI_BOLD_CYN << "\n[Unfolding table] " << ds.label << "  rKey=" << rKey
-                     << " (R=" << std::fixed << std::setprecision(1) << R << ")\n" << ANSI_RESET;
-
-                const int wPt = 16;
-                const int wN  = 14;
-                const int wF  = 12;
-
-                cout << std::left << std::setw(wPt) << "pTgamma bin"
-                     << std::right
-                     << std::setw(wN) << "N_truth"
-                     << std::setw(wN) << "N_miss"
-                     << std::setw(wF) << "eff"
-                     << std::setw(wN) << "N_reco"
-                     << std::setw(wN) << "N_fake"
-                     << std::setw(wF) << "pur"
-                     << "\n";
-                cout << string(wPt + 4*wN + 2*wF, '-') << "\n";
-
-                vector<string> lines;
-                lines.push_back(string("Unfolding efficiency/purity summary (") + ds.label + ")");
-                lines.push_back(string("rKey: ") + rKey + TString::Format("  R=%.1f", R).Data());
-                lines.push_back("");
-                lines.push_back("Definitions:");
-                lines.push_back("  efficiency(truth->reco) = (N_truth - N_miss) / N_truth");
-                lines.push_back("  purity(reco sample)     = (N_reco  - N_fake) / N_reco");
-                lines.push_back("");
-
-                // For presentation graphs (integrated over xJ)
-                vector<double> xCenters(nPt, 0.0);
-                vector<double> effVsPt(nPt, 0.0);
-                vector<double> purVsPt(nPt, 0.0);
-
-                // --- NEW: 2D efficiency/purity maps in (pTgamma, xJ) if misses/fakes exist (SIM expected) ---
-                // NOTE: We only draw these if the needed histograms exist.
-                if (hMisses)
+                TH2* hEff2D = CloneTH2(H.hTruth, "h2_efficiency_pTgamma_xJ");
+                if (hEff2D)
                 {
-                  TH2* hEff2D = CloneTH2(hTruth, "h2_efficiency_pTgamma_xJ");
-                  if (hEff2D)
+                  hEff2D->Reset("ICES");
+                  const int nx = H.hTruth->GetXaxis()->GetNbins();
+                  const int ny = H.hTruth->GetYaxis()->GetNbins();
+
+                  for (int ix = 1; ix <= nx; ++ix)
                   {
-                    hEff2D->Reset("ICES");
-                    const int nx = hTruth->GetXaxis()->GetNbins();
-                    const int ny = hTruth->GetYaxis()->GetNbins();
-
-                    for (int ix = 1; ix <= nx; ++ix)
+                    for (int iy = 1; iy <= ny; ++iy)
                     {
-                      for (int iy = 1; iy <= ny; ++iy)
-                      {
-                        const double t = hTruth ->GetBinContent(ix, iy);
-                        const double m = hMisses->GetBinContent(ix, iy);
-                        const double eff = (t > 0.0) ? ((t - m) / t) : 0.0;
-                        hEff2D->SetBinContent(ix, iy, eff);
-                      }
-                    }
-
-                    hEff2D->SetMinimum(0.0);
-                    hEff2D->SetMaximum(1.0);
-
-                    DrawAndSaveTH2_Common(ds, hEff2D,
-                      JoinPath(dirEP_Maps, "efficiency2D_pTgamma_vs_xJ.png"),
-                      "p_{T}^{#gamma,truth} [GeV]", "x_{J#gamma}^{truth}", "Efficiency",
-                      { "Efficiency map from unfolding inputs",
-                        TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
-                        "eff = (truth - misses) / truth" },
-                      false);
-
-                    delete hEff2D;
-                  }
-                }
-
-                if (hFakes)
-                {
-                  TH2* hPur2D = CloneTH2(hReco, "h2_purity_pTgamma_xJ");
-                  if (hPur2D)
-                  {
-                    hPur2D->Reset("ICES");
-                    const int nx = hReco->GetXaxis()->GetNbins();
-                    const int ny = hReco->GetYaxis()->GetNbins();
-
-                    for (int ix = 1; ix <= nx; ++ix)
-                    {
-                      for (int iy = 1; iy <= ny; ++iy)
-                      {
-                        const double r  = hReco ->GetBinContent(ix, iy);
-                        const double fk = hFakes->GetBinContent(ix, iy);
-                        const double pur = (r > 0.0) ? ((r - fk) / r) : 0.0;
-                        hPur2D->SetBinContent(ix, iy, pur);
-                      }
-                    }
-
-                    hPur2D->SetMinimum(0.0);
-                    hPur2D->SetMaximum(1.0);
-
-                    DrawAndSaveTH2_Common(ds, hPur2D,
-                      JoinPath(dirEP_Maps, "purity2D_pTgamma_vs_xJ.png"),
-                      "p_{T}^{#gamma,reco} [GeV]", "x_{J#gamma}^{reco}", "Purity",
-                      { "Purity map from unfolding inputs",
-                        TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
-                        "pur = (reco - fakes) / reco" },
-                      false);
-
-                    delete hPur2D;
-                  }
-                }
-
-                // --- NEW: 3x3 tables of efficiency(xJ) and purity(xJ) per pT bin ---
-                // We render these only when the required numerator hist exists.
-                auto Make3x3Table_MetricVsXJ =
-                  [&](TH2* hDen, TH2* hNum,
-                      const string& outPng,
-                      const string& metricTitle,
-                      const string& metricExpr,
-                      bool isTruthMetric)
-                {
-                  if (!hDen || !hNum) return;
-
-                  const int nx = hDen->GetXaxis()->GetNbins();
-                  const int perPage = 9;
-
-                  int page = 0;
-                  for (int start = 1; start <= nx; start += perPage)
-                  {
-                    ++page;
-
-                    TCanvas c(
-                      TString::Format("c_tbl_%s_%s_p%d", metricTitle.c_str(), rKey.c_str(), page).Data(),
-                      "c_tbl_metric", 1500, 1200
-                    );
-                    c.Divide(3,3, 0.001, 0.001);
-
-                    std::vector<TH1*> keep;
-                    keep.reserve(perPage);
-
-                    for (int k = 0; k < perPage; ++k)
-                    {
-                      const int ix = start + k;
-                      c.cd(k+1);
-
-                      gPad->SetLeftMargin(0.14);
-                      gPad->SetRightMargin(0.05);
-                      gPad->SetBottomMargin(0.14);
-                      gPad->SetTopMargin(0.10);
-                      gPad->SetLogy(false);
-
-                      if (ix > nx)
-                      {
-                        TLatex t;
-                        t.SetNDC(true);
-                        t.SetTextFont(42);
-                        t.SetTextSize(0.06);
-                        t.DrawLatex(0.20, 0.55, "EMPTY");
-                        continue;
-                      }
-
-                      TH1D* hDenY = hDen->ProjectionY(
-                        TString::Format("den_%s_%d", metricTitle.c_str(), ix).Data(), ix, ix
-                      );
-                      TH1D* hNumY = hNum->ProjectionY(
-                        TString::Format("num_%s_%d", metricTitle.c_str(), ix).Data(), ix, ix
-                      );
-
-                      if (!hDenY || !hNumY)
-                      {
-                        if (hDenY) delete hDenY;
-                        if (hNumY) delete hNumY;
-                        TLatex t;
-                        t.SetNDC(true);
-                        t.SetTextFont(42);
-                        t.SetTextSize(0.06);
-                        t.DrawLatex(0.15, 0.55, "MISSING");
-                        continue;
-                      }
-
-                      hDenY->SetDirectory(nullptr);
-                      hNumY->SetDirectory(nullptr);
-
-                      TH1D* hMet = (TH1D*)hDenY->Clone(TString::Format("met_%s_%d", metricTitle.c_str(), ix).Data());
-                      hMet->SetDirectory(nullptr);
-                      hMet->Reset("ICES");
-
-                      const int ny = hMet->GetNbinsX();
-                      for (int iy = 1; iy <= ny; ++iy)
-                      {
-                        const double den = hDenY->GetBinContent(iy);
-                        const double num = hNumY->GetBinContent(iy);
-                        const double val = (den > 0.0) ? ((den - num) / den) : 0.0;
-
-                        // binomial-ish error (good enough for presentation diagnostics)
-                        const double err = (den > 0.0) ? std::sqrt(std::max(0.0, val*(1.0 - val)/den)) : 0.0;
-
-                        hMet->SetBinContent(iy, val);
-                        hMet->SetBinError(iy, err);
-                      }
-
-                      hMet->SetMinimum(0.0);
-                      hMet->SetMaximum(1.05);
-                      hMet->SetLineWidth(2);
-                      hMet->SetMarkerStyle(20);
-                      hMet->SetTitle("");
-                      hMet->GetXaxis()->SetTitle(isTruthMetric ? "x_{J#gamma}^{truth}" : "x_{J#gamma}^{reco}");
-                      hMet->GetYaxis()->SetTitle(metricTitle.c_str());
-                      hMet->Draw("E1");
-
-                      const string ptLab = AxisBinLabel(hDen->GetXaxis(), ix, "GeV", 0);
-
-                      vector<string> box;
-                      box.push_back(metricExpr);
-                      box.push_back(TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data());
-                      box.push_back(TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data());
-                      DrawLatexLines(0.16, 0.90, box, 0.040, 0.050);
-
-                      keep.push_back(hMet);
-
-                      delete hDenY;
-                      delete hNumY;
-                    }
-
-                    string nameOut;
-                    if (nx <= perPage)
-                    {
-                      nameOut = outPng;
-                    }
-                    else
-                    {
-                      // page suffix
-                      const size_t pos = outPng.find(".png");
-                      const string stem = (pos == string::npos) ? outPng : outPng.substr(0, pos);
-                      nameOut = TString::Format("%s_page%d.png", stem.c_str(), page).Data();
-                    }
-
-                    SaveCanvas(c, JoinPath(dirEP_XJ, nameOut));
-
-                    for (auto* h : keep) delete h;
-                  }
-                };
-
-                if (hMisses)
-                {
-                  Make3x3Table_MetricVsXJ(
-                    hTruth, hMisses,
-                    "table3x3_efficiency_vs_xJ.png",
-                    "Efficiency",
-                    "eff(x_{J}) = (truth - misses)/truth",
-                    true
-                  );
-                }
-                if (hFakes)
-                {
-                  Make3x3Table_MetricVsXJ(
-                    hReco, hFakes,
-                    "table3x3_purity_vs_xJ.png",
-                    "Purity",
-                    "pur(x_{J}) = (reco - fakes)/reco",
-                    false
-                  );
-                }
-
-                // --- Existing table + existing truth-vs-reco xJ shape overlays (kept) ---
-                for (int ib = 1; ib <= nPt; ++ib)
-                {
-                  const double xC = 0.5 * (hTruth->GetXaxis()->GetBinLowEdge(ib) + hTruth->GetXaxis()->GetBinUpEdge(ib));
-                  xCenters[ib-1] = xC;
-
-                  const string ptLabTruth = AxisBinLabel(hTruth->GetXaxis(), ib, "GeV", 0);
-                  const string ptLabReco  = AxisBinLabel(hReco->GetXaxis(),  ib, "GeV", 0);
-
-                  const double Ntruth = hTruth->Integral(ib, ib, 0, hTruth->GetYaxis()->GetNbins() + 1);
-                  const double Nreco  = hReco ->Integral(ib, ib, 0, hReco ->GetYaxis()->GetNbins() + 1);
-
-                  const double Nmiss  = (hMisses ? hMisses->Integral(ib, ib, 0, hMisses->GetYaxis()->GetNbins() + 1) : 0.0);
-                  const double Nfake  = (hFakes  ? hFakes ->Integral(ib, ib, 0, hFakes ->GetYaxis()->GetNbins() + 1) : 0.0);
-
-                  const double eff = SafeDivide(Ntruth - Nmiss, Ntruth, 0.0);
-                  const double pur = SafeDivide(Nreco  - Nfake, Nreco,  0.0);
-
-                  effVsPt[ib-1] = eff;
-                  purVsPt[ib-1] = pur;
-
-                  cout << std::left << std::setw(wPt) << ptLabTruth
-                       << std::right
-                       << std::setw(wN) << std::fixed << std::setprecision(0) << Ntruth
-                       << std::setw(wN) << Nmiss
-                       << std::setw(wF) << std::fixed << std::setprecision(4) << eff
-                       << std::setw(wN) << std::fixed << std::setprecision(0) << Nreco
-                       << std::setw(wN) << Nfake
-                       << std::setw(wF) << std::fixed << std::setprecision(4) << pur
-                       << "\n";
-
-                  lines.push_back(TString::Format(
-                    "pTtruth=%s  pTreco=%s  Ntruth=%.0f  Nmiss=%.0f  eff=%.6f  Nreco=%.0f  Nfake=%.0f  pur=%.6f",
-                    ptLabTruth.c_str(), ptLabReco.c_str(),
-                    Ntruth, Nmiss, eff,
-                    Nreco, Nfake, pur
-                  ).Data());
-
-                  // Keep your existing Truth-vs-Reco xJ shape overlay per pT bin (normalized)
-                  {
-                    TH1D* pxTruth = hTruth->ProjectionY(TString::Format("pxTruth_%s_%d", rKey.c_str(), ib).Data(), ib, ib);
-                    TH1D* pxReco  = hReco ->ProjectionY(TString::Format("pxReco_%s_%d", rKey.c_str(), ib).Data(),  ib, ib);
-                    if (pxTruth && pxReco)
-                    {
-                      pxTruth->SetDirectory(nullptr);
-                      pxReco->SetDirectory(nullptr);
-                      NormalizeToUnitArea(pxTruth);
-                      NormalizeToUnitArea(pxReco);
-
-                      pxTruth->SetLineWidth(2);
-                      pxReco->SetLineWidth(2);
-                      pxTruth->SetLineColor(1);
-                      pxReco->SetLineColor(2);
-
-                      TCanvas c(TString::Format("c_unf_ov_%s_%d", rKey.c_str(), ib).Data(), "c_unf_ov", 900,700);
-                      ApplyCanvasMargins1D(c);
-
-                      const double maxv = std::max(pxTruth->GetMaximum(), pxReco->GetMaximum());
-                      pxTruth->SetMaximum(maxv * 1.25);
-                      pxTruth->SetTitle("");
-                      pxTruth->GetXaxis()->SetTitle("x_{J}");
-                      pxTruth->GetYaxis()->SetTitle("A.U.");
-                      pxTruth->Draw("hist");
-                      pxReco->Draw("hist same");
-
-                      TLegend leg(0.60,0.78,0.92,0.90);
-                      leg.SetTextFont(42);
-                      leg.SetTextSize(0.033);
-                      leg.AddEntry(pxTruth, "Truth (shape)", "l");
-                      leg.AddEntry(pxReco,  "Reco (shape)",  "l");
-                      leg.Draw();
-
-                      DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-                      DrawLatexLines(0.14,0.78, {string("Truth vs reco x_{J} shape"), rKey, TString::Format("p_{T}^{#gamma}: %s", ptLabTruth.c_str()).Data()}, 0.030, 0.040);
-
-                      SaveCanvas(c, JoinPath(rOut, TString::Format("overlay_truth_vs_reco_xJ_shape_pTbin%d.png", ib).Data()));
-
-                      delete pxTruth;
-                      delete pxReco;
-                    }
-                    else
-                    {
-                      if (pxTruth) delete pxTruth;
-                      if (pxReco)  delete pxReco;
+                      const double t = H.hTruth ->GetBinContent(ix, iy);
+                      const double m = H.hMisses->GetBinContent(ix, iy);
+                      const double eff = (t > 0.0) ? ((t - m) / t) : 0.0;
+                      hEff2D->SetBinContent(ix, iy, eff);
                     }
                   }
+
+                  hEff2D->SetMinimum(0.0);
+                  hEff2D->SetMaximum(1.0);
+
+                  DrawAndSaveTH2_Common(ds, hEff2D,
+                    JoinPath(dirEP_Maps, "efficiency2D_pTgamma_vs_xJ.png"),
+                    "p_{T}^{#gamma,truth} [GeV]", "x_{J#gamma}^{truth}", "Efficiency",
+                    { "Efficiency map from unfolding inputs",
+                      TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                      "eff = (truth - misses) / truth" },
+                    false);
+
+                  delete hEff2D;
                 }
-
-                // --- NEW: presentation graphs (integrated over xJ) ---
-                {
-                  TCanvas c1(TString::Format("c_eff_vs_pt_%s", rKey.c_str()).Data(), "c_eff_vs_pt", 900,700);
-                  ApplyCanvasMargins1D(c1);
-                  TGraph g(nPt, &xCenters[0], &effVsPt[0]);
-                  g.SetLineWidth(2);
-                  g.SetMarkerStyle(20);
-                  g.Draw("ALP");
-                  g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
-                  g.GetYaxis()->SetTitle("Efficiency (integrated over x_{J})");
-                  g.SetMinimum(0.0);
-                  g.SetMaximum(1.05);
-
-                  DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-                  DrawLatexLines(0.14,0.78, { "Unfolding efficiency vs p_{T}^{#gamma}", rKey }, 0.030, 0.040);
-
-                  SaveCanvas(c1, JoinPath(dirEP, "efficiency_vs_pTgamma_integratedXJ.png"));
-                }
-                {
-                  TCanvas c2(TString::Format("c_pur_vs_pt_%s", rKey.c_str()).Data(), "c_pur_vs_pt", 900,700);
-                  ApplyCanvasMargins1D(c2);
-                  TGraph g(nPt, &xCenters[0], &purVsPt[0]);
-                  g.SetLineWidth(2);
-                  g.SetMarkerStyle(20);
-                  g.Draw("ALP");
-                  g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
-                  g.GetYaxis()->SetTitle("Purity (integrated over x_{J})");
-                  g.SetMinimum(0.0);
-                  g.SetMaximum(1.05);
-
-                  DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-                  DrawLatexLines(0.14,0.78, { "Unfolding purity vs p_{T}^{#gamma}", rKey }, 0.030, 0.040);
-
-                  SaveCanvas(c2, JoinPath(dirEP, "purity_vs_pTgamma_integratedXJ.png"));
-                }
-
-                WriteTextFile(JoinPath(rOut, "summary_unfolding_eff_pur.txt"), lines);
               }
-          }
+
+              // 2D purity map (if fakes exist)
+              if (H.hFakes)
+              {
+                TH2* hPur2D = CloneTH2(H.hReco, "h2_purity_pTgamma_xJ");
+                if (hPur2D)
+                {
+                  hPur2D->Reset("ICES");
+                  const int nx = H.hReco->GetXaxis()->GetNbins();
+                  const int ny = H.hReco->GetYaxis()->GetNbins();
+
+                  for (int ix = 1; ix <= nx; ++ix)
+                  {
+                    for (int iy = 1; iy <= ny; ++iy)
+                    {
+                      const double r  = H.hReco ->GetBinContent(ix, iy);
+                      const double fk = H.hFakes->GetBinContent(ix, iy);
+                      const double pur = (r > 0.0) ? ((r - fk) / r) : 0.0;
+                      hPur2D->SetBinContent(ix, iy, pur);
+                    }
+                  }
+
+                  hPur2D->SetMinimum(0.0);
+                  hPur2D->SetMaximum(1.0);
+
+                  DrawAndSaveTH2_Common(ds, hPur2D,
+                    JoinPath(dirEP_Maps, "purity2D_pTgamma_vs_xJ.png"),
+                    "p_{T}^{#gamma,reco} [GeV]", "x_{J#gamma}^{reco}", "Purity",
+                    { "Purity map from unfolding inputs",
+                      TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                      "pur = (reco - fakes) / reco" },
+                    false);
+
+                  delete hPur2D;
+                }
+              }
+
+              // 3x3 tables metric vs xJ
+              auto Make3x3Table_MetricVsXJ =
+                [&](TH2* hDen, TH2* hNum,
+                    const string& outPng,
+                    const string& metricTitle,
+                    const string& metricExpr,
+                    bool isTruthMetric)
+              {
+                if (!hDen || !hNum) return;
+
+                const int nx = hDen->GetXaxis()->GetNbins();
+                const int perPage = 9;
+
+                int page = 0;
+                for (int start = 1; start <= nx; start += perPage)
+                {
+                  ++page;
+
+                  TCanvas c(
+                    TString::Format("c_tbl_%s_%s_p%d", metricTitle.c_str(), rKey.c_str(), page).Data(),
+                    "c_tbl_metric", 1500, 1200
+                  );
+                  c.Divide(3,3, 0.001, 0.001);
+
+                  std::vector<TH1*> keep;
+                  keep.reserve(perPage);
+
+                  for (int k = 0; k < perPage; ++k)
+                  {
+                    const int ix = start + k;
+                    c.cd(k+1);
+
+                    gPad->SetLeftMargin(0.14);
+                    gPad->SetRightMargin(0.05);
+                    gPad->SetBottomMargin(0.14);
+                    gPad->SetTopMargin(0.10);
+                    gPad->SetLogy(false);
+
+                    if (ix > nx)
+                    {
+                      TLatex t;
+                      t.SetNDC(true);
+                      t.SetTextFont(42);
+                      t.SetTextSize(0.06);
+                      t.DrawLatex(0.20, 0.55, "EMPTY");
+                      continue;
+                    }
+
+                    TH1D* hDenY = hDen->ProjectionY(
+                      TString::Format("den_%s_%d", metricTitle.c_str(), ix).Data(), ix, ix
+                    );
+                    TH1D* hNumY = hNum->ProjectionY(
+                      TString::Format("num_%s_%d", metricTitle.c_str(), ix).Data(), ix, ix
+                    );
+
+                    if (!hDenY || !hNumY)
+                    {
+                      if (hDenY) delete hDenY;
+                      if (hNumY) delete hNumY;
+                      TLatex t;
+                      t.SetNDC(true);
+                      t.SetTextFont(42);
+                      t.SetTextSize(0.06);
+                      t.DrawLatex(0.15, 0.55, "MISSING");
+                      continue;
+                    }
+
+                    hDenY->SetDirectory(nullptr);
+                    hNumY->SetDirectory(nullptr);
+
+                    TH1D* hMet = (TH1D*)hDenY->Clone(TString::Format("met_%s_%d", metricTitle.c_str(), ix).Data());
+                    hMet->SetDirectory(nullptr);
+                    hMet->Reset("ICES");
+
+                    const int ny = hMet->GetNbinsX();
+                    for (int iy = 1; iy <= ny; ++iy)
+                    {
+                      const double den = hDenY->GetBinContent(iy);
+                      const double num = hNumY->GetBinContent(iy);
+                      const double val = (den > 0.0) ? ((den - num) / den) : 0.0;
+                      const double err = (den > 0.0) ? std::sqrt(std::max(0.0, val*(1.0 - val)/den)) : 0.0;
+
+                      hMet->SetBinContent(iy, val);
+                      hMet->SetBinError(iy, err);
+                    }
+
+                    hMet->SetMinimum(0.0);
+                    hMet->SetMaximum(1.05);
+                    hMet->SetLineWidth(2);
+                    hMet->SetMarkerStyle(20);
+                    hMet->SetTitle("");
+                    hMet->GetXaxis()->SetTitle(isTruthMetric ? "x_{J#gamma}^{truth}" : "x_{J#gamma}^{reco}");
+                    hMet->GetYaxis()->SetTitle(metricTitle.c_str());
+                    hMet->Draw("E1");
+
+                    const string ptLab = AxisBinLabel(hDen->GetXaxis(), ix, "GeV", 0);
+
+                    vector<string> box;
+                    box.push_back(metricExpr);
+                    box.push_back(TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data());
+                    box.push_back(TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data());
+                    DrawLatexLines(0.16, 0.90, box, 0.040, 0.050);
+
+                    keep.push_back(hMet);
+
+                    delete hDenY;
+                    delete hNumY;
+                  }
+
+                  string nameOut;
+                  if (nx <= perPage)
+                  {
+                    nameOut = outPng;
+                  }
+                  else
+                  {
+                    const size_t pos = outPng.find(".png");
+                    const string stem = (pos == string::npos) ? outPng : outPng.substr(0, pos);
+                    nameOut = TString::Format("%s_page%d.png", stem.c_str(), page).Data();
+                  }
+
+                  SaveCanvas(c, JoinPath(dirEP_XJ, nameOut));
+                  for (auto* h : keep) delete h;
+                }
+              };
+
+              if (H.hMisses)
+              {
+                Make3x3Table_MetricVsXJ(
+                  H.hTruth, H.hMisses,
+                  "table3x3_efficiency_vs_xJ.png",
+                  "Efficiency",
+                  "eff(x_{J}) = (truth - misses)/truth",
+                  true
+                );
+              }
+              if (H.hFakes)
+              {
+                Make3x3Table_MetricVsXJ(
+                  H.hReco, H.hFakes,
+                  "table3x3_purity_vs_xJ.png",
+                  "Purity",
+                  "pur(x_{J}) = (reco - fakes)/reco",
+                  false
+                );
+              }
+
+              // Per pT bin: terminal line + text summary + overlay truth vs reco xJ shapes
+              for (int ib = 1; ib <= nPt; ++ib)
+              {
+                const double xC = 0.5 * (H.hTruth->GetXaxis()->GetBinLowEdge(ib) + H.hTruth->GetXaxis()->GetBinUpEdge(ib));
+                xCenters[ib-1] = xC;
+
+                const string ptLabTruth = AxisBinLabel(H.hTruth->GetXaxis(), ib, "GeV", 0);
+                const string ptLabReco  = AxisBinLabel(H.hReco ->GetXaxis(),  ib, "GeV", 0);
+
+                const double Ntruth = H.hTruth->Integral(ib, ib, 0, H.hTruth->GetYaxis()->GetNbins() + 1);
+                const double Nreco  = H.hReco ->Integral(ib, ib, 0, H.hReco ->GetYaxis()->GetNbins() + 1);
+
+                const double Nmiss  = (H.hMisses ? H.hMisses->Integral(ib, ib, 0, H.hMisses->GetYaxis()->GetNbins() + 1) : 0.0);
+                const double Nfake  = (H.hFakes  ? H.hFakes ->Integral(ib, ib, 0, H.hFakes ->GetYaxis()->GetNbins() + 1) : 0.0);
+
+                const double eff = SafeDivide(Ntruth - Nmiss, Ntruth, 0.0);
+                const double pur = SafeDivide(Nreco  - Nfake, Nreco,  0.0);
+
+                effVsPt[ib-1] = eff;
+                purVsPt[ib-1] = pur;
+
+                cout << std::left << std::setw(wPt) << ptLabTruth
+                     << std::right
+                     << std::setw(wN) << std::fixed << std::setprecision(0) << Ntruth
+                     << std::setw(wN) << Nmiss
+                     << std::setw(wF) << std::fixed << std::setprecision(4) << eff
+                     << std::setw(wN) << std::fixed << std::setprecision(0) << Nreco
+                     << std::setw(wN) << Nfake
+                     << std::setw(wF) << std::fixed << std::setprecision(4) << pur
+                     << "\n";
+
+                lines.push_back(TString::Format(
+                  "pTtruth=%s  pTreco=%s  Ntruth=%.0f  Nmiss=%.0f  eff=%.6f  Nreco=%.0f  Nfake=%.0f  pur=%.6f",
+                  ptLabTruth.c_str(), ptLabReco.c_str(),
+                  Ntruth, Nmiss, eff,
+                  Nreco, Nfake, pur
+                ).Data());
+
+                // Existing truth-vs-reco xJ shape overlay per pT bin (kept)
+                {
+                  TH1D* pxTruth = H.hTruth->ProjectionY(TString::Format("pxTruth_%s_%d", rKey.c_str(), ib).Data(), ib, ib);
+                  TH1D* pxReco  = H.hReco ->ProjectionY(TString::Format("pxReco_%s_%d", rKey.c_str(), ib).Data(),  ib, ib);
+                  if (pxTruth && pxReco)
+                  {
+                    pxTruth->SetDirectory(nullptr);
+                    pxReco->SetDirectory(nullptr);
+                    NormalizeToUnitArea(pxTruth);
+                    NormalizeToUnitArea(pxReco);
+
+                    pxTruth->SetLineWidth(2);
+                    pxReco->SetLineWidth(2);
+                    pxTruth->SetLineColor(1);
+                    pxReco->SetLineColor(2);
+
+                    TCanvas c(TString::Format("c_unf_ov_%s_%d", rKey.c_str(), ib).Data(), "c_unf_ov", 900,700);
+                    ApplyCanvasMargins1D(c);
+
+                    const double maxv = std::max(pxTruth->GetMaximum(), pxReco->GetMaximum());
+                    pxTruth->SetMaximum(maxv * 1.25);
+                    pxTruth->SetTitle("");
+                    pxTruth->GetXaxis()->SetTitle("x_{J}");
+                    pxTruth->GetYaxis()->SetTitle("A.U.");
+                    pxTruth->Draw("hist");
+                    pxReco->Draw("hist same");
+
+                    TLegend leg(0.60,0.78,0.92,0.90);
+                    leg.SetTextFont(42);
+                    leg.SetTextSize(0.033);
+                    leg.AddEntry(pxTruth, "Truth (shape)", "l");
+                    leg.AddEntry(pxReco,  "Reco (shape)",  "l");
+                    leg.Draw();
+
+                    DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+                    DrawLatexLines(0.14,0.78, {string("Truth vs reco x_{J} shape"), rKey, TString::Format("p_{T}^{#gamma}: %s", ptLabTruth.c_str()).Data()}, 0.030, 0.040);
+
+                    SaveCanvas(c, JoinPath(rOut, TString::Format("overlay_truth_vs_reco_xJ_shape_pTbin%d.png", ib).Data()));
+
+                    delete pxTruth;
+                    delete pxReco;
+                  }
+                  else
+                  {
+                    if (pxTruth) delete pxTruth;
+                    if (pxReco)  delete pxReco;
+                  }
+                }
+              }
+
+              // Presentation graphs: efficiency and purity vs pTgamma (integrated over xJ)
+              {
+                TCanvas c1(TString::Format("c_eff_vs_pt_%s", rKey.c_str()).Data(), "c_eff_vs_pt", 900,700);
+                ApplyCanvasMargins1D(c1);
+                TGraph g(nPt, &xCenters[0], &effVsPt[0]);
+                g.SetLineWidth(2);
+                g.SetMarkerStyle(20);
+                g.Draw("ALP");
+                g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
+                g.GetYaxis()->SetTitle("Efficiency (integrated over x_{J})");
+                g.SetMinimum(0.0);
+                g.SetMaximum(1.05);
+
+                DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+                DrawLatexLines(0.14,0.78, { "Unfolding efficiency vs p_{T}^{#gamma}", rKey }, 0.030, 0.040);
+
+                SaveCanvas(c1, JoinPath(dirEP, "efficiency_vs_pTgamma_integratedXJ.png"));
+              }
+              {
+                TCanvas c2(TString::Format("c_pur_vs_pt_%s", rKey.c_str()).Data(), "c_pur_vs_pt", 900,700);
+                ApplyCanvasMargins1D(c2);
+                TGraph g(nPt, &xCenters[0], &purVsPt[0]);
+                g.SetLineWidth(2);
+                g.SetMarkerStyle(20);
+                g.Draw("ALP");
+                g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
+                g.GetYaxis()->SetTitle("Purity (integrated over x_{J})");
+                g.SetMinimum(0.0);
+                g.SetMaximum(1.05);
+
+                DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+                DrawLatexLines(0.14,0.78, { "Unfolding purity vs p_{T}^{#gamma}", rKey }, 0.030, 0.040);
+
+                SaveCanvas(c2, JoinPath(dirEP, "purity_vs_pTgamma_integratedXJ.png"));
+              }
+
+              WriteTextFile(JoinPath(rOut, "summary_unfolding_eff_pur.txt"), lines);
+            };
+
+            // --------------------------------------------------------------------------
+            // MAIN LOOP over rKeys (orchestrator)
+            // --------------------------------------------------------------------------
+            for (const auto& rKey : kRKeys)
+            {
+              const double R = RFromKey(rKey);
+
+              const string rOut = JoinPath(outDir, rKey);
+              EnsureDir(rOut);
+
+              UnfoldHists H = LoadUnfoldHists(rKey);
+
+              if (!HasAnyUnfold(H))
+              {
+                cout << ANSI_BOLD_YEL << "[WARN] No unfolding histograms found for " << ds.label << " " << rKey << ANSI_RESET << "\n";
+                continue;
+              }
+
+              // Part A: core unfolding maps + response scatter (SIM + DATA)
+              RunCoreUnfolding2D(rKey, R, rOut, H);
+
+              // Part B: Δphi unfolding QA (runs only if histograms exist)
+              RunDeltaPhiUnfoldingQA(rKey, R, rOut, H);
+
+              // Part C: response "2D within 2D" de-flattening (requires hResp + hTruth + hReco)
+              RunResponseBlockMatrixQA(rKey, R, rOut, H);
+
+              // Part D: efficiency/purity products + overlays + summary file (requires hReco + hTruth)
+              RunEfficiencyPurityQA(rKey, R, rOut, H);
+           }
         }
-
-
-
-      // =============================================================================
-      // High-level runner
-      // =============================================================================
+        // =============================================================================
+        // High-level runner
+        // =============================================================================
         static bool ExactlyOneModeSet()
         {
           const int nTrue =
@@ -5222,145 +6105,270 @@ namespace ARJ
   // =============================================================================
   int Run()
   {
-    SetupGlobalStyle();
+      SetupGlobalStyle();
 
-    cout << ANSI_BOLD_CYN
-         << "\n============================================================\n"
-         << " AnalyzeRecoilJets  (refactored driver + modular analysis)\n"
-         << "============================================================\n"
-         << ANSI_RESET;
-
-    if (!ExactlyOneModeSet())
-    {
-      cout << ANSI_BOLD_RED
-           << "[FATAL] Exactly one run-mode toggle must be true.\n"
-           << "  isPPdataOnly=" << isPPdataOnly
-           << "  isSimOnly=" << isSimOnly
-           << "  isSimAndDataPP=" << isSimAndDataPP
-           << "  isSimOnlyWithPhoton10and20=" << isSimOnlyWithPhoton10and20
-           << "\n"
+      // ---------------------------------------------------------------------------
+      // Banner
+      // ---------------------------------------------------------------------------
+      cout << ANSI_BOLD_CYN
+           << "\n============================================================\n"
+           << " AnalyzeRecoilJets  (refactored driver + modular analysis)\n"
+           << "============================================================\n"
            << ANSI_RESET;
-      return 1;
-    }
 
-    const RunMode mode = CurrentRunMode();
-    cout << ANSI_BOLD_YEL << "[MODE] " << RunModeLabel(mode) << ANSI_RESET << "\n";
+      // ---------------------------------------------------------------------------
+      // Mode validation + printout
+      // ---------------------------------------------------------------------------
+      cout << ANSI_BOLD_CYN << "\n[STEP 0] Run-mode validation\n" << ANSI_RESET;
 
-    // Optional SIM slice merge (photonJet10 + photonJet20), using cross-section weights.
-    if (!driver::MaybeBuildMergedSIM(mode))
-    {
-      return 1;
-    }
+      cout << "  Toggles:\n"
+           << "    isPPdataOnly             = " << (isPPdataOnly ? "true" : "false") << "\n"
+           << "    isSimOnly                = " << (isSimOnly ? "true" : "false") << "\n"
+           << "    isSimAndDataPP           = " << (isSimAndDataPP ? "true" : "false") << "\n"
+           << "    isSimOnlyWithPhoton10and20 = " << (isSimOnlyWithPhoton10and20 ? "true" : "false") << "\n";
 
-    // Build dataset list for this run-mode.
-    vector<Dataset> datasets = driver::BuildDatasets(mode);
-    if (datasets.empty())
-    {
-      cout << ANSI_BOLD_RED << "[FATAL] No datasets selected. Check toggles." << ANSI_RESET << "\n";
-      return 1;
-    }
-
-    // Open all datasets first (fail-fast).
-    for (auto& ds : datasets)
-    {
-      if (!driver::OpenDataset(ds))
+      if (!ExactlyOneModeSet())
       {
-        // Close anything already opened
-        for (auto& d2 : datasets) driver::CloseDataset(d2);
+        cout << ANSI_BOLD_RED
+             << "[FATAL] Exactly one run-mode toggle must be true.\n"
+             << "  isPPdataOnly=" << isPPdataOnly
+             << "  isSimOnly=" << isSimOnly
+             << "  isSimAndDataPP=" << isSimAndDataPP
+             << "  isSimOnlyWithPhoton10and20=" << isSimOnlyWithPhoton10and20
+             << "\n"
+             << ANSI_RESET;
         return 1;
       }
-    }
 
-    // -------------------------------------------------------------------------
-    // Sections 1–3 (per-dataset)
-    // -------------------------------------------------------------------------
-    for (auto& ds : datasets)
-    {
-      cout << ANSI_BOLD_YEL
-           << "\n[DATASET] " << ds.label
-           << "  topDir=" << ds.topDirName
-           << "  file=" << ds.inFilePath
-           << ANSI_RESET << "\n";
+      const RunMode mode = CurrentRunMode();
+      cout << ANSI_BOLD_YEL << "  -> Selected mode: " << RunModeLabel(mode) << ANSI_RESET << "\n";
 
-      const double NevtTotal = ReadEventCount(ds);
-      cout << "  NevtTotal (cnt_" << ds.topDirName << " bin1) = "
-           << std::fixed << std::setprecision(0) << NevtTotal << "\n";
+      // ---------------------------------------------------------------------------
+      // Optional SIM slice merge
+      // ---------------------------------------------------------------------------
+      cout << ANSI_BOLD_CYN << "\n[STEP 1] Optional SIM slice merge (photonJet10 + photonJet20)\n" << ANSI_RESET;
+      cout << "  -> Checking whether merged SIM is required for this mode...\n";
 
-      analysis::RunEventLevelQA(ds);
-      analysis::RunPreselectionFailureTable(ds);
-      analysis::RunIsolationQA(ds);
-    }
-
-    // -------------------------------------------------------------------------
-    // Section 4 (ABCD purity + sideband subtraction)
-    //
-    // IMPORTANT: We preserve the legacy behavior:
-    //   * Leakage factors are *read from SIM* (if available),
-    //   * but they are only *applied to DATA* (SIM runs uncorrected).
-    // -------------------------------------------------------------------------
-    LeakageFactors leakageFromSim;
-
-    // Load leakage factors once (from the first SIM dataset encountered).
-    for (auto& ds : datasets)
-    {
-      if (ds.isSim && !leakageFromSim.available)
+      if (!driver::MaybeBuildMergedSIM(mode))
       {
-        analysis::LoadLeakageFactorsFromSIM(ds, leakageFromSim);
+        cout << ANSI_BOLD_RED
+             << "  [FATAL] driver::MaybeBuildMergedSIM failed. Aborting.\n"
+             << ANSI_RESET;
+        return 1;
       }
-    }
+      cout << ANSI_BOLD_GRN << "  [OK] SIM merge step complete (or not needed).\n" << ANSI_RESET;
 
-    for (auto& ds : datasets)
-    {
-      LeakageFactors lfForThis;
-      if (!ds.isSim && leakageFromSim.available)
+      // ---------------------------------------------------------------------------
+      // Build datasets list
+      // ---------------------------------------------------------------------------
+      cout << ANSI_BOLD_CYN << "\n[STEP 2] Build dataset list for this run-mode\n" << ANSI_RESET;
+
+      vector<Dataset> datasets = driver::BuildDatasets(mode);
+      cout << "  -> driver::BuildDatasets returned N=" << datasets.size() << "\n";
+
+      if (datasets.empty())
       {
-        lfForThis = leakageFromSim; // apply to data
+        cout << ANSI_BOLD_RED << "[FATAL] No datasets selected. Check toggles." << ANSI_RESET << "\n";
+        return 1;
+      }
+
+      cout << "  Datasets:\n";
+      for (const auto& ds : datasets)
+      {
+        cout << "    - label=" << ds.label
+             << "  isSim=" << (ds.isSim ? "true" : "false")
+             << "  trigger=" << ds.trigger
+             << "  topDir=" << ds.topDirName
+             << "  inFile=" << ds.inFilePath
+             << "  outBase=" << ds.outBase
+             << "\n";
+      }
+
+      // ---------------------------------------------------------------------------
+      // Open datasets (fail-fast)
+      // ---------------------------------------------------------------------------
+      cout << ANSI_BOLD_CYN << "\n[STEP 3] Open all datasets (fail-fast)\n" << ANSI_RESET;
+
+      for (auto& ds : datasets)
+      {
+        cout << "  -> Opening dataset: " << ANSI_BOLD_YEL << ds.label << ANSI_RESET << "\n";
+        cout << "     file=" << ds.inFilePath << "\n";
+        cout << "     topDir=" << ds.topDirName << "\n";
+
+        if (!driver::OpenDataset(ds))
+        {
+          cout << ANSI_BOLD_RED
+               << "  [FATAL] Failed to open dataset: " << ds.label << "\n"
+               << "         Closing any datasets already opened...\n"
+               << ANSI_RESET;
+
+          for (auto& d2 : datasets) driver::CloseDataset(d2);
+          return 1;
+        }
+
+        cout << ANSI_BOLD_GRN << "     [OK] Opened.\n" << ANSI_RESET;
+      }
+
+      // ---------------------------------------------------------------------------
+      // Sections 1–3 (per-dataset): event-level QA, failures, isolation
+      // ---------------------------------------------------------------------------
+      cout << ANSI_BOLD_CYN << "\n[STEP 4] Sections 1–3 (per-dataset)\n" << ANSI_RESET;
+
+      for (auto& ds : datasets)
+      {
+        cout << ANSI_BOLD_YEL
+             << "\n[DATASET] " << ds.label
+             << "  isSim=" << (ds.isSim ? "true" : "false")
+             << "  trigger=" << ds.trigger
+             << ANSI_RESET << "\n";
+
+        cout << "  Paths:\n"
+             << "    inFile   = " << ds.inFilePath << "\n"
+             << "    outBase  = " << ds.outBase << "\n"
+             << "    topDir   = " << ds.topDirName << "\n";
+
+        cout << "  -> Reading event count...\n";
+        const double NevtTotal = ReadEventCount(ds);
+        cout << "     NevtTotal (cnt_" << ds.topDirName << " bin1) = "
+             << std::fixed << std::setprecision(0) << NevtTotal << "\n";
+
+        cout << "  -> [Section 1] Event-level QA...\n";
+        analysis::RunEventLevelQA(ds);
+        cout << "     [OK] Event-level QA complete.\n";
+
+        cout << "  -> [Section 2] Preselection failure table...\n";
+        analysis::RunPreselectionFailureTable(ds);
+        cout << "     [OK] Preselection failure table complete.\n";
+
+        cout << "  -> [Section 3] General isolation QA...\n";
+        analysis::RunIsolationQA(ds);
+        cout << "     [OK] Isolation QA complete.\n";
+      }
+
+      // ---------------------------------------------------------------------------
+      // Section 4: ABCD purity + sideband subtraction with optional leakage factors
+      // ---------------------------------------------------------------------------
+      cout << ANSI_BOLD_CYN << "\n[STEP 5] Section 4: ABCD purity + sideband subtraction\n" << ANSI_RESET;
+      cout << "  Policy (preserved legacy behavior):\n"
+           << "    - Leakage factors are read from SIM if available.\n"
+           << "    - Leakage factors are applied ONLY to DATA.\n"
+           << "    - SIM runs uncorrected.\n";
+
+      LeakageFactors leakageFromSim;
+
+      cout << "  -> Searching datasets for first SIM source of leakage factors...\n";
+      for (auto& ds : datasets)
+      {
+        if (ds.isSim && !leakageFromSim.available)
+        {
+          cout << "     Attempt load leakage factors from SIM dataset: " << ds.label << "\n";
+          analysis::LoadLeakageFactorsFromSIM(ds, leakageFromSim);
+          cout << "     leakageFromSim.available = " << (leakageFromSim.available ? "true" : "false") << "\n";
+        }
+      }
+
+      if (!leakageFromSim.available)
+      {
+        cout << ANSI_BOLD_YEL
+             << "  [WARN] No leakage factors found from SIM. All datasets will run uncorrected.\n"
+             << ANSI_RESET;
       }
       else
       {
-        lfForThis.available = false; // SIM (or no leakage factors): run uncorrected
+        cout << ANSI_BOLD_GRN
+             << "  [OK] Leakage factors loaded from SIM. Will apply to DATA only.\n"
+             << ANSI_RESET;
       }
 
-      analysis::RunABCDPurityAndSidebandSubtraction(ds, lfForThis);
+      for (auto& ds : datasets)
+      {
+        LeakageFactors lfForThis;
+
+        const bool applyLeakage = (!ds.isSim && leakageFromSim.available);
+        if (applyLeakage)
+        {
+          lfForThis = leakageFromSim;
+          cout << "  -> Running ABCD on DATA dataset: " << ds.label
+               << "  (leakage correction: ON)\n";
+        }
+        else
+        {
+          lfForThis.available = false;
+          cout << "  -> Running ABCD on dataset: " << ds.label
+               << "  (leakage correction: OFF)\n";
+        }
+
+        analysis::RunABCDPurityAndSidebandSubtraction(ds, lfForThis);
+        cout << "     [OK] ABCD purity + sideband subtraction complete.\n";
+      }
+
+      // ---------------------------------------------------------------------------
+      // Sections 5A–5H: Jet QA suite per dataset (MatchCache per dataset)
+      // ---------------------------------------------------------------------------
+      cout << ANSI_BOLD_CYN << "\n[STEP 6] Sections 5A–5H: Jet QA suite (per dataset)\n" << ANSI_RESET;
+
+      map<string, MatchCache> matchCaches;
+
+      for (auto& ds : datasets)
+      {
+        cout << ANSI_BOLD_YEL << "\n[DATASET JET-QA] " << ds.label << ANSI_RESET << "\n";
+
+        MatchCache& mc = matchCaches[ds.label];
+        InitMatchCache(mc);
+
+        cout << "  -> [5A] General jet QA...\n";
+        analysis::RunGeneralJetQA(ds);
+        cout << "     [OK]\n";
+
+        cout << "  -> [5C] #gamma-jet match QA...\n";
+        analysis::RunMatchQA(ds, mc);
+        cout << "     [OK]\n";
+
+        cout << "  -> [5D] Selected jet QA...\n";
+        analysis::RunSelectedJetQA(ds);
+        cout << "     [OK]\n";
+
+        cout << "  -> [5E] xJ + alpha QA...\n";
+        analysis::RunXJAlphaQA(ds);
+        cout << "     [OK]\n";
+
+        cout << "  -> [5F] JES3 QA...\n";
+        analysis::RunJES3QA(ds);
+        cout << "     [OK]\n";
+
+        cout << "  -> [5G] Maps QA...\n";
+        analysis::RunMapsQA(ds);
+        cout << "     [OK]\n";
+
+        cout << "  -> [5H] Unfolding QA...\n";
+        analysis::RunUnfoldingQA(ds);
+        cout << "     [OK]\n";
+      }
+
+      // ---------------------------------------------------------------------------
+      // Close + summary
+      // ---------------------------------------------------------------------------
+      cout << ANSI_BOLD_CYN << "\n[STEP 7] Summary + close\n" << ANSI_RESET;
+
+      cout << ANSI_BOLD_CYN << "\n[SUMMARY] Missing-object logs" << ANSI_RESET << "\n";
+      for (auto& ds : datasets)
+      {
+        const string missPath = JoinPath(ds.outBase, "missing_hists_" + ds.label + ".txt");
+        cout << "  " << ds.label
+             << " : missingCount=" << ds.missingCount
+             << "  log=" << missPath << "\n";
+      }
+
+      cout << "\n  -> Closing datasets...\n";
+      for (auto& ds : datasets)
+      {
+        cout << "     closing: " << ds.label << "\n";
+        driver::CloseDataset(ds);
+      }
+
+      cout << ANSI_BOLD_CYN << "\nDone.\n" << ANSI_RESET;
+      return 0;
     }
-
-    // -------------------------------------------------------------------------
-    // Sections 5A–5H (Jet QA suite)  — MatchCache is per-dataset
-    // -------------------------------------------------------------------------
-    map<string, MatchCache> matchCaches;
-
-    for (auto& ds : datasets)
-    {
-      MatchCache& mc = matchCaches[ds.label];
-      InitMatchCache(mc);
-
-      analysis::RunGeneralJetQA(ds);
-      analysis::RunMatchQA(ds, mc);
-      analysis::RunSelectedJetQA(ds);
-      analysis::RunXJAlphaQA(ds);
-      analysis::RunJES3QA(ds);
-      analysis::RunMapsQA(ds);
-      analysis::RunUnfoldingQA(ds);
-    }
-
-    // -------------------------------------------------------------------------
-    // Close + summary
-    // -------------------------------------------------------------------------
-    cout << ANSI_BOLD_CYN << "\n[SUMMARY] Missing-object logs" << ANSI_RESET << "\n";
-    for (auto& ds : datasets)
-    {
-      const string missPath = JoinPath(ds.outBase, "missing_hists_" + ds.label + ".txt");
-      cout << "  " << ds.label
-           << " : missingCount=" << ds.missingCount
-           << "  log=" << missPath << "\n";
-    }
-
-    for (auto& ds : datasets) driver::CloseDataset(ds);
-
-    cout << ANSI_BOLD_CYN << "\nDone.\n" << ANSI_RESET;
-    return 0;
-  }
-
 
 } // namespace ARJ
 
