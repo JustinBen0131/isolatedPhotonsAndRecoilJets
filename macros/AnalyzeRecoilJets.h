@@ -54,6 +54,7 @@
 #include <set>
 #include <cmath>
 #include <algorithm>
+#include <utility>
 #include <limits>
 
 namespace ARJ
@@ -1357,6 +1358,42 @@ namespace ARJ
       (isSimOnlyWithPhoton10and20 ? 1 : 0);
     return (nTrue == 1);
   }
+
+
+  // =============================================================================
+  // Run mode helpers
+  // =============================================================================
+  enum class RunMode
+  {
+    kPPDataOnly,
+    kSimOnly,
+    kSimAndDataPP,
+    kSimOnlyMergedPhoton10And20,
+    kInvalid
+  };
+
+  inline RunMode CurrentRunMode()
+  {
+    if (!ExactlyOneModeSet()) return RunMode::kInvalid;
+    if (isPPdataOnly)               return RunMode::kPPDataOnly;
+    if (isSimOnly)                  return RunMode::kSimOnly;
+    if (isSimAndDataPP)             return RunMode::kSimAndDataPP;
+    if (isSimOnlyWithPhoton10and20) return RunMode::kSimOnlyMergedPhoton10And20;
+    return RunMode::kInvalid;
+  }
+
+  inline string RunModeLabel(RunMode m)
+  {
+    switch (m)
+    {
+      case RunMode::kPPDataOnly:               return "PP_DATA_ONLY";
+      case RunMode::kSimOnly:                  return "SIM_ONLY";
+      case RunMode::kSimAndDataPP:             return "SIM_AND_DATA_PP";
+      case RunMode::kSimOnlyMergedPhoton10And20:return "SIM_ONLY_MERGED_PHOTON10AND20";
+      default:                                 return "INVALID";
+    }
+  }
+
 
 } // namespace ARJ
 
