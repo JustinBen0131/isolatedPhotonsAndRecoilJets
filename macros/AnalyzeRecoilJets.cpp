@@ -3891,8 +3891,8 @@ namespace ARJ
                   a->SetMarkerColor(2);
                   a->SetFillStyle(0);
 
-                  a->GetXaxis()->SetTitle(xTitle.c_str());
-                  a->GetYaxis()->SetTitle("Counts");
+                    a->GetXaxis()->SetTitle(xTitle.c_str());
+                    a->GetYaxis()->SetTitle((ds.isSim && bothPhoton10and20sim) ? "Counts / pb^{-1}" : "Counts");
                 }
                 if (b)
                 {
@@ -3907,8 +3907,8 @@ namespace ARJ
                   b->SetMarkerColor(4);
                   b->SetFillStyle(0);
 
-                  b->GetXaxis()->SetTitle(xTitle.c_str());
-                  b->GetYaxis()->SetTitle("Counts");
+                    b->GetXaxis()->SetTitle(xTitle.c_str());
+                    b->GetYaxis()->SetTitle((ds.isSim && bothPhoton10and20sim) ? "Counts / pb^{-1}" : "Counts");
                 }
 
                 TH1* first  = a ? a : b;
@@ -4024,8 +4024,8 @@ namespace ARJ
                     a->SetMarkerColor(2);
                     a->SetFillStyle(0);
 
-                    a->GetXaxis()->SetTitle(xTitle.c_str());
-                    a->GetYaxis()->SetTitle("Counts");
+                      a->GetXaxis()->SetTitle(xTitle.c_str());
+                      a->GetYaxis()->SetTitle((ds.isSim && bothPhoton10and20sim) ? "Counts / pb^{-1}" : "Counts");
                   }
                   if (b)
                   {
@@ -4040,8 +4040,8 @@ namespace ARJ
                     b->SetMarkerColor(4);
                     b->SetFillStyle(0);
 
-                    b->GetXaxis()->SetTitle(xTitle.c_str());
-                    b->GetYaxis()->SetTitle("Counts");
+                      b->GetXaxis()->SetTitle(xTitle.c_str());
+                      b->GetYaxis()->SetTitle((ds.isSim && bothPhoton10and20sim) ? "Counts / pb^{-1}" : "Counts");
                   }
 
                   TH1* first  = a ? a : b;
@@ -4118,25 +4118,47 @@ namespace ARJ
               }
             };
 
-            // -------------------- TRUTH (existing): integrated alpha --------------------
+            // -------------------- TRUTH (reco-conditioned): integrated alpha --------------------
             TH3* hTr02 = GetObj<TH3>(ds, "h_JES3Truth_pT_xJ_alpha_r02", true, true, true);
             TH3* hTr04 = GetObj<TH3>(ds, "h_JES3Truth_pT_xJ_alpha_r04", true, true, true);
 
             if (hTr02 && hTr04)
             {
-              const std::string ovTruth = JoinPath(ovBase, "xJ_truth_integratedAlpha");
+              const std::string ovTruthRecoCond = JoinPath(ovBase, "xJ_truth_integratedAlpha_recoConditioned");
               DrawOverlayPair_TH3xJ(
                 hTr02, hTr04,
-                ovTruth,
+                ovTruthRecoCond,
                 "x_{J#gamma}^{truth}",
-                {"TRUTH: x_{J#gamma}^{truth}", "Overlay: r02 red, r04 blue"},
+                {"TRUTH (reco-conditioned): x_{J#gamma}^{truth}", "Overlay: r02 red, r04 blue"},
                 false, 0.0
               );
             }
             else
             {
               cout << ANSI_BOLD_YEL
-                   << "[WARN] TRUTH overlay skipped: missing h_JES3Truth_pT_xJ_alpha_r02 or r04 in dataset " << ds.label
+                   << "[WARN] TRUTH reco-conditioned overlay skipped: missing h_JES3Truth_pT_xJ_alpha_r02 or r04 in dataset " << ds.label
+                   << ANSI_RESET << "\n";
+            }
+
+            // -------------------- TRUTH (pure): integrated alpha --------------------
+            TH3* hTrPure02 = GetObj<TH3>(ds, "h_JES3TruthPure_pT_xJ_alpha_r02", true, true, true);
+            TH3* hTrPure04 = GetObj<TH3>(ds, "h_JES3TruthPure_pT_xJ_alpha_r04", true, true, true);
+
+            if (hTrPure02 && hTrPure04)
+            {
+              const std::string ovTruthPure = JoinPath(ovBase, "xJ_truth_integratedAlpha_pureTruth");
+              DrawOverlayPair_TH3xJ(
+                hTrPure02, hTrPure04,
+                ovTruthPure,
+                "x_{J#gamma}^{truth}",
+                {"TRUTH (pure): x_{J#gamma}^{truth}", "Overlay: r02 red, r04 blue"},
+                false, 0.0
+              );
+            }
+            else
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] TRUTH pure overlay skipped: missing h_JES3TruthPure_pT_xJ_alpha_r02 or r04 in dataset " << ds.label
                    << ANSI_RESET << "\n";
             }
 
@@ -4232,13 +4254,14 @@ namespace ARJ
             };
 
             auto PickPtAxis =
-              [&](TH3* hReco_xJ, TH3* hReco_j1, TH3* hTrut_xJ, TH3* hTrut_j1)->const TAxis*
+              [&](TH3* hReco_xJ, TH3* hReco_j1, TH3* hTrut_xJ, TH3* hTrut_j1, TH3* hTrutPure_xJ)->const TAxis*
             {
               return
                 (hReco_xJ ? hReco_xJ->GetXaxis()
                 : (hReco_j1 ? hReco_j1->GetXaxis()
                 : (hTrut_xJ ? hTrut_xJ->GetXaxis()
-                : (hTrut_j1 ? hTrut_j1->GetXaxis() : nullptr))));
+                : (hTrut_j1 ? hTrut_j1->GetXaxis()
+                : (hTrutPure_xJ ? hTrutPure_xJ->GetXaxis() : nullptr)))));
             };
 
             struct Jes3Dirs
@@ -4248,7 +4271,8 @@ namespace ARJ
               string dirSumm;
               string dirXJProj;
               string dirXJProjReco;
-              string dirXJProjTruth;
+              string dirXJProjTruthRecoCond;
+              string dirXJProjTruthPure;
             };
 
             auto MakeJes3Dirs =
@@ -4260,43 +4284,47 @@ namespace ARJ
               D.dirSumm  = JoinPath(D.rOut, "summaries");
 
               // xJ(=Y) projections after integrating over alpha(=Z)
-              D.dirXJProj      = JoinPath(D.rOut, "xJ_fromJES3");
-              D.dirXJProjReco  = JoinPath(D.dirXJProj, "RECO");
-              D.dirXJProjTruth = JoinPath(D.dirXJProj, "TRUTH");
+              D.dirXJProj               = JoinPath(D.rOut, "xJ_fromJES3");
+              D.dirXJProjReco           = JoinPath(D.dirXJProj, "RECO");
+              D.dirXJProjTruthRecoCond  = JoinPath(D.dirXJProj, "TRUTH_recoConditioned");
+              D.dirXJProjTruthPure      = JoinPath(D.dirXJProj, "TRUTH_pure");
 
               EnsureDir(D.rOut);
               EnsureDir(D.dir2D);
               EnsureDir(D.dirSumm);
               EnsureDir(D.dirXJProj);
               EnsureDir(D.dirXJProjReco);
-              EnsureDir(D.dirXJProjTruth);
+              EnsureDir(D.dirXJProjTruthRecoCond);
+              EnsureDir(D.dirXJProjTruthPure);
 
               return D;
             };
 
             struct Jes3Hists
             {
-              TH3* hReco_xJ = nullptr;
-              TH3* hTrut_xJ = nullptr;
-              TH3* hReco_j1 = nullptr;
-              TH3* hTrut_j1 = nullptr;
+              TH3* hReco_xJ      = nullptr;
+              TH3* hTrut_xJ      = nullptr;  // reco-conditioned truth (existing)
+              TH3* hTrutPure_xJ  = nullptr;  // pure-truth xJgamma TH3 (no reco gating)
+              TH3* hReco_j1      = nullptr;
+              TH3* hTrut_j1      = nullptr;
             };
 
             auto LoadJes3Hists =
               [&](const string& rKey)->Jes3Hists
             {
               Jes3Hists H;
-              H.hReco_xJ  = GetObj<TH3>(ds, "h_JES3_pT_xJ_alpha_" + rKey, true, true, true);
-              H.hTrut_xJ  = GetObj<TH3>(ds, "h_JES3Truth_pT_xJ_alpha_" + rKey, true, true, true);
-              H.hReco_j1  = GetObj<TH3>(ds, "h_JES3_pT_jet1Pt_alpha_" + rKey, true, true, true);
-              H.hTrut_j1  = GetObj<TH3>(ds, "h_JES3Truth_pT_jet1Pt_alpha_" + rKey, true, true, true);
+              H.hReco_xJ      = GetObj<TH3>(ds, "h_JES3_pT_xJ_alpha_" + rKey, true, true, true);
+              H.hTrut_xJ      = GetObj<TH3>(ds, "h_JES3Truth_pT_xJ_alpha_" + rKey, true, true, true);
+              H.hTrutPure_xJ  = GetObj<TH3>(ds, "h_JES3TruthPure_pT_xJ_alpha_" + rKey, true, true, true);
+              H.hReco_j1      = GetObj<TH3>(ds, "h_JES3_pT_jet1Pt_alpha_" + rKey, true, true, true);
+              H.hTrut_j1      = GetObj<TH3>(ds, "h_JES3Truth_pT_jet1Pt_alpha_" + rKey, true, true, true);
               return H;
             };
 
             auto HasAnyJes3 =
               [&](const Jes3Hists& H)->bool
             {
-              return (H.hReco_xJ || H.hTrut_xJ || H.hReco_j1 || H.hTrut_j1);
+              return (H.hReco_xJ || H.hTrut_xJ || H.hTrutPure_xJ || H.hReco_j1 || H.hTrut_j1);
             };
 
             // ---------------------------------------------------------------------------
@@ -4318,7 +4346,7 @@ namespace ARJ
               }
 
               // pT axis from available hist
-              const TAxis* axPt = PickPtAxis(H.hReco_xJ, H.hReco_j1, H.hTrut_xJ, H.hTrut_j1);
+              const TAxis* axPt = PickPtAxis(H.hReco_xJ, H.hReco_j1, H.hTrut_xJ, H.hTrut_j1, H.hTrutPure_xJ);
               const int nPt = (axPt ? axPt->GetNbins() : 0);
 
               if (nPt <= 0)
@@ -4470,22 +4498,51 @@ namespace ARJ
                 }
               };
 
-              auto SaveXJTruthPNGs =
-                [&](TH1* xJ_tr, int ib, const string& ptLab)
-              {
-                if (!xJ_tr) return;
+                auto SaveXJTruthPNGs =
+                  [&](TH1* xJ_tr, int ib, const string& ptLab)
+                {
+                  if (!xJ_tr) return;
 
-                vector<string> lines = {
-                  "JES3 (TRUTH): x_{J#gamma}^{truth}",
-                  TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
-                  TString::Format("p_{T}^{#gamma,truth}: %s", ptLab.c_str()).Data(),
-                  "Filled with: (tPt, xJt=tj1Pt/tPt, aT=tj2Pt/tPt)"
+                  vector<string> lines = {
+                    "JES3 (TRUTH reco-conditioned): x_{J#gamma}^{truth}",
+                    TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                    TString::Format("p_{T}^{#gamma,truth}: %s", ptLab.c_str()).Data(),
+                    "Filled with: (tPt, xJt=tj1Pt/tPt, aT=tj2Pt/tPt)"
+                  };
+
+                  DrawAndSaveTH1_Common(ds, xJ_tr,
+                    JoinPath(D.dirXJProjTruthRecoCond, TString::Format("xJ_truth_integratedAlpha_recoConditioned_pTbin%d.png", ib).Data()),
+                    "x_{J#gamma}^{truth}", "Counts", lines, false, false, 0.0, "E1");
                 };
 
-                DrawAndSaveTH1_Common(ds, xJ_tr,
-                  JoinPath(D.dirXJProjTruth, TString::Format("xJ_truth_integratedAlpha_pTbin%d.png", ib).Data()),
-                  "x_{J#gamma}^{truth}", "Counts", lines, false, false, 0.0, "E1");
-              };
+                auto SaveXJTruthPurePNGs =
+                  [&](int ib, const string& ptLab)
+                {
+                  if (!H.hTrutPure_xJ) return;
+
+                  TH1* xJ_pure = ProjectY_AtXbin_TH3(
+                    H.hTrutPure_xJ, ib,
+                    TString::Format("jes3_xJ_trPure_%s_%d", rKey.c_str(), ib).Data()
+                  );
+
+                  if (!xJ_pure) return;
+
+                  xJ_pure->SetName(TString::Format("h_xJ_trPure_%s_pTbin%d", rKey.c_str(), ib).Data());
+
+                  vector<string> lines = {
+                    "JES3 (TRUTH pure): x_{J#gamma}^{truth}",
+                    TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                    TString::Format("p_{T}^{#gamma,truth}: %s", ptLab.c_str()).Data(),
+                    "Filled with: (tPt, xJt=tj1Pt/tPt, aT=tj2Pt/tPt)",
+                    "NOTE: no reco gating / no reco-jet matching"
+                  };
+
+                  DrawAndSaveTH1_Common(ds, xJ_pure,
+                    JoinPath(D.dirXJProjTruthPure, TString::Format("xJ_truth_integratedAlpha_pureTruth_pTbin%d.png", ib).Data()),
+                    "x_{J#gamma}^{truth}", "Counts", lines, false, false, 0.0, "E1");
+
+                  delete xJ_pure;
+                };
 
               auto SaveJes3Maps2D_ForBin =
                 [&](int ib, const string& ptLab)
@@ -4581,11 +4638,16 @@ namespace ARJ
                   P.ptLab.c_str(), P.nRe, P.mxRe, P.maRe, P.nTr, P.mxTr, P.maTr
                 ).Data());
 
-                // Save xJ distributions (integrated over alpha) as individual PNGs
-                SaveXJRecoPNGs(P.xJ_re, ib, P.ptLab);
-                SaveXJTruthPNGs(P.xJ_tr, ib, P.ptLab);
+                  // Save xJ distributions (integrated over alpha) as individual PNGs
+                  SaveXJRecoPNGs(P.xJ_re, ib, P.ptLab);
 
-                // Existing behavior: RECO/TRUTH xJ-alpha maps and jet1Pt-alpha maps
+                  // TRUTH reco-conditioned (existing h_JES3Truth_pT_xJ_alpha_<rKey>)
+                  SaveXJTruthPNGs(P.xJ_tr, ib, P.ptLab);
+
+                  // TRUTH pure (new h_JES3TruthPure_pT_xJ_alpha_<rKey>)
+                  SaveXJTruthPurePNGs(ib, P.ptLab);
+
+                // RECO/TRUTH xJ-alpha maps and jet1Pt-alpha maps
                 SaveJes3Maps2D_ForBin(ib, P.ptLab);
 
                 CleanupBinPack(P);
@@ -4667,9 +4729,9 @@ namespace ARJ
                     hx->SetMarkerStyle(20);
                     hx->SetMarkerSize(1.0);
 
-                    hx->SetTitle("");
-                    hx->GetXaxis()->SetTitle((tag == "TRUTH") ? "x_{J#gamma}^{truth}" : "x_{J#gamma}");
-                    hx->GetYaxis()->SetTitle("Counts");
+                      hx->SetTitle("");
+                      hx->GetXaxis()->SetTitle((tag == "TRUTH") ? "x_{J#gamma}^{truth}" : "x_{J#gamma}");
+                      hx->GetYaxis()->SetTitle((ds.isSim && bothPhoton10and20sim) ? "Counts / pb^{-1}" : "Counts");
 
                     if (logy)
                     {
@@ -4783,10 +4845,10 @@ namespace ARJ
                     hx->SetMarkerStyle(20);
                     hx->SetMarkerSize(1.0);
 
-                    hx->SetTitle("");
-                    hx->GetXaxis()->SetTitle((tag == "TRUTH") ? "x_{J#gamma}^{truth}" : "x_{J#gamma}");
-                    hx->GetYaxis()->SetTitle("Counts");
-                    hx->Draw("E1");
+                      hx->SetTitle("");
+                      hx->GetXaxis()->SetTitle((tag == "TRUTH") ? "x_{J#gamma}^{truth}" : "x_{J#gamma}");
+                      hx->GetYaxis()->SetTitle((ds.isSim && bothPhoton10and20sim) ? "Counts / pb^{-1}" : "Counts");
+                      hx->Draw("E1");
 
                     const string ptLab = AxisBinLabel(h3->GetXaxis(), ib, "GeV", 0);
 
@@ -4816,13 +4878,16 @@ namespace ARJ
                 }
               };
 
-              // Keep existing integrated-alpha tables (linear + logy)
-              Make3x3Table_xJ_FromTH3(H.hReco_xJ, D.dirXJProjReco,  "RECO",  false);
-              Make3x3Table_xJ_FromTH3(H.hTrut_xJ, D.dirXJProjTruth, "TRUTH", false);
-              Make3x3Table_xJ_FromTH3(H.hReco_xJ, D.dirXJProjReco,  "RECO",  true);
-              Make3x3Table_xJ_FromTH3(H.hTrut_xJ, D.dirXJProjTruth, "TRUTH", true);
+              // integrated-alpha tables (linear + logy)
+              Make3x3Table_xJ_FromTH3(H.hReco_xJ,     D.dirXJProjReco,          "RECO",  false);
+              Make3x3Table_xJ_FromTH3(H.hTrut_xJ,     D.dirXJProjTruthRecoCond, "TRUTH", false);
+              Make3x3Table_xJ_FromTH3(H.hTrutPure_xJ, D.dirXJProjTruthPure,     "TRUTH", false);
 
-              // NEW: RECO alpha-cut tables into subfolders (requested)
+              Make3x3Table_xJ_FromTH3(H.hReco_xJ,     D.dirXJProjReco,          "RECO",  true);
+              Make3x3Table_xJ_FromTH3(H.hTrut_xJ,     D.dirXJProjTruthRecoCond, "TRUTH", true);
+              Make3x3Table_xJ_FromTH3(H.hTrutPure_xJ, D.dirXJProjTruthPure,     "TRUTH", true);
+
+              // RECO alpha-cut tables into subfolders (requested)
               if (H.hReco_xJ)
               {
                 const vector<double> alphaMaxCuts = {0.20, 0.30, 0.40, 0.50};

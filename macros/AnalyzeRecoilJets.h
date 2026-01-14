@@ -121,7 +121,7 @@ namespace ARJ
 // =============================================================================
 
   inline bool isPPdataOnly   = false;
-  inline bool isSimAndDataPP = false;
+  inline bool isSimAndDataPP = true;
 
   // SIM sample selection toggles (choose EXACTLY ONE for any SIM-including run)
   inline bool isPhotonJet10        = false;
@@ -608,10 +608,14 @@ namespace ARJ
       ApplyCanvasMargins1D(c);
       c.SetLogy(logy);
 
+      const bool mergedSimWeightedToPb = (ds.isSim && bothPhoton10and20sim);
+
       const string yTitleEff =
         (yTitle == "A.U." || yTitle == "A.U")
           ? "Fraction of entries"
-          : yTitle;
+          : ((mergedSimWeightedToPb && (yTitle == "Counts" || yTitle == "counts"))
+              ? "Counts / pb^{-1}"
+              : yTitle);
 
       h->SetLineWidth(2);
       h->SetTitle("");
@@ -653,10 +657,14 @@ namespace ARJ
     ApplyCanvasMargins1D(c);
     c.SetLogy(logy);
 
-    const string yTitleEff =
-      (yTitle == "A.U." || yTitle == "A.U")
-        ? "Fraction of entries"
-        : yTitle;
+      const bool mergedSimWeightedToPb = (ds.isSim && bothPhoton10and20sim);
+
+      const string yTitleEff =
+        (yTitle == "A.U." || yTitle == "A.U")
+          ? "Fraction of entries"
+          : ((mergedSimWeightedToPb && (yTitle == "Counts" || yTitle == "counts"))
+              ? "Counts / pb^{-1}"
+              : yTitle);
 
     h->SetLineWidth(2);
     h->SetTitle("");

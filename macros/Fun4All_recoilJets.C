@@ -763,7 +763,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
           std::cout << "[INFO] JES calib enabled: " << rawNode << " -> " << calibNode
                     << " (R=" << R << ", Zvrtx+eta dependent, JetCalibVerbosity=" << jetcalV << ")\n";
         }
-      }
+     }
   }
     
   // ---------------------- Truth jets -----------------------------------------
@@ -840,11 +840,25 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   photonBuilder->Verbosity(2);
   se->registerSubsystem(photonBuilder);
 
+  // ------------------------------------------------------------------
+  // ClusterIso (UNSUBTRACTED) computed on PHOTONCLUSTER_CEMC so RecoilJets can read:
+  //   rc->get_et_iso(radiusx10,false,true)
+  //
+  // coneSize = 3  -> R = 0.3  (must match recoilJets isolation cone)
+  // do_subtracted=false, do_unsubtracted=true
+  // ------------------------------------------------------------------
+  auto* clusterIso = new ClusterIso("ClusterIso_Unsub_PHOTON", 0.0, 3, false, true);
+  clusterIso->set_cluster_node_name("PHOTONCLUSTER_CEMC");
+  clusterIso->setMinTowerEnergy(0.070);
+  clusterIso->Verbosity(0);
+  se->registerSubsystem(clusterIso);
+
   auto* recoilJets = new RecoilJets(outRoot);
 
   recoilJets->setUseVzCut(true, 30.0);
   recoilJets->setIsolationWP(1.08128, 0.0299107, 1.0, 0.30, 0.0);
 
+    
   // RecoilJets inherits SubsysReco::Verbosity(int)
   recoilJets->Verbosity(vlevel);
   if (verbose) std::cout << "[INFO] RJ_VERBOSITY → " << vlevel << '\n';

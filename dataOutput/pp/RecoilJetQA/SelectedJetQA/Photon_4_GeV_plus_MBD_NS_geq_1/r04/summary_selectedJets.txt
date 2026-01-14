@@ -1,0 +1,12 @@
+SelectedJetQA summary (DATA_PP)
+rKey: r04  R=0.4
+
+pT=10-12  Njet1=13  Njet2=13  <pT1>=15.327891  <pT2>=1.856315
+pT=12-14  Njet1=6  Njet2=6  <pT1>=17.135168  <pT2>=2.419857
+pT=14-16  Njet1=5  Njet2=5  <pT1>=13.854489  <pT2>=4.405543
+pT=16-18  Njet1=0  Njet2=0  <pT1>=0.000000  <pT2>=0.000000
+pT=18-20  Njet1=1  Njet2=1  <pT1>=28.531637  <pT2>=0.000000
+pT=20-22  Njet1=0  Njet2=0  <pT1>=0.000000  <pT2>=0.000000
+pT=22-24  Njet1=0  Njet2=0  <pT1>=0.000000  <pT2>=0.000000
+pT=24-26  Njet1=0  Njet2=0  <pT1>=0.000000  <pT2>=0.000000
+pT=26-35  Njet1=0  Njet2=0  <pT1>=0.000000  <pT2>=0.000000

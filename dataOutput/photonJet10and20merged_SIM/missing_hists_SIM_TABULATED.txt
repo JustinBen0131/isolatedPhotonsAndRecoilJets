@@ -1,5 +1,7 @@
 [REQUESTED_BUT_NOT_IN_FILE]
 path	calls	loggedCount	lastReason
+SIM/h_JES3TruthPure_pT_xJ_alpha_r02	2	2	MISSING
+SIM/h_JES3TruthPure_pT_xJ_alpha_r04	2	2	MISSING
 SIM/h_jet1Mass_sel_r02_pT_10_12	2	2	MISSING
 SIM/h_jet1Mass_sel_r02_pT_12_14	2	2	MISSING
 SIM/h_jet1Mass_sel_r02_pT_14_16	2	2	MISSING

@@ -431,6 +431,7 @@ private:
                                  const std::string& xAxisTitle,
                                  int ptIdx, int centIdx);
     TH1I* getOrBookIsoDecisionHist(const std::string& trig, int ptIdx, int centIdx);
+    TH2F* getOrBookIsoCompareHist(const std::string& trig, int ptIdx, int centIdx);
 
     // -------------------------------------------------------------------------
     // SIM ONLY: matched truth-signal → reco ABCD leakage counters (per pT[/cent] slice)
@@ -664,11 +665,22 @@ private:
 
   Bookkeeping m_bk{};
 
-  // For End() histogram summary (counts how many times each histogram was filled)
-  std::unordered_map<std::string, long long> m_histFill;
+    // For End() histogram summary (counts how many times each histogram was filled)
+    std::unordered_map<std::string, long long> m_histFill;
 
-  // Histogram storage: trigger -> (name -> object*)
-  std::map<std::string, HistMap> qaHistogramsByTrigger;
+    // -------------------------------------------------------------------------
+    // NEW: per-pT-bin negative-isolation bookkeeping (independent of SS classification)
+    //
+    //  - "Builder"    = RecoilJets::eiso() using PhotonClusterBuilder iso_* layer sums
+    //  - "ClusterIso" = RawCluster::get_et_iso(radiusx10,false,true) (UNSUBTRACTED)
+    // -------------------------------------------------------------------------
+    std::vector<unsigned long long> m_nIsoBuilderByPt;
+    std::vector<unsigned long long> m_nIsoBuilderNegByPt;
+    std::vector<unsigned long long> m_nIsoClusterIsoByPt;
+    std::vector<unsigned long long> m_nIsoClusterIsoNegByPt;
+
+    // Histogram storage: trigger -> (name -> object*)
+    std::map<std::string, HistMap> qaHistogramsByTrigger;
 
   // Per-trigger slice counters printed in End()
   std::map<std::string, std::map<std::string, CatStat>> m_catByTrig;

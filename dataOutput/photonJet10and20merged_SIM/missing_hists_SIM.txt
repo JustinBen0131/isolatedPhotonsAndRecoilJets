@@ -43,3 +43,7 @@ SIM/h_jet1Mass_sel_r04_pT_20_22 :: MISSING
 SIM/h_jet1Mass_sel_r04_pT_22_24 :: MISSING
 SIM/h_jet1Mass_sel_r04_pT_24_26 :: MISSING
 SIM/h_jet1Mass_sel_r04_pT_26_35 :: MISSING
+SIM/h_JES3TruthPure_pT_xJ_alpha_r02 :: MISSING
+SIM/h_JES3TruthPure_pT_xJ_alpha_r04 :: MISSING
+SIM/h_JES3TruthPure_pT_xJ_alpha_r02 :: MISSING
+SIM/h_JES3TruthPure_pT_xJ_alpha_r04 :: MISSING

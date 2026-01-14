@@ -1,0 +1,20 @@
+JES3 in-situ residual (DATA vs SIM)
+DATA: DATA_PP  trigger=Photon_4_GeV_plus_MBD_NS_geq_1
+SIM : SIM
+rKey: r04  R=0.4
+
+Recipe:
+  H_i(xJ) = ProjY( h_JES3_pT_xJ_alpha | X=pTgamma bin i, integrate all alpha )
+  Peak proxy R_i from iterative Gaussian:
+    x0=max-bin center; fit1 [x0±0.15]; refit2 [mu1±1.5*sigma1]; R_i=mu2
+  Residual correction factor (apply to DATA jets):  C_i = (R_i^MC / R_i^DATA)
+
+pT=10-12 GeV  Ndata=13 muD=0.328470 sigD=0.258761  Nmc=80165 muMC=0.537186 sigMC=0.135570  C=muMC/muD=1.635421
+pT=12-14 GeV  Ndata=6 muD=1.450006 sigD=0.060106  Nmc=57174 muMC=0.515373 sigMC=0.105959  C=muMC/muD=0.355428
+pT=14-16 GeV  Ndata=5 muD=0.500000 sigD=0.083359  Nmc=33094 muMC=0.469505 sigMC=0.109067  C=muMC/muD=0.939009
+pT=16-18 GeV  Ndata=0 muD=0.000000 sigD=0.000000  Nmc=19354 muMC=0.279852 sigMC=0.434448  C=muMC/muD=0.000000
+pT=18-20 GeV  Ndata=1 muD=0.000000 sigD=0.000000  Nmc=13947 muMC=0.439639 sigMC=0.246317  C=muMC/muD=0.000000
+pT=20-22 GeV  Ndata=0 muD=0.000000 sigD=0.000000  Nmc=14071 muMC=0.525277 sigMC=0.211672  C=muMC/muD=0.000000
+pT=22-24 GeV  Ndata=0 muD=0.000000 sigD=0.000000  Nmc=10909 muMC=0.477729 sigMC=0.252155  C=muMC/muD=0.000000
+pT=24-26 GeV  Ndata=0 muD=0.000000 sigD=0.000000  Nmc=6401 muMC=0.580739 sigMC=0.140237  C=muMC/muD=0.000000
+pT=26-35 GeV  Ndata=0 muD=0.000000 sigD=0.000000  Nmc=7760 muMC=0.603259 sigMC=0.136774  C=muMC/muD=0.000000
