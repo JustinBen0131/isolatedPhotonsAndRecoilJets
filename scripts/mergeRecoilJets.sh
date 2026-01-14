@@ -105,11 +105,22 @@ OUT_BASE="/sphenix/u/patsfan753/scratch/thesisAnalysis/output"
 #   /sphenix/u/patsfan753/scratch/thesisAnalysis/output/pp
 #   /sphenix/u/patsfan753/scratch/thesisAnalysis/output/auau
 
-# ---------- Logs and temp ----------
-LOG_DIR="/sphenix/u/patsfan753/scratch/thesisAnalysis/log"
-OUT_DIR="/sphenix/u/patsfan753/scratch/thesisAnalysis/stdout"
-ERR_DIR="/sphenix/u/patsfan753/scratch/thesisAnalysis/error"
-TMP_DIR="/sphenix/u/patsfan753/scratch/thesisAnalysis/tmp_recoil_merge"
+# ---------- Logs / temp / round files ----------
+BASE="/sphenix/u/patsfan753/scratch/thesisAnalysis"
+HOSTTAG="$(hostname -s 2>/dev/null || echo unknownhost)"
+
+LOG_DIR="${BASE}/log"
+OUT_DIR="${BASE}/stdout"
+ERR_DIR="${BASE}/error"
+
+# NOTE: TMP_DIR is host-specific so merges run from sphnxuser02 and sphnxuser03
+# cannot clobber each other's skiplists/listfiles when used close together.
+TMP_DIR="${BASE}/tmp_recoil_merge_${HOSTTAG}"
+
+# Where splitGoldenRunList round files live:
+#   ${ROUND_BASE}/<pp|auau>/goldenRuns_<pp|auau>_segmentK.txt
+ROUND_BASE="${BASE}/condor_segments"
+
 CONDOR_EXEC="hadd_condor.sh"   # small wrapper emitted on-the-fly
 
 # ---------- Naming ----------
@@ -149,8 +160,11 @@ resolve_dataset() {
     pp)   RUN_BASE="$RUN_BASE_PP" ;;
     auau) RUN_BASE="$RUN_BASE_AA" ;;
   esac
-  DEST_DIR="${OUT_BASE}/${TAG}"         # where partials and final live
-  mkdir -p "$DEST_DIR" "$LOG_DIR" "$OUT_DIR" "$ERR_DIR" "$TMP_DIR"
+
+  DEST_DIR="${OUT_BASE}/${TAG}"      # where partials and final live
+  ROUND_DIR="${ROUND_BASE}/${TAG}"   # where splitGoldenRunList round files live
+
+  mkdir -p "$DEST_DIR" "$ROUND_DIR" "$LOG_DIR" "$OUT_DIR" "$ERR_DIR" "$TMP_DIR"
 }
 
 emit_hadd_wrapper() {
@@ -187,6 +201,92 @@ discover_runs() {
     fi
   done
   RUNS=( "${valid[@]}" )
+}
+
+# Normalize a run token to 8 digits (handles "47289" or "00047289")
+pad_run8() {
+  local x="${1:-}"
+  x="${x%%#*}"
+  x="${x//[[:space:]]/}"
+  [[ -n "$x" ]] || return 1
+  [[ "$x" =~ ^[0-9]+$ ]] || return 1
+  printf "%08d" "$((10#$x))"
+}
+
+# Optional verbose preview of a run list (smoke-test friendly)
+print_runs_preview() {
+  local runs=( "$@" )
+  local n="${#runs[@]}"
+  (( n == 0 )) && return 0
+
+  local head_n=5
+  local tail_n=5
+
+  if (( ${PRINT_ALL_RUNS:-0} )); then
+    say "  All runs (${n}):"
+    printf "%s\n" "${runs[@]}" | sed 's/^/    /'
+    return 0
+  fi
+
+  if (( n <= head_n + tail_n )); then
+    say "  Runs (${n}): ${runs[*]}"
+    return 0
+  fi
+
+  say "  First ${head_n} runs: ${runs[*]:0:${head_n}}"
+  say "  Last  ${tail_n} runs: ${runs[*]:$((n-tail_n)):${tail_n}}"
+  say "  (Set PRINT_ALL_RUNS=1 to print every run)"
+}
+
+# Load RUNS from splitGoldenRunList segment files:
+#   ${ROUND_DIR}/goldenRuns_${TAG}_segmentK.txt
+# and restrict to those runs (so a given schedd only merges “its” segments).
+load_runs_from_segments() {
+  local segs=( "$@" )
+  (( ${#segs[@]} > 0 )) || { err "No segment indices provided to load_runs_from_segments()"; exit 30; }
+
+  [[ -d "${ROUND_DIR:-}" ]] || { err "ROUND_DIR not found: ${ROUND_DIR:-<unset>}"; exit 31; }
+
+  local tmp="${TMP_DIR}/runs_${TAG}_segments_${HOSTTAG}.txt"
+  : > "$tmp"
+
+  say "Run selection mode: ${BOLD}fromSplitRunList${RST} (host=${HOSTTAG})"
+  say "  Round dir: ${ROUND_DIR}"
+
+  for s in "${segs[@]}"; do
+    [[ "$s" =~ ^[0-9]+$ ]] || { err "Bad segment index '$s' (must be integer)"; exit 32; }
+    local f="${ROUND_DIR}/goldenRuns_${TAG}_segment${s}.txt"
+    [[ -s "$f" ]] || { err "Segment file missing/empty: $f"; exit 33; }
+
+    local nr
+    nr=$(grep -E -v '^[[:space:]]*($|#)' "$f" | wc -l | awk '{print $1}')
+    say "  Segment ${s}: ${nr} runs  ->  $(basename "$f")"
+
+    while IFS= read -r line; do
+      [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+      r8="$(pad_run8 "$line" || true)"
+      [[ -n "${r8:-}" ]] || continue
+      printf "%s\n" "$r8" >> "$tmp"
+    done < "$f"
+  done
+
+  # Unique + sort
+  mapfile -t RUNS < <(sort -u -V "$tmp")
+
+  # Filter to runs that actually exist under RUN_BASE (directory exists),
+  # to avoid trying to merge nonsense.
+  local filtered=()
+  for r in "${RUNS[@]}"; do
+    if [[ -d "${RUN_BASE}/${r}" ]]; then
+      filtered+=( "$r" )
+    else
+      warn "[segments] run ${r} listed in segments but no directory under RUN_BASE: ${RUN_BASE}/${r}"
+    fi
+  done
+  RUNS=( "${filtered[@]}" )
+
+  say "  Runs loaded (after filtering to existing dirs): ${#RUNS[@]}"
+  print_runs_preview "${RUNS[@]}"
 }
 
 # -----------------------------------------------------------------------------
@@ -545,19 +645,61 @@ if [[ "$MODE" == "condor" ]]; then
   fi
 
   say "Preparing per-run Condor merges (one job per run)"
-  discover_runs "$RUN_BASE"
-  if ((${#RUNS[@]}==0)); then
-    err "No runs found with *.root files under ${RUN_BASE}"
-    exit 5
-  fi
 
-  # Apply submodes
-  case "$SUBMODE" in
-    test)        RUNS=( "${RUNS[0]}" ) ;;
-    firstHalf)   RUNS=( "${RUNS[@]:0:$(( (${#RUNS[@]}+1)/2 ))}" ) ;;
-    "" )         ;;
-    * )          err "Unknown submode '$SUBMODE' (allowed: test, firstHalf)"; exit 6 ;;
-  esac
+  SEGMENT_MODE=0
+  SEGMENTS=()
+
+  # ------------------------------------------------------------
+  # RUN SELECTION
+  #
+  # Default (backward-compatible):
+  #   - discover_runs(): scan RUN_BASE/<run8> dirs that already have *.root
+  #
+  # New (splitGoldenRunList aware):
+  #   - If SUBMODE is one of:
+  #       fromSplitRunList | fromSplit | rounds | round | segments | seg
+  #     then we read run8 values from:
+  #       ${ROUND_DIR}/goldenRuns_${TAG}_segmentK.txt
+  #     using the segment indices provided after SUBMODE.
+  #
+  # This supports your “round … currentNode” token style because we just
+  # extract integers from the remaining args.
+  #
+  # Example:
+  #   DRYRUN=1 SKIP_TRACE=1 ./mergeRecoilJets.sh condor pp fromSplitRunList round 1 round 3 currentNode
+  # ------------------------------------------------------------
+  if [[ "$SUBMODE" =~ ^(fromSplitRunList|fromSplit|rounds|round|segments|seg)$ ]]; then
+    SEGMENT_MODE=1
+    for tok in "${@:4}"; do
+      [[ "$tok" =~ ^[0-9]+$ ]] && SEGMENTS+=( "$tok" )
+    done
+    if (( ${#SEGMENTS[@]} == 0 )); then
+      err "Segment-restricted mode '${SUBMODE}' requires one or more segment indices."
+      err "Example: $0 condor ${TAG} fromSplitRunList round 1 round 3 currentNode"
+      exit 6
+    fi
+
+    load_runs_from_segments "${SEGMENTS[@]}"
+
+    if ((${#RUNS[@]}==0)); then
+      err "No runs loaded from segments (${SEGMENTS[*]}). Check: ${ROUND_DIR}/goldenRuns_${TAG}_segment*.txt"
+      exit 5
+    fi
+  else
+    discover_runs "$RUN_BASE"
+    if ((${#RUNS[@]}==0)); then
+      err "No runs found with *.root files under ${RUN_BASE}"
+      exit 5
+    fi
+
+    # Apply legacy submodes
+    case "$SUBMODE" in
+      test)        RUNS=( "${RUNS[0]}" ) ;;
+      firstHalf)   RUNS=( "${RUNS[@]:0:$(( (${#RUNS[@]}+1)/2 ))}" ) ;;
+      "" )         ;;
+      * )          err "Unknown submode '$SUBMODE' (allowed: test, firstHalf, fromSplitRunList/rounds/segments)"; exit 6 ;;
+    esac
+  fi
 
   # Build the skiplist once up-front (read-only condor_q)
   build_active_skiplist
@@ -580,10 +722,20 @@ if [[ "$MODE" == "condor" ]]; then
     exit 0
   fi
 
-  # Normal mode: clean slate for partials/final in DEST_DIR only (does not touch running jobs)
-  say "Cleaning old partials/final in ${DEST_DIR}"
-  find "$DEST_DIR" -maxdepth 1 -type f \
-       \( -name "${PARTIAL_PREFIX}_*.root" -o -name "${FINAL_PREFIX}_${TAG}_ALL.root" \) -delete || true
+  # Normal mode:
+  #   - Legacy behavior (auto-discovery): wipe ALL partials in DEST_DIR (original behavior)
+  #   - Segment-restricted behavior     : DO NOT wipe all partials (safe for multi-schedd workflow)
+  if (( SEGMENT_MODE )); then
+    say "Segment-restricted stage-1: ${BOLD}NOT deleting${RST} existing partials in ${DEST_DIR}"
+    say "  (This avoids clobbering partials produced from another schedd/node.)"
+    say "  Any run we submit will overwrite its own partial: ${PARTIAL_PREFIX}_<run8>.root"
+    # Optional: remove stale ALL file so it's obvious it must be rebuilt later
+    rm -f "${DEST_DIR}/${FINAL_PREFIX}_${TAG}_ALL.root" 2>/dev/null || true
+  else
+    say "Cleaning old partials/final in ${DEST_DIR}"
+    find "$DEST_DIR" -maxdepth 1 -type f \
+         \( -name "${PARTIAL_PREFIX}_*.root" -o -name "${FINAL_PREFIX}_${TAG}_ALL.root" \) -delete || true
+  fi
 
   emit_hadd_wrapper "$CONDOR_EXEC"
 
@@ -603,16 +755,28 @@ stream_error  = True
 EOT
 
   queued=0
+  skipped=0
   for r in "${RUNS[@]}"; do
     listfile="$(make_run_list "$r" || true)"
     if [[ -z "${listfile:-}" || ! -s "$listfile" ]]; then
       warn "Run $r: no eligible files after skipping active jobs; skipping merge submit"
+      if (( SEGMENT_MODE )); then
+        [[ -f "${DEST_DIR}/${PARTIAL_PREFIX}_${r}.root" ]] && \
+          warn "  (segment-mode) existing partial left as-is: ${DEST_DIR}/${PARTIAL_PREFIX}_${r}.root"
+      fi
+      ((skipped+=1))
       continue
     fi
+
     out="${DEST_DIR}/${PARTIAL_PREFIX}_${r}.root"
+    nfiles=$(wc -l < "$listfile" | awk '{print $1}')
+    (( SKIP_TRACE )) && say "Queueing run ${r}: inputs=${nfiles} -> $(basename "$out")"
+
     printf 'arguments = %s %s\nqueue\n\n' "$listfile" "$out" >> "$SUB"
     ((queued+=1))
   done
+
+  (( SKIP_TRACE )) && say "Stage-1 queue summary: queued=${queued}, skipped=${skipped}"
 
   if (( queued == 0 )); then
     err "No Condor jobs to submit (no non-empty eligible run lists)."
