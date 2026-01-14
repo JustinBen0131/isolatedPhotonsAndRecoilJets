@@ -6,13 +6,13 @@ Definitions:
   purity(reco sample)     = (N_reco  - N_fake) / N_reco
 
 pTtruth=5-8 GeV  pTreco=8-10 GeV  Ntruth=0  Nmiss=0  eff=0.000000  Nreco=0  Nfake=0  pur=0.000000
-pTtruth=8-10 GeV  pTreco=10-12 GeV  Ntruth=8024  Nmiss=6440  eff=0.197408  Nreco=23019  Nfake=6279  pur=0.727225
-pTtruth=10-12 GeV  pTreco=12-14 GeV  Ntruth=75274  Nmiss=60717  eff=0.193387  Nreco=19122  Nfake=5011  pur=0.737946
-pTtruth=12-14 GeV  pTreco=14-16 GeV  Ntruth=55512  Nmiss=43037  eff=0.224726  Nreco=13610  Nfake=3174  pur=0.766789
-pTtruth=14-16 GeV  pTreco=16-18 GeV  Ntruth=34424  Nmiss=24920  eff=0.276086  Nreco=9094  Nfake=1997  pur=0.780405
-pTtruth=16-18 GeV  pTreco=18-20 GeV  Ntruth=20370  Nmiss=13760  eff=0.324497  Nreco=6002  Nfake=1191  pur=0.801566
-pTtruth=18-20 GeV  pTreco=20-22 GeV  Ntruth=11928  Nmiss=7481  eff=0.372820  Nreco=4007  Nfake=799  pur=0.800599
-pTtruth=20-22 GeV  pTreco=22-24 GeV  Ntruth=7163  Nmiss=4113  eff=0.425799  Nreco=2500  Nfake=484  pur=0.806400
-pTtruth=22-24 GeV  pTreco=24-26 GeV  Ntruth=4154  Nmiss=2256  eff=0.456909  Nreco=1590  Nfake=290  pur=0.817610
-pTtruth=24-26 GeV  pTreco=26-35 GeV  Ntruth=2397  Nmiss=1222  eff=0.490196  Nreco=2127  Nfake=344  pur=0.838270
-pTtruth=26-35 GeV  pTreco=35-40 GeV  Ntruth=3010  Nmiss=1403  eff=0.533887  Nreco=0  Nfake=0  pur=0.000000
+pTtruth=8-10 GeV  pTreco=10-12 GeV  Ntruth=8024  Nmiss=4043  eff=0.496137  Nreco=81096  Nfake=39762  pur=0.509692
+pTtruth=10-12 GeV  pTreco=12-14 GeV  Ntruth=75274  Nmiss=38768  eff=0.484975  Nreco=59671  Nfake=27282  pur=0.542793
+pTtruth=12-14 GeV  pTreco=14-16 GeV  Ntruth=55512  Nmiss=26831  eff=0.516663  Nreco=36388  Nfake=15300  pur=0.579532
+pTtruth=14-16 GeV  pTreco=16-18 GeV  Ntruth=34424  Nmiss=15477  eff=0.550401  Nreco=21355  Nfake=8292  pur=0.611707
+pTtruth=16-18 GeV  pTreco=18-20 GeV  Ntruth=20370  Nmiss=8464  eff=0.584487  Nreco=12787  Nfake=4724  pur=0.630562
+pTtruth=18-20 GeV  pTreco=20-22 GeV  Ntruth=11928  Nmiss=4512  eff=0.621730  Nreco=7765  Nfake=2760  pur=0.644559
+pTtruth=20-22 GeV  pTreco=22-24 GeV  Ntruth=7163  Nmiss=2581  eff=0.639676  Nreco=4625  Nfake=1613  pur=0.651243
+pTtruth=22-24 GeV  pTreco=24-26 GeV  Ntruth=4154  Nmiss=1409  eff=0.660809  Nreco=2761  Nfake=904  pur=0.672582
+pTtruth=24-26 GeV  pTreco=26-35 GeV  Ntruth=2397  Nmiss=754  eff=0.685440  Nreco=3472  Nfake=1118  pur=0.677995
+pTtruth=26-35 GeV  pTreco=35-40 GeV  Ntruth=3010  Nmiss=886  eff=0.705648  Nreco=0  Nfake=0  pur=0.000000

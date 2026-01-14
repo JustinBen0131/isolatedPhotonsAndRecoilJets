@@ -1,0 +1,17 @@
+JES3 summary (SIM)
+rKey: r04  R=0.4
+
+NOTE (requested):
+  RECO truth-match (MC only): |#eta_{reco}|<0.7, p_{T,reco}>5 GeV, #DeltaR<0.05, best match via CaloRawClusterEval.
+  TRUTH prompt #gamma (MC): |#eta_{truth}|<0.7, PID=22 final-state, direct/frag via HEPMC history.
+  TRUTH iso (MC): E_{T}^{iso,truth} = #Sigma E_{T}(#DeltaR<0.3, excl. #gamma).
+
+pTgamma=10-12 GeV  Nre=2414  <xJ>re=1.246079  <a>re=0.073177  Ntr=62  <xJ>tr=1.993644  <a>tr=0.062903
+pTgamma=12-14 GeV  Nre=6904  <xJ>re=1.007088  <a>re=0.069069  Ntr=250  <xJ>tr=1.692800  <a>tr=0.059940
+pTgamma=14-16 GeV  Nre=17245  <xJ>re=0.858914  <a>re=0.062968  Ntr=1362  <xJ>tr=1.472944  <a>tr=0.050441
+pTgamma=16-18 GeV  Nre=40426  <xJ>re=0.754505  <a>re=0.060563  Ntr=7039  <xJ>tr=1.172322  <a>tr=0.051858
+pTgamma=18-20 GeV  Nre=109223  <xJ>re=0.654529  <a>re=0.056153  Ntr=58886  <xJ>tr=0.885289  <a>tr=0.050025
+pTgamma=20-22 GeV  Nre=205362  <xJ>re=0.584827  <a>re=0.053493  Ntr=198499  <xJ>tr=0.760158  <a>tr=0.048901
+pTgamma=22-24 GeV  Nre=172836  <xJ>re=0.557515  <a>re=0.053032  Ntr=115219  <xJ>tr=0.754685  <a>tr=0.051403
+pTgamma=24-26 GeV  Nre=101606  <xJ>re=0.551938  <a>re=0.054486  Ntr=66448  <xJ>tr=0.750655  <a>tr=0.053896
+pTgamma=26-35 GeV  Nre=123484  <xJ>re=0.549860  <a>re=0.057122  Ntr=83577  <xJ>tr=0.749701  <a>tr=0.057648

@@ -3146,11 +3146,11 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                     const double recoJphi = recoil1Jet->get_phi();
                     const double drJet = dR(recoJeta, recoJphi, tj1->get_eta(), tj1->get_phi());
 
-                    if (drJet > 0.2)
+                    if (drJet > 0.3)
                     {
                       if (Verbosity() >= 5)
                         LOG(5, CLR_YELLOW, "      [truthQA] rKey=" << rKey
-                                        << " reco jet1 ↔ truth jet1 ΔR=" << drJet << " > 0.2 → skip truth JES3 fills");
+                                        << " reco jet1 ↔ truth jet1 ΔR=" << drJet << " > 0.3 → skip truth JES3 fills");
                     }
                     else
                     {

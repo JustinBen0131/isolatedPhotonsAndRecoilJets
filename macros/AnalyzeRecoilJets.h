@@ -69,20 +69,64 @@ namespace ARJ
   using std::vector;
   using std::map;
 
-  // =============================================================================
-  // GLOBAL USER TOGGLES (EDIT HERE)
-  // =============================================================================
-  // Run-mode toggles:
-  //   - PP only:       isPPdataOnly = true
-  //   - SIM only:      isPPdataOnly = false AND isSimAndDataPP = false
-  //   - SIM + PP data: isSimAndDataPP = true
+// =============================================================================
+// HOW TO USE THESE TOGGLES 
+// =============================================================================
+//
+// You control TWO things here:
+//
+// (A) Run mode (PP-only vs SIM-only vs SIM+PP):
+//   1) PP DATA ONLY (no SIM at all)
+//        isPPdataOnly   = true;
+//        isSimAndDataPP = false;
+//        // and ALL SIM sample toggles must be false
+//
+//   2) SIM ONLY (no PP data)
+//        isPPdataOnly   = false;
+//        isSimAndDataPP = false;
+//        // choose EXACTLY ONE SIM sample toggle below
+//
+//   3) SIM + PP DATA (run both; enables SIM/Data combined steps like unfolding/JES where implemented)
+//        isPPdataOnly   = false;
+//        isSimAndDataPP = true;
+//        // choose EXACTLY ONE SIM sample toggle below
+//
+// (B) Which SIM sample to use (choose EXACTLY ONE when SIM is included):
+//   - photonJet10 only:
+//        isPhotonJet10        = true;
+//        isPhotonJet20        = false;
+//        bothPhoton10and20sim = false;
+//        -> SIM output goes to: .../photonJet10_SIM
+//
+//   - photonJet20 only:
+//        isPhotonJet10        = false;
+//        isPhotonJet20        = true;
+//        bothPhoton10and20sim = false;
+//        -> SIM output goes to: .../photonJet20_SIM
+//
+//   - merged photonJet10+20 (pre-merged with weights):
+//        isPhotonJet10        = false;
+//        isPhotonJet20        = false;
+//        bothPhoton10and20sim = true;
+//        -> SIM output goes to: .../photonJet10and20merged_SIM
+//
+// INVALID COMBINATIONS (hard error):
+//   - Setting more than one SIM sample toggle true.
+//   - Setting any SIM sample toggle true while isPPdataOnly=true.
+//   - Setting isPPdataOnly=true AND isSimAndDataPP=true.
+//
+// NOTE:
+//   - If bothPhoton10and20sim=true, the code will use the merged ROOT file path (kMergedSIMOut).
+//   - If isPhotonJet10=true or isPhotonJet20=true, the code uses the corresponding single-slice SIM file.
+// =============================================================================
+
   inline bool isPPdataOnly   = false;
   inline bool isSimAndDataPP = false;
 
   // SIM sample selection toggles (choose EXACTLY ONE for any SIM-including run)
-  inline bool isPhotonJet10        = true;
+  inline bool isPhotonJet10        = false;
   inline bool isPhotonJet20        = false;
-  inline bool bothPhoton10and20sim = false;
+  inline bool bothPhoton10and20sim = true;
 
   // Displayed range [-vzCutCm,+vzCutCm] and 0.5 cm display bin width
   inline double vzCutCm = 30.0;
@@ -512,6 +556,85 @@ namespace ARJ
     l2.Draw("same");
   }
 
+  // =============================================================================
+  // ISO (Eiso) 1D label helpers (for per-pT single PNGs)
+  // =============================================================================
+  inline string IsoTitleForBase(const string& base)
+  {
+      if (base == "h_Eiso_emcal")   return "E_{T}^{iso, EMCal}";
+      if (base == "h_Eiso_hcalin")  return "E_{T}^{iso, IHCal}";
+      if (base == "h_Eiso_hcalout") return "E_{T}^{iso, OHCal}";
+      if (base == "h_Eiso")         return "E_{T}^{iso, Total}";
+      return "E_{T}^{iso}";
+  }
+
+  inline void DrawIsoCornerLabels1D(const string& isoTitle, const PtBin& pb)
+  {
+      TLatex t;
+      t.SetNDC(true);
+      t.SetTextFont(42);
+
+      // Title (top-left) — match your table styling
+      t.SetTextAlign(13);     // left, top
+      t.SetTextSize(0.08);
+      t.DrawLatex(0.45, 0.985, isoTitle.c_str());
+
+      // pT bin (top-right, larger)
+      t.SetTextAlign(33);     // right, top
+      t.SetTextSize(0.070);
+      t.DrawLatex(0.95, 0.88,
+        TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
+
+      // eta cut (under pT, smaller)
+      t.SetTextSize(0.055);
+      t.DrawLatex(0.85, 0.75, "|#eta^{#gamma}| < 0.7");
+  }
+
+  inline void DrawAndSaveTH1_Iso(const Dataset& ds,
+                                   TH1* h,
+                                   const string& filepath,
+                                   const string& xTitle,
+                                   const string& yTitle,
+                                   const string& isoTitle,
+                                   const PtBin& pb,
+                                   bool logy,
+                                   const char* drawOpt = "hist")
+  {
+      if (!h) return;
+
+      EnsureSumw2(h);
+
+      TCanvas c("c_iso","c_iso",900,700);
+      ApplyCanvasMargins1D(c);
+      c.SetLogy(logy);
+
+      const string yTitleEff =
+        (yTitle == "A.U." || yTitle == "A.U")
+          ? "Fraction of entries"
+          : yTitle;
+
+      h->SetLineWidth(2);
+      h->SetTitle("");
+      h->GetXaxis()->SetTitle(xTitle.c_str());
+      h->GetYaxis()->SetTitle(yTitleEff.c_str());
+
+      const string opt = (drawOpt ? string(drawOpt) : string("hist"));
+
+      if (logy)
+      {
+        const double minPos = SmallestPositiveBinContent(h);
+        if (minPos > 0.0) h->SetMinimum(0.5 * minPos);
+        else              h->SetMinimum(1e-6);
+      }
+
+      h->Draw(opt.c_str());
+
+      // ISO corner label styling (NO DefaultHeaderLines, NO multi-line block)
+      DrawIsoCornerLabels1D(isoTitle, pb);
+
+      SaveCanvas(c, filepath);
+  }
+
   inline void DrawAndSaveTH1_Common(const Dataset& ds, TH1* h,
                                    const string& filepath,
                                    const string& xTitle,
@@ -807,7 +930,10 @@ namespace ARJ
     TCanvas c("c_tbl","c_tbl",1500,1200);
     c.Divide(3,3, 0.001, 0.001);
 
-    const auto& bins = PtBins();
+      const auto& bins = PtBins();
+
+      std::vector<TH1*> keepAlive;
+      keepAlive.reserve(kNPtBins);
 
     for (int i = 0; i < kNPtBins; ++i)
     {
@@ -821,43 +947,134 @@ namespace ARJ
       const PtBin& b = bins[i];
       const string hname = histBase + b.suffix;
 
-      TH1* h = GetObj<TH1>(ds, hname, true, true, true);
-      if (!h)
-      {
-        TLatex t;
-        t.SetNDC(true);
-        t.SetTextFont(42);
-        t.SetTextSize(0.06);
-        t.DrawLatex(0.15, 0.55, "MISSING");
-        t.SetTextSize(0.05);
-        std::ostringstream s;
-        s << histBase << "  pT^{#gamma}: " << b.lo << "-" << b.hi;
-        t.DrawLatex(0.15, 0.45, s.str().c_str());
-        continue;
-      }
+        // ------------------------------------------------------------
+        // ISO tables get a compact label style:
+        //   - Top-left: title (E_T^{iso, ...})
+        //   - Top-right: big pT bin
+        //   - Under it: smaller |eta| cut
+        // Non-ISO tables keep the old multi-line header behavior.
+        // ------------------------------------------------------------
+        const bool isIsoTable =
+          (histBase.rfind("h_Eiso", 0) == 0);  // starts with "h_Eiso"
 
-      TH1* hc = CloneTH1(h, TString::Format("%s_tbl_%d", histBase.c_str(), i).Data());
-      if (!hc) continue;
-      if (normalizeShape) NormalizeToUnitArea(hc);
+        auto IsoTitleForBase = [&](const std::string& base)->std::string
+        {
+          if (base == "h_Eiso_emcal")  return "E_{T}^{iso, EMCal}";
+          if (base == "h_Eiso_hcalin") return "E_{T}^{iso, IHCal}";
+          if (base == "h_Eiso_hcalout")return "E_{T}^{iso, OHCal}";
+          if (base == "h_Eiso")        return "E_{T}^{iso, Total}";
+          return "E_{T}^{iso}";
+        };
 
-      hc->SetLineWidth(2);
-      hc->SetTitle("");
-      hc->GetXaxis()->SetTitle(xTitle.c_str());
-      hc->GetYaxis()->SetTitle(yTitle.c_str());
-      hc->Draw("hist");
+        auto DrawIsoPadLabels = [&](const PtBin& pb)->void
+        {
+          TLatex t;
+          t.SetNDC(true);
+          t.SetTextFont(42);
 
-      vector<string> lines = commonLines;
-      {
-        std::ostringstream s;
-        s << histBase << "   pT^{#gamma}: " << b.lo << "-" << b.hi << " GeV";
-        lines.push_back(s.str());
-      }
-      DrawLatexLines(0.16, 0.90, lines, 0.040, 0.050);
+          // Title (top-left)
+          t.SetTextAlign(13);          // left, top
+          t.SetTextSize(0.08);
+          t.DrawLatex(0.45, 0.985, IsoTitleForBase(histBase).c_str());
 
-      delete hc;
+          // pT bin (top-right, larger)
+          t.SetTextAlign(33);          // right, top
+          t.SetTextSize(0.070);
+          t.DrawLatex(0.95, 0.88,
+            TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
+
+          // eta cut (under pT, smaller)
+          t.SetTextSize(0.055);
+          t.DrawLatex(0.85, 0.75, "|#eta^{#gamma}| < 0.7");
+        };
+
+        TH1* h = GetObj<TH1>(ds, hname, true, true, true);
+        if (!h)
+        {
+          // Keep your "MISSING" message, but use the new compact label style for iso tables
+          TLatex t;
+          t.SetNDC(true);
+          t.SetTextFont(42);
+          t.SetTextAlign(22);          // center, center
+          t.SetTextSize(0.075);
+          t.DrawLatex(0.50, 0.55, "MISSING");
+
+          if (isIsoTable)
+          {
+            DrawIsoPadLabels(b);
+          }
+          else
+          {
+            // old behavior for non-iso tables
+            vector<string> lines = commonLines;
+            {
+              std::ostringstream s;
+              s << histBase << "   pT^{#gamma}: " << b.lo << "-" << b.hi << " GeV";
+              lines.push_back(s.str());
+            }
+            DrawLatexLines(0.16, 0.90, lines, 0.040, 0.050);
+          }
+
+          continue;
+        }
+
+        TH1* hc = CloneTH1(h, TString::Format("%s_tbl_%d", histBase.c_str(), i).Data());
+        if (!hc) continue;
+
+        // Keep the drawn hist alive until after SaveCanvas()
+        hc->SetDirectory(nullptr);
+
+        if (normalizeShape) NormalizeToUnitArea(hc);
+
+        hc->SetLineWidth(2);
+        hc->SetTitle("");
+
+        // Axis titles
+        hc->GetXaxis()->SetTitle(xTitle.c_str());
+        hc->GetYaxis()->SetTitle(yTitle.c_str());
+
+        // ---- Make axis text larger (especially X) and "zoom in" by reducing offsets ----
+        // X axis: bigger tick labels + bigger title, closer to axis
+        hc->GetXaxis()->SetLabelSize(0.060);
+        hc->GetXaxis()->SetTitleSize(0.070);
+        hc->GetXaxis()->SetTitleOffset(0.85);
+
+        // Y axis: also slightly larger for consistency on small pads
+        hc->GetYaxis()->SetLabelSize(0.055);
+        hc->GetYaxis()->SetTitleSize(0.065);
+        hc->GetYaxis()->SetTitleOffset(1.05);
+
+        // (Optional) clearer tick marks on small pads
+        hc->GetXaxis()->SetTickLength(0.03);
+        hc->GetYaxis()->SetTickLength(0.03);
+
+        hc->Draw("hist");
+
+        if (isIsoTable)
+        {
+          // new compact iso labels
+          DrawIsoPadLabels(b);
+        }
+        else
+        {
+          // old behavior for everything else
+          vector<string> lines = commonLines;
+          {
+            std::ostringstream s;
+            s << histBase << "   pT^{#gamma}: " << b.lo << "-" << b.hi << " GeV";
+            lines.push_back(s.str());
+          }
+          DrawLatexLines(0.16, 0.90, lines, 0.040, 0.050);
+        }
+
+        keepAlive.push_back(hc);
     }
 
-    SaveCanvas(c, JoinPath(outDir, outName));
+      SaveCanvas(c, JoinPath(outDir, outName));
+
+      // Now it is safe to delete the histograms drawn into pads
+      for (TH1* htmp : keepAlive) delete htmp;
+      keepAlive.clear();
   }
 
   // =============================================================================

@@ -6,12 +6,12 @@ NOTE (requested):
   TRUTH prompt #gamma (MC): |#eta_{truth}|<0.7, PID=22 final-state, direct/frag via HEPMC history.
   TRUTH iso (MC): E_{T}^{iso,truth} = #Sigma E_{T}(#DeltaR<0.3, excl. #gamma).
 
-pTgamma=10-12 GeV  Nre=22695  <xJ>re=0.636344  <a>re=0.032403  Ntr=14182  <xJ>tr=0.934674  <a>tr=0.052947
-pTgamma=12-14 GeV  Nre=18795  <xJ>re=0.553542  <a>re=0.032819  Ntr=12142  <xJ>tr=0.829059  <a>tr=0.052454
-pTgamma=14-16 GeV  Nre=13380  <xJ>re=0.495882  <a>re=0.031476  Ntr=9231  <xJ>tr=0.771706  <a>tr=0.052045
-pTgamma=16-18 GeV  Nre=8900  <xJ>re=0.456337  <a>re=0.032298  Ntr=6365  <xJ>tr=0.727553  <a>tr=0.052565
-pTgamma=18-20 GeV  Nre=5847  <xJ>re=0.423769  <a>re=0.032739  Ntr=4282  <xJ>tr=0.692235  <a>tr=0.057123
-pTgamma=20-22 GeV  Nre=3869  <xJ>re=0.398146  <a>re=0.034473  Ntr=2900  <xJ>tr=0.674121  <a>tr=0.060345
-pTgamma=22-24 GeV  Nre=2401  <xJ>re=0.379540  <a>re=0.034933  Ntr=1792  <xJ>tr=0.675530  <a>tr=0.060128
-pTgamma=24-26 GeV  Nre=1514  <xJ>re=0.381374  <a>re=0.036592  Ntr=1099  <xJ>tr=0.670723  <a>tr=0.064945
-pTgamma=26-35 GeV  Nre=2007  <xJ>re=0.365234  <a>re=0.036011  Ntr=1482  <xJ>tr=0.658941  <a>tr=0.067848
+pTgamma=10-12 GeV  Nre=75114  <xJ>re=0.718989  <a>re=0.065793  Ntr=34659  <xJ>tr=0.787267  <a>tr=0.044232
+pTgamma=12-14 GeV  Nre=54284  <xJ>re=0.639046  <a>re=0.068091  Ntr=26919  <xJ>tr=0.713553  <a>tr=0.045502
+pTgamma=14-16 GeV  Nre=32313  <xJ>re=0.588436  <a>re=0.071692  Ntr=17543  <xJ>tr=0.673806  <a>tr=0.049964
+pTgamma=16-18 GeV  Nre=18526  <xJ>re=0.555878  <a>re=0.075124  Ntr=10809  <xJ>tr=0.647560  <a>tr=0.051621
+pTgamma=18-20 GeV  Nre=10764  <xJ>re=0.529264  <a>re=0.079678  Ntr=6598  <xJ>tr=0.627781  <a>tr=0.057684
+pTgamma=20-22 GeV  Nre=6370  <xJ>re=0.511311  <a>re=0.083022  Ntr=3988  <xJ>tr=0.619584  <a>tr=0.062262
+pTgamma=22-24 GeV  Nre=3690  <xJ>re=0.495542  <a>re=0.085528  Ntr=2372  <xJ>tr=0.626981  <a>tr=0.062289
+pTgamma=24-26 GeV  Nre=2133  <xJ>re=0.504817  <a>re=0.091338  Ntr=1376  <xJ>tr=0.628743  <a>tr=0.068132
+pTgamma=26-35 GeV  Nre=2553  <xJ>re=0.497679  <a>re=0.090922  Ntr=1734  <xJ>tr=0.626009  <a>tr=0.069954

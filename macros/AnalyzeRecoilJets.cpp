@@ -445,11 +445,15 @@ namespace ARJ
             TH1* hc = CloneTH1(h, TString::Format("%s_%d", def.base.c_str(), i).Data());
             if (!hc) continue;
 
-            vector<string> lines = common;
-            lines.push_back(TString::Format("p_{T}^{#gamma} bin: %d-%d GeV", b.lo, b.hi).Data());
-
             const string fp = JoinPath(outDir, b.folder + "/" + def.outStem + "_" + b.folder + ".png");
-            DrawAndSaveTH1_Common(ds, hc, fp, "E_{iso} [GeV]", "Counts", lines, false);
+
+            const string isoTitle = IsoTitleForBase(def.base);
+
+            DrawAndSaveTH1_Iso(ds, hc, fp,
+                                 "E_{iso} [GeV]", "Counts",
+                                 isoTitle, b,
+                                 false);
+
             delete hc;
           }
         }
@@ -4054,15 +4058,21 @@ namespace ARJ
                   // Big centered title per pad (kept as in your helper)
                   const std::string ptLab = AxisBinLabel(h02->GetXaxis(), ib, "GeV", 0);
 
-                  TLatex ttitle;
-                  ttitle.SetNDC(true);
-                  ttitle.SetTextFont(42);
-                  ttitle.SetTextAlign(22);
-                  ttitle.SetTextSize(0.060);
-                  ttitle.DrawLatex(
-                    0.50, 0.95,
-                    TString::Format("Truth-level x_{J#gamma}, p_{T}^{#gamma} = %s", ptLab.c_str()).Data()
-                  );
+                    TLatex ttitle;
+                    ttitle.SetNDC(true);
+                    ttitle.SetTextFont(42);
+                    ttitle.SetTextAlign(22);
+                    ttitle.SetTextSize(0.060);
+
+                    const bool isTruthPlot = (std::string(xTitle).find("truth") != std::string::npos);
+                    const char* levelTag   = isTruthPlot ? "Truth-level" : "Reco-level";
+                    const char* pTTag      = isTruthPlot ? "p_{T}^{#gamma,truth}" : "p_{T}^{#gamma}";
+
+                    ttitle.DrawLatex(
+                      0.50, 0.95,
+                      TString::Format("%s %s, %s = %s", levelTag, xTitle.c_str(), pTTag, ptLab.c_str()).Data()
+                    );
+
 
                   // Legend top-right (requested); no overlay text
                   TLegend leg(0.8, 0.75, 0.88, 0.9);
