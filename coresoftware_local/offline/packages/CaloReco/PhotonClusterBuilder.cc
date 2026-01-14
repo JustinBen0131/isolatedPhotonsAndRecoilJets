@@ -6,8 +6,6 @@
 #include <calobase/RawClusterUtility.h>
 #include <calobase/RawTowerGeomContainer.h>
 #include <calobase/TowerInfoContainer.h>
-#include <g4main/PHG4TruthInfoContainer.h>
-#include <g4main/PHG4VtxPoint.h>
 #include <calobase/TowerInfoDefs.h>
 
 // Tower stuff
@@ -84,20 +82,12 @@ int PhotonClusterBuilder::InitRun(PHCompositeNode* topNode)
     return Fun4AllReturnCodes::ABORTRUN;
   }
 
-    m_geomEM = findNode::getClass<RawTowerGeomContainer>(topNode, "TOWERGEOM_CEMC");
-    if (!m_geomEM)
-    {
-      m_geomEM = findNode::getClass<RawTowerGeomContainer>(topNode, "TOWERGEOM_CEMC_DETAILED");
-    }
-
-    if (!m_geomEM)
-    {
-      std::cerr << Name()
-                << ": could not find RawTowerGeomContainer node 'TOWERGEOM_CEMC' "
-                << "(or fallback 'TOWERGEOM_CEMC_DETAILED')"
-                << std::endl;
-      return Fun4AllReturnCodes::ABORTRUN;
-    }
+  m_geomEM = findNode::getClass<RawTowerGeomContainer>(topNode, "TOWERGEOM_CEMC");
+  if (!m_geomEM)
+  {
+    std::cerr << Name() << ": could not find RawTowerGeomContainer node 'TOWERGEOM_CEMC'" << std::endl;
+    return Fun4AllReturnCodes::ABORTRUN;
+  }
 
   m_ihcal_tower_container = findNode::getClass<TowerInfoContainer>(topNode, "TOWERINFO_CALIB_HCALIN");
   if (!m_ihcal_tower_container)
@@ -160,81 +150,48 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
     }
   }
 
-    // ------------------------------------------------------------------
-    // Vertex selection
-    //   SIM:  use TRUTH vertex from G4TruthInfo if available
-    //   DATA: use MBD vertex (original behavior)
-    // ------------------------------------------------------------------
-    m_vertex = std::numeric_limits<float>::quiet_NaN();
-    const char* vtx_source = "NONE";
+  // init with NaN
+  m_vertex = std::numeric_limits<float>::quiet_NaN();
+  // assume we need vertex for photon shower shape for now
+  // in the future we need to change the vertex to MBD tracking combined
+  MbdVertexMap* vertexmap = findNode::getClass<MbdVertexMap>(topNode, "MbdVertexMap");
 
-    // Prefer truth vertex when G4TruthInfo exists (SIM)
-    if (auto* truth = findNode::getClass<PHG4TruthInfoContainer>(topNode, "G4TruthInfo"))
+  if (!vertexmap)
+  {
+    std::cout << "GlobalVertexMap node is missing" << std::endl;
+    return Fun4AllReturnCodes::EVENT_OK;
+  }
+  if (vertexmap && !vertexmap->empty())
+  {
+    MbdVertex* vtx = vertexmap->begin()->second;
+    if (vtx)
     {
-      auto vr = truth->GetPrimaryVtxRange();
-      if (vr.first != vr.second && vr.first->second)
+      m_vertex = vtx->get_z();
+
+      if (m_vertex != m_vertex)
       {
-        const PHG4VtxPoint* vtx = vr.first->second;
-        m_vertex = static_cast<float>(vtx->get_z());
-        vtx_source = "G4TruthInfo";
+        return Fun4AllReturnCodes::EVENT_OK;
       }
     }
-
-    // Fallback to MBD vertex (DATA, or SIM if truth not present)
-    if (!std::isfinite(m_vertex))
+    else
     {
-      MbdVertexMap* vertexmap = findNode::getClass<MbdVertexMap>(topNode, "MbdVertexMap");
-
-      if (vertexmap && !vertexmap->empty())
-      {
-        MbdVertex* vtx = vertexmap->begin()->second;
-        if (vtx)
-        {
-          m_vertex = vtx->get_z();
-          vtx_source = "MBD";
-        }
-      }
-    }
-
-    // If still invalid, print why (THIS was previously silent) and skip
-    if (!std::isfinite(m_vertex))
-    {
-      if (Verbosity() >= 1)
-      {
-        std::cout << Name()
-                  << ": no valid vertex found (truth or MBD) → skipping photon build this event"
-                  << std::endl;
-      }
       return Fun4AllReturnCodes::EVENT_OK;
     }
-
-    if (Verbosity() >= 2)
-    {
-      std::cout << Name()
-                << ": using vertex_z=" << m_vertex
-                << " (source=" << vtx_source << ")"
-                << std::endl;
-    }
+  }
+  else
+  {
+    return Fun4AllReturnCodes::EVENT_OK;
+  }
 
   // iterate over clusters via map to have access to keys if needed
-    const auto& rcmap = m_rawclusters->getClustersMap();
-
-    if (Verbosity() >= 2)
+  const auto& rcmap = m_rawclusters->getClustersMap();
+  for (const auto& kv : rcmap)
+  {
+    RawCluster* rc = kv.second;
+    if (!rc)
     {
-      std::cout << Name()
-                << ": input clusters in " << m_input_cluster_node
-                << " = " << rcmap.size()
-                << " | ET threshold = " << m_min_cluster_et
-                << std::endl;
+      continue;
     }
-
-    int nBuilt = 0;
-    int nPassET = 0;
-
-    for (const auto& kv : rcmap)
-    {
-      RawCluster* rc = kv.second;
-      if (!rc) continue;
 
     CLHEP::Hep3Vector vertex_vec(0, 0, m_vertex);
 
@@ -244,51 +201,24 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
     float phi = RawClusterUtility::GetAzimuthAngle(*rc, vertex_vec);
     float E = rc->get_energy();
     float ET = E / std::cosh(eta);
-        if (ET < m_min_cluster_et)
-        {
-          continue;
-        }
-        ++nPassET;
+    if (ET < m_min_cluster_et)
+    {
+      continue;
+    }
 
     PhotonClusterv1* photon = new PhotonClusterv1(*rc);
-
-    // ------------------------------------------------------------------
-    // Persist the EXACT kinematic definitions used by PhotonClusterBuilder
-    // so downstream (e.g. RecoilJets) can use *the same* vertex + ET/pT.
-    //
-    // NOTE:
-    //  - Builder vertex is MBD z (m_vertex)
-    //  - Here ET is computed as E/cosh(eta) using the same eta used for threshold.
-    //  - For photons (massless assumption), pT == ET when definitions are consistent.
-    // ------------------------------------------------------------------
-    photon->set_shower_shape_parameter("vertex_z",   m_vertex);
-    photon->set_shower_shape_parameter("cluster_eta", eta);
-    photon->set_shower_shape_parameter("cluster_phi", phi);
-    photon->set_shower_shape_parameter("cluster_et",  ET);
-    photon->set_shower_shape_parameter("cluster_pt",  ET);
 
     calculate_shower_shapes(rc, photon, eta, phi);
     //this is defensive coding, if do bdt is set false the bdt object should be nullptr
     //and this method will simply pass
     if (m_do_bdt)
     {
-        calculate_bdt_score(photon);
+      calculate_bdt_score(photon);
     }
 
     m_photon_container->AddCluster(photon);
-    ++nBuilt;
-
   }
-    if (Verbosity() >= 2)
-    {
-      std::cout << Name()
-                << ": built photons this event = " << nBuilt
-                << " (passed ET cut = " << nPassET << ")"
-                << std::endl;
-    }
-
-    return Fun4AllReturnCodes::EVENT_OK;
-
+  return Fun4AllReturnCodes::EVENT_OK;
 }
 
 void PhotonClusterBuilder::calculate_bdt_score(PhotonClusterv1* photon)
@@ -416,16 +346,15 @@ void PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
     dphimax = std::max(std::abs(dphi_val), dphimax);
   }
 
-    if (cluster_total_e > 0)
-    {
-      clusteravgtime /= cluster_total_e;
-    }
-    else
-    {
-      // Timing not used downstream: avoid NaNs and avoid noisy prints.
-      // Use a stable sentinel so nothing breaks if someone inspects it later.
-      clusteravgtime = -999.0f;
-    }
+  if (cluster_total_e > 0)
+  {
+    clusteravgtime /= cluster_total_e;
+  }
+  else
+  {
+    std::cout << "cluster_total_e is 0(this should not happen!!!), setting clusteravgtime to NaN" << std::endl;
+    clusteravgtime = std::numeric_limits<float>::quiet_NaN();
+  }
 
   float E77[7][7] = {{0.0F}};
   int E77_ownership[7][7] = {{0}};
@@ -637,6 +566,7 @@ void PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
   photon->set_shower_shape_parameter("et3", showershape[2]);
   photon->set_shower_shape_parameter("et4", showershape[3]);
   photon->set_shower_shape_parameter("e11", e11);
+  photon->set_shower_shape_parameter("e22", showershape[8] + showershape[9] + showershape[10] + showershape[11]);
   photon->set_shower_shape_parameter("e33", e33);
   photon->set_shower_shape_parameter("e55", e55);
   photon->set_shower_shape_parameter("e77", e77);

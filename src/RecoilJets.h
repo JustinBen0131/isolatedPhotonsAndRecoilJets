@@ -87,13 +87,6 @@ class Jet;
 // g4eval: used for truth↔reco association of EMCal clusters
 class CaloRawClusterEval;
 
-// HepMC forward declarations (truth signal definition)
-namespace HepMC
-{
-  class GenEvent;
-  class GenParticle;
-}
-
 // HepMC forward declarations (used by unified truth signal classifier)
 namespace HepMC
 {
@@ -532,12 +525,15 @@ private:
   TProfile3D* getOrBookBalance3           (const std::string& trig, const std::string& rKey);
 
   // -------------------------------------------------------------------------
-  // NEW / REQUIRED: radius-tagged JES3 bookers (truth)
+  // radius-tagged JES3 bookers (truth)
   //   - centrality suffix only (Au+Au)
   //   - name pattern: <base>_<rKey><centSuffix>
   // -------------------------------------------------------------------------
-  TH3F* getOrBookJES3Truth_xJ_alphaHist     (const std::string& trig, const std::string& rKey, int centIdx);
-  TH3F* getOrBookJES3Truth_jet1Pt_alphaHist (const std::string& trig, const std::string& rKey, int centIdx);
+  TH3F* getOrBookJES3Truth_xJ_alphaHist         (const std::string& trig, const std::string& rKey, int centIdx);
+  TH3F* getOrBookJES3Truth_jet1Pt_alphaHist     (const std::string& trig, const std::string& rKey, int centIdx);
+
+  // PURE truth xJgamma distribution (no reco gating, no reco↔truth jet matching)
+  TH3F* getOrBookJES3TruthPure_xJ_alphaHist     (const std::string& trig, const std::string& rKey, int centIdx);
 
   // -------------------------------------------------------------------------
   // Jet QA: generic bookers + fillers (already radius-tagged in your .cc)

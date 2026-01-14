@@ -2077,6 +2077,162 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
       }
     }
 
+    // ==========================================================================
+    // (SIM ONLY): PURE truth xJgamma distribution (NO reco gating)
+    //
+    // Books/Fills (per trigger, per radius, per centrality-suffix):
+    //   h_JES3TruthPure_pT_xJ_alpha_<rKey><centSuffix>
+    //
+    // Truth photon:
+    //   uses your encoded truth-signal definition:
+    //     isTruthPromptIsolatedSignalPhoton(evt, p, isoEt)
+    //
+    // Truth recoil jets (per rKey truth jet container):
+    //   - pT > m_minJetPt
+    //   - |eta| < (1.1 - R)
+    //   - |Δphi(truth gamma, truth jet)| >= m_minBackToBack
+    //
+    // Then fill:
+    //   (tPt, xJt=tj1Pt/tPt, aT=tj2Pt/tPt)
+    // ==========================================================================
+    if (m_isSim)
+    {
+      const int effCentIdx_truth = (m_isAuAu ? centIdx : -1);
+
+      // Need HepMC event for truth-signal definition
+      PHHepMCGenEventMap* hepmcmap = findNode::getClass<PHHepMCGenEventMap>(topNode, "PHHepMCGenEventMap");
+      PHHepMCGenEvent*    hepmc    = nullptr;
+      HepMC::GenEvent*    evt      = nullptr;
+
+      if (hepmcmap)
+      {
+        hepmc = hepmcmap->get(0);
+        if (!hepmc) hepmc = hepmcmap->get(1);
+        if (!hepmc && !hepmcmap->empty()) hepmc = hepmcmap->begin()->second;
+        if (hepmc) evt = hepmc->getEvent();
+      }
+
+      if (!evt)
+      {
+        if (Verbosity() >= 4)
+          LOG(4, CLR_YELLOW,
+              "    [truthXJgamma] SIM: HepMC event missing → cannot fill h_JES3TruthPure_pT_xJ_alpha");
+      }
+      else
+      {
+        // Pick the event-leading truth signal photon (highest pT) to mirror your reco leading-photon logic
+        bool   haveTruthSigPho = false;
+        double tPt  = -1.0;
+        double tEta = 0.0;
+        double tPhi = 0.0;
+
+        for (auto it = evt->particles_begin(); it != evt->particles_end(); ++it)
+        {
+          const HepMC::GenParticle* p = *it;
+          if (!p) continue;
+
+          double isoEt = 0.0;
+          if (!isTruthPromptIsolatedSignalPhoton(evt, p, isoEt)) continue;
+
+          const double pt  = std::hypot(p->momentum().px(), p->momentum().py());
+          const double eta = p->momentum().pseudoRapidity();
+          const double phi = TVector2::Phi_mpi_pi(p->momentum().phi());
+
+          if (!std::isfinite(pt) || !std::isfinite(eta) || !std::isfinite(phi) || pt <= 0.0) continue;
+
+          if (!haveTruthSigPho || pt > tPt)
+          {
+            haveTruthSigPho = true;
+            tPt  = pt;
+            tEta = eta;
+            tPhi = phi;
+          }
+        }
+
+        if (!haveTruthSigPho || tPt <= 0.0)
+        {
+          if (Verbosity() >= 5)
+            LOG(5, CLR_YELLOW, "    [truthXJgamma] no truth signal photon found → skip pure truth xJgamma fills");
+        }
+        else
+        {
+          // Fill per jet radius (truth jets are radius-tagged)
+          for (const auto& jnm : kJetRadii)
+          {
+            const std::string rKey = jnm.key;
+
+            JetContainer* truthJets = nullptr;
+            if (auto itT = m_truthJetsByRKey.find(rKey); itT != m_truthJetsByRKey.end()) truthJets = itT->second;
+
+            if (!truthJets)
+            {
+              if (Verbosity() >= 5)
+                LOG(5, CLR_YELLOW, "    [truthXJgamma] rKey=" << rKey << " truth jet container missing → skip");
+              continue;
+            }
+
+            const double etaMaxTruth = jetEtaAbsMaxForRKey(rKey);
+
+            double tj1Pt = -1.0;
+            const Jet* tj1 = nullptr;
+
+            double tj2Pt = -1.0;
+            const Jet* tj2 = nullptr;
+
+            for (const Jet* tj : *truthJets)
+            {
+              if (!tj) continue;
+
+              const double ptj  = tj->get_pt();
+              const double etaj = tj->get_eta();
+              const double phij = tj->get_phi();
+
+              if (!std::isfinite(ptj) || !std::isfinite(etaj) || !std::isfinite(phij)) continue;
+              if (ptj < m_minJetPt) continue;
+              if (std::fabs(etaj) >= etaMaxTruth) continue;
+
+              const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(phij - tPhi));
+              if (dphiAbs < m_minBackToBack) continue;
+
+              // keep the two leading (highest-pt) back-to-back truth jets
+              if (ptj > tj1Pt)
+              {
+                tj2Pt = tj1Pt;
+                tj2   = tj1;
+
+                tj1Pt = ptj;
+                tj1   = tj;
+              }
+              else if (ptj > tj2Pt)
+              {
+                tj2Pt = ptj;
+                tj2   = tj;
+              }
+            }
+
+            if (!tj1 || tj1Pt <= 0.0)
+            {
+              if (Verbosity() >= 6)
+                LOG(6, CLR_YELLOW, "    [truthXJgamma] rKey=" << rKey << " no truth recoil jet1 found → skip");
+              continue;
+            }
+
+            const double xJt = tj1Pt / tPt;
+            const double aT  = (tj2Pt > 0.0 ? (tj2Pt / tPt) : 0.0);
+
+            for (const auto& trigShort : activeTrig)
+            {
+              if (auto* ht3_pure = getOrBookJES3TruthPure_xJ_alphaHist(trigShort, rKey, effCentIdx_truth))
+              {
+                ht3_pure->Fill(tPt, xJt, aT);
+                bumpHistFill(trigShort, ht3_pure->GetName());
+              }
+            }
+          }
+        }
+      }
+    }
+
     // ========================= PHOTON path ========================
     if (m_photons)
     {
@@ -4989,6 +5145,66 @@ TH3F* RecoilJets::getOrBookJES3Truth_xJ_alphaHist(const std::string& trig,
                                                  int centIdx)
 {
   const std::string base   = "h_JES3Truth_pT_xJ_alpha";
+  const std::string suffix = suffixForBins(-1, centIdx);   // cent-only
+  const std::string name   = base + "_" + rKey + suffix;
+
+  if (trig.empty() || rKey.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH3F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+  if (m_gammaPtBins.size() < 2) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+  dir->cd();
+
+  const int nx = static_cast<int>(m_gammaPtBins.size()) - 1;
+  const double* xbins = m_gammaPtBins.data();
+
+  const int ny = 60;
+  const double ylo = 0.0, yhi = 3.0; // xJ
+
+  const int nz = 40;
+  const double zlo = 0.0, zhi = 2.0; // alpha
+
+  std::vector<double> ybins(ny + 1);
+  for (int i = 0; i <= ny; ++i)
+    ybins[i] = ylo + (yhi - ylo) * (static_cast<double>(i) / ny);
+
+  std::vector<double> zbins(nz + 1);
+  for (int i = 0; i <= nz; ++i)
+    zbins[i] = zlo + (zhi - zlo) * (static_cast<double>(i) / nz);
+
+  const std::string title =
+    name + ";p_{T}^{#gamma,truth} [GeV];x_{J}^{truth}=p_{T}^{jet1,truth}/p_{T}^{#gamma,truth};#alpha^{truth}=p_{T}^{jet2,truth}/p_{T}^{#gamma,truth}";
+
+  auto* h = new TH3F(name.c_str(), title.c_str(),
+                     nx, xbins,
+                     ny, ybins.data(),
+                     nz, zbins.data());
+  H[name] = h;
+
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+// -----------------------------------------------------------------------------
+// PURE truth xJgamma distribution booker (NO reco gating, NO reco↔truth jet match)
+// Name: h_JES3TruthPure_pT_xJ_alpha_<rKey><centSuffix>
+// -----------------------------------------------------------------------------
+TH3F* RecoilJets::getOrBookJES3TruthPure_xJ_alphaHist(const std::string& trig,
+                                                     const std::string& rKey,
+                                                     int centIdx)
+{
+  const std::string base   = "h_JES3TruthPure_pT_xJ_alpha";
   const std::string suffix = suffixForBins(-1, centIdx);   // cent-only
   const std::string name   = base + "_" + rKey + suffix;
 
