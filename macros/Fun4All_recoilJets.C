@@ -1006,19 +1006,6 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   photonBuilder->Verbosity(2);
   se->registerSubsystem(photonBuilder);
 
-  // ------------------------------------------------------------------
-  // ClusterIso (UNSUBTRACTED) computed on PHOTONCLUSTER_CEMC so RecoilJets can read:
-  //   rc->get_et_iso(radiusx10,false,true)
-  //
-  // coneSize = 3  -> R = 0.3  (must match recoilJets isolation cone)
-  // do_subtracted=false, do_unsubtracted=true
-  // ------------------------------------------------------------------
-  auto* clusterIso = new ClusterIso("ClusterIso_Unsub_PHOTON", 0.0, 3, false, true);
-  clusterIso->set_cluster_node_name("PHOTONCLUSTER_CEMC");
-  clusterIso->setMinTowerEnergy(0.070);
-  clusterIso->Verbosity(0);
-  se->registerSubsystem(clusterIso);
-
   auto* recoilJets = new RecoilJets(outRoot);
 
   recoilJets->setUseVzCut(true, 30.0);

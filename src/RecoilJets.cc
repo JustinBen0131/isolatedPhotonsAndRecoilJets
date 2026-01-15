@@ -47,7 +47,6 @@
 #include <calobase/RawCluster.h>
 #include "/sphenix/u/patsfan753/scratch/thesisAnalysis/coresoftware_local/offline/packages/CaloBase/PhotonClusterv1.h"
 #include "/sphenix/u/patsfan753/scratch/thesisAnalysis/coresoftware_local/offline/packages/CaloReco/PhotonClusterBuilder.h"
-#include <clusteriso/ClusterIso.h>
 #include <calobase/RawTowerGeomContainer.h>
 #include <calobase/RawTowerGeomContainer_Cylinderv1.h>
 #include <calobase/RawClusterUtility.h>
@@ -718,8 +717,6 @@ int RecoilJets::InitRun(PHCompositeNode* /*topNode*/)
   const std::size_t nPtBins = (m_gammaPtBins.size() > 1 ? (m_gammaPtBins.size() - 1) : 0);
   m_nIsoBuilderByPt.assign(nPtBins, 0ULL);
   m_nIsoBuilderNegByPt.assign(nPtBins, 0ULL);
-  m_nIsoClusterIsoByPt.assign(nPtBins, 0ULL);
-  m_nIsoClusterIsoNegByPt.assign(nPtBins, 0ULL);
 
   if (m_isAuAu)
   {
@@ -1426,68 +1423,12 @@ int RecoilJets::End(PHCompositeNode*)
         }
       }
 
-        // -------------------- Photon cutflow (existing) --------------------
-        printCutSummary();
+      // -------------------- Photon cutflow (existing) --------------------
+      printCutSummary();
 
-        // -------------------- NEW: negative isolation fraction summary (SS-independent) --------------------
-        if (Verbosity() >= 2)
-        {
-          const std::size_t nPtBins = (m_gammaPtBins.size() > 1 ? (m_gammaPtBins.size() - 1) : 0);
 
-          std::cout << "\n" << CLR_CYAN
-                    << "================ Isolation negativity summary (SS-independent) ================\n"
-                    << "Cone: R=" << std::fixed << std::setprecision(2) << m_isoConeR
-                    << "  (radiusx10=" << static_cast<int>(std::lround(10.0 * m_isoConeR)) << ")\n"
-                    << "Builder iso: RecoilJets::eiso() using PhotonClusterBuilder iso_* layer sums\n"
-                    << "ClusterIso iso: RawCluster::get_et_iso(radiusx10,false,true) (UNSUBTRACTED)\n"
-                    << "-----------------------------------------------------------------------------\n"
-                    << std::left
-                    << std::setw(14) << "pT^gamma [GeV]"
-                    << std::right
-                    << std::setw(12) << "N(bldr)"
-                    << std::setw(12) << "N<0"
-                    << std::setw(12) << "f<0"
-                    << " | "
-                    << std::setw(12) << "N(CIso)"
-                    << std::setw(12) << "N<0"
-                    << std::setw(12) << "f<0"
-                    << "\n"
-                    << "-----------------------------------------------------------------------------\n";
-
-          for (std::size_t i = 0; i < nPtBins; ++i)
-          {
-            const double lo = m_gammaPtBins[i];
-            const double hi = m_gammaPtBins[i + 1];
-
-            const unsigned long long nB  = (i < m_nIsoBuilderByPt.size()       ? m_nIsoBuilderByPt[i]       : 0ULL);
-            const unsigned long long nBn = (i < m_nIsoBuilderNegByPt.size()    ? m_nIsoBuilderNegByPt[i]    : 0ULL);
-            const unsigned long long nC  = (i < m_nIsoClusterIsoByPt.size()    ? m_nIsoClusterIsoByPt[i]    : 0ULL);
-            const unsigned long long nCn = (i < m_nIsoClusterIsoNegByPt.size() ? m_nIsoClusterIsoNegByPt[i] : 0ULL);
-
-            const double fB = (nB > 0 ? static_cast<double>(nBn) / static_cast<double>(nB) : 0.0);
-            const double fC = (nC > 0 ? static_cast<double>(nCn) / static_cast<double>(nC) : 0.0);
-
-            std::ostringstream binLabel;
-            binLabel << std::fixed << std::setprecision(0) << lo << "-" << hi;
-
-            std::cout << std::left << std::setw(14) << binLabel.str()
-                      << std::right
-                      << std::setw(12) << nB
-                      << std::setw(12) << nBn
-                      << std::setw(12) << std::fixed << std::setprecision(4) << fB
-                      << " | "
-                      << std::setw(12) << nC
-                      << std::setw(12) << nCn
-                      << std::setw(12) << std::fixed << std::setprecision(4) << fC
-                      << "\n";
-          }
-
-          std::cout << "=============================================================================\n"
-                    << CLR_RESET;
-        }
-
-        // =========================================================================
-        // NEW: Jet matching + unfolding summary (computed from already-filled hists)
+      // =========================================================================
+      // NEW: Jet matching + unfolding summary (computed from already-filled hists)
       //
       // Notes:
       //  - "match status" is filled ONCE per event that has a leading iso∧tight γ
@@ -2497,17 +2438,6 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
             const int cone10 = static_cast<int>(std::lround(10.0 * m_isoConeR));
 
             // ----------------------------------------------------------------
-            // NEW: ClusterIso (UNSUBTRACTED) isolation for the same cone R
-            // Read back the value stored by ClusterIso via:
-            //   cluster->set_et_iso(isoEt, radiusx10, subtracted=false, clusterTower=true)
-            // ----------------------------------------------------------------
-            double eiso_clusterIso = std::numeric_limits<double>::quiet_NaN();
-            {
-              const float iso = rc->get_et_iso(cone10, /*subtracted=*/false, /*clusterTower=*/true);
-              if (std::isfinite(iso) && iso < 1e8) eiso_clusterIso = static_cast<double>(iso);
-            }
-
-            // ----------------------------------------------------------------
             // NEW: accumulate negative-iso fractions once per reco photon candidate
             // (NOT per trigger), and BEFORE any SS-based cuts.
             // ----------------------------------------------------------------
@@ -2517,12 +2447,6 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
               {
                 ++m_nIsoBuilderByPt[ptIdx];
                 if (eiso_tot < 0.0) ++m_nIsoBuilderNegByPt[ptIdx];
-              }
-
-              if (std::isfinite(eiso_clusterIso) && eiso_clusterIso < 1e8)
-              {
-                ++m_nIsoClusterIsoByPt[ptIdx];
-                if (eiso_clusterIso < 0.0) ++m_nIsoClusterIsoNegByPt[ptIdx];
               }
             }
 
@@ -2599,19 +2523,6 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 {
                   hDec->Fill(isoPass ? 1 : 2);   // bin 1 = PASS, bin 2 = FAIL
                   bumpHistFill(trigShort, std::string("h_isoDecision") + slice);
-                }
-
-                // (D) NEW: 2D comparison of iso definitions (independent of SS)
-                //     x-axis: RecoilJets::eiso() (PhotonClusterBuilder-based)
-                //     y-axis: ClusterIso unsubtracted (stored on RawCluster)
-                if (auto* h2 = getOrBookIsoCompareHist(trigShort, ptIdx, effCentIdx))
-                {
-                  if (std::isfinite(eiso_tot) && eiso_tot < 1e8 &&
-                      std::isfinite(eiso_clusterIso) && eiso_clusterIso < 1e8)
-                  {
-                    h2->Fill(eiso_tot, eiso_clusterIso);
-                    bumpHistFill(trigShort, std::string("h2_EisoBuilder_vs_ClusterIso") + slice);
-                  }
                 }
             }
         }
@@ -5677,85 +5588,6 @@ TH1I* RecoilJets::getOrBookIsoDecisionHist(const std::string& trig, int ptIdx, i
 
   if (prevDir) prevDir->cd();
   return h;
-}
-
-
-// ------------------------------------------------------------------
-// NEW: 2D isolation comparison histogram
-//   x-axis: RecoilJets::eiso() (PhotonClusterBuilder-based)
-//   y-axis: ClusterIso unsubtracted stored on RawCluster via set_et_iso(..., subtracted=false, clusterTower=true)
-// ------------------------------------------------------------------
-TH2F* RecoilJets::getOrBookIsoCompareHist(const std::string& trig, int ptIdx, int centIdx)
-{
-    const std::string base   = "h2_EisoBuilder_vs_ClusterIso";
-    const std::string suffix = suffixForBins(ptIdx, centIdx);
-    const std::string name   = base + suffix;
-
-    if (Verbosity() >= 5)
-      LOG(5, CLR_BLUE, "  [getOrBookIsoCompareHist] trig=\"" << trig
-             << "\" ptIdx=" << ptIdx << " centIdx=" << centIdx
-             << " → name=\"" << name << "\"");
-
-    if (trig.empty())
-    {
-      LOG(2, CLR_YELLOW, "  [getOrBookIsoCompareHist] empty trig – returning nullptr");
-      return nullptr;
-    }
-
-    auto& H = qaHistogramsByTrigger[trig];
-
-    if (auto it = H.find(name); it != H.end())
-    {
-      if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
-      LOG(2, CLR_YELLOW, "    [getOrBookIsoCompareHist] name clash: object \"" << name
-                         << "\" exists but is not TH2F – replacing it");
-      H.erase(it);
-    }
-
-    if (!out || !out->IsOpen())
-    {
-      LOG(1, CLR_YELLOW, "  [getOrBookIsoCompareHist] output TFile invalid/null – returning nullptr");
-      return nullptr;
-    }
-
-    TDirectory* const prevDir = gDirectory;
-    TDirectory* dir = out->GetDirectory(trig.c_str());
-    if (!dir) dir = out->mkdir(trig.c_str());
-    if (!dir)
-    {
-      LOG(1, CLR_YELLOW, "  [getOrBookIsoCompareHist] failed to create/access directory \"" << trig << "\"");
-      if (prevDir) prevDir->cd();
-      return nullptr;
-    }
-
-    dir->cd();
-
-    // Match h_Eiso binning: [-5, 12] with 170 bins
-    constexpr int    nbins = 170;
-    constexpr double xmin  = -5.0;
-    constexpr double xmax  = 12.0;
-
-    const std::string title =
-      name
-      + ";E_{T}^{iso} (PhotonClusterBuilder) [GeV]"
-        ";E_{T}^{iso} (ClusterIso unsub) [GeV]"
-        ";Entries";
-
-    auto* h = new TH2F(name.c_str(), title.c_str(),
-                       nbins, xmin, xmax,
-                       nbins, xmin, xmax);
-    if (!h)
-    {
-      LOG(1, CLR_YELLOW, "  [getOrBookIsoCompareHist] new TH2F failed for \"" << name << '"');
-      if (prevDir) prevDir->cd();
-      return nullptr;
-    }
-
-    h->Sumw2();
-    H[name] = h;
-
-    if (prevDir) prevDir->cd();
-    return h;
 }
 
 
