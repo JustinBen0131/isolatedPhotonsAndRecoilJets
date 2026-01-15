@@ -51,8 +51,7 @@ VERBOSE="true"
 # Fixed parameters for THIS script: Run-28 Pythia8 photon+jet (filesystem truth)
 # We will NOT use the catalog. We will scan lustre directories directly.
 RUNNUM="28"
-#PHOTONJET_SAMPLES=( "photonjet5" "photonjet10" "photonjet20" )
-PHOTONJET_SAMPLES=( "photonjet5" "photonjet10" "photonjet20" "photonjet30" )
+PHOTONJET_SAMPLES=( "photonjet10" "photonjet20" )
 
 # Source base (what you just proved exists)
 MDC2_BASE="/sphenix/lustre01/sphnxpro/mdc2/js_pp200_signal"
@@ -132,9 +131,9 @@ record_pack() {
   PACK_ORDER+=( "$tag" )
   PACK_OUTDIR["$tag"]="$outdir"
 
-  PACK_RAW_COUNTS["$tag"]="DST_CALO_CLUSTER=$(count_lines "${outdir}/DST_CALO_CLUSTER.list")  G4Hits=$(count_lines "${outdir}/G4Hits.list")  DST_JETS=$(count_lines "${outdir}/DST_JETS.list")"
-  PACK_MATCH_COUNTS["$tag"]="DST_CALO_CLUSTER=$(count_lines "${outdir}/DST_CALO_CLUSTER.matched.list")  G4Hits=$(count_lines "${outdir}/G4Hits.matched.list")  DST_JETS=$(count_lines "${outdir}/DST_JETS.matched.list")"
-  PACK_PAIR_COUNTS["$tag"]="Calo__G4Hits=$(count_lines "${outdir}/DST_CALO_CLUSTER__G4Hits.pairs.list")  Calo__DST_JETS=$(count_lines "${outdir}/DST_CALO_CLUSTER__DST_JETS.pairs.list")  Triplets=$(count_lines "${outdir}/DST_CALO_CLUSTER__G4Hits__DST_JETS.triplets.list")"
+  PACK_RAW_COUNTS["$tag"]="DST_CALO_CLUSTER=$(count_lines "${outdir}/DST_CALO_CLUSTER.list")  G4Hits=$(count_lines "${outdir}/G4Hits.list")  DST_JETS=$(count_lines "${outdir}/DST_JETS.list")  DST_GLOBAL=$(count_lines "${outdir}/DST_GLOBAL.list")  DST_MBD_EPD=$(count_lines "${outdir}/DST_MBD_EPD.list")"
+  PACK_MATCH_COUNTS["$tag"]="DST_CALO_CLUSTER=$(count_lines "${outdir}/DST_CALO_CLUSTER.matched.list")  G4Hits=$(count_lines "${outdir}/G4Hits.matched.list")  DST_JETS=$(count_lines "${outdir}/DST_JETS.matched.list")  DST_GLOBAL=$(count_lines "${outdir}/DST_GLOBAL.matched.list")  DST_MBD_EPD=$(count_lines "${outdir}/DST_MBD_EPD.matched.list")"
+  PACK_PAIR_COUNTS["$tag"]="Calo__G4Hits=$(count_lines "${outdir}/DST_CALO_CLUSTER__G4Hits.pairs.list")  Calo__DST_JETS=$(count_lines "${outdir}/DST_CALO_CLUSTER__DST_JETS.pairs.list")  Calo__DST_GLOBAL=$(count_lines "${outdir}/DST_CALO_CLUSTER__DST_GLOBAL.pairs.list")  Calo__DST_MBD_EPD=$(count_lines "${outdir}/DST_CALO_CLUSTER__DST_MBD_EPD.pairs.list")  TripA=$(count_lines "${outdir}/DST_CALO_CLUSTER__G4Hits__DST_JETS.triplets.list")  TripB=$(count_lines "${outdir}/DST_CALO_CLUSTER__DST_GLOBAL__DST_MBD_EPD.triplets.list")"
 }
 
 final_summary() {
@@ -400,9 +399,11 @@ pair_check() {
       }' "${tmpdir}/common_all.keys" "${MAP[$anchor_base]}" "${MAP[$obase]}" > "$pairfile"
   done
 
-  # ---------------- Optional: 3-column triplets list (aligned to common_all) ----------------
+  # ---------------- Optional: 3-column triplets lists (aligned to common_all) ----------------
+
+  # (A) Calo + G4Hits + Jets  (your existing convenience output)
   if [[ -n "${MAP[G4Hits]:-}" && -n "${MAP[DST_JETS]:-}" ]]; then
-    local trip="${outdir}/${anchor_base}__G4Hits__DST_JETS.triplets.list"
+    local tripA="${outdir}/${anchor_base}__G4Hits__DST_JETS.triplets.list"
     awk '
       FNR==NR { keys[++n]=$1; next }
       FILENAME==ARGV[2] { a[$1]=$2; next }
@@ -413,7 +414,23 @@ pair_check() {
           k=keys[i];
           if((k in a) && (k in b) && (k in c)) print a[k], b[k], c[k];
         }
-      }' "${tmpdir}/common_all.keys" "${MAP[$anchor_base]}" "${MAP[G4Hits]}" "${MAP[DST_JETS]}" > "$trip"
+      }' "${tmpdir}/common_all.keys" "${MAP[$anchor_base]}" "${MAP[G4Hits]}" "${MAP[DST_JETS]}" > "$tripA"
+  fi
+
+  # (B) Calo + Global + MBD_EPD  (vertex-friendly convenience output)
+  if [[ -n "${MAP[DST_GLOBAL]:-}" && -n "${MAP[DST_MBD_EPD]:-}" ]]; then
+    local tripB="${outdir}/${anchor_base}__DST_GLOBAL__DST_MBD_EPD.triplets.list"
+    awk '
+      FNR==NR { keys[++n]=$1; next }
+      FILENAME==ARGV[2] { a[$1]=$2; next }
+      FILENAME==ARGV[3] { b[$1]=$2; next }
+      FILENAME==ARGV[4] { c[$1]=$2; next }
+      END {
+        for(i=1;i<=n;i++){
+          k=keys[i];
+          if((k in a) && (k in b) && (k in c)) print a[k], b[k], c[k];
+        }
+      }' "${tmpdir}/common_all.keys" "${MAP[$anchor_base]}" "${MAP[DST_GLOBAL]}" "${MAP[DST_MBD_EPD]}" > "$tripB"
   fi
 
   # ---------------- Report what we produced ----------------
@@ -509,10 +526,12 @@ build_pack() {
   write_list "$calodir" "${outdir}/DST_CALO_CLUSTER.list" "DST_CALO_CLUSTER (calocluster) [ANCHOR]"
   write_list "$g4dir"   "${outdir}/G4Hits.list"          "G4Hits (g4hits)"
   write_list "$jetsdir" "${outdir}/DST_JETS.list"        "DST_JETS (nopileup/jets)"
+  write_list "$gldir"   "${outdir}/DST_GLOBAL.list"      "DST_GLOBAL (nopileup/global) [VERTEX]"
+  write_list "$mbddir"  "${outdir}/DST_MBD_EPD.list"     "DST_MBD_EPD (nopileup/mbdepd) [VERTEX]"
 
   step "Pairing check + generate matched/pairs/triplets (key-aligned)"
   pair_check "$outdir" "DST_CALO_CLUSTER.list" \
-    "G4Hits.list" "DST_JETS.list"
+    "G4Hits.list" "DST_JETS.list" "DST_GLOBAL.list" "DST_MBD_EPD.list"
 
   step "Write summary.txt (counts + pointers)"
   {
@@ -726,6 +745,9 @@ discover_photon_types() {
 
 # --------------------------- Main ---------------------------------------------
 mkdir -p "$OUTROOT"
+
+# Hard reset: remove any prior run28_photonjet* packs under OUTROOT so only 10/20 remain
+rm -rf "${OUTROOT}/run${RUNNUM}_photonjet"* 2>/dev/null || true
 
 rule
 say "Building Run-${RUNNUM} Pythia photon+jet lists under: ${OUTROOT}"

@@ -75,6 +75,9 @@
 R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)
 R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_io.so)
 R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libRecoilJets.so)
+R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libclusteriso.so)
+R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libjetbase.so)
+
 
 // Then load the rest of the environment stack
 R__LOAD_LIBRARY(libfun4all.so)
@@ -205,36 +208,40 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
       detail::bail("cannot open input list \"" + std::string(listFile) + "\"");
 
   // ---------------------------------------------------------------
-  // Parse list file
-  //   DATA:  1 column  -> calo DST
-  //   SIM :  2 columns -> calo DST + G4Hits DST (paired per line)
-  // ---------------------------------------------------------------
-  std::vector<std::string> filesCalo;
-  std::vector<std::string> filesG4;
-  std::vector<std::string> filesJets;
+    // Parse list file
+    //   DATA:  1 column  -> calo DST
+    //   SIM :  5 columns -> calo + G4Hits + (truth jets) + global + mbd_epd
+    // ---------------------------------------------------------------
+    std::vector<std::string> filesCalo;
+    std::vector<std::string> filesG4;
+    std::vector<std::string> filesJets;
+    std::vector<std::string> filesGlobal;
+    std::vector<std::string> filesMbd;
 
-  for (std::string line; std::getline(list, line); )
-  {
-        line = detail::trim(line);
-        if (line.empty()) continue;
-        if (!line.empty() && line[0] == '#') continue;
+    for (std::string line; std::getline(list, line); )
+    {
+          line = detail::trim(line);
+          if (line.empty()) continue;
+          if (!line.empty() && line[0] == '#') continue;
 
-        // Columns:
-        //   DATA : <DST_CALO_CLUSTER>
-        //   SIM  : <DST_CALO_CLUSTER> <G4Hits> [DST_JETS]
-        std::istringstream iss(line);
-        std::string fCalo, fG4, fJets;
-        iss >> fCalo >> fG4 >> fJets;
+          // Columns:
+          //   DATA : <DST_CALO_CLUSTER>
+          //   SIM  : <DST_CALO_CLUSTER> <G4Hits> <DST_JETS> <DST_GLOBAL> <DST_MBD_EPD>
+          std::istringstream iss(line);
+          std::string fCalo, fG4, fJets, fGlobal, fMbd;
+          iss >> fCalo >> fG4 >> fJets >> fGlobal >> fMbd;
 
-        if (fCalo.empty()) continue;
+          if (fCalo.empty()) continue;
 
-        filesCalo.emplace_back(fCalo);
+          filesCalo.emplace_back(fCalo);
 
-        // Keep vectors key-aligned (same length as filesCalo):
-        // empty string == "not provided on this line"
-        filesG4.emplace_back((!fG4.empty() && fG4 != "NONE") ? fG4 : std::string{});
-        filesJets.emplace_back((!fJets.empty() && fJets != "NONE") ? fJets : std::string{});
-  }
+          // Keep vectors key-aligned (same length as filesCalo):
+          // empty string == "not provided on this line"
+          filesG4.emplace_back((!fG4.empty() && fG4 != "NONE") ? fG4 : std::string{});
+          filesJets.emplace_back((!fJets.empty() && fJets != "NONE") ? fJets : std::string{});
+          filesGlobal.emplace_back((!fGlobal.empty() && fGlobal != "NONE") ? fGlobal : std::string{});
+          filesMbd.emplace_back((!fMbd.empty() && fMbd != "NONE") ? fMbd : std::string{});
+    }
 
   if (filesCalo.empty())
         detail::bail("input list \"" + std::string(listFile) + "\" is empty");
@@ -386,108 +393,127 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   bool buildTruthJetsFromParticles = false;
   bool buildTruthJetsAsAltNode = false;   // only true in BOTH mode
 
-  auto all_nonempty = [](const std::vector<std::string>& v) -> bool
-  {
-      if (v.empty()) return false;
-      for (const auto& s : v) if (s.empty()) return false;
-      return true;
-    };
-
-    const bool listHasG4   = all_nonempty(filesG4);
-    const bool listHasJets = all_nonempty(filesJets);
-
-    // Normalize env token to lowercase
-    auto env_lower = [](const char* key, const std::string& def) -> std::string
+    auto all_nonempty = [](const std::vector<std::string>& v) -> bool
     {
-      const char* raw = std::getenv(key);
-      std::string s = raw ? detail::trim(std::string(raw)) : def;
-      std::transform(s.begin(), s.end(), s.begin(),
-                     [](unsigned char c){ return std::tolower(c); });
-      return s;
-    };
+        if (v.empty()) return false;
+        for (const auto& s : v) if (s.empty()) return false;
+        return true;
+      };
 
-    const std::string truthMode = env_lower("RJ_TRUTH_JETS_MODE", "auto");
-    if (truthMode == "dst")
-    {
-      useDSTTruthJets = true;
-      buildTruthJetsFromParticles = false;
-      buildTruthJetsAsAltNode = false;
-    }
-    else if (truthMode == "build")
-    {
-      useDSTTruthJets = false;
-      buildTruthJetsFromParticles = true;
-      buildTruthJetsAsAltNode = false;
-    }
-    else if (truthMode == "both")
-    {
-      useDSTTruthJets = true;
-      buildTruthJetsFromParticles = true;
-      buildTruthJetsAsAltNode = true;
-    }
-    else
-    {
-      // AUTO (or any unrecognized token): prefer DST truth jets if provided
-      useDSTTruthJets = listHasJets;
-      buildTruthJetsFromParticles = !listHasJets;
-      buildTruthJetsAsAltNode = false;
-  }
+      const bool listHasG4     = all_nonempty(filesG4);
+      const bool listHasJets   = all_nonempty(filesJets);
+      const bool listHasGlobal = all_nonempty(filesGlobal);
+      const bool listHasMbd    = all_nonempty(filesMbd);
 
-  // ------------------ Calo cluster DST (always) -------------------
-  auto* inCalo = new Fun4AllDstInputManager("DST_CALO_CLUSTER_IN");
-  for (const auto& f : filesCalo) inCalo->AddFile(f);
-  se->registerInputManager(inCalo);
-
-  // ------------------ G4Hits DST (SIM only) ------------------------
-  if (isSim)
-  {
-      // Require strict 1:1 file pairing (one G4 file per calo file line)
-      if (!listHasG4)
+      // Normalize env token to lowercase
+      auto env_lower = [](const char* key, const std::string& def) -> std::string
       {
-        std::ostringstream os;
-        os << "isSim requires G4Hits paired 1:1 with calo files.\n"
-           << "Input list must be 2 or 3 columns per line:\n"
-           << "  <DST_CALO_CLUSTER> <G4Hits> [DST_JETS]\n"
-           << "But your list is missing the G4Hits column on at least one line.";
-        detail::bail(os.str());
+        const char* raw = std::getenv(key);
+        std::string s = raw ? detail::trim(std::string(raw)) : def;
+        std::transform(s.begin(), s.end(), s.begin(),
+                       [](unsigned char c){ return std::tolower(c); });
+        return s;
+      };
+
+      const std::string truthMode = env_lower("RJ_TRUTH_JETS_MODE", "auto");
+      if (truthMode == "dst")
+      {
+        useDSTTruthJets = true;
+        buildTruthJetsFromParticles = false;
+        buildTruthJetsAsAltNode = false;
+      }
+      else if (truthMode == "build")
+      {
+        useDSTTruthJets = false;
+        buildTruthJetsFromParticles = true;
+        buildTruthJetsAsAltNode = false;
+      }
+      else if (truthMode == "both")
+      {
+        useDSTTruthJets = true;
+        buildTruthJetsFromParticles = true;
+        buildTruthJetsAsAltNode = true;
+      }
+      else
+      {
+        // AUTO (or any unrecognized token): prefer DST truth jets if provided
+        useDSTTruthJets = listHasJets;
+        buildTruthJetsFromParticles = !listHasJets;
+        buildTruthJetsAsAltNode = false;
+    }
+
+    // ------------------ Calo cluster DST (always) -------------------
+    auto* inCalo = new Fun4AllDstInputManager("DST_CALO_CLUSTER_IN");
+    for (const auto& f : filesCalo) inCalo->AddFile(f);
+    se->registerInputManager(inCalo);
+
+    // ------------------ Extra SIM inputs (G4Hits + Jets + Global + MBD) -------------------
+    if (isSim)
+    {
+        // Require strict 1:1 pairing (one file per calo file line) for ALL SIM streams we depend on
+        if (!listHasG4)
+        {
+          std::ostringstream os;
+          os << "isSim requires G4Hits paired 1:1 with calo files.\n"
+             << "Input list must have at least 2 columns per line:\n"
+             << "  <DST_CALO_CLUSTER> <G4Hits> ...\n"
+             << "But your list is missing the G4Hits column on at least one line.";
+          detail::bail(os.str());
+        }
+        if (!listHasGlobal || !listHasMbd)
+        {
+          std::ostringstream os;
+          os << "isSim requires reco-vertex DSTs (DST_GLOBAL + DST_MBD_EPD) paired 1:1 with calo files.\n"
+             << "Input list must be 5 columns per line:\n"
+             << "  <DST_CALO_CLUSTER> <G4Hits> <DST_JETS> <DST_GLOBAL> <DST_MBD_EPD>\n"
+             << "But your list is missing DST_GLOBAL and/or DST_MBD_EPD on at least one line.";
+          detail::bail(os.str());
+        }
+
+        auto* inG4 = new Fun4AllDstInputManager("DST_G4HITS_IN");
+        for (const auto& f : filesG4) inG4->AddFile(f);
+        se->registerInputManager(inG4);
+
+        auto* inGlobal = new Fun4AllDstInputManager("DST_GLOBAL_IN");
+        for (const auto& f : filesGlobal) inGlobal->AddFile(f);
+        se->registerInputManager(inGlobal);
+
+        auto* inMbd = new Fun4AllDstInputManager("DST_MBD_EPD_IN");
+        for (const auto& f : filesMbd) inMbd->AddFile(f);
+        se->registerInputManager(inMbd);
+
+        if (verbose)
+          std::cout << "[INFO] isSim: registered input managers (Calo + G4Hits + Global + MBD_EPD)\n";
       }
 
-      auto* inG4 = new Fun4AllDstInputManager("DST_G4HITS_IN");
-      for (const auto& f : filesG4) inG4->AddFile(f);
-      se->registerInputManager(inG4);
-
-      if (verbose)
-        std::cout << "[INFO] isSim: registered paired input managers (Calo + G4Hits)\n";
-    }
-
-    // ------------------ Jets DST (SIM optional; for truth jets) -------
-    if (isSim && useDSTTruthJets)
-    {
-      if (!listHasJets)
+      // ------------------ Jets DST (SIM optional; for truth jets) -------
+      if (isSim && useDSTTruthJets)
       {
-        std::ostringstream os;
-        os << "RJ_TRUTH_JETS_MODE=" << truthMode << " requires a 3-column list:\n"
-           << "  <DST_CALO_CLUSTER> <G4Hits> <DST_JETS>\n"
-           << "Use the triplet list you generated (e.g. DST_CALO_CLUSTER__G4Hits__DST_JETS.triplets.list).";
-        detail::bail(os.str());
+        if (!listHasJets)
+        {
+          std::ostringstream os;
+          os << "RJ_TRUTH_JETS_MODE=" << truthMode << " requires a list with at least 3 columns:\n"
+             << "  <DST_CALO_CLUSTER> <G4Hits> <DST_JETS> [<DST_GLOBAL> <DST_MBD_EPD>]\n"
+             << "Use your staged 5-column master list built from the matched lists.";
+          detail::bail(os.str());
+        }
+
+        auto* inJets = new Fun4AllDstInputManager("DST_JETS_IN");
+        for (const auto& f : filesJets) inJets->AddFile(f);
+        se->registerInputManager(inJets);
+
+        if (verbose)
+          std::cout << "[INFO] isSim: registered DST_JETS input manager (truth jets from DST)\n";
       }
 
-      auto* inJets = new Fun4AllDstInputManager("DST_JETS_IN");
-      for (const auto& f : filesJets) inJets->AddFile(f);
-      se->registerInputManager(inJets);
-
-      if (verbose)
-        std::cout << "[INFO] isSim: registered DST_JETS input manager (truth jets from DST)\n";
+      if (verbose && isSim)
+      {
+        std::cout << "[INFO] Truth-jet mode (RJ_TRUTH_JETS_MODE=" << truthMode << "): "
+                  << (useDSTTruthJets ? "DST" : "")
+                  << ((useDSTTruthJets && buildTruthJetsFromParticles) ? "+" : "")
+                  << (buildTruthJetsFromParticles ? "BUILD" : "")
+                  << "\n";
     }
-
-    if (verbose && isSim)
-    {
-      std::cout << "[INFO] Truth-jet mode (RJ_TRUTH_JETS_MODE=" << truthMode << "): "
-                << (useDSTTruthJets ? "DST" : "")
-                << ((useDSTTruthJets && buildTruthJetsFromParticles) ? "+" : "")
-                << (buildTruthJetsFromParticles ? "BUILD" : "")
-                << "\n";
-  }
 
   // --------------------------------------------------------------------
   // 3.  Geometry + status + calibration + clustering

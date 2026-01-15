@@ -171,18 +171,18 @@ LOCAL_EVENTS=5000   # default N for "local" if not given
 TRIGGER_BIT=""      # optional: filter runs by GL1 scaledown bit (e.g., TRIGGER=26)
 
 # ------------------------ Simulation (MC) defaults --------
-# isSim mode uses a single master list per sample:
-#   ${SIM_ROOT}/${SIM_SAMPLE}/DST_CALO_CLUSTER.matched.list   (preferred)
-# or:
-#   ${SIM_ROOT}/${SIM_SAMPLE}/DST_CALO_CLUSTER.list           (fallback)
+# isSim expects a master list with ONE line per segment, whitespace-separated:
+#   col1 = DST_CALO_CLUSTER
+#   col2 = G4Hits
+#   col3 = DST_JETS        (truth jets DST)
+#   col4 = DST_GLOBAL      (GlobalVertexMap lives here)
+#   col5 = DST_MBD_EPD     (MBD inputs; needed for reco MBD vertex)
 SIM_ROOT="${BASE}/simListFiles"
 SIM_SAMPLE_DEFAULT="run28_photonjet10"
 SIM_SAMPLE="${SIM_SAMPLE_DEFAULT}"
-SIM_PAIR_LIST="DST_CALO_CLUSTER__G4Hits__DST_JETS.triplets.list"
 
-# (Legacy: kept for reference; not used once SIM_PAIR_LIST exists)
-SIM_LIST_PREFERRED="DST_CALO_CLUSTER.matched.list"
-SIM_LIST_FALLBACK="DST_CALO_CLUSTER.list"
+# Name for the staged 5-column master list (built by sim_init from matched lists)
+SIM_MASTER5_NAME="DST_SIM_MASTER_5COL.list"
 
 # Output dir for sim is: ${SIM_DEST_BASE}/${SIM_SAMPLE}
 SIM_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna"
@@ -309,24 +309,29 @@ sim_init() {
   SIM_DIR="${SIM_ROOT}/${SIM_SAMPLE}"
   [[ -d "$SIM_DIR" ]] || { err "Sim sample directory not found: $SIM_DIR"; exit 20; }
 
-  local pair="${SIM_DIR}/${SIM_PAIR_LIST}"
-
-  if [[ -s "$pair" ]]; then
-    SIM_MASTER_LIST="$pair"
-  else
-    err "Missing paired SIM list: $pair"
-    err "Create it in ${SIM_DIR} with:"
-    err "  paste DST_CALO_CLUSTER.matched.list G4Hits.matched.list > ${SIM_PAIR_LIST}"
-    exit 23
-  fi
-
   SIM_STAGE_DIR="${STAGE_DIR}/${SIM_SAMPLE}"
   mkdir -p "$SIM_STAGE_DIR"
 
-  # Clean master list: strip blank lines + comment lines (keeps 2 columns!)
+  # Build a staged 5-column master list from the matched lists created by makeThesisSimLists.sh
+  local calo="${SIM_DIR}/DST_CALO_CLUSTER.matched.list"
+  local g4="${SIM_DIR}/G4Hits.matched.list"
+  local jets="${SIM_DIR}/DST_JETS.matched.list"
+  local glob="${SIM_DIR}/DST_GLOBAL.matched.list"
+  local mbd="${SIM_DIR}/DST_MBD_EPD.matched.list"
+
+  [[ -s "$calo" ]] || { err "Missing: $calo"; err "Run makeThesisSimLists.sh for ${SIM_SAMPLE}"; exit 23; }
+  [[ -s "$g4"   ]] || { err "Missing: $g4";   err "Run makeThesisSimLists.sh for ${SIM_SAMPLE}"; exit 23; }
+  [[ -s "$jets" ]] || { err "Missing: $jets"; err "Run makeThesisSimLists.sh for ${SIM_SAMPLE}"; exit 23; }
+  [[ -s "$glob" ]] || { err "Missing: $glob"; err "Run makeThesisSimLists.sh for ${SIM_SAMPLE}"; exit 23; }
+  [[ -s "$mbd"  ]] || { err "Missing: $mbd";  err "Run makeThesisSimLists.sh for ${SIM_SAMPLE}"; exit 23; }
+
+  SIM_MASTER_LIST="${SIM_STAGE_DIR}/sim_${SIM_SAMPLE}_${SIM_MASTER5_NAME}"
+  paste "$calo" "$g4" "$jets" "$glob" "$mbd" > "$SIM_MASTER_LIST"
+
+  # Clean master list: strip blank lines + comment lines (keeps ALL columns)
   SIM_CLEAN_LIST="${SIM_STAGE_DIR}/sim_${SIM_SAMPLE}_PAIR_MASTER_CLEAN.list"
   grep -E -v '^[[:space:]]*($|#)' "$SIM_MASTER_LIST" > "$SIM_CLEAN_LIST" || true
-  [[ -s "$SIM_CLEAN_LIST" ]] || { err "Sim paired master list is empty after cleaning: $SIM_MASTER_LIST"; exit 22; }
+  [[ -s "$SIM_CLEAN_LIST" ]] || { err "Sim master list empty after cleaning: $SIM_MASTER_LIST"; exit 22; }
 
   SIM_OUT_DIR="${DEST_BASE}/${SIM_SAMPLE}"
   mkdir -p "$SIM_OUT_DIR"

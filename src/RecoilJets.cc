@@ -345,32 +345,34 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     }
   }
 
-  // Choose the z we will USE:
-  //   • isSim : TRUTH (if present) → else MBD → else Global
-  //   • data  : MBD → else Global
-  const char* vz_source = "none";
-  if (isSim && haveTruthZ)
-  {
-    m_vx = static_cast<float>(truth_x);
-    m_vy = static_cast<float>(truth_y);
-    m_vz = static_cast<float>(truth_z);
-    vz_source = "TRUTH";
-  }
-  else if (haveMBDZ)
-  {
-    m_vz = static_cast<float>(mbd_z);
-    vz_source = "MBD";
-  }
-  else if (haveGVZ)
-  {
-    m_vz = static_cast<float>(gv_z);
-    vz_source = "Global";
-  }
-  else
-  {
-    LOG(1, CLR_YELLOW, "  [fetchNodes] no usable vertex z → skip event");
-    return false;
-  }
+    // Choose the z we will USE:
+    //   • SIM + data: use RECO vertex for RECO objects
+    //       MBD → else Global → else TRUTH (SIM fallback only)
+    //   This keeps towers/clusters/jets consistent with the same reco zvtx.
+    const char* vz_source = "none";
+
+    if (haveMBDZ)
+    {
+      m_vz = static_cast<float>(mbd_z);
+      vz_source = "MBD";
+    }
+    else if (haveGVZ)
+    {
+      m_vz = static_cast<float>(gv_z);
+      vz_source = "Global";
+    }
+    else if (isSim && haveTruthZ)
+    {
+      m_vx = static_cast<float>(truth_x);
+      m_vy = static_cast<float>(truth_y);
+      m_vz = static_cast<float>(truth_z);
+      vz_source = "TRUTH(fallback)";
+    }
+    else
+    {
+      LOG(1, CLR_YELLOW, "  [fetchNodes] no usable vertex z → skip event");
+      return false;
+    }
 
   // Print comparison ONLY if it matters (data only)
   if (!isSim && haveMBDZ && haveGVZ)
@@ -387,15 +389,36 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     }
   }
 
-  LOG(4, CLR_BLUE,
-      "    [fetchNodes] dataset=" << (isSim ? "SIM" : (isAuAu ? "Au+Au" : "p+p"))
-      << "  vz(used)=" << std::fixed << std::setprecision(2) << m_vz
-      << "  (source=" << vz_source << ")");
+    LOG(4, CLR_BLUE,
+        "    [fetchNodes] dataset=" << (isSim ? "SIM" : (isAuAu ? "Au+Au" : "p+p"))
+        << "  vz(used)=" << std::fixed << std::setprecision(2) << m_vz
+        << "  (source=" << vz_source << ")");
 
-  // ------------------------------------------------------------------
-  // Calo towers & geometry
-  // ------------------------------------------------------------------
-  m_calo.clear();
+    // ------------------------------------------------------------------
+    // SIM QA (PRE-CUT): truth vs reco-used vertex z
+    //   - Fill here so it is recorded even if the event later fails |vz| cut
+    //   - X = truth vz (from G4TruthInfo)
+    //   - Y = reco-used vz (your chosen m_vz: MBD → Global → TRUTH fallback)
+    // ------------------------------------------------------------------
+    if (isSim && haveTruthZ)
+    {
+      auto itTrig = qaHistogramsByTrigger.find("SIM");
+      if (itTrig != qaHistogramsByTrigger.end())
+      {
+        auto& H = itTrig->second;
+        auto itH2 = H.find("h_vzTruthVsReco");
+        if (itH2 != H.end())
+        {
+          static_cast<TH2F*>(itH2->second)->Fill(static_cast<float>(truth_z), m_vz);
+          bumpHistFill("SIM", "h_vzTruthVsReco");
+        }
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // Calo towers & geometry
+    // ------------------------------------------------------------------
+    m_calo.clear();
   for (const auto& ci : m_caloInfo)
   {
     const std::string node = std::get<0>(ci);
@@ -762,12 +785,22 @@ void RecoilJets::createHistos_Data()
       H[hcnt] = h;
     }
 
-    // 2) vertex-z QA
-    if (H.find("h_vertexZ") == H.end())
-    {
-      auto* hvz = new TH1F("h_vertexZ", "h_vertexZ;v_{z} [cm];Entries", nbVz, vzMin, vzMax);
-      H["h_vertexZ"] = hvz;
-    }
+      // 2) vertex-z QA
+      if (H.find("h_vertexZ") == H.end())
+      {
+        auto* hvz = new TH1F("h_vertexZ", "h_vertexZ;v_{z} [cm];Entries", nbVz, vzMin, vzMax);
+        H["h_vertexZ"] = hvz;
+      }
+
+      // 3) SIM ONLY: truth-vs-reco vertex comparison (filled BEFORE |vz| cut)
+      if (H.find("h_vzTruthVsReco") == H.end())
+      {
+        auto* h2 = new TH2F("h_vzTruthVsReco",
+                            "h_vzTruthVsReco;v_{z}^{truth} [cm];v_{z}^{reco-used} [cm]",
+                            nbVz, vzMin, vzMax,
+                            nbVz, vzMin, vzMax);
+        H["h_vzTruthVsReco"] = h2;
+      }
 
     // Optional: if you ever run a HI-like sim with centrality available
     if (m_isAuAu && H.find("h_centrality") == H.end())

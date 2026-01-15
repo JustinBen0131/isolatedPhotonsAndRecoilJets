@@ -6,6 +6,8 @@
 #include <calobase/RawClusterUtility.h>
 #include <calobase/RawTowerGeomContainer.h>
 #include <calobase/TowerInfoContainer.h>
+#include <g4main/PHG4TruthInfoContainer.h>
+#include <g4main/PHG4VtxPoint.h>
 #include <calobase/TowerInfoDefs.h>
 
 // Tower stuff
@@ -84,9 +86,17 @@ int PhotonClusterBuilder::InitRun(PHCompositeNode* topNode)
 
   m_geomEM = findNode::getClass<RawTowerGeomContainer>(topNode, "TOWERGEOM_CEMC");
   if (!m_geomEM)
-  {
-    std::cerr << Name() << ": could not find RawTowerGeomContainer node 'TOWERGEOM_CEMC'" << std::endl;
-    return Fun4AllReturnCodes::ABORTRUN;
+    {
+      m_geomEM = findNode::getClass<RawTowerGeomContainer>(topNode, "TOWERGEOM_CEMC_DETAILED");
+    }
+
+    if (!m_geomEM)
+    {
+      std::cerr << Name()
+                << ": could not find RawTowerGeomContainer node 'TOWERGEOM_CEMC' "
+                << "(or fallback 'TOWERGEOM_CEMC_DETAILED')"
+                << std::endl;
+      return Fun4AllReturnCodes::ABORTRUN;
   }
 
   m_ihcal_tower_container = findNode::getClass<TowerInfoContainer>(topNode, "TOWERINFO_CALIB_HCALIN");
@@ -150,38 +160,62 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
     }
   }
 
-  // init with NaN
-  m_vertex = std::numeric_limits<float>::quiet_NaN();
-  // assume we need vertex for photon shower shape for now
-  // in the future we need to change the vertex to MBD tracking combined
-  MbdVertexMap* vertexmap = findNode::getClass<MbdVertexMap>(topNode, "MbdVertexMap");
+    // ------------------------------------------------------------------
+    // Vertex selection (RECO vertex for RECO objects)
+    //   Use MBD vertex (DATA + SIM). Optional fallback: GlobalVertexMap (still reco).
+    //   Never overwrite reco objects with TRUTH vertex.
+    // ------------------------------------------------------------------
+    m_vertex = std::numeric_limits<float>::quiet_NaN();
+    const char* vtx_source = "NONE";
 
-  if (!vertexmap)
-  {
-    std::cout << "GlobalVertexMap node is missing" << std::endl;
-    return Fun4AllReturnCodes::EVENT_OK;
-  }
-  if (vertexmap && !vertexmap->empty())
-  {
-    MbdVertex* vtx = vertexmap->begin()->second;
-    if (vtx)
+    // 1) MBD vertex (preferred)
+    if (auto* vertexmap = findNode::getClass<MbdVertexMap>(topNode, "MbdVertexMap"))
     {
-      m_vertex = vtx->get_z();
-
-      if (m_vertex != m_vertex)
+      if (!vertexmap->empty())
       {
-        return Fun4AllReturnCodes::EVENT_OK;
+        if (auto* vtx = vertexmap->begin()->second)
+        {
+          m_vertex = vtx->get_z();
+          vtx_source = "MBD";
+        }
       }
     }
-    else
+
+    // 2) Optional fallback: GlobalVertexMap (still reco)
+    if (!std::isfinite(m_vertex))
     {
+      if (auto* gvmap = findNode::getClass<GlobalVertexMap>(topNode, "GlobalVertexMap"))
+      {
+        if (!gvmap->empty())
+        {
+          if (auto* gvtx = gvmap->begin()->second)
+          {
+            m_vertex = gvtx->get_z();
+            vtx_source = "GlobalVertex";
+          }
+        }
+      }
+    }
+
+    // If still invalid, skip (same behavior as before)
+    if (!std::isfinite(m_vertex))
+    {
+      if (Verbosity() >= 1)
+      {
+        std::cout << Name()
+                  << ": no valid RECO vertex found (MBD/Global) -> skipping photon build this event"
+                  << std::endl;
+      }
       return Fun4AllReturnCodes::EVENT_OK;
     }
-  }
-  else
-  {
-    return Fun4AllReturnCodes::EVENT_OK;
-  }
+
+    if (Verbosity() >= 2)
+    {
+      std::cout << Name()
+                << ": using vertex_z=" << m_vertex
+                << " (source=" << vtx_source << ")"
+                << std::endl;
+    }
 
   // iterate over clusters via map to have access to keys if needed
   const auto& rcmap = m_rawclusters->getClustersMap();
@@ -206,17 +240,33 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
       continue;
     }
 
-    PhotonClusterv1* photon = new PhotonClusterv1(*rc);
+      PhotonClusterv1* photon = new PhotonClusterv1(*rc);
 
-    calculate_shower_shapes(rc, photon, eta, phi);
-    //this is defensive coding, if do bdt is set false the bdt object should be nullptr
-    //and this method will simply pass
-    if (m_do_bdt)
-    {
-      calculate_bdt_score(photon);
-    }
+      // ------------------------------------------------------------------
+      // NEW: Persist kinematics used by PhotonClusterBuilder so downstream
+      // (e.g. RecoilJets) can read consistent eta/phi/pt and vertex.
+      //
+      // NOTE:
+      //   - We compute eta/phi using the chosen vertex_z (truth for SIM, MBD for DATA)
+      //   - ET = E / cosh(eta)
+      //   - For photons, pT == ET (massless)
+      // ------------------------------------------------------------------
+      photon->set_shower_shape_parameter("vertex_z",    m_vertex);
+      photon->set_shower_shape_parameter("cluster_eta", eta);
+      photon->set_shower_shape_parameter("cluster_phi", phi);
+      photon->set_shower_shape_parameter("cluster_et",  ET);
+      photon->set_shower_shape_parameter("cluster_pt",  ET);
 
-    m_photon_container->AddCluster(photon);
+      calculate_shower_shapes(rc, photon, eta, phi);
+
+      //this is defensive coding, if do bdt is set false the bdt object should be nullptr
+      //and this method will simply pass
+      if (m_do_bdt)
+      {
+        calculate_bdt_score(photon);
+      }
+
+      m_photon_container->AddCluster(photon);
   }
   return Fun4AllReturnCodes::EVENT_OK;
 }
@@ -346,15 +396,56 @@ void PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
     dphimax = std::max(std::abs(dphi_val), dphimax);
   }
 
-  if (cluster_total_e > 0)
-  {
-    clusteravgtime /= cluster_total_e;
-  }
-  else
-  {
-    std::cout << "cluster_total_e is 0(this should not happen!!!), setting clusteravgtime to NaN" << std::endl;
-    clusteravgtime = std::numeric_limits<float>::quiet_NaN();
-  }
+    if (cluster_total_e > 0)
+    {
+      clusteravgtime /= cluster_total_e;
+    }
+    else
+    {
+      if (Verbosity() >= 2)
+      {
+        std::cout << Name()
+                  << ": cluster_total_e is 0, setting mean_time to -999"
+                  << " | rc_energy=" << rc->get_energy()
+                  << " | towers_in_towermap=" << tower_map.size()
+                  << std::endl;
+
+        // Diagnose tower lookup failures vs zero-energy towers (print a small sample)
+        int nFound = 0;
+        int nNonzero = 0;
+        int nPrinted = 0;
+
+        for (auto tower_iter : tower_map)
+        {
+          RawTowerDefs::keytype tower_key = tower_iter.first;
+          int ieta = RawTowerDefs::decode_index1(tower_key);
+          int iphi = RawTowerDefs::decode_index2(tower_key);
+
+          unsigned int towerinfokey = TowerInfoDefs::encode_emcal(ieta, iphi);
+          TowerInfo* towerinfo = m_emc_tower_container->get_tower_at_key(towerinfokey);
+
+          if (towerinfo) nFound++;
+          if (towerinfo && towerinfo->get_energy() > 0) nNonzero++;
+
+          if (!towerinfo && nPrinted < 6)
+          {
+            std::cout << "  missing TowerInfo for (ieta,iphi)=("
+                      << ieta << "," << iphi << ")"
+                      << " raw_tower_key=" << tower_key
+                      << " towerinfokey=" << towerinfokey
+                      << std::endl;
+            nPrinted++;
+          }
+        }
+
+        std::cout << "  towerinfo summary: found=" << nFound
+                  << " nonzeroE=" << nNonzero
+                  << " (container size=" << m_emc_tower_container->size() << ")"
+                  << std::endl;
+      }
+
+      clusteravgtime = -999.0f;
+    }
 
   float E77[7][7] = {{0.0F}};
   int E77_ownership[7][7] = {{0}};
@@ -565,9 +656,16 @@ void PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
   photon->set_shower_shape_parameter("et2", showershape[1]);
   photon->set_shower_shape_parameter("et3", showershape[2]);
   photon->set_shower_shape_parameter("et4", showershape[3]);
-  photon->set_shower_shape_parameter("e11", e11);
-  photon->set_shower_shape_parameter("e22", showershape[8] + showershape[9] + showershape[10] + showershape[11]);
-  photon->set_shower_shape_parameter("e33", e33);
+    photon->set_shower_shape_parameter("e11", e11);
+
+    float e22 = -999.0F;
+    if (showershape.size() >= 12)
+    {
+      e22 = showershape[8] + showershape[9] + showershape[10] + showershape[11];
+    }
+    photon->set_shower_shape_parameter("e22", e22);
+
+    photon->set_shower_shape_parameter("e33", e33);
   photon->set_shower_shape_parameter("e55", e55);
   photon->set_shower_shape_parameter("e77", e77);
   photon->set_shower_shape_parameter("e13", e13);

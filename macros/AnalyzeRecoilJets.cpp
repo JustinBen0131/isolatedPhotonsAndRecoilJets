@@ -53,6 +53,34 @@ namespace ARJ
         lines.push_back(TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
         DrawAndSaveTH1_Common(ds, hFixed, outPath, "v_{z} [cm]", "Counts", lines, false);
 
+        // ------------------------------------------------------------------
+        // SIM ONLY: truth-vs-reco vertex 2D QA (pre-cut fill in RecoilJets.cc)
+        //   X = v_z^truth, Y = v_z^(reco-used)
+        // ------------------------------------------------------------------
+        if (ds.isSim)
+        {
+          TH2* h2 = GetObj<TH2>(ds, "h_vzTruthVsReco", true, true, true);
+          if (!h2)
+          {
+            cout << ANSI_BOLD_YEL << "[WARN] Missing h_vzTruthVsReco for " << ds.label << ANSI_RESET << "\n";
+          }
+          else
+          {
+            const string out2 = JoinPath(ds.outBase, "GeneralEventLevelQA/vzTruthVsReco_SIM.png");
+
+            vector<string> l2;
+            l2.push_back("Pre-cut fill (before |v_{z}| cut)");
+            l2.push_back("X: v_{z}^{truth}  |  Y: v_{z}^{reco-used}");
+
+            DrawAndSaveTH2_Common(ds, h2, out2,
+                                 "v_{z}^{truth} [cm]",
+                                 "v_{z}^{reco-used} [cm]",
+                                 "Counts",
+                                 l2,
+                                 false);
+          }
+        }
+
         delete hFixed;
       }
 
@@ -457,6 +485,44 @@ namespace ARJ
             delete hc;
           }
         }
+
+        // -------------------------------------------------------------------------
+        // NEW: SS-independent 2D comparison of iso definitions (Builder vs ClusterIso)
+        //
+        // Histogram (per pT slice):
+        //   h2_EisoBuilder_vs_ClusterIso<suffix>
+        //
+        //   x = RecoilJets::eiso() (PhotonClusterBuilder iso_* summed in analysis)
+        //   y = rc->get_et_iso(radiusx10,false,true) (ClusterIso unsubtracted stored on photon cluster)
+        // -------------------------------------------------------------------------
+        for (int i = 0; i < kNPtBins; ++i)
+        {
+          const PtBin& b = PtBins()[i];
+          const string hname = "h2_EisoBuilder_vs_ClusterIso" + b.suffix;
+
+          TH2* h2 = GetObj<TH2>(ds, hname, true, true, true);
+          if (!h2) continue;
+
+          TH2* hc = dynamic_cast<TH2*>(h2->Clone(TString::Format("%s_clone_%d", hname.c_str(), i).Data()));
+          if (!hc) continue;
+          hc->SetDirectory(nullptr);
+
+          vector<string> lines = {
+            "Reco isolation comparison (SS-independent)",
+            TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data(),
+            TString::Format("Histogram: %s", hname.c_str()).Data()
+          };
+
+          const string fp = JoinPath(outDir, b.folder + "/EisoBuilder_vs_ClusterIso2D_" + b.folder + ".png");
+
+          DrawAndSaveTH2_Common(ds, hc, fp,
+            "E_{T}^{iso} (PhotonClusterBuilder) [GeV]",
+            "E_{T}^{iso} (ClusterIso unsub) [GeV]",
+            "Entries",
+            lines, true);
+
+          delete hc;
+        }
       }
 
       // -------------------------------------------------------------------------
@@ -608,6 +674,80 @@ namespace ARJ
             if (hr) delete hr;
 
             delete hRecoIsoSum2;
+          }
+        }
+
+        // -------------------------------------------------------------------------
+        // NEW (SIM only): reco isolation for TRUTH-ISOLATED signal photon matches
+        //   Histogram per pT slice:
+        //     h_EisoReco_truthSigMatched<suffix>
+        //   Filled before tight/non-tight gating (SS-independent).
+        // -------------------------------------------------------------------------
+        {
+          const string sigDir = JoinPath(truthDir, "TruthSigMatchedRecoIso");
+          EnsureDir(sigDir);
+          for (const auto& b : PtBins()) EnsureDir(JoinPath(sigDir, b.folder));
+
+          for (int i = 0; i < kNPtBins; ++i)
+          {
+            const PtBin& b = PtBins()[i];
+            const string hname = "h_EisoReco_truthSigMatched" + b.suffix;
+
+            TH1* h = GetObj<TH1>(ds, hname, true, true, true);
+            if (!h) continue;
+
+            // Counts
+            if (TH1* hc = CloneTH1(h, TString::Format("h_truthSigMatchedRecoIso_counts_%d", i).Data()))
+            {
+              const string fp = JoinPath(sigDir, b.folder + "/EisoReco_truthSigMatched_counts_" + b.folder + ".png");
+              DrawAndSaveTH1_Iso(ds, hc, fp,
+                                 "E_{T}^{iso,reco} [GeV]", "Counts",
+                                 "E_{T}^{iso,reco} (truth iso signal match)", b,
+                                 false);
+              delete hc;
+            }
+
+            // Shape
+            if (TH1* hs = CloneTH1(h, TString::Format("h_truthSigMatchedRecoIso_shape_%d", i).Data()))
+            {
+              NormalizeToUnitArea(hs);
+              const string fp = JoinPath(sigDir, b.folder + "/EisoReco_truthSigMatched_shape_" + b.folder + ".png");
+              DrawAndSaveTH1_Iso(ds, hs, fp,
+                                 "E_{T}^{iso,reco} [GeV]", "A.U.",
+                                 "E_{T}^{iso,reco} (truth iso signal match)", b,
+                                 false);
+              delete hs;
+            }
+
+            // Optional: overlay vs inclusive reco isolation in the same pT bin (shape)
+            TH1* hReco = GetObj<TH1>(ds, "h_Eiso" + b.suffix, false, false, false);
+            if (hReco)
+            {
+              TH1* hSigShape  = CloneTH1(h,     TString::Format("h_truthSigMatchedRecoIso_overlay_%d", i).Data());
+              TH1* hRecoShape = CloneTH1(hReco, TString::Format("h_recoIso_overlay_%d", i).Data());
+
+              if (hSigShape && hRecoShape)
+              {
+                NormalizeToUnitArea(hSigShape);
+                NormalizeToUnitArea(hRecoShape);
+
+                vector<string> lines = {
+                  TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data(),
+                  "Overlay (shape): truth-iso signal matched vs inclusive reco",
+                  "Matched: h_EisoReco_truthSigMatched   |   Inclusive: h_Eiso"
+                };
+
+                const string fp = JoinPath(sigDir, b.folder + "/overlay_truthSigMatched_vs_inclusiveReco_shape_" + b.folder + ".png");
+
+                DrawOverlayTwoTH1(ds, hSigShape, hRecoShape,
+                  "Truth-iso signal matched", "Inclusive reco",
+                  fp,
+                  "E_{T}^{iso,reco} [GeV]", "A.U.", lines, false);
+              }
+
+              if (hSigShape)  delete hSigShape;
+              if (hRecoShape) delete hRecoShape;
+            }
           }
         }
       }

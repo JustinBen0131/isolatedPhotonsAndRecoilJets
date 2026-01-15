@@ -31,7 +31,7 @@ class TowerJetInput : public JetInput
     m_vertex_type.clear();
   }
   
-  void set_GlobalVertexType(GlobalVertex::VTXTYPE type) 
+  void set_GlobalVertexType(GlobalVertex::VTXTYPE type)
   {
     reset_GlobalVertexType();
     m_use_vertextype = true;

@@ -84,26 +84,26 @@ std::vector<Jet *> TowerJetInput::get_input(PHCompositeNode *topNode)
   {
     if(m_use_vertextype)
       {
-	std::vector<GlobalVertex*> vertices = vertexmap->get_gvtxs_with_type(m_vertex_type);
-	if(!vertices.empty())
-	  {
-	    if(vertices.at(0))
-	      {
-		vtxz = vertices.at(0)->get_z();
-	      }
-	    if(vertices.size() > 1 && Verbosity() > 0)
-	      {
-		std::cout << "TowerJetInput::WARNING!! More than one vertex of selected type!" << std::endl;
-	      }
-	  }
+    std::vector<GlobalVertex*> vertices = vertexmap->get_gvtxs_with_type(m_vertex_type);
+    if(!vertices.empty())
+      {
+        if(vertices.at(0))
+          {
+        vtxz = vertices.at(0)->get_z();
+          }
+        if(vertices.size() > 1 && Verbosity() > 0)
+          {
+        std::cout << "TowerJetInput::WARNING!! More than one vertex of selected type!" << std::endl;
+          }
+      }
       }
     else
       {
-	GlobalVertex *vtx = vertexmap->begin()->second;
-	if (vtx)
-	  {
-	    vtxz = vtx->get_z();
-	  }
+    GlobalVertex *vtx = vertexmap->begin()->second;
+    if (vtx)
+      {
+        vtxz = vtx->get_z();
+      }
       }
   }
   if (std::isnan(vtxz))
@@ -508,17 +508,17 @@ std::vector<Jet *> TowerJetInput::get_input(PHCompositeNode *topNode)
       jet->insert_comp(m_input, channel);
       float tower_t = 17.6*tower->get_time(); // 17.6 ns/sample and get_time() returns t in samples
       if(jet->size_properties() < Jet::PROPERTY::prop_t+1)
-	{
-	  jet->resize_properties(Jet::PROPERTY::prop_t + 1);
-	}
+    {
+      jet->resize_properties(Jet::PROPERTY::prop_t + 1);
+    }
       if(e > m_timing_e_threshold)
-	{
-	  jet->set_property(Jet::PROPERTY::prop_t, tower_t);
-	}
+    {
+      jet->set_property(Jet::PROPERTY::prop_t, tower_t);
+    }
       else
-	{
-	  jet->set_property(Jet::PROPERTY::prop_t, std::numeric_limits<float>::quiet_NaN());
-	}
+    {
+      jet->set_property(Jet::PROPERTY::prop_t, std::numeric_limits<float>::quiet_NaN());
+    }
       pseudojets.push_back(jet);
     }
   }

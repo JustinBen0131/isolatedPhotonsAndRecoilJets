@@ -175,7 +175,7 @@ int ClusterIso::process_event(PHCompositeNode *topNode)
    * together so we have to use the inner HCal geometry.
    */
 
-  std::string RawCemcClusterNodeName = "CLUSTER_CEMC";
+  std::string RawCemcClusterNodeName = "CLUSTERINFO_CEMC";
   if (m_use_towerinfo)
   {
     RawCemcClusterNodeName = m_cluster_node_name;
@@ -285,7 +285,7 @@ int ClusterIso::process_event(PHCompositeNode *topNode)
 
               RawTowerGeom *tower_geom = geomEM->get_tower_geometry(key);
               double this_phi = tower_geom->get_phi();
-              double this_eta = tower_geom->get_eta();
+              double this_eta = getTowerEta(tower_geom, m_vx, m_vy, m_vz);
               if (deltaR(cluster_eta, this_eta, cluster_phi, this_phi) < m_coneSize)
               {
                 isoEt += tower->get_energy() / cosh(this_eta);  // if tower is in cone, add energy
