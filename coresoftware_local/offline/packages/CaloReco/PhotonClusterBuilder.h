@@ -56,7 +56,7 @@ class PhotonClusterBuilder : public SubsysReco
 
   std::string m_input_cluster_node{"CLUSTERINFO_CEMC"};
   std::string m_output_photon_node{"PHOTONCLUSTER_CEMC"};
-  float m_min_cluster_et{5.0f};
+  float m_min_cluster_et{8.0f};
   float m_shape_min_tower_E{0.070f};
   std::string m_bdt_model_file{"myBDT_5.root"};
   std::vector<std::string> m_bdt_feature_list;

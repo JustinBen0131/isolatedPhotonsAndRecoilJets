@@ -150,75 +150,120 @@ void PhotonClusterBuilder::CreateNodes(PHCompositeNode* topNode)
 
 int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
 {
-  if (!m_rawclusters)
-  {
-    m_rawclusters = findNode::getClass<RawClusterContainer>(topNode, m_input_cluster_node);
     if (!m_rawclusters)
     {
-      std::cerr << Name() << ": missing RawClusterContainer '" << m_input_cluster_node << "'" << std::endl;
-      return Fun4AllReturnCodes::ABORTEVENT;
+      m_rawclusters = findNode::getClass<RawClusterContainer>(topNode, m_input_cluster_node);
+      if (!m_rawclusters)
+      {
+        std::cerr << Name() << ": missing RawClusterContainer '" << m_input_cluster_node << "'" << std::endl;
+        return Fun4AllReturnCodes::ABORTEVENT;
+      }
     }
-  }
+
+    // Always clear output container so skipped events cannot leave stale photons
+    if (m_photon_container)
+    {
+      m_photon_container->Reset();
+    }
 
     // ------------------------------------------------------------------
     // Vertex selection (RECO vertex for RECO objects)
     //   Use MBD vertex (DATA + SIM). Optional fallback: GlobalVertexMap (still reco).
     //   Never overwrite reco objects with TRUTH vertex.
     // ------------------------------------------------------------------
+    static unsigned long long s_evt = 0;
+    ++s_evt;
+
+    const float vzCutForInfo = 30.0f;  // informational (matches your RecoilJets cut)
+
     m_vertex = std::numeric_limits<float>::quiet_NaN();
     const char* vtx_source = "NONE";
 
-    // 1) MBD vertex (preferred)
-    if (auto* vertexmap = findNode::getClass<MbdVertexMap>(topNode, "MbdVertexMap"))
+    // Snapshot what the maps contain (so we can print on skip)
+    float mbd_z = std::numeric_limits<float>::quiet_NaN();
+    float gv_z  = std::numeric_limits<float>::quiet_NaN();
+    size_t mbd_n = 0;
+    size_t gv_n  = 0;
+
+    if (auto* mbdmap = findNode::getClass<MbdVertexMap>(topNode, "MbdVertexMap"))
     {
-      if (!vertexmap->empty())
+      mbd_n = mbdmap->size();
+      if (!mbdmap->empty() && mbdmap->begin()->second)
       {
-        if (auto* vtx = vertexmap->begin()->second)
-        {
-          m_vertex = vtx->get_z();
-          vtx_source = "MBD";
-        }
+        mbd_z = mbdmap->begin()->second->get_z();
       }
     }
 
-    // 2) Optional fallback: GlobalVertexMap (still reco)
-    if (!std::isfinite(m_vertex))
+    if (auto* gvmap = findNode::getClass<GlobalVertexMap>(topNode, "GlobalVertexMap"))
     {
-      if (auto* gvmap = findNode::getClass<GlobalVertexMap>(topNode, "GlobalVertexMap"))
+      gv_n = gvmap->size();
+      if (!gvmap->empty() && gvmap->begin()->second)
       {
-        if (!gvmap->empty())
-        {
-          if (auto* gvtx = gvmap->begin()->second)
-          {
-            m_vertex = gvtx->get_z();
-            vtx_source = "GlobalVertex";
-          }
-        }
+        gv_z = gvmap->begin()->second->get_z();
       }
     }
 
-    // If still invalid, skip (same behavior as before)
+    // 1) MBD vertex (preferred, but only if finite)
+    if (std::isfinite(mbd_z))
+    {
+      m_vertex = mbd_z;
+      vtx_source = "MBD";
+    }
+
+    // 2) Optional fallback: GlobalVertexMap (still reco, only if finite)
+    if (!std::isfinite(m_vertex) && std::isfinite(gv_z))
+    {
+      m_vertex = gv_z;
+      vtx_source = "GlobalVertex";
+    }
+
+    // If still invalid, skip
     if (!std::isfinite(m_vertex))
     {
       if (Verbosity() >= 1)
       {
         std::cout << Name()
-                  << ": no valid RECO vertex found (MBD/Global) -> skipping photon build this event"
+                  << ": [evt=" << s_evt << "] SKIP (no finite reco vertex)"
+                  << " | MbdVertexMap n=" << mbd_n << " z=" << (std::isfinite(mbd_z) ? std::to_string(mbd_z) : std::string("NaN/NA"))
+                  << " | GlobalVertexMap n=" << gv_n << " z=" << (std::isfinite(gv_z) ? std::to_string(gv_z) : std::string("NaN/NA"))
                   << std::endl;
       }
       return Fun4AllReturnCodes::EVENT_OK;
     }
 
+    const bool passVz = (std::fabs(m_vertex) < vzCutForInfo);
+
     if (Verbosity() >= 2)
     {
       std::cout << Name()
-                << ": using vertex_z=" << m_vertex
+                << ": [evt=" << s_evt << "] using vertex_z=" << m_vertex
                 << " (source=" << vtx_source << ")"
+                << " | inside |vz|<" << vzCutForInfo << "? " << (passVz ? "YES" : "NO")
                 << std::endl;
+    }
+
+    // If vertex is outside your analysis vz window, skip building photons for this event.
+    if (!passVz)
+    {
+      if (Verbosity() >= 1)
+      {
+        std::cout << Name()
+                  << ": [evt=" << s_evt << "] SKIP (|vz| cut)"
+                  << " | vz=" << m_vertex << " | cut=" << vzCutForInfo
+                  << " | source=" << vtx_source
+                  << std::endl;
+      }
+      return Fun4AllReturnCodes::EVENT_OK;
     }
 
   // iterate over clusters via map to have access to keys if needed
   const auto& rcmap = m_rawclusters->getClustersMap();
+
+  size_t nClusters = rcmap.size();
+  size_t nPassET = 0;
+  size_t nBuilt = 0;
+  size_t nMeanTimeDefault = 0;
+
   for (const auto& kv : rcmap)
   {
     RawCluster* rc = kv.second;
@@ -235,15 +280,16 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
     float phi = RawClusterUtility::GetAzimuthAngle(*rc, vertex_vec);
     float E = rc->get_energy();
     float ET = E / std::cosh(eta);
-    if (ET < m_min_cluster_et)
-    {
-      continue;
-    }
+      if (ET < m_min_cluster_et)
+      {
+        continue;
+      }
+      ++nPassET;
 
-      PhotonClusterv1* photon = new PhotonClusterv1(*rc);
+        PhotonClusterv1* photon = new PhotonClusterv1(*rc);
 
       // ------------------------------------------------------------------
-      // NEW: Persist kinematics used by PhotonClusterBuilder so downstream
+      // Persist kinematics used by PhotonClusterBuilder so downstream
       // (e.g. RecoilJets) can read consistent eta/phi/pt and vertex.
       //
       // NOTE:
@@ -259,6 +305,9 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
 
       calculate_shower_shapes(rc, photon, eta, phi);
 
+      const float mt = photon->get_shower_shape_parameter("mean_time");
+      if (mt <= -998.5f) ++nMeanTimeDefault;
+
       //this is defensive coding, if do bdt is set false the bdt object should be nullptr
       //and this method will simply pass
       if (m_do_bdt)
@@ -266,8 +315,21 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
         calculate_bdt_score(photon);
       }
 
+      ++nBuilt;
       m_photon_container->AddCluster(photon);
   }
+
+  if (Verbosity() >= 2)
+  {
+    std::cout << Name()
+              << ": [evt=" << s_evt << "] SUMMARY"
+              << " | clusters=" << nClusters
+              << " | passET(ET>" << m_min_cluster_et << ")=" << nPassET
+              << " | photonsBuilt=" << nBuilt
+              << " | mean_time=-999 count=" << nMeanTimeDefault
+              << std::endl;
+  }
+
   return Fun4AllReturnCodes::EVENT_OK;
 }
 
@@ -410,38 +472,66 @@ void PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
                   << " | towers_in_towermap=" << tower_map.size()
                   << std::endl;
 
-        // Diagnose tower lookup failures vs zero-energy towers (print a small sample)
-        int nFound = 0;
-        int nNonzero = 0;
-        int nPrinted = 0;
+          // Diagnose WHY total_e stayed 0 (print a small sample)
+          int nFound = 0;
+          int nNonzero = 0;
+          int nPrinted = 0;
 
-        for (auto tower_iter : tower_map)
-        {
-          RawTowerDefs::keytype tower_key = tower_iter.first;
-          int ieta = RawTowerDefs::decode_index1(tower_key);
-          int iphi = RawTowerDefs::decode_index2(tower_key);
+          const float Epho = photon->get_energy();
+          const float ETpho = Epho / std::cosh(cluster_eta);
 
-          unsigned int towerinfokey = TowerInfoDefs::encode_emcal(ieta, iphi);
-          TowerInfo* towerinfo = m_emc_tower_container->get_tower_at_key(towerinfokey);
+          std::cout << "  context: E=" << Epho
+                    << " ET=" << ETpho
+                    << " eta=" << cluster_eta
+                    << " phi=" << cluster_phi
+                    << " lead(ieta,iphi)=(" << lead_ieta << "," << lead_iphi << ")"
+                    << std::endl;
 
-          if (towerinfo) nFound++;
-          if (towerinfo && towerinfo->get_energy() > 0) nNonzero++;
-
-          if (!towerinfo && nPrinted < 6)
+          for (auto tower_iter : tower_map)
           {
-            std::cout << "  missing TowerInfo for (ieta,iphi)=("
-                      << ieta << "," << iphi << ")"
-                      << " raw_tower_key=" << tower_key
-                      << " towerinfokey=" << towerinfokey
-                      << std::endl;
-            nPrinted++;
-          }
-        }
+            RawTowerDefs::keytype tower_key = tower_iter.first;
+            const float weight = tower_iter.second;
 
-        std::cout << "  towerinfo summary: found=" << nFound
-                  << " nonzeroE=" << nNonzero
-                  << " (container size=" << m_emc_tower_container->size() << ")"
-                  << std::endl;
+            int ieta = RawTowerDefs::decode_index1(tower_key);
+            int iphi = RawTowerDefs::decode_index2(tower_key);
+
+            unsigned int towerinfokey = TowerInfoDefs::encode_emcal(ieta, iphi);
+            TowerInfo* towerinfo = m_emc_tower_container->get_tower_at_key(towerinfokey);
+
+            if (towerinfo) nFound++;
+            if (towerinfo && towerinfo->get_energy() > 0) nNonzero++;
+
+            if (nPrinted < 6)
+            {
+              if (!towerinfo)
+              {
+                std::cout << "  tow[" << nPrinted << "] (ieta,iphi)=(" << ieta << "," << iphi << ")"
+                          << " TI=MISSING"
+                          << " raw_key=" << tower_key
+                          << " ti_key=" << towerinfokey
+                          << " weight=" << weight
+                          << std::endl;
+              }
+              else
+              {
+                std::cout << "  tow[" << nPrinted << "] (ieta,iphi)=(" << ieta << "," << iphi << ")"
+                          << " TI=OK"
+                          << " isGood=" << (towerinfo->get_isGood() ? 1 : 0)
+                          << " E=" << towerinfo->get_energy()
+                          << " time=" << towerinfo->get_time()
+                          << " raw_key=" << tower_key
+                          << " ti_key=" << towerinfokey
+                          << " weight=" << weight
+                          << std::endl;
+              }
+              nPrinted++;
+            }
+          }
+
+          std::cout << "  towerinfo summary: found=" << nFound
+                    << " nonzeroE=" << nNonzero
+                    << " (container size=" << m_emc_tower_container->size() << ")"
+                    << std::endl;
       }
 
       clusteravgtime = -999.0f;
@@ -855,16 +945,114 @@ void PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
   const float emcal_et_01 = compute_layer_iso(RawTowerDefs::CalorimeterId::CEMC, 0.1);
   const float emcal_et_005 = compute_layer_iso(RawTowerDefs::CalorimeterId::CEMC, 0.05);
 
-  photon->set_shower_shape_parameter("iso_04_emcal", emcal_et_04 - ET);
-  photon->set_shower_shape_parameter("iso_04_hcalin", ihcal_et_04);
-  photon->set_shower_shape_parameter("iso_04_hcalout", ohcal_et_04);
+    // -----------------------------
+    // Build iso values (same as before)
+    // -----------------------------
+    const float iso_04_emcal  = emcal_et_04  - ET;
+    const float iso_03_emcal  = emcal_et_03  - ET;
+    const float iso_02_emcal  = emcal_et_02  - ET;
+    const float iso_01_emcal  = emcal_et_01  - ET;
+    const float iso_005_emcal = emcal_et_005 - ET;
 
-  photon->set_shower_shape_parameter("iso_03_emcal", emcal_et_03 - ET);
-  photon->set_shower_shape_parameter("iso_03_hcalin", ihcal_et_03);
-  photon->set_shower_shape_parameter("iso_03_hcalout", ohcal_et_03);
-  photon->set_shower_shape_parameter("iso_02_emcal", emcal_et_02 - ET);
-  photon->set_shower_shape_parameter("iso_01_emcal", emcal_et_01 - ET);
-  photon->set_shower_shape_parameter("iso_005_emcal", emcal_et_005 - ET);
+    // Total iso (what RecoilJets effectively uses when it adds EMCal + HCal pieces)
+    const float iso03_total = iso_03_emcal + ihcal_et_03 + ohcal_et_03;
+    const float iso04_total = iso_04_emcal + ihcal_et_04 + ohcal_et_04;
+
+    // -----------------------------
+    // NEW: print ONLY when negative iso appears
+    // -----------------------------
+    if (Verbosity() >= 2 && (iso03_total < -0.05f || iso04_total < -0.05f))
+    {
+      static int s_negPrint = 0;
+
+      std::cout << Name()
+                << ": NEG ISO detected"
+                << " | vertex_z=" << m_vertex
+                << " | eta=" << cluster_eta
+                << " phi=" << cluster_phi
+                << " | E(rc)=" << rc->get_energy()
+                << " ET=" << ET
+                << " | emcal_et_03=" << emcal_et_03
+                << " iso_03_emcal=" << iso_03_emcal
+                << " (ih=" << ihcal_et_03 << ", oh=" << ohcal_et_03 << ", total=" << iso03_total << ")"
+                << " | emcal_et_04=" << emcal_et_04
+                << " iso_04_emcal=" << iso_04_emcal
+                << " (ih=" << ihcal_et_04 << ", oh=" << ohcal_et_04 << ", total=" << iso04_total << ")"
+                << std::endl;
+
+      // Extra, cheap sanity: do the *cluster's own towers* have TowerInfo energy consistent with rc->get_energy()?
+      // (This catches the "TowerInfo energy is 0 / mismatched container" problem immediately.)
+      {
+        const RawCluster::TowerMap& tower_map_dbg = rc->get_towermap();
+
+        int   nTI_found   = 0;
+        int   nTI_nonzero = 0;
+        float sumE_TI     = 0.0f;
+        float sumEt_TI    = 0.0f;
+
+        for (const auto& it : tower_map_dbg)
+        {
+          RawTowerDefs::keytype tower_key = it.first;
+          int ieta = RawTowerDefs::decode_index1(tower_key);
+          int iphi = RawTowerDefs::decode_index2(tower_key);
+
+          unsigned int towerinfokey = TowerInfoDefs::encode_emcal(ieta, iphi);
+          TowerInfo* ti = m_emc_tower_container->get_tower_at_key(towerinfokey);
+          if (!ti) continue;
+
+          ++nTI_found;
+
+          const float e = ti->get_energy();
+          if (e > 0.0f) ++nTI_nonzero;
+
+          sumE_TI += e;
+
+          // approximate Et using tower eta (vertex-dependent) just like calculate_layer_et does
+          RawTowerDefs::keytype geom_key =
+            RawTowerDefs::encode_towerid(RawTowerDefs::CalorimeterId::CEMC, ieta, iphi);
+          RawTowerGeom* tg = m_geomEM ? m_geomEM->get_tower_geometry(geom_key) : nullptr;
+          if (tg)
+          {
+            const double tEta = getTowerEta(tg, 0, 0, m_vertex);
+            if (std::isfinite(tEta)) sumEt_TI += (e / std::cosh(tEta));
+          }
+        }
+
+        std::cout << "  [cluster TI sanity]"
+                  << " towers_in_cluster=" << tower_map_dbg.size()
+                  << " TI_found=" << nTI_found
+                  << " TI_nonzero=" << nTI_nonzero
+                  << " sumE_TI=" << sumE_TI
+                  << " sumEt_TI=" << sumEt_TI
+                  << " rc_E=" << rc->get_energy()
+                  << std::endl;
+      }
+
+      // Print only first ~15 occurrences to avoid log spam
+      ++s_negPrint;
+      if (s_negPrint >= 15)
+      {
+        std::cout << Name()
+                  << ": NEG ISO print limit reached (15). "
+                  << "Raise/adjust this cap if you need more examples."
+                  << std::endl;
+      }
+    }
+
+    // -----------------------------
+    // Store to PhotonClusterv1 (same names as before)
+    // -----------------------------
+    photon->set_shower_shape_parameter("iso_04_emcal",  iso_04_emcal);
+    photon->set_shower_shape_parameter("iso_04_hcalin", ihcal_et_04);
+    photon->set_shower_shape_parameter("iso_04_hcalout",ohcal_et_04);
+
+    photon->set_shower_shape_parameter("iso_03_emcal",  iso_03_emcal);
+    photon->set_shower_shape_parameter("iso_03_hcalin", ihcal_et_03);
+    photon->set_shower_shape_parameter("iso_03_hcalout",ohcal_et_03);
+
+    photon->set_shower_shape_parameter("iso_02_emcal",  iso_02_emcal);
+    photon->set_shower_shape_parameter("iso_01_emcal",  iso_01_emcal);
+    photon->set_shower_shape_parameter("iso_005_emcal", iso_005_emcal);
 }
 
 double PhotonClusterBuilder::getTowerEta(RawTowerGeom* tower_geom, double vx, double vy, double vz)

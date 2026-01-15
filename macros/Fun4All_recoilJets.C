@@ -862,7 +862,6 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   auto* photonBuilder = new PhotonClusterBuilder("PhotonClusterBuilder");
   photonBuilder->set_input_cluster_node("CLUSTERINFO_CEMC");
   photonBuilder->set_output_photon_node("PHOTONCLUSTER_CEMC");
-  photonBuilder->set_ET_threshold(0.07);
   photonBuilder->Verbosity(2);
   se->registerSubsystem(photonBuilder);
 

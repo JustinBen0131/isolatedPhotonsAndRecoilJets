@@ -284,8 +284,6 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
 
   double gv_z    = std::numeric_limits<double>::quiet_NaN();
   double mbd_z   = std::numeric_limits<double>::quiet_NaN();
-  double truth_x = std::numeric_limits<double>::quiet_NaN();
-  double truth_y = std::numeric_limits<double>::quiet_NaN();
   double truth_z = std::numeric_limits<double>::quiet_NaN();
 
   bool haveGVZ    = false;
@@ -296,30 +294,32 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
   // SIM ONLY: truth vertex from G4TruthInfo (requires paired G4Hits DST)
   // ------------------------------------------------------------------
   if (isSim)
-  {
-    auto* truth = findNode::getClass<PHG4TruthInfoContainer>(top, "G4TruthInfo");
-    if (!truth)
     {
-      LOG(3, CLR_YELLOW,
-          "    [fetchNodes] isSim: G4TruthInfo missing (did you load paired G4Hits DST?)");
-    }
-    else
-    {
-      auto vr = truth->GetPrimaryVtxRange();
-      if (vr.first != vr.second && vr.first->second)
+      auto* truth = findNode::getClass<PHG4TruthInfoContainer>(top, "G4TruthInfo");
+      if (!truth)
       {
-        const PHG4VtxPoint* vtx = vr.first->second;
-        truth_x = vtx->get_x();
-        truth_y = vtx->get_y();
-        truth_z = vtx->get_z();
-        haveTruthZ = std::isfinite(truth_z);
+        LOG(3, CLR_YELLOW,
+            "    [fetchNodes] isSim: G4TruthInfo missing (did you load paired G4Hits DST?)");
       }
       else
       {
-        LOG(3, CLR_YELLOW, "    [fetchNodes] isSim: G4TruthInfo has no primary vertex");
+        auto vr = truth->GetPrimaryVtxRange();
+        if (vr.first != vr.second && vr.first->second)
+        {
+          const PHG4VtxPoint* vtx = vr.first->second;
+          truth_z = vtx->get_z();
+          haveTruthZ = std::isfinite(truth_z);
+        }
+        else
+        {
+          LOG(3, CLR_YELLOW, "    [fetchNodes] isSim: G4TruthInfo has no primary vertex");
+        }
       }
-    }
   }
+
+  // QA-only: we may still compare truth_z vs reco_z elsewhere; never use truth_z as reco vertex
+  (void) truth_z;
+  (void) haveTruthZ;
 
   // GlobalVertex (keep pointer + x/y)
   if (gvmap && !gvmap->empty())
@@ -345,34 +345,26 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     }
   }
 
-    // Choose the z we will USE:
-    //   • SIM + data: use RECO vertex for RECO objects
-    //       MBD → else Global → else TRUTH (SIM fallback only)
-    //   This keeps towers/clusters/jets consistent with the same reco zvtx.
-    const char* vz_source = "none";
+  // Choose the z we will USE (RECO vertex ONLY):
+  //   • SIM + data: MBD → else Global → else SKIP
+  //   • Never use TRUTH as a fallback for reco objects
+  const char* vz_source = "none";
 
-    if (haveMBDZ)
-    {
+  if (haveMBDZ)
+  {
       m_vz = static_cast<float>(mbd_z);
       vz_source = "MBD";
-    }
-    else if (haveGVZ)
-    {
+  }
+  else if (haveGVZ)
+  {
       m_vz = static_cast<float>(gv_z);
       vz_source = "Global";
-    }
-    else if (isSim && haveTruthZ)
-    {
-      m_vx = static_cast<float>(truth_x);
-      m_vy = static_cast<float>(truth_y);
-      m_vz = static_cast<float>(truth_z);
-      vz_source = "TRUTH(fallback)";
-    }
-    else
-    {
-      LOG(1, CLR_YELLOW, "  [fetchNodes] no usable vertex z → skip event");
+  }
+  else
+  {
+      LOG(1, CLR_YELLOW, "  [fetchNodes] no usable RECO vertex z (MBD/Global) → skip event");
       return false;
-    }
+  }
 
   // Print comparison ONLY if it matters (data only)
   if (!isSim && haveMBDZ && haveGVZ)
@@ -389,7 +381,7 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     }
   }
 
-    LOG(4, CLR_BLUE,
+  LOG(4, CLR_BLUE,
         "    [fetchNodes] dataset=" << (isSim ? "SIM" : (isAuAu ? "Au+Au" : "p+p"))
         << "  vz(used)=" << std::fixed << std::setprecision(2) << m_vz
         << "  (source=" << vz_source << ")");
@@ -2239,10 +2231,9 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
       else
       {
         // Pick the event-leading truth signal photon (highest pT) to mirror your reco leading-photon logic
-        bool   haveTruthSigPho = false;
-        double tPt  = -1.0;
-        double tEta = 0.0;
-        double tPhi = 0.0;
+          bool   haveTruthSigPho = false;
+          double tPt  = -1.0;
+          double tPhi = 0.0;
 
         for (auto it = evt->particles_begin(); it != evt->particles_end(); ++it)
         {
@@ -2260,10 +2251,9 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
 
           if (!haveTruthSigPho || pt > tPt)
           {
-            haveTruthSigPho = true;
-            tPt  = pt;
-            tEta = eta;
-            tPhi = phi;
+              haveTruthSigPho = true;
+              tPt  = pt;
+              tPhi = phi;
           }
         }
 
@@ -2291,11 +2281,10 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
 
             const double etaMaxTruth = jetEtaAbsMaxForRKey(rKey);
 
-            double tj1Pt = -1.0;
-            const Jet* tj1 = nullptr;
+              double tj1Pt = -1.0;
+              const Jet* tj1 = nullptr;
 
-            double tj2Pt = -1.0;
-            const Jet* tj2 = nullptr;
+              double tj2Pt = -1.0;
 
             for (const Jet* tj : *truthJets)
             {
@@ -2313,19 +2302,17 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
               if (dphiAbs < m_minBackToBack) continue;
 
               // keep the two leading (highest-pt) back-to-back truth jets
-              if (ptj > tj1Pt)
-              {
-                tj2Pt = tj1Pt;
-                tj2   = tj1;
+                if (ptj > tj1Pt)
+                {
+                  tj2Pt = tj1Pt;
 
-                tj1Pt = ptj;
-                tj1   = tj;
-              }
-              else if (ptj > tj2Pt)
-              {
-                tj2Pt = ptj;
-                tj2   = tj;
-              }
+                  tj1Pt = ptj;
+                  tj1   = tj;
+                }
+                else if (ptj > tj2Pt)
+                {
+                  tj2Pt = ptj;
+                }
             }
 
             if (!tj1 || tj1Pt <= 0.0)
