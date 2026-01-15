@@ -33,6 +33,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <iomanip>   // NEW: for std::setw / std::setprecision in debug tables
 #include <set>
 #include <stdexcept>
 
@@ -982,51 +983,205 @@ void PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
 
       // Extra, cheap sanity: do the *cluster's own towers* have TowerInfo energy consistent with rc->get_energy()?
       // (This catches the "TowerInfo energy is 0 / mismatched container" problem immediately.)
-      {
-        const RawCluster::TowerMap& tower_map_dbg = rc->get_towermap();
-
-        int   nTI_found   = 0;
-        int   nTI_nonzero = 0;
-        float sumE_TI     = 0.0f;
-        float sumEt_TI    = 0.0f;
-
-        for (const auto& it : tower_map_dbg)
         {
-          RawTowerDefs::keytype tower_key = it.first;
-          int ieta = RawTowerDefs::decode_index1(tower_key);
-          int iphi = RawTowerDefs::decode_index2(tower_key);
+          // ================================================================
+          // (A) Cluster-tower sanity: compare RawCluster energy vs TowerInfo energies
+          // ================================================================
+          const RawCluster::TowerMap& tower_map_dbg = rc->get_towermap();
 
-          unsigned int towerinfokey = TowerInfoDefs::encode_emcal(ieta, iphi);
-          TowerInfo* ti = m_emc_tower_container->get_tower_at_key(towerinfokey);
-          if (!ti) continue;
+          int   nTI_found   = 0;
+          int   nTI_nonzero = 0;
+          float sumE_TI     = 0.0f;
+          float sumEt_TI    = 0.0f;
 
-          ++nTI_found;
-
-          const float e = ti->get_energy();
-          if (e > 0.0f) ++nTI_nonzero;
-
-          sumE_TI += e;
-
-          // approximate Et using tower eta (vertex-dependent) just like calculate_layer_et does
-          RawTowerDefs::keytype geom_key =
-            RawTowerDefs::encode_towerid(RawTowerDefs::CalorimeterId::CEMC, ieta, iphi);
-          RawTowerGeom* tg = m_geomEM ? m_geomEM->get_tower_geometry(geom_key) : nullptr;
-          if (tg)
+          for (const auto& it : tower_map_dbg)
           {
-            const double tEta = getTowerEta(tg, 0, 0, m_vertex);
-            if (std::isfinite(tEta)) sumEt_TI += (e / std::cosh(tEta));
-          }
-        }
+            RawTowerDefs::keytype tower_key = it.first;
+            int ieta = RawTowerDefs::decode_index1(tower_key);
+            int iphi = RawTowerDefs::decode_index2(tower_key);
 
-        std::cout << "  [cluster TI sanity]"
-                  << " towers_in_cluster=" << tower_map_dbg.size()
-                  << " TI_found=" << nTI_found
-                  << " TI_nonzero=" << nTI_nonzero
-                  << " sumE_TI=" << sumE_TI
-                  << " sumEt_TI=" << sumEt_TI
-                  << " rc_E=" << rc->get_energy()
-                  << std::endl;
-      }
+            unsigned int towerinfokey = TowerInfoDefs::encode_emcal(ieta, iphi);
+            TowerInfo* ti = m_emc_tower_container ? m_emc_tower_container->get_tower_at_key(towerinfokey) : nullptr;
+            if (!ti) continue;
+
+            ++nTI_found;
+
+            const float e = ti->get_energy();
+            if (e > 0.0f) ++nTI_nonzero;
+            sumE_TI += e;
+
+            RawTowerDefs::keytype geom_key =
+              RawTowerDefs::encode_towerid(RawTowerDefs::CalorimeterId::CEMC, ieta, iphi);
+            RawTowerGeom* tg = m_geomEM ? m_geomEM->get_tower_geometry(geom_key) : nullptr;
+            if (tg)
+            {
+              const double tEta = getTowerEta(tg, 0, 0, m_vertex);
+              if (std::isfinite(tEta)) sumEt_TI += (e / std::cosh(tEta));
+            }
+          }
+
+          std::cout << "  [cluster TI sanity]"
+                    << " towers_in_cluster=" << tower_map_dbg.size()
+                    << " TI_found=" << nTI_found
+                    << " TI_nonzero=" << nTI_nonzero
+                    << " sumE_TI=" << sumE_TI
+                    << " sumEt_TI=" << sumEt_TI
+                    << " rc_E=" << rc->get_energy()
+                    << std::endl;
+
+          // ================================================================
+          // (B) Cone-sum audit: reproduce calculate_layer_et selection and count DROP reasons
+          //     Only meaningful for EMCal here because NEG iso is dominated by (emcal_et - ET).
+          // ================================================================
+          auto auditCone = [&](float Rcone)
+          {
+            if (!m_emc_tower_container || !m_geomEM)
+            {
+              std::cout << "  [cone audit] R=" << Rcone << " : missing TOWERINFO_CALIB_CEMC or TOWERGEOM_CEMC\n";
+              return;
+            }
+
+            const unsigned int ntowers = m_emc_tower_container->size();
+
+            // counters
+            unsigned int nNull      = 0;
+            unsigned int nNotGood   = 0;
+            unsigned int nGeomMiss  = 0;
+            unsigned int nOutR      = 0;
+            unsigned int nBelowThr  = 0;
+            unsigned int nKept      = 0;
+
+            double sumEtKept = 0.0;
+
+            struct Row
+            {
+              int ieta = -1;
+              int iphi = -1;
+              double dR = 0.0;
+              double e  = 0.0;
+              double et = 0.0;
+              int isGood = 0;
+              const char* why = "";
+            };
+
+            std::vector<Row> droppedInCone;
+            std::vector<Row> keptInCone;
+            droppedInCone.reserve(64);
+            keptInCone.reserve(64);
+
+            for (unsigned int ch = 0; ch < ntowers; ++ch)
+            {
+              TowerInfo* tower = m_emc_tower_container->get_tower_at_channel(ch);
+              if (!tower) { ++nNull; continue; }
+
+              if (!tower->get_isGood())
+              {
+                // still need dR to decide if it's "relevant" (in cone)
+                // but dR requires geometry; if geometry missing, count there.
+                // We handle dR classification below once geometry exists.
+              }
+
+              const unsigned int tkey = m_emc_tower_container->encode_key(ch);
+              const int ieta = m_emc_tower_container->getTowerEtaBin(tkey);
+              const int iphi = m_emc_tower_container->getTowerPhiBin(tkey);
+
+              RawTowerDefs::keytype geom_key =
+                RawTowerDefs::encode_towerid(RawTowerDefs::CalorimeterId::CEMC, ieta, iphi);
+              RawTowerGeom* tg = m_geomEM->get_tower_geometry(geom_key);
+              if (!tg) { ++nGeomMiss; continue; }
+
+              const double tEta = getTowerEta(tg, 0, 0, m_vertex);
+              const double tPhi = tg->get_phi();
+              if (!std::isfinite(tEta) || !std::isfinite(tPhi)) continue;
+
+              const double dRval = deltaR(cluster_eta, cluster_phi, tEta, tPhi);
+
+              // outside cone
+              if (dRval >= Rcone) { ++nOutR; continue; }
+
+              // now inside cone: classify pass/fail reasons exactly like calculate_layer_et
+              const float e = tower->get_energy();
+              const int isGood = tower->get_isGood() ? 1 : 0;
+
+              if (!tower->get_isGood())
+              {
+                ++nNotGood;
+                droppedInCone.push_back({ieta, iphi, dRval, e, 0.0, isGood, "!isGood"});
+                continue;
+              }
+
+              if (e <= m_shape_min_tower_E)
+              {
+                ++nBelowThr;
+                droppedInCone.push_back({ieta, iphi, dRval, e, 0.0, isGood, "E<=min"});
+                continue;
+              }
+
+              const double et = e / std::cosh(tEta);
+              ++nKept;
+              sumEtKept += et;
+              keptInCone.push_back({ieta, iphi, dRval, e, et, isGood, "KEPT"});
+            }
+
+            // Sort kept towers by Et descending; dropped by E descending (just to show informative ones)
+            std::sort(keptInCone.begin(), keptInCone.end(),
+                      [](const Row& a, const Row& b){ return a.et > b.et; });
+            std::sort(droppedInCone.begin(), droppedInCone.end(),
+                      [](const Row& a, const Row& b){ return a.e > b.e; });
+
+            std::cout << "\n  [cone audit] EMCal R=" << std::fixed << std::setprecision(2) << Rcone
+                      << "  seed(eta,phi)=(" << std::setprecision(3) << cluster_eta
+                      << "," << std::setprecision(3) << cluster_phi << ")"
+                      << "  vertex_z=" << std::setprecision(2) << m_vertex
+                      << "\n"
+                      << "    ntowers=" << ntowers
+                      << " | null=" << nNull
+                      << " | geomMissing=" << nGeomMiss
+                      << " | outR=" << nOutR
+                      << " | inR_notGood=" << nNotGood
+                      << " | inR_E<=min(" << m_shape_min_tower_E << ")=" << nBelowThr
+                      << " | inR_KEPT=" << nKept
+                      << " | sumEtKept=" << std::setprecision(3) << sumEtKept
+                      << "\n";
+
+            auto printTable = [&](const char* title, const std::vector<Row>& rows, std::size_t maxRows)
+            {
+              std::cout << "    " << title << " (showing up to " << maxRows << ")\n";
+              std::cout << "    "
+                        << std::setw(6)  << "ieta"
+                        << std::setw(6)  << "iphi"
+                        << std::setw(10) << "dR"
+                        << std::setw(12) << "E"
+                        << std::setw(12) << "Et"
+                        << std::setw(8)  << "isGood"
+                        << "  why\n";
+              std::cout << "    ---------------------------------------------------------------\n";
+
+              const std::size_t n = std::min<std::size_t>(rows.size(), maxRows);
+              for (std::size_t i = 0; i < n; ++i)
+              {
+                const Row& r = rows[i];
+                std::cout << "    "
+                          << std::setw(6)  << r.ieta
+                          << std::setw(6)  << r.iphi
+                          << std::setw(10) << std::fixed << std::setprecision(4) << r.dR
+                          << std::setw(12) << std::fixed << std::setprecision(4) << r.e
+                          << std::setw(12) << std::fixed << std::setprecision(4) << r.et
+                          << std::setw(8)  << r.isGood
+                          << "  " << r.why
+                          << "\n";
+              }
+            };
+
+            printTable("KEPT towers inside cone (highest Et first)", keptInCone, 12);
+            if (!droppedInCone.empty())
+              printTable("DROPPED towers inside cone (highest E first)", droppedInCone, 12);
+          };
+
+          // Audit the two radii you actually use for iso fields
+          auditCone(0.30f);
+          auditCone(0.40f);
+        }
 
       // Print only first ~15 occurrences to avoid log spam
       ++s_negPrint;

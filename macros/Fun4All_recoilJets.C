@@ -179,6 +179,129 @@ class EnsureJetCalibNodes final : public SubsysReco
   }
 };
 
+
+class TowerAudit final : public SubsysReco
+{
+ public:
+  explicit TowerAudit(const std::string& name,
+                      const std::string& nodeCEMC,
+                      const std::string& nodeHCIN,
+                      const std::string& nodeHCOUT,
+                      int maxPrintEvents = 5)
+    : SubsysReco(name)
+    , m_nodeCEMC(nodeCEMC)
+    , m_nodeHCIN(nodeHCIN)
+    , m_nodeHCOUT(nodeHCOUT)
+    , m_maxPrint(maxPrintEvents)
+  {}
+
+  int InitRun(PHCompositeNode* topNode) override
+  {
+    // Just verify nodes exist at InitRun (they may still be filled per-event)
+    auto* cemc = findNode::getClass<TowerInfoContainer>(topNode, m_nodeCEMC);
+    auto* hcin = findNode::getClass<TowerInfoContainer>(topNode, m_nodeHCIN);
+    auto* hcot = findNode::getClass<TowerInfoContainer>(topNode, m_nodeHCOUT);
+
+    if (Verbosity() > 0)
+    {
+      std::cout << "[" << Name() << "::InitRun]"
+                << " nodes:"
+                << " CEMC=" << m_nodeCEMC << (cemc ? "(OK)" : "(MISSING)")
+                << " HCALIN=" << m_nodeHCIN << (hcin ? "(OK)" : "(MISSING)")
+                << " HCALOUT=" << m_nodeHCOUT << (hcot ? "(OK)" : "(MISSING)")
+                << std::endl;
+    }
+    return Fun4AllReturnCodes::EVENT_OK;
+  }
+
+  int process_event(PHCompositeNode* topNode) override
+  {
+    ++m_evt;
+    if (m_evt > m_maxPrint) return Fun4AllReturnCodes::EVENT_OK;
+
+    auto auditOne = [&](const char* label, const std::string& node)
+    {
+      auto* cont = findNode::getClass<TowerInfoContainer>(topNode, node);
+      if (!cont)
+      {
+        std::cout << "[" << Name() << "] evt=" << m_evt
+                  << " " << label << " node=" << node << " MISSING\n";
+        return;
+      }
+
+      const unsigned int nt = cont->size();
+      unsigned int nNull = 0, nGood = 0, nBad = 0;
+      unsigned int nEpos = 0, nEposGood = 0, nEposBad = 0;
+
+      double sumE = 0.0, sumEgood = 0.0, sumEbad = 0.0;
+      double sumT = 0.0, sumTgood = 0.0, sumTbad = 0.0;
+      unsigned int nT = 0, nTgood = 0, nTbad = 0;
+
+      // sample the whole container (24576 for CEMC is fine for a few events)
+      for (unsigned int ch = 0; ch < nt; ++ch)
+      {
+        TowerInfo* t = cont->get_tower_at_channel(ch);
+        if (!t) { ++nNull; continue; }
+
+        const bool good = t->get_isGood();
+        const float e   = t->get_energy();
+        const float tim = t->get_time();
+
+        if (good) ++nGood; else ++nBad;
+
+        if (std::isfinite(e))
+        {
+          sumE += e;
+          if (e > 0) ++nEpos;
+          if (good) { sumEgood += e; if (e > 0) ++nEposGood; }
+          else      { sumEbad  += e; if (e > 0) ++nEposBad;  }
+        }
+
+        if (std::isfinite(tim))
+        {
+          ++nT;
+          sumT += tim;
+          if (good) { ++nTgood; sumTgood += tim; }
+          else      { ++nTbad;  sumTbad  += tim; }
+        }
+      }
+
+      const double fracBad = (nt > 0) ? (double)nBad / (double)nt : 0.0;
+      const double meanT   = (nT > 0) ? sumT / (double)nT : 0.0;
+      const double meanTg  = (nTgood > 0) ? sumTgood / (double)nTgood : 0.0;
+      const double meanTb  = (nTbad > 0) ? sumTbad / (double)nTbad : 0.0;
+
+      std::cout << "[" << Name() << "] evt=" << m_evt << " " << label
+                << " node=" << node
+                << " ntowers=" << nt
+                << " null=" << nNull
+                << " good=" << nGood
+                << " bad=" << nBad
+                << " fracBad=" << std::fixed << std::setprecision(4) << fracBad
+                << " | sumE=" << std::setprecision(3) << sumE
+                << " (good=" << sumEgood << ", bad=" << sumEbad << ")"
+                << " | E>0: all=" << nEpos << " good=" << nEposGood << " bad=" << nEposBad
+                << " | meanTime=" << std::setprecision(3) << meanT
+                << " (good=" << meanTg << ", bad=" << meanTb << ")"
+                << "\n";
+    };
+
+    auditOne("CEMC",   m_nodeCEMC);
+    auditOne("HCALIN", m_nodeHCIN);
+    auditOne("HCALOUT",m_nodeHCOUT);
+
+    return Fun4AllReturnCodes::EVENT_OK;
+  }
+
+ private:
+  std::string m_nodeCEMC;
+  std::string m_nodeHCIN;
+  std::string m_nodeHCOUT;
+  int m_maxPrint = 5;
+  int m_evt = 0;
+};
+
+
 //======================================================================
 //  The actual steering macro
 //======================================================================
@@ -559,36 +682,54 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   }
 
 
-  if (vlevel > 0) std::cout << "status setters" << std::endl;
-  CaloTowerStatus *statusEMC = new CaloTowerStatus("CEMCSTATUS");
-  statusEMC->set_detector_type(CaloTowerDefs::CEMC);
-  statusEMC->set_time_cut(1);
-  se->registerSubsystem(statusEMC);
+    // ------------------------------------------------------------------
+    // FIX A (SIM): do NOT run CaloTowerStatus / CaloTowerCalib here.
+    // Your SIM DST already contains TOWERINFO_CALIB_* and running these
+    // again is what is flipping ~24% of CEMC towers to !isGood.
+    // ------------------------------------------------------------------
+    if (!isSim)
+    {
+      if (vlevel > 0) std::cout << "status setters" << std::endl;
 
-  CaloTowerStatus *statusHCalIn = new CaloTowerStatus("HCALINSTATUS");
-  statusHCalIn->set_detector_type(CaloTowerDefs::HCALIN);
-  statusHCalIn->set_time_cut(2);
-  se->registerSubsystem(statusHCalIn);
+      CaloTowerStatus *statusEMC = new CaloTowerStatus("CEMCSTATUS");
+      statusEMC->set_detector_type(CaloTowerDefs::CEMC);
+      statusEMC->set_time_cut(1);
+      se->registerSubsystem(statusEMC);
 
-  CaloTowerStatus *statusHCALOUT = new CaloTowerStatus("HCALOUTSTATUS");
-  statusHCALOUT->set_detector_type(CaloTowerDefs::HCALOUT);
-  statusHCALOUT->set_time_cut(2);
-  se->registerSubsystem(statusHCALOUT);
+      CaloTowerStatus *statusHCalIn = new CaloTowerStatus("HCALINSTATUS");
+      statusHCalIn->set_detector_type(CaloTowerDefs::HCALIN);
+      statusHCalIn->set_time_cut(2);
+      se->registerSubsystem(statusHCalIn);
 
-  if (vlevel > 0) std::cout << "Calibrating EMCal" << std::endl;
-  CaloTowerCalib *calibEMC = new CaloTowerCalib("CEMCCALIB");
-  calibEMC->set_detector_type(CaloTowerDefs::CEMC);
-  se->registerSubsystem(calibEMC);
+      CaloTowerStatus *statusHCALOUT = new CaloTowerStatus("HCALOUTSTATUS");
+      statusHCALOUT->set_detector_type(CaloTowerDefs::HCALOUT);
+      statusHCALOUT->set_time_cut(2);
+      se->registerSubsystem(statusHCALOUT);
 
-  if (vlevel > 0) std::cout << "Calibrating OHcal" << std::endl;
-  CaloTowerCalib *calibOHCal = new CaloTowerCalib("HCALOUT");
-  calibOHCal->set_detector_type(CaloTowerDefs::HCALOUT);
-  se->registerSubsystem(calibOHCal);
+      if (vlevel > 0) std::cout << "Calibrating EMCal" << std::endl;
+      CaloTowerCalib *calibEMC = new CaloTowerCalib("CEMCCALIB");
+      calibEMC->set_detector_type(CaloTowerDefs::CEMC);
+      se->registerSubsystem(calibEMC);
 
-  if (vlevel > 0) std::cout << "Calibrating IHcal" << std::endl;
-  CaloTowerCalib *calibIHCal = new CaloTowerCalib("HCALIN");
-  calibIHCal->set_detector_type(CaloTowerDefs::HCALIN);
-  se->registerSubsystem(calibIHCal);
+      if (vlevel > 0) std::cout << "Calibrating OHcal" << std::endl;
+      CaloTowerCalib *calibOHCal = new CaloTowerCalib("HCALOUT");
+      calibOHCal->set_detector_type(CaloTowerDefs::HCALOUT);
+      se->registerSubsystem(calibOHCal);
+
+      if (vlevel > 0) std::cout << "Calibrating IHcal" << std::endl;
+      CaloTowerCalib *calibIHCal = new CaloTowerCalib("HCALIN");
+      calibIHCal->set_detector_type(CaloTowerDefs::HCALIN);
+      se->registerSubsystem(calibIHCal);
+    }
+    else
+    {
+      if (vlevel > 0)
+      {
+        std::cout << "[isSim] FIX A: skipping CaloTowerStatus + CaloTowerCalib "
+                     "(use existing TOWERINFO_CALIB_* from SIM DST)"
+                  << std::endl;
+      }
+    }
 
     // ------------------------------------------------------------------
     // Cluster building:
@@ -697,16 +838,16 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
         if (vlevel > 0) std::cout << "[pp dataset] skipping CentralityReco" << std::endl;
   }
     
-    // ---------------------- Reco jets + JES calibration (pp-style only) ----------------------
-    //
-    // IMPORTANT:
-    // JetCalib::CreateNodeTree() requires a PHCompositeNode named "TOWER".
-    // Many pp DSTs do NOT have it, so JetCalib aborts unless we create it.
-    // We register EnsureJetCalibNodes once (only when we intend to run JetCalib).
-    //
-    const bool doJetCalibAny = (!isAuAuData);
-    if (doJetCalibAny)
-    {
+  // ---------------------- Reco jets + JES calibration (pp-style only) ----------------------
+  //
+  // IMPORTANT:
+  // JetCalib::CreateNodeTree() requires a PHCompositeNode named "TOWER".
+  // Many pp DSTs do NOT have it, so JetCalib aborts unless we create it.
+  // We register EnsureJetCalibNodes once (only when we intend to run JetCalib).
+  //
+  const bool doJetCalibAny = (!isAuAuData && !isSim);
+  if (doJetCalibAny)
+  {
       auto* ensure = new EnsureJetCalibNodes("EnsureJetCalibNodes_forJES");
       // keep this modest; set RJ_JETCALIB_NODE_VERBOSE=1 for prints
       int nodeV = 0;
@@ -716,17 +857,17 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
 
       if (vlevel > 0)
         std::cout << "[INFO] JES: enabling JetCalib => ensuring DST/TOWER exists (JetCalib requirement)\n";
-    }
+  }
 
-    // Optional: control JetCalib verbosity independently
-    int jetcalV = 1; // default: show InitRun/process_event messages
-    if (const char* env = std::getenv("RJ_JETCALIB_VERBOSITY"))
-    {
+  // Optional: control JetCalib verbosity independently
+  int jetcalV = 1; // default: show InitRun/process_event messages
+  if (const char* env = std::getenv("RJ_JETCALIB_VERBOSITY"))
+  {
       jetcalV = std::atoi(env);
-    }
+  }
 
-    for (const auto& jnm : RecoilJets::kJetRadii)
-    {
+  for (const auto& jnm : RecoilJets::kJetRadii)
+  {
       const std::string radKey = jnm.key;            // "r02" or "r04"
       const int   D = std::stoi(radKey.substr(1));   // 2 or 4
       const float R = 0.1f * D;                      // 0.2 or 0.4
@@ -735,7 +876,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
       const std::string calibNode = jnm.pp_node;
 
       // Apply JES calibration for pp-like chains (pp data + pp-style SIM)
-      const bool doJetCalib = (!isAuAuData);
+      const bool doJetCalib = (!isAuAuData && !isSim);
 
       // If calibrating: build RAW jets to a separate node to avoid name collision
       const std::string rawNode = doJetCalib ? (calibNode + "_RAW") : calibNode;
@@ -848,13 +989,13 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   // 5.  Run-information helper (optional but handy)
   // --------------------------------------------------------------------
   if (!isSim)
-    {
+  {
       auto* trigInfo = new TriggerRunInfoReco();
       trigInfo->Verbosity(vlevel);
       se->registerSubsystem(trigInfo);
-    }
-    else
-    {
+  }
+  else
+  {
       if (vlevel > 0) std::cout << "[isSim] skipping TriggerRunInfoReco" << std::endl;
   }
     
