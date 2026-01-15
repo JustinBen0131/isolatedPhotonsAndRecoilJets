@@ -486,43 +486,11 @@ namespace ARJ
           }
         }
 
-        // -------------------------------------------------------------------------
-        // NEW: SS-independent 2D comparison of iso definitions (Builder vs ClusterIso)
-        //
-        // Histogram (per pT slice):
-        //   h2_EisoBuilder_vs_ClusterIso<suffix>
-        //
-        //   x = RecoilJets::eiso() (PhotonClusterBuilder iso_* summed in analysis)
-        //   y = rc->get_et_iso(radiusx10,false,true) (ClusterIso unsubtracted stored on photon cluster)
-        // -------------------------------------------------------------------------
-        for (int i = 0; i < kNPtBins; ++i)
-        {
-          const PtBin& b = PtBins()[i];
-          const string hname = "h2_EisoBuilder_vs_ClusterIso" + b.suffix;
-
-          TH2* h2 = GetObj<TH2>(ds, hname, true, true, true);
-          if (!h2) continue;
-
-          TH2* hc = dynamic_cast<TH2*>(h2->Clone(TString::Format("%s_clone_%d", hname.c_str(), i).Data()));
-          if (!hc) continue;
-          hc->SetDirectory(nullptr);
-
-          vector<string> lines = {
-            "Reco isolation comparison (SS-independent)",
-            TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data(),
-            TString::Format("Histogram: %s", hname.c_str()).Data()
-          };
-
-          const string fp = JoinPath(outDir, b.folder + "/EisoBuilder_vs_ClusterIso2D_" + b.folder + ".png");
-
-          DrawAndSaveTH2_Common(ds, hc, fp,
-            "E_{T}^{iso} (PhotonClusterBuilder) [GeV]",
-            "E_{T}^{iso} (ClusterIso unsub) [GeV]",
-            "Entries",
-            lines, true);
-
-          delete hc;
-        }
+          // -------------------------------------------------------------------------
+          // (removed) ClusterIso comparison plot:
+          //   h2_EisoBuilder_vs_ClusterIso<suffix>
+          // PhotonClusterBuilder is now the ONLY isolation definition used.
+          // -------------------------------------------------------------------------
       }
 
       // -------------------------------------------------------------------------
@@ -5018,41 +4986,276 @@ namespace ARJ
                 }
               };
 
-              // integrated-alpha tables (linear + logy)
-              Make3x3Table_xJ_FromTH3(H.hReco_xJ,     D.dirXJProjReco,          "RECO",  false);
-              Make3x3Table_xJ_FromTH3(H.hTrut_xJ,     D.dirXJProjTruthRecoCond, "TRUTH", false);
-              Make3x3Table_xJ_FromTH3(H.hTrutPure_xJ, D.dirXJProjTruthPure,     "TRUTH", false);
+                // integrated-alpha tables (linear + logy)
+                Make3x3Table_xJ_FromTH3(H.hReco_xJ,     D.dirXJProjReco,          "RECO",  false);
+                Make3x3Table_xJ_FromTH3(H.hTrut_xJ,     D.dirXJProjTruthRecoCond, "TRUTH", false);
+                Make3x3Table_xJ_FromTH3(H.hTrutPure_xJ, D.dirXJProjTruthPure,     "TRUTH", false);
 
-              Make3x3Table_xJ_FromTH3(H.hReco_xJ,     D.dirXJProjReco,          "RECO",  true);
-              Make3x3Table_xJ_FromTH3(H.hTrut_xJ,     D.dirXJProjTruthRecoCond, "TRUTH", true);
-              Make3x3Table_xJ_FromTH3(H.hTrutPure_xJ, D.dirXJProjTruthPure,     "TRUTH", true);
+                Make3x3Table_xJ_FromTH3(H.hReco_xJ,     D.dirXJProjReco,          "RECO",  true);
+                Make3x3Table_xJ_FromTH3(H.hTrut_xJ,     D.dirXJProjTruthRecoCond, "TRUTH", true);
+                Make3x3Table_xJ_FromTH3(H.hTrutPure_xJ, D.dirXJProjTruthPure,     "TRUTH", true);
 
-              // RECO alpha-cut tables into subfolders (requested)
-              if (H.hReco_xJ)
-              {
-                const vector<double> alphaMaxCuts = {0.20, 0.30, 0.40, 0.50};
-
-                auto AlphaTag = [&](double aMax)->string
+                // -------------------------------------------------------------------------
+                // NEW: Overlays (RECO vs TRUTH reco-conditioned), integrated over alpha
+                //
+                // Output folder (per rKey):
+                //   RecoilJetQA/JES3/<rKey>/xJ_fromJES3/RECO_vs_TRUTHrecoConditioned/
+                //   ├── perPtBin/overlay_pTbinX.png
+                //   └── table3x3_overlay_shape_pageY.png
+                // -------------------------------------------------------------------------
+                if (H.hReco_xJ && H.hTrut_xJ)
                 {
-                  std::ostringstream s;
-                  s << std::fixed << std::setprecision(2) << aMax;
-                  string t = s.str();
-                  std::replace(t.begin(), t.end(), '.', 'p');
-                  return string("alphaLT") + t;
-                };
+                  const string dirOvBase = JoinPath(D.dirXJProj, "RECO_vs_TRUTHrecoConditioned");
+                  const string dirOvPer  = JoinPath(dirOvBase, "perPtBin");
+                  EnsureDir(dirOvBase);
+                  EnsureDir(dirOvPer);
 
-                const string dirAlphaBase = JoinPath(D.dirXJProjReco, "alphaCuts");
-                EnsureDir(dirAlphaBase);
+                  const int nReco = H.hReco_xJ->GetXaxis()->GetNbins();
+                  const int nTru  = H.hTrut_xJ->GetXaxis()->GetNbins();
+                  const int nPtOv = std::min(nReco, nTru);
 
-                for (double aMax : alphaMaxCuts)
-                {
-                  const string aDir = JoinPath(dirAlphaBase, AlphaTag(aMax));
-                  EnsureDir(aDir);
-                  Make3x3Table_xJ_FromTH3_AlphaCut(H.hReco_xJ, aDir, "RECO", aMax);
+                  // --- Per pT bin overlay PNGs (shape overlay for fair comparison) ---
+                  for (int ib = 1; ib <= nPtOv; ++ib)
+                  {
+                    TH1* hRe = ProjectY_AtXbin_TH3(H.hReco_xJ, ib,
+                      TString::Format("xJ_reco_forOv_%s_%d", rKey.c_str(), ib).Data()
+                    );
+                    TH1* hTr = ProjectY_AtXbin_TH3(H.hTrut_xJ, ib,
+                      TString::Format("xJ_truthRecoCond_forOv_%s_%d", rKey.c_str(), ib).Data()
+                    );
+
+                    if (hRe) { hRe->SetDirectory(nullptr); EnsureSumw2(hRe); }
+                    if (hTr) { hTr->SetDirectory(nullptr); EnsureSumw2(hTr); }
+
+                    if (!hRe || !hTr || (hRe->GetEntries() <= 0.0 && hTr->GetEntries() <= 0.0))
+                    {
+                      if (hRe) delete hRe;
+                      if (hTr) delete hTr;
+                      continue;
+                    }
+
+                    // Shape normalization
+                    if (hRe) NormalizeToUnitArea(hRe);
+                    if (hTr) NormalizeToUnitArea(hTr);
+
+                    // Style
+                    if (hRe)
+                    {
+                      hRe->SetLineWidth(2);
+                      hRe->SetMarkerStyle(20);
+                      hRe->SetMarkerSize(1.00);
+                      hRe->SetLineColor(2);
+                      hRe->SetMarkerColor(2);
+                    }
+                    if (hTr)
+                    {
+                      hTr->SetLineWidth(2);
+                      hTr->SetMarkerStyle(24);
+                      hTr->SetMarkerSize(1.00);
+                      hTr->SetLineColor(1);
+                      hTr->SetMarkerColor(1);
+                    }
+
+                    const string ptLab = AxisBinLabel(H.hReco_xJ->GetXaxis(), ib, "GeV", 0);
+
+                      // Put R next to the pT label, and make the legend bigger (explicit draw, not helper)
+                      const string outPng = JoinPath(
+                        dirOvPer,
+                        TString::Format("overlay_xJ_RECO_vs_TRUTHrecoCond_pTbin%d.png", ib).Data()
+                      );
+
+                      TCanvas c(
+                        TString::Format("c_ov_xJRecoVsTruth_%s_%s_b%d", ds.label.c_str(), rKey.c_str(), ib).Data(),
+                        "c_ov_xJRecoVsTruth", 900, 700
+                      );
+                      ApplyCanvasMargins1D(c);
+
+                      // axis labels
+                      hTr->SetTitle("");
+                      hTr->GetXaxis()->SetTitle("x_{J#gamma}");
+                      hTr->GetYaxis()->SetTitle("A.U.");
+
+                      // common ymax
+                      const double ymax = std::max(hTr->GetMaximum(), hRe->GetMaximum());
+                      hTr->SetMaximum(ymax * 1.25);
+
+                      // draw
+                      hTr->Draw("E1");
+                      hRe->Draw("E1 same");
+
+                      // legend (bigger text)
+                      TLegend leg(0.58, 0.75, 0.92, 0.90);
+                      leg.SetTextFont(42);
+                      leg.SetTextSize(0.045);   // bigger than before
+                      leg.SetFillStyle(0);
+                      leg.SetBorderSize(0);
+                      leg.AddEntry(hTr, "Truth (reco-cond)", "ep");
+                      leg.AddEntry(hRe, "Reco",             "ep");
+                      leg.Draw();
+
+                      // header
+                      DrawLatexLines(0.14, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+
+                      // title line: pT + (R=...)
+                      vector<string> lines = {
+                        "Overlay (shape): RECO vs TRUTH (reco-conditioned)",
+                        TString::Format("p_{T}^{#gamma}: %s  (R=%.1f)", ptLab.c_str(), R).Data(),
+                        "Integrated over #alpha"
+                      };
+                      DrawLatexLines(0.14, 0.84, lines, 0.030, 0.040);
+
+                      SaveCanvas(c, outPng);
+
+                      delete hRe;
+                      delete hTr;
+
+                  }
+
+                  // --- 3x3 table pages of overlays (shape) ---
+                  const int perPage = 9;
+                  int page = 0;
+
+                  for (int start = 1; start <= nPtOv; start += perPage)
+                  {
+                    ++page;
+
+                    TCanvas c(
+                      TString::Format("c_tbl_xJRecoVsTruth_%s_%s_p%d", ds.label.c_str(), rKey.c_str(), page).Data(),
+                      "c_tbl_xJRecoVsTruth", 1500, 1200
+                    );
+                    c.Divide(3,3, 0.001, 0.001);
+
+                    vector<TH1*> keep;
+                    keep.reserve(2 * perPage);
+
+                    for (int k = 0; k < perPage; ++k)
+                    {
+                      const int ib = start + k;
+                      c.cd(k+1);
+
+                      gPad->SetLeftMargin(0.14);
+                      gPad->SetRightMargin(0.05);
+                      gPad->SetBottomMargin(0.14);
+                      gPad->SetTopMargin(0.10);
+
+                      if (ib > nPtOv)
+                      {
+                        TLatex t;
+                        t.SetNDC(true);
+                        t.SetTextFont(42);
+                        t.SetTextSize(0.06);
+                        t.DrawLatex(0.20, 0.55, "EMPTY");
+                        continue;
+                      }
+
+                      TH1* hRe = ProjectY_AtXbin_TH3(H.hReco_xJ, ib,
+                        TString::Format("tbl_xJ_reco_%s_%d_p%d", rKey.c_str(), ib, page).Data()
+                      );
+                      TH1* hTr = ProjectY_AtXbin_TH3(H.hTrut_xJ, ib,
+                        TString::Format("tbl_xJ_truth_%s_%d_p%d", rKey.c_str(), ib, page).Data()
+                      );
+
+                      if (hRe) { hRe->SetDirectory(nullptr); EnsureSumw2(hRe); }
+                      if (hTr) { hTr->SetDirectory(nullptr); EnsureSumw2(hTr); }
+
+                      if (!hRe || !hTr || (hRe->GetEntries() <= 0.0 && hTr->GetEntries() <= 0.0))
+                      {
+                        if (hRe) delete hRe;
+                        if (hTr) delete hTr;
+                        TLatex t;
+                        t.SetNDC(true);
+                        t.SetTextFont(42);
+                        t.SetTextSize(0.06);
+                        t.DrawLatex(0.15, 0.55, "MISSING");
+                        continue;
+                      }
+
+                      NormalizeToUnitArea(hRe);
+                      NormalizeToUnitArea(hTr);
+
+                      hRe->SetLineWidth(2);
+                      hRe->SetMarkerStyle(20);
+                      hRe->SetMarkerSize(0.95);
+                      hRe->SetLineColor(2);
+                      hRe->SetMarkerColor(2);
+
+                      hTr->SetLineWidth(2);
+                      hTr->SetMarkerStyle(24);
+                      hTr->SetMarkerSize(0.95);
+                      hTr->SetLineColor(1);
+                      hTr->SetMarkerColor(1);
+
+                      const double ymax = std::max(hRe->GetMaximum(), hTr->GetMaximum());
+                      hTr->SetMaximum(ymax * 1.25);
+
+                      hTr->SetTitle("");
+                      hTr->GetXaxis()->SetTitle("x_{J#gamma}");
+                      hTr->GetYaxis()->SetTitle("A.U.");
+                      hTr->Draw("E1");
+                      hRe->Draw("E1 same");
+
+                      const string ptLab = AxisBinLabel(H.hReco_xJ->GetXaxis(), ib, "GeV", 0);
+
+                      TLatex tt;
+                      tt.SetNDC(true);
+                      tt.SetTextFont(42);
+                      tt.SetTextAlign(22);
+                      tt.SetTextSize(0.060);
+                      tt.DrawLatex(0.52, 0.95,
+                          TString::Format("p_{T}^{#gamma} = %s  (R=%.1f)", ptLab.c_str(), R).Data()
+                      );
+
+                      TLegend leg(0.5, 0.74, 0.88, 0.90);
+                      leg.SetTextFont(42);
+                      leg.SetTextSize(0.060);   // bigger than before
+                      leg.SetFillStyle(0);
+                      leg.SetBorderSize(0);
+                      leg.AddEntry(hTr, "Truth (reco-cond)", "ep");
+                      leg.AddEntry(hRe, "Reco",             "ep");
+                      leg.DrawClone();
+
+
+                      keep.push_back(hRe);
+                      keep.push_back(hTr);
+                    }
+
+                    const string outName =
+                      (nPtOv <= perPage)
+                        ? "table3x3_overlay_RECO_vs_TRUTHrecoCond_shape.png"
+                        : TString::Format("table3x3_overlay_RECO_vs_TRUTHrecoCond_shape_page%d.png", page).Data();
+
+                    SaveCanvas(c, JoinPath(dirOvBase, outName));
+
+                    for (auto* h : keep) delete h;
+                  }
                 }
-              }
 
-              WriteTextFile(JoinPath(D.dirSumm, "summary_JES3_means.txt"), sumLines);
+                // RECO alpha-cut tables into subfolders (requested)
+                if (H.hReco_xJ)
+                {
+                  const vector<double> alphaMaxCuts = {0.20, 0.30, 0.40, 0.50};
+
+                  auto AlphaTag = [&](double aMax)->string
+                  {
+                    std::ostringstream s;
+                    s << std::fixed << std::setprecision(2) << aMax;
+                    string t = s.str();
+                    std::replace(t.begin(), t.end(), '.', 'p');
+                    return string("alphaLT") + t;
+                  };
+
+                  const string dirAlphaBase = JoinPath(D.dirXJProjReco, "alphaCuts");
+                  EnsureDir(dirAlphaBase);
+
+                  for (double aMax : alphaMaxCuts)
+                  {
+                    const string aDir = JoinPath(dirAlphaBase, AlphaTag(aMax));
+                    EnsureDir(aDir);
+                    Make3x3Table_xJ_FromTH3_AlphaCut(H.hReco_xJ, aDir, "RECO", aMax);
+                  }
+                }
+
+                WriteTextFile(JoinPath(D.dirSumm, "summary_JES3_means.txt"), sumLines);
             };
 
             // =============================================================================
@@ -5348,33 +5551,35 @@ namespace ARJ
                 TH2* hc = CloneTH2(H.hResp, "resp_scatter_clone");
                 if (hc)
                 {
-                  const int oldOptStat = gStyle->GetOptStat();
-                  gStyle->SetOptStat(1110);
-                  hc->SetStats(1);
+                    const int oldOptStat = gStyle->GetOptStat();
+                    gStyle->SetOptStat(0);
+                    hc->SetStats(0);
 
-                  TCanvas c("c_resp_scatter","c_resp_scatter",950,780);
-                  ApplyCanvasMargins2D(c);
+                    TCanvas c("c_resp_scatter","c_resp_scatter",950,780);
+                    ApplyCanvasMargins2D(c);
+                    c.SetLogz(1);
 
-                  hc->SetTitle("");
-                  hc->GetXaxis()->SetTitle("global bin (truth: p_{T}^{#gamma}, x_{J})");
-                  hc->GetYaxis()->SetTitle("global bin (reco: p_{T}^{#gamma}, x_{J})");
-                  hc->GetZaxis()->SetTitle("Counts");
+                    hc->SetTitle("");
+                    hc->GetXaxis()->SetTitle("global bin (truth: p_{T}^{#gamma}, x_{J})");
+                    hc->GetYaxis()->SetTitle("global bin (reco: p_{T}^{#gamma}, x_{J})");
+                    hc->GetZaxis()->SetTitle("Counts");
 
-                  hc->SetMarkerStyle(6);
-                  hc->SetMarkerSize(0.6);
-                  hc->SetMarkerColor(kBlue+1);
+                    // required for log-z (must be > 0)
+                    hc->SetMinimum(0.5);
 
-                  hc->Draw("SCAT");
+                    // Use the Z palette (this is what gives you the yellow/high-count regions)
+                    hc->Draw("COLZ");
 
-                  DrawLatexLines(0.14, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-                  DrawLatexLines(0.14, 0.84,
-                    { "Unfold response matrix (global-bin indexing)",
-                      rKey + TString::Format(" (R=%.1f)", R).Data() },
-                    0.030, 0.040);
+                    DrawLatexLines(0.14, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+                    DrawLatexLines(0.14, 0.84,
+                      { "Unfold response matrix (global-bin indexing)",
+                        rKey + TString::Format(" (R=%.1f)", R).Data() },
+                      0.030, 0.040);
 
-                  SaveCanvas(c, JoinPath(rOut, "unfold_response_globalTruth_vs_globalReco_SCAT.png"));
+                    SaveCanvas(c, JoinPath(rOut, "unfold_response_globalTruth_vs_globalReco_SCAT.png"));
 
-                  gStyle->SetOptStat(oldOptStat);
+                    gStyle->SetOptStat(oldOptStat);
+
                   delete hc;
                 }
               }

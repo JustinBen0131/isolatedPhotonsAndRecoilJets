@@ -121,12 +121,12 @@ namespace ARJ
 // =============================================================================
 
   inline bool isPPdataOnly   = false;
-  inline bool isSimAndDataPP = true;
+  inline bool isSimAndDataPP = false;
 
   // SIM sample selection toggles (choose EXACTLY ONE for any SIM-including run)
-  inline bool isPhotonJet10        = false;
+  inline bool isPhotonJet10        = true;
   inline bool isPhotonJet20        = false;
-  inline bool bothPhoton10and20sim = true;
+  inline bool bothPhoton10and20sim = false;
 
   // Displayed range [-vzCutCm,+vzCutCm] and 0.5 cm display bin width
   inline double vzCutCm = 30.0;
@@ -531,10 +531,23 @@ namespace ARJ
 
   inline vector<string> DefaultHeaderLines(const Dataset& ds)
   {
-    vector<string> lines;
-    if (ds.isSim) lines.push_back("Dataset: SIM (photonJet10)");
-    else          lines.push_back(string("Dataset: DATA (") + ds.trigger + ")");
-    return lines;
+      vector<string> lines;
+
+      if (ds.isSim)
+      {
+        std::string simLabel = "UNKNOWN";
+        if (isPhotonJet10)        simLabel = "photonJet10";
+        else if (isPhotonJet20)   simLabel = "photonJet20";
+        else if (bothPhoton10and20sim) simLabel = "photonJet10+20 merged";
+
+        lines.push_back(std::string("Dataset: SIM (") + simLabel + ")");
+      }
+      else
+      {
+        lines.push_back(std::string("Dataset: DATA (") + ds.trigger + ")");
+      }
+
+      return lines;
   }
 
   inline void SaveCanvas(TCanvas& c, const string& filepath)
@@ -1056,7 +1069,104 @@ namespace ARJ
         hc->GetXaxis()->SetTickLength(0.03);
         hc->GetYaxis()->SetTickLength(0.03);
 
+        // Force x-range ONLY for the total isolation 3x3 table:
+        //   table3x3_Eiso_total.png  (histBase == "h_Eiso")
+        const bool isTotalIsoTable = (isIsoTable && histBase == "h_Eiso");
+        if (isTotalIsoTable)
+        {
+          hc->GetXaxis()->SetRangeUser(-2.0, 6.0);
+        }
+
         hc->Draw("hist");
+
+        // ------------------------------------------------------------------
+        // For the total isolation table: draw the sliding-window iso cut range
+        // (because the cut depends on photon pT within the bin) and integrate
+        // counts relative to that range.
+        //
+        // RecoilJets::isIsolated uses:
+        //   isoCut(pT) = m_isoA + m_isoB * pT
+        // default WP in your prints: 1.08128 + 0.0299107*pT
+        //
+        // In a pT bin [lo, hi], the cut spans:
+        //   cutLo = isoCut(lo), cutHi = isoCut(hi)
+        // We draw BOTH edges (dashed/dotted).
+        // ------------------------------------------------------------------
+        if (isTotalIsoTable)
+        {
+          constexpr double kIsoA = 1.08128;
+          constexpr double kIsoB = 0.0299107;
+
+          const double ptLo = static_cast<double>(b.lo);
+          const double ptHi = static_cast<double>(b.hi);
+
+          const double cutLo = kIsoA + kIsoB * ptLo;
+          const double cutHi = kIsoA + kIsoB * ptHi;
+
+          // y-range for the vertical lines (avoid y=0 on log plots)
+          double yBot = 0.0;
+          if (logy)
+          {
+            const double minPos = SmallestPositiveBinContent(hc);
+            yBot = (minPos > 0.0) ? (0.5 * minPos) : 1e-6;
+          }
+
+          const double yTop = (hc->GetMaximum() > 0.0) ? (hc->GetMaximum() * 1.25) : 1.0;
+
+          // Draw cut range edges (clone so they persist until SaveCanvas)
+          {
+            TLine l1(cutLo, yBot, cutLo, yTop);
+            l1.SetLineWidth(2);
+            l1.SetLineStyle(2); // dashed
+            l1.DrawClone("same");
+          }
+          {
+            TLine l2(cutHi, yBot, cutHi, yTop);
+            l2.SetLineWidth(2);
+            l2.SetLineStyle(3); // dotted
+            l2.DrawClone("same");
+          }
+
+          // Integrals (under/overflow included)
+          const int nbx = hc->GetNbinsX();
+          const double nTot = hc->Integral(0, nbx + 1);
+
+          const int bLo = hc->GetXaxis()->FindBin(cutLo);
+          const int bHi = hc->GetXaxis()->FindBin(cutHi);
+
+          const double nBelowLo = hc->Integral(0, bLo);
+          const double nBelowHi = hc->Integral(0, bHi);
+          const double nBetween = (nBelowHi >= nBelowLo) ? (nBelowHi - nBelowLo) : 0.0;
+          const double nAboveHi = hc->Integral(bHi + 1, nbx + 1);
+
+          // Compact annotations (left side so it won't collide with the pT label on the right)
+          TLatex t;
+          t.SetNDC(true);
+          t.SetTextFont(42);
+          t.SetTextAlign(13);
+
+          t.SetTextSize(0.052);
+          t.DrawLatex(
+            0.16, 0.70,
+            TString::Format("iso cut range: [%.2f, %.2f] GeV", cutLo, cutHi).Data()
+          );
+
+          t.SetTextSize(0.048);
+          t.DrawLatex(
+            0.16, 0.62,
+            TString::Format("N(<cutLo)=%.0f  N(cutLo-cutHi)=%.0f  N(>cutHi)=%.0f",
+              nBelowLo, nBetween, nAboveHi).Data()
+          );
+
+          if (nTot > 0.0)
+          {
+            t.DrawLatex(
+              0.16, 0.54,
+              TString::Format("f(<cutLo)=%.3f  f(<cutHi)=%.3f",
+                nBelowLo / nTot, nBelowHi / nTot).Data()
+            );
+          }
+        }
 
         if (isIsoTable)
         {
