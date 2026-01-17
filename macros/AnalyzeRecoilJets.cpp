@@ -3371,13 +3371,20 @@ namespace ARJ
 
             auto IsPreferredMergedSIM = [&](const Dataset& s)->bool
             {
-              // Only relevant if the user selected the merged photonJet10+20 SIM sample.
-              if (CurrentSimSample() != SimSample::kPhotonJet10And20Merged) return true;
+              const SimSample sel = CurrentSimSample();
+              if (!IsMergedSimSample(sel)) return true;
+
+              // Prefer the dataset whose path matches the *selected* merged sample path
+              const std::string want = SimInputPathForSample(sel);
+              if (!want.empty() && s.inFilePath == want) return true;
 
               const std::string hay =
                 s.label + " " + s.topDirName + " " + s.inFilePath;
 
-              return ContainsAny(hay, {"Merged","merged","10and20","10And20","photon10and20","photonJet10and20","Photon10and20"});
+              const std::string need = SimSampleLabel(sel);
+              if (!need.empty() && hay.find(need) != std::string::npos) return true;
+
+              return ContainsAny(hay, {"Merged","merged","MERGED","5and10","5and20","10and20","5and10and20"});
             };
 
             auto RegisterDataset = [&](Dataset& cur)
@@ -4000,7 +4007,7 @@ namespace ARJ
                   a->SetFillStyle(0);
 
                     a->GetXaxis()->SetTitle(xTitle.c_str());
-                    a->GetYaxis()->SetTitle((ds.isSim && bothPhoton10and20sim) ? "Counts / pb^{-1}" : "Counts");
+                    a->GetYaxis()->SetTitle((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts");
                 }
                 if (b)
                 {
@@ -4016,7 +4023,7 @@ namespace ARJ
                   b->SetFillStyle(0);
 
                     b->GetXaxis()->SetTitle(xTitle.c_str());
-                    b->GetYaxis()->SetTitle((ds.isSim && bothPhoton10and20sim) ? "Counts / pb^{-1}" : "Counts");
+                    b->GetYaxis()->SetTitle((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts");
                 }
 
                 TH1* first  = a ? a : b;
@@ -4133,7 +4140,7 @@ namespace ARJ
                     a->SetFillStyle(0);
 
                       a->GetXaxis()->SetTitle(xTitle.c_str());
-                      a->GetYaxis()->SetTitle((ds.isSim && bothPhoton10and20sim) ? "Counts / pb^{-1}" : "Counts");
+                      a->GetYaxis()->SetTitle((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts");
                   }
                   if (b)
                   {
@@ -4149,7 +4156,7 @@ namespace ARJ
                     b->SetFillStyle(0);
 
                       b->GetXaxis()->SetTitle(xTitle.c_str());
-                      b->GetYaxis()->SetTitle((ds.isSim && bothPhoton10and20sim) ? "Counts / pb^{-1}" : "Counts");
+                      b->GetYaxis()->SetTitle((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts");
                   }
 
                   TH1* first  = a ? a : b;
@@ -5069,7 +5076,7 @@ namespace ARJ
 
                       hx->SetTitle("");
                       hx->GetXaxis()->SetTitle((tag == "TRUTH") ? "x_{J#gamma}^{truth}" : "x_{J#gamma}");
-                      hx->GetYaxis()->SetTitle((ds.isSim && bothPhoton10and20sim) ? "Counts / pb^{-1}" : "Counts");
+                      hx->GetYaxis()->SetTitle((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts");
 
                     if (logy)
                     {
@@ -5185,7 +5192,7 @@ namespace ARJ
 
                       hx->SetTitle("");
                       hx->GetXaxis()->SetTitle((tag == "TRUTH") ? "x_{J#gamma}^{truth}" : "x_{J#gamma}");
-                      hx->GetYaxis()->SetTitle((ds.isSim && bothPhoton10and20sim) ? "Counts / pb^{-1}" : "Counts");
+                      hx->GetYaxis()->SetTitle((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts");
                       hx->Draw("E1");
 
                     const string ptLab = AxisBinLabel(h3->GetXaxis(), ib, "GeV", 0);
@@ -6931,28 +6938,62 @@ namespace ARJ
 
     inline bool MaybeBuildMergedSIM(RunMode mode)
     {
-        // Only relevant when a SIM-including mode is running AND the merged SIM sample was selected.
-        if (mode == RunMode::kPPDataOnly) return true;
+      // Only relevant when a SIM-including mode is running AND a merged SIM sample was selected.
+      if (mode == RunMode::kPPDataOnly) return true;
 
-        const SimSample ss = CurrentSimSample();
-        if (ss != SimSample::kPhotonJet10And20Merged) return true;
+      const SimSample ss = CurrentSimSample();
+      if (!IsMergedSimSample(ss)) return true;
 
-        const bool ok = BuildMergedSIMFile_Photon10And20(
-          kInSIM10,
-          kInSIM20,
+      bool ok = true;
+
+      if (ss == SimSample::kPhotonJet5And10Merged)
+      {
+        ok = BuildMergedSIMFile_PhotonSlices(
+          {kInSIM5, kInSIM10},
+          {kSigmaPhoton5_pb, kSigmaPhoton10_pb},
+          kMergedSIMOut_5and10,
+          kDirSIM,
+          {"photonJet5", "photonJet10"}
+        );
+      }
+      else if (ss == SimSample::kPhotonJet5And20Merged)
+      {
+        ok = BuildMergedSIMFile_PhotonSlices(
+          {kInSIM5, kInSIM20},
+          {kSigmaPhoton5_pb, kSigmaPhoton20_pb},
+          kMergedSIMOut_5and20,
+          kDirSIM,
+          {"photonJet5", "photonJet20"}
+        );
+      }
+      else if (ss == SimSample::kPhotonJet10And20Merged)
+      {
+        ok = BuildMergedSIMFile_PhotonSlices(
+          {kInSIM10, kInSIM20},
+          {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
           kMergedSIMOut,
           kDirSIM,
-          6692.7611,
-          105.79868
+          {"photonJet10", "photonJet20"}
         );
+      }
+      else if (ss == SimSample::kPhotonJet5And10And20Merged)
+      {
+        ok = BuildMergedSIMFile_PhotonSlices(
+          {kInSIM5, kInSIM10, kInSIM20},
+          {kSigmaPhoton5_pb, kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+          kMergedSIMOut_5and10and20,
+          kDirSIM,
+          {"photonJet5", "photonJet10", "photonJet20"}
+        );
+      }
 
-        if (!ok)
-        {
-          cout << ANSI_BOLD_RED << "[FATAL] Failed to build merged SIM file." << ANSI_RESET << "\n";
-          return false;
-        }
+      if (!ok)
+      {
+        cout << ANSI_BOLD_RED << "[FATAL] Failed to build merged SIM file." << ANSI_RESET << "\n";
+        return false;
+      }
 
-        return true;
+      return true;
     }
   } // namespace driver
 
@@ -6979,11 +7020,15 @@ namespace ARJ
       cout << ANSI_BOLD_CYN << "\n[STEP 0] Run-mode validation\n" << ANSI_RESET;
 
       cout << "  Toggles:\n"
-           << "    isPPdataOnly         = " << (isPPdataOnly ? "true" : "false") << "\n"
-           << "    isSimAndDataPP       = " << (isSimAndDataPP ? "true" : "false") << "\n"
-           << "    isPhotonJet10        = " << (isPhotonJet10 ? "true" : "false") << "\n"
-           << "    isPhotonJet20        = " << (isPhotonJet20 ? "true" : "false") << "\n"
-           << "    bothPhoton10and20sim = " << (bothPhoton10and20sim ? "true" : "false") << "\n";
+           << "    isPPdataOnly            = " << (isPPdataOnly ? "true" : "false") << "\n"
+           << "    isSimAndDataPP          = " << (isSimAndDataPP ? "true" : "false") << "\n"
+           << "    isPhotonJet5            = " << (isPhotonJet5 ? "true" : "false") << "\n"
+           << "    isPhotonJet10           = " << (isPhotonJet10 ? "true" : "false") << "\n"
+           << "    isPhotonJet20           = " << (isPhotonJet20 ? "true" : "false") << "\n"
+           << "    bothPhoton5and10sim     = " << (bothPhoton5and10sim ? "true" : "false") << "\n"
+           << "    bothPhoton5and20sim     = " << (bothPhoton5and20sim ? "true" : "false") << "\n"
+           << "    bothPhoton10and20sim    = " << (bothPhoton10and20sim ? "true" : "false") << "\n"
+           << "    allPhoton5and10and20sim = " << (allPhoton5and10and20sim ? "true" : "false") << "\n";
 
       string cfgErr;
       if (!ValidateRunConfig(&cfgErr))
@@ -7009,7 +7054,7 @@ namespace ARJ
       // ---------------------------------------------------------------------------
       // Optional SIM slice merge
       // ---------------------------------------------------------------------------
-      cout << ANSI_BOLD_CYN << "\n[STEP 1] Optional SIM slice merge (photonJet10 + photonJet20)\n" << ANSI_RESET;
+      cout << ANSI_BOLD_CYN << "\n[STEP 1] Optional SIM slice merge (photonJet5/10/20 combinations)\n" << ANSI_RESET;
       cout << "  -> Checking whether merged SIM is required for this mode...\n";
 
       if (!driver::MaybeBuildMergedSIM(mode))

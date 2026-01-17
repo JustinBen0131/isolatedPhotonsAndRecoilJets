@@ -468,29 +468,54 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   // 2.  CDB + IO managers
   // --------------------------------------------------------------------
   recoConsts* rc = recoConsts::instance();
-  rc->set_StringFlag("CDB_GLOBALTAG","newcdbtag");
+  // CDB_GLOBALTAG is REQUIRED for any CDBInterface::getUrl() call.
+  // Allow override via env, otherwise default to your known-good tag.
+  std::string gtag = "newcdbtag";
+  if (const char* envGT = std::getenv("RJ_CDB_GLOBALTAG"))
+  {
+      std::string tmp = detail::trim(std::string(envGT));
+      if (!tmp.empty()) gtag = tmp;
+  }
+  rc->set_StringFlag("CDB_GLOBALTAG", gtag);
 
-  // Use run number as timestamp for real data.
-  // For simulation, "run" like 28 is not a valid CDB timestamp for calo calibrations.
+  if (vlevel > 0)
+      std::cout << "[INFO] CDB_GLOBALTAG=" << gtag << "\n";
+
+  // TIMESTAMP:
+  //  - DATA: use run number (must be > 1000 so Calo_Calib treats it as DATA)
+  //  - SIM : use a known-good fixed timestamp (SIM does NOT run Process_Calo_Calib)
   unsigned long long cdbts = static_cast<unsigned long long>(run);
 
-  if (isSim)
+  if (!isSim)
   {
-      // Pick a known-good pp timestamp that has EMCal calibration payloads available.
-      cdbts = 47289ULL;
-
-      // Optional override:
-      //   export RJ_CDB_TIMESTAMP=47289
-      if (const char* ts = std::getenv("RJ_CDB_TIMESTAMP"))
+      // DATA must satisfy Calo_Calib's heuristic (TIMESTAMP > 1000 => data)
+      if (cdbts <= 1000ULL)
       {
-        char* end = nullptr;
-        unsigned long long tmp = std::strtoull(ts, &end, 10);
-        if (end != ts && tmp > 0ULL) cdbts = tmp;
+        std::cerr << "[FATAL] DATA run number " << cdbts
+                  << " would make Calo_Calib treat this as SIM (TIMESTAMP<=1000).\n";
+        throw std::runtime_error("Invalid DATA TIMESTAMP for Calo_Calib (must be > 1000).");
       }
+    }
+    else
+    {
+      cdbts = 47289ULL;  // keep your old working SIM timestamp
+    }
+
+    if (const char* ts = std::getenv("RJ_CDB_TIMESTAMP"))
+    {
+      char* end = nullptr;
+      unsigned long long tmp = std::strtoull(ts, &end, 10);
+      if (end != ts && tmp > 0ULL) cdbts = tmp;
   }
 
   rc->set_uint64Flag("TIMESTAMP", cdbts);
+
+  if (vlevel > 0)
+      std::cout << "[INFO] CDB TIMESTAMP=" << rc->get_uint64Flag("TIMESTAMP")
+                << " (isSim=" << (isSim ? "true" : "false") << ")\n";
+
   CDBInterface::instance()->Verbosity(0);
+
 
   auto* flag = new FlagHandler();
   se->registerSubsystem(flag);
@@ -570,32 +595,43 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
     for (const auto& f : filesCalo) inCalo->AddFile(f);
     se->registerInputManager(inCalo);
 
-    // ------------------ Extra SIM inputs (G4Hits + Jets + Global + MBD) -------------------
     if (isSim)
     {
-        // Require strict 1:1 pairing (one file per calo file line) for ALL SIM streams we depend on
-        if (!listHasG4)
-        {
-          std::ostringstream os;
-          os << "isSim requires G4Hits paired 1:1 with calo files.\n"
-             << "Input list must have at least 2 columns per line:\n"
-             << "  <DST_CALO_CLUSTER> <G4Hits> ...\n"
-             << "But your list is missing the G4Hits column on at least one line.";
-          detail::bail(os.str());
-        }
+        // For SIM we REQUIRE reco-vertex streams (GLOBAL + MBD_EPD).
+        // G4Hits is OPTIONAL: if missing, we skip truth-photon matching QA.
         if (!listHasGlobal || !listHasMbd)
         {
           std::ostringstream os;
           os << "isSim requires reco-vertex DSTs (DST_GLOBAL + DST_MBD_EPD) paired 1:1 with calo files.\n"
-             << "Input list must be 5 columns per line:\n"
-             << "  <DST_CALO_CLUSTER> <G4Hits> <DST_JETS> <DST_GLOBAL> <DST_MBD_EPD>\n"
+             << "Input list must include these columns per line:\n"
+             << "  <DST_CALO_CLUSTER> <G4_or_NONE> <DST_JETS_or_NONE> <DST_GLOBAL> <DST_MBD_EPD>\n"
              << "But your list is missing DST_GLOBAL and/or DST_MBD_EPD on at least one line.";
           detail::bail(os.str());
         }
 
-        auto* inG4 = new Fun4AllDstInputManager("DST_G4HITS_IN");
-        for (const auto& f : filesG4) inG4->AddFile(f);
-        se->registerInputManager(inG4);
+        // G4 is OPTIONAL (photonjet productions may not provide it).
+        // If you want to force it: export RJ_REQUIRE_G4=1
+        bool requireG4 = false;
+        if (const char* env = std::getenv("RJ_REQUIRE_G4")) requireG4 = (std::atoi(env) != 0);
+
+        if (listHasG4)
+        {
+          auto* inG4 = new Fun4AllDstInputManager("DST_G4HITS_IN");
+          for (const auto& f : filesG4) inG4->AddFile(f);
+          se->registerInputManager(inG4);
+        }
+        else
+        {
+          if (requireG4)
+          {
+            detail::bail("RJ_REQUIRE_G4=1 but no G4Hits stream was provided in the input list.");
+          }
+          else
+          {
+            std::cout << "\033[31m[WARN] isSim: no G4Hits stream provided (or it's 'NONE'). "
+                         "Continuing; truth-photon matching QA will be skipped.\033[0m\n";
+          }
+        }
 
         auto* inGlobal = new Fun4AllDstInputManager("DST_GLOBAL_IN");
         for (const auto& f : filesGlobal) inGlobal->AddFile(f);
@@ -606,8 +642,10 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
         se->registerInputManager(inMbd);
 
         if (verbose)
-          std::cout << "[INFO] isSim: registered input managers (Calo + G4Hits + Global + MBD_EPD)\n";
-      }
+          std::cout << "[INFO] isSim: registered input managers (Calo + Global + MBD_EPD"
+                    << (listHasG4 ? " + G4" : " (no G4)") << ")\n";
+    }
+
 
       // ------------------ Jets DST (SIM optional; for truth jets) -------
       if (isSim && useDSTTruthJets)
@@ -683,79 +721,24 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
 
 
     // ------------------------------------------------------------------
-    // FIX A (SIM): do NOT run CaloTowerStatus / CaloTowerCalib here.
-    // Your SIM DST already contains TOWERINFO_CALIB_* and running these
-    // again is what is flipping ~24% of CEMC towers to !isGood.
+    // Calo calibration + clustering
+    //
+    // DATA: run the standard Calo_Calib reconstruction chain.
+    // SIM : skip (SIM analysis DST already has calibrated towers/clusters; re-running
+    //             the reco chain is what triggers CaloTowerStatus hotmap/default-map failure).
     // ------------------------------------------------------------------
     if (!isSim)
     {
-      if (vlevel > 0) std::cout << "status setters" << std::endl;
-
-      CaloTowerStatus *statusEMC = new CaloTowerStatus("CEMCSTATUS");
-      statusEMC->set_detector_type(CaloTowerDefs::CEMC);
-      statusEMC->set_time_cut(1);
-      se->registerSubsystem(statusEMC);
-
-      CaloTowerStatus *statusHCalIn = new CaloTowerStatus("HCALINSTATUS");
-      statusHCalIn->set_detector_type(CaloTowerDefs::HCALIN);
-      statusHCalIn->set_time_cut(2);
-      se->registerSubsystem(statusHCalIn);
-
-      CaloTowerStatus *statusHCALOUT = new CaloTowerStatus("HCALOUTSTATUS");
-      statusHCALOUT->set_detector_type(CaloTowerDefs::HCALOUT);
-      statusHCALOUT->set_time_cut(2);
-      se->registerSubsystem(statusHCALOUT);
-
-      if (vlevel > 0) std::cout << "Calibrating EMCal" << std::endl;
-      CaloTowerCalib *calibEMC = new CaloTowerCalib("CEMCCALIB");
-      calibEMC->set_detector_type(CaloTowerDefs::CEMC);
-      se->registerSubsystem(calibEMC);
-
-      if (vlevel > 0) std::cout << "Calibrating OHcal" << std::endl;
-      CaloTowerCalib *calibOHCal = new CaloTowerCalib("HCALOUT");
-      calibOHCal->set_detector_type(CaloTowerDefs::HCALOUT);
-      se->registerSubsystem(calibOHCal);
-
-      if (vlevel > 0) std::cout << "Calibrating IHcal" << std::endl;
-      CaloTowerCalib *calibIHCal = new CaloTowerCalib("HCALIN");
-      calibIHCal->set_detector_type(CaloTowerDefs::HCALIN);
-      se->registerSubsystem(calibIHCal);
+      if (vlevel > 0) std::cout << "[DATA] running Process_Calo_Calib()\n";
+      Process_Calo_Calib();
     }
     else
     {
       if (vlevel > 0)
       {
-        std::cout << "[isSim] FIX A: skipping CaloTowerStatus + CaloTowerCalib "
-                     "(use existing TOWERINFO_CALIB_* from SIM DST)"
-                  << std::endl;
+        std::cout << "[isSim] skipping Process_Calo_Calib() "
+                     "(SIM DST already has TOWERINFO_CALIB and CLUSTERINFO_CEMC)\n";
       }
-    }
-
-    // ------------------------------------------------------------------
-    // Cluster building:
-    //  - DATA: build clusters from calibrated towers
-    //  - SIM : the DST already contains CLUSTERINFO_CEMC, so do NOT rebuild it
-    //         (rebuilding causes "node already exists" and can leave the container empty/undefined)
-    // ------------------------------------------------------------------
-    if (!isSim)
-    {
-      if (vlevel > 0) std::cout << "Building clusters (DATA)" << std::endl;
-
-      RawClusterBuilderTemplate *ClusterBuilder = new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate");
-      ClusterBuilder->Detector("CEMC");
-      ClusterBuilder->set_threshold_energy(0.070);
-
-      std::string emc_prof = getenv("CALIBRATIONROOT");
-      emc_prof += "/EmcProfile/CEMCprof_Thresh30MeV.root";
-      ClusterBuilder->LoadProfile(emc_prof);
-
-      ClusterBuilder->set_UseTowerInfo(1);
-      ClusterBuilder->set_UseAltZVertex(1);
-      se->registerSubsystem(ClusterBuilder);
-    }
-    else
-    {
-      if (vlevel > 0) std::cout << "[isSim] skipping RawClusterBuilderTemplate (CLUSTERINFO_CEMC already in DST)" << std::endl;
     }
 
 

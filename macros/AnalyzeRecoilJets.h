@@ -70,97 +70,177 @@ namespace ARJ
   using std::map;
 
 // =============================================================================
-// HOW TO USE THESE TOGGLES 
+// HOW TO USE THESE TOGGLES (pp data + photonJet SIM: 5 / 10 / 20)
 // =============================================================================
 //
-// You control TWO things here:
+// You control TWO things:
 //
-// (A) Run mode (PP-only vs SIM-only vs SIM+PP):
+// (A) RUN MODE (PP-only vs SIM-only vs SIM+PP):
+//
 //   1) PP DATA ONLY (no SIM at all)
 //        isPPdataOnly   = true;
 //        isSimAndDataPP = false;
-//        // and ALL SIM sample toggles must be false
+//        // IMPORTANT: all SIM sample toggles below MUST be false.
 //
 //   2) SIM ONLY (no PP data)
 //        isPPdataOnly   = false;
 //        isSimAndDataPP = false;
-//        // choose EXACTLY ONE SIM sample toggle below
+//        // choose EXACTLY ONE SIM sample toggle below.
 //
-//   3) SIM + PP DATA (run both; enables SIM/Data combined steps like unfolding/JES where implemented)
+//   3) SIM + PP DATA (run both; enables SIM/Data combined steps where implemented)
 //        isPPdataOnly   = false;
 //        isSimAndDataPP = true;
-//        // choose EXACTLY ONE SIM sample toggle below
+//        // choose EXACTLY ONE SIM sample toggle below.
 //
-// (B) Which SIM sample to use (choose EXACTLY ONE when SIM is included):
+// (B) WHICH SIM SAMPLE TO USE (choose EXACTLY ONE when SIM is included):
+//
+//   --- Single-slice SIM (raw event-count histograms) ---
+//   - photonJet5 only:
+//        isPhotonJet5 = true;
+//        // all other SIM toggles false
+//        -> SIM input:  kInSIM5
+//        -> SIM output: kOutSIM5Base  (.../photonJet5_SIM)
+//
 //   - photonJet10 only:
-//        isPhotonJet10        = true;
-//        isPhotonJet20        = false;
-//        bothPhoton10and20sim = false;
-//        -> SIM output goes to: .../photonJet10_SIM
+//        isPhotonJet10 = true;
+//        // all other SIM toggles false
+//        -> SIM input:  kInSIM10
+//        -> SIM output: kOutSIM10Base (.../photonJet10_SIM)
 //
 //   - photonJet20 only:
-//        isPhotonJet10        = false;
-//        isPhotonJet20        = true;
-//        bothPhoton10and20sim = false;
-//        -> SIM output goes to: .../photonJet20_SIM
+//        isPhotonJet20 = true;
+//        // all other SIM toggles false
+//        -> SIM input:  kInSIM20
+//        -> SIM output: kOutSIM20Base (.../photonJet20_SIM)
 //
-//   - merged photonJet10+20 (pre-merged with weights):
-//        isPhotonJet10        = false;
-//        isPhotonJet20        = false;
+//   --- Weighted merged SIM (histograms become weighted; y-axis ~ "Counts / pb^{-1}") ---
+//   When a merged mode is selected, the code builds/uses a merged ROOT file whose histograms are:
+//        H_merged = sum_i ( (sigma_i / N_i) * H_i )
+//   where N_i is read from cnt_SIM bin 1 in each slice file (accepted event count).
+//
+//   - merged photonJet5+10:
+//        bothPhoton5and10sim = true;
+//        // all other SIM toggles false
+//        -> merged output file: kMergedSIMOut_5and10
+//        -> SIM output base:    kOutSIM5and10MergedBase (.../photonJet5and10merged_SIM)
+//
+//   - merged photonJet5+20:
+//        bothPhoton5and20sim = true;
+//        // all other SIM toggles false
+//        -> merged output file: kMergedSIMOut_5and20
+//        -> SIM output base:    kOutSIM5and20MergedBase (.../photonJet5and20merged_SIM)
+//
+//   - merged photonJet10+20:
 //        bothPhoton10and20sim = true;
-//        -> SIM output goes to: .../photonJet10and20merged_SIM
+//        // all other SIM toggles false
+//        -> merged output file: kMergedSIMOut
+//        -> SIM output base:    kOutSIMMergedBase (.../photonJet10and20merged_SIM)
+//
+//   - merged photonJet5+10+20:
+//        allPhoton5and10and20sim = true;
+//        // all other SIM toggles false
+//        -> merged output file: kMergedSIMOut_5and10and20
+//        -> SIM output base:    kOutSIM5and10and20MergedBase (.../photonJet5and10and20merged_SIM)
+//
+// Cross sections used for weights (pb):
+//   - photonJet5  : kSigmaPhoton5_pb  = 89266.571
+//   - photonJet10 : kSigmaPhoton10_pb = 6692.7611
+//   - photonJet20 : kSigmaPhoton20_pb = 105.79868
 //
 // INVALID COMBINATIONS (hard error):
 //   - Setting more than one SIM sample toggle true.
 //   - Setting any SIM sample toggle true while isPPdataOnly=true.
 //   - Setting isPPdataOnly=true AND isSimAndDataPP=true.
 //
-// NOTE:
-//   - If bothPhoton10and20sim=true, the code will use the merged ROOT file path (kMergedSIMOut).
-//   - If isPhotonJet10=true or isPhotonJet20=true, the code uses the corresponding single-slice SIM file.
+// NOTES:
+//   - For merged modes, IsWeightedSIMSelected() returns true, so plotting helpers label y-axes as "Counts / pb^{-1}".
+//   - For single-slice SIM, y-axes remain raw "Counts" (unweighted).
 // =============================================================================
 
   inline bool isPPdataOnly   = false;
   inline bool isSimAndDataPP = false;
 
   // SIM sample selection toggles (choose EXACTLY ONE for any SIM-including run)
-  inline bool isPhotonJet10        = true;
-  inline bool isPhotonJet20        = false;
-  inline bool bothPhoton10and20sim = false;
+  inline bool isPhotonJet5               = false;
+  inline bool isPhotonJet10              = false;
+  inline bool isPhotonJet20              = false;
+
+  inline bool bothPhoton5and10sim        = false;
+  inline bool bothPhoton5and20sim        = false;
+  inline bool bothPhoton10and20sim       = false;
+
+  inline bool allPhoton5and10and20sim    = true;
+
+  // True if the selected SIM sample is a weighted multi-slice merge (hist units become ~pb/bin)
+  inline bool IsWeightedSIMSelected()
+  {
+      return (bothPhoton5and10sim || bothPhoton5and20sim || bothPhoton10and20sim || allPhoton5and10and20sim);
+  }
 
   // Displayed range [-vzCutCm,+vzCutCm] and 0.5 cm display bin width
   inline double vzCutCm = 30.0;
 
   // =============================================================================
-  // FIXED INPUTS (pp + photonJet10/20 SIM)
+  // FIXED INPUTS (pp + photonJet5/10/20 SIM)
   // =============================================================================
   inline const string kTriggerPP = "Photon_4_GeV_plus_MBD_NS_geq_1";
   inline const string kDirSIM    = "SIM";
 
   inline const string kInPP =
-      "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp/RecoilJets_pp_ALL.root";
+        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp/RecoilJets_pp_ALL.root";
+
+  inline const string kInSIM5 =
+        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5_SIM/RecoilJets_photonjet5_ALL.root";
 
   inline const string kInSIM10 =
-      "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10_SIM/RecoilJets_photonjet10_ALL.root";
+        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10_SIM/RecoilJets_photonjet10_ALL.root";
 
   inline const string kInSIM20 =
-      "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet20_SIM/RecoilJets_photonjet20_ALL.root";
+        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet20_SIM/RecoilJets_photonjet20_ALL.root";
 
   inline const string kOutPPBase =
-      "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp";
+        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp";
 
   // SIM outputs are routed by the SIM sample toggle(s) above:
+  inline const string kOutSIM5Base =
+        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5_SIM";
+
   inline const string kOutSIM10Base =
-      "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10_SIM";
+        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10_SIM";
 
   inline const string kOutSIM20Base =
-      "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet20_SIM";
+        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet20_SIM";
 
+  // Keep the existing name for 10+20 merged (so older code stays readable):
   inline const string kOutSIMMergedBase =
-      "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10and20merged_SIM";
+        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10and20merged_SIM";
 
+  inline const string kOutSIM5and10MergedBase =
+        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5and10merged_SIM";
+
+  inline const string kOutSIM5and20MergedBase =
+        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5and20merged_SIM";
+
+  inline const string kOutSIM5and10and20MergedBase =
+        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5and10and20merged_SIM";
+
+  // Merged SIM ROOT outputs (weighted merges)
   inline const string kMergedSIMOut =
-      "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10and20merged_SIM/RecoilJets_photonjet10plus20_MERGED.root";
+        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10and20merged_SIM/RecoilJets_photonjet10plus20_MERGED.root";
+
+  inline const string kMergedSIMOut_5and10 =
+        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5and10merged_SIM/RecoilJets_photonjet5plus10_MERGED.root";
+
+  inline const string kMergedSIMOut_5and20 =
+        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5and20merged_SIM/RecoilJets_photonjet5plus20_MERGED.root";
+
+  inline const string kMergedSIMOut_5and10and20 =
+        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5and10and20merged_SIM/RecoilJets_photonjet5plus10plus20_MERGED.root";
+
+  // Cross sections (pb) used for per-event weights w = sigma / Naccepted
+  inline constexpr double kSigmaPhoton5_pb  = 89266.571;
+  inline constexpr double kSigmaPhoton10_pb = 6692.7611;
+  inline constexpr double kSigmaPhoton20_pb = 105.79868;
 
   // =============================================================================
   // Binning
@@ -531,23 +611,28 @@ namespace ARJ
 
   inline vector<string> DefaultHeaderLines(const Dataset& ds)
   {
-      vector<string> lines;
+        vector<string> lines;
 
-      if (ds.isSim)
-      {
-        std::string simLabel = "UNKNOWN";
-        if (isPhotonJet10)        simLabel = "photonJet10";
-        else if (isPhotonJet20)   simLabel = "photonJet20";
-        else if (bothPhoton10and20sim) simLabel = "photonJet10+20 merged";
+        if (ds.isSim)
+        {
+          std::string simLabel = "UNKNOWN";
 
-        lines.push_back(std::string("Dataset: SIM (") + simLabel + ")");
-      }
-      else
-      {
-        lines.push_back(std::string("Dataset: DATA (") + ds.trigger + ")");
-      }
+          if (isPhotonJet5)                 simLabel = "photonJet5";
+          else if (isPhotonJet10)           simLabel = "photonJet10";
+          else if (isPhotonJet20)           simLabel = "photonJet20";
+          else if (bothPhoton5and10sim)     simLabel = "photonJet5+10 merged";
+          else if (bothPhoton5and20sim)     simLabel = "photonJet5+20 merged";
+          else if (bothPhoton10and20sim)    simLabel = "photonJet10+20 merged";
+          else if (allPhoton5and10and20sim) simLabel = "photonJet5+10+20 merged";
 
-      return lines;
+          lines.push_back(std::string("Dataset: SIM (") + simLabel + ")");
+        }
+        else
+        {
+          lines.push_back(std::string("Dataset: DATA (") + ds.trigger + ")");
+        }
+
+        return lines;
   }
 
   inline void SaveCanvas(TCanvas& c, const string& filepath)
@@ -621,7 +706,7 @@ namespace ARJ
       ApplyCanvasMargins1D(c);
       c.SetLogy(logy);
 
-      const bool mergedSimWeightedToPb = (ds.isSim && bothPhoton10and20sim);
+      const bool mergedSimWeightedToPb = (ds.isSim && IsWeightedSIMSelected());
 
       const string yTitleEff =
         (yTitle == "A.U." || yTitle == "A.U")
@@ -1443,250 +1528,354 @@ namespace ARJ
   }
 
   // =============================================================================
-  // SIM merge utilities (photonJet10 + photonJet20)
+  // SIM merge utilities (photonJet slices: 5 / 10 / 20)
   // =============================================================================
   inline double ReadEventCountFromFile(TFile* f, const string& topDirName)
   {
-    if (!f) return 0.0;
-    TDirectory* d = f->GetDirectory(topDirName.c_str());
-    if (!d) return 0.0;
+      if (!f) return 0.0;
+      TDirectory* d = f->GetDirectory(topDirName.c_str());
+      if (!d) return 0.0;
 
-    TH1* cnt = dynamic_cast<TH1*>(d->Get(("cnt_" + topDirName).c_str()));
-    if (!cnt) return 0.0;
-    return cnt->GetBinContent(1);
+      TH1* cnt = dynamic_cast<TH1*>(d->Get(("cnt_" + topDirName).c_str()));
+      if (!cnt) return 0.0;
+      return cnt->GetBinContent(1);
   }
 
+    // Existing 2-slice recursive merge helper (kept for backwards compatibility)
   inline void CopyAndScaleAddRecursive(TDirectory* outDir,
-                                       TDirectory* d10, double w10,
-                                       TDirectory* d20, double w20)
+                                         TDirectory* d10, double w10,
+                                         TDirectory* d20, double w20)
   {
-    if (!outDir) return;
-    if (!d10 && !d20) return;
+      if (!outDir) return;
+      if (!d10 && !d20) return;
 
-    auto IsDirClass = [](const std::string& cls)->bool
-    {
-      return (cls == "TDirectoryFile" || cls == "TDirectory");
-    };
-
-    std::set<std::string> seen;
-
-    // Pass 1: keys in d10
-    if (d10)
-    {
-      TIter next(d10->GetListOfKeys());
-      while (TKey* key = (TKey*)next())
+      auto IsDirClass = [](const std::string& cls)->bool
       {
-        const std::string name = key->GetName();
-        const std::string cls  = key->GetClassName();
-        seen.insert(name);
+        return (cls == "TDirectoryFile" || cls == "TDirectory");
+      };
 
-        if (IsDirClass(cls))
+      std::set<std::string> seen;
+
+      // Pass 1: keys in d10
+      if (d10)
+      {
+        TIter next(d10->GetListOfKeys());
+        while (TKey* key = (TKey*)next())
         {
-          TDirectory* sub10 = dynamic_cast<TDirectory*>(d10->Get(name.c_str()));
-          TDirectory* sub20 = (d20 ? dynamic_cast<TDirectory*>(d20->Get(name.c_str())) : nullptr);
+          const std::string name = key->GetName();
+          const std::string cls  = key->GetClassName();
+          seen.insert(name);
+
+          if (IsDirClass(cls))
+          {
+            TDirectory* sub10 = dynamic_cast<TDirectory*>(d10->Get(name.c_str()));
+            TDirectory* sub20 = (d20 ? dynamic_cast<TDirectory*>(d20->Get(name.c_str())) : nullptr);
+
+            outDir->cd();
+            TDirectory* subOut = outDir->mkdir(name.c_str());
+            if (!subOut) continue;
+
+            CopyAndScaleAddRecursive(subOut, sub10, w10, sub20, w20);
+            continue;
+          }
+
+          TObject* o10 = d10->Get(name.c_str());
+          TObject* o20 = (d20 ? d20->Get(name.c_str()) : nullptr);
+
+          if (auto* h10 = dynamic_cast<TH1*>(o10))
+          {
+            outDir->cd();
+            TH1* h = dynamic_cast<TH1*>(h10->Clone(name.c_str()));
+            if (!h) continue;
+            h->SetDirectory(outDir);
+            if (h->GetSumw2N() == 0) h->Sumw2();
+
+            if (w10 != 0.0) h->Scale(w10);
+
+            if (auto* h20 = dynamic_cast<TH1*>(o20))
+            {
+              TH1* tmp = dynamic_cast<TH1*>(h20->Clone((name + "_tmp20").c_str()));
+              if (tmp)
+              {
+                tmp->SetDirectory(nullptr);
+                if (tmp->GetSumw2N() == 0) tmp->Sumw2();
+                if (w20 != 0.0) tmp->Scale(w20);
+                h->Add(tmp);
+                delete tmp;
+              }
+            }
+
+            h->Write(name.c_str(), TObject::kOverwrite);
+            continue;
+          }
 
           outDir->cd();
-          TDirectory* subOut = outDir->mkdir(name.c_str());
-          if (!subOut) continue;
-
-          CopyAndScaleAddRecursive(subOut, sub10, w10, sub20, w20);
-          continue;
+          if (o10)
+          {
+            TObject* c = o10->Clone(name.c_str());
+            if (c) c->Write(name.c_str(), TObject::kOverwrite);
+          }
         }
+      }
 
-        TObject* o10 = d10->Get(name.c_str());
-        TObject* o20 = (d20 ? d20->Get(name.c_str()) : nullptr);
-
-        if (auto* h10 = dynamic_cast<TH1*>(o10))
+      // Pass 2: keys in d20 not in d10
+      if (d20)
+      {
+        TIter next(d20->GetListOfKeys());
+        while (TKey* key = (TKey*)next())
         {
-          outDir->cd();
-          TH1* h = dynamic_cast<TH1*>(h10->Clone(name.c_str()));
-          if (!h) continue;
-          h->SetDirectory(outDir);
-          if (h->GetSumw2N() == 0) h->Sumw2();
+          const std::string name = key->GetName();
+          const std::string cls  = key->GetClassName();
+          if (seen.count(name)) continue;
 
-          if (w10 != 0.0) h->Scale(w10);
+          if (IsDirClass(cls))
+          {
+            TDirectory* sub20 = dynamic_cast<TDirectory*>(d20->Get(name.c_str()));
+            if (!sub20) continue;
+
+            outDir->cd();
+            TDirectory* subOut = outDir->mkdir(name.c_str());
+            if (!subOut) continue;
+
+            CopyAndScaleAddRecursive(subOut, nullptr, 0.0, sub20, w20);
+            continue;
+          }
+
+          TObject* o20 = d20->Get(name.c_str());
 
           if (auto* h20 = dynamic_cast<TH1*>(o20))
           {
-            TH1* tmp = dynamic_cast<TH1*>(h20->Clone((name + "_tmp20").c_str()));
-            if (tmp)
-            {
-              tmp->SetDirectory(nullptr);
-              if (tmp->GetSumw2N() == 0) tmp->Sumw2();
-              if (w20 != 0.0) tmp->Scale(w20);
-              h->Add(tmp);
-              delete tmp;
-            }
+            outDir->cd();
+            TH1* h = dynamic_cast<TH1*>(h20->Clone(name.c_str()));
+            if (!h) continue;
+            h->SetDirectory(outDir);
+            if (h->GetSumw2N() == 0) h->Sumw2();
+            if (w20 != 0.0) h->Scale(w20);
+            h->Write(name.c_str(), TObject::kOverwrite);
+            continue;
           }
 
-          h->Write(name.c_str(), TObject::kOverwrite);
-          continue;
-        }
-
-        outDir->cd();
-        if (o10)
-        {
-          TObject* c = o10->Clone(name.c_str());
-          if (c) c->Write(name.c_str(), TObject::kOverwrite);
+          outDir->cd();
+          if (o20)
+          {
+            TObject* c = o20->Clone(name.c_str());
+            if (c) c->Write(name.c_str(), TObject::kOverwrite);
+          }
         }
       }
-    }
+  }
 
-    // Pass 2: keys in d20 not in d10
-    if (d20)
-    {
-      TIter next(d20->GetListOfKeys());
+  // Add one weighted slice into an *existing* output directory tree (supports N-slice merges)
+  inline void AddScaledRecursive(TDirectory* outDir, TDirectory* inDir, double w)
+  {
+      if (!outDir || !inDir) return;
+
+      auto IsDirClass = [](const std::string& cls)->bool
+      {
+        return (cls == "TDirectoryFile" || cls == "TDirectory");
+      };
+
+      TIter next(inDir->GetListOfKeys());
       while (TKey* key = (TKey*)next())
       {
         const std::string name = key->GetName();
         const std::string cls  = key->GetClassName();
-        if (seen.count(name)) continue;
 
         if (IsDirClass(cls))
         {
-          TDirectory* sub20 = dynamic_cast<TDirectory*>(d20->Get(name.c_str()));
-          if (!sub20) continue;
+          TDirectory* subIn = dynamic_cast<TDirectory*>(inDir->Get(name.c_str()));
+          if (!subIn) continue;
 
           outDir->cd();
-          TDirectory* subOut = outDir->mkdir(name.c_str());
+          TDirectory* subOut = outDir->GetDirectory(name.c_str());
+          if (!subOut) subOut = outDir->mkdir(name.c_str());
           if (!subOut) continue;
 
-          CopyAndScaleAddRecursive(subOut, nullptr, 0.0, sub20, w20);
+          AddScaledRecursive(subOut, subIn, w);
           continue;
         }
 
-        TObject* o20 = d20->Get(name.c_str());
+        TObject* objIn = inDir->Get(name.c_str());
+        if (!objIn) continue;
 
-        if (auto* h20 = dynamic_cast<TH1*>(o20))
+        if (auto* hIn = dynamic_cast<TH1*>(objIn))
         {
           outDir->cd();
-          TH1* h = dynamic_cast<TH1*>(h20->Clone(name.c_str()));
-          if (!h) continue;
-          h->SetDirectory(outDir);
-          if (h->GetSumw2N() == 0) h->Sumw2();
-          if (w20 != 0.0) h->Scale(w20);
-          h->Write(name.c_str(), TObject::kOverwrite);
+          TH1* hOut = dynamic_cast<TH1*>(outDir->Get(name.c_str()));
+
+          if (!hOut)
+          {
+            TH1* hNew = dynamic_cast<TH1*>(hIn->Clone(name.c_str()));
+            if (!hNew) continue;
+            hNew->SetDirectory(outDir);
+            if (hNew->GetSumw2N() == 0) hNew->Sumw2();
+            if (w != 0.0) hNew->Scale(w);
+            hNew->Write(name.c_str(), TObject::kOverwrite);
+          }
+          else
+          {
+            TH1* tmp = dynamic_cast<TH1*>(hIn->Clone((name + "_tmpAdd").c_str()));
+            if (!tmp) continue;
+            tmp->SetDirectory(nullptr);
+            if (tmp->GetSumw2N() == 0) tmp->Sumw2();
+            if (w != 0.0) tmp->Scale(w);
+            hOut->Add(tmp);
+            hOut->Write(name.c_str(), TObject::kOverwrite);
+            delete tmp;
+          }
+
           continue;
         }
 
+        // Non-hist objects: only copy if missing (avoid clobbering metadata repeatedly)
         outDir->cd();
-        if (o20)
+        if (!outDir->Get(name.c_str()))
         {
-          TObject* c = o20->Clone(name.c_str());
+          TObject* c = objIn->Clone(name.c_str());
           if (c) c->Write(name.c_str(), TObject::kOverwrite);
         }
       }
-    }
   }
 
+  // Generic N-slice merge (use for 2-slice or 3-slice weighted merges)
+  inline bool BuildMergedSIMFile_PhotonSlices(const vector<string>& inFiles,
+                                                const vector<double>& sigmas_pb,
+                                                const string& outMerged,
+                                                const string& topDirName,
+                                                const vector<string>& sliceLabels = {})
+    {
+      cout << ANSI_BOLD_CYN
+           << "\n[MERGE SIM] Building merged SIM file with cross-section weights\n"
+           << "  out    = " << outMerged << "\n"
+           << "  topDir = " << topDirName << "\n"
+           << ANSI_RESET;
+
+      const size_t n = inFiles.size();
+      if (n < 2 || sigmas_pb.size() != n)
+      {
+        cout << ANSI_BOLD_RED
+             << "[MERGE SIM][FATAL] BuildMergedSIMFile_PhotonSlices needs >=2 inputs and matching sigma list.\n"
+             << ANSI_RESET;
+        return false;
+      }
+
+      vector<TFile*> fin(n, nullptr);
+      vector<TDirectory*> din(n, nullptr);
+      vector<double> N(n, 0.0);
+      vector<double> w(n, 0.0);
+
+      auto CloseAll = [&](){
+        for (auto* f : fin) { if (f) f->Close(); }
+      };
+
+      for (size_t i = 0; i < n; ++i)
+      {
+        cout << "  in[" << i << "] = " << inFiles[i]
+             << "   sigma_pb=" << std::setprecision(12) << sigmas_pb[i] << "\n";
+
+        fin[i] = TFile::Open(inFiles[i].c_str(), "READ");
+        if (!fin[i] || fin[i]->IsZombie())
+        {
+          cout << ANSI_BOLD_RED << "[MERGE SIM][FATAL] Cannot open input SIM file: " << inFiles[i] << ANSI_RESET << "\n";
+          CloseAll();
+          return false;
+        }
+
+        din[i] = fin[i]->GetDirectory(topDirName.c_str());
+        if (!din[i])
+        {
+          cout << ANSI_BOLD_RED << "[MERGE SIM][FATAL] Missing topDir in SIM file: " << inFiles[i] << ANSI_RESET << "\n";
+          CloseAll();
+          return false;
+        }
+
+        N[i] = ReadEventCountFromFile(fin[i], topDirName);
+        if (N[i] <= 0.0)
+        {
+          cout << ANSI_BOLD_RED << "[MERGE SIM][FATAL] Naccepted <= 0 for input: " << inFiles[i] << ANSI_RESET << "\n";
+          CloseAll();
+          return false;
+        }
+
+        w[i] = sigmas_pb[i] / N[i];
+      }
+
+      cout << ANSI_BOLD_YEL << "[MERGE SIM] Slice weights (w = sigma/N) [pb/event]:\n" << ANSI_RESET;
+      for (size_t i = 0; i < n; ++i)
+      {
+        const string lab = (!sliceLabels.empty() && sliceLabels.size() == n) ? sliceLabels[i] : std::to_string(i);
+        cout << "  [" << lab << "]  N=" << std::fixed << std::setprecision(0) << N[i]
+             << "   sigma_pb=" << std::setprecision(12) << sigmas_pb[i]
+             << "   w=" << std::setprecision(12) << w[i] << "\n";
+      }
+
+      EnsureParentDirForFile(outMerged);
+      TFile* fout = TFile::Open(outMerged.c_str(), "RECREATE");
+      if (!fout || fout->IsZombie())
+      {
+        cout << ANSI_BOLD_RED << "[MERGE SIM][FATAL] Cannot create merged output file." << ANSI_RESET << "\n";
+        CloseAll();
+        return false;
+      }
+
+      fout->cd();
+      TDirectory* outTop = fout->mkdir(topDirName.c_str());
+      if (!outTop)
+      {
+        cout << ANSI_BOLD_RED << "[MERGE SIM][FATAL] Cannot create topDir in merged output." << ANSI_RESET << "\n";
+        fout->Close();
+        CloseAll();
+        return false;
+      }
+
+      // Build output by adding each slice into the same output tree
+      for (size_t i = 0; i < n; ++i)
+      {
+        AddScaledRecursive(outTop, din[i], w[i]);
+      }
+
+      // Metadata
+      std::ostringstream oss;
+      oss << "Merged photonJet slices. Nslices=" << n << " ";
+      for (size_t i = 0; i < n; ++i)
+      {
+        const string lab = (!sliceLabels.empty() && sliceLabels.size() == n) ? sliceLabels[i] : std::to_string(i);
+        oss << "[" << lab
+            << " N=" << std::fixed << std::setprecision(0) << N[i]
+            << " sigma_pb=" << std::setprecision(12) << sigmas_pb[i]
+            << " w=" << std::setprecision(12) << w[i]
+            << "] ";
+      }
+
+      outTop->cd();
+      TNamed meta("MERGE_INFO", oss.str().c_str());
+      meta.Write("MERGE_INFO", TObject::kOverwrite);
+
+      fout->Write();
+      fout->Close();
+      CloseAll();
+
+      cout << ANSI_BOLD_CYN
+           << "[MERGE SIM] Done. Merged file written: " << outMerged << "\n"
+           << "[MERGE SIM] NOTE: histograms are weighted (units ~ pb per bin). Entries are no longer raw event counts.\n"
+           << ANSI_RESET;
+
+      return true;
+  }
+
+  // Backwards-compatible wrapper (existing call sites remain valid)
   inline bool BuildMergedSIMFile_Photon10And20(const string& in10,
-                                               const string& in20,
-                                               const string& outMerged,
-                                               const string& topDirName,
-                                               double sigma10_pb,
-                                               double sigma20_pb)
+                                                 const string& in20,
+                                                 const string& outMerged,
+                                                 const string& topDirName,
+                                                 double sigma10_pb,
+                                                 double sigma20_pb)
   {
-    cout << ANSI_BOLD_CYN
-         << "\n[MERGE SIM] Building merged SIM file with cross-section weights\n"
-         << "  in10 = " << in10 << "\n"
-         << "  in20 = " << in20 << "\n"
-         << "  out  = " << outMerged << "\n"
-         << "  topDir = " << topDirName << "\n"
-         << ANSI_RESET;
-
-    TFile* f10 = TFile::Open(in10.c_str(), "READ");
-    TFile* f20 = TFile::Open(in20.c_str(), "READ");
-    if (!f10 || f10->IsZombie() || !f20 || f20->IsZombie())
-    {
-      cout << ANSI_BOLD_RED << "[MERGE SIM][FATAL] Cannot open one of the input SIM files." << ANSI_RESET << "\n";
-      if (f10) f10->Close();
-      if (f20) f20->Close();
-      return false;
-    }
-
-    TDirectory* d10 = f10->GetDirectory(topDirName.c_str());
-    TDirectory* d20 = f20->GetDirectory(topDirName.c_str());
-    if (!d10 || !d20)
-    {
-      cout << ANSI_BOLD_RED << "[MERGE SIM][FATAL] Missing topDir in one of the SIM files." << ANSI_RESET << "\n";
-      f10->Close(); f20->Close();
-      return false;
-    }
-
-    const double N10 = ReadEventCountFromFile(f10, topDirName);
-    const double N20 = ReadEventCountFromFile(f20, topDirName);
-
-    cout << ANSI_BOLD_YEL
-         << "[MERGE SIM] Event counts from cnt_" << topDirName << " bin1:\n"
-         << "  N10 = " << std::fixed << std::setprecision(0) << N10 << "\n"
-         << "  N20 = " << std::fixed << std::setprecision(0) << N20 << "\n"
-         << ANSI_RESET;
-
-    if (N10 <= 0.0 || N20 <= 0.0)
-    {
-      cout << ANSI_BOLD_RED << "[MERGE SIM][FATAL] N10 or N20 <= 0 (cannot compute weights)." << ANSI_RESET << "\n";
-      f10->Close(); f20->Close();
-      return false;
-    }
-
-    const double w10 = sigma10_pb / N10;
-    const double w20 = sigma20_pb / N20;
-
-    const double sigmaTot = sigma10_pb + sigma20_pb;
-    const double f10frac  = (sigmaTot > 0.0) ? (sigma10_pb / sigmaTot) : 0.0;
-    const double f20frac  = (sigmaTot > 0.0) ? (sigma20_pb / sigmaTot) : 0.0;
-
-    const double Leff = (sigma10_pb > 0.0 ? (N10 / sigma10_pb) : 0.0)
-                      + (sigma20_pb > 0.0 ? (N20 / sigma20_pb) : 0.0);
-
-    cout << ANSI_BOLD_YEL
-         << "[MERGE SIM] Cross sections (pb): sigma10=" << sigma10_pb
-         << "  sigma20=" << sigma20_pb
-         << "  sigmaTot=" << sigmaTot << "\n"
-         << "[MERGE SIM] Slice fractions:     f10=" << std::setprecision(6) << f10frac
-         << "  f20=" << std::setprecision(6) << f20frac << "\n"
-         << "[MERGE SIM] Per-event weights:   w10=" << std::setprecision(12) << w10
-         << "  w20=" << std::setprecision(12) << w20 << "   [pb/event]\n"
-         << "[MERGE SIM] Effective Lumi:      Leff=" << std::setprecision(6) << Leff << "   [pb^{-1}]\n"
-         << ANSI_RESET;
-
-    EnsureParentDirForFile(outMerged);
-    TFile* fout = TFile::Open(outMerged.c_str(), "RECREATE");
-    if (!fout || fout->IsZombie())
-    {
-      cout << ANSI_BOLD_RED << "[MERGE SIM][FATAL] Cannot create merged output file." << ANSI_RESET << "\n";
-      f10->Close(); f20->Close();
-      return false;
-    }
-
-    fout->cd();
-    TDirectory* outTop = fout->mkdir(topDirName.c_str());
-    if (!outTop)
-    {
-      cout << ANSI_BOLD_RED << "[MERGE SIM][FATAL] Cannot create topDir in merged output." << ANSI_RESET << "\n";
-      fout->Close(); f10->Close(); f20->Close();
-      return false;
-    }
-
-    CopyAndScaleAddRecursive(outTop, d10, w10, d20, w20);
-
-    outTop->cd();
-    TNamed meta("MERGE_INFO",
-      TString::Format("Merged photonJet10+20. N10=%.0f N20=%.0f sigma10=%.6f pb sigma20=%.6f pb w10=%.12g w20=%.12g",
-                      N10, N20, sigma10_pb, sigma20_pb, w10, w20).Data());
-    meta.Write("MERGE_INFO", TObject::kOverwrite);
-
-    fout->Write();
-    fout->Close();
-    f10->Close();
-    f20->Close();
-
-    cout << ANSI_BOLD_CYN
-         << "[MERGE SIM] Done. Merged file written: " << outMerged << "\n"
-         << "[MERGE SIM] NOTE: histograms are now weighted (units ~ pb per bin). Entries are no longer raw event counts.\n"
-         << ANSI_RESET;
-
-    return true;
+      return BuildMergedSIMFile_PhotonSlices({in10, in20},
+                                             {sigma10_pb, sigma20_pb},
+                                             outMerged,
+                                             topDirName,
+                                             {"photonJet10", "photonJet20"});
   }
 
   // =============================================================================
