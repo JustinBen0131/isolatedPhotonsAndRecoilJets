@@ -4166,21 +4166,20 @@ namespace ARJ
                   // Big centered title per pad (kept as in your helper)
                   const std::string ptLab = AxisBinLabel(h02->GetXaxis(), ib, "GeV", 0);
 
-                    TLatex ttitle;
-                    ttitle.SetNDC(true);
-                    ttitle.SetTextFont(42);
-                    ttitle.SetTextAlign(22);
-                    ttitle.SetTextSize(0.060);
+                  TLatex ttitle;
+                  ttitle.SetNDC(true);
+                  ttitle.SetTextFont(42);
+                  ttitle.SetTextAlign(22);
+                  ttitle.SetTextSize(0.060);
 
-                    const bool isTruthPlot = (std::string(xTitle).find("truth") != std::string::npos);
-                    const char* levelTag   = isTruthPlot ? "Truth-level" : "Reco-level";
-                    const char* pTTag      = isTruthPlot ? "p_{T}^{#gamma,truth}" : "p_{T}^{#gamma}";
+                  const bool isTruthPlot = (std::string(xTitle).find("truth") != std::string::npos);
+                  const char* levelTag   = isTruthPlot ? "Truth-level" : "Reco-level";
+                  const char* pTTag      = isTruthPlot ? "p_{T}^{#gamma,truth}" : "p_{T}^{#gamma}";
 
-                    ttitle.DrawLatex(
+                  ttitle.DrawLatex(
                       0.50, 0.95,
                       TString::Format("%s %s, %s = %s", levelTag, xTitle.c_str(), pTTag, ptLab.c_str()).Data()
-                    );
-
+                  );
 
                   // Legend top-right (requested); no overlay text
                   TLegend leg(0.8, 0.75, 0.88, 0.9);
@@ -4226,18 +4225,26 @@ namespace ARJ
               }
             };
 
-            // -------------------- TRUTH (reco-conditioned): integrated alpha --------------------
+            //  clearer folder organization:
+            //   <outDir>/r02_r04/xJ_integratedAlpha/<CATEGORY>/
+            //   <outDir>/r02_r04/xJ_alphaCuts/RECO/<alphaTag>/
+            const std::string dirInt  = JoinPath(ovBase, "xJ_integratedAlpha");
+            const std::string dirCuts = JoinPath(ovBase, "xJ_alphaCuts");
+            EnsureDir(dirInt);
+            EnsureDir(dirCuts);
+
+            // -------------------- TRUTH (reco-conditioned, jet-matched): integrated alpha --------------------
             TH3* hTr02 = GetObj<TH3>(ds, "h_JES3Truth_pT_xJ_alpha_r02", true, true, true);
             TH3* hTr04 = GetObj<TH3>(ds, "h_JES3Truth_pT_xJ_alpha_r04", true, true, true);
 
             if (hTr02 && hTr04)
             {
-              const std::string ovTruthRecoCond = JoinPath(ovBase, "xJ_truth_integratedAlpha_recoConditioned");
+              const std::string outHere = JoinPath(dirInt, "TRUTH_recoConditioned");
               DrawOverlayPair_TH3xJ(
                 hTr02, hTr04,
-                ovTruthRecoCond,
+                outHere,
                 "x_{J#gamma}^{truth}",
-                {"TRUTH (reco-conditioned): x_{J#gamma}^{truth}", "Overlay: r02 red, r04 blue"},
+                {"TRUTH (reco-conditioned, jet-matched): x_{J#gamma}^{truth}", "Overlay: r02 red, r04 blue"},
                 false, 0.0
               );
             }
@@ -4254,10 +4261,10 @@ namespace ARJ
 
             if (hTrPure02 && hTrPure04)
             {
-              const std::string ovTruthPure = JoinPath(ovBase, "xJ_truth_integratedAlpha_pureTruth");
+              const std::string outHere = JoinPath(dirInt, "TRUTH_pure");
               DrawOverlayPair_TH3xJ(
                 hTrPure02, hTrPure04,
-                ovTruthPure,
+                outHere,
                 "x_{J#gamma}^{truth}",
                 {"TRUTH (pure): x_{J#gamma}^{truth}", "Overlay: r02 red, r04 blue"},
                 false, 0.0
@@ -4270,29 +4277,28 @@ namespace ARJ
                    << ANSI_RESET << "\n";
             }
 
-            // -------------------- RECO (existing): integrated alpha --------------------
+            // -------------------- RECO (baseline): integrated alpha + alpha cuts --------------------
             TH3* hRe02 = GetObj<TH3>(ds, "h_JES3_pT_xJ_alpha_r02", true, true, true);
             TH3* hRe04 = GetObj<TH3>(ds, "h_JES3_pT_xJ_alpha_r04", true, true, true);
 
             if (hRe02 && hRe04)
             {
-              const std::string ovReco = JoinPath(ovBase, "xJ_reco_integratedAlpha");
+              const std::string outHere = JoinPath(dirInt, "RECO");
               DrawOverlayPair_TH3xJ(
                 hRe02, hRe04,
-                ovReco,
+                outHere,
                 "x_{J#gamma}",
                 {"RECO: x_{J#gamma}", "Overlay: r02 red, r04 blue"},
                 false, 0.0
               );
 
-              // -------------------- RECO (existing): alpha-cut overlays --------------------
               const std::vector<double> alphaMaxCuts = {0.20, 0.30, 0.40, 0.50};
-              const std::string ovRecoCutsBase = JoinPath(ovBase, "xJ_reco_alphaCuts");
-              EnsureDir(ovRecoCutsBase);
+              const std::string cutsBase = JoinPath(dirCuts, "RECO");
+              EnsureDir(cutsBase);
 
               for (double aMax : alphaMaxCuts)
               {
-                const std::string aDir = JoinPath(ovRecoCutsBase, AlphaTag(aMax));
+                const std::string aDir = JoinPath(cutsBase, AlphaTag(aMax));
                 DrawOverlayPair_TH3xJ(
                   hRe02, hRe04,
                   aDir,
@@ -4306,6 +4312,72 @@ namespace ARJ
             {
               cout << ANSI_BOLD_YEL
                    << "[WARN] RECO overlays skipped: missing h_JES3_pT_xJ_alpha_r02 or r04 in dataset " << ds.label
+                   << ANSI_RESET << "\n";
+            }
+
+            // -------------------- RECO (truth-PHOTON-tagged): integrated alpha --------------------
+            TH3* hRePhoTag02 = GetObj<TH3>(ds, "h_JES3RecoTruthPhoTagged_pT_xJ_alpha_r02", true, true, true);
+            TH3* hRePhoTag04 = GetObj<TH3>(ds, "h_JES3RecoTruthPhoTagged_pT_xJ_alpha_r04", true, true, true);
+
+            if (hRePhoTag02 && hRePhoTag04)
+            {
+              const std::string outHere = JoinPath(dirInt, "RECO_truthPhoTagged");
+              DrawOverlayPair_TH3xJ(
+                hRePhoTag02, hRePhoTag04,
+                outHere,
+                "x_{J#gamma}",
+                {"RECO (truth-PHOTON-tagged): x_{J#gamma}", "Overlay: r02 red, r04 blue"},
+                false, 0.0
+              );
+            }
+            else
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] RECO truth-PHOTON-tagged overlay skipped: missing h_JES3RecoTruthPhoTagged_pT_xJ_alpha_r02 or r04 in dataset " << ds.label
+                   << ANSI_RESET << "\n";
+            }
+
+            // -------------------- RECO (truth-tagged PHOTON+JET): integrated alpha --------------------
+            TH3* hReTag02 = GetObj<TH3>(ds, "h_JES3RecoTruthTagged_pT_xJ_alpha_r02", true, true, true);
+            TH3* hReTag04 = GetObj<TH3>(ds, "h_JES3RecoTruthTagged_pT_xJ_alpha_r04", true, true, true);
+
+            if (hReTag02 && hReTag04)
+            {
+              const std::string outHere = JoinPath(dirInt, "RECO_truthTaggedPhoJet");
+              DrawOverlayPair_TH3xJ(
+                hReTag02, hReTag04,
+                outHere,
+                "x_{J#gamma}",
+                {"RECO (truth-tagged PHOTON+JET): x_{J#gamma}", "Overlay: r02 red, r04 blue"},
+                false, 0.0
+              );
+            }
+            else
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] RECO truth-tagged (PHOTON+JET) overlay skipped: missing h_JES3RecoTruthTagged_pT_xJ_alpha_r02 or r04 in dataset " << ds.label
+                   << ANSI_RESET << "\n";
+            }
+
+            // -------------------- TRUTH (reco-conditioned, NO jet match): integrated alpha --------------------
+            TH3* hTrNoJM02 = GetObj<TH3>(ds, "h_JES3TruthRecoCondNoJetMatch_pT_xJ_alpha_r02", true, true, true);
+            TH3* hTrNoJM04 = GetObj<TH3>(ds, "h_JES3TruthRecoCondNoJetMatch_pT_xJ_alpha_r04", true, true, true);
+
+            if (hTrNoJM02 && hTrNoJM04)
+            {
+              const std::string outHere = JoinPath(dirInt, "TRUTH_recoConditioned_noJetMatch");
+              DrawOverlayPair_TH3xJ(
+                hTrNoJM02, hTrNoJM04,
+                outHere,
+                "x_{J#gamma}^{truth}",
+                {"TRUTH (reco-conditioned, NO jet match): x_{J#gamma}^{truth}", "Overlay: r02 red, r04 blue"},
+                false, 0.0
+              );
+            }
+            else
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] TRUTH reco-conditioned (NO jet match) overlay skipped: missing h_JES3TruthRecoCondNoJetMatch_pT_xJ_alpha_r02 or r04 in dataset " << ds.label
                    << ANSI_RESET << "\n";
             }
         }
@@ -4362,14 +4434,18 @@ namespace ARJ
             };
 
             auto PickPtAxis =
-              [&](TH3* hReco_xJ, TH3* hReco_j1, TH3* hTrut_xJ, TH3* hTrut_j1, TH3* hTrutPure_xJ)->const TAxis*
+              [&](TH3* h1, TH3* h2, TH3* h3, TH3* h4,
+                  TH3* h5, TH3* h6, TH3* h7, TH3* h8)->const TAxis*
             {
               return
-                (hReco_xJ ? hReco_xJ->GetXaxis()
-                : (hReco_j1 ? hReco_j1->GetXaxis()
-                : (hTrut_xJ ? hTrut_xJ->GetXaxis()
-                : (hTrut_j1 ? hTrut_j1->GetXaxis()
-                : (hTrutPure_xJ ? hTrutPure_xJ->GetXaxis() : nullptr)))));
+                (h1 ? h1->GetXaxis()
+                : (h2 ? h2->GetXaxis()
+                : (h3 ? h3->GetXaxis()
+                : (h4 ? h4->GetXaxis()
+                : (h5 ? h5->GetXaxis()
+                : (h6 ? h6->GetXaxis()
+                : (h7 ? h7->GetXaxis()
+                : (h8 ? h8->GetXaxis() : nullptr))))))));
             };
 
             struct Jes3Dirs
@@ -4377,10 +4453,19 @@ namespace ARJ
               string rOut;
               string dir2D;
               string dirSumm;
+
+              // xJ(=Y) projections after integrating over alpha(=Z)
               string dirXJProj;
-              string dirXJProjReco;
-              string dirXJProjTruthRecoCond;
-              string dirXJProjTruthPure;
+
+              // RECO projections
+              string dirXJProjReco;                 // (1) h_JES3_pT_xJ_alpha_<rKey>
+              string dirXJProjRecoTruthPhoTagged;   // (7) h_JES3RecoTruthPhoTagged_pT_xJ_alpha_<rKey>
+              string dirXJProjRecoTruthTagged;      // (8) h_JES3RecoTruthTagged_pT_xJ_alpha_<rKey>
+
+              // TRUTH projections
+              string dirXJProjTruthRecoCond;        // (5) h_JES3Truth_pT_xJ_alpha_<rKey>  (jet-matched truth subset)
+              string dirXJProjTruthRecoCondNoJetMatch; // (4) h_JES3TruthRecoCondNoJetMatch_pT_xJ_alpha_<rKey>
+              string dirXJProjTruthPure;            // (3) h_JES3TruthPure_pT_xJ_alpha_<rKey>
             };
 
             auto MakeJes3Dirs =
@@ -4391,18 +4476,27 @@ namespace ARJ
               D.dir2D    = JoinPath(D.rOut, "2DMaps");
               D.dirSumm  = JoinPath(D.rOut, "summaries");
 
-              // xJ(=Y) projections after integrating over alpha(=Z)
-              D.dirXJProj               = JoinPath(D.rOut, "xJ_fromJES3");
-              D.dirXJProjReco           = JoinPath(D.dirXJProj, "RECO");
-              D.dirXJProjTruthRecoCond  = JoinPath(D.dirXJProj, "TRUTH_recoConditioned");
-              D.dirXJProjTruthPure      = JoinPath(D.dirXJProj, "TRUTH_pure");
+              D.dirXJProj                       = JoinPath(D.rOut, "xJ_fromJES3");
+
+              D.dirXJProjReco                   = JoinPath(D.dirXJProj, "RECO");
+              D.dirXJProjRecoTruthPhoTagged     = JoinPath(D.dirXJProj, "RECO_truthPhoTagged");
+              D.dirXJProjRecoTruthTagged        = JoinPath(D.dirXJProj, "RECO_truthTaggedPhoJet");
+
+              D.dirXJProjTruthRecoCond           = JoinPath(D.dirXJProj, "TRUTH_recoConditioned");
+              D.dirXJProjTruthRecoCondNoJetMatch = JoinPath(D.dirXJProj, "TRUTH_recoConditioned_noJetMatch");
+              D.dirXJProjTruthPure               = JoinPath(D.dirXJProj, "TRUTH_pure");
 
               EnsureDir(D.rOut);
               EnsureDir(D.dir2D);
               EnsureDir(D.dirSumm);
+
               EnsureDir(D.dirXJProj);
               EnsureDir(D.dirXJProjReco);
+              EnsureDir(D.dirXJProjRecoTruthPhoTagged);
+              EnsureDir(D.dirXJProjRecoTruthTagged);
+
               EnsureDir(D.dirXJProjTruthRecoCond);
+              EnsureDir(D.dirXJProjTruthRecoCondNoJetMatch);
               EnsureDir(D.dirXJProjTruthPure);
 
               return D;
@@ -4410,29 +4504,50 @@ namespace ARJ
 
             struct Jes3Hists
             {
-              TH3* hReco_xJ      = nullptr;
-              TH3* hTrut_xJ      = nullptr;  // reco-conditioned truth (existing)
-              TH3* hTrutPure_xJ  = nullptr;  // pure-truth xJgamma TH3 (no reco gating)
-              TH3* hReco_j1      = nullptr;
-              TH3* hTrut_j1      = nullptr;
+              // RECO observables
+              TH3* hReco_xJ               = nullptr;  // (1)
+              TH3* hReco_j1               = nullptr;  // (2)
+
+              TH3* hRecoTruthPhoTagged_xJ = nullptr;  // (7)
+              TH3* hRecoTruthTagged_xJ    = nullptr;  // (8)
+
+              // TRUTH observables
+              TH3* hTrut_xJ               = nullptr;  // (5) reco-conditioned truth, jet-matched subset
+              TH3* hTrutNoJM_xJ           = nullptr;  // (4) reco-conditioned truth, NO jet match
+              TH3* hTrutPure_xJ           = nullptr;  // (3) pure truth
+              TH3* hTrut_j1               = nullptr;  // (6)
             };
 
             auto LoadJes3Hists =
               [&](const string& rKey)->Jes3Hists
             {
               Jes3Hists H;
-              H.hReco_xJ      = GetObj<TH3>(ds, "h_JES3_pT_xJ_alpha_" + rKey, true, true, true);
-              H.hTrut_xJ      = GetObj<TH3>(ds, "h_JES3Truth_pT_xJ_alpha_" + rKey, true, true, true);
-              H.hTrutPure_xJ  = GetObj<TH3>(ds, "h_JES3TruthPure_pT_xJ_alpha_" + rKey, true, true, true);
-              H.hReco_j1      = GetObj<TH3>(ds, "h_JES3_pT_jet1Pt_alpha_" + rKey, true, true, true);
-              H.hTrut_j1      = GetObj<TH3>(ds, "h_JES3Truth_pT_jet1Pt_alpha_" + rKey, true, true, true);
+
+              // Baseline RECO
+              H.hReco_xJ               = GetObj<TH3>(ds, "h_JES3_pT_xJ_alpha_" + rKey, true, true, true);
+              H.hReco_j1               = GetObj<TH3>(ds, "h_JES3_pT_jet1Pt_alpha_" + rKey, true, true, true);
+
+              // TRUTH (pure + reco-conditioned variants)
+              H.hTrut_xJ               = GetObj<TH3>(ds, "h_JES3Truth_pT_xJ_alpha_" + rKey, true, true, true);
+              H.hTrutNoJM_xJ           = GetObj<TH3>(ds, "h_JES3TruthRecoCondNoJetMatch_pT_xJ_alpha_" + rKey, true, true, true);
+              H.hTrutPure_xJ           = GetObj<TH3>(ds, "h_JES3TruthPure_pT_xJ_alpha_" + rKey, true, true, true);
+              H.hTrut_j1               = GetObj<TH3>(ds, "h_JES3Truth_pT_jet1Pt_alpha_" + rKey, true, true, true);
+
+              // TRUTH-conditioned RECO (tagged subsets)
+              H.hRecoTruthPhoTagged_xJ = GetObj<TH3>(ds, "h_JES3RecoTruthPhoTagged_pT_xJ_alpha_" + rKey, true, true, true);
+              H.hRecoTruthTagged_xJ    = GetObj<TH3>(ds, "h_JES3RecoTruthTagged_pT_xJ_alpha_" + rKey, true, true, true);
+
               return H;
             };
 
             auto HasAnyJes3 =
               [&](const Jes3Hists& H)->bool
             {
-              return (H.hReco_xJ || H.hTrut_xJ || H.hTrutPure_xJ || H.hReco_j1 || H.hTrut_j1);
+              return (
+                H.hReco_xJ || H.hReco_j1 ||
+                H.hRecoTruthPhoTagged_xJ || H.hRecoTruthTagged_xJ ||
+                H.hTrut_xJ || H.hTrutNoJM_xJ || H.hTrutPure_xJ || H.hTrut_j1
+              );
             };
 
             // ---------------------------------------------------------------------------
@@ -4454,7 +4569,16 @@ namespace ARJ
               }
 
               // pT axis from available hist
-              const TAxis* axPt = PickPtAxis(H.hReco_xJ, H.hReco_j1, H.hTrut_xJ, H.hTrut_j1, H.hTrutPure_xJ);
+              const TAxis* axPt = PickPtAxis(
+                  H.hReco_xJ,
+                  H.hReco_j1,
+                  H.hRecoTruthPhoTagged_xJ,
+                  H.hRecoTruthTagged_xJ,
+                  H.hTrut_xJ,
+                  H.hTrutNoJM_xJ,
+                  H.hTrut_j1,
+                  H.hTrutPure_xJ
+              );
               const int nPt = (axPt ? axPt->GetNbins() : 0);
 
               if (nPt <= 0)
@@ -4612,10 +4736,11 @@ namespace ARJ
                   if (!xJ_tr) return;
 
                   vector<string> lines = {
-                    "JES3 (TRUTH reco-conditioned): x_{J#gamma}^{truth}",
+                    "JES3 (TRUTH reco-conditioned, jet-matched): x_{J#gamma}^{truth}",
                     TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
                     TString::Format("p_{T}^{#gamma,truth}: %s", ptLab.c_str()).Data(),
-                    "Filled with: (tPt, xJt=tj1Pt/tPt, aT=tj2Pt/tPt)"
+                    "Filled with: (tPt, xJt=tj1Pt/tPt, aT=tj2Pt/tPt)",
+                    "NOTE: this TRUTH TH3 is filled only when reco jet1 matches truth jet1 (ΔR<=0.3)"
                   };
 
                   DrawAndSaveTH1_Common(ds, xJ_tr,
@@ -4623,8 +4748,40 @@ namespace ARJ
                     "x_{J#gamma}^{truth}", "Counts", lines, false, false, 0.0, "E1");
                 };
 
+                auto SaveXJTruthNoJetMatchPNGs =
+                  [&](int ib)
+                {
+                  if (!H.hTrutNoJM_xJ) return;
+
+                  TH1* xJ_nojm = ProjectY_AtXbin_TH3(
+                    H.hTrutNoJM_xJ, ib,
+                    TString::Format("jes3_xJ_trNoJM_%s_%d", rKey.c_str(), ib).Data()
+                  );
+
+                  if (!xJ_nojm) return;
+
+                  xJ_nojm->SetName(TString::Format("h_xJ_trNoJM_%s_pTbin%d", rKey.c_str(), ib).Data());
+
+                  const string ptLab = AxisBinLabel(H.hTrutNoJM_xJ->GetXaxis(), ib, "GeV", 0);
+
+                  vector<string> lines = {
+                    "JES3 (TRUTH reco-conditioned, NO jet match): x_{J#gamma}^{truth}",
+                    TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                    TString::Format("p_{T}^{#gamma,truth}: %s", ptLab.c_str()).Data(),
+                    "Filled with: (tPt, xJt=tj1Pt/tPt, aT=tj2Pt/tPt)",
+                    "NOTE: reco success + truth-photon matched, but NO reco-jet↔truth-jet matching"
+                  };
+
+                  DrawAndSaveTH1_Common(ds, xJ_nojm,
+                    JoinPath(D.dirXJProjTruthRecoCondNoJetMatch,
+                      TString::Format("xJ_truth_integratedAlpha_recoConditioned_noJetMatch_pTbin%d.png", ib).Data()),
+                    "x_{J#gamma}^{truth}", "Counts", lines, false, false, 0.0, "E1");
+
+                  delete xJ_nojm;
+                };
+
                 auto SaveXJTruthPurePNGs =
-                  [&](int ib, const string& ptLab)
+                  [&](int ib)
                 {
                   if (!H.hTrutPure_xJ) return;
 
@@ -4636,6 +4793,8 @@ namespace ARJ
                   if (!xJ_pure) return;
 
                   xJ_pure->SetName(TString::Format("h_xJ_trPure_%s_pTbin%d", rKey.c_str(), ib).Data());
+
+                  const string ptLab = AxisBinLabel(H.hTrutPure_xJ->GetXaxis(), ib, "GeV", 0);
 
                   vector<string> lines = {
                     "JES3 (TRUTH pure): x_{J#gamma}^{truth}",
@@ -4650,6 +4809,68 @@ namespace ARJ
                     "x_{J#gamma}^{truth}", "Counts", lines, false, false, 0.0, "E1");
 
                   delete xJ_pure;
+                };
+
+                auto SaveXJRecoTruthPhoTaggedPNGs =
+                  [&](int ib)
+                {
+                  if (!H.hRecoTruthPhoTagged_xJ) return;
+
+                  TH1* xJ_tag = ProjectY_AtXbin_TH3(
+                    H.hRecoTruthPhoTagged_xJ, ib,
+                    TString::Format("jes3_xJ_rePhoTag_%s_%d", rKey.c_str(), ib).Data()
+                  );
+                  if (!xJ_tag) return;
+
+                  xJ_tag->SetName(TString::Format("h_xJ_rePhoTag_%s_pTbin%d", rKey.c_str(), ib).Data());
+
+                  const string ptLab = AxisBinLabel(H.hRecoTruthPhoTagged_xJ->GetXaxis(), ib, "GeV", 0);
+
+                  vector<string> lines = {
+                    "JES3 (RECO truth-PHOTON-tagged): x_{J#gamma}",
+                    TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                    TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data(),
+                    "Reco fill, but only when reco photon is matched to a truth signal photon",
+                    "Filled with: (p_{T}^{#gamma}, x_{J#gamma}, #alpha)"
+                  };
+
+                  DrawAndSaveTH1_Common(ds, xJ_tag,
+                    JoinPath(D.dirXJProjRecoTruthPhoTagged,
+                      TString::Format("xJ_reco_integratedAlpha_truthPhoTagged_pTbin%d.png", ib).Data()),
+                    "x_{J#gamma}", "Counts", lines, false, false, 0.0, "E1");
+
+                  delete xJ_tag;
+                };
+
+                auto SaveXJRecoTruthTaggedPNGs =
+                  [&](int ib)
+                {
+                  if (!H.hRecoTruthTagged_xJ) return;
+
+                  TH1* xJ_tag = ProjectY_AtXbin_TH3(
+                    H.hRecoTruthTagged_xJ, ib,
+                    TString::Format("jes3_xJ_reTag_%s_%d", rKey.c_str(), ib).Data()
+                  );
+                  if (!xJ_tag) return;
+
+                  xJ_tag->SetName(TString::Format("h_xJ_reTag_%s_pTbin%d", rKey.c_str(), ib).Data());
+
+                  const string ptLab = AxisBinLabel(H.hRecoTruthTagged_xJ->GetXaxis(), ib, "GeV", 0);
+
+                  vector<string> lines = {
+                    "JES3 (RECO truth-tagged PHOTON+JET): x_{J#gamma}",
+                    TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                    TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data(),
+                    "Reco fill, but only when: truth-signal photon matched AND reco jet1 matches truth jet1 (ΔR<=0.3)",
+                    "Filled with: (p_{T}^{#gamma}, x_{J#gamma}, #alpha)"
+                  };
+
+                  DrawAndSaveTH1_Common(ds, xJ_tag,
+                    JoinPath(D.dirXJProjRecoTruthTagged,
+                      TString::Format("xJ_reco_integratedAlpha_truthTaggedPhoJet_pTbin%d.png", ib).Data()),
+                    "x_{J#gamma}", "Counts", lines, false, false, 0.0, "E1");
+
+                  delete xJ_tag;
                 };
 
               auto SaveJes3Maps2D_ForBin =
@@ -4746,14 +4967,23 @@ namespace ARJ
                   P.ptLab.c_str(), P.nRe, P.mxRe, P.maRe, P.nTr, P.mxTr, P.maTr
                 ).Data());
 
-                  // Save xJ distributions (integrated over alpha) as individual PNGs
-                  SaveXJRecoPNGs(P.xJ_re, ib, P.ptLab);
+                // Save xJ distributions (integrated over alpha) as individual PNGs
+                SaveXJRecoPNGs(P.xJ_re, ib, P.ptLab);
 
-                  // TRUTH reco-conditioned (existing h_JES3Truth_pT_xJ_alpha_<rKey>)
-                  SaveXJTruthPNGs(P.xJ_tr, ib, P.ptLab);
+                // (5) TRUTH reco-conditioned (jet-matched): h_JES3Truth_pT_xJ_alpha_<rKey>
+                SaveXJTruthPNGs(P.xJ_tr, ib, P.ptLab);
 
-                  // TRUTH pure (new h_JES3TruthPure_pT_xJ_alpha_<rKey>)
-                  SaveXJTruthPurePNGs(ib, P.ptLab);
+                // (4) TRUTH reco-conditioned (NO jet match): h_JES3TruthRecoCondNoJetMatch_pT_xJ_alpha_<rKey>
+                SaveXJTruthNoJetMatchPNGs(ib);
+
+                // (3) TRUTH pure: h_JES3TruthPure_pT_xJ_alpha_<rKey>
+                SaveXJTruthPurePNGs(ib);
+
+                // (7) RECO truth-PHOTON-tagged
+                SaveXJRecoTruthPhoTaggedPNGs(ib);
+
+                // (8) RECO truth-tagged PHOTON+JET
+                SaveXJRecoTruthTaggedPNGs(ib);
 
                 // RECO/TRUTH xJ-alpha maps and jet1Pt-alpha maps
                 SaveJes3Maps2D_ForBin(ib, P.ptLab);
@@ -4986,129 +5216,133 @@ namespace ARJ
                 }
               };
 
-                // integrated-alpha tables (linear + logy)
-                Make3x3Table_xJ_FromTH3(H.hReco_xJ,     D.dirXJProjReco,          "RECO",  false);
-                Make3x3Table_xJ_FromTH3(H.hTrut_xJ,     D.dirXJProjTruthRecoCond, "TRUTH", false);
-                Make3x3Table_xJ_FromTH3(H.hTrutPure_xJ, D.dirXJProjTruthPure,     "TRUTH", false);
+              // integrated-alpha tables (linear + logy)
+              Make3x3Table_xJ_FromTH3(H.hReco_xJ,               D.dirXJProjReco,                   "RECO",  false);
+              Make3x3Table_xJ_FromTH3(H.hRecoTruthPhoTagged_xJ, D.dirXJProjRecoTruthPhoTagged,     "RECO",  false);
+              Make3x3Table_xJ_FromTH3(H.hRecoTruthTagged_xJ,    D.dirXJProjRecoTruthTagged,        "RECO",  false);
 
-                Make3x3Table_xJ_FromTH3(H.hReco_xJ,     D.dirXJProjReco,          "RECO",  true);
-                Make3x3Table_xJ_FromTH3(H.hTrut_xJ,     D.dirXJProjTruthRecoCond, "TRUTH", true);
-                Make3x3Table_xJ_FromTH3(H.hTrutPure_xJ, D.dirXJProjTruthPure,     "TRUTH", true);
+              Make3x3Table_xJ_FromTH3(H.hTrut_xJ,               D.dirXJProjTruthRecoCond,           "TRUTH", false);
+              Make3x3Table_xJ_FromTH3(H.hTrutNoJM_xJ,           D.dirXJProjTruthRecoCondNoJetMatch, "TRUTH", false);
+              Make3x3Table_xJ_FromTH3(H.hTrutPure_xJ,           D.dirXJProjTruthPure,               "TRUTH", false);
+
+              Make3x3Table_xJ_FromTH3(H.hReco_xJ,               D.dirXJProjReco,                   "RECO",  true);
+              Make3x3Table_xJ_FromTH3(H.hRecoTruthPhoTagged_xJ, D.dirXJProjRecoTruthPhoTagged,     "RECO",  true);
+              Make3x3Table_xJ_FromTH3(H.hRecoTruthTagged_xJ,    D.dirXJProjRecoTruthTagged,        "RECO",  true);
+
+              Make3x3Table_xJ_FromTH3(H.hTrut_xJ,               D.dirXJProjTruthRecoCond,           "TRUTH", true);
+              Make3x3Table_xJ_FromTH3(H.hTrutNoJM_xJ,           D.dirXJProjTruthRecoCondNoJetMatch, "TRUTH", true);
+              Make3x3Table_xJ_FromTH3(H.hTrutPure_xJ,           D.dirXJProjTruthPure,               "TRUTH", true);
 
                 // -------------------------------------------------------------------------
-                // NEW: Overlays (RECO vs TRUTH reco-conditioned), integrated over alpha
+                // NEW: Overlays (shape), integrated over alpha
                 //
-                // Output folder (per rKey):
-                //   RecoilJetQA/JES3/<rKey>/xJ_fromJES3/RECO_vs_TRUTHrecoConditioned/
-                //   ├── perPtBin/overlay_pTbinX.png
-                //   └── table3x3_overlay_shape_pageY.png
+                // Output folders (per rKey) under:
+                //   RecoilJetQA/JES3/<rKey>/xJ_fromJES3/
+                //     RECO_vs_TRUTHrecoConditioned/                      (legacy: jet-matched truth)
+                //     RECO_vs_TRUTHrecoConditioned_noJetMatch/
+                //     TRUTHrecoConditioned_noJetMatch_vs_jetMatched/
+                //     RECO_vs_RECO_truthPhoTagged/
+                //     RECO_truthPhoTagged_vs_truthTaggedPhoJet/
+                //
+                // Each folder contains:
+                //   perPtBin/overlay_pTbinX.png
+                //   table3x3_overlay_shape(_pageY).png
                 // -------------------------------------------------------------------------
-                if (H.hReco_xJ && H.hTrut_xJ)
+
+                auto MakeOverlayShape_TH3xJ =
+                  [&](TH3* hBlack, TH3* hRed,
+                      const string& ovTag,
+                      const string& legBlack,
+                      const string& legRed,
+                      const vector<string>& headerLines)
                 {
-                  const string dirOvBase = JoinPath(D.dirXJProj, "RECO_vs_TRUTHrecoConditioned");
+                  if (!hBlack || !hRed) return;
+
+                  const string dirOvBase = JoinPath(D.dirXJProj, ovTag);
                   const string dirOvPer  = JoinPath(dirOvBase, "perPtBin");
                   EnsureDir(dirOvBase);
                   EnsureDir(dirOvPer);
 
-                  const int nReco = H.hReco_xJ->GetXaxis()->GetNbins();
-                  const int nTru  = H.hTrut_xJ->GetXaxis()->GetNbins();
-                  const int nPtOv = std::min(nReco, nTru);
+                  const int nA = hBlack->GetXaxis()->GetNbins();
+                  const int nB = hRed->GetXaxis()->GetNbins();
+                  const int nPtOv = std::min(nA, nB);
 
                   // --- Per pT bin overlay PNGs (shape overlay for fair comparison) ---
                   for (int ib = 1; ib <= nPtOv; ++ib)
                   {
-                    TH1* hRe = ProjectY_AtXbin_TH3(H.hReco_xJ, ib,
-                      TString::Format("xJ_reco_forOv_%s_%d", rKey.c_str(), ib).Data()
+                    TH1* hA = ProjectY_AtXbin_TH3(hBlack, ib,
+                      TString::Format("ov_%s_blk_%s_%d", ovTag.c_str(), rKey.c_str(), ib).Data()
                     );
-                    TH1* hTr = ProjectY_AtXbin_TH3(H.hTrut_xJ, ib,
-                      TString::Format("xJ_truthRecoCond_forOv_%s_%d", rKey.c_str(), ib).Data()
+                    TH1* hB = ProjectY_AtXbin_TH3(hRed, ib,
+                      TString::Format("ov_%s_red_%s_%d", ovTag.c_str(), rKey.c_str(), ib).Data()
                     );
 
-                    if (hRe) { hRe->SetDirectory(nullptr); EnsureSumw2(hRe); }
-                    if (hTr) { hTr->SetDirectory(nullptr); EnsureSumw2(hTr); }
+                    if (hA) { hA->SetDirectory(nullptr); EnsureSumw2(hA); }
+                    if (hB) { hB->SetDirectory(nullptr); EnsureSumw2(hB); }
 
-                    if (!hRe || !hTr || (hRe->GetEntries() <= 0.0 && hTr->GetEntries() <= 0.0))
+                    if (!hA || !hB || (hA->GetEntries() <= 0.0 && hB->GetEntries() <= 0.0))
                     {
-                      if (hRe) delete hRe;
-                      if (hTr) delete hTr;
+                      if (hA) delete hA;
+                      if (hB) delete hB;
                       continue;
                     }
 
-                    // Shape normalization
-                    if (hRe) NormalizeToUnitArea(hRe);
-                    if (hTr) NormalizeToUnitArea(hTr);
+                    NormalizeToUnitArea(hA);
+                    NormalizeToUnitArea(hB);
 
-                    // Style
-                    if (hRe)
-                    {
-                      hRe->SetLineWidth(2);
-                      hRe->SetMarkerStyle(20);
-                      hRe->SetMarkerSize(1.00);
-                      hRe->SetLineColor(2);
-                      hRe->SetMarkerColor(2);
-                    }
-                    if (hTr)
-                    {
-                      hTr->SetLineWidth(2);
-                      hTr->SetMarkerStyle(24);
-                      hTr->SetMarkerSize(1.00);
-                      hTr->SetLineColor(1);
-                      hTr->SetMarkerColor(1);
-                    }
+                    // Style: black vs red
+                    hA->SetLineWidth(2);
+                    hA->SetMarkerStyle(24);
+                    hA->SetMarkerSize(1.00);
+                    hA->SetLineColor(1);
+                    hA->SetMarkerColor(1);
 
-                    const string ptLab = AxisBinLabel(H.hReco_xJ->GetXaxis(), ib, "GeV", 0);
+                    hB->SetLineWidth(2);
+                    hB->SetMarkerStyle(20);
+                    hB->SetMarkerSize(1.00);
+                    hB->SetLineColor(2);
+                    hB->SetMarkerColor(2);
 
-                      // Put R next to the pT label, and make the legend bigger (explicit draw, not helper)
-                      const string outPng = JoinPath(
-                        dirOvPer,
-                        TString::Format("overlay_xJ_RECO_vs_TRUTHrecoCond_pTbin%d.png", ib).Data()
-                      );
+                    const string ptLab = AxisBinLabel(hBlack->GetXaxis(), ib, "GeV", 0);
 
-                      TCanvas c(
-                        TString::Format("c_ov_xJRecoVsTruth_%s_%s_b%d", ds.label.c_str(), rKey.c_str(), ib).Data(),
-                        "c_ov_xJRecoVsTruth", 900, 700
-                      );
-                      ApplyCanvasMargins1D(c);
+                    const string outPng = JoinPath(dirOvPer, TString::Format("overlay_pTbin%d.png", ib).Data());
 
-                      // axis labels
-                      hTr->SetTitle("");
-                      hTr->GetXaxis()->SetTitle("x_{J#gamma}");
-                      hTr->GetYaxis()->SetTitle("A.U.");
+                    TCanvas c(
+                      TString::Format("c_ov_%s_%s_b%d", ds.label.c_str(), rKey.c_str(), ib).Data(),
+                      "c_ov", 900, 700
+                    );
+                    ApplyCanvasMargins1D(c);
 
-                      // common ymax
-                      const double ymax = std::max(hTr->GetMaximum(), hRe->GetMaximum());
-                      hTr->SetMaximum(ymax * 1.25);
+                    hA->SetTitle("");
+                    hA->GetXaxis()->SetTitle("x_{J#gamma}");
+                    hA->GetYaxis()->SetTitle("A.U.");
 
-                      // draw
-                      hTr->Draw("E1");
-                      hRe->Draw("E1 same");
+                    const double ymax = std::max(hA->GetMaximum(), hB->GetMaximum());
+                    hA->SetMaximum(ymax * 1.25);
 
-                      // legend (bigger text)
-                      TLegend leg(0.58, 0.75, 0.92, 0.90);
-                      leg.SetTextFont(42);
-                      leg.SetTextSize(0.045);   // bigger than before
-                      leg.SetFillStyle(0);
-                      leg.SetBorderSize(0);
-                      leg.AddEntry(hTr, "Truth (reco-cond)", "ep");
-                      leg.AddEntry(hRe, "Reco",             "ep");
-                      leg.Draw();
+                    hA->Draw("E1");
+                    hB->Draw("E1 same");
 
-                      // header
-                      DrawLatexLines(0.14, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+                    TLegend leg(0.58, 0.75, 0.92, 0.90);
+                    leg.SetTextFont(42);
+                    leg.SetTextSize(0.045);
+                    leg.SetFillStyle(0);
+                    leg.SetBorderSize(0);
+                    leg.AddEntry(hA, legBlack.c_str(), "ep");
+                    leg.AddEntry(hB, legRed.c_str(),   "ep");
+                    leg.Draw();
 
-                      // title line: pT + (R=...)
-                      vector<string> lines = {
-                        "Overlay (shape): RECO vs TRUTH (reco-conditioned)",
-                        TString::Format("p_{T}^{#gamma}: %s  (R=%.1f)", ptLab.c_str(), R).Data(),
-                        "Integrated over #alpha"
-                      };
-                      DrawLatexLines(0.14, 0.84, lines, 0.030, 0.040);
+                    DrawLatexLines(0.14, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
 
-                      SaveCanvas(c, outPng);
+                    vector<string> lines = headerLines;
+                    lines.push_back(TString::Format("p_{T}^{#gamma}: %s  (R=%.1f)", ptLab.c_str(), R).Data());
+                    lines.push_back("Integrated over #alpha");
+                    DrawLatexLines(0.14, 0.84, lines, 0.030, 0.040);
 
-                      delete hRe;
-                      delete hTr;
+                    SaveCanvas(c, outPng);
 
+                    delete hA;
+                    delete hB;
                   }
 
                   // --- 3x3 table pages of overlays (shape) ---
@@ -5120,8 +5354,8 @@ namespace ARJ
                     ++page;
 
                     TCanvas c(
-                      TString::Format("c_tbl_xJRecoVsTruth_%s_%s_p%d", ds.label.c_str(), rKey.c_str(), page).Data(),
-                      "c_tbl_xJRecoVsTruth", 1500, 1200
+                      TString::Format("c_tbl_ov_%s_%s_p%d", ovTag.c_str(), rKey.c_str(), page).Data(),
+                      "c_tbl_ov", 1500, 1200
                     );
                     c.Divide(3,3, 0.001, 0.001);
 
@@ -5148,20 +5382,20 @@ namespace ARJ
                         continue;
                       }
 
-                      TH1* hRe = ProjectY_AtXbin_TH3(H.hReco_xJ, ib,
-                        TString::Format("tbl_xJ_reco_%s_%d_p%d", rKey.c_str(), ib, page).Data()
+                      TH1* hA = ProjectY_AtXbin_TH3(hBlack, ib,
+                        TString::Format("tbl_%s_blk_%s_%d_p%d", ovTag.c_str(), rKey.c_str(), ib, page).Data()
                       );
-                      TH1* hTr = ProjectY_AtXbin_TH3(H.hTrut_xJ, ib,
-                        TString::Format("tbl_xJ_truth_%s_%d_p%d", rKey.c_str(), ib, page).Data()
+                      TH1* hB = ProjectY_AtXbin_TH3(hRed, ib,
+                        TString::Format("tbl_%s_red_%s_%d_p%d", ovTag.c_str(), rKey.c_str(), ib, page).Data()
                       );
 
-                      if (hRe) { hRe->SetDirectory(nullptr); EnsureSumw2(hRe); }
-                      if (hTr) { hTr->SetDirectory(nullptr); EnsureSumw2(hTr); }
+                      if (hA) { hA->SetDirectory(nullptr); EnsureSumw2(hA); }
+                      if (hB) { hB->SetDirectory(nullptr); EnsureSumw2(hB); }
 
-                      if (!hRe || !hTr || (hRe->GetEntries() <= 0.0 && hTr->GetEntries() <= 0.0))
+                      if (!hA || !hB || (hA->GetEntries() <= 0.0 && hB->GetEntries() <= 0.0))
                       {
-                        if (hRe) delete hRe;
-                        if (hTr) delete hTr;
+                        if (hA) delete hA;
+                        if (hB) delete hB;
                         TLatex t;
                         t.SetNDC(true);
                         t.SetTextFont(42);
@@ -5170,31 +5404,31 @@ namespace ARJ
                         continue;
                       }
 
-                      NormalizeToUnitArea(hRe);
-                      NormalizeToUnitArea(hTr);
+                      NormalizeToUnitArea(hA);
+                      NormalizeToUnitArea(hB);
 
-                      hRe->SetLineWidth(2);
-                      hRe->SetMarkerStyle(20);
-                      hRe->SetMarkerSize(0.95);
-                      hRe->SetLineColor(2);
-                      hRe->SetMarkerColor(2);
+                      hA->SetLineWidth(2);
+                      hA->SetMarkerStyle(24);
+                      hA->SetMarkerSize(0.95);
+                      hA->SetLineColor(1);
+                      hA->SetMarkerColor(1);
 
-                      hTr->SetLineWidth(2);
-                      hTr->SetMarkerStyle(24);
-                      hTr->SetMarkerSize(0.95);
-                      hTr->SetLineColor(1);
-                      hTr->SetMarkerColor(1);
+                      hB->SetLineWidth(2);
+                      hB->SetMarkerStyle(20);
+                      hB->SetMarkerSize(0.95);
+                      hB->SetLineColor(2);
+                      hB->SetMarkerColor(2);
 
-                      const double ymax = std::max(hRe->GetMaximum(), hTr->GetMaximum());
-                      hTr->SetMaximum(ymax * 1.25);
+                      const double ymax = std::max(hA->GetMaximum(), hB->GetMaximum());
+                      hA->SetMaximum(ymax * 1.25);
 
-                      hTr->SetTitle("");
-                      hTr->GetXaxis()->SetTitle("x_{J#gamma}");
-                      hTr->GetYaxis()->SetTitle("A.U.");
-                      hTr->Draw("E1");
-                      hRe->Draw("E1 same");
+                      hA->SetTitle("");
+                      hA->GetXaxis()->SetTitle("x_{J#gamma}");
+                      hA->GetYaxis()->SetTitle("A.U.");
+                      hA->Draw("E1");
+                      hB->Draw("E1 same");
 
-                      const string ptLab = AxisBinLabel(H.hReco_xJ->GetXaxis(), ib, "GeV", 0);
+                      const string ptLab = AxisBinLabel(hBlack->GetXaxis(), ib, "GeV", 0);
 
                       TLatex tt;
                       tt.SetNDC(true);
@@ -5202,33 +5436,74 @@ namespace ARJ
                       tt.SetTextAlign(22);
                       tt.SetTextSize(0.060);
                       tt.DrawLatex(0.52, 0.95,
-                          TString::Format("p_{T}^{#gamma} = %s  (R=%.1f)", ptLab.c_str(), R).Data()
+                        TString::Format("p_{T}^{#gamma} = %s  (R=%.1f)", ptLab.c_str(), R).Data()
                       );
 
-                      TLegend leg(0.5, 0.74, 0.88, 0.90);
+                      TLegend leg(0.48, 0.74, 0.90, 0.90);
                       leg.SetTextFont(42);
-                      leg.SetTextSize(0.060);   // bigger than before
+                      leg.SetTextSize(0.055);
                       leg.SetFillStyle(0);
                       leg.SetBorderSize(0);
-                      leg.AddEntry(hTr, "Truth (reco-cond)", "ep");
-                      leg.AddEntry(hRe, "Reco",             "ep");
+                      leg.AddEntry(hA, legBlack.c_str(), "ep");
+                      leg.AddEntry(hB, legRed.c_str(),   "ep");
                       leg.DrawClone();
 
-
-                      keep.push_back(hRe);
-                      keep.push_back(hTr);
+                      keep.push_back(hA);
+                      keep.push_back(hB);
                     }
 
                     const string outName =
                       (nPtOv <= perPage)
-                        ? "table3x3_overlay_RECO_vs_TRUTHrecoCond_shape.png"
-                        : TString::Format("table3x3_overlay_RECO_vs_TRUTHrecoCond_shape_page%d.png", page).Data();
+                        ? "table3x3_overlay_shape.png"
+                        : TString::Format("table3x3_overlay_shape_page%d.png", page).Data();
 
                     SaveCanvas(c, JoinPath(dirOvBase, outName));
 
                     for (auto* h : keep) delete h;
                   }
-                }
+                };
+
+                // Keep your legacy overlay folder name (this is jet-matched truth in your code):
+                MakeOverlayShape_TH3xJ(
+                  H.hTrut_xJ, H.hReco_xJ,
+                  "RECO_vs_TRUTHrecoConditioned",
+                  "Truth (reco-cond, jet-matched)",
+                  "Reco",
+                  {"Overlay (shape): RECO vs TRUTH reco-conditioned", "Truth is jet-matched (ΔR<=0.3)"}
+                );
+
+                // New overlays covering the missing JES3 variants:
+                MakeOverlayShape_TH3xJ(
+                  H.hTrutNoJM_xJ, H.hReco_xJ,
+                  "RECO_vs_TRUTHrecoConditioned_noJetMatch",
+                  "Truth (reco-cond, NO jet match)",
+                  "Reco",
+                  {"Overlay (shape): RECO vs TRUTH reco-conditioned", "Truth is NO-jet-match"}
+                );
+
+                MakeOverlayShape_TH3xJ(
+                  H.hTrutNoJM_xJ, H.hTrut_xJ,
+                  "TRUTHrecoConditioned_noJetMatch_vs_jetMatched",
+                  "Truth (NO jet match)",
+                  "Truth (jet-matched)",
+                  {"Overlay (shape): TRUTH reco-conditioned comparison"}
+                );
+
+                MakeOverlayShape_TH3xJ(
+                  H.hRecoTruthPhoTagged_xJ, H.hReco_xJ,
+                  "RECO_vs_RECO_truthPhoTagged",
+                  "Reco (truth-#gamma tagged)",
+                  "Reco (all)",
+                  {"Overlay (shape): RECO baseline vs truth-#gamma tagged"}
+                );
+
+                MakeOverlayShape_TH3xJ(
+                  H.hRecoTruthPhoTagged_xJ, H.hRecoTruthTagged_xJ,
+                  "RECO_truthPhoTagged_vs_truthTaggedPhoJet",
+                  "Reco (truth-#gamma tagged)",
+                  "Reco (truth-#gamma + jet1 matched)",
+                  {"Overlay (shape): RECO truth-tagged subsets"}
+                );
 
                 // RECO alpha-cut tables into subfolders (requested)
                 if (H.hReco_xJ)

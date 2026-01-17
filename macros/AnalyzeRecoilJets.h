@@ -1080,30 +1080,19 @@ namespace ARJ
         hc->Draw("hist");
 
         // ------------------------------------------------------------------
-        // For the total isolation table: draw the sliding-window iso cut range
-        // (because the cut depends on photon pT within the bin) and integrate
-        // counts relative to that range.
-        //
-        // RecoilJets::isIsolated uses:
-        //   isoCut(pT) = m_isoA + m_isoB * pT
-        // default WP in your prints: 1.08128 + 0.0299107*pT
-        //
-        // In a pT bin [lo, hi], the cut spans:
-        //   cutLo = isoCut(lo), cutHi = isoCut(hi)
-        // We draw BOTH edges (dashed/dotted).
+        // For the total isolation table: draw ONE iso-cut line at the pT-bin CENTER
+        //   cut(ptCenter) = 1.08128 + 0.0299107 * ptCenter
+        // and integrate counts left/right of that ONE threshold.
         // ------------------------------------------------------------------
         if (isTotalIsoTable)
         {
           constexpr double kIsoA = 1.08128;
           constexpr double kIsoB = 0.0299107;
 
-          const double ptLo = static_cast<double>(b.lo);
-          const double ptHi = static_cast<double>(b.hi);
+          const double ptCenter = 0.5 * (static_cast<double>(b.lo) + static_cast<double>(b.hi));
+          const double cut = kIsoA + kIsoB * ptCenter;
 
-          const double cutLo = kIsoA + kIsoB * ptLo;
-          const double cutHi = kIsoA + kIsoB * ptHi;
-
-          // y-range for the vertical lines (avoid y=0 on log plots)
+          // y-range for the vertical line (avoid y=0 on log plots)
           double yBot = 0.0;
           if (logy)
           {
@@ -1113,33 +1102,25 @@ namespace ARJ
 
           const double yTop = (hc->GetMaximum() > 0.0) ? (hc->GetMaximum() * 1.25) : 1.0;
 
-          // Draw cut range edges (clone so they persist until SaveCanvas)
+          // Draw ONE line only (clone so it persists until SaveCanvas)
           {
-            TLine l1(cutLo, yBot, cutLo, yTop);
-            l1.SetLineWidth(2);
-            l1.SetLineStyle(2); // dashed
-            l1.DrawClone("same");
-          }
-          {
-            TLine l2(cutHi, yBot, cutHi, yTop);
-            l2.SetLineWidth(2);
-            l2.SetLineStyle(3); // dotted
-            l2.DrawClone("same");
+            TLine l(cut, yBot, cut, yTop);
+            l.SetLineWidth(2);
+            l.SetLineStyle(2); // dashed
+            l.SetLineColor(kRed + 1);
+            l.DrawClone("same");
           }
 
-          // Integrals (under/overflow included)
+          // Integrals (under/overflow included) relative to ONE cut
           const int nbx = hc->GetNbinsX();
           const double nTot = hc->Integral(0, nbx + 1);
 
-          const int bLo = hc->GetXaxis()->FindBin(cutLo);
-          const int bHi = hc->GetXaxis()->FindBin(cutHi);
+          const int bCut = hc->GetXaxis()->FindBin(cut);
 
-          const double nBelowLo = hc->Integral(0, bLo);
-          const double nBelowHi = hc->Integral(0, bHi);
-          const double nBetween = (nBelowHi >= nBelowLo) ? (nBelowHi - nBelowLo) : 0.0;
-          const double nAboveHi = hc->Integral(bHi + 1, nbx + 1);
+          const double nLeft  = hc->Integral(0, bCut);            // <= cut bin
+          const double nRight = hc->Integral(bCut + 1, nbx + 1);  // > cut bin
 
-          // Compact annotations (left side so it won't collide with the pT label on the right)
+          // Compact annotations (left side so it won't collide with pT label)
           TLatex t;
           t.SetNDC(true);
           t.SetTextFont(42);
@@ -1148,22 +1129,20 @@ namespace ARJ
           t.SetTextSize(0.052);
           t.DrawLatex(
             0.16, 0.70,
-            TString::Format("iso cut range: [%.2f, %.2f] GeV", cutLo, cutHi).Data()
+            TString::Format("iso cut @ pT center: %.2f GeV", cut).Data()
           );
 
           t.SetTextSize(0.048);
           t.DrawLatex(
             0.16, 0.62,
-            TString::Format("N(<cutLo)=%.0f  N(cutLo-cutHi)=%.0f  N(>cutHi)=%.0f",
-              nBelowLo, nBetween, nAboveHi).Data()
+            TString::Format("N(<=cut)=%.0f  N(>cut)=%.0f", nLeft, nRight).Data()
           );
 
           if (nTot > 0.0)
           {
             t.DrawLatex(
               0.16, 0.54,
-              TString::Format("f(<cutLo)=%.3f  f(<cutHi)=%.3f",
-                nBelowLo / nTot, nBelowHi / nTot).Data()
+              TString::Format("f(<=cut)=%.3f  f(>cut)=%.3f", nLeft / nTot, nRight / nTot).Data()
             );
           }
         }

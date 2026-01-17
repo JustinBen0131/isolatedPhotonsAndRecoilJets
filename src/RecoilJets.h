@@ -485,19 +485,31 @@ private:
   //      h2_unfoldRecoFakes_pTgamma_xJ_incl_<rKey><centSuffix>
   //      h2_unfoldTruthMisses_pTgamma_xJ_incl_<rKey><centSuffix>
   // -------------------------------------------------------------------------
-    TH2F* getOrBookUnfoldRecoPtXJIncl      (const std::string& trig, const std::string& rKey, int centIdx);
-    TH2F* getOrBookUnfoldTruthPtXJIncl     (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookUnfoldRecoPtXJIncl      (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookUnfoldTruthPtXJIncl     (const std::string& trig, const std::string& rKey, int centIdx);
 
-    // NEW: inclusive |Δphi(gamma,jet)| per recoil jet that passes pT+eta+recoil Δphi cuts
-    TH2F* getOrBookUnfoldRecoPtDphiIncl    (const std::string& trig, const std::string& rKey, int centIdx);
-    TH2F* getOrBookUnfoldTruthPtDphiIncl   (const std::string& trig, const std::string& rKey, int centIdx);
+  // inclusive |Δphi(gamma,jet)| per recoil jet that passes pT+eta+recoil Δphi cuts
+  TH2F* getOrBookUnfoldRecoPtDphiIncl    (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookUnfoldTruthPtDphiIncl   (const std::string& trig, const std::string& rKey, int centIdx);
 
-    TH2F* getOrBookUnfoldResponsePtXJIncl  (const std::string& trig, const std::string& rKey, int centIdx);
-    TH2F* getOrBookUnfoldRecoFakesPtXJIncl (const std::string& trig, const std::string& rKey, int centIdx);
-    TH2F* getOrBookUnfoldTruthMissesPtXJIncl(const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookUnfoldResponsePtXJIncl  (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookUnfoldRecoFakesPtXJIncl (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookUnfoldTruthMissesPtXJIncl(const std::string& trig, const std::string& rKey, int centIdx);
 
   // -------------------------------------------------------------------------
-  // NEW / REQUIRED: radius-tagged matching-QA bookers
+  // NEW (SIM ONLY): JES3-style *leading truth recoil jet1* match bookkeeping vs truth pT^gamma
+  //   Den  : truth leading recoil jet1 exists (truth recoil definition)
+  //   Num  : Den + reco recoil jet1 matches truth jet1 (ΔR < 0.3)
+  //   MissA: Den + some reco fid jet within ΔR < 0.3 of truth jet1, but Num failed
+  //   MissB: Den + no reco fid jet within ΔR < 0.3 of truth jet1
+  // -------------------------------------------------------------------------
+  TH1F* getOrBookLeadTruthRecoilMatchDenPtGammaTruth    (const std::string& trig, const std::string& rKey, int centIdx);
+  TH1F* getOrBookLeadTruthRecoilMatchNumPtGammaTruth    (const std::string& trig, const std::string& rKey, int centIdx);
+  TH1F* getOrBookLeadTruthRecoilMatchMissA_PtGammaTruth (const std::string& trig, const std::string& rKey, int centIdx);
+  TH1F* getOrBookLeadTruthRecoilMatchMissB_PtGammaTruth (const std::string& trig, const std::string& rKey, int centIdx);
+
+  // -------------------------------------------------------------------------
+  //  radius-tagged matching-QA bookers
   //   - centrality suffix only (Au+Au)
   //   - pT^gamma is an axis
   //   - name pattern: <base>_<rKey><centSuffix>
@@ -509,7 +521,7 @@ private:
   TH2F*     getOrBookRecoilIsLeadingVsPtGamma (const std::string& trig, const std::string& rKey, int centIdx);
 
   // -------------------------------------------------------------------------
-  // NEW / REQUIRED: radius-tagged JES3 bookers (data)
+  // radius-tagged JES3 bookers (data)
   //   - centrality suffix only (Au+Au)
   //   - name pattern: <base>_<rKey><centSuffix>
   // -------------------------------------------------------------------------
@@ -517,7 +529,7 @@ private:
   TH3F* getOrBookJES3_jet1Pt_alphaHist (const std::string& trig, const std::string& rKey, int centIdx);
 
   // -------------------------------------------------------------------------
-  // NEW / REQUIRED: radius-tagged Jet13 + Balance3 bookers
+  // radius-tagged Jet13 + Balance3 bookers
   //   - no centrality suffix
   //   - name pattern: <base>_<rKey>
   // -------------------------------------------------------------------------
@@ -530,11 +542,25 @@ private:
   //   - centrality suffix only (Au+Au)
   //   - name pattern: <base>_<rKey><centSuffix>
   // -------------------------------------------------------------------------
+  // TRUTH reco-conditioned + reco↔truth jet1 match (your existing "works too well" truth)
   TH3F* getOrBookJES3Truth_xJ_alphaHist         (const std::string& trig, const std::string& rKey, int centIdx);
+
+  // TRUTH reco-conditioned, but WITHOUT requiring reco jet1 ↔ truth jet1 ΔR match
+  TH3F* getOrBookJES3TruthRecoCondNoJetMatch_xJ_alphaHist(const std::string& trig, const std::string& rKey, int centIdx);
+
   TH3F* getOrBookJES3Truth_jet1Pt_alphaHist     (const std::string& trig, const std::string& rKey, int centIdx);
 
   // PURE truth xJgamma distribution (no reco gating, no reco↔truth jet matching)
   TH3F* getOrBookJES3TruthPure_xJ_alphaHist     (const std::string& trig, const std::string& rKey, int centIdx);
+
+  // -------------------------------------------------------------------------
+  // reco-side JES3 subsets to diagnose fakes / wrong-jet assignment
+  // -------------------------------------------------------------------------
+  // RECO xJ,alpha for events where the LEADING reco iso∧tight photon is truth-signal tagged (photon match only)
+  TH3F* getOrBookJES3RecoTruthPhoTagged_xJ_alphaHist(const std::string& trig, const std::string& rKey, int centIdx);
+
+  // RECO xJ,alpha for truth-tagged pairs (photon match + reco jet1 matched to truth jet1)
+  TH3F* getOrBookJES3RecoTruthTagged_xJ_alphaHist(const std::string& trig, const std::string& rKey, int centIdx);
 
   // -------------------------------------------------------------------------
   // Jet QA: generic bookers + fillers (already radius-tagged in your .cc)
@@ -665,22 +691,22 @@ private:
 
   Bookkeeping m_bk{};
 
-    // For End() histogram summary (counts how many times each histogram was filled)
-    std::unordered_map<std::string, long long> m_histFill;
+  // For End() histogram summary (counts how many times each histogram was filled)
+  std::unordered_map<std::string, long long> m_histFill;
 
-    // -------------------------------------------------------------------------
-    // NEW: per-pT-bin negative-isolation bookkeeping (independent of SS classification)
-    //
-    //  - "Builder"    = RecoilJets::eiso() using PhotonClusterBuilder iso_* layer sums
-    //  - "ClusterIso" = RawCluster::get_et_iso(radiusx10,false,true) (UNSUBTRACTED)
-    // -------------------------------------------------------------------------
-    std::vector<unsigned long long> m_nIsoBuilderByPt;
-    std::vector<unsigned long long> m_nIsoBuilderNegByPt;
-    std::vector<unsigned long long> m_nIsoClusterIsoByPt;
-    std::vector<unsigned long long> m_nIsoClusterIsoNegByPt;
+  // -------------------------------------------------------------------------
+  // NEW: per-pT-bin negative-isolation bookkeeping (independent of SS classification)
+  //
+  //  - "Builder"    = RecoilJets::eiso() using PhotonClusterBuilder iso_* layer sums
+  //  - "ClusterIso" = RawCluster::get_et_iso(radiusx10,false,true) (UNSUBTRACTED)
+  // -------------------------------------------------------------------------
+  std::vector<unsigned long long> m_nIsoBuilderByPt;
+  std::vector<unsigned long long> m_nIsoBuilderNegByPt;
+  std::vector<unsigned long long> m_nIsoClusterIsoByPt;
+  std::vector<unsigned long long> m_nIsoClusterIsoNegByPt;
 
-    // Histogram storage: trigger -> (name -> object*)
-    std::map<std::string, HistMap> qaHistogramsByTrigger;
+  // Histogram storage: trigger -> (name -> object*)
+  std::map<std::string, HistMap> qaHistogramsByTrigger;
 
   // Per-trigger slice counters printed in End()
   std::map<std::string, std::map<std::string, CatStat>> m_catByTrig;

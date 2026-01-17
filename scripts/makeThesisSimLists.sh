@@ -51,7 +51,7 @@ VERBOSE="true"
 # Fixed parameters for THIS script: Run-28 Pythia8 photon+jet (filesystem truth)
 # We will NOT use the catalog. We will scan lustre directories directly.
 RUNNUM="28"
-PHOTONJET_SAMPLES=( "photonjet10" "photonjet20" )
+PHOTONJET_SAMPLES=("photonjet5" "photonjet10" "photonjet20" )
 
 # Source base (what you just proved exists)
 MDC2_BASE="/sphenix/lustre01/sphnxpro/mdc2/js_pp200_signal"
@@ -512,11 +512,17 @@ build_pack() {
       die "Missing directory for ${label}: ${src}"
     fi
 
-    find "$src" -type f -name '*.root' | sort -V > "$out"
+    find "$src" \( -type f -o -type l \) -iname '*.root' -print 2>/dev/null | sort -V > "$out"
     local n; n=$(wc -l < "$out" | tr -d ' ')
     if (( n == 0 )); then
-      die "0 ROOT files found for ${label} in: ${src}"
+      echo "[ERR  $(ts)] 0 ROOT files found for ${label} in: ${src}" >&2
+      echo "[ERR  $(ts)] Debug: listing directory (first 30 entries):" >&2
+      ls -la "$src" 2>/dev/null | head -n 30 >&2 || true
+      echo "[ERR  $(ts)] Debug: any symlinks here? (first 30):" >&2
+      find "$src" -maxdepth 1 -type l 2>/dev/null | head -n 30 >&2 || true
+      die "Stopping because list would be empty: ${out}"
     fi
+
 
     printf "[INFO %s] Wrote %6d → %s\n" "$(ts)" "$n" "$out" >&2
     preview_head "$out" "$HEAD_TAIL_LINES"
@@ -524,14 +530,62 @@ build_pack() {
 
   step "Write raw lists (filesystem scan → *.list)"
   write_list "$calodir" "${outdir}/DST_CALO_CLUSTER.list" "DST_CALO_CLUSTER (calocluster) [ANCHOR]"
-  write_list "$g4dir"   "${outdir}/G4Hits.list"          "G4Hits (g4hits)"
   write_list "$jetsdir" "${outdir}/DST_JETS.list"        "DST_JETS (nopileup/jets)"
   write_list "$gldir"   "${outdir}/DST_GLOBAL.list"      "DST_GLOBAL (nopileup/global) [VERTEX]"
   write_list "$mbddir"  "${outdir}/DST_MBD_EPD.list"     "DST_MBD_EPD (nopileup/mbdepd) [VERTEX]"
 
-  step "Pairing check + generate matched/pairs/triplets (key-aligned)"
+  # --------------------------- G4Hits (optional) ---------------------------
+  # If missing/empty, warn in RED and create a placeholder list of "NONE"
+  # with the same number of lines as the anchor list so downstream stays aligned.
+  {
+    if [[ -d "$g4dir" ]]; then
+      find "$g4dir" \( -type f -o -type l \) -iname '*.root' -print 2>/dev/null | sort -V > "${outdir}/G4Hits.list"
+    else
+      : > "${outdir}/G4Hits.list"
+    fi
+  } || true
+
+  n_g4="$(wc -l < "${outdir}/G4Hits.list" 2>/dev/null | tr -d ' ' || echo 0)"
+  n_calo="$(wc -l < "${outdir}/DST_CALO_CLUSTER.list" 2>/dev/null | tr -d ' ' || echo 0)"
+
+  G4_OK="true"
+  if [[ "${n_g4}" == "0" ]]; then
+    G4_OK="false"
+    # RED warning
+    printf "\033[31m[WARN %s] G4Hits missing/empty for %s (dir=%s). Continuing WITHOUT real G4Hits.\033[0m\n" \
+      "$(ts)" "${tag}" "${g4dir}" >&2
+    printf "\033[31m[WARN %s] Writing placeholder G4Hits.list filled with 'NONE' (lines=%d) so 5-col lists can still be built.\033[0m\n" \
+      "$(ts)" "${n_calo}" >&2
+
+    awk '{print "NONE"}' "${outdir}/DST_CALO_CLUSTER.list" > "${outdir}/G4Hits.list"
+    n_g4="$(wc -l < "${outdir}/G4Hits.list" | tr -d ' ')"
+  else
+    printf "[INFO %s] Wrote %6d → %s\n" "$(ts)" "${n_g4}" "${outdir}/G4Hits.list" >&2
+    preview_head "${outdir}/G4Hits.list" "$HEAD_TAIL_LINES"
+  fi
+
+  # --------------------------- Pairing (skip G4) ---------------------------
+  # We pair across the streams that actually exist.
+  step "Pairing check + generate matched/pairs/triplets (key-aligned) [NO G4]"
   pair_check "$outdir" "DST_CALO_CLUSTER.list" \
-    "G4Hits.list" "DST_JETS.list" "DST_GLOBAL.list" "DST_MBD_EPD.list"
+    "DST_JETS.list" "DST_GLOBAL.list" "DST_MBD_EPD.list"
+
+  # --------------------------- Placeholder matched/pairs for G4 (if missing) ---------------------------
+  # Create key-aligned placeholder matched/pairs/triplets so downstream tooling that expects these files
+  # doesn't explode, while still clearly encoding "NONE".
+  if [[ "$G4_OK" == "false" ]]; then
+    awk '{print "NONE"}' "${outdir}/DST_CALO_CLUSTER.matched.list" > "${outdir}/G4Hits.matched.list"
+    paste "${outdir}/DST_CALO_CLUSTER.matched.list" "${outdir}/G4Hits.matched.list" > "${outdir}/DST_CALO_CLUSTER__G4Hits.pairs.list"
+    paste "${outdir}/DST_CALO_CLUSTER.matched.list" "${outdir}/G4Hits.matched.list" "${outdir}/DST_JETS.matched.list" > "${outdir}/DST_CALO_CLUSTER__G4Hits__DST_JETS.triplets.list"
+
+    # Also append a note to the pairing report
+    {
+      echo ""
+      echo "NOTE: G4Hits missing/empty for this pack; wrote placeholder 'NONE' lists."
+      echo "  - G4Hits.list and G4Hits.matched.list are placeholders"
+      echo "  - DST_CALO_CLUSTER__G4Hits.pairs.list and ...triplets.list are placeholders"
+    } >> "${outdir}/pair_report.txt" 2>/dev/null || true
+  fi
 
   step "Write summary.txt (counts + pointers)"
   {
@@ -586,8 +640,14 @@ build_pack() {
   } | tee "${outdir}/summary.txt"
 
   say "Final recommended inputs:"
-  say "  (1) Calo + G4Hits paired list (USED BY YOUR PIPELINE):"
-  say "      ${outdir}/DST_CALO_CLUSTER__G4Hits.pairs.list"
+  if [[ "${G4_OK:-true}" == "true" ]]; then
+    say "  (1) Calo + G4Hits paired list:"
+    say "      ${outdir}/DST_CALO_CLUSTER__G4Hits.pairs.list"
+  else
+    warn "$(printf "\033[31mG4Hits missing for this pack; G4 pairs/triplets are placeholders ('NONE').\033[0m")"
+    say "  (1) Calo + Jets paired list (real):"
+    say "      ${outdir}/DST_CALO_CLUSTER__DST_JETS.pairs.list"
+  fi
   say "  (2) Matched single-column lists (same key-order):"
   say "      ${outdir}/DST_CALO_CLUSTER.matched.list"
   say "      ${outdir}/G4Hits.matched.list"
