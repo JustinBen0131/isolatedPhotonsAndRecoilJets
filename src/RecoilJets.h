@@ -352,6 +352,71 @@ private:
   bool fetchNodes(PHCompositeNode* topNode);
   bool firstEventCuts(PHCompositeNode* topNode, std::vector<std::string>& activeTrig);
   void createHistos_Data();
+    
+  void fillUnfoldResponseMatrixAndTruthDistributions(
+        const std::vector<std::string>& activeTrig,
+        const std::string& rKey,
+        const int effCentIdx_M,
+        const double leadPtGamma,
+        const double tPt,
+        const double tPhi,
+        const std::vector<const Jet*>& recoJetsFid,
+        const std::vector<char>& recoJetsFidIsRecoil,
+        const Jet* recoil1Jet);
+
+    
+  void fillRecoTruthJES3MatchingQA(const std::vector<std::string>& activeTrig,
+                                    const std::string& rKey,
+                                    const int effCentIdx_M,
+                                    const double leadPtGamma,
+                                    const double xJ,
+                                    const double alpha,
+                                    const double tPt,
+                                    const double tPhi,
+                                    const Jet* recoil1Jet);
+
+  bool runLeadIsoTightPhotonJetLoopAllRadii(
+        const std::vector<std::string>& activeTrig,
+        const int effCentIdx_M,
+        const int centIdx,
+        const int leadPhoIndex,
+        const int leadPtIdx,
+        const double leadPtGamma,
+        const double leadPhiGamma,
+        const bool haveTruthPho,
+        const double tPt,
+        const double tPhi,
+        PHG4TruthInfoContainer* truth);
+
+    
+  bool runLeadIsoTightPhotonJetMatchingAndUnfolding(
+          const std::vector<std::string>& activeTrig,
+          const int effCentIdx_M,
+          const int centIdx,
+          const int leadPhoIndex,
+          const int leadPtIdx,
+          const double leadPtGamma,
+          const double leadEtaGamma,
+          const double leadPhiGamma,
+          const bool haveTruthSigPho,
+          const double tPtSig,
+          const bool haveTruthPho,
+          const double tPt,
+          const double tPhi,
+          PHG4TruthInfoContainer* truth);
+      
+  void fillPureIsolationQA(PHCompositeNode* topNode,
+                               const std::vector<std::string>& activeTrig,
+                               const PhotonClusterv1* pho,
+                               const RawCluster* rc,
+                               const int ptIdx,
+                               const int centIdx,
+                               const double pt_gamma);
+
+  void fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
+                                         const std::vector<std::string>& activeTrig,
+                                         const int centIdx);
+
   void processCandidates(PHCompositeNode* topNode, const std::vector<std::string>& activeTrig);
 
   bool getCentralitySlice(int& lo, int& hi, std::string& tag) const;
@@ -373,6 +438,7 @@ private:
   SSVars makeSSFromPhoton(const PhotonClusterv1* pho, double pt_gamma) const;
   bool   passesPhotonPreselection(const SSVars& v);
   TightTag classifyPhotonTightness(const SSVars& v);
+
 
   // Isolation helpers
   double eiso(const RawCluster* clus, PHCompositeNode* topNode) const;
@@ -417,27 +483,27 @@ private:
   int         findCentBin(int cent) const;
   std::string suffixForBins(int ptIdx, int centIdx) const;
 
-    // -------------------------------------------------------------------------
-    // Histogram utilities (bookers)
-    // -------------------------------------------------------------------------
-    TH1I* getOrBookCountHist(const std::string& trig,
+  // -------------------------------------------------------------------------
+  // Histogram utilities (bookers)
+  // -------------------------------------------------------------------------
+  TH1I* getOrBookCountHist(const std::string& trig,
                              const std::string& base,
                              int ptIdx, int centIdx);
 
-    // Isolation spectra (reco)
-    TH1F* getOrBookIsoHist(const std::string& trig, int ptIdx, int centIdx);
-    TH1F* getOrBookIsoPartHist(const std::string& trig,
+  // Isolation spectra (reco)
+  TH1F* getOrBookIsoHist(const std::string& trig, int ptIdx, int centIdx);
+  TH1F* getOrBookIsoPartHist(const std::string& trig,
                                  const std::string& base,
                                  const std::string& xAxisTitle,
                                  int ptIdx, int centIdx);
-    TH1I* getOrBookIsoDecisionHist(const std::string& trig, int ptIdx, int centIdx);
-    TH2F* getOrBookIsoCompareHist(const std::string& trig, int ptIdx, int centIdx);
+  TH1I* getOrBookIsoDecisionHist(const std::string& trig, int ptIdx, int centIdx);
+  TH2F* getOrBookIsoCompareHist(const std::string& trig, int ptIdx, int centIdx);
 
-    // -------------------------------------------------------------------------
-    // SIM ONLY: matched truth-signal → reco ABCD leakage counters (per pT[/cent] slice)
-    //   bins: 1=A, 2=B, 3=C, 4=D
-    // -------------------------------------------------------------------------
-    TH1I* getOrBookSigABCDLeakageHist(const std::string& trig, int ptIdx, int centIdx);
+  // -------------------------------------------------------------------------
+  // SIM ONLY: matched truth-signal → reco ABCD leakage counters (per pT[/cent] slice)
+  //   bins: 1=A, 2=B, 3=C, 4=D
+  // -------------------------------------------------------------------------
+  TH1I* getOrBookSigABCDLeakageHist(const std::string& trig, int ptIdx, int centIdx);
 
   // Isolation QA (truth, SIM only)
   // These are NOT sliced; they live in the trigger directory (SIM => /SIM/).

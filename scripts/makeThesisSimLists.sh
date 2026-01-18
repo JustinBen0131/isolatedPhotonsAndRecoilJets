@@ -51,7 +51,7 @@ VERBOSE="true"
 # Fixed parameters for THIS script: Run-28 Pythia8 photon+jet (filesystem truth)
 # We will NOT use the catalog. We will scan lustre directories directly.
 RUNNUM="28"
-PHOTONJET_SAMPLES=("photonjet5" "photonjet10" "photonjet20" )
+PHOTONJET_SAMPLES=( "photonjet10" "photonjet20" )
 
 # Source base (what you just proved exists)
 MDC2_BASE="/sphenix/lustre01/sphnxpro/mdc2/js_pp200_signal"
@@ -564,11 +564,19 @@ build_pack() {
     preview_head "${outdir}/G4Hits.list" "$HEAD_TAIL_LINES"
   fi
 
-  # --------------------------- Pairing (skip G4) ---------------------------
-  # We pair across the streams that actually exist.
-  step "Pairing check + generate matched/pairs/triplets (key-aligned) [NO G4]"
-  pair_check "$outdir" "DST_CALO_CLUSTER.list" \
-    "DST_JETS.list" "DST_GLOBAL.list" "DST_MBD_EPD.list"
+  # --------------------------- Pairing (include G4 if present) ---------------------------
+  # Rule:
+  #   - If we found >=1 real G4Hits file, G4Hits becomes REQUIRED for pairing and must produce nonzero matches.
+  #   - Only run "NO G4" mode if truly NONE exist (then we will generate placeholder 'NONE' aligned lists later).
+  if [[ "$G4_OK" == "true" ]]; then
+    step "Pairing check + generate matched/pairs/triplets (key-aligned) [WITH G4]"
+    pair_check "$outdir" "DST_CALO_CLUSTER.list" \
+      "G4Hits.list" "DST_JETS.list" "DST_GLOBAL.list" "DST_MBD_EPD.list"
+  else
+    step "Pairing check + generate matched/pairs/triplets (key-aligned) [NO G4]"
+    pair_check "$outdir" "DST_CALO_CLUSTER.list" \
+      "DST_JETS.list" "DST_GLOBAL.list" "DST_MBD_EPD.list"
+  fi
 
   # --------------------------- Placeholder matched/pairs for G4 (if missing) ---------------------------
   # Create key-aligned placeholder matched/pairs/triplets so downstream tooling that expects these files
