@@ -1,0 +1,24 @@
+MatchQA summary (SIM)
+rKey: r02  R=0.2
+
+Total leading photons: 40741
+Integrated fractions:
+  f_NoJetPt      = 0.000000
+  f_NoJetEta     = 0.000000
+  f_NoBackToBack = 0.784050
+  f_Matched      = 0.215950
+
+Conditional diagnostics (integrated):
+  P(fiducial | pass pT)  = 1.000000
+  P(back-to-back | fid)  = 0.215950
+
+Per pT bin:
+  10-12  N=23090  NoPt=0  NoEta=0  NoB2B=19708  Match=3382  fMatch=0.146470  P(fid|pt)=1.000000  P(b2b|fid)=0.146470
+  12-14  N=9610  NoPt=0  NoEta=0  NoB2B=7391  Match=2219  fMatch=0.230905  P(fid|pt)=1.000000  P(b2b|fid)=0.230905
+  14-16  N=4112  NoPt=0  NoEta=0  NoB2B=2826  Match=1286  fMatch=0.312743  P(fid|pt)=1.000000  P(b2b|fid)=0.312743
+  16-18  N=2013  NoPt=0  NoEta=0  NoB2B=1213  Match=800  fMatch=0.397417  P(fid|pt)=1.000000  P(b2b|fid)=0.397417
+  18-20  N=951  NoPt=0  NoEta=0  NoB2B=454  Match=497  fMatch=0.522608  P(fid|pt)=1.000000  P(b2b|fid)=0.522608
+  20-22  N=476  NoPt=0  NoEta=0  NoB2B=194  Match=282  fMatch=0.592437  P(fid|pt)=1.000000  P(b2b|fid)=0.592437
+  22-24  N=233  NoPt=0  NoEta=0  NoB2B=95  Match=138  fMatch=0.592275  P(fid|pt)=1.000000  P(b2b|fid)=0.592275
+  24-26  N=123  NoPt=0  NoEta=0  NoB2B=41  Match=82  fMatch=0.666667  P(fid|pt)=1.000000  P(b2b|fid)=0.666667
+  26-35  N=133  NoPt=0  NoEta=0  NoB2B=21  Match=112  fMatch=0.842105  P(fid|pt)=1.000000  P(b2b|fid)=0.842105

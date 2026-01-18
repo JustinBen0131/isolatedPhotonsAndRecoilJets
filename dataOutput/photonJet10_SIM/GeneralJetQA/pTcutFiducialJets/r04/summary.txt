@@ -1,13 +1,13 @@
 rKey: r04
-Nevt (from h_HT entries): 2601303
+Nevt (from h_HT entries): 1698096
 
 [SCALARS]
- Nevt = 2601303.000000
- Njets_total = 2264454.000000
+ Nevt = 1698096.000000
+ Njets_total = 1478429.000000
  R = 0.400000
  etaFidAbs = 0.700000
- f_ge1 = 0.666980
- f_ge2 = 0.192314
- jets_per_event = 0.870508
- mean_jetMass = 1.212767
- mean_jetPt = 11.035177
+ f_ge1 = 0.666952
+ f_ge2 = 0.192436
+ jets_per_event = 0.870639
+ mean_jetMass = 1.212951
+ mean_jetPt = 11.035884

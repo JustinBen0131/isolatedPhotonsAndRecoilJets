@@ -496,8 +496,27 @@ private:
   TH2F* getOrBookUnfoldRecoFakesPtXJIncl (const std::string& trig, const std::string& rKey, int centIdx);
   TH2F* getOrBookUnfoldTruthMissesPtXJIncl(const std::string& trig, const std::string& rKey, int centIdx);
 
+  // photon-only unfolding (for N_gamma normalization): DATA+SIM reco, SIM truth
+  TH1F* getOrBookUnfoldRecoPhoPtGamma        (const std::string& trig, int centIdx);
+  TH1F* getOrBookUnfoldTruthPhoPtGamma       (const std::string& trig, int centIdx);
+  TH2F* getOrBookUnfoldResponsePhoPtGamma    (const std::string& trig, int centIdx);
+  TH1F* getOrBookUnfoldRecoPhoFakesPtGamma   (const std::string& trig, int centIdx);
+  TH1F* getOrBookUnfoldTruthPhoMissesPtGamma (const std::string& trig, int centIdx);
+
+  // unfolding QA helpers (SIM only): explicit matched distributions + type-split fakes/misses
+  TH2F* getOrBookUnfoldTruthMatchedPtXJIncl      (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookUnfoldRecoMatchedPtXJIncl       (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookUnfoldRecoFakesPtXJIncl_typeA   (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookUnfoldRecoFakesPtXJIncl_typeB   (I’mer (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookUnfoldTruthMissesPtXJIncl_typeA (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookUnfoldTruthMissesPtXJIncl_typeB (const std::string& trig, const std::string& rKey, int centIdx);
+
+  // jet-match QA (SIM only): match ΔR and pT response for matched recoil jets
+  TH1F* getOrBookUnfoldJetMatchDR           (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookUnfoldJetPtResponsePtTruth (const std::string& trig, const std::string& rKey, int centIdx);
+
   // -------------------------------------------------------------------------
-  // NEW (SIM ONLY): JES3-style *leading truth recoil jet1* match bookkeeping vs truth pT^gamma
+  // (SIM ONLY): JES3-style *leading truth recoil jet1* match bookkeeping vs truth pT^gamma
   //   Den  : truth leading recoil jet1 exists (truth recoil definition)
   //   Num  : Den + reco recoil jet1 matches truth jet1 (ΔR < 0.3)
   //   MissA: Den + some reco fid jet within ΔR < 0.3 of truth jet1, but Num failed
@@ -515,6 +534,13 @@ private:
   //   - name pattern: <base>_<rKey><centSuffix>
   // -------------------------------------------------------------------------
   TH2F*     getOrBookMatchStatusVsPtGamma     (const std::string& trig, const std::string& rKey, int centIdx);
+
+  // per-jet cutflow status vs pT^gamma (NOT event-level; not iso/tight-conditioned)
+  // name: h_jetcutflow_status_vs_pTgamma_<rKey><centSuffix>
+  // y bins:
+  //   1 = FailJetPt, 2 = FailJetEta, 3 = FailBackToBack, 4 = PassAll
+  TH2F*     getOrBookJetCutflowStatusVsPtGamma(const std::string& trig, const std::string& rKey, int centIdx);
+
   TH2F*     getOrBookMatchMaxDphiVsPtGamma    (const std::string& trig, const std::string& rKey, int centIdx);
   TProfile* getOrBookNRecoilJetsVsPtGamma     (const std::string& trig, const std::string& rKey, int centIdx);
   TH2F*     getOrBookMatchDphiVsPtGamma       (const std::string& trig, const std::string& rKey, int centIdx);

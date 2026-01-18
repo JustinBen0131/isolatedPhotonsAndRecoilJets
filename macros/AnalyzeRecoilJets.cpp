@@ -6409,7 +6409,419 @@ namespace ARJ
                     }
                   };
 
-                  Make3x3Table_xJ_RECO_AlphaCutsOverlay(H.hReco_xJ, dirAlphaBase);
+                    Make3x3Table_xJ_RECO_AlphaCutsOverlay(H.hReco_xJ, dirAlphaBase);
+
+                    // -----------------------------------------------------------------------------
+                    // (C) NEW: 3x3 table per pT bin of "How much does each alpha cut remove?"
+                    // For each pT^gamma bin, compute:
+                    //   f_removed(aMax) = N(alpha > aMax) / N(total)
+                    // using the RECO JES3 TH3 (integrated over xJ).
+                    // Output goes to the SAME dir as the xJ alpha-cuts overlay:
+                    //   <...>/xJ_fromJES3/RECO/alphaCuts/
+                    // -----------------------------------------------------------------------------
+                    auto Make3x3Table_AlphaCutRemovedFractions =
+                      [&](const TH3* h3, const string& outBaseDir)
+                    {
+                      if (!h3) return;
+
+                      const vector<double> aCuts = alphaMaxCuts;
+
+                      const int n = h3->GetXaxis()->GetNbins();
+                      const int perPage = 9;
+                      int page = 0;
+
+                      for (int start = 1; start <= n; start += perPage)
+                      {
+                        ++page;
+
+                        TCanvas c(
+                          TString::Format("c_tbl_alphaRemoved_%s_%s_p%d",
+                            ds.label.c_str(), rKey.c_str(), page).Data(),
+                          "c_tbl_alphaRemoved", 1500, 1200
+                        );
+                        c.Divide(3,3,0.001,0.001);
+
+                        std::vector<TObject*> keep;
+                        keep.reserve(perPage * 3);
+
+                        for (int k = 0; k < perPage; ++k)
+                        {
+                          const int ib = start + k;
+                          c.cd(k+1);
+
+                          gPad->SetLeftMargin(0.14);
+                          gPad->SetRightMargin(0.05);
+                          gPad->SetBottomMargin(0.14);
+                          gPad->SetTopMargin(0.10);
+                          gPad->SetLogy(false);
+                          gPad->SetTicks(1,1);
+
+                          if (ib > n)
+                          {
+                            TLatex t;
+                            t.SetNDC(true);
+                            t.SetTextFont(42);
+                            t.SetTextSize(0.06);
+                            t.DrawLatex(0.20, 0.55, "EMPTY");
+                            continue;
+                          }
+
+                          TH1* hA = ProjectZ_AtXbin_TH3(
+                            h3, ib,
+                            TString::Format("jes3_alphaProj_%s_%d", rKey.c_str(), ib).Data()
+                          );
+
+                          if (!hA)
+                          {
+                            TLatex t;
+                            t.SetNDC(true);
+                            t.SetTextFont(42);
+                            t.SetTextSize(0.06);
+                            t.DrawLatex(0.15, 0.55, "MISSING");
+                            continue;
+                          }
+
+                          hA->SetDirectory(nullptr);
+                          EnsureSumw2(hA);
+
+                          const int nAlphaBins = hA->GetNbinsX();
+                          const double nTot = hA->Integral(1, nAlphaBins);
+
+                          std::vector<double> xs;
+                          std::vector<double> ys;
+                          xs.reserve(aCuts.size());
+                          ys.reserve(aCuts.size());
+
+                          for (double aMax : aCuts)
+                          {
+                            double nAbove = 0.0;
+                            for (int iz = 1; iz <= nAlphaBins; ++iz)
+                            {
+                              const double aC = hA->GetXaxis()->GetBinCenter(iz);
+                              if (aC > aMax) nAbove += hA->GetBinContent(iz);
+                            }
+                            const double fRemoved = (nTot > 0.0) ? (nAbove / nTot) : 0.0;
+                            xs.push_back(aMax);
+                            ys.push_back(fRemoved);
+                          }
+
+                          // Frame for clear axes in small pads
+                          TH1F* frame = new TH1F(
+                            TString::Format("h_frame_alphaRemoved_%s_%s_%d", ds.label.c_str(), rKey.c_str(), ib).Data(),
+                            "",
+                            1, 0.15, 0.55
+                          );
+                          frame->SetDirectory(nullptr);
+                          frame->SetStats(0);
+                          frame->SetMinimum(0.0);
+                          frame->SetMaximum(1.0);
+                          frame->GetXaxis()->SetTitle("#alpha_{max}");
+                          frame->GetYaxis()->SetTitle("f(#alpha > #alpha_{max})");
+                          frame->GetXaxis()->SetTitleSize(0.060);
+                          frame->GetYaxis()->SetTitleSize(0.060);
+                          frame->GetXaxis()->SetLabelSize(0.050);
+                          frame->GetYaxis()->SetLabelSize(0.050);
+                          frame->GetYaxis()->SetTitleOffset(1.10);
+                          frame->Draw("hist");
+
+                          TGraph* g = new TGraph((int)xs.size());
+                          for (int j = 0; j < (int)xs.size(); ++j) g->SetPoint(j, xs[j], ys[j]);
+                          g->SetLineWidth(2);
+                          g->SetLineColor(kBlack);
+                          g->SetMarkerStyle(20);
+                          g->SetMarkerSize(1.0);
+                          g->SetMarkerColor(kBlack);
+                          g->Draw("PL same");
+
+                          // Print values near points
+                          TLatex tt;
+                          tt.SetTextFont(42);
+                          tt.SetTextAlign(12);
+                          tt.SetTextSize(0.050);
+                          for (int j = 0; j < (int)xs.size(); ++j)
+                          {
+                            const double xP = xs[j];
+                            const double yP = ys[j];
+                            tt.DrawLatex(xP + 0.005, std::min(yP + 0.04, 0.95), TString::Format("%.3f", yP).Data());
+                          }
+
+                          const string ptLab = AxisBinLabel(h3->GetXaxis(), ib, "GeV", 0);
+                          TLatex ptl;
+                          ptl.SetNDC(true);
+                          ptl.SetTextFont(42);
+                          ptl.SetTextAlign(13);
+                          ptl.SetTextSize(0.055);
+                          ptl.DrawLatex(0.16, 0.88, TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data());
+
+                          keep.push_back(hA);
+                          keep.push_back(frame);
+                          keep.push_back(g);
+                        }
+
+                        string outName;
+                        if (n <= perPage)
+                          outName = "table3x3_alphaCutRemovedFractions_RECO.png";
+                        else
+                          outName = TString::Format("table3x3_alphaCutRemovedFractions_RECO_page%d.png", page).Data();
+
+                        SaveCanvas(c, JoinPath(outBaseDir, outName));
+
+                        for (auto* o : keep) delete o;
+                      }
+                    };
+
+                    Make3x3Table_AlphaCutRemovedFractions(H.hReco_xJ, dirAlphaBase);
+
+                    // -----------------------------------------------------------------------------
+                    // (D) NEW: 3x3 table of h_jet2Pt_<rKey><slice> with log-y + P(no jet2)
+                    // Since online fills jet2Pt=0 when jet2 doesn't exist, bin1 (~[0,0.5)) measures no-jet2.
+                    // Output goes into the SAME alphaCuts folder as the xJ overlay.
+                    // -----------------------------------------------------------------------------
+                    auto Make3x3Table_Jet2Pt_LogZeroFrac =
+                      [&](const string& outBaseDir)
+                    {
+                      TCanvas c(
+                        TString::Format("c_tbl_jet2Pt_zeroFrac_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
+                        "c_tbl_jet2Pt_zeroFrac", 1500, 1200
+                      );
+                      c.Divide(3,3,0.001,0.001);
+
+                      std::vector<TH1*> keep;
+                      keep.reserve(kNPtBins);
+
+                      for (int i = 0; i < kNPtBins; ++i)
+                      {
+                        const PtBin& b = PtBins()[i];
+                        c.cd(i+1);
+
+                        gPad->SetLeftMargin(0.14);
+                        gPad->SetRightMargin(0.05);
+                        gPad->SetBottomMargin(0.14);
+                        gPad->SetTopMargin(0.10);
+                        gPad->SetLogy(true);
+                        gPad->SetTicks(1,1);
+
+                        TH1* h = GetObj<TH1>(ds, string("h_jet2Pt_") + rKey + b.suffix, false, false, false);
+                        if (!h)
+                        {
+                          TLatex t;
+                          t.SetNDC(true);
+                          t.SetTextFont(42);
+                          t.SetTextSize(0.06);
+                          t.DrawLatex(0.15, 0.55, "MISSING h_jet2Pt");
+                          continue;
+                        }
+
+                        TH1* hc = CloneTH1(h, TString::Format("h_jet2Pt_clone_%s_%s_%d", ds.label.c_str(), rKey.c_str(), i).Data());
+                        if (!hc) continue;
+
+                        hc->SetDirectory(nullptr);
+                        EnsureSumw2(hc);
+
+                        hc->SetTitle("");
+                        hc->SetLineWidth(2);
+                        hc->SetLineColor(kBlack);
+                        hc->SetMarkerStyle(20);
+                        hc->SetMarkerSize(0.85);
+                        hc->SetMarkerColor(kBlack);
+
+                        hc->GetXaxis()->SetTitle("p_{T}^{jet2} [GeV]");
+                        hc->GetYaxis()->SetTitle((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts");
+
+                        // log-y safety
+                        hc->SetMinimum(0.5);
+
+                        hc->Draw("E1");
+
+                        const double nTot = hc->Integral(1, hc->GetNbinsX());
+                        const double n0   = hc->GetBinContent(1); // [0,0.5): your "no jet2 -> 0" fills
+                        const double f0   = (nTot > 0.0) ? (n0 / nTot) : 0.0;
+
+                        TLatex t0;
+                        t0.SetNDC(true);
+                        t0.SetTextFont(42);
+                        t0.SetTextAlign(13);
+                        t0.SetTextSize(0.055);
+                        t0.DrawLatex(0.16, 0.80, TString::Format("P(no jet2) #approx %.3f", f0).Data());
+
+                        TLatex ptl;
+                        ptl.SetNDC(true);
+                        ptl.SetTextFont(42);
+                        ptl.SetTextAlign(13);
+                        ptl.SetTextSize(0.055);
+                        ptl.DrawLatex(0.16, 0.88, TString::Format("p_{T}^{#gamma}: %s", b.label.c_str()).Data());
+
+                        keep.push_back(hc);
+                      }
+
+                      SaveCanvas(c, JoinPath(outBaseDir, "table3x3_jet2Pt_logy_zeroFrac.png"));
+
+                      for (auto* h : keep) delete h;
+                    };
+
+                    Make3x3Table_Jet2Pt_LogZeroFrac(dirAlphaBase);
+
+                    // -----------------------------------------------------------------------------
+                    // (E) NEW: mean <N_recoil jets> vs pTgamma (sanity check: if ~1, alpha often = 0)
+                    // Output goes into the SAME alphaCuts folder as the xJ overlay.
+                    // -----------------------------------------------------------------------------
+                    {
+                      if (TProfile* pN = GetObj<TProfile>(ds, "p_nRecoilJets_vs_pTgamma_" + rKey, false, false, false))
+                      {
+                        TProfile* pc = (TProfile*)pN->Clone(
+                          TString::Format("p_nRecoilJets_clone_%s_%s", ds.label.c_str(), rKey.c_str()).Data()
+                        );
+                        if (pc)
+                        {
+                          pc->SetDirectory(nullptr);
+                          pc->SetTitle("");
+                          pc->SetLineWidth(2);
+                          pc->SetMarkerStyle(20);
+                          pc->SetMarkerSize(0.95);
+
+                          TCanvas cN(
+                            TString::Format("c_meanNrecoil_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
+                            "c_meanNrecoil", 900, 700
+                          );
+                          ApplyCanvasMargins1D(cN);
+
+                          pc->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                          pc->GetYaxis()->SetTitle("<N_{recoil jets}>");
+                          pc->SetMinimum(0.0);
+                          pc->Draw("E1");
+
+                          DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+                          DrawLatexLines(0.14,0.82,
+                            { "Mean number of recoil jets vs p_{T}^{#gamma}",
+                              rKey + TString::Format(" (R=%.1f)", R).Data() },
+                            0.030, 0.040
+                          );
+
+                          SaveCanvas(cN, JoinPath(dirAlphaBase, "profile_meanNrecoilJets_vs_pTgamma.png"));
+                          delete pc;
+                        }
+                      }
+                    }
+
+                    // -----------------------------------------------------------------------------
+                    // (F) NEW: 3x3 table of <xJ>(alpha) profiles (xJ-alpha correlation diagnostic)
+                    // Uses TH3 h_JES3_pT_xJ_alpha_<rKey>:
+                    //   - Project (xJ,alpha) at fixed pT bin
+                    //   - ProfileY => mean(xJ) vs alpha
+                    // Output goes into the SAME alphaCuts folder as the xJ overlay.
+                    // -----------------------------------------------------------------------------
+                    auto Make3x3Table_ProfileMeanxJ_vs_Alpha =
+                      [&](const TH3* h3, const string& outBaseDir)
+                    {
+                      if (!h3) return;
+
+                      const int n = h3->GetXaxis()->GetNbins();
+                      const int perPage = 9;
+                      int page = 0;
+
+                      for (int start = 1; start <= n; start += perPage)
+                      {
+                        ++page;
+
+                        TCanvas c(
+                          TString::Format("c_tbl_meanxJ_vs_alpha_%s_%s_p%d",
+                            ds.label.c_str(), rKey.c_str(), page).Data(),
+                          "c_tbl_meanxJ_vs_alpha", 1500, 1200
+                        );
+                        c.Divide(3,3,0.001,0.001);
+
+                        std::vector<TObject*> keep;
+                        keep.reserve(perPage * 2);
+
+                        for (int k = 0; k < perPage; ++k)
+                        {
+                          const int ib = start + k;
+                          c.cd(k+1);
+
+                          gPad->SetLeftMargin(0.14);
+                          gPad->SetRightMargin(0.05);
+                          gPad->SetBottomMargin(0.14);
+                          gPad->SetTopMargin(0.10);
+                          gPad->SetLogy(false);
+                          gPad->SetTicks(1,1);
+
+                          if (ib > n)
+                          {
+                            TLatex t;
+                            t.SetNDC(true);
+                            t.SetTextFont(42);
+                            t.SetTextSize(0.06);
+                            t.DrawLatex(0.20, 0.55, "EMPTY");
+                            continue;
+                          }
+
+                          // Project YZ at this pT bin: Y=xJ, Z=alpha -> TH2 with X=xJ, Y=alpha
+                          TH2* h2 = ProjectYZ_AtXbin_TH3(
+                            h3, ib,
+                            TString::Format("jes3_xJ_vs_alpha_%s_%d", rKey.c_str(), ib).Data()
+                          );
+                          if (!h2)
+                          {
+                            TLatex t;
+                            t.SetNDC(true);
+                            t.SetTextFont(42);
+                            t.SetTextSize(0.06);
+                            t.DrawLatex(0.15, 0.55, "MISSING");
+                            continue;
+                          }
+                          h2->SetDirectory(nullptr);
+                          EnsureSumw2(h2);
+
+                          // ProfileY: mean X (xJ) vs Y (alpha)
+                          TProfile* p = h2->ProfileY(
+                            TString::Format("p_meanxJ_vs_alpha_%s_%d", rKey.c_str(), ib).Data()
+                          );
+                          if (!p)
+                          {
+                            delete h2;
+                            continue;
+                          }
+                          p->SetDirectory(nullptr);
+
+                          p->SetTitle("");
+                          p->SetLineWidth(2);
+                          p->SetLineColor(kBlack);
+                          p->SetMarkerStyle(20);
+                          p->SetMarkerSize(0.85);
+                          p->SetMarkerColor(kBlack);
+
+                          p->GetXaxis()->SetTitle("#alpha");
+                          p->GetYaxis()->SetTitle("<x_{J#gamma}>");
+                          p->SetMinimum(0.0);
+                          p->SetMaximum(1.2);
+
+                          p->Draw("E1");
+
+                          const string ptLab = AxisBinLabel(h3->GetXaxis(), ib, "GeV", 0);
+                          TLatex ptl;
+                          ptl.SetNDC(true);
+                          ptl.SetTextFont(42);
+                          ptl.SetTextAlign(13);
+                          ptl.SetTextSize(0.055);
+                          ptl.DrawLatex(0.16, 0.88, TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data());
+
+                          keep.push_back(h2);
+                          keep.push_back(p);
+                        }
+
+                        string outName;
+                        if (n <= perPage)
+                          outName = "table3x3_meanxJ_vs_alphaProfile_RECO.png";
+                        else
+                          outName = TString::Format("table3x3_meanxJ_vs_alphaProfile_RECO_page%d.png", page).Data();
+
+                        SaveCanvas(c, JoinPath(outBaseDir, outName));
+
+                        for (auto* o : keep) delete o;
+                      }
+                    };
+
+                    Make3x3Table_ProfileMeanxJ_vs_Alpha(H.hReco_xJ, dirAlphaBase);
                 }
 
                 WriteTextFile(JoinPath(D.dirSumm, "summary_JES3_means.txt"), sumLines);
