@@ -1781,40 +1781,303 @@ namespace ARJ
                 tot1 += n1; tot2 += n2; tot3 += n3; tot4 += n4;
               }
 
-              // Fractions plot (existing)
-              {
-                TCanvas c("c_frac","c_frac",900,700);
-                ApplyCanvasMargins1D(c);
+                // Fractions plot (existing)
+                {
+                  TCanvas c("c_frac","c_frac",900,700);
+                  ApplyCanvasMargins1D(c);
 
-                TGraph g1(kNPtBins, &x[0], &f1[0]);
-                TGraph g2(kNPtBins, &x[0], &f2[0]);
-                TGraph g3(kNPtBins, &x[0], &f3[0]);
-                TGraph g4(kNPtBins, &x[0], &f4[0]);
+                  TGraph g1(kNPtBins, &x[0], &f1[0]);
+                  TGraph g2(kNPtBins, &x[0], &f2[0]);
+                  TGraph g3(kNPtBins, &x[0], &f3[0]);
+                  TGraph g4(kNPtBins, &x[0], &f4[0]);
 
-                g1.SetLineWidth(2); g2.SetLineWidth(2); g3.SetLineWidth(2); g4.SetLineWidth(2);
-                g1.SetMarkerStyle(20); g2.SetMarkerStyle(21); g3.SetMarkerStyle(22); g4.SetMarkerStyle(24);
-                g1.SetLineColor(1); g2.SetLineColor(2); g3.SetLineColor(4); g4.SetLineColor(6);
-                g1.SetMarkerColor(1); g2.SetMarkerColor(2); g3.SetMarkerColor(4); g4.SetMarkerColor(6);
+                  g1.SetLineWidth(2); g2.SetLineWidth(2); g3.SetLineWidth(2); g4.SetLineWidth(2);
+                  g1.SetMarkerStyle(20); g2.SetMarkerStyle(21); g3.SetMarkerStyle(22); g4.SetMarkerStyle(24);
+                  g1.SetLineColor(1); g2.SetLineColor(2); g3.SetLineColor(4); g4.SetLineColor(6);
+                  g1.SetMarkerColor(1); g2.SetMarkerColor(2); g3.SetMarkerColor(4); g4.SetMarkerColor(6);
 
-                TMultiGraph mg;
-                mg.Add(&g1, "LP"); mg.Add(&g2, "LP"); mg.Add(&g3, "LP"); mg.Add(&g4, "LP");
-                mg.Draw("A");
-                mg.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
-                mg.GetYaxis()->SetTitle("Fraction");
-                mg.SetMinimum(0.0); mg.SetMaximum(1.05);
+                  TMultiGraph mg;
+                  mg.Add(&g1, "LP"); mg.Add(&g2, "LP"); mg.Add(&g3, "LP"); mg.Add(&g4, "LP");
+                  mg.Draw("A");
+                  mg.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
+                  mg.GetYaxis()->SetTitle("Fraction");
+                  mg.SetMinimum(0.0); mg.SetMaximum(1.05);
 
-                TLegend leg(0.55,0.70,0.92,0.90);
-                leg.SetTextFont(42);
-                leg.SetTextSize(0.030);
-                leg.AddEntry(&g1, "NoJetPt", "lp");
-                leg.AddEntry(&g2, "NoJetEta", "lp");
-                leg.AddEntry(&g3, "NoBackToBack", "lp");
-                leg.AddEntry(&g4, "Matched", "lp");
-                leg.Draw();
+                  TLegend leg(0.55,0.70,0.92,0.90);
+                  leg.SetTextFont(42);
+                  leg.SetTextSize(0.030);
+                  leg.AddEntry(&g1, "NoJetPt", "lp");
+                  leg.AddEntry(&g2, "NoJetEta", "lp");
+                  leg.AddEntry(&g3, "NoBackToBack", "lp");
+                  leg.AddEntry(&g4, "Matched", "lp");
+                  leg.Draw();
 
-                DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-                DrawLatexLines(0.14,0.78, {string("Match status fractions vs p_{T}^{#gamma}"), rKey}, 0.030, 0.040);
-                SaveCanvas(c, JoinPath(D.dirProj, "match_status_fractions_vs_pTgamma.png"));
+                  DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+                  DrawLatexLines(0.14,0.78, {string("Match status fractions vs p_{T}^{#gamma}"), rKey}, 0.030, 0.040);
+                  SaveCanvas(c, JoinPath(D.dirProj, "match_status_fractions_vs_pTgamma.png"));
+                }
+
+                // 3x3 bar-table (per pT bin) of status fractions, saved into MatchQA/<rKey>/
+                {
+                  // Bin labels (Y categories in the original TH2):
+                  // 1 = NoJetPt, 2 = NoJetEta, 3 = NoBackToBack, 4 = Matched
+                  const char* xLabels[4] = {
+                    "No jet passes p_{T}^{min}",
+                    "Jet fails fiducial |#eta| < (1.1 - R)",
+                    "Jets not back-to-back with #gamma",
+                    "Valid recoil jet found"
+                  };
+
+                  // Solid colors per bar (match your request):
+                  // 1 red, 2 blue, 3 dark green, 4 dark orange
+                  const int binColors[4] = {
+                    kRed+1,
+                    kBlue+1,
+                    kGreen+2,
+                    kOrange+7
+                  };
+
+                  TCanvas ctbl("c_matchStatusBars","c_matchStatusBars",1500,1050);
+                  ctbl.Divide(3,3,0.001,0.001);
+
+                  // Keep all drawn hist objects alive until after SaveCanvas
+                  std::vector<TObject*> keep;
+                  keep.reserve(kNPtBins * 6); // axis + 4 bars (+ a little slack) per pad
+
+                  for (int i = 0; i < kNPtBins; ++i)
+                  {
+                    const PtBin& b = PtBins()[i];
+                    ctbl.cd(i+1);
+
+                    gPad->SetTicks(1,1);
+                    gPad->SetLeftMargin(0.16);
+                    gPad->SetRightMargin(0.05);
+                    gPad->SetTopMargin(0.14);
+                    gPad->SetBottomMargin(0.40);
+
+                    const double vals[4] = { f1[i], f2[i], f3[i], f4[i] };
+                    const double yMaxPlot = 1.15; // give headroom for numeric labels
+
+                    // Axis-only frame (no shading)
+                    TH1F* hAxis = new TH1F(
+                      TString::Format("h_matchStatusFracAxis_%s_%s_%d", ds.label.c_str(), rKey.c_str(), i).Data(),
+                      "",
+                      4, 0.5, 4.5
+                    );
+                    hAxis->SetDirectory(nullptr);
+                    hAxis->SetStats(0);
+                    hAxis->SetMinimum(0.0);
+                    hAxis->SetMaximum(yMaxPlot);
+
+                      for (int ib = 1; ib <= 4; ++ib)
+                      {
+                        hAxis->GetXaxis()->SetBinLabel(ib, TString::Format("%d", ib).Data());
+                      }
+
+                    hAxis->GetYaxis()->SetTitle("Fraction (within p_{T}^{#gamma} bin)");
+                    hAxis->GetXaxis()->SetTitle("");
+                    hAxis->GetXaxis()->LabelsOption("v");
+
+                    hAxis->GetYaxis()->SetTitleSize(0.07);
+                    hAxis->GetYaxis()->SetLabelSize(0.06);
+                    hAxis->GetYaxis()->SetTitleOffset(1.10);
+
+                    hAxis->GetXaxis()->SetLabelSize(0.09);
+                    hAxis->GetXaxis()->SetLabelOffset(0.015);
+
+                    hAxis->SetLineColor(kBlack);
+                    hAxis->SetLineWidth(2);
+                    hAxis->SetFillStyle(0);
+                    hAxis->Draw("hist");
+
+                    // Draw solid 2D bars (no BAR2 shading) — one per bin, colored
+                    for (int ib = 1; ib <= 4; ++ib)
+                    {
+                      TH1F* hb = new TH1F(
+                        TString::Format("h_matchStatusFracBar_%s_%s_%d_b%d",
+                          ds.label.c_str(), rKey.c_str(), i, ib).Data(),
+                        "",
+                        4, 0.5, 4.5
+                      );
+                      hb->SetDirectory(nullptr);
+                      hb->SetStats(0);
+
+                      hb->SetBinContent(ib, vals[ib-1]);
+
+                      hb->SetFillStyle(1001);
+                      hb->SetFillColor(binColors[ib-1]);
+                      hb->SetLineColor(kBlack);
+                      hb->SetLineWidth(2);
+
+                      hb->SetBarWidth(0.90);
+                      hb->SetBarOffset(0.05);
+
+                      hb->Draw("BAR SAME");
+
+                      keep.push_back(hb);
+                    }
+
+                    // Print numeric value above each bar (like table3x3_preselectionFails.png)
+                    TLatex t;
+                    t.SetTextFont(42);
+                    t.SetTextAlign(22);   // centered
+                    t.SetTextSize(0.075); // tuned for small pads
+
+                    for (int ib = 1; ib <= 4; ++ib)
+                    {
+                      const double y = vals[ib-1];
+                      if (y <= 0.0) continue;
+
+                      const double xC = hAxis->GetXaxis()->GetBinCenter(ib);
+                      const double yText = std::min(y + 0.03*yMaxPlot, 0.95*yMaxPlot);
+                      t.DrawLatex(xC, yText, TString::Format("%.2f", y).Data());
+                    }
+
+                    // pT-bin label at top of each pad
+                    DrawLatexLines(0.16, 0.90, {b.label}, 0.085, 0.10);
+
+                    keep.push_back(hAxis);
+                  }
+
+                  DrawLatexLines(0.12,0.98,
+                    { "MatchQA: per-bin status fractions (bars)", rKey + RLabel(rKey) },
+                    0.030, 0.040
+                  );
+
+                  // per-jet cutflow status fractions (NOT event-level),
+                  // using h_jetcutflow_status_vs_pTgamma_<rKey>
+                  {
+                      TH2* hJet = GetObj<TH2>(ds, "h_jetcutflow_status_vs_pTgamma_" + rKey, false, false, false);
+                      if (!hJet)
+                      {
+                        notes.push_back("Missing h_jetcutflow_status_vs_pTgamma_" + rKey);
+                      }
+                      else
+                      {
+                        vector<double> jf1(kNPtBins, 0.0), jf2(kNPtBins, 0.0), jf3(kNPtBins, 0.0), jf4(kNPtBins, 0.0);
+
+                        for (int i = 0; i < kNPtBins; ++i)
+                        {
+                          const int xbin = i+1;
+                          const double n1 = hJet->GetBinContent(xbin, 1);
+                          const double n2 = hJet->GetBinContent(xbin, 2);
+                          const double n3 = hJet->GetBinContent(xbin, 3);
+                          const double n4 = hJet->GetBinContent(xbin, 4);
+                          const double nTot = n1+n2+n3+n4;
+
+                          jf1[i] = (nTot>0)? n1/nTot : 0.0;
+                          jf2[i] = (nTot>0)? n2/nTot : 0.0;
+                          jf3[i] = (nTot>0)? n3/nTot : 0.0;
+                          jf4[i] = (nTot>0)? n4/nTot : 0.0;
+                        }
+
+                        // Reuse your same 3x3 colored bar-table style
+                        const int binColors[4] = { kRed+1, kBlue+1, kGreen+2, kOrange+7 };
+
+                        TCanvas ctblJ("c_jetCutflowBars","c_jetCutflowBars",1500,1050);
+                        ctblJ.Divide(3,3,0.001,0.001);
+
+                        std::vector<TObject*> keepJ;
+                        keepJ.reserve(kNPtBins * 6);
+
+                        for (int i = 0; i < kNPtBins; ++i)
+                        {
+                          const PtBin& b = PtBins()[i];
+                          ctblJ.cd(i+1);
+
+                          gPad->SetTicks(1,1);
+                          gPad->SetLeftMargin(0.16);
+                          gPad->SetRightMargin(0.05);
+                          gPad->SetTopMargin(0.14);
+                          gPad->SetBottomMargin(0.25);
+
+                          const double vals[4] = { jf1[i], jf2[i], jf3[i], jf4[i] };
+                          const double yMaxPlot = 1.15;
+
+                          TH1F* hAxis = new TH1F(
+                            TString::Format("h_jetCutflowAxis_%s_%s_%d", ds.label.c_str(), rKey.c_str(), i).Data(),
+                            "",
+                            4, 0.5, 4.5
+                          );
+                          hAxis->SetDirectory(nullptr);
+                          hAxis->SetStats(0);
+                          hAxis->SetMinimum(0.0);
+                          hAxis->SetMaximum(yMaxPlot);
+
+                          for (int ib = 1; ib <= 4; ++ib)
+                            hAxis->GetXaxis()->SetBinLabel(ib, TString::Format("%d", ib).Data());
+
+                          hAxis->GetYaxis()->SetTitle("Fraction of jets (within p_{T}^{#gamma} bin)");
+                          hAxis->GetXaxis()->SetTitle("");
+
+                          hAxis->GetYaxis()->SetTitleSize(0.07);
+                          hAxis->GetYaxis()->SetLabelSize(0.06);
+                          hAxis->GetYaxis()->SetTitleOffset(1.10);
+
+                          hAxis->GetXaxis()->SetLabelSize(0.11);
+                          hAxis->GetXaxis()->SetLabelOffset(0.010);
+
+                          hAxis->SetLineColor(kBlack);
+                          hAxis->SetLineWidth(2);
+                          hAxis->SetFillStyle(0);
+                          hAxis->Draw("hist");
+
+                          for (int ib = 1; ib <= 4; ++ib)
+                          {
+                            TH1F* hb = new TH1F(
+                              TString::Format("h_jetCutflowBar_%s_%s_%d_b%d",
+                                ds.label.c_str(), rKey.c_str(), i, ib).Data(),
+                              "",
+                              4, 0.5, 4.5
+                            );
+                            hb->SetDirectory(nullptr);
+                            hb->SetStats(0);
+
+                            hb->SetBinContent(ib, vals[ib-1]);
+
+                            hb->SetFillStyle(1001);
+                            hb->SetFillColor(binColors[ib-1]);
+                            hb->SetLineColor(kBlack);
+                            hb->SetLineWidth(2);
+
+                            hb->SetBarWidth(0.90);
+                            hb->SetBarOffset(0.05);
+
+                            hb->Draw("BAR SAME");
+                            keepJ.push_back(hb);
+                          }
+
+                          TLatex t;
+                          t.SetTextFont(42);
+                          t.SetTextAlign(22);
+                          t.SetTextSize(0.075);
+
+                          for (int ib = 1; ib <= 4; ++ib)
+                          {
+                            const double y = vals[ib-1];
+                            const double xC = hAxis->GetXaxis()->GetBinCenter(ib);
+                            const double yText = std::min(y + 0.03*yMaxPlot, 0.95*yMaxPlot);
+                            t.DrawLatex(xC, yText, TString::Format("%.2f", y).Data());
+                          }
+
+                          DrawLatexLines(0.16, 0.90, {b.label}, 0.085, 0.10);
+                          keepJ.push_back(hAxis);
+                        }
+
+                        DrawLatexLines(0.12,0.98,
+                          { "MatchQA: jet cutflow status fractions (per jet; not iso/tight-conditioned)",
+                            rKey + RLabel(rKey),
+                            "Bin map: 1=pT fail, 2=|#eta| fail, 3=|#Delta#phi| fail, 4=pass all" },
+                          0.030, 0.040
+                        );
+
+                        SaveCanvas(ctblJ, JoinPath(D.rOut, "jetcutflow_status_fraction_bars_3x3.png"));
+
+                        for (auto* obj : keepJ) delete obj;
+                      }
+                    }
+
+                  for (auto* obj : keep) delete obj;
               }
 
               // Efficiency-style summaries (your added functionality)
@@ -2735,51 +2998,66 @@ namespace ARJ
               const string overDir = JoinPath(baseOut, "overlays");
               EnsureDir(overDir);
 
-              vector<double> x(kNPtBins, 0.0), y02(kNPtBins, 0.0), y04(kNPtBins, 0.0);
-              for (int i = 0; i < kNPtBins; ++i)
-              {
-                const PtBin& b = PtBins()[i];
-                x[i] = 0.5*(b.lo + b.hi);
+                // x = pT bin centers; y = matched fraction; ey = binomial stat unc on fraction
+                vector<double> x(kNPtBins, 0.0), ex(kNPtBins, 0.0);
+                vector<double> y02(kNPtBins, 0.0), y04(kNPtBins, 0.0);
+                vector<double> ey02(kNPtBins, 0.0), ey04(kNPtBins, 0.0);
 
-                const double l02 = mc.NphoLead["r02"][i];
-                const double l04 = mc.NphoLead["r04"][i];
-                const double m02 = mc.NphoMatched["r02"][i];
-                const double m04 = mc.NphoMatched["r04"][i];
+                for (int i = 0; i < kNPtBins; ++i)
+                {
+                  const PtBin& b = PtBins()[i];
+                  x[i]  = 0.5*(b.lo + b.hi);
+                  ex[i] = 0.0; // (optional) could use 0.5*(b.hi - b.lo) if you want x-bin-width bars
 
-                y02[i] = (l02 > 0.0) ? (m02/l02) : 0.0;
-                y04[i] = (l04 > 0.0) ? (m04/l04) : 0.0;
-              }
+                  const double l02 = mc.NphoLead["r02"][i];
+                  const double l04 = mc.NphoLead["r04"][i];
+                  const double m02 = mc.NphoMatched["r02"][i];
+                  const double m04 = mc.NphoMatched["r04"][i];
 
-              // Matched fraction overlay (existing)
-              {
-                TCanvas c("c_ov_match","c_ov_match",900,700);
-                ApplyCanvasMargins1D(c);
+                  y02[i] = (l02 > 0.0) ? (m02/l02) : 0.0;
+                  y04[i] = (l04 > 0.0) ? (m04/l04) : 0.0;
 
-                TGraph g02(kNPtBins, &x[0], &y02[0]);
-                TGraph g04(kNPtBins, &x[0], &y04[0]);
-                g02.SetLineWidth(2); g04.SetLineWidth(2);
-                g02.SetMarkerStyle(20); g04.SetMarkerStyle(24);
-                g02.SetLineColor(1); g04.SetLineColor(2);
-                g02.SetMarkerColor(1); g04.SetMarkerColor(2);
+                  // Binomial proportion uncertainty: sqrt(p(1-p)/N)
+                  ey02[i] = (l02 > 0.0) ? std::sqrt( y02[i]*(1.0 - y02[i]) / l02 ) : 0.0;
+                  ey04[i] = (l04 > 0.0) ? std::sqrt( y04[i]*(1.0 - y04[i]) / l04 ) : 0.0;
+                }
 
-                g02.Draw("ALP");
-                g02.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
-                g02.GetYaxis()->SetTitle("Matched fraction");
-                g02.SetMinimum(0.0); g02.SetMaximum(1.05);
-                g04.Draw("LP same");
+                // Matched fraction overlay (points only + stat error bars; no connecting lines)
+                {
+                  TCanvas c("c_ov_match","c_ov_match",900,700);
+                  ApplyCanvasMargins1D(c);
 
-                TLegend leg(0.62,0.78,0.92,0.90);
-                leg.SetTextFont(42);
-                leg.SetTextSize(0.033);
-                leg.AddEntry(&g02, "r02 (R=0.2)", "lp");
-                leg.AddEntry(&g04, "r04 (R=0.4)", "lp");
-                leg.Draw();
+                  TGraphErrors ge02(kNPtBins, &x[0], &y02[0], &ex[0], &ey02[0]);
+                  TGraphErrors ge04(kNPtBins, &x[0], &y04[0], &ex[0], &ey04[0]);
 
-                DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-                DrawLatexLines(0.14,0.78, {"Overlay: Matched fraction vs p_{T}^{#gamma}"}, 0.030, 0.040);
+                  // This controls the title that showed as "Graph" before
+                  ge02.SetTitle("Recoil-Jet Match Probability (Reco, Radius-Dependent)");
 
-                SaveCanvas(c, JoinPath(overDir, "overlay_matched_fraction_r02_vs_r04.png"));
-              }
+                  ge02.SetLineWidth(2); ge04.SetLineWidth(2);
+                  ge02.SetMarkerStyle(20); ge04.SetMarkerStyle(24);
+                  ge02.SetLineColor(1);    ge04.SetLineColor(2);
+                  ge02.SetMarkerColor(1);  ge04.SetMarkerColor(2);
+
+                  // IMPORTANT: no "L" in the draw option -> no connecting lines
+                  ge02.Draw("APE1");
+                  ge02.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
+                  ge02.GetYaxis()->SetTitle("P(#geq1 jet passes as recoil for an accepeted reco #gamma)");
+                  ge02.SetMinimum(0.0); ge02.SetMaximum(1.05);
+
+                  ge04.Draw("PE1 same");
+
+                  TLegend leg(0.62,0.22,0.92,0.45);
+                  leg.SetTextFont(42);
+                  leg.SetTextSize(0.033);
+                  leg.AddEntry(&ge02, "R=0.2", "pe");
+                  leg.AddEntry(&ge04, "R=0.4", "pe");
+                  leg.Draw();
+
+                  DrawLatexLines(0.14,0.85, DefaultHeaderLines(ds), 0.038, 0.045);
+
+                  SaveCanvas(c, JoinPath(overDir, "overlay_matched_fraction_r02_vs_r04.png"));
+                }
+
 
               // mean nRecoil jets overlay if profiles exist (existing)
               {
@@ -4387,6 +4665,428 @@ namespace ARJ
                    << "[WARN] TRUTH reco-conditioned (NO jet match) overlay skipped: missing h_JES3TruthRecoCondNoJetMatch_pT_xJ_alpha_r02 or r04 in dataset " << ds.label
                    << ANSI_RESET << "\n";
             }
+
+            // =============================================================================
+            // recoSampleOverlays (RECO JES3 xJ overlays across samples)
+            //
+            // Runs ONLY when the selected SIM sample is:
+            //   allPhoton5and10and20sim  ->  SimSample::kPhotonJet5And10And20Merged
+            //
+            // Output folder structure:
+            //   <outDir>/recoSampleOverlays/r02/
+            //   <outDir>/recoSampleOverlays/r04/
+            //
+            // For EACH radius folder, produces THREE PNGs (3x3 table across pT bins):
+            //   1) 7-curve overlay: 5,10,20, (5+10), (5+20), (10+20), (5+10+20)
+            //   2) 4-curve overlay: 5,10,20, (5+10+20)
+            //   3) 3-curve overlay: (5+10), (10+20), (5+10+20)
+            // =============================================================================
+            if (ds.isSim && CurrentSimSample() == SimSample::kPhotonJet5And10And20Merged)
+            {
+              cout << ANSI_BOLD_CYN
+                   << "\n[JES3 recoSampleOverlays] Building RECO xJ overlay tables across photonJet samples...\n"
+                   << ANSI_RESET;
+
+              // Ensure the pair-merged ROOT files exist so we can overlay them.
+              // IMPORTANT: do NOT rebuild the currently-open 5+10+20 merged file.
+              auto EnsureMerged = [&](const std::string& outFile,
+                                      const std::vector<std::string>& ins,
+                                      const std::vector<double>& sigmas,
+                                      const std::vector<std::string>& labs)->bool
+              {
+                // gSystem->AccessPathName() returns true if NOT accessible (i.e. missing)
+                if (!gSystem->AccessPathName(outFile.c_str())) return true; // exists
+                return BuildMergedSIMFile_PhotonSlices(ins, sigmas, outFile, kDirSIM, labs);
+              };
+
+              // Build (if missing) the 2-slice merged files used in the overlays:
+              EnsureMerged(kMergedSIMOut_5and10,
+                           {kInSIM5, kInSIM10},
+                           {kSigmaPhoton5_pb, kSigmaPhoton10_pb},
+                           {"photonJet5", "photonJet10"});
+
+              EnsureMerged(kMergedSIMOut_5and20,
+                           {kInSIM5, kInSIM20},
+                           {kSigmaPhoton5_pb, kSigmaPhoton20_pb},
+                           {"photonJet5", "photonJet20"});
+
+              EnsureMerged(kMergedSIMOut,
+                           {kInSIM10, kInSIM20},
+                           {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+                           {"photonJet10", "photonJet20"});
+
+              const std::string base = JoinPath(outDir, "recoSampleOverlays");
+              EnsureDir(base);
+
+                struct Sample
+                {
+                  std::string legend;
+                  std::string filePath;
+                  int color = 1;
+
+                  // NEW: tag merged-vs-single so we can enforce circle markers automatically
+                  bool isMerged = false;
+
+                  TFile* f = nullptr;
+                  TDirectory* top = nullptr;
+                };
+
+                // Dark, high-contrast colors only.
+                // Marker styles are now enforced automatically (circles):
+                //   singles -> closed circle (20)
+                //   merged  -> open circle   (24)
+                std::vector<Sample> S =
+                {
+                  {"photon jet 5 GeV",            kInSIM5,                   kBlack,      false, nullptr, nullptr},
+                  {"photon jet 10 GeV",           kInSIM10,                  kRed+1,      false, nullptr, nullptr},
+                  {"photon jet 20 GeV",           kInSIM20,                  kBlue+1,     false, nullptr, nullptr},
+                  {"photon jet 5 + 10 GeV",       kMergedSIMOut_5and10,      kGreen+3,    true,  nullptr, nullptr},
+                  {"photon jet 5 + 20 GeV",       kMergedSIMOut_5and20,      kMagenta+1,  true,  nullptr, nullptr},
+                  {"photon jet 10 + 20 GeV",      kMergedSIMOut,             kOrange+7,   true,  nullptr, nullptr},
+                  {"photon jet 5 + 10 + 20 GeV",  kMergedSIMOut_5and10and20, kViolet+1,   true,  nullptr, nullptr}
+                };
+
+
+              auto CloseAll = [&]()
+              {
+                for (auto& s : S)
+                {
+                  if (s.f)
+                  {
+                    s.f->Close();
+                    s.f = nullptr;
+                    s.top = nullptr;
+                  }
+                }
+              };
+
+              auto OpenSample = [&](Sample& s)->bool
+              {
+                s.f = TFile::Open(s.filePath.c_str(), "READ");
+                if (!s.f || s.f->IsZombie())
+                {
+                  cout << ANSI_BOLD_YEL
+                       << "[WARN] recoSampleOverlays: cannot open: " << s.filePath
+                       << ANSI_RESET << "\n";
+                  if (s.f) { s.f->Close(); s.f = nullptr; }
+                  s.top = nullptr;
+                  return false;
+                }
+
+                s.top = s.f->GetDirectory(kDirSIM.c_str());
+                if (!s.top)
+                {
+                  cout << ANSI_BOLD_YEL
+                       << "[WARN] recoSampleOverlays: missing topDir '" << kDirSIM << "' in: " << s.filePath
+                       << ANSI_RESET << "\n";
+                  s.f->Close();
+                  s.f = nullptr;
+                  s.top = nullptr;
+                  return false;
+                }
+                return true;
+              };
+
+              for (auto& s : S) OpenSample(s);
+
+              auto GetTH3FromSample = [&](const Sample& s, const std::string& hname)->TH3*
+              {
+                if (!s.top) return nullptr;
+                return dynamic_cast<TH3*>(s.top->Get(hname.c_str()));
+              };
+
+                auto StyleOverlayHist =
+                  [&](TH1* h,
+                      const Sample& samp,
+                      bool forceClosedCircles,
+                      bool forceOpenCircles,
+                      int  colorOverride /* -1 means use samp.color */)
+                {
+                  if (!h) return;
+                  h->SetDirectory(nullptr);
+                  EnsureSumw2(h);
+
+                  // PURE SHAPE: normalize to unit area (proper density if variable bin widths)
+                  const int nb = h->GetNbinsX();
+                  const double area = h->Integral(1, nb, "width");
+                  if (area > 0.0) h->Scale(1.0 / area);
+
+                  const int col = (colorOverride >= 0 ? colorOverride : samp.color);
+
+                  // Circle markers enforced automatically:
+                  //   singles -> closed circle
+                  //   merged  -> open circle
+                  int mStyle = samp.isMerged ? 24 : 20;   // 24=open circle, 20=filled circle
+                  if (forceClosedCircles) mStyle = 20;
+                  if (forceOpenCircles)   mStyle = 24;
+
+                  h->SetTitle("");
+                  h->SetLineWidth(3);
+                  h->SetLineColor(col);
+
+                  h->SetMarkerStyle(mStyle);
+                  h->SetMarkerSize(1.05);
+                  h->SetMarkerColor(col);
+
+                  h->SetFillStyle(0);
+
+                  // Axes: bigger y-axis title/labels (what you asked for)
+                  h->GetXaxis()->SetTitle("x_{J#gamma}");
+                  h->GetYaxis()->SetTitle("Normalized (area = 1)");
+
+                  h->GetYaxis()->SetTitleSize(0.075);
+                  h->GetYaxis()->SetLabelSize(0.060);
+                  h->GetYaxis()->SetTitleOffset(0.95);
+
+                  h->GetXaxis()->SetTitleSize(0.070);
+                  h->GetXaxis()->SetLabelSize(0.055);
+                };
+
+
+                auto Make3x3OverlayTable =
+                  [&](const std::string& rKey,
+                      const std::string& outDirR,
+                      const std::string& outStem,
+                      const std::vector<int>& useIdx,
+                      bool forceClosedCircles = false,
+                      bool forceOpenCircles   = false)
+              {
+                EnsureDir(outDirR);
+
+                const std::string th3Name = "h_JES3_pT_xJ_alpha_" + rKey;
+
+                // Collect TH3 pointers in the same order as useIdx
+                std::vector<TH3*> H3;
+                H3.reserve(useIdx.size());
+
+                const TAxis* axPt = nullptr;
+                for (int idx : useIdx)
+                {
+                  TH3* h3 = GetTH3FromSample(S[idx], th3Name);
+                  H3.push_back(h3);
+                  if (!axPt && h3) axPt = h3->GetXaxis();
+                }
+
+                if (!axPt)
+                {
+                  cout << ANSI_BOLD_YEL
+                       << "[WARN] recoSampleOverlays: missing " << th3Name << " for all requested samples (rKey=" << rKey << ")"
+                       << ANSI_RESET << "\n";
+                  return;
+                }
+
+                const int nPt = axPt->GetNbins();
+                const int perPage = 9;
+                int page = 0;
+
+                for (int start = 1; start <= nPt; start += perPage)
+                {
+                  ++page;
+
+                  TCanvas c(
+                    TString::Format("c_recoSampleOv_%s_%s_p%d", rKey.c_str(), outStem.c_str(), page).Data(),
+                    "c_recoSampleOv", 1500, 1200
+                  );
+                  c.Divide(3,3, 0.001, 0.001);
+
+                  std::vector<TH1*> keep;
+                  keep.reserve(perPage * useIdx.size());
+
+                  for (int k = 0; k < perPage; ++k)
+                  {
+                    const int ib = start + k;
+                    c.cd(k+1);
+
+                    gPad->SetLeftMargin(0.14);
+                    gPad->SetRightMargin(0.05);
+                    gPad->SetBottomMargin(0.14);
+                    gPad->SetTopMargin(0.10);
+                    gPad->SetLogy(false);
+
+                    if (ib > nPt)
+                    {
+                      TLatex t;
+                      t.SetNDC(true);
+                      t.SetTextFont(42);
+                      t.SetTextSize(0.06);
+                      t.DrawLatex(0.20, 0.55, "EMPTY");
+                      continue;
+                    }
+
+                    const std::string ptLab = AxisBinLabel(axPt, ib, "GeV", 0);
+
+                    // Project xJ per sample
+                    std::vector<TH1*> proj;
+                    proj.reserve(useIdx.size());
+
+                    double ymax = 0.0;
+
+                    for (size_t j = 0; j < useIdx.size(); ++j)
+                    {
+                      TH3* h3 = H3[j];
+                      if (!h3)
+                      {
+                        proj.push_back(nullptr);
+                        continue;
+                      }
+
+                      const int sIdx = useIdx[j];
+
+                      TH1* hx = ProjectY_AtXbin_TH3(
+                        h3, ib,
+                        TString::Format("xJ_recoSampleOv_%s_%s_b%d_s%d", rKey.c_str(), outStem.c_str(), ib, sIdx).Data()
+                      );
+
+                      if (!hx)
+                      {
+                        proj.push_back(nullptr);
+                        continue;
+                      }
+
+                        // Special-case: for the requested 2-curve plot, force:
+                        //   photon 10+20 (idx=5)  -> open BLUE
+                        //   photon 5+10+20 (idx=6)-> open RED
+                        int colorOverride = -1;
+                        if (outStem == "recoJES3_xJ_overlays_10and20_vs_5and10and20")
+                        {
+                          if (sIdx == 5) colorOverride = kBlue+1;
+                          if (sIdx == 6) colorOverride = kRed+1;
+                        }
+
+                        StyleOverlayHist(hx, S[sIdx], forceClosedCircles, forceOpenCircles, colorOverride);
+                        ymax = std::max(ymax, hx->GetMaximum());
+
+                        proj.push_back(hx);
+                        keep.push_back(hx);
+                    }
+
+                    // Pick first drawable hist
+                    TH1* first = nullptr;
+                    for (TH1* h : proj) { if (h) { first = h; break; } }
+
+                    if (!first)
+                    {
+                      TLatex t;
+                      t.SetNDC(true);
+                      t.SetTextFont(42);
+                      t.SetTextSize(0.06);
+                      t.DrawLatex(0.15, 0.55, "MISSING");
+                      continue;
+                    }
+
+                    first->SetMaximum((ymax > 0.0) ? (ymax * 1.25) : 1.0);
+
+                    // Draw
+                    bool drawn = false;
+                    for (TH1* h : proj)
+                    {
+                      if (!h) continue;
+                      if (!drawn) { h->Draw("E1"); drawn = true; }
+                      else        { h->Draw("E1 same"); }
+                    }
+
+                      // pT label: move to TRUE top-left corner (above the curves)
+                      TLatex t;
+                      t.SetNDC(true);
+                      t.SetTextFont(42);
+                      t.SetTextAlign(13);     // left-top
+                      t.SetTextSize(0.062);
+                      t.DrawLatex(0.14, 0.965, TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data());
+
+                      // Legend (DrawClone so it never disappears due to scope)
+                      // Special-case the 2-curve plot with long legend strings:
+                      // move legend left + widen it + slightly reduce text size.
+                      const bool isTwoCurveSpecial =
+                        (outStem == "recoJES3_xJ_overlays_10and20_vs_5and10and20");
+
+                      TLegend leg(
+                        isTwoCurveSpecial ? 0.38 : 0.48,
+                        isTwoCurveSpecial ? 0.73 : 0.52,
+                        isTwoCurveSpecial ? 0.76 : 0.93,
+                        isTwoCurveSpecial ? 0.88 : 0.92
+                      );
+
+                      leg.SetTextFont(42);
+                      leg.SetTextSize(isTwoCurveSpecial ? 0.054 : (useIdx.size() >= 6 ? 0.042 : 0.052));
+                      leg.SetFillStyle(0);
+                      leg.SetBorderSize(0);
+                      leg.SetMargin(0.25);
+
+                      for (size_t j = 0; j < proj.size(); ++j)
+                      {
+                        if (!proj[j]) continue;
+                        leg.AddEntry(proj[j], S[useIdx[j]].legend.c_str(), "ep");
+                      }
+                      leg.DrawClone();
+                  }
+
+                  const std::string outName =
+                    (nPt <= perPage)
+                      ? TString::Format("table3x3_%s.png", outStem.c_str()).Data()
+                      : TString::Format("table3x3_%s_page%d.png", outStem.c_str(), page).Data();
+
+                  SaveCanvas(c, JoinPath(outDirR, outName));
+
+                  for (auto* h : keep) delete h;
+                }
+              };
+
+              // Create exactly the folder structure you requested:
+              //   recoSampleOverlays/r02 and recoSampleOverlays/r04
+              for (const auto& rKey : kRKeys)
+              {
+                const std::string outR = JoinPath(base, rKey);
+                EnsureDir(outR);
+
+                  // (1) All seven samples
+                  Make3x3OverlayTable(
+                    rKey, outR,
+                    "recoJES3_xJ_overlays_allSamples",
+                    {0, 1, 2, 3, 4, 5, 6}
+                  );
+
+                  // (2) Singles only (5, 10, 20) -> FORCE ALL CLOSED CIRCLES
+                  Make3x3OverlayTable(
+                    rKey, outR,
+                    "recoJES3_xJ_overlays_singlesOnly",
+                    {0, 1, 2},
+                    true,   // forceClosedCircles
+                    false   // forceOpenCircles
+                  );
+
+                  // (3) Singles + 5+10+20 (singles closed, merged open automatically)
+                  Make3x3OverlayTable(
+                    rKey, outR,
+                    "recoJES3_xJ_overlays_singlesPlusAllMerged",
+                    {0, 1, 2, 6}
+                  );
+
+                  // (4) (5+10), (10+20), (5+10+20) (merged open automatically)
+                  Make3x3OverlayTable(
+                    rKey, outR,
+                    "recoJES3_xJ_overlays_mergedPairsPlusAllMerged",
+                    {3, 5, 6}
+                  );
+
+                  // (5) NEW: ONLY TWO MERGED CURVES:
+                  //     photon (10+20) and photon (5+10+20), BOTH OPEN circles:
+                  //       10+20  = open BLUE
+                  //       5+10+20= open RED
+                  Make3x3OverlayTable(
+                    rKey, outR,
+                    "recoJES3_xJ_overlays_10and20_vs_5and10and20",
+                    {5, 6},
+                    false,  // forceClosedCircles
+                    true    // forceOpenCircles
+                  );
+              }
+
+              CloseAll();
+
+              cout << ANSI_BOLD_GRN
+                   << "[OK] JES3 recoSampleOverlays written under: " << base << "\n"
+                   << ANSI_RESET;
+            }
         }
 
         void RunJES3QA(Dataset& ds)
@@ -5513,6 +6213,7 @@ namespace ARJ
                 );
 
                 // RECO alpha-cut tables into subfolders (requested)
+                // + in the *parent* alphaCuts folder, write a 3x3 table overlaying ALL alpha cuts per pT bin.
                 if (H.hReco_xJ)
                 {
                   const vector<double> alphaMaxCuts = {0.20, 0.30, 0.40, 0.50};
@@ -5529,12 +6230,186 @@ namespace ARJ
                   const string dirAlphaBase = JoinPath(D.dirXJProjReco, "alphaCuts");
                   EnsureDir(dirAlphaBase);
 
+                  // (A) Existing behavior: per-alpha-cut folders with their own 3x3 tables
                   for (double aMax : alphaMaxCuts)
                   {
                     const string aDir = JoinPath(dirAlphaBase, AlphaTag(aMax));
                     EnsureDir(aDir);
                     Make3x3Table_xJ_FromTH3_AlphaCut(H.hReco_xJ, aDir, "RECO", aMax);
                   }
+
+                  // (B) NEW: One 3x3 table in the PARENT alphaCuts folder overlaying all alpha cuts
+                  // Marker requirement: circles, two open + two filled; all different colors.
+                  auto Make3x3Table_xJ_RECO_AlphaCutsOverlay =
+                    [&](const TH3* h3, const string& outBaseDir)
+                  {
+                    if (!h3) return;
+
+                    struct CutStyle
+                    {
+                      double aMax;
+                      int    color;
+                      int    marker;
+                    };
+
+                    // Two open circles (24) + two filled circles (20), all different colors
+                    const vector<CutStyle> styles =
+                    {
+                      {0.20, 2, 24}, // open circle, red
+                      {0.30, 4, 20}, // filled circle, blue
+                      {0.40, 6, 24}, // open circle, magenta
+                      {0.50, 1, 20}  // filled circle, black
+                    };
+
+                    const int n = h3->GetXaxis()->GetNbins();
+                    const int perPage = 9;
+                    int page = 0;
+
+                    for (int start = 1; start <= n; start += perPage)
+                    {
+                      ++page;
+
+                      TCanvas c(
+                        TString::Format("c_tbl_xJ_%s_%s_RECO_alphaCutsOverlay_p%d",
+                          ds.label.c_str(), rKey.c_str(), page).Data(),
+                        "c_tbl_xJ_alphaCutsOverlay", 1500, 1200
+                      );
+
+                      c.Divide(3,3, 0.001, 0.001);
+
+                      std::vector<TH1*> keep;
+                      keep.reserve(perPage * styles.size());
+
+                      for (int k = 0; k < perPage; ++k)
+                      {
+                        const int ib = start + k;
+                        c.cd(k+1);
+
+                        gPad->SetLeftMargin(0.14);
+                        gPad->SetRightMargin(0.05);
+                        gPad->SetBottomMargin(0.14);
+                        gPad->SetTopMargin(0.10);
+                        gPad->SetLogy(false);
+
+                        if (ib > n)
+                        {
+                          TLatex t;
+                          t.SetNDC(true);
+                          t.SetTextFont(42);
+                          t.SetTextSize(0.06);
+                          t.DrawLatex(0.20, 0.55, "EMPTY");
+                          continue;
+                        }
+
+                        std::vector<TH1*> hs;
+                        hs.reserve(styles.size());
+
+                        double ymax = 0.0;
+
+                        for (const auto& st : styles)
+                        {
+                          const string aTag = AlphaTag(st.aMax);
+
+                          TH1* hx = ProjectY_AtXbin_AndAlphaMax_TH3(
+                            h3, ib, st.aMax,
+                            TString::Format("jes3_xJ_tbl_%s_RECO_alphaOv_%s_b%d",
+                              rKey.c_str(), aTag.c_str(), ib).Data()
+                          );
+
+                          if (!hx)
+                          {
+                            hs.push_back(nullptr);
+                            continue;
+                          }
+
+                          hx->SetDirectory(nullptr);
+                          EnsureSumw2(hx);
+
+                          hx->SetTitle("");
+                          hx->SetLineWidth(2);
+                          hx->SetLineColor(st.color);
+                          hx->SetMarkerStyle(st.marker);
+                          hx->SetMarkerSize(0.95);
+                          hx->SetMarkerColor(st.color);
+                          hx->SetFillStyle(0);
+
+                          hx->GetXaxis()->SetTitle("x_{J#gamma}");
+                          hx->GetYaxis()->SetTitle((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts");
+
+                          ymax = std::max(ymax, hx->GetMaximum());
+
+                          hs.push_back(hx);
+                          keep.push_back(hx);
+                        }
+
+                        TH1* first = nullptr;
+                        for (auto* h : hs) { if (h) { first = h; break; } }
+
+                        if (!first)
+                        {
+                          TLatex t;
+                          t.SetNDC(true);
+                          t.SetTextFont(42);
+                          t.SetTextSize(0.06);
+                          t.DrawLatex(0.15, 0.55, "MISSING");
+                          continue;
+                        }
+
+                        first->SetMaximum((ymax > 0.0) ? (ymax * 1.25) : 1.0);
+
+                        bool drawn = false;
+                        for (auto* h : hs)
+                        {
+                          if (!h) continue;
+                          if (!drawn) { h->Draw("E1"); drawn = true; }
+                          else        { h->Draw("E1 same"); }
+                        }
+
+                        const string ptLab = AxisBinLabel(h3->GetXaxis(), ib, "GeV", 0);
+
+                        TLatex tt;
+                        tt.SetNDC(true);
+                        tt.SetTextFont(42);
+                        tt.SetTextAlign(13);
+                        tt.SetTextSize(0.055);
+                        tt.DrawLatex(0.16, 0.88,
+                          TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data()
+                        );
+
+                        TLegend leg(0.48, 0.56, 0.93, 0.92);
+                        leg.SetTextFont(42);
+                        leg.SetTextSize(0.048);
+                        leg.SetFillStyle(0);
+                        leg.SetBorderSize(0);
+
+                        for (size_t j = 0; j < styles.size(); ++j)
+                        {
+                          if (!hs[j]) continue;
+                          leg.AddEntry(hs[j],
+                            TString::Format("#alpha < %.2f", styles[j].aMax).Data(),
+                            "ep"
+                          );
+                        }
+                        leg.DrawClone();
+                      }
+
+                      string outName;
+                      if (n <= perPage)
+                      {
+                        outName = "table3x3_xJ_RECO_alphaCutsOverlay.png";
+                      }
+                      else
+                      {
+                        outName = TString::Format("table3x3_xJ_RECO_alphaCutsOverlay_page%d.png", page).Data();
+                      }
+
+                      SaveCanvas(c, JoinPath(outBaseDir, outName));
+
+                      for (auto* h : keep) delete h;
+                    }
+                  };
+
+                  Make3x3Table_xJ_RECO_AlphaCutsOverlay(H.hReco_xJ, dirAlphaBase);
                 }
 
                 WriteTextFile(JoinPath(D.dirSumm, "summary_JES3_means.txt"), sumLines);
@@ -6858,10 +7733,26 @@ namespace ARJ
   // Driver
   // =============================================================================
   namespace driver
-  {
-    inline bool OpenDataset(Dataset& ds)
     {
-      EnsureDir(ds.outBase);
+      // When running multiple SIM selections sequentially in SIM+DATA mode,
+      // we need a unique PP output base per SIM selection to avoid overwriting.
+      // If empty, PP outputs go to kOutPPBase (legacy behavior).
+      static string gPPOutBaseSubdir = "";
+
+      inline void SetPPOutBaseSubdir(const string& subdir)
+      {
+        gPPOutBaseSubdir = subdir;
+      }
+
+      inline string PPOutBaseForThisRun()
+      {
+        if (gPPOutBaseSubdir.empty()) return kOutPPBase;
+        return JoinPath(kOutPPBase, gPPOutBaseSubdir);
+      }
+
+      inline bool OpenDataset(Dataset& ds)
+      {
+        EnsureDir(ds.outBase);
 
       ds.file = TFile::Open(ds.inFilePath.c_str(), "READ");
       if (!ds.file || ds.file->IsZombie())
@@ -6929,7 +7820,12 @@ namespace ARJ
           ds.trigger    = kTriggerPP;
           ds.topDirName = kTriggerPP;
           ds.inFilePath = kInPP;
-          ds.outBase    = kOutPPBase;
+
+          // NOTE:
+          // - Legacy single-run behavior: PP output goes to kOutPPBase
+          // - Multi-run SIM+DATA behavior: PP output goes to kOutPPBase/with_<simSampleLabel>
+          ds.outBase    = PPOutBaseForThisRun();
+
           datasets.push_back(std::move(ds));
         }
 
@@ -7030,6 +7926,135 @@ namespace ARJ
            << "    bothPhoton10and20sim    = " << (bothPhoton10and20sim ? "true" : "false") << "\n"
            << "    allPhoton5and10and20sim = " << (allPhoton5and10and20sim ? "true" : "false") << "\n";
 
+      // ---------------------------------------------------------------------------
+      //  Multi-SIM sequential runner
+      //   If multiple SIM sample toggles are true, we automatically run each selected
+      //   SIM sample one-after-another (SIM_ONLY or SIM+DATA_PP).
+      //   Each run is executed with exactly ONE SIM sample enabled so the rest of the
+      //   pipeline remains unchanged.
+      // ---------------------------------------------------------------------------
+      auto RequestedSamplesFromFlags = [&]() -> vector<SimSample>
+      {
+        vector<SimSample> v;
+
+        // Order matters (matches the way you'd normally run these by hand):
+        //   singles (5,10,20) -> pair merges -> 3-way merge
+        if (isPhotonJet5)            v.push_back(SimSample::kPhotonJet5);
+        if (isPhotonJet10)           v.push_back(SimSample::kPhotonJet10);
+        if (isPhotonJet20)           v.push_back(SimSample::kPhotonJet20);
+        if (bothPhoton5and10sim)     v.push_back(SimSample::kPhotonJet5And10Merged);
+        if (bothPhoton5and20sim)     v.push_back(SimSample::kPhotonJet5And20Merged);
+        if (bothPhoton10and20sim)    v.push_back(SimSample::kPhotonJet10And20Merged);
+        if (allPhoton5and10and20sim) v.push_back(SimSample::kPhotonJet5And10And20Merged);
+
+        return v;
+      };
+
+      static bool sInMultiRun = false;
+
+      const vector<SimSample> requested = RequestedSamplesFromFlags();
+
+      if (!sInMultiRun)
+      {
+        // Clear any stale override from a previous call in the same ROOT session.
+        driver::SetPPOutBaseSubdir("");
+
+        // Multi-run is only meaningful for SIM-including modes.
+        if (!isPPdataOnly && requested.size() > 1)
+        {
+          cout << ANSI_BOLD_CYN
+               << "\n[INFO] Multiple SIM sample toggles are TRUE (N=" << requested.size() << ").\n"
+               << "       Will run each selected SIM sample sequentially in mode: "
+               << (isSimAndDataPP ? "SIM_AND_DATA_PP" : "SIM_ONLY")
+               << "\n"
+               << ANSI_RESET;
+
+          // Save original flags so we can restore at the end.
+          const bool o_isPhotonJet5            = isPhotonJet5;
+          const bool o_isPhotonJet10           = isPhotonJet10;
+          const bool o_isPhotonJet20           = isPhotonJet20;
+          const bool o_bothPhoton5and10sim     = bothPhoton5and10sim;
+          const bool o_bothPhoton5and20sim     = bothPhoton5and20sim;
+          const bool o_bothPhoton10and20sim    = bothPhoton10and20sim;
+          const bool o_allPhoton5and10and20sim = allPhoton5and10and20sim;
+
+          auto ClearAllSimFlags = [&]()
+          {
+            isPhotonJet5            = false;
+            isPhotonJet10           = false;
+            isPhotonJet20           = false;
+            bothPhoton5and10sim     = false;
+            bothPhoton5and20sim     = false;
+            bothPhoton10and20sim    = false;
+            allPhoton5and10and20sim = false;
+          };
+
+          auto SetFlagsForSample = [&](SimSample s)
+          {
+            ClearAllSimFlags();
+            switch (s)
+            {
+              case SimSample::kPhotonJet5:                 isPhotonJet5 = true; break;
+              case SimSample::kPhotonJet10:                isPhotonJet10 = true; break;
+              case SimSample::kPhotonJet20:                isPhotonJet20 = true; break;
+              case SimSample::kPhotonJet5And10Merged:      bothPhoton5and10sim = true; break;
+              case SimSample::kPhotonJet5And20Merged:      bothPhoton5and20sim = true; break;
+              case SimSample::kPhotonJet10And20Merged:     bothPhoton10and20sim = true; break;
+              case SimSample::kPhotonJet5And10And20Merged: allPhoton5and10and20sim = true; break;
+              default: break;
+            }
+          };
+
+          int worstRc = 0;
+
+          sInMultiRun = true;
+          for (size_t i = 0; i < requested.size(); ++i)
+          {
+            const SimSample s = requested[i];
+
+            cout << ANSI_BOLD_CYN
+                 << "\n============================================================\n"
+                 << "[MULTI-RUN " << (i + 1) << "/" << requested.size() << "] SIM sample: " << SimSampleLabel(s) << "\n"
+                 << "============================================================\n"
+                 << ANSI_RESET;
+
+            SetFlagsForSample(s);
+
+            // If we are doing SIM+DATA, avoid overwriting PP outputs across runs.
+            // PP outputs will go under:
+            //   kOutPPBase/with_<SimSampleLabel(s)>/
+            if (isSimAndDataPP)
+            {
+              driver::SetPPOutBaseSubdir(string("with_") + SimSampleLabel(s));
+            }
+            else
+            {
+              driver::SetPPOutBaseSubdir("");
+            }
+
+            const int rc = Run();  // recursion into the single-sample path
+            if (rc != 0) worstRc = rc;
+          }
+
+          // Restore original flags
+          isPhotonJet5            = o_isPhotonJet5;
+          isPhotonJet10           = o_isPhotonJet10;
+          isPhotonJet20           = o_isPhotonJet20;
+          bothPhoton5and10sim     = o_bothPhoton5and10sim;
+          bothPhoton5and20sim     = o_bothPhoton5and20sim;
+          bothPhoton10and20sim    = o_bothPhoton10and20sim;
+          allPhoton5and10and20sim = o_allPhoton5and10and20sim;
+
+          driver::SetPPOutBaseSubdir("");
+          sInMultiRun = false;
+
+          return worstRc;
+        }
+      }
+
+      // ---------------------------------------------------------------------------
+      // Normal single-sample path (legacy behavior)
+      // ---------------------------------------------------------------------------
       string cfgErr;
       if (!ValidateRunConfig(&cfgErr))
       {
