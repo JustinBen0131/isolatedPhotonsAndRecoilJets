@@ -573,13 +573,22 @@ private:
   TH2F* getOrBookUnfoldTruthMatchedPtXJIncl      (const std::string& trig, const std::string& rKey, int centIdx);
   TH2F* getOrBookUnfoldRecoMatchedPtXJIncl       (const std::string& trig, const std::string& rKey, int centIdx);
   TH2F* getOrBookUnfoldRecoFakesPtXJIncl_typeA   (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookUnfoldRecoFakesPtXJIncl_typeB   (I’mer (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookUnfoldRecoFakesPtXJIncl_typeB   (const std::string& trig, const std::string& rKey, int centIdx);
   TH2F* getOrBookUnfoldTruthMissesPtXJIncl_typeA (const std::string& trig, const std::string& rKey, int centIdx);
   TH2F* getOrBookUnfoldTruthMissesPtXJIncl_typeB (const std::string& trig, const std::string& rKey, int centIdx);
 
   // jet-match QA (SIM only): match ΔR and pT response for matched recoil jets
   TH1F* getOrBookUnfoldJetMatchDR           (const std::string& trig, const std::string& rKey, int centIdx);
   TH2F* getOrBookUnfoldJetPtResponsePtTruth (const std::string& trig, const std::string& rKey, int centIdx);
+
+  // additional JES diagnostics (SIM only):
+  //  - ALL matched fiducial jet pairs (no recoil/truth recoil-selection gating)
+  //  - lead recoil jet1-only response + ΔR sanity
+  //  - lead recoil jet1 scatter: pT(reco) vs pT(truth)
+  TH2F* getOrBookUnfoldJetPtResponseAllPtTruth   (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookLeadRecoilJetPtResponsePtTruth  (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookLeadRecoilJetPtTruthPtReco      (const std::string& trig, const std::string& rKey, int centIdx);
+  TH1F* getOrBookLeadRecoilJetMatchDR            (const std::string& trig, const std::string& rKey, int centIdx);
 
   // -------------------------------------------------------------------------
   // (SIM ONLY): JES3-style *leading truth recoil jet1* match bookkeeping vs truth pT^gamma

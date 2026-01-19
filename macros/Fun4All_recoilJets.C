@@ -67,6 +67,7 @@
 #include <cstdlib>     // getenv
 #include <algorithm>   // std::transform
 #include <cctype>      // std::tolower
+#include <iomanip>     // std::setw, std::setprecision
 #include <dlfcn.h>     // dlopen RTLD_NOLOAD
 #include <TSystem.h>   // gSystem, GetBuildArch/Compiler info
 #include <Calo_Calib.C>
@@ -300,6 +301,108 @@ class TowerAudit final : public SubsysReco
   int m_maxPrint = 5;
   int m_evt = 0;
 };
+
+
+
+class JetCalibOneEventProbe final : public SubsysReco
+{
+ public:
+  JetCalibOneEventProbe(const std::string& name,
+                        const std::string& rawNode,
+                        const std::string& calibNode,
+                        int maxJetsToPrint = 12)
+    : SubsysReco(name)
+    , m_rawNode(rawNode)
+    , m_calibNode(calibNode)
+    , m_maxJets(maxJetsToPrint)
+  {}
+
+  int process_event(PHCompositeNode* topNode) override
+  {
+    // Hard gate: ONLY show anything at ultra-verbose
+    if (Verbosity() < 20) return Fun4AllReturnCodes::EVENT_OK;
+
+    // Print only once for the whole job
+    if (m_fired) return Fun4AllReturnCodes::EVENT_OK;
+
+    auto* raw   = findNode::getClass<JetContainer>(topNode, m_rawNode);
+    auto* calib = findNode::getClass<JetContainer>(topNode, m_calibNode);
+
+    // Only trigger when both exist and actually have jets
+    if (!raw || !calib) return Fun4AllReturnCodes::EVENT_OK;
+    if (raw->size() == 0 || calib->size() == 0) return Fun4AllReturnCodes::EVENT_OK;
+
+    // Optional: grab z-vertex JetCalib uses (GlobalVertexMap/MBD z)
+    float zvtx = -999.0f;
+    auto* vtxmap = findNode::getClass<GlobalVertexMap>(topNode, "GlobalVertexMap");
+    if (vtxmap && !vtxmap->empty())
+    {
+      GlobalVertex* vtx = vtxmap->begin()->second;
+      if (vtx)
+      {
+        auto mbdStart = vtx->find_vertexes(GlobalVertex::MBD);
+        auto mbdEnd   = vtx->end_vertexes();
+        for (auto it = mbdStart; it != mbdEnd; ++it)
+        {
+          const auto& [type, vec] = *it;
+          if (type != GlobalVertex::MBD) continue;
+          for (const auto* vv : vec)
+          {
+            if (!vv) continue;
+            zvtx = vv->get_z();
+          }
+        }
+      }
+    }
+
+    const int nRaw   = (int) raw->size();
+    const int nCalib = (int) calib->size();
+    const int nPrint = std::min({m_maxJets, nRaw, nCalib});
+
+    std::cout << "\n====================================================================\n";
+    std::cout << "[JES PROBE] One-event before/after JetCalib\n";
+    std::cout << "  rawNode   = " << m_rawNode   << " (n=" << nRaw   << ")\n";
+    std::cout << "  calibNode = " << m_calibNode << " (n=" << nCalib << ")\n";
+    std::cout << "  zvtx(MBD) = " << std::fixed << std::setprecision(2) << zvtx << " cm\n";
+    std::cout << "--------------------------------------------------------------------\n";
+    std::cout << "  i |   pt_raw   eta_raw   phi_raw  ||   pt_cal   eta_cal   phi_cal  ||  scale\n";
+    std::cout << "----+---------------------------------------------------------------+--------\n";
+
+    for (int i = 0; i < nPrint; ++i)
+    {
+      const Jet* jr = raw->get_jet(i);
+      const Jet* jc = calib->get_jet(i);
+      if (!jr || !jc) continue;
+
+      const float pr = jr->get_pt();
+      const float pc = jc->get_pt();
+      const float sc = (pr > 0.0f) ? (pc / pr) : -1.0f;
+
+      std::cout
+        << std::setw(3) << i << " | "
+        << std::setw(8) << std::fixed << std::setprecision(3) << pr << " "
+        << std::setw(8) << std::setprecision(3) << jr->get_eta() << " "
+        << std::setw(8) << std::setprecision(3) << jr->get_phi() << " || "
+        << std::setw(8) << std::setprecision(3) << pc << " "
+        << std::setw(8) << std::setprecision(3) << jc->get_eta() << " "
+        << std::setw(8) << std::setprecision(3) << jc->get_phi() << " || "
+        << std::setw(6) << std::setprecision(3) << sc
+        << "\n";
+    }
+
+    std::cout << "====================================================================\n\n";
+
+    m_fired = true;
+    return Fun4AllReturnCodes::EVENT_OK;
+  }
+
+ private:
+  std::string m_rawNode;
+  std::string m_calibNode;
+  int m_maxJets = 12;
+  bool m_fired = false;
+};
+
 
 
 //======================================================================
@@ -828,19 +931,21 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   // Many pp DSTs do NOT have it, so JetCalib aborts unless we create it.
   // We register EnsureJetCalibNodes once (only when we intend to run JetCalib).
   //
-  const bool doJetCalibAny = (!isAuAuData && !isSim);
-  if (doJetCalibAny)
-  {
-      auto* ensure = new EnsureJetCalibNodes("EnsureJetCalibNodes_forJES");
-      // keep this modest; set RJ_JETCALIB_NODE_VERBOSE=1 for prints
-      int nodeV = 0;
-      if (const char* env = std::getenv("RJ_JETCALIB_NODE_VERBOSE")) nodeV = std::atoi(env);
-      ensure->Verbosity(nodeV);
-      se->registerSubsystem(ensure);
+    // Apply pp JES calibration for ALL pp-style running (pp data AND isSim).
+    // Keep Au+Au excluded.
+    const bool doJetCalibAny = (!isAuAuData);
+    if (doJetCalibAny)
+    {
+        auto* ensure = new EnsureJetCalibNodes("EnsureJetCalibNodes_forJES");
+        // keep this modest; set RJ_JETCALIB_NODE_VERBOSE=1 for prints
+        int nodeV = 0;
+        if (const char* env = std::getenv("RJ_JETCALIB_NODE_VERBOSE")) nodeV = std::atoi(env);
+        ensure->Verbosity(nodeV);
+        se->registerSubsystem(ensure);
 
-      if (vlevel > 0)
-        std::cout << "[INFO] JES: enabling JetCalib => ensuring DST/TOWER exists (JetCalib requirement)\n";
-  }
+        if (vlevel > 0)
+          std::cout << "[INFO] JES: enabling JetCalib (pp-style: pp data + isSim) => ensuring DST/TOWER exists\n";
+    }
 
   // Optional: control JetCalib verbosity independently
   int jetcalV = 1; // default: show InitRun/process_event messages
@@ -859,7 +964,8 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
       const std::string calibNode = jnm.pp_node;
 
       // Apply JES calibration for pp-like chains (pp data + pp-style SIM)
-      const bool doJetCalib = (!isAuAuData && !isSim);
+      // Run pp JES calibration in BOTH pp data and isSim (pp-style chains)
+      const bool doJetCalib = (!isAuAuData);
 
       // If calibrating: build RAW jets to a separate node to avoid name collision
       const std::string rawNode = doJetCalib ? (calibNode + "_RAW") : calibNode;
@@ -907,6 +1013,16 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
 
         jcal->Verbosity(jetcalV);
         se->registerSubsystem(jcal);
+
+        // ------------------------------------------------------------
+        // Targeted JES probe: prints ONCE, ONLY if Verbosity() >= 20
+        // ------------------------------------------------------------
+        auto* probe = new JetCalibOneEventProbe(std::string("JetCalibOneEventProbe_") + radKey,
+                                               rawNode,
+                                               calibNode,
+                                               /*maxJetsToPrint=*/12);
+        probe->Verbosity(vlevel);  // uses your RJ_VERBOSITY; probe prints only if >=20
+        se->registerSubsystem(probe);
 
         if (vlevel > 0)
         {
