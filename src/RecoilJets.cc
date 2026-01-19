@@ -2072,6 +2072,13 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
 
   for (const auto& trigShort : activeTrig)
   {
+    // IMPORTANT:
+    // recoMatched/truthMatched must be per-trigger bookkeeping because we fill a
+    // complete set of histograms per trigger. If activeTrig has multiple entries,
+    // we must reset these flags each iteration to avoid cross-trigger state leakage.
+    std::fill(recoMatched.begin(), recoMatched.end(), 0);
+    std::fill(truthMatched.begin(), truthMatched.end(), 0);
+
     auto* h2Reco  = getOrBookUnfoldRecoPtXJIncl(trigShort, rKey, effCentIdx_M);
     auto* h2Truth = getOrBookUnfoldTruthPtXJIncl(trigShort, rKey, effCentIdx_M);
     auto* hRsp    = getOrBookUnfoldResponsePtXJIncl(trigShort, rKey, effCentIdx_M);

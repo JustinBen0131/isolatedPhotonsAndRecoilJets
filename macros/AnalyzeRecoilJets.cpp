@@ -8236,7 +8236,15 @@ namespace ARJ
           // NOTE:
           // - Legacy single-run behavior: PP output goes to kOutPPBase
           // - Multi-run SIM+DATA behavior: PP output goes to kOutPPBase/with_<simSampleLabel>
-          ds.outBase    = PPOutBaseForThisRun();
+          // - PP DATA-ONLY behavior: route everything under kOutPPBase/dataOnly_<trigger>/
+          if (mode == RunMode::kPPDataOnly)
+          {
+            ds.outBase = JoinPath(kOutPPBase, string("dataOnly_") + ds.trigger);
+          }
+          else
+          {
+            ds.outBase = PPOutBaseForThisRun();
+          }
 
           datasets.push_back(std::move(ds));
         }

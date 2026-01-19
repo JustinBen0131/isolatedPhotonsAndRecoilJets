@@ -158,7 +158,7 @@ namespace ARJ
 //   - For single-slice SIM, y-axes remain raw "Counts" (unweighted).
 // =============================================================================
 
-  inline bool isPPdataOnly   = false;
+  inline bool isPPdataOnly   = true;
   inline bool isSimAndDataPP = false;
 
   // SIM sample selection toggles (choose EXACTLY ONE for any SIM-including run)
@@ -170,7 +170,7 @@ namespace ARJ
   inline bool bothPhoton5and20sim        = false;
   inline bool bothPhoton10and20sim       = false;
 
-  inline bool allPhoton5and10and20sim    = true;
+  inline bool allPhoton5and10and20sim    = false;
 
   // True if the selected SIM sample is a weighted multi-slice merge (hist units become ~pb/bin)
   inline bool IsWeightedSIMSelected()
