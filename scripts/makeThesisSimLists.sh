@@ -86,19 +86,65 @@ ts() { date '+%Y-%m-%d %H:%M:%S'; }
 DEBUG="${DEBUG:-false}"
 [[ "$DEBUG" == "1" ]] && DEBUG="true"
 
-# IMPORTANT: send INFO to STDERR so it doesn't get captured by mapfile/process-substitution.
-say()  { if [[ "$VERBOSE" == "true" ]]; then echo "[INFO $(ts)] $*" >&2; fi; }
-dbg()  { if [[ "$DEBUG" == "true" ]]; then echo "[DBG  $(ts)] $*" >&2; fi; }
-warn() { echo "[WARN $(ts)] $*" >&2; }
-die()  { echo "[ERR  $(ts)] $*" >&2; exit 1; }
+# ANSI color (stderr only). Auto-disables if stderr isn't a TTY or NO_COLOR is set.
+USE_COLOR="true"
+if [[ ! -t 2 || -n "${NO_COLOR:-}" ]]; then USE_COLOR="false"; fi
+
+if [[ "$USE_COLOR" == "true" ]]; then
+  C_RESET=$'\033[0m'
+  C_BOLD=$'\033[1m'
+  C_DIM=$'\033[2m'
+  C_RED=$'\033[31m'
+  C_GRN=$'\033[32m'
+  C_YLW=$'\033[33m'
+  C_BLU=$'\033[34m'
+  C_MAG=$'\033[35m'
+  C_CYN=$'\033[36m'
+  C_WHT=$'\033[37m'
+else
+  C_RESET=""; C_BOLD=""; C_DIM=""
+  C_RED=""; C_GRN=""; C_YLW=""
+  C_BLU=""; C_MAG=""; C_CYN=""; C_WHT=""
+fi
+
 # Pretty separator + step counter (all output goes to STDERR)
 RULE_W=79
-rule() { printf '%*s\n' "$RULE_W" '' | tr ' ' '-' >&2; }
+hr() { printf "%b%s%b\n" "$C_DIM" "$(printf '%*s' "$RULE_W" '' | tr ' ' '-')" "$C_RESET" >&2; }
+rule() { hr; }  # backward-compatible with your existing calls
+
+_log() {
+  local tag="$1"; shift
+  local color="$1"; shift
+  printf "%b[%s %s]%b %s\n" "${color}${C_BOLD}" "$tag" "$(ts)" "$C_RESET" "$*" >&2
+}
+
+say() {
+  if [[ "$VERBOSE" == "true" ]]; then
+    _log "INFO" "$C_CYN" "$*"
+  fi
+  return 0
+}
+
+ok() {
+  if [[ "$VERBOSE" == "true" ]]; then
+    _log "OK  " "$C_GRN" "$*"
+  fi
+  return 0
+}
+
+dbg() {
+  if [[ "$DEBUG" == "true" ]]; then
+    _log "DBG " "$C_MAG" "$*"
+  fi
+  return 0
+}
+warn() { _log "WARN" "$C_YLW" "$*"; }
+die()  { _log "ERR " "$C_RED" "$*"; exit 1; }
 
 STEP=0
 step() {
   STEP=$((STEP + 1))
-  printf '[STEP %02d] %s\n' "$STEP" "$*" >&2
+  printf "%b==>%b %b[%02d]%b %s\n" "$C_BLU" "$C_RESET" "$C_BOLD" "$STEP" "$C_RESET" "$*" >&2
 }
 
 # Safe line counter (never trips set -e)
@@ -258,7 +304,8 @@ pair_check() {
   local report="${outdir}/pair_report.txt"
   : > "$report"
 
-  say "Pairing check (anchor=${anchor}) → ${report}"
+  say "Pairing: anchor=${anchor}  report=$(basename "$report")"
+  dbg "Pair report path: $report"
 
   local anchor_list="${outdir}/${anchor}"
   [[ -s "$anchor_list" ]] || die "Anchor list missing/empty: ${anchor_list}"
@@ -289,7 +336,13 @@ pair_check() {
     { k=key_of($0); print k "\t" $0 }' "$anchor_list" > "${tmpdir}/${anchor_base}.map"
 
   local a_count; a_count=$(wc -l < "${tmpdir}/${anchor_base}.keys" | tr -d ' ')
-  printf "ANCHOR: %s  keys=%d\n" "$anchor" "$a_count" | tee -a "$report"
+  printf "ANCHOR: %s  keys=%d\n" "$anchor" "$a_count" >> "$report"
+
+  # Terminal header table
+  if [[ "$VERBOSE" == "true" ]]; then
+    printf "%b%-9s%b %-22s  %s\n" "$C_DIM" "STATUS" "$C_RESET" "LIST" "common/anchor (pct)   miss  extra" >&2
+    printf "%b%-9s%b %-22s  %s\n" "$C_DIM" "--------" "$C_RESET" "----------------------" "------------------------------" >&2
+  fi
 
   # common_all starts as anchor.keys, then intersect with each other.keys
   cp -f "${tmpdir}/${anchor_base}.keys" "${tmpdir}/common_all.keys"
@@ -327,7 +380,7 @@ pair_check() {
 
     MAP["${obase}"]="${tmpdir}/${obase}.map"
 
-    # reporting vs ANCHOR (not vs common_all)
+    # reporting vs ANCHOR
     comm -12 "${tmpdir}/${anchor_base}.keys" "${tmpdir}/${obase}.keys" > "${tmpdir}/common_${obase}.keys"
     comm -23 "${tmpdir}/${anchor_base}.keys" "${tmpdir}/${obase}.keys" > "${tmpdir}/missing_in_${obase}.keys"
     comm -13 "${tmpdir}/${anchor_base}.keys" "${tmpdir}/${obase}.keys" > "${tmpdir}/extra_in_${obase}.keys"
@@ -337,19 +390,49 @@ pair_check() {
     m_count=$(wc -l < "${tmpdir}/missing_in_${obase}.keys" | tr -d ' ')
     e_count=$(wc -l < "${tmpdir}/extra_in_${obase}.keys" | tr -d ' ')
 
-    printf "LIST  : %s  common=%d / %d (%.1f%%)  missing=%d  extra=%d\n" \
-      "$oname" "$c_count" "$a_count" \
-      "$(awk -v c="$c_count" -v a="$a_count" 'BEGIN{if(a>0) printf("%.1f",100*c/a); else print "0.0"}')" \
-      "$m_count" "$e_count" | tee -a "$report"
+    local pct
+    pct="$(awk -v c="$c_count" -v a="$a_count" 'BEGIN{if(a>0) printf("%.1f",100*c/a); else print "0.0"}')"
 
-    # write missing keys file + sample (useful diagnostics)
+    printf "LIST  : %s  common=%d / %d (%s%%)  missing=%d  extra=%d\n" \
+      "$oname" "$c_count" "$a_count" "$pct" "$m_count" "$e_count" >> "$report"
+
+    # Terminal: compact status row
+    if [[ "$VERBOSE" == "true" ]]; then
+      local badge="[OK]"
+      local bcol="$C_GRN"
+      if (( m_count > 0 )); then
+        badge="[MISS]"
+        bcol="$C_RED"
+      elif (( e_count > 0 )); then
+        badge="[EXTRA]"
+        bcol="$C_YLW"
+      fi
+      printf "%b%-9s%b %-22s  %3d/%3d (%5s%%)   %4d  %5d\n" \
+        "$bcol" "$badge" "$C_RESET" "$oname" "$c_count" "$a_count" "$pct" "$m_count" "$e_count" >&2
+    fi
+
+    # Persist missing keys (if any)
     if (( m_count > 0 )); then
       local miss_keys_out="${outdir}/missing_in_${obase}.keys"
       cp -f "${tmpdir}/missing_in_${obase}.keys" "$miss_keys_out"
-      printf "  missing-keys file → %s\n" "$miss_keys_out" | tee -a "$report"
-      printf "  sample missing → " | tee -a "$report"
-      head -n 8 "${tmpdir}/missing_in_${obase}.keys" | paste -sd',' - | tee -a "$report"
-      echo | tee -a "$report"
+      printf "  missing-keys file -> %s\n" "$miss_keys_out" >> "$report"
+      printf "%b  missing-keys%b file -> %s\n" "$C_RED" "$C_RESET" "$miss_keys_out" >&2
+
+      if [[ "$DEBUG" == "true" ]]; then
+        printf "%b  sample missing:%b %s\n" "$C_RED" "$C_RESET" "$(head -n 8 "$miss_keys_out" | paste -sd',' -)" >&2
+      fi
+    fi
+
+    # Persist extra keys (if any)
+    if (( e_count > 0 )); then
+      local extra_keys_out="${outdir}/extra_in_${obase}.keys"
+      cp -f "${tmpdir}/extra_in_${obase}.keys" "$extra_keys_out"
+      printf "  extra-keys file -> %s\n" "$extra_keys_out" >> "$report"
+      printf "%b  extra-keys%b  file -> %s\n" "$C_YLW" "$C_RESET" "$extra_keys_out" >&2
+
+      if [[ "$DEBUG" == "true" ]]; then
+        printf "%b  sample extra:%b %s\n" "$C_YLW" "$C_RESET" "$(head -n 8 "$extra_keys_out" | paste -sd',' -)" >&2
+      fi
     fi
 
     # dropped-from-anchor paths (anchor keys missing in this other list)
@@ -364,9 +447,12 @@ pair_check() {
 
   local common_all_count
   common_all_count=$(wc -l < "${tmpdir}/common_all.keys" | tr -d ' ')
-  printf "COMMON(all lists): keys=%d\n" "$common_all_count" | tee -a "$report"
+  printf "COMMON(all lists): keys=%d\n" "$common_all_count" >> "$report"
 
   (( common_all_count > 0 )) || die "No common segment keys across ALL lists in ${outdir}. See: ${report}"
+
+  ok "Pairing OK: common keys across ALL required lists = ${common_all_count}"
+  dbg "Report: ${report}"
 
   # ---------------- Write matched lists (aligned to common_all) ----------------
   local anchor_matched="${outdir}/${anchor_base}.matched.list"
@@ -400,8 +486,6 @@ pair_check() {
   done
 
   # ---------------- Optional: 3-column triplets lists (aligned to common_all) ----------------
-
-  # (A) Calo + G4Hits + Jets  (your existing convenience output)
   if [[ -n "${MAP[G4Hits]:-}" && -n "${MAP[DST_JETS]:-}" ]]; then
     local tripA="${outdir}/${anchor_base}__G4Hits__DST_JETS.triplets.list"
     awk '
@@ -417,7 +501,6 @@ pair_check() {
       }' "${tmpdir}/common_all.keys" "${MAP[$anchor_base]}" "${MAP[G4Hits]}" "${MAP[DST_JETS]}" > "$tripA"
   fi
 
-  # (B) Calo + Global + MBD_EPD  (vertex-friendly convenience output)
   if [[ -n "${MAP[DST_GLOBAL]:-}" && -n "${MAP[DST_MBD_EPD]:-}" ]]; then
     local tripB="${outdir}/${anchor_base}__DST_GLOBAL__DST_MBD_EPD.triplets.list"
     awk '
@@ -433,31 +516,47 @@ pair_check() {
       }' "${tmpdir}/common_all.keys" "${MAP[$anchor_base]}" "${MAP[DST_GLOBAL]}" "${MAP[DST_MBD_EPD]}" > "$tripB"
   fi
 
-  # ---------------- Report what we produced ----------------
-  printf "MATCHED OUTPUTS (common across ALL lists):\n" | tee -a "$report"
-  printf "  %s (%d)\n" "$(basename "$anchor_matched")" "$(wc -l < "$anchor_matched" | tr -d ' ')" | tee -a "$report"
-  for oname in "${others[@]}"; do
-    local obase="${oname%.list}"
-    local other_matched="${outdir}/${obase}.matched.list"
-    printf "  %s (%d)\n" "$(basename "$other_matched")" "$(wc -l < "$other_matched" | tr -d ' ')" | tee -a "$report"
-  done
+  # ---------------- Report what we produced (FILE ONLY; keep it clean) ----------------
+  {
+    echo ""
+    echo "MATCHED OUTPUTS (common across ALL lists):"
+    printf "  %s (%d)\n" "$(basename "$anchor_matched")" "$(wc -l < "$anchor_matched" | tr -d ' ')"
+    for oname in "${others[@]}"; do
+      local obase="${oname%.list}"
+      local other_matched="${outdir}/${obase}.matched.list"
+      printf "  %s (%d)\n" "$(basename "$other_matched")" "$(wc -l < "$other_matched" | tr -d ' ')"
+    done
 
-  printf "PAIR/TRIPLET LISTS:\n" | tee -a "$report"
-  for oname in "${others[@]}"; do
-    local obase="${oname%.list}"
-    local pairfile="${outdir}/${anchor_base}__${obase}.pairs.list"
-    printf "  %s (%d)\n" "$(basename "$pairfile")" "$(wc -l < "$pairfile" | tr -d ' ')" | tee -a "$report"
-  done
-  if [[ -f "${outdir}/${anchor_base}__G4Hits__DST_JETS.triplets.list" ]]; then
-    printf "  %s (%d)\n" "$(basename "${outdir}/${anchor_base}__G4Hits__DST_JETS.triplets.list")" \
-      "$(wc -l < "${outdir}/${anchor_base}__G4Hits__DST_JETS.triplets.list" | tr -d ' ')" | tee -a "$report"
-  fi
+    echo "PAIR/TRIPLET LISTS:"
+    for oname in "${others[@]}"; do
+      local obase="${oname%.list}"
+      local pairfile="${outdir}/${anchor_base}__${obase}.pairs.list"
+      printf "  %s (%d)\n" "$(basename "$pairfile")" "$(wc -l < "$pairfile" | tr -d ' ')"
+    done
+
+    if [[ -f "${outdir}/${anchor_base}__G4Hits__DST_JETS.triplets.list" ]]; then
+      printf "  %s (%d)\n" "$(basename "${outdir}/${anchor_base}__G4Hits__DST_JETS.triplets.list")" \
+        "$(wc -l < "${outdir}/${anchor_base}__G4Hits__DST_JETS.triplets.list" | tr -d ' ')"
+    fi
+    if [[ -f "${outdir}/${anchor_base}__DST_GLOBAL__DST_MBD_EPD.triplets.list" ]]; then
+      printf "  %s (%d)\n" "$(basename "${outdir}/${anchor_base}__DST_GLOBAL__DST_MBD_EPD.triplets.list")" \
+        "$(wc -l < "${outdir}/${anchor_base}__DST_GLOBAL__DST_MBD_EPD.triplets.list" | tr -d ' ')"
+    fi
+  } >> "$report"
 }
+
 
 preview_head() {
   local f="$1" k="$2"
-  if (( k > 0 )); then
-    head -n "$k" "$f" || true
+  (( k > 0 )) || return 0
+  [[ -s "$f" ]] || return 0
+
+  if [[ "$DEBUG" == "true" ]]; then
+    printf "%b  preview (first %d):%b\n" "$C_DIM" "$k" "$C_RESET" >&2
+    head -n "$k" "$f" 2>/dev/null | sed 's/^/    /' >&2 || true
+  else
+    printf "%b  preview (first %d basenames):%b\n" "$C_DIM" "$k" "$C_RESET" >&2
+    head -n "$k" "$f" 2>/dev/null | awk -F/ '{print "    " $NF}' >&2 || true
   fi
 }
 
@@ -524,7 +623,8 @@ build_pack() {
     fi
 
 
-    printf "[INFO %s] Wrote %6d → %s\n" "$(ts)" "$n" "$out" >&2
+    ok "Wrote $(printf '%6d' "$n") -> $(basename "$out")"
+    dbg "Path: $out"
     preview_head "$out" "$HEAD_TAIL_LINES"
   }
 
@@ -560,7 +660,8 @@ build_pack() {
     awk '{print "NONE"}' "${outdir}/DST_CALO_CLUSTER.list" > "${outdir}/G4Hits.list"
     n_g4="$(wc -l < "${outdir}/G4Hits.list" | tr -d ' ')"
   else
-    printf "[INFO %s] Wrote %6d → %s\n" "$(ts)" "${n_g4}" "${outdir}/G4Hits.list" >&2
+    ok "Wrote $(printf '%6d' "$n_g4") -> G4Hits.list"
+    dbg "Path: ${outdir}/G4Hits.list"
     preview_head "${outdir}/G4Hits.list" "$HEAD_TAIL_LINES"
   fi
 
@@ -814,8 +915,16 @@ discover_photon_types() {
 # --------------------------- Main ---------------------------------------------
 mkdir -p "$OUTROOT"
 
-# Hard reset: remove any prior run28_photonjet* packs under OUTROOT so only 10/20 remain
-rm -rf "${OUTROOT}/run${RUNNUM}_photonjet"* 2>/dev/null || true
+# Hard reset: always start fresh for this Run's photonjet packs (+ any stale run-level logs)
+clean_glob="${OUTROOT}/run${RUNNUM}_photonjet"*
+if compgen -G "$clean_glob" >/dev/null 2>&1; then
+  step "Clean: removing previous outputs -> ${clean_glob}"
+  rm -rf $clean_glob 2>/dev/null || true
+else
+  step "Clean: no prior outputs found for run${RUNNUM}_photonjet*"
+fi
+
+rm -f "${OUTROOT}/run${RUNNUM}_candidate_types_"*.txt "${OUTROOT}/run${RUNNUM}_probe_"*.log 2>/dev/null || true
 
 rule
 say "Building Run-${RUNNUM} Pythia photon+jet lists under: ${OUTROOT}"
