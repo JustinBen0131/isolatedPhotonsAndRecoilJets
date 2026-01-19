@@ -2705,13 +2705,7 @@ bool RecoilJets::runLeadIsoTightPhotonJetMatchingAndUnfolding(
     const double tPhi,
     PHG4TruthInfoContainer* truth)
 {
-  // dR helper (copied 1:1 from processCandidates)
-  auto dR = [](double eta1, double phi1, double eta2, double phi2) -> double
-  {
-    const double dphi = TVector2::Phi_mpi_pi(phi1 - phi2);
-    const double deta = eta1 - eta2;
-    return std::sqrt(deta*deta + dphi*dphi);
-  };
+  // This function only does unfolding photon bookkeeping + delegates jet logic per radius.
 
   // -------------------- Photon-only unfolding fills (N_gamma) --------------------
   for (const auto& trigShort : activeTrig)
@@ -3418,11 +3412,9 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
 
       //  leading reco photon candidate in pT^gamma within analysis pT bins,
       // WITHOUT requiring iso or tightness (used for jet-level cutflow QA vs pT^gamma)
-      bool   haveLeadAnyPho = false;
-      int    leadAnyPhoIndex = -1;
+      bool   haveLeadAnyPho  = false;
       int    leadAnyPtIdx    = -1;
       double leadAnyPtGamma  = -1.0;
-      double leadAnyEtaGamma = 0.0;
       double leadAnyPhiGamma = 0.0;
 
       // Keep a pointer to the actual leading reco photon cluster (needed for SIM truth↔reco association)
@@ -3539,12 +3531,10 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
         // WITHOUT iso/tight requirement.
         if (!haveLeadAnyPho || pt_gamma > leadAnyPtGamma)
         {
-             haveLeadAnyPho   = true;
-             leadAnyPhoIndex  = iPho;
-             leadAnyPtIdx     = ptIdx;
-             leadAnyPtGamma   = pt_gamma;
-             leadAnyEtaGamma  = eta;
-             leadAnyPhiGamma  = phi_gamma;
+                haveLeadAnyPho  = true;
+                leadAnyPtIdx    = ptIdx;
+                leadAnyPtGamma  = pt_gamma;
+                leadAnyPhiGamma = phi_gamma;
         }
 
         fillPureIsolationQA(topNode, activeTrig, pho, rc, ptIdx, centIdx, pt_gamma);
@@ -3937,14 +3927,13 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
         // ------------------------------------------------------------------
         if (haveLeadAnyPho && leadAnyPtIdx >= 0)
         {
-          const int effCentIdx_M = (m_isAuAu ? centIdx : -1);
 
           for (const auto& jnm : kJetRadii)
           {
             const std::string rKey = jnm.key;
 
             JetContainer* jets = nullptr;
-            if (auto itJ = m_jetsByRKey.find(rKey); itJ != m_jetsByRKey.end()) jets = itJ->second;
+            if (auto itJ = m_jets.find(rKey); itJ != m_jets.end()) jets = itJ->second;
             if (!jets) continue;
 
             const double jetEtaAbsMaxUse = jetEtaAbsMaxForRKey(rKey);

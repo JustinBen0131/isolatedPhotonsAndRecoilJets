@@ -328,72 +328,166 @@ class JetCalibOneEventProbe final : public SubsysReco
     auto* raw   = findNode::getClass<JetContainer>(topNode, m_rawNode);
     auto* calib = findNode::getClass<JetContainer>(topNode, m_calibNode);
 
-    // Only trigger when both exist and actually have jets
-    if (!raw || !calib) return Fun4AllReturnCodes::EVENT_OK;
-    if (raw->size() == 0 || calib->size() == 0) return Fun4AllReturnCodes::EVENT_OK;
+      // Only trigger when both exist and actually have jets
+      if (!raw || !calib) return Fun4AllReturnCodes::EVENT_OK;
+      if (raw->size() == 0 || calib->size() == 0) return Fun4AllReturnCodes::EVENT_OK;
 
-    // Optional: grab z-vertex JetCalib uses (GlobalVertexMap/MBD z)
-    float zvtx = -999.0f;
-    auto* vtxmap = findNode::getClass<GlobalVertexMap>(topNode, "GlobalVertexMap");
-    if (vtxmap && !vtxmap->empty())
-    {
-      GlobalVertex* vtx = vtxmap->begin()->second;
-      if (vtx)
+      // Grab z-vertex (MBD) JetCalib uses; REQUIRE |zvtx| < 30 cm
+      float zvtx = -999.0f;
+      auto* vtxmap = findNode::getClass<GlobalVertexMap>(topNode, "GlobalVertexMap");
+      if (vtxmap && !vtxmap->empty())
       {
-        auto mbdStart = vtx->find_vertexes(GlobalVertex::MBD);
-        auto mbdEnd   = vtx->end_vertexes();
-        for (auto it = mbdStart; it != mbdEnd; ++it)
+        GlobalVertex* vtx = vtxmap->begin()->second;
+        if (vtx)
         {
-          const auto& [type, vec] = *it;
-          if (type != GlobalVertex::MBD) continue;
-          for (const auto* vv : vec)
+          auto mbdStart = vtx->find_vertexes(GlobalVertex::MBD);
+          auto mbdEnd   = vtx->end_vertexes();
+          for (auto it = mbdStart; it != mbdEnd; ++it)
           {
-            if (!vv) continue;
-            zvtx = vv->get_z();
+            const auto& [type, vec] = *it;
+            if (type != GlobalVertex::MBD) continue;
+            for (const auto* vv : vec)
+            {
+              if (!vv) continue;
+              zvtx = vv->get_z();
+            }
           }
         }
       }
-    }
 
-    const int nRaw   = (int) raw->size();
-    const int nCalib = (int) calib->size();
-    const int nPrint = std::min({m_maxJets, nRaw, nCalib});
+      // Require a well-defined vertex AND a central-ish event
+      if (!std::isfinite(zvtx)) return Fun4AllReturnCodes::EVENT_OK;
+      if (std::fabs(zvtx) >= 30.0f) return Fun4AllReturnCodes::EVENT_OK;
 
-    std::cout << "\n====================================================================\n";
-    std::cout << "[JES PROBE] One-event before/after JetCalib\n";
-    std::cout << "  rawNode   = " << m_rawNode   << " (n=" << nRaw   << ")\n";
-    std::cout << "  calibNode = " << m_calibNode << " (n=" << nCalib << ")\n";
-    std::cout << "  zvtx(MBD) = " << std::fixed << std::setprecision(2) << zvtx << " cm\n";
-    std::cout << "--------------------------------------------------------------------\n";
-    std::cout << "  i |   pt_raw   eta_raw   phi_raw  ||   pt_cal   eta_cal   phi_cal  ||  scale\n";
-    std::cout << "----+---------------------------------------------------------------+--------\n";
+      const int nRaw   = (int) raw->size();
+      const int nCalib = (int) calib->size();
+      const int nScan  = std::min(nRaw, nCalib);
 
-    for (int i = 0; i < nPrint; ++i)
-    {
-      const Jet* jr = raw->get_jet(i);
-      const Jet* jc = calib->get_jet(i);
-      if (!jr || !jc) continue;
+      // Only print jets with pt_raw >= 5 GeV
+      const float ptMinPrint = 5.0f;
 
-      const float pr = jr->get_pt();
-      const float pc = jc->get_pt();
-      const float sc = (pr > 0.0f) ? (pc / pr) : -1.0f;
+      // First pass: count how many jets pass pt threshold (to decide whether to print at all)
+      int nPass = 0;
+      for (int i = 0; i < nScan; ++i)
+      {
+        const Jet* jr = raw->get_jet(i);
+        if (!jr) continue;
+        if (jr->get_pt() >= ptMinPrint) ++nPass;
+      }
 
+      // If nothing interesting, don't fire and keep searching future events
+      if (nPass == 0) return Fun4AllReturnCodes::EVENT_OK;
+
+      // ---------------- ANSI helpers ----------------
+      const char* RST  = "\033[0m";
+      const char* BOLD = "\033[1m";
+      const char* DIM  = "\033[2m";
+
+      const char* C_RAW   = "\033[38;5;45m";   // cyan-ish
+      const char* C_CAL   = "\033[38;5;208m";  // orange-ish
+      const char* C_INFO  = "\033[38;5;111m";  // light blue
+      const char* C_WARN  = "\033[38;5;220m";  // yellow
+      const char* C_GOOD  = "\033[38;5;82m";   // green
+      const char* C_BAD   = "\033[38;5;196m";  // red
+      const char* C_BAR   = "\033[38;5;244m";  // gray
+
+      auto scaleColor = [&](float sc) -> const char*
+      {
+        if (!std::isfinite(sc) || sc < 0.0f) return C_WARN;
+        if (sc > 1.05f) return C_GOOD;
+        if (sc < 0.95f) return C_BAD;
+        return C_WARN;
+      };
+
+      std::cout << "\n" << C_BAR << "====================================================================" << RST << "\n";
+      std::cout << BOLD << C_INFO << "[JES PROBE] One-event before/after JetCalib (filtered)" << RST << "\n";
+
+      std::cout << "  " << BOLD << C_RAW << "RAW" << RST
+                << "   node: " << C_RAW << m_rawNode << RST << "  " << DIM << "(n=" << nRaw << ")" << RST << "\n";
+      std::cout << "  " << BOLD << C_CAL << "CAL" << RST
+                << "   node: " << C_CAL << m_calibNode << RST << "  " << DIM << "(n=" << nCalib << ")" << RST << "\n";
+
+      std::cout << "  " << BOLD << "zvtx(MBD):" << RST << " " << C_INFO
+                << std::fixed << std::setprecision(2) << zvtx << " cm" << RST
+                << "  " << DIM << "(|z|<30 required)" << RST << "\n";
+
+      std::cout << "  " << BOLD << "pt_raw >= " << RST << C_WARN
+                << std::fixed << std::setprecision(1) << ptMinPrint << " GeV" << RST
+                << "  " << DIM << "(printing " << nPass << " jets; maxRows=" << m_maxJets << ")" << RST << "\n";
+
+      std::cout << C_BAR << "--------------------------------------------------------------------" << RST << "\n";
+
+      // -------- fixed-width table layout (headers match rows) ----------
+      const int W_I   = 3;
+      const int W_PT  = 8;
+      const int W_ETA = 8;
+      const int W_PHI = 8;
+      const int W_SC  = 6;
+
+      // Header row (use SAME widths as data)
       std::cout
-        << std::setw(3) << i << " | "
-        << std::setw(8) << std::fixed << std::setprecision(3) << pr << " "
-        << std::setw(8) << std::setprecision(3) << jr->get_eta() << " "
-        << std::setw(8) << std::setprecision(3) << jr->get_phi() << " || "
-        << std::setw(8) << std::setprecision(3) << pc << " "
-        << std::setw(8) << std::setprecision(3) << jc->get_eta() << " "
-        << std::setw(8) << std::setprecision(3) << jc->get_phi() << " || "
-        << std::setw(6) << std::setprecision(3) << sc
+        << "  " << BOLD << std::setw(W_I) << "i" << RST << " " << C_BAR << "|" << RST << " "
+        << BOLD << C_RAW << std::setw(W_PT)  << "pt_raw"  << RST << " "
+        << BOLD << C_RAW << std::setw(W_ETA) << "eta_raw" << RST << " "
+        << BOLD << C_RAW << std::setw(W_PHI) << "phi_raw" << RST << "  "
+        << C_BAR << "=>" << RST << "  "
+        << BOLD << C_CAL << std::setw(W_PT)  << "pt_cal"  << RST << " "
+        << BOLD << C_CAL << std::setw(W_ETA) << "eta_cal" << RST << " "
+        << BOLD << C_CAL << std::setw(W_PHI) << "phi_cal" << RST << "  "
+        << C_BAR << "||" << RST << " "
+        << BOLD << std::setw(W_SC) << "scale" << RST
         << "\n";
-    }
 
-    std::cout << "====================================================================\n\n";
+      // Separator line that matches the table width exactly
+      auto rep = [](int n, char c) { return std::string(std::max(0, n), c); };
+      const int tableWidth =
+          2  // leading two spaces
+        + W_I + 1 + 1 + 1  // i + space + '|' + space
+        + W_PT + 1 + W_ETA + 1 + W_PHI  // raw cols with spaces
+        + 2 + 2 + 2  // two spaces + "=>" + two spaces (approx; we print literal)
+        + W_PT + 1 + W_ETA + 1 + W_PHI  // cal cols
+        + 2 + 2 + 1 + W_SC; // two spaces + "||" + space + scale
 
-    m_fired = true;
-    return Fun4AllReturnCodes::EVENT_OK;
+      std::cout << C_BAR << rep(tableWidth, '-') << RST << "\n";
+
+      int nPrinted = 0;
+      for (int i = 0; i < nScan; ++i)
+      {
+        const Jet* jr = raw->get_jet(i);
+        const Jet* jc = calib->get_jet(i);
+        if (!jr || !jc) continue;
+
+        const float pr = jr->get_pt();
+        if (pr < ptMinPrint) continue;
+
+        const float pc = jc->get_pt();
+        const float sc = (pr > 0.0f) ? (pc / pr) : -1.0f;
+
+        std::cout
+          << "  " << BOLD << std::setw(W_I) << i << RST << " " << C_BAR << "|" << RST << " "
+          << C_RAW
+          << std::setw(W_PT)  << std::fixed << std::setprecision(3) << pr << " "
+          << std::setw(W_ETA) << std::setprecision(3) << jr->get_eta() << " "
+          << std::setw(W_PHI) << std::setprecision(3) << jr->get_phi()
+          << RST << "  "
+          << C_BAR << "=>" << RST << "  "
+          << C_CAL
+          << std::setw(W_PT)  << std::setprecision(3) << pc << " "
+          << std::setw(W_ETA) << std::setprecision(3) << jc->get_eta() << " "
+          << std::setw(W_PHI) << std::setprecision(3) << jc->get_phi()
+          << RST << "  "
+          << C_BAR << "||" << RST << " "
+          << scaleColor(sc) << BOLD << std::setw(W_SC) << std::setprecision(3) << sc << RST
+          << "\n";
+
+        ++nPrinted;
+        if (nPrinted >= m_maxJets) break;
+      }
+
+      std::cout << C_BAR << "====================================================================" << RST << "\n\n";
+
+      m_fired = true;
+      return Fun4AllReturnCodes::EVENT_OK;
   }
 
  private:
