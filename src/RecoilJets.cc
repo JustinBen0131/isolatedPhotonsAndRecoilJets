@@ -2824,7 +2824,7 @@ void RecoilJets::fillPureIsolationQA(PHCompositeNode* topNode,
       bumpHistFill(trigShort, std::string("h_Eiso") + slice);
     }
 
-    // (B) NEW component isolation histograms (EMCal / IHCal / OHCal)
+    // (B) component isolation histograms (EMCal / IHCal / OHCal)
     if (auto* hEm = getOrBookIsoPartHist(trigShort, "h_Eiso_emcal",
                                          "E_{T}^{iso,EMCal} [GeV]",
                                          ptIdx, effCentIdx))
@@ -4293,8 +4293,7 @@ bool RecoilJets::isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
   if (std::fabs(etaPho) >= kTruthEtaAbsMax) return false;
 
   // -------------------------------------------------------------------------
-  // 1) Prompt classification: IDENTICAL to CaloAna24::photon_type
-  //    (walk back photon-in/photon-out vertices, then topology classify)
+  // 1) Prompt classification: walk back photon-in/photon-out vertices, then topology classify
   // -------------------------------------------------------------------------
   const HepMC::GenVertex* vertex = pho->production_vertex();
   if (!vertex) return false;  // CaloAna returns "can't identify" on null vertex
