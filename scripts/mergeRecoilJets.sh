@@ -425,6 +425,9 @@ if [[ "${1}" =~ ^(isSim|sim|SIM)$ ]]; then
   SIM_GROUP_SIZE="200"          # number of ROOT files per firstRound hadd
   SIM_PREFER_CONDOR=false       # only used for secondRound
 
+  # Defaults for optional behavior flags
+  SIM_FIRSTROUND_LOCAL=false
+
   # Parse optional tokens
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -439,6 +442,10 @@ if [[ "${1}" =~ ^(isSim|sim|SIM)$ ]]; then
         ;;
       condor)
         SIM_PREFER_CONDOR=true
+        shift
+        ;;
+      local)
+        SIM_FIRSTROUND_LOCAL=true
         shift
         ;;
       *)
@@ -480,14 +487,46 @@ if [[ "${1}" =~ ^(isSim|sim|SIM)$ ]]; then
   SIM_FINAL="${DEST_DIR}/${FINAL_PREFIX}_${SIM_TAG}_ALL.root"
 
   if [[ "$SIM_ACTION" == "firstRound" ]]; then
-    need_cmd condor_submit
 
-    say "SIM firstRound: ${#SIM_INPUTS[@]} inputs -> grouped hadd jobs on Condor"
+    if $SIM_FIRSTROUND_LOCAL; then
+      say "SIM firstRound (LOCAL): ${#SIM_INPUTS[@]} inputs -> grouped hadd on this node"
+    else
+      need_cmd condor_submit
+      say "SIM firstRound: ${#SIM_INPUTS[@]} inputs -> grouped hadd jobs on Condor"
+    fi
 
     # Clean previous sim partials + final (ONLY sim-tagged files)
     find "$DEST_DIR" -maxdepth 1 -type f \
       \( -name "${SIM_PARTIAL_PREFIX}*.root" -o -name "${FINAL_PREFIX}_${SIM_TAG}_ALL.root" \) -delete || true
 
+    total="${#SIM_INPUTS[@]}"
+    grp=0
+
+    if $SIM_FIRSTROUND_LOCAL; then
+      # LOCAL: build listfiles and run hadd sequentially (same outputs as Condor mode)
+      need_cmd hadd
+
+      for ((i=0; i<total; i+=SIM_GROUP_SIZE)); do
+        (( grp+=1 ))
+        grpTag="$(printf "%03d" "$grp")"
+
+        listfile="${TMP_DIR}/sim_${SIM_TAG}_grp${grpTag}.txt"
+        : > "$listfile"
+
+        for ((j=i; j<i+SIM_GROUP_SIZE && j<total; j++)); do
+          printf "%s\n" "${SIM_INPUTS[$j]}" >> "$listfile"
+        done
+
+        out="${DEST_DIR}/${SIM_PARTIAL_PREFIX}${grpTag}.root"
+        say "[LOCAL firstRound] grp=${grpTag} inputs=$(wc -l < "$listfile") -> $(basename "$out")"
+        hadd -v 3 -f "$out" @"$listfile"
+      done
+
+      say "LOCAL firstRound complete. Partials are under: ${DEST_DIR}"
+      exit 0
+    fi
+
+    # CONDOR: original behavior (submit one hadd job per group)
     emit_hadd_wrapper "$CONDOR_EXEC"
 
     SUB="${TMP_DIR}/recoil_sim_${SIM_TAG}_firstRound.sub"
@@ -504,9 +543,6 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 EOT
-
-    total="${#SIM_INPUTS[@]}"
-    grp=0
 
     # Build listfiles + one Condor job per group
     for ((i=0; i<total; i+=SIM_GROUP_SIZE)); do

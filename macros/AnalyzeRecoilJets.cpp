@@ -5965,8 +5965,10 @@ namespace ARJ
                 {
                   if (!hBlack || !hRed) return;
 
-                  const string dirOvBase = JoinPath(D.dirXJProj, ovTag);
+                  const string dirOvRoot = JoinPath(D.dirXJProj, "Overlay");
+                  const string dirOvBase = JoinPath(dirOvRoot, ovTag);
                   const string dirOvPer  = JoinPath(dirOvBase, "perPtBin");
+                  EnsureDir(dirOvRoot);
                   EnsureDir(dirOvBase);
                   EnsureDir(dirOvPer);
 
@@ -6174,7 +6176,7 @@ namespace ARJ
                 MakeOverlayShape_TH3xJ(
                   H.hTrut_xJ, H.hReco_xJ,
                   "RECO_vs_TRUTHrecoConditioned",
-                  "Truth (reco-cond, jet-matched)",
+                  "Truth (reco-cond)",
                   "Reco",
                   {"Overlay (shape): RECO vs TRUTH reco-conditioned", "Truth is jet-matched (ΔR<=0.3)"}
                 );
@@ -6199,7 +6201,7 @@ namespace ARJ
                 MakeOverlayShape_TH3xJ(
                   H.hRecoTruthPhoTagged_xJ, H.hReco_xJ,
                   "RECO_vs_RECO_truthPhoTagged",
-                  "Reco (truth-#gamma tagged)",
+                  "Reco (#gamma^{truth} tagged)",
                   "Reco (all)",
                   {"Overlay (shape): RECO baseline vs truth-#gamma tagged"}
                 );
@@ -6207,9 +6209,17 @@ namespace ARJ
                 MakeOverlayShape_TH3xJ(
                   H.hRecoTruthPhoTagged_xJ, H.hRecoTruthTagged_xJ,
                   "RECO_truthPhoTagged_vs_truthTaggedPhoJet",
-                  "Reco (truth-#gamma tagged)",
-                  "Reco (truth-#gamma + jet1 matched)",
+                  "Reco (#gamma^{truth} tagged)",
+                  "Reco (#gamma^{truth} + truth jet)",
                   {"Overlay (shape): RECO truth-tagged subsets"}
+                );
+                
+                MakeOverlayShape_TH3xJ(
+                  H.hReco_xJ, H.hRecoTruthTagged_xJ ,
+                  "RECO_vs_RECO_truthTaggedPhoJet",
+                  "Reco (all)",
+                  "Reco (truth-#gamma + jet1 matched)",
+                  {"Overlay (shape): RECO baseline vs truth-#gamma + jet1 matched"}
                 );
 
                 // RECO alpha-cut tables into subfolders (requested)

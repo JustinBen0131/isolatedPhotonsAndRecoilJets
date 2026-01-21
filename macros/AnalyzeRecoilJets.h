@@ -158,12 +158,12 @@ namespace ARJ
 //   - For single-slice SIM, y-axes remain raw "Counts" (unweighted).
 // =============================================================================
 
-  inline bool isPPdataOnly   = true;
+  inline bool isPPdataOnly   = false;
   inline bool isSimAndDataPP = false;
 
   // SIM sample selection toggles (choose EXACTLY ONE for any SIM-including run)
   inline bool isPhotonJet5               = false;
-  inline bool isPhotonJet10              = false;
+  inline bool isPhotonJet10              = true;
   inline bool isPhotonJet20              = false;
 
   inline bool bothPhoton5and10sim        = false;
