@@ -6148,9 +6148,21 @@ namespace ARJ
                         TString::Format("p_{T}^{#gamma} = %s  (R=%.1f)", ptLab.c_str(), R).Data()
                       );
 
-                      TLegend leg(0.48, 0.74, 0.90, 0.90);
+                      // Move legend left for long-label overlays (e.g. truthTaggedPhoJet),
+                      // so text doesn't run off the right edge in 3x3 panels.
+                      double lx1 = 0.48, ly1 = 0.74, lx2 = 0.90, ly2 = 0.90;
+                      double legTextSize = 0.055;
+
+                      if (ovTag.find("truthTaggedPhoJet") != std::string::npos)
+                      {
+                          lx1 = 0.12;   // shift left so long labels fit
+                          lx2 = 0.86;
+                          legTextSize = 0.050;
+                      }
+
+                      TLegend leg(lx1, ly1, lx2, ly2);
                       leg.SetTextFont(42);
-                      leg.SetTextSize(0.055);
+                      leg.SetTextSize(legTextSize);
                       leg.SetFillStyle(0);
                       leg.SetBorderSize(0);
                       leg.AddEntry(hA, legBlack.c_str(), "ep");
@@ -6215,10 +6227,10 @@ namespace ARJ
                 );
                 
                 MakeOverlayShape_TH3xJ(
-                  H.hReco_xJ, H.hRecoTruthTagged_xJ ,
+                  H.hRecoTruthTagged_xJ,  H.hReco_xJ,
                   "RECO_vs_RECO_truthTaggedPhoJet",
-                  "Reco (all)",
-                  "Reco (truth-#gamma + jet1 matched)",
+                  "Reco (#gamma^{truth} + truth jet tagged)",
+                  "Reco ",
                   {"Overlay (shape): RECO baseline vs truth-#gamma + jet1 matched"}
                 );
 
