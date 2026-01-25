@@ -8169,6 +8169,368 @@ namespace ARJ
                           effSummary.push_back("  - FAILED to build efficiency curve (skipped)");
                         }
 
+                        // ---------------------------------------------------------------------------
+                        // (1b) NEW: LeadTruthRecoilMatch diagnostics (SIM-only)
+                        //
+                        // Inputs (filled online in RecoilJets.cc, split by NUM/MissA/MissB):
+                        //   (A1) h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_{num,missA,missB}_<rKey>
+                        //   (A2) h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTrecoTruthMatch_{num,missA}_<rKey>
+                        //   (B3) h2_leadTruthRecoilMatch_dphiRecoJet1_{num,missA,missB}_pTgammaTruth_<rKey>
+                        //   (B4) h2_leadTruthRecoilMatch_dRRecoJet1_vs_truthLead_{num,missA,missB}_pTgammaTruth_<rKey>
+                        //   (C5) h2_leadTruthRecoilMatch_xJRecoJet1_vs_dphiRecoJet1_{num,missA,missB}_<rKey>
+                        //
+                        // Outputs:
+                        //   <...>/<rKey>/xJ_fromJES3/Efficiency/LeadTruthRecoilMatch/Diagnostics/
+                        //     Pt/*.png, Angle/*.png, XJvsDphi/*.png
+                        // ---------------------------------------------------------------------------
+                        {
+                          const string dirDiag = JoinPath(D.dirXJProjEffLeadMatch, "Diagnostics");
+                          const string dirPt   = JoinPath(dirDiag, "Pt");
+                          const string dirAng  = JoinPath(dirDiag, "Angle");
+                          const string dirXJ2D = JoinPath(dirDiag, "XJvsDphi");
+                          EnsureDir(dirDiag);
+                          EnsureDir(dirPt);
+                          EnsureDir(dirAng);
+                          EnsureDir(dirXJ2D);
+
+                          effSummary.push_back("LeadTruthRecoilMatch Diagnostics:");
+                          effSummary.push_back("  Output dir: " + dirDiag);
+
+                          auto Save2DColz =
+                            [&](TH2* hIn,
+                                const string& outPng,
+                                const string& mainTitle,
+                                const string& xTitle,
+                                const string& yTitle,
+                                bool drawDiag)->bool
+                          {
+                            if (!hIn) return false;
+
+                            std::unique_ptr<TH2> h( CloneTH2(hIn, TString::Format("h2c_%s_%s", rKey.c_str(), mainTitle.c_str()).Data()) );
+                            if (!h) return false;
+                            EnsureSumw2(h.get());
+
+                            TCanvas c(TString::Format("c_diag2D_%s_%s_%s", ds.label.c_str(), rKey.c_str(), mainTitle.c_str()).Data(),
+                                      "c_diag2D", 950, 780);
+                            ApplyCanvasMargins2D(c);
+
+                            h->SetTitle("");
+                            h->GetXaxis()->SetTitle(xTitle.c_str());
+                            h->GetYaxis()->SetTitle(yTitle.c_str());
+                            h->Draw("colz");
+
+                            if (drawDiag)
+                            {
+                              const double xmin = h->GetXaxis()->GetXmin();
+                              const double xmax = h->GetXaxis()->GetXmax();
+                              const double ymin = h->GetYaxis()->GetXmin();
+                              const double ymax = h->GetYaxis()->GetXmax();
+                              const double lo = std::max(xmin, ymin);
+                              const double hi = std::min(xmax, ymax);
+                              TLine diag(lo, lo, hi, hi);
+                              diag.SetLineStyle(2);
+                              diag.SetLineWidth(2);
+                              diag.Draw("same");
+                            }
+
+                            DrawLatexLines(0.14, 0.94, DefaultHeaderLines(ds), 0.028, 0.038);
+                            DrawLatexLines(0.14, 0.86,
+                              {TString::Format("%s (%s)", mainTitle.c_str(), rKey.c_str()).Data()},
+                              0.028, 0.038
+                            );
+
+                            SaveCanvas(c, outPng);
+                            cout << "  [LeadTruthRecoilMatchDiag] Wrote: " << outPng << "\n";
+                            effSummary.push_back("  - " + outPng);
+                            return true;
+                          };
+
+                          // -------------------------
+                          // Load new TH2 diagnostics
+                          // -------------------------
+                          const string hA1_num   = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_num_"   + rKey;
+                          const string hA1_mA    = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_missA_" + rKey;
+                          const string hA1_mB    = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_missB_" + rKey;
+
+                          const string hA2_num   = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTrecoTruthMatch_num_"   + rKey;
+                          const string hA2_mA    = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTrecoTruthMatch_missA_" + rKey;
+
+                          const string hB3_num   = "h2_leadTruthRecoilMatch_dphiRecoJet1_num_pTgammaTruth_"   + rKey;
+                          const string hB3_mA    = "h2_leadTruthRecoilMatch_dphiRecoJet1_missA_pTgammaTruth_" + rKey;
+                          const string hB3_mB    = "h2_leadTruthRecoilMatch_dphiRecoJet1_missB_pTgammaTruth_" + rKey;
+
+                          const string hB4_num   = "h2_leadTruthRecoilMatch_dRRecoJet1_vs_truthLead_num_pTgammaTruth_"   + rKey;
+                          const string hB4_mA    = "h2_leadTruthRecoilMatch_dRRecoJet1_vs_truthLead_missA_pTgammaTruth_" + rKey;
+                          const string hB4_mB    = "h2_leadTruthRecoilMatch_dRRecoJet1_vs_truthLead_missB_pTgammaTruth_" + rKey;
+
+                          const string hC5_num   = "h2_leadTruthRecoilMatch_xJRecoJet1_vs_dphiRecoJet1_num_"   + rKey;
+                          const string hC5_mA    = "h2_leadTruthRecoilMatch_xJRecoJet1_vs_dphiRecoJet1_missA_" + rKey;
+                          const string hC5_mB    = "h2_leadTruthRecoilMatch_xJRecoJet1_vs_dphiRecoJet1_missB_" + rKey;
+
+                          TH2* HA1n = GetObj<TH2>(ds, hA1_num, false, false, false);
+                          TH2* HA1a = GetObj<TH2>(ds, hA1_mA,  false, false, false);
+                          TH2* HA1b = GetObj<TH2>(ds, hA1_mB,  false, false, false);
+
+                          TH2* HA2n = GetObj<TH2>(ds, hA2_num, false, false, false);
+                          TH2* HA2a = GetObj<TH2>(ds, hA2_mA,  false, false, false);
+
+                          TH2* HB3n = GetObj<TH2>(ds, hB3_num, false, false, false);
+                          TH2* HB3a = GetObj<TH2>(ds, hB3_mA,  false, false, false);
+                          TH2* HB3b = GetObj<TH2>(ds, hB3_mB,  false, false, false);
+
+                          TH2* HB4n = GetObj<TH2>(ds, hB4_num, false, false, false);
+                          TH2* HB4a = GetObj<TH2>(ds, hB4_mA,  false, false, false);
+                          TH2* HB4b = GetObj<TH2>(ds, hB4_mB,  false, false, false);
+
+                          TH2* HC5n = GetObj<TH2>(ds, hC5_num, false, false, false);
+                          TH2* HC5a = GetObj<TH2>(ds, hC5_mA,  false, false, false);
+                          TH2* HC5b = GetObj<TH2>(ds, hC5_mB,  false, false, false);
+
+                          // -------------------------
+                          // (A1) pT(truth lead recoil) vs pT(reco recoilJet1) by class
+                          // -------------------------
+                          if (HA1n) Save2DColz(HA1n,
+                            JoinPath(dirPt, TString::Format("leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_NUM_%s.png", rKey.c_str()).Data()),
+                            "pT(recoJet1) vs pT(truth lead recoil) [NUM]",
+                            "p_{T}^{truth lead recoil} [GeV]",
+                            "p_{T}^{recoilJet_{1},reco} [GeV]",
+                            true);
+
+                          if (HA1a) Save2DColz(HA1a,
+                            JoinPath(dirPt, TString::Format("leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_MissA_%s.png", rKey.c_str()).Data()),
+                            "pT(recoJet1) vs pT(truth lead recoil) [MissA]",
+                            "p_{T}^{truth lead recoil} [GeV]",
+                            "p_{T}^{recoilJet_{1},reco} [GeV]",
+                            true);
+
+                          if (HA1b) Save2DColz(HA1b,
+                            JoinPath(dirPt, TString::Format("leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_MissB_%s.png", rKey.c_str()).Data()),
+                            "pT(recoJet1) vs pT(truth lead recoil) [MissB]",
+                            "p_{T}^{truth lead recoil} [GeV]",
+                            "p_{T}^{recoilJet_{1},reco} [GeV]",
+                            true);
+
+                          // -------------------------
+                          // (A2) pT(reco match to truth lead) vs pT(selected recoJet1) (NUM & MissA)
+                          // -------------------------
+                          if (HA2n) Save2DColz(HA2n,
+                            JoinPath(dirPt, TString::Format("leadTruthRecoilMatch_pTrecoJet1_vs_pTrecoTruthMatch_NUM_%s.png", rKey.c_str()).Data()),
+                            "pT(recoJet1) vs pT(reco truth-match) [NUM]",
+                            "p_{T}^{reco truth-match} [GeV]",
+                            "p_{T}^{recoilJet_{1},reco} [GeV]",
+                            true);
+
+                          if (HA2a) Save2DColz(HA2a,
+                            JoinPath(dirPt, TString::Format("leadTruthRecoilMatch_pTrecoJet1_vs_pTrecoTruthMatch_MissA_%s.png", rKey.c_str()).Data()),
+                            "pT(recoJet1) vs pT(reco truth-match) [MissA]",
+                            "p_{T}^{reco truth-match} [GeV]",
+                            "p_{T}^{recoilJet_{1},reco} [GeV]",
+                            true);
+
+                          // -------------------------
+                          // (B4) ΔR(recoJet1, truth lead recoil) vs pTγ,truth by class
+                          // -------------------------
+                          if (HB4n) Save2DColz(HB4n,
+                            JoinPath(dirAng, TString::Format("leadTruthRecoilMatch_dRRecoJet1_vs_truthLead_NUM_pTgammaTruth_%s.png", rKey.c_str()).Data()),
+                            "#DeltaR(recoJet1, truth lead recoil) vs p_{T}^{#gamma,truth} [NUM]",
+                            "p_{T}^{#gamma,truth} [GeV]",
+                            "#DeltaR(recoilJet_{1}^{reco}, truth lead recoil)",
+                            false);
+
+                          if (HB4a) Save2DColz(HB4a,
+                            JoinPath(dirAng, TString::Format("leadTruthRecoilMatch_dRRecoJet1_vs_truthLead_MissA_pTgammaTruth_%s.png", rKey.c_str()).Data()),
+                            "#DeltaR(recoJet1, truth lead recoil) vs p_{T}^{#gamma,truth} [MissA]",
+                            "p_{T}^{#gamma,truth} [GeV]",
+                            "#DeltaR(recoilJet_{1}^{reco}, truth lead recoil)",
+                            false);
+
+                          if (HB4b) Save2DColz(HB4b,
+                            JoinPath(dirAng, TString::Format("leadTruthRecoilMatch_dRRecoJet1_vs_truthLead_MissB_pTgammaTruth_%s.png", rKey.c_str()).Data()),
+                            "#DeltaR(recoJet1, truth lead recoil) vs p_{T}^{#gamma,truth} [MissB]",
+                            "p_{T}^{#gamma,truth} [GeV]",
+                            "#DeltaR(recoilJet_{1}^{reco}, truth lead recoil)",
+                            false);
+
+                          // -------------------------
+                          // (B3) 3x3 table: overlay shape-normalized dphi(recoJet1) for NUM vs MissA vs MissB
+                          // -------------------------
+                          if (HB3n && HB3a && HB3b)
+                          {
+                            auto NormalizeVisible = [](TH1* h)
+                            {
+                              if (!h) return;
+                              const int nb = h->GetNbinsX();
+                              const double integral = h->Integral(1, nb);
+                              if (integral > 0.0) h->Scale(1.0 / integral);
+                            };
+
+                            // Prefer the canonical 9 bins: 10-12 ... 26-35 (truth edges are {5,8,10,...,40})
+                            const int nXBins = HB3n->GetXaxis()->GetNbins();
+                            int startBin = 1;
+                            int nUse = std::min(9, nXBins);
+                            if (nXBins >= 11) { startBin = 3; nUse = 9; } // 10-12 through 26-35
+
+                            TCanvas cTbl(
+                              TString::Format("c_tbl_dphiRecoJet1_byClass_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
+                              "c_tbl_dphiRecoJet1_byClass", 1500, 1200
+                            );
+                            cTbl.Divide(3,3, 0.001, 0.001);
+
+                            std::vector<TObject*> keep;
+                            keep.reserve(9 * 6);
+
+                            for (int i = 0; i < 9; ++i)
+                            {
+                              cTbl.cd(i+1);
+                              gPad->SetLeftMargin(0.14);
+                              gPad->SetRightMargin(0.05);
+                              gPad->SetBottomMargin(0.14);
+                              gPad->SetTopMargin(0.10);
+                              gPad->SetTicks(1,1);
+
+                              if (i >= nUse)
+                              {
+                                TLatex t;
+                                t.SetNDC(true);
+                                t.SetTextFont(42);
+                                t.SetTextSize(0.06);
+                                t.DrawLatex(0.20, 0.55, "EMPTY");
+                                continue;
+                              }
+
+                              const int xbin = startBin + i;
+
+                              TH1D* pN = HB3n->ProjectionY(
+                                TString::Format("p_dphiRecoJet1_NUM_%s_%s_%d", ds.label.c_str(), rKey.c_str(), i).Data(),
+                                xbin, xbin
+                              );
+                              TH1D* pA = HB3a->ProjectionY(
+                                TString::Format("p_dphiRecoJet1_MissA_%s_%s_%d", ds.label.c_str(), rKey.c_str(), i).Data(),
+                                xbin, xbin
+                              );
+                              TH1D* pB = HB3b->ProjectionY(
+                                TString::Format("p_dphiRecoJet1_MissB_%s_%s_%d", ds.label.c_str(), rKey.c_str(), i).Data(),
+                                xbin, xbin
+                              );
+
+                              if (!pN || !pA || !pB || pN->GetEntries() <= 0.0 || pA->GetEntries() <= 0.0 || pB->GetEntries() <= 0.0)
+                              {
+                                if (pN) delete pN;
+                                if (pA) delete pA;
+                                if (pB) delete pB;
+                                TLatex t;
+                                t.SetNDC(true);
+                                t.SetTextFont(42);
+                                t.SetTextSize(0.06);
+                                t.DrawLatex(0.15, 0.55, "MISSING");
+                                continue;
+                              }
+
+                              pN->SetDirectory(nullptr);
+                              pA->SetDirectory(nullptr);
+                              pB->SetDirectory(nullptr);
+
+                              NormalizeVisible(pN);
+                              NormalizeVisible(pA);
+                              NormalizeVisible(pB);
+
+                              pN->SetLineWidth(2);
+                              pA->SetLineWidth(2);
+                              pB->SetLineWidth(2);
+
+                              pN->SetLineColor(kBlack);
+                              pA->SetLineColor(kRed+1);
+                              pB->SetLineColor(kBlue+1);
+
+                              const double ymax = std::max(pN->GetMaximum(), std::max(pA->GetMaximum(), pB->GetMaximum()));
+                              pN->SetMaximum(ymax * 1.28);
+
+                              pN->SetTitle("");
+                              pN->GetXaxis()->SetTitle("|#Delta#phi(#gamma^{truth}, recoilJet_{1}^{reco})| [rad]");
+                              pN->GetYaxis()->SetTitle("A.U.");
+
+                              pN->Draw("hist");
+                              pA->Draw("hist same");
+                              pB->Draw("hist same");
+
+                              // Reference line at π/2
+                              {
+                                TLine* l = new TLine(TMath::Pi()/2.0, 0.0, TMath::Pi()/2.0, pN->GetMaximum());
+                                l->SetLineStyle(2);
+                                l->SetLineWidth(2);
+                                l->SetLineColor(kGray+2);
+                                l->Draw("same");
+                                keep.push_back(l);
+                              }
+
+                              TLegend* leg = new TLegend(0.48, 0.66, 0.93, 0.90);
+                              leg->SetTextFont(42);
+                              leg->SetTextSize(0.028);
+                              leg->SetFillStyle(0);
+                              leg->SetBorderSize(0);
+                              leg->AddEntry(pN, "NUM (truth-matched)", "l");
+                              leg->AddEntry(pA, "MissA (wrong jet)", "l");
+                              leg->AddEntry(pB, "MissB (no reco match)", "l");
+                              leg->Draw();
+
+                              const string ptLab = AxisBinLabel(HB3n->GetXaxis(), xbin, "GeV", 0);
+                              DrawLatexLines(
+                                0.16, 0.90,
+                                {
+                                  TString::Format("p_{T}^{#gamma,truth}: %s", ptLab.c_str()).Data(),
+                                  "Overlay (shape)"
+                                },
+                                0.040, 0.050
+                              );
+
+                              keep.push_back(pN);
+                              keep.push_back(pA);
+                              keep.push_back(pB);
+                              keep.push_back(leg);
+                            }
+
+                            const string outTbl = JoinPath(
+                              dirAng,
+                              TString::Format("table3x3_overlay_dphiRecoJet1_byClass_shape_%s.png", rKey.c_str()).Data()
+                            );
+                            SaveCanvas(cTbl, outTbl);
+                            cout << "  [LeadTruthRecoilMatchDiag] Wrote: " << outTbl << "\n";
+                            effSummary.push_back("  - " + outTbl);
+
+                            for (auto* o : keep) delete o;
+                          }
+                          else
+                          {
+                            cout << ANSI_BOLD_YEL << "  [LeadTruthRecoilMatchDiag] Missing one or more dphi-by-class TH2; skipping 3x3 overlay.\n" << ANSI_RESET;
+                          }
+
+                          // -------------------------
+                          // (C5) xJ(recoJet1) vs dphi(recoJet1) by class (2D)
+                          // -------------------------
+                          if (HC5n) Save2DColz(HC5n,
+                            JoinPath(dirXJ2D, TString::Format("leadTruthRecoilMatch_xJRecoJet1_vs_dphiRecoJet1_NUM_%s.png", rKey.c_str()).Data()),
+                            "xJ(recoJet1) vs dphi(recoJet1) [NUM]",
+                            "|#Delta#phi(#gamma^{truth}, recoilJet_{1}^{reco})| [rad]",
+                            "x_{J}^{reco} = p_{T}^{recoilJet_{1}} / p_{T}^{#gamma}",
+                            false);
+
+                          if (HC5a) Save2DColz(HC5a,
+                            JoinPath(dirXJ2D, TString::Format("leadTruthRecoilMatch_xJRecoJet1_vs_dphiRecoJet1_MissA_%s.png", rKey.c_str()).Data()),
+                            "xJ(recoJet1) vs dphi(recoJet1) [MissA]",
+                            "|#Delta#phi(#gamma^{truth}, recoilJet_{1}^{reco})| [rad]",
+                            "x_{J}^{reco} = p_{T}^{recoilJet_{1}} / p_{T}^{#gamma}",
+                            false);
+
+                          if (HC5b) Save2DColz(HC5b,
+                            JoinPath(dirXJ2D, TString::Format("leadTruthRecoilMatch_xJRecoJet1_vs_dphiRecoJet1_MissB_%s.png", rKey.c_str()).Data()),
+                            "xJ(recoJet1) vs dphi(recoJet1) [MissB]",
+                            "|#Delta#phi(#gamma^{truth}, recoilJet_{1}^{reco})| [rad]",
+                            "x_{J}^{reco} = p_{T}^{recoilJet_{1}} / p_{T}^{#gamma}",
+                            false);
+
+                          effSummary.push_back("");
+                        }
+
                         effSummary.push_back("");
 
                         delete denC;

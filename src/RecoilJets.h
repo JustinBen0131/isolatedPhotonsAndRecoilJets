@@ -596,17 +596,49 @@ private:
   TH2F* getOrBookLeadRecoilJetPtTruthPtReco      (const std::string& trig, const std::string& rKey, int centIdx);
   TH1F* getOrBookLeadRecoilJetMatchDR            (const std::string& trig, const std::string& rKey, int centIdx);
 
-  // -------------------------------------------------------------------------
-  // (SIM ONLY): JES3-style *leading truth recoil jet1* match bookkeeping vs truth pT^gamma
-  //   Den  : truth leading recoil jet1 exists (truth recoil definition)
-  //   Num  : Den + reco recoil jet1 matches truth jet1 (ΔR < 0.3)
-  //   MissA: Den + some reco fid jet within ΔR < 0.3 of truth jet1, but Num failed
-  //   MissB: Den + no reco fid jet within ΔR < 0.3 of truth jet1
-  // -------------------------------------------------------------------------
-  TH1F* getOrBookLeadTruthRecoilMatchDenPtGammaTruth    (const std::string& trig, const std::string& rKey, int centIdx);
-  TH1F* getOrBookLeadTruthRecoilMatchNumPtGammaTruth    (const std::string& trig, const std::string& rKey, int centIdx);
-  TH1F* getOrBookLeadTruthRecoilMatchMissA_PtGammaTruth (const std::string& trig, const std::string& rKey, int centIdx);
-  TH1F* getOrBookLeadTruthRecoilMatchMissB_PtGammaTruth (const std::string& trig, const std::string& rKey, int centIdx);
+    // -------------------------------------------------------------------------
+    // (SIM ONLY): JES3-style *leading truth recoil jet1* match bookkeeping vs truth pT^gamma
+    //   Den  : truth leading recoil jet1 exists (truth recoil definition)
+    //   Num  : Den + reco recoil jet1 matches truth jet1 (ΔR < 0.3)
+    //   MissA: Den + some reco fid jet within ΔR < 0.3 of truth jet1, but Num failed
+    //   MissB: Den + no reco fid jet within ΔR < 0.3 of truth jet1
+    // -------------------------------------------------------------------------
+    TH1F* getOrBookLeadTruthRecoilMatchDenPtGammaTruth    (const std::string& trig, const std::string& rKey, int centIdx);
+    TH1F* getOrBookLeadTruthRecoilMatchNumPtGammaTruth    (const std::string& trig, const std::string& rKey, int centIdx);
+    TH1F* getOrBookLeadTruthRecoilMatchMissA_PtGammaTruth (const std::string& trig, const std::string& rKey, int centIdx);
+    TH1F* getOrBookLeadTruthRecoilMatchMissB_PtGammaTruth (const std::string& trig, const std::string& rKey, int centIdx);
+
+    // -------------------------------------------------------------------------
+    // (SIM ONLY): diagnostics for why reco xJ differs from truth-conditioned xJ
+    //   Filled inside the same DEN / NUM / MissA / MissB classification block.
+    //
+    //   NOTE: all are radius-tagged and use centrality-only suffix (like the
+    //   existing LeadTruthRecoilMatch bookkeeping).
+    // -------------------------------------------------------------------------
+
+    // (A1) pT(recoilJet1^reco) vs pT(truth-leading recoil jet), split by class
+    TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_num   (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missA (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missB (const std::string& trig, const std::string& rKey, int centIdx);
+
+    // (A2) pT(recoilJet1^reco) vs pT(reco jet matched to truth-leading recoil jet), for NUM / MissA
+    TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_num   (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_missA (const std::string& trig, const std::string& rKey, int centIdx);
+
+    // (B3) |Δphi(γ^truth, recoilJet1^reco)| vs pTγ,truth, split by class
+    TH2F* getOrBookLeadTruthRecoilMatchDphiRecoJet1VsPtGammaTruth_num   (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookLeadTruthRecoilMatchDphiRecoJet1VsPtGammaTruth_missA (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookLeadTruthRecoilMatchDphiRecoJet1VsPtGammaTruth_missB (const std::string& trig, const std::string& rKey, int centIdx);
+
+    // (B4) ΔR(recoilJet1^reco, truth-leading recoil jet) vs pTγ,truth, split by class
+    TH2F* getOrBookLeadTruthRecoilMatchDRRecoJet1VsPtGammaTruth_num   (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookLeadTruthRecoilMatchDRRecoJet1VsPtGammaTruth_missA (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookLeadTruthRecoilMatchDRRecoJet1VsPtGammaTruth_missB (const std::string& trig, const std::string& rKey, int centIdx);
+
+    // (C5) xJ(recoilJet1^reco) vs |Δphi(γ^truth, recoilJet1^reco)|, split by class
+    TH2F* getOrBookLeadTruthRecoilMatchXJRecoJet1VsDphiRecoJet1_num   (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookLeadTruthRecoilMatchXJRecoJet1VsDphiRecoJet1_missA (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookLeadTruthRecoilMatchXJRecoJet1VsDphiRecoJet1_missB (const std::string& trig, const std::string& rKey, int centIdx);
 
   // -------------------------------------------------------------------------
   //  radius-tagged matching-QA bookers
