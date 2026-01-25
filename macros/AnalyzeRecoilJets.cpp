@@ -739,11 +739,118 @@ namespace ARJ
         // 2) Keep exactly where you had it before (after reco plots, before truth block)
         PrintIsoDecisionTable(ds);
 
-        // 3) SIM-only truth isolation QA + overlays (only runs in SIM)
-        if (ds.isSim)
+        // ------------------------------------------------------------------
+        // 2b) Photon-side ambiguity diagnostic:
+        //     N = # of reco photon candidates that pass the SAME iso∧tight gate
+        //         used for the leading photon selection in RecoilJets.cc.
+        //     Filled once per event (only when a leading iso∧tight photon exists),
+        //     and binned by the leading-photon pT bin.
+        //
+        // Hist family (written by RecoilJets.cc):
+        //   h_nIsoTightPhoCand_pT_10_12, ..., h_nIsoTightPhoCand_pT_26_35
+        // ------------------------------------------------------------------
         {
-          RunIsolationQA_TruthSim(ds, outDir);
-        }
+            const string outDirMult = JoinPath(outDir, "PhoCandMultiplicity");
+            EnsureDir(outDirMult);
+
+            vector<string> multLines = DefaultHeaderLines(ds);
+            multLines.push_back("N_{#gamma}^{iso+tight} candidates per event");
+            multLines.push_back("Counts ALL reco photon candidates passing the SAME iso#wedge tight gate");
+            multLines.push_back("Filled once per event; pT bin = leading iso#wedge tight photon p_{T}");
+
+            // 3x3 table of the N-candidate distribution in each pT bin
+            Make3x3Table_TH1(ds,
+                             "h_nIsoTightPhoCand",
+                             outDirMult,
+                             "table3x3_nIsoTightPhoCand.png",
+                             "N_{#gamma}^{iso+tight} candidates",
+                             "A.U.",
+                             false,
+                             true,
+                             multLines);
+
+            // Per-pT summary: fraction of events with N>=2
+            const bool weighted = (ds.isSim && IsWeightedSIMSelected());
+
+            cout << ANSI_BOLD_CYN
+                 << "\n[PHOTON MULTIPLICITY] " << ds.label
+                 << "  (hist base: h_nIsoTightPhoCand)\n"
+                 << ANSI_RESET;
+
+            const int wBin  = 10;
+            const int wSum  = 16;
+            const int wMean = 12;
+            const int wFrac = 14;
+
+            cout << std::left << std::setw(wBin) << "pTbin"
+                 << std::right
+                 << std::setw(wSum)  << (weighted ? "SumW" : "Nevents")
+                 << std::setw(wMean) << "MeanN"
+                 << std::setw(wFrac) << "Frac(N>=2)"
+                 << "\n";
+            cout << string(wBin + wSum + wMean + wFrac, '-') << "\n";
+
+            vector<string> txt;
+            txt.push_back("[PHOTON MULTIPLICITY] N iso+tight photon candidates per event");
+            txt.push_back("Hist base: " + ds.topDirName + "/h_nIsoTightPhoCand_pT_*_*");
+            txt.push_back("NOTE: Filled once per event when a leading iso+tight photon exists; pT bin is that leading photon.");
+            if (weighted)
+            {
+              txt.push_back("NOTE: weighted merged SIM sample – SumW is sum of weights (not raw event count).");
+            }
+            txt.push_back("");
+            txt.push_back(string("pTbin  ") + (weighted ? "SumW" : "Nevents") + "  MeanN  FracNge2");
+
+            for (const auto& pb : PtBins())
+            {
+              const string hname = "h_nIsoTightPhoCand" + pb.suffix;
+              TH1* h = GetObj<TH1>(ds, hname, true, false, false);
+
+              double sumw   = 0.0;
+              double meanN  = 0.0;
+              double fracGe2= 0.0;
+
+              if (h)
+              {
+                const int nb = h->GetNbinsX();
+                sumw  = h->Integral(0, nb + 1);
+                meanN = h->GetMean();
+
+                const int b2 = h->GetXaxis()->FindBin(2.0); // N>=2
+                const double ge2 = h->Integral(b2, nb + 1);
+                fracGe2 = (sumw > 0.0) ? (ge2 / sumw) : 0.0;
+              }
+
+              std::ostringstream sSum;
+              if (weighted) sSum << std::fixed << std::setprecision(6) << sumw;
+              else          sSum << std::fixed << std::setprecision(0) << sumw;
+
+              cout << std::left << std::setw(wBin) << pb.label
+                   << std::right
+                   << std::setw(wSum)  << sSum.str()
+                   << std::setw(wMean) << std::fixed << std::setprecision(4) << meanN
+                   << std::setw(wFrac) << std::fixed << std::setprecision(6) << fracGe2
+                   << "\n";
+
+              std::ostringstream line;
+              line << pb.label << "  " << sSum.str()
+                   << "  " << std::fixed << std::setprecision(4) << meanN
+                   << "  " << std::fixed << std::setprecision(6) << fracGe2;
+              txt.push_back(line.str());
+            }
+
+            WriteTextFile(JoinPath(outDirMult, "summary_nIsoTightPhoCand.txt"), txt);
+
+            cout << ANSI_DIM
+                 << "  -> Wrote: " << JoinPath(outDirMult, "table3x3_nIsoTightPhoCand.png") << "\n"
+                 << "  -> Wrote: " << JoinPath(outDirMult, "summary_nIsoTightPhoCand.txt") << ANSI_RESET << "\n";
+         }
+
+         // 3) SIM-only truth isolation QA + overlays (only runs in SIM)
+         if (ds.isSim)
+         {
+            RunIsolationQA_TruthSim(ds, outDir);
+         }
       }
 
       // =============================================================================
@@ -6048,18 +6155,28 @@ namespace ARJ
                     NormalizeToUnitArea(hA);
                     NormalizeToUnitArea(hB);
 
-                    // Style: black vs red
-                    hA->SetLineWidth(2);
-                    hA->SetMarkerStyle(24);
-                    hA->SetMarkerSize(1.00);
-                    hA->SetLineColor(1);
-                    hA->SetMarkerColor(1);
+                      // Style: default black vs red, but override for specific legend labels
+                      int colA = 1;  // default "black"
+                      int colB = 2;  // default "red"
 
-                    hB->SetLineWidth(2);
-                    hB->SetMarkerStyle(20);
-                    hB->SetMarkerSize(1.00);
-                    hB->SetLineColor(2);
-                    hB->SetMarkerColor(2);
+                      // Force special colors by legend label (applies no matter which histogram is A/B)
+                      if (legBlack == "Reco (#gamma^{truth} + jet^{truth} tagged)") colA = kViolet + 1;  // purple
+                      if (legBlack == "Truth (#gamma^{reco} + jet^{reco} tagged)") colA = kPink   + 7;  // pink
+
+                      if (legRed  == "Reco (#gamma^{truth} + jet^{truth} tagged)") colB = kViolet + 1;  // purple
+                      if (legRed  == "Truth (#gamma^{reco} + jet^{reco} tagged)") colB = kPink   + 7;  // pink
+
+                      hA->SetLineWidth(2);
+                      hA->SetMarkerStyle(24);
+                      hA->SetMarkerSize(1.00);
+                      hA->SetLineColor(colA);
+                      hA->SetMarkerColor(colA);
+
+                      hB->SetLineWidth(2);
+                      hB->SetMarkerStyle(20);
+                      hB->SetMarkerSize(1.00);
+                      hB->SetLineColor(colB);
+                      hB->SetMarkerColor(colB);
 
                     const string ptLab = AxisBinLabel(hBlack->GetXaxis(), ib, "GeV", 0);
 
@@ -6165,17 +6282,28 @@ namespace ARJ
                       NormalizeToUnitArea(hA);
                       NormalizeToUnitArea(hB);
 
-                      hA->SetLineWidth(2);
-                      hA->SetMarkerStyle(24);
-                      hA->SetMarkerSize(0.95);
-                      hA->SetLineColor(1);
-                      hA->SetMarkerColor(1);
+                        // Style: default black vs red, but override for specific legend labels
+                        int colA = 1;  // default "black"
+                        int colB = 2;  // default "red"
 
-                      hB->SetLineWidth(2);
-                      hB->SetMarkerStyle(20);
-                      hB->SetMarkerSize(0.95);
-                      hB->SetLineColor(2);
-                      hB->SetMarkerColor(2);
+                        // Force special colors by legend label (applies no matter which histogram is A/B)
+                        if (legBlack == "Reco (#gamma^{truth} + jet^{truth} tagged)") colA = kViolet + 1;  // purple
+                        if (legBlack == "Truth (#gamma^{reco} + jet^{reco} tagged)") colA = kPink   + 7;  // pink
+
+                        if (legRed  == "Reco (#gamma^{truth} + jet^{truth} tagged)") colB = kViolet + 1;  // purple
+                        if (legRed  == "Truth (#gamma^{reco} + jet^{reco} tagged)") colB = kPink   + 7;  // pink
+
+                        hA->SetLineWidth(2);
+                        hA->SetMarkerStyle(24);
+                        hA->SetMarkerSize(0.95);
+                        hA->SetLineColor(colA);
+                        hA->SetMarkerColor(colA);
+
+                        hB->SetLineWidth(2);
+                        hB->SetMarkerStyle(20);
+                        hB->SetMarkerSize(0.95);
+                        hB->SetLineColor(colB);
+                        hB->SetMarkerColor(colB);
 
                       const double ymax = std::max(hA->GetMaximum(), hB->GetMaximum());
                       hA->SetMaximum(ymax * 1.25);
@@ -6197,18 +6325,25 @@ namespace ARJ
                         TString::Format("p_{T}^{#gamma} = %s  (R=%.1f)", ptLab.c_str(), R).Data()
                       );
 
-                        // Default legend placement is top-right. For the overlays with very long
-                        // labels, move the legend left and slightly reduce the text size so it
-                        // doesn't clip in the small 3x3 pads.
-                        double lx1 = 0.48, ly1 = 0.74, lx2 = 0.90, ly2 = 0.90;
+                        // Legend placement: top-right, but protect long labels in 3x3 pads
+                        double lx1 = 0.52, ly1 = 0.74, lx2 = 0.92, ly2 = 0.90;
                         double legTextSize = 0.055;
+                        double legMargin   = 0.25;   // fraction of box reserved for markers/lines
 
-                        if (ovTag == "RECO_vs_RECO_truthTaggedPhoJet" ||
-                            ovTag == "RECO_truthPhoTagged_vs_truthTaggedPhoJet")
+                        // If either legend entry is long, shift the whole legend LEFT and give it more width
+                        const size_t maxLegLen = (legBlack.size() > legRed.size()) ? legBlack.size() : legRed.size();
+
+                        if (maxLegLen >= 28)
                         {
-                          lx1 = 0.08;
-                          lx2 = 0.88;
+                          lx1 = 0.44;  lx2 = 0.92;   // shift left, but not too far
+                          legTextSize = 0.045;
+                          legMargin   = 0.18;        // more room for text
+                        }
+                        if (maxLegLen >= 40)
+                        {
+                          lx1 = 0.40;  lx2 = 0.92;   // extra shift for very long labels
                           legTextSize = 0.040;
+                          legMargin   = 0.16;
                         }
 
                         TLegend leg(lx1, ly1, lx2, ly2);
@@ -6216,6 +6351,7 @@ namespace ARJ
                         leg.SetTextSize(legTextSize);
                         leg.SetFillStyle(0);
                         leg.SetBorderSize(0);
+                        leg.SetMargin(legMargin);
                         leg.AddEntry(hA, legBlack.c_str(), "ep");
                         leg.AddEntry(hB, legRed.c_str(),   "ep");
                         leg.DrawClone();
@@ -6239,7 +6375,7 @@ namespace ARJ
                 MakeOverlayShape_TH3xJ(
                   H.hTrut_xJ, H.hReco_xJ,
                   "RECO_vs_TRUTHrecoConditioned",
-                  "Truth (reco-cond)",
+                  "Truth (#gamma^{reco} + jet^{reco} tagged)",
                   "Reco",
                   {"Overlay (shape): RECO vs TRUTH reco-conditioned", "Truth is jet-matched (ΔR<=0.3)"}
                 );
@@ -6281,9 +6417,20 @@ namespace ARJ
                 MakeOverlayShape_TH3xJ(
                   H.hRecoTruthTagged_xJ,  H.hReco_xJ,
                   "RECO_vs_RECO_truthTaggedPhoJet",
-                  "Reco (truth-#gamma + jet1 matched)",
-                  "Reco (all)",
+                  "Reco (#gamma^{truth} + jet^{truth} tagged)",
+                  "Reco",
                   {"Overlay (shape): RECO vs doubly truth-tagged RECO", "Reco is jet-matched (#DeltaR<=0.3)"}
+                );
+
+                // NEW: Reco (truth-#gamma + truth-jet tagged) vs Truth (reco-#gamma + reco-jet tagged)
+                //   Purple: Reco (#gamma^{truth} + jet^{truth} tagged)  -> H.hRecoTruthTagged_xJ
+                //   Pink  : Truth (#gamma^{reco} + jet^{reco} tagged)  -> H.hTrut_xJ  (your legacy jet-matched truth)
+                MakeOverlayShape_TH3xJ(
+                  H.hRecoTruthTagged_xJ,  H.hTrut_xJ,
+                  "RECO_truthTaggedPhoJet_vs_TRUTHrecoConditioned",
+                  "Reco (#gamma^{truth} + jet^{truth} tagged)",
+                  "Truth (#gamma^{reco} + jet^{reco} tagged)",
+                  {"Overlay (shape): RECO truth-tagged vs TRUTH reco-conditioned", "Both are jet-matched (#DeltaR<=0.3)"}
                 );
 
                 
@@ -7585,212 +7732,468 @@ namespace ARJ
                     }
                     else
                     {
-                      // Clone once so any Sumw2/Divide operations never touch the on-file objects
-                      TH1* denC = CloneTH1(hDen,   "h_leadTruthRecoilMatch_den_clone_"   + rKey);
-                      TH1* numC = CloneTH1(hNum,   "h_leadTruthRecoilMatch_num_clone_"   + rKey);
-                      TH1* aC   = CloneTH1(hMissA, "h_leadTruthRecoilMatch_missA_clone_" + rKey);
-                      TH1* bC   = CloneTH1(hMissB, "h_leadTruthRecoilMatch_missB_clone_" + rKey);
+                        // Build the single efficiency curve:
+                        //   eps_lead(pTgammaTruth) = NUM / DEN
+                        //
+                        // Definition:
+                        //   DEN: truth-leading recoil jet exists (fiducial truth definition)
+                        //   NUM: that truth-leading recoil jet is matched to the chosen reco recoil jet
+                        //
+                        // Output (exact):
+                        //   <...>/<rKey>/xJ_fromJES3/Efficiency/LeadTruthRecoilMatch/
+                        //     leadRecoilJetMatchEff_vs_pTgammaTruth_<rKey>.png
 
-                      EnsureSumw2(denC);
-                      EnsureSumw2(numC);
-                      EnsureSumw2(aC);
-                      EnsureSumw2(bC);
+                        TH1* denC = CloneTH1(hDen, "h_leadRecoilJetMatchEff_den_clone_" + rKey);
+                        TH1* numC = CloneTH1(hNum, "h_leadRecoilJetMatchEff_num_clone_" + rKey);
+                        EnsureSumw2(denC);
+                        EnsureSumw2(numC);
 
-                      auto MakeFrac =
-                        [&](TH1* num, TH1* den, const string& newName) -> TH1*
-                      {
-                        if (!num || !den) return nullptr;
-                        TH1* h = CloneTH1(num, newName);
-                        if (!h) return nullptr;
-                        EnsureSumw2(h);
-                        h->Divide(num, den, 1.0, 1.0, "B");
-                        return h;
-                      };
-
-                      std::unique_ptr<TH1> hEff   ( MakeFrac(numC, denC, "h_leadTruthRecoilMatch_eff_"   + rKey) );
-                      std::unique_ptr<TH1> hFracA ( MakeFrac(aC,   denC, "h_leadTruthRecoilMatch_fracA_" + rKey) );
-                      std::unique_ptr<TH1> hFracB ( MakeFrac(bC,   denC, "h_leadTruthRecoilMatch_fracB_" + rKey) );
-
-                      // Integrated sanity check
-                      const double denInt = denC ? denC->Integral(1, denC->GetNbinsX()) : 0.0;
-                      const double numInt = numC ? numC->Integral(1, numC->GetNbinsX()) : 0.0;
-                      const double aInt   = aC   ? aC->Integral(1, aC->GetNbinsX())     : 0.0;
-                      const double bInt   = bC   ? bC->Integral(1, bC->GetNbinsX())     : 0.0;
-
-                      const double effInt = SafeDivide(numInt, denInt, 0.0);
-                      const double aFrac  = SafeDivide(aInt,   denInt, 0.0);
-                      const double bFrac  = SafeDivide(bInt,   denInt, 0.0);
-
-                      cout << "  [LeadTruthRecoilMatch] Integrated over pTgammaTruth bins:\n";
-                      cout << "    DEN=" << denInt << "  NUM=" << numInt
-                           << "  MISS_A=" << aInt << "  MISS_B=" << bInt << "\n";
-                      cout << "    NUM/DEN=" << effInt
-                           << "  MISS_A/DEN=" << aFrac
-                           << "  MISS_B/DEN=" << bFrac
-                           << "  (sum=" << (effInt + aFrac + bFrac) << ")\n";
-
-                      effSummary.push_back("LeadTruthRecoilMatch:");
-                      effSummary.push_back("  Output dir: " + D.dirXJProjEffLeadMatch);
-                      effSummary.push_back(TString::Format("  Integrated: NUM/DEN=%.4f  MISS_A/DEN=%.4f  MISS_B/DEN=%.4f  sum=%.4f",
-                        effInt, aFrac, bFrac, effInt + aFrac + bFrac).Data());
-                      effSummary.push_back("");
-
-                      // (1a) Curve plot (eff + missA + missB)
-                      if (hEff && hFracA && hFracB)
-                      {
-                        TCanvas c(TString::Format("c_leadTruthMatch_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
-                                  "c_leadTruthMatch", 950, 750);
-                        ApplyCanvasMargins1D(c);
-
-                        hEff->SetTitle("");
-                        hEff->GetXaxis()->SetTitle("p_{T}^{#gamma,truth} [GeV]");
-                        hEff->GetYaxis()->SetTitle("Fraction");
-                        hEff->GetYaxis()->SetRangeUser(0.0, 1.05);
-
-                        hEff->SetLineWidth(2);
-                        hEff->SetLineColor(1);
-                        hEff->SetMarkerColor(1);
-                        hEff->SetMarkerStyle(20);
-                        hEff->SetMarkerSize(1.00);
-
-                        hFracA->SetLineWidth(2);
-                        hFracA->SetLineColor(2);
-                        hFracA->SetMarkerColor(2);
-                        hFracA->SetMarkerStyle(24);
-                        hFracA->SetMarkerSize(0.95);
-
-                        hFracB->SetLineWidth(2);
-                        hFracB->SetLineColor(4);
-                        hFracB->SetMarkerColor(4);
-                        hFracB->SetMarkerStyle(25);
-                        hFracB->SetMarkerSize(0.95);
-
-                        hEff->Draw("E1");
-                        hFracA->Draw("E1 same");
-                        hFracB->Draw("E1 same");
-
-                        TLegend leg(0.14, 0.72, 0.70, 0.90);
-                        leg.SetTextFont(42);
-                        leg.SetTextSize(0.038);
-                        leg.SetFillStyle(0);
-                        leg.SetBorderSize(0);
-                        leg.AddEntry(hEff.get(),   "Lead match: NUM/DEN", "ep");
-                        leg.AddEntry(hFracA.get(), "MissA: matched to non-leading reco recoil jet", "ep");
-                        leg.AddEntry(hFracB.get(), "MissB: no reco match", "ep");
-                        leg.Draw();
-
-                        DrawLatexLines(0.14, 0.94, DefaultHeaderLines(ds), 0.030, 0.040);
-                        DrawLatexLines(0.14, 0.66,
-                          {TString::Format("Lead truth recoil match fractions (%s)", rKey.c_str()).Data()},
-                          0.030, 0.040
-                        );
-
-                        const string outPng = JoinPath(
-                          D.dirXJProjEffLeadMatch,
-                          TString::Format("leadTruthRecoilMatch_fractions_vs_pTgammaTruth_%s.png", rKey.c_str()).Data()
-                        );
-                        SaveCanvas(c, outPng);
-
-                        cout << "    Wrote: " << outPng << "\n";
-                        effSummary.push_back("  - " + outPng);
-                      }
-
-                      // (1b) 3x3 value table (one pad per truth-pT bin; first 9 bins)
-                      if (hEff && hFracA && hFracB)
-                      {
-                        TCanvas c(TString::Format("c_tbl_leadTruthMatch_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
-                                  "c_tbl_leadTruthMatch", 1500, 1200);
-                        c.Divide(3,3, 0.001, 0.001);
-
-                        const int nBins = hEff->GetNbinsX();
-                        const int nPads = std::min(nBins, 9);
-
-                        for (int i = 1; i <= 9; ++i)
+                        std::unique_ptr<TH1> hEff( CloneTH1(numC, "h_leadRecoilJetMatchEff_" + rKey) );
+                        if (hEff)
                         {
-                          c.cd(i);
-                          gPad->SetLeftMargin(0.12);
-                          gPad->SetRightMargin(0.06);
-                          gPad->SetBottomMargin(0.10);
-                          gPad->SetTopMargin(0.10);
-
-                          if (i > nPads)
-                          {
-                            TLatex t;
-                            t.SetNDC(true);
-                            t.SetTextFont(42);
-                            t.SetTextSize(0.06);
-                            t.DrawLatex(0.20, 0.55, "EMPTY");
-                            continue;
-                          }
-
-                          const double xLo = hEff->GetXaxis()->GetBinLowEdge(i);
-                          const double xHi = hEff->GetXaxis()->GetBinUpEdge(i);
-
-                          const double vEff = hEff->GetBinContent(i);
-                          const double eEff = hEff->GetBinError(i);
-                          const double vA   = hFracA->GetBinContent(i);
-                          const double eA   = hFracA->GetBinError(i);
-                          const double vB   = hFracB->GetBinContent(i);
-                          const double eB   = hFracB->GetBinError(i);
-                          const double vSum = vEff + vA + vB;
-
-                          TPaveText box(0.10, 0.12, 0.90, 0.86, "NDC");
-                          box.SetFillStyle(0);
-                          box.SetBorderSize(0);
-                          box.SetTextFont(42);
-                          box.SetTextAlign(12);
-                          box.SetTextSize(0.050);
-
-                          box.AddText(TString::Format("p_{T}^{#gamma,truth} = %.0f-%.0f GeV", xLo, xHi));
-                          box.AddText(TString::Format("#varepsilon_{lead} = %.3f #pm %.3f", vEff, eEff));
-                          box.AddText(TString::Format("f_{missA} = %.3f #pm %.3f", vA, eA));
-                          box.AddText(TString::Format("f_{missB} = %.3f #pm %.3f", vB, eB));
-                          box.AddText(TString::Format("sum = %.3f", vSum));
-                          box.Draw();
+                          EnsureSumw2(hEff.get());
+                          hEff->Divide(numC, denC, 1.0, 1.0, "B");
                         }
 
-                        // Put a single header in the first pad (consistent with other 3x3 tables in this file)
-                        c.cd(1);
-                        DrawLatexLines(
-                          0.12, 0.96,
-                          {TString::Format("Lead truth recoil match fractions (3x3)  %s", rKey.c_str()).Data()},
-                          0.030, 0.040
-                        );
+                        // Integrated diagnostic (keep this for sanity)
+                        const double denInt   = denC ? denC->Integral(1, denC->GetNbinsX()) : 0.0;
+                        const double numInt   = numC ? numC->Integral(1, numC->GetNbinsX()) : 0.0;
+                        const double missAInt = hMissA ? hMissA->Integral(1, hMissA->GetNbinsX()) : 0.0;
+                        const double missBInt = hMissB ? hMissB->Integral(1, hMissB->GetNbinsX()) : 0.0;
 
-                        const string outPng = JoinPath(
-                          D.dirXJProjEffLeadMatch,
-                          TString::Format("table3x3_leadTruthRecoilMatchFractions_%s.png", rKey.c_str()).Data()
-                        );
-                        SaveCanvas(c, outPng);
+                        const double effInt = SafeDivide(numInt,   denInt, 0.0);
+                        const double aFrac  = SafeDivide(missAInt, denInt, 0.0);
+                        const double bFrac  = SafeDivide(missBInt, denInt, 0.0);
 
-                        cout << "    Wrote: " << outPng << "\n";
-                        effSummary.push_back("  - " + outPng);
+                        cout << "  [LeadRecoilJetMatchEff] Integrated over pTgammaTruth bins:\n";
+                        cout << "    DEN=" << denInt << "  NUM=" << numInt
+                             << "  MISS_A=" << missAInt << "  MISS_B=" << missBInt << "\n";
+                        cout << "    eps=NUM/DEN=" << effInt
+                             << "  MISS_A/DEN=" << aFrac
+                             << "  MISS_B/DEN=" << bFrac
+                             << "  (sum=" << (effInt + aFrac + bFrac) << ")\n";
+
+                        effSummary.push_back("LeadRecoilJetMatchEff (single-curve):");
+                        effSummary.push_back("  Output dir: " + D.dirXJProjEffLeadMatch);
+                        effSummary.push_back(TString::Format("  Integrated: eps=%.4f  missA/DEN=%.4f  missB/DEN=%.4f  sum=%.4f",
+                          effInt, aFrac, bFrac, effInt + aFrac + bFrac).Data());
+
+                        if (hEff)
+                        {
+                          TCanvas c(TString::Format("c_leadRecoilJetMatchEff_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
+                                    "c_leadRecoilJetMatchEff", 900, 720);
+                          ApplyCanvasMargins1D(c);
+
+                          hEff->SetTitle("");
+                          hEff->GetXaxis()->SetTitle("p_{T}^{#gamma,truth} [GeV]");
+                          hEff->GetYaxis()->SetTitle("#varepsilon_{lead} = P(reco jet matches truth lead recoil)");
+                            // Auto-scale y-axis to the data (avoid lots of empty space).
+                            // Compute min/max over populated bins and pad by a small margin.
+                            double yMin =  1e9;
+                            double yMax = -1e9;
+                            for (int ib = 1; ib <= hEff->GetNbinsX(); ++ib)
+                            {
+                              const double v = hEff->GetBinContent(ib);
+                              const double e = hEff->GetBinError(ib);
+                              // ignore empty/unfilled bins
+                              if (v <= 0.0) continue;
+                              yMin = std::min(yMin, v - e);
+                              yMax = std::max(yMax, v + e);
+                            }
+                            if (yMin > yMax) { yMin = 0.0; yMax = 1.0; } // fallback
+                            const double pad = 0.06;
+                            const double yLo = std::max(0.0, yMin - pad);
+                            const double yHi = std::min(1.05, yMax + pad);
+                            hEff->GetYaxis()->SetRangeUser(yLo, yHi);
+
+                            // Draw as a TGraphErrors with x-errors forced to 0:
+                            // this guarantees "vertical-only" statistical errors and no histogram bin-width segments.
+                            std::unique_ptr<TGraphErrors> gEff(new TGraphErrors());
+                            gEff->SetName(TString::Format("g_leadRecoilJetMatchEff_%s", rKey.c_str()).Data());
+
+                            int ip = 0;
+                            for (int ib = 1; ib <= hEff->GetNbinsX(); ++ib)
+                            {
+                              const double y  = hEff->GetBinContent(ib);
+                              const double ey = hEff->GetBinError(ib);
+                              if (y <= 0.0) continue; // skip empty/unfilled bins
+
+                              const double x  = hEff->GetXaxis()->GetBinCenter(ib);
+                              gEff->SetPoint(ip, x, y);
+                              gEff->SetPointError(ip, 0.0, ey); // xerr=0.0  -> NO horizontal error bars
+                              ++ip;
+                            }
+
+                            // Error bars are drawn using the graph's LINE attributes.
+                            // LineWidth(0) makes the vertical errors invisible.
+                            gEff->SetLineWidth(2);
+                            gEff->SetLineColor(1);
+
+                            gEff->SetMarkerStyle(20);
+                            gEff->SetMarkerSize(1.10);
+                            gEff->SetMarkerColor(1);
+
+                            // Use the histogram only as an axis frame
+                            hEff->SetLineWidth(0);
+                            hEff->SetMarkerSize(0);
+                            hEff->Draw("AXIS");
+
+                            // Draw points + vertical errors only:
+                            //  P = markers, Z = no end-caps
+                            gEff->Draw("PZ SAME");
+
+                          // Optional reference line at 1
+                          const double xMin = hEff->GetXaxis()->GetXmin();
+                          const double xMax = hEff->GetXaxis()->GetXmax();
+                          TLine one(xMin, 1.0, xMax, 1.0);
+                          one.SetLineStyle(2);
+                          one.SetLineWidth(2);
+                          one.Draw("same");
+
+                          DrawLatexLines(0.14, 0.94, DefaultHeaderLines(ds), 0.030, 0.040);
+                          DrawLatexLines(0.14, 0.86,
+                            {TString::Format("Lead recoil-jet match efficiency (%s)", rKey.c_str()).Data()},
+                            0.030, 0.040
+                          );
+
+                            const string outPng = JoinPath(
+                              D.dirXJProjEffLeadMatch,
+                              TString::Format("leadRecoilJetMatchEff_vs_pTgammaTruth_%s.png", rKey.c_str()).Data()
+                            );
+                            SaveCanvas(c, outPng);
+
+                            cout << "    Wrote: " << outPng << "\n";
+                            effSummary.push_back("  - " + outPng);
+
+                            // ------------------------------------------------------------
+                            // NEW: overlay efficiency curves for r02 and r04 on one canvas
+                            //   - r02: red filled circles
+                            //   - r04: blue filled circles
+                            //
+                            // Output (exact):
+                            //   <...>/xJ_fromJES3/Efficiency/LeadTruthRecoilMatch/
+                            //     leadRecoilJetMatchEff_vs_pTgammaTruth_overlay_r02_r04.png
+                            // ------------------------------------------------------------
+                            if (rKey == "r04")
+                            {
+                              const std::string rk02 = "r02";
+                              const std::string rk04 = "r04";
+
+                              const string hDen02Name = "h_leadTruthRecoilMatch_den_pTgammaTruth_" + rk02;
+                              const string hNum02Name = "h_leadTruthRecoilMatch_num_pTgammaTruth_" + rk02;
+
+                              const string hDen04Name = "h_leadTruthRecoilMatch_den_pTgammaTruth_" + rk04;
+                              const string hNum04Name = "h_leadTruthRecoilMatch_num_pTgammaTruth_" + rk04;
+
+                              TH1* hDen02 = GetObj<TH1>(ds, hDen02Name, false, false, false);
+                              TH1* hNum02 = GetObj<TH1>(ds, hNum02Name, false, false, false);
+                              TH1* hDen04 = GetObj<TH1>(ds, hDen04Name, false, false, false);
+                              TH1* hNum04 = GetObj<TH1>(ds, hNum04Name, false, false, false);
+
+                              if (!hDen02 || !hNum02 || !hDen04 || !hNum04)
+                              {
+                                cout << ANSI_BOLD_YEL << "  [LeadRecoilJetMatchEff Overlay] Missing r02/r04 inputs; skipping overlay.\n" << ANSI_RESET;
+                                if (!hDen02) cout << "    - MISSING: " << hDen02Name << "\n";
+                                if (!hNum02) cout << "    - MISSING: " << hNum02Name << "\n";
+                                if (!hDen04) cout << "    - MISSING: " << hDen04Name << "\n";
+                                if (!hNum04) cout << "    - MISSING: " << hNum04Name << "\n";
+                              }
+                              else
+                              {
+                                // Build binomial efficiencies: NUM/DEN (do NOT modify on-file hists)
+                                TH1* den02C = CloneTH1(hDen02, "h_leadRecoilJetMatchEffOverlay_den02_clone");
+                                TH1* num02C = CloneTH1(hNum02, "h_leadRecoilJetMatchEffOverlay_num02_clone");
+                                TH1* den04C = CloneTH1(hDen04, "h_leadRecoilJetMatchEffOverlay_den04_clone");
+                                TH1* num04C = CloneTH1(hNum04, "h_leadRecoilJetMatchEffOverlay_num04_clone");
+                                EnsureSumw2(den02C); EnsureSumw2(num02C);
+                                EnsureSumw2(den04C); EnsureSumw2(num04C);
+
+                                std::unique_ptr<TH1> hEff02( CloneTH1(num02C, "h_leadRecoilJetMatchEffOverlay_eff02") );
+                                std::unique_ptr<TH1> hEff04( CloneTH1(num04C, "h_leadRecoilJetMatchEffOverlay_eff04") );
+                                if (hEff02) { EnsureSumw2(hEff02.get()); hEff02->Divide(num02C, den02C, 1.0, 1.0, "B"); }
+                                if (hEff04) { EnsureSumw2(hEff04.get()); hEff04->Divide(num04C, den04C, 1.0, 1.0, "B"); }
+
+                                auto MakeGraphNoXerr = [&](TH1* h, int mStyle, double mSize, int lColor, int mColor) -> std::unique_ptr<TGraphErrors>
+                                {
+                                  std::unique_ptr<TGraphErrors> g(new TGraphErrors());
+                                  int ip = 0;
+                                  for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                                  {
+                                    const double y  = h->GetBinContent(ib);
+                                    const double ey = h->GetBinError(ib);
+                                    if (y <= 0.0) continue;
+                                    const double x  = h->GetXaxis()->GetBinCenter(ib);
+                                    g->SetPoint(ip, x, y);
+                                    g->SetPointError(ip, 0.0, ey); // vertical-only errors
+                                    ++ip;
+                                  }
+                                  g->SetLineWidth(2);
+                                  g->SetLineColor(lColor);
+                                  g->SetMarkerStyle(mStyle);
+                                  g->SetMarkerSize(mSize);
+                                  g->SetMarkerColor(mColor);
+                                  return g;
+                                };
+
+                                auto g02 = (hEff02 ? MakeGraphNoXerr(hEff02.get(), 20, 1.05, 2, 2) : nullptr); // r02 red
+                                auto g04 = (hEff04 ? MakeGraphNoXerr(hEff04.get(), 20, 1.05, 4, 4) : nullptr); // r04 blue
+
+                                if (g02 && g04)
+                                {
+                                  // Compute y-range over BOTH curves
+                                  double yMin =  1e9;
+                                  double yMax = -1e9;
+                                  auto AccumRange = [&](TH1* h)
+                                  {
+                                    for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                                    {
+                                      const double v = h->GetBinContent(ib);
+                                      const double e = h->GetBinError(ib);
+                                      if (v <= 0.0) continue;
+                                      yMin = std::min(yMin, v - e);
+                                      yMax = std::max(yMax, v + e);
+                                    }
+                                  };
+                                  AccumRange(hEff02.get());
+                                  AccumRange(hEff04.get());
+                                  if (yMin > yMax) { yMin = 0.0; yMax = 1.0; }
+                                  const double pad = 0.06;
+                                  const double yLo = std::max(0.0, yMin - pad);
+                                  const double yHi = std::min(1.05, yMax + pad);
+
+                                  TCanvas cOv(TString::Format("c_leadRecoilJetMatchEff_overlay_%s", ds.label.c_str()).Data(),
+                                              "c_leadRecoilJetMatchEff_overlay", 900, 720);
+                                  ApplyCanvasMargins1D(cOv);
+
+                                  // Use r04 hist as an axis frame
+                                  hEff04->SetTitle("");
+                                  hEff04->GetXaxis()->SetTitle("p_{T}^{#gamma,truth} [GeV]");
+                                  hEff04->GetYaxis()->SetTitle("#varepsilon_{lead} = P(reco jet matches truth lead recoil)");
+                                  hEff04->GetYaxis()->SetRangeUser(yLo, yHi);
+                                  hEff04->SetLineWidth(0);
+                                  hEff04->SetMarkerSize(0);
+                                  hEff04->Draw("AXIS");
+
+                                  // Draw both curves with stat error bars
+                                  g02->Draw("PE SAME");
+                                  g04->Draw("PE SAME");
+
+                                  // Reference line at 1
+                                  const double xMin = hEff04->GetXaxis()->GetXmin();
+                                  const double xMax = hEff04->GetXaxis()->GetXmax();
+                                  TLine one(xMin, 1.0, xMax, 1.0);
+                                  one.SetLineStyle(2);
+                                  one.SetLineWidth(2);
+                                  one.Draw("same");
+
+                                  // Header + title
+                                  DrawLatexLines(0.14, 0.94, DefaultHeaderLines(ds), 0.030, 0.040);
+                                  DrawLatexLines(0.14, 0.86,
+                                    {"Lead recoil-jet match efficiency overlay (r02 vs r04)"},
+                                    0.030, 0.040
+                                  );
+
+                                  // Legend (smaller, shifted left)
+                                  TLegend leg(0.36, 0.76, 0.70, 0.90);
+                                  leg.SetTextFont(42);
+                                  leg.SetTextSize(0.028);
+                                  leg.SetFillStyle(0);
+                                  leg.SetBorderSize(0);
+                                  leg.AddEntry(g02.get(), "r02", "ep");
+                                  leg.AddEntry(g04.get(), "r04", "ep");
+                                  leg.Draw();
+
+                                  const string outOvPng = JoinPath(
+                                    D.dirXJProjEffLeadMatch,
+                                    "leadRecoilJetMatchEff_vs_pTgammaTruth_overlay_r02_r04.png"
+                                  );
+                                  SaveCanvas(cOv, outOvPng);
+
+                                  cout << "    Wrote: " << outOvPng << "\n";
+                                  effSummary.push_back("  - " + outOvPng);
+                                }
+
+                                delete den02C;
+                                delete num02C;
+                                delete den04C;
+                                delete num04C;
+                              }
+                            }
+
+                            // ------------------------------------------------------------
+                            // NEW: missA and missB probabilities vs pTgammaTruth
+                            //   fA = MISS_A / DEN  (matched, but not to the chosen/leading reco recoil jet)
+                            //   fB = MISS_B / DEN  (no reco match)
+                            //
+                            // Output (exact):
+                            //   <...>/<rKey>/xJ_fromJES3/Efficiency/LeadTruthRecoilMatch/
+                            //     leadRecoilJetMatchMisses_vs_pTgammaTruth_<rKey>.png
+                            // ------------------------------------------------------------
+                            {
+
+                              // Build binomial fraction histograms (do NOT modify on-file histograms)
+                              TH1* missA_C = CloneTH1(hMissA, "h_leadTruthRecoilMatch_missA_cloneForFrac_" + rKey);
+                              TH1* missB_C = CloneTH1(hMissB, "h_leadTruthRecoilMatch_missB_cloneForFrac_" + rKey);
+                              EnsureSumw2(missA_C);
+                              EnsureSumw2(missB_C);
+
+                              std::unique_ptr<TH1> hFracA( CloneTH1(missA_C, "h_leadTruthRecoilMatch_fracA_" + rKey) );
+                              std::unique_ptr<TH1> hFracB( CloneTH1(missB_C, "h_leadTruthRecoilMatch_fracB_" + rKey) );
+
+                              if (hFracA && hFracB)
+                              {
+                                EnsureSumw2(hFracA.get());
+                                EnsureSumw2(hFracB.get());
+                                hFracA->Divide(missA_C, denC, 1.0, 1.0, "B");
+                                hFracB->Divide(missB_C, denC, 1.0, 1.0, "B");
+
+                                // Auto-scale y-axis for misses only
+                                double yMinM =  1e9;
+                                double yMaxM = -1e9;
+                                for (int ib = 1; ib <= hFracA->GetNbinsX(); ++ib)
+                                {
+                                  const double a  = hFracA->GetBinContent(ib);
+                                  const double ea = hFracA->GetBinError(ib);
+                                  const double b  = hFracB->GetBinContent(ib);
+                                  const double eb = hFracB->GetBinError(ib);
+
+                                  if (a > 0.0) { yMinM = std::min(yMinM, a - ea); yMaxM = std::max(yMaxM, a + ea); }
+                                  if (b > 0.0) { yMinM = std::min(yMinM, b - eb); yMaxM = std::max(yMaxM, b + eb); }
+                                }
+                                if (yMinM > yMaxM) { yMinM = 0.0; yMaxM = 0.20; } // fallback
+                                const double padM = 0.02;
+                                const double yLoM = 0.0;
+                                const double yHiM = std::min(1.0, yMaxM + padM);
+
+                                // Build TGraphErrors with xerr=0 (vertical-only statistical errors)
+                                auto MakeGraphNoXerr = [&](TH1* h, int mStyle, double mSize, int lColor, int mColor) -> std::unique_ptr<TGraphErrors>
+                                {
+                                  std::unique_ptr<TGraphErrors> g(new TGraphErrors());
+                                  int ip = 0;
+                                  for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                                  {
+                                    const double y  = h->GetBinContent(ib);
+                                    const double ey = h->GetBinError(ib);
+                                    if (y <= 0.0) continue;
+                                    const double x  = h->GetXaxis()->GetBinCenter(ib);
+
+                                    g->SetPoint(ip, x, y);
+                                    g->SetPointError(ip, 0.0, ey); // NO horizontal error bars
+                                    ++ip;
+                                  }
+                                  g->SetLineWidth(2);          // makes vertical errors visible
+                                  g->SetLineColor(lColor);
+                                  g->SetMarkerStyle(mStyle);
+                                  g->SetMarkerSize(mSize);
+                                  g->SetMarkerColor(mColor);
+                                  return g;
+                                };
+
+                                  // Use FILLED CIRCLE markers for BOTH series (different colors distinguish A vs B)
+                                  auto gA = MakeGraphNoXerr(hFracA.get(), 20, 1.05, 2, 2); // red filled circles
+                                  auto gB = MakeGraphNoXerr(hFracB.get(), 20, 1.05, 4, 4); // blue filled circles
+
+                                  TCanvas cM(TString::Format("c_leadTruthMatchMisses_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
+                                             "c_leadTruthMatchMisses", 900, 720);
+                                  ApplyCanvasMargins1D(cM);
+
+                                  // Use hFracA as the axis frame
+                                  hFracA->SetTitle("");
+                                  hFracA->GetXaxis()->SetTitle("p_{T}^{#gamma,truth} [GeV]");
+                                  hFracA->GetYaxis()->SetTitle("Miss probability (fraction of DEN)");
+                                  hFracA->GetYaxis()->SetRangeUser(yLoM, yHiM);
+
+                                  // Draw axis only
+                                  hFracA->SetLineWidth(0);
+                                  hFracA->SetMarkerSize(0);
+                                  hFracA->Draw("AXIS");
+
+                                  // Draw graphs WITH statistical error bars (keep xerr=0 from builder)
+                                  // Use "PE" (points + error bars). (No "Z" so ROOT draws standard end-caps.)
+                                  if (gA) gA->Draw("PE SAME");
+                                  if (gB) gB->Draw("PE SAME");
+
+                                  // ------------------------------
+                                  // RHS-only annotations (no overlap)
+                                  // ------------------------------
+
+                                  // 1) Legend: smaller + shifted LEFT so it stays fully on canvas
+                                  TLegend legM(0.38, 0.78, 0.73, 0.9);
+                                  legM.SetTextFont(42);
+                                  legM.SetTextSize(0.028);
+                                  legM.SetFillStyle(0);
+                                  legM.SetBorderSize(0);
+                                  if (gA) legM.AddEntry(gA.get(), "MissA / DEN (matched to non-leading reco recoil jet)", "ep");
+                                  if (gB) legM.AddEntry(gB.get(), "MissB / DEN (no reco match)", "ep");
+                                  legM.Draw();
+
+                                  // 2) TLatex header + subtitle: use DefaultHeaderLines(ds) so SIM sample label matches header toggles
+                                  {
+                                    const auto hdr = DefaultHeaderLines(ds);
+                                    const std::string dsLine = hdr.empty() ? std::string("Dataset: (unknown)") : hdr.front();
+
+                                    TLatex t;
+                                    t.SetNDC(true);
+                                    t.SetTextFont(42);
+                                    t.SetTextAlign(31); // right-aligned
+
+                                    // dataset header (top-right) -- now consistent with SIM sample toggles in AnalyzeRecoilJets.h
+                                    t.SetTextSize(0.034);
+                                    t.DrawLatex(0.89, 0.965, dsLine.c_str());
+
+                                    // plot label (just below header, top-right)
+                                    t.SetTextSize(0.032);
+                                    t.DrawLatex(0.89, 0.925,
+                                      TString::Format("Lead truth recoil miss probabilities (%s)", rKey.c_str()).Data()
+                                    );
+                                  }
+
+
+                                const string outMissPng = JoinPath(
+                                  D.dirXJProjEffLeadMatch,
+                                  TString::Format("leadRecoilJetMatchMisses_vs_pTgammaTruth_%s.png", rKey.c_str()).Data()
+                                );
+                                SaveCanvas(cM, outMissPng);
+
+                                cout << "    Wrote: " << outMissPng << "\n";
+                                effSummary.push_back("  - " + outMissPng);
+                              }
+
+                              delete missA_C;
+                              delete missB_C;
+                            }
+                        }
+                        else
+                        {
+                          cout << ANSI_BOLD_YEL << "  [LeadRecoilJetMatchEff] Failed to build efficiency curve; skipping plot.\n" << ANSI_RESET;
+                          effSummary.push_back("  - FAILED to build efficiency curve (skipped)");
+                        }
+
                         effSummary.push_back("");
-                      }
 
-                      delete denC;
-                      delete numC;
-                      delete aC;
-                      delete bC;
+                        delete denC;
+                        delete numC;
+
                     }
                   }
 
-                  // ---------------------------------------------------------------------------
-                  // (2) Lead jet response QA (truth<->reco)
-                  //
-                  // Inputs (filled online in RecoilJets.cc):
-                  //   h_leadRecoilJetMatch_dR_<rKey>
-                  //   h_leadRecoilJetPtResponse_pTtruth_ratio_<rKey>
-                  //   h_leadRecoilJetPtTruthPtReco_<rKey>
-                  // ---------------------------------------------------------------------------
+                    // ---------------------------------------------------------------------------
+                    // (2) Lead jet response QA (truth<->reco)
+                    //
+                    // Inputs (filled online in RecoilJets.cc):
+                    //   h_leadRecoilJetMatch_dR_<rKey>
+                    //   h2_leadRecoilJetPtResponse_pTtruth_ratio_<rKey>
+                    //   h2_leadRecoilJet_pTtruth_pTreco_<rKey>
+                    // ---------------------------------------------------------------------------
                   {
                     const string hDRName      = "h_leadRecoilJetMatch_dR_" + rKey;
-                    const string hRespName    = "h_leadRecoilJetPtResponse_pTtruth_ratio_" + rKey;
-                    const string hTruthRecoNm = "h_leadRecoilJetPtTruthPtReco_" + rKey;
+                    const string hRespName    = "h2_leadRecoilJetPtResponse_pTtruth_ratio_" + rKey;
+                    const string hTruthRecoNm = "h2_leadRecoilJet_pTtruth_pTreco_" + rKey;
 
                     TH1* hDR   = GetObj<TH1>(ds, hDRName,      false, false, false);
                     TH2* hResp = GetObj<TH2>(ds, hRespName,    false, false, false);
                     TH2* hTR   = GetObj<TH2>(ds, hTruthRecoNm, false, false, false);
+
 
                     effSummary.push_back("LeadJetResponse:");
                     effSummary.push_back("  Output dir: " + D.dirXJProjEffLeadJetResponse);
@@ -7896,45 +8299,182 @@ namespace ARJ
                       effSummary.push_back("  - MISSING: " + hRespName);
                     }
 
-                    // (2c) pTtruth vs pTreco (2D)
-                    if (hTR)
-                    {
-                      TCanvas c(TString::Format("c_leadJetTR2D_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
-                                "c_leadJetTR2D", 900, 760);
-                      ApplyCanvasMargins2D(c);
+                      // (2c) pTtruth vs pTreco (2D)
+                      if (hTR)
+                      {
+                        TCanvas c(TString::Format("c_leadJetTR2D_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
+                                  "c_leadJetTR2D", 900, 760);
+                        ApplyCanvasMargins2D(c);
 
-                      hTR->SetTitle("");
-                      hTR->GetXaxis()->SetTitle("p_{T}^{jet,truth} [GeV]");
-                      hTR->GetYaxis()->SetTitle("p_{T}^{jet,reco} [GeV]");
-                      hTR->Draw("colz");
+                        hTR->SetTitle("");
+                        hTR->GetXaxis()->SetTitle("p_{T}^{jet,truth} [GeV]");
+                        hTR->GetYaxis()->SetTitle("p_{T}^{jet,reco} [GeV]");
+                        hTR->Draw("colz");
 
-                      // y=x reference
-                      const double xmin = hTR->GetXaxis()->GetXmin();
-                      const double xmax = hTR->GetXaxis()->GetXmax();
-                      TLine diag(xmin, xmin, xmax, xmax);
-                      diag.SetLineStyle(2);
-                      diag.SetLineWidth(2);
-                      diag.Draw("same");
+                        // y=x reference
+                        const double xmin = hTR->GetXaxis()->GetXmin();
+                        const double xmax = hTR->GetXaxis()->GetXmax();
+                        TLine diag(xmin, xmin, xmax, xmax);
+                        diag.SetLineStyle(2);
+                        diag.SetLineWidth(2);
+                        diag.Draw("same");
 
-                      DrawLatexLines(0.14, 0.94, DefaultHeaderLines(ds), 0.028, 0.038);
-                      DrawLatexLines(0.14, 0.86, {TString::Format("Lead jet pT^{truth} vs pT^{reco} (%s)", rKey.c_str()).Data()}, 0.028, 0.038);
+                        DrawLatexLines(0.14, 0.94, DefaultHeaderLines(ds), 0.028, 0.038);
+                        DrawLatexLines(0.14, 0.86, {TString::Format("Lead jet pT^{truth} vs pT^{reco} (%s)", rKey.c_str()).Data()}, 0.028, 0.038);
 
-                      const string outPng = JoinPath(
-                        D.dirXJProjEffLeadJetResponse,
-                        TString::Format("leadJet_pTtruth_vs_pTreco_%s.png", rKey.c_str()).Data()
-                      );
-                      SaveCanvas(c, outPng);
+                        const string outPng = JoinPath(
+                          D.dirXJProjEffLeadJetResponse,
+                          TString::Format("leadJet_pTtruth_vs_pTreco_%s.png", rKey.c_str()).Data()
+                        );
+                        SaveCanvas(c, outPng);
 
-                      cout << "  [LeadJetResponse] Wrote: " << outPng << "\n";
-                      effSummary.push_back("  - " + outPng);
-                    }
-                    else
-                    {
-                      cout << ANSI_BOLD_YEL << "  [LeadJetResponse] Missing " << hTruthRecoNm << ANSI_RESET << "\n";
-                      effSummary.push_back("  - MISSING: " + hTruthRecoNm);
-                    }
+                        cout << "  [LeadJetResponse] Wrote: " << outPng << "\n";
+                        effSummary.push_back("  - " + outPng);
+                      }
+                      else
+                      {
+                        cout << ANSI_BOLD_YEL << "  [LeadJetResponse] Missing " << hTruthRecoNm << ANSI_RESET << "\n";
+                        effSummary.push_back("  - MISSING: " + hTruthRecoNm);
+                      }
 
-                    effSummary.push_back("");
+                      // (2d) NEW: 3x3 pT^{#gamma}-binned table of the analysis-selected recoilJet1 Δphi distribution
+                      //   - recoilJet1: |Δphi(γ, recoilJet1)| from h_match_dphi_vs_pTgamma_<rKey>
+                      //   - NOTE: this histogram is filled only when recoilJet1 exists (analysis recoil requirement applied)
+                      // Output:
+                      //   <...>/<rKey>/xJ_fromJES3/Efficiency/LeadJetResponse/
+                      //     table3x3_dphiRecoilJet1_shape_<rKey>.png
+                      {
+                        const string hDphiName = "h_match_dphi_vs_pTgamma_" + rKey;
+                        TH2* hDphi = GetObj<TH2>(ds, hDphiName, false, false, false);
+
+                        if (!hDphi)
+                        {
+                          cout << ANSI_BOLD_YEL << "  [LeadJetResponse] Missing " << hDphiName << ANSI_RESET << "\n";
+                          effSummary.push_back("  - MISSING: " + hDphiName);
+                        }
+                        else
+                        {
+                          auto NormalizeVisible = [](TH1* h)
+                          {
+                            if (!h) return;
+                            const int nb = h->GetNbinsX();
+                            const double integral = h->Integral(1, nb); // visible bins only
+                            if (integral > 0.0) h->Scale(1.0 / integral);
+                          };
+
+                          const int nPtAxis = hDphi->GetXaxis()->GetNbins();
+                          const int nPtUse  = std::min(9, std::min(nPtAxis, (int)PtBins().size()));
+
+                          TCanvas c(
+                            TString::Format("c_tbl_dphiRecoilJet1_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
+                            "c_tbl_dphiRecoilJet1", 1500, 1200
+                          );
+                          c.Divide(3,3, 0.001, 0.001);
+
+                          std::vector<TObject*> keep;
+                          keep.reserve(2 * nPtUse);
+
+                          for (int i = 0; i < 9; ++i)
+                          {
+                            c.cd(i+1);
+                            gPad->SetLeftMargin(0.14);
+                            gPad->SetRightMargin(0.05);
+                            gPad->SetBottomMargin(0.14);
+                            gPad->SetTopMargin(0.10);
+                            gPad->SetTicks(1,1);
+
+                            if (i >= nPtUse)
+                            {
+                              TLatex t;
+                              t.SetNDC(true);
+                              t.SetTextFont(42);
+                              t.SetTextSize(0.06);
+                              t.DrawLatex(0.20, 0.55, "EMPTY");
+                              continue;
+                            }
+
+                            const PtBin& pb = PtBins()[i];
+                            const int xbin = i + 1;
+
+                            TH1D* p = hDphi->ProjectionY(
+                              TString::Format("p_tbl_dphiRecoilJet1_%s_%s_%d", ds.label.c_str(), rKey.c_str(), i).Data(),
+                              xbin, xbin
+                            );
+
+                            if (!p || p->GetEntries() <= 0.0)
+                            {
+                              if (p) delete p;
+                              TLatex t;
+                              t.SetNDC(true);
+                              t.SetTextFont(42);
+                              t.SetTextSize(0.06);
+                              t.DrawLatex(0.15, 0.55, "MISSING");
+                              continue;
+                            }
+
+                            p->SetDirectory(nullptr);
+                            NormalizeVisible(p);
+
+                            p->SetTitle("");
+                            p->GetXaxis()->SetTitle("|#Delta#phi(#gamma, recoilJet_{1})| [rad]");
+                            p->GetYaxis()->SetTitle("A.U.");
+
+                            p->SetLineWidth(2);
+                            p->SetLineColor(kBlack);
+
+                            const double ymax = p->GetMaximum();
+                            p->SetMaximum(ymax * 1.28);
+
+                            p->Draw("hist");
+
+                            // Draw a reference line at π/2 (analysis recoil requirement)
+                            {
+                              TLine* l = new TLine(TMath::Pi()/2.0, 0.0, TMath::Pi()/2.0, p->GetMaximum());
+                              l->SetLineStyle(2);
+                              l->SetLineWidth(2);
+                              l->SetLineColor(kGray+2);
+                              l->Draw("same");
+                              keep.push_back(l);
+                            }
+
+                            // Small legend (even for 1 curve) + indicates π/2 line meaning
+                            TLegend* leg = new TLegend(0.52, 0.72, 0.93, 0.90);
+                            leg->SetTextFont(42);
+                            leg->SetTextSize(0.028);
+                            leg->SetFillStyle(0);
+                            leg->SetBorderSize(0);
+                            leg->AddEntry(p, "recoilJet_{1} (analysis-selected)", "l");
+                            leg->AddEntry((TObject*)0, "|#Delta#phi| > #pi/2 required", "");
+                            leg->Draw();
+
+                            DrawLatexLines(
+                              0.16, 0.90,
+                              {
+                                TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data(),
+                                "recoilJet_{1} #Delta#phi (shape)"
+                              },
+                              0.040, 0.050
+                            );
+
+                            keep.push_back(p);
+                            keep.push_back(leg);
+                          }
+
+                          const string outPng = JoinPath(
+                            D.dirXJProjEffLeadJetResponse,
+                            TString::Format("table3x3_dphiRecoilJet1_shape_%s.png", rKey.c_str()).Data()
+                          );
+                          SaveCanvas(c, outPng);
+
+                          cout << "  [LeadJetResponse] Wrote: " << outPng << "\n";
+                          effSummary.push_back("  - " + outPng);
+
+                          for (auto* o : keep) delete o;
+                        }
+                      }
+
+                      effSummary.push_back("");
+
                   }
 
                   // ---------------------------------------------------------------------------

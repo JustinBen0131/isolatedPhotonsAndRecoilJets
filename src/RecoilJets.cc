@@ -3426,10 +3426,14 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
 
       // Keep a pointer to the actual leading reco photon cluster (needed for SIM truth↔reco association)
       const RawCluster* leadRc = nullptr;
+        
+      // Event-level diagnostic: number of reco photon candidates that pass the SAME
+      // iso∧tight gate used for the event-leading photon selection in this event.
+      int nIsoTightPhoCand = 0;
 
-       int iPho = 0;
-       for (auto pit = prange.first; pit != prange.second; ++pit, ++iPho)
-       {
+      int iPho = 0;
+      for (auto pit = prange.first; pit != prange.second; ++pit, ++iPho)
+      {
         // Concrete type: PhotonClusterv1
         const auto* pho = dynamic_cast<const PhotonClusterv1*>(pit->second);
         if (!pho)
@@ -3666,17 +3670,20 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
            //  xJ usable gate (preselection already passed above):
            //    - for ALL iso∧tight photons: fill the reco photon 3D baseline TH3
            //    - for jet matching: defer to event-leading iso∧tight photon
-           if (!(iso && tightTag == TightTag::kTight))
-           {
-             if (!iso) ++nNotIso;
-             if (tightTag != TightTag::kTight) ++nNotTight;
-             if (Verbosity() >= 6)
-               LOG(6, CLR_BLUE, "      [pho#" << iPho << "] NOT used for xJ (iso=" << iso
-                                              << ", tightTag=" << tightTagName(tightTag) << ")");
-             continue;
-           }
+          if (!(iso && tightTag == TightTag::kTight))
+          {
+            if (!iso) ++nNotIso;
+            if (tightTag != TightTag::kTight) ++nNotTight;
+            if (Verbosity() >= 6)
+              LOG(6, CLR_BLUE, "      [pho#" << iPho << "] NOT used for xJ (iso=" << iso
+                                             << ", tightTag=" << tightTagName(tightTag) << ")");
+            continue;
+          }
 
-           for (const auto& trigShort : activeTrig)
+          // Count ALL iso∧tight photon candidates in this event (photon-side ambiguity diagnostic)
+          ++nIsoTightPhoCand;
+
+          for (const auto& trigShort : activeTrig)
            {
              if (auto* h3 = getOrBookPho3TightIso(trigShort))
              {
@@ -3711,6 +3718,24 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
             // Defer jet matching (prevents double-filling JES TH3s if multiple photons pass).
             continue;
         } // photon loop
+        
+        // ------------------------------------------------------------------
+        // Event-level photon-side diagnostic:
+        //   N = number of iso∧tight photon candidates in this event.
+        // Fill once per event (only when a leading iso∧tight photon exists),
+        // binned by the selected leading-photon pT bin (leadPtIdx).
+        // ------------------------------------------------------------------
+        if (haveLeadIsoTight && leadPtIdx >= 0)
+        {
+          for (const auto& trigShort : activeTrig)
+          {
+            if (auto* hN = getOrBookNIsoTightPhoCandHist(trigShort, leadPtIdx, centIdx))
+            {
+              hN->Fill(nIsoTightPhoCand);
+              bumpHistFill(trigShort, hN->GetName());
+            }
+          }
+        }
 
         // ------------------------------------------------------------------
         // Jet matching + JES fills ONCE per event using the event-leading
@@ -7207,6 +7232,72 @@ TH1I* RecoilJets::getOrBookIsoDecisionHist(const std::string& trig, int ptIdx, i
 
   h->GetXaxis()->SetBinLabel(1, "PASS");
   h->GetXaxis()->SetBinLabel(2, "FAIL");
+  H[name] = h;
+
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+// Event-level reco-photon multiplicity diagnostic:
+//   N = number of reco photon candidates passing the SAME iso∧tight gate used
+//       for the event-leading photon selection (filled once per event; binned
+//       by the selected leading-photon pT bin via suffixForBins()).
+TH1I* RecoilJets::getOrBookNIsoTightPhoCandHist(const std::string& trig, int ptIdx, int centIdx)
+{
+  const std::string base   = "h_nIsoTightPhoCand";
+  const std::string suffix = suffixForBins(ptIdx, centIdx);
+  const std::string name   = base + suffix;
+
+  if (Verbosity() >= 5)
+    LOG(5, CLR_BLUE, "  [getOrBookNIsoTightPhoCandHist] trig=\"" << trig
+           << "\" ptIdx=" << ptIdx << " centIdx=" << centIdx
+           << " → name=\"" << name << "\"");
+
+  if (trig.empty())
+  {
+    LOG(2, CLR_YELLOW, "  [getOrBookNIsoTightPhoCandHist] empty trig – returning nullptr");
+    return nullptr;
+  }
+
+  auto& H = qaHistogramsByTrigger[trig];
+
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH1I*>(it->second)) return h;
+    LOG(2, CLR_YELLOW, "    [getOrBookNIsoTightPhoCandHist] name clash: object \"" << name
+                       << "\" exists but is not TH1I – replacing it");
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen())
+  {
+    LOG(1, CLR_YELLOW, "  [getOrBookNIsoTightPhoCandHist] output TFile invalid/null – returning nullptr");
+    return nullptr;
+  }
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir)
+  {
+    LOG(1, CLR_YELLOW, "  [getOrBookNIsoTightPhoCandHist] failed to create/access directory \"" << trig << "\"");
+    if (prevDir) prevDir->cd();
+    return nullptr;
+  }
+
+  dir->cd();
+
+  // Integer multiplicity: 0..10
+  auto* h = new TH1I(name.c_str(),
+                     (name + ";N_{#gamma}^{iso+tight} candidates;Entries").c_str(),
+                     11, -0.5, 10.5);
+  if (!h)
+  {
+    LOG(1, CLR_YELLOW, "  [getOrBookNIsoTightPhoCandHist] new TH1I failed for \"" << name << '"');
+    if (prevDir) prevDir->cd();
+    return nullptr;
+  }
+
   H[name] = h;
 
   if (prevDir) prevDir->cd();

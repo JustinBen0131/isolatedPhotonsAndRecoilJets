@@ -163,12 +163,12 @@ namespace ARJ
 
   // SIM sample selection toggles (choose EXACTLY ONE for any SIM-including run)
   inline bool isPhotonJet5               = false;
-  inline bool isPhotonJet10              = true;
+  inline bool isPhotonJet10              = false;
   inline bool isPhotonJet20              = false;
 
   inline bool bothPhoton5and10sim        = false;
   inline bool bothPhoton5and20sim        = false;
-  inline bool bothPhoton10and20sim       = false;
+  inline bool bothPhoton10and20sim       = true;
 
   inline bool allPhoton5and10and20sim    = false;
 
