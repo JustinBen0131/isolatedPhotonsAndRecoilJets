@@ -193,6 +193,7 @@ namespace ARJ
   inline const string kInSIM5 =
         "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5_SIM/RecoilJets_photonjet5_ALL.root";
 
+  ///Users/patsfan753/Desktop/ThesisAnalysis/InputSimFiles_photon10and20_7pi8cut
   inline const string kInSIM10 =
         "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10_SIM/RecoilJets_photonjet10_ALL.root";
 

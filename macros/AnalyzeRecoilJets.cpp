@@ -7251,6 +7251,179 @@ namespace ARJ
                     Make3x3Table_xJ_RECO_AlphaCutsOverlay(H.hReco_xJ, dirAlphaBase);
 
                     // -----------------------------------------------------------------------------
+                    // (B2) NEW: same 3x3 alpha overlay, but only THREE curves:
+                    //      "no alpha cut", "alpha < 0.20", "alpha < 0.50"
+                    //      Output goes to the SAME directory as the 4-curve overlay:
+                    //        <...>/xJ_fromJES3/RECO/alphaCuts/
+                    // -----------------------------------------------------------------------------
+                    auto Make3x3Table_xJ_RECO_AlphaCutsOverlay_3Curves =
+                      [&](const TH3* h3, const string& outBaseDir)
+                    {
+                      if (!h3) return;
+
+                      struct CutStyle
+                      {
+                        double aMax;
+                        int    color;
+                        int    marker;
+                        string label;
+                        string tag;
+                      };
+
+                      // 3 curves: no cut (integrate full alpha axis), alpha<0.20, alpha<0.50
+                      const vector<CutStyle> styles =
+                      {
+                        {999.0, 1, 20, "no #alpha cut", "noCut"},   // full alpha integration
+                        {0.20,  2, 24, "#alpha < 0.20", "a020"},    // red open
+                        {0.50,  4, 20, "#alpha < 0.50", "a050"}     // blue filled
+                      };
+
+                      const int n = h3->GetXaxis()->GetNbins();
+                      const int perPage = 9;
+                      int page = 0;
+
+                      for (int start = 1; start <= n; start += perPage)
+                      {
+                        ++page;
+
+                        TCanvas c(
+                          TString::Format("c_tbl_xJ_%s_%s_RECO_alphaCuts3_p%d",
+                            ds.label.c_str(), rKey.c_str(), page).Data(),
+                          "c_tbl_xJ_alphaCuts3", 1500, 1200
+                        );
+
+                        c.Divide(3,3, 0.001, 0.001);
+
+                        std::vector<TH1*> keep;
+                        keep.reserve(perPage * styles.size());
+
+                        for (int k = 0; k < perPage; ++k)
+                        {
+                          const int ib = start + k;
+                          c.cd(k+1);
+
+                          gPad->SetLeftMargin(0.14);
+                          gPad->SetRightMargin(0.05);
+                          gPad->SetBottomMargin(0.14);
+                          gPad->SetTopMargin(0.10);
+                          gPad->SetLogy(false);
+
+                          if (ib > n)
+                          {
+                            TLatex t;
+                            t.SetNDC(true);
+                            t.SetTextFont(42);
+                            t.SetTextSize(0.06);
+                            t.DrawLatex(0.20, 0.55, "EMPTY");
+                            continue;
+                          }
+
+                          std::vector<TH1*> hs;
+                          hs.reserve(styles.size());
+
+                          double ymax = 0.0;
+
+                          for (const auto& st : styles)
+                          {
+                            TH1* hx = ProjectY_AtXbin_AndAlphaMax_TH3(
+                              h3, ib, st.aMax,
+                              TString::Format("jes3_xJ_tbl_%s_RECO_alphaOv3_%s_b%d",
+                                rKey.c_str(), st.tag.c_str(), ib).Data()
+                            );
+
+                            if (!hx)
+                            {
+                              hs.push_back(nullptr);
+                              continue;
+                            }
+
+                            hx->SetDirectory(nullptr);
+                            EnsureSumw2(hx);
+
+                            hx->SetTitle("");
+                            hx->SetLineWidth(2);
+                            hx->SetLineColor(st.color);
+                            hx->SetMarkerStyle(st.marker);
+                            hx->SetMarkerSize(0.95);
+                            hx->SetMarkerColor(st.color);
+                            hx->SetFillStyle(0);
+
+                            hx->GetXaxis()->SetTitle("x_{J#gamma}");
+                            hx->GetYaxis()->SetTitle((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts");
+
+                            ymax = std::max(ymax, hx->GetMaximum());
+
+                            hs.push_back(hx);
+                            keep.push_back(hx);
+                          }
+
+                          TH1* first = nullptr;
+                          for (auto* h : hs) { if (h) { first = h; break; } }
+
+                          if (!first)
+                          {
+                            TLatex t;
+                            t.SetNDC(true);
+                            t.SetTextFont(42);
+                            t.SetTextSize(0.06);
+                            t.DrawLatex(0.15, 0.55, "MISSING");
+                            continue;
+                          }
+
+                          first->SetMaximum((ymax > 0.0) ? (ymax * 1.25) : 1.0);
+
+                          bool drawn = false;
+                          for (auto* h : hs)
+                          {
+                            if (!h) continue;
+                            if (!drawn) { h->Draw("E1"); drawn = true; }
+                            else        { h->Draw("E1 same"); }
+                          }
+
+                          const string ptLab = AxisBinLabel(h3->GetXaxis(), ib, "GeV", 0);
+
+                          TLatex tt;
+                          tt.SetNDC(true);
+                          tt.SetTextFont(42);
+                          tt.SetTextAlign(13);
+                          tt.SetTextSize(0.055);
+                          tt.DrawLatex(0.16, 0.88,
+                            TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data()
+                          );
+
+                          TLegend leg(0.48, 0.62, 0.93, 0.92);
+                          leg.SetTextFont(42);
+                          leg.SetTextSize(0.048);
+                          leg.SetFillStyle(0);
+                          leg.SetBorderSize(0);
+
+                          for (size_t j = 0; j < styles.size(); ++j)
+                          {
+                            if (!hs[j]) continue;
+                            leg.AddEntry(hs[j], styles[j].label.c_str(), "ep");
+                          }
+                          leg.DrawClone();
+                        }
+
+                        string outName;
+                        if (n <= perPage)
+                        {
+                          outName = "table3x3_xJ_RECO_alphaCutsOverlay_3curves.png";
+                        }
+                        else
+                        {
+                          outName = TString::Format("table3x3_xJ_RECO_alphaCutsOverlay_3curves_page%d.png", page).Data();
+                        }
+
+                        SaveCanvas(c, JoinPath(outBaseDir, outName));
+
+                        for (auto* h : keep) delete h;
+                      }
+                    };
+
+                    Make3x3Table_xJ_RECO_AlphaCutsOverlay_3Curves(H.hReco_xJ, dirAlphaBase);
+
+                    // -----------------------------------------------------------------------------
                     // (C) NEW: 3x3 table per pT bin of "How much does each alpha cut remove?"
                     // For each pT^gamma bin, compute:
                     //   f_removed(aMax) = N(alpha > aMax) / N(total)
@@ -8030,7 +8203,6 @@ namespace ARJ
                             //     leadRecoilJetMatchMisses_vs_pTgammaTruth_<rKey>.png
                             // ------------------------------------------------------------
                             {
-
                               // Build binomial fraction histograms (do NOT modify on-file histograms)
                               TH1* missA_C = CloneTH1(hMissA, "h_leadTruthRecoilMatch_missA_cloneForFrac_" + rKey);
                               TH1* missB_C = CloneTH1(hMissB, "h_leadTruthRecoilMatch_missB_cloneForFrac_" + rKey);
@@ -8066,7 +8238,8 @@ namespace ARJ
                                 const double yHiM = std::min(1.0, yMaxM + padM);
 
                                 // Build TGraphErrors with xerr=0 (vertical-only statistical errors)
-                                auto MakeGraphNoXerr = [&](TH1* h, int mStyle, double mSize, int lColor, int mColor) -> std::unique_ptr<TGraphErrors>
+                                auto MakeGraphNoXerr =
+                                  [&](TH1* h, int mStyle, double mSize, int lColor, int mColor) -> std::unique_ptr<TGraphErrors>
                                 {
                                   std::unique_ptr<TGraphErrors> g(new TGraphErrors());
                                   int ip = 0;
@@ -8075,6 +8248,7 @@ namespace ARJ
                                     const double y  = h->GetBinContent(ib);
                                     const double ey = h->GetBinError(ib);
                                     if (y <= 0.0) continue;
+
                                     const double x  = h->GetXaxis()->GetBinCenter(ib);
 
                                     g->SetPoint(ip, x, y);
@@ -8089,65 +8263,113 @@ namespace ARJ
                                   return g;
                                 };
 
-                                  // Use FILLED CIRCLE markers for BOTH series (different colors distinguish A vs B)
-                                  auto gA = MakeGraphNoXerr(hFracA.get(), 20, 1.05, 2, 2); // red filled circles
-                                  auto gB = MakeGraphNoXerr(hFracB.get(), 20, 1.05, 4, 4); // blue filled circles
+                                // Use FILLED CIRCLE markers for BOTH series (different colors distinguish A vs B)
+                                auto gA = MakeGraphNoXerr(hFracA.get(), 20, 1.05, 2, 2); // red filled circles
+                                auto gB = MakeGraphNoXerr(hFracB.get(), 20, 1.05, 4, 4); // blue filled circles
 
-                                  TCanvas cM(TString::Format("c_leadTruthMatchMisses_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
-                                             "c_leadTruthMatchMisses", 900, 720);
-                                  ApplyCanvasMargins1D(cM);
+                                TCanvas cM(TString::Format("c_leadTruthMatchMisses_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
+                                           "c_leadTruthMatchMisses", 900, 720);
+                                ApplyCanvasMargins1D(cM);
 
-                                  // Use hFracA as the axis frame
-                                  hFracA->SetTitle("");
-                                  hFracA->GetXaxis()->SetTitle("p_{T}^{#gamma,truth} [GeV]");
-                                  hFracA->GetYaxis()->SetTitle("Miss probability (fraction of DEN)");
-                                  hFracA->GetYaxis()->SetRangeUser(yLoM, yHiM);
+                                // Use hFracA as the axis frame
+                                hFracA->SetTitle("");
+                                hFracA->GetXaxis()->SetTitle("p_{T}^{#gamma,truth} [GeV]");
+                                hFracA->GetYaxis()->SetTitle("Miss probability (fraction of DEN)");
+                                hFracA->GetYaxis()->SetRangeUser(yLoM, yHiM);
 
-                                  // Draw axis only
-                                  hFracA->SetLineWidth(0);
-                                  hFracA->SetMarkerSize(0);
-                                  hFracA->Draw("AXIS");
+                                // Draw axis only
+                                hFracA->SetLineWidth(0);
+                                hFracA->SetMarkerSize(0);
+                                hFracA->Draw("AXIS");
 
-                                  // Draw graphs WITH statistical error bars (keep xerr=0 from builder)
-                                  // Use "PE" (points + error bars). (No "Z" so ROOT draws standard end-caps.)
-                                  if (gA) gA->Draw("PE SAME");
-                                  if (gB) gB->Draw("PE SAME");
+                                // Draw graphs WITH statistical error bars (xerr=0 from builder)
+                                if (gA) gA->Draw("PE SAME");
+                                if (gB) gB->Draw("PE SAME");
 
-                                  // ------------------------------
-                                  // RHS-only annotations (no overlap)
-                                  // ------------------------------
+                                // 1) Legend: smaller + shifted LEFT so it stays fully on canvas
+                                TLegend legM(0.38, 0.78, 0.73, 0.90);
+                                legM.SetTextFont(42);
+                                legM.SetTextSize(0.028);
+                                legM.SetFillStyle(0);
+                                legM.SetBorderSize(0);
+                                if (gA) legM.AddEntry(gA.get(), "MissA / DEN (matched to non-leading reco recoil jet)", "ep");
+                                if (gB) legM.AddEntry(gB.get(), "MissB / DEN (no reco match)", "ep");
+                                legM.Draw();
 
-                                  // 1) Legend: smaller + shifted LEFT so it stays fully on canvas
-                                  TLegend legM(0.38, 0.78, 0.73, 0.9);
-                                  legM.SetTextFont(42);
-                                  legM.SetTextSize(0.028);
-                                  legM.SetFillStyle(0);
-                                  legM.SetBorderSize(0);
-                                  if (gA) legM.AddEntry(gA.get(), "MissA / DEN (matched to non-leading reco recoil jet)", "ep");
-                                  if (gB) legM.AddEntry(gB.get(), "MissB / DEN (no reco match)", "ep");
-                                  legM.Draw();
+                                // ------------------------------------------------------------
+                                // NEW: Closure check block (middle-right)
+                                //   DEN = NUM + MissA + MissB  =>  eps + fA + fB = 1
+                                // ------------------------------------------------------------
+                                {
+                                  const double denIntC   = (denC    ? denC->Integral(1, denC->GetNbinsX()) : 0.0);
+                                  const double numIntC   = (numC    ? numC->Integral(1, numC->GetNbinsX()) : 0.0);
+                                  const double missAIntC = (missA_C ? missA_C->Integral(1, missA_C->GetNbinsX()) : 0.0);
+                                  const double missBIntC = (missB_C ? missB_C->Integral(1, missB_C->GetNbinsX()) : 0.0);
 
-                                  // 2) TLatex header + subtitle: use DefaultHeaderLines(ds) so SIM sample label matches header toggles
+                                  const double epsIntC = (denIntC > 0.0 ? numIntC   / denIntC : 0.0);
+                                  const double fAIntC  = (denIntC > 0.0 ? missAIntC / denIntC : 0.0);
+                                  const double fBIntC  = (denIntC > 0.0 ? missBIntC / denIntC : 0.0);
+                                  const double sumIntC = epsIntC + fAIntC + fBIntC;
+
+                                  double maxAbsDev = 0.0;
+                                  if (denC && numC && missA_C && missB_C)
                                   {
-                                    const auto hdr = DefaultHeaderLines(ds);
-                                    const std::string dsLine = hdr.empty() ? std::string("Dataset: (unknown)") : hdr.front();
+                                    const int nb = denC->GetNbinsX();
+                                    for (int ib = 1; ib <= nb; ++ib)
+                                    {
+                                      const double den = denC->GetBinContent(ib);
+                                      if (den <= 0.0) continue;
 
-                                    TLatex t;
-                                    t.SetNDC(true);
-                                    t.SetTextFont(42);
-                                    t.SetTextAlign(31); // right-aligned
+                                      const double sumBin =
+                                        (numC->GetBinContent(ib) +
+                                         missA_C->GetBinContent(ib) +
+                                         missB_C->GetBinContent(ib)) / den;
 
-                                    // dataset header (top-right) -- now consistent with SIM sample toggles in AnalyzeRecoilJets.h
-                                    t.SetTextSize(0.034);
-                                    t.DrawLatex(0.89, 0.965, dsLine.c_str());
-
-                                    // plot label (just below header, top-right)
-                                    t.SetTextSize(0.032);
-                                    t.DrawLatex(0.89, 0.925,
-                                      TString::Format("Lead truth recoil miss probabilities (%s)", rKey.c_str()).Data()
-                                    );
+                                      maxAbsDev = std::max(maxAbsDev, std::fabs(1.0 - sumBin));
+                                    }
                                   }
 
+                                  TLatex tc;
+                                  tc.SetNDC(true);
+                                  tc.SetTextFont(42);
+                                  tc.SetTextAlign(13); // left/top
+
+                                  const double x0 = 0.55;
+                                  const double y0 = 0.62;
+                                  const double dy = 0.040;
+
+                                  tc.SetTextSize(0.030);
+                                  tc.DrawLatex(x0, y0, "#bf{Closure:}  #varepsilon_{lead} + f_{A} + f_{B} = 1");
+
+                                  tc.SetTextSize(0.028);
+                                  tc.DrawLatex(x0, y0 - 1.0*dy,
+                                    TString::Format("Integrated: %.3f + %.3f + %.3f = %.3f",
+                                                    epsIntC, fAIntC, fBIntC, sumIntC).Data());
+
+                                  tc.DrawLatex(x0, y0 - 2.0*dy,
+                                    TString::Format("max |1-(NUM+A+B)/DEN| = %.2e", maxAbsDev).Data());
+                                }
+
+                                // 2) TLatex header + subtitle: use DefaultHeaderLines(ds) so SIM sample label matches header toggles
+                                {
+                                  const auto hdr = DefaultHeaderLines(ds);
+                                  const std::string dsLine = hdr.empty() ? std::string("Dataset: (unknown)") : hdr.front();
+
+                                  TLatex t;
+                                  t.SetNDC(true);
+                                  t.SetTextFont(42);
+                                  t.SetTextAlign(31); // right-aligned
+
+                                  // dataset header (top-right)
+                                  t.SetTextSize(0.034);
+                                  t.DrawLatex(0.89, 0.965, dsLine.c_str());
+
+                                  // plot label (just below header, top-right)
+                                  t.SetTextSize(0.032);
+                                  t.DrawLatex(0.89, 0.925,
+                                    TString::Format("Lead truth recoil miss probabilities (%s)", rKey.c_str()).Data()
+                                  );
+                                }
 
                                 const string outMissPng = JoinPath(
                                   D.dirXJProjEffLeadMatch,
@@ -8162,6 +8384,7 @@ namespace ARJ
                               delete missA_C;
                               delete missB_C;
                             }
+
                         }
                         else
                         {
@@ -8378,34 +8601,77 @@ namespace ARJ
                                 pA->Draw("E1 SAME");
                                 pB->Draw("E1 SAME");
 
-                                // y=x reference line
-                                {
-                                  const double xmin = pN->GetXaxis()->GetXmin();
-                                  const double xmax = pN->GetXaxis()->GetXmax();
-                                  const double lo = std::max(xmin, yLo);
-                                  const double hi = std::min(xmax, yHi);
-                                  TLine diag(lo, lo, hi, hi);
-                                  diag.SetLineStyle(2);
-                                  diag.SetLineWidth(2);
-                                  diag.Draw("same");
-                                }
+                                  // ------------------------------------------------------------
+                                  // NEW: MissB horizontal weighted-mean line + N(<5 GeV) counter
+                                  //   - yConst = weighted mean of MissB profile points
+                                  //   - nBelow5 = number of populated MissB bins with <pT> < 5 GeV
+                                  // ------------------------------------------------------------
+                                  double sumW  = 0.0;
+                                  double sumWY = 0.0;
+                                  int    nBelow5 = 0;
+                                  int    nPop = 0;
 
-                                // Legend
-                                TLegend leg(0.65, 0.2, 0.91, 0.32);
-                                leg.SetTextFont(42);
-                                leg.SetTextSize(0.030);
-                                leg.SetFillStyle(0);
-                                leg.SetBorderSize(0);
-                                leg.AddEntry(pN.get(), "NUM (truth-matched)", "ep");
-                                leg.AddEntry(pA.get(), "MissA (wrong jet)", "ep");
-                                leg.AddEntry(pB.get(), "MissB (no reco match)", "ep");
-                                leg.Draw();
+                                  for (int ib = 1; ib <= pB->GetNbinsX(); ++ib)
+                                  {
+                                    const double y  = pB->GetBinContent(ib);
+                                    const double ey = pB->GetBinError(ib);
+                                    if (!(y > 0.0) || !(ey > 0.0)) continue;
+                                    ++nPop;
+                                    if (y < 5.0) ++nBelow5;
+                                    const double w = 1.0 / (ey * ey);
+                                    sumW  += w;
+                                    sumWY += w * y;
+                                  }
+                                  const double yConst = (sumW > 0.0 ? (sumWY / sumW) : 0.0);
 
-                                DrawLatexLines(0.14, 0.94, DefaultHeaderLines(ds), 0.030, 0.040);
-                                DrawLatexLines(0.14, 0.86,
-                                  {TString::Format("<p_{T}^{recoilJet1,reco}> vs p_{T}^{truth lead recoil} (%s)", rKey.c_str()).Data()},
-                                  0.030, 0.040
-                                );
+                                  // Draw horizontal mean line (blue dashed), only if defined
+                                  TLine* hConstLine = nullptr;
+                                  if (yConst > 0.0)
+                                  {
+                                    const double xmin = pN->GetXaxis()->GetXmin();
+                                    const double xmax = pN->GetXaxis()->GetXmax();
+                                    hConstLine = new TLine(xmin, yConst, xmax, yConst);
+                                    hConstLine->SetLineStyle(2);
+                                    hConstLine->SetLineWidth(2);
+                                    hConstLine->SetLineColor(kBlue+1);
+                                    hConstLine->Draw("same");
+                                  }
+
+                                  // Legend (keep bottom-right, add mean-line entry)
+                                  TLegend leg(0.58, 0.23, 0.9, 0.44);
+                                  leg.SetTextFont(42);
+                                  leg.SetTextSize(0.028);
+                                  leg.SetFillStyle(0);
+                                  leg.SetBorderSize(0);
+                                  leg.AddEntry(pN.get(), "NUM (truth-matched)", "ep");
+                                  leg.AddEntry(pA.get(), "MissA (wrong jet)", "ep");
+                                  leg.AddEntry(pB.get(), "MissB (no reco match)", "ep");
+                                  if (hConstLine)
+                                  {
+                                    leg.AddEntry(hConstLine,
+                                      TString::Format("MissB flat mean (N<5 GeV=%d)", nBelow5).Data(),
+                                      "l"
+                                    );
+                                  }
+                                  leg.Draw();
+
+                                  // Header + title (as before)
+                                  DrawLatexLines(0.14, 0.94, DefaultHeaderLines(ds), 0.030, 0.040);
+                                  DrawLatexLines(0.14, 0.86,
+                                    {TString::Format("<p_{T}^{recoilJet,reco}> vs p_{T}^{truth lead recoil}  (%s, R=%.1f)", rKey.c_str(), R).Data()},
+                                    0.030, 0.040
+                                  );
+
+                                  // NEW: top-right annotation below title
+                                  if (yConst > 0.0)
+                                  {
+                                    TLatex t;
+                                    t.SetNDC(true);
+                                    t.SetTextFont(42);
+                                    t.SetTextAlign(31); // right-aligned
+                                    t.SetTextSize(0.032);
+                                    t.DrawLatex(0.4, 0.8, TString::Format("MissB mean = %.2f GeV", yConst).Data());
+                                  }
 
                                   const string outProf = JoinPath(
                                     dirPt,
@@ -8415,6 +8681,7 @@ namespace ARJ
 
                                   cout << "  [LeadTruthRecoilMatchDiag] Wrote: " << outProf << "\n";
                                   effSummary.push_back("  - " + outProf);
+
 
                                   // ------------------------------------------------------------------
                                   // NEW: Terminal diagnostics for MissB profile (blue)
@@ -8606,158 +8873,335 @@ namespace ARJ
                             "#DeltaR(recoilJet_{1}^{reco}, truth lead recoil)",
                             false);
 
-                          // -------------------------
-                          // (B3) 3x3 table: overlay shape-normalized dphi(recoJet1) for NUM vs MissA vs MissB
-                          // -------------------------
-                          if (HB3n && HB3a && HB3b)
-                          {
-                            auto NormalizeVisible = [](TH1* h)
+                            // -------------------------
+                            // (B3) NEW: 1D overlay — back-to-back tight fraction vs pT^{gamma,truth}
+                            //   f_BB(C)(i) = N(|dphi| > dphi0) / N(all), computed per pT^{gamma,truth} bin
+                            //   C ∈ {NUM, MissA, MissB}
+                            //   Binomial errors via TH1::Divide(...,"B") (same logic as MissA/DEN).
+                            //
+                            // Inputs:
+                            //   h2_leadTruthRecoilMatch_dphiRecoJet1_{num,missA,missB}_pTgammaTruth_<rKey>
+                            //
+                            // Output:
+                            //   <...>/LeadTruthRecoilMatch/Diagnostics/Angle/
+                            //     leadTruthRecoilMatch_fBackToBackGT2p8_vs_pTgammaTruth_overlay_NUM_MissA_MissB_<rKey>.png
+                            // -------------------------
+                            if (HB3n && HB3a && HB3b)
                             {
-                              if (!h) return;
-                              const int nb = h->GetNbinsX();
-                              const double integral = h->Integral(1, nb);
-                              if (integral > 0.0) h->Scale(1.0 / integral);
-                            };
+                              const double dphi0 = 2.8; // very back-to-back
 
-                            // Prefer the canonical 9 bins: 10-12 ... 26-35 (truth edges are {5,8,10,...,40})
-                            const int nXBins = HB3n->GetXaxis()->GetNbins();
-                            int startBin = 1;
-                            int nUse = std::min(9, nXBins);
-                            if (nXBins >= 11) { startBin = 3; nUse = 9; } // 10-12 through 26-35
-
-                            TCanvas cTbl(
-                              TString::Format("c_tbl_dphiRecoJet1_byClass_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
-                              "c_tbl_dphiRecoJet1_byClass", 1500, 1200
-                            );
-                            cTbl.Divide(3,3, 0.001, 0.001);
-
-                            std::vector<TObject*> keep;
-                            keep.reserve(9 * 6);
-
-                            for (int i = 0; i < 9; ++i)
-                            {
-                              cTbl.cd(i+1);
-                              gPad->SetLeftMargin(0.14);
-                              gPad->SetRightMargin(0.05);
-                              gPad->SetBottomMargin(0.14);
-                              gPad->SetTopMargin(0.10);
-                              gPad->SetTicks(1,1);
-
-                              if (i >= nUse)
+                              auto BuildBinomialFracHist =
+                                [&](TH2* h2, const std::string& baseName) -> std::unique_ptr<TH1>
                               {
-                                TLatex t;
-                                t.SetNDC(true);
-                                t.SetTextFont(42);
-                                t.SetTextSize(0.06);
-                                t.DrawLatex(0.20, 0.55, "EMPTY");
-                                continue;
-                              }
+                                if (!h2) return nullptr;
 
-                              const int xbin = startBin + i;
+                                const TAxis* ax = h2->GetXaxis();
+                                const int nbx = ax->GetNbins();
 
-                              TH1D* pN = HB3n->ProjectionY(
-                                TString::Format("p_dphiRecoJet1_NUM_%s_%s_%d", ds.label.c_str(), rKey.c_str(), i).Data(),
-                                xbin, xbin
-                              );
-                              TH1D* pA = HB3a->ProjectionY(
-                                TString::Format("p_dphiRecoJet1_MissA_%s_%s_%d", ds.label.c_str(), rKey.c_str(), i).Data(),
-                                xbin, xbin
-                              );
-                              TH1D* pB = HB3b->ProjectionY(
-                                TString::Format("p_dphiRecoJet1_MissB_%s_%s_%d", ds.label.c_str(), rKey.c_str(), i).Data(),
-                                xbin, xbin
-                              );
+                                // Build TH1 with same x-binning as the TH2 x-axis
+                                std::unique_ptr<TH1> hAll;
+                                std::unique_ptr<TH1> hBB;
 
-                              if (!pN || !pA || !pB || pN->GetEntries() <= 0.0 || pA->GetEntries() <= 0.0 || pB->GetEntries() <= 0.0)
-                              {
-                                if (pN) delete pN;
-                                if (pA) delete pA;
-                                if (pB) delete pB;
-                                TLatex t;
-                                t.SetNDC(true);
-                                t.SetTextFont(42);
-                                t.SetTextSize(0.06);
-                                t.DrawLatex(0.15, 0.55, "MISSING");
-                                continue;
-                              }
-
-                              pN->SetDirectory(nullptr);
-                              pA->SetDirectory(nullptr);
-                              pB->SetDirectory(nullptr);
-
-                              NormalizeVisible(pN);
-                              NormalizeVisible(pA);
-                              NormalizeVisible(pB);
-
-                              pN->SetLineWidth(2);
-                              pA->SetLineWidth(2);
-                              pB->SetLineWidth(2);
-
-                              pN->SetLineColor(kBlack);
-                              pA->SetLineColor(kRed+1);
-                              pB->SetLineColor(kBlue+1);
-
-                              const double ymax = std::max(pN->GetMaximum(), std::max(pA->GetMaximum(), pB->GetMaximum()));
-                              pN->SetMaximum(ymax * 1.28);
-
-                              pN->SetTitle("");
-                              pN->GetXaxis()->SetTitle("|#Delta#phi(#gamma^{truth}, recoilJet_{1}^{reco})| [rad]");
-                              pN->GetYaxis()->SetTitle("A.U.");
-
-                              pN->Draw("hist");
-                              pA->Draw("hist same");
-                              pB->Draw("hist same");
-
-                              // Reference line at π/2
-                              {
-                                TLine* l = new TLine(TMath::Pi()/2.0, 0.0, TMath::Pi()/2.0, pN->GetMaximum());
-                                l->SetLineStyle(2);
-                                l->SetLineWidth(2);
-                                l->SetLineColor(kGray+2);
-                                l->Draw("same");
-                                keep.push_back(l);
-                              }
-
-                              TLegend* leg = new TLegend(0.48, 0.66, 0.93, 0.90);
-                              leg->SetTextFont(42);
-                              leg->SetTextSize(0.028);
-                              leg->SetFillStyle(0);
-                              leg->SetBorderSize(0);
-                              leg->AddEntry(pN, "NUM (truth-matched)", "l");
-                              leg->AddEntry(pA, "MissA (wrong jet)", "l");
-                              leg->AddEntry(pB, "MissB (no reco match)", "l");
-                              leg->Draw();
-
-                              const string ptLab = AxisBinLabel(HB3n->GetXaxis(), xbin, "GeV", 0);
-                              DrawLatexLines(
-                                0.16, 0.90,
+                                if (ax->GetXbins() && ax->GetXbins()->GetSize() > 0)
                                 {
-                                  TString::Format("p_{T}^{#gamma,truth}: %s", ptLab.c_str()).Data(),
-                                  "Overlay (shape)"
-                                },
-                                0.040, 0.050
+                                  const double* edges = ax->GetXbins()->GetArray();
+                                  hAll.reset(new TH1D((baseName + "_all").c_str(), "", nbx, edges));
+                                  hBB .reset(new TH1D((baseName + "_bb").c_str(),  "", nbx, edges));
+                                }
+                                else
+                                {
+                                  hAll.reset(new TH1D((baseName + "_all").c_str(), "", nbx, ax->GetXmin(), ax->GetXmax()));
+                                  hBB .reset(new TH1D((baseName + "_bb").c_str(),  "", nbx, ax->GetXmin(), ax->GetXmax()));
+                                }
+
+                                if (!hAll || !hBB) return nullptr;
+
+                                hAll->Sumw2();
+                                hBB->Sumw2();
+
+                                const int nby = h2->GetYaxis()->GetNbins();
+                                int yCut = h2->GetYaxis()->FindBin(dphi0);
+                                if (yCut < 1) yCut = 1;
+                                if (yCut > nby) yCut = nby;
+
+                                  for (int ix = 1; ix <= nbx; ++ix)
+                                  {
+                                    double nAll  = 0.0;
+                                    double e2All = 0.0;
+
+                                    double nBB   = 0.0;
+                                    double e2BB  = 0.0;
+
+                                    // Sum over Y bins manually so we also propagate Sumw2
+                                    for (int iy = 1; iy <= nby; ++iy)
+                                    {
+                                      const double v  = h2->GetBinContent(ix, iy);
+                                      const double ev = h2->GetBinError(ix, iy);   // sqrt(sumw2) if Sumw2 is on
+                                      nAll  += v;
+                                      e2All += ev * ev;
+
+                                      if (iy >= yCut)
+                                      {
+                                        nBB  += v;
+                                        e2BB += ev * ev;
+                                      }
+                                    }
+
+                                    hAll->SetBinContent(ix, nAll);
+                                    hAll->SetBinError(ix, std::sqrt(e2All));
+
+                                    hBB->SetBinContent(ix, nBB);
+                                    hBB->SetBinError(ix, std::sqrt(e2BB));
+                                  }
+
+                                  std::unique_ptr<TH1> hFrac( (TH1*)hBB->Clone((baseName + "_frac").c_str()) );
+                                  if (!hFrac) return nullptr;
+                                  hFrac->Sumw2();
+
+                                  // Ratio with proper error propagation (works for weighted and unweighted)
+                                  // (If you *only* want strict binomial for unweighted integer counts, keep "B" for that case.)
+                                  hFrac->Divide(hBB.get(), hAll.get(), 1.0, 1.0);
+                                  hFrac->SetDirectory(nullptr);
+
+                                  return hFrac;
+                              };
+
+                              // Build fraction histograms (NUM/MissA/MissB)
+                              auto hF_N = BuildBinomialFracHist(HB3n, "h_fBB_NUM_"   + rKey);
+                              auto hF_A = BuildBinomialFracHist(HB3a, "h_fBB_MissA_" + rKey);
+                              auto hF_B = BuildBinomialFracHist(HB3b, "h_fBB_MissB_" + rKey);
+
+                              if (hF_N && hF_A && hF_B)
+                              {
+                                // Convert to TGraphErrors with xerr=0 (vertical-only stat errors)
+                                auto MakeGraphNoXerr = [&](TH1* h, int color, int mStyle) -> std::unique_ptr<TGraphErrors>
+                                {
+                                  std::unique_ptr<TGraphErrors> g(new TGraphErrors());
+                                  int ip = 0;
+                                  for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                                  {
+                                    const double y  = h->GetBinContent(ib);
+                                    const double ey = h->GetBinError(ib);
+                                    const double x  = h->GetXaxis()->GetBinCenter(ib);
+
+                                    // Keep bins with nonzero trials; y can be 0 legitimately
+                                    const double nAll = 0.0; // not needed; binomial already handled
+                                    (void)nAll;
+
+                                    if (ey <= 0.0 && y <= 0.0) continue;
+
+                                    g->SetPoint(ip, x, y);
+                                    g->SetPointError(ip, 0.0, ey);
+                                    ++ip;
+                                  }
+                                  g->SetLineWidth(2);
+                                  g->SetLineColor(color);
+                                  g->SetMarkerStyle(mStyle);
+                                  g->SetMarkerSize(1.00);
+                                  g->SetMarkerColor(color);
+                                  return g;
+                                };
+
+                                auto gN = MakeGraphNoXerr(hF_N.get(), kBlack, 20);
+                                auto gA = MakeGraphNoXerr(hF_A.get(), kRed+1, 20);
+                                auto gB = MakeGraphNoXerr(hF_B.get(), kBlue+1, 20);
+
+                                TCanvas cF(TString::Format("c_fBB_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
+                                           "c_fBB", 900, 720);
+                                ApplyCanvasMargins1D(cF);
+
+                                // Use NUM hist as axis frame
+                                hF_N->SetTitle("");
+                                hF_N->GetXaxis()->SetTitle("p_{T}^{#gamma,truth} [GeV]");
+                                hF_N->GetYaxis()->SetTitle(TString::Format("f_{BB}(|#Delta#phi|>%.1f) = N_{BB}/N_{all}", dphi0).Data());
+                                hF_N->GetYaxis()->SetRangeUser(0.0, 1.05);
+
+                                hF_N->SetLineWidth(0);
+                                hF_N->SetMarkerSize(0);
+                                hF_N->Draw("AXIS");
+
+                                if (gN) gN->Draw("PE SAME");
+                                if (gA) gA->Draw("PE SAME");
+                                if (gB) gB->Draw("PE SAME");
+
+                                  // Legend (bottom-right)
+                                  TLegend leg(0.58, 0.18, 0.90, 0.34);
+                                  leg.SetTextFont(42);
+                                  leg.SetTextSize(0.030);
+                                  leg.SetFillStyle(0);
+                                  leg.SetBorderSize(0);
+                                  if (gN) leg.AddEntry(gN.get(), "NUM (truth-matched)", "ep");
+                                  if (gA) leg.AddEntry(gA.get(), "MissA (wrong jet)", "ep");
+                                  if (gB) leg.AddEntry(gB.get(), "MissB (no reco match)", "ep");
+                                  leg.Draw();
+
+
+                                DrawLatexLines(0.14, 0.94, DefaultHeaderLines(ds), 0.030, 0.040);
+                                DrawLatexLines(0.14, 0.86,
+                                  {TString::Format("Back-to-back tight fraction vs p_{T}^{#gamma,truth}  (%s, R=%.1f)", rKey.c_str(), R).Data()},
+                                  0.030, 0.040
+                                );
+
+                                const string outF = JoinPath(
+                                  dirAng,
+                                  TString::Format("leadTruthRecoilMatch_fBackToBackGT2p8_vs_pTgammaTruth_overlay_NUM_MissA_MissB_%s.png", rKey.c_str()).Data()
+                                );
+                                SaveCanvas(cF, outF);
+
+                                cout << "  [LeadTruthRecoilMatchDiag] Wrote: " << outF << "\n";
+                                effSummary.push_back("  - " + outF);
+                              }
+
+                              // -------------------------
+                              // (B3) Existing: 3x3 table overlay of dphi(recoJet1) shapes (NUM vs MissA vs MissB)
+                              // -------------------------
+                              auto NormalizeVisible = [](TH1* h)
+                              {
+                                if (!h) return;
+                                const int nb = h->GetNbinsX();
+                                const double integral = h->Integral(1, nb);
+                                if (integral > 0.0) h->Scale(1.0 / integral);
+                              };
+
+                              // Prefer the canonical 9 bins: 10-12 ... 26-35 (truth edges are {5,8,10,...,40})
+                              const int nXBins = HB3n->GetXaxis()->GetNbins();
+                              int startBin = 1;
+                              int nUse = std::min(9, nXBins);
+                              if (nXBins >= 11) { startBin = 3; nUse = 9; } // 10-12 through 26-35
+
+                              TCanvas cTbl(
+                                TString::Format("c_tbl_dphiRecoJet1_byClass_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
+                                "c_tbl_dphiRecoJet1_byClass", 1500, 1200
                               );
+                              cTbl.Divide(3,3, 0.001, 0.001);
 
-                              keep.push_back(pN);
-                              keep.push_back(pA);
-                              keep.push_back(pB);
-                              keep.push_back(leg);
+                              std::vector<TObject*> keep;
+                              keep.reserve(9 * 6);
+
+                              for (int i = 0; i < 9; ++i)
+                              {
+                                cTbl.cd(i+1);
+                                gPad->SetLeftMargin(0.14);
+                                gPad->SetRightMargin(0.05);
+                                gPad->SetBottomMargin(0.14);
+                                gPad->SetTopMargin(0.10);
+                                gPad->SetTicks(1,1);
+
+                                if (i >= nUse)
+                                {
+                                  TLatex t;
+                                  t.SetNDC(true);
+                                  t.SetTextFont(42);
+                                  t.SetTextSize(0.06);
+                                  t.DrawLatex(0.20, 0.55, "EMPTY");
+                                  continue;
+                                }
+
+                                const int xbin = startBin + i;
+
+                                TH1D* pN = HB3n->ProjectionY(
+                                  TString::Format("p_dphiRecoJet1_NUM_%s_%s_%d", ds.label.c_str(), rKey.c_str(), i).Data(),
+                                  xbin, xbin
+                                );
+                                TH1D* pA = HB3a->ProjectionY(
+                                  TString::Format("p_dphiRecoJet1_MissA_%s_%s_%d", ds.label.c_str(), rKey.c_str(), i).Data(),
+                                  xbin, xbin
+                                );
+                                TH1D* pB = HB3b->ProjectionY(
+                                  TString::Format("p_dphiRecoJet1_MissB_%s_%s_%d", ds.label.c_str(), rKey.c_str(), i).Data(),
+                                  xbin, xbin
+                                );
+
+                                if (!pN || !pA || !pB || pN->GetEntries() <= 0.0 || pA->GetEntries() <= 0.0 || pB->GetEntries() <= 0.0)
+                                {
+                                  if (pN) delete pN;
+                                  if (pA) delete pA;
+                                  if (pB) delete pB;
+                                  TLatex t;
+                                  t.SetNDC(true);
+                                  t.SetTextFont(42);
+                                  t.SetTextSize(0.06);
+                                  t.DrawLatex(0.15, 0.55, "MISSING");
+                                  continue;
+                                }
+
+                                pN->SetDirectory(nullptr);
+                                pA->SetDirectory(nullptr);
+                                pB->SetDirectory(nullptr);
+
+                                NormalizeVisible(pN);
+                                NormalizeVisible(pA);
+                                NormalizeVisible(pB);
+
+                                pN->SetLineWidth(2);
+                                pA->SetLineWidth(2);
+                                pB->SetLineWidth(2);
+
+                                pN->SetLineColor(kBlack);
+                                pA->SetLineColor(kRed+1);
+                                pB->SetLineColor(kBlue+1);
+
+                                const double ymax = std::max(pN->GetMaximum(), std::max(pA->GetMaximum(), pB->GetMaximum()));
+                                pN->SetMaximum(ymax * 1.28);
+
+                                pN->SetTitle("");
+                                pN->GetXaxis()->SetTitle("|#Delta#phi(#gamma^{truth}, recoilJet_{1}^{reco})| [rad]");
+                                pN->GetYaxis()->SetTitle("A.U.");
+
+                                pN->Draw("hist");
+                                pA->Draw("hist same");
+                                pB->Draw("hist same");
+
+                                // Reference line at π/2
+                                {
+                                  TLine* l = new TLine(TMath::Pi()/2.0, 0.0, TMath::Pi()/2.0, pN->GetMaximum());
+                                  l->SetLineStyle(2);
+                                  l->SetLineWidth(2);
+                                  l->SetLineColor(kGray+2);
+                                  l->Draw("same");
+                                  keep.push_back(l);
+                                }
+
+                                TLegend* leg = new TLegend(0.48, 0.66, 0.93, 0.90);
+                                leg->SetTextFont(42);
+                                leg->SetTextSize(0.028);
+                                leg->SetFillStyle(0);
+                                leg->SetBorderSize(0);
+                                leg->AddEntry(pN, "NUM (truth-matched)", "l");
+                                leg->AddEntry(pA, "MissA (wrong jet)", "l");
+                                leg->AddEntry(pB, "MissB (no reco match)", "l");
+                                leg->Draw();
+
+                                const string ptLab = AxisBinLabel(HB3n->GetXaxis(), xbin, "GeV", 0);
+                                DrawLatexLines(
+                                  0.16, 0.90,
+                                  {
+                                    TString::Format("p_{T}^{#gamma,truth}: %s", ptLab.c_str()).Data(),
+                                    "Overlay (shape)"
+                                  },
+                                  0.040, 0.050
+                                );
+
+                                keep.push_back(pN);
+                                keep.push_back(pA);
+                                keep.push_back(pB);
+                                keep.push_back(leg);
+                              }
+
+                              const string outTbl = JoinPath(
+                                dirAng,
+                                TString::Format("table3x3_overlay_dphiRecoJet1_byClass_shape_%s.png", rKey.c_str()).Data()
+                              );
+                              SaveCanvas(cTbl, outTbl);
+                              cout << "  [LeadTruthRecoilMatchDiag] Wrote: " << outTbl << "\n";
+                              effSummary.push_back("  - " + outTbl);
+
+                              for (auto* o : keep) delete o;
                             }
-
-                            const string outTbl = JoinPath(
-                              dirAng,
-                              TString::Format("table3x3_overlay_dphiRecoJet1_byClass_shape_%s.png", rKey.c_str()).Data()
-                            );
-                            SaveCanvas(cTbl, outTbl);
-                            cout << "  [LeadTruthRecoilMatchDiag] Wrote: " << outTbl << "\n";
-                            effSummary.push_back("  - " + outTbl);
-
-                            for (auto* o : keep) delete o;
-                          }
-                          else
-                          {
-                            cout << ANSI_BOLD_YEL << "  [LeadTruthRecoilMatchDiag] Missing one or more dphi-by-class TH2; skipping 3x3 overlay.\n" << ANSI_RESET;
-                          }
+                            else
+                            {
+                              cout << ANSI_BOLD_YEL << "  [LeadTruthRecoilMatchDiag] Missing one or more dphi-by-class TH2; skipping 3x3 overlay.\n" << ANSI_RESET;
+                            }
 
                           // -------------------------
                           // (C5) xJ(recoJet1) vs dphi(recoJet1) by class (2D)
