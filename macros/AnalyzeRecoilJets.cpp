@@ -8286,29 +8286,284 @@ namespace ARJ
                           TH2* HC5a = GetObj<TH2>(ds, hC5_mA,  false, false, false);
                           TH2* HC5b = GetObj<TH2>(ds, hC5_mB,  false, false, false);
 
-                          // -------------------------
-                          // (A1) pT(truth lead recoil) vs pT(reco recoilJet1) by class
-                          // -------------------------
-                          if (HA1n) Save2DColz(HA1n,
-                            JoinPath(dirPt, TString::Format("leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_NUM_%s.png", rKey.c_str()).Data()),
-                            "pT(recoJet1) vs pT(truth lead recoil) [NUM]",
-                            "p_{T}^{truth lead recoil} [GeV]",
-                            "p_{T}^{recoilJet_{1},reco} [GeV]",
-                            true);
+                            // -------------------------
+                            // (A1) pT(truth lead recoil) vs pT(reco recoilJet1) by class
+                            // -------------------------
+                            if (HA1n) Save2DColz(HA1n,
+                              JoinPath(dirPt, TString::Format("leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_NUM_%s.png", rKey.c_str()).Data()),
+                              "pT(recoJet1) vs pT(truth lead recoil) [NUM]",
+                              "p_{T}^{truth lead recoil} [GeV]",
+                              "p_{T}^{recoilJet_{1},reco} [GeV]",
+                              true);
 
-                          if (HA1a) Save2DColz(HA1a,
-                            JoinPath(dirPt, TString::Format("leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_MissA_%s.png", rKey.c_str()).Data()),
-                            "pT(recoJet1) vs pT(truth lead recoil) [MissA]",
-                            "p_{T}^{truth lead recoil} [GeV]",
-                            "p_{T}^{recoilJet_{1},reco} [GeV]",
-                            true);
+                            if (HA1a) Save2DColz(HA1a,
+                              JoinPath(dirPt, TString::Format("leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_MissA_%s.png", rKey.c_str()).Data()),
+                              "pT(recoJet1) vs pT(truth lead recoil) [MissA]",
+                              "p_{T}^{truth lead recoil} [GeV]",
+                              "p_{T}^{recoilJet_{1},reco} [GeV]",
+                              true);
 
-                          if (HA1b) Save2DColz(HA1b,
-                            JoinPath(dirPt, TString::Format("leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_MissB_%s.png", rKey.c_str()).Data()),
-                            "pT(recoJet1) vs pT(truth lead recoil) [MissB]",
-                            "p_{T}^{truth lead recoil} [GeV]",
-                            "p_{T}^{recoilJet_{1},reco} [GeV]",
-                            true);
+                            if (HA1b) Save2DColz(HA1b,
+                              JoinPath(dirPt, TString::Format("leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_MissB_%s.png", rKey.c_str()).Data()),
+                              "pT(recoJet1) vs pT(truth lead recoil) [MissB]",
+                              "p_{T}^{truth lead recoil} [GeV]",
+                              "p_{T}^{recoilJet_{1},reco} [GeV]",
+                              true);
+
+                            // -------------------------
+                            // (A1b) NEW: ProfileX overlay (1D): <pT(recoJet1)> vs pT(truth lead recoil)
+                            //   Overlay: NUM (black) vs MissA (red) vs MissB (blue) + y=x line
+                            // Output:
+                            //   .../LeadTruthRecoilMatch/Diagnostics/Pt/
+                            //     leadTruthRecoilMatch_profile_pTrecoJet1_vs_pTtruthLead_NUM_MissA_MissB_<rKey>.png
+                            // -------------------------
+                            if (HA1n && HA1a && HA1b)
+                            {
+                              std::unique_ptr<TProfile> pN(HA1n->ProfileX(TString::Format("p_prof_A1_NUM_%s", rKey.c_str()).Data()));
+                              std::unique_ptr<TProfile> pA(HA1a->ProfileX(TString::Format("p_prof_A1_MissA_%s", rKey.c_str()).Data()));
+                              std::unique_ptr<TProfile> pB(HA1b->ProfileX(TString::Format("p_prof_A1_MissB_%s", rKey.c_str()).Data()));
+
+                              if (pN && pA && pB)
+                              {
+                                // Autoscale y-axis using all three profiles (only populated bins)
+                                double yMin =  1e9;
+                                double yMax = -1e9;
+
+                                auto AccumRange = [&](TProfile* p)
+                                {
+                                  if (!p) return;
+                                  for (int ib = 1; ib <= p->GetNbinsX(); ++ib)
+                                  {
+                                    const double y  = p->GetBinContent(ib);
+                                    const double ey = p->GetBinError(ib);
+                                    if (y <= 0.0) continue;
+                                    yMin = std::min(yMin, y - ey);
+                                    yMax = std::max(yMax, y + ey);
+                                  }
+                                };
+
+                                AccumRange(pN.get());
+                                AccumRange(pA.get());
+                                AccumRange(pB.get());
+
+                                if (yMin > yMax) { yMin = 0.0; yMax = 60.0; } // fallback
+                                const double pad = 2.0;
+                                const double yLo = std::max(0.0, yMin - pad);
+                                const double yHi = std::min(60.0, yMax + pad);
+
+                                TCanvas cP(TString::Format("c_prof_A1_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
+                                           "c_prof_A1", 900, 720);
+                                ApplyCanvasMargins1D(cP);
+
+                                // Style
+                                pN->SetTitle("");
+                                pN->GetXaxis()->SetTitle("p_{T}^{truth lead recoil} [GeV]");
+                                pN->GetYaxis()->SetTitle("< p_{T}^{recoilJet_{1},reco} > [GeV]");
+                                pN->GetYaxis()->SetRangeUser(yLo, yHi);
+
+                                pN->SetLineWidth(2);
+                                pA->SetLineWidth(2);
+                                pB->SetLineWidth(2);
+
+                                pN->SetMarkerStyle(20); pN->SetMarkerSize(1.00);
+                                pA->SetMarkerStyle(20); pA->SetMarkerSize(1.00);
+                                pB->SetMarkerStyle(20); pB->SetMarkerSize(1.00);
+
+                                pN->SetLineColor(kBlack);  pN->SetMarkerColor(kBlack);
+                                pA->SetLineColor(kRed+1);  pA->SetMarkerColor(kRed+1);
+                                pB->SetLineColor(kBlue+1); pB->SetMarkerColor(kBlue+1);
+
+                                // Draw
+                                pN->Draw("E1");
+                                pA->Draw("E1 SAME");
+                                pB->Draw("E1 SAME");
+
+                                // y=x reference line
+                                {
+                                  const double xmin = pN->GetXaxis()->GetXmin();
+                                  const double xmax = pN->GetXaxis()->GetXmax();
+                                  const double lo = std::max(xmin, yLo);
+                                  const double hi = std::min(xmax, yHi);
+                                  TLine diag(lo, lo, hi, hi);
+                                  diag.SetLineStyle(2);
+                                  diag.SetLineWidth(2);
+                                  diag.Draw("same");
+                                }
+
+                                // Legend
+                                TLegend leg(0.65, 0.2, 0.91, 0.32);
+                                leg.SetTextFont(42);
+                                leg.SetTextSize(0.030);
+                                leg.SetFillStyle(0);
+                                leg.SetBorderSize(0);
+                                leg.AddEntry(pN.get(), "NUM (truth-matched)", "ep");
+                                leg.AddEntry(pA.get(), "MissA (wrong jet)", "ep");
+                                leg.AddEntry(pB.get(), "MissB (no reco match)", "ep");
+                                leg.Draw();
+
+                                DrawLatexLines(0.14, 0.94, DefaultHeaderLines(ds), 0.030, 0.040);
+                                DrawLatexLines(0.14, 0.86,
+                                  {TString::Format("<p_{T}^{recoilJet1,reco}> vs p_{T}^{truth lead recoil} (%s)", rKey.c_str()).Data()},
+                                  0.030, 0.040
+                                );
+
+                                  const string outProf = JoinPath(
+                                    dirPt,
+                                    TString::Format("leadTruthRecoilMatch_profile_pTrecoJet1_vs_pTtruthLead_NUM_MissA_MissB_%s.png", rKey.c_str()).Data()
+                                  );
+                                  SaveCanvas(cP, outProf);
+
+                                  cout << "  [LeadTruthRecoilMatchDiag] Wrote: " << outProf << "\n";
+                                  effSummary.push_back("  - " + outProf);
+
+                                  // ------------------------------------------------------------------
+                                  // NEW: Terminal diagnostics for MissB profile (blue)
+                                  //   - Print per truth-pT bin: <pT(reco)> ± err
+                                  //   - Check whether values stay above 5 GeV
+                                  //   - Compute weighted mean (constant) and chi2/ndf vs flat hypothesis
+                                  // ------------------------------------------------------------------
+                                  {
+                                    // ANSI helpers (use what your file already uses elsewhere)
+                                    const std::string B = ANSI_BOLD_CYN;
+                                    const std::string Y = ANSI_BOLD_YEL;
+                                    const std::string Rr = ANSI_BOLD_RED;
+                                    const std::string G = ANSI_BOLD_GRN;
+                                    const std::string N = ANSI_RESET;
+
+                                    auto F2 = [](double x) {
+                                      std::ostringstream os; os.setf(std::ios::fixed); os << std::setprecision(2) << x; return os.str();
+                                    };
+                                    auto F3 = [](double x) {
+                                      std::ostringstream os; os.setf(std::ios::fixed); os << std::setprecision(3) << x; return os.str();
+                                    };
+
+                                    cout << B << "\n[MissB pT floor diagnostic] " << N
+                                         << "(profile: <pT^{reco}> vs pT^{truth lead recoil})  "
+                                         << "rKey=" << rKey << "  R=" << std::fixed << std::setprecision(1) << R << "\n";
+
+                                    cout << "  Expectation: selected reco jet pT >= 5 GeV (analysis jet cut)\n";
+                                    cout << "  Values below 5 GeV would indicate a selection/fill mismatch.\n\n";
+
+                                    // Table header
+                                    cout << "  "
+                                         << std::left << std::setw(14) << "truth pT bin"
+                                         << std::right << std::setw(14) << "<pT> [GeV]"
+                                         << std::right << std::setw(14) << "err [GeV]"
+                                         << std::right << std::setw(10) << "N"
+                                         << "\n";
+                                    cout << "  " << std::string(52, '-') << "\n";
+
+                                    double minMean = 1e9;
+                                    int    minBin  = -1;
+
+                                    // Weighted-mean (constant) computation
+                                    double sumW  = 0.0;
+                                    double sumWY = 0.0;
+                                    double chi2  = 0.0;
+                                    int    nUsed = 0;
+
+                                    // First pass: accumulate weighted mean
+                                    for (int ib = 1; ib <= pB->GetNbinsX(); ++ib)
+                                    {
+                                      const double y  = pB->GetBinContent(ib);
+                                      const double ey = pB->GetBinError(ib);
+                                      const double Nbin = pB->GetBinEntries(ib);
+
+                                      if (!(y > 0.0) || !(ey > 0.0)) continue; // skip empty bins
+                                      const double w = 1.0 / (ey * ey);
+                                      sumW  += w;
+                                      sumWY += w * y;
+                                      ++nUsed;
+                                    }
+
+                                    const double yConst = (sumW > 0.0 ? (sumWY / sumW) : 0.0);
+
+                                    // Second pass: print rows + chi2
+                                    for (int ib = 1; ib <= pB->GetNbinsX(); ++ib)
+                                    {
+                                      const double y  = pB->GetBinContent(ib);
+                                      const double ey = pB->GetBinError(ib);
+                                      const double Nbin = pB->GetBinEntries(ib);
+
+                                      // Bin label from x-axis edges
+                                      const double xlo = pB->GetXaxis()->GetBinLowEdge(ib);
+                                      const double xhi = pB->GetXaxis()->GetBinUpEdge(ib);
+
+                                      if (!(y > 0.0) || !(ey > 0.0))
+                                      {
+                                        // still print bin with N=0 for clarity
+                                        std::ostringstream bl;
+                                        bl << (int)std::lround(xlo) << "-" << (int)std::lround(xhi);
+
+                                        cout << "  "
+                                               << std::left  << std::setw(14) << bl.str()
+                                               << std::right << std::setw(14) << "--"
+                                               << std::right << std::setw(14) << "--"
+                                               << std::right << std::setw(10) << "0"
+                                               << "\n";
+
+                                        continue;
+                                      }
+
+                                      // track min
+                                      if (y < minMean)
+                                      {
+                                        minMean = y;
+                                        minBin  = ib;
+                                      }
+
+                                      // chi2 contribution
+                                      const double pull = (y - yConst) / ey;
+                                      chi2 += pull * pull;
+                                      ++nUsed;
+
+                                      const std::string flag =
+                                        (y < 5.0 ? (Rr + "  <5!" + N) :
+                                         (y < 6.0 ? (Y + "  ~thr" + N) :
+                                          (G + "   OK" + N)));
+
+                                        std::ostringstream bl;
+                                        bl << (int)std::lround(xlo) << "-" << (int)std::lround(xhi);
+
+                                        cout << "  "
+                                             << std::left  << std::setw(14) << bl.str()
+                                             << std::right << std::setw(14) << F2(y)
+                                             << std::right << std::setw(14) << F2(ey)
+                                             << std::right << std::setw(10) << (int)std::lround(Nbin)
+                                             << flag
+                                             << "\n";
+
+                                    }
+
+                                    // Summary line
+                                    const int ndf = std::max(0, nUsed - 1);
+                                    const double chi2ndf = (ndf > 0 ? chi2 / ndf : 0.0);
+
+                                    cout << "  " << std::string(52, '-') << "\n";
+                                    if (minBin > 0)
+                                    {
+                                      const double xlo = pB->GetXaxis()->GetBinLowEdge(minBin);
+                                      const double xhi = pB->GetXaxis()->GetBinUpEdge(minBin);
+                                        cout << "  Min <pT> = " << F2(minMean) << " GeV"
+                                             << " in truth bin " << (int)std::lround(xlo) << "-" << (int)std::lround(xhi) << " GeV\n";
+
+                                    }
+                                    cout << "  Flat-mean (weighted) <pT>_const = " << F2(yConst) << " GeV"
+                                         << "   chi2/ndf = " << F2(chi2ndf) << "\n";
+
+                                    if (minMean < 5.0)
+                                    {
+                                      cout << Rr << "  WARNING: MissB profile dips below 5 GeV -> investigate selection/fill consistency." << N << "\n";
+                                    }
+                                    else
+                                    {
+                                      cout << G << "  OK: MissB profile stays >= 5 GeV (consistent with analysis jet pT cut)." << N << "\n";
+                                    }
+                                    cout << "\n";
+                                  }
+
+                              }
+                            }
 
                           // -------------------------
                           // (A2) pT(reco match to truth lead) vs pT(selected recoJet1) (NUM & MissA)
