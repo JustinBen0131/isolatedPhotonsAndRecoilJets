@@ -303,27 +303,27 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
   // SIM ONLY: truth vertex from G4TruthInfo (requires paired G4Hits DST)
   // ------------------------------------------------------------------
   if (isSim)
+  {
+    auto* truth = findNode::getClass<PHG4TruthInfoContainer>(top, "G4TruthInfo");
+    if (!truth)
     {
-      auto* truth = findNode::getClass<PHG4TruthInfoContainer>(top, "G4TruthInfo");
-      if (!truth)
+      LOG(3, CLR_YELLOW,
+          "    [fetchNodes] isSim: G4TruthInfo missing (did you load paired G4Hits DST?)");
+    }
+    else
+    {
+      auto vr = truth->GetPrimaryVtxRange();
+      if (vr.first != vr.second && vr.first->second)
       {
-        LOG(3, CLR_YELLOW,
-            "    [fetchNodes] isSim: G4TruthInfo missing (did you load paired G4Hits DST?)");
+        const PHG4VtxPoint* vtx = vr.first->second;
+        truth_z = vtx->get_z();
+        haveTruthZ = std::isfinite(truth_z);
       }
       else
       {
-        auto vr = truth->GetPrimaryVtxRange();
-        if (vr.first != vr.second && vr.first->second)
-        {
-          const PHG4VtxPoint* vtx = vr.first->second;
-          truth_z = vtx->get_z();
-          haveTruthZ = std::isfinite(truth_z);
-        }
-        else
-        {
-          LOG(3, CLR_YELLOW, "    [fetchNodes] isSim: G4TruthInfo has no primary vertex");
-        }
+        LOG(3, CLR_YELLOW, "    [fetchNodes] isSim: G4TruthInfo has no primary vertex");
       }
+    }
   }
 
   // QA-only: we may still compare truth_z vs reco_z elsewhere; never use truth_z as reco vertex
@@ -361,18 +361,18 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
 
   if (haveMBDZ)
   {
-      m_vz = static_cast<float>(mbd_z);
-      vz_source = "MBD";
+    m_vz = static_cast<float>(mbd_z);
+    vz_source = "MBD";
   }
   else if (haveGVZ)
   {
-      m_vz = static_cast<float>(gv_z);
-      vz_source = "Global";
+    m_vz = static_cast<float>(gv_z);
+    vz_source = "Global";
   }
   else
   {
-      LOG(1, CLR_YELLOW, "  [fetchNodes] no usable RECO vertex z (MBD/Global) → skip event");
-      return false;
+    LOG(1, CLR_YELLOW, "  [fetchNodes] no usable RECO vertex z (MBD/Global) → skip event");
+    return false;
   }
 
   // Print comparison ONLY if it matters (data only)
@@ -391,35 +391,35 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
   }
 
   LOG(4, CLR_BLUE,
-        "    [fetchNodes] dataset=" << (isSim ? "SIM" : (isAuAu ? "Au+Au" : "p+p"))
-        << "  vz(used)=" << std::fixed << std::setprecision(2) << m_vz
-        << "  (source=" << vz_source << ")");
+      "    [fetchNodes] dataset=" << (isSim ? "SIM" : (isAuAu ? "Au+Au" : "p+p"))
+      << "  vz(used)=" << std::fixed << std::setprecision(2) << m_vz
+      << "  (source=" << vz_source << ")");
 
-    // ------------------------------------------------------------------
-    // SIM QA (PRE-CUT): truth vs reco-used vertex z
-    //   - Fill here so it is recorded even if the event later fails |vz| cut
-    //   - X = truth vz (from G4TruthInfo)
-    //   - Y = reco-used vz (your chosen m_vz: MBD → Global → TRUTH fallback)
-    // ------------------------------------------------------------------
-    if (isSim && haveTruthZ)
+  // ------------------------------------------------------------------
+  // SIM QA (PRE-CUT): truth vs reco-used vertex z
+  //   - Fill here so it is recorded even if the event later fails |vz| cut
+  //   - X = truth vz (from G4TruthInfo)
+  //   - Y = reco-used vz (your chosen m_vz: MBD → Global → TRUTH fallback)
+  // ------------------------------------------------------------------
+  if (isSim && haveTruthZ)
+  {
+    auto itTrig = qaHistogramsByTrigger.find("SIM");
+    if (itTrig != qaHistogramsByTrigger.end())
     {
-      auto itTrig = qaHistogramsByTrigger.find("SIM");
-      if (itTrig != qaHistogramsByTrigger.end())
+      auto& H = itTrig->second;
+      auto itH2 = H.find("h_vzTruthVsReco");
+      if (itH2 != H.end())
       {
-        auto& H = itTrig->second;
-        auto itH2 = H.find("h_vzTruthVsReco");
-        if (itH2 != H.end())
-        {
-          static_cast<TH2F*>(itH2->second)->Fill(static_cast<float>(truth_z), m_vz);
-          bumpHistFill("SIM", "h_vzTruthVsReco");
-        }
+        static_cast<TH2F*>(itH2->second)->Fill(static_cast<float>(truth_z), m_vz);
+        bumpHistFill("SIM", "h_vzTruthVsReco");
       }
     }
+  }
 
-    // ------------------------------------------------------------------
-    // Calo towers & geometry
-    // ------------------------------------------------------------------
-    m_calo.clear();
+  // ------------------------------------------------------------------
+  // Calo towers & geometry
+  // ------------------------------------------------------------------
+  m_calo.clear();
   for (const auto& ci : m_caloInfo)
   {
     const std::string node = std::get<0>(ci);
@@ -442,23 +442,22 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
   // ------------------------------------------------------------------
   m_clus    = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC");
   m_photons = findNode::getClass<RawClusterContainer>(top, "PHOTONCLUSTER_CEMC");
-    
-    if (Verbosity() >= 3)
+
+  if (Verbosity() >= 3)
+  {
+    auto countClusters = [](RawClusterContainer* c) -> size_t
     {
-      auto countClusters = [](RawClusterContainer* c) -> size_t
-      {
-        if (!c) return 0;
-        size_t n = 0;
-        auto r = c->getClusters();
-        for (auto it = r.first; it != r.second; ++it) ++n;
-        return n;
-      };
+      if (!c) return 0;
+      size_t n = 0;
+      auto r = c->getClusters();
+      for (auto it = r.first; it != r.second; ++it) ++n;
+      return n;
+    };
 
-      LOG(3, CLR_CYAN,
-          "    [fetchNodes] sizes: CLUSTERINFO_CEMC=" << countClusters(m_clus)
-          << " | PHOTONCLUSTER_CEMC=" << countClusters(m_photons));
-    }
-
+    LOG(3, CLR_CYAN,
+        "    [fetchNodes] sizes: CLUSTERINFO_CEMC=" << countClusters(m_clus)
+        << " | PHOTONCLUSTER_CEMC=" << countClusters(m_photons));
+  }
 
   if (!m_photons)
   {
@@ -468,190 +467,250 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     return false;
   }
 
-    // ------------------------------------------------------------------
-    // Reco jets: cache ALL radii listed in kJetRadii (r02 + r04) in parallel.
-    //
-    // Legacy knob (still honored as a "primary" label in logs only):
-    //   export RJ_RECO_JET_KEY=r02   (or r04)
-    //
-    // IMPORTANT: we DO NOT disable the other radius — all jet QA / matching
-    //            runs for every entry in kJetRadii.
-    // ------------------------------------------------------------------
-    std::string primaryRecoKey = trim(m_xjRecoJetKey);
-    if (const char* rk = std::getenv("RJ_RECO_JET_KEY"))
-      primaryRecoKey = trim(std::string(rk));
+  // ------------------------------------------------------------------
+  // Reco jets: cache ALL radii listed in kJetRadii (r02 + r04) in parallel.
+  //
+  // Legacy knob (still honored as a "primary" label in logs only):
+  //   export RJ_RECO_JET_KEY=r02   (or r04)
+  //
+  // IMPORTANT: we DO NOT disable the other radius — all jet QA / matching
+  //            runs for every entry in kJetRadii.
+  // ------------------------------------------------------------------
+  std::string primaryRecoKey = trim(m_xjRecoJetKey);
+  if (const char* rk = std::getenv("RJ_RECO_JET_KEY"))
+    primaryRecoKey = trim(std::string(rk));
 
-    if (primaryRecoKey.empty())
-      primaryRecoKey = kJetRadii.front().key;
+  if (primaryRecoKey.empty())
+    primaryRecoKey = kJetRadii.front().key;
 
-    bool keyOK = false;
-    for (const auto& jnm : kJetRadii)
-      if (primaryRecoKey == jnm.key) { keyOK = true; break; }
+  bool keyOK = false;
+  for (const auto& jnm : kJetRadii)
+    if (primaryRecoKey == jnm.key) { keyOK = true; break; }
 
-    if (!keyOK)
+  if (!keyOK)
+  {
+    primaryRecoKey = kJetRadii.front().key;
+    LOG(1, CLR_YELLOW,
+        "    [fetchNodes] requested RJ_RECO_JET_KEY not in kJetRadii → using \"" << primaryRecoKey << "\"");
+  }
+
+  // Persist (legacy) — may be printed elsewhere
+  m_xjRecoJetKey = primaryRecoKey;
+
+  m_jets.clear();
+  for (const auto& jnm : kJetRadii)
+  {
+    const std::string rKey = jnm.key;
+
+    const std::string node = (isAuAu ? jnm.aa_node : jnm.pp_node);
+    auto* jc = findNode::getClass<JetContainer>(top, node);
+
+    if (!jc)
     {
-      primaryRecoKey = kJetRadii.front().key;
-      LOG(1, CLR_YELLOW,
-          "    [fetchNodes] requested RJ_RECO_JET_KEY not in kJetRadii → using \"" << primaryRecoKey << "\"");
+      LOG(2, CLR_YELLOW, "  – reco jet node missing: " << node << " (rKey=" << rKey << ")");
+    }
+    else
+    {
+      LOG(4, CLR_GREEN,
+          "    [fetchNodes] reco jet node found: " << node
+          << "  rKey=" << rKey << "  jets=" << jc->size());
     }
 
-    // Persist (legacy) — may be printed elsewhere
-    m_xjRecoJetKey = primaryRecoKey;
+    // Store even if nullptr; downstream QA/matching will skip gracefully per-radius
+    m_jets[rKey] = jc;
+  }
 
-    m_jets.clear();
+  if (Verbosity() >= 4)
+  {
+    std::ostringstream os;
+    os << "    [fetchNodes] reco jet radii cached: {";
+    for (std::size_t i = 0; i < kJetRadii.size(); ++i)
+    {
+      if (i) os << ", ";
+      const std::string rk = kJetRadii[i].key;
+      auto it = m_jets.find(rk);
+      const bool ok = (it != m_jets.end() && it->second);
+      os << rk << ":" << (ok ? "OK" : "MISSING");
+    }
+    os << "}  (primary=" << primaryRecoKey << ")";
+    LOG(4, CLR_BLUE, os.str());
+  }
+
+  // ------------------------------------------------------------------
+  // Truth jets: SIM only.
+  // Cache truth jet containers for ALL radii in kJetRadii (r02 + r04).
+  //
+  // Recommended override for parallel radii:
+  //   export RJ_TRUTH_JETS_NODE=AntiKt_Truth_{rKey}
+  //   export RJ_TRUTH_JETS_NODE=AntiKt_TruthFromParticles_{rKey}
+  //
+  // If RJ_TRUTH_JETS_NODE is set without "{rKey}", we also try "<env>_<rKey>"
+  // (plus the standard canonical nodes) for each radius.
+  // ------------------------------------------------------------------
+  m_truthJetsByRKey.clear();
+  m_truthJetsNodeByRKey.clear();
+
+  if (isSim)
+  {
+    const char* tn_env_c = std::getenv("RJ_TRUTH_JETS_NODE");
+    const std::string tn_env = tn_env_c ? trim(std::string(tn_env_c)) : std::string{};
+
     for (const auto& jnm : kJetRadii)
     {
       const std::string rKey = jnm.key;
 
-      const std::string node = (isAuAu ? jnm.aa_node : jnm.pp_node);
-      auto* jc = findNode::getClass<JetContainer>(top, node);
+      const std::string canonicalTruth = std::string("AntiKt_Truth_") + rKey;
+      const std::string altTruth       = std::string("AntiKt_TruthFromParticles_") + rKey;
 
-      if (!jc)
+      std::vector<std::string> candidates;
+      candidates.reserve(6);
+
+      if (!tn_env.empty())
       {
-        LOG(2, CLR_YELLOW, "  – reco jet node missing: " << node << " (rKey=" << rKey << ")");
+        const std::string placeholder = "{rKey}";
+        if (tn_env.find(placeholder) != std::string::npos)
+        {
+          std::string expanded = tn_env;
+          expanded.replace(expanded.find(placeholder), placeholder.size(), rKey);
+          candidates.push_back(expanded);
+        }
+        else
+        {
+          candidates.push_back(tn_env);
+          if (tn_env.find("_" + rKey) == std::string::npos)
+            candidates.push_back(tn_env + "_" + rKey);
+        }
+      }
+
+      // Always try standard truth nodes for this radius
+      candidates.push_back(canonicalTruth);
+      candidates.push_back(altTruth);
+
+      JetContainer* tj = nullptr;
+      std::string   usedNode;
+
+      for (const auto& node : candidates)
+      {
+        if (node.empty()) continue;
+        if (auto* tmp = findNode::getClass<JetContainer>(top, node))
+        {
+          tj = tmp;
+          usedNode = node;
+          break;
+        }
+      }
+
+      m_truthJetsByRKey[rKey] = tj;
+      m_truthJetsNodeByRKey[rKey] = usedNode;
+
+      if (!tj)
+      {
+        LOG(2, CLR_YELLOW,
+            "    [fetchNodes] isSim: truth jet container NOT found for rKey=" << rKey
+            << " (tried canonical=" << canonicalTruth
+            << ", alt=" << altTruth
+            << (tn_env.empty() ? "" : ", plus RJ_TRUTH_JETS_NODE candidates")
+            << "). Truth-jet QA disabled for this radius.");
       }
       else
       {
         LOG(4, CLR_GREEN,
-            "    [fetchNodes] reco jet node found: " << node
-            << "  rKey=" << rKey << "  jets=" << jc->size());
-      }
-
-      // Store even if nullptr; downstream QA/matching will skip gracefully per-radius
-      m_jets[rKey] = jc;
-    }
-
-    if (Verbosity() >= 4)
-    {
-      std::ostringstream os;
-      os << "    [fetchNodes] reco jet radii cached: {";
-      for (std::size_t i = 0; i < kJetRadii.size(); ++i)
-      {
-        if (i) os << ", ";
-        const std::string rk = kJetRadii[i].key;
-        auto it = m_jets.find(rk);
-        const bool ok = (it != m_jets.end() && it->second);
-        os << rk << ":" << (ok ? "OK" : "MISSING");
-      }
-      os << "}  (primary=" << primaryRecoKey << ")";
-      LOG(4, CLR_BLUE, os.str());
-    }
-
-    // ------------------------------------------------------------------
-    // Truth jets: SIM only.
-    // Cache truth jet containers for ALL radii in kJetRadii (r02 + r04).
-    //
-    // Recommended override for parallel radii:
-    //   export RJ_TRUTH_JETS_NODE=AntiKt_Truth_{rKey}
-    //   export RJ_TRUTH_JETS_NODE=AntiKt_TruthFromParticles_{rKey}
-    //
-    // If RJ_TRUTH_JETS_NODE is set without "{rKey}", we also try "<env>_<rKey>"
-    // (plus the standard canonical nodes) for each radius.
-    // ------------------------------------------------------------------
-    m_truthJetsByRKey.clear();
-    m_truthJetsNodeByRKey.clear();
-
-    if (isSim)
-    {
-      const char* tn_env_c = std::getenv("RJ_TRUTH_JETS_NODE");
-      const std::string tn_env = tn_env_c ? trim(std::string(tn_env_c)) : std::string{};
-
-      for (const auto& jnm : kJetRadii)
-      {
-        const std::string rKey = jnm.key;
-
-        const std::string canonicalTruth = std::string("AntiKt_Truth_") + rKey;
-        const std::string altTruth       = std::string("AntiKt_TruthFromParticles_") + rKey;
-
-        std::vector<std::string> candidates;
-        candidates.reserve(6);
-
-        if (!tn_env.empty())
-        {
-          const std::string placeholder = "{rKey}";
-          if (tn_env.find(placeholder) != std::string::npos)
-          {
-            std::string expanded = tn_env;
-            expanded.replace(expanded.find(placeholder), placeholder.size(), rKey);
-            candidates.push_back(expanded);
-          }
-          else
-          {
-            candidates.push_back(tn_env);
-            if (tn_env.find("_" + rKey) == std::string::npos)
-              candidates.push_back(tn_env + "_" + rKey);
-          }
-        }
-
-        // Always try standard truth nodes for this radius
-        candidates.push_back(canonicalTruth);
-        candidates.push_back(altTruth);
-
-        JetContainer* tj = nullptr;
-        std::string   usedNode;
-
-        for (const auto& node : candidates)
-        {
-          if (node.empty()) continue;
-          if (auto* tmp = findNode::getClass<JetContainer>(top, node))
-          {
-            tj = tmp;
-            usedNode = node;
-            break;
-          }
-        }
-
-        m_truthJetsByRKey[rKey] = tj;
-        m_truthJetsNodeByRKey[rKey] = usedNode;
-
-        if (!tj)
-        {
-          LOG(2, CLR_YELLOW,
-              "    [fetchNodes] isSim: truth jet container NOT found for rKey=" << rKey
-              << " (tried canonical=" << canonicalTruth
-              << ", alt=" << altTruth
-              << (tn_env.empty() ? "" : ", plus RJ_TRUTH_JETS_NODE candidates")
-              << "). Truth-jet QA disabled for this radius.");
-        }
-        else
-        {
-          LOG(4, CLR_GREEN,
-              "    [fetchNodes] isSim: truth jet node found for rKey=" << rKey
-              << ": " << usedNode << "  jets=" << tj->size());
-        }
+            "    [fetchNodes] isSim: truth jet node found for rKey=" << rKey
+            << ": " << usedNode << "  jets=" << tj->size());
       }
     }
+  }
 
   // -------------------------------------------------------------------------
   // EventDisplay test-mode nodes (SIM only). Optional: never affects physics.
   // Enabled only when Verbosity() >= 50.
+  //
+  // IMPORTANT SAFETY:
+  //   - This block must NEVER cause the event to be skipped.
+  //   - If anything is missing, we disable EventDisplay only.
+  //   - We reset all EventDisplay pointers each event to avoid stale pointers.
   // -------------------------------------------------------------------------
   m_evtDispEnabled = false;
+
+  // Always clear per-event pointers (safe even when mode is off)
+  m_evtHeader          = nullptr;
+  m_evtDispTowersCEMC  = nullptr;
+  m_evtDispTowersIHCal = nullptr;
+  m_evtDispTowersOHCal = nullptr;
+  m_evtDispGeomCEMC    = nullptr;
+  m_evtDispGeomIHCal   = nullptr;
+  m_evtDispGeomOHCal   = nullptr;
+
   if (isSim && (Verbosity() >= 50) && !m_evtDispPermanentlyDisabled)
   {
     m_evtDispEnabled     = true;
     m_evtDispEverEnabled = true;
 
-    m_evtHeader = findNode::getClass<EventHeader>(top, "EventHeader");
+    if (Verbosity() >= 50)
+    {
+      LOG(0, CLR_YELLOW,
+          "    [EventDisplay] fetchNodes: attempting to enable (Verbosity=" << Verbosity()
+          << ", jetKey=" << m_evtDispJetKey
+          << ", outBase=" << m_evtDispOutBase << ")");
+    }
 
-    TowerInfoContainer* tcalib = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB");
+      // Required: EventHeader for run/event tags
+      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(EventHeader) BEGIN");
+      m_evtHeader = findNode::getClass<EventHeader>(top, "EventHeader");
+      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(EventHeader) END  -> " << (m_evtHeader ? "OK" : "MISSING"));
 
-    m_evtDispTowersCEMC  = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_CEMC");
-    m_evtDispTowersIHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALIN");
-    m_evtDispTowersOHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALOUT");
+      // Tower containers: prefer per-calo CALIB nodes
+      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(TOWERINFO_CALIB_CEMC) BEGIN");
+      m_evtDispTowersCEMC  = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_CEMC");
+      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(TOWERINFO_CALIB_CEMC) END  -> " << (m_evtDispTowersCEMC ? "OK" : "MISSING"));
 
-    if (!m_evtDispTowersCEMC)  m_evtDispTowersCEMC  = tcalib;
-    if (!m_evtDispTowersIHCal) m_evtDispTowersIHCal = tcalib;
-    if (!m_evtDispTowersOHCal) m_evtDispTowersOHCal = tcalib;
+      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(TOWERINFO_CALIB_HCALIN) BEGIN");
+      m_evtDispTowersIHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALIN");
+      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(TOWERINFO_CALIB_HCALIN) END  -> " << (m_evtDispTowersIHCal ? "OK" : "MISSING"));
 
-    m_evtDispGeomCEMC  = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_CEMC");
-    m_evtDispGeomIHCal = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALIN");
-    m_evtDispGeomOHCal = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALOUT");
+      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(TOWERINFO_CALIB_HCALOUT) BEGIN");
+      m_evtDispTowersOHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALOUT");
+      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(TOWERINFO_CALIB_HCALOUT) END  -> " << (m_evtDispTowersOHCal ? "OK" : "MISSING"));
+
+      // NOTE:
+      // Do NOT try findNode::getClass<TowerInfoContainer>(..., "TOWERINFO_CALIB") here.
+      // In the SIM node-tree, "TOWERINFO_CALIB" is a PHCompositeNode under DST/ANTIKT/TOWERINFO_CALIB
+      // (containing jet containers like AntiKt_Tower_r02_RAW), NOT a TowerInfoContainer IO node.
+      // Attempting to getClass<TowerInfoContainer> on that name can segfault.
+      //
+      // We therefore rely ONLY on the per-calo nodes:
+      //   TOWERINFO_CALIB_CEMC / TOWERINFO_CALIB_HCALIN / TOWERINFO_CALIB_HCALOUT
+      // If any are missing, EventDisplay mode will be disabled by the 'missing' check below.
+
+      // Geometry containers (convert ieta/iphi → η/φ)
+      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(TOWERGEOM_CEMC) BEGIN");
+      m_evtDispGeomCEMC  = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_CEMC");
+      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(TOWERGEOM_CEMC) END  -> " << (m_evtDispGeomCEMC ? "OK" : "MISSING"));
+
+      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(TOWERGEOM_HCALIN) BEGIN");
+      m_evtDispGeomIHCal = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALIN");
+      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(TOWERGEOM_HCALIN) END  -> " << (m_evtDispGeomIHCal ? "OK" : "MISSING"));
+
+      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(TOWERGEOM_HCALOUT) BEGIN");
+      m_evtDispGeomOHCal = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALOUT");
+      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(TOWERGEOM_HCALOUT) END  -> " << (m_evtDispGeomOHCal ? "OK" : "MISSING"));
 
     const bool missing =
         (!m_evtHeader ||
          !m_evtDispTowersCEMC || !m_evtDispTowersIHCal || !m_evtDispTowersOHCal ||
          !m_evtDispGeomCEMC || !m_evtDispGeomIHCal || !m_evtDispGeomOHCal);
+
+    if (Verbosity() >= 50)
+    {
+      LOG(0, CLR_YELLOW, "    [EventDisplay] node status:"
+                         << " EventHeader="       << (m_evtHeader ? "OK" : "MISSING")
+                         << " | TOWERINFO_CALIB_CEMC="  << (m_evtDispTowersCEMC ? "OK" : "MISSING")
+                         << " | TOWERINFO_CALIB_HCALIN="<< (m_evtDispTowersIHCal ? "OK" : "MISSING")
+                         << " | TOWERINFO_CALIB_HCALOUT="<< (m_evtDispTowersOHCal ? "OK" : "MISSING")
+                         << " | TOWERGEOM_CEMC="   << (m_evtDispGeomCEMC ? "OK" : "MISSING")
+                         << " | TOWERGEOM_HCALIN=" << (m_evtDispGeomIHCal ? "OK" : "MISSING")
+                         << " | TOWERGEOM_HCALOUT="<< (m_evtDispGeomOHCal ? "OK" : "MISSING"));
+    }
 
     if (missing)
     {
@@ -659,16 +718,26 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
       {
         LOG(0, CLR_YELLOW, "[EventDisplay] disabled: missing required node(s) for test mode");
         LOG(0, CLR_YELLOW, "  EventHeader       : " << (m_evtHeader ? "OK" : "MISSING"));
-        LOG(0, CLR_YELLOW, "  TOWERINFO_CALIB*  : "
-                           << ((m_evtDispTowersCEMC && m_evtDispTowersIHCal && m_evtDispTowersOHCal) ? "OK" : "MISSING"));
+        LOG(0, CLR_YELLOW, "  TOWERINFO_CALIB_CEMC   : " << (m_evtDispTowersCEMC ? "OK" : "MISSING"));
+        LOG(0, CLR_YELLOW, "  TOWERINFO_CALIB_HCALIN : " << (m_evtDispTowersIHCal ? "OK" : "MISSING"));
+        LOG(0, CLR_YELLOW, "  TOWERINFO_CALIB_HCALOUT: " << (m_evtDispTowersOHCal ? "OK" : "MISSING"));
         LOG(0, CLR_YELLOW, "  TOWERGEOM_CEMC    : " << (m_evtDispGeomCEMC ? "OK" : "MISSING"));
         LOG(0, CLR_YELLOW, "  TOWERGEOM_HCALIN  : " << (m_evtDispGeomIHCal ? "OK" : "MISSING"));
         LOG(0, CLR_YELLOW, "  TOWERGEOM_HCALOUT : " << (m_evtDispGeomOHCal ? "OK" : "MISSING"));
         LOG(0, CLR_YELLOW, "[EventDisplay] Normal analysis continues unchanged; only the Verbosity>=50 PNG output is disabled.");
         m_evtDispMissingNodesWarned = true;
       }
+
+      // Disable only EventDisplay mode
       m_evtDispEnabled             = false;
       m_evtDispPermanentlyDisabled = true;
+    }
+    else
+    {
+      if (Verbosity() >= 50)
+      {
+        LOG(0, CLR_GREEN, "    [EventDisplay] enabled for this event");
+      }
     }
   }
 
@@ -5059,12 +5128,29 @@ void RecoilJets::writeEventDisplayPNG(const std::string& rKey,
                                      const Jet* recoTruthBest,
                                      const Jet* truthLeadRecoilJet)
 {
-  if (!m_evtDispEnabled) return;
+  // This function is only meant to run in EventDisplay test mode.
+  if (!m_evtDispEnabled)
+  {
+    if (Verbosity() >= 50)
+      LOG(0, CLR_YELLOW, "[EventDisplay] writeEventDisplayPNG called but m_evtDispEnabled=false → return");
+    return;
+  }
+
+  const std::string catName = eventDisplayCatName(cat);
 
   // Required nodes (fetched in fetchNodes only when Verbosity() >= 50 and SIM)
-  if (!m_evtHeader) return;
-  if (!m_evtDispTowersCEMC || !m_evtDispTowersIHCal || !m_evtDispTowersOHCal) return;
-  if (!m_evtDispGeomCEMC || !m_evtDispGeomIHCal || !m_evtDispGeomOHCal) return;
+  if (!m_evtHeader ||
+      !m_evtDispTowersCEMC || !m_evtDispTowersIHCal || !m_evtDispTowersOHCal ||
+      !m_evtDispGeomCEMC   || !m_evtDispGeomIHCal   || !m_evtDispGeomOHCal)
+  {
+    LOG(0, CLR_YELLOW, "[EventDisplay] writeEventDisplayPNG disabled for this event: missing required nodes");
+    LOG(0, CLR_YELLOW, "  EventHeader=" << (m_evtHeader ? "OK" : "MISSING")
+                       << " | Towers(CEMC/IHCal/OHCal)="
+                       << ((m_evtDispTowersCEMC && m_evtDispTowersIHCal && m_evtDispTowersOHCal) ? "OK" : "MISSING")
+                       << " | Geom(CEMC/IHCal/OHCal)="
+                       << ((m_evtDispGeomCEMC && m_evtDispGeomIHCal && m_evtDispGeomOHCal) ? "OK" : "MISSING"));
+    return;
+  }
 
   const int run = m_evtHeader->get_RunNumber();
   const int evt = m_evtHeader->get_EvtSequence();
@@ -5076,19 +5162,28 @@ void RecoilJets::writeEventDisplayPNG(const std::string& rKey,
   {
     std::ostringstream ss;
     const double xr = std::round(x);
-    if (std::fabs(x - xr) < 1e-6)
-    {
-      ss << (int)xr;
-    }
-    else
-    {
-      ss << std::fixed << std::setprecision(1) << x;
-    }
+    if (std::fabs(x - xr) < 1e-6) ss << (int)xr;
+    else                          ss << std::fixed << std::setprecision(1) << x;
     return ss.str();
   };
 
-  const std::string catName = eventDisplayCatName(cat);
-  const std::string outDir  = m_evtDispOutBase + "/" + catName;
+  if (Verbosity() >= 50)
+  {
+    LOG(0, CLR_YELLOW,
+        "[EventDisplay] begin writeEventDisplayPNG:"
+        << " cat=" << catName
+        << " rKey=" << rKey
+        << " run=" << run
+        << " evt=" << evt
+        << " ptBin=[" << fmtEdge(lo) << "," << fmtEdge(hi) << ")"
+        << " tPt=" << std::fixed << std::setprecision(2) << truthGammaPt
+        << " jets(sel/best/truthLead)="
+        << (selectedRecoilJet ? "Y" : "N") << "/"
+        << (recoTruthBest ? "Y" : "N") << "/"
+        << (truthLeadRecoilJet ? "Y" : "N"));
+  }
+
+  const std::string outDir = m_evtDispOutBase + "/" + catName;
   gSystem->mkdir(outDir.c_str(), true);
 
   std::ostringstream fn;
@@ -5098,10 +5193,25 @@ void RecoilJets::writeEventDisplayPNG(const std::string& rKey,
      << "_" << rKey << ".png";
   const std::string outFile = fn.str();
 
+  if (Verbosity() >= 50)
+    LOG(0, CLR_YELLOW, "[EventDisplay] output file: " << outFile);
+
   const bool wantTwoPanel =
       (cat == EventDisplayCat::MissA &&
        selectedRecoilJet && recoTruthBest &&
        selectedRecoilJet != recoTruthBest);
+
+  // Draw option (default preserves your intended output)
+  // You can override to safer 2D rendering with:
+  //   export RJ_EVENT_DISPLAY_DRAW=COLZ
+  std::string drawOpt = "LEGO2";
+  if (const char* d = gSystem->Getenv("RJ_EVENT_DISPLAY_DRAW"))
+  {
+    const std::string ds = d ? std::string(d) : std::string{};
+    if (!ds.empty()) drawOpt = ds;
+  }
+  if (Verbosity() >= 50)
+    LOG(0, CLR_YELLOW, "[EventDisplay] draw option = " << drawOpt << " (set RJ_EVENT_DISPLAY_DRAW to override)");
 
   auto makeHist = [&](const std::string& tag) -> TH2F*
   {
@@ -5119,11 +5229,31 @@ void RecoilJets::writeEventDisplayPNG(const std::string& rKey,
     return h;
   };
 
-  auto fillFromJet = [&](const Jet* jet, TH2F* h)
+  struct FillStats
   {
-    if (!jet || !h) return;
+    long nComp = 0;
+    long nUse  = 0;
+    long nSkipUnknown = 0;
+    long nSkipNoTower = 0;
+    long nSkipNoGeom  = 0;
+    long nSkipBadR    = 0;
+    long nSkipNonFinite=0;
+  };
 
+  auto fillFromJet = [&](const Jet* jet, TH2F* h, const std::string& label)->FillStats
+  {
+    FillStats S;
+
+    if (!jet || !h)
+    {
+      if (Verbosity() >= 50)
+        LOG(0, CLR_YELLOW, "[EventDisplay] fillFromJet(" << label << "): jet/h null → skip");
+      return S;
+    }
+
+    // Jet::get_comp_vec() is non-const in Jet interface; we only READ, so const_cast is safe here.
     Jet::TYPE_comp_vec& comp_vec = const_cast<Jet*>(jet)->get_comp_vec();
+    S.nComp = (long)comp_vec.size();
 
     for (const auto& comp : comp_vec)
     {
@@ -5151,13 +5281,18 @@ void RecoilJets::writeEventDisplayPNG(const std::string& rKey,
       }
       else
       {
+        ++S.nSkipUnknown;
         continue;
       }
 
       const unsigned int index = comp.second;
 
       TowerInfo* tower = (towers ? towers->get_tower_at_channel(index) : nullptr);
-      if (!tower) continue;
+      if (!tower)
+      {
+        ++S.nSkipNoTower;
+        continue;
+      }
 
       const unsigned int calokey = towers->encode_key(index);
       const int ieta = towers->getTowerEtaBin(calokey);
@@ -5165,16 +5300,24 @@ void RecoilJets::writeEventDisplayPNG(const std::string& rKey,
 
       const RawTowerDefs::keytype key = RawTowerDefs::encode_towerid(calo, ieta, iphi);
       RawTowerGeom* tower_geom = (geom ? geom->get_tower_geometry(key) : nullptr);
-      if (!tower_geom) continue;
+      if (!tower_geom)
+      {
+        ++S.nSkipNoGeom;
+        continue;
+      }
 
       const double x = tower_geom->get_center_x();
       const double y = tower_geom->get_center_y();
       const double r = std::sqrt(x * x + y * y);
-      if (r <= 0) continue;
+      if (!(r > 0))
+      {
+        ++S.nSkipBadR;
+        continue;
+      }
 
       const double phi = std::atan2(y, x);
 
-      // Vertex-z correction (same approach as in your EventValidation snippet)
+      // Vertex-z correction
       const double eta0 = tower_geom->get_eta();
       const double z0   = std::sinh(eta0) * r;
       const double z    = z0 - m_vz;
@@ -5183,14 +5326,39 @@ void RecoilJets::writeEventDisplayPNG(const std::string& rKey,
       const double E  = tower->get_energy();
       const double Et = E / std::cosh(eta);
 
-      if (!std::isfinite(Et) || Et == 0.0) continue;
+      if (!std::isfinite(Et) || Et == 0.0)
+      {
+        ++S.nSkipNonFinite;
+        continue;
+      }
+
       h->Fill(phi, eta, Et);
+      ++S.nUse;
     }
+
+    if (Verbosity() >= 50)
+    {
+      LOG(0, CLR_YELLOW,
+          "[EventDisplay] fillFromJet(" << label << "):"
+          << " nComp=" << S.nComp
+          << " nUse="  << S.nUse
+          << " skipUnknown=" << S.nSkipUnknown
+          << " skipNoTower=" << S.nSkipNoTower
+          << " skipNoGeom="  << S.nSkipNoGeom
+          << " skipBadR="    << S.nSkipBadR
+          << " skipNonFinite=" << S.nSkipNonFinite);
+    }
+
+    return S;
   };
 
   auto drawPanel = [&](TPad* pad, TH2F* h, const Jet* mainJet, const std::string& subtitle)
   {
-    if (!pad || !h) return;
+    if (!pad || !h)
+    {
+      LOG(0, CLR_YELLOW, "[EventDisplay] drawPanel: pad/h null → return");
+      return;
+    }
 
     pad->cd();
     pad->SetLeftMargin(0.12);
@@ -5198,15 +5366,27 @@ void RecoilJets::writeEventDisplayPNG(const std::string& rKey,
     pad->SetRightMargin(0.20);
     pad->SetTopMargin(0.08);
 
-    h->Draw("LEGO2");
+    // Draw: default LEGO2, optional override to COLZ (safer in batch)
+    if (drawOpt == "COLZ")
+    {
+      h->SetContour(99);
+      h->Draw("COLZ");
+    }
+    else
+    {
+      h->Draw("LEGO2");
+    }
     pad->Update();
 
-    if (TPaletteAxis* pal = (TPaletteAxis*)h->GetListOfFunctions()->FindObject("palette"))
+    if (drawOpt != "COLZ")
     {
-      pal->SetX1NDC(0.82);
-      pal->SetX2NDC(0.86);
-      pal->SetY1NDC(0.15);
-      pal->SetY2NDC(0.90);
+      if (TPaletteAxis* pal = (TPaletteAxis*)h->GetListOfFunctions()->FindObject("palette"))
+      {
+        pal->SetX1NDC(0.82);
+        pal->SetX2NDC(0.86);
+        pal->SetY1NDC(0.15);
+        pal->SetY2NDC(0.90);
+      }
     }
 
     // Markers: main reco jet (29), truth lead jet (24), "other" reco jet in MissA (33)
@@ -5258,41 +5438,68 @@ void RecoilJets::writeEventDisplayPNG(const std::string& rKey,
 
   if (wantTwoPanel)
   {
+    if (Verbosity() >= 50)
+      LOG(0, CLR_YELLOW, "[EventDisplay] layout: TWO-PANEL (MissA) selectedJet vs truthBest");
+
     c.Divide(2, 1, 0.0, 0.0);
 
     TH2F* hSel  = makeHist("sel");
     TH2F* hBest = makeHist("best");
 
-    fillFromJet(selectedRecoilJet, hSel);
-    fillFromJet(recoTruthBest, hBest);
+    fillFromJet(selectedRecoilJet, hSel,  "selectedRecoilJet");
+    fillFromJet(recoTruthBest,     hBest, "recoTruthBest");
 
     drawPanel((TPad*)c.cd(1), hSel,  selectedRecoilJet, "Left: selected recoil1Jet (wrong-jet case)");
-    drawPanel((TPad*)c.cd(2), hBest, recoTruthBest,    "Right: truth-matched reco jet");
+    drawPanel((TPad*)c.cd(2), hBest, recoTruthBest,     "Right: truth-matched reco jet");
+
+    if (Verbosity() >= 50)
+      LOG(0, CLR_YELLOW, "[EventDisplay] saving canvas → " << outFile);
 
     c.SaveAs(outFile.c_str());
+
+    delete hSel;
+    delete hBest;
   }
   else
   {
     const Jet* jetToShow = selectedRecoilJet ? selectedRecoilJet : recoTruthBest;
     if (!jetToShow)
     {
-      LOG(2, CLR_YELLOW, "[EventDisplay] No reco jet available to draw for " << catName
-                                                                             << " (run=" << run << ", evt=" << evt << ")");
+      LOG(0, CLR_YELLOW, "[EventDisplay] No reco jet available to draw for " << catName
+                                                                             << " (run=" << run << ", evt=" << evt << ") → return");
       return;
     }
 
+    if (Verbosity() >= 50)
+      LOG(0, CLR_YELLOW, "[EventDisplay] layout: SINGLE-PANEL (jet=" << (selectedRecoilJet ? "selected" : "truthBest") << ")");
+
     TH2F* h = makeHist("single");
-    fillFromJet(jetToShow, h);
+    fillFromJet(jetToShow, h, "jetToShow");
 
     std::ostringstream sub;
     sub << "Reco jet shown: " << (selectedRecoilJet ? "selected recoil1Jet" : "truth-matched reco jet");
     drawPanel((TPad*)c.cd(), h, jetToShow, sub.str());
 
+    if (Verbosity() >= 50)
+      LOG(0, CLR_YELLOW, "[EventDisplay] saving canvas → " << outFile);
+
     c.SaveAs(outFile.c_str());
+
+    delete h;
   }
 
-  LOG(2, CLR_YELLOW, "[EventDisplay] wrote " << outFile);
+  // Confirm file exists (best-effort diagnostic)
+  if (gSystem->AccessPathName(outFile.c_str()) == false)
+  {
+    LOG(0, CLR_GREEN, "[EventDisplay] wrote " << outFile);
+  }
+  else
+  {
+    LOG(0, CLR_YELLOW, "[EventDisplay] WARNING: SaveAs returned but file not visible on disk: " << outFile);
+  }
 }
+
+
 
 TH1I* RecoilJets::getOrBookCountHist(const std::string& trig,
                                      const std::string& base,
@@ -5588,8 +5795,8 @@ TH2F* RecoilJets::getOrBookUnfoldRecoPtXJIncl(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  // PPG12 reco photon edges (includes [8,10] underflow and [35,40] overflow for unfolding)
-  static const std::vector<double> kPtReco = {8,10,12,14,16,18,20,22,24,26,35,40};
+  // Reco photon edges for unfolding (includes [10,15] underflow and [35,40] overflow)
+  static const std::vector<double> kPtReco = {10,15,17,19,21,23,26,35,40};
 
   // ATLAS-like log-ish xJ edges, with explicit under/overflow bins for unfolding stability
   static const std::vector<double> kXJ = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
@@ -5635,8 +5842,8 @@ TH2F* RecoilJets::getOrBookUnfoldRecoPtDphiIncl(const std::string& trig,
     if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
     dir->cd();
 
-    // Must match reco pTγ unfolding binning you already use
-    static const std::vector<double> kPtReco = {8,10,12,14,16,18,20,22,24,26,35,40};
+    // Must match reco pTγ unfolding binning (includes [10,15] underflow and [35,40] overflow)
+    static const std::vector<double> kPtReco = {10,15,17,19,21,23,26,35,40};
 
     const int nx = static_cast<int>(kPtReco.size()) - 1;
     const int ny = 64;
@@ -5680,7 +5887,7 @@ TH2F* RecoilJets::getOrBookUnfoldTruthPtDphiIncl(const std::string& trig,
     dir->cd();
 
     // Must match truth pTγ unfolding binning you already use
-    static const std::vector<double> kPtTruth = {5,8,10,12,14,16,18,20,22,24,26,35,40};
+      static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
 
     const int nx = static_cast<int>(kPtTruth.size()) - 1;
     const int ny = 64;
@@ -5723,8 +5930,8 @@ TH2F* RecoilJets::getOrBookUnfoldTruthPtXJIncl(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  // PPG12 truth photon edges (includes [5,8] truth underflow for unfolding)
-  static const std::vector<double> kPtTruth = {5,8,10,12,14,16,18,20,22,24,26,35,40};
+  // Truth photon edges for unfolding (includes [5,10] and [10,15] underflow, plus [35,40] overflow)
+  static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
 
   // Must match reco xJ edges for a clean response definition
   static const std::vector<double> kXJ = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
@@ -5771,8 +5978,8 @@ TH2F* RecoilJets::getOrBookUnfoldResponsePtXJIncl(const std::string& trig,
   dir->cd();
 
   // These define the TH2 template bin counts (FindBin() global bin indexing includes +2 each axis)
-  static const std::vector<double> kPtReco  = {8,10,12,14,16,18,20,22,24,26,35,40};      // nbinsX(reco)=11
-  static const std::vector<double> kPtTruth = {5,8,10,12,14,16,18,20,22,24,26,35,40};    // nbinsX(truth)=12
+  static const std::vector<double> kPtReco  = {10,15,17,19,21,23,26,35,40};           // nbinsX(reco)=8
+  static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};         // nbinsX(truth)=9
   static const std::vector<double> kXJ      = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0}; // nbinsY=15
 
   const int nPtReco  = static_cast<int>(kPtReco.size())  - 1;
@@ -5822,7 +6029,7 @@ TH2F* RecoilJets::getOrBookUnfoldRecoFakesPtXJIncl(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtReco = {8,10,12,14,16,18,20,22,24,26,35,40};
+  static const std::vector<double> kPtReco = {10,15,17,19,21,23,26,35,40};
   static const std::vector<double> kXJ = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
 
   const int nx = static_cast<int>(kPtReco.size()) - 1;
@@ -5866,7 +6073,7 @@ TH2F* RecoilJets::getOrBookUnfoldTruthMissesPtXJIncl(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtTruth = {5,8,10,12,14,16,18,20,22,24,26,35,40};
+    static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
   static const std::vector<double> kXJ = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
 
   const int nx = static_cast<int>(kPtTruth.size()) - 1;
@@ -5912,7 +6119,7 @@ TH1F* RecoilJets::getOrBookUnfoldRecoPhoPtGamma(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtReco = {8,10,12,14,16,18,20,22,24,26,35,40};
+  static const std::vector<double> kPtReco = {10,15,17,19,21,23,26,35,40};
   const int nb = static_cast<int>(kPtReco.size()) - 1;
 
   const std::string title =
@@ -5950,7 +6157,7 @@ TH1F* RecoilJets::getOrBookUnfoldTruthPhoPtGamma(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtTruth = {5,8,10,12,14,16,18,20,22,24,26,35,40};
+    static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
   const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
   const std::string title =
@@ -5988,8 +6195,8 @@ TH2F* RecoilJets::getOrBookUnfoldResponsePhoPtGamma(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtTruth = {5,8,10,12,14,16,18,20,22,24,26,35,40};
-  static const std::vector<double> kPtReco  = {8,10,12,14,16,18,20,22,24,26,35,40};
+  static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
+  static const std::vector<double> kPtReco  = {10,15,17,19,21,23,26,35,40};
 
   const int nx = static_cast<int>(kPtTruth.size()) - 1;
   const int ny = static_cast<int>(kPtReco.size())  - 1;
@@ -6031,7 +6238,7 @@ TH1F* RecoilJets::getOrBookUnfoldRecoPhoFakesPtGamma(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtReco = {8,10,12,14,16,18,20,22,24,26,35,40};
+  static const std::vector<double> kPtReco = {10,15,17,19,21,23,26,35,40};
   const int nb = static_cast<int>(kPtReco.size()) - 1;
 
   const std::string title =
@@ -6069,7 +6276,7 @@ TH1F* RecoilJets::getOrBookUnfoldTruthPhoMissesPtGamma(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtTruth = {5,8,10,12,14,16,18,20,22,24,26,35,40};
+    static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
   const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
   const std::string title =
@@ -6111,7 +6318,7 @@ TH2F* RecoilJets::getOrBookUnfoldTruthMatchedPtXJIncl(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtTruth = {5,8,10,12,14,16,18,20,22,24,26,35,40};
+    static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
   static const std::vector<double> kXJ = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
 
   const int nx = static_cast<int>(kPtTruth.size()) - 1;
@@ -6155,7 +6362,7 @@ TH2F* RecoilJets::getOrBookUnfoldRecoMatchedPtXJIncl(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtReco = {8,10,12,14,16,18,20,22,24,26,35,40};
+  static const std::vector<double> kPtReco = {10,15,17,19,21,23,26,35,40};
   static const std::vector<double> kXJ = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
 
   const int nx = static_cast<int>(kPtReco.size()) - 1;
@@ -6199,7 +6406,7 @@ TH2F* RecoilJets::getOrBookUnfoldRecoFakesPtXJIncl_typeA(const std::string& trig
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtReco = {8,10,12,14,16,18,20,22,24,26,35,40};
+  static const std::vector<double> kPtReco = {10,15,17,19,21,23,26,35,40};
   static const std::vector<double> kXJ = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
 
   const int nx = static_cast<int>(kPtReco.size()) - 1;
@@ -6243,7 +6450,7 @@ TH2F* RecoilJets::getOrBookUnfoldRecoFakesPtXJIncl_typeB(const std::string& trig
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtReco = {8,10,12,14,16,18,20,22,24,26,35,40};
+  static const std::vector<double> kPtReco = {10,15,17,19,21,23,26,35,40};
   static const std::vector<double> kXJ = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
 
   const int nx = static_cast<int>(kPtReco.size()) - 1;
@@ -6287,7 +6494,7 @@ TH2F* RecoilJets::getOrBookUnfoldTruthMissesPtXJIncl_typeA(const std::string& tr
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtTruth = {5,8,10,12,14,16,18,20,22,24,26,35,40};
+    static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
   static const std::vector<double> kXJ = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
 
   const int nx = static_cast<int>(kPtTruth.size()) - 1;
@@ -6331,7 +6538,7 @@ TH2F* RecoilJets::getOrBookUnfoldTruthMissesPtXJIncl_typeB(const std::string& tr
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtTruth = {5,8,10,12,14,16,18,20,22,24,26,35,40};
+    static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
   static const std::vector<double> kXJ = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
 
   const int nx = static_cast<int>(kPtTruth.size()) - 1;
@@ -6597,7 +6804,7 @@ TH1F* RecoilJets::getOrBookLeadTruthRecoilMatchDenPtGammaTruth(const std::string
     if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
     dir->cd();
 
-    static const std::vector<double> kPtTruth = {5,8,10,12,14,16,18,20,22,24,26,35,40};
+      static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
     const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
     const std::string title =
@@ -6636,7 +6843,7 @@ TH1F* RecoilJets::getOrBookLeadTruthRecoilMatchNumPtGammaTruth(const std::string
     if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
     dir->cd();
 
-    static const std::vector<double> kPtTruth = {5,8,10,12,14,16,18,20,22,24,26,35,40};
+      static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
     const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
     const std::string title =
@@ -6675,7 +6882,7 @@ TH1F* RecoilJets::getOrBookLeadTruthRecoilMatchMissA_PtGammaTruth(const std::str
     if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
     dir->cd();
 
-    static const std::vector<double> kPtTruth = {5,8,10,12,14,16,18,20,22,24,26,35,40};
+      static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
     const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
     const std::string title =
@@ -6714,7 +6921,7 @@ TH1F* RecoilJets::getOrBookLeadTruthRecoilMatchMissB_PtGammaTruth(const std::str
     if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
     dir->cd();
 
-    static const std::vector<double> kPtTruth = {5,8,10,12,14,16,18,20,22,24,26,35,40};
+      static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
     const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
     const std::string title =
@@ -6942,7 +7149,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchDphiRecoJet1VsPtGammaTruth_num(co
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtTruth = {5,8,10,12,14,16,18,20,22,24,26,35,40};
+    static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
   const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
   auto* h = new TH2F(name.c_str(),
@@ -6981,7 +7188,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchDphiRecoJet1VsPtGammaTruth_missA(
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtTruth = {5,8,10,12,14,16,18,20,22,24,26,35,40};
+    static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
   const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
   auto* h = new TH2F(name.c_str(),
@@ -7020,7 +7227,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchDphiRecoJet1VsPtGammaTruth_missB(
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtTruth = {5,8,10,12,14,16,18,20,22,24,26,35,40};
+    static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
   const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
   auto* h = new TH2F(name.c_str(),
@@ -7061,7 +7268,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchDRRecoJet1VsPtGammaTruth_num(cons
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtTruth = {5,8,10,12,14,16,18,20,22,24,26,35,40};
+    static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
   const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
   auto* h = new TH2F(name.c_str(),
@@ -7100,7 +7307,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchDRRecoJet1VsPtGammaTruth_missA(co
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtTruth = {5,8,10,12,14,16,18,20,22,24,26,35,40};
+    static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
   const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
   auto* h = new TH2F(name.c_str(),
@@ -7139,7 +7346,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchDRRecoJet1VsPtGammaTruth_missB(co
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtTruth = {5,8,10,12,14,16,18,20,22,24,26,35,40};
+  static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
   const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
   auto* h = new TH2F(name.c_str(),

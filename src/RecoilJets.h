@@ -324,15 +324,16 @@ public:
   }
 
   void setGammaPtBins(const std::vector<double>& /*bins*/)
-    {
-      // Canonical pT^gamma binning for ALL photon-binned histograms (reco + truth):
-      //   [10,12,14,16,18,20,22,24,26,35] GeV
-      //
-      // NOTE: Unfolding histograms book their own extended pT^gamma binning:
-      //   reco : [8,10] + (canonical bins) + [35,40]
-      //   truth: [5,8] + [8,10] + (canonical bins) + [35,40]
-      m_gammaPtBins = {10,12,14,16,18,20,22,24,26,35};
+      {
+        // Canonical pT^gamma binning for ALL photon-binned histograms (reco + truth):
+        //   [15,17,19,21,23,26,35] GeV  (6 bins, start at 15 GeV)
+        //
+        // NOTE: Unfolding histograms book their own extended pT^gamma binning:
+        //   reco : [10,15] + (canonical bins) + [35,40]
+        //   truth: [5,10] + [10,15] + (canonical bins) + [35,40]
+        m_gammaPtBins = {15,17,19,21,23,26,35};
   }
+
 
   void setCentEdges(const std::vector<int>& edges)     { m_centEdges = edges; }
 
@@ -799,7 +800,8 @@ private:
 
   // Photon fiducial + binning
   double m_etaAbsMax = 0.7;           // photon |eta| cut
-  std::vector<double> m_gammaPtBins = {10,12,14,16,18,20,22,24,26,35};  // canonical photon pT bin edges
+//  std::vector<double> m_gammaPtBins = {10,12,14,16,18,20,22,24,26,35};  // canonical photon pT bin edges
+  std::vector<double> m_gammaPtBins = {15,17,19,21,23,26,35};  // canonical photon pT bin edges (6 bins, start at 15 GeV)
 
 
   // Isolation WP (PPG12 nominal)
@@ -810,7 +812,8 @@ private:
   double m_isoTowMin = 0.0;
 
   // Jet selection WP
-  double m_minJetPt      = 5.0;
+//  double m_minJetPt      = 5.0;
+  double m_minJetPt      = 10.0;
   double m_minBackToBack = M_PI / 2.0;    // radians
 
   // Legacy "primary" reco jet key (still used for printing/overrides only)
