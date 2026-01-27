@@ -622,6 +622,56 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
       }
     }
 
+  // -------------------------------------------------------------------------
+  // EventDisplay test-mode nodes (SIM only). Optional: never affects physics.
+  // Enabled only when Verbosity() >= 50.
+  // -------------------------------------------------------------------------
+  m_evtDispEnabled = false;
+  if (isSim && (Verbosity() >= 50) && !m_evtDispPermanentlyDisabled)
+  {
+    m_evtDispEnabled     = true;
+    m_evtDispEverEnabled = true;
+
+    m_evtHeader = findNode::getClass<EventHeader>(top, "EventHeader");
+
+    TowerInfoContainer* tcalib = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB");
+
+    m_evtDispTowersCEMC  = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_CEMC");
+    m_evtDispTowersIHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALIN");
+    m_evtDispTowersOHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALOUT");
+
+    if (!m_evtDispTowersCEMC)  m_evtDispTowersCEMC  = tcalib;
+    if (!m_evtDispTowersIHCal) m_evtDispTowersIHCal = tcalib;
+    if (!m_evtDispTowersOHCal) m_evtDispTowersOHCal = tcalib;
+
+    m_evtDispGeomCEMC  = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_CEMC");
+    m_evtDispGeomIHCal = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALIN");
+    m_evtDispGeomOHCal = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALOUT");
+
+    const bool missing =
+        (!m_evtHeader ||
+         !m_evtDispTowersCEMC || !m_evtDispTowersIHCal || !m_evtDispTowersOHCal ||
+         !m_evtDispGeomCEMC || !m_evtDispGeomIHCal || !m_evtDispGeomOHCal);
+
+    if (missing)
+    {
+      if (!m_evtDispMissingNodesWarned)
+      {
+        LOG(0, CLR_YELLOW, "[EventDisplay] disabled: missing required node(s) for test mode");
+        LOG(0, CLR_YELLOW, "  EventHeader       : " << (m_evtHeader ? "OK" : "MISSING"));
+        LOG(0, CLR_YELLOW, "  TOWERINFO_CALIB*  : "
+                           << ((m_evtDispTowersCEMC && m_evtDispTowersIHCal && m_evtDispTowersOHCal) ? "OK" : "MISSING"));
+        LOG(0, CLR_YELLOW, "  TOWERGEOM_CEMC    : " << (m_evtDispGeomCEMC ? "OK" : "MISSING"));
+        LOG(0, CLR_YELLOW, "  TOWERGEOM_HCALIN  : " << (m_evtDispGeomIHCal ? "OK" : "MISSING"));
+        LOG(0, CLR_YELLOW, "  TOWERGEOM_HCALOUT : " << (m_evtDispGeomOHCal ? "OK" : "MISSING"));
+        LOG(0, CLR_YELLOW, "[EventDisplay] Normal analysis continues unchanged; only the Verbosity>=50 PNG output is disabled.");
+        m_evtDispMissingNodesWarned = true;
+      }
+      m_evtDispEnabled             = false;
+      m_evtDispPermanentlyDisabled = true;
+    }
+  }
+
   return true;
 }
 
@@ -746,100 +796,23 @@ int RecoilJets::InitRun(PHCompositeNode* /*topNode*/)
     }
   }
 
-  // Truth jets: SIM only.
-  if (isSim)
+  // -------------------------------------------------------------------------
+  // EventDisplay test mode initialization (Verbosity() >= 50, SIM only)
+  // (Nodes are fetched in fetchNodes(); InitRun should not touch them.)
+  // -------------------------------------------------------------------------
+  resetEventDisplayState();
+
+  // Allow overriding output directory via environment (useful for local eventDisplay runs).
+  if (const char* outdir = gSystem->Getenv("RJ_EVENT_DISPLAY_OUTDIR"))
   {
-      m_truthJetsByRKey.clear();
-
-      // Example env: RJ_TRUTHJETS_r02="AntiKt_Truth_r02"
-      //              RJ_TRUTHJETS_r04="AntiKt_Truth_r04"
-      // If not provided, use defaults:
-      //   r02 -> "AntiKt_Truth_r02"
-      //   r04 -> "AntiKt_Truth_r04"
-      std::string tn_env;
-      for (auto const& kv : m_recoJetsNodeByRKey)
+      if (std::string(outdir).size() > 0)
       {
-        const std::string& rKey = kv.first;
-
-        std::string can = "AntiKt_Truth_" + rKey;  // default
-        tn_env          = "RJ_TRUTHJETS_" + rKey;
-
-        const char* env = std::getenv(tn_env.c_str());
-        if (env && std::string(env).size() > 0)
-        {
-          can = std::string(env);
-        }
-
-        JetContainer* tjs = findNode::getClass<JetContainer>(top, can);
-        if (!tjs)
-        {
-          // Don't kill the job; just note missing truth jets for that rKey.
-          if (Verbosity() >= 1)
-          {
-            LOG(1, CLR_YELLOW, "[fetchNodes] Missing truth jet container '" << can
-                                                                            << "' for rKey=" << rKey);
-          }
-        }
-
-        m_truthJetsByRKey[rKey] = tjs;
-        m_truthJetsNodeByRKey[rKey] = can;
-      }
-    }
-
-    // -------------------------------------------------------------------------
-    // EventDisplay test-mode nodes (SIM only). Optional: never affects physics.
-    // Enabled only when Verbosity() >= 50.
-    // -------------------------------------------------------------------------
-    m_evtDispEnabled = false;
-    if (isSim && (Verbosity() >= 50) && !m_evtDispPermanentlyDisabled)
-    {
-      m_evtDispEnabled     = true;
-      m_evtDispEverEnabled = true;
-
-      // Event identifiers
-      m_evtHeader = findNode::getClass<EventHeader>(top, "EventHeader");
-
-      // Tower containers (try explicit per-calo nodes first; fall back to a single combined node)
-      TowerInfoContainer* tcalib = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB");
-
-      m_evtDispTowersCEMC  = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_CEMC");
-      m_evtDispTowersIHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALIN");
-      m_evtDispTowersOHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALOUT");
-
-      if (!m_evtDispTowersCEMC)  m_evtDispTowersCEMC  = tcalib;
-      if (!m_evtDispTowersIHCal) m_evtDispTowersIHCal = tcalib;
-      if (!m_evtDispTowersOHCal) m_evtDispTowersOHCal = tcalib;
-
-      // Geometry (required to convert ieta/iphi → η/φ)
-      m_evtDispGeomCEMC  = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_CEMC");
-      m_evtDispGeomIHCal = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALIN");
-      m_evtDispGeomOHCal = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALOUT");
-
-      const bool missing =
-          (!m_evtHeader ||
-           !m_evtDispTowersCEMC || !m_evtDispTowersIHCal || !m_evtDispTowersOHCal ||
-           !m_evtDispGeomCEMC || !m_evtDispGeomIHCal || !m_evtDispGeomOHCal);
-
-      if (missing)
-      {
-        if (!m_evtDispMissingNodesWarned)
-        {
-          LOG(0, CLR_YELLOW, "[EventDisplay] disabled: missing required node(s) for test mode");
-          LOG(0, CLR_YELLOW, "  EventHeader       : " << (m_evtHeader ? "OK" : "MISSING"));
-          LOG(0, CLR_YELLOW, "  TOWERINFO_CALIB*  : "
-                             << ((m_evtDispTowersCEMC && m_evtDispTowersIHCal && m_evtDispTowersOHCal) ? "OK" : "MISSING"));
-          LOG(0, CLR_YELLOW, "  TOWERGEOM_CEMC    : " << (m_evtDispGeomCEMC ? "OK" : "MISSING"));
-          LOG(0, CLR_YELLOW, "  TOWERGEOM_HCALIN  : " << (m_evtDispGeomIHCal ? "OK" : "MISSING"));
-          LOG(0, CLR_YELLOW, "  TOWERGEOM_HCALOUT : " << (m_evtDispGeomOHCal ? "OK" : "MISSING"));
-          LOG(0, CLR_YELLOW, "[EventDisplay] Normal analysis continues unchanged; only the Verbosity>=50 PNG output is disabled.");
-          m_evtDispMissingNodesWarned = true;
-        }
-        m_evtDispEnabled             = false;
-        m_evtDispPermanentlyDisabled = true;
+        m_evtDispOutBase = std::string(outdir);
       }
   }
 
-  return true;
+  LOG(1, CLR_BLUE, "[InitRun] InitRun completed successfully");
+  return Fun4AllReturnCodes::EVENT_OK;
 }
 
 
@@ -5150,7 +5123,7 @@ void RecoilJets::writeEventDisplayPNG(const std::string& rKey,
   {
     if (!jet || !h) return;
 
-    const Jet::TYPE_comp_vec comp_vec = jet->get_comp_vec();
+    Jet::TYPE_comp_vec& comp_vec = const_cast<Jet*>(jet)->get_comp_vec();
 
     for (const auto& comp : comp_vec)
     {
