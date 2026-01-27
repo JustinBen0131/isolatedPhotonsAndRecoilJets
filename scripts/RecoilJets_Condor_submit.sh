@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 ###############################################################################
 # RecoilJets_Condor_submit.sh — one-stop driver for LOCAL testing and CONDOR
-# batch submission of the sPHENIX RecoilJets analysis (DATA ONLY; no MC).
+# Note: ./RecoilJets_Condor_submit.sh isSim local eventDisplay SAMPLE=run28_photonjet10 --
+# event display QA png outputput only
 #
 # OVERVIEW
 #   • Two datasets are supported: isPP and isAuAu.
@@ -707,10 +708,14 @@ case "$ACTION" in
     # Parse optional [Nevents] and VERBOSE=N from tokens after 'local'
     nevt="$LOCAL_EVENTS"
     RJV="10"                     # default for local runs
+    EVENT_DISPLAY_MODE=0
     rest=( "${@:3}" )
     for t in "${rest[@]}"; do
       if [[ "$t" =~ ^VERBOSE=([0-9]+)$ ]]; then
         RJV="${BASH_REMATCH[1]}"
+      elif [[ "$t" == "eventDisplay" ]]; then
+        EVENT_DISPLAY_MODE=1
+        nevt="0"
       elif [[ "$t" =~ ^[0-9]+$ ]]; then
         nevt="$t"
       fi
@@ -718,14 +723,31 @@ case "$ACTION" in
 
     if [[ "$DATASET" == "isSim" ]]; then
       sim_init
-      say "Local test on isSim sample=${SIM_SAMPLE} (events=${nevt}, RJ_VERBOSITY=${RJV})"
 
-      tmp="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_LOCAL_firstfile.list"
-      head -n 1 "$SIM_CLEAN_LIST" > "$tmp"
-      say "Temp list → $tmp"
-      say "Invoking wrapper locally…"
+      if [[ "$EVENT_DISPLAY_MODE" -eq 1 ]]; then
+        # Force verbosity high enough to activate EventDisplay mode inside RecoilJets.
+        if (( RJV < 51 )); then RJV=51; fi
+        export RJ_EVENT_DISPLAY_OUTDIR="${RJ_EVENT_DISPLAY_OUTDIR:-/sphenix/u/patsfan753/scratch/thesisAnalysis/EventDisplayOutput}"
 
-      RJ_VERBOSITY="$RJV" bash "$EXE" "$SIM_SAMPLE" "$tmp" "isSim" LOCAL "$nevt" 1 NONE "$DEST_BASE"
+        say "EventDisplay mode enabled: scanning until all pTγ bins × {NUM,MissA,MissB} are filled"
+        say "isSim sample=${SIM_SAMPLE} (events=ALL, RJ_VERBOSITY=${RJV})"
+        say "Output → ${RJ_EVENT_DISPLAY_OUTDIR}"
+
+        tmp="$SIM_CLEAN_LIST"
+        say "Input list → $tmp"
+        say "Invoking wrapper locally…"
+
+        RJ_VERBOSITY="$RJV" RJ_EVENT_DISPLAY_OUTDIR="$RJ_EVENT_DISPLAY_OUTDIR" bash "$EXE" "$SIM_SAMPLE" "$tmp" "isSim" LOCAL "$nevt" 1 NONE "$DEST_BASE"
+      else
+        say "Local test on isSim sample=${SIM_SAMPLE} (events=${nevt}, RJ_VERBOSITY=${RJV})"
+
+        tmp="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_LOCAL_firstfile.list"
+        head -n 1 "$SIM_CLEAN_LIST" > "$tmp"
+        say "Temp list → $tmp"
+        say "Invoking wrapper locally…"
+
+        RJ_VERBOSITY="$RJV" bash "$EXE" "$SIM_SAMPLE" "$tmp" "isSim" LOCAL "$nevt" 1 NONE "$DEST_BASE"
+      fi
     else
       say "Local test on ${DATASET}  (events=${nevt}, RJ_VERBOSITY=${RJV})"
 

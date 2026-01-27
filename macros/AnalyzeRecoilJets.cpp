@@ -47,7 +47,7 @@ namespace ARJ
         if (ds.isSim)
           outPath = JoinPath(ds.outBase, "GeneralEventLevelQA/zvtx_SIM.png");
         else
-          outPath = JoinPath(ds.outBase, "GeneralEventLevelQA/" + ds.trigger + "/zvtx_DATA_" + ds.trigger + ".png");
+          outPath = JoinPath(ds.outBase, "baselineData/GeneralEventLevelQA/zvtx_DATA_" + ds.trigger + ".png");
 
         vector<string> lines;
         lines.push_back(TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
@@ -96,11 +96,12 @@ namespace ARJ
           // ---------------------------------------------------------------------------
           // Output directory for preselection plots:
           //   SIM  -> <outBase>/PurityABCD/preselection/
-          //   DATA -> <outBase>/PurityABCD/<trigger>/preselection/
+          //   DATA -> <outBase>/baselineData/PurityABCD/preselection/
+          //          (where <outBase> is already the per-trigger folder)
           // ---------------------------------------------------------------------------
           string outDir;
           if (ds.isSim) outDir = JoinPath(ds.outBase, "PurityABCD/preselection");
-          else          outDir = JoinPath(ds.outBase, "PurityABCD/" + ds.trigger + "/preselection");
+          else          outDir = JoinPath(ds.outBase, "baselineData/PurityABCD/preselection");
           EnsureDir(outDir);
 
           const int wBin = 10;
@@ -728,7 +729,7 @@ namespace ARJ
 
         string outDir;
         if (ds.isSim) outDir = JoinPath(ds.outBase, "isoQAgeneral");
-        else          outDir = JoinPath(ds.outBase, "isoQAgeneral/" + ds.trigger);
+        else          outDir = JoinPath(ds.outBase, "baselineData/isoQAgeneral");
 
         EnsureDir(outDir);
         for (const auto& b : PtBins()) EnsureDir(JoinPath(outDir, b.folder));
@@ -1174,7 +1175,7 @@ namespace ARJ
 
         string outDir;
         if (ds.isSim) outDir = JoinPath(ds.outBase, "PurityABCD");
-        else          outDir = JoinPath(ds.outBase, "PurityABCD/" + ds.trigger);
+        else          outDir = JoinPath(ds.outBase, "baselineData/PurityABCD");
         EnsureDir(outDir);
 
         vector<double> purityRaw(kNPtBins, 0.0);
@@ -1727,12 +1728,14 @@ namespace ARJ
              << "[SECTION 5A/5B] GeneralJetQA (" << ds.label << ")\n"
              << "==============================" << ANSI_RESET << "\n";
 
+        const string baseOut = ds.isSim ? ds.outBase : JoinPath(ds.outBase, "baselineData");
+
         // 5A: pTcut_noFiducial (all)
-        PlotJetQA_AllOrIncl(ds, JoinPath(ds.outBase, "GeneralJetQA/pTcut_noFiducial"),
-                           "all", true, false);
+        PlotJetQA_AllOrIncl(ds, JoinPath(baseOut, "GeneralJetQA/pTcut_noFiducial"),
+                             "all", true, false);
 
         // 5B: fiducial inclusive jets (incl) + event-level
-        const string baseIncl = JoinPath(ds.outBase, "GeneralJetQA/pTcutFiducialJets");
+        const string baseIncl = JoinPath(baseOut, "GeneralJetQA/pTcutFiducialJets");
         PlotJetQA_AllOrIncl(ds, baseIncl, "incl", true, true);
 
         // extra overlays for incl: jetPt_incl, nJets, HT
@@ -1797,7 +1800,7 @@ namespace ARJ
             // -------------------------------------------------------------------------
             string baseOut;
             if (ds.isSim) baseOut = JoinPath(ds.outBase, "RecoilJetQA/MatchQA");
-            else          baseOut = JoinPath(ds.outBase, "RecoilJetQA/MatchQA/" + ds.trigger);
+            else          baseOut = JoinPath(ds.outBase, "baselineData/RecoilJetQA/MatchQA");
             EnsureDir(baseOut);
 
             // -------------------------------------------------------------------------
@@ -3224,8 +3227,8 @@ namespace ARJ
                << "==============================" << ANSI_RESET << "\n";
 
           string outDir = ds.isSim
-            ? JoinPath(ds.outBase, "RecoilJetQA/SelectedJetQA")
-            : JoinPath(ds.outBase, "RecoilJetQA/SelectedJetQA/" + ds.trigger);
+              ? JoinPath(ds.outBase, "RecoilJetQA/SelectedJetQA")
+              : JoinPath(ds.outBase, "baselineData/RecoilJetQA/SelectedJetQA");
 
           EnsureDir(outDir);
           for (const auto& rKey : kRKeys) EnsureDir(JoinPath(outDir, rKey));
@@ -3366,7 +3369,7 @@ namespace ARJ
 
             string outDir = ds.isSim
               ? JoinPath(ds.outBase, "RecoilJetQA/xJAlpha")
-              : JoinPath(ds.outBase, "RecoilJetQA/xJAlpha/" + ds.trigger);
+              : JoinPath(ds.outBase, "baselineData/RecoilJetQA/xJAlpha");
 
             EnsureDir(outDir);
 
@@ -4000,13 +4003,10 @@ namespace ARJ
 
             auto RunPair = [&](Dataset& dataDs, Dataset& simDs)
             {
-              const std::string dataOutDir =
-                dataDs.isSim
-                  ? JoinPath(dataDs.outBase, "RecoilJetQA/JES3")
-                  : JoinPath(dataDs.outBase, "RecoilJetQA/JES3/" + dataDs.trigger);
+              const std::string insBase = JoinPath(dataDs.outBase, "insituCalib");
 
-              const std::string insBase = JoinPath(dataOutDir, "inSituResidualCalibration");
               EnsureDir(insBase);
+
 
               cout << ANSI_BOLD_CYN
                    << "\n============================================================\n"
@@ -5226,7 +5226,7 @@ namespace ARJ
 
             string outDir = ds.isSim
               ? JoinPath(ds.outBase, "RecoilJetQA/JES3")
-              : JoinPath(ds.outBase, "RecoilJetQA/JES3/" + ds.trigger);
+              : JoinPath(ds.outBase, "baselineData/RecoilJetQA/JES3");
 
             EnsureDir(outDir);
 
@@ -5354,17 +5354,22 @@ namespace ARJ
                 EnsureDir(D.dirXJProjEffTagFractions3x3);
               }
 
+              // Always keep RECO outputs for both SIM and DATA
               EnsureDir(D.dirXJProjReco);
-              EnsureDir(D.dirXJProjRecoTruthPhoTagged);
-              EnsureDir(D.dirXJProjRecoTruthTagged);
 
-              EnsureDir(D.dirXJProjTruthRecoCond);
-              EnsureDir(D.dirXJProjTruthRecoCondNoJetMatch);
-              EnsureDir(D.dirXJProjTruthPure);
+              // SIM-only outputs (avoid empty TRUTH/truth-tag folders in DATA)
+              if (ds.isSim)
+              {
+                EnsureDir(D.dirXJProjRecoTruthPhoTagged);
+                EnsureDir(D.dirXJProjRecoTruthTagged);
+
+                EnsureDir(D.dirXJProjTruthRecoCond);
+                EnsureDir(D.dirXJProjTruthRecoCondNoJetMatch);
+                EnsureDir(D.dirXJProjTruthPure);
+              }
 
               return D;
             };
-
 
             struct Jes3Hists
             {
@@ -5387,22 +5392,27 @@ namespace ARJ
             {
               Jes3Hists H;
 
-              // Baseline RECO
+              // Baseline RECO (exists in SIM and DATA)
               H.hReco_xJ               = GetObj<TH3>(ds, "h_JES3_pT_xJ_alpha_" + rKey, true, true, true);
               H.hReco_j1               = GetObj<TH3>(ds, "h_JES3_pT_jet1Pt_alpha_" + rKey, true, true, true);
 
-              // TRUTH (pure + reco-conditioned variants)
-              H.hTrut_xJ               = GetObj<TH3>(ds, "h_JES3Truth_pT_xJ_alpha_" + rKey, true, true, true);
-              H.hTrutNoJM_xJ           = GetObj<TH3>(ds, "h_JES3TruthRecoCondNoJetMatch_pT_xJ_alpha_" + rKey, true, true, true);
-              H.hTrutPure_xJ           = GetObj<TH3>(ds, "h_JES3TruthPure_pT_xJ_alpha_" + rKey, true, true, true);
-              H.hTrut_j1               = GetObj<TH3>(ds, "h_JES3Truth_pT_jet1Pt_alpha_" + rKey, true, true, true);
+              // SIM-only objects: do NOT attempt to load / log-miss these in DATA mode
+              if (ds.isSim)
+              {
+                // TRUTH (pure + reco-conditioned variants)
+                H.hTrut_xJ               = GetObj<TH3>(ds, "h_JES3Truth_pT_xJ_alpha_" + rKey, true, true, true);
+                H.hTrutNoJM_xJ           = GetObj<TH3>(ds, "h_JES3TruthRecoCondNoJetMatch_pT_xJ_alpha_" + rKey, true, true, true);
+                H.hTrutPure_xJ           = GetObj<TH3>(ds, "h_JES3TruthPure_pT_xJ_alpha_" + rKey, true, true, true);
+                H.hTrut_j1               = GetObj<TH3>(ds, "h_JES3Truth_pT_jet1Pt_alpha_" + rKey, true, true, true);
 
-              // TRUTH-conditioned RECO (tagged subsets)
-              H.hRecoTruthPhoTagged_xJ = GetObj<TH3>(ds, "h_JES3RecoTruthPhoTagged_pT_xJ_alpha_" + rKey, true, true, true);
-              H.hRecoTruthTagged_xJ    = GetObj<TH3>(ds, "h_JES3RecoTruthTagged_pT_xJ_alpha_" + rKey, true, true, true);
+                // TRUTH-conditioned RECO (tagged subsets)
+                H.hRecoTruthPhoTagged_xJ = GetObj<TH3>(ds, "h_JES3RecoTruthPhoTagged_pT_xJ_alpha_" + rKey, true, true, true);
+                H.hRecoTruthTagged_xJ    = GetObj<TH3>(ds, "h_JES3RecoTruthTagged_pT_xJ_alpha_" + rKey, true, true, true);
+              }
 
               return H;
             };
+
 
             auto HasAnyJes3 =
               [&](const Jes3Hists& H)->bool
@@ -5413,6 +5423,7 @@ namespace ARJ
                 H.hTrut_xJ || H.hTrutNoJM_xJ || H.hTrutPure_xJ || H.hTrut_j1
               );
             };
+
 
             // ---------------------------------------------------------------------------
             // Per-rKey JES3 (main body)
@@ -9806,8 +9817,8 @@ namespace ARJ
                << "==============================" << ANSI_RESET << "\n";
 
           string outDir = ds.isSim
-            ? JoinPath(ds.outBase, "RecoilJetQA/Maps")
-            : JoinPath(ds.outBase, "RecoilJetQA/Maps/" + ds.trigger);
+              ? JoinPath(ds.outBase, "RecoilJetQA/Maps")
+              : JoinPath(ds.outBase, "baselineData/RecoilJetQA/Maps");
           EnsureDir(outDir);
 
           // Photon maps (tight+isolated photons) if available
@@ -9975,7 +9986,7 @@ namespace ARJ
 
             string outDir = ds.isSim
               ? JoinPath(ds.outBase, "RecoilJetQA/Unfolding")
-              : JoinPath(ds.outBase, "RecoilJetQA/Unfolding/" + ds.trigger);
+              : JoinPath(ds.outBase, "unfolding");
 
             EnsureDir(outDir);
 
@@ -9997,23 +10008,31 @@ namespace ARJ
               TH2* hTruthDphi = nullptr;
             };
 
-            auto LoadUnfoldHists = [&](const string& rKey)->UnfoldHists
+            auto LoadUnfoldHists =
+              [&](const string& rKey)->UnfoldHists
             {
               UnfoldHists H;
 
-              H.hReco   = GetObj<TH2>(ds, "h2_unfoldReco_pTgamma_xJ_incl_" + rKey, true, true, true);
-              H.hTruth  = GetObj<TH2>(ds, "h2_unfoldTruth_pTgamma_xJ_incl_" + rKey, true, true, true);
-              H.hFakes  = GetObj<TH2>(ds, "h2_unfoldRecoFakes_pTgamma_xJ_incl_" + rKey, true, true, true);
-              H.hMisses = GetObj<TH2>(ds, "h2_unfoldTruthMisses_pTgamma_xJ_incl_" + rKey, true, true, true);
-              H.hResp   = GetObj<TH2>(ds, "h2_unfoldResponse_pTgamma_xJ_incl_" + rKey, true, true, true);
+              // RECO-side inputs exist in SIM and DATA
+              H.hReco    = GetObj<TH2>(ds, "h2_unfoldReco_pTgamma_xJ_incl_" + rKey, true, true, true);
+              H.hRecoDphi = GetObj<TH2>(ds, "h2_unfoldReco_pTgamma_dphi_incl_" + rKey, true, true, true);
 
-              H.hRecoDphi  = GetObj<TH2>(ds, "h2_unfoldReco_pTgamma_dphi_incl_" + rKey, true, true, true);
-              H.hTruthDphi = GetObj<TH2>(ds, "h2_unfoldTruth_pTgamma_dphi_incl_" + rKey, true, true, true);
+              // SIM-only inputs: do NOT try to load these in DATA mode
+              if (ds.isSim)
+              {
+                H.hTruth   = GetObj<TH2>(ds, "h2_unfoldTruth_pTgamma_xJ_incl_" + rKey, true, true, true);
+                H.hFakes   = GetObj<TH2>(ds, "h2_unfoldRecoFakes_pTgamma_xJ_incl_" + rKey, true, true, true);
+                H.hMisses  = GetObj<TH2>(ds, "h2_unfoldTruthMisses_pTgamma_xJ_incl_" + rKey, true, true, true);
+                H.hResp    = GetObj<TH2>(ds, "h2_unfoldResponse_pTgamma_xJ_incl_" + rKey, true, true, true);
+
+                H.hTruthDphi = GetObj<TH2>(ds, "h2_unfoldTruth_pTgamma_dphi_incl_" + rKey, true, true, true);
+              }
 
               return H;
             };
 
-            auto HasAnyUnfold = [&](const UnfoldHists& H)->bool
+            auto HasAnyUnfold =
+              [&](const UnfoldHists& H)->bool
             {
               return (H.hReco || H.hTruth || H.hResp || H.hRecoDphi || H.hTruthDphi);
             };
@@ -10047,18 +10066,18 @@ namespace ARJ
               [&](const string& rKey, double R, const string& rOut, const UnfoldHists& H)
             {
               // Core 2D maps (presentation-ready)
-              Save2D(rOut, H.hReco,   "unfold_reco_pTgamma_vs_xJ.png",
-                     "p_{T}^{#gamma,reco} [GeV]",  "x_{J#gamma}^{reco}",  "Counts",
+              Save2D(rOut, H.hReco, "unfold_reco_pTgamma_vs_xJ.png",
+                     "p_{T}^{#gamma,reco} [GeV]", "x_{J#gamma}^{reco}", "Counts",
                      {string("Unfold input: RECO counts"), rKey + TString::Format(" (R=%.1f)", R).Data()},
                      true);
 
-              Save2D(rOut, H.hTruth,  "unfold_truth_pTgamma_vs_xJ.png",
+              Save2D(rOut, H.hTruth, "unfold_truth_pTgamma_vs_xJ.png",
                      "p_{T}^{#gamma,truth} [GeV]", "x_{J#gamma}^{truth}", "Counts",
                      {string("Unfold truth: TRUTH counts"), rKey + TString::Format(" (R=%.1f)", R).Data()},
                      true);
 
-              Save2D(rOut, H.hFakes,  "unfold_recoFakes_pTgamma_vs_xJ.png",
-                     "p_{T}^{#gamma,reco} [GeV]",  "x_{J#gamma}^{reco}",  "Counts (fakes)",
+              Save2D(rOut, H.hFakes, "unfold_recoFakes_pTgamma_vs_xJ.png",
+                     "p_{T}^{#gamma,reco} [GeV]", "x_{J#gamma}^{reco}", "Counts (fakes)",
                      {string("Unfold input: RECO fakes"), rKey + TString::Format(" (R=%.1f)", R).Data()},
                      true);
 
@@ -10068,34 +10087,34 @@ namespace ARJ
                 TH2* hc = CloneTH2(H.hResp, "resp_scatter_clone");
                 if (hc)
                 {
-                    const int oldOptStat = gStyle->GetOptStat();
-                    gStyle->SetOptStat(0);
-                    hc->SetStats(0);
+                  const int oldOptStat = gStyle->GetOptStat();
+                  gStyle->SetOptStat(0);
+                  hc->SetStats(0);
 
-                    TCanvas c("c_resp_scatter","c_resp_scatter",950,780);
-                    ApplyCanvasMargins2D(c);
-                    c.SetLogz(1);
+                  TCanvas c("c_resp_scatter","c_resp_scatter",950,780);
+                  ApplyCanvasMargins2D(c);
+                  c.SetLogz(1);
 
-                    hc->SetTitle("");
-                    hc->GetXaxis()->SetTitle("global bin (truth: p_{T}^{#gamma}, x_{J})");
-                    hc->GetYaxis()->SetTitle("global bin (reco: p_{T}^{#gamma}, x_{J})");
-                    hc->GetZaxis()->SetTitle("Counts");
+                  hc->SetTitle("");
+                  hc->GetXaxis()->SetTitle("global bin (truth: p_{T}^{#gamma}, x_{J})");
+                  hc->GetYaxis()->SetTitle("global bin (reco: p_{T}^{#gamma}, x_{J})");
+                  hc->GetZaxis()->SetTitle("Counts");
 
-                    // required for log-z (must be > 0)
-                    hc->SetMinimum(0.5);
+                  // required for log-z (must be > 0)
+                  hc->SetMinimum(0.5);
 
-                    // Use the Z palette (this is what gives you the yellow/high-count regions)
-                    hc->Draw("COLZ");
+                  // Use the Z palette (this is what gives you the yellow/high-count regions)
+                  hc->Draw("COLZ");
 
-                    DrawLatexLines(0.14, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-                    DrawLatexLines(0.14, 0.84,
-                      { "Unfold response matrix (global-bin indexing)",
-                        rKey + TString::Format(" (R=%.1f)", R).Data() },
-                      0.030, 0.040);
+                  DrawLatexLines(0.14, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+                  DrawLatexLines(0.14, 0.84,
+                    { "Unfold response matrix (global-bin indexing)",
+                      rKey + TString::Format(" (R=%.1f)", R).Data() },
+                    0.030, 0.040);
 
-                    SaveCanvas(c, JoinPath(rOut, "unfold_response_globalTruth_vs_globalReco_SCAT.png"));
+                  SaveCanvas(c, JoinPath(rOut, "unfold_response_globalTruth_vs_globalReco_SCAT.png"));
 
-                    gStyle->SetOptStat(oldOptStat);
+                  gStyle->SetOptStat(oldOptStat);
 
                   delete hc;
                 }
@@ -10109,15 +10128,18 @@ namespace ARJ
               [&](const string& rKey, double R, const string& rOut, const UnfoldHists& H)
             {
               if (!(H.hRecoDphi || H.hTruthDphi)) return;
+                
+                const string dphiDir = JoinPath(rOut, "deltaPhiInclusive");
+                const string dphiRecoDir  = JoinPath(dphiDir, "RECO");
+                const string dphiTruthDir = JoinPath(dphiDir, "TRUTH");
+                const string dphiProjDir  = JoinPath(dphiDir, "projections");
+                EnsureDir(dphiDir);
+                EnsureDir(dphiRecoDir);
+                EnsureDir(dphiProjDir);
 
-              const string dphiDir = JoinPath(rOut, "deltaPhiInclusive");
-              const string dphiRecoDir  = JoinPath(dphiDir, "RECO");
-              const string dphiTruthDir = JoinPath(dphiDir, "TRUTH");
-              const string dphiProjDir  = JoinPath(dphiDir, "projections");
-              EnsureDir(dphiDir);
-              EnsureDir(dphiRecoDir);
-              EnsureDir(dphiTruthDir);
-              EnsureDir(dphiProjDir);
+                // Only create TRUTH folders in SIM mode (prevents empty TRUTH dirs in DATA)
+                if (ds.isSim && H.hTruthDphi) EnsureDir(dphiTruthDir);
+
 
               // 2D maps (presentation-ready) — NOTE: uses Save2D with rOut path to preserve your output name
               Save2D(rOut, H.hRecoDphi,  "unfold_reco_pTgamma_vs_absDphi.png",
@@ -11093,59 +11115,81 @@ namespace ARJ
   // Driver
   // =============================================================================
   namespace driver
+  {
+    // When running multiple SIM selections sequentially in SIM+DATA mode,
+    // we need a unique PP output base per SIM selection to avoid overwriting.
+    // If empty, PP outputs go to kOutPPBase (legacy behavior).
+    static string gPPOutBaseSubdir = "";
+
+    inline void SetPPOutBaseSubdir(const string& subdir)
     {
-      // When running multiple SIM selections sequentially in SIM+DATA mode,
-      // we need a unique PP output base per SIM selection to avoid overwriting.
-      // If empty, PP outputs go to kOutPPBase (legacy behavior).
-      static string gPPOutBaseSubdir = "";
-
-      inline void SetPPOutBaseSubdir(const string& subdir)
-      {
         gPPOutBaseSubdir = subdir;
-      }
+    }
 
-      inline string PPOutBaseForThisRun()
-      {
+    inline string PPOutBaseForThisRun()
+    {
         if (gPPOutBaseSubdir.empty()) return kOutPPBase;
         return JoinPath(kOutPPBase, gPPOutBaseSubdir);
-      }
+    }
 
-      inline bool OpenDataset(Dataset& ds)
-      {
+    inline bool OpenDataset(Dataset& ds)
+    {
+        // ------------------------------------------------------------------
+        // Guard: never allow relative-path output (prevents creating ./RecoilJetQA
+        // under whatever directory you launched ROOT from, e.g. macros/).
+        // ------------------------------------------------------------------
+        if (ds.outBase.empty())
+        {
+          cout << ANSI_BOLD_RED
+               << "[FATAL] Dataset '" << ds.label << "' has EMPTY outBase; refusing relative output.\n"
+               << "        inFilePath = " << ds.inFilePath
+               << ANSI_RESET << "\n";
+          return false;
+        }
+        if (ds.outBase[0] != '/')
+        {
+          cout << ANSI_BOLD_RED
+               << "[FATAL] Dataset '" << ds.label << "' has NON-ABSOLUTE outBase: " << ds.outBase << "\n"
+               << "        Refusing to write outputs relative to the current working directory.\n"
+               << "        inFilePath = " << ds.inFilePath
+               << ANSI_RESET << "\n";
+          return false;
+        }
+
         EnsureDir(ds.outBase);
 
-      ds.file = TFile::Open(ds.inFilePath.c_str(), "READ");
-      if (!ds.file || ds.file->IsZombie())
-      {
-        cout << ANSI_BOLD_RED << "[FATAL] Cannot open input file: " << ds.inFilePath
-             << ANSI_RESET << "\n";
-        return false;
-      }
+        ds.file = TFile::Open(ds.inFilePath.c_str(), "READ");
+        if (!ds.file || ds.file->IsZombie())
+        {
+          cout << ANSI_BOLD_RED << "[FATAL] Cannot open input file: " << ds.inFilePath
+               << ANSI_RESET << "\n";
+          return false;
+        }
 
-      ds.topDir = ds.file->GetDirectory(ds.topDirName.c_str());
-      if (!ds.topDir)
-      {
-        cout << ANSI_BOLD_RED << "[FATAL] Missing topDir '" << ds.topDirName
-             << "' in file: " << ds.inFilePath << ANSI_RESET << "\n";
-        return false;
-      }
+        ds.topDir = ds.file->GetDirectory(ds.topDirName.c_str());
+        if (!ds.topDir)
+        {
+          cout << ANSI_BOLD_RED << "[FATAL] Missing topDir '" << ds.topDirName
+               << "' in file: " << ds.inFilePath << ANSI_RESET << "\n";
+          return false;
+        }
 
-      const string missPath = JoinPath(ds.outBase, "missing_hists_" + ds.label + ".txt");
-      ds.missingOut.open(missPath.c_str());
-      ds.missingCount = 0;
+        const string missPath = JoinPath(ds.outBase, "missing_hists_" + ds.label + ".txt");
+        ds.missingOut.open(missPath.c_str());
+        ds.missingCount = 0;
 
-      // reset coverage tracking
-      ds.requestCounts.clear();
-      ds.missingCounts.clear();
-      ds.missingReason.clear();
+        // reset coverage tracking
+        ds.requestCounts.clear();
+        ds.missingCounts.clear();
+        ds.missingReason.clear();
 
         return true;
     }
 
     inline void CloseDataset(Dataset& ds)
     {
-      if (ds.missingOut.is_open()) ds.missingOut.close();
-      if (ds.file) { ds.file->Close(); ds.file = nullptr; ds.topDir = nullptr; }
+        if (ds.missingOut.is_open()) ds.missingOut.close();
+        if (ds.file) { ds.file->Close(); ds.file = nullptr; ds.topDir = nullptr; }
     }
 
     inline vector<Dataset> BuildDatasets(RunMode mode)
@@ -11181,18 +11225,21 @@ namespace ARJ
           ds.topDirName = kTriggerPP;
           ds.inFilePath = kInPP;
 
-          // NOTE:
-          // - Legacy single-run behavior: PP output goes to kOutPPBase
-          // - Multi-run SIM+DATA behavior: PP output goes to kOutPPBase/with_<simSampleLabel>
-          // - PP DATA-ONLY behavior: route everything under kOutPPBase/dataOnly_<trigger>/
-          if (mode == RunMode::kPPDataOnly)
-          {
-            ds.outBase = JoinPath(kOutPPBase, string("dataOnly_") + ds.trigger);
-          }
-          else
-          {
-            ds.outBase = PPOutBaseForThisRun();
-          }
+            // NOTE:
+            // - Legacy single-run behavior: PP output goes to kOutPPBase
+            // - Multi-run SIM+DATA behavior: PP output goes to kOutPPBase/with_<simSampleLabel>
+            //   (so you can loop over multiple SIM selections without clobbering PP outputs)
+            //
+            // DATA outputs are organized per-trigger:
+            //   <PP base>/<trigger>/{baselineData,insituCalib,unfolding,...}
+            if (mode == RunMode::kPPDataOnly)
+            {
+              ds.outBase = JoinPath(kOutPPBase, ds.trigger);
+            }
+            else
+            {
+              ds.outBase = JoinPath(PPOutBaseForThisRun(), ds.trigger);
+            }
 
           datasets.push_back(std::move(ds));
         }

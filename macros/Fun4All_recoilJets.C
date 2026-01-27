@@ -1203,6 +1203,16 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
 
   recoilJets->setUseVzCut(true, 30.0);
   recoilJets->setIsolationWP(1.08128, 0.0299107, 1.0, 0.30, 0.0);
+    
+  // Optional: override EventDisplay output directory (used only when Verbosity() >= 50 and SIM)
+  if (const char* evtDispOut = gSystem->Getenv("RJ_EVENT_DISPLAY_OUTDIR"))
+    {
+      if (std::string(evtDispOut).size() > 0)
+      {
+        recoilJets->setEventDisplayOutputDir(std::string(evtDispOut));
+        if (verbose) std::cout << "[INFO] RJ_EVENT_DISPLAY_OUTDIR → " << evtDispOut << '\n';
+      }
+  }
 
     
   // RecoilJets inherits SubsysReco::Verbosity(int)

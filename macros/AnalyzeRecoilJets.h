@@ -159,7 +159,7 @@ namespace ARJ
 // =============================================================================
 
   inline bool isPPdataOnly   = false;
-  inline bool isSimAndDataPP = false;
+  inline bool isSimAndDataPP = true;
 
   // SIM sample selection toggles (choose EXACTLY ONE for any SIM-including run)
   inline bool isPhotonJet5               = false;

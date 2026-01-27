@@ -75,6 +75,7 @@ using HistMap = std::map<std::string, TObject*>;
 // Forward declarations (pointers only in the interface)
 class CentralityInfo;
 class Gl1Packet;
+class EventHeader;
 class PHG4TruthInfoContainer;
 class PHG4Particle;
 class PHG4VtxPoint;
@@ -337,7 +338,11 @@ public:
 
   // Isolation WP (implemented in .cc)
   void setIsolationWP(double aGeV, double bPerGeV,
-                      double sideGapGeV, double coneR, double towerMin);
+                        double sideGapGeV, double coneR, double towerMin);
+
+  // EventDisplay test mode (Verbosity() >= 50, SIM only):
+  // Optional override for the output base directory. If not set, a sensible default is used.
+  void setEventDisplayOutputDir(const std::string& dir) { m_evtDispOutBase = dir; }
 
   // -------------------------------------------------------------------------
   // Read-only state access
@@ -376,17 +381,18 @@ private:
                                     const Jet* recoil1Jet);
 
   bool runLeadIsoTightPhotonJetLoopAllRadii(
-        const std::vector<std::string>& activeTrig,
-        const int effCentIdx_M,
-        const int centIdx,
-        const int leadPhoIndex,
-        const int leadPtIdx,
-        const double leadPtGamma,
-        const double leadPhiGamma,
-        const bool haveTruthPho,
-        const double tPt,
-        const double tPhi,
-        PHG4TruthInfoContainer* truth);
+          const std::vector<std::string>& activeTrig,
+          const int effCentIdx_M,
+          const int centIdx,
+          const int leadPhoIndex,
+          const int leadPtIdx,
+          const double leadPtGamma,
+          const double leadEtaGamma,
+          const double leadPhiGamma,
+          const bool haveTruthPho,
+          const double tPt,
+          const double tPhi,
+          PHG4TruthInfoContainer* truth);
 
     
   bool runLeadIsoTightPhotonJetMatchingAndUnfolding(
@@ -483,6 +489,22 @@ private:
   int         findCentBin(int cent) const;
   std::string suffixForBins(int ptIdx, int centIdx) const;
 
+  // EventDisplay test mode (Verbosity() >= 50, SIM only)
+  enum class EventDisplayCat : int { NUM = 0, MissA = 1, MissB = 2 };
+
+  void        resetEventDisplayState();
+  bool        eventDisplayNeed(int ptBin, EventDisplayCat cat) const;
+  void        eventDisplayMarkDone(int ptBin, EventDisplayCat cat);
+  bool        eventDisplayAllDone() const;
+  const char* eventDisplayCatName(EventDisplayCat cat) const;
+
+  void        writeEventDisplayPNG(const std::string& rKey,
+                                    int ptBin,
+                                    EventDisplayCat cat,
+                                    double truthGammaPt,
+                                    const Jet* selectedRecoilJet,
+                                    const Jet* recoTruthBest,
+                                    const Jet* truthLeadRecoilJet);
   // -------------------------------------------------------------------------
   // Histogram utilities (bookers)
   // -------------------------------------------------------------------------
@@ -819,6 +841,29 @@ private:
   // -------------------------------------------------------------------------
   std::map<std::string, JetContainer*> m_truthJetsByRKey;
   std::map<std::string, std::string>   m_truthJetsNodeByRKey;
+
+  // -------------------------------------------------------------------------
+  // EventDisplay test mode (Verbosity() >= 50, SIM only)
+  // -------------------------------------------------------------------------
+  std::string m_evtDispOutBase = "/sphenix/u/patsfan753/scratch/thesisAnalysis/EventDisplayOutput";
+  std::string m_evtDispJetKey  = "r04";
+
+  bool m_evtDispEnabled             = false;  // per-event: true only if enabled + nodes found
+  bool m_evtDispPermanentlyDisabled = false;  // set true if required nodes are missing
+  bool m_evtDispMissingNodesWarned  = false;  // print missing-node warning only once
+  bool m_evtDispAllDone             = false;  // set true once all (ptBin,cat) are filled
+  bool m_evtDispEverEnabled         = false;  // true if mode was enabled at least once
+
+  std::vector<std::array<bool, 3>> m_evtDispDone; // [ptBin][cat(NUM,MissA,MissB)]
+
+  // Nodes used only in EventDisplay mode (never required for normal running)
+  EventHeader*           m_evtHeader          = nullptr;
+  TowerInfoContainer*    m_evtDispTowersCEMC  = nullptr;
+  TowerInfoContainer*    m_evtDispTowersIHCal = nullptr;
+  TowerInfoContainer*    m_evtDispTowersOHCal = nullptr;
+  RawTowerGeomContainer* m_evtDispGeomCEMC    = nullptr;
+  RawTowerGeomContainer* m_evtDispGeomIHCal   = nullptr;
+  RawTowerGeomContainer* m_evtDispGeomOHCal   = nullptr;
 
   // -------------------------------------------------------------------------
   // Diagnostics / accounting
