@@ -199,12 +199,19 @@ namespace ARJ
   inline const string kInSIM20 =
           "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/RecoilJets_photonjet20_ALL_newBinning_pihalves.root";
 
-  // Alternate Δφ-cut inputs used ONLY for the JES3 RECO xJ overlay (does not affect baseline analysis)
-  inline const string kInSIM10_7piOver8 =
-          "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/RecoilJets_photonjet10_ALL_newBinning_7piOver8.root";
+    // Alternate Δφ-cut inputs used ONLY for the JES3 RECO xJ overlay (does not affect baseline analysis)
+    inline const string kInSIM10_7piOver8 =
+            "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/RecoilJets_photonjet10_ALL_newBinning_7piOver8.root";
 
-  inline const string kInSIM20_7piOver8 =
-          "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/RecoilJets_photonjet20_ALL_newBinning_7piOver8.root";
+    inline const string kInSIM20_7piOver8 =
+            "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/RecoilJets_photonjet20_ALL_newBinning_7piOver8.root";
+
+    // Alternate BINNING inputs used ONLY for the JES3 RECO xJ overlay (does not affect baseline analysis)
+    inline const string kInSIM10_oldBinning_pihalves =
+            "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/RecoilJets_photonjet10_ALL_oldBinning_pihalves.root";
+
+    inline const string kInSIM20_oldBinning_pihalves =
+            "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/RecoilJets_photonjet20_ALL_oldbinning_pihalves.root";
 
   inline const string kOutPPBase =
         "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp";
@@ -1451,6 +1458,99 @@ namespace ARJ
     delete hc;
     return h1;
   }
+
+  // ---------------------------------------------------------------------------
+  // Helper: build overlap weights mapping old X-axis binning onto a target [xLo,xHi]
+  // ---------------------------------------------------------------------------
+  inline bool XaxisOverlapWeights(const TAxis* ax,
+                                    double xLo,
+                                    double xHi,
+                                    int& outBinLo,
+                                    int& outBinHi,
+                                    std::vector<double>& outW)
+  {
+      outW.clear();
+      outBinLo = -1;
+      outBinHi = -1;
+      if (!ax) return false;
+      if (xHi <= xLo) return false;
+
+      const int nb = ax->GetNbins();
+      int bLo = -1, bHi = -1;
+
+      // find all old bins that overlap [xLo,xHi]
+      for (int ib = 1; ib <= nb; ++ib)
+      {
+        const double lo = ax->GetBinLowEdge(ib);
+        const double hi = ax->GetBinUpEdge(ib);
+        const double oLo = std::max(lo, xLo);
+        const double oHi = std::min(hi, xHi);
+        if (oHi > oLo)
+        {
+          if (bLo < 0) bLo = ib;
+          bHi = ib;
+        }
+      }
+      if (bLo < 0 || bHi < 0) return false;
+
+      outBinLo = bLo;
+      outBinHi = bHi;
+
+      const double widthTarget = (xHi - xLo);
+      outW.reserve(bHi - bLo + 1);
+
+      for (int ib = bLo; ib <= bHi; ++ib)
+      {
+        const double lo = ax->GetBinLowEdge(ib);
+        const double hi = ax->GetBinUpEdge(ib);
+        const double oLo = std::max(lo, xLo);
+        const double oHi = std::min(hi, xHi);
+        const double overlap = std::max(0.0, oHi - oLo);
+        outW.push_back(overlap / widthTarget);
+      }
+
+      return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helper: sum Y projections over an X-bin range with explicit weights (weights are per-bin)
+  // ---------------------------------------------------------------------------
+  inline TH1* ProjectY_AtXrange_TH3_Weighted(const TH3* h3,
+                                              int xbinLo,
+                                              int xbinHi,
+                                              const std::vector<double>& w,
+                                              const std::string& newName)
+  {
+      if (!h3) return nullptr;
+      if (xbinHi < xbinLo) return nullptr;
+
+      TH1* sum = nullptr;
+
+      for (int xb = xbinLo; xb <= xbinHi; ++xb)
+      {
+        TH1* h = ProjectY_AtXbin_TH3(h3, xb, newName + TString::Format("_xb%d", xb).Data());
+        if (!h) continue;
+
+        const int iw = xb - xbinLo;
+        const double ww = (iw >= 0 && iw < (int)w.size()) ? w[iw] : 1.0;
+        h->Scale(ww);
+
+        if (!sum)
+        {
+          sum = CloneTH1(h, newName);
+          if (sum)
+          {
+            sum->Reset("ICES");
+            sum->SetDirectory(nullptr);
+          }
+        }
+        if (sum) sum->Add(h);
+        delete h;
+      }
+
+      return sum;
+  }
+
 
   inline TH1* ProjectY_AtXbin_AndZRange_TH3(const TH3* h3,
                                            int xbin,

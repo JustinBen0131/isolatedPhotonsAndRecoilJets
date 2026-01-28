@@ -5339,17 +5339,388 @@ namespace ARJ
             return;
           }
 
+            // -------------------------------------------------------------------------
+            // Make a 3x2 table (6 pads) across pTgamma bins: ProjectY (xJ) integrating alpha
+            // AND also write per-pT individual overlays (same styling) into perPtBin_dPhiCuts/
+            // -------------------------------------------------------------------------
+            const int nCols = 3;
+            const int nRows = 2;
+
+            const double R = RFromKey(rKey);
+
+            const int nBase = hBase->GetXaxis()->GetNbins();
+            const int nAlt  = hAlt->GetXaxis()->GetNbins();
+            const int nPt   = std::min(nBase, nAlt);
+
+            const std::string outPerPtDir = JoinPath(outRecoDir, "perPtBin_dPhiCuts");
+            EnsureDir(outPerPtDir);
+
+            TCanvas c("c_tbl_dphiCuts_r04", "c_tbl_dphiCuts_r04", 1500, 900);
+            c.Divide(nCols, nRows, 0.001, 0.001);
+
+            std::vector<TH1*> keep;
+            keep.reserve(2 * 6);
+
+            const int nPads = std::min(6, nPt);
+            for (int k = 0; k < nPads; ++k)
+            {
+              const int ib = 1 + k;
+              c.cd(k+1);
+
+              gPad->SetLeftMargin(0.14);
+              gPad->SetRightMargin(0.05);
+              gPad->SetBottomMargin(0.14);
+              gPad->SetTopMargin(0.10);
+              gPad->SetLogy(false);
+
+              TH1* hPi2  = ProjectY_AtXbin_TH3(hBase, ib, TString::Format("h_xJ_pi2_b%d", ib).Data());
+              TH1* h7p8  = ProjectY_AtXbin_TH3(hAlt,  ib, TString::Format("h_xJ_7p8_b%d", ib).Data());
+
+              if (!hPi2 && !h7p8)
+              {
+                TLatex t;
+                t.SetNDC(true);
+                t.SetTextFont(42);
+                t.SetTextSize(0.06);
+                t.DrawLatex(0.15, 0.55, "MISSING");
+                continue;
+              }
+
+              // Red closed circles: |Δφ| > π/2  (baseline)
+              if (hPi2)
+              {
+                hPi2->SetDirectory(nullptr);
+                EnsureSumw2(hPi2);
+                hPi2->SetTitle("");
+                hPi2->SetLineWidth(2);
+                hPi2->SetLineColor(2);
+                hPi2->SetMarkerStyle(20);   // closed circle
+                hPi2->SetMarkerSize(0.95);
+                hPi2->SetMarkerColor(2);
+                hPi2->SetFillStyle(0);
+                hPi2->GetXaxis()->SetTitle("x_{J#gamma}");
+                hPi2->GetYaxis()->SetTitle("A.U.");
+                NormalizeToUnitArea(hPi2);
+              }
+
+              // Blue open circles: |Δφ| > 7π/8 (alternate)
+              if (h7p8)
+              {
+                h7p8->SetDirectory(nullptr);
+                EnsureSumw2(h7p8);
+                h7p8->SetTitle("");
+                h7p8->SetLineWidth(2);
+                h7p8->SetLineColor(4);
+                h7p8->SetMarkerStyle(24);   // open circle
+                h7p8->SetMarkerSize(0.95);
+                h7p8->SetMarkerColor(4);
+                h7p8->SetFillStyle(0);
+                h7p8->GetXaxis()->SetTitle("x_{J#gamma}");
+                h7p8->GetYaxis()->SetTitle("A.U.");
+                NormalizeToUnitArea(h7p8);
+
+              }
+
+              TH1* first  = hPi2 ? hPi2 : h7p8;
+              TH1* second = (first == hPi2) ? h7p8 : hPi2;
+
+              double ymax = 0.0;
+              if (hPi2) ymax = std::max(ymax, hPi2->GetMaximum());
+              if (h7p8) ymax = std::max(ymax, h7p8->GetMaximum());
+              if (first) first->SetMaximum(ymax * 1.25);
+
+              if (first)  first->Draw("E1");
+              if (second) second->Draw("E1 same");
+
+              // Pad title: pT bin label taken from axis bin edges + include radius
+              const std::string ptLab = AxisBinLabel(hBase->GetXaxis(), ib, "GeV", 0);
+
+              TLatex ttitle;
+              ttitle.SetNDC(true);
+              ttitle.SetTextFont(42);
+              ttitle.SetTextAlign(22);
+              ttitle.SetTextSize(0.060);
+              ttitle.DrawLatex(
+                0.50, 0.95,
+                TString::Format("Reco-level x_{J#gamma}, p_{T}^{#gamma} = %s  (R=%.1f)", ptLab.c_str(), R).Data()
+              );
+
+                // Legend: larger and moved to middle-right (uses the empty tail region around xJ~2+)
+                TLegend leg(0.53, 0.65, 0.88, 0.82);
+                leg.SetTextFont(42);
+                leg.SetTextSize(0.055);
+                leg.SetFillStyle(0);
+                leg.SetBorderSize(0);
+                if (hPi2) leg.AddEntry(hPi2,  "|#Delta#phi(#gamma,jet)| > #pi/2",   "ep");
+                if (h7p8) leg.AddEntry(h7p8,  "|#Delta#phi(#gamma,jet)| > 7#pi/8", "ep");
+                leg.DrawClone();
+
+
+              if (hPi2) keep.push_back(hPi2);
+              if (h7p8) keep.push_back(h7p8);
+
+              // ---------------------------------------------------------------------
+              // ALSO write an individual per-pT overlay PNG with the same legend/header
+              // ---------------------------------------------------------------------
+              {
+                TH1* pPi2 = ProjectY_AtXbin_TH3(hBase, ib, TString::Format("h_xJ_pi2_ind_b%d", ib).Data());
+                TH1* p7p8 = ProjectY_AtXbin_TH3(hAlt,  ib, TString::Format("h_xJ_7p8_ind_b%d", ib).Data());
+
+                if (pPi2 || p7p8)
+                {
+                  if (pPi2)
+                  {
+                    pPi2->SetDirectory(nullptr);
+                    EnsureSumw2(pPi2);
+                    pPi2->SetTitle("");
+                    pPi2->SetLineWidth(2);
+                    pPi2->SetLineColor(2);
+                    pPi2->SetMarkerStyle(20);
+                    pPi2->SetMarkerSize(1.00);
+                    pPi2->SetMarkerColor(2);
+                    pPi2->SetFillStyle(0);
+                    pPi2->GetXaxis()->SetTitle("x_{J#gamma}");
+                    pPi2->GetYaxis()->SetTitle("A.U.");
+                    NormalizeToUnitArea(pPi2);
+
+                  }
+                  if (p7p8)
+                  {
+                    p7p8->SetDirectory(nullptr);
+                    EnsureSumw2(p7p8);
+                    p7p8->SetTitle("");
+                    p7p8->SetLineWidth(2);
+                    p7p8->SetLineColor(4);
+                    p7p8->SetMarkerStyle(24);
+                    p7p8->SetMarkerSize(1.00);
+                    p7p8->SetMarkerColor(4);
+                    p7p8->SetFillStyle(0);
+                    p7p8->GetXaxis()->SetTitle("x_{J#gamma}");
+                    p7p8->GetYaxis()->SetTitle("A.U.");
+                    NormalizeToUnitArea(p7p8);
+                  }
+
+                  TH1* f1 = pPi2 ? pPi2 : p7p8;
+                  TH1* f2 = (f1 == pPi2) ? p7p8 : pPi2;
+
+                  double yM = 0.0;
+                  if (pPi2) yM = std::max(yM, pPi2->GetMaximum());
+                  if (p7p8) yM = std::max(yM, p7p8->GetMaximum());
+                  if (f1) f1->SetMaximum(yM * 1.25);
+
+                  TCanvas cInd(TString::Format("c_ind_dphiCuts_%s_b%d", rKey.c_str(), ib).Data(),
+                              "c_ind_dphiCuts", 900, 700);
+                  ApplyCanvasMargins1D(cInd);
+                  cInd.SetLogy(false);
+
+                  if (f1) f1->Draw("E1");
+                  if (f2) f2->Draw("E1 same");
+
+                  // Clean top-left header (same style as your perPt overlays)
+                  TLatex t;
+                  t.SetNDC(true);
+                  t.SetTextFont(42);
+                  t.SetTextAlign(13); // left-top
+
+                  t.SetTextSize(0.036);
+                  t.DrawLatex(0.14, 0.905, TString::Format("RECO: |#Delta#phi| cut comparison (%s)", rKey.c_str()).Data());
+
+                  const std::string ptNoUnit = AxisBinLabel(hBase->GetXaxis(), ib, "", 0);
+                  t.SetTextSize(0.032);
+                  t.DrawLatex(0.14, 0.845,
+                    TString::Format("p_{T}^{#gamma}: %s GeV (R = %.1f)", ptNoUnit.c_str(), R).Data()
+                  );
+
+                  // Legend (same placement as your cleaned overlays)
+                  TLegend lInd(0.55, 0.75, 0.88, 0.90);
+                  lInd.SetTextFont(42);
+                  lInd.SetTextSize(0.040);
+                  lInd.SetFillStyle(0);
+                  lInd.SetBorderSize(0);
+                  if (pPi2) lInd.AddEntry(pPi2, "|#Delta#phi(#gamma,jet)| > #pi/2",   "ep");
+                  if (p7p8) lInd.AddEntry(p7p8, "|#Delta#phi(#gamma,jet)| > 7#pi/8", "ep");
+                  lInd.Draw();
+
+                  const std::string outInd =
+                    JoinPath(outPerPtDir, TString::Format("overlay_pTbin%d.png", ib).Data());
+                  SaveCanvas(cInd, outInd);
+
+                  if (pPi2) delete pPi2;
+                  if (p7p8) delete p7p8;
+                }
+                else
+                {
+                  if (pPi2) delete pPi2;
+                  if (p7p8) delete p7p8;
+                }
+              }
+            }
+
+            SaveCanvas(c, outPng);
+
+            for (auto* h : keep) delete h;
+            delete hAlt;
+
+            cout << ANSI_BOLD_GRN
+                 << "[OK] Wrote Δφ-cut RECO xJ overlay table: " << outPng << "\n"
+                 << "[OK] Wrote Δφ-cut RECO per-pT overlays: " << outPerPtDir << "\n"
+                 << ANSI_RESET;
+        }
+
+        // =============================================================================
+        // JES3 RECO-only xJ overlay: compare BINNING (new pTjet<=10 vs old pTjet<=5), r04 only
+        //
+        // Runs ONLY when:
+        //   - ds.isSim == true
+        //   - CurrentSimSample() == SimSample::kPhotonJet10And20Merged   (bothPhoton10and20sim=true)
+        //
+        // Baseline analysis continues using kInSIM10/kInSIM20 (newBinning pihalves).
+        // This helper additionally reads the *_oldBinning_pihalves.root slice files and builds an
+        // in-memory weighted (10+20) merged TH3 for the single histogram:
+        //   h_JES3_pT_xJ_alpha_r04
+        //
+        // Output:
+        //   <outDir>/r04/xJ_fromJES3/RECO/table3x2_overlay_integratedAlpha_binningCompare.png
+        //   <outDir>/r04/xJ_fromJES3/RECO/perPtBin_binningCompare/overlay_pTbinX.png
+        //
+        // Style:
+        //   New Binning (pTjet<=10) -> red, closed circles
+        //   Old Binning (pTjet<=5)  -> blue, open circles
+        // =============================================================================
+        void JES3_RecoBinningOverlay_MaybeRun(Dataset& ds, const std::string& outDir)
+        {
+          if (!ds.isSim) return;
+          if (CurrentSimSample() != SimSample::kPhotonJet10And20Merged) return;
+
+          const std::string rKey = "r04";
+          const double R = RFromKey(rKey);
+
+          const std::string outRecoDir = JoinPath(JoinPath(outDir, rKey), "xJ_fromJES3/RECO");
+          EnsureDir(outRecoDir);
+
+          const std::string outPng =
+            JoinPath(outRecoDir, "table3x2_overlay_integratedAlpha_binningCompare.png");
+
+          // "New Binning" baseline comes from the currently-open merged dataset file
+          TH3* hNew = GetObj<TH3>(ds, "h_JES3_pT_xJ_alpha_r04", true, true, true);
+          if (!hNew)
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] Binning overlay skipped: missing h_JES3_pT_xJ_alpha_r04 in baseline merged dataset.\n"
+                 << ANSI_RESET;
+            return;
+          }
+
+          // Build "Old Binning" weighted-merged TH3 in memory from slice files
+          TFile* f10 = TFile::Open(kInSIM10_oldBinning_pihalves.c_str(), "READ");
+          TFile* f20 = TFile::Open(kInSIM20_oldBinning_pihalves.c_str(), "READ");
+          if (!f10 || f10->IsZombie() || !f20 || f20->IsZombie())
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] Binning overlay skipped: cannot open old-binning slice files:\n"
+                 << "  " << kInSIM10_oldBinning_pihalves << "\n"
+                 << "  " << kInSIM20_oldBinning_pihalves << "\n"
+                 << ANSI_RESET;
+            if (f10) f10->Close();
+            if (f20) f20->Close();
+            return;
+          }
+
+          TDirectory* d10 = f10->GetDirectory(kDirSIM.c_str());
+          TDirectory* d20 = f20->GetDirectory(kDirSIM.c_str());
+          if (!d10 || !d20)
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] Binning overlay skipped: missing topDir '" << kDirSIM << "' in old-binning slice file(s).\n"
+                 << ANSI_RESET;
+            f10->Close(); f20->Close();
+            return;
+          }
+
+          const double N10 = ReadEventCountFromFile(f10, kDirSIM);
+          const double N20 = ReadEventCountFromFile(f20, kDirSIM);
+          if (N10 <= 0.0 || N20 <= 0.0)
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] Binning overlay skipped: Naccepted <= 0 in old-binning slice file(s).\n"
+                 << ANSI_RESET;
+            f10->Close(); f20->Close();
+            return;
+          }
+
+          const double w10 = kSigmaPhoton10_pb / N10;
+          const double w20 = kSigmaPhoton20_pb / N20;
+
+          TH3* h10 = dynamic_cast<TH3*>(d10->Get("h_JES3_pT_xJ_alpha_r04"));
+          TH3* h20 = dynamic_cast<TH3*>(d20->Get("h_JES3_pT_xJ_alpha_r04"));
+          if (!h10 && !h20)
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] Binning overlay skipped: missing h_JES3_pT_xJ_alpha_r04 in BOTH old-binning slice files.\n"
+                 << ANSI_RESET;
+            f10->Close(); f20->Close();
+            return;
+          }
+
+          TH3* hOld = nullptr;
+          if (h10)
+          {
+            hOld = CloneTH3(h10, "h_JES3_pT_xJ_alpha_r04_ALT_oldBinning");
+            if (hOld)
+            {
+              hOld->SetDirectory(nullptr);
+              if (hOld->GetSumw2N() == 0) hOld->Sumw2();
+              hOld->Scale(w10);
+            }
+          }
+          if (!hOld && h20)
+          {
+            hOld = CloneTH3(h20, "h_JES3_pT_xJ_alpha_r04_ALT_oldBinning");
+            if (hOld)
+            {
+              hOld->SetDirectory(nullptr);
+              if (hOld->GetSumw2N() == 0) hOld->Sumw2();
+              hOld->Scale(w20);
+            }
+          }
+          if (hOld && h20)
+          {
+            TH3* tmp = CloneTH3(h20, "h_tmp20_add_oldBinning");
+            if (tmp)
+            {
+              tmp->SetDirectory(nullptr);
+              if (tmp->GetSumw2N() == 0) tmp->Sumw2();
+              tmp->Scale(w20);
+              hOld->Add(tmp);
+              delete tmp;
+            }
+          }
+
+          f10->Close();
+          f20->Close();
+
+          if (!hOld)
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] Binning overlay skipped: failed to build old-binning merged TH3.\n"
+                 << ANSI_RESET;
+            return;
+          }
+
           // -------------------------------------------------------------------------
-          // Make a 3x2 table (6 pads) across pTgamma bins: ProjectY (xJ) integrating alpha
+          // Make a 3x2 table (6 pads) across pTgamma bins AND per-pT individual overlays
           // -------------------------------------------------------------------------
           const int nCols = 3;
           const int nRows = 2;
 
-          const int nBase = hBase->GetXaxis()->GetNbins();
-          const int nAlt  = hAlt->GetXaxis()->GetNbins();
-          const int nPt   = std::min(nBase, nAlt);
+          const int nNew = hNew->GetXaxis()->GetNbins();
+          const int nOld = hOld->GetXaxis()->GetNbins();
+          const int nPt  = std::min(nNew, nOld);
 
-          TCanvas c("c_tbl_dphiCuts_r04", "c_tbl_dphiCuts_r04", 1500, 900);
+          const std::string outPerPtDir = JoinPath(outRecoDir, "perPtBin_binningCompare");
+          EnsureDir(outPerPtDir);
+
+          TCanvas c("c_tbl_binningCompare_r04", "c_tbl_binningCompare_r04", 1500, 900);
           c.Divide(nCols, nRows, 0.001, 0.001);
 
           std::vector<TH1*> keep;
@@ -5367,10 +5738,29 @@ namespace ARJ
             gPad->SetTopMargin(0.10);
             gPad->SetLogy(false);
 
-            TH1* hPi2  = ProjectY_AtXbin_TH3(hBase, ib, TString::Format("h_xJ_pi2_b%d", ib).Data());
-            TH1* h7p8  = ProjectY_AtXbin_TH3(hAlt,  ib, TString::Format("h_xJ_7p8_b%d", ib).Data());
+              TH1* hNewXJ = ProjectY_AtXbin_TH3(hNew, ib, TString::Format("h_xJ_newBin_b%d", ib).Data());
 
-            if (!hPi2 && !h7p8)
+              // Map OLD-binning TH3 into the NEW bin edges by overlap-weighted sum over old X bins
+              const double xLoNew = hNew->GetXaxis()->GetBinLowEdge(ib);
+              const double xHiNew = hNew->GetXaxis()->GetBinUpEdge(ib);
+
+              int bLo = -1, bHi = -1;
+              std::vector<double> w;
+              TH1* hOldXJ = nullptr;
+
+              if (XaxisOverlapWeights(hOld->GetXaxis(), xLoNew, xHiNew, bLo, bHi, w))
+              {
+                hOldXJ = ProjectY_AtXrange_TH3_Weighted(
+                  hOld, bLo, bHi, w,
+                  TString::Format("h_xJ_oldMappedToNew_b%d", ib).Data()
+                );
+              }
+              else
+              {
+                hOldXJ = nullptr;
+              }
+
+            if (!hNewXJ && !hOldXJ)
             {
               TLatex t;
               t.SetNDC(true);
@@ -5380,51 +5770,52 @@ namespace ARJ
               continue;
             }
 
-            // Red closed circles: |Δφ| > π/2  (baseline)
-            if (hPi2)
-            {
-              hPi2->SetDirectory(nullptr);
-              EnsureSumw2(hPi2);
-              hPi2->SetTitle("");
-              hPi2->SetLineWidth(2);
-              hPi2->SetLineColor(2);
-              hPi2->SetMarkerStyle(20);   // closed circle
-              hPi2->SetMarkerSize(0.95);
-              hPi2->SetMarkerColor(2);
-              hPi2->SetFillStyle(0);
-              hPi2->GetXaxis()->SetTitle("x_{J#gamma}");
-              hPi2->GetYaxis()->SetTitle((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts");
-            }
+              // New binning: PURPLE closed circles
+              if (hNewXJ)
+              {
+                hNewXJ->SetDirectory(nullptr);
+                EnsureSumw2(hNewXJ);
+                hNewXJ->SetTitle("");
+                hNewXJ->SetLineWidth(2);
+                hNewXJ->SetLineColor(kViolet + 1);
+                hNewXJ->SetMarkerStyle(20);   // closed circle
+                hNewXJ->SetMarkerSize(0.95);
+                hNewXJ->SetMarkerColor(kViolet + 1);
+                hNewXJ->SetFillStyle(0);
+                hNewXJ->GetXaxis()->SetTitle("x_{J#gamma}");
+                hNewXJ->GetYaxis()->SetTitle("A.U.");
+                NormalizeToUnitArea(hNewXJ);
+              }
 
-            // Blue open circles: |Δφ| > 7π/8 (alternate)
-            if (h7p8)
-            {
-              h7p8->SetDirectory(nullptr);
-              EnsureSumw2(h7p8);
-              h7p8->SetTitle("");
-              h7p8->SetLineWidth(2);
-              h7p8->SetLineColor(4);
-              h7p8->SetMarkerStyle(24);   // open circle
-              h7p8->SetMarkerSize(0.95);
-              h7p8->SetMarkerColor(4);
-              h7p8->SetFillStyle(0);
-              h7p8->GetXaxis()->SetTitle("x_{J#gamma}");
-              h7p8->GetYaxis()->SetTitle((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts");
-            }
+              // Old binning: PINK open circles
+              if (hOldXJ)
+              {
+                hOldXJ->SetDirectory(nullptr);
+                EnsureSumw2(hOldXJ);
+                hOldXJ->SetTitle("");
+                hOldXJ->SetLineWidth(2);
+                hOldXJ->SetLineColor(kPink + 7);
+                hOldXJ->SetMarkerStyle(24);   // open circle
+                hOldXJ->SetMarkerSize(0.95);
+                hOldXJ->SetMarkerColor(kPink + 7);
+                hOldXJ->SetFillStyle(0);
+                hOldXJ->GetXaxis()->SetTitle("x_{J#gamma}");
+                hOldXJ->GetYaxis()->SetTitle("A.U.");
+                NormalizeToUnitArea(hOldXJ);
+              }
 
-            TH1* first  = hPi2 ? hPi2 : h7p8;
-            TH1* second = (first == hPi2) ? h7p8 : hPi2;
+            TH1* first  = hNewXJ ? hNewXJ : hOldXJ;
+            TH1* second = (first == hNewXJ) ? hOldXJ : hNewXJ;
 
             double ymax = 0.0;
-            if (hPi2) ymax = std::max(ymax, hPi2->GetMaximum());
-            if (h7p8) ymax = std::max(ymax, h7p8->GetMaximum());
+            if (hNewXJ) ymax = std::max(ymax, hNewXJ->GetMaximum());
+            if (hOldXJ) ymax = std::max(ymax, hOldXJ->GetMaximum());
             if (first) first->SetMaximum(ymax * 1.25);
 
             if (first)  first->Draw("E1");
             if (second) second->Draw("E1 same");
 
-            // Pad title: pT bin label taken from axis bin edges
-            const std::string ptLab = AxisBinLabel(hBase->GetXaxis(), ib, "GeV", 0);
+            const std::string ptLab = AxisBinLabel(hNew->GetXaxis(), ib, "GeV", 0);
 
             TLatex ttitle;
             ttitle.SetNDC(true);
@@ -5433,30 +5824,141 @@ namespace ARJ
             ttitle.SetTextSize(0.060);
             ttitle.DrawLatex(
               0.50, 0.95,
-              TString::Format("Reco-level x_{J#gamma}, p_{T}^{#gamma} = %s", ptLab.c_str()).Data()
+              TString::Format("Reco-level x_{J#gamma}, p_{T}^{#gamma} = %s  (R=%.1f)", ptLab.c_str(), R).Data()
             );
 
-            // Legend: label the Δφ cuts correctly for each curve
-            TLegend leg(0.52, 0.74, 0.92, 0.90);
-            leg.SetTextFont(42);
-            leg.SetTextSize(0.050);
-            leg.SetFillStyle(0);
-            leg.SetBorderSize(0);
-            if (hPi2) leg.AddEntry(hPi2,  "|#Delta#phi(#gamma,jet)| > #pi/2",   "ep");
-            if (h7p8) leg.AddEntry(h7p8,  "|#Delta#phi(#gamma,jet)| > 7#pi/8", "ep");
-            leg.DrawClone();
+              // Legend: larger, shifted left and down (more central, avoids top margin)
+              TLegend leg(0.45, 0.7, 0.83, 0.85);
+              leg.SetTextFont(42);
+              leg.SetTextSize(0.045);
+              leg.SetFillStyle(0);
+              leg.SetBorderSize(0);
+              if (hOldXJ) leg.AddEntry(hOldXJ, "p_{T}^{jet} #leq 5",  "ep");
+              if (hNewXJ) leg.AddEntry(hNewXJ, "p_{T}^{jet} #leq 10", "ep");
+              leg.DrawClone();
 
-            if (hPi2) keep.push_back(hPi2);
-            if (h7p8) keep.push_back(h7p8);
+              
+            if (hNewXJ) keep.push_back(hNewXJ);
+            if (hOldXJ) keep.push_back(hOldXJ);
+
+            // Per-pT PNG (same style + legend + radius on canvas)
+            {
+                TH1* pNew = ProjectY_AtXbin_TH3(hNew, ib, TString::Format("h_xJ_newBin_ind_b%d", ib).Data());
+
+                const double xLoNew = hNew->GetXaxis()->GetBinLowEdge(ib);
+                const double xHiNew = hNew->GetXaxis()->GetBinUpEdge(ib);
+
+                int bLo = -1, bHi = -1;
+                std::vector<double> w;
+                TH1* pOld = nullptr;
+
+                if (XaxisOverlapWeights(hOld->GetXaxis(), xLoNew, xHiNew, bLo, bHi, w))
+                {
+                  pOld = ProjectY_AtXrange_TH3_Weighted(
+                    hOld, bLo, bHi, w,
+                    TString::Format("h_xJ_oldMappedToNew_ind_b%d", ib).Data()
+                  );
+                }
+                else
+                {
+                  pOld = nullptr;
+                }
+
+              if (pNew || pOld)
+              {
+                if (pNew)
+                {
+                  pNew->SetDirectory(nullptr);
+                  EnsureSumw2(pNew);
+                  pNew->SetTitle("");
+                  pNew->SetLineWidth(2);
+                  pNew->SetLineColor(2);
+                  pNew->SetMarkerStyle(20);
+                  pNew->SetMarkerSize(1.00);
+                  pNew->SetMarkerColor(2);
+                  pNew->SetFillStyle(0);
+                  pNew->GetXaxis()->SetTitle("x_{J#gamma}");
+                  pNew->GetYaxis()->SetTitle("A.U.");
+                  NormalizeToUnitArea(pNew);
+                }
+                if (pOld)
+                {
+                  pOld->SetDirectory(nullptr);
+                  EnsureSumw2(pOld);
+                  pOld->SetTitle("");
+                  pOld->SetLineWidth(2);
+                  pOld->SetLineColor(4);
+                  pOld->SetMarkerStyle(24);
+                  pOld->SetMarkerSize(1.00);
+                  pOld->SetMarkerColor(4);
+                  pOld->SetFillStyle(0);
+                  pOld->GetXaxis()->SetTitle("x_{J#gamma}");
+                  pOld->GetYaxis()->SetTitle("A.U.");
+                  NormalizeToUnitArea(pOld);
+                }
+
+                TH1* f1 = pNew ? pNew : pOld;
+                TH1* f2 = (f1 == pNew) ? pOld : pNew;
+
+                double yM = 0.0;
+                if (pNew) yM = std::max(yM, pNew->GetMaximum());
+                if (pOld) yM = std::max(yM, pOld->GetMaximum());
+                if (f1) f1->SetMaximum(yM * 1.25);
+
+                TCanvas cInd(TString::Format("c_ind_binningCompare_%s_b%d", rKey.c_str(), ib).Data(),
+                            "c_ind_binningCompare", 900, 700);
+                ApplyCanvasMargins1D(cInd);
+                cInd.SetLogy(false);
+
+                if (f1) f1->Draw("E1");
+                if (f2) f2->Draw("E1 same");
+
+                TLatex t;
+                t.SetNDC(true);
+                t.SetTextFont(42);
+                t.SetTextAlign(13);
+
+                t.SetTextSize(0.036);
+                t.DrawLatex(0.14, 0.905, TString::Format("RECO: binning comparison (%s)", rKey.c_str()).Data());
+
+                const std::string ptNoUnit = AxisBinLabel(hNew->GetXaxis(), ib, "", 0);
+                t.SetTextSize(0.032);
+                t.DrawLatex(0.14, 0.845,
+                  TString::Format("p_{T}^{#gamma}: %s GeV (R = %.1f)", ptNoUnit.c_str(), R).Data()
+                );
+
+                TLegend lInd(0.55, 0.75, 0.88, 0.90);
+                lInd.SetTextFont(42);
+                lInd.SetTextSize(0.040);
+                lInd.SetFillStyle(0);
+                lInd.SetBorderSize(0);
+                if (pNew) lInd.AddEntry(pNew, "p_{T}^{jet} #geq 10", "ep");
+                if (pOld) lInd.AddEntry(pOld, "p_{T}^{jet} #geq 5",  "ep");
+                lInd.Draw();
+
+                const std::string outInd =
+                  JoinPath(outPerPtDir, TString::Format("overlay_pTbin%d.png", ib).Data());
+                SaveCanvas(cInd, outInd);
+
+                if (pNew) delete pNew;
+                if (pOld) delete pOld;
+              }
+              else
+              {
+                if (pNew) delete pNew;
+                if (pOld) delete pOld;
+              }
+            }
           }
 
           SaveCanvas(c, outPng);
 
           for (auto* h : keep) delete h;
-          delete hAlt;
+          delete hOld;
 
           cout << ANSI_BOLD_GRN
-               << "[OK] Wrote Δφ-cut RECO xJ overlay table: " << outPng << "\n"
+               << "[OK] Wrote BINNING RECO xJ overlay table: " << outPng << "\n"
+               << "[OK] Wrote BINNING RECO per-pT overlays: " << outPerPtDir << "\n"
                << ANSI_RESET;
         }
 
@@ -6420,12 +6922,14 @@ namespace ARJ
                         // Keep PINK for other overlay folders that intentionally use pink.
                         colA = (ovTag == "RECO_vs_TRUTHrecoConditioned") ? (kBlue + 1) : (kPink + 7);
                       }
+                      if (legBlack == "Truth (PURE)" || legBlack == "uncond truth") colA = kBlue + 1;  // blue open circles for unconditioned truth
 
                       if (legRed  == "Reco (#gamma^{truth} + jet^{truth} tagged)") colB = kViolet + 1;  // purple
                       if (legRed  == "Truth (#gamma^{reco} + jet^{reco} tagged)")
                       {
                         colB = (ovTag == "RECO_vs_TRUTHrecoConditioned") ? (kBlue + 1) : (kPink + 7);
                       }
+                      if (legRed == "Truth (PURE)" || legRed == "uncond truth") colB = kBlue + 1;    // blue open circles for unconditioned truth
 
                       hA->SetLineWidth(2);
                       hA->SetMarkerStyle(24);
@@ -6459,21 +6963,42 @@ namespace ARJ
                     hA->Draw("E1");
                     hB->Draw("E1 same");
 
-                    TLegend leg(0.58, 0.75, 0.92, 0.90);
-                    leg.SetTextFont(42);
-                    leg.SetTextSize(0.045);
-                    leg.SetFillStyle(0);
-                    leg.SetBorderSize(0);
-                    leg.AddEntry(hA, legBlack.c_str(), "ep");
-                    leg.AddEntry(hB, legRed.c_str(),   "ep");
-                    leg.Draw();
+                      // Legend: shift slightly left and make only slightly smaller
+                      TLegend leg(0.55, 0.75, 0.85, 0.90);
+                      leg.SetTextFont(42);
+                      leg.SetTextSize(0.038);
+                      leg.SetFillStyle(0);
+                      leg.SetBorderSize(0);
+                      leg.AddEntry(hA, legBlack.c_str(), "ep");
+                      leg.AddEntry(hB, legRed.c_str(),   "ep");
+                      leg.Draw();
 
-                    DrawLatexLines(0.14, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+                      // Clean, minimal top-left header (no "Overlay (shape)", no jet-match line, no "Integrated over α")
+                      std::string titleLine;
+                      if (ovTag == "RECO_vs_RECO_truthTaggedPhoJet")
+                      {
+                        titleLine = "RECO vs RECO (#gamma+jet truth tagged)";
+                      }
+                      else
+                      {
+                        titleLine = headerLines.empty() ? ovTag : headerLines.front();
+                        const std::string pref = "Overlay (shape): ";
+                        if (titleLine.rfind(pref, 0) == 0) titleLine = titleLine.substr(pref.size());
+                      }
 
-                    vector<string> lines = headerLines;
-                    lines.push_back(TString::Format("p_{T}^{#gamma}: %s  (R=%.1f)", ptLab.c_str(), R).Data());
-                    lines.push_back("Integrated over #alpha");
-                    DrawLatexLines(0.14, 0.84, lines, 0.030, 0.040);
+                      const string ptLabNoUnit = AxisBinLabel(hBlack->GetXaxis(), ib, "", 0);
+
+                      TLatex t;
+                      t.SetNDC(true);
+                      t.SetTextFont(42);
+                      t.SetTextAlign(13); // left-top
+                      t.SetTextSize(0.036);
+                      t.DrawLatex(0.14, 0.9, titleLine.c_str());
+
+                      t.SetTextSize(0.032);
+                      t.DrawLatex(0.14, 0.845,
+                        TString::Format("p_{T}^{#gamma}: %s GeV (R = %.1f)", ptLabNoUnit.c_str(), R).Data()
+                      );
 
                     SaveCanvas(c, outPng);
 
@@ -6548,12 +7073,14 @@ namespace ARJ
                           // Keep PINK for other overlay folders that intentionally use pink.
                           colA = (ovTag == "RECO_vs_TRUTHrecoConditioned") ? (kBlue + 1) : (kPink + 7);
                         }
+                        if (legBlack == "Truth (PURE)" || legBlack == "uncond truth") colA = kBlue + 1;  // unconditioned truth in blue
 
                         if (legRed  == "Reco (#gamma^{truth} + jet^{truth} tagged)") colB = kViolet + 1;  // purple
                         if (legRed  == "Truth (#gamma^{reco} + jet^{reco} tagged)")
                         {
                           colB = (ovTag == "RECO_vs_TRUTHrecoConditioned") ? (kBlue + 1) : (kPink + 7);
                         }
+                        if (legRed == "Truth (PURE)" || legRed == "uncond truth") colB = kBlue + 1;       // unconditioned truth in blue
 
                         hA->SetLineWidth(2);
                         hA->SetMarkerStyle(24);
@@ -6641,6 +7168,16 @@ namespace ARJ
                   "Reco",
                   {"Overlay (shape): RECO vs TRUTH reco-conditioned", "Truth is jet-matched (ΔR<=0.3)"}
                 );
+
+                // PURE overlay (no reco conditioning on truth; reco is unconditional JES3 reco)
+                MakeOverlayShape_TH3xJ(
+                  H.hTrutPure_xJ, H.hReco_xJ,
+                  "RECO_vs_TRUTHpure",
+                  "uncond truth",
+                  "uncond reco",
+                  {"unconditioned truth versus reco"}
+                );
+
 
                 // New overlays covering the missing JES3 variants:
                 MakeOverlayShape_TH3xJ(
@@ -8884,11 +9421,11 @@ namespace ARJ
                                            "c_prof_A1", 900, 720);
                                 ApplyCanvasMargins1D(cP);
 
-                                // Style
-                                pN->SetTitle("");
-                                pN->GetXaxis()->SetTitle("p_{T}^{truth lead recoil} [GeV]");
-                                pN->GetYaxis()->SetTitle("< p_{T}^{recoilJet_{1},reco} > [GeV]");
-                                pN->GetYaxis()->SetRangeUser(yLo, yHi);
+                                  // Style
+                                  pN->SetTitle("");
+                                  pN->GetXaxis()->SetTitle("p_{T}^{truth lead recoil} [GeV]");
+                                  pN->GetYaxis()->SetTitle("< p_{T}^{recoilJet_{1},reco} > [GeV]");
+                                  pN->GetYaxis()->SetRangeUser(0.0, yHi);
 
                                 pN->SetLineWidth(2);
                                 pA->SetLineWidth(2);
@@ -10096,9 +10633,13 @@ namespace ARJ
 
               JES3_R02R04Overlays_MaybeRun(ds, dirSharedXJProjOverlay);
 
-              // NEW: RECO-only Δφ-cut overlay table (π/2 vs 7π/8), r04 only
-              // Output: <outDir>/r04/xJ_fromJES3/RECO/table3x2_overlay_integratedAlpha_dPhiCuts.png
-              JES3_RecoDeltaPhiCutOverlay_MaybeRun(ds, outDir);
+                // NEW: RECO-only Δφ-cut overlay table (π/2 vs 7π/8), r04 only
+                // Output: <outDir>/r04/xJ_fromJES3/RECO/table3x2_overlay_integratedAlpha_dPhiCuts.png
+                JES3_RecoDeltaPhiCutOverlay_MaybeRun(ds, outDir);
+
+                // NEW: RECO-only BINNING overlay table (new pTjet<=10 vs old pTjet<=5), r04 only
+                // Output: <outDir>/r04/xJ_fromJES3/RECO/table3x2_overlay_integratedAlpha_binningCompare.png
+                JES3_RecoBinningOverlay_MaybeRun(ds, outDir);
             }
 
             // =============================================================================
