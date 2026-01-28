@@ -812,9 +812,9 @@ private:
   double m_isoTowMin = 0.0;
 
   // Jet selection WP
-//  double m_minJetPt      = 5.0;
+  //  double m_minJetPt      = 5.0;
   double m_minJetPt      = 10.0;
-  double m_minBackToBack = M_PI / 2.0;    // radians
+  double m_minBackToBack = 7.0 * M_PI / 8.0;    // radians
 
   // Legacy "primary" reco jet key (still used for printing/overrides only)
   std::string m_xjRecoJetKey = "r04";

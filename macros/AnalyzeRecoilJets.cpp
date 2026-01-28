@@ -367,7 +367,7 @@ namespace ARJ
                 TString::Format("c_preFail_table3x3_%s", ds.label.c_str()).Data(),
                 "c_preFail_table3x3", 2400, 1400
             );
-            cTbl.Divide(3,3, 0.002, 0.002);
+            cTbl.Divide(3,2, 0.002, 0.002);
 
             vector<TObject*> keepTbl;
             for (int i = 0; i < kNPtBins; ++i)
@@ -943,7 +943,7 @@ namespace ARJ
           TString::Format("c_abcd_cnt_tbl_%s", ds.label.c_str()).Data(),
           "c_abcd_cnt_tbl", 2400, 1400
         );
-        c.Divide(3,3, 0.002, 0.002);
+        c.Divide(3,2, 0.002, 0.002);
 
         vector<TObject*> keepAlive;
         keepAlive.reserve(kNPtBins * (1 + 4));
@@ -1090,7 +1090,7 @@ namespace ARJ
             TString::Format("c_ss_tbl_%s_%s", ds.label.c_str(), varKey.c_str()).Data(),
             "c_ss_tbl", 1500, 1200
           );
-          c.Divide(3,3, 0.001, 0.001);
+          c.Divide(3,2, 0.001, 0.001);
 
           // Keep cloned histograms alive until AFTER SaveCanvas()
           vector<TH1*> keepAlive;
@@ -2833,14 +2833,15 @@ namespace ARJ
 
                 TCanvas c(
                   TString::Format("c_tbl_dphi_%s_%s_%s", ds.label.c_str(), rKey.c_str(), canvasTag.c_str()).Data(),
-                  "c_tbl_dphi", 1500, 1200
+                  "c_tbl_dphi", 1500, 900
                 );
-                c.Divide(3,3, 0.001, 0.001);
+                c.Divide(3,2, 0.001, 0.001);
 
                 vector<TH1*> keep;
                 keep.reserve(kNPtBins);
 
-                for (int i = 0; i < kNPtBins; ++i)
+                const int nPads = std::min(kNPtBins, nPtUse);
+                for (int i = 0; i < nPads; ++i)
                 {
                   c.cd(i+1);
                   gPad->SetLeftMargin(0.14);
@@ -2848,16 +2849,6 @@ namespace ARJ
                   gPad->SetBottomMargin(0.14);
                   gPad->SetTopMargin(0.10);
                   gPad->SetLogy(logy);
-
-                  if (i >= nPtUse)
-                  {
-                    TLatex t;
-                    t.SetNDC(true);
-                    t.SetTextFont(42);
-                    t.SetTextSize(0.06);
-                    t.DrawLatex(0.20, 0.55, "EMPTY");
-                    continue;
-                  }
 
                   const PtBin& b = PtBins()[i];
                   const int xbin = i + 1;
@@ -4446,178 +4437,170 @@ namespace ARJ
                 if (b) delete b;
               }
 
-              // 3x3 table(s) of overlays (linear y only)
-              const int perPage = 9;
-              int page = 0;
+                // 3x2 table(s) of overlays (linear y only)
+                const int nCols   = 3;
+                const int nRows   = 2;
+                const int perPage = nCols * nRows; // 6
+                int page = 0;
 
-              for (int start = 1; start <= nPt; start += perPage)
-              {
-                ++page;
-
-                TCanvas c(
-                  TString::Format("c_tbl_%s_p%d", outDirHere.c_str(), page).Data(),
-                  "c_tbl_overlay", 1500, 1200
-                );
-                c.Divide(3,3, 0.001, 0.001);
-
-                std::vector<TH1*> keep;
-                keep.reserve(2 * perPage);
-
-                for (int k = 0; k < perPage; ++k)
+                for (int start = 1; start <= nPt; start += perPage)
                 {
-                  const int ib = start + k;
-                  c.cd(k+1);
+                  ++page;
 
-                  gPad->SetLeftMargin(0.14);
-                  gPad->SetRightMargin(0.05);
-                  gPad->SetBottomMargin(0.14);
-                  gPad->SetTopMargin(0.10);
-                  gPad->SetLogy(false);
-
-                  if (ib > nPt)
-                  {
-                    TLatex t;
-                    t.SetNDC(true);
-                    t.SetTextFont(42);
-                    t.SetTextSize(0.06);
-                    t.DrawLatex(0.20, 0.55, "EMPTY");
-                    continue;
-                  }
-
-                  TH1* a = nullptr;
-                  TH1* b = nullptr;
-
-                  if (useAlphaCut)
-                  {
-                    a = ProjectY_AtXbin_AndAlphaMax_TH3(h02, ib, alphaMax,
-                          TString::Format("tbl_r02_alphaLT%.2f_p%d_b%d", alphaMax, page, ib).Data());
-                    b = ProjectY_AtXbin_AndAlphaMax_TH3(h04, ib, alphaMax,
-                          TString::Format("tbl_r04_alphaLT%.2f_p%d_b%d", alphaMax, page, ib).Data());
-                  }
-                  else
-                  {
-                    a = ProjectY_AtXbin_TH3(h02, ib, TString::Format("tbl_r02_int_p%d_b%d", page, ib).Data());
-                    b = ProjectY_AtXbin_TH3(h04, ib, TString::Format("tbl_r04_int_p%d_b%d", page, ib).Data());
-                  }
-
-                  if (!a && !b)
-                  {
-                    TLatex t;
-                    t.SetNDC(true);
-                    t.SetTextFont(42);
-                    t.SetTextSize(0.06);
-                    t.DrawLatex(0.15, 0.55, "MISSING");
-                    continue;
-                  }
-
-                  // Style (must set marker color or ROOT will look black in small pads)
-                  if (a)
-                  {
-                    a->SetDirectory(nullptr);
-                    EnsureSumw2(a);
-
-                    a->SetTitle("");
-                    a->SetLineWidth(2);
-                    a->SetLineColor(2);
-                    a->SetMarkerStyle(20);
-                    a->SetMarkerSize(0.95);
-                    a->SetMarkerColor(2);
-                    a->SetFillStyle(0);
-
-                      a->GetXaxis()->SetTitle(xTitle.c_str());
-                      a->GetYaxis()->SetTitle((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts");
-                  }
-                  if (b)
-                  {
-                    b->SetDirectory(nullptr);
-                    EnsureSumw2(b);
-
-                    b->SetTitle("");
-                    b->SetLineWidth(2);
-                    b->SetLineColor(4);
-                    b->SetMarkerStyle(20);
-                    b->SetMarkerSize(0.95);
-                    b->SetMarkerColor(4);
-                    b->SetFillStyle(0);
-
-                      b->GetXaxis()->SetTitle(xTitle.c_str());
-                      b->GetYaxis()->SetTitle((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts");
-                  }
-
-                  TH1* first  = a ? a : b;
-                  TH1* second = (first == a) ? b : a;
-
-                  double ymax = 0.0;
-                  if (a) ymax = std::max(ymax, a->GetMaximum());
-                  if (b) ymax = std::max(ymax, b->GetMaximum());
-                  if (first) first->SetMaximum(ymax * 1.25);
-
-                  if (first)  first->Draw("E1");
-                  if (second) second->Draw("E1 same");
-
-                  // Big centered title per pad (kept as in your helper)
-                  const std::string ptLab = AxisBinLabel(h02->GetXaxis(), ib, "GeV", 0);
-
-                  TLatex ttitle;
-                  ttitle.SetNDC(true);
-                  ttitle.SetTextFont(42);
-                  ttitle.SetTextAlign(22);
-                  ttitle.SetTextSize(0.060);
-
-                  const bool isTruthPlot = (std::string(xTitle).find("truth") != std::string::npos);
-                  const char* levelTag   = isTruthPlot ? "Truth-level" : "Reco-level";
-                  const char* pTTag      = isTruthPlot ? "p_{T}^{#gamma,truth}" : "p_{T}^{#gamma}";
-
-                  ttitle.DrawLatex(
-                      0.50, 0.95,
-                      TString::Format("%s %s, %s = %s", levelTag, xTitle.c_str(), pTTag, ptLab.c_str()).Data()
+                  TCanvas c(
+                    TString::Format("c_tbl_%s_p%d", outDirHere.c_str(), page).Data(),
+                    "c_tbl_overlay", 1500, 900
                   );
+                  c.Divide(nCols, nRows, 0.001, 0.001);
 
-                  // Legend top-right
-                  TLegend leg(0.8, 0.75, 0.88, 0.9);
-                  leg.SetTextFont(42);
-                  leg.SetTextSize(0.055);
-                  leg.SetFillStyle(0);
-                  leg.SetBorderSize(0);
-                  if (a) leg.AddEntry(a, "r02", "ep");
-                  if (b) leg.AddEntry(b, "r04", "ep");
-                  leg.DrawClone();
+                  std::vector<TH1*> keep;
+                  keep.reserve(2 * perPage);
 
-                  // Add tag text under the legend ONLY for r02_r04/xJ_integratedAlpha overlays
+                  const int nThisPage = std::min(perPage, nPt - start + 1);
+                  for (int k = 0; k < nThisPage; ++k)
                   {
-                      std::string tagLabel;
-                      const bool isIntegratedAlpha = (outDirHere.find("xJ_integratedAlpha") != std::string::npos);
+                    const int ib = start + k;
+                    c.cd(k+1);
 
-                      if (isIntegratedAlpha && outDirHere.find("RECO_truthPhoTagged") != std::string::npos)
-                        tagLabel = "tagged #gamma^{truth}";
-                      else if (isIntegratedAlpha && outDirHere.find("RECO_truthTaggedPhoJet") != std::string::npos)
-                        tagLabel = "tagged #gamma^{truth} + truth-jet";
+                    gPad->SetLeftMargin(0.14);
+                    gPad->SetRightMargin(0.05);
+                    gPad->SetBottomMargin(0.14);
+                    gPad->SetTopMargin(0.10);
+                    gPad->SetLogy(false);
 
-                      if (!tagLabel.empty())
-                      {
-                        TLatex ttag;
-                        ttag.SetNDC(true);
-                        ttag.SetTextFont(42);
-                        ttag.SetTextAlign(33);   // right-top (so it sits BELOW the legend without overlapping it)
-                        ttag.SetTextSize(0.060); // somewhat large
-                        ttag.DrawLatex(0.88, 0.73, tagLabel.c_str());
-                      }
+                    TH1* a = nullptr;
+                    TH1* b = nullptr;
+
+                    if (useAlphaCut)
+                    {
+                      a = ProjectY_AtXbin_AndAlphaMax_TH3(h02, ib, alphaMax,
+                            TString::Format("tbl_r02_alphaLT%.2f_p%d_b%d", alphaMax, page, ib).Data());
+                      b = ProjectY_AtXbin_AndAlphaMax_TH3(h04, ib, alphaMax,
+                            TString::Format("tbl_r04_alphaLT%.2f_p%d_b%d", alphaMax, page, ib).Data());
+                    }
+                    else
+                    {
+                      a = ProjectY_AtXbin_TH3(h02, ib, TString::Format("tbl_r02_int_p%d_b%d", page, ib).Data());
+                      b = ProjectY_AtXbin_TH3(h04, ib, TString::Format("tbl_r04_int_p%d_b%d", page, ib).Data());
+                    }
+
+                    if (!a && !b)
+                    {
+                      TLatex t;
+                      t.SetNDC(true);
+                      t.SetTextFont(42);
+                      t.SetTextSize(0.06);
+                      t.DrawLatex(0.15, 0.55, "MISSING");
+                      continue;
+                    }
+
+                    // Style (must set marker color or ROOT will look black in small pads)
+                    if (a)
+                    {
+                      a->SetDirectory(nullptr);
+                      EnsureSumw2(a);
+
+                      a->SetTitle("");
+                      a->SetLineWidth(2);
+                      a->SetLineColor(2);
+                      a->SetMarkerStyle(20);
+                      a->SetMarkerSize(0.95);
+                      a->SetMarkerColor(2);
+                      a->SetFillStyle(0);
+
+                        a->GetXaxis()->SetTitle(xTitle.c_str());
+                        a->GetYaxis()->SetTitle((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts");
+                    }
+                    if (b)
+                    {
+                      b->SetDirectory(nullptr);
+                      EnsureSumw2(b);
+
+                      b->SetTitle("");
+                      b->SetLineWidth(2);
+                      b->SetLineColor(4);
+                      b->SetMarkerStyle(20);
+                      b->SetMarkerSize(0.95);
+                      b->SetMarkerColor(4);
+                      b->SetFillStyle(0);
+
+                        b->GetXaxis()->SetTitle(xTitle.c_str());
+                        b->GetYaxis()->SetTitle((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts");
+                    }
+
+                    TH1* first  = a ? a : b;
+                    TH1* second = (first == a) ? b : a;
+
+                    double ymax = 0.0;
+                    if (a) ymax = std::max(ymax, a->GetMaximum());
+                    if (b) ymax = std::max(ymax, b->GetMaximum());
+                    if (first) first->SetMaximum(ymax * 1.25);
+
+                    if (first)  first->Draw("E1");
+                    if (second) second->Draw("E1 same");
+
+                    // Big centered title per pad (kept as in your helper)
+                    const std::string ptLab = AxisBinLabel(h02->GetXaxis(), ib, "GeV", 0);
+
+                    TLatex ttitle;
+                    ttitle.SetNDC(true);
+                    ttitle.SetTextFont(42);
+                    ttitle.SetTextAlign(22);
+                    ttitle.SetTextSize(0.060);
+
+                    const bool isTruthPlot = (std::string(xTitle).find("truth") != std::string::npos);
+                    const char* levelTag   = isTruthPlot ? "Truth-level" : "Reco-level";
+                    const char* pTTag      = isTruthPlot ? "p_{T}^{#gamma,truth}" : "p_{T}^{#gamma}";
+
+                    ttitle.DrawLatex(
+                        0.50, 0.95,
+                        TString::Format("%s %s, %s = %s", levelTag, xTitle.c_str(), pTTag, ptLab.c_str()).Data()
+                    );
+
+                    // Legend top-right
+                    TLegend leg(0.8, 0.75, 0.88, 0.9);
+                    leg.SetTextFont(42);
+                    leg.SetTextSize(0.055);
+                    leg.SetFillStyle(0);
+                    leg.SetBorderSize(0);
+                    if (a) leg.AddEntry(a, "r02", "ep");
+                    if (b) leg.AddEntry(b, "r04", "ep");
+                    leg.DrawClone();
+
+                    // Add tag text under the legend ONLY for r02_r04/xJ_integratedAlpha overlays
+                    {
+                        std::string tagLabel;
+                        const bool isIntegratedAlpha = (outDirHere.find("xJ_integratedAlpha") != std::string::npos);
+
+                        if (isIntegratedAlpha && outDirHere.find("RECO_truthPhoTagged") != std::string::npos)
+                          tagLabel = "tagged #gamma^{truth}";
+                        else if (isIntegratedAlpha && outDirHere.find("RECO_truthTaggedPhoJet") != std::string::npos)
+                          tagLabel = "tagged #gamma^{truth} + truth-jet";
+
+                        if (!tagLabel.empty())
+                        {
+                          TLatex ttag;
+                          ttag.SetNDC(true);
+                          ttag.SetTextFont(42);
+                          ttag.SetTextAlign(33);   // right-top (so it sits BELOW the legend without overlapping it)
+                          ttag.SetTextSize(0.060); // somewhat large
+                          ttag.DrawLatex(0.88, 0.73, tagLabel.c_str());
+                        }
+                    }
+
+                    if (useAlphaCut)
+                    {
+                        TLatex talpha;
+                        talpha.SetNDC(true);
+                        talpha.SetTextFont(42);
+                        talpha.SetTextAlign(13);
+                        talpha.SetTextSize(0.045);
+                        talpha.DrawLatex(0.16, 0.86, TString::Format("#alpha < %.2f", alphaMax).Data());
+                    }
+
+                    if (a) keep.push_back(a);
+                    if (b) keep.push_back(b);
                   }
-
-                  if (useAlphaCut)
-                  {
-                      TLatex talpha;
-                      talpha.SetNDC(true);
-                      talpha.SetTextFont(42);
-                      talpha.SetTextAlign(13);
-                      talpha.SetTextSize(0.045);
-                      talpha.DrawLatex(0.16, 0.86, TString::Format("#alpha < %.2f", alphaMax).Data());
-                  }
-
-
-                  if (a) keep.push_back(a);
-                  if (b) keep.push_back(b);
-                }
 
                 std::string outName;
                 if (nPt <= perPage)
@@ -5216,6 +5199,265 @@ namespace ARJ
                    << "[OK] JES3 recoSampleOverlays written under: " << base << "\n"
                    << ANSI_RESET;
             }
+        }
+
+        // =============================================================================
+        // JES3 RECO-only xJ overlay: compare Δφ cuts (π/2 vs 7π/8), r04 only
+        //
+        // Runs ONLY when:
+        //   - ds.isSim == true
+        //   - CurrentSimSample() == SimSample::kPhotonJet10And20Merged   (bothPhoton10and20sim=true)
+        //
+        // Baseline analysis continues using kInSIM10/kInSIM20 (pihalves).
+        // This helper additionally reads the *_7piOver8.root slice files and builds an
+        // in-memory weighted (10+20) merged TH3 for the single histogram:
+        //   h_JES3_pT_xJ_alpha_r04
+        //
+        // Output:
+        //   <outDir>/r04/xJ_fromJES3/RECO/table3x2_overlay_integratedAlpha_dPhiCuts.png
+        //
+        // Style:
+        //   π/2    -> red, closed circles
+        //   7π/8   -> blue, open circles
+        // =============================================================================
+        void JES3_RecoDeltaPhiCutOverlay_MaybeRun(Dataset& ds, const std::string& outDir)
+        {
+          if (!ds.isSim) return;
+          if (CurrentSimSample() != SimSample::kPhotonJet10And20Merged) return;
+
+          // We only want r04 for this request
+          const std::string rKey = "r04";
+          const std::string outRecoDir = JoinPath(JoinPath(outDir, rKey), "xJ_fromJES3/RECO");
+          EnsureDir(outRecoDir);
+
+          const std::string outPng =
+            JoinPath(outRecoDir, "table3x2_overlay_integratedAlpha_dPhiCuts.png");
+
+          // Baseline (π/2) comes from the currently-open merged dataset file
+          TH3* hBase = GetObj<TH3>(ds, "h_JES3_pT_xJ_alpha_r04", true, true, true);
+          if (!hBase)
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] Δφ overlay skipped: missing h_JES3_pT_xJ_alpha_r04 in baseline merged dataset.\n"
+                 << ANSI_RESET;
+            return;
+          }
+
+          // Build alternate (7π/8) weighted-merged TH3 in memory from slice files
+          TFile* f10 = TFile::Open(kInSIM10_7piOver8.c_str(), "READ");
+          TFile* f20 = TFile::Open(kInSIM20_7piOver8.c_str(), "READ");
+          if (!f10 || f10->IsZombie() || !f20 || f20->IsZombie())
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] Δφ overlay skipped: cannot open 7π/8 slice files:\n"
+                 << "  " << kInSIM10_7piOver8 << "\n"
+                 << "  " << kInSIM20_7piOver8 << "\n"
+                 << ANSI_RESET;
+            if (f10) f10->Close();
+            if (f20) f20->Close();
+            return;
+          }
+
+          TDirectory* d10 = f10->GetDirectory(kDirSIM.c_str());
+          TDirectory* d20 = f20->GetDirectory(kDirSIM.c_str());
+          if (!d10 || !d20)
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] Δφ overlay skipped: missing topDir '" << kDirSIM << "' in 7π/8 slice file(s).\n"
+                 << ANSI_RESET;
+            f10->Close(); f20->Close();
+            return;
+          }
+
+          const double N10 = ReadEventCountFromFile(f10, kDirSIM);
+          const double N20 = ReadEventCountFromFile(f20, kDirSIM);
+          if (N10 <= 0.0 || N20 <= 0.0)
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] Δφ overlay skipped: Naccepted <= 0 in 7π/8 slice file(s).\n"
+                 << ANSI_RESET;
+            f10->Close(); f20->Close();
+            return;
+          }
+
+          const double w10 = kSigmaPhoton10_pb / N10;
+          const double w20 = kSigmaPhoton20_pb / N20;
+
+          TH3* h10 = dynamic_cast<TH3*>(d10->Get("h_JES3_pT_xJ_alpha_r04"));
+          TH3* h20 = dynamic_cast<TH3*>(d20->Get("h_JES3_pT_xJ_alpha_r04"));
+          if (!h10 && !h20)
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] Δφ overlay skipped: missing h_JES3_pT_xJ_alpha_r04 in BOTH 7π/8 slice files.\n"
+                 << ANSI_RESET;
+            f10->Close(); f20->Close();
+            return;
+          }
+
+          TH3* hAlt = nullptr;
+          if (h10)
+          {
+            hAlt = CloneTH3(h10, "h_JES3_pT_xJ_alpha_r04_ALT_7piOver8");
+            if (hAlt)
+            {
+              hAlt->SetDirectory(nullptr);
+              if (hAlt->GetSumw2N() == 0) hAlt->Sumw2();
+              hAlt->Scale(w10);
+            }
+          }
+          if (!hAlt && h20)
+          {
+            hAlt = CloneTH3(h20, "h_JES3_pT_xJ_alpha_r04_ALT_7piOver8");
+            if (hAlt)
+            {
+              hAlt->SetDirectory(nullptr);
+              if (hAlt->GetSumw2N() == 0) hAlt->Sumw2();
+              hAlt->Scale(w20);
+            }
+          }
+          if (hAlt && h20)
+          {
+            TH3* tmp = CloneTH3(h20, "h_tmp20_add_7piOver8");
+            if (tmp)
+            {
+              tmp->SetDirectory(nullptr);
+              if (tmp->GetSumw2N() == 0) tmp->Sumw2();
+              tmp->Scale(w20);
+              hAlt->Add(tmp);
+              delete tmp;
+            }
+          }
+
+          f10->Close();
+          f20->Close();
+
+          if (!hAlt)
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] Δφ overlay skipped: failed to build alternate merged TH3.\n"
+                 << ANSI_RESET;
+            return;
+          }
+
+          // -------------------------------------------------------------------------
+          // Make a 3x2 table (6 pads) across pTgamma bins: ProjectY (xJ) integrating alpha
+          // -------------------------------------------------------------------------
+          const int nCols = 3;
+          const int nRows = 2;
+
+          const int nBase = hBase->GetXaxis()->GetNbins();
+          const int nAlt  = hAlt->GetXaxis()->GetNbins();
+          const int nPt   = std::min(nBase, nAlt);
+
+          TCanvas c("c_tbl_dphiCuts_r04", "c_tbl_dphiCuts_r04", 1500, 900);
+          c.Divide(nCols, nRows, 0.001, 0.001);
+
+          std::vector<TH1*> keep;
+          keep.reserve(2 * 6);
+
+          const int nPads = std::min(6, nPt);
+          for (int k = 0; k < nPads; ++k)
+          {
+            const int ib = 1 + k;
+            c.cd(k+1);
+
+            gPad->SetLeftMargin(0.14);
+            gPad->SetRightMargin(0.05);
+            gPad->SetBottomMargin(0.14);
+            gPad->SetTopMargin(0.10);
+            gPad->SetLogy(false);
+
+            TH1* hPi2  = ProjectY_AtXbin_TH3(hBase, ib, TString::Format("h_xJ_pi2_b%d", ib).Data());
+            TH1* h7p8  = ProjectY_AtXbin_TH3(hAlt,  ib, TString::Format("h_xJ_7p8_b%d", ib).Data());
+
+            if (!hPi2 && !h7p8)
+            {
+              TLatex t;
+              t.SetNDC(true);
+              t.SetTextFont(42);
+              t.SetTextSize(0.06);
+              t.DrawLatex(0.15, 0.55, "MISSING");
+              continue;
+            }
+
+            // Red closed circles: |Δφ| > π/2  (baseline)
+            if (hPi2)
+            {
+              hPi2->SetDirectory(nullptr);
+              EnsureSumw2(hPi2);
+              hPi2->SetTitle("");
+              hPi2->SetLineWidth(2);
+              hPi2->SetLineColor(2);
+              hPi2->SetMarkerStyle(20);   // closed circle
+              hPi2->SetMarkerSize(0.95);
+              hPi2->SetMarkerColor(2);
+              hPi2->SetFillStyle(0);
+              hPi2->GetXaxis()->SetTitle("x_{J#gamma}");
+              hPi2->GetYaxis()->SetTitle((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts");
+            }
+
+            // Blue open circles: |Δφ| > 7π/8 (alternate)
+            if (h7p8)
+            {
+              h7p8->SetDirectory(nullptr);
+              EnsureSumw2(h7p8);
+              h7p8->SetTitle("");
+              h7p8->SetLineWidth(2);
+              h7p8->SetLineColor(4);
+              h7p8->SetMarkerStyle(24);   // open circle
+              h7p8->SetMarkerSize(0.95);
+              h7p8->SetMarkerColor(4);
+              h7p8->SetFillStyle(0);
+              h7p8->GetXaxis()->SetTitle("x_{J#gamma}");
+              h7p8->GetYaxis()->SetTitle((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts");
+            }
+
+            TH1* first  = hPi2 ? hPi2 : h7p8;
+            TH1* second = (first == hPi2) ? h7p8 : hPi2;
+
+            double ymax = 0.0;
+            if (hPi2) ymax = std::max(ymax, hPi2->GetMaximum());
+            if (h7p8) ymax = std::max(ymax, h7p8->GetMaximum());
+            if (first) first->SetMaximum(ymax * 1.25);
+
+            if (first)  first->Draw("E1");
+            if (second) second->Draw("E1 same");
+
+            // Pad title: pT bin label taken from axis bin edges
+            const std::string ptLab = AxisBinLabel(hBase->GetXaxis(), ib, "GeV", 0);
+
+            TLatex ttitle;
+            ttitle.SetNDC(true);
+            ttitle.SetTextFont(42);
+            ttitle.SetTextAlign(22);
+            ttitle.SetTextSize(0.060);
+            ttitle.DrawLatex(
+              0.50, 0.95,
+              TString::Format("Reco-level x_{J#gamma}, p_{T}^{#gamma} = %s", ptLab.c_str()).Data()
+            );
+
+            // Legend: label the Δφ cuts correctly for each curve
+            TLegend leg(0.52, 0.74, 0.92, 0.90);
+            leg.SetTextFont(42);
+            leg.SetTextSize(0.050);
+            leg.SetFillStyle(0);
+            leg.SetBorderSize(0);
+            if (hPi2) leg.AddEntry(hPi2,  "|#Delta#phi(#gamma,jet)| > #pi/2",   "ep");
+            if (h7p8) leg.AddEntry(h7p8,  "|#Delta#phi(#gamma,jet)| > 7#pi/8", "ep");
+            leg.DrawClone();
+
+            if (hPi2) keep.push_back(hPi2);
+            if (h7p8) keep.push_back(h7p8);
+          }
+
+          SaveCanvas(c, outPng);
+
+          for (auto* h : keep) delete h;
+          delete hAlt;
+
+          cout << ANSI_BOLD_GRN
+               << "[OK] Wrote Δφ-cut RECO xJ overlay table: " << outPng << "\n"
+               << ANSI_RESET;
         }
 
         void RunJES3QA(Dataset& ds)
@@ -6172,10 +6414,18 @@ namespace ARJ
 
                       // Force special colors by legend label (applies no matter which histogram is A/B)
                       if (legBlack == "Reco (#gamma^{truth} + jet^{truth} tagged)") colA = kViolet + 1;  // purple
-                      if (legBlack == "Truth (#gamma^{reco} + jet^{reco} tagged)") colA = kPink   + 7;  // pink
+                      if (legBlack == "Truth (#gamma^{reco} + jet^{reco} tagged)")
+                      {
+                        // For RECO_vs_TRUTHrecoConditioned we want Truth drawn in BLUE (open circles).
+                        // Keep PINK for other overlay folders that intentionally use pink.
+                        colA = (ovTag == "RECO_vs_TRUTHrecoConditioned") ? (kBlue + 1) : (kPink + 7);
+                      }
 
                       if (legRed  == "Reco (#gamma^{truth} + jet^{truth} tagged)") colB = kViolet + 1;  // purple
-                      if (legRed  == "Truth (#gamma^{reco} + jet^{reco} tagged)") colB = kPink   + 7;  // pink
+                      if (legRed  == "Truth (#gamma^{reco} + jet^{reco} tagged)")
+                      {
+                        colB = (ovTag == "RECO_vs_TRUTHrecoConditioned") ? (kBlue + 1) : (kPink + 7);
+                      }
 
                       hA->SetLineWidth(2);
                       hA->SetMarkerStyle(24);
@@ -6231,8 +6481,10 @@ namespace ARJ
                     delete hB;
                   }
 
-                  // --- 3x3 table pages of overlays (shape) ---
-                  const int perPage = 9;
+                  // --- 3x2 table pages of overlays (shape) ---
+                  const int nCols   = 3;
+                  const int nRows   = 2;
+                  const int perPage = nCols * nRows;  // 6
                   int page = 0;
 
                   for (int start = 1; start <= nPtOv; start += perPage)
@@ -6241,14 +6493,15 @@ namespace ARJ
 
                     TCanvas c(
                       TString::Format("c_tbl_ov_%s_%s_p%d", ovTag.c_str(), rKey.c_str(), page).Data(),
-                      "c_tbl_ov", 1500, 1200
+                      "c_tbl_ov", 1500, 900
                     );
-                    c.Divide(3,3, 0.001, 0.001);
+                    c.Divide(nCols, nRows, 0.001, 0.001);
 
                     vector<TH1*> keep;
                     keep.reserve(2 * perPage);
 
-                    for (int k = 0; k < perPage; ++k)
+                    const int nThisPage = std::min(perPage, nPtOv - start + 1);
+                    for (int k = 0; k < nThisPage; ++k)
                     {
                       const int ib = start + k;
                       c.cd(k+1);
@@ -6257,16 +6510,6 @@ namespace ARJ
                       gPad->SetRightMargin(0.05);
                       gPad->SetBottomMargin(0.14);
                       gPad->SetTopMargin(0.10);
-
-                      if (ib > nPtOv)
-                      {
-                        TLatex t;
-                        t.SetNDC(true);
-                        t.SetTextFont(42);
-                        t.SetTextSize(0.06);
-                        t.DrawLatex(0.20, 0.55, "EMPTY");
-                        continue;
-                      }
 
                       TH1* hA = ProjectY_AtXbin_TH3(hBlack, ib,
                         TString::Format("tbl_%s_blk_%s_%d_p%d", ovTag.c_str(), rKey.c_str(), ib, page).Data()
@@ -6299,10 +6542,18 @@ namespace ARJ
 
                         // Force special colors by legend label (applies no matter which histogram is A/B)
                         if (legBlack == "Reco (#gamma^{truth} + jet^{truth} tagged)") colA = kViolet + 1;  // purple
-                        if (legBlack == "Truth (#gamma^{reco} + jet^{reco} tagged)") colA = kPink   + 7;  // pink
+                        if (legBlack == "Truth (#gamma^{reco} + jet^{reco} tagged)")
+                        {
+                          // For RECO_vs_TRUTHrecoConditioned we want Truth drawn in BLUE (open circles).
+                          // Keep PINK for other overlay folders that intentionally use pink.
+                          colA = (ovTag == "RECO_vs_TRUTHrecoConditioned") ? (kBlue + 1) : (kPink + 7);
+                        }
 
                         if (legRed  == "Reco (#gamma^{truth} + jet^{truth} tagged)") colB = kViolet + 1;  // purple
-                        if (legRed  == "Truth (#gamma^{reco} + jet^{reco} tagged)") colB = kPink   + 7;  // pink
+                        if (legRed  == "Truth (#gamma^{reco} + jet^{reco} tagged)")
+                        {
+                          colB = (ovTag == "RECO_vs_TRUTHrecoConditioned") ? (kBlue + 1) : (kPink + 7);
+                        }
 
                         hA->SetLineWidth(2);
                         hA->SetMarkerStyle(24);
@@ -6336,7 +6587,7 @@ namespace ARJ
                         TString::Format("p_{T}^{#gamma} = %s  (R=%.1f)", ptLab.c_str(), R).Data()
                       );
 
-                        // Legend placement: top-right, but protect long labels in 3x3 pads
+                        // Legend placement: top-right, but protect long labels in table pads
                         double lx1 = 0.52, ly1 = 0.74, lx2 = 0.92, ly2 = 0.90;
                         double legTextSize = 0.055;
                         double legMargin   = 0.25;   // fraction of box reserved for markers/lines
@@ -7462,7 +7713,7 @@ namespace ARJ
                             ds.label.c_str(), rKey.c_str(), page).Data(),
                           "c_tbl_alphaRemoved", 1500, 1200
                         );
-                        c.Divide(3,3,0.001,0.001);
+                        c.Divide(3,2,0.001,0.001);
 
                         std::vector<TObject*> keep;
                         keep.reserve(perPage * 3);
@@ -7607,7 +7858,7 @@ namespace ARJ
                         TString::Format("c_tbl_jet2Pt_zeroFrac_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
                         "c_tbl_jet2Pt_zeroFrac", 1500, 1200
                       );
-                      c.Divide(3,3,0.001,0.001);
+                      c.Divide(3,2,0.001,0.001);
 
                       std::vector<TH1*> keep;
                       keep.reserve(kNPtBins);
@@ -7751,7 +8002,7 @@ namespace ARJ
                             ds.label.c_str(), rKey.c_str(), page).Data(),
                           "c_tbl_meanxJ_vs_alpha", 1500, 1200
                         );
-                        c.Divide(3,3,0.001,0.001);
+                        c.Divide(3,2,0.001,0.001);
 
                         std::vector<TObject*> keep;
                         keep.reserve(perPage * 2);
@@ -7940,10 +8191,20 @@ namespace ARJ
                         }
 
                         // Integrated diagnostic (keep this for sanity)
-                        const double denInt   = denC ? denC->Integral(1, denC->GetNbinsX()) : 0.0;
-                        const double numInt   = numC ? numC->Integral(1, numC->GetNbinsX()) : 0.0;
-                        const double missAInt = hMissA ? hMissA->Integral(1, hMissA->GetNbinsX()) : 0.0;
-                        const double missBInt = hMissB ? hMissB->Integral(1, hMissB->GetNbinsX()) : 0.0;
+                        // JES3-only convention: ignore truth pT < 15 GeV (underflow support for unfolding)
+                        const double minTruthPtJES3 = 15.0;
+                        int firstBinJES3 = 1;
+                        if (denC && denC->GetXaxis())
+                        {
+                          firstBinJES3 = denC->GetXaxis()->FindBin(minTruthPtJES3 + 1e-6); // lands in 15-17 when 15 is an edge
+                          if (firstBinJES3 < 1) firstBinJES3 = 1;
+                        }
+                        const int lastBinJES3 = (denC ? denC->GetNbinsX() : 0);
+
+                        const double denInt   = (denC   ? denC->Integral(firstBinJES3, lastBinJES3) : 0.0);
+                        const double numInt   = (numC   ? numC->Integral(firstBinJES3, lastBinJES3) : 0.0);
+                        const double missAInt = (hMissA ? hMissA->Integral(firstBinJES3, lastBinJES3) : 0.0);
+                        const double missBInt = (hMissB ? hMissB->Integral(firstBinJES3, lastBinJES3) : 0.0);
 
                         const double effInt = SafeDivide(numInt,   denInt, 0.0);
                         const double aFrac  = SafeDivide(missAInt, denInt, 0.0);
@@ -7962,42 +8223,51 @@ namespace ARJ
                         effSummary.push_back(TString::Format("  Integrated: eps=%.4f  missA/DEN=%.4f  missB/DEN=%.4f  sum=%.4f",
                           effInt, aFrac, bFrac, effInt + aFrac + bFrac).Data());
 
-                        if (hEff)
-                        {
+                          if (hEff)
+                          {
                           TCanvas c(TString::Format("c_leadRecoilJetMatchEff_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
                                     "c_leadRecoilJetMatchEff", 900, 720);
                           ApplyCanvasMargins1D(c);
 
-                          hEff->SetTitle("");
-                          hEff->GetXaxis()->SetTitle("p_{T}^{#gamma,truth} [GeV]");
-                          hEff->GetYaxis()->SetTitle("#varepsilon_{lead} = P(reco jet matches truth lead recoil)");
-                            // Auto-scale y-axis to the data (avoid lots of empty space).
-                            // Compute min/max over populated bins and pad by a small margin.
+                            hEff->SetTitle("");
+                            hEff->GetXaxis()->SetTitle("p_{T}^{#gamma,truth} [GeV]");
+                            hEff->GetYaxis()->SetTitle("#varepsilon_{lead} = P(reco jet matches truth lead recoil)");
+
+                            // JES3-only convention: do not display truth pT < 15 GeV
+                            const double minTruthPtJES3_plot = 15.0;
+                            hEff->GetXaxis()->SetRangeUser(minTruthPtJES3_plot, hEff->GetXaxis()->GetXmax());
+
+                            // Auto-scale y-axis to the data (avoid lots of empty space),
+                            // but ONLY over the displayed truth pT region (>=15 GeV).
                             double yMin =  1e9;
                             double yMax = -1e9;
                             for (int ib = 1; ib <= hEff->GetNbinsX(); ++ib)
                             {
+                              if (hEff->GetXaxis()->GetBinLowEdge(ib) < minTruthPtJES3_plot) continue;
+
                               const double v = hEff->GetBinContent(ib);
                               const double e = hEff->GetBinError(ib);
-                              // ignore empty/unfilled bins
-                              if (v <= 0.0) continue;
+                              if (v <= 0.0) continue; // ignore empty/unfilled bins
+
                               yMin = std::min(yMin, v - e);
                               yMax = std::max(yMax, v + e);
-                            }
-                            if (yMin > yMax) { yMin = 0.0; yMax = 1.0; } // fallback
-                            const double pad = 0.06;
-                            const double yLo = std::max(0.0, yMin - pad);
-                            const double yHi = std::min(1.05, yMax + pad);
-                            hEff->GetYaxis()->SetRangeUser(yLo, yHi);
+                          }
+                          if (yMin > yMax) { yMin = 0.0; yMax = 1.0; } // fallback
+                          const double pad = 0.06;
+                          const double yLo = std::max(0.0, yMin - pad);
+                          const double yHi = std::min(1.05, yMax + pad);
+                          hEff->GetYaxis()->SetRangeUser(yLo, yHi);
 
-                            // Draw as a TGraphErrors with x-errors forced to 0:
-                            // this guarantees "vertical-only" statistical errors and no histogram bin-width segments.
-                            std::unique_ptr<TGraphErrors> gEff(new TGraphErrors());
-                            gEff->SetName(TString::Format("g_leadRecoilJetMatchEff_%s", rKey.c_str()).Data());
+                          // Draw as a TGraphErrors with x-errors forced to 0:
+                          // this guarantees "vertical-only" statistical errors and no histogram bin-width segments.
+                          std::unique_ptr<TGraphErrors> gEff(new TGraphErrors());
+                          gEff->SetName(TString::Format("g_leadRecoilJetMatchEff_%s", rKey.c_str()).Data());
 
-                            int ip = 0;
-                            for (int ib = 1; ib <= hEff->GetNbinsX(); ++ib)
-                            {
+                          int ip = 0;
+                          for (int ib = 1; ib <= hEff->GetNbinsX(); ++ib)
+                          {
+                              if (hEff->GetXaxis()->GetBinLowEdge(ib) < minTruthPtJES3_plot) continue;
+
                               const double y  = hEff->GetBinContent(ib);
                               const double ey = hEff->GetBinError(ib);
                               if (y <= 0.0) continue; // skip empty/unfilled bins
@@ -8006,28 +8276,27 @@ namespace ARJ
                               gEff->SetPoint(ip, x, y);
                               gEff->SetPointError(ip, 0.0, ey); // xerr=0.0  -> NO horizontal error bars
                               ++ip;
-                            }
+                          }
 
-                            // Error bars are drawn using the graph's LINE attributes.
-                            // LineWidth(0) makes the vertical errors invisible.
-                            gEff->SetLineWidth(2);
-                            gEff->SetLineColor(1);
+                          // Error bars are drawn using the graph's LINE attributes.
+                          gEff->SetLineWidth(2);
+                          gEff->SetLineColor(1);
 
-                            gEff->SetMarkerStyle(20);
-                            gEff->SetMarkerSize(1.10);
-                            gEff->SetMarkerColor(1);
+                          gEff->SetMarkerStyle(20);
+                          gEff->SetMarkerSize(1.10);
+                          gEff->SetMarkerColor(1);
 
-                            // Use the histogram only as an axis frame
-                            hEff->SetLineWidth(0);
-                            hEff->SetMarkerSize(0);
-                            hEff->Draw("AXIS");
+                          // Use the histogram only as an axis frame
+                          hEff->SetLineWidth(0);
+                          hEff->SetMarkerSize(0);
+                          hEff->Draw("AXIS");
 
-                            // Draw points + vertical errors only:
-                            //  P = markers, Z = no end-caps
-                            gEff->Draw("PZ SAME");
+                          // Draw points + vertical errors only:
+                          //  P = markers, Z = no end-caps
+                          gEff->Draw("PZ SAME");
 
-                          // Optional reference line at 1
-                          const double xMin = hEff->GetXaxis()->GetXmin();
+                          // Optional reference line at 1 (start at 15 GeV)
+                          const double xMin = minTruthPtJES3_plot;
                           const double xMax = hEff->GetXaxis()->GetXmax();
                           TLine one(xMin, 1.0, xMax, 1.0);
                           one.SetLineStyle(2);
@@ -8097,27 +8366,33 @@ namespace ARJ
                                 if (hEff02) { EnsureSumw2(hEff02.get()); hEff02->Divide(num02C, den02C, 1.0, 1.0, "B"); }
                                 if (hEff04) { EnsureSumw2(hEff04.get()); hEff04->Divide(num04C, den04C, 1.0, 1.0, "B"); }
 
-                                auto MakeGraphNoXerr = [&](TH1* h, int mStyle, double mSize, int lColor, int mColor) -> std::unique_ptr<TGraphErrors>
-                                {
-                                  std::unique_ptr<TGraphErrors> g(new TGraphErrors());
-                                  int ip = 0;
-                                  for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                                  // JES3-only convention: do not display truth pT < 15 GeV
+                                  const double minTruthPtJES3_plot = 15.0;
+
+                                  auto MakeGraphNoXerr = [&](TH1* h, int mStyle, double mSize, int lColor, int mColor) -> std::unique_ptr<TGraphErrors>
                                   {
-                                    const double y  = h->GetBinContent(ib);
-                                    const double ey = h->GetBinError(ib);
-                                    if (y <= 0.0) continue;
-                                    const double x  = h->GetXaxis()->GetBinCenter(ib);
-                                    g->SetPoint(ip, x, y);
-                                    g->SetPointError(ip, 0.0, ey); // vertical-only errors
-                                    ++ip;
-                                  }
-                                  g->SetLineWidth(2);
-                                  g->SetLineColor(lColor);
-                                  g->SetMarkerStyle(mStyle);
-                                  g->SetMarkerSize(mSize);
-                                  g->SetMarkerColor(mColor);
-                                  return g;
-                                };
+                                    std::unique_ptr<TGraphErrors> g(new TGraphErrors());
+                                    int ip = 0;
+                                    for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                                    {
+                                      if (h->GetXaxis()->GetBinLowEdge(ib) < minTruthPtJES3_plot) continue;
+
+                                      const double y  = h->GetBinContent(ib);
+                                      const double ey = h->GetBinError(ib);
+                                      if (y <= 0.0) continue;
+
+                                      const double x  = h->GetXaxis()->GetBinCenter(ib);
+                                      g->SetPoint(ip, x, y);
+                                      g->SetPointError(ip, 0.0, ey); // vertical-only errors
+                                      ++ip;
+                                    }
+                                    g->SetLineWidth(2);
+                                    g->SetLineColor(lColor);
+                                    g->SetMarkerStyle(mStyle);
+                                    g->SetMarkerSize(mSize);
+                                    g->SetMarkerColor(mColor);
+                                    return g;
+                                  };
 
                                 auto g02 = (hEff02 ? MakeGraphNoXerr(hEff02.get(), 20, 1.05, 2, 2) : nullptr); // r02 red
                                 auto g04 = (hEff04 ? MakeGraphNoXerr(hEff04.get(), 20, 1.05, 4, 4) : nullptr); // r04 blue
@@ -8131,9 +8406,10 @@ namespace ARJ
                                   {
                                     for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
                                     {
-                                      const double v = h->GetBinContent(ib);
-                                      const double e = h->GetBinError(ib);
-                                      if (v <= 0.0) continue;
+                                        if (h->GetXaxis()->GetBinLowEdge(ib) < minTruthPtJES3_plot) continue;
+                                        const double v = h->GetBinContent(ib);
+                                        const double e = h->GetBinError(ib);
+                                        if (v <= 0.0) continue;
                                       yMin = std::min(yMin, v - e);
                                       yMax = std::max(yMax, v + e);
                                     }
@@ -8154,6 +8430,7 @@ namespace ARJ
                                   hEff04->GetXaxis()->SetTitle("p_{T}^{#gamma,truth} [GeV]");
                                   hEff04->GetYaxis()->SetTitle("#varepsilon_{lead} = P(reco jet matches truth lead recoil)");
                                   hEff04->GetYaxis()->SetRangeUser(yLo, yHi);
+                                  hEff04->GetXaxis()->SetRangeUser(minTruthPtJES3_plot, hEff04->GetXaxis()->GetXmax());
                                   hEff04->SetLineWidth(0);
                                   hEff04->SetMarkerSize(0);
                                   hEff04->Draw("AXIS");
@@ -8163,7 +8440,7 @@ namespace ARJ
                                   g04->Draw("PE SAME");
 
                                   // Reference line at 1
-                                  const double xMin = hEff04->GetXaxis()->GetXmin();
+                                  const double xMin = minTruthPtJES3_plot;
                                   const double xMax = hEff04->GetXaxis()->GetXmax();
                                   TLine one(xMin, 1.0, xMax, 1.0);
                                   one.SetLineStyle(2);
@@ -8230,68 +8507,76 @@ namespace ARJ
                                 hFracA->Divide(missA_C, denC, 1.0, 1.0, "B");
                                 hFracB->Divide(missB_C, denC, 1.0, 1.0, "B");
 
-                                // Auto-scale y-axis for misses only
-                                double yMinM =  1e9;
-                                double yMaxM = -1e9;
-                                for (int ib = 1; ib <= hFracA->GetNbinsX(); ++ib)
-                                {
-                                  const double a  = hFracA->GetBinContent(ib);
-                                  const double ea = hFracA->GetBinError(ib);
-                                  const double b  = hFracB->GetBinContent(ib);
-                                  const double eb = hFracB->GetBinError(ib);
+                                  // JES3-only convention: do not display truth pT < 15 GeV
+                                  const double minTruthPtJES3_plot = 15.0;
 
-                                  if (a > 0.0) { yMinM = std::min(yMinM, a - ea); yMaxM = std::max(yMaxM, a + ea); }
-                                  if (b > 0.0) { yMinM = std::min(yMinM, b - eb); yMaxM = std::max(yMaxM, b + eb); }
-                                }
-                                if (yMinM > yMaxM) { yMinM = 0.0; yMaxM = 0.20; } // fallback
-                                const double padM = 0.02;
-                                const double yLoM = 0.0;
-                                const double yHiM = std::min(1.0, yMaxM + padM);
-
-                                // Build TGraphErrors with xerr=0 (vertical-only statistical errors)
-                                auto MakeGraphNoXerr =
-                                  [&](TH1* h, int mStyle, double mSize, int lColor, int mColor) -> std::unique_ptr<TGraphErrors>
-                                {
-                                  std::unique_ptr<TGraphErrors> g(new TGraphErrors());
-                                  int ip = 0;
-                                  for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                                  // Auto-scale y-axis for misses only, but ONLY over displayed truth pT (>=15 GeV)
+                                  double yMinM =  1e9;
+                                  double yMaxM = -1e9;
+                                  for (int ib = 1; ib <= hFracA->GetNbinsX(); ++ib)
                                   {
-                                    const double y  = h->GetBinContent(ib);
-                                    const double ey = h->GetBinError(ib);
-                                    if (y <= 0.0) continue;
+                                    if (hFracA->GetXaxis()->GetBinLowEdge(ib) < minTruthPtJES3_plot) continue;
 
-                                    const double x  = h->GetXaxis()->GetBinCenter(ib);
+                                    const double a  = hFracA->GetBinContent(ib);
+                                    const double ea = hFracA->GetBinError(ib);
+                                    const double b  = hFracB->GetBinContent(ib);
+                                    const double eb = hFracB->GetBinError(ib);
 
-                                    g->SetPoint(ip, x, y);
-                                    g->SetPointError(ip, 0.0, ey); // NO horizontal error bars
-                                    ++ip;
+                                    if (a > 0.0) { yMinM = std::min(yMinM, a - ea); yMaxM = std::max(yMaxM, a + ea); }
+                                    if (b > 0.0) { yMinM = std::min(yMinM, b - eb); yMaxM = std::max(yMaxM, b + eb); }
                                   }
-                                  g->SetLineWidth(2);          // makes vertical errors visible
-                                  g->SetLineColor(lColor);
-                                  g->SetMarkerStyle(mStyle);
-                                  g->SetMarkerSize(mSize);
-                                  g->SetMarkerColor(mColor);
-                                  return g;
-                                };
+                                  if (yMinM > yMaxM) { yMinM = 0.0; yMaxM = 0.20; } // fallback
+                                  const double padM = 0.02;
+                                  const double yLoM = 0.0;
+                                  const double yHiM = std::min(1.0, yMaxM + padM);
 
-                                // Use FILLED CIRCLE markers for BOTH series (different colors distinguish A vs B)
-                                auto gA = MakeGraphNoXerr(hFracA.get(), 20, 1.05, 2, 2); // red filled circles
-                                auto gB = MakeGraphNoXerr(hFracB.get(), 20, 1.05, 4, 4); // blue filled circles
+                                  // Build TGraphErrors with xerr=0 (vertical-only statistical errors)
+                                  auto MakeGraphNoXerr =
+                                    [&](TH1* h, int mStyle, double mSize, int lColor, int mColor) -> std::unique_ptr<TGraphErrors>
+                                  {
+                                    std::unique_ptr<TGraphErrors> g(new TGraphErrors());
+                                    int ip = 0;
+                                    for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                                    {
+                                      if (h->GetXaxis()->GetBinLowEdge(ib) < minTruthPtJES3_plot) continue;
 
-                                TCanvas cM(TString::Format("c_leadTruthMatchMisses_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
-                                           "c_leadTruthMatchMisses", 900, 720);
-                                ApplyCanvasMargins1D(cM);
+                                      const double y  = h->GetBinContent(ib);
+                                      const double ey = h->GetBinError(ib);
+                                      if (y <= 0.0) continue;
 
-                                // Use hFracA as the axis frame
-                                hFracA->SetTitle("");
-                                hFracA->GetXaxis()->SetTitle("p_{T}^{#gamma,truth} [GeV]");
-                                hFracA->GetYaxis()->SetTitle("Miss probability (fraction of DEN)");
-                                hFracA->GetYaxis()->SetRangeUser(yLoM, yHiM);
+                                      const double x  = h->GetXaxis()->GetBinCenter(ib);
 
-                                // Draw axis only
-                                hFracA->SetLineWidth(0);
-                                hFracA->SetMarkerSize(0);
-                                hFracA->Draw("AXIS");
+                                      g->SetPoint(ip, x, y);
+                                      g->SetPointError(ip, 0.0, ey); // NO horizontal error bars
+                                      ++ip;
+                                    }
+                                    g->SetLineWidth(2);          // makes vertical errors visible
+                                    g->SetLineColor(lColor);
+                                    g->SetMarkerStyle(mStyle);
+                                    g->SetMarkerSize(mSize);
+                                    g->SetMarkerColor(mColor);
+                                    return g;
+                                  };
+
+                                  // Use FILLED CIRCLE markers for BOTH series (different colors distinguish A vs B)
+                                  auto gA = MakeGraphNoXerr(hFracA.get(), 20, 1.05, 2, 2); // red filled circles
+                                  auto gB = MakeGraphNoXerr(hFracB.get(), 20, 1.05, 4, 4); // blue filled circles
+
+                                  TCanvas cM(TString::Format("c_leadTruthMatchMisses_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
+                                             "c_leadTruthMatchMisses", 900, 720);
+                                  ApplyCanvasMargins1D(cM);
+
+                                  // Use hFracA as the axis frame
+                                  hFracA->SetTitle("");
+                                  hFracA->GetXaxis()->SetTitle("p_{T}^{#gamma,truth} [GeV]");
+                                  hFracA->GetYaxis()->SetTitle("Miss probability (fraction of DEN)");
+                                  hFracA->GetXaxis()->SetRangeUser(minTruthPtJES3_plot, hFracA->GetXaxis()->GetXmax());
+                                  hFracA->GetYaxis()->SetRangeUser(yLoM, yHiM);
+
+                                  // Draw axis only
+                                  hFracA->SetLineWidth(0);
+                                  hFracA->SetMarkerSize(0);
+                                  hFracA->Draw("AXIS");
 
                                 // Draw graphs WITH statistical error bars (xerr=0 from builder)
                                 if (gA) gA->Draw("PE SAME");
@@ -8312,10 +8597,20 @@ namespace ARJ
                                 //   DEN = NUM + MissA + MissB  =>  eps + fA + fB = 1
                                 // ------------------------------------------------------------
                                 {
-                                  const double denIntC   = (denC    ? denC->Integral(1, denC->GetNbinsX()) : 0.0);
-                                  const double numIntC   = (numC    ? numC->Integral(1, numC->GetNbinsX()) : 0.0);
-                                  const double missAIntC = (missA_C ? missA_C->Integral(1, missA_C->GetNbinsX()) : 0.0);
-                                  const double missBIntC = (missB_C ? missB_C->Integral(1, missB_C->GetNbinsX()) : 0.0);
+                                    // JES3-only convention: ignore truth pT < 15 GeV for closure readout (match displayed region)
+                                    const double minTruthPtJES3_plot = 15.0;
+                                    int firstBinJES3 = 1;
+                                    if (denC && denC->GetXaxis())
+                                    {
+                                      firstBinJES3 = denC->GetXaxis()->FindBin(minTruthPtJES3_plot + 1e-6);
+                                      if (firstBinJES3 < 1) firstBinJES3 = 1;
+                                    }
+                                    const int lastBinJES3 = (denC ? denC->GetNbinsX() : 0);
+
+                                    const double denIntC   = (denC    ? denC->Integral(firstBinJES3, lastBinJES3) : 0.0);
+                                    const double numIntC   = (numC    ? numC->Integral(firstBinJES3, lastBinJES3) : 0.0);
+                                    const double missAIntC = (missA_C ? missA_C->Integral(firstBinJES3, lastBinJES3) : 0.0);
+                                    const double missBIntC = (missB_C ? missB_C->Integral(firstBinJES3, lastBinJES3) : 0.0);
 
                                   const double epsIntC = (denIntC > 0.0 ? numIntC   / denIntC : 0.0);
                                   const double fAIntC  = (denIntC > 0.0 ? missAIntC / denIntC : 0.0);
@@ -8325,8 +8620,8 @@ namespace ARJ
                                   double maxAbsDev = 0.0;
                                   if (denC && numC && missA_C && missB_C)
                                   {
-                                    const int nb = denC->GetNbinsX();
-                                    for (int ib = 1; ib <= nb; ++ib)
+                                      const int nb = denC->GetNbinsX();
+                                      for (int ib = firstBinJES3; ib <= nb; ++ib)
                                     {
                                       const double den = denC->GetBinContent(ib);
                                       if (den <= 0.0) continue;
@@ -8984,34 +9279,35 @@ namespace ARJ
 
                               if (hF_N && hF_A && hF_B)
                               {
-                                // Convert to TGraphErrors with xerr=0 (vertical-only stat errors)
-                                auto MakeGraphNoXerr = [&](TH1* h, int color, int mStyle) -> std::unique_ptr<TGraphErrors>
-                                {
-                                  std::unique_ptr<TGraphErrors> g(new TGraphErrors());
-                                  int ip = 0;
-                                  for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                                  // Convert to TGraphErrors with xerr=0 (vertical-only stat errors)
+                                  // JES3-only convention: do not display truth pT < 15 GeV
+                                  const double minTruthPtJES3_plot = 15.0;
+
+                                  auto MakeGraphNoXerr = [&](TH1* h, int color, int mStyle) -> std::unique_ptr<TGraphErrors>
                                   {
-                                    const double y  = h->GetBinContent(ib);
-                                    const double ey = h->GetBinError(ib);
-                                    const double x  = h->GetXaxis()->GetBinCenter(ib);
+                                    std::unique_ptr<TGraphErrors> g(new TGraphErrors());
+                                    int ip = 0;
+                                    for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                                    {
+                                      if (h->GetXaxis()->GetBinLowEdge(ib) < minTruthPtJES3_plot) continue;
 
-                                    // Keep bins with nonzero trials; y can be 0 legitimately
-                                    const double nAll = 0.0; // not needed; binomial already handled
-                                    (void)nAll;
+                                      const double y  = h->GetBinContent(ib);
+                                      const double ey = h->GetBinError(ib);
+                                      const double x  = h->GetXaxis()->GetBinCenter(ib);
 
-                                    if (ey <= 0.0 && y <= 0.0) continue;
+                                      if (ey <= 0.0 && y <= 0.0) continue;
 
-                                    g->SetPoint(ip, x, y);
-                                    g->SetPointError(ip, 0.0, ey);
-                                    ++ip;
-                                  }
-                                  g->SetLineWidth(2);
-                                  g->SetLineColor(color);
-                                  g->SetMarkerStyle(mStyle);
-                                  g->SetMarkerSize(1.00);
-                                  g->SetMarkerColor(color);
-                                  return g;
-                                };
+                                      g->SetPoint(ip, x, y);
+                                      g->SetPointError(ip, 0.0, ey);
+                                      ++ip;
+                                    }
+                                    g->SetLineWidth(2);
+                                    g->SetLineColor(color);
+                                    g->SetMarkerStyle(mStyle);
+                                    g->SetMarkerSize(1.00);
+                                    g->SetMarkerColor(color);
+                                    return g;
+                                  };
 
                                 auto gN = MakeGraphNoXerr(hF_N.get(), kBlack, 20);
                                 auto gA = MakeGraphNoXerr(hF_A.get(), kRed+1, 20);
@@ -9026,6 +9322,7 @@ namespace ARJ
                                 hF_N->GetXaxis()->SetTitle("p_{T}^{#gamma,truth} [GeV]");
                                 hF_N->GetYaxis()->SetTitle(TString::Format("f_{BB}(|#Delta#phi|>%.1f) = N_{BB}/N_{all}", dphi0).Data());
                                 hF_N->GetYaxis()->SetRangeUser(0.0, 1.05);
+                                hF_N->GetXaxis()->SetRangeUser(minTruthPtJES3_plot, hF_N->GetXaxis()->GetXmax());
 
                                 hF_N->SetLineWidth(0);
                                 hF_N->SetMarkerSize(0);
@@ -9074,22 +9371,24 @@ namespace ARJ
                                 if (integral > 0.0) h->Scale(1.0 / integral);
                               };
 
-                              // Prefer the canonical 9 bins: 10-12 ... 26-35 (truth edges are {5,8,10,...,40})
+                              // Prefer the canonical bins (kNPtBins) and skip the 2 truth underflow bins if present.
+                              // With your updated truth edges {5,10,15,17,19,21,23,26,35,40}, the canonical 6 bins are:
+                              //   15-17, 17-19, 19-21, 21-23, 23-26, 26-35  -> startBin=3.
                               const int nXBins = HB3n->GetXaxis()->GetNbins();
                               int startBin = 1;
-                              int nUse = std::min(9, nXBins);
-                              if (nXBins >= 11) { startBin = 3; nUse = 9; } // 10-12 through 26-35
+                              int nUse = std::min(kNPtBins, nXBins);
+                              if (nXBins >= (kNPtBins + 2)) { startBin = 3; nUse = kNPtBins; }
 
                               TCanvas cTbl(
-                                TString::Format("c_tbl_dphiRecoJet1_byClass_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
-                                "c_tbl_dphiRecoJet1_byClass", 1500, 1200
+                                  TString::Format("c_tbl_dphiRecoJet1_byClass_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
+                                  "c_tbl_dphiRecoJet1_byClass", 1500, 1200
                               );
-                              cTbl.Divide(3,3, 0.001, 0.001);
+                              cTbl.Divide(3,2, 0.001, 0.001);
 
                               std::vector<TObject*> keep;
-                              keep.reserve(9 * 6);
+                              keep.reserve(kNPtBins * 6);
 
-                              for (int i = 0; i < 9; ++i)
+                              for (int i = 0; i < kNPtBins; ++i)
                               {
                                 cTbl.cd(i+1);
                                 gPad->SetLeftMargin(0.14);
@@ -9435,18 +9734,18 @@ namespace ARJ
                           };
 
                           const int nPtAxis = hDphi->GetXaxis()->GetNbins();
-                          const int nPtUse  = std::min(9, std::min(nPtAxis, (int)PtBins().size()));
+                          const int nPtUse  = std::min(kNPtBins, std::min(nPtAxis, (int)PtBins().size()));
 
                           TCanvas c(
-                            TString::Format("c_tbl_dphiRecoilJet1_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
-                            "c_tbl_dphiRecoilJet1", 1500, 1200
+                              TString::Format("c_tbl_dphiRecoilJet1_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
+                              "c_tbl_dphiRecoilJet1", 1500, 1200
                           );
-                          c.Divide(3,3, 0.001, 0.001);
+                          c.Divide(3,2, 0.001, 0.001);
 
                           std::vector<TObject*> keep;
                           keep.reserve(2 * nPtUse);
 
-                          for (int i = 0; i < 9; ++i)
+                          for (int i = 0; i < kNPtBins; ++i)
                           {
                             c.cd(i+1);
                             gPad->SetLeftMargin(0.14);
@@ -9575,11 +9874,11 @@ namespace ARJ
                         ).Data(),
                         "c_tbl_cntRatio", 1500, 1200
                       );
-                      c.Divide(3,3, 0.001, 0.001);
+                      c.Divide(3,2, 0.001, 0.001);
 
                       vector<TH1*> keep;
 
-                      for (int ib = 1; ib <= 9; ++ib)
+                      for (int ib = 1; ib <= kNPtBins; ++ib)
                       {
                         c.cd(ib);
 
@@ -9796,6 +10095,10 @@ namespace ARJ
               EnsureDir(dirSharedXJProjOverlay);
 
               JES3_R02R04Overlays_MaybeRun(ds, dirSharedXJProjOverlay);
+
+              // NEW: RECO-only Δφ-cut overlay table (π/2 vs 7π/8), r04 only
+              // Output: <outDir>/r04/xJ_fromJES3/RECO/table3x2_overlay_integratedAlpha_dPhiCuts.png
+              JES3_RecoDeltaPhiCutOverlay_MaybeRun(ds, outDir);
             }
 
             // =============================================================================
@@ -10240,7 +10543,7 @@ namespace ARJ
                 if (!h2) return;
 
                 const int nPt = h2->GetXaxis()->GetNbins();
-                const int perPage = 9;
+                const int perPage = kNPtBins;
                 int page = 0;
 
                 for (int start = 1; start <= nPt; start += perPage)
@@ -10331,93 +10634,160 @@ namespace ARJ
                 }
               };
 
-              // 3×3 tables + per-pT bin plots (counts + shape)
-              if (H.hRecoDphi)
-              {
-                Make3x3Table_DphiShape(H.hRecoDphi,
-                  "table3x3_absDphi_RECO_shape.png",
-                  "Reco-level |#Delta#phi(#gamma,jet)|"
-                );
-
-                const int nPtUse = std::min((int)PtBins().size(), H.hRecoDphi->GetXaxis()->GetNbins());
-                for (int i = 0; i < nPtUse; ++i)
+                // 3×3 tables + per-pT bin plots (counts + shape)
+                if (H.hRecoDphi)
                 {
-                  const PtBin& b = PtBins()[i];
-                  const int xbin = i + 1;
-
-                  TH1D* p = ProjY_AtXbin(H.hRecoDphi, xbin,
-                    TString::Format("p_absDphi_reco_%s_%s_%s", ds.label.c_str(), rKey.c_str(), b.folder.c_str()).Data()
+                  Make3x3Table_DphiShape(H.hRecoDphi,
+                    "table3x3_absDphi_RECO_shape.png",
+                    "Reco-level |#Delta#phi(#gamma,jet)|"
                   );
-                  if (!p) continue;
 
-                  const string perDir = JoinPath(dphiRecoDir, b.folder);
-                  EnsureDir(perDir);
+                  const int nPtUse = (int)PtBins().size();
+                  TAxis* ax = H.hRecoDphi->GetXaxis();
 
-                  vector<string> lines = {
-                    "RECO inclusive |#Delta#phi(#gamma,jet)|",
-                    TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
-                    TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data()
-                  };
+                  for (int i = 0; i < nPtUse; ++i)
+                  {
+                    const PtBin& b = PtBins()[i];
 
-                  DrawAndSaveTH1_Common(ds, p,
-                    JoinPath(perDir, "absDphi_counts.png"),
-                    "|#Delta#phi| [rad]", "Counts", lines, false, false, 0.0, "E1");
+                    // Map canonical bin [b.lo,b.hi) onto the unfolding axis via bin-center lookup,
+                    // then verify edges match (prevents silent mislabeling).
+                    const double mid  = 0.5 * (b.lo + b.hi);
+                    const int    xbin = ax->FindBin(mid);
 
-                  TH1* ps = CloneTH1(p, TString::Format("p_absDphi_reco_shape_%s_%s_%d", ds.label.c_str(), rKey.c_str(), i).Data());
-                  NormalizeVisible(ps);
+                    if (xbin < 1 || xbin > ax->GetNbins())
+                    {
+                      cout << ANSI_BOLD_YEL
+                           << "[WARN] Δphi RECO: cannot map canonical pT bin "
+                           << b.lo << "-" << b.hi
+                           << " to unfolding axis (xbin=" << xbin << ") → skip"
+                           << ANSI_RESET << "\n";
+                      continue;
+                    }
 
-                  DrawAndSaveTH1_Common(ds, ps,
-                    JoinPath(perDir, "absDphi_shape.png"),
-                    "|#Delta#phi| [rad]", "A.U.", lines, false, false, 0.0, "E1");
+                    const double axlo = ax->GetBinLowEdge(xbin);
+                    const double axhi = ax->GetBinUpEdge(xbin);
 
-                  delete ps;
-                  delete p;
+                    if (std::fabs(axlo - (double)b.lo) > 1e-6 || std::fabs(axhi - (double)b.hi) > 1e-6)
+                    {
+                      cout << ANSI_BOLD_YEL
+                           << "[WARN] Δphi RECO: canonical pT bin "
+                           << b.lo << "-" << b.hi
+                           << " maps to axis bin " << std::fixed << std::setprecision(0) << axlo << "-" << axhi
+                           << " (xbin=" << xbin << ") → skip"
+                           << ANSI_RESET << "\n";
+                      continue;
+                    }
+
+                    TH1D* p = ProjY_AtXbin(H.hRecoDphi, xbin,
+                      TString::Format("p_absDphi_reco_%s_%s_%s", ds.label.c_str(), rKey.c_str(), b.folder.c_str()).Data()
+                    );
+                    if (!p) continue;
+
+                    const string perDir = JoinPath(dphiRecoDir, b.folder);
+                    EnsureDir(perDir);
+
+                    vector<string> lines = {
+                      "RECO inclusive |#Delta#phi(#gamma,jet)|",
+                      TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                      TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data()
+                    };
+
+                    DrawAndSaveTH1_Common(ds, p,
+                      JoinPath(perDir, "absDphi_counts.png"),
+                      "|#Delta#phi| [rad]", "Counts", lines, false, false, 0.0, "E1"
+                    );
+
+                    TH1* ps = CloneTH1(p,
+                      TString::Format("p_absDphi_reco_shape_%s_%s_%d", ds.label.c_str(), rKey.c_str(), i).Data()
+                    );
+                    NormalizeVisible(ps);
+
+                    DrawAndSaveTH1_Common(ds, ps,
+                      JoinPath(perDir, "absDphi_shape.png"),
+                      "|#Delta#phi| [rad]", "A.U.", lines, false, false, 0.0, "E1"
+                    );
+
+                    delete ps;
+                    delete p;
+                  }
                 }
-              }
-
-              if (H.hTruthDphi)
-              {
-                Make3x3Table_DphiShape(H.hTruthDphi,
-                  "table3x3_absDphi_TRUTH_shape.png",
-                  "Truth-level |#Delta#phi(#gamma,jet)|"
-                );
-
-                const int nPtUse = std::min((int)PtBins().size(), H.hTruthDphi->GetXaxis()->GetNbins());
-                for (int i = 0; i < nPtUse; ++i)
+                if (H.hTruthDphi)
                 {
-                  const PtBin& b = PtBins()[i];
-                  const int xbin = i + 1;
-
-                  TH1D* p = ProjY_AtXbin(H.hTruthDphi, xbin,
-                    TString::Format("p_absDphi_truth_%s_%s_%s", ds.label.c_str(), rKey.c_str(), b.folder.c_str()).Data()
+                  Make3x3Table_DphiShape(H.hTruthDphi,
+                    "table3x3_absDphi_TRUTH_shape.png",
+                    "Truth-level |#Delta#phi(#gamma,jet)|"
                   );
-                  if (!p) continue;
 
-                  const string perDir = JoinPath(dphiTruthDir, b.folder);
-                  EnsureDir(perDir);
+                  const int nPtUse = (int)PtBins().size();
+                  TAxis* ax = H.hTruthDphi->GetXaxis();
 
-                  vector<string> lines = {
-                    "TRUTH inclusive |#Delta#phi(#gamma,jet)|",
-                    TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
-                    TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data()
-                  };
+                  for (int i = 0; i < nPtUse; ++i)
+                  {
+                    const PtBin& b = PtBins()[i];
 
-                  DrawAndSaveTH1_Common(ds, p,
-                    JoinPath(perDir, "absDphi_counts.png"),
-                    "|#Delta#phi| [rad]", "Counts", lines, false, false, 0.0, "E1");
+                    // Map canonical bin [b.lo,b.hi) onto the unfolding axis via bin-center lookup,
+                    // then verify edges match (prevents silent mislabeling).
+                    const double mid  = 0.5 * (b.lo + b.hi);
+                    const int    xbin = ax->FindBin(mid);
 
-                  TH1* ps = CloneTH1(p, TString::Format("p_absDphi_truth_shape_%s_%s_%d", ds.label.c_str(), rKey.c_str(), i).Data());
-                  NormalizeVisible(ps);
+                    if (xbin < 1 || xbin > ax->GetNbins())
+                    {
+                      cout << ANSI_BOLD_YEL
+                           << "[WARN] Δphi TRUTH: cannot map canonical pT bin "
+                           << b.lo << "-" << b.hi
+                           << " to unfolding axis (xbin=" << xbin << ") → skip"
+                           << ANSI_RESET << "\n";
+                      continue;
+                    }
 
-                  DrawAndSaveTH1_Common(ds, ps,
-                    JoinPath(perDir, "absDphi_shape.png"),
-                    "|#Delta#phi| [rad]", "A.U.", lines, false, false, 0.0, "E1");
+                    const double axlo = ax->GetBinLowEdge(xbin);
+                    const double axhi = ax->GetBinUpEdge(xbin);
 
-                  delete ps;
-                  delete p;
+                    if (std::fabs(axlo - (double)b.lo) > 1e-6 || std::fabs(axhi - (double)b.hi) > 1e-6)
+                    {
+                      cout << ANSI_BOLD_YEL
+                           << "[WARN] Δphi TRUTH: canonical pT bin "
+                           << b.lo << "-" << b.hi
+                           << " maps to axis bin " << std::fixed << std::setprecision(0) << axlo << "-" << axhi
+                           << " (xbin=" << xbin << ") → skip"
+                           << ANSI_RESET << "\n";
+                      continue;
+                    }
+
+                    TH1D* p = ProjY_AtXbin(H.hTruthDphi, xbin,
+                      TString::Format("p_absDphi_truth_%s_%s_%s", ds.label.c_str(), rKey.c_str(), b.folder.c_str()).Data()
+                    );
+                    if (!p) continue;
+
+                    const string perDir = JoinPath(dphiTruthDir, b.folder);
+                    EnsureDir(perDir);
+
+                    vector<string> lines = {
+                      "TRUTH inclusive |#Delta#phi(#gamma,jet)|",
+                      TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                      TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data()
+                    };
+
+                    DrawAndSaveTH1_Common(ds, p,
+                      JoinPath(perDir, "absDphi_counts.png"),
+                      "|#Delta#phi| [rad]", "Counts", lines, false, false, 0.0, "E1"
+                    );
+
+                    TH1* ps = CloneTH1(p,
+                      TString::Format("p_absDphi_truth_shape_%s_%s_%d", ds.label.c_str(), rKey.c_str(), i).Data()
+                    );
+                    NormalizeVisible(ps);
+
+                    DrawAndSaveTH1_Common(ds, ps,
+                      JoinPath(perDir, "absDphi_shape.png"),
+                      "|#Delta#phi| [rad]", "A.U.", lines, false, false, 0.0, "E1"
+                    );
+
+                    delete ps;
+                    delete p;
+                  }
                 }
-              }
-            };
+              };
 
             // --------------------------------------------------------------------------
             // Part C (SIM-only): response de-flattening into block matrices
@@ -10678,47 +11048,79 @@ namespace ARJ
             {
               if (!(H.hReco && H.hTruth)) return;
 
-              const int nPtReco  = H.hReco->GetXaxis()->GetNbins();
-              const int nPtTruth = H.hTruth->GetXaxis()->GetNbins();
-              const int nPt = std::min(nPtReco, nPtTruth);
+                const int nPtReco  = H.hReco->GetXaxis()->GetNbins();
+                const int nPtTruth = H.hTruth->GetXaxis()->GetNbins();
+                const int nPtCanon = (int)PtBins().size();
 
-              const string dirEP = JoinPath(rOut, "efficiencyPurity");
-              const string dirEP_Maps = JoinPath(dirEP, "maps2D");
-              const string dirEP_XJ   = JoinPath(dirEP, "xJ_distributions");
-              EnsureDir(dirEP);
-              EnsureDir(dirEP_Maps);
-              EnsureDir(dirEP_XJ);
+                // Map canonical pT bin [lo,hi) to the unfolding axis bin by bin-center lookup,
+                // then verify the axis bin edges match exactly.
+                auto MapCanonicalToAxisBin =
+                  [&](TAxis* ax, const PtBin& b, const string& who)->int
+                {
+                  if (!ax) return -1;
 
-              cout << ANSI_BOLD_CYN << "\n[Unfolding table] " << ds.label << "  rKey=" << rKey
-                   << " (R=" << std::fixed << std::setprecision(1) << R << ")\n" << ANSI_RESET;
+                  const double mid  = 0.5 * (b.lo + b.hi);
+                  const int    xbin = ax->FindBin(mid);
 
-              const int wPt = 16;
-              const int wN  = 14;
-              const int wF  = 12;
+                  if (xbin < 1 || xbin > ax->GetNbins()) return -1;
 
-              cout << std::left << std::setw(wPt) << "pTgamma bin"
-                   << std::right
-                   << std::setw(wN) << "N_truth"
-                   << std::setw(wN) << "N_miss"
-                   << std::setw(wF) << "eff"
-                   << std::setw(wN) << "N_reco"
-                   << std::setw(wN) << "N_fake"
-                   << std::setw(wF) << "pur"
-                   << "\n";
-              cout << string(wPt + 4*wN + 2*wF, '-') << "\n";
+                  const double axlo = ax->GetBinLowEdge(xbin);
+                  const double axhi = ax->GetBinUpEdge(xbin);
 
-              vector<string> lines;
-              lines.push_back(string("Unfolding efficiency/purity summary (") + ds.label + ")");
-              lines.push_back(string("rKey: ") + rKey + TString::Format("  R=%.1f", R).Data());
-              lines.push_back("");
-              lines.push_back("Definitions:");
-              lines.push_back("  efficiency(truth->reco) = (N_truth - N_miss) / N_truth");
-              lines.push_back("  purity(reco sample)     = (N_reco  - N_fake) / N_reco");
-              lines.push_back("");
+                  if (std::fabs(axlo - (double)b.lo) > 1e-6 || std::fabs(axhi - (double)b.hi) > 1e-6)
+                  {
+                    cout << ANSI_BOLD_YEL
+                         << "[WARN] Unfolding pT mapping mismatch (" << who << "): requested "
+                         << b.lo << "-" << b.hi
+                         << " but axis bin " << xbin << " is "
+                         << std::fixed << std::setprecision(0) << axlo << "-" << axhi
+                         << " → skipping this pT bin"
+                         << ANSI_RESET << "\n";
+                    return -1;
+                  }
+                  return xbin;
+                };
 
-              vector<double> xCenters(nPt, 0.0);
-              vector<double> effVsPt(nPt, 0.0);
-              vector<double> purVsPt(nPt, 0.0);
+                const string dirEP = JoinPath(rOut, "efficiencyPurity");
+                const string dirEP_Maps = JoinPath(dirEP, "maps2D");
+                const string dirEP_XJ   = JoinPath(dirEP, "xJ_distributions");
+                EnsureDir(dirEP);
+                EnsureDir(dirEP_Maps);
+                EnsureDir(dirEP_XJ);
+
+                cout << ANSI_BOLD_CYN << "\n[Unfolding table] " << ds.label << "  rKey=" << rKey
+                     << " (R=" << std::fixed << std::setprecision(1) << R << ")\n" << ANSI_RESET;
+
+                const int wPt = 16;
+                const int wN  = 14;
+                const int wF  = 12;
+
+                cout << std::left << std::setw(wPt) << "pTgamma bin"
+                     << std::right
+                     << std::setw(wN) << "N_truth"
+                     << std::setw(wN) << "N_miss"
+                     << std::setw(wF) << "eff"
+                     << std::setw(wN) << "N_reco"
+                     << std::setw(wN) << "N_fake"
+                     << std::setw(wF) << "pur"
+                     << "\n";
+                cout << string(wPt + 4*wN + 2*wF, '-') << "\n";
+
+                vector<string> lines;
+                lines.push_back(string("Unfolding efficiency/purity summary (") + ds.label + ")");
+                lines.push_back(string("rKey: ") + rKey + TString::Format("  R=%.1f", R).Data());
+                lines.push_back("");
+                lines.push_back("Definitions:");
+                lines.push_back("  efficiency(truth->reco) = (N_truth - N_miss) / N_truth");
+                lines.push_back("  purity(reco sample)     = (N_reco  - N_fake) / N_reco");
+                lines.push_back("");
+
+                vector<double> xCenters;
+                vector<double> effVsPt;
+                vector<double> purVsPt;
+                xCenters.reserve(nPtCanon);
+                effVsPt.reserve(nPtCanon);
+                purVsPt.reserve(nPtCanon);
 
               // 2D efficiency map (if misses exist)
               if (H.hMisses)
@@ -10939,129 +11341,156 @@ namespace ARJ
                 );
               }
 
-              // Per pT bin: terminal line + text summary + overlay truth vs reco xJ shapes
-              for (int ib = 1; ib <= nPt; ++ib)
-              {
-                const double xC = 0.5 * (H.hTruth->GetXaxis()->GetBinLowEdge(ib) + H.hTruth->GetXaxis()->GetBinUpEdge(ib));
-                xCenters[ib-1] = xC;
-
-                const string ptLabTruth = AxisBinLabel(H.hTruth->GetXaxis(), ib, "GeV", 0);
-                const string ptLabReco  = AxisBinLabel(H.hReco ->GetXaxis(),  ib, "GeV", 0);
-
-                const double Ntruth = H.hTruth->Integral(ib, ib, 0, H.hTruth->GetYaxis()->GetNbins() + 1);
-                const double Nreco  = H.hReco ->Integral(ib, ib, 0, H.hReco ->GetYaxis()->GetNbins() + 1);
-
-                const double Nmiss  = (H.hMisses ? H.hMisses->Integral(ib, ib, 0, H.hMisses->GetYaxis()->GetNbins() + 1) : 0.0);
-                const double Nfake  = (H.hFakes  ? H.hFakes ->Integral(ib, ib, 0, H.hFakes ->GetYaxis()->GetNbins() + 1) : 0.0);
-
-                const double eff = SafeDivide(Ntruth - Nmiss, Ntruth, 0.0);
-                const double pur = SafeDivide(Nreco  - Nfake, Nreco,  0.0);
-
-                effVsPt[ib-1] = eff;
-                purVsPt[ib-1] = pur;
-
-                cout << std::left << std::setw(wPt) << ptLabTruth
-                     << std::right
-                     << std::setw(wN) << std::fixed << std::setprecision(0) << Ntruth
-                     << std::setw(wN) << Nmiss
-                     << std::setw(wF) << std::fixed << std::setprecision(4) << eff
-                     << std::setw(wN) << std::fixed << std::setprecision(0) << Nreco
-                     << std::setw(wN) << Nfake
-                     << std::setw(wF) << std::fixed << std::setprecision(4) << pur
-                     << "\n";
-
-                lines.push_back(TString::Format(
-                  "pTtruth=%s  pTreco=%s  Ntruth=%.0f  Nmiss=%.0f  eff=%.6f  Nreco=%.0f  Nfake=%.0f  pur=%.6f",
-                  ptLabTruth.c_str(), ptLabReco.c_str(),
-                  Ntruth, Nmiss, eff,
-                  Nreco, Nfake, pur
-                ).Data());
-
-                // Existing truth-vs-reco xJ shape overlay per pT bin (kept)
+                // Per canonical pT bin: terminal line + text summary + overlay truth vs reco xJ shapes
+                for (int i = 0; i < nPtCanon; ++i)
                 {
-                  TH1D* pxTruth = H.hTruth->ProjectionY(TString::Format("pxTruth_%s_%d", rKey.c_str(), ib).Data(), ib, ib);
-                  TH1D* pxReco  = H.hReco ->ProjectionY(TString::Format("pxReco_%s_%d", rKey.c_str(), ib).Data(),  ib, ib);
-                  if (pxTruth && pxReco)
+                  const PtBin& b = PtBins()[i];
+
+                  const int xTruth = MapCanonicalToAxisBin(H.hTruth->GetXaxis(), b, "truth");
+                  const int xReco  = MapCanonicalToAxisBin(H.hReco ->GetXaxis(), b, "reco");
+                  if (xTruth < 1 || xReco < 1) continue;
+
+                  const double xC = 0.5 * (b.lo + b.hi);
+                  xCenters.push_back(xC);
+
+                  const string ptLabTruth = AxisBinLabel(H.hTruth->GetXaxis(), xTruth, "GeV", 0);
+                  const string ptLabReco  = AxisBinLabel(H.hReco ->GetXaxis(), xReco,  "GeV", 0);
+
+                  const double Ntruth = H.hTruth->Integral(xTruth, xTruth, 0, H.hTruth->GetYaxis()->GetNbins() + 1);
+                  const double Nreco  = H.hReco ->Integral(xReco,  xReco,  0, H.hReco ->GetYaxis()->GetNbins() + 1);
+
+                  const double Nmiss  = (H.hMisses ? H.hMisses->Integral(xTruth, xTruth, 0, H.hMisses->GetYaxis()->GetNbins() + 1) : 0.0);
+                  const double Nfake  = (H.hFakes  ? H.hFakes ->Integral(xReco,  xReco,  0, H.hFakes ->GetYaxis()->GetNbins() + 1) : 0.0);
+
+                  const double eff = SafeDivide(Ntruth - Nmiss, Ntruth, 0.0);
+                  const double pur = SafeDivide(Nreco  - Nfake, Nreco,  0.0);
+
+                  effVsPt.push_back(eff);
+                  purVsPt.push_back(pur);
+
+                  cout << std::left << std::setw(wPt) << ptLabTruth
+                       << std::right
+                       << std::setw(wN) << std::fixed << std::setprecision(0) << Ntruth
+                       << std::setw(wN) << Nmiss
+                       << std::setw(wF) << std::fixed << std::setprecision(4) << eff
+                       << std::setw(wN) << std::fixed << std::setprecision(0) << Nreco
+                       << std::setw(wN) << Nfake
+                       << std::setw(wF) << std::fixed << std::setprecision(4) << pur
+                       << "\n";
+
+                  lines.push_back(TString::Format(
+                    "pTtruth=%s  pTreco=%s  Ntruth=%.0f  Nmiss=%.0f  eff=%.6f  Nreco=%.0f  Nfake=%.0f  pur=%.6f",
+                    ptLabTruth.c_str(), ptLabReco.c_str(),
+                    Ntruth, Nmiss, eff,
+                    Nreco, Nfake, pur
+                  ).Data());
+
+                  // Truth-vs-reco xJ shape overlay per canonical pT bin (aligned by edges)
                   {
-                    pxTruth->SetDirectory(nullptr);
-                    pxReco->SetDirectory(nullptr);
-                    NormalizeToUnitArea(pxTruth);
-                    NormalizeToUnitArea(pxReco);
+                    TH1D* pxTruth = H.hTruth->ProjectionY(
+                      TString::Format("pxTruth_%s_%d", rKey.c_str(), i).Data(), xTruth, xTruth
+                    );
+                    TH1D* pxReco  = H.hReco ->ProjectionY(
+                      TString::Format("pxReco_%s_%d", rKey.c_str(), i).Data(),  xReco,  xReco
+                    );
 
-                    pxTruth->SetLineWidth(2);
-                    pxReco->SetLineWidth(2);
-                    pxTruth->SetLineColor(1);
-                    pxReco->SetLineColor(2);
+                    if (pxTruth && pxReco)
+                    {
+                      pxTruth->SetDirectory(nullptr);
+                      pxReco->SetDirectory(nullptr);
+                      NormalizeToUnitArea(pxTruth);
+                      NormalizeToUnitArea(pxReco);
 
-                    TCanvas c(TString::Format("c_unf_ov_%s_%d", rKey.c_str(), ib).Data(), "c_unf_ov", 900,700);
-                    ApplyCanvasMargins1D(c);
+                      pxTruth->SetLineWidth(2);
+                      pxReco->SetLineWidth(2);
+                      pxTruth->SetLineColor(1);
+                      pxReco->SetLineColor(2);
 
-                    const double maxv = std::max(pxTruth->GetMaximum(), pxReco->GetMaximum());
-                    pxTruth->SetMaximum(maxv * 1.25);
-                    pxTruth->SetTitle("");
-                    pxTruth->GetXaxis()->SetTitle("x_{J}");
-                    pxTruth->GetYaxis()->SetTitle("A.U.");
-                    pxTruth->Draw("hist");
-                    pxReco->Draw("hist same");
+                      TCanvas c(
+                        TString::Format("c_unf_ov_%s_%d", rKey.c_str(), i).Data(),
+                        "c_unf_ov", 900, 700
+                      );
+                      ApplyCanvasMargins1D(c);
 
-                    TLegend leg(0.60,0.78,0.92,0.90);
-                    leg.SetTextFont(42);
-                    leg.SetTextSize(0.033);
-                    leg.AddEntry(pxTruth, "Truth (shape)", "l");
-                    leg.AddEntry(pxReco,  "Reco (shape)",  "l");
-                    leg.Draw();
+                      const double maxv = std::max(pxTruth->GetMaximum(), pxReco->GetMaximum());
+                      pxTruth->SetMaximum(maxv * 1.25);
+                      pxTruth->SetTitle("");
+                      pxTruth->GetXaxis()->SetTitle("x_{J}");
+                      pxTruth->GetYaxis()->SetTitle("A.U.");
+                      pxTruth->Draw("hist");
+                      pxReco->Draw("hist same");
 
-                    DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-                    DrawLatexLines(0.14,0.78, {string("Truth vs reco x_{J} shape"), rKey, TString::Format("p_{T}^{#gamma}: %s", ptLabTruth.c_str()).Data()}, 0.030, 0.040);
+                      TLegend leg(0.60, 0.78, 0.92, 0.90);
+                      leg.SetTextFont(42);
+                      leg.SetTextSize(0.033);
+                      leg.AddEntry(pxTruth, "Truth (shape)", "l");
+                      leg.AddEntry(pxReco,  "Reco (shape)",  "l");
+                      leg.Draw();
 
-                    SaveCanvas(c, JoinPath(rOut, TString::Format("overlay_truth_vs_reco_xJ_shape_pTbin%d.png", ib).Data()));
+                      DrawLatexLines(0.14, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+                      DrawLatexLines(
+                        0.14, 0.78,
+                        { string("Truth vs reco x_{J} shape"), rKey, TString::Format("p_{T}^{#gamma}: %s", ptLabTruth.c_str()).Data() },
+                        0.030, 0.040
+                      );
 
-                    delete pxTruth;
-                    delete pxReco;
-                  }
-                  else
-                  {
-                    if (pxTruth) delete pxTruth;
-                    if (pxReco)  delete pxReco;
+                      SaveCanvas(c, JoinPath(rOut, TString::Format("overlay_truth_vs_reco_xJ_shape_pTbin%d.png", i + 1).Data()));
+
+                      delete pxTruth;
+                      delete pxReco;
+                    }
+                    else
+                    {
+                      if (pxTruth) delete pxTruth;
+                      if (pxReco)  delete pxReco;
+                    }
                   }
                 }
-              }
 
-              // Presentation graphs: efficiency and purity vs pTgamma (integrated over xJ)
-              {
-                TCanvas c1(TString::Format("c_eff_vs_pt_%s", rKey.c_str()).Data(), "c_eff_vs_pt", 900,700);
-                ApplyCanvasMargins1D(c1);
-                TGraph g(nPt, &xCenters[0], &effVsPt[0]);
-                g.SetLineWidth(2);
-                g.SetMarkerStyle(20);
-                g.Draw("ALP");
-                g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
-                g.GetYaxis()->SetTitle("Efficiency (integrated over x_{J})");
-                g.SetMinimum(0.0);
-                g.SetMaximum(1.05);
+                // Presentation graphs: efficiency and purity vs pTgamma (integrated over xJ)
+                {
+                  const int nPtPlot = (int)xCenters.size();
+                  if (nPtPlot > 0)
+                  {
+                    TCanvas c1(TString::Format("c_eff_vs_pt_%s", rKey.c_str()).Data(), "c_eff_vs_pt", 900,700);
+                    ApplyCanvasMargins1D(c1);
+                    TGraph g(nPtPlot, &xCenters[0], &effVsPt[0]);
+                    g.SetLineWidth(2);
+                    g.SetMarkerStyle(20);
+                    g.Draw("ALP");
+                    g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
+                    g.GetYaxis()->SetTitle("Efficiency (integrated over x_{J})");
+                    g.SetMinimum(0.0);
+                    g.SetMaximum(1.05);
 
-                DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-                DrawLatexLines(0.14,0.78, { "Unfolding efficiency vs p_{T}^{#gamma}", rKey }, 0.030, 0.040);
+                    DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+                    DrawLatexLines(0.14,0.78, { "Unfolding efficiency vs p_{T}^{#gamma}", rKey }, 0.030, 0.040);
 
-                SaveCanvas(c1, JoinPath(dirEP, "efficiency_vs_pTgamma_integratedXJ.png"));
-              }
-              {
-                TCanvas c2(TString::Format("c_pur_vs_pt_%s", rKey.c_str()).Data(), "c_pur_vs_pt", 900,700);
-                ApplyCanvasMargins1D(c2);
-                TGraph g(nPt, &xCenters[0], &purVsPt[0]);
-                g.SetLineWidth(2);
-                g.SetMarkerStyle(20);
-                g.Draw("ALP");
-                g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
-                g.GetYaxis()->SetTitle("Purity (integrated over x_{J})");
-                g.SetMinimum(0.0);
-                g.SetMaximum(1.05);
+                    SaveCanvas(c1, JoinPath(dirEP, "efficiency_vs_pTgamma_integratedXJ.png"));
+                  }
+                }
+                {
+                  const int nPtPlot = (int)xCenters.size();
+                  if (nPtPlot > 0)
+                  {
+                    TCanvas c2(TString::Format("c_pur_vs_pt_%s", rKey.c_str()).Data(), "c_pur_vs_pt", 900,700);
+                    ApplyCanvasMargins1D(c2);
+                    TGraph g(nPtPlot, &xCenters[0], &purVsPt[0]);
+                    g.SetLineWidth(2);
+                    g.SetMarkerStyle(20);
+                    g.Draw("ALP");
+                    g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
+                    g.GetYaxis()->SetTitle("Purity (integrated over x_{J})");
+                    g.SetMinimum(0.0);
+                    g.SetMaximum(1.05);
 
-                DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-                DrawLatexLines(0.14,0.78, { "Unfolding purity vs p_{T}^{#gamma}", rKey }, 0.030, 0.040);
+                    DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+                    DrawLatexLines(0.14,0.78, { "Unfolding purity vs p_{T}^{#gamma}", rKey }, 0.030, 0.040);
 
-                SaveCanvas(c2, JoinPath(dirEP, "purity_vs_pTgamma_integratedXJ.png"));
-              }
+                    SaveCanvas(c2, JoinPath(dirEP, "purity_vs_pTgamma_integratedXJ.png"));
+                  }
+                }
+
 
               WriteTextFile(JoinPath(rOut, "summary_unfolding_eff_pur.txt"), lines);
             };

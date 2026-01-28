@@ -2,6 +2,10 @@
 ###############################################################################
 # mergeRecoilJets.sh  —  FAST REFERENCE
 #
+#./mergeRecoilJets.sh isSim firstRound groupSize 300 SAMPLE=run28_photonjet10
+#./mergeRecoilJets.sh isSim secondRound SAMPLE=run28_photonjet10
+#
+#
 # PURPOSE
 #   Merge RecoilJets outputs produced by RecoilJets_Condor_submit.sh /
 #   RecoilJets_Condor.sh. Supports:

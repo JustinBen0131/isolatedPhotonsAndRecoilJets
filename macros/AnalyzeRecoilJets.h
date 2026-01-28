@@ -159,7 +159,7 @@ namespace ARJ
 // =============================================================================
 
   inline bool isPPdataOnly   = false;
-  inline bool isSimAndDataPP = true;
+  inline bool isSimAndDataPP = false;
 
   // SIM sample selection toggles (choose EXACTLY ONE for any SIM-including run)
   inline bool isPhotonJet5               = false;
@@ -193,12 +193,18 @@ namespace ARJ
   inline const string kInSIM5 =
         "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5_SIM/RecoilJets_photonjet5_ALL.root";
 
-  ///Users/patsfan753/Desktop/ThesisAnalysis/InputSimFiles_photon10and20_7pi8cut
   inline const string kInSIM10 =
-        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10_SIM/RecoilJets_photonjet10_ALL.root";
+          "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/RecoilJets_photonjet10_ALL_newBinning_pihalves.root";
 
   inline const string kInSIM20 =
-        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet20_SIM/RecoilJets_photonjet20_ALL.root";
+          "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/RecoilJets_photonjet20_ALL_newBinning_pihalves.root";
+
+  // Alternate Δφ-cut inputs used ONLY for the JES3 RECO xJ overlay (does not affect baseline analysis)
+  inline const string kInSIM10_7piOver8 =
+          "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/RecoilJets_photonjet10_ALL_newBinning_7piOver8.root";
+
+  inline const string kInSIM20_7piOver8 =
+          "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/RecoilJets_photonjet20_ALL_newBinning_7piOver8.root";
 
   inline const string kOutPPBase =
         "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp";
@@ -247,8 +253,8 @@ namespace ARJ
   // =============================================================================
   // Binning
   // =============================================================================
-  inline constexpr int kNPtBins = 9;
-  inline constexpr int kPtEdges[kNPtBins + 1] = {10,12,14,16,18,20,22,24,26,35};
+  inline constexpr int kNPtBins = 6;
+  inline constexpr int kPtEdges[kNPtBins + 1] = {15,17,19,21,23,26,35};
 
   // Jet radii keys
   inline const vector<string> kRKeys = {"r02","r04"};
@@ -1035,13 +1041,13 @@ namespace ARJ
   {
     EnsureDir(outDir);
 
-    TCanvas c("c_tbl","c_tbl",1500,1200);
-    c.Divide(3,3, 0.001, 0.001);
+    TCanvas c("c_tbl","c_tbl",1500,800);
+    c.Divide(3,2, 0.001, 0.001);
 
-      const auto& bins = PtBins();
+    const auto& bins = PtBins();
 
-      std::vector<TH1*> keepAlive;
-      keepAlive.reserve(kNPtBins);
+    std::vector<TH1*> keepAlive;
+    keepAlive.reserve(kNPtBins);
 
     for (int i = 0; i < kNPtBins; ++i)
     {
