@@ -1,0 +1,68 @@
+# =============================================================================
+# analysis_config.yaml  (Phase-1 YAML "global knob" consolidation)
+#
+# CONTRACT
+#   YAML -> Fun4All_recoilJets.C (parse/validate/print) -> RecoilJets setters
+#       -> RecoilJets analysis (NO YAML parsing) -> ROOT output stamped once
+#       -> mergeRecoilJets.sh re-reads YAML to tag FINAL merged filename.
+#
+# BASELINE / ZERO-REGRESSION GUARANTEE
+#   The values below are initialized to match the CURRENT hard-coded defaults
+#   in your attached source files. With these baseline values, all histograms
+#   (names, binning, fills, conditions, directory structure) MUST remain
+#   identical to the current behavior for BOTH SIM and DATA.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Global photon + jet selection knobs (YAML-driven)
+# -----------------------------------------------------------------------------
+photon_eta_abs_max: 0.7
+jet_pt_min: 10.0
+
+# Back-to-back cut expressed ONLY as a fraction of π.
+# baseline = 7π/8  ->  fraction = 7/8 = 0.875
+# (runtime should compute: back_to_back_dphi_min_rad = back_to_back_dphi_min_pi_fraction * M_PI)
+back_to_back_dphi_min_pi_fraction: 0.5
+
+# -----------------------------------------------------------------------------
+# Vertex selection knobs (YAML-driven)
+# -----------------------------------------------------------------------------
+use_vz_cut: true
+vz_cut_cm: 30.0
+
+# -----------------------------------------------------------------------------
+# Isolation working point knobs (YAML-driven; baseline matches current Fun4All)
+# recoilJets->setIsolationWP(1.08128, 0.0299107, 1.0, 0.30, 0.0);
+# -----------------------------------------------------------------------------
+isolation_wp: {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0, coneR: 0.30, towerMin: 0.0}
+
+# -----------------------------------------------------------------------------
+# Photon shower-shape ID cuts (PPG12 Table 4) (YAML-driven; baseline matches header)
+# -----------------------------------------------------------------------------
+photon_id_pre:   {e11e33_max: 0.98, et1_min: 0.60, et1_max: 1.00, e32e35_min: 0.80, e32e35_max: 1.00, weta_max: 0.60}
+photon_id_tight: {w_lo: 0.0, w_hi_intercept: 0.15, w_hi_slope: 0.006, e11e33_min: 0.40, e11e33_max: 0.98, et1_min: 0.90, et1_max: 1.00, e32e35_min: 0.92, e32e35_max: 1.00}
+
+# -----------------------------------------------------------------------------
+# Matching thresholds (YAML-driven)
+# -----------------------------------------------------------------------------
+matching: {pho_dr_max: 0.05, jet_dr_max: 0.3}
+
+# -----------------------------------------------------------------------------
+# JES3 / xJγ photon pT bin edges (AUTHORITATIVE)
+#   - drives ALL reco photon pT slicing for JES3/xJγ booking + filling
+#   - drives ALL truth photon pT slicing for JES3/xJγ truth booking + filling
+#   - reco and truth MUST match exactly
+# -----------------------------------------------------------------------------
+jes3_photon_pt_bins: [15, 17, 19, 21, 23, 26, 35]
+
+# -----------------------------------------------------------------------------
+# UNFOLDING bin edges (explicit, independent from JES3 bins)
+# -----------------------------------------------------------------------------
+unfold_reco_photon_pt_bins:  [10, 15, 17, 19, 21, 23, 26, 35, 40]
+unfold_truth_photon_pt_bins: [5, 10, 15, 17, 19, 21, 23, 26, 35, 40]
+
+# Unfolding jet pT binning
+unfold_jet_pt_binning: {start: 0.0, stop: 60.0, step: 0.5}
+
+# Unfolding xJ bin edges
+unfold_xj_bins: [0.0, 0.20, 0.24, 0.29, 0.35, 0.41, 0.50, 0.60, 0.72, 0.86, 1.03, 1.24, 1.49, 1.78, 2.14, 3.0]

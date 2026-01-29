@@ -2181,7 +2181,7 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
     //  leading-truth recoil jet1 match bookkeeping vs truth pT^gamma
     // ------------------------------------------------------------------
     {
-      const double kLeadMatchDR = 0.3;
+      const double kLeadMatchDR = m_jetMatchDRMax;
 
       int iTruthLead = -1;
       double ptTruthLead = -1.0;
@@ -4269,7 +4269,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
               }
               else
               {
-                constexpr double kPhoMatchDR = 0.05;
+                const double kPhoMatchDR = m_phoMatchDRMax;
 
                 const RawCluster* recoMatch = nullptr;
                 double rPt = 0.0, rEta = 0.0, rPhi = 0.0, drBest = 1e9;
@@ -4442,20 +4442,20 @@ bool RecoilJets::passesPhotonPreselection(const SSVars& v)
     return false;
   }
 
-  const bool pass_e11e33 = (v.e11_over_e33 < PRE_E11E33_MAX);
-  const bool pass_et1    = in_open_interval(v.et1, PRE_ET1_MIN, PRE_ET1_MAX);
-  const bool pass_e32e35 = in_open_interval(v.e32_over_e35, PRE_E32E35_MIN, PRE_E32E35_MAX);
-  const bool pass_weta   = (v.weta_cogx < PRE_WETA_MAX);
+    const bool pass_e11e33 = (v.e11_over_e33 < m_phoid_pre_e11e33_max);
+    const bool pass_et1    = in_open_interval(v.et1, m_phoid_pre_et1_min, m_phoid_pre_et1_max);
+    const bool pass_e32e35 = in_open_interval(v.e32_over_e35, m_phoid_pre_e32e35_min, m_phoid_pre_e32e35_max);
+    const bool pass_weta   = (v.weta_cogx < m_phoid_pre_weta_max);
 
-  if (Verbosity() >= 5)
-  {
-    LOG(5, CLR_BLUE,
-        "  [passesPhotonPreselection] "
-        << "weta=" << v.weta_cogx << " (<" << PRE_WETA_MAX << ") → " << pass_weta
-        << " | et1=" << v.et1 << " ∈ (" << PRE_ET1_MIN << "," << PRE_ET1_MAX << ") → " << pass_et1
-        << " | e11/e33=" << v.e11_over_e33 << " (<" << PRE_E11E33_MAX << ") → " << pass_e11e33
-        << " | e32/e35=" << v.e32_over_e35 << " ∈ (" << PRE_E32E35_MIN << "," << PRE_E32E35_MAX << ") → " << pass_e32e35);
-  }
+    if (Verbosity() >= 5)
+    {
+      LOG(5, CLR_BLUE,
+          "  [passesPhotonPreselection] "
+          << "weta=" << v.weta_cogx << " (<" << m_phoid_pre_weta_max << ") → " << pass_weta
+          << " | et1=" << v.et1 << " ∈ (" << m_phoid_pre_et1_min << "," << m_phoid_pre_et1_max << ") → " << pass_et1
+          << " | e11/e33=" << v.e11_over_e33 << " (<" << m_phoid_pre_e11e33_max << ") → " << pass_e11e33
+          << " | e32/e35=" << v.e32_over_e35 << " ∈ (" << m_phoid_pre_e32e35_min << "," << m_phoid_pre_e32e35_max << ") → " << pass_e32e35);
+    }
 
   const bool pass_all = pass_e11e33 && pass_et1 && pass_e32e35 && pass_weta;
 
@@ -4493,19 +4493,19 @@ RecoilJets::TightTag RecoilJets::classifyPhotonTightness(const SSVars& v)
   }
 
   // Upper width cut is ET-dependent
-    const double w_hi = tight_w_hi(v.pt_gamma);
-    if (!std::isfinite(w_hi))
-    {
-      LOG(2, CLR_YELLOW, "  [classifyPhotonTightness] non-finite tight_w_hi for pT^γ=" << v.pt_gamma
-                          << " – treating as failure");
-      return TightTag::kNeither;
-    }
+  const double w_hi = m_phoid_tight_w_hi_intercept + m_phoid_tight_w_hi_slope * v.pt_gamma;
+  if (!std::isfinite(w_hi) || !std::isfinite(v.pt_gamma) || v.pt_gamma <= 0.0)
+  {
+        LOG(2, CLR_YELLOW, "  [classifyPhotonTightness] non-finite tight_w_hi for pT^γ=" << v.pt_gamma
+                            << " – treating as failure");
+        return TightTag::kNeither;
+  }
 
-  const bool pass_weta   = in_open_interval(v.weta_cogx,  TIGHT_W_LO, w_hi);
-  const bool pass_wphi   = in_open_interval(v.wphi_cogx,  TIGHT_W_LO, w_hi);
-  const bool pass_e11e33 = in_open_interval(v.e11_over_e33, TIGHT_E11E33_MIN, TIGHT_E11E33_MAX);
-  const bool pass_et1    = in_open_interval(v.et1,          TIGHT_ET1_MIN,    TIGHT_ET1_MAX);
-  const bool pass_e32e35 = in_open_interval(v.e32_over_e35, TIGHT_E32E35_MIN, TIGHT_E32E35_MAX);
+  const bool pass_weta   = in_open_interval(v.weta_cogx,  m_phoid_tight_w_lo, w_hi);
+  const bool pass_wphi   = in_open_interval(v.wphi_cogx,  m_phoid_tight_w_lo, w_hi);
+  const bool pass_e11e33 = in_open_interval(v.e11_over_e33, m_phoid_tight_e11e33_min, m_phoid_tight_e11e33_max);
+  const bool pass_et1    = in_open_interval(v.et1,          m_phoid_tight_et1_min,    m_phoid_tight_et1_max);
+  const bool pass_e32e35 = in_open_interval(v.e32_over_e35, m_phoid_tight_e32e35_min, m_phoid_tight_e32e35_max);
 
   if (Verbosity() >= 5)
   {
@@ -5795,14 +5795,14 @@ TH2F* RecoilJets::getOrBookUnfoldRecoPtXJIncl(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  // Reco photon edges for unfolding (includes [10,15] underflow and [35,40] overflow)
-  static const std::vector<double> kPtReco = {10,15,17,19,21,23,26,35,40};
+    // Reco photon edges for unfolding (includes [10,15] underflow and [35,40] overflow)
+    const std::vector<double>& kPtReco = m_unfoldRecoPhotonPtBins;
 
-  // ATLAS-like log-ish xJ edges, with explicit under/overflow bins for unfolding stability
-  static const std::vector<double> kXJ = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
+    // ATLAS-like log-ish xJ edges, with explicit under/overflow bins for unfolding stability
+    const std::vector<double>& kXJ = m_unfoldXJBins;
 
-  const int nx = static_cast<int>(kPtReco.size()) - 1;
-  const int ny = static_cast<int>(kXJ.size()) - 1;
+    const int nx = static_cast<int>(kPtReco.size()) - 1;
+    const int ny = static_cast<int>(kXJ.size()) - 1;
 
   const std::string title =
     name + ";p_{T}^{#gamma,reco} [GeV];x_{J#gamma}^{reco}=p_{T}^{jet,reco}/p_{T}^{#gamma,reco}";
@@ -5843,7 +5843,7 @@ TH2F* RecoilJets::getOrBookUnfoldRecoPtDphiIncl(const std::string& trig,
     dir->cd();
 
     // Must match reco pTγ unfolding binning (includes [10,15] underflow and [35,40] overflow)
-    static const std::vector<double> kPtReco = {10,15,17,19,21,23,26,35,40};
+    const std::vector<double>& kPtReco = m_unfoldRecoPhotonPtBins;
 
     const int nx = static_cast<int>(kPtReco.size()) - 1;
     const int ny = 64;
@@ -5887,7 +5887,7 @@ TH2F* RecoilJets::getOrBookUnfoldTruthPtDphiIncl(const std::string& trig,
     dir->cd();
 
     // Must match truth pTγ unfolding binning you already use
-      static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
+      const std::vector<double>& kPtTruth = m_unfoldTruthPhotonPtBins;
 
     const int nx = static_cast<int>(kPtTruth.size()) - 1;
     const int ny = 64;
@@ -5930,14 +5930,14 @@ TH2F* RecoilJets::getOrBookUnfoldTruthPtXJIncl(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  // Truth photon edges for unfolding (includes [5,10] and [10,15] underflow, plus [35,40] overflow)
-  static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
+    // Truth photon edges for unfolding (includes [5,10] and [10,15] underflow, plus [35,40] overflow)
+    const std::vector<double>& kPtTruth = m_unfoldTruthPhotonPtBins;
 
-  // Must match reco xJ edges for a clean response definition
-  static const std::vector<double> kXJ = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
+    // Must match reco xJ edges for a clean response definition
+    const std::vector<double>& kXJ = m_unfoldXJBins;
 
-  const int nx = static_cast<int>(kPtTruth.size()) - 1;
-  const int ny = static_cast<int>(kXJ.size()) - 1;
+    const int nx = static_cast<int>(kPtTruth.size()) - 1;
+    const int ny = static_cast<int>(kXJ.size()) - 1;
 
   const std::string title =
     name + ";p_{T}^{#gamma,truth} [GeV];x_{J#gamma}^{truth}=p_{T}^{jet,truth}/p_{T}^{#gamma,truth}";
@@ -5977,14 +5977,14 @@ TH2F* RecoilJets::getOrBookUnfoldResponsePtXJIncl(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  // These define the TH2 template bin counts (FindBin() global bin indexing includes +2 each axis)
-  static const std::vector<double> kPtReco  = {10,15,17,19,21,23,26,35,40};           // nbinsX(reco)=8
-  static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};         // nbinsX(truth)=9
-  static const std::vector<double> kXJ      = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0}; // nbinsY=15
+    // These define the TH2 template bin counts (FindBin() global bin indexing includes +2 each axis)
+    const std::vector<double>& kPtReco  = m_unfoldRecoPhotonPtBins;   // nbinsX(reco)=8
+    const std::vector<double>& kPtTruth = m_unfoldTruthPhotonPtBins;  // nbinsX(truth)=9
+    const std::vector<double>& kXJ      = m_unfoldXJBins;             // nbinsY=15
 
-  const int nPtReco  = static_cast<int>(kPtReco.size())  - 1;
-  const int nPtTruth = static_cast<int>(kPtTruth.size()) - 1;
-  const int nXJ      = static_cast<int>(kXJ.size())      - 1;
+    const int nPtReco  = static_cast<int>(kPtReco.size())  - 1;
+    const int nPtTruth = static_cast<int>(kPtTruth.size()) - 1;
+    const int nXJ      = static_cast<int>(kXJ.size())      - 1;
 
   // Global bin count used by TH2::FindBin for a TH2 with (nPt, nXJ):
   //   globalBin in [0, (nPt+2)*(nXJ+2)-1]
@@ -6029,11 +6029,11 @@ TH2F* RecoilJets::getOrBookUnfoldRecoFakesPtXJIncl(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtReco = {10,15,17,19,21,23,26,35,40};
-  static const std::vector<double> kXJ = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
+    const std::vector<double>& kPtReco = m_unfoldRecoPhotonPtBins;
+    const std::vector<double>& kXJ = m_unfoldXJBins;
 
-  const int nx = static_cast<int>(kPtReco.size()) - 1;
-  const int ny = static_cast<int>(kXJ.size()) - 1;
+    const int nx = static_cast<int>(kPtReco.size()) - 1;
+    const int ny = static_cast<int>(kXJ.size()) - 1;
 
   const std::string title =
     name + ";p_{T}^{#gamma,reco} [GeV];x_{J#gamma}^{reco} (FAKES)";
@@ -6073,8 +6073,8 @@ TH2F* RecoilJets::getOrBookUnfoldTruthMissesPtXJIncl(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-    static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
-  static const std::vector<double> kXJ = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
+    const std::vector<double>& kPtTruth = m_unfoldTruthPhotonPtBins;
+  const std::vector<double>& kXJ = m_unfoldXJBins;
 
   const int nx = static_cast<int>(kPtTruth.size()) - 1;
   const int ny = static_cast<int>(kXJ.size()) - 1;
@@ -6119,8 +6119,8 @@ TH1F* RecoilJets::getOrBookUnfoldRecoPhoPtGamma(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtReco = {10,15,17,19,21,23,26,35,40};
-  const int nb = static_cast<int>(kPtReco.size()) - 1;
+    const std::vector<double>& kPtReco = m_unfoldRecoPhotonPtBins;
+    const int nb = static_cast<int>(kPtReco.size()) - 1;
 
   const std::string title =
     name + ";p_{T}^{#gamma,reco} [GeV];N_{#gamma}^{reco}";
@@ -6157,7 +6157,7 @@ TH1F* RecoilJets::getOrBookUnfoldTruthPhoPtGamma(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-    static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
+    const std::vector<double>& kPtTruth = m_unfoldTruthPhotonPtBins;
   const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
   const std::string title =
@@ -6195,11 +6195,11 @@ TH2F* RecoilJets::getOrBookUnfoldResponsePhoPtGamma(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
-  static const std::vector<double> kPtReco  = {10,15,17,19,21,23,26,35,40};
+    const std::vector<double>& kPtTruth = m_unfoldTruthPhotonPtBins;
+    const std::vector<double>& kPtReco  = m_unfoldRecoPhotonPtBins;
 
-  const int nx = static_cast<int>(kPtTruth.size()) - 1;
-  const int ny = static_cast<int>(kPtReco.size())  - 1;
+    const int nx = static_cast<int>(kPtTruth.size()) - 1;
+    const int ny = static_cast<int>(kPtReco.size())  - 1;
 
   const std::string title =
     name + ";p_{T}^{#gamma,truth} [GeV];p_{T}^{#gamma,reco} [GeV]";
@@ -6238,8 +6238,8 @@ TH1F* RecoilJets::getOrBookUnfoldRecoPhoFakesPtGamma(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtReco = {10,15,17,19,21,23,26,35,40};
-  const int nb = static_cast<int>(kPtReco.size()) - 1;
+    const std::vector<double>& kPtReco = m_unfoldRecoPhotonPtBins;
+    const int nb = static_cast<int>(kPtReco.size()) - 1;
 
   const std::string title =
     name + ";p_{T}^{#gamma,reco} [GeV];Reco fakes";
@@ -6276,7 +6276,7 @@ TH1F* RecoilJets::getOrBookUnfoldTruthPhoMissesPtGamma(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-    static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
+    const std::vector<double>& kPtTruth = m_unfoldTruthPhotonPtBins;
   const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
   const std::string title =
@@ -6318,8 +6318,8 @@ TH2F* RecoilJets::getOrBookUnfoldTruthMatchedPtXJIncl(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-    static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
-  static const std::vector<double> kXJ = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
+  const std::vector<double>& kPtTruth = m_unfoldTruthPhotonPtBins;
+  const std::vector<double>& kXJ = m_unfoldXJBins;
 
   const int nx = static_cast<int>(kPtTruth.size()) - 1;
   const int ny = static_cast<int>(kXJ.size()) - 1;
@@ -6362,8 +6362,8 @@ TH2F* RecoilJets::getOrBookUnfoldRecoMatchedPtXJIncl(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtReco = {10,15,17,19,21,23,26,35,40};
-  static const std::vector<double> kXJ = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
+  const std::vector<double>& kPtReco = m_unfoldRecoPhotonPtBins;
+  const std::vector<double>& kXJ = m_unfoldXJBins;
 
   const int nx = static_cast<int>(kPtReco.size()) - 1;
   const int ny = static_cast<int>(kXJ.size()) - 1;
@@ -6406,11 +6406,11 @@ TH2F* RecoilJets::getOrBookUnfoldRecoFakesPtXJIncl_typeA(const std::string& trig
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtReco = {10,15,17,19,21,23,26,35,40};
-  static const std::vector<double> kXJ = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
+    const std::vector<double>& kPtReco = m_unfoldRecoPhotonPtBins;
+    const std::vector<double>& kXJ = m_unfoldXJBins;
 
-  const int nx = static_cast<int>(kPtReco.size()) - 1;
-  const int ny = static_cast<int>(kXJ.size()) - 1;
+    const int nx = static_cast<int>(kPtReco.size()) - 1;
+    const int ny = static_cast<int>(kXJ.size()) - 1;
 
   const std::string title =
     name + ";p_{T}^{#gamma,reco} [GeV];x_{J#gamma}^{reco} (FAKES typeA)";
@@ -6450,11 +6450,11 @@ TH2F* RecoilJets::getOrBookUnfoldRecoFakesPtXJIncl_typeB(const std::string& trig
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtReco = {10,15,17,19,21,23,26,35,40};
-  static const std::vector<double> kXJ = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
+    const std::vector<double>& kPtReco = m_unfoldRecoPhotonPtBins;
+    const std::vector<double>& kXJ = m_unfoldXJBins;
 
-  const int nx = static_cast<int>(kPtReco.size()) - 1;
-  const int ny = static_cast<int>(kXJ.size()) - 1;
+    const int nx = static_cast<int>(kPtReco.size()) - 1;
+    const int ny = static_cast<int>(kXJ.size()) - 1;
 
   const std::string title =
     name + ";p_{T}^{#gamma,reco} [GeV];x_{J#gamma}^{reco} (FAKES typeB)";
@@ -6494,8 +6494,8 @@ TH2F* RecoilJets::getOrBookUnfoldTruthMissesPtXJIncl_typeA(const std::string& tr
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-    static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
-  static const std::vector<double> kXJ = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
+  const std::vector<double>& kPtTruth = m_unfoldTruthPhotonPtBins;
+  const std::vector<double>& kXJ = m_unfoldXJBins;
 
   const int nx = static_cast<int>(kPtTruth.size()) - 1;
   const int ny = static_cast<int>(kXJ.size()) - 1;
@@ -6538,8 +6538,8 @@ TH2F* RecoilJets::getOrBookUnfoldTruthMissesPtXJIncl_typeB(const std::string& tr
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-    static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
-  static const std::vector<double> kXJ = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
+    const std::vector<double>& kPtTruth = m_unfoldTruthPhotonPtBins;
+  const std::vector<double>& kXJ = m_unfoldXJBins;
 
   const int nx = static_cast<int>(kPtTruth.size()) - 1;
   const int ny = static_cast<int>(kXJ.size()) - 1;
@@ -6804,7 +6804,7 @@ TH1F* RecoilJets::getOrBookLeadTruthRecoilMatchDenPtGammaTruth(const std::string
     if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
     dir->cd();
 
-      static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
+    const std::vector<double>& kPtTruth = m_gammaPtBins;
     const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
     const std::string title =
@@ -6843,7 +6843,7 @@ TH1F* RecoilJets::getOrBookLeadTruthRecoilMatchNumPtGammaTruth(const std::string
     if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
     dir->cd();
 
-      static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
+    const std::vector<double>& kPtTruth = m_gammaPtBins;
     const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
     const std::string title =
@@ -6882,7 +6882,7 @@ TH1F* RecoilJets::getOrBookLeadTruthRecoilMatchMissA_PtGammaTruth(const std::str
     if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
     dir->cd();
 
-      static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
+    const std::vector<double>& kPtTruth = m_gammaPtBins;
     const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
     const std::string title =
@@ -6921,7 +6921,7 @@ TH1F* RecoilJets::getOrBookLeadTruthRecoilMatchMissB_PtGammaTruth(const std::str
     if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
     dir->cd();
 
-      static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
+    const std::vector<double>& kPtTruth = m_gammaPtBins;
     const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
     const std::string title =
@@ -7149,7 +7149,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchDphiRecoJet1VsPtGammaTruth_num(co
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-    static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
+  const std::vector<double>& kPtTruth = m_gammaPtBins;
   const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
   auto* h = new TH2F(name.c_str(),
@@ -7188,7 +7188,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchDphiRecoJet1VsPtGammaTruth_missA(
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-    static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
+    const std::vector<double>& kPtTruth = m_gammaPtBins;
   const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
   auto* h = new TH2F(name.c_str(),
@@ -7227,7 +7227,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchDphiRecoJet1VsPtGammaTruth_missB(
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-    static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
+  const std::vector<double>& kPtTruth = m_gammaPtBins;
   const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
   auto* h = new TH2F(name.c_str(),
@@ -7268,7 +7268,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchDRRecoJet1VsPtGammaTruth_num(cons
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-    static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
+  const std::vector<double>& kPtTruth = m_gammaPtBins;
   const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
   auto* h = new TH2F(name.c_str(),
@@ -7307,7 +7307,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchDRRecoJet1VsPtGammaTruth_missA(co
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-    static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
+  const std::vector<double>& kPtTruth = m_gammaPtBins;
   const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
   auto* h = new TH2F(name.c_str(),
@@ -7346,7 +7346,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchDRRecoJet1VsPtGammaTruth_missB(co
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  static const std::vector<double> kPtTruth = {5,10,15,17,19,21,23,26,35,40};
+  const std::vector<double>& kPtTruth = m_gammaPtBins;
   const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
   auto* h = new TH2F(name.c_str(),

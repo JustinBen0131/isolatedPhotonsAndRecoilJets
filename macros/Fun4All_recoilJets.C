@@ -132,6 +132,281 @@ namespace detail
   }
 }
 
+namespace yamlcfg
+{
+    struct Config
+    {
+      // file provenance
+      std::string yamlPath = "";
+      std::string yamlText = "";
+
+      // baseline defaults (match current behavior)
+      double photon_eta_abs_max = 0.7;
+      double jet_pt_min = 10.0;
+      double back_to_back_dphi_min_pi_fraction = 0.875;
+
+      bool   use_vz_cut = true;
+      double vz_cut_cm  = 30.0;
+
+      double isoA = 1.08128;
+      double isoB = 0.0299107;
+      double isoGap = 1.0;
+      double isoConeR = 0.30;
+      double isoTowMin = 0.0;
+
+      // Photon ID cuts (PPG12 Table 4) baseline
+      double pre_e11e33_max = 0.98;
+      double pre_et1_min    = 0.60;
+      double pre_et1_max    = 1.00;
+      double pre_e32e35_min = 0.80;
+      double pre_e32e35_max = 1.00;
+      double pre_weta_max   = 0.60;
+
+      double tight_w_lo            = 0.0;
+      double tight_w_hi_intercept  = 0.15;
+      double tight_w_hi_slope      = 0.006;
+
+      double tight_e11e33_min = 0.40;
+      double tight_e11e33_max = 0.98;
+
+      double tight_et1_min    = 0.90;
+      double tight_et1_max    = 1.00;
+
+      double tight_e32e35_min = 0.92;
+      double tight_e32e35_max = 1.00;
+
+      double pho_dr_max = 0.05;
+      double jet_dr_max = 0.3;
+
+      std::vector<double> jes3_photon_pt_bins = {15,17,19,21,23,26,35};
+      std::vector<double> unfold_reco_photon_pt_bins  = {10,15,17,19,21,23,26,35,40};
+      std::vector<double> unfold_truth_photon_pt_bins = {5,10,15,17,19,21,23,26,35,40};
+
+      double unfold_jet_pt_start = 0.0;
+      double unfold_jet_pt_stop  = 60.0;
+      double unfold_jet_pt_step  = 0.5;
+
+      std::vector<double> unfold_xj_bins = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
+    };
+
+  inline std::string DefaultYAMLPath()
+  {
+    std::string here = __FILE__;
+    const std::size_t p = here.find_last_of('/');
+    if (p == std::string::npos) return std::string("analysis_config.yaml");
+    return here.substr(0, p) + "/analysis_config.yaml";
+  }
+
+  inline std::string ResolveYAMLPath()
+  {
+    if (const char* env = std::getenv("RJ_CONFIG_YAML"))
+    {
+      std::string s = detail::trim(std::string(env));
+      if (!s.empty()) return s;
+    }
+    return DefaultYAMLPath();
+  }
+
+  inline bool ReadWholeFile(const std::string& path, std::string& out)
+  {
+    std::ifstream in(path);
+    if (!in.is_open()) return false;
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    out = ss.str();
+    return true;
+  }
+
+  inline bool StartsWithKey(const std::string& line, const std::string& key)
+  {
+    const std::string k = key + ":";
+    if (line.size() < k.size()) return false;
+    return (line.compare(0, k.size(), k) == 0);
+  }
+
+  inline std::string AfterColon(const std::string& line)
+  {
+    const std::size_t c = line.find(':');
+    if (c == std::string::npos) return std::string{};
+    return detail::trim(line.substr(c + 1));
+  }
+
+  inline bool ParseBool(std::string s, bool& out)
+  {
+    s = detail::trim(s);
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c){ return std::tolower(c); });
+    if (s == "true"  || s == "1" || s == "yes" || s == "on")  { out = true;  return true; }
+    if (s == "false" || s == "0" || s == "no"  || s == "off") { out = false; return true; }
+    return false;
+  }
+
+  inline bool ParseDouble(const std::string& s, double& out)
+  {
+    try { out = std::stod(detail::trim(s)); return true; } catch (...) { return false; }
+  }
+
+  inline void ParseInlineListDoubles(std::string s, std::vector<double>& out)
+  {
+    out.clear();
+    s = detail::trim(s);
+    const std::size_t l = s.find('[');
+    const std::size_t r = s.find(']');
+    if (l == std::string::npos || r == std::string::npos || r <= l) return;
+    std::string inner = s.substr(l + 1, r - l - 1);
+    std::stringstream ss(inner);
+    std::string tok;
+    while (std::getline(ss, tok, ','))
+    {
+      double v = 0.0;
+      if (ParseDouble(tok, v)) out.push_back(v);
+    }
+  }
+
+  inline void ParseInlineMapDoubles(std::string s, std::map<std::string, double>& out)
+  {
+    out.clear();
+    s = detail::trim(s);
+    const std::size_t l = s.find('{');
+    const std::size_t r = s.find('}');
+    if (l == std::string::npos || r == std::string::npos || r <= l) return;
+    std::string inner = s.substr(l + 1, r - l - 1);
+    std::stringstream ss(inner);
+    std::string pair;
+    while (std::getline(ss, pair, ','))
+    {
+      const std::size_t c = pair.find(':');
+      if (c == std::string::npos) continue;
+      std::string k = detail::trim(pair.substr(0, c));
+      std::string v = detail::trim(pair.substr(c + 1));
+      double dv = 0.0;
+      if (ParseDouble(v, dv)) out[k] = dv;
+    }
+  }
+
+  inline Config LoadConfig()
+  {
+    Config cfg;
+    cfg.yamlPath = ResolveYAMLPath();
+    ReadWholeFile(cfg.yamlPath, cfg.yamlText);
+
+    std::istringstream iss(cfg.yamlText);
+    for (std::string line; std::getline(iss, line); )
+    {
+      line = detail::trim(line);
+      if (line.empty()) continue;
+      if (!line.empty() && line[0] == '#') continue;
+
+      if (StartsWithKey(line, "photon_eta_abs_max"))
+      {
+        ParseDouble(AfterColon(line), cfg.photon_eta_abs_max);
+      }
+      else if (StartsWithKey(line, "jet_pt_min"))
+      {
+        ParseDouble(AfterColon(line), cfg.jet_pt_min);
+      }
+      else if (StartsWithKey(line, "back_to_back_dphi_min_pi_fraction"))
+      {
+        ParseDouble(AfterColon(line), cfg.back_to_back_dphi_min_pi_fraction);
+      }
+      else if (StartsWithKey(line, "use_vz_cut"))
+      {
+        ParseBool(AfterColon(line), cfg.use_vz_cut);
+      }
+      else if (StartsWithKey(line, "vz_cut_cm"))
+      {
+        ParseDouble(AfterColon(line), cfg.vz_cut_cm);
+      }
+      else if (StartsWithKey(line, "matching"))
+      {
+        std::map<std::string, double> m;
+        ParseInlineMapDoubles(AfterColon(line), m);
+        if (m.count("pho_dr_max")) cfg.pho_dr_max = m["pho_dr_max"];
+        if (m.count("jet_dr_max")) cfg.jet_dr_max = m["jet_dr_max"];
+      }
+      else if (StartsWithKey(line, "isolation_wp"))
+      {
+        std::map<std::string, double> m;
+        ParseInlineMapDoubles(AfterColon(line), m);
+        if (m.count("aGeV"))       cfg.isoA      = m["aGeV"];
+        if (m.count("bPerGeV"))    cfg.isoB      = m["bPerGeV"];
+        if (m.count("sideGapGeV")) cfg.isoGap    = m["sideGapGeV"];
+        if (m.count("coneR"))      cfg.isoConeR  = m["coneR"];
+        if (m.count("towerMin"))   cfg.isoTowMin = m["towerMin"];
+      }
+      else if (StartsWithKey(line, "photon_id_pre"))
+      {
+        std::map<std::string, double> m;
+        ParseInlineMapDoubles(AfterColon(line), m);
+        if (m.count("e11e33_max")) cfg.pre_e11e33_max = m["e11e33_max"];
+        if (m.count("et1_min"))    cfg.pre_et1_min    = m["et1_min"];
+        if (m.count("et1_max"))    cfg.pre_et1_max    = m["et1_max"];
+        if (m.count("e32e35_min")) cfg.pre_e32e35_min = m["e32e35_min"];
+        if (m.count("e32e35_max")) cfg.pre_e32e35_max = m["e32e35_max"];
+        if (m.count("weta_max"))   cfg.pre_weta_max   = m["weta_max"];
+      }
+      else if (StartsWithKey(line, "photon_id_tight"))
+      {
+        std::map<std::string, double> m;
+        ParseInlineMapDoubles(AfterColon(line), m);
+        if (m.count("w_lo"))            cfg.tight_w_lo           = m["w_lo"];
+        if (m.count("w_hi_intercept"))  cfg.tight_w_hi_intercept = m["w_hi_intercept"];
+        if (m.count("w_hi_slope"))      cfg.tight_w_hi_slope     = m["w_hi_slope"];
+
+        if (m.count("e11e33_min")) cfg.tight_e11e33_min = m["e11e33_min"];
+        if (m.count("e11e33_max")) cfg.tight_e11e33_max = m["e11e33_max"];
+
+        if (m.count("et1_min"))    cfg.tight_et1_min    = m["et1_min"];
+        if (m.count("et1_max"))    cfg.tight_et1_max    = m["et1_max"];
+
+        if (m.count("e32e35_min")) cfg.tight_e32e35_min = m["e32e35_min"];
+        if (m.count("e32e35_max")) cfg.tight_e32e35_max = m["e32e35_max"];
+      }
+      else if (StartsWithKey(line, "jes3_photon_pt_bins"))
+      {
+        ParseInlineListDoubles(AfterColon(line), cfg.jes3_photon_pt_bins);
+      }
+      else if (StartsWithKey(line, "unfold_reco_photon_pt_bins"))
+      {
+        ParseInlineListDoubles(AfterColon(line), cfg.unfold_reco_photon_pt_bins);
+      }
+      else if (StartsWithKey(line, "unfold_truth_photon_pt_bins"))
+      {
+        ParseInlineListDoubles(AfterColon(line), cfg.unfold_truth_photon_pt_bins);
+      }
+      else if (StartsWithKey(line, "unfold_xj_bins"))
+      {
+        ParseInlineListDoubles(AfterColon(line), cfg.unfold_xj_bins);
+      }
+      else if (StartsWithKey(line, "unfold_jet_pt_binning"))
+      {
+        std::map<std::string, double> m;
+        ParseInlineMapDoubles(AfterColon(line), m);
+        if (m.count("start")) cfg.unfold_jet_pt_start = m["start"];
+        if (m.count("stop"))  cfg.unfold_jet_pt_stop  = m["stop"];
+        if (m.count("step"))  cfg.unfold_jet_pt_step  = m["step"];
+      }
+    }
+
+    return cfg;
+  }
+
+  inline void ExpandUniformEdges(std::vector<double>& edges, double start, double stop, double step)
+  {
+    edges.clear();
+    if (!(std::isfinite(start) && std::isfinite(stop) && std::isfinite(step))) return;
+    if (step <= 0.0) return;
+    if (stop <= start) return;
+
+    const int n = (int) std::llround((stop - start) / step);
+    edges.reserve((std::size_t)n + 2);
+    for (int i = 0; i <= n; ++i)
+    {
+      edges.push_back(start + step * (double)i);
+    }
+    if (edges.empty() || std::fabs(edges.back() - stop) > 1e-9) edges.push_back(stop);
+  }
+}
+
 // ============================================================================
 // Ensure the composite nodes JetCalib hard-requires exist.
 // JetCalib::CreateNodeTree requires BOTH:
@@ -659,12 +934,64 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
     }
   } _silence;
 
-  if (vlevel == 0) _silence.enable();
+    if (vlevel == 0) _silence.enable();
 
-  // --------------------------------------------------------------------
-  // 2.  CDB + IO managers
-  // --------------------------------------------------------------------
-  recoConsts* rc = recoConsts::instance();
+    // --------------------------------------------------------------------
+    // YAML config (Phase-1): load once, validate lightly, and print summary
+    // --------------------------------------------------------------------
+    yamlcfg::Config cfg = yamlcfg::LoadConfig();
+
+    std::vector<double> unfoldJetPtEdges;
+    yamlcfg::ExpandUniformEdges(unfoldJetPtEdges,
+                                cfg.unfold_jet_pt_start,
+                                cfg.unfold_jet_pt_stop,
+                                cfg.unfold_jet_pt_step);
+
+    if (vlevel > 0)
+    {
+      std::cout << "\n[CFG] analysis_config.yaml\n"
+                << "  path: " << cfg.yamlPath << "\n"
+                << "  photon_eta_abs_max: " << cfg.photon_eta_abs_max << "\n"
+                << "  jet_pt_min: " << cfg.jet_pt_min << "\n"
+                << "  back_to_back_dphi_min_pi_fraction: " << cfg.back_to_back_dphi_min_pi_fraction
+                << "  -> radians=" << (cfg.back_to_back_dphi_min_pi_fraction * M_PI) << "\n"
+                << "  use_vz_cut: " << (cfg.use_vz_cut ? "true" : "false") << "\n"
+                << "  vz_cut_cm: " << cfg.vz_cut_cm << "\n"
+                << "  matching: {pho_dr_max=" << cfg.pho_dr_max << ", jet_dr_max=" << cfg.jet_dr_max << "}\n"
+                << "  isolation_wp: {aGeV=" << cfg.isoA << ", bPerGeV=" << cfg.isoB
+                << ", sideGapGeV=" << cfg.isoGap << ", coneR=" << cfg.isoConeR
+                << ", towerMin=" << cfg.isoTowMin << "}\n"
+                << "  jes3_photon_pt_bins: [";
+      for (std::size_t i = 0; i < cfg.jes3_photon_pt_bins.size(); ++i)
+      {
+        std::cout << cfg.jes3_photon_pt_bins[i] << (i + 1 < cfg.jes3_photon_pt_bins.size() ? ", " : "");
+      }
+      std::cout << "]\n  unfold_reco_photon_pt_bins: [";
+      for (std::size_t i = 0; i < cfg.unfold_reco_photon_pt_bins.size(); ++i)
+      {
+        std::cout << cfg.unfold_reco_photon_pt_bins[i] << (i + 1 < cfg.unfold_reco_photon_pt_bins.size() ? ", " : "");
+      }
+      std::cout << "]\n  unfold_truth_photon_pt_bins: [";
+      for (std::size_t i = 0; i < cfg.unfold_truth_photon_pt_bins.size(); ++i)
+      {
+        std::cout << cfg.unfold_truth_photon_pt_bins[i] << (i + 1 < cfg.unfold_truth_photon_pt_bins.size() ? ", " : "");
+      }
+      std::cout << "]\n  unfold_jet_pt_edges: start=" << cfg.unfold_jet_pt_start
+                << " stop=" << cfg.unfold_jet_pt_stop
+                << " step=" << cfg.unfold_jet_pt_step
+                << " (nedges=" << unfoldJetPtEdges.size() << ")\n"
+                << "  unfold_xj_bins: [";
+      for (std::size_t i = 0; i < cfg.unfold_xj_bins.size(); ++i)
+      {
+        std::cout << cfg.unfold_xj_bins[i] << (i + 1 < cfg.unfold_xj_bins.size() ? ", " : "");
+      }
+      std::cout << "]\n\n";
+    }
+
+    // --------------------------------------------------------------------
+    // 2.  CDB + IO managers
+    // --------------------------------------------------------------------
+    recoConsts* rc = recoConsts::instance();
   // CDB_GLOBALTAG is REQUIRED for any CDBInterface::getUrl() call.
   // Allow override via env, otherwise default to your known-good tag.
   std::string gtag = "newcdbtag";
@@ -1201,17 +1528,64 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
 
   auto* recoilJets = new RecoilJets(outRoot);
 
-  recoilJets->setUseVzCut(true, 30.0);
-  recoilJets->setIsolationWP(1.08128, 0.0299107, 1.0, 0.30, 0.0);
-    
+  // ------------------------------------------------------------------
+  // Apply YAML-driven knobs
+  // ------------------------------------------------------------------
+  recoilJets->setPhotonEtaAbsMax(cfg.photon_eta_abs_max);
+  recoilJets->setMinJetPt(cfg.jet_pt_min);
+  recoilJets->setMinBackToBack(cfg.back_to_back_dphi_min_pi_fraction * M_PI);
+
+  recoilJets->setUseVzCut(cfg.use_vz_cut, cfg.vz_cut_cm);
+  recoilJets->setIsolationWP(cfg.isoA, cfg.isoB, cfg.isoGap, cfg.isoConeR, cfg.isoTowMin);
+
+  recoilJets->setPhotonIDCuts(cfg.pre_e11e33_max,
+                                cfg.pre_et1_min,
+                                cfg.pre_et1_max,
+                                cfg.pre_e32e35_min,
+                                cfg.pre_e32e35_max,
+                                cfg.pre_weta_max,
+                                cfg.tight_w_lo,
+                                cfg.tight_w_hi_intercept,
+                                cfg.tight_w_hi_slope,
+                                cfg.tight_e11e33_min,
+                                cfg.tight_e11e33_max,
+                                cfg.tight_et1_min,
+                                cfg.tight_et1_max,
+                                cfg.tight_e32e35_min,
+                                cfg.tight_e32e35_max);
+
+  recoilJets->setGammaPtBins(cfg.jes3_photon_pt_bins);
+  recoilJets->setPhoMatchDRMax(cfg.pho_dr_max);
+  recoilJets->setJetMatchDRMax(cfg.jet_dr_max);
+
+  recoilJets->setUnfoldRecoPhotonPtBins(cfg.unfold_reco_photon_pt_bins);
+  recoilJets->setUnfoldTruthPhotonPtBins(cfg.unfold_truth_photon_pt_bins);
+  recoilJets->setUnfoldJetPtBins(unfoldJetPtEdges);
+  recoilJets->setUnfoldXJBins(cfg.unfold_xj_bins);
+
+  recoilJets->setAnalysisConfigYAML(cfg.yamlText, "analysis_config.yaml");
+
+  if (vlevel > 0)
+  {
+      std::cout << "[CFG] Applied to RecoilJets:"
+                << " etaAbsMax=" << cfg.photon_eta_abs_max
+                << " jetPtMin=" << cfg.jet_pt_min
+                << " dphiMin(rad)=" << (cfg.back_to_back_dphi_min_pi_fraction * M_PI)
+                << " useVzCut=" << (cfg.use_vz_cut ? "true" : "false")
+                << " vzCut=" << cfg.vz_cut_cm
+                << " phoDR=" << cfg.pho_dr_max
+                << " jetDR=" << cfg.jet_dr_max
+                << "\n";
+  }
+      
   // Optional: override EventDisplay output directory (used only when Verbosity() >= 50 and SIM)
   if (const char* evtDispOut = gSystem->Getenv("RJ_EVENT_DISPLAY_OUTDIR"))
-    {
-      if (std::string(evtDispOut).size() > 0)
       {
-        recoilJets->setEventDisplayOutputDir(std::string(evtDispOut));
-        if (verbose) std::cout << "[INFO] RJ_EVENT_DISPLAY_OUTDIR → " << evtDispOut << '\n';
-      }
+        if (std::string(evtDispOut).size() > 0)
+        {
+          recoilJets->setEventDisplayOutputDir(std::string(evtDispOut));
+          if (verbose) std::cout << "[INFO] RJ_EVENT_DISPLAY_OUTDIR → " << evtDispOut << '\n';
+        }
   }
 
     

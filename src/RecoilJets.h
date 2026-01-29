@@ -323,27 +323,85 @@ public:
     m_vzCut    = static_cast<float>(vz);
   }
 
-  void setGammaPtBins(const std::vector<double>& /*bins*/)
-      {
-        // Canonical pT^gamma binning for ALL photon-binned histograms (reco + truth):
-        //   [15,17,19,21,23,26,35] GeV  (6 bins, start at 15 GeV)
-        //
-        // NOTE: Unfolding histograms book their own extended pT^gamma binning:
-        //   reco : [10,15] + (canonical bins) + [35,40]
-        //   truth: [5,10] + [10,15] + (canonical bins) + [35,40]
-        m_gammaPtBins = {15,17,19,21,23,26,35};
-  }
+    void setGammaPtBins(const std::vector<double>& bins)
+        {
+          // Canonical pT^gamma binning for ALL photon-binned histograms (reco + truth):
+          //   [15,17,19,21,23,26,35] GeV  (6 bins, start at 15 GeV)
+          //
+          // NOTE: Unfolding histograms book their own extended pT^gamma binning:
+          //   reco : [10,15] + (canonical bins) + [35,40]
+          //   truth: [5,10] + [10,15] + (canonical bins) + [35,40]
+          if (!bins.empty())
+          {
+            m_gammaPtBins = bins;
+          }
+    }
+
+    // Phase-1 YAML knobs (matching thresholds)
+    void setPhoMatchDRMax(double v) { m_phoMatchDRMax = v; }
+    void setJetMatchDRMax(double v) { m_jetMatchDRMax = v; }
+
+    // Phase-1 YAML knobs (unfolding explicit bin edges)
+    void setUnfoldRecoPhotonPtBins(const std::vector<double>& bins)  { m_unfoldRecoPhotonPtBins = bins; }
+    void setUnfoldTruthPhotonPtBins(const std::vector<double>& bins) { m_unfoldTruthPhotonPtBins = bins; }
+    void setUnfoldJetPtBins(const std::vector<double>& bins)         { m_unfoldJetPtBins = bins; }
+    void setUnfoldXJBins(const std::vector<double>& bins)            { m_unfoldXJBins = bins; }
+
+    // Analysis provenance stamping (written once into output ROOT by RecoilJets.cc)
+    void setAnalysisConfigYAML(const std::string& yamlText, const std::string& tag)
+    {
+      m_analysisConfigYAMLText = yamlText;
+      m_analysisConfigTag      = tag;
+    }
 
 
-  void setCentEdges(const std::vector<int>& edges)     { m_centEdges = edges; }
+    void setCentEdges(const std::vector<int>& edges)     { m_centEdges = edges; }
 
-  // Isolation WP (implemented in .cc)
-  void setIsolationWP(double aGeV, double bPerGeV,
-                        double sideGapGeV, double coneR, double towerMin);
+    // Isolation WP (implemented in .cc)
+    void setIsolationWP(double aGeV, double bPerGeV,
+                          double sideGapGeV, double coneR, double towerMin);
 
-  // EventDisplay test mode (Verbosity() >= 50, SIM only):
-  // Optional override for the output base directory. If not set, a sensible default is used.
-  void setEventDisplayOutputDir(const std::string& dir) { m_evtDispOutBase = dir; }
+    // Photon ID cuts (PPG12 Table 4): allow YAML override while preserving baseline defaults
+    void setPhotonIDCuts(double pre_e11e33_max,
+                         double pre_et1_min,
+                         double pre_et1_max,
+                         double pre_e32e35_min,
+                         double pre_e32e35_max,
+                         double pre_weta_max,
+                         double tight_w_lo,
+                         double tight_w_hi_intercept,
+                         double tight_w_hi_slope,
+                         double tight_e11e33_min,
+                         double tight_e11e33_max,
+                         double tight_et1_min,
+                         double tight_et1_max,
+                         double tight_e32e35_min,
+                         double tight_e32e35_max)
+    {
+      m_phoid_pre_e11e33_max = pre_e11e33_max;
+      m_phoid_pre_et1_min    = pre_et1_min;
+      m_phoid_pre_et1_max    = pre_et1_max;
+      m_phoid_pre_e32e35_min = pre_e32e35_min;
+      m_phoid_pre_e32e35_max = pre_e32e35_max;
+      m_phoid_pre_weta_max   = pre_weta_max;
+
+      m_phoid_tight_w_lo           = tight_w_lo;
+      m_phoid_tight_w_hi_intercept = tight_w_hi_intercept;
+      m_phoid_tight_w_hi_slope     = tight_w_hi_slope;
+
+      m_phoid_tight_e11e33_min = tight_e11e33_min;
+      m_phoid_tight_e11e33_max = tight_e11e33_max;
+
+      m_phoid_tight_et1_min    = tight_et1_min;
+      m_phoid_tight_et1_max    = tight_et1_max;
+
+      m_phoid_tight_e32e35_min = tight_e32e35_min;
+      m_phoid_tight_e32e35_max = tight_e32e35_max;
+    }
+
+    // EventDisplay test mode (Verbosity() >= 50, SIM only):
+    // Optional override for the output base directory. If not set, a sensible default is used.
+    void setEventDisplayOutputDir(const std::string& dir) { m_evtDispOutBase = dir; }
 
   // -------------------------------------------------------------------------
   // Read-only state access
@@ -798,10 +856,47 @@ private:
   int m_centBin = -1;                 // 0..99 (Au+Au), or -1 in pp
   std::vector<int> m_centEdges;       // centrality bin edges, e.g. {0,10,20,...,100}
 
-  // Photon fiducial + binning
-  double m_etaAbsMax = 0.7;           // photon |eta| cut
-//  std::vector<double> m_gammaPtBins = {10,12,14,16,18,20,22,24,26,35};  // canonical photon pT bin edges
-  std::vector<double> m_gammaPtBins = {15,17,19,21,23,26,35};  // canonical photon pT bin edges (6 bins, start at 15 GeV)
+    // Photon fiducial + binning
+    double m_etaAbsMax = 0.7;           // photon |eta| cut
+  //  std::vector<double> m_gammaPtBins = {10,12,14,16,18,20,22,24,26,35};  // canonical photon pT bin edges
+    std::vector<double> m_gammaPtBins = {15,17,19,21,23,26,35};  // canonical photon pT bin edges (6 bins, start at 15 GeV)
+
+    // Photon ID cuts (PPG12 Table 4) defaults (match PhoIDCuts namespace baseline)
+    double m_phoid_pre_e11e33_max = 0.98;
+    double m_phoid_pre_et1_min    = 0.60;
+    double m_phoid_pre_et1_max    = 1.00;
+    double m_phoid_pre_e32e35_min = 0.80;
+    double m_phoid_pre_e32e35_max = 1.00;
+    double m_phoid_pre_weta_max   = 0.60;
+
+    double m_phoid_tight_w_lo           = 0.0;
+    double m_phoid_tight_w_hi_intercept = 0.15;
+    double m_phoid_tight_w_hi_slope     = 0.006;
+
+    double m_phoid_tight_e11e33_min = 0.40;
+    double m_phoid_tight_e11e33_max = 0.98;
+
+    double m_phoid_tight_et1_min    = 0.90;
+    double m_phoid_tight_et1_max    = 1.00;
+
+    double m_phoid_tight_e32e35_min = 0.92;
+    double m_phoid_tight_e32e35_max = 1.00;
+
+
+  // Phase-1 YAML knobs (matching thresholds)
+  double m_phoMatchDRMax = 0.05;
+  double m_jetMatchDRMax = 0.3;
+
+  // Phase-1 YAML knobs (explicit unfolding bin edges)
+  std::vector<double> m_unfoldRecoPhotonPtBins  = {10,15,17,19,21,23,26,35,40};
+  std::vector<double> m_unfoldTruthPhotonPtBins = {5,10,15,17,19,21,23,26,35,40};
+  std::vector<double> m_unfoldJetPtBins;
+  std::vector<double> m_unfoldXJBins = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
+
+  // Analysis provenance stamping (written once into output ROOT by RecoilJets.cc)
+  std::string m_analysisConfigYAMLText = "";
+  std::string m_analysisConfigTag      = "";
+  bool        m_analysisConfigStamped  = false;
 
 
   // Isolation WP (PPG12 nominal)
