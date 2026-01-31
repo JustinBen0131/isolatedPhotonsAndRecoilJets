@@ -194,24 +194,24 @@ namespace ARJ
         "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5_SIM/RecoilJets_photonjet5_ALL.root";
 
   inline const string kInSIM10 =
-          "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/RecoilJets_photonjet10_ALL_newBinning_pihalves.root";
+          "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/pTminJet10/RecoilJets_photonjet10_ALL_newBinning_pihalves.root";
 
   inline const string kInSIM20 =
-          "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/RecoilJets_photonjet20_ALL_newBinning_pihalves.root";
+          "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/pTminJet10/RecoilJets_photonjet20_ALL_newBinning_pihalves.root";
 
     // Alternate Δφ-cut inputs used ONLY for the JES3 RECO xJ overlay (does not affect baseline analysis)
     inline const string kInSIM10_7piOver8 =
-            "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/RecoilJets_photonjet10_ALL_newBinning_7piOver8.root";
+            "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/pTminJet10/RecoilJets_photonjet10_ALL_newBinning_7piOver8.root";
 
     inline const string kInSIM20_7piOver8 =
-            "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/RecoilJets_photonjet20_ALL_newBinning_7piOver8.root";
+            "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/pTminJet10/RecoilJets_photonjet20_ALL_newBinning_7piOver8.root";
 
     // Alternate BINNING inputs used ONLY for the JES3 RECO xJ overlay (does not affect baseline analysis)
     inline const string kInSIM10_oldBinning_pihalves =
-            "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/RecoilJets_photonjet10_ALL_oldBinning_pihalves.root";
+            "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/pTminJet5/RecoilJets_photonjet10_ALL_oldBinning_pihalves.root";
 
     inline const string kInSIM20_oldBinning_pihalves =
-            "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/RecoilJets_photonjet20_ALL_oldbinning_pihalves.root";
+            "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/pTminJet5/RecoilJets_photonjet20_ALL_oldbinning_pihalves.root";
 
   inline const string kOutPPBase =
         "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp";

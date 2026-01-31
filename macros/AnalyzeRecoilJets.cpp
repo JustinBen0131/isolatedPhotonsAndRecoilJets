@@ -6619,30 +6619,33 @@ namespace ARJ
               {
                 if (!h3) return;
 
-                const int n = h3->GetXaxis()->GetNbins();
-                const int perPage = 9;
+                  const int n = h3->GetXaxis()->GetNbins();
+                  const int perPage = (n <= 6 ? 6 : 9);
 
-                int page = 0;
-                for (int start = 1; start <= n; start += perPage)
-                {
-                  ++page;
+                  const int nCols = 3;
+                  const int nRows = (perPage == 6 ? 2 : 3);
 
-                  TCanvas c(
-                    TString::Format("c_tbl_xJ_%s_%s_%s_%s_p%d",
-                      ds.label.c_str(),
-                      rKey.c_str(),
-                      tag.c_str(),
-                      logy ? "logy" : "lin",
-                      page).Data(),
-                    "c_tbl_xJ", 1500, 1200
-                  );
+                  int page = 0;
+                  for (int start = 1; start <= n; start += perPage)
+                  {
+                    ++page;
 
-                  c.Divide(3,3, 0.001, 0.001);
+                    TCanvas c(
+                      TString::Format("c_tbl_xJ_%s_%s_%s_%s_p%d",
+                        ds.label.c_str(),
+                        rKey.c_str(),
+                        tag.c_str(),
+                        logy ? "logy" : "lin",
+                        page).Data(),
+                      "c_tbl_xJ", 1500, (perPage == 6 ? 900 : 1200)
+                    );
 
-                  std::vector<TH1*> keep;
-                  keep.reserve(perPage);
+                    c.Divide(nCols, nRows, 0.001, 0.001);
 
-                  for (int k = 0; k < perPage; ++k)
+                    std::vector<TH1*> keep;
+                    keep.reserve(perPage);
+
+                    for (int k = 0; k < perPage; ++k)
                   {
                     const int ib = start + k;
                     c.cd(k+1);
@@ -6696,19 +6699,69 @@ namespace ARJ
                       hx->SetMinimum((minPos > 0.0) ? (0.5 * minPos) : 1e-6);
                     }
 
-                    hx->Draw("E1");
+                      hx->Draw("E1");
 
-                    const string ptLab = AxisBinLabel(h3->GetXaxis(), ib, "GeV", 0);
+                      const string ptLab = AxisBinLabel(h3->GetXaxis(), ib, "GeV", 0);
 
-                    vector<string> lines;
-                    lines.push_back(TString::Format("JES3 %s: x_{J#gamma} ( #int d#alpha )", tag.c_str()).Data());
-                    lines.push_back(TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data());
-                    lines.push_back(TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data());
-                    if (logy) lines.push_back("Y-axis: log scale");
+                      // --------------------------------------------------------------------------
+                      // KINEMATIC xJ FLOORS for a photon bin [pTmin, pTmax] with jet pT cut = 10 GeV
+                      //
+                      //   x_{J,min}^{abs}  = 10 / p_{T,max}^{#gamma}   (absolute floor within the bin)
+                      //   x_{J,min}^{full} = 10 / p_{T,min}^{#gamma}   (full-acceptance floor within the bin)
+                      //
+                      // Requested:
+                      //   - BLUE dashed vertical line at x_{J,min}^{abs}
+                      //   - RED  dashed vertical line at x_{J,min}^{full}
+                      //   - Legend with the two relations
+                      // --------------------------------------------------------------------------
+                      const double jetPtMin_GeV = 10.0;
 
-                    DrawLatexLines(0.16, 0.90, lines, 0.040, 0.050);
+                      const double ptMin = h3->GetXaxis()->GetBinLowEdge(ib);
+                      const double ptMax = h3->GetXaxis()->GetBinUpEdge(ib);
 
-                    keep.push_back(hx);
+                      const double xAbs  = (ptMax > 0.0) ? (jetPtMin_GeV / ptMax) : -1.0;
+                      const double xFull = (ptMin > 0.0) ? (jetPtMin_GeV / ptMin) : -1.0;
+
+                      gPad->Update();
+                      const double yMin = gPad->GetUymin();
+                      const double yMax = gPad->GetUymax();
+
+                      TLine lnAbs(xAbs,  yMin, xAbs,  yMax);
+                      lnAbs.SetLineColor(kBlue + 1);
+                      lnAbs.SetLineStyle(2);
+                      lnAbs.SetLineWidth(2);
+
+                      TLine lnFull(xFull, yMin, xFull, yMax);
+                      lnFull.SetLineColor(kRed + 1);
+                      lnFull.SetLineStyle(2);
+                      lnFull.SetLineWidth(2);
+
+                      if (xAbs > 0.0)  lnAbs.Draw("same");
+                      if (xFull > 0.0) lnFull.Draw("same");
+
+                      TLegend leg(0.50, 0.74, 0.92, 0.90);
+                      leg.SetBorderSize(0);
+                      leg.SetFillStyle(0);
+                      leg.SetTextFont(42);
+                      leg.SetTextSize(0.035);
+
+                      if (xAbs > 0.0)
+                        leg.AddEntry(&lnAbs,  "x_{J,min}^{abs} = 10 / p_{T,max}^{#gamma}",  "l");
+                      if (xFull > 0.0)
+                        leg.AddEntry(&lnFull, "x_{J,min}^{full} = 10 / p_{T,min}^{#gamma}", "l");
+
+                      leg.Draw();
+
+                      // Requested title text (remove "JES3 RECO" and remove "(#int d#alpha)" printout)
+                      vector<string> lines;
+                      lines.push_back(TString::Format("%s", tag.c_str()).Data());
+                      lines.push_back(TString::Format("R=%.1f  (rKey=%s)", R, rKey.c_str()).Data());
+                      lines.push_back(TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data());
+                      if (logy) lines.push_back("Y-axis: log scale");
+
+                      DrawLatexLines(0.16, 0.90, lines, 0.040, 0.050);
+
+                      keep.push_back(hx);
                   }
 
                   string outName;
