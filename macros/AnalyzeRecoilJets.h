@@ -809,12 +809,114 @@ namespace ARJ
       DrawFidEtaLines1D(fidEtaAbs);
     }
 
-    vector<string> lines = DefaultHeaderLines(ds);
-    for (const auto& s : extraLines) lines.push_back(s);
-    DrawLatexLines(0.14, 0.92, lines, 0.034, 0.045);
+      vector<string> lines = DefaultHeaderLines(ds);
+      for (const auto& s : extraLines) lines.push_back(s);
+      DrawLatexLines(0.14, 0.92, lines, 0.034, 0.045);
 
-    SaveCanvas(c, filepath);
+      SaveCanvas(c, filepath);
+    }
+
+    // ---------------------------------------------------------------------------
+    // RECO xJ (integrated over alpha): per-pTbin PNG with xJ floors + legend + title
+    //
+    // Draws:
+    //   - blue dashed line: x_{J,min}^{abs}  = jetPtMin / pTmax^gamma
+    //   - red  dashed line: x_{J,min}^{full} = jetPtMin / pTmin^gamma
+    //   - legend with both relations + numeric value
+    //   - big title: "RECO (unconditional) x_{J#gamma}, p_{T}^{#gamma} = X - Y GeV, R = 0.Z"
+    // ---------------------------------------------------------------------------
+    inline void DrawAndSave_xJRecoIntegratedAlpha_WithFloors(const Dataset& ds,
+                                                             TH1* h,
+                                                             const string& filepath,
+                                                             double ptMinGamma,
+                                                             double ptMaxGamma,
+                                                             double R,
+                                                             double jetPtMin_GeV = 10.0,
+                                                             bool logy = false)
+    {
+      if (!h) return;
+
+      EnsureSumw2(h);
+
+      TCanvas c("c_xJReco","c_xJReco",900,700);
+      ApplyCanvasMargins1D(c);
+      c.SetLogy(logy);
+
+      const bool mergedSimWeightedToPb = (ds.isSim && bothPhoton10and20sim);
+
+      const string yTitleEff =
+        (mergedSimWeightedToPb ? "Counts / pb^{-1}" : "Counts");
+
+      h->SetTitle("");
+      h->SetLineWidth(2);
+      h->SetMarkerStyle(20);
+      h->SetMarkerSize(1.0);
+
+      h->GetXaxis()->SetTitle("x_{J#gamma}");
+      h->GetYaxis()->SetTitle(yTitleEff.c_str());
+
+      if (logy)
+      {
+        const double minPos = SmallestPositiveBinContent(h);
+        if (minPos > 0.0) h->SetMinimum(0.5 * minPos);
+        else              h->SetMinimum(1e-6);
+      }
+
+      h->Draw("E1");
+      gPad->Update();
+
+      const double xAbs  = (ptMaxGamma > 0.0) ? (jetPtMin_GeV / ptMaxGamma) : -1.0;
+      const double xFull = (ptMinGamma > 0.0) ? (jetPtMin_GeV / ptMinGamma) : -1.0;
+
+      const double yMin = gPad->GetUymin();
+      const double yMax = gPad->GetUymax();
+
+      TLine* lnAbs = new TLine(xAbs,  yMin, xAbs,  yMax);
+      lnAbs->SetLineColor(kBlue + 1);
+      lnAbs->SetLineStyle(2);
+      lnAbs->SetLineWidth(2);
+
+      TLine* lnFull = new TLine(xFull, yMin, xFull, yMax);
+      lnFull->SetLineColor(kRed + 1);
+      lnFull->SetLineStyle(2);
+      lnFull->SetLineWidth(2);
+
+      if (xAbs > 0.0)  lnAbs->Draw("same");
+      if (xFull > 0.0) lnFull->Draw("same");
+
+      TLegend* leg = new TLegend(0.52, 0.70, 0.95, 0.90);
+      leg->SetBorderSize(0);
+      leg->SetFillStyle(0);
+      leg->SetTextFont(42);
+      leg->SetTextSize(0.032);
+
+      if (xAbs > 0.0)
+        leg->AddEntry(lnAbs,
+          TString::Format("x_{J, min}^{abs} = #frac{10}{p_{T, max}^{#gamma}} = %.3f", xAbs),
+          "l");
+      if (xFull > 0.0)
+        leg->AddEntry(lnFull,
+          TString::Format("x_{J, min}^{full} = #frac{10}{p_{T, min}^{#gamma}} = %.3f", xFull),
+          "l");
+
+      leg->Draw();
+
+      TLatex ttl;
+      ttl.SetNDC(true);
+      ttl.SetTextFont(42);
+      ttl.SetTextSize(0.052);
+      ttl.DrawLatex(0.12, 0.94,
+        TString::Format("RECO (unconditional) x_{J#gamma}, p_{T}^{#gamma} = %.0f - %.0f GeV, R = %.1f",
+          ptMinGamma, ptMaxGamma, R).Data());
+
+      SaveCanvas(c, filepath);
+      delete leg;
+      delete lnFull;
+      delete lnAbs;
   }
+
+    
+
 
   inline void DrawAndSaveTH2_Common(const Dataset& ds, TH2* h,
                                    const string& filepath,

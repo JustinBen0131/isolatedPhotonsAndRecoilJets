@@ -6292,18 +6292,14 @@ namespace ARJ
                 if (!xJ_re) return;
 
                 // (1) Inclusive in alpha
-                vector<string> lines = {
-                  "JES3 (RECO): x_{J#gamma}",
-                  TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
-                  TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data(),
-                  "Projection: integrated over #alpha",
-                  "Filled with: (p_{T}^{#gamma}, x_{J#gamma}, #alpha)"
-                };
+                const double ptMinGamma = H.hReco_xJ->GetXaxis()->GetBinLowEdge(ib);
+                const double ptMaxGamma = H.hReco_xJ->GetXaxis()->GetBinUpEdge(ib);
 
-                DrawAndSaveTH1_Common(ds, xJ_re,
-                  JoinPath(D.dirXJProjReco, TString::Format("xJ_reco_integratedAlpha_pTbin%d.png", ib).Data()),
-                  "x_{J#gamma}", "Counts", lines, false, false, 0.0, "E1");
+                DrawAndSave_xJRecoIntegratedAlpha_WithFloors(ds, xJ_re,
+                    JoinPath(D.dirXJProjReco, TString::Format("xJ_reco_integratedAlpha_pTbin%d.png", ib).Data()),
+                    ptMinGamma, ptMaxGamma, R, 10.0, false);
 
+                                  
                 // (2) NEW: alpha-cut variants (presentation-driven)
                 // Adjust cut values freely; these are "reasonable" to see shape evolution.
                 const vector<double> alphaMaxCuts = {0.20, 0.30, 0.40, 0.50};
@@ -6640,12 +6636,12 @@ namespace ARJ
                       "c_tbl_xJ", 1500, (perPage == 6 ? 900 : 1200)
                     );
 
-                    c.Divide(nCols, nRows, 0.001, 0.001);
+                      c.Divide(nCols, nRows, 0.001, 0.001);
 
-                    std::vector<TH1*> keep;
-                    keep.reserve(perPage);
+                      std::vector<TObject*> keep;
+                      keep.reserve(perPage * 4);
 
-                    for (int k = 0; k < perPage; ++k)
+                      for (int k = 0; k < perPage; ++k)
                   {
                     const int ib = start + k;
                     c.cd(k+1);
@@ -6701,19 +6697,6 @@ namespace ARJ
 
                       hx->Draw("E1");
 
-                      const string ptLab = AxisBinLabel(h3->GetXaxis(), ib, "GeV", 0);
-
-                      // --------------------------------------------------------------------------
-                      // KINEMATIC xJ FLOORS for a photon bin [pTmin, pTmax] with jet pT cut = 10 GeV
-                      //
-                      //   x_{J,min}^{abs}  = 10 / p_{T,max}^{#gamma}   (absolute floor within the bin)
-                      //   x_{J,min}^{full} = 10 / p_{T,min}^{#gamma}   (full-acceptance floor within the bin)
-                      //
-                      // Requested:
-                      //   - BLUE dashed vertical line at x_{J,min}^{abs}
-                      //   - RED  dashed vertical line at x_{J,min}^{full}
-                      //   - Legend with the two relations
-                      // --------------------------------------------------------------------------
                       const double jetPtMin_GeV = 10.0;
 
                       const double ptMin = h3->GetXaxis()->GetBinLowEdge(ib);
@@ -6726,42 +6709,44 @@ namespace ARJ
                       const double yMin = gPad->GetUymin();
                       const double yMax = gPad->GetUymax();
 
-                      TLine lnAbs(xAbs,  yMin, xAbs,  yMax);
-                      lnAbs.SetLineColor(kBlue + 1);
-                      lnAbs.SetLineStyle(2);
-                      lnAbs.SetLineWidth(2);
+                      TLine* lnAbs = new TLine(xAbs,  yMin, xAbs,  yMax);
+                      lnAbs->SetLineColor(kBlue + 1);
+                      lnAbs->SetLineStyle(2);
+                      lnAbs->SetLineWidth(2);
 
-                      TLine lnFull(xFull, yMin, xFull, yMax);
-                      lnFull.SetLineColor(kRed + 1);
-                      lnFull.SetLineStyle(2);
-                      lnFull.SetLineWidth(2);
+                      TLine* lnFull = new TLine(xFull, yMin, xFull, yMax);
+                      lnFull->SetLineColor(kRed + 1);
+                      lnFull->SetLineStyle(2);
+                      lnFull->SetLineWidth(2);
 
-                      if (xAbs > 0.0)  lnAbs.Draw("same");
-                      if (xFull > 0.0) lnFull.Draw("same");
+                      if (xAbs > 0.0)  lnAbs->Draw("same");
+                      if (xFull > 0.0) lnFull->Draw("same");
 
-                      TLegend leg(0.50, 0.74, 0.92, 0.90);
-                      leg.SetBorderSize(0);
-                      leg.SetFillStyle(0);
-                      leg.SetTextFont(42);
-                      leg.SetTextSize(0.035);
+                      TLegend* leg = new TLegend(0.44, 0.67, 0.96, 0.90);
+                      leg->SetBorderSize(0);
+                      leg->SetFillStyle(0);
+                      leg->SetTextFont(42);
+                      leg->SetTextSize(0.038);
 
                       if (xAbs > 0.0)
-                        leg.AddEntry(&lnAbs,  "x_{J,min}^{abs} = 10 / p_{T,max}^{#gamma}",  "l");
+                        leg->AddEntry(lnAbs,  TString::Format("x_{J, min}^{abs} = #frac{10}{p_{T, max}^{#gamma}} = %.3f", xAbs),  "l");
                       if (xFull > 0.0)
-                        leg.AddEntry(&lnFull, "x_{J,min}^{full} = 10 / p_{T,min}^{#gamma}", "l");
+                        leg->AddEntry(lnFull, TString::Format("x_{J, min}^{full} = #frac{10}{p_{T, min}^{#gamma}} = %.3f", xFull), "l");
 
-                      leg.Draw();
+                      leg->Draw();
 
-                      // Requested title text (remove "JES3 RECO" and remove "(#int d#alpha)" printout)
-                      vector<string> lines;
-                      lines.push_back(TString::Format("%s", tag.c_str()).Data());
-                      lines.push_back(TString::Format("R=%.1f  (rKey=%s)", R, rKey.c_str()).Data());
-                      lines.push_back(TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data());
-                      if (logy) lines.push_back("Y-axis: log scale");
-
-                      DrawLatexLines(0.16, 0.90, lines, 0.040, 0.050);
+                      TLatex ttl;
+                      ttl.SetNDC(true);
+                      ttl.SetTextFont(42);
+                      ttl.SetTextSize(0.052);
+                      ttl.DrawLatex(0.14, 0.94,
+                        TString::Format("RECO x_{J#gamma}, p_{T}^{#gamma} = %.0f - %.0f GeV, R = %.1f",
+                          ptMin, ptMax, R).Data());
 
                       keep.push_back(hx);
+                      keep.push_back(lnAbs);
+                      keep.push_back(lnFull);
+                      keep.push_back(leg);
                   }
 
                   string outName;
