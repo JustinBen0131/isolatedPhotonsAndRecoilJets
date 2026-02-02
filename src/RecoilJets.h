@@ -20,6 +20,7 @@
 // ROOT
 // ---------------------------------------------------------------------------
 #include <TFile.h>
+#include <TTree.h>
 #include <TObject.h>
 #include <TH1F.h>
 #include <TH1I.h>
@@ -303,15 +304,18 @@ public:
   // -------------------------------------------------------------------------
   void setDataType(const std::string& s)
   {
-    // Supported user-facing keys (also overridden by env RJ_DATASET / RJ_IS_SIM)
-    //   "isSim"/"sim"  -> sim
-    //   "isAuAu"/"auau"-> Au+Au
-    //   "ispp"/"pp"    -> pp
-    const std::string t = s;
-    if (t == "isSim" || t == "sim") { m_isSim = true;  m_isAuAu = false; }
-    if (t == "isAuAu" || t == "auau"|| t == "aa") { m_isSim = false; m_isAuAu = true; }
-    if (t == "ispp"  || t == "pp")  { m_isSim = false; m_isAuAu = false; }
+      // Supported user-facing keys (also overridden by env RJ_DATASET / RJ_IS_SIM)
+      //   "isSim"/"sim"  -> sim
+      //   "isAuAu"/"auau"-> Au+Au
+      //   "ispp"/"pp"    -> pp
+      const std::string t = s;
+      if (t == "isSim" || t == "sim") { m_isSim = true;  m_isAuAu = false; }
+      if (t == "isAuAu" || t == "auau"|| t == "aa") { m_isSim = false; m_isAuAu = true; }
+      if (t == "ispp"  || t == "pp")  { m_isSim = false; m_isAuAu = false; }
   }
+
+  // Optional: limit active jet radii (keys like "r02","r04"). Empty => all kJetRadii.
+  void setActiveJetRKeys(const std::vector<std::string>& keys) { m_activeJetRKeys = keys; }
 
   void setPhotonEtaAbsMax(double v) { m_etaAbsMax = v; }
   void setMinJetPt(double v)        { m_minJetPt = v; }
@@ -319,89 +323,93 @@ public:
 
   void setUseVzCut(bool on, double vz = 60.0)
   {
-    m_useVzCut = on;
-    m_vzCut    = static_cast<float>(vz);
+      m_useVzCut = on;
+      m_vzCut    = static_cast<float>(vz);
+  }
+  void setGammaPtBins(const std::vector<double>& bins)
+          {
+            // Canonical pT^gamma binning for ALL photon-binned histograms (reco + truth):
+            //   [15,17,19,21,23,26,35] GeV  (6 bins, start at 15 GeV)
+            //
+            // NOTE: Unfolding histograms book their own extended pT^gamma binning:
+            //   reco : [10,15] + (canonical bins) + [35,40]
+            //   truth: [5,10] + [10,15] + (canonical bins) + [35,40]
+            if (!bins.empty())
+            {
+              m_gammaPtBins = bins;
+            }
   }
 
-    void setGammaPtBins(const std::vector<double>& bins)
-        {
-          // Canonical pT^gamma binning for ALL photon-binned histograms (reco + truth):
-          //   [15,17,19,21,23,26,35] GeV  (6 bins, start at 15 GeV)
-          //
-          // NOTE: Unfolding histograms book their own extended pT^gamma binning:
-          //   reco : [10,15] + (canonical bins) + [35,40]
-          //   truth: [5,10] + [10,15] + (canonical bins) + [35,40]
-          if (!bins.empty())
-          {
-            m_gammaPtBins = bins;
-          }
-    }
+  // Phase-1 YAML knobs (matching thresholds)
+  void setPhoMatchDRMax(double v) { m_phoMatchDRMax = v; }
+  void setJetMatchDRMax(double v) { m_jetMatchDRMax = v; }
 
-    // Phase-1 YAML knobs (matching thresholds)
-    void setPhoMatchDRMax(double v) { m_phoMatchDRMax = v; }
-    void setJetMatchDRMax(double v) { m_jetMatchDRMax = v; }
+  // Phase-1 YAML knobs (unfolding explicit bin edges)
+  void setUnfoldRecoPhotonPtBins(const std::vector<double>& bins)  { m_unfoldRecoPhotonPtBins = bins; }
+  void setUnfoldTruthPhotonPtBins(const std::vector<double>& bins) { m_unfoldTruthPhotonPtBins = bins; }
+  void setUnfoldJetPtBins(const std::vector<double>& bins)         { m_unfoldJetPtBins = bins; }
+  void setUnfoldXJBins(const std::vector<double>& bins)            { m_unfoldXJBins = bins; }
 
-    // Phase-1 YAML knobs (unfolding explicit bin edges)
-    void setUnfoldRecoPhotonPtBins(const std::vector<double>& bins)  { m_unfoldRecoPhotonPtBins = bins; }
-    void setUnfoldTruthPhotonPtBins(const std::vector<double>& bins) { m_unfoldTruthPhotonPtBins = bins; }
-    void setUnfoldJetPtBins(const std::vector<double>& bins)         { m_unfoldJetPtBins = bins; }
-    void setUnfoldXJBins(const std::vector<double>& bins)            { m_unfoldXJBins = bins; }
-
-    // Analysis provenance stamping (written once into output ROOT by RecoilJets.cc)
-    void setAnalysisConfigYAML(const std::string& yamlText, const std::string& tag)
-    {
-      m_analysisConfigYAMLText = yamlText;
-      m_analysisConfigTag      = tag;
-    }
+  // Analysis provenance stamping (written once into output ROOT by RecoilJets.cc)
+  void setAnalysisConfigYAML(const std::string& yamlText, const std::string& tag)
+  {
+        m_analysisConfigYAMLText = yamlText;
+        m_analysisConfigTag      = tag;
+  }
 
 
-    void setCentEdges(const std::vector<int>& edges)     { m_centEdges = edges; }
+  void setCentEdges(const std::vector<int>& edges)     { m_centEdges = edges; }
 
-    // Isolation WP (implemented in .cc)
-    void setIsolationWP(double aGeV, double bPerGeV,
-                          double sideGapGeV, double coneR, double towerMin);
+  // Isolation WP (implemented in .cc)
+  void setIsolationWP(double aGeV, double bPerGeV,
+                            double sideGapGeV, double coneR, double towerMin);
 
-    // Photon ID cuts (PPG12 Table 4): allow YAML override while preserving baseline defaults
-    void setPhotonIDCuts(double pre_e11e33_max,
-                         double pre_et1_min,
-                         double pre_et1_max,
-                         double pre_e32e35_min,
-                         double pre_e32e35_max,
-                         double pre_weta_max,
-                         double tight_w_lo,
-                         double tight_w_hi_intercept,
-                         double tight_w_hi_slope,
-                         double tight_e11e33_min,
-                         double tight_e11e33_max,
-                         double tight_et1_min,
-                         double tight_et1_max,
-                         double tight_e32e35_min,
-                         double tight_e32e35_max)
-    {
-      m_phoid_pre_e11e33_max = pre_e11e33_max;
-      m_phoid_pre_et1_min    = pre_et1_min;
-      m_phoid_pre_et1_max    = pre_et1_max;
-      m_phoid_pre_e32e35_min = pre_e32e35_min;
-      m_phoid_pre_e32e35_max = pre_e32e35_max;
-      m_phoid_pre_weta_max   = pre_weta_max;
+  // Photon ID cuts (PPG12 Table 4): allow YAML override while preserving baseline defaults
+  void setPhotonIDCuts(double pre_e11e33_max,
+                           double pre_et1_min,
+                           double pre_et1_max,
+                           double pre_e32e35_min,
+                           double pre_e32e35_max,
+                           double pre_weta_max,
+                           double tight_w_lo,
+                           double tight_w_hi_intercept,
+                           double tight_w_hi_slope,
+                           double tight_e11e33_min,
+                           double tight_e11e33_max,
+                           double tight_et1_min,
+                           double tight_et1_max,
+                           double tight_e32e35_min,
+                           double tight_e32e35_max)
+  {
+        m_phoid_pre_e11e33_max = pre_e11e33_max;
+        m_phoid_pre_et1_min    = pre_et1_min;
+        m_phoid_pre_et1_max    = pre_et1_max;
+        m_phoid_pre_e32e35_min = pre_e32e35_min;
+        m_phoid_pre_e32e35_max = pre_e32e35_max;
+        m_phoid_pre_weta_max   = pre_weta_max;
 
-      m_phoid_tight_w_lo           = tight_w_lo;
-      m_phoid_tight_w_hi_intercept = tight_w_hi_intercept;
-      m_phoid_tight_w_hi_slope     = tight_w_hi_slope;
+        m_phoid_tight_w_lo           = tight_w_lo;
+        m_phoid_tight_w_hi_intercept = tight_w_hi_intercept;
+        m_phoid_tight_w_hi_slope     = tight_w_hi_slope;
 
-      m_phoid_tight_e11e33_min = tight_e11e33_min;
-      m_phoid_tight_e11e33_max = tight_e11e33_max;
+        m_phoid_tight_e11e33_min = tight_e11e33_min;
+        m_phoid_tight_e11e33_max = tight_e11e33_max;
 
-      m_phoid_tight_et1_min    = tight_et1_min;
-      m_phoid_tight_et1_max    = tight_et1_max;
+        m_phoid_tight_et1_min    = tight_et1_min;
+        m_phoid_tight_et1_max    = tight_et1_max;
 
-      m_phoid_tight_e32e35_min = tight_e32e35_min;
-      m_phoid_tight_e32e35_max = tight_e32e35_max;
-    }
+        m_phoid_tight_e32e35_min = tight_e32e35_min;
+        m_phoid_tight_e32e35_max = tight_e32e35_max;
+  }
 
-    // EventDisplay test mode (Verbosity() >= 50, SIM only):
-    // Optional override for the output base directory. If not set, a sensible default is used.
-    void setEventDisplayOutputDir(const std::string& dir) { m_evtDispOutBase = dir; }
+  // EventDisplay test mode (Verbosity() >= 50, SIM only):
+  // Optional override for the output base directory. If not set, a sensible default is used.
+  void setEventDisplayOutputDir(const std::string& dir) { m_evtDispOutBase = dir; }
+
+  // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
+  // When enabled, a compact per-event-per-radius TTree ("EventDisplayTree") is written to the output ROOT file.
+  void enableEventDisplayDiagnostics(bool on = true) { m_evtDiagEnabled = on; }
+  void setEventDisplayDiagnosticsMaxPerBin(int n)    { m_evtDiagMaxPerBin = n; }
 
   // -------------------------------------------------------------------------
   // Read-only state access
@@ -413,10 +421,16 @@ private:
   // -------------------------------------------------------------------------
   // Internal helpers (nodes, event selection)
   // -------------------------------------------------------------------------
+  bool jetRKeyActive(const std::string& rKey) const
+  {
+    if (m_activeJetRKeys.empty()) return true;
+    return (std::find(m_activeJetRKeys.begin(), m_activeJetRKeys.end(), rKey) != m_activeJetRKeys.end());
+  }
+
   bool fetchNodes(PHCompositeNode* topNode);
   bool firstEventCuts(PHCompositeNode* topNode, std::vector<std::string>& activeTrig);
   void createHistos_Data();
-    
+
   void fillUnfoldResponseMatrixAndTruthDistributions(
         const std::vector<std::string>& activeTrig,
         const std::string& rKey,
@@ -557,16 +571,38 @@ private:
   bool        eventDisplayAllDone() const;
   const char* eventDisplayCatName(EventDisplayCat cat) const;
 
-  void        writeEventDisplayPNG(const std::string& rKey,
-                                    int ptBin,
-                                    EventDisplayCat cat,
-                                    double truthGammaPt,
-                                    const Jet* selectedRecoilJet,
-                                    const Jet* recoTruthBest,
-                                    const Jet* truthLeadRecoilJet);
-  // -------------------------------------------------------------------------
-  // Histogram utilities (bookers)
-  // -------------------------------------------------------------------------
+    void        writeEventDisplayPNG(const std::string& rKey,
+                                      int ptBin,
+                                      EventDisplayCat cat,
+                                      double truthGammaPt,
+                                      const Jet* selectedRecoilJet,
+                                      const Jet* recoTruthBest,
+                                      const Jet* truthLeadRecoilJet);
+
+    // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
+    void        initEventDisplayDiagnosticsTree();
+    void        resetEventDisplayDiagnosticsBuffers();
+    bool        eventDisplayDiagnosticsNeed(const std::string& rKey, int ptBin, EventDisplayCat cat);
+    void        appendEventDisplayDiagnosticsFromJet(const Jet* jet,
+                                                    std::vector<int>& calo,
+                                                    std::vector<int>& ieta,
+                                                    std::vector<int>& iphi,
+                                                    std::vector<float>& eta,
+                                                    std::vector<float>& phi,
+                                                    std::vector<float>& et,
+                                                    std::vector<float>& e) const;
+    void        fillEventDisplayDiagnostics(const std::string& rKey,
+                                           int ptBin,
+                                           EventDisplayCat cat,
+                                           double truthGammaPt,
+                                           double truthGammaPhi,
+                                           double recoGammaPt,
+                                           const Jet* selectedRecoilJet,
+                                           const Jet* recoTruthBest,
+                                           const Jet* truthLeadRecoilJet);
+    // -------------------------------------------------------------------------
+    // Histogram utilities (bookers)
+    // -------------------------------------------------------------------------
   TH1I* getOrBookCountHist(const std::string& trig,
                              const std::string& base,
                              int ptIdx, int centIdx);
@@ -934,6 +970,9 @@ private:
   // -------------------------------------------------------------------------
   std::map<std::string, JetContainer*> m_jets;
 
+  // Optional: limit active jet radii (keys like "r02","r04"). Empty => all kJetRadii.
+  std::vector<std::string> m_activeJetRKeys;
+
   // -------------------------------------------------------------------------
   // NEW: truth jet containers by radius key (SIM only)
   // -------------------------------------------------------------------------
@@ -954,14 +993,74 @@ private:
 
   std::vector<std::array<bool, 3>> m_evtDispDone; // [ptBin][cat(NUM,MissA,MissB)]
 
-  // Nodes used only in EventDisplay mode (never required for normal running)
-  EventHeader*           m_evtHeader          = nullptr;
-  TowerInfoContainer*    m_evtDispTowersCEMC  = nullptr;
-  TowerInfoContainer*    m_evtDispTowersIHCal = nullptr;
-  TowerInfoContainer*    m_evtDispTowersOHCal = nullptr;
-  RawTowerGeomContainer* m_evtDispGeomCEMC    = nullptr;
-  RawTowerGeomContainer* m_evtDispGeomIHCal   = nullptr;
-  RawTowerGeomContainer* m_evtDispGeomOHCal   = nullptr;
+    // Nodes used only in EventDisplay mode (never required for normal running)
+    EventHeader*           m_evtHeader          = nullptr;
+    TowerInfoContainer*    m_evtDispTowersCEMC  = nullptr;
+    TowerInfoContainer*    m_evtDispTowersIHCal = nullptr;
+    TowerInfoContainer*    m_evtDispTowersOHCal = nullptr;
+    RawTowerGeomContainer* m_evtDispGeomCEMC    = nullptr;
+    RawTowerGeomContainer* m_evtDispGeomIHCal   = nullptr;
+    RawTowerGeomContainer* m_evtDispGeomOHCal   = nullptr;
+
+  // -------------------------------------------------------------------------
+  // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
+  //
+  //  - One TTree entry per (event, rKey) when enabled.
+  //  - Stores compact "ingredients" (jet kinematics + sparse tower constituent lists)
+  //    so that single-event displays can be rendered OFFLINE without any online scanning
+  //    or Verbosity() hacks.
+  // -------------------------------------------------------------------------
+  bool m_evtDiagEnabled    = false;  // user-controlled switch (macro setter or env)
+  bool m_evtDiagNodesReady = false;  // per-event: true if required tower/geom nodes are available
+
+  int  m_evtDiagMaxPerBin = 0;       // 0 => unlimited; else limit entries per (rKey,ptBin,cat)
+  std::unordered_map<std::string, int> m_evtDiagSavedPerBin;
+
+  TTree* m_evtDiagTree = nullptr;
+
+  int       m_evtDiag_run        = 0;
+  int       m_evtDiag_evt        = 0;
+  long long m_evtDiag_eventCount = 0;
+  float     m_evtDiag_vz         = 0.0f;
+
+  std::string m_evtDiag_rKey;
+  int         m_evtDiag_ptBin = -1;
+  int         m_evtDiag_cat   = -1;
+
+  float m_evtDiag_ptGammaTruth  = 0.0f;
+  float m_evtDiag_phiGammaTruth = 0.0f;
+  float m_evtDiag_ptGammaReco   = 0.0f;
+
+  float m_evtDiag_sel_pt  = 0.0f;
+  float m_evtDiag_sel_eta = 0.0f;
+  float m_evtDiag_sel_phi = 0.0f;
+
+  float m_evtDiag_best_pt  = 0.0f;
+  float m_evtDiag_best_eta = 0.0f;
+  float m_evtDiag_best_phi = 0.0f;
+
+  float m_evtDiag_truthLead_pt  = 0.0f;
+  float m_evtDiag_truthLead_eta = 0.0f;
+  float m_evtDiag_truthLead_phi = 0.0f;
+
+  float m_evtDiag_drSelToTruthLead  = -1.0f;
+  float m_evtDiag_drBestToTruthLead = -1.0f;
+
+  std::vector<int>   m_evtDiag_sel_calo;
+  std::vector<int>   m_evtDiag_sel_ieta;
+  std::vector<int>   m_evtDiag_sel_iphi;
+  std::vector<float> m_evtDiag_sel_etaTower;
+  std::vector<float> m_evtDiag_sel_phiTower;
+  std::vector<float> m_evtDiag_sel_etTower;
+  std::vector<float> m_evtDiag_sel_eTower;
+
+  std::vector<int>   m_evtDiag_best_calo;
+  std::vector<int>   m_evtDiag_best_ieta;
+  std::vector<int>   m_evtDiag_best_iphi;
+  std::vector<float> m_evtDiag_best_etaTower;
+  std::vector<float> m_evtDiag_best_phiTower;
+  std::vector<float> m_evtDiag_best_etTower;
+  std::vector<float> m_evtDiag_best_eTower;
 
   // -------------------------------------------------------------------------
   // Diagnostics / accounting

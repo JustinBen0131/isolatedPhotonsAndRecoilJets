@@ -865,24 +865,49 @@ int RecoilJets::InitRun(PHCompositeNode* /*topNode*/)
     }
   }
 
-  // -------------------------------------------------------------------------
-  // EventDisplay test mode initialization (Verbosity() >= 50, SIM only)
-  // (Nodes are fetched in fetchNodes(); InitRun should not touch them.)
-  // -------------------------------------------------------------------------
-  resetEventDisplayState();
+    // -------------------------------------------------------------------------
+    // EventDisplay test mode initialization (Verbosity() >= 50, SIM only)
+    // (Nodes are fetched in fetchNodes(); InitRun should not touch them.)
+    // -------------------------------------------------------------------------
+    resetEventDisplayState();
 
-  // Allow overriding output directory via environment (useful for local eventDisplay runs).
-  if (const char* outdir = gSystem->Getenv("RJ_EVENT_DISPLAY_OUTDIR"))
-  {
-      if (std::string(outdir).size() > 0)
-      {
-        m_evtDispOutBase = std::string(outdir);
-      }
+    // Allow overriding output directory via environment (useful for local eventDisplay runs).
+    if (const char* outdir = gSystem->Getenv("RJ_EVENT_DISPLAY_OUTDIR"))
+    {
+        if (std::string(outdir).size() > 0)
+        {
+          m_evtDispOutBase = std::string(outdir);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
+    //
+    // Enable via either:
+    //   - RecoilJets::enableEventDisplayDiagnostics(true), or
+    //   - environment: RJ_ENABLE_EVENTDISPLAY_DIAGNOSTICS=1
+    //
+    // Optional cap (per rKey × pTγ bin × {NUM,MissA,MissB}):
+    //   - environment: RJ_EVTDIAG_MAX_PER_BIN=N   (0 => unlimited)
+    // -------------------------------------------------------------------------
+    if (const char* e = gSystem->Getenv("RJ_ENABLE_EVENTDISPLAY_DIAGNOSTICS"))
+    {
+      m_evtDiagEnabled = (std::atoi(e) != 0);
+    }
+
+    if (const char* n = gSystem->Getenv("RJ_EVTDIAG_MAX_PER_BIN"))
+    {
+      m_evtDiagMaxPerBin = std::max(0, std::atoi(n));
+    }
+
+    if (m_evtDiagEnabled)
+    {
+      initEventDisplayDiagnosticsTree();
+    }
+
+    LOG(1, CLR_BLUE, "[InitRun] InitRun completed successfully");
+    return Fun4AllReturnCodes::EVENT_OK;
   }
-
-  LOG(1, CLR_BLUE, "[InitRun] InitRun completed successfully");
-  return Fun4AllReturnCodes::EVENT_OK;
-}
 
 
 
