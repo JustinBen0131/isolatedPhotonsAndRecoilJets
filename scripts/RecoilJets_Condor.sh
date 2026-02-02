@@ -89,7 +89,7 @@ esac
 # Destination base (if not supplied as arg 8)
 if [[ -z "$dest_base" ]]; then
   if [[ "$analysis_tag" == "isSim" ]]; then
-    dest_base="/sphenix/tg/tg01/bulk/jbennett/thesisAna"
+    dest_base="/sphenix/tg/tg01/bulk/jbennett/thesisAna/sim"
   elif [[ "$dataset" == "isPP" ]]; then
     dest_base="/sphenix/tg/tg01/bulk/jbennett/thesisAna/pp"
   else

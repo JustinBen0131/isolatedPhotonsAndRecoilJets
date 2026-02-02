@@ -2,6 +2,9 @@
 ###############################################################################
 # RecoilJets_Condor_submit.sh — one-stop driver for LOCAL testing and CONDOR
 #
+# BASELINE SIM COMMAND TO SUBMIT ALL JOBS I CARE ABOUT IN SIM FOR 10 AND 20 samples --> ./RecoilJets_Condor_submit.sh isSim condorDoAll
+#
+#
 # OVERVIEW
 #   • Two datasets are supported: isPP and isAuAu.
 #   • Input comes from per‑run *.list files (one ROOT path per line).
@@ -183,8 +186,13 @@ SIM_SAMPLE="${SIM_SAMPLE_DEFAULT}"
 # Name for the staged 5-column master list (built by sim_init from matched lists)
 SIM_MASTER5_NAME="DST_SIM_MASTER_5COL.list"
 
-# Output dir for sim is: ${SIM_DEST_BASE}/${SIM_SAMPLE}
-SIM_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna"
+# Output dir root for sim is: ${SIM_DEST_BASE}/<cfgTag>/<SIM_SAMPLE>
+SIM_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/sim"
+
+# YAML config (Fun4All default is next to the macro unless RJ_CONFIG_YAML is set)
+SIM_YAML_DEFAULT="${BASE}/macros/analysis_config.yaml"
+SIM_YAML_OVERRIDE_DIR="${BASE}/condor_yaml_overrides"
+SIM_CFG_TAG=""
 
 # ------------------------ Helpers --------------------------
 usage() {
@@ -221,6 +229,89 @@ USAGE
 }
 
 need_cmd() { command -v "$1" >/dev/null 2>&1 || { err "Missing required command: $1"; exit 3; }; }
+
+# ------------------------ SIM YAML sweep helpers --------------------------
+trim_ws() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf "%s" "$s"
+}
+
+sim_yaml_master_path() {
+  if [[ -n "${RJ_CONFIG_YAML:-}" ]]; then
+    local p; p="$(trim_ws "${RJ_CONFIG_YAML}")"
+    [[ -n "$p" ]] && { echo "$p"; return; }
+  fi
+  echo "$SIM_YAML_DEFAULT"
+}
+
+yaml_get_values() {
+  local key="$1" file="$2"
+  local line rhs inside
+  line=$(grep -E "^[[:space:]]*${key}:" "$file" | head -n 1 || true)
+  [[ -n "$line" ]] || { err "Missing YAML key '${key}' in ${file}"; exit 70; }
+  line="${line%%#*}"
+  rhs="${line#*:}"
+  rhs="$(trim_ws "$rhs")"
+
+  if [[ "$rhs" == \[*\] ]]; then
+    inside="${rhs#\[}"
+    inside="${inside%\]}"
+    IFS=',' read -ra parts <<< "$inside"
+    for p in "${parts[@]}"; do
+      p="$(trim_ws "$p")"
+      [[ -n "$p" ]] && echo "$p"
+    done
+  else
+    [[ -n "$rhs" ]] && echo "$rhs"
+  fi
+}
+
+sim_is_close() { awk -v x="$1" -v y="$2" 'BEGIN{d=x-y; if(d<0)d=-d; exit !(d<1e-6)}'; }
+
+sim_pt_tag() {
+  local pt="$1"
+  if [[ "$pt" =~ ^([0-9]+)\.0+$ ]]; then
+    echo "${BASH_REMATCH[1]}"
+  else
+    local s="$pt"
+    s="${s//./p}"
+    s="${s//-/m}"
+    echo "$s"
+  fi
+}
+
+sim_b2b_tag() {
+  local frac="$1"
+  if sim_is_close "$frac" "0.5"; then
+    echo "pi_2"
+  elif sim_is_close "$frac" "0.875"; then
+    echo "7pi_8"
+  else
+    local s="$frac"
+    s="${s//./p}"
+    s="${s//-/m}"
+    echo "piFrac${s}"
+  fi
+}
+
+sim_make_yaml_override() {
+  local master="$1" pt="$2" frac="$3" tag="$4"
+  mkdir -p "$SIM_YAML_OVERRIDE_DIR"
+  local out="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${tag}.yaml"
+
+  [[ -s "$master" ]] || { err "Master YAML not found or empty: $master"; exit 71; }
+  grep -Eq '^[[:space:]]*jet_pt_min:' "$master" || { err "YAML missing key 'jet_pt_min' in $master"; exit 71; }
+  grep -Eq '^[[:space:]]*back_to_back_dphi_min_pi_fraction:' "$master" || { err "YAML missing key 'back_to_back_dphi_min_pi_fraction' in $master"; exit 71; }
+
+  sed -E \
+    -e "s|^([[:space:]]*jet_pt_min:).*|\\1 ${pt}|" \
+    -e "s|^([[:space:]]*back_to_back_dphi_min_pi_fraction:).*|\\1 ${frac}|" \
+    "$master" > "$out"
+
+  echo "$out"
+}
 
 # Dataset resolver (sets globals: DATASET, GOLDEN, LIST_DIR, DEST_BASE, TAG, STAGE_DIR, ROUND_DIR)
 resolve_dataset() {
@@ -335,7 +426,11 @@ sim_init() {
   SIM_OUT_DIR="${DEST_BASE}/${SIM_SAMPLE}"
   mkdir -p "$SIM_OUT_DIR"
 
-  SIM_JOB_PREFIX="sim_${SIM_SAMPLE}"
+  if [[ -n "${SIM_CFG_TAG:-}" ]]; then
+    SIM_JOB_PREFIX="sim_${SIM_SAMPLE}_${SIM_CFG_TAG}"
+  else
+    SIM_JOB_PREFIX="sim_${SIM_SAMPLE}"
+  fi
 }
 
 # Build grouped chunk lists for isSim (one job per chunk list)
@@ -720,16 +815,31 @@ case "$ACTION" in
     done
 
     if [[ "$DATASET" == "isSim" ]]; then
+      master_yaml="$(sim_yaml_master_path)"
+      [[ -s "$master_yaml" ]] || { err "Master YAML not found or empty: $master_yaml"; exit 72; }
+
+      mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
+      mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
+      (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
+      (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
+
+      pt0="${sim_pts[0]}"
+      frac0="${sim_fracs[0]}"
+      SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt0")_$(sim_b2b_tag "$frac0")"
+      DEST_BASE="${SIM_DEST_BASE}/${SIM_CFG_TAG}"
+      yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt0" "$frac0" "$SIM_CFG_TAG")"
+
       sim_init
 
-      say "Local test on isSim sample=${SIM_SAMPLE} (events=${nevt}, RJ_VERBOSITY=${RJV})"
+      say "Local test on isSim sample=${SIM_SAMPLE} (tag=${SIM_CFG_TAG}, events=${nevt}, RJ_VERBOSITY=${RJV})"
+      say "YAML override: ${yaml_override}"
 
       tmp="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_LOCAL_firstfile.list"
       head -n 1 "$SIM_CLEAN_LIST" > "$tmp"
       say "Temp list → $tmp"
       say "Invoking wrapper locally…"
 
-      RJ_VERBOSITY="$RJV" bash "$EXE" "$SIM_SAMPLE" "$tmp" "isSim" LOCAL "$nevt" 1 NONE "$DEST_BASE"
+      RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" bash "$EXE" "$SIM_SAMPLE" "$tmp" "isSim" LOCAL "$nevt" 1 NONE "$DEST_BASE"
     else
       say "Local test on ${DATASET}  (events=${nevt}, RJ_VERBOSITY=${RJV})"
 
@@ -765,13 +875,28 @@ case "$ACTION" in
     # One verbose Condor job on first sim file
     [[ "$DATASET" == "isSim" ]] || { err "condorTest is only valid for isSim"; exit 2; }
     need_cmd condor_submit
+
+    master_yaml="$(sim_yaml_master_path)"
+    [[ -s "$master_yaml" ]] || { err "Master YAML not found or empty: $master_yaml"; exit 72; }
+
+    mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
+    mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
+    (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
+    (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
+
+    pt0="${sim_pts[0]}"
+    frac0="${sim_fracs[0]}"
+    SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt0")_$(sim_b2b_tag "$frac0")"
+    DEST_BASE="${SIM_DEST_BASE}/${SIM_CFG_TAG}"
+    yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt0" "$frac0" "$SIM_CFG_TAG")"
+
     sim_init
 
     tmp="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_condorTest_firstfile.list"
     head -n 1 "$SIM_CLEAN_LIST" > "$tmp"
 
     stamp="$(date +%Y%m%d_%H%M%S)"
-    sub="${BASE}/RecoilJets_sim_${SIM_SAMPLE}_${stamp}_TEST.sub"
+    sub="${BASE}/RecoilJets_sim_${SIM_CFG_TAG}_${SIM_SAMPLE}_${stamp}_TEST.sub"
 
     cat > "$sub" <<SUB
 universe      = vanilla
@@ -785,12 +910,14 @@ request_memory= 2000MB
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
-environment   = RJ_VERBOSITY=10
+environment   = RJ_VERBOSITY=10;RJ_CONFIG_YAML=${yaml_override}
 arguments     = ${SIM_SAMPLE} ${tmp} isSim \$(Cluster) 0 1 NONE ${DEST_BASE}
 queue
 SUB
 
-    say "Submitting 1 isSim condorTest job (sample=${SIM_SAMPLE}) → $(basename "$sub")"
+    say "Submitting 1 isSim condorTest job (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG}) → $(basename "$sub")"
+    say "Output ROOT dir: ${DEST_BASE}/${SIM_SAMPLE}"
+    say "YAML override: ${yaml_override}"
     condor_submit "$sub"
     ;;
 
@@ -799,87 +926,73 @@ SUB
     [[ "$DATASET" == "isSim" ]] || { err "condorDoAll is only valid for isSim"; exit 2; }
     need_cmd condor_submit
 
-    # Default (no explicit SAMPLE=...): submit BOTH run28 photonjet samples sequentially.
-    # This mimics running two separate submissions with groupSize=5.
-    if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
-      gs_doall="$GROUP_SIZE"
-      if [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 0 ]]; then
-        gs_doall="5"
-      fi
-
-      for samp in "run28_photonjet10" "run28_photonjet20"; do
-        SIM_SAMPLE="$samp"
-        GROUP_SIZE="$gs_doall"
-
-        wipe_sim_artifacts
-
-        mapfile -t groups < <( make_sim_groups "$GROUP_SIZE" )
-        (( ${#groups[@]} )) || { err "No sim groups produced (sample=${SIM_SAMPLE})"; exit 30; }
-
-        stamp="$(date +%Y%m%d_%H%M%S)"
-        sub="${BASE}/RecoilJets_sim_${SIM_SAMPLE}_${stamp}.sub"
-
-        cat > "$sub" <<SUB
-universe      = vanilla
-executable    = ${EXE}
-initialdir    = ${BASE}
-getenv        = True
-log           = ${LOG_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).log
-output        = ${OUT_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).out
-error         = ${ERR_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).err
-request_memory= 2000MB
-should_transfer_files = NO
-stream_output = True
-stream_error  = True
-environment   = RJ_VERBOSITY=0
-SUB
-
-        gidx=0
-        for glist in "${groups[@]}"; do
-          (( gidx+=1 ))
-          printf 'arguments = %s %s %s $(Cluster) 0 %d NONE %s\nqueue\n\n' \
-                 "$SIM_SAMPLE" "$glist" "isSim" "$gidx" "$DEST_BASE" >> "$sub"
-        done
-
-        say "Submitting isSim condorDoAll (sample=${SIM_SAMPLE}, groupSize=${GROUP_SIZE}) → jobs=${BOLD}${#groups[@]}${RST}"
-        say "Output ROOT dir: ${DEST_BASE}/${SIM_SAMPLE}"
-        condor_submit "$sub"
-      done
-    else
-      wipe_sim_artifacts
-
-      mapfile -t groups < <( make_sim_groups "$GROUP_SIZE" )
-      (( ${#groups[@]} )) || { err "No sim groups produced (sample=${SIM_SAMPLE})"; exit 30; }
-
-      stamp="$(date +%Y%m%d_%H%M%S)"
-      sub="${BASE}/RecoilJets_sim_${SIM_SAMPLE}_${stamp}.sub"
-
-      cat > "$sub" <<SUB
-universe      = vanilla
-executable    = ${EXE}
-initialdir    = ${BASE}
-getenv        = True
-log           = ${LOG_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).log
-output        = ${OUT_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).out
-error         = ${ERR_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).err
-request_memory= 2000MB
-should_transfer_files = NO
-stream_output = True
-stream_error  = True
-environment   = RJ_VERBOSITY=0
-SUB
-
-      gidx=0
-      for glist in "${groups[@]}"; do
-        (( gidx+=1 ))
-        printf 'arguments = %s %s %s $(Cluster) 0 %d NONE %s\nqueue\n\n' \
-               "$SIM_SAMPLE" "$glist" "isSim" "$gidx" "$DEST_BASE" >> "$sub"
-      done
-
-      say "Submitting isSim condorDoAll (sample=${SIM_SAMPLE}, groupSize=${GROUP_SIZE}) → jobs=${BOLD}${#groups[@]}${RST}"
-      say "Output ROOT dir: ${DEST_BASE}/${SIM_SAMPLE}"
-      condor_submit "$sub"
+    gs_doall="$GROUP_SIZE"
+    if [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 0 ]]; then
+      gs_doall="5"
     fi
+
+    master_yaml="$(sim_yaml_master_path)"
+    [[ -s "$master_yaml" ]] || { err "Master YAML not found or empty: $master_yaml"; exit 72; }
+
+    mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
+    mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
+    (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
+    (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
+
+    samples=()
+    if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
+      samples=( "run28_photonjet10" "run28_photonjet20" )
+    else
+      samples=( "${SIM_SAMPLE}" )
+    fi
+
+    for pt in "${sim_pts[@]}"; do
+      for frac in "${sim_fracs[@]}"; do
+        SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")"
+        DEST_BASE="${SIM_DEST_BASE}/${SIM_CFG_TAG}"
+        yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$SIM_CFG_TAG")"
+
+        for samp in "${samples[@]}"; do
+          SIM_SAMPLE="$samp"
+          GROUP_SIZE="$gs_doall"
+
+          wipe_sim_artifacts
+
+          mapfile -t groups < <( make_sim_groups "$GROUP_SIZE" )
+          (( ${#groups[@]} )) || { err "No sim groups produced (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG})"; exit 30; }
+
+          stamp="$(date +%Y%m%d_%H%M%S)"
+          sub="${BASE}/RecoilJets_sim_${SIM_CFG_TAG}_${SIM_SAMPLE}_${stamp}.sub"
+
+          cat > "$sub" <<SUB
+universe      = vanilla
+executable    = ${EXE}
+initialdir    = ${BASE}
+getenv        = True
+log           = ${LOG_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).log
+output        = ${OUT_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).out
+error         = ${ERR_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).err
+request_memory= 2000MB
+should_transfer_files = NO
+stream_output = True
+stream_error  = True
+environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_override}
+SUB
+
+          gidx=0
+          for glist in "${groups[@]}"; do
+            (( gidx+=1 ))
+            printf 'arguments = %s %s %s $(Cluster) 0 %d NONE %s\nqueue\n\n' \
+                   "$SIM_SAMPLE" "$glist" "isSim" "$gidx" "$DEST_BASE" >> "$sub"
+          done
+
+          say "Submitting isSim condorDoAll (tag=${SIM_CFG_TAG}, sample=${SIM_SAMPLE}, groupSize=${GROUP_SIZE}) → jobs=${BOLD}${#groups[@]}${RST}"
+          say "Output ROOT dir: ${DEST_BASE}/${SIM_SAMPLE}"
+          say "YAML override: ${yaml_override}"
+          condor_submit "$sub"
+        done
+      done
+    done
     ;;
 
   splitGoldenRunList)

@@ -150,6 +150,86 @@ USAGE
 
 need_cmd(){ command -v "$1" >/dev/null 2>&1 || { err "Missing command: $1"; exit 3; }; }
 
+# ------------------------ SIM YAML sweep helpers --------------------------
+trim_ws() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf "%s" "$s"
+}
+
+sim_yaml_master_path() {
+  if [[ -n "${RJ_CONFIG_YAML:-}" ]]; then
+    local p; p="$(trim_ws "${RJ_CONFIG_YAML}")"
+    [[ -n "$p" ]] && { echo "$p"; return; }
+  fi
+  echo "/sphenix/u/patsfan753/scratch/thesisAnalysis/macros/analysis_config.yaml"
+}
+
+yaml_get_values() {
+  local key="$1" file="$2"
+  local line rhs inside
+  line=$(grep -E "^[[:space:]]*${key}:" "$file" | head -n 1 || true)
+  [[ -n "$line" ]] || { err "Missing YAML key '${key}' in ${file}"; exit 70; }
+  line="${line%%#*}"
+  rhs="${line#*:}"
+  rhs="$(trim_ws "$rhs")"
+
+  if [[ "$rhs" == \[*\] ]]; then
+    inside="${rhs#\[}"
+    inside="${inside%\]}"
+    IFS=',' read -ra parts <<< "$inside"
+    for p in "${parts[@]}"; do
+      p="$(trim_ws "$p")"
+      [[ -n "$p" ]] && echo "$p"
+    done
+  else
+    [[ -n "$rhs" ]] && echo "$rhs"
+  fi
+}
+
+sim_is_close() { awk -v x="$1" -v y="$2" 'BEGIN{d=x-y; if(d<0)d=-d; exit !(d<1e-6)}'; }
+
+sim_pt_tag() {
+  local pt="$1"
+  if [[ "$pt" =~ ^([0-9]+)\.0+$ ]]; then
+    echo "${BASH_REMATCH[1]}"
+  else
+    local s="$pt"
+    s="${s//./p}"
+    s="${s//-/m}"
+    echo "$s"
+  fi
+}
+
+sim_b2b_dir_tag() {
+  local frac="$1"
+  if sim_is_close "$frac" "0.5"; then
+    echo "pi_2"
+  elif sim_is_close "$frac" "0.875"; then
+    echo "7pi_8"
+  else
+    local s="$frac"
+    s="${s//./p}"
+    s="${s//-/m}"
+    echo "piFrac${s}"
+  fi
+}
+
+sim_b2b_file_tag() {
+  local frac="$1"
+  if sim_is_close "$frac" "0.5"; then
+    echo "pihalves"
+  elif sim_is_close "$frac" "0.875"; then
+    echo "7piOver8"
+  else
+    local s="$frac"
+    s="${s//./p}"
+    s="${s//-/m}"
+    echo "piFrac${s}"
+  fi
+}
+
 to_tag() {
   case "${1:-}" in
     pp|PP|isPP|PP_DATA|pp_data)   echo "pp" ;;
@@ -426,7 +506,8 @@ if [[ "${1}" =~ ^(isSim|sim|SIM)$ ]]; then
 
   # Defaults (overrideable)
   SIM_SAMPLE="run28_photonjet10"
-  SIM_GROUP_SIZE="200"          # number of ROOT files per firstRound hadd
+  SIM_SAMPLE_EXPLICIT=0
+  SIM_GROUP_SIZE="300"          # number of ROOT files per firstRound hadd (default = 300)
   SIM_PREFER_CONDOR=false       # only used for secondRound
 
   # Defaults for optional behavior flags
@@ -442,6 +523,7 @@ if [[ "${1}" =~ ^(isSim|sim|SIM)$ ]]; then
         ;;
       SAMPLE=*)
         SIM_SAMPLE="${1#SAMPLE=}"
+        SIM_SAMPLE_EXPLICIT=1
         shift
         ;;
       condor)
@@ -462,85 +544,116 @@ if [[ "${1}" =~ ^(isSim|sim|SIM)$ ]]; then
   [[ "$SIM_GROUP_SIZE" =~ ^[0-9]+$ ]] || { err "groupSize must be an integer"; exit 2; }
   (( SIM_GROUP_SIZE > 0 )) || { err "groupSize must be > 0"; exit 2; }
 
-  # Input sim outputs live here (your RecoilJets sim job output directory)
-  SIM_INPUT_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna"
-  SIM_INPUT_DIR="${SIM_INPUT_BASE}/${SIM_SAMPLE}"
+  # Input sim outputs live here (matches new Condor output layout)
+  SIM_INPUT_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/sim"
 
-  [[ -d "$SIM_INPUT_DIR" ]] || { err "SIM input directory not found: $SIM_INPUT_DIR"; exit 20; }
+  master_yaml="$(sim_yaml_master_path)"
+  [[ -s "$master_yaml" ]] || { err "Master YAML not found or empty: $master_yaml"; exit 72; }
 
-  # Output tag + dir (your requested: output/photonjet10)
-  SIM_TAG="${SIM_SAMPLE##*_}"
-  DEST_DIR="${OUT_BASE}/${SIM_TAG}"
-  mkdir -p "$DEST_DIR" "$LOG_DIR" "$OUT_DIR" "$ERR_DIR" "$TMP_DIR"
+  mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
+  mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
+  (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
+  (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
 
-  say "Dataset : ${BOLD}isSim${RST}"
-  say "Sample  : ${BOLD}${SIM_SAMPLE}${RST}"
-  say "Input   : ${SIM_INPUT_DIR}"
-  say "Output  : ${DEST_DIR}"
-  say "groupSize (merge) : ${SIM_GROUP_SIZE}"
-  echo
-
-  # Collect the existing sim ROOT outputs produced by your RecoilJets jobs
-  mapfile -t SIM_INPUTS < <(find "$SIM_INPUT_DIR" -maxdepth 1 -type f -name "*.root" | sort -V || true)
-  if (( ${#SIM_INPUTS[@]} == 0 )); then
-    err "No *.root files found in: $SIM_INPUT_DIR"
-    exit 21
+  samples=()
+  if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
+    samples=( "run28_photonjet10" "run28_photonjet20" )
+  else
+    samples=( "${SIM_SAMPLE}" )
   fi
 
-  SIM_PARTIAL_PREFIX="chunkMerge_${SIM_TAG}_grp"
-  SIM_FINAL="${DEST_DIR}/${FINAL_PREFIX}_${SIM_TAG}_ALL.root"
+  say "Dataset : ${BOLD}isSim${RST}"
+  say "YAML    : ${master_yaml}"
+  say "Input base: ${SIM_INPUT_BASE}"
+  say "Output base: ${OUT_BASE}/sim"
+  say "groupSize (merge) : ${SIM_GROUP_SIZE}"
+  say "Samples : ${samples[*]}"
+  echo
 
-  if [[ "$SIM_ACTION" == "firstRound" ]]; then
+  final_paths=()
 
-    if $SIM_FIRSTROUND_LOCAL; then
-      say "SIM firstRound (LOCAL): ${#SIM_INPUTS[@]} inputs -> grouped hadd on this node"
-    else
-      need_cmd condor_submit
-      say "SIM firstRound: ${#SIM_INPUTS[@]} inputs -> grouped hadd jobs on Condor"
-    fi
+  for pt in "${sim_pts[@]}"; do
+    for frac in "${sim_fracs[@]}"; do
+      cfg_dir_tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_dir_tag "$frac")"
+      cfg_file_tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_file_tag "$frac")"
 
-    # Clean previous sim partials + final (ONLY sim-tagged files)
-    find "$DEST_DIR" -maxdepth 1 -type f \
-      \( -name "${SIM_PARTIAL_PREFIX}*.root" -o -name "${FINAL_PREFIX}_${SIM_TAG}_ALL.root" \) -delete || true
+      COMBO_INPUT_BASE="${SIM_INPUT_BASE}/${cfg_dir_tag}"
+      DEST_DIR="${OUT_BASE}/sim/${cfg_dir_tag}"
+      mkdir -p "$DEST_DIR" "$LOG_DIR" "$OUT_DIR" "$ERR_DIR" "$TMP_DIR"
 
-    total="${#SIM_INPUTS[@]}"
-    grp=0
+      say "-----------------------------"
+      say "SIM config: jet_pt_min=${pt}, back_to_back_pi_fraction=${frac}"
+      say "  cfgDir  : ${cfg_dir_tag}"
+      say "  cfgFile : ${cfg_file_tag}"
+      say "  Input   : ${COMBO_INPUT_BASE}"
+      say "  Output  : ${DEST_DIR}"
+      echo
 
-    if $SIM_FIRSTROUND_LOCAL; then
-      # LOCAL: build listfiles and run hadd sequentially (same outputs as Condor mode)
-      need_cmd hadd
+      for samp in "${samples[@]}"; do
+        SIM_SAMPLE="$samp"
+        SIM_TAG="${SIM_SAMPLE##*_}"
+        SIM_INPUT_DIR="${COMBO_INPUT_BASE}/${SIM_SAMPLE}"
 
-      for ((i=0; i<total; i+=SIM_GROUP_SIZE)); do
-        (( grp+=1 ))
-        grpTag="$(printf "%03d" "$grp")"
+        [[ -d "$SIM_INPUT_DIR" ]] || { err "SIM input directory not found: $SIM_INPUT_DIR"; exit 20; }
 
-        listfile="${TMP_DIR}/sim_${SIM_TAG}_grp${grpTag}.txt"
-        : > "$listfile"
+        mapfile -t SIM_INPUTS < <(find "$SIM_INPUT_DIR" -maxdepth 1 -type f -name "*.root" | sort -V || true)
+        if (( ${#SIM_INPUTS[@]} == 0 )); then
+          err "No *.root files found in: $SIM_INPUT_DIR"
+          exit 21
+        fi
 
-        for ((j=i; j<i+SIM_GROUP_SIZE && j<total; j++)); do
-          printf "%s\n" "${SIM_INPUTS[$j]}" >> "$listfile"
-        done
+        SIM_PARTIAL_PREFIX="chunkMerge_${SIM_TAG}_grp"
+        SIM_FINAL="${DEST_DIR}/${FINAL_PREFIX}_${SIM_TAG}_ALL_${cfg_file_tag}.root"
 
-        out="${DEST_DIR}/${SIM_PARTIAL_PREFIX}${grpTag}.root"
-        say "[LOCAL firstRound] grp=${grpTag} inputs=$(wc -l < "$listfile") -> $(basename "$out")"
-        hadd -v 3 -f "$out" @"$listfile"
-      done
+        if [[ "$SIM_ACTION" == "firstRound" ]]; then
 
-      say "LOCAL firstRound complete. Partials are under: ${DEST_DIR}"
-      exit 0
-    fi
+          if $SIM_FIRSTROUND_LOCAL; then
+            say "SIM firstRound (LOCAL): cfg=${cfg_dir_tag} sample=${SIM_SAMPLE} inputs=${#SIM_INPUTS[@]} -> grouped hadd on this node"
+          else
+            need_cmd condor_submit
+            say "SIM firstRound (CONDOR): cfg=${cfg_dir_tag} sample=${SIM_SAMPLE} inputs=${#SIM_INPUTS[@]} -> grouped hadd jobs on Condor"
+          fi
 
-    # CONDOR: original behavior (submit one hadd job per group)
-    emit_hadd_wrapper "$CONDOR_EXEC"
+          # Clean previous partials + this sample's final (ONLY sample-tagged files)
+          find "$DEST_DIR" -maxdepth 1 -type f \
+            \( -name "${SIM_PARTIAL_PREFIX}*.root" -o -name "$(basename "$SIM_FINAL")" \) -delete || true
 
-    SUB="${TMP_DIR}/recoil_sim_${SIM_TAG}_firstRound.sub"
-    rm -f "$SUB"
-    cat > "$SUB" <<EOT
+          total="${#SIM_INPUTS[@]}"
+          grp=0
+
+          if $SIM_FIRSTROUND_LOCAL; then
+            # LOCAL: build listfiles and run hadd sequentially (same outputs as Condor mode)
+            need_cmd hadd
+
+            for ((i=0; i<total; i+=SIM_GROUP_SIZE)); do
+              (( grp+=1 ))
+              grpTag="$(printf "%03d" "$grp")"
+
+              listfile="${TMP_DIR}/sim_${cfg_dir_tag}_${SIM_TAG}_grp${grpTag}.txt"
+              : > "$listfile"
+
+              for ((j=i; j<i+SIM_GROUP_SIZE && j<total; j++)); do
+                printf "%s\n" "${SIM_INPUTS[$j]}" >> "$listfile"
+              done
+
+              out="${DEST_DIR}/${SIM_PARTIAL_PREFIX}${grpTag}.root"
+              say "[LOCAL firstRound] cfg=${cfg_dir_tag} sample=${SIM_TAG} grp=${grpTag} inputs=$(wc -l < "$listfile") -> $(basename "$out")"
+              hadd -v 3 -f "$out" @"$listfile"
+            done
+
+            say "LOCAL firstRound complete for cfg=${cfg_dir_tag} sample=${SIM_SAMPLE}. Partials are under: ${DEST_DIR}"
+          else
+            # CONDOR: submit one hadd job per group
+            emit_hadd_wrapper "$CONDOR_EXEC"
+
+            SUB="${TMP_DIR}/recoil_sim_${cfg_dir_tag}_${SIM_TAG}_firstRound.sub"
+            rm -f "$SUB"
+            cat > "$SUB" <<EOT
 universe   = vanilla
 executable = $CONDOR_EXEC
-output     = $OUT_DIR/recoil.sim.${SIM_TAG}.\$(Cluster).\$(Process).out
-error      = $ERR_DIR/recoil.sim.${SIM_TAG}.\$(Cluster).\$(Process).err
-log        = $LOG_DIR/recoil.sim.${SIM_TAG}.\$(Cluster).\$(Process).log
+output     = $OUT_DIR/recoil.sim.${cfg_dir_tag}.${SIM_TAG}.\$(Cluster).\$(Process).out
+error      = $ERR_DIR/recoil.sim.${cfg_dir_tag}.${SIM_TAG}.\$(Cluster).\$(Process).err
+log        = $LOG_DIR/recoil.sim.${cfg_dir_tag}.${SIM_TAG}.\$(Cluster).\$(Process).log
 request_memory = 4GB
 getenv = True
 should_transfer_files = NO
@@ -548,52 +661,52 @@ stream_output = True
 stream_error  = True
 EOT
 
-    # Build listfiles + one Condor job per group
-    for ((i=0; i<total; i+=SIM_GROUP_SIZE)); do
-      (( grp+=1 ))
-      grpTag="$(printf "%03d" "$grp")"
+            for ((i=0; i<total; i+=SIM_GROUP_SIZE)); do
+              (( grp+=1 ))
+              grpTag="$(printf "%03d" "$grp")"
 
-      listfile="${TMP_DIR}/sim_${SIM_TAG}_grp${grpTag}.txt"
-      : > "$listfile"
+              listfile="${TMP_DIR}/sim_${cfg_dir_tag}_${SIM_TAG}_grp${grpTag}.txt"
+              : > "$listfile"
 
-      for ((j=i; j<i+SIM_GROUP_SIZE && j<total; j++)); do
-        printf "%s\n" "${SIM_INPUTS[$j]}" >> "$listfile"
-      done
+              for ((j=i; j<i+SIM_GROUP_SIZE && j<total; j++)); do
+                printf "%s\n" "${SIM_INPUTS[$j]}" >> "$listfile"
+              done
 
-      out="${DEST_DIR}/${SIM_PARTIAL_PREFIX}${grpTag}.root"
-      printf 'arguments = %s %s\nqueue\n\n' "$listfile" "$out" >> "$SUB"
-    done
+              out="${DEST_DIR}/${SIM_PARTIAL_PREFIX}${grpTag}.root"
+              printf 'arguments = %s %s\nqueue\n\n' "$listfile" "$out" >> "$SUB"
+            done
 
-    say "Submitting ${BOLD}${grp}${RST} firstRound Condor merge jobs → $(basename "$SUB")"
-    condor_submit "$SUB"
-    say "FirstRound submitted. Partials will appear under: ${DEST_DIR}"
-    exit 0
+            say "Submitting ${BOLD}${grp}${RST} firstRound Condor merge jobs → $(basename "$SUB")"
+            condor_submit "$SUB"
+            say "FirstRound submitted. Partials will appear under: ${DEST_DIR}"
+          fi
 
-  elif [[ "$SIM_ACTION" == "secondRound" ]]; then
-    # Merge the firstRound partials into ONE final file
-    mapfile -t partials < <(ls -1 "${DEST_DIR}/${SIM_PARTIAL_PREFIX}"*.root 2>/dev/null | sort -V || true)
-    if (( ${#partials[@]} == 0 )); then
-      err "No firstRound partials found in ${DEST_DIR} (expected ${SIM_PARTIAL_PREFIX}*.root). Run: ./mergeRecoilJets.sh isSim firstRound"
-      exit 22
-    fi
+        elif [[ "$SIM_ACTION" == "secondRound" ]]; then
+          # Merge the firstRound partials into ONE final file (per cfg × sample)
+          mapfile -t partials < <(ls -1 "${DEST_DIR}/${SIM_PARTIAL_PREFIX}"*.root 2>/dev/null | sort -V || true)
+          if (( ${#partials[@]} == 0 )); then
+            err "No firstRound partials found for cfg=${cfg_dir_tag} sample=${SIM_SAMPLE} in ${DEST_DIR} (expected ${SIM_PARTIAL_PREFIX}*.root)."
+            err "Run: ./mergeRecoilJets.sh isSim firstRound"
+            exit 22
+          fi
 
-    LIST="${TMP_DIR}/sim_${SIM_TAG}_partialList.txt"
-    printf "%s\n" "${partials[@]}" > "$LIST"
+          LIST="${TMP_DIR}/sim_${cfg_dir_tag}_${SIM_TAG}_partialList.txt"
+          printf "%s\n" "${partials[@]}" > "$LIST"
 
-    say "SIM secondRound: ${#partials[@]} partials -> ${SIM_FINAL}"
+          say "SIM secondRound: cfg=${cfg_dir_tag} sample=${SIM_SAMPLE} partials=${#partials[@]} -> ${SIM_FINAL}"
 
-    if $SIM_PREFER_CONDOR; then
-      need_cmd condor_submit
-      emit_hadd_wrapper "$CONDOR_EXEC"
+          if $SIM_PREFER_CONDOR; then
+            need_cmd condor_submit
+            emit_hadd_wrapper "$CONDOR_EXEC"
 
-      SUB="${TMP_DIR}/recoil_sim_${SIM_TAG}_secondRound.sub"
-      rm -f "$SUB"
-      cat > "$SUB" <<EOT
+            SUB="${TMP_DIR}/recoil_sim_${cfg_dir_tag}_${SIM_TAG}_secondRound.sub"
+            rm -f "$SUB"
+            cat > "$SUB" <<EOT
 universe   = vanilla
 executable = $CONDOR_EXEC
-output     = $OUT_DIR/recoil.sim.${SIM_TAG}.final.\$(Cluster).\$(Process).out
-error      = $ERR_DIR/recoil.sim.${SIM_TAG}.final.\$(Cluster).\$(Process).err
-log        = $LOG_DIR/recoil.sim.${SIM_TAG}.final.\$(Cluster).\$(Process).log
+output     = $OUT_DIR/recoil.sim.${cfg_dir_tag}.${SIM_TAG}.final.\$(Cluster).\$(Process).out
+error      = $ERR_DIR/recoil.sim.${cfg_dir_tag}.${SIM_TAG}.final.\$(Cluster).\$(Process).err
+log        = $LOG_DIR/recoil.sim.${cfg_dir_tag}.${SIM_TAG}.final.\$(Cluster).\$(Process).log
 request_memory = 6GB
 getenv = True
 should_transfer_files = NO
@@ -602,19 +715,36 @@ stream_error  = True
 arguments = $LIST $SIM_FINAL
 queue
 EOT
-      say "Submitting secondRound final merge on Condor → $(basename "$SUB")"
-      condor_submit "$SUB"
-    else
-      say "Running secondRound final merge locally (ROOT hadd)…"
-      hadd -v 3 -f "$SIM_FINAL" @"$LIST"
-      say "Created ${SIM_FINAL}"
-    fi
+            say "Submitting secondRound final merge on Condor → $(basename "$SUB")"
+            condor_submit "$SUB"
+          else
+            need_cmd hadd
+            say "Running secondRound final merge locally (ROOT hadd)…"
+            hadd -v 3 -f "$SIM_FINAL" @"$LIST"
+            say "Created ${SIM_FINAL}"
+          fi
 
-    exit 0
-  else
-    err "Unknown isSim action '${SIM_ACTION}'. Allowed: firstRound | secondRound"
-    exit 2
+          final_paths+=( "$SIM_FINAL" )
+        else
+          err "Unknown isSim action '${SIM_ACTION}'. Allowed: firstRound | secondRound"
+          exit 2
+        fi
+
+        echo
+      done
+    done
+  done
+
+  if [[ "$SIM_ACTION" == "secondRound" ]]; then
+    say "====================================================================="
+    say "SecondRound outputs (final files):"
+    for p in "${final_paths[@]}"; do
+      say "  ${p}"
+    done
+    say "====================================================================="
   fi
+
+  exit 0
 fi
 
 # ============================================================
