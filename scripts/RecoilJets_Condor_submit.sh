@@ -625,6 +625,8 @@ resolve_dataset "$1"
 
 # Parse remaining tokens (order-agnostic):
 ACTION=""
+SIM_SAMPLE_EXPLICIT=0
+GROUP_SIZE_EXPLICIT=0
 tokens=( "${@:2}" )
 for (( idx=0; idx<${#tokens[@]}; idx++ )); do
   tok="${tokens[$idx]}"
@@ -636,6 +638,7 @@ for (( idx=0; idx<${#tokens[@]}; idx++ )); do
       next=$((idx+1))
       [[ $next -lt ${#tokens[@]} ]] || { err "groupSize requires a value"; exit 2; }
       GROUP_SIZE="${tokens[$next]}"
+      GROUP_SIZE_EXPLICIT=1
       idx=$next
       ;;
     maxJobs)
@@ -650,6 +653,7 @@ for (( idx=0; idx<${#tokens[@]}; idx++ )); do
       ;;
     SAMPLE=*)
       SIM_SAMPLE="${tok#SAMPLE=}"
+      SIM_SAMPLE_EXPLICIT=1
       ;;
     CHECKJOBS)
       ACTION="CHECKJOBS"
@@ -795,15 +799,27 @@ SUB
     [[ "$DATASET" == "isSim" ]] || { err "condorDoAll is only valid for isSim"; exit 2; }
     need_cmd condor_submit
 
-    wipe_sim_artifacts
+    # Default (no explicit SAMPLE=...): submit BOTH run28 photonjet samples sequentially.
+    # This mimics running two separate submissions with groupSize=5.
+    if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
+      gs_doall="$GROUP_SIZE"
+      if [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 0 ]]; then
+        gs_doall="5"
+      fi
 
-    mapfile -t groups < <( make_sim_groups "$GROUP_SIZE" )
-    (( ${#groups[@]} )) || { err "No sim groups produced (sample=${SIM_SAMPLE})"; exit 30; }
+      for samp in "run28_photonjet10" "run28_photonjet20"; do
+        SIM_SAMPLE="$samp"
+        GROUP_SIZE="$gs_doall"
 
-    stamp="$(date +%Y%m%d_%H%M%S)"
-    sub="${BASE}/RecoilJets_sim_${SIM_SAMPLE}_${stamp}.sub"
+        wipe_sim_artifacts
 
-    cat > "$sub" <<SUB
+        mapfile -t groups < <( make_sim_groups "$GROUP_SIZE" )
+        (( ${#groups[@]} )) || { err "No sim groups produced (sample=${SIM_SAMPLE})"; exit 30; }
+
+        stamp="$(date +%Y%m%d_%H%M%S)"
+        sub="${BASE}/RecoilJets_sim_${SIM_SAMPLE}_${stamp}.sub"
+
+        cat > "$sub" <<SUB
 universe      = vanilla
 executable    = ${EXE}
 initialdir    = ${BASE}
@@ -818,16 +834,52 @@ stream_error  = True
 environment   = RJ_VERBOSITY=0
 SUB
 
-    gidx=0
-    for glist in "${groups[@]}"; do
-      (( gidx+=1 ))
-      printf 'arguments = %s %s %s $(Cluster) 0 %d NONE %s\nqueue\n\n' \
-             "$SIM_SAMPLE" "$glist" "isSim" "$gidx" "$DEST_BASE" >> "$sub"
-    done
+        gidx=0
+        for glist in "${groups[@]}"; do
+          (( gidx+=1 ))
+          printf 'arguments = %s %s %s $(Cluster) 0 %d NONE %s\nqueue\n\n' \
+                 "$SIM_SAMPLE" "$glist" "isSim" "$gidx" "$DEST_BASE" >> "$sub"
+        done
 
-    say "Submitting isSim condorDoAll (sample=${SIM_SAMPLE}, groupSize=${GROUP_SIZE}) → jobs=${BOLD}${#groups[@]}${RST}"
-    say "Output ROOT dir: ${DEST_BASE}/${SIM_SAMPLE}"
-    condor_submit "$sub"
+        say "Submitting isSim condorDoAll (sample=${SIM_SAMPLE}, groupSize=${GROUP_SIZE}) → jobs=${BOLD}${#groups[@]}${RST}"
+        say "Output ROOT dir: ${DEST_BASE}/${SIM_SAMPLE}"
+        condor_submit "$sub"
+      done
+    else
+      wipe_sim_artifacts
+
+      mapfile -t groups < <( make_sim_groups "$GROUP_SIZE" )
+      (( ${#groups[@]} )) || { err "No sim groups produced (sample=${SIM_SAMPLE})"; exit 30; }
+
+      stamp="$(date +%Y%m%d_%H%M%S)"
+      sub="${BASE}/RecoilJets_sim_${SIM_SAMPLE}_${stamp}.sub"
+
+      cat > "$sub" <<SUB
+universe      = vanilla
+executable    = ${EXE}
+initialdir    = ${BASE}
+getenv        = True
+log           = ${LOG_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).log
+output        = ${OUT_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).out
+error         = ${ERR_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).err
+request_memory= 2000MB
+should_transfer_files = NO
+stream_output = True
+stream_error  = True
+environment   = RJ_VERBOSITY=0
+SUB
+
+      gidx=0
+      for glist in "${groups[@]}"; do
+        (( gidx+=1 ))
+        printf 'arguments = %s %s %s $(Cluster) 0 %d NONE %s\nqueue\n\n' \
+               "$SIM_SAMPLE" "$glist" "isSim" "$gidx" "$DEST_BASE" >> "$sub"
+      done
+
+      say "Submitting isSim condorDoAll (sample=${SIM_SAMPLE}, groupSize=${GROUP_SIZE}) → jobs=${BOLD}${#groups[@]}${RST}"
+      say "Output ROOT dir: ${DEST_BASE}/${SIM_SAMPLE}"
+      condor_submit "$sub"
+    fi
     ;;
 
   splitGoldenRunList)
