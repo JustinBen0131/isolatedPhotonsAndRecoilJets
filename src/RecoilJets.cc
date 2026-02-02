@@ -461,158 +461,190 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
   }
 
   // ------------------------------------------------------------------
-  // Reco jets: cache ALL radii listed in kJetRadii (r02 + r04) in parallel.
+  // Reco jets: cache all configured radii in parallel.
+  //
+  // Radii selection is driven by:
+  //   - setActiveJetRKeys([...]) (typically from YAML in Fun4All_recoilJets.C)
+  //   - fallback: RecoilJets::kJetRadii (baseline r02+r04)
   //
   // Legacy knob (still honored as a "primary" label in logs only):
-  //   export RJ_RECO_JET_KEY=r02   (or r04)
-  //
-  // IMPORTANT: we DO NOT disable the other radius — all jet QA / matching
-  //            runs for every entry in kJetRadii.
+  //   export RJ_RECO_JET_KEY=r02   (or r04, etc.)
   // ------------------------------------------------------------------
-  std::string primaryRecoKey = trim(m_xjRecoJetKey);
-  if (const char* rk = std::getenv("RJ_RECO_JET_KEY"))
-    primaryRecoKey = trim(std::string(rk));
-
-  if (primaryRecoKey.empty())
-    primaryRecoKey = kJetRadii.front().key;
-
-  bool keyOK = false;
-  for (const auto& jnm : kJetRadii)
-    if (primaryRecoKey == jnm.key) { keyOK = true; break; }
-
-  if (!keyOK)
+  std::vector<std::string> rKeysToRun;
+  if (!m_activeJetRKeys.empty())
+      rKeysToRun = m_activeJetRKeys;
+  else
   {
-    primaryRecoKey = kJetRadii.front().key;
-    LOG(1, CLR_YELLOW,
-        "    [fetchNodes] requested RJ_RECO_JET_KEY not in kJetRadii → using \"" << primaryRecoKey << "\"");
+      rKeysToRun.reserve(kJetRadii.size());
+      for (const auto& jnm : kJetRadii) rKeysToRun.push_back(jnm.key);
   }
 
-  // Persist (legacy) — may be printed elsewhere
-  m_xjRecoJetKey = primaryRecoKey;
-
-  m_jets.clear();
-  for (const auto& jnm : kJetRadii)
+  // de-dup defensively (preserve order)
   {
-    const std::string rKey = jnm.key;
-
-    const std::string node = (isAuAu ? jnm.aa_node : jnm.pp_node);
-    auto* jc = findNode::getClass<JetContainer>(top, node);
-
-    if (!jc)
-    {
-      LOG(2, CLR_YELLOW, "  – reco jet node missing: " << node << " (rKey=" << rKey << ")");
-    }
-    else
-    {
-      LOG(4, CLR_GREEN,
-          "    [fetchNodes] reco jet node found: " << node
-          << "  rKey=" << rKey << "  jets=" << jc->size());
-    }
-
-    // Store even if nullptr; downstream QA/matching will skip gracefully per-radius
-    m_jets[rKey] = jc;
-  }
-
-  if (Verbosity() >= 4)
-  {
-    std::ostringstream os;
-    os << "    [fetchNodes] reco jet radii cached: {";
-    for (std::size_t i = 0; i < kJetRadii.size(); ++i)
-    {
-      if (i) os << ", ";
-      const std::string rk = kJetRadii[i].key;
-      auto it = m_jets.find(rk);
-      const bool ok = (it != m_jets.end() && it->second);
-      os << rk << ":" << (ok ? "OK" : "MISSING");
-    }
-    os << "}  (primary=" << primaryRecoKey << ")";
-    LOG(4, CLR_BLUE, os.str());
-  }
-
-  // ------------------------------------------------------------------
-  // Truth jets: SIM only.
-  // Cache truth jet containers for ALL radii in kJetRadii (r02 + r04).
-  //
-  // Recommended override for parallel radii:
-  //   export RJ_TRUTH_JETS_NODE=AntiKt_Truth_{rKey}
-  //   export RJ_TRUTH_JETS_NODE=AntiKt_TruthFromParticles_{rKey}
-  //
-  // If RJ_TRUTH_JETS_NODE is set without "{rKey}", we also try "<env>_<rKey>"
-  // (plus the standard canonical nodes) for each radius.
-  // ------------------------------------------------------------------
-  m_truthJetsByRKey.clear();
-  m_truthJetsNodeByRKey.clear();
-
-  if (isSim)
-  {
-    const char* tn_env_c = std::getenv("RJ_TRUTH_JETS_NODE");
-    const std::string tn_env = tn_env_c ? trim(std::string(tn_env_c)) : std::string{};
-
-    for (const auto& jnm : kJetRadii)
-    {
-      const std::string rKey = jnm.key;
-
-      const std::string canonicalTruth = std::string("AntiKt_Truth_") + rKey;
-      const std::string altTruth       = std::string("AntiKt_TruthFromParticles_") + rKey;
-
-      std::vector<std::string> candidates;
-      candidates.reserve(6);
-
-      if (!tn_env.empty())
+      std::vector<std::string> uniq;
+      uniq.reserve(rKeysToRun.size());
+      for (const auto& k : rKeysToRun)
       {
-        const std::string placeholder = "{rKey}";
-        if (tn_env.find(placeholder) != std::string::npos)
-        {
-          std::string expanded = tn_env;
-          expanded.replace(expanded.find(placeholder), placeholder.size(), rKey);
-          candidates.push_back(expanded);
-        }
-        else
-        {
-          candidates.push_back(tn_env);
-          if (tn_env.find("_" + rKey) == std::string::npos)
-            candidates.push_back(tn_env + "_" + rKey);
-        }
+        if (k.empty()) continue;
+        if (std::find(uniq.begin(), uniq.end(), k) == uniq.end())
+          uniq.push_back(k);
       }
+      rKeysToRun.swap(uniq);
+    }
 
-      // Always try standard truth nodes for this radius
-      candidates.push_back(canonicalTruth);
-      candidates.push_back(altTruth);
+    if (rKeysToRun.empty())
+      rKeysToRun = {kJetRadii.front().key};
 
-      JetContainer* tj = nullptr;
-      std::string   usedNode;
-
-      for (const auto& node : candidates)
+    auto recoJetNodeForRKey = [&](const std::string& rKey) -> std::string
+    {
+      for (const auto& jnm : kJetRadii)
       {
-        if (node.empty()) continue;
-        if (auto* tmp = findNode::getClass<JetContainer>(top, node))
-        {
-          tj = tmp;
-          usedNode = node;
-          break;
-        }
+        if (jnm.key == rKey)
+          return (isAuAu ? jnm.aa_node : jnm.pp_node);
       }
+      return std::string("AntiKt_Tower_") + rKey;
+    };
 
-      m_truthJetsByRKey[rKey] = tj;
-      m_truthJetsNodeByRKey[rKey] = usedNode;
+    std::string primaryRecoKey = trim(m_xjRecoJetKey);
+    if (const char* rk = std::getenv("RJ_RECO_JET_KEY"))
+      primaryRecoKey = trim(std::string(rk));
 
-      if (!tj)
+    if (primaryRecoKey.empty())
+      primaryRecoKey = rKeysToRun.front();
+
+    bool keyOK = false;
+    for (const auto& k : rKeysToRun)
+      if (primaryRecoKey == k) { keyOK = true; break; }
+
+    if (!keyOK)
+    {
+      primaryRecoKey = rKeysToRun.front();
+      LOG(1, CLR_YELLOW,
+          "    [fetchNodes] requested RJ_RECO_JET_KEY not in active radii → using \"" << primaryRecoKey << "\"");
+    }
+
+    // Persist (legacy) — may be printed elsewhere
+    m_xjRecoJetKey = primaryRecoKey;
+
+    m_jets.clear();
+    for (const auto& rKey : rKeysToRun)
+    {
+      const std::string node = recoJetNodeForRKey(rKey);
+      auto* jc = findNode::getClass<JetContainer>(top, node);
+
+      if (!jc)
       {
-        LOG(2, CLR_YELLOW,
-            "    [fetchNodes] isSim: truth jet container NOT found for rKey=" << rKey
-            << " (tried canonical=" << canonicalTruth
-            << ", alt=" << altTruth
-            << (tn_env.empty() ? "" : ", plus RJ_TRUTH_JETS_NODE candidates")
-            << "). Truth-jet QA disabled for this radius.");
+        LOG(2, CLR_YELLOW, "  – reco jet node missing: " << node << " (rKey=" << rKey << ")");
       }
       else
       {
         LOG(4, CLR_GREEN,
-            "    [fetchNodes] isSim: truth jet node found for rKey=" << rKey
-            << ": " << usedNode << "  jets=" << tj->size());
+            "    [fetchNodes] reco jet node found: " << node
+            << "  rKey=" << rKey << "  jets=" << jc->size());
+      }
+
+      // Store even if nullptr; downstream QA/matching will skip gracefully per-radius
+      m_jets[rKey] = jc;
+    }
+
+    if (Verbosity() >= 4)
+    {
+      std::ostringstream os;
+      os << "    [fetchNodes] reco jet radii cached: {";
+      for (std::size_t i = 0; i < rKeysToRun.size(); ++i)
+      {
+        if (i) os << ", ";
+        const std::string rk = rKeysToRun[i];
+        auto it = m_jets.find(rk);
+        const bool ok = (it != m_jets.end() && it->second);
+        os << rk << ":" << (ok ? "OK" : "MISSING");
+      }
+      os << "}  (primary=" << primaryRecoKey << ")";
+      LOG(4, CLR_BLUE, os.str());
+    }
+
+    // ------------------------------------------------------------------
+    // Truth jets: SIM only.
+    // Cache truth jet containers for the same set of radii.
+    //
+    // Recommended override for parallel radii:
+    //   export RJ_TRUTH_JETS_NODE=AntiKt_Truth_{rKey}
+    //   export RJ_TRUTH_JETS_NODE=AntiKt_TruthFromParticles_{rKey}
+    //
+    // If RJ_TRUTH_JETS_NODE is set without "{rKey}", we also try "<env>_<rKey>"
+    // (plus the standard canonical nodes) for each radius.
+    // ------------------------------------------------------------------
+    m_truthJetsByRKey.clear();
+    m_truthJetsNodeByRKey.clear();
+
+    if (isSim)
+    {
+      const char* tn_env_c = std::getenv("RJ_TRUTH_JETS_NODE");
+      const std::string tn_env = tn_env_c ? trim(std::string(tn_env_c)) : std::string{};
+
+      for (const auto& rKey : rKeysToRun)
+      {
+        const std::string canonicalTruth = std::string("AntiKt_Truth_") + rKey;
+        const std::string altTruth       = std::string("AntiKt_TruthFromParticles_") + rKey;
+
+        std::vector<std::string> candidates;
+        candidates.reserve(6);
+
+        if (!tn_env.empty())
+        {
+          const std::string placeholder = "{rKey}";
+          if (tn_env.find(placeholder) != std::string::npos)
+          {
+            std::string expanded = tn_env;
+            expanded.replace(expanded.find(placeholder), placeholder.size(), rKey);
+            candidates.push_back(expanded);
+          }
+          else
+          {
+            candidates.push_back(tn_env);
+            if (tn_env.find("_" + rKey) == std::string::npos)
+              candidates.push_back(tn_env + "_" + rKey);
+          }
+        }
+
+        // Always try standard truth nodes for this radius
+        candidates.push_back(canonicalTruth);
+        candidates.push_back(altTruth);
+
+        JetContainer* tj = nullptr;
+        std::string   usedNode;
+
+        for (const auto& node : candidates)
+        {
+          if (node.empty()) continue;
+          if (auto* tmp = findNode::getClass<JetContainer>(top, node))
+          {
+            tj = tmp;
+            usedNode = node;
+            break;
+          }
+        }
+
+        m_truthJetsByRKey[rKey] = tj;
+        m_truthJetsNodeByRKey[rKey] = usedNode;
+
+        if (!tj)
+        {
+          LOG(2, CLR_YELLOW,
+              "    [fetchNodes] isSim: truth jet container NOT found for rKey=" << rKey
+              << " (tried canonical=" << canonicalTruth
+              << ", alt=" << altTruth
+              << (tn_env.empty() ? "" : ", plus RJ_TRUTH_JETS_NODE candidates")
+              << "). Truth-jet QA disabled for this radius.");
+        }
+        else
+        {
+          LOG(4, CLR_GREEN,
+              "    [fetchNodes] isSim: truth jet node found for rKey=" << rKey
+              << ": " << usedNode << "  jets=" << tj->size());
+        }
       }
     }
-  }
 
     // -------------------------------------------------------------------------
     // EventDisplay diagnostics payload nodes (SIM only). Optional: never affects physics.
@@ -1338,9 +1370,9 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
   /*     Filled once per accepted event, after centrality/vz.            */
   /* ------------------------------------------------------------------ */
   const int centIdxForJets = (m_isAuAu ? findCentBin(m_centBin) : -1);
-  for (const auto& jnm : kJetRadii)
+  for (const auto& kv : m_jets)
   {
-      fillInclusiveJetQA(activeTrig, centIdxForJets, jnm.key);
+        fillInclusiveJetQA(activeTrig, centIdxForJets, kv.first);
   }
 
   processCandidates(topNode, activeTrig);
@@ -1608,10 +1640,13 @@ int RecoilJets::End(PHCompositeNode*)
         std::cout << "rKey  | |eta|< (1.1-R) | Nlead(iso\u2227tight) | NoJetPt | NoJetEta | NoBackToBack | Matched | fMatched | fBackToBack(given jets)\n";
         std::cout << "------+---------------+------------------+---------+----------+-------------+---------+---------+--------------------------\n";
 
-        for (const auto& jnm : kJetRadii)
+        const bool useActiveRKeys = (!m_activeJetRKeys.empty());
+        const std::size_t nRKeys = useActiveRKeys ? m_activeJetRKeys.size() : kJetRadii.size();
+
+        for (std::size_t iR = 0; iR < nRKeys; ++iR)
         {
-          const std::string rKey = jnm.key;
-          const double etaMax = jetEtaAbsMaxForRKey(rKey);
+            const std::string rKey = useActiveRKeys ? m_activeJetRKeys[iR] : kJetRadii[iR].key;
+            const double etaMax = jetEtaAbsMaxForRKey(rKey);
 
           // Collect ALL match-status histograms for this rKey (includes centrality-sliced ones in Au+Au)
           const std::string pfxStatus = std::string("h_match_status_vs_pTgamma_") + rKey;
@@ -2600,13 +2635,12 @@ bool RecoilJets::runLeadIsoTightPhotonJetLoopAllRadii(
 {
   bool filledAnyRadius = false;
 
-  // Run the EXACT SAME jet logic for every radius in kJetRadii (r02 + r04)
-  for (const auto& jnm : kJetRadii)
+    // Run the EXACT SAME jet logic for every configured radius in parallel
+  for (const auto& kv : m_jets)
   {
-    const std::string rKey = jnm.key;
+    const std::string rKey = kv.first;
 
-    JetContainer* jets = nullptr;
-    if (auto itJ = m_jets.find(rKey); itJ != m_jets.end()) jets = itJ->second;
+    JetContainer* jets = kv.second;
 
     // Radius-dependent containment cut: |eta_jet| < 1.1 - R
     const double Rjet            = jetRFromKey(rKey);
@@ -3545,12 +3579,11 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
         else
         {
           // Fill per jet radius (truth jets are radius-tagged)
-          for (const auto& jnm : kJetRadii)
+          for (const auto& kvT : m_truthJetsByRKey)
           {
-            const std::string rKey = jnm.key;
+            const std::string rKey = kvT.first;
 
-            JetContainer* truthJets = nullptr;
-            if (auto itT = m_truthJetsByRKey.find(rKey); itT != m_truthJetsByRKey.end()) truthJets = itT->second;
+            JetContainer* truthJets = kvT.second;
 
             if (!truthJets)
             {
@@ -4216,12 +4249,11 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
         if (haveLeadAnyPho && leadAnyPtIdx >= 0)
         {
 
-          for (const auto& jnm : kJetRadii)
+          for (const auto& kvJ : m_jets)
           {
-            const std::string rKey = jnm.key;
+            const std::string& rKey = kvJ.first;
 
-            JetContainer* jets = nullptr;
-            if (auto itJ = m_jets.find(rKey); itJ != m_jets.end()) jets = itJ->second;
+            JetContainer* jets = kvJ.second;
             if (!jets) continue;
 
             const double jetEtaAbsMaxUse = jetEtaAbsMaxForRKey(rKey);
@@ -6380,10 +6412,23 @@ TH2F* RecoilJets::getOrBookUnfoldJetPtResponsePtTruth(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  auto* h = new TH2F(name.c_str(),
-                     (name + ";p_{T}^{jet,truth} [GeV];p_{T}^{jet,reco}/p_{T}^{jet,truth}").c_str(),
-                     120, 0.0, 60.0,
-                     120, 0.0, 2.0);
+  TH2F* h = nullptr;
+  const std::vector<double>& kJetPt = m_unfoldJetPtBins;
+  if (kJetPt.size() >= 2)
+  {
+    const int nb = static_cast<int>(kJetPt.size()) - 1;
+    h = new TH2F(name.c_str(),
+                (name + ";p_{T}^{jet,truth} [GeV];p_{T}^{jet,reco}/p_{T}^{jet,truth}").c_str(),
+                nb, kJetPt.data(),
+                120, 0.0, 2.0);
+  }
+  else
+  {
+    h = new TH2F(name.c_str(),
+                (name + ";p_{T}^{jet,truth} [GeV];p_{T}^{jet,reco}/p_{T}^{jet,truth}").c_str(),
+                120, 0.0, 60.0,
+                120, 0.0, 2.0);
+  }
   h->Sumw2();
 
   H[name] = h;
@@ -6416,10 +6461,23 @@ TH2F* RecoilJets::getOrBookUnfoldJetPtResponseAllPtTruth(const std::string& trig
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  auto* h = new TH2F(name.c_str(),
-                     (name + ";p_{T}^{jet,truth} [GeV];p_{T}^{jet,reco}/p_{T}^{jet,truth} (all matched fid jets)").c_str(),
-                     120, 0.0, 60.0,
-                     120, 0.0, 2.0);
+  TH2F* h = nullptr;
+  const std::vector<double>& kJetPt = m_unfoldJetPtBins;
+  if (kJetPt.size() >= 2)
+  {
+    const int nb = static_cast<int>(kJetPt.size()) - 1;
+    h = new TH2F(name.c_str(),
+                (name + ";p_{T}^{jet,truth} [GeV];p_{T}^{jet,reco}/p_{T}^{jet,truth} (all matched fid jets)").c_str(),
+                nb, kJetPt.data(),
+                120, 0.0, 2.0);
+  }
+  else
+  {
+    h = new TH2F(name.c_str(),
+                (name + ";p_{T}^{jet,truth} [GeV];p_{T}^{jet,reco}/p_{T}^{jet,truth} (all matched fid jets)").c_str(),
+                120, 0.0, 60.0,
+                120, 0.0, 2.0);
+  }
   h->Sumw2();
 
   H[name] = h;
@@ -6452,10 +6510,23 @@ TH2F* RecoilJets::getOrBookLeadRecoilJetPtResponsePtTruth(const std::string& tri
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  auto* h = new TH2F(name.c_str(),
-                     (name + ";p_{T}^{jet,truth} [GeV];p_{T}^{jet,reco}/p_{T}^{jet,truth} (lead recoil jet1)").c_str(),
-                     120, 0.0, 60.0,
-                     120, 0.0, 2.0);
+  TH2F* h = nullptr;
+  const std::vector<double>& kJetPt = m_unfoldJetPtBins;
+  if (kJetPt.size() >= 2)
+  {
+    const int nb = static_cast<int>(kJetPt.size()) - 1;
+    h = new TH2F(name.c_str(),
+                (name + ";p_{T}^{jet,truth} [GeV];p_{T}^{jet,reco}/p_{T}^{jet,truth} (lead recoil jet1)").c_str(),
+                nb, kJetPt.data(),
+                120, 0.0, 2.0);
+  }
+  else
+  {
+    h = new TH2F(name.c_str(),
+                (name + ";p_{T}^{jet,truth} [GeV];p_{T}^{jet,reco}/p_{T}^{jet,truth} (lead recoil jet1)").c_str(),
+                120, 0.0, 60.0,
+                120, 0.0, 2.0);
+  }
   h->Sumw2();
 
   H[name] = h;
@@ -6488,10 +6559,23 @@ TH2F* RecoilJets::getOrBookLeadRecoilJetPtTruthPtReco(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  auto* h = new TH2F(name.c_str(),
-                     (name + ";p_{T}^{jet,truth} [GeV];p_{T}^{jet,reco} [GeV] (lead recoil jet1)").c_str(),
-                     120, 0.0, 60.0,
-                     120, 0.0, 60.0);
+  TH2F* h = nullptr;
+  const std::vector<double>& kJetPt = m_unfoldJetPtBins;
+  if (kJetPt.size() >= 2)
+  {
+    const int nb = static_cast<int>(kJetPt.size()) - 1;
+    h = new TH2F(name.c_str(),
+                (name + ";p_{T}^{jet,truth} [GeV];p_{T}^{jet,reco} [GeV] (lead recoil jet1)").c_str(),
+                nb, kJetPt.data(),
+                nb, kJetPt.data());
+  }
+  else
+  {
+    h = new TH2F(name.c_str(),
+                (name + ";p_{T}^{jet,truth} [GeV];p_{T}^{jet,reco} [GeV] (lead recoil jet1)").c_str(),
+                120, 0.0, 60.0,
+                120, 0.0, 60.0);
+  }
   h->Sumw2();
 
   H[name] = h;

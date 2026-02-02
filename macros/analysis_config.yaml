@@ -19,6 +19,14 @@
 photon_eta_abs_max: 0.7
 jet_pt_min: 10.0
 
+# Jet radii to run (R values). The steering macro will:
+#   - build reco jets for these radii
+#   - (SIM) build truth jets for these radii (if building from particles)
+#   - tell RecoilJets to only expect/process these radii
+#
+# Baseline behavior matches current code: r02 + r04
+jet_radii: [0.2, 0.4]
+
 # Back-to-back cut expressed ONLY as a fraction of π.
 # baseline = 7π/8  ->  fraction = 7/8 = 0.875
 # (runtime should compute: back_to_back_dphi_min_rad = back_to_back_dphi_min_pi_fraction * M_PI)

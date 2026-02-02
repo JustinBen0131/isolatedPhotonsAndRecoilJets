@@ -134,6 +134,81 @@ namespace detail
 
 namespace yamlcfg
 {
+  inline std::vector<std::string> LoadJetRKeys(int vlevel)
+  {
+    std::vector<std::string> outKeys;
+
+    const std::string yamlPath = ResolveYAMLPath();
+    std::string yamlText;
+    const bool ok = ReadWholeFile(yamlPath, yamlText);
+
+    // Default behavior (baseline): r02 + r04
+    std::vector<double> radii = {0.2, 0.4};
+
+    if (ok)
+    {
+      std::istringstream iss(yamlText);
+      for (std::string line; std::getline(iss, line); )
+      {
+        line = detail::trim(line);
+        if (line.empty()) continue;
+        if (!line.empty() && line[0] == '#') continue;
+
+        if (StartsWithKey(line, "jet_radii"))
+        {
+          const std::string rhs = AfterColon(line);
+          ParseInlineListDoubles(rhs, radii);
+          break;
+        }
+      }
+    }
+
+    auto push_unique = [&](const std::string& k)
+    {
+      if (std::find(outKeys.begin(), outKeys.end(), k) == outKeys.end())
+        outKeys.push_back(k);
+    };
+
+    for (double R : radii)
+    {
+      if (!std::isfinite(R) || R <= 0.0) continue;
+
+      // Map R to "r%02d" where D ~ round(10*R)
+      const int D = static_cast<int>(R * 10.0 + 0.5);
+      if (D <= 0) continue;
+
+      std::ostringstream rk;
+      rk << "r" << std::setw(2) << std::setfill('0') << D;
+      push_unique(rk.str());
+    }
+
+    if (outKeys.empty())
+    {
+      outKeys = {"r02","r04"};
+      if (vlevel > 0)
+        std::cout << "[CFG] jet_radii: no valid entries found -> defaulting to [r02,r04]\n";
+    }
+
+    if (vlevel > 0)
+    {
+      std::cout << "[CFG] jet_radii from YAML (" << yamlPath << "): [";
+      for (std::size_t i = 0; i < outKeys.size(); ++i)
+        std::cout << outKeys[i] << (i + 1 < outKeys.size() ? ", " : "");
+      std::cout << "]\n";
+    }
+
+    return outKeys;
+  }
+
+  inline bool WantRKey(const std::vector<std::string>& keys, const std::string& key)
+  {
+    if (keys.empty()) return true;
+    return (std::find(keys.begin(), keys.end(), key) != keys.end());
+  }
+}
+
+namespace yamlcfg
+{
     struct Config
     {
       // file provenance
@@ -940,6 +1015,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
     // YAML config (Phase-1): load once, validate lightly, and print summary
     // --------------------------------------------------------------------
     yamlcfg::Config cfg = yamlcfg::LoadConfig();
+    const std::vector<std::string> activeJetRKeys = yamlcfg::LoadJetRKeys(vlevel);
 
     std::vector<double> unfoldJetPtEdges;
     yamlcfg::ExpandUniformEdges(unfoldJetPtEdges,
@@ -1375,14 +1451,15 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
       jetcalV = std::atoi(env);
   }
 
-  for (const auto& jnm : RecoilJets::kJetRadii)
+  for (const auto& radKey : activeJetRKeys)
   {
-      const std::string radKey = jnm.key;            // "r02" or "r04"
-      const int   D = std::stoi(radKey.substr(1));   // 2 or 4
-      const float R = 0.1f * D;                      // 0.2 or 0.4
+      int D = 0;
+      try { D = std::stoi(radKey.substr(1)); } catch (...) { continue; }
+      if (D <= 0) continue;
+      const float R = 0.1f * D;
 
-      // Canonical node name that RecoilJets reads (from RecoilJets::kJetRadii)
-      const std::string calibNode = jnm.pp_node;
+      // Canonical node name that RecoilJets reads (naming convention)
+      const std::string calibNode = std::string("AntiKt_Tower_") + radKey;
 
       // Apply JES calibration for pp-like chains (pp data + pp-style SIM)
       // Run pp JES calibration in BOTH pp data and isSim (pp-style chains)
@@ -1452,7 +1529,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
         }
      }
   }
-    
+
   // ---------------------- Truth jets -----------------------------------------
   // If useDSTTruthJets==true: they already exist from DST_JETS_IN.
   // If buildTruthJetsFromParticles==true: build them from TRUTH particles here.
@@ -1466,11 +1543,12 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
           std::cout << "[INFO] (isSim) truth jets: building from TRUTH particles (no DST_JETS)\n";
       }
 
-      for (const auto& jnm : RecoilJets::kJetRadii)
-      {
-        const std::string radKey = jnm.key;          // "r02" or "r04"
-        const int   D = std::stoi(radKey.substr(1));
-        const float R = 0.1f * D;
+        for (const auto& radKey : activeJetRKeys)
+        {
+          int D = 0;
+          try { D = std::stoi(radKey.substr(1)); } catch (...) { continue; }
+          if (D <= 0) continue;
+          const float R = 0.1f * D;
 
         auto* truthReco = new JetReco(std::string("TruthJetReco_FromParticles_") + radKey);
         auto* tji = new TruthJetInput(Jet::PARTICLE);
@@ -1536,6 +1614,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   recoilJets->setMinBackToBack(cfg.back_to_back_dphi_min_pi_fraction * M_PI);
 
   recoilJets->setUseVzCut(cfg.use_vz_cut, cfg.vz_cut_cm);
+  recoilJets->setActiveJetRKeys(activeJetRKeys);
   recoilJets->setIsolationWP(cfg.isoA, cfg.isoB, cfg.isoGap, cfg.isoConeR, cfg.isoTowMin);
 
   recoilJets->setPhotonIDCuts(cfg.pre_e11e33_max,

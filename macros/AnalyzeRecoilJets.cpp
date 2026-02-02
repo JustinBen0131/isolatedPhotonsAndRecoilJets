@@ -5601,15 +5601,24 @@ namespace ARJ
           const std::string outPng =
             JoinPath(outRecoDir, "table3x2_overlay_integratedAlpha_binningCompare.png");
 
-          // "New Binning" baseline comes from the currently-open merged dataset file
-          TH3* hNew = GetObj<TH3>(ds, "h_JES3_pT_xJ_alpha_r04", true, true, true);
-          if (!hNew)
-          {
-            cout << ANSI_BOLD_YEL
-                 << "[WARN] Binning overlay skipped: missing h_JES3_pT_xJ_alpha_r04 in baseline merged dataset.\n"
-                 << ANSI_RESET;
-            return;
-          }
+            // "New Binning" baseline comes from the currently-open merged dataset file
+            TH3* hNew = GetObj<TH3>(ds, "h_JES3_pT_xJ_alpha_r04", true, true, true);
+            if (!hNew)
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] Binning overlay skipped: missing h_JES3_pT_xJ_alpha_r04 in baseline merged dataset.\n"
+                   << ANSI_RESET;
+              return;
+            }
+
+            // Reco subset: truth-tagged PHOTON+JET (for 3-curve overlay)
+            TH3* hTag = GetObj<TH3>(ds, "h_JES3RecoTruthTagged_pT_xJ_alpha_r04", true, true, true);
+            if (!hTag)
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] Binning overlay: missing h_JES3RecoTruthTagged_pT_xJ_alpha_r04 (will draw only jet-threshold curves).\n"
+                   << ANSI_RESET;
+            }
 
           // Build "Old Binning" weighted-merged TH3 in memory from slice files
           TFile* f10 = TFile::Open(kInSIM10_oldBinning_pihalves.c_str(), "READ");
@@ -5739,6 +5748,7 @@ namespace ARJ
             gPad->SetLogy(false);
 
               TH1* hNewXJ = ProjectY_AtXbin_TH3(hNew, ib, TString::Format("h_xJ_newBin_b%d", ib).Data());
+              TH1* hTagXJ = (hTag ? ProjectY_AtXbin_TH3(hTag, ib, TString::Format("h_xJ_truthTagged_b%d", ib).Data()) : nullptr);
 
               // Map OLD-binning TH3 into the NEW bin edges by overlap-weighted sum over old X bins
               const double xLoNew = hNew->GetXaxis()->GetBinLowEdge(ib);
@@ -5760,7 +5770,7 @@ namespace ARJ
                 hOldXJ = nullptr;
               }
 
-            if (!hNewXJ && !hOldXJ)
+            if (!hNewXJ && !hOldXJ && !hTagXJ)
             {
               TLatex t;
               t.SetNDC(true);
@@ -5770,50 +5780,69 @@ namespace ARJ
               continue;
             }
 
-              // New binning: PURPLE closed circles
+              // Reco (pTjet > 10): RED closed circles
               if (hNewXJ)
               {
                 hNewXJ->SetDirectory(nullptr);
                 EnsureSumw2(hNewXJ);
                 hNewXJ->SetTitle("");
                 hNewXJ->SetLineWidth(2);
-                hNewXJ->SetLineColor(kViolet + 1);
+                hNewXJ->SetLineColor(2);
                 hNewXJ->SetMarkerStyle(20);   // closed circle
                 hNewXJ->SetMarkerSize(0.95);
-                hNewXJ->SetMarkerColor(kViolet + 1);
+                hNewXJ->SetMarkerColor(2);
                 hNewXJ->SetFillStyle(0);
                 hNewXJ->GetXaxis()->SetTitle("x_{J#gamma}");
                 hNewXJ->GetYaxis()->SetTitle("A.U.");
                 NormalizeToUnitArea(hNewXJ);
               }
 
-              // Old binning: PINK open circles
+              // Reco (truth-tagged #gamma^{truth} + jet^{truth}): PURPLE open circles
+              if (hTagXJ)
+              {
+                hTagXJ->SetDirectory(nullptr);
+                EnsureSumw2(hTagXJ);
+                hTagXJ->SetTitle("");
+                hTagXJ->SetLineWidth(2);
+                hTagXJ->SetLineColor(kViolet + 1);
+                hTagXJ->SetMarkerStyle(24);   // open circle
+                hTagXJ->SetMarkerSize(0.95);
+                hTagXJ->SetMarkerColor(kViolet + 1);
+                hTagXJ->SetFillStyle(0);
+                hTagXJ->GetXaxis()->SetTitle("x_{J#gamma}");
+                hTagXJ->GetYaxis()->SetTitle("A.U.");
+                NormalizeToUnitArea(hTagXJ);
+              }
+
+              // Reco (pTjet > 5): DARK GREEN closed circles
               if (hOldXJ)
               {
                 hOldXJ->SetDirectory(nullptr);
                 EnsureSumw2(hOldXJ);
                 hOldXJ->SetTitle("");
                 hOldXJ->SetLineWidth(2);
-                hOldXJ->SetLineColor(kPink + 7);
-                hOldXJ->SetMarkerStyle(24);   // open circle
+                hOldXJ->SetLineColor(kGreen + 2);
+                hOldXJ->SetMarkerStyle(20);   // closed circle
                 hOldXJ->SetMarkerSize(0.95);
-                hOldXJ->SetMarkerColor(kPink + 7);
+                hOldXJ->SetMarkerColor(kGreen + 2);
                 hOldXJ->SetFillStyle(0);
                 hOldXJ->GetXaxis()->SetTitle("x_{J#gamma}");
                 hOldXJ->GetYaxis()->SetTitle("A.U.");
                 NormalizeToUnitArea(hOldXJ);
               }
 
-            TH1* first  = hNewXJ ? hNewXJ : hOldXJ;
-            TH1* second = (first == hNewXJ) ? hOldXJ : hNewXJ;
+            TH1* base = hNewXJ ? hNewXJ : (hTagXJ ? hTagXJ : hOldXJ);
 
             double ymax = 0.0;
             if (hNewXJ) ymax = std::max(ymax, hNewXJ->GetMaximum());
+            if (hTagXJ) ymax = std::max(ymax, hTagXJ->GetMaximum());
             if (hOldXJ) ymax = std::max(ymax, hOldXJ->GetMaximum());
-            if (first) first->SetMaximum(ymax * 1.25);
+            if (base) base->SetMaximum(ymax * 1.25);
 
-            if (first)  first->Draw("E1");
-            if (second) second->Draw("E1 same");
+            if (base) base->Draw("E1");
+            if (hNewXJ && hNewXJ != base) hNewXJ->Draw("E1 same");
+            if (hTagXJ && hTagXJ != base) hTagXJ->Draw("E1 same");
+            if (hOldXJ && hOldXJ != base) hOldXJ->Draw("E1 same");
 
             const std::string ptLab = AxisBinLabel(hNew->GetXaxis(), ib, "GeV", 0);
 
@@ -5828,17 +5857,19 @@ namespace ARJ
             );
 
               // Legend: larger, shifted left and down (more central, avoids top margin)
-              TLegend leg(0.45, 0.7, 0.83, 0.85);
+              TLegend leg(0.38, 0.62, 0.86, 0.86);
               leg.SetTextFont(42);
-              leg.SetTextSize(0.045);
+              leg.SetTextSize(0.040);
               leg.SetFillStyle(0);
               leg.SetBorderSize(0);
-              if (hOldXJ) leg.AddEntry(hOldXJ, "p_{T}^{jet} #leq 5",  "ep");
-              if (hNewXJ) leg.AddEntry(hNewXJ, "p_{T}^{jet} #leq 10", "ep");
+              if (hNewXJ) leg.AddEntry(hNewXJ, "Reco (p_{T}^{jet} > 10 GeV)", "ep");
+              if (hTagXJ) leg.AddEntry(hTagXJ, "Reco (#gamma^{truth} + jet^{truth} tagged)", "ep");
+              if (hOldXJ) leg.AddEntry(hOldXJ, "Reco (p_{T}^{jet} > 5 GeV)",  "ep");
               leg.DrawClone();
 
               
             if (hNewXJ) keep.push_back(hNewXJ);
+            if (hTagXJ) keep.push_back(hTagXJ);
             if (hOldXJ) keep.push_back(hOldXJ);
 
             // Per-pT PNG (same style + legend + radius on canvas)
