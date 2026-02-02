@@ -4813,19 +4813,19 @@ namespace ARJ
 
               // Build (if missing) the 2-slice merged files used in the overlays:
               EnsureMerged(kMergedSIMOut_5and10,
-                           {kInSIM5, kInSIM10},
-                           {kSigmaPhoton5_pb, kSigmaPhoton10_pb},
-                           {"photonJet5", "photonJet10"});
+                             {kInSIM5, DefaultSim10and20Config().photon10},
+                             {kSigmaPhoton5_pb, kSigmaPhoton10_pb},
+                             {"photonJet5", "photonJet10"});
 
               EnsureMerged(kMergedSIMOut_5and20,
-                           {kInSIM5, kInSIM20},
-                           {kSigmaPhoton5_pb, kSigmaPhoton20_pb},
-                           {"photonJet5", "photonJet20"});
+                             {kInSIM5, DefaultSim10and20Config().photon20},
+                             {kSigmaPhoton5_pb, kSigmaPhoton20_pb},
+                             {"photonJet5", "photonJet20"});
 
-              EnsureMerged(kMergedSIMOut,
-                           {kInSIM10, kInSIM20},
-                           {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
-                           {"photonJet10", "photonJet20"});
+              EnsureMerged(MergedSIMOut_10and20_Default(),
+                             {DefaultSim10and20Config().photon10, DefaultSim10and20Config().photon20},
+                             {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+                             {"photonJet10", "photonJet20"});
 
               const std::string base = JoinPath(outDir, "recoSampleOverlays");
               EnsureDir(base);
@@ -4849,13 +4849,13 @@ namespace ARJ
                 //   merged  -> open circle   (24)
                 std::vector<Sample> S =
                 {
-                  {"photon jet 5 GeV",            kInSIM5,                   kBlack,      false, nullptr, nullptr},
-                  {"photon jet 10 GeV",           kInSIM10,                  kRed+1,      false, nullptr, nullptr},
-                  {"photon jet 20 GeV",           kInSIM20,                  kBlue+1,     false, nullptr, nullptr},
-                  {"photon jet 5 + 10 GeV",       kMergedSIMOut_5and10,      kGreen+3,    true,  nullptr, nullptr},
-                  {"photon jet 5 + 20 GeV",       kMergedSIMOut_5and20,      kMagenta+1,  true,  nullptr, nullptr},
-                  {"photon jet 10 + 20 GeV",      kMergedSIMOut,             kOrange+7,   true,  nullptr, nullptr},
-                  {"photon jet 5 + 10 + 20 GeV",  kMergedSIMOut_5and10and20, kViolet+1,   true,  nullptr, nullptr}
+                  {"photon jet 5 GeV",            kInSIM5,                             kBlack,      false, nullptr, nullptr},
+                  {"photon jet 10 GeV",           DefaultSim10and20Config().photon10,  kRed+1,      false, nullptr, nullptr},
+                  {"photon jet 20 GeV",           DefaultSim10and20Config().photon20,  kBlue+1,     false, nullptr, nullptr},
+                  {"photon jet 5 + 10 GeV",       kMergedSIMOut_5and10,                kGreen+3,    true,  nullptr, nullptr},
+                  {"photon jet 5 + 20 GeV",       kMergedSIMOut_5and20,                kMagenta+1,  true,  nullptr, nullptr},
+                  {"photon jet 10 + 20 GeV",      MergedSIMOut_10and20_Default(),      kOrange+7,   true,  nullptr, nullptr},
+                  {"photon jet 5 + 10 + 20 GeV",  kMergedSIMOut_5and10and20,           kViolet+1,   true,  nullptr, nullptr}
                 };
 
 
@@ -5244,18 +5244,20 @@ namespace ARJ
           }
 
           // Build alternate (7π/8) weighted-merged TH3 in memory from slice files
-          TFile* f10 = TFile::Open(kInSIM10_7piOver8.c_str(), "READ");
-          TFile* f20 = TFile::Open(kInSIM20_7piOver8.c_str(), "READ");
+          const Sim10and20Config& altCfg = Sim10and20ConfigForKey(kAltSimSampleKey_jetMinPt10_7piOver8);
+
+          TFile* f10 = TFile::Open(altCfg.photon10.c_str(), "READ");
+          TFile* f20 = TFile::Open(altCfg.photon20.c_str(), "READ");
           if (!f10 || f10->IsZombie() || !f20 || f20->IsZombie())
           {
-            cout << ANSI_BOLD_YEL
-                 << "[WARN] Δφ overlay skipped: cannot open 7π/8 slice files:\n"
-                 << "  " << kInSIM10_7piOver8 << "\n"
-                 << "  " << kInSIM20_7piOver8 << "\n"
-                 << ANSI_RESET;
-            if (f10) f10->Close();
-            if (f20) f20->Close();
-            return;
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] Δφ overlay skipped: cannot open 7π/8 slice files:\n"
+                   << "  " << altCfg.photon10 << "\n"
+                   << "  " << altCfg.photon20 << "\n"
+                   << ANSI_RESET;
+              if (f10) f10->Close();
+              if (f20) f20->Close();
+              return;
           }
 
           TDirectory* d10 = f10->GetDirectory(kDirSIM.c_str());
@@ -5620,19 +5622,21 @@ namespace ARJ
                    << ANSI_RESET;
             }
 
-          // Build "Old Binning" weighted-merged TH3 in memory from slice files
-          TFile* f10 = TFile::Open(kInSIM10_oldBinning_pihalves.c_str(), "READ");
-          TFile* f20 = TFile::Open(kInSIM20_oldBinning_pihalves.c_str(), "READ");
-          if (!f10 || f10->IsZombie() || !f20 || f20->IsZombie())
-          {
-            cout << ANSI_BOLD_YEL
-                 << "[WARN] Binning overlay skipped: cannot open old-binning slice files:\n"
-                 << "  " << kInSIM10_oldBinning_pihalves << "\n"
-                 << "  " << kInSIM20_oldBinning_pihalves << "\n"
-                 << ANSI_RESET;
-            if (f10) f10->Close();
-            if (f20) f20->Close();
-            return;
+            // Build jetMinPt=5 weighted-merged TH3 in memory from slice files
+            const Sim10and20Config& altCfg = Sim10and20ConfigForKey(kAltSimSampleKey_jetMinPt5_pihalves);
+
+            TFile* f10 = TFile::Open(altCfg.photon10.c_str(), "READ");
+            TFile* f20 = TFile::Open(altCfg.photon20.c_str(), "READ");
+            if (!f10 || f10->IsZombie() || !f20 || f20->IsZombie())
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] Binning overlay skipped: cannot open jetMinPt=5 slice files:\n"
+                   << "  " << altCfg.photon10 << "\n"
+                   << "  " << altCfg.photon20 << "\n"
+                   << ANSI_RESET;
+              if (f10) f10->Close();
+              if (f20) f20->Close();
+              return;
           }
 
           TDirectory* d10 = f10->GetDirectory(kDirSIM.c_str());
@@ -12265,43 +12269,43 @@ namespace ARJ
 
       if (ss == SimSample::kPhotonJet5And10Merged)
       {
-        ok = BuildMergedSIMFile_PhotonSlices(
-          {kInSIM5, kInSIM10},
-          {kSigmaPhoton5_pb, kSigmaPhoton10_pb},
-          kMergedSIMOut_5and10,
-          kDirSIM,
-          {"photonJet5", "photonJet10"}
-        );
+          ok = BuildMergedSIMFile_PhotonSlices(
+            {kInSIM5, DefaultSim10and20Config().photon10},
+            {kSigmaPhoton5_pb, kSigmaPhoton10_pb},
+            kMergedSIMOut_5and10,
+            kDirSIM,
+            {"photonJet5", "photonJet10"}
+          );
       }
       else if (ss == SimSample::kPhotonJet5And20Merged)
       {
-        ok = BuildMergedSIMFile_PhotonSlices(
-          {kInSIM5, kInSIM20},
-          {kSigmaPhoton5_pb, kSigmaPhoton20_pb},
-          kMergedSIMOut_5and20,
-          kDirSIM,
-          {"photonJet5", "photonJet20"}
-        );
+          ok = BuildMergedSIMFile_PhotonSlices(
+            {kInSIM5, DefaultSim10and20Config().photon20},
+            {kSigmaPhoton5_pb, kSigmaPhoton20_pb},
+            kMergedSIMOut_5and20,
+            kDirSIM,
+            {"photonJet5", "photonJet20"}
+          );
       }
       else if (ss == SimSample::kPhotonJet10And20Merged)
       {
-        ok = BuildMergedSIMFile_PhotonSlices(
-          {kInSIM10, kInSIM20},
-          {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
-          kMergedSIMOut,
-          kDirSIM,
-          {"photonJet10", "photonJet20"}
-        );
+          ok = BuildMergedSIMFile_PhotonSlices(
+            {DefaultSim10and20Config().photon10, DefaultSim10and20Config().photon20},
+            {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+            MergedSIMOut_10and20_Default(),
+            kDirSIM,
+            {"photonJet10", "photonJet20"}
+          );
       }
       else if (ss == SimSample::kPhotonJet5And10And20Merged)
       {
-        ok = BuildMergedSIMFile_PhotonSlices(
-          {kInSIM5, kInSIM10, kInSIM20},
-          {kSigmaPhoton5_pb, kSigmaPhoton10_pb, kSigmaPhoton20_pb},
-          kMergedSIMOut_5and10and20,
-          kDirSIM,
-          {"photonJet5", "photonJet10", "photonJet20"}
-        );
+          ok = BuildMergedSIMFile_PhotonSlices(
+            {kInSIM5, DefaultSim10and20Config().photon10, DefaultSim10and20Config().photon20},
+            {kSigmaPhoton5_pb, kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+            kMergedSIMOut_5and10and20,
+            kDirSIM,
+            {"photonJet5", "photonJet10", "photonJet20"}
+          );
       }
 
       if (!ok)
