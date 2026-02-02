@@ -262,6 +262,10 @@ namespace yamlcfg
       double unfold_jet_pt_step  = 0.5;
 
       std::vector<double> unfold_xj_bins = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
+
+      // EventDisplay diagnostics payload (EventDisplayTree)
+      bool event_display_tree = true;
+      int  event_display_tree_max_per_bin = 0;
     };
 
   inline std::string DefaultYAMLPath()
@@ -317,7 +321,12 @@ namespace yamlcfg
 
   inline bool ParseDouble(const std::string& s, double& out)
   {
-    try { out = std::stod(detail::trim(s)); return true; } catch (...) { return false; }
+      try { out = std::stod(detail::trim(s)); return true; } catch (...) { return false; }
+  }
+
+  inline bool ParseInt(const std::string& s, int& out)
+  {
+      try { out = std::stoi(detail::trim(s)); return true; } catch (...) { return false; }
   }
 
   inline void ParseInlineListDoubles(std::string s, std::vector<double>& out)
@@ -390,6 +399,15 @@ namespace yamlcfg
       else if (StartsWithKey(line, "vz_cut_cm"))
       {
         ParseDouble(AfterColon(line), cfg.vz_cut_cm);
+      }
+      else if (StartsWithKey(line, "event_display_tree"))
+      {
+        ParseBool(AfterColon(line), cfg.event_display_tree);
+      }
+      else if (StartsWithKey(line, "event_display_tree_max_per_bin"))
+      {
+        ParseInt(AfterColon(line), cfg.event_display_tree_max_per_bin);
+        if (cfg.event_display_tree_max_per_bin < 0) cfg.event_display_tree_max_per_bin = 0;
       }
       else if (StartsWithKey(line, "matching"))
       {
@@ -1061,13 +1079,15 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
       {
         std::cout << cfg.unfold_xj_bins[i] << (i + 1 < cfg.unfold_xj_bins.size() ? ", " : "");
       }
-      std::cout << "]\n\n";
+        std::cout << "]\n"
+                  << "  event_display_tree: " << (cfg.event_display_tree ? "true" : "false") << "\n"
+                  << "  event_display_tree_max_per_bin: " << cfg.event_display_tree_max_per_bin << "\n\n";
     }
 
-    // --------------------------------------------------------------------
-    // 2.  CDB + IO managers
-    // --------------------------------------------------------------------
-    recoConsts* rc = recoConsts::instance();
+  // --------------------------------------------------------------------
+  // 2.  CDB + IO managers
+  // --------------------------------------------------------------------
+  recoConsts* rc = recoConsts::instance();
   // CDB_GLOBALTAG is REQUIRED for any CDBInterface::getUrl() call.
   // Allow override via env, otherwise default to your known-good tag.
   std::string gtag = "newcdbtag";
@@ -1657,15 +1677,15 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
                 << "\n";
   }
       
-  // Optional: override EventDisplay output directory (used only when Verbosity() >= 50 and SIM)
-  if (const char* evtDispOut = gSystem->Getenv("RJ_EVENT_DISPLAY_OUTDIR"))
-      {
-        if (std::string(evtDispOut).size() > 0)
-        {
-          recoilJets->setEventDisplayOutputDir(std::string(evtDispOut));
-          if (verbose) std::cout << "[INFO] RJ_EVENT_DISPLAY_OUTDIR → " << evtDispOut << '\n';
-        }
-  }
+    // EventDisplay diagnostics payload (EventDisplayTree written into the ROOT output)
+    recoilJets->enableEventDisplayDiagnostics(cfg.event_display_tree);
+    recoilJets->setEventDisplayDiagnosticsMaxPerBin(cfg.event_display_tree_max_per_bin);
+
+    if (vlevel > 0)
+    {
+      std::cout << "[CFG] EventDisplayTree: enable=" << (cfg.event_display_tree ? "true" : "false")
+                << " max_per_bin=" << cfg.event_display_tree_max_per_bin << "\n";
+    }
 
     
   // RecoilJets inherits SubsysReco::Verbosity(int)

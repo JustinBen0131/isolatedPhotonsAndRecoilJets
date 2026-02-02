@@ -74,3 +74,13 @@ unfold_jet_pt_binning: {start: 0.0, stop: 60.0, step: 0.5}
 
 # Unfolding xJ bin edges
 unfold_xj_bins: [0.0, 0.20, 0.24, 0.29, 0.35, 0.41, 0.50, 0.60, 0.72, 0.86, 1.03, 1.24, 1.49, 1.78, 2.14, 3.0]
+
+# -----------------------------------------------------------------------------
+# EventDisplay diagnostics payload (written into ROOT as EventDisplayTree)
+#   - Default: true (always write the TTree so offline you can make event displays)
+#   - max_per_bin:
+#       0  => unlimited entries
+#       N>0 => cap entries per (rKey × pTγ bin × {NUM,MissA,MissB})
+# -----------------------------------------------------------------------------
+event_display_tree: true
+event_display_tree_max_per_bin: 0

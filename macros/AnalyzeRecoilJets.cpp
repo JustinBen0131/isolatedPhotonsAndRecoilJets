@@ -5747,28 +5747,11 @@ namespace ARJ
             gPad->SetTopMargin(0.10);
             gPad->SetLogy(false);
 
-              TH1* hNewXJ = ProjectY_AtXbin_TH3(hNew, ib, TString::Format("h_xJ_newBin_b%d", ib).Data());
-              TH1* hTagXJ = (hTag ? ProjectY_AtXbin_TH3(hTag, ib, TString::Format("h_xJ_truthTagged_b%d", ib).Data()) : nullptr);
+            TH1* hNewXJ = ProjectY_AtXbin_TH3(hNew, ib, TString::Format("h_xJ_newBin_b%d", ib).Data());
+            TH1* hTagXJ = (hTag ? ProjectY_AtXbin_TH3(hTag, ib, TString::Format("h_xJ_truthTagged_b%d", ib).Data()) : nullptr);
 
-              // Map OLD-binning TH3 into the NEW bin edges by overlap-weighted sum over old X bins
-              const double xLoNew = hNew->GetXaxis()->GetBinLowEdge(ib);
-              const double xHiNew = hNew->GetXaxis()->GetBinUpEdge(ib);
-
-              int bLo = -1, bHi = -1;
-              std::vector<double> w;
-              TH1* hOldXJ = nullptr;
-
-              if (XaxisOverlapWeights(hOld->GetXaxis(), xLoNew, xHiNew, bLo, bHi, w))
-              {
-                hOldXJ = ProjectY_AtXrange_TH3_Weighted(
-                  hOld, bLo, bHi, w,
-                  TString::Format("h_xJ_oldMappedToNew_b%d", ib).Data()
-                );
-              }
-              else
-              {
-                hOldXJ = nullptr;
-              }
+            // Old-threshold overlay (p_{T}^{jet} > 5): photon pT binning now matches baseline, so no remapping needed
+            TH1* hOldXJ = (hOld ? ProjectY_AtXbin_TH3(hOld, ib, TString::Format("h_xJ_jet5_b%d", ib).Data()) : nullptr);
 
             if (!hNewXJ && !hOldXJ && !hTagXJ)
             {
@@ -5874,26 +5857,10 @@ namespace ARJ
 
             // Per-pT PNG (same style + legend + radius on canvas)
             {
-                TH1* pNew = ProjectY_AtXbin_TH3(hNew, ib, TString::Format("h_xJ_newBin_ind_b%d", ib).Data());
+              TH1* pNew = ProjectY_AtXbin_TH3(hNew, ib, TString::Format("h_xJ_newBin_ind_b%d", ib).Data());
 
-                const double xLoNew = hNew->GetXaxis()->GetBinLowEdge(ib);
-                const double xHiNew = hNew->GetXaxis()->GetBinUpEdge(ib);
-
-                int bLo = -1, bHi = -1;
-                std::vector<double> w;
-                TH1* pOld = nullptr;
-
-                if (XaxisOverlapWeights(hOld->GetXaxis(), xLoNew, xHiNew, bLo, bHi, w))
-                {
-                  pOld = ProjectY_AtXrange_TH3_Weighted(
-                    hOld, bLo, bHi, w,
-                    TString::Format("h_xJ_oldMappedToNew_ind_b%d", ib).Data()
-                  );
-                }
-                else
-                {
-                  pOld = nullptr;
-                }
+              // Old-threshold overlay (p_{T}^{jet} > 5): photon pT binning now matches baseline, so no remapping needed
+              TH1* pOld = (hOld ? ProjectY_AtXbin_TH3(hOld, ib, TString::Format("h_xJ_jet5_ind_b%d", ib).Data()) : nullptr);
 
               if (pNew || pOld)
               {

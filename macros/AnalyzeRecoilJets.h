@@ -258,10 +258,189 @@ namespace ARJ
   inline constexpr double kSigmaPhoton20_pb = 105.79868;
 
   // =============================================================================
-  // Binning
+  // Binning (YAML-driven; ONLY binning is read from analysis_config.yaml)
+  //
+  // Contract:
+  //   - AnalyzeRecoilJets does NOT hard-code photon/jet/unfold pT binning.
+  //   - It reads binning once from analysis_config.yaml located next to this source.
+  //   - If YAML cannot be read, it falls back to baseline defaults (zero-regression).
   // =============================================================================
-  inline constexpr int kNPtBins = 6;
-  inline constexpr int kPtEdges[kNPtBins + 1] = {15,17,19,21,23,26,35};
+  struct BinningCfg
+  {
+      vector<double> jes3_photon_pt_bins         = {15,17,19,21,23,26,35};
+      vector<double> unfold_reco_photon_pt_bins  = {10,15,17,19,21,23,26,35,40};
+      vector<double> unfold_truth_photon_pt_bins = {5,10,15,17,19,21,23,26,35,40};
+      vector<double> unfold_xj_bins              = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
+
+      double unfold_jet_pt_start = 0.0;
+      double unfold_jet_pt_stop  = 60.0;
+      double unfold_jet_pt_step  = 0.5;
+      vector<double> unfold_jet_pt_edges;  // expanded from start/stop/step
+  };
+
+  inline string Trim(std::string s)
+  {
+      const char* ws = " \t\r\n";
+      s.erase(0, s.find_first_not_of(ws));
+      s.erase(s.find_last_not_of(ws) + 1);
+      return s;
+  }
+
+  inline bool ReadWholeFile(const string& path, string& out)
+  {
+      std::ifstream in(path);
+      if (!in.is_open()) return false;
+      std::ostringstream ss;
+      ss << in.rdbuf();
+      out = ss.str();
+      return true;
+  }
+
+  inline string DefaultYAMLPath()
+  {
+      string here = __FILE__;
+      const std::size_t p = here.find_last_of('/');
+      if (p == string::npos) return string("analysis_config.yaml");
+      return here.substr(0, p) + "/analysis_config.yaml";
+  }
+
+  inline bool StartsWithKey(const string& line, const string& key)
+  {
+      const string k = key + ":";
+      if (line.size() < k.size()) return false;
+      return (line.compare(0, k.size(), k) == 0);
+  }
+
+  inline string AfterColon(const string& line)
+  {
+      const std::size_t c = line.find(':');
+      if (c == string::npos) return string{};
+      return Trim(line.substr(c + 1));
+  }
+
+  inline bool ParseDouble(const string& s, double& out)
+  {
+      try { out = std::stod(Trim(s)); return true; } catch (...) { return false; }
+  }
+
+  inline void ParseInlineListDoubles(string s, vector<double>& out)
+  {
+      out.clear();
+      s = Trim(s);
+      const std::size_t l = s.find('[');
+      const std::size_t r = s.find(']');
+      if (l == string::npos || r == string::npos || r <= l) return;
+      string inner = s.substr(l + 1, r - l - 1);
+      std::stringstream ss(inner);
+      string tok;
+      while (std::getline(ss, tok, ','))
+      {
+        double v = 0.0;
+        if (ParseDouble(tok, v)) out.push_back(v);
+      }
+  }
+
+  inline void ParseInlineMapDoubles(string s, map<string, double>& out)
+  {
+      out.clear();
+      s = Trim(s);
+      const std::size_t l = s.find('{');
+      const std::size_t r = s.find('}');
+      if (l == string::npos || r == string::npos || r <= l) return;
+      string inner = s.substr(l + 1, r - l - 1);
+      std::stringstream ss(inner);
+      string pair;
+      while (std::getline(ss, pair, ','))
+      {
+        const std::size_t c = pair.find(':');
+        if (c == string::npos) continue;
+        string k = Trim(pair.substr(0, c));
+        string v = Trim(pair.substr(c + 1));
+        double dv = 0.0;
+        if (ParseDouble(v, dv)) out[k] = dv;
+      }
+  }
+
+  inline void ExpandUniformEdges(vector<double>& edges, double start, double stop, double step)
+  {
+      edges.clear();
+      if (!(std::isfinite(start) && std::isfinite(stop) && std::isfinite(step))) return;
+      if (step <= 0.0) return;
+      if (stop <= start) return;
+
+      const int n = (int) std::llround((stop - start) / step);
+      edges.reserve((std::size_t)n + 2);
+      for (int i = 0; i <= n; ++i)
+      {
+        edges.push_back(start + step * (double)i);
+      }
+      if (edges.empty() || std::fabs(edges.back() - stop) > 1e-9) edges.push_back(stop);
+  }
+
+  inline const BinningCfg& Binning()
+  {
+      static BinningCfg cfg;
+      static bool loaded = false;
+      if (loaded) return cfg;
+      loaded = true;
+
+      const string yamlPath = DefaultYAMLPath();
+      string yamlText;
+      if (!ReadWholeFile(yamlPath, yamlText))
+      {
+        ExpandUniformEdges(cfg.unfold_jet_pt_edges, cfg.unfold_jet_pt_start, cfg.unfold_jet_pt_stop, cfg.unfold_jet_pt_step);
+        return cfg;
+      }
+
+      std::istringstream iss(yamlText);
+      for (string line; std::getline(iss, line); )
+      {
+        line = Trim(line);
+        if (line.empty()) continue;
+        if (!line.empty() && line[0] == '#') continue;
+
+        if (StartsWithKey(line, "jes3_photon_pt_bins"))
+        {
+          ParseInlineListDoubles(AfterColon(line), cfg.jes3_photon_pt_bins);
+        }
+        else if (StartsWithKey(line, "unfold_reco_photon_pt_bins"))
+        {
+          ParseInlineListDoubles(AfterColon(line), cfg.unfold_reco_photon_pt_bins);
+        }
+        else if (StartsWithKey(line, "unfold_truth_photon_pt_bins"))
+        {
+          ParseInlineListDoubles(AfterColon(line), cfg.unfold_truth_photon_pt_bins);
+        }
+        else if (StartsWithKey(line, "unfold_xj_bins"))
+        {
+          ParseInlineListDoubles(AfterColon(line), cfg.unfold_xj_bins);
+        }
+        else if (StartsWithKey(line, "unfold_jet_pt_binning"))
+        {
+          map<string, double> m;
+          ParseInlineMapDoubles(AfterColon(line), m);
+          if (m.count("start")) cfg.unfold_jet_pt_start = m["start"];
+          if (m.count("stop"))  cfg.unfold_jet_pt_stop  = m["stop"];
+          if (m.count("step"))  cfg.unfold_jet_pt_step  = m["step"];
+        }
+      }
+
+      // Light sanity: need at least 2 edges; otherwise revert to baseline
+      if (cfg.jes3_photon_pt_bins.size() < 2) cfg.jes3_photon_pt_bins = {15,17,19,21,23,26,35};
+      if (cfg.unfold_reco_photon_pt_bins.size() < 2)  cfg.unfold_reco_photon_pt_bins  = {10,15,17,19,21,23,26,35,40};
+      if (cfg.unfold_truth_photon_pt_bins.size() < 2) cfg.unfold_truth_photon_pt_bins = {5,10,15,17,19,21,23,26,35,40};
+      if (cfg.unfold_xj_bins.size() < 2) cfg.unfold_xj_bins = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
+
+      ExpandUniformEdges(cfg.unfold_jet_pt_edges, cfg.unfold_jet_pt_start, cfg.unfold_jet_pt_stop, cfg.unfold_jet_pt_step);
+      if (cfg.unfold_jet_pt_edges.size() < 2)
+        ExpandUniformEdges(cfg.unfold_jet_pt_edges, 0.0, 60.0, 0.5);
+
+      return cfg;
+  }
+
+  // JES3 photon pT bin edges (authoritative for pT-bin loops/labels)
+  inline const vector<double>& kPtEdges = Binning().jes3_photon_pt_bins;
+  inline const int kNPtBins = (int)kPtEdges.size() - 1;
 
   // Jet radii keys
   inline const vector<string> kRKeys = {"r02","r04"};
@@ -282,37 +461,37 @@ namespace ARJ
   // =============================================================================
   struct PtBin
   {
-    int lo = 0;
-    int hi = 0;
-    string label;   // "10-12"
-    string folder;  // "pT_10_12"
-    string suffix;  // "_pT_10_12"
+      int lo = 0;
+      int hi = 0;
+      string label;   // "10-12"
+      string folder;  // "pT_10_12"
+      string suffix;  // "_pT_10_12"
   };
 
   // Cached bin list
   inline const vector<PtBin>& PtBins()
   {
-    static vector<PtBin> v;
-    if (!v.empty()) return v;
-    v.reserve(kNPtBins);
+      static vector<PtBin> v;
+      if (!v.empty()) return v;
+      v.reserve((std::size_t)kNPtBins);
 
-    for (int i = 0; i < kNPtBins; ++i)
-    {
-      PtBin b;
-      b.lo = kPtEdges[i];
-      b.hi = kPtEdges[i+1];
+      for (int i = 0; i < kNPtBins; ++i)
       {
-        std::ostringstream s; s << b.lo << "-" << b.hi; b.label = s.str();
+        PtBin b;
+        b.lo = (int) std::llround(kPtEdges[(std::size_t)i]);
+        b.hi = (int) std::llround(kPtEdges[(std::size_t)i+1]);
+        {
+          std::ostringstream s; s << b.lo << "-" << b.hi; b.label = s.str();
+        }
+        {
+          std::ostringstream s; s << "pT_" << b.lo << "_" << b.hi; b.folder = s.str();
+        }
+        {
+          std::ostringstream s; s << "_pT_" << b.lo << "_" << b.hi; b.suffix = s.str();
+        }
+        v.push_back(b);
       }
-      {
-        std::ostringstream s; s << "pT_" << b.lo << "_" << b.hi; b.folder = s.str();
-      }
-      {
-        std::ostringstream s; s << "_pT_" << b.lo << "_" << b.hi; b.suffix = s.str();
-      }
-      v.push_back(b);
-    }
-    return v;
+      return v;
   }
 
   inline double RFromKey(const string& rKey)
