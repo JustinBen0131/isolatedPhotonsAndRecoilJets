@@ -194,16 +194,28 @@ namespace ARJ
 //        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5_SIM/RecoilJets_photonjet5_ALL.root";
 
 
-  set_baselineSimSample = "jetMinPt10_pihalves"
+  set_defaultSimSample = "jetMinPt10_pihalves"
 
   map jetPt10_pi_2_BB {
-      
+      Photon10 = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt10_pihalves.root";
+      Photon20 = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt10_pihalves.root";
   }
   map jetPt10_7pi_8_BB {
-        
+      Photon10 = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt10_7piOver8.root";
+      Photon20 = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt10_7piOver8.root";
   }
+  map jetPt5_pi_2_BB {
+      Photon10 = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt5_pihalves.root";
+      Photon20 = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt5_pihalves.root";
+    
+  }
+  map jetPt5_7pi_8_BB {
+      Photon10 = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt5_7piOver8.root";
+      Photon20 = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt5_7piOver8.root";
+  }
+
   inline const string kInSIM10 =
-                v
+          "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/RecoilJets_photonjet10_ALL_jetMinPt10_pihalves.root";
 
   inline const string kInSIM20 =
           "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/RecoilJets_photonjet20_ALL_jetMinPt10_pihalves.root";
