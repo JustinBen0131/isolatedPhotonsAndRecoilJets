@@ -190,28 +190,39 @@ namespace ARJ
   inline const string kInPP =
         "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp/RecoilJets_pp_ALL.root";
 
-  inline const string kInSIM5 =
-        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5_SIM/RecoilJets_photonjet5_ALL.root";
+//  inline const string kInSIM5 =
+//        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5_SIM/RecoilJets_photonjet5_ALL.root";
 
+
+  set_baselineSimSample = "jetMinPt10_pihalves"
+
+  map jetPt10_pi_2_BB {
+      
+  }
+  map jetPt10_7pi_8_BB {
+        
+  }
   inline const string kInSIM10 =
-          "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/pTminJet10/RecoilJets_photonjet10_ALL_newBinning_pihalves.root";
+                v
 
   inline const string kInSIM20 =
-          "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/pTminJet10/RecoilJets_photonjet20_ALL_newBinning_pihalves.root";
+          "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/RecoilJets_photonjet20_ALL_jetMinPt10_pihalves.root";
 
-    // Alternate Δφ-cut inputs used ONLY for the JES3 RECO xJ overlay (does not affect baseline analysis)
-    inline const string kInSIM10_7piOver8 =
-            "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/pTminJet10/RecoilJets_photonjet10_ALL_newBinning_7piOver8.root";
 
-    inline const string kInSIM20_7piOver8 =
-            "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/pTminJet10/RecoilJets_photonjet20_ALL_newBinning_7piOver8.root";
 
-    // Alternate BINNING inputs used ONLY for the JES3 RECO xJ overlay (does not affect baseline analysis)
-    inline const string kInSIM10_oldBinning_pihalves =
-            "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/pTminJet5/RecoilJets_photonjet10_ALL_oldBinning_pihalves.root";
+  inline const string kInSIM10_7piOver8 =
+            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/RecoilJets_photonjet10_ALL_jetMinPt10_7piOver8.root";
 
-    inline const string kInSIM20_oldBinning_pihalves =
-            "/Users/patsfan753/Desktop/ThesisAnalysis/OTHERinputFiles/pTminJet5/RecoilJets_photonjet20_ALL_oldbinning_pihalves.root";
+  inline const string kInSIM20_7piOver8 =
+            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/RecoilJets_photonjet20_ALL_jetMinPt10_7piOver8.root";
+
+
+  inline const string kInSIM10_jetMinPt5_pihalves =
+            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt5_pihalves.root";
+
+  inline const string kInSIM20_jetMinPt5_pihalves =
+            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt5_pihalves.root";
+
 
   inline const string kOutPPBase =
         "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp";
