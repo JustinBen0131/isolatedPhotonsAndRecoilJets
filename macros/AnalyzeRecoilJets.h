@@ -194,47 +194,120 @@ namespace ARJ
 //        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5_SIM/RecoilJets_photonjet5_ALL.root";
 
 
-  set_defaultSimSample = "jetMinPt10_pihalves"
+  // ---------------------------------------------------------------------------
+  // SIM (photonJet10/20) configurations: jet-min-pt + back-to-back cut variants.
+  //
+  // Contract:
+  //   - DefaultSimSampleKey() selects which pair is used for baseline SIM10/SIM20.
+  //   - Overlay helpers can reference alternate keys (e.g. 7pi/8, jetMinPt5).
+  //   - The weighted-merged photonJet10+20 ROOT file is written next to the slice files.
+  // ---------------------------------------------------------------------------
+  struct Sim10and20Config
+  {
+      string key;
+      string photon10;
+      string photon20;
+      double jetMinPt = 10.0;
+      string bbLabel;   // for plotting labels only (e.g. "#pi/2", "7#pi/8")
+  };
 
-  map jetPt10_pi_2_BB {
-      Photon10 = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt10_pihalves.root";
-      Photon20 = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt10_pihalves.root";
+  inline const string kDefaultSimSampleKey = "jetMinPt10_pihalves";
+
+  inline const string kAltSimSampleKey_jetMinPt10_7piOver8 = "jetMinPt10_7piOver8";
+  inline const string kAltSimSampleKey_jetMinPt5_pihalves  = "jetMinPt5_pihalves";
+  inline const string kAltSimSampleKey_jetMinPt5_7piOver8  = "jetMinPt5_7piOver8";
+
+  inline string DefaultSimSampleKey()
+  {
+      return kDefaultSimSampleKey;
   }
-  map jetPt10_7pi_8_BB {
-      Photon10 = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt10_7piOver8.root";
-      Photon20 = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt10_7piOver8.root";
-  }
-  map jetPt5_pi_2_BB {
-      Photon10 = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt5_pihalves.root";
-      Photon20 = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt5_pihalves.root";
-    
-  }
-  map jetPt5_7pi_8_BB {
-      Photon10 = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt5_7piOver8.root";
-      Photon20 = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt5_7piOver8.root";
+
+  inline string DirFromPathSimple(const string& filepath)
+  {
+      const size_t pos = filepath.find_last_of('/');
+      if (pos == string::npos) return "";
+      return filepath.substr(0, pos);
   }
 
-  inline const string kInSIM10 =
-          "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/RecoilJets_photonjet10_ALL_jetMinPt10_pihalves.root";
+  inline const map<string, Sim10and20Config>& Sim10and20Configs()
+  {
+      static map<string, Sim10and20Config> m;
+      if (!m.empty()) return m;
 
-  inline const string kInSIM20 =
-          "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/RecoilJets_photonjet20_ALL_jetMinPt10_pihalves.root";
+      m["jetMinPt10_pihalves"] = Sim10and20Config{
+          "jetMinPt10_pihalves",
+          "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt10_pihalves.root",
+          "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt10_pihalves.root",
+          10.0,
+          "#pi/2"
+      };
 
+      m["jetMinPt10_7piOver8"] = Sim10and20Config{
+          "jetMinPt10_7piOver8",
+          "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt10_7piOver8.root",
+          "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt10_7piOver8.root",
+          10.0,
+          "7#pi/8"
+      };
 
+      m["jetMinPt5_pihalves"] = Sim10and20Config{
+          "jetMinPt5_pihalves",
+          "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt5_pihalves.root",
+          "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt5_pihalves.root",
+          5.0,
+          "#pi/2"
+      };
 
-  inline const string kInSIM10_7piOver8 =
-            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/RecoilJets_photonjet10_ALL_jetMinPt10_7piOver8.root";
+      m["jetMinPt5_7piOver8"] = Sim10and20Config{
+          "jetMinPt5_7piOver8",
+          "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt5_7piOver8.root",
+          "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt5_7piOver8.root",
+          5.0,
+          "7#pi/8"
+      };
 
-  inline const string kInSIM20_7piOver8 =
-            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/RecoilJets_photonjet20_ALL_jetMinPt10_7piOver8.root";
+      return m;
+  }
 
+  inline const Sim10and20Config& Sim10and20ConfigForKey(const string& key)
+  {
+      const auto& m = Sim10and20Configs();
+      auto it = m.find(key);
+      if (it != m.end()) return it->second;
 
-  inline const string kInSIM10_jetMinPt5_pihalves =
-            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt5_pihalves.root";
+      auto itDef = m.find(DefaultSimSampleKey());
+      if (itDef != m.end()) return itDef->second;
 
-  inline const string kInSIM20_jetMinPt5_pihalves =
-            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt5_pihalves.root";
+      return m.begin()->second;
+  }
 
+  inline const Sim10and20Config& DefaultSim10and20Config()
+  {
+      return Sim10and20ConfigForKey(DefaultSimSampleKey());
+  }
+
+  inline string MergedSIMOut_10and20_ForKey(const string& key)
+  {
+      const auto& cfg = Sim10and20ConfigForKey(key);
+      const string dir = DirFromPathSimple(cfg.photon10);
+      if (dir.empty()) return "";
+      return dir + "/RecoilJets_photonjet10plus20_MERGED.root";
+  }
+
+  inline string MergedSIMOut_10and20_Default()
+  {
+      return MergedSIMOut_10and20_ForKey(DefaultSimSampleKey());
+  }
+
+  // Backwards-compatible aliases (so older call sites remain readable)
+  inline const string kInSIM10 = DefaultSim10and20Config().photon10;
+  inline const string kInSIM20 = DefaultSim10and20Config().photon20;
+
+  inline const string kInSIM10_7piOver8 = Sim10and20ConfigForKey(kAltSimSampleKey_jetMinPt10_7piOver8).photon10;
+  inline const string kInSIM20_7piOver8 = Sim10and20ConfigForKey(kAltSimSampleKey_jetMinPt10_7piOver8).photon20;
+
+  inline const string kInSIM10_jetMinPt5_pihalves = Sim10and20ConfigForKey(kAltSimSampleKey_jetMinPt5_pihalves).photon10;
+  inline const string kInSIM20_jetMinPt5_pihalves = Sim10and20ConfigForKey(kAltSimSampleKey_jetMinPt5_pihalves).photon20;
 
   inline const string kOutPPBase =
         "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp";
@@ -264,7 +337,7 @@ namespace ARJ
 
   // Merged SIM ROOT outputs (weighted merges)
   inline const string kMergedSIMOut =
-        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10and20merged_SIM/RecoilJets_photonjet10plus20_MERGED.root";
+      MergedSIMOut_10and20_Default();
 
   inline const string kMergedSIMOut_5and10 =
         "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5and10merged_SIM/RecoilJets_photonjet5plus10_MERGED.root";
@@ -2357,17 +2430,17 @@ namespace ARJ
 
   inline string SimInputPathForSample(SimSample s)
   {
-        switch (s)
-        {
-          case SimSample::kPhotonJet5:                return kInSIM5;
-          case SimSample::kPhotonJet10:               return kInSIM10;
-          case SimSample::kPhotonJet20:               return kInSIM20;
-          case SimSample::kPhotonJet5And10Merged:     return kMergedSIMOut_5and10;
-          case SimSample::kPhotonJet5And20Merged:     return kMergedSIMOut_5and20;
-          case SimSample::kPhotonJet10And20Merged:    return kMergedSIMOut;
-          case SimSample::kPhotonJet5And10And20Merged:return kMergedSIMOut_5and10and20;
-          default:                                    return "";
-        }
+      switch (s)
+      {
+        case SimSample::kPhotonJet5:                return kInSIM5;
+        case SimSample::kPhotonJet10:               return DefaultSim10and20Config().photon10;
+        case SimSample::kPhotonJet20:               return DefaultSim10and20Config().photon20;
+        case SimSample::kPhotonJet5And10Merged:     return kMergedSIMOut_5and10;
+        case SimSample::kPhotonJet5And20Merged:     return kMergedSIMOut_5and20;
+        case SimSample::kPhotonJet10And20Merged:    return MergedSIMOut_10and20_Default();
+        case SimSample::kPhotonJet5And10And20Merged:return kMergedSIMOut_5and10and20;
+        default:                                    return "";
+      }
   }
 
   inline string SimOutBaseForSample(SimSample s)
