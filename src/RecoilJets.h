@@ -402,14 +402,10 @@ public:
         m_phoid_tight_e32e35_max = tight_e32e35_max;
   }
 
-  // EventDisplay test mode (Verbosity() >= 50, SIM only):
-  // Optional override for the output base directory. If not set, a sensible default is used.
-  void setEventDisplayOutputDir(const std::string& dir) { m_evtDispOutBase = dir; }
-
-  // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
-  // When enabled, a compact per-event-per-radius TTree ("EventDisplayTree") is written to the output ROOT file.
-  void enableEventDisplayDiagnostics(bool on = true) { m_evtDiagEnabled = on; }
-  void setEventDisplayDiagnosticsMaxPerBin(int n)    { m_evtDiagMaxPerBin = n; }
+    // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
+    // When enabled, a compact per-event-per-radius TTree ("EventDisplayTree") is written to the output ROOT file.
+    void enableEventDisplayDiagnostics(bool on = true) { m_evtDiagEnabled = on; }
+    void setEventDisplayDiagnosticsMaxPerBin(int n)    { m_evtDiagMaxPerBin = n; }
 
   // -------------------------------------------------------------------------
   // Read-only state access
@@ -562,47 +558,34 @@ private:
   int         findCentBin(int cent) const;
   std::string suffixForBins(int ptIdx, int centIdx) const;
 
-  // EventDisplay test mode (Verbosity() >= 50, SIM only)
+  // EventDisplay categories (used by the diagnostics payload stored in EventDisplayTree)
   enum class EventDisplayCat : int { NUM = 0, MissA = 1, MissB = 2 };
 
-  void        resetEventDisplayState();
-  bool        eventDisplayNeed(int ptBin, EventDisplayCat cat) const;
-  void        eventDisplayMarkDone(int ptBin, EventDisplayCat cat);
-  bool        eventDisplayAllDone() const;
-  const char* eventDisplayCatName(EventDisplayCat cat) const;
-
-    void        writeEventDisplayPNG(const std::string& rKey,
-                                      int ptBin,
-                                      EventDisplayCat cat,
-                                      double truthGammaPt,
-                                      const Jet* selectedRecoilJet,
-                                      const Jet* recoTruthBest,
-                                      const Jet* truthLeadRecoilJet);
-
-    // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
-    void        initEventDisplayDiagnosticsTree();
-    void        resetEventDisplayDiagnosticsBuffers();
-    bool        eventDisplayDiagnosticsNeed(const std::string& rKey, int ptBin, EventDisplayCat cat);
-    void        appendEventDisplayDiagnosticsFromJet(const Jet* jet,
-                                                    std::vector<int>& calo,
-                                                    std::vector<int>& ieta,
-                                                    std::vector<int>& iphi,
-                                                    std::vector<float>& eta,
-                                                    std::vector<float>& phi,
-                                                    std::vector<float>& et,
-                                                    std::vector<float>& e) const;
-    void        fillEventDisplayDiagnostics(const std::string& rKey,
-                                           int ptBin,
-                                           EventDisplayCat cat,
-                                           double truthGammaPt,
-                                           double truthGammaPhi,
-                                           double recoGammaPt,
-                                           const Jet* selectedRecoilJet,
-                                           const Jet* recoTruthBest,
-                                           const Jet* truthLeadRecoilJet);
-    // -------------------------------------------------------------------------
-    // Histogram utilities (bookers)
-    // -------------------------------------------------------------------------
+  // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
+  void        initEventDisplayDiagnosticsTree();
+  void        resetEventDisplayDiagnosticsBuffers();
+  bool        eventDisplayDiagnosticsNeed(const std::string& rKey, int ptBin, EventDisplayCat cat);
+  void        appendEventDisplayDiagnosticsFromJet(const Jet* jet,
+                                                      std::vector<int>& calo,
+                                                      std::vector<int>& ieta,
+                                                      std::vector<int>& iphi,
+                                                      std::vector<float>& eta,
+                                                      std::vector<float>& phi,
+                                                      std::vector<float>& et,
+                                                      std::vector<float>& e) const;
+    
+  void        fillEventDisplayDiagnostics(const std::string& rKey,
+                                             int ptBin,
+                                             EventDisplayCat cat,
+                                             double truthGammaPt,
+                                             double truthGammaPhi,
+                                             double recoGammaPt,
+                                             const Jet* selectedRecoilJet,
+                                             const Jet* recoTruthBest,
+                                             const Jet* truthLeadRecoilJet);
+  // -------------------------------------------------------------------------
+  // Histogram utilities (bookers)
+  // -------------------------------------------------------------------------
   TH1I* getOrBookCountHist(const std::string& trig,
                              const std::string& base,
                              int ptIdx, int centIdx);
@@ -713,49 +696,49 @@ private:
   TH2F* getOrBookLeadRecoilJetPtTruthPtReco      (const std::string& trig, const std::string& rKey, int centIdx);
   TH1F* getOrBookLeadRecoilJetMatchDR            (const std::string& trig, const std::string& rKey, int centIdx);
 
-    // -------------------------------------------------------------------------
-    // (SIM ONLY): JES3-style *leading truth recoil jet1* match bookkeeping vs truth pT^gamma
-    //   Den  : truth leading recoil jet1 exists (truth recoil definition)
-    //   Num  : Den + reco recoil jet1 matches truth jet1 (ΔR < 0.3)
-    //   MissA: Den + some reco fid jet within ΔR < 0.3 of truth jet1, but Num failed
-    //   MissB: Den + no reco fid jet within ΔR < 0.3 of truth jet1
-    // -------------------------------------------------------------------------
-    TH1F* getOrBookLeadTruthRecoilMatchDenPtGammaTruth    (const std::string& trig, const std::string& rKey, int centIdx);
-    TH1F* getOrBookLeadTruthRecoilMatchNumPtGammaTruth    (const std::string& trig, const std::string& rKey, int centIdx);
-    TH1F* getOrBookLeadTruthRecoilMatchMissA_PtGammaTruth (const std::string& trig, const std::string& rKey, int centIdx);
-    TH1F* getOrBookLeadTruthRecoilMatchMissB_PtGammaTruth (const std::string& trig, const std::string& rKey, int centIdx);
+  // -------------------------------------------------------------------------
+  // (SIM ONLY): JES3-style *leading truth recoil jet1* match bookkeeping vs truth pT^gamma
+  //   Den  : truth leading recoil jet1 exists (truth recoil definition)
+  //   Num  : Den + reco recoil jet1 matches truth jet1 (ΔR < 0.3)
+  //   MissA: Den + some reco fid jet within ΔR < 0.3 of truth jet1, but Num failed
+  //   MissB: Den + no reco fid jet within ΔR < 0.3 of truth jet1
+  // -------------------------------------------------------------------------
+  TH1F* getOrBookLeadTruthRecoilMatchDenPtGammaTruth    (const std::string& trig, const std::string& rKey, int centIdx);
+  TH1F* getOrBookLeadTruthRecoilMatchNumPtGammaTruth    (const std::string& trig, const std::string& rKey, int centIdx);
+  TH1F* getOrBookLeadTruthRecoilMatchMissA_PtGammaTruth (const std::string& trig, const std::string& rKey, int centIdx);
+  TH1F* getOrBookLeadTruthRecoilMatchMissB_PtGammaTruth (const std::string& trig, const std::string& rKey, int centIdx);
 
-    // -------------------------------------------------------------------------
-    // (SIM ONLY): diagnostics for why reco xJ differs from truth-conditioned xJ
-    //   Filled inside the same DEN / NUM / MissA / MissB classification block.
-    //
-    //   NOTE: all are radius-tagged and use centrality-only suffix (like the
-    //   existing LeadTruthRecoilMatch bookkeeping).
-    // -------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // (SIM ONLY): diagnostics for why reco xJ differs from truth-conditioned xJ
+  //   Filled inside the same DEN / NUM / MissA / MissB classification block.
+  //
+  //   NOTE: all are radius-tagged and use centrality-only suffix (like the
+  //   existing LeadTruthRecoilMatch bookkeeping).
+  // -------------------------------------------------------------------------
 
-    // (A1) pT(recoilJet1^reco) vs pT(truth-leading recoil jet), split by class
-    TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_num   (const std::string& trig, const std::string& rKey, int centIdx);
-    TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missA (const std::string& trig, const std::string& rKey, int centIdx);
-    TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missB (const std::string& trig, const std::string& rKey, int centIdx);
+  // (A1) pT(recoilJet1^reco) vs pT(truth-leading recoil jet), split by class
+  TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_num   (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missA (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missB (const std::string& trig, const std::string& rKey, int centIdx);
 
-    // (A2) pT(recoilJet1^reco) vs pT(reco jet matched to truth-leading recoil jet), for NUM / MissA
-    TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_num   (const std::string& trig, const std::string& rKey, int centIdx);
-    TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_missA (const std::string& trig, const std::string& rKey, int centIdx);
+  // (A2) pT(recoilJet1^reco) vs pT(reco jet matched to truth-leading recoil jet), for NUM / MissA
+  TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_num   (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_missA (const std::string& trig, const std::string& rKey, int centIdx);
 
-    // (B3) |Δphi(γ^truth, recoilJet1^reco)| vs pTγ,truth, split by class
-    TH2F* getOrBookLeadTruthRecoilMatchDphiRecoJet1VsPtGammaTruth_num   (const std::string& trig, const std::string& rKey, int centIdx);
-    TH2F* getOrBookLeadTruthRecoilMatchDphiRecoJet1VsPtGammaTruth_missA (const std::string& trig, const std::string& rKey, int centIdx);
-    TH2F* getOrBookLeadTruthRecoilMatchDphiRecoJet1VsPtGammaTruth_missB (const std::string& trig, const std::string& rKey, int centIdx);
+  // (B3) |Δphi(γ^truth, recoilJet1^reco)| vs pTγ,truth, split by class
+  TH2F* getOrBookLeadTruthRecoilMatchDphiRecoJet1VsPtGammaTruth_num   (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookLeadTruthRecoilMatchDphiRecoJet1VsPtGammaTruth_missA (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookLeadTruthRecoilMatchDphiRecoJet1VsPtGammaTruth_missB (const std::string& trig, const std::string& rKey, int centIdx);
 
-    // (B4) ΔR(recoilJet1^reco, truth-leading recoil jet) vs pTγ,truth, split by class
-    TH2F* getOrBookLeadTruthRecoilMatchDRRecoJet1VsPtGammaTruth_num   (const std::string& trig, const std::string& rKey, int centIdx);
-    TH2F* getOrBookLeadTruthRecoilMatchDRRecoJet1VsPtGammaTruth_missA (const std::string& trig, const std::string& rKey, int centIdx);
-    TH2F* getOrBookLeadTruthRecoilMatchDRRecoJet1VsPtGammaTruth_missB (const std::string& trig, const std::string& rKey, int centIdx);
+  // (B4) ΔR(recoilJet1^reco, truth-leading recoil jet) vs pTγ,truth, split by class
+  TH2F* getOrBookLeadTruthRecoilMatchDRRecoJet1VsPtGammaTruth_num   (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookLeadTruthRecoilMatchDRRecoJet1VsPtGammaTruth_missA (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookLeadTruthRecoilMatchDRRecoJet1VsPtGammaTruth_missB (const std::string& trig, const std::string& rKey, int centIdx);
 
-    // (C5) xJ(recoilJet1^reco) vs |Δphi(γ^truth, recoilJet1^reco)|, split by class
-    TH2F* getOrBookLeadTruthRecoilMatchXJRecoJet1VsDphiRecoJet1_num   (const std::string& trig, const std::string& rKey, int centIdx);
-    TH2F* getOrBookLeadTruthRecoilMatchXJRecoJet1VsDphiRecoJet1_missA (const std::string& trig, const std::string& rKey, int centIdx);
-    TH2F* getOrBookLeadTruthRecoilMatchXJRecoJet1VsDphiRecoJet1_missB (const std::string& trig, const std::string& rKey, int centIdx);
+  // (C5) xJ(recoilJet1^reco) vs |Δphi(γ^truth, recoilJet1^reco)|, split by class
+  TH2F* getOrBookLeadTruthRecoilMatchXJRecoJet1VsDphiRecoJet1_num   (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookLeadTruthRecoilMatchXJRecoJet1VsDphiRecoJet1_missA (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookLeadTruthRecoilMatchXJRecoJet1VsDphiRecoJet1_missB (const std::string& trig, const std::string& rKey, int centIdx);
 
   // -------------------------------------------------------------------------
   //  radius-tagged matching-QA bookers
@@ -892,31 +875,31 @@ private:
   int m_centBin = -1;                 // 0..99 (Au+Au), or -1 in pp
   std::vector<int> m_centEdges;       // centrality bin edges, e.g. {0,10,20,...,100}
 
-    // Photon fiducial + binning
-    double m_etaAbsMax = 0.7;           // photon |eta| cut
-  //  std::vector<double> m_gammaPtBins = {10,12,14,16,18,20,22,24,26,35};  // canonical photon pT bin edges
-    std::vector<double> m_gammaPtBins = {15,17,19,21,23,26,35};  // canonical photon pT bin edges (6 bins, start at 15 GeV)
+  // Photon fiducial + binning
+  double m_etaAbsMax = 0.7;           // photon |eta| cut
 
-    // Photon ID cuts (PPG12 Table 4) defaults (match PhoIDCuts namespace baseline)
-    double m_phoid_pre_e11e33_max = 0.98;
-    double m_phoid_pre_et1_min    = 0.60;
-    double m_phoid_pre_et1_max    = 1.00;
-    double m_phoid_pre_e32e35_min = 0.80;
-    double m_phoid_pre_e32e35_max = 1.00;
-    double m_phoid_pre_weta_max   = 0.60;
+  std::vector<double> m_gammaPtBins = {15,17,19,21,23,26,35};  // canonical photon pT bin edges (6 bins, start at 15 GeV)
 
-    double m_phoid_tight_w_lo           = 0.0;
-    double m_phoid_tight_w_hi_intercept = 0.15;
-    double m_phoid_tight_w_hi_slope     = 0.006;
+  // Photon ID cuts (PPG12 Table 4) defaults (match PhoIDCuts namespace baseline)
+  double m_phoid_pre_e11e33_max = 0.98;
+  double m_phoid_pre_et1_min    = 0.60;
+  double m_phoid_pre_et1_max    = 1.00;
+  double m_phoid_pre_e32e35_min = 0.80;
+  double m_phoid_pre_e32e35_max = 1.00;
+  double m_phoid_pre_weta_max   = 0.60;
 
-    double m_phoid_tight_e11e33_min = 0.40;
-    double m_phoid_tight_e11e33_max = 0.98;
+  double m_phoid_tight_w_lo           = 0.0;
+  double m_phoid_tight_w_hi_intercept = 0.15;
+  double m_phoid_tight_w_hi_slope     = 0.006;
 
-    double m_phoid_tight_et1_min    = 0.90;
-    double m_phoid_tight_et1_max    = 1.00;
+  double m_phoid_tight_e11e33_min = 0.40;
+  double m_phoid_tight_e11e33_max = 0.98;
 
-    double m_phoid_tight_e32e35_min = 0.92;
-    double m_phoid_tight_e32e35_max = 1.00;
+  double m_phoid_tight_et1_min    = 0.90;
+  double m_phoid_tight_et1_max    = 1.00;
+
+  double m_phoid_tight_e32e35_min = 0.92;
+  double m_phoid_tight_e32e35_max = 1.00;
 
 
   // Phase-1 YAML knobs (matching thresholds)
@@ -980,27 +963,15 @@ private:
   std::map<std::string, std::string>   m_truthJetsNodeByRKey;
 
   // -------------------------------------------------------------------------
-  // EventDisplay test mode (Verbosity() >= 50, SIM only)
+  // EventDisplay diagnostics payload support nodes (optional; never affects physics)
   // -------------------------------------------------------------------------
-  std::string m_evtDispOutBase = "/sphenix/u/patsfan753/scratch/thesisAnalysis/EventDisplayOutput";
-  std::string m_evtDispJetKey  = "r04";
-
-  bool m_evtDispEnabled             = false;  // per-event: true only if enabled + nodes found
-  bool m_evtDispPermanentlyDisabled = false;  // set true if required nodes are missing
-  bool m_evtDispMissingNodesWarned  = false;  // print missing-node warning only once
-  bool m_evtDispAllDone             = false;  // set true once all (ptBin,cat) are filled
-  bool m_evtDispEverEnabled         = false;  // true if mode was enabled at least once
-
-  std::vector<std::array<bool, 3>> m_evtDispDone; // [ptBin][cat(NUM,MissA,MissB)]
-
-    // Nodes used only in EventDisplay mode (never required for normal running)
-    EventHeader*           m_evtHeader          = nullptr;
-    TowerInfoContainer*    m_evtDispTowersCEMC  = nullptr;
-    TowerInfoContainer*    m_evtDispTowersIHCal = nullptr;
-    TowerInfoContainer*    m_evtDispTowersOHCal = nullptr;
-    RawTowerGeomContainer* m_evtDispGeomCEMC    = nullptr;
-    RawTowerGeomContainer* m_evtDispGeomIHCal   = nullptr;
-    RawTowerGeomContainer* m_evtDispGeomOHCal   = nullptr;
+  EventHeader*           m_evtHeader          = nullptr;
+  TowerInfoContainer*    m_evtDispTowersCEMC  = nullptr;
+  TowerInfoContainer*    m_evtDispTowersIHCal = nullptr;
+  TowerInfoContainer*    m_evtDispTowersOHCal = nullptr;
+  RawTowerGeomContainer* m_evtDispGeomCEMC    = nullptr;
+  RawTowerGeomContainer* m_evtDispGeomIHCal   = nullptr;
+  RawTowerGeomContainer* m_evtDispGeomOHCal   = nullptr;
 
   // -------------------------------------------------------------------------
   // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).

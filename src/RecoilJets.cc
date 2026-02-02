@@ -649,8 +649,6 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     // -------------------------------------------------------------------------
     // EventDisplay diagnostics payload nodes (SIM only). Optional: never affects physics.
     //
-    // This replaces the old Verbosity() >= 50 PNG EventDisplay mode.
-    //
     // IMPORTANT SAFETY:
     //   - This block must NEVER cause the event to be skipped.
     //   - If anything is missing, we simply mark diagnostics as unavailable for this event.
