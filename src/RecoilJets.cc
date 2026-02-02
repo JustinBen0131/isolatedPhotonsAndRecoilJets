@@ -6413,22 +6413,21 @@ TH2F* RecoilJets::getOrBookUnfoldJetPtResponsePtTruth(const std::string& trig,
   dir->cd();
 
   TH2F* h = nullptr;
-  const std::vector<double>& kJetPt = m_unfoldJetPtBins;
-  if (kJetPt.size() >= 2)
+
+  std::vector<double> tmpJetPt;
+  const std::vector<double>* pJetPt = &m_unfoldJetPtBins;
+  if (pJetPt->size() < 2)
   {
-    const int nb = static_cast<int>(kJetPt.size()) - 1;
-    h = new TH2F(name.c_str(),
-                (name + ";p_{T}^{jet,truth} [GeV];p_{T}^{jet,reco}/p_{T}^{jet,truth}").c_str(),
-                nb, kJetPt.data(),
-                120, 0.0, 2.0);
+      tmpJetPt.reserve(121);
+      for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
+      pJetPt = &tmpJetPt;
   }
-  else
-  {
-    h = new TH2F(name.c_str(),
+
+  const int nb = static_cast<int>(pJetPt->size()) - 1;
+  h = new TH2F(name.c_str(),
                 (name + ";p_{T}^{jet,truth} [GeV];p_{T}^{jet,reco}/p_{T}^{jet,truth}").c_str(),
-                120, 0.0, 60.0,
+                nb, pJetPt->data(),
                 120, 0.0, 2.0);
-  }
   h->Sumw2();
 
   H[name] = h;
@@ -6462,22 +6461,21 @@ TH2F* RecoilJets::getOrBookUnfoldJetPtResponseAllPtTruth(const std::string& trig
   dir->cd();
 
   TH2F* h = nullptr;
-  const std::vector<double>& kJetPt = m_unfoldJetPtBins;
-  if (kJetPt.size() >= 2)
+
+  std::vector<double> tmpJetPt;
+  const std::vector<double>* pJetPt = &m_unfoldJetPtBins;
+  if (pJetPt->size() < 2)
   {
-    const int nb = static_cast<int>(kJetPt.size()) - 1;
-    h = new TH2F(name.c_str(),
-                (name + ";p_{T}^{jet,truth} [GeV];p_{T}^{jet,reco}/p_{T}^{jet,truth} (all matched fid jets)").c_str(),
-                nb, kJetPt.data(),
-                120, 0.0, 2.0);
+      tmpJetPt.reserve(121);
+      for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
+      pJetPt = &tmpJetPt;
   }
-  else
-  {
-    h = new TH2F(name.c_str(),
+
+  const int nb = static_cast<int>(pJetPt->size()) - 1;
+  h = new TH2F(name.c_str(),
                 (name + ";p_{T}^{jet,truth} [GeV];p_{T}^{jet,reco}/p_{T}^{jet,truth} (all matched fid jets)").c_str(),
-                120, 0.0, 60.0,
+                nb, pJetPt->data(),
                 120, 0.0, 2.0);
-  }
   h->Sumw2();
 
   H[name] = h;
@@ -6511,22 +6509,21 @@ TH2F* RecoilJets::getOrBookLeadRecoilJetPtResponsePtTruth(const std::string& tri
   dir->cd();
 
   TH2F* h = nullptr;
-  const std::vector<double>& kJetPt = m_unfoldJetPtBins;
-  if (kJetPt.size() >= 2)
+
+  std::vector<double> tmpJetPt;
+  const std::vector<double>* pJetPt = &m_unfoldJetPtBins;
+  if (pJetPt->size() < 2)
   {
-    const int nb = static_cast<int>(kJetPt.size()) - 1;
-    h = new TH2F(name.c_str(),
-                (name + ";p_{T}^{jet,truth} [GeV];p_{T}^{jet,reco}/p_{T}^{jet,truth} (lead recoil jet1)").c_str(),
-                nb, kJetPt.data(),
-                120, 0.0, 2.0);
+      tmpJetPt.reserve(121);
+      for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
+      pJetPt = &tmpJetPt;
   }
-  else
-  {
-    h = new TH2F(name.c_str(),
+
+  const int nb = static_cast<int>(pJetPt->size()) - 1;
+  h = new TH2F(name.c_str(),
                 (name + ";p_{T}^{jet,truth} [GeV];p_{T}^{jet,reco}/p_{T}^{jet,truth} (lead recoil jet1)").c_str(),
-                120, 0.0, 60.0,
+                nb, pJetPt->data(),
                 120, 0.0, 2.0);
-  }
   h->Sumw2();
 
   H[name] = h;
@@ -6560,22 +6557,21 @@ TH2F* RecoilJets::getOrBookLeadRecoilJetPtTruthPtReco(const std::string& trig,
   dir->cd();
 
   TH2F* h = nullptr;
-  const std::vector<double>& kJetPt = m_unfoldJetPtBins;
-  if (kJetPt.size() >= 2)
+
+  std::vector<double> tmpJetPt;
+  const std::vector<double>* pJetPt = &m_unfoldJetPtBins;
+  if (pJetPt->size() < 2)
   {
-    const int nb = static_cast<int>(kJetPt.size()) - 1;
-    h = new TH2F(name.c_str(),
-                (name + ";p_{T}^{jet,truth} [GeV];p_{T}^{jet,reco} [GeV] (lead recoil jet1)").c_str(),
-                nb, kJetPt.data(),
-                nb, kJetPt.data());
+      tmpJetPt.reserve(121);
+      for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
+      pJetPt = &tmpJetPt;
   }
-  else
-  {
-    h = new TH2F(name.c_str(),
+
+  const int nb = static_cast<int>(pJetPt->size()) - 1;
+  h = new TH2F(name.c_str(),
                 (name + ";p_{T}^{jet,truth} [GeV];p_{T}^{jet,reco} [GeV] (lead recoil jet1)").c_str(),
-                120, 0.0, 60.0,
-                120, 0.0, 60.0);
-  }
+                nb, pJetPt->data(),
+                nb, pJetPt->data());
   h->Sumw2();
 
   H[name] = h;
@@ -6812,10 +6808,20 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_num(const
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
+  std::vector<double> tmpJetPt;
+  const std::vector<double>* pJetPt = &m_unfoldJetPtBins;
+  if (pJetPt->size() < 2)
+  {
+      tmpJetPt.reserve(121);
+      for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
+      pJetPt = &tmpJetPt;
+  }
+
+  const int nb = static_cast<int>(pJetPt->size()) - 1;
   auto* h = new TH2F(name.c_str(),
-                     (name + ";p_{T}^{lead recoil jet,truth} [GeV];p_{T}^{recoilJet1,reco} [GeV] (NUM)").c_str(),
-                     120, 0.0, 60.0,
-                     120, 0.0, 60.0);
+                       (name + ";p_{T}^{lead recoil jet,truth} [GeV];p_{T}^{recoilJet1,reco} [GeV] (NUM)").c_str(),
+                       nb, pJetPt->data(),
+                       nb, pJetPt->data());
   h->Sumw2();
 
   H[name] = h;
@@ -6848,10 +6854,20 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missA(con
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
+  std::vector<double> tmpJetPt;
+  const std::vector<double>* pJetPt = &m_unfoldJetPtBins;
+  if (pJetPt->size() < 2)
+  {
+      tmpJetPt.reserve(121);
+      for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
+      pJetPt = &tmpJetPt;
+  }
+
+  const int nb = static_cast<int>(pJetPt->size()) - 1;
   auto* h = new TH2F(name.c_str(),
-                     (name + ";p_{T}^{lead recoil jet,truth} [GeV];p_{T}^{recoilJet1,reco} [GeV] (MissA)").c_str(),
-                     120, 0.0, 60.0,
-                     120, 0.0, 60.0);
+                       (name + ";p_{T}^{lead recoil jet,truth} [GeV];p_{T}^{recoilJet1,reco} [GeV] (MissA)").c_str(),
+                       nb, pJetPt->data(),
+                       nb, pJetPt->data());
   h->Sumw2();
 
   H[name] = h;
@@ -6884,10 +6900,20 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missB(con
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
+  std::vector<double> tmpJetPt;
+  const std::vector<double>* pJetPt = &m_unfoldJetPtBins;
+  if (pJetPt->size() < 2)
+  {
+      tmpJetPt.reserve(121);
+      for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
+      pJetPt = &tmpJetPt;
+  }
+
+  const int nb = static_cast<int>(pJetPt->size()) - 1;
   auto* h = new TH2F(name.c_str(),
-                     (name + ";p_{T}^{lead recoil jet,truth} [GeV];p_{T}^{recoilJet1,reco} [GeV] (MissB)").c_str(),
-                     120, 0.0, 60.0,
-                     120, 0.0, 60.0);
+                       (name + ";p_{T}^{lead recoil jet,truth} [GeV];p_{T}^{recoilJet1,reco} [GeV] (MissB)").c_str(),
+                       nb, pJetPt->data(),
+                       nb, pJetPt->data());
   h->Sumw2();
 
   H[name] = h;
@@ -6922,10 +6948,20 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_num(
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
+  std::vector<double> tmpJetPt;
+  const std::vector<double>* pJetPt = &m_unfoldJetPtBins;
+  if (pJetPt->size() < 2)
+  {
+      tmpJetPt.reserve(121);
+      for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
+      pJetPt = &tmpJetPt;
+  }
+
+  const int nb = static_cast<int>(pJetPt->size()) - 1;
   auto* h = new TH2F(name.c_str(),
-                     (name + ";p_{T}^{reco match to truth-lead} [GeV];p_{T}^{recoilJet1,reco} [GeV] (NUM)").c_str(),
-                     120, 0.0, 60.0,
-                     120, 0.0, 60.0);
+                       (name + ";p_{T}^{reco match to truth-lead} [GeV];p_{T}^{recoilJet1,reco} [GeV] (NUM)").c_str(),
+                       nb, pJetPt->data(),
+                       nb, pJetPt->data());
   h->Sumw2();
 
   H[name] = h;
@@ -6958,10 +6994,20 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_miss
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
+  std::vector<double> tmpJetPt;
+  const std::vector<double>* pJetPt = &m_unfoldJetPtBins;
+  if (pJetPt->size() < 2)
+  {
+      tmpJetPt.reserve(121);
+      for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
+      pJetPt = &tmpJetPt;
+  }
+
+  const int nb = static_cast<int>(pJetPt->size()) - 1;
   auto* h = new TH2F(name.c_str(),
-                     (name + ";p_{T}^{reco match to truth-lead} [GeV];p_{T}^{recoilJet1,reco} [GeV] (MissA)").c_str(),
-                     120, 0.0, 60.0,
-                     120, 0.0, 60.0);
+                       (name + ";p_{T}^{reco match to truth-lead} [GeV];p_{T}^{recoilJet1,reco} [GeV] (MissA)").c_str(),
+                       nb, pJetPt->data(),
+                       nb, pJetPt->data());
   h->Sumw2();
 
   H[name] = h;
