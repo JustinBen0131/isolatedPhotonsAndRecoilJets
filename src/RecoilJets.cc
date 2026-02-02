@@ -6573,13 +6573,9 @@ TH2F* RecoilJets::getOrBookLeadRecoilJetPtResponsePtTruth(const std::string& tri
   TH2F* h = nullptr;
 
   std::vector<double> tmpJetPt;
-  const std::vector<double>* pJetPt = &m_unfoldJetPtBins;
-  if (pJetPt->size() < 2)
-  {
-      tmpJetPt.reserve(121);
-      for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
-      pJetPt = &tmpJetPt;
-  }
+  tmpJetPt.reserve(121);
+  for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
+  const std::vector<double>* pJetPt = &tmpJetPt;
 
   const int nb = static_cast<int>(pJetPt->size()) - 1;
   h = new TH2F(name.c_str(),
@@ -6621,13 +6617,9 @@ TH2F* RecoilJets::getOrBookLeadRecoilJetPtTruthPtReco(const std::string& trig,
   TH2F* h = nullptr;
 
   std::vector<double> tmpJetPt;
-  const std::vector<double>* pJetPt = &m_unfoldJetPtBins;
-  if (pJetPt->size() < 2)
-  {
-      tmpJetPt.reserve(121);
-      for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
-      pJetPt = &tmpJetPt;
-  }
+  tmpJetPt.reserve(121);
+  for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
+  const std::vector<double>* pJetPt = &tmpJetPt;
 
   const int nb = static_cast<int>(pJetPt->size()) - 1;
   h = new TH2F(name.c_str(),
@@ -6987,13 +6979,9 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_num(const
   dir->cd();
 
   std::vector<double> tmpJetPt;
-  const std::vector<double>* pJetPt = &m_unfoldJetPtBins;
-  if (pJetPt->size() < 2)
-  {
-      tmpJetPt.reserve(121);
-      for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
-      pJetPt = &tmpJetPt;
-  }
+  tmpJetPt.reserve(121);
+  for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
+  const std::vector<double>* pJetPt = &tmpJetPt;
 
   const int nb = static_cast<int>(pJetPt->size()) - 1;
   auto* h = new TH2F(name.c_str(),
@@ -7033,13 +7021,9 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missA(con
   dir->cd();
 
   std::vector<double> tmpJetPt;
-  const std::vector<double>* pJetPt = &m_unfoldJetPtBins;
-  if (pJetPt->size() < 2)
-  {
-      tmpJetPt.reserve(121);
-      for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
-      pJetPt = &tmpJetPt;
-  }
+  tmpJetPt.reserve(121);
+  for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
+  const std::vector<double>* pJetPt = &tmpJetPt;
 
   const int nb = static_cast<int>(pJetPt->size()) - 1;
   auto* h = new TH2F(name.c_str(),
@@ -7079,13 +7063,9 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missA1(co
   dir->cd();
 
   std::vector<double> tmpJetPt;
-  const std::vector<double>* pJetPt = &m_unfoldJetPtBins;
-  if (pJetPt->size() < 2)
-  {
-      tmpJetPt.reserve(121);
-      for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
-      pJetPt = &tmpJetPt;
-  }
+  tmpJetPt.reserve(121);
+  for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
+  const std::vector<double>* pJetPt = &tmpJetPt;
 
   const int nb = static_cast<int>(pJetPt->size()) - 1;
   auto* h = new TH2F(name.c_str(),
@@ -7125,13 +7105,9 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missA2(co
   dir->cd();
 
   std::vector<double> tmpJetPt;
-  const std::vector<double>* pJetPt = &m_unfoldJetPtBins;
-  if (pJetPt->size() < 2)
-  {
-      tmpJetPt.reserve(121);
-      for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
-      pJetPt = &tmpJetPt;
-  }
+  tmpJetPt.reserve(121);
+  for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
+  const std::vector<double>* pJetPt = &tmpJetPt;
 
   const int nb = static_cast<int>(pJetPt->size()) - 1;
   auto* h = new TH2F(name.c_str(),
@@ -7171,13 +7147,9 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missB(con
   dir->cd();
 
   std::vector<double> tmpJetPt;
-  const std::vector<double>* pJetPt = &m_unfoldJetPtBins;
-  if (pJetPt->size() < 2)
-  {
-      tmpJetPt.reserve(121);
-      for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
-      pJetPt = &tmpJetPt;
-  }
+  tmpJetPt.reserve(121);
+  for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
+  const std::vector<double>* pJetPt = &tmpJetPt;
 
   const int nb = static_cast<int>(pJetPt->size()) - 1;
   auto* h = new TH2F(name.c_str(),
@@ -7219,13 +7191,9 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_num(
   dir->cd();
 
   std::vector<double> tmpJetPt;
-  const std::vector<double>* pJetPt = &m_unfoldJetPtBins;
-  if (pJetPt->size() < 2)
-  {
-      tmpJetPt.reserve(121);
-      for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
-      pJetPt = &tmpJetPt;
-  }
+  tmpJetPt.reserve(121);
+  for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
+  const std::vector<double>* pJetPt = &tmpJetPt;
 
   const int nb = static_cast<int>(pJetPt->size()) - 1;
   auto* h = new TH2F(name.c_str(),
@@ -7265,13 +7233,9 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_miss
   dir->cd();
 
   std::vector<double> tmpJetPt;
-  const std::vector<double>* pJetPt = &m_unfoldJetPtBins;
-  if (pJetPt->size() < 2)
-  {
-      tmpJetPt.reserve(121);
-      for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
-      pJetPt = &tmpJetPt;
-  }
+  tmpJetPt.reserve(121);
+  for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
+  const std::vector<double>* pJetPt = &tmpJetPt;
 
   const int nb = static_cast<int>(pJetPt->size()) - 1;
   auto* h = new TH2F(name.c_str(),
@@ -7311,13 +7275,9 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_miss
   dir->cd();
 
   std::vector<double> tmpJetPt;
-  const std::vector<double>* pJetPt = &m_unfoldJetPtBins;
-  if (pJetPt->size() < 2)
-  {
-      tmpJetPt.reserve(121);
-      for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
-      pJetPt = &tmpJetPt;
-  }
+  tmpJetPt.reserve(121);
+  for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
+  const std::vector<double>* pJetPt = &tmpJetPt;
 
   const int nb = static_cast<int>(pJetPt->size()) - 1;
   auto* h = new TH2F(name.c_str(),
@@ -7357,13 +7317,9 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_miss
   dir->cd();
 
   std::vector<double> tmpJetPt;
-  const std::vector<double>* pJetPt = &m_unfoldJetPtBins;
-  if (pJetPt->size() < 2)
-  {
-      tmpJetPt.reserve(121);
-      for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
-      pJetPt = &tmpJetPt;
-  }
+  tmpJetPt.reserve(121);
+  for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
+  const std::vector<double>* pJetPt = &tmpJetPt;
 
   const int nb = static_cast<int>(pJetPt->size()) - 1;
   auto* h = new TH2F(name.c_str(),
