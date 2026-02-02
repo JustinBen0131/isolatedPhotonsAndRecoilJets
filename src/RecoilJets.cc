@@ -2145,6 +2145,31 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
         }
         const bool hasRecoMatchToTruthLead = (rjTruthBest && drTruthBest < kLeadMatchDR);
 
+        // For MissA subtyping: does the reco jet matched to the truth-leading recoil jet
+        // itself pass the recoil definition? (pT/eta are already satisfied by recoJetsFid,
+        // but we evaluate sequentially to support a robust MissA2 cutflow histogram.)
+        bool truthMatchPassesRecoil = false;
+        int  truthMatchFailCut = 0; // 1=pTmin, 2=|eta|, 3=dphi
+        if (hasRecoMatchToTruthLead && rjTruthBest)
+        {
+          const double ptm  = rjTruthBest->get_pt();
+          const double etam = rjTruthBest->get_eta();
+          const double phim = rjTruthBest->get_phi();
+
+          const bool passPt  = (std::isfinite(ptm)  && ptm  >= m_minJetPt);
+          const bool passEta = (std::isfinite(etam) && std::fabs(etam) < etaMaxTruth);
+
+          const double dphiAbsM = std::fabs(TVector2::Phi_mpi_pi(phim - tPhi));
+          const bool passDphi = (std::isfinite(dphiAbsM) && dphiAbsM >= m_minBackToBack);
+
+          truthMatchPassesRecoil = (passPt && passEta && passDphi);
+
+          if (!passPt)        truthMatchFailCut = 1;
+          else if (!passEta)  truthMatchFailCut = 2;
+          else if (!passDphi) truthMatchFailCut = 3;
+          else                truthMatchFailCut = 0;
+        }
+
         // Does the analysis-selected reco recoilJet1 match the truth-leading recoil jet?
         bool leadRecoMatches = false;
         double drLead = 1e9;
@@ -2155,7 +2180,7 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
           leadRecoMatches = (drLead < kLeadMatchDR);
         }
 
-        // Fill the standard NUM / MissA / MissB bookkeeping
+        // Fill the standard NUM / MissA / MissB bookkeeping (+ MissA subtypes)
         if (leadRecoMatches)
         {
             for (const auto& trigShort : activeTrig)
@@ -2170,6 +2195,23 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
             {
               if (auto* hA = getOrBookLeadTruthRecoilMatchMissA_PtGammaTruth(trigShort, rKey, effCentIdx_M))
               { hA->Fill(tPt); bumpHistFill(trigShort, hA->GetName()); }
+
+              if (truthMatchPassesRecoil)
+              {
+                if (auto* hA1 = getOrBookLeadTruthRecoilMatchMissA1_PtGammaTruth(trigShort, rKey, effCentIdx_M))
+                { hA1->Fill(tPt); bumpHistFill(trigShort, hA1->GetName()); }
+              }
+              else
+              {
+                if (auto* hA2 = getOrBookLeadTruthRecoilMatchMissA2_PtGammaTruth(trigShort, rKey, effCentIdx_M))
+                { hA2->Fill(tPt); bumpHistFill(trigShort, hA2->GetName()); }
+
+                if (truthMatchFailCut > 0)
+                {
+                  if (auto* hCF = getOrBookLeadTruthRecoilMatchMissA2_Cutflow(trigShort, rKey, effCentIdx_M))
+                  { hCF->Fill((double)truthMatchFailCut); bumpHistFill(trigShort, hCF->GetName()); }
+                }
+              }
             }
           }
           else
@@ -2264,6 +2306,17 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
                 if (auto* h = getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missA(trigShort, rKey, effCentIdx_M))
                 { h->Fill(ptTruth, ptReco1); bumpHistFill(trigShort, h->GetName()); }
 
+                if (truthMatchPassesRecoil)
+                {
+                  if (auto* h = getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missA1(trigShort, rKey, effCentIdx_M))
+                  { h->Fill(ptTruth, ptReco1); bumpHistFill(trigShort, h->GetName()); }
+                }
+                else
+                {
+                  if (auto* h = getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missA2(trigShort, rKey, effCentIdx_M))
+                  { h->Fill(ptTruth, ptReco1); bumpHistFill(trigShort, h->GetName()); }
+                }
+
                 if (rjTruthBest)
                 {
                   const double ptRecoMatch = rjTruthBest->get_pt();
@@ -2271,6 +2324,17 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
                   {
                     if (auto* h = getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_missA(trigShort, rKey, effCentIdx_M))
                     { h->Fill(ptRecoMatch, ptReco1); bumpHistFill(trigShort, h->GetName()); }
+
+                    if (truthMatchPassesRecoil)
+                    {
+                      if (auto* h = getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_missA1(trigShort, rKey, effCentIdx_M))
+                      { h->Fill(ptRecoMatch, ptReco1); bumpHistFill(trigShort, h->GetName()); }
+                    }
+                    else
+                    {
+                      if (auto* h = getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_missA2(trigShort, rKey, effCentIdx_M))
+                      { h->Fill(ptRecoMatch, ptReco1); bumpHistFill(trigShort, h->GetName()); }
+                    }
                   }
                 }
 
@@ -6737,6 +6801,122 @@ TH1F* RecoilJets::getOrBookLeadTruthRecoilMatchMissA_PtGammaTruth(const std::str
     return h;
 }
 
+TH1F* RecoilJets::getOrBookLeadTruthRecoilMatchMissA1_PtGammaTruth(const std::string& trig,
+                                                                   const std::string& rKey,
+                                                                   int centIdx)
+{
+    const std::string base   = "h_leadTruthRecoilMatch_missA1_pTgammaTruth";
+    const std::string suffix = suffixForBins(-1, centIdx);
+    const std::string name   = base + "_" + rKey + suffix;
+
+    if (trig.empty() || rKey.empty()) return nullptr;
+
+    auto& H = qaHistogramsByTrigger[trig];
+    if (auto it = H.find(name); it != H.end())
+    {
+      if (auto* h = dynamic_cast<TH1F*>(it->second)) return h;
+      H.erase(it);
+    }
+
+    if (!out || !out->IsOpen()) return nullptr;
+
+    TDirectory* const prevDir = gDirectory;
+    TDirectory* dir = out->GetDirectory(trig.c_str());
+    if (!dir) dir = out->mkdir(trig.c_str());
+    if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+    dir->cd();
+
+    const std::vector<double>& kPtTruth = m_gammaPtBins;
+    const int nb = static_cast<int>(kPtTruth.size()) - 1;
+
+    const std::string title =
+      name + ";p_{T}^{#gamma,truth} [GeV];MissA1 (truth-match passes recoil cuts; competitor/ordering)";
+
+    auto* h = new TH1F(name.c_str(), title.c_str(), nb, kPtTruth.data());
+    h->Sumw2();
+
+    H[name] = h;
+    if (prevDir) prevDir->cd();
+    return h;
+}
+
+TH1F* RecoilJets::getOrBookLeadTruthRecoilMatchMissA2_PtGammaTruth(const std::string& trig,
+                                                                   const std::string& rKey,
+                                                                   int centIdx)
+{
+    const std::string base   = "h_leadTruthRecoilMatch_missA2_pTgammaTruth";
+    const std::string suffix = suffixForBins(-1, centIdx);
+    const std::string name   = base + "_" + rKey + suffix;
+
+    if (trig.empty() || rKey.empty()) return nullptr;
+
+    auto& H = qaHistogramsByTrigger[trig];
+    if (auto it = H.find(name); it != H.end())
+    {
+      if (auto* h = dynamic_cast<TH1F*>(it->second)) return h;
+      H.erase(it);
+    }
+
+    if (!out || !out->IsOpen()) return nullptr;
+
+    TDirectory* const prevDir = gDirectory;
+    TDirectory* dir = out->GetDirectory(trig.c_str());
+    if (!dir) dir = out->mkdir(trig.c_str());
+    if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+    dir->cd();
+
+    const std::vector<double>& kPtTruth = m_gammaPtBins;
+    const int nb = static_cast<int>(kPtTruth.size()) - 1;
+
+    const std::string title =
+      name + ";p_{T}^{#gamma,truth} [GeV];MissA2 (truth-match fails recoil cuts; gate-exclusion)";
+
+    auto* h = new TH1F(name.c_str(), title.c_str(), nb, kPtTruth.data());
+    h->Sumw2();
+
+    H[name] = h;
+    if (prevDir) prevDir->cd();
+    return h;
+}
+
+TH1I* RecoilJets::getOrBookLeadTruthRecoilMatchMissA2_Cutflow(const std::string& trig,
+                                                              const std::string& rKey,
+                                                              int centIdx)
+{
+    const std::string base   = "h_leadTruthRecoilMatch_missA2_cutflow";
+    const std::string suffix = suffixForBins(-1, centIdx);
+    const std::string name   = base + "_" + rKey + suffix;
+
+    if (trig.empty() || rKey.empty()) return nullptr;
+
+    auto& H = qaHistogramsByTrigger[trig];
+    if (auto it = H.find(name); it != H.end())
+    {
+      if (auto* h = dynamic_cast<TH1I*>(it->second)) return h;
+      H.erase(it);
+    }
+
+    if (!out || !out->IsOpen()) return nullptr;
+
+    TDirectory* const prevDir = gDirectory;
+    TDirectory* dir = out->GetDirectory(trig.c_str());
+    if (!dir) dir = out->mkdir(trig.c_str());
+    if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+    dir->cd();
+
+    auto* h = new TH1I(name.c_str(),
+                       (name + ";cut stage;Counts (MissA2 only)").c_str(),
+                       3, 0.5, 3.5);
+    h->Sumw2();
+    h->GetXaxis()->SetBinLabel(1, "fail p_{T}^{min}");
+    h->GetXaxis()->SetBinLabel(2, "fail |#eta|");
+    h->GetXaxis()->SetBinLabel(3, "fail #Delta#phi");
+
+    H[name] = h;
+    if (prevDir) prevDir->cd();
+    return h;
+}
+
 TH1F* RecoilJets::getOrBookLeadTruthRecoilMatchMissB_PtGammaTruth(const std::string& trig,
                                                                   const std::string& rKey,
                                                                   int centIdx)
@@ -6864,6 +7044,98 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missA(con
   const int nb = static_cast<int>(pJetPt->size()) - 1;
   auto* h = new TH2F(name.c_str(),
                        (name + ";p_{T}^{lead recoil jet,truth} [GeV];p_{T}^{recoilJet1,reco} [GeV] (MissA)").c_str(),
+                       nb, pJetPt->data(),
+                       nb, pJetPt->data());
+  h->Sumw2();
+
+  H[name] = h;
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missA1(const std::string& trig,
+                                                                              const std::string& rKey,
+                                                                              int centIdx)
+{
+  const std::string base   = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_missA1";
+  const std::string suffix = suffixForBins(-1, centIdx);
+  const std::string name   = base + "_" + rKey + suffix;
+
+  if (trig.empty() || rKey.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+  dir->cd();
+
+  std::vector<double> tmpJetPt;
+  const std::vector<double>* pJetPt = &m_unfoldJetPtBins;
+  if (pJetPt->size() < 2)
+  {
+      tmpJetPt.reserve(121);
+      for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
+      pJetPt = &tmpJetPt;
+  }
+
+  const int nb = static_cast<int>(pJetPt->size()) - 1;
+  auto* h = new TH2F(name.c_str(),
+                       (name + ";p_{T}^{lead recoil jet,truth} [GeV];p_{T}^{recoilJet1,reco} [GeV] (MissA1)").c_str(),
+                       nb, pJetPt->data(),
+                       nb, pJetPt->data());
+  h->Sumw2();
+
+  H[name] = h;
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missA2(const std::string& trig,
+                                                                              const std::string& rKey,
+                                                                              int centIdx)
+{
+  const std::string base   = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_missA2";
+  const std::string suffix = suffixForBins(-1, centIdx);
+  const std::string name   = base + "_" + rKey + suffix;
+
+  if (trig.empty() || rKey.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+  dir->cd();
+
+  std::vector<double> tmpJetPt;
+  const std::vector<double>* pJetPt = &m_unfoldJetPtBins;
+  if (pJetPt->size() < 2)
+  {
+      tmpJetPt.reserve(121);
+      for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
+      pJetPt = &tmpJetPt;
+  }
+
+  const int nb = static_cast<int>(pJetPt->size()) - 1;
+  auto* h = new TH2F(name.c_str(),
+                       (name + ";p_{T}^{lead recoil jet,truth} [GeV];p_{T}^{recoilJet1,reco} [GeV] (MissA2)").c_str(),
                        nb, pJetPt->data(),
                        nb, pJetPt->data());
   h->Sumw2();
@@ -7004,6 +7276,98 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_miss
   const int nb = static_cast<int>(pJetPt->size()) - 1;
   auto* h = new TH2F(name.c_str(),
                        (name + ";p_{T}^{reco match to truth-lead} [GeV];p_{T}^{recoilJet1,reco} [GeV] (MissA)").c_str(),
+                       nb, pJetPt->data(),
+                       nb, pJetPt->data());
+  h->Sumw2();
+
+  H[name] = h;
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_missA1(const std::string& trig,
+                                                                                   const std::string& rKey,
+                                                                                   int centIdx)
+{
+  const std::string base   = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTrecoTruthMatch_missA1";
+  const std::string suffix = suffixForBins(-1, centIdx);
+  const std::string name   = base + "_" + rKey + suffix;
+
+  if (trig.empty() || rKey.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+  dir->cd();
+
+  std::vector<double> tmpJetPt;
+  const std::vector<double>* pJetPt = &m_unfoldJetPtBins;
+  if (pJetPt->size() < 2)
+  {
+      tmpJetPt.reserve(121);
+      for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
+      pJetPt = &tmpJetPt;
+  }
+
+  const int nb = static_cast<int>(pJetPt->size()) - 1;
+  auto* h = new TH2F(name.c_str(),
+                       (name + ";p_{T}^{reco match to truth-lead} [GeV];p_{T}^{recoilJet1,reco} [GeV] (MissA1)").c_str(),
+                       nb, pJetPt->data(),
+                       nb, pJetPt->data());
+  h->Sumw2();
+
+  H[name] = h;
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_missA2(const std::string& trig,
+                                                                                   const std::string& rKey,
+                                                                                   int centIdx)
+{
+  const std::string base   = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTrecoTruthMatch_missA2";
+  const std::string suffix = suffixForBins(-1, centIdx);
+  const std::string name   = base + "_" + rKey + suffix;
+
+  if (trig.empty() || rKey.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+  dir->cd();
+
+  std::vector<double> tmpJetPt;
+  const std::vector<double>* pJetPt = &m_unfoldJetPtBins;
+  if (pJetPt->size() < 2)
+  {
+      tmpJetPt.reserve(121);
+      for (int i = 0; i <= 120; ++i) tmpJetPt.push_back(0.5 * (double)i);
+      pJetPt = &tmpJetPt;
+  }
+
+  const int nb = static_cast<int>(pJetPt->size()) - 1;
+  auto* h = new TH2F(name.c_str(),
+                       (name + ";p_{T}^{reco match to truth-lead} [GeV];p_{T}^{recoilJet1,reco} [GeV] (MissA2)").c_str(),
                        nb, pJetPt->data(),
                        nb, pJetPt->data());
   h->Sumw2();
