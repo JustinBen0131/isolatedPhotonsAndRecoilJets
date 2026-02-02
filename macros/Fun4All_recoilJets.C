@@ -382,19 +382,39 @@ namespace yamlcfg
 
       if (StartsWithKey(line, "photon_eta_abs_max"))
       {
-        ParseDouble(AfterColon(line), cfg.photon_eta_abs_max);
+          ParseDouble(AfterColon(line), cfg.photon_eta_abs_max);
       }
       else if (StartsWithKey(line, "jet_pt_min"))
       {
-        ParseDouble(AfterColon(line), cfg.jet_pt_min);
-      }
-      else if (StartsWithKey(line, "back_to_back_dphi_min_pi_fraction"))
-      {
-        ParseDouble(AfterColon(line), cfg.back_to_back_dphi_min_pi_fraction);
+          const std::string rhs = AfterColon(line);
+          if (!ParseDouble(rhs, cfg.jet_pt_min))
+          {
+            std::vector<double> v;
+            ParseInlineListDoubles(rhs, v);
+            if (!v.empty())
+            {
+              cfg.jet_pt_min = v.front();
+              std::cout << "[CFG] jet_pt_min is a list; using first value = " << cfg.jet_pt_min << std::endl;
+            }
+          }
+        }
+        else if (StartsWithKey(line, "back_to_back_dphi_min_pi_fraction"))
+        {
+          const std::string rhs = AfterColon(line);
+          if (!ParseDouble(rhs, cfg.back_to_back_dphi_min_pi_fraction))
+          {
+            std::vector<double> v;
+            ParseInlineListDoubles(rhs, v);
+            if (!v.empty())
+            {
+              cfg.back_to_back_dphi_min_pi_fraction = v.front();
+              std::cout << "[CFG] back_to_back_dphi_min_pi_fraction is a list; using first value = " << cfg.back_to_back_dphi_min_pi_fraction << std::endl;
+            }
+          }
       }
       else if (StartsWithKey(line, "use_vz_cut"))
       {
-        ParseBool(AfterColon(line), cfg.use_vz_cut);
+          ParseBool(AfterColon(line), cfg.use_vz_cut);
       }
       else if (StartsWithKey(line, "vz_cut_cm"))
       {
