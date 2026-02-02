@@ -31,13 +31,6 @@
 #include <calobase/RawTowerDefs.h>
 #include <ffaobjects/EventHeader.h>
 
-// ROOT (EventDisplay test mode)
-#include <TCanvas.h>
-#include <TLatex.h>
-#include <TMarker.h>
-#include <TPad.h>
-#include <TPaletteAxis.h>
-
 #if defined(__GNUC__) && !defined(__clang__)
   #pragma GCC diagnostic push
   // HepMC2 headers trigger deprecated std::iterator warnings under modern libstdc++
@@ -621,125 +614,62 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     }
   }
 
-  // -------------------------------------------------------------------------
-  // EventDisplay test-mode nodes (SIM only). Optional: never affects physics.
-  // Enabled only when Verbosity() >= 50.
-  //
-  // IMPORTANT SAFETY:
-  //   - This block must NEVER cause the event to be skipped.
-  //   - If anything is missing, we disable EventDisplay only.
-  //   - We reset all EventDisplay pointers each event to avoid stale pointers.
-  // -------------------------------------------------------------------------
-  m_evtDispEnabled = false;
+    // -------------------------------------------------------------------------
+    // EventDisplay diagnostics payload nodes (SIM only). Optional: never affects physics.
+    //
+    // This replaces the old Verbosity() >= 50 PNG EventDisplay mode.
+    //
+    // IMPORTANT SAFETY:
+    //   - This block must NEVER cause the event to be skipped.
+    //   - If anything is missing, we simply mark diagnostics as unavailable for this event.
+    // -------------------------------------------------------------------------
+    m_evtDiagNodesReady = false;
 
-  // Always clear per-event pointers (safe even when mode is off)
-  m_evtHeader          = nullptr;
-  m_evtDispTowersCEMC  = nullptr;
-  m_evtDispTowersIHCal = nullptr;
-  m_evtDispTowersOHCal = nullptr;
-  m_evtDispGeomCEMC    = nullptr;
-  m_evtDispGeomIHCal   = nullptr;
-  m_evtDispGeomOHCal   = nullptr;
+    // Always clear per-event pointers
+    m_evtHeader          = nullptr;
+    m_evtDispTowersCEMC  = nullptr;
+    m_evtDispTowersIHCal = nullptr;
+    m_evtDispTowersOHCal = nullptr;
+    m_evtDispGeomCEMC    = nullptr;
+    m_evtDispGeomIHCal   = nullptr;
+    m_evtDispGeomOHCal   = nullptr;
 
-  if (isSim && (Verbosity() >= 50) && !m_evtDispPermanentlyDisabled)
-  {
-    m_evtDispEnabled     = true;
-    m_evtDispEverEnabled = true;
-
-    if (Verbosity() >= 50)
+    if (isSim && m_evtDiagEnabled)
     {
-      LOG(0, CLR_YELLOW,
-          "    [EventDisplay] fetchNodes: attempting to enable (Verbosity=" << Verbosity()
-          << ", jetKey=" << m_evtDispJetKey
-          << ", outBase=" << m_evtDispOutBase << ")");
-    }
-
-      // Required: EventHeader for run/event tags
-      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(EventHeader) BEGIN");
       m_evtHeader = findNode::getClass<EventHeader>(top, "EventHeader");
-      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(EventHeader) END  -> " << (m_evtHeader ? "OK" : "MISSING"));
-
-      // Tower containers: prefer per-calo CALIB nodes
-      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(TOWERINFO_CALIB_CEMC) BEGIN");
       m_evtDispTowersCEMC  = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_CEMC");
-      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(TOWERINFO_CALIB_CEMC) END  -> " << (m_evtDispTowersCEMC ? "OK" : "MISSING"));
-
-      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(TOWERINFO_CALIB_HCALIN) BEGIN");
       m_evtDispTowersIHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALIN");
-      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(TOWERINFO_CALIB_HCALIN) END  -> " << (m_evtDispTowersIHCal ? "OK" : "MISSING"));
-
-      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(TOWERINFO_CALIB_HCALOUT) BEGIN");
       m_evtDispTowersOHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALOUT");
-      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(TOWERINFO_CALIB_HCALOUT) END  -> " << (m_evtDispTowersOHCal ? "OK" : "MISSING"));
+      m_evtDispGeomCEMC    = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_CEMC");
+      m_evtDispGeomIHCal   = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALIN");
+      m_evtDispGeomOHCal   = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALOUT");
 
-      // NOTE:
-      // Do NOT try findNode::getClass<TowerInfoContainer>(..., "TOWERINFO_CALIB") here.
-      // In the SIM node-tree, "TOWERINFO_CALIB" is a PHCompositeNode under DST/ANTIKT/TOWERINFO_CALIB
-      // (containing jet containers like AntiKt_Tower_r02_RAW), NOT a TowerInfoContainer IO node.
-      // Attempting to getClass<TowerInfoContainer> on that name can segfault.
-      //
-      // We therefore rely ONLY on the per-calo nodes:
-      //   TOWERINFO_CALIB_CEMC / TOWERINFO_CALIB_HCALIN / TOWERINFO_CALIB_HCALOUT
-      // If any are missing, EventDisplay mode will be disabled by the 'missing' check below.
+      const bool missing =
+          (!m_evtHeader ||
+           !m_evtDispTowersCEMC || !m_evtDispTowersIHCal || !m_evtDispTowersOHCal ||
+           !m_evtDispGeomCEMC   || !m_evtDispGeomIHCal   || !m_evtDispGeomOHCal);
 
-      // Geometry containers (convert ieta/iphi → η/φ)
-      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(TOWERGEOM_CEMC) BEGIN");
-      m_evtDispGeomCEMC  = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_CEMC");
-      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(TOWERGEOM_CEMC) END  -> " << (m_evtDispGeomCEMC ? "OK" : "MISSING"));
-
-      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(TOWERGEOM_HCALIN) BEGIN");
-      m_evtDispGeomIHCal = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALIN");
-      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(TOWERGEOM_HCALIN) END  -> " << (m_evtDispGeomIHCal ? "OK" : "MISSING"));
-
-      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(TOWERGEOM_HCALOUT) BEGIN");
-      m_evtDispGeomOHCal = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALOUT");
-      LOG(0, CLR_YELLOW, "    [EventDisplay] fetchNodes: getClass(TOWERGEOM_HCALOUT) END  -> " << (m_evtDispGeomOHCal ? "OK" : "MISSING"));
-
-    const bool missing =
-        (!m_evtHeader ||
-         !m_evtDispTowersCEMC || !m_evtDispTowersIHCal || !m_evtDispTowersOHCal ||
-         !m_evtDispGeomCEMC || !m_evtDispGeomIHCal || !m_evtDispGeomOHCal);
-
-    if (Verbosity() >= 50)
-    {
-      LOG(0, CLR_YELLOW, "    [EventDisplay] node status:"
-                         << " EventHeader="       << (m_evtHeader ? "OK" : "MISSING")
-                         << " | TOWERINFO_CALIB_CEMC="  << (m_evtDispTowersCEMC ? "OK" : "MISSING")
-                         << " | TOWERINFO_CALIB_HCALIN="<< (m_evtDispTowersIHCal ? "OK" : "MISSING")
-                         << " | TOWERINFO_CALIB_HCALOUT="<< (m_evtDispTowersOHCal ? "OK" : "MISSING")
-                         << " | TOWERGEOM_CEMC="   << (m_evtDispGeomCEMC ? "OK" : "MISSING")
-                         << " | TOWERGEOM_HCALIN=" << (m_evtDispGeomIHCal ? "OK" : "MISSING")
-                         << " | TOWERGEOM_HCALOUT="<< (m_evtDispGeomOHCal ? "OK" : "MISSING"));
-    }
-
-    if (missing)
-    {
-      if (!m_evtDispMissingNodesWarned)
+      if (!missing)
       {
-        LOG(0, CLR_YELLOW, "[EventDisplay] disabled: missing required node(s) for test mode");
-        LOG(0, CLR_YELLOW, "  EventHeader       : " << (m_evtHeader ? "OK" : "MISSING"));
-        LOG(0, CLR_YELLOW, "  TOWERINFO_CALIB_CEMC   : " << (m_evtDispTowersCEMC ? "OK" : "MISSING"));
-        LOG(0, CLR_YELLOW, "  TOWERINFO_CALIB_HCALIN : " << (m_evtDispTowersIHCal ? "OK" : "MISSING"));
-        LOG(0, CLR_YELLOW, "  TOWERINFO_CALIB_HCALOUT: " << (m_evtDispTowersOHCal ? "OK" : "MISSING"));
-        LOG(0, CLR_YELLOW, "  TOWERGEOM_CEMC    : " << (m_evtDispGeomCEMC ? "OK" : "MISSING"));
-        LOG(0, CLR_YELLOW, "  TOWERGEOM_HCALIN  : " << (m_evtDispGeomIHCal ? "OK" : "MISSING"));
-        LOG(0, CLR_YELLOW, "  TOWERGEOM_HCALOUT : " << (m_evtDispGeomOHCal ? "OK" : "MISSING"));
-        LOG(0, CLR_YELLOW, "[EventDisplay] Normal analysis continues unchanged; only the Verbosity>=50 PNG output is disabled.");
-        m_evtDispMissingNodesWarned = true;
+        m_evtDiagNodesReady = true;
       }
-
-      // Disable only EventDisplay mode
-      m_evtDispEnabled             = false;
-      m_evtDispPermanentlyDisabled = true;
-    }
-    else
-    {
-      if (Verbosity() >= 50)
+      else
       {
-        LOG(0, CLR_GREEN, "    [EventDisplay] enabled for this event");
+        static bool s_warned_once = false;
+        if (!s_warned_once)
+        {
+          LOG(1, CLR_YELLOW, "[EventDisplayTree] disabled: missing required node(s) for diagnostics payload");
+          LOG(1, CLR_YELLOW, "  EventHeader            : " << (m_evtHeader ? "OK" : "MISSING"));
+          LOG(1, CLR_YELLOW, "  TOWERINFO_CALIB_CEMC   : " << (m_evtDispTowersCEMC ? "OK" : "MISSING"));
+          LOG(1, CLR_YELLOW, "  TOWERINFO_CALIB_HCALIN : " << (m_evtDispTowersIHCal ? "OK" : "MISSING"));
+          LOG(1, CLR_YELLOW, "  TOWERINFO_CALIB_HCALOUT: " << (m_evtDispTowersOHCal ? "OK" : "MISSING"));
+          LOG(1, CLR_YELLOW, "  TOWERGEOM_CEMC         : " << (m_evtDispGeomCEMC ? "OK" : "MISSING"));
+          LOG(1, CLR_YELLOW, "  TOWERGEOM_HCALIN       : " << (m_evtDispGeomIHCal ? "OK" : "MISSING"));
+          LOG(1, CLR_YELLOW, "  TOWERGEOM_HCALOUT      : " << (m_evtDispGeomOHCal ? "OK" : "MISSING"));
+          s_warned_once = true;
+        }
       }
     }
-  }
 
   return true;
 }
@@ -866,21 +796,6 @@ int RecoilJets::InitRun(PHCompositeNode* /*topNode*/)
   }
 
     // -------------------------------------------------------------------------
-    // EventDisplay test mode initialization (Verbosity() >= 50, SIM only)
-    // (Nodes are fetched in fetchNodes(); InitRun should not touch them.)
-    // -------------------------------------------------------------------------
-    resetEventDisplayState();
-
-    // Allow overriding output directory via environment (useful for local eventDisplay runs).
-    if (const char* outdir = gSystem->Getenv("RJ_EVENT_DISPLAY_OUTDIR"))
-    {
-        if (std::string(outdir).size() > 0)
-        {
-          m_evtDispOutBase = std::string(outdir);
-        }
-    }
-
-    // -------------------------------------------------------------------------
     // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
     //
     // Enable via either:
@@ -900,10 +815,13 @@ int RecoilJets::InitRun(PHCompositeNode* /*topNode*/)
       m_evtDiagMaxPerBin = std::max(0, std::atoi(n));
     }
 
+    m_evtDiagSavedPerBin.clear();
+
     if (m_evtDiagEnabled)
     {
       initEventDisplayDiagnosticsTree();
     }
+
 
     LOG(1, CLR_BLUE, "[InitRun] InitRun completed successfully");
     return Fun4AllReturnCodes::EVENT_OK;
@@ -1426,12 +1344,6 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
   }
 
   processCandidates(topNode, activeTrig);
-
-  if (m_evtDispEnabled && m_evtDispAllDone)
-  {
-      LOG(1, CLR_YELLOW, "  [EventDisplay] All requested displays filled; aborting run early.");
-      return Fun4AllReturnCodes::ABORTRUN;
-  }
 
   ++m_bk.evt_accepted;
   LOG(4, CLR_GREEN, "  [process_event] – completed OK");
@@ -1978,12 +1890,19 @@ int RecoilJets::End(PHCompositeNode*)
   if (Verbosity() >= 1)
     std::cout << "\nOutput ROOT file →  " << out->GetName() << "\n\n";
 
-  info(1, "writing TFile footer and closing (" + std::to_string(nHistWritten)
-             + " / " + std::to_string(nHistExpected) + " objects written)");
+    info(1, "writing TFile footer and closing (" + std::to_string(nHistWritten)
+               + " / " + std::to_string(nHistExpected) + " objects written)");
 
-  try
-  {
-    out->Close();
+  // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
+  if (m_evtDiagTree)
+    {
+      out->cd();
+      m_evtDiagTree->Write("", TObject::kOverwrite);
+    }
+
+    try
+    {
+      out->Close();
   }
   catch (const std::exception& e)
   {
@@ -1992,72 +1911,6 @@ int RecoilJets::End(PHCompositeNode*)
 
   delete out;
   out = nullptr;
-
-  //--------------------------------------------------------------------
-  // EventDisplay test-mode summary (Verbosity() >= 50, SIM only)
-  //--------------------------------------------------------------------
-  if (m_evtDispEverEnabled)
-  {
-      std::cout << "\n[EventDisplay] output base: " << m_evtDispOutBase << "\n";
-      const int nPtBins = static_cast<int>(m_gammaPtBins.size()) - 1;
-
-      if (nPtBins > 0 && static_cast<int>(m_evtDispDone.size()) == nPtBins)
-      {
-        int nDone = 0;
-        const int nNeed = nPtBins * 3;
-
-        for (int ipt = 0; ipt < nPtBins; ++ipt)
-        {
-          for (int icat = 0; icat < 3; ++icat)
-          {
-            if (m_evtDispDone[ipt][icat]) ++nDone;
-          }
-        }
-
-        std::cout << "[EventDisplay] completion: " << nDone << " / " << nNeed
-                  << " (pT#gamma bins=" << nPtBins << " x categories=3)\n";
-
-        for (int ipt = 0; ipt < nPtBins; ++ipt)
-        {
-          const double lo = m_gammaPtBins[ipt];
-          const double hi = m_gammaPtBins[ipt + 1];
-
-          std::ostringstream miss;
-          bool anyMissing = false;
-
-          if (!m_evtDispDone[ipt][static_cast<int>(EventDisplayCat::NUM)])
-          {
-            miss << " NUM";
-            anyMissing = true;
-          }
-          if (!m_evtDispDone[ipt][static_cast<int>(EventDisplayCat::MissA)])
-          {
-            miss << " MissA";
-            anyMissing = true;
-          }
-          if (!m_evtDispDone[ipt][static_cast<int>(EventDisplayCat::MissB)])
-          {
-            miss << " MissB";
-            anyMissing = true;
-          }
-
-          if (anyMissing)
-          {
-            std::cout << "[EventDisplay] missing pT#gamma bin [" << lo << ", " << hi << "):" << miss.str() << "\n";
-          }
-        }
-
-        if (m_evtDispAllDone)
-          std::cout << "[EventDisplay] all requested displays were produced; run ended early.\n";
-        else
-          std::cout << "[EventDisplay] WARNING: not all requested displays were found before input ended.\n";
-      }
-      else
-      {
-        std::cout << "[EventDisplay] WARNING: no pT#gamma bins configured (or internal state mismatch).\n";
-      }
-      std::cout << std::endl;
-  }
 
   info(0, "Done.");
   return Fun4AllReturnCodes::EVENT_OK;
@@ -2296,10 +2149,10 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
           }
 
           // -------------------------------------------------------------------------
-          // EventDisplay test mode (Verbosity() >= 50, SIM only)
-          // Capture one event per (pTγ bin × {NUM,MissA,MissB}) for a single rKey.
+          // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
+          // One entry per (event, rKey) when enabled.
           // -------------------------------------------------------------------------
-          if (m_evtDispEnabled && !m_evtDispAllDone && (rKey == m_evtDispJetKey))
+          if (m_evtDiagEnabled && m_evtDiagNodesReady)
           {
             const int ptBin = findPtBin(tPt);
 
@@ -2313,26 +2166,11 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
               cat = EventDisplayCat::MissA;
             }
 
-            if (ptBin >= 0 && eventDisplayNeed(ptBin, cat))
+            if (ptBin >= 0 && eventDisplayDiagnosticsNeed(rKey, ptBin, cat))
             {
-              // Only write if we have something meaningful to display.
-              const Jet* jetForDisplay = recoil1Jet;
-              if (!jetForDisplay && cat == EventDisplayCat::MissA)
-              {
-                jetForDisplay = rjTruthBest;
-              }
-
-              if (jetForDisplay)
-              {
-                writeEventDisplayPNG(rKey, ptBin, cat, tPt, recoil1Jet, rjTruthBest, tjLead);
-                eventDisplayMarkDone(ptBin, cat);
-                if (eventDisplayAllDone())
-                {
-                  m_evtDispAllDone = true;
-                }
-              }
-           }
-        }
+              fillEventDisplayDiagnostics(rKey, ptBin, cat, tPt, tPhi, leadPtGamma, recoil1Jet, rjTruthBest, tjLead);
+            }
+          }
 
         // ------------------------------------------------------------------
         // diagnostics (SIM-only): characterize the selected recoilJet1 in each class.
@@ -5080,448 +4918,348 @@ std::string RecoilJets::suffixForBins(int ptIdx, int centIdx) const
   return s.str();
 }
 
-const char* RecoilJets::eventDisplayCatName(EventDisplayCat cat) const
+void RecoilJets::initEventDisplayDiagnosticsTree()
 {
-  switch (cat)
+  if (!m_evtDiagEnabled)
   {
-  case EventDisplayCat::NUM:
-    return "NUM";
-  case EventDisplayCat::MissA:
-    return "MissA";
-  case EventDisplayCat::MissB:
-    return "MissB";
+    return;
   }
-  return "Unknown";
-}
-
-void RecoilJets::resetEventDisplayState()
-{
-  m_evtDispEnabled             = false;
-  m_evtDispPermanentlyDisabled = false;
-  m_evtDispMissingNodesWarned  = false;
-  m_evtDispAllDone             = false;
-  m_evtDispEverEnabled         = false;
-
-  m_evtHeader          = nullptr;
-  m_evtDispTowersCEMC  = nullptr;
-  m_evtDispTowersIHCal = nullptr;
-  m_evtDispTowersOHCal = nullptr;
-  m_evtDispGeomCEMC    = nullptr;
-  m_evtDispGeomIHCal   = nullptr;
-  m_evtDispGeomOHCal   = nullptr;
-
-  const int nPtBins = std::max(0, (int)m_gammaPtBins.size() - 1);
-  m_evtDispDone.clear();
-  m_evtDispDone.resize(nPtBins);
-  for (auto& a : m_evtDispDone)
+  if (m_evtDiagTree)
   {
-    a = {false, false, false};
+    return;
   }
-}
-
-bool RecoilJets::eventDisplayNeed(int ptBin, EventDisplayCat cat) const
-{
-  const int icat = (int)cat;
-  if (ptBin < 0 || ptBin >= (int)m_evtDispDone.size()) return false;
-  if (icat < 0 || icat >= 3) return false;
-  return !m_evtDispDone[ptBin][icat];
-}
-
-void RecoilJets::eventDisplayMarkDone(int ptBin, EventDisplayCat cat)
-{
-  const int icat = (int)cat;
-  if (ptBin < 0 || ptBin >= (int)m_evtDispDone.size()) return;
-  if (icat < 0 || icat >= 3) return;
-  m_evtDispDone[ptBin][icat] = true;
-}
-
-bool RecoilJets::eventDisplayAllDone() const
-{
-  if (m_evtDispDone.empty()) return false;
-  for (const auto& a : m_evtDispDone)
+  if (!out || !out->IsOpen())
   {
-    if (!(a[0] && a[1] && a[2])) return false;
+    return;
   }
+
+  out->cd();
+
+  m_evtDiagTree = new TTree("EventDisplayTree",
+                            "EventDisplay diagnostics per event per jet radius (offline rendering)");
+  m_evtDiagTree->SetDirectory(out);
+
+  m_evtDiagTree->Branch("run", &m_evtDiag_run, "run/I");
+  m_evtDiagTree->Branch("evt", &m_evtDiag_evt, "evt/I");
+  m_evtDiagTree->Branch("event_count", &m_evtDiag_eventCount, "event_count/L");
+  m_evtDiagTree->Branch("vz", &m_evtDiag_vz, "vz/F");
+
+  m_evtDiagTree->Branch("rKey", &m_evtDiag_rKey);
+  m_evtDiagTree->Branch("ptBin", &m_evtDiag_ptBin, "ptBin/I");
+  m_evtDiagTree->Branch("cat", &m_evtDiag_cat, "cat/I");
+
+  m_evtDiagTree->Branch("ptGammaTruth", &m_evtDiag_ptGammaTruth, "ptGammaTruth/F");
+  m_evtDiagTree->Branch("phiGammaTruth", &m_evtDiag_phiGammaTruth, "phiGammaTruth/F");
+  m_evtDiagTree->Branch("ptGammaReco", &m_evtDiag_ptGammaReco, "ptGammaReco/F");
+
+  m_evtDiagTree->Branch("sel_pt", &m_evtDiag_sel_pt, "sel_pt/F");
+  m_evtDiagTree->Branch("sel_eta", &m_evtDiag_sel_eta, "sel_eta/F");
+  m_evtDiagTree->Branch("sel_phi", &m_evtDiag_sel_phi, "sel_phi/F");
+
+  m_evtDiagTree->Branch("best_pt", &m_evtDiag_best_pt, "best_pt/F");
+  m_evtDiagTree->Branch("best_eta", &m_evtDiag_best_eta, "best_eta/F");
+  m_evtDiagTree->Branch("best_phi", &m_evtDiag_best_phi, "best_phi/F");
+
+  m_evtDiagTree->Branch("truthLead_pt", &m_evtDiag_truthLead_pt, "truthLead_pt/F");
+  m_evtDiagTree->Branch("truthLead_eta", &m_evtDiag_truthLead_eta, "truthLead_eta/F");
+  m_evtDiagTree->Branch("truthLead_phi", &m_evtDiag_truthLead_phi, "truthLead_phi/F");
+
+  m_evtDiagTree->Branch("drSelToTruthLead", &m_evtDiag_drSelToTruthLead, "drSelToTruthLead/F");
+  m_evtDiagTree->Branch("drBestToTruthLead", &m_evtDiag_drBestToTruthLead, "drBestToTruthLead/F");
+
+  m_evtDiagTree->Branch("sel_calo", &m_evtDiag_sel_calo);
+  m_evtDiagTree->Branch("sel_ieta", &m_evtDiag_sel_ieta);
+  m_evtDiagTree->Branch("sel_iphi", &m_evtDiag_sel_iphi);
+  m_evtDiagTree->Branch("sel_etaTower", &m_evtDiag_sel_etaTower);
+  m_evtDiagTree->Branch("sel_phiTower", &m_evtDiag_sel_phiTower);
+  m_evtDiagTree->Branch("sel_etTower", &m_evtDiag_sel_etTower);
+  m_evtDiagTree->Branch("sel_eTower", &m_evtDiag_sel_eTower);
+
+  m_evtDiagTree->Branch("best_calo", &m_evtDiag_best_calo);
+  m_evtDiagTree->Branch("best_ieta", &m_evtDiag_best_ieta);
+  m_evtDiagTree->Branch("best_iphi", &m_evtDiag_best_iphi);
+  m_evtDiagTree->Branch("best_etaTower", &m_evtDiag_best_etaTower);
+  m_evtDiagTree->Branch("best_phiTower", &m_evtDiag_best_phiTower);
+  m_evtDiagTree->Branch("best_etTower", &m_evtDiag_best_etTower);
+  m_evtDiagTree->Branch("best_eTower", &m_evtDiag_best_eTower);
+}
+
+void RecoilJets::resetEventDisplayDiagnosticsBuffers()
+{
+  m_evtDiag_run        = 0;
+  m_evtDiag_evt        = 0;
+  m_evtDiag_eventCount = 0;
+  m_evtDiag_vz         = 0.0f;
+
+  m_evtDiag_rKey.clear();
+  m_evtDiag_ptBin = -1;
+  m_evtDiag_cat   = -1;
+
+  m_evtDiag_ptGammaTruth  = 0.0f;
+  m_evtDiag_phiGammaTruth = 0.0f;
+  m_evtDiag_ptGammaReco   = 0.0f;
+
+  m_evtDiag_sel_pt  = 0.0f;
+  m_evtDiag_sel_eta = 0.0f;
+  m_evtDiag_sel_phi = 0.0f;
+
+  m_evtDiag_best_pt  = 0.0f;
+  m_evtDiag_best_eta = 0.0f;
+  m_evtDiag_best_phi = 0.0f;
+
+  m_evtDiag_truthLead_pt  = 0.0f;
+  m_evtDiag_truthLead_eta = 0.0f;
+  m_evtDiag_truthLead_phi = 0.0f;
+
+  m_evtDiag_drSelToTruthLead  = -1.0f;
+  m_evtDiag_drBestToTruthLead = -1.0f;
+
+  m_evtDiag_sel_calo.clear();
+  m_evtDiag_sel_ieta.clear();
+  m_evtDiag_sel_iphi.clear();
+  m_evtDiag_sel_etaTower.clear();
+  m_evtDiag_sel_phiTower.clear();
+  m_evtDiag_sel_etTower.clear();
+  m_evtDiag_sel_eTower.clear();
+
+  m_evtDiag_best_calo.clear();
+  m_evtDiag_best_ieta.clear();
+  m_evtDiag_best_iphi.clear();
+  m_evtDiag_best_etaTower.clear();
+  m_evtDiag_best_phiTower.clear();
+  m_evtDiag_best_etTower.clear();
+  m_evtDiag_best_eTower.clear();
+}
+
+bool RecoilJets::eventDisplayDiagnosticsNeed(const std::string& rKey, int ptBin, EventDisplayCat cat)
+{
+  if (m_evtDiagMaxPerBin <= 0)
+  {
+    return true;
+  }
+
+  std::ostringstream oss;
+  oss << rKey << "_ptBin" << ptBin << "_cat" << static_cast<int>(cat);
+  const std::string key = oss.str();
+
+  int& n = m_evtDiagSavedPerBin[key];
+  if (n >= m_evtDiagMaxPerBin)
+  {
+    return false;
+  }
+  ++n;
   return true;
 }
 
-void RecoilJets::writeEventDisplayPNG(const std::string& rKey,
-                                     int ptBin,
-                                     EventDisplayCat cat,
-                                     double truthGammaPt,
-                                     const Jet* selectedRecoilJet,
-                                     const Jet* recoTruthBest,
-                                     const Jet* truthLeadRecoilJet)
+void RecoilJets::appendEventDisplayDiagnosticsFromJet(const Jet* jet,
+                                                      std::vector<int>& calo,
+                                                      std::vector<int>& ieta,
+                                                      std::vector<int>& iphi,
+                                                      std::vector<float>& eta,
+                                                      std::vector<float>& phi,
+                                                      std::vector<float>& et,
+                                                      std::vector<float>& e) const
 {
-  // This function is only meant to run in EventDisplay test mode.
-  if (!m_evtDispEnabled)
+  if (!jet)
   {
-    if (Verbosity() >= 50)
-      LOG(0, CLR_YELLOW, "[EventDisplay] writeEventDisplayPNG called but m_evtDispEnabled=false → return");
     return;
   }
 
-  const std::string catName = eventDisplayCatName(cat);
+  // Jet::get_comp_vec() is non-const in Jet interface; we only READ, so const_cast is safe here.
+  Jet::TYPE_comp_vec& comp_vec = const_cast<Jet*>(jet)->get_comp_vec();
 
-  // Required nodes (fetched in fetchNodes only when Verbosity() >= 50 and SIM)
-  if (!m_evtHeader ||
-      !m_evtDispTowersCEMC || !m_evtDispTowersIHCal || !m_evtDispTowersOHCal ||
-      !m_evtDispGeomCEMC   || !m_evtDispGeomIHCal   || !m_evtDispGeomOHCal)
+  for (const auto& comp : comp_vec)
   {
-    LOG(0, CLR_YELLOW, "[EventDisplay] writeEventDisplayPNG disabled for this event: missing required nodes");
-    LOG(0, CLR_YELLOW, "  EventHeader=" << (m_evtHeader ? "OK" : "MISSING")
-                       << " | Towers(CEMC/IHCal/OHCal)="
-                       << ((m_evtDispTowersCEMC && m_evtDispTowersIHCal && m_evtDispTowersOHCal) ? "OK" : "MISSING")
-                       << " | Geom(CEMC/IHCal/OHCal)="
-                       << ((m_evtDispGeomCEMC && m_evtDispGeomIHCal && m_evtDispGeomOHCal) ? "OK" : "MISSING"));
-    return;
-  }
+    const unsigned int idx = comp.second;
 
-  const int run = m_evtHeader->get_RunNumber();
-  const int evt = m_evtHeader->get_EvtSequence();
+    TowerInfoContainer* towers = nullptr;
+    RawTowerGeomContainer* geom = nullptr;
+    RawTowerDefs::CalorimeterId caloId = RawTowerDefs::CalorimeterId::CEMC;
+    int caloCode = -1;
 
-  const double lo = (ptBin >= 0 && ptBin + 1 < (int)m_gammaPtBins.size()) ? m_gammaPtBins[ptBin] : 0.0;
-  const double hi = (ptBin >= 0 && ptBin + 1 < (int)m_gammaPtBins.size()) ? m_gammaPtBins[ptBin + 1] : 0.0;
-
-  auto fmtEdge = [](double x) -> std::string
-  {
-    std::ostringstream ss;
-    const double xr = std::round(x);
-    if (std::fabs(x - xr) < 1e-6) ss << (int)xr;
-    else                          ss << std::fixed << std::setprecision(1) << x;
-    return ss.str();
-  };
-
-  if (Verbosity() >= 50)
-  {
-    LOG(0, CLR_YELLOW,
-        "[EventDisplay] begin writeEventDisplayPNG:"
-        << " cat=" << catName
-        << " rKey=" << rKey
-        << " run=" << run
-        << " evt=" << evt
-        << " ptBin=[" << fmtEdge(lo) << "," << fmtEdge(hi) << ")"
-        << " tPt=" << std::fixed << std::setprecision(2) << truthGammaPt
-        << " jets(sel/best/truthLead)="
-        << (selectedRecoilJet ? "Y" : "N") << "/"
-        << (recoTruthBest ? "Y" : "N") << "/"
-        << (truthLeadRecoilJet ? "Y" : "N"));
-  }
-
-  const std::string outDir = m_evtDispOutBase + "/" + catName;
-  gSystem->mkdir(outDir.c_str(), true);
-
-  std::ostringstream fn;
-  fn << outDir << "/ptg_" << fmtEdge(lo) << "_" << fmtEdge(hi)
-     << "_run" << run
-     << "_evt" << std::setw(6) << std::setfill('0') << evt
-     << "_" << rKey << ".png";
-  const std::string outFile = fn.str();
-
-  if (Verbosity() >= 50)
-    LOG(0, CLR_YELLOW, "[EventDisplay] output file: " << outFile);
-
-  const bool wantTwoPanel =
-      (cat == EventDisplayCat::MissA &&
-       selectedRecoilJet && recoTruthBest &&
-       selectedRecoilJet != recoTruthBest);
-
-  // Draw option (default preserves your intended output)
-  // You can override to safer 2D rendering with:
-  //   export RJ_EVENT_DISPLAY_DRAW=COLZ
-  std::string drawOpt = "LEGO2";
-  if (const char* d = gSystem->Getenv("RJ_EVENT_DISPLAY_DRAW"))
-  {
-    const std::string ds = d ? std::string(d) : std::string{};
-    if (!ds.empty()) drawOpt = ds;
-  }
-  if (Verbosity() >= 50)
-    LOG(0, CLR_YELLOW, "[EventDisplay] draw option = " << drawOpt << " (set RJ_EVENT_DISPLAY_DRAW to override)");
-
-  auto makeHist = [&](const std::string& tag) -> TH2F*
-  {
-    std::ostringstream name;
-    name << "hEvtDisp_" << tag << "_run" << run << "_evt" << evt << "_" << rKey;
-
-    TH2F* h = new TH2F(name.str().c_str(), "",
-                       64, -M_PI, M_PI,
-                       48, -1.1, 1.1);
-    h->SetDirectory(nullptr);
-    h->GetXaxis()->SetTitle("#phi");
-    h->GetYaxis()->SetTitle("#eta");
-    h->GetZaxis()->SetTitle("Tower E_{T} [GeV]");
-    h->SetStats(false);
-    return h;
-  };
-
-  struct FillStats
-  {
-    long nComp = 0;
-    long nUse  = 0;
-    long nSkipUnknown = 0;
-    long nSkipNoTower = 0;
-    long nSkipNoGeom  = 0;
-    long nSkipBadR    = 0;
-    long nSkipNonFinite=0;
-  };
-
-  auto fillFromJet = [&](const Jet* jet, TH2F* h, const std::string& label)->FillStats
-  {
-    FillStats S;
-
-    if (!jet || !h)
+    if (comp.first == Jet::CEMC_TOWERINFO_RETOWER)
     {
-      if (Verbosity() >= 50)
-        LOG(0, CLR_YELLOW, "[EventDisplay] fillFromJet(" << label << "): jet/h null → skip");
-      return S;
+      towers = m_evtDispTowersCEMC;
+      geom   = m_evtDispGeomCEMC;
+      caloId = RawTowerDefs::CalorimeterId::CEMC;
+      caloCode = 0;
     }
-
-    // Jet::get_comp_vec() is non-const in Jet interface; we only READ, so const_cast is safe here.
-    Jet::TYPE_comp_vec& comp_vec = const_cast<Jet*>(jet)->get_comp_vec();
-    S.nComp = (long)comp_vec.size();
-
-    for (const auto& comp : comp_vec)
+    else if (comp.first == Jet::HCALIN_TOWERINFO)
     {
-      RawTowerGeomContainer* geom = nullptr;
-      TowerInfoContainer* towers  = nullptr;
-      RawTowerDefs::CalorimeterId calo = RawTowerDefs::CalorimeterId::CEMC;
-
-      if (comp.first == Jet::CEMC_TOWERINFO_RETOWER)
-      {
-        geom   = m_evtDispGeomCEMC;
-        towers = m_evtDispTowersCEMC;
-        calo   = RawTowerDefs::CalorimeterId::CEMC;
-      }
-      else if (comp.first == Jet::HCALIN_TOWERINFO)
-      {
-        geom   = m_evtDispGeomIHCal;
-        towers = m_evtDispTowersIHCal;
-        calo   = RawTowerDefs::CalorimeterId::HCALIN;
-      }
-      else if (comp.first == Jet::HCALOUT_TOWERINFO)
-      {
-        geom   = m_evtDispGeomOHCal;
-        towers = m_evtDispTowersOHCal;
-        calo   = RawTowerDefs::CalorimeterId::HCALOUT;
-      }
-      else
-      {
-        ++S.nSkipUnknown;
-        continue;
-      }
-
-      const unsigned int index = comp.second;
-
-      TowerInfo* tower = (towers ? towers->get_tower_at_channel(index) : nullptr);
-      if (!tower)
-      {
-        ++S.nSkipNoTower;
-        continue;
-      }
-
-      const unsigned int calokey = towers->encode_key(index);
-      const int ieta = towers->getTowerEtaBin(calokey);
-      const int iphi = towers->getTowerPhiBin(calokey);
-
-      const RawTowerDefs::keytype key = RawTowerDefs::encode_towerid(calo, ieta, iphi);
-      RawTowerGeom* tower_geom = (geom ? geom->get_tower_geometry(key) : nullptr);
-      if (!tower_geom)
-      {
-        ++S.nSkipNoGeom;
-        continue;
-      }
-
-      const double x = tower_geom->get_center_x();
-      const double y = tower_geom->get_center_y();
-      const double r = std::sqrt(x * x + y * y);
-      if (!(r > 0))
-      {
-        ++S.nSkipBadR;
-        continue;
-      }
-
-      const double phi = std::atan2(y, x);
-
-      // Vertex-z correction
-      const double eta0 = tower_geom->get_eta();
-      const double z0   = std::sinh(eta0) * r;
-      const double z    = z0 - m_vz;
-      const double eta  = std::asinh(z / r);
-
-      const double E  = tower->get_energy();
-      const double Et = E / std::cosh(eta);
-
-      if (!std::isfinite(Et) || Et == 0.0)
-      {
-        ++S.nSkipNonFinite;
-        continue;
-      }
-
-      h->Fill(phi, eta, Et);
-      ++S.nUse;
+      towers = m_evtDispTowersIHCal;
+      geom   = m_evtDispGeomIHCal;
+      caloId = RawTowerDefs::CalorimeterId::HCALIN;
+      caloCode = 1;
     }
-
-    if (Verbosity() >= 50)
+    else if (comp.first == Jet::HCALOUT_TOWERINFO)
     {
-      LOG(0, CLR_YELLOW,
-          "[EventDisplay] fillFromJet(" << label << "):"
-          << " nComp=" << S.nComp
-          << " nUse="  << S.nUse
-          << " skipUnknown=" << S.nSkipUnknown
-          << " skipNoTower=" << S.nSkipNoTower
-          << " skipNoGeom="  << S.nSkipNoGeom
-          << " skipBadR="    << S.nSkipBadR
-          << " skipNonFinite=" << S.nSkipNonFinite);
-    }
-
-    return S;
-  };
-
-  auto drawPanel = [&](TPad* pad, TH2F* h, const Jet* mainJet, const std::string& subtitle)
-  {
-    if (!pad || !h)
-    {
-      LOG(0, CLR_YELLOW, "[EventDisplay] drawPanel: pad/h null → return");
-      return;
-    }
-
-    pad->cd();
-    pad->SetLeftMargin(0.12);
-    pad->SetBottomMargin(0.12);
-    pad->SetRightMargin(0.20);
-    pad->SetTopMargin(0.08);
-
-    // Draw: default LEGO2, optional override to COLZ (safer in batch)
-    if (drawOpt == "COLZ")
-    {
-      h->SetContour(99);
-      h->Draw("COLZ");
+      towers = m_evtDispTowersOHCal;
+      geom   = m_evtDispGeomOHCal;
+      caloId = RawTowerDefs::CalorimeterId::HCALOUT;
+      caloCode = 2;
     }
     else
     {
-      h->Draw("LEGO2");
-    }
-    pad->Update();
-
-    if (drawOpt != "COLZ")
-    {
-      if (TPaletteAxis* pal = (TPaletteAxis*)h->GetListOfFunctions()->FindObject("palette"))
-      {
-        pal->SetX1NDC(0.82);
-        pal->SetX2NDC(0.86);
-        pal->SetY1NDC(0.15);
-        pal->SetY2NDC(0.90);
-      }
+      continue;
     }
 
-    // Markers: main reco jet (29), truth lead jet (24), "other" reco jet in MissA (33)
-    auto markJet = [&](const Jet* j, int style, double size)
+    if (!towers || !geom)
     {
-      if (!j) return;
-      auto* m = new TMarker(j->get_phi(), j->get_eta(), style);
-      m->SetMarkerSize(size);
-      m->Draw();
-    };
-
-    markJet(mainJet, 29, 2.0);
-    markJet(truthLeadRecoilJet, 24, 1.6);
-
-    if (cat == EventDisplayCat::MissA && selectedRecoilJet && recoTruthBest && selectedRecoilJet != recoTruthBest)
-    {
-      const Jet* other = (mainJet == selectedRecoilJet) ? recoTruthBest : selectedRecoilJet;
-      markJet(other, 33, 1.6);
+      continue;
     }
 
-    TLatex tex;
-    tex.SetNDC();
-    tex.SetTextSize(0.035);
-
-    std::ostringstream l1;
-    l1 << "EventDisplay  " << catName << "  " << rKey << "  run " << run << "  evt " << evt;
-    tex.DrawLatex(0.12, 0.94, l1.str().c_str());
-
-    std::ostringstream l2;
-    l2 << "pT_{#gamma}^{truth} = " << std::fixed << std::setprecision(1) << truthGammaPt
-       << " GeV  (bin " << fmtEdge(lo) << "-" << fmtEdge(hi) << ")";
-    tex.DrawLatex(0.12, 0.89, l2.str().c_str());
-
-    if (!subtitle.empty())
+    TowerInfo* tower = towers->get_tower_at_channel(idx);
+    if (!tower)
     {
-      tex.DrawLatex(0.12, 0.84, subtitle.c_str());
+      continue;
     }
 
-    tex.SetTextSize(0.030);
-    tex.DrawLatex(0.12, 0.78, "Markers: 29=reco (shown), 24=truth lead, 33=other reco (MissA)");
+    const unsigned int calokey = towers->encode_key(idx);
+    const int twr_ieta = towers->getTowerEtaBin(calokey);
+    const int twr_iphi = towers->getTowerPhiBin(calokey);
+
+    RawTowerDefs::keytype key = RawTowerDefs::encode_towerid(caloId, twr_ieta, twr_iphi);
+    RawTowerGeom* tower_geom = geom->get_tower_geometry(key);
+    if (!tower_geom)
+    {
+      continue;
+    }
+
+    const double x = tower_geom->get_center_x();
+    const double y = tower_geom->get_center_y();
+    const double r = std::sqrt(x * x + y * y);
+    if (!(r > 0))
+    {
+      continue;
+    }
+
+    const double tower_phi = std::atan2(y, x);
+
+    const double eta0 = tower_geom->get_eta();
+    const double z0 = std::sinh(eta0) * r;
+    const double z = z0 - m_vz;
+    const double tower_eta = std::asinh(z / r);
+
+    const double E = tower->get_energy();
+    const double Et = E / std::cosh(tower_eta);
+
+    if (!std::isfinite(Et))
+    {
+      continue;
+    }
+
+    calo.push_back(caloCode);
+    ieta.push_back(twr_ieta);
+    iphi.push_back(twr_iphi);
+    eta.push_back(static_cast<float>(tower_eta));
+    phi.push_back(static_cast<float>(tower_phi));
+    et.push_back(static_cast<float>(Et));
+    e.push_back(static_cast<float>(E));
+  }
+}
+
+void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
+                                             int ptBin,
+                                             EventDisplayCat cat,
+                                             double truthGammaPt,
+                                             double truthGammaPhi,
+                                             double recoGammaPt,
+                                             const Jet* selectedRecoilJet,
+                                             const Jet* recoTruthBest,
+                                             const Jet* truthLeadRecoilJet)
+{
+  if (!m_evtDiagEnabled || !m_evtDiagNodesReady)
+  {
+    return;
+  }
+
+  initEventDisplayDiagnosticsTree();
+  if (!m_evtDiagTree)
+  {
+    return;
+  }
+
+  resetEventDisplayDiagnosticsBuffers();
+
+  if (m_evtHeader)
+  {
+    m_evtDiag_run = m_evtHeader->get_RunNumber();
+    m_evtDiag_evt = m_evtHeader->get_EvtSequence();
+  }
+  m_evtDiag_eventCount = event_count;
+  m_evtDiag_vz = static_cast<float>(m_vz);
+
+  m_evtDiag_rKey   = rKey;
+  m_evtDiag_ptBin  = ptBin;
+  m_evtDiag_cat    = static_cast<int>(cat);
+
+  m_evtDiag_ptGammaTruth  = static_cast<float>(truthGammaPt);
+  m_evtDiag_phiGammaTruth = static_cast<float>(truthGammaPhi);
+  m_evtDiag_ptGammaReco   = static_cast<float>(recoGammaPt);
+
+  if (selectedRecoilJet)
+  {
+    m_evtDiag_sel_pt  = static_cast<float>(selectedRecoilJet->get_pt());
+    m_evtDiag_sel_eta = static_cast<float>(selectedRecoilJet->get_eta());
+    m_evtDiag_sel_phi = static_cast<float>(selectedRecoilJet->get_phi());
+  }
+
+  if (recoTruthBest)
+  {
+    m_evtDiag_best_pt  = static_cast<float>(recoTruthBest->get_pt());
+    m_evtDiag_best_eta = static_cast<float>(recoTruthBest->get_eta());
+    m_evtDiag_best_phi = static_cast<float>(recoTruthBest->get_phi());
+  }
+
+  if (truthLeadRecoilJet)
+  {
+    m_evtDiag_truthLead_pt  = static_cast<float>(truthLeadRecoilJet->get_pt());
+    m_evtDiag_truthLead_eta = static_cast<float>(truthLeadRecoilJet->get_eta());
+    m_evtDiag_truthLead_phi = static_cast<float>(truthLeadRecoilJet->get_phi());
+  }
+
+  auto dR = [](double eta1, double phi1, double eta2, double phi2)
+  {
+    const double dphi = TVector2::Phi_mpi_pi(phi1 - phi2);
+    const double deta = eta1 - eta2;
+    return std::sqrt(deta * deta + dphi * dphi);
   };
 
-  // Build & draw
-  std::ostringstream cn;
-  cn << "c_evtDisp_run" << run << "_evt" << evt;
-  const std::string cname = cn.str();
-
-  TCanvas c(cname.c_str(), "", wantTwoPanel ? 1600 : 1000, 900);
-
-  if (wantTwoPanel)
+  if (selectedRecoilJet && truthLeadRecoilJet)
   {
-    if (Verbosity() >= 50)
-      LOG(0, CLR_YELLOW, "[EventDisplay] layout: TWO-PANEL (MissA) selectedJet vs truthBest");
-
-    c.Divide(2, 1, 0.0, 0.0);
-
-    TH2F* hSel  = makeHist("sel");
-    TH2F* hBest = makeHist("best");
-
-    fillFromJet(selectedRecoilJet, hSel,  "selectedRecoilJet");
-    fillFromJet(recoTruthBest,     hBest, "recoTruthBest");
-
-    drawPanel((TPad*)c.cd(1), hSel,  selectedRecoilJet, "Left: selected recoil1Jet (wrong-jet case)");
-    drawPanel((TPad*)c.cd(2), hBest, recoTruthBest,     "Right: truth-matched reco jet");
-
-    if (Verbosity() >= 50)
-      LOG(0, CLR_YELLOW, "[EventDisplay] saving canvas → " << outFile);
-
-    c.SaveAs(outFile.c_str());
-
-    delete hSel;
-    delete hBest;
-  }
-  else
-  {
-    const Jet* jetToShow = selectedRecoilJet ? selectedRecoilJet : recoTruthBest;
-    if (!jetToShow)
-    {
-      LOG(0, CLR_YELLOW, "[EventDisplay] No reco jet available to draw for " << catName
-                                                                             << " (run=" << run << ", evt=" << evt << ") → return");
-      return;
-    }
-
-    if (Verbosity() >= 50)
-      LOG(0, CLR_YELLOW, "[EventDisplay] layout: SINGLE-PANEL (jet=" << (selectedRecoilJet ? "selected" : "truthBest") << ")");
-
-    TH2F* h = makeHist("single");
-    fillFromJet(jetToShow, h, "jetToShow");
-
-    std::ostringstream sub;
-    sub << "Reco jet shown: " << (selectedRecoilJet ? "selected recoil1Jet" : "truth-matched reco jet");
-    drawPanel((TPad*)c.cd(), h, jetToShow, sub.str());
-
-    if (Verbosity() >= 50)
-      LOG(0, CLR_YELLOW, "[EventDisplay] saving canvas → " << outFile);
-
-    c.SaveAs(outFile.c_str());
-
-    delete h;
+    m_evtDiag_drSelToTruthLead = static_cast<float>(dR(selectedRecoilJet->get_eta(),
+                                                       selectedRecoilJet->get_phi(),
+                                                       truthLeadRecoilJet->get_eta(),
+                                                       truthLeadRecoilJet->get_phi()));
   }
 
-  // Confirm file exists (best-effort diagnostic)
-  if (gSystem->AccessPathName(outFile.c_str()) == false)
+  if (recoTruthBest && truthLeadRecoilJet)
   {
-    LOG(0, CLR_GREEN, "[EventDisplay] wrote " << outFile);
+    m_evtDiag_drBestToTruthLead = static_cast<float>(dR(recoTruthBest->get_eta(),
+                                                        recoTruthBest->get_phi(),
+                                                        truthLeadRecoilJet->get_eta(),
+                                                        truthLeadRecoilJet->get_phi()));
   }
-  else
-  {
-    LOG(0, CLR_YELLOW, "[EventDisplay] WARNING: SaveAs returned but file not visible on disk: " << outFile);
-  }
+
+  appendEventDisplayDiagnosticsFromJet(selectedRecoilJet,
+                                       m_evtDiag_sel_calo,
+                                       m_evtDiag_sel_ieta,
+                                       m_evtDiag_sel_iphi,
+                                       m_evtDiag_sel_etaTower,
+                                       m_evtDiag_sel_phiTower,
+                                       m_evtDiag_sel_etTower,
+                                       m_evtDiag_sel_eTower);
+
+  appendEventDisplayDiagnosticsFromJet(recoTruthBest,
+                                       m_evtDiag_best_calo,
+                                       m_evtDiag_best_ieta,
+                                       m_evtDiag_best_iphi,
+                                       m_evtDiag_best_etaTower,
+                                       m_evtDiag_best_phiTower,
+                                       m_evtDiag_best_etTower,
+                                       m_evtDiag_best_eTower);
+
+  m_evtDiagTree->Fill();
 }
 
 
