@@ -1044,7 +1044,7 @@ SUB
           (( ${#groups[@]} )) || { err "No sim groups produced (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG})"; exit 30; }
 
           stamp="$(date +%Y%m%d_%H%M%S)"
-          sub="${BASE}/RecoilJets_si./m_${SIM_CFG_TAG}_${SIM_SAMPLE}_${stamp}.sub"
+          sub="${BASE}/RecoilJets_sim_${SIM_CFG_TAG}_${SIM_SAMPLE}_${stamp}.sub"
 
           cat > "$sub" <<SUB
 universe      = vanilla
