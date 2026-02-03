@@ -178,8 +178,11 @@ namespace ARJ
   // True if the selected SIM sample is a weighted multi-slice merge (hist units become ~pb/bin)
   inline bool IsWeightedSIMSelected()
   {
-      return (bothPhoton5and10sim || bothPhoton5and20sim || bothPhoton10and20sim || allPhoton5and10and20sim);
+        return (bothPhoton5and10sim || bothPhoton5and20sim || bothPhoton10and20sim || allPhoton5and10and20sim);
   }
+
+  // One-off, hard-coded comparison overlays (Sam vs Justin unsmear files)
+  inline bool doSamVsJustinUnsmearOverlays = true;
 
   // Displayed range [-vzCutCm,+vzCutCm] and 0.5 cm display bin width
   inline double vzCutCm = 30.0;
@@ -219,6 +222,8 @@ namespace ARJ
   inline const string kAltSimSampleKey_jetMinPt10_7piOver8 = "jetMinPt10_7piOver8";
   inline const string kAltSimSampleKey_jetMinPt5_pihalves  = "jetMinPt5_pihalves";
   inline const string kAltSimSampleKey_jetMinPt5_7piOver8  = "jetMinPt5_7piOver8";
+  inline const string kAltSimSampleKey_jetMinPt3_pihalves  = "jetMinPt3_pihalves";
+  inline const string kAltSimSampleKey_jetMinPt3_7piOver8  = "jetMinPt3_7piOver8";
 
   inline string DefaultSimSampleKey()
   {
@@ -234,42 +239,58 @@ namespace ARJ
 
   inline const map<string, Sim10and20Config>& Sim10and20Configs()
   {
-      static map<string, Sim10and20Config> m;
-      if (!m.empty()) return m;
+        static map<string, Sim10and20Config> m;
+        if (!m.empty()) return m;
 
-      m["jetMinPt10_pihalves"] = Sim10and20Config{
-          "jetMinPt10_pihalves",
-          "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt10_pihalves.root",
-          "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt10_pihalves.root",
-          10.0,
-          "#pi/2"
-      };
+        m["jetMinPt10_pihalves"] = Sim10and20Config{
+            "jetMinPt10_pihalves",
+            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt10_pihalves.root",
+            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt10_pihalves.root",
+            10.0,
+            "#pi/2"
+        };
 
-      m["jetMinPt10_7piOver8"] = Sim10and20Config{
-          "jetMinPt10_7piOver8",
-          "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt10_7piOver8.root",
-          "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt10_7piOver8.root",
-          10.0,
-          "7#pi/8"
-      };
+        m["jetMinPt10_7piOver8"] = Sim10and20Config{
+            "jetMinPt10_7piOver8",
+            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt10_7piOver8.root",
+            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt10_7piOver8.root",
+            10.0,
+            "7#pi/8"
+        };
 
-      m["jetMinPt5_pihalves"] = Sim10and20Config{
-          "jetMinPt5_pihalves",
-          "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt5_pihalves.root",
-          "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt5_pihalves.root",
-          5.0,
-          "#pi/2"
-      };
+        m["jetMinPt5_pihalves"] = Sim10and20Config{
+            "jetMinPt5_pihalves",
+            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt5_pihalves.root",
+            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt5_pihalves.root",
+            5.0,
+            "#pi/2"
+        };
 
-      m["jetMinPt5_7piOver8"] = Sim10and20Config{
-          "jetMinPt5_7piOver8",
-          "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt5_7piOver8.root",
-          "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt5_7piOver8.root",
-          5.0,
-          "7#pi/8"
-      };
+        m["jetMinPt5_7piOver8"] = Sim10and20Config{
+            "jetMinPt5_7piOver8",
+            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt5_7piOver8.root",
+            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt5_7piOver8.root",
+            5.0,
+            "7#pi/8"
+        };
 
-      return m;
+        m["jetMinPt3_pihalves"] = Sim10and20Config{
+            "jetMinPt3_pihalves",
+            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet3/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt3_pihalves.root",
+            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet3/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt3_pihalves.root",
+            3.0,
+            "#pi/2"
+        };
+
+        m["jetMinPt3_7piOver8"] = Sim10and20Config{
+            "jetMinPt3_7piOver8",
+            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet3/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt3_7piOver8.root",
+            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet3/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt3_7piOver8.root",
+            3.0,
+            "7#pi/8"
+        };
+
+        return m;
   }
 
   inline const Sim10and20Config& Sim10and20ConfigForKey(const string& key)
@@ -542,7 +563,7 @@ namespace ARJ
   inline const int kNPtBins = (int)kPtEdges.size() - 1;
 
   // Jet radii keys
-  inline const vector<string> kRKeys = {"r02","r04"};
+  inline const vector<string> kRKeys = {"r02","r04","r06"};
 
   // =============================================================================
   // ANSI helpers
@@ -595,9 +616,10 @@ namespace ARJ
 
   inline double RFromKey(const string& rKey)
   {
-    if (rKey == "r02") return 0.2;
-    if (rKey == "r04") return 0.4;
-    return 0.0;
+      if (rKey == "r02") return 0.2;
+      if (rKey == "r04") return 0.4;
+      if (rKey == "r06") return 0.6;
+      return 0.0;
   }
 
   inline double FidEtaAbsFromKey(const string& rKey)
