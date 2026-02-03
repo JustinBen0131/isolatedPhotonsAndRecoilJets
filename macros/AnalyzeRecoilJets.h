@@ -185,7 +185,8 @@ namespace ARJ
   inline bool doSamVsJustinUnsmearOverlays = true;
 
   // Displayed range [-vzCutCm,+vzCutCm] and 0.5 cm display bin width
-  inline double vzCutCm = 30.0;
+  inline double VzCutCmFromYAML();
+  inline double vzCutCm = VzCutCmFromYAML();
 
   // =============================================================================
   // FIXED INPUTS (pp + photonJet5/10/20 SIM)
@@ -441,6 +442,42 @@ namespace ARJ
   inline bool ParseDouble(const string& s, double& out)
   {
       try { out = std::stod(Trim(s)); return true; } catch (...) { return false; }
+  }
+
+    // YAML-driven vertex display/cut knob (reads: vz_cut_cm: <double>)
+    // Zero-regression: if YAML missing/unreadable/malformed, stays at 30.0.
+  inline double VzCutCmFromYAML()
+  {
+        static double v = 30.0;
+        static bool loaded = false;
+        if (loaded) return v;
+        loaded = true;
+
+        const string yamlPath = DefaultYAMLPath();
+        string yamlText;
+        if (!ReadWholeFile(yamlPath, yamlText))
+        {
+          return v;
+        }
+
+        std::istringstream iss(yamlText);
+        for (string line; std::getline(iss, line); )
+        {
+          line = Trim(line);
+          if (line.empty()) continue;
+          if (!line.empty() && line[0] == '#') continue;
+
+          if (StartsWithKey(line, "vz_cut_cm"))
+          {
+            double dv = 0.0;
+            if (ParseDouble(AfterColon(line), dv) && std::isfinite(dv) && dv > 0.0)
+            {
+              v = dv;
+            }
+          }
+        }
+
+        return v;
   }
 
   inline void ParseInlineListDoubles(string s, vector<double>& out)

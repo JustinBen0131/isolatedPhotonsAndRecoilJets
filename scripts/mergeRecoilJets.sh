@@ -661,6 +661,15 @@ stream_output = True
 stream_error  = True
 EOT
 
+            ngroups=$(( (total + SIM_GROUP_SIZE - 1) / SIM_GROUP_SIZE ))
+            say "firstRound plan (cfg=${cfg_dir_tag} sample=${SIM_SAMPLE} tag=${SIM_TAG})"
+            say "  inputs total     : ${total}"
+            say "  groupSize        : ${SIM_GROUP_SIZE}"
+            say "  expected groups  : ${ngroups}"
+            say "  submit file      : ${SUB}"
+            say "  output partials  : ${DEST_DIR}/${SIM_PARTIAL_PREFIX}NNN.root"
+            echo
+
             for ((i=0; i<total; i+=SIM_GROUP_SIZE)); do
               (( grp+=1 ))
               grpTag="$(printf "%03d" "$grp")"
@@ -672,9 +681,29 @@ EOT
                 printf "%s\n" "${SIM_INPUTS[$j]}" >> "$listfile"
               done
 
+              if [[ ! -s "$listfile" ]]; then
+                err "firstRound: produced empty listfile (cfg=${cfg_dir_tag} sample=${SIM_SAMPLE} grp=${grpTag}) → ${listfile}"
+                exit 26
+              fi
+
               out="${DEST_DIR}/${SIM_PARTIAL_PREFIX}${grpTag}.root"
+              n_in=$(wc -l < "$listfile" | awk '{print $1}')
+              first_in=$(head -n 1 "$listfile" 2>/dev/null || true)
+              last_in=$(tail -n 1 "$listfile" 2>/dev/null || true)
+
+              say "[firstRound queue] cfg=${cfg_dir_tag}  sample=${SIM_TAG}  grp=${grpTag}/${ngroups}  inputs=${n_in}"
+              say "  list : ${listfile}"
+              say "  out  : ${out}"
+              (( n_in > 0 )) && { say "  first: ${first_in}"; say "  last : ${last_in}"; }
+              echo
+
               printf 'arguments = %s %s\nqueue\n\n' "$listfile" "$out" >> "$SUB"
             done
+
+            if [[ ! -s "$SUB" ]]; then
+              err "firstRound: submit file is empty/unwritten → ${SUB}"
+              exit 27
+            fi
 
             say "Submitting ${BOLD}${grp}${RST} firstRound Condor merge jobs → $(basename "$SUB")"
             condor_submit "$SUB"
@@ -737,10 +766,35 @@ EOT
 
   if [[ "$SIM_ACTION" == "secondRound" ]]; then
     say "====================================================================="
-    say "SecondRound outputs (final files):"
+    say "SecondRound outputs (final files), grouped by cfg tag (jetMinPt + back-to-back):"
+
+    declare -A group_to_paths
+    declare -a group_keys
+
     for p in "${final_paths[@]}"; do
-      say "  ${p}"
+      b="$(basename "$p")"
+      cfg="${b#*_ALL_}"
+      cfg="${cfg%.root}"
+      if [[ -z "$cfg" || "$cfg" == "$b" ]]; then
+        cfg="UNKNOWN_CFG"
+      fi
+      if [[ -z "${group_to_paths[$cfg]+x}" ]]; then
+        group_keys+=( "$cfg" )
+        group_to_paths["$cfg"]="$p"
+      else
+        group_to_paths["$cfg"]+=$'\n'"$p"
+      fi
     done
+
+    IFS=$'\n' sorted_keys=($(printf "%s\n" "${group_keys[@]}" | sort -V))
+    unset IFS
+
+    for k in "${sorted_keys[@]}"; do
+      say "---------------------------------------------------------------------"
+      say "CFG: ${BOLD}${k}${RST}"
+      printf "%s\n" "${group_to_paths[$k]}" | sort -V | sed 's/^/  /'
+    done
+
     say "====================================================================="
   fi
 
