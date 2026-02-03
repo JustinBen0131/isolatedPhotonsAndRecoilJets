@@ -5959,7 +5959,7 @@ namespace ARJ
 
               (void)outDir; // this block is intentionally hard-coded to write ONLY under InputFilesSim/.../plots
 
-              const std::string baseDir   = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/pTminJet3/7pi_8_BB";
+              const std::string baseDir   = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/noDeltaRcheckOnJetPhotonForReco/pTminJet3/7pi_8_BB";
               const std::string plotsDir  = JoinPath(baseDir, "plots");
               const std::string sam10     = JoinPath(baseDir, "histsPhoton10_unsmear.root");
               const std::string sam20     = JoinPath(baseDir, "histsPhoton20_unsmear.root");
@@ -8433,6 +8433,8 @@ namespace ARJ
                         const string ptLab = AxisBinLabel(hBlack->GetXaxis(), ib, "GeV", 0);
 
                           const std::string bbLabel = DefaultSim10and20Config().bbLabel;
+                          const double jetMinPt     = DefaultSim10and20Config().jetMinPt;
+                          const double vzCut        = vzCutCm;
 
                           TLatex tt;
                           tt.SetNDC(true);
@@ -8441,10 +8443,6 @@ namespace ARJ
                           tt.SetTextSize(0.060);
                           tt.DrawLatex(0.52, 0.95,
                             TString::Format("p_{T}^{#gamma} = %s  (R=%.1f)", ptLab.c_str(), R).Data()
-                          );
-                          tt.SetTextSize(0.050);
-                          tt.DrawLatex(0.52, 0.885,
-                            TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data()
                           );
 
                           // Legend placement: top-right, but protect long labels in table pads
@@ -8477,6 +8475,32 @@ namespace ARJ
                           leg.AddEntry(hA, legBlack.c_str(), "ep");
                           leg.AddEntry(hB, legRed.c_str(),   "ep");
                           leg.DrawClone();
+
+                          // Cut text block: under legend, right-middle (presentation-ready)
+                          {
+                            TLatex tCuts;
+                            tCuts.SetNDC(true);
+                            tCuts.SetTextFont(42);
+                            tCuts.SetTextAlign(33);   // right-top anchored
+                            tCuts.SetTextSize(0.045);
+
+                            const double tx = lx2 - 0.02;  // anchor near legend right edge
+                            double ty = ly1 - 0.03;        // start just below legend
+                            const double dY = 0.060;
+
+                            tCuts.DrawLatex(tx, ty,
+                              TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data()
+                            );
+                            ty -= dY;
+                            tCuts.DrawLatex(tx, ty,
+                              TString::Format("p_{T}^{jet} > %.0f GeV", jetMinPt).Data()
+                            );
+                            ty -= dY;
+                            tCuts.DrawLatex(tx, ty,
+                              TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCut)).Data()
+                            );
+                          }
+
 
                         keep.push_back(hA);
                         keep.push_back(hB);

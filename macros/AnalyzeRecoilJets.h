@@ -218,7 +218,7 @@ namespace ARJ
       string bbLabel;   // for plotting labels only (e.g. "#pi/2", "7#pi/8")
   };
 
-  inline const string kDefaultSimSampleKey = "jetMinPt3_pihalves";
+  inline const string kDefaultSimSampleKey = "jetMinPt10_7piOver8";
 
   inline const string kAltSimSampleKey_jetMinPt10_7piOver8 = "jetMinPt10_7piOver8";
   inline const string kAltSimSampleKey_jetMinPt5_pihalves  = "jetMinPt5_pihalves";
@@ -255,48 +255,48 @@ namespace ARJ
 
           m["jetMinPt10_pihalves"] = Sim10and20Config{
               "jetMinPt10_pihalves",
-              root + "/pTminJet10/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt10_pihalves.root",
-              root + "/pTminJet10/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt10_pihalves.root",
+              root + "/noDeltaRcheckOnJetPhotonForReco/pTminJet10/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt10_pihalves.root",
+              root + "/noDeltaRcheckOnJetPhotonForReco/pTminJet10/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt10_pihalves.root",
               10.0,
               "#pi/2"
           };
 
           m["jetMinPt10_7piOver8"] = Sim10and20Config{
               "jetMinPt10_7piOver8",
-              root + "/pTminJet10/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt10_7piOver8.root",
-              root + "/pTminJet10/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt10_7piOver8.root",
+              root + "/noDeltaRcheckOnJetPhotonForReco/pTminJet10/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt10_7piOver8.root",
+              root + "/noDeltaRcheckOnJetPhotonForReco/pTminJet10/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt10_7piOver8.root",
               10.0,
               "7#pi/8"
           };
 
           m["jetMinPt5_pihalves"] = Sim10and20Config{
               "jetMinPt5_pihalves",
-              root + "/pTminJet5/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt5_pihalves.root",
-              root + "/pTminJet5/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt5_pihalves.root",
+              root + "/noDeltaRcheckOnJetPhotonForReco/pTminJet5/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt5_pihalves.root",
+              root + "/noDeltaRcheckOnJetPhotonForReco/pTminJet5/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt5_pihalves.root",
               5.0,
               "#pi/2"
           };
 
           m["jetMinPt5_7piOver8"] = Sim10and20Config{
               "jetMinPt5_7piOver8",
-              root + "/pTminJet5/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt5_7piOver8.root",
-              root + "/pTminJet5/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt5_7piOver8.root",
+              root + "/noDeltaRcheckOnJetPhotonForReco/pTminJet5/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt5_7piOver8.root",
+              root + "/noDeltaRcheckOnJetPhotonForReco/pTminJet5/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt5_7piOver8.root",
               5.0,
               "7#pi/8"
           };
 
           m["jetMinPt3_pihalves"] = Sim10and20Config{
               "jetMinPt3_pihalves",
-              root + "/pTminJet3/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt3_pihalves.root",
-              root + "/pTminJet3/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt3_pihalves.root",
+              root + "/noDeltaRcheckOnJetPhotonForReco/pTminJet3/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt3_pihalves.root",
+              root + "/noDeltaRcheckOnJetPhotonForReco/pTminJet3/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt3_pihalves.root",
               3.0,
               "#pi/2"
           };
 
           m["jetMinPt3_7piOver8"] = Sim10and20Config{
               "jetMinPt3_7piOver8",
-              root + "/pTminJet3/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt3_7piOver8.root",
-              root + "/pTminJet3/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt3_7piOver8.root",
+              root + "/noDeltaRcheckOnJetPhotonForReco/pTminJet3/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt3_7piOver8.root",
+              root + "/noDeltaRcheckOnJetPhotonForReco/pTminJet3/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt3_7piOver8.root",
               3.0,
               "7#pi/8"
           };
