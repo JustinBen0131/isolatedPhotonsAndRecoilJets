@@ -2,8 +2,8 @@
 ###############################################################################
 # mergeRecoilJets.sh  —  FAST REFERENCE
 #
-#./mergeRecoilJets.sh isSim firstRound
-#./mergeRecoilJets.sh isSim secondRound
+# ./mergeRecoilJets.sh isSim firstRound
+# ./mergeRecoilJets.sh isSim secondRound
 #
 #
 # PURPOSE
