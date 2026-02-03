@@ -4458,9 +4458,9 @@ namespace ARJ
                       TLegend leg(0.70, 0.78, 0.92, 0.90);
                       leg.SetTextFont(42);
                       leg.SetTextSize(0.035);
-                      if (a)  leg.AddEntry(a,  "r02 (red)", "ep");
-                      if (b)  leg.AddEntry(b,  "r04 (blue)", "ep");
-                      if (c6) leg.AddEntry(c6, "r06 (dark green)", "ep");
+                      if (a)  leg.AddEntry(a,  "R = 0.2", "ep");
+                      if (b)  leg.AddEntry(b,  "R = 0.4", "ep");
+                      if (c6) leg.AddEntry(c6, "R = 0.6", "ep");
                       leg.Draw();
 
                       DrawLatexLines(0.14, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
@@ -4469,6 +4469,12 @@ namespace ARJ
                       lines.push_back(TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data());
                       if (useAlphaCut) lines.push_back(TString::Format("#alpha < %.2f", alphaMax).Data());
                       DrawLatexLines(0.14, 0.875, lines, 0.030, 0.038);
+
+                      const auto& cfg = DefaultSim10and20Config();
+                      std::vector<std::string> cutLines;
+                      cutLines.push_back(TString::Format("Back-to-back: #Delta#phi_{#gamma,jet} > %s", cfg.bbLabel.c_str()).Data());
+                      cutLines.push_back(TString::Format("p_{T}^{jet} > %.0f GeV", cfg.jetMinPt).Data());
+                      DrawLatexLines(0.70, 0.74, cutLines, 0.030, 0.038);
 
                       SaveCanvas(can, JoinPath(outDirHere, TString::Format("overlay_pTbin%d.png", ib).Data()));
 
@@ -4614,13 +4620,18 @@ namespace ARJ
                               if (c6) NormalizeToUnitArea(c6);
                           }
 
+                          const double xMaxPlot = 2.0;
+                          if (a)  a->GetXaxis()->SetRangeUser(0.0, xMaxPlot);
+                          if (b)  b->GetXaxis()->SetRangeUser(0.0, xMaxPlot);
+                          if (c6) c6->GetXaxis()->SetRangeUser(0.0, xMaxPlot);
+
                           double ymax = 0.0;
                           if (a)  ymax = std::max(ymax, a->GetMaximum());
                           if (b)  ymax = std::max(ymax, b->GetMaximum());
                           if (c6) ymax = std::max(ymax, c6->GetMaximum());
 
                           TH1* first = a ? a : (b ? b : c6);
-                          if (first) first->SetMaximum(ymax * 1.25);
+                          if (first) first->SetMaximum(ymax * 1.08);
 
                           if (a) a->Draw("E1");
                           else if (b) b->Draw("E1");
@@ -5770,9 +5781,9 @@ namespace ARJ
                 NormalizeToUnitArea(h);
               };
 
-              const int ibStart = 2; // skip first pT bin (e.g. 13-15) in the table
-              const int nAvail  = (nPt >= ibStart) ? (nPt - ibStart + 1) : 0;
-              const int nPads   = std::min(6, nAvail);
+                const int ibStart = 1; // start from first pT bin in the vector (ROOT bins are 1-indexed)
+                const int nAvail  = (nPt >= ibStart) ? (nPt - ibStart + 1) : 0;
+                const int nPads   = std::min(6, nAvail);
 
               for (int k = 0; k < nPads; ++k)
               {
@@ -5954,7 +5965,22 @@ namespace ARJ
               const std::string sam20     = JoinPath(baseDir, "histsPhoton20_unsmear.root");
               const std::string samMerged = JoinPath(baseDir, "histsPhoton10plus20_unsmear_MERGED.root");
 
+              const std::string dirOver_RECO_current = JoinPath(plotsDir, "Overlays_RECO_SamVsCurrent");
+              const std::string dirOver_RECO_default = JoinPath(plotsDir, "Overlays_RECO_SamVsDefault");
+              const std::string dirOver_RECO_triple  = JoinPath(plotsDir, "Overlays_RECO_SamVsCurrentVsDefault");
+              const std::string dirOver_Tag_current  = JoinPath(plotsDir, "Overlays_RECOtruthTagged_SamVsCurrent");
+              const std::string dirOver_RECO_triple_currentTag = JoinPath(plotsDir, "Overlays_RECO_SamVsCurrentRecoVsTruthTagged");
+              const std::string dirQA_SamOnly         = JoinPath(plotsDir, "QA_SamOnly");
+              const std::string dirQA_JustinOnly      = JoinPath(plotsDir, "QA_JustinOnly");
+
               EnsureDir(plotsDir);
+              EnsureDir(dirOver_RECO_current);
+              EnsureDir(dirOver_RECO_default);
+              EnsureDir(dirOver_RECO_triple);
+              EnsureDir(dirOver_Tag_current);
+              EnsureDir(dirOver_RECO_triple_currentTag);
+              EnsureDir(dirQA_SamOnly);
+              EnsureDir(dirQA_JustinOnly);
 
               cout << ANSI_BOLD_CYN
                    << "\n[SAM VS JUSTIN] Unsmear overlay (RECO-only, integrated over alpha)\n"
@@ -6701,9 +6727,9 @@ namespace ARJ
                         t.DrawLatex(0.14, 0.86, TString::Format("Sam p_{T}^{#gamma}: %s GeV", samPtLabel.c_str()).Data());
                         t.DrawLatex(0.14, 0.81, TString::Format("R=%.1f  j=%d  k=%d  l=%d", R, rm.jIdx, kIso, lABCD).Data());
 
-                        SaveCanvas(cS, JoinPath(plotsDir,
-                          TString::Format("SamOnly_hratio_SamPt_%s_%s.png", samPtLabel.c_str(), rKey.c_str()).Data()
-                        ));
+                          SaveCanvas(cS, JoinPath(dirQA_SamOnly,
+                            TString::Format("SamOnly_hratio_SamPt_%s_%s.png", samPtLabel.c_str(), rKey.c_str()).Data()
+                          ));
                         delete s;
                       }
 
@@ -6722,9 +6748,9 @@ namespace ARJ
                         t.DrawLatex(0.14, 0.86, TString::Format("Justin p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
                         t.DrawLatex(0.14, 0.81, TString::Format("R=%.1f (%s)", R, rKey.c_str()).Data());
 
-                        SaveCanvas(cJ, JoinPath(plotsDir,
-                          TString::Format("JustinOnly_JES3_RECO_pTgamma_%.0f_%.0f_%s.png", ptLo, ptHi, rKey.c_str()).Data()
-                        ));
+                          SaveCanvas(cJ, JoinPath(plotsDir,
+                            TString::Format("JustinOnly_JES3_RECO_pTgamma_%.0f_%.0f_%s.png", ptLo, ptHi, rKey.c_str()).Data()
+                          ));
                         delete j;
                       }
                     }
@@ -6769,63 +6795,180 @@ namespace ARJ
                       PrintH1Summary("Justin(norm)", hJustin);
                       if (hDefault) PrintH1Summary("DefaultReco(norm)", hDefault);
 
-                      double ymax = 0.0;
-                      ymax = std::max(ymax, hSam->GetMaximum());
-                      ymax = std::max(ymax, hJustin->GetMaximum());
-                      if (hDefault) ymax = std::max(ymax, hDefault->GetMaximum());
-                      hSam->SetMaximum(ymax * 1.25);
-
                       // -------------------------------------------------------------------------
-                      // (A1) UPDATED existing output: Sam vs Current merged RECO vs Default merged RECO
-                      //      (keeps the SAME output naming pattern you already use)
+                      // (A1) KEEP ORIGINAL: Sam vs CURRENT merged RECO only  (this stays by itself)
+                      //      + ONLY for pT=13-15, draw the jetMinPt cut lines and add a small legend.
                       // -------------------------------------------------------------------------
-                      TCanvas c("c_SamVsJustin","c_SamVsJustin",900,700);
-                      ApplyCanvasMargins1D(c);
+                      {
+                        const double ymax = std::max(hSam->GetMaximum(), hJustin->GetMaximum());
+                        hSam->SetMaximum(ymax * 1.1);
 
-                      hSam->Draw("E1");
-                      hJustin->Draw("E1 same");
-                      if (hDefault) hDefault->Draw("E1 same");
+                        TCanvas c("c_SamVsJustin","c_SamVsJustin",900,700);
+                        ApplyCanvasMargins1D(c);
 
-                      TLegend leg(0.52, 0.73, 0.88, 0.90);
-                      leg.SetTextFont(42);
-                      leg.SetTextSize(0.035);
-                      leg.SetFillStyle(0);
-                      leg.SetBorderSize(0);
-                      leg.AddEntry(hSam,    TString::Format("Sam's Reco (R = %.1f)", R).Data(), "ep");
-                      leg.AddEntry(hJustin, TString::Format("Current merged RECO (R = %.1f)", R).Data(), "ep");
-                      if (hDefault) leg.AddEntry(hDefault, TString::Format("Default RECO (%s) (R = %.1f)", defaultKey.c_str(), R).Data(), "ep");
-                      leg.Draw();
+                        hSam->Draw("E1");
+                        hJustin->Draw("E1 same");
 
-                      // Note: aligned just under and a bit left of the legend block
-                      TLatex tNote;
-                      tNote.SetNDC(true);
-                      tNote.SetTextFont(42);
-                      tNote.SetTextAlign(13); // left-top
-                      tNote.SetTextSize(0.034);
-                      tNote.DrawLatex(0.50, 0.705, "Photon+Jet  10 + 20 GeV Samples");
+                        // Optional cut lines ONLY for the 13-15 GeV bin (current sample is jetMinPt3_7piOver8)
+                        TLine* lAbs  = nullptr;
+                        TLine* lFull = nullptr;
 
-                      // Info block: middle RHS of the canvas
-                      TLatex t;
-                      t.SetNDC(true);
-                      t.SetTextFont(42);
-                      t.SetTextSize(0.034);
-                      t.SetTextAlign(12); // left-center
-                      t.DrawLatex(0.60, 0.62, TString::Format("p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
-                      t.DrawLatex(0.60, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
-                      t.DrawLatex(0.60, 0.52, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
-                      t.DrawLatex(0.60, 0.47, TString::Format("Back-to-back (current): %s", bbLabel.c_str()).Data());
+                        const bool is1315 = (std::fabs(ptLo - 13.0) < 1e-6 && std::fabs(ptHi - 15.0) < 1e-6);
+                        if (is1315)
+                        {
+                          const double xAbs  = jetMinPtGeV / ptHi;
+                          const double xFull = jetMinPtGeV / ptLo;
 
-                      const std::string outName =
-                        TString::Format("overlay_SamVsJustin_JES3_RECO_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
-                          ptLo, ptHi, samPtLabel.c_str(), rKey.c_str()).Data();
+                          lAbs  = new TLine(xAbs,  0.0, xAbs,  ymax * 1.10);
+                          lFull = new TLine(xFull, 0.0, xFull, ymax * 1.10);
 
-                      SaveCanvas(c, JoinPath(plotsDir, outName));
+                          lAbs->SetLineColor(4);
+                          lAbs->SetLineWidth(2);
+                          lAbs->SetLineStyle(2);
 
-                      // -------------------------------------------------------------------------
-                      // (A2) NEW parallel output: Sam vs Default RECO only
-                      // -------------------------------------------------------------------------
+                          lFull->SetLineColor(2);
+                          lFull->SetLineWidth(2);
+                          lFull->SetLineStyle(2);
+
+                          lAbs->Draw("same");
+                          lFull->Draw("same");
+                        }
+
+                        TLegend leg(0.42, 0.73, 0.85, 0.90);
+                        leg.SetTextFont(42);
+                        leg.SetTextSize(0.033);
+                        leg.SetFillStyle(0);
+                        leg.SetBorderSize(0);
+                        leg.AddEntry(hSam,    TString::Format("Sam's Reco (R = %.1f)", R).Data(), "ep");
+                        leg.AddEntry(hJustin, TString::Format("Justin's RECO w/ Matched Cuts (R = %.1f)", R).Data(), "ep");
+                        leg.Draw();
+
+                        // Note: aligned just under and a bit left of the legend block
+                        TLatex tNote;
+                        tNote.SetNDC(true);
+                        tNote.SetTextFont(42);
+                        tNote.SetTextAlign(13); // left-top
+                        tNote.SetTextSize(0.034);
+                        tNote.DrawLatex(0.50, 0.705, "Photon+Jet  10 + 20 GeV Samples");
+
+                        // Info block: middle RHS of the canvas
+                        TLatex t;
+                        t.SetNDC(true);
+                        t.SetTextFont(42);
+                        t.SetTextSize(0.034);
+                        t.SetTextAlign(12); // left-center
+                        t.DrawLatex(0.60, 0.62, TString::Format("p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
+                        t.DrawLatex(0.60, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
+                        t.DrawLatex(0.60, 0.52, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
+                        t.DrawLatex(0.60, 0.47, TString::Format("Back-to-back: %s", bbLabel.c_str()).Data());
+
+                          TLegend* legCuts = nullptr;
+
+                          // Small legend for the cut lines (ONLY in 13-15)
+                          if (is1315 && lAbs && lFull)
+                          {
+                            legCuts = new TLegend(0.60, 0.32, 0.88, 0.43);
+                            legCuts->SetTextFont(42);
+                            legCuts->SetTextSize(0.032);
+                            legCuts->SetFillStyle(0);
+                            legCuts->SetBorderSize(0);
+
+                            legCuts->AddEntry(lAbs,  "x_{J,min}^{abs} = p_{T}^{jet,min}/p_{T,max}^{#gamma}", "l");
+                            legCuts->AddEntry(lFull, "x_{J,min}^{full} = p_{T}^{jet,min}/p_{T,min}^{#gamma}", "l");
+
+                            legCuts->Draw();
+                          }
+
+                        const std::string outName =
+                          TString::Format("overlay_SamVsJustin_JES3_RECO_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
+                            ptLo, ptHi, samPtLabel.c_str(), rKey.c_str()).Data();
+
+                        c.Modified();
+                        c.Update();
+                        SaveCanvas(c, JoinPath(dirOver_RECO_current, outName));
+
+                          if (legCuts) delete legCuts;
+                          if (lAbs)  delete lAbs;
+                          if (lFull) delete lFull;
+                        }
+
+                        // -------------------------------------------------------------------------
+                        // (A1b) NEW: TRIPLE overlay (current merged only, ignoring default)
+                        //   Sam  vs  Justin RECO (matched cuts)  vs  Justin RECO truth-tagged (PHOTON+JET)
+                        // -------------------------------------------------------------------------
+                        if (hJustin3_tag)
+                        {
+                          const int xbinTag = FindXbinByEdges(hJustin3_tag->GetXaxis(), ptLo, ptHi);
+                          if (xbinTag >= 1)
+                          {
+                            TH1* hJustinTag = ProjectY_AtXbin_TH3(
+                              hJustin3_tag, xbinTag,
+                              TString::Format("hJustin_truthTaggedPhoJet_xJ_%.0f_%.0f_%s", ptLo, ptHi, rKey.c_str()).Data()
+                            );
+
+                            if (hJustinTag)
+                            {
+                              StyleForOverlay(hJustinTag, 6);
+
+                                double ymax3 = 0.0;
+                                ymax3 = std::max(ymax3, hSam->GetMaximum());
+                                ymax3 = std::max(ymax3, hJustin->GetMaximum());
+                                ymax3 = std::max(ymax3, hJustinTag->GetMaximum());
+                                hSam->SetMaximum(ymax3 * 1.10);
+
+                              TCanvas c3("c_SamVsCurrentRecoVsTruthTagged","c_SamVsCurrentRecoVsTruthTagged",900,700);
+                              ApplyCanvasMargins1D(c3);
+
+                              hSam->Draw("E1");
+                              hJustin->Draw("E1 same");
+                              hJustinTag->Draw("E1 same");
+
+                              TLegend leg3(0.42, 0.73, 0.85, 0.90);
+                              leg3.SetTextFont(42);
+                              leg3.SetTextSize(0.033);
+                              leg3.SetFillStyle(0);
+                              leg3.SetBorderSize(0);
+                              leg3.AddEntry(hSam,      TString::Format("Sam's Reco (R = %.1f)", R).Data(), "ep");
+                              leg3.AddEntry(hJustin,   TString::Format("Justin RECO w/ matched cuts (R = %.1f)", R).Data(), "ep");
+                              leg3.AddEntry(hJustinTag,TString::Format("Justin RECO (#gamma^{truth} + jet^{truth} tag) (R = %.1f)", R).Data(), "ep");
+                              leg3.Draw();
+
+                              TLatex tNote3;
+                              tNote3.SetNDC(true);
+                              tNote3.SetTextFont(42);
+                              tNote3.SetTextAlign(13); // left-top
+                              tNote3.SetTextSize(0.034);
+                              tNote3.DrawLatex(0.50, 0.705, "Photon+Jet  10 + 20 GeV Samples");
+
+                              TLatex t3;
+                              t3.SetNDC(true);
+                              t3.SetTextFont(42);
+                              t3.SetTextSize(0.034);
+                              t3.SetTextAlign(12); // left-center
+                              t3.DrawLatex(0.60, 0.62, TString::Format("p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
+                              t3.DrawLatex(0.60, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
+                              t3.DrawLatex(0.60, 0.52, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
+                              t3.DrawLatex(0.60, 0.47, TString::Format("Back-to-back: %s", bbLabel.c_str()).Data());
+
+                              const std::string outName3 =
+                                TString::Format("overlay_SamVsCurrentRecoVsTruthTagged_JES3_RECO_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
+                                  ptLo, ptHi, samPtLabel.c_str(), rKey.c_str()).Data();
+
+                              SaveCanvas(c3, JoinPath(dirOver_RECO_triple_currentTag, outName3));
+
+                              delete hJustinTag;
+                            }
+                          }
+                        }
+
+                        // -------------------------------------------------------------------------
+                        // (A2) NEW: Sam vs DEFAULT merged RECO only (kDefaultSimSampleKey)
+                        // -------------------------------------------------------------------------
                       if (hDefault)
                       {
+                        const double ymaxD = std::max(hSam->GetMaximum(), hDefault->GetMaximum());
+                        hSam->SetMaximum(ymaxD * 1.25);
+
                         TCanvas cDef("c_SamVsDefault","c_SamVsDefault",900,700);
                         ApplyCanvasMargins1D(cDef);
 
@@ -6838,7 +6981,7 @@ namespace ARJ
                         leg2.SetFillStyle(0);
                         leg2.SetBorderSize(0);
                         leg2.AddEntry(hSam,     TString::Format("Sam's Reco (R = %.1f)", R).Data(), "ep");
-                        leg2.AddEntry(hDefault, TString::Format("Default RECO (%s) (R = %.1f)", defaultKey.c_str(), R).Data(), "ep");
+                        leg2.AddEntry(hDefault, TString::Format("Default merged RECO (%s) (R = %.1f)", defaultKey.c_str(), R).Data(), "ep");
                         leg2.Draw();
 
                         TLatex tNote2;
@@ -6855,14 +6998,63 @@ namespace ARJ
                         t2.SetTextAlign(12); // left-center
                         t2.DrawLatex(0.60, 0.62, TString::Format("p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
                         t2.DrawLatex(0.60, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
-                        t2.DrawLatex(0.60, 0.52, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
-                        t2.DrawLatex(0.60, 0.47, TString::Format("Default key: %s", defaultKey.c_str()).Data());
+                        t2.DrawLatex(0.60, 0.52, TString::Format("Default key: %s", defaultKey.c_str()).Data());
 
                         const std::string outNameDef =
                           TString::Format("overlay_SamVsDefault_JES3_RECO_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
                             ptLo, ptHi, samPtLabel.c_str(), rKey.c_str()).Data();
 
-                        SaveCanvas(cDef, JoinPath(plotsDir, outNameDef));
+                        SaveCanvas(cDef, JoinPath(dirOver_RECO_default, outNameDef));
+                      }
+
+                      // -------------------------------------------------------------------------
+                      // (A3) NEW: TRIPLE overlay (Sam vs Current merged vs Default merged)
+                      // -------------------------------------------------------------------------
+                      if (hDefault)
+                      {
+                        double ymaxT = 0.0;
+                        ymaxT = std::max(ymaxT, hSam->GetMaximum());
+                        ymaxT = std::max(ymaxT, hJustin->GetMaximum());
+                        ymaxT = std::max(ymaxT, hDefault->GetMaximum());
+                        hSam->SetMaximum(ymaxT * 1.25);
+
+                        TCanvas cTri("c_SamVsCurrentVsDefault","c_SamVsCurrentVsDefault",900,700);
+                        ApplyCanvasMargins1D(cTri);
+
+                        hSam->Draw("E1");
+                        hJustin->Draw("E1 same");
+                        hDefault->Draw("E1 same");
+
+                        TLegend leg3(0.45, 0.73, 0.88, 0.90);
+                        leg3.SetTextFont(42);
+                        leg3.SetTextSize(0.035);
+                        leg3.SetFillStyle(0);
+                        leg3.SetBorderSize(0);
+                        leg3.AddEntry(hSam,    TString::Format("Sam's Reco (R = %.1f)", R).Data(), "ep");
+                        leg3.AddEntry(hJustin, TString::Format("Justin's RECO w/ matched cuts (R = %.1f)", R).Data(), "ep");
+                        leg3.AddEntry(hDefault, TString::Format("Default merged RECO (%s) (R = %.1f)", defaultKey.c_str(), R).Data(), "ep");
+                        leg3.Draw();
+
+                        TLatex tNote3;
+                        tNote3.SetNDC(true);
+                        tNote3.SetTextFont(42);
+                        tNote3.SetTextAlign(13); // left-top
+                        tNote3.SetTextSize(0.032);
+                        tNote3.DrawLatex(0.55, 0.705, "Photon+Jet  10 + 20 GeV Samples");
+
+                        TLatex t3;
+                        t3.SetNDC(true);
+                        t3.SetTextFont(42);
+                        t3.SetTextSize(0.034);
+                        t3.SetTextAlign(12); // left-center
+                        t3.DrawLatex(0.60, 0.62, TString::Format("p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
+                        t3.DrawLatex(0.60, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
+
+                        const std::string outNameTri =
+                          TString::Format("overlay_SamVsCurrentVsDefault_JES3_RECO_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
+                            ptLo, ptHi, samPtLabel.c_str(), rKey.c_str()).Data();
+
+                        SaveCanvas(cTri, JoinPath(dirOver_RECO_triple, outNameTri));
                       }
 
                       delete hSam;
@@ -6937,9 +7129,9 @@ namespace ARJ
                           t.DrawLatex(0.14, 0.86, TString::Format("Justin p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
                           t.DrawLatex(0.14, 0.81, TString::Format("R=%.1f (%s)", R, rKey.c_str()).Data());
 
-                          SaveCanvas(cJ, JoinPath(plotsDir,
-                            TString::Format("JustinOnly_JES3_RECO_truthTaggedPhoJet_pTgamma_%.0f_%.0f_%s.png", ptLo, ptHi, rKey.c_str()).Data()
-                          ));
+                            SaveCanvas(cJ, JoinPath(dirQA_JustinOnly,
+                              TString::Format("JustinOnly_JES3_RECO_truthTaggedPhoJet_pTgamma_%.0f_%.0f_%s.png", ptLo, ptHi, rKey.c_str()).Data()
+                            ));
                           delete j;
                         }
                       }
@@ -7024,7 +7216,7 @@ namespace ARJ
                         TString::Format("overlay_SamVsJustin_JES3_RECO_truthTaggedPhoJet_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
                           ptLo, ptHi, samPtLabel.c_str(), rKey.c_str()).Data();
 
-                      SaveCanvas(c, JoinPath(plotsDir, outName));
+                      SaveCanvas(c, JoinPath(dirOver_Tag_current, outName));
 
                       delete hSam;
                       delete hJustin;
@@ -8113,6 +8305,7 @@ namespace ARJ
 
                       const string ptLabNoUnit = AxisBinLabel(hBlack->GetXaxis(), ib, "", 0);
                       const std::string bbLabel = DefaultSim10and20Config().bbLabel;
+                      const double jetMinPt = DefaultSim10and20Config().jetMinPt;
 
                       TLatex t;
                       t.SetNDC(true);
@@ -8127,6 +8320,9 @@ namespace ARJ
                       );
                       t.DrawLatex(0.14, 0.795,
                         TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data()
+                      );
+                      t.DrawLatex(0.14, 0.755,
+                        TString::Format("p_{T}^{jet} > %.0f GeV", jetMinPt).Data()
                       );
 
                     SaveCanvas(c, outPng);
@@ -10933,6 +11129,13 @@ namespace ARJ
                                   DrawLatexLines(0.14, 0.94, DefaultHeaderLines(ds), 0.030, 0.040);
                                   DrawLatexLines(0.14, 0.86,
                                     {TString::Format("<p_{T}^{recoilJet,reco}> vs p_{T}^{truth lead recoil}  (%s, R=%.1f)", rKey.c_str(), R).Data()},
+                                    0.030, 0.040
+                                  );
+
+                                  // Default SIM cuts (from kDefaultSimSampleKey)
+                                  const auto& cfgDef = DefaultSim10and20Config();
+                                  DrawLatexLines(0.14, 0.80,
+                                    {TString::Format("#Delta#phi(#gamma,jet) > %s,   p_{T}^{jet} > %.0f GeV", cfgDef.bbLabel.c_str(), cfgDef.jetMinPt).Data()},
                                     0.030, 0.040
                                   );
 
