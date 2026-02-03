@@ -6198,11 +6198,39 @@ namespace ARJ
                 sw20 = sx20 / sn20;
               }
 
-              cout << ANSI_DIM
-                   << "[SAM] weights used for fallback merge: sw10=" << std::setprecision(12) << sw10
-                   << "  sw20=" << std::setprecision(12) << sw20
-                   << "  (ok10=" << (sok10 ? "true" : "false") << ", ok20=" << (sok20 ? "true" : "false") << ")\n"
-                   << ANSI_RESET;
+                cout << ANSI_DIM
+                     << "[SAM] weights used for fallback merge: sw10=" << std::setprecision(12) << sw10
+                     << "  sw20=" << std::setprecision(12) << sw20
+                     << "  (ok10=" << (sok10 ? "true" : "false") << ", ok20=" << (sok20 ? "true" : "false") << ")\n"
+                     << ANSI_RESET;
+
+                // -------------------------------------------------------------------------
+                // Default-merged SIM file (driven by header default: kDefaultSimSampleKey)
+                //   We will compare Sam to:
+                //     (A) current merged slice key (jetMinPt3_7piOver8)  [already used below]
+                //     (B) default merged key (kDefaultSimSampleKey="jetMinPt10_pihalves")
+                // -------------------------------------------------------------------------
+                const std::string defaultKey        = kDefaultSimSampleKey;
+                const std::string defaultMergedPath = MergedSIMOut_10and20_ForKey(defaultKey);
+
+              TFile* fDefaultM = TFile::Open(defaultMergedPath.c_str(), "READ");
+              TDirectory* dDefaultM = nullptr;
+              if (fDefaultM && !fDefaultM->IsZombie())
+              {
+                  dDefaultM = fDefaultM->GetDirectory(kDirSIM.c_str());
+              }
+
+              if (!dDefaultM)
+              {
+                  cout << ANSI_BOLD_YEL
+                       << "[WARN] Default merged SIM file not available (will skip default overlays):\n"
+                       << "       key=" << defaultKey << "\n"
+                       << "       path=" << defaultMergedPath << "\n"
+                       << "       dir=" << kDirSIM << "\n"
+                       << ANSI_RESET;
+                  if (fDefaultM) fDefaultM->Close();
+                  fDefaultM = nullptr;
+              }
 
               auto GetSamHistRaw =
                 [&](TFile* f, int iPt, int jR, int kIso, int lABCD)->TH1*
@@ -6334,82 +6362,82 @@ namespace ARJ
                    << ANSI_RESET;
 
               auto BuildJustinMergedTH3 =
-                  [&](const std::string& rKey)->TH3*
-                {
-                    const std::string hname = hPrefix + rKey;
+                [&](const std::string& rKey, const std::string& hPrefix, const std::string& tag)->TH3*
+              {
+                  const std::string hname = hPrefix + rKey;
 
-                    // ------------------------------------------------------------
-                    // 1) Prefer pre-built merged SIM file for jetMinPt3_7piOver8
-                    // ------------------------------------------------------------
-                    const std::string mergedPath =
-                      MergedSIMOut_10and20_ForKey(kAltSimSampleKey_jetMinPt3_7piOver8);
+                  // ------------------------------------------------------------
+                  // 1) Prefer pre-built merged SIM file for jetMinPt3_7piOver8
+                  // ------------------------------------------------------------
+                  const std::string mergedPath =
+                    MergedSIMOut_10and20_ForKey(kAltSimSampleKey_jetMinPt3_7piOver8);
 
-                    TFile* fJM = TFile::Open(mergedPath.c_str(), "READ");
-                    if (fJM && !fJM->IsZombie())
+                  TFile* fJM = TFile::Open(mergedPath.c_str(), "READ");
+                  if (fJM && !fJM->IsZombie())
+                  {
+                    TDirectory* dJM = fJM->GetDirectory(kDirSIM.c_str());
+                    if (dJM)
                     {
-                      TDirectory* dJM = fJM->GetDirectory(kDirSIM.c_str());
-                      if (dJM)
+                      TH3* hm = dynamic_cast<TH3*>(dJM->Get(hname.c_str()));
+                      if (hm)
                       {
-                        TH3* hm = dynamic_cast<TH3*>(dJM->Get(hname.c_str()));
-                        if (hm)
+                        TH3* out = CloneTH3(hm, TString::Format("hJustin_%s_%s", tag.c_str(), rKey.c_str()).Data());
+                        if (out)
                         {
-                          TH3* out = CloneTH3(hm, TString::Format("hJustin_%s_%s", tag.c_str(), rKey.c_str()).Data());
-                          if (out)
-                          {
-                            out->SetDirectory(nullptr);
-                            if (out->GetSumw2N() == 0) out->Sumw2();
-                            fJM->Close();
-                            return out;
-                          }
+                          out->SetDirectory(nullptr);
+                          if (out->GetSumw2N() == 0) out->Sumw2();
+                          fJM->Close();
+                          return out;
                         }
                       }
-                      fJM->Close();
                     }
+                    fJM->Close();
+                  }
 
-                    // ------------------------------------------------------------
-                    // 2) Fallback: in-memory weighted merge from slice files
-                    // ------------------------------------------------------------
-                    TH3* h10 = dynamic_cast<TH3*>(dJ10->Get(hname.c_str()));
-                    TH3* h20 = dynamic_cast<TH3*>(dJ20->Get(hname.c_str()));
-                    if (!h10 && !h20) return nullptr;
+                  // ------------------------------------------------------------
+                  // 2) Fallback: in-memory weighted merge from slice files
+                  // ------------------------------------------------------------
+                  TH3* h10 = dynamic_cast<TH3*>(dJ10->Get(hname.c_str()));
+                  TH3* h20 = dynamic_cast<TH3*>(dJ20->Get(hname.c_str()));
+                  if (!h10 && !h20) return nullptr;
 
-                    TH3* h = nullptr;
-                    if (h10)
+                  TH3* h = nullptr;
+                  if (h10)
+                  {
+                    h = CloneTH3(h10, TString::Format("hJustin_%s_%s", tag.c_str(), rKey.c_str()).Data());
+                    if (h)
                     {
-                      h = CloneTH3(h10, TString::Format("hJustin_%s_%s", tag.c_str(), rKey.c_str()).Data());
-                      if (h)
-                      {
-                        h->SetDirectory(nullptr);
-                        if (h->GetSumw2N() == 0) h->Sumw2();
-                        h->Scale(jw10);
-                      }
+                      h->SetDirectory(nullptr);
+                      if (h->GetSumw2N() == 0) h->Sumw2();
+                      h->Scale(jw10);
                     }
-                    if (!h && h20)
+                  }
+                  if (!h && h20)
+                  {
+                    h = CloneTH3(h20, TString::Format("hJustin_%s_%s", tag.c_str(), rKey.c_str()).Data());
+                    if (h)
                     {
-                      h = CloneTH3(h20, TString::Format("hJustin_%s_%s", tag.c_str(), rKey.c_str()).Data());
-                      if (h)
-                      {
-                        h->SetDirectory(nullptr);
-                        if (h->GetSumw2N() == 0) h->Sumw2();
-                        h->Scale(jw20);
-                      }
+                      h->SetDirectory(nullptr);
+                      if (h->GetSumw2N() == 0) h->Sumw2();
+                      h->Scale(jw20);
                     }
-                    if (h && h20)
+                  }
+                  if (h && h20)
+                  {
+                    TH3* tmp = CloneTH3(h20, TString::Format("hJustin_%s_tmp20_%s", tag.c_str(), rKey.c_str()).Data());
+                    if (tmp)
                     {
-                      TH3* tmp = CloneTH3(h20, TString::Format("hJustin_%s_tmp20_%s", tag.c_str(), rKey.c_str()).Data());
-                      if (tmp)
-                      {
-                        tmp->SetDirectory(nullptr);
-                        if (tmp->GetSumw2N() == 0) tmp->Sumw2();
-                        tmp->Scale(jw20);
-                        h->Add(tmp);
-                        delete tmp;
-                      }
+                      tmp->SetDirectory(nullptr);
+                      if (tmp->GetSumw2N() == 0) tmp->Sumw2();
+                      tmp->Scale(jw20);
+                      h->Add(tmp);
+                      delete tmp;
                     }
+                  }
 
-                    return h;
+                  return h;
               };
-
+ 
               auto FindXbinByEdges =
                 [&](const TAxis* ax, double lo, double hi)->int
               {
@@ -6539,29 +6567,54 @@ namespace ARJ
 
               for (const auto& rm : rMap)
               {
-                const std::string& rKey = rm.rKey;
-                const double R = rm.R;
+                  const std::string& rKey = rm.rKey;
+                  const double R = rm.R;
 
-                cout << ANSI_BOLD_CYN
-                     << "\n[SAM VS JUSTIN] Radius: " << rKey << "  (R=" << R << ")\n"
-                     << ANSI_RESET;
+                  cout << ANSI_BOLD_CYN
+                       << "\n[SAM VS JUSTIN] Radius: " << rKey << "  (R=" << R << ")\n"
+                       << ANSI_RESET;
 
-                TH3* hJustin3 = BuildJustinMergedTH3(rKey);
-                  if (!hJustin3_reco)
+                  TH3* hJustin3_reco = BuildJustinMergedTH3(rKey, "h_JES3_pT_xJ_alpha_", "RECO");
+                    if (!hJustin3_reco)
+                    {
+                      cout << ANSI_BOLD_YEL
+                           << "[WARN] Missing Justin TH3 for " << rKey << " (h_JES3_pT_xJ_alpha_" << rKey << "). Skipping radius.\n"
+                           << ANSI_RESET;
+                      continue;
+                    }
+
+                  // Default RECO TH3 from kDefaultSimSampleKey merged file (jetMinPt10_pihalves)
+                  TH3* hDefault3_reco = nullptr;
+                  if (dDefaultM)
                   {
-                    cout << ANSI_BOLD_YEL
-                         << "[WARN] Missing Justin TH3 for " << rKey << " (h_JES3_pT_xJ_alpha_" << rKey << "). Skipping radius.\n"
-                         << ANSI_RESET;
-                    continue;
+                    const std::string hnameDef = std::string("h_JES3_pT_xJ_alpha_") + rKey;
+                    TH3* hDef = dynamic_cast<TH3*>(dDefaultM->Get(hnameDef.c_str()));
+                    if (hDef)
+                    {
+                      hDefault3_reco = CloneTH3(hDef, TString::Format("hDefaultReco_%s_%s", defaultKey.c_str(), rKey.c_str()).Data());
+                      if (hDefault3_reco)
+                      {
+                        hDefault3_reco->SetDirectory(nullptr);
+                        if (hDefault3_reco->GetSumw2N() == 0) hDefault3_reco->Sumw2();
+                      }
+                    }
+
+                    if (!hDefault3_reco)
+                    {
+                      cout << ANSI_BOLD_YEL
+                           << "[WARN] Missing default TH3 for " << rKey << " in default key=" << defaultKey
+                           << " (h_JES3_pT_xJ_alpha_" << rKey << "). Will skip default overlays for this radius.\n"
+                           << ANSI_RESET;
+                    }
                   }
 
-                  // Also build the Justin truth-tagged (PHOTON+JET) TH3 for a parallel overlay set
-                  TH3* hJustin3_tag = BuildJustinMergedTH3(rKey, "h_JES3RecoTruthTagged_pT_xJ_alpha_", "RECO_truthTaggedPhoJet");
-                  if (!hJustin3_tag)
-                  {
-                    cout << ANSI_BOLD_YEL
-                         << "[WARN] Missing Justin TH3 for " << rKey << " (h_JES3RecoTruthTagged_pT_xJ_alpha_" << rKey << "). Will skip the truth-tagged overlay set for this radius.\n"
-                         << ANSI_RESET;
+                    // Also build the Justin truth-tagged (PHOTON+JET) TH3 for a parallel overlay set
+                    TH3* hJustin3_tag = BuildJustinMergedTH3(rKey, "h_JES3RecoTruthTagged_pT_xJ_alpha_", "RECO_truthTaggedPhoJet");
+                    if (!hJustin3_tag)
+                    {
+                      cout << ANSI_BOLD_YEL
+                           << "[WARN] Missing Justin TH3 for " << rKey << " (h_JES3RecoTruthTagged_pT_xJ_alpha_" << rKey << "). Will skip the truth-tagged overlay set for this radius.\n"
+                           << ANSI_RESET;
                   }
 
                   // --------------------------------------------------------------------------------
@@ -6575,23 +6628,44 @@ namespace ARJ
                     const int xbin = FindXbinByEdges(hJustin3_reco->GetXaxis(), ptLo, ptHi);
                     if (xbin < 1)
                     {
-                      cout << ANSI_BOLD_YEL
-                           << "[WARN] Justin TH3 missing pT bin " << ptLo << "-" << ptHi << " for " << rKey << ". Skipping bin.\n"
-                           << ANSI_RESET;
-                      continue;
+                        cout << ANSI_BOLD_YEL
+                             << "[WARN] Justin TH3 missing pT bin " << ptLo << "-" << ptHi << " for " << rKey << ". Skipping bin.\n"
+                             << ANSI_RESET;
+                        continue;
                     }
 
-                    TH1* hJustin = ProjectY_AtXbin_TH3(
-                      hJustin3_reco, xbin,
-                      TString::Format("hJustin_xJ_%.0f_%.0f_%s", ptLo, ptHi, rKey.c_str()).Data()
-                    );
+                      TH1* hJustin = ProjectY_AtXbin_TH3(
+                          hJustin3_reco, xbin,
+                          TString::Format("hJustin_xJ_%.0f_%.0f_%s", ptLo, ptHi, rKey.c_str()).Data()
+                      );
 
-                    std::string samPtLabel;
-                    TH1* hSam = GetSamHistForJustinBin(
-                      ptLo, ptHi, rm.jIdx, kIso, lABCD,
-                      TString::Format("hSam_xJ_%.0f_%.0f_%s", ptLo, ptHi, rKey.c_str()).Data(),
-                      samPtLabel
-                    );
+                      // Default RECO projection for the same pT bin (if available)
+                      TH1* hDefault = nullptr;
+                      if (hDefault3_reco)
+                      {
+                        const int xbinDef = FindXbinByEdges(hDefault3_reco->GetXaxis(), ptLo, ptHi);
+                        if (xbinDef >= 1)
+                        {
+                          hDefault = ProjectY_AtXbin_TH3(
+                            hDefault3_reco, xbinDef,
+                            TString::Format("hDefaultReco_xJ_%.0f_%.0f_%s", ptLo, ptHi, rKey.c_str()).Data()
+                          );
+                        }
+                        else
+                        {
+                          cout << ANSI_BOLD_YEL
+                               << "[WARN] Default TH3 missing pT bin " << ptLo << "-" << ptHi << " for " << rKey
+                               << " (defaultKey=" << defaultKey << "). Skipping default overlays for this bin.\n"
+                               << ANSI_RESET;
+                        }
+                      }
+
+                      std::string samPtLabel;
+                      TH1* hSam = GetSamHistForJustinBin(
+                        ptLo, ptHi, rm.jIdx, kIso, lABCD,
+                        TString::Format("hSam_xJ_%.0f_%.0f_%s", ptLo, ptHi, rKey.c_str()).Data(),
+                        samPtLabel
+                      );
 
                     cout << "  bin " << std::fixed << std::setprecision(0) << ptLo << "-" << ptHi
                          << "  SamUsed=" << samPtLabel
@@ -6689,18 +6763,28 @@ namespace ARJ
 
                       StyleForOverlay(hSam, 2);
                       StyleForOverlay(hJustin, 4);
+                      if (hDefault) StyleForOverlay(hDefault, 6);
 
                       PrintH1Summary("Sam(norm)", hSam);
                       PrintH1Summary("Justin(norm)", hJustin);
+                      if (hDefault) PrintH1Summary("DefaultReco(norm)", hDefault);
 
-                      const double ymax = std::max(hSam->GetMaximum(), hJustin->GetMaximum());
+                      double ymax = 0.0;
+                      ymax = std::max(ymax, hSam->GetMaximum());
+                      ymax = std::max(ymax, hJustin->GetMaximum());
+                      if (hDefault) ymax = std::max(ymax, hDefault->GetMaximum());
                       hSam->SetMaximum(ymax * 1.25);
 
+                      // -------------------------------------------------------------------------
+                      // (A1) UPDATED existing output: Sam vs Current merged RECO vs Default merged RECO
+                      //      (keeps the SAME output naming pattern you already use)
+                      // -------------------------------------------------------------------------
                       TCanvas c("c_SamVsJustin","c_SamVsJustin",900,700);
                       ApplyCanvasMargins1D(c);
 
                       hSam->Draw("E1");
                       hJustin->Draw("E1 same");
+                      if (hDefault) hDefault->Draw("E1 same");
 
                       TLegend leg(0.52, 0.73, 0.88, 0.90);
                       leg.SetTextFont(42);
@@ -6708,29 +6792,28 @@ namespace ARJ
                       leg.SetFillStyle(0);
                       leg.SetBorderSize(0);
                       leg.AddEntry(hSam,    TString::Format("Sam's Reco (R = %.1f)", R).Data(), "ep");
-                      leg.AddEntry(hJustin, TString::Format("Justin's Reco (R = %.1f)", R).Data(), "ep");
+                      leg.AddEntry(hJustin, TString::Format("Current merged RECO (R = %.1f)", R).Data(), "ep");
+                      if (hDefault) leg.AddEntry(hDefault, TString::Format("Default RECO (%s) (R = %.1f)", defaultKey.c_str(), R).Data(), "ep");
                       leg.Draw();
 
+                      // Note: aligned just under and a bit left of the legend block
                       TLatex tNote;
                       tNote.SetNDC(true);
                       tNote.SetTextFont(42);
-                      tNote.SetTextAlign(12);
-                      tNote.SetTextSize(0.036);
-                      tNote.DrawLatex(0.62, 0.52, "Photon+Jet  10 + 20 GeV Samples");
+                      tNote.SetTextAlign(13); // left-top
+                      tNote.SetTextSize(0.034);
+                      tNote.DrawLatex(0.50, 0.705, "Photon+Jet  10 + 20 GeV Samples");
 
+                      // Info block: middle RHS of the canvas
                       TLatex t;
                       t.SetNDC(true);
                       t.SetTextFont(42);
-                      t.SetTextAlign(13);
-
-                      t.SetTextSize(0.040);
-                      t.DrawLatex(0.14, 0.92, "JES3 RECO x_{J#gamma}: Sam vs Justin");
-
                       t.SetTextSize(0.034);
-                      t.DrawLatex(0.14, 0.86, TString::Format("Justin p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
-                      t.DrawLatex(0.14, 0.81, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
-                      t.DrawLatex(0.14, 0.76, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
-                      t.DrawLatex(0.14, 0.71, TString::Format("Back-to-back: %s", bbLabel.c_str()).Data());
+                      t.SetTextAlign(12); // left-center
+                      t.DrawLatex(0.60, 0.62, TString::Format("p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
+                      t.DrawLatex(0.60, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
+                      t.DrawLatex(0.60, 0.52, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
+                      t.DrawLatex(0.60, 0.47, TString::Format("Back-to-back (current): %s", bbLabel.c_str()).Data());
 
                       const std::string outName =
                         TString::Format("overlay_SamVsJustin_JES3_RECO_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
@@ -6738,11 +6821,57 @@ namespace ARJ
 
                       SaveCanvas(c, JoinPath(plotsDir, outName));
 
+                      // -------------------------------------------------------------------------
+                      // (A2) NEW parallel output: Sam vs Default RECO only
+                      // -------------------------------------------------------------------------
+                      if (hDefault)
+                      {
+                        TCanvas cDef("c_SamVsDefault","c_SamVsDefault",900,700);
+                        ApplyCanvasMargins1D(cDef);
+
+                        hSam->Draw("E1");
+                        hDefault->Draw("E1 same");
+
+                        TLegend leg2(0.52, 0.73, 0.88, 0.90);
+                        leg2.SetTextFont(42);
+                        leg2.SetTextSize(0.035);
+                        leg2.SetFillStyle(0);
+                        leg2.SetBorderSize(0);
+                        leg2.AddEntry(hSam,     TString::Format("Sam's Reco (R = %.1f)", R).Data(), "ep");
+                        leg2.AddEntry(hDefault, TString::Format("Default RECO (%s) (R = %.1f)", defaultKey.c_str(), R).Data(), "ep");
+                        leg2.Draw();
+
+                        TLatex tNote2;
+                        tNote2.SetNDC(true);
+                        tNote2.SetTextFont(42);
+                        tNote2.SetTextAlign(13); // left-top
+                        tNote2.SetTextSize(0.034);
+                        tNote2.DrawLatex(0.50, 0.705, "Photon+Jet  10 + 20 GeV Samples");
+
+                        TLatex t2;
+                        t2.SetNDC(true);
+                        t2.SetTextFont(42);
+                        t2.SetTextSize(0.034);
+                        t2.SetTextAlign(12); // left-center
+                        t2.DrawLatex(0.60, 0.62, TString::Format("p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
+                        t2.DrawLatex(0.60, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
+                        t2.DrawLatex(0.60, 0.52, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
+                        t2.DrawLatex(0.60, 0.47, TString::Format("Default key: %s", defaultKey.c_str()).Data());
+
+                        const std::string outNameDef =
+                          TString::Format("overlay_SamVsDefault_JES3_RECO_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
+                            ptLo, ptHi, samPtLabel.c_str(), rKey.c_str()).Data();
+
+                        SaveCanvas(cDef, JoinPath(plotsDir, outNameDef));
+                      }
+
                       delete hSam;
                       delete hJustin;
+                      if (hDefault) delete hDefault;
                   }
 
                   delete hJustin3_reco;
+                  if (hDefault3_reco) delete hDefault3_reco;
 
                   // --------------------------------------------------------------------------------
                   // (B) Sam vs Justin: RECO truth-tagged (PHOTON+JET) (Justin = h_JES3RecoTruthTagged_pT_xJ_alpha_<rKey>)
@@ -6869,26 +6998,27 @@ namespace ARJ
                       leg.AddEntry(hJustin, TString::Format("Justin's Reco (#gamma^{truth} + jet^{truth} tagged) (R = %.1f)", R).Data(), "ep");
                       leg.Draw();
 
-                      TLatex tNote;
-                      tNote.SetNDC(true);
-                      tNote.SetTextFont(42);
-                      tNote.SetTextAlign(12);
-                      tNote.SetTextSize(0.036);
-                      tNote.DrawLatex(0.62, 0.52, "Photon+Jet  10 + 20 GeV Samples");
+                        // Note: aligned just under and a bit left of the legend block
+                        TLatex tNote;
+                        tNote.SetNDC(true);
+                        tNote.SetTextFont(42);
+                        tNote.SetTextAlign(13); // left-top
+                        tNote.SetTextSize(0.034);
+                        tNote.DrawLatex(0.50, 0.705, "Photon+Jet  10 + 20 GeV Samples");
+                        tNote.DrawLatex(0.50, 0.665, "Justin: (#gamma^{truth} + jet^{truth} tagged)");
 
-                      TLatex t;
-                      t.SetNDC(true);
-                      t.SetTextFont(42);
-                      t.SetTextAlign(13);
+                        // Move the info block off the top-left (and remove the big title line).
+                        TLatex t;
+                        t.SetNDC(true);
+                        t.SetTextFont(42);
+                        t.SetTextSize(0.034);
 
-                      t.SetTextSize(0.040);
-                      t.DrawLatex(0.14, 0.92, "JES3 RECO truth-tagged (PHOTON+JET) x_{J#gamma}: Sam vs Justin");
-
-                      t.SetTextSize(0.034);
-                      t.DrawLatex(0.14, 0.86, TString::Format("Justin p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
-                      t.DrawLatex(0.14, 0.81, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
-                      t.DrawLatex(0.14, 0.76, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
-                      t.DrawLatex(0.14, 0.71, TString::Format("Back-to-back: %s", bbLabel.c_str()).Data());
+                        // Main info block: middle RHS of the canvas
+                        t.SetTextAlign(12); // left-center
+                        t.DrawLatex(0.60, 0.62, TString::Format("Justin p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
+                        t.DrawLatex(0.60, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
+                        t.DrawLatex(0.60, 0.52, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
+                        t.DrawLatex(0.60, 0.47, TString::Format("Back-to-back: %s", bbLabel.c_str()).Data());
 
                       const std::string outName =
                         TString::Format("overlay_SamVsJustin_JES3_RECO_truthTaggedPhoJet_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
@@ -6910,6 +7040,8 @@ namespace ARJ
               fSamM->Close();
               fSam10->Close();
               fSam20->Close();
+
+              if (fDefaultM) fDefaultM->Close();
 
               cout << ANSI_BOLD_GRN
                    << "\n[OK] Sam-vs-Justin overlays complete. All PNGs written under:\n"
@@ -7980,6 +8112,7 @@ namespace ARJ
                       }
 
                       const string ptLabNoUnit = AxisBinLabel(hBlack->GetXaxis(), ib, "", 0);
+                      const std::string bbLabel = DefaultSim10and20Config().bbLabel;
 
                       TLatex t;
                       t.SetNDC(true);
@@ -7991,6 +8124,9 @@ namespace ARJ
                       t.SetTextSize(0.032);
                       t.DrawLatex(0.14, 0.845,
                         TString::Format("p_{T}^{#gamma}: %s GeV (R = %.1f)", ptLabNoUnit.c_str(), R).Data()
+                      );
+                      t.DrawLatex(0.14, 0.795,
+                        TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data()
                       );
 
                     SaveCanvas(c, outPng);
@@ -8100,14 +8236,20 @@ namespace ARJ
 
                         const string ptLab = AxisBinLabel(hBlack->GetXaxis(), ib, "GeV", 0);
 
-                        TLatex tt;
-                        tt.SetNDC(true);
-                        tt.SetTextFont(42);
-                        tt.SetTextAlign(22);
-                        tt.SetTextSize(0.060);
-                        tt.DrawLatex(0.52, 0.95,
-                          TString::Format("p_{T}^{#gamma} = %s  (R=%.1f)", ptLab.c_str(), R).Data()
-                        );
+                          const std::string bbLabel = DefaultSim10and20Config().bbLabel;
+
+                          TLatex tt;
+                          tt.SetNDC(true);
+                          tt.SetTextFont(42);
+                          tt.SetTextAlign(22);
+                          tt.SetTextSize(0.060);
+                          tt.DrawLatex(0.52, 0.95,
+                            TString::Format("p_{T}^{#gamma} = %s  (R=%.1f)", ptLab.c_str(), R).Data()
+                          );
+                          tt.SetTextSize(0.050);
+                          tt.DrawLatex(0.52, 0.885,
+                            TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data()
+                          );
 
                           // Legend placement: top-right, but protect long labels in table pads
                           double lx1 = 0.52, ly1 = 0.74, lx2 = 0.92, ly2 = 0.90;
