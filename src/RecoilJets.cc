@@ -2784,20 +2784,43 @@ bool RecoilJets::runLeadIsoTightPhotonJetLoopAllRadii(
       if (std::fabs(jeta) >= jetEtaAbsMaxUse) continue;
       ++nPassEta;
 
-      // Track leading+subleading jets in the pT+eta set (NO Δφ requirement)
-      if (jpt > all1Pt)
-      {
-        all2Pt  = all1Pt;
-        all2Jet = all1Jet;
+//      // Track leading+subleading jets in the pT+eta set (NO Δφ requirement)
+//      if (jpt > all1Pt)
+//      {
+//        all2Pt  = all1Pt;
+//        all2Jet = all1Jet;
+//
+//        all1Pt  = jpt;
+//        all1Jet = j;
+//      }
+//      else if (jpt > all2Pt)
+//      {
+//        all2Pt  = jpt;
+//        all2Jet = j;
+//      }
+        // Track leading+subleading jets in the pT+eta set (NO Δφ requirement)
+        //   - ensure "leading jet" is not the photon: veto jets with ΔR(γ,jet) < 0.4
+        const double dphiPho = TVector2::Phi_mpi_pi(jphi - leadPhiGamma);
+        const double detaPho = (jeta - leadEtaGamma);
+        const double dRPho2  = (detaPho*detaPho + dphiPho*dphiPho);
 
-        all1Pt  = jpt;
-        all1Jet = j;
-      }
-      else if (jpt > all2Pt)
-      {
-        all2Pt  = jpt;
-        all2Jet = j;
-      }
+        if (std::isfinite(dRPho2) && (dRPho2 >= (0.4 * 0.4)))
+        {
+          if (jpt > all1Pt)
+          {
+            all2Pt  = all1Pt;
+            all2Jet = all1Jet;
+
+            all1Pt  = jpt;
+            all1Jet = j;
+          }
+          else if (jpt > all2Pt)
+          {
+            all2Pt  = jpt;
+            all2Jet = j;
+          }
+        }
+
 
       const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(jphi - leadPhiGamma));
       if (std::isfinite(dphiAbs) && dphiAbs > maxDphi) maxDphi = dphiAbs;
@@ -2808,18 +2831,24 @@ bool RecoilJets::runLeadIsoTightPhotonJetLoopAllRadii(
       recoJetsFid.push_back(j);
       recoJetsFidIsRecoil.push_back(isRecoil ? 1 : 0);
 
-      if (isRecoil)
-      {
-        ++nPassDphi;
-
-        // Track leading recoil jet (used for xJgamma)
-        if (jpt > recoil1Pt)
+        if (isRecoil)
         {
-          recoil1Pt  = jpt;
-          recoil1Jet = j;
+          ++nPassDphi;
         }
       }
-    }
+
+      // Sam-style leading-jet definition:
+      //   - pick the leading fiducial jet excluding photon overlap (all1Jet)
+      //   - THEN require it be back-to-back to define recoil1Jet
+      if (all1Jet)
+      {
+        const double dphiLeadAbs = std::fabs(TVector2::Phi_mpi_pi(all1Jet->get_phi() - leadPhiGamma));
+        if (std::isfinite(dphiLeadAbs) && dphiLeadAbs >= m_minBackToBack)
+        {
+          recoil1Pt  = all1Pt;
+          recoil1Jet = all1Jet;
+        }
+      }
 
     // matching status category
     int status = 0;
