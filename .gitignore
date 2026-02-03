@@ -1,2 +1,5 @@
 # Ignore all outputs
 dataOutput/
+
+# Ignore simulation inputs
+InputFilesSim/
