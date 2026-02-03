@@ -38,7 +38,7 @@ back_to_back_dphi_min_pi_fraction: [0.5, 0.875]
 # Vertex selection knobs (YAML-driven)
 # -----------------------------------------------------------------------------
 use_vz_cut: true
-vz_cut_cm: 60.0
+vz_cut_cm: 30.0
 
 # -----------------------------------------------------------------------------
 # Isolation working point knobs (YAML-driven; baseline matches current Fun4All)

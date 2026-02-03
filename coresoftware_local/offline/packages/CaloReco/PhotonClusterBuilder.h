@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <limits>
 
 class PHCompositeNode;
 class RawClusterContainer;
@@ -35,14 +36,20 @@ class PhotonClusterBuilder : public SubsysReco
   int InitRun(PHCompositeNode* topNode) override;
   int process_event(PHCompositeNode* topNode) override;
 
-  void set_input_cluster_node(const std::string& n) { m_input_cluster_node = n; }
-  void set_output_photon_node(const std::string& n) { m_output_photon_node = n; }
-  void set_ET_threshold(float e) { m_min_cluster_et = e; }
-  void set_shower_shape_min_tower_energy(float e) { m_shape_min_tower_E = e; }
-  void set_bdt_model_file(const std::string& path) { m_bdt_model_file = path; }
-  void set_bdt_feature_list(const std::vector<std::string>& features) { m_bdt_feature_list = features; }
-  void set_do_bdt(bool do_bdt) { m_do_bdt = do_bdt; }
-  const std::vector<std::string>& get_bdt_feature_list() const { return m_bdt_feature_list; }
+    void set_input_cluster_node(const std::string& n) { m_input_cluster_node = n; }
+    void set_output_photon_node(const std::string& n) { m_output_photon_node = n; }
+    void set_ET_threshold(float e) { m_min_cluster_et = e; }
+    void set_shower_shape_min_tower_energy(float e) { m_shape_min_tower_E = e; }
+    void set_bdt_model_file(const std::string& path) { m_bdt_model_file = path; }
+    void set_bdt_feature_list(const std::vector<std::string>& features) { m_bdt_feature_list = features; }
+    void set_do_bdt(bool do_bdt) { m_do_bdt = do_bdt; }
+    const std::vector<std::string>& get_bdt_feature_list() const { return m_bdt_feature_list; }
+
+    void set_vz_cut(bool use, float vz_cm) { m_use_vz_cut = use; m_vz_cut_cm = vz_cm; }
+    void set_use_vz_cut(bool use) { m_use_vz_cut = use; }
+    void set_vz_cut_cm(float vz_cm) { m_vz_cut_cm = vz_cm; }
+    bool get_use_vz_cut() const { return m_use_vz_cut; }
+    float get_vz_cut_cm() const { return m_vz_cut_cm; }
 
  private:
   void CreateNodes(PHCompositeNode* topNode);
@@ -59,10 +66,12 @@ class PhotonClusterBuilder : public SubsysReco
   float m_min_cluster_et{8.0f};
   float m_shape_min_tower_E{0.070f};
   std::string m_bdt_model_file{"myBDT_5.root"};
-  std::vector<std::string> m_bdt_feature_list;
-  float m_vertex{std::numeric_limits<float>::quiet_NaN()};
+    std::vector<std::string> m_bdt_feature_list;
+    float m_vertex{std::numeric_limits<float>::quiet_NaN()};
+    bool m_use_vz_cut{true};
+    float m_vz_cut_cm{30.0f};
 
-  RawClusterContainer* m_rawclusters{nullptr};
+    RawClusterContainer* m_rawclusters{nullptr};
   RawClusterContainer* m_photon_container{nullptr};
   TowerInfoContainer* m_emc_tower_container{nullptr};
   RawTowerGeomContainer* m_geomEM{nullptr};

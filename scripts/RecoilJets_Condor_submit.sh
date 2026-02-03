@@ -2,7 +2,7 @@
 ###############################################################################
 # RecoilJets_Condor_submit.sh — one-stop driver for LOCAL testing and CONDOR
 #
-# BASELINE SIM COMMAND TO SUBMIT ALL JOBS I CARE ABOUT IN SIM FOR 10 AND 20 samples --> ./RecoilJets_Condor_submit.sh isSim condorDoAll
+# BASELINE SIM COMMAND TO SUBMIT ALL JOBS I CARE ABOUT IN SIM FOR 10 AND 20 samples --> ./RecoilJets_Condor_submit.sh isSim local && ./RecoilJets_Condor_submit.sh isSim condorDoAll
 #
 #
 # OVERVIEW

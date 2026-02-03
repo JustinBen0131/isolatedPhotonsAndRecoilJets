@@ -175,7 +175,7 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
     static unsigned long long s_evt = 0;
     ++s_evt;
 
-    const float vzCutForInfo = 30.0f;  // informational (matches your RecoilJets cut)
+    const float vzCutForInfo = m_vz_cut_cm;
 
     m_vertex = std::numeric_limits<float>::quiet_NaN();
     const char* vtx_source = "NONE";
@@ -232,19 +232,26 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
       return Fun4AllReturnCodes::EVENT_OK;
     }
 
-    const bool passVz = (std::fabs(m_vertex) < vzCutForInfo);
+    const bool passVz = (!m_use_vz_cut) || (std::fabs(m_vertex) < vzCutForInfo);
 
     if (Verbosity() >= 2)
     {
       std::cout << Name()
                 << ": [evt=" << s_evt << "] using vertex_z=" << m_vertex
-                << " (source=" << vtx_source << ")"
-                << " | inside |vz|<" << vzCutForInfo << "? " << (passVz ? "YES" : "NO")
-                << std::endl;
+                << " (source=" << vtx_source << ")";
+      if (m_use_vz_cut)
+      {
+        std::cout << " | inside |vz|<" << vzCutForInfo << "? " << (passVz ? "YES" : "NO");
+      }
+      else
+      {
+        std::cout << " | vz cut DISABLED";
+      }
+      std::cout << std::endl;
     }
 
     // If vertex is outside your analysis vz window, skip building photons for this event.
-    if (!passVz)
+    if (m_use_vz_cut && !passVz)
     {
       if (Verbosity() >= 1)
       {

@@ -18,6 +18,10 @@
 #include <phool/getClass.h>
 #include <phool/PHCompositeNode.h>
 #include <calobase/TowerInfoContainer.h>
+#include <calobase/TowerInfo.h>
+#include <jetbase/JetContainer.h>
+#include <globalvertex/GlobalVertexMap.h>
+#include <globalvertex/GlobalVertex.h>
 #include <mbd/MbdPmtContainer.h>
 #include <caloreco/CaloTowerStatus.h>
 #include <caloreco/CaloWaveformProcessing.h>
@@ -134,6 +138,13 @@ namespace detail
 
 namespace yamlcfg
 {
+  // Forward declarations (LoadJetRKeys appears before helper definitions below)
+  inline std::string ResolveYAMLPath();
+  inline bool ReadWholeFile(const std::string& path, std::string& out);
+  inline bool StartsWithKey(const std::string& line, const std::string& key);
+  inline std::string AfterColon(const std::string& line);
+  inline void ParseInlineListDoubles(std::string s, std::vector<double>& out);
+
   inline std::vector<std::string> LoadJetRKeys(int vlevel)
   {
     std::vector<std::string> outKeys;
@@ -1731,7 +1742,8 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   auto* photonBuilder = new PhotonClusterBuilder("PhotonClusterBuilder");
   photonBuilder->set_input_cluster_node("CLUSTERINFO_CEMC");
   photonBuilder->set_output_photon_node("PHOTONCLUSTER_CEMC");
-  photonBuilder->Verbosity(2);
+  photonBuilder->set_vz_cut(cfg.use_vz_cut, cfg.vz_cut_cm);
+  photonBuilder->Verbosity(vlevel);
   se->registerSubsystem(photonBuilder);
 
   auto* recoilJets = new RecoilJets(outRoot);
