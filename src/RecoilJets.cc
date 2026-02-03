@@ -2800,42 +2800,47 @@ bool RecoilJets::runLeadIsoTightPhotonJetLoopAllRadii(
 //      }
         // Track leading+subleading jets in the pT+eta set (NO Δφ requirement)
         //   - ensure "leading jet" is not the photon: veto jets with ΔR(γ,jet) < 0.4
-        const double dphiPho = TVector2::Phi_mpi_pi(jphi - leadPhiGamma);
-        const double detaPho = (jeta - leadEtaGamma);
-        const double dRPho2  = (detaPho*detaPho + dphiPho*dphiPho);
+        // Photon–jet overlap veto: exclude jets near the photon direction (ΔR < 0.4)
+                const double dphiPho = TVector2::Phi_mpi_pi(jphi - leadPhiGamma);
+                const double detaPho = (jeta - leadEtaGamma);
+                const double dRPho2  = (detaPho*detaPho + dphiPho*dphiPho);
 
-        if (std::isfinite(dRPho2) && (dRPho2 >= (0.4 * 0.4)))
-        {
-          if (jpt > all1Pt)
-          {
-            all2Pt  = all1Pt;
-            all2Jet = all1Jet;
+                if (!std::isfinite(dRPho2) || (dRPho2 < (0.4 * 0.4)))
+                {
+                  continue;
+                }
 
-            all1Pt  = jpt;
-            all1Jet = j;
-          }
-          else if (jpt > all2Pt)
-          {
-            all2Pt  = jpt;
-            all2Jet = j;
-          }
+                // Track leading+subleading jets in the pT+eta set (NO Δφ requirement)
+                if (jpt > all1Pt)
+                {
+                  all2Pt  = all1Pt;
+                  all2Jet = all1Jet;
+
+                  all1Pt  = jpt;
+                  all1Jet = j;
+                }
+                else if (jpt > all2Pt)
+                {
+                  all2Pt  = jpt;
+                  all2Jet = j;
+                }
+
+
+              const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(jphi - leadPhiGamma));
+              if (std::isfinite(dphiAbs) && dphiAbs > maxDphi) maxDphi = dphiAbs;
+
+              const bool isRecoil = (dphiAbs >= m_minBackToBack);
+
+              // cache fiducial jets for inclusive pairing / response matching
+              recoJetsFid.push_back(j);
+              recoJetsFidIsRecoil.push_back(isRecoil ? 1 : 0);
+
+              if (isRecoil)
+              {
+                ++nPassDphi;
+            }
         }
 
-
-      const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(jphi - leadPhiGamma));
-      if (std::isfinite(dphiAbs) && dphiAbs > maxDphi) maxDphi = dphiAbs;
-
-      const bool isRecoil = (dphiAbs >= m_minBackToBack);
-
-      // cache fiducial jets for inclusive pairing / response matching
-      recoJetsFid.push_back(j);
-      recoJetsFidIsRecoil.push_back(isRecoil ? 1 : 0);
-
-        if (isRecoil)
-        {
-          ++nPassDphi;
-        }
-      }
 
       // Sam-style leading-jet definition:
       //   - pick the leading fiducial jet excluding photon overlap (all1Jet)
