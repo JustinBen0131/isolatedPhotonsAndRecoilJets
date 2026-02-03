@@ -10638,14 +10638,27 @@ namespace ARJ
                               EnsureDir(dirED_MA);
                               EnsureDir(dirED_MB);
 
-                              TTree* tED = (ds.file ? dynamic_cast<TTree*>(ds.file->Get("EventDisplayTree")) : nullptr);
-                              if (!tED)
-                              {
-                                effSummary.push_back("  EventDisplayTree: MISSING in input ROOT (no eventDisplay PNGs generated)");
-                              }
-                              else
-                              {
-                                effSummary.push_back("  EventDisplayTree: generating eventDisplay PNGs in " + dirED);
+                                TTree* tED = (ds.topDir ? dynamic_cast<TTree*>(ds.topDir->Get("EventDisplayTree")) : nullptr);
+                                if (!tED && ds.file)
+                                {
+                                  tED = dynamic_cast<TTree*>(ds.file->Get("EventDisplayTree"));
+                                }
+
+                                if (!tED)
+                                {
+                                  cout << ANSI_BOLD_YEL
+                                       << "  [EventDisplay] EventDisplayTree MISSING (searched ds.topDir then ds.file)."
+                                       << "  topDirName=\"" << ds.topDirName << "\""
+                                       << ANSI_RESET << "\n";
+                                  effSummary.push_back("  EventDisplayTree: MISSING in input ROOT (no eventDisplay PNGs generated)");
+                                }
+                                else
+                                {
+                                  cout << ANSI_BOLD_CYN
+                                       << "  [EventDisplay] Found EventDisplayTree -> generating PNGs in " << dirED
+                                       << "  (topDirName=\"" << ds.topDirName << "\")"
+                                       << ANSI_RESET << "\n";
+                                  effSummary.push_back("  EventDisplayTree: generating eventDisplay PNGs in " + dirED);
 
                                 // Branch buffers
                                 int b_run = 0;
@@ -10910,7 +10923,7 @@ namespace ARJ
                                 SaveMissA(dirED_MA);
                                 SaveNUMorMissB("MissB", 2, dirED_MB);
                               }
-                            }
+                          }
 
 
                           auto Save2DColz =
