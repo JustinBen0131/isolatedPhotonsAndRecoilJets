@@ -240,58 +240,68 @@ namespace ARJ
 
   inline const map<string, Sim10and20Config>& Sim10and20Configs()
   {
-        static map<string, Sim10and20Config> m;
-        if (!m.empty()) return m;
+          static map<string, Sim10and20Config> m;
+          if (!m.empty()) return m;
 
-        m["jetMinPt10_pihalves"] = Sim10and20Config{
-            "jetMinPt10_pihalves",
-            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt10_pihalves.root",
-            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt10_pihalves.root",
-            10.0,
-            "#pi/2"
-        };
+          const string base = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim";
+          string vzTag = "";
 
-        m["jetMinPt10_7piOver8"] = Sim10and20Config{
-            "jetMinPt10_7piOver8",
-            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt10_7piOver8.root",
-            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet10/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt10_7piOver8.root",
-            10.0,
-            "7#pi/8"
-        };
+          // Toggle: if YAML has vz_cut_cm = 60 or 30, switch to vz_lt_60 / vz_lt_30 subfolder.
+          // Otherwise, keep legacy paths (no vz subfolder) with identical behavior.
+          if (std::fabs(vzCutCm - 60.0) < 1e-6) vzTag = "/vz_lt_60";
+          else if (std::fabs(vzCutCm - 30.0) < 1e-6) vzTag = "/vz_lt_30";
 
-        m["jetMinPt5_pihalves"] = Sim10and20Config{
-            "jetMinPt5_pihalves",
-            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt5_pihalves.root",
-            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt5_pihalves.root",
-            5.0,
-            "#pi/2"
-        };
+          const string root = base + vzTag;
 
-        m["jetMinPt5_7piOver8"] = Sim10and20Config{
-            "jetMinPt5_7piOver8",
-            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt5_7piOver8.root",
-            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet5/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt5_7piOver8.root",
-            5.0,
-            "7#pi/8"
-        };
+          m["jetMinPt10_pihalves"] = Sim10and20Config{
+              "jetMinPt10_pihalves",
+              root + "/pTminJet10/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt10_pihalves.root",
+              root + "/pTminJet10/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt10_pihalves.root",
+              10.0,
+              "#pi/2"
+          };
 
-        m["jetMinPt3_pihalves"] = Sim10and20Config{
-            "jetMinPt3_pihalves",
-            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet3/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt3_pihalves.root",
-            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet3/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt3_pihalves.root",
-            3.0,
-            "#pi/2"
-        };
+          m["jetMinPt10_7piOver8"] = Sim10and20Config{
+              "jetMinPt10_7piOver8",
+              root + "/pTminJet10/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt10_7piOver8.root",
+              root + "/pTminJet10/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt10_7piOver8.root",
+              10.0,
+              "7#pi/8"
+          };
 
-        m["jetMinPt3_7piOver8"] = Sim10and20Config{
-            "jetMinPt3_7piOver8",
-            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet3/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt3_7piOver8.root",
-            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/pTminJet3/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt3_7piOver8.root",
-            3.0,
-            "7#pi/8"
-        };
+          m["jetMinPt5_pihalves"] = Sim10and20Config{
+              "jetMinPt5_pihalves",
+              root + "/pTminJet5/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt5_pihalves.root",
+              root + "/pTminJet5/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt5_pihalves.root",
+              5.0,
+              "#pi/2"
+          };
 
-        return m;
+          m["jetMinPt5_7piOver8"] = Sim10and20Config{
+              "jetMinPt5_7piOver8",
+              root + "/pTminJet5/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt5_7piOver8.root",
+              root + "/pTminJet5/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt5_7piOver8.root",
+              5.0,
+              "7#pi/8"
+          };
+
+          m["jetMinPt3_pihalves"] = Sim10and20Config{
+              "jetMinPt3_pihalves",
+              root + "/pTminJet3/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt3_pihalves.root",
+              root + "/pTminJet3/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt3_pihalves.root",
+              3.0,
+              "#pi/2"
+          };
+
+          m["jetMinPt3_7piOver8"] = Sim10and20Config{
+              "jetMinPt3_7piOver8",
+              root + "/pTminJet3/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt3_7piOver8.root",
+              root + "/pTminJet3/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt3_7piOver8.root",
+              3.0,
+              "7#pi/8"
+          };
+
+          return m;
   }
 
   inline const Sim10and20Config& Sim10and20ConfigForKey(const string& key)
