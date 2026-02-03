@@ -369,23 +369,72 @@ namespace yamlcfg
 
   inline Config LoadConfig()
   {
-    Config cfg;
-    cfg.yamlPath = ResolveYAMLPath();
-    ReadWholeFile(cfg.yamlPath, cfg.yamlText);
+      Config cfg;
+      cfg.yamlPath = ResolveYAMLPath();
 
-    std::istringstream iss(cfg.yamlText);
-    for (std::string line; std::getline(iss, line); )
-    {
-      line = detail::trim(line);
-      if (line.empty()) continue;
-      if (!line.empty() && line[0] == '#') continue;
+      const bool okRead = ReadWholeFile(cfg.yamlPath, cfg.yamlText);
 
-      if (StartsWithKey(line, "photon_eta_abs_max"))
+      // Local verbosity for YAML parsing diagnostics (independent of the later banner)
+      int yamlV = 0;
+      if (const char* venv = std::getenv("RJ_VERBOSITY"))
       {
-          ParseDouble(AfterColon(line), cfg.photon_eta_abs_max);
+        try { yamlV = std::stoi(venv); } catch (...) { yamlV = 0; }
       }
-      else if (StartsWithKey(line, "jet_pt_min"))
+
+      bool strict = false;
+      if (const char* env = std::getenv("RJ_YAML_STRICT")) strict = (std::atoi(env) != 0);
+
+      auto warn_parse = [&](const std::string& key, const std::string& rhs, const std::string& why)
       {
+        if (yamlV > 0)
+        {
+          std::cout << "[CFG][WARN] YAML parse failed for key '" << key << "'"
+                    << " (rhs='" << rhs << "')"
+                    << " -> " << why
+                    << " (keeping default)\n";
+        }
+        if (strict)
+        {
+          std::ostringstream oss;
+          oss << "YAML parse failed for key '" << key << "' (rhs='" << rhs << "'): " << why;
+          throw std::runtime_error(oss.str());
+        }
+      };
+
+      auto info_parse = [&](const std::string& msg)
+      {
+        if (yamlV > 0) std::cout << msg << "\n";
+      };
+
+      if (!okRead || cfg.yamlText.empty())
+      {
+        if (yamlV > 0)
+        {
+          std::cout << "[CFG][WARN] Could not read YAML (or file empty): " << cfg.yamlPath
+                    << " (all values will remain defaults)\n";
+        }
+        if (strict)
+        {
+          throw std::runtime_error(std::string("Could not read YAML: ") + cfg.yamlPath);
+        }
+        return cfg;
+      }
+
+      std::istringstream iss(cfg.yamlText);
+      for (std::string line; std::getline(iss, line); )
+      {
+        line = detail::trim(line);
+        if (line.empty()) continue;
+        if (!line.empty() && line[0] == '#') continue;
+
+        if (StartsWithKey(line, "photon_eta_abs_max"))
+        {
+          const std::string rhs = AfterColon(line);
+          if (!ParseDouble(rhs, cfg.photon_eta_abs_max))
+            warn_parse("photon_eta_abs_max", rhs, "expected a scalar double");
+        }
+        else if (StartsWithKey(line, "jet_pt_min"))
+        {
           const std::string rhs = AfterColon(line);
           if (!ParseDouble(rhs, cfg.jet_pt_min))
           {
@@ -394,7 +443,13 @@ namespace yamlcfg
             if (!v.empty())
             {
               cfg.jet_pt_min = v.front();
-              std::cout << "[CFG] jet_pt_min is a list; using first value = " << cfg.jet_pt_min << std::endl;
+              std::ostringstream oss;
+              oss << "[CFG] jet_pt_min is a list (n=" << v.size() << "); using first value = " << cfg.jet_pt_min;
+              info_parse(oss.str());
+            }
+            else
+            {
+              warn_parse("jet_pt_min", rhs, "expected a scalar double or an inline list [..]");
             }
           }
         }
@@ -408,99 +463,134 @@ namespace yamlcfg
             if (!v.empty())
             {
               cfg.back_to_back_dphi_min_pi_fraction = v.front();
-              std::cout << "[CFG] back_to_back_dphi_min_pi_fraction is a list; using first value = " << cfg.back_to_back_dphi_min_pi_fraction << std::endl;
+              std::ostringstream oss;
+              oss << "[CFG] back_to_back_dphi_min_pi_fraction is a list (n=" << v.size()
+                  << "); using first value = " << cfg.back_to_back_dphi_min_pi_fraction;
+              info_parse(oss.str());
+            }
+            else
+            {
+              warn_parse("back_to_back_dphi_min_pi_fraction", rhs, "expected a scalar double or an inline list [..]");
             }
           }
-      }
-      else if (StartsWithKey(line, "use_vz_cut"))
-      {
-          ParseBool(AfterColon(line), cfg.use_vz_cut);
-      }
-      else if (StartsWithKey(line, "vz_cut_cm"))
-      {
-        ParseDouble(AfterColon(line), cfg.vz_cut_cm);
-      }
-      else if (StartsWithKey(line, "event_display_tree"))
-      {
-        ParseBool(AfterColon(line), cfg.event_display_tree);
-      }
-      else if (StartsWithKey(line, "event_display_tree_max_per_bin"))
-      {
-        ParseInt(AfterColon(line), cfg.event_display_tree_max_per_bin);
-        if (cfg.event_display_tree_max_per_bin < 0) cfg.event_display_tree_max_per_bin = 0;
-      }
-      else if (StartsWithKey(line, "matching"))
-      {
-        std::map<std::string, double> m;
-        ParseInlineMapDoubles(AfterColon(line), m);
-        if (m.count("pho_dr_max")) cfg.pho_dr_max = m["pho_dr_max"];
-        if (m.count("jet_dr_max")) cfg.jet_dr_max = m["jet_dr_max"];
-      }
-      else if (StartsWithKey(line, "isolation_wp"))
-      {
-        std::map<std::string, double> m;
-        ParseInlineMapDoubles(AfterColon(line), m);
-        if (m.count("aGeV"))       cfg.isoA      = m["aGeV"];
-        if (m.count("bPerGeV"))    cfg.isoB      = m["bPerGeV"];
-        if (m.count("sideGapGeV")) cfg.isoGap    = m["sideGapGeV"];
-        if (m.count("coneR"))      cfg.isoConeR  = m["coneR"];
-        if (m.count("towerMin"))   cfg.isoTowMin = m["towerMin"];
-      }
-      else if (StartsWithKey(line, "photon_id_pre"))
-      {
-        std::map<std::string, double> m;
-        ParseInlineMapDoubles(AfterColon(line), m);
-        if (m.count("e11e33_max")) cfg.pre_e11e33_max = m["e11e33_max"];
-        if (m.count("et1_min"))    cfg.pre_et1_min    = m["et1_min"];
-        if (m.count("et1_max"))    cfg.pre_et1_max    = m["et1_max"];
-        if (m.count("e32e35_min")) cfg.pre_e32e35_min = m["e32e35_min"];
-        if (m.count("e32e35_max")) cfg.pre_e32e35_max = m["e32e35_max"];
-        if (m.count("weta_max"))   cfg.pre_weta_max   = m["weta_max"];
-      }
-      else if (StartsWithKey(line, "photon_id_tight"))
-      {
-        std::map<std::string, double> m;
-        ParseInlineMapDoubles(AfterColon(line), m);
-        if (m.count("w_lo"))            cfg.tight_w_lo           = m["w_lo"];
-        if (m.count("w_hi_intercept"))  cfg.tight_w_hi_intercept = m["w_hi_intercept"];
-        if (m.count("w_hi_slope"))      cfg.tight_w_hi_slope     = m["w_hi_slope"];
+        }
+        else if (StartsWithKey(line, "use_vz_cut"))
+        {
+          const std::string rhs = AfterColon(line);
+          if (!ParseBool(rhs, cfg.use_vz_cut))
+            warn_parse("use_vz_cut", rhs, "expected true/false");
+        }
+        else if (StartsWithKey(line, "vz_cut_cm"))
+        {
+          const std::string rhs = AfterColon(line);
+          if (!ParseDouble(rhs, cfg.vz_cut_cm))
+            warn_parse("vz_cut_cm", rhs, "expected a scalar double");
+        }
+        else if (StartsWithKey(line, "event_display_tree"))
+        {
+          const std::string rhs = AfterColon(line);
+          if (!ParseBool(rhs, cfg.event_display_tree))
+            warn_parse("event_display_tree", rhs, "expected true/false");
+        }
+        else if (StartsWithKey(line, "event_display_tree_max_per_bin"))
+        {
+          const std::string rhs = AfterColon(line);
+          if (!ParseInt(rhs, cfg.event_display_tree_max_per_bin))
+          {
+            warn_parse("event_display_tree_max_per_bin", rhs, "expected an integer");
+          }
+          if (cfg.event_display_tree_max_per_bin < 0) cfg.event_display_tree_max_per_bin = 0;
+        }
+        else if (StartsWithKey(line, "matching"))
+        {
+          std::map<std::string, double> m;
+          ParseInlineMapDoubles(AfterColon(line), m);
+          if (m.count("pho_dr_max")) cfg.pho_dr_max = m["pho_dr_max"];
+          if (m.count("jet_dr_max")) cfg.jet_dr_max = m["jet_dr_max"];
+        }
+        else if (StartsWithKey(line, "isolation_wp"))
+        {
+          std::map<std::string, double> m;
+          ParseInlineMapDoubles(AfterColon(line), m);
+          if (m.count("aGeV"))       cfg.isoA      = m["aGeV"];
+          if (m.count("bPerGeV"))    cfg.isoB      = m["bPerGeV"];
+          if (m.count("sideGapGeV")) cfg.isoGap    = m["sideGapGeV"];
+          if (m.count("coneR"))      cfg.isoConeR  = m["coneR"];
+          if (m.count("towerMin"))   cfg.isoTowMin = m["towerMin"];
+        }
+        else if (StartsWithKey(line, "photon_id_pre"))
+        {
+          std::map<std::string, double> m;
+          ParseInlineMapDoubles(AfterColon(line), m);
+          if (m.count("e11e33_max")) cfg.pre_e11e33_max = m["e11e33_max"];
+          if (m.count("et1_min"))    cfg.pre_et1_min    = m["et1_min"];
+          if (m.count("et1_max"))    cfg.pre_et1_max    = m["et1_max"];
+          if (m.count("e32e35_min")) cfg.pre_e32e35_min = m["e32e35_min"];
+          if (m.count("e32e35_max")) cfg.pre_e32e35_max = m["e32e35_max"];
+          if (m.count("weta_max"))   cfg.pre_weta_max   = m["weta_max"];
+        }
+        else if (StartsWithKey(line, "photon_id_tight"))
+        {
+          std::map<std::string, double> m;
+          ParseInlineMapDoubles(AfterColon(line), m);
+          if (m.count("w_lo"))            cfg.tight_w_lo           = m["w_lo"];
+          if (m.count("w_hi_intercept"))  cfg.tight_w_hi_intercept = m["w_hi_intercept"];
+          if (m.count("w_hi_slope"))      cfg.tight_w_hi_slope     = m["w_hi_slope"];
 
-        if (m.count("e11e33_min")) cfg.tight_e11e33_min = m["e11e33_min"];
-        if (m.count("e11e33_max")) cfg.tight_e11e33_max = m["e11e33_max"];
+          if (m.count("e11e33_min")) cfg.tight_e11e33_min = m["e11e33_min"];
+          if (m.count("e11e33_max")) cfg.tight_e11e33_max = m["e11e33_max"];
 
-        if (m.count("et1_min"))    cfg.tight_et1_min    = m["et1_min"];
-        if (m.count("et1_max"))    cfg.tight_et1_max    = m["et1_max"];
+          if (m.count("et1_min"))    cfg.tight_et1_min    = m["et1_min"];
+          if (m.count("et1_max"))    cfg.tight_et1_max    = m["et1_max"];
 
-        if (m.count("e32e35_min")) cfg.tight_e32e35_min = m["e32e35_min"];
-        if (m.count("e32e35_max")) cfg.tight_e32e35_max = m["e32e35_max"];
+          if (m.count("e32e35_min")) cfg.tight_e32e35_min = m["e32e35_min"];
+          if (m.count("e32e35_max")) cfg.tight_e32e35_max = m["e32e35_max"];
+        }
+        else if (StartsWithKey(line, "jes3_photon_pt_bins"))
+        {
+          const std::string rhs = AfterColon(line);
+          ParseInlineListDoubles(rhs, cfg.jes3_photon_pt_bins);
+          if (cfg.jes3_photon_pt_bins.size() < 2)
+            warn_parse("jes3_photon_pt_bins", rhs, "expected an inline list with >=2 edges");
+        }
+        else if (StartsWithKey(line, "unfold_reco_photon_pt_bins"))
+        {
+          const std::string rhs = AfterColon(line);
+          ParseInlineListDoubles(rhs, cfg.unfold_reco_photon_pt_bins);
+          if (cfg.unfold_reco_photon_pt_bins.size() < 2)
+            warn_parse("unfold_reco_photon_pt_bins", rhs, "expected an inline list with >=2 edges");
+        }
+        else if (StartsWithKey(line, "unfold_truth_photon_pt_bins"))
+        {
+          const std::string rhs = AfterColon(line);
+          ParseInlineListDoubles(rhs, cfg.unfold_truth_photon_pt_bins);
+          if (cfg.unfold_truth_photon_pt_bins.size() < 2)
+            warn_parse("unfold_truth_photon_pt_bins", rhs, "expected an inline list with >=2 edges");
+        }
+        else if (StartsWithKey(line, "unfold_xj_bins"))
+        {
+          const std::string rhs = AfterColon(line);
+          ParseInlineListDoubles(rhs, cfg.unfold_xj_bins);
+          if (cfg.unfold_xj_bins.size() < 2)
+            warn_parse("unfold_xj_bins", rhs, "expected an inline list with >=2 edges");
+        }
+        else if (StartsWithKey(line, "unfold_jet_pt_binning"))
+        {
+          std::map<std::string, double> m;
+          ParseInlineMapDoubles(AfterColon(line), m);
+          if (m.count("start")) cfg.unfold_jet_pt_start = m["start"];
+          if (m.count("stop"))  cfg.unfold_jet_pt_stop  = m["stop"];
+          if (m.count("step"))  cfg.unfold_jet_pt_step  = m["step"];
+        }
       }
-      else if (StartsWithKey(line, "jes3_photon_pt_bins"))
-      {
-        ParseInlineListDoubles(AfterColon(line), cfg.jes3_photon_pt_bins);
-      }
-      else if (StartsWithKey(line, "unfold_reco_photon_pt_bins"))
-      {
-        ParseInlineListDoubles(AfterColon(line), cfg.unfold_reco_photon_pt_bins);
-      }
-      else if (StartsWithKey(line, "unfold_truth_photon_pt_bins"))
-      {
-        ParseInlineListDoubles(AfterColon(line), cfg.unfold_truth_photon_pt_bins);
-      }
-      else if (StartsWithKey(line, "unfold_xj_bins"))
-      {
-        ParseInlineListDoubles(AfterColon(line), cfg.unfold_xj_bins);
-      }
-      else if (StartsWithKey(line, "unfold_jet_pt_binning"))
-      {
-        std::map<std::string, double> m;
-        ParseInlineMapDoubles(AfterColon(line), m);
-        if (m.count("start")) cfg.unfold_jet_pt_start = m["start"];
-        if (m.count("stop"))  cfg.unfold_jet_pt_stop  = m["stop"];
-        if (m.count("step"))  cfg.unfold_jet_pt_step  = m["step"];
-      }
-    }
 
-    return cfg;
+      if (yamlV > 0)
+      {
+        std::cout << "[CFG] YAML parsing completed OK: " << cfg.yamlPath
+                  << (strict ? " (strict)" : "") << "\n";
+      }
+
+      return cfg;
   }
 
   inline void ExpandUniformEdges(std::vector<double>& edges, double start, double stop, double step)

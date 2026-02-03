@@ -805,16 +805,30 @@ case "$ACTION" in
     # Parse optional [Nevents] and VERBOSE=N from tokens after 'local'
     nevt="$LOCAL_EVENTS"
     RJV="10"                     # default for local runs
+    user_nevt_set=0
     rest=( "${@:3}" )
     for t in "${rest[@]}"; do
       if [[ "$t" =~ ^VERBOSE=([0-9]+)$ ]]; then
         RJV="${BASH_REMATCH[1]}"
       elif [[ "$t" =~ ^[0-9]+$ ]]; then
         nevt="$t"
+        user_nevt_set=1
       fi
     done
 
     if [[ "$DATASET" == "isSim" ]]; then
+      # Default SIM local smoke test should be fast unless user explicitly sets Nevents
+      if (( user_nevt_set == 0 )); then
+        nevt="100"
+      fi
+
+      # Mirror condorDoAll grouping behavior for a faithful smoke test:
+      # groupSize defaults to 5 unless explicitly provided by the user.
+      gs_local="$GROUP_SIZE"
+      if [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 0 ]]; then
+        gs_local="5"
+      fi
+
       master_yaml="$(sim_yaml_master_path)"
       [[ -s "$master_yaml" ]] || { err "Master YAML not found or empty: $master_yaml"; exit 72; }
 
@@ -823,23 +837,60 @@ case "$ACTION" in
       (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
       (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
 
-      pt0="${sim_pts[0]}"
-      frac0="${sim_fracs[0]}"
-      SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt0")_$(sim_b2b_tag "$frac0")"
-      DEST_BASE="${SIM_DEST_BASE}/${SIM_CFG_TAG}"
-      yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt0" "$frac0" "$SIM_CFG_TAG")"
+      samples=()
+      if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
+        samples=( "run28_photonjet10" "run28_photonjet20" )
+      else
+        samples=( "${SIM_SAMPLE}" )
+      fi
 
-      sim_init
+      say "SIM local smoke test (mirrors condorDoAll matrix)"
+      say "  YAML master : ${master_yaml}"
+      say "  groupSize   : ${gs_local} (condorDoAll default)"
+      say "  events      : ${nevt} (default for SIM local)"
+      say "  samples     : ${samples[*]}"
+      echo
 
-      say "Local test on isSim sample=${SIM_SAMPLE} (tag=${SIM_CFG_TAG}, events=${nevt}, RJ_VERBOSITY=${RJV})"
-      say "YAML override: ${yaml_override}"
+      for pt in "${sim_pts[@]}"; do
+        for frac in "${sim_fracs[@]}"; do
+          SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")"
+          DEST_BASE="${SIM_DEST_BASE}/${SIM_CFG_TAG}"
+          yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$SIM_CFG_TAG")"
 
-      tmp="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_LOCAL_firstfile.list"
-      head -n 1 "$SIM_CLEAN_LIST" > "$tmp"
-      say "Temp list → $tmp"
-      say "Invoking wrapper locally…"
+          for samp in "${samples[@]}"; do
+            SIM_SAMPLE="$samp"
+            GROUP_SIZE="$gs_local"
 
-      RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" bash "$EXE" "$SIM_SAMPLE" "$tmp" "isSim" LOCAL "$nevt" 1 NONE "$DEST_BASE"
+            # Build the same grp001 list that condorDoAll would submit, then run only the first file from it
+            mapfile -t groups < <( make_sim_groups "$GROUP_SIZE" )
+            (( ${#groups[@]} )) || { err "No sim groups produced (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG})"; exit 30; }
+
+            glist0="${groups[0]}"
+            sim_init
+
+            tmp="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_LOCAL_firstfile_grp001.list"
+            head -n 1 "$glist0" > "$tmp"
+
+            in_line="$(head -n 1 "$tmp" 2>/dev/null || true)"
+            chunk_base="$(basename "$tmp")"
+            chunk_tag="${chunk_base%.list}"
+            out_root_preview="${DEST_BASE}/${SIM_SAMPLE}/RecoilJets_isSim_${chunk_tag}.root"
+
+            say "----------------------------------------"
+            say "SIM local: tag=${SIM_CFG_TAG}  sample=${SIM_SAMPLE}"
+            say "  jet_pt_min=${pt}  back_to_back_pi_fraction=${frac}"
+            say "  YAML override: ${yaml_override}"
+            say "  grp001 list   : ${glist0}"
+            say "  input line    : ${in_line}"
+            say "  temp list     : ${tmp}"
+            say "  out ROOT      : ${out_root_preview}"
+            say "Invoking wrapper locally…"
+
+            RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" bash "$EXE" "$SIM_SAMPLE" "$tmp" "isSim" LOCAL "$nevt" 1 NONE "$DEST_BASE"
+            echo
+          done
+        done
+      done
     else
       say "Local test on ${DATASET}  (events=${nevt}, RJ_VERBOSITY=${RJV})"
 

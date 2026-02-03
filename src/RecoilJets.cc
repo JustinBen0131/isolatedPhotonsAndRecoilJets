@@ -1921,10 +1921,12 @@ int RecoilJets::End(PHCompositeNode*)
   // 5. Write footer & close the file
   //--------------------------------------------------------------------
   if (Verbosity() >= 1)
-    std::cout << "\nOutput ROOT file →  " << out->GetName() << "\n\n";
+  {
+      std::cout << "\nOutput ROOT file →  " << out->GetName() << "\n\n";
 
-    info(1, "writing TFile footer and closing (" + std::to_string(nHistWritten)
-               + " / " + std::to_string(nHistExpected) + " objects written)");
+      info(1, "writing TFile footer and closing (" + std::to_string(nHistWritten)
+                 + " / " + std::to_string(nHistExpected) + " objects written)");
+  }
 
   // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
   if (m_evtDiagTree)

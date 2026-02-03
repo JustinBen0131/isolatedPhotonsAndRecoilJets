@@ -17,7 +17,7 @@
 # Global photon + jet selection knobs (YAML-driven)
 # -----------------------------------------------------------------------------
 photon_eta_abs_max: 0.7
-jet_pt_min: [5.0, 10.0]
+jet_pt_min: [3.0, 5.0, 10.0]
 
 # Jet radii to run (R values). The steering macro will:
 #   - build reco jets for these radii
@@ -25,7 +25,7 @@ jet_pt_min: [5.0, 10.0]
 #   - tell RecoilJets to only expect/process these radii
 #
 # Baseline behavior matches current code: r02 + r04
-jet_radii: [0.2, 0.4]
+jet_radii: [0.2, 0.4, 0.6]
 
 # Back-to-back cut expressed ONLY as a fraction of π.
 # Examples:
@@ -38,7 +38,7 @@ back_to_back_dphi_min_pi_fraction: [0.5, 0.875]
 # Vertex selection knobs (YAML-driven)
 # -----------------------------------------------------------------------------
 use_vz_cut: true
-vz_cut_cm: 30.0
+vz_cut_cm: 60.0
 
 # -----------------------------------------------------------------------------
 # Isolation working point knobs (YAML-driven; baseline matches current Fun4All)
@@ -63,7 +63,7 @@ matching: {pho_dr_max: 0.05, jet_dr_max: 0.3}
 #   - drives ALL truth photon pT slicing for JES3/xJγ truth booking + filling
 #   - reco and truth MUST match exactly
 # -----------------------------------------------------------------------------
-jes3_photon_pt_bins: [15, 17, 19, 21, 23, 26, 35]
+jes3_photon_pt_bins: [13, 15, 17, 19, 21, 23, 26, 35]
 
 # -----------------------------------------------------------------------------
 # UNFOLDING bin edges (explicit, independent from JES3 bins)
