@@ -5959,7 +5959,7 @@ namespace ARJ
 
               (void)outDir; // this block is intentionally hard-coded to write ONLY under InputFilesSim/.../plots
 
-              const std::string baseDir   = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/noDeltaRcheckOnJetPhotonForReco/pTminJet3/7pi_8_BB";
+              const std::string baseDir   = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/withDeltaRcheckOnJetPhotonForReco/pTminJet3/7pi_8_BB";
               const std::string plotsDir  = JoinPath(baseDir, "plots");
               const std::string sam10     = JoinPath(baseDir, "histsPhoton10_unsmear.root");
               const std::string sam20     = JoinPath(baseDir, "histsPhoton20_unsmear.root");
@@ -10739,19 +10739,151 @@ namespace ARJ
                                   return idxByCat[icat][uni(rng)];
                                 };
 
-                                auto FillJetHist =
-                                  [&](TH2F* h,
-                                      const std::vector<float>* vphi,
-                                      const std::vector<float>* veta,
-                                      const std::vector<float>* vet)->void
-                                {
-                                  if (!h || !vphi || !veta || !vet) return;
-                                  const size_t n = std::min(vphi->size(), std::min(veta->size(), vet->size()));
-                                  for (size_t i = 0; i < n; ++i)
-                                  {
-                                    h->Fill((*vphi)[i], (*veta)[i], (*vet)[i]);
-                                  }
-                                };
+                                    auto WrapPhi =
+                                      [&](float phi)->float
+                                    {
+                                      while (phi <= -M_PI) phi += 2.0f*(float)M_PI;
+                                      while (phi >   M_PI) phi -= 2.0f*(float)M_PI;
+                                      return phi;
+                                    };
+
+                                    auto DumpTowerTriplet =
+                                      [&](const string& tag,
+                                          const std::vector<float>* vphi,
+                                          const std::vector<float>* veta,
+                                          const std::vector<float>* vet,
+                                          double xMin, double xMax,
+                                          double yMin, double yMax)->void
+                                    {
+                                      if (!vphi || !veta || !vet)
+                                      {
+                                        cout << ANSI_BOLD_YEL
+                                             << "    [EventDisplay] " << tag << " towers: MISSING pointer(s)"
+                                             << ANSI_RESET << "\n";
+                                        return;
+                                      }
+
+                                      const size_t nPhi = vphi->size();
+                                      const size_t nEta = veta->size();
+                                      const size_t nEt  = vet->size();
+                                      const size_t n    = std::min(nPhi, std::min(nEta, nEt));
+
+                                      cout << "    [EventDisplay] " << tag
+                                           << " sizes: phi=" << nPhi << " eta=" << nEta << " et=" << nEt
+                                           << "  using n=" << n << "\n";
+
+                                      if (n == 0) return;
+
+                                      float phiRawMin =  1e9f, phiRawMax = -1e9f;
+                                      float phiWMin   =  1e9f, phiWMax   = -1e9f;
+                                      float etaMin    =  1e9f, etaMax    = -1e9f;
+                                      float etMin     =  1e9f, etMax     = -1e9f;
+
+                                      double sumEt = 0.0;
+                                      size_t nEtPos = 0;
+                                      size_t nEtNeg = 0;
+                                      size_t nPhiOutRaw = 0;
+                                      size_t nEtaOut    = 0;
+
+                                      for (size_t i = 0; i < n; ++i)
+                                      {
+                                        const float phiRaw = (*vphi)[i];
+                                        const float phiW   = WrapPhi(phiRaw);
+                                        const float eta    = (*veta)[i];
+                                        const float et     = (*vet)[i];
+
+                                        phiRawMin = std::min(phiRawMin, phiRaw);
+                                        phiRawMax = std::max(phiRawMax, phiRaw);
+                                        phiWMin   = std::min(phiWMin,   phiW);
+                                        phiWMax   = std::max(phiWMax,   phiW);
+                                        etaMin    = std::min(etaMin, eta);
+                                        etaMax    = std::max(etaMax, eta);
+                                        etMin     = std::min(etMin, et);
+                                        etMax     = std::max(etMax, et);
+
+                                        sumEt += et;
+                                        if (et >= 0.0f) ++nEtPos;
+                                        else            ++nEtNeg;
+
+                                        if (phiRaw < xMin || phiRaw > xMax) ++nPhiOutRaw;
+                                        if (eta    < yMin || eta    > yMax) ++nEtaOut;
+                                      }
+
+                                      cout << "    [EventDisplay] " << tag
+                                           << " et: sum=" << sumEt
+                                           << "  min=" << etMin
+                                           << "  max=" << etMax
+                                           << "  nPos=" << nEtPos
+                                           << "  nNeg=" << nEtNeg
+                                           << "\n";
+
+                                      cout << "    [EventDisplay] " << tag
+                                           << " phi raw[min,max]=[" << phiRawMin << "," << phiRawMax << "]"
+                                           << "  outOfRange(raw)=" << nPhiOutRaw << "/" << n
+                                           << "  target=[" << xMin << "," << xMax << "]"
+                                           << "\n";
+
+                                      cout << "    [EventDisplay] " << tag
+                                           << " phi wrapped[min,max]=[" << phiWMin << "," << phiWMax << "]"
+                                           << "  target=[" << xMin << "," << xMax << "]"
+                                           << "\n";
+
+                                      cout << "    [EventDisplay] " << tag
+                                           << " eta[min,max]=[" << etaMin << "," << etaMax << "]"
+                                           << "  outOfRange(eta)=" << nEtaOut << "/" << n
+                                           << "  target=[" << yMin << "," << yMax << "]"
+                                           << "\n";
+
+                                      const size_t nTop = 8;
+                                      std::vector<size_t> top;
+                                      top.reserve(nTop);
+
+                                      for (size_t i = 0; i < n; ++i)
+                                      {
+                                        const float et = (*vet)[i];
+
+                                        size_t pos = 0;
+                                        while (pos < top.size() && et < (*vet)[top[pos]]) ++pos;
+
+                                        if (top.size() < nTop)
+                                        {
+                                          top.insert(top.begin() + pos, i);
+                                        }
+                                        else if (pos < nTop)
+                                        {
+                                          top.insert(top.begin() + pos, i);
+                                          top.pop_back();
+                                        }
+                                      }
+
+                                      cout << "    [EventDisplay] " << tag << " top towers (rank: phiRaw phiW eta et)\n";
+                                      for (size_t ir = 0; ir < top.size(); ++ir)
+                                      {
+                                        const size_t i = top[ir];
+                                        const float phiRaw = (*vphi)[i];
+                                        const float phiW   = WrapPhi(phiRaw);
+                                        const float eta    = (*veta)[i];
+                                        const float et     = (*vet)[i];
+
+                                        cout << "      " << (ir+1) << ": "
+                                             << phiRaw << "  " << phiW << "  " << eta << "  " << et << "\n";
+                                      }
+                                    };
+
+                                    auto FillJetHist =
+                                      [&](TH2F* h,
+                                          const std::vector<float>* vphi,
+                                          const std::vector<float>* veta,
+                                          const std::vector<float>* vet)->void
+                                    {
+                                      if (!h || !vphi || !veta || !vet) return;
+                                      const size_t n = std::min(vphi->size(), std::min(veta->size(), vet->size()));
+                                      for (size_t i = 0; i < n; ++i)
+                                      {
+                                        const float phiW = WrapPhi((*vphi)[i]);
+                                        h->Fill(phiW, (*veta)[i], (*vet)[i]);
+                                      }
+                                    };
 
                                 auto StyleHistLikeSave3D =
                                   [&](TH2F* h)->void
@@ -10798,30 +10930,33 @@ namespace ARJ
                                   }
                                 };
 
-                                auto DrawMarkersAndHeader =
-                                  [&](float jetPhi, float jetEta,
-                                      float truthPhi, float truthEta,
-                                      const string& headerLine,
-                                      const string& subLine)->void
-                                {
-                                  // Markers
-                                  TMarker mReco(jetPhi, jetEta, 29);
-                                  mReco.SetMarkerSize(1.8);
-                                  mReco.Draw();
+                                    auto DrawMarkersAndHeader =
+                                      [&](float jetPhi, float jetEta,
+                                          float truthPhi, float truthEta,
+                                          const string& headerLine,
+                                          const string& subLine)->void
+                                    {
+                                      const float jetPhiW   = WrapPhi(jetPhi);
+                                      const float truthPhiW = WrapPhi(truthPhi);
 
-                                  TMarker mTruth(truthPhi, truthEta, 24);
-                                  mTruth.SetMarkerSize(1.4);
-                                  mTruth.Draw();
+                                      // Markers
+                                      TMarker mReco(jetPhiW, jetEta, 29);
+                                      mReco.SetMarkerSize(1.8);
+                                      mReco.Draw();
 
-                                  // Title/header (extra top room is handled by pad margins)
-                                  TLatex tex;
-                                  tex.SetNDC();
-                                  tex.SetTextSize(0.040);
-                                  tex.DrawLatex(0.14, 0.96, headerLine.c_str());
+                                      TMarker mTruth(truthPhiW, truthEta, 24);
+                                      mTruth.SetMarkerSize(1.4);
+                                      mTruth.Draw();
 
-                                  tex.SetTextSize(0.034);
-                                  tex.DrawLatex(0.14, 0.91, subLine.c_str());
-                                };
+                                      // Title/header (extra top room is handled by pad margins)
+                                      TLatex tex;
+                                      tex.SetNDC();
+                                      tex.SetTextSize(0.040);
+                                      tex.DrawLatex(0.14, 0.96, headerLine.c_str());
+
+                                      tex.SetTextSize(0.034);
+                                      tex.DrawLatex(0.14, 0.91, subLine.c_str());
+                                    };
 
                                 auto DrawPanelSave3DStyle =
                                   [&](TPad* pad,
@@ -10843,81 +10978,177 @@ namespace ARJ
                                   DrawMarkersAndHeader(jetPhi, jetEta, truthPhi, truthEta, headerLine, subLine);
                                 };
 
-                                auto SaveNUMorMissB =
-                                  [&](const string& catName, int icat, const string& outDir)->void
-                                {
-                                  const Long64_t pick = PickIndex(icat);
-                                  if (pick < 0) return;
+                                    auto SaveNUMorMissB =
+                                      [&](const string& catName, int icat, const string& outDir)->void
+                                    {
+                                      const Long64_t pick = PickIndex(icat);
+                                      if (pick < 0)
+                                      {
+                                        cout << ANSI_BOLD_YEL
+                                             << "  [EventDisplay] " << catName << " SKIP: no entries for rKey=\"" << rKey
+                                             << "\" (idxByCat[" << icat << "].size()=" << idxByCat[icat].size() << ")"
+                                             << ANSI_RESET << "\n";
+                                        return;
+                                      }
 
-                                  tED->GetEntry(pick);
+                                      tED->GetEntry(pick);
 
-                                  const string outPng =
-                                    JoinPath(outDir,
-                                             "eventDisplay_" + catName + "_" + rKey +
-                                             "_run" + std::to_string(b_run) +
-                                             "_evt" + std::to_string(b_evt) + ".png");
+                                      cout << ANSI_BOLD_CYN
+                                           << "  [EventDisplay] " << catName
+                                           << " pick=" << pick
+                                           << "  rKey=\"" << rKey << "\""
+                                           << "  cat=" << b_cat
+                                           << "  run=" << b_run
+                                           << "  evt=" << b_evt
+                                           << "  vz=" << b_vz
+                                           << "  ptGammaTruth=" << b_ptGammaTruth
+                                           << ANSI_RESET << "\n";
 
-                                  TH2F hColz("hED_colz", "", 64, -M_PI, M_PI, 48, -1.1, 1.1);
-                                  TH2F hLego("hED_lego", "", 64, -M_PI, M_PI, 48, -1.1, 1.1);
+                                      const float selPhiRaw   = b_sel_phi;
+                                      const float selPhiW     = WrapPhi(selPhiRaw);
+                                      const float truthPhiRaw = b_truth_phi;
+                                      const float truthPhiW   = WrapPhi(truthPhiRaw);
+                                      const float dPhiSelTruth = WrapPhi(selPhiW - truthPhiW);
 
-                                  FillJetHist(&hColz, b_sel_phiTower, b_sel_etaTower, b_sel_etTower);
-                                  FillJetHist(&hLego, b_sel_phiTower, b_sel_etaTower, b_sel_etTower);
+                                      cout << "    [EventDisplay] sel jet:   (phi,eta)=(" << selPhiRaw << "," << b_sel_eta << ")  phiWrapped=" << selPhiW << "\n";
+                                      cout << "    [EventDisplay] truth lead: (phi,eta)=(" << truthPhiRaw << "," << b_truth_eta << ")  phiWrapped=" << truthPhiW << "\n";
+                                      cout << "    [EventDisplay] dphi(sel - truth) wrapped=" << dPhiSelTruth << "  |dphi|=" << std::fabs(dPhiSelTruth) << "\n";
 
-                                  TCanvas c("cED", "", 1600, 800);
-                                  c.Divide(2, 1, 0.0, 0.0);
+                                      const string outPng =
+                                        JoinPath(outDir,
+                                                 "eventDisplay_" + catName + "_" + rKey +
+                                                 "_run" + std::to_string(b_run) +
+                                                 "_evt" + std::to_string(b_evt) + ".png");
 
-                                  const string header = "EventDisplay " + catName + "  " + rKey;
-                                  const string sub    = "run " + std::to_string(b_run) +
-                                                        "  evt " + std::to_string(b_evt) +
-                                                        "  v_{z}=" + std::to_string((int)std::round(b_vz)) + " cm" +
-                                                        "  pT_{#gamma}^{truth}=" + std::to_string((int)std::round(b_ptGammaTruth)) + " GeV";
+                                      TH2F hColz("hED_colz", "", 64, -M_PI, M_PI, 48, -1.1, 1.1);
+                                      TH2F hLego("hED_lego", "", 64, -M_PI, M_PI, 48, -1.1, 1.1);
 
-                                  DrawPanelSave3DStyle((TPad*)c.cd(1), &hColz, "COLZ",  b_sel_phi, b_sel_eta, b_truth_phi, b_truth_eta, header, sub);
-                                  DrawPanelSave3DStyle((TPad*)c.cd(2), &hLego, "LEGO2", b_sel_phi, b_sel_eta, b_truth_phi, b_truth_eta, header, sub);
+                                      DumpTowerTriplet(catName + string(": sel"), b_sel_phiTower, b_sel_etaTower, b_sel_etTower,
+                                                       hColz.GetXaxis()->GetXmin(), hColz.GetXaxis()->GetXmax(),
+                                                       hColz.GetYaxis()->GetXmin(), hColz.GetYaxis()->GetXmax());
 
-                                  c.SaveAs(outPng.c_str());
-                                };
+                                      FillJetHist(&hColz, b_sel_phiTower, b_sel_etaTower, b_sel_etTower);
+                                      FillJetHist(&hLego, b_sel_phiTower, b_sel_etaTower, b_sel_etTower);
 
-                                auto SaveMissA =
-                                  [&](const string& outDir)->void
-                                {
-                                  const Long64_t pick = PickIndex(1);
-                                  if (pick < 0) return;
+                                      cout << "    [EventDisplay] hColz: entries=" << hColz.GetEntries()
+                                           << "  sumW=" << hColz.GetSumOfWeights()
+                                           << "  maxBin=" << hColz.GetMaximum()
+                                           << "  integral=" << hColz.Integral()
+                                           << "\n";
 
-                                  tED->GetEntry(pick);
+                                      TCanvas c("cED", "", 1600, 800);
+                                      c.Divide(2, 1, 0.0, 0.0);
 
-                                  const string outPng =
-                                    JoinPath(outDir,
-                                             "eventDisplay_MissA_" + rKey +
-                                             "_run" + std::to_string(b_run) +
-                                             "_evt" + std::to_string(b_evt) + ".png");
+                                      const string header = "EventDisplay " + catName + "  " + rKey;
+                                      const string sub    = "run " + std::to_string(b_run) +
+                                                            "  evt " + std::to_string(b_evt) +
+                                                            "  v_{z}=" + std::to_string((int)std::round(b_vz)) + " cm" +
+                                                            "  pT_{#gamma}^{truth}=" + std::to_string((int)std::round(b_ptGammaTruth)) + " GeV";
 
-                                  TH2F hSelColz("hED_sel_colz", "", 64, -M_PI, M_PI, 48, -1.1, 1.1);
-                                  TH2F hSelLego("hED_sel_lego", "", 64, -M_PI, M_PI, 48, -1.1, 1.1);
-                                  TH2F hBestColz("hED_best_colz", "", 64, -M_PI, M_PI, 48, -1.1, 1.1);
-                                  TH2F hBestLego("hED_best_lego", "", 64, -M_PI, M_PI, 48, -1.1, 1.1);
+                                      DrawPanelSave3DStyle((TPad*)c.cd(1), &hColz, "COLZ",  selPhiW, b_sel_eta, truthPhiW, b_truth_eta, header, sub);
+                                      DrawPanelSave3DStyle((TPad*)c.cd(2), &hLego, "LEGO2", selPhiW, b_sel_eta, truthPhiW, b_truth_eta, header, sub);
 
-                                  FillJetHist(&hSelColz,  b_sel_phiTower,  b_sel_etaTower,  b_sel_etTower);
-                                  FillJetHist(&hSelLego,  b_sel_phiTower,  b_sel_etaTower,  b_sel_etTower);
-                                  FillJetHist(&hBestColz, b_best_phiTower, b_best_etaTower, b_best_etTower);
-                                  FillJetHist(&hBestLego, b_best_phiTower, b_best_etaTower, b_best_etTower);
+                                      c.SaveAs(outPng.c_str());
+                                      cout << "  [EventDisplay] Wrote: " << outPng << "\n";
+                                    };
 
-                                  TCanvas c("cED_MissA", "", 1600, 1400);
-                                  c.Divide(2, 2, 0.0, 0.0);
+                                    auto SaveMissA =
+                                      [&](const string& outDir)->void
+                                    {
+                                      const Long64_t pick = PickIndex(1);
+                                      if (pick < 0)
+                                      {
+                                        cout << ANSI_BOLD_YEL
+                                             << "  [EventDisplay] MissA SKIP: no entries for rKey=\"" << rKey
+                                             << "\" (idxByCat[1].size()=" << idxByCat[1].size() << ")"
+                                             << ANSI_RESET << "\n";
+                                        return;
+                                      }
 
-                                  const string header = "EventDisplay MissA  " + rKey;
-                                  const string sub    = "run " + std::to_string(b_run) +
-                                                        "  evt " + std::to_string(b_evt) +
-                                                        "  v_{z}=" + std::to_string((int)std::round(b_vz)) + " cm" +
-                                                        "  pT_{#gamma}^{truth}=" + std::to_string((int)std::round(b_ptGammaTruth)) + " GeV";
+                                      tED->GetEntry(pick);
 
-                                  DrawPanelSave3DStyle((TPad*)c.cd(1), &hSelColz,  "COLZ",  b_sel_phi,  b_sel_eta,  b_truth_phi, b_truth_eta, header, sub + "  (selected jet)");
-                                  DrawPanelSave3DStyle((TPad*)c.cd(2), &hSelLego,  "LEGO2", b_sel_phi,  b_sel_eta,  b_truth_phi, b_truth_eta, header, sub + "  (selected jet)");
-                                  DrawPanelSave3DStyle((TPad*)c.cd(3), &hBestColz, "COLZ",  b_best_phi, b_best_eta, b_truth_phi, b_truth_eta, header, sub + "  (truth-matched reco jet)");
-                                  DrawPanelSave3DStyle((TPad*)c.cd(4), &hBestLego, "LEGO2", b_best_phi, b_best_eta, b_truth_phi, b_truth_eta, header, sub + "  (truth-matched reco jet)");
+                                      cout << ANSI_BOLD_CYN
+                                           << "  [EventDisplay] MissA"
+                                           << " pick=" << pick
+                                           << "  rKey=\"" << rKey << "\""
+                                           << "  cat=" << b_cat
+                                           << "  run=" << b_run
+                                           << "  evt=" << b_evt
+                                           << "  vz=" << b_vz
+                                           << "  ptGammaTruth=" << b_ptGammaTruth
+                                           << ANSI_RESET << "\n";
 
-                                  c.SaveAs(outPng.c_str());
-                                };
+                                      const float selPhiRaw   = b_sel_phi;
+                                      const float selPhiW     = WrapPhi(selPhiRaw);
+                                      const float bestPhiRaw  = b_best_phi;
+                                      const float bestPhiW    = WrapPhi(bestPhiRaw);
+                                      const float truthPhiRaw = b_truth_phi;
+                                      const float truthPhiW   = WrapPhi(truthPhiRaw);
+
+                                      const float dPhiSelTruth  = WrapPhi(selPhiW  - truthPhiW);
+                                      const float dPhiBestTruth = WrapPhi(bestPhiW - truthPhiW);
+                                      const float dPhiSelBest   = WrapPhi(selPhiW  - bestPhiW);
+
+                                      cout << "    [EventDisplay] sel jet:   (phi,eta)=(" << selPhiRaw  << "," << b_sel_eta  << ")  phiWrapped=" << selPhiW  << "\n";
+                                      cout << "    [EventDisplay] best jet:  (phi,eta)=(" << bestPhiRaw << "," << b_best_eta << ")  phiWrapped=" << bestPhiW << "\n";
+                                      cout << "    [EventDisplay] truth lead:(phi,eta)=(" << truthPhiRaw<< "," << b_truth_eta<< ")  phiWrapped=" << truthPhiW << "\n";
+                                      cout << "    [EventDisplay] dphi(sel-truth)=" << dPhiSelTruth  << " |dphi|=" << std::fabs(dPhiSelTruth)
+                                           << "  dphi(best-truth)=" << dPhiBestTruth << " |dphi|=" << std::fabs(dPhiBestTruth)
+                                           << "  dphi(sel-best)="  << dPhiSelBest   << " |dphi|=" << std::fabs(dPhiSelBest)
+                                           << "\n";
+
+                                      const string outPng =
+                                        JoinPath(outDir,
+                                                 "eventDisplay_MissA_" + rKey +
+                                                 "_run" + std::to_string(b_run) +
+                                                 "_evt" + std::to_string(b_evt) + ".png");
+
+                                      TH2F hSelColz("hED_sel_colz", "", 64, -M_PI, M_PI, 48, -1.1, 1.1);
+                                      TH2F hSelLego("hED_sel_lego", "", 64, -M_PI, M_PI, 48, -1.1, 1.1);
+                                      TH2F hBestColz("hED_best_colz", "", 64, -M_PI, M_PI, 48, -1.1, 1.1);
+                                      TH2F hBestLego("hED_best_lego", "", 64, -M_PI, M_PI, 48, -1.1, 1.1);
+
+                                      DumpTowerTriplet("MissA: sel",  b_sel_phiTower,  b_sel_etaTower,  b_sel_etTower,
+                                                       hSelColz.GetXaxis()->GetXmin(), hSelColz.GetXaxis()->GetXmax(),
+                                                       hSelColz.GetYaxis()->GetXmin(), hSelColz.GetYaxis()->GetXmax());
+
+                                      DumpTowerTriplet("MissA: best", b_best_phiTower, b_best_etaTower, b_best_etTower,
+                                                       hBestColz.GetXaxis()->GetXmin(), hBestColz.GetXaxis()->GetXmax(),
+                                                       hBestColz.GetYaxis()->GetXmin(), hBestColz.GetYaxis()->GetXmax());
+
+                                      FillJetHist(&hSelColz,  b_sel_phiTower,  b_sel_etaTower,  b_sel_etTower);
+                                      FillJetHist(&hSelLego,  b_sel_phiTower,  b_sel_etaTower,  b_sel_etTower);
+                                      FillJetHist(&hBestColz, b_best_phiTower, b_best_etaTower, b_best_etTower);
+                                      FillJetHist(&hBestLego, b_best_phiTower, b_best_etaTower, b_best_etTower);
+
+                                      cout << "    [EventDisplay] hSelColz:  entries=" << hSelColz.GetEntries()
+                                           << "  sumW=" << hSelColz.GetSumOfWeights()
+                                           << "  maxBin=" << hSelColz.GetMaximum()
+                                           << "  integral=" << hSelColz.Integral()
+                                           << "\n";
+                                      cout << "    [EventDisplay] hBestColz: entries=" << hBestColz.GetEntries()
+                                           << "  sumW=" << hBestColz.GetSumOfWeights()
+                                           << "  maxBin=" << hBestColz.GetMaximum()
+                                           << "  integral=" << hBestColz.Integral()
+                                           << "\n";
+
+                                      TCanvas c("cED_MissA", "", 1600, 1400);
+                                      c.Divide(2, 2, 0.0, 0.0);
+
+                                      const string header = "EventDisplay MissA  " + rKey;
+                                      const string sub    = "run " + std::to_string(b_run) +
+                                                            "  evt " + std::to_string(b_evt) +
+                                                            "  v_{z}=" + std::to_string((int)std::round(b_vz)) + " cm" +
+                                                            "  pT_{#gamma}^{truth}=" + std::to_string((int)std::round(b_ptGammaTruth)) + " GeV";
+
+                                      DrawPanelSave3DStyle((TPad*)c.cd(1), &hSelColz,  "COLZ",  selPhiW,  b_sel_eta,  truthPhiW, b_truth_eta, header, sub + "  (selected jet)");
+                                      DrawPanelSave3DStyle((TPad*)c.cd(2), &hSelLego,  "LEGO2", selPhiW,  b_sel_eta,  truthPhiW, b_truth_eta, header, sub + "  (selected jet)");
+                                      DrawPanelSave3DStyle((TPad*)c.cd(3), &hBestColz, "COLZ",  bestPhiW, b_best_eta, truthPhiW, b_truth_eta, header, sub + "  (truth-matched reco jet)");
+                                      DrawPanelSave3DStyle((TPad*)c.cd(4), &hBestLego, "LEGO2", bestPhiW, b_best_eta, truthPhiW, b_truth_eta, header, sub + "  (truth-matched reco jet)");
+
+                                      c.SaveAs(outPng.c_str());
+                                      cout << "  [EventDisplay] Wrote: " << outPng << "\n";
+                                    };
 
                                 SaveNUMorMissB("NUM",   0, dirED_NUM);
                                 SaveMissA(dirED_MA);
@@ -11156,7 +11387,7 @@ namespace ARJ
                                   if (hConstLine)
                                   {
                                     leg.AddEntry(hConstLine,
-                                      TString::Format("MissB flat mean (N<5 GeV=%d)", nBelow5).Data(),
+                                      TString::Format("MissB flat mean").Data(),
                                       "l"
                                     );
                                   }
@@ -11169,14 +11400,17 @@ namespace ARJ
                                     0.030, 0.040
                                   );
 
-                                  // Default SIM cuts (from kDefaultSimSampleKey)
+                                  // Default SIM cuts (from kDefaultSimSampleKey) — print UNDER the title block (2 lines)
                                   const auto& cfgDef = DefaultSim10and20Config();
                                   DrawLatexLines(0.14, 0.80,
-                                    {TString::Format("#Delta#phi(#gamma,jet) > %s,   p_{T}^{jet} > %.0f GeV", cfgDef.bbLabel.c_str(), cfgDef.jetMinPt).Data()},
-                                    0.030, 0.040
+                                    {
+                                      TString::Format("#Delta#phi(#gamma,jet) > %s", cfgDef.bbLabel.c_str()).Data(),
+                                      TString::Format("p_{T}^{jet} > %.0f GeV", cfgDef.jetMinPt).Data()
+                                    },
+                                    0.028, 0.036
                                   );
 
-                                  // NEW: top-right annotation below title
+                                  // MissB mean — place on the RIGHT, below the cut block (no overlap)
                                   if (yConst > 0.0)
                                   {
                                     TLatex t;
@@ -11184,7 +11418,7 @@ namespace ARJ
                                     t.SetTextFont(42);
                                     t.SetTextAlign(31); // right-aligned
                                     t.SetTextSize(0.032);
-                                    t.DrawLatex(0.4, 0.8, TString::Format("MissB mean = %.2f GeV", yConst).Data());
+                                    t.DrawLatex(0.39, 0.71, TString::Format("MissB mean = %.2f GeV", yConst).Data());
                                   }
 
                                   const string outProf = JoinPath(
