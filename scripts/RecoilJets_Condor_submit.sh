@@ -167,7 +167,7 @@ PP_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/pp"
 AA_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/auau"
 
 # ------------------------ Defaults -------------------------
-GROUP_SIZE=3         # files per Condor job (never mixes runs)
+GROUP_SIZE=7         # files per Condor job (never mixes runs)
 MAX_JOBS=50000      # job budget per round file
 LOCAL_EVENTS=5000   # default N for "local" if not given
 TRIGGER_BIT=""      # optional: filter runs by GL1 scaledown bit (e.g., TRIGGER=26)
@@ -720,6 +720,7 @@ resolve_dataset "$1"
 
 # Parse remaining tokens (order-agnostic):
 ACTION=""
+DRYRUN=0
 SIM_SAMPLE_EXPLICIT=0
 GROUP_SIZE_EXPLICIT=0
 tokens=( "${@:2}" )
@@ -751,7 +752,11 @@ for (( idx=0; idx<${#tokens[@]}; idx++ )); do
       SIM_SAMPLE_EXPLICIT=1
       ;;
     CHECKJOBS)
-      ACTION="CHECKJOBS"
+      if [[ -n "$ACTION" ]]; then
+        DRYRUN=1
+      else
+        ACTION="CHECKJOBS"
+      fi
       ;;
     *)
       :  # ignore unrecognized tokens
@@ -823,10 +828,10 @@ case "$ACTION" in
       fi
 
       # Mirror condorDoAll grouping behavior for a faithful smoke test:
-      # groupSize defaults to 5 unless explicitly provided by the user.
+      # groupSize defaults to 7 unless explicitly provided by the user.
       gs_local="$GROUP_SIZE"
       if [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 0 ]]; then
-        gs_local="5"
+        gs_local="7"
       fi
 
       master_yaml="$(sim_yaml_master_path)"
@@ -975,11 +980,9 @@ SUB
   condorDoAll)
     # Submit all sim files in grouped chunks. MUST wipe outputs/logs first.
     [[ "$DATASET" == "isSim" ]] || { err "condorDoAll is only valid for isSim"; exit 2; }
-    need_cmd condor_submit
-
     gs_doall="$GROUP_SIZE"
     if [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 0 ]]; then
-      gs_doall="5"
+      gs_doall="7"
     fi
 
     master_yaml="$(sim_yaml_master_path)"
@@ -997,6 +1000,34 @@ SUB
       samples=( "${SIM_SAMPLE}" )
     fi
 
+    # If CHECKJOBS was also provided, do a dry-run count for the FULL condorDoAll matrix and exit.
+    if [[ "${DRYRUN:-0}" -eq 1 ]]; then
+      n_cfg=$(( ${#sim_pts[@]} * ${#sim_fracs[@]} ))
+      per_cfg_jobs=0
+
+      say "CHECKJOBS (isSim condorDoAll matrix)"
+      say "  YAML master         : ${master_yaml}"
+      say "  groupSize (baseline): ${gs_doall}"
+      say "  cfg grid            : Npt=${#sim_pts[@]}  Nfrac=${#sim_fracs[@]}  Ncfg=${n_cfg}"
+      say "  samples             : ${samples[*]}"
+      echo
+
+      for samp in "${samples[@]}"; do
+        SIM_SAMPLE="$samp"
+        sim_init
+        nfiles=$(wc -l < "$SIM_CLEAN_LIST" | awk '{print $1}')
+        njobs=$(ceil_div "$nfiles" "$gs_doall")
+        say "  sample=${SIM_SAMPLE}  input_files=${nfiles}  jobs_per_cfg=${njobs}"
+        per_cfg_jobs=$(( per_cfg_jobs + njobs ))
+      done
+
+      total_jobs=$(( n_cfg * per_cfg_jobs ))
+      echo
+      say "TOTAL jobs that baseline 'isSim condorDoAll' would submit (without CHECKJOBS): ${BOLD}${total_jobs}${RST}"
+      exit 0
+    fi
+
+    need_cmd condor_submit
     for pt in "${sim_pts[@]}"; do
       for frac in "${sim_fracs[@]}"; do
         SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")"
@@ -1013,7 +1044,7 @@ SUB
           (( ${#groups[@]} )) || { err "No sim groups produced (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG})"; exit 30; }
 
           stamp="$(date +%Y%m%d_%H%M%S)"
-          sub="${BASE}/RecoilJets_sim_${SIM_CFG_TAG}_${SIM_SAMPLE}_${stamp}.sub"
+          sub="${BASE}/RecoilJets_si./m_${SIM_CFG_TAG}_${SIM_SAMPLE}_${stamp}.sub"
 
           cat > "$sub" <<SUB
 universe      = vanilla
