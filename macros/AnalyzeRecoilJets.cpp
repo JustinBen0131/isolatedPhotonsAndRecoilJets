@@ -9294,13 +9294,317 @@ namespace ARJ
                           const string dirPt   = JoinPath(dirDiag, "Pt");
                           const string dirAng  = JoinPath(dirDiag, "Angle");
                           const string dirXJ2D = JoinPath(dirDiag, "XJvsDphi");
+                          const string dirED   = JoinPath(dirDiag, "eventDisplay");
                           EnsureDir(dirDiag);
                           EnsureDir(dirPt);
                           EnsureDir(dirAng);
                           EnsureDir(dirXJ2D);
+                          EnsureDir(dirED);
 
                           effSummary.push_back("LeadTruthRecoilMatch Diagnostics:");
                           effSummary.push_back("  Output dir: " + dirDiag);
+
+                            // ---------------------------------------------------------------------------
+                            // (ED) EventDisplay (offline) from EventDisplayTree
+                            //
+                            // Goal: produce a clean, presentation-ready "save3D"-style rendering for TH2
+                            // (η–φ tower E_T maps), matching the palette/margins/title-spacing conventions
+                            // used by your 3D QA tools, while still using TH2 + LEGO2 as the rendering.
+                            //
+                            // Output:
+                            //   <...>/<rKey>/xJ_fromJES3/Efficiency/LeadTruthRecoilMatch/Diagnostics/eventDisplay/
+                            //     NUM/eventDisplay_NUM_<rKey>_runXXXX_evtYYYYYY.png
+                            //     MissA/eventDisplay_MissA_<rKey>_runXXXX_evtYYYYYY.png
+                            //     MissB/eventDisplay_MissB_<rKey>_runXXXX_evtYYYYYY.png
+                            //
+                            // One pseudo-random event is selected per category (NUM/MissA/MissB) for this rKey.
+                            // NUM/MissB: 1x2 canvas (COLZ | LEGO2) for the selected recoil jet.
+                            // MissA:     2x2 canvas comparing selected jet (top row) vs truth-matched reco jet (bottom row),
+                            //            each row rendered as (COLZ | LEGO2).
+                            // ---------------------------------------------------------------------------
+                            {
+                              const string dirED      = JoinPath(dirDiag, "eventDisplay");
+                              const string dirED_NUM  = JoinPath(dirED, "NUM");
+                              const string dirED_MA   = JoinPath(dirED, "MissA");
+                              const string dirED_MB   = JoinPath(dirED, "MissB");
+                              EnsureDir(dirED_NUM);
+                              EnsureDir(dirED_MA);
+                              EnsureDir(dirED_MB);
+
+                              TTree* tED = (ds.file ? dynamic_cast<TTree*>(ds.file->Get("EventDisplayTree")) : nullptr);
+                              if (!tED)
+                              {
+                                effSummary.push_back("  EventDisplayTree: MISSING in input ROOT (no eventDisplay PNGs generated)");
+                              }
+                              else
+                              {
+                                effSummary.push_back("  EventDisplayTree: generating eventDisplay PNGs in " + dirED);
+
+                                // Branch buffers
+                                int b_run = 0;
+                                int b_evt = 0;
+                                float b_vz = 0.0f;
+
+                                std::string* b_rKey = nullptr;
+                                int b_cat = -1;
+
+                                float b_ptGammaTruth = 0.0f;
+
+                                float b_sel_eta = 0.0f;
+                                float b_sel_phi = 0.0f;
+
+                                float b_best_eta = 0.0f;
+                                float b_best_phi = 0.0f;
+
+                                float b_truth_eta = 0.0f;
+                                float b_truth_phi = 0.0f;
+
+                                std::vector<float>* b_sel_etaTower = nullptr;
+                                std::vector<float>* b_sel_phiTower = nullptr;
+                                std::vector<float>* b_sel_etTower  = nullptr;
+
+                                std::vector<float>* b_best_etaTower = nullptr;
+                                std::vector<float>* b_best_phiTower = nullptr;
+                                std::vector<float>* b_best_etTower  = nullptr;
+
+                                tED->SetBranchAddress("run", &b_run);
+                                tED->SetBranchAddress("evt", &b_evt);
+                                tED->SetBranchAddress("vz", &b_vz);
+
+                                tED->SetBranchAddress("rKey", &b_rKey);
+                                tED->SetBranchAddress("cat", &b_cat);
+
+                                tED->SetBranchAddress("ptGammaTruth", &b_ptGammaTruth);
+
+                                tED->SetBranchAddress("sel_eta", &b_sel_eta);
+                                tED->SetBranchAddress("sel_phi", &b_sel_phi);
+
+                                tED->SetBranchAddress("best_eta", &b_best_eta);
+                                tED->SetBranchAddress("best_phi", &b_best_phi);
+
+                                tED->SetBranchAddress("truthLead_eta", &b_truth_eta);
+                                tED->SetBranchAddress("truthLead_phi", &b_truth_phi);
+
+                                tED->SetBranchAddress("sel_etaTower", &b_sel_etaTower);
+                                tED->SetBranchAddress("sel_phiTower", &b_sel_phiTower);
+                                tED->SetBranchAddress("sel_etTower",  &b_sel_etTower);
+
+                                tED->SetBranchAddress("best_etaTower", &b_best_etaTower);
+                                tED->SetBranchAddress("best_phiTower", &b_best_phiTower);
+                                tED->SetBranchAddress("best_etTower",  &b_best_etTower);
+
+                                std::vector<Long64_t> idxByCat[3];
+                                const Long64_t nEnt = tED->GetEntries();
+
+                                for (Long64_t ient = 0; ient < nEnt; ++ient)
+                                {
+                                  tED->GetEntry(ient);
+                                  if (!b_rKey) continue;
+                                  if (*b_rKey != rKey) continue;
+                                  if (b_cat < 0 || b_cat > 2) continue;
+                                  idxByCat[b_cat].push_back(ient);
+                                }
+
+                                auto PickIndex = [&](int icat)->Long64_t
+                                {
+                                  if (icat < 0 || icat > 2) return -1;
+                                  if (idxByCat[icat].empty()) return -1;
+
+                                  // Pseudo-random but stable per run: seed mixes rKey and counts
+                                  const unsigned int seed =
+                                    0xC0FFEEu ^ (unsigned int)(idxByCat[icat].size() * 131u) ^ (unsigned int)(nEnt * 17u);
+
+                                  std::mt19937 rng(seed);
+                                  std::uniform_int_distribution<size_t> uni(0, idxByCat[icat].size() - 1);
+                                  return idxByCat[icat][uni(rng)];
+                                };
+
+                                auto FillJetHist =
+                                  [&](TH2F* h,
+                                      const std::vector<float>* vphi,
+                                      const std::vector<float>* veta,
+                                      const std::vector<float>* vet)->void
+                                {
+                                  if (!h || !vphi || !veta || !vet) return;
+                                  const size_t n = std::min(vphi->size(), std::min(veta->size(), vet->size()));
+                                  for (size_t i = 0; i < n; ++i)
+                                  {
+                                    h->Fill((*vphi)[i], (*veta)[i], (*vet)[i]);
+                                  }
+                                };
+
+                                auto StyleHistLikeSave3D =
+                                  [&](TH2F* h)->void
+                                {
+                                  if (!h) return;
+                                  h->SetStats(0);
+                                  h->SetContour(99);
+                                  h->SetTitle("");
+
+                                  h->GetXaxis()->SetTitle("#phi");
+                                  h->GetYaxis()->SetTitle("#eta");
+                                  h->GetZaxis()->SetTitle("Tower E_{T} [GeV]");
+
+                                  h->GetXaxis()->SetTitleOffset(1.6);
+                                  h->GetYaxis()->SetTitleOffset(2.0);
+                                  h->GetZaxis()->SetTitleOffset(1.4);
+                                };
+
+                                auto StylePadLikeSave3D =
+                                  [&](TPad* pad)->void
+                                {
+                                  if (!pad) return;
+                                  pad->SetLeftMargin(0.14);
+                                  pad->SetBottomMargin(0.14);
+                                  pad->SetRightMargin(0.32);
+                                  pad->SetTopMargin(0.06);
+                                };
+
+                                auto AdjustPaletteLikeSave3D =
+                                  [&](TH2F* h)->void
+                                {
+                                  if (!h) return;
+                                  gPad->Update();
+
+                                  // Local include (keeps this change self-contained)
+                                  #include <TPaletteAxis.h>
+
+                                  if (TPaletteAxis* pal = (TPaletteAxis*)h->GetListOfFunctions()->FindObject("palette"))
+                                  {
+                                    pal->SetX1NDC(0.72);
+                                    pal->SetX2NDC(0.86);
+                                    pal->SetY1NDC(0.15);
+                                    pal->SetY2NDC(0.90);
+                                  }
+                                };
+
+                                auto DrawMarkersAndHeader =
+                                  [&](float jetPhi, float jetEta,
+                                      float truthPhi, float truthEta,
+                                      const string& headerLine,
+                                      const string& subLine)->void
+                                {
+                                  // Markers
+                                  TMarker mReco(jetPhi, jetEta, 29);
+                                  mReco.SetMarkerSize(1.8);
+                                  mReco.Draw();
+
+                                  TMarker mTruth(truthPhi, truthEta, 24);
+                                  mTruth.SetMarkerSize(1.4);
+                                  mTruth.Draw();
+
+                                  // Title/header (extra top room is handled by pad margins)
+                                  TLatex tex;
+                                  tex.SetNDC();
+                                  tex.SetTextSize(0.040);
+                                  tex.DrawLatex(0.14, 0.96, headerLine.c_str());
+
+                                  tex.SetTextSize(0.034);
+                                  tex.DrawLatex(0.14, 0.91, subLine.c_str());
+                                };
+
+                                auto DrawPanelSave3DStyle =
+                                  [&](TPad* pad,
+                                      TH2F* h,
+                                      const string& drawOpt,
+                                      float jetPhi, float jetEta,
+                                      float truthPhi, float truthEta,
+                                      const string& headerLine,
+                                      const string& subLine)->void
+                                {
+                                  if (!pad || !h) return;
+
+                                  pad->cd();
+                                  StylePadLikeSave3D(pad);
+                                  StyleHistLikeSave3D(h);
+
+                                  h->Draw(drawOpt.c_str());
+                                  AdjustPaletteLikeSave3D(h);
+                                  DrawMarkersAndHeader(jetPhi, jetEta, truthPhi, truthEta, headerLine, subLine);
+                                };
+
+                                auto SaveNUMorMissB =
+                                  [&](const string& catName, int icat, const string& outDir)->void
+                                {
+                                  const Long64_t pick = PickIndex(icat);
+                                  if (pick < 0) return;
+
+                                  tED->GetEntry(pick);
+
+                                  const string outPng =
+                                    JoinPath(outDir,
+                                             "eventDisplay_" + catName + "_" + rKey +
+                                             "_run" + std::to_string(b_run) +
+                                             "_evt" + std::to_string(b_evt) + ".png");
+
+                                  TH2F hColz("hED_colz", "", 64, -M_PI, M_PI, 48, -1.1, 1.1);
+                                  TH2F hLego("hED_lego", "", 64, -M_PI, M_PI, 48, -1.1, 1.1);
+
+                                  FillJetHist(&hColz, b_sel_phiTower, b_sel_etaTower, b_sel_etTower);
+                                  FillJetHist(&hLego, b_sel_phiTower, b_sel_etaTower, b_sel_etTower);
+
+                                  TCanvas c("cED", "", 1600, 800);
+                                  c.Divide(2, 1, 0.0, 0.0);
+
+                                  const string header = "EventDisplay " + catName + "  " + rKey;
+                                  const string sub    = "run " + std::to_string(b_run) +
+                                                        "  evt " + std::to_string(b_evt) +
+                                                        "  v_{z}=" + std::to_string((int)std::round(b_vz)) + " cm" +
+                                                        "  pT_{#gamma}^{truth}=" + std::to_string((int)std::round(b_ptGammaTruth)) + " GeV";
+
+                                  DrawPanelSave3DStyle((TPad*)c.cd(1), &hColz, "COLZ",  b_sel_phi, b_sel_eta, b_truth_phi, b_truth_eta, header, sub);
+                                  DrawPanelSave3DStyle((TPad*)c.cd(2), &hLego, "LEGO2", b_sel_phi, b_sel_eta, b_truth_phi, b_truth_eta, header, sub);
+
+                                  c.SaveAs(outPng.c_str());
+                                };
+
+                                auto SaveMissA =
+                                  [&](const string& outDir)->void
+                                {
+                                  const Long64_t pick = PickIndex(1);
+                                  if (pick < 0) return;
+
+                                  tED->GetEntry(pick);
+
+                                  const string outPng =
+                                    JoinPath(outDir,
+                                             "eventDisplay_MissA_" + rKey +
+                                             "_run" + std::to_string(b_run) +
+                                             "_evt" + std::to_string(b_evt) + ".png");
+
+                                  TH2F hSelColz("hED_sel_colz", "", 64, -M_PI, M_PI, 48, -1.1, 1.1);
+                                  TH2F hSelLego("hED_sel_lego", "", 64, -M_PI, M_PI, 48, -1.1, 1.1);
+                                  TH2F hBestColz("hED_best_colz", "", 64, -M_PI, M_PI, 48, -1.1, 1.1);
+                                  TH2F hBestLego("hED_best_lego", "", 64, -M_PI, M_PI, 48, -1.1, 1.1);
+
+                                  FillJetHist(&hSelColz,  b_sel_phiTower,  b_sel_etaTower,  b_sel_etTower);
+                                  FillJetHist(&hSelLego,  b_sel_phiTower,  b_sel_etaTower,  b_sel_etTower);
+                                  FillJetHist(&hBestColz, b_best_phiTower, b_best_etaTower, b_best_etTower);
+                                  FillJetHist(&hBestLego, b_best_phiTower, b_best_etaTower, b_best_etTower);
+
+                                  TCanvas c("cED_MissA", "", 1600, 1400);
+                                  c.Divide(2, 2, 0.0, 0.0);
+
+                                  const string header = "EventDisplay MissA  " + rKey;
+                                  const string sub    = "run " + std::to_string(b_run) +
+                                                        "  evt " + std::to_string(b_evt) +
+                                                        "  v_{z}=" + std::to_string((int)std::round(b_vz)) + " cm" +
+                                                        "  pT_{#gamma}^{truth}=" + std::to_string((int)std::round(b_ptGammaTruth)) + " GeV";
+
+                                  DrawPanelSave3DStyle((TPad*)c.cd(1), &hSelColz,  "COLZ",  b_sel_phi,  b_sel_eta,  b_truth_phi, b_truth_eta, header, sub + "  (selected jet)");
+                                  DrawPanelSave3DStyle((TPad*)c.cd(2), &hSelLego,  "LEGO2", b_sel_phi,  b_sel_eta,  b_truth_phi, b_truth_eta, header, sub + "  (selected jet)");
+                                  DrawPanelSave3DStyle((TPad*)c.cd(3), &hBestColz, "COLZ",  b_best_phi, b_best_eta, b_truth_phi, b_truth_eta, header, sub + "  (truth-matched reco jet)");
+                                  DrawPanelSave3DStyle((TPad*)c.cd(4), &hBestLego, "LEGO2", b_best_phi, b_best_eta, b_truth_phi, b_truth_eta, header, sub + "  (truth-matched reco jet)");
+
+                                  c.SaveAs(outPng.c_str());
+                                };
+
+                                SaveNUMorMissB("NUM",   0, dirED_NUM);
+                                SaveMissA(dirED_MA);
+                                SaveNUMorMissB("MissB", 2, dirED_MB);
+                              }
+                            }
+
 
                           auto Save2DColz =
                             [&](TH2* hIn,

@@ -10,6 +10,7 @@
 // ROOT
 // =============================================================================
 #include <TFile.h>
+#include <TTree.h>
 #include <TDirectory.h>
 #include <TKey.h>
 #include <TIterator.h>
@@ -32,6 +33,7 @@
 #include <TPad.h>
 #include <TLegend.h>
 #include <TLatex.h>
+#include <TMarker.h>
 #include <TStyle.h>
 #include <TSystem.h>
 #include <TLine.h>
@@ -57,6 +59,7 @@
 #include <algorithm>
 #include <utility>
 #include <limits>
+#include <random>
 
 namespace ARJ
 {

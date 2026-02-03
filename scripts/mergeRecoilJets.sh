@@ -2,8 +2,8 @@
 ###############################################################################
 # mergeRecoilJets.sh  —  FAST REFERENCE
 #
-#./mergeRecoilJets.sh isSim firstRound groupSize 300 SAMPLE=run28_photonjet10
-#./mergeRecoilJets.sh isSim secondRound SAMPLE=run28_photonjet10
+#./mergeRecoilJets.sh isSim firstRound
+#./mergeRecoilJets.sh isSim secondRound
 #
 #
 # PURPOSE
