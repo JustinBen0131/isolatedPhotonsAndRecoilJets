@@ -4554,6 +4554,8 @@ namespace ARJ
                               continue;
                           }
 
+                          const bool doShapeNorm = (!useAlphaCut && (outDirHere.find("RECO") != std::string::npos));
+
                           if (a)
                           {
                               a->SetDirectory(nullptr);
@@ -4568,7 +4570,7 @@ namespace ARJ
                               a->SetFillStyle(0);
 
                               a->GetXaxis()->SetTitle(xTitle.c_str());
-                              a->GetYaxis()->SetTitle((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts");
+                              a->GetYaxis()->SetTitle(doShapeNorm ? "A.U." : ((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts"));
                           }
 
                           if (b)
@@ -4585,7 +4587,7 @@ namespace ARJ
                               b->SetFillStyle(0);
 
                               b->GetXaxis()->SetTitle(xTitle.c_str());
-                              b->GetYaxis()->SetTitle((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts");
+                              b->GetYaxis()->SetTitle(doShapeNorm ? "A.U." : ((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts"));
                           }
 
                           if (c6)
@@ -4602,7 +4604,14 @@ namespace ARJ
                               c6->SetFillStyle(0);
 
                               c6->GetXaxis()->SetTitle(xTitle.c_str());
-                              c6->GetYaxis()->SetTitle((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts");
+                              c6->GetYaxis()->SetTitle(doShapeNorm ? "A.U." : ((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts"));
+                          }
+
+                          if (doShapeNorm)
+                          {
+                              if (a)  NormalizeToUnitArea(a);
+                              if (b)  NormalizeToUnitArea(b);
+                              if (c6) NormalizeToUnitArea(c6);
                           }
 
                           double ymax = 0.0;
@@ -4637,14 +4646,14 @@ namespace ARJ
                             TString::Format("%s %s, %s = %s", levelTag, xTitle.c_str(), pTTag, ptLab.c_str()).Data()
                           );
 
-                          TLegend leg(0.8, 0.75, 0.94, 0.9);
+                          TLegend leg(0.72, 0.68, 0.92, 0.90);
                           leg.SetTextFont(42);
-                          leg.SetTextSize(0.055);
+                          leg.SetTextSize(0.065);
                           leg.SetFillStyle(0);
                           leg.SetBorderSize(0);
-                          if (a)  leg.AddEntry(a,  "r02", "ep");
-                          if (b)  leg.AddEntry(b,  "r04", "ep");
-                          if (c6) leg.AddEntry(c6, "r06", "ep");
+                          if (a)  leg.AddEntry(a,  "R = 0.2", "ep");
+                          if (b)  leg.AddEntry(b,  "R = 0.4", "ep");
+                          if (c6) leg.AddEntry(c6, "R = 0.6", "ep");
                           leg.DrawClone();
 
                           if (useAlphaCut)
@@ -5252,103 +5261,93 @@ namespace ARJ
             return;
           }
 
-          // Build alternate (7π/8) weighted-merged TH3 in memory from slice files
-          const Sim10and20Config& altCfg = Sim10and20ConfigForKey(kAltSimSampleKey_jetMinPt10_7piOver8);
+            // Alternate (7π/8): MUST use the merged photonJet10+20 ROOT file for this cfgKey
+            const std::string altKey = kAltSimSampleKey_jetMinPt10_7piOver8;
+            const Sim10and20Config& altCfg = Sim10and20ConfigForKey(altKey);
+            const std::string altMerged = MergedSIMOut_10and20_ForKey(altKey);
 
-          TFile* f10 = TFile::Open(altCfg.photon10.c_str(), "READ");
-          TFile* f20 = TFile::Open(altCfg.photon20.c_str(), "READ");
-          if (!f10 || f10->IsZombie() || !f20 || f20->IsZombie())
-          {
-              cout << ANSI_BOLD_YEL
-                   << "[WARN] Δφ overlay skipped: cannot open 7π/8 slice files:\n"
-                   << "  " << altCfg.photon10 << "\n"
-                   << "  " << altCfg.photon20 << "\n"
+            auto EnsureAltMerged = [&]()->bool
+            {
+              if (!gSystem->AccessPathName(altMerged.c_str())) return true; // exists
+
+              cout << ANSI_BOLD_CYN
+                   << "\n[MERGE] Building merged SIM10+20 file for Δφ overlay:\n"
+                   << "  cfgKey   = " << altKey << "\n"
+                   << "  in10     = " << altCfg.photon10 << "\n"
+                   << "  in20     = " << altCfg.photon20 << "\n"
+                   << "  out      = " << altMerged << "\n"
                    << ANSI_RESET;
-              if (f10) f10->Close();
-              if (f20) f20->Close();
+
+              return BuildMergedSIMFile_PhotonSlices(
+                {altCfg.photon10, altCfg.photon20},
+                {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+                altMerged,
+                kDirSIM,
+                {"photonJet10", "photonJet20"}
+              );
+            };
+
+            if (!EnsureAltMerged())
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] Δφ overlay skipped: could not build merged file: " << altMerged << "\n"
+                   << ANSI_RESET;
               return;
-          }
-
-          TDirectory* d10 = f10->GetDirectory(kDirSIM.c_str());
-          TDirectory* d20 = f20->GetDirectory(kDirSIM.c_str());
-          if (!d10 || !d20)
-          {
-            cout << ANSI_BOLD_YEL
-                 << "[WARN] Δφ overlay skipped: missing topDir '" << kDirSIM << "' in 7π/8 slice file(s).\n"
-                 << ANSI_RESET;
-            f10->Close(); f20->Close();
-            return;
-          }
-
-          const double N10 = ReadEventCountFromFile(f10, kDirSIM);
-          const double N20 = ReadEventCountFromFile(f20, kDirSIM);
-          if (N10 <= 0.0 || N20 <= 0.0)
-          {
-            cout << ANSI_BOLD_YEL
-                 << "[WARN] Δφ overlay skipped: Naccepted <= 0 in 7π/8 slice file(s).\n"
-                 << ANSI_RESET;
-            f10->Close(); f20->Close();
-            return;
-          }
-
-          const double w10 = kSigmaPhoton10_pb / N10;
-          const double w20 = kSigmaPhoton20_pb / N20;
-
-          TH3* h10 = dynamic_cast<TH3*>(d10->Get("h_JES3_pT_xJ_alpha_r04"));
-          TH3* h20 = dynamic_cast<TH3*>(d20->Get("h_JES3_pT_xJ_alpha_r04"));
-          if (!h10 && !h20)
-          {
-            cout << ANSI_BOLD_YEL
-                 << "[WARN] Δφ overlay skipped: missing h_JES3_pT_xJ_alpha_r04 in BOTH 7π/8 slice files.\n"
-                 << ANSI_RESET;
-            f10->Close(); f20->Close();
-            return;
-          }
-
-          TH3* hAlt = nullptr;
-          if (h10)
-          {
-            hAlt = CloneTH3(h10, "h_JES3_pT_xJ_alpha_r04_ALT_7piOver8");
-            if (hAlt)
-            {
-              hAlt->SetDirectory(nullptr);
-              if (hAlt->GetSumw2N() == 0) hAlt->Sumw2();
-              hAlt->Scale(w10);
             }
-          }
-          if (!hAlt && h20)
-          {
-            hAlt = CloneTH3(h20, "h_JES3_pT_xJ_alpha_r04_ALT_7piOver8");
-            if (hAlt)
-            {
-              hAlt->SetDirectory(nullptr);
-              if (hAlt->GetSumw2N() == 0) hAlt->Sumw2();
-              hAlt->Scale(w20);
-            }
-          }
-          if (hAlt && h20)
-          {
-            TH3* tmp = CloneTH3(h20, "h_tmp20_add_7piOver8");
-            if (tmp)
-            {
-              tmp->SetDirectory(nullptr);
-              if (tmp->GetSumw2N() == 0) tmp->Sumw2();
-              tmp->Scale(w20);
-              hAlt->Add(tmp);
-              delete tmp;
-            }
-          }
 
-          f10->Close();
-          f20->Close();
+            TFile* fAlt = TFile::Open(altMerged.c_str(), "READ");
+            if (!fAlt || fAlt->IsZombie())
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] Δφ overlay skipped: cannot open merged file:\n"
+                   << "  " << altMerged << "\n"
+                   << ANSI_RESET;
+              if (fAlt) fAlt->Close();
+              return;
+            }
 
-          if (!hAlt)
-          {
-            cout << ANSI_BOLD_YEL
-                 << "[WARN] Δφ overlay skipped: failed to build alternate merged TH3.\n"
+            TDirectory* dAlt = fAlt->GetDirectory(kDirSIM.c_str());
+            if (!dAlt)
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] Δφ overlay skipped: missing topDir '" << kDirSIM << "' in merged file:\n"
+                   << "  " << altMerged << "\n"
+                   << ANSI_RESET;
+              fAlt->Close();
+              return;
+            }
+
+            TH3* hAltIn = dynamic_cast<TH3*>(dAlt->Get("h_JES3_pT_xJ_alpha_r04"));
+            if (!hAltIn)
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] Δφ overlay skipped: missing h_JES3_pT_xJ_alpha_r04 in merged file:\n"
+                   << "  " << altMerged << "\n"
+                   << ANSI_RESET;
+              fAlt->Close();
+              return;
+            }
+
+            TH3* hAlt = CloneTH3(hAltIn, "h_JES3_pT_xJ_alpha_r04_ALT_7piOver8");
+            if (!hAlt)
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] Δφ overlay skipped: failed to clone alternate TH3 from merged file.\n"
+                   << ANSI_RESET;
+              fAlt->Close();
+              return;
+            }
+
+            hAlt->SetDirectory(nullptr);
+            if (hAlt->GetSumw2N() == 0) hAlt->Sumw2();
+
+            fAlt->Close();
+
+            cout << ANSI_DIM
+                 << "  [Δφ overlay inputs]\n"
+                 << "    baseline (opened dataset) = " << ds.inFilePath << "\n"
+                 << "    alternate merged          = " << altMerged << "\n"
                  << ANSI_RESET;
-            return;
-          }
 
             // -------------------------------------------------------------------------
             // Make a 3x2 table (6 pads) across pTgamma bins: ProjectY (xJ) integrating alpha
@@ -5372,10 +5371,13 @@ namespace ARJ
             std::vector<TH1*> keep;
             keep.reserve(2 * 6);
 
-            const int nPads = std::min(6, nPt);
+            const int ibStart = 2; // skip first pT bin (e.g. 13-15) in the table
+            const int nAvail  = (nPt >= ibStart) ? (nPt - ibStart + 1) : 0;
+            const int nPads   = std::min(6, nAvail);
+
             for (int k = 0; k < nPads; ++k)
             {
-              const int ib = 1 + k;
+              const int ib = ibStart + k;
               c.cd(k+1);
 
               gPad->SetLeftMargin(0.14);
@@ -5619,94 +5621,83 @@ namespace ARJ
               [&](const std::string& cfgKey, const std::string& h3name, const std::string& tag)->TH3*
             {
               const Sim10and20Config& cfg = Sim10and20ConfigForKey(cfgKey);
+              const std::string merged = MergedSIMOut_10and20_ForKey(cfgKey);
 
-              TFile* f10 = TFile::Open(cfg.photon10.c_str(), "READ");
-              TFile* f20 = TFile::Open(cfg.photon20.c_str(), "READ");
-              if (!f10 || f10->IsZombie() || !f20 || f20->IsZombie())
+              auto EnsureMerged = [&]()->bool
+              {
+                if (!gSystem->AccessPathName(merged.c_str())) return true; // exists
+
+                cout << ANSI_BOLD_CYN
+                     << "\n[MERGE] Building merged SIM10+20 file for pTmin overlay:\n"
+                     << "  cfgKey   = " << cfgKey << "\n"
+                     << "  in10     = " << cfg.photon10 << "\n"
+                     << "  in20     = " << cfg.photon20 << "\n"
+                     << "  out      = " << merged << "\n"
+                     << ANSI_RESET;
+
+                return BuildMergedSIMFile_PhotonSlices(
+                  {cfg.photon10, cfg.photon20},
+                  {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+                  merged,
+                  kDirSIM,
+                  {"photonJet10", "photonJet20"}
+                );
+              };
+
+              if (!EnsureMerged())
               {
                 cout << ANSI_BOLD_YEL
-                     << "[WARN] pTmin overlay skipped (" << tag << "): cannot open slice files for cfgKey=" << cfgKey << "\n"
-                     << "  " << cfg.photon10 << "\n"
-                     << "  " << cfg.photon20 << "\n"
+                     << "[WARN] pTmin overlay skipped (" << tag << "): could not build merged file for cfgKey=" << cfgKey << "\n"
+                     << "  out=" << merged << "\n"
                      << ANSI_RESET;
-                if (f10) f10->Close();
-                if (f20) f20->Close();
                 return nullptr;
               }
 
-              TDirectory* d10 = f10->GetDirectory(kDirSIM.c_str());
-              TDirectory* d20 = f20->GetDirectory(kDirSIM.c_str());
-              if (!d10 || !d20)
+              TFile* f = TFile::Open(merged.c_str(), "READ");
+              if (!f || f->IsZombie())
               {
                 cout << ANSI_BOLD_YEL
-                     << "[WARN] pTmin overlay skipped (" << tag << "): missing topDir '" << kDirSIM << "' for cfgKey=" << cfgKey << "\n"
+                     << "[WARN] pTmin overlay skipped (" << tag << "): cannot open merged file for cfgKey=" << cfgKey << "\n"
+                     << "  " << merged << "\n"
                      << ANSI_RESET;
-                f10->Close(); f20->Close();
+                if (f) f->Close();
                 return nullptr;
               }
 
-              const double N10 = ReadEventCountFromFile(f10, kDirSIM);
-              const double N20 = ReadEventCountFromFile(f20, kDirSIM);
-              if (N10 <= 0.0 || N20 <= 0.0)
+              TDirectory* d = f->GetDirectory(kDirSIM.c_str());
+              if (!d)
               {
                 cout << ANSI_BOLD_YEL
-                     << "[WARN] pTmin overlay skipped (" << tag << "): Naccepted <= 0 for cfgKey=" << cfgKey << "\n"
+                     << "[WARN] pTmin overlay skipped (" << tag << "): missing topDir '" << kDirSIM << "' in merged file for cfgKey=" << cfgKey << "\n"
+                     << "  " << merged << "\n"
                      << ANSI_RESET;
-                f10->Close(); f20->Close();
+                f->Close();
                 return nullptr;
               }
 
-              const double w10 = kSigmaPhoton10_pb / N10;
-              const double w20 = kSigmaPhoton20_pb / N20;
-
-              TH3* h10 = dynamic_cast<TH3*>(d10->Get(h3name.c_str()));
-              TH3* h20 = dynamic_cast<TH3*>(d20->Get(h3name.c_str()));
-
-              if (!h10 && !h20)
+              TH3* hin = dynamic_cast<TH3*>(d->Get(h3name.c_str()));
+              if (!hin)
               {
                 cout << ANSI_BOLD_YEL
-                     << "[WARN] pTmin overlay skipped (" << tag << "): missing " << h3name << " in BOTH slice files for cfgKey=" << cfgKey << "\n"
+                     << "[WARN] pTmin overlay skipped (" << tag << "): missing " << h3name << " in merged file for cfgKey=" << cfgKey << "\n"
+                     << "  " << merged << "\n"
                      << ANSI_RESET;
-                f10->Close(); f20->Close();
+                f->Close();
                 return nullptr;
               }
 
-              TH3* h = nullptr;
-              if (h10)
+              TH3* h = CloneTH3(hin, TString::Format("%s_%s", h3name.c_str(), tag.c_str()).Data());
+              if (h)
               {
-                h = CloneTH3(h10, TString::Format("%s_%s", h3name.c_str(), tag.c_str()).Data());
-                if (h)
-                {
-                  h->SetDirectory(nullptr);
-                  if (h->GetSumw2N() == 0) h->Sumw2();
-                  h->Scale(w10);
-                }
-              }
-              if (!h && h20)
-              {
-                h = CloneTH3(h20, TString::Format("%s_%s", h3name.c_str(), tag.c_str()).Data());
-                if (h)
-                {
-                  h->SetDirectory(nullptr);
-                  if (h->GetSumw2N() == 0) h->Sumw2();
-                  h->Scale(w20);
-                }
-              }
-              if (h && h20)
-              {
-                TH3* tmp = CloneTH3(h20, TString::Format("h_tmp20_add_%s_%s", h3name.c_str(), tag.c_str()).Data());
-                if (tmp)
-                {
-                  tmp->SetDirectory(nullptr);
-                  if (tmp->GetSumw2N() == 0) tmp->Sumw2();
-                  tmp->Scale(w20);
-                  h->Add(tmp);
-                  delete tmp;
-                }
+                h->SetDirectory(nullptr);
+                if (h->GetSumw2N() == 0) h->Sumw2();
               }
 
-              f10->Close();
-              f20->Close();
+              f->Close();
+
+              cout << ANSI_DIM
+                   << "  [pTmin overlay input] cfgKey=" << cfgKey << "  merged=" << merged << "\n"
+                   << ANSI_RESET;
 
               return h;
             };
@@ -5779,10 +5770,13 @@ namespace ARJ
                 NormalizeToUnitArea(h);
               };
 
-              const int nPads = std::min(6, nPt);
+              const int ibStart = 2; // skip first pT bin (e.g. 13-15) in the table
+              const int nAvail  = (nPt >= ibStart) ? (nPt - ibStart + 1) : 0;
+              const int nPads   = std::min(6, nAvail);
+
               for (int k = 0; k < nPads; ++k)
               {
-                const int ib = 1 + k;
+                const int ib = ibStart + k;
                 c.cd(k+1);
 
                 gPad->SetLeftMargin(0.14);
@@ -6649,53 +6643,91 @@ namespace ARJ
                     }
                   }
 
-                  // Normalize shapes and overlay
-                  StyleForOverlay(hSam, 2);
-                  StyleForOverlay(hJustin, 4);
+                    // Normalize shapes and overlay
+                    // Sam hratio_* is typically much finer-binned than Justin's xJ projection.
+                    // Rebin Sam onto Justin's x-axis BEFORE normalization so the overlay is visible/comparable.
+                    {
+                      TH1* hSamReb = CloneTH1(hJustin, TString::Format("%s_rebinnedToJustin", hSam->GetName()).Data());
+                      if (hSamReb)
+                      {
+                        hSamReb->Reset("ICES");
+                        hSamReb->SetDirectory(nullptr);
+                        if (hSamReb->GetSumw2N() == 0) hSamReb->Sumw2();
 
-                  PrintH1Summary("Sam(norm)", hSam);
-                  PrintH1Summary("Justin(norm)", hJustin);
+                        const int nbIn = hSam->GetNbinsX();
+                        for (int ib = 1; ib <= nbIn; ++ib)
+                        {
+                          const double x = hSam->GetXaxis()->GetBinCenter(ib);
+                          const int ob = hSamReb->FindBin(x);
+                          if (ob < 1 || ob > hSamReb->GetNbinsX()) continue;
 
-                  double ymax = std::max(hSam->GetMaximum(), hJustin->GetMaximum());
-                  hSam->SetMaximum(ymax * 1.25);
+                          const double c = hSam->GetBinContent(ib);
+                          const double e = hSam->GetBinError(ib);
 
-                  TCanvas c("c_SamVsJustin","c_SamVsJustin",900,700);
-                  ApplyCanvasMargins1D(c);
+                          hSamReb->SetBinContent(ob, hSamReb->GetBinContent(ob) + c);
 
-                  hSam->Draw("E1");
-                  hJustin->Draw("E1 same");
+                          const double oe = hSamReb->GetBinError(ob);
+                          hSamReb->SetBinError(ob, std::sqrt(oe*oe + e*e));
+                        }
 
-                  TLegend leg(0.52, 0.73, 0.88, 0.90);
-                  leg.SetTextFont(42);
-                  leg.SetTextSize(0.035);
-                  leg.SetFillStyle(0);
-                  leg.SetBorderSize(0);
-                  leg.AddEntry(hSam,    TString::Format("Sam's Output (R = %.1f)", R).Data(), "ep");
-                  leg.AddEntry(hJustin, TString::Format("Justin's Output (R = %.1f)", R).Data(), "ep");
-                  leg.Draw();
+                        delete hSam;
+                        hSam = hSamReb;
+                      }
+                    }
 
-                  TLatex t;
-                  t.SetNDC(true);
-                  t.SetTextFont(42);
-                  t.SetTextAlign(13);
+                    StyleForOverlay(hSam, 2);
+                    StyleForOverlay(hJustin, 4);
 
-                  t.SetTextSize(0.040);
-                  t.DrawLatex(0.14, 0.92, "JES3 RECO x_{J#gamma}: Sam vs Justin");
+                    PrintH1Summary("Sam(norm)", hSam);
+                    PrintH1Summary("Justin(norm)", hJustin);
 
-                  t.SetTextSize(0.034);
-                  t.DrawLatex(0.14, 0.86, TString::Format("Justin p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
-                  t.DrawLatex(0.14, 0.81, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
-                  t.DrawLatex(0.14, 0.76, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
-                  t.DrawLatex(0.14, 0.71, TString::Format("Back-to-back: %s", bbLabel.c_str()).Data());
+                    const double ymax = std::max(hSam->GetMaximum(), hJustin->GetMaximum());
+                    hSam->SetMaximum(ymax * 1.25);
 
-                  const std::string outName =
-                    TString::Format("overlay_SamVsJustin_JES3_RECO_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
-                      ptLo, ptHi, samPtLabel.c_str(), rKey.c_str()).Data();
+                    TCanvas c("c_SamVsJustin","c_SamVsJustin",900,700);
+                    ApplyCanvasMargins1D(c);
 
-                  SaveCanvas(c, JoinPath(plotsDir, outName));
+                    hSam->Draw("E1");
+                    hJustin->Draw("E1 same");
 
-                  delete hSam;
-                  delete hJustin;
+                    TLegend leg(0.52, 0.73, 0.88, 0.90);
+                    leg.SetTextFont(42);
+                    leg.SetTextSize(0.035);
+                    leg.SetFillStyle(0);
+                    leg.SetBorderSize(0);
+                    leg.AddEntry(hSam,    TString::Format("Sam's Output (R = %.1f)", R).Data(), "ep");
+                    leg.AddEntry(hJustin, TString::Format("Justin's Output (R = %.1f)", R).Data(), "ep");
+                    leg.Draw();
+
+                    TLatex tNote;
+                    tNote.SetNDC(true);
+                    tNote.SetTextFont(42);
+                    tNote.SetTextAlign(12);
+                    tNote.SetTextSize(0.036);
+                    tNote.DrawLatex(0.62, 0.52, "Photon+Jet  10 + 20 GeV Samples");
+
+                    TLatex t;
+                    t.SetNDC(true);
+                    t.SetTextFont(42);
+                    t.SetTextAlign(13);
+
+                    t.SetTextSize(0.040);
+                    t.DrawLatex(0.14, 0.92, "JES3 RECO x_{J#gamma}: Sam vs Justin");
+
+                    t.SetTextSize(0.034);
+                    t.DrawLatex(0.14, 0.86, TString::Format("Justin p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
+                    t.DrawLatex(0.14, 0.81, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
+                    t.DrawLatex(0.14, 0.76, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
+                    t.DrawLatex(0.14, 0.71, TString::Format("Back-to-back: %s", bbLabel.c_str()).Data());
+
+                    const std::string outName =
+                      TString::Format("overlay_SamVsJustin_JES3_RECO_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
+                        ptLo, ptHi, samPtLabel.c_str(), rKey.c_str()).Data();
+
+                    SaveCanvas(c, JoinPath(plotsDir, outName));
+
+                    delete hSam;
+                    delete hJustin;
                 }
 
                 delete hJustin3;
