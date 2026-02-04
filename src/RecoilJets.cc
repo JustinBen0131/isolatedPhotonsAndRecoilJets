@@ -5644,7 +5644,99 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
                                                         truthLeadRecoilJet->get_phi()));
   }
 
-    appendEventDisplayDiagnosticsFromJet(selectedRecoilJet,
+    const Jet* selForTowers  = selectedRecoilJet;
+    const Jet* bestForTowers = recoTruthBest;
+
+    auto mapCalibToRawForTowers = [&](const Jet* calibJet) -> const Jet*
+    {
+      if (!calibJet) return nullptr;
+
+      auto itCal = m_jets.find(rKey);
+      auto itRaw = m_jetsRaw.find(rKey);
+      if (itCal == m_jets.end() || !itCal->second) return nullptr;
+      if (itRaw == m_jetsRaw.end() || !itRaw->second) return nullptr;
+
+      const JetContainer* calib = itCal->second;
+      const JetContainer* raw   = itRaw->second;
+
+      // Require RAW constituents; otherwise tower payload will be empty.
+      auto hasConstituents = [&](const Jet* j) -> bool
+      {
+        return (j && (j->begin_comp() != j->end_comp()));
+      };
+
+      // 1) Primary: ID-based mapping (JetCalib sets calibrated jet id in the same loop as raw jets).
+      const int idC = static_cast<int>(calibJet->get_id());
+      if (idC >= 0)
+      {
+        for (const Jet* jr : *raw)
+        {
+          if (!jr) continue;
+          if (static_cast<int>(jr->get_id()) != idC) continue;
+          if (!hasConstituents(jr)) continue;
+          return jr;
+        }
+      }
+
+      // 2) Secondary: index-preserving mapping (if id is not reliable in this container).
+      int idx = -1;
+      int i = 0;
+      for (const Jet* jc : *calib)
+      {
+        if (jc == calibJet)
+        {
+          idx = i;
+          break;
+        }
+        ++i;
+      }
+
+      if (idx >= 0)
+      {
+        int j = 0;
+        for (const Jet* jr : *raw)
+        {
+          if (j == idx)
+          {
+            if (hasConstituents(jr))
+            {
+              return jr;
+            }
+            break;
+          }
+          ++j;
+        }
+      }
+
+      // 3) Fallback: closest-in-ΔR match in RAW container (only if ordering/id differ).
+      const double etaC = calibJet->get_eta();
+      const double phiC = calibJet->get_phi();
+
+      const Jet* best = nullptr;
+      double bestDR2  = 1e9;
+
+      for (const Jet* jr : *raw)
+      {
+        if (!hasConstituents(jr)) continue;
+
+        const double deta = (jr->get_eta() - etaC);
+        const double dphi = TVector2::Phi_mpi_pi(jr->get_phi() - phiC);
+        const double dr2  = deta*deta + dphi*dphi;
+
+        if (dr2 < bestDR2)
+        {
+          bestDR2 = dr2;
+          best = jr;
+        }
+      }
+
+      return best;
+    };
+
+    if (const Jet* jr = mapCalibToRawForTowers(selectedRecoilJet)) selForTowers = jr;
+    if (const Jet* jr = mapCalibToRawForTowers(recoTruthBest))     bestForTowers = jr;
+
+    appendEventDisplayDiagnosticsFromJet(selForTowers,
                                          m_evtDiag_sel_calo,
                                          m_evtDiag_sel_ieta,
                                          m_evtDiag_sel_iphi,
@@ -5653,7 +5745,7 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
                                          m_evtDiag_sel_etTower,
                                          m_evtDiag_sel_eTower);
 
-    appendEventDisplayDiagnosticsFromJet(recoTruthBest,
+    appendEventDisplayDiagnosticsFromJet(bestForTowers,
                                          m_evtDiag_best_calo,
                                          m_evtDiag_best_ieta,
                                          m_evtDiag_best_iphi,
@@ -5661,7 +5753,6 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
                                          m_evtDiag_best_phiTower,
                                          m_evtDiag_best_etTower,
                                          m_evtDiag_best_eTower);
-
     const bool hasSelTowers  = !m_evtDiag_sel_etTower.empty();
     const bool hasBestTowers = !m_evtDiag_best_etTower.empty();
     const bool hasAnyTowers  = (hasSelTowers || hasBestTowers);
