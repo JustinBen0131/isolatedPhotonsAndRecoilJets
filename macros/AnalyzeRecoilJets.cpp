@@ -5965,9 +5965,15 @@ namespace ARJ
               const std::string sam20     = JoinPath(baseDir, "histsPhoton20_unsmear.root");
               const std::string samMerged = JoinPath(baseDir, "histsPhoton10plus20_unsmear_MERGED.root");
 
+              const std::string baseDir_fixed = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/noDeltaRcheckOnJetPhotonForReco/pTminJet3/7pi_8_BB";
+              const std::string jFix10        = JoinPath(baseDir_fixed, "RecoilJets_photonjet10_ALL_jetMinPt3_7piOver8.root");
+              const std::string jFix20        = JoinPath(baseDir_fixed, "RecoilJets_photonjet20_ALL_jetMinPt3_7piOver8.root");
+              const std::string jFixMerged    = JoinPath(baseDir_fixed, "RecoilJets_photonjet10plus20_MERGED.root");
+
               const std::string dirOver_RECO_current = JoinPath(plotsDir, "Overlays_RECO_SamVsCurrent");
               const std::string dirOver_RECO_default = JoinPath(plotsDir, "Overlays_RECO_SamVsDefault");
               const std::string dirOver_RECO_triple  = JoinPath(plotsDir, "Overlays_RECO_SamVsCurrentVsDefault");
+              const std::string dirOver_RECO_triple_fixed = JoinPath(plotsDir, "Overlays_RECO_SamVsCurrentVsFixedCode");
               const std::string dirOver_Tag_current  = JoinPath(plotsDir, "Overlays_RECOtruthTagged_SamVsCurrent");
               const std::string dirOver_RECO_triple_currentTag = JoinPath(plotsDir, "Overlays_RECO_SamVsCurrentRecoVsTruthTagged");
               const std::string dirQA_SamOnly         = JoinPath(plotsDir, "QA_SamOnly");
@@ -5977,19 +5983,20 @@ namespace ARJ
               EnsureDir(dirOver_RECO_current);
               EnsureDir(dirOver_RECO_default);
               EnsureDir(dirOver_RECO_triple);
+              EnsureDir(dirOver_RECO_triple_fixed);
               EnsureDir(dirOver_Tag_current);
               EnsureDir(dirOver_RECO_triple_currentTag);
               EnsureDir(dirQA_SamOnly);
               EnsureDir(dirQA_JustinOnly);
 
               cout << ANSI_BOLD_CYN
-                   << "\n[SAM VS JUSTIN] Unsmear overlay (RECO-only, integrated over alpha)\n"
-                   << "  baseDir  = " << baseDir << "\n"
-                   << "  plotsDir = " << plotsDir << "\n"
-                   << "  sam10    = " << sam10 << "\n"
-                   << "  sam20    = " << sam20 << "\n"
-                   << "  merged   = " << samMerged << "\n"
-                   << ANSI_RESET;
+                     << "\n[SAM VS JUSTIN] Unsmear overlay (RECO-only, integrated over alpha)\n"
+                     << "  baseDir  = " << baseDir << "\n"
+                     << "  plotsDir = " << plotsDir << "\n"
+                     << "  sam10    = " << sam10 << "\n"
+                     << "  sam20    = " << sam20 << "\n"
+                     << "  merged   = " << samMerged << "\n"
+                     << ANSI_RESET;
 
               auto ReadXsecAndNev = [&](TFile* f, double& xsec_pb, double& nev_acc)->bool
               {
@@ -6377,93 +6384,218 @@ namespace ARJ
                 return;
               }
 
-              const double jw10 = kSigmaPhoton10_pb / N10;
-              const double jw20 = kSigmaPhoton20_pb / N20;
+            const double jw10 = kSigmaPhoton10_pb / N10;
+            const double jw20 = kSigmaPhoton20_pb / N20;
 
-              cout << ANSI_DIM
-                   << "[JUSTIN] weights: jw10=" << std::setprecision(12) << jw10
-                   << "  jw20=" << std::setprecision(12) << jw20
-                   << "  (N10=" << std::fixed << std::setprecision(0) << N10
-                   << ", N20=" << N20 << ")\n"
+            cout << ANSI_DIM
+                 << "[JUSTIN] weights: jw10=" << std::setprecision(12) << jw10
+                 << "  jw20=" << std::setprecision(12) << jw20
+                 << "  (N10=" << std::fixed << std::setprecision(0) << N10
+                 << ", N20=" << N20 << ")\n"
+                 << ANSI_RESET;
+
+            // Fixed-code reference (noDeltaRcheckOnJetPhotonForReco): used ONLY for comparison overlays.
+            TFile* fFix10 = TFile::Open(jFix10.c_str(), "READ");
+            TFile* fFix20 = TFile::Open(jFix20.c_str(), "READ");
+
+            TDirectory* dFix10 = nullptr;
+            TDirectory* dFix20 = nullptr;
+
+            double fw10 = 0.0;
+            double fw20 = 0.0;
+
+            if (fFix10 && !fFix10->IsZombie() && fFix20 && !fFix20->IsZombie())
+            {
+              dFix10 = fFix10->GetDirectory(kDirSIM.c_str());
+              dFix20 = fFix20->GetDirectory(kDirSIM.c_str());
+
+              const double FN10 = ReadEventCountFromFile(fFix10, kDirSIM);
+              const double FN20 = ReadEventCountFromFile(fFix20, kDirSIM);
+
+              if (dFix10 && dFix20 && FN10 > 0.0 && FN20 > 0.0)
+              {
+                fw10 = kSigmaPhoton10_pb / FN10;
+                fw20 = kSigmaPhoton20_pb / FN20;
+              }
+              else
+              {
+                cout << ANSI_BOLD_YEL
+                     << "[WARN] [JUSTIN][FIXED] Fixed-code slice files missing '" << kDirSIM << "' or Naccepted<=0; fixed overlays will be skipped.\n"
+                     << ANSI_RESET;
+
+                if (fFix10) { fFix10->Close(); fFix10 = nullptr; }
+                if (fFix20) { fFix20->Close(); fFix20 = nullptr; }
+                dFix10 = nullptr;
+                dFix20 = nullptr;
+              }
+            }
+            else
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] [JUSTIN][FIXED] Cannot open one or both fixed-code slice files; fixed overlays will be skipped.\n"
+                   << "       10=" << jFix10 << "\n"
+                   << "       20=" << jFix20 << "\n"
                    << ANSI_RESET;
 
-              auto BuildJustinMergedTH3 =
-                [&](const std::string& rKey, const std::string& hPrefix, const std::string& tag)->TH3*
-              {
-                  const std::string hname = hPrefix + rKey;
+              if (fFix10) { fFix10->Close(); fFix10 = nullptr; }
+              if (fFix20) { fFix20->Close(); fFix20 = nullptr; }
+              dFix10 = nullptr;
+              dFix20 = nullptr;
+            }
 
-                  // ------------------------------------------------------------
-                  // 1) Prefer pre-built merged SIM file for jetMinPt3_7piOver8
-                  // ------------------------------------------------------------
-                  const std::string mergedPath =
-                    MergedSIMOut_10and20_ForKey(kAltSimSampleKey_jetMinPt3_7piOver8);
+            auto BuildJustinMergedTH3_Fixed =
+              [&](const std::string& rKey, const std::string& hPrefix, const std::string& tag)->TH3*
+            {
+                if (!dFix10 || !dFix20) return nullptr;
 
-                  TFile* fJM = TFile::Open(mergedPath.c_str(), "READ");
-                  if (fJM && !fJM->IsZombie())
+                const std::string hname = hPrefix + rKey;
+
+                // ------------------------------------------------------------
+                // 1) Prefer pre-built merged SIM file for fixed-code sample
+                // ------------------------------------------------------------
+                TFile* fFM = TFile::Open(jFixMerged.c_str(), "READ");
+                if (fFM && !fFM->IsZombie())
+                {
+                  TDirectory* dFM = fFM->GetDirectory(kDirSIM.c_str());
+                  if (dFM)
                   {
-                    TDirectory* dJM = fJM->GetDirectory(kDirSIM.c_str());
-                    if (dJM)
+                    TH3* hm = dynamic_cast<TH3*>(dFM->Get(hname.c_str()));
+                    if (hm)
                     {
-                      TH3* hm = dynamic_cast<TH3*>(dJM->Get(hname.c_str()));
-                      if (hm)
+                      TH3* out = CloneTH3(hm, TString::Format("hJustin_%s_%s_fixed", tag.c_str(), rKey.c_str()).Data());
+                      if (out)
                       {
-                        TH3* out = CloneTH3(hm, TString::Format("hJustin_%s_%s", tag.c_str(), rKey.c_str()).Data());
-                        if (out)
-                        {
-                          out->SetDirectory(nullptr);
-                          if (out->GetSumw2N() == 0) out->Sumw2();
-                          fJM->Close();
-                          return out;
-                        }
+                        out->SetDirectory(nullptr);
+                        if (out->GetSumw2N() == 0) out->Sumw2();
+                        fFM->Close();
+                        return out;
                       }
                     }
-                    fJM->Close();
                   }
+                  fFM->Close();
+                }
 
-                  // ------------------------------------------------------------
-                  // 2) Fallback: in-memory weighted merge from slice files
-                  // ------------------------------------------------------------
-                  TH3* h10 = dynamic_cast<TH3*>(dJ10->Get(hname.c_str()));
-                  TH3* h20 = dynamic_cast<TH3*>(dJ20->Get(hname.c_str()));
-                  if (!h10 && !h20) return nullptr;
+                // ------------------------------------------------------------
+                // 2) Fallback: in-memory weighted merge from fixed-code slice files
+                // ------------------------------------------------------------
+                TH3* h10 = dynamic_cast<TH3*>(dFix10->Get(hname.c_str()));
+                TH3* h20 = dynamic_cast<TH3*>(dFix20->Get(hname.c_str()));
+                if (!h10 && !h20) return nullptr;
 
-                  TH3* h = nullptr;
-                  if (h10)
+                TH3* h = nullptr;
+                if (h10)
+                {
+                  h = CloneTH3(h10, TString::Format("hJustin_%s_%s_fixed", tag.c_str(), rKey.c_str()).Data());
+                  if (h)
                   {
-                    h = CloneTH3(h10, TString::Format("hJustin_%s_%s", tag.c_str(), rKey.c_str()).Data());
-                    if (h)
+                    h->SetDirectory(nullptr);
+                    if (h->GetSumw2N() == 0) h->Sumw2();
+                    h->Scale(fw10);
+                  }
+                }
+                if (!h && h20)
+                {
+                  h = CloneTH3(h20, TString::Format("hJustin_%s_%s_fixed", tag.c_str(), rKey.c_str()).Data());
+                  if (h)
+                  {
+                    h->SetDirectory(nullptr);
+                    if (h->GetSumw2N() == 0) h->Sumw2();
+                    h->Scale(fw20);
+                  }
+                }
+                if (h && h20)
+                {
+                  TH3* tmp = CloneTH3(h20, TString::Format("hJustin_%s_tmp20_fixed_%s", tag.c_str(), rKey.c_str()).Data());
+                  if (tmp)
+                  {
+                    tmp->SetDirectory(nullptr);
+                    if (tmp->GetSumw2N() == 0) tmp->Sumw2();
+                    tmp->Scale(fw20);
+                    h->Add(tmp);
+                    delete tmp;
+                  }
+                }
+
+                return h;
+            };
+
+            auto BuildJustinMergedTH3 =
+              [&](const std::string& rKey, const std::string& hPrefix, const std::string& tag)->TH3*
+            {
+                const std::string hname = hPrefix + rKey;
+
+                // ------------------------------------------------------------
+                // 1) Prefer pre-built merged SIM file for jetMinPt3_7piOver8
+                // ------------------------------------------------------------
+                const std::string mergedPath =
+                  MergedSIMOut_10and20_ForKey(kAltSimSampleKey_jetMinPt3_7piOver8);
+
+                TFile* fJM = TFile::Open(mergedPath.c_str(), "READ");
+                if (fJM && !fJM->IsZombie())
+                {
+                  TDirectory* dJM = fJM->GetDirectory(kDirSIM.c_str());
+                  if (dJM)
+                  {
+                    TH3* hm = dynamic_cast<TH3*>(dJM->Get(hname.c_str()));
+                    if (hm)
                     {
-                      h->SetDirectory(nullptr);
-                      if (h->GetSumw2N() == 0) h->Sumw2();
-                      h->Scale(jw10);
+                      TH3* out = CloneTH3(hm, TString::Format("hJustin_%s_%s", tag.c_str(), rKey.c_str()).Data());
+                      if (out)
+                      {
+                        out->SetDirectory(nullptr);
+                        if (out->GetSumw2N() == 0) out->Sumw2();
+                        fJM->Close();
+                        return out;
+                      }
                     }
                   }
-                  if (!h && h20)
-                  {
-                    h = CloneTH3(h20, TString::Format("hJustin_%s_%s", tag.c_str(), rKey.c_str()).Data());
-                    if (h)
-                    {
-                      h->SetDirectory(nullptr);
-                      if (h->GetSumw2N() == 0) h->Sumw2();
-                      h->Scale(jw20);
-                    }
-                  }
-                  if (h && h20)
-                  {
-                    TH3* tmp = CloneTH3(h20, TString::Format("hJustin_%s_tmp20_%s", tag.c_str(), rKey.c_str()).Data());
-                    if (tmp)
-                    {
-                      tmp->SetDirectory(nullptr);
-                      if (tmp->GetSumw2N() == 0) tmp->Sumw2();
-                      tmp->Scale(jw20);
-                      h->Add(tmp);
-                      delete tmp;
-                    }
-                  }
+                  fJM->Close();
+                }
 
-                  return h;
-              };
- 
+                // ------------------------------------------------------------
+                // 2) Fallback: in-memory weighted merge from slice files
+                // ------------------------------------------------------------
+                TH3* h10 = dynamic_cast<TH3*>(dJ10->Get(hname.c_str()));
+                TH3* h20 = dynamic_cast<TH3*>(dJ20->Get(hname.c_str()));
+                if (!h10 && !h20) return nullptr;
+
+                TH3* h = nullptr;
+                if (h10)
+                {
+                  h = CloneTH3(h10, TString::Format("hJustin_%s_%s", tag.c_str(), rKey.c_str()).Data());
+                  if (h)
+                  {
+                    h->SetDirectory(nullptr);
+                    if (h->GetSumw2N() == 0) h->Sumw2();
+                    h->Scale(jw10);
+                  }
+                }
+                if (!h && h20)
+                {
+                  h = CloneTH3(h20, TString::Format("hJustin_%s_%s", tag.c_str(), rKey.c_str()).Data());
+                  if (h)
+                  {
+                    h->SetDirectory(nullptr);
+                    if (h->GetSumw2N() == 0) h->Sumw2();
+                    h->Scale(jw20);
+                  }
+                }
+                if (h && h20)
+                {
+                  TH3* tmp = CloneTH3(h20, TString::Format("hJustin_%s_tmp20_%s", tag.c_str(), rKey.c_str()).Data());
+                  if (tmp)
+                  {
+                    tmp->SetDirectory(nullptr);
+                    if (tmp->GetSumw2N() == 0) tmp->Sumw2();
+                    tmp->Scale(jw20);
+                    h->Add(tmp);
+                    delete tmp;
+                  }
+                }
+
+                return h;
+            };
+
               auto FindXbinByEdges =
                 [&](const TAxis* ax, double lo, double hi)->int
               {
@@ -6607,6 +6739,14 @@ namespace ARJ
                            << "[WARN] Missing Justin TH3 for " << rKey << " (h_JES3_pT_xJ_alpha_" << rKey << "). Skipping radius.\n"
                            << ANSI_RESET;
                       continue;
+                    }
+
+                  TH3* hJustin3_reco_fixed = BuildJustinMergedTH3_Fixed(rKey, "h_JES3_pT_xJ_alpha_", "RECO");
+                    if (!hJustin3_reco_fixed)
+                    {
+                      cout << ANSI_BOLD_YEL
+                           << "[WARN] Missing Justin FIXED TH3 for " << rKey << " (h_JES3_pT_xJ_alpha_" << rKey << "). Will skip fixed-code overlays for this radius.\n"
+                           << ANSI_RESET;
                     }
 
                   // Default RECO TH3 from kDefaultSimSampleKey merged file (jetMinPt10_pihalves)
@@ -6787,12 +6927,27 @@ namespace ARJ
                         }
                       }
 
+                      TH1* hJustinFixed = nullptr;
+                      if (hJustin3_reco_fixed)
+                      {
+                        const int xbinFix = FindXbinByEdges(hJustin3_reco_fixed->GetXaxis(), ptLo, ptHi);
+                        if (xbinFix >= 1)
+                        {
+                          hJustinFixed = ProjectY_AtXbin_TH3(
+                            hJustin3_reco_fixed, xbinFix,
+                            TString::Format("hJustinFixed_xJ_%.0f_%.0f_%s", ptLo, ptHi, rKey.c_str()).Data()
+                          );
+                        }
+                      }
+
                       StyleForOverlay(hSam, 2);
                       StyleForOverlay(hJustin, 4);
+                      if (hJustinFixed) StyleForOverlay(hJustinFixed, 8);
                       if (hDefault) StyleForOverlay(hDefault, 6);
 
                       PrintH1Summary("Sam(norm)", hSam);
                       PrintH1Summary("Justin(norm)", hJustin);
+                      if (hJustinFixed) PrintH1Summary("JustinFixed(norm)", hJustinFixed);
                       if (hDefault) PrintH1Summary("DefaultReco(norm)", hDefault);
 
                       // -------------------------------------------------------------------------
@@ -6891,6 +7046,112 @@ namespace ARJ
                           if (lAbs)  delete lAbs;
                           if (lFull) delete lFull;
                         }
+
+                      // -------------------------------------------------------------------------
+                      // (A1c) NEW: TRIPLE overlay (Sam vs CURRENT vs FIXED-CODE merged RECO only)
+                      //   FIXED-CODE = noDeltaRcheckOnJetPhotonForReco (merged 10+20)
+                      // -------------------------------------------------------------------------
+                      if (hJustinFixed)
+                      {
+                        const double ymaxF = std::max(hSam->GetMaximum(), std::max(hJustin->GetMaximum(), hJustinFixed->GetMaximum()));
+                        hSam->SetMaximum(ymaxF * 1.1);
+
+                        TCanvas cF("c_SamVsCurrentVsFixedCode","c_SamVsCurrentVsFixedCode",900,700);
+                        ApplyCanvasMargins1D(cF);
+
+                        hSam->Draw("E1");
+                        hJustin->Draw("E1 same");
+                        hJustinFixed->Draw("E1 same");
+
+                        // Optional cut lines ONLY for the 13-15 GeV bin (current sample is jetMinPt3_7piOver8)
+                        TLine* lAbsF  = nullptr;
+                        TLine* lFullF = nullptr;
+
+                        const bool is1315 = (std::fabs(ptLo - 13.0) < 1e-6 && std::fabs(ptHi - 15.0) < 1e-6);
+                        if (is1315)
+                        {
+                          const double xAbs  = jetMinPtGeV / ptHi;
+                          const double xFull = jetMinPtGeV / ptLo;
+
+                          lAbsF  = new TLine(xAbs,  0.0, xAbs,  ymaxF * 1.10);
+                          lFullF = new TLine(xFull, 0.0, xFull, ymaxF * 1.10);
+
+                          lAbsF->SetLineColor(4);
+                          lAbsF->SetLineWidth(2);
+                          lAbsF->SetLineStyle(2);
+
+                          lFullF->SetLineColor(2);
+                          lFullF->SetLineWidth(2);
+                          lFullF->SetLineStyle(2);
+
+                          lAbsF->Draw("same");
+                          lFullF->Draw("same");
+                        }
+
+                        TLegend legF(0.30, 0.73, 0.82, 0.90);
+                        legF.SetTextFont(42);
+                        legF.SetTextSize(0.028);
+                        legF.SetFillStyle(0);
+                        legF.SetBorderSize(0);
+                        legF.AddEntry(hSam,        TString::Format("Sam's Reco (R = %.1f)", R).Data(), "ep");
+                        legF.AddEntry(hJustin,     TString::Format("Justin's RECO w/ Matched Cuts (R = %.1f)", R).Data(), "ep");
+                        legF.AddEntry(hJustinFixed,TString::Format("Justin's RECO w/ Matched Cuts (R = %.1f) (fixed code)", R).Data(), "ep");
+                        legF.Draw();
+
+                        // Note: aligned just under and a bit left of the legend block
+                        TLatex tNoteF;
+                        tNoteF.SetNDC(true);
+                        tNoteF.SetTextFont(42);
+                        tNoteF.SetTextAlign(13); // left-top
+                        tNoteF.SetTextSize(0.034);
+                        tNoteF.DrawLatex(0.50, 0.705, "Photon+Jet  10 + 20 GeV Samples");
+
+                        // Info block: middle RHS of the canvas
+                        TLatex tF;
+                        tF.SetNDC(true);
+                        tF.SetTextFont(42);
+                        tF.SetTextSize(0.034);
+                        tF.SetTextAlign(12); // left-center
+                        tF.DrawLatex(0.60, 0.62, TString::Format("p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
+                        tF.DrawLatex(0.60, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
+                        tF.DrawLatex(0.60, 0.52, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
+                        tF.DrawLatex(0.60, 0.47, TString::Format("Back-to-back: %s", bbLabel.c_str()).Data());
+
+                          TLegend* legCutsF = nullptr;
+
+                          // Small legend for the cut lines (ONLY in 13-15)
+                          if (is1315 && lAbsF && lFullF)
+                          {
+                            legCutsF = new TLegend(0.60, 0.32, 0.88, 0.43);
+                            legCutsF->SetTextFont(42);
+                            legCutsF->SetTextSize(0.032);
+                            legCutsF->SetFillStyle(0);
+                            legCutsF->SetBorderSize(0);
+
+                            legCutsF->AddEntry(lAbsF,  "x_{J,min}^{abs} = p_{T}^{jet,min}/p_{T,max}^{#gamma}", "l");
+                            legCutsF->AddEntry(lFullF, "x_{J,min}^{full} = p_{T}^{jet,min}/p_{T,min}^{#gamma}", "l");
+
+                            legCutsF->Draw();
+                          }
+
+                        const std::string outNameF =
+                          TString::Format("overlay_SamVsCurrentVsFixedCode_JES3_RECO_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
+                            ptLo, ptHi, samPtLabel.c_str(), rKey.c_str()).Data();
+
+                        cF.Modified();
+                        cF.Update();
+                        SaveCanvas(cF, JoinPath(dirOver_RECO_triple_fixed, outNameF));
+
+                          if (legCutsF) delete legCutsF;
+                          if (lAbsF)  delete lAbsF;
+                          if (lFullF) delete lFullF;
+                      }
+
+                      if (hJustinFixed)
+                      {
+                        delete hJustinFixed;
+                        hJustinFixed = nullptr;
+                      }
 
                         // -------------------------------------------------------------------------
                         // (A1b) NEW: TRIPLE overlay (current merged only, ignoring default)
@@ -7063,6 +7324,7 @@ namespace ARJ
                   }
 
                   delete hJustin3_reco;
+                  if (hJustin3_reco_fixed) delete hJustin3_reco_fixed;
                   if (hDefault3_reco) delete hDefault3_reco;
 
                   // --------------------------------------------------------------------------------
@@ -7226,14 +7488,17 @@ namespace ARJ
                   }
               }
             
-              fJ10->Close();
-              fJ20->Close();
+            fJ10->Close();
+            fJ20->Close();
 
-              fSamM->Close();
-              fSam10->Close();
-              fSam20->Close();
+            if (fFix10) fFix10->Close();
+            if (fFix20) fFix20->Close();
 
-              if (fDefaultM) fDefaultM->Close();
+            fSamM->Close();
+            fSam10->Close();
+            fSam20->Close();
+
+            if (fDefaultM) fDefaultM->Close();
 
               cout << ANSI_BOLD_GRN
                    << "\n[OK] Sam-vs-Justin overlays complete. All PNGs written under:\n"
