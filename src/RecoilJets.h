@@ -959,10 +959,11 @@ private:
   std::vector<std::tuple<std::string, std::string, std::string>> m_caloInfo;
   std::map<std::string, CaloBundle> m_calo;
 
-  // -------------------------------------------------------------------------
-  // NEW: parallel jet containers by radius key
-  // -------------------------------------------------------------------------
-  std::map<std::string, JetContainer*> m_jets;
+    // -------------------------------------------------------------------------
+    // parallel jet containers by radius key
+    // -------------------------------------------------------------------------
+    std::map<std::string, JetContainer*> m_jets;
+    std::map<std::string, JetContainer*> m_jetsRaw;
 
   // Optional: limit active jet radii (keys like "r02","r04"). Empty => all kJetRadii.
   std::vector<std::string> m_activeJetRKeys;
@@ -997,6 +998,13 @@ private:
 
   int  m_evtDiagMaxPerBin = 0;       // 0 => unlimited; else limit entries per (rKey,ptBin,cat)
   std::unordered_map<std::string, int> m_evtDiagSavedPerBin;
+
+  long long m_evtDiagNFill = 0;
+  long long m_evtDiagNFillWithSelTowers = 0;
+  long long m_evtDiagNFillWithBestTowers = 0;
+  long long m_evtDiagNFillWithAnyTowers = 0;
+  long long m_evtDiagNFillByCat[3] = {0, 0, 0};
+  long long m_evtDiagNFillWithAnyTowersByCat[3] = {0, 0, 0};
 
   TTree* m_evtDiagTree = nullptr;
 

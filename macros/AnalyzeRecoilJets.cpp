@@ -5959,7 +5959,7 @@ namespace ARJ
 
               (void)outDir; // this block is intentionally hard-coded to write ONLY under InputFilesSim/.../plots
 
-              const std::string baseDir   = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/withDeltaRcheckOnJetPhotonForReco/pTminJet3/7pi_8_BB";
+              const std::string baseDir   = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck/pTminJet3/7pi_8_BB";
               const std::string plotsDir  = JoinPath(baseDir, "plots");
               const std::string sam10     = JoinPath(baseDir, "histsPhoton10_unsmear.root");
               const std::string sam20     = JoinPath(baseDir, "histsPhoton20_unsmear.root");

@@ -527,6 +527,7 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     m_xjRecoJetKey = primaryRecoKey;
 
     m_jets.clear();
+    m_jetsRaw.clear();
     for (const auto& rKey : rKeysToRun)
     {
       const std::string node = recoJetNodeForRKey(rKey);
@@ -545,6 +546,12 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
 
       // Store even if nullptr; downstream QA/matching will skip gracefully per-radius
       m_jets[rKey] = jc;
+
+      // If JetCalib is enabled, jets are built to "<node>_RAW" then calibrated into "<node>".
+      // RAW jets reliably retain comp_vec (tower constituents) needed for EventDisplay diagnostics.
+      const std::string nodeRaw = node + "_RAW";
+      auto* jcRaw = findNode::getClass<JetContainer>(top, nodeRaw);
+      m_jetsRaw[rKey] = jcRaw;
     }
 
     if (Verbosity() >= 4)
@@ -666,13 +673,27 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
 
     if (isSim && m_evtDiagEnabled)
     {
-      m_evtHeader = findNode::getClass<EventHeader>(top, "EventHeader");
-      m_evtDispTowersCEMC  = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_CEMC");
-      m_evtDispTowersIHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALIN");
-      m_evtDispTowersOHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALOUT");
-      m_evtDispGeomCEMC    = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_CEMC");
-      m_evtDispGeomIHCal   = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALIN");
-      m_evtDispGeomOHCal   = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALOUT");
+        m_evtHeader = findNode::getClass<EventHeader>(top, "EventHeader");
+
+        // JetReco in Fun4All_recoilJets.C builds jets from TowerJetInput(..., "TOWERINFO_CALIB"),
+        // so comp.second indices are defined against TOWERINFO_CALIB. Prefer that container.
+        TowerInfoContainer* towersAll = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB");
+        if (towersAll)
+        {
+          m_evtDispTowersCEMC  = towersAll;
+          m_evtDispTowersIHCal = towersAll;
+          m_evtDispTowersOHCal = towersAll;
+        }
+        else
+        {
+          m_evtDispTowersCEMC  = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_CEMC");
+          m_evtDispTowersIHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALIN");
+          m_evtDispTowersOHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALOUT");
+        }
+
+        m_evtDispGeomCEMC    = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_CEMC");
+        m_evtDispGeomIHCal   = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALIN");
+        m_evtDispGeomOHCal   = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALOUT");
 
       const bool missing =
           (!m_evtHeader ||
@@ -1928,12 +1949,39 @@ int RecoilJets::End(PHCompositeNode*)
                  + " / " + std::to_string(nHistExpected) + " objects written)");
   }
 
-  // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
-  if (m_evtDiagTree)
-    {
-      out->cd();
-      m_evtDiagTree->Write("", TObject::kOverwrite);
-    }
+    // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
+    if (m_evtDiagTree)
+      {
+        if (Verbosity() >= 1)
+        {
+          const Long64_t nED = m_evtDiagTree->GetEntries();
+
+          std::cout << CLR_CYAN
+                    << "\n[End][EventDisplayTree] entries=" << nED
+                    << "  fillsRecorded=" << m_evtDiagNFill
+                    << "  anyTowers=" << m_evtDiagNFillWithAnyTowers
+                    << "  selTowers=" << m_evtDiagNFillWithSelTowers
+                    << "  bestTowers=" << m_evtDiagNFillWithBestTowers
+                    << CLR_RESET << "\n";
+
+          std::cout << "  byCat: "
+                    << "NUM fills=" << m_evtDiagNFillByCat[0] << " anyTowers=" << m_evtDiagNFillWithAnyTowersByCat[0]
+                    << "  MissA fills=" << m_evtDiagNFillByCat[1] << " anyTowers=" << m_evtDiagNFillWithAnyTowersByCat[1]
+                    << "  MissB fills=" << m_evtDiagNFillByCat[2] << " anyTowers=" << m_evtDiagNFillWithAnyTowersByCat[2]
+                    << "\n";
+
+          if (nED > 0 && m_evtDiagNFillWithAnyTowers == 0)
+          {
+            std::cout << CLR_YELLOW
+                      << "  [WARN] EventDisplayTree has entries but ALL tower payloads are empty. "
+                      << "Most likely: constituent decoding mismatch (TowerInfo node vs Jet SRC) or comp_vec stripped by calibration."
+                      << CLR_RESET << "\n";
+          }
+        }
+
+        out->cd();
+        m_evtDiagTree->Write("", TObject::kOverwrite);
+      }
 
     try
     {
@@ -5207,13 +5255,13 @@ void RecoilJets::appendEventDisplayDiagnosticsFromJet(const Jet* jet,
     RawTowerDefs::CalorimeterId caloId = RawTowerDefs::CalorimeterId::CEMC;
     int caloCode = -1;
 
-    if (comp.first == Jet::CEMC_TOWERINFO_RETOWER)
-    {
-      towers = m_evtDispTowersCEMC;
-      geom   = m_evtDispGeomCEMC;
-      caloId = RawTowerDefs::CalorimeterId::CEMC;
-      caloCode = 0;
-    }
+      if (comp.first == Jet::CEMC_TOWERINFO || comp.first == Jet::CEMC_TOWERINFO_RETOWER)
+      {
+        towers = m_evtDispTowersCEMC;
+        geom   = m_evtDispGeomCEMC;
+        caloId = RawTowerDefs::CalorimeterId::CEMC;
+        caloCode = 0;
+      }
     else if (comp.first == Jet::HCALIN_TOWERINFO)
     {
       towers = m_evtDispTowersIHCal;
@@ -5371,26 +5419,123 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
                                                         truthLeadRecoilJet->get_phi()));
   }
 
-  appendEventDisplayDiagnosticsFromJet(selectedRecoilJet,
-                                       m_evtDiag_sel_calo,
-                                       m_evtDiag_sel_ieta,
-                                       m_evtDiag_sel_iphi,
-                                       m_evtDiag_sel_etaTower,
-                                       m_evtDiag_sel_phiTower,
-                                       m_evtDiag_sel_etTower,
-                                       m_evtDiag_sel_eTower);
+    // Keep the analysis jets (calibrated) for stored kinematics (sel_pt/eta/phi, best_pt/eta/phi).
+    // For the EventDisplay tower payload ONLY: if JetCalib stripped comp_vec on calibrated jets,
+    // recover constituents from the matching RAW jet (same axis; different pt scale).
+    const Jet* selJetForTowers  = selectedRecoilJet;
+    const Jet* bestJetForTowers = recoTruthBest;
 
-  appendEventDisplayDiagnosticsFromJet(recoTruthBest,
-                                       m_evtDiag_best_calo,
-                                       m_evtDiag_best_ieta,
-                                       m_evtDiag_best_iphi,
-                                       m_evtDiag_best_etaTower,
-                                       m_evtDiag_best_phiTower,
-                                       m_evtDiag_best_etTower,
-                                       m_evtDiag_best_eTower);
+    auto CompVecEmpty = [&](const Jet* j)->bool
+    {
+      if (!j) return true;
+      Jet::TYPE_comp_vec& cv = const_cast<Jet*>(j)->get_comp_vec();
+      return cv.empty();
+    };
 
-  m_evtDiagTree->Fill();
-}
+    const bool selCompEmpty  = (selectedRecoilJet ? CompVecEmpty(selectedRecoilJet) : true);
+    const bool bestCompEmpty = (recoTruthBest ? CompVecEmpty(recoTruthBest) : true);
+
+    if ((selectedRecoilJet && selCompEmpty) || (recoTruthBest && bestCompEmpty))
+    {
+      static bool s_warned_once = false;
+      if (!s_warned_once && Verbosity() >= 2)
+      {
+        LOG(2, CLR_YELLOW,
+            "[EventDisplayTree] calibrated jets have empty comp_vec; using *_RAW jets for tower constituents only (kinematics remain calibrated)");
+        s_warned_once = true;
+      }
+
+      auto itRaw = m_jetsRaw.find(rKey);
+      JetContainer* jcRaw = (itRaw != m_jetsRaw.end() ? itRaw->second : nullptr);
+
+      if (jcRaw)
+      {
+        auto ClosestRawJet = [&](const Jet* ref)->const Jet*
+        {
+          if (!ref) return nullptr;
+
+          const double etaRef = ref->get_eta();
+          const double phiRef = ref->get_phi();
+
+          const Jet* best = nullptr;
+          double bestDR = 1e9;
+
+          for (const Jet* j : *jcRaw)
+          {
+            if (!j) continue;
+            const double deta = j->get_eta() - etaRef;
+            const double dphi = TVector2::Phi_mpi_pi(j->get_phi() - phiRef);
+            const double dr = std::sqrt(deta*deta + dphi*dphi);
+            if (dr < bestDR)
+            {
+              bestDR = dr;
+              best = j;
+            }
+          }
+
+          if (best && bestDR < 1e-3) return best;
+          return nullptr;
+        };
+
+        if (selectedRecoilJet && selCompEmpty)
+        {
+          if (const Jet* j = ClosestRawJet(selectedRecoilJet)) selJetForTowers = j;
+        }
+        if (recoTruthBest && bestCompEmpty)
+        {
+          if (const Jet* j = ClosestRawJet(recoTruthBest)) bestJetForTowers = j;
+        }
+      }
+      else
+      {
+        static bool s_warned_no_raw_once = false;
+        if (!s_warned_no_raw_once && Verbosity() >= 2)
+        {
+          LOG(2, CLR_YELLOW,
+              "[EventDisplayTree] *_RAW jet container not found for rKey=" << rKey
+              << " (towers may remain empty if JetCalib stripped comp_vec)");
+          s_warned_no_raw_once = true;
+        }
+      }
+    }
+
+    appendEventDisplayDiagnosticsFromJet(selJetForTowers,
+                                         m_evtDiag_sel_calo,
+                                         m_evtDiag_sel_ieta,
+                                         m_evtDiag_sel_iphi,
+                                         m_evtDiag_sel_etaTower,
+                                         m_evtDiag_sel_phiTower,
+                                         m_evtDiag_sel_etTower,
+                                         m_evtDiag_sel_eTower);
+
+    appendEventDisplayDiagnosticsFromJet(bestJetForTowers,
+                                         m_evtDiag_best_calo,
+                                         m_evtDiag_best_ieta,
+                                         m_evtDiag_best_iphi,
+                                         m_evtDiag_best_etaTower,
+                                         m_evtDiag_best_phiTower,
+                                         m_evtDiag_best_etTower,
+                                         m_evtDiag_best_eTower);
+
+    const bool hasSelTowers  = !m_evtDiag_sel_etTower.empty();
+    const bool hasBestTowers = !m_evtDiag_best_etTower.empty();
+    const bool hasAnyTowers  = (hasSelTowers || hasBestTowers);
+
+    ++m_evtDiagNFill;
+
+    const int icat = static_cast<int>(cat);
+    if (icat >= 0 && icat < 3)
+    {
+      ++m_evtDiagNFillByCat[icat];
+      if (hasAnyTowers) ++m_evtDiagNFillWithAnyTowersByCat[icat];
+    }
+
+    if (hasSelTowers)  ++m_evtDiagNFillWithSelTowers;
+    if (hasBestTowers) ++m_evtDiagNFillWithBestTowers;
+    if (hasAnyTowers)  ++m_evtDiagNFillWithAnyTowers;
+
+    m_evtDiagTree->Fill();
+  }
 
 
 
