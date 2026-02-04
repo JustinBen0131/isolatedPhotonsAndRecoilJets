@@ -689,24 +689,20 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
       LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 1] get EventHeader");
       m_evtHeader = findNode::getClass<EventHeader>(top, "EventHeader");
       LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 1] EventHeader=" << (m_evtHeader ? "OK" : "MISSING"));
+      LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 2] skipping towersAll=TOWERINFO_CALIB (use split CALIB_* containers)");
 
-        // For EventDisplay payload, DO NOT probe "TOWERINFO_CALIB" directly.
-        // In this DST it is not a TowerInfoContainer node (and may collide with a CompositeNode),
-        // which can crash findNode::getClass<>(). Use the explicit per-subdet calibrated containers.
-        LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 2] skipping towersAll=TOWERINFO_CALIB (use split CALIB_* containers)");
+      const bool usingAll = false;
+      const char* nodeTowersAll  = "TOWERINFO_CALIB";
+      const char* nodeTowersCEMC = "TOWERINFO_CALIB_CEMC";
+      const char* nodeTowersIHCal = "TOWERINFO_CALIB_HCALIN";
+      const char* nodeTowersOHCal = "TOWERINFO_CALIB_HCALOUT";
 
-        const bool usingAll = false;
-        const char* nodeTowersAll  = "TOWERINFO_CALIB";
-        const char* nodeTowersCEMC = "TOWERINFO_CALIB_CEMC";
-        const char* nodeTowersIHCal = "TOWERINFO_CALIB_HCALIN";
-        const char* nodeTowersOHCal = "TOWERINFO_CALIB_HCALOUT";
+      LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 3] get tower containers (usingAll=NO)");
+      m_evtDispTowersCEMC  = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_CEMC");
+      m_evtDispTowersIHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALIN");
+      m_evtDispTowersOHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALOUT");
 
-        LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 3] get tower containers (usingAll=NO)");
-        m_evtDispTowersCEMC  = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_CEMC");
-        m_evtDispTowersIHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALIN");
-        m_evtDispTowersOHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALOUT");
-
-        LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 3] towers: CEMC=" << (m_evtDispTowersCEMC ? "OK" : "MISSING")
+      LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 3] towers: CEMC=" << (m_evtDispTowersCEMC ? "OK" : "MISSING")
                             << " IHCal=" << (m_evtDispTowersIHCal ? "OK" : "MISSING")
                             << " OHCal=" << (m_evtDispTowersOHCal ? "OK" : "MISSING"));
 
@@ -757,7 +753,7 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
           LOG(1, CLR_YELLOW, "  TOWERGEOM_CEMC         : " << (m_evtDispGeomCEMC ? "OK" : "MISSING"));
           LOG(1, CLR_YELLOW, "  TOWERGEOM_HCALIN       : " << (m_evtDispGeomIHCal ? "OK" : "MISSING"));
           LOG(1, CLR_YELLOW, "  TOWERGEOM_HCALOUT      : " << (m_evtDispGeomOHCal ? "OK" : "MISSING"));
-          LOG(1, CLR_YELLOW, "  towersAll(" << nodeTowersAll << "): " << (towersAll ? "FOUND" : "MISSING"));
+          LOG(1, CLR_YELLOW, "  towersAll(" << nodeTowersAll << "): SKIPPED (do not query TOWERINFO_CALIB as TowerInfoContainer)");
           s_warned_once = true;
         }
 
