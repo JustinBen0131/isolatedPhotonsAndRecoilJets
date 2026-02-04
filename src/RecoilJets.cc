@@ -5286,15 +5286,49 @@ void RecoilJets::appendEventDisplayDiagnosticsFromJet(const Jet* jet,
       continue;
     }
 
-    TowerInfo* tower = towers->get_tower_at_channel(idx);
-    if (!tower)
-    {
-      continue;
-    }
+      const auto nTowers = towers->size();
+      if (nTowers == 0)
+      {
+        continue;
+      }
 
-    const unsigned int calokey = towers->encode_key(idx);
-    const int twr_ieta = towers->getTowerEtaBin(calokey);
-    const int twr_iphi = towers->getTowerPhiBin(calokey);
+      // For TowerInfo-based jets, comp.second can be either:
+      //   (a) the TowerInfo channel index, OR
+      //   (b) the encoded TowerInfo key.
+      // Guard against out-of-range channel access (prevents rc=11 segfaults).
+      unsigned int channel = idx;
+      unsigned int calokey = 0;
+
+      TowerInfo* tower = nullptr;
+
+      // Try interpreting idx as a channel first (only if it is in-range)
+      if (idx < nTowers)
+      {
+        channel = idx;
+        calokey = towers->encode_key(channel);
+        tower = towers->get_tower_at_channel(channel);
+      }
+
+      // If that failed, interpret idx as an encoded key and decode back to a channel
+      if (!tower)
+      {
+        calokey = idx;
+        channel = towers->decode_key(calokey);
+
+        if (channel >= nTowers)
+        {
+          continue;
+        }
+
+        tower = towers->get_tower_at_channel(channel);
+        if (!tower)
+        {
+          continue;
+        }
+      }
+
+      const int twr_ieta = towers->getTowerEtaBin(calokey);
+      const int twr_iphi = towers->getTowerPhiBin(calokey);
 
     RawTowerDefs::keytype key = RawTowerDefs::encode_towerid(caloId, twr_ieta, twr_iphi);
     RawTowerGeom* tower_geom = geom->get_tower_geometry(key);
