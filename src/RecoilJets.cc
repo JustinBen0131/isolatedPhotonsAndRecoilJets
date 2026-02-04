@@ -683,35 +683,40 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     }
     else
     {
+      LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 0] begin node fetch (event_count=" << event_count << ")");
+
       // NOTE: do NOT assume any node exists; only set m_evtDiagNodesReady=true if ALL required are present.
+      LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 1] get EventHeader");
       m_evtHeader = findNode::getClass<EventHeader>(top, "EventHeader");
+      LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 1] EventHeader=" << (m_evtHeader ? "OK" : "MISSING"));
 
-      // JetReco in Fun4All_recoilJets.C builds jets from TowerJetInput(..., "TOWERINFO_CALIB"),
-      // so comp.second indices are defined against TOWERINFO_CALIB. Prefer that container.
-      TowerInfoContainer* towersAll = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB");
+        // For EventDisplay payload, DO NOT probe "TOWERINFO_CALIB" directly.
+        // In this DST it is not a TowerInfoContainer node (and may collide with a CompositeNode),
+        // which can crash findNode::getClass<>(). Use the explicit per-subdet calibrated containers.
+        LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 2] skipping towersAll=TOWERINFO_CALIB (use split CALIB_* containers)");
 
-      const bool usingAll = (towersAll != nullptr);
-      const char* nodeTowersAll = "TOWERINFO_CALIB";
-      const char* nodeTowersCEMC = usingAll ? "TOWERINFO_CALIB" : "TOWERINFO_CALIB_CEMC";
-      const char* nodeTowersIHCal = usingAll ? "TOWERINFO_CALIB" : "TOWERINFO_CALIB_HCALIN";
-      const char* nodeTowersOHCal = usingAll ? "TOWERINFO_CALIB" : "TOWERINFO_CALIB_HCALOUT";
+        const bool usingAll = false;
+        const char* nodeTowersAll  = "TOWERINFO_CALIB";
+        const char* nodeTowersCEMC = "TOWERINFO_CALIB_CEMC";
+        const char* nodeTowersIHCal = "TOWERINFO_CALIB_HCALIN";
+        const char* nodeTowersOHCal = "TOWERINFO_CALIB_HCALOUT";
 
-      if (towersAll)
-      {
-        m_evtDispTowersCEMC  = towersAll;
-        m_evtDispTowersIHCal = towersAll;
-        m_evtDispTowersOHCal = towersAll;
-      }
-      else
-      {
+        LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 3] get tower containers (usingAll=NO)");
         m_evtDispTowersCEMC  = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_CEMC");
         m_evtDispTowersIHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALIN");
         m_evtDispTowersOHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALOUT");
-      }
 
+        LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 3] towers: CEMC=" << (m_evtDispTowersCEMC ? "OK" : "MISSING")
+                            << " IHCal=" << (m_evtDispTowersIHCal ? "OK" : "MISSING")
+                            << " OHCal=" << (m_evtDispTowersOHCal ? "OK" : "MISSING"));
+
+      LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 4] get geom containers");
       m_evtDispGeomCEMC    = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_CEMC");
       m_evtDispGeomIHCal   = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALIN");
       m_evtDispGeomOHCal   = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALOUT");
+      LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 4] geom: CEMC=" << (m_evtDispGeomCEMC ? "OK" : "MISSING")
+                          << " IHCal=" << (m_evtDispGeomIHCal ? "OK" : "MISSING")
+                          << " OHCal=" << (m_evtDispGeomOHCal ? "OK" : "MISSING"));
 
       const bool missing =
           (!m_evtHeader ||
@@ -722,20 +727,7 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
       {
         m_evtDiagNodesReady = true;
 
-        if (Verbosity() >= 4)
-        {
-          LOG(4, CLR_GREEN,
-              "[EventDisplayTree][nodes][OK] "
-              << "EventHeader=OK"
-              << "  towers(" << (usingAll ? nodeTowersAll : "split") << "): "
-              << "CEMC=" << (m_evtDispTowersCEMC ? "OK" : "MISSING")
-              << " IHCal=" << (m_evtDispTowersIHCal ? "OK" : "MISSING")
-              << " OHCal=" << (m_evtDispTowersOHCal ? "OK" : "MISSING")
-              << "  geom: "
-              << "CEMC=" << (m_evtDispGeomCEMC ? "OK" : "MISSING")
-              << " IHCal=" << (m_evtDispGeomIHCal ? "OK" : "MISSING")
-              << " OHCal=" << (m_evtDispGeomOHCal ? "OK" : "MISSING"));
-        }
+        LOG(1, CLR_GREEN, "[EventDisplayTree][nodes][PHASE 5] READY=true (event_count=" << event_count << ")");
 
         if (Verbosity() >= 6)
         {
@@ -750,6 +742,8 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
       }
       else
       {
+        LOG(1, CLR_YELLOW, "[EventDisplayTree][nodes][PHASE 5] READY=false (missing required nodes) (event_count=" << event_count << ")");
+
         static bool s_warned_once = false;
         static int  s_warned_count = 0;
 
@@ -785,6 +779,9 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
 
         m_evtDiagNodesReady = false;
       }
+
+      LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 6] end node fetch (event_count=" << event_count
+                       << " ready=" << (m_evtDiagNodesReady ? "true" : "false") << ")");
     }
 
   return true;
@@ -5686,7 +5683,25 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
     if (hasBestTowers) ++m_evtDiagNFillWithBestTowers;
     if (hasAnyTowers)  ++m_evtDiagNFillWithAnyTowers;
 
+    if (Verbosity() >= 1)
+    {
+      LOG(1, CLR_CYAN,
+          "[EventDisplayTree][Fill][PHASE A] about to Fill() "
+          << "(event_count=" << event_count
+          << " rKey=" << rKey
+          << " ptBin=" << ptBin
+          << " cat=" << static_cast<int>(cat)
+          << " nSelTowers=" << m_evtDiag_sel_etTower.size()
+          << " nBestTowers=" << m_evtDiag_best_etTower.size() << ")");
+    }
+
     m_evtDiagTree->Fill();
+
+    if (Verbosity() >= 1)
+    {
+      LOG(1, CLR_GREEN,
+          "[EventDisplayTree][Fill][PHASE B] returned from Fill()");
+    }
 }
 
 
