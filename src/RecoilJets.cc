@@ -5656,8 +5656,8 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
       if (itCal == m_jets.end() || !itCal->second) return nullptr;
       if (itRaw == m_jetsRaw.end() || !itRaw->second) return nullptr;
 
-      const JetContainer* calib = itCal->second;
-      const JetContainer* raw   = itRaw->second;
+      JetContainer* calib = itCal->second;
+      JetContainer* raw   = itRaw->second;
 
       // Require RAW constituents; otherwise tower payload will be empty.
       auto hasConstituents = [&](const Jet* j) -> bool
