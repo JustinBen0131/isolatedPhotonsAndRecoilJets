@@ -2338,29 +2338,100 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
             }
           }
 
-          // -------------------------------------------------------------------------
-          // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
-          // One entry per (event, rKey) when enabled.
-          // -------------------------------------------------------------------------
-          if (m_evtDiagEnabled && m_evtDiagNodesReady)
-          {
-            const int ptBin = findPtBin(tPt);
+           // -------------------------------------------------------------------------
+            // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
+            // One entry per (event, rKey) when enabled.
+            // -------------------------------------------------------------------------
+            if (m_evtDiagEnabled)
+            {
+              if (!m_evtDiagNodesReady)
+              {
+                if (Verbosity() >= 3)
+                {
+                  LOG(3, CLR_YELLOW,
+                      "[EventDisplayTree][skip] nodes not ready "
+                      << "(evt=" << ecvt << " rKey=" << rKey << ")");
+                }
+              }
+              else
+              {
+                const int ptBin = findPtBin(tPt);
 
-            EventDisplayCat cat = EventDisplayCat::MissB;
-            if (leadRecoMatches)
-            {
-              cat = EventDisplayCat::NUM;
-            }
-            else if (hasRecoMatchToTruthLead)
-            {
-              cat = EventDisplayCat::MissA;
-            }
+                EventDisplayCat cat = EventDisplayCat::MissB;
+                if (leadRecoMatches)
+                {
+                  cat = EventDisplayCat::NUM;
+                }
+                else if (hasRecoMatchToTruthLead)
+                {
+                  cat = EventDisplayCat::MissA;
+                }
 
-            if (ptBin >= 0 && eventDisplayDiagnosticsNeed(rKey, ptBin, cat))
-            {
-              fillEventDisplayDiagnostics(rKey, ptBin, cat, tPt, tPhi, leadPtGamma, recoil1Jet, rjTruthBest, tjLead);
+                if (ptBin < 0)
+                {
+                  if (Verbosity() >= 4)
+                  {
+                    LOG(4, CLR_YELLOW,
+                        "[EventDisplayTree][skip] ptBin<0 (out of range) "
+                        << "(evt=" << ecvt << " rKey=" << rKey
+                        << " tPt=" << tPt << ")");
+                  }
+                }
+                else if (!(recoil1Jet || rjTruthBest || tjLead))
+                {
+                  if (Verbosity() >= 4)
+                  {
+                    LOG(4, CLR_YELLOW,
+                        "[EventDisplayTree][skip] no jets available for diagnostics "
+                        << "(evt=" << ecvt << " rKey=" << rKey
+                        << " ptBin=" << ptBin
+                        << " cat=" << static_cast<int>(cat) << ")");
+                  }
+                }
+                else
+                {
+                  const bool need = eventDisplayDiagnosticsNeed(rKey, ptBin, cat);
+
+                  if (Verbosity() >= 5)
+                  {
+                    LOG(5, CLR_CYAN,
+                        "[EventDisplayTree][check] "
+                        << "(evt=" << ecvt << " rKey=" << rKey
+                        << " ptBin=" << ptBin
+                        << " cat=" << static_cast<int>(cat)
+                        << " need=" << (need ? "YES" : "NO")
+                        << " sel=" << (recoil1Jet ? "Y" : "N")
+                        << " best=" << (rjTruthBest ? "Y" : "N")
+                        << " truthLead=" << (tjLead ? "Y" : "N")
+                        << " tPt=" << tPt
+                        << " leadPtGamma=" << leadPtGamma << ")");
+                  }
+
+                  if (need)
+                  {
+                    if (Verbosity() >= 4)
+                    {
+                      LOG(4, CLR_CYAN,
+                          "[EventDisplayTree][fill] dispatching fillEventDisplayDiagnostics "
+                          << "(evt=" << ecvt << " rKey=" << rKey
+                          << " ptBin=" << ptBin
+                          << " cat=" << static_cast<int>(cat) << ")");
+                    }
+
+                    fillEventDisplayDiagnostics(rKey, ptBin, cat, tPt, tPhi, leadPtGamma, recoil1Jet, rjTruthBest, tjLead);
+
+                    if (Verbosity() >= 4)
+                    {
+                      LOG(4, CLR_GREEN,
+                          "[EventDisplayTree][fill] returned from fillEventDisplayDiagnostics "
+                          << "(evt=" << ecvt << " rKey=" << rKey
+                          << " ptBin=" << ptBin
+                          << " cat=" << static_cast<int>(cat) << ")");
+                    }
+                  }
+                }
+              }
             }
-          }
 
         // ------------------------------------------------------------------
         // diagnostics (SIM-only): characterize the selected recoilJet1 in each class.
