@@ -5243,48 +5243,46 @@ void RecoilJets::appendEventDisplayDiagnosticsFromJet(const Jet* jet,
     return;
   }
 
-  // Jet::get_comp_vec() is non-const in Jet interface; we only READ, so const_cast is safe here.
-  Jet::TYPE_comp_vec& comp_vec = const_cast<Jet*>(jet)->get_comp_vec();
+    for (auto it = jet->begin_comp(); it != jet->end_comp(); ++it)
+    {
+      const Jet::SRC src = it->first;
+      const unsigned int idx = it->second;
 
-  for (const auto& comp : comp_vec)
-  {
-    const unsigned int idx = comp.second;
+      TowerInfoContainer* towers = nullptr;
+      RawTowerGeomContainer* geom = nullptr;
+      RawTowerDefs::CalorimeterId caloId = RawTowerDefs::CalorimeterId::CEMC;
+      int caloCode = -1;
 
-    TowerInfoContainer* towers = nullptr;
-    RawTowerGeomContainer* geom = nullptr;
-    RawTowerDefs::CalorimeterId caloId = RawTowerDefs::CalorimeterId::CEMC;
-    int caloCode = -1;
-
-      if (comp.first == Jet::CEMC_TOWERINFO || comp.first == Jet::CEMC_TOWERINFO_RETOWER)
+      if (src == Jet::CEMC_TOWERINFO || src == Jet::CEMC_TOWERINFO_RETOWER)
       {
         towers = m_evtDispTowersCEMC;
         geom   = m_evtDispGeomCEMC;
         caloId = RawTowerDefs::CalorimeterId::CEMC;
         caloCode = 0;
       }
-    else if (comp.first == Jet::HCALIN_TOWERINFO)
-    {
-      towers = m_evtDispTowersIHCal;
-      geom   = m_evtDispGeomIHCal;
-      caloId = RawTowerDefs::CalorimeterId::HCALIN;
-      caloCode = 1;
-    }
-    else if (comp.first == Jet::HCALOUT_TOWERINFO)
-    {
-      towers = m_evtDispTowersOHCal;
-      geom   = m_evtDispGeomOHCal;
-      caloId = RawTowerDefs::CalorimeterId::HCALOUT;
-      caloCode = 2;
-    }
-    else
-    {
-      continue;
-    }
+      else if (src == Jet::HCALIN_TOWERINFO)
+      {
+        towers = m_evtDispTowersIHCal;
+        geom   = m_evtDispGeomIHCal;
+        caloId = RawTowerDefs::CalorimeterId::HCALIN;
+        caloCode = 1;
+      }
+      else if (src == Jet::HCALOUT_TOWERINFO)
+      {
+        towers = m_evtDispTowersOHCal;
+        geom   = m_evtDispGeomOHCal;
+        caloId = RawTowerDefs::CalorimeterId::HCALOUT;
+        caloCode = 2;
+      }
+      else
+      {
+        continue;
+      }
 
-    if (!towers || !geom)
-    {
-      continue;
-    }
+      if (!towers || !geom)
+      {
+        continue;
+      }
 
       const auto nTowers = towers->size();
       if (nTowers == 0)
@@ -5292,41 +5290,20 @@ void RecoilJets::appendEventDisplayDiagnosticsFromJet(const Jet* jet,
         continue;
       }
 
-      // For TowerInfo-based jets, comp.second can be either:
-      //   (a) the TowerInfo channel index, OR
-      //   (b) the encoded TowerInfo key.
-      // Guard against out-of-range channel access (prevents rc=11 segfaults).
-      unsigned int channel = idx;
-      unsigned int calokey = 0;
-
-      TowerInfo* tower = nullptr;
-
-      // Try interpreting idx as a channel first (only if it is in-range)
-      if (idx < nTowers)
+      // TowerJetInput stores TowerInfo constituents as CHANNEL indices.
+      // Treat compid as channel only; never decode_key here (can segfault if misused).
+      if (idx >= nTowers)
       {
-        channel = idx;
-        calokey = towers->encode_key(channel);
-        tower = towers->get_tower_at_channel(channel);
+        continue;
       }
 
-      // If that failed, interpret idx as an encoded key and decode back to a channel
+      TowerInfo* tower = towers->get_tower_at_channel(idx);
       if (!tower)
       {
-        calokey = idx;
-        channel = towers->decode_key(calokey);
-
-        if (channel >= nTowers)
-        {
-          continue;
-        }
-
-        tower = towers->get_tower_at_channel(channel);
-        if (!tower)
-        {
-          continue;
-        }
+        continue;
       }
 
+      const unsigned int calokey = towers->encode_key(idx);
       const int twr_ieta = towers->getTowerEtaBin(calokey);
       const int twr_iphi = towers->getTowerPhiBin(calokey);
 
@@ -5453,87 +5430,7 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
                                                         truthLeadRecoilJet->get_phi()));
   }
 
-    // Keep the analysis jets (calibrated) for stored kinematics (sel_pt/eta/phi, best_pt/eta/phi).
-    // For the EventDisplay tower payload ONLY: if JetCalib stripped comp_vec on calibrated jets,
-    // recover constituents from the matching RAW jet (same axis; different pt scale).
-    const Jet* selJetForTowers  = selectedRecoilJet;
-    const Jet* bestJetForTowers = recoTruthBest;
-
-    auto CompVecEmpty = [&](const Jet* j)->bool
-    {
-      if (!j) return true;
-      Jet::TYPE_comp_vec& cv = const_cast<Jet*>(j)->get_comp_vec();
-      return cv.empty();
-    };
-
-    const bool selCompEmpty  = (selectedRecoilJet ? CompVecEmpty(selectedRecoilJet) : true);
-    const bool bestCompEmpty = (recoTruthBest ? CompVecEmpty(recoTruthBest) : true);
-
-    if ((selectedRecoilJet && selCompEmpty) || (recoTruthBest && bestCompEmpty))
-    {
-      static bool s_warned_once = false;
-      if (!s_warned_once && Verbosity() >= 2)
-      {
-        LOG(2, CLR_YELLOW,
-            "[EventDisplayTree] calibrated jets have empty comp_vec; using *_RAW jets for tower constituents only (kinematics remain calibrated)");
-        s_warned_once = true;
-      }
-
-      auto itRaw = m_jetsRaw.find(rKey);
-      JetContainer* jcRaw = (itRaw != m_jetsRaw.end() ? itRaw->second : nullptr);
-
-      if (jcRaw)
-      {
-        auto ClosestRawJet = [&](const Jet* ref)->const Jet*
-        {
-          if (!ref) return nullptr;
-
-          const double etaRef = ref->get_eta();
-          const double phiRef = ref->get_phi();
-
-          const Jet* best = nullptr;
-          double bestDR = 1e9;
-
-          for (const Jet* j : *jcRaw)
-          {
-            if (!j) continue;
-            const double deta = j->get_eta() - etaRef;
-            const double dphi = TVector2::Phi_mpi_pi(j->get_phi() - phiRef);
-            const double dr = std::sqrt(deta*deta + dphi*dphi);
-            if (dr < bestDR)
-            {
-              bestDR = dr;
-              best = j;
-            }
-          }
-
-          if (best && bestDR < 1e-3) return best;
-          return nullptr;
-        };
-
-        if (selectedRecoilJet && selCompEmpty)
-        {
-          if (const Jet* j = ClosestRawJet(selectedRecoilJet)) selJetForTowers = j;
-        }
-        if (recoTruthBest && bestCompEmpty)
-        {
-          if (const Jet* j = ClosestRawJet(recoTruthBest)) bestJetForTowers = j;
-        }
-      }
-      else
-      {
-        static bool s_warned_no_raw_once = false;
-        if (!s_warned_no_raw_once && Verbosity() >= 2)
-        {
-          LOG(2, CLR_YELLOW,
-              "[EventDisplayTree] *_RAW jet container not found for rKey=" << rKey
-              << " (towers may remain empty if JetCalib stripped comp_vec)");
-          s_warned_no_raw_once = true;
-        }
-      }
-    }
-
-    appendEventDisplayDiagnosticsFromJet(selJetForTowers,
+    appendEventDisplayDiagnosticsFromJet(selectedRecoilJet,
                                          m_evtDiag_sel_calo,
                                          m_evtDiag_sel_ieta,
                                          m_evtDiag_sel_iphi,
@@ -5542,7 +5439,7 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
                                          m_evtDiag_sel_etTower,
                                          m_evtDiag_sel_eTower);
 
-    appendEventDisplayDiagnosticsFromJet(bestJetForTowers,
+    appendEventDisplayDiagnosticsFromJet(recoTruthBest,
                                          m_evtDiag_best_calo,
                                          m_evtDiag_best_ieta,
                                          m_evtDiag_best_iphi,

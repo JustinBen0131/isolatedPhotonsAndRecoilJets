@@ -218,7 +218,7 @@ namespace ARJ
       string bbLabel;   // for plotting labels only (e.g. "#pi/2", "7#pi/8")
   };
 
-  inline const string kDefaultSimSampleKey = "jetMinPt3_7piOver8";
+  inline const string kDefaultSimSampleKey = "jetMinPt10_7piOver8";
 
   inline const string kAltSimSampleKey_jetMinPt10_7piOver8 = "jetMinPt10_7piOver8";
   inline const string kAltSimSampleKey_jetMinPt5_pihalves  = "jetMinPt5_pihalves";
