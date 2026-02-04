@@ -671,29 +671,47 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     m_evtDispGeomIHCal   = nullptr;
     m_evtDispGeomOHCal   = nullptr;
 
-    if (isSim && m_evtDiagEnabled)
+    if (!(isSim && m_evtDiagEnabled))
     {
-        m_evtHeader = findNode::getClass<EventHeader>(top, "EventHeader");
+      if (Verbosity() >= 5)
+      {
+        LOG(5, CLR_CYAN,
+            "[EventDisplayTree][nodes] skipped: "
+            << "isSim=" << (isSim ? "true" : "false")
+            << "  m_evtDiagEnabled=" << (m_evtDiagEnabled ? "true" : "false"));
+      }
+    }
+    else
+    {
+      // NOTE: do NOT assume any node exists; only set m_evtDiagNodesReady=true if ALL required are present.
+      m_evtHeader = findNode::getClass<EventHeader>(top, "EventHeader");
 
-        // JetReco in Fun4All_recoilJets.C builds jets from TowerJetInput(..., "TOWERINFO_CALIB"),
-        // so comp.second indices are defined against TOWERINFO_CALIB. Prefer that container.
-        TowerInfoContainer* towersAll = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB");
-        if (towersAll)
-        {
-          m_evtDispTowersCEMC  = towersAll;
-          m_evtDispTowersIHCal = towersAll;
-          m_evtDispTowersOHCal = towersAll;
-        }
-        else
-        {
-          m_evtDispTowersCEMC  = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_CEMC");
-          m_evtDispTowersIHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALIN");
-          m_evtDispTowersOHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALOUT");
-        }
+      // JetReco in Fun4All_recoilJets.C builds jets from TowerJetInput(..., "TOWERINFO_CALIB"),
+      // so comp.second indices are defined against TOWERINFO_CALIB. Prefer that container.
+      TowerInfoContainer* towersAll = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB");
 
-        m_evtDispGeomCEMC    = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_CEMC");
-        m_evtDispGeomIHCal   = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALIN");
-        m_evtDispGeomOHCal   = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALOUT");
+      const bool usingAll = (towersAll != nullptr);
+      const char* nodeTowersAll = "TOWERINFO_CALIB";
+      const char* nodeTowersCEMC = usingAll ? "TOWERINFO_CALIB" : "TOWERINFO_CALIB_CEMC";
+      const char* nodeTowersIHCal = usingAll ? "TOWERINFO_CALIB" : "TOWERINFO_CALIB_HCALIN";
+      const char* nodeTowersOHCal = usingAll ? "TOWERINFO_CALIB" : "TOWERINFO_CALIB_HCALOUT";
+
+      if (towersAll)
+      {
+        m_evtDispTowersCEMC  = towersAll;
+        m_evtDispTowersIHCal = towersAll;
+        m_evtDispTowersOHCal = towersAll;
+      }
+      else
+      {
+        m_evtDispTowersCEMC  = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_CEMC");
+        m_evtDispTowersIHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALIN");
+        m_evtDispTowersOHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALOUT");
+      }
+
+      m_evtDispGeomCEMC    = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_CEMC");
+      m_evtDispGeomIHCal   = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALIN");
+      m_evtDispGeomOHCal   = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALOUT");
 
       const bool missing =
           (!m_evtHeader ||
@@ -703,22 +721,69 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
       if (!missing)
       {
         m_evtDiagNodesReady = true;
+
+        if (Verbosity() >= 4)
+        {
+          LOG(4, CLR_GREEN,
+              "[EventDisplayTree][nodes][OK] "
+              << "EventHeader=OK"
+              << "  towers(" << (usingAll ? nodeTowersAll : "split") << "): "
+              << "CEMC=" << (m_evtDispTowersCEMC ? "OK" : "MISSING")
+              << " IHCal=" << (m_evtDispTowersIHCal ? "OK" : "MISSING")
+              << " OHCal=" << (m_evtDispTowersOHCal ? "OK" : "MISSING")
+              << "  geom: "
+              << "CEMC=" << (m_evtDispGeomCEMC ? "OK" : "MISSING")
+              << " IHCal=" << (m_evtDispGeomIHCal ? "OK" : "MISSING")
+              << " OHCal=" << (m_evtDispGeomOHCal ? "OK" : "MISSING"));
+        }
+
+        if (Verbosity() >= 6)
+        {
+          const auto nC = (m_evtDispTowersCEMC  ? m_evtDispTowersCEMC->size()  : 0);
+          const auto nI = (m_evtDispTowersIHCal ? m_evtDispTowersIHCal->size() : 0);
+          const auto nO = (m_evtDispTowersOHCal ? m_evtDispTowersOHCal->size() : 0);
+          LOG(6, CLR_CYAN,
+              "[EventDisplayTree][nodes][sizes] "
+              << "CEMC=" << nC << "  HCALIN=" << nI << "  HCALOUT=" << nO
+              << "  (usingAll=" << (usingAll ? "YES" : "NO") << ")");
+        }
       }
       else
       {
         static bool s_warned_once = false;
+        static int  s_warned_count = 0;
+
         if (!s_warned_once)
         {
-          LOG(1, CLR_YELLOW, "[EventDisplayTree] disabled: missing required node(s) for diagnostics payload");
+          LOG(1, CLR_YELLOW, "[EventDisplayTree] disabled for this event: missing required node(s) for diagnostics payload");
           LOG(1, CLR_YELLOW, "  EventHeader            : " << (m_evtHeader ? "OK" : "MISSING"));
-          LOG(1, CLR_YELLOW, "  TOWERINFO_CALIB_CEMC   : " << (m_evtDispTowersCEMC ? "OK" : "MISSING"));
-          LOG(1, CLR_YELLOW, "  TOWERINFO_CALIB_HCALIN : " << (m_evtDispTowersIHCal ? "OK" : "MISSING"));
-          LOG(1, CLR_YELLOW, "  TOWERINFO_CALIB_HCALOUT: " << (m_evtDispTowersOHCal ? "OK" : "MISSING"));
+          LOG(1, CLR_YELLOW, "  " << nodeTowersCEMC     << " : " << (m_evtDispTowersCEMC ? "OK" : "MISSING"));
+          LOG(1, CLR_YELLOW, "  " << nodeTowersIHCal    << " : " << (m_evtDispTowersIHCal ? "OK" : "MISSING"));
+          LOG(1, CLR_YELLOW, "  " << nodeTowersOHCal    << " : " << (m_evtDispTowersOHCal ? "OK" : "MISSING"));
           LOG(1, CLR_YELLOW, "  TOWERGEOM_CEMC         : " << (m_evtDispGeomCEMC ? "OK" : "MISSING"));
           LOG(1, CLR_YELLOW, "  TOWERGEOM_HCALIN       : " << (m_evtDispGeomIHCal ? "OK" : "MISSING"));
           LOG(1, CLR_YELLOW, "  TOWERGEOM_HCALOUT      : " << (m_evtDispGeomOHCal ? "OK" : "MISSING"));
+          LOG(1, CLR_YELLOW, "  towersAll(" << nodeTowersAll << "): " << (towersAll ? "FOUND" : "MISSING"));
           s_warned_once = true;
         }
+
+        if (Verbosity() >= 4 && s_warned_count < 5)
+        {
+          LOG(4, CLR_YELLOW,
+              "[EventDisplayTree][nodes][MISSING] "
+              << "EventHeader=" << (m_evtHeader ? "OK" : "MISSING")
+              << "  Towers: "
+              << nodeTowersCEMC << "=" << (m_evtDispTowersCEMC ? "OK" : "MISSING")
+              << " " << nodeTowersIHCal << "=" << (m_evtDispTowersIHCal ? "OK" : "MISSING")
+              << " " << nodeTowersOHCal << "=" << (m_evtDispTowersOHCal ? "OK" : "MISSING")
+              << "  Geom: "
+              << "TOWERGEOM_CEMC=" << (m_evtDispGeomCEMC ? "OK" : "MISSING")
+              << " TOWERGEOM_HCALIN=" << (m_evtDispGeomIHCal ? "OK" : "MISSING")
+              << " TOWERGEOM_HCALOUT=" << (m_evtDispGeomOHCal ? "OK" : "MISSING"));
+          ++s_warned_count;
+        }
+
+        m_evtDiagNodesReady = false;
       }
     }
 
@@ -5100,67 +5165,152 @@ void RecoilJets::initEventDisplayDiagnosticsTree()
 {
   if (!m_evtDiagEnabled)
   {
-    return;
-  }
-  if (m_evtDiagTree)
-  {
-    return;
-  }
-  if (!out || !out->IsOpen())
-  {
+    if (Verbosity() >= 4)
+    {
+      LOG(4, CLR_CYAN, "[EventDisplayTree][init] skipped: m_evtDiagEnabled=false");
+    }
     return;
   }
 
-  out->cd();
+  if (m_evtDiagTree)
+  {
+    if (Verbosity() >= 5)
+    {
+      LOG(5, CLR_CYAN, "[EventDisplayTree][init] already exists: entries=" << m_evtDiagTree->GetEntries());
+    }
+    return;
+  }
+
+  if (!out)
+  {
+    LOG(1, CLR_YELLOW, "[EventDisplayTree][init] cannot create tree: output TFile pointer is null");
+    m_evtDiagEnabled = false;
+    return;
+  }
+
+  if (!out->IsOpen())
+  {
+    LOG(1, CLR_YELLOW, "[EventDisplayTree][init] cannot create tree: output file is not open (" << out->GetName() << ")");
+    m_evtDiagEnabled = false;
+    return;
+  }
+
+  if (!out->cd())
+  {
+    LOG(1, CLR_YELLOW, "[EventDisplayTree][init] cannot create tree: out->cd() failed (" << out->GetName() << ")");
+    m_evtDiagEnabled = false;
+    return;
+  }
+
+  if (Verbosity() >= 2)
+  {
+    LOG(2, CLR_CYAN, "[EventDisplayTree][init] creating EventDisplayTree in file: " << out->GetName());
+  }
 
   m_evtDiagTree = new TTree("EventDisplayTree",
                             "EventDisplay diagnostics per event per jet radius (offline rendering)");
+
+  if (!m_evtDiagTree)
+  {
+    LOG(1, CLR_YELLOW, "[EventDisplayTree][init] failed to allocate TTree (nullptr)");
+    m_evtDiagEnabled = false;
+    return;
+  }
+
   m_evtDiagTree->SetDirectory(out);
 
-  m_evtDiagTree->Branch("run", &m_evtDiag_run, "run/I");
-  m_evtDiagTree->Branch("evt", &m_evtDiag_evt, "evt/I");
-  m_evtDiagTree->Branch("event_count", &m_evtDiag_eventCount, "event_count/L");
-  m_evtDiagTree->Branch("vz", &m_evtDiag_vz, "vz/F");
+  bool ok = true;
 
-  m_evtDiagTree->Branch("rKey", &m_evtDiag_rKey);
-  m_evtDiagTree->Branch("ptBin", &m_evtDiag_ptBin, "ptBin/I");
-  m_evtDiagTree->Branch("cat", &m_evtDiag_cat, "cat/I");
+  auto AddLeaf = [&](const char* name, void* addr, const char* leaflist)
+  {
+    TBranch* br = m_evtDiagTree->Branch(name, addr, leaflist);
+    if (!br)
+    {
+      ok = false;
+      LOG(1, CLR_YELLOW, "[EventDisplayTree][init] Branch FAILED: \"" << name << "\" leaflist=\"" << leaflist << "\"");
+    }
+    else if (Verbosity() >= 6)
+    {
+      LOG(6, CLR_GREEN, "[EventDisplayTree][init] Branch OK: \"" << name << "\" title=\"" << br->GetTitle() << "\"");
+    }
+  };
 
-  m_evtDiagTree->Branch("ptGammaTruth", &m_evtDiag_ptGammaTruth, "ptGammaTruth/F");
-  m_evtDiagTree->Branch("phiGammaTruth", &m_evtDiag_phiGammaTruth, "phiGammaTruth/F");
-  m_evtDiagTree->Branch("ptGammaReco", &m_evtDiag_ptGammaReco, "ptGammaReco/F");
+  auto AddObj = [&](const char* name, auto* addr)
+  {
+    TBranch* br = m_evtDiagTree->Branch(name, addr);
+    if (!br)
+    {
+      ok = false;
+      LOG(1, CLR_YELLOW, "[EventDisplayTree][init] Branch FAILED: \"" << name << "\" (object)");
+    }
+    else if (Verbosity() >= 6)
+    {
+      LOG(6, CLR_GREEN, "[EventDisplayTree][init] Branch OK: \"" << name << "\" class=\"" << br->GetClassName() << "\"");
+    }
+  };
 
-  m_evtDiagTree->Branch("sel_pt", &m_evtDiag_sel_pt, "sel_pt/F");
-  m_evtDiagTree->Branch("sel_eta", &m_evtDiag_sel_eta, "sel_eta/F");
-  m_evtDiagTree->Branch("sel_phi", &m_evtDiag_sel_phi, "sel_phi/F");
+  AddLeaf("run", &m_evtDiag_run, "run/I");
+  AddLeaf("evt", &m_evtDiag_evt, "evt/I");
+  AddLeaf("event_count", &m_evtDiag_eventCount, "event_count/L");
+  AddLeaf("vz", &m_evtDiag_vz, "vz/F");
 
-  m_evtDiagTree->Branch("best_pt", &m_evtDiag_best_pt, "best_pt/F");
-  m_evtDiagTree->Branch("best_eta", &m_evtDiag_best_eta, "best_eta/F");
-  m_evtDiagTree->Branch("best_phi", &m_evtDiag_best_phi, "best_phi/F");
+  AddObj("rKey", &m_evtDiag_rKey);
+  AddLeaf("ptBin", &m_evtDiag_ptBin, "ptBin/I");
+  AddLeaf("cat", &m_evtDiag_cat, "cat/I");
 
-  m_evtDiagTree->Branch("truthLead_pt", &m_evtDiag_truthLead_pt, "truthLead_pt/F");
-  m_evtDiagTree->Branch("truthLead_eta", &m_evtDiag_truthLead_eta, "truthLead_eta/F");
-  m_evtDiagTree->Branch("truthLead_phi", &m_evtDiag_truthLead_phi, "truthLead_phi/F");
+  AddLeaf("ptGammaTruth", &m_evtDiag_ptGammaTruth, "ptGammaTruth/F");
+  AddLeaf("phiGammaTruth", &m_evtDiag_phiGammaTruth, "phiGammaTruth/F");
+  AddLeaf("ptGammaReco", &m_evtDiag_ptGammaReco, "ptGammaReco/F");
 
-  m_evtDiagTree->Branch("drSelToTruthLead", &m_evtDiag_drSelToTruthLead, "drSelToTruthLead/F");
-  m_evtDiagTree->Branch("drBestToTruthLead", &m_evtDiag_drBestToTruthLead, "drBestToTruthLead/F");
+  AddLeaf("sel_pt", &m_evtDiag_sel_pt, "sel_pt/F");
+  AddLeaf("sel_eta", &m_evtDiag_sel_eta, "sel_eta/F");
+  AddLeaf("sel_phi", &m_evtDiag_sel_phi, "sel_phi/F");
 
-  m_evtDiagTree->Branch("sel_calo", &m_evtDiag_sel_calo);
-  m_evtDiagTree->Branch("sel_ieta", &m_evtDiag_sel_ieta);
-  m_evtDiagTree->Branch("sel_iphi", &m_evtDiag_sel_iphi);
-  m_evtDiagTree->Branch("sel_etaTower", &m_evtDiag_sel_etaTower);
-  m_evtDiagTree->Branch("sel_phiTower", &m_evtDiag_sel_phiTower);
-  m_evtDiagTree->Branch("sel_etTower", &m_evtDiag_sel_etTower);
-  m_evtDiagTree->Branch("sel_eTower", &m_evtDiag_sel_eTower);
+  AddLeaf("best_pt", &m_evtDiag_best_pt, "best_pt/F");
+  AddLeaf("best_eta", &m_evtDiag_best_eta, "best_eta/F");
+  AddLeaf("best_phi", &m_evtDiag_best_phi, "best_phi/F");
 
-  m_evtDiagTree->Branch("best_calo", &m_evtDiag_best_calo);
-  m_evtDiagTree->Branch("best_ieta", &m_evtDiag_best_ieta);
-  m_evtDiagTree->Branch("best_iphi", &m_evtDiag_best_iphi);
-  m_evtDiagTree->Branch("best_etaTower", &m_evtDiag_best_etaTower);
-  m_evtDiagTree->Branch("best_phiTower", &m_evtDiag_best_phiTower);
-  m_evtDiagTree->Branch("best_etTower", &m_evtDiag_best_etTower);
-  m_evtDiagTree->Branch("best_eTower", &m_evtDiag_best_eTower);
+  AddLeaf("truthLead_pt", &m_evtDiag_truthLead_pt, "truthLead_pt/F");
+  AddLeaf("truthLead_eta", &m_evtDiag_truthLead_eta, "truthLead_eta/F");
+  AddLeaf("truthLead_phi", &m_evtDiag_truthLead_phi, "truthLead_phi/F");
+
+  AddLeaf("drSelToTruthLead", &m_evtDiag_drSelToTruthLead, "drSelToTruthLead/F");
+  AddLeaf("drBestToTruthLead", &m_evtDiag_drBestToTruthLead, "drBestToTruthLead/F");
+
+  AddObj("sel_calo", &m_evtDiag_sel_calo);
+  AddObj("sel_ieta", &m_evtDiag_sel_ieta);
+  AddObj("sel_iphi", &m_evtDiag_sel_iphi);
+  AddObj("sel_etaTower", &m_evtDiag_sel_etaTower);
+  AddObj("sel_phiTower", &m_evtDiag_sel_phiTower);
+  AddObj("sel_etTower", &m_evtDiag_sel_etTower);
+  AddObj("sel_eTower", &m_evtDiag_sel_eTower);
+
+  AddObj("best_calo", &m_evtDiag_best_calo);
+  AddObj("best_ieta", &m_evtDiag_best_ieta);
+  AddObj("best_iphi", &m_evtDiag_best_iphi);
+  AddObj("best_etaTower", &m_evtDiag_best_etaTower);
+  AddObj("best_phiTower", &m_evtDiag_best_phiTower);
+  AddObj("best_etTower", &m_evtDiag_best_etTower);
+  AddObj("best_eTower", &m_evtDiag_best_eTower);
+
+  if (!ok)
+  {
+    LOG(1, CLR_YELLOW, "[EventDisplayTree][init] one or more Branch() calls failed; disabling EventDisplayTree (physics unaffected)");
+    delete m_evtDiagTree;
+    m_evtDiagTree = nullptr;
+    m_evtDiagEnabled = false;
+    return;
+  }
+
+  if (Verbosity() >= 2)
+  {
+    const int nBr = (m_evtDiagTree->GetListOfBranches() ? m_evtDiagTree->GetListOfBranches()->GetEntries() : -1);
+    LOG(2, CLR_GREEN, "[EventDisplayTree][init] OK: booked EventDisplayTree with nBranches=" << nBr);
+  }
 }
+
+
+
 
 void RecoilJets::resetEventDisplayDiagnosticsBuffers()
 {
@@ -5466,7 +5616,7 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
     if (hasAnyTowers)  ++m_evtDiagNFillWithAnyTowers;
 
     m_evtDiagTree->Fill();
-  }
+}
 
 
 
