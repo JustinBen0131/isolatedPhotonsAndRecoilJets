@@ -12846,9 +12846,13 @@ namespace ARJ
                                   // -------------------------
                                   if (HA1a && HA1a1 && HA1a2)
                                   {
-                                    std::unique_ptr<TProfile> pA (HA1a ->ProfileX(TString::Format("p_prof_A1_MissA_%s",  rKey.c_str()).Data()));
-                                    std::unique_ptr<TProfile> pA1(HA1a1->ProfileX(TString::Format("p_prof_A1_MissA1_%s", rKey.c_str()).Data()));
-                                    std::unique_ptr<TProfile> pA2(HA1a2->ProfileX(TString::Format("p_prof_A1_MissA2_%s", rKey.c_str()).Data()));
+                                      std::unique_ptr<TProfile> pA (HA1a ->ProfileX(TString::Format("p_prof_A1_MissA_%s",  rKey.c_str()).Data()));
+                                      std::unique_ptr<TProfile> pA1(HA1a1->ProfileX(TString::Format("p_prof_A1_MissA1_%s", rKey.c_str()).Data()));
+                                      std::unique_ptr<TProfile> pA2(HA1a2->ProfileX(TString::Format("p_prof_A1_MissA2_%s", rKey.c_str()).Data()));
+
+                                      if (pA)  pA->SetDirectory(nullptr);
+                                      if (pA1) pA1->SetDirectory(nullptr);
+                                      if (pA2) pA2->SetDirectory(nullptr);
 
                                     if (pA && pA1 && pA2)
                                     {
@@ -12955,13 +12959,8 @@ namespace ARJ
                                     }
                                   }
 
-
-                                  
-
-
-
                                   // ------------------------------------------------------------------
-                                  // NEW: Terminal diagnostics for MissB profile (blue)
+                                  // Terminal diagnostics for MissB profile (blue)
                                   //   - Print per truth-pT bin: <pT(reco)> ± err
                                   //   - Check whether values stay above 5 GeV
                                   //   - Compute weighted mean (constant) and chi2/ndf vs flat hypothesis
