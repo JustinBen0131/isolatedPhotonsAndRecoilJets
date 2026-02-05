@@ -4662,10 +4662,10 @@ namespace ARJ
                           TLatex tcuts;
                           tcuts.SetNDC(true);
                           tcuts.SetTextFont(42);
-                          tcuts.SetTextAlign(13);
-                          tcuts.SetTextSize(0.055);
-                          tcuts.DrawLatex(0.16, 0.86, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
-                          tcuts.DrawLatex(0.16, 0.78, TString::Format("Reco (p_{T}^{jet} > %.0f GeV)", cfgDef.jetMinPt).Data());
+                          tcuts.SetTextAlign(33);
+                          tcuts.SetTextSize(0.040);
+                          tcuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
+                          tcuts.DrawLatex(0.92, 0.54, TString::Format("Reco (p_{T}^{jet} > %.0f GeV)", cfgDef.jetMinPt).Data());
 
                           TLegend leg(0.72, 0.68, 0.92, 0.90);
                           leg.SetTextFont(42);
@@ -8959,7 +8959,8 @@ namespace ARJ
 
                       hx->Draw("E1");
 
-                      const double jetPtMin_GeV = 10.0;
+                      const auto& cfgDef = DefaultSim10and20Config();
+                      const double jetPtMin_GeV = cfgDef.jetMinPt;
 
                       const double ptMin = h3->GetXaxis()->GetBinLowEdge(ib);
                       const double ptMax = h3->GetXaxis()->GetBinUpEdge(ib);
@@ -8991,11 +8992,21 @@ namespace ARJ
                       leg->SetTextSize(0.038);
 
                       if (xAbs > 0.0)
-                        leg->AddEntry(lnAbs,  TString::Format("x_{J, min}^{abs} = #frac{10}{p_{T, max}^{#gamma}} = %.3f", xAbs),  "l");
+                        leg->AddEntry(lnAbs,  TString::Format("x_{J, min}^{abs} = #frac{%.0f}{p_{T, max}^{#gamma}} = %.3f", jetPtMin_GeV, xAbs),  "l");
                       if (xFull > 0.0)
-                        leg->AddEntry(lnFull, TString::Format("x_{J, min}^{full} = #frac{10}{p_{T, min}^{#gamma}} = %.3f", xFull), "l");
+                        leg->AddEntry(lnFull, TString::Format("x_{J, min}^{full} = #frac{%.0f}{p_{T, min}^{#gamma}} = %.3f", jetPtMin_GeV, xFull), "l");
 
                       leg->Draw();
+
+                      {
+                        TLatex tCuts;
+                        tCuts.SetNDC(true);
+                        tCuts.SetTextFont(42);
+                        tCuts.SetTextAlign(13);
+                        tCuts.SetTextSize(0.045);
+                        tCuts.DrawLatex(0.16, 0.86, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
+                        tCuts.DrawLatex(0.16, 0.78, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
+                      }
 
                       TLatex ttl;
                       ttl.SetNDC(true);
@@ -11117,38 +11128,37 @@ namespace ARJ
                             {
                               if (hEff->GetXaxis()->GetBinLowEdge(ib) < minTruthPtJES3_plot) continue;
 
-                              const double v = hEff->GetBinContent(ib);
-                              const double e = hEff->GetBinError(ib);
-                              if (v <= 0.0) continue; // ignore empty/unfilled bins
+                                const double v = hEff->GetBinContent(ib);
+                                const double e = hEff->GetBinError(ib);
+                                if (v <= 0.0) continue; // ignore empty/unfilled bins
 
-                              yMin = std::min(yMin, v - e);
-                              yMax = std::max(yMax, v + e);
-                          }
-                          if (yMin > yMax) { yMin = 0.0; yMax = 1.0; } // fallback
-                          const double pad = 0.06;
-                          const double yLo = std::max(0.0, yMin - pad);
-                          const double yHi = std::min(1.05, yMax + pad);
-                          hEff->GetYaxis()->SetRangeUser(yLo, yHi);
+                                yMin = std::min(yMin, v - e);
+                                yMax = std::max(yMax, v + e);
+                            }
+                            if (yMin > yMax) { yMin = 0.0; yMax = 1.0; } // fallback
+                            const double pad = 0.06;
+                            const double yLo = 0.0;
+                            const double yHi = std::min(1.05, yMax + pad);
+                            hEff->GetYaxis()->SetRangeUser(yLo, yHi);
 
-                          // Draw as a TGraphErrors with x-errors forced to 0:
-                          // this guarantees "vertical-only" statistical errors and no histogram bin-width segments.
-                          std::unique_ptr<TGraphErrors> gEff(new TGraphErrors());
-                          gEff->SetName(TString::Format("g_leadRecoilJetMatchEff_%s", rKey.c_str()).Data());
+                            // Draw as a TGraphErrors with x-errors forced to 0:
+                            // this guarantees "vertical-only" statistical errors and no histogram bin-width segments.
+                            std::unique_ptr<TGraphErrors> gEff(new TGraphErrors());
+                            gEff->SetName(TString::Format("g_leadRecoilJetMatchEff_%s", rKey.c_str()).Data());
 
-                          int ip = 0;
-                          for (int ib = 1; ib <= hEff->GetNbinsX(); ++ib)
-                          {
-                              if (hEff->GetXaxis()->GetBinLowEdge(ib) < minTruthPtJES3_plot) continue;
+                            int ip = 0;
+                            for (int ib = 1; ib <= hEff->GetNbinsX(); ++ib)
+                            {
+                                if (hEff->GetXaxis()->GetBinLowEdge(ib) < minTruthPtJES3_plot) continue;
 
-                              const double y  = hEff->GetBinContent(ib);
-                              const double ey = hEff->GetBinError(ib);
-                              if (y <= 0.0) continue; // skip empty/unfilled bins
+                                const double y  = hEff->GetBinContent(ib);
+                                const double ey = hEff->GetBinError(ib);
 
-                              const double x  = hEff->GetXaxis()->GetBinCenter(ib);
-                              gEff->SetPoint(ip, x, y);
-                              gEff->SetPointError(ip, 0.0, ey); // xerr=0.0  -> NO horizontal error bars
-                              ++ip;
-                          }
+                                const double x  = hEff->GetXaxis()->GetBinCenter(ib);
+                                gEff->SetPoint(ip, x, y);
+                                gEff->SetPointError(ip, 0.0, ey); // xerr=0.0  -> NO horizontal error bars
+                                ++ip;
+                            }
 
                           // Error bars are drawn using the graph's LINE attributes.
                           gEff->SetLineWidth(2);
@@ -11175,11 +11185,30 @@ namespace ARJ
                           one.SetLineWidth(2);
                           one.Draw("same");
 
-                          DrawLatexLines(0.14, 0.94, DefaultHeaderLines(ds), 0.030, 0.040);
-                          DrawLatexLines(0.14, 0.86,
-                            {TString::Format("Lead recoil-jet match efficiency (%s)", rKey.c_str()).Data()},
-                            0.030, 0.040
-                          );
+                              const double Rval =
+                                (rKey == "r02") ? 0.2 :
+                                (rKey == "r04") ? 0.4 :
+                                (rKey == "r06") ? 0.6 : -1.0;
+
+                              const auto& simCfgMap = Sim10and20Configs();
+                              const auto  itSimCfg  = simCfgMap.find(DefaultSimSampleKey());
+                              const Sim10and20Config* simCfg = (itSimCfg != simCfgMap.end() ? &itSimCfg->second : nullptr);
+
+                              DrawLatexLines(0.14, 0.92,
+                                {TString::Format("Lead recoil-jet match efficiency (R = %.1f)", Rval).Data()},
+                                0.030, 0.040
+                              );
+                              DrawLatexLines(0.14, 0.86, DefaultHeaderLines(ds), 0.030, 0.040);
+
+                              if (simCfg)
+                              {
+                                DrawLatexLines(0.14, 0.80,
+                                  {TString::Format("|#Delta#phi(#gamma,jet)| > %s", simCfg->bbLabel.c_str()).Data(),
+                                   TString::Format("Reco (p_{T}^{jet} > %.0f GeV)", simCfg->jetMinPt).Data()},
+                                  0.028, 0.040
+                                );
+                              }
+
 
                             const string outPng = JoinPath(
                               D.dirXJProjEffLeadMatch,
@@ -12682,13 +12711,23 @@ namespace ARJ
                             // -------------------------
                             if (HA1n && HA1a && HA1b)
                             {
-                                std::unique_ptr<TProfile> pN(HA1n->ProfileX(TString::Format("p_prof_A1_NUM_%s", rKey.c_str()).Data()));
-                                std::unique_ptr<TProfile> pA(HA1a->ProfileX(TString::Format("p_prof_A1_MissA_%s", rKey.c_str()).Data()));
-                                std::unique_ptr<TProfile> pB(HA1b->ProfileX(TString::Format("p_prof_A1_MissB_%s", rKey.c_str()).Data()));
+                                TProfile* pN_tmp = HA1n->ProfileX(TString::Format("p_prof_A1_NUM_tmp_%s", rKey.c_str()).Data());
+                                TProfile* pA_tmp = HA1a->ProfileX(TString::Format("p_prof_A1_MissA_tmp_%s", rKey.c_str()).Data());
+                                TProfile* pB_tmp = HA1b->ProfileX(TString::Format("p_prof_A1_MissB_tmp_%s", rKey.c_str()).Data());
+
+                                std::unique_ptr<TProfile> pN(pN_tmp ? static_cast<TProfile*>(pN_tmp->Clone(TString::Format("p_prof_A1_NUM_%s", rKey.c_str()).Data())) : nullptr);
+                                std::unique_ptr<TProfile> pA(pA_tmp ? static_cast<TProfile*>(pA_tmp->Clone(TString::Format("p_prof_A1_MissA_%s", rKey.c_str()).Data())) : nullptr);
+                                std::unique_ptr<TProfile> pB(pB_tmp ? static_cast<TProfile*>(pB_tmp->Clone(TString::Format("p_prof_A1_MissB_%s", rKey.c_str()).Data())) : nullptr);
+
+                                if (pN_tmp) { pN_tmp->SetDirectory(nullptr); delete pN_tmp; }
+                                if (pA_tmp) { pA_tmp->SetDirectory(nullptr); delete pA_tmp; }
+                                if (pB_tmp) { pB_tmp->SetDirectory(nullptr); delete pB_tmp; }
 
                                 if (pN) pN->SetDirectory(nullptr);
                                 if (pA) pA->SetDirectory(nullptr);
                                 if (pB) pB->SetDirectory(nullptr);
+
+
 
                               if (pN && pA && pB)
                               {
@@ -12846,13 +12885,23 @@ namespace ARJ
                                   // -------------------------
                                   if (HA1a && HA1a1 && HA1a2)
                                   {
-                                      std::unique_ptr<TProfile> pA (HA1a ->ProfileX(TString::Format("p_prof_A1_MissA_%s",  rKey.c_str()).Data()));
-                                      std::unique_ptr<TProfile> pA1(HA1a1->ProfileX(TString::Format("p_prof_A1_MissA1_%s", rKey.c_str()).Data()));
-                                      std::unique_ptr<TProfile> pA2(HA1a2->ProfileX(TString::Format("p_prof_A1_MissA2_%s", rKey.c_str()).Data()));
+                                      TProfile* pA_tmp  = HA1a ->ProfileX(TString::Format("p_prof_A1_MissA_tmp_%s",  rKey.c_str()).Data());
+                                      TProfile* pA1_tmp = HA1a1->ProfileX(TString::Format("p_prof_A1_MissA1_tmp_%s", rKey.c_str()).Data());
+                                      TProfile* pA2_tmp = HA1a2->ProfileX(TString::Format("p_prof_A1_MissA2_tmp_%s", rKey.c_str()).Data());
+
+                                      std::unique_ptr<TProfile> pA (pA_tmp  ? static_cast<TProfile*>(pA_tmp ->Clone(TString::Format("p_prof_A1_MissA_%s",  rKey.c_str()).Data())) : nullptr);
+                                      std::unique_ptr<TProfile> pA1(pA1_tmp ? static_cast<TProfile*>(pA1_tmp->Clone(TString::Format("p_prof_A1_MissA1_%s", rKey.c_str()).Data())) : nullptr);
+                                      std::unique_ptr<TProfile> pA2(pA2_tmp ? static_cast<TProfile*>(pA2_tmp->Clone(TString::Format("p_prof_A1_MissA2_%s", rKey.c_str()).Data())) : nullptr);
+
+                                      if (pA_tmp)  { pA_tmp->SetDirectory(nullptr);  delete pA_tmp; }
+                                      if (pA1_tmp) { pA1_tmp->SetDirectory(nullptr); delete pA1_tmp; }
+                                      if (pA2_tmp) { pA2_tmp->SetDirectory(nullptr); delete pA2_tmp; }
 
                                       if (pA)  pA->SetDirectory(nullptr);
                                       if (pA1) pA1->SetDirectory(nullptr);
                                       if (pA2) pA2->SetDirectory(nullptr);
+
+
 
                                     if (pA && pA1 && pA2)
                                     {
@@ -13601,14 +13650,22 @@ namespace ARJ
 
                       // ProfileX view
                       {
-                        std::unique_ptr<TProfile> p(hResp->ProfileX(
-                          TString::Format("p_leadJetResp_%s", rKey.c_str()).Data()
-                        ));
-                        if (p)
-                        {
-                          TCanvas c(TString::Format("c_leadJetRespProf_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
-                                    "c_leadJetRespProf", 900, 700);
-                          ApplyCanvasMargins1D(c);
+                          TProfile* p_tmp = hResp->ProfileX(
+                            TString::Format("p_leadJetResp_tmp_%s", rKey.c_str()).Data()
+                          );
+                          std::unique_ptr<TProfile> p(p_tmp ? static_cast<TProfile*>(p_tmp->Clone(
+                            TString::Format("p_leadJetResp_%s", rKey.c_str()).Data()
+                          )) : nullptr);
+                          if (p_tmp) { p_tmp->SetDirectory(nullptr); delete p_tmp; }
+                          if (p) p->SetDirectory(nullptr);
+                          if (p)
+                          {
+                            p->SetDirectory(nullptr);
+                            if (gDirectory) gDirectory->Remove(p.get());
+
+                            TCanvas c(TString::Format("c_leadJetRespProf_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
+                                      "c_leadJetRespProf", 900, 700);
+                            ApplyCanvasMargins1D(c);
 
                           p->SetTitle("");
                           p->GetXaxis()->SetTitle("p_{T}^{jet,truth} [GeV]");
@@ -15688,23 +15745,44 @@ namespace ARJ
       }
       else if (ss == SimSample::kPhotonJet10And20Merged)
       {
-          const auto& cfgs = Sim10and20Configs();
-          for (const auto& kv : cfgs)
+          if (!doRemergePhoton10and20sim)
           {
-              const auto& cfg = kv.second;
+              const string outMerged = MergedSIMOut_10and20_Default();
 
-              const string outMerged =
-                  MergedSIMOut_10and20_ForKey(cfg.key);
+              cout << ANSI_BOLD_CYN
+                   << "\n[MERGE SIM] doRemergePhoton10and20sim=false -> skipping SIM10+20 rebuild step.\n"
+                   << "            Using existing merged output: " << outMerged << "\n"
+                   << ANSI_RESET;
 
-              ok = BuildMergedSIMFile_PhotonSlices(
-                {cfg.photon10, cfg.photon20},
-                {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
-                outMerged,
-                kDirSIM,
-                {"photonJet10", "photonJet20"}
-              );
+              if (gSystem->AccessPathName(outMerged.c_str()))
+              {
+                cout << ANSI_BOLD_RED
+                     << "[MERGE SIM][FATAL] Merged SIM10+20 file not found, but doRemergePhoton10and20sim=false:\n"
+                     << "  " << outMerged << "\n"
+                     << ANSI_RESET;
+                ok = false;
+              }
+          }
+          else
+          {
+              const auto& cfgs = Sim10and20Configs();
+              for (const auto& kv : cfgs)
+              {
+                  const auto& cfg = kv.second;
 
-              if (!ok) break;
+                  const string outMerged =
+                      MergedSIMOut_10and20_ForKey(cfg.key);
+
+                  ok = BuildMergedSIMFile_PhotonSlices(
+                    {cfg.photon10, cfg.photon20},
+                    {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+                    outMerged,
+                    kDirSIM,
+                    {"photonJet10", "photonJet20"}
+                  );
+
+                  if (!ok) break;
+              }
           }
       }
       else if (ss == SimSample::kPhotonJet5And10And20Merged)
@@ -15759,6 +15837,7 @@ namespace ARJ
            << "    bothPhoton5and10sim     = " << (bothPhoton5and10sim ? "true" : "false") << "\n"
            << "    bothPhoton5and20sim     = " << (bothPhoton5and20sim ? "true" : "false") << "\n"
            << "    bothPhoton10and20sim    = " << (bothPhoton10and20sim ? "true" : "false") << "\n"
+           << "    doRemergePhoton10and20sim = " << (doRemergePhoton10and20sim ? "true" : "false") << "\n"
            << "    allPhoton5and10and20sim = " << (allPhoton5and10and20sim ? "true" : "false") << "\n";
 
       // ---------------------------------------------------------------------------

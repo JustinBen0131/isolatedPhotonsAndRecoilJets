@@ -161,19 +161,23 @@ namespace ARJ
 //   - For single-slice SIM, y-axes remain raw "Counts" (unweighted).
 // =============================================================================
 
-  inline bool isPPdataOnly   = false;
-  inline bool isSimAndDataPP = false;
+    inline bool isPPdataOnly   = false;
+    inline bool isSimAndDataPP = false;
 
-  // SIM sample selection toggles (choose EXACTLY ONE for any SIM-including run)
-  inline bool isPhotonJet5               = false;
-  inline bool isPhotonJet10              = false;
-  inline bool isPhotonJet20              = false;
+    // SIM sample selection toggles (choose EXACTLY ONE for any SIM-including run)
+    inline bool isPhotonJet5               = false;
+    inline bool isPhotonJet10              = false;
+    inline bool isPhotonJet20              = false;
 
-  inline bool bothPhoton5and10sim        = false;
-  inline bool bothPhoton5and20sim        = false;
-  inline bool bothPhoton10and20sim       = true;
+    inline bool bothPhoton5and10sim        = false;
+    inline bool bothPhoton5and20sim        = false;
+    inline bool bothPhoton10and20sim       = true;
 
-  inline bool allPhoton5and10and20sim    = false;
+    // If false, STEP 1 will NOT rebuild the photonJet10+20 merged ROOT file(s).
+    // Downstream code will simply open the already-merged output at the configured path(s).
+    inline bool doRemergePhoton10and20sim  = false;
+
+    inline bool allPhoton5and10and20sim    = false;
 
   // True if the selected SIM sample is a weighted multi-slice merge (hist units become ~pb/bin)
   inline bool IsWeightedSIMSelected()
@@ -1209,52 +1213,66 @@ namespace ARJ
         else              h->SetMinimum(1e-6);
       }
 
-      h->Draw("E1");
-      gPad->Update();
+        h->Draw("E1");
+        gPad->Update();
 
-      const double xAbs  = (ptMaxGamma > 0.0) ? (jetPtMin_GeV / ptMaxGamma) : -1.0;
-      const double xFull = (ptMinGamma > 0.0) ? (jetPtMin_GeV / ptMinGamma) : -1.0;
+        const auto& cfgDef = DefaultSim10and20Config();
+        if (jetPtMin_GeV <= 0.0) jetPtMin_GeV = cfgDef.jetMinPt;
+        const string bbLabel = cfgDef.bbLabel;
 
-      const double yMin = gPad->GetUymin();
-      const double yMax = gPad->GetUymax();
+        const double xAbs  = (ptMaxGamma > 0.0) ? (jetPtMin_GeV / ptMaxGamma) : -1.0;
+        const double xFull = (ptMinGamma > 0.0) ? (jetPtMin_GeV / ptMinGamma) : -1.0;
 
-      TLine* lnAbs = new TLine(xAbs,  yMin, xAbs,  yMax);
-      lnAbs->SetLineColor(kBlue + 1);
-      lnAbs->SetLineStyle(2);
-      lnAbs->SetLineWidth(2);
+        const double yMin = gPad->GetUymin();
+        const double yMax = gPad->GetUymax();
 
-      TLine* lnFull = new TLine(xFull, yMin, xFull, yMax);
-      lnFull->SetLineColor(kRed + 1);
-      lnFull->SetLineStyle(2);
-      lnFull->SetLineWidth(2);
+        TLine* lnAbs = new TLine(xAbs,  yMin, xAbs,  yMax);
+        lnAbs->SetLineColor(kBlue + 1);
+        lnAbs->SetLineStyle(2);
+        lnAbs->SetLineWidth(2);
 
-      if (xAbs > 0.0)  lnAbs->Draw("same");
-      if (xFull > 0.0) lnFull->Draw("same");
+        TLine* lnFull = new TLine(xFull, yMin, xFull, yMax);
+        lnFull->SetLineColor(kRed + 1);
+        lnFull->SetLineStyle(2);
+        lnFull->SetLineWidth(2);
 
-      TLegend* leg = new TLegend(0.52, 0.70, 0.95, 0.90);
-      leg->SetBorderSize(0);
-      leg->SetFillStyle(0);
-      leg->SetTextFont(42);
-      leg->SetTextSize(0.032);
+        if (xAbs > 0.0)  lnAbs->Draw("same");
+        if (xFull > 0.0) lnFull->Draw("same");
 
-      if (xAbs > 0.0)
-        leg->AddEntry(lnAbs,
-          TString::Format("x_{J, min}^{abs} = #frac{10}{p_{T, max}^{#gamma}} = %.3f", xAbs),
-          "l");
-      if (xFull > 0.0)
-        leg->AddEntry(lnFull,
-          TString::Format("x_{J, min}^{full} = #frac{10}{p_{T, min}^{#gamma}} = %.3f", xFull),
-          "l");
+        TLegend* leg = new TLegend(0.52, 0.70, 0.95, 0.90);
+        leg->SetBorderSize(0);
+        leg->SetFillStyle(0);
+        leg->SetTextFont(42);
+        leg->SetTextSize(0.032);
 
-      leg->Draw();
+        if (xAbs > 0.0)
+          leg->AddEntry(lnAbs,
+            TString::Format("x_{J, min}^{abs} = #frac{%.0f}{p_{T, max}^{#gamma}} = %.3f", jetPtMin_GeV, xAbs),
+            "l");
+        if (xFull > 0.0)
+          leg->AddEntry(lnFull,
+            TString::Format("x_{J, min}^{full} = #frac{%.0f}{p_{T, min}^{#gamma}} = %.3f", jetPtMin_GeV, xFull),
+            "l");
 
-      TLatex ttl;
-      ttl.SetNDC(true);
-      ttl.SetTextFont(42);
-      ttl.SetTextSize(0.052);
-      ttl.DrawLatex(0.12, 0.94,
-        TString::Format("RECO (unconditional) x_{J#gamma}, p_{T}^{#gamma} = %.0f - %.0f GeV, R = %.1f",
-          ptMinGamma, ptMaxGamma, R).Data());
+        leg->Draw();
+
+        {
+          TLatex tCuts;
+          tCuts.SetNDC(true);
+          tCuts.SetTextFont(42);
+          tCuts.SetTextAlign(13);
+          tCuts.SetTextSize(0.045);
+          tCuts.DrawLatex(0.14, 0.84, TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data());
+          tCuts.DrawLatex(0.14, 0.76, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
+        }
+
+        TLatex ttl;
+        ttl.SetNDC(true);
+        ttl.SetTextFont(42);
+        ttl.SetTextSize(0.052);
+        ttl.DrawLatex(0.12, 0.94,
+          TString::Format("RECO (unconditional) x_{J#gamma}, p_{T}^{#gamma} = %.0f - %.0f GeV, R = %.1f",
+            ptMinGamma, ptMaxGamma, R).Data());
 
       SaveCanvas(c, filepath);
       delete leg;

@@ -5457,11 +5457,8 @@ void RecoilJets::appendEventDisplayDiagnosticsFromJet(const Jet* jet,
     return;
   }
 
-    for (auto it = jet->begin_comp(); it != jet->end_comp(); ++it)
+    auto handleComp = [&](const Jet::SRC src, const unsigned int idx)
     {
-      const Jet::SRC src = it->first;
-      const unsigned int idx = it->second;
-
       TowerInfoContainer* towers = nullptr;
       RawTowerGeomContainer* geom = nullptr;
       RawTowerDefs::CalorimeterId caloId = RawTowerDefs::CalorimeterId::CEMC;
@@ -5490,75 +5487,93 @@ void RecoilJets::appendEventDisplayDiagnosticsFromJet(const Jet* jet,
       }
       else
       {
-        continue;
+        return;
       }
 
       if (!towers || !geom)
       {
-        continue;
+        return;
       }
 
       const auto nTowers = towers->size();
       if (nTowers == 0)
       {
-        continue;
+        return;
       }
 
       // TowerJetInput stores TowerInfo constituents as CHANNEL indices.
       // Treat compid as channel only; never decode_key here (can segfault if misused).
       if (idx >= nTowers)
       {
-        continue;
+        return;
       }
 
       TowerInfo* tower = towers->get_tower_at_channel(idx);
       if (!tower)
       {
-        continue;
+        return;
       }
 
       const unsigned int calokey = towers->encode_key(idx);
       const int twr_ieta = towers->getTowerEtaBin(calokey);
       const int twr_iphi = towers->getTowerPhiBin(calokey);
 
-    RawTowerDefs::keytype key = RawTowerDefs::encode_towerid(caloId, twr_ieta, twr_iphi);
-    RawTowerGeom* tower_geom = geom->get_tower_geometry(key);
-    if (!tower_geom)
+      RawTowerDefs::keytype key = RawTowerDefs::encode_towerid(caloId, twr_ieta, twr_iphi);
+      RawTowerGeom* tower_geom = geom->get_tower_geometry(key);
+      if (!tower_geom)
+      {
+        return;
+      }
+
+      const double x = tower_geom->get_center_x();
+      const double y = tower_geom->get_center_y();
+      const double r = std::sqrt(x * x + y * y);
+      if (!(r > 0))
+      {
+        return;
+      }
+
+      const double tower_phi = std::atan2(y, x);
+
+      const double eta0 = tower_geom->get_eta();
+      const double z0 = std::sinh(eta0) * r;
+      const double z = z0 - m_vz;
+      const double tower_eta = std::asinh(z / r);
+
+      const double E = tower->get_energy();
+      const double Et = E / std::cosh(tower_eta);
+
+      if (!std::isfinite(Et))
+      {
+        return;
+      }
+
+      calo.push_back(caloCode);
+      ieta.push_back(twr_ieta);
+      iphi.push_back(twr_iphi);
+      eta.push_back(static_cast<float>(tower_eta));
+      phi.push_back(static_cast<float>(tower_phi));
+      et.push_back(static_cast<float>(Et));
+      e.push_back(static_cast<float>(E));
+    };
+
+    Jet* jetNC = const_cast<Jet*>(jet);
+    Jet::TYPE_comp_vec& compVec = jetNC->get_comp_vec();
+
+    if (!compVec.empty())
     {
-      continue;
+      for (const auto& comp : compVec)
+      {
+        handleComp(comp.first, comp.second);
+      }
     }
-
-    const double x = tower_geom->get_center_x();
-    const double y = tower_geom->get_center_y();
-    const double r = std::sqrt(x * x + y * y);
-    if (!(r > 0))
+    else
     {
-      continue;
+      for (auto it = jet->begin_comp(); it != jet->end_comp(); ++it)
+      {
+        handleComp(it->first, it->second);
+      }
     }
-
-    const double tower_phi = std::atan2(y, x);
-
-    const double eta0 = tower_geom->get_eta();
-    const double z0 = std::sinh(eta0) * r;
-    const double z = z0 - m_vz;
-    const double tower_eta = std::asinh(z / r);
-
-    const double E = tower->get_energy();
-    const double Et = E / std::cosh(tower_eta);
-
-    if (!std::isfinite(Et))
-    {
-      continue;
-    }
-
-    calo.push_back(caloCode);
-    ieta.push_back(twr_ieta);
-    iphi.push_back(twr_iphi);
-    eta.push_back(static_cast<float>(tower_eta));
-    phi.push_back(static_cast<float>(tower_phi));
-    et.push_back(static_cast<float>(Et));
-    e.push_back(static_cast<float>(E));
-  }
 }
 
 void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
@@ -5659,11 +5674,11 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
       JetContainer* calib = itCal->second;
       JetContainer* raw   = itRaw->second;
 
-      // Require RAW constituents; otherwise tower payload will be empty.
-      auto hasConstituents = [&](const Jet* j) -> bool
-      {
-        return (j && (j->begin_comp() != j->end_comp()));
-      };
+        // Require RAW constituents; otherwise tower payload will be empty.
+        auto hasConstituents = [&](const Jet* j) -> bool
+        {
+          return (j && (j->size_comp() > 0));
+        };
 
       // 1) Primary: ID-based mapping (JetCalib sets calibrated jet id in the same loop as raw jets).
       const int idC = static_cast<int>(calibJet->get_id());
