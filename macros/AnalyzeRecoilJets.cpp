@@ -5961,9 +5961,10 @@ namespace ARJ
 
               const std::string baseDir   = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck/pTminJet3/7pi_8_BB";
               const std::string plotsDir  = JoinPath(baseDir, "plots");
-              const std::string sam10     = JoinPath(baseDir, "histsPhoton10_unsmear.root");
-              const std::string sam20     = JoinPath(baseDir, "histsPhoton20_unsmear.root");
-              const std::string samMerged = JoinPath(baseDir, "histsPhoton10plus20_unsmear_MERGED.root");
+              const std::string sam10     = JoinPath(baseDir, "histsPhoton10.root");
+              const std::string sam20     = JoinPath(baseDir, "histsPhoton20.root");
+              const std::string samMerged = JoinPath(baseDir, "histsPhoton10plus20_MERGED.root");
+              const std::string samMergedPrev = JoinPath(baseDir, "histsPhoton10plus20_unsmear_MERGED.root");
 
               const std::string baseDir_fixed = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/noDeltaRcheckOnJetPhotonForReco/pTminJet3/7pi_8_BB";
               const std::string jFix10        = JoinPath(baseDir_fixed, "RecoilJets_photonjet10_ALL_jetMinPt3_7piOver8.root");
@@ -6017,24 +6018,32 @@ namespace ARJ
                 return (xsec_pb > 0.0 && nev_acc > 0.0);
               };
 
-              auto PrintH1Summary = [&](const std::string& tag, TH1* h)->void
+            auto PrintH1Summary = [&](const std::string& tag, TH1* h)->void
+            {
+              if (!h)
               {
-                if (!h)
-                {
-                  cout << "    " << tag << " = <null>\n";
-                  return;
-                }
-                const int nb = h->GetNbinsX();
-                const double ent = h->GetEntries();
-                const double integ = h->Integral(0, nb + 1);
-                const double maxv = h->GetMaximum();
-                cout << "    " << tag
-                     << "  name=" << h->GetName()
-                     << "  entries=" << std::fixed << std::setprecision(0) << ent
-                     << "  integral=" << std::setprecision(6) << integ
-                     << "  max=" << std::setprecision(6) << maxv
-                     << "\n";
-              };
+                cout << "    " << tag << " = <null>\n";
+                return;
+              }
+              const int nb = h->GetNbinsX();
+              const double ent = h->GetEntries();
+              const double integ = h->Integral(0, nb + 1);
+              const double maxv = h->GetMaximum();
+              cout << "    " << tag
+                   << "  name=" << h->GetName()
+                   << "  entries=" << std::fixed << std::setprecision(0) << ent
+                   << "  integral=" << std::setprecision(6) << integ
+                   << "  max=" << std::setprecision(6) << maxv
+                   << "\n";
+            };
+
+            auto HasKey =
+              [&](TFile* f, const std::string& key)->bool
+            {
+              if (!f) return false;
+              TObject* obj = f->Get(key.c_str());
+              return (obj != nullptr);
+            };
 
               // --------------------------------------------------------------------------------
               // Build a "Sam merged" file containing ONLY the hratio_* histograms (what we need).
@@ -6203,20 +6212,32 @@ namespace ARJ
                 return;
               }
 
-              // Open all three Sam handles so we can QA and also fall back if merged is bad.
-              TFile* fSamM = TFile::Open(samMerged.c_str(), "READ");
-              TFile* fSam10 = TFile::Open(sam10.c_str(), "READ");
-              TFile* fSam20 = TFile::Open(sam20.c_str(), "READ");
-              if (!fSamM || fSamM->IsZombie() || !fSam10 || fSam10->IsZombie() || !fSam20 || fSam20->IsZombie())
-              {
-                cout << ANSI_BOLD_YEL
-                     << "[WARN] Sam-vs-Justin overlay skipped: cannot open Sam files (merged and/or inputs).\n"
-                     << ANSI_RESET;
-                if (fSamM) fSamM->Close();
-                if (fSam10) fSam10->Close();
-                if (fSam20) fSam20->Close();
-                return;
-              }
+            // Open all three Sam handles so we can QA and also fall back if merged is bad.
+            TFile* fSamM = TFile::Open(samMerged.c_str(), "READ");
+            TFile* fSam10 = TFile::Open(sam10.c_str(), "READ");
+            TFile* fSam20 = TFile::Open(sam20.c_str(), "READ");
+            TFile* fSamPrevM = TFile::Open(samMergedPrev.c_str(), "READ");
+            if (!fSamM || fSamM->IsZombie() || !fSam10 || fSam10->IsZombie() || !fSam20 || fSam20->IsZombie())
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] Sam-vs-Justin overlay skipped: cannot open Sam files (merged and/or inputs).\n"
+                   << ANSI_RESET;
+              if (fSamM) fSamM->Close();
+              if (fSam10) fSam10->Close();
+              if (fSam20) fSam20->Close();
+              if (fSamPrevM) fSamPrevM->Close();
+              return;
+            }
+
+            if (!fSamPrevM || fSamPrevM->IsZombie())
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] Sam PREV merged file not available; will skip Prev-vs-JES overlays:\n"
+                   << "       prev=" << samMergedPrev << "\n"
+                   << ANSI_RESET;
+              if (fSamPrevM) fSamPrevM->Close();
+              fSamPrevM = nullptr;
+            }
 
               // Determine Sam weights (for in-memory merge fallback).
               double sx10=0.0, sn10=0.0, sx20=0.0, sn20=0.0;
@@ -6265,78 +6286,143 @@ namespace ARJ
                   fDefaultM = nullptr;
               }
 
-              auto GetSamHistRaw =
-                [&](TFile* f, int iPt, int jR, int kIso, int lABCD)->TH1*
+            auto GetSamHistRaw =
+              [&](TFile* f, int iPt, int jR, int kIso, int lABCD)->TH1*
+            {
+              // Sam naming scheme: hratio_i_j_k_l_m
+              //   i: pT bin index
+              //   j: jet radius index
+              //   k: uncalib/calib [0,1]
+              //   l: iso-bdt cut bin (use 0)
+              //   m: ABCD bin (use lABCD arg here)
+              const std::string nm = TString::Format("hratio_%d_%d_%d_%d_%d", iPt, jR, kIso, 0, lABCD).Data();
+              TH1* h = dynamic_cast<TH1*>(f->Get(nm.c_str()));
+              return h;
+            };
+
+            auto GetSamHistMergedOrFallback =
+              [&](int iPt, int jR, int kIso, int lABCD, const std::string& newName)->TH1*
+            {
+              // Sam naming scheme: hratio_i_j_k_l_m  (use l=0 iso-bdt bin; m = ABCD bin)
+              const std::string nmReq = TString::Format("hratio_%d_%d_%d_%d_%d", iPt, jR, kIso, 0, lABCD).Data();
+
+              // Also build explicit "calib" vs "uncalib" names for transparency
+              const std::string nmCal = TString::Format("hratio_%d_%d_%d_%d_%d", iPt, jR, 1, 0, lABCD).Data();
+              const std::string nmUnc = TString::Format("hratio_%d_%d_%d_%d_%d", iPt, jR, 0, 0, lABCD).Data();
+
+              const bool hasCalM = HasKey(fSamM, nmCal);
+              const bool hasUncM = HasKey(fSamM, nmUnc);
+
+              // Loud, explicit reporting so it's impossible to miss what exists
+              cout << ANSI_DIM
+                   << "    [SAM KEYCHECK] i=" << iPt << " j=" << jR << " l=" << lABCD
+                   << "  merged: calib(k=1)=" << (hasCalM ? "YES" : "NO")
+                   << "  uncalib(k=0)=" << (hasUncM ? "YES" : "NO")
+                   << "  requesting k=" << kIso << "\n"
+                   << ANSI_RESET;
+
+              // If user thinks they're reading calibrated but only uncalibrated exists, scream
+              if (kIso == 1 && !hasCalM && hasUncM)
               {
-                const std::string nm = TString::Format("hratio_%d_%d_%d_%d", iPt, jR, kIso, lABCD).Data();
-                TH1* h = dynamic_cast<TH1*>(f->Get(nm.c_str()));
-                return h;
-              };
+                cout << ANSI_BOLD_YEL
+                     << "[WARN] [SAM CALIB] Requested calibrated (k=1) histogram but ONLY uncalibrated (k=0) exists in merged file.\n"
+                     << "       requested=" << nmReq << "\n"
+                     << "       available_uncalib=" << nmUnc << "\n"
+                     << ANSI_RESET;
+              }
 
-              auto GetSamHistMergedOrFallback =
-                [&](int iPt, int jR, int kIso, int lABCD, const std::string& newName)->TH1*
+              // 1) Try merged file
+              TH1* hm = dynamic_cast<TH1*>(fSamM->Get(nmReq.c_str()));
+              if (hm)
               {
-                const std::string nm = TString::Format("hratio_%d_%d_%d_%d", iPt, jR, kIso, lABCD).Data();
-
-                // 1) Try merged file
-                TH1* hm = dynamic_cast<TH1*>(fSamM->Get(nm.c_str()));
-                if (hm)
+                TH1* c = CloneTH1(hm, newName);
+                if (c) c->SetDirectory(nullptr);
+                if (c)
                 {
-                  TH1* c = CloneTH1(hm, newName);
-                  if (c) c->SetDirectory(nullptr);
-                  if (c)
-                  {
-                    const int nb = c->GetNbinsX();
-                    const double integ = c->Integral(0, nb + 1);
-                    if (integ > 0.0) return c;
+                  const int nb = c->GetNbinsX();
+                  const double integ = c->Integral(0, nb + 1);
+                  if (integ > 0.0) return c;
 
-                    // If merged hist is all-zero, fall through to fallback
-                    delete c;
-                  }
+                  // If merged hist is all-zero, fall through to fallback
+                  delete c;
                 }
+              }
 
-                // 2) Fallback: merge in memory from inputs (only for the histogram we need)
-                TH1* h10 = GetSamHistRaw(fSam10, iPt, jR, kIso, lABCD);
-                TH1* h20 = GetSamHistRaw(fSam20, iPt, jR, kIso, lABCD);
-                if (!h10 && !h20) return nullptr;
+              // 2) Fallback: merge in memory from inputs (only for the histogram we need)
+              TH1* h10 = GetSamHistRaw(fSam10, iPt, jR, kIso, lABCD);
+              TH1* h20 = GetSamHistRaw(fSam20, iPt, jR, kIso, lABCD);
+              if (!h10 && !h20)
+              {
+                cout << ANSI_BOLD_YEL
+                     << "[WARN] [SAM READ] Missing Sam histogram in BOTH inputs for requested k.\n"
+                     << "       requested=" << nmReq << "\n"
+                     << ANSI_RESET;
+                return nullptr;
+              }
 
-                TH1* out = nullptr;
+              // Additional transparency: if k=1 requested, verify whether k=0 exists in inputs
+              if (kIso == 1)
+              {
+                const bool hasCal10 = HasKey(fSam10, nmCal);
+                const bool hasUnc10 = HasKey(fSam10, nmUnc);
+                const bool hasCal20 = HasKey(fSam20, nmCal);
+                const bool hasUnc20 = HasKey(fSam20, nmUnc);
 
-                if (h10)
+                cout << ANSI_DIM
+                     << "    [SAM KEYCHECK] inputs: 10GeV calib=" << (hasCal10 ? "YES" : "NO")
+                     << " uncalib=" << (hasUnc10 ? "YES" : "NO")
+                     << " | 20GeV calib=" << (hasCal20 ? "YES" : "NO")
+                     << " uncalib=" << (hasUnc20 ? "YES" : "NO")
+                     << "\n"
+                     << ANSI_RESET;
+
+                if ((!hasCal10 && hasUnc10) || (!hasCal20 && hasUnc20))
                 {
-                  out = CloneTH1(h10, newName);
-                  if (out)
-                  {
-                    out->SetDirectory(nullptr);
-                    if (out->GetSumw2N() == 0) out->Sumw2();
-                    out->Scale(sw10);
-                  }
+                  cout << ANSI_BOLD_YEL
+                       << "[WARN] [SAM CALIB] Requested calibrated (k=1) but at least one input only has uncalibrated (k=0).\n"
+                       << "       calib=" << nmCal << "\n"
+                       << "       uncalib=" << nmUnc << "\n"
+                       << ANSI_RESET;
                 }
-                if (!out && h20)
-                {
-                  out = CloneTH1(h20, newName);
-                  if (out)
-                  {
-                    out->SetDirectory(nullptr);
-                    if (out->GetSumw2N() == 0) out->Sumw2();
-                    out->Scale(sw20);
-                  }
-                }
-                if (out && h20)
-                {
-                  TH1* tmp = CloneTH1(h20, newName + "_tmp20");
-                  if (tmp)
-                  {
-                    tmp->SetDirectory(nullptr);
-                    if (tmp->GetSumw2N() == 0) tmp->Sumw2();
-                    tmp->Scale(sw20);
-                    out->Add(tmp);
-                    delete tmp;
-                  }
-                }
+              }
 
-                return out;
-              };
+              TH1* out = nullptr;
+
+              if (h10)
+              {
+                out = CloneTH1(h10, newName);
+                if (out)
+                {
+                  out->SetDirectory(nullptr);
+                  if (out->GetSumw2N() == 0) out->Sumw2();
+                  out->Scale(sw10);
+                }
+              }
+              if (!out && h20)
+              {
+                out = CloneTH1(h20, newName);
+                if (out)
+                {
+                  out->SetDirectory(nullptr);
+                  if (out->GetSumw2N() == 0) out->Sumw2();
+                  out->Scale(sw20);
+                }
+              }
+              if (out && h20)
+              {
+                TH1* tmp = CloneTH1(h20, newName + "_tmp20");
+                if (tmp)
+                {
+                  tmp->SetDirectory(nullptr);
+                  if (tmp->GetSumw2N() == 0) tmp->Sumw2();
+                  tmp->Scale(sw20);
+                  out->Add(tmp);
+                  delete tmp;
+                }
+              }
+
+              return out;
+            };
 
               // Justin reference: ALWAYS use the jetMinPt3_7piOver8 slice files (as if default)
               const Sim10and20Config& cfgJ = Sim10and20ConfigForKey(kAltSimSampleKey_jetMinPt3_7piOver8);
@@ -6629,10 +6715,17 @@ namespace ARJ
                 if (integ > 0.0) h->Scale(1.0 / integ);
               };
 
-              // Sam pT binning edges: [10,11,12,13,15,19,30]
-              const std::vector<double> samPtEdges = {10,11,12,13,15,19,30};
-              const int kIso = 0;
-              const int lABCD = 0;
+            // Sam pT binning edges: [10,11,12,13,15,19,30]
+            const std::vector<double> samPtEdges = {10,11,12,13,15,19,30};
+
+            // Sam naming: hratio_i_j_k_l_m where k = uncalib/calib [0,1]
+            // We want the JES-calibrated Sam curve => k=1
+            const int kIsoSamJES  = 1;
+
+            // Prev distribution comes from the legacy merged file (old naming), keep k=0 there
+            const int kIsoSamPrev = 0;
+
+            const int lABCD = 0;
 
               auto FindSamExactEdgeIndex =
                 [&](double x)->int
@@ -6656,56 +6749,126 @@ namespace ARJ
                 return -1;
               };
 
-              auto GetSamHistForJustinBin =
-                [&](double ptLo, double ptHi, int jR, int kIso_, int lABCD_, const std::string& newName, std::string& outSamLabel)->TH1*
+            auto GetSamHistForJustinBin =
+              [&](double ptLo, double ptHi, int jR, int kIso_, int lABCD_, const std::string& newName, std::string& outSamLabel)->TH1*
+            {
+              outSamLabel = "UNKNOWN";
+
+              const int a = FindSamExactEdgeIndex(ptLo);
+              const int b = FindSamExactEdgeIndex(ptHi);
+
+              // Exact edge match: SUM Sam bins (integration)
+              if (a >= 0 && b >= 0 && b > a)
               {
-                outSamLabel = "UNKNOWN";
-
-                const int a = FindSamExactEdgeIndex(ptLo);
-                const int b = FindSamExactEdgeIndex(ptHi);
-
-                // Exact edge match: SUM Sam bins (integration)
-                if (a >= 0 && b >= 0 && b > a)
+                TH1* sum = nullptr;
+                for (int iPt = a; iPt < b; ++iPt)
                 {
-                  TH1* sum = nullptr;
-                  for (int iPt = a; iPt < b; ++iPt)
+                  TH1* h = GetSamHistMergedOrFallback(
+                    iPt, jR, kIso_, lABCD_,
+                    TString::Format("%s_sam_i%d", newName.c_str(), iPt).Data()
+                  );
+                  if (!h) { if (sum) delete sum; return nullptr; }
+
+                  if (!sum)
                   {
-                    TH1* h = GetSamHistMergedOrFallback(
-                      iPt, jR, kIso_, lABCD_,
-                      TString::Format("%s_sam_i%d", newName.c_str(), iPt).Data()
-                    );
-                    if (!h) { if (sum) delete sum; return nullptr; }
-
-                    if (!sum)
+                    sum = CloneTH1(h, newName);
+                    if (sum)
                     {
-                      sum = CloneTH1(h, newName);
-                      if (sum)
-                      {
-                        sum->Reset("ICES");
-                        sum->SetDirectory(nullptr);
-                      }
+                      sum->Reset("ICES");
+                      sum->SetDirectory(nullptr);
                     }
-                    if (sum) sum->Add(h);
-                    delete h;
                   }
-
-                  outSamLabel = TString::Format("%.0f-%.0f", ptLo, ptHi).Data();
-                  return sum;
+                  if (sum) sum->Add(h);
+                  delete h;
                 }
 
-                // Otherwise: use single Sam bin that COVERS [ptLo,ptHi]
-                const int iCover = FindSamCoveringBinIndex(ptLo, ptHi);
-                if (iCover < 0)
+                outSamLabel = TString::Format("%.0f-%.0f", ptLo, ptHi).Data();
+                return sum;
+              }
+
+              // Otherwise: use single Sam bin that COVERS [ptLo,ptHi]
+              const int iCover = FindSamCoveringBinIndex(ptLo, ptHi);
+              if (iCover < 0)
+              {
+                return nullptr;
+              }
+
+              const double sLo = samPtEdges[iCover];
+              const double sHi = samPtEdges[iCover+1];
+              outSamLabel = TString::Format("%.0f-%.0f", sLo, sHi).Data();
+
+              return GetSamHistMergedOrFallback(iCover, jR, kIso_, lABCD_, newName);
+            };
+
+            // ------------------------------------------------------------------------------
+            // PREV Sam distribution (from histsPhoton10plus20_unsmear_MERGED.root)
+            //   - old naming scheme: hratio_i_j_k_l
+            // ------------------------------------------------------------------------------
+            auto GetSamPrevHistMerged =
+              [&](int iPt, int jR, int kIso, int lABCD, const std::string& newName)->TH1*
+            {
+              if (!fSamPrevM) return nullptr;
+
+              const std::string nm = TString::Format("hratio_%d_%d_%d_%d", iPt, jR, kIso, lABCD).Data();
+              TH1* h = dynamic_cast<TH1*>(fSamPrevM->Get(nm.c_str()));
+              if (!h) return nullptr;
+
+              TH1* c = CloneTH1(h, newName);
+              if (c) c->SetDirectory(nullptr);
+              return c;
+            };
+
+            auto GetSamPrevHistForJustinBin =
+              [&](double ptLo, double ptHi, int jR, int kIso_, int lABCD_, const std::string& newName, std::string& outSamLabel)->TH1*
+            {
+              outSamLabel = "UNKNOWN";
+              if (!fSamPrevM) return nullptr;
+
+              const int a = FindSamExactEdgeIndex(ptLo);
+              const int b = FindSamExactEdgeIndex(ptHi);
+
+              // Exact edge match: SUM Sam bins (integration)
+              if (a >= 0 && b >= 0 && b > a)
+              {
+                TH1* sum = nullptr;
+                for (int iPt = a; iPt < b; ++iPt)
                 {
-                  return nullptr;
+                  TH1* h = GetSamPrevHistMerged(
+                    iPt, jR, kIso_, lABCD_,
+                    TString::Format("%s_prev_i%d", newName.c_str(), iPt).Data()
+                  );
+                  if (!h) { if (sum) delete sum; return nullptr; }
+
+                  if (!sum)
+                  {
+                    sum = CloneTH1(h, newName);
+                    if (sum)
+                    {
+                      sum->Reset("ICES");
+                      sum->SetDirectory(nullptr);
+                    }
+                  }
+                  if (sum) sum->Add(h);
+                  delete h;
                 }
 
-                const double sLo = samPtEdges[iCover];
-                const double sHi = samPtEdges[iCover+1];
-                outSamLabel = TString::Format("%.0f-%.0f", sLo, sHi).Data();
+                outSamLabel = TString::Format("%.0f-%.0f", ptLo, ptHi).Data();
+                return sum;
+              }
 
-                return GetSamHistMergedOrFallback(iCover, jR, kIso_, lABCD_, newName);
-              };
+              // Otherwise: use single Sam bin that COVERS [ptLo,ptHi]
+              const int iCover = FindSamCoveringBinIndex(ptLo, ptHi);
+              if (iCover < 0)
+              {
+                return nullptr;
+              }
+
+              const double sLo = samPtEdges[iCover];
+              const double sHi = samPtEdges[iCover+1];
+              outSamLabel = TString::Format("%.0f-%.0f", sLo, sHi).Data();
+
+              return GetSamPrevHistMerged(iCover, jR, kIso_, lABCD_, newName);
+            };
 
               const auto& jes3Edges = Binning().jes3_photon_pt_bins;
 
@@ -6828,22 +6991,32 @@ namespace ARJ
 
                       std::string samPtLabel;
                       TH1* hSam = GetSamHistForJustinBin(
-                        ptLo, ptHi, rm.jIdx, kIso, lABCD,
+                        ptLo, ptHi, rm.jIdx, kIsoSamJES, lABCD,
                         TString::Format("hSam_xJ_%.0f_%.0f_%s", ptLo, ptHi, rKey.c_str()).Data(),
                         samPtLabel
                       );
 
+                      std::string samPrevPtLabel;
+                      TH1* hSamPrev = GetSamPrevHistForJustinBin(
+                        ptLo, ptHi, rm.jIdx, kIsoSamPrev, lABCD,
+                        TString::Format("hSamPrev_xJ_%.0f_%.0f_%s", ptLo, ptHi, rKey.c_str()).Data(),
+                        samPrevPtLabel
+                      );
+
                     cout << "  bin " << std::fixed << std::setprecision(0) << ptLo << "-" << ptHi
                          << "  SamUsed=" << samPtLabel
-                         << "  jIdx=" << rm.jIdx << "  k=" << kIso << "  l=" << lABCD << "\n";
+                      << "  SamPrevUsed=" << samPrevPtLabel
+                      << "  jIdx=" << rm.jIdx << "  kSamJES=" << kIsoSamJES << "  kSamPrev=" << kIsoSamPrev << "  l=" << lABCD << "\n";
 
-                    PrintH1Summary("Sam(raw)", hSam);
+                    PrintH1Summary("Sam(raw,JES)", hSam);
+                    PrintH1Summary("Sam(raw,Prev)", hSamPrev);
                     PrintH1Summary("Justin(raw)", hJustin);
 
                     if (!hJustin || !hSam)
                     {
                       if (hJustin) delete hJustin;
                       if (hSam) delete hSam;
+                      if (hSamPrev) delete hSamPrev;
                       continue;
                     }
 
@@ -6865,7 +7038,7 @@ namespace ARJ
                         t.DrawLatex(0.14, 0.92, "Sam only: hratio");
                         t.SetTextSize(0.034);
                         t.DrawLatex(0.14, 0.86, TString::Format("Sam p_{T}^{#gamma}: %s GeV", samPtLabel.c_str()).Data());
-                        t.DrawLatex(0.14, 0.81, TString::Format("R=%.1f  j=%d  k=%d  l=%d", R, rm.jIdx, kIso, lABCD).Data());
+                          t.DrawLatex(0.14, 0.81, TString::Format("R=%.1f  j=%d  kSamJES=%d  l=%d", R, rm.jIdx, kIsoSamJES, lABCD).Data());
 
                           SaveCanvas(cS, JoinPath(dirQA_SamOnly,
                             TString::Format("SamOnly_hratio_SamPt_%s_%s.png", samPtLabel.c_str(), rKey.c_str()).Data()
@@ -6927,6 +7100,37 @@ namespace ARJ
                         }
                       }
 
+                      // Rebin PREV Sam onto Justin axis as well (if available)
+                      if (hSamPrev)
+                      {
+                        TH1* hSamPrevReb = CloneTH1(hJustin, TString::Format("%s_rebinnedToJustin", hSamPrev->GetName()).Data());
+                        if (hSamPrevReb)
+                        {
+                          hSamPrevReb->Reset("ICES");
+                          hSamPrevReb->SetDirectory(nullptr);
+                          if (hSamPrevReb->GetSumw2N() == 0) hSamPrevReb->Sumw2();
+
+                          const int nbIn = hSamPrev->GetNbinsX();
+                          for (int ib = 1; ib <= nbIn; ++ib)
+                          {
+                            const double x = hSamPrev->GetXaxis()->GetBinCenter(ib);
+                            const int ob = hSamPrevReb->FindBin(x);
+                            if (ob < 1 || ob > hSamPrevReb->GetNbinsX()) continue;
+
+                            const double c = hSamPrev->GetBinContent(ib);
+                            const double e = hSamPrev->GetBinError(ib);
+
+                            hSamPrevReb->SetBinContent(ob, hSamPrevReb->GetBinContent(ob) + c);
+
+                            const double oe = hSamPrevReb->GetBinError(ob);
+                            hSamPrevReb->SetBinError(ob, std::sqrt(oe*oe + e*e));
+                          }
+
+                          delete hSamPrev;
+                          hSamPrev = hSamPrevReb;
+                        }
+                      }
+
                       TH1* hJustinFixed = nullptr;
                       if (hJustin3_reco_fixed)
                       {
@@ -6941,11 +7145,13 @@ namespace ARJ
                       }
 
                       StyleForOverlay(hSam, 2);
+                      if (hSamPrev) StyleForOverlay(hSamPrev, 1);
                       StyleForOverlay(hJustin, 4);
                       if (hJustinFixed) StyleForOverlay(hJustinFixed, 8);
                       if (hDefault) StyleForOverlay(hDefault, 6);
 
-                      PrintH1Summary("Sam(norm)", hSam);
+                      PrintH1Summary("Sam(norm,JES)", hSam);
+                      PrintH1Summary("Sam(norm,Prev)", hSamPrev);
                       PrintH1Summary("Justin(norm)", hJustin);
                       if (hJustinFixed) PrintH1Summary("JustinFixed(norm)", hJustinFixed);
                       if (hDefault) PrintH1Summary("DefaultReco(norm)", hDefault);
@@ -6955,13 +7161,17 @@ namespace ARJ
                       //      + ONLY for pT=13-15, draw the jetMinPt cut lines and add a small legend.
                       // -------------------------------------------------------------------------
                       {
-                        const double ymax = std::max(hSam->GetMaximum(), hJustin->GetMaximum());
+                        double ymax = 0.0;
+                        ymax = std::max(ymax, hSam->GetMaximum());
+                        if (hSamPrev) ymax = std::max(ymax, hSamPrev->GetMaximum());
+                        ymax = std::max(ymax, hJustin->GetMaximum());
                         hSam->SetMaximum(ymax * 1.1);
 
                         TCanvas c("c_SamVsJustin","c_SamVsJustin",900,700);
                         ApplyCanvasMargins1D(c);
 
                         hSam->Draw("E1");
+                        if (hSamPrev) hSamPrev->Draw("E1 same");
                         hJustin->Draw("E1 same");
 
                         // Optional cut lines ONLY for the 13-15 GeV bin (current sample is jetMinPt3_7piOver8)
@@ -6994,8 +7204,9 @@ namespace ARJ
                         leg.SetTextSize(0.033);
                         leg.SetFillStyle(0);
                         leg.SetBorderSize(0);
-                        leg.AddEntry(hSam,    TString::Format("Sam's Reco (R = %.1f)", R).Data(), "ep");
-                        leg.AddEntry(hJustin, TString::Format("Justin's RECO w/ Matched Cuts (R = %.1f)", R).Data(), "ep");
+                          leg.AddEntry(hSam,    TString::Format("JES Calibrated - Sam (R = %.1f)", R).Data(), "ep");
+                          if (hSamPrev) leg.AddEntry(hSamPrev, TString::Format("Prev Distribution - Sam (R = %.1f)", R).Data(), "ep");
+                          leg.AddEntry(hJustin, TString::Format("Justin's RECO w/ Matched Cuts (R = %.1f)", R).Data(), "ep");
                         leg.Draw();
 
                         // Note: aligned just under and a bit left of the legend block
@@ -7171,11 +7382,24 @@ namespace ARJ
                             {
                               StyleForOverlay(hJustinTag, 6);
 
+                                auto MaxBinContent = [&](TH1* h)->double
+                                {
+                                  if (!h) return 0.0;
+                                  double m = 0.0;
+                                  const int nb = h->GetNbinsX();
+                                  for (int ib = 1; ib <= nb; ++ib)
+                                  {
+                                    const double v = h->GetBinContent(ib);
+                                    if (v > m) m = v;
+                                  }
+                                  return m;
+                                };
+
                                 double ymax3 = 0.0;
-                                ymax3 = std::max(ymax3, hSam->GetMaximum());
-                                ymax3 = std::max(ymax3, hJustin->GetMaximum());
-                                ymax3 = std::max(ymax3, hJustinTag->GetMaximum());
-                                hSam->SetMaximum(ymax3 * 1.10);
+                                ymax3 = std::max(ymax3, MaxBinContent(hSam));
+                                ymax3 = std::max(ymax3, MaxBinContent(hJustin));
+                                ymax3 = std::max(ymax3, MaxBinContent(hJustinTag));
+                                hSam->SetMaximum(ymax3 * 1.03);
 
                               TCanvas c3("c_SamVsCurrentRecoVsTruthTagged","c_SamVsCurrentRecoVsTruthTagged",900,700);
                               ApplyCanvasMargins1D(c3);
@@ -7319,6 +7543,7 @@ namespace ARJ
                       }
 
                       delete hSam;
+                      if (hSamPrev) delete hSamPrev;
                       delete hJustin;
                       if (hDefault) delete hDefault;
                   }
@@ -7353,15 +7578,15 @@ namespace ARJ
                       );
 
                       std::string samPtLabel;
-                      TH1* hSam = GetSamHistForJustinBin(
-                        ptLo, ptHi, rm.jIdx, kIso, lABCD,
-                        TString::Format("hSam_xJ_%.0f_%.0f_%s", ptLo, ptHi, rKey.c_str()).Data(),
-                        samPtLabel
-                      );
+                        TH1* hSam = GetSamHistForJustinBin(
+                          ptLo, ptHi, rm.jIdx, kIsoSamJES, lABCD,
+                          TString::Format("hSam_xJ_%.0f_%.0f_%s", ptLo, ptHi, rKey.c_str()).Data(),
+                          samPtLabel
+                        );
 
                       cout << "  bin " << std::fixed << std::setprecision(0) << ptLo << "-" << ptHi
-                           << "  SamUsed=" << samPtLabel
-                           << "  jIdx=" << rm.jIdx << "  k=" << kIso << "  l=" << lABCD << "\n";
+                        << "  SamUsed=" << samPtLabel
+                        << "  jIdx=" << rm.jIdx << "  kSamJES=" << kIsoSamJES << "  l=" << lABCD << "\n";
 
                       PrintH1Summary("Sam(raw)", hSam);
                       PrintH1Summary("JustinTruthTagged(raw)", hJustin);
@@ -7497,6 +7722,7 @@ namespace ARJ
             fSamM->Close();
             fSam10->Close();
             fSam20->Close();
+            if (fSamPrevM) fSamPrevM->Close();
 
             if (fDefaultM) fDefaultM->Close();
 
