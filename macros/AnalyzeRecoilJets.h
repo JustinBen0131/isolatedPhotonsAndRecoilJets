@@ -1203,8 +1203,9 @@ namespace ARJ
       h->SetMarkerStyle(20);
       h->SetMarkerSize(1.0);
 
-      h->GetXaxis()->SetTitle("x_{J#gamma}");
-      h->GetYaxis()->SetTitle(yTitleEff.c_str());
+        h->GetXaxis()->SetTitle("x_{J#gamma}");
+        h->GetXaxis()->SetRangeUser(0.0, 2.0);
+        h->GetYaxis()->SetTitle(yTitleEff.c_str());
 
       if (logy)
       {
@@ -1260,10 +1261,10 @@ namespace ARJ
           TLatex tCuts;
           tCuts.SetNDC(true);
           tCuts.SetTextFont(42);
-          tCuts.SetTextAlign(13);
-          tCuts.SetTextSize(0.045);
-          tCuts.DrawLatex(0.14, 0.84, TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data());
-          tCuts.DrawLatex(0.14, 0.76, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
+          tCuts.SetTextAlign(33);
+          tCuts.SetTextSize(0.038);
+          tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data());
+          tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
         }
 
         TLatex ttl;

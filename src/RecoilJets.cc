@@ -2010,10 +2010,10 @@ int RecoilJets::End(PHCompositeNode*)
     // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
     if (m_evtDiagTree)
       {
+        const Long64_t nED = m_evtDiagTree->GetEntries();
+
         if (Verbosity() >= 1)
         {
-          const Long64_t nED = m_evtDiagTree->GetEntries();
-
           std::cout << CLR_CYAN
                     << "\n[End][EventDisplayTree] entries=" << nED
                     << "  fillsRecorded=" << m_evtDiagNFill
@@ -2022,17 +2022,257 @@ int RecoilJets::End(PHCompositeNode*)
                     << "  bestTowers=" << m_evtDiagNFillWithBestTowers
                     << CLR_RESET << "\n";
 
-          std::cout << "  byCat: "
+          std::cout << "  byCat(counters): "
                     << "NUM fills=" << m_evtDiagNFillByCat[0] << " anyTowers=" << m_evtDiagNFillWithAnyTowersByCat[0]
                     << "  MissA fills=" << m_evtDiagNFillByCat[1] << " anyTowers=" << m_evtDiagNFillWithAnyTowersByCat[1]
                     << "  MissB fills=" << m_evtDiagNFillByCat[2] << " anyTowers=" << m_evtDiagNFillWithAnyTowersByCat[2]
                     << "\n";
 
-          if (nED > 0 && m_evtDiagNFillWithAnyTowers == 0)
+          const int nBr = (m_evtDiagTree->GetListOfBranches() ? m_evtDiagTree->GetListOfBranches()->GetEntries() : -1);
+          const bool hasSelEt  = (m_evtDiagTree->GetBranch("sel_etTower")  != nullptr);
+          const bool hasBestEt = (m_evtDiagTree->GetBranch("best_etTower") != nullptr);
+
+          std::cout << "  branches=" << nBr
+                    << "  hasSel_etTower="  << (hasSelEt  ? "YES" : "NO")
+                    << "  hasBest_etTower=" << (hasBestEt ? "YES" : "NO")
+                    << "\n";
+
+          if (nED > 0 && (hasSelEt || hasBestEt))
+          {
+            // Scan a configurable number of entries to validate what is actually stored in the tree.
+            const Long64_t scanN =
+              (Verbosity() >= 3 ? nED :
+               (Verbosity() >= 2 ? std::min<Long64_t>(nED, 200000) :
+                                   std::min<Long64_t>(nED,  20000)));
+
+            long long nSelNonEmpty = 0;
+            long long nBestNonEmpty = 0;
+            long long nAnyNonEmpty = 0;
+
+            long long nSelSizeMismatch = 0;
+            long long nBestSizeMismatch = 0;
+
+            long long nBadCat = 0;
+            long long nEmptyRKey = 0;
+
+            long long nCat[3]     = {0, 0, 0};
+            long long nCatAny[3]  = {0, 0, 0};
+            long long nCatSel[3]  = {0, 0, 0};
+            long long nCatBest[3] = {0, 0, 0};
+
+            std::unordered_map<std::string, std::array<long long, 4>> byRKey; // [0]=all, [1]=any, [2]=sel, [3]=best
+
+            double sumSelN = 0.0;
+            double sumBestN = 0.0;
+            long long maxSelN = 0;
+            long long maxBestN = 0;
+
+            // Kinematic sanity (presence, not physics validation)
+            long long nPtGammaTruthPos = 0;
+            long long nSelPtPos = 0;
+            long long nBestPtPos = 0;
+            long long nTruthLeadPtPos = 0;
+
+            // Example entries that actually have towers (first found in scan)
+            bool exAny[3] = {false, false, false};
+            int ex_run[3] = {0, 0, 0};
+            int ex_evt[3] = {0, 0, 0};
+            std::string ex_rKey[3];
+            float ex_ptG[3] = {0.0f, 0.0f, 0.0f};
+            long long ex_selN[3] = {0, 0, 0};
+            long long ex_bestN[3] = {0, 0, 0};
+
+            for (Long64_t i = 0; i < scanN; ++i)
+            {
+              m_evtDiagTree->GetEntry(i);
+
+              if (m_evtDiag_rKey.empty()) ++nEmptyRKey;
+
+              if (m_evtDiag_ptGammaTruth > 0.0f) ++nPtGammaTruthPos;
+              if (m_evtDiag_sel_pt > 0.0f) ++nSelPtPos;
+              if (m_evtDiag_best_pt > 0.0f) ++nBestPtPos;
+              if (m_evtDiag_truthLead_pt > 0.0f) ++nTruthLeadPtPos;
+
+              const long long selN  = static_cast<long long>(m_evtDiag_sel_etTower.size());
+              const long long bestN = static_cast<long long>(m_evtDiag_best_etTower.size());
+
+              const bool selOK =
+                (m_evtDiag_sel_etaTower.size() == m_evtDiag_sel_phiTower.size() &&
+                 m_evtDiag_sel_phiTower.size() == m_evtDiag_sel_etTower.size());
+
+              const bool bestOK =
+                (m_evtDiag_best_etaTower.size() == m_evtDiag_best_phiTower.size() &&
+                 m_evtDiag_best_phiTower.size() == m_evtDiag_best_etTower.size());
+
+              if (!selOK) ++nSelSizeMismatch;
+              if (!bestOK) ++nBestSizeMismatch;
+
+              const bool hasSelT  = (selN > 0);
+              const bool hasBestT = (bestN > 0);
+              const bool hasAnyT  = (hasSelT || hasBestT);
+
+              if (hasSelT)  ++nSelNonEmpty;
+              if (hasBestT) ++nBestNonEmpty;
+              if (hasAnyT)  ++nAnyNonEmpty;
+
+              sumSelN  += selN;
+              sumBestN += bestN;
+              if (selN > maxSelN)   maxSelN = selN;
+              if (bestN > maxBestN) maxBestN = bestN;
+
+              const int cat = m_evtDiag_cat;
+              int catIdx = -1;
+              if (cat == static_cast<int>(EventDisplayCat::NUM))   catIdx = 0;
+              if (cat == static_cast<int>(EventDisplayCat::MissA)) catIdx = 1;
+              if (cat == static_cast<int>(EventDisplayCat::MissB)) catIdx = 2;
+
+              if (catIdx < 0 || catIdx > 2)
+              {
+                ++nBadCat;
+              }
+              else
+              {
+                ++nCat[catIdx];
+                if (hasAnyT)  ++nCatAny[catIdx];
+                if (hasSelT)  ++nCatSel[catIdx];
+                if (hasBestT) ++nCatBest[catIdx];
+
+                if (!exAny[catIdx] && hasAnyT)
+                {
+                  exAny[catIdx]   = true;
+                  ex_run[catIdx]  = m_evtDiag_run;
+                  ex_evt[catIdx]  = m_evtDiag_evt;
+                  ex_rKey[catIdx] = m_evtDiag_rKey;
+                  ex_ptG[catIdx]  = m_evtDiag_ptGammaTruth;
+                  ex_selN[catIdx] = selN;
+                  ex_bestN[catIdx] = bestN;
+                }
+              }
+
+              auto& arr = byRKey[m_evtDiag_rKey];
+              arr[0] += 1;
+              if (hasAnyT)  arr[1] += 1;
+              if (hasSelT)  arr[2] += 1;
+              if (hasBestT) arr[3] += 1;
+            }
+
+            auto frac = [&](long long a, long long b) -> std::string
+            {
+              if (b <= 0) return "n/a";
+              std::ostringstream os;
+              os << std::fixed << std::setprecision(3)
+                 << (static_cast<double>(a) / static_cast<double>(b));
+              return os.str();
+            };
+
+            std::cout << "  scan: entriesScanned=" << scanN;
+            if (scanN < nED) std::cout << "  (increase Verbosity to scan more)";
+            std::cout << "\n";
+
+            std::cout << "  towers(from tree scan): any=" << nAnyNonEmpty << " (" << frac(nAnyNonEmpty, scanN) << ")"
+                      << "  sel=" << nSelNonEmpty << " (" << frac(nSelNonEmpty, scanN) << ")"
+                      << "  best=" << nBestNonEmpty << " (" << frac(nBestNonEmpty, scanN) << ")"
+                      << "  <selN>=" << std::fixed << std::setprecision(2) << (scanN > 0 ? (sumSelN / scanN) : 0.0)
+                      << "  <bestN>=" << std::fixed << std::setprecision(2) << (scanN > 0 ? (sumBestN / scanN) : 0.0)
+                      << "  maxSelN=" << maxSelN
+                      << "  maxBestN=" << maxBestN
+                      << "\n";
+
+            std::cout << "  kinematics(from tree scan): "
+                      << "ptGammaTruth>0: " << nPtGammaTruthPos << "/" << scanN
+                      << "  sel_pt>0: " << nSelPtPos << "/" << scanN
+                      << "  best_pt>0: " << nBestPtPos << "/" << scanN
+                      << "  truthLead_pt>0: " << nTruthLeadPtPos << "/" << scanN
+                      << "  emptyRKey: " << nEmptyRKey
+                      << "\n";
+
+            if (nSelSizeMismatch > 0 || nBestSizeMismatch > 0)
+            {
+              std::cout << CLR_YELLOW
+                        << "  [WARN] tower vector size mismatches observed in scan: "
+                        << "selMismatch=" << nSelSizeMismatch
+                        << "  bestMismatch=" << nBestSizeMismatch
+                        << CLR_RESET << "\n";
+            }
+
+            if (nBadCat > 0)
+            {
+              std::cout << CLR_YELLOW
+                        << "  [WARN] cat out of expected range (0=NUM,1=MissA,2=MissB) in scan: nBadCat=" << nBadCat
+                        << CLR_RESET << "\n";
+            }
+
+            if (Verbosity() >= 2)
+            {
+              std::cout << "  byCat(from tree scan):\n";
+              std::cout << "    NUM   entries=" << nCat[0] << " any=" << nCatAny[0] << " sel=" << nCatSel[0] << " best=" << nCatBest[0]
+                        << "  fAny=" << frac(nCatAny[0], nCat[0]) << "\n";
+              std::cout << "    MissA entries=" << nCat[1] << " any=" << nCatAny[1] << " sel=" << nCatSel[1] << " best=" << nCatBest[1]
+                        << "  fAny=" << frac(nCatAny[1], nCat[1]) << "\n";
+              std::cout << "    MissB entries=" << nCat[2] << " any=" << nCatAny[2] << " sel=" << nCatSel[2] << " best=" << nCatBest[2]
+                        << "  fAny=" << frac(nCatAny[2], nCat[2]) << "\n";
+
+              std::cout << "  byRKey(from tree scan):\n";
+              for (const auto& kv : byRKey)
+              {
+                const auto& k = kv.first;
+                const auto& a = kv.second;
+                std::cout << "    " << std::left << std::setw(4) << k
+                          << " entries=" << std::right << std::setw(8) << a[0]
+                          << " any="     << std::setw(8) << a[1]
+                          << " sel="     << std::setw(8) << a[2]
+                          << " best="    << std::setw(8) << a[3]
+                          << "  fAny="   << frac(a[1], a[0])
+                          << "\n";
+              }
+
+              auto catName = [&](int i) -> const char*
+              {
+                if (i == 0) return "NUM";
+                if (i == 1) return "MissA";
+                if (i == 2) return "MissB";
+                return "UNK";
+              };
+
+              for (int ic = 0; ic < 3; ++ic)
+              {
+                if (exAny[ic])
+                {
+                  std::cout << "  exampleWithTowers[" << catName(ic) << "]: "
+                            << "rKey=" << ex_rKey[ic]
+                            << " run=" << ex_run[ic]
+                            << " evt=" << ex_evt[ic]
+                            << " ptGammaTruth=" << std::fixed << std::setprecision(3) << ex_ptG[ic]
+                            << " selN=" << ex_selN[ic]
+                            << " bestN=" << ex_bestN[ic]
+                            << "\n";
+                }
+                else
+                {
+                  std::cout << "  exampleWithTowers[" << catName(ic) << "]: none found in scan\n";
+                }
+              }
+            }
+
+            if (nED > 0 && nAnyNonEmpty == 0)
+            {
+              std::cout << CLR_YELLOW
+                        << "  [WARN] EventDisplayTree has entries but ALL tower payloads are empty in scanned entries. "
+                        << "Most likely: Jet constituents not accessible (Jetv2 comp_vec vs begin_comp) OR Jet::SRC mismatch vs TowerInfo nodes."
+                        << CLR_RESET << "\n";
+            }
+          }
+          else if (nED > 0)
           {
             std::cout << CLR_YELLOW
-                      << "  [WARN] EventDisplayTree has entries but ALL tower payloads are empty. "
-                      << "Most likely: constituent decoding mismatch (TowerInfo node vs Jet SRC) or comp_vec stripped by calibration."
+                      << "  [WARN] EventDisplayTree has entries but expected tower branches are missing (sel_etTower/best_etTower). "
+                      << "Tree schema mismatch? (older file format?)"
+                      << CLR_RESET << "\n";
+          }
+          else
+          {
+            std::cout << CLR_YELLOW
+                      << "  [WARN] EventDisplayTree exists but has 0 entries."
                       << CLR_RESET << "\n";
           }
         }
@@ -2958,70 +3198,85 @@ bool RecoilJets::runLeadIsoTightPhotonJetLoopAllRadii(
       if (jpt < m_minJetPt) continue;
       ++nPassPt;
 
-      if (std::fabs(jeta) >= jetEtaAbsMaxUse) continue;
-      ++nPassEta;
+        const bool passEta = (std::fabs(jeta) < jetEtaAbsMaxUse);
+        if (passEta) ++nPassEta;
 
-//      // Track leading+subleading jets in the pT+eta set (NO Δφ requirement)
-//      if (jpt > all1Pt)
-//      {
-//        all2Pt  = all1Pt;
-//        all2Jet = all1Jet;
-//
-//        all1Pt  = jpt;
-//        all1Jet = j;
-//      }
-//      else if (jpt > all2Pt)
-//      {
-//        all2Pt  = jpt;
-//        all2Jet = j;
-//      }
-        // Track leading+subleading jets in the pT+eta set (NO Δφ requirement)
-        //   - ensure "leading jet" is not the photon: veto jets with ΔR(γ,jet) < 0.4
-        // Photon–jet overlap veto: exclude jets near the photon direction (ΔR < 0.4)
-                const double dphiPho = TVector2::Phi_mpi_pi(jphi - leadPhiGamma);
-                const double detaPho = (jeta - leadEtaGamma);
-                const double dRPho2  = (detaPho*detaPho + dphiPho*dphiPho);
+  //      // Track leading+subleading jets in the pT+eta set (NO Δφ requirement)
+  //      if (jpt > all1Pt)
+  //      {
+  //        all2Pt  = all1Pt;
+  //        all2Jet = all1Jet;
+  //
+  //        all1Pt  = jpt;
+  //        all1Jet = j;
+  //      }
+  //      else if (jpt > all2Pt)
+  //      {
+  //        all2Pt  = jpt;
+  //        all2Jet = j;
+  //      }
+          // Track leading+subleading jets in the pT+eta set (NO Δφ requirement)
+          //   - ensure "leading jet" is not the photon: veto jets with ΔR(γ,jet) < 0.4
+          // Photon–jet overlap veto: exclude jets near the photon direction (ΔR < 0.4)
+                  const double dphiPho = TVector2::Phi_mpi_pi(jphi - leadPhiGamma);
+                  const double detaPho = (jeta - leadEtaGamma);
+                  const double dRPho2  = (detaPho*detaPho + dphiPho*dphiPho);
 
-                if (!std::isfinite(dRPho2) || (dRPho2 < (0.4 * 0.4)))
+                  if (!std::isfinite(dRPho2) || (dRPho2 < (0.4 * 0.4)))
+                  {
+                    continue;
+                  }
+
+                  // Track leading+subleading jets in the pT+eta set (NO Δφ requirement)
+                  // NOTE: this is now the GLOBAL leading jet (after pT + overlap), regardless of eta.
+                  if (jpt > all1Pt)
+                  {
+                    all2Pt  = all1Pt;
+                    all2Jet = all1Jet;
+
+                    all1Pt  = jpt;
+                    all1Jet = j;
+                  }
+                  else if (jpt > all2Pt)
+                  {
+                    all2Pt  = jpt;
+                    all2Jet = j;
+                  }
+
+
+                if (passEta)
                 {
-                  continue;
+                  const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(jphi - leadPhiGamma));
+                  if (std::isfinite(dphiAbs) && dphiAbs > maxDphi) maxDphi = dphiAbs;
+
+                  const bool isRecoil = (dphiAbs >= m_minBackToBack);
+
+                  // cache fiducial jets for inclusive pairing / response matching
+                  recoJetsFid.push_back(j);
+                  recoJetsFidIsRecoil.push_back(isRecoil ? 1 : 0);
+
+                  if (isRecoil)
+                  {
+                    ++nPassDphi;
+                  }
                 }
-
-                // Track leading+subleading jets in the pT+eta set (NO Δφ requirement)
-                if (jpt > all1Pt)
-                {
-                  all2Pt  = all1Pt;
-                  all2Jet = all1Jet;
-
-                  all1Pt  = jpt;
-                  all1Jet = j;
-                }
-                else if (jpt > all2Pt)
-                {
-                  all2Pt  = jpt;
-                  all2Jet = j;
-                }
+      }
 
 
-              const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(jphi - leadPhiGamma));
-              if (std::isfinite(dphiAbs) && dphiAbs > maxDphi) maxDphi = dphiAbs;
-
-              const bool isRecoil = (dphiAbs >= m_minBackToBack);
-
-              // cache fiducial jets for inclusive pairing / response matching
-              recoJetsFid.push_back(j);
-              recoJetsFidIsRecoil.push_back(isRecoil ? 1 : 0);
-
-              if (isRecoil)
-              {
-                ++nPassDphi;
-            }
-        }
-
-
-      // Sam-style leading-jet definition:
-      //   - pick the leading fiducial jet excluding photon overlap (all1Jet)
+      // Histmaker-style leading-jet definition:
+      //   - pick the GLOBAL leading jet excluding photon overlap (all1Jet)
+      //   - THEN veto the event if that chosen jet is not fiducial in eta (NO fallback)
       //   - THEN require it be back-to-back to define recoil1Jet
+      if (all1Jet)
+      {
+        const double etaLead = all1Jet->get_eta();
+        if (!std::isfinite(etaLead) || std::fabs(etaLead) >= jetEtaAbsMaxUse)
+        {
+          all1Pt  = -1.0;
+          all1Jet = nullptr;
+        }
+      }
+
       if (all1Jet)
       {
         const double dphiLeadAbs = std::fabs(TVector2::Phi_mpi_pi(all1Jet->get_phi() - leadPhiGamma));

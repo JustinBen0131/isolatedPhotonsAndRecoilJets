@@ -8949,6 +8949,7 @@ namespace ARJ
 
                       hx->SetTitle("");
                       hx->GetXaxis()->SetTitle((tag == "TRUTH") ? "x_{J#gamma}^{truth}" : "x_{J#gamma}");
+                      hx->GetXaxis()->SetRangeUser(0.0, 2.0);
                       hx->GetYaxis()->SetTitle((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts");
 
                     if (logy)
@@ -9002,10 +9003,10 @@ namespace ARJ
                         TLatex tCuts;
                         tCuts.SetNDC(true);
                         tCuts.SetTextFont(42);
-                        tCuts.SetTextAlign(13);
-                        tCuts.SetTextSize(0.045);
-                        tCuts.DrawLatex(0.16, 0.86, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
-                        tCuts.DrawLatex(0.16, 0.78, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
+                        tCuts.SetTextAlign(33);
+                        tCuts.SetTextSize(0.038);
+                        tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
+                        tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
                       }
 
                       TLatex ttl;
@@ -11135,11 +11136,11 @@ namespace ARJ
                                 yMin = std::min(yMin, v - e);
                                 yMax = std::max(yMax, v + e);
                             }
-                            if (yMin > yMax) { yMin = 0.0; yMax = 1.0; } // fallback
-                            const double pad = 0.06;
-                            const double yLo = 0.0;
-                            const double yHi = std::min(1.05, yMax + pad);
-                            hEff->GetYaxis()->SetRangeUser(yLo, yHi);
+                              if (yMin > yMax) { yMin = 0.0; yMax = 1.0; } // fallback
+                              const double pad = 0.06;
+                              const double yLo = std::max(0.0, yMin - pad);
+                              const double yHi = std::min(1.05, yMax + pad);
+                              hEff->GetYaxis()->SetRangeUser(yLo, yHi);
 
                             // Draw as a TGraphErrors with x-errors forced to 0:
                             // this guarantees "vertical-only" statistical errors and no histogram bin-width segments.
@@ -11147,18 +11148,16 @@ namespace ARJ
                             gEff->SetName(TString::Format("g_leadRecoilJetMatchEff_%s", rKey.c_str()).Data());
 
                             int ip = 0;
-                            for (int ib = 1; ib <= hEff->GetNbinsX(); ++ib)
-                            {
-                                if (hEff->GetXaxis()->GetBinLowEdge(ib) < minTruthPtJES3_plot) continue;
+                              for (int ib = 1; ib <= hEff->GetNbinsX(); ++ib)
+                              {
+                                  const double y  = hEff->GetBinContent(ib);
+                                  const double ey = hEff->GetBinError(ib);
 
-                                const double y  = hEff->GetBinContent(ib);
-                                const double ey = hEff->GetBinError(ib);
-
-                                const double x  = hEff->GetXaxis()->GetBinCenter(ib);
-                                gEff->SetPoint(ip, x, y);
-                                gEff->SetPointError(ip, 0.0, ey); // xerr=0.0  -> NO horizontal error bars
-                                ++ip;
-                            }
+                                  const double x  = hEff->GetXaxis()->GetBinCenter(ib);
+                                  gEff->SetPoint(ip, x, y);
+                                  gEff->SetPointError(ip, 0.0, ey); // xerr=0.0  -> NO horizontal error bars
+                                  ++ip;
+                              }
 
                           // Error bars are drawn using the graph's LINE attributes.
                           gEff->SetLineWidth(2);
@@ -11173,9 +11172,9 @@ namespace ARJ
                           hEff->SetMarkerSize(0);
                           hEff->Draw("AXIS");
 
-                          // Draw points + vertical errors only:
-                          //  P = markers, Z = no end-caps
-                          gEff->Draw("PZ SAME");
+                              // Draw points + vertical errors only:
+                              //  P = markers, E = error bars, Z = no end-caps
+                              gEff->Draw("PEZ SAME");
 
                           // Optional reference line at 1 (start at 15 GeV)
                           const double xMin = minTruthPtJES3_plot;
@@ -11202,11 +11201,13 @@ namespace ARJ
 
                               if (simCfg)
                               {
-                                DrawLatexLines(0.14, 0.80,
-                                  {TString::Format("|#Delta#phi(#gamma,jet)| > %s", simCfg->bbLabel.c_str()).Data(),
-                                   TString::Format("Reco (p_{T}^{jet} > %.0f GeV)", simCfg->jetMinPt).Data()},
-                                  0.028, 0.040
-                                );
+                                TLatex tCuts;
+                                tCuts.SetNDC(true);
+                                tCuts.SetTextFont(42);
+                                tCuts.SetTextAlign(33);
+                                tCuts.SetTextSize(0.028);
+                                tCuts.DrawLatex(0.92, 0.78, TString::Format("|#Delta#phi(#gamma,jet)| > %s", simCfg->bbLabel.c_str()).Data());
+                                tCuts.DrawLatex(0.92, 0.70, TString::Format("Reco (p_{T}^{jet} > %.0f GeV)", simCfg->jetMinPt).Data());
                               }
 
 
