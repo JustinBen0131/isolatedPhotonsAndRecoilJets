@@ -5961,34 +5961,45 @@ namespace ARJ
 
               const std::string baseDir   = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck/pTminJet3/7pi_8_BB";
               const std::string plotsDir  = JoinPath(baseDir, "plots");
-              const std::string sam10     = JoinPath(baseDir, "histsPhoton10.root");
-              const std::string sam20     = JoinPath(baseDir, "histsPhoton20.root");
-              const std::string samMerged = JoinPath(baseDir, "histsPhoton10plus20_MERGED.root");
-              const std::string samMergedPrev = JoinPath(baseDir, "histsPhoton10plus20_unsmear_MERGED.root");
+            const std::string sam10     = JoinPath(baseDir, "histsPhoton10.root");
+            const std::string sam20     = JoinPath(baseDir, "histsPhoton20.root");
+            const std::string samMerged = JoinPath(baseDir, "histsPhoton10plus20_MERGED.root");
+            const std::string samMergedPrev = JoinPath(baseDir, "histsPhoton10plus20_unsmear_MERGED.root");
+
+            // -------------------------------------------------------------------------
+            // Sam inputs for pTjet > 10 overlays (same folder, different jetMinPt in Sam production)
+            // -------------------------------------------------------------------------
+            const std::string sam10_pTmin10     = JoinPath(baseDir, "histsPhoton10_pTmin10.root");
+            const std::string sam20_pTmin10     = JoinPath(baseDir, "histsPhoton20_pTmin10.root");
+            const std::string samMerged_pTmin10 = JoinPath(baseDir, "histsPhoton10plus20_pTmin10_MERGED.root");
 
               const std::string baseDir_fixed = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/noDeltaRcheckOnJetPhotonForReco/pTminJet3/7pi_8_BB";
               const std::string jFix10        = JoinPath(baseDir_fixed, "RecoilJets_photonjet10_ALL_jetMinPt3_7piOver8.root");
               const std::string jFix20        = JoinPath(baseDir_fixed, "RecoilJets_photonjet20_ALL_jetMinPt3_7piOver8.root");
               const std::string jFixMerged    = JoinPath(baseDir_fixed, "RecoilJets_photonjet10plus20_MERGED.root");
 
-              const std::string dirOver_RECO_current = JoinPath(plotsDir, "Overlays_RECO_SamVsCurrent");
-              const std::string dirOver_RECO_default = JoinPath(plotsDir, "Overlays_RECO_SamVsDefault");
-              const std::string dirOver_RECO_triple  = JoinPath(plotsDir, "Overlays_RECO_SamVsCurrentVsDefault");
-              const std::string dirOver_RECO_triple_fixed = JoinPath(plotsDir, "Overlays_RECO_SamVsCurrentVsFixedCode");
-              const std::string dirOver_Tag_current  = JoinPath(plotsDir, "Overlays_RECOtruthTagged_SamVsCurrent");
-              const std::string dirOver_RECO_triple_currentTag = JoinPath(plotsDir, "Overlays_RECO_SamVsCurrentRecoVsTruthTagged");
-              const std::string dirQA_SamOnly         = JoinPath(plotsDir, "QA_SamOnly");
-              const std::string dirQA_JustinOnly      = JoinPath(plotsDir, "QA_JustinOnly");
+            const std::string dirOver_RECO_current = JoinPath(plotsDir, "Overlays_RECO_SamVsCurrent");
+            const std::string dirOver_RECO_default = JoinPath(plotsDir, "Overlays_RECO_SamVsDefault");
+            const std::string dirOver_RECO_triple  = JoinPath(plotsDir, "Overlays_RECO_SamVsCurrentVsDefault");
+            const std::string dirOver_RECO_triple_fixed = JoinPath(plotsDir, "Overlays_RECO_SamVsCurrentVsFixedCode");
+            const std::string dirOver_Tag_current  = JoinPath(plotsDir, "Overlays_RECOtruthTagged_SamVsCurrent");
+            const std::string dirOver_RECO_triple_currentTag = JoinPath(plotsDir, "Overlays_RECO_SamVsCurrentRecoVsTruthTagged");
+            const std::string dirQA_SamOnly         = JoinPath(plotsDir, "QA_SamOnly");
+            const std::string dirQA_JustinOnly      = JoinPath(plotsDir, "QA_JustinOnly");
 
-              EnsureDir(plotsDir);
-              EnsureDir(dirOver_RECO_current);
-              EnsureDir(dirOver_RECO_default);
-              EnsureDir(dirOver_RECO_triple);
-              EnsureDir(dirOver_RECO_triple_fixed);
-              EnsureDir(dirOver_Tag_current);
-              EnsureDir(dirOver_RECO_triple_currentTag);
-              EnsureDir(dirQA_SamOnly);
-              EnsureDir(dirQA_JustinOnly);
+            // New: pTjet>10 overlay folder (Sam pTmin10 vs Justin jetMinPt10_7piOver8)
+            const std::string dirOver_RECO_jetMinPt10 = JoinPath(plotsDir, "Overlays_RECO_SamVsJustin_pTjetMin10");
+
+            EnsureDir(plotsDir);
+            EnsureDir(dirOver_RECO_current);
+            EnsureDir(dirOver_RECO_default);
+            EnsureDir(dirOver_RECO_triple);
+            EnsureDir(dirOver_RECO_triple_fixed);
+            EnsureDir(dirOver_Tag_current);
+            EnsureDir(dirOver_RECO_triple_currentTag);
+            EnsureDir(dirQA_SamOnly);
+            EnsureDir(dirQA_JustinOnly);
+            EnsureDir(dirOver_RECO_jetMinPt10);
 
               cout << ANSI_BOLD_CYN
                      << "\n[SAM VS JUSTIN] Unsmear overlay (RECO-only, integrated over alpha)\n"
@@ -7713,6 +7724,469 @@ namespace ARJ
                   }
               }
             
+            // -------------------------------------------------------------------------
+            // NEW: Sam(pTjet>10) vs Justin(pTjet>10) overlays
+            //   Sam inputs:  sam10_pTmin10 + sam20_pTmin10  -> samMerged_pTmin10
+            //   Justin key:  jetMinPt10_7piOver8 (merged SIM file)
+            //   pT binning:  {10,11,12,13,14,15,17,19,25,50}
+            // -------------------------------------------------------------------------
+            {
+              auto BuildSamMergedPtMin10IfMissing = [&]()->bool
+              {
+                if (!gSystem->AccessPathName(samMerged_pTmin10.c_str()))
+                {
+                  cout << ANSI_DIM << "[SAM MERGE pTjet>10] Merged file already exists: " << samMerged_pTmin10 << ANSI_RESET << "\n";
+                  return true;
+                }
+
+                TFile* f10 = TFile::Open(sam10_pTmin10.c_str(), "READ");
+                TFile* f20 = TFile::Open(sam20_pTmin10.c_str(), "READ");
+                if (!f10 || f10->IsZombie() || !f20 || f20->IsZombie())
+                {
+                  cout << ANSI_BOLD_YEL
+                       << "[WARN] [SAM MERGE pTjet>10] Cannot open one or both Sam pTmin10 input files.\n"
+                       << "       sam10_pTmin10=" << sam10_pTmin10 << "\n"
+                       << "       sam20_pTmin10=" << sam20_pTmin10 << "\n"
+                       << ANSI_RESET;
+                  if (f10) f10->Close();
+                  if (f20) f20->Close();
+                  return false;
+                }
+
+                double x10=0.0, n10=0.0, x20=0.0, n20=0.0;
+                const bool ok10 = ReadXsecAndNev(f10, x10, n10);
+                const bool ok20 = ReadXsecAndNev(f20, x20, n20);
+
+                double w10 = 0.5;
+                double w20 = 0.5;
+                if (ok10 && ok20)
+                {
+                  w10 = x10 / n10;
+                  w20 = x20 / n20;
+                }
+                else
+                {
+                  cout << ANSI_BOLD_YEL
+                       << "[WARN] [SAM MERGE pTjet>10] Missing (xsec,nev); falling back to equal weights (0.5,0.5).\n"
+                       << ANSI_RESET;
+                }
+
+                cout << ANSI_BOLD_CYN
+                     << "[SAM MERGE pTjet>10] Building ONLY hratio_* into: " << samMerged_pTmin10 << "\n"
+                     << "  weights: w10=" << std::setprecision(12) << w10 << "  w20=" << w20 << "\n"
+                     << ANSI_RESET;
+
+                EnsureParentDirForFile(samMerged_pTmin10);
+                TFile* fout = TFile::Open(samMerged_pTmin10.c_str(), "RECREATE");
+                if (!fout || fout->IsZombie())
+                {
+                  cout << ANSI_BOLD_YEL
+                       << "[WARN] [SAM MERGE pTjet>10] Cannot create output file: " << samMerged_pTmin10 << "\n"
+                       << ANSI_RESET;
+                  if (fout) fout->Close();
+                  f10->Close();
+                  f20->Close();
+                  return false;
+                }
+
+                std::set<std::string> names10;
+                {
+                  TIter next(f10->GetListOfKeys());
+                  while (TKey* key = (TKey*)next())
+                  {
+                    const std::string nm = key->GetName();
+                    if (nm.rfind("hratio_", 0) == 0) names10.insert(nm);
+                  }
+                }
+
+                std::set<std::string> names20;
+                {
+                  TIter next(f20->GetListOfKeys());
+                  while (TKey* key = (TKey*)next())
+                  {
+                    const std::string nm = key->GetName();
+                    if (nm.rfind("hratio_", 0) == 0) names20.insert(nm);
+                  }
+                }
+
+                std::set<std::string> all;
+                all.insert(names10.begin(), names10.end());
+                all.insert(names20.begin(), names20.end());
+
+                int nWritten = 0;
+                for (const auto& nm : all)
+                {
+                  TH1* h10 = dynamic_cast<TH1*>(f10->Get(nm.c_str()));
+                  TH1* h20 = dynamic_cast<TH1*>(f20->Get(nm.c_str()));
+
+                  if (!h10 && !h20) continue;
+
+                  TH1* hOut = nullptr;
+
+                  if (h10)
+                  {
+                    hOut = dynamic_cast<TH1*>(h10->Clone(nm.c_str()));
+                    if (hOut)
+                    {
+                      hOut->SetDirectory(nullptr);
+                      if (hOut->GetSumw2N() == 0) hOut->Sumw2();
+                      hOut->Scale(w10);
+                    }
+                  }
+                  if (!hOut && h20)
+                  {
+                    hOut = dynamic_cast<TH1*>(h20->Clone(nm.c_str()));
+                    if (hOut)
+                    {
+                      hOut->SetDirectory(nullptr);
+                      if (hOut->GetSumw2N() == 0) hOut->Sumw2();
+                      hOut->Scale(w20);
+                    }
+                  }
+                  if (hOut && h20)
+                  {
+                    TH1* tmp = dynamic_cast<TH1*>(h20->Clone((nm + "_tmp20").c_str()));
+                    if (tmp)
+                    {
+                      tmp->SetDirectory(nullptr);
+                      if (tmp->GetSumw2N() == 0) tmp->Sumw2();
+                      tmp->Scale(w20);
+                      hOut->Add(tmp);
+                      delete tmp;
+                    }
+                  }
+
+                  if (!hOut) continue;
+
+                  fout->cd();
+                  hOut->Write(nm.c_str(), TObject::kOverwrite);
+                  delete hOut;
+                  nWritten++;
+                }
+
+                fout->Write();
+                fout->Close();
+
+                f10->Close();
+                f20->Close();
+
+                cout << ANSI_BOLD_GRN
+                     << "[OK] [SAM MERGE pTjet>10] Wrote " << nWritten << " hratio_* histograms into: " << samMerged_pTmin10 << "\n"
+                     << ANSI_RESET;
+
+                return true;
+              };
+
+              if (BuildSamMergedPtMin10IfMissing())
+              {
+                // Open Sam merged pTmin10
+                TFile* fSamPt10M = TFile::Open(samMerged_pTmin10.c_str(), "READ");
+                if (!fSamPt10M || fSamPt10M->IsZombie())
+                {
+                  cout << ANSI_BOLD_YEL
+                       << "[WARN] [pTjet>10] Cannot open Sam merged pTmin10 file: " << samMerged_pTmin10 << "\n"
+                       << ANSI_RESET;
+                  if (fSamPt10M) fSamPt10M->Close();
+                }
+                else
+                {
+                    // Open Justin merged file for jetMinPt10_7piOver8 (RECO)
+                    const std::string key10 = "jetMinPt10_7piOver8";
+                    const std::string justinMerged10 = MergedSIMOut_10and20_ForKey(key10);
+
+                    TFile* fJustin10M = TFile::Open(justinMerged10.c_str(), "READ");
+                    TDirectory* dJustin10M = nullptr;
+                    if (fJustin10M && !fJustin10M->IsZombie())
+                    {
+                      dJustin10M = fJustin10M->GetDirectory(kDirSIM.c_str());
+                    }
+
+                    // Also open Justin merged file for jetMinPt10_pihalves (TRUTH-TAGGED source)
+                    const std::string key10_tag = "jetMinPt10_pihalves";
+                    const std::string justinMerged10_tag = MergedSIMOut_10and20_ForKey(key10_tag);
+
+                    TFile* fJustin10TagM = TFile::Open(justinMerged10_tag.c_str(), "READ");
+                    TDirectory* dJustin10TagM = nullptr;
+                    if (fJustin10TagM && !fJustin10TagM->IsZombie())
+                    {
+                      dJustin10TagM = fJustin10TagM->GetDirectory(kDirSIM.c_str());
+                    }
+
+                    if (!dJustin10M)
+                    {
+                      cout << ANSI_BOLD_YEL
+                           << "[WARN] [pTjet>10] Cannot open Justin merged key directory (RECO).\n"
+                           << "       key=" << key10 << "\n"
+                           << "       path=" << justinMerged10 << "\n"
+                           << "       dir=" << kDirSIM << "\n"
+                           << ANSI_RESET;
+                      if (fJustin10M) fJustin10M->Close();
+                      fJustin10M = nullptr;
+                    }
+
+                    if (!dJustin10TagM)
+                    {
+                      cout << ANSI_BOLD_YEL
+                           << "[WARN] [pTjet>10] Truth-tagged merged key directory not available; will skip truth-tagged curve.\n"
+                           << "       key=" << key10_tag << "\n"
+                           << "       path=" << justinMerged10_tag << "\n"
+                           << "       dir=" << kDirSIM << "\n"
+                           << ANSI_RESET;
+                      if (fJustin10TagM) fJustin10TagM->Close();
+                      fJustin10TagM = nullptr;
+                    }
+
+                    if (!dJustin10M)
+                    {
+                      if (fJustin10TagM) fJustin10TagM->Close();
+                      fJustin10TagM = nullptr;
+                    }
+                    else
+                    {
+                      cout << ANSI_BOLD_CYN
+                           << "\n[pTjet>10] Writing overlays into: " << dirOver_RECO_jetMinPt10 << "\n"
+                           << "  Sam merged         : " << samMerged_pTmin10 << "\n"
+                           << "  Justin merged RECO : " << justinMerged10 << "\n"
+                           << "  Justin merged TAG  : " << justinMerged10_tag << "\n"
+                           << ANSI_RESET;
+
+                    // pT bin edges for this pTjet>10 comparison
+                    const std::vector<double> samPtEdges10 = {10,11,12,13,14,15,17,19,25,50};
+
+                    auto FindEdgeIndex10 =
+                      [&](double x)->int
+                    {
+                      for (int i = 0; i < (int)samPtEdges10.size(); ++i)
+                      {
+                        if (std::fabs(samPtEdges10[i] - x) < 1e-9) return i;
+                      }
+                      return -1;
+                    };
+
+                    auto GetSamPt10Hist =
+                      [&](double ptLo, double ptHi, int jR, int lABCD_, const std::string& newName, std::string& outLabel)->TH1*
+                    {
+                      outLabel = "UNKNOWN";
+                      const int a = FindEdgeIndex10(ptLo);
+                      const int b = FindEdgeIndex10(ptHi);
+                      if (a < 0 || b < 0 || b <= a) return nullptr;
+
+                      // In this special pTjet>10 production, pT bins match exactly; sum bins if needed.
+                      TH1* sum = nullptr;
+                      for (int iPt = a; iPt < b; ++iPt)
+                      {
+                        const std::string nm = TString::Format("hratio_%d_%d_%d_%d_%d", iPt, jR, 1, 0, lABCD_).Data();
+                        TH1* h = dynamic_cast<TH1*>(fSamPt10M->Get(nm.c_str()));
+                        if (!h) { if (sum) delete sum; return nullptr; }
+
+                        TH1* c = CloneTH1(h, TString::Format("%s_sampt10_i%d", newName.c_str(), iPt).Data());
+                        if (!c) { if (sum) delete sum; return nullptr; }
+                        c->SetDirectory(nullptr);
+
+                        if (!sum)
+                        {
+                          sum = CloneTH1(c, newName);
+                          if (sum)
+                          {
+                            sum->Reset("ICES");
+                            sum->SetDirectory(nullptr);
+                          }
+                        }
+                        if (sum) sum->Add(c);
+                        delete c;
+                      }
+
+                      outLabel = TString::Format("%.0f-%.0f", ptLo, ptHi).Data();
+                      return sum;
+                    };
+
+                    // Radius map (same convention you already use)
+                    struct RMap10 { std::string rKey; int jIdx; double R; };
+                    const std::vector<RMap10> rMap10 =
+                    {
+                      {"r04", 1, 0.4},
+                      {"r06", 2, 0.6}
+                    };
+
+                    const int lABCD10 = 0;
+
+                    for (const auto& rm : rMap10)
+                    {
+                      const std::string hnameJ = std::string("h_JES3_pT_xJ_alpha_") + rm.rKey;
+                      TH3* hJ3 = dynamic_cast<TH3*>(dJustin10M->Get(hnameJ.c_str()));
+                      if (!hJ3)
+                      {
+                        cout << ANSI_BOLD_YEL
+                             << "[WARN] [pTjet>10] Missing Justin TH3: " << hnameJ << "\n"
+                             << ANSI_RESET;
+                        continue;
+                      }
+
+                      TH3* hJustin3 = CloneTH3(hJ3, TString::Format("hJustin_pTjetMin10_%s", rm.rKey.c_str()).Data());
+                      if (!hJustin3) continue;
+                      hJustin3->SetDirectory(nullptr);
+                      if (hJustin3->GetSumw2N() == 0) hJustin3->Sumw2();
+
+                      for (int ip = 0; ip + 1 < (int)samPtEdges10.size(); ++ip)
+                      {
+                        const double ptLo = samPtEdges10[(std::size_t)ip];
+                        const double ptHi = samPtEdges10[(std::size_t)ip + 1];
+
+                        const int xbin = FindXbinByEdges(hJustin3->GetXaxis(), ptLo, ptHi);
+                        if (xbin < 1) continue;
+
+                        TH1* hJustin = ProjectY_AtXbin_TH3(
+                          hJustin3, xbin,
+                          TString::Format("hJustin_pTjetMin10_xJ_%.0f_%.0f_%s", ptLo, ptHi, rm.rKey.c_str()).Data()
+                        );
+
+                        std::string samLabel;
+                        TH1* hSam = GetSamPt10Hist(
+                          ptLo, ptHi, rm.jIdx, lABCD10,
+                          TString::Format("hSam_pTjetMin10_xJ_%.0f_%.0f_%s", ptLo, ptHi, rm.rKey.c_str()).Data(),
+                          samLabel
+                        );
+
+                        if (!hSam || !hJustin)
+                        {
+                          if (hSam) delete hSam;
+                          if (hJustin) delete hJustin;
+                          continue;
+                        }
+
+                        // Rebin Sam onto Justin axis (same method you already use elsewhere)
+                        {
+                          TH1* hSamReb = CloneTH1(hJustin, TString::Format("%s_rebinnedToJustin", hSam->GetName()).Data());
+                          if (hSamReb)
+                          {
+                            hSamReb->Reset("ICES");
+                            hSamReb->SetDirectory(nullptr);
+                            if (hSamReb->GetSumw2N() == 0) hSamReb->Sumw2();
+
+                            const int nbIn = hSam->GetNbinsX();
+                            for (int ib = 1; ib <= nbIn; ++ib)
+                            {
+                              const double x = hSam->GetXaxis()->GetBinCenter(ib);
+                              const int ob = hSamReb->FindBin(x);
+                              if (ob < 1 || ob > hSamReb->GetNbinsX()) continue;
+
+                              const double c = hSam->GetBinContent(ib);
+                              const double e = hSam->GetBinError(ib);
+
+                              hSamReb->SetBinContent(ob, hSamReb->GetBinContent(ob) + c);
+
+                              const double oe = hSamReb->GetBinError(ob);
+                              hSamReb->SetBinError(ob, std::sqrt(oe*oe + e*e));
+                            }
+
+                            delete hSam;
+                            hSam = hSamReb;
+                          }
+                        }
+
+                          // Optional: add Justin truth-tagged curve from jetMinPt10_pihalves merged output
+                          TH1* hJustinTag = nullptr;
+                          if (dJustin10TagM)
+                          {
+                            const std::string hnameTag3 = std::string("h_JES3RecoTruthTagged_pT_xJ_alpha_") + rm.rKey;
+                            TH3* hTag3 = dynamic_cast<TH3*>(dJustin10TagM->Get(hnameTag3.c_str()));
+                            if (hTag3)
+                            {
+                              const int xbinTag = FindXbinByEdges(hTag3->GetXaxis(), ptLo, ptHi);
+                              if (xbinTag >= 1)
+                              {
+                                hJustinTag = ProjectY_AtXbin_TH3(
+                                  hTag3, xbinTag,
+                                  TString::Format("hJustin_pTjetMin10_truthTagged_xJ_%.0f_%.0f_%s", ptLo, ptHi, rm.rKey.c_str()).Data()
+                                );
+                              }
+                            }
+                            else
+                            {
+                              cout << ANSI_BOLD_YEL
+                                   << "[WARN] [pTjet>10] Missing Justin truth-tagged TH3: " << hnameTag3 << "\n"
+                                   << ANSI_RESET;
+                            }
+                          }
+
+                          StyleForOverlay(hSam, 2);
+                          StyleForOverlay(hJustin, 4);
+                          if (hJustinTag) StyleForOverlay(hJustinTag, 6);
+
+                          // Tight y-range
+                          auto MaxBinContent = [&](TH1* h)->double
+                          {
+                            if (!h) return 0.0;
+                            double m = 0.0;
+                            const int nb = h->GetNbinsX();
+                            for (int ib = 1; ib <= nb; ++ib)
+                            {
+                              const double v = h->GetBinContent(ib);
+                              if (v > m) m = v;
+                            }
+                            return m;
+                          };
+
+                          double ymax = 0.0;
+                          ymax = std::max(ymax, MaxBinContent(hSam));
+                          ymax = std::max(ymax, MaxBinContent(hJustin));
+                          if (hJustinTag) ymax = std::max(ymax, MaxBinContent(hJustinTag));
+                          hSam->SetMaximum(ymax * 1.03);
+
+                          TCanvas c("c_SamVsJustin_pTjetMin10","c_SamVsJustin_pTjetMin10",900,700);
+                          ApplyCanvasMargins1D(c);
+
+                          hSam->Draw("E1");
+                          hJustin->Draw("E1 same");
+                          if (hJustinTag) hJustinTag->Draw("E1 same");
+
+                          TLegend leg(0.42, 0.73, 0.88, 0.90);
+                          leg.SetTextFont(42);
+                          leg.SetTextSize(0.033);
+                          leg.SetFillStyle(0);
+                          leg.SetBorderSize(0);
+                          leg.AddEntry(hSam,    TString::Format("Sam's Reco p_{T}^{jet} > 10 (R = %.1f)", rm.R).Data(), "ep");
+                          leg.AddEntry(hJustin, TString::Format("Justin's Reco p_{T}^{jet} > 10 (R = %.1f)", rm.R).Data(), "ep");
+                          if (hJustinTag) leg.AddEntry(hJustinTag, TString::Format("Justin RECO (#gamma^{truth} + jet^{truth} tag) (R = %.1f)", rm.R).Data(), "ep");
+                          leg.Draw();
+
+                          TLatex t;
+                          t.SetNDC(true);
+                          t.SetTextFont(42);
+                          t.SetTextSize(0.034);
+                          t.SetTextAlign(12);
+                          t.DrawLatex(0.60, 0.62, TString::Format("p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
+                          t.DrawLatex(0.60, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samLabel.c_str()).Data());
+                          t.DrawLatex(0.60, 0.52, "Back-to-back: 7#pi/8");
+
+                          const std::string outName =
+                            TString::Format("overlay_SamVsJustin_JES3_RECO_pTjetMin10_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
+                              ptLo, ptHi, samLabel.c_str(), rm.rKey.c_str()).Data();
+
+                          SaveCanvas(c, JoinPath(dirOver_RECO_jetMinPt10, outName));
+
+                          delete hSam;
+                          delete hJustin;
+                          if (hJustinTag) delete hJustinTag;
+                      }
+
+                      delete hJustin3;
+                    }
+
+                    if (fJustin10M) fJustin10M->Close();
+                  }
+
+                  fSamPt10M->Close();
+                }
+              }
+              else
+              {
+                cout << ANSI_BOLD_YEL
+                     << "[WARN] [pTjet>10] Skipping pTjet>10 overlays: could not build Sam merged pTmin10 file.\n"
+                     << ANSI_RESET;
+              }
+            }
+
             fJ10->Close();
             fJ20->Close();
 

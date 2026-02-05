@@ -2258,30 +2258,15 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
         // but we evaluate sequentially to support a robust MissA2 cutflow histogram.)
         bool truthMatchPassesRecoil = false;
         int  truthMatchFailCut = 0; // 1=pTmin, 2=|eta|, 3=dphi
-          if (hasRecoMatchToTruthLead && rjTruthBest)
-          {
-            const double ptm  = rjTruthBest->get_pt();
-            const double etam = rjTruthBest->get_eta();
-            const double phim = rjTruthBest->get_phi();
+        if (hasRecoMatchToTruthLead && rjTruthBest)
+        {
+          const double ptm  = rjTruthBest->get_pt();
+          const double etam = rjTruthBest->get_eta();
+          const double phim = rjTruthBest->get_phi();
 
-            // Apply minJetPt on the UNCALIBRATED (RAW) jet pT for this matched reco jet.
-            double ptmRawForCut = ptm;
-            if (auto itR = m_jetsRaw.find(rKey); itR != m_jetsRaw.end() && itR->second)
-            {
-              const unsigned int idC = rjTruthBest->get_id();
-              for (const Jet* jr : *(itR->second))
-              {
-                if (!jr) continue;
-                if (jr->get_id() != idC) continue;
-                const double ptR = jr->get_pt();
-                if (std::isfinite(ptR)) ptmRawForCut = ptR;
-                break;
-              }
-            }
+          const bool passPt  = (std::isfinite(ptm)  && ptm  >= m_minJetPt);
+          const bool passEta = (std::isfinite(etam) && std::fabs(etam) < etaMaxTruth);
 
-            const bool passPt  = (std::isfinite(ptmRawForCut)  && ptmRawForCut  >= m_minJetPt);
-            const bool passEta = (std::isfinite(etam) && std::fabs(etam) < etaMaxTruth);
-              
           const double dphiAbsM = std::fabs(TVector2::Phi_mpi_pi(phim - tPhi));
           const bool passDphi = (std::isfinite(dphiAbsM) && dphiAbsM >= m_minBackToBack);
 
@@ -2961,32 +2946,17 @@ bool RecoilJets::runLeadIsoTightPhotonJetLoopAllRadii(
     // max |Δφ| over jets that pass pT+eta (even if they fail the Δφ cut)
     double maxDphi = -1.0;
 
-      for (const Jet* j : *jets)
-      {
-        if (!j) continue;
+    for (const Jet* j : *jets)
+    {
+      if (!j) continue;
 
-        const double jpt  = j->get_pt();
-        const double jeta = j->get_eta();
-        const double jphi = j->get_phi();
+      const double jpt  = j->get_pt();
+      const double jeta = j->get_eta();
+      const double jphi = j->get_phi();
 
-        // Apply minJetPt on the UNCALIBRATED (RAW) jet pT, while keeping calibrated kinematics for everything else.
-        double jptRawForCut = jpt;
-        if (auto itR = m_jetsRaw.find(rKey); itR != m_jetsRaw.end() && itR->second)
-        {
-          const unsigned int idC = j->get_id();
-          for (const Jet* jr : *(itR->second))
-          {
-            if (!jr) continue;
-            if (jr->get_id() != idC) continue;
-            const double ptR = jr->get_pt();
-            if (std::isfinite(ptR)) jptRawForCut = ptR;
-            break;
-          }
-        }
-
-        if (!std::isfinite(jpt) || !std::isfinite(jeta) || !std::isfinite(jphi)) continue;
-        if (jptRawForCut < m_minJetPt) continue;
-        ++nPassPt;
+      if (!std::isfinite(jpt) || !std::isfinite(jeta) || !std::isfinite(jphi)) continue;
+      if (jpt < m_minJetPt) continue;
+      ++nPassPt;
 
       if (std::fabs(jeta) >= jetEtaAbsMaxUse) continue;
       ++nPassEta;
@@ -4567,36 +4537,20 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
             {
               if (!j) continue;
 
-                const double jpt  = j->get_pt();
-                const double jeta = j->get_eta();
-                const double jphi = j->get_phi();
+              const double jpt  = j->get_pt();
+              const double jeta = j->get_eta();
+              const double jphi = j->get_phi();
 
-                if (!std::isfinite(jpt) || !std::isfinite(jeta) || !std::isfinite(jphi)) continue;
+              if (!std::isfinite(jpt) || !std::isfinite(jeta) || !std::isfinite(jphi)) continue;
 
-                // Apply minJetPt on the UNCALIBRATED (RAW) jet pT, while keeping calibrated kinematics for everything else.
-                double jptRawForCut = jpt;
-                if (auto itR = m_jetsRaw.find(rKey); itR != m_jetsRaw.end() && itR->second)
-                {
-                  const unsigned int idC = j->get_id();
-                  for (const Jet* jr : *(itR->second))
-                  {
-                    if (!jr) continue;
-                    if (jr->get_id() != idC) continue;
-                    const double ptR = jr->get_pt();
-                    if (std::isfinite(ptR)) jptRawForCut = ptR;
-                    break;
-                  }
-                }
-
-                int jStatus = 0;
-                if (jptRawForCut < m_minJetPt) jStatus = 1;
-                else if (std::fabs(jeta) >= jetEtaAbsMaxUse) jStatus = 2;
-                else
-                {
-                  const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(jphi - leadAnyPhiGamma));
-                  jStatus = (dphiAbs >= m_minBackToBack) ? 4 : 3;
-                }
-
+              int jStatus = 0;
+              if (jpt < m_minJetPt) jStatus = 1;
+              else if (std::fabs(jeta) >= jetEtaAbsMaxUse) jStatus = 2;
+              else
+              {
+                const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(jphi - leadAnyPhiGamma));
+                jStatus = (dphiAbs >= m_minBackToBack) ? 4 : 3;
+              }
 
               for (const auto& trigShort : activeTrig)
               {
@@ -9653,31 +9607,15 @@ void RecoilJets::fillInclusiveJetQA(const std::vector<std::string>& activeTrig,
   constexpr double m2Hi   = 20.0;
 
   // Loop over jets once; fill "all" first (pT cut only), then "incl" (fiducial)
-    for (const Jet* j : *jets)
-    {
-      if (!j) continue;
+  for (const Jet* j : *jets)
+  {
+    if (!j) continue;
 
-      const double pt  = j->get_pt();
-      const double eta = j->get_eta();
+    const double pt  = j->get_pt();
+    const double eta = j->get_eta();
 
-      // Apply minJetPt on the UNCALIBRATED (RAW) jet pT, while still filling QA with calibrated pt.
-      double ptRawForCut = pt;
-      if (auto itR = m_jetsRaw.find(rKey); itR != m_jetsRaw.end() && itR->second)
-      {
-        const unsigned int idC = j->get_id();
-        for (const Jet* jr : *(itR->second))
-        {
-          if (!jr) continue;
-          if (jr->get_id() != idC) continue;
-          const double ptR = jr->get_pt();
-          if (std::isfinite(ptR)) ptRawForCut = ptR;
-          break;
-        }
-      }
-
-      if (!std::isfinite(pt) || !std::isfinite(eta)) continue;
-      if (ptRawForCut < m_minJetPt) continue;
-
+    if (!std::isfinite(pt) || !std::isfinite(eta)) continue;
+    if (pt < m_minJetPt) continue;
 
     const double phi = TVector2::Phi_mpi_pi(j->get_phi());
     const double mass = j->get_mass();
