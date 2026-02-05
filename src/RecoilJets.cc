@@ -4567,20 +4567,36 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
             {
               if (!j) continue;
 
-              const double jpt  = j->get_pt();
-              const double jeta = j->get_eta();
-              const double jphi = j->get_phi();
+                const double jpt  = j->get_pt();
+                const double jeta = j->get_eta();
+                const double jphi = j->get_phi();
 
-              if (!std::isfinite(jpt) || !std::isfinite(jeta) || !std::isfinite(jphi)) continue;
+                if (!std::isfinite(jpt) || !std::isfinite(jeta) || !std::isfinite(jphi)) continue;
 
-              int jStatus = 0;
-              if (jpt < m_minJetPt) jStatus = 1;
-              else if (std::fabs(jeta) >= jetEtaAbsMaxUse) jStatus = 2;
-              else
-              {
-                const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(jphi - leadAnyPhiGamma));
-                jStatus = (dphiAbs >= m_minBackToBack) ? 4 : 3;
-              }
+                // Apply minJetPt on the UNCALIBRATED (RAW) jet pT, while keeping calibrated kinematics for everything else.
+                double jptRawForCut = jpt;
+                if (auto itR = m_jetsRaw.find(rKey); itR != m_jetsRaw.end() && itR->second)
+                {
+                  const unsigned int idC = j->get_id();
+                  for (const Jet* jr : *(itR->second))
+                  {
+                    if (!jr) continue;
+                    if (jr->get_id() != idC) continue;
+                    const double ptR = jr->get_pt();
+                    if (std::isfinite(ptR)) jptRawForCut = ptR;
+                    break;
+                  }
+                }
+
+                int jStatus = 0;
+                if (jptRawForCut < m_minJetPt) jStatus = 1;
+                else if (std::fabs(jeta) >= jetEtaAbsMaxUse) jStatus = 2;
+                else
+                {
+                  const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(jphi - leadAnyPhiGamma));
+                  jStatus = (dphiAbs >= m_minBackToBack) ? 4 : 3;
+                }
+
 
               for (const auto& trigShort : activeTrig)
               {
