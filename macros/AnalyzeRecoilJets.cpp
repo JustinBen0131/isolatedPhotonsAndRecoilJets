@@ -4657,6 +4657,16 @@ namespace ARJ
                             TString::Format("%s %s, %s = %s", levelTag, xTitle.c_str(), pTTag, ptLab.c_str()).Data()
                           );
 
+                          const auto& cfgDef = DefaultSim10and20Config();
+
+                          TLatex tcuts;
+                          tcuts.SetNDC(true);
+                          tcuts.SetTextFont(42);
+                          tcuts.SetTextAlign(13);
+                          tcuts.SetTextSize(0.055);
+                          tcuts.DrawLatex(0.16, 0.86, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
+                          tcuts.DrawLatex(0.16, 0.78, TString::Format("Reco (p_{T}^{jet} > %.0f GeV)", cfgDef.jetMinPt).Data());
+
                           TLegend leg(0.72, 0.68, 0.92, 0.90);
                           leg.SetTextFont(42);
                           leg.SetTextSize(0.065);
@@ -5764,22 +5774,23 @@ namespace ARJ
               std::vector<TH1*> keep;
               keep.reserve(3 * 6);
 
-              auto Style = [&](TH1* h, int col)->void
-              {
-                if (!h) return;
-                h->SetDirectory(nullptr);
-                EnsureSumw2(h);
-                h->SetTitle("");
-                h->SetLineWidth(2);
-                h->SetLineColor(col);
-                h->SetMarkerStyle(20);
-                h->SetMarkerSize(0.95);
-                h->SetMarkerColor(col);
-                h->SetFillStyle(0);
-                h->GetXaxis()->SetTitle("x_{J#gamma}");
-                h->GetYaxis()->SetTitle("A.U.");
-                NormalizeToUnitArea(h);
-              };
+                auto Style = [&](TH1* h, int col)->void
+                {
+                  if (!h) return;
+                  h->SetDirectory(nullptr);
+                  EnsureSumw2(h);
+                  h->SetTitle("");
+                  h->SetLineWidth(2);
+                  h->SetLineColor(col);
+                  h->SetMarkerStyle(20);
+                  h->SetMarkerSize(0.95);
+                  h->SetMarkerColor(col);
+                  h->SetFillStyle(0);
+                  h->GetXaxis()->SetTitle("x_{J#gamma}");
+                  h->GetXaxis()->SetRangeUser(0.0, 2.0);
+                  h->GetYaxis()->SetTitle("A.U.");
+                  NormalizeToUnitArea(h);
+                };
 
                 const int ibStart = 1; // start from first pT bin in the vector (ROOT bins are 1-indexed)
                 const int nAvail  = (nPt >= ibStart) ? (nPt - ibStart + 1) : 0;
@@ -5848,7 +5859,7 @@ namespace ARJ
                   TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data()
                 );
 
-                TLegend leg(0.38, 0.62, 0.86, 0.86);
+                TLegend leg(0.56, 0.62, 0.94, 0.86);
                 leg.SetTextFont(42);
                 leg.SetTextSize(0.040);
                 leg.SetFillStyle(0);
@@ -8859,14 +8870,21 @@ namespace ARJ
               {
                 if (!h3) return;
 
-                  const int n = h3->GetXaxis()->GetNbins();
-                  const int perPage = (n <= 6 ? 6 : 9);
+                  const int nAll = h3->GetXaxis()->GetNbins();
+
+                  const bool wantLast6 = (tag == "RECO");
+                  const int  n         = wantLast6 ? std::min(6, nAll) : nAll;
+
+                  const int perPage = wantLast6 ? 6 : (n <= 6 ? 6 : 9);
 
                   const int nCols = 3;
                   const int nRows = (perPage == 6 ? 2 : 3);
 
+                  const int firstBin = wantLast6 ? std::max(1, nAll - n + 1) : 1;
+                  const int lastStartBin = wantLast6 ? firstBin : n;
+
                   int page = 0;
-                  for (int start = 1; start <= n; start += perPage)
+                  for (int start = firstBin; start <= lastStartBin; start += perPage)
                   {
                     ++page;
 
@@ -8896,7 +8914,7 @@ namespace ARJ
                     gPad->SetTopMargin(0.10);
                     gPad->SetLogy(logy);
 
-                    if (ib > n)
+                    if (ib > nAll)
                     {
                       TLatex t;
                       t.SetNDC(true);
@@ -10993,15 +11011,20 @@ namespace ARJ
                   //   h_leadTruthRecoilMatch_missB_pTgammaTruth_<rKey>
                   // ---------------------------------------------------------------------------
                   {
-                    const string hDenName   = "h_leadTruthRecoilMatch_den_pTgammaTruth_" + rKey;
-                    const string hNumName   = "h_leadTruthRecoilMatch_num_pTgammaTruth_" + rKey;
-                    const string hMissAName = "h_leadTruthRecoilMatch_missA_pTgammaTruth_" + rKey;
-                    const string hMissBName = "h_leadTruthRecoilMatch_missB_pTgammaTruth_" + rKey;
+                      const string hDenName    = "h_leadTruthRecoilMatch_den_pTgammaTruth_" + rKey;
+                      const string hNumName    = "h_leadTruthRecoilMatch_num_pTgammaTruth_" + rKey;
+                      const string hMissAName  = "h_leadTruthRecoilMatch_missA_pTgammaTruth_" + rKey;
+                      const string hMissA1Name = "h_leadTruthRecoilMatch_missA1_pTgammaTruth_" + rKey;
+                      const string hMissA2Name = "h_leadTruthRecoilMatch_missA2_pTgammaTruth_" + rKey;
+                      const string hMissBName  = "h_leadTruthRecoilMatch_missB_pTgammaTruth_" + rKey;
 
-                    TH1* hDen   = GetObj<TH1>(ds, hDenName,   false, false, false);
-                    TH1* hNum   = GetObj<TH1>(ds, hNumName,   false, false, false);
-                    TH1* hMissA = GetObj<TH1>(ds, hMissAName, false, false, false);
-                    TH1* hMissB = GetObj<TH1>(ds, hMissBName, false, false, false);
+                      TH1* hDen    = GetObj<TH1>(ds, hDenName,    false, false, false);
+                      TH1* hNum    = GetObj<TH1>(ds, hNumName,    false, false, false);
+                      TH1* hMissA  = GetObj<TH1>(ds, hMissAName,  false, false, false);
+                      TH1* hMissA1 = GetObj<TH1>(ds, hMissA1Name, false, false, false);
+                      TH1* hMissA2 = GetObj<TH1>(ds, hMissA2Name, false, false, false);
+                      TH1* hMissB  = GetObj<TH1>(ds, hMissBName,  false, false, false);
+
 
                     if (!hDen || !hNum || !hMissA || !hMissB)
                     {
@@ -11536,9 +11559,265 @@ namespace ARJ
                                 effSummary.push_back("  - " + outMissPng);
                               }
 
-                              delete missA_C;
-                              delete missB_C;
-                            }
+                                delete missA_C;
+                                delete missB_C;
+
+                                // ------------------------------------------------------------
+                                // NEW: MissA subtype probabilities vs pTgammaTruth
+                                //   fA1 = MissA1 / DEN
+                                //   fA2 = MissA2 / DEN
+                                //
+                                // Output:
+                                //   leadRecoilJetMatchMissA_subtypes_vs_pTgammaTruth_<rKey>.png
+                                // ------------------------------------------------------------
+                                if (hMissA1 && hMissA2)
+                                {
+                                  TH1* missA1_C = CloneTH1(hMissA1, "h_leadTruthRecoilMatch_missA1_cloneForFrac_" + rKey);
+                                  TH1* missA2_C = CloneTH1(hMissA2, "h_leadTruthRecoilMatch_missA2_cloneForFrac_" + rKey);
+                                  EnsureSumw2(missA1_C);
+                                  EnsureSumw2(missA2_C);
+
+                                  std::unique_ptr<TH1> hFracA1( CloneTH1(missA1_C, "h_leadTruthRecoilMatch_fracA1_" + rKey) );
+                                  std::unique_ptr<TH1> hFracA2( CloneTH1(missA2_C, "h_leadTruthRecoilMatch_fracA2_" + rKey) );
+
+                                  if (hFracA1 && hFracA2)
+                                  {
+                                    EnsureSumw2(hFracA1.get());
+                                    EnsureSumw2(hFracA2.get());
+                                    hFracA1->Divide(missA1_C, denC, 1.0, 1.0, "B");
+                                    hFracA2->Divide(missA2_C, denC, 1.0, 1.0, "B");
+
+                                    // JES3-only convention: do not display truth pT < 15 GeV
+                                    const double minTruthPtJES3_plot = 15.0;
+
+                                    // Auto-scale y-axis over displayed truth pT (>=15 GeV)
+                                    double yMinS =  1e9;
+                                    double yMaxS = -1e9;
+                                    for (int ib = 1; ib <= hFracA1->GetNbinsX(); ++ib)
+                                    {
+                                      if (hFracA1->GetXaxis()->GetBinLowEdge(ib) < minTruthPtJES3_plot) continue;
+
+                                      const double a1  = hFracA1->GetBinContent(ib);
+                                      const double ea1 = hFracA1->GetBinError(ib);
+                                      const double a2  = hFracA2->GetBinContent(ib);
+                                      const double ea2 = hFracA2->GetBinError(ib);
+
+                                      if (a1 > 0.0) { yMinS = std::min(yMinS, a1 - ea1); yMaxS = std::max(yMaxS, a1 + ea1); }
+                                      if (a2 > 0.0) { yMinS = std::min(yMinS, a2 - ea2); yMaxS = std::max(yMaxS, a2 + ea2); }
+                                    }
+                                    if (yMinS > yMaxS) { yMinS = 0.0; yMaxS = 0.20; } // fallback
+                                    const double padS = 0.02;
+                                    const double yLoS = 0.0;
+                                    const double yHiS = std::min(1.0, yMaxS + padS);
+
+                                    auto MakeGraphNoXerr =
+                                      [&](TH1* h, int mStyle, double mSize, int lColor, int mColor) -> std::unique_ptr<TGraphErrors>
+                                    {
+                                      std::unique_ptr<TGraphErrors> g(new TGraphErrors());
+                                      int ip = 0;
+                                      for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                                      {
+                                        if (h->GetXaxis()->GetBinLowEdge(ib) < minTruthPtJES3_plot) continue;
+
+                                        const double y  = h->GetBinContent(ib);
+                                        const double ey = h->GetBinError(ib);
+                                        if (y <= 0.0) continue;
+
+                                        const double x  = h->GetXaxis()->GetBinCenter(ib);
+
+                                        g->SetPoint(ip, x, y);
+                                        g->SetPointError(ip, 0.0, ey); // NO horizontal error bars
+                                        ++ip;
+                                      }
+
+                                      g->SetMarkerStyle(mStyle);
+                                      g->SetMarkerSize(mSize);
+                                      g->SetLineColor(lColor);
+                                      g->SetMarkerColor(mColor);
+                                      g->SetLineWidth(2);
+                                      return g;
+                                    };
+
+                                    auto gA1 = MakeGraphNoXerr(hFracA1.get(), 20, 1.05, 2, 2); // red
+                                    auto gA2 = MakeGraphNoXerr(hFracA2.get(), 20, 1.05, 4, 4); // blue
+
+                                    TCanvas cS(TString::Format("c_leadTruthMatchMissA_Subtypes_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
+                                               "c_leadTruthMatchMissA_Subtypes", 900, 720);
+                                    ApplyCanvasMargins1D(cS);
+
+                                    // Axis frame: use hFracA1
+                                    hFracA1->SetTitle("");
+                                    hFracA1->GetXaxis()->SetTitle("p_{T}^{#gamma,truth} [GeV]");
+                                    hFracA1->GetYaxis()->SetTitle("MissA subtype probability (fraction of DEN)");
+                                    hFracA1->GetXaxis()->SetRangeUser(minTruthPtJES3_plot, hFracA1->GetXaxis()->GetXmax());
+                                    hFracA1->GetYaxis()->SetRangeUser(yLoS, yHiS);
+
+                                    hFracA1->SetLineWidth(0);
+                                    hFracA1->SetMarkerSize(0);
+                                    hFracA1->Draw("AXIS");
+
+                                    if (gA1) gA1->Draw("PE SAME");
+                                    if (gA2) gA2->Draw("PE SAME");
+
+                                    TLegend legS(0.38, 0.78, 0.73, 0.90);
+                                    legS.SetTextFont(42);
+                                    legS.SetTextSize(0.028);
+                                    legS.SetFillStyle(0);
+                                    legS.SetBorderSize(0);
+                                    if (gA1) legS.AddEntry(gA1.get(), "MissA1 / DEN (truth-matched reco passes recoil cuts)", "ep");
+                                    if (gA2) legS.AddEntry(gA2.get(), "MissA2 / DEN (truth-matched reco fails recoil cuts)", "ep");
+                                    legS.Draw();
+
+                                    {
+                                      const auto hdr = DefaultHeaderLines(ds);
+                                      const std::string dsLine = hdr.empty() ? std::string("Dataset: (unknown)") : hdr.front();
+
+                                      TLatex t;
+                                      t.SetNDC(true);
+                                      t.SetTextFont(42);
+                                      t.SetTextAlign(31); // right-aligned
+
+                                      t.SetTextSize(0.034);
+                                      t.DrawLatex(0.89, 0.965, dsLine.c_str());
+
+                                      t.SetTextSize(0.032);
+                                      t.DrawLatex(0.89, 0.925,
+                                        TString::Format("MissA subtype probabilities (%s)", rKey.c_str()).Data()
+                                      );
+                                    }
+
+                                    const string outMissASubPng = JoinPath(
+                                      D.dirXJProjEffLeadMatch,
+                                      TString::Format("leadRecoilJetMatchMissA_subtypes_vs_pTgammaTruth_%s.png", rKey.c_str()).Data()
+                                    );
+                                    SaveCanvas(cS, outMissASubPng);
+
+                                    cout << "    Wrote: " << outMissASubPng << "\n";
+                                    effSummary.push_back("  - " + outMissASubPng);
+                                  }
+
+                                  delete missA1_C;
+                                  delete missA2_C;
+                                }
+
+                                // ------------------------------------------------------------
+                                // NEW: MissA composition (within MissA): MissA1/MissA and MissA2/MissA
+                                //
+                                // Output:
+                                //   leadRecoilJetMatchMissA_composition_vs_pTgammaTruth_<rKey>.png
+                                // ------------------------------------------------------------
+                                if (hMissA && hMissA1 && hMissA2)
+                                {
+                                  TH1* missA_C2  = CloneTH1(hMissA,  "h_leadTruthRecoilMatch_missA_cloneForComp_"  + rKey);
+                                  TH1* missA1_C2 = CloneTH1(hMissA1, "h_leadTruthRecoilMatch_missA1_cloneForComp_" + rKey);
+                                  TH1* missA2_C2 = CloneTH1(hMissA2, "h_leadTruthRecoilMatch_missA2_cloneForComp_" + rKey);
+                                  EnsureSumw2(missA_C2);
+                                  EnsureSumw2(missA1_C2);
+                                  EnsureSumw2(missA2_C2);
+
+                                  std::unique_ptr<TH1> hCompA1( CloneTH1(missA1_C2, "h_leadTruthRecoilMatch_compA1_" + rKey) );
+                                  std::unique_ptr<TH1> hCompA2( CloneTH1(missA2_C2, "h_leadTruthRecoilMatch_compA2_" + rKey) );
+
+                                  if (hCompA1 && hCompA2)
+                                  {
+                                    EnsureSumw2(hCompA1.get());
+                                    EnsureSumw2(hCompA2.get());
+                                    hCompA1->Divide(missA1_C2, missA_C2, 1.0, 1.0, "B");
+                                    hCompA2->Divide(missA2_C2, missA_C2, 1.0, 1.0, "B");
+
+                                    const double minTruthPtJES3_plot = 15.0;
+
+                                    auto MakeGraphNoXerr =
+                                      [&](TH1* h, int mStyle, double mSize, int lColor, int mColor) -> std::unique_ptr<TGraphErrors>
+                                    {
+                                      std::unique_ptr<TGraphErrors> g(new TGraphErrors());
+                                      int ip = 0;
+                                      for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                                      {
+                                        if (h->GetXaxis()->GetBinLowEdge(ib) < minTruthPtJES3_plot) continue;
+
+                                        const double y  = h->GetBinContent(ib);
+                                        const double ey = h->GetBinError(ib);
+                                        if (y < 0.0) continue;
+
+                                        const double x  = h->GetXaxis()->GetBinCenter(ib);
+
+                                        g->SetPoint(ip, x, y);
+                                        g->SetPointError(ip, 0.0, ey);
+                                        ++ip;
+                                      }
+
+                                      g->SetMarkerStyle(mStyle);
+                                      g->SetMarkerSize(mSize);
+                                      g->SetLineColor(lColor);
+                                      g->SetMarkerColor(mColor);
+                                      g->SetLineWidth(2);
+                                      return g;
+                                    };
+
+                                    auto gC1 = MakeGraphNoXerr(hCompA1.get(), 20, 1.05, 2, 2); // red
+                                    auto gC2 = MakeGraphNoXerr(hCompA2.get(), 20, 1.05, 4, 4); // blue
+
+                                    TCanvas cC(TString::Format("c_leadTruthMatchMissA_Comp_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
+                                               "c_leadTruthMatchMissA_Comp", 900, 720);
+                                    ApplyCanvasMargins1D(cC);
+
+                                    // Axis frame: reuse hCompA1
+                                    hCompA1->SetTitle("");
+                                    hCompA1->GetXaxis()->SetTitle("p_{T}^{#gamma,truth} [GeV]");
+                                    hCompA1->GetYaxis()->SetTitle("Composition within MissA");
+                                    hCompA1->GetXaxis()->SetRangeUser(minTruthPtJES3_plot, hCompA1->GetXaxis()->GetXmax());
+                                    hCompA1->GetYaxis()->SetRangeUser(0.0, 1.05);
+
+                                    hCompA1->SetLineWidth(0);
+                                    hCompA1->SetMarkerSize(0);
+                                    hCompA1->Draw("AXIS");
+
+                                    if (gC1) gC1->Draw("PE SAME");
+                                    if (gC2) gC2->Draw("PE SAME");
+
+                                    TLegend legC(0.38, 0.78, 0.73, 0.90);
+                                    legC.SetTextFont(42);
+                                    legC.SetTextSize(0.028);
+                                    legC.SetFillStyle(0);
+                                    legC.SetBorderSize(0);
+                                    if (gC1) legC.AddEntry(gC1.get(), "MissA1 / MissA", "ep");
+                                    if (gC2) legC.AddEntry(gC2.get(), "MissA2 / MissA", "ep");
+                                    legC.Draw();
+
+                                    {
+                                      const auto hdr = DefaultHeaderLines(ds);
+                                      const std::string dsLine = hdr.empty() ? std::string("Dataset: (unknown)") : hdr.front();
+
+                                      TLatex t;
+                                      t.SetNDC(true);
+                                      t.SetTextFont(42);
+                                      t.SetTextAlign(31);
+
+                                      t.SetTextSize(0.034);
+                                      t.DrawLatex(0.89, 0.965, dsLine.c_str());
+
+                                      t.SetTextSize(0.032);
+                                      t.DrawLatex(0.89, 0.925,
+                                        TString::Format("MissA composition (%s)", rKey.c_str()).Data()
+                                      );
+                                    }
+
+                                    const string outMissACompPng = JoinPath(
+                                      D.dirXJProjEffLeadMatch,
+                                      TString::Format("leadRecoilJetMatchMissA_composition_vs_pTgammaTruth_%s.png", rKey.c_str()).Data()
+                                    );
+                                    SaveCanvas(cC, outMissACompPng);
+
+                                    cout << "    Wrote: " << outMissACompPng << "\n";
+                                    effSummary.push_back("  - " + outMissACompPng);
+                                  }
+
+                                  delete missA_C2;
+                                  delete missA1_C2;
+                                  delete missA2_C2;
+                                }
+                              }
 
                         }
                         else
@@ -12328,28 +12607,32 @@ namespace ARJ
                           // -------------------------
                           // Load new TH2 diagnostics
                           // -------------------------
-                          const string hA1_num   = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_num_"   + rKey;
-                          const string hA1_mA    = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_missA_" + rKey;
-                          const string hA1_mB    = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_missB_" + rKey;
+                            const string hA1_num   = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_num_"   + rKey;
+                            const string hA1_mA    = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_missA_" + rKey;
+                            const string hA1_mA1   = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_missA1_" + rKey;
+                            const string hA1_mA2   = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_missA2_" + rKey;
+                            const string hA1_mB    = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_missB_" + rKey;
 
-                          const string hA2_num   = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTrecoTruthMatch_num_"   + rKey;
-                          const string hA2_mA    = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTrecoTruthMatch_missA_" + rKey;
+                            const string hA2_num   = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTrecoTruthMatch_num_"   + rKey;
+                            const string hA2_mA    = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTrecoTruthMatch_missA_" + rKey;
 
-                          const string hB3_num   = "h2_leadTruthRecoilMatch_dphiRecoJet1_num_pTgammaTruth_"   + rKey;
-                          const string hB3_mA    = "h2_leadTruthRecoilMatch_dphiRecoJet1_missA_pTgammaTruth_" + rKey;
-                          const string hB3_mB    = "h2_leadTruthRecoilMatch_dphiRecoJet1_missB_pTgammaTruth_" + rKey;
+                            const string hB3_num   = "h2_leadTruthRecoilMatch_dphiRecoJet1_num_pTgammaTruth_"   + rKey;
+                            const string hB3_mA    = "h2_leadTruthRecoilMatch_dphiRecoJet1_missA_pTgammaTruth_" + rKey;
+                            const string hB3_mB    = "h2_leadTruthRecoilMatch_dphiRecoJet1_missB_pTgammaTruth_" + rKey;
 
-                          const string hB4_num   = "h2_leadTruthRecoilMatch_dRRecoJet1_vs_truthLead_num_pTgammaTruth_"   + rKey;
-                          const string hB4_mA    = "h2_leadTruthRecoilMatch_dRRecoJet1_vs_truthLead_missA_pTgammaTruth_" + rKey;
-                          const string hB4_mB    = "h2_leadTruthRecoilMatch_dRRecoJet1_vs_truthLead_missB_pTgammaTruth_" + rKey;
+                            const string hB4_num   = "h2_leadTruthRecoilMatch_dRRecoJet1_vs_truthLead_num_pTgammaTruth_"   + rKey;
+                            const string hB4_mA    = "h2_leadTruthRecoilMatch_dRRecoJet1_vs_truthLead_missA_pTgammaTruth_" + rKey;
+                            const string hB4_mB    = "h2_leadTruthRecoilMatch_dRRecoJet1_vs_truthLead_missB_pTgammaTruth_" + rKey;
 
-                          const string hC5_num   = "h2_leadTruthRecoilMatch_xJRecoJet1_vs_dphiRecoJet1_num_"   + rKey;
-                          const string hC5_mA    = "h2_leadTruthRecoilMatch_xJRecoJet1_vs_dphiRecoJet1_missA_" + rKey;
-                          const string hC5_mB    = "h2_leadTruthRecoilMatch_xJRecoJet1_vs_dphiRecoJet1_missB_" + rKey;
+                            const string hC5_num   = "h2_leadTruthRecoilMatch_xJRecoJet1_vs_dphiRecoJet1_num_"   + rKey;
+                            const string hC5_mA    = "h2_leadTruthRecoilMatch_xJRecoJet1_vs_dphiRecoJet1_missA_" + rKey;
+                            const string hC5_mB    = "h2_leadTruthRecoilMatch_xJRecoJet1_vs_dphiRecoJet1_missB_" + rKey;
 
-                          TH2* HA1n = GetObj<TH2>(ds, hA1_num, false, false, false);
-                          TH2* HA1a = GetObj<TH2>(ds, hA1_mA,  false, false, false);
-                          TH2* HA1b = GetObj<TH2>(ds, hA1_mB,  false, false, false);
+                            TH2* HA1n  = GetObj<TH2>(ds, hA1_num, false, false, false);
+                            TH2* HA1a  = GetObj<TH2>(ds, hA1_mA,  false, false, false);
+                            TH2* HA1a1 = GetObj<TH2>(ds, hA1_mA1, false, false, false);
+                            TH2* HA1a2 = GetObj<TH2>(ds, hA1_mA2, false, false, false);
+                            TH2* HA1b  = GetObj<TH2>(ds, hA1_mB,  false, false, false);
 
                           TH2* HA2n = GetObj<TH2>(ds, hA2_num, false, false, false);
                           TH2* HA2a = GetObj<TH2>(ds, hA2_mA,  false, false, false);
@@ -12399,9 +12682,13 @@ namespace ARJ
                             // -------------------------
                             if (HA1n && HA1a && HA1b)
                             {
-                              std::unique_ptr<TProfile> pN(HA1n->ProfileX(TString::Format("p_prof_A1_NUM_%s", rKey.c_str()).Data()));
-                              std::unique_ptr<TProfile> pA(HA1a->ProfileX(TString::Format("p_prof_A1_MissA_%s", rKey.c_str()).Data()));
-                              std::unique_ptr<TProfile> pB(HA1b->ProfileX(TString::Format("p_prof_A1_MissB_%s", rKey.c_str()).Data()));
+                                std::unique_ptr<TProfile> pN(HA1n->ProfileX(TString::Format("p_prof_A1_NUM_%s", rKey.c_str()).Data()));
+                                std::unique_ptr<TProfile> pA(HA1a->ProfileX(TString::Format("p_prof_A1_MissA_%s", rKey.c_str()).Data()));
+                                std::unique_ptr<TProfile> pB(HA1b->ProfileX(TString::Format("p_prof_A1_MissB_%s", rKey.c_str()).Data()));
+
+                                if (pN) pN->SetDirectory(nullptr);
+                                if (pA) pA->SetDirectory(nullptr);
+                                if (pB) pB->SetDirectory(nullptr);
 
                               if (pN && pA && pB)
                               {
@@ -12548,6 +12835,129 @@ namespace ARJ
 
                                   cout << "  [LeadTruthRecoilMatchDiag] Wrote: " << outProf << "\n";
                                   effSummary.push_back("  - " + outProf);
+
+
+                                  // -------------------------
+                                  // (A1c) NEW: ProfileX overlay (1D): <pT(recoJet1)> vs pT(truth lead recoil) within MissA subtypes
+                                  //   Overlay: MissA (black) vs MissA1 (red) vs MissA2 (blue) + y=x line
+                                  // Output:
+                                  //   .../LeadTruthRecoilMatch/Diagnostics/Pt/
+                                  //     leadTruthRecoilMatch_profile_pTrecoJet1_vs_pTtruthLead_MissA_MissA1_MissA2_<rKey>.png
+                                  // -------------------------
+                                  if (HA1a && HA1a1 && HA1a2)
+                                  {
+                                    std::unique_ptr<TProfile> pA (HA1a ->ProfileX(TString::Format("p_prof_A1_MissA_%s",  rKey.c_str()).Data()));
+                                    std::unique_ptr<TProfile> pA1(HA1a1->ProfileX(TString::Format("p_prof_A1_MissA1_%s", rKey.c_str()).Data()));
+                                    std::unique_ptr<TProfile> pA2(HA1a2->ProfileX(TString::Format("p_prof_A1_MissA2_%s", rKey.c_str()).Data()));
+
+                                    if (pA && pA1 && pA2)
+                                    {
+                                      // Autoscale y-axis using all three profiles (only populated bins)
+                                      double yMin =  1e9;
+                                      double yMax = -1e9;
+
+                                      auto AccumRange = [&](TProfile* p)
+                                      {
+                                        if (!p) return;
+                                        for (int ib = 1; ib <= p->GetNbinsX(); ++ib)
+                                        {
+                                          const double y  = p->GetBinContent(ib);
+                                          const double ey = p->GetBinError(ib);
+                                          if (y <= 0.0) continue;
+                                          yMin = std::min(yMin, y - ey);
+                                          yMax = std::max(yMax, y + ey);
+                                        }
+                                      };
+
+                                      AccumRange(pA.get());
+                                      AccumRange(pA1.get());
+                                      AccumRange(pA2.get());
+
+                                      if (yMin > yMax) { yMin = 0.0; yMax = 60.0; } // fallback
+                                      const double pad = 2.0;
+                                      const double yLo = std::max(0.0, yMin - pad);
+                                      const double yHi = yMax + pad;
+
+                                      TCanvas cP2(TString::Format("c_prof_A1_MissA_Subtypes_%s_%s", ds.label.c_str(), rKey.c_str()).Data(),
+                                                  "c_prof_A1_MissA_Subtypes", 900, 720);
+                                      ApplyCanvasMargins1D(cP2);
+
+                                      // Axis frame: use pA
+                                      pA->SetTitle("");
+                                      pA->GetXaxis()->SetTitle("p_{T}^{truth lead recoil} [GeV]");
+                                      pA->GetYaxis()->SetTitle("<p_{T}^{recoilJet_{1},reco}> [GeV]");
+                                      pA->GetYaxis()->SetRangeUser(yLo, yHi);
+
+                                      // Draw axis only
+                                      pA->SetLineWidth(0);
+                                      pA->SetMarkerSize(0);
+                                      pA->Draw("AXIS");
+
+                                      // Style
+                                      pA->SetLineColor(kBlack);
+                                      pA->SetMarkerColor(kBlack);
+                                      pA->SetMarkerStyle(20);
+                                      pA->SetMarkerSize(1.05);
+
+                                      pA1->SetLineColor(kRed+1);
+                                      pA1->SetMarkerColor(kRed+1);
+                                      pA1->SetMarkerStyle(20);
+                                      pA1->SetMarkerSize(1.05);
+
+                                      pA2->SetLineColor(kBlue+1);
+                                      pA2->SetMarkerColor(kBlue+1);
+                                      pA2->SetMarkerStyle(20);
+                                      pA2->SetMarkerSize(1.05);
+
+                                      pA ->Draw("PE SAME");
+                                      pA1->Draw("PE SAME");
+                                      pA2->Draw("PE SAME");
+
+                                      // y=x reference
+                                      const double xMin = pA->GetXaxis()->GetXmin();
+                                      const double xMax = pA->GetXaxis()->GetXmax();
+                                      const double lo = std::max(xMin, yLo);
+                                      const double hi = std::min(xMax, yHi);
+                                      if (hi > lo)
+                                      {
+                                        TLine diag(lo, lo, hi, hi);
+                                        diag.SetLineStyle(2);
+                                        diag.SetLineWidth(2);
+                                        diag.Draw("same");
+                                      }
+
+                                      // Header + title
+                                      DrawLatexLines(0.14, 0.94, DefaultHeaderLines(ds), 0.030, 0.040);
+                                      DrawLatexLines(0.14, 0.86,
+                                        {TString::Format("<pT(recoJet1)> vs pT(truth lead recoil) (MissA subtypes) (%s)", rKey.c_str()).Data()},
+                                        0.030, 0.040
+                                      );
+
+                                      // Legend
+                                      TLegend leg2(0.38, 0.76, 0.70, 0.90);
+                                      leg2.SetTextFont(42);
+                                      leg2.SetTextSize(0.028);
+                                      leg2.SetFillStyle(0);
+                                      leg2.SetBorderSize(0);
+                                      leg2.AddEntry(pA.get(),  "MissA",  "ep");
+                                      leg2.AddEntry(pA1.get(), "MissA1", "ep");
+                                      leg2.AddEntry(pA2.get(), "MissA2", "ep");
+                                      leg2.Draw();
+
+                                      const string outProf2 = JoinPath(
+                                        dirPt,
+                                        TString::Format("leadTruthRecoilMatch_profile_pTrecoJet1_vs_pTtruthLead_MissA_MissA1_MissA2_%s.png", rKey.c_str()).Data()
+                                      );
+                                      SaveCanvas(cP2, outProf2);
+
+                                      cout << "  [LeadTruthRecoilMatchDiag] Wrote: " << outProf2 << "\n";
+                                      effSummary.push_back("  - " + outProf2);
+                                    }
+                                  }
+
+
+                                  
+
 
 
                                   // ------------------------------------------------------------------
