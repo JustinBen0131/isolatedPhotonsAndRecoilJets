@@ -3196,12 +3196,12 @@ bool RecoilJets::runLeadIsoTightPhotonJetLoopAllRadii(
 
       if (!std::isfinite(jpt) || !std::isfinite(jeta) || !std::isfinite(jphi)) continue;
       if (jpt < m_minJetPt) continue;
-      ++nPassPt;
+        ++nPassPt;
 
         const bool passEta = (std::fabs(jeta) < jetEtaAbsMaxUse);
-        if (passEta) ++nPassEta;
 
-  //      // Track leading+subleading jets in the pT+eta set (NO Δφ requirement)
+          
+ //      // Track leading+subleading jets in the pT+eta set (NO Δφ requirement)
   //      if (jpt > all1Pt)
   //      {
   //        all2Pt  = all1Pt;
@@ -3246,6 +3246,7 @@ bool RecoilJets::runLeadIsoTightPhotonJetLoopAllRadii(
 
                 if (passEta)
                 {
+                  ++nPassEta;
                   const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(jphi - leadPhiGamma));
                   if (std::isfinite(dphiAbs) && dphiAbs > maxDphi) maxDphi = dphiAbs;
 
