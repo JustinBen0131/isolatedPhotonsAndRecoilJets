@@ -11908,9 +11908,11 @@ namespace ARJ
                               const string dirED_NUM  = JoinPath(dirED, "NUM");
                               const string dirED_MA   = JoinPath(dirED, "MissA");
                               const string dirED_MB   = JoinPath(dirED, "MissB");
+                              const string dirED_MTJ  = JoinPath(dirED, "MatchedTruthJets");
                               EnsureDir(dirED_NUM);
                               EnsureDir(dirED_MA);
                               EnsureDir(dirED_MB);
+                              EnsureDir(dirED_MTJ);
 
                               auto PrintED =
                                 [&](const string& tag, const string& msg, const string& color)->void
@@ -12419,17 +12421,17 @@ namespace ARJ
                                             catName + " has no entries for rKey=\"" + rKey + "\" (icat=" + std::to_string(icat) + ")",
                                             ANSI_BOLD_YEL);
                                     return;
-                                  }
+                                }
 
-                                  tED->GetEntry(pick);
+                                tED->GetEntry(pick);
 
-                                  const string outPng =
+                                const string outPng =
                                     JoinPath(outDir,
                                              "eventDisplay_" + catName + "_" + rKey +
                                              "_run" + std::to_string(b_run) +
                                              "_evt" + std::to_string(b_evt) + ".png");
 
-                                  cout << ANSI_BOLD_CYN << "  [EventDisplay][DO]" << ANSI_RESET
+                                cout << ANSI_BOLD_CYN << "  [EventDisplay][DO]" << ANSI_RESET
                                        << " " << catName
                                        << " pick=" << pick
                                        << "  run=" << b_run
@@ -12439,45 +12441,72 @@ namespace ARJ
                                        << "  -> " << outPng
                                        << "\n";
 
-                                  const float selPhiW     = WrapPhi(b_sel_phi);
-                                  const float truthPhiW   = WrapPhi(b_truth_phi);
-                                  const float dPhiSelTruth = WrapPhi(selPhiW - truthPhiW);
+                                const float selPhiW     = WrapPhi(b_sel_phi);
+                                const float truthPhiW   = WrapPhi(b_truth_phi);
+                                const float dPhiSelTruth = WrapPhi(selPhiW - truthPhiW);
 
-                                  cout << "    [ED][KIN] sel(phi,eta)=(" << b_sel_phi << "," << b_sel_eta << ")  wrappedPhi=" << selPhiW << "\n";
-                                  cout << "    [ED][KIN] truth(phi,eta)=(" << b_truth_phi << "," << b_truth_eta << ")  wrappedPhi=" << truthPhiW << "\n";
-                                  cout << "    [ED][KIN] dphi(sel-truth) wrapped=" << dPhiSelTruth << "  |dphi|=" << std::fabs(dPhiSelTruth) << "\n";
+                                cout << "    [ED][KIN] sel(phi,eta)=(" << b_sel_phi << "," << b_sel_eta << ")  wrappedPhi=" << selPhiW << "\n";
+                                cout << "    [ED][KIN] truth(phi,eta)=(" << b_truth_phi << "," << b_truth_eta << ")  wrappedPhi=" << truthPhiW << "\n";
+                                cout << "    [ED][KIN] dphi(sel-truth) wrapped=" << dPhiSelTruth << "  |dphi|=" << std::fabs(dPhiSelTruth) << "\n";
 
-                                  TH2F hColz("hED_colz", "", 64, -M_PI, M_PI, 48, -1.1, 1.1);
-                                  TH2F hLego("hED_lego", "", 64, -M_PI, M_PI, 48, -1.1, 1.1);
+                                TH2F hColz("hED_colz", "", 64, -M_PI, M_PI, 48, -1.1, 1.1);
+                                TH2F hLego("hED_lego", "", 64, -M_PI, M_PI, 48, -1.1, 1.1);
 
-                                  DumpTowerTriplet(catName + string(": sel"),
+                                DumpTowerTriplet(catName + string(": sel"),
                                                    b_sel_phiTower, b_sel_etaTower, b_sel_etTower,
                                                    hColz.GetXaxis()->GetXmin(), hColz.GetXaxis()->GetXmax(),
                                                    hColz.GetYaxis()->GetXmin(), hColz.GetYaxis()->GetXmax());
 
-                                  FillJetHist(&hColz, b_sel_phiTower, b_sel_etaTower, b_sel_etTower);
-                                  FillJetHist(&hLego, b_sel_phiTower, b_sel_etaTower, b_sel_etTower);
+                                FillJetHist(&hColz, b_sel_phiTower, b_sel_etaTower, b_sel_etTower);
+                                FillJetHist(&hLego, b_sel_phiTower, b_sel_etaTower, b_sel_etTower);
 
-                                  cout << "    [ED][HIST] hColz: entries=" << hColz.GetEntries()
+                                cout << "    [ED][HIST] hColz: entries=" << hColz.GetEntries()
                                        << " sumW=" << hColz.GetSumOfWeights()
                                        << " maxBin=" << hColz.GetMaximum()
                                        << " integral=" << hColz.Integral()
                                        << "\n";
 
-                                  TCanvas c("cED", "", 1600, 800);
-                                  c.Divide(2, 1, 0.0, 0.0);
+                                TCanvas c("cED", "", 1600, 800);
+                                c.Divide(2, 1, 0.0, 0.0);
 
-                                  const string header = "EventDisplay " + catName + "  " + rKey;
-                                  const string sub    = "run " + std::to_string(b_run) +
+                                const string header = "EventDisplay " + catName + "  " + rKey;
+                                const string sub    = "run " + std::to_string(b_run) +
                                                         "  evt " + std::to_string(b_evt) +
                                                         "  v_{z}=" + std::to_string((int)std::round(b_vz)) + " cm" +
                                                         "  pT_{#gamma}^{truth}=" + std::to_string((int)std::round(b_ptGammaTruth)) + " GeV";
 
-                                  DrawPanelSave3DStyle((TPad*)c.cd(1), &hColz, "COLZ",  selPhiW, b_sel_eta, truthPhiW, b_truth_eta, header, sub);
-                                  DrawPanelSave3DStyle((TPad*)c.cd(2), &hLego, "LEGO2", selPhiW, b_sel_eta, truthPhiW, b_truth_eta, header, sub);
+                                DrawPanelSave3DStyle((TPad*)c.cd(1), &hColz, "COLZ",  selPhiW, b_sel_eta, truthPhiW, b_truth_eta, header, sub);
+                                DrawPanelSave3DStyle((TPad*)c.cd(2), &hLego, "LEGO2", selPhiW, b_sel_eta, truthPhiW, b_truth_eta, header, sub);
 
-                                  c.SaveAs(outPng.c_str());
-                                  PrintED("  [EventDisplay][WROTE]", outPng, ANSI_BOLD_GRN);
+                                c.SaveAs(outPng.c_str());
+                                PrintED("  [EventDisplay][WROTE]", outPng, ANSI_BOLD_GRN);
+
+                                // -----------------------------------------------------------------
+                                // (ED) Publication-ready 3D-only panel for truth-matched recoil jets (NUM)
+                                // -----------------------------------------------------------------
+                                if (icat == 0)
+                                {
+                                      const string outPng3D =
+                                        JoinPath(dirED_MTJ,
+                                                 "matchedTruthJets3D_" + rKey +
+                                                 "_run" + std::to_string(b_run) +
+                                                 "_evt" + std::to_string(b_evt) + ".png");
+
+                                      TCanvas c3D("cED_MatchedTruthJets3D", "", 1400, 1000);
+
+                                      const string header3D = "Matched Recoil Truth Jets, Photon 10 + 20 GeV Sim";
+                                      const string sub3D    = rKey + "  run " + std::to_string(b_run) +
+                                                              "  evt " + std::to_string(b_evt) +
+                                                              "  v_{z}=" + std::to_string((int)std::round(b_vz)) + " cm" +
+                                                              "  pT_{#gamma}^{truth}=" + std::to_string((int)std::round(b_ptGammaTruth)) + " GeV";
+
+                                      DrawPanelSave3DStyle((TPad*)c3D.cd(), &hLego, "LEGO2",
+                                                           selPhiW, b_sel_eta, truthPhiW, b_truth_eta,
+                                                           header3D, sub3D);
+
+                                      c3D.SaveAs(outPng3D.c_str());
+                                      PrintED("  [EventDisplay][WROTE]", outPng3D, ANSI_BOLD_GRN);
+                                    }
                                 };
 
                                 auto SaveMissA =
@@ -12573,7 +12602,34 @@ namespace ARJ
 
                                   c.SaveAs(outPng.c_str());
                                   PrintED("  [EventDisplay][WROTE]", outPng, ANSI_BOLD_GRN);
-                                };
+
+                                  // -----------------------------------------------------------------
+                                  // (ED) Publication-ready 3D-only panel for the truth-matched recoil jet in MissA
+                                  // -----------------------------------------------------------------
+                                  {
+                                      const string outPng3D =
+                                        JoinPath(dirED_MTJ,
+                                                 "matchedTruthJets3D_MissA_" + rKey +
+                                                 "_run" + std::to_string(b_run) +
+                                                 "_evt" + std::to_string(b_evt) + ".png");
+
+                                      TCanvas c3D("cED_MatchedTruthJets3D_MissA", "", 1400, 1000);
+
+                                      const string header3D = "Matched Recoil Truth Jets, Photon 10 + 20 GeV Sim";
+                                      const string sub3D    = rKey + "  run " + std::to_string(b_run) +
+                                                              "  evt " + std::to_string(b_evt) +
+                                                              "  v_{z}=" + std::to_string((int)std::round(b_vz)) + " cm" +
+                                                              "  pT_{#gamma}^{truth}=" + std::to_string((int)std::round(b_ptGammaTruth)) + " GeV" +
+                                                              "  (truth-matched reco jet)";
+
+                                      DrawPanelSave3DStyle((TPad*)c3D.cd(), &hBestLego, "LEGO2",
+                                                           bestPhiW, b_best_eta, truthPhiW, b_truth_eta,
+                                                           header3D, sub3D);
+
+                                      c3D.SaveAs(outPng3D.c_str());
+                                      PrintED("  [EventDisplay][WROTE]", outPng3D, ANSI_BOLD_GRN);
+                                    }
+                                  };
 
                                   SaveNUMorMissB("NUM",   0, dirED_NUM);
                                   SaveMissA(dirED_MA);
