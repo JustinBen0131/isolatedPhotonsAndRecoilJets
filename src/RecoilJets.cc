@@ -6050,6 +6050,22 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
     const bool hasBestTowers = !m_evtDiag_best_etTower.empty();
     const bool hasAnyTowers  = (hasSelTowers || hasBestTowers);
 
+    // If we failed to capture tower constituents, do NOT write a diagnostics entry.
+    // This prevents blank/empty event display PNGs.
+    if (!hasAnyTowers)
+    {
+      if (Verbosity() >= 1)
+      {
+        LOG(1, CLR_YELLOW,
+            "[EventDisplayTree][skip] empty tower payload (no constituents) "
+            << "(event_count=" << event_count
+            << " rKey=" << rKey
+            << " ptBin=" << ptBin
+            << " cat=" << static_cast<int>(cat) << ")");
+      }
+      return;
+    }
+
     ++m_evtDiagNFill;
 
     const int icat = static_cast<int>(cat);
