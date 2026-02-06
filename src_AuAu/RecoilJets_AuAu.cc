@@ -2371,6 +2371,7 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
     const int effCentIdx_M,
     const double leadPtGamma,
     const double tPt,
+    const double tEta,
     const double tPhi,
     const std::vector<const Jet*>& recoJetsFid,
     const std::vector<char>& recoJetsFidIsRecoil,
@@ -2395,34 +2396,45 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
   truthJetsFid.reserve(truthJets->size());
   truthJetsFidIsRecoil.reserve(truthJets->size());
 
-  // 1) Build truth jet lists + fill truth inclusive distribution
-  for (const Jet* tj : *truthJets)
-  {
-    if (!tj) continue;
-
-    const double ptj  = tj->get_pt();
-    const double etaj = tj->get_eta();
-    const double phij = tj->get_phi();
-
-    if (!std::isfinite(ptj) || !std::isfinite(etaj) || !std::isfinite(phij)) continue;
-    if (ptj < m_minJetPt) continue;
-    if (std::fabs(etaj) >= etaMaxTruth) continue;
-
-    const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(phij - tPhi));
-    const bool isRecoil = (dphiAbs >= m_minBackToBack);
-
-    truthJetsFid.push_back(tj);
-    truthJetsFidIsRecoil.push_back(isRecoil ? 1 : 0);
-
-    if (isRecoil)
+    // 1) Build truth jet lists + fill truth inclusive distribution
+    for (const Jet* tj : *truthJets)
     {
-      const double xJt = ptj / tPt;
+      if (!tj) continue;
 
-      for (const auto& trigShort : activeTrig)
+      const double ptj  = tj->get_pt();
+      const double etaj = tj->get_eta();
+      const double phij = tj->get_phi();
+
+      if (!std::isfinite(ptj) || !std::isfinite(etaj) || !std::isfinite(phij)) continue;
+      if (ptj < m_minJetPt) continue;
+
+      // Photon–jet overlap veto (truth): exclude jets near the truth photon direction (ΔR < 0.4)
+      const double dphiPho = TVector2::Phi_mpi_pi(phij - tPhi);
+      const double detaPho = (etaj - tEta);
+      const double dRPho2  = (detaPho*detaPho + dphiPho*dphiPho);
+
+      if (!std::isfinite(dRPho2) || (dRPho2 < (0.4 * 0.4)))
       {
-        if (auto* h2t = getOrBookUnfoldTruthPtXJIncl(trigShort, rKey, effCentIdx_M))
+        continue;
+      }
+
+      if (std::fabs(etaj) >= etaMaxTruth) continue;
+
+      const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(phij - tPhi));
+      const bool isRecoil = (dphiAbs >= m_minBackToBack);
+
+      truthJetsFid.push_back(tj);
+      truthJetsFidIsRecoil.push_back(isRecoil ? 1 : 0);
+
+      if (isRecoil)
+      {
+        const double xJt = ptj / tPt;
+
+        for (const auto& trigShort : activeTrig)
         {
-          h2t->Fill(tPt, xJt);
+          if (auto* h2t = getOrBookUnfoldTruthPtXJIncl(trigShort, rKey, effCentIdx_M))
+          {
+            h2t->Fill(tPt, xJt);
           bumpHistFill(trigShort, h2t->GetName());
         }
 
@@ -2442,29 +2454,61 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
     {
       const double kLeadMatchDR = m_jetMatchDRMax;
 
-      int iTruthLead = -1;
-      double ptTruthLead = -1.0;
+        const Jet* tjLead = nullptr;
+        double ptTruthLead = -1.0;
 
-      for (int it = 0; it < static_cast<int>(truthJetsFid.size()); ++it)
-      {
-        if (!truthJetsFidIsRecoil[it]) continue;
+        // Histmaker-style leading-jet definition (truth): mirror RECO chronology
+        //   - pick the GLOBAL leading truth jet excluding photon overlap (ΔR(γ^truth,jet) > 0.4)
+        //     with only the pT gate applied (NO eta/dphi pre-veto)
+        //   - THEN veto if that chosen jet is not fiducial in eta (NO fallback)
+        //   - THEN require it be back-to-back to define the truth-leading recoil jet
+        double all1PtTruth = -1.0;
+        const Jet* all1Truth = nullptr;
 
-        const Jet* tj = truthJetsFid[it];
-        if (!tj) continue;
-
-        const double ptj = tj->get_pt();
-        if (!std::isfinite(ptj) || ptj <= 0.0) continue;
-
-        if (ptj > ptTruthLead)
+        for (const Jet* tj : *truthJets)
         {
-          ptTruthLead = ptj;
-          iTruthLead  = it;
-        }
-      }
+          if (!tj) continue;
 
-      if (iTruthLead >= 0)
-      {
-        const Jet* tjLead = truthJetsFid[iTruthLead];
+          const double ptj  = tj->get_pt();
+          const double etaj = tj->get_eta();
+          const double phij = tj->get_phi();
+
+          if (!std::isfinite(ptj) || !std::isfinite(etaj) || !std::isfinite(phij)) continue;
+          if (ptj < m_minJetPt) continue;
+
+          // Photon–jet overlap veto: exclude jets near the truth photon direction (ΔR < 0.4)
+          const double dphiPho = TVector2::Phi_mpi_pi(phij - tPhi);
+          const double detaPho = (etaj - tEta);
+          const double dRPho2  = (detaPho*detaPho + dphiPho*dphiPho);
+
+          if (!std::isfinite(dRPho2) || (dRPho2 < (0.4 * 0.4)))
+          {
+            continue;
+          }
+
+          if (ptj > all1PtTruth)
+          {
+            all1PtTruth = ptj;
+            all1Truth   = tj;
+          }
+        }
+
+        if (all1Truth && all1PtTruth > 0.0)
+        {
+          const double etaLead = all1Truth->get_eta();
+          if (std::isfinite(etaLead) && std::fabs(etaLead) < etaMaxTruth)
+          {
+            const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(all1Truth->get_phi() - tPhi));
+            if (std::isfinite(dphiAbs) && dphiAbs >= m_minBackToBack)
+            {
+              tjLead = all1Truth;
+              ptTruthLead = all1PtTruth;
+            }
+          }
+        }
+
+        if (tjLead)
+        {
 
         // DEN: truth-leading away-side recoil jet exists
         for (const auto& trigShort : activeTrig)
@@ -2993,6 +3037,7 @@ void RecoilJets::fillRecoTruthJES3MatchingQA(const std::vector<std::string>& act
                                             const double xJ,
                                             const double alpha,
                                             const double tPt,
+                                            const double tEta,
                                             const double tPhi,
                                             const Jet* recoil1Jet)
 {
@@ -3131,6 +3176,7 @@ bool RecoilJets::runLeadIsoTightPhotonJetLoopAllRadii(
     const double leadPhiGamma,
     const bool haveTruthPho,
     const double tPt,
+    const double tEta,
     const double tPhi,
     PHG4TruthInfoContainer* truth)
 {
@@ -3381,15 +3427,16 @@ bool RecoilJets::runLeadIsoTightPhotonJetLoopAllRadii(
     // ------------------------------------------------------------------
     if (m_isSim && haveTruthPho && (tPt > 0.0))
     {
-      fillUnfoldResponseMatrixAndTruthDistributions(activeTrig,
-                                                    rKey,
-                                                    effCentIdx_M,
-                                                    leadPtGamma,
-                                                    tPt,
-                                                    tPhi,
-                                                    recoJetsFid,
-                                                    recoJetsFidIsRecoil,
-                                                    recoil1Jet);
+        fillUnfoldResponseMatrixAndTruthDistributions(activeTrig,
+                                                      rKey,
+                                                      effCentIdx_M,
+                                                      leadPtGamma,
+                                                      tPt,
+                                                      tEta,
+                                                      tPhi,
+                                                      recoJetsFid,
+                                                      recoJetsFidIsRecoil,
+                                                      recoil1Jet);
     }
 
     // ------------------------------------------------------------------
@@ -3503,15 +3550,16 @@ bool RecoilJets::runLeadIsoTightPhotonJetLoopAllRadii(
       // -------------------- SIM ONLY: truth matching QA (radius-tagged) --------------------
       if (m_isSim && truth && haveTruthPho)
       {
-        fillRecoTruthJES3MatchingQA(activeTrig,
-                                    rKey,
-                                    effCentIdx_M,
-                                    leadPtGamma,
-                                    xJ,
-                                    alpha,
-                                    tPt,
-                                    tPhi,
-                                    recoil1Jet);
+          fillRecoTruthJES3MatchingQA(activeTrig,
+                                      rKey,
+                                      effCentIdx_M,
+                                      leadPtGamma,
+                                      xJ,
+                                      alpha,
+                                      tPt,
+                                      tEta,
+                                      tPhi,
+                                      recoil1Jet);
       }
     }
     else
@@ -3549,6 +3597,7 @@ bool RecoilJets::runLeadIsoTightPhotonJetMatchingAndUnfolding(
     const double tPtSig,
     const bool haveTruthPho,
     const double tPt,
+    const double tEta,
     const double tPhi,
     PHG4TruthInfoContainer* truth)
 {
@@ -3609,6 +3658,7 @@ bool RecoilJets::runLeadIsoTightPhotonJetMatchingAndUnfolding(
                                              leadPhiGamma,
                                              haveTruthPho,
                                              tPt,
+                                             tEta,
                                              tPhi,
                                              truth);
 
@@ -4760,21 +4810,22 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
               }
             }
           }
-          const bool filledAnyRadius =
-              runLeadIsoTightPhotonJetMatchingAndUnfolding(activeTrig,
-                                                           effCentIdx_M,
-                                                           centIdx,
-                                                           leadPhoIndex,
-                                                           leadPtIdx,
-                                                           leadPtGamma,
-                                                           leadEtaGamma,
-                                                           leadPhiGamma,
-                                                           haveTruthSigPho,
-                                                           tPtSig,
-                                                           haveTruthPho,
-                                                           tPt,
-                                                           tPhi,
-                                                           truth);
+            const bool filledAnyRadius =
+                runLeadIsoTightPhotonJetMatchingAndUnfolding(activeTrig,
+                                                             effCentIdx_M,
+                                                             centIdx,
+                                                             leadPhoIndex,
+                                                             leadPtIdx,
+                                                             leadPtGamma,
+                                                             leadEtaGamma,
+                                                             leadPhiGamma,
+                                                             haveTruthSigPho,
+                                                             tPtSig,
+                                                             haveTruthPho,
+                                                             tPt,
+                                                             tEta,
+                                                             tPhi,
+                                                             truth);
 
             // Preserve your old "used" semantics: count once per event if any radius filled
           if (filledAnyRadius) ++nUsed;

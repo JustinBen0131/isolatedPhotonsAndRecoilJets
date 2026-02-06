@@ -427,59 +427,63 @@ private:
   bool firstEventCuts(PHCompositeNode* topNode, std::vector<std::string>& activeTrig);
   void createHistos_Data();
 
-  void fillUnfoldResponseMatrixAndTruthDistributions(
-        const std::vector<std::string>& activeTrig,
-        const std::string& rKey,
-        const int effCentIdx_M,
-        const double leadPtGamma,
-        const double tPt,
-        const double tPhi,
-        const std::vector<const Jet*>& recoJetsFid,
-        const std::vector<char>& recoJetsFidIsRecoil,
-        const Jet* recoil1Jet);
-
-    
-  void fillRecoTruthJES3MatchingQA(const std::vector<std::string>& activeTrig,
-                                    const std::string& rKey,
-                                    const int effCentIdx_M,
-                                    const double leadPtGamma,
-                                    const double xJ,
-                                    const double alpha,
-                                    const double tPt,
-                                    const double tPhi,
-                                    const Jet* recoil1Jet);
-
-  bool runLeadIsoTightPhotonJetLoopAllRadii(
+    void fillUnfoldResponseMatrixAndTruthDistributions(
           const std::vector<std::string>& activeTrig,
+          const std::string& rKey,
           const int effCentIdx_M,
-          const int centIdx,
-          const int leadPhoIndex,
-          const int leadPtIdx,
           const double leadPtGamma,
-          const double leadEtaGamma,
-          const double leadPhiGamma,
-          const bool haveTruthPho,
           const double tPt,
+          const double tEta,
           const double tPhi,
-          PHG4TruthInfoContainer* truth);
+          const std::vector<const Jet*>& recoJetsFid,
+          const std::vector<char>& recoJetsFidIsRecoil,
+          const Jet* recoil1Jet);
 
-    
-  bool runLeadIsoTightPhotonJetMatchingAndUnfolding(
-          const std::vector<std::string>& activeTrig,
-          const int effCentIdx_M,
-          const int centIdx,
-          const int leadPhoIndex,
-          const int leadPtIdx,
-          const double leadPtGamma,
-          const double leadEtaGamma,
-          const double leadPhiGamma,
-          const bool haveTruthSigPho,
-          const double tPtSig,
-          const bool haveTruthPho,
-          const double tPt,
-          const double tPhi,
-          PHG4TruthInfoContainer* truth);
       
+    void fillRecoTruthJES3MatchingQA(const std::vector<std::string>& activeTrig,
+                                      const std::string& rKey,
+                                      const int effCentIdx_M,
+                                      const double leadPtGamma,
+                                      const double xJ,
+                                      const double alpha,
+                                      const double tPt,
+                                      const double tEta,
+                                      const double tPhi,
+                                      const Jet* recoil1Jet);
+
+    bool runLeadIsoTightPhotonJetLoopAllRadii(
+            const std::vector<std::string>& activeTrig,
+            const int effCentIdx_M,
+            const int centIdx,
+            const int leadPhoIndex,
+            const int leadPtIdx,
+            const double leadPtGamma,
+            const double leadEtaGamma,
+            const double leadPhiGamma,
+            const bool haveTruthPho,
+            const double tPt,
+            const double tEta,
+            const double tPhi,
+            PHG4TruthInfoContainer* truth);
+
+      
+    bool runLeadIsoTightPhotonJetMatchingAndUnfolding(
+            const std::vector<std::string>& activeTrig,
+            const int effCentIdx_M,
+            const int centIdx,
+            const int leadPhoIndex,
+            const int leadPtIdx,
+            const double leadPtGamma,
+            const double leadEtaGamma,
+            const double leadPhiGamma,
+            const bool haveTruthSigPho,
+            const double tPtSig,
+            const bool haveTruthPho,
+            const double tPt,
+            const double tEta,
+            const double tPhi,
+            PHG4TruthInfoContainer* truth);
+
   void fillPureIsolationQA(PHCompositeNode* topNode,
                                const std::vector<std::string>& activeTrig,
                                const PhotonClusterv1* pho,
