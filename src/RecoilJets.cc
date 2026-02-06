@@ -5608,10 +5608,13 @@ void RecoilJets::initEventDisplayDiagnosticsTree()
   AddObj("rKey", &m_evtDiag_rKey);
   AddLeaf("ptBin", &m_evtDiag_ptBin, "ptBin/I");
   AddLeaf("cat", &m_evtDiag_cat, "cat/I");
+  AddLeaf("isSim", &m_evtDiag_isSim, "isSim/I");
 
   AddLeaf("ptGammaTruth", &m_evtDiag_ptGammaTruth, "ptGammaTruth/F");
   AddLeaf("phiGammaTruth", &m_evtDiag_phiGammaTruth, "phiGammaTruth/F");
   AddLeaf("ptGammaReco", &m_evtDiag_ptGammaReco, "ptGammaReco/F");
+  AddLeaf("etaGammaReco", &m_evtDiag_etaGammaReco, "etaGammaReco/F");
+  AddLeaf("phiGammaReco", &m_evtDiag_phiGammaReco, "phiGammaReco/F");
 
   AddLeaf("sel_pt", &m_evtDiag_sel_pt, "sel_pt/F");
   AddLeaf("sel_eta", &m_evtDiag_sel_eta, "sel_eta/F");
@@ -5674,21 +5677,25 @@ void RecoilJets::resetEventDisplayDiagnosticsBuffers()
   m_evtDiag_ptBin = -1;
   m_evtDiag_cat   = -1;
 
-  m_evtDiag_ptGammaTruth  = 0.0f;
-  m_evtDiag_phiGammaTruth = 0.0f;
-  m_evtDiag_ptGammaReco   = 0.0f;
+  m_evtDiag_isSim = 0;
 
-  m_evtDiag_sel_pt  = 0.0f;
-  m_evtDiag_sel_eta = 0.0f;
-  m_evtDiag_sel_phi = 0.0f;
+  m_evtDiag_ptGammaTruth  = -9999.0f;
+  m_evtDiag_phiGammaTruth = -9999.0f;
+  m_evtDiag_ptGammaReco   = -9999.0f;
+  m_evtDiag_etaGammaReco  = -9999.0f;
+  m_evtDiag_phiGammaReco  = -9999.0f;
 
-  m_evtDiag_best_pt  = 0.0f;
-  m_evtDiag_best_eta = 0.0f;
-  m_evtDiag_best_phi = 0.0f;
+  m_evtDiag_sel_pt  = -9999.0f;
+  m_evtDiag_sel_eta = -9999.0f;
+  m_evtDiag_sel_phi = -9999.0f;
 
-  m_evtDiag_truthLead_pt  = 0.0f;
-  m_evtDiag_truthLead_eta = 0.0f;
-  m_evtDiag_truthLead_phi = 0.0f;
+  m_evtDiag_best_pt  = -9999.0f;
+  m_evtDiag_best_eta = -9999.0f;
+  m_evtDiag_best_phi = -9999.0f;
+
+  m_evtDiag_truthLead_pt  = -9999.0f;
+  m_evtDiag_truthLead_eta = -9999.0f;
+  m_evtDiag_truthLead_phi = -9999.0f;
 
   m_evtDiag_drSelToTruthLead  = -1.0f;
   m_evtDiag_drBestToTruthLead = -1.0f;
@@ -5869,6 +5876,8 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
                                              double truthGammaPt,
                                              double truthGammaPhi,
                                              double recoGammaPt,
+                                             double recoGammaEta,
+                                             double recoGammaPhi,
                                              const Jet* selectedRecoilJet,
                                              const Jet* recoTruthBest,
                                              const Jet* truthLeadRecoilJet)
@@ -5894,13 +5903,25 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
   m_evtDiag_eventCount = event_count;
   m_evtDiag_vz = static_cast<float>(m_vz);
 
-  m_evtDiag_rKey   = rKey;
-  m_evtDiag_ptBin  = ptBin;
-  m_evtDiag_cat    = static_cast<int>(cat);
+    m_evtDiag_rKey   = rKey;
+    m_evtDiag_ptBin  = ptBin;
+    m_evtDiag_cat    = static_cast<int>(cat);
+    m_evtDiag_isSim  = (m_isSim ? 1 : 0);
 
-  m_evtDiag_ptGammaTruth  = static_cast<float>(truthGammaPt);
-  m_evtDiag_phiGammaTruth = static_cast<float>(truthGammaPhi);
-  m_evtDiag_ptGammaReco   = static_cast<float>(recoGammaPt);
+    m_evtDiag_ptGammaReco   = static_cast<float>(recoGammaPt);
+    m_evtDiag_etaGammaReco  = static_cast<float>(recoGammaEta);
+    m_evtDiag_phiGammaReco  = static_cast<float>(recoGammaPhi);
+
+    if (m_isSim)
+    {
+      m_evtDiag_ptGammaTruth  = static_cast<float>(truthGammaPt);
+      m_evtDiag_phiGammaTruth = static_cast<float>(truthGammaPhi);
+    }
+    else
+    {
+      m_evtDiag_ptGammaTruth  = -9999.0f;
+      m_evtDiag_phiGammaTruth = -9999.0f;
+    }
 
   if (selectedRecoilJet)
   {
@@ -5909,19 +5930,19 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
     m_evtDiag_sel_phi = static_cast<float>(selectedRecoilJet->get_phi());
   }
 
-  if (recoTruthBest)
-  {
-    m_evtDiag_best_pt  = static_cast<float>(recoTruthBest->get_pt());
-    m_evtDiag_best_eta = static_cast<float>(recoTruthBest->get_eta());
-    m_evtDiag_best_phi = static_cast<float>(recoTruthBest->get_phi());
-  }
+    if (m_isSim && recoTruthBest)
+    {
+      m_evtDiag_best_pt  = static_cast<float>(recoTruthBest->get_pt());
+      m_evtDiag_best_eta = static_cast<float>(recoTruthBest->get_eta());
+      m_evtDiag_best_phi = static_cast<float>(recoTruthBest->get_phi());
+    }
 
-  if (truthLeadRecoilJet)
-  {
-    m_evtDiag_truthLead_pt  = static_cast<float>(truthLeadRecoilJet->get_pt());
-    m_evtDiag_truthLead_eta = static_cast<float>(truthLeadRecoilJet->get_eta());
-    m_evtDiag_truthLead_phi = static_cast<float>(truthLeadRecoilJet->get_phi());
-  }
+    if (m_isSim && truthLeadRecoilJet)
+    {
+      m_evtDiag_truthLead_pt  = static_cast<float>(truthLeadRecoilJet->get_pt());
+      m_evtDiag_truthLead_eta = static_cast<float>(truthLeadRecoilJet->get_eta());
+      m_evtDiag_truthLead_phi = static_cast<float>(truthLeadRecoilJet->get_phi());
+    }
 
   auto dR = [](double eta1, double phi1, double eta2, double phi2)
   {
@@ -5930,21 +5951,21 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
     return std::sqrt(deta * deta + dphi * dphi);
   };
 
-  if (selectedRecoilJet && truthLeadRecoilJet)
-  {
-    m_evtDiag_drSelToTruthLead = static_cast<float>(dR(selectedRecoilJet->get_eta(),
-                                                       selectedRecoilJet->get_phi(),
-                                                       truthLeadRecoilJet->get_eta(),
-                                                       truthLeadRecoilJet->get_phi()));
-  }
+    if (m_isSim && selectedRecoilJet && truthLeadRecoilJet)
+    {
+      m_evtDiag_drSelToTruthLead = static_cast<float>(dR(selectedRecoilJet->get_eta(),
+                                                         selectedRecoilJet->get_phi(),
+                                                         truthLeadRecoilJet->get_eta(),
+                                                         truthLeadRecoilJet->get_phi()));
+    }
 
-  if (recoTruthBest && truthLeadRecoilJet)
-  {
-    m_evtDiag_drBestToTruthLead = static_cast<float>(dR(recoTruthBest->get_eta(),
-                                                        recoTruthBest->get_phi(),
-                                                        truthLeadRecoilJet->get_eta(),
-                                                        truthLeadRecoilJet->get_phi()));
-  }
+    if (m_isSim && recoTruthBest && truthLeadRecoilJet)
+    {
+      m_evtDiag_drBestToTruthLead = static_cast<float>(dR(recoTruthBest->get_eta(),
+                                                          recoTruthBest->get_phi(),
+                                                          truthLeadRecoilJet->get_eta(),
+                                                          truthLeadRecoilJet->get_phi()));
+    }
 
     const Jet* selForTowers  = selectedRecoilJet;
     const Jet* bestForTowers = recoTruthBest;

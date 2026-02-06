@@ -1483,15 +1483,15 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
   }
 
 
-    // ------------------------------------------------------------------
-    // Calo calibration + clustering
-    //
-    // DATA: run the standard Calo_Calib reconstruction chain.
-    // SIM : skip (SIM analysis DST already has calibrated towers/clusters; re-running
-    //             the reco chain is what triggers CaloTowerStatus hotmap/default-map failure).
-    // ------------------------------------------------------------------
-    if (!isSim)
-    {
+  // ------------------------------------------------------------------
+  // Calo calibration + clustering
+  //
+  // DATA: run the standard Calo_Calib reconstruction chain.
+  // SIM : skip (SIM analysis DST already has calibrated towers/clusters; re-running
+  //             the reco chain is what triggers CaloTowerStatus hotmap/default-map failure).
+  // ------------------------------------------------------------------
+  if (!isSim)
+  {
       if (vlevel > 0) std::cout << "[DATA] running Process_Calo_Calib()\n";
       Process_Calo_Calib();
     }
@@ -1502,7 +1502,7 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
         std::cout << "[isSim] skipping Process_Calo_Calib() "
                      "(SIM DST already has TOWERINFO_CALIB and CLUSTERINFO_CEMC)\n";
       }
-    }
+  }
 
 
   if (vlevel > 0) std::cout << "Calibrating MBD" << std::endl;

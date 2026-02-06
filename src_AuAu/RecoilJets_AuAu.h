@@ -574,15 +574,17 @@ private:
                                                       std::vector<float>& et,
                                                       std::vector<float>& e) const;
     
-  void        fillEventDisplayDiagnostics(const std::string& rKey,
-                                             int ptBin,
-                                             EventDisplayCat cat,
-                                             double truthGammaPt,
-                                             double truthGammaPhi,
-                                             double recoGammaPt,
-                                             const Jet* selectedRecoilJet,
-                                             const Jet* recoTruthBest,
-                                             const Jet* truthLeadRecoilJet);
+    void        fillEventDisplayDiagnostics(const std::string& rKey,
+                                               int ptBin,
+                                               EventDisplayCat cat,
+                                               double truthGammaPt,
+                                               double truthGammaPhi,
+                                               double recoGammaPt,
+                                               double recoGammaEta,
+                                               double recoGammaPhi,
+                                               const Jet* selectedRecoilJet,
+                                               const Jet* recoTruthBest,
+                                               const Jet* truthLeadRecoilJet);
   // -------------------------------------------------------------------------
   // Histogram utilities (bookers)
   // -------------------------------------------------------------------------
@@ -1016,13 +1018,16 @@ private:
   long long m_evtDiag_eventCount = 0;
   float     m_evtDiag_vz         = 0.0f;
 
-  std::string m_evtDiag_rKey;
-  int         m_evtDiag_ptBin = -1;
-  int         m_evtDiag_cat   = -1;
+    std::string m_evtDiag_rKey;
+    int         m_evtDiag_ptBin = -1;
+    int         m_evtDiag_cat   = -1;
+    int         m_evtDiag_isSim = 0;
 
-  float m_evtDiag_ptGammaTruth  = 0.0f;
-  float m_evtDiag_phiGammaTruth = 0.0f;
-  float m_evtDiag_ptGammaReco   = 0.0f;
+    float m_evtDiag_ptGammaTruth  = 0.0f;
+    float m_evtDiag_phiGammaTruth = 0.0f;
+    float m_evtDiag_ptGammaReco   = 0.0f;
+    float m_evtDiag_etaGammaReco  = 0.0f;
+    float m_evtDiag_phiGammaReco  = 0.0f;
 
   float m_evtDiag_sel_pt  = 0.0f;
   float m_evtDiag_sel_eta = 0.0f;
