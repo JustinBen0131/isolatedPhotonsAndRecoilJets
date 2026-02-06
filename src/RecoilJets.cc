@@ -671,7 +671,7 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     m_evtDispGeomIHCal   = nullptr;
     m_evtDispGeomOHCal   = nullptr;
 
-    if (!(isSim && m_evtDiagEnabled))
+    if (!m_evtDiagEnabled)
     {
       if (Verbosity() >= 5)
       {
@@ -2571,7 +2571,7 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
             }
           }
 
-           // -------------------------------------------------------------------------
+            // -------------------------------------------------------------------------
             // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
             // One entry per (event, rKey) when enabled.
             // -------------------------------------------------------------------------
@@ -2588,16 +2588,23 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
               }
               else
               {
-                const int ptBin = findPtBin(tPt);
+                const double diagPt  = (isSim ? tPt  : leadPtGamma);
+                const double diagPhi = (isSim ? tPhi : leadPhiGamma);
 
-                EventDisplayCat cat = EventDisplayCat::MissB;
-                if (leadRecoMatches)
+                const int ptBin = findPtBin(diagPt);
+
+                EventDisplayCat cat = EventDisplayCat::NUM;
+                if (isSim)
                 {
-                  cat = EventDisplayCat::NUM;
-                }
-                else if (hasRecoMatchToTruthLead)
-                {
-                  cat = EventDisplayCat::MissA;
+                  cat = EventDisplayCat::MissB;
+                  if (leadRecoMatches)
+                  {
+                    cat = EventDisplayCat::NUM;
+                  }
+                  else if (hasRecoMatchToTruthLead)
+                  {
+                    cat = EventDisplayCat::MissA;
+                  }
                 }
 
                 if (ptBin < 0)
@@ -2607,7 +2614,8 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
                     LOG(4, CLR_YELLOW,
                         "[EventDisplayTree][skip] ptBin<0 (out of range) "
                         << "(evt=" << ecvt << " rKey=" << rKey
-                        << " tPt=" << tPt << ")");
+                        << " diagPt=" << diagPt
+                        << " isSim=" << (isSim ? "true" : "false") << ")");
                   }
                 }
                 else if (!(recoil1Jet || rjTruthBest || tjLead))
@@ -2636,8 +2644,9 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
                         << " sel=" << (recoil1Jet ? "Y" : "N")
                         << " best=" << (rjTruthBest ? "Y" : "N")
                         << " truthLead=" << (tjLead ? "Y" : "N")
-                        << " tPt=" << tPt
-                        << " leadPtGamma=" << leadPtGamma << ")");
+                        << " diagPt=" << diagPt
+                        << " leadPtGamma=" << leadPtGamma
+                        << " isSim=" << (isSim ? "true" : "false") << ")");
                   }
 
                   if (need)
@@ -2651,7 +2660,7 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
                           << " cat=" << static_cast<int>(cat) << ")");
                     }
 
-                    fillEventDisplayDiagnostics(rKey, ptBin, cat, tPt, tPhi, leadPtGamma, recoil1Jet, rjTruthBest, tjLead);
+                    fillEventDisplayDiagnostics(rKey, ptBin, cat, diagPt, diagPhi, leadPtGamma, recoil1Jet, rjTruthBest, tjLead);
 
                     if (Verbosity() >= 4)
                     {
@@ -3007,18 +3016,18 @@ void RecoilJets::fillRecoTruthJES3MatchingQA(const std::vector<std::string>& act
     return;
   }
 
-    // truth recoil jets (same R): mirror RECO chronology for the jet1 definition
-    //   - pick GLOBAL leading truth jet first (after pT gate; NO eta/dphi pre-veto)
-    //   - then veto if that chosen jet is not fiducial in eta (NO fallback)
-    //   - then require it be back-to-back to the truth gamma
-    const double etaMaxTruth = jetEtaAbsMaxForRKey(rKey);
+  // truth recoil jets (same R): mirror RECO chronology for the jet1 definition
+  //   - pick GLOBAL leading truth jet first (after pT gate; NO eta/dphi pre-veto)
+  //   - then veto if that chosen jet is not fiducial in eta (NO fallback)
+  //   - then require it be back-to-back to the truth gamma
+  const double etaMaxTruth = jetEtaAbsMaxForRKey(rKey);
 
-    double tj1Pt = -1.0;
-    const Jet* tj1 = nullptr;
+  double tj1Pt = -1.0;
+  const Jet* tj1 = nullptr;
 
-    // 1) truth jet1: GLOBAL leading truth jet (pT gate only; no eta/dphi preselection)
-    for (const Jet* tj : *truthJets)
-    {
+  // 1) truth jet1: GLOBAL leading truth jet (pT gate only; no eta/dphi preselection)
+  for (const Jet* tj : *truthJets)
+  {
       if (!tj) continue;
 
       const double ptj  = tj->get_pt();
@@ -3063,7 +3072,7 @@ void RecoilJets::fillRecoTruthJES3MatchingQA(const std::vector<std::string>& act
           LOG(5, CLR_YELLOW, "      [truthQA] rKey=" << rKey << " truth jet1 fails back-to-back → skip truth JES3 fills");
         return;
       }
-    }
+  }
 
   // 2) truth jet2 for α: highest-pT fiducial truth jet excluding tj1 (NO Δφ requirement)
   double tj2Pt = -1.0;

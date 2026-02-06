@@ -12580,7 +12580,7 @@ namespace ARJ
                                   SaveNUMorMissB("MissB", 2, dirED_MB);
 
                                   // -------------------------------------------------------------------
-                                  // NEW: Side-by-side 3D-only (LEGO2) comparison panel:
+                                  //  Side-by-side 3D-only (LEGO2) comparison panel:
                                   //   NUM (selected jet)  vs  MissA (selected jet)
                                   // Produces one additional PNG under dirED (not inside NUM/MissA/MissB).
                                   // -------------------------------------------------------------------
