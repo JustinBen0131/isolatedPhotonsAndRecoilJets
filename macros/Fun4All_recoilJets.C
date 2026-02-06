@@ -239,6 +239,7 @@ namespace yamlcfg
       double isoGap = 1.0;
       double isoConeR = 0.30;
       double isoTowMin = 0.0;
+      bool   isSlidingIso = true;
 
       // Photon ID cuts (PPG12 Table 4) baseline
       double pre_e11e33_max = 0.98;
@@ -528,6 +529,12 @@ namespace yamlcfg
           if (m.count("sideGapGeV")) cfg.isoGap    = m["sideGapGeV"];
           if (m.count("coneR"))      cfg.isoConeR  = m["coneR"];
           if (m.count("towerMin"))   cfg.isoTowMin = m["towerMin"];
+        }
+        else if (StartsWithKey(line, "isSlidingIso"))
+        {
+          const std::string rhs = AfterColon(line);
+          if (!ParseBool(rhs, cfg.isSlidingIso))
+            warn_parse("isSlidingIso", rhs, "expected true/false");
         }
         else if (StartsWithKey(line, "photon_id_pre"))
         {
@@ -1172,11 +1179,12 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
                 << "  -> radians=" << (cfg.back_to_back_dphi_min_pi_fraction * M_PI) << "\n"
                 << "  use_vz_cut: " << (cfg.use_vz_cut ? "true" : "false") << "\n"
                 << "  vz_cut_cm: " << cfg.vz_cut_cm << "\n"
-                << "  matching: {pho_dr_max=" << cfg.pho_dr_max << ", jet_dr_max=" << cfg.jet_dr_max << "}\n"
-                << "  isolation_wp: {aGeV=" << cfg.isoA << ", bPerGeV=" << cfg.isoB
-                << ", sideGapGeV=" << cfg.isoGap << ", coneR=" << cfg.isoConeR
-                << ", towerMin=" << cfg.isoTowMin << "}\n"
-                << "  jes3_photon_pt_bins: [";
+        << "  matching: {pho_dr_max=" << cfg.pho_dr_max << ", jet_dr_max=" << cfg.jet_dr_max << "}\n"
+        << "  isolation_wp: {aGeV=" << cfg.isoA << ", bPerGeV=" << cfg.isoB
+        << ", sideGapGeV=" << cfg.isoGap << ", coneR=" << cfg.isoConeR
+        << ", towerMin=" << cfg.isoTowMin << "}\n"
+        << "  isSlidingIso: " << (cfg.isSlidingIso ? "true" : "false") << "\n"
+        << "  jes3_photon_pt_bins: [";
       for (std::size_t i = 0; i < cfg.jes3_photon_pt_bins.size(); ++i)
       {
         std::cout << cfg.jes3_photon_pt_bins[i] << (i + 1 < cfg.jes3_photon_pt_bins.size() ? ", " : "");
@@ -1706,6 +1714,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   recoilJets->setUseVzCut(cfg.use_vz_cut, cfg.vz_cut_cm);
   recoilJets->setActiveJetRKeys(activeJetRKeys);
   recoilJets->setIsolationWP(cfg.isoA, cfg.isoB, cfg.isoGap, cfg.isoConeR, cfg.isoTowMin);
+  recoilJets->setIsSlidingIso(cfg.isSlidingIso);
 
   recoilJets->setPhotonIDCuts(cfg.pre_e11e33_max,
                                 cfg.pre_et1_min,
