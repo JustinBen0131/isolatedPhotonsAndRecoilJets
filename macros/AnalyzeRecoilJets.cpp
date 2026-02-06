@@ -12575,9 +12575,115 @@ namespace ARJ
                                   PrintED("  [EventDisplay][WROTE]", outPng, ANSI_BOLD_GRN);
                                 };
 
-                                SaveNUMorMissB("NUM",   0, dirED_NUM);
-                                SaveMissA(dirED_MA);
-                                SaveNUMorMissB("MissB", 2, dirED_MB);
+                                  SaveNUMorMissB("NUM",   0, dirED_NUM);
+                                  SaveMissA(dirED_MA);
+                                  SaveNUMorMissB("MissB", 2, dirED_MB);
+
+                                  // -------------------------------------------------------------------
+                                  // NEW: Side-by-side 3D-only (LEGO2) comparison panel:
+                                  //   NUM (selected jet)  vs  MissA (selected jet)
+                                  // Produces one additional PNG under dirED (not inside NUM/MissA/MissB).
+                                  // -------------------------------------------------------------------
+                                  {
+                                    const Long64_t pickNUM = PickIndex(0);
+
+                                    Long64_t pickMA = -1;
+                                    if (!idxByCat[1].empty())
+                                    {
+                                      for (const Long64_t ient : idxByCat[1])
+                                      {
+                                        tED->GetEntry(ient);
+                                        if (!b_best_etTower) continue;
+                                        if (!b_best_etTower->empty())
+                                        {
+                                          pickMA = ient;
+                                          break;
+                                        }
+                                      }
+                                      if (pickMA < 0) pickMA = PickIndex(1);
+                                    }
+
+                                    if (pickNUM >= 0 && pickMA >= 0)
+                                    {
+                                      // -----------------------------
+                                      // Load NUM entry (selected jet)
+                                      // -----------------------------
+                                      tED->GetEntry(pickNUM);
+
+                                      const int   num_run = b_run;
+                                      const int   num_evt = b_evt;
+                                      const float num_vz  = b_vz;
+                                      const float num_pt  = b_ptGammaTruth;
+
+                                      const float num_selPhiW   = WrapPhi(b_sel_phi);
+                                      const float num_selEta    = b_sel_eta;
+                                      const float num_truthPhiW = WrapPhi(b_truth_phi);
+                                      const float num_truthEta  = b_truth_eta;
+
+                                      TH2F hNumLego("hED_num_lego", "", 64, -M_PI, M_PI, 48, -1.1, 1.1);
+                                      FillJetHist(&hNumLego, b_sel_phiTower, b_sel_etaTower, b_sel_etTower);
+
+                                      // -----------------------------
+                                      // Load MissA entry (truth-matched reco jet)
+                                      // -----------------------------
+                                      tED->GetEntry(pickMA);
+
+                                      const int   ma_run = b_run;
+                                      const int   ma_evt = b_evt;
+                                      const float ma_vz  = b_vz;
+                                      const float ma_pt  = b_ptGammaTruth;
+
+                                      const float ma_bestPhiW  = WrapPhi(b_best_phi);
+                                      const float ma_bestEta   = b_best_eta;
+                                      const float ma_truthPhiW = WrapPhi(b_truth_phi);
+                                      const float ma_truthEta  = b_truth_eta;
+
+                                      TH2F hMALego("hED_missa_lego", "", 64, -M_PI, M_PI, 48, -1.1, 1.1);
+                                      FillJetHist(&hMALego, b_best_phiTower, b_best_etaTower, b_best_etTower);
+
+                                      const string outPng =
+                                        JoinPath(dirED,
+                                                 "eventDisplay_NUM_vs_MissA_3D_" + rKey +
+                                                 "_NUMrun" + std::to_string(num_run) + "_evt" + std::to_string(num_evt) +
+                                                 "_MArun"  + std::to_string(ma_run)  + "_evt" + std::to_string(ma_evt) + ".png");
+
+                                      cout << ANSI_BOLD_CYN << "  [EventDisplay][DO]" << ANSI_RESET
+                                           << " NUM vs MissA (3D-only)"
+                                           << "  NUM(run,evt)=(" << num_run << "," << num_evt << ")"
+                                           << "  MissA(run,evt)=(" << ma_run << "," << ma_evt << ")"
+                                           << "  -> " << outPng
+                                           << "\n";
+
+                                      TCanvas c2("cED_NUM_vs_MissA_3D", "", 1800, 800);
+                                      c2.Divide(2, 1, 0.0, 0.0);
+
+                                      const string header = "EventDisplay 3D  NUM vs MissA  " + rKey;
+
+                                      const string subNUM =
+                                        "NUM: run " + std::to_string(num_run) +
+                                        "  evt " + std::to_string(num_evt) +
+                                        "  v_{z}=" + std::to_string((int)std::round(num_vz)) + " cm" +
+                                        "  pT_{#gamma}^{truth}=" + std::to_string((int)std::round(num_pt)) + " GeV";
+
+                                      const string subMA =
+                                        "MissA: run " + std::to_string(ma_run) +
+                                        "  evt " + std::to_string(ma_evt) +
+                                        "  v_{z}=" + std::to_string((int)std::round(ma_vz)) + " cm" +
+                                        "  pT_{#gamma}^{truth}=" + std::to_string((int)std::round(ma_pt)) + " GeV";
+
+                                      DrawPanelSave3DStyle((TPad*)c2.cd(1), &hNumLego, "LEGO2", num_selPhiW, num_selEta, num_truthPhiW, num_truthEta, header, subNUM);
+                                      DrawPanelSave3DStyle((TPad*)c2.cd(2), &hMALego,  "LEGO2", ma_bestPhiW, ma_bestEta, ma_truthPhiW, ma_truthEta, header, subMA);
+
+                                      c2.SaveAs(outPng.c_str());
+                                      PrintED("  [EventDisplay][WROTE]", outPng, ANSI_BOLD_GRN);
+                                    }
+                                    else
+                                    {
+                                      PrintED("  [EventDisplay][SKIP]",
+                                              "NUM vs MissA (3D-only) skipped: missing NUM and/or MissA entry for rKey=\"" + rKey + "\"",
+                                              ANSI_BOLD_YEL);
+                                    }
+                                  }
                               }
                           }
 
