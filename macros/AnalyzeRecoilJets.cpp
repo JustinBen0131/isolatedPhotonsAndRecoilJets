@@ -5965,13 +5965,11 @@ namespace ARJ
 
         void JES3_SamVsJustinUnsmearOverlay_MaybeRun(Dataset& ds, const std::string& outDir)
         {
-              if (!ds.isSim) return;
-              if (!doSamVsJustinUnsmearOverlays) return;
-
-              (void)outDir; // this block is intentionally hard-coded to write ONLY under InputFilesSim/.../plots
-
-              const std::string baseDir   = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck/pTminJet3/7pi_8_BB";
-              const std::string plotsDir  = JoinPath(baseDir, "plots");
+            if (!ds.isSim) return;
+            if (!doSamVsJustinUnsmearOverlays) return;
+            (void)outDir; // this block is intentionally hard-coded to write ONLY under InputFilesSim/.../plots
+            const std::string baseDir   = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck/pTminJet3/7pi_8_BB";
+            const std::string plotsDir  = JoinPath(baseDir, "plots");
             const std::string sam10     = JoinPath(baseDir, "histsPhoton10.root");
             const std::string sam20     = JoinPath(baseDir, "histsPhoton20.root");
             const std::string samMerged = JoinPath(baseDir, "histsPhoton10plus20_MERGED.root");
@@ -7185,7 +7183,6 @@ namespace ARJ
                       {
                         double ymax = 0.0;
                         ymax = std::max(ymax, hSam->GetMaximum());
-                        if (hSamPrev) ymax = std::max(ymax, hSamPrev->GetMaximum());
                         ymax = std::max(ymax, hJustin->GetMaximum());
                         hSam->SetMaximum(ymax * 1.1);
 
@@ -7193,7 +7190,6 @@ namespace ARJ
                         ApplyCanvasMargins1D(c);
 
                         hSam->Draw("E1");
-                        if (hSamPrev) hSamPrev->Draw("E1 same");
                         hJustin->Draw("E1 same");
 
                         // Optional cut lines ONLY for the 13-15 GeV bin (current sample is jetMinPt3_7piOver8)
@@ -7226,9 +7222,8 @@ namespace ARJ
                         leg.SetTextSize(0.033);
                         leg.SetFillStyle(0);
                         leg.SetBorderSize(0);
-                          leg.AddEntry(hSam,    TString::Format("JES Calibrated - Sam (R = %.1f)", R).Data(), "ep");
-                          if (hSamPrev) leg.AddEntry(hSamPrev, TString::Format("Prev Distribution - Sam (R = %.1f)", R).Data(), "ep");
-                          leg.AddEntry(hJustin, TString::Format("Justin's RECO w/ Matched Cuts (R = %.1f)", R).Data(), "ep");
+                          leg.AddEntry(hSam,    TString::Format("Sam's RECO (R = %.1f)", R).Data(), "ep");
+                          leg.AddEntry(hJustin, TString::Format("Justin's RECO (R = %.1f)", R).Data(), "ep");
                         leg.Draw();
 
                         // Note: aligned just under and a bit left of the legend block
@@ -7237,7 +7232,7 @@ namespace ARJ
                         tNote.SetTextFont(42);
                         tNote.SetTextAlign(13); // left-top
                         tNote.SetTextSize(0.034);
-                        tNote.DrawLatex(0.50, 0.705, "Photon+Jet  10 + 20 GeV Samples");
+                        tNote.DrawLatex(0.50, 0.705, "Photon 10 + 20 GeV #gamma+Jet MC");
 
                         // Info block: middle RHS of the canvas
                         TLatex t;
@@ -7337,7 +7332,7 @@ namespace ARJ
                         tNoteF.SetTextFont(42);
                         tNoteF.SetTextAlign(13); // left-top
                         tNoteF.SetTextSize(0.034);
-                        tNoteF.DrawLatex(0.50, 0.705, "Photon+Jet  10 + 20 GeV Samples");
+                          tNoteF.DrawLatex(0.50, 0.705, "Photon 10 + 20 GeV #gamma+Jet MC");
 
                         // Info block: middle RHS of the canvas
                         TLatex tF;
@@ -7402,7 +7397,8 @@ namespace ARJ
 
                             if (hJustinTag)
                             {
-                              StyleForOverlay(hJustinTag, 6);
+                                StyleForOverlay(hJustinTag, 6);
+                                hJustinTag->SetMarkerStyle(24);
 
                                 auto MaxBinContent = [&](TH1* h)->double
                                 {
@@ -7445,7 +7441,7 @@ namespace ARJ
                               tNote3.SetTextFont(42);
                               tNote3.SetTextAlign(13); // left-top
                               tNote3.SetTextSize(0.034);
-                              tNote3.DrawLatex(0.50, 0.705, "Photon+Jet  10 + 20 GeV Samples");
+                                tNote3.DrawLatex(0.50, 0.705, "Photon 10 + 20 GeV #gamma+Jet MC");
 
                               TLatex t3;
                               t3.SetNDC(true);
@@ -7496,7 +7492,7 @@ namespace ARJ
                         tNote2.SetTextFont(42);
                         tNote2.SetTextAlign(13); // left-top
                         tNote2.SetTextSize(0.034);
-                        tNote2.DrawLatex(0.50, 0.705, "Photon+Jet  10 + 20 GeV Samples");
+                          tNote2.DrawLatex(0.50, 0.705, "Photon 10 + 20 GeV #gamma+Jet MC");
 
                         TLatex t2;
                         t2.SetNDC(true);
@@ -7547,7 +7543,7 @@ namespace ARJ
                         tNote3.SetTextFont(42);
                         tNote3.SetTextAlign(13); // left-top
                         tNote3.SetTextSize(0.032);
-                        tNote3.DrawLatex(0.55, 0.705, "Photon+Jet  10 + 20 GeV Samples");
+                          tNote3.DrawLatex(0.55, 0.705, "Photon 10 + 20 GeV #gamma+Jet MC");
 
                         TLatex t3;
                         t3.SetNDC(true);
@@ -7675,11 +7671,12 @@ namespace ARJ
                         }
                       }
 
-                      StyleForOverlay(hSam, 2);
-                      StyleForOverlay(hJustin, 4);
+                        StyleForOverlay(hSam, 2);
+                        StyleForOverlay(hJustin, 4);
+                        hJustin->SetMarkerStyle(24);
 
-                      PrintH1Summary("Sam(norm)", hSam);
-                      PrintH1Summary("JustinTruthTagged(norm)", hJustin);
+                        PrintH1Summary("Sam(norm)", hSam);
+                        PrintH1Summary("JustinTruthTagged(norm)", hJustin);
 
                       const double ymax = std::max(hSam->GetMaximum(), hJustin->GetMaximum());
                       hSam->SetMaximum(ymax * 1.25);
@@ -7705,7 +7702,7 @@ namespace ARJ
                         tNote.SetTextFont(42);
                         tNote.SetTextAlign(13); // left-top
                         tNote.SetTextSize(0.034);
-                        tNote.DrawLatex(0.50, 0.705, "Photon+Jet  10 + 20 GeV Samples");
+                        tNote.DrawLatex(0.50, 0.705, "Photon 10 + 20 GeV #gamma+Jet MC");
                         tNote.DrawLatex(0.50, 0.665, "Justin: (#gamma^{truth} + jet^{truth} tagged)");
 
                         // Move the info block off the top-left (and remove the big title line).
@@ -8122,7 +8119,7 @@ namespace ARJ
 
                           StyleForOverlay(hSam, 2);
                           StyleForOverlay(hJustin, 4);
-                          if (hJustinTag) StyleForOverlay(hJustinTag, 6);
+                          if (hJustinTag) { StyleForOverlay(hJustinTag, 6); hJustinTag->SetMarkerStyle(24); }
 
                           // Tight y-range
                           auto MaxBinContent = [&](TH1* h)->double

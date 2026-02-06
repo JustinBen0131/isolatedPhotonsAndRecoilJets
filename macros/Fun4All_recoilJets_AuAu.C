@@ -1,12 +1,12 @@
 //======================================================================
-//  Fun4All_recoilJets.C
+//  Fun4All_recoilJets_AuAu.C
 //  --------------------------------------------------------------------
 #pragma once
 #if defined(__CINT__) || defined(__CLING__)
-  R__ADD_INCLUDE_PATH(/sphenix/u/patsfan753/thesisAnalysis/install/include)
+  R__ADD_INCLUDE_PATH(/sphenix/u/patsfan753/thesisAnalysis_auau/install/include)
 #endif
 #if defined(__CLING__)
-  #pragma cling add_include_path("/sphenix/u/patsfan753/thesisAnalysis/install/include")
+  #pragma cling add_include_path("/sphenix/u/patsfan753/thesisAnalysis_auau/install/include")
 #endif
 #if ROOT_VERSION_CODE >= ROOT_VERSION(6,00,0)
 
@@ -61,7 +61,7 @@
 #include <jetbackground/DetermineTowerBackground.h>
 #include <jetbackground/SubtractTowers.h>
 #include <jetbackground/CopyAndSubtractJets.h>
-#include "/sphenix/u/patsfan753/scratch/thesisAnalysis/src/RecoilJets.h"
+#include "/sphenix/u/patsfan753/scratch/thesisAnalysis/src_AuAu/RecoilJets_AuAu.h"
 
 #include <fstream>
 #include <iostream>
@@ -79,7 +79,7 @@
 // Load your local overrides FIRST so their symbols/dictionaries win
 R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)
 R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_io.so)
-R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libRecoilJets.so)
+R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis_auau/install/lib/libRecoilJetsAuAu.so)
 R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libclusteriso.so)
 R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libjetbase.so)
 
@@ -991,10 +991,10 @@ class JetCalibOneEventProbe final : public SubsysReco
 //======================================================================
 //  The actual steering macro
 //======================================================================
-void Fun4All_recoilJets(const int   nEvents   =  0,
-                        const char* listFile  = "input_files.list",
-                        const char* outRoot   = "TrigPlot.root",
-                        const bool  verbose   = false)
+void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
+                             const char* listFile  = "input_files.list",
+                             const char* outRoot   = "TrigPlot.root",
+                             const bool  verbose   = false)
 {
   //--------------------------------------------------------------------
   // 0.  Banner & basic environment sanity
@@ -1505,13 +1505,63 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   std::unique_ptr<GlobalVertexReco> gvertex = std::make_unique<GlobalVertexReco>();
   se->registerSubsystem(gvertex.release());
 
-  // pp-only steering macro: Au+Au functionality is handled in Fun4All_recoilJets_AuAu.C
-  // Keep behavior identical for pp data and isSim (pp-style chain).
-  const bool isAuAuData = false;
+  // Decide dataset early so we can gate Au+Au-only modules (centrality)
+  // IMPORTANT: isSim should behave like pp-style reconstruction here.
+  bool isAuAuData = true;
 
-  if (vlevel > 0)
-      std::cout << "[pp macro] forcing pp-style running (no Au+Au centrality/minbias modules)\n";
+  if (const char* env = std::getenv("RJ_DATASET"))
+  {
+        std::string s = detail::trim(std::string(env));
+        std::string sLower = s;
+        std::transform(sLower.begin(), sLower.end(), sLower.begin(),
+                       [](unsigned char c){ return std::tolower(c); });
 
+        if (sLower == "issim" || sLower == "sim")
+        {
+          isSim = true;        // ensure consistency even if RJ_IS_SIM wasn't set
+          isAuAuData = false;  // sim uses pp-style chain
+        }
+        else if (sLower == "ispp" || sLower == "pp")
+        {
+          isAuAuData = false;
+        }
+        else if (sLower == "isauau" || sLower == "auau" || sLower == "aa")
+        {
+          isAuAuData = true;
+        }
+        else
+        {
+          // Unknown token: fallback heuristic based on known pp runs
+          isAuAuData = (run > 53864);
+        }
+    }
+    else
+    {
+        // Fallback heuristic based on known pp runs: ≤ 53864 → p+p, > 53864 → Au+Au
+        isAuAuData = (run > 53864);
+    }
+
+  if (isAuAuData)
+  {
+      std::cout << "building minbias classifier" << std::endl;
+      auto* mb = new MinimumBiasClassifier();
+      mb->Verbosity(0);
+      mb->setOverwriteScale(
+            "/cvmfs/sphenix.sdcc.bnl.gov/calibrations/sphnxpro/cdb/CentralityScale/42/6b/426bc1b56ba544201b0213766bee9478_cdb_centrality_scale_54912.root");
+      se->registerSubsystem(mb);
+      
+      if (vlevel > 0) std::cout << "building centrality classifier (Au+Au)" << std::endl;
+      auto* cent = new CentralityReco();
+      cent->Verbosity(0);
+      cent->setOverwriteScale(
+              "/cvmfs/sphenix.sdcc.bnl.gov/calibrations/sphnxpro/cdb/CentralityScale/42/6b/426bc1b56ba544201b0213766bee9478_cdb_centrality_scale_54912.root");
+      se->registerSubsystem(cent);
+  }
+  else
+  {
+        if (vlevel > 0) std::cout << "[pp dataset] skipping CentralityReco" << std::endl;
+  }
+    
   // ---------------------- Reco jets + JES calibration (pp-style only) ----------------------
   //
   // IMPORTANT:
@@ -1696,90 +1746,96 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   photonBuilder->Verbosity(vlevel);
   se->registerSubsystem(photonBuilder);
 
-  auto* recoilJets = new RecoilJets(outRoot);
+    auto* recoilJets_AuAu = new RecoilJets_AuAu(outRoot);
 
-  // ------------------------------------------------------------------
-  // Apply YAML-driven knobs
-  // ------------------------------------------------------------------
-  recoilJets->setPhotonEtaAbsMax(cfg.photon_eta_abs_max);
-  recoilJets->setMinJetPt(cfg.jet_pt_min);
-  recoilJets->setMinBackToBack(cfg.back_to_back_dphi_min_pi_fraction * M_PI);
+    // ------------------------------------------------------------------
+    // Apply YAML-driven knobs
+    // ------------------------------------------------------------------
+    recoilJets_AuAu->setPhotonEtaAbsMax(cfg.photon_eta_abs_max);
+    recoilJets_AuAu->setMinJetPt(cfg.jet_pt_min);
+    recoilJets_AuAu->setMinBackToBack(cfg.back_to_back_dphi_min_pi_fraction * M_PI);
 
-  recoilJets->setUseVzCut(cfg.use_vz_cut, cfg.vz_cut_cm);
-  recoilJets->setActiveJetRKeys(activeJetRKeys);
-  recoilJets->setIsolationWP(cfg.isoA, cfg.isoB, cfg.isoGap, cfg.isoConeR, cfg.isoTowMin);
+    recoilJets_AuAu->setUseVzCut(cfg.use_vz_cut, cfg.vz_cut_cm);
+    recoilJets_AuAu->setActiveJetRKeys(activeJetRKeys);
+    recoilJets_AuAu->setIsolationWP(cfg.isoA, cfg.isoB, cfg.isoGap, cfg.isoConeR, cfg.isoTowMin);
 
-  recoilJets->setPhotonIDCuts(cfg.pre_e11e33_max,
-                                cfg.pre_et1_min,
-                                cfg.pre_et1_max,
-                                cfg.pre_e32e35_min,
-                                cfg.pre_e32e35_max,
-                                cfg.pre_weta_max,
-                                cfg.tight_w_lo,
-                                cfg.tight_w_hi_intercept,
-                                cfg.tight_w_hi_slope,
-                                cfg.tight_e11e33_min,
-                                cfg.tight_e11e33_max,
-                                cfg.tight_et1_min,
-                                cfg.tight_et1_max,
-                                cfg.tight_e32e35_min,
-                                cfg.tight_e32e35_max);
+    recoilJets_AuAu->setPhotonIDCuts(cfg.pre_e11e33_max,
+                                  cfg.pre_et1_min,
+                                  cfg.pre_et1_max,
+                                  cfg.pre_e32e35_min,
+                                  cfg.pre_e32e35_max,
+                                  cfg.pre_weta_max,
+                                  cfg.tight_w_lo,
+                                  cfg.tight_w_hi_intercept,
+                                  cfg.tight_w_hi_slope,
+                                  cfg.tight_e11e33_min,
+                                  cfg.tight_e11e33_max,
+                                  cfg.tight_et1_min,
+                                  cfg.tight_et1_max,
+                                  cfg.tight_e32e35_min,
+                                  cfg.tight_e32e35_max);
 
-  recoilJets->setGammaPtBins(cfg.jes3_photon_pt_bins);
-  recoilJets->setPhoMatchDRMax(cfg.pho_dr_max);
-  recoilJets->setJetMatchDRMax(cfg.jet_dr_max);
+    recoilJets_AuAu->setGammaPtBins(cfg.jes3_photon_pt_bins);
+    recoilJets_AuAu->setPhoMatchDRMax(cfg.pho_dr_max);
+    recoilJets_AuAu->setJetMatchDRMax(cfg.jet_dr_max);
 
-  recoilJets->setUnfoldRecoPhotonPtBins(cfg.unfold_reco_photon_pt_bins);
-  recoilJets->setUnfoldTruthPhotonPtBins(cfg.unfold_truth_photon_pt_bins);
-  recoilJets->setUnfoldJetPtBins(unfoldJetPtEdges);
-  recoilJets->setUnfoldXJBins(cfg.unfold_xj_bins);
+    recoilJets_AuAu->setUnfoldRecoPhotonPtBins(cfg.unfold_reco_photon_pt_bins);
+    recoilJets_AuAu->setUnfoldTruthPhotonPtBins(cfg.unfold_truth_photon_pt_bins);
+    recoilJets_AuAu->setUnfoldJetPtBins(unfoldJetPtEdges);
+    recoilJets_AuAu->setUnfoldXJBins(cfg.unfold_xj_bins);
 
-  recoilJets->setAnalysisConfigYAML(cfg.yamlText, "analysis_config.yaml");
-
-  if (vlevel > 0)
-  {
-      std::cout << "[CFG] Applied to RecoilJets:"
-                << " etaAbsMax=" << cfg.photon_eta_abs_max
-                << " jetPtMin=" << cfg.jet_pt_min
-                << " dphiMin(rad)=" << (cfg.back_to_back_dphi_min_pi_fraction * M_PI)
-                << " useVzCut=" << (cfg.use_vz_cut ? "true" : "false")
-                << " vzCut=" << cfg.vz_cut_cm
-                << " phoDR=" << cfg.pho_dr_max
-                << " jetDR=" << cfg.jet_dr_max
-                << "\n";
-  }
-      
-    // EventDisplay diagnostics payload (EventDisplayTree written into the ROOT output)
-    recoilJets->enableEventDisplayDiagnostics(cfg.event_display_tree);
-    recoilJets->setEventDisplayDiagnosticsMaxPerBin(cfg.event_display_tree_max_per_bin);
+    recoilJets_AuAu->setAnalysisConfigYAML(cfg.yamlText, "analysis_config.yaml");
 
     if (vlevel > 0)
     {
-      std::cout << "[CFG] EventDisplayTree: enable=" << (cfg.event_display_tree ? "true" : "false")
-                << " max_per_bin=" << cfg.event_display_tree_max_per_bin << "\n";
+        std::cout << "[CFG] Applied to RecoilJets:"
+                  << " etaAbsMax=" << cfg.photon_eta_abs_max
+                  << " jetPtMin=" << cfg.jet_pt_min
+                  << " dphiMin(rad)=" << (cfg.back_to_back_dphi_min_pi_fraction * M_PI)
+                  << " useVzCut=" << (cfg.use_vz_cut ? "true" : "false")
+                  << " vzCut=" << cfg.vz_cut_cm
+                  << " phoDR=" << cfg.pho_dr_max
+                  << " jetDR=" << cfg.jet_dr_max
+                  << "\n";
     }
+        
+      // EventDisplay diagnostics payload (EventDisplayTree written into the ROOT output)
+      recoilJets_AuAu->enableEventDisplayDiagnostics(cfg.event_display_tree);
+      recoilJets_AuAu->setEventDisplayDiagnosticsMaxPerBin(cfg.event_display_tree_max_per_bin);
 
-    
-  // RecoilJets inherits SubsysReco::Verbosity(int)
-  recoilJets->Verbosity(vlevel);
-  if (verbose) std::cout << "[INFO] RJ_VERBOSITY → " << vlevel << '\n';
-  // Pick analysis type for the module (pp macro supports only isPP / isSim).
-  std::string dtype = "isPP";
-  if (const char* env = std::getenv("RJ_DATASET"))
-  {
+      if (vlevel > 0)
+      {
+        std::cout << "[CFG] EventDisplayTree: enable=" << (cfg.event_display_tree ? "true" : "false")
+                  << " max_per_bin=" << cfg.event_display_tree_max_per_bin << "\n";
+      }
+
+      
+    // RecoilJets inherits SubsysReco::Verbosity(int)
+    recoilJets_AuAu->Verbosity(vlevel);
+    if (verbose) std::cout << "[INFO] RJ_VERBOSITY → " << vlevel << '\n';
+    // Pick analysis type for the module (isPP / isAuAu / isSim), case-insensitive.
+    // Fallback: ≤ 53864 → isPP, > 53864 → isAuAu.
+    std::string dtype = "isAuAu";
+    if (const char* env = std::getenv("RJ_DATASET"))
+    {
               std::string s = detail::trim(std::string(env));
               std::string sLower = s;
               std::transform(sLower.begin(), sLower.end(), sLower.begin(),
                              [](unsigned char c){ return std::tolower(c); });
 
               if (sLower == "issim" || sLower == "sim")      dtype = "isSim";
-              else                                           dtype = "isPP";
-  }
+              else if (sLower == "ispp" || sLower == "pp")   dtype = "isPP";
+              else                                           dtype = "isAuAu";
+      }
+      else
+      {
+              dtype = (run <= 53864) ? "isPP" : "isAuAu";
+    }
 
-  if (verbose) std::cout << "[INFO] RJ_DATASET → " << dtype << '\n';
-  recoilJets->setDataType(dtype);
+    if (verbose) std::cout << "[INFO] RJ_DATASET → " << dtype << '\n';
+    recoilJets_AuAu->setDataType(dtype);
 
-  se->registerSubsystem(recoilJets);
+    se->registerSubsystem(recoilJets_AuAu);
 
   //--------------------------------------------------------------------
   // 6.  Run

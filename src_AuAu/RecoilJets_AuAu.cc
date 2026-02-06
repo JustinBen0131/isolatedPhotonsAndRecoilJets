@@ -1,4 +1,4 @@
-#include "RecoilJets.h"
+#include "RecoilJets_AuAu.h"
 //––– Fun4All / PHOOL -------------------------------------------------------
 #include <fun4all/Fun4AllReturnCodes.h>
 #include <fun4all/Fun4AllServer.h>
@@ -3007,63 +3007,41 @@ void RecoilJets::fillRecoTruthJES3MatchingQA(const std::vector<std::string>& act
     return;
   }
 
-    // truth recoil jets (same R): mirror RECO chronology for the jet1 definition
-    //   - pick GLOBAL leading truth jet first (after pT gate; NO eta/dphi pre-veto)
-    //   - then veto if that chosen jet is not fiducial in eta (NO fallback)
-    //   - then require it be back-to-back to the truth gamma
-    const double etaMaxTruth = jetEtaAbsMaxForRKey(rKey);
+  // truth recoil jets (same R), |eta| < 1.1 - R, away-side to truth gamma
+  const double etaMaxTruth = jetEtaAbsMaxForRKey(rKey);
 
-    double tj1Pt = -1.0;
-    const Jet* tj1 = nullptr;
+  double tj1Pt = -1.0;
+  const Jet* tj1 = nullptr;
 
-    // 1) truth jet1: GLOBAL leading truth jet (pT gate only; no eta/dphi preselection)
-    for (const Jet* tj : *truthJets)
+  // 1) truth recoil jet1: highest-pT fiducial jet back-to-back to truth gamma
+  for (const Jet* tj : *truthJets)
+  {
+    if (!tj) continue;
+
+    const double ptj  = tj->get_pt();
+    const double etaj = tj->get_eta();
+    const double phij = tj->get_phi();
+
+    if (!std::isfinite(ptj) || !std::isfinite(etaj) || !std::isfinite(phij)) continue;
+    if (ptj < m_minJetPt) continue;
+    if (std::fabs(etaj) >= etaMaxTruth) continue;
+
+    const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(phij - tPhi));
+    if (dphiAbs < m_minBackToBack) continue;
+
+    if (ptj > tj1Pt)
     {
-      if (!tj) continue;
-
-      const double ptj  = tj->get_pt();
-      const double etaj = tj->get_eta();
-      const double phij = tj->get_phi();
-
-      if (!std::isfinite(ptj) || !std::isfinite(etaj) || !std::isfinite(phij)) continue;
-      if (ptj < m_minJetPt) continue;
-
-      if (ptj > tj1Pt)
-      {
-        tj1Pt = ptj;
-        tj1   = tj;
-      }
+      tj1Pt = ptj;
+      tj1   = tj;
     }
+  }
 
-    if (!tj1 || tj1Pt <= 0.0)
-    {
-      if (Verbosity() >= 5)
-        LOG(5, CLR_YELLOW, "      [truthQA] rKey=" << rKey << " no truth jet1 found → skip truth JES3 fills");
-      return;
-    }
-
-    // 2) histmaker-style veto: if the chosen global-leading jet is not fiducial, reject (NO fallback)
-    {
-      const double etaj = tj1->get_eta();
-      if (!std::isfinite(etaj) || (std::fabs(etaj) >= etaMaxTruth))
-      {
-        if (Verbosity() >= 5)
-          LOG(5, CLR_YELLOW, "      [truthQA] rKey=" << rKey << " truth jet1 fails eta fiducial → skip truth JES3 fills");
-        return;
-      }
-    }
-
-    // 3) recoil requirement applied LAST to the chosen global-leading jet
-    {
-      const double phij = tj1->get_phi();
-      const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(phij - tPhi));
-      if (!std::isfinite(dphiAbs) || (dphiAbs < m_minBackToBack))
-      {
-        if (Verbosity() >= 5)
-          LOG(5, CLR_YELLOW, "      [truthQA] rKey=" << rKey << " truth jet1 fails back-to-back → skip truth JES3 fills");
-        return;
-      }
-    }
+  if (!tj1 || tj1Pt <= 0.0)
+  {
+    if (Verbosity() >= 5)
+      LOG(5, CLR_YELLOW, "      [truthQA] rKey=" << rKey << " no truth recoil jet1 found → skip truth JES3 fills");
+    return;
+  }
 
   // 2) truth jet2 for α: highest-pT fiducial truth jet excluding tj1 (NO Δφ requirement)
   double tj2Pt = -1.0;

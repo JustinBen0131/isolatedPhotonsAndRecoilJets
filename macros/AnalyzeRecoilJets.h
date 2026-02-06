@@ -161,23 +161,23 @@ namespace ARJ
 //   - For single-slice SIM, y-axes remain raw "Counts" (unweighted).
 // =============================================================================
 
-    inline bool isPPdataOnly   = false;
-    inline bool isSimAndDataPP = false;
+  inline bool isPPdataOnly   = false;
+  inline bool isSimAndDataPP = false;
 
-    // SIM sample selection toggles (choose EXACTLY ONE for any SIM-including run)
-    inline bool isPhotonJet5               = false;
-    inline bool isPhotonJet10              = false;
-    inline bool isPhotonJet20              = false;
+  // SIM sample selection toggles (choose EXACTLY ONE for any SIM-including run)
+  inline bool isPhotonJet5               = false;
+  inline bool isPhotonJet10              = false;
+  inline bool isPhotonJet20              = false;
 
-    inline bool bothPhoton5and10sim        = false;
-    inline bool bothPhoton5and20sim        = false;
-    inline bool bothPhoton10and20sim       = true;
+  inline bool bothPhoton5and10sim        = false;
+  inline bool bothPhoton5and20sim        = false;
+  inline bool bothPhoton10and20sim       = true;
 
-    // If false, STEP 1 will NOT rebuild the photonJet10+20 merged ROOT file(s).
-    // Downstream code will simply open the already-merged output at the configured path(s).
-    inline bool doRemergePhoton10and20sim  = false;
+  // If false, STEP 1 will NOT rebuild the photonJet10+20 merged ROOT file(s).
+  // Downstream code will simply open the already-merged output at the configured path(s).
+  inline bool doRemergePhoton10and20sim  = false;
 
-    inline bool allPhoton5and10and20sim    = false;
+  inline bool allPhoton5and10and20sim    = false;
 
   // True if the selected SIM sample is a weighted multi-slice merge (hist units become ~pb/bin)
   inline bool IsWeightedSIMSelected()

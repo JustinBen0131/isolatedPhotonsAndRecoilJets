@@ -84,5 +84,5 @@ unfold_xj_bins: [0.0, 0.20, 0.24, 0.29, 0.35, 0.41, 0.50, 0.60, 0.72, 0.86, 1.03
 #       0  => unlimited entries
 #       N>0 => cap entries per (rKey × pTγ bin × {NUM,MissA,MissB})
 # -----------------------------------------------------------------------------
-event_display_tree: true
-event_display_tree_max_per_bin: 15
+event_display_tree: false
+event_display_tree_max_per_bin: 1
