@@ -10495,20 +10495,32 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
     return;
   }
 
-  // -------------------------------------------------------------------------
-  // Count histogram for this ABCD region (per pT/cent slice)
-  // -------------------------------------------------------------------------
-  if (auto* hc = getOrBookCountHist(trig, comboBase, ptIdx, effCentIdx))
-  {
-    hc->Fill(1);
-    bumpHistFill(trig, std::string(comboBase) + slice);
-  }
-  else
-  {
-    LOG(2, CLR_YELLOW,
-        "  [fillIsoSSTagCounters] getOrBookCountHist returned nullptr for \""
-        << comboBase << "\" slice=\"" << slice << '"');
-  }
+    // -------------------------------------------------------------------------
+    // Count histogram for this ABCD region (per pT/cent slice)
+    // -------------------------------------------------------------------------
+    if (auto* hc = getOrBookCountHist(trig, comboBase, ptIdx, effCentIdx))
+    {
+      hc->Fill(1);
+      bumpHistFill(trig, std::string(comboBase) + slice);
+    }
+    else
+    {
+      LOG(2, CLR_YELLOW,
+          "  [fillIsoSSTagCounters] getOrBookCountHist returned nullptr for \""
+          << comboBase << "\" slice=\"" << slice << '"');
+    }
+
+    // -------------------------------------------------------------------------
+    // Isolation-energy distribution for each ABCD region (per pT/cent slice)
+    // -------------------------------------------------------------------------
+    {
+      const std::string hBase = std::string("h_Eiso_ABCD_") + std::string(1, region);
+      if (auto* hIsoReg = getOrBookIsoPartHist(trig, hBase, "E_{T}^{iso} [GeV]", ptIdx, effCentIdx))
+      {
+        hIsoReg->Fill(eiso_et);
+        bumpHistFill(trig, hBase + slice);
+      }
+    }
 
   // -------------------------------------------------------------------------
   // Verbose diagnostics (optional)
