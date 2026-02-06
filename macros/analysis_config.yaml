@@ -40,6 +40,8 @@ back_to_back_dphi_min_pi_fraction: [0.5, 0.875]
 use_vz_cut: true
 vz_cut_cm: 60.0
 
+centrality_edges: [0, 10, 20, 40, 60, 80, 100]
+
 # -----------------------------------------------------------------------------
 # Isolation working point knobs (YAML-driven; baseline matches current Fun4All)
 # recoilJets->setIsolationWP(1.08128, 0.0299107, 1.0, 0.30, 0.0);

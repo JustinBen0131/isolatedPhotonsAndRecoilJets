@@ -9510,6 +9510,44 @@ TH1F* RecoilJets::getOrBookIsoPartHist(const std::string& trig,
 }
 
 
+TH1F* RecoilJets::getOrBookPtGammaHist(const std::string& trig,
+                                         const std::string& base,
+                                         int centIdx)
+{
+    const std::string suffix = suffixForBins(-1, centIdx);
+    const std::string name   = base + suffix;
+
+    if (trig.empty() || base.empty()) return nullptr;
+
+    auto& H = qaHistogramsByTrigger[trig];
+    if (auto it = H.find(name); it != H.end())
+    {
+      if (auto* h = dynamic_cast<TH1F*>(it->second)) return h;
+      H.erase(it);
+    }
+
+    if (!out || !out->IsOpen()) return nullptr;
+    if (m_gammaPtBins.size() < 2) return nullptr;
+
+    TDirectory* const prevDir = gDirectory;
+    TDirectory* dir = out->GetDirectory(trig.c_str());
+    if (!dir) dir = out->mkdir(trig.c_str());
+    if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+    dir->cd();
+
+    const int nb = static_cast<int>(m_gammaPtBins.size()) - 1;
+
+    const std::string title = name + ";p_{T}^{#gamma} [GeV];Entries";
+
+    auto* h = new TH1F(name.c_str(), title.c_str(), nb, m_gammaPtBins.data());
+    h->Sumw2();
+
+    H[name] = h;
+    if (prevDir) prevDir->cd();
+    return h;
+}
+
+
 // ------------------------------------------------------------------
 //  isolation PASS/FAIL counter histogram (2 bins), same slicing rules.
 //   bin 1 = PASS  (Eiso < thr)
@@ -10566,6 +10604,18 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
       {
         hIsoReg->Fill(eiso_et);
         bumpHistFill(trig, hBase + slice);
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // Photon pT distribution for each ABCD region (per cent slice)
+    // -------------------------------------------------------------------------
+    {
+      const std::string hBase = std::string("h_pTgamma_ABCD_") + std::string(1, region);
+      if (auto* hPtReg = getOrBookPtGammaHist(trig, hBase, effCentIdx))
+      {
+        hPtReg->Fill(pt_gamma);
+        bumpHistFill(trig, hPtReg->GetName());
       }
   }
 

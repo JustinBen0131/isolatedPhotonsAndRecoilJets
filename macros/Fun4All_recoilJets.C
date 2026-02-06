@@ -1516,14 +1516,12 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   //
   // IMPORTANT:
   // JetCalib::CreateNodeTree() requires a PHCompositeNode named "TOWER".
-  // Many pp DSTs do NOT have it, so JetCalib aborts unless we create it.
-  // We register EnsureJetCalibNodes once (only when we intend to run JetCalib).
-  //
-    // Apply pp JES calibration for ALL pp-style running (pp data AND isSim).
-    // Keep Au+Au excluded.
-    const bool doJetCalibAny = (!isAuAuData);
-    if (doJetCalibAny)
-    {
+
+  // Apply pp JES calibration for ALL pp-style running (pp data AND isSim).
+  // Keep Au+Au excluded.
+  const bool doJetCalibAny = (!isAuAuData);
+  if (doJetCalibAny)
+  {
         auto* ensure = new EnsureJetCalibNodes("EnsureJetCalibNodes_forJES");
         // keep this modest; set RJ_JETCALIB_NODE_VERBOSE=1 for prints
         int nodeV = 0;
@@ -1533,10 +1531,10 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
 
         if (vlevel > 0)
           std::cout << "[INFO] JES: enabling JetCalib (pp-style: pp data + isSim) => ensuring DST/TOWER exists\n";
-    }
+  }
 
   // Optional: control JetCalib verbosity independently
-  int jetcalV = 1; // default: show InitRun/process_event messages
+  int jetcalV = 0; // default: show InitRun/process_event messages
   if (const char* env = std::getenv("RJ_JETCALIB_VERBOSITY"))
   {
       jetcalV = std::atoi(env);

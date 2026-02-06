@@ -593,9 +593,12 @@ private:
   // Isolation spectra (reco)
   TH1F* getOrBookIsoHist(const std::string& trig, int ptIdx, int centIdx);
   TH1F* getOrBookIsoPartHist(const std::string& trig,
-                                   const std::string& base,
-                                   const std::string& xAxisTitle,
-                                   int ptIdx, int centIdx);
+                                     const std::string& base,
+                                     const std::string& xAxisTitle,
+                                     int ptIdx, int centIdx);
+  TH1F* getOrBookPtGammaHist(const std::string& trig,
+                                 const std::string& base,
+                                 int centIdx);
   TH1I* getOrBookIsoDecisionHist(const std::string& trig, int ptIdx, int centIdx);
 
   // Event-level photon multiplicity diagnostic:

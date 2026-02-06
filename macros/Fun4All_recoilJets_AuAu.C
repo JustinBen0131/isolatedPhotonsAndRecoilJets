@@ -144,6 +144,7 @@ namespace yamlcfg
   inline bool StartsWithKey(const std::string& line, const std::string& key);
   inline std::string AfterColon(const std::string& line);
   inline void ParseInlineListDoubles(std::string s, std::vector<double>& out);
+  inline void ParseInlineListInts(std::string s, std::vector<int>& out);
 
   inline std::vector<std::string> LoadJetRKeys(int vlevel)
   {
@@ -233,6 +234,8 @@ namespace yamlcfg
 
       bool   use_vz_cut = true;
       double vz_cut_cm  = 30.0;
+
+      std::vector<int> centrality_edges = {0,10,20,30,40,50,60,70,80,90,100};
 
       double isoA = 1.08128;
       double isoB = 0.0299107;
@@ -342,19 +345,31 @@ namespace yamlcfg
 
   inline void ParseInlineListDoubles(std::string s, std::vector<double>& out)
   {
-    out.clear();
-    s = detail::trim(s);
-    const std::size_t l = s.find('[');
-    const std::size_t r = s.find(']');
-    if (l == std::string::npos || r == std::string::npos || r <= l) return;
-    std::string inner = s.substr(l + 1, r - l - 1);
-    std::stringstream ss(inner);
-    std::string tok;
-    while (std::getline(ss, tok, ','))
-    {
-      double v = 0.0;
-      if (ParseDouble(tok, v)) out.push_back(v);
-    }
+      out.clear();
+      s = detail::trim(s);
+      const std::size_t l = s.find('[');
+      const std::size_t r = s.find(']');
+      if (l == std::string::npos || r == std::string::npos || r <= l) return;
+      std::string inner = s.substr(l + 1, r - l - 1);
+      std::stringstream ss(inner);
+      std::string tok;
+      while (std::getline(ss, tok, ','))
+      {
+        double v = 0.0;
+        if (ParseDouble(tok, v)) out.push_back(v);
+      }
+  }
+
+  inline void ParseInlineListInts(std::string s, std::vector<int>& out)
+  {
+      out.clear();
+      std::vector<double> tmp;
+      ParseInlineListDoubles(s, tmp);
+      for (double v : tmp)
+      {
+        if (!std::isfinite(v)) continue;
+        out.push_back((int) std::llround(v));
+      }
   }
 
   inline void ParseInlineMapDoubles(std::string s, std::map<std::string, double>& out)
@@ -496,6 +511,13 @@ namespace yamlcfg
           const std::string rhs = AfterColon(line);
           if (!ParseDouble(rhs, cfg.vz_cut_cm))
             warn_parse("vz_cut_cm", rhs, "expected a scalar double");
+        }
+        else if (StartsWithKey(line, "centrality_edges"))
+        {
+          const std::string rhs = AfterColon(line);
+          ParseInlineListInts(rhs, cfg.centrality_edges);
+          if (cfg.centrality_edges.size() < 2)
+            warn_parse("centrality_edges", rhs, "expected an inline list with >=2 edges");
         }
         else if (StartsWithKey(line, "event_display_tree"))
         {
@@ -1746,20 +1768,21 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
   photonBuilder->Verbosity(vlevel);
   se->registerSubsystem(photonBuilder);
 
-    auto* recoilJets_AuAu = new RecoilJets_AuAu(outRoot);
+  auto* recoilJets_AuAu = new RecoilJets_AuAu(outRoot);
 
-    // ------------------------------------------------------------------
-    // Apply YAML-driven knobs
-    // ------------------------------------------------------------------
-    recoilJets_AuAu->setPhotonEtaAbsMax(cfg.photon_eta_abs_max);
-    recoilJets_AuAu->setMinJetPt(cfg.jet_pt_min);
-    recoilJets_AuAu->setMinBackToBack(cfg.back_to_back_dphi_min_pi_fraction * M_PI);
+  // ------------------------------------------------------------------
+  // Apply YAML-driven knobs
+  // ------------------------------------------------------------------
+  recoilJets_AuAu->setPhotonEtaAbsMax(cfg.photon_eta_abs_max);
+  recoilJets_AuAu->setMinJetPt(cfg.jet_pt_min);
+  recoilJets_AuAu->setMinBackToBack(cfg.back_to_back_dphi_min_pi_fraction * M_PI);
 
-    recoilJets_AuAu->setUseVzCut(cfg.use_vz_cut, cfg.vz_cut_cm);
-    recoilJets_AuAu->setActiveJetRKeys(activeJetRKeys);
-    recoilJets_AuAu->setIsolationWP(cfg.isoA, cfg.isoB, cfg.isoGap, cfg.isoConeR, cfg.isoTowMin);
+  recoilJets_AuAu->setUseVzCut(cfg.use_vz_cut, cfg.vz_cut_cm);
+  recoilJets_AuAu->setCentEdges(cfg.centrality_edges);
+  recoilJets_AuAu->setActiveJetRKeys(activeJetRKeys);
+  recoilJets_AuAu->setIsolationWP(cfg.isoA, cfg.isoB, cfg.isoGap, cfg.isoConeR, cfg.isoTowMin);
 
-    recoilJets_AuAu->setPhotonIDCuts(cfg.pre_e11e33_max,
+  recoilJets_AuAu->setPhotonIDCuts(cfg.pre_e11e33_max,
                                   cfg.pre_et1_min,
                                   cfg.pre_et1_max,
                                   cfg.pre_e32e35_min,
@@ -1775,19 +1798,19 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
                                   cfg.tight_e32e35_min,
                                   cfg.tight_e32e35_max);
 
-    recoilJets_AuAu->setGammaPtBins(cfg.jes3_photon_pt_bins);
-    recoilJets_AuAu->setPhoMatchDRMax(cfg.pho_dr_max);
-    recoilJets_AuAu->setJetMatchDRMax(cfg.jet_dr_max);
+  recoilJets_AuAu->setGammaPtBins(cfg.jes3_photon_pt_bins);
+  recoilJets_AuAu->setPhoMatchDRMax(cfg.pho_dr_max);
+  recoilJets_AuAu->setJetMatchDRMax(cfg.jet_dr_max);
 
-    recoilJets_AuAu->setUnfoldRecoPhotonPtBins(cfg.unfold_reco_photon_pt_bins);
-    recoilJets_AuAu->setUnfoldTruthPhotonPtBins(cfg.unfold_truth_photon_pt_bins);
-    recoilJets_AuAu->setUnfoldJetPtBins(unfoldJetPtEdges);
-    recoilJets_AuAu->setUnfoldXJBins(cfg.unfold_xj_bins);
+  recoilJets_AuAu->setUnfoldRecoPhotonPtBins(cfg.unfold_reco_photon_pt_bins);
+  recoilJets_AuAu->setUnfoldTruthPhotonPtBins(cfg.unfold_truth_photon_pt_bins);
+  recoilJets_AuAu->setUnfoldJetPtBins(unfoldJetPtEdges);
+  recoilJets_AuAu->setUnfoldXJBins(cfg.unfold_xj_bins);
 
-    recoilJets_AuAu->setAnalysisConfigYAML(cfg.yamlText, "analysis_config.yaml");
+  recoilJets_AuAu->setAnalysisConfigYAML(cfg.yamlText, "analysis_config.yaml");
 
-    if (vlevel > 0)
-    {
+  if (vlevel > 0)
+  {
         std::cout << "[CFG] Applied to RecoilJets:"
                   << " etaAbsMax=" << cfg.photon_eta_abs_max
                   << " jetPtMin=" << cfg.jet_pt_min
@@ -1797,27 +1820,27 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
                   << " phoDR=" << cfg.pho_dr_max
                   << " jetDR=" << cfg.jet_dr_max
                   << "\n";
-    }
+  }
         
-      // EventDisplay diagnostics payload (EventDisplayTree written into the ROOT output)
-      recoilJets_AuAu->enableEventDisplayDiagnostics(cfg.event_display_tree);
-      recoilJets_AuAu->setEventDisplayDiagnosticsMaxPerBin(cfg.event_display_tree_max_per_bin);
+  // EventDisplay diagnostics payload (EventDisplayTree written into the ROOT output)
+  recoilJets_AuAu->enableEventDisplayDiagnostics(cfg.event_display_tree);
+  recoilJets_AuAu->setEventDisplayDiagnosticsMaxPerBin(cfg.event_display_tree_max_per_bin);
 
-      if (vlevel > 0)
-      {
+  if (vlevel > 0)
+  {
         std::cout << "[CFG] EventDisplayTree: enable=" << (cfg.event_display_tree ? "true" : "false")
                   << " max_per_bin=" << cfg.event_display_tree_max_per_bin << "\n";
-      }
+  }
 
       
-    // RecoilJets inherits SubsysReco::Verbosity(int)
-    recoilJets_AuAu->Verbosity(vlevel);
-    if (verbose) std::cout << "[INFO] RJ_VERBOSITY → " << vlevel << '\n';
-    // Pick analysis type for the module (isPP / isAuAu / isSim), case-insensitive.
-    // Fallback: ≤ 53864 → isPP, > 53864 → isAuAu.
-    std::string dtype = "isAuAu";
-    if (const char* env = std::getenv("RJ_DATASET"))
-    {
+  // RecoilJets inherits SubsysReco::Verbosity(int)
+  recoilJets_AuAu->Verbosity(vlevel);
+  if (verbose) std::cout << "[INFO] RJ_VERBOSITY → " << vlevel << '\n';
+  // Pick analysis type for the module (isPP / isAuAu / isSim), case-insensitive.
+  // Fallback: ≤ 53864 → isPP, > 53864 → isAuAu.
+  std::string dtype = "isAuAu";
+  if (const char* env = std::getenv("RJ_DATASET"))
+  {
               std::string s = detail::trim(std::string(env));
               std::string sLower = s;
               std::transform(sLower.begin(), sLower.end(), sLower.begin(),
@@ -1830,12 +1853,12 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
       else
       {
               dtype = (run <= 53864) ? "isPP" : "isAuAu";
-    }
+  }
 
-    if (verbose) std::cout << "[INFO] RJ_DATASET → " << dtype << '\n';
-    recoilJets_AuAu->setDataType(dtype);
+  if (verbose) std::cout << "[INFO] RJ_DATASET → " << dtype << '\n';
+  recoilJets_AuAu->setDataType(dtype);
 
-    se->registerSubsystem(recoilJets_AuAu);
+  se->registerSubsystem(recoilJets_AuAu);
 
   //--------------------------------------------------------------------
   // 6.  Run
