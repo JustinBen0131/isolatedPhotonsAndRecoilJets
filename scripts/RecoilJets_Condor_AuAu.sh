@@ -26,7 +26,7 @@ dest_base="${8:-}"                  # If empty, we derive from dataset
 
 # ------------------------ Fixed paths ----------------------
 BASE="/sphenix/u/patsfan753/scratch/thesisAnalysis"
-MACRO="${BASE}/macros/Fun4All_recoilJets.C"
+MACRO="${BASE}/macros/Fun4All_recoilJets_AuAu.C"
 
 # Condor logging (handled by submit file), but we echo as well
 echo "====================================================================="
@@ -43,6 +43,7 @@ export HOME="/sphenix/u/${LOGNAME}"
 
 # sPHENIX offline setup (system + local area for custom libs)
 MYINSTALL="/sphenix/u/${USER}/thesisAnalysis/install"
+MYINSTALL_AUAU="/sphenix/u/${USER}/thesisAnalysis_auau/install"
 
 # Disable 'nounset' while sourcing env scripts; they may read unset vars (e.g. PGHOST)
 set +u
@@ -50,6 +51,10 @@ source /opt/sphenix/core/bin/sphenix_setup.sh -n
 if [[ -d "$MYINSTALL" ]]; then
   # do not fail if local area is not present; macro has R__LOAD_LIBRARY with absolute path
   source /opt/sphenix/core/bin/setup_local.sh "$MYINSTALL" || true
+fi
+if [[ -d "$MYINSTALL_AUAU" ]]; then
+  # AuAu local area (for libRecoilJetsAuAu.so and any future AuAu-only libs)
+  source /opt/sphenix/core/bin/setup_local.sh "$MYINSTALL_AUAU" || true
 fi
 set -u
 

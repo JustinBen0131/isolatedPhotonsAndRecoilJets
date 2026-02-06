@@ -322,6 +322,8 @@ resolve_dataset() {
       LIST_DIR="$PP_LIST_DIR"
       DEST_BASE="$PP_DEST_BASE"
       TAG="pp"
+      MACRO="${BASE}/macros/Fun4All_recoilJets.C"
+      EXE="${BASE}/RecoilJets_Condor.sh"
       ;;
     isAuAu|auau|AA)
       DATASET="isAuAu"
@@ -329,6 +331,8 @@ resolve_dataset() {
       LIST_DIR="$AA_LIST_DIR"
       DEST_BASE="$AA_DEST_BASE"
       TAG="auau"
+      MACRO="${BASE}/macros/Fun4All_recoilJets_AuAu.C"
+      EXE="${BASE}/RecoilJets_Condor_AuAu.sh"
       ;;
     isSim|sim|SIM)
       DATASET="isSim"
@@ -336,6 +340,8 @@ resolve_dataset() {
       LIST_DIR=""      # not used in sim mode
       DEST_BASE="$SIM_DEST_BASE"   # output dir will be DEST_BASE/SIM_SAMPLE
       TAG="sim"
+      MACRO="${BASE}/macros/Fun4All_recoilJets.C"
+      EXE="${BASE}/RecoilJets_Condor.sh"
       ;;
     *)
       usage
