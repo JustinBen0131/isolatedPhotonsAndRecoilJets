@@ -497,13 +497,17 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
 
     auto recoJetNodeForRKey = [&](const std::string& rKey) -> std::string
     {
+      // Au+Au uses UE-subtracted jet nodes written as: AntiKt_Tower_<rKey>_Sub1
       for (const auto& jnm : kJetRadii)
       {
         if (jnm.key == rKey)
           return (isAuAu ? jnm.aa_node : jnm.pp_node);
       }
+      // default naming fallback (cover radii beyond the hard-coded table)
+      if (isAuAu) return std::string("AntiKt_Tower_") + rKey + "_Sub1";
       return std::string("AntiKt_Tower_") + rKey;
     };
+
 
     std::string primaryRecoKey = trim(m_xjRecoJetKey);
     if (const char* rk = std::getenv("RJ_RECO_JET_KEY"))
@@ -3773,7 +3777,7 @@ void RecoilJets::fillPureIsolationQA(PHCompositeNode* topNode,
   }
 
   // Pure isolation threshold decision (signal line only)
-  const double thrIso  = m_isoA + m_isoB * pt_gamma;
+  const double thrIso  = (m_isSlidingIso ? (m_isoA + m_isoB * pt_gamma) : 2.0);
   const bool   isoPass = (eiso_tot < thrIso);
 
   for (const auto& trigShort : activeTrig)
@@ -4009,7 +4013,7 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
       continue;
     }
 
-    const double thrIso    = m_isoA + m_isoB * rPt;
+    const double thrIso    = (m_isSlidingIso ? (m_isoA + m_isoB * rPt) : 2.0);
     const double thrNonIso = thrIso + m_isoGap;
 
     const bool iso    = (eiso_et < thrIso);
@@ -5153,18 +5157,34 @@ void RecoilJets::setIsolationWP(double aGeV, double bPerGeV,
   const double cone_before  = coneR;
   const double tower_before = towerMin;
 
-  // PPG12 isolation definition is fixed to ΔR = 0.3.
-  // Ignore user-provided coneR for "exact PPG12" operation.
-  constexpr double kPPG12ConeR = 0.3;
-
-    if (Verbosity() >= 2 && std::fabs(coneR - kPPG12ConeR) > 1e-9)
-    {
-      LOG(2, CLR_YELLOW,
-          "  [setIsolationWP] Requested coneR=" << coneR
-          << " but PPG12 requires coneR=0.3. Forcing coneR=0.3.");
+  // PhotonClusterBuilder provides full calo isolation only for R=0.3 and R=0.4.
+  // Allow YAML to select 0.30/0.40 (also accept shorthand .03/.04).
+  int cone10 = 3;
+  if (std::isfinite(coneR))
+  {
+      cone10 = static_cast<int>(std::lround(10.0 * coneR));
+      if (!(cone10 == 3 || cone10 == 4))
+      {
+        const int cone100 = static_cast<int>(std::lround(100.0 * coneR));
+        if (cone100 == 3 || cone100 == 4)
+        {
+          cone10 = cone100; // .03/.04 shorthand
+        }
+      }
     }
 
-  m_isoConeR  = kPPG12ConeR;
+    if (!(cone10 == 3 || cone10 == 4))
+    {
+      if (Verbosity() >= 2)
+      {
+        LOG(2, CLR_YELLOW,
+            "  [setIsolationWP] Requested coneR=" << coneR
+            << " not supported (PhotonClusterBuilder supports 0.3 or 0.4). Forcing coneR=0.3.");
+      }
+      cone10 = 3;
+  }
+
+  m_isoConeR  = 0.1 * static_cast<double>(cone10);
   m_isoTowMin = std::max(0.0, towerMin);
 
   if (Verbosity() >= 4)
@@ -5268,7 +5288,7 @@ bool RecoilJets::isIsolated(const RawCluster* clus, double et_gamma, PHComposite
     return false;
   }
 
-    const double thr  = m_isoA + m_isoB * et_gamma;
+    const double thr  = (m_isSlidingIso ? (m_isoA + m_isoB * et_gamma) : 2.0);
     const double eiso_val = this->eiso(clus, topNode);
     const bool passIso = (eiso_val < thr);
 
@@ -5290,7 +5310,7 @@ bool RecoilJets::isNonIsolated(const RawCluster* clus, double et_gamma, PHCompos
     return false;
   }
 
-  const double thr  = m_isoA + m_isoB * et_gamma + m_isoGap;
+  const double thr  = (m_isSlidingIso ? (m_isoA + m_isoB * et_gamma) : 2.0) + m_isoGap;
   const double eiso_val = this->eiso(clus, topNode);
 
   if (Verbosity() >= 5)
@@ -5314,9 +5334,9 @@ bool RecoilJets::isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
   constexpr double kTruthEtaAbsMax = 0.7;
 
   // CaloAna-style truth isolation parameters
-  constexpr double kIsoConeR  = 0.3;
+  const double kIsoConeR  = m_isoConeR;
   constexpr double kMergerDR  = 0.001;
-  constexpr double kIsoMaxGeV = 4.0;
+  const double kIsoMaxGeV = (m_isSlidingIso ? 4.0 : 2.0);
 
   // Final-state photon requirement (your project requirement)
   if (pho->pdg_id() != 22) return false;
@@ -10589,7 +10609,7 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
     return;
   }
 
-  const double thrIso    = (m_isoA + m_isoB * pt_gamma);
+  const double thrIso    = (m_isSlidingIso ? (m_isoA + m_isoB * pt_gamma) : 2.0);
   const double thrNonIso = thrIso + m_isoGap;
 
   const bool iso    = (eiso_et < thrIso);
