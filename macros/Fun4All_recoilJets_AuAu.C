@@ -3,9 +3,11 @@
 //  --------------------------------------------------------------------
 #pragma once
 #if defined(__CINT__) || defined(__CLING__)
+  R__ADD_INCLUDE_PATH(/sphenix/u/patsfan753/thesisAnalysis/install/include)
   R__ADD_INCLUDE_PATH(/sphenix/u/patsfan753/thesisAnalysis_auau/install/include)
 #endif
 #if defined(__CLING__)
+  #pragma cling add_include_path("/sphenix/u/patsfan753/thesisAnalysis/install/include")
   #pragma cling add_include_path("/sphenix/u/patsfan753/thesisAnalysis_auau/install/include")
 #endif
 #if ROOT_VERSION_CODE >= ROOT_VERSION(6,00,0)
@@ -38,7 +40,7 @@
 #include <caloreco/RawClusterPositionCorrection.h>
 #include <calobase/RawTowerGeom.h>
 #include <caloreco/RawTowerCalibration.h>
-#include <caloreco/PhotonClusterBuilder.h>
+#include "/sphenix/u/patsfan753/thesisAnalysis/install/include/caloreco/PhotonClusterBuilder.h"
 #include <jetbase/Jet.h>
 #include <g4jets/TruthJetInput.h>
 
@@ -75,6 +77,7 @@
 #include <cctype>      // std::tolower
 #include <iomanip>     // std::setw, std::setprecision
 #include <dlfcn.h>     // dlopen RTLD_NOLOAD
+#include <typeinfo>    // typeid RTTI probe
 #include <TSystem.h>   // gSystem, GetBuildArch/Compiler info
 #include <Calo_Calib.C>
 
@@ -92,7 +95,6 @@ R__LOAD_LIBRARY(libffarawobjects.so)
 R__LOAD_LIBRARY(libcaloTreeGen.so)
 R__LOAD_LIBRARY(libjetbackground.so)
 R__LOAD_LIBRARY(libg4jets.so)
-R__LOAD_LIBRARY(libjetbase.so)
 R__LOAD_LIBRARY(libglobalvertex.so)
 R__LOAD_LIBRARY(libcentrality.so)      // always
 R__LOAD_LIBRARY(libcentrality_io.so)   // if you instantiate CentralityReco
@@ -1916,13 +1918,37 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
       if (vlevel > 0) std::cout << "[isSim] skipping TriggerRunInfoReco" << std::endl;
   }
     
-  // Build photon clusters
-  auto* photonBuilder = new PhotonClusterBuilder("PhotonClusterBuilder");
-  photonBuilder->set_input_cluster_node("CLUSTERINFO_CEMC");
-  photonBuilder->set_output_photon_node("PHOTONCLUSTER_CEMC");
-  photonBuilder->set_vz_cut(cfg.use_vz_cut, cfg.vz_cut_cm);
-  photonBuilder->Verbosity(vlevel);
-  se->registerSubsystem(photonBuilder);
+    // Build photon clusters
+    if (vlevel > 0)
+    {
+      Dl_info pcbInfo{};
+      if (dladdr((void*)&typeid(PhotonClusterBuilder), &pcbInfo) && pcbInfo.dli_fname)
+      {
+        std::cout << "[DBG] PhotonClusterBuilder RTTI from: " << pcbInfo.dli_fname << "\n";
+      }
+      else
+      {
+        std::cout << "[DBG] PhotonClusterBuilder RTTI probe: dladdr failed\n";
+      }
+    }
+
+    auto* photonBuilder = new PhotonClusterBuilder("PhotonClusterBuilder");
+    photonBuilder->set_input_cluster_node("CLUSTERINFO_CEMC");
+    photonBuilder->set_output_photon_node("PHOTONCLUSTER_CEMC");
+
+    // Robust against headers that don't have set_vz_cut(bool,float)
+    photonBuilder->set_use_vz_cut(cfg.use_vz_cut);
+    photonBuilder->set_vz_cut_cm(cfg.vz_cut_cm);
+
+    if (vlevel > 0)
+    {
+      std::cout << "[DBG] PhotonClusterBuilder vzCut config: use="
+                << (cfg.use_vz_cut ? "true" : "false")
+                << " vz_cut_cm=" << cfg.vz_cut_cm << "\n";
+    }
+
+    photonBuilder->Verbosity(vlevel);
+    se->registerSubsystem(photonBuilder);
 
   auto* recoilJets_AuAu = new RecoilJets(outRoot);
 
