@@ -245,25 +245,43 @@ _sum_ev_rt_over() {
   printf '%s\t%s\n' "$sum_ev" "$sum_rt"
 }
 
-# ---------- Build per-stage vectors ----------
+# ---------- Build per-stage vectors (PROGRESSIVE gates) ----------
 STAGE1_LIST=("${RUNS_ALL[@]}")
 STAGE2_LIST=("${RUNS_MAGNET_ON[@]}")
-STAGE3_LIST=("${RUNS_CALO_GOLDEN[@]}")
-STAGE4_LIST=("${RUNS_TIME_OK[@]}")
-STAGE5_LIST=("${RUNS_EVENT_OK[@]}")
 
-# Final GOLDEN = 2 ∩ 3 ∩ 4 ∩ 5
-declare -A Mset Eset Tset Cset
+# Stage 3 should be magnet∩caloQA (not caloQA alone)
+declare -A Mset Cset
 for r in "${RUNS_MAGNET_ON[@]}";   do Mset["$r"]=1; done
-for r in "${RUNS_EVENT_OK[@]}";    do Eset["$r"]=1; done
-for r in "${RUNS_TIME_OK[@]}";     do Tset["$r"]=1; done
 for r in "${RUNS_CALO_GOLDEN[@]}"; do Cset["$r"]=1; done
-RUNS_GOLDEN_FINAL=()
+
+STAGE3_LIST=()
 for r in "${RUNS_ALL[@]}"; do
-  if [[ -n "${Mset[$r]:-}" && -n "${Cset[$r]:-}" && -n "${Tset[$r]:-}" && -n "${Eset[$r]:-}" ]]; then
-    RUNS_GOLDEN_FINAL+=("$r")
+  if [[ -n "${Mset[$r]:-}" && -n "${Cset[$r]:-}" ]]; then
+    STAGE3_LIST+=("$r")
   fi
 done
+
+# Stage 4/5 should be applied after Stage 3 (not globally)
+declare -A Tset Eset
+for r in "${RUNS_TIME_OK[@]}";   do Tset["$r"]=1; done
+for r in "${RUNS_EVENT_OK[@]}";  do Eset["$r"]=1; done
+
+STAGE4_LIST=()
+for r in "${STAGE3_LIST[@]}"; do
+  if [[ -n "${Tset[$r]:-}" ]]; then
+    STAGE4_LIST+=("$r")
+  fi
+done
+
+STAGE5_LIST=()
+for r in "${STAGE4_LIST[@]}"; do
+  if [[ -n "${Eset[$r]:-}" ]]; then
+    STAGE5_LIST+=("$r")
+  fi
+done
+
+# Final GOLDEN starts as Stage 5, then optional gates refine RUNS_GOLDEN_FINAL
+RUNS_GOLDEN_FINAL=("${STAGE5_LIST[@]}")
 
 # ---------- Stage 6 (optional): Bad-tower map availability (CEMC) ----------
 RUNS_MISSING_MAPS=()
@@ -395,10 +413,9 @@ if ! $FILTER_MBD_NS_GEQ2_VTX_150; then
   s7_rt=$s6_rt
 fi
 
-# Final “gold” = Stage 7 (fixed final stage layout)
-gold_runs=$s7_runs
-gold_ev=$s7_ev
-gold_rt=$s7_rt
+# Final “gold” must reflect the actual RUNS_GOLDEN_FINAL list (after optional gates)
+gold_runs=${#RUNS_GOLDEN_FINAL[@]}
+read gold_ev gold_rt < <(_sum_ev_rt_over RUNS_GOLDEN_FINAL)
 
 
 

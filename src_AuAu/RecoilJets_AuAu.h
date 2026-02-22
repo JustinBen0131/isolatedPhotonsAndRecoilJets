@@ -250,11 +250,11 @@ public:
   // Radii to run in parallel. These are used in fetchNodes(), jet QA, matching.
   //
   // NOTE: Replace node names here if your DST uses different names.
-  inline static const std::array<JetRadiusDef, 2> kJetRadii = {{
-    // key   pp_node              aa_node
-    { "r02", "AntiKt_Tower_r02",  "AntiKt_Tower_r02"  },
-    { "r04", "AntiKt_Tower_r04",  "AntiKt_Tower_r04"  }
-  }};
+    inline static const std::array<JetRadiusDef, 2> kJetRadii = {{
+      // key   pp_node              aa_node
+      { "r02", "AntiKt_Tower_r02",  "AntiKt_Tower_r02_Sub1"  },
+      { "r04", "AntiKt_Tower_r04",  "AntiKt_Tower_r04_Sub1"  }
+    }};
 
   // Trigger maps:
   //  - pp:   DB/GL1 name -> short key (directory name)
@@ -362,9 +362,10 @@ public:
 
   // Isolation WP (implemented in .cc)
   void setIsolationWP(double aGeV, double bPerGeV,
-                            double sideGapGeV, double coneR, double towerMin);
+                              double sideGapGeV, double coneR, double towerMin);
+  void setIsSlidingIso(bool on) { m_isSlidingIso = on; }
 
-  // Photon ID cuts (PPG12 Table 4): allow YAML override while preserving baseline defaults
+    // Photon ID cuts (PPG12 Table 4): allow YAML override while preserving baseline defaults
   void setPhotonIDCuts(double pre_e11e33_max,
                            double pre_et1_min,
                            double pre_et1_max,
@@ -944,6 +945,7 @@ private:
   double m_isoGap    = 1.0;
   double m_isoConeR  = 0.3;
   double m_isoTowMin = 0.0;
+  bool   m_isSlidingIso = true;
 
   // Jet selection WP
   //  double m_minJetPt      = 5.0;
