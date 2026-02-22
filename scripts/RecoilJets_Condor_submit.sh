@@ -142,8 +142,10 @@ err()  { printf "${RED}✘ %s${RST}\n" "$*" >&2; }
 
 # ------------------------ Fixed paths ----------------------
 BASE="/sphenix/u/patsfan753/scratch/thesisAnalysis"
-MACRO="${BASE}/macros/Fun4All_recoilJets.C"
-EXE="${BASE}/RecoilJets_Condor.sh"
+# NOTE: MACRO/EXE are dataset-specific and are set in resolve_dataset().
+# These defaults are placeholders only.
+MACRO=""
+EXE=""
 
 # Logs (as requested)
 LOG_DIR="${BASE}/log"

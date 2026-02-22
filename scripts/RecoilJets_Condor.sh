@@ -17,7 +17,7 @@ set -euo pipefail
 # ------------------------ Arguments ------------------------
 run8="${1:?run8 (DATA) or SIM_SAMPLE (SIM) required}"
 chunk_list="${2:?chunk list (.list) required}"
-dataset_raw="${3:-isAuAu}"          # isPP | isAuAu
+dataset_raw="${3:-isPP}"            # isPP | isAuAu | isSim
 cluster_id="${4:-LOCAL}"            # informational
 nevents="${5:-0}"                   # 0 → all events in the list
 chunk_idx="${6:-0}"                 # informational; not used for naming
@@ -57,18 +57,12 @@ set -u
 # Normalize dataset and set defaults:
 #  - isSim must remain isSim end-to-end so the analysis module can detect it.
 #  - Fun4All macro will treat isSim as pp-style reconstruction internally.
-analysis_tag="isAuAu"
+analysis_tag="isPP"
 case "$dataset_raw" in
   isPP|pp|PP)
     dataset="isPP"
     analysis_tag="isPP"
     export RJ_DATASET="isPP"
-    export RJ_IS_SIM=0
-    ;;
-  isAuAu|auau|AA)
-    dataset="isAuAu"
-    analysis_tag="isAuAu"
-    export RJ_DATASET="isAuAu"
     export RJ_IS_SIM=0
     ;;
   isSim|sim|SIM)
@@ -77,11 +71,15 @@ case "$dataset_raw" in
     export RJ_DATASET="isSim"
     export RJ_IS_SIM=1
     ;;
+  isAuAu|auau|AA)
+    echo "[FATAL] RecoilJets_Condor.sh is pp-style only. Use RecoilJets_Condor_AuAu.sh for isAuAu."
+    exit 50
+    ;;
   *)
-    echo "[WARN] Unknown dataset '$dataset_raw' → defaulting to 'isAuAu'"
-    dataset="isAuAu"
-    analysis_tag="isAuAu"
-    export RJ_DATASET="isAuAu"
+    echo "[WARN] Unknown dataset '$dataset_raw' → defaulting to 'isPP'"
+    dataset="isPP"
+    analysis_tag="isPP"
+    export RJ_DATASET="isPP"
     export RJ_IS_SIM=0
     ;;
 esac

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 ###############################################################################
-# RecoilJets_Condor.sh  —  Condor executable (per-job wrapper)
+# RecoilJets_Condor_AuAu.sh  —  Condor executable (per-job wrapper)
 #   • Runs the Fun4All macro Fun4All_recoilJets.C on a listfile chunk.
 #   • Automatically sets the data type (isPP / isAuAu) via env RJ_DATASET.
 #   • Writes outputs under the dataset-specific base path, in a subdir
