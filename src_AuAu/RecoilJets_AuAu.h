@@ -428,11 +428,13 @@ private:
   bool firstEventCuts(PHCompositeNode* topNode, std::vector<std::string>& activeTrig);
   void createHistos_Data();
 
-    void fillUnfoldResponseMatrixAndTruthDistributions(
+  void fillUnfoldResponseMatrixAndTruthDistributions(
           const std::vector<std::string>& activeTrig,
           const std::string& rKey,
           const int effCentIdx_M,
           const double leadPtGamma,
+          const double leadEtaGamma,
+          const double leadPhiGamma,
           const double tPt,
           const double tEta,
           const double tPhi,
@@ -441,7 +443,7 @@ private:
           const Jet* recoil1Jet);
 
       
-    void fillRecoTruthJES3MatchingQA(const std::vector<std::string>& activeTrig,
+  void fillRecoTruthJES3MatchingQA(const std::vector<std::string>& activeTrig,
                                       const std::string& rKey,
                                       const int effCentIdx_M,
                                       const double leadPtGamma,
@@ -452,7 +454,7 @@ private:
                                       const double tPhi,
                                       const Jet* recoil1Jet);
 
-    bool runLeadIsoTightPhotonJetLoopAllRadii(
+  bool runLeadIsoTightPhotonJetLoopAllRadii(
             const std::vector<std::string>& activeTrig,
             const int effCentIdx_M,
             const int centIdx,
@@ -468,7 +470,7 @@ private:
             PHG4TruthInfoContainer* truth);
 
       
-    bool runLeadIsoTightPhotonJetMatchingAndUnfolding(
+  bool runLeadIsoTightPhotonJetMatchingAndUnfolding(
             const std::vector<std::string>& activeTrig,
             const int effCentIdx_M,
             const int centIdx,

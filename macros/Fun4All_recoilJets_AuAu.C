@@ -68,6 +68,8 @@
 #include <sstream>
 #include <stdexcept>
 #include <vector>
+#include <map>
+#include <cmath>
 #include <cstdlib>     // getenv
 #include <algorithm>   // std::transform
 #include <cctype>      // std::tolower
@@ -1922,7 +1924,7 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
   photonBuilder->Verbosity(vlevel);
   se->registerSubsystem(photonBuilder);
 
-  auto* recoilJets_AuAu = new RecoilJets_AuAu(outRoot);
+  auto* recoilJets_AuAu = new RecoilJets(outRoot);
 
   // ------------------------------------------------------------------
   // Apply YAML-driven knobs
