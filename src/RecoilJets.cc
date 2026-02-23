@@ -2374,6 +2374,8 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
     const std::string& rKey,
     const int effCentIdx_M,
     const double leadPtGamma,
+    const double leadEtaGamma,
+    const double leadPhiGamma,
     const double tPt,
     const double tEta,
     const double tPhi,
@@ -2452,14 +2454,13 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
     }
   }
 
-    // ------------------------------------------------------------------
-    //  leading-truth recoil jet1 match bookkeeping vs truth pT^gamma
-    // ------------------------------------------------------------------
-    {
+  // ------------------------------------------------------------------
+  //  leading-truth recoil jet1 match bookkeeping vs truth pT^gamma
+  // ------------------------------------------------------------------
+  {
       const double kLeadMatchDR = m_jetMatchDRMax;
 
         const Jet* tjLead = nullptr;
-        double ptTruthLead = -1.0;
 
         // Histmaker-style leading-jet definition (truth): mirror RECO chronology
         //   - pick the GLOBAL leading truth jet excluding photon overlap (ΔR(γ^truth,jet) > 0.4)
@@ -2505,8 +2506,7 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
             const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(all1Truth->get_phi() - tPhi));
             if (std::isfinite(dphiAbs) && dphiAbs >= m_minBackToBack)
             {
-              tjLead = all1Truth;
-              ptTruthLead = all1PtTruth;
+                tjLead = all1Truth;
             }
           }
         }
@@ -2636,36 +2636,37 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
               }
               else
               {
-                const double diagPt  = (isSim ? tPt  : leadPtGamma);
-                const double diagPhi = (isSim ? tPhi : leadPhiGamma);
+                  const bool isSim = m_isSim;
 
-                const int ptBin = findPtBin(diagPt);
+                  const double diagPt  = (isSim ? tPt  : leadPtGamma);
 
-                EventDisplayCat cat = EventDisplayCat::NUM;
-                if (isSim)
-                {
-                  cat = EventDisplayCat::MissB;
-                  if (leadRecoMatches)
-                  {
-                    cat = EventDisplayCat::NUM;
-                  }
-                  else if (hasRecoMatchToTruthLead)
-                  {
-                    cat = EventDisplayCat::MissA;
-                  }
-                }
+                  const int ptBin = findPtBin(diagPt);
 
-                if (ptBin < 0)
-                {
-                  if (Verbosity() >= 4)
+                  EventDisplayCat cat = EventDisplayCat::NUM;
+                  if (isSim)
                   {
-                    LOG(4, CLR_YELLOW,
-                        "[EventDisplayTree][skip] ptBin<0 (out of range) "
-                        << "(evt=" << ecvt << " rKey=" << rKey
-                        << " diagPt=" << diagPt
-                        << " isSim=" << (isSim ? "true" : "false") << ")");
+                    cat = EventDisplayCat::MissB;
+                    if (leadRecoMatches)
+                    {
+                      cat = EventDisplayCat::NUM;
+                    }
+                    else if (hasRecoMatchToTruthLead)
+                    {
+                      cat = EventDisplayCat::MissA;
+                    }
                   }
-                }
+
+                  if (ptBin < 0)
+                  {
+                    if (Verbosity() >= 4)
+                    {
+                      LOG(4, CLR_YELLOW,
+                          "[EventDisplayTree][skip] ptBin<0 (out of range) "
+                          << "(evt=" << ecvt << " rKey=" << rKey
+                          << " diagPt=" << diagPt
+                          << " isSim=" << (isSim ? "true" : "false") << ")");
+                    }
+                  }
                 else if (!(recoil1Jet || rjTruthBest || tjLead))
                 {
                   if (Verbosity() >= 4)
@@ -3477,6 +3478,8 @@ bool RecoilJets::runLeadIsoTightPhotonJetLoopAllRadii(
                                                       rKey,
                                                       effCentIdx_M,
                                                       leadPtGamma,
+                                                      leadEtaGamma,
+                                                      leadPhiGamma,
                                                       tPt,
                                                       tEta,
                                                       tPhi,

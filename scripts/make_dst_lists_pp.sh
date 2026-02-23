@@ -9,8 +9,8 @@ IN_BASE="/sphenix/u/patsfan753/scratch/thesisAnalysis"
 LIST_FILE="$IN_BASE/Full_ppGoldenRunList_Version3.list"
 OUT_DIR="$IN_BASE/dst_lists_pp"
 
-TAG="ana509_2024p022_v001"
-TYPE="DST_CALOFITTING"
+TAG="ana521_2025p007_v001"
+TYPE="DST_JETCALO"
 
 CREATE_DST_TOOL="$(command -v CreateDstList.pl || true)"
 [[ -n "$CREATE_DST_TOOL" ]] || { echo "[ERROR] CreateDstList.pl not in PATH"; exit 1; }
@@ -30,8 +30,8 @@ echo "----------------------------------------"
 total=0
 made=0
 
-# Optional: clear existing list files from prior runs
-# rm -f dst_calofitting-*.list DST_CALOFITTING-*.list
+# Always start fresh: wipe previous output list files in this directory
+rm -f dst_*.list DST_*.list
 
 while IFS= read -r raw; do
   # strip comments and whitespace
@@ -49,10 +49,10 @@ while IFS= read -r raw; do
   rc=$?
 
   # Accept success even if tool is noisy; verify file existence (both case variants)
-  if [[ -f "dst_calofitting-$pad.list" || -f "DST_CALOFITTING-$pad.list" ]]; then
+  if [[ -s "dst_jetcalo-$pad.list" || -s "DST_JETCALO-$pad.list" ]]; then
     ((made++))
   else
-    echo "[WARN] No list file found for run $runnum (exit=$rc)"
+    echo "[WARN] No list file found (or file empty) for run $runnum (exit=$rc)"
   fi
 done < "$LIST_FILE"
 

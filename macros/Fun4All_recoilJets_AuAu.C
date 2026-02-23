@@ -1637,34 +1637,34 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
 
 
 
-    // ------------------------------------------------------------
-    // Calo-fitting DSTs ALREADY contain:
-    //   - TOWERINFO_CALIB
-    //   - CLUSTERINFO_CEMC
-    //
-    // Running Process_Calo_Calib() here would attempt to rebuild
-    // raw tower status/calibration chain and will crash because
-    // raw TOWERINFO nodes do not exist in these DSTs.
-    // ------------------------------------------------------------
-    if (vlevel > 0)
-    {
+  // ------------------------------------------------------------
+  // Calo-fitting DSTs ALREADY contain:
+  //   - TOWERINFO_CALIB
+  //   - CLUSTERINFO_CEMC
+  //
+  // Running Process_Calo_Calib() here would attempt to rebuild
+  // raw tower status/calibration chain and will crash because
+  // raw TOWERINFO nodes do not exist in these DSTs.
+  // ------------------------------------------------------------
+  if (vlevel > 0)
+  {
         std::cout << "[INFO] Skipping Process_Calo_Calib() "
                      "(calo-fitting DST already contains calibrated towers & clusters)\n";
-    }
+  }
 
-    // ------------------------------------------------------------
-    // For calo-fitting Au+Au DSTs, towers exist as:
-    //   TOWERS_CEMC / TOWERS_HCALIN / TOWERS_HCALOUT
-    //
-    // If you want the HI background chain to run on explicitly
-    // "calibrated" towerinfo nodes, we can re-calibrate these towers
-    // and write out:
-    //   TOWERINFO_CALIB_CEMC / _HCALIN / _HCALOUT
-    //
-    // This avoids relying on implicit assumptions about whether
-    // TOWERS_* are already calibrated.
-    // ------------------------------------------------------------
-    {
+  // ------------------------------------------------------------
+  // For calo-fitting Au+Au DSTs, towers exist as:
+  //   TOWERS_CEMC / TOWERS_HCALIN / TOWERS_HCALOUT
+  //
+  // If you want the HI background chain to run on explicitly
+  // "calibrated" towerinfo nodes, we can re-calibrate these towers
+  // and write out:
+  //   TOWERINFO_CALIB_CEMC / _HCALIN / _HCALOUT
+  //
+  // This avoids relying on implicit assumptions about whether
+  // TOWERS_* are already calibrated.
+  // ------------------------------------------------------------
+  {
       if (vlevel > 0)
       {
         std::cout << "[HI] Running CaloTowerCalib: inputPrefix=TOWERS_ -> outputPrefix=TOWERINFO_CALIB_\n";
@@ -1722,7 +1722,7 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
       ClusterBuilder->set_UseTowerInfo(1);
       ClusterBuilder->set_UseAltZVertex(1);
       se->registerSubsystem(ClusterBuilder);
-    }
+  }
 
 
   if (vlevel > 0) std::cout << "Calibrating MBD" << std::endl;

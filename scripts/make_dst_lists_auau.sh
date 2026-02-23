@@ -63,23 +63,40 @@ trap 'fatal "Script aborted (line $LINENO) – $BASH_COMMAND"' ERR
 # ---------- Fixed settings ----------
 DATASET="run3auau"
 TAG="new_newcdbtag_v008"
-PREFIX="DST_JETCALO"
+PREFIX="DST_CALOFITTING"
 MIN_RUNTIME=300
 MIN_GL1_EVT=100000
 OUT_DIR="/sphenix/u/patsfan753/scratch/thesisAnalysis/dst_lists_auau"
 
 # Optional CLI flags:
-#  • 'removeBadTowerMaps' → drop runs without a CEMC bad-tower map
-#  • 'MBD_NS_GEQ2_VTX_150' → keep only runs where this trigger is enabled (scaledown != -1)
+#  • 'removeBadTowerMaps'  → drop runs without a CEMC bad-tower map
+#  • 'MBD_NS_geq_2'        → keep only runs where GL1 trigger “MBD N&S >= 2” is enabled (scaledown != -1)
+#  • 'MBD_NS_GEQ2_VTX_150' → keep only runs where GL1 trigger “MBD N&S >= 2, vtx < 150 cm” is enabled (scaledown != -1)
 REMOVE_BAD_TOWER_MAPS=false
-FILTER_MBD_NS_GEQ2_VTX_150=false
+FILTER_TRIGGER=false
+
+# Default trigger gate (only used if FILTER_TRIGGER=true)
 TRIG_BIT=14
 TRIG_NAME_DB="MBD N&S >= 2, vtx < 150 cm"
 TRIG_KEY="MBD_NS_geq_2_vtx_lt_150"
 
 for arg in "$@"; do
   [[ "$arg" == "removeBadTowerMaps" ]] && REMOVE_BAD_TOWER_MAPS=true
-  [[ "$arg" == "MBD_NS_GEQ2_VTX_150" ]] && FILTER_MBD_NS_GEQ2_VTX_150=true
+
+  # Trigger gates:
+  if [[ "$arg" == "MBD_NS_geq_2" ]]; then
+    FILTER_TRIGGER=true
+    TRIG_BIT=10
+    TRIG_NAME_DB="MBD N&S >= 2"
+    TRIG_KEY="MBD_NS_geq_2"
+  fi
+
+  if [[ "$arg" == "MBD_NS_GEQ2_VTX_150" || "$arg" == "MBD_NS_geq_2_vtx_lt_150" ]]; then
+    FILTER_TRIGGER=true
+    TRIG_BIT=14
+    TRIG_NAME_DB="MBD N&S >= 2, vtx < 150 cm"
+    TRIG_KEY="MBD_NS_geq_2_vtx_lt_150"
+  fi
 done
 
 
@@ -365,7 +382,7 @@ fi
 
 # ---------- Stage 7 (optional): Require trigger active (scaledown != -1) ----------
 RUNS_MISSING_TRIG=()
-if $FILTER_MBD_NS_GEQ2_VTX_150; then
+if $FILTER_TRIGGER; then
   say "Applying trigger gate: ${BOLD}${TRIG_NAME_DB}${RESET}  (bit=${TRIG_BIT}, scaledown != -1)"
   RUNS_GOLDEN_FINAL_BEFORE_TRIG=("${RUNS_GOLDEN_FINAL[@]}")
   RUNS_WITH_TRIG=()
@@ -407,7 +424,7 @@ if ! $REMOVE_BAD_TOWER_MAPS; then
 fi
 
 # Ensure Stage 7 exists: if trigger gate was not applied, Stage 7 = Stage 6
-if ! $FILTER_MBD_NS_GEQ2_VTX_150; then
+if ! $FILTER_TRIGGER; then
   s7_runs=$s6_runs
   s7_ev=$s6_ev
   s7_rt=$s6_rt
@@ -519,7 +536,7 @@ if $REMOVE_BAD_TOWER_MAPS && ((${#RUNS_MISSING_MAPS[@]})); then
 fi
 
 # Only list runs that failed the trigger gate if the gate was applied
-if $FILTER_MBD_NS_GEQ2_VTX_150 && ((${#RUNS_MISSING_TRIG[@]})); then
+if $FILTER_TRIGGER && ((${#RUNS_MISSING_TRIG[@]})); then
   echo "  Runs removed due to disabled trigger (${TRIG_KEY}):"
   for r in "${RUNS_MISSING_TRIG[@]}"; do
     printf "    %08d\n" "$((10#$r))"

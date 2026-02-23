@@ -274,7 +274,7 @@ public:
     //        {11, "MBD_NS_geq_1"},
     //        {12, "MBD_NS_geq_2_vtx_lt_10"},
     //        {13, "MBD_NS_geq_2_vtx_lt_30"},
-              {14, "MBD_NS_geq_2_vtx_lt_150"}
+            {14, "MBD_NS_geq_2_vtx_lt_150"}
     //        {15, "MBD_NS_geq_1_vtx_lt_10"},
     //        {16, "photon_6_plus_MBD_NS_geq_2_vtx_lt_10"},
     //        {17, "photon_8_plus_MBD_NS_geq_2_vtx_lt_10"},
@@ -428,11 +428,13 @@ private:
   bool firstEventCuts(PHCompositeNode* topNode, std::vector<std::string>& activeTrig);
   void createHistos_Data();
 
-    void fillUnfoldResponseMatrixAndTruthDistributions(
+  void fillUnfoldResponseMatrixAndTruthDistributions(
           const std::vector<std::string>& activeTrig,
           const std::string& rKey,
           const int effCentIdx_M,
           const double leadPtGamma,
+          const double leadEtaGamma,
+          const double leadPhiGamma,
           const double tPt,
           const double tEta,
           const double tPhi,
@@ -441,7 +443,7 @@ private:
           const Jet* recoil1Jet);
 
       
-    void fillRecoTruthJES3MatchingQA(const std::vector<std::string>& activeTrig,
+  void fillRecoTruthJES3MatchingQA(const std::vector<std::string>& activeTrig,
                                       const std::string& rKey,
                                       const int effCentIdx_M,
                                       const double leadPtGamma,
@@ -452,7 +454,7 @@ private:
                                       const double tPhi,
                                       const Jet* recoil1Jet);
 
-    bool runLeadIsoTightPhotonJetLoopAllRadii(
+  bool runLeadIsoTightPhotonJetLoopAllRadii(
             const std::vector<std::string>& activeTrig,
             const int effCentIdx_M,
             const int centIdx,
@@ -468,7 +470,7 @@ private:
             PHG4TruthInfoContainer* truth);
 
       
-    bool runLeadIsoTightPhotonJetMatchingAndUnfolding(
+  bool runLeadIsoTightPhotonJetMatchingAndUnfolding(
             const std::vector<std::string>& activeTrig,
             const int effCentIdx_M,
             const int centIdx,
