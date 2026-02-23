@@ -3780,7 +3780,7 @@ void RecoilJets::fillPureIsolationQA(PHCompositeNode* topNode,
   }
 
   // Pure isolation threshold decision (signal line only)
-  const double thrIso  = (m_isSlidingIso ? (m_isoA + m_isoB * pt_gamma) : 2.0);
+  const double thrIso  = (m_isSlidingIso ? (m_isoA + m_isoB * pt_gamma) : m_isoFixed);
   const bool   isoPass = (eiso_tot < thrIso);
 
   for (const auto& trigShort : activeTrig)
@@ -4016,7 +4016,7 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
       continue;
     }
 
-    const double thrIso    = (m_isSlidingIso ? (m_isoA + m_isoB * rPt) : 2.0);
+    const double thrIso    = (m_isSlidingIso ? (m_isoA + m_isoB * rPt) : m_isoFixed);
     const double thrNonIso = thrIso + m_isoGap;
 
     const bool iso    = (eiso_et < thrIso);
@@ -4551,7 +4551,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
         // ------------------------------------------------------------------
         // Deliverable Set A:
         //   Shower-shape spectra split by isolation tag (inclusive / iso / nonIso)
-        //   - "iso"    : Eiso < (A + B * pT)           (or fixed 2 GeV if sliding iso disabled)
+        //   - "iso"    : Eiso < (A + B * pT)           (or fixedGeV if sliding iso disabled)
         //   - "nonIso" : Eiso > (A + B * pT + gap)     (strict sideband; GAP excluded)
         // ------------------------------------------------------------------
         const int effCentIdx_SS = (m_isAuAu ? centIdx : -1);
@@ -4564,11 +4564,11 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
 
         if (std::isfinite(eiso_et) && eiso_et < 1e8)
         {
-            const double thrIsoSS    = (m_isSlidingIso ? (m_isoA + m_isoB * pt_gamma) : 2.0);
-            const double thrNonIsoSS = thrIsoSS + m_isoGap;
+              const double thrIsoSS    = (m_isSlidingIso ? (m_isoA + m_isoB * pt_gamma) : m_isoFixed);
+              const double thrNonIsoSS = thrIsoSS + m_isoGap;
 
-            ssIso    = (eiso_et < thrIsoSS);
-            ssNonIso = (eiso_et > thrNonIsoSS);
+              ssIso    = (eiso_et < thrIsoSS);
+              ssNonIso = (eiso_et > thrNonIsoSS);
         }
 
         auto fillSSSpectra = [&](const std::string& trigShort, const std::string& tagKey)
@@ -5284,21 +5284,26 @@ RecoilJets::TightTag RecoilJets::classifyPhotonTightness(const SSVars& v)
 
 
 void RecoilJets::setIsolationWP(double aGeV, double bPerGeV,
-                                double sideGapGeV, double coneR, double towerMin)
+                                double sideGapGeV, double coneR, double towerMin,
+                                double fixedGeV)
 {
   // Keep original behavior (min floors), but report anything suspicious
   if (!std::isfinite(aGeV) || !std::isfinite(bPerGeV) ||
-      !std::isfinite(sideGapGeV) || !std::isfinite(coneR) || !std::isfinite(towerMin))
+      !std::isfinite(sideGapGeV) || !std::isfinite(coneR) || !std::isfinite(towerMin) ||
+      !std::isfinite(fixedGeV))
   {
     LOG(2, CLR_YELLOW,
         "  [setIsolationWP] Non-finite input(s): "
         << "A=" << aGeV << " B=" << bPerGeV << " gap=" << sideGapGeV
+        << " fixedGeV=" << fixedGeV
         << " coneR=" << coneR << " towerMin=" << towerMin);
   }
 
   m_isoA      = aGeV;
   m_isoB      = bPerGeV;
   m_isoGap    = sideGapGeV;
+  m_isoFixed  = (std::isfinite(fixedGeV) ? fixedGeV : 2.0);
+  if (m_isoFixed < 0.0) m_isoFixed = 0.0;
 
   const double cone_before  = coneR;
   const double tower_before = towerMin;
@@ -5340,6 +5345,7 @@ void RecoilJets::setIsolationWP(double aGeV, double bPerGeV,
         << "  A=" << m_isoA
         << "  B=" << m_isoB
         << "  gap=" << m_isoGap
+        << "  fixedGeV=" << m_isoFixed
         << "  coneR=" << m_isoConeR << (cone_before != m_isoConeR ? " (clamped)" : "")
         << "  towerMin=" << m_isoTowMin << (tower_before != m_isoTowMin ? " (clamped)" : ""));
   }
@@ -5434,7 +5440,7 @@ bool RecoilJets::isIsolated(const RawCluster* clus, double et_gamma, PHComposite
     return false;
   }
 
-    const double thr  = (m_isSlidingIso ? (m_isoA + m_isoB * et_gamma) : 2.0);
+    const double thr  = (m_isSlidingIso ? (m_isoA + m_isoB * et_gamma) : m_isoFixed);
     const double eiso_val = this->eiso(clus, topNode);
     const bool passIso = (eiso_val < thr);
 
@@ -5456,7 +5462,7 @@ bool RecoilJets::isNonIsolated(const RawCluster* clus, double et_gamma, PHCompos
     return false;
   }
 
-  const double thr  = (m_isSlidingIso ? (m_isoA + m_isoB * et_gamma) : 2.0) + m_isoGap;
+  const double thr  = (m_isSlidingIso ? (m_isoA + m_isoB * et_gamma) : m_isoFixed) + m_isoGap;
   const double eiso_val = this->eiso(clus, topNode);
 
   if (Verbosity() >= 5)
@@ -5482,7 +5488,7 @@ bool RecoilJets::isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
   // CaloAna-style truth isolation parameters
   const double kIsoConeR  = m_isoConeR;
   constexpr double kMergerDR  = 0.001;
-  const double kIsoMaxGeV = (m_isSlidingIso ? 4.0 : 2.0);
+  const double kIsoMaxGeV = (m_isSlidingIso ? 4.0 : m_isoFixed);
 
   // Final-state photon requirement (your project requirement)
   if (pho->pdg_id() != 22) return false;
@@ -10755,7 +10761,7 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
     return;
   }
 
-  const double thrIso    = (m_isSlidingIso ? (m_isoA + m_isoB * pt_gamma) : 2.0);
+  const double thrIso    = (m_isSlidingIso ? (m_isoA + m_isoB * pt_gamma) : m_isoFixed);
   const double thrNonIso = thrIso + m_isoGap;
 
   const bool iso    = (eiso_et < thrIso);

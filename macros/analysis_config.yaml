@@ -43,20 +43,23 @@ vz_cut_cm: 60.0
 centrality_edges: [0, 10, 20, 40, 60, 80, 100]
 
 # -----------------------------------------------------------------------------
-# Isolation working point knobs (YAML-driven; baseline matches current Fun4All)
-# recoilJets->setIsolationWP(1.08128, 0.0299107, 1.0, 0.30, 0.0);
+# Isolation working point knobs (YAML-driven)
+# recoilJets->setIsolationWP(1.08128, 0.0299107, 1.0, 0.40, 0.0, 2.0);
 #
 # isSlidingIso:
 #   - true  : NO change vs current behavior
 #             (RECO uses sliding thr = A + B*ET^gamma; TRUTH uses 4 GeV)
-#   - false : fixed 2 GeV cut for BOTH RECO and TRUTH (no sliding window)
+#   - false : use fixedGeV for BOTH RECO and TRUTH (no sliding window)
+#
+# fixedGeV:
+#   - ONLY used when isSlidingIso is false
 #
 # coneR:
 #   - PhotonClusterBuilder provides full-calo isolation for R=0.3 and R=0.4
-#   - you may specify 0.30 / 0.40 (or shorthand .03 / .04)
+#   - set to 0.40 to force iso_04 in all cases
 # -----------------------------------------------------------------------------
 isSlidingIso: true
-isolation_wp: {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0, coneR: 0.30, towerMin: 0.0}
+isolation_wp: {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0, fixedGeV: 2.0, coneR: 0.40, towerMin: 0.0}
 
 # -----------------------------------------------------------------------------
 # Photon shower-shape ID cuts (PPG12 Table 4) (YAML-driven; baseline matches header)

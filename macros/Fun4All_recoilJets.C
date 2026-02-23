@@ -237,6 +237,7 @@ namespace yamlcfg
       double isoA = 1.08128;
       double isoB = 0.0299107;
       double isoGap = 1.0;
+      double isoFixed = 2.0;
       double isoConeR = 0.30;
       double isoTowMin = 0.0;
       bool   isSlidingIso = true;
@@ -527,6 +528,7 @@ namespace yamlcfg
           if (m.count("aGeV"))       cfg.isoA      = m["aGeV"];
           if (m.count("bPerGeV"))    cfg.isoB      = m["bPerGeV"];
           if (m.count("sideGapGeV")) cfg.isoGap    = m["sideGapGeV"];
+          if (m.count("fixedGeV"))   cfg.isoFixed  = m["fixedGeV"];
           if (m.count("coneR"))      cfg.isoConeR  = m["coneR"];
           if (m.count("towerMin"))   cfg.isoTowMin = m["towerMin"];
         }
@@ -1181,7 +1183,8 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
                 << "  vz_cut_cm: " << cfg.vz_cut_cm << "\n"
         << "  matching: {pho_dr_max=" << cfg.pho_dr_max << ", jet_dr_max=" << cfg.jet_dr_max << "}\n"
         << "  isolation_wp: {aGeV=" << cfg.isoA << ", bPerGeV=" << cfg.isoB
-        << ", sideGapGeV=" << cfg.isoGap << ", coneR=" << cfg.isoConeR
+        << ", sideGapGeV=" << cfg.isoGap << ", fixedGeV=" << cfg.isoFixed
+        << ", coneR=" << cfg.isoConeR
         << ", towerMin=" << cfg.isoTowMin << "}\n"
         << "  isSlidingIso: " << (cfg.isSlidingIso ? "true" : "false") << "\n"
         << "  jes3_photon_pt_bins: [";
@@ -1713,7 +1716,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
 
   recoilJets->setUseVzCut(cfg.use_vz_cut, cfg.vz_cut_cm);
   recoilJets->setActiveJetRKeys(activeJetRKeys);
-  recoilJets->setIsolationWP(cfg.isoA, cfg.isoB, cfg.isoGap, cfg.isoConeR, cfg.isoTowMin);
+  recoilJets->setIsolationWP(cfg.isoA, cfg.isoB, cfg.isoGap, cfg.isoConeR, cfg.isoTowMin, cfg.isoFixed);
   recoilJets->setIsSlidingIso(cfg.isSlidingIso);
 
   recoilJets->setPhotonIDCuts(cfg.pre_e11e33_max,

@@ -362,10 +362,11 @@ public:
 
   // Isolation WP (implemented in .cc)
   void setIsolationWP(double aGeV, double bPerGeV,
-                              double sideGapGeV, double coneR, double towerMin);
+                                double sideGapGeV, double coneR, double towerMin,
+                                double fixedGeV = 2.0);
   void setIsSlidingIso(bool on) { m_isSlidingIso = on; }
 
-    // Photon ID cuts (PPG12 Table 4): allow YAML override while preserving baseline defaults
+  // Photon ID cuts (PPG12 Table 4): allow YAML override while preserving baseline defaults
   void setPhotonIDCuts(double pre_e11e33_max,
                            double pre_et1_min,
                            double pre_et1_max,
@@ -945,6 +946,7 @@ private:
   double m_isoA      = 1.08128;
   double m_isoB      = 0.0299107;
   double m_isoGap    = 1.0;
+  double m_isoFixed  = 2.0;          // used ONLY when m_isSlidingIso==false
   double m_isoConeR  = 0.3;
   double m_isoTowMin = 0.0;
   bool   m_isSlidingIso = true;
