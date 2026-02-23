@@ -27,7 +27,7 @@
 #     • PP  : ${BASE}/Full_ppGoldenRunList_Version3.list
 #     • AuAu: ${BASE}/Full_AuAuGoldenRunList_Version1_personal.list
 #   Per-run file lists (one per run8):
-#     • PP  : ${BASE}/dst_lists_pp/dst_calofitting-<run8>.list
+#     • PP  : ${BASE}/dst_lists_pp/dst_jetcalo-<run8>.list
 #     • AuAu: ${BASE}/dst_lists_auau/dst_calofitting-<run8>.list
 #
 # ARTIFACTS THIS SCRIPT CREATES (and where)
@@ -322,6 +322,7 @@ resolve_dataset() {
       DATASET="isPP"
       GOLDEN="$PP_GOLDEN"
       LIST_DIR="$PP_LIST_DIR"
+      LIST_PREFIX="dst_jetcalo"
       DEST_BASE="$PP_DEST_BASE"
       TAG="pp"
       MACRO="${BASE}/macros/Fun4All_recoilJets.C"
@@ -331,6 +332,7 @@ resolve_dataset() {
       DATASET="isAuAu"
       GOLDEN="$AA_GOLDEN"
       LIST_DIR="$AA_LIST_DIR"
+      LIST_PREFIX="dst_calofitting"
       DEST_BASE="$AA_DEST_BASE"
       TAG="auau"
       MACRO="${BASE}/macros/Fun4All_recoilJets_AuAu.C"
@@ -340,6 +342,7 @@ resolve_dataset() {
       DATASET="isSim"
       GOLDEN=""        # not used in sim mode
       LIST_DIR=""      # not used in sim mode
+      LIST_PREFIX=""   # not used in sim mode
       DEST_BASE="$SIM_DEST_BASE"   # output dir will be DEST_BASE/SIM_SAMPLE
       TAG="sim"
       MACRO="${BASE}/macros/Fun4All_recoilJets.C"
@@ -378,7 +381,7 @@ is_trigger_active() {
 #   make_groups <run8> <groupSize>  → writes STAGE_DIR/run<run8>_grpXXX.list files
 make_groups() {
   local r8="$1" gs="$2"
-  local src="${LIST_DIR}/dst_calofitting-${r8}.list"
+  local src="${LIST_DIR}/${LIST_PREFIX}-${r8}.list"
   [[ -s "$src" ]] || { warn "List is missing/empty for run ${r8} → $src"; return 1; }
 
   # Clean old groups for this run
@@ -515,7 +518,7 @@ split_golden() {
   while IFS= read -r rn; do
     [[ -z "$rn" || "$rn" =~ ^# ]] && continue
     local r8; r8="$(run8 "$rn")"
-    local lf="${LIST_DIR}/dst_calofitting-${r8}.list"
+    local lf="${LIST_DIR}/${LIST_PREFIX}-${r8}.list"
     if [[ ! -s "$lf" ]]; then
       warn "No per-run list for ${r8}; skipping"
       continue
@@ -555,7 +558,7 @@ check_jobs_all() {
   while IFS= read -r rn; do
     [[ -z "$rn" || "$rn" =~ ^# ]] && continue
     local r8; r8="$(run8 "$rn")"
-    local lf="${LIST_DIR}/dst_calofitting-${r8}.list"
+    local lf="${LIST_DIR}/${LIST_PREFIX}-${r8}.list"
 
     if [[ ! -s "$lf" ]]; then
       warn "No per-run list for ${r8}; skipping"
@@ -923,7 +926,7 @@ case "$ACTION" in
 
       [[ -n "$r8" ]] || { err "No run in $GOLDEN satisfies the requested trigger filter (TRIGGER=${TRIGGER_BIT:-none})."; exit 6; }
 
-      src="${LIST_DIR}/dst_calofitting-${r8}.list"
+      src="${LIST_DIR}/${LIST_PREFIX}-${r8}.list"
       [[ -s "$src" ]] || { err "Per-run list missing or empty: $src"; exit 7; }
 
       # Build a 1-file list (first file only)

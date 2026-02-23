@@ -4548,7 +4548,58 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
         const SSVars v = makeSSFromPhoton(pho, pt_gamma);
         ++m_bk.pho_reached_pre_iso;
 
+        // ------------------------------------------------------------------
+        // Deliverable Set A:
+        //   Shower-shape spectra split by isolation tag (inclusive / iso / nonIso)
+        //   - "iso"    : Eiso < (A + B * pT)           (or fixed 2 GeV if sliding iso disabled)
+        //   - "nonIso" : Eiso > (A + B * pT + gap)     (strict sideband; GAP excluded)
+        // ------------------------------------------------------------------
+        const int effCentIdx_SS = (m_isAuAu ? centIdx : -1);
+        const std::string slice_SS = suffixForBins(ptIdx, effCentIdx_SS);
+
+        const double eiso_et = eiso(rc, topNode);
+
+        bool ssIso = false;
+        bool ssNonIso = false;
+
+        if (std::isfinite(eiso_et) && eiso_et < 1e8)
+        {
+            const double thrIsoSS    = (m_isSlidingIso ? (m_isoA + m_isoB * pt_gamma) : 2.0);
+            const double thrNonIsoSS = thrIsoSS + m_isoGap;
+
+            ssIso    = (eiso_et < thrIsoSS);
+            ssNonIso = (eiso_et > thrNonIsoSS);
+        }
+
+        auto fillSSSpectra = [&](const std::string& trigShort, const std::string& tagKey)
+          {
+            auto fill1 = [&](const std::string& key, double val)
+            {
+              if (!std::isfinite(val)) return;
+
+              if (auto* h = getOrBookSSHist(trigShort, key, tagKey, ptIdx, effCentIdx_SS))
+              {
+                h->Fill(val);
+                bumpHistFill(trigShort, "h_ss_" + key + "_" + tagKey + slice_SS);
+              }
+            };
+
+            fill1("weta",   v.weta_cogx);
+            fill1("wphi",   v.wphi_cogx);
+            fill1("et1",    v.et1);
+            fill1("e11e33", v.e11_over_e33);
+            fill1("e32e35", v.e32_over_e35);
+        };
+
+        for (const auto& trigShort : activeTrig)
+        {
+            fillSSSpectra(trigShort, "inclusive");
+            if (ssIso)    fillSSSpectra(trigShort, "iso");
+            if (ssNonIso) fillSSSpectra(trigShort, "nonIso");
+        }
+
         // ---------- Preselection breakdown (count by criterion) ----------
+          
         const bool pass_e11e33 = (v.e11_over_e33 < PRE_E11E33_MAX);
         const bool pass_et1    = in_open_interval(v.et1, PRE_ET1_MIN, PRE_ET1_MAX);
         const bool pass_e32e35 = in_open_interval(v.e32_over_e35, PRE_E32E35_MIN, PRE_E32E35_MAX);
@@ -4654,12 +4705,104 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
         else if (tight_fails >= 2) { tightTag = TightTag::kNonTight;   ++m_bk.tight_nonTight; }
         else                       { tightTag = TightTag::kNeither;    ++m_bk.tight_neither; }
 
-        // record the 2×2 (iso, tight) category + SS variable hists
-        // This also fills h_Eiso once and prints a detailed decision line.
-        for (const auto& trigShort : activeTrig)
+        // -------------------------------------------------------------------------
+        // Deliverable Set B:
+        //   Isolation-energy spectra split by tightness (NO isolation requirement)
+        //
+        //   - inclusive: already filled in fillPureIsolationQA() as:
+        //       h_Eiso, h_Eiso_emcal, h_Eiso_hcalin, h_Eiso_hcalout
+        //
+                    //   - tight / nonTight (PPG12 non-tight = fails >=2 of 5 tight cuts; "Neither" excluded):
+        //       h_Eiso_tight,            h_Eiso_nonTight
+        //       h_Eiso_emcal_tight,      h_Eiso_emcal_nonTight
+        //       h_Eiso_hcalin_tight,     h_Eiso_hcalin_nonTight
+        //       h_Eiso_hcalout_tight,    h_Eiso_hcalout_nonTight
+        // -------------------------------------------------------------------------
+        if (tightTag == TightTag::kTight || tightTag == TightTag::kNonTight)
         {
-          fillIsoSSTagCounters(trigShort, rc, v, pt_gamma, centIdx, topNode);
-        }
+            const char* base_tot = (tightTag == TightTag::kTight) ? "h_Eiso_tight" : "h_Eiso_nonTight";
+            const char* base_em  = (tightTag == TightTag::kTight) ? "h_Eiso_emcal_tight" : "h_Eiso_emcal_nonTight";
+            const char* base_hi  = (tightTag == TightTag::kTight) ? "h_Eiso_hcalin_tight" : "h_Eiso_hcalin_nonTight";
+            const char* base_ho  = (tightTag == TightTag::kTight) ? "h_Eiso_hcalout_tight" : "h_Eiso_hcalout_nonTight";
+
+            // Component isolation (PhotonClusterBuilder iso_* pieces)
+            double eiso_emcal   = 1e9;
+            double eiso_hcalin  = 1e9;
+            double eiso_hcalout = 1e9;
+
+            const int cone10 = static_cast<int>(std::lround(10.0 * m_isoConeR));
+
+            const char* k_em = nullptr;
+            const char* k_hi = nullptr;
+            const char* k_ho = nullptr;
+
+            if (cone10 == 3)
+            {
+              k_em = "iso_03_emcal";
+              k_hi = "iso_03_hcalin";
+              k_ho = "iso_03_hcalout";
+            }
+            else if (cone10 == 4)
+            {
+              k_em = "iso_04_emcal";
+              k_hi = "iso_04_hcalin";
+              k_ho = "iso_04_hcalout";
+            }
+
+            if (pho && k_em && k_hi && k_ho)
+            {
+              eiso_emcal   = pho->get_shower_shape_parameter(k_em);
+              eiso_hcalin  = pho->get_shower_shape_parameter(k_hi);
+              eiso_hcalout = pho->get_shower_shape_parameter(k_ho);
+
+              if (!std::isfinite(eiso_emcal) || !std::isfinite(eiso_hcalin) || !std::isfinite(eiso_hcalout))
+              {
+                eiso_emcal = eiso_hcalin = eiso_hcalout = 1e9;
+              }
+            }
+
+            for (const auto& trigShort : activeTrig)
+            {
+              if (auto* hIso = getOrBookIsoPartHist(trigShort, base_tot,
+                                                    "E_{T}^{iso} [GeV]",
+                                                    ptIdx, effCentIdx_SS))
+              {
+                hIso->Fill(eiso_et);
+                bumpHistFill(trigShort, std::string(base_tot) + slice_SS);
+              }
+
+              if (auto* hEm = getOrBookIsoPartHist(trigShort, base_em,
+                                                   "E_{T}^{iso,EMCal} [GeV]",
+                                                   ptIdx, effCentIdx_SS))
+              {
+                hEm->Fill(eiso_emcal);
+                bumpHistFill(trigShort, std::string(base_em) + slice_SS);
+              }
+
+              if (auto* hHi = getOrBookIsoPartHist(trigShort, base_hi,
+                                                   "E_{T}^{iso,IHCAL} [GeV]",
+                                                   ptIdx, effCentIdx_SS))
+              {
+                hHi->Fill(eiso_hcalin);
+                bumpHistFill(trigShort, std::string(base_hi) + slice_SS);
+              }
+
+              if (auto* hHo = getOrBookIsoPartHist(trigShort, base_ho,
+                                                   "E_{T}^{iso,OHCAL} [GeV]",
+                                                   ptIdx, effCentIdx_SS))
+              {
+                hHo->Fill(eiso_hcalout);
+                bumpHistFill(trigShort, std::string(base_ho) + slice_SS);
+              }
+            }
+          }
+
+          // record the 2×2 (iso, tight) category + SS variable hists
+          // This also fills h_Eiso once and prints a detailed decision line.
+          for (const auto& trigShort : activeTrig)
+          {
+            fillIsoSSTagCounters(trigShort, rc, v, pt_gamma, centIdx, topNode);
+          }
 
            //  xJ usable gate (preselection already passed above):
            //    - for ALL iso∧tight photons: fill the reco photon 3D baseline TH3
