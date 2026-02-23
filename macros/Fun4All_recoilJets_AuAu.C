@@ -38,6 +38,7 @@
 #include <calobase/RawTowerGeomContainer_Cylinderv1.h>
 #include <caloreco/CaloGeomMapping.h>
 #include <caloreco/RawClusterPositionCorrection.h>
+#include <caloreco/RawClusterBuilderTemplate.h>
 #include <calobase/RawTowerGeom.h>
 #include <caloreco/RawTowerCalibration.h>
 #include "/sphenix/u/patsfan753/thesisAnalysis/install/include/caloreco/PhotonClusterBuilder.h"
@@ -79,11 +80,13 @@
 #include <dlfcn.h>     // dlopen RTLD_NOLOAD
 #include <typeinfo>    // typeid RTTI probe
 #include <TSystem.h>   // gSystem, GetBuildArch/Compiler info
-#include <Calo_Calib.C>
+#include <csignal>     // signal handlers (debug backtrace)
+#include <execinfo.h>  // backtrace
+#include <unistd.h>    // STDERR_FILENO
+#include <cstdio>      // snprintf
+#include "/sphenix/u/patsfan753/scratch/thesisAnalysis/macros/Calo_Calib.C"
 
-// Load your local overrides FIRST so their symbols/dictionaries win
-R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)
-R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_io.so)
+// Load analysis libs (RecoilJets etc). NOTE: calo libs are loaded in-function (env-toggleable).
 R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis_auau/install/lib/libRecoilJetsAuAu.so)
 R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libclusteriso.so)
 R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libjetbase.so)
@@ -99,6 +102,7 @@ R__LOAD_LIBRARY(libglobalvertex.so)
 R__LOAD_LIBRARY(libcentrality.so)      // always
 R__LOAD_LIBRARY(libcentrality_io.so)   // if you instantiate CentralityReco
 R__LOAD_LIBRARY(libcalotrigger.so)
+R__LOAD_LIBRARY(libzdcinfo.so)
 R__LOAD_LIBRARY(libzdcinfo.so)
 R__LOAD_LIBRARY(libmbd.so)
 
@@ -123,6 +127,39 @@ namespace detail
     s.erase(0, s.find_first_not_of(ws));
     s.erase(s.find_last_not_of(ws) + 1);
     return s;
+  }
+
+  // Print a stack trace on SIGSEGV/SIGABRT (helps locate rc=255 crashes).
+  // NOTE: this writes directly to fd=2 so it still prints even when vlevel==0
+  //       and std::cout/cerr are silenced via ScopedSilence.
+  inline void crash_backtrace_handler(int sig)
+  {
+    const char* sname = "SIGNAL";
+    if (sig == SIGSEGV) sname = "SIGSEGV";
+    else if (sig == SIGABRT) sname = "SIGABRT";
+
+    char buf[256];
+    const int n = std::snprintf(buf, sizeof(buf),
+                                "\n[CRASH] Caught %s (%d). Backtrace:\n", sname, sig);
+    if (n > 0) ::write(STDERR_FILENO, buf, static_cast<size_t>(n));
+
+    void* bt[64];
+    const int sz = ::backtrace(bt, 64);
+    ::backtrace_symbols_fd(bt, sz, STDERR_FILENO);
+    ::write(STDERR_FILENO, "\n", 1);
+
+    ::signal(sig, SIG_DFL);
+    ::raise(sig);
+  }
+
+  inline void installCrashHandlers(int vlevel)
+  {
+    const char* env = std::getenv("RJ_CRASH_BACKTRACE");
+    const bool enable = (env ? (std::atoi(env) != 0) : (vlevel > 0));
+    if (!enable) return;
+
+    ::signal(SIGSEGV, crash_backtrace_handler);
+    ::signal(SIGABRT, crash_backtrace_handler);
   }
 }
 
@@ -696,6 +733,73 @@ class EnsureJetCalibNodes final : public SubsysReco
 };
 
 
+class NodeTreeDumpProbe final : public SubsysReco
+{
+ public:
+  NodeTreeDumpProbe(const std::string& name,
+                    const std::string& label,
+                    const std::vector<std::string>& watchNodes,
+                    bool dumpInitRun = true,
+                    bool dumpEvent1  = true)
+    : SubsysReco(name)
+    , m_label(label)
+    , m_watch(watchNodes)
+    , m_dumpInitRun(dumpInitRun)
+    , m_dumpEvent1(dumpEvent1)
+  {}
+
+  int InitRun(PHCompositeNode* topNode) override
+  {
+    if (m_dumpInitRun) dump("InitRun", topNode);
+    return Fun4AllReturnCodes::EVENT_OK;
+  }
+
+  int process_event(PHCompositeNode* topNode) override
+  {
+    if (!m_dumpEvent1) return Fun4AllReturnCodes::EVENT_OK;
+    if (m_doneEvt1) return Fun4AllReturnCodes::EVENT_OK;
+    dump("process_event(evt1)", topNode);
+    m_doneEvt1 = true;
+    return Fun4AllReturnCodes::EVENT_OK;
+  }
+
+ private:
+  void dump(const char* where, PHCompositeNode* topNode)
+  {
+    std::cout << "\n[NodeTreeDumpProbe] " << m_label << " @ " << where << "\n";
+    std::cout << "-----------------------------------------------------------------\n";
+    if (topNode) topNode->print();
+    std::cout << "-----------------------------------------------------------------\n";
+
+    auto haveTowerInfo = [&](const std::string& n) -> bool
+    {
+      return (findNode::getClass<TowerInfoContainer>(topNode, n) != nullptr);
+    };
+
+    auto haveJetCont = [&](const std::string& n) -> bool
+    {
+      return (findNode::getClass<JetContainer>(topNode, n) != nullptr);
+    };
+
+    std::cout << "[NodeTreeDumpProbe] Watch list (" << m_watch.size() << "):\n";
+    for (const auto& n : m_watch)
+    {
+      bool ok = false;
+      ok = ok || haveTowerInfo(n);
+      ok = ok || haveJetCont(n);
+      std::cout << "  " << std::left << std::setw(32) << n << " : " << (ok ? "OK" : "MISS") << "\n";
+    }
+    std::cout << std::endl;
+  }
+
+  std::string m_label;
+  std::vector<std::string> m_watch;
+  bool m_dumpInitRun = true;
+  bool m_dumpEvent1 = true;
+  bool m_doneEvt1 = false;
+};
+
+
 class TowerAudit final : public SubsysReco
 {
  public:
@@ -1032,8 +1136,42 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
                 << "    nEvents    : " << nEvents   << (nEvents==0? " (all)\n":"\n");
   }
 
-  Fun4AllServer* se = Fun4AllServer::instance();
-  if (!se) detail::bail("unable to obtain Fun4AllServer instance!");
+    Fun4AllServer* se = Fun4AllServer::instance();
+    if (!se) detail::bail("unable to obtain Fun4AllServer instance!");
+
+    // --------------------------------------------------------------------
+    // DEBUG: choose which calo libraries to use (this is the prime suspect)
+    //   RJ_USE_LOCAL_CALO_RECO=1  -> load your local thesisAnalysis libcalo_reco/libcalo_io
+    //   RJ_USE_LOCAL_CALO_RECO=0  -> load the release/cvmfs libcalo_reco/libcalo_io
+    // --------------------------------------------------------------------
+    const bool useLocalCalo = ([]{
+      const char* env = std::getenv("RJ_USE_LOCAL_CALO_RECO");
+      return (env && std::atoi(env) != 0);
+    })();
+
+    if (useLocalCalo)
+    {
+      gSystem->Load("/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so");
+      gSystem->Load("/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_io.so");
+      std::cout << "[DBG] Using LOCAL calo libs: /sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so" << std::endl;
+    }
+    else
+    {
+      gSystem->Load("libcalo_reco.so");
+      gSystem->Load("libcalo_io.so");
+      std::cout << "[DBG] Using RELEASE calo libs: libcalo_reco.so (from environment/LD_LIBRARY_PATH)" << std::endl;
+    }
+
+    // --------------------------------------------------------------------
+    // DEBUG: print where CaloTowerStatus RTTI is actually coming from
+    // --------------------------------------------------------------------
+    {
+      Dl_info info{};
+      if (dladdr((void*)&typeid(CaloTowerStatus), &info) && info.dli_fname)
+        std::cout << "[DBG] CaloTowerStatus RTTI from: " << info.dli_fname << std::endl;
+      else
+        std::cout << "[DBG] CaloTowerStatus RTTI probe: dladdr failed" << std::endl;
+    }
 
   //--------------------------------------------------------------------
   // 1.  Parse the file list & determine run / segment
@@ -1175,6 +1313,17 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
   } _silence;
 
     if (vlevel == 0) _silence.enable();
+
+    // --------------------------------------------------------------------
+    // Crash backtrace / Fun4All trace toggles (local debugging helpers)
+    // --------------------------------------------------------------------
+    detail::installCrashHandlers(vlevel);
+
+    if (const char* fenv = std::getenv("RJ_F4A_VERBOSE"))
+    {
+      const int fv = std::atoi(fenv);
+      if (fv > 0) se->Verbosity(fv);
+    }
 
     // --------------------------------------------------------------------
     // YAML config (Phase-1): load once, validate lightly, and print summary
@@ -1358,7 +1507,7 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
     }
 
     // ------------------ Calo cluster DST (always) -------------------
-    auto* inCalo = new Fun4AllDstInputManager("DST_CALO_CLUSTER_IN");
+    auto* inCalo = new Fun4AllDstInputManager("DSTcalofitting");
     for (const auto& f : filesCalo) inCalo->AddFile(f);
     se->registerInputManager(inCalo);
 
@@ -1487,26 +1636,93 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
   }
 
 
-  // ------------------------------------------------------------------
-  // Calo calibration + clustering
-  //
-  // DATA: run the standard Calo_Calib reconstruction chain.
-  // SIM : skip (SIM analysis DST already has calibrated towers/clusters; re-running
-  //             the reco chain is what triggers CaloTowerStatus hotmap/default-map failure).
-  // ------------------------------------------------------------------
-  if (!isSim)
-  {
-      if (vlevel > 0) std::cout << "[DATA] running Process_Calo_Calib()\n";
-      Process_Calo_Calib();
+
+    // ------------------------------------------------------------
+    // Calo-fitting DSTs ALREADY contain:
+    //   - TOWERINFO_CALIB
+    //   - CLUSTERINFO_CEMC
+    //
+    // Running Process_Calo_Calib() here would attempt to rebuild
+    // raw tower status/calibration chain and will crash because
+    // raw TOWERINFO nodes do not exist in these DSTs.
+    // ------------------------------------------------------------
+    if (vlevel > 0)
+    {
+        std::cout << "[INFO] Skipping Process_Calo_Calib() "
+                     "(calo-fitting DST already contains calibrated towers & clusters)\n";
     }
-    else
+
+    // ------------------------------------------------------------
+    // For calo-fitting Au+Au DSTs, towers exist as:
+    //   TOWERS_CEMC / TOWERS_HCALIN / TOWERS_HCALOUT
+    //
+    // If you want the HI background chain to run on explicitly
+    // "calibrated" towerinfo nodes, we can re-calibrate these towers
+    // and write out:
+    //   TOWERINFO_CALIB_CEMC / _HCALIN / _HCALOUT
+    //
+    // This avoids relying on implicit assumptions about whether
+    // TOWERS_* are already calibrated.
+    // ------------------------------------------------------------
     {
       if (vlevel > 0)
       {
-        std::cout << "[isSim] skipping Process_Calo_Calib() "
-                     "(SIM DST already has TOWERINFO_CALIB and CLUSTERINFO_CEMC)\n";
+        std::cout << "[HI] Running CaloTowerCalib: inputPrefix=TOWERS_ -> outputPrefix=TOWERINFO_CALIB_\n";
       }
-  }
+
+      CaloTowerCalib* calibEMC = new CaloTowerCalib("CaloTowerCalib_CEMC_fromTOWERS");
+      calibEMC->set_detector_type(CaloTowerDefs::CEMC);
+      calibEMC->set_inputNodePrefix("TOWERS_");
+      calibEMC->set_outputNodePrefix("TOWERINFO_CALIB_");
+      calibEMC->set_doCalibOnly(true);
+      se->registerSubsystem(calibEMC);
+
+      CaloTowerCalib* calibIHCal = new CaloTowerCalib("CaloTowerCalib_HCALIN_fromTOWERS");
+      calibIHCal->set_detector_type(CaloTowerDefs::HCALIN);
+      calibIHCal->set_inputNodePrefix("TOWERS_");
+      calibIHCal->set_outputNodePrefix("TOWERINFO_CALIB_");
+      calibIHCal->set_doCalibOnly(true);
+      se->registerSubsystem(calibIHCal);
+
+      CaloTowerCalib* calibOHCal = new CaloTowerCalib("CaloTowerCalib_HCALOUT_fromTOWERS");
+      calibOHCal->set_detector_type(CaloTowerDefs::HCALOUT);
+      calibOHCal->set_inputNodePrefix("TOWERS_");
+      calibOHCal->set_outputNodePrefix("TOWERINFO_CALIB_");
+      calibOHCal->set_doCalibOnly(true);
+      se->registerSubsystem(calibOHCal);
+    }
+
+    // ------------------------------------------------------------
+    // Build CEMC clusters (this is what PhotonClusterBuilder needs):
+    //   creates RawClusterContainer node: CLUSTERINFO_CEMC
+    //
+    // This mirrors Process_Calo_Calib() behavior and prevents:
+    //   PhotonClusterBuilder: could not find RawClusterContainer 'CLUSTERINFO_CEMC'
+    // ------------------------------------------------------------
+    {
+      if (vlevel > 0) std::cout << "[HI] Building clusters: RawClusterBuilderTemplate -> CLUSTERINFO_CEMC\n";
+
+      RawClusterBuilderTemplate* ClusterBuilder =
+          new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate");
+      ClusterBuilder->Detector("CEMC");
+      ClusterBuilder->set_threshold_energy(0.070);  // match Process_Calo_Calib default
+
+      const char* calibroot = std::getenv("CALIBRATIONROOT");
+      if (calibroot && std::string(calibroot).size())
+      {
+        std::string emc_prof = std::string(calibroot) + "/EmcProfile/CEMCprof_Thresh30MeV.root";
+        ClusterBuilder->LoadProfile(emc_prof);
+        if (vlevel > 0) std::cout << "[HI] ClusterBuilder LoadProfile: " << emc_prof << "\n";
+      }
+      else
+      {
+        if (vlevel > 0) std::cout << "[HI][WARN] CALIBRATIONROOT not set; cluster profile not loaded\n";
+      }
+
+      ClusterBuilder->set_UseTowerInfo(1);
+      ClusterBuilder->set_UseAltZVertex(1);
+      se->registerSubsystem(ClusterBuilder);
+    }
 
 
   if (vlevel > 0) std::cout << "Calibrating MBD" << std::endl;
@@ -1604,14 +1820,50 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
       ensure->Verbosity(0);
       se->registerSubsystem(ensure);
 
-      // Optional: control HI UE-subtraction verbosity independently
-      int hiV = 0;
-      if (const char* env = std::getenv("RJ_HIUE_VERBOSITY")) hiV = std::atoi(env);
+        // Optional: control HI UE-subtraction verbosity independently
+        int hiV = 0;
+        if (const char* env = std::getenv("RJ_HIUE_VERBOSITY")) hiV = std::atoi(env);
 
-      const std::string towerPrefix = "TOWERINFO_CALIB";
+        // TowerInfo node prefix for HI background chain.
+        // calo-fitting Au+Au DSTs often publish per-detector nodes as:
+        //   TOWERINFO_CEMC, TOWERINFO_HCALIN, TOWERINFO_HCALOUT
+        // (NOT TOWERINFO_CALIB_*)
+        std::string towerPrefix = "TOWERINFO_CALIB";
+        if (const char* env = std::getenv("RJ_TOWERINFO_PREFIX"))
+        {
+          std::string s = detail::trim(std::string(env));
+          if (!s.empty()) towerPrefix = s;
+        }
 
-      if (vlevel > 0)
-        std::cout << "[HI] UE subtraction enabled: towerPrefix=" << towerPrefix << " (HIUE Verbosity=" << hiV << ")\n";
+        if (vlevel > 0)
+          std::cout << "[HI] UE subtraction enabled: towerPrefix=" << towerPrefix << " (HIUE Verbosity=" << hiV << ")\n";
+
+      // ------------------------------------------------------------------
+      // DEBUG: dump nodes right before RetowerCEMC InitRun
+      // ------------------------------------------------------------------
+      {
+        std::vector<std::string> watch = {
+          "TOWERINFO",
+          "TOWERINFO_CEMC",
+          "TOWERINFO_HCALIN",
+          "TOWERINFO_HCALOUT",
+          "TOWERINFO_CALIB",
+          "TOWERINFO_CALIB_CEMC",
+          "TOWERINFO_CALIB_HCALIN",
+          "TOWERINFO_CALIB_HCALOUT",
+          std::string(towerPrefix) + "_CEMC",
+          std::string(towerPrefix) + "_HCALIN",
+          std::string(towerPrefix) + "_HCALOUT"
+        };
+
+        auto* nd = new NodeTreeDumpProbe("NodeTreeDumpProbe_beforeRetower",
+                                         std::string("HI before RetowerCEMC (prefix=") + towerPrefix + ")",
+                                         watch,
+                                         /*dumpInitRun=*/true,
+                                         /*dumpEvent1=*/true);
+        nd->Verbosity(vlevel);
+        se->registerSubsystem(nd);
+      }
 
       // ------------------------------------------------------------------
       // 1) Retower CEMC (towerinfo)
@@ -2045,17 +2297,38 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
   //--------------------------------------------------------------------
   // 6.  Run
   //--------------------------------------------------------------------
-  try
-  {
-    if (verbose) std::cout << "[INFO] Starting event loop …\n";
-    se->run(nEvents);
-    se->End();
-    if (verbose) std::cout << "[INFO] Finished successfully.\n";
-  }
-  catch (const std::exception& e)
-  {
-    detail::bail(std::string("exception in Fun4All: ") + e.what());
-  }
+    try
+    {
+      if (vlevel > 0) std::cout << "[INFO] Starting event loop …" << std::endl;
+
+      const bool stepEvents = ([]{
+        const char* env = std::getenv("RJ_STEP_EVENTS");
+        return (env && std::atoi(env) != 0);
+      })();
+
+      if (stepEvents && nEvents > 0)
+      {
+        for (int ievt = 0; ievt < nEvents; ++ievt)
+        {
+          std::cout << "[RUN] >>> event " << (ievt + 1) << "/" << nEvents << std::endl;
+          const int rc = se->run(1);
+          std::cout << "[RUN] <<< event " << (ievt + 1) << "/" << nEvents << "  rc=" << rc << std::endl;
+          if (rc != 0) break;
+        }
+      }
+      else
+      {
+        se->run(nEvents);
+      }
+
+      if (vlevel > 0) std::cout << "[INFO] Calling se->End() …" << std::endl;
+      se->End();
+      if (vlevel > 0) std::cout << "[INFO] Finished successfully." << std::endl;
+    }
+    catch (const std::exception& e)
+    {
+      detail::bail(std::string("exception in Fun4All: ") + e.what());
+    }
 
 //  //--------------------------------------------------------------------
 //  // 7.  Clean exit

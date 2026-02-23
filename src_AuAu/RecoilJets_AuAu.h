@@ -270,11 +270,11 @@ public:
   };
     
   inline static const std::vector<std::pair<int, std::string>> triggerNameMapAuAu = {
-    //        {10, "MBD_NS_geq_2"},
+            {10, "MBD_NS_geq_2"},
     //        {11, "MBD_NS_geq_1"},
     //        {12, "MBD_NS_geq_2_vtx_lt_10"},
     //        {13, "MBD_NS_geq_2_vtx_lt_30"},
-              {14, "MBD_NS_geq_2_vtx_lt_150"}
+    //        {14, "MBD_NS_geq_2_vtx_lt_150"},
     //        {15, "MBD_NS_geq_1_vtx_lt_10"},
     //        {16, "photon_6_plus_MBD_NS_geq_2_vtx_lt_10"},
     //        {17, "photon_8_plus_MBD_NS_geq_2_vtx_lt_10"},

@@ -113,6 +113,7 @@ chunk_tag="${chunk_base%.list}"                      # e.g. run00048721_grp001
 out_root="${out_dir}/RecoilJets_${analysis_tag}_${chunk_tag}.root"
 
 echo "[INFO] Output path = $out_root"
+echo "[INFO] Debug env  : RJ_VERBOSITY=${RJ_VERBOSITY:-unset}  RJ_F4A_VERBOSE=${RJ_F4A_VERBOSE:-unset}  RJ_STEP_EVENTS=${RJ_STEP_EVENTS:-unset}  RJ_CRASH_BACKTRACE=${RJ_CRASH_BACKTRACE:-unset}"
 
 # The macro expects to find the ROOT files listed inside chunk_list. If those
 # entries are relative file names, make sure the CWD is the directory where

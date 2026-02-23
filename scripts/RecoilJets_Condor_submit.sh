@@ -931,7 +931,24 @@ case "$ACTION" in
       head -n 1 "$src" > "$tmp"
       say "Temp list → $tmp"
       say "Invoking wrapper locally…"
-      RJ_DATASET="$DATASET" RJ_VERBOSITY="$RJV" bash "$EXE" "$r8" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
+
+      # Local debug helpers (safe defaults):
+      #   RJ_CRASH_BACKTRACE=1 prints a stack trace on SIGSEGV/SIGABRT.
+      #   RJ_F4A_VERBOSE=1 enables Fun4AllServer subsystem-level tracing (chatty).
+      #   RJ_STEP_EVENTS=1 runs 1 event at a time with per-event banners (only for small nevt).
+      RJ_CRASH_BACKTRACE_LOCAL=1
+      RJ_F4A_VERBOSE_LOCAL=0
+      RJ_STEP_EVENTS_LOCAL=0
+      if [[ "$nevt" =~ ^[0-9]+$ ]] && (( nevt > 0 && nevt <= 50 )); then
+        RJ_F4A_VERBOSE_LOCAL=1
+        RJ_STEP_EVENTS_LOCAL=1
+      fi
+
+      RJ_DATASET="$DATASET" RJ_VERBOSITY="$RJV" \
+      RJ_CRASH_BACKTRACE="$RJ_CRASH_BACKTRACE_LOCAL" \
+      RJ_F4A_VERBOSE="$RJ_F4A_VERBOSE_LOCAL" \
+      RJ_STEP_EVENTS="$RJ_STEP_EVENTS_LOCAL" \
+      bash "$EXE" "$r8" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
     fi
     ;;
 

@@ -63,7 +63,7 @@ trap 'fatal "Script aborted (line $LINENO) – $BASH_COMMAND"' ERR
 # ---------- Fixed settings ----------
 DATASET="run3auau"
 TAG="new_newcdbtag_v008"
-PREFIX="DST_CALOFITTING"
+PREFIX="DST_JETCALO"
 MIN_RUNTIME=300
 MIN_GL1_EVT=100000
 OUT_DIR="/sphenix/u/patsfan753/scratch/thesisAnalysis/dst_lists_auau"
