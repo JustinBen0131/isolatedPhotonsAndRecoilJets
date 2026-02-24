@@ -1047,6 +1047,37 @@ void RecoilJets::createHistos_Data()
   }
   else
   {
+    // ------------------------------------------------------------------
+    // pp DATA: book the doNotScale max-cluster-energy histograms under
+    // the separate doNotScale trigger directories (independent of analysis gating)
+    // ------------------------------------------------------------------
+    for (const auto& kv : triggerNameMap_pp_doNotScale) // kv: std::pair<std::string,std::string>
+    {
+      const std::string trig = kv.second;
+
+      // Make sure the trigger directory exists
+      TDirectory* dir = out->GetDirectory(trig.c_str());
+      if (!dir) dir = out->mkdir(trig.c_str());
+      dir->cd();
+
+      HistMap& H = qaHistogramsByTrigger[trig];
+
+      const std::string hturn = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + trig;
+      if (H.find(hturn) == H.end())
+      {
+        TH1F* hist = new TH1F(hturn.c_str(),
+                              "Max Cluster Energy; Cluster Energy [GeV]",
+                              40, 0, 20);
+        hist->SetDirectory(out);
+        H[hturn] = hist;
+      }
+
+      out->cd();
+    }
+
+    // ------------------------------------------------------------------
+    // Existing pp per-trigger QA booking (unchanged; still uses triggerNameMap_pp)
+    // ------------------------------------------------------------------
     for (const auto& kv : triggerNameMap_pp) // kv: std::pair<std::string,std::string>
     {
       const std::string trig = kv.second;
@@ -1323,37 +1354,132 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
   /* ------------------------------------------------------------------ */
   /* 2) Trigger gating (pp & Au+Au) — unified in firstEventCuts()       */
   /* ------------------------------------------------------------------ */
-    std::vector<std::string> activeTrig;
-    if (!firstEventCuts(topNode, activeTrig))
-    {
-      ++m_evtNoTrig;  // keep your legacy counter
-      if (m_lastReject == EventReject::Trigger) ++m_bk.evt_fail_trigger;
-      else if (m_lastReject == EventReject::Vz) ++m_bk.evt_fail_vz;
 
-      const char* why = "UNKNOWN";
-      if (m_lastReject == EventReject::Trigger) why = "Trigger";
-      else if (m_lastReject == EventReject::Vz) why = "|vz|";
-
-      std::ostringstream os;
-      os << "    event rejected by " << why << " gate – skip"
-         << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
-      if (m_useVzCut) os << " (|vz|cut=" << m_vzCut << ")";
-      os << " | nActiveTrig=" << activeTrig.size();
-
-      if (!activeTrig.empty())
-      {
-        os << " | triggers={";
-        for (std::size_t i = 0; i < activeTrig.size(); ++i)
+  // ------------------------------------------------------------------
+  // pp DATA ONLY: doNotScale max-cluster-energy trigger-efficiency fill
+  // MATCHES caloTreeGen::checkMbdAndFillNewHists(...) logic:
+  //   - decodeTriggers(topNode)
+  //   - MBD baseline uses didTriggerFire("MBD N&S >= 1")
+  //   - if MBD fired: fill MBD doNotScale hist
+  //   - then for rare triggers: checkRawTrigger(dbTriggerName) and fill
+  // This is separate from (and occurs BEFORE) the main analysis trigger gating.
+  // ------------------------------------------------------------------
+  if (!m_isSim && !m_isAuAu)
+  {
+        if (trigAna)
         {
-          if (i) os << ", ";
-          os << activeTrig[i];
+          trigAna->decodeTriggers(topNode);
+
+          const std::string mbdDbName    = "MBD N&S >= 1";
+          const std::string mbdShortName = "MBD_NandS_geq_1";
+
+          bool isMB = trigAna->didTriggerFire(mbdDbName);
+          if (isMB)
+          {
+            float max_energy_clus = 0.f;
+
+            if (m_clus)
+            {
+              const auto range = m_clus->getClusters();
+              for (auto it = range.first; it != range.second; ++it)
+              {
+                const RawCluster* cl = it->second;
+                if (!cl) continue;
+                const float e = cl->get_energy();
+                if (std::isfinite(e) && e > max_energy_clus) max_energy_clus = e;
+              }
+            }
+            else if (m_photons)
+            {
+              const auto range = m_photons->getClusters();
+              for (auto it = range.first; it != range.second; ++it)
+              {
+                const RawCluster* cl = it->second;
+                if (!cl) continue;
+                const float e = cl->get_energy();
+                if (std::isfinite(e) && e > max_energy_clus) max_energy_clus = e;
+              }
+            }
+
+            // Fill the new histogram for MBD itself
+            {
+              std::string mbdHistName = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + mbdShortName;
+
+              auto &mbdHistogramMap = qaHistogramsByTrigger[mbdShortName];
+              auto it = mbdHistogramMap.find(mbdHistName);
+              if (!(it == mbdHistogramMap.end() || !(it->second)))
+              {
+                TH1F* hMbdHist = dynamic_cast<TH1F*>(it->second);
+                if (hMbdHist)
+                {
+                  hMbdHist->Fill(max_energy_clus);
+                }
+              }
+            }
+
+            // Now check the “rare” triggers if MBD fired
+            for (const auto &kv : triggerNameMap_pp_doNotScale)
+            {
+              const std::string &dbTriggerName   = kv.first;
+              const std::string &histFriendlyStr = kv.second;
+
+              // Avoid *re*-filling MBD's own histogram
+              if (dbTriggerName == mbdDbName)
+                  continue;
+
+              bool firedRare = trigAna->checkRawTrigger(dbTriggerName);
+              if (!firedRare) continue;
+
+              std::string newHistName = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + histFriendlyStr;
+
+              auto &rareHistogramMap = qaHistogramsByTrigger[histFriendlyStr];
+              auto it = rareHistogramMap.find(newHistName);
+              if (it == rareHistogramMap.end() || !(it->second))
+              {
+                continue;
+              }
+
+              TH1F* hNew = dynamic_cast<TH1F*>(it->second);
+              if (hNew)
+              {
+                hNew->Fill(max_energy_clus);
+              }
+            }
+          }
         }
-        os << "}";
       }
 
-      LOG(4, CLR_YELLOW, os.str());
-      return Fun4AllReturnCodes::ABORTEVENT;
-    }
+      std::vector<std::string> activeTrig;
+      if (!firstEventCuts(topNode, activeTrig))
+      {
+        ++m_evtNoTrig;  // keep your legacy counter
+        if (m_lastReject == EventReject::Trigger) ++m_bk.evt_fail_trigger;
+        else if (m_lastReject == EventReject::Vz) ++m_bk.evt_fail_vz;
+
+        const char* why = "UNKNOWN";
+        if (m_lastReject == EventReject::Trigger) why = "Trigger";
+        else if (m_lastReject == EventReject::Vz) why = "|vz|";
+
+        std::ostringstream os;
+        os << "    event rejected by " << why << " gate – skip"
+           << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
+        if (m_useVzCut) os << " (|vz|cut=" << m_vzCut << ")";
+        os << " | nActiveTrig=" << activeTrig.size();
+
+        if (!activeTrig.empty())
+        {
+          os << " | triggers={";
+          for (std::size_t i = 0; i < activeTrig.size(); ++i)
+          {
+            if (i) os << ", ";
+            os << activeTrig[i];
+          }
+          os << "}";
+        }
+
+        LOG(4, CLR_YELLOW, os.str());
+        return Fun4AllReturnCodes::ABORTEVENT;
+  }
   /* ------------------------------------------------------------------ */
   /* 3) Trigger counters (one per trigger) + Vertex-z QA                */
   /* ------------------------------------------------------------------ */
@@ -5485,10 +5611,10 @@ bool RecoilJets::isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
 
   constexpr double kTruthEtaAbsMax = 0.7;
 
-  // CaloAna-style truth isolation parameters
+  // truth isolation parameters
   const double kIsoConeR  = m_isoConeR;
   constexpr double kMergerDR  = 0.001;
-  const double kIsoMaxGeV = (m_isSlidingIso ? 4.0 : m_isoFixed);
+  const double kIsoMaxGeV = m_truthIsoMaxGeV;
 
   // Final-state photon requirement (your project requirement)
   if (pho->pdg_id() != 22) return false;

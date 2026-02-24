@@ -263,12 +263,21 @@ public:
   // NOTE: These are placeholders if you don't already have your project-specific
   //       maps. Keep/restore your exact trigger mappings here.
   inline static const std::vector<std::pair<std::string, std::string>> triggerNameMap_pp = {
-    //     {"MBD N&S >= 1",          "MBD_NandS_geq_1"},
-    //      {"Photon 3 GeV + MBD NS >= 1","Photon_3_GeV_plus_MBD_NS_geq_1"},
-    {"Photon 4 GeV + MBD NS >= 1","Photon_4_GeV_plus_MBD_NS_geq_1"}
-    //      {"Photon 5 GeV + MBD NS >= 1","Photon_5_GeV_plus_MBD_NS_geq_1"}
+      //     {"MBD N&S >= 1",          "MBD_NandS_geq_1"},
+      //      {"Photon 3 GeV + MBD NS >= 1","Photon_3_GeV_plus_MBD_NS_geq_1"},
+      {"Photon 4 GeV + MBD NS >= 1","Photon_4_GeV_plus_MBD_NS_geq_1"}
+      //      {"Photon 5 GeV + MBD NS >= 1","Photon_5_GeV_plus_MBD_NS_geq_1"}
   };
-    
+
+  // Separate pp trigger map used ONLY for the doNotScale max-cluster-energy histograms.
+  // This is intentionally independent of the main analysis trigger gating above.
+  inline static const std::vector<std::pair<std::string, std::string>> triggerNameMap_pp_doNotScale = {
+      {"MBD N&S >= 1",          "MBD_NandS_geq_1"},
+      {"Photon 3 GeV + MBD NS >= 1","Photon_3_GeV_plus_MBD_NS_geq_1"},
+      {"Photon 4 GeV + MBD NS >= 1","Photon_4_GeV_plus_MBD_NS_geq_1"}
+      //      {"Photon 5 GeV + MBD NS >= 1","Photon_5_GeV_plus_MBD_NS_geq_1"}
+  };
+      
   inline static const std::vector<std::pair<int, std::string>> triggerNameMapAuAu = {
     //        {10, "MBD_NS_geq_2"},
     //        {11, "MBD_NS_geq_1"},
@@ -362,9 +371,17 @@ public:
 
   // Isolation WP (implemented in .cc)
   void setIsolationWP(double aGeV, double bPerGeV,
-                                double sideGapGeV, double coneR, double towerMin,
-                                double fixedGeV = 2.0);
+                                  double sideGapGeV, double coneR, double towerMin,
+                                  double fixedGeV = 2.0);
   void setIsSlidingIso(bool on) { m_isSlidingIso = on; }
+
+  // Truth isolation max (independent of sliding/fixed reco mode)
+  void setTruthIsoMaxGeV(double isoGeV)
+  {
+          if (!std::isfinite(isoGeV)) return;
+          m_truthIsoMaxGeV = isoGeV;
+          if (m_truthIsoMaxGeV < 0.0) m_truthIsoMaxGeV = 0.0;
+  }
 
   // Photon ID cuts (PPG12 Table 4): allow YAML override while preserving baseline defaults
   void setPhotonIDCuts(double pre_e11e33_max,
@@ -946,7 +963,8 @@ private:
   double m_isoA      = 1.08128;
   double m_isoB      = 0.0299107;
   double m_isoGap    = 1.0;
-  double m_isoFixed  = 2.0;          // used ONLY when m_isSlidingIso==false
+  double m_isoFixed  = 2.0;          // used ONLY when m_isSlidingIso==false (RECO)
+  double m_truthIsoMaxGeV = 4.0;     // TRUTH isolation max (independent of sliding/fixed mode)
   double m_isoConeR  = 0.3;
   double m_isoTowMin = 0.0;
   bool   m_isSlidingIso = true;
