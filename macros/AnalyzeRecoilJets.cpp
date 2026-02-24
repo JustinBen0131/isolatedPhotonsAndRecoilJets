@@ -85,6 +85,140 @@ namespace ARJ
       }
 
       // =============================================================================
+      // Trigger turn-on QA (pp DATA only): doNotScale hMaxClusterEnergy overlays + ratios
+      // =============================================================================
+      void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
+      {
+        if (ds.isSim) return;
+
+        static std::set<std::string> s_doneOutDirs;
+
+        const std::string ppBase  = DirnameFromPath(ds.outBase);
+        const std::string outDir  = JoinPath(ppBase, "triggerAna");
+
+        if (s_doneOutDirs.count(outDir)) return;
+        s_doneOutDirs.insert(outDir);
+
+        EnsureDir(outDir);
+
+        const std::string mbdShort = "MBD_NandS_geq_1";
+        const std::string p3Short  = "Photon_3_GeV_plus_MBD_NS_geq_1";
+        const std::string p4Short  = "Photon_4_GeV_plus_MBD_NS_geq_1";
+
+        const std::string prefix  = "h_maxEnergyClus_NewTriggerFilling_doNotScale_";
+
+        auto getHist = [&](const std::string& trigShort)->TH1*
+        {
+          if (!ds.file) return nullptr;
+
+          TDirectory* dir = ds.file->GetDirectory(trigShort.c_str());
+          if (!dir) return nullptr;
+
+          const std::string hname = prefix + trigShort;
+          TH1* h = dynamic_cast<TH1*>(dir->Get(hname.c_str()));
+          return h;
+        };
+
+        TH1* hMBD = getHist(mbdShort);
+        TH1* hP3  = getHist(p3Short);
+        TH1* hP4  = getHist(p4Short);
+
+        if (!hMBD || !hP3 || !hP4)
+        {
+          cout << ANSI_BOLD_YEL
+               << "[WARN] Missing doNotScale trigger hist(s) needed for triggerAna outputs.\n"
+               << "       Need directories + hists:\n"
+               << "         " << mbdShort << "/" << prefix << mbdShort << "\n"
+               << "         " << p3Short  << "/" << prefix << p3Short  << "\n"
+               << "         " << p4Short  << "/" << prefix << p4Short  << "\n"
+               << ANSI_RESET << "\n";
+          return;
+        }
+
+        // ------------------------------------------------------------------
+        // (1) Overlay: MBD vs Photon3 vs Photon4 (doNotScale max cluster energy)
+        // ------------------------------------------------------------------
+        {
+          TCanvas c("c_trigAna_overlay", "c_trigAna_overlay", 900, 700);
+          c.cd();
+
+          hMBD->SetTitle("");
+          hMBD->GetXaxis()->SetTitle("Cluster Energy [GeV]");
+          hMBD->GetYaxis()->SetTitle("Entries");
+
+          hMBD->SetLineWidth(2);
+          hP3->SetLineWidth(2);
+          hP4->SetLineWidth(2);
+
+          hMBD->Draw("HIST");
+          hP3->Draw("HIST SAME");
+          hP4->Draw("HIST SAME");
+
+          TLegend leg(0.55, 0.68, 0.88, 0.88);
+          leg.SetBorderSize(0);
+          leg.SetFillStyle(0);
+          leg.AddEntry(hMBD, "MBD N&S >= 1", "l");
+          leg.AddEntry(hP3,  "Photon 3 GeV + MBD NS >= 1", "l");
+          leg.AddEntry(hP4,  "Photon 4 GeV + MBD NS >= 1", "l");
+          leg.Draw();
+
+          const std::string outPng = JoinPath(outDir, "hMaxClusterEnergy_doNotScale_overlay.png");
+          c.SaveAs(outPng.c_str());
+          cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";
+        }
+
+        // ------------------------------------------------------------------
+        // (2) Ratios: Photon3/MBD and Photon4/MBD (turn-on style)
+        // ------------------------------------------------------------------
+        {
+          TH1* rP3 = dynamic_cast<TH1*>(hP3->Clone("ratio_P3_over_MBD"));
+          TH1* rP4 = dynamic_cast<TH1*>(hP4->Clone("ratio_P4_over_MBD"));
+
+          if (!rP3 || !rP4)
+          {
+            cout << ANSI_BOLD_YEL << "[WARN] Failed to clone histograms for ratio plot." << ANSI_RESET << "\n";
+            return;
+          }
+
+          rP3->SetDirectory(nullptr);
+          rP4->SetDirectory(nullptr);
+
+          rP3->Divide(hP3, hMBD, 1.0, 1.0, "B");
+          rP4->Divide(hP4, hMBD, 1.0, 1.0, "B");
+
+          TCanvas c("c_trigAna_ratio", "c_trigAna_ratio", 900, 700);
+          c.cd();
+
+          rP3->SetTitle("");
+          rP3->GetXaxis()->SetTitle("Cluster Energy [GeV]");
+          rP3->GetYaxis()->SetTitle("Efficiency");
+
+          rP3->SetLineWidth(2);
+          rP4->SetLineWidth(2);
+
+          rP3->SetMinimum(0.0);
+          rP3->SetMaximum(1.2);
+
+          rP3->Draw("HIST");
+          rP4->Draw("HIST SAME");
+
+          TLegend leg(0.55, 0.72, 0.88, 0.88);
+          leg.SetBorderSize(0);
+          leg.SetFillStyle(0);
+          leg.AddEntry(rP3, "Photon 3 GeV + MBD NS >= 1  /  MBD", "l");
+          leg.AddEntry(rP4, "Photon 4 GeV + MBD NS >= 1  /  MBD", "l");
+          leg.Draw();
+
+          const std::string outPng = JoinPath(outDir, "hMaxClusterEnergy_doNotScale_ratioToMBD.png");
+          c.SaveAs(outPng.c_str());
+          cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";
+
+          delete rP3;
+          delete rP4;
+        }
+      }
+
+      // =============================================================================
       // Section 2: preselection fail counters (terminal only)
       // =============================================================================
       void RunPreselectionFailureTable(Dataset& ds)
@@ -5968,7 +6102,7 @@ namespace ARJ
             if (!ds.isSim) return;
             if (!doSamVsJustinUnsmearOverlays) return;
             (void)outDir; // this block is intentionally hard-coded to write ONLY under InputFilesSim/.../plots
-            const std::string baseDir   = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck/pTminJet3/7pi_8_BB";
+            const std::string baseDir   = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet3/7pi_8_BB";
             const std::string plotsDir  = JoinPath(baseDir, "plots");
             const std::string sam10     = JoinPath(baseDir, "histsPhoton10.root");
             const std::string sam20     = JoinPath(baseDir, "histsPhoton20.root");
@@ -11949,6 +12083,14 @@ namespace ARJ
                                           "  outDir=" + dirED + "  (topDirName=\"" + ds.topDirName + "\")",
                                         ANSI_BOLD_CYN);
 
+                                cout << ANSI_BOLD_RED
+                                     << "  [EventDisplay][TOTAL ENTRIES] "
+                                     << ANSI_RESET
+                                     << "inFile=\"" << ds.inFilePath << "\""
+                                     << "  tree=\"" << tED->GetName() << "\""
+                                     << "  entries=" << (long long)tED->GetEntries()
+                                     << "\n";
+
                                 effSummary.push_back("  EventDisplayTree: generating eventDisplay PNGs in " + dirED);
 
                                 // -------------------------------------------------------------------
@@ -16272,6 +16414,10 @@ namespace ARJ
         cout << "  -> [Section 1] Event-level QA...\n";
         analysis::RunEventLevelQA(ds);
         cout << "     [OK] Event-level QA complete.\n";
+
+        cout << "  -> [triggerAna] doNotScale max-cluster-energy turn-on plots (DATA only)...\n";
+        analysis::RunTriggerAna_DoNotScaleMaxClusterEnergy(ds);
+        cout << "     [OK] triggerAna complete.\n";
 
         cout << "  -> [Section 2] Preselection failure table...\n";
         analysis::RunPreselectionFailureTable(ds);

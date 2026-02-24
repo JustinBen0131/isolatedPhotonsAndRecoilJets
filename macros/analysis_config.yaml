@@ -44,22 +44,21 @@ centrality_edges: [0, 10, 20, 40, 60, 80, 100]
 
 # -----------------------------------------------------------------------------
 # Isolation working point knobs (YAML-driven)
-# recoilJets->setIsolationWP(1.08128, 0.0299107, 1.0, 0.40, 0.0, 2.0);
 #
-# isSlidingIso:
-#   - true  : NO change vs current behavior
-#             (RECO uses sliding thr = A + B*ET^gamma; TRUTH uses 4 GeV)
-#   - false : use fixedGeV for BOTH RECO and TRUTH (no sliding window)
+# RECO isolation definition:
+#   - if isSlidingIso == true  : thrReco = A + B * pT(gamma)
+#   - if isSlidingIso == false : thrReco = fixedGeV
+#   - nonIso sideband threshold: thrNonIso = thrReco + sideGapGeV
 #
-# fixedGeV:
-#   - ONLY used when isSlidingIso is false
+# TRUTH isolation definition (independent of sliding/fixed RECO mode):
+#   - thrTruth = truthIsoGeV   (default 4.0 GeV; set to 2.0 if you want that)
 #
 # coneR:
 #   - PhotonClusterBuilder provides full-calo isolation for R=0.3 and R=0.4
 #   - set to 0.40 to force iso_04 in all cases
 # -----------------------------------------------------------------------------
 isSlidingIso: true
-isolation_wp: {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0, fixedGeV: 2.0, coneR: 0.40, towerMin: 0.0}
+isolation_wp: {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0, fixedGeV: 2.0, truthIsoGeV: 4.0, coneR: 0.40, towerMin: 0.0}
 
 # -----------------------------------------------------------------------------
 # Photon shower-shape ID cuts (PPG12 Table 4) (YAML-driven; baseline matches header)
@@ -99,5 +98,5 @@ unfold_xj_bins: [0.0, 0.20, 0.24, 0.29, 0.35, 0.41, 0.50, 0.60, 0.72, 0.86, 1.03
 #       0  => unlimited entries
 #       N>0 => cap entries per (rKey × pTγ bin × {NUM,MissA,MissB})
 # -----------------------------------------------------------------------------
-event_display_tree: true
+event_display_tree: false
 event_display_tree_max_per_bin: 3

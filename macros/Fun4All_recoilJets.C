@@ -238,6 +238,7 @@ namespace yamlcfg
       double isoB = 0.0299107;
       double isoGap = 1.0;
       double isoFixed = 2.0;
+      double truthIsoGeV = 4.0;
       double isoConeR = 0.30;
       double isoTowMin = 0.0;
       bool   isSlidingIso = true;
@@ -525,12 +526,13 @@ namespace yamlcfg
         {
           std::map<std::string, double> m;
           ParseInlineMapDoubles(AfterColon(line), m);
-          if (m.count("aGeV"))       cfg.isoA      = m["aGeV"];
-          if (m.count("bPerGeV"))    cfg.isoB      = m["bPerGeV"];
-          if (m.count("sideGapGeV")) cfg.isoGap    = m["sideGapGeV"];
-          if (m.count("fixedGeV"))   cfg.isoFixed  = m["fixedGeV"];
-          if (m.count("coneR"))      cfg.isoConeR  = m["coneR"];
-          if (m.count("towerMin"))   cfg.isoTowMin = m["towerMin"];
+          if (m.count("aGeV"))       cfg.isoA        = m["aGeV"];
+          if (m.count("bPerGeV"))    cfg.isoB        = m["bPerGeV"];
+          if (m.count("sideGapGeV")) cfg.isoGap      = m["sideGapGeV"];
+          if (m.count("fixedGeV"))   cfg.isoFixed    = m["fixedGeV"];
+          if (m.count("truthIsoGeV"))cfg.truthIsoGeV = m["truthIsoGeV"];
+          if (m.count("coneR"))      cfg.isoConeR    = m["coneR"];
+          if (m.count("towerMin"))   cfg.isoTowMin   = m["towerMin"];
         }
         else if (StartsWithKey(line, "isSlidingIso"))
         {
@@ -1184,7 +1186,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
         << "  matching: {pho_dr_max=" << cfg.pho_dr_max << ", jet_dr_max=" << cfg.jet_dr_max << "}\n"
         << "  isolation_wp: {aGeV=" << cfg.isoA << ", bPerGeV=" << cfg.isoB
         << ", sideGapGeV=" << cfg.isoGap << ", fixedGeV=" << cfg.isoFixed
-        << ", coneR=" << cfg.isoConeR
+        << ", truthIsoGeV=" << cfg.truthIsoGeV << ", coneR=" << cfg.isoConeR
         << ", towerMin=" << cfg.isoTowMin << "}\n"
         << "  isSlidingIso: " << (cfg.isSlidingIso ? "true" : "false") << "\n"
         << "  jes3_photon_pt_bins: [";
@@ -1718,6 +1720,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   recoilJets->setActiveJetRKeys(activeJetRKeys);
   recoilJets->setIsolationWP(cfg.isoA, cfg.isoB, cfg.isoGap, cfg.isoConeR, cfg.isoTowMin, cfg.isoFixed);
   recoilJets->setIsSlidingIso(cfg.isSlidingIso);
+  recoilJets->setTruthIsoMaxGeV(cfg.truthIsoGeV);
 
   recoilJets->setPhotonIDCuts(cfg.pre_e11e33_max,
                                 cfg.pre_et1_min,
