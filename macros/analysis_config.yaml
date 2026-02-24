@@ -17,7 +17,7 @@
 # Global photon + jet selection knobs (YAML-driven)
 # -----------------------------------------------------------------------------
 photon_eta_abs_max: 0.7
-jet_pt_min: [3.0, 5.0, 10.0]
+jet_pt_min: [5.0]
 
 # Jet radii to run (R values). The steering macro will:
 #   - build reco jets for these radii
@@ -32,7 +32,7 @@ jet_radii: [0.2, 0.4, 0.6]
 #   0.5   -> π/2
 #   0.875 -> 7π/8
 # (runtime should compute: back_to_back_dphi_min_rad = back_to_back_dphi_min_pi_fraction * M_PI)
-back_to_back_dphi_min_pi_fraction: [0.5, 0.875]
+back_to_back_dphi_min_pi_fraction: [0.875]
 
 # -----------------------------------------------------------------------------
 # Vertex selection knobs (YAML-driven)

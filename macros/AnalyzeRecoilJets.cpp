@@ -6095,464 +6095,326 @@ namespace ARJ
                    << "[OK] Wrote pTmin RECO per-pT overlays: " << outPerPtDir << "\n"
                    << ANSI_RESET;
             }
-        }
+      }
 
-        void JES3_SamVsJustinUnsmearOverlay_MaybeRun(Dataset& ds, const std::string& outDir)
-        {
-            if (!ds.isSim) return;
-            if (!doSamVsJustinUnsmearOverlays) return;
-            (void)outDir; // this block is intentionally hard-coded to write ONLY under InputFilesSim/.../plots
-            const std::string baseDir   = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet3/7pi_8_BB";
-            const std::string plotsDir  = JoinPath(baseDir, "plots");
-            const std::string sam10     = JoinPath(baseDir, "histsPhoton10.root");
-            const std::string sam20     = JoinPath(baseDir, "histsPhoton20.root");
-            const std::string samMerged = JoinPath(baseDir, "histsPhoton10plus20_MERGED.root");
-            const std::string samMergedPrev = JoinPath(baseDir, "histsPhoton10plus20_unsmear_MERGED.root");
+      void JES3_SamVsJustinUnsmearOverlay_MaybeRun(Dataset& ds, const std::string& outDir)
+      {
+          if (!ds.isSim) return;
+          if (!doSamVsJustinUnsmearOverlays) return;
+          (void)outDir; // this block is intentionally hard-coded to write ONLY under InputFilesSim/.../plots
 
-            // -------------------------------------------------------------------------
-            // Sam inputs for pTjet > 10 overlays (same folder, different jetMinPt in Sam production)
-            // -------------------------------------------------------------------------
-            const std::string sam10_pTmin10     = JoinPath(baseDir, "histsPhoton10_pTmin10.root");
-            const std::string sam20_pTmin10     = JoinPath(baseDir, "histsPhoton20_pTmin10.root");
-            const std::string samMerged_pTmin10 = JoinPath(baseDir, "histsPhoton10plus20_pTmin10_MERGED.root");
+          // Justin reference: jetMinPt3_7piOver8 (matched cuts)
+          const Sim10and20Config& cfgJ = Sim10and20ConfigForKey(kAltSimSampleKey_jetMinPt3_7piOver8);
 
-              const std::string baseDir_fixed = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/noDeltaRcheckOnJetPhotonForReco/pTminJet3/7pi_8_BB";
-              const std::string jFix10        = JoinPath(baseDir_fixed, "RecoilJets_photonjet10_ALL_jetMinPt3_7piOver8.root");
-              const std::string jFix20        = JoinPath(baseDir_fixed, "RecoilJets_photonjet20_ALL_jetMinPt3_7piOver8.root");
-              const std::string jFixMerged    = JoinPath(baseDir_fixed, "RecoilJets_photonjet10plus20_MERGED.root");
+          const std::string baseDir  = DirFromPathSimple(cfgJ.photon10);
+          const std::string plotsDir = JoinPath(baseDir, "plots");
 
-            const std::string dirOver_RECO_current = JoinPath(plotsDir, "Overlays_RECO_SamVsCurrent");
-            const std::string dirOver_RECO_default = JoinPath(plotsDir, "Overlays_RECO_SamVsDefault");
-            const std::string dirOver_RECO_triple  = JoinPath(plotsDir, "Overlays_RECO_SamVsCurrentVsDefault");
-            const std::string dirOver_RECO_triple_fixed = JoinPath(plotsDir, "Overlays_RECO_SamVsCurrentVsFixedCode");
-            const std::string dirOver_Tag_current  = JoinPath(plotsDir, "Overlays_RECOtruthTagged_SamVsCurrent");
-            const std::string dirOver_RECO_triple_currentTag = JoinPath(plotsDir, "Overlays_RECO_SamVsCurrentRecoVsTruthTagged");
-            const std::string dirQA_SamOnly         = JoinPath(plotsDir, "QA_SamOnly");
-            const std::string dirQA_JustinOnly      = JoinPath(plotsDir, "QA_JustinOnly");
+          // Output: ONE folder only
+          const std::string dirOver = JoinPath(plotsDir, "Overlays_RECO_SamVsJustin");
 
-            // New: pTjet>10 overlay folder (Sam pTmin10 vs Justin jetMinPt10_7piOver8)
-            const std::string dirOver_RECO_jetMinPt10 = JoinPath(plotsDir, "Overlays_RECO_SamVsJustin_pTjetMin10");
+          // Two subfolders: normalized and unnormalized
+          const std::string dirOver_norm = JoinPath(dirOver, "Normalized");
+          const std::string dirOver_raw  = JoinPath(dirOver, "Unnormalized");
 
-            EnsureDir(plotsDir);
-            EnsureDir(dirOver_RECO_current);
-            EnsureDir(dirOver_RECO_default);
-            EnsureDir(dirOver_RECO_triple);
-            EnsureDir(dirOver_RECO_triple_fixed);
-            EnsureDir(dirOver_Tag_current);
-            EnsureDir(dirOver_RECO_triple_currentTag);
-            EnsureDir(dirQA_SamOnly);
-            EnsureDir(dirQA_JustinOnly);
-            EnsureDir(dirOver_RECO_jetMinPt10);
+          // Sam inputs (ONLY these two files)
+          const std::string sam10 = JoinPath(baseDir, "histsPhoton10.root");
+          const std::string sam20 = JoinPath(baseDir, "histsPhoton20.root");
 
-              cout << ANSI_BOLD_CYN
-                     << "\n[SAM VS JUSTIN] Unsmear overlay (RECO-only, integrated over alpha)\n"
-                     << "  baseDir  = " << baseDir << "\n"
-                     << "  plotsDir = " << plotsDir << "\n"
-                     << "  sam10    = " << sam10 << "\n"
-                     << "  sam20    = " << sam20 << "\n"
-                     << "  merged   = " << samMerged << "\n"
-                     << ANSI_RESET;
+          EnsureDir(plotsDir);
+          EnsureDir(dirOver);
+          EnsureDir(dirOver_norm);
+          EnsureDir(dirOver_raw);
 
-              auto ReadXsecAndNev = [&](TFile* f, double& xsec_pb, double& nev_acc)->bool
+          cout << ANSI_BOLD_CYN
+               << "\n[SAM VS JUSTIN] Unsmear overlay (RECO-only, integrated over #alpha)\n"
+               << "  baseDir    = " << baseDir << "\n"
+               << "  plotsDir   = " << plotsDir << "\n"
+               << "  overlays   = " << dirOver << "\n"
+               << "  sam10      = " << sam10 << "\n"
+               << "  sam20      = " << sam20 << "\n"
+               << "  justin10   = " << cfgJ.photon10 << "\n"
+               << "  justin20   = " << cfgJ.photon20 << "\n"
+               << "  jetMinPt   = " << cfgJ.jetMinPt << " GeV\n"
+               << "  backToBack = " << cfgJ.bbLabel << "\n"
+               << ANSI_RESET;
+
+          auto ReadXsecAndNev = [&](TFile* f, double& xsec_pb, double& nev_acc)->bool
+          {
+            xsec_pb = 0.0;
+            nev_acc = 0.0;
+            if (!f) return false;
+
+            TH1* hx = dynamic_cast<TH1*>(f->Get("h_xsec"));
+            if (!hx) hx = dynamic_cast<TH1*>(f->Get("xsec"));
+            if (hx && hx->GetNbinsX() >= 1) xsec_pb = hx->GetBinContent(1);
+
+            TH1* he = dynamic_cast<TH1*>(f->Get("h_evt_accept"));
+            if (!he) he = dynamic_cast<TH1*>(f->Get("h_evtAccepted"));
+            if (!he) he = dynamic_cast<TH1*>(f->Get("h_nevt"));
+            if (!he) he = dynamic_cast<TH1*>(f->Get("h_evt"));
+            if (he && he->GetNbinsX() >= 1) nev_acc = he->GetBinContent(1);
+
+            return (xsec_pb > 0.0 && nev_acc > 0.0);
+          };
+
+          // -------------------------------------------------------------------------
+          // Open Sam inputs (ONLY the two files below), and compute merge weights.
+          // -------------------------------------------------------------------------
+          TFile* fSam10 = TFile::Open(sam10.c_str(), "READ");
+          TFile* fSam20 = TFile::Open(sam20.c_str(), "READ");
+          if (!fSam10 || fSam10->IsZombie() || !fSam20 || fSam20->IsZombie())
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] Sam-vs-Justin overlay skipped: cannot open Sam files.\n"
+                 << "       sam10=" << sam10 << "\n"
+                 << "       sam20=" << sam20 << "\n"
+                 << ANSI_RESET;
+            if (fSam10) fSam10->Close();
+            if (fSam20) fSam20->Close();
+            return;
+          }
+
+          double sx10=0.0, sn10=0.0, sx20=0.0, sn20=0.0;
+          const bool sok10 = ReadXsecAndNev(fSam10, sx10, sn10);
+          const bool sok20 = ReadXsecAndNev(fSam20, sx20, sn20);
+
+          double sw10 = 0.5;
+          double sw20 = 0.5;
+          if (sok10 && sok20)
+          {
+            sw10 = sx10 / sn10;
+            sw20 = sx20 / sn20;
+          }
+          else
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] [SAM] Missing (xsec,nev) in Sam inputs; falling back to equal weights (0.5,0.5).\n"
+                 << "       Expected histograms: h_xsec and h_evt_accept (bin1).\n"
+                 << ANSI_RESET;
+          }
+
+          cout << ANSI_DIM
+               << "[SAM] weights: sw10=" << std::setprecision(12) << sw10
+               << "  sw20=" << std::setprecision(12) << sw20
+               << "  (ok10=" << (sok10 ? "true" : "false") << ", ok20=" << (sok20 ? "true" : "false") << ")\n"
+               << ANSI_RESET;
+
+          // -------------------------------------------------------------------------
+          // Open Justin slice files (jetMinPt3_7piOver8), and compute merge weights.
+          // -------------------------------------------------------------------------
+          TFile* fJ10 = TFile::Open(cfgJ.photon10.c_str(), "READ");
+          TFile* fJ20 = TFile::Open(cfgJ.photon20.c_str(), "READ");
+          if (!fJ10 || fJ10->IsZombie() || !fJ20 || fJ20->IsZombie())
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] Sam-vs-Justin overlay skipped: cannot open Justin slice files.\n"
+                 << ANSI_RESET;
+            if (fJ10) fJ10->Close();
+            if (fJ20) fJ20->Close();
+            fSam10->Close();
+            fSam20->Close();
+            return;
+          }
+
+          TDirectory* dJ10 = fJ10->GetDirectory(kDirSIM.c_str());
+          TDirectory* dJ20 = fJ20->GetDirectory(kDirSIM.c_str());
+          if (!dJ10 || !dJ20)
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] Sam-vs-Justin overlay skipped: missing topDir '" << kDirSIM << "' in Justin slice file(s).\n"
+                 << ANSI_RESET;
+            fJ10->Close();
+            fJ20->Close();
+            fSam10->Close();
+            fSam20->Close();
+            return;
+          }
+
+          const double N10 = ReadEventCountFromFile(fJ10, kDirSIM);
+          const double N20 = ReadEventCountFromFile(fJ20, kDirSIM);
+          if (N10 <= 0.0 || N20 <= 0.0)
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] Sam-vs-Justin overlay skipped: Naccepted <= 0 in Justin slice file(s).\n"
+                 << ANSI_RESET;
+            fJ10->Close();
+            fJ20->Close();
+            fSam10->Close();
+            fSam20->Close();
+            return;
+          }
+
+          const double jw10 = kSigmaPhoton10_pb / N10;
+          const double jw20 = kSigmaPhoton20_pb / N20;
+
+          cout << ANSI_DIM
+               << "[JUSTIN] weights: jw10=" << std::setprecision(12) << jw10
+               << "  jw20=" << std::setprecision(12) << jw20
+               << "  (N10=" << std::fixed << std::setprecision(0) << N10
+               << ", N20=" << N20 << ")\n"
+               << ANSI_RESET;
+
+          // -------------------------------------------------------------------------
+          // Local helpers (kept minimal): merge Sam/Justin in memory, then overlay.
+          // -------------------------------------------------------------------------
+          auto FindXbinByEdges =
+            [&](const TAxis* ax, double lo, double hi)->int
+          {
+            if (!ax) return -1;
+            const int nb = ax->GetNbins();
+            for (int ib = 1; ib <= nb; ++ib)
+            {
+              const double a = ax->GetBinLowEdge(ib);
+              const double b = ax->GetBinUpEdge(ib);
+              if (std::fabs(a - lo) < 1e-6 && std::fabs(b - hi) < 1e-6) return ib;
+            }
+            return -1;
+          };
+
+          auto StyleForOverlay =
+            [&](TH1* h, int col)->void
+          {
+            if (!h) return;
+            EnsureSumw2(h);
+            h->SetTitle("");
+            h->SetLineWidth(2);
+            h->SetLineColor(col);
+            h->SetMarkerStyle(20);
+            h->SetMarkerSize(1.00);
+            h->SetMarkerColor(col);
+            h->SetFillStyle(0);
+            h->GetXaxis()->SetTitle("x_{J#gamma}");
+            h->GetYaxis()->SetTitle("A.U.");
+            h->GetXaxis()->SetRangeUser(0.0, 2.0);
+            const int nb = h->GetNbinsX();
+            const double integ = h->Integral(0, nb + 1);
+            if (integ > 0.0) h->Scale(1.0 / integ);
+          };
+
+          auto StyleForOverlayRaw =
+            [&](TH1* h, int col)->void
+          {
+            if (!h) return;
+            EnsureSumw2(h);
+            h->SetTitle("");
+            h->SetLineWidth(2);
+            h->SetLineColor(col);
+            h->SetMarkerStyle(20);
+            h->SetMarkerSize(1.00);
+            h->SetMarkerColor(col);
+            h->SetFillStyle(0);
+            h->GetXaxis()->SetTitle("x_{J#gamma}");
+            h->GetYaxis()->SetTitle("Counts");
+            h->GetXaxis()->SetRangeUser(0.0, 2.0);
+          };
+
+          auto RebinOntoTemplateAxis =
+            [&](TH1*& hInOut, TH1* hTemplate)->void
+          {
+            if (!hInOut || !hTemplate) return;
+
+            TH1* hReb = CloneTH1(hTemplate, TString::Format("%s_rebinnedToTemplate", hInOut->GetName()).Data());
+            if (!hReb) return;
+
+            hReb->Reset("ICES");
+            hReb->SetDirectory(nullptr);
+            if (hReb->GetSumw2N() == 0) hReb->Sumw2();
+
+            const int nbIn = hInOut->GetNbinsX();
+            for (int ib = 1; ib <= nbIn; ++ib)
+            {
+              const double x = hInOut->GetXaxis()->GetBinCenter(ib);
+              const int ob = hReb->FindBin(x);
+              if (ob < 1 || ob > hReb->GetNbinsX()) continue;
+
+              const double c = hInOut->GetBinContent(ib);
+              const double e = hInOut->GetBinError(ib);
+
+              hReb->SetBinContent(ob, hReb->GetBinContent(ob) + c);
+
+              const double oe = hReb->GetBinError(ob);
+              hReb->SetBinError(ob, std::sqrt(oe*oe + e*e));
+            }
+
+            delete hInOut;
+            hInOut = hReb;
+          };
+
+          auto BuildJustinMergedTH3 =
+            [&](const std::string& rKey, const std::string& hPrefix, const std::string& tag)->TH3*
+          {
+            const std::string hname = hPrefix + rKey;
+
+            TH3* h10 = dynamic_cast<TH3*>(dJ10->Get(hname.c_str()));
+            TH3* h20 = dynamic_cast<TH3*>(dJ20->Get(hname.c_str()));
+            if (!h10 && !h20) return nullptr;
+
+            TH3* h = nullptr;
+
+            if (h10)
+            {
+              h = CloneTH3(h10, TString::Format("hJustin_%s_%s", tag.c_str(), rKey.c_str()).Data());
+              if (h)
               {
-                xsec_pb = 0.0;
-                nev_acc = 0.0;
-                if (!f) return false;
+                h->SetDirectory(nullptr);
+                if (h->GetSumw2N() == 0) h->Sumw2();
+                h->Scale(jw10);
+              }
+            }
 
-                TH1* hx = dynamic_cast<TH1*>(f->Get("h_xsec"));
-                if (!hx) hx = dynamic_cast<TH1*>(f->Get("xsec"));
-                if (hx && hx->GetNbinsX() >= 1) xsec_pb = hx->GetBinContent(1);
-
-                TH1* he = dynamic_cast<TH1*>(f->Get("h_evt_accept"));
-                if (!he) he = dynamic_cast<TH1*>(f->Get("h_evtAccepted"));
-                if (!he) he = dynamic_cast<TH1*>(f->Get("h_nevt"));
-                if (!he) he = dynamic_cast<TH1*>(f->Get("h_evt"));
-                if (he && he->GetNbinsX() >= 1) nev_acc = he->GetBinContent(1);
-
-                return (xsec_pb > 0.0 && nev_acc > 0.0);
-              };
-
-            auto PrintH1Summary = [&](const std::string& tag, TH1* h)->void
+            if (h20)
             {
               if (!h)
               {
-                cout << "    " << tag << " = <null>\n";
-                return;
+                h = CloneTH3(h20, TString::Format("hJustin_%s_%s", tag.c_str(), rKey.c_str()).Data());
+                if (h)
+                {
+                  h->SetDirectory(nullptr);
+                  if (h->GetSumw2N() == 0) h->Sumw2();
+                  h->Scale(jw20);
+                }
               }
-              const int nb = h->GetNbinsX();
-              const double ent = h->GetEntries();
-              const double integ = h->Integral(0, nb + 1);
-              const double maxv = h->GetMaximum();
-              cout << "    " << tag
-                   << "  name=" << h->GetName()
-                   << "  entries=" << std::fixed << std::setprecision(0) << ent
-                   << "  integral=" << std::setprecision(6) << integ
-                   << "  max=" << std::setprecision(6) << maxv
-                   << "\n";
-            };
-
-            auto HasKey =
-              [&](TFile* f, const std::string& key)->bool
-            {
-              if (!f) return false;
-              TObject* obj = f->Get(key.c_str());
-              return (obj != nullptr);
-            };
-
-              // --------------------------------------------------------------------------------
-              // Build a "Sam merged" file containing ONLY the hratio_* histograms (what we need).
-              // --------------------------------------------------------------------------------
-              auto BuildSamMergedIfMissing = [&]()->bool
+              else
               {
-                if (!gSystem->AccessPathName(samMerged.c_str()))
+                TH3* tmp = CloneTH3(h20, TString::Format("hJustin_%s_tmp20_%s", tag.c_str(), rKey.c_str()).Data());
+                if (tmp)
                 {
-                  cout << ANSI_DIM << "[SAM MERGE] Merged file already exists: " << samMerged << ANSI_RESET << "\n";
-                  return true;
+                  tmp->SetDirectory(nullptr);
+                  if (tmp->GetSumw2N() == 0) tmp->Sumw2();
+                  tmp->Scale(jw20);
+                  h->Add(tmp);
+                  delete tmp;
                 }
-
-                TFile* f10 = TFile::Open(sam10.c_str(), "READ");
-                TFile* f20 = TFile::Open(sam20.c_str(), "READ");
-                if (!f10 || f10->IsZombie() || !f20 || f20->IsZombie())
-                {
-                  cout << ANSI_BOLD_YEL
-                       << "[WARN] [SAM MERGE] Cannot open one or both Sam input files.\n"
-                       << "       sam10=" << sam10 << "\n"
-                       << "       sam20=" << sam20 << "\n"
-                       << ANSI_RESET;
-                  if (f10) f10->Close();
-                  if (f20) f20->Close();
-                  return false;
-                }
-
-                double x10=0.0, n10=0.0, x20=0.0, n20=0.0;
-                const bool ok10 = ReadXsecAndNev(f10, x10, n10);
-                const bool ok20 = ReadXsecAndNev(f20, x20, n20);
-
-                double w10 = 0.5;
-                double w20 = 0.5;
-                if (ok10 && ok20)
-                {
-                  w10 = x10 / n10;
-                  w20 = x20 / n20;
-                }
-                else
-                {
-                  cout << ANSI_BOLD_YEL
-                       << "[WARN] [SAM MERGE] Missing (xsec,nev) in Sam inputs; falling back to equal weights (0.5,0.5).\n"
-                       << "       Expected histograms: h_xsec and h_evt_accept (bin1).\n"
-                       << ANSI_RESET;
-                }
-
-                cout << ANSI_BOLD_CYN
-                     << "[SAM MERGE] Building ONLY hratio_* into: " << samMerged << "\n"
-                     << "  weights: w10=" << std::setprecision(12) << w10 << "  w20=" << w20 << "\n"
-                     << ANSI_RESET;
-
-                EnsureParentDirForFile(samMerged);
-                TFile* fout = TFile::Open(samMerged.c_str(), "RECREATE");
-                if (!fout || fout->IsZombie())
-                {
-                  cout << ANSI_BOLD_YEL
-                       << "[WARN] [SAM MERGE] Cannot create output file: " << samMerged << "\n"
-                       << ANSI_RESET;
-                  if (fout) fout->Close();
-                  f10->Close();
-                  f20->Close();
-                  return false;
-                }
-
-                std::set<std::string> names10;
-                {
-                  TIter next(f10->GetListOfKeys());
-                  while (TKey* key = (TKey*)next())
-                  {
-                    const std::string nm = key->GetName();
-                    if (nm.rfind("hratio_", 0) == 0) names10.insert(nm);
-                  }
-                }
-
-                std::set<std::string> names20;
-                {
-                  TIter next(f20->GetListOfKeys());
-                  while (TKey* key = (TKey*)next())
-                  {
-                    const std::string nm = key->GetName();
-                    if (nm.rfind("hratio_", 0) == 0) names20.insert(nm);
-                  }
-                }
-
-                cout << "  hratio_* keys: N10=" << names10.size() << "  N20=" << names20.size() << "\n";
-
-                std::set<std::string> all;
-                all.insert(names10.begin(), names10.end());
-                all.insert(names20.begin(), names20.end());
-
-                int nWritten = 0;
-                int nZeroAfter = 0;
-
-                for (const auto& nm : all)
-                {
-                  TH1* h10 = dynamic_cast<TH1*>(f10->Get(nm.c_str()));
-                  TH1* h20 = dynamic_cast<TH1*>(f20->Get(nm.c_str()));
-
-                  if (!h10 && !h20) continue;
-
-                  TH1* hOut = nullptr;
-
-                  if (h10)
-                  {
-                    hOut = dynamic_cast<TH1*>(h10->Clone(nm.c_str()));
-                    if (hOut)
-                    {
-                      hOut->SetDirectory(nullptr);
-                      if (hOut->GetSumw2N() == 0) hOut->Sumw2();
-                      hOut->Scale(w10);
-                    }
-                  }
-                  if (!hOut && h20)
-                  {
-                    hOut = dynamic_cast<TH1*>(h20->Clone(nm.c_str()));
-                    if (hOut)
-                    {
-                      hOut->SetDirectory(nullptr);
-                      if (hOut->GetSumw2N() == 0) hOut->Sumw2();
-                      hOut->Scale(w20);
-                    }
-                  }
-                  if (hOut && h20)
-                  {
-                    TH1* tmp = dynamic_cast<TH1*>(h20->Clone((nm + "_tmp20").c_str()));
-                    if (tmp)
-                    {
-                      tmp->SetDirectory(nullptr);
-                      if (tmp->GetSumw2N() == 0) tmp->Sumw2();
-                      tmp->Scale(w20);
-                      hOut->Add(tmp);
-                      delete tmp;
-                    }
-                  }
-
-                  if (!hOut) continue;
-
-                  const int nb = hOut->GetNbinsX();
-                  const double integ = hOut->Integral(0, nb + 1);
-                  if (integ == 0.0) nZeroAfter++;
-
-                  fout->cd();
-                  hOut->Write(nm.c_str(), TObject::kOverwrite);
-                  delete hOut;
-                  nWritten++;
-                }
-
-                fout->Write();
-                fout->Close();
-
-                f10->Close();
-                f20->Close();
-
-                cout << ANSI_BOLD_GRN
-                     << "[OK] [SAM MERGE] Wrote " << nWritten << " hratio_* histograms into: " << samMerged << "\n"
-                     << "      (zero-integral after merge: " << nZeroAfter << ")\n"
-                     << ANSI_RESET;
-
-                return true;
-              };
-
-              if (!BuildSamMergedIfMissing())
-              {
-                cout << ANSI_BOLD_YEL
-                     << "[WARN] Sam-vs-Justin overlay skipped: could not build Sam merged file.\n"
-                     << ANSI_RESET;
-                return;
               }
-
-            // Open all three Sam handles so we can QA and also fall back if merged is bad.
-            TFile* fSamM = TFile::Open(samMerged.c_str(), "READ");
-            TFile* fSam10 = TFile::Open(sam10.c_str(), "READ");
-            TFile* fSam20 = TFile::Open(sam20.c_str(), "READ");
-            TFile* fSamPrevM = TFile::Open(samMergedPrev.c_str(), "READ");
-            if (!fSamM || fSamM->IsZombie() || !fSam10 || fSam10->IsZombie() || !fSam20 || fSam20->IsZombie())
-            {
-              cout << ANSI_BOLD_YEL
-                   << "[WARN] Sam-vs-Justin overlay skipped: cannot open Sam files (merged and/or inputs).\n"
-                   << ANSI_RESET;
-              if (fSamM) fSamM->Close();
-              if (fSam10) fSam10->Close();
-              if (fSam20) fSam20->Close();
-              if (fSamPrevM) fSamPrevM->Close();
-              return;
             }
 
-            if (!fSamPrevM || fSamPrevM->IsZombie())
+            return h;
+          };
+
+          auto GetSamHistMerged =
+            [&](int iPt, int jR, int kIso, int lABCD, const std::string& newName)->TH1*
+          {
+            const std::string nm = TString::Format("hratio_%d_%d_%d_%d_%d", iPt, jR, kIso, 0, lABCD).Data();
+            TH1* h10 = dynamic_cast<TH1*>(fSam10->Get(nm.c_str()));
+            TH1* h20 = dynamic_cast<TH1*>(fSam20->Get(nm.c_str()));
+            if (!h10 && !h20) return nullptr;
+
+            TH1* out = nullptr;
+
+            if (h10)
             {
-              cout << ANSI_BOLD_YEL
-                   << "[WARN] Sam PREV merged file not available; will skip Prev-vs-JES overlays:\n"
-                   << "       prev=" << samMergedPrev << "\n"
-                   << ANSI_RESET;
-              if (fSamPrevM) fSamPrevM->Close();
-              fSamPrevM = nullptr;
+              out = CloneTH1(h10, newName);
+              if (out)
+              {
+                out->SetDirectory(nullptr);
+                if (out->GetSumw2N() == 0) out->Sumw2();
+                out->Scale(sw10);
+              }
             }
 
-              // Determine Sam weights (for in-memory merge fallback).
-              double sx10=0.0, sn10=0.0, sx20=0.0, sn20=0.0;
-              const bool sok10 = ReadXsecAndNev(fSam10, sx10, sn10);
-              const bool sok20 = ReadXsecAndNev(fSam20, sx20, sn20);
-
-              double sw10 = 0.5;
-              double sw20 = 0.5;
-              if (sok10 && sok20)
-              {
-                sw10 = sx10 / sn10;
-                sw20 = sx20 / sn20;
-              }
-
-                cout << ANSI_DIM
-                     << "[SAM] weights used for fallback merge: sw10=" << std::setprecision(12) << sw10
-                     << "  sw20=" << std::setprecision(12) << sw20
-                     << "  (ok10=" << (sok10 ? "true" : "false") << ", ok20=" << (sok20 ? "true" : "false") << ")\n"
-                     << ANSI_RESET;
-
-                // -------------------------------------------------------------------------
-                // Default-merged SIM file (driven by header default: kDefaultSimSampleKey)
-                //   We will compare Sam to:
-                //     (A) current merged slice key (jetMinPt3_7piOver8)  [already used below]
-                //     (B) default merged key (kDefaultSimSampleKey="jetMinPt10_pihalves")
-                // -------------------------------------------------------------------------
-                const std::string defaultKey        = kDefaultSimSampleKey;
-                const std::string defaultMergedPath = MergedSIMOut_10and20_ForKey(defaultKey);
-
-              TFile* fDefaultM = TFile::Open(defaultMergedPath.c_str(), "READ");
-              TDirectory* dDefaultM = nullptr;
-              if (fDefaultM && !fDefaultM->IsZombie())
-              {
-                  dDefaultM = fDefaultM->GetDirectory(kDirSIM.c_str());
-              }
-
-              if (!dDefaultM)
-              {
-                  cout << ANSI_BOLD_YEL
-                       << "[WARN] Default merged SIM file not available (will skip default overlays):\n"
-                       << "       key=" << defaultKey << "\n"
-                       << "       path=" << defaultMergedPath << "\n"
-                       << "       dir=" << kDirSIM << "\n"
-                       << ANSI_RESET;
-                  if (fDefaultM) fDefaultM->Close();
-                  fDefaultM = nullptr;
-              }
-
-            auto GetSamHistRaw =
-              [&](TFile* f, int iPt, int jR, int kIso, int lABCD)->TH1*
+            if (h20)
             {
-              // Sam naming scheme: hratio_i_j_k_l_m
-              //   i: pT bin index
-              //   j: jet radius index
-              //   k: uncalib/calib [0,1]
-              //   l: iso-bdt cut bin (use 0)
-              //   m: ABCD bin (use lABCD arg here)
-              const std::string nm = TString::Format("hratio_%d_%d_%d_%d_%d", iPt, jR, kIso, 0, lABCD).Data();
-              TH1* h = dynamic_cast<TH1*>(f->Get(nm.c_str()));
-              return h;
-            };
-
-            auto GetSamHistMergedOrFallback =
-              [&](int iPt, int jR, int kIso, int lABCD, const std::string& newName)->TH1*
-            {
-              // Sam naming scheme: hratio_i_j_k_l_m  (use l=0 iso-bdt bin; m = ABCD bin)
-              const std::string nmReq = TString::Format("hratio_%d_%d_%d_%d_%d", iPt, jR, kIso, 0, lABCD).Data();
-
-              // Also build explicit "calib" vs "uncalib" names for transparency
-              const std::string nmCal = TString::Format("hratio_%d_%d_%d_%d_%d", iPt, jR, 1, 0, lABCD).Data();
-              const std::string nmUnc = TString::Format("hratio_%d_%d_%d_%d_%d", iPt, jR, 0, 0, lABCD).Data();
-
-              const bool hasCalM = HasKey(fSamM, nmCal);
-              const bool hasUncM = HasKey(fSamM, nmUnc);
-
-              // Loud, explicit reporting so it's impossible to miss what exists
-              cout << ANSI_DIM
-                   << "    [SAM KEYCHECK] i=" << iPt << " j=" << jR << " l=" << lABCD
-                   << "  merged: calib(k=1)=" << (hasCalM ? "YES" : "NO")
-                   << "  uncalib(k=0)=" << (hasUncM ? "YES" : "NO")
-                   << "  requesting k=" << kIso << "\n"
-                   << ANSI_RESET;
-
-              // If user thinks they're reading calibrated but only uncalibrated exists, scream
-              if (kIso == 1 && !hasCalM && hasUncM)
-              {
-                cout << ANSI_BOLD_YEL
-                     << "[WARN] [SAM CALIB] Requested calibrated (k=1) histogram but ONLY uncalibrated (k=0) exists in merged file.\n"
-                     << "       requested=" << nmReq << "\n"
-                     << "       available_uncalib=" << nmUnc << "\n"
-                     << ANSI_RESET;
-              }
-
-              // 1) Try merged file
-              TH1* hm = dynamic_cast<TH1*>(fSamM->Get(nmReq.c_str()));
-              if (hm)
-              {
-                TH1* c = CloneTH1(hm, newName);
-                if (c) c->SetDirectory(nullptr);
-                if (c)
-                {
-                  const int nb = c->GetNbinsX();
-                  const double integ = c->Integral(0, nb + 1);
-                  if (integ > 0.0) return c;
-
-                  // If merged hist is all-zero, fall through to fallback
-                  delete c;
-                }
-              }
-
-              // 2) Fallback: merge in memory from inputs (only for the histogram we need)
-              TH1* h10 = GetSamHistRaw(fSam10, iPt, jR, kIso, lABCD);
-              TH1* h20 = GetSamHistRaw(fSam20, iPt, jR, kIso, lABCD);
-              if (!h10 && !h20)
-              {
-                cout << ANSI_BOLD_YEL
-                     << "[WARN] [SAM READ] Missing Sam histogram in BOTH inputs for requested k.\n"
-                     << "       requested=" << nmReq << "\n"
-                     << ANSI_RESET;
-                return nullptr;
-              }
-
-              // Additional transparency: if k=1 requested, verify whether k=0 exists in inputs
-              if (kIso == 1)
-              {
-                const bool hasCal10 = HasKey(fSam10, nmCal);
-                const bool hasUnc10 = HasKey(fSam10, nmUnc);
-                const bool hasCal20 = HasKey(fSam20, nmCal);
-                const bool hasUnc20 = HasKey(fSam20, nmUnc);
-
-                cout << ANSI_DIM
-                     << "    [SAM KEYCHECK] inputs: 10GeV calib=" << (hasCal10 ? "YES" : "NO")
-                     << " uncalib=" << (hasUnc10 ? "YES" : "NO")
-                     << " | 20GeV calib=" << (hasCal20 ? "YES" : "NO")
-                     << " uncalib=" << (hasUnc20 ? "YES" : "NO")
-                     << "\n"
-                     << ANSI_RESET;
-
-                if ((!hasCal10 && hasUnc10) || (!hasCal20 && hasUnc20))
-                {
-                  cout << ANSI_BOLD_YEL
-                       << "[WARN] [SAM CALIB] Requested calibrated (k=1) but at least one input only has uncalibrated (k=0).\n"
-                       << "       calib=" << nmCal << "\n"
-                       << "       uncalib=" << nmUnc << "\n"
-                       << ANSI_RESET;
-                }
-              }
-
-              TH1* out = nullptr;
-
-              if (h10)
-              {
-                out = CloneTH1(h10, newName);
-                if (out)
-                {
-                  out->SetDirectory(nullptr);
-                  if (out->GetSumw2N() == 0) out->Sumw2();
-                  out->Scale(sw10);
-                }
-              }
-              if (!out && h20)
+              if (!out)
               {
                 out = CloneTH1(h20, newName);
                 if (out)
@@ -6562,7 +6424,7 @@ namespace ARJ
                   out->Scale(sw20);
                 }
               }
-              if (out && h20)
+              else
               {
                 TH1* tmp = CloneTH1(h20, newName + "_tmp20");
                 if (tmp)
@@ -6574,1782 +6436,459 @@ namespace ARJ
                   delete tmp;
                 }
               }
+            }
 
-              return out;
-            };
+            return out;
+          };
 
-              // Justin reference: ALWAYS use the jetMinPt3_7piOver8 slice files (as if default)
-              const Sim10and20Config& cfgJ = Sim10and20ConfigForKey(kAltSimSampleKey_jetMinPt3_7piOver8);
+          // Sam pT binning edges: [10,11,12,13,15,19,30]
+          const std::vector<double> samPtEdges = {10,11,12,13,15,19,30};
 
-              cout << ANSI_BOLD_CYN
-                   << "[JUSTIN] Using slice files (jetMinPt3_7piOver8):\n"
-                   << "  10: " << cfgJ.photon10 << "\n"
-                   << "  20: " << cfgJ.photon20 << "\n"
-                   << ANSI_RESET;
+          const int kIsoSamJES  = 1; // Sam JES-calibrated curve
+          const int lABCD = 0;
 
-              TFile* fJ10 = TFile::Open(cfgJ.photon10.c_str(), "READ");
-              TFile* fJ20 = TFile::Open(cfgJ.photon20.c_str(), "READ");
-              if (!fJ10 || fJ10->IsZombie() || !fJ20 || fJ20->IsZombie())
+          auto FindSamExactEdgeIndex =
+            [&](double x)->int
+          {
+            for (int i = 0; i < (int)samPtEdges.size(); ++i)
+            {
+              if (std::fabs(samPtEdges[i] - x) < 1e-9) return i;
+            }
+            return -1;
+          };
+
+          auto FindSamCoveringBinIndex =
+            [&](double lo, double hi)->int
+          {
+            for (int i = 0; i + 1 < (int)samPtEdges.size(); ++i)
+            {
+              const double a = samPtEdges[i];
+              const double b = samPtEdges[i+1];
+              if (a <= lo + 1e-9 && hi <= b + 1e-9) return i;
+            }
+            return -1;
+          };
+
+          auto GetSamHistForJustinBin =
+            [&](double ptLo, double ptHi, int jR, int kIso_, int lABCD_, const std::string& newName, std::string& outSamLabel)->TH1*
+          {
+            outSamLabel = "UNKNOWN";
+
+            const int a = FindSamExactEdgeIndex(ptLo);
+            const int b = FindSamExactEdgeIndex(ptHi);
+
+            // Exact edge match: SUM Sam bins (integration)
+            if (a >= 0 && b >= 0 && b > a)
+            {
+              TH1* sum = nullptr;
+              for (int iPt = a; iPt < b; ++iPt)
               {
-                cout << ANSI_BOLD_YEL
-                     << "[WARN] Sam-vs-Justin overlay skipped: cannot open Justin slice files.\n"
-                     << ANSI_RESET;
-                if (fJ10) fJ10->Close();
-                if (fJ20) fJ20->Close();
-                fSamM->Close(); fSam10->Close(); fSam20->Close();
-                return;
+                TH1* h = GetSamHistMerged(
+                  iPt, jR, kIso_, lABCD_,
+                  TString::Format("%s_sam_i%d", newName.c_str(), iPt).Data()
+                );
+                if (!h) { if (sum) delete sum; return nullptr; }
+
+                if (!sum)
+                {
+                  sum = CloneTH1(h, newName);
+                  if (sum)
+                  {
+                    sum->Reset("ICES");
+                    sum->SetDirectory(nullptr);
+                  }
+                }
+                if (sum) sum->Add(h);
+                delete h;
               }
 
-              TDirectory* dJ10 = fJ10->GetDirectory(kDirSIM.c_str());
-              TDirectory* dJ20 = fJ20->GetDirectory(kDirSIM.c_str());
-              if (!dJ10 || !dJ20)
-              {
-                cout << ANSI_BOLD_YEL
-                     << "[WARN] Sam-vs-Justin overlay skipped: missing topDir '" << kDirSIM << "' in Justin slice file(s).\n"
-                     << ANSI_RESET;
-                fJ10->Close(); fJ20->Close();
-                fSamM->Close(); fSam10->Close(); fSam20->Close();
-                return;
-              }
+              outSamLabel = TString::Format("%.0f-%.0f", ptLo, ptHi).Data();
+              return sum;
+            }
 
-              const double N10 = ReadEventCountFromFile(fJ10, kDirSIM);
-              const double N20 = ReadEventCountFromFile(fJ20, kDirSIM);
-              if (N10 <= 0.0 || N20 <= 0.0)
-              {
-                cout << ANSI_BOLD_YEL
-                     << "[WARN] Sam-vs-Justin overlay skipped: Naccepted <= 0 in Justin slice file(s).\n"
-                     << ANSI_RESET;
-                fJ10->Close(); fJ20->Close();
-                fSamM->Close(); fSam10->Close(); fSam20->Close();
-                return;
-              }
+            // Otherwise: use single Sam bin that COVERS [ptLo,ptHi]
+            const int iCover = FindSamCoveringBinIndex(ptLo, ptHi);
+            if (iCover < 0)
+            {
+              return nullptr;
+            }
 
-            const double jw10 = kSigmaPhoton10_pb / N10;
-            const double jw20 = kSigmaPhoton20_pb / N20;
+            const double sLo = samPtEdges[iCover];
+            const double sHi = samPtEdges[iCover+1];
+            outSamLabel = TString::Format("%.0f-%.0f", sLo, sHi).Data();
 
-            cout << ANSI_DIM
-                 << "[JUSTIN] weights: jw10=" << std::setprecision(12) << jw10
-                 << "  jw20=" << std::setprecision(12) << jw20
-                 << "  (N10=" << std::fixed << std::setprecision(0) << N10
-                 << ", N20=" << N20 << ")\n"
+            return GetSamHistMerged(iCover, jR, kIso_, lABCD_, newName);
+          };
+
+          const auto& jes3Edges = Binning().jes3_photon_pt_bins;
+
+          struct RMap { std::string rKey; int jIdx; double R; };
+          const std::vector<RMap> rMap =
+          {
+            {"r04", 1, 0.4},
+            {"r06", 2, 0.6}
+          };
+
+          const double jetMinPtGeV = cfgJ.jetMinPt;
+          const std::string bbLabel = cfgJ.bbLabel;
+
+          cout << ANSI_BOLD_CYN
+               << "[PLOTS] Writing ONLY into: " << dirOver << "\n"
+               << ANSI_RESET;
+
+          for (const auto& rm : rMap)
+          {
+            const std::string& rKey = rm.rKey;
+            const double R = rm.R;
+
+            cout << ANSI_BOLD_CYN
+                 << "\n[SAM VS JUSTIN] Radius: " << rKey << "  (R=" << R << ")\n"
                  << ANSI_RESET;
 
-            // Fixed-code reference (noDeltaRcheckOnJetPhotonForReco): used ONLY for comparison overlays.
-            TFile* fFix10 = TFile::Open(jFix10.c_str(), "READ");
-            TFile* fFix20 = TFile::Open(jFix20.c_str(), "READ");
-
-            TDirectory* dFix10 = nullptr;
-            TDirectory* dFix20 = nullptr;
-
-            double fw10 = 0.0;
-            double fw20 = 0.0;
-
-            if (fFix10 && !fFix10->IsZombie() && fFix20 && !fFix20->IsZombie())
-            {
-              dFix10 = fFix10->GetDirectory(kDirSIM.c_str());
-              dFix20 = fFix20->GetDirectory(kDirSIM.c_str());
-
-              const double FN10 = ReadEventCountFromFile(fFix10, kDirSIM);
-              const double FN20 = ReadEventCountFromFile(fFix20, kDirSIM);
-
-              if (dFix10 && dFix20 && FN10 > 0.0 && FN20 > 0.0)
-              {
-                fw10 = kSigmaPhoton10_pb / FN10;
-                fw20 = kSigmaPhoton20_pb / FN20;
-              }
-              else
-              {
-                cout << ANSI_BOLD_YEL
-                     << "[WARN] [JUSTIN][FIXED] Fixed-code slice files missing '" << kDirSIM << "' or Naccepted<=0; fixed overlays will be skipped.\n"
-                     << ANSI_RESET;
-
-                if (fFix10) { fFix10->Close(); fFix10 = nullptr; }
-                if (fFix20) { fFix20->Close(); fFix20 = nullptr; }
-                dFix10 = nullptr;
-                dFix20 = nullptr;
-              }
-            }
-            else
+            TH3* hJustin3_reco = BuildJustinMergedTH3(rKey, "h_JES3_pT_xJ_alpha_", "RECO");
+            if (!hJustin3_reco)
             {
               cout << ANSI_BOLD_YEL
-                   << "[WARN] [JUSTIN][FIXED] Cannot open one or both fixed-code slice files; fixed overlays will be skipped.\n"
-                   << "       10=" << jFix10 << "\n"
-                   << "       20=" << jFix20 << "\n"
+                   << "[WARN] Missing Justin TH3 for " << rKey << " (h_JES3_pT_xJ_alpha_" << rKey << "). Skipping radius.\n"
                    << ANSI_RESET;
-
-              if (fFix10) { fFix10->Close(); fFix10 = nullptr; }
-              if (fFix20) { fFix20->Close(); fFix20 = nullptr; }
-              dFix10 = nullptr;
-              dFix20 = nullptr;
+              continue;
             }
 
-            auto BuildJustinMergedTH3_Fixed =
-              [&](const std::string& rKey, const std::string& hPrefix, const std::string& tag)->TH3*
+            TH3* hJustin3_tag = BuildJustinMergedTH3(rKey, "h_JES3RecoTruthTagged_pT_xJ_alpha_", "RECO_truthTaggedPhoJet");
+            if (!hJustin3_tag)
             {
-                if (!dFix10 || !dFix20) return nullptr;
-
-                const std::string hname = hPrefix + rKey;
-
-                // ------------------------------------------------------------
-                // 1) Prefer pre-built merged SIM file for fixed-code sample
-                // ------------------------------------------------------------
-                TFile* fFM = TFile::Open(jFixMerged.c_str(), "READ");
-                if (fFM && !fFM->IsZombie())
-                {
-                  TDirectory* dFM = fFM->GetDirectory(kDirSIM.c_str());
-                  if (dFM)
-                  {
-                    TH3* hm = dynamic_cast<TH3*>(dFM->Get(hname.c_str()));
-                    if (hm)
-                    {
-                      TH3* out = CloneTH3(hm, TString::Format("hJustin_%s_%s_fixed", tag.c_str(), rKey.c_str()).Data());
-                      if (out)
-                      {
-                        out->SetDirectory(nullptr);
-                        if (out->GetSumw2N() == 0) out->Sumw2();
-                        fFM->Close();
-                        return out;
-                      }
-                    }
-                  }
-                  fFM->Close();
-                }
-
-                // ------------------------------------------------------------
-                // 2) Fallback: in-memory weighted merge from fixed-code slice files
-                // ------------------------------------------------------------
-                TH3* h10 = dynamic_cast<TH3*>(dFix10->Get(hname.c_str()));
-                TH3* h20 = dynamic_cast<TH3*>(dFix20->Get(hname.c_str()));
-                if (!h10 && !h20) return nullptr;
-
-                TH3* h = nullptr;
-                if (h10)
-                {
-                  h = CloneTH3(h10, TString::Format("hJustin_%s_%s_fixed", tag.c_str(), rKey.c_str()).Data());
-                  if (h)
-                  {
-                    h->SetDirectory(nullptr);
-                    if (h->GetSumw2N() == 0) h->Sumw2();
-                    h->Scale(fw10);
-                  }
-                }
-                if (!h && h20)
-                {
-                  h = CloneTH3(h20, TString::Format("hJustin_%s_%s_fixed", tag.c_str(), rKey.c_str()).Data());
-                  if (h)
-                  {
-                    h->SetDirectory(nullptr);
-                    if (h->GetSumw2N() == 0) h->Sumw2();
-                    h->Scale(fw20);
-                  }
-                }
-                if (h && h20)
-                {
-                  TH3* tmp = CloneTH3(h20, TString::Format("hJustin_%s_tmp20_fixed_%s", tag.c_str(), rKey.c_str()).Data());
-                  if (tmp)
-                  {
-                    tmp->SetDirectory(nullptr);
-                    if (tmp->GetSumw2N() == 0) tmp->Sumw2();
-                    tmp->Scale(fw20);
-                    h->Add(tmp);
-                    delete tmp;
-                  }
-                }
-
-                return h;
-            };
-
-            auto BuildJustinMergedTH3 =
-              [&](const std::string& rKey, const std::string& hPrefix, const std::string& tag)->TH3*
-            {
-                const std::string hname = hPrefix + rKey;
-
-                // ------------------------------------------------------------
-                // 1) Prefer pre-built merged SIM file for jetMinPt3_7piOver8
-                // ------------------------------------------------------------
-                const std::string mergedPath =
-                  MergedSIMOut_10and20_ForKey(kAltSimSampleKey_jetMinPt3_7piOver8);
-
-                TFile* fJM = TFile::Open(mergedPath.c_str(), "READ");
-                if (fJM && !fJM->IsZombie())
-                {
-                  TDirectory* dJM = fJM->GetDirectory(kDirSIM.c_str());
-                  if (dJM)
-                  {
-                    TH3* hm = dynamic_cast<TH3*>(dJM->Get(hname.c_str()));
-                    if (hm)
-                    {
-                      TH3* out = CloneTH3(hm, TString::Format("hJustin_%s_%s", tag.c_str(), rKey.c_str()).Data());
-                      if (out)
-                      {
-                        out->SetDirectory(nullptr);
-                        if (out->GetSumw2N() == 0) out->Sumw2();
-                        fJM->Close();
-                        return out;
-                      }
-                    }
-                  }
-                  fJM->Close();
-                }
-
-                // ------------------------------------------------------------
-                // 2) Fallback: in-memory weighted merge from slice files
-                // ------------------------------------------------------------
-                TH3* h10 = dynamic_cast<TH3*>(dJ10->Get(hname.c_str()));
-                TH3* h20 = dynamic_cast<TH3*>(dJ20->Get(hname.c_str()));
-                if (!h10 && !h20) return nullptr;
-
-                TH3* h = nullptr;
-                if (h10)
-                {
-                  h = CloneTH3(h10, TString::Format("hJustin_%s_%s", tag.c_str(), rKey.c_str()).Data());
-                  if (h)
-                  {
-                    h->SetDirectory(nullptr);
-                    if (h->GetSumw2N() == 0) h->Sumw2();
-                    h->Scale(jw10);
-                  }
-                }
-                if (!h && h20)
-                {
-                  h = CloneTH3(h20, TString::Format("hJustin_%s_%s", tag.c_str(), rKey.c_str()).Data());
-                  if (h)
-                  {
-                    h->SetDirectory(nullptr);
-                    if (h->GetSumw2N() == 0) h->Sumw2();
-                    h->Scale(jw20);
-                  }
-                }
-                if (h && h20)
-                {
-                  TH3* tmp = CloneTH3(h20, TString::Format("hJustin_%s_tmp20_%s", tag.c_str(), rKey.c_str()).Data());
-                  if (tmp)
-                  {
-                    tmp->SetDirectory(nullptr);
-                    if (tmp->GetSumw2N() == 0) tmp->Sumw2();
-                    tmp->Scale(jw20);
-                    h->Add(tmp);
-                    delete tmp;
-                  }
-                }
-
-                return h;
-            };
-
-              auto FindXbinByEdges =
-                [&](const TAxis* ax, double lo, double hi)->int
-              {
-                if (!ax) return -1;
-                const int nb = ax->GetNbins();
-                for (int ib = 1; ib <= nb; ++ib)
-                {
-                  const double a = ax->GetBinLowEdge(ib);
-                  const double b = ax->GetBinUpEdge(ib);
-                  if (std::fabs(a - lo) < 1e-6 && std::fabs(b - hi) < 1e-6) return ib;
-                }
-                return -1;
-              };
-
-              auto StyleForOverlay =
-                [&](TH1* h, int col)->void
-              {
-                if (!h) return;
-                EnsureSumw2(h);
-                h->SetTitle("");
-                h->SetLineWidth(2);
-                h->SetLineColor(col);
-                h->SetMarkerStyle(20);
-                h->SetMarkerSize(1.00);
-                h->SetMarkerColor(col);
-                h->SetFillStyle(0);
-                h->GetXaxis()->SetTitle("x_{J#gamma}");
-                h->GetYaxis()->SetTitle("A.U.");
-                const int nb = h->GetNbinsX();
-                const double integ = h->Integral(0, nb + 1);
-                if (integ > 0.0) h->Scale(1.0 / integ);
-              };
-
-            // Sam pT binning edges: [10,11,12,13,15,19,30]
-            const std::vector<double> samPtEdges = {10,11,12,13,15,19,30};
-
-            // Sam naming: hratio_i_j_k_l_m where k = uncalib/calib [0,1]
-            // We want the JES-calibrated Sam curve => k=1
-            const int kIsoSamJES  = 1;
-
-            // Prev distribution comes from the legacy merged file (old naming), keep k=0 there
-            const int kIsoSamPrev = 0;
-
-            const int lABCD = 0;
-
-              auto FindSamExactEdgeIndex =
-                [&](double x)->int
-              {
-                for (int i = 0; i < (int)samPtEdges.size(); ++i)
-                {
-                  if (std::fabs(samPtEdges[i] - x) < 1e-9) return i;
-                }
-                return -1;
-              };
-
-              auto FindSamCoveringBinIndex =
-                [&](double lo, double hi)->int
-              {
-                for (int i = 0; i + 1 < (int)samPtEdges.size(); ++i)
-                {
-                  const double a = samPtEdges[i];
-                  const double b = samPtEdges[i+1];
-                  if (a <= lo + 1e-9 && hi <= b + 1e-9) return i;
-                }
-                return -1;
-              };
-
-            auto GetSamHistForJustinBin =
-              [&](double ptLo, double ptHi, int jR, int kIso_, int lABCD_, const std::string& newName, std::string& outSamLabel)->TH1*
-            {
-              outSamLabel = "UNKNOWN";
-
-              const int a = FindSamExactEdgeIndex(ptLo);
-              const int b = FindSamExactEdgeIndex(ptHi);
-
-              // Exact edge match: SUM Sam bins (integration)
-              if (a >= 0 && b >= 0 && b > a)
-              {
-                TH1* sum = nullptr;
-                for (int iPt = a; iPt < b; ++iPt)
-                {
-                  TH1* h = GetSamHistMergedOrFallback(
-                    iPt, jR, kIso_, lABCD_,
-                    TString::Format("%s_sam_i%d", newName.c_str(), iPt).Data()
-                  );
-                  if (!h) { if (sum) delete sum; return nullptr; }
-
-                  if (!sum)
-                  {
-                    sum = CloneTH1(h, newName);
-                    if (sum)
-                    {
-                      sum->Reset("ICES");
-                      sum->SetDirectory(nullptr);
-                    }
-                  }
-                  if (sum) sum->Add(h);
-                  delete h;
-                }
-
-                outSamLabel = TString::Format("%.0f-%.0f", ptLo, ptHi).Data();
-                return sum;
-              }
-
-              // Otherwise: use single Sam bin that COVERS [ptLo,ptHi]
-              const int iCover = FindSamCoveringBinIndex(ptLo, ptHi);
-              if (iCover < 0)
-              {
-                return nullptr;
-              }
-
-              const double sLo = samPtEdges[iCover];
-              const double sHi = samPtEdges[iCover+1];
-              outSamLabel = TString::Format("%.0f-%.0f", sLo, sHi).Data();
-
-              return GetSamHistMergedOrFallback(iCover, jR, kIso_, lABCD_, newName);
-            };
-
-            // ------------------------------------------------------------------------------
-            // PREV Sam distribution (from histsPhoton10plus20_unsmear_MERGED.root)
-            //   - old naming scheme: hratio_i_j_k_l
-            // ------------------------------------------------------------------------------
-            auto GetSamPrevHistMerged =
-              [&](int iPt, int jR, int kIso, int lABCD, const std::string& newName)->TH1*
-            {
-              if (!fSamPrevM) return nullptr;
-
-              const std::string nm = TString::Format("hratio_%d_%d_%d_%d", iPt, jR, kIso, lABCD).Data();
-              TH1* h = dynamic_cast<TH1*>(fSamPrevM->Get(nm.c_str()));
-              if (!h) return nullptr;
-
-              TH1* c = CloneTH1(h, newName);
-              if (c) c->SetDirectory(nullptr);
-              return c;
-            };
-
-            auto GetSamPrevHistForJustinBin =
-              [&](double ptLo, double ptHi, int jR, int kIso_, int lABCD_, const std::string& newName, std::string& outSamLabel)->TH1*
-            {
-              outSamLabel = "UNKNOWN";
-              if (!fSamPrevM) return nullptr;
-
-              const int a = FindSamExactEdgeIndex(ptLo);
-              const int b = FindSamExactEdgeIndex(ptHi);
-
-              // Exact edge match: SUM Sam bins (integration)
-              if (a >= 0 && b >= 0 && b > a)
-              {
-                TH1* sum = nullptr;
-                for (int iPt = a; iPt < b; ++iPt)
-                {
-                  TH1* h = GetSamPrevHistMerged(
-                    iPt, jR, kIso_, lABCD_,
-                    TString::Format("%s_prev_i%d", newName.c_str(), iPt).Data()
-                  );
-                  if (!h) { if (sum) delete sum; return nullptr; }
-
-                  if (!sum)
-                  {
-                    sum = CloneTH1(h, newName);
-                    if (sum)
-                    {
-                      sum->Reset("ICES");
-                      sum->SetDirectory(nullptr);
-                    }
-                  }
-                  if (sum) sum->Add(h);
-                  delete h;
-                }
-
-                outSamLabel = TString::Format("%.0f-%.0f", ptLo, ptHi).Data();
-                return sum;
-              }
-
-              // Otherwise: use single Sam bin that COVERS [ptLo,ptHi]
-              const int iCover = FindSamCoveringBinIndex(ptLo, ptHi);
-              if (iCover < 0)
-              {
-                return nullptr;
-              }
-
-              const double sLo = samPtEdges[iCover];
-              const double sHi = samPtEdges[iCover+1];
-              outSamLabel = TString::Format("%.0f-%.0f", sLo, sHi).Data();
-
-              return GetSamPrevHistMerged(iCover, jR, kIso_, lABCD_, newName);
-            };
-
-              const auto& jes3Edges = Binning().jes3_photon_pt_bins;
-
-              struct RMap { std::string rKey; int jIdx; double R; };
-              const std::vector<RMap> rMap =
-              {
-                {"r04", 1, 0.4},
-                {"r06", 2, 0.6}
-              };
-
-              const std::string bbLabel = "7#pi/8";
-              const double jetMinPtGeV = 3.0;
-
-              cout << ANSI_BOLD_CYN
-                   << "[PLOTS] Writing ONLY into: " << plotsDir << "\n"
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] Missing Justin truth-tagged TH3 for " << rKey << " (h_JES3RecoTruthTagged_pT_xJ_alpha_" << rKey << "). Will draw Sam vs Justin only.\n"
                    << ANSI_RESET;
+            }
 
-              for (const auto& rm : rMap)
-              {
-                  const std::string& rKey = rm.rKey;
-                  const double R = rm.R;
-
-                  cout << ANSI_BOLD_CYN
-                       << "\n[SAM VS JUSTIN] Radius: " << rKey << "  (R=" << R << ")\n"
-                       << ANSI_RESET;
-
-                  TH3* hJustin3_reco = BuildJustinMergedTH3(rKey, "h_JES3_pT_xJ_alpha_", "RECO");
-                    if (!hJustin3_reco)
-                    {
-                      cout << ANSI_BOLD_YEL
-                           << "[WARN] Missing Justin TH3 for " << rKey << " (h_JES3_pT_xJ_alpha_" << rKey << "). Skipping radius.\n"
-                           << ANSI_RESET;
-                      continue;
-                    }
-
-                  TH3* hJustin3_reco_fixed = BuildJustinMergedTH3_Fixed(rKey, "h_JES3_pT_xJ_alpha_", "RECO");
-                    if (!hJustin3_reco_fixed)
-                    {
-                      cout << ANSI_BOLD_YEL
-                           << "[WARN] Missing Justin FIXED TH3 for " << rKey << " (h_JES3_pT_xJ_alpha_" << rKey << "). Will skip fixed-code overlays for this radius.\n"
-                           << ANSI_RESET;
-                    }
-
-                  // Default RECO TH3 from kDefaultSimSampleKey merged file (jetMinPt10_pihalves)
-                  TH3* hDefault3_reco = nullptr;
-                  if (dDefaultM)
-                  {
-                    const std::string hnameDef = std::string("h_JES3_pT_xJ_alpha_") + rKey;
-                    TH3* hDef = dynamic_cast<TH3*>(dDefaultM->Get(hnameDef.c_str()));
-                    if (hDef)
-                    {
-                      hDefault3_reco = CloneTH3(hDef, TString::Format("hDefaultReco_%s_%s", defaultKey.c_str(), rKey.c_str()).Data());
-                      if (hDefault3_reco)
-                      {
-                        hDefault3_reco->SetDirectory(nullptr);
-                        if (hDefault3_reco->GetSumw2N() == 0) hDefault3_reco->Sumw2();
-                      }
-                    }
-
-                    if (!hDefault3_reco)
-                    {
-                      cout << ANSI_BOLD_YEL
-                           << "[WARN] Missing default TH3 for " << rKey << " in default key=" << defaultKey
-                           << " (h_JES3_pT_xJ_alpha_" << rKey << "). Will skip default overlays for this radius.\n"
-                           << ANSI_RESET;
-                    }
-                  }
-
-                    // Also build the Justin truth-tagged (PHOTON+JET) TH3 for a parallel overlay set
-                    TH3* hJustin3_tag = BuildJustinMergedTH3(rKey, "h_JES3RecoTruthTagged_pT_xJ_alpha_", "RECO_truthTaggedPhoJet");
-                    if (!hJustin3_tag)
-                    {
-                      cout << ANSI_BOLD_YEL
-                           << "[WARN] Missing Justin TH3 for " << rKey << " (h_JES3RecoTruthTagged_pT_xJ_alpha_" << rKey << "). Will skip the truth-tagged overlay set for this radius.\n"
-                           << ANSI_RESET;
-                  }
-
-                  // --------------------------------------------------------------------------------
-                  // (A) Sam vs Justin: RECO-only (Justin = h_JES3_pT_xJ_alpha_<rKey>)
-                  // --------------------------------------------------------------------------------
-                  for (int ip = 0; ip + 1 < (int)jes3Edges.size(); ++ip)
-                  {
-                    const double ptLo = jes3Edges[(std::size_t)ip];
-                    const double ptHi = jes3Edges[(std::size_t)ip + 1];
-
-                    const int xbin = FindXbinByEdges(hJustin3_reco->GetXaxis(), ptLo, ptHi);
-                    if (xbin < 1)
-                    {
-                        cout << ANSI_BOLD_YEL
-                             << "[WARN] Justin TH3 missing pT bin " << ptLo << "-" << ptHi << " for " << rKey << ". Skipping bin.\n"
-                             << ANSI_RESET;
-                        continue;
-                    }
-
-                      TH1* hJustin = ProjectY_AtXbin_TH3(
-                          hJustin3_reco, xbin,
-                          TString::Format("hJustin_xJ_%.0f_%.0f_%s", ptLo, ptHi, rKey.c_str()).Data()
-                      );
-
-                      // Default RECO projection for the same pT bin (if available)
-                      TH1* hDefault = nullptr;
-                      if (hDefault3_reco)
-                      {
-                        const int xbinDef = FindXbinByEdges(hDefault3_reco->GetXaxis(), ptLo, ptHi);
-                        if (xbinDef >= 1)
-                        {
-                          hDefault = ProjectY_AtXbin_TH3(
-                            hDefault3_reco, xbinDef,
-                            TString::Format("hDefaultReco_xJ_%.0f_%.0f_%s", ptLo, ptHi, rKey.c_str()).Data()
-                          );
-                        }
-                        else
-                        {
-                          cout << ANSI_BOLD_YEL
-                               << "[WARN] Default TH3 missing pT bin " << ptLo << "-" << ptHi << " for " << rKey
-                               << " (defaultKey=" << defaultKey << "). Skipping default overlays for this bin.\n"
-                               << ANSI_RESET;
-                        }
-                      }
-
-                      std::string samPtLabel;
-                      TH1* hSam = GetSamHistForJustinBin(
-                        ptLo, ptHi, rm.jIdx, kIsoSamJES, lABCD,
-                        TString::Format("hSam_xJ_%.0f_%.0f_%s", ptLo, ptHi, rKey.c_str()).Data(),
-                        samPtLabel
-                      );
-
-                      std::string samPrevPtLabel;
-                      TH1* hSamPrev = GetSamPrevHistForJustinBin(
-                        ptLo, ptHi, rm.jIdx, kIsoSamPrev, lABCD,
-                        TString::Format("hSamPrev_xJ_%.0f_%.0f_%s", ptLo, ptHi, rKey.c_str()).Data(),
-                        samPrevPtLabel
-                      );
-
-                    cout << "  bin " << std::fixed << std::setprecision(0) << ptLo << "-" << ptHi
-                         << "  SamUsed=" << samPtLabel
-                      << "  SamPrevUsed=" << samPrevPtLabel
-                      << "  jIdx=" << rm.jIdx << "  kSamJES=" << kIsoSamJES << "  kSamPrev=" << kIsoSamPrev << "  l=" << lABCD << "\n";
-
-                    PrintH1Summary("Sam(raw,JES)", hSam);
-                    PrintH1Summary("Sam(raw,Prev)", hSamPrev);
-                    PrintH1Summary("Justin(raw)", hJustin);
-
-                    if (!hJustin || !hSam)
-                    {
-                      if (hJustin) delete hJustin;
-                      if (hSam) delete hSam;
-                      if (hSamPrev) delete hSamPrev;
-                      continue;
-                    }
-
-                    // QA: write Sam-only and Justin-only plots before overlay
-                    {
-                      TH1* s = CloneTH1(hSam, TString::Format("hSamOnly_%s", hSam->GetName()).Data());
-                      TH1* j = CloneTH1(hJustin, TString::Format("hJustinOnly_%s", hJustin->GetName()).Data());
-
-                      if (s)
-                      {
-                        StyleForOverlay(s, 2);
-                        TCanvas cS("cSamOnly","cSamOnly",900,700);
-                        ApplyCanvasMargins1D(cS);
-                        s->Draw("E1");
-
-                        TLatex t;
-                        t.SetNDC(true); t.SetTextFont(42); t.SetTextAlign(13);
-                        t.SetTextSize(0.040);
-                        t.DrawLatex(0.14, 0.92, "Sam only: hratio");
-                        t.SetTextSize(0.034);
-                        t.DrawLatex(0.14, 0.86, TString::Format("Sam p_{T}^{#gamma}: %s GeV", samPtLabel.c_str()).Data());
-                          t.DrawLatex(0.14, 0.81, TString::Format("R=%.1f  j=%d  kSamJES=%d  l=%d", R, rm.jIdx, kIsoSamJES, lABCD).Data());
-
-                          SaveCanvas(cS, JoinPath(dirQA_SamOnly,
-                            TString::Format("SamOnly_hratio_SamPt_%s_%s.png", samPtLabel.c_str(), rKey.c_str()).Data()
-                          ));
-                        delete s;
-                      }
-
-                      if (j)
-                      {
-                        StyleForOverlay(j, 4);
-                        TCanvas cJ("cJustinOnly","cJustinOnly",900,700);
-                        ApplyCanvasMargins1D(cJ);
-                        j->Draw("E1");
-
-                        TLatex t;
-                        t.SetNDC(true); t.SetTextFont(42); t.SetTextAlign(13);
-                        t.SetTextSize(0.040);
-                        t.DrawLatex(0.14, 0.92, "Justin only: JES3 RECO");
-                        t.SetTextSize(0.034);
-                        t.DrawLatex(0.14, 0.86, TString::Format("Justin p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
-                        t.DrawLatex(0.14, 0.81, TString::Format("R=%.1f (%s)", R, rKey.c_str()).Data());
-
-                          SaveCanvas(cJ, JoinPath(plotsDir,
-                            TString::Format("JustinOnly_JES3_RECO_pTgamma_%.0f_%.0f_%s.png", ptLo, ptHi, rKey.c_str()).Data()
-                          ));
-                        delete j;
-                      }
-                    }
-
-                      // Normalize shapes and overlay
-                      // Sam hratio_* is typically much finer-binned than Justin's xJ projection.
-                      // Rebin Sam onto Justin's x-axis BEFORE normalization so the overlay is visible/comparable.
-                      {
-                        TH1* hSamReb = CloneTH1(hJustin, TString::Format("%s_rebinnedToJustin", hSam->GetName()).Data());
-                        if (hSamReb)
-                        {
-                          hSamReb->Reset("ICES");
-                          hSamReb->SetDirectory(nullptr);
-                          if (hSamReb->GetSumw2N() == 0) hSamReb->Sumw2();
-
-                          const int nbIn = hSam->GetNbinsX();
-                          for (int ib = 1; ib <= nbIn; ++ib)
-                          {
-                            const double x = hSam->GetXaxis()->GetBinCenter(ib);
-                            const int ob = hSamReb->FindBin(x);
-                            if (ob < 1 || ob > hSamReb->GetNbinsX()) continue;
-
-                            const double c = hSam->GetBinContent(ib);
-                            const double e = hSam->GetBinError(ib);
-
-                            hSamReb->SetBinContent(ob, hSamReb->GetBinContent(ob) + c);
-
-                            const double oe = hSamReb->GetBinError(ob);
-                            hSamReb->SetBinError(ob, std::sqrt(oe*oe + e*e));
-                          }
-
-                          delete hSam;
-                          hSam = hSamReb;
-                        }
-                      }
-
-                      // Rebin PREV Sam onto Justin axis as well (if available)
-                      if (hSamPrev)
-                      {
-                        TH1* hSamPrevReb = CloneTH1(hJustin, TString::Format("%s_rebinnedToJustin", hSamPrev->GetName()).Data());
-                        if (hSamPrevReb)
-                        {
-                          hSamPrevReb->Reset("ICES");
-                          hSamPrevReb->SetDirectory(nullptr);
-                          if (hSamPrevReb->GetSumw2N() == 0) hSamPrevReb->Sumw2();
-
-                          const int nbIn = hSamPrev->GetNbinsX();
-                          for (int ib = 1; ib <= nbIn; ++ib)
-                          {
-                            const double x = hSamPrev->GetXaxis()->GetBinCenter(ib);
-                            const int ob = hSamPrevReb->FindBin(x);
-                            if (ob < 1 || ob > hSamPrevReb->GetNbinsX()) continue;
-
-                            const double c = hSamPrev->GetBinContent(ib);
-                            const double e = hSamPrev->GetBinError(ib);
-
-                            hSamPrevReb->SetBinContent(ob, hSamPrevReb->GetBinContent(ob) + c);
-
-                            const double oe = hSamPrevReb->GetBinError(ob);
-                            hSamPrevReb->SetBinError(ob, std::sqrt(oe*oe + e*e));
-                          }
-
-                          delete hSamPrev;
-                          hSamPrev = hSamPrevReb;
-                        }
-                      }
-
-                      TH1* hJustinFixed = nullptr;
-                      if (hJustin3_reco_fixed)
-                      {
-                        const int xbinFix = FindXbinByEdges(hJustin3_reco_fixed->GetXaxis(), ptLo, ptHi);
-                        if (xbinFix >= 1)
-                        {
-                          hJustinFixed = ProjectY_AtXbin_TH3(
-                            hJustin3_reco_fixed, xbinFix,
-                            TString::Format("hJustinFixed_xJ_%.0f_%.0f_%s", ptLo, ptHi, rKey.c_str()).Data()
-                          );
-                        }
-                      }
-
-                      StyleForOverlay(hSam, 2);
-                      if (hSamPrev) StyleForOverlay(hSamPrev, 1);
-                      StyleForOverlay(hJustin, 4);
-                      if (hJustinFixed) StyleForOverlay(hJustinFixed, 8);
-                      if (hDefault) StyleForOverlay(hDefault, 6);
-
-                      PrintH1Summary("Sam(norm,JES)", hSam);
-                      PrintH1Summary("Sam(norm,Prev)", hSamPrev);
-                      PrintH1Summary("Justin(norm)", hJustin);
-                      if (hJustinFixed) PrintH1Summary("JustinFixed(norm)", hJustinFixed);
-                      if (hDefault) PrintH1Summary("DefaultReco(norm)", hDefault);
-
-                      // -------------------------------------------------------------------------
-                      // (A1) KEEP ORIGINAL: Sam vs CURRENT merged RECO only  (this stays by itself)
-                      //      + ONLY for pT=13-15, draw the jetMinPt cut lines and add a small legend.
-                      // -------------------------------------------------------------------------
-                      {
-                        double ymax = 0.0;
-                        ymax = std::max(ymax, hSam->GetMaximum());
-                        ymax = std::max(ymax, hJustin->GetMaximum());
-                        hSam->SetMaximum(ymax * 1.1);
-
-                        TCanvas c("c_SamVsJustin","c_SamVsJustin",900,700);
-                        ApplyCanvasMargins1D(c);
-
-                        hSam->Draw("E1");
-                        hJustin->Draw("E1 same");
-
-                        // Optional cut lines ONLY for the 13-15 GeV bin (current sample is jetMinPt3_7piOver8)
-                        TLine* lAbs  = nullptr;
-                        TLine* lFull = nullptr;
-
-                        const bool is1315 = (std::fabs(ptLo - 13.0) < 1e-6 && std::fabs(ptHi - 15.0) < 1e-6);
-                        if (is1315)
-                        {
-                          const double xAbs  = jetMinPtGeV / ptHi;
-                          const double xFull = jetMinPtGeV / ptLo;
-
-                          lAbs  = new TLine(xAbs,  0.0, xAbs,  ymax * 1.10);
-                          lFull = new TLine(xFull, 0.0, xFull, ymax * 1.10);
-
-                          lAbs->SetLineColor(4);
-                          lAbs->SetLineWidth(2);
-                          lAbs->SetLineStyle(2);
-
-                          lFull->SetLineColor(2);
-                          lFull->SetLineWidth(2);
-                          lFull->SetLineStyle(2);
-
-                          lAbs->Draw("same");
-                          lFull->Draw("same");
-                        }
-
-                        TLegend leg(0.42, 0.73, 0.85, 0.90);
-                        leg.SetTextFont(42);
-                        leg.SetTextSize(0.033);
-                        leg.SetFillStyle(0);
-                        leg.SetBorderSize(0);
-                          leg.AddEntry(hSam,    TString::Format("Sam's RECO (R = %.1f)", R).Data(), "ep");
-                          leg.AddEntry(hJustin, TString::Format("Justin's RECO (R = %.1f)", R).Data(), "ep");
-                        leg.Draw();
-
-                        // Note: aligned just under and a bit left of the legend block
-                        TLatex tNote;
-                        tNote.SetNDC(true);
-                        tNote.SetTextFont(42);
-                        tNote.SetTextAlign(13); // left-top
-                        tNote.SetTextSize(0.034);
-                        tNote.DrawLatex(0.50, 0.705, "Photon 10 + 20 GeV #gamma+Jet MC");
-
-                        // Info block: middle RHS of the canvas
-                        TLatex t;
-                        t.SetNDC(true);
-                        t.SetTextFont(42);
-                        t.SetTextSize(0.034);
-                        t.SetTextAlign(12); // left-center
-                        t.DrawLatex(0.60, 0.62, TString::Format("p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
-                        t.DrawLatex(0.60, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
-                        t.DrawLatex(0.60, 0.52, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
-                        t.DrawLatex(0.60, 0.47, TString::Format("Back-to-back: %s", bbLabel.c_str()).Data());
-
-                          TLegend* legCuts = nullptr;
-
-                          // Small legend for the cut lines (ONLY in 13-15)
-                          if (is1315 && lAbs && lFull)
-                          {
-                            legCuts = new TLegend(0.60, 0.32, 0.88, 0.43);
-                            legCuts->SetTextFont(42);
-                            legCuts->SetTextSize(0.032);
-                            legCuts->SetFillStyle(0);
-                            legCuts->SetBorderSize(0);
-
-                            legCuts->AddEntry(lAbs,  "x_{J,min}^{abs} = p_{T}^{jet,min}/p_{T,max}^{#gamma}", "l");
-                            legCuts->AddEntry(lFull, "x_{J,min}^{full} = p_{T}^{jet,min}/p_{T,min}^{#gamma}", "l");
-
-                            legCuts->Draw();
-                          }
-
-                        const std::string outName =
-                          TString::Format("overlay_SamVsJustin_JES3_RECO_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
-                            ptLo, ptHi, samPtLabel.c_str(), rKey.c_str()).Data();
-
-                        c.Modified();
-                        c.Update();
-                        SaveCanvas(c, JoinPath(dirOver_RECO_current, outName));
-
-                          if (legCuts) delete legCuts;
-                          if (lAbs)  delete lAbs;
-                          if (lFull) delete lFull;
-                        }
-
-                      // -------------------------------------------------------------------------
-                      // (A1c) NEW: TRIPLE overlay (Sam vs CURRENT vs FIXED-CODE merged RECO only)
-                      //   FIXED-CODE = noDeltaRcheckOnJetPhotonForReco (merged 10+20)
-                      // -------------------------------------------------------------------------
-                      if (hJustinFixed)
-                      {
-                        const double ymaxF = std::max(hSam->GetMaximum(), std::max(hJustin->GetMaximum(), hJustinFixed->GetMaximum()));
-                        hSam->SetMaximum(ymaxF * 1.1);
-
-                        TCanvas cF("c_SamVsCurrentVsFixedCode","c_SamVsCurrentVsFixedCode",900,700);
-                        ApplyCanvasMargins1D(cF);
-
-                        hSam->Draw("E1");
-                        hJustin->Draw("E1 same");
-                        hJustinFixed->Draw("E1 same");
-
-                        // Optional cut lines ONLY for the 13-15 GeV bin (current sample is jetMinPt3_7piOver8)
-                        TLine* lAbsF  = nullptr;
-                        TLine* lFullF = nullptr;
-
-                        const bool is1315 = (std::fabs(ptLo - 13.0) < 1e-6 && std::fabs(ptHi - 15.0) < 1e-6);
-                        if (is1315)
-                        {
-                          const double xAbs  = jetMinPtGeV / ptHi;
-                          const double xFull = jetMinPtGeV / ptLo;
-
-                          lAbsF  = new TLine(xAbs,  0.0, xAbs,  ymaxF * 1.10);
-                          lFullF = new TLine(xFull, 0.0, xFull, ymaxF * 1.10);
-
-                          lAbsF->SetLineColor(4);
-                          lAbsF->SetLineWidth(2);
-                          lAbsF->SetLineStyle(2);
-
-                          lFullF->SetLineColor(2);
-                          lFullF->SetLineWidth(2);
-                          lFullF->SetLineStyle(2);
-
-                          lAbsF->Draw("same");
-                          lFullF->Draw("same");
-                        }
-
-                        TLegend legF(0.30, 0.73, 0.82, 0.90);
-                        legF.SetTextFont(42);
-                        legF.SetTextSize(0.028);
-                        legF.SetFillStyle(0);
-                        legF.SetBorderSize(0);
-                        legF.AddEntry(hSam,        TString::Format("Sam's Reco (R = %.1f)", R).Data(), "ep");
-                        legF.AddEntry(hJustin,     TString::Format("Justin's RECO w/ Matched Cuts (R = %.1f)", R).Data(), "ep");
-                        legF.AddEntry(hJustinFixed,TString::Format("Justin's RECO w/ Matched Cuts (R = %.1f) (fixed code)", R).Data(), "ep");
-                        legF.Draw();
-
-                        // Note: aligned just under and a bit left of the legend block
-                        TLatex tNoteF;
-                        tNoteF.SetNDC(true);
-                        tNoteF.SetTextFont(42);
-                        tNoteF.SetTextAlign(13); // left-top
-                        tNoteF.SetTextSize(0.034);
-                          tNoteF.DrawLatex(0.50, 0.705, "Photon 10 + 20 GeV #gamma+Jet MC");
-
-                        // Info block: middle RHS of the canvas
-                        TLatex tF;
-                        tF.SetNDC(true);
-                        tF.SetTextFont(42);
-                        tF.SetTextSize(0.034);
-                        tF.SetTextAlign(12); // left-center
-                        tF.DrawLatex(0.60, 0.62, TString::Format("p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
-                        tF.DrawLatex(0.60, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
-                        tF.DrawLatex(0.60, 0.52, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
-                        tF.DrawLatex(0.60, 0.47, TString::Format("Back-to-back: %s", bbLabel.c_str()).Data());
-
-                          TLegend* legCutsF = nullptr;
-
-                          // Small legend for the cut lines (ONLY in 13-15)
-                          if (is1315 && lAbsF && lFullF)
-                          {
-                            legCutsF = new TLegend(0.60, 0.32, 0.88, 0.43);
-                            legCutsF->SetTextFont(42);
-                            legCutsF->SetTextSize(0.032);
-                            legCutsF->SetFillStyle(0);
-                            legCutsF->SetBorderSize(0);
-
-                            legCutsF->AddEntry(lAbsF,  "x_{J,min}^{abs} = p_{T}^{jet,min}/p_{T,max}^{#gamma}", "l");
-                            legCutsF->AddEntry(lFullF, "x_{J,min}^{full} = p_{T}^{jet,min}/p_{T,min}^{#gamma}", "l");
-
-                            legCutsF->Draw();
-                          }
-
-                        const std::string outNameF =
-                          TString::Format("overlay_SamVsCurrentVsFixedCode_JES3_RECO_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
-                            ptLo, ptHi, samPtLabel.c_str(), rKey.c_str()).Data();
-
-                        cF.Modified();
-                        cF.Update();
-                        SaveCanvas(cF, JoinPath(dirOver_RECO_triple_fixed, outNameF));
-
-                          if (legCutsF) delete legCutsF;
-                          if (lAbsF)  delete lAbsF;
-                          if (lFullF) delete lFullF;
-                      }
-
-                      if (hJustinFixed)
-                      {
-                        delete hJustinFixed;
-                        hJustinFixed = nullptr;
-                      }
-
-                        // -------------------------------------------------------------------------
-                        // (A1b) NEW: TRIPLE overlay (current merged only, ignoring default)
-                        //   Sam  vs  Justin RECO (matched cuts)  vs  Justin RECO truth-tagged (PHOTON+JET)
-                        // -------------------------------------------------------------------------
-                        if (hJustin3_tag)
-                        {
-                          const int xbinTag = FindXbinByEdges(hJustin3_tag->GetXaxis(), ptLo, ptHi);
-                          if (xbinTag >= 1)
-                          {
-                            TH1* hJustinTag = ProjectY_AtXbin_TH3(
-                              hJustin3_tag, xbinTag,
-                              TString::Format("hJustin_truthTaggedPhoJet_xJ_%.0f_%.0f_%s", ptLo, ptHi, rKey.c_str()).Data()
-                            );
-
-                            if (hJustinTag)
-                            {
-                                StyleForOverlay(hJustinTag, 6);
-                                hJustinTag->SetMarkerStyle(24);
-
-                                auto MaxBinContent = [&](TH1* h)->double
-                                {
-                                  if (!h) return 0.0;
-                                  double m = 0.0;
-                                  const int nb = h->GetNbinsX();
-                                  for (int ib = 1; ib <= nb; ++ib)
-                                  {
-                                    const double v = h->GetBinContent(ib);
-                                    if (v > m) m = v;
-                                  }
-                                  return m;
-                                };
-
-                                double ymax3 = 0.0;
-                                ymax3 = std::max(ymax3, MaxBinContent(hSam));
-                                ymax3 = std::max(ymax3, MaxBinContent(hJustin));
-                                ymax3 = std::max(ymax3, MaxBinContent(hJustinTag));
-                                hSam->SetMaximum(ymax3 * 1.03);
-
-                              TCanvas c3("c_SamVsCurrentRecoVsTruthTagged","c_SamVsCurrentRecoVsTruthTagged",900,700);
-                              ApplyCanvasMargins1D(c3);
-
-                              hSam->Draw("E1");
-                              hJustin->Draw("E1 same");
-                              hJustinTag->Draw("E1 same");
-
-                              TLegend leg3(0.42, 0.73, 0.85, 0.90);
-                              leg3.SetTextFont(42);
-                              leg3.SetTextSize(0.033);
-                              leg3.SetFillStyle(0);
-                              leg3.SetBorderSize(0);
-                              leg3.AddEntry(hSam,      TString::Format("Sam's Reco (R = %.1f)", R).Data(), "ep");
-                              leg3.AddEntry(hJustin,   TString::Format("Justin RECO w/ matched cuts (R = %.1f)", R).Data(), "ep");
-                              leg3.AddEntry(hJustinTag,TString::Format("Justin RECO (#gamma^{truth} + jet^{truth} tag) (R = %.1f)", R).Data(), "ep");
-                              leg3.Draw();
-
-                              TLatex tNote3;
-                              tNote3.SetNDC(true);
-                              tNote3.SetTextFont(42);
-                              tNote3.SetTextAlign(13); // left-top
-                              tNote3.SetTextSize(0.034);
-                                tNote3.DrawLatex(0.50, 0.705, "Photon 10 + 20 GeV #gamma+Jet MC");
-
-                              TLatex t3;
-                              t3.SetNDC(true);
-                              t3.SetTextFont(42);
-                              t3.SetTextSize(0.034);
-                              t3.SetTextAlign(12); // left-center
-                              t3.DrawLatex(0.60, 0.62, TString::Format("p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
-                              t3.DrawLatex(0.60, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
-                              t3.DrawLatex(0.60, 0.52, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
-                              t3.DrawLatex(0.60, 0.47, TString::Format("Back-to-back: %s", bbLabel.c_str()).Data());
-
-                              const std::string outName3 =
-                                TString::Format("overlay_SamVsCurrentRecoVsTruthTagged_JES3_RECO_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
-                                  ptLo, ptHi, samPtLabel.c_str(), rKey.c_str()).Data();
-
-                              SaveCanvas(c3, JoinPath(dirOver_RECO_triple_currentTag, outName3));
-
-                              delete hJustinTag;
-                            }
-                          }
-                        }
-
-                        // -------------------------------------------------------------------------
-                        // (A2) NEW: Sam vs DEFAULT merged RECO only (kDefaultSimSampleKey)
-                        // -------------------------------------------------------------------------
-                      if (hDefault)
-                      {
-                        const double ymaxD = std::max(hSam->GetMaximum(), hDefault->GetMaximum());
-                        hSam->SetMaximum(ymaxD * 1.25);
-
-                        TCanvas cDef("c_SamVsDefault","c_SamVsDefault",900,700);
-                        ApplyCanvasMargins1D(cDef);
-
-                        hSam->Draw("E1");
-                        hDefault->Draw("E1 same");
-
-                        TLegend leg2(0.52, 0.73, 0.88, 0.90);
-                        leg2.SetTextFont(42);
-                        leg2.SetTextSize(0.035);
-                        leg2.SetFillStyle(0);
-                        leg2.SetBorderSize(0);
-                        leg2.AddEntry(hSam,     TString::Format("Sam's Reco (R = %.1f)", R).Data(), "ep");
-                        leg2.AddEntry(hDefault, TString::Format("Default merged RECO (%s) (R = %.1f)", defaultKey.c_str(), R).Data(), "ep");
-                        leg2.Draw();
-
-                        TLatex tNote2;
-                        tNote2.SetNDC(true);
-                        tNote2.SetTextFont(42);
-                        tNote2.SetTextAlign(13); // left-top
-                        tNote2.SetTextSize(0.034);
-                          tNote2.DrawLatex(0.50, 0.705, "Photon 10 + 20 GeV #gamma+Jet MC");
-
-                        TLatex t2;
-                        t2.SetNDC(true);
-                        t2.SetTextFont(42);
-                        t2.SetTextSize(0.034);
-                        t2.SetTextAlign(12); // left-center
-                        t2.DrawLatex(0.60, 0.62, TString::Format("p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
-                        t2.DrawLatex(0.60, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
-                        t2.DrawLatex(0.60, 0.52, TString::Format("Default key: %s", defaultKey.c_str()).Data());
-
-                        const std::string outNameDef =
-                          TString::Format("overlay_SamVsDefault_JES3_RECO_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
-                            ptLo, ptHi, samPtLabel.c_str(), rKey.c_str()).Data();
-
-                        SaveCanvas(cDef, JoinPath(dirOver_RECO_default, outNameDef));
-                      }
-
-                      // -------------------------------------------------------------------------
-                      // (A3) NEW: TRIPLE overlay (Sam vs Current merged vs Default merged)
-                      // -------------------------------------------------------------------------
-                      if (hDefault)
-                      {
-                        double ymaxT = 0.0;
-                        ymaxT = std::max(ymaxT, hSam->GetMaximum());
-                        ymaxT = std::max(ymaxT, hJustin->GetMaximum());
-                        ymaxT = std::max(ymaxT, hDefault->GetMaximum());
-                        hSam->SetMaximum(ymaxT * 1.25);
-
-                        TCanvas cTri("c_SamVsCurrentVsDefault","c_SamVsCurrentVsDefault",900,700);
-                        ApplyCanvasMargins1D(cTri);
-
-                        hSam->Draw("E1");
-                        hJustin->Draw("E1 same");
-                        hDefault->Draw("E1 same");
-
-                        TLegend leg3(0.45, 0.73, 0.88, 0.90);
-                        leg3.SetTextFont(42);
-                        leg3.SetTextSize(0.035);
-                        leg3.SetFillStyle(0);
-                        leg3.SetBorderSize(0);
-                        leg3.AddEntry(hSam,    TString::Format("Sam's Reco (R = %.1f)", R).Data(), "ep");
-                        leg3.AddEntry(hJustin, TString::Format("Justin's RECO w/ matched cuts (R = %.1f)", R).Data(), "ep");
-                        leg3.AddEntry(hDefault, TString::Format("Default merged RECO (%s) (R = %.1f)", defaultKey.c_str(), R).Data(), "ep");
-                        leg3.Draw();
-
-                        TLatex tNote3;
-                        tNote3.SetNDC(true);
-                        tNote3.SetTextFont(42);
-                        tNote3.SetTextAlign(13); // left-top
-                        tNote3.SetTextSize(0.032);
-                          tNote3.DrawLatex(0.55, 0.705, "Photon 10 + 20 GeV #gamma+Jet MC");
-
-                        TLatex t3;
-                        t3.SetNDC(true);
-                        t3.SetTextFont(42);
-                        t3.SetTextSize(0.034);
-                        t3.SetTextAlign(12); // left-center
-                        t3.DrawLatex(0.60, 0.62, TString::Format("p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
-                        t3.DrawLatex(0.60, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
-
-                        const std::string outNameTri =
-                          TString::Format("overlay_SamVsCurrentVsDefault_JES3_RECO_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
-                            ptLo, ptHi, samPtLabel.c_str(), rKey.c_str()).Data();
-
-                        SaveCanvas(cTri, JoinPath(dirOver_RECO_triple, outNameTri));
-                      }
-
-                      delete hSam;
-                      if (hSamPrev) delete hSamPrev;
-                      delete hJustin;
-                      if (hDefault) delete hDefault;
-                  }
-
-                  delete hJustin3_reco;
-                  if (hJustin3_reco_fixed) delete hJustin3_reco_fixed;
-                  if (hDefault3_reco) delete hDefault3_reco;
-
-                  // --------------------------------------------------------------------------------
-                  // (B) Sam vs Justin: RECO truth-tagged (PHOTON+JET) (Justin = h_JES3RecoTruthTagged_pT_xJ_alpha_<rKey>)
-                  //     Sam is the SAME hratio_* histogram as in (A).
-                  // --------------------------------------------------------------------------------
-                  if (hJustin3_tag)
-                  {
-                    for (int ip = 0; ip + 1 < (int)jes3Edges.size(); ++ip)
-                    {
-                      const double ptLo = jes3Edges[(std::size_t)ip];
-                      const double ptHi = jes3Edges[(std::size_t)ip + 1];
-
-                      const int xbin = FindXbinByEdges(hJustin3_tag->GetXaxis(), ptLo, ptHi);
-                      if (xbin < 1)
-                      {
-                        cout << ANSI_BOLD_YEL
-                             << "[WARN] Justin truth-tagged TH3 missing pT bin " << ptLo << "-" << ptHi << " for " << rKey << ". Skipping bin.\n"
-                             << ANSI_RESET;
-                        continue;
-                      }
-
-                      TH1* hJustin = ProjectY_AtXbin_TH3(
-                        hJustin3_tag, xbin,
-                        TString::Format("hJustin_truthTaggedPhoJet_xJ_%.0f_%.0f_%s", ptLo, ptHi, rKey.c_str()).Data()
-                      );
-
-                      std::string samPtLabel;
-                        TH1* hSam = GetSamHistForJustinBin(
-                          ptLo, ptHi, rm.jIdx, kIsoSamJES, lABCD,
-                          TString::Format("hSam_xJ_%.0f_%.0f_%s", ptLo, ptHi, rKey.c_str()).Data(),
-                          samPtLabel
-                        );
-
-                      cout << "  bin " << std::fixed << std::setprecision(0) << ptLo << "-" << ptHi
-                        << "  SamUsed=" << samPtLabel
-                        << "  jIdx=" << rm.jIdx << "  kSamJES=" << kIsoSamJES << "  l=" << lABCD << "\n";
-
-                      PrintH1Summary("Sam(raw)", hSam);
-                      PrintH1Summary("JustinTruthTagged(raw)", hJustin);
-
-                      if (!hJustin || !hSam)
-                      {
-                        if (hJustin) delete hJustin;
-                        if (hSam) delete hSam;
-                        continue;
-                      }
-
-                      // QA: write Justin-only truth-tagged plot before overlay (avoid rewriting Sam-only files)
-                      {
-                        TH1* j = CloneTH1(hJustin, TString::Format("hJustinOnly_%s", hJustin->GetName()).Data());
-                        if (j)
-                        {
-                          StyleForOverlay(j, 4);
-                          TCanvas cJ("cJustinOnly","cJustinOnly",900,700);
-                          ApplyCanvasMargins1D(cJ);
-                          j->Draw("E1");
-
-                          TLatex t;
-                          t.SetNDC(true); t.SetTextFont(42); t.SetTextAlign(13);
-                          t.SetTextSize(0.040);
-                          t.DrawLatex(0.14, 0.92, "Justin only: JES3 RECO truth-tagged (PHOTON+JET) (integrated over #alpha)");
-                          t.SetTextSize(0.034);
-                          t.DrawLatex(0.14, 0.86, TString::Format("Justin p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
-                          t.DrawLatex(0.14, 0.81, TString::Format("R=%.1f (%s)", R, rKey.c_str()).Data());
-
-                            SaveCanvas(cJ, JoinPath(dirQA_JustinOnly,
-                              TString::Format("JustinOnly_JES3_RECO_truthTaggedPhoJet_pTgamma_%.0f_%.0f_%s.png", ptLo, ptHi, rKey.c_str()).Data()
-                            ));
-                          delete j;
-                        }
-                      }
-
-                      // Normalize shapes and overlay (rebin Sam to Justin axis first)
-                      {
-                        TH1* hSamReb = CloneTH1(hJustin, TString::Format("%s_rebinnedToJustin", hSam->GetName()).Data());
-                        if (hSamReb)
-                        {
-                          hSamReb->Reset("ICES");
-                          hSamReb->SetDirectory(nullptr);
-                          if (hSamReb->GetSumw2N() == 0) hSamReb->Sumw2();
-
-                          const int nbIn = hSam->GetNbinsX();
-                          for (int ib = 1; ib <= nbIn; ++ib)
-                          {
-                            const double x = hSam->GetXaxis()->GetBinCenter(ib);
-                            const int ob = hSamReb->FindBin(x);
-                            if (ob < 1 || ob > hSamReb->GetNbinsX()) continue;
-
-                            const double c = hSam->GetBinContent(ib);
-                            const double e = hSam->GetBinError(ib);
-
-                            hSamReb->SetBinContent(ob, hSamReb->GetBinContent(ob) + c);
-
-                            const double oe = hSamReb->GetBinError(ob);
-                            hSamReb->SetBinError(ob, std::sqrt(oe*oe + e*e));
-                          }
-
-                          delete hSam;
-                          hSam = hSamReb;
-                        }
-                      }
-
-                        StyleForOverlay(hSam, 2);
-                        StyleForOverlay(hJustin, 4);
-                        hJustin->SetMarkerStyle(24);
-
-                        PrintH1Summary("Sam(norm)", hSam);
-                        PrintH1Summary("JustinTruthTagged(norm)", hJustin);
-
-                      const double ymax = std::max(hSam->GetMaximum(), hJustin->GetMaximum());
-                      hSam->SetMaximum(ymax * 1.25);
-
-                      TCanvas c("c_SamVsJustin","c_SamVsJustin",900,700);
-                      ApplyCanvasMargins1D(c);
-
-                      hSam->Draw("E1");
-                      hJustin->Draw("E1 same");
-
-                      TLegend leg(0.52, 0.73, 0.88, 0.90);
-                      leg.SetTextFont(42);
-                      leg.SetTextSize(0.035);
-                      leg.SetFillStyle(0);
-                      leg.SetBorderSize(0);
-                      leg.AddEntry(hSam,    TString::Format("Sam's Reco (R = %.1f)", R).Data(), "ep");
-                      leg.AddEntry(hJustin, TString::Format("Justin's Reco (#gamma^{truth} + jet^{truth} tagged) (R = %.1f)", R).Data(), "ep");
-                      leg.Draw();
-
-                        // Note: aligned just under and a bit left of the legend block
-                        TLatex tNote;
-                        tNote.SetNDC(true);
-                        tNote.SetTextFont(42);
-                        tNote.SetTextAlign(13); // left-top
-                        tNote.SetTextSize(0.034);
-                        tNote.DrawLatex(0.50, 0.705, "Photon 10 + 20 GeV #gamma+Jet MC");
-                        tNote.DrawLatex(0.50, 0.665, "Justin: (#gamma^{truth} + jet^{truth} tagged)");
-
-                        // Move the info block off the top-left (and remove the big title line).
-                        TLatex t;
-                        t.SetNDC(true);
-                        t.SetTextFont(42);
-                        t.SetTextSize(0.034);
-
-                        // Main info block: middle RHS of the canvas
-                        t.SetTextAlign(12); // left-center
-                        t.DrawLatex(0.60, 0.62, TString::Format("Justin p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
-                        t.DrawLatex(0.60, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
-                        t.DrawLatex(0.60, 0.52, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
-                        t.DrawLatex(0.60, 0.47, TString::Format("Back-to-back: %s", bbLabel.c_str()).Data());
-
-                      const std::string outName =
-                        TString::Format("overlay_SamVsJustin_JES3_RECO_truthTaggedPhoJet_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
-                          ptLo, ptHi, samPtLabel.c_str(), rKey.c_str()).Data();
-
-                      SaveCanvas(c, JoinPath(dirOver_Tag_current, outName));
-
-                      delete hSam;
-                      delete hJustin;
-                    }
-
-                    delete hJustin3_tag;
-                  }
-              }
-            
-            // -------------------------------------------------------------------------
-            // NEW: Sam(pTjet>10) vs Justin(pTjet>10) overlays
-            //   Sam inputs:  sam10_pTmin10 + sam20_pTmin10  -> samMerged_pTmin10
-            //   Justin key:  jetMinPt10_7piOver8 (merged SIM file)
-            //   pT binning:  {10,11,12,13,14,15,17,19,25,50}
-            // -------------------------------------------------------------------------
+            for (int ip = 0; ip + 1 < (int)jes3Edges.size(); ++ip)
             {
-              auto BuildSamMergedPtMin10IfMissing = [&]()->bool
-              {
-                if (!gSystem->AccessPathName(samMerged_pTmin10.c_str()))
-                {
-                  cout << ANSI_DIM << "[SAM MERGE pTjet>10] Merged file already exists: " << samMerged_pTmin10 << ANSI_RESET << "\n";
-                  return true;
-                }
+              const double ptLo = jes3Edges[(std::size_t)ip];
+              const double ptHi = jes3Edges[(std::size_t)ip + 1];
 
-                TFile* f10 = TFile::Open(sam10_pTmin10.c_str(), "READ");
-                TFile* f20 = TFile::Open(sam20_pTmin10.c_str(), "READ");
-                if (!f10 || f10->IsZombie() || !f20 || f20->IsZombie())
-                {
-                  cout << ANSI_BOLD_YEL
-                       << "[WARN] [SAM MERGE pTjet>10] Cannot open one or both Sam pTmin10 input files.\n"
-                       << "       sam10_pTmin10=" << sam10_pTmin10 << "\n"
-                       << "       sam20_pTmin10=" << sam20_pTmin10 << "\n"
-                       << ANSI_RESET;
-                  if (f10) f10->Close();
-                  if (f20) f20->Close();
-                  return false;
-                }
-
-                double x10=0.0, n10=0.0, x20=0.0, n20=0.0;
-                const bool ok10 = ReadXsecAndNev(f10, x10, n10);
-                const bool ok20 = ReadXsecAndNev(f20, x20, n20);
-
-                double w10 = 0.5;
-                double w20 = 0.5;
-                if (ok10 && ok20)
-                {
-                  w10 = x10 / n10;
-                  w20 = x20 / n20;
-                }
-                else
-                {
-                  cout << ANSI_BOLD_YEL
-                       << "[WARN] [SAM MERGE pTjet>10] Missing (xsec,nev); falling back to equal weights (0.5,0.5).\n"
-                       << ANSI_RESET;
-                }
-
-                cout << ANSI_BOLD_CYN
-                     << "[SAM MERGE pTjet>10] Building ONLY hratio_* into: " << samMerged_pTmin10 << "\n"
-                     << "  weights: w10=" << std::setprecision(12) << w10 << "  w20=" << w20 << "\n"
-                     << ANSI_RESET;
-
-                EnsureParentDirForFile(samMerged_pTmin10);
-                TFile* fout = TFile::Open(samMerged_pTmin10.c_str(), "RECREATE");
-                if (!fout || fout->IsZombie())
-                {
-                  cout << ANSI_BOLD_YEL
-                       << "[WARN] [SAM MERGE pTjet>10] Cannot create output file: " << samMerged_pTmin10 << "\n"
-                       << ANSI_RESET;
-                  if (fout) fout->Close();
-                  f10->Close();
-                  f20->Close();
-                  return false;
-                }
-
-                std::set<std::string> names10;
-                {
-                  TIter next(f10->GetListOfKeys());
-                  while (TKey* key = (TKey*)next())
-                  {
-                    const std::string nm = key->GetName();
-                    if (nm.rfind("hratio_", 0) == 0) names10.insert(nm);
-                  }
-                }
-
-                std::set<std::string> names20;
-                {
-                  TIter next(f20->GetListOfKeys());
-                  while (TKey* key = (TKey*)next())
-                  {
-                    const std::string nm = key->GetName();
-                    if (nm.rfind("hratio_", 0) == 0) names20.insert(nm);
-                  }
-                }
-
-                std::set<std::string> all;
-                all.insert(names10.begin(), names10.end());
-                all.insert(names20.begin(), names20.end());
-
-                int nWritten = 0;
-                for (const auto& nm : all)
-                {
-                  TH1* h10 = dynamic_cast<TH1*>(f10->Get(nm.c_str()));
-                  TH1* h20 = dynamic_cast<TH1*>(f20->Get(nm.c_str()));
-
-                  if (!h10 && !h20) continue;
-
-                  TH1* hOut = nullptr;
-
-                  if (h10)
-                  {
-                    hOut = dynamic_cast<TH1*>(h10->Clone(nm.c_str()));
-                    if (hOut)
-                    {
-                      hOut->SetDirectory(nullptr);
-                      if (hOut->GetSumw2N() == 0) hOut->Sumw2();
-                      hOut->Scale(w10);
-                    }
-                  }
-                  if (!hOut && h20)
-                  {
-                    hOut = dynamic_cast<TH1*>(h20->Clone(nm.c_str()));
-                    if (hOut)
-                    {
-                      hOut->SetDirectory(nullptr);
-                      if (hOut->GetSumw2N() == 0) hOut->Sumw2();
-                      hOut->Scale(w20);
-                    }
-                  }
-                  if (hOut && h20)
-                  {
-                    TH1* tmp = dynamic_cast<TH1*>(h20->Clone((nm + "_tmp20").c_str()));
-                    if (tmp)
-                    {
-                      tmp->SetDirectory(nullptr);
-                      if (tmp->GetSumw2N() == 0) tmp->Sumw2();
-                      tmp->Scale(w20);
-                      hOut->Add(tmp);
-                      delete tmp;
-                    }
-                  }
-
-                  if (!hOut) continue;
-
-                  fout->cd();
-                  hOut->Write(nm.c_str(), TObject::kOverwrite);
-                  delete hOut;
-                  nWritten++;
-                }
-
-                fout->Write();
-                fout->Close();
-
-                f10->Close();
-                f20->Close();
-
-                cout << ANSI_BOLD_GRN
-                     << "[OK] [SAM MERGE pTjet>10] Wrote " << nWritten << " hratio_* histograms into: " << samMerged_pTmin10 << "\n"
-                     << ANSI_RESET;
-
-                return true;
-              };
-
-              if (BuildSamMergedPtMin10IfMissing())
-              {
-                // Open Sam merged pTmin10
-                TFile* fSamPt10M = TFile::Open(samMerged_pTmin10.c_str(), "READ");
-                if (!fSamPt10M || fSamPt10M->IsZombie())
-                {
-                  cout << ANSI_BOLD_YEL
-                       << "[WARN] [pTjet>10] Cannot open Sam merged pTmin10 file: " << samMerged_pTmin10 << "\n"
-                       << ANSI_RESET;
-                  if (fSamPt10M) fSamPt10M->Close();
-                }
-                else
-                {
-                    // Open Justin merged file for jetMinPt10_7piOver8 (RECO)
-                    const std::string key10 = "jetMinPt10_7piOver8";
-                    const std::string justinMerged10 = MergedSIMOut_10and20_ForKey(key10);
-
-                    TFile* fJustin10M = TFile::Open(justinMerged10.c_str(), "READ");
-                    TDirectory* dJustin10M = nullptr;
-                    if (fJustin10M && !fJustin10M->IsZombie())
-                    {
-                      dJustin10M = fJustin10M->GetDirectory(kDirSIM.c_str());
-                    }
-
-                    // Also open Justin merged file for jetMinPt10_pihalves (TRUTH-TAGGED source)
-                    const std::string key10_tag = "jetMinPt10_pihalves";
-                    const std::string justinMerged10_tag = MergedSIMOut_10and20_ForKey(key10_tag);
-
-                    TFile* fJustin10TagM = TFile::Open(justinMerged10_tag.c_str(), "READ");
-                    TDirectory* dJustin10TagM = nullptr;
-                    if (fJustin10TagM && !fJustin10TagM->IsZombie())
-                    {
-                      dJustin10TagM = fJustin10TagM->GetDirectory(kDirSIM.c_str());
-                    }
-
-                    if (!dJustin10M)
-                    {
-                      cout << ANSI_BOLD_YEL
-                           << "[WARN] [pTjet>10] Cannot open Justin merged key directory (RECO).\n"
-                           << "       key=" << key10 << "\n"
-                           << "       path=" << justinMerged10 << "\n"
-                           << "       dir=" << kDirSIM << "\n"
-                           << ANSI_RESET;
-                      if (fJustin10M) fJustin10M->Close();
-                      fJustin10M = nullptr;
-                    }
-
-                    if (!dJustin10TagM)
-                    {
-                      cout << ANSI_BOLD_YEL
-                           << "[WARN] [pTjet>10] Truth-tagged merged key directory not available; will skip truth-tagged curve.\n"
-                           << "       key=" << key10_tag << "\n"
-                           << "       path=" << justinMerged10_tag << "\n"
-                           << "       dir=" << kDirSIM << "\n"
-                           << ANSI_RESET;
-                      if (fJustin10TagM) fJustin10TagM->Close();
-                      fJustin10TagM = nullptr;
-                    }
-
-                    if (!dJustin10M)
-                    {
-                      if (fJustin10TagM) fJustin10TagM->Close();
-                      fJustin10TagM = nullptr;
-                    }
-                    else
-                    {
-                      cout << ANSI_BOLD_CYN
-                           << "\n[pTjet>10] Writing overlays into: " << dirOver_RECO_jetMinPt10 << "\n"
-                           << "  Sam merged         : " << samMerged_pTmin10 << "\n"
-                           << "  Justin merged RECO : " << justinMerged10 << "\n"
-                           << "  Justin merged TAG  : " << justinMerged10_tag << "\n"
-                           << ANSI_RESET;
-
-                    // pT bin edges for this pTjet>10 comparison
-                    const std::vector<double> samPtEdges10 = {10,11,12,13,14,15,17,19,25,50};
-
-                    auto FindEdgeIndex10 =
-                      [&](double x)->int
-                    {
-                      for (int i = 0; i < (int)samPtEdges10.size(); ++i)
-                      {
-                        if (std::fabs(samPtEdges10[i] - x) < 1e-9) return i;
-                      }
-                      return -1;
-                    };
-
-                    auto GetSamPt10Hist =
-                      [&](double ptLo, double ptHi, int jR, int lABCD_, const std::string& newName, std::string& outLabel)->TH1*
-                    {
-                      outLabel = "UNKNOWN";
-                      const int a = FindEdgeIndex10(ptLo);
-                      const int b = FindEdgeIndex10(ptHi);
-                      if (a < 0 || b < 0 || b <= a) return nullptr;
-
-                      // In this special pTjet>10 production, pT bins match exactly; sum bins if needed.
-                      TH1* sum = nullptr;
-                      for (int iPt = a; iPt < b; ++iPt)
-                      {
-                        const std::string nm = TString::Format("hratio_%d_%d_%d_%d_%d", iPt, jR, 1, 0, lABCD_).Data();
-                        TH1* h = dynamic_cast<TH1*>(fSamPt10M->Get(nm.c_str()));
-                        if (!h) { if (sum) delete sum; return nullptr; }
-
-                        TH1* c = CloneTH1(h, TString::Format("%s_sampt10_i%d", newName.c_str(), iPt).Data());
-                        if (!c) { if (sum) delete sum; return nullptr; }
-                        c->SetDirectory(nullptr);
-
-                        if (!sum)
-                        {
-                          sum = CloneTH1(c, newName);
-                          if (sum)
-                          {
-                            sum->Reset("ICES");
-                            sum->SetDirectory(nullptr);
-                          }
-                        }
-                        if (sum) sum->Add(c);
-                        delete c;
-                      }
-
-                      outLabel = TString::Format("%.0f-%.0f", ptLo, ptHi).Data();
-                      return sum;
-                    };
-
-                    // Radius map (same convention you already use)
-                    struct RMap10 { std::string rKey; int jIdx; double R; };
-                    const std::vector<RMap10> rMap10 =
-                    {
-                      {"r04", 1, 0.4},
-                      {"r06", 2, 0.6}
-                    };
-
-                    const int lABCD10 = 0;
-
-                    for (const auto& rm : rMap10)
-                    {
-                      const std::string hnameJ = std::string("h_JES3_pT_xJ_alpha_") + rm.rKey;
-                      TH3* hJ3 = dynamic_cast<TH3*>(dJustin10M->Get(hnameJ.c_str()));
-                      if (!hJ3)
-                      {
-                        cout << ANSI_BOLD_YEL
-                             << "[WARN] [pTjet>10] Missing Justin TH3: " << hnameJ << "\n"
-                             << ANSI_RESET;
-                        continue;
-                      }
-
-                      TH3* hJustin3 = CloneTH3(hJ3, TString::Format("hJustin_pTjetMin10_%s", rm.rKey.c_str()).Data());
-                      if (!hJustin3) continue;
-                      hJustin3->SetDirectory(nullptr);
-                      if (hJustin3->GetSumw2N() == 0) hJustin3->Sumw2();
-
-                      for (int ip = 0; ip + 1 < (int)samPtEdges10.size(); ++ip)
-                      {
-                        const double ptLo = samPtEdges10[(std::size_t)ip];
-                        const double ptHi = samPtEdges10[(std::size_t)ip + 1];
-
-                        const int xbin = FindXbinByEdges(hJustin3->GetXaxis(), ptLo, ptHi);
-                        if (xbin < 1) continue;
-
-                        TH1* hJustin = ProjectY_AtXbin_TH3(
-                          hJustin3, xbin,
-                          TString::Format("hJustin_pTjetMin10_xJ_%.0f_%.0f_%s", ptLo, ptHi, rm.rKey.c_str()).Data()
-                        );
-
-                        std::string samLabel;
-                        TH1* hSam = GetSamPt10Hist(
-                          ptLo, ptHi, rm.jIdx, lABCD10,
-                          TString::Format("hSam_pTjetMin10_xJ_%.0f_%.0f_%s", ptLo, ptHi, rm.rKey.c_str()).Data(),
-                          samLabel
-                        );
-
-                        if (!hSam || !hJustin)
-                        {
-                          if (hSam) delete hSam;
-                          if (hJustin) delete hJustin;
-                          continue;
-                        }
-
-                        // Rebin Sam onto Justin axis (same method you already use elsewhere)
-                        {
-                          TH1* hSamReb = CloneTH1(hJustin, TString::Format("%s_rebinnedToJustin", hSam->GetName()).Data());
-                          if (hSamReb)
-                          {
-                            hSamReb->Reset("ICES");
-                            hSamReb->SetDirectory(nullptr);
-                            if (hSamReb->GetSumw2N() == 0) hSamReb->Sumw2();
-
-                            const int nbIn = hSam->GetNbinsX();
-                            for (int ib = 1; ib <= nbIn; ++ib)
-                            {
-                              const double x = hSam->GetXaxis()->GetBinCenter(ib);
-                              const int ob = hSamReb->FindBin(x);
-                              if (ob < 1 || ob > hSamReb->GetNbinsX()) continue;
-
-                              const double c = hSam->GetBinContent(ib);
-                              const double e = hSam->GetBinError(ib);
-
-                              hSamReb->SetBinContent(ob, hSamReb->GetBinContent(ob) + c);
-
-                              const double oe = hSamReb->GetBinError(ob);
-                              hSamReb->SetBinError(ob, std::sqrt(oe*oe + e*e));
-                            }
-
-                            delete hSam;
-                            hSam = hSamReb;
-                          }
-                        }
-
-                          // Optional: add Justin truth-tagged curve from jetMinPt10_pihalves merged output
-                          TH1* hJustinTag = nullptr;
-                          if (dJustin10TagM)
-                          {
-                            const std::string hnameTag3 = std::string("h_JES3RecoTruthTagged_pT_xJ_alpha_") + rm.rKey;
-                            TH3* hTag3 = dynamic_cast<TH3*>(dJustin10TagM->Get(hnameTag3.c_str()));
-                            if (hTag3)
-                            {
-                              const int xbinTag = FindXbinByEdges(hTag3->GetXaxis(), ptLo, ptHi);
-                              if (xbinTag >= 1)
-                              {
-                                hJustinTag = ProjectY_AtXbin_TH3(
-                                  hTag3, xbinTag,
-                                  TString::Format("hJustin_pTjetMin10_truthTagged_xJ_%.0f_%.0f_%s", ptLo, ptHi, rm.rKey.c_str()).Data()
-                                );
-                              }
-                            }
-                            else
-                            {
-                              cout << ANSI_BOLD_YEL
-                                   << "[WARN] [pTjet>10] Missing Justin truth-tagged TH3: " << hnameTag3 << "\n"
-                                   << ANSI_RESET;
-                            }
-                          }
-
-                          StyleForOverlay(hSam, 2);
-                          StyleForOverlay(hJustin, 4);
-                          if (hJustinTag) { StyleForOverlay(hJustinTag, 6); hJustinTag->SetMarkerStyle(24); }
-
-                          // Tight y-range
-                          auto MaxBinContent = [&](TH1* h)->double
-                          {
-                            if (!h) return 0.0;
-                            double m = 0.0;
-                            const int nb = h->GetNbinsX();
-                            for (int ib = 1; ib <= nb; ++ib)
-                            {
-                              const double v = h->GetBinContent(ib);
-                              if (v > m) m = v;
-                            }
-                            return m;
-                          };
-
-                          double ymax = 0.0;
-                          ymax = std::max(ymax, MaxBinContent(hSam));
-                          ymax = std::max(ymax, MaxBinContent(hJustin));
-                          if (hJustinTag) ymax = std::max(ymax, MaxBinContent(hJustinTag));
-                          hSam->SetMaximum(ymax * 1.03);
-
-                          TCanvas c("c_SamVsJustin_pTjetMin10","c_SamVsJustin_pTjetMin10",900,700);
-                          ApplyCanvasMargins1D(c);
-
-                          hSam->Draw("E1");
-                          hJustin->Draw("E1 same");
-                          if (hJustinTag) hJustinTag->Draw("E1 same");
-
-                          TLegend leg(0.42, 0.73, 0.88, 0.90);
-                          leg.SetTextFont(42);
-                          leg.SetTextSize(0.033);
-                          leg.SetFillStyle(0);
-                          leg.SetBorderSize(0);
-                          leg.AddEntry(hSam,    TString::Format("Sam's Reco p_{T}^{jet} > 10 (R = %.1f)", rm.R).Data(), "ep");
-                          leg.AddEntry(hJustin, TString::Format("Justin's Reco p_{T}^{jet} > 10 (R = %.1f)", rm.R).Data(), "ep");
-                          if (hJustinTag) leg.AddEntry(hJustinTag, TString::Format("Justin RECO (#gamma^{truth} + jet^{truth} tag) (R = %.1f)", rm.R).Data(), "ep");
-                          leg.Draw();
-
-                          TLatex t;
-                          t.SetNDC(true);
-                          t.SetTextFont(42);
-                          t.SetTextSize(0.034);
-                          t.SetTextAlign(12);
-                          t.DrawLatex(0.60, 0.62, TString::Format("p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
-                          t.DrawLatex(0.60, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samLabel.c_str()).Data());
-                          t.DrawLatex(0.60, 0.52, "Back-to-back: 7#pi/8");
-
-                          const std::string outName =
-                            TString::Format("overlay_SamVsJustin_JES3_RECO_pTjetMin10_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
-                              ptLo, ptHi, samLabel.c_str(), rm.rKey.c_str()).Data();
-
-                          SaveCanvas(c, JoinPath(dirOver_RECO_jetMinPt10, outName));
-
-                          delete hSam;
-                          delete hJustin;
-                          if (hJustinTag) delete hJustinTag;
-                      }
-
-                      delete hJustin3;
-                    }
-
-                    if (fJustin10M) fJustin10M->Close();
-                  }
-
-                  fSamPt10M->Close();
-                }
-              }
-              else
+              const int xbin = FindXbinByEdges(hJustin3_reco->GetXaxis(), ptLo, ptHi);
+              if (xbin < 1)
               {
                 cout << ANSI_BOLD_YEL
-                     << "[WARN] [pTjet>10] Skipping pTjet>10 overlays: could not build Sam merged pTmin10 file.\n"
+                     << "[WARN] Justin TH3 missing pT bin " << ptLo << "-" << ptHi << " for " << rKey << ". Skipping bin.\n"
                      << ANSI_RESET;
+                continue;
               }
+
+              TH1* hJustin = ProjectY_AtXbin_TH3(
+                hJustin3_reco, xbin,
+                TString::Format("hJustin_xJ_%.0f_%.0f_%s", ptLo, ptHi, rKey.c_str()).Data()
+              );
+
+              TH1* hJustinTag = nullptr;
+              if (hJustin3_tag)
+              {
+                const int xbinTag = FindXbinByEdges(hJustin3_tag->GetXaxis(), ptLo, ptHi);
+                if (xbinTag >= 1)
+                {
+                  hJustinTag = ProjectY_AtXbin_TH3(
+                    hJustin3_tag, xbinTag,
+                    TString::Format("hJustin_truthTaggedPhoJet_xJ_%.0f_%.0f_%s", ptLo, ptHi, rKey.c_str()).Data()
+                  );
+                }
+              }
+
+              std::string samPtLabel;
+              TH1* hSam = GetSamHistForJustinBin(
+                ptLo, ptHi, rm.jIdx, kIsoSamJES, lABCD,
+                TString::Format("hSam_xJ_%.0f_%.0f_%s", ptLo, ptHi, rKey.c_str()).Data(),
+                samPtLabel
+              );
+
+              if (!hJustin || !hSam)
+              {
+                if (hSam) delete hSam;
+                if (hJustin) delete hJustin;
+                if (hJustinTag) delete hJustinTag;
+                continue;
+              }
+
+              // Sam hratio_* is typically finer-binned than Justin's xJ projection:
+              // Rebin Sam onto Justin x-axis BEFORE normalization.
+              RebinOntoTemplateAxis(hSam, hJustin);
+
+                // -------------------------------------------------------------------------
+                // Write TWO versions:
+                //   (1) Unnormalized (Counts)  -> dirOver_raw
+                //   (2) Normalized (A.U.)      -> dirOver_norm
+                // Both with x-axis cut at 2.0 and a smaller legend pushed to top-right.
+                // -------------------------------------------------------------------------
+
+                auto MaxBinContent = [&](TH1* h)->double
+                {
+                  if (!h) return 0.0;
+                  double m = 0.0;
+                  const int nb = h->GetNbinsX();
+                  for (int ib = 1; ib <= nb; ++ib)
+                  {
+                    const double v = h->GetBinContent(ib);
+                    if (v > m) m = v;
+                  }
+                  return m;
+                };
+
+                // -------------------------
+                // (1) UNNORMALIZED
+                // -------------------------
+                {
+                  TH1* hSamRaw    = CloneTH1(hSam,    TString::Format("%s_raw", hSam->GetName()).Data());
+                  TH1* hJustinRaw = CloneTH1(hJustin, TString::Format("%s_raw", hJustin->GetName()).Data());
+                  TH1* hTagRaw    = (hJustinTag ? CloneTH1(hJustinTag, TString::Format("%s_raw", hJustinTag->GetName()).Data()) : nullptr);
+
+                  if (hSamRaw)    { hSamRaw->SetDirectory(nullptr); }
+                  if (hJustinRaw) { hJustinRaw->SetDirectory(nullptr); }
+                  if (hTagRaw)    { hTagRaw->SetDirectory(nullptr); }
+
+                  if (hSamRaw && hJustinRaw)
+                  {
+                    StyleForOverlayRaw(hSamRaw, 2);
+                    StyleForOverlayRaw(hJustinRaw, 4);
+                    if (hTagRaw)
+                    {
+                      StyleForOverlayRaw(hTagRaw, 6);
+                      hTagRaw->SetMarkerStyle(24);
+                    }
+
+                    double ymaxRaw = 0.0;
+                    ymaxRaw = std::max(ymaxRaw, MaxBinContent(hSamRaw));
+                    ymaxRaw = std::max(ymaxRaw, MaxBinContent(hJustinRaw));
+                    if (hTagRaw) ymaxRaw = std::max(ymaxRaw, MaxBinContent(hTagRaw));
+                    hSamRaw->SetMaximum(ymaxRaw * 1.10);
+
+                    TCanvas cRaw("c_SamVsJustin_raw","c_SamVsJustin_raw",900,700);
+                    ApplyCanvasMargins1D(cRaw);
+
+                    hSamRaw->Draw("E1");
+                    hJustinRaw->Draw("E1 same");
+                    if (hTagRaw) hTagRaw->Draw("E1 same");
+
+                    // Optional cut lines ONLY for the 13-15 GeV bin (as before)
+                    TLine* lAbs  = nullptr;
+                    TLine* lFull = nullptr;
+
+                    const bool is1315 = (std::fabs(ptLo - 13.0) < 1e-6 && std::fabs(ptHi - 15.0) < 1e-6);
+                    if (is1315)
+                    {
+                      const double xAbs  = jetMinPtGeV / ptHi;
+                      const double xFull = jetMinPtGeV / ptLo;
+
+                      lAbs  = new TLine(xAbs,  0.0, xAbs,  ymaxRaw * 1.10);
+                      lFull = new TLine(xFull, 0.0, xFull, ymaxRaw * 1.10);
+
+                      lAbs->SetLineColor(4);
+                      lAbs->SetLineWidth(2);
+                      lAbs->SetLineStyle(2);
+
+                      lFull->SetLineColor(2);
+                      lFull->SetLineWidth(2);
+                      lFull->SetLineStyle(2);
+
+                      lAbs->Draw("same");
+                      lFull->Draw("same");
+                    }
+
+                    // Smaller legend, pushed to top-right
+                    TLegend leg(0.62, 0.82, 0.90, 0.95);
+                    leg.SetTextFont(42);
+                    leg.SetTextSize(0.022);
+                    leg.SetFillStyle(0);
+                    leg.SetBorderSize(0);
+                    leg.AddEntry(hSamRaw,    TString::Format("Sam's RECO (R = %.1f)", R).Data(), "ep");
+                    leg.AddEntry(hJustinRaw, TString::Format("Justin's RECO w/ matched cuts (R = %.1f)", R).Data(), "ep");
+                    if (hTagRaw)
+                    {
+                      leg.AddEntry(hTagRaw, TString::Format("Justin's RECO (#gamma^{truth} + jet^{truth} tag) (R = %.1f)", R).Data(), "ep");
+                    }
+                    leg.Draw();
+
+                    // Note: aligned under the legend block
+                    TLatex tNote;
+                    tNote.SetNDC(true);
+                    tNote.SetTextFont(42);
+                    tNote.SetTextAlign(13);
+                    tNote.SetTextSize(0.032);
+                    tNote.DrawLatex(0.62, 0.79, "Photon 10 + 20 GeV #gamma+Jet MC");
+
+                    // Info block: middle RHS
+                    TLatex t;
+                    t.SetNDC(true);
+                    t.SetTextFont(42);
+                    t.SetTextSize(0.032);
+                    t.SetTextAlign(12);
+                    t.DrawLatex(0.60, 0.62, TString::Format("p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
+                    t.DrawLatex(0.60, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
+                    t.DrawLatex(0.60, 0.52, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
+                    t.DrawLatex(0.60, 0.47, TString::Format("Back-to-back: %s", bbLabel.c_str()).Data());
+
+                    TLegend* legCuts = nullptr;
+                    if (is1315 && lAbs && lFull)
+                    {
+                      legCuts = new TLegend(0.60, 0.32, 0.88, 0.43);
+                      legCuts->SetTextFont(42);
+                      legCuts->SetTextSize(0.030);
+                      legCuts->SetFillStyle(0);
+                      legCuts->SetBorderSize(0);
+                      legCuts->AddEntry(lAbs,  "x_{J,min}^{abs} = p_{T}^{jet,min}/p_{T,max}^{#gamma}", "l");
+                      legCuts->AddEntry(lFull, "x_{J,min}^{full} = p_{T}^{jet,min}/p_{T,min}^{#gamma}", "l");
+                      legCuts->Draw();
+                    }
+
+                    const std::string outNameRaw =
+                      TString::Format("overlay_SamVsJustin_JES3_RECO_RAW_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
+                        ptLo, ptHi, samPtLabel.c_str(), rKey.c_str()).Data();
+
+                    cRaw.Modified();
+                    cRaw.Update();
+                    SaveCanvas(cRaw, JoinPath(dirOver_raw, outNameRaw));
+
+                    if (legCuts) delete legCuts;
+                    if (lAbs)  delete lAbs;
+                    if (lFull) delete lFull;
+                  }
+
+                  if (hSamRaw) delete hSamRaw;
+                  if (hJustinRaw) delete hJustinRaw;
+                  if (hTagRaw) delete hTagRaw;
+                }
+
+                // -------------------------
+                // (2) NORMALIZED
+                // -------------------------
+                {
+                  StyleForOverlay(hSam, 2);
+                  StyleForOverlay(hJustin, 4);
+                  if (hJustinTag)
+                  {
+                    StyleForOverlay(hJustinTag, 6);
+                    hJustinTag->SetMarkerStyle(24);
+                  }
+
+                  double ymax = 0.0;
+                  ymax = std::max(ymax, MaxBinContent(hSam));
+                  ymax = std::max(ymax, MaxBinContent(hJustin));
+                  if (hJustinTag) ymax = std::max(ymax, MaxBinContent(hJustinTag));
+                  hSam->SetMaximum(ymax * 1.10);
+
+                  TCanvas c("c_SamVsJustin","c_SamVsJustin",900,700);
+                  ApplyCanvasMargins1D(c);
+
+                  hSam->Draw("E1");
+                  hJustin->Draw("E1 same");
+                  if (hJustinTag) hJustinTag->Draw("E1 same");
+
+                  // Optional cut lines ONLY for the 13-15 GeV bin (as before)
+                  TLine* lAbs  = nullptr;
+                  TLine* lFull = nullptr;
+
+                  const bool is1315 = (std::fabs(ptLo - 13.0) < 1e-6 && std::fabs(ptHi - 15.0) < 1e-6);
+                  if (is1315)
+                  {
+                    const double xAbs  = jetMinPtGeV / ptHi;
+                    const double xFull = jetMinPtGeV / ptLo;
+
+                    lAbs  = new TLine(xAbs,  0.0, xAbs,  ymax * 1.10);
+                    lFull = new TLine(xFull, 0.0, xFull, ymax * 1.10);
+
+                    lAbs->SetLineColor(4);
+                    lAbs->SetLineWidth(2);
+                    lAbs->SetLineStyle(2);
+
+                    lFull->SetLineColor(2);
+                    lFull->SetLineWidth(2);
+                    lFull->SetLineStyle(2);
+
+                    lAbs->Draw("same");
+                    lFull->Draw("same");
+                  }
+
+                  // Smaller legend, pushed to top-right
+                  TLegend leg(0.62, 0.82, 0.90, 0.95);
+                  leg.SetTextFont(42);
+                  leg.SetTextSize(0.022);
+                  leg.SetFillStyle(0);
+                  leg.SetBorderSize(0);
+                  leg.AddEntry(hSam,    TString::Format("Sam's RECO (R = %.1f)", R).Data(), "ep");
+                  leg.AddEntry(hJustin, TString::Format("Justin's RECO w/ matched cuts (R = %.1f)", R).Data(), "ep");
+                  if (hJustinTag)
+                  {
+                    leg.AddEntry(hJustinTag, TString::Format("Justin's RECO (#gamma^{truth} + jet^{truth} tag) (R = %.1f)", R).Data(), "ep");
+                  }
+                  leg.Draw();
+
+                  // Note: aligned under the legend block
+                  TLatex tNote;
+                  tNote.SetNDC(true);
+                  tNote.SetTextFont(42);
+                  tNote.SetTextAlign(13);
+                  tNote.SetTextSize(0.032);
+                  tNote.DrawLatex(0.62, 0.79, "Photon 10 + 20 GeV #gamma+Jet MC");
+
+                  // Info block: middle RHS
+                  TLatex t;
+                  t.SetNDC(true);
+                  t.SetTextFont(42);
+                  t.SetTextSize(0.032);
+                  t.SetTextAlign(12);
+                  t.DrawLatex(0.60, 0.62, TString::Format("p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
+                  t.DrawLatex(0.60, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
+                  t.DrawLatex(0.60, 0.52, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
+                  t.DrawLatex(0.60, 0.47, TString::Format("Back-to-back: %s", bbLabel.c_str()).Data());
+
+                  TLegend* legCuts = nullptr;
+                  if (is1315 && lAbs && lFull)
+                  {
+                    legCuts = new TLegend(0.60, 0.32, 0.88, 0.43);
+                    legCuts->SetTextFont(42);
+                    legCuts->SetTextSize(0.030);
+                    legCuts->SetFillStyle(0);
+                    legCuts->SetBorderSize(0);
+                    legCuts->AddEntry(lAbs,  "x_{J,min}^{abs} = p_{T}^{jet,min}/p_{T,max}^{#gamma}", "l");
+                    legCuts->AddEntry(lFull, "x_{J,min}^{full} = p_{T}^{jet,min}/p_{T,min}^{#gamma}", "l");
+                    legCuts->Draw();
+                  }
+
+                  const std::string outName =
+                    TString::Format("overlay_SamVsJustin_JES3_RECO_NORM_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
+                      ptLo, ptHi, samPtLabel.c_str(), rKey.c_str()).Data();
+
+                  c.Modified();
+                  c.Update();
+                  SaveCanvas(c, JoinPath(dirOver_norm, outName));
+
+                  if (legCuts) delete legCuts;
+                  if (lAbs)  delete lAbs;
+                  if (lFull) delete lFull;
+                }
+
+                delete hSam;
+                delete hJustin;
+                if (hJustinTag) delete hJustinTag;
             }
 
-            fJ10->Close();
-            fJ20->Close();
+            delete hJustin3_reco;
+            if (hJustin3_tag) delete hJustin3_tag;
+          }
 
-            if (fFix10) fFix10->Close();
-            if (fFix20) fFix20->Close();
+          fJ10->Close();
+          fJ20->Close();
 
-            fSamM->Close();
-            fSam10->Close();
-            fSam20->Close();
-            if (fSamPrevM) fSamPrevM->Close();
+          fSam10->Close();
+          fSam20->Close();
 
-            if (fDefaultM) fDefaultM->Close();
+          cout << ANSI_BOLD_GRN
+               << "\n[OK] Sam-vs-Justin overlays complete. All PNGs written under:\n"
+               << "     " << dirOver << "\n"
+               << ANSI_RESET;
+      }
 
-              cout << ANSI_BOLD_GRN
-                   << "\n[OK] Sam-vs-Justin overlays complete. All PNGs written under:\n"
-                   << "     " << plotsDir << "\n"
-                   << ANSI_RESET;
-        }
-
-        void RunJES3QA(Dataset& ds)
-        {
+      void RunJES3QA(Dataset& ds)
+      {
             cout << ANSI_BOLD_CYN << "\n==============================\n"
                  << "[SECTION 5F] JES3 QA (3D maps) (" << ds.label << ")\n"
                  << "==============================" << ANSI_RESET << "\n";
