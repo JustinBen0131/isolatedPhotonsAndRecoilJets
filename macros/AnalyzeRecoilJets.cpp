@@ -7585,7 +7585,7 @@ namespace ARJ
                         TLatex ttl;
                         ttl.SetNDC(true);
                         ttl.SetTextFont(42);
-                        ttl.SetTextSize(0.048);
+                        ttl.SetTextSize(0.043);
                         ttl.DrawLatex(0.12, 0.94,
                           TString::Format("RECO x_{J#gamma} (DATA vs SIM), p_{T}^{#gamma} = %.0f - %.0f GeV, R = %.1f",
                             ptMinGamma, ptMaxGamma, R).Data());
