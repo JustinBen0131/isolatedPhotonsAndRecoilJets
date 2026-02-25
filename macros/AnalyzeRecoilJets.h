@@ -161,7 +161,7 @@ namespace ARJ
 //   - For single-slice SIM, y-axes remain raw "Counts" (unweighted).
 // =============================================================================
 
-  inline bool isPPdataOnly   = false;
+  inline bool isPPdataOnly   = true;
   inline bool isSimAndDataPP = false;
 
   // SIM sample selection toggles (choose EXACTLY ONE for any SIM-including run)
@@ -171,11 +171,11 @@ namespace ARJ
 
   inline bool bothPhoton5and10sim        = false;
   inline bool bothPhoton5and20sim        = false;
-  inline bool bothPhoton10and20sim       = true;
+  inline bool bothPhoton10and20sim       = false;
 
   // If false, STEP 1 will NOT rebuild the photonJet10+20 merged ROOT file(s).
   // Downstream code will simply open the already-merged output at the configured path(s).
-  inline bool doRemergePhoton10and20sim  = true;
+  inline bool doRemergePhoton10and20sim  = false;
 
   inline bool allPhoton5and10and20sim    = false;
 
@@ -186,7 +186,7 @@ namespace ARJ
   }
 
   // One-off, hard-coded comparison overlays (Sam vs Justin unsmear files)
-  inline bool doSamVsJustinUnsmearOverlays = true;
+  inline bool doSamVsJustinUnsmearOverlays = false;
 
   // Displayed range [-vzCutCm,+vzCutCm] and 0.5 cm display bin width
   inline double VzCutCmFromYAML();
@@ -199,7 +199,7 @@ namespace ARJ
   inline const string kDirSIM    = "SIM";
 
   inline const string kInPP =
-      "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp/RecoilJets_pp_ALL.root";
+      "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet5/7pi_8_BB/RecoilJets_pp_ALL.root";
 
   inline const string kInSIM5 =
       "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5_SIM/RecoilJets_photonjet5_ALL.root";

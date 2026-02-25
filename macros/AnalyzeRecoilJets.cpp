@@ -5417,9 +5417,13 @@ namespace ARJ
           }
 
             // Alternate (7π/8): MUST use the merged photonJet10+20 ROOT file for this cfgKey
-            const std::string altKey = kAltSimSampleKey_jetMinPt10_7piOver8;
+            // IMPORTANT: read cfgKey from the header default so the jetMinPt printed + used is always consistent.
+            const std::string altKey = DefaultSimSampleKey();
             const Sim10and20Config& altCfg = Sim10and20ConfigForKey(altKey);
             const std::string altMerged = MergedSIMOut_10and20_ForKey(altKey);
+
+            const double jetMinPtGeV = altCfg.jetMinPt;
+            const std::string bbLabel = altCfg.bbLabel;
 
             auto EnsureAltMerged = [&]()->bool
             {
@@ -5554,40 +5558,42 @@ namespace ARJ
                 continue;
               }
 
-              // Red closed circles: |Δφ| > π/2  (baseline)
-              if (hPi2)
-              {
-                hPi2->SetDirectory(nullptr);
-                EnsureSumw2(hPi2);
-                hPi2->SetTitle("");
-                hPi2->SetLineWidth(2);
-                hPi2->SetLineColor(2);
-                hPi2->SetMarkerStyle(20);   // closed circle
-                hPi2->SetMarkerSize(0.95);
-                hPi2->SetMarkerColor(2);
-                hPi2->SetFillStyle(0);
-                hPi2->GetXaxis()->SetTitle("x_{J#gamma}");
-                hPi2->GetYaxis()->SetTitle("A.U.");
-                NormalizeToUnitArea(hPi2);
-              }
+                // Red closed circles: |Δφ| > π/2  (baseline)
+                if (hPi2)
+                {
+                  hPi2->SetDirectory(nullptr);
+                  EnsureSumw2(hPi2);
+                  hPi2->SetTitle("");
+                  hPi2->SetLineWidth(2);
+                  hPi2->SetLineColor(2);
+                  hPi2->SetMarkerStyle(20);   // closed circle
+                  hPi2->SetMarkerSize(0.95);
+                  hPi2->SetMarkerColor(2);
+                  hPi2->SetFillStyle(0);
+                  hPi2->GetXaxis()->SetTitle("x_{J#gamma}");
+                  hPi2->GetYaxis()->SetTitle("A.U.");
+                  hPi2->GetXaxis()->SetRangeUser(0.0, 2.0);
+                  NormalizeToUnitArea(hPi2);
+                }
 
-              // Blue open circles: |Δφ| > 7π/8 (alternate)
-              if (h7p8)
-              {
-                h7p8->SetDirectory(nullptr);
-                EnsureSumw2(h7p8);
-                h7p8->SetTitle("");
-                h7p8->SetLineWidth(2);
-                h7p8->SetLineColor(4);
-                h7p8->SetMarkerStyle(24);   // open circle
-                h7p8->SetMarkerSize(0.95);
-                h7p8->SetMarkerColor(4);
-                h7p8->SetFillStyle(0);
-                h7p8->GetXaxis()->SetTitle("x_{J#gamma}");
-                h7p8->GetYaxis()->SetTitle("A.U.");
-                NormalizeToUnitArea(h7p8);
+                // Blue open circles: |Δφ| > 7π/8 (alternate)
+                if (h7p8)
+                {
+                  h7p8->SetDirectory(nullptr);
+                  EnsureSumw2(h7p8);
+                  h7p8->SetTitle("");
+                  h7p8->SetLineWidth(2);
+                  h7p8->SetLineColor(4);
+                  h7p8->SetMarkerStyle(24);   // open circle
+                  h7p8->SetMarkerSize(0.95);
+                  h7p8->SetMarkerColor(4);
+                  h7p8->SetFillStyle(0);
+                  h7p8->GetXaxis()->SetTitle("x_{J#gamma}");
+                  h7p8->GetYaxis()->SetTitle("A.U.");
+                  h7p8->GetXaxis()->SetRangeUser(0.0, 2.0);
+                  NormalizeToUnitArea(h7p8);
 
-              }
+                }
 
               TH1* first  = hPi2 ? hPi2 : h7p8;
               TH1* second = (first == hPi2) ? h7p8 : hPi2;
@@ -5613,15 +5619,24 @@ namespace ARJ
                 TString::Format("Reco-level x_{J#gamma}, p_{T}^{#gamma} = %s  (R=%.1f)", ptLab.c_str(), R).Data()
               );
 
-                // Legend: larger and moved to middle-right (uses the empty tail region around xJ~2+)
-                TLegend leg(0.53, 0.65, 0.88, 0.82);
+                // Legend: smaller and moved to the top-right (avoid marker overlap)
+                TLegend leg(0.62, 0.74, 0.93, 0.90);
                 leg.SetTextFont(42);
-                leg.SetTextSize(0.055);
+                leg.SetTextSize(0.045);
                 leg.SetFillStyle(0);
                 leg.SetBorderSize(0);
                 if (hPi2) leg.AddEntry(hPi2,  "|#Delta#phi(#gamma,jet)| > #pi/2",   "ep");
                 if (h7p8) leg.AddEntry(h7p8,  "|#Delta#phi(#gamma,jet)| > 7#pi/8", "ep");
                 leg.DrawClone();
+
+                // Print the jetMinPt (from header default cfgKey) + back-to-back label under the legend
+                TLatex tCuts;
+                tCuts.SetNDC(true);
+                tCuts.SetTextFont(42);
+                tCuts.SetTextAlign(13); // left-top
+                tCuts.SetTextSize(0.040);
+                tCuts.DrawLatex(0.62, 0.71, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
+                tCuts.DrawLatex(0.62, 0.66, TString::Format("Back-to-back: %s", bbLabel.c_str()).Data());
 
 
               if (hPi2) keep.push_back(hPi2);
@@ -5636,37 +5651,39 @@ namespace ARJ
 
                 if (pPi2 || p7p8)
                 {
-                  if (pPi2)
-                  {
-                    pPi2->SetDirectory(nullptr);
-                    EnsureSumw2(pPi2);
-                    pPi2->SetTitle("");
-                    pPi2->SetLineWidth(2);
-                    pPi2->SetLineColor(2);
-                    pPi2->SetMarkerStyle(20);
-                    pPi2->SetMarkerSize(1.00);
-                    pPi2->SetMarkerColor(2);
-                    pPi2->SetFillStyle(0);
-                    pPi2->GetXaxis()->SetTitle("x_{J#gamma}");
-                    pPi2->GetYaxis()->SetTitle("A.U.");
-                    NormalizeToUnitArea(pPi2);
+                    if (pPi2)
+                    {
+                      pPi2->SetDirectory(nullptr);
+                      EnsureSumw2(pPi2);
+                      pPi2->SetTitle("");
+                      pPi2->SetLineWidth(2);
+                      pPi2->SetLineColor(2);
+                      pPi2->SetMarkerStyle(20);
+                      pPi2->SetMarkerSize(1.00);
+                      pPi2->SetMarkerColor(2);
+                      pPi2->SetFillStyle(0);
+                      pPi2->GetXaxis()->SetTitle("x_{J#gamma}");
+                      pPi2->GetYaxis()->SetTitle("A.U.");
+                      pPi2->GetXaxis()->SetRangeUser(0.0, 2.0);
+                      NormalizeToUnitArea(pPi2);
 
-                  }
-                  if (p7p8)
-                  {
-                    p7p8->SetDirectory(nullptr);
-                    EnsureSumw2(p7p8);
-                    p7p8->SetTitle("");
-                    p7p8->SetLineWidth(2);
-                    p7p8->SetLineColor(4);
-                    p7p8->SetMarkerStyle(24);
-                    p7p8->SetMarkerSize(1.00);
-                    p7p8->SetMarkerColor(4);
-                    p7p8->SetFillStyle(0);
-                    p7p8->GetXaxis()->SetTitle("x_{J#gamma}");
-                    p7p8->GetYaxis()->SetTitle("A.U.");
-                    NormalizeToUnitArea(p7p8);
-                  }
+                    }
+                    if (p7p8)
+                    {
+                      p7p8->SetDirectory(nullptr);
+                      EnsureSumw2(p7p8);
+                      p7p8->SetTitle("");
+                      p7p8->SetLineWidth(2);
+                      p7p8->SetLineColor(4);
+                      p7p8->SetMarkerStyle(24);
+                      p7p8->SetMarkerSize(1.00);
+                      p7p8->SetMarkerColor(4);
+                      p7p8->SetFillStyle(0);
+                      p7p8->GetXaxis()->SetTitle("x_{J#gamma}");
+                      p7p8->GetYaxis()->SetTitle("A.U.");
+                      p7p8->GetXaxis()->SetRangeUser(0.0, 2.0);
+                      NormalizeToUnitArea(p7p8);
+                    }
 
                   TH1* f1 = pPi2 ? pPi2 : p7p8;
                   TH1* f2 = (f1 == pPi2) ? p7p8 : pPi2;
@@ -5699,15 +5716,20 @@ namespace ARJ
                     TString::Format("p_{T}^{#gamma}: %s GeV (R = %.1f)", ptNoUnit.c_str(), R).Data()
                   );
 
-                  // Legend (same placement as your cleaned overlays)
-                  TLegend lInd(0.55, 0.75, 0.88, 0.90);
-                  lInd.SetTextFont(42);
-                  lInd.SetTextSize(0.040);
-                  lInd.SetFillStyle(0);
-                  lInd.SetBorderSize(0);
-                  if (pPi2) lInd.AddEntry(pPi2, "|#Delta#phi(#gamma,jet)| > #pi/2",   "ep");
-                  if (p7p8) lInd.AddEntry(p7p8, "|#Delta#phi(#gamma,jet)| > 7#pi/8", "ep");
-                  lInd.Draw();
+                    // Legend (smaller, top-right to avoid marker overlap)
+                    TLegend lInd(0.62, 0.78, 0.93, 0.92);
+                    lInd.SetTextFont(42);
+                    lInd.SetTextSize(0.032);
+                    lInd.SetFillStyle(0);
+                    lInd.SetBorderSize(0);
+                    if (pPi2) lInd.AddEntry(pPi2, "|#Delta#phi(#gamma,jet)| > #pi/2",   "ep");
+                    if (p7p8) lInd.AddEntry(p7p8, "|#Delta#phi(#gamma,jet)| > 7#pi/8", "ep");
+                    lInd.Draw();
+
+                    // Print jetMinPt + back-to-back label under the legend (from header default cfgKey)
+                    t.SetTextSize(0.030);
+                    t.DrawLatex(0.62, 0.74, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
+                    t.DrawLatex(0.62, 0.70, TString::Format("Back-to-back: %s", bbLabel.c_str()).Data());
 
                   const std::string outInd =
                     JoinPath(outPerPtDir, TString::Format("overlay_pTbin%d.png", ib).Data());
