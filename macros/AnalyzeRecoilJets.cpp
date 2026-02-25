@@ -7046,34 +7046,35 @@ namespace ARJ
                             if (xAbs > 0.0)  lnAbs->Draw("same");
                             if (xFull > 0.0) lnFull->Draw("same");
 
-                            TLegend* leg = new TLegend(0.7, 0.28, 0.95, 0.45);
-                            leg->SetBorderSize(0);
-                            leg->SetFillStyle(0);
-                            leg->SetTextFont(42);
-                            leg->SetTextSize(0.034);
+                              TLegend* leg = new TLegend(0.62, 0.70, 0.95, 0.92);
+                              leg->SetBorderSize(0);
+                              leg->SetFillStyle(0);
+                              leg->SetTextFont(42);
+                              leg->SetTextSize(0.034);
 
-                            leg->AddEntry(xJ_dat, "DATA (reco)", "ep");
-                            leg->AddEntry(xJ_sim, "SIM (reco)",  "ep");
-                            if (xAbs > 0.0)
-                              leg->AddEntry(lnAbs,
-                                TString::Format("x_{J, min}^{abs} = #frac{%.0f}{p_{T, max}^{#gamma}} = %.3f", jetPtMin_GeV, xAbs),
-                                "l");
-                            if (xFull > 0.0)
-                              leg->AddEntry(lnFull,
-                                TString::Format("x_{J, min}^{full} = #frac{%.0f}{p_{T, min}^{#gamma}} = %.3f", jetPtMin_GeV, xFull),
-                                "l");
+                              leg->AddEntry(xJ_dat, "DATA (reco)", "ep");
+                              leg->AddEntry(xJ_sim, "SIM (reco)",  "ep");
+                              if (xAbs > 0.0)
+                                leg->AddEntry(lnAbs,
+                                  TString::Format("x_{J, min}^{abs} = #frac{%.0f}{p_{T, max}^{#gamma}} = %.3f", jetPtMin_GeV, xAbs),
+                                  "l");
+                              if (xFull > 0.0)
+                                leg->AddEntry(lnFull,
+                                  TString::Format("x_{J, min}^{full} = #frac{%.0f}{p_{T, min}^{#gamma}} = %.3f", jetPtMin_GeV, xFull),
+                                  "l");
 
-                            leg->Draw();
+                              leg->Draw();
 
-                            {
-                              TLatex tCuts;
-                              tCuts.SetNDC(true);
-                              tCuts.SetTextFont(42);
-                              tCuts.SetTextAlign(33);
-                              tCuts.SetTextSize(0.038);
-                              tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data());
-                              tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
-                            }
+                              {
+                                TLatex tCuts;
+                                tCuts.SetNDC(true);
+                                tCuts.SetTextFont(42);
+                                tCuts.SetTextAlign(33);
+                                tCuts.SetTextSize(0.038);
+                                tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data());
+                                tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
+                                tCuts.DrawLatex(0.92, 0.46, TString::Format("|v_{z}| < %.0f cm", vzCutCm).Data());
+                              }
 
                             TLatex ttl;
                             ttl.SetNDC(true);
@@ -8518,53 +8519,82 @@ namespace ARJ
                     );
                     ApplyCanvasMargins1D(c);
 
-                    hR->Draw("E1");
-                    hT->Draw("E1 same");
-                    hB->Draw("E1 same");
+                      hR->Draw("E1");
+                      hT->Draw("E1 same");
+                      hB->Draw("E1 same");
 
-                    // Kinematic floor line (requested)
-                    DrawKinematicFloorLine(xFloor, 0.0, yMaxPlot);
+                      // Kinematic floor line:
+                      //   KEEP for other overlays, but DO NOT draw for truthTaggedPhoJet overlays.
+                      if (ovTag.find("truthTaggedPhoJet") == std::string::npos)
+                      {
+                        DrawKinematicFloorLine(xFloor, 0.0, yMaxPlot);
 
-                    // Small in-pad label for the floor
-                    if (xFloor > 0.0)
-                    {
-                      TLatex tFloor;
-                      tFloor.SetNDC(true);
-                      tFloor.SetTextFont(42);
-                      tFloor.SetTextAlign(13);
-                      tFloor.SetTextSize(0.034);
-                      tFloor.DrawLatex(0.16, 0.74,
-                        TString::Format("p_{T}^{jet}>%.0f GeV  #Rightarrow  x_{min}#approx%.3f", jetPtMin_GeV, xFloor).Data()
-                      );
-                    }
+                        if (xFloor > 0.0)
+                        {
+                          TLatex tFloor;
+                          tFloor.SetNDC(true);
+                          tFloor.SetTextFont(42);
+                          tFloor.SetTextAlign(13);
+                          tFloor.SetTextSize(0.034);
+                          tFloor.DrawLatex(0.16, 0.74,
+                            TString::Format("p_{T}^{jet}>%.0f GeV  #Rightarrow  x_{min}#approx%.3f", jetPtMin_GeV, xFloor).Data()
+                          );
+                        }
+                      }
 
-                    // Legend (top-right)
-                    double lx1 = 0.50, ly1 = 0.72, lx2 = 0.86, ly2 = 0.90;
-                    double legTextSize = 0.041;
-                    if (ovTag.find("truthTaggedPhoJet") != std::string::npos)
-                    {
-                      lx1 = 0.55; lx2 = 0.86;
-                      legTextSize = 0.038;
-                    }
+                      // Legend (top-right)
+                      double lx1 = 0.50, ly1 = 0.72, lx2 = 0.86, ly2 = 0.90;
+                      double legTextSize = 0.041;
+                      if (ovTag.find("truthTaggedPhoJet") != std::string::npos)
+                      {
+                        lx1 = 0.55; lx2 = 0.86;
+                        legTextSize = 0.038;
+                      }
 
-                    TLegend leg(lx1, ly1, lx2, ly2);
-                    leg.SetTextFont(42);
-                    leg.SetTextSize(legTextSize);
-                    leg.SetFillStyle(0);
-                    leg.SetBorderSize(0);
-                    leg.AddEntry(hR, legReco.c_str(),      "ep");
-                    leg.AddEntry(hT, legTruth.c_str(),     "ep");
-                    leg.AddEntry(hB, legRecoTruth.c_str(), "ep");
-                    leg.Draw();
+                      TLegend leg(lx1, ly1, lx2, ly2);
+                      leg.SetTextFont(42);
+                      leg.SetTextSize(legTextSize);
+                      leg.SetFillStyle(0);
+                      leg.SetBorderSize(0);
+                      leg.AddEntry(hR, legReco.c_str(),      "ep");
+                      leg.AddEntry(hT, legTruth.c_str(),     "ep");
+                      leg.AddEntry(hB, legRecoTruth.c_str(), "ep");
+                      leg.Draw();
 
-                    DrawLatexLines(0.14, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+                      // Plot labeling:
+                      //   For RECO_vs_RECO_truthTaggedPhoJet overlays:
+                      //     - Use a single title line (no dataset header block)
+                      //     - Put cuts on RHS middle (like DATA vs SIM overlay style)
+                      //     - Do NOT show kinematic-floor line/label
+                      if (ovTag.find("truthTaggedPhoJet") != std::string::npos)
+                      {
+                        TLatex tTitle;
+                        tTitle.SetNDC(true);
+                        tTitle.SetTextFont(42);
+                        tTitle.SetTextAlign(13);
+                        tTitle.SetTextSize(0.050);
+                        tTitle.DrawLatex(0.14, 0.92,
+                          TString::Format("Reco vs Reco (#gamma+jet truth tagged), p_{T}^{#gamma} = %s, R = %.1f", ptLab.c_str(), R).Data()
+                        );
 
-                    vector<string> lines = headerLines;
-                    lines.push_back(TString::Format("p_{T}^{#gamma}: %s  (R=%.1f)", ptLab.c_str(), R).Data());
-                    lines.push_back("Integrated over #alpha");
-                    DrawLatexLines(0.14, 0.84, lines, 0.030, 0.040);
+                        const auto& cfg = DefaultSim10and20Config();
+                        vector<string> cutLines;
+                        cutLines.push_back(TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfg.bbLabel.c_str()).Data());
+                        cutLines.push_back(TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
+                        cutLines.push_back(TString::Format("|v_{z}| < %.0f cm", vzCutCm).Data());
+                        DrawLatexLines(0.62, 0.62, cutLines, 0.036, 0.045);
+                      }
+                      else
+                      {
+                        DrawLatexLines(0.14, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
 
-                    SaveCanvas(c, outPng);
+                        vector<string> lines = headerLines;
+                        lines.push_back(TString::Format("p_{T}^{#gamma}: %s  (R=%.1f)", ptLab.c_str(), R).Data());
+                        lines.push_back("Integrated over #alpha");
+                        DrawLatexLines(0.14, 0.84, lines, 0.030, 0.040);
+                      }
+
+                      SaveCanvas(c, outPng);
 
                     // ---------------------- Ratio canvas (requested) ----------------------
                     // Ratios (shape ratios because inputs are unit-area normalized):
