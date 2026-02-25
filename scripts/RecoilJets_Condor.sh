@@ -65,6 +65,12 @@ case "$dataset_raw" in
     export RJ_DATASET="isPP"
     export RJ_IS_SIM=0
     ;;
+  isPPrun25|pprun25|pp25|PP25)
+    dataset="isPPrun25"
+    analysis_tag="isPP"
+    export RJ_DATASET="isPP"
+    export RJ_IS_SIM=0
+    ;;
   isSim|sim|SIM)
     dataset="isSim"
     analysis_tag="isSim"
@@ -88,6 +94,8 @@ esac
 if [[ -z "$dest_base" ]]; then
   if [[ "$analysis_tag" == "isSim" ]]; then
     dest_base="/sphenix/tg/tg01/bulk/jbennett/thesisAna/sim"
+  elif [[ "$dataset" == "isPPrun25" ]]; then
+    dest_base="/sphenix/tg/tg01/bulk/jbennett/thesisAna/pp25"
   elif [[ "$dataset" == "isPP" ]]; then
     dest_base="/sphenix/tg/tg01/bulk/jbennett/thesisAna/pp"
   else
@@ -109,9 +117,17 @@ echo "[INFO] Output path = $out_root"
 
 # The macro expects to find the ROOT files listed inside chunk_list. If those
 # entries are relative file names, make sure the CWD is the directory where
-# the ROOT files live (we use the list’s directory as a safe default).
-list_dir="$(dirname "$chunk_list")"
-cd "$list_dir"
+# the ROOT files live.
+if [[ "$dataset" == "isPPrun25" ]]; then
+  run_dec=$((10#$run8))
+  range_begin=$(( (run_dec/100) * 100 ))
+  range_end=$(( (run_dec/100 + 1) * 100 ))
+  prod_dir="$(printf "/sphenix/lustre01/sphnxpro/production2/run3pp/physics/calofitting/new_newcdbtag_v008/run_%08d_%08d" "$range_begin" "$range_end")"
+  cd "$prod_dir" || { echo "[FATAL] Cannot cd to CALOFITTING production dir: $prod_dir"; exit 5; }
+else
+  list_dir="$(dirname "$chunk_list")"
+  cd "$list_dir"
+fi
 
 # ------------------------ Sanity checks --------------------
 [[ -f "$MACRO" ]] || { echo "[FATAL] Macro not found: $MACRO"; exit 2; }

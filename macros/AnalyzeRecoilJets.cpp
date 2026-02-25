@@ -7558,47 +7558,14 @@ namespace ARJ
                         const double jetPtMin_GeV = cfgDef.jetMinPt;
                         const string bbLabel = cfgDef.bbLabel;
 
-                        const double xAbs  = (ptMaxGamma > 0.0) ? (jetPtMin_GeV / ptMaxGamma) : -1.0;
-                        const double xFull = (ptMinGamma > 0.0) ? (jetPtMin_GeV / ptMinGamma) : -1.0;
-
-                        const double yMin = gPad->GetUymin();
-                        const double yMax = gPad->GetUymax();
-
-                        TLine* lnAbs = new TLine(xAbs,  yMin, xAbs,  yMax);
-                        lnAbs->SetLineColor(kBlue + 1);
-                        lnAbs->SetLineStyle(2);
-                        lnAbs->SetLineWidth(2);
-
-                        TLine* lnFull = new TLine(xFull, yMin, xFull, yMax);
-                        lnFull->SetLineColor(kRed + 1);
-                        lnFull->SetLineStyle(2);
-                        lnFull->SetLineWidth(2);
-
-                        TLine* lnAbsDrawn  = nullptr;
-                        TLine* lnFullDrawn = nullptr;
-
-                        if (xAbs > 0.0)  lnAbsDrawn  = (TLine*) lnAbs->DrawClone("same");
-                        if (xFull > 0.0) lnFullDrawn = (TLine*) lnFull->DrawClone("same");
-
-                        delete lnFull;
-                        delete lnAbs;
-
-                        TLegend* leg = new TLegend(0.52, 0.70, 0.95, 0.90);
+                        TLegend* leg = new TLegend(0.70, 0.80, 0.94, 0.92);
                         leg->SetBorderSize(0);
                         leg->SetFillStyle(0);
                         leg->SetTextFont(42);
-                        leg->SetTextSize(0.032);
+                        leg->SetTextSize(0.034);
 
                         leg->AddEntry(hDatRaw, "DATA (reco)", "ep");
                         leg->AddEntry(hSimRaw, "SIM (reco)",  "ep");
-                        if (lnAbsDrawn)
-                          leg->AddEntry(lnAbsDrawn,
-                            TString::Format("x_{J, min}^{abs} = #frac{%.0f}{p_{T, max}^{#gamma}} = %.3f", jetPtMin_GeV, xAbs),
-                            "l");
-                        if (lnFullDrawn)
-                          leg->AddEntry(lnFullDrawn,
-                            TString::Format("x_{J, min}^{full} = #frac{%.0f}{p_{T, min}^{#gamma}} = %.3f", jetPtMin_GeV, xFull),
-                            "l");
 
                         leg->DrawClone();
                         delete leg;

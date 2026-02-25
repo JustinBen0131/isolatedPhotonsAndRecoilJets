@@ -36,6 +36,7 @@
 #include <calobase/RawTowerGeomContainer_Cylinderv1.h>
 #include <caloreco/CaloGeomMapping.h>
 #include <caloreco/RawClusterPositionCorrection.h>
+#include <caloreco/RawClusterBuilderTemplate.h>
 #include <calobase/RawTowerGeom.h>
 #include <caloreco/RawTowerCalibration.h>
 #include <caloreco/PhotonClusterBuilder.h>
@@ -1068,22 +1069,27 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
 
   const std::string& firstFile = filesCalo.front(); // used for GetRunSegment
 
-  // Simulation detection:
-  //  - primary: RJ_DATASET=isSim
-  //  - fallback: RJ_IS_SIM=1 (wrapper sets this)
-  bool isSim = false;
-  if (const char* ds = std::getenv("RJ_DATASET"))
-  {
-      std::string s = detail::trim(std::string(ds));
-      std::transform(s.begin(), s.end(), s.begin(),
-                     [](unsigned char c){ return std::tolower(c); });
-      if (s == "issim" || s == "sim") isSim = true;
-    }
-    if (!isSim)
+    // Simulation detection:
+    //  - primary: RJ_DATASET=isSim
+    //  - fallback: RJ_IS_SIM=1 (wrapper sets this)
+    //
+    // CALOFITTING pp25 detection:
+    //  - RJ_DATASET=isPPrun25 (or pp25/pprun25) enables the CALOFITTING calibration path
+    bool isSim = false;
+    bool isPPrun25 = false;
+    if (const char* ds = std::getenv("RJ_DATASET"))
     {
-      if (const char* f = std::getenv("RJ_IS_SIM"))
-        isSim = (std::atoi(f) != 0);
-  }
+        std::string s = detail::trim(std::string(ds));
+        std::transform(s.begin(), s.end(), s.begin(),
+                       [](unsigned char c){ return std::tolower(c); });
+        if (s == "issim" || s == "sim") isSim = true;
+        if (s == "ispprun25" || s == "pprun25" || s == "pp25") isPPrun25 = true;
+      }
+      if (!isSim)
+      {
+        if (const char* f = std::getenv("RJ_IS_SIM"))
+          isSim = (std::atoi(f) != 0);
+    }
 
   auto runSegPair = Fun4AllUtils::GetRunSegment(firstFile);
   int run = runSegPair.first;
@@ -1477,14 +1483,70 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
     // ------------------------------------------------------------------
     // Calo calibration + clustering
     //
-    // DATA: run the standard Calo_Calib reconstruction chain.
+    // DATA (isPP): run the standard Calo_Calib reconstruction chain.
+    // DATA (isPPrun25): CALOFITTING DST → skip Process_Calo_Calib and instead:
+    //   - CaloTowerCalib: TOWERS_* -> TOWERINFO_CALIB_*
+    //   - RawClusterBuilderTemplate: ensure CLUSTERINFO_CEMC exists
     // SIM : skip (SIM analysis DST already has calibrated towers/clusters; re-running
     //             the reco chain is what triggers CaloTowerStatus hotmap/default-map failure).
     // ------------------------------------------------------------------
-    if (!isSim)
+    if (!isSim && !isPPrun25)
     {
       if (vlevel > 0) std::cout << "[DATA] running Process_Calo_Calib()\n";
       Process_Calo_Calib();
+    }
+    else if (!isSim && isPPrun25)
+    {
+      if (vlevel > 0)
+      {
+        std::cout << "[isPPrun25] Skipping Process_Calo_Calib() "
+                     "(CALOFITTING DST → re-calibrating towers & rebuilding clusters)\n";
+        std::cout << "[isPPrun25] Running CaloTowerCalib: inputPrefix=TOWERS_ -> outputPrefix=TOWERINFO_CALIB_\n";
+      }
+
+      CaloTowerCalib* calibEMC = new CaloTowerCalib("CaloTowerCalib_CEMC_fromTOWERS");
+      calibEMC->set_detector_type(CaloTowerDefs::CEMC);
+      calibEMC->set_inputNodePrefix("TOWERS_");
+      calibEMC->set_outputNodePrefix("TOWERINFO_CALIB_");
+      calibEMC->set_doCalibOnly(true);
+      se->registerSubsystem(calibEMC);
+
+      CaloTowerCalib* calibIHCal = new CaloTowerCalib("CaloTowerCalib_HCALIN_fromTOWERS");
+      calibIHCal->set_detector_type(CaloTowerDefs::HCALIN);
+      calibIHCal->set_inputNodePrefix("TOWERS_");
+      calibIHCal->set_outputNodePrefix("TOWERINFO_CALIB_");
+      calibIHCal->set_doCalibOnly(true);
+      se->registerSubsystem(calibIHCal);
+
+      CaloTowerCalib* calibOHCal = new CaloTowerCalib("CaloTowerCalib_HCALOUT_fromTOWERS");
+      calibOHCal->set_detector_type(CaloTowerDefs::HCALOUT);
+      calibOHCal->set_inputNodePrefix("TOWERS_");
+      calibOHCal->set_outputNodePrefix("TOWERINFO_CALIB_");
+      calibOHCal->set_doCalibOnly(true);
+      se->registerSubsystem(calibOHCal);
+
+      if (vlevel > 0) std::cout << "[isPPrun25] Building clusters: RawClusterBuilderTemplate -> CLUSTERINFO_CEMC\n";
+
+      RawClusterBuilderTemplate* ClusterBuilder =
+          new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate");
+      ClusterBuilder->Detector("CEMC");
+      ClusterBuilder->set_threshold_energy(0.070);  // match Process_Calo_Calib default
+
+      const char* calibroot = std::getenv("CALIBRATIONROOT");
+      if (calibroot && std::string(calibroot).size())
+      {
+        std::string emc_prof = std::string(calibroot) + "/EmcProfile/CEMCprof_Thresh30MeV.root";
+        ClusterBuilder->LoadProfile(emc_prof);
+        if (vlevel > 0) std::cout << "[isPPrun25] ClusterBuilder LoadProfile: " << emc_prof << "\n";
+      }
+      else
+      {
+        if (vlevel > 0) std::cout << "[isPPrun25][WARN] CALIBRATIONROOT not set; cluster profile not loaded\n";
+      }
+
+      ClusterBuilder->set_UseTowerInfo(1);
+      ClusterBuilder->set_UseAltZVertex(1);
+      se->registerSubsystem(ClusterBuilder);
     }
     else
     {
@@ -1500,7 +1562,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   std::unique_ptr<MbdReco> mbdreco = std::make_unique<MbdReco>();
   se->registerSubsystem(mbdreco.release());
 
-  if (!isSim)
+  if (!isSim && !isPPrun25)
     {
       if (vlevel > 0) std::cout << "Calibrating ZDC" << std::endl;
       auto* zdcreco = new ZdcReco();
@@ -1510,7 +1572,11 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
     }
     else
     {
-      if (vlevel > 0) std::cout << "[isSim] skipping ZdcReco (sim DST has no TOWERS_ZDC)" << std::endl;
+      if (vlevel > 0)
+      {
+        if (isPPrun25) std::cout << "[isPPrun25] skipping ZdcReco (CALOFITTING DST may not have TOWERS_ZDC)" << std::endl;
+        else           std::cout << "[isSim] skipping ZdcReco (sim DST has no TOWERS_ZDC)" << std::endl;
+      }
   }
 
 
