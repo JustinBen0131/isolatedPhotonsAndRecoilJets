@@ -100,6 +100,7 @@ err()  { printf "${RED}✘ %s${RST}\n" "$*" >&2; }
 
 # ---------- Fixed dataset roots ----------
 RUN_BASE_PP="/sphenix/tg/tg01/bulk/jbennett/thesisAna/pp"
+RUN_BASE_PP25="/sphenix/tg/tg01/bulk/jbennett/thesisAna/pp25"
 RUN_BASE_AA="/sphenix/tg/tg01/bulk/jbennett/thesisAna/auau"
 
 # ---------- Output base (required by you) ----------
@@ -233,8 +234,9 @@ sim_b2b_file_tag() {
 to_tag() {
   case "${1:-}" in
     pp|PP|isPP|PP_DATA|pp_data)   echo "pp" ;;
+    pp25|PP25|isPPrun25|pprun25|PP_RUN25|pp_run25) echo "pp25" ;;
     auau|AA|isAuAu|AuAu|aa|AA_DATA|auau_data) echo "auau" ;;
-    *) err "Dataset must be 'pp' or 'auau'"; exit 4 ;;
+    *) err "Dataset must be 'pp', 'pp25', or 'auau'"; exit 4 ;;
   esac
 }
 
@@ -242,6 +244,7 @@ resolve_dataset() {
   TAG="$(to_tag "${1:-}")"
   case "$TAG" in
     pp)   RUN_BASE="$RUN_BASE_PP" ;;
+    pp25) RUN_BASE="$RUN_BASE_PP25" ;;
     auau) RUN_BASE="$RUN_BASE_AA" ;;
   esac
 
@@ -389,7 +392,15 @@ build_active_skiplist() {
   : > "$SKIP_FILE"
 
   local want="isPP"
-  [[ "$TAG" == "auau" ]] && want="isAuAu"
+  local outds="isPP"
+  if [[ "$TAG" == "auau" ]]; then
+    want="isAuAu"
+    outds="isAuAu"
+  fi
+  if [[ "$TAG" == "pp25" ]]; then
+    want="isPPrun25"
+    outds="isPP"
+  fi
 
   if command -v condor_q >/dev/null 2>&1; then
     (
@@ -397,13 +408,12 @@ build_active_skiplist() {
       condor_q "${USER:-$(id -un)}" \
         -constraint 'regexp("RecoilJets_Condor.sh",Cmd) && (JobStatus==1 || JobStatus==2 || JobStatus==5 || JobStatus==6 || JobStatus==7)' \
         -af Args 2>/dev/null |
-      awk -v want="$want" '
+      awk -v want="$want" -v outds="$outds" '
         # Args format (from your submit):
-        #   run8  chunkList  isPP|isAuAu  Cluster  0  grpIdx  NONE  destBase
+        #   run8  chunkList  isPP|isPPrun25|isAuAu  Cluster  0  grpIdx  NONE  destBase
         ($3 == want) {
           run  = $1
           lst  = $2
-          ds   = $3
           dest = $NF
           if (run=="" || lst=="" || dest=="") next
 
@@ -413,8 +423,8 @@ build_active_skiplist() {
           sub(/\.list$/,"",n)
 
           # output ROOT path matches RecoilJets_Condor.sh naming:
-          #   destBase/run8/RecoilJets_<ds>_<chunkTag>.root
-          printf "%s/%s/RecoilJets_%s_%s.root\n", dest, run, ds, n
+          #   destBase/run8/RecoilJets_<outds>_<chunkTag>.root
+          printf "%s/%s/RecoilJets_%s_%s.root\n", dest, run, outds, n
         }
       ' | sort -u > "$SKIP_FILE"
     ) || true
