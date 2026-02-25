@@ -68,7 +68,7 @@ case "$dataset_raw" in
   isPPrun25|pprun25|pp25|PP25)
     dataset="isPPrun25"
     analysis_tag="isPP"
-    export RJ_DATASET="isPP"
+    export RJ_DATASET="isPPrun25"
     export RJ_IS_SIM=0
     ;;
   isSim|sim|SIM)

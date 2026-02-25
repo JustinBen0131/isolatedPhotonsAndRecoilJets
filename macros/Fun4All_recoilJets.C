@@ -1596,21 +1596,26 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   // IMPORTANT:
   // JetCalib::CreateNodeTree() requires a PHCompositeNode named "TOWER".
 
-  // Apply pp JES calibration for ALL pp-style running (pp data AND isSim).
-  // Keep Au+Au excluded.
-  const bool doJetCalibAny = (!isAuAuData);
-  if (doJetCalibAny)
-  {
-        auto* ensure = new EnsureJetCalibNodes("EnsureJetCalibNodes_forJES");
-        // keep this modest; set RJ_JETCALIB_NODE_VERBOSE=1 for prints
-        int nodeV = 0;
-        if (const char* env = std::getenv("RJ_JETCALIB_NODE_VERBOSE")) nodeV = std::atoi(env);
-        ensure->Verbosity(nodeV);
-        se->registerSubsystem(ensure);
+    // Apply pp JES calibration for ALL pp-style running (pp data AND isSim).
+    // Keep Au+Au excluded. NOTE: isPPrun25 skips JetCalib (JES TF payloads may be missing).
+    const bool doJetCalibAny = (!isAuAuData && !isPPrun25);
+    if (doJetCalibAny)
+    {
+          auto* ensure = new EnsureJetCalibNodes("EnsureJetCalibNodes_forJES");
+          // keep this modest; set RJ_JETCALIB_NODE_VERBOSE=1 for prints
+          int nodeV = 0;
+          if (const char* env = std::getenv("RJ_JETCALIB_NODE_VERBOSE")) nodeV = std::atoi(env);
+          ensure->Verbosity(nodeV);
+          se->registerSubsystem(ensure);
 
-        if (vlevel > 0)
-          std::cout << "[INFO] JES: enabling JetCalib (pp-style: pp data + isSim) => ensuring DST/TOWER exists\n";
-  }
+          if (vlevel > 0)
+            std::cout << "[INFO] JES: enabling JetCalib (pp-style: pp data + isSim) => ensuring DST/TOWER exists\n";
+    }
+    else
+    {
+          if (vlevel > 0 && isPPrun25)
+            std::cout << "[INFO] JES: skipping JetCalib for isPPrun25 (missing JES TF payloads in CDB)\n";
+    }
 
   // Optional: control JetCalib verbosity independently
   int jetcalV = 0; // default: show InitRun/process_event messages
@@ -1631,7 +1636,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
 
       // Apply JES calibration for pp-like chains (pp data + pp-style SIM)
       // Run pp JES calibration in BOTH pp data and isSim (pp-style chains)
-      const bool doJetCalib = (!isAuAuData);
+      const bool doJetCalib = (!isAuAuData && !isPPrun25);
 
       // If calibrating: build RAW jets to a separate node to avoid name collision
       const std::string rawNode = doJetCalib ? (calibNode + "_RAW") : calibNode;

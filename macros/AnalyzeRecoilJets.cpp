@@ -7558,11 +7558,11 @@ namespace ARJ
                         const double jetPtMin_GeV = cfgDef.jetMinPt;
                         const string bbLabel = cfgDef.bbLabel;
 
-                        TLegend* leg = new TLegend(0.70, 0.80, 0.94, 0.92);
+                        TLegend* leg = new TLegend(0.70, 0.75, 0.94, 0.88);
                         leg->SetBorderSize(0);
                         leg->SetFillStyle(0);
                         leg->SetTextFont(42);
-                        leg->SetTextSize(0.034);
+                        leg->SetTextSize(0.04);
 
                         leg->AddEntry(hDatRaw, "DATA (reco)", "ep");
                         leg->AddEntry(hSimRaw, "SIM (reco)",  "ep");
@@ -7575,9 +7575,10 @@ namespace ARJ
                           tCuts.SetNDC(true);
                           tCuts.SetTextFont(42);
                           tCuts.SetTextAlign(33);
-                          tCuts.SetTextSize(0.038);
+                          tCuts.SetTextSize(0.04);
                           tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data());
                           tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
+                            tCuts.DrawLatex(0.92, 0.46, TString::Format("|v_{z}| < %.0f cm", vzCutCm).Data());
                         }
 
                         TLatex ttl;
