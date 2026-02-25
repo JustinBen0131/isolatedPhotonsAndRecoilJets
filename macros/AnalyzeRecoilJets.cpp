@@ -94,7 +94,7 @@ namespace ARJ
         static std::set<std::string> s_doneOutDirs;
 
         const std::string ppBase  = DirnameFromPath(ds.outBase);
-        const std::string outDir  = JoinPath(ppBase, "triggerAna");
+        const std::string outDir  = JoinPath(ppBase, "triggerQA");
 
         if (s_doneOutDirs.count(outDir)) return;
         s_doneOutDirs.insert(outDir);
@@ -4134,13 +4134,16 @@ namespace ARJ
 
 
               cout << ANSI_BOLD_CYN
-                   << "\n============================================================\n"
-                   << "[JES3 InSitu] Residual calibration (DATA vs SIM, reco xJ peak)\n"
-                   << "  DATA: " << dataDs.label << "  trigger=" << dataDs.trigger << "\n"
-                   << "  SIM : " << simDs.label << "  (" << SimSampleLabel(CurrentSimSample()) << ")\n"
-                   << "  Output -> " << insBase << "\n"
-                   << "============================================================\n"
-                   << ANSI_RESET;
+                     << "\n============================================================\n"
+                     << "[JES3 InSitu] Residual calibration (DATA vs SIM, reco xJ peak)\n"
+                     << "  DATA: " << dataDs.label << "  trigger=" << dataDs.trigger << "\n"
+                     << "  PP cuts file: " << kInPP << "\n"
+                     << "  SIM : " << simDs.label << "  (" << SimSampleLabel(CurrentSimSample()) << ")\n"
+                     << "  SIM key: " << DefaultSimSampleKey() << "\n"
+                     << "  SIM file: " << simDs.inFilePath << "\n"
+                     << "  Output -> " << insBase << "\n"
+                     << "============================================================\n"
+                     << ANSI_RESET;
 
               for (const auto& rKey : kRKeys)
               {
@@ -4210,7 +4213,9 @@ namespace ARJ
                 std::vector<std::string> sum;
                 sum.push_back(std::string("JES3 in-situ residual (DATA vs SIM)"));
                 sum.push_back(std::string("DATA: ") + dataDs.label + "  trigger=" + dataDs.trigger);
+                sum.push_back(std::string("PP cuts file: ") + kInPP);
                 sum.push_back(std::string("SIM : ") + simDs.label);
+                sum.push_back(std::string("SIM key: ") + DefaultSimSampleKey());
                 sum.push_back(std::string("rKey: ") + rKey + TString::Format("  R=%.1f", R).Data());
                 sum.push_back("");
                 sum.push_back("Recipe:");

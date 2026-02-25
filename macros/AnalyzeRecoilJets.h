@@ -2625,19 +2625,33 @@ namespace ARJ
           return false;
         }
 
-        if (ss == SimSample::kInvalid)
+      if (ss == SimSample::kInvalid)
+      {
+        if (errMsg)
         {
-          if (errMsg)
-          {
-            *errMsg =
-              "Invalid SIM sample toggle combination. "
-              "Set EXACTLY ONE of: isPhotonJet5, isPhotonJet10, isPhotonJet20, "
-              "bothPhoton5and10sim, bothPhoton5and20sim, bothPhoton10and20sim, allPhoton5and10and20sim.";
-          }
-          return false;
+          *errMsg =
+            "Invalid SIM sample toggle combination. "
+            "Set EXACTLY ONE of: isPhotonJet5, isPhotonJet10, isPhotonJet20, "
+            "bothPhoton5and10sim, bothPhoton5and20sim, bothPhoton10and20sim, allPhoton5and10and20sim.";
         }
+        return false;
+      }
 
-        return true;
+      // SIM+DATA mode contract: in-situ calibration + combined steps are defined ONLY
+      // for the photonJet10+20 merged sample (and it is keyed by kDefaultSimSampleKey).
+      if (isSimAndDataPP && ss != SimSample::kPhotonJet10And20Merged)
+      {
+        if (errMsg)
+        {
+          *errMsg =
+            "SIM+DATA (isSimAndDataPP=true) requires the merged photonJet10+20 SIM sample. "
+            "Set: bothPhoton10and20sim=true (all other SIM sample toggles false). "
+            "This uses the default SIM key: " + DefaultSimSampleKey();
+        }
+        return false;
+      }
+
+      return true;
   }
 
   // Backwards-compatible name used by older guard code paths.

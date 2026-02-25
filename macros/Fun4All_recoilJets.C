@@ -1295,8 +1295,8 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
   bool buildTruthJetsFromParticles = false;
   bool buildTruthJetsAsAltNode = false;   // only true in BOTH mode
 
-    auto all_nonempty = [](const std::vector<std::string>& v) -> bool
-    {
+  auto all_nonempty = [](const std::vector<std::string>& v) -> bool
+  {
         if (v.empty()) return false;
         for (const auto& s : v) if (s.empty()) return false;
         return true;
@@ -1401,9 +1401,9 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
     }
 
 
-      // ------------------ Jets DST (SIM optional; for truth jets) -------
-      if (isSim && useDSTTruthJets)
-      {
+    // ------------------ Jets DST (SIM optional; for truth jets) -------
+    if (isSim && useDSTTruthJets)
+    {
         if (!listHasJets)
         {
           std::ostringstream os;
@@ -1428,7 +1428,7 @@ void Fun4All_recoilJets(const int   nEvents   =  0,
                   << ((useDSTTruthJets && buildTruthJetsFromParticles) ? "+" : "")
                   << (buildTruthJetsFromParticles ? "BUILD" : "")
                   << "\n";
-    }
+  }
 
   // --------------------------------------------------------------------
   // 3.  Geometry + status + calibration + clustering

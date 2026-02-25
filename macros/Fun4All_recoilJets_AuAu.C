@@ -128,39 +128,6 @@ namespace detail
     s.erase(s.find_last_not_of(ws) + 1);
     return s;
   }
-
-  // Print a stack trace on SIGSEGV/SIGABRT (helps locate rc=255 crashes).
-  // NOTE: this writes directly to fd=2 so it still prints even when vlevel==0
-  //       and std::cout/cerr are silenced via ScopedSilence.
-  inline void crash_backtrace_handler(int sig)
-  {
-    const char* sname = "SIGNAL";
-    if (sig == SIGSEGV) sname = "SIGSEGV";
-    else if (sig == SIGABRT) sname = "SIGABRT";
-
-    char buf[256];
-    const int n = std::snprintf(buf, sizeof(buf),
-                                "\n[CRASH] Caught %s (%d). Backtrace:\n", sname, sig);
-    if (n > 0) ::write(STDERR_FILENO, buf, static_cast<size_t>(n));
-
-    void* bt[64];
-    const int sz = ::backtrace(bt, 64);
-    ::backtrace_symbols_fd(bt, sz, STDERR_FILENO);
-    ::write(STDERR_FILENO, "\n", 1);
-
-    ::signal(sig, SIG_DFL);
-    ::raise(sig);
-  }
-
-  inline void installCrashHandlers(int vlevel)
-  {
-    const char* env = std::getenv("RJ_CRASH_BACKTRACE");
-    const bool enable = (env ? (std::atoi(env) != 0) : (vlevel > 0));
-    if (!enable) return;
-
-    ::signal(SIGSEGV, crash_backtrace_handler);
-    ::signal(SIGABRT, crash_backtrace_handler);
-  }
 }
 
 namespace detail
@@ -185,7 +152,6 @@ namespace yamlcfg
   inline bool StartsWithKey(const std::string& line, const std::string& key);
   inline std::string AfterColon(const std::string& line);
   inline void ParseInlineListDoubles(std::string s, std::vector<double>& out);
-  inline void ParseInlineListInts(std::string s, std::vector<int>& out);
 
   inline std::vector<std::string> LoadJetRKeys(int vlevel)
   {
@@ -276,13 +242,14 @@ namespace yamlcfg
       bool   use_vz_cut = true;
       double vz_cut_cm  = 30.0;
 
-      std::vector<int> centrality_edges = {0,10,20,30,40,50,60,70,80,90,100};
-
       double isoA = 1.08128;
       double isoB = 0.0299107;
       double isoGap = 1.0;
+      double isoFixed = 2.0;
+      double truthIsoGeV = 4.0;
       double isoConeR = 0.30;
       double isoTowMin = 0.0;
+      bool   isSlidingIso = true;
 
       // Photon ID cuts (PPG12 Table 4) baseline
       double pre_e11e33_max = 0.98;
@@ -386,31 +353,19 @@ namespace yamlcfg
 
   inline void ParseInlineListDoubles(std::string s, std::vector<double>& out)
   {
-      out.clear();
-      s = detail::trim(s);
-      const std::size_t l = s.find('[');
-      const std::size_t r = s.find(']');
-      if (l == std::string::npos || r == std::string::npos || r <= l) return;
-      std::string inner = s.substr(l + 1, r - l - 1);
-      std::stringstream ss(inner);
-      std::string tok;
-      while (std::getline(ss, tok, ','))
-      {
-        double v = 0.0;
-        if (ParseDouble(tok, v)) out.push_back(v);
-      }
-  }
-
-  inline void ParseInlineListInts(std::string s, std::vector<int>& out)
-  {
-      out.clear();
-      std::vector<double> tmp;
-      ParseInlineListDoubles(s, tmp);
-      for (double v : tmp)
-      {
-        if (!std::isfinite(v)) continue;
-        out.push_back((int) std::llround(v));
-      }
+    out.clear();
+    s = detail::trim(s);
+    const std::size_t l = s.find('[');
+    const std::size_t r = s.find(']');
+    if (l == std::string::npos || r == std::string::npos || r <= l) return;
+    std::string inner = s.substr(l + 1, r - l - 1);
+    std::stringstream ss(inner);
+    std::string tok;
+    while (std::getline(ss, tok, ','))
+    {
+      double v = 0.0;
+      if (ParseDouble(tok, v)) out.push_back(v);
+    }
   }
 
   inline void ParseInlineMapDoubles(std::string s, std::map<std::string, double>& out)
@@ -553,13 +508,6 @@ namespace yamlcfg
           if (!ParseDouble(rhs, cfg.vz_cut_cm))
             warn_parse("vz_cut_cm", rhs, "expected a scalar double");
         }
-        else if (StartsWithKey(line, "centrality_edges"))
-        {
-          const std::string rhs = AfterColon(line);
-          ParseInlineListInts(rhs, cfg.centrality_edges);
-          if (cfg.centrality_edges.size() < 2)
-            warn_parse("centrality_edges", rhs, "expected an inline list with >=2 edges");
-        }
         else if (StartsWithKey(line, "event_display_tree"))
         {
           const std::string rhs = AfterColon(line);
@@ -586,11 +534,19 @@ namespace yamlcfg
         {
           std::map<std::string, double> m;
           ParseInlineMapDoubles(AfterColon(line), m);
-          if (m.count("aGeV"))       cfg.isoA      = m["aGeV"];
-          if (m.count("bPerGeV"))    cfg.isoB      = m["bPerGeV"];
-          if (m.count("sideGapGeV")) cfg.isoGap    = m["sideGapGeV"];
-          if (m.count("coneR"))      cfg.isoConeR  = m["coneR"];
-          if (m.count("towerMin"))   cfg.isoTowMin = m["towerMin"];
+          if (m.count("aGeV"))       cfg.isoA        = m["aGeV"];
+          if (m.count("bPerGeV"))    cfg.isoB        = m["bPerGeV"];
+          if (m.count("sideGapGeV")) cfg.isoGap      = m["sideGapGeV"];
+          if (m.count("fixedGeV"))   cfg.isoFixed    = m["fixedGeV"];
+          if (m.count("truthIsoGeV"))cfg.truthIsoGeV = m["truthIsoGeV"];
+          if (m.count("coneR"))      cfg.isoConeR    = m["coneR"];
+          if (m.count("towerMin"))   cfg.isoTowMin   = m["towerMin"];
+        }
+        else if (StartsWithKey(line, "isSlidingIso"))
+        {
+          const std::string rhs = AfterColon(line);
+          if (!ParseBool(rhs, cfg.isSlidingIso))
+            warn_parse("isSlidingIso", rhs, "expected true/false");
         }
         else if (StartsWithKey(line, "photon_id_pre"))
         {
@@ -730,73 +686,6 @@ class EnsureJetCalibNodes final : public SubsysReco
 
     return Fun4AllReturnCodes::EVENT_OK;
   }
-};
-
-
-class NodeTreeDumpProbe final : public SubsysReco
-{
- public:
-  NodeTreeDumpProbe(const std::string& name,
-                    const std::string& label,
-                    const std::vector<std::string>& watchNodes,
-                    bool dumpInitRun = true,
-                    bool dumpEvent1  = true)
-    : SubsysReco(name)
-    , m_label(label)
-    , m_watch(watchNodes)
-    , m_dumpInitRun(dumpInitRun)
-    , m_dumpEvent1(dumpEvent1)
-  {}
-
-  int InitRun(PHCompositeNode* topNode) override
-  {
-    if (m_dumpInitRun) dump("InitRun", topNode);
-    return Fun4AllReturnCodes::EVENT_OK;
-  }
-
-  int process_event(PHCompositeNode* topNode) override
-  {
-    if (!m_dumpEvent1) return Fun4AllReturnCodes::EVENT_OK;
-    if (m_doneEvt1) return Fun4AllReturnCodes::EVENT_OK;
-    dump("process_event(evt1)", topNode);
-    m_doneEvt1 = true;
-    return Fun4AllReturnCodes::EVENT_OK;
-  }
-
- private:
-  void dump(const char* where, PHCompositeNode* topNode)
-  {
-    std::cout << "\n[NodeTreeDumpProbe] " << m_label << " @ " << where << "\n";
-    std::cout << "-----------------------------------------------------------------\n";
-    if (topNode) topNode->print();
-    std::cout << "-----------------------------------------------------------------\n";
-
-    auto haveTowerInfo = [&](const std::string& n) -> bool
-    {
-      return (findNode::getClass<TowerInfoContainer>(topNode, n) != nullptr);
-    };
-
-    auto haveJetCont = [&](const std::string& n) -> bool
-    {
-      return (findNode::getClass<JetContainer>(topNode, n) != nullptr);
-    };
-
-    std::cout << "[NodeTreeDumpProbe] Watch list (" << m_watch.size() << "):\n";
-    for (const auto& n : m_watch)
-    {
-      bool ok = false;
-      ok = ok || haveTowerInfo(n);
-      ok = ok || haveJetCont(n);
-      std::cout << "  " << std::left << std::setw(32) << n << " : " << (ok ? "OK" : "MISS") << "\n";
-    }
-    std::cout << std::endl;
-  }
-
-  std::string m_label;
-  std::vector<std::string> m_watch;
-  bool m_dumpInitRun = true;
-  bool m_dumpEvent1 = true;
-  bool m_doneEvt1 = false;
 };
 
 
@@ -2212,9 +2101,10 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
   recoilJets_AuAu->setMinBackToBack(cfg.back_to_back_dphi_min_pi_fraction * M_PI);
 
   recoilJets_AuAu->setUseVzCut(cfg.use_vz_cut, cfg.vz_cut_cm);
-  recoilJets_AuAu->setCentEdges(cfg.centrality_edges);
   recoilJets_AuAu->setActiveJetRKeys(activeJetRKeys);
-  recoilJets_AuAu->setIsolationWP(cfg.isoA, cfg.isoB, cfg.isoGap, cfg.isoConeR, cfg.isoTowMin);
+  recoilJets_AuAu->setIsolationWP(cfg.isoA, cfg.isoB, cfg.isoGap, cfg.isoConeR, cfg.isoTowMin, cfg.isoFixed);
+  recoilJets_AuAu->setIsSlidingIso(cfg.isSlidingIso);
+  recoilJets_AuAu->setTruthIsoMaxGeV(cfg.truthIsoGeV);
 
   recoilJets_AuAu->setPhotonIDCuts(cfg.pre_e11e33_max,
                                   cfg.pre_et1_min,
@@ -2261,7 +2151,7 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
   recoilJets_AuAu->setEventDisplayDiagnosticsMaxPerBin(cfg.event_display_tree_max_per_bin);
 
   if (vlevel > 0)
-  {
+      {
         std::cout << "[CFG] EventDisplayTree: enable=" << (cfg.event_display_tree ? "true" : "false")
                   << " max_per_bin=" << cfg.event_display_tree_max_per_bin << "\n";
   }
@@ -2270,29 +2160,24 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
   // RecoilJets inherits SubsysReco::Verbosity(int)
   recoilJets_AuAu->Verbosity(vlevel);
   if (verbose) std::cout << "[INFO] RJ_VERBOSITY → " << vlevel << '\n';
-  // Pick analysis type for the module (isPP / isAuAu / isSim), case-insensitive.
-  // Fallback: ≤ 53864 → isPP, > 53864 → isAuAu.
-  std::string dtype = "isAuAu";
+  // Pick analysis type for the module (pp macro supports only isPP / isSim).
+  std::string dtype = "isPP";
   if (const char* env = std::getenv("RJ_DATASET"))
   {
-              std::string s = detail::trim(std::string(env));
-              std::string sLower = s;
-              std::transform(sLower.begin(), sLower.end(), sLower.begin(),
-                             [](unsigned char c){ return std::tolower(c); });
+                std::string s = detail::trim(std::string(env));
+                std::string sLower = s;
+                std::transform(sLower.begin(), sLower.end(), sLower.begin(),
+                               [](unsigned char c){ return std::tolower(c); });
 
-              if (sLower == "issim" || sLower == "sim")      dtype = "isSim";
-              else if (sLower == "ispp" || sLower == "pp")   dtype = "isPP";
-              else                                           dtype = "isAuAu";
-      }
-      else
-      {
-              dtype = (run <= 53864) ? "isPP" : "isAuAu";
-  }
+                if (sLower == "issim" || sLower == "sim")      dtype = "isSim";
+                else                                           dtype = "isPP";
+    }
 
   if (verbose) std::cout << "[INFO] RJ_DATASET → " << dtype << '\n';
   recoilJets_AuAu->setDataType(dtype);
 
   se->registerSubsystem(recoilJets_AuAu);
+
 
   //--------------------------------------------------------------------
   // 6.  Run
