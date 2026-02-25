@@ -7686,7 +7686,7 @@ namespace ARJ
                               const double sig  = fDat->GetParameter(2);
                               const double chi2 = fDat->GetChisquare();
                               const double ndf  = fDat->GetNDF();
-                              tFit.DrawLatex(0.70, y0,
+                              tFit.DrawLatex(0.60, y0,
                                 TString::Format("Data: mean = %.3f, #sigma = %.3f, #chi^{2}/ndf = %.2f", mu, sig, chi2 / ndf).Data());
                               vMuDat.push_back(mu);
                               vMuDatErr.push_back(fDat->GetParError(1));
@@ -7705,7 +7705,7 @@ namespace ARJ
                               const double sig  = fSim->GetParameter(2);
                               const double chi2 = fSim->GetChisquare();
                               const double ndf  = fSim->GetNDF();
-                              tFit.DrawLatex(0.70, y0,
+                              tFit.DrawLatex(0.60, y0,
                                 TString::Format("Sim:  mean = %.3f, #sigma = %.3f, #chi^{2}/ndf = %.2f", mu, sig, chi2 / ndf).Data());
                               vMuSim.push_back(mu);
                               vMuSimErr.push_back(fSim->GetParError(1));
@@ -7783,14 +7783,14 @@ namespace ARJ
                         gDat->GetYaxis()->SetTitle("Gaussian mean of x_{J#gamma}");
                         gSim->Draw("P same");
 
-                        TLegend* legM = new TLegend(0.62, 0.78, 0.88, 0.90);
-                        legM->SetBorderSize(0);
-                        legM->SetFillStyle(0);
-                        legM->SetTextFont(42);
-                        legM->SetTextSize(0.04);
-                        legM->AddEntry(gDat, "DATA (reco)", "p");
-                        legM->AddEntry(gSim, "SIM (reco)",  "p");
-                        legM->Draw();
+                          TLegend* legM = new TLegend(0.62, 0.16, 0.88, 0.28);
+                          legM->SetBorderSize(0);
+                          legM->SetFillStyle(0);
+                          legM->SetTextFont(42);
+                          legM->SetTextSize(0.04);
+                          legM->AddEntry(gDat, "DATA (reco)", "p");
+                          legM->AddEntry(gSim, "SIM (reco)",  "p");
+                          legM->Draw();
 
                         SaveCanvas(cMean, JoinPath(dirOv, "meanVsPt_reco_integratedAlpha_overlayedWithSim_withFits.png"));
 
