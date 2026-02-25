@@ -7238,64 +7238,205 @@ namespace ARJ
                 P.a_tr  = nullptr;
               };
 
-              auto SaveXJRecoPNGs =
-                [&](TH1* xJ_re, int ib, const string& ptLab)
-              {
-                if (!xJ_re) return;
+                auto SaveXJRecoPNGs =
+                    [&](TH1* xJ_re, int ib, const string& ptLab)
+                  {
+                    if (!xJ_re) return;
 
-                // (1) Inclusive in alpha
-                const double ptMinGamma = H.hReco_xJ->GetXaxis()->GetBinLowEdge(ib);
-                const double ptMaxGamma = H.hReco_xJ->GetXaxis()->GetBinUpEdge(ib);
+                    // (1) Inclusive in alpha
+                    const double ptMinGamma = H.hReco_xJ->GetXaxis()->GetBinLowEdge(ib);
+                    const double ptMaxGamma = H.hReco_xJ->GetXaxis()->GetBinUpEdge(ib);
 
-                DrawAndSave_xJRecoIntegratedAlpha_WithFloors(ds, xJ_re,
-                    JoinPath(D.dirXJProjReco, TString::Format("xJ_reco_integratedAlpha_pTbin%d.png", ib).Data()),
-                    ptMinGamma, ptMaxGamma, R, 10.0, false);
+                    DrawAndSave_xJRecoIntegratedAlpha_WithFloors(ds, xJ_re,
+                        JoinPath(D.dirXJProjReco, TString::Format("xJ_reco_integratedAlpha_pTbin%d.png", ib).Data()),
+                        ptMinGamma, ptMaxGamma, R, 0.0, false);
 
-                                  
-                // (2) NEW: alpha-cut variants (presentation-driven)
-                // Adjust cut values freely; these are "reasonable" to see shape evolution.
-                const vector<double> alphaMaxCuts = {0.20, 0.30, 0.40, 0.50};
+                    // (1b) NEW: overlayedWithSim (DATA reco vs SIM reco, same rKey/pT bin)
+                    if (isSimAndDataPP && !ds.isSim)
+                    {
+                      const string dirOv = JoinPath(D.dirXJProjReco, "overlayedWithSim");
+                      EnsureDir(dirOv);
 
-                auto AlphaTag = [&](double aMax)->string
-                {
-                  std::ostringstream s;
-                  s << std::fixed << std::setprecision(2) << aMax;  // e.g. "0.20"
-                  string t = s.str();
-                  std::replace(t.begin(), t.end(), '.', 'p');       // -> "0p20"
-                  return string("alphaLT") + t;                     // -> "alphaLT0p20"
+                      static std::string s_lastSimPath = "";
+                      static TFile* s_fSim = nullptr;
+
+                      const std::string simPath = SimInputPathForSample(CurrentSimSample());
+                      if (!simPath.empty())
+                      {
+                        if (!s_fSim || s_lastSimPath != simPath)
+                        {
+                          if (s_fSim) { s_fSim->Close(); delete s_fSim; s_fSim = nullptr; }
+                          s_fSim = TFile::Open(simPath.c_str(), "READ");
+                          s_lastSimPath = simPath;
+                        }
+                      }
+
+                      TH3* hSim3 = (s_fSim ? dynamic_cast<TH3*>(s_fSim->Get(("h_JES3_pT_xJ_alpha_" + rKey).c_str())) : nullptr);
+                      if (hSim3)
+                      {
+                        TH1* xJ_sim_raw = ProjectY_AtXbin_AndAlphaMax_TH3(
+                          hSim3, ib, hSim3->GetZaxis()->GetXmax(),
+                          TString::Format("jes3_xJ_sim_%s_%d_intAlpha", rKey.c_str(), ib).Data()
+                        );
+
+                        if (xJ_sim_raw)
+                        {
+                          xJ_sim_raw->SetDirectory(nullptr);
+
+                          TH1* xJ_dat = CloneTH1(xJ_re, TString::Format("jes3_xJ_dat_%s_%d_intAlpha", rKey.c_str(), ib).Data());
+                          TH1* xJ_sim = CloneTH1(xJ_sim_raw, TString::Format("jes3_xJ_sim_%s_%d_intAlpha_clone", rKey.c_str(), ib).Data());
+                          delete xJ_sim_raw;
+
+                          if (xJ_dat && xJ_sim)
+                          {
+                            EnsureSumw2(xJ_dat);
+                            EnsureSumw2(xJ_sim);
+
+                            const double iDat = xJ_dat->Integral(0, xJ_dat->GetNbinsX() + 1);
+                            const double iSim = xJ_sim->Integral(0, xJ_sim->GetNbinsX() + 1);
+                            if (iDat > 0.0) xJ_dat->Scale(1.0 / iDat);
+                            if (iSim > 0.0) xJ_sim->Scale(1.0 / iSim);
+
+                            TCanvas c("c_xJRecoOv","c_xJRecoOv",900,700);
+                            ApplyCanvasMargins1D(c);
+                            c.SetLogy(false);
+
+                            xJ_dat->SetTitle("");
+                            xJ_dat->SetLineWidth(2);
+                            xJ_dat->SetMarkerStyle(20);
+                            xJ_dat->SetMarkerSize(1.0);
+
+                            xJ_sim->SetLineWidth(2);
+                            xJ_sim->SetMarkerStyle(24);
+                            xJ_sim->SetMarkerSize(1.0);
+
+                            xJ_dat->GetXaxis()->SetTitle("x_{J#gamma}");
+                            xJ_dat->GetXaxis()->SetRangeUser(0.0, 2.0);
+                            xJ_dat->GetYaxis()->SetTitle("Normalized counts");
+
+                            xJ_dat->Draw("E1");
+                            xJ_sim->Draw("E1 same");
+                            gPad->Update();
+
+                            const auto& cfgDef = DefaultSim10and20Config();
+                            const double jetPtMin_GeV = cfgDef.jetMinPt;
+                            const string bbLabel = cfgDef.bbLabel;
+
+                            const double xAbs  = (ptMaxGamma > 0.0) ? (jetPtMin_GeV / ptMaxGamma) : -1.0;
+                            const double xFull = (ptMinGamma > 0.0) ? (jetPtMin_GeV / ptMinGamma) : -1.0;
+
+                            const double yMin = gPad->GetUymin();
+                            const double yMax = gPad->GetUymax();
+
+                            TLine* lnAbs = new TLine(xAbs,  yMin, xAbs,  yMax);
+                            lnAbs->SetLineColor(kBlue + 1);
+                            lnAbs->SetLineStyle(2);
+                            lnAbs->SetLineWidth(2);
+
+                            TLine* lnFull = new TLine(xFull, yMin, xFull, yMax);
+                            lnFull->SetLineColor(kRed + 1);
+                            lnFull->SetLineStyle(2);
+                            lnFull->SetLineWidth(2);
+
+                            if (xAbs > 0.0)  lnAbs->Draw("same");
+                            if (xFull > 0.0) lnFull->Draw("same");
+
+                            TLegend* leg = new TLegend(0.52, 0.70, 0.95, 0.90);
+                            leg->SetBorderSize(0);
+                            leg->SetFillStyle(0);
+                            leg->SetTextFont(42);
+                            leg->SetTextSize(0.032);
+
+                            leg->AddEntry(xJ_dat, "DATA (reco)", "ep");
+                            leg->AddEntry(xJ_sim, "SIM (reco)",  "ep");
+                            if (xAbs > 0.0)
+                              leg->AddEntry(lnAbs,
+                                TString::Format("x_{J, min}^{abs} = #frac{%.0f}{p_{T, max}^{#gamma}} = %.3f", jetPtMin_GeV, xAbs),
+                                "l");
+                            if (xFull > 0.0)
+                              leg->AddEntry(lnFull,
+                                TString::Format("x_{J, min}^{full} = #frac{%.0f}{p_{T, min}^{#gamma}} = %.3f", jetPtMin_GeV, xFull),
+                                "l");
+
+                            leg->Draw();
+
+                            {
+                              TLatex tCuts;
+                              tCuts.SetNDC(true);
+                              tCuts.SetTextFont(42);
+                              tCuts.SetTextAlign(33);
+                              tCuts.SetTextSize(0.038);
+                              tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data());
+                              tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
+                            }
+
+                            TLatex ttl;
+                            ttl.SetNDC(true);
+                            ttl.SetTextFont(42);
+                            ttl.SetTextSize(0.052);
+                            ttl.DrawLatex(0.12, 0.94,
+                              TString::Format("RECO x_{J#gamma} (DATA vs SIM), p_{T}^{#gamma} = %.0f - %.0f GeV, R = %.1f",
+                                ptMinGamma, ptMaxGamma, R).Data());
+
+                            SaveCanvas(c, JoinPath(dirOv,
+                              TString::Format("xJ_reco_integratedAlpha_overlayedWithSim_pTbin%d.png", ib).Data()));
+
+                            delete leg;
+                            delete lnFull;
+                            delete lnAbs;
+                          }
+
+                          if (xJ_dat) delete xJ_dat;
+                          if (xJ_sim) delete xJ_sim;
+                        }
+                      }
+                    }
+
+                                      
+                    // (2) NEW: alpha-cut variants (presentation-driven)
+                    // Adjust cut values freely; these are "reasonable" to see shape evolution.
+                    const vector<double> alphaMaxCuts = {0.20, 0.30, 0.40, 0.50};
+
+                    auto AlphaTag = [&](double aMax)->string
+                    {
+                      std::ostringstream s;
+                      s << std::fixed << std::setprecision(2) << aMax;  // e.g. "0.20"
+                      string t = s.str();
+                      std::replace(t.begin(), t.end(), '.', 'p');       // -> "0p20"
+                      return string("alphaLT") + t;                     // -> "alphaLT0p20"
+                    };
+
+                    const string dirAlphaBase = JoinPath(D.dirXJProjReco, "alphaCuts");
+                    EnsureDir(dirAlphaBase);
+
+                    for (double aMax : alphaMaxCuts)
+                    {
+                      const string aTag = AlphaTag(aMax);
+                      const string aDir = JoinPath(dirAlphaBase, aTag);
+                      EnsureDir(aDir);
+
+                      TH1* xJ_cut = ProjectY_AtXbin_AndAlphaMax_TH3(
+                        H.hReco_xJ, ib, aMax,
+                        TString::Format("jes3_xJ_re_%s_%d_%s", rKey.c_str(), ib, aTag.c_str()).Data()
+                      );
+
+                      if (!xJ_cut) continue;
+
+                      vector<string> linesCut = {
+                        "JES3 (RECO): x_{J#gamma}",
+                        TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                        TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data(),
+                        TString::Format("#alpha cut: #alpha < %.2f", aMax).Data(),
+                        "Projection: integrate only selected #alpha bins"
+                      };
+
+                      DrawAndSaveTH1_Common(ds, xJ_cut,
+                        JoinPath(aDir, TString::Format("xJ_reco_alphaCut_%s_pTbin%d.png", aTag.c_str(), ib).Data()),
+                        "x_{J#gamma}", "Counts", linesCut, false, false, 0.0, "E1");
+
+                      delete xJ_cut;
+                    }
                 };
-
-                const string dirAlphaBase = JoinPath(D.dirXJProjReco, "alphaCuts");
-                EnsureDir(dirAlphaBase);
-
-                for (double aMax : alphaMaxCuts)
-                {
-                  const string aTag = AlphaTag(aMax);
-                  const string aDir = JoinPath(dirAlphaBase, aTag);
-                  EnsureDir(aDir);
-
-                  TH1* xJ_cut = ProjectY_AtXbin_AndAlphaMax_TH3(
-                    H.hReco_xJ, ib, aMax,
-                    TString::Format("jes3_xJ_re_%s_%d_%s", rKey.c_str(), ib, aTag.c_str()).Data()
-                  );
-
-                  if (!xJ_cut) continue;
-
-                  vector<string> linesCut = {
-                    "JES3 (RECO): x_{J#gamma}",
-                    TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
-                    TString::Format("p_{T}^{#gamma}: %s", ptLab.c_str()).Data(),
-                    TString::Format("#alpha cut: #alpha < %.2f", aMax).Data(),
-                    "Projection: integrate only selected #alpha bins"
-                  };
-
-                  DrawAndSaveTH1_Common(ds, xJ_cut,
-                    JoinPath(aDir, TString::Format("xJ_reco_alphaCut_%s_pTbin%d.png", aTag.c_str(), ib).Data()),
-                    "x_{J#gamma}", "Counts", linesCut, false, false, 0.0, "E1");
-
-                  delete xJ_cut;
-                }
-              };
 
                 auto SaveXJTruthPNGs =
                   [&](TH1* xJ_tr, int ib, const string& ptLab)
@@ -7558,9 +7699,157 @@ namespace ARJ
                 CleanupBinPack(P);
               }
 
-              // -------------------------------------------------------------------------
-              // 3x3 tables + text summary (existing behavior preserved)
-              // -------------------------------------------------------------------------
+                // -------------------------------------------------------------------------
+                // overlayedWithSim: 2x3 table (DATA reco vs SIM reco) for integrated alpha
+                // -------------------------------------------------------------------------
+                if (isSimAndDataPP && !ds.isSim)
+                {
+                  const string dirOv = JoinPath(D.dirXJProjReco, "overlayedWithSim");
+                  EnsureDir(dirOv);
+
+                  static std::string s_lastSimPath_tbl = "";
+                  static TFile* s_fSim_tbl = nullptr;
+
+                  const std::string simPath = SimInputPathForSample(CurrentSimSample());
+                  if (!simPath.empty())
+                  {
+                    if (!s_fSim_tbl || s_lastSimPath_tbl != simPath)
+                    {
+                      if (s_fSim_tbl) { s_fSim_tbl->Close(); delete s_fSim_tbl; s_fSim_tbl = nullptr; }
+                      s_fSim_tbl = TFile::Open(simPath.c_str(), "READ");
+                      s_lastSimPath_tbl = simPath;
+                    }
+                  }
+
+                  TH3* hSim3 = (s_fSim_tbl ? dynamic_cast<TH3*>(s_fSim_tbl->Get(("h_JES3_pT_xJ_alpha_" + rKey).c_str())) : nullptr);
+
+                  if (hSim3 && H.hReco_xJ)
+                  {
+                    const int nCols = 3;
+                    const int nRows = 2;
+                    const int perPage = nCols * nRows;
+
+                    const int startBinForTable = std::max(1, nPt - perPage + 1);
+                    const int nTableBins = std::min(perPage, nPt - startBinForTable + 1);
+
+                    TCanvas canTbl(
+                      TString::Format("c_tbl_%s_dataVsSim", rKey.c_str()).Data(),
+                      "c_tbl_dataVsSim", 1500, 900
+                    );
+                    canTbl.Divide(nCols, nRows, 0.001, 0.001);
+
+                    std::vector<TH1*> keep;
+                    keep.reserve(2 * nTableBins);
+
+                    for (int k = 0; k < nTableBins; ++k)
+                    {
+                      const int ib = startBinForTable + k;
+                      canTbl.cd(k + 1);
+
+                      gPad->SetLeftMargin(0.14);
+                      gPad->SetRightMargin(0.05);
+                      gPad->SetTopMargin(0.12);
+                      gPad->SetBottomMargin(0.14);
+
+                      const double ptMinGamma = H.hReco_xJ->GetXaxis()->GetBinLowEdge(ib);
+                      const double ptMaxGamma = H.hReco_xJ->GetXaxis()->GetBinUpEdge(ib);
+
+                      TH1* hDatRaw = ProjectY_AtXbin_AndAlphaMax_TH3(
+                        H.hReco_xJ, ib, H.hReco_xJ->GetZaxis()->GetXmax(),
+                        TString::Format("h_tbl_dat_%s_%d", rKey.c_str(), ib).Data()
+                      );
+                      TH1* hSimRaw = ProjectY_AtXbin_AndAlphaMax_TH3(
+                        hSim3, ib, hSim3->GetZaxis()->GetXmax(),
+                        TString::Format("h_tbl_sim_%s_%d", rKey.c_str(), ib).Data()
+                      );
+
+                      if (!hDatRaw || !hSimRaw) { if (hDatRaw) delete hDatRaw; if (hSimRaw) delete hSimRaw; continue; }
+
+                      hDatRaw->SetDirectory(nullptr);
+                      hSimRaw->SetDirectory(nullptr);
+
+                      EnsureSumw2(hDatRaw);
+                      EnsureSumw2(hSimRaw);
+
+                      const double iDat = hDatRaw->Integral(0, hDatRaw->GetNbinsX() + 1);
+                      const double iSim = hSimRaw->Integral(0, hSimRaw->GetNbinsX() + 1);
+                      if (iDat > 0.0) hDatRaw->Scale(1.0 / iDat);
+                      if (iSim > 0.0) hSimRaw->Scale(1.0 / iSim);
+
+                      hDatRaw->SetTitle("");
+                      hDatRaw->SetLineWidth(2);
+                      hDatRaw->SetMarkerStyle(20);
+                      hDatRaw->SetMarkerSize(0.95);
+
+                      hSimRaw->SetLineWidth(2);
+                      hSimRaw->SetMarkerStyle(24);
+                      hSimRaw->SetMarkerSize(0.95);
+
+                      hDatRaw->GetXaxis()->SetTitle("x_{J#gamma}");
+                      hDatRaw->GetXaxis()->SetRangeUser(0.0, 2.0);
+                      hDatRaw->GetYaxis()->SetTitle("Norm. counts");
+
+                      hDatRaw->Draw("E1");
+                      hSimRaw->Draw("E1 same");
+                      gPad->Update();
+
+                      const auto& cfgDef = DefaultSim10and20Config();
+                      const double jetPtMin_GeV = cfgDef.jetMinPt;
+
+                      const double xAbs  = (ptMaxGamma > 0.0) ? (jetPtMin_GeV / ptMaxGamma) : -1.0;
+                      const double xFull = (ptMinGamma > 0.0) ? (jetPtMin_GeV / ptMinGamma) : -1.0;
+
+                      const double yMin = gPad->GetUymin();
+                      const double yMax = gPad->GetUymax();
+
+                      TLine* lnAbs = new TLine(xAbs,  yMin, xAbs,  yMax);
+                      lnAbs->SetLineColor(kBlue + 1);
+                      lnAbs->SetLineStyle(2);
+                      lnAbs->SetLineWidth(2);
+
+                      TLine* lnFull = new TLine(xFull, yMin, xFull, yMax);
+                      lnFull->SetLineColor(kRed + 1);
+                      lnFull->SetLineStyle(2);
+                      lnFull->SetLineWidth(2);
+
+                      if (xAbs > 0.0)  lnAbs->Draw("same");
+                      if (xFull > 0.0) lnFull->Draw("same");
+
+                      TLegend* leg = new TLegend(0.18, 0.70, 0.62, 0.90);
+                      leg->SetBorderSize(0);
+                      leg->SetFillStyle(0);
+                      leg->SetTextFont(42);
+                      leg->SetTextSize(0.040);
+                      leg->AddEntry(hDatRaw, "DATA", "ep");
+                      leg->AddEntry(hSimRaw, "SIM",  "ep");
+                      leg->DrawClone();
+
+                      TLatex ttitle;
+                      ttitle.SetNDC(true);
+                      ttitle.SetTextFont(42);
+                      ttitle.SetTextAlign(22);
+                      ttitle.SetTextSize(0.060);
+                      ttitle.DrawLatex(
+                        0.55, 0.95,
+                        TString::Format("RECO x_{J#gamma}, p_{T}^{#gamma}=%.0f-%.0f GeV", ptMinGamma, ptMaxGamma).Data()
+                      );
+
+                      keep.push_back(hDatRaw);
+                      keep.push_back(hSimRaw);
+                      delete lnFull;
+                      delete lnAbs;
+                      delete leg;
+                    }
+
+                    SaveCanvas(canTbl, JoinPath(dirOv, "table3x2_overlay_integratedAlpha_overlayedWithSim.png"));
+
+                    for (auto* h1 : keep) delete h1;
+                  }
+                }
+
+                // -------------------------------------------------------------------------
+                // 3x3 tables + text summary (existing behavior preserved)
+                // -------------------------------------------------------------------------
 
               auto Make3x3Table_xJ_FromTH3 =
                 [&](const TH3* h3, const string& outBaseDir, const string& tag, bool logy)
