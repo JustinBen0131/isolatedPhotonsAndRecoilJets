@@ -550,10 +550,20 @@ if [[ "${1}" =~ ^(isSim|sim|SIM)$ ]]; then
   master_yaml="$(sim_yaml_master_path)"
   [[ -s "$master_yaml" ]] || { err "Master YAML not found or empty: $master_yaml"; exit 72; }
 
-  mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
-  mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
-  (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
-  (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
+  # SIM-only bypass:
+  #   RJ_SIM_FORCE_SWEEP=1 ./mergeRecoilJets.sh isSim secondRound
+  # makes merge sweep the legacy cfg grid regardless of what's in the YAML,
+  # without changing analysis_config.yaml (so it won't affect Condor/data).
+  if [[ "${RJ_SIM_FORCE_SWEEP:-0}" == "1" ]]; then
+    sim_pts=( "3.0" "5.0" "10.0" )
+    sim_fracs=( "0.5" "0.875" )
+    say "RJ_SIM_FORCE_SWEEP=1 → forcing SIM sweep grid: jet_pt_min=[${sim_pts[*]}], back_to_back_pi_fraction=[${sim_fracs[*]}]"
+  else
+    mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
+    mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
+    (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
+    (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
+  fi
 
   samples=()
   if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
