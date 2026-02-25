@@ -7254,24 +7254,32 @@ namespace ARJ
                     // (1b) NEW: overlayedWithSim (DATA reco vs SIM reco, same rKey/pT bin)
                     if (isSimAndDataPP && !ds.isSim)
                     {
-                      const string dirOv = JoinPath(D.dirXJProjReco, "overlayedWithSim");
-                      EnsureDir(dirOv);
+                        const string dirOv = JoinPath(D.dirXJProjReco, "insituCalib");
+                        EnsureDir(dirOv);
 
-                      static std::string s_lastSimPath = "";
-                      static TFile* s_fSim = nullptr;
+                        static std::string s_lastSimPath = "";
+                        static TFile* s_fSim = nullptr;
+                        static TDirectory* s_simTopDir = nullptr;
 
-                      const std::string simPath = SimInputPathForSample(CurrentSimSample());
-                      if (!simPath.empty())
-                      {
-                        if (!s_fSim || s_lastSimPath != simPath)
+                        const std::string simPath = SimInputPathForSample(CurrentSimSample());
+                        if (!simPath.empty())
                         {
-                          if (s_fSim) { s_fSim->Close(); delete s_fSim; s_fSim = nullptr; }
-                          s_fSim = TFile::Open(simPath.c_str(), "READ");
-                          s_lastSimPath = simPath;
-                        }
-                      }
+                          if (!s_fSim || s_lastSimPath != simPath)
+                          {
+                            if (s_fSim) { s_fSim->Close(); delete s_fSim; s_fSim = nullptr; }
+                            s_simTopDir = nullptr;
 
-                      TH3* hSim3 = (s_fSim ? dynamic_cast<TH3*>(s_fSim->Get(("h_JES3_pT_xJ_alpha_" + rKey).c_str())) : nullptr);
+                            s_fSim = TFile::Open(simPath.c_str(), "READ");
+                              if (s_fSim && !s_fSim->IsZombie())
+                              {
+                                s_simTopDir = s_fSim->GetDirectory(kDirSIM.c_str());
+                                if (!s_simTopDir) s_simTopDir = s_fSim;
+                              }
+                            s_lastSimPath = simPath;
+                          }
+                        }
+
+                        TH3* hSim3 = (s_simTopDir ? dynamic_cast<TH3*>(s_simTopDir->Get(("h_JES3_pT_xJ_alpha_" + rKey).c_str())) : nullptr);
                       if (hSim3)
                       {
                         TH1* xJ_sim_raw = ProjectY_AtXbin_AndAlphaMax_TH3(
@@ -7301,16 +7309,20 @@ namespace ARJ
                             ApplyCanvasMargins1D(c);
                             c.SetLogy(false);
 
-                            xJ_dat->SetTitle("");
-                            xJ_dat->SetLineWidth(2);
-                            xJ_dat->SetMarkerStyle(20);
-                            xJ_dat->SetMarkerSize(1.0);
+                           xJ_dat->SetTitle("");
+                           xJ_dat->SetLineWidth(2);
+                           xJ_dat->SetLineColor(kGreen + 2);
+                           xJ_dat->SetMarkerStyle(20);
+                           xJ_dat->SetMarkerSize(1.0);
+                           xJ_dat->SetMarkerColor(kGreen + 2);
 
-                            xJ_sim->SetLineWidth(2);
-                            xJ_sim->SetMarkerStyle(24);
-                            xJ_sim->SetMarkerSize(1.0);
+                           xJ_sim->SetLineWidth(2);
+                           xJ_sim->SetLineColor(kOrange + 7);
+                           xJ_sim->SetMarkerStyle(20);
+                           xJ_sim->SetMarkerSize(1.0);
+                           xJ_sim->SetMarkerColor(kOrange + 7);
 
-                            xJ_dat->GetXaxis()->SetTitle("x_{J#gamma}");
+                           xJ_dat->GetXaxis()->SetTitle("x_{J#gamma}");
                             xJ_dat->GetXaxis()->SetRangeUser(0.0, 2.0);
                             xJ_dat->GetYaxis()->SetTitle("Normalized counts");
 
@@ -7704,7 +7716,7 @@ namespace ARJ
                 // -------------------------------------------------------------------------
                 if (isSimAndDataPP && !ds.isSim)
                 {
-                  const string dirOv = JoinPath(D.dirXJProjReco, "overlayedWithSim");
+                  const string dirOv = JoinPath(D.dirXJProjReco, "insituCalib");
                   EnsureDir(dirOv);
 
                   static std::string s_lastSimPath_tbl = "";
@@ -7778,12 +7790,16 @@ namespace ARJ
 
                       hDatRaw->SetTitle("");
                       hDatRaw->SetLineWidth(2);
+                      hDatRaw->SetLineColor(kGreen + 2);
                       hDatRaw->SetMarkerStyle(20);
                       hDatRaw->SetMarkerSize(0.95);
+                      hDatRaw->SetMarkerColor(kGreen + 2);
 
                       hSimRaw->SetLineWidth(2);
-                      hSimRaw->SetMarkerStyle(24);
+                      hSimRaw->SetLineColor(kOrange + 7);
+                      hSimRaw->SetMarkerStyle(20);
                       hSimRaw->SetMarkerSize(0.95);
+                      hSimRaw->SetMarkerColor(kOrange + 7);
 
                       hDatRaw->GetXaxis()->SetTitle("x_{J#gamma}");
                       hDatRaw->GetXaxis()->SetRangeUser(0.0, 2.0);
@@ -8417,19 +8433,54 @@ namespace ARJ
                           const double jetMinPt     = DefaultSim10and20Config().jetMinPt;
                           const double vzCut        = vzCutCm;
 
-                          TLatex tt;
-                          tt.SetNDC(true);
-                          tt.SetTextFont(42);
-                          tt.SetTextAlign(22);
-                          tt.SetTextSize(0.060);
-                          tt.DrawLatex(0.52, 0.95,
-                            TString::Format("p_{T}^{#gamma} = %s  (R=%.1f)", ptLab.c_str(), R).Data()
-                          );
+                          const bool isThisSimRecoVsRecoTruthTaggedPhoJet =
+                            (ds.isSim && (ovTag == "RECO_vs_RECO_truthTaggedPhoJet"));
+
+                          // Title + pT label
+                          {
+                            TLatex tt;
+                            tt.SetNDC(true);
+                            tt.SetTextFont(42);
+
+                            if (isThisSimRecoVsRecoTruthTaggedPhoJet)
+                            {
+                              // Main title (top-center)
+                              tt.SetTextAlign(22);
+                              tt.SetTextSize(0.058);
+                              tt.DrawLatex(0.52, 0.95,
+                                TString::Format("Photon+Jet 10 and 20 Combined Sim (R = %.1f)", R).Data()
+                              );
+
+                              // pT label (upper-left, larger)
+                              tt.SetTextAlign(13);
+                              tt.SetTextSize(0.070);
+                              tt.DrawLatex(0.16, 0.90,
+                                TString::Format("p_{T}^{#gamma} = %s", ptLab.c_str()).Data()
+                              );
+                            }
+                            else
+                            {
+                              // Default behavior
+                              tt.SetTextAlign(22);
+                              tt.SetTextSize(0.060);
+                              tt.DrawLatex(0.52, 0.95,
+                                TString::Format("p_{T}^{#gamma} = %s  (R=%.1f)", ptLab.c_str(), R).Data()
+                              );
+                            }
+                          }
 
                           // Legend placement: top-right, but protect long labels in table pads
                           double lx1 = 0.52, ly1 = 0.74, lx2 = 0.92, ly2 = 0.90;
                           double legTextSize = 0.055;
                           double legMargin   = 0.25;   // fraction of box reserved for markers/lines
+
+                          if (isThisSimRecoVsRecoTruthTaggedPhoJet)
+                          {
+                            // Shift up and slightly right to avoid peak overlap
+                            lx1 = 0.58; ly1 = 0.78; lx2 = 0.94; ly2 = 0.94;
+                            legTextSize = 0.050;
+                            legMargin   = 0.22;
+                          }
 
                           // If either legend entry is long, shift the whole legend LEFT and give it more width
                           const size_t maxLegLen = (legBlack.size() > legRed.size()) ? legBlack.size() : legRed.size();
