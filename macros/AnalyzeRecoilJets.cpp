@@ -7585,7 +7585,7 @@ namespace ARJ
                         TLatex ttl;
                         ttl.SetNDC(true);
                         ttl.SetTextFont(42);
-                        ttl.SetTextSize(0.052);
+                        ttl.SetTextSize(0.048);
                         ttl.DrawLatex(0.12, 0.94,
                           TString::Format("RECO x_{J#gamma} (DATA vs SIM), p_{T}^{#gamma} = %.0f - %.0f GeV, R = %.1f",
                             ptMinGamma, ptMaxGamma, R).Data());
@@ -8014,50 +8014,119 @@ namespace ARJ
                     hA->Draw("E1");
                     hB->Draw("E1 same");
 
-                      // Legend: shift slightly left and make only slightly smaller
-                      TLegend leg(0.55, 0.75, 0.85, 0.90);
-                      leg.SetTextFont(42);
-                      leg.SetTextSize(0.038);
-                      leg.SetFillStyle(0);
-                      leg.SetBorderSize(0);
-                      leg.AddEntry(hA, legBlack.c_str(), "ep");
-                      leg.AddEntry(hB, legRed.c_str(),   "ep");
-                      leg.Draw();
+                    const std::string bbLabel = DefaultSim10and20Config().bbLabel;
+                    const double jetMinPt     = DefaultSim10and20Config().jetMinPt;
+                    const double vzCut        = vzCutCm;
 
-                      // Clean, minimal top-left header (no "Overlay (shape)", no jet-match line, no "Integrated over α")
-                      std::string titleLine;
-                      if (ovTag == "RECO_vs_RECO_truthTaggedPhoJet")
-                      {
-                        titleLine = "RECO vs RECO (#gamma+jet truth tagged)";
+                    const bool isThisSimRecoVsRecoTruthTaggedPhoJet =
+                        (ds.isSim && (ovTag == "RECO_vs_RECO_truthTaggedPhoJet"));
+
+                    if (isThisSimRecoVsRecoTruthTaggedPhoJet)
+                    {
+                        // Match the 2x3-table pad look (and clamp x-range)
+                        hA->GetXaxis()->SetRangeUser(0.0, 2.0);
+
+                        // Title + pT label (same placement style as table)
+                        {
+                          TLatex tt;
+                          tt.SetNDC(true);
+                          tt.SetTextFont(42);
+
+                          // Main title (top-center)
+                          tt.SetTextAlign(22);
+                          tt.SetTextSize(0.050);
+                          tt.DrawLatex(0.52, 0.95,
+                            TString::Format("Photon+Jet 10 and 20 Combined Sim (R = %.1f)", R).Data()
+                          );
+
+                          // pT label (upper-left)
+                          tt.SetTextAlign(13);
+                          tt.SetTextSize(0.043);
+                          tt.DrawLatex(0.18, 0.89,
+                            TString::Format("p_{T}^{#gamma} = %s", ptLab.c_str()).Data()
+                          );
+                        }
+
+                        // Legend (top-center-ish, consistent with table readability)
+                        TLegend leg(0.40, 0.78, 0.72, 0.90);
+                        leg.SetTextFont(42);
+                        leg.SetTextSize(0.045);
+                        leg.SetFillStyle(0);
+                        leg.SetBorderSize(0);
+                        leg.AddEntry(hA, legBlack.c_str(), "ep");
+                        leg.AddEntry(hB, legRed.c_str(),   "ep");
+                        leg.Draw();
+
+                        // Cut text block on RHS middle (like DATA vs SIM overlay example / your table pads)
+                        {
+                          TLatex tCuts;
+                          tCuts.SetNDC(true);
+                          tCuts.SetTextFont(42);
+                          tCuts.SetTextAlign(33);   // right-top anchored
+                          tCuts.SetTextSize(0.045);
+
+                          const double tx = 0.92;
+                          double ty = 0.63;
+                          const double dY = 0.060;
+
+                          tCuts.DrawLatex(tx, ty,
+                            TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data()
+                          );
+                          ty -= dY;
+                          tCuts.DrawLatex(tx, ty,
+                            TString::Format("p_{T}^{jet} > %.0f GeV", jetMinPt).Data()
+                          );
+                          ty -= dY;
+                          tCuts.DrawLatex(tx, ty,
+                            TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCut)).Data()
+                          );
+                        }
                       }
                       else
                       {
-                        titleLine = headerLines.empty() ? ovTag : headerLines.front();
-                        const std::string pref = "Overlay (shape): ";
-                        if (titleLine.rfind(pref, 0) == 0) titleLine = titleLine.substr(pref.size());
+                        // Default: keep existing perPtBin styling for all other overlay folders
+
+                        TLegend leg(0.55, 0.75, 0.85, 0.90);
+                        leg.SetTextFont(42);
+                        leg.SetTextSize(0.038);
+                        leg.SetFillStyle(0);
+                        leg.SetBorderSize(0);
+                        leg.AddEntry(hA, legBlack.c_str(), "ep");
+                        leg.AddEntry(hB, legRed.c_str(),   "ep");
+                        leg.Draw();
+
+                        std::string titleLine;
+                        if (ovTag == "RECO_vs_RECO_truthTaggedPhoJet")
+                        {
+                          titleLine = "RECO vs RECO (#gamma+jet truth tagged)";
+                        }
+                        else
+                        {
+                          titleLine = headerLines.empty() ? ovTag : headerLines.front();
+                          const std::string pref = "Overlay (shape): ";
+                          if (titleLine.rfind(pref, 0) == 0) titleLine = titleLine.substr(pref.size());
+                        }
+
+                        const string ptLabNoUnit = AxisBinLabel(hBlack->GetXaxis(), ib, "", 0);
+
+                        TLatex t;
+                        t.SetNDC(true);
+                        t.SetTextFont(42);
+                        t.SetTextAlign(13);
+                        t.SetTextSize(0.036);
+                        t.DrawLatex(0.14, 0.9, titleLine.c_str());
+
+                        t.SetTextSize(0.032);
+                        t.DrawLatex(0.14, 0.845,
+                          TString::Format("p_{T}^{#gamma}: %s GeV (R = %.1f)", ptLabNoUnit.c_str(), R).Data()
+                        );
+                        t.DrawLatex(0.14, 0.795,
+                          TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data()
+                        );
+                        t.DrawLatex(0.14, 0.755,
+                          TString::Format("p_{T}^{jet} > %.0f GeV", jetMinPt).Data()
+                        );
                       }
-
-                      const string ptLabNoUnit = AxisBinLabel(hBlack->GetXaxis(), ib, "", 0);
-                      const std::string bbLabel = DefaultSim10and20Config().bbLabel;
-                      const double jetMinPt = DefaultSim10and20Config().jetMinPt;
-
-                      TLatex t;
-                      t.SetNDC(true);
-                      t.SetTextFont(42);
-                      t.SetTextAlign(13); // left-top
-                      t.SetTextSize(0.036);
-                      t.DrawLatex(0.14, 0.9, titleLine.c_str());
-
-                      t.SetTextSize(0.032);
-                      t.DrawLatex(0.14, 0.845,
-                        TString::Format("p_{T}^{#gamma}: %s GeV (R = %.1f)", ptLabNoUnit.c_str(), R).Data()
-                      );
-                      t.DrawLatex(0.14, 0.795,
-                        TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data()
-                      );
-                      t.DrawLatex(0.14, 0.755,
-                        TString::Format("p_{T}^{jet} > %.0f GeV", jetMinPt).Data()
-                      );
 
                     SaveCanvas(c, outPng);
 
