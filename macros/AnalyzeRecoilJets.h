@@ -163,6 +163,11 @@ namespace ARJ
 
   inline bool isPPdataOnly   = false;
   inline bool isSimAndDataPP = true;
+  // Optional comparison overlays: PP vs Au+Au (gold-gold) photon-ID deliverables.
+  // If false, analysis behavior is IDENTICAL to the current pipeline.
+  inline bool isPPdataAndAUAU = true;
+
+  inline bool isRun25pp      = false;
 
   // SIM sample selection toggles (choose EXACTLY ONE for any SIM-including run)
   inline bool isPhotonJet5               = false;
@@ -198,8 +203,19 @@ namespace ARJ
   inline const string kTriggerPP = "Photon_4_GeV_plus_MBD_NS_geq_1";
   inline const string kDirSIM    = "SIM";
 
-  inline const string kInPP =
-      "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet5/7pi_8_BB/RecoilJets_pp_ALL.root";
+  inline const string kInPP24 =
+        "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet5/7pi_8_BB/RecoilJets_pp_ALL.root";
+
+  inline const string kInPP25 =
+        "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet5/7pi_8_BB/RecoilJets_pp25_ALL.root";
+
+  inline const string kInPP = (isRun25pp ? kInPP25 : kInPP24);
+
+  // Gold-gold (Au+Au) merged output for PP vs AuAu deliverables (photon ID QA)
+  // NOTE: Only the trigger directory below is used inside the file.
+  inline const string kTriggerAuAuGold = "MBD_NS_geq_2_vtx_lt_150";
+  inline const string kInAuAuGold =
+            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet5/7pi_8_BB/RecoilJets_auau_ALL.root";
 
   inline const string kInSIM5 =
       "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5_SIM/RecoilJets_photonjet5_ALL.root";
@@ -349,11 +365,15 @@ namespace ARJ
   inline const string kInSIM20_jetMinPt5_pihalves = Sim10and20ConfigForKey(kAltSimSampleKey_jetMinPt5_pihalves).photon20;
 
   inline const string kOutPPBase =
-        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp";
+          "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp";
+
+  // PP vs AuAu (gold-gold) comparison deliverables output base
+  inline const string kOutPPAuAuBase =
+          "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp_auau";
 
   // SIM outputs are routed by the SIM sample toggle(s) above:
   inline const string kOutSIM5Base =
-        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5_SIM";
+          "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5_SIM";
 
   inline const string kOutSIM10Base =
         "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet10_SIM";
@@ -402,15 +422,18 @@ namespace ARJ
   // =============================================================================
   struct BinningCfg
   {
-      vector<double> jes3_photon_pt_bins         = {15,17,19,21,23,26,35};
-      vector<double> unfold_reco_photon_pt_bins  = {10,15,17,19,21,23,26,35,40};
-      vector<double> unfold_truth_photon_pt_bins = {5,10,15,17,19,21,23,26,35,40};
-      vector<double> unfold_xj_bins              = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
+        vector<double> jes3_photon_pt_bins         = {15,17,19,21,23,26,35};
+        vector<double> unfold_reco_photon_pt_bins  = {10,15,17,19,21,23,26,35,40};
+        vector<double> unfold_truth_photon_pt_bins = {5,10,15,17,19,21,23,26,35,40};
+        vector<double> unfold_xj_bins              = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
 
-      double unfold_jet_pt_start = 0.0;
-      double unfold_jet_pt_stop  = 60.0;
-      double unfold_jet_pt_step  = 0.5;
-      vector<double> unfold_jet_pt_edges;  // expanded from start/stop/step
+        // Au+Au centrality bin edges (percent) used for PP vs AuAu overlays
+        vector<double> centrality_edges             = {0, 10, 20, 40, 60, 80, 100};
+
+        double unfold_jet_pt_start = 0.0;
+        double unfold_jet_pt_stop  = 60.0;
+        double unfold_jet_pt_step  = 0.5;
+        vector<double> unfold_jet_pt_edges;  // expanded from start/stop/step
   };
 
   inline string Trim(std::string s)
@@ -586,6 +609,10 @@ namespace ARJ
         {
           ParseInlineListDoubles(AfterColon(line), cfg.unfold_xj_bins);
         }
+        else if (StartsWithKey(line, "centrality_edges"))
+        {
+          ParseInlineListDoubles(AfterColon(line), cfg.centrality_edges);
+        }
         else if (StartsWithKey(line, "unfold_jet_pt_binning"))
         {
           map<string, double> m;
@@ -601,6 +628,7 @@ namespace ARJ
       if (cfg.unfold_reco_photon_pt_bins.size() < 2)  cfg.unfold_reco_photon_pt_bins  = {10,15,17,19,21,23,26,35,40};
       if (cfg.unfold_truth_photon_pt_bins.size() < 2) cfg.unfold_truth_photon_pt_bins = {5,10,15,17,19,21,23,26,35,40};
       if (cfg.unfold_xj_bins.size() < 2) cfg.unfold_xj_bins = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
+      if (cfg.centrality_edges.size() < 2) cfg.centrality_edges = {0, 10, 20, 40, 60, 80, 100};
 
       ExpandUniformEdges(cfg.unfold_jet_pt_edges, cfg.unfold_jet_pt_start, cfg.unfold_jet_pt_stop, cfg.unfold_jet_pt_step);
       if (cfg.unfold_jet_pt_edges.size() < 2)
@@ -639,39 +667,79 @@ namespace ARJ
       string suffix;  // "_pT_10_12"
   };
 
-  // Cached bin list
-  inline const vector<PtBin>& PtBins()
-  {
-      static vector<PtBin> v;
-      if (!v.empty()) return v;
-      v.reserve((std::size_t)kNPtBins);
+    // Cached bin list
+    inline const vector<PtBin>& PtBins()
+    {
+        static vector<PtBin> v;
+        if (!v.empty()) return v;
+        v.reserve((std::size_t)kNPtBins);
 
-      for (int i = 0; i < kNPtBins; ++i)
-      {
-        PtBin b;
-        b.lo = (int) std::llround(kPtEdges[(std::size_t)i]);
-        b.hi = (int) std::llround(kPtEdges[(std::size_t)i+1]);
+        for (int i = 0; i < kNPtBins; ++i)
         {
-          std::ostringstream s; s << b.lo << "-" << b.hi; b.label = s.str();
+          PtBin b;
+          b.lo = (int) std::llround(kPtEdges[(std::size_t)i]);
+          b.hi = (int) std::llround(kPtEdges[(std::size_t)i+1]);
+          {
+            std::ostringstream s; s << b.lo << "-" << b.hi; b.label = s.str();
+          }
+          {
+            std::ostringstream s; s << "pT_" << b.lo << "_" << b.hi; b.folder = s.str();
+          }
+          {
+            std::ostringstream s; s << "_pT_" << b.lo << "_" << b.hi; b.suffix = s.str();
+          }
+          v.push_back(b);
         }
-        {
-          std::ostringstream s; s << "pT_" << b.lo << "_" << b.hi; b.folder = s.str();
-        }
-        {
-          std::ostringstream s; s << "_pT_" << b.lo << "_" << b.hi; b.suffix = s.str();
-        }
-        v.push_back(b);
-      }
-      return v;
-  }
+        return v;
+    }
 
-  inline double RFromKey(const string& rKey)
-  {
-      if (rKey == "r02") return 0.2;
-      if (rKey == "r04") return 0.4;
-      if (rKey == "r06") return 0.6;
-      return 0.0;
-  }
+    struct CentBin
+    {
+        int lo = 0;
+        int hi = 0;
+        string label;   // "0-10"
+        string folder;  // "0_10"
+        string suffix;  // "_cent_0_10"
+    };
+
+    // Cached centrality bin list (derived from YAML key: centrality_edges)
+    inline const vector<CentBin>& CentBins()
+    {
+        static vector<CentBin> v;
+        if (!v.empty()) return v;
+
+        const auto& edges = Binning().centrality_edges;
+        if (edges.size() < 2) return v;
+
+        v.reserve(edges.size() - 1);
+
+        for (std::size_t i = 0; i + 1 < edges.size(); ++i)
+        {
+          CentBin b;
+          b.lo = (int) std::llround(edges[i]);
+          b.hi = (int) std::llround(edges[i+1]);
+          {
+            std::ostringstream s; s << b.lo << "-" << b.hi; b.label = s.str();
+          }
+          {
+            std::ostringstream s; s << b.lo << "_" << b.hi; b.folder = s.str();
+          }
+          {
+            std::ostringstream s; s << "_cent_" << b.lo << "_" << b.hi; b.suffix = s.str();
+          }
+          v.push_back(b);
+        }
+
+        return v;
+    }
+
+    inline double RFromKey(const string& rKey)
+    {
+        if (rKey == "r02") return 0.2;
+        if (rKey == "r04") return 0.4;
+        if (rKey == "r06") return 0.6;
+        return 0.0;
+    }
 
   inline double FidEtaAbsFromKey(const string& rKey)
   {

@@ -135,87 +135,215 @@ namespace ARJ
           return;
         }
 
-        // ------------------------------------------------------------------
-        // (1) Overlay: MBD vs Photon3 vs Photon4 (doNotScale max cluster energy)
-        // ------------------------------------------------------------------
-        {
-          TCanvas c("c_trigAna_overlay", "c_trigAna_overlay", 900, 700);
-          c.cd();
-
-          hMBD->SetTitle("");
-          hMBD->GetXaxis()->SetTitle("Cluster Energy [GeV]");
-          hMBD->GetYaxis()->SetTitle("Entries");
-
-          hMBD->SetLineWidth(2);
-          hP3->SetLineWidth(2);
-          hP4->SetLineWidth(2);
-
-          hMBD->Draw("HIST");
-          hP3->Draw("HIST SAME");
-          hP4->Draw("HIST SAME");
-
-          TLegend leg(0.55, 0.68, 0.88, 0.88);
-          leg.SetBorderSize(0);
-          leg.SetFillStyle(0);
-          leg.AddEntry(hMBD, "MBD N&S >= 1", "l");
-          leg.AddEntry(hP3,  "Photon 3 GeV + MBD NS >= 1", "l");
-          leg.AddEntry(hP4,  "Photon 4 GeV + MBD NS >= 1", "l");
-          leg.Draw();
-
-          const std::string outPng = JoinPath(outDir, "hMaxClusterEnergy_doNotScale_overlay.png");
-          c.SaveAs(outPng.c_str());
-          cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";
-        }
-
-        // ------------------------------------------------------------------
-        // (2) Ratios: Photon3/MBD and Photon4/MBD (turn-on style)
-        // ------------------------------------------------------------------
-        {
-          TH1* rP3 = dynamic_cast<TH1*>(hP3->Clone("ratio_P3_over_MBD"));
-          TH1* rP4 = dynamic_cast<TH1*>(hP4->Clone("ratio_P4_over_MBD"));
-
-          if (!rP3 || !rP4)
+          // ------------------------------------------------------------------
+          // (1) Overlay: MBD vs Photon3 vs Photon4 (doNotScale max cluster energy)
+          //   - Match AnalyzeTriggerGroupings styling: distinct colors + thicker lines
+          //   - Log-y scale + "Prescaled Counts" label
+          // ------------------------------------------------------------------
           {
-            cout << ANSI_BOLD_YEL << "[WARN] Failed to clone histograms for ratio plot." << ANSI_RESET << "\n";
-            return;
+            TCanvas c("c_trigAna_overlay", "c_trigAna_overlay", 900, 700);
+            c.cd();
+            c.SetLeftMargin(0.14);
+            c.SetRightMargin(0.05);
+            c.SetBottomMargin(0.14);
+            c.SetTopMargin(0.08);
+            c.SetTicks(1,1);
+            c.SetLogy();
+
+            double ymax = hMBD->GetMaximum();
+            ymax = std::max(ymax, hP3->GetMaximum());
+            ymax = std::max(ymax, hP4->GetMaximum());
+            const double yMaxPlot = (ymax > 0.0) ? (1.20 * ymax) : 1.0;
+
+            hMBD->SetTitle("");
+            hMBD->GetXaxis()->SetTitle("Maximum Cluster Energy [GeV]");
+            hMBD->GetYaxis()->SetTitle("Prescaled Counts");
+
+            hMBD->GetXaxis()->SetTitleSize(0.055);
+            hMBD->GetXaxis()->SetTitleOffset(1.05);
+            hMBD->GetXaxis()->SetLabelSize(0.045);
+
+            hMBD->GetYaxis()->SetTitleSize(0.055);
+            hMBD->GetYaxis()->SetTitleOffset(1.20);
+            hMBD->GetYaxis()->SetLabelSize(0.045);
+
+            hMBD->GetXaxis()->SetRangeUser(0.0, 20.0);
+            hMBD->SetMinimum(10.0);
+            hMBD->SetMaximum(yMaxPlot);
+
+            hMBD->SetLineColor(kBlack);
+            hMBD->SetLineWidth(4);
+
+            hP3->SetLineColor(kBlue+1);
+            hP3->SetLineWidth(4);
+
+            hP4->SetLineColor(kGreen+2);
+            hP4->SetLineWidth(4);
+
+            hMBD->Draw("HIST");
+            hP3->Draw("HIST SAME");
+            hP4->Draw("HIST SAME");
+
+            TLegend leg(0.55, 0.66, 0.88, 0.88);
+            leg.SetBorderSize(0);
+            leg.SetFillStyle(0);
+            leg.SetTextSize(0.035);
+            leg.AddEntry(hMBD, "MBD N&S #geq 1", "l");
+            leg.AddEntry(hP3,  "Photon 3 GeV + MBD NS #geq 1", "l");
+            leg.AddEntry(hP4,  "Photon 4 GeV + MBD NS #geq 1", "l");
+            leg.Draw();
+
+            TLegend extra(0.18, 0.20, 0.50, 0.30);
+            extra.SetBorderSize(0);
+            extra.SetFillStyle(0);
+            extra.SetTextSize(0.038);
+            extra.AddEntry((TObject*)nullptr, "#it{#bf{sPHENIX}} Internal", "");
+            extra.AddEntry((TObject*)nullptr, "p+p #sqrt{s} = 200 GeV", "");
+            extra.Draw();
+
+            const std::string outPng = JoinPath(outDir, "hMaxClusterEnergy_doNotScale_overlay.png");
+            c.SaveAs(outPng.c_str());
+            cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";
           }
 
-          rP3->SetDirectory(nullptr);
-          rP4->SetDirectory(nullptr);
+          // ------------------------------------------------------------------
+          // (2) Ratios: Photon3/MBD and Photon4/MBD (turn-on style)
+          //   - Match AnalyzeTriggerGroupings styling: markers + error bars + colors
+          //   - Add y=1 dashed reference + per-trigger 95% estimate + vlines
+          // ------------------------------------------------------------------
+          {
+            auto FindXAtEff = [&](TH1* h, double target)->double
+            {
+              if (!h) return -1.0;
+              for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+              {
+                const double y = h->GetBinContent(ib);
+                if (!std::isfinite(y)) continue;
+                if (y >= target) return h->GetBinCenter(ib);
+              }
+              return -1.0;
+            };
 
-          rP3->Divide(hP3, hMBD, 1.0, 1.0, "B");
-          rP4->Divide(hP4, hMBD, 1.0, 1.0, "B");
+            TH1* rP3 = dynamic_cast<TH1*>(hP3->Clone("ratio_P3_over_MBD"));
+            TH1* rP4 = dynamic_cast<TH1*>(hP4->Clone("ratio_P4_over_MBD"));
 
-          TCanvas c("c_trigAna_ratio", "c_trigAna_ratio", 900, 700);
-          c.cd();
+            if (!rP3 || !rP4)
+            {
+              cout << ANSI_BOLD_YEL << "[WARN] Failed to clone histograms for ratio plot." << ANSI_RESET << "\n";
+              return;
+            }
 
-          rP3->SetTitle("");
-          rP3->GetXaxis()->SetTitle("Cluster Energy [GeV]");
-          rP3->GetYaxis()->SetTitle("Efficiency");
+            rP3->SetDirectory(nullptr);
+            rP4->SetDirectory(nullptr);
 
-          rP3->SetLineWidth(2);
-          rP4->SetLineWidth(2);
+            rP3->Divide(hP3, hMBD, 1.0, 1.0, "B");
+            rP4->Divide(hP4, hMBD, 1.0, 1.0, "B");
 
-          rP3->SetMinimum(0.0);
-          rP3->SetMaximum(1.2);
+            TCanvas c("c_trigAna_ratio", "c_trigAna_ratio", 900, 700);
+            c.cd();
+            c.SetLeftMargin(0.14);
+            c.SetRightMargin(0.05);
+            c.SetBottomMargin(0.14);
+            c.SetTopMargin(0.08);
+            c.SetTicks(1,1);
 
-          rP3->Draw("HIST");
-          rP4->Draw("HIST SAME");
+            rP3->SetTitle("");
+            rP3->GetXaxis()->SetTitle("Maximum Cluster Energy [GeV]");
+            rP3->GetYaxis()->SetTitle("Efficiency");
 
-          TLegend leg(0.55, 0.72, 0.88, 0.88);
-          leg.SetBorderSize(0);
-          leg.SetFillStyle(0);
-          leg.AddEntry(rP3, "Photon 3 GeV + MBD NS >= 1  /  MBD", "l");
-          leg.AddEntry(rP4, "Photon 4 GeV + MBD NS >= 1  /  MBD", "l");
-          leg.Draw();
+            rP3->GetXaxis()->SetTitleSize(0.055);
+            rP3->GetXaxis()->SetTitleOffset(1.05);
+            rP3->GetXaxis()->SetLabelSize(0.045);
 
-          const std::string outPng = JoinPath(outDir, "hMaxClusterEnergy_doNotScale_ratioToMBD.png");
-          c.SaveAs(outPng.c_str());
-          cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";
+            rP3->GetYaxis()->SetTitleSize(0.055);
+            rP3->GetYaxis()->SetTitleOffset(1.20);
+            rP3->GetYaxis()->SetLabelSize(0.045);
 
-          delete rP3;
-          delete rP4;
-        }
+            rP3->GetXaxis()->SetRangeUser(0.0, 20.0);
+            rP3->SetMinimum(0.0);
+            rP3->SetMaximum(1.4);
+
+            rP3->SetMarkerStyle(20);
+            rP3->SetMarkerSize(1.0);
+            rP3->SetMarkerColor(kBlue+1);
+            rP3->SetLineColor(kBlue+1);
+            rP3->SetLineWidth(4);
+
+            rP4->SetMarkerStyle(21);
+            rP4->SetMarkerSize(1.0);
+            rP4->SetMarkerColor(kGreen+2);
+            rP4->SetLineColor(kGreen+2);
+            rP4->SetLineWidth(4);
+
+            rP3->Draw("E1");
+            rP4->Draw("E1 SAME");
+
+            const double x95P3 = FindXAtEff(rP3, 0.95);
+            const double x95P4 = FindXAtEff(rP4, 0.95);
+
+            TLine l1(0.0, 1.0, 20.0, 1.0);
+            l1.SetLineStyle(2);
+            l1.SetLineWidth(2);
+            l1.SetLineColor(kBlack);
+            l1.Draw("SAME");
+
+            TLine* vP3 = nullptr;
+            TLine* vP4 = nullptr;
+
+            if (x95P3 > 0.0)
+            {
+              vP3 = new TLine(x95P3, 0.0, x95P3, 1.0);
+              vP3->SetLineStyle(2);
+              vP3->SetLineWidth(3);
+              vP3->SetLineColor(kBlue+1);
+              vP3->Draw("SAME");
+            }
+
+            if (x95P4 > 0.0)
+            {
+              vP4 = new TLine(x95P4, 0.0, x95P4, 1.0);
+              vP4->SetLineStyle(2);
+              vP4->SetLineWidth(3);
+              vP4->SetLineColor(kGreen+2);
+              vP4->Draw("SAME");
+            }
+
+            TLegend leg(0.18, 0.74, 0.55, 0.90);
+            leg.SetBorderSize(0);
+            leg.SetFillStyle(0);
+            leg.SetTextSize(0.032);
+
+            const std::string legP3 =
+              (x95P3 > 0.0)
+                ? std::string(TString::Format("Photon 3 GeV + MBD NS #geq 1 (95%%=%.1f GeV)", x95P3).Data())
+                : std::string("Photon 3 GeV + MBD NS #geq 1");
+
+            const std::string legP4 =
+              (x95P4 > 0.0)
+                ? std::string(TString::Format("Photon 4 GeV + MBD NS #geq 1 (95%%=%.1f GeV)", x95P4).Data())
+                : std::string("Photon 4 GeV + MBD NS #geq 1");
+
+            leg.AddEntry(rP3, legP3.c_str(), "p");
+            leg.AddEntry(rP4, legP4.c_str(), "p");
+            leg.Draw();
+
+            TLegend extra(0.58, 0.20, 0.88, 0.30);
+            extra.SetBorderSize(0);
+            extra.SetFillStyle(0);
+            extra.SetTextSize(0.038);
+            extra.AddEntry((TObject*)nullptr, "#it{#bf{sPHENIX}} Internal", "");
+            extra.AddEntry((TObject*)nullptr, "p+p #sqrt{s} = 200 GeV", "");
+            extra.Draw();
+
+            const std::string outPng = JoinPath(outDir, "hMaxClusterEnergy_doNotScale_ratioToMBD.png");
+            c.SaveAs(outPng.c_str());
+            cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";
+
+            delete rP3;
+            delete rP4;
+            if (vP3) delete vP3;
+            if (vP4) delete vP4;
+          }
       }
 
       // =============================================================================
@@ -6421,36 +6549,36 @@ namespace ARJ
                         tTitle.SetTextSize(0.040);
                         tTitle.DrawLatex(0.50, 0.95, "Photon 10 + 20 GeV #gamma+Jet MC");
 
-                        // Smaller legend, pushed to top-right (moved down to clear the centered title)
-                        TLegend leg(0.62, 0.80, 0.90, 0.92);
-                        leg.SetTextFont(42);
-                        leg.SetTextSize(0.022);
-                        leg.SetFillStyle(0);
-                        leg.SetBorderSize(0);
-                        leg.AddEntry(hSamRaw,    TString::Format("Sam's RECO (R = %.1f)", R).Data(), "ep");
-                        leg.AddEntry(hJustinRaw, TString::Format("Justin's RECO w/ matched cuts (R = %.1f)", R).Data(), "ep");
-                        leg.Draw();
+                      // Smaller legend, pushed to top-right (moved down to clear the centered title)
+                      TLegend leg(0.52, 0.80, 0.86, 0.92);
+                      leg.SetTextFont(42);
+                      leg.SetTextSize(0.028);
+                      leg.SetFillStyle(0);
+                      leg.SetBorderSize(0);
+                      leg.AddEntry(hSamRaw,    TString::Format("Sam's RECO (R = %.1f)", R).Data(), "ep");
+                      leg.AddEntry(hJustinRaw, TString::Format("Justin's RECO w/ matched cuts (R = %.1f)", R).Data(), "ep");
+                      leg.Draw();
 
-                        // Cut-line legend under the main legend
-                        legCuts = new TLegend(0.62, 0.70, 0.90, 0.80);
-                        legCuts->SetTextFont(42);
-                        legCuts->SetTextSize(0.028);
-                        legCuts->SetFillStyle(0);
-                        legCuts->SetBorderSize(0);
-                        legCuts->AddEntry(lAbs,  "x_{J,min}^{abs} = p_{T}^{jet,min}/p_{T,max}^{#gamma}", "l");
-                        legCuts->AddEntry(lFull, "x_{J,min}^{full} = p_{T}^{jet,min}/p_{T,min}^{#gamma}", "l");
-                        legCuts->Draw();
+                      // Cut-line legend under the main legend
+                      legCuts = new TLegend(0.52, 0.70, 0.86, 0.80);
+                      legCuts->SetTextFont(42);
+                      legCuts->SetTextSize(0.028);
+                      legCuts->SetFillStyle(0);
+                      legCuts->SetBorderSize(0);
+                      legCuts->AddEntry(lAbs,  "x_{J,min}^{abs} = p_{T}^{jet,min}/p_{T,max}^{#gamma}", "l");
+                      legCuts->AddEntry(lFull, "x_{J,min}^{full} = p_{T}^{jet,min}/p_{T,min}^{#gamma}", "l");
+                      legCuts->Draw();
 
-                        // Info block: middle RHS
-                        TLatex t;
-                        t.SetNDC(true);
-                        t.SetTextFont(42);
-                        t.SetTextSize(0.032);
-                        t.SetTextAlign(12);
-                        t.DrawLatex(0.60, 0.62, TString::Format("p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
-                        t.DrawLatex(0.60, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
-                        t.DrawLatex(0.60, 0.52, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
-                        t.DrawLatex(0.60, 0.47, TString::Format("Back-to-back: %s", bbLabel.c_str()).Data());
+                      // Info block: middle RHS
+                      TLatex t;
+                      t.SetNDC(true);
+                      t.SetTextFont(42);
+                      t.SetTextSize(0.032);
+                      t.SetTextAlign(12);
+                      t.DrawLatex(0.60, 0.62, TString::Format("p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
+                      t.DrawLatex(0.60, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
+                      t.DrawLatex(0.60, 0.52, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
+                      t.DrawLatex(0.60, 0.47, TString::Format("Back-to-back: %s", bbLabel.c_str()).Data());
 
                       const std::string outNameRaw =
                         TString::Format("overlay_SamVsJustin_JES3_RECO_RAW_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
@@ -6522,9 +6650,9 @@ namespace ARJ
                   tTitle.DrawLatex(0.50, 0.95, "Photon 10 + 20 GeV #gamma+Jet MC");
 
                   // Smaller legend, pushed to top-right (moved down to clear the centered title)
-                  TLegend leg(0.62, 0.80, 0.90, 0.92);
+                  TLegend leg(0.52, 0.80, 0.86, 0.92);
                   leg.SetTextFont(42);
-                  leg.SetTextSize(0.022);
+                  leg.SetTextSize(0.028);
                   leg.SetFillStyle(0);
                   leg.SetBorderSize(0);
                   leg.AddEntry(hSam,    TString::Format("Sam's RECO (R = %.1f)", R).Data(), "ep");
@@ -6532,7 +6660,7 @@ namespace ARJ
                   leg.Draw();
 
                   // Cut-line legend under the main legend
-                  legCuts = new TLegend(0.62, 0.70, 0.90, 0.80);
+                  legCuts = new TLegend(0.52, 0.70, 0.86, 0.80);
                   legCuts->SetTextFont(42);
                   legCuts->SetTextSize(0.028);
                   legCuts->SetFillStyle(0);
@@ -7597,16 +7725,26 @@ namespace ARJ
                       std::vector<TF1*> keepFitFns;
                       keepFitFns.reserve(2 * nTableBins);
 
-                      std::vector<double> vPtCtr, vPtErr;
-                      std::vector<double> vMuDat, vMuDatErr;
-                      std::vector<double> vMuSim, vMuSimErr;
+                        std::vector<double> vPtCtr, vPtErr;
+                        std::vector<double> vMuDat, vMuDatErr;
+                        std::vector<double> vMuSim, vMuSimErr;
+                        std::vector<double> vSigDat, vSigDatErr;
+                        std::vector<double> vSigSim, vSigSimErr;
+                        std::vector<double> vChi2NdfDat;
+                        std::vector<double> vChi2NdfSim;
 
-                      vPtCtr.reserve(nTableBins);
-                      vPtErr.reserve(nTableBins);
-                      vMuDat.reserve(nTableBins);
-                      vMuDatErr.reserve(nTableBins);
-                      vMuSim.reserve(nTableBins);
-                      vMuSimErr.reserve(nTableBins);
+                        vPtCtr.reserve(nTableBins);
+                        vPtErr.reserve(nTableBins);
+                        vMuDat.reserve(nTableBins);
+                        vMuDatErr.reserve(nTableBins);
+                        vMuSim.reserve(nTableBins);
+                        vMuSimErr.reserve(nTableBins);
+                        vSigDat.reserve(nTableBins);
+                        vSigDatErr.reserve(nTableBins);
+                        vSigSim.reserve(nTableBins);
+                        vSigSimErr.reserve(nTableBins);
+                        vChi2NdfDat.reserve(nTableBins);
+                        vChi2NdfSim.reserve(nTableBins);
 
                       auto FitIterGaus = [&](TH1* h, const std::string& fname, int lcolor) -> TF1*
                       {
@@ -7728,32 +7866,31 @@ namespace ARJ
                           delete leg;
 
                           {
-                            TLatex tFit;
-                            tFit.SetNDC(true);
-                            tFit.SetTextFont(42);
-                            tFit.SetTextAlign(13);
-                            tFit.SetTextSize(0.032);
-
-                            double y0 = 0.70;
-
                             if (fDat && fDat->GetNDF() > 0)
                             {
                               const double mu   = fDat->GetParameter(1);
                               const double sig  = fDat->GetParameter(2);
                               const double chi2 = fDat->GetChisquare();
                               const double ndf  = fDat->GetNDF();
-                              tFit.DrawLatex(0.60, y0,
-                                TString::Format("Data: mean = %.3f, #sigma = %.3f, #chi^{2}/ndf = %.2f", mu, sig, chi2 / ndf).Data());
+
                               vMuDat.push_back(mu);
                               vMuDatErr.push_back(fDat->GetParError(1));
+
+                              vSigDat.push_back(sig);
+                              vSigDatErr.push_back(fDat->GetParError(2));
+
+                              vChi2NdfDat.push_back(chi2 / ndf);
                             }
                             else
                             {
-                              tFit.DrawLatex(0.70, y0, "Data: mean = N/A, #sigma = N/A, #chi^{2}/ndf = N/A");
                               vMuDat.push_back(-1.0);
                               vMuDatErr.push_back(0.0);
+
+                              vSigDat.push_back(-1.0);
+                              vSigDatErr.push_back(0.0);
+
+                              vChi2NdfDat.push_back(-1.0);
                             }
-                            y0 -= 0.05;
 
                             if (fSim && fSim->GetNDF() > 0)
                             {
@@ -7761,16 +7898,24 @@ namespace ARJ
                               const double sig  = fSim->GetParameter(2);
                               const double chi2 = fSim->GetChisquare();
                               const double ndf  = fSim->GetNDF();
-                              tFit.DrawLatex(0.60, y0,
-                                TString::Format("Sim:  mean = %.3f, #sigma = %.3f, #chi^{2}/ndf = %.2f", mu, sig, chi2 / ndf).Data());
+
                               vMuSim.push_back(mu);
                               vMuSimErr.push_back(fSim->GetParError(1));
+
+                              vSigSim.push_back(sig);
+                              vSigSimErr.push_back(fSim->GetParError(2));
+
+                              vChi2NdfSim.push_back(chi2 / ndf);
                             }
                             else
                             {
-                              tFit.DrawLatex(0.70, y0, "Sim:  mean = N/A, #sigma = N/A, #chi^{2}/ndf = N/A");
                               vMuSim.push_back(-1.0);
                               vMuSimErr.push_back(0.0);
+
+                              vSigSim.push_back(-1.0);
+                              vSigSimErr.push_back(0.0);
+
+                              vChi2NdfSim.push_back(-1.0);
                             }
                           }
 
@@ -7848,11 +7993,117 @@ namespace ARJ
                           legM->AddEntry(gSim, "SIM (reco)",  "p");
                           legM->Draw();
 
-                        SaveCanvas(cMean, JoinPath(dirOv, "meanVsPt_reco_integratedAlpha_overlayedWithSim_withFits.png"));
+                          SaveCanvas(cMean, JoinPath(dirOv, "meanVsPt_reco_integratedAlpha_overlayedWithSim_withFits.png"));
 
-                        delete legM;
-                        delete gDat;
-                        delete gSim;
+                          // ------------------------------------------------------------------
+                          // NEW: sigma vs pT (DATA vs SIM)
+                          // ------------------------------------------------------------------
+                          TCanvas cSig(
+                            TString::Format("c_sigmaVsPt_%s_dataVsSim_withFits", rKey.c_str()).Data(),
+                            "c_sigmaVsPt_dataVsSim_withFits", 900, 700
+                          );
+
+                          TGraphErrors* gSigDat = new TGraphErrors((int)vPtCtr.size());
+                          TGraphErrors* gSigSim = new TGraphErrors((int)vPtCtr.size());
+
+                          for (int i = 0; i < (int)vPtCtr.size(); ++i)
+                          {
+                            gSigDat->SetPoint(i, vPtCtr[i], vSigDat[i]);
+                            gSigDat->SetPointError(i, vPtErr[i], vSigDatErr[i]);
+
+                            gSigSim->SetPoint(i, vPtCtr[i], vSigSim[i]);
+                            gSigSim->SetPointError(i, vPtErr[i], vSigSimErr[i]);
+                          }
+
+                          gSigDat->SetTitle("");
+                          gSigDat->SetMarkerStyle(20);
+                          gSigDat->SetMarkerSize(1.2);
+                          gSigDat->SetMarkerColor(kGreen + 2);
+                          gSigDat->SetLineColor(kGreen + 2);
+                          gSigDat->SetLineWidth(2);
+
+                          gSigSim->SetMarkerStyle(20);
+                          gSigSim->SetMarkerSize(1.2);
+                          gSigSim->SetMarkerColor(kOrange + 7);
+                          gSigSim->SetLineColor(kOrange + 7);
+                          gSigSim->SetLineWidth(2);
+
+                          gSigDat->Draw("AP");
+                          gSigDat->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                          gSigDat->GetYaxis()->SetTitle("Gaussian #sigma of x_{J#gamma}");
+                          gSigSim->Draw("P same");
+
+                          TLegend* legS = new TLegend(0.62, 0.16, 0.88, 0.28);
+                          legS->SetBorderSize(0);
+                          legS->SetFillStyle(0);
+                          legS->SetTextFont(42);
+                          legS->SetTextSize(0.04);
+                          legS->AddEntry(gSigDat, "DATA (reco)", "p");
+                          legS->AddEntry(gSigSim, "SIM (reco)",  "p");
+                          legS->Draw();
+
+                          SaveCanvas(cSig, JoinPath(dirOv, "sigmaVsPt_reco_integratedAlpha_overlayedWithSim_withFits.png"));
+
+                          delete legS;
+                          delete gSigDat;
+                          delete gSigSim;
+
+                          // ------------------------------------------------------------------
+                          // NEW: chi2/ndf vs pT (DATA vs SIM)
+                          // ------------------------------------------------------------------
+                          TCanvas cChi(
+                            TString::Format("c_chi2NdfVsPt_%s_dataVsSim_withFits", rKey.c_str()).Data(),
+                            "c_chi2NdfVsPt_dataVsSim_withFits", 900, 700
+                          );
+
+                          TGraphErrors* gChiDat = new TGraphErrors((int)vPtCtr.size());
+                          TGraphErrors* gChiSim = new TGraphErrors((int)vPtCtr.size());
+
+                          for (int i = 0; i < (int)vPtCtr.size(); ++i)
+                          {
+                            gChiDat->SetPoint(i, vPtCtr[i], vChi2NdfDat[i]);
+                            gChiDat->SetPointError(i, vPtErr[i], 0.0);
+
+                            gChiSim->SetPoint(i, vPtCtr[i], vChi2NdfSim[i]);
+                            gChiSim->SetPointError(i, vPtErr[i], 0.0);
+                          }
+
+                          gChiDat->SetTitle("");
+                          gChiDat->SetMarkerStyle(20);
+                          gChiDat->SetMarkerSize(1.2);
+                          gChiDat->SetMarkerColor(kGreen + 2);
+                          gChiDat->SetLineColor(kGreen + 2);
+                          gChiDat->SetLineWidth(2);
+
+                          gChiSim->SetMarkerStyle(20);
+                          gChiSim->SetMarkerSize(1.2);
+                          gChiSim->SetMarkerColor(kOrange + 7);
+                          gChiSim->SetLineColor(kOrange + 7);
+                          gChiSim->SetLineWidth(2);
+
+                          gChiDat->Draw("AP");
+                          gChiDat->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                          gChiDat->GetYaxis()->SetTitle("#chi^{2}/ndf of Gaussian fit");
+                          gChiSim->Draw("P same");
+
+                          TLegend* legC = new TLegend(0.62, 0.16, 0.88, 0.28);
+                          legC->SetBorderSize(0);
+                          legC->SetFillStyle(0);
+                          legC->SetTextFont(42);
+                          legC->SetTextSize(0.04);
+                          legC->AddEntry(gChiDat, "DATA (reco)", "p");
+                          legC->AddEntry(gChiSim, "SIM (reco)",  "p");
+                          legC->Draw();
+
+                          SaveCanvas(cChi, JoinPath(dirOv, "chi2NdfVsPt_reco_integratedAlpha_overlayedWithSim_withFits.png"));
+
+                          delete legC;
+                          delete gChiDat;
+                          delete gChiSim;
+
+                          delete legM;
+                          delete gDat;
+                          delete gSim;
                       }
 
                       for (auto* f : keepFitFns) delete f;
@@ -14874,16 +15125,391 @@ namespace ARJ
               RunEfficiencyPurityQA(rKey, R, rOut, H);
            }
         }
-        // =============================================================================
-        // High-level runner
-        // =============================================================================
-        // NOTE: Run-mode validation now lives in AnalyzeRecoilJets.h (ValidateRunConfig()).
-        // This wrapper is kept only to avoid stale references inside the analysis namespace.
-        static bool ExactlyOneModeSet()
+      // =============================================================================
+      // OPTIONAL: PP vs Au+Au (gold-gold) photon-ID deliverables
+      //
+      // Deliverable Set A (SS vars): per pT × centrality
+      //   - inclusive (no isolation requirement)
+      //   - iso pass
+      //   - iso fail (nonIso)
+      //
+      // Deliverable Set B (Eiso total): per pT × centrality
+      //   - inclusive (no shower-shape / tight requirement)
+      //   - tight pass
+      //   - tight fail
+      //
+      // Output base:
+      //   kOutPPAuAuBase/
+      //     {noIsoRequired, isoPassSSplots, isoFailSSplots,
+      //      noSS_isoSpectra, tightIsoSpectra, nonTightIsoSpectra}/
+      //        <centLo>_<centHi>/
+      //          (SS folders only) <ssVar>/
+      //            table2x3_overlay_pp_vs_auau.png
+      //            overlay_pp_vs_auau_pT_<lo>_<hi>.png  (first 6 pT bins)
+      // =============================================================================
+      static TH1* GetTH1FromTopDir(TDirectory* topDir, const string& hname)
+      {
+        if (!topDir) return nullptr;
+        TObject* obj = topDir->Get(hname.c_str());
+        if (!obj) return nullptr;
+        return dynamic_cast<TH1*>(obj);
+      }
+
+      static void StyleOverlayHist(TH1* h, int color, int mstyle)
+      {
+        if (!h) return;
+        h->SetLineWidth(2);
+        h->SetLineColor(color);
+        h->SetMarkerStyle(mstyle);
+        h->SetMarkerSize(0.95);
+        h->SetMarkerColor(color);
+      }
+
+      static void DrawMissingPad(const string& titleLine)
+      {
+        TLatex t;
+        t.SetNDC(true);
+        t.SetTextFont(42);
+        t.SetTextAlign(22);
+        t.SetTextSize(0.080);
+        t.DrawLatex(0.50, 0.55, "MISSING");
+
+        t.SetTextSize(0.050);
+        t.DrawLatex(0.50, 0.42, titleLine.c_str());
+      }
+
+      static TH1* CloneNormalizeStyle(TH1* hIn,
+                                      const string& newName,
+                                      int color,
+                                      int mstyle)
+      {
+        if (!hIn) return nullptr;
+
+        TH1* h = CloneTH1(hIn, newName);
+        if (!h) return nullptr;
+
+        EnsureSumw2(h);
+
+        const double I = h->Integral(0, h->GetNbinsX() + 1);
+        if (I > 0.0) h->Scale(1.0 / I);
+
+        StyleOverlayHist(h, color, mstyle);
+        h->SetTitle("");
+
+        return h;
+      }
+
+      static void DrawOverlayPad_PPvsAuAu(TDirectory* ppTop,
+                                          TDirectory* aaTop,
+                                          const string& histBase,
+                                          const string& centSuffix,
+                                          const string& centLabel,
+                                          const PtBin& pb,
+                                          const string& xTitle,
+                                          const string& topLeftTitle,
+                                          bool forceIsoXRange,
+                                          vector<TH1*>& keepAlive)
+      {
+        const string hPPName = histBase + pb.suffix;
+        const string hAAName = histBase + pb.suffix + centSuffix;
+
+        TH1* rawPP = GetTH1FromTopDir(ppTop, hPPName);
+        TH1* rawAA = GetTH1FromTopDir(aaTop, hAAName);
+
+        if (!rawPP || !rawAA)
         {
-            return ValidateRunConfig(nullptr);
+          std::ostringstream s;
+          s << "pT: " << pb.lo << "-" << pb.hi << "  " << centLabel;
+          DrawMissingPad(s.str());
+          return;
         }
 
+        TH1* hPP = CloneNormalizeStyle(rawPP,
+          TString::Format("pp_%s_%s", histBase.c_str(), pb.folder.c_str()).Data(),
+          kBlack, 20);
+
+        TH1* hAA = CloneNormalizeStyle(rawAA,
+          TString::Format("aa_%s_%s%s", histBase.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data(),
+          kRed + 1, 24);
+
+        if (!hPP || !hAA)
+        {
+          if (hPP) delete hPP;
+          if (hAA) delete hAA;
+          std::ostringstream s;
+          s << "pT: " << pb.lo << "-" << pb.hi << "  " << centLabel;
+          DrawMissingPad(s.str());
+          return;
+        }
+
+        // Iso spectra: keep the same x-range as your iso tables (most informative region)
+        if (forceIsoXRange)
+        {
+          hPP->GetXaxis()->SetRangeUser(-2.0, 6.0);
+          hAA->GetXaxis()->SetRangeUser(-2.0, 6.0);
+        }
+
+        hPP->GetXaxis()->SetTitle(xTitle.c_str());
+        hPP->GetYaxis()->SetTitle("Normalized counts");
+
+        const double ymax = std::max(hPP->GetMaximum(), hAA->GetMaximum());
+        hPP->SetMaximum(ymax * 1.35);
+
+        hPP->Draw("E1");
+        hAA->Draw("E1 same");
+
+        TLegend leg(0.62, 0.74, 0.92, 0.88);
+        leg.SetBorderSize(0);
+        leg.SetFillStyle(0);
+        leg.SetTextFont(42);
+        leg.SetTextSize(0.034);
+        leg.AddEntry(hPP, "PP", "ep");
+        leg.AddEntry(hAA, "Au+Au (gold)", "ep");
+        leg.Draw();
+
+        TLatex t;
+        t.SetNDC(true);
+        t.SetTextFont(42);
+
+        // Top-left title
+        t.SetTextAlign(13);
+        t.SetTextSize(0.055);
+        t.DrawLatex(0.16, 0.92, topLeftTitle.c_str());
+
+        // pT + centrality (top-right)
+        t.SetTextAlign(33);
+        t.SetTextSize(0.055);
+        t.DrawLatex(0.95, 0.92,
+          TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
+        t.SetTextSize(0.048);
+        t.DrawLatex(0.95, 0.84, centLabel.c_str());
+
+        keepAlive.push_back(hPP);
+        keepAlive.push_back(hAA);
+      }
+
+      static void Make2x3Table_PPvsAuAu(TDirectory* ppTop,
+                                        TDirectory* aaTop,
+                                        const string& histBase,
+                                        const string& centSuffix,
+                                        const string& centLabel,
+                                        const string& outPng,
+                                        const string& xTitle,
+                                        const string& topLeftTitle,
+                                        bool forceIsoXRange)
+      {
+        const int nPads = std::min(6, kNPtBins);
+        if (nPads <= 0) return;
+
+        TCanvas c(
+          TString::Format("c_ppauau_tbl_%s%s", histBase.c_str(), centSuffix.c_str()).Data(),
+          "c_ppauau_tbl", 1500, 800
+        );
+        c.Divide(3,2, 0.001, 0.001);
+
+        const auto& bins = PtBins();
+
+        vector<TH1*> keepAlive;
+        keepAlive.reserve((std::size_t)nPads * 2);
+
+        for (int i = 0; i < nPads; ++i)
+        {
+          c.cd(i+1);
+          gPad->SetLeftMargin(0.14);
+          gPad->SetRightMargin(0.05);
+          gPad->SetBottomMargin(0.14);
+          gPad->SetTopMargin(0.10);
+          gPad->SetLogy(false);
+
+          const PtBin& pb = bins[i];
+
+          DrawOverlayPad_PPvsAuAu(ppTop, aaTop, histBase, centSuffix, centLabel, pb,
+                                  xTitle, topLeftTitle, forceIsoXRange, keepAlive);
+        }
+
+        SaveCanvas(c, outPng);
+
+        for (TH1* h : keepAlive) delete h;
+        keepAlive.clear();
+      }
+
+      static void MakePerPtOverlays_PPvsAuAu(TDirectory* ppTop,
+                                             TDirectory* aaTop,
+                                             const string& histBase,
+                                             const string& centSuffix,
+                                             const string& centLabel,
+                                             const string& outDir,
+                                             const string& xTitle,
+                                             const string& topLeftTitle,
+                                             bool forceIsoXRange)
+      {
+        const int nPads = std::min(6, kNPtBins);
+        if (nPads <= 0) return;
+
+        const auto& bins = PtBins();
+
+        for (int i = 0; i < nPads; ++i)
+        {
+          const PtBin& pb = bins[i];
+
+          TCanvas c(
+            TString::Format("c_ppauau_%s_%s%s", histBase.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data(),
+            "c_ppauau_one", 900, 700
+          );
+          ApplyCanvasMargins1D(c);
+          c.SetLogy(false);
+
+          vector<TH1*> keepAlive;
+          keepAlive.reserve(2);
+
+          DrawOverlayPad_PPvsAuAu(ppTop, aaTop, histBase, centSuffix, centLabel, pb,
+                                  xTitle, topLeftTitle, forceIsoXRange, keepAlive);
+
+          SaveCanvas(c, JoinPath(outDir,
+            TString::Format("overlay_pp_vs_auau_%s.png", pb.folder.c_str()).Data()));
+
+          for (TH1* h : keepAlive) delete h;
+          keepAlive.clear();
+        }
+      }
+
+      static void ProduceFamily_PPvsAuAu(TDirectory* ppTop,
+                                         TDirectory* aaTop,
+                                         const string& outDir,
+                                         const string& histBase,
+                                         const string& centSuffix,
+                                         const string& centLabel,
+                                         const string& xTitle,
+                                         const string& topLeftTitle,
+                                         bool forceIsoXRange)
+      {
+        EnsureDir(outDir);
+
+        const string tablePng = JoinPath(outDir, "table2x3_overlay_pp_vs_auau.png");
+
+        Make2x3Table_PPvsAuAu(ppTop, aaTop, histBase, centSuffix, centLabel, tablePng,
+                              xTitle, topLeftTitle, forceIsoXRange);
+
+        MakePerPtOverlays_PPvsAuAu(ppTop, aaTop, histBase, centSuffix, centLabel, outDir,
+                                   xTitle, topLeftTitle, forceIsoXRange);
+      }
+
+      void RunPPvsAuAuDeliverables(Dataset& dsPP)
+      {
+        cout << ANSI_BOLD_CYN << "\n[EXTRA] PP vs Au+Au (gold-gold) photon-ID deliverables\n" << ANSI_RESET;
+
+        // --- Open AuAu gold-gold file ---
+        TFile* fAA = TFile::Open(kInAuAuGold.c_str(), "READ");
+        if (!fAA || fAA->IsZombie())
+        {
+          cout << ANSI_BOLD_RED
+               << "[ERROR] Cannot open AuAu gold file: " << kInAuAuGold
+               << ANSI_RESET << "\n";
+          if (fAA) { fAA->Close(); delete fAA; }
+          return;
+        }
+
+        TDirectory* aaTop = fAA->GetDirectory(kTriggerAuAuGold.c_str());
+        if (!aaTop)
+        {
+          cout << ANSI_BOLD_RED
+               << "[ERROR] Missing AuAu trigger directory '" << kTriggerAuAuGold
+               << "' in file: " << kInAuAuGold
+               << ANSI_RESET << "\n";
+          fAA->Close(); delete fAA;
+          return;
+        }
+
+        if (!dsPP.topDir)
+        {
+          cout << ANSI_BOLD_RED
+               << "[ERROR] PP dataset topDir is null (cannot read PP histograms)."
+               << ANSI_RESET << "\n";
+          fAA->Close(); delete fAA;
+          return;
+        }
+
+        // Output base (dedicated PP vs AuAu folder)
+        const string outBase = kOutPPAuAuBase;
+        EnsureDir(outBase);
+
+        const auto& centBins = CentBins();
+        if (centBins.empty())
+        {
+          cout << ANSI_BOLD_YEL
+               << "[WARN] centrality_edges missing/invalid (no centrality bins). Nothing to do."
+               << ANSI_RESET << "\n";
+          fAA->Close(); delete fAA;
+          return;
+        }
+
+        // ---------------------------------------------------------------------
+        // Deliverable Set A: SS spectra (inclusive / iso / nonIso)
+        // ---------------------------------------------------------------------
+        const vector<string> ssVars = {"weta","wphi","et1","e11e33","e32e35"};
+
+        struct SSDef { string folder; string tag; string label; };
+        const vector<SSDef> ssDefs = {
+          {"noIsoRequired",  "inclusive", "Inclusive"},
+          {"isoPassSSplots", "iso",       "Iso pass"},
+          {"isoFailSSplots", "nonIso",    "Iso fail"}
+        };
+
+        for (const auto& cb : centBins)
+        {
+          const string centFolder = cb.folder;
+          const string centSuffix = cb.suffix;
+          const string centLabel  = TString::Format("cent: %d-%d%%", cb.lo, cb.hi).Data();
+
+          for (const auto& def : ssDefs)
+          {
+            for (const auto& var : ssVars)
+            {
+              const string outDir = JoinPath(outBase, JoinPath(def.folder, JoinPath(centFolder, var)));
+              const string histBase = "h_ss_" + var + "_" + def.tag;
+
+              const string topLeft = TString::Format("SS %s (%s)", var.c_str(), def.label.c_str()).Data();
+
+              ProduceFamily_PPvsAuAu(dsPP.topDir, aaTop, outDir, histBase, centSuffix, centLabel,
+                                     var, topLeft, false);
+            }
+          }
+
+          // ---------------------------------------------------------------------
+          // Deliverable Set B: total Eiso spectra split by tightness
+          // ---------------------------------------------------------------------
+          struct IsoDef { string folder; string base; string label; };
+          const vector<IsoDef> isoDefs = {
+            {"noSS_isoSpectra",    "h_Eiso",          "E_{T}^{iso, Total} (inclusive)"},
+            {"tightIsoSpectra",    "h_Eiso_tight",    "E_{T}^{iso, Total} (tight pass)"},
+            {"nonTightIsoSpectra", "h_Eiso_nonTight", "E_{T}^{iso, Total} (tight fail)"}
+          };
+
+          for (const auto& idef : isoDefs)
+          {
+            const string outDir = JoinPath(outBase, JoinPath(idef.folder, centFolder));
+            ProduceFamily_PPvsAuAu(dsPP.topDir, aaTop, outDir, idef.base, centSuffix, centLabel,
+                                   "E_{T}^{iso} [GeV]", idef.label, true);
+          }
+        }
+
+        cout << ANSI_BOLD_GRN
+             << "  -> Wrote PP vs AuAu deliverables under: " << outBase
+             << ANSI_RESET << "\n";
+
+        fAA->Close();
+        delete fAA;
+      }
+
+      // =============================================================================
+      // High-level runner
+      // =============================================================================
+      // NOTE: Run-mode validation now lives in AnalyzeRecoilJets.h (ValidateRunConfig()).
+      // This wrapper is kept only to avoid stale references inside the analysis namespace.
+      static bool ExactlyOneModeSet()
+      {
+          return ValidateRunConfig(nullptr);
+      }
 
   } // namespace analysis
 
@@ -15535,6 +16161,33 @@ namespace ARJ
         cout << "  -> [5H] Unfolding QA...\n";
         analysis::RunUnfoldingQA(ds);
         cout << "     [OK]\n";
+      }
+
+      // ---------------------------------------------------------------------------
+      // OPTIONAL: PP vs Au+Au (gold-gold) deliverables (SS + isolation overlays)
+      // ---------------------------------------------------------------------------
+      if (isPPdataAndAUAU)
+      {
+        Dataset* dsPP = nullptr;
+        for (auto& ds : datasets)
+        {
+          if (!ds.isSim)
+          {
+            dsPP = &ds;
+            break;
+          }
+        }
+
+        if (!dsPP)
+        {
+          cout << ANSI_BOLD_YEL
+               << "[WARN] isPPdataAndAUAU=true but no PP dataset is open (mode=" << RunModeLabel(mode) << "). Skipping PP vs AuAu overlays."
+               << ANSI_RESET << "\n";
+        }
+        else
+        {
+          analysis::RunPPvsAuAuDeliverables(*dsPP);
+        }
       }
 
       // ---------------------------------------------------------------------------
