@@ -15224,6 +15224,92 @@ namespace ARJ
           return;
         }
 
+        // ------------------------------------------------------------------
+        // Verbosity (PP vs AuAu): print raw + normalization diagnostics ONCE
+        // per (histBase, cent, pT bin), even though we draw it twice (table + per-bin).
+        // This is specifically to debug cases where the normalized AuAu curve looks ~0.
+        // ------------------------------------------------------------------
+        {
+          static std::set<std::string> s_printed;
+          const std::string key = TString::Format("PP_AuAu|%s|%s|%s", histBase.c_str(), centSuffix.c_str(), pb.folder.c_str()).Data();
+
+          if (!s_printed.count(key))
+          {
+            s_printed.insert(key);
+
+            auto integralAll = [&](TH1* h)->double
+            {
+              if (!h) return 0.0;
+              return h->Integral(0, h->GetNbinsX() + 1);
+            };
+
+            auto integralInRange = [&](TH1* h, double xlo, double xhi)->double
+            {
+              if (!h) return 0.0;
+              const int b1 = h->GetXaxis()->FindBin(xlo);
+              const int b2 = h->GetXaxis()->FindBin(xhi);
+              return h->Integral(b1, b2);
+            };
+
+            const double ppIall = integralAll(rawPP);
+            const double aaIall = integralAll(rawAA);
+
+            const double xloDbg = forceIsoXRange ? -2.0 : rawPP->GetXaxis()->GetXmin();
+            const double xhiDbg = forceIsoXRange ?  6.0 : rawPP->GetXaxis()->GetXmax();
+
+            const double ppIwin = integralInRange(rawPP, xloDbg, xhiDbg);
+            const double aaIwin = integralInRange(rawAA, xloDbg, xhiDbg);
+
+            cout << ANSI_BOLD_CYN
+                 << "\n[PP_AuAu DEBUG] " << histBase
+                 << " | " << centLabel
+                 << " | pT " << pb.lo << "-" << pb.hi << " (" << pb.folder << ")"
+                 << ANSI_RESET << "\n";
+
+            cout << "  PP hist: " << hPPName << "\n"
+                 << "    Entries=" << std::fixed << std::setprecision(0) << rawPP->GetEntries()
+                 << "  Integral(all)=" << ppIall
+                 << "  Integral(win [" << xloDbg << "," << xhiDbg << "])=" << ppIwin
+                 << "  Mean=" << std::setprecision(6) << rawPP->GetMean()
+                 << "  RMS="  << rawPP->GetRMS()
+                 << "  MaxBinContent=" << std::setprecision(6) << rawPP->GetMaximum()
+                 << "\n";
+
+            cout << "  AuAu hist: " << hAAName << "\n"
+                 << "    Entries=" << std::fixed << std::setprecision(0) << rawAA->GetEntries()
+                 << "  Integral(all)=" << aaIall
+                 << "  Integral(win [" << xloDbg << "," << xhiDbg << "])=" << aaIwin
+                 << "  Mean=" << std::setprecision(6) << rawAA->GetMean()
+                 << "  RMS="  << rawAA->GetRMS()
+                 << "  MaxBinContent=" << std::setprecision(6) << rawAA->GetMaximum()
+                 << "\n";
+
+            const double ppScale = (ppIall > 0.0) ? (1.0/ppIall) : 0.0;
+            const double aaScale = (aaIall > 0.0) ? (1.0/aaIall) : 0.0;
+
+            cout << "  Normalization factors (unit area over ALL bins including under/overflow):\n"
+                 << "    PP  scale = " << std::setprecision(12) << ppScale << "\n"
+                 << "    AuAu scale = " << std::setprecision(12) << aaScale << "\n";
+
+            // If the “looks like 0 everywhere” effect is happening, it’s usually because:
+            // - AuAu integral is enormous relative to the peak region (tiny per-bin probabilities)
+            // - or the histogram is extremely wide / has far tails
+            // - or max after scaling is orders-of-magnitude smaller than PP’s max.
+            const double ppMaxNorm = (ppIall > 0.0) ? (rawPP->GetMaximum() * ppScale) : 0.0;
+            const double aaMaxNorm = (aaIall > 0.0) ? (rawAA->GetMaximum() * aaScale) : 0.0;
+
+            cout << "  Peak heights after scaling:\n"
+                 << "    PP  max(norm) = " << std::setprecision(12) << ppMaxNorm << "\n"
+                 << "    AuAu max(norm) = " << std::setprecision(12) << aaMaxNorm << "\n";
+
+            if (ppMaxNorm > 0.0)
+            {
+              cout << "  Ratio AuAu/PP of normalized peak = " << std::setprecision(12)
+                   << ((ppMaxNorm > 0.0) ? (aaMaxNorm/ppMaxNorm) : 0.0) << "\n";
+            }
+          }
+        }
+
         TH1* hPP = CloneNormalizeStyle(rawPP,
           TString::Format("pp_%s_%s", histBase.c_str(), pb.folder.c_str()).Data(),
           kBlack, 20);
@@ -15258,14 +15344,16 @@ namespace ARJ
         hPP->Draw("E1");
         hAA->Draw("E1 same");
 
-        TLegend leg(0.62, 0.74, 0.92, 0.88);
-        leg.SetBorderSize(0);
-        leg.SetFillStyle(0);
-        leg.SetTextFont(42);
-        leg.SetTextSize(0.034);
-        leg.AddEntry(hPP, "PP", "ep");
-        leg.AddEntry(hAA, "Au+Au (gold)", "ep");
-        leg.Draw();
+          // Always label BOTH curves explicitly (PP vs Au+Au) for every overlay canvas/pad.
+          // Move legend slightly left/down to avoid collisions with the pT/cent text.
+          TLegend leg(0.52, 0.70, 0.90, 0.86);
+          leg.SetBorderSize(0);
+          leg.SetFillStyle(0);
+          leg.SetTextFont(42);
+          leg.SetTextSize(0.036);
+          leg.AddEntry(hPP, "PP data", "ep");
+          leg.AddEntry(hAA, "Au+Au data", "ep");
+          leg.Draw();
 
         TLatex t;
         t.SetNDC(true);
@@ -15333,6 +15421,306 @@ namespace ARJ
         keepAlive.clear();
       }
 
+      // =============================================================================
+      // FULL-RANGE UNNORMALIZED QA for a (pp, AuAu) histogram family:
+      //   - per-pT PNGs in:
+      //       <outDir>/AuAu_unNormalized/<pTbin>/AuAu_unNormalized_<histBase>_<pTbin>.png
+      //       <outDir>/pp_unNormalized/<pTbin>/pp_unNormalized_<histBase>_<pTbin>.png
+      //   - plus 2x3 tables (first 6 pT bins) in:
+      //       <outDir>/AuAu_unNormalized/table2x3_AuAu_unNormalized.png
+      //       <outDir>/pp_unNormalized/table2x3_pp_unNormalized.png
+      //
+      // NOTE:
+      //   - FULL RANGE ONLY: no SetRangeUser() anywhere; we UnZoom() explicitly.
+      // =============================================================================
+      static void MakeUnnormalizedQA_PPvsAuAu(TDirectory* ppTop,
+                                             TDirectory* aaTop,
+                                             const string& outDir,
+                                             const string& histBase,
+                                             const string& centSuffix,
+                                             const string& centLabel,
+                                             const string& xTitle,
+                                             const string& topLeftTitle)
+      {
+        const int nPads = std::min(6, kNPtBins);
+        if (nPads <= 0) return;
+
+        const auto& bins = PtBins();
+
+        const string qaBaseAA = JoinPath(outDir, "AuAu_unNormalized");
+        const string qaBasePP = JoinPath(outDir, "pp_unNormalized");
+        EnsureDir(qaBaseAA);
+        EnsureDir(qaBasePP);
+
+        // -------------------------
+        // 2x3 table: AuAu counts (FULL RANGE)
+        // -------------------------
+        {
+          TCanvas cAAtbl(
+            TString::Format("c_aa_unNorm_tbl_%s%s", histBase.c_str(), centSuffix.c_str()).Data(),
+            "c_aa_unNorm_tbl", 1500, 800
+          );
+          cAAtbl.Divide(3,2, 0.001, 0.001);
+
+          for (int i = 0; i < nPads; ++i)
+          {
+            const PtBin& pb = bins[i];
+            const string hAAName = histBase + pb.suffix + centSuffix;
+            TH1* rawAA = GetTH1FromTopDir(aaTop, hAAName);
+
+            cAAtbl.cd(i+1);
+            gPad->SetLeftMargin(0.14);
+            gPad->SetRightMargin(0.05);
+            gPad->SetBottomMargin(0.14);
+            gPad->SetTopMargin(0.10);
+            gPad->SetLogy(false);
+
+            if (!rawAA)
+            {
+              std::ostringstream s;
+              s << "pT: " << pb.lo << "-" << pb.hi << "  " << centLabel;
+              DrawMissingPad(s.str());
+              continue;
+            }
+
+            TH1* hAAc = CloneTH1(rawAA,
+              TString::Format("aa_tbl_counts_%s_%s%s", histBase.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data());
+            if (!hAAc) continue;
+
+            EnsureSumw2(hAAc);
+            hAAc->GetXaxis()->UnZoom();
+            hAAc->SetTitle("");
+            hAAc->GetXaxis()->SetTitle(xTitle.c_str());
+            hAAc->GetYaxis()->SetTitle("Counts");
+            StyleOverlayHist(hAAc, kRed + 1, 24);
+            hAAc->Draw("E1");
+
+            TLegend leg(0.52, 0.70, 0.90, 0.86);
+            leg.SetBorderSize(0);
+            leg.SetFillStyle(0);
+            leg.SetTextFont(42);
+            leg.SetTextSize(0.036);
+            leg.AddEntry(hAAc, "Au+Au data (counts)", "ep");
+            leg.Draw();
+
+            TLatex t;
+            t.SetNDC(true);
+            t.SetTextFont(42);
+
+            t.SetTextAlign(13);
+            t.SetTextSize(0.055);
+            t.DrawLatex(0.16, 0.92, topLeftTitle.c_str());
+
+            t.SetTextAlign(33);
+            t.SetTextSize(0.055);
+            t.DrawLatex(0.95, 0.92,
+              TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
+            t.SetTextSize(0.048);
+            t.DrawLatex(0.95, 0.84, centLabel.c_str());
+
+            delete hAAc;
+          }
+
+          SaveCanvas(cAAtbl, JoinPath(qaBaseAA, "table2x3_AuAu_unNormalized.png"));
+        }
+
+        // -------------------------
+        // 2x3 table: PP counts (FULL RANGE)
+        // -------------------------
+        {
+          TCanvas cPPtbl(
+            TString::Format("c_pp_unNorm_tbl_%s", histBase.c_str()).Data(),
+            "c_pp_unNorm_tbl", 1500, 800
+          );
+          cPPtbl.Divide(3,2, 0.001, 0.001);
+
+          for (int i = 0; i < nPads; ++i)
+          {
+            const PtBin& pb = bins[i];
+            const string hPPName = histBase + pb.suffix;
+            TH1* rawPP = GetTH1FromTopDir(ppTop, hPPName);
+
+            cPPtbl.cd(i+1);
+            gPad->SetLeftMargin(0.14);
+            gPad->SetRightMargin(0.05);
+            gPad->SetBottomMargin(0.14);
+            gPad->SetTopMargin(0.10);
+            gPad->SetLogy(false);
+
+            if (!rawPP)
+            {
+              std::ostringstream s;
+              s << "pT: " << pb.lo << "-" << pb.hi;
+              DrawMissingPad(s.str());
+              continue;
+            }
+
+            TH1* hPPc = CloneTH1(rawPP,
+              TString::Format("pp_tbl_counts_%s_%s", histBase.c_str(), pb.folder.c_str()).Data());
+            if (!hPPc) continue;
+
+            EnsureSumw2(hPPc);
+            hPPc->GetXaxis()->UnZoom();
+            hPPc->SetTitle("");
+            hPPc->GetXaxis()->SetTitle(xTitle.c_str());
+            hPPc->GetYaxis()->SetTitle("Counts");
+            StyleOverlayHist(hPPc, kBlack, 20);
+            hPPc->Draw("E1");
+
+            TLegend leg(0.52, 0.70, 0.90, 0.86);
+            leg.SetBorderSize(0);
+            leg.SetFillStyle(0);
+            leg.SetTextFont(42);
+            leg.SetTextSize(0.036);
+            leg.AddEntry(hPPc, "PP data (counts)", "ep");
+            leg.Draw();
+
+            TLatex t;
+            t.SetNDC(true);
+            t.SetTextFont(42);
+
+            t.SetTextAlign(13);
+            t.SetTextSize(0.055);
+            t.DrawLatex(0.16, 0.92, topLeftTitle.c_str());
+
+            t.SetTextAlign(33);
+            t.SetTextSize(0.055);
+            t.DrawLatex(0.95, 0.92,
+              TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
+
+            delete hPPc;
+          }
+
+          SaveCanvas(cPPtbl, JoinPath(qaBasePP, "table2x3_pp_unNormalized.png"));
+        }
+
+        // -------------------------
+        // Per-pT PNGs (FULL RANGE ONLY; exactly one per pT bin)
+        // -------------------------
+        for (int i = 0; i < nPads; ++i)
+        {
+          const PtBin& pb = bins[i];
+
+          const string hPPName = histBase + pb.suffix;
+          const string hAAName = histBase + pb.suffix + centSuffix;
+
+          TH1* rawPP = GetTH1FromTopDir(ppTop, hPPName);
+          TH1* rawAA = GetTH1FromTopDir(aaTop, hAAName);
+
+          const string qaDirAA  = JoinPath(qaBaseAA, pb.folder);
+          const string qaDirPP  = JoinPath(qaBasePP, pb.folder);
+          EnsureDir(qaDirAA);
+          EnsureDir(qaDirPP);
+
+          if (rawAA)
+          {
+            TH1* hAAc = CloneTH1(rawAA,
+              TString::Format("aa_counts_%s_%s%s", histBase.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data());
+            if (hAAc)
+            {
+              EnsureSumw2(hAAc);
+
+              TCanvas cAA(
+                TString::Format("c_aa_counts_%s_%s%s", histBase.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data(),
+                "c_aa_counts", 900, 700
+              );
+              ApplyCanvasMargins1D(cAA);
+              cAA.SetLogy(false);
+
+              hAAc->GetXaxis()->UnZoom();
+              hAAc->SetTitle("");
+              hAAc->GetXaxis()->SetTitle(xTitle.c_str());
+              hAAc->GetYaxis()->SetTitle("Counts");
+
+              StyleOverlayHist(hAAc, kRed + 1, 24);
+              hAAc->Draw("E1");
+
+              TLegend leg(0.52, 0.70, 0.90, 0.86);
+              leg.SetBorderSize(0);
+              leg.SetFillStyle(0);
+              leg.SetTextFont(42);
+              leg.SetTextSize(0.036);
+              leg.AddEntry(hAAc, "Au+Au data (counts)", "ep");
+              leg.Draw();
+
+                // Single centered title only (no extra on-canvas printouts, no "(inclusive)" label).
+                std::string centPretty = centLabel;
+                if (centPretty.rfind("cent:", 0) == 0)
+                {
+                  centPretty = "Cent = " + centPretty.substr(5);
+                  while (!centPretty.empty() && centPretty[0] == ' ') centPretty.erase(centPretty.begin());
+                }
+
+                TLatex t;
+                t.SetNDC(true);
+                t.SetTextFont(42);
+                t.SetTextAlign(22);
+                t.SetTextSize(0.045);
+
+                t.DrawLatex(0.50, 0.94,
+                  TString::Format("E_{T}^{Iso}, run3auau, %s, p_{T}^{#gamma} = %d-%d GeV",
+                                  centPretty.c_str(), pb.lo, pb.hi).Data());
+
+              SaveCanvas(cAA, JoinPath(qaDirAA,
+                TString::Format("AuAu_unNormalized_%s_%s.png", histBase.c_str(), pb.folder.c_str()).Data()));
+
+              delete hAAc;
+            }
+          }
+
+          if (rawPP)
+          {
+            TH1* hPPc = CloneTH1(rawPP,
+              TString::Format("pp_counts_%s_%s", histBase.c_str(), pb.folder.c_str()).Data());
+            if (hPPc)
+            {
+              EnsureSumw2(hPPc);
+
+              TCanvas cPP(
+                TString::Format("c_pp_counts_%s_%s", histBase.c_str(), pb.folder.c_str()).Data(),
+                "c_pp_counts", 900, 700
+              );
+              ApplyCanvasMargins1D(cPP);
+              cPP.SetLogy(false);
+
+              hPPc->GetXaxis()->UnZoom();
+              hPPc->SetTitle("");
+              hPPc->GetXaxis()->SetTitle(xTitle.c_str());
+              hPPc->GetYaxis()->SetTitle("Counts");
+
+              StyleOverlayHist(hPPc, kBlack, 20);
+              hPPc->Draw("E1");
+
+              TLegend leg(0.52, 0.70, 0.90, 0.86);
+              leg.SetBorderSize(0);
+              leg.SetFillStyle(0);
+              leg.SetTextFont(42);
+              leg.SetTextSize(0.036);
+              leg.AddEntry(hPPc, "PP data (counts)", "ep");
+              leg.Draw();
+
+              TLatex t;
+              t.SetNDC(true);
+              t.SetTextFont(42);
+
+              t.SetTextAlign(13);
+              t.SetTextSize(0.055);
+              t.DrawLatex(0.16, 0.92, topLeftTitle.c_str());
+
+              t.SetTextAlign(33);
+              t.SetTextSize(0.055);
+              t.DrawLatex(0.95, 0.92,
+                TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
+
+              SaveCanvas(cPP, JoinPath(qaDirPP,
+                TString::Format("pp_unNormalized_%s_%s.png", histBase.c_str(), pb.folder.c_str()).Data()));
+
+              delete hPPc;
+            }
+          }
+        }
+      }
+
       static void MakePerPtOverlays_PPvsAuAu(TDirectory* ppTop,
                                              TDirectory* aaTop,
                                              const string& histBase,
@@ -15347,6 +15735,13 @@ namespace ARJ
         if (nPads <= 0) return;
 
         const auto& bins = PtBins();
+
+        // For Eiso families, keep the existing behavior:
+        // - generate FULL-range unnormalized QA outputs (per-pT + 2x3 tables)
+        if (forceIsoXRange)
+        {
+          MakeUnnormalizedQA_PPvsAuAu(ppTop, aaTop, outDir, histBase, centSuffix, centLabel, xTitle, topLeftTitle);
+        }
 
         for (int i = 0; i < nPads; ++i)
         {
@@ -15392,6 +15787,413 @@ namespace ARJ
 
         MakePerPtOverlays_PPvsAuAu(ppTop, aaTop, histBase, centSuffix, centLabel, outDir,
                                    xTitle, topLeftTitle, forceIsoXRange);
+      }
+
+      // =============================================================================
+      // Tight vs nonTight isolation overlays (PP and AuAu)
+      //
+      // Output base:
+      //   kOutPPAuAuBase/tight_nonTight_isoSpectraOverlay/
+      //     pp/
+      //       overlay_tight_vs_nonTight_pT_<lo>_<hi>.png
+      //     AuAu/<centLo>_<centHi>/
+      //       overlay_tight_vs_nonTight_pT_<lo>_<hi>.png
+      // =============================================================================
+      static void ProduceTightNonTightIsoOverlays(TDirectory* ppTop,
+                                                  TDirectory* aaTop,
+                                                  const string& outBase,
+                                                  const string& centFolder,
+                                                  const string& centSuffix,
+                                                  const string& centLabel)
+      {
+        const int nPads = std::min(6, kNPtBins);
+        if (nPads <= 0) return;
+
+        const auto& bins = PtBins();
+
+        // -------------------------
+        // PP (no centrality)
+        // -------------------------
+        {
+          const string outPP = JoinPath(outBase, "pp");
+          EnsureDir(outPP);
+
+          for (int i = 0; i < nPads; ++i)
+          {
+            const PtBin& pb = bins[i];
+
+            const string hT = string("h_Eiso_tight")    + pb.suffix;
+            const string hN = string("h_Eiso_nonTight") + pb.suffix;
+
+            TH1* rawT = GetTH1FromTopDir(ppTop, hT);
+            TH1* rawN = GetTH1FromTopDir(ppTop, hN);
+
+            if (!rawT || !rawN)
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[PP_AuAu DEBUG][WARN] Missing PP tight/nonTight hists: " << hT << " or " << hN
+                   << " (" << pb.folder << ")"
+                   << ANSI_RESET << "\n";
+              continue;
+            }
+
+            TH1* ht = CloneNormalizeStyle(rawT,
+              TString::Format("pp_tight_%s", pb.folder.c_str()).Data(),
+              kBlack, 20);
+
+            TH1* hn = CloneNormalizeStyle(rawN,
+              TString::Format("pp_nontight_%s", pb.folder.c_str()).Data(),
+              kRed + 1, 24);
+
+            if (!ht || !hn)
+            {
+              if (ht) delete ht;
+              if (hn) delete hn;
+              continue;
+            }
+
+            TCanvas c(
+              TString::Format("c_pp_tight_nonTight_%s", pb.folder.c_str()).Data(),
+              "c_pp_tight_nonTight", 900, 700
+            );
+            ApplyCanvasMargins1D(c);
+            c.SetLogy(false);
+
+            ht->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
+            ht->GetYaxis()->SetTitle("Normalized counts");
+
+            ht->GetXaxis()->SetRangeUser(-2.0, 6.0);
+            hn->GetXaxis()->SetRangeUser(-2.0, 6.0);
+
+            const double ymax = std::max(ht->GetMaximum(), hn->GetMaximum());
+            ht->SetMaximum(ymax * 1.35);
+
+            ht->Draw("E1");
+            hn->Draw("E1 same");
+
+              // Always label BOTH curves explicitly: dataset + tightness.
+              TLegend leg(0.52, 0.70, 0.90, 0.86);
+              leg.SetBorderSize(0);
+              leg.SetFillStyle(0);
+              leg.SetTextFont(42);
+              leg.SetTextSize(0.036);
+              leg.AddEntry(ht, "PP data (tight)", "ep");
+              leg.AddEntry(hn, "PP data (nonTight)", "ep");
+              leg.Draw();
+
+            TLatex t;
+            t.SetNDC(true);
+            t.SetTextFont(42);
+            t.SetTextAlign(33);
+            t.SetTextSize(0.055);
+            t.DrawLatex(0.95, 0.92,
+              TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
+
+            SaveCanvas(c, JoinPath(outPP,
+              TString::Format("overlay_tight_vs_nonTight_%s.png", pb.folder.c_str()).Data()));
+
+            delete ht;
+            delete hn;
+          }
+        }
+
+        // -------------------------
+        // AuAu (per centrality)
+        // -------------------------
+        {
+          const string outAA = JoinPath(JoinPath(outBase, "AuAu"), centFolder);
+          EnsureDir(JoinPath(outBase, "AuAu"));
+          EnsureDir(outAA);
+
+          for (int i = 0; i < nPads; ++i)
+          {
+            const PtBin& pb = bins[i];
+
+            const string hT = string("h_Eiso_tight")    + pb.suffix + centSuffix;
+            const string hN = string("h_Eiso_nonTight") + pb.suffix + centSuffix;
+
+            TH1* rawT = GetTH1FromTopDir(aaTop, hT);
+            TH1* rawN = GetTH1FromTopDir(aaTop, hN);
+
+            if (!rawT || !rawN)
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[PP_AuAu DEBUG][WARN] Missing AuAu tight/nonTight hists: " << hT << " or " << hN
+                   << " (" << centLabel << ", " << pb.folder << ")"
+                   << ANSI_RESET << "\n";
+              continue;
+            }
+
+            TH1* ht = CloneNormalizeStyle(rawT,
+              TString::Format("aa_tight_%s%s", pb.folder.c_str(), centSuffix.c_str()).Data(),
+              kBlack, 20);
+
+            TH1* hn = CloneNormalizeStyle(rawN,
+              TString::Format("aa_nontight_%s%s", pb.folder.c_str(), centSuffix.c_str()).Data(),
+              kRed + 1, 24);
+
+            if (!ht || !hn)
+            {
+              if (ht) delete ht;
+              if (hn) delete hn;
+              continue;
+            }
+
+            TCanvas c(
+              TString::Format("c_aa_tight_nonTight_%s%s", pb.folder.c_str(), centSuffix.c_str()).Data(),
+              "c_aa_tight_nonTight", 900, 700
+            );
+            ApplyCanvasMargins1D(c);
+            c.SetLogy(false);
+
+            ht->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
+            ht->GetYaxis()->SetTitle("Normalized counts");
+
+            ht->GetXaxis()->SetRangeUser(-2.0, 6.0);
+            hn->GetXaxis()->SetRangeUser(-2.0, 6.0);
+
+            const double ymax = std::max(ht->GetMaximum(), hn->GetMaximum());
+            ht->SetMaximum(ymax * 1.35);
+
+            ht->Draw("E1");
+            hn->Draw("E1 same");
+
+              // Always label BOTH curves explicitly: dataset + tightness.
+              TLegend leg(0.52, 0.70, 0.90, 0.86);
+              leg.SetBorderSize(0);
+              leg.SetFillStyle(0);
+              leg.SetTextFont(42);
+              leg.SetTextSize(0.036);
+              leg.AddEntry(ht, "Au+Au data (tight)", "ep");
+              leg.AddEntry(hn, "Au+Au data (nonTight)", "ep");
+              leg.Draw();
+
+            TLatex t;
+            t.SetNDC(true);
+            t.SetTextFont(42);
+
+            t.SetTextAlign(33);
+            t.SetTextSize(0.055);
+            t.DrawLatex(0.95, 0.92,
+              TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
+            t.SetTextSize(0.048);
+            t.DrawLatex(0.95, 0.84, centLabel.c_str());
+
+            SaveCanvas(c, JoinPath(outAA,
+              TString::Format("overlay_tight_vs_nonTight_%s.png", pb.folder.c_str()).Data()));
+
+            delete ht;
+            delete hn;
+          }
+        }
+      }
+
+      // =============================================================================
+      // IsoFail vs IsoPass overlays for shower-shape (SS) spectra (PP and AuAu)
+      //
+      // Output base:
+      //   kOutPPAuAuBase/isoFail_isoPass_SSspectra/
+      //     pp/<ssVar>/
+      //       overlay_isoFail_vs_isoPass_pT_<lo>_<hi>.png
+      //     AuAu/<centLo>_<centHi>/<ssVar>/
+      //       overlay_isoFail_vs_isoPass_pT_<lo>_<hi>.png
+      //
+      // Uses:
+      //   isoPass:  h_ss_<var>_iso
+      //   isoFail:  h_ss_<var>_nonIso
+      // =============================================================================
+      static void ProduceIsoFailIsoPassSSOverlays(TDirectory* ppTop,
+                                                  TDirectory* aaTop,
+                                                  const string& outBase,
+                                                  const string& centFolder,
+                                                  const string& centSuffix,
+                                                  const string& centLabel,
+                                                  const vector<string>& ssVars)
+      {
+        const int nPads = std::min(6, kNPtBins);
+        if (nPads <= 0) return;
+
+        const auto& bins = PtBins();
+
+        // -------------------------
+        // PP (no centrality)
+        // -------------------------
+        {
+          const string outPP = JoinPath(outBase, "pp");
+          EnsureDir(outPP);
+
+          for (const auto& var : ssVars)
+          {
+            const string outPPvar = JoinPath(outPP, var);
+            EnsureDir(outPPvar);
+
+            for (int i = 0; i < nPads; ++i)
+            {
+              const PtBin& pb = bins[i];
+
+              const string hPass = string("h_ss_") + var + string("_iso")    + pb.suffix;
+              const string hFail = string("h_ss_") + var + string("_nonIso") + pb.suffix;
+
+              TH1* rawPass = GetTH1FromTopDir(ppTop, hPass);
+              TH1* rawFail = GetTH1FromTopDir(ppTop, hFail);
+
+              if (!rawPass || !rawFail)
+              {
+                cout << ANSI_BOLD_YEL
+                     << "[PP_AuAu DEBUG][WARN] Missing PP isoPass/isoFail SS hists: " << hPass << " or " << hFail
+                     << " (" << var << ", " << pb.folder << ")"
+                     << ANSI_RESET << "\n";
+                continue;
+              }
+
+              TH1* hP = CloneNormalizeStyle(rawPass,
+                TString::Format("pp_isoPass_%s_%s", var.c_str(), pb.folder.c_str()).Data(),
+                kBlack, 20);
+
+              TH1* hF = CloneNormalizeStyle(rawFail,
+                TString::Format("pp_isoFail_%s_%s", var.c_str(), pb.folder.c_str()).Data(),
+                kRed + 1, 24);
+
+              if (!hP || !hF)
+              {
+                if (hP) delete hP;
+                if (hF) delete hF;
+                continue;
+              }
+
+              TCanvas c(
+                TString::Format("c_pp_isoFail_isoPass_%s_%s", var.c_str(), pb.folder.c_str()).Data(),
+                "c_pp_isoFail_isoPass", 900, 700
+              );
+              ApplyCanvasMargins1D(c);
+              c.SetLogy(false);
+
+              hP->GetXaxis()->SetTitle(var.c_str());
+              hP->GetYaxis()->SetTitle("Normalized counts");
+
+              const double ymax = std::max(hP->GetMaximum(), hF->GetMaximum());
+              hP->SetMaximum(ymax * 1.35);
+
+              hP->Draw("E1");
+              hF->Draw("E1 same");
+
+              TLegend leg(0.52, 0.70, 0.90, 0.86);
+              leg.SetBorderSize(0);
+              leg.SetFillStyle(0);
+              leg.SetTextFont(42);
+              leg.SetTextSize(0.036);
+              leg.AddEntry(hP, "PP data (isoPass)", "ep");
+              leg.AddEntry(hF, "PP data (isoFail)", "ep");
+              leg.Draw();
+
+              TLatex t;
+              t.SetNDC(true);
+              t.SetTextFont(42);
+              t.SetTextAlign(33);
+              t.SetTextSize(0.055);
+              t.DrawLatex(0.95, 0.92,
+                TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
+
+              SaveCanvas(c, JoinPath(outPPvar,
+                TString::Format("overlay_isoFail_vs_isoPass_%s.png", pb.folder.c_str()).Data()));
+
+              delete hP;
+              delete hF;
+            }
+          }
+        }
+
+        // -------------------------
+        // AuAu (per centrality)
+        // -------------------------
+        {
+          const string outAA = JoinPath(JoinPath(outBase, "AuAu"), centFolder);
+          EnsureDir(JoinPath(outBase, "AuAu"));
+          EnsureDir(outAA);
+
+          for (const auto& var : ssVars)
+          {
+            const string outAAvar = JoinPath(outAA, var);
+            EnsureDir(outAAvar);
+
+            for (int i = 0; i < nPads; ++i)
+            {
+              const PtBin& pb = bins[i];
+
+              const string hPass = string("h_ss_") + var + string("_iso")    + pb.suffix + centSuffix;
+              const string hFail = string("h_ss_") + var + string("_nonIso") + pb.suffix + centSuffix;
+
+              TH1* rawPass = GetTH1FromTopDir(aaTop, hPass);
+              TH1* rawFail = GetTH1FromTopDir(aaTop, hFail);
+
+              if (!rawPass || !rawFail)
+              {
+                cout << ANSI_BOLD_YEL
+                     << "[PP_AuAu DEBUG][WARN] Missing AuAu isoPass/isoFail SS hists: " << hPass << " or " << hFail
+                     << " (" << centLabel << ", " << var << ", " << pb.folder << ")"
+                     << ANSI_RESET << "\n";
+                continue;
+              }
+
+              TH1* hP = CloneNormalizeStyle(rawPass,
+                TString::Format("aa_isoPass_%s_%s%s", var.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data(),
+                kBlack, 20);
+
+              TH1* hF = CloneNormalizeStyle(rawFail,
+                TString::Format("aa_isoFail_%s_%s%s", var.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data(),
+                kRed + 1, 24);
+
+              if (!hP || !hF)
+              {
+                if (hP) delete hP;
+                if (hF) delete hF;
+                continue;
+              }
+
+              TCanvas c(
+                TString::Format("c_aa_isoFail_isoPass_%s_%s%s", var.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data(),
+                "c_aa_isoFail_isoPass", 900, 700
+              );
+              ApplyCanvasMargins1D(c);
+              c.SetLogy(false);
+
+              hP->GetXaxis()->SetTitle(var.c_str());
+              hP->GetYaxis()->SetTitle("Normalized counts");
+
+              const double ymax = std::max(hP->GetMaximum(), hF->GetMaximum());
+              hP->SetMaximum(ymax * 1.35);
+
+              hP->Draw("E1");
+              hF->Draw("E1 same");
+
+              TLegend leg(0.52, 0.70, 0.90, 0.86);
+              leg.SetBorderSize(0);
+              leg.SetFillStyle(0);
+              leg.SetTextFont(42);
+              leg.SetTextSize(0.036);
+              leg.AddEntry(hP, "Au+Au data (isoPass)", "ep");
+              leg.AddEntry(hF, "Au+Au data (isoFail)", "ep");
+              leg.Draw();
+
+              TLatex t;
+              t.SetNDC(true);
+              t.SetTextFont(42);
+
+              t.SetTextAlign(33);
+              t.SetTextSize(0.055);
+              t.DrawLatex(0.95, 0.92,
+                TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
+              t.SetTextSize(0.048);
+              t.DrawLatex(0.95, 0.84, centLabel.c_str());
+
+              SaveCanvas(c, JoinPath(outAAvar,
+                TString::Format("overlay_isoFail_vs_isoPass_%s.png", pb.folder.c_str()).Data()));
+
+              delete hP;
+              delete hF;
+            }
+          }
+        }
       }
 
       void RunPPvsAuAuDeliverables(Dataset& dsPP)
@@ -15457,41 +16259,103 @@ namespace ARJ
 
         for (const auto& cb : centBins)
         {
-          const string centFolder = cb.folder;
-          const string centSuffix = cb.suffix;
-          const string centLabel  = TString::Format("cent: %d-%d%%", cb.lo, cb.hi).Data();
+            const string centFolder = cb.folder;
+            const string centSuffix = cb.suffix;
+            const string centLabel  = TString::Format("cent: %d-%d%%", cb.lo, cb.hi).Data();
 
-          for (const auto& def : ssDefs)
-          {
-            for (const auto& var : ssVars)
+            cout << ANSI_BOLD_CYN
+                 << "\n[PP_AuAu] =========================================================\n"
+                 << "[PP_AuAu] Centrality bin: " << centLabel << "  (suffix=" << centSuffix << ", folder=" << centFolder << ")\n"
+                 << "[PP_AuAu] ========================================================="
+                 << ANSI_RESET << "\n";
+
+            cout << ANSI_BOLD_CYN
+                 << "\n[PP_AuAu] --- Shower-shape tables (2x3) + per-pT overlays: Inclusive / Iso pass / Iso fail ---"
+                 << ANSI_RESET << "\n";
+
+            for (const auto& def : ssDefs)
             {
-              const string outDir = JoinPath(outBase, JoinPath(def.folder, JoinPath(centFolder, var)));
-              const string histBase = "h_ss_" + var + "_" + def.tag;
+              cout << ANSI_BOLD_GRN
+                   << "\n[PP_AuAu]   SS category: " << def.label
+                   << "  (folder=" << def.folder << ", tag=" << def.tag << ")"
+                   << ANSI_RESET << "\n";
 
-              const string topLeft = TString::Format("SS %s (%s)", var.c_str(), def.label.c_str()).Data();
+              for (const auto& var : ssVars)
+              {
+                cout << "  [PP_AuAu]     SS var: " << var
+                     << "  -> building table2x3 + per-bin overlays" << "\n";
 
-              ProduceFamily_PPvsAuAu(dsPP.topDir, aaTop, outDir, histBase, centSuffix, centLabel,
-                                     var, topLeft, false);
+                const string outDir = JoinPath(outBase, JoinPath(def.folder, JoinPath(centFolder, var)));
+                const string histBase = "h_ss_" + var + "_" + def.tag;
+
+                const string topLeft = TString::Format("SS %s (%s)", var.c_str(), def.label.c_str()).Data();
+
+                  ProduceFamily_PPvsAuAu(dsPP.topDir, aaTop, outDir, histBase, centSuffix, centLabel,
+                                         var, topLeft, false);
+
+                  // ---------------------------------------------------------------------
+                  // NEW: In noIsoRequired only, also write FULL-range UNNORMALIZED SS
+                  // distributions (PP + AuAu) per pT bin per centrality, plus 2x3 tables.
+                  // Output inside:
+                  //   .../noIsoRequired/<cent>/<ssVar>/{AuAu_unNormalized,pp_unNormalized}/...
+                  // ---------------------------------------------------------------------
+                  if (def.folder == "noIsoRequired")
+                  {
+                    MakeUnnormalizedQA_PPvsAuAu(dsPP.topDir, aaTop, outDir, histBase, centSuffix, centLabel, var, topLeft);
+                  }
+              }
+            }
+
+            // ---------------------------------------------------------------------
+            // Deliverable Set B: total Eiso spectra split by tightness
+            // ---------------------------------------------------------------------
+            cout << ANSI_BOLD_CYN
+                 << "\n[PP_AuAu] --- Isolation spectra (2x3) + per-pT overlays: inclusive / tight / nonTight ---"
+                 << ANSI_RESET << "\n";
+
+            struct IsoDef { string folder; string base; string label; };
+            const vector<IsoDef> isoDefs = {
+              {"noSS_isoSpectra",    "h_Eiso",          "E_{T}^{iso, Total} (inclusive)"},
+              {"tightIsoSpectra",    "h_Eiso_tight",    "E_{T}^{iso, Total} (tight pass)"},
+              {"nonTightIsoSpectra", "h_Eiso_nonTight", "E_{T}^{iso, Total} (tight fail)"}
+            };
+
+            for (const auto& idef : isoDefs)
+            {
+              cout << ANSI_BOLD_GRN
+                   << "\n[PP_AuAu]   Iso category: " << idef.label
+                   << "  (folder=" << idef.folder << ", base=" << idef.base << ")"
+                   << ANSI_RESET << "\n";
+
+              const string outDir = JoinPath(outBase, JoinPath(idef.folder, centFolder));
+              ProduceFamily_PPvsAuAu(dsPP.topDir, aaTop, outDir, idef.base, centSuffix, centLabel,
+                                     "E_{T}^{iso} [GeV]", idef.label, true);
+            }
+
+            // ---------------------------------------------------------------------
+            // NEW: Tight vs nonTight overlays (PP and AuAu per centrality)
+            // Output:
+            //   kOutPPAuAuBase/tight_nonTight_isoSpectraOverlay/pp/...
+            //   kOutPPAuAuBase/tight_nonTight_isoSpectraOverlay/AuAu/<cent>/...
+            // ---------------------------------------------------------------------
+            {
+              const string tnBase = JoinPath(outBase, "tight_nonTight_isoSpectraOverlay");
+              EnsureDir(tnBase);
+              ProduceTightNonTightIsoOverlays(dsPP.topDir, aaTop, tnBase, centFolder, centSuffix, centLabel);
+            }
+
+            // ---------------------------------------------------------------------
+            // NEW: isoFail vs isoPass SS overlays (PP and AuAu per centrality)
+            // Output:
+            //   kOutPPAuAuBase/isoFail_isoPass_SSspectra/pp/<ssVar>/...
+            //   kOutPPAuAuBase/isoFail_isoPass_SSspectra/AuAu/<cent>/<ssVar>/...
+            // ---------------------------------------------------------------------
+            {
+              const string outSS = JoinPath(outBase, "isoFail_isoPass_SSspectra");
+              EnsureDir(outSS);
+              ProduceIsoFailIsoPassSSOverlays(dsPP.topDir, aaTop, outSS, centFolder, centSuffix, centLabel, ssVars);
             }
           }
-
-          // ---------------------------------------------------------------------
-          // Deliverable Set B: total Eiso spectra split by tightness
-          // ---------------------------------------------------------------------
-          struct IsoDef { string folder; string base; string label; };
-          const vector<IsoDef> isoDefs = {
-            {"noSS_isoSpectra",    "h_Eiso",          "E_{T}^{iso, Total} (inclusive)"},
-            {"tightIsoSpectra",    "h_Eiso_tight",    "E_{T}^{iso, Total} (tight pass)"},
-            {"nonTightIsoSpectra", "h_Eiso_nonTight", "E_{T}^{iso, Total} (tight fail)"}
-          };
-
-          for (const auto& idef : isoDefs)
-          {
-            const string outDir = JoinPath(outBase, JoinPath(idef.folder, centFolder));
-            ProduceFamily_PPvsAuAu(dsPP.topDir, aaTop, outDir, idef.base, centSuffix, centLabel,
-                                   "E_{T}^{iso} [GeV]", idef.label, true);
-          }
-        }
 
         cout << ANSI_BOLD_GRN
              << "  -> Wrote PP vs AuAu deliverables under: " << outBase

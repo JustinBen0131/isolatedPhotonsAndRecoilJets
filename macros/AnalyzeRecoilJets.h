@@ -161,8 +161,8 @@ namespace ARJ
 //   - For single-slice SIM, y-axes remain raw "Counts" (unweighted).
 // =============================================================================
 
-  inline bool isPPdataOnly   = false;
-  inline bool isSimAndDataPP = true;
+  inline bool isPPdataOnly   = true;
+  inline bool isSimAndDataPP = false;
   // Optional comparison overlays: PP vs Au+Au (gold-gold) photon-ID deliverables.
   // If false, analysis behavior is IDENTICAL to the current pipeline.
   inline bool isPPdataAndAUAU = true;
@@ -176,7 +176,7 @@ namespace ARJ
 
   inline bool bothPhoton5and10sim        = false;
   inline bool bothPhoton5and20sim        = false;
-  inline bool bothPhoton10and20sim       = true;
+  inline bool bothPhoton10and20sim       = false;
 
   // If false, STEP 1 will NOT rebuild the photonJet10+20 merged ROOT file(s).
   // Downstream code will simply open the already-merged output at the configured path(s).
