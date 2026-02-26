@@ -6343,10 +6343,13 @@ namespace ARJ
                 {
                   if (!h) return 0.0;
                   double m = 0.0;
-                  const int nb = h->GetNbinsX();
-                  for (int ib = 1; ib <= nb; ++ib)
+
+                  const int b1 = (h->GetXaxis() ? h->GetXaxis()->GetFirst() : 1);
+                  const int b2 = (h->GetXaxis() ? h->GetXaxis()->GetLast()  : h->GetNbinsX());
+
+                  for (int ib = b1; ib <= b2; ++ib)
                   {
-                    const double v = h->GetBinContent(ib);
+                    const double v = h->GetBinContent(ib) + h->GetBinError(ib);
                     if (v > m) m = v;
                   }
                   return m;
@@ -6374,64 +6377,93 @@ namespace ARJ
                       hTagRaw->SetMarkerStyle(24);
                     }
 
-                    double ymaxRaw = 0.0;
-                    ymaxRaw = std::max(ymaxRaw, MaxBinContent(hSamRaw));
-                    ymaxRaw = std::max(ymaxRaw, MaxBinContent(hJustinRaw));
-                    if (hTagRaw) ymaxRaw = std::max(ymaxRaw, MaxBinContent(hTagRaw));
-                    hSamRaw->SetMaximum(ymaxRaw * 1.10);
+                      double ymaxRaw = 0.0;
+                      ymaxRaw = std::max(ymaxRaw, MaxBinContent(hSamRaw));
+                      ymaxRaw = std::max(ymaxRaw, MaxBinContent(hJustinRaw));
+                      if (ymaxRaw > 0.0) hSamRaw->SetMaximum(ymaxRaw * 1.10);
+                      hSamRaw->SetMinimum(0.0);
 
-                    TCanvas cRaw("c_SamVsJustin_raw","c_SamVsJustin_raw",900,700);
-                    ApplyCanvasMargins1D(cRaw);
+                      const double yLineMax = (ymaxRaw > 0.0 ? ymaxRaw * 1.10 : 1.0);
 
-                      hSamRaw->Draw("E1");
-                      hJustinRaw->Draw("E1 same");
+                      TCanvas cRaw("c_SamVsJustin_raw","c_SamVsJustin_raw",900,700);
+                      ApplyCanvasMargins1D(cRaw);
 
-                      // No truth-tagged overlay and no vertical cut lines for Sam-vs-Justin overlays
-                      TLine* lAbs  = nullptr;
-                      TLine* lFull = nullptr;
-                      TLegend* legCuts = nullptr;
+                        hSamRaw->Draw("E1");
+                        hJustinRaw->Draw("E1 same");
 
-                      // Smaller legend, pushed to top-right
-                      TLegend leg(0.62, 0.82, 0.90, 0.95);
-                      leg.SetTextFont(42);
-                      leg.SetTextSize(0.022);
-                      leg.SetFillStyle(0);
-                      leg.SetBorderSize(0);
-                      leg.AddEntry(hSamRaw,    TString::Format("Sam's RECO (R = %.1f)", R).Data(), "ep");
-                      leg.AddEntry(hJustinRaw, TString::Format("Justin's RECO w/ matched cuts (R = %.1f)", R).Data(), "ep");
-                      leg.Draw();
+                        // Cut floor lines (xJ,min bounds): abs and full
+                        TLine* lAbs  = nullptr;
+                        TLine* lFull = nullptr;
+                        TLegend* legCuts = nullptr;
 
-                      // Note: aligned under the legend block
-                      TLatex tNote;
-                      tNote.SetNDC(true);
-                      tNote.SetTextFont(42);
-                      tNote.SetTextAlign(13);
-                      tNote.SetTextSize(0.032);
-                      tNote.DrawLatex(0.62, 0.79, "Photon 10 + 20 GeV #gamma+Jet MC");
+                        const double xAbs  = jetMinPtGeV / ptHi;
+                        const double xFull = jetMinPtGeV / ptLo;
 
-                      // Info block: middle RHS
-                      TLatex t;
-                      t.SetNDC(true);
-                      t.SetTextFont(42);
-                      t.SetTextSize(0.032);
-                      t.SetTextAlign(12);
-                      t.DrawLatex(0.60, 0.62, TString::Format("p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
-                      t.DrawLatex(0.60, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
-                      t.DrawLatex(0.60, 0.52, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
-                      t.DrawLatex(0.60, 0.47, TString::Format("Back-to-back: %s", bbLabel.c_str()).Data());
+                        lAbs  = new TLine(xAbs,  0.0, xAbs,  yLineMax);
+                        lFull = new TLine(xFull, 0.0, xFull, yLineMax);
 
-                    const std::string outNameRaw =
-                      TString::Format("overlay_SamVsJustin_JES3_RECO_RAW_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
-                        ptLo, ptHi, samPtLabel.c_str(), rKey.c_str()).Data();
+                        lAbs->SetLineColor(kGreen+2);
+                        lAbs->SetLineWidth(2);
+                        lAbs->SetLineStyle(2);
 
-                    cRaw.Modified();
-                    cRaw.Update();
-                    SaveCanvas(cRaw, JoinPath(dirOver_raw, outNameRaw));
+                        lFull->SetLineColor(kOrange+7);
+                        lFull->SetLineWidth(2);
+                        lFull->SetLineStyle(2);
 
-                    if (legCuts) delete legCuts;
-                    if (lAbs)  delete lAbs;
-                    if (lFull) delete lFull;
-                  }
+                        lAbs->Draw("same");
+                        lFull->Draw("same");
+
+                        // Title (centered)
+                        TLatex tTitle;
+                        tTitle.SetNDC(true);
+                        tTitle.SetTextFont(42);
+                        tTitle.SetTextAlign(22);
+                        tTitle.SetTextSize(0.040);
+                        tTitle.DrawLatex(0.50, 0.95, "Photon 10 + 20 GeV #gamma+Jet MC");
+
+                        // Smaller legend, pushed to top-right (moved down to clear the centered title)
+                        TLegend leg(0.62, 0.80, 0.90, 0.92);
+                        leg.SetTextFont(42);
+                        leg.SetTextSize(0.022);
+                        leg.SetFillStyle(0);
+                        leg.SetBorderSize(0);
+                        leg.AddEntry(hSamRaw,    TString::Format("Sam's RECO (R = %.1f)", R).Data(), "ep");
+                        leg.AddEntry(hJustinRaw, TString::Format("Justin's RECO w/ matched cuts (R = %.1f)", R).Data(), "ep");
+                        leg.Draw();
+
+                        // Cut-line legend under the main legend
+                        legCuts = new TLegend(0.62, 0.70, 0.90, 0.80);
+                        legCuts->SetTextFont(42);
+                        legCuts->SetTextSize(0.028);
+                        legCuts->SetFillStyle(0);
+                        legCuts->SetBorderSize(0);
+                        legCuts->AddEntry(lAbs,  "x_{J,min}^{abs} = p_{T}^{jet,min}/p_{T,max}^{#gamma}", "l");
+                        legCuts->AddEntry(lFull, "x_{J,min}^{full} = p_{T}^{jet,min}/p_{T,min}^{#gamma}", "l");
+                        legCuts->Draw();
+
+                        // Info block: middle RHS
+                        TLatex t;
+                        t.SetNDC(true);
+                        t.SetTextFont(42);
+                        t.SetTextSize(0.032);
+                        t.SetTextAlign(12);
+                        t.DrawLatex(0.60, 0.62, TString::Format("p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
+                        t.DrawLatex(0.60, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
+                        t.DrawLatex(0.60, 0.52, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
+                        t.DrawLatex(0.60, 0.47, TString::Format("Back-to-back: %s", bbLabel.c_str()).Data());
+
+                      const std::string outNameRaw =
+                        TString::Format("overlay_SamVsJustin_JES3_RECO_RAW_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
+                          ptLo, ptHi, samPtLabel.c_str(), rKey.c_str()).Data();
+
+                      cRaw.Modified();
+                      cRaw.Update();
+                      SaveCanvas(cRaw, JoinPath(dirOver_raw, outNameRaw));
+
+                      if (legCuts) delete legCuts;
+                      if (lAbs)  delete lAbs;
+                      if (lFull) delete lFull;
+                    }
 
                   if (hSamRaw) delete hSamRaw;
                   if (hJustinRaw) delete hJustinRaw;
@@ -6444,17 +6476,14 @@ namespace ARJ
                 {
                   StyleForOverlay(hSam, 2);
                   StyleForOverlay(hJustin, 4);
-                  if (hJustinTag)
-                  {
-                    StyleForOverlay(hJustinTag, 6);
-                    hJustinTag->SetMarkerStyle(24);
-                  }
 
                   double ymax = 0.0;
                   ymax = std::max(ymax, MaxBinContent(hSam));
                   ymax = std::max(ymax, MaxBinContent(hJustin));
-                  if (hJustinTag) ymax = std::max(ymax, MaxBinContent(hJustinTag));
-                  hSam->SetMaximum(ymax * 1.10);
+                  if (ymax > 0.0) hSam->SetMaximum(ymax * 1.10);
+                  hSam->SetMinimum(0.0);
+
+                  const double yLineMax = (ymax > 0.0 ? ymax * 1.10 : 1.0);
 
                   TCanvas c("c_SamVsJustin","c_SamVsJustin",900,700);
                   ApplyCanvasMargins1D(c);
@@ -6462,13 +6491,38 @@ namespace ARJ
                     hSam->Draw("E1");
                   hJustin->Draw("E1 same");
 
-                  // No truth-tagged overlay and no vertical cut lines for Sam-vs-Justin overlays
+                  // Cut floor lines (xJ,min bounds): abs and full
                   TLine* lAbs  = nullptr;
                   TLine* lFull = nullptr;
                   TLegend* legCuts = nullptr;
 
-                  // Smaller legend, pushed to top-right
-                  TLegend leg(0.62, 0.82, 0.90, 0.95);
+                  const double xAbs  = jetMinPtGeV / ptHi;
+                  const double xFull = jetMinPtGeV / ptLo;
+
+                  lAbs  = new TLine(xAbs,  0.0, xAbs,  yLineMax);
+                  lFull = new TLine(xFull, 0.0, xFull, yLineMax);
+
+                  lAbs->SetLineColor(kGreen+2);
+                  lAbs->SetLineWidth(2);
+                  lAbs->SetLineStyle(2);
+
+                  lFull->SetLineColor(kOrange+7);
+                  lFull->SetLineWidth(2);
+                  lFull->SetLineStyle(2);
+
+                  lAbs->Draw("same");
+                  lFull->Draw("same");
+
+                  // Title (centered)
+                  TLatex tTitle;
+                  tTitle.SetNDC(true);
+                  tTitle.SetTextFont(42);
+                  tTitle.SetTextAlign(22);
+                  tTitle.SetTextSize(0.040);
+                  tTitle.DrawLatex(0.50, 0.95, "Photon 10 + 20 GeV #gamma+Jet MC");
+
+                  // Smaller legend, pushed to top-right (moved down to clear the centered title)
+                  TLegend leg(0.62, 0.80, 0.90, 0.92);
                   leg.SetTextFont(42);
                   leg.SetTextSize(0.022);
                   leg.SetFillStyle(0);
@@ -6477,13 +6531,15 @@ namespace ARJ
                   leg.AddEntry(hJustin, TString::Format("Justin's RECO w/ matched cuts (R = %.1f)", R).Data(), "ep");
                   leg.Draw();
 
-                  // Note: aligned under the legend block
-                  TLatex tNote;
-                  tNote.SetNDC(true);
-                  tNote.SetTextFont(42);
-                  tNote.SetTextAlign(13);
-                  tNote.SetTextSize(0.032);
-                  tNote.DrawLatex(0.62, 0.79, "Photon 10 + 20 GeV #gamma+Jet MC");
+                  // Cut-line legend under the main legend
+                  legCuts = new TLegend(0.62, 0.70, 0.90, 0.80);
+                  legCuts->SetTextFont(42);
+                  legCuts->SetTextSize(0.028);
+                  legCuts->SetFillStyle(0);
+                  legCuts->SetBorderSize(0);
+                  legCuts->AddEntry(lAbs,  "x_{J,min}^{abs} = p_{T}^{jet,min}/p_{T,max}^{#gamma}", "l");
+                  legCuts->AddEntry(lFull, "x_{J,min}^{full} = p_{T}^{jet,min}/p_{T,min}^{#gamma}", "l");
+                  legCuts->Draw();
 
                   // Info block: middle RHS
                   TLatex t;
@@ -7929,11 +7985,12 @@ namespace ARJ
                       if (xAbs > 0.0)  lnAbs->Draw("same");
                       if (xFull > 0.0) lnFull->Draw("same");
 
-                      TLegend* leg = new TLegend(0.44, 0.67, 0.96, 0.90);
+                      TLegend* leg = new TLegend(0.44, 0.60, 0.96, 0.90);
                       leg->SetBorderSize(0);
                       leg->SetFillStyle(0);
                       leg->SetTextFont(42);
-                      leg->SetTextSize(0.038);
+                      leg->SetTextSize(0.034);
+                      leg->SetEntrySeparation(0.22);
 
                       if (xAbs > 0.0)
                         leg->AddEntry(lnAbs,  TString::Format("x_{J, min}^{abs} = #frac{%.0f}{p_{T, max}^{#gamma}} = %.3f", jetPtMin_GeV, xAbs),  "l");
