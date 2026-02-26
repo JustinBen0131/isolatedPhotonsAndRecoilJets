@@ -123,13 +123,59 @@ int PhotonClusterBuilder::InitRun(PHCompositeNode* topNode)
 
   m_geomOH = findNode::getClass<RawTowerGeomContainer>(topNode, "TOWERGEOM_HCALOUT");
   if (!m_geomOH)
-  {
-    std::cerr << Name() << ": could not find RawTowerGeomContainer node 'TOWERGEOM_HCALOUT'" << std::endl;
-    return Fun4AllReturnCodes::ABORTRUN;
+    {
+      std::cerr << Name() << ": could not find RawTowerGeomContainer node 'TOWERGEOM_HCALOUT'" << std::endl;
+      return Fun4AllReturnCodes::ABORTRUN;
   }
 
-  CreateNodes(topNode);
-  return Fun4AllReturnCodes::EVENT_OK;
+    // ------------------------------------------------------------
+    // Optional: Au+Au UE-subtracted isolation (cone ET sums)
+    //   - Keep m_emc_tower_container / m_geomEM for shower-shapes (96x256 CEMC)
+    //   - For isolation only, switch to *_SUB1 nodes when requested
+    //   - NOTE: CEMC_RETOWER_SUB1 is indexed like HCALIN (24x64), so geometry/id must use HCALIN
+    // ------------------------------------------------------------
+    if (m_is_auau)
+    {
+      const std::string cemcIsoNode  = m_tower_node_prefix + "_CEMC_RETOWER_SUB1";
+      const std::string ihcalIsoNode = m_tower_node_prefix + "_HCALIN_SUB1";
+      const std::string ohcalIsoNode = m_tower_node_prefix + "_HCALOUT_SUB1";
+
+      m_emc_tower_container_iso = findNode::getClass<TowerInfoContainer>(topNode, cemcIsoNode);
+      m_ihcal_tower_container_iso = findNode::getClass<TowerInfoContainer>(topNode, ihcalIsoNode);
+      m_ohcal_tower_container_iso = findNode::getClass<TowerInfoContainer>(topNode, ohcalIsoNode);
+
+      // Retowered CEMC uses HCALIN geometry
+      m_geomEM_iso = m_geomIH;
+
+      if (!m_emc_tower_container_iso || !m_ihcal_tower_container_iso || !m_ohcal_tower_container_iso || !m_geomEM_iso)
+      {
+        std::cerr << Name()
+                  << ": AuAu UE-subtracted isolation requested but required nodes are missing.\n"
+                  << "  expected: " << cemcIsoNode << ", " << ihcalIsoNode << ", " << ohcalIsoNode
+                  << " (and TOWERGEOM_HCALIN)\n";
+        return Fun4AllReturnCodes::ABORTRUN;
+      }
+
+      if (Verbosity() > 0)
+      {
+        std::cout << Name() << ": AuAu UE-subtracted iso enabled"
+                  << " | prefix=" << m_tower_node_prefix
+                  << " | cemc_iso=" << cemcIsoNode
+                  << " | ihcal_iso=" << ihcalIsoNode
+                  << " | ohcal_iso=" << ohcalIsoNode
+                  << std::endl;
+      }
+    }
+    else
+    {
+      m_emc_tower_container_iso = nullptr;
+      m_ihcal_tower_container_iso = nullptr;
+      m_ohcal_tower_container_iso = nullptr;
+      m_geomEM_iso = nullptr;
+    }
+
+    CreateNodes(topNode);
+    return Fun4AllReturnCodes::EVENT_OK;
 }
 
 void PhotonClusterBuilder::CreateNodes(PHCompositeNode* topNode)
@@ -919,27 +965,53 @@ void PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
   float E = photon->get_energy();
   float ET = E / std::cosh(cluster_eta);
 
-  auto compute_layer_iso = [&](RawTowerDefs::CalorimeterId calo_id, float radius)
-  {
-    TowerInfoContainer* container = nullptr;
-    RawTowerGeomContainer* geom = nullptr;
-    if (calo_id == RawTowerDefs::CalorimeterId::CEMC)
+    auto compute_layer_iso = [&](RawTowerDefs::CalorimeterId calo_id, float radius)
     {
-      container = m_emc_tower_container;
-      geom = m_geomEM;
-    }
-    else if (calo_id == RawTowerDefs::CalorimeterId::HCALIN)
-    {
-      container = m_ihcal_tower_container;
-      geom = m_geomIH;
-    }
-    else
-    {
-      container = m_ohcal_tower_container;
-      geom = m_geomOH;
-    }
-    return calculate_layer_et(cluster_eta, cluster_phi, radius, container, geom, calo_id, m_vertex);
-  };
+      TowerInfoContainer* container = nullptr;
+      RawTowerGeomContainer* geom = nullptr;
+      RawTowerDefs::CalorimeterId geom_id = calo_id;
+
+      if (calo_id == RawTowerDefs::CalorimeterId::CEMC)
+      {
+        if (m_is_auau && m_emc_tower_container_iso && m_geomEM_iso)
+        {
+          container = m_emc_tower_container_iso;
+          geom = m_geomEM_iso;
+          geom_id = RawTowerDefs::CalorimeterId::HCALIN;
+        }
+        else
+        {
+          container = m_emc_tower_container;
+          geom = m_geomEM;
+        }
+      }
+      else if (calo_id == RawTowerDefs::CalorimeterId::HCALIN)
+      {
+        if (m_is_auau && m_ihcal_tower_container_iso)
+        {
+          container = m_ihcal_tower_container_iso;
+        }
+        else
+        {
+          container = m_ihcal_tower_container;
+        }
+        geom = m_geomIH;
+      }
+      else
+      {
+        if (m_is_auau && m_ohcal_tower_container_iso)
+        {
+          container = m_ohcal_tower_container_iso;
+        }
+        else
+        {
+          container = m_ohcal_tower_container;
+        }
+        geom = m_geomOH;
+      }
+
+      return calculate_layer_et(cluster_eta, cluster_phi, radius, container, geom, geom_id, m_vertex);
+    };
 
   const float emcal_et_04 = compute_layer_iso(RawTowerDefs::CalorimeterId::CEMC, 0.4);
   const float ihcal_et_04 = compute_layer_iso(RawTowerDefs::CalorimeterId::HCALIN, 0.4);

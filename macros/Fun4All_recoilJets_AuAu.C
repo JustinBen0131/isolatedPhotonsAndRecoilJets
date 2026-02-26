@@ -1203,10 +1203,6 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
 
     if (vlevel == 0) _silence.enable();
 
-    // --------------------------------------------------------------------
-    // Crash backtrace / Fun4All trace toggles (local debugging helpers)
-    // --------------------------------------------------------------------
-    detail::installCrashHandlers(vlevel);
 
     if (const char* fenv = std::getenv("RJ_F4A_VERBOSE"))
     {
@@ -1728,33 +1724,6 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
           std::cout << "[HI] UE subtraction enabled: towerPrefix=" << towerPrefix << " (HIUE Verbosity=" << hiV << ")\n";
 
       // ------------------------------------------------------------------
-      // DEBUG: dump nodes right before RetowerCEMC InitRun
-      // ------------------------------------------------------------------
-      {
-        std::vector<std::string> watch = {
-          "TOWERINFO",
-          "TOWERINFO_CEMC",
-          "TOWERINFO_HCALIN",
-          "TOWERINFO_HCALOUT",
-          "TOWERINFO_CALIB",
-          "TOWERINFO_CALIB_CEMC",
-          "TOWERINFO_CALIB_HCALIN",
-          "TOWERINFO_CALIB_HCALOUT",
-          std::string(towerPrefix) + "_CEMC",
-          std::string(towerPrefix) + "_HCALIN",
-          std::string(towerPrefix) + "_HCALOUT"
-        };
-
-        auto* nd = new NodeTreeDumpProbe("NodeTreeDumpProbe_beforeRetower",
-                                         std::string("HI before RetowerCEMC (prefix=") + towerPrefix + ")",
-                                         watch,
-                                         /*dumpInitRun=*/true,
-                                         /*dumpEvent1=*/true);
-        nd->Verbosity(vlevel);
-        se->registerSubsystem(nd);
-      }
-
-      // ------------------------------------------------------------------
       // 1) Retower CEMC (towerinfo)
       // ------------------------------------------------------------------
       auto* rcemc = new RetowerCEMC();
@@ -2059,9 +2028,9 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
       if (vlevel > 0) std::cout << "[isSim] skipping TriggerRunInfoReco" << std::endl;
   }
     
-    // Build photon clusters
-    if (vlevel > 0)
-    {
+  // Build photon clusters
+  if (vlevel > 0)
+  {
       Dl_info pcbInfo{};
       if (dladdr((void*)&typeid(PhotonClusterBuilder), &pcbInfo) && pcbInfo.dli_fname)
       {
@@ -2071,25 +2040,39 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
       {
         std::cout << "[DBG] PhotonClusterBuilder RTTI probe: dladdr failed\n";
       }
+  }
+
+  auto* photonBuilder = new PhotonClusterBuilder("PhotonClusterBuilder");
+  photonBuilder->set_input_cluster_node("CLUSTERINFO_CEMC");
+  photonBuilder->set_output_photon_node("PHOTONCLUSTER_CEMC");
+
+  // Robust against headers that don't have set_vz_cut(bool,float)
+  photonBuilder->set_use_vz_cut(cfg.use_vz_cut);
+  photonBuilder->set_vz_cut_cm(cfg.vz_cut_cm);
+
+  // Au+Au mode: use UE-subtracted tower nodes for isolation cone sums
+  photonBuilder->set_is_auau(isAuAuData);
+  if (isAuAuData)
+    {
+      std::string towerPrefixPCB = "TOWERINFO_CALIB";
+      if (const char* env = std::getenv("RJ_TOWERINFO_PREFIX"))
+      {
+        std::string s = detail::trim(std::string(env));
+        if (!s.empty()) towerPrefixPCB = s;
+      }
+      photonBuilder->set_tower_node_prefix(towerPrefixPCB);
     }
-
-    auto* photonBuilder = new PhotonClusterBuilder("PhotonClusterBuilder");
-    photonBuilder->set_input_cluster_node("CLUSTERINFO_CEMC");
-    photonBuilder->set_output_photon_node("PHOTONCLUSTER_CEMC");
-
-    // Robust against headers that don't have set_vz_cut(bool,float)
-    photonBuilder->set_use_vz_cut(cfg.use_vz_cut);
-    photonBuilder->set_vz_cut_cm(cfg.vz_cut_cm);
 
     if (vlevel > 0)
     {
       std::cout << "[DBG] PhotonClusterBuilder vzCut config: use="
                 << (cfg.use_vz_cut ? "true" : "false")
-                << " vz_cut_cm=" << cfg.vz_cut_cm << "\n";
-    }
+                << " vz_cut_cm=" << cfg.vz_cut_cm
+                << " | isAuAuData=" << (isAuAuData ? "true" : "false") << "\n";
+  }
 
-    photonBuilder->Verbosity(vlevel);
-    se->registerSubsystem(photonBuilder);
+  photonBuilder->Verbosity(vlevel);
+  se->registerSubsystem(photonBuilder);
 
   auto* recoilJets_AuAu = new RecoilJets(outRoot);
 

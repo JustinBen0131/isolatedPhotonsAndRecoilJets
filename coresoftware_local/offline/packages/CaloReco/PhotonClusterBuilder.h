@@ -51,6 +51,15 @@ class PhotonClusterBuilder : public SubsysReco
     bool get_use_vz_cut() const { return m_use_vz_cut; }
     float get_vz_cut_cm() const { return m_vz_cut_cm; }
 
+    // Au+Au mode: use UE-subtracted tower nodes for isolation cone sums
+    void set_is_auau(bool isAuAu) { m_is_auau = isAuAu; }
+    bool get_is_auau() const { return m_is_auau; }
+
+    // TowerInfo node prefix used to construct UE-subtracted node names:
+    //   <prefix>_CEMC_RETOWER_SUB1, <prefix>_HCALIN_SUB1, <prefix>_HCALOUT_SUB1
+    void set_tower_node_prefix(const std::string& p) { m_tower_node_prefix = p; }
+    const std::string& get_tower_node_prefix() const { return m_tower_node_prefix; }
+
  private:
   void CreateNodes(PHCompositeNode* topNode);
   void calculate_shower_shapes(RawCluster* rc, PhotonClusterv1* photon, float eta, float phi);
@@ -79,6 +88,15 @@ class PhotonClusterBuilder : public SubsysReco
   RawTowerGeomContainer* m_geomIH{nullptr};
   TowerInfoContainer* m_ohcal_tower_container{nullptr};
   RawTowerGeomContainer* m_geomOH{nullptr};
+
+  // Au+Au UE-subtracted tower nodes (used ONLY for isolation sums)
+  bool m_is_auau{false};
+  std::string m_tower_node_prefix{"TOWERINFO_CALIB"};
+  TowerInfoContainer* m_emc_tower_container_iso{nullptr};
+  RawTowerGeomContainer* m_geomEM_iso{nullptr};  // retowered CEMC uses HCALIN geometry
+  TowerInfoContainer* m_ihcal_tower_container_iso{nullptr};
+  TowerInfoContainer* m_ohcal_tower_container_iso{nullptr};
+
   std::unique_ptr<TMVA::Experimental::RBDT> m_bdt;
 };
 
