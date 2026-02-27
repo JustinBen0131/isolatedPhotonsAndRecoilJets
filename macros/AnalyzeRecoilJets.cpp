@@ -7996,6 +7996,81 @@ namespace ARJ
                           SaveCanvas(cMean, JoinPath(dirOv, "meanVsPt_reco_integratedAlpha_overlayedWithSim_withFits.png"));
 
                           // ------------------------------------------------------------------
+                          // NEW: (DATA/SIM) mean ratio vs pT with proper error propagation
+                          // ------------------------------------------------------------------
+                          std::vector<double> vPtCtr_R, vPtErr_R, vMuRatio, vMuRatioErr;
+                          vPtCtr_R.reserve(vPtCtr.size());
+                          vPtErr_R.reserve(vPtErr.size());
+                          vMuRatio.reserve(vPtCtr.size());
+                          vMuRatioErr.reserve(vPtCtr.size());
+
+                          for (int i = 0; i < (int)vPtCtr.size(); ++i)
+                          {
+                            if (vMuDat[i] <= 0.0) continue;
+                            if (vMuSim[i] <= 0.0) continue;
+
+                            const double r  = vMuDat[i] / vMuSim[i];
+                            const double ed = vMuDatErr[i];
+                            const double es = vMuSimErr[i];
+
+                            const double relDat = (vMuDat[i] != 0.0) ? (ed / vMuDat[i]) : 0.0;
+                            const double relSim = (vMuSim[i] != 0.0) ? (es / vMuSim[i]) : 0.0;
+
+                            const double er = std::fabs(r) * std::sqrt(relDat*relDat + relSim*relSim);
+
+                            vPtCtr_R.push_back(vPtCtr[i]);
+                            vPtErr_R.push_back(vPtErr[i]);
+                            vMuRatio.push_back(r);
+                            vMuRatioErr.push_back(er);
+                          }
+
+                          if ((int)vPtCtr_R.size() > 0)
+                          {
+                            TCanvas cRatio(
+                              TString::Format("c_meanRatioVsPt_%s_dataOverSim_withFits", rKey.c_str()).Data(),
+                              "c_meanRatioVsPt_dataOverSim_withFits", 900, 700
+                            );
+
+                            TGraphErrors* gRatio = new TGraphErrors((int)vPtCtr_R.size());
+                            for (int i = 0; i < (int)vPtCtr_R.size(); ++i)
+                            {
+                              gRatio->SetPoint(i, vPtCtr_R[i], vMuRatio[i]);
+                              gRatio->SetPointError(i, vPtErr_R[i], vMuRatioErr[i]);
+                            }
+
+                            gRatio->SetTitle("");
+                            gRatio->SetMarkerStyle(20);
+                            gRatio->SetMarkerSize(1.2);
+                            gRatio->SetMarkerColor(kBlack);
+                            gRatio->SetLineColor(kBlack);
+                            gRatio->SetLineWidth(2);
+
+                            gRatio->Draw("AP");
+                            gRatio->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                            gRatio->GetYaxis()->SetTitle("Gaussian mean ratio: DATA / SIM");
+
+                            double xMin =  1e9;
+                            double xMax = -1e9;
+                            for (int i = 0; i < (int)vPtCtr_R.size(); ++i)
+                            {
+                              const double xl = vPtCtr_R[i] - vPtErr_R[i];
+                              const double xr = vPtCtr_R[i] + vPtErr_R[i];
+                              if (xl < xMin) xMin = xl;
+                              if (xr > xMax) xMax = xr;
+                            }
+
+                            TLine* lOne = new TLine(xMin, 1.0, xMax, 1.0);
+                            lOne->SetLineStyle(2);
+                            lOne->SetLineWidth(2);
+                            lOne->Draw();
+
+                            SaveCanvas(cRatio, JoinPath(dirOv, "meanRatioVsPt_reco_integratedAlpha_overlayedWithSim_withFits.png"));
+
+                            delete lOne;
+                            delete gRatio;
+                          }
+
+                          // ------------------------------------------------------------------
                           // NEW: sigma vs pT (DATA vs SIM)
                           // ------------------------------------------------------------------
                           TCanvas cSig(
@@ -18391,7 +18466,7 @@ namespace ARJ
 
             for (TH1* h : keepAlive) delete h;
             keepAlive.clear();
-          }
+        }
 
         void RunPPvsAuAuDeliverables(Dataset& dsPP)
         {
