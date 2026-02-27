@@ -8184,11 +8184,11 @@ namespace ARJ
                       for (auto* f : keepFitFns) delete f;
                       for (auto* h1 : keepFitsH) delete h1;
                     }
-                }
+              }
 
-                // -------------------------------------------------------------------------
-                // 3x3 tables + text summary (existing behavior preserved)
-                // -------------------------------------------------------------------------
+              // -------------------------------------------------------------------------
+              // 3x3 tables + text summary (existing behavior preserved)
+              // -------------------------------------------------------------------------
 
               auto Make3x3Table_xJ_FromTH3 =
                 [&](const TH3* h3, const string& outBaseDir, const string& tag, bool logy)
