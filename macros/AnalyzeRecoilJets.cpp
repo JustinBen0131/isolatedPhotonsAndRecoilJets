@@ -17245,8 +17245,204 @@ namespace ARJ
 
               for (const auto& var : ssVars)
               {
-                const string varBase = JoinPath(baseNoIso, var);
-                EnsureDir(varBase);
+                  const string varBase = JoinPath(baseNoIso, var);
+                  EnsureDir(varBase);
+
+                  // ---------------------------------------------------------------------
+                  // NEW: In noIsoRequired/<ssVar>/ (OUTSIDE pT folders), write:
+                  //   (1) PP inclusive overlay across ALL pT bins (from YAML PtBins)
+                  //       -> noIsoRequired/<ssVar>/overlay_pp_byPt.png
+                  //   (2) AuAu inclusive overlay across ALL pT bins, PER centrality bin
+                  //       -> noIsoRequired/<ssVar>/overlay_auau_<centFolder>_byPt.png
+                  // All curves: closed circle markers, distinct colors, legend = pT bins.
+                  // ---------------------------------------------------------------------
+                  {
+                    const int nAllPt = kNPtBins;
+                    if (nAllPt > 0)
+                    {
+                      const int colors[] = {
+                        kRed + 1, kBlue + 1, kGreen + 2, kMagenta + 1, kOrange + 7, kCyan + 1,
+                        kViolet + 1, kAzure + 2, kSpring + 5, kPink + 7, kTeal + 3, kGray + 2
+                      };
+                      const int nColors = (int)(sizeof(colors)/sizeof(colors[0]));
+
+                      // -------------------------
+                      // (1) PP: overlay ALL pT bins
+                      // -------------------------
+                      {
+                        TCanvas cPPall(
+                          TString::Format("c_noIso_pp_byPt_%s", var.c_str()).Data(),
+                          "c_noIso_pp_byPt", 900, 700
+                        );
+                        ApplyCanvasMargins1D(cPPall);
+                        cPPall.SetLogy(false);
+
+                        double yMax = 0.0;
+                        TH1* hFirst = nullptr;
+
+                        TLegend leg(0.52, 0.58, 0.90, 0.86);
+                        leg.SetBorderSize(0);
+                        leg.SetFillStyle(0);
+                        leg.SetTextFont(42);
+                        leg.SetTextSize(0.034);
+
+                        vector<TH1*> keepAlivePP;
+                        keepAlivePP.reserve((std::size_t)nAllPt);
+
+                        for (int iptAll = 0; iptAll < nAllPt; ++iptAll)
+                        {
+                          const PtBin& pbAll = ptBins[iptAll];
+                          const string hPPName = string("h_ss_") + var + string("_inclusive") + pbAll.suffix;
+                          TH1* rawPP = GetTH1FromTopDir(dsPP.topDir, hPPName);
+                          if (!rawPP) continue;
+
+                          const int col = colors[iptAll % nColors];
+
+                          TH1* hPPc = CloneNormalizeStyle(rawPP,
+                            TString::Format("pp_noIso_byPt_%s_%s", var.c_str(), pbAll.folder.c_str()).Data(),
+                            col, 20);
+
+                          if (!hPPc) continue;
+
+                          hPPc->SetMarkerStyle(20);
+                          hPPc->SetMarkerSize(1.05);
+
+                          yMax = std::max(yMax, hPPc->GetMaximum());
+
+                          if (!hFirst)
+                          {
+                            hFirst = hPPc;
+                            hFirst->GetXaxis()->SetTitle(var.c_str());
+                            hFirst->GetYaxis()->SetTitle("Normalized counts");
+                            hFirst->Draw("E1");
+                          }
+                          else
+                          {
+                            hPPc->Draw("E1 same");
+                          }
+
+                          leg.AddEntry(hPPc,
+                            TString::Format("p_{T}^{#gamma}: %d-%d GeV", pbAll.lo, pbAll.hi).Data(),
+                            "ep");
+
+                          keepAlivePP.push_back(hPPc);
+                        }
+
+                        if (hFirst)
+                        {
+                          hFirst->SetMaximum(yMax * 1.35);
+
+                          TLatex t;
+                          t.SetNDC(true);
+                          t.SetTextFont(42);
+                          t.SetTextAlign(22);
+                          t.SetTextSize(0.045);
+                          t.DrawLatex(0.50, 0.93,
+                            TString::Format("PP (inclusive), %s, overlay across p_{T}^{#gamma} bins", var.c_str()).Data());
+
+                          leg.Draw();
+                          gPad->RedrawAxis();
+
+                          SaveCanvas(cPPall, JoinPath(varBase, "overlay_pp_byPt.png"));
+                        }
+
+                        for (TH1* h : keepAlivePP) delete h;
+                        keepAlivePP.clear();
+                      }
+
+                      // -------------------------
+                      // (2) AuAu: per-centrality overlay ALL pT bins
+                      // -------------------------
+                      for (size_t ic = 0; ic < centBins.size(); ++ic)
+                      {
+                        const auto& cb2 = centBins[ic];
+                        const string centSuffix2 = cb2.suffix;
+                        const string centFolder2 = cb2.folder;
+                        const string centLabel2  = TString::Format("Cent = %d-%d%%", cb2.lo, cb2.hi).Data();
+
+                        TCanvas cAAall(
+                          TString::Format("c_noIso_aa_byPt_%s_%s", var.c_str(), centFolder2.c_str()).Data(),
+                          "c_noIso_aa_byPt", 900, 700
+                        );
+                        ApplyCanvasMargins1D(cAAall);
+                        cAAall.SetLogy(false);
+
+                        double yMax = 0.0;
+                        TH1* hFirst = nullptr;
+
+                        TLegend leg(0.52, 0.58, 0.90, 0.86);
+                        leg.SetBorderSize(0);
+                        leg.SetFillStyle(0);
+                        leg.SetTextFont(42);
+                        leg.SetTextSize(0.034);
+
+                        vector<TH1*> keepAliveAA;
+                        keepAliveAA.reserve((std::size_t)nAllPt);
+
+                        for (int iptAll = 0; iptAll < nAllPt; ++iptAll)
+                        {
+                          const PtBin& pbAll = ptBins[iptAll];
+                          const string hAAName = string("h_ss_") + var + string("_inclusive") + pbAll.suffix + centSuffix2;
+                          TH1* rawAA = GetTH1FromTopDir(aaTop, hAAName);
+                          if (!rawAA) continue;
+
+                          const int col = colors[iptAll % nColors];
+
+                          TH1* hAAc = CloneNormalizeStyle(rawAA,
+                            TString::Format("aa_noIso_byPt_%s_%s%s", var.c_str(), pbAll.folder.c_str(), centSuffix2.c_str()).Data(),
+                            col, 20);
+
+                          if (!hAAc) continue;
+
+                          hAAc->SetMarkerStyle(20);
+                          hAAc->SetMarkerSize(1.05);
+
+                          yMax = std::max(yMax, hAAc->GetMaximum());
+
+                          if (!hFirst)
+                          {
+                            hFirst = hAAc;
+                            hFirst->GetXaxis()->SetTitle(var.c_str());
+                            hFirst->GetYaxis()->SetTitle("Normalized counts");
+                            hFirst->Draw("E1");
+                          }
+                          else
+                          {
+                            hAAc->Draw("E1 same");
+                          }
+
+                          leg.AddEntry(hAAc,
+                            TString::Format("p_{T}^{#gamma}: %d-%d GeV", pbAll.lo, pbAll.hi).Data(),
+                            "ep");
+
+                          keepAliveAA.push_back(hAAc);
+                        }
+
+                        if (hFirst)
+                        {
+                          hFirst->SetMaximum(yMax * 1.35);
+
+                          TLatex t;
+                          t.SetNDC(true);
+                          t.SetTextFont(42);
+                          t.SetTextAlign(22);
+                          t.SetTextSize(0.045);
+                          t.DrawLatex(0.50, 0.93,
+                            TString::Format("Au+Au (inclusive), %s, %s, overlay across p_{T}^{#gamma} bins",
+                                            var.c_str(), centLabel2.c_str()).Data());
+
+                          leg.Draw();
+                          gPad->RedrawAxis();
+
+                          SaveCanvas(cAAall, JoinPath(varBase,
+                            TString::Format("overlay_auau_%s_byPt.png", centFolder2.c_str()).Data()));
+                        }
+
+                        for (TH1* h : keepAliveAA) delete h;
+                        keepAliveAA.clear();
+                      }
+                    }
+                }
 
                 for (int ipt = 0; ipt < nPtPads; ++ipt)
                 {
@@ -17417,6 +17613,95 @@ namespace ARJ
                   }
 
                     SaveCanvas(c, JoinPath(ptDir, "table2x3_overlay_pp_vs_auau_byCent.png"));
+
+                    // ------------------------------------------------------------------
+                    // NEW: AuAu-only overlay by centrality (all closed circles)
+                    // Output to:
+                    //   <kOutPPAuAuBase>/noIsoRequired/<ssVar>/<pTbin>/overlay_auau_byCent.png
+                    // This is produced for e11e33 and ALL shower-shape variables (ssVars).
+                    // ------------------------------------------------------------------
+                    {
+                      TCanvas cCent(
+                        TString::Format("c_auau_byCent_%s_%s", var.c_str(), pb.folder.c_str()).Data(),
+                        "c_auau_byCent", 900, 700
+                      );
+                      ApplyCanvasMargins1D(cCent);
+                      cCent.SetLogy(false);
+
+                      const int colors[] = {
+                        kRed + 1, kBlue + 1, kGreen + 2, kMagenta + 1, kOrange + 7, kCyan + 1,
+                        kViolet + 1, kAzure + 2, kSpring + 5, kPink + 7, kTeal + 3, kGray + 2
+                      };
+                      const int nColors = (int)(sizeof(colors)/sizeof(colors[0]));
+
+                      double yMax = 0.0;
+                      TH1* hFirst = nullptr;
+
+                      TLegend leg(0.52, 0.58, 0.90, 0.86);
+                      leg.SetBorderSize(0);
+                      leg.SetFillStyle(0);
+                      leg.SetTextFont(42);
+                      leg.SetTextSize(0.034);
+
+                      for (size_t ic = 0; ic < centBins.size(); ++ic)
+                      {
+                        const auto& cb2 = centBins[ic];
+                        const string centSuffix2 = cb2.suffix;
+                        const string centLabel2  = TString::Format("%d-%d%%", cb2.lo, cb2.hi).Data();
+
+                        const string hAAName = string("h_ss_") + var + string("_inclusive") + pb.suffix + centSuffix2;
+                        TH1* rawAA = GetTH1FromTopDir(aaTop, hAAName);
+                        if (!rawAA) continue;
+
+                        const int col = colors[(int)(ic % (size_t)nColors)];
+
+                        TH1* hAAc = CloneNormalizeStyle(rawAA,
+                          TString::Format("aa_byCent_%s_%s%s_%zu", var.c_str(), pb.folder.c_str(), centSuffix2.c_str(), ic).Data(),
+                          col, 20);
+
+                        if (!hAAc) continue;
+
+                        // Force closed circles for every centrality bin
+                        hAAc->SetMarkerStyle(20);
+                        hAAc->SetMarkerSize(1.05);
+
+                        yMax = std::max(yMax, hAAc->GetMaximum());
+
+                        if (!hFirst)
+                        {
+                          hFirst = hAAc;
+                          hFirst->GetXaxis()->SetTitle(var.c_str());
+                          hFirst->GetYaxis()->SetTitle("Normalized counts");
+                          hFirst->Draw("E1");
+                        }
+                        else
+                        {
+                          hAAc->Draw("E1 same");
+                        }
+
+                        leg.AddEntry(hAAc, centLabel2.c_str(), "ep");
+                        keepAlive.push_back(hAAc);
+                      }
+
+                      if (hFirst)
+                      {
+                        hFirst->SetMaximum(yMax * 1.35);
+
+                        TLatex t;
+                        t.SetNDC(true);
+                        t.SetTextFont(42);
+                        t.SetTextAlign(22);
+                        t.SetTextSize(0.045);
+                        t.DrawLatex(0.50, 0.93,
+                          TString::Format("Au+Au by centrality, %s, p_{T}^{#gamma} = %d-%d GeV",
+                                          var.c_str(), pb.lo, pb.hi).Data());
+
+                        leg.Draw();
+                        gPad->RedrawAxis();
+
+                        SaveCanvas(cCent, JoinPath(ptDir, "overlay_auau_byCent.png"));
+                      }
+                    }
 
                     // ------------------------------------------------------------------
                     // NEW: PP-only zoomed distribution for this SS variable + pT bin
