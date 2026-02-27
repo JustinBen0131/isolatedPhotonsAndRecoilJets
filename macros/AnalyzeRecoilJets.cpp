@@ -16270,157 +16270,165 @@ namespace ARJ
                 );
                 cTbl.Divide(3,2, 0.001, 0.001);
 
-                vector<TH1*> keepAlive;
-                keepAlive.reserve((std::size_t)nPads * 2);
+                  vector<TH1*> keepAlive;
+                  keepAlive.reserve((std::size_t)nPads * 2);
 
-                for (int i = 0; i < nPads; ++i)
-                {
-                  const PtBin& pb = bins[i];
+                  vector<TLegend*> keepAliveLeg;
+                  keepAliveLeg.reserve((std::size_t)nPads);
 
-                  const string hPass = string("h_ss_") + var + string("_iso")    + pb.suffix;
-                  const string hFail = string("h_ss_") + var + string("_nonIso") + pb.suffix;
-
-                  TH1* rawPass = GetTH1FromTopDir(ppTop, hPass);
-                  TH1* rawFail = GetTH1FromTopDir(ppTop, hFail);
-
-                  cTbl.cd(i+1);
-                  gPad->SetLeftMargin(0.14);
-                  gPad->SetRightMargin(0.05);
-                  gPad->SetBottomMargin(0.14);
-                  gPad->SetTopMargin(0.12);
-                  gPad->SetLogy(false);
-
-                  if (!rawPass || !rawFail)
+                  for (int i = 0; i < nPads; ++i)
                   {
-                    std::ostringstream s;
-                    s << "pT: " << pb.lo << "-" << pb.hi;
-                    DrawMissingPad(s.str());
-                    continue;
+                    const PtBin& pb = bins[i];
+
+                    const string hPass = string("h_ss_") + var + string("_iso")    + pb.suffix;
+                    const string hFail = string("h_ss_") + var + string("_nonIso") + pb.suffix;
+
+                    TH1* rawPass = GetTH1FromTopDir(ppTop, hPass);
+                    TH1* rawFail = GetTH1FromTopDir(ppTop, hFail);
+
+                    cTbl.cd(i+1);
+                    gPad->SetLeftMargin(0.14);
+                    gPad->SetRightMargin(0.05);
+                    gPad->SetBottomMargin(0.14);
+                    gPad->SetTopMargin(0.12);
+                    gPad->SetLogy(false);
+
+                    if (!rawPass || !rawFail)
+                    {
+                      std::ostringstream s;
+                      s << "pT: " << pb.lo << "-" << pb.hi;
+                      DrawMissingPad(s.str());
+                      continue;
+                    }
+
+                    TH1* hP = CloneNormalizeStyle(rawPass,
+                      TString::Format("pp_isoPass_tbl_%s_%s", var.c_str(), pb.folder.c_str()).Data(),
+                      kBlack, 20);
+
+                    TH1* hF = CloneNormalizeStyle(rawFail,
+                      TString::Format("pp_isoFail_tbl_%s_%s", var.c_str(), pb.folder.c_str()).Data(),
+                      kRed + 1, 24);
+
+                    if (!hP || !hF)
+                    {
+                      if (hP) delete hP;
+                      if (hF) delete hF;
+                      std::ostringstream s;
+                      s << "pT: " << pb.lo << "-" << pb.hi;
+                      DrawMissingPad(s.str());
+                      continue;
+                    }
+
+                    hP->GetXaxis()->SetTitle(var.c_str());
+                    hP->GetYaxis()->SetTitle("Normalized counts");
+
+                    const double ymax = std::max(hP->GetMaximum(), hF->GetMaximum());
+                    hP->SetMaximum(ymax * 1.35);
+
+                    hP->Draw("E1");
+                    hF->Draw("E1 same");
+
+                    // Legend (top-right): isolated vs non-isolated (keep alive until SaveCanvas)
+                    TLegend* leg = new TLegend(0.58, 0.70, 0.92, 0.86);
+                    leg->SetBorderSize(0);
+                    leg->SetFillStyle(0);
+                    leg->SetTextFont(42);
+                    leg->SetTextSize(0.036);
+                    leg->AddEntry(hP, "isolated", "ep");
+                    leg->AddEntry(hF, "non-isolated", "ep");
+                    leg->Draw();
+
+                    keepAliveLeg.push_back(leg);
+
+                    // Centered title above each pad
+                    TLatex t;
+                    t.SetNDC(true);
+                    t.SetTextFont(42);
+                    t.SetTextAlign(22);
+                    t.SetTextSize(0.042);
+                    t.DrawLatex(0.50, 0.93,
+                      TString::Format("%s, PP, p_{T}^{#gamma} = %d-%d GeV",
+                                      var.c_str(), pb.lo, pb.hi).Data());
+
+                    // SS cut label + cut lines (where applicable)
+                    TLatex tcut;
+                    tcut.SetNDC(true);
+                    tcut.SetTextFont(42);
+                    tcut.SetTextAlign(13);
+                    tcut.SetTextSize(0.038);
+
+                    bool drawCuts = false;
+                    double cutLo = 0.0;
+                    double cutHi = 0.0;
+                    std::string cutText;
+
+                    if (var == "e11e33")
+                    {
+                      cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_33} < 0.98";
+                      drawCuts = true;
+                      cutLo = 0.4;
+                      cutHi = 0.98;
+                    }
+                    else if (var == "e32e35")
+                    {
+                      cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
+                      drawCuts = true;
+                      cutLo = 0.92;
+                      cutHi = 1.0;
+                    }
+                    else if (var == "et1")
+                    {
+                      cutText = "#gamma-ID: 0.9 < et1 < 1.0";
+                      drawCuts = true;
+                      cutLo = 0.9;
+                      cutHi = 1.0;
+                    }
+                    else if (var == "weta")
+                    {
+                      cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                    }
+                    else if (var == "wphi")
+                    {
+                      cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                    }
+
+                    if (!cutText.empty())
+                    {
+                      tcut.DrawLatex(0.16, 0.86, cutText.c_str());
+                    }
+
+                    if (drawCuts)
+                    {
+                      gPad->Update();
+                      const double yMin = gPad->GetUymin();
+                      const double yMax = gPad->GetUymax();
+
+                      TLine* l1 = new TLine(cutLo, yMin, cutLo, yMax);
+                      l1->SetLineColor(kGreen + 2);
+                      l1->SetLineWidth(2);
+                      l1->SetLineStyle(2);
+                      l1->Draw("same");
+
+                      TLine* l2 = new TLine(cutHi, yMin, cutHi, yMax);
+                      l2->SetLineColor(kOrange + 7);
+                      l2->SetLineWidth(2);
+                      l2->SetLineStyle(2);
+                      l2->Draw("same");
+
+                      gPad->RedrawAxis();
+                    }
+
+                    keepAlive.push_back(hP);
+                    keepAlive.push_back(hF);
                   }
 
-                  TH1* hP = CloneNormalizeStyle(rawPass,
-                    TString::Format("pp_isoPass_tbl_%s_%s", var.c_str(), pb.folder.c_str()).Data(),
-                    kBlack, 20);
+                  SaveCanvas(cTbl, JoinPath(outPPvar, "table2x3_isoFail_vs_isoPass.png"));
 
-                  TH1* hF = CloneNormalizeStyle(rawFail,
-                    TString::Format("pp_isoFail_tbl_%s_%s", var.c_str(), pb.folder.c_str()).Data(),
-                    kRed + 1, 24);
+                  for (TLegend* l : keepAliveLeg) delete l;
+                  keepAliveLeg.clear();
 
-                  if (!hP || !hF)
-                  {
-                    if (hP) delete hP;
-                    if (hF) delete hF;
-                    std::ostringstream s;
-                    s << "pT: " << pb.lo << "-" << pb.hi;
-                    DrawMissingPad(s.str());
-                    continue;
-                  }
-
-                  hP->GetXaxis()->SetTitle(var.c_str());
-                  hP->GetYaxis()->SetTitle("Normalized counts");
-
-                  const double ymax = std::max(hP->GetMaximum(), hF->GetMaximum());
-                  hP->SetMaximum(ymax * 1.35);
-
-                  hP->Draw("E1");
-                  hF->Draw("E1 same");
-
-                  // Legend (top-right): isolated vs non-isolated
-                  TLegend leg(0.58, 0.70, 0.92, 0.86);
-                  leg.SetBorderSize(0);
-                  leg.SetFillStyle(0);
-                  leg.SetTextFont(42);
-                  leg.SetTextSize(0.036);
-                  leg.AddEntry(hP, "isolated", "ep");
-                  leg.AddEntry(hF, "non-isolated", "ep");
-                  leg.Draw();
-
-                  // Centered title above each pad
-                  TLatex t;
-                  t.SetNDC(true);
-                  t.SetTextFont(42);
-                  t.SetTextAlign(22);
-                  t.SetTextSize(0.042);
-                  t.DrawLatex(0.50, 0.93,
-                    TString::Format("%s, PP, p_{T}^{#gamma} = %d-%d GeV",
-                                    var.c_str(), pb.lo, pb.hi).Data());
-
-                  // SS cut label + cut lines (where applicable)
-                  TLatex tcut;
-                  tcut.SetNDC(true);
-                  tcut.SetTextFont(42);
-                  tcut.SetTextAlign(13);
-                  tcut.SetTextSize(0.038);
-
-                  bool drawCuts = false;
-                  double cutLo = 0.0;
-                  double cutHi = 0.0;
-                  std::string cutText;
-
-                  if (var == "e11e33")
-                  {
-                    cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_33} < 0.98";
-                    drawCuts = true;
-                    cutLo = 0.4;
-                    cutHi = 0.98;
-                  }
-                  else if (var == "e32e35")
-                  {
-                    cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
-                    drawCuts = true;
-                    cutLo = 0.92;
-                    cutHi = 1.0;
-                  }
-                  else if (var == "et1")
-                  {
-                    cutText = "#gamma-ID: 0.9 < et1 < 1.0";
-                    drawCuts = true;
-                    cutLo = 0.9;
-                    cutHi = 1.0;
-                  }
-                  else if (var == "weta")
-                  {
-                    cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
-                  }
-                  else if (var == "wphi")
-                  {
-                    cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
-                  }
-
-                  if (!cutText.empty())
-                  {
-                    tcut.DrawLatex(0.16, 0.86, cutText.c_str());
-                  }
-
-                  if (drawCuts)
-                  {
-                    gPad->Update();
-                    const double yMin = gPad->GetUymin();
-                    const double yMax = gPad->GetUymax();
-
-                    TLine* l1 = new TLine(cutLo, yMin, cutLo, yMax);
-                    l1->SetLineColor(kGreen + 2);
-                    l1->SetLineWidth(2);
-                    l1->SetLineStyle(2);
-                    l1->Draw("same");
-
-                    TLine* l2 = new TLine(cutHi, yMin, cutHi, yMax);
-                    l2->SetLineColor(kOrange + 7);
-                    l2->SetLineWidth(2);
-                    l2->SetLineStyle(2);
-                    l2->Draw("same");
-
-                    gPad->RedrawAxis();
-                  }
-
-                  keepAlive.push_back(hP);
-                  keepAlive.push_back(hF);
-                }
-
-                SaveCanvas(cTbl, JoinPath(outPPvar, "table2x3_isoFail_vs_isoPass.png"));
-
-                for (TH1* h : keepAlive) delete h;
-                keepAlive.clear();
+                  for (TH1* h : keepAlive) delete h;
+                  keepAlive.clear();
               }
 
               // -------------------------
@@ -16599,154 +16607,162 @@ namespace ARJ
                 vector<TH1*> keepAlive;
                 keepAlive.reserve((std::size_t)nPads * 2);
 
+                vector<TLegend*> keepAliveLeg;
+                keepAliveLeg.reserve((std::size_t)nPads);
+
                 for (int i = 0; i < nPads; ++i)
                 {
-                  const PtBin& pb = bins[i];
+                    const PtBin& pb = bins[i];
 
-                  const string hPass = string("h_ss_") + var + string("_iso")    + pb.suffix + centSuffix;
-                  const string hFail = string("h_ss_") + var + string("_nonIso") + pb.suffix + centSuffix;
+                    const string hPass = string("h_ss_") + var + string("_iso")    + pb.suffix + centSuffix;
+                    const string hFail = string("h_ss_") + var + string("_nonIso") + pb.suffix + centSuffix;
 
-                  TH1* rawPass = GetTH1FromTopDir(aaTop, hPass);
-                  TH1* rawFail = GetTH1FromTopDir(aaTop, hFail);
+                    TH1* rawPass = GetTH1FromTopDir(aaTop, hPass);
+                    TH1* rawFail = GetTH1FromTopDir(aaTop, hFail);
 
-                  cTbl.cd(i+1);
-                  gPad->SetLeftMargin(0.14);
-                  gPad->SetRightMargin(0.05);
-                  gPad->SetBottomMargin(0.14);
-                  gPad->SetTopMargin(0.12);
-                  gPad->SetLogy(false);
+                    cTbl.cd(i+1);
+                    gPad->SetLeftMargin(0.14);
+                    gPad->SetRightMargin(0.05);
+                    gPad->SetBottomMargin(0.14);
+                    gPad->SetTopMargin(0.12);
+                    gPad->SetLogy(false);
 
-                  if (!rawPass || !rawFail)
-                  {
-                    std::ostringstream s;
-                    s << "pT: " << pb.lo << "-" << pb.hi << "  " << centLabel;
-                    DrawMissingPad(s.str());
-                    continue;
+                    if (!rawPass || !rawFail)
+                    {
+                      std::ostringstream s;
+                      s << "pT: " << pb.lo << "-" << pb.hi << "  " << centLabel;
+                      DrawMissingPad(s.str());
+                      continue;
+                    }
+
+                    TH1* hP = CloneNormalizeStyle(rawPass,
+                      TString::Format("aa_isoPass_tbl_%s_%s%s", var.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data(),
+                      kBlack, 20);
+
+                    TH1* hF = CloneNormalizeStyle(rawFail,
+                      TString::Format("aa_isoFail_tbl_%s_%s%s", var.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data(),
+                      kRed + 1, 24);
+
+                    if (!hP || !hF)
+                    {
+                      if (hP) delete hP;
+                      if (hF) delete hF;
+                      std::ostringstream s;
+                      s << "pT: " << pb.lo << "-" << pb.hi << "  " << centLabel;
+                      DrawMissingPad(s.str());
+                      continue;
+                    }
+
+                    hP->GetXaxis()->SetTitle(var.c_str());
+                    hP->GetYaxis()->SetTitle("Normalized counts");
+
+                    const double ymax = std::max(hP->GetMaximum(), hF->GetMaximum());
+                    hP->SetMaximum(ymax * 1.35);
+
+                    hP->Draw("E1");
+                    hF->Draw("E1 same");
+
+                    // Legend (top-right): isolated vs non-isolated (keep alive until SaveCanvas)
+                    TLegend* leg = new TLegend(0.58, 0.70, 0.92, 0.86);
+                    leg->SetBorderSize(0);
+                    leg->SetFillStyle(0);
+                    leg->SetTextFont(42);
+                    leg->SetTextSize(0.036);
+                    leg->AddEntry(hP, "isolated", "ep");
+                    leg->AddEntry(hF, "non-isolated", "ep");
+                    leg->Draw();
+
+                    keepAliveLeg.push_back(leg);
+
+                    // Centered title above each pad
+                    TLatex t;
+                    t.SetNDC(true);
+                    t.SetTextFont(42);
+                    t.SetTextAlign(22);
+                    t.SetTextSize(0.042);
+                    t.DrawLatex(0.50, 0.93,
+                      TString::Format("%s, %s, p_{T}^{#gamma} = %d-%d GeV",
+                                      var.c_str(), centLabel.c_str(), pb.lo, pb.hi).Data());
+
+                    // SS cut label + cut lines (where applicable)
+                    TLatex tcut;
+                    tcut.SetNDC(true);
+                    tcut.SetTextFont(42);
+                    tcut.SetTextAlign(13);
+                    tcut.SetTextSize(0.038);
+
+                    bool drawCuts = false;
+                    double cutLo = 0.0;
+                    double cutHi = 0.0;
+                    std::string cutText;
+
+                    if (var == "e11e33")
+                    {
+                      cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_33} < 0.98";
+                      drawCuts = true;
+                      cutLo = 0.4;
+                      cutHi = 0.98;
+                    }
+                    else if (var == "e32e35")
+                    {
+                      cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
+                      drawCuts = true;
+                      cutLo = 0.92;
+                      cutHi = 1.0;
+                    }
+                    else if (var == "et1")
+                    {
+                      cutText = "#gamma-ID: 0.9 < et1 < 1.0";
+                      drawCuts = true;
+                      cutLo = 0.9;
+                      cutHi = 1.0;
+                    }
+                    else if (var == "weta")
+                    {
+                      cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                    }
+                    else if (var == "wphi")
+                    {
+                      cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                    }
+
+                    if (!cutText.empty())
+                    {
+                      tcut.DrawLatex(0.16, 0.86, cutText.c_str());
+                    }
+
+                    if (drawCuts)
+                    {
+                      gPad->Update();
+                      const double yMin = gPad->GetUymin();
+                      const double yMax = gPad->GetUymax();
+
+                      TLine* l1 = new TLine(cutLo, yMin, cutLo, yMax);
+                      l1->SetLineColor(kGreen + 2);
+                      l1->SetLineWidth(2);
+                      l1->SetLineStyle(2);
+                      l1->Draw("same");
+
+                      TLine* l2 = new TLine(cutHi, yMin, cutHi, yMax);
+                      l2->SetLineColor(kOrange + 7);
+                      l2->SetLineWidth(2);
+                      l2->SetLineStyle(2);
+                      l2->Draw("same");
+
+                      gPad->RedrawAxis();
+                    }
+
+                    keepAlive.push_back(hP);
+                    keepAlive.push_back(hF);
                   }
 
-                  TH1* hP = CloneNormalizeStyle(rawPass,
-                    TString::Format("aa_isoPass_tbl_%s_%s%s", var.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data(),
-                    kBlack, 20);
+                  SaveCanvas(cTbl, JoinPath(outAAvar, "table2x3_isoFail_vs_isoPass.png"));
 
-                  TH1* hF = CloneNormalizeStyle(rawFail,
-                    TString::Format("aa_isoFail_tbl_%s_%s%s", var.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data(),
-                    kRed + 1, 24);
+                  for (TLegend* l : keepAliveLeg) delete l;
+                  keepAliveLeg.clear();
 
-                  if (!hP || !hF)
-                  {
-                    if (hP) delete hP;
-                    if (hF) delete hF;
-                    std::ostringstream s;
-                    s << "pT: " << pb.lo << "-" << pb.hi << "  " << centLabel;
-                    DrawMissingPad(s.str());
-                    continue;
-                  }
-
-                  hP->GetXaxis()->SetTitle(var.c_str());
-                  hP->GetYaxis()->SetTitle("Normalized counts");
-
-                  const double ymax = std::max(hP->GetMaximum(), hF->GetMaximum());
-                  hP->SetMaximum(ymax * 1.35);
-
-                  hP->Draw("E1");
-                  hF->Draw("E1 same");
-
-                  // Legend (top-right): isolated vs non-isolated
-                  TLegend leg(0.58, 0.70, 0.92, 0.86);
-                  leg.SetBorderSize(0);
-                  leg.SetFillStyle(0);
-                  leg.SetTextFont(42);
-                  leg.SetTextSize(0.036);
-                  leg.AddEntry(hP, "isolated", "ep");
-                  leg.AddEntry(hF, "non-isolated", "ep");
-                  leg.Draw();
-
-                  // Centered title above each pad
-                  TLatex t;
-                  t.SetNDC(true);
-                  t.SetTextFont(42);
-                  t.SetTextAlign(22);
-                  t.SetTextSize(0.042);
-                  t.DrawLatex(0.50, 0.93,
-                    TString::Format("%s, %s, p_{T}^{#gamma} = %d-%d GeV",
-                                    var.c_str(), centLabel.c_str(), pb.lo, pb.hi).Data());
-
-                  // SS cut label + cut lines (where applicable)
-                  TLatex tcut;
-                  tcut.SetNDC(true);
-                  tcut.SetTextFont(42);
-                  tcut.SetTextAlign(13);
-                  tcut.SetTextSize(0.038);
-
-                  bool drawCuts = false;
-                  double cutLo = 0.0;
-                  double cutHi = 0.0;
-                  std::string cutText;
-
-                  if (var == "e11e33")
-                  {
-                    cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_33} < 0.98";
-                    drawCuts = true;
-                    cutLo = 0.4;
-                    cutHi = 0.98;
-                  }
-                  else if (var == "e32e35")
-                  {
-                    cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
-                    drawCuts = true;
-                    cutLo = 0.92;
-                    cutHi = 1.0;
-                  }
-                  else if (var == "et1")
-                  {
-                    cutText = "#gamma-ID: 0.9 < et1 < 1.0";
-                    drawCuts = true;
-                    cutLo = 0.9;
-                    cutHi = 1.0;
-                  }
-                  else if (var == "weta")
-                  {
-                    cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
-                  }
-                  else if (var == "wphi")
-                  {
-                    cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
-                  }
-
-                  if (!cutText.empty())
-                  {
-                    tcut.DrawLatex(0.16, 0.86, cutText.c_str());
-                  }
-
-                  if (drawCuts)
-                  {
-                    gPad->Update();
-                    const double yMin = gPad->GetUymin();
-                    const double yMax = gPad->GetUymax();
-
-                    TLine* l1 = new TLine(cutLo, yMin, cutLo, yMax);
-                    l1->SetLineColor(kGreen + 2);
-                    l1->SetLineWidth(2);
-                    l1->SetLineStyle(2);
-                    l1->Draw("same");
-
-                    TLine* l2 = new TLine(cutHi, yMin, cutHi, yMax);
-                    l2->SetLineColor(kOrange + 7);
-                    l2->SetLineWidth(2);
-                    l2->SetLineStyle(2);
-                    l2->Draw("same");
-
-                    gPad->RedrawAxis();
-                  }
-
-                  keepAlive.push_back(hP);
-                  keepAlive.push_back(hF);
-                }
-
-                SaveCanvas(cTbl, JoinPath(outAAvar, "table2x3_isoFail_vs_isoPass.png"));
-
-                for (TH1* h : keepAlive) delete h;
-                keepAlive.clear();
+                  for (TH1* h : keepAlive) delete h;
+                  keepAlive.clear();
               }
 
               // -------------------------
@@ -16900,6 +16916,138 @@ namespace ARJ
           }
       }
 
+      // =============================================================================
+      // NEW: PP-only unnormalized ZOOMED 2x3 table for e32e35 (per centrality folder)
+      //
+      // Output:
+      //   <outDir>/pp_unNormalized/table2x3_pp_unNormalized_zoom.png
+      //
+      // Notes:
+      //   - Uses PP hist only (same regardless of centrality, but written under each cent folder).
+      //   - Unnormalized counts (no scaling).
+      //   - Zoomed to peak region for e32e35.
+      // =============================================================================
+      static void MakePPUnNormalizedZoomTable_e32e35(TDirectory* ppTop,
+                                                    const string& outDir,
+                                                    const string& centLabel)
+      {
+        if (!ppTop) return;
+
+        const int nPads = std::min(6, kNPtBins);
+        if (nPads <= 0) return;
+
+        const auto& bins = PtBins();
+
+        const string ppUnDir = JoinPath(outDir, "pp_unNormalized");
+        EnsureDir(ppUnDir);
+
+        TCanvas c(
+          TString::Format("c_pp_unNorm_zoom_e32e35_%s", centLabel.c_str()).Data(),
+          "c_pp_unNorm_zoom_e32e35", 1500, 800
+        );
+        c.Divide(3,2, 0.001, 0.001);
+
+        vector<TH1*> keepAlive;
+        keepAlive.reserve((std::size_t)nPads);
+
+        for (int i = 0; i < nPads; ++i)
+        {
+          const PtBin& pb = bins[i];
+
+          // PP inclusive SS hist name for e32e35
+          const string hPPName = string("h_ss_e32e35_inclusive") + pb.suffix;
+          TH1* rawPP = GetTH1FromTopDir(ppTop, hPPName);
+
+          c.cd(i+1);
+          gPad->SetLeftMargin(0.14);
+          gPad->SetRightMargin(0.05);
+          gPad->SetBottomMargin(0.14);
+          gPad->SetTopMargin(0.12);
+          gPad->SetLogy(false);
+
+          if (!rawPP)
+          {
+            std::ostringstream s;
+            s << "pT: " << pb.lo << "-" << pb.hi << "  " << centLabel;
+            DrawMissingPad(s.str());
+            continue;
+          }
+
+          TH1* h = CloneTH1(rawPP,
+            TString::Format("pp_unNorm_zoom_e32e35_%s", pb.folder.c_str()).Data());
+          if (!h) continue;
+
+          EnsureSumw2(h);
+
+          h->SetTitle("");
+          h->GetXaxis()->SetTitle("e32e35");
+          h->GetYaxis()->SetTitle("Counts");
+
+          // Zoom to peak region for e32e35
+          h->GetXaxis()->SetRangeUser(0.85, 1.05);
+
+          StyleOverlayHist(h, kBlack, 20);
+
+          const double ymax = h->GetMaximum();
+          h->SetMaximum(ymax * 1.35);
+
+          h->Draw("E1");
+
+          // Legend (top-right)
+          TLegend leg(0.60, 0.70, 0.92, 0.86);
+          leg.SetBorderSize(0);
+          leg.SetFillStyle(0);
+          leg.SetTextFont(42);
+          leg.SetTextSize(0.036);
+          leg.AddEntry(h, "PP data (counts)", "ep");
+          leg.Draw();
+
+          // Centered title
+          TLatex t;
+          t.SetNDC(true);
+          t.SetTextFont(42);
+          t.SetTextAlign(22);
+          t.SetTextSize(0.042);
+          t.DrawLatex(0.50, 0.93,
+            TString::Format("e32e35, PP (zoom), %s, p_{T}^{#gamma} = %d-%d GeV",
+                            centLabel.c_str(), pb.lo, pb.hi).Data());
+
+          // SS cut label (top-left)
+          TLatex tcut;
+          tcut.SetNDC(true);
+          tcut.SetTextFont(42);
+          tcut.SetTextAlign(13);
+          tcut.SetTextSize(0.038);
+          tcut.DrawLatex(0.16, 0.86, "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0");
+
+          // Vertical cut lines at 0.92 and 1.0 (use pad y-range to guarantee visibility)
+          gPad->Update();
+          const double yMin = gPad->GetUymin();
+          const double yMax = gPad->GetUymax();
+
+          TLine* l1 = new TLine(0.92, yMin, 0.92, yMax);
+          l1->SetLineColor(kGreen + 2);
+          l1->SetLineWidth(2);
+          l1->SetLineStyle(2);
+          l1->Draw("same");
+
+          TLine* l2 = new TLine(1.0, yMin, 1.0, yMax);
+          l2->SetLineColor(kOrange + 7);
+          l2->SetLineWidth(2);
+          l2->SetLineStyle(2);
+          l2->Draw("same");
+
+          gPad->RedrawAxis();
+
+          keepAlive.push_back(h);
+        }
+
+        SaveCanvas(c, JoinPath(ppUnDir, "table2x3_pp_unNormalized_zoom.png"));
+
+        for (TH1* h : keepAlive) delete h;
+        keepAlive.clear();
+      }
+
       void RunPPvsAuAuDeliverables(Dataset& dsPP)
       {
         cout << ANSI_BOLD_CYN << "\n[EXTRA] PP vs Au+Au (gold-gold) photon-ID deliverables\n" << ANSI_RESET;
@@ -16994,19 +17142,30 @@ namespace ARJ
 
                 const string topLeft = TString::Format("SS %s (%s)", var.c_str(), def.label.c_str()).Data();
 
-                  ProduceFamily_PPvsAuAu(dsPP.topDir, aaTop, outDir, histBase, centSuffix, centLabel,
+                ProduceFamily_PPvsAuAu(dsPP.topDir, aaTop, outDir, histBase, centSuffix, centLabel,
                                          var, topLeft, false);
 
-                  // ---------------------------------------------------------------------
-                  // NEW: In noIsoRequired only, also write FULL-range UNNORMALIZED SS
-                  // distributions (PP + AuAu) per pT bin per centrality, plus 2x3 tables.
-                  // Output inside:
-                  //   .../noIsoRequired/<cent>/<ssVar>/{AuAu_unNormalized,pp_unNormalized}/...
-                  // ---------------------------------------------------------------------
-                  if (def.folder == "noIsoRequired")
-                  {
+                // ------------------------------------------------------------
+                // NEW: For noIsoRequired/e32e35 only, write an additional PP-only
+                // unnormalized ZOOMED 2x3 table under:
+                //   <outDir>/pp_unNormalized/table2x3_pp_unNormalized_zoom.png
+                // Does NOT affect existing outputs.
+                // ------------------------------------------------------------
+                if (def.folder == "noIsoRequired" && var == "e32e35")
+                {
+                    MakePPUnNormalizedZoomTable_e32e35(dsPP.topDir, outDir, centLabel);
+                }
+
+                // ---------------------------------------------------------------------
+                // NEW: In noIsoRequired only, also write FULL-range UNNORMALIZED SS
+                // distributions (PP + AuAu) per pT bin per centrality, plus 2x3 tables.
+                // Output inside:
+                //   .../noIsoRequired/<cent>/<ssVar>/{AuAu_unNormalized,pp_unNormalized}/...
+                // ---------------------------------------------------------------------
+                if (def.folder == "noIsoRequired")
+                {
                     MakeUnnormalizedQA_PPvsAuAu(dsPP.topDir, aaTop, outDir, histBase, centSuffix, centLabel, var, topLeft);
-                  }
+                }
               }
             }
 
