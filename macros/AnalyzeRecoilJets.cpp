@@ -16529,28 +16529,163 @@ namespace ARJ
 
                       if (drawCuts)
                       {
-                        const double yMax = hPP->GetMaximum();
-                        TLine l1(cutLo, 0.0, cutLo, yMax);
-                        l1.SetLineColor(kGreen + 2);
-                        l1.SetLineWidth(2);
-                        l1.SetLineStyle(2);
-                        l1.Draw();
+                        // Use pad y-range (not hist max) and force "same" draw so lines persist/appear.
+                        gPad->Update();
+                        const double yMin = gPad->GetUymin();
+                        const double yMax = gPad->GetUymax();
 
-                        TLine l2(cutHi, 0.0, cutHi, yMax);
-                        l2.SetLineColor(kOrange + 7);
-                        l2.SetLineWidth(2);
-                        l2.SetLineStyle(2);
-                        l2.Draw();
+                        TLine* l1 = new TLine(cutLo, yMin, cutLo, yMax);
+                        l1->SetLineColor(kGreen + 2);
+                        l1->SetLineWidth(2);
+                        l1->SetLineStyle(2);
+                        l1->Draw("same");
+
+                        TLine* l2 = new TLine(cutHi, yMin, cutHi, yMax);
+                        l2->SetLineColor(kOrange + 7);
+                        l2->SetLineWidth(2);
+                        l2->SetLineStyle(2);
+                        l2->Draw("same");
+
+                        gPad->RedrawAxis();
                       }
 
                     keepAlive.push_back(hPP);
                     keepAlive.push_back(hAA);
                   }
 
-                  SaveCanvas(c, JoinPath(ptDir, "table2x3_overlay_pp_vs_auau_byCent.png"));
+                    SaveCanvas(c, JoinPath(ptDir, "table2x3_overlay_pp_vs_auau_byCent.png"));
 
-                  for (TH1* h : keepAlive) delete h;
-                  keepAlive.clear();
+                    // ------------------------------------------------------------------
+                    // NEW: PP-only zoomed distribution for this SS variable + pT bin
+                    // Output to:
+                    //   <kOutPPAuAuBase>/noIsoRequired/<ssVar>/<pTbin>/pp_zoom.png
+                    // ------------------------------------------------------------------
+                    if (rawPP)
+                    {
+                      TH1* hPPz = CloneNormalizeStyle(rawPP,
+                        TString::Format("pp_zoom_%s_%s", var.c_str(), pb.folder.c_str()).Data(),
+                        kBlack, 20);
+
+                      if (hPPz)
+                      {
+                        TCanvas cPPz(
+                          TString::Format("c_pp_zoom_%s_%s", var.c_str(), pb.folder.c_str()).Data(),
+                          "c_pp_zoom", 900, 700
+                        );
+                        ApplyCanvasMargins1D(cPPz);
+                        cPPz.SetLogy(false);
+
+                        hPPz->GetXaxis()->SetTitle(var.c_str());
+                        hPPz->GetYaxis()->SetTitle("Normalized counts");
+
+                        // Default zoom windows (reasonable + stable)
+                        // - For ratio-like vars: focus around the tight-id region
+                        // - For widths: show low region where cut lives
+                        if (var == "e11e33")
+                        {
+                          hPPz->GetXaxis()->SetRangeUser(0.25, 1.05);
+                        }
+                        else if (var == "e32e35")
+                        {
+                          hPPz->GetXaxis()->SetRangeUser(0.85, 1.05);
+                        }
+                        else if (var == "et1")
+                        {
+                          hPPz->GetXaxis()->SetRangeUser(0.80, 1.05);
+                        }
+                        else if (var == "weta" || var == "wphi")
+                        {
+                          hPPz->GetXaxis()->SetRangeUser(0.0, 0.40);
+                        }
+
+                        hPPz->Draw("E1");
+
+                        // Add the same gamma-ID annotation + lines (where applicable)
+                        TLatex tcut;
+                        tcut.SetNDC(true);
+                        tcut.SetTextFont(42);
+                        tcut.SetTextAlign(13);
+                        tcut.SetTextSize(0.040);
+
+                        bool drawCuts = false;
+                        double cutLo = 0.0;
+                        double cutHi = 0.0;
+                        std::string cutText;
+
+                        if (var == "e11e33")
+                        {
+                          cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_33} < 0.98";
+                          drawCuts = true;
+                          cutLo = 0.4;
+                          cutHi = 0.98;
+                        }
+                        else if (var == "e32e35")
+                        {
+                          cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
+                          drawCuts = true;
+                          cutLo = 0.92;
+                          cutHi = 1.0;
+                        }
+                        else if (var == "et1")
+                        {
+                          cutText = "#gamma-ID: 0.9 < et1 < 1.0";
+                          drawCuts = true;
+                          cutLo = 0.9;
+                          cutHi = 1.0;
+                        }
+                        else if (var == "weta")
+                        {
+                          cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                        }
+                        else if (var == "wphi")
+                        {
+                          cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                        }
+
+                        if (!cutText.empty())
+                        {
+                          tcut.DrawLatex(0.16, 0.86, cutText.c_str());
+                        }
+
+                        if (drawCuts)
+                        {
+                          gPad->Update();
+                          const double yMin = gPad->GetUymin();
+                          const double yMax = gPad->GetUymax();
+
+                          TLine* l1 = new TLine(cutLo, yMin, cutLo, yMax);
+                          l1->SetLineColor(kGreen + 2);
+                          l1->SetLineWidth(2);
+                          l1->SetLineStyle(2);
+                          l1->Draw("same");
+
+                          TLine* l2 = new TLine(cutHi, yMin, cutHi, yMax);
+                          l2->SetLineColor(kOrange + 7);
+                          l2->SetLineWidth(2);
+                          l2->SetLineStyle(2);
+                          l2->Draw("same");
+
+                          gPad->RedrawAxis();
+                        }
+
+                        // Centered title
+                        TLatex t;
+                        t.SetNDC(true);
+                        t.SetTextFont(42);
+                        t.SetTextAlign(22);
+                        t.SetTextSize(0.045);
+                        t.DrawLatex(0.50, 0.94,
+                          TString::Format("%s, PP, p_{T}^{#gamma} = %d-%d GeV",
+                                          var.c_str(), pb.lo, pb.hi).Data());
+
+                        SaveCanvas(cPPz, JoinPath(ptDir, "pp_zoom.png"));
+
+                        delete hPPz;
+                      }
+                    }
+
+                    for (TH1* h : keepAlive) delete h;
+                    keepAlive.clear();
                 }
               }
             }
