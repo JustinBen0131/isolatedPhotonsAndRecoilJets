@@ -242,6 +242,8 @@ namespace yamlcfg
       bool   use_vz_cut = true;
       double vz_cut_cm  = 30.0;
 
+      std::vector<int> centrality_edges = {0, 10, 20, 40, 60, 80, 100};
+
       double isoA = 1.08128;
       double isoB = 0.0299107;
       double isoGap = 1.0;
@@ -353,19 +355,36 @@ namespace yamlcfg
 
   inline void ParseInlineListDoubles(std::string s, std::vector<double>& out)
   {
-    out.clear();
-    s = detail::trim(s);
-    const std::size_t l = s.find('[');
-    const std::size_t r = s.find(']');
-    if (l == std::string::npos || r == std::string::npos || r <= l) return;
-    std::string inner = s.substr(l + 1, r - l - 1);
-    std::stringstream ss(inner);
-    std::string tok;
-    while (std::getline(ss, tok, ','))
-    {
-      double v = 0.0;
-      if (ParseDouble(tok, v)) out.push_back(v);
-    }
+      out.clear();
+      s = detail::trim(s);
+      const std::size_t l = s.find('[');
+      const std::size_t r = s.find(']');
+      if (l == std::string::npos || r == std::string::npos || r <= l) return;
+      std::string inner = s.substr(l + 1, r - l - 1);
+      std::stringstream ss(inner);
+      std::string tok;
+      while (std::getline(ss, tok, ','))
+      {
+        double v = 0.0;
+        if (ParseDouble(tok, v)) out.push_back(v);
+      }
+  }
+
+  inline void ParseInlineListInts(std::string s, std::vector<int>& out)
+  {
+      out.clear();
+      s = detail::trim(s);
+      const std::size_t l = s.find('[');
+      const std::size_t r = s.find(']');
+      if (l == std::string::npos || r == std::string::npos || r <= l) return;
+      std::string inner = s.substr(l + 1, r - l - 1);
+      std::stringstream ss(inner);
+      std::string tok;
+      while (std::getline(ss, tok, ','))
+      {
+        int v = 0;
+        if (ParseInt(tok, v)) out.push_back(v);
+      }
   }
 
   inline void ParseInlineMapDoubles(std::string s, std::map<std::string, double>& out)
@@ -507,6 +526,20 @@ namespace yamlcfg
           const std::string rhs = AfterColon(line);
           if (!ParseDouble(rhs, cfg.vz_cut_cm))
             warn_parse("vz_cut_cm", rhs, "expected a scalar double");
+        }
+        else if (StartsWithKey(line, "centrality_edges"))
+        {
+          const std::string rhs = AfterColon(line);
+          std::vector<int> v;
+          ParseInlineListInts(rhs, v);
+          if (v.size() >= 2)
+          {
+            cfg.centrality_edges = v;
+          }
+          else
+          {
+            warn_parse("centrality_edges", rhs, "expected an inline list of integers with size >= 2 (e.g. [0, 10, 20, 40, 60, 80, 100])");
+          }
         }
         else if (StartsWithKey(line, "event_display_tree"))
         {
@@ -2084,6 +2117,7 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
   recoilJets_AuAu->setMinBackToBack(cfg.back_to_back_dphi_min_pi_fraction * M_PI);
 
   recoilJets_AuAu->setUseVzCut(cfg.use_vz_cut, cfg.vz_cut_cm);
+  recoilJets_AuAu->setCentEdges(cfg.centrality_edges);
   recoilJets_AuAu->setActiveJetRKeys(activeJetRKeys);
   recoilJets_AuAu->setIsolationWP(cfg.isoA, cfg.isoB, cfg.isoGap, cfg.isoConeR, cfg.isoTowMin, cfg.isoFixed);
   recoilJets_AuAu->setIsSlidingIso(cfg.isSlidingIso);
@@ -2118,15 +2152,16 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
 
   if (vlevel > 0)
   {
-        std::cout << "[CFG] Applied to RecoilJets:"
-                  << " etaAbsMax=" << cfg.photon_eta_abs_max
-                  << " jetPtMin=" << cfg.jet_pt_min
-                  << " dphiMin(rad)=" << (cfg.back_to_back_dphi_min_pi_fraction * M_PI)
-                  << " useVzCut=" << (cfg.use_vz_cut ? "true" : "false")
-                  << " vzCut=" << cfg.vz_cut_cm
-                  << " phoDR=" << cfg.pho_dr_max
-                  << " jetDR=" << cfg.jet_dr_max
-                  << "\n";
+      std::cout << "[CFG] Applied to RecoilJets:"
+                << " etaAbsMax=" << cfg.photon_eta_abs_max
+                << " jetPtMin=" << cfg.jet_pt_min
+                << " dphiMin(rad)=" << (cfg.back_to_back_dphi_min_pi_fraction * M_PI)
+                << " useVzCut=" << (cfg.use_vz_cut ? "true" : "false")
+                << " vzCut=" << cfg.vz_cut_cm
+                << " centEdges_n=" << cfg.centrality_edges.size()
+                << " phoDR=" << cfg.pho_dr_max
+                << " jetDR=" << cfg.jet_dr_max
+                << "\n";
   }
         
   // EventDisplay diagnostics payload (EventDisplayTree written into the ROOT output)
@@ -2143,20 +2178,22 @@ void Fun4All_recoilJets_AuAu(const int   nEvents   =  0,
   // RecoilJets inherits SubsysReco::Verbosity(int)
   recoilJets_AuAu->Verbosity(vlevel);
   if (verbose) std::cout << "[INFO] RJ_VERBOSITY → " << vlevel << '\n';
-  // Pick analysis type for the module (pp macro supports only isPP / isSim).
-  std::string dtype = "isPP";
+  // Pick analysis type for the module (MUST match dataset so Au+Au centrality + suffixing works).
+  std::string dtype = (isSim ? "isSim" : (isAuAuData ? "isAuAu" : "isPP"));
+
   if (const char* env = std::getenv("RJ_DATASET"))
   {
-                std::string s = detail::trim(std::string(env));
-                std::string sLower = s;
-                std::transform(sLower.begin(), sLower.end(), sLower.begin(),
-                               [](unsigned char c){ return std::tolower(c); });
+                  std::string s = detail::trim(std::string(env));
+                  std::string sLower = s;
+                  std::transform(sLower.begin(), sLower.end(), sLower.begin(),
+                                 [](unsigned char c){ return std::tolower(c); });
 
-                if (sLower == "issim" || sLower == "sim")      dtype = "isSim";
-                else                                           dtype = "isPP";
-    }
+                  if (sLower == "issim" || sLower == "sim")                     dtype = "isSim";
+                  else if (sLower == "isauau" || sLower == "auau" || sLower == "aa") dtype = "isAuAu";
+                  else if (sLower == "ispp" || sLower == "pp")                  dtype = "isPP";
+      }
 
-  if (verbose) std::cout << "[INFO] RJ_DATASET → " << dtype << '\n';
+  if (verbose) std::cout << "[INFO] setDataType(" << dtype << ")" << '\n';
   recoilJets_AuAu->setDataType(dtype);
 
   se->registerSubsystem(recoilJets_AuAu);
