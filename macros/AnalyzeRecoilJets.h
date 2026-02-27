@@ -215,7 +215,10 @@ namespace ARJ
   // NOTE: Only the trigger directory below is used inside the file.
   inline const string kTriggerAuAuGold = "MBD_NS_geq_2_vtx_lt_150";
   inline const string kInAuAuGold =
-            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet5/7pi_8_BB/RecoilJets_auau_ALL.root";
+              "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet5/7pi_8_BB/RecoilJets_auau_ALL.root";
+
+  inline const string kInAuAuGoldNew =
+              "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet5/7pi_8_BB/UE_subtractedIso_take1/RecoilJets_auau_ALL.root";
 
   inline const string kInSIM5 =
       "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5_SIM/RecoilJets_photonjet5_ALL.root";
