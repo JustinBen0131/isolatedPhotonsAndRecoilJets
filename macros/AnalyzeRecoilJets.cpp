@@ -17286,138 +17286,280 @@ namespace ARJ
         // For each pT bin (first 6 pads), overlay AuAu Eiso counts for each
         // centrality bin (first 6) on the same pad.
         // =============================================================================
-        static void Make2x3Table_AuAuUnNormalized_ByCent(TDirectory* aaTop,
-                                                         const string& outDir,
-                                                         const string& histBase,
-                                                         const string& xTitle)
+      static void Make2x3Table_AuAuUnNormalized_ByCent(TDirectory* aaTop,
+                                                       const string& outDir,
+                                                       const string& histBase,
+                                                       const string& xTitle)
+      {
+        if (!aaTop) return;
+
+        const auto& ptBins   = PtBins();
+        const auto& centBins = CentBins();
+
+        const int nPads  = std::min(6, kNPtBins);
+        const int nCents = std::min(6, (int)centBins.size());
+        if (nPads <= 0 || nCents <= 0) return;
+
+        EnsureDir(outDir);
+
+        const int colors[] = {
+          kRed + 1, kBlue + 1, kGreen + 2, kMagenta + 1, kOrange + 7, kCyan + 1,
+          kViolet + 1, kAzure + 2, kSpring + 5, kPink + 7, kTeal + 3, kGray + 2
+        };
+        const int nColors = (int)(sizeof(colors)/sizeof(colors[0]));
+
+        TCanvas c(
+          TString::Format("c_aa_unNorm_byCent_%s", histBase.c_str()).Data(),
+          "c_aa_unNorm_byCent", 1500, 800
+        );
+        c.Divide(3,2, 0.001, 0.001);
+
+        vector<TH1*> keepAlive;
+        keepAlive.reserve((std::size_t)nPads * (std::size_t)nCents);
+
+        vector<TLegend*> keepAliveLeg;
+        keepAliveLeg.reserve((std::size_t)nPads);
+
+        for (int ipt = 0; ipt < nPads; ++ipt)
         {
-          if (!aaTop) return;
+          const PtBin& pb = ptBins[ipt];
 
-          const auto& ptBins   = PtBins();
-          const auto& centBins = CentBins();
+          c.cd(ipt+1);
+          gPad->SetLeftMargin(0.14);
+          gPad->SetRightMargin(0.05);
+          gPad->SetBottomMargin(0.14);
+          gPad->SetTopMargin(0.12);
+          gPad->SetLogy(false);
 
-          const int nPads  = std::min(6, kNPtBins);
-          const int nCents = std::min(6, (int)centBins.size());
-          if (nPads <= 0 || nCents <= 0) return;
+          vector<TH1*> histsPad;
+          histsPad.reserve((std::size_t)nCents);
 
-          EnsureDir(outDir);
+          vector<std::string> labelsPad;
+          labelsPad.reserve((std::size_t)nCents);
 
-          const int colors[] = {
-            kRed + 1, kBlue + 1, kGreen + 2, kMagenta + 1, kOrange + 7, kCyan + 1,
-            kViolet + 1, kAzure + 2, kSpring + 5, kPink + 7, kTeal + 3, kGray + 2
-          };
-          const int nColors = (int)(sizeof(colors)/sizeof(colors[0]));
-
-          TCanvas c(
-            TString::Format("c_aa_unNorm_byCent_%s", histBase.c_str()).Data(),
-            "c_aa_unNorm_byCent", 1500, 800
-          );
-          c.Divide(3,2, 0.001, 0.001);
-
-          vector<TH1*> keepAlive;
-          keepAlive.reserve((std::size_t)nPads * (std::size_t)nCents);
-
-          vector<TLegend*> keepAliveLeg;
-          keepAliveLeg.reserve((std::size_t)nPads);
-
-          for (int ipt = 0; ipt < nPads; ++ipt)
+          for (int ic = 0; ic < nCents; ++ic)
           {
-            const PtBin& pb = ptBins[ipt];
+            const auto& cb = centBins[ic];
+            const string hAAName = histBase + pb.suffix + cb.suffix;
 
-            c.cd(ipt+1);
-            gPad->SetLeftMargin(0.14);
-            gPad->SetRightMargin(0.05);
-            gPad->SetBottomMargin(0.14);
-            gPad->SetTopMargin(0.12);
-            gPad->SetLogy(false);
+            TH1* rawAA = GetTH1FromTopDir(aaTop, hAAName);
+            if (!rawAA) continue;
 
-            vector<TH1*> histsPad;
-            histsPad.reserve((std::size_t)nCents);
+            TH1* hAAc = CloneTH1(rawAA,
+              TString::Format("aa_unNorm_byCent_%s_%s%s",
+                              histBase.c_str(), pb.folder.c_str(), cb.suffix.c_str()).Data());
+            if (!hAAc) continue;
 
-            vector<std::string> labelsPad;
-            labelsPad.reserve((std::size_t)nCents);
+            EnsureSumw2(hAAc);
+            hAAc->GetXaxis()->UnZoom();
+            hAAc->SetTitle("");
+            hAAc->GetXaxis()->SetTitle(xTitle.c_str());
+            hAAc->GetYaxis()->SetTitle("Counts");
 
-            for (int ic = 0; ic < nCents; ++ic)
-            {
-              const auto& cb = centBins[ic];
-              const string hAAName = histBase + pb.suffix + cb.suffix;
+            const int col = colors[ic % nColors];
+            StyleOverlayHist(hAAc, col, 20);
+            hAAc->SetMarkerStyle(20);
 
-              TH1* rawAA = GetTH1FromTopDir(aaTop, hAAName);
-              if (!rawAA) continue;
-
-              TH1* hAAc = CloneTH1(rawAA,
-                TString::Format("aa_unNorm_byCent_%s_%s%s",
-                                histBase.c_str(), pb.folder.c_str(), cb.suffix.c_str()).Data());
-              if (!hAAc) continue;
-
-              EnsureSumw2(hAAc);
-              hAAc->GetXaxis()->UnZoom();
-              hAAc->SetTitle("");
-              hAAc->GetXaxis()->SetTitle(xTitle.c_str());
-              hAAc->GetYaxis()->SetTitle("Counts");
-
-              const int col = colors[ic % nColors];
-              StyleOverlayHist(hAAc, col, 20);
-              hAAc->SetMarkerStyle(20);
-
-              histsPad.push_back(hAAc);
-              labelsPad.push_back(TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
-            }
-
-            if (histsPad.empty())
-            {
-              std::ostringstream s;
-              s << "pT: " << pb.lo << "-" << pb.hi << "  AuAu by cent";
-              DrawMissingPad(s.str());
-              continue;
-            }
-
-            double yMax = 0.0;
-            for (TH1* h : histsPad) yMax = std::max(yMax, (double)h->GetMaximum());
-
-            histsPad[0]->SetMaximum(yMax * 1.35);
-            histsPad[0]->Draw("E1");
-
-            for (std::size_t j = 1; j < histsPad.size(); ++j)
-            {
-              histsPad[j]->Draw("E1 same");
-            }
-
-            TLegend* leg = new TLegend(0.52, 0.60, 0.90, 0.86);
-            leg->SetBorderSize(0);
-            leg->SetFillStyle(0);
-            leg->SetTextFont(42);
-            leg->SetTextSize(0.030);
-
-            for (std::size_t j = 0; j < histsPad.size(); ++j)
-            {
-              leg->AddEntry(histsPad[j], labelsPad[j].c_str(), "ep");
-            }
-            leg->Draw();
-            keepAliveLeg.push_back(leg);
-
-            TLatex t;
-            t.SetNDC(true);
-            t.SetTextFont(42);
-            t.SetTextAlign(22);
-            t.SetTextSize(0.042);
-            t.DrawLatex(0.50, 0.93,
-              TString::Format("Au+Au (counts), centrality overlays, p_{T}^{#gamma} = %d-%d GeV",
-                              pb.lo, pb.hi).Data());
-
-            gPad->RedrawAxis();
-
-            for (TH1* h : histsPad) keepAlive.push_back(h);
+            histsPad.push_back(hAAc);
+            labelsPad.push_back(TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
           }
 
-          SaveCanvas(c, JoinPath(outDir, "table2x3_AuAu_unNormalized.png"));
+          if (histsPad.empty())
+          {
+            std::ostringstream s;
+            s << "pT: " << pb.lo << "-" << pb.hi << "  AuAu by cent";
+            DrawMissingPad(s.str());
+            continue;
+          }
 
-          for (TLegend* l : keepAliveLeg) delete l;
-          keepAliveLeg.clear();
+          double yMax = 0.0;
+          for (TH1* h : histsPad) yMax = std::max(yMax, (double)h->GetMaximum());
 
-          for (TH1* h : keepAlive) delete h;
-          keepAlive.clear();
+          histsPad[0]->SetMaximum(yMax * 1.35);
+          histsPad[0]->Draw("E1");
+
+          for (std::size_t j = 1; j < histsPad.size(); ++j)
+          {
+            histsPad[j]->Draw("E1 same");
+          }
+
+          TLegend* leg = new TLegend(0.52, 0.60, 0.90, 0.86);
+          leg->SetBorderSize(0);
+          leg->SetFillStyle(0);
+          leg->SetTextFont(42);
+          leg->SetTextSize(0.030);
+
+          for (std::size_t j = 0; j < histsPad.size(); ++j)
+          {
+            leg->AddEntry(histsPad[j], labelsPad[j].c_str(), "ep");
+          }
+          leg->Draw();
+          keepAliveLeg.push_back(leg);
+
+          TLatex t;
+          t.SetNDC(true);
+          t.SetTextFont(42);
+          t.SetTextAlign(22);
+          t.SetTextSize(0.042);
+          t.DrawLatex(0.50, 0.93,
+            TString::Format("Au+Au (counts), centrality overlays, p_{T}^{#gamma} = %d-%d GeV",
+                            pb.lo, pb.hi).Data());
+
+          gPad->RedrawAxis();
+
+          for (TH1* h : histsPad) keepAlive.push_back(h);
         }
+
+        SaveCanvas(c, JoinPath(outDir, "table2x3_AuAu_unNormalized.png"));
+
+        for (TLegend* l : keepAliveLeg) delete l;
+        keepAliveLeg.clear();
+
+        for (TH1* h : keepAlive) delete h;
+        keepAlive.clear();
+      }
+
+      // =============================================================================
+      // NEW: AuAu unnormalized Eiso (counts) summary by pT overlays (all pT bins)
+      //
+      // Output:
+      //   <kOutPPAuAuBase>/noSS_isoSpectra/table2x3_AuAu_unNormalized_byPtOverlays.png
+      //
+      // For each centrality bin (first 6 pads), overlay AuAu Eiso counts for each
+      // pT bin (ALL available pT bins) on the same pad.
+      // =============================================================================
+      static void Make2x3Table_AuAuUnNormalized_ByPtOverlaysPerCent(TDirectory* aaTop,
+                                                                    const string& outDir,
+                                                                    const string& histBase,
+                                                                    const string& xTitle)
+      {
+        if (!aaTop) return;
+
+        const auto& ptBins   = PtBins();
+        const auto& centBins = CentBins();
+
+        const int nPads  = std::min(6, (int)centBins.size());
+        const int nPt    = (int)ptBins.size();
+        if (nPads <= 0 || nPt <= 0) return;
+
+        EnsureDir(outDir);
+
+        const int colors[] = {
+          kRed + 1, kBlue + 1, kGreen + 2, kMagenta + 1, kOrange + 7, kCyan + 1,
+          kViolet + 1, kAzure + 2, kSpring + 5, kPink + 7, kTeal + 3, kGray + 2
+        };
+        const int nColors = (int)(sizeof(colors)/sizeof(colors[0]));
+
+        TCanvas c(
+          TString::Format("c_aa_unNorm_byPtOverlays_%s", histBase.c_str()).Data(),
+          "c_aa_unNorm_byPtOverlays", 1500, 800
+        );
+        c.Divide(3,2, 0.001, 0.001);
+
+        vector<TH1*> keepAlive;
+        keepAlive.reserve((std::size_t)nPads * (std::size_t)nPt);
+
+        vector<TLegend*> keepAliveLeg;
+        keepAliveLeg.reserve((std::size_t)nPads);
+
+        for (int ic = 0; ic < nPads; ++ic)
+        {
+          const auto& cb = centBins[ic];
+
+          c.cd(ic+1);
+          gPad->SetLeftMargin(0.14);
+          gPad->SetRightMargin(0.05);
+          gPad->SetBottomMargin(0.14);
+          gPad->SetTopMargin(0.12);
+          gPad->SetLogy(false);
+
+          vector<TH1*> histsPad;
+          histsPad.reserve((std::size_t)nPt);
+
+          vector<std::string> labelsPad;
+          labelsPad.reserve((std::size_t)nPt);
+
+          for (int ipt = 0; ipt < nPt; ++ipt)
+          {
+            const PtBin& pb = ptBins[ipt];
+            const string hAAName = histBase + pb.suffix + cb.suffix;
+
+            TH1* rawAA = GetTH1FromTopDir(aaTop, hAAName);
+            if (!rawAA) continue;
+
+            TH1* hAAc = CloneTH1(rawAA,
+              TString::Format("aa_unNorm_byPt_%s_%s%s",
+                              histBase.c_str(), pb.folder.c_str(), cb.suffix.c_str()).Data());
+            if (!hAAc) continue;
+
+            EnsureSumw2(hAAc);
+            hAAc->GetXaxis()->UnZoom();
+            hAAc->SetTitle("");
+            hAAc->GetXaxis()->SetTitle(xTitle.c_str());
+            hAAc->GetYaxis()->SetTitle("Counts");
+
+            const int col = colors[ipt % nColors];
+            StyleOverlayHist(hAAc, col, 20);
+            hAAc->SetMarkerStyle(20);
+
+            histsPad.push_back(hAAc);
+            labelsPad.push_back(TString::Format("%d-%d GeV", pb.lo, pb.hi).Data());
+          }
+
+          if (histsPad.empty())
+          {
+            std::ostringstream s;
+            s << "cent: " << cb.lo << "-" << cb.hi << "  AuAu by pT";
+            DrawMissingPad(s.str());
+            continue;
+          }
+
+          double yMax = 0.0;
+          for (TH1* h : histsPad) yMax = std::max(yMax, (double)h->GetMaximum());
+
+          histsPad[0]->SetMaximum(yMax * 1.35);
+          histsPad[0]->Draw("E1");
+
+          for (std::size_t j = 1; j < histsPad.size(); ++j)
+          {
+            histsPad[j]->Draw("E1 same");
+          }
+
+          TLegend* leg = new TLegend(0.52, 0.60, 0.90, 0.86);
+          leg->SetBorderSize(0);
+          leg->SetFillStyle(0);
+          leg->SetTextFont(42);
+          leg->SetTextSize(0.028);
+
+          for (std::size_t j = 0; j < histsPad.size(); ++j)
+          {
+            leg->AddEntry(histsPad[j], labelsPad[j].c_str(), "ep");
+          }
+          leg->Draw();
+          keepAliveLeg.push_back(leg);
+
+          TLatex t;
+          t.SetNDC(true);
+          t.SetTextFont(42);
+          t.SetTextAlign(22);
+          t.SetTextSize(0.042);
+          t.DrawLatex(0.50, 0.93,
+            TString::Format("Au+Au (counts), p_{T}^{#gamma} overlays, cent = %d-%d%%",
+                            cb.lo, cb.hi).Data());
+
+          gPad->RedrawAxis();
+
+          for (TH1* h : histsPad) keepAlive.push_back(h);
+        }
+
+        SaveCanvas(c, JoinPath(outDir, "table2x3_AuAu_unNormalized_byPtOverlays.png"));
+
+        for (TLegend* l : keepAliveLeg) delete l;
+        keepAliveLeg.clear();
+
+        for (TH1* h : keepAlive) delete h;
+        keepAlive.clear();
+      }
 
       void RunPPvsAuAuDeliverables(Dataset& dsPP)
       {
@@ -18339,6 +18481,7 @@ namespace ARJ
             const string outNoSS = JoinPath(outBase, "noSS_isoSpectra");
             EnsureDir(outNoSS);
             Make2x3Table_AuAuUnNormalized_ByCent(aaTop, outNoSS, "h_Eiso", "E_{T}^{iso} [GeV]");
+            Make2x3Table_AuAuUnNormalized_ByPtOverlaysPerCent(aaTop, outNoSS, "h_Eiso", "E_{T}^{iso} [GeV]");
           }
 
           cout << ANSI_BOLD_GRN
