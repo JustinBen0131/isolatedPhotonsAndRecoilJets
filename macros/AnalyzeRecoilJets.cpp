@@ -15389,7 +15389,7 @@ namespace ARJ
 
             if (xTitle == "e11e33")
             {
-              cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_33} < 0.98";
+              cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
               drawCuts = true;
               cutLo = 0.4;
               cutHi = 0.98;
@@ -15621,7 +15621,7 @@ namespace ARJ
 
               if (xTitle == "e11e33")
               {
-                cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_33} < 0.98";
+                cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
                 drawCuts = true;
                 cutLo = 0.4;
                 cutHi = 0.98;
@@ -15764,7 +15764,7 @@ namespace ARJ
 
               if (xTitle == "e11e33")
               {
-                cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_33} < 0.98";
+                cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
                 drawCuts = true;
                 cutLo = 0.4;
                 cutHi = 0.98;
@@ -16319,11 +16319,17 @@ namespace ARJ
                       continue;
                     }
 
-                    hP->GetXaxis()->SetTitle(var.c_str());
-                    hP->GetYaxis()->SetTitle("Normalized counts");
+                      hP->GetXaxis()->SetTitle(var.c_str());
+                      hP->GetYaxis()->SetTitle("Normalized counts");
 
-                    const double ymax = std::max(hP->GetMaximum(), hF->GetMaximum());
-                    hP->SetMaximum(ymax * 1.35);
+                      if (var == "e32e35")
+                      {
+                        hP->GetXaxis()->SetRangeUser(0.8, 1.2);
+                        hF->GetXaxis()->SetRangeUser(0.8, 1.2);
+                      }
+
+                      const double ymax = std::max(hP->GetMaximum(), hF->GetMaximum());
+                      hP->SetMaximum(ymax * 1.35);
 
                     hP->Draw("E1");
                     hF->Draw("E1 same");
@@ -16364,7 +16370,7 @@ namespace ARJ
 
                     if (var == "e11e33")
                     {
-                      cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_33} < 0.98";
+                      cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
                       drawCuts = true;
                       cutLo = 0.4;
                       cutHi = 0.98;
@@ -16518,7 +16524,7 @@ namespace ARJ
 
                 if (var == "e11e33")
                 {
-                  cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_33} < 0.98";
+                  cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
                   drawCuts = true;
                   cutLo = 0.4;
                   cutHi = 0.98;
@@ -16698,7 +16704,7 @@ namespace ARJ
 
                     if (var == "e11e33")
                     {
-                      cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_33} < 0.98";
+                      cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
                       drawCuts = true;
                       cutLo = 0.4;
                       cutHi = 0.98;
@@ -16852,7 +16858,7 @@ namespace ARJ
 
                 if (var == "e11e33")
                 {
-                  cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_33} < 0.98";
+                  cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
                   drawCuts = true;
                   cutLo = 0.4;
                   cutHi = 0.98;
@@ -17280,11 +17286,24 @@ namespace ARJ
                         double yMax = 0.0;
                         TH1* hFirst = nullptr;
 
-                        TLegend leg(0.52, 0.58, 0.90, 0.86);
-                        leg.SetBorderSize(0);
-                        leg.SetFillStyle(0);
-                        leg.SetTextFont(42);
-                        leg.SetTextSize(0.034);
+                          TLegend leg(0.47, 0.65, 0.92, 0.91);
+                          leg.SetBorderSize(0);
+                          leg.SetFillStyle(0);
+                          leg.SetTextFont(42);
+                          leg.SetTextSize(0.030);
+                          leg.SetNColumns(2);
+
+                          // For e32e35 only: place the pT-bin legend in the middle-left of the canvas
+                          // (keeps the rest of the overlay_pp_byPt plots unchanged).
+                          if (var == "e32e35")
+                          {
+                            leg.SetX1NDC(0.14);
+                            leg.SetX2NDC(0.44);
+                            leg.SetY1NDC(0.35);
+                            leg.SetY2NDC(0.72);
+                            leg.SetTextSize(0.032);
+                            leg.SetNColumns(1);
+                          }
 
                         vector<TH1*> keepAlivePP;
                         keepAlivePP.reserve((std::size_t)nAllPt);
@@ -17328,23 +17347,92 @@ namespace ARJ
                           keepAlivePP.push_back(hPPc);
                         }
 
-                        if (hFirst)
-                        {
-                          hFirst->SetMaximum(yMax * 1.35);
+                          if (hFirst)
+                          {
+                            hFirst->SetMaximum(yMax * 1.35);
 
-                          TLatex t;
-                          t.SetNDC(true);
-                          t.SetTextFont(42);
-                          t.SetTextAlign(22);
-                          t.SetTextSize(0.045);
-                          t.DrawLatex(0.50, 0.93,
-                            TString::Format("PP (inclusive), %s, overlay across p_{T}^{#gamma} bins", var.c_str()).Data());
+                            TLatex t;
+                            t.SetNDC(true);
+                            t.SetTextFont(42);
+                            t.SetTextAlign(22);
+                            t.SetTextSize(0.045);
+                            t.DrawLatex(0.50, 0.93,
+                              TString::Format("pp (no Iso Req), %s, overlay across p_{T}^{#gamma} bins", var.c_str()).Data());
 
-                          leg.Draw();
-                          gPad->RedrawAxis();
+                            // ------------------------------------------------------------
+                            // Add SS cut label (top-left) + cut lines (where applicable)
+                            // ------------------------------------------------------------
+                            TLatex tcut;
+                            tcut.SetNDC(true);
+                            tcut.SetTextFont(42);
+                            tcut.SetTextAlign(13);
+                            tcut.SetTextSize(0.038);
 
-                          SaveCanvas(cPPall, JoinPath(varBase, "overlay_pp_byPt.png"));
-                        }
+                            bool drawCuts = false;
+                            double cutLo = 0.0;
+                            double cutHi = 0.0;
+                            std::string cutText;
+
+                            if (var == "e11e33")
+                            {
+                              cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
+                              drawCuts = true;
+                              cutLo = 0.4;
+                              cutHi = 0.98;
+                            }
+                            else if (var == "e32e35")
+                            {
+                              cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
+                              drawCuts = true;
+                              cutLo = 0.92;
+                              cutHi = 1.0;
+                            }
+                            else if (var == "et1")
+                            {
+                              cutText = "#gamma-ID: 0.9 < et1 < 1.0";
+                              drawCuts = true;
+                              cutLo = 0.9;
+                              cutHi = 1.0;
+                            }
+                            else if (var == "weta")
+                            {
+                              cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                            }
+                            else if (var == "wphi")
+                            {
+                              cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                            }
+
+                            if (!cutText.empty())
+                            {
+                              tcut.DrawLatex(0.16, 0.89, cutText.c_str());
+                            }
+
+                            leg.Draw();
+
+                            if (drawCuts)
+                            {
+                              gPad->Update();
+                              const double yMin = gPad->GetUymin();
+                              const double yMaxPad = gPad->GetUymax();
+
+                              TLine* l1 = new TLine(cutLo, yMin, cutLo, yMaxPad);
+                              l1->SetLineColor(kGreen + 2);
+                              l1->SetLineWidth(2);
+                              l1->SetLineStyle(2);
+                              l1->Draw("same");
+
+                              TLine* l2 = new TLine(cutHi, yMin, cutHi, yMaxPad);
+                              l2->SetLineColor(kOrange + 7);
+                              l2->SetLineWidth(2);
+                              l2->SetLineStyle(2);
+                              l2->Draw("same");
+                            }
+
+                            gPad->RedrawAxis();
+
+                            SaveCanvas(cPPall, JoinPath(varBase, "overlay_pp_byPt.png"));
+                          }
 
                         for (TH1* h : keepAlivePP) delete h;
                         keepAlivePP.clear();
@@ -17553,7 +17641,7 @@ namespace ARJ
 
                       if (var == "e11e33")
                       {
-                        cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_33} < 0.98";
+                        cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
                         drawCuts = true;
                         cutLo = 0.4;
                         cutHi = 0.98;
@@ -17762,7 +17850,7 @@ namespace ARJ
 
                         if (var == "e11e33")
                         {
-                          cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_33} < 0.98";
+                          cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
                           drawCuts = true;
                           cutLo = 0.4;
                           cutHi = 0.98;
