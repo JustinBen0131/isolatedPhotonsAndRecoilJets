@@ -7945,9 +7945,109 @@ namespace ARJ
                           keepFitsH.push_back(hSimRaw);
                       }
 
-                      SaveCanvas(canTblFits, JoinPath(dirOv, "table3x2_overlay_integratedAlpha_overlayedWithSim_withFits.png"));
+                        SaveCanvas(canTblFits, JoinPath(dirOv, "table3x2_overlay_integratedAlpha_overlayedWithSim_withFits.png"));
 
-                      if ((int)vPtCtr.size() > 0)
+                        // Also fit any remaining p_{T}^{#gamma} bins beyond the 2x3 table
+                        // so ALL summary PNGs (mean/sigma/chi2/ratio vs pT) use the full YAML pT binning.
+                        for (int k = nTableBins; k < nPt; ++k)
+                        {
+                          const int ib = startBinForTable + k;
+
+                          const double ptMinGamma = H.hReco_xJ->GetXaxis()->GetBinLowEdge(ib);
+                          const double ptMaxGamma = H.hReco_xJ->GetXaxis()->GetBinUpEdge(ib);
+                          const double ptCtr = 0.5 * (ptMinGamma + ptMaxGamma);
+                          const double ptErr = 0.5 * (ptMaxGamma - ptMinGamma);
+
+                          TH1* hDatRaw = ProjectY_AtXbin_AndAlphaMax_TH3(
+                            H.hReco_xJ, ib, H.hReco_xJ->GetZaxis()->GetXmax(),
+                            TString::Format("h_tbl_fit_dat_%s_%d", rKey.c_str(), ib).Data()
+                          );
+                          TH1* hSimRaw = ProjectY_AtXbin_AndAlphaMax_TH3(
+                            hSim3, ib, hSim3->GetZaxis()->GetXmax(),
+                            TString::Format("h_tbl_fit_sim_%s_%d", rKey.c_str(), ib).Data()
+                          );
+
+                          if (!hDatRaw || !hSimRaw) { if (hDatRaw) delete hDatRaw; if (hSimRaw) delete hSimRaw; continue; }
+
+                          hDatRaw->SetDirectory(nullptr);
+                          hSimRaw->SetDirectory(nullptr);
+
+                          EnsureSumw2(hDatRaw);
+                          EnsureSumw2(hSimRaw);
+
+                          const double iDat = hDatRaw->Integral(0, hDatRaw->GetNbinsX() + 1);
+                          const double iSim = hSimRaw->Integral(0, hSimRaw->GetNbinsX() + 1);
+                          if (iDat > 0.0) hDatRaw->Scale(1.0 / iDat);
+                          if (iSim > 0.0) hSimRaw->Scale(1.0 / iSim);
+
+                          TF1* fDat = FitIterGaus(hDatRaw, TString::Format("f_tbl_dat_%s_%d", rKey.c_str(), ib).Data(), kGreen + 2);
+                          TF1* fSim = FitIterGaus(hSimRaw, TString::Format("f_tbl_sim_%s_%d", rKey.c_str(), ib).Data(), kOrange + 7);
+
+                          if (fDat) keepFitFns.push_back(fDat);
+                          if (fSim) keepFitFns.push_back(fSim);
+
+                          {
+                            if (fDat && fDat->GetNDF() > 0)
+                            {
+                              const double mu   = fDat->GetParameter(1);
+                              const double sig  = fDat->GetParameter(2);
+                              const double chi2 = fDat->GetChisquare();
+                              const double ndf  = fDat->GetNDF();
+
+                              vMuDat.push_back(mu);
+                              vMuDatErr.push_back(fDat->GetParError(1));
+
+                              vSigDat.push_back(sig);
+                              vSigDatErr.push_back(fDat->GetParError(2));
+
+                              vChi2NdfDat.push_back(chi2 / ndf);
+                            }
+                            else
+                            {
+                              vMuDat.push_back(-1.0);
+                              vMuDatErr.push_back(0.0);
+
+                              vSigDat.push_back(-1.0);
+                              vSigDatErr.push_back(0.0);
+
+                              vChi2NdfDat.push_back(-1.0);
+                            }
+
+                            if (fSim && fSim->GetNDF() > 0)
+                            {
+                              const double mu   = fSim->GetParameter(1);
+                              const double sig  = fSim->GetParameter(2);
+                              const double chi2 = fSim->GetChisquare();
+                              const double ndf  = fSim->GetNDF();
+
+                              vMuSim.push_back(mu);
+                              vMuSimErr.push_back(fSim->GetParError(1));
+
+                              vSigSim.push_back(sig);
+                              vSigSimErr.push_back(fSim->GetParError(2));
+
+                              vChi2NdfSim.push_back(chi2 / ndf);
+                            }
+                            else
+                            {
+                              vMuSim.push_back(-1.0);
+                              vMuSimErr.push_back(0.0);
+
+                              vSigSim.push_back(-1.0);
+                              vSigSimErr.push_back(0.0);
+
+                              vChi2NdfSim.push_back(-1.0);
+                            }
+                          }
+
+                          vPtCtr.push_back(ptCtr);
+                          vPtErr.push_back(ptErr);
+
+                          keepFitsH.push_back(hDatRaw);
+                          keepFitsH.push_back(hSimRaw);
+                        }
+
+                        if ((int)vPtCtr.size() > 0)
                       {
                         TCanvas cMean(
                           TString::Format("c_meanVsPt_%s_dataVsSim_withFits", rKey.c_str()).Data(),
