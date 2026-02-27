@@ -15124,7 +15124,7 @@ namespace ARJ
               // Part D: efficiency/purity products + overlays + summary file (requires hReco + hTruth)
               RunEfficiencyPurityQA(rKey, R, rOut, H);
            }
-        }
+      }
       // =============================================================================
       // OPTIONAL: PP vs Au+Au (gold-gold) photon-ID deliverables
       //
@@ -17763,14 +17763,219 @@ namespace ARJ
             for (TH1* h : histsPad) keepAlive.push_back(h);
           }
 
-          SaveCanvas(c, JoinPath(outDir, "table2x3_AuAu_unNormalized.png"));
+            SaveCanvas(c, JoinPath(outDir, "table2x3_AuAu_unNormalized.png"));
 
-          for (TLegend* l : keepAliveLeg) delete l;
-          keepAliveLeg.clear();
+            // Zoomed tables for selected SS vars:
+            //   e11e33, e32e35, et1 -> [0.9, 1.1]
+            //   weta, wphi          -> [0.0, 0.1]
+            bool doZoom = false;
+            double zxLo = 0.0;
+            double zxHi = 0.0;
+            std::string zoomTag;
 
-          for (TH1* h : keepAlive) delete h;
-          keepAlive.clear();
-        }
+            if (ssVar == "e11e33" || ssVar == "e32e35" || ssVar == "et1")
+            {
+              doZoom = true;
+              zxLo = 0.9;
+              zxHi = 1.1;
+              zoomTag = "0p9_1p1";
+            }
+            else if (ssVar == "weta" || ssVar == "wphi")
+            {
+              doZoom = true;
+              zxLo = 0.0;
+              zxHi = 0.1;
+              zoomTag = "0p0_0p1";
+            }
+
+            if (doZoom)
+            {
+              TCanvas cz(
+                TString::Format("c_aa_unNorm_byCent_SS_%s_zoom_%s", histBase.c_str(), zoomTag.c_str()).Data(),
+                "c_aa_unNorm_byCent_SS_zoom", 1500, 800
+              );
+              cz.Divide(3,2, 0.001, 0.001);
+
+              vector<TH1*> keepAliveZ;
+              keepAliveZ.reserve((std::size_t)nPads * (std::size_t)nCents);
+
+              vector<TLegend*> keepAliveLegZ;
+              keepAliveLegZ.reserve((std::size_t)nPads);
+
+              for (int ipt = 0; ipt < nPads; ++ipt)
+              {
+                const PtBin& pb = ptBins[ipt];
+
+                cz.cd(ipt+1);
+                gPad->SetLeftMargin(0.14);
+                gPad->SetRightMargin(0.05);
+                gPad->SetBottomMargin(0.14);
+                gPad->SetTopMargin(0.12);
+                gPad->SetLogy(false);
+
+                vector<TH1*> histsPad;
+                histsPad.reserve((std::size_t)nCents);
+
+                vector<std::string> labelsPad;
+                labelsPad.reserve((std::size_t)nCents);
+
+                for (int ic = 0; ic < nCents; ++ic)
+                {
+                  const auto& cb = centBins[ic];
+                  const string hAAName = histBase + pb.suffix + cb.suffix;
+
+                  TH1* rawAA = GetTH1FromTopDir(aaTop, hAAName);
+                  if (!rawAA) continue;
+
+                  TH1* hAAc = CloneTH1(rawAA,
+                    TString::Format("aa_unNorm_byCent_SS_%s_%s%s_zoom_%s",
+                                    histBase.c_str(), pb.folder.c_str(), cb.suffix.c_str(), zoomTag.c_str()).Data());
+                  if (!hAAc) continue;
+
+                  EnsureSumw2(hAAc);
+                  hAAc->GetXaxis()->UnZoom();
+                  hAAc->SetTitle("");
+                  hAAc->GetXaxis()->SetTitle(ssVar.c_str());
+                  hAAc->GetYaxis()->SetTitle("Counts");
+                  hAAc->GetXaxis()->SetRangeUser(zxLo, zxHi);
+
+                  const int col = colors[ic % nColors];
+                  StyleOverlayHist(hAAc, col, 20);
+                  hAAc->SetMarkerStyle(20);
+
+                  histsPad.push_back(hAAc);
+                  labelsPad.push_back(TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
+                }
+
+                if (histsPad.empty())
+                {
+                  std::ostringstream s;
+                  s << "pT: " << pb.lo << "-" << pb.hi << "  AuAu by cent (zoom)";
+                  DrawMissingPad(s.str());
+                  continue;
+                }
+
+                double yMax = 0.0;
+                for (TH1* h : histsPad) yMax = std::max(yMax, (double)h->GetMaximum());
+
+                histsPad[0]->SetMaximum(yMax * 1.35);
+                histsPad[0]->Draw("E1");
+
+                for (std::size_t j = 1; j < histsPad.size(); ++j)
+                {
+                  histsPad[j]->Draw("E1 same");
+                }
+
+                TLegend* leg = new TLegend(0.52, 0.60, 0.90, 0.86);
+                leg->SetBorderSize(0);
+                leg->SetFillStyle(0);
+                leg->SetTextFont(42);
+                leg->SetTextSize(0.030);
+
+                for (std::size_t j = 0; j < histsPad.size(); ++j)
+                {
+                  leg->AddEntry(histsPad[j], labelsPad[j].c_str(), "ep");
+                }
+                leg->Draw();
+                keepAliveLegZ.push_back(leg);
+
+                TLatex t;
+                t.SetNDC(true);
+                t.SetTextFont(42);
+                t.SetTextAlign(22);
+                t.SetTextSize(0.042);
+                t.DrawLatex(0.50, 0.93,
+                  TString::Format("Au+Au (counts), %s, centrality overlays, p_{T}^{#gamma} = %d-%d GeV",
+                                  ssVar.c_str(), pb.lo, pb.hi).Data());
+
+                TLatex tcut;
+                tcut.SetNDC(true);
+                tcut.SetTextFont(42);
+                tcut.SetTextAlign(13);
+                tcut.SetTextSize(0.038);
+
+                bool drawCuts = false;
+                double cutLo = 0.0;
+                double cutHi = 0.0;
+                std::string cutText;
+
+                if (ssVar == "e11e33")
+                {
+                  cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
+                  drawCuts = true;
+                  cutLo = 0.4;
+                  cutHi = 0.98;
+                }
+                else if (ssVar == "e32e35")
+                {
+                  cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
+                  drawCuts = true;
+                  cutLo = 0.92;
+                  cutHi = 1.0;
+                }
+                else if (ssVar == "et1")
+                {
+                  cutText = "#gamma-ID: 0.9 < et1 < 1.0";
+                  drawCuts = true;
+                  cutLo = 0.9;
+                  cutHi = 1.0;
+                }
+                else if (ssVar == "weta")
+                {
+                  cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                }
+                else if (ssVar == "wphi")
+                {
+                  cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                }
+
+                if (!cutText.empty())
+                {
+                  tcut.DrawLatex(0.16, 0.86, cutText.c_str());
+                }
+
+                if (drawCuts)
+                {
+                  gPad->Update();
+                  const double yMin = gPad->GetUymin();
+                  const double yMaxPad = gPad->GetUymax();
+
+                  TLine* l1 = new TLine(cutLo, yMin, cutLo, yMaxPad);
+                  l1->SetLineColor(kGreen + 2);
+                  l1->SetLineWidth(2);
+                  l1->SetLineStyle(2);
+                  l1->Draw("same");
+
+                  TLine* l2 = new TLine(cutHi, yMin, cutHi, yMaxPad);
+                  l2->SetLineColor(kOrange + 7);
+                  l2->SetLineWidth(2);
+                  l2->SetLineStyle(2);
+                  l2->Draw("same");
+
+                  gPad->RedrawAxis();
+                }
+
+                gPad->RedrawAxis();
+
+                for (TH1* h : histsPad) keepAliveZ.push_back(h);
+              }
+
+              SaveCanvas(cz, JoinPath(outDir,
+                TString::Format("table2x3_AuAu_unNormalized_zoom_%s.png", zoomTag.c_str()).Data()));
+
+              for (TLegend* l : keepAliveLegZ) delete l;
+              keepAliveLegZ.clear();
+
+              for (TH1* h : keepAliveZ) delete h;
+              keepAliveZ.clear();
+            }
+
+            for (TLegend* l : keepAliveLeg) delete l;
+            keepAliveLeg.clear();
+
+            for (TH1* h : keepAlive) delete h;
+            keepAlive.clear();
+          }
 
         // =============================================================================
         // NEW: AuAu-only SS (counts) summary by pT overlays (all pT bins) — WITH SS cut label + vlines
@@ -17974,14 +18179,212 @@ namespace ARJ
             for (TH1* h : histsPad) keepAlive.push_back(h);
           }
 
-          SaveCanvas(c, JoinPath(outDir, "table2x3_AuAu_unNormalized_byPtOverlays.png"));
+            SaveCanvas(c, JoinPath(outDir, "table2x3_AuAu_unNormalized_byPtOverlays.png"));
 
-          for (TLegend* l : keepAliveLeg) delete l;
-          keepAliveLeg.clear();
+            // Zoomed tables for selected SS vars:
+            //   e11e33, e32e35, et1 -> [0.9, 1.1]
+            //   weta, wphi          -> [0.0, 0.1]
+            bool doZoom = false;
+            double zxLo = 0.0;
+            double zxHi = 0.0;
+            std::string zoomTag;
 
-          for (TH1* h : keepAlive) delete h;
-          keepAlive.clear();
-        }
+            if (ssVar == "e11e33" || ssVar == "e32e35" || ssVar == "et1")
+            {
+              doZoom = true;
+              zxLo = 0.9;
+              zxHi = 1.1;
+              zoomTag = "0p9_1p1";
+            }
+            else if (ssVar == "weta" || ssVar == "wphi")
+            {
+              doZoom = true;
+              zxLo = 0.0;
+              zxHi = 0.1;
+              zoomTag = "0p0_0p1";
+            }
+
+            if (doZoom)
+            {
+              TCanvas cz(
+                TString::Format("c_aa_unNorm_byCent_SS_%s_zoom_%s", histBase.c_str(), zoomTag.c_str()).Data(),
+                "c_aa_unNorm_byCent_SS_zoom", 1500, 800
+              );
+              cz.Divide(3,2, 0.001, 0.001);
+
+              vector<TH1*> keepAliveZ;
+              keepAliveZ.reserve((std::size_t)nPads * (std::size_t)nCents);
+
+              vector<TLegend*> keepAliveLegZ;
+              keepAliveLegZ.reserve((std::size_t)nPads);
+
+              for (int ipt = 0; ipt < nPads; ++ipt)
+              {
+                const PtBin& pb = ptBins[ipt];
+
+                cz.cd(ipt+1);
+                gPad->SetLeftMargin(0.14);
+                gPad->SetRightMargin(0.05);
+                gPad->SetBottomMargin(0.14);
+                gPad->SetTopMargin(0.12);
+                gPad->SetLogy(false);
+
+                vector<TH1*> histsPad;
+                histsPad.reserve((std::size_t)nCents);
+
+                vector<std::string> labelsPad;
+                labelsPad.reserve((std::size_t)nCents);
+
+                for (int ic = 0; ic < nCents; ++ic)
+                {
+                  const auto& cb = centBins[ic];
+                  const string hAAName = histBase + pb.suffix + cb.suffix;
+
+                  TH1* rawAA = GetTH1FromTopDir(aaTop, hAAName);
+                  if (!rawAA) continue;
+
+                  TH1* hAAc = CloneTH1(rawAA,
+                    TString::Format("aa_unNorm_byCent_SS_%s_%s%s_zoom_%s",
+                                    histBase.c_str(), pb.folder.c_str(), cb.suffix.c_str(), zoomTag.c_str()).Data());
+                  if (!hAAc) continue;
+
+                  EnsureSumw2(hAAc);
+                  hAAc->GetXaxis()->UnZoom();
+                  hAAc->SetTitle("");
+                  hAAc->GetXaxis()->SetTitle(ssVar.c_str());
+                  hAAc->GetYaxis()->SetTitle("Counts");
+                  hAAc->GetXaxis()->SetRangeUser(zxLo, zxHi);
+
+                  const int col = colors[ic % nColors];
+                  StyleOverlayHist(hAAc, col, 20);
+                  hAAc->SetMarkerStyle(20);
+
+                  histsPad.push_back(hAAc);
+                  labelsPad.push_back(TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
+                }
+
+                if (histsPad.empty())
+                {
+                  std::ostringstream s;
+                  s << "pT: " << pb.lo << "-" << pb.hi << "  AuAu by cent (zoom)";
+                  DrawMissingPad(s.str());
+                  continue;
+                }
+
+                double yMax = 0.0;
+                for (TH1* h : histsPad) yMax = std::max(yMax, (double)h->GetMaximum());
+
+                histsPad[0]->SetMaximum(yMax * 1.35);
+                histsPad[0]->Draw("E1");
+
+                for (std::size_t j = 1; j < histsPad.size(); ++j)
+                {
+                  histsPad[j]->Draw("E1 same");
+                }
+
+                TLegend* leg = new TLegend(0.52, 0.60, 0.90, 0.86);
+                leg->SetBorderSize(0);
+                leg->SetFillStyle(0);
+                leg->SetTextFont(42);
+                leg->SetTextSize(0.030);
+
+                for (std::size_t j = 0; j < histsPad.size(); ++j)
+                {
+                  leg->AddEntry(histsPad[j], labelsPad[j].c_str(), "ep");
+                }
+                leg->Draw();
+                keepAliveLegZ.push_back(leg);
+
+                TLatex t;
+                t.SetNDC(true);
+                t.SetTextFont(42);
+                t.SetTextAlign(22);
+                t.SetTextSize(0.042);
+                t.DrawLatex(0.50, 0.93,
+                  TString::Format("Au+Au (counts), %s, centrality overlays, p_{T}^{#gamma} = %d-%d GeV",
+                                  ssVar.c_str(), pb.lo, pb.hi).Data());
+
+                TLatex tcut;
+                tcut.SetNDC(true);
+                tcut.SetTextFont(42);
+                tcut.SetTextAlign(13);
+                tcut.SetTextSize(0.038);
+
+                bool drawCuts = false;
+                double cutLo = 0.0;
+                double cutHi = 0.0;
+                std::string cutText;
+
+                if (ssVar == "e11e33")
+                {
+                  cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
+                  drawCuts = true;
+                  cutLo = 0.4;
+                  cutHi = 0.98;
+                }
+                else if (ssVar == "e32e35")
+                {
+                  cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
+                  drawCuts = true;
+                  cutLo = 0.92;
+                  cutHi = 1.0;
+                }
+                else if (ssVar == "et1")
+                {
+                  cutText = "#gamma-ID: 0.9 < et1 < 1.0";
+                  drawCuts = true;
+                  cutLo = 0.9;
+                  cutHi = 1.0;
+                }
+                else if (ssVar == "weta")
+                {
+                  cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                }
+                else if (ssVar == "wphi")
+                {
+                  cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                }
+
+                if (!cutText.empty())
+                {
+                  tcut.DrawLatex(0.16, 0.86, cutText.c_str());
+                }
+
+                if (drawCuts)
+                {
+                  gPad->Update();
+                  const double yMin = gPad->GetUymin();
+                  const double yMaxPad = gPad->GetUymax();
+
+                  TLine* l1 = new TLine(cutLo, yMin, cutLo, yMaxPad);
+                  l1->SetLineColor(kGreen + 2);
+                  l1->SetLineWidth(2);
+                  l1->SetLineStyle(2);
+                  l1->Draw("same");
+
+                  TLine* l2 = new TLine(cutHi, yMin, cutHi, yMaxPad);
+                  l2->SetLineColor(kOrange + 7);
+                  l2->SetLineWidth(2);
+                  l2->SetLineStyle(2);
+                  l2->Draw("same");
+
+                  gPad->RedrawAxis();
+                }
+
+                gPad->RedrawAxis();
+
+                for (TH1* h : histsPad) keepAliveZ.push_back(h);
+              }
+
+              SaveCanvas(cz, JoinPath(outDir,
+                TString::Format("table2x3_AuAu_unNormalized_zoom_%s.png", zoomTag.c_str()).Data()));
+
+              for (TLegend* l : keepAliveLegZ) delete l;
+              keepAliveLegZ.clear();
+
+              for (TH1* h : keepAliveZ) delete h;
+              keepAliveZ.clear();
+            }
 
         void RunPPvsAuAuDeliverables(Dataset& dsPP)
         {
