@@ -15355,22 +15355,109 @@ namespace ARJ
           leg.AddEntry(hAA, "Au+Au data", "ep");
           leg.Draw();
 
-        TLatex t;
-        t.SetNDC(true);
-        t.SetTextFont(42);
+          TLatex t;
+          t.SetNDC(true);
+          t.SetTextFont(42);
 
-        // Top-left title
-        t.SetTextAlign(13);
-        t.SetTextSize(0.055);
-        t.DrawLatex(0.16, 0.92, topLeftTitle.c_str());
+          // ------------------------------------------------------------------
+          // For SS variables: use centered top title + #gamma-ID cut annotation + cut lines
+          // For non-SS (e.g. Eiso): keep the legacy label scheme.
+          // ------------------------------------------------------------------
+          const bool isSS =
+            (xTitle == "weta" || xTitle == "wphi" || xTitle == "et1" || xTitle == "e11e33" || xTitle == "e32e35");
 
-        // pT + centrality (top-right)
-        t.SetTextAlign(33);
-        t.SetTextSize(0.055);
-        t.DrawLatex(0.95, 0.92,
-          TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
-        t.SetTextSize(0.048);
-        t.DrawLatex(0.95, 0.84, centLabel.c_str());
+          if (isSS)
+          {
+            // Centered title (var + cent + pT)
+            t.SetTextAlign(22);
+            t.SetTextSize(0.045);
+            t.DrawLatex(0.50, 0.94,
+              TString::Format("%s, %s, p_{T}^{#gamma} = %d-%d GeV",
+                              xTitle.c_str(), centLabel.c_str(), pb.lo, pb.hi).Data());
+
+            // #gamma-ID annotation (top-left)
+            TLatex tcut;
+            tcut.SetNDC(true);
+            tcut.SetTextFont(42);
+            tcut.SetTextAlign(13);
+            tcut.SetTextSize(0.040);
+
+            bool drawCuts = false;
+            double cutLo = 0.0;
+            double cutHi = 0.0;
+            std::string cutText;
+
+            if (xTitle == "e11e33")
+            {
+              cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_33} < 0.98";
+              drawCuts = true;
+              cutLo = 0.4;
+              cutHi = 0.98;
+            }
+            else if (xTitle == "e32e35")
+            {
+              cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
+              drawCuts = true;
+              cutLo = 0.92;
+              cutHi = 1.0;
+            }
+            else if (xTitle == "et1")
+            {
+              cutText = "#gamma-ID: 0.9 < et1 < 1.0";
+              drawCuts = true;
+              cutLo = 0.9;
+              cutHi = 1.0;
+            }
+            else if (xTitle == "weta")
+            {
+              cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+            }
+            else if (xTitle == "wphi")
+            {
+              cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+            }
+
+            if (!cutText.empty())
+            {
+              tcut.DrawLatex(0.16, 0.86, cutText.c_str());
+            }
+
+            // Draw cut lines using pad y-range (robust, and works for table pads + single canvases)
+            if (drawCuts)
+            {
+              gPad->Update();
+              const double yMin = gPad->GetUymin();
+              const double yMax = gPad->GetUymax();
+
+              TLine* l1 = new TLine(cutLo, yMin, cutLo, yMax);
+              l1->SetLineColor(kGreen + 2);
+              l1->SetLineWidth(2);
+              l1->SetLineStyle(2);
+              l1->Draw("same");
+
+              TLine* l2 = new TLine(cutHi, yMin, cutHi, yMax);
+              l2->SetLineColor(kOrange + 7);
+              l2->SetLineWidth(2);
+              l2->SetLineStyle(2);
+              l2->Draw("same");
+
+              gPad->RedrawAxis();
+            }
+          }
+          else
+          {
+            // Legacy label scheme (for non-SS, e.g. Eiso)
+            t.SetTextAlign(13);
+            t.SetTextSize(0.055);
+            t.DrawLatex(0.16, 0.92, topLeftTitle.c_str());
+
+            t.SetTextAlign(33);
+            t.SetTextSize(0.055);
+            t.DrawLatex(0.95, 0.92,
+              TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
+            t.SetTextSize(0.048);
+            t.DrawLatex(0.95, 0.84, centLabel.c_str());
+          }
 
         keepAlive.push_back(hPP);
         keepAlive.push_back(hAA);
@@ -15452,147 +15539,295 @@ namespace ARJ
         EnsureDir(qaBaseAA);
         EnsureDir(qaBasePP);
 
-        // -------------------------
-        // 2x3 table: AuAu counts (FULL RANGE)
-        // -------------------------
-        {
-          TCanvas cAAtbl(
-            TString::Format("c_aa_unNorm_tbl_%s%s", histBase.c_str(), centSuffix.c_str()).Data(),
-            "c_aa_unNorm_tbl", 1500, 800
-          );
-          cAAtbl.Divide(3,2, 0.001, 0.001);
-
-          for (int i = 0; i < nPads; ++i)
+          // -------------------------
+          // 2x3 table: AuAu counts (FULL RANGE)
+          // -------------------------
           {
-            const PtBin& pb = bins[i];
-            const string hAAName = histBase + pb.suffix + centSuffix;
-            TH1* rawAA = GetTH1FromTopDir(aaTop, hAAName);
+            TCanvas cAAtbl(
+              TString::Format("c_aa_unNorm_tbl_%s%s", histBase.c_str(), centSuffix.c_str()).Data(),
+              "c_aa_unNorm_tbl", 1500, 800
+            );
+            cAAtbl.Divide(3,2, 0.001, 0.001);
 
-            cAAtbl.cd(i+1);
-            gPad->SetLeftMargin(0.14);
-            gPad->SetRightMargin(0.05);
-            gPad->SetBottomMargin(0.14);
-            gPad->SetTopMargin(0.10);
-            gPad->SetLogy(false);
+            vector<TH1*> keepAliveAA;
+            keepAliveAA.reserve((std::size_t)nPads);
 
-            if (!rawAA)
+            for (int i = 0; i < nPads; ++i)
             {
-              std::ostringstream s;
-              s << "pT: " << pb.lo << "-" << pb.hi << "  " << centLabel;
-              DrawMissingPad(s.str());
-              continue;
+              const PtBin& pb = bins[i];
+              const string hAAName = histBase + pb.suffix + centSuffix;
+              TH1* rawAA = GetTH1FromTopDir(aaTop, hAAName);
+
+              cAAtbl.cd(i+1);
+              gPad->SetLeftMargin(0.14);
+              gPad->SetRightMargin(0.05);
+              gPad->SetBottomMargin(0.14);
+              gPad->SetTopMargin(0.12);
+              gPad->SetLogy(false);
+
+              if (!rawAA)
+              {
+                std::ostringstream s;
+                s << "pT: " << pb.lo << "-" << pb.hi << "  " << centLabel;
+                DrawMissingPad(s.str());
+                continue;
+              }
+
+              TH1* hAAc = CloneTH1(rawAA,
+                TString::Format("aa_tbl_counts_%s_%s%s", histBase.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data());
+              if (!hAAc) continue;
+
+              EnsureSumw2(hAAc);
+              hAAc->GetXaxis()->UnZoom();
+              hAAc->SetTitle("");
+              hAAc->GetXaxis()->SetTitle(xTitle.c_str());
+              hAAc->GetYaxis()->SetTitle("Counts");
+              StyleOverlayHist(hAAc, kRed + 1, 24);
+
+              const double ymax = hAAc->GetMaximum();
+              hAAc->SetMaximum(ymax * 1.35);
+
+              hAAc->Draw("E1");
+
+              TLegend leg(0.52, 0.70, 0.90, 0.86);
+              leg.SetBorderSize(0);
+              leg.SetFillStyle(0);
+              leg.SetTextFont(42);
+              leg.SetTextSize(0.036);
+              leg.AddEntry(hAAc, "Au+Au data (counts)", "ep");
+              leg.Draw();
+
+              // Centered pad title: what is plotted
+              TLatex t;
+              t.SetNDC(true);
+              t.SetTextFont(42);
+              t.SetTextAlign(22);
+              t.SetTextSize(0.042);
+              t.DrawLatex(0.50, 0.93,
+                TString::Format("%s, %s, p_{T}^{#gamma} = %d-%d GeV",
+                                xTitle.c_str(), centLabel.c_str(), pb.lo, pb.hi).Data());
+
+              // SS cut text + cut lines (where applicable)
+              TLatex tcut;
+              tcut.SetNDC(true);
+              tcut.SetTextFont(42);
+              tcut.SetTextAlign(13);
+              tcut.SetTextSize(0.038);
+
+              bool drawCuts = false;
+              double cutLo = 0.0;
+              double cutHi = 0.0;
+              std::string cutText;
+
+              if (xTitle == "e11e33")
+              {
+                cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_33} < 0.98";
+                drawCuts = true;
+                cutLo = 0.4;
+                cutHi = 0.98;
+              }
+              else if (xTitle == "e32e35")
+              {
+                cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
+                drawCuts = true;
+                cutLo = 0.92;
+                cutHi = 1.0;
+              }
+              else if (xTitle == "et1")
+              {
+                cutText = "#gamma-ID: 0.9 < et1 < 1.0";
+                drawCuts = true;
+                cutLo = 0.9;
+                cutHi = 1.0;
+              }
+              else if (xTitle == "weta")
+              {
+                cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+              }
+              else if (xTitle == "wphi")
+              {
+                cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+              }
+
+              if (!cutText.empty())
+              {
+                tcut.DrawLatex(0.16, 0.86, cutText.c_str());
+              }
+
+              if (drawCuts)
+              {
+                gPad->Update();
+                const double yMin = gPad->GetUymin();
+                const double yMax = gPad->GetUymax();
+
+                TLine* l1 = new TLine(cutLo, yMin, cutLo, yMax);
+                l1->SetLineColor(kGreen + 2);
+                l1->SetLineWidth(2);
+                l1->SetLineStyle(2);
+                l1->Draw("same");
+
+                TLine* l2 = new TLine(cutHi, yMin, cutHi, yMax);
+                l2->SetLineColor(kOrange + 7);
+                l2->SetLineWidth(2);
+                l2->SetLineStyle(2);
+                l2->Draw("same");
+
+                gPad->RedrawAxis();
+              }
+
+              keepAliveAA.push_back(hAAc);
             }
 
-            TH1* hAAc = CloneTH1(rawAA,
-              TString::Format("aa_tbl_counts_%s_%s%s", histBase.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data());
-            if (!hAAc) continue;
+            SaveCanvas(cAAtbl, JoinPath(qaBaseAA, "table2x3_AuAu_unNormalized.png"));
 
-            EnsureSumw2(hAAc);
-            hAAc->GetXaxis()->UnZoom();
-            hAAc->SetTitle("");
-            hAAc->GetXaxis()->SetTitle(xTitle.c_str());
-            hAAc->GetYaxis()->SetTitle("Counts");
-            StyleOverlayHist(hAAc, kRed + 1, 24);
-            hAAc->Draw("E1");
-
-            TLegend leg(0.52, 0.70, 0.90, 0.86);
-            leg.SetBorderSize(0);
-            leg.SetFillStyle(0);
-            leg.SetTextFont(42);
-            leg.SetTextSize(0.036);
-            leg.AddEntry(hAAc, "Au+Au data (counts)", "ep");
-            leg.Draw();
-
-            TLatex t;
-            t.SetNDC(true);
-            t.SetTextFont(42);
-
-            t.SetTextAlign(13);
-            t.SetTextSize(0.055);
-            t.DrawLatex(0.16, 0.92, topLeftTitle.c_str());
-
-            t.SetTextAlign(33);
-            t.SetTextSize(0.055);
-            t.DrawLatex(0.95, 0.92,
-              TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
-            t.SetTextSize(0.048);
-            t.DrawLatex(0.95, 0.84, centLabel.c_str());
-
-            delete hAAc;
+            for (TH1* h : keepAliveAA) delete h;
+            keepAliveAA.clear();
           }
 
-          SaveCanvas(cAAtbl, JoinPath(qaBaseAA, "table2x3_AuAu_unNormalized.png"));
-        }
-
-        // -------------------------
-        // 2x3 table: PP counts (FULL RANGE)
-        // -------------------------
-        {
-          TCanvas cPPtbl(
-            TString::Format("c_pp_unNorm_tbl_%s", histBase.c_str()).Data(),
-            "c_pp_unNorm_tbl", 1500, 800
-          );
-          cPPtbl.Divide(3,2, 0.001, 0.001);
-
-          for (int i = 0; i < nPads; ++i)
+          // -------------------------
+          // 2x3 table: PP counts (FULL RANGE)
+          // -------------------------
           {
-            const PtBin& pb = bins[i];
-            const string hPPName = histBase + pb.suffix;
-            TH1* rawPP = GetTH1FromTopDir(ppTop, hPPName);
+            TCanvas cPPtbl(
+              TString::Format("c_pp_unNorm_tbl_%s", histBase.c_str()).Data(),
+              "c_pp_unNorm_tbl", 1500, 800
+            );
+            cPPtbl.Divide(3,2, 0.001, 0.001);
 
-            cPPtbl.cd(i+1);
-            gPad->SetLeftMargin(0.14);
-            gPad->SetRightMargin(0.05);
-            gPad->SetBottomMargin(0.14);
-            gPad->SetTopMargin(0.10);
-            gPad->SetLogy(false);
+            vector<TH1*> keepAlivePP;
+            keepAlivePP.reserve((std::size_t)nPads);
 
-            if (!rawPP)
+            for (int i = 0; i < nPads; ++i)
             {
-              std::ostringstream s;
-              s << "pT: " << pb.lo << "-" << pb.hi;
-              DrawMissingPad(s.str());
-              continue;
+              const PtBin& pb = bins[i];
+              const string hPPName = histBase + pb.suffix;
+              TH1* rawPP = GetTH1FromTopDir(ppTop, hPPName);
+
+              cPPtbl.cd(i+1);
+              gPad->SetLeftMargin(0.14);
+              gPad->SetRightMargin(0.05);
+              gPad->SetBottomMargin(0.14);
+              gPad->SetTopMargin(0.12);
+              gPad->SetLogy(false);
+
+              if (!rawPP)
+              {
+                std::ostringstream s;
+                s << "pT: " << pb.lo << "-" << pb.hi;
+                DrawMissingPad(s.str());
+                continue;
+              }
+
+              TH1* hPPc = CloneTH1(rawPP,
+                TString::Format("pp_tbl_counts_%s_%s", histBase.c_str(), pb.folder.c_str()).Data());
+              if (!hPPc) continue;
+
+              EnsureSumw2(hPPc);
+              hPPc->GetXaxis()->UnZoom();
+              hPPc->SetTitle("");
+              hPPc->GetXaxis()->SetTitle(xTitle.c_str());
+              hPPc->GetYaxis()->SetTitle("Counts");
+              StyleOverlayHist(hPPc, kBlack, 20);
+
+              const double ymax = hPPc->GetMaximum();
+              hPPc->SetMaximum(ymax * 1.35);
+
+              hPPc->Draw("E1");
+
+              TLegend leg(0.52, 0.70, 0.90, 0.86);
+              leg.SetBorderSize(0);
+              leg.SetFillStyle(0);
+              leg.SetTextFont(42);
+              leg.SetTextSize(0.036);
+              leg.AddEntry(hPPc, "PP data (counts)", "ep");
+              leg.Draw();
+
+              // Centered pad title: what is plotted
+              TLatex t;
+              t.SetNDC(true);
+              t.SetTextFont(42);
+              t.SetTextAlign(22);
+              t.SetTextSize(0.042);
+              t.DrawLatex(0.50, 0.93,
+                TString::Format("%s, PP, p_{T}^{#gamma} = %d-%d GeV",
+                                xTitle.c_str(), pb.lo, pb.hi).Data());
+
+              // SS cut text + cut lines (where applicable)
+              TLatex tcut;
+              tcut.SetNDC(true);
+              tcut.SetTextFont(42);
+              tcut.SetTextAlign(13);
+              tcut.SetTextSize(0.038);
+
+              bool drawCuts = false;
+              double cutLo = 0.0;
+              double cutHi = 0.0;
+              std::string cutText;
+
+              if (xTitle == "e11e33")
+              {
+                cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_33} < 0.98";
+                drawCuts = true;
+                cutLo = 0.4;
+                cutHi = 0.98;
+              }
+              else if (xTitle == "e32e35")
+              {
+                cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
+                drawCuts = true;
+                cutLo = 0.92;
+                cutHi = 1.0;
+              }
+              else if (xTitle == "et1")
+              {
+                cutText = "#gamma-ID: 0.9 < et1 < 1.0";
+                drawCuts = true;
+                cutLo = 0.9;
+                cutHi = 1.0;
+              }
+              else if (xTitle == "weta")
+              {
+                cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+              }
+              else if (xTitle == "wphi")
+              {
+                cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+              }
+
+              if (!cutText.empty())
+              {
+                tcut.DrawLatex(0.16, 0.86, cutText.c_str());
+              }
+
+              if (drawCuts)
+              {
+                gPad->Update();
+                const double yMin = gPad->GetUymin();
+                const double yMax = gPad->GetUymax();
+
+                TLine* l1 = new TLine(cutLo, yMin, cutLo, yMax);
+                l1->SetLineColor(kGreen + 2);
+                l1->SetLineWidth(2);
+                l1->SetLineStyle(2);
+                l1->Draw("same");
+
+                TLine* l2 = new TLine(cutHi, yMin, cutHi, yMax);
+                l2->SetLineColor(kOrange + 7);
+                l2->SetLineWidth(2);
+                l2->SetLineStyle(2);
+                l2->Draw("same");
+
+                gPad->RedrawAxis();
+              }
+
+              keepAlivePP.push_back(hPPc);
             }
 
-            TH1* hPPc = CloneTH1(rawPP,
-              TString::Format("pp_tbl_counts_%s_%s", histBase.c_str(), pb.folder.c_str()).Data());
-            if (!hPPc) continue;
+            SaveCanvas(cPPtbl, JoinPath(qaBasePP, "table2x3_pp_unNormalized.png"));
 
-            EnsureSumw2(hPPc);
-            hPPc->GetXaxis()->UnZoom();
-            hPPc->SetTitle("");
-            hPPc->GetXaxis()->SetTitle(xTitle.c_str());
-            hPPc->GetYaxis()->SetTitle("Counts");
-            StyleOverlayHist(hPPc, kBlack, 20);
-            hPPc->Draw("E1");
-
-            TLegend leg(0.52, 0.70, 0.90, 0.86);
-            leg.SetBorderSize(0);
-            leg.SetFillStyle(0);
-            leg.SetTextFont(42);
-            leg.SetTextSize(0.036);
-            leg.AddEntry(hPPc, "PP data (counts)", "ep");
-            leg.Draw();
-
-            TLatex t;
-            t.SetNDC(true);
-            t.SetTextFont(42);
-
-            t.SetTextAlign(13);
-            t.SetTextSize(0.055);
-            t.DrawLatex(0.16, 0.92, topLeftTitle.c_str());
-
-            t.SetTextAlign(33);
-            t.SetTextSize(0.055);
-            t.DrawLatex(0.95, 0.92,
-              TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
-
-            delete hPPc;
+            for (TH1* h : keepAlivePP) delete h;
+            keepAlivePP.clear();
           }
-
-          SaveCanvas(cPPtbl, JoinPath(qaBasePP, "table2x3_pp_unNormalized.png"));
-        }
 
         // -------------------------
         // Per-pT PNGs (FULL RANGE ONLY; exactly one per pT bin)
