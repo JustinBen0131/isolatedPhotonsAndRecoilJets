@@ -17975,7 +17975,7 @@ namespace ARJ
 
             for (TH1* h : keepAlive) delete h;
             keepAlive.clear();
-          }
+        }
 
         // =============================================================================
         // NEW: AuAu-only SS (counts) summary by pT overlays (all pT bins) — WITH SS cut label + vlines
@@ -18179,50 +18179,50 @@ namespace ARJ
             for (TH1* h : histsPad) keepAlive.push_back(h);
           }
 
-            SaveCanvas(c, JoinPath(outDir, "table2x3_AuAu_unNormalized_byPtOverlays.png"));
+          SaveCanvas(c, JoinPath(outDir, "table2x3_AuAu_unNormalized_byPtOverlays.png"));
 
-            // Zoomed tables for selected SS vars:
-            //   e11e33, e32e35, et1 -> [0.9, 1.1]
-            //   weta, wphi          -> [0.0, 0.1]
-            bool doZoom = false;
-            double zxLo = 0.0;
-            double zxHi = 0.0;
-            std::string zoomTag;
+          // Zoomed tables for selected SS vars:
+          //   e11e33, e32e35, et1 -> [0.9, 1.1]
+          //   weta, wphi          -> [0.0, 0.1]
+          bool doZoom = false;
+          double zxLo = 0.0;
+          double zxHi = 0.0;
+          std::string zoomTag;
 
-            if (ssVar == "e11e33" || ssVar == "e32e35" || ssVar == "et1")
-            {
+          if (ssVar == "e11e33" || ssVar == "e32e35" || ssVar == "et1")
+          {
               doZoom = true;
               zxLo = 0.9;
               zxHi = 1.1;
               zoomTag = "0p9_1p1";
-            }
-            else if (ssVar == "weta" || ssVar == "wphi")
+          }
+          else if (ssVar == "weta" || ssVar == "wphi")
             {
               doZoom = true;
               zxLo = 0.0;
               zxHi = 0.1;
               zoomTag = "0p0_0p1";
-            }
+          }
 
-            if (doZoom)
-            {
+          if (doZoom)
+          {
               TCanvas cz(
-                TString::Format("c_aa_unNorm_byCent_SS_%s_zoom_%s", histBase.c_str(), zoomTag.c_str()).Data(),
-                "c_aa_unNorm_byCent_SS_zoom", 1500, 800
+                TString::Format("c_aa_unNorm_byPtOverlays_SS_%s_zoom_%s", histBase.c_str(), zoomTag.c_str()).Data(),
+                "c_aa_unNorm_byPtOverlays_SS_zoom", 1500, 800
               );
               cz.Divide(3,2, 0.001, 0.001);
 
               vector<TH1*> keepAliveZ;
-              keepAliveZ.reserve((std::size_t)nPads * (std::size_t)nCents);
+              keepAliveZ.reserve((std::size_t)nPads * (std::size_t)nPt);
 
               vector<TLegend*> keepAliveLegZ;
               keepAliveLegZ.reserve((std::size_t)nPads);
 
-              for (int ipt = 0; ipt < nPads; ++ipt)
+              for (int ic = 0; ic < nPads; ++ic)
               {
-                const PtBin& pb = ptBins[ipt];
+                const auto& cb = centBins[ic];
 
-                cz.cd(ipt+1);
+                cz.cd(ic+1);
                 gPad->SetLeftMargin(0.14);
                 gPad->SetRightMargin(0.05);
                 gPad->SetBottomMargin(0.14);
@@ -18230,21 +18230,21 @@ namespace ARJ
                 gPad->SetLogy(false);
 
                 vector<TH1*> histsPad;
-                histsPad.reserve((std::size_t)nCents);
+                histsPad.reserve((std::size_t)nPt);
 
                 vector<std::string> labelsPad;
-                labelsPad.reserve((std::size_t)nCents);
+                labelsPad.reserve((std::size_t)nPt);
 
-                for (int ic = 0; ic < nCents; ++ic)
+                for (int ipt = 0; ipt < nPt; ++ipt)
                 {
-                  const auto& cb = centBins[ic];
+                  const PtBin& pb = ptBins[ipt];
                   const string hAAName = histBase + pb.suffix + cb.suffix;
 
                   TH1* rawAA = GetTH1FromTopDir(aaTop, hAAName);
                   if (!rawAA) continue;
 
                   TH1* hAAc = CloneTH1(rawAA,
-                    TString::Format("aa_unNorm_byCent_SS_%s_%s%s_zoom_%s",
+                    TString::Format("aa_unNorm_byPt_SS_%s_%s%s_zoom_%s",
                                     histBase.c_str(), pb.folder.c_str(), cb.suffix.c_str(), zoomTag.c_str()).Data());
                   if (!hAAc) continue;
 
@@ -18255,18 +18255,18 @@ namespace ARJ
                   hAAc->GetYaxis()->SetTitle("Counts");
                   hAAc->GetXaxis()->SetRangeUser(zxLo, zxHi);
 
-                  const int col = colors[ic % nColors];
+                  const int col = colors[ipt % nColors];
                   StyleOverlayHist(hAAc, col, 20);
                   hAAc->SetMarkerStyle(20);
 
                   histsPad.push_back(hAAc);
-                  labelsPad.push_back(TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
+                  labelsPad.push_back(TString::Format("%d-%d GeV", pb.lo, pb.hi).Data());
                 }
 
                 if (histsPad.empty())
                 {
                   std::ostringstream s;
-                  s << "pT: " << pb.lo << "-" << pb.hi << "  AuAu by cent (zoom)";
+                  s << "cent: " << cb.lo << "-" << cb.hi << "  AuAu by pT (zoom)";
                   DrawMissingPad(s.str());
                   continue;
                 }
@@ -18286,7 +18286,7 @@ namespace ARJ
                 leg->SetBorderSize(0);
                 leg->SetFillStyle(0);
                 leg->SetTextFont(42);
-                leg->SetTextSize(0.030);
+                leg->SetTextSize(0.028);
 
                 for (std::size_t j = 0; j < histsPad.size(); ++j)
                 {
@@ -18301,8 +18301,8 @@ namespace ARJ
                 t.SetTextAlign(22);
                 t.SetTextSize(0.042);
                 t.DrawLatex(0.50, 0.93,
-                  TString::Format("Au+Au (counts), %s, centrality overlays, p_{T}^{#gamma} = %d-%d GeV",
-                                  ssVar.c_str(), pb.lo, pb.hi).Data());
+                  TString::Format("Au+Au (counts), %s, p_{T}^{#gamma} overlays, cent = %d-%d%%",
+                                  ssVar.c_str(), cb.lo, cb.hi).Data());
 
                 TLatex tcut;
                 tcut.SetNDC(true);
@@ -18377,7 +18377,7 @@ namespace ARJ
               }
 
               SaveCanvas(cz, JoinPath(outDir,
-                TString::Format("table2x3_AuAu_unNormalized_zoom_%s.png", zoomTag.c_str()).Data()));
+                TString::Format("table2x3_AuAu_unNormalized_byPtOverlays_zoom_%s.png", zoomTag.c_str()).Data()));
 
               for (TLegend* l : keepAliveLegZ) delete l;
               keepAliveLegZ.clear();
@@ -18385,6 +18385,13 @@ namespace ARJ
               for (TH1* h : keepAliveZ) delete h;
               keepAliveZ.clear();
             }
+
+            for (TLegend* l : keepAliveLeg) delete l;
+            keepAliveLeg.clear();
+
+            for (TH1* h : keepAlive) delete h;
+            keepAlive.clear();
+          }
 
         void RunPPvsAuAuDeliverables(Dataset& dsPP)
         {
