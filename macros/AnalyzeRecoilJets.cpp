@@ -7945,48 +7945,48 @@ namespace ARJ
                           keepFitsH.push_back(hSimRaw);
                       }
 
-                        SaveCanvas(canTblFits, JoinPath(dirOv, "table3x2_overlay_integratedAlpha_overlayedWithSim_withFits.png"));
+                      SaveCanvas(canTblFits, JoinPath(dirOv, "table3x2_overlay_integratedAlpha_overlayedWithSim_withFits.png"));
 
-                        // Also fit any remaining p_{T}^{#gamma} bins beyond the 2x3 table
-                        // so ALL summary PNGs (mean/sigma/chi2/ratio vs pT) use the full YAML pT binning.
-                        for (int k = nTableBins; k < nPt; ++k)
-                        {
-                          const int ib = startBinForTable + k;
+                      // Also fit any remaining p_{T}^{#gamma} bins beyond the 2x3 table
+                      // so ALL summary PNGs (mean/sigma/chi2/ratio vs pT) use the full YAML pT binning.
+                      for (int k = nTableBins; k < nPt; ++k)
+                      {
+                         const int ib = startBinForTable + k;
 
-                          const double ptMinGamma = H.hReco_xJ->GetXaxis()->GetBinLowEdge(ib);
-                          const double ptMaxGamma = H.hReco_xJ->GetXaxis()->GetBinUpEdge(ib);
-                          const double ptCtr = 0.5 * (ptMinGamma + ptMaxGamma);
-                          const double ptErr = 0.5 * (ptMaxGamma - ptMinGamma);
+                         const double ptMinGamma = H.hReco_xJ->GetXaxis()->GetBinLowEdge(ib);
+                         const double ptMaxGamma = H.hReco_xJ->GetXaxis()->GetBinUpEdge(ib);
+                         const double ptCtr = 0.5 * (ptMinGamma + ptMaxGamma);
+                         const double ptErr = 0.5 * (ptMaxGamma - ptMinGamma);
 
-                          TH1* hDatRaw = ProjectY_AtXbin_AndAlphaMax_TH3(
+                         TH1* hDatRaw = ProjectY_AtXbin_AndAlphaMax_TH3(
                             H.hReco_xJ, ib, H.hReco_xJ->GetZaxis()->GetXmax(),
                             TString::Format("h_tbl_fit_dat_%s_%d", rKey.c_str(), ib).Data()
-                          );
-                          TH1* hSimRaw = ProjectY_AtXbin_AndAlphaMax_TH3(
+                         );
+                         TH1* hSimRaw = ProjectY_AtXbin_AndAlphaMax_TH3(
                             hSim3, ib, hSim3->GetZaxis()->GetXmax(),
                             TString::Format("h_tbl_fit_sim_%s_%d", rKey.c_str(), ib).Data()
-                          );
+                         );
 
-                          if (!hDatRaw || !hSimRaw) { if (hDatRaw) delete hDatRaw; if (hSimRaw) delete hSimRaw; continue; }
+                         if (!hDatRaw || !hSimRaw) { if (hDatRaw) delete hDatRaw; if (hSimRaw) delete hSimRaw; continue; }
 
-                          hDatRaw->SetDirectory(nullptr);
-                          hSimRaw->SetDirectory(nullptr);
+                         hDatRaw->SetDirectory(nullptr);
+                         hSimRaw->SetDirectory(nullptr);
 
-                          EnsureSumw2(hDatRaw);
-                          EnsureSumw2(hSimRaw);
+                         EnsureSumw2(hDatRaw);
+                         EnsureSumw2(hSimRaw);
 
-                          const double iDat = hDatRaw->Integral(0, hDatRaw->GetNbinsX() + 1);
-                          const double iSim = hSimRaw->Integral(0, hSimRaw->GetNbinsX() + 1);
-                          if (iDat > 0.0) hDatRaw->Scale(1.0 / iDat);
-                          if (iSim > 0.0) hSimRaw->Scale(1.0 / iSim);
+                         const double iDat = hDatRaw->Integral(0, hDatRaw->GetNbinsX() + 1);
+                         const double iSim = hSimRaw->Integral(0, hSimRaw->GetNbinsX() + 1);
+                         if (iDat > 0.0) hDatRaw->Scale(1.0 / iDat);
+                         if (iSim > 0.0) hSimRaw->Scale(1.0 / iSim);
 
-                          TF1* fDat = FitIterGaus(hDatRaw, TString::Format("f_tbl_dat_%s_%d", rKey.c_str(), ib).Data(), kGreen + 2);
-                          TF1* fSim = FitIterGaus(hSimRaw, TString::Format("f_tbl_sim_%s_%d", rKey.c_str(), ib).Data(), kOrange + 7);
+                         TF1* fDat = FitIterGaus(hDatRaw, TString::Format("f_tbl_dat_%s_%d", rKey.c_str(), ib).Data(), kGreen + 2);
+                         TF1* fSim = FitIterGaus(hSimRaw, TString::Format("f_tbl_sim_%s_%d", rKey.c_str(), ib).Data(), kOrange + 7);
 
-                          if (fDat) keepFitFns.push_back(fDat);
-                          if (fSim) keepFitFns.push_back(fSim);
+                         if (fDat) keepFitFns.push_back(fDat);
+                         if (fSim) keepFitFns.push_back(fSim);
 
-                          {
+                         {
                             if (fDat && fDat->GetNDF() > 0)
                             {
                               const double mu   = fDat->GetParameter(1);
