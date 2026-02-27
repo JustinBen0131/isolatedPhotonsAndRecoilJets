@@ -163,6 +163,12 @@ namespace ARJ
 
   inline bool isPPdataOnly   = true;
   inline bool isSimAndDataPP = false;
+
+  // NEW: AuAu-only analysis mode (no SIM, no PP). When true, the full plotting
+  // pipeline runs on AuAu only and outputs to dataOutput/auau/<trigger>/...
+  // NOTE: Must be mutually exclusive with isPPdataOnly and isSimAndDataPP.
+  inline bool isAuAuOnly     = false;
+
   // Optional comparison overlays: PP vs Au+Au (gold-gold) photon-ID deliverables.
   // If false, analysis behavior is IDENTICAL to the current pipeline.
   inline bool isPPdataAndAUAU = true;
@@ -368,11 +374,15 @@ namespace ARJ
   inline const string kInSIM20_jetMinPt5_pihalves = Sim10and20ConfigForKey(kAltSimSampleKey_jetMinPt5_pihalves).photon20;
 
   inline const string kOutPPBase =
-          "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp";
+        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp";
+
+  // NEW: AuAu-only output base (full plotting pipeline outputs here when isAuAuOnly=true)
+  inline const string kOutAuAuBase =
+        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auau";
 
   // PP vs AuAu (gold-gold) comparison deliverables output base
   inline const string kOutPPAuAuBase =
-          "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp_auau";
+        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp_auau";
 
   // SIM outputs are routed by the SIM sample toggle(s) above:
   inline const string kOutSIM5Base =
@@ -2656,45 +2666,69 @@ namespace ARJ
 
   inline bool ValidateRunConfig(string* errMsg = nullptr)
   {
-        // Disallow contradictory run-mode toggles.
-        if (isPPdataOnly && isSimAndDataPP)
-        {
-          if (errMsg) *errMsg = "Both isPPdataOnly and isSimAndDataPP are true. Choose only one.";
-          return false;
-        }
+      // Disallow contradictory run-mode toggles.
+      if (isPPdataOnly && isSimAndDataPP)
+      {
+        if (errMsg) *errMsg = "Both isPPdataOnly and isSimAndDataPP are true. Choose only one.";
+        return false;
+      }
 
-        const SimSample ss = CurrentSimSample();
+      if (isAuAuOnly && (isPPdataOnly || isSimAndDataPP))
+      {
+        if (errMsg) *errMsg = "isAuAuOnly=true is mutually exclusive with isPPdataOnly and isSimAndDataPP. Choose only one run mode.";
+        return false;
+      }
 
-        // PP-only run: SIM sample toggles must be OFF.
-        if (isPPdataOnly)
-        {
-          if (ss != SimSample::kNone)
-          {
-            if (errMsg)
-            {
-              *errMsg =
-                "PP-data-only mode selected, but a SIM sample toggle is set. "
-                "Set isPhotonJet5=false, isPhotonJet10=false, isPhotonJet20=false, "
-                "bothPhoton5and10sim=false, bothPhoton5and20sim=false, bothPhoton10and20sim=false, "
-                "allPhoton5and10and20sim=false.";
-            }
-            return false;
-          }
-          return true;
-        }
+      const SimSample ss = CurrentSimSample();
 
-        // Any non-PP-only run includes SIM (either SIM-only or SIM+PP).
-        if (ss == SimSample::kNone)
+      // AuAu-only run: SIM sample toggles must be OFF.
+      if (isAuAuOnly)
+      {
+        if (ss != SimSample::kNone)
         {
           if (errMsg)
           {
             *errMsg =
-              "SIM is required (SIM-only or SIM+PP), but no SIM sample was selected. "
-              "Set exactly one of: isPhotonJet5, isPhotonJet10, isPhotonJet20, "
-              "bothPhoton5and10sim, bothPhoton5and20sim, bothPhoton10and20sim, allPhoton5and10and20sim.";
+              "AuAu-only mode selected, but a SIM sample toggle is set. "
+              "Set isPhotonJet5=false, isPhotonJet10=false, isPhotonJet20=false, "
+              "bothPhoton5and10sim=false, bothPhoton5and20sim=false, bothPhoton10and20sim=false, "
+              "allPhoton5and10and20sim=false.";
           }
           return false;
         }
+        return true;
+      }
+
+      // PP-only run: SIM sample toggles must be OFF.
+      if (isPPdataOnly)
+      {
+        if (ss != SimSample::kNone)
+        {
+          if (errMsg)
+          {
+            *errMsg =
+              "PP-data-only mode selected, but a SIM sample toggle is set. "
+              "Set isPhotonJet5=false, isPhotonJet10=false, isPhotonJet20=false, "
+              "bothPhoton5and10sim=false, bothPhoton5and20sim=false, bothPhoton10and20sim=false, "
+              "allPhoton5and10and20sim=false.";
+          }
+          return false;
+        }
+        return true;
+      }
+
+      // Any non-PP-only run includes SIM (either SIM-only or SIM+PP).
+      if (ss == SimSample::kNone)
+      {
+        if (errMsg)
+        {
+          *errMsg =
+            "SIM is required (SIM-only or SIM+PP), but no SIM sample was selected. "
+            "Set exactly one of: isPhotonJet5, isPhotonJet10, isPhotonJet20, "
+            "bothPhoton5and10sim, bothPhoton5and20sim, bothPhoton10and20sim, allPhoton5and10and20sim.";
+        }
+        return false;
+      }
 
       if (ss == SimSample::kInvalid)
       {
@@ -2734,32 +2768,35 @@ namespace ARJ
   // =============================================================================
   // Run mode helpers
   // =============================================================================
-  enum class RunMode
-  {
-      kPPDataOnly,
-      kSimOnly,
-      kSimAndDataPP,
-      kInvalid
-  };
+    enum class RunMode
+    {
+        kPPDataOnly,
+        kAuAuOnly,
+        kSimOnly,
+        kSimAndDataPP,
+        kInvalid
+    };
 
-  inline RunMode CurrentRunMode()
-  {
-      if (!ValidateRunConfig(nullptr)) return RunMode::kInvalid;
-      if (isPPdataOnly)   return RunMode::kPPDataOnly;
-      if (isSimAndDataPP) return RunMode::kSimAndDataPP;
-      return RunMode::kSimOnly;
-  }
+    inline RunMode CurrentRunMode()
+    {
+        if (!ValidateRunConfig(nullptr)) return RunMode::kInvalid;
+        if (isAuAuOnly)    return RunMode::kAuAuOnly;
+        if (isPPdataOnly)  return RunMode::kPPDataOnly;
+        if (isSimAndDataPP) return RunMode::kSimAndDataPP;
+        return RunMode::kSimOnly;
+    }
 
-  inline string RunModeLabel(RunMode m)
-  {
-      switch (m)
-      {
-        case RunMode::kPPDataOnly:   return "PP_DATA_ONLY";
-        case RunMode::kSimOnly:      return "SIM_ONLY";
-        case RunMode::kSimAndDataPP: return "SIM_AND_DATA_PP";
-        default:                     return "INVALID";
-      }
-  }
+    inline string RunModeLabel(RunMode m)
+    {
+        switch (m)
+        {
+          case RunMode::kPPDataOnly:   return "PP_DATA_ONLY";
+          case RunMode::kAuAuOnly:     return "AUAU_ONLY";
+          case RunMode::kSimOnly:      return "SIM_ONLY";
+          case RunMode::kSimAndDataPP: return "SIM_AND_DATA_PP";
+          default:                     return "INVALID";
+        }
+    }
 
 
 } // namespace ARJ

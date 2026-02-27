@@ -18459,6 +18459,8 @@ namespace ARJ
         const bool doPP  = (mode == RunMode::kPPDataOnly ||
                             mode == RunMode::kSimAndDataPP);
 
+        const bool doAuAu = (mode == RunMode::kAuAuOnly);
+
         const SimSample ss = CurrentSimSample();
 
         if (doSim)
@@ -18501,13 +18503,29 @@ namespace ARJ
           datasets.push_back(std::move(ds));
         }
 
+        if (doAuAu)
+        {
+          Dataset ds;
+          ds.label      = "DATA_AUAU";
+          ds.isSim      = false;
+          ds.trigger    = kTriggerAuAuGold;
+          ds.topDirName = kTriggerAuAuGold;
+          ds.inFilePath = kInAuAuGold;
+
+          // AuAu-only outputs are organized per-trigger, mirroring PP:
+          //   <AuAu base>/<trigger>/{baselineData,insituCalib,unfolding,...}
+          ds.outBase = JoinPath(kOutAuAuBase, ds.trigger);
+
+          datasets.push_back(std::move(ds));
+        }
+
         return datasets;
     }
 
     inline bool MaybeBuildMergedSIM(RunMode mode)
     {
-      // Only relevant when a SIM-including mode is running AND a merged SIM sample was selected.
-      if (mode == RunMode::kPPDataOnly) return true;
+        // Only relevant when a SIM-including mode is running AND a merged SIM sample was selected.
+        if (mode == RunMode::kPPDataOnly || mode == RunMode::kAuAuOnly) return true;
 
       const SimSample ss = CurrentSimSample();
       if (!IsMergedSimSample(ss)) return true;
@@ -18622,6 +18640,7 @@ namespace ARJ
       cout << "  Toggles:\n"
            << "    isPPdataOnly            = " << (isPPdataOnly ? "true" : "false") << "\n"
            << "    isSimAndDataPP          = " << (isSimAndDataPP ? "true" : "false") << "\n"
+           << "    isAuAuOnly              = " << (isAuAuOnly ? "true" : "false") << "\n"
            << "    isPhotonJet5            = " << (isPhotonJet5 ? "true" : "false") << "\n"
            << "    isPhotonJet10           = " << (isPhotonJet10 ? "true" : "false") << "\n"
            << "    isPhotonJet20           = " << (isPhotonJet20 ? "true" : "false") << "\n"
@@ -18774,7 +18793,7 @@ namespace ARJ
       const SimSample ss   = CurrentSimSample();
 
       cout << ANSI_BOLD_YEL << "  -> Selected mode: " << RunModeLabel(mode);
-      if (mode != RunMode::kPPDataOnly)
+      if (mode == RunMode::kSimOnly || mode == RunMode::kSimAndDataPP)
       {
         cout << "  |  SIM sample: " << SimSampleLabel(ss)
              << "  |  SIM outBase: " << SimOutBaseForSample(ss);
@@ -18784,7 +18803,7 @@ namespace ARJ
       // ---------------------------------------------------------------------------
       // Explicit default SIM10+20 config printout (so it's obvious what drives the merge + analysis)
       // ---------------------------------------------------------------------------
-      if (mode != RunMode::kPPDataOnly)
+      if (mode == RunMode::kSimOnly || mode == RunMode::kSimAndDataPP)
       {
         const Sim10and20Config& cfgDef = DefaultSim10and20Config();
 
