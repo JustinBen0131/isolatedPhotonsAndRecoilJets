@@ -16357,9 +16357,208 @@ namespace ARJ
             }
           }
 
-        cout << ANSI_BOLD_GRN
-             << "  -> Wrote PP vs AuAu deliverables under: " << outBase
-             << ANSI_RESET << "\n";
+          // ---------------------------------------------------------------------
+          // NEW (noIsoRequired summary outside per-centrality folders):
+          //
+          // Output to:
+          //   <kOutPPAuAuBase>/noIsoRequired/<ssVar>/<pTbin>/table2x3_overlay_pp_vs_auau_byCent.png
+          //
+          // For each SS variable and each pT bin, produce a 2x3 table where each pad
+          // corresponds to a centrality bin (first 6), overlaying:
+          //   - PP (same curve in every pad for that pT bin)
+          //   - AuAu (centrality-dependent curve)
+          // with legend + centered title including SS var, centrality, and pT bin.
+          // ---------------------------------------------------------------------
+          {
+            const int nPtPads = std::min(6, kNPtBins);
+            const int nCentPads = std::min(6, (int)centBins.size());
+
+            if (nPtPads > 0 && nCentPads > 0)
+            {
+              const auto& ptBins = PtBins();
+
+              const string baseNoIso = JoinPath(outBase, "noIsoRequired");
+              EnsureDir(baseNoIso);
+
+              for (const auto& var : ssVars)
+              {
+                const string varBase = JoinPath(baseNoIso, var);
+                EnsureDir(varBase);
+
+                for (int ipt = 0; ipt < nPtPads; ++ipt)
+                {
+                  const PtBin& pb = ptBins[ipt];
+
+                  const string ptDir = JoinPath(varBase, pb.folder);
+                  EnsureDir(ptDir);
+
+                  TCanvas c(
+                    TString::Format("c_noIso_centSummary_%s_%s", var.c_str(), pb.folder.c_str()).Data(),
+                    "c_noIso_centSummary", 1500, 800
+                  );
+                  c.Divide(3,2, 0.001, 0.001);
+
+                  vector<TH1*> keepAlive;
+                  keepAlive.reserve((std::size_t)nCentPads * 2);
+
+                  // PP inclusive SS hist name (same for all centrality pads)
+                  const string hPPName = string("h_ss_") + var + string("_inclusive") + pb.suffix;
+                  TH1* rawPP = GetTH1FromTopDir(dsPP.topDir, hPPName);
+
+                  for (int ic = 0; ic < nCentPads; ++ic)
+                  {
+                    const auto& cb2 = centBins[ic];
+                    const string centSuffix2 = cb2.suffix;
+                    const string centLabel2  = TString::Format("Cent = %d-%d%%", cb2.lo, cb2.hi).Data();
+
+                    c.cd(ic+1);
+                    gPad->SetLeftMargin(0.14);
+                    gPad->SetRightMargin(0.05);
+                    gPad->SetBottomMargin(0.14);
+                    gPad->SetTopMargin(0.12);
+                    gPad->SetLogy(false);
+
+                    // AuAu inclusive SS hist name for this centrality
+                    const string hAAName = string("h_ss_") + var + string("_inclusive") + pb.suffix + centSuffix2;
+                    TH1* rawAA = GetTH1FromTopDir(aaTop, hAAName);
+
+                    if (!rawPP || !rawAA)
+                    {
+                      std::ostringstream s;
+                      s << "pT: " << pb.lo << "-" << pb.hi << "  " << centLabel2;
+                      DrawMissingPad(s.str());
+                      continue;
+                    }
+
+                    TH1* hPP = CloneNormalizeStyle(rawPP,
+                      TString::Format("pp_noIso_centSummary_%s_%s_%d", var.c_str(), pb.folder.c_str(), ic).Data(),
+                      kBlack, 20);
+
+                    TH1* hAA = CloneNormalizeStyle(rawAA,
+                      TString::Format("aa_noIso_centSummary_%s_%s%s_%d", var.c_str(), pb.folder.c_str(), centSuffix2.c_str(), ic).Data(),
+                      kRed + 1, 24);
+
+                    if (!hPP || !hAA)
+                    {
+                      if (hPP) delete hPP;
+                      if (hAA) delete hAA;
+                      std::ostringstream s;
+                      s << "pT: " << pb.lo << "-" << pb.hi << "  " << centLabel2;
+                      DrawMissingPad(s.str());
+                      continue;
+                    }
+
+                    hPP->GetXaxis()->SetTitle(var.c_str());
+                    hPP->GetYaxis()->SetTitle("Normalized counts");
+
+                    const double ymax = std::max(hPP->GetMaximum(), hAA->GetMaximum());
+                    hPP->SetMaximum(ymax * 1.35);
+
+                    hPP->Draw("E1");
+                    hAA->Draw("E1 same");
+
+                    // Always label BOTH curves explicitly (PP vs Au+Au).
+                    TLegend leg(0.52, 0.68, 0.90, 0.84);
+                    leg.SetBorderSize(0);
+                    leg.SetFillStyle(0);
+                    leg.SetTextFont(42);
+                    leg.SetTextSize(0.034);
+                    leg.AddEntry(hPP, "PP data", "ep");
+                    leg.AddEntry(hAA, "Au+Au data", "ep");
+                    leg.Draw();
+
+                      // Centered title for each pad
+                      TLatex t;
+                      t.SetNDC(true);
+                      t.SetTextFont(42);
+                      t.SetTextAlign(22);
+                      t.SetTextSize(0.040);
+
+                      t.DrawLatex(0.50, 0.93,
+                        TString::Format("%s, %s, p_{T}^{#gamma} = %d-%d GeV",
+                                        var.c_str(), centLabel2.c_str(), pb.lo, pb.hi).Data());
+
+                      // ------------------------------------------------------------
+                      // Add #gamma-ID annotation (top-left) + draw cut lines where applicable
+                      // ------------------------------------------------------------
+                      TLatex tcut;
+                      tcut.SetNDC(true);
+                      tcut.SetTextFont(42);
+                      tcut.SetTextAlign(13);
+                      tcut.SetTextSize(0.036);
+
+                      bool drawCuts = false;
+                      double cutLo = 0.0;
+                      double cutHi = 0.0;
+                      std::string cutText;
+
+                      if (var == "e11e33")
+                      {
+                        cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_33} < 0.98";
+                        drawCuts = true;
+                        cutLo = 0.4;
+                        cutHi = 0.98;
+                      }
+                      else if (var == "e32e35")
+                      {
+                        cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
+                        drawCuts = true;
+                        cutLo = 0.92;
+                        cutHi = 1.0;
+                      }
+                      else if (var == "et1")
+                      {
+                        cutText = "#gamma-ID: 0.9 < et1 < 1.0";
+                        drawCuts = true;
+                        cutLo = 0.9;
+                        cutHi = 1.0;
+                      }
+                      else if (var == "weta")
+                      {
+                        cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                      }
+                      else if (var == "wphi")
+                      {
+                        cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                      }
+
+                      if (!cutText.empty())
+                      {
+                        tcut.DrawLatex(0.16, 0.84, cutText.c_str());
+                      }
+
+                      if (drawCuts)
+                      {
+                        const double yMax = hPP->GetMaximum();
+                        TLine l1(cutLo, 0.0, cutLo, yMax);
+                        l1.SetLineColor(kGreen + 2);
+                        l1.SetLineWidth(2);
+                        l1.SetLineStyle(2);
+                        l1.Draw();
+
+                        TLine l2(cutHi, 0.0, cutHi, yMax);
+                        l2.SetLineColor(kOrange + 7);
+                        l2.SetLineWidth(2);
+                        l2.SetLineStyle(2);
+                        l2.Draw();
+                      }
+
+                    keepAlive.push_back(hPP);
+                    keepAlive.push_back(hAA);
+                  }
+
+                  SaveCanvas(c, JoinPath(ptDir, "table2x3_overlay_pp_vs_auau_byCent.png"));
+
+                  for (TH1* h : keepAlive) delete h;
+                  keepAlive.clear();
+                }
+              }
+            }
+          }
+
+          cout << ANSI_BOLD_GRN
+               << "  -> Wrote PP vs AuAu deliverables under: " << outBase
+               << ANSI_RESET << "\n";
 
         fAA->Close();
         delete fAA;
