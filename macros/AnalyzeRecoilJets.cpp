@@ -6,6 +6,19 @@
 
 #include "AnalyzeRecoilJets.h"
 
+#ifdef __has_include
+#if __has_include("RooUnfoldResponse.h")
+#define ARJ_HAVE_ROOUNFOLD 1
+#include "RooUnfoldResponse.h"
+#include "RooUnfoldBayes.h"
+#include "RooUnfold.h"
+#else
+#define ARJ_HAVE_ROOUNFOLD 0
+#endif
+#else
+#define ARJ_HAVE_ROOUNFOLD 0
+#endif
+
 namespace ARJ
 {
   // =============================================================================
@@ -15298,10 +15311,802 @@ namespace ARJ
 
               // Part D: efficiency/purity products + overlays + summary file (requires hReco + hTruth)
               RunEfficiencyPurityQA(rKey, R, rOut, H);
-           }
-      }
-      // =============================================================================
-      // OPTIONAL: PP vs Au+Au (gold-gold) photon-ID deliverables
+            }
+        }
+
+  #if ARJ_HAVE_ROOUNFOLD
+        // =============================================================================
+        // Section 5I: RooUnfold pipeline (SIM+DATA PP only)
+        //   - Unfold N_{#gamma}(pT^{#gamma}) using SIM photon response
+        //   - Unfold (pT^{#gamma}, x_{J}) using SIM global-bin response per radius
+        //   - Produce per-photon normalized particle-level x_{J} (2x3 table: first 6 pT bins)
+        //
+        // Output base (DATA trigger):
+        //   <triggerName>/unfolding/radii/<rKey>/
+        //     table2x3_unfolded_perPhoton_dNdXJ.png
+        //     rooUnfold_outputs.root
+        //     summary_rooUnfold_pipeline.txt
+        //
+        // Shared photon outputs:
+        //   <triggerName>/unfolding/radii/photons/
+        // =============================================================================
+        void RunRooUnfoldPipeline_SimAndDataPP(Dataset& dsData, Dataset& dsSim)
+        {
+          cout << ANSI_BOLD_CYN << "\n==============================\n"
+               << "[SECTION 5I] RooUnfold pipeline (SIM+DATA PP)\n"
+               << "  DATA: " << dsData.label << "\n"
+               << "  SIM : " << dsSim.label  << "\n"
+               << "==============================" << ANSI_RESET << "\n";
+
+          if (gSystem)
+          {
+            const int rc = gSystem->Load("libRooUnfold");
+            if (rc < 0)
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] gSystem->Load(\"libRooUnfold\") failed. If you built RooUnfold as a static lib or preloaded it, this may be OK; otherwise RooUnfold symbols may be missing at runtime."
+                   << ANSI_RESET << "\n";
+            }
+          }
+
+          if (dsData.isSim || !dsSim.isSim)
+          {
+            cout << ANSI_BOLD_YEL << "[WARN] RunRooUnfoldPipeline_SimAndDataPP called with unexpected dataset types (dsData.isSim="
+                 << dsData.isSim << ", dsSim.isSim=" << dsSim.isSim << "). Continuing anyway." << ANSI_RESET << "\n";
+          }
+
+          const string outBase = JoinPath(dsData.outBase, "unfolding/radii");
+          EnsureDir(outBase);
+
+          // ----------------------------------------------------------------------
+          // Helper: transpose any TH2 (including variable binning) so that:
+          //   hOut(x=oldY, y=oldX) with all bin contents/errors preserved
+          // ----------------------------------------------------------------------
+          auto TransposeTH2 = [](const TH2* hIn, const string& newName, const string& newTitle) -> TH2D*
+          {
+            if (!hIn) return nullptr;
+
+            const TAxis* ax = hIn->GetXaxis();
+            const TAxis* ay = hIn->GetYaxis();
+
+            const int nx = ax->GetNbins();
+            const int ny = ay->GetNbins();
+
+            const bool xVar = (ay->GetXbins() && ay->GetXbins()->GetSize() > 0);
+            const bool yVar = (ax->GetXbins() && ax->GetXbins()->GetSize() > 0);
+
+            TH2D* hOut = nullptr;
+
+            if (xVar && yVar)
+            {
+              hOut = new TH2D(newName.c_str(), newTitle.c_str(),
+                              ny, ay->GetXbins()->GetArray(),
+                              nx, ax->GetXbins()->GetArray());
+            }
+            else if (xVar && !yVar)
+            {
+              hOut = new TH2D(newName.c_str(), newTitle.c_str(),
+                              ny, ay->GetXbins()->GetArray(),
+                              nx, ax->GetXmin(), ax->GetXmax());
+            }
+            else if (!xVar && yVar)
+            {
+              hOut = new TH2D(newName.c_str(), newTitle.c_str(),
+                              ny, ay->GetXmin(), ay->GetXmax(),
+                              nx, ax->GetXbins()->GetArray());
+            }
+            else
+            {
+              hOut = new TH2D(newName.c_str(), newTitle.c_str(),
+                              ny, ay->GetXmin(), ay->GetXmax(),
+                              nx, ax->GetXmin(), ax->GetXmax());
+            }
+
+            hOut->SetDirectory(nullptr);
+            hOut->Sumw2();
+
+            // Include underflow/overflow so nothing is silently dropped.
+            for (int ix = 0; ix <= nx + 1; ++ix)
+            {
+              for (int iy = 0; iy <= ny + 1; ++iy)
+              {
+                hOut->SetBinContent(iy, ix, hIn->GetBinContent(ix, iy));
+                hOut->SetBinError  (iy, ix, hIn->GetBinError  (ix, iy));
+              }
+            }
+
+            return hOut;
+          };
+
+          // ----------------------------------------------------------------------
+          // Helper: flatten TH2(pT,xJ) into TH1(globalBin) using ROOT's internal
+          //         global-bin indexing:
+          //           g = (nx+2)*iy + ix, with ix,iy including under/overflow.
+          //
+          // This is the SAME g used when filling h2_unfoldResponse_* in RecoilJets.cc:
+          //   gReco   = h2Reco ->FindBin(pT_reco, xJ_reco);
+          //   gTruth  = h2Truth->FindBin(pT_true, xJ_true);
+          // ----------------------------------------------------------------------
+          auto FlattenTH2ToGlobal = [](const TH2* h2, const string& newName) -> TH1D*
+          {
+            if (!h2) return nullptr;
+
+            const int nx = h2->GetNbinsX();
+            const int ny = h2->GetNbinsY();
+            const int nGlob = (nx + 2) * (ny + 2);
+
+            TH1D* h1 = new TH1D(newName.c_str(), "", nGlob, -0.5, nGlob - 0.5);
+            h1->SetDirectory(nullptr);
+            h1->Sumw2();
+
+            for (int ix = 0; ix <= nx + 1; ++ix)
+            {
+              for (int iy = 0; iy <= ny + 1; ++iy)
+              {
+                const int g = h2->GetBin(ix, iy);     // 0 .. nGlob-1
+                const int b = g + 1;                  // TH1 bin number (1-based)
+                if (b < 1 || b > nGlob) continue;
+
+                h1->SetBinContent(b, h2->GetBinContent(ix, iy));
+                h1->SetBinError  (b, h2->GetBinError  (ix, iy));
+              }
+            }
+
+            return h1;
+          };
+
+          // ----------------------------------------------------------------------
+          // Helper: un-flatten TH1(globalTruth) back into TH2(truth pT,xJ) using a
+          //         template TH2 for binning.
+          // ----------------------------------------------------------------------
+          auto UnflattenGlobalToTH2 = [](const TH1* hGlob, const TH2* tmpl, const string& newName) -> TH2*
+          {
+            if (!hGlob || !tmpl) return nullptr;
+
+            TH2* h2 = CloneTH2(tmpl, newName);
+            if (!h2) return nullptr;
+
+            h2->Reset("ICES");
+            h2->SetDirectory(nullptr);
+
+            const int nx = h2->GetNbinsX();
+            const int ny = h2->GetNbinsY();
+            const int nGlob = (nx + 2) * (ny + 2);
+
+            if (hGlob->GetNbinsX() != nGlob)
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] UnflattenGlobalToTH2: template nGlob=" << nGlob
+                   << " but hGlob nbins=" << hGlob->GetNbinsX()
+                   << ". Proceeding (bins beyond overlap will be ignored)."
+                   << ANSI_RESET << "\n";
+            }
+
+            const int nCopy = std::min(nGlob, hGlob->GetNbinsX());
+
+            for (int ix = 0; ix <= nx + 1; ++ix)
+            {
+              for (int iy = 0; iy <= ny + 1; ++iy)
+              {
+                const int g = h2->GetBin(ix, iy); // 0..nGlob-1
+                const int b = g + 1;
+                if (b < 1 || b > nCopy) continue;
+
+                h2->SetBinContent(ix, iy, hGlob->GetBinContent(b));
+                h2->SetBinError  (ix, iy, hGlob->GetBinError  (b));
+              }
+            }
+
+            return h2;
+          };
+
+          // ----------------------------------------------------------------------
+          // (A) Photon unfolding: N_gamma(pT^gamma) at particle (truth) level
+          // ----------------------------------------------------------------------
+          const string phoDir = JoinPath(outBase, "photons");
+          EnsureDir(phoDir);
+
+          TH1* hPhoRecoData_in  = GetObj<TH1>(dsData, "h_unfoldRecoPho_pTgamma",  true, true, true);
+          TH1* hPhoRecoSim_in   = GetObj<TH1>(dsSim,  "h_unfoldRecoPho_pTgamma",  true, true, true);
+          TH1* hPhoTruthSim_in  = GetObj<TH1>(dsSim,  "h_unfoldTruthPho_pTgamma", true, true, true);
+          TH2* hPhoRespSim_in   = GetObj<TH2>(dsSim,  "h2_unfoldResponsePho_pTgamma", true, true, true);
+
+          if (!hPhoRecoData_in || !hPhoRecoSim_in || !hPhoTruthSim_in || !hPhoRespSim_in)
+          {
+            cout << ANSI_BOLD_RED
+                 << "[ERROR] Missing one or more photon unfolding inputs.\n"
+                 << "        Need (DATA) h_unfoldRecoPho_pTgamma and (SIM) h_unfoldRecoPho_pTgamma, h_unfoldTruthPho_pTgamma, h2_unfoldResponsePho_pTgamma.\n"
+                 << "        Aborting RooUnfold pipeline."
+                 << ANSI_RESET << "\n";
+            return;
+          }
+
+          TH1* hPhoRecoData  = CloneTH1(hPhoRecoData_in,  "hPhoRecoData");
+          TH1* hPhoRecoSim   = CloneTH1(hPhoRecoSim_in,   "hPhoRecoSim");
+          TH1* hPhoTruthSim  = CloneTH1(hPhoTruthSim_in,  "hPhoTruthSim");
+          TH2* hPhoRespSim   = CloneTH2(hPhoRespSim_in,   "hPhoRespSim_truthVsReco");
+
+          EnsureSumw2(hPhoRecoData);
+          EnsureSumw2(hPhoRecoSim);
+          EnsureSumw2(hPhoTruthSim);
+          EnsureSumw2(hPhoRespSim);
+
+          TH2D* hPhoResp_measXtruth = TransposeTH2(
+            hPhoRespSim,
+            "h2_unfoldResponsePho_pTgamma_recoVsTruth",
+            "Photon response matrix; p_{T}^{#gamma, reco} [GeV]; p_{T}^{#gamma, truth} [GeV]"
+          );
+
+          if (!hPhoResp_measXtruth)
+          {
+            cout << ANSI_BOLD_RED
+                 << "[ERROR] Failed to transpose photon response matrix. Aborting RooUnfold pipeline."
+                 << ANSI_RESET << "\n";
+            delete hPhoRecoData;
+            delete hPhoRecoSim;
+            delete hPhoTruthSim;
+            delete hPhoRespSim;
+            return;
+          }
+
+          const int kBayesIterPho = 4;
+
+          RooUnfoldResponse respPho(hPhoRecoSim, hPhoTruthSim, hPhoResp_measXtruth, "respPho", "respPho");
+          RooUnfoldBayes    unfoldPho(&respPho, hPhoRecoData, kBayesIterPho);
+          unfoldPho.SetVerbose(0);
+
+          TH1* hPhoUnfoldTruth = unfoldPho.Hreco(RooUnfold::kCovariance);
+          if (hPhoUnfoldTruth) hPhoUnfoldTruth->SetDirectory(nullptr);
+
+          // Photon QA outputs
+          {
+            {
+              TCanvas c("c_pho_resp","c_pho_resp", 900, 750);
+              ApplyCanvasMargins2D(c);
+              c.SetLogz();
+
+              hPhoRespSim->SetTitle("");
+              hPhoRespSim->GetXaxis()->SetTitle("p_{T}^{#gamma, truth} [GeV]");
+              hPhoRespSim->GetYaxis()->SetTitle("p_{T}^{#gamma, reco} [GeV]");
+              hPhoRespSim->Draw("colz");
+
+              DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
+              DrawLatexLines(0.14,0.78, { "SIM photon response", "truth #rightarrow reco" }, 0.030, 0.040);
+
+              SaveCanvas(c, JoinPath(phoDir, "pho_response_truthVsReco.png"));
+            }
+            if (hPhoResp_measXtruth)
+            {
+              TCanvas c("c_pho_respT","c_pho_respT", 900, 750);
+              ApplyCanvasMargins2D(c);
+              c.SetLogz();
+
+              hPhoResp_measXtruth->SetTitle("");
+              hPhoResp_measXtruth->GetXaxis()->SetTitle("p_{T}^{#gamma, reco} [GeV]");
+              hPhoResp_measXtruth->GetYaxis()->SetTitle("p_{T}^{#gamma, truth} [GeV]");
+              hPhoResp_measXtruth->Draw("colz");
+
+              DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
+              DrawLatexLines(0.14,0.78, { "SIM photon response (transpose)", "reco #rightarrow truth axis order" }, 0.030, 0.040);
+
+              SaveCanvas(c, JoinPath(phoDir, "pho_response_recoVsTruth.png"));
+            }
+
+            if (hPhoUnfoldTruth)
+            {
+              TH1* hRecoShape = CloneTH1(hPhoRecoData, "hPhoRecoData_forOverlay");
+              TH1* hUnfShape  = CloneTH1(hPhoUnfoldTruth, "hPhoUnfoldTruth_forOverlay");
+              if (hRecoShape && hUnfShape)
+              {
+                hRecoShape->SetDirectory(nullptr);
+                hUnfShape->SetDirectory(nullptr);
+
+                hRecoShape->SetLineColor(2);
+                hRecoShape->SetMarkerColor(2);
+                hRecoShape->SetMarkerStyle(20);
+                hRecoShape->SetLineWidth(2);
+
+                hUnfShape->SetLineColor(1);
+                hUnfShape->SetMarkerColor(1);
+                hUnfShape->SetMarkerStyle(24);
+                hUnfShape->SetLineWidth(2);
+
+                TCanvas c("c_pho_unf","c_pho_unf", 900, 700);
+                ApplyCanvasMargins1D(c);
+
+                const double maxv = std::max(hRecoShape->GetMaximum(), hUnfShape->GetMaximum());
+                hRecoShape->SetMaximum(maxv * 1.35);
+                hRecoShape->SetTitle("");
+                hRecoShape->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                hRecoShape->GetYaxis()->SetTitle("Counts");
+
+                hRecoShape->Draw("E1");
+                hUnfShape->Draw("E1 same");
+
+                TLegend leg(0.55,0.76,0.92,0.90);
+                leg.SetTextFont(42);
+                leg.SetTextSize(0.032);
+                leg.AddEntry(hRecoShape, "PP DATA (reco)", "lep");
+                leg.AddEntry(hUnfShape,  TString::Format("Unfolded (truth), Bayes it=%d", kBayesIterPho).Data(), "lep");
+                leg.Draw();
+
+                DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
+                DrawLatexLines(0.14,0.78, { "Photon unfolding: N_{#gamma}(p_{T}^{#gamma})" }, 0.030, 0.040);
+
+                SaveCanvas(c, JoinPath(phoDir, "pho_unfolded_truth_pTgamma_overlay.png"));
+
+                delete hRecoShape;
+                delete hUnfShape;
+              }
+            }
+          }
+
+          // Photon summary for the first 6 canonical pT bins
+          vector<string> phoSummary;
+          phoSummary.push_back("Photon unfolding summary (PP DATA unfolded to truth pTgamma)");
+          phoSummary.push_back(TString::Format("Method: RooUnfoldBayes, iterations=%d, error=kCovariance", kBayesIterPho).Data());
+          phoSummary.push_back("");
+
+          {
+            const int nPtCanon = std::min(6, (int)PtBins().size());
+            for (int i = 0; i < nPtCanon; ++i)
+            {
+              const PtBin& b = PtBins()[i];
+              const double cen = 0.5 * (b.lo + b.hi);
+
+              const int ibTruth = (hPhoUnfoldTruth ? hPhoUnfoldTruth->GetXaxis()->FindBin(cen) : -1);
+
+              const string labCanon = TString::Format("%d-%d GeV", b.lo, b.hi).Data();
+              const string labTruth = (hPhoUnfoldTruth ? AxisBinLabel(hPhoUnfoldTruth->GetXaxis(), ibTruth, "GeV", 0) : "N/A");
+
+              const double N = (hPhoUnfoldTruth ? hPhoUnfoldTruth->GetBinContent(ibTruth) : 0.0);
+              const double E = (hPhoUnfoldTruth ? hPhoUnfoldTruth->GetBinError  (ibTruth) : 0.0);
+
+              phoSummary.push_back(
+                TString::Format("pT^gamma canon=%s  -> truthBin=%s  N_gamma(unf)=%.6g ± %.6g",
+                  labCanon.c_str(), labTruth.c_str(), N, E
+                ).Data()
+              );
+            }
+            phoSummary.push_back("");
+            phoSummary.push_back("NOTE: canonical pT bins are mapped to unfolding truth bins by FindBin(center).");
+            phoSummary.push_back("      Example: 13-15 GeV maps to truth bin 10-15 GeV for the current unfolding binning.");
+          }
+
+          WriteTextFile(JoinPath(phoDir, "summary_photon_unfolding_first6bins.txt"), phoSummary);
+
+          // Save photon ROOT outputs
+          {
+            const string outRoot = JoinPath(phoDir, "rooUnfold_photons.root");
+            TFile f(outRoot.c_str(), "RECREATE");
+            if (f.IsOpen())
+            {
+              if (hPhoRespSim)          hPhoRespSim->Write("h2_phoResp_truthVsReco");
+              if (hPhoResp_measXtruth)  hPhoResp_measXtruth->Write("h2_phoResp_recoVsTruth");
+              if (hPhoRecoData)         hPhoRecoData->Write("h_phoReco_data");
+              if (hPhoRecoSim)          hPhoRecoSim->Write("h_phoReco_sim");
+              if (hPhoTruthSim)         hPhoTruthSim->Write("h_phoTruth_sim");
+              if (hPhoUnfoldTruth)      hPhoUnfoldTruth->Write("h_phoTruth_unfolded_data");
+              f.Close();
+            }
+          }
+
+          // ----------------------------------------------------------------------
+          // (B) Jet unfolding per radius: unfold global-bin vector and unflatten back
+          // ----------------------------------------------------------------------
+          const int kBayesIterXJ = 4;
+
+          for (const auto& rKey : kRKeys)
+          {
+            const double R = RFromKey(rKey);
+            const string rOut = JoinPath(outBase, rKey);
+            EnsureDir(rOut);
+
+            const string nameReco  = "h2_unfoldReco_pTgamma_xJ_incl_"     + rKey;
+            const string nameTruth = "h2_unfoldTruth_pTgamma_xJ_incl_"    + rKey;
+            const string nameRsp   = "h2_unfoldResponse_pTgamma_xJ_incl_" + rKey;
+
+            TH2* h2RecoData_in  = GetObj<TH2>(dsData, nameReco,  true, true, true);
+            TH2* h2RecoSim_in   = GetObj<TH2>(dsSim,  nameReco,  true, true, true);
+            TH2* h2TruthSim_in  = GetObj<TH2>(dsSim,  nameTruth, true, true, true);
+            TH2* h2RspSim_in    = GetObj<TH2>(dsSim,  nameRsp,   true, true, true);
+
+            if (!h2RecoData_in || !h2RecoSim_in || !h2TruthSim_in || !h2RspSim_in)
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] Skipping RooUnfold xJ for " << rKey
+                   << " (missing one or more of: DATA reco, SIM reco, SIM truth, SIM response)."
+                   << ANSI_RESET << "\n";
+              continue;
+            }
+
+            TH2* h2RecoData  = CloneTH2(h2RecoData_in,  TString::Format("h2RecoData_%s", rKey.c_str()).Data());
+            TH2* h2RecoSim   = CloneTH2(h2RecoSim_in,   TString::Format("h2RecoSim_%s",  rKey.c_str()).Data());
+            TH2* h2TruthSim  = CloneTH2(h2TruthSim_in,  TString::Format("h2TruthSim_%s", rKey.c_str()).Data());
+            TH2* h2RspSim    = CloneTH2(h2RspSim_in,    TString::Format("h2RspSim_truthVsReco_%s", rKey.c_str()).Data());
+
+            EnsureSumw2(h2RecoData);
+            EnsureSumw2(h2RecoSim);
+            EnsureSumw2(h2TruthSim);
+            EnsureSumw2(h2RspSim);
+
+            const int nGlobTruth_rsp = h2RspSim->GetNbinsX();
+            const int nGlobReco_rsp  = h2RspSim->GetNbinsY();
+
+            TH1D* hMeasSimGlob  = FlattenTH2ToGlobal(h2RecoSim,  TString::Format("hMeasSimGlob_%s",  rKey.c_str()).Data());
+            TH1D* hTruthSimGlob = FlattenTH2ToGlobal(h2TruthSim, TString::Format("hTruthSimGlob_%s", rKey.c_str()).Data());
+            TH1D* hMeasDataGlob = FlattenTH2ToGlobal(h2RecoData, TString::Format("hMeasDataGlob_%s", rKey.c_str()).Data());
+
+            if (!hMeasSimGlob || !hTruthSimGlob || !hMeasDataGlob)
+            {
+              cout << ANSI_BOLD_YEL << "[WARN] Failed to flatten 2D hists for " << rKey << ". Skipping." << ANSI_RESET << "\n";
+              if (hMeasSimGlob)  delete hMeasSimGlob;
+              if (hTruthSimGlob) delete hTruthSimGlob;
+              if (hMeasDataGlob) delete hMeasDataGlob;
+              delete h2RecoData;
+              delete h2RecoSim;
+              delete h2TruthSim;
+              delete h2RspSim;
+              continue;
+            }
+
+            if (hMeasSimGlob->GetNbinsX() != nGlobReco_rsp || hTruthSimGlob->GetNbinsX() != nGlobTruth_rsp)
+            {
+              cout << ANSI_BOLD_RED
+                   << "[ERROR] Global-bin size mismatch for " << rKey << ":\n"
+                   << "        response nGlobTruth=" << nGlobTruth_rsp << " nGlobReco=" << nGlobReco_rsp << "\n"
+                   << "        flattened SIM truth nbins=" << hTruthSimGlob->GetNbinsX() << "\n"
+                   << "        flattened SIM reco  nbins=" << hMeasSimGlob ->GetNbinsX() << "\n"
+                   << "        Aborting this radius."
+                   << ANSI_RESET << "\n";
+
+              delete hMeasSimGlob;
+              delete hTruthSimGlob;
+              delete hMeasDataGlob;
+              delete h2RecoData;
+              delete h2RecoSim;
+              delete h2TruthSim;
+              delete h2RspSim;
+              continue;
+            }
+
+            TH2D* hRsp_measXtruth = new TH2D(
+              TString::Format("h2_unfoldResponse_global_recoVsTruth_%s", rKey.c_str()).Data(),
+              "Response matrix; global bin (reco); global bin (truth)",
+              nGlobReco_rsp,  -0.5, nGlobReco_rsp  - 0.5,
+              nGlobTruth_rsp, -0.5, nGlobTruth_rsp - 0.5
+            );
+            hRsp_measXtruth->SetDirectory(nullptr);
+            hRsp_measXtruth->Sumw2();
+
+            for (int ixTruth = 0; ixTruth <= nGlobTruth_rsp + 1; ++ixTruth)
+            {
+              for (int iyReco = 0; iyReco <= nGlobReco_rsp + 1; ++iyReco)
+              {
+                hRsp_measXtruth->SetBinContent(iyReco, ixTruth, h2RspSim->GetBinContent(ixTruth, iyReco));
+                hRsp_measXtruth->SetBinError  (iyReco, ixTruth, h2RspSim->GetBinError  (ixTruth, iyReco));
+              }
+            }
+
+            RooUnfoldResponse respXJ(hMeasSimGlob, hTruthSimGlob, hRsp_measXtruth,
+                                    TString::Format("respXJ_%s", rKey.c_str()).Data(),
+                                    TString::Format("respXJ_%s", rKey.c_str()).Data());
+
+            RooUnfoldBayes unfoldXJ(&respXJ, hMeasDataGlob, kBayesIterXJ);
+            unfoldXJ.SetVerbose(0);
+
+            TH1* hUnfoldTruthGlob = unfoldXJ.Hreco(RooUnfold::kCovariance);
+            if (hUnfoldTruthGlob) hUnfoldTruthGlob->SetDirectory(nullptr);
+
+            if (!hUnfoldTruthGlob)
+            {
+              cout << ANSI_BOLD_RED << "[ERROR] RooUnfold returned nullptr truth histogram for " << rKey << ". Skipping." << ANSI_RESET << "\n";
+              delete hMeasSimGlob;
+              delete hTruthSimGlob;
+              delete hMeasDataGlob;
+              delete hRsp_measXtruth;
+              delete h2RecoData;
+              delete h2RecoSim;
+              delete h2TruthSim;
+              delete h2RspSim;
+              continue;
+            }
+
+            TH2* h2UnfoldTruth = UnflattenGlobalToTH2(
+              hUnfoldTruthGlob,
+              h2TruthSim,
+              TString::Format("h2_unfoldedTruth_pTgamma_xJ_incl_%s", rKey.c_str()).Data()
+            );
+
+            // Save response scatter (SIM) into the DATA unfolding folder for convenience
+            {
+              TCanvas c(TString::Format("c_rsp_scatter_%s", rKey.c_str()).Data(), "c_rsp_scatter", 900, 800);
+              ApplyCanvasMargins2D(c);
+
+              TH2* hScat = CloneTH2(h2RspSim, TString::Format("h2RspScat_%s", rKey.c_str()).Data());
+              if (hScat)
+              {
+                hScat->SetTitle("");
+                hScat->GetXaxis()->SetTitle("global bin (truth: p_{T}^{#gamma}, x_{J})");
+                hScat->GetYaxis()->SetTitle("global bin (reco:  p_{T}^{#gamma}, x_{J})");
+                hScat->SetMarkerStyle(20);
+                hScat->SetMarkerSize(0.25);
+                hScat->Draw("scat");
+
+                DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
+                DrawLatexLines(0.14,0.78, { TString::Format("Unfold response scatter (%s, R=%.1f)", rKey.c_str(), R).Data() }, 0.030, 0.040);
+
+                SaveCanvas(c, JoinPath(rOut, "unfold_response_globalTruth_vs_globalReco_SCAT.png"));
+                delete hScat;
+              }
+            }
+
+            // Save unfolded 2D truth map
+            if (h2UnfoldTruth)
+            {
+              TCanvas c(TString::Format("c_unf2D_%s", rKey.c_str()).Data(), "c_unf2D", 950, 800);
+              ApplyCanvasMargins2D(c);
+              c.SetLogz();
+
+              h2UnfoldTruth->SetTitle("");
+              h2UnfoldTruth->GetXaxis()->SetTitle("p_{T}^{#gamma, truth} [GeV]");
+              h2UnfoldTruth->GetYaxis()->SetTitle("x_{J}^{truth}");
+              h2UnfoldTruth->Draw("colz");
+
+              DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
+              DrawLatexLines(0.14,0.78, { TString::Format("Unfolded truth (particle-level) (%s, R=%.1f)", rKey.c_str(), R).Data(),
+                                          TString::Format("Bayes it=%d", kBayesIterXJ).Data() }, 0.030, 0.040);
+
+              SaveCanvas(c, JoinPath(rOut, "unfoldedTruth_pTgamma_xJ_colz.png"));
+            }
+
+            vector<string> lines;
+            lines.push_back("RooUnfold pipeline summary");
+            lines.push_back(TString::Format("Radius: %s (R=%.1f)", rKey.c_str(), R).Data());
+            lines.push_back(TString::Format("Photon unfolding: Bayes it=%d (kCovariance)", kBayesIterPho).Data());
+            lines.push_back(TString::Format("xJ unfolding (global-bin): Bayes it=%d (kCovariance)", kBayesIterXJ).Data());
+            lines.push_back("");
+
+            const int nPtCanon = std::min(6, (int)PtBins().size());
+            vector<TH1*> perPhoHists(nPtCanon, nullptr);
+
+            for (int i = 0; i < nPtCanon; ++i)
+            {
+              const PtBin& b = PtBins()[i];
+              const double cen = 0.5 * (b.lo + b.hi);
+
+              if (!h2UnfoldTruth || !hPhoUnfoldTruth) continue;
+
+              const int ixTruth = h2UnfoldTruth->GetXaxis()->FindBin(cen);
+              const int ibPho   = hPhoUnfoldTruth->GetXaxis()->FindBin(cen);
+
+              if (ixTruth < 1 || ixTruth > h2UnfoldTruth->GetXaxis()->GetNbins()) continue;
+              if (ibPho   < 1 || ibPho   > hPhoUnfoldTruth->GetXaxis()->GetNbins()) continue;
+
+              const double Npho  = hPhoUnfoldTruth->GetBinContent(ibPho);
+              const double eNpho = hPhoUnfoldTruth->GetBinError  (ibPho);
+
+              const string labCanon = TString::Format("%d-%d GeV", b.lo, b.hi).Data();
+              const string labTruth = AxisBinLabel(h2UnfoldTruth->GetXaxis(), ixTruth, "GeV", 0);
+              const string labPho   = AxisBinLabel(hPhoUnfoldTruth->GetXaxis(), ibPho, "GeV", 0);
+
+              TH1D* hXJ = h2UnfoldTruth->ProjectionY(
+                TString::Format("h_xJ_unfTruth_%s_pTbin%d", rKey.c_str(), i + 1).Data(),
+                ixTruth, ixTruth, "e"
+              );
+              if (!hXJ) continue;
+              hXJ->SetDirectory(nullptr);
+              EnsureSumw2(hXJ);
+
+              TH1D* hPerPho = (TH1D*)hXJ->Clone(
+                TString::Format("h_xJ_unf_perPho_%s_pTbin%d", rKey.c_str(), i + 1).Data()
+              );
+              hPerPho->SetDirectory(nullptr);
+              EnsureSumw2(hPerPho);
+
+              for (int ib = 0; ib <= hPerPho->GetNbinsX() + 1; ++ib)
+              {
+                if (ib == 0 || ib == hPerPho->GetNbinsX() + 1)
+                {
+                  hPerPho->SetBinContent(ib, 0.0);
+                  hPerPho->SetBinError  (ib, 0.0);
+                  continue;
+                }
+
+                const double num  = hXJ->GetBinContent(ib);
+                const double eNum = hXJ->GetBinError  (ib);
+                const double wid  = hXJ->GetBinWidth  (ib);
+
+                if (Npho <= 0.0 || wid <= 0.0)
+                {
+                  hPerPho->SetBinContent(ib, 0.0);
+                  hPerPho->SetBinError  (ib, 0.0);
+                  continue;
+                }
+
+                const double val = num / (Npho * wid);
+
+                double relNum = 0.0;
+                if (num > 0.0) relNum = eNum / num;
+
+                double relDen = 0.0;
+                if (Npho > 0.0) relDen = eNpho / Npho;
+
+                const double err = val * std::sqrt(relNum*relNum + relDen*relDen);
+
+                hPerPho->SetBinContent(ib, val);
+                hPerPho->SetBinError  (ib, err);
+              }
+
+              hPerPho->SetTitle("");
+              hPerPho->GetXaxis()->SetTitle("x_{J}");
+              hPerPho->GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+              hPerPho->SetLineWidth(2);
+              hPerPho->SetMarkerStyle(20);
+              hPerPho->SetMarkerSize(0.85);
+
+              perPhoHists[i] = hPerPho;
+
+              const double intNum = hXJ->Integral(1, hXJ->GetNbinsX(), "width");
+              const double intPerPho = (Npho > 0.0 ? intNum / Npho : 0.0);
+
+              lines.push_back(
+                TString::Format(
+                  "pT^gamma canon=%s  -> truthBin=%s  (phoTruthBin=%s)  Npho=%.6g±%.3g  Int[dN/dxJ]=%.6g  Int[(1/Npho)dN/dxJ]=%.6g",
+                  labCanon.c_str(), labTruth.c_str(), labPho.c_str(),
+                  Npho, eNpho,
+                  intNum, intPerPho
+                ).Data()
+              );
+
+              {
+                TCanvas c(TString::Format("c_perPho_%s_%d", rKey.c_str(), i + 1).Data(), "c_perPho", 900, 700);
+                ApplyCanvasMargins1D(c);
+
+                hPerPho->SetMaximum(hPerPho->GetMaximum() * 1.35);
+                hPerPho->GetXaxis()->SetRangeUser(0.0, 2.0);
+                hPerPho->Draw("E1");
+
+                DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
+                DrawLatexLines(0.14,0.78,
+                               { TString::Format("Unfolded per-photon x_{J} (%s, R=%.1f)", rKey.c_str(), R).Data(),
+                                 TString::Format("p_{T}^{#gamma} (canon): %s", labCanon.c_str()).Data(),
+                                 TString::Format("truth bin used: %s", labTruth.c_str()).Data(),
+                                 TString::Format("N_{#gamma}^{unf}=%.3g", Npho).Data() },
+                               0.030, 0.040);
+
+                SaveCanvas(c, JoinPath(rOut, TString::Format("xJ_unfolded_perPhoton_pTbin%d.png", i + 1).Data()));
+              }
+
+              delete hXJ;
+            }
+
+            {
+              bool any = false;
+              for (auto* h : perPhoHists) if (h) { any = true; break; }
+
+              if (any)
+              {
+                TCanvas c(
+                  TString::Format("c_tbl_unf_perPho_%s", rKey.c_str()).Data(),
+                  "c_tbl_unf_perPho", 1800, 1100
+                );
+                c.Divide(3, 2, 0.001, 0.001);
+
+                for (int i = 0; i < nPtCanon; ++i)
+                {
+                  c.cd(i + 1);
+                  gPad->SetLeftMargin(0.12);
+                  gPad->SetRightMargin(0.04);
+                  gPad->SetBottomMargin(0.12);
+                  gPad->SetTopMargin(0.06);
+
+                  const PtBin& b = PtBins()[i];
+                  const string labCanon = TString::Format("%d-%d GeV", b.lo, b.hi).Data();
+
+                  if (perPhoHists[i])
+                  {
+                    TH1* h = perPhoHists[i];
+                    h->GetXaxis()->SetRangeUser(0.0, 2.0);
+                    h->SetMaximum(h->GetMaximum() * 1.25);
+                    h->Draw("E1");
+                  }
+                  else
+                  {
+                    TH1F frame("frame","", 1, 0.0, 2.0);
+                    frame.SetMinimum(0.0);
+                    frame.SetMaximum(1.0);
+                    frame.SetTitle("");
+                    frame.GetXaxis()->SetTitle("x_{J}");
+                    frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                    frame.Draw("axis");
+
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextSize(0.050);
+                    tx.DrawLatex(0.16, 0.50, "MISSING");
+                  }
+
+                  TLatex tx;
+                  tx.SetNDC();
+                  tx.SetTextFont(42);
+                  tx.SetTextSize(0.050);
+                  tx.DrawLatex(0.16, 0.92, TString::Format("p_{T}^{#gamma}: %s", labCanon.c_str()).Data());
+
+                  tx.SetTextSize(0.040);
+                  tx.DrawLatex(0.16, 0.86, TString::Format("%s (R=%.1f)", rKey.c_str(), R).Data());
+                }
+
+                c.cd(1);
+                DrawLatexLines(0.16, 0.80,
+                               { "PP DATA unfolded to particle level",
+                                 TString::Format("Bayes it=%d (xJ), %d (N_{#gamma})", kBayesIterXJ, kBayesIterPho).Data() },
+                               0.038, 0.045);
+
+                SaveCanvas(c, JoinPath(rOut, "table2x3_unfolded_perPhoton_dNdXJ.png"));
+              }
+            }
+
+            WriteTextFile(JoinPath(rOut, "summary_rooUnfold_pipeline.txt"), lines);
+
+            {
+              const string outRoot = JoinPath(rOut, "rooUnfold_outputs.root");
+              TFile f(outRoot.c_str(), "RECREATE");
+              if (f.IsOpen())
+              {
+                if (hPhoUnfoldTruth)      hPhoUnfoldTruth->Write("h_phoTruth_unfolded_data");
+                if (h2RspSim)             h2RspSim->Write("h2_rsp_truthVsReco_global");
+                if (hRsp_measXtruth)      hRsp_measXtruth->Write("h2_rsp_recoVsTruth_global");
+                if (hMeasDataGlob)        hMeasDataGlob->Write("h_measData_global");
+                if (hMeasSimGlob)         hMeasSimGlob->Write("h_measSim_global");
+                if (hTruthSimGlob)        hTruthSimGlob->Write("h_truthSim_global");
+                if (hUnfoldTruthGlob)     hUnfoldTruthGlob->Write("h_truthUnfold_global");
+                if (h2UnfoldTruth)        h2UnfoldTruth->Write("h2_truthUnfold_pTgamma_xJ");
+
+                for (int i = 0; i < nPtCanon; ++i)
+                {
+                  if (perPhoHists[i]) perPhoHists[i]->Write(TString::Format("h_xJ_unf_perPho_pTbin%d", i + 1).Data());
+                }
+
+                f.Close();
+              }
+            }
+
+            for (auto* h : perPhoHists) if (h) delete h;
+
+            delete hMeasSimGlob;
+            delete hTruthSimGlob;
+            delete hMeasDataGlob;
+            delete hRsp_measXtruth;
+            if (h2UnfoldTruth) delete h2UnfoldTruth;
+
+            delete h2RecoData;
+            delete h2RecoSim;
+            delete h2TruthSim;
+            delete h2RspSim;
+          }
+
+          delete hPhoRecoData;
+          delete hPhoRecoSim;
+          delete hPhoTruthSim;
+          delete hPhoRespSim;
+          delete hPhoResp_measXtruth;
+          if (hPhoUnfoldTruth) delete hPhoUnfoldTruth;
+        }
+  #else
+        void RunRooUnfoldPipeline_SimAndDataPP(Dataset& dsData, Dataset& dsSim)
+        {
+          (void)dsData;
+          (void)dsSim;
+          cout << ANSI_BOLD_YEL
+               << "[WARN] RooUnfold headers not found at compile time (ARJ_HAVE_ROOUNFOLD=0). Skipping RooUnfold pipeline."
+               << ANSI_RESET << "\n";
+        }
+  #endif
+
+        // =============================================================================
+        // OPTIONAL: PP vs Au+Au (gold-gold) photon-ID deliverables
       //
       // Deliverable Set A (SS vars): per pT × centrality
       //   - inclusive (no isolation requirement)
@@ -20201,7 +21006,35 @@ namespace ARJ
       }
 
       // ---------------------------------------------------------------------------
-      // OPTIONAL: PP vs Au+Au (gold-gold) deliverables (SS + isolation overlays)
+      // [5I] RooUnfold pipeline (SIM+DATA PP only): unfold photons + (pTgamma,xJ) and produce per-photon xJ tables
+      // ---------------------------------------------------------------------------
+      if (isSimAndDataPP && bothPhoton10and20sim)
+      {
+        Dataset* dsSIM = nullptr;
+        Dataset* dsPP  = nullptr;
+
+        for (auto& ds : datasets)
+        {
+          if (ds.isSim) dsSIM = &ds;
+          else         dsPP  = &ds;
+        }
+
+        if (!dsSIM || !dsPP)
+        {
+          cout << ANSI_BOLD_YEL
+               << "[WARN] RooUnfold pipeline requested (isSimAndDataPP && bothPhoton10and20sim), but SIM or DATA dataset is missing. Skipping."
+               << ANSI_RESET << "\n";
+        }
+        else
+        {
+          cout << "  -> [5I] RooUnfold pipeline (SIM+DATA PP): unfold to particle level + per-photon x_{J} tables...\n";
+          analysis::RunRooUnfoldPipeline_SimAndDataPP(*dsPP, *dsSIM);
+          cout << "     [OK]\n";
+        }
+      }
+
+      // ---------------------------------------------------------------------------
+      // OPTIONAL: PP vs Au+Au (gold-gold) photon-ID deliverables (requires both PP and AuAu)
       // ---------------------------------------------------------------------------
       if (isPPdataAndAUAU)
       {
