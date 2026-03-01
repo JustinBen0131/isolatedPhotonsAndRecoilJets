@@ -14451,19 +14451,35 @@ namespace ARJ
                       continue;
                     }
 
-                    const double axlo = ax->GetBinLowEdge(xbin);
-                    const double axhi = ax->GetBinUpEdge(xbin);
+                      const double axlo = ax->GetBinLowEdge(xbin);
+                      const double axhi = ax->GetBinUpEdge(xbin);
 
-                    if (std::fabs(axlo - (double)b.lo) > 1e-6 || std::fabs(axhi - (double)b.hi) > 1e-6)
-                    {
-                      cout << ANSI_BOLD_YEL
-                           << "[WARN] Δphi RECO: canonical pT bin "
-                           << b.lo << "-" << b.hi
-                           << " maps to axis bin " << std::fixed << std::setprecision(0) << axlo << "-" << axhi
-                           << " (xbin=" << xbin << ") → skip"
-                           << ANSI_RESET << "\n";
-                      continue;
-                    }
+                      const bool exact =
+                        (std::fabs(axlo - (double)b.lo) <= 1e-6 && std::fabs(axhi - (double)b.hi) <= 1e-6);
+
+                      const bool contained =
+                        (axlo <= (double)b.lo + 1e-6 && axhi >= (double)b.hi - 1e-6);
+
+                      if (!exact)
+                      {
+                        if (!contained)
+                        {
+                          cout << ANSI_BOLD_YEL
+                               << "[WARN] Δphi RECO: canonical pT bin "
+                               << b.lo << "-" << b.hi
+                               << " maps to axis bin " << std::fixed << std::setprecision(0) << axlo << "-" << axhi
+                               << " (xbin=" << xbin << ", NOT CONTAINED) → skip"
+                               << ANSI_RESET << "\n";
+                          continue;
+                        }
+
+                        cout << ANSI_BOLD_YEL
+                             << "[WARN] Δphi RECO: canonical pT bin "
+                             << b.lo << "-" << b.hi
+                             << " maps to axis bin " << std::fixed << std::setprecision(0) << axlo << "-" << axhi
+                             << " (xbin=" << xbin << ") → proceeding"
+                             << ANSI_RESET << "\n";
+                      }
 
                     TH1D* p = ProjY_AtXbin(H.hRecoDphi, xbin,
                       TString::Format("p_absDphi_reco_%s_%s_%s", ds.label.c_str(), rKey.c_str(), b.folder.c_str()).Data()
@@ -14527,19 +14543,35 @@ namespace ARJ
                       continue;
                     }
 
-                    const double axlo = ax->GetBinLowEdge(xbin);
-                    const double axhi = ax->GetBinUpEdge(xbin);
+                      const double axlo = ax->GetBinLowEdge(xbin);
+                      const double axhi = ax->GetBinUpEdge(xbin);
 
-                    if (std::fabs(axlo - (double)b.lo) > 1e-6 || std::fabs(axhi - (double)b.hi) > 1e-6)
-                    {
-                      cout << ANSI_BOLD_YEL
-                           << "[WARN] Δphi TRUTH: canonical pT bin "
-                           << b.lo << "-" << b.hi
-                           << " maps to axis bin " << std::fixed << std::setprecision(0) << axlo << "-" << axhi
-                           << " (xbin=" << xbin << ") → skip"
-                           << ANSI_RESET << "\n";
-                      continue;
-                    }
+                      const bool exact =
+                        (std::fabs(axlo - (double)b.lo) <= 1e-6 && std::fabs(axhi - (double)b.hi) <= 1e-6);
+
+                      const bool contained =
+                        (axlo <= (double)b.lo + 1e-6 && axhi >= (double)b.hi - 1e-6);
+
+                      if (!exact)
+                      {
+                        if (!contained)
+                        {
+                          cout << ANSI_BOLD_YEL
+                               << "[WARN] Δphi TRUTH: canonical pT bin "
+                               << b.lo << "-" << b.hi
+                               << " maps to axis bin " << std::fixed << std::setprecision(0) << axlo << "-" << axhi
+                               << " (xbin=" << xbin << ", NOT CONTAINED) → skip"
+                               << ANSI_RESET << "\n";
+                          continue;
+                        }
+
+                        cout << ANSI_BOLD_YEL
+                             << "[WARN] Δphi TRUTH: canonical pT bin "
+                             << b.lo << "-" << b.hi
+                             << " maps to axis bin " << std::fixed << std::setprecision(0) << axlo << "-" << axhi
+                             << " (xbin=" << xbin << ") → proceeding"
+                             << ANSI_RESET << "\n";
+                      }
 
                     TH1D* p = ProjY_AtXbin(H.hTruthDphi, xbin,
                       TString::Format("p_absDphi_truth_%s_%s_%s", ds.label.c_str(), rKey.c_str(), b.folder.c_str()).Data()
@@ -14839,8 +14871,9 @@ namespace ARJ
                 const int nPtTruth = H.hTruth->GetXaxis()->GetNbins();
                 const int nPtCanon = (int)PtBins().size();
 
-                // Map canonical pT bin [lo,hi) to the unfolding axis bin by bin-center lookup,
-                // then verify the axis bin edges match exactly.
+                // Map canonical pT bin [lo,hi) to the unfolding axis bin by bin-center lookup.
+                // NOTE: unfolding pT binning is allowed to be coarser (e.g. 10-15 as an "underflow-catch"
+                // for canonical 13-15). We proceed as long as the canonical range is CONTAINED in the axis bin.
                 auto MapCanonicalToAxisBin =
                   [&](TAxis* ax, const PtBin& b, const string& who)->int
                 {
@@ -14854,17 +14887,35 @@ namespace ARJ
                   const double axlo = ax->GetBinLowEdge(xbin);
                   const double axhi = ax->GetBinUpEdge(xbin);
 
-                  if (std::fabs(axlo - (double)b.lo) > 1e-6 || std::fabs(axhi - (double)b.hi) > 1e-6)
+                  const bool exact =
+                    (std::fabs(axlo - (double)b.lo) <= 1e-6 && std::fabs(axhi - (double)b.hi) <= 1e-6);
+
+                  const bool contained =
+                    (axlo <= (double)b.lo + 1e-6 && axhi >= (double)b.hi - 1e-6);
+
+                  if (!exact)
                   {
+                    if (!contained)
+                    {
+                      cout << ANSI_BOLD_YEL
+                           << "[WARN] Unfolding pT mapping mismatch (" << who << "): requested "
+                           << b.lo << "-" << b.hi
+                           << " but axis bin " << xbin << " is "
+                           << std::fixed << std::setprecision(0) << axlo << "-" << axhi
+                           << " (NOT CONTAINED) → skipping this pT bin"
+                           << ANSI_RESET << "\n";
+                      return -1;
+                    }
+
                     cout << ANSI_BOLD_YEL
                          << "[WARN] Unfolding pT mapping mismatch (" << who << "): requested "
                          << b.lo << "-" << b.hi
                          << " but axis bin " << xbin << " is "
                          << std::fixed << std::setprecision(0) << axlo << "-" << axhi
-                         << " → skipping this pT bin"
+                         << " → proceeding using axis bin " << xbin
                          << ANSI_RESET << "\n";
-                    return -1;
                   }
+
                   return xbin;
                 };
 
@@ -15331,32 +15382,68 @@ namespace ARJ
         //   <triggerName>/unfolding/radii/photons/
         // =============================================================================
         void RunRooUnfoldPipeline_SimAndDataPP(Dataset& dsData, Dataset& dsSim)
-        {
-          cout << ANSI_BOLD_CYN << "\n==============================\n"
-               << "[SECTION 5I] RooUnfold pipeline (SIM+DATA PP)\n"
-               << "  DATA: " << dsData.label << "\n"
-               << "  SIM : " << dsSim.label  << "\n"
-               << "==============================" << ANSI_RESET << "\n";
-
-          if (gSystem)
           {
-            const int rc = gSystem->Load("libRooUnfold");
-            if (rc < 0)
+            cout << ANSI_BOLD_CYN << "\n==============================\n"
+                 << "[SECTION 5I] RooUnfold pipeline (SIM+DATA PP)\n"
+                 << "==============================" << ANSI_RESET << "\n";
+
+            cout << "  Compile-time: ARJ_HAVE_ROOUNFOLD=" << ARJ_HAVE_ROOUNFOLD << "\n";
+
+            cout << "  DATA:\n"
+                 << "    label      = " << dsData.label << "\n"
+                 << "    isSim      = " << (dsData.isSim ? "true" : "false") << "\n"
+                 << "    trigger    = " << dsData.trigger << "\n"
+                 << "    topDirName = " << dsData.topDirName << "\n"
+                 << "    inFilePath = " << dsData.inFilePath << "\n"
+                 << "    outBase    = " << dsData.outBase << "\n";
+
+            cout << "  SIM:\n"
+                 << "    label      = " << dsSim.label << "\n"
+                 << "    isSim      = " << (dsSim.isSim ? "true" : "false") << "\n"
+                 << "    topDirName = " << dsSim.topDirName << "\n"
+                 << "    inFilePath = " << dsSim.inFilePath << "\n"
+                 << "    outBase    = " << dsSim.outBase << "\n";
+
+            if (!dsData.file || !dsData.topDir || !dsSim.file || !dsSim.topDir)
             {
-              cout << ANSI_BOLD_YEL
-                   << "[WARN] gSystem->Load(\"libRooUnfold\") failed. If you built RooUnfold as a static lib or preloaded it, this may be OK; otherwise RooUnfold symbols may be missing at runtime."
+              cout << ANSI_BOLD_RED
+                   << "[ERROR] RooUnfold pipeline cannot run because dataset file/topDir is null.\n"
+                   << "        DATA: file=" << dsData.file << " topDir=" << dsData.topDir << "\n"
+                   << "        SIM : file=" << dsSim.file  << " topDir=" << dsSim.topDir  << "\n"
                    << ANSI_RESET << "\n";
+              return;
             }
+
+            cout << "  DATA topDir path: " << dsData.topDir->GetPath() << "\n";
+            cout << "  SIM  topDir path: " << dsSim.topDir->GetPath()  << "\n";
+
+            if (gSystem)
+            {
+              const int rc = gSystem->Load("libRooUnfold");
+              cout << "  gSystem->Load(\"libRooUnfold\") rc=" << rc << "\n";
+              if (rc < 0)
+              {
+                cout << "  gSystem->GetDynamicPath() = " << gSystem->GetDynamicPath() << "\n";
+                cout << ANSI_BOLD_YEL
+                     << "[WARN] gSystem->Load(\"libRooUnfold\") failed. Headers were found (compiled), but runtime RooUnfold symbols may be missing."
+                     << ANSI_RESET << "\n";
+              }
           }
 
           if (dsData.isSim || !dsSim.isSim)
           {
-            cout << ANSI_BOLD_YEL << "[WARN] RunRooUnfoldPipeline_SimAndDataPP called with unexpected dataset types (dsData.isSim="
-                 << dsData.isSim << ", dsSim.isSim=" << dsSim.isSim << "). Continuing anyway." << ANSI_RESET << "\n";
+              cout << ANSI_BOLD_YEL << "[WARN] RunRooUnfoldPipeline_SimAndDataPP called with unexpected dataset types (dsData.isSim="
+                   << dsData.isSim << ", dsSim.isSim=" << dsSim.isSim << "). Continuing anyway." << ANSI_RESET << "\n";
           }
 
           const string outBase = JoinPath(dsData.outBase, "unfolding/radii");
-          EnsureDir(outBase);
+          int mkrc = -999;
+          if (gSystem) mkrc = gSystem->mkdir(outBase.c_str(), true);
+          else EnsureDir(outBase);
+
+          cout << "  Output base: " << outBase;
+          if (mkrc != -999) cout << "  (mkdir rc=" << mkrc << ")";
+          cout << "\n";
 
           // ----------------------------------------------------------------------
           // Helper: transpose any TH2 (including variable binning) so that:
@@ -15506,20 +15593,67 @@ namespace ARJ
           const string phoDir = JoinPath(outBase, "photons");
           EnsureDir(phoDir);
 
-          TH1* hPhoRecoData_in  = GetObj<TH1>(dsData, "h_unfoldRecoPho_pTgamma",  true, true, true);
-          TH1* hPhoRecoSim_in   = GetObj<TH1>(dsSim,  "h_unfoldRecoPho_pTgamma",  true, true, true);
-          TH1* hPhoTruthSim_in  = GetObj<TH1>(dsSim,  "h_unfoldTruthPho_pTgamma", true, true, true);
-          TH2* hPhoRespSim_in   = GetObj<TH2>(dsSim,  "h2_unfoldResponsePho_pTgamma", true, true, true);
+            const string phoRecoName  = "h_unfoldRecoPho_pTgamma";
+            const string phoTruthName = "h_unfoldTruthPho_pTgamma";
+            const string phoRespName  = "h2_unfoldResponsePho_pTgamma";
 
-          if (!hPhoRecoData_in || !hPhoRecoSim_in || !hPhoTruthSim_in || !hPhoRespSim_in)
-          {
-            cout << ANSI_BOLD_RED
-                 << "[ERROR] Missing one or more photon unfolding inputs.\n"
-                 << "        Need (DATA) h_unfoldRecoPho_pTgamma and (SIM) h_unfoldRecoPho_pTgamma, h_unfoldTruthPho_pTgamma, h2_unfoldResponsePho_pTgamma.\n"
-                 << "        Aborting RooUnfold pipeline."
-                 << ANSI_RESET << "\n";
-            return;
-          }
+            TH1* hPhoRecoData_in  = GetObj<TH1>(dsData, phoRecoName,  true, true, true);
+            TH1* hPhoRecoSim_in   = GetObj<TH1>(dsSim,  phoRecoName,  true, true, true);
+            TH1* hPhoTruthSim_in  = GetObj<TH1>(dsSim,  phoTruthName, true, true, true);
+            TH2* hPhoRespSim_in   = GetObj<TH2>(dsSim,  phoRespName,  true, true, true);
+
+            auto MissingWhy = [&](Dataset& ds, const string& relName)->string
+            {
+              const string fp = FullPath(ds, relName);
+              auto it = ds.missingReason.find(fp);
+              if (it == ds.missingReason.end()) return "";
+              return it->second;
+            };
+
+            auto PrintGet = [&](Dataset& ds, const string& relName, TObject* obj)
+            {
+              const string fp = FullPath(ds, relName);
+              cout << "  [GET] " << ds.label << " :: " << fp << " : ";
+
+              if (!obj)
+              {
+                const string why = MissingWhy(ds, relName);
+                cout << ANSI_BOLD_RED << "MISSING" << ANSI_RESET;
+                if (!why.empty()) cout << " (" << why << ")";
+                cout << "\n";
+                return;
+              }
+
+              cout << ANSI_BOLD_GRN << "FOUND" << ANSI_RESET << " (" << obj->ClassName() << ")";
+              if (auto* h2 = dynamic_cast<TH2*>(obj))
+              {
+                cout << "  entries=" << h2->GetEntries()
+                     << "  nbinsX=" << h2->GetNbinsX()
+                     << "  nbinsY=" << h2->GetNbinsY();
+              }
+              else if (auto* h1 = dynamic_cast<TH1*>(obj))
+              {
+                cout << "  entries=" << h1->GetEntries()
+                     << "  nbinsX=" << h1->GetNbinsX();
+              }
+              cout << "\n";
+            };
+
+            cout << "\n  [5I] Photon unfolding inputs:\n";
+            PrintGet(dsData, phoRecoName,  hPhoRecoData_in);
+            PrintGet(dsSim,  phoRecoName,  hPhoRecoSim_in);
+            PrintGet(dsSim,  phoTruthName, hPhoTruthSim_in);
+            PrintGet(dsSim,  phoRespName,  hPhoRespSim_in);
+
+            if (!hPhoRecoData_in || !hPhoRecoSim_in || !hPhoTruthSim_in || !hPhoRespSim_in)
+            {
+              cout << ANSI_BOLD_RED
+                   << "[ERROR] Missing one or more photon unfolding inputs.\n"
+                   << "        Need (DATA) h_unfoldRecoPho_pTgamma and (SIM) h_unfoldRecoPho_pTgamma, h_unfoldTruthPho_pTgamma, h2_unfoldResponsePho_pTgamma.\n"
+                   << "        Aborting RooUnfold pipeline."
+                   << ANSI_RESET << "\n";
+              return;
+            }
 
           TH1* hPhoRecoData  = CloneTH1(hPhoRecoData_in,  "hPhoRecoData");
           TH1* hPhoRecoSim   = CloneTH1(hPhoRecoSim_in,   "hPhoRecoSim");
@@ -15706,19 +15840,31 @@ namespace ARJ
             const string nameTruth = "h2_unfoldTruth_pTgamma_xJ_incl_"    + rKey;
             const string nameRsp   = "h2_unfoldResponse_pTgamma_xJ_incl_" + rKey;
 
-            TH2* h2RecoData_in  = GetObj<TH2>(dsData, nameReco,  true, true, true);
-            TH2* h2RecoSim_in   = GetObj<TH2>(dsSim,  nameReco,  true, true, true);
-            TH2* h2TruthSim_in  = GetObj<TH2>(dsSim,  nameTruth, true, true, true);
-            TH2* h2RspSim_in    = GetObj<TH2>(dsSim,  nameRsp,   true, true, true);
+              TH2* h2RecoData_in  = GetObj<TH2>(dsData, nameReco,  true, true, true);
+              TH2* h2RecoSim_in   = GetObj<TH2>(dsSim,  nameReco,  true, true, true);
+              TH2* h2TruthSim_in  = GetObj<TH2>(dsSim,  nameTruth, true, true, true);
+              TH2* h2RspSim_in    = GetObj<TH2>(dsSim,  nameRsp,   true, true, true);
 
-            if (!h2RecoData_in || !h2RecoSim_in || !h2TruthSim_in || !h2RspSim_in)
-            {
-              cout << ANSI_BOLD_YEL
-                   << "[WARN] Skipping RooUnfold xJ for " << rKey
-                   << " (missing one or more of: DATA reco, SIM reco, SIM truth, SIM response)."
-                   << ANSI_RESET << "\n";
-              continue;
-            }
+              if (!h2RecoData_in || !h2RecoSim_in || !h2TruthSim_in || !h2RspSim_in)
+              {
+                auto Status = [&](Dataset& ds, const string& relName, TObject* obj)->string
+                {
+                  if (obj) return "FOUND";
+                  const string fp = FullPath(ds, relName);
+                  auto it = ds.missingReason.find(fp);
+                  if (it == ds.missingReason.end()) return "MISSING";
+                  return string("MISSING (") + it->second + ")";
+                };
+
+                cout << ANSI_BOLD_YEL
+                     << "[WARN] Skipping RooUnfold xJ for " << rKey << " due to missing/zero inputs:\n"
+                     << "       DATA  " << FullPath(dsData, nameReco)  << " : " << Status(dsData, nameReco,  h2RecoData_in)  << "\n"
+                     << "       SIM   " << FullPath(dsSim,  nameReco)  << " : " << Status(dsSim,  nameReco,  h2RecoSim_in)   << "\n"
+                     << "       SIM   " << FullPath(dsSim,  nameTruth) << " : " << Status(dsSim,  nameTruth, h2TruthSim_in)  << "\n"
+                     << "       SIM   " << FullPath(dsSim,  nameRsp)   << " : " << Status(dsSim,  nameRsp,   h2RspSim_in)    << "\n"
+                     << ANSI_RESET << "\n";
+                continue;
+              }
 
             TH2* h2RecoData  = CloneTH2(h2RecoData_in,  TString::Format("h2RecoData_%s", rKey.c_str()).Data());
             TH2* h2RecoSim   = CloneTH2(h2RecoSim_in,   TString::Format("h2RecoSim_%s",  rKey.c_str()).Data());
@@ -16965,94 +17111,102 @@ namespace ARJ
           );
           cAAtbl.Divide(3,2, 0.001, 0.001);
 
-          vector<TH1*> keepAliveAA;
-          keepAliveAA.reserve((std::size_t)nPads * 2);
+            vector<TH1*> keepAliveAA;
+            keepAliveAA.reserve((std::size_t)nPads * 2);
 
-          for (int i = 0; i < nPads; ++i)
-          {
-            const PtBin& pb = bins[i];
-            const string hName = histBase + pb.suffix + centSuffix;
+            vector<TLegend*> keepAliveLeg;
+            keepAliveLeg.reserve((std::size_t)nPads);
 
-            TH1* rawOld = GetTH1FromTopDir(aaTop,    hName);
-            TH1* rawNew = GetTH1FromTopDir(aaTopNew, hName);
-
-            cAAtbl.cd(i+1);
-            gPad->SetLeftMargin(0.14);
-            gPad->SetRightMargin(0.05);
-            gPad->SetBottomMargin(0.14);
-            gPad->SetTopMargin(0.12);
-            gPad->SetLogy(false);
-
-            if (!rawOld || !rawNew)
+            for (int i = 0; i < nPads; ++i)
             {
-              std::ostringstream s;
-              s << "pT: " << pb.lo << "-" << pb.hi << "  " << centLabel;
-              DrawMissingPad(s.str());
-              continue;
+              const PtBin& pb = bins[i];
+              const string hName = histBase + pb.suffix + centSuffix;
+
+              TH1* rawOld = GetTH1FromTopDir(aaTop,    hName);
+              TH1* rawNew = GetTH1FromTopDir(aaTopNew, hName);
+
+              cAAtbl.cd(i+1);
+              gPad->SetLeftMargin(0.14);
+              gPad->SetRightMargin(0.05);
+              gPad->SetBottomMargin(0.14);
+              gPad->SetTopMargin(0.12);
+              gPad->SetLogy(false);
+
+              if (!rawOld || !rawNew)
+              {
+                std::ostringstream s;
+                s << "pT: " << pb.lo << "-" << pb.hi << "  " << centLabel;
+                DrawMissingPad(s.str());
+                continue;
+              }
+
+              TH1* hOld = CloneTH1(rawOld,
+                TString::Format("aa_tbl_counts_old_%s_%s%s", histBase.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data());
+              TH1* hNew = CloneTH1(rawNew,
+                TString::Format("aa_tbl_counts_new_%s_%s%s", histBase.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data());
+
+              if (!hOld || !hNew)
+              {
+                if (hOld) delete hOld;
+                if (hNew) delete hNew;
+                std::ostringstream s;
+                s << "pT: " << pb.lo << "-" << pb.hi << "  " << centLabel;
+                DrawMissingPad(s.str());
+                continue;
+              }
+
+              EnsureSumw2(hOld);
+              EnsureSumw2(hNew);
+              hOld->GetXaxis()->UnZoom();
+              hNew->GetXaxis()->UnZoom();
+
+              hOld->SetTitle("");
+              hNew->SetTitle("");
+              hOld->GetXaxis()->SetTitle(xTitle.c_str());
+              hOld->GetYaxis()->SetTitle("Counts");
+
+              StyleOverlayHist(hOld, kBlack,   20);
+              StyleOverlayHist(hNew, kRed + 1, 24);
+
+              const double ymax = std::max(hOld->GetMaximum(), hNew->GetMaximum());
+              hOld->SetMaximum(ymax * 1.35);
+
+              hOld->Draw("E1");
+              hNew->Draw("E1 same");
+
+              TLegend* leg = new TLegend(0.52, 0.68, 0.90, 0.86);
+              leg->SetBorderSize(0);
+              leg->SetFillStyle(0);
+              leg->SetTextFont(42);
+              leg->SetTextSize(0.032);
+              leg->AddEntry(hOld, "no UE subtraction", "ep");
+              leg->AddEntry(hNew, "UE subtracted", "ep");
+              leg->Draw();
+
+              keepAliveLeg.push_back(leg);
+
+              TLatex t;
+              t.SetNDC(true);
+              t.SetTextFont(42);
+              t.SetTextAlign(22);
+              t.SetTextSize(0.042);
+              t.DrawLatex(0.50, 0.93,
+                TString::Format("%s, %s, p_{T}^{#gamma} = %d-%d GeV",
+                                xTitle.c_str(), centLabel.c_str(), pb.lo, pb.hi).Data());
+
+              gPad->RedrawAxis();
+
+              keepAliveAA.push_back(hOld);
+              keepAliveAA.push_back(hNew);
             }
 
-            TH1* hOld = CloneTH1(rawOld,
-              TString::Format("aa_tbl_counts_old_%s_%s%s", histBase.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data());
-            TH1* hNew = CloneTH1(rawNew,
-              TString::Format("aa_tbl_counts_new_%s_%s%s", histBase.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data());
+            SaveCanvas(cAAtbl, JoinPath(qaBaseAA, "table2x3_AuAu_unNormalized_overlay_UEsub.png"));
 
-            if (!hOld || !hNew)
-            {
-              if (hOld) delete hOld;
-              if (hNew) delete hNew;
-              std::ostringstream s;
-              s << "pT: " << pb.lo << "-" << pb.hi << "  " << centLabel;
-              DrawMissingPad(s.str());
-              continue;
-            }
+            for (TLegend* l : keepAliveLeg) delete l;
+            keepAliveLeg.clear();
 
-            EnsureSumw2(hOld);
-            EnsureSumw2(hNew);
-            hOld->GetXaxis()->UnZoom();
-            hNew->GetXaxis()->UnZoom();
-
-            hOld->SetTitle("");
-            hNew->SetTitle("");
-            hOld->GetXaxis()->SetTitle(xTitle.c_str());
-            hOld->GetYaxis()->SetTitle("Counts");
-
-            StyleOverlayHist(hOld, kBlack,   20);
-            StyleOverlayHist(hNew, kRed + 1, 24);
-
-            const double ymax = std::max(hOld->GetMaximum(), hNew->GetMaximum());
-            hOld->SetMaximum(ymax * 1.35);
-
-            hOld->Draw("E1");
-            hNew->Draw("E1 same");
-
-            TLegend leg(0.52, 0.68, 0.90, 0.86);
-            leg.SetBorderSize(0);
-            leg.SetFillStyle(0);
-            leg.SetTextFont(42);
-            leg.SetTextSize(0.032);
-            leg.AddEntry(hOld, "no UE-sub", "ep");
-            leg.AddEntry(hNew, "with UE-sub nodes", "ep");
-            leg.Draw();
-
-            TLatex t;
-            t.SetNDC(true);
-            t.SetTextFont(42);
-            t.SetTextAlign(22);
-            t.SetTextSize(0.042);
-            t.DrawLatex(0.50, 0.93,
-              TString::Format("%s, %s, p_{T}^{#gamma} = %d-%d GeV",
-                              xTitle.c_str(), centLabel.c_str(), pb.lo, pb.hi).Data());
-
-            gPad->RedrawAxis();
-
-            keepAliveAA.push_back(hOld);
-            keepAliveAA.push_back(hNew);
-          }
-
-          SaveCanvas(cAAtbl, JoinPath(qaBaseAA, "table2x3_AuAu_unNormalized_overlay_UEsub.png"));
-
-          for (TH1* h : keepAliveAA) delete h;
-          keepAliveAA.clear();
+            for (TH1* h : keepAliveAA) delete h;
+            keepAliveAA.clear();
         }
 
       static void MakePerPtOverlays_PPvsAuAu(TDirectory* ppTop,
@@ -20607,6 +20761,7 @@ namespace ARJ
       cout << ANSI_BOLD_CYN << "\n[STEP 0] Run-mode validation\n" << ANSI_RESET;
 
       cout << "  Toggles:\n"
+           << "    ARJ_HAVE_ROOUNFOLD       = " << ARJ_HAVE_ROOUNFOLD << "\n"
            << "    isPPdataOnly            = " << (isPPdataOnly ? "true" : "false") << "\n"
            << "    isSimAndDataPP          = " << (isSimAndDataPP ? "true" : "false") << "\n"
            << "    isAuAuOnly              = " << (isAuAuOnly ? "true" : "false") << "\n"
@@ -21008,28 +21163,56 @@ namespace ARJ
       // ---------------------------------------------------------------------------
       // [5I] RooUnfold pipeline (SIM+DATA PP only): unfold photons + (pTgamma,xJ) and produce per-photon xJ tables
       // ---------------------------------------------------------------------------
-      if (isSimAndDataPP && bothPhoton10and20sim)
       {
-        Dataset* dsSIM = nullptr;
-        Dataset* dsPP  = nullptr;
+        cout << ANSI_BOLD_CYN
+             << "\n[5I] RooUnfold gate check\n"
+             << "  ARJ_HAVE_ROOUNFOLD   = " << ARJ_HAVE_ROOUNFOLD << "\n"
+             << "  isSimAndDataPP       = " << (isSimAndDataPP ? "true" : "false") << "\n"
+             << "  bothPhoton10and20sim = " << (bothPhoton10and20sim ? "true" : "false") << "\n"
+             << "  datasets.size()      = " << datasets.size() << "\n"
+             << ANSI_RESET;
 
         for (auto& ds : datasets)
         {
-          if (ds.isSim) dsSIM = &ds;
-          else         dsPP  = &ds;
+          cout << "    - " << ds.label
+               << "  isSim=" << (ds.isSim ? "true" : "false")
+               << "  topDirName=" << ds.topDirName
+               << "  inFilePath=" << ds.inFilePath
+               << "  outBase=" << ds.outBase
+               << "\n";
         }
 
-        if (!dsSIM || !dsPP)
+        if (isSimAndDataPP && bothPhoton10and20sim)
         {
-          cout << ANSI_BOLD_YEL
-               << "[WARN] RooUnfold pipeline requested (isSimAndDataPP && bothPhoton10and20sim), but SIM or DATA dataset is missing. Skipping."
-               << ANSI_RESET << "\n";
+          Dataset* dsSIM = nullptr;
+          Dataset* dsPP  = nullptr;
+
+          for (auto& ds : datasets)
+          {
+            if (ds.isSim) dsSIM = &ds;
+            else         dsPP  = &ds;
+          }
+
+          if (!dsSIM || !dsPP)
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] RooUnfold pipeline requested (isSimAndDataPP && bothPhoton10and20sim), but SIM or DATA dataset is missing. Skipping."
+                 << ANSI_RESET << "\n";
+          }
+          else
+          {
+            cout << "  -> [5I] RooUnfold pipeline (SIM+DATA PP): unfold to particle level + per-photon x_{J} tables...\n";
+            analysis::RunRooUnfoldPipeline_SimAndDataPP(*dsPP, *dsSIM);
+            cout << "     [OK]\n";
+          }
         }
         else
         {
-          cout << "  -> [5I] RooUnfold pipeline (SIM+DATA PP): unfold to particle level + per-photon x_{J} tables...\n";
-          analysis::RunRooUnfoldPipeline_SimAndDataPP(*dsPP, *dsSIM);
-          cout << "     [OK]\n";
+          cout << ANSI_BOLD_YEL
+               << "[5I] Skipping RooUnfold pipeline: requires (isSimAndDataPP && bothPhoton10and20sim).\n"
+               << "     Current: isSimAndDataPP=" << (isSimAndDataPP ? "true" : "false")
+               << " bothPhoton10and20sim=" << (bothPhoton10and20sim ? "true" : "false")
+               << ANSI_RESET << "\n";
         }
       }
 
