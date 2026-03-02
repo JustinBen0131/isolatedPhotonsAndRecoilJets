@@ -14429,90 +14429,49 @@ namespace ARJ
                     "Reco-level |#Delta#phi(#gamma,jet)|"
                   );
 
-                  const int nPtUse = (int)PtBins().size();
-                  TAxis* ax = H.hRecoDphi->GetXaxis();
+                    TAxis* ax = H.hRecoDphi->GetXaxis();
+                    const int nPtUse = (ax ? ax->GetNbins() : 0);
 
-                  for (int i = 0; i < nPtUse; ++i)
-                  {
-                    const PtBin& b = PtBins()[i];
-
-                    // Map canonical bin [b.lo,b.hi) onto the unfolding axis via bin-center lookup,
-                    // then verify edges match (prevents silent mislabeling).
-                    const double mid  = 0.5 * (b.lo + b.hi);
-                    const int    xbin = ax->FindBin(mid);
-
-                    if (xbin < 1 || xbin > ax->GetNbins())
+                    for (int xbin = 1; xbin <= nPtUse; ++xbin)
                     {
-                      cout << ANSI_BOLD_YEL
-                           << "[WARN] Δphi RECO: cannot map canonical pT bin "
-                           << b.lo << "-" << b.hi
-                           << " to unfolding axis (xbin=" << xbin << ") → skip"
-                           << ANSI_RESET << "\n";
-                      continue;
-                    }
-
                       const double axlo = ax->GetBinLowEdge(xbin);
                       const double axhi = ax->GetBinUpEdge(xbin);
+                      const int lo = (int)std::lround(axlo);
+                      const int hi = (int)std::lround(axhi);
+                      const string folder = TString::Format("pT_%d_%d", lo, hi).Data();
 
-                      const bool exact =
-                        (std::fabs(axlo - (double)b.lo) <= 1e-6 && std::fabs(axhi - (double)b.hi) <= 1e-6);
+                      TH1D* p = ProjY_AtXbin(H.hRecoDphi, xbin,
+                        TString::Format("p_absDphi_reco_%s_%s_%s", ds.label.c_str(), rKey.c_str(), folder.c_str()).Data()
+                      );
+                      if (!p) continue;
 
-                      const bool contained =
-                        (axlo <= (double)b.lo + 1e-6 && axhi >= (double)b.hi - 1e-6);
+                      const string perDir = JoinPath(dphiRecoDir, folder);
+                      EnsureDir(perDir);
 
-                      if (!exact)
-                      {
-                        if (!contained)
-                        {
-                          cout << ANSI_BOLD_YEL
-                               << "[WARN] Δphi RECO: canonical pT bin "
-                               << b.lo << "-" << b.hi
-                               << " maps to axis bin " << std::fixed << std::setprecision(0) << axlo << "-" << axhi
-                               << " (xbin=" << xbin << ", NOT CONTAINED) → skip"
-                               << ANSI_RESET << "\n";
-                          continue;
-                        }
+                      vector<string> lines = {
+                        "RECO inclusive |#Delta#phi(#gamma,jet)|",
+                        TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                        TString::Format("p_{T}^{#gamma}: %d-%d GeV", lo, hi).Data()
+                      };
 
-                        cout << ANSI_BOLD_YEL
-                             << "[WARN] Δphi RECO: canonical pT bin "
-                             << b.lo << "-" << b.hi
-                             << " maps to axis bin " << std::fixed << std::setprecision(0) << axlo << "-" << axhi
-                             << " (xbin=" << xbin << ") → proceeding"
-                             << ANSI_RESET << "\n";
-                      }
+                      DrawAndSaveTH1_Common(ds, p,
+                        JoinPath(perDir, "absDphi_counts.png"),
+                        "|#Delta#phi| [rad]", "Counts", lines, false, false, 0.0, "E1"
+                      );
 
-                    TH1D* p = ProjY_AtXbin(H.hRecoDphi, xbin,
-                      TString::Format("p_absDphi_reco_%s_%s_%s", ds.label.c_str(), rKey.c_str(), b.folder.c_str()).Data()
-                    );
-                    if (!p) continue;
+                      TH1* ps = CloneTH1(p,
+                        TString::Format("p_absDphi_reco_shape_%s_%s_%d", ds.label.c_str(), rKey.c_str(), xbin).Data()
+                      );
+                      NormalizeVisible(ps);
 
-                    const string perDir = JoinPath(dphiRecoDir, b.folder);
-                    EnsureDir(perDir);
+                      DrawAndSaveTH1_Common(ds, ps,
+                        JoinPath(perDir, "absDphi_shape.png"),
+                        "|#Delta#phi| [rad]", "A.U.", lines, false, false, 0.0, "E1"
+                      );
 
-                    vector<string> lines = {
-                      "RECO inclusive |#Delta#phi(#gamma,jet)|",
-                      TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
-                      TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data()
-                    };
-
-                    DrawAndSaveTH1_Common(ds, p,
-                      JoinPath(perDir, "absDphi_counts.png"),
-                      "|#Delta#phi| [rad]", "Counts", lines, false, false, 0.0, "E1"
-                    );
-
-                    TH1* ps = CloneTH1(p,
-                      TString::Format("p_absDphi_reco_shape_%s_%s_%d", ds.label.c_str(), rKey.c_str(), i).Data()
-                    );
-                    NormalizeVisible(ps);
-
-                    DrawAndSaveTH1_Common(ds, ps,
-                      JoinPath(perDir, "absDphi_shape.png"),
-                      "|#Delta#phi| [rad]", "A.U.", lines, false, false, 0.0, "E1"
-                    );
-
-                    delete ps;
-                    delete p;
-                  }
+                      delete ps;
+                      delete p;
+                    }
                 }
                 if (H.hTruthDphi)
                 {
@@ -14521,90 +14480,49 @@ namespace ARJ
                     "Truth-level |#Delta#phi(#gamma,jet)|"
                   );
 
-                  const int nPtUse = (int)PtBins().size();
-                  TAxis* ax = H.hTruthDphi->GetXaxis();
+                    TAxis* ax = H.hTruthDphi->GetXaxis();
+                    const int nPtUse = (ax ? ax->GetNbins() : 0);
 
-                  for (int i = 0; i < nPtUse; ++i)
-                  {
-                    const PtBin& b = PtBins()[i];
-
-                    // Map canonical bin [b.lo,b.hi) onto the unfolding axis via bin-center lookup,
-                    // then verify edges match (prevents silent mislabeling).
-                    const double mid  = 0.5 * (b.lo + b.hi);
-                    const int    xbin = ax->FindBin(mid);
-
-                    if (xbin < 1 || xbin > ax->GetNbins())
+                    for (int xbin = 1; xbin <= nPtUse; ++xbin)
                     {
-                      cout << ANSI_BOLD_YEL
-                           << "[WARN] Δphi TRUTH: cannot map canonical pT bin "
-                           << b.lo << "-" << b.hi
-                           << " to unfolding axis (xbin=" << xbin << ") → skip"
-                           << ANSI_RESET << "\n";
-                      continue;
-                    }
-
                       const double axlo = ax->GetBinLowEdge(xbin);
                       const double axhi = ax->GetBinUpEdge(xbin);
+                      const int lo = (int)std::lround(axlo);
+                      const int hi = (int)std::lround(axhi);
+                      const string folder = TString::Format("pT_%d_%d", lo, hi).Data();
 
-                      const bool exact =
-                        (std::fabs(axlo - (double)b.lo) <= 1e-6 && std::fabs(axhi - (double)b.hi) <= 1e-6);
+                      TH1D* p = ProjY_AtXbin(H.hTruthDphi, xbin,
+                        TString::Format("p_absDphi_truth_%s_%s_%s", ds.label.c_str(), rKey.c_str(), folder.c_str()).Data()
+                      );
+                      if (!p) continue;
 
-                      const bool contained =
-                        (axlo <= (double)b.lo + 1e-6 && axhi >= (double)b.hi - 1e-6);
+                      const string perDir = JoinPath(dphiTruthDir, folder);
+                      EnsureDir(perDir);
 
-                      if (!exact)
-                      {
-                        if (!contained)
-                        {
-                          cout << ANSI_BOLD_YEL
-                               << "[WARN] Δphi TRUTH: canonical pT bin "
-                               << b.lo << "-" << b.hi
-                               << " maps to axis bin " << std::fixed << std::setprecision(0) << axlo << "-" << axhi
-                               << " (xbin=" << xbin << ", NOT CONTAINED) → skip"
-                               << ANSI_RESET << "\n";
-                          continue;
-                        }
+                      vector<string> lines = {
+                        "TRUTH inclusive |#Delta#phi(#gamma,jet)|",
+                        TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
+                        TString::Format("p_{T}^{#gamma}: %d-%d GeV", lo, hi).Data()
+                      };
 
-                        cout << ANSI_BOLD_YEL
-                             << "[WARN] Δphi TRUTH: canonical pT bin "
-                             << b.lo << "-" << b.hi
-                             << " maps to axis bin " << std::fixed << std::setprecision(0) << axlo << "-" << axhi
-                             << " (xbin=" << xbin << ") → proceeding"
-                             << ANSI_RESET << "\n";
-                      }
+                      DrawAndSaveTH1_Common(ds, p,
+                        JoinPath(perDir, "absDphi_counts.png"),
+                        "|#Delta#phi| [rad]", "Counts", lines, false, false, 0.0, "E1"
+                      );
 
-                    TH1D* p = ProjY_AtXbin(H.hTruthDphi, xbin,
-                      TString::Format("p_absDphi_truth_%s_%s_%s", ds.label.c_str(), rKey.c_str(), b.folder.c_str()).Data()
-                    );
-                    if (!p) continue;
+                      TH1* ps = CloneTH1(p,
+                        TString::Format("p_absDphi_truth_shape_%s_%s_%d", ds.label.c_str(), rKey.c_str(), xbin).Data()
+                      );
+                      NormalizeVisible(ps);
 
-                    const string perDir = JoinPath(dphiTruthDir, b.folder);
-                    EnsureDir(perDir);
+                      DrawAndSaveTH1_Common(ds, ps,
+                        JoinPath(perDir, "absDphi_shape.png"),
+                        "|#Delta#phi| [rad]", "A.U.", lines, false, false, 0.0, "E1"
+                      );
 
-                    vector<string> lines = {
-                      "TRUTH inclusive |#Delta#phi(#gamma,jet)|",
-                      TString::Format("rKey=%s (R=%.1f)", rKey.c_str(), R).Data(),
-                      TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data()
-                    };
-
-                    DrawAndSaveTH1_Common(ds, p,
-                      JoinPath(perDir, "absDphi_counts.png"),
-                      "|#Delta#phi| [rad]", "Counts", lines, false, false, 0.0, "E1"
-                    );
-
-                    TH1* ps = CloneTH1(p,
-                      TString::Format("p_absDphi_truth_shape_%s_%s_%d", ds.label.c_str(), rKey.c_str(), i).Data()
-                    );
-                    NormalizeVisible(ps);
-
-                    DrawAndSaveTH1_Common(ds, ps,
-                      JoinPath(perDir, "absDphi_shape.png"),
-                      "|#Delta#phi| [rad]", "A.U.", lines, false, false, 0.0, "E1"
-                    );
-
-                    delete ps;
-                    delete p;
-                  }
+                      delete ps;
+                      delete p;
+                    }
                 }
               };
 
@@ -14869,7 +14787,7 @@ namespace ARJ
 
                 const int nPtReco  = H.hReco->GetXaxis()->GetNbins();
                 const int nPtTruth = H.hTruth->GetXaxis()->GetNbins();
-                const int nPtCanon = (int)PtBins().size();
+                const int nPtCanon = nPtReco;
 
                 // Map canonical pT bin [lo,hi) to the unfolding axis bin by bin-center lookup.
                 // NOTE: unfolding pT binning is allowed to be coarser (e.g. 10-15 as an "underflow-catch"
@@ -15179,14 +15097,18 @@ namespace ARJ
                 );
               }
 
-                // Per canonical pT bin: terminal line + text summary + overlay truth vs reco xJ shapes
-                for (int i = 0; i < nPtCanon; ++i)
+                // Per unfolding pT bin (encoded on the unfolding axis): terminal line + text summary + overlay truth vs reco xJ shapes
+                for (int xReco = 1; xReco <= nPtReco; ++xReco)
                 {
-                  const PtBin& b = PtBins()[i];
+                  const double axlo = H.hReco->GetXaxis()->GetBinLowEdge(xReco);
+                  const double axhi = H.hReco->GetXaxis()->GetBinUpEdge(xReco);
+
+                  PtBin b;
+                  b.lo = (int)std::lround(axlo);
+                  b.hi = (int)std::lround(axhi);
 
                   const int xTruth = MapCanonicalToAxisBin(H.hTruth->GetXaxis(), b, "truth");
-                  const int xReco  = MapCanonicalToAxisBin(H.hReco ->GetXaxis(), b, "reco");
-                  if (xTruth < 1 || xReco < 1) continue;
+                  if (xTruth < 1) continue;
 
                   const double xC = 0.5 * (b.lo + b.hi);
                   xCenters.push_back(xC);
@@ -15223,13 +15145,13 @@ namespace ARJ
                     Nreco, Nfake, pur
                   ).Data());
 
-                  // Truth-vs-reco xJ shape overlay per canonical pT bin (aligned by edges)
+                  // Truth-vs-reco xJ shape overlay per unfolding pT bin (aligned by edges)
                   {
                     TH1D* pxTruth = H.hTruth->ProjectionY(
-                      TString::Format("pxTruth_%s_%d", rKey.c_str(), i).Data(), xTruth, xTruth
+                      TString::Format("pxTruth_%s_%d", rKey.c_str(), xReco).Data(), xTruth, xTruth
                     );
                     TH1D* pxReco  = H.hReco ->ProjectionY(
-                      TString::Format("pxReco_%s_%d", rKey.c_str(), i).Data(),  xReco,  xReco
+                      TString::Format("pxReco_%s_%d", rKey.c_str(), xReco).Data(),  xReco,  xReco
                     );
 
                     if (pxTruth && pxReco)
@@ -15245,7 +15167,7 @@ namespace ARJ
                       pxReco->SetLineColor(2);
 
                       TCanvas c(
-                        TString::Format("c_unf_ov_%s_%d", rKey.c_str(), i).Data(),
+                        TString::Format("c_unf_ov_%s_%d", rKey.c_str(), xReco).Data(),
                         "c_unf_ov", 900, 700
                       );
                       ApplyCanvasMargins1D(c);
@@ -15272,7 +15194,7 @@ namespace ARJ
                         0.030, 0.040
                       );
 
-                      SaveCanvas(c, JoinPath(rOut, TString::Format("overlay_truth_vs_reco_xJ_shape_pTbin%d.png", i + 1).Data()));
+                      SaveCanvas(c, JoinPath(rOut, TString::Format("overlay_truth_vs_reco_xJ_shape_pTbin%d.png", xReco).Data()));
 
                       delete pxTruth;
                       delete pxReco;
