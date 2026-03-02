@@ -16550,6 +16550,7 @@ namespace ARJ
 
                       const double xR = 0.93;
                       tx.DrawLatex(xR, 0.67, "z_{vtx} < 60 cm");
+                      tx.DrawLatex(xR, 0.60, TString::Format("Bayes it = %d", kBayesIterXJ).Data());
                       tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
                       tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
                       tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
@@ -16736,20 +16737,21 @@ namespace ARJ
                                                    b.lo, b.hi, R).Data());
                     }
 
-                    // Per-pad cut/trigger label (top-right, 3 lines)
-                    {
-                      TLatex tx;
-                      tx.SetNDC();
-                      tx.SetTextFont(42);
-                      tx.SetTextAlign(31);
-                      tx.SetTextSize(0.04);
+                      // Per-pad cut/trigger label (top-right, 3 lines)
+                      {
+                        TLatex tx;
+                        tx.SetNDC();
+                        tx.SetTextFont(42);
+                        tx.SetTextAlign(31);
+                        tx.SetTextSize(0.04);
 
-                        const double xR = 0.93;
-                        tx.DrawLatex(xR, 0.67, "z_{vtx} < 60 cm");
-                        tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
-                        tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
-                        tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
-                    }
+                          const double xR = 0.93;
+                          tx.DrawLatex(xR, 0.67, "z_{vtx} < 60 cm");
+                          tx.DrawLatex(xR, 0.60, TString::Format("Bayes it = %d", kBayesIterXJ).Data());
+                          tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
+                          tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
+                          tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
+                      }
                   }
 
                   SaveCanvas(c, JoinPath(rOut, "table2x4_unfolded_perPhoton_dNdXJ.png"));
@@ -19602,18 +19604,70 @@ namespace ARJ
           leg->Draw();
           keepAliveLeg.push_back(leg);
 
-          TLatex t;
-          t.SetNDC(true);
-          t.SetTextFont(42);
-          t.SetTextAlign(22);
-          t.SetTextSize(0.042);
-          t.DrawLatex(0.50, 0.93,
-            TString::Format("Au+Au (counts), p_{T}^{#gamma} overlays, cent = %d-%d%%",
-                            cb.lo, cb.hi).Data());
+            TLatex t;
+            t.SetNDC(true);
+            t.SetTextFont(42);
+            t.SetTextAlign(22);
+            t.SetTextSize(0.042);
+            t.DrawLatex(0.50, 0.93,
+              TString::Format("Au+Au (counts), p_{T}^{#gamma} overlays, cent = %d-%d%%",
+                              cb.lo, cb.hi).Data());
 
-          gPad->RedrawAxis();
+            gPad->RedrawAxis();
 
-          for (TH1* h : histsPad) keepAlive.push_back(h);
+            // Also write the exact same pad as a standalone PNG inside:
+            //   <outDir>/<centLo>_<centHi>/AuAu_unNormalized/AuAu_unNormalized_byPtOverlays.png
+            {
+              const string outCent  = JoinPath(outDir, cb.folder);
+              const string qaBaseAA = JoinPath(outCent, "AuAu_unNormalized");
+              EnsureDir(qaBaseAA);
+
+              TCanvas cOne(
+                TString::Format("c_aa_unNorm_byPtOverlays_single_%s_%s", histBase.c_str(), cb.folder.c_str()).Data(),
+                "c_aa_unNorm_byPtOverlays_single", 500, 400
+              );
+              cOne.cd();
+              gPad->SetLeftMargin(0.14);
+              gPad->SetRightMargin(0.05);
+              gPad->SetBottomMargin(0.14);
+              gPad->SetTopMargin(0.12);
+              gPad->SetLogy(false);
+
+              histsPad[0]->SetMaximum(yMax * 1.35);
+              histsPad[0]->Draw("E1");
+
+              for (std::size_t j = 1; j < histsPad.size(); ++j)
+              {
+                histsPad[j]->Draw("E1 same");
+              }
+
+              TLegend legOne(0.52, 0.60, 0.90, 0.86);
+              legOne.SetBorderSize(0);
+              legOne.SetFillStyle(0);
+              legOne.SetTextFont(42);
+              legOne.SetTextSize(0.028);
+
+              for (std::size_t j = 0; j < histsPad.size(); ++j)
+              {
+                legOne.AddEntry(histsPad[j], labelsPad[j].c_str(), "ep");
+              }
+              legOne.Draw();
+
+              TLatex tOne;
+              tOne.SetNDC(true);
+              tOne.SetTextFont(42);
+              tOne.SetTextAlign(22);
+              tOne.SetTextSize(0.042);
+              tOne.DrawLatex(0.50, 0.93,
+                TString::Format("Au+Au (counts), p_{T}^{#gamma} overlays, cent = %d-%d%%",
+                                cb.lo, cb.hi).Data());
+
+              gPad->RedrawAxis();
+
+              SaveCanvas(cOne, JoinPath(qaBaseAA, "AuAu_unNormalized_byPtOverlays.png"));
+            }
+
+            for (TH1* h : histsPad) keepAlive.push_back(h);
         }
 
         SaveCanvas(c, JoinPath(outDir, "table2x3_AuAu_unNormalized_byPtOverlays.png"));
