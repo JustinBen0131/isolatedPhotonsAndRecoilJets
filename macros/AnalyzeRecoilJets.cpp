@@ -15798,10 +15798,12 @@ namespace ARJ
               hPhoResp_measXtruth->SetTitle("");
               hPhoResp_measXtruth->GetXaxis()->SetTitle("p_{T}^{#gamma, reco} [GeV]");
               hPhoResp_measXtruth->GetYaxis()->SetTitle("p_{T}^{#gamma, truth} [GeV]");
+              hPhoResp_measXtruth->GetXaxis()->SetRangeUser(10.0, 40.0);
+              hPhoResp_measXtruth->GetYaxis()->SetRangeUser(10.0, 40.0);
               hPhoResp_measXtruth->Draw("colz");
 
               DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
-              DrawLatexLines(0.14,0.78, { "SIM photon response (transpose)", "reco #rightarrow truth axis order" }, 0.030, 0.040);
+              DrawLatexLines(0.14,0.88, { "SIM photon response (transpose)", "reco #rightarrow truth axis order" }, 0.030, 0.040);
 
               SaveCanvas(c, JoinPath(phoDir, "pho_response_recoVsTruth.png"));
             }
@@ -16106,15 +16108,22 @@ namespace ARJ
               TH2* hScat = CloneTH2(h2RspSim, TString::Format("h2RspScat_%s", rKey.c_str()).Data());
               if (hScat)
               {
+                c.SetLogz(1);
+
                 hScat->SetTitle("");
                 hScat->GetXaxis()->SetTitle("global bin (truth: p_{T}^{#gamma}, x_{J})");
                 hScat->GetYaxis()->SetTitle("global bin (reco:  p_{T}^{#gamma}, x_{J})");
-                hScat->SetMarkerStyle(20);
-                hScat->SetMarkerSize(0.25);
-                hScat->Draw("scat");
+                hScat->GetZaxis()->SetTitle("Counts");
+
+                // required for log-z (must be > 0)
+                hScat->SetMinimum(0.5);
+
+                hScat->Draw("COLZ");
 
                 DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
-                DrawLatexLines(0.14,0.78, { TString::Format("Unfold response scatter (%s, R=%.1f)", rKey.c_str(), R).Data() }, 0.030, 0.040);
+                DrawLatexLines(0.14,0.78,
+                               { TString::Format("Unfold response matrix (global-bin indexing) (%s, R=%.1f)", rKey.c_str(), R).Data() },
+                               0.030, 0.040);
 
                 SaveCanvas(c, JoinPath(rOut, "unfold_response_globalTruth_vs_globalReco_SCAT.png"));
                 delete hScat;
@@ -16149,6 +16158,148 @@ namespace ARJ
 
             const int nPtCanon = std::min(6, (int)PtBins().size());
             vector<TH1*> perPhoHists(nPtCanon, nullptr);
+
+              // ----------------------------------------------------------------------
+              // Closure test (SIM): truth -> smear(reco) -> unfold -> compare back to truth
+              //   Summary vs pT: (Integral of unfolded xJ)/(Integral of truth xJ)  ~ 1
+              //   Output: <rOut>/closure_unfoldedOverTruth_integral_vs_pTgamma.png
+              // ----------------------------------------------------------------------
+              {
+                TH1* hMeasSimGlob_closure = CloneTH1(hMeasSimGlob,
+                  TString::Format("hMeasSimGlob_forClosure_%s", rKey.c_str()).Data());
+                if (hMeasSimGlob_closure) hMeasSimGlob_closure->SetDirectory(nullptr);
+
+                RooUnfoldBayes unfoldXJ_closure(&respXJ, (hMeasSimGlob_closure ? hMeasSimGlob_closure : hMeasSimGlob), kBayesIterXJ);
+                unfoldXJ_closure.SetVerbose(0);
+
+                TH1* hUnfoldTruthGlob_closure = unfoldXJ_closure.Hreco(RooUnfold::kCovariance);
+                if (hUnfoldTruthGlob_closure) hUnfoldTruthGlob_closure->SetDirectory(nullptr);
+
+                TH2* h2UnfoldTruth_closure = nullptr;
+                if (hUnfoldTruthGlob_closure)
+                {
+                  h2UnfoldTruth_closure = UnflattenGlobalToTH2(
+                    hUnfoldTruthGlob_closure,
+                    h2TruthSim,
+                    TString::Format("h2_unfoldedTruth_closure_pTgamma_xJ_%s", rKey.c_str()).Data()
+                  );
+                }
+
+                vector<double> xPt, exPt, yRat, eyRat;
+
+                const int nPtClosure = (int)PtBins().size();
+                for (int i = 0; i < nPtClosure; ++i)
+                {
+                  const PtBin& b = PtBins()[i];
+                  const double cen = 0.5 * (b.lo + b.hi);
+                  const double ex  = 0.5 * (b.hi - b.lo);
+
+                  if (!h2UnfoldTruth_closure || !h2TruthSim) continue;
+
+                  const int ixTruth = h2TruthSim->GetXaxis()->FindBin(cen);
+                  if (ixTruth < 1 || ixTruth > h2TruthSim->GetXaxis()->GetNbins()) continue;
+
+                  TH1D* hXJ_truth = h2TruthSim->ProjectionY(
+                    TString::Format("h_xJ_truthClosure_%s_pTbin%d", rKey.c_str(), i + 1).Data(),
+                    ixTruth, ixTruth, "e"
+                  );
+                  TH1D* hXJ_unf = h2UnfoldTruth_closure->ProjectionY(
+                    TString::Format("h_xJ_unfClosure_%s_pTbin%d", rKey.c_str(), i + 1).Data(),
+                    ixTruth, ixTruth, "e"
+                  );
+
+                  if (!hXJ_truth || !hXJ_unf)
+                  {
+                    if (hXJ_truth) delete hXJ_truth;
+                    if (hXJ_unf)   delete hXJ_unf;
+                    continue;
+                  }
+
+                  hXJ_truth->SetDirectory(nullptr);
+                  hXJ_unf->SetDirectory(nullptr);
+                  EnsureSumw2(hXJ_truth);
+                  EnsureSumw2(hXJ_unf);
+
+                  double eTruth = 0.0;
+                  double eUnf   = 0.0;
+
+                  const double ITruth = hXJ_truth->IntegralAndError(1, hXJ_truth->GetNbinsX(), eTruth, "width");
+                  const double IUnf   = hXJ_unf  ->IntegralAndError(1, hXJ_unf  ->GetNbinsX(), eUnf,   "width");
+
+                  if (ITruth > 0.0)
+                  {
+                    const double r  = IUnf / ITruth;
+
+                    double relUnf = 0.0;
+                    if (IUnf > 0.0) relUnf = eUnf / IUnf;
+
+                    const double relTruth = eTruth / ITruth;
+                    const double er = std::fabs(r) * std::sqrt(relUnf*relUnf + relTruth*relTruth);
+
+                    xPt.push_back(cen);
+                    exPt.push_back(ex);
+                    yRat.push_back(r);
+                    eyRat.push_back(er);
+                  }
+
+                  delete hXJ_truth;
+                  delete hXJ_unf;
+                }
+
+                if (!xPt.empty())
+                {
+                  double ymin =  1e99;
+                  double ymax = -1e99;
+                  for (size_t i = 0; i < yRat.size(); ++i)
+                  {
+                    ymin = std::min(ymin, yRat[i] - eyRat[i]);
+                    ymax = std::max(ymax, yRat[i] + eyRat[i]);
+                  }
+                  if (!(ymin < 1e98) || !(ymax > -1e98) || ymin >= ymax)
+                  {
+                    ymin = 0.5;
+                    ymax = 1.5;
+                  }
+                  else
+                  {
+                    const double pad = 0.15 * (ymax - ymin);
+                    ymin -= pad;
+                    ymax += pad;
+                    if (ymin < 0.0) ymin = 0.0;
+                    if (ymin > 1.0) ymin = 0.9;
+                    if (ymax < 1.0) ymax = 1.1;
+                  }
+
+                  TCanvas c(TString::Format("c_closure_vs_pt_%s", rKey.c_str()).Data(), "c_closure_vs_pt", 900, 700);
+                  ApplyCanvasMargins1D(c);
+
+                  TGraphErrors g((int)xPt.size(), &xPt[0], &yRat[0], &exPt[0], &eyRat[0]);
+                  g.SetLineWidth(2);
+                  g.SetMarkerStyle(20);
+                  g.Draw("AP");
+
+                  g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
+                  g.GetYaxis()->SetTitle("Closure: Unfolded MC / Truth MC");
+                  g.GetYaxis()->SetRangeUser(ymin, ymax);
+
+                  TLine l1(g.GetXaxis()->GetXmin(), 1.0, g.GetXaxis()->GetXmax(), 1.0);
+                  l1.SetLineStyle(2);
+                  l1.SetLineWidth(2);
+                  l1.Draw("same");
+
+                  DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
+                  DrawLatexLines(0.14,0.78,
+                                 { TString::Format("Closure test (SIM): unfold(reco) #rightarrow truth (%s, R=%.1f)", rKey.c_str(), R).Data(),
+                                   TString::Format("Bayes it=%d (xJ)", kBayesIterXJ).Data() },
+                                 0.030, 0.040);
+
+                  SaveCanvas(c, JoinPath(rOut, "closure_unfoldedOverTruth_integral_vs_pTgamma.png"));
+                }
+
+                if (h2UnfoldTruth_closure) delete h2UnfoldTruth_closure;
+                if (hUnfoldTruthGlob_closure) delete hUnfoldTruthGlob_closure;
+                if (hMeasSimGlob_closure) delete hMeasSimGlob_closure;
+            }
 
             for (int i = 0; i < nPtCanon; ++i)
             {
@@ -16405,11 +16556,131 @@ namespace ARJ
                     }
                 }
 
-                SaveCanvas(c, JoinPath(rOut, "table2x3_unfolded_perPhoton_dNdXJ.png"));
+                  SaveCanvas(c, JoinPath(rOut, "table2x3_unfolded_perPhoton_dNdXJ.png"));
+                }
               }
-            }
 
-            WriteTextFile(JoinPath(rOut, "summary_rooUnfold_pipeline.txt"), lines);
+              // ----------------------------------------------------------------------
+              // Iteration stability / regularization diagnostic (DATA):
+              //   • total relative deviation between successive iterations
+              //   • total relative statistical uncertainty of the unfolded spectrum
+              //
+              // This is the clean “expert expected” plot to justify Bayes it choice.
+              // Output: <rOut>/unfold_iterStability_relChange_relStat.png
+              // ----------------------------------------------------------------------
+              {
+                const int kMaxIterPlot = 10;
+
+                std::vector<double> xIt, exIt, yRelStat, eyRelStat, yRelChange, eyRelChange;
+
+                TH1* hPrev = nullptr;
+
+                for (int it = 1; it <= kMaxIterPlot; ++it)
+                {
+                  RooUnfoldBayes u(&respXJ, hMeasDataGlob, it);
+                  u.SetVerbose(0);
+
+                  TH1* hCurr = u.Hreco(RooUnfold::kCovariance);
+                  if (!hCurr) continue;
+
+                  hCurr->SetDirectory(nullptr);
+                  EnsureSumw2(hCurr);
+
+                  const int nb = hCurr->GetNbinsX();
+
+                  double sumV2 = 0.0;
+                  double sumE2 = 0.0;
+
+                  for (int ib = 1; ib <= nb; ++ib)
+                  {
+                    const double v  = hCurr->GetBinContent(ib);
+                    const double ev = hCurr->GetBinError(ib);
+                    sumV2 += v * v;
+                    sumE2 += ev * ev;
+                  }
+
+                  const double relStat = (sumV2 > 0.0) ? std::sqrt(sumE2 / sumV2) : 0.0;
+
+                  double relChg = 0.0;
+                  if (hPrev)
+                  {
+                    double sumD2 = 0.0;
+                    for (int ib = 1; ib <= nb; ++ib)
+                    {
+                      const double d = hCurr->GetBinContent(ib) - hPrev->GetBinContent(ib);
+                      sumD2 += d * d;
+                    }
+                    relChg = (sumV2 > 0.0) ? std::sqrt(sumD2 / sumV2) : 0.0;
+                  }
+
+                  xIt.push_back((double)it);
+                  exIt.push_back(0.0);
+
+                  yRelStat.push_back(relStat);
+                  eyRelStat.push_back(0.0);
+
+                  yRelChange.push_back(relChg);
+                  eyRelChange.push_back(0.0);
+
+                  if (hPrev) delete hPrev;
+                  hPrev = hCurr;
+                }
+
+                if (hPrev) delete hPrev;
+
+                if (!xIt.empty())
+                {
+                  double yMax = 0.0;
+                  for (size_t i = 0; i < yRelStat.size(); ++i) yMax = std::max(yMax, yRelStat[i]);
+                  for (size_t i = 0; i < yRelChange.size(); ++i) yMax = std::max(yMax, yRelChange[i]);
+                  if (yMax <= 0.0) yMax = 1.0;
+
+                  TCanvas cIt(TString::Format("c_iterStability_%s", rKey.c_str()).Data(), "c_iterStability", 900, 700);
+                  ApplyCanvasMargins1D(cIt);
+
+                  TH1F frame("frame","", 1, 0.5, (double)kMaxIterPlot + 0.5);
+                  frame.SetMinimum(0.0);
+                  frame.SetMaximum(1.20 * yMax);
+                  frame.SetTitle("");
+                  frame.GetXaxis()->SetTitle("Iteration");
+                  frame.GetYaxis()->SetTitle("Relative quantity");
+                  frame.Draw("axis");
+
+                  TGraphErrors gStat((int)xIt.size(), &xIt[0], &yRelStat[0], &exIt[0], &eyRelStat[0]);
+                  gStat.SetMarkerStyle(20);
+                  gStat.SetMarkerSize(1.1);
+                  gStat.SetMarkerColor(kBlack);
+                  gStat.SetLineColor(kBlack);
+                  gStat.SetLineWidth(2);
+                  gStat.Draw("P same");
+
+                  TGraphErrors gChg((int)xIt.size(), &xIt[0], &yRelChange[0], &exIt[0], &eyRelChange[0]);
+                  gChg.SetMarkerStyle(20);
+                  gChg.SetMarkerSize(1.1);
+                  gChg.SetMarkerColor(kBlue);
+                  gChg.SetLineColor(kBlue);
+                  gChg.SetLineWidth(2);
+                  gChg.Draw("P same");
+
+                  TLegend leg(0.16, 0.72, 0.55, 0.86);
+                  leg.SetBorderSize(0);
+                  leg.SetFillStyle(0);
+                  leg.SetTextFont(42);
+                  leg.SetTextSize(0.034);
+                  leg.AddEntry(&gStat, "total relative stat. uncertainty", "p");
+                  leg.AddEntry(&gChg,  "total relative deviation (it vs it-1)", "p");
+                  leg.Draw();
+
+                  DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
+                  DrawLatexLines(0.14,0.84,
+                                 { TString::Format("Iteration stability (DATA), %s, R=%.1f", rKey.c_str(), R).Data() },
+                                 0.030, 0.040);
+
+                  SaveCanvas(cIt, JoinPath(rOut, "unfold_iterStability_relChange_relStat.png"));
+                }
+              }
+
+              WriteTextFile(JoinPath(rOut, "summary_rooUnfold_pipeline.txt"), lines);
 
             {
               const string outRoot = JoinPath(rOut, "rooUnfold_outputs.root");
@@ -16591,9 +16862,9 @@ namespace ARJ
                       tx.SetTextSize(0.034);
 
                       const double xR = 0.96;
-                      tx.DrawLatex(xR, 0.88, "#Delta #phi > 7#pi/8");
+                      tx.DrawLatex(xR, 0.78, "#Delta #phi > 7#pi/8");
                       tx.DrawLatex(xR, 0.83, "p_{T}^{min, jet} > 5");
-                      tx.DrawLatex(xR, 0.78, "Trigger = Photon 4 + MBD NS #geq 1");
+                      tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
                     }
 
                     // Legend under the TLatex block (top-right)  (heap-allocated so it persists into SaveCanvas)
