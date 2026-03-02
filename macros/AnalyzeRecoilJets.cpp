@@ -15849,6 +15849,15 @@ namespace ARJ
 
                 SaveCanvas(c, JoinPath(phoDir, "pho_unfolded_truth_pTgamma_overlay.png"));
 
+                // Also save a log-y version (keep the linear-y output above as-is)
+                c.SetLogy(1);
+                hRecoShape->SetMinimum(1e-3);
+                hRecoShape->SetMaximum(maxv * 50.0);
+                c.Modified();
+                c.Update();
+                SaveCanvas(c, JoinPath(phoDir, "pho_unfolded_truth_pTgamma_overlay_logy.png"));
+                c.SetLogy(0);
+
                 delete hRecoShape;
                 delete hUnfShape;
               }
@@ -16338,13 +16347,21 @@ namespace ARJ
                                    TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV, R = %.1f",
                                                    b.lo, b.hi, R).Data());
                     }
-                }
 
-                c.cd(1);
-                DrawLatexLines(0.16, 0.80,
-                               { "PP DATA unfolded to particle level",
-                                 TString::Format("Bayes it=%d (xJ), %d (N_{#gamma})", kBayesIterXJ, kBayesIterPho).Data() },
-                               0.038, 0.045);
+                    // Per-pad cut/trigger label (top-right, 3 lines)
+                    {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(31);
+                      tx.SetTextSize(0.034);
+
+                      const double xR = 0.96;
+                      tx.DrawLatex(xR, 0.88, "#Delta #phi > 7#pi/8");
+                      tx.DrawLatex(xR, 0.83, "p_{T}^{min, jet} > 5");
+                      tx.DrawLatex(xR, 0.78, "Trigger = Photon 4 + MBD NS #geq 1");
+                    }
+                }
 
                 SaveCanvas(c, JoinPath(rOut, "table2x3_unfolded_perPhoton_dNdXJ.png"));
               }
