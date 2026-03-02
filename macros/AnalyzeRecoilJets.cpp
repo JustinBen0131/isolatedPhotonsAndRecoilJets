@@ -5,6 +5,7 @@
 // -----------------------------------------------------------------------------
 
 #include "AnalyzeRecoilJets.h"
+#include "TGraphAsymmErrors.h"
 
 #ifdef __has_include
 #if __has_include("RooUnfoldResponse.h")
@@ -15358,14 +15359,171 @@ namespace ARJ
                    << dsData.isSim << ", dsSim.isSim=" << dsSim.isSim << "). Continuing anyway." << ANSI_RESET << "\n";
           }
 
-          const string outBase = JoinPath(dsData.outBase, "unfolding/radii");
-          int mkrc = -999;
-          if (gSystem) mkrc = gSystem->mkdir(outBase.c_str(), true);
-          else EnsureDir(outBase);
+            const string outBase = JoinPath(dsData.outBase, "unfolding/radii");
+            int mkrc = -999;
+            if (gSystem) mkrc = gSystem->mkdir(outBase.c_str(), true);
+            else EnsureDir(outBase);
 
-          cout << "  Output base: " << outBase;
-          if (mkrc != -999) cout << "  (mkdir rc=" << mkrc << ")";
-          cout << "\n";
+            cout << "  Output base: " << outBase;
+            if (mkrc != -999) cout << "  (mkdir rc=" << mkrc << ")";
+            cout << "\n";
+
+            // ----------------------------------------------------------------------
+            // Load ATLAS pp (HEPData ins1694678 Table 1) x_{J#gamma} points for a simple overlay
+            //   CSV layout:
+            //     - file contains multiple blocks; we only read the pp block after "#: Centrality,,,pp"
+            //     - columns (pp block):
+            //         0: xJg (center)
+            //         1: xJg LOW
+            //         2: xJg HIGH
+            //         3: (1/N_{#gamma}) dN/dxJg in pp
+            //         4: stat +
+            //         6: sys +
+            //   y-error used here (simple first comparison):
+            //     sqrt(stat^2 + sys^2)  (symmetric)
+            // ----------------------------------------------------------------------
+            const string kAtlasTable1PhoPtLabel = "63.1-79.6 GeV";
+            TGraphAsymmErrors* gAtlasPP = nullptr;
+            string atlasCsvUsed = "";
+
+            {
+              const vector<string> csvCandidates =
+              {
+                "/Users/patsfan753/Desktop/ThesisAnalysis/LHC_overlayData/HEPData-ins1694678-v1-Table_1.csv",
+                "LHC_overlayData/HEPData-ins1694678-v1-Table_1.csv",
+                "../LHC_overlayData/HEPData-ins1694678-v1-Table_1.csv"
+              };
+
+              std::ifstream fin;
+              for (const auto& p : csvCandidates)
+              {
+                fin.open(p);
+                if (fin.good())
+                {
+                  atlasCsvUsed = p;
+                  break;
+                }
+                fin.clear();
+              }
+
+              if (!fin.good())
+              {
+                cout << ANSI_BOLD_YEL
+                     << "[WARN] ATLAS overlay disabled: could not open HEPData CSV (Table 1): " << csvCandidates[0] << "\n"
+                     << "       (also tried: " << csvCandidates[1] << " and " << csvCandidates[2] << ")\n"
+                     << ANSI_RESET << "\n";
+              }
+              else
+              {
+                vector<double> vx, vxl, vxh, vy, vstatp, vsysp;
+
+                bool inPP = false;
+                bool sawHeader = false;
+                string line;
+
+                while (std::getline(fin, line))
+                {
+                  if (!line.empty() && line.back() == '\r') line.pop_back();
+
+                  if (line.rfind("#:", 0) == 0)
+                  {
+                    if (line.find("Centrality") != string::npos && line.find("pp") != string::npos)
+                    {
+                      inPP = true;
+                      sawHeader = false;
+                    }
+                    continue;
+                  }
+
+                  if (!inPP) continue;
+
+                  if (line.empty()) break;
+
+                  if (!sawHeader)
+                  {
+                    sawHeader = true;
+                    continue;
+                  }
+
+                  std::stringstream ss(line);
+                  vector<string> cols;
+                  string cell;
+
+                  while (std::getline(ss, cell, ','))
+                  {
+                    cell.erase(std::remove(cell.begin(), cell.end(), '\"'), cell.end());
+                    while (!cell.empty() && (cell.front() == ' ' || cell.front() == '\t')) cell.erase(cell.begin());
+                    while (!cell.empty() && (cell.back()  == ' ' || cell.back()  == '\t')) cell.pop_back();
+                    cols.push_back(cell);
+                  }
+
+                  if (cols.size() < 8) continue;
+
+                  auto toD = [](const string& s, double& out) -> bool
+                  {
+                    try
+                    {
+                      size_t idx = 0;
+                      out = std::stod(s, &idx);
+                      return (idx > 0);
+                    }
+                    catch (...)
+                    {
+                      return false;
+                    }
+                  };
+
+                  double x = 0.0, xlo = 0.0, xhi = 0.0, y = 0.0, statp = 0.0, sysp = 0.0;
+
+                  if (!toD(cols[0], x))   continue;
+                  if (!toD(cols[1], xlo)) continue;
+                  if (!toD(cols[2], xhi)) continue;
+                  if (!toD(cols[3], y))   continue;
+
+                  if (!toD(cols[4], statp)) statp = 0.0;
+                  if (!toD(cols[6], sysp))  sysp  = 0.0;
+
+                  vx.push_back(x);
+                  vxl.push_back(xlo);
+                  vxh.push_back(xhi);
+                  vy.push_back(y);
+                  vstatp.push_back(statp);
+                  vsysp.push_back(sysp);
+                }
+
+                if (!vx.empty())
+                {
+                  gAtlasPP = new TGraphAsymmErrors((int)vx.size());
+                  gAtlasPP->SetName("gAtlas_pp_Table1");
+                  gAtlasPP->SetTitle("");
+
+                  for (int i = 0; i < (int)vx.size(); ++i)
+                  {
+                    const double exl = vx[i] - vxl[i];
+                    const double exh = vxh[i] - vx[i];
+                    const double ey  = std::sqrt(vstatp[i]*vstatp[i] + vsysp[i]*vsysp[i]);
+
+                    gAtlasPP->SetPoint(i, vx[i], vy[i]);
+                    gAtlasPP->SetPointError(i, exl, exh, ey, ey);
+                  }
+
+                  gAtlasPP->SetMarkerStyle(25);
+                  gAtlasPP->SetMarkerSize(1.00);
+                  gAtlasPP->SetMarkerColor(2);
+                  gAtlasPP->SetLineColor(2);
+                  gAtlasPP->SetLineWidth(2);
+
+                  cout << "  ATLAS overlay loaded (pp, Table 1): " << atlasCsvUsed
+                       << "  [pT^gamma=" << kAtlasTable1PhoPtLabel << "]  N=" << gAtlasPP->GetN() << "\n";
+                }
+                else
+                {
+                  cout << ANSI_BOLD_YEL
+                       << "[WARN] ATLAS overlay disabled: parsed zero pp points from CSV: " << atlasCsvUsed
+                       << ANSI_RESET << "\n";
+                }
+              }
+            }
 
           // ----------------------------------------------------------------------
           // Helper: transpose any TH2 (including variable binning) so that:
@@ -15758,6 +15916,9 @@ namespace ARJ
             const string rOut = JoinPath(outBase, rKey);
             EnsureDir(rOut);
 
+            const string overlayOut = JoinPath(rOut, "LHC_overlay");
+            EnsureDir(overlayOut);
+
             const string nameReco  = "h2_unfoldReco_pTgamma_xJ_incl_"     + rKey;
             const string nameTruth = "h2_unfoldTruth_pTgamma_xJ_incl_"    + rKey;
             const string nameRsp   = "h2_unfoldResponse_pTgamma_xJ_incl_" + rKey;
@@ -16027,24 +16188,80 @@ namespace ARJ
                 ).Data()
               );
 
-              {
-                TCanvas c(TString::Format("c_perPho_%s_%d", rKey.c_str(), i + 1).Data(), "c_perPho", 900, 700);
-                ApplyCanvasMargins1D(c);
+                {
+                  TCanvas c(TString::Format("c_perPho_%s_%d", rKey.c_str(), i + 1).Data(), "c_perPho", 900, 700);
+                  ApplyCanvasMargins1D(c);
 
-                hPerPho->SetMaximum(hPerPho->GetMaximum() * 1.35);
-                hPerPho->GetXaxis()->SetRangeUser(0.0, 2.0);
-                hPerPho->Draw("E1");
+                  hPerPho->SetMaximum(hPerPho->GetMaximum() * 1.35);
+                  hPerPho->GetXaxis()->SetRangeUser(0.0, 2.0);
+                  hPerPho->Draw("E1");
 
-                DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
-                DrawLatexLines(0.14,0.78,
-                               { TString::Format("Unfolded per-photon x_{J} (%s, R=%.1f)", rKey.c_str(), R).Data(),
-                                 TString::Format("p_{T}^{#gamma} (canon): %s", labCanon.c_str()).Data(),
-                                 TString::Format("truth bin used: %s", labTruth.c_str()).Data(),
-                                 TString::Format("N_{#gamma}^{unf}=%.3g", Npho).Data() },
-                               0.030, 0.040);
+                  DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
+                  DrawLatexLines(0.14,0.78,
+                                 { TString::Format("Unfolded per-photon x_{J} (%s, R=%.1f)", rKey.c_str(), R).Data(),
+                                   TString::Format("p_{T}^{#gamma} (canon): %s", labCanon.c_str()).Data(),
+                                   TString::Format("truth bin used: %s", labTruth.c_str()).Data(),
+                                   TString::Format("N_{#gamma}^{unf}=%.3g", Npho).Data() },
+                                 0.030, 0.040);
 
-                SaveCanvas(c, JoinPath(rOut, TString::Format("xJ_unfolded_perPhoton_pTbin%d.png", i + 1).Data()));
-              }
+                  SaveCanvas(c, JoinPath(rOut, TString::Format("xJ_unfolded_perPhoton_pTbin%d.png", i + 1).Data()));
+
+                  // -------------------------------------------------------------------
+                  // LHC overlay (ATLAS pp, HEPData ins1694678 Table 1):
+                  //   overlay the same ATLAS pp curve on every sPHENIX pT bin (simple first comparison)
+                  //   output: <rOut>/LHC_overlay/xJ_unfolded_perPhoton_LHCoverlay_pTbinX.png
+                  // -------------------------------------------------------------------
+                  if (gAtlasPP)
+                  {
+                    TCanvas cO(TString::Format("c_perPho_LHC_%s_%d", rKey.c_str(), i + 1).Data(), "c_perPho_LHC", 900, 700);
+                    ApplyCanvasMargins1D(cO);
+
+                    TH1* hTmp = (TH1*)hPerPho->Clone(TString::Format("hTmp_perPho_%s_%d", rKey.c_str(), i + 1).Data());
+                    if (hTmp)
+                    {
+                      hTmp->SetDirectory(nullptr);
+
+                      double maxY = 0.0;
+                      for (int ib = 1; ib <= hTmp->GetNbinsX(); ++ib)
+                      {
+                        const double y  = hTmp->GetBinContent(ib);
+                        const double ey = hTmp->GetBinError(ib);
+                        const double v  = y + ey;
+                        if (v > maxY) maxY = v;
+                      }
+
+                      for (int ip = 0; ip < gAtlasPP->GetN(); ++ip)
+                      {
+                        double x = 0.0, y = 0.0;
+                        gAtlasPP->GetPoint(ip, x, y);
+                        const double ey = gAtlasPP->GetErrorYhigh(ip);
+                        const double v  = y + ey;
+                        if (v > maxY) maxY = v;
+                      }
+
+                      hTmp->SetMinimum(0.0);
+                      hTmp->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
+                      hTmp->GetXaxis()->SetRangeUser(0.0, 2.0);
+                      hTmp->Draw("E1");
+                      gAtlasPP->Draw("PZ same");
+
+                      TLegend leg(0.55,0.76,0.92,0.90);
+                      leg.SetTextFont(42);
+                      leg.SetTextSize(0.032);
+                      leg.AddEntry(hTmp,
+                                   TString::Format("sPHENIX unfolded, p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data(),
+                                   "lep");
+                      leg.AddEntry(gAtlasPP,
+                                   TString::Format("ATLAS unfolded, p_{T}^{#gamma} = %s", kAtlasTable1PhoPtLabel.c_str()).Data(),
+                                   "pe");
+                      leg.Draw();
+
+                      SaveCanvas(cO, JoinPath(overlayOut, TString::Format("xJ_unfolded_perPhoton_LHCoverlay_pTbin%d.png", i + 1).Data()));
+
+                      delete hTmp;
+                    }
+                  }
+                }
 
               delete hXJ;
             }
@@ -16178,6 +16395,8 @@ namespace ARJ
           delete hPhoRespSim;
           delete hPhoResp_measXtruth;
           if (hPhoUnfoldTruth) delete hPhoUnfoldTruth;
+
+          if (gAtlasPP) delete gAtlasPP;
         }
   #else
         void RunRooUnfoldPipeline_SimAndDataPP(Dataset& dsData, Dataset& dsSim)
