@@ -15798,8 +15798,8 @@ namespace ARJ
               hPhoResp_measXtruth->SetTitle("");
               hPhoResp_measXtruth->GetXaxis()->SetTitle("p_{T}^{#gamma, reco} [GeV]");
               hPhoResp_measXtruth->GetYaxis()->SetTitle("p_{T}^{#gamma, truth} [GeV]");
-              hPhoResp_measXtruth->GetXaxis()->SetRangeUser(10.0, 40.0);
-              hPhoResp_measXtruth->GetYaxis()->SetRangeUser(10.0, 40.0);
+              hPhoResp_measXtruth->GetXaxis()->SetRangeUser(10.0, 35.0);
+              hPhoResp_measXtruth->GetYaxis()->SetRangeUser(5.0, 40.0);
               hPhoResp_measXtruth->Draw("colz");
 
               DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
@@ -16120,10 +16120,15 @@ namespace ARJ
 
                 hScat->Draw("COLZ");
 
-                DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
-                DrawLatexLines(0.14,0.78,
-                               { TString::Format("Unfold response matrix (global-bin indexing) (%s, R=%.1f)", rKey.c_str(), R).Data() },
-                               0.030, 0.040);
+                {
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextAlign(22);
+                    tx.SetTextSize(0.040);
+                    tx.DrawLatex(0.50, 0.965,
+                                 TString::Format("2D Response Matrix, Photon 10 + 20 GeV merged Pythia, R = %.1f", R).Data());
+                }
 
                 SaveCanvas(c, JoinPath(rOut, "unfold_response_globalTruth_vs_globalReco_SCAT.png"));
                 delete hScat;
@@ -16270,30 +16275,46 @@ namespace ARJ
                     if (ymax < 1.0) ymax = 1.1;
                   }
 
-                  TCanvas c(TString::Format("c_closure_vs_pt_%s", rKey.c_str()).Data(), "c_closure_vs_pt", 900, 700);
-                  ApplyCanvasMargins1D(c);
+                    TCanvas c(TString::Format("c_closure_vs_pt_%s", rKey.c_str()).Data(), "c_closure_vs_pt", 900, 700);
+                    ApplyCanvasMargins1D(c);
 
-                  TGraphErrors g((int)xPt.size(), &xPt[0], &yRat[0], &exPt[0], &eyRat[0]);
-                  g.SetLineWidth(2);
-                  g.SetMarkerStyle(20);
-                  g.Draw("AP");
+                    TGraphErrors g((int)xPt.size(), &xPt[0], &yRat[0], &exPt[0], &eyRat[0]);
+                    g.SetLineWidth(2);
+                    g.SetMarkerStyle(20);
+                    g.SetTitle("");
+                    g.Draw("AP");
 
-                  g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
-                  g.GetYaxis()->SetTitle("Closure: Unfolded MC / Truth MC");
-                  g.GetYaxis()->SetRangeUser(ymin, ymax);
+                    g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
+                    g.GetYaxis()->SetTitle("Closure: Unfolded MC / Truth MC");
+                    g.GetYaxis()->SetRangeUser(ymin, ymax);
 
-                  TLine l1(g.GetXaxis()->GetXmin(), 1.0, g.GetXaxis()->GetXmax(), 1.0);
-                  l1.SetLineStyle(2);
-                  l1.SetLineWidth(2);
-                  l1.Draw("same");
+                    TLine l1(g.GetXaxis()->GetXmin(), 1.0, g.GetXaxis()->GetXmax(), 1.0);
+                    l1.SetLineStyle(2);
+                    l1.SetLineWidth(2);
+                    l1.Draw("same");
 
-                  DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
-                  DrawLatexLines(0.14,0.78,
-                                 { TString::Format("Closure test (SIM): unfold(reco) #rightarrow truth (%s, R=%.1f)", rKey.c_str(), R).Data(),
-                                   TString::Format("Bayes it=%d (xJ)", kBayesIterXJ).Data() },
-                                 0.030, 0.040);
+                    // Centered title (replaces the old TLatex header lines)
+                    {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(22);
+                      tx.SetTextSize(0.040);
+                      tx.DrawLatex(0.50, 0.965,
+                                   TString::Format("Closure test, unfold(reco) #rightarrow truth, R = %.1f", R).Data());
+                    }
 
-                  SaveCanvas(c, JoinPath(rOut, "closure_unfoldedOverTruth_integral_vs_pTgamma.png"));
+                    // Top-left Bayes annotation (moved up/left)
+                    {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(13);
+                      tx.SetTextSize(0.038);
+                      tx.DrawLatex(0.15, 0.90, TString::Format("Bayes it=%d (xJ)", kBayesIterXJ).Data());
+                    }
+
+                    SaveCanvas(c, JoinPath(rOut, "closure_unfoldedOverTruth_integral_vs_pTgamma.png"));
                 }
 
                 if (h2UnfoldTruth_closure) delete h2UnfoldTruth_closure;
@@ -16441,22 +16462,53 @@ namespace ARJ
                         if (v > maxY) maxY = v;
                       }
 
-                      hTmp->SetMinimum(0.0);
-                      hTmp->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
-                      hTmp->GetXaxis()->SetRangeUser(0.0, 2.0);
-                      hTmp->Draw("E1");
-                      gAtlasPP->Draw("PZ same");
+                        hTmp->SetMinimum(0.0);
+                        hTmp->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
+                        hTmp->GetXaxis()->SetRangeUser(0.0, 2.0);
 
-                      TLegend leg(0.55,0.76,0.92,0.90);
-                      leg.SetTextFont(42);
-                      leg.SetTextSize(0.032);
-                      leg.AddEntry(hTmp,
-                                   TString::Format("sPHENIX unfolded, p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data(),
-                                   "lep");
-                      leg.AddEntry(gAtlasPP,
-                                   TString::Format("ATLAS unfolded, p_{T}^{#gamma} = %s", kAtlasTable1PhoPtLabel.c_str()).Data(),
-                                   "pe");
-                      leg.Draw();
+                        // Draw axes using the histogram, but draw sPHENIX points as a TGraphErrors with EX=0
+                        // to remove horizontal error bars.
+                        hTmp->Draw("axis");
+
+                        std::vector<double> gx, gy, gex, gey;
+                        gx.reserve((std::size_t)hTmp->GetNbinsX());
+                        gy.reserve((std::size_t)hTmp->GetNbinsX());
+                        gex.reserve((std::size_t)hTmp->GetNbinsX());
+                        gey.reserve((std::size_t)hTmp->GetNbinsX());
+
+                        for (int ib = 1; ib <= hTmp->GetNbinsX(); ++ib)
+                        {
+                          const double x  = hTmp->GetXaxis()->GetBinCenter(ib);
+                          const double y  = hTmp->GetBinContent(ib);
+                          const double ey = hTmp->GetBinError(ib);
+
+                          gx.push_back(x);
+                          gy.push_back(y);
+                          gex.push_back(0.0);
+                          gey.push_back(ey);
+                        }
+
+                        TGraphErrors gSph((int)gx.size(), &gx[0], &gy[0], &gex[0], &gey[0]);
+                        gSph.SetMarkerStyle(hTmp->GetMarkerStyle());
+                        gSph.SetMarkerSize(hTmp->GetMarkerSize());
+                        gSph.SetMarkerColor(hTmp->GetMarkerColor());
+                        gSph.SetLineColor(hTmp->GetLineColor());
+                        gSph.SetLineWidth(hTmp->GetLineWidth());
+                        gSph.Draw("PZ same");
+
+                        gAtlasPP->Draw("PZ same");
+
+                        // Legend: move to top-left
+                        TLegend leg(0.16,0.76,0.52,0.90);
+                        leg.SetTextFont(42);
+                        leg.SetTextSize(0.032);
+                        leg.AddEntry(&gSph,
+                                     TString::Format("sPHENIX unfolded, p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data(),
+                                     "pe");
+                        leg.AddEntry(gAtlasPP,
+                                     TString::Format("ATLAS unfolded, p_{T}^{#gamma} = %s", kAtlasTable1PhoPtLabel.c_str()).Data(),
+                                     "pe");
+                        leg.Draw();
 
                       SaveCanvas(cO, JoinPath(overlayOut, TString::Format("xJ_unfolded_perPhoton_LHCoverlay_pTbin%d.png", i + 1).Data()));
 
@@ -16565,11 +16617,18 @@ namespace ARJ
               //   • total relative deviation between successive iterations
               //   • total relative statistical uncertainty of the unfolded spectrum
               //
-              // This is the clean “expert expected” plot to justify Bayes it choice.
               // Output: <rOut>/unfold_iterStability_relChange_relStat.png
               // ----------------------------------------------------------------------
               {
                 const int kMaxIterPlot = 10;
+
+                cout << ANSI_BOLD_CYN
+                     << "[UNF ITER QA] Building iteration-stability plot\n"
+                     << "  rKey=" << rKey << "  R=" << std::fixed << std::setprecision(1) << R << "\n"
+                     << "  outdir=" << rOut << "\n"
+                     << "  kMaxIterPlot=" << kMaxIterPlot << "\n"
+                     << "  respXJ ptr=" << (void*)&respXJ << "  hMeasDataGlob ptr=" << (void*)hMeasDataGlob << "\n"
+                     << ANSI_RESET;
 
                 std::vector<double> xIt, exIt, yRelStat, eyRelStat, yRelChange, eyRelChange;
 
@@ -16577,11 +16636,21 @@ namespace ARJ
 
                 for (int it = 1; it <= kMaxIterPlot; ++it)
                 {
+                  if (!hMeasDataGlob)
+                  {
+                    cout << ANSI_BOLD_RED << "[UNF ITER QA][FATAL] hMeasDataGlob is null. Skipping." << ANSI_RESET << "\n";
+                    break;
+                  }
+
                   RooUnfoldBayes u(&respXJ, hMeasDataGlob, it);
                   u.SetVerbose(0);
 
                   TH1* hCurr = u.Hreco(RooUnfold::kCovariance);
-                  if (!hCurr) continue;
+                  if (!hCurr)
+                  {
+                    cout << ANSI_BOLD_RED << "[UNF ITER QA][WARN] Hreco returned null at it=" << it << ANSI_RESET << "\n";
+                    continue;
+                  }
 
                   hCurr->SetDirectory(nullptr);
                   EnsureSumw2(hCurr);
@@ -16613,14 +16682,25 @@ namespace ARJ
                     relChg = (sumV2 > 0.0) ? std::sqrt(sumD2 / sumV2) : 0.0;
                   }
 
-                  xIt.push_back((double)it);
-                  exIt.push_back(0.0);
+                  cout << ANSI_BOLD_YEL
+                       << "[UNF ITER QA] it=" << it
+                       << "  nb=" << nb
+                       << "  relStat=" << std::setprecision(6) << relStat
+                       << "  relChange(it vs it-1)=" << std::setprecision(6) << relChg
+                       << ANSI_RESET << "\n";
 
-                  yRelStat.push_back(relStat);
-                  eyRelStat.push_back(0.0);
+                  // Plot starts at it=2 (but uses it=1 internally to compute change at it=2)
+                  if (it >= 2)
+                  {
+                    xIt.push_back((double)it);
+                    exIt.push_back(0.0);
 
-                  yRelChange.push_back(relChg);
-                  eyRelChange.push_back(0.0);
+                    yRelStat.push_back(relStat);
+                    eyRelStat.push_back(0.0);
+
+                    yRelChange.push_back(relChg);
+                    eyRelChange.push_back(0.0);
+                  }
 
                   if (hPrev) delete hPrev;
                   hPrev = hCurr;
@@ -16628,17 +16708,25 @@ namespace ARJ
 
                 if (hPrev) delete hPrev;
 
+                cout << ANSI_BOLD_CYN
+                     << "[UNF ITER QA] Points prepared: n=" << xIt.size()
+                     << " (expected " << std::max(0, kMaxIterPlot - 1) << " for it=2..kMax)\n"
+                     << ANSI_RESET;
+
                 if (!xIt.empty())
                 {
                   double yMax = 0.0;
-                  for (size_t i = 0; i < yRelStat.size(); ++i) yMax = std::max(yMax, yRelStat[i]);
+                  for (size_t i = 0; i < yRelStat.size();   ++i) yMax = std::max(yMax, yRelStat[i]);
                   for (size_t i = 0; i < yRelChange.size(); ++i) yMax = std::max(yMax, yRelChange[i]);
                   if (yMax <= 0.0) yMax = 1.0;
+
+                  cout << ANSI_BOLD_CYN << "[UNF ITER QA] yMax=" << std::setprecision(6) << yMax << ANSI_RESET << "\n";
 
                   TCanvas cIt(TString::Format("c_iterStability_%s", rKey.c_str()).Data(), "c_iterStability", 900, 700);
                   ApplyCanvasMargins1D(cIt);
 
-                  TH1F frame("frame","", 1, 0.5, (double)kMaxIterPlot + 0.5);
+                  // x-axis starts at 1 (but first point is it=2)
+                  TH1F frame("frame","", 1, 1.0, (double)kMaxIterPlot + 0.5);
                   frame.SetMinimum(0.0);
                   frame.SetMaximum(1.20 * yMax);
                   frame.SetTitle("");
@@ -16662,21 +16750,38 @@ namespace ARJ
                   gChg.SetLineWidth(2);
                   gChg.Draw("P same");
 
-                  TLegend leg(0.16, 0.72, 0.55, 0.86);
+                  // Legend higher in the top-left
+                  TLegend leg(0.14, 0.78, 0.54, 0.92);
                   leg.SetBorderSize(0);
                   leg.SetFillStyle(0);
                   leg.SetTextFont(42);
-                  leg.SetTextSize(0.034);
+                  leg.SetTextSize(0.032);
                   leg.AddEntry(&gStat, "total relative stat. uncertainty", "p");
                   leg.AddEntry(&gChg,  "total relative deviation (it vs it-1)", "p");
                   leg.Draw();
 
+                  // Keep dataset header if you want it; title is centered at the very top
                   DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
-                  DrawLatexLines(0.14,0.84,
-                                 { TString::Format("Iteration stability (DATA), %s, R=%.1f", rKey.c_str(), R).Data() },
-                                 0.030, 0.040);
 
-                  SaveCanvas(cIt, JoinPath(rOut, "unfold_iterStability_relChange_relStat.png"));
+                  {
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextAlign(22);
+                    tx.SetTextSize(0.040);
+                    tx.DrawLatex(0.50, 0.965, TString::Format("Iteration Stability, R = %.1f, Unfolding QA", R).Data());
+                  }
+
+                  cIt.Modified();
+                  cIt.Update();
+
+                  const std::string outPng = JoinPath(rOut, "unfold_iterStability_relChange_relStat.png");
+                  cout << ANSI_BOLD_CYN << "[UNF ITER QA] Saving: " << outPng << ANSI_RESET << "\n";
+                  SaveCanvas(cIt, outPng);
+                }
+                else
+                {
+                  cout << ANSI_BOLD_RED << "[UNF ITER QA][WARN] No points to plot; not saving PNG." << ANSI_RESET << "\n";
                 }
               }
 
