@@ -654,8 +654,14 @@ namespace ARJ
   inline const vector<double>& kPtEdges = Binning().jes3_photon_pt_bins;
   inline const int kNPtBins = (int)kPtEdges.size() - 1;
 
-  // Jet radii keys
-  inline const vector<string> kRKeys = {"r02","r04","r06"};
+  // Unfolding photon pT bin edges (explicit, independent from JES3 bins)
+  inline const vector<double>& kUnfoldRecoPtEdges  = Binning().unfold_reco_photon_pt_bins;
+  inline const vector<double>& kUnfoldTruthPtEdges = Binning().unfold_truth_photon_pt_bins;
+  inline const int kNUnfoldRecoPtBins  = (int)kUnfoldRecoPtEdges.size()  - 1;
+  inline const int kNUnfoldTruthPtBins = (int)kUnfoldTruthPtEdges.size() - 1;
+
+    // Jet radii keys
+    inline const vector<string> kRKeys = {"r02","r04","r06"};
 
   // =============================================================================
   // ANSI helpers
@@ -703,6 +709,38 @@ namespace ARJ
           }
           v.push_back(b);
         }
+        return v;
+    }
+
+    // Cached unfolding RECO pT bin list (derived from YAML key: unfold_reco_photon_pt_bins)
+    inline const vector<PtBin>& UnfoldRecoPtBins()
+    {
+        static vector<PtBin> v;
+        if (!v.empty()) return v;
+
+        const auto& edges = kUnfoldRecoPtEdges;
+        const int n = (int)edges.size() - 1;
+        if (n <= 0) return v;
+
+        v.reserve((std::size_t)n);
+
+        for (int i = 0; i < n; ++i)
+        {
+          PtBin b;
+          b.lo = (int) std::llround(edges[(std::size_t)i]);
+          b.hi = (int) std::llround(edges[(std::size_t)i+1]);
+          {
+            std::ostringstream s; s << b.lo << "-" << b.hi; b.label = s.str();
+          }
+          {
+            std::ostringstream s; s << "pT_" << b.lo << "_" << b.hi; b.folder = s.str();
+          }
+          {
+            std::ostringstream s; s << "_pT_" << b.lo << "_" << b.hi; b.suffix = s.str();
+          }
+          v.push_back(b);
+        }
+
         return v;
     }
 

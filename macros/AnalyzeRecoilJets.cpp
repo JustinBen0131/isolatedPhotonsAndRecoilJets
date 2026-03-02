@@ -15906,37 +15906,37 @@ namespace ARJ
             }
           }
 
-          // Photon summary for the first 6 canonical pT bins
-          vector<string> phoSummary;
-          phoSummary.push_back("Photon unfolding summary (PP DATA unfolded to truth pTgamma)");
-          phoSummary.push_back(TString::Format("Method: RooUnfoldBayes, iterations=%d, error=kCovariance", kBayesIterPho).Data());
-          phoSummary.push_back("");
-
-          {
-            const int nPtCanon = std::min(6, (int)PtBins().size());
-            for (int i = 0; i < nPtCanon; ++i)
-            {
-              const PtBin& b = PtBins()[i];
-              const double cen = 0.5 * (b.lo + b.hi);
-
-              const int ibTruth = (hPhoUnfoldTruth ? hPhoUnfoldTruth->GetXaxis()->FindBin(cen) : -1);
-
-              const string labCanon = TString::Format("%d-%d GeV", b.lo, b.hi).Data();
-              const string labTruth = (hPhoUnfoldTruth ? AxisBinLabel(hPhoUnfoldTruth->GetXaxis(), ibTruth, "GeV", 0) : "N/A");
-
-              const double N = (hPhoUnfoldTruth ? hPhoUnfoldTruth->GetBinContent(ibTruth) : 0.0);
-              const double E = (hPhoUnfoldTruth ? hPhoUnfoldTruth->GetBinError  (ibTruth) : 0.0);
-
-              phoSummary.push_back(
-                TString::Format("pT^gamma canon=%s  -> truthBin=%s  N_gamma(unf)=%.6g ± %.6g",
-                  labCanon.c_str(), labTruth.c_str(), N, E
-                ).Data()
-              );
-            }
+            // Photon summary for the first 6 unfolding RECO pT bins
+            vector<string> phoSummary;
+            phoSummary.push_back("Photon unfolding summary (PP DATA unfolded to truth pTgamma)");
+            phoSummary.push_back(TString::Format("Method: RooUnfoldBayes, iterations=%d, error=kCovariance", kBayesIterPho).Data());
             phoSummary.push_back("");
-            phoSummary.push_back("NOTE: canonical pT bins are mapped to unfolding truth bins by FindBin(center).");
-            phoSummary.push_back("      Example: 13-15 GeV maps to truth bin 10-15 GeV for the current unfolding binning.");
-          }
+
+            {
+              const int nPtUnf = std::min(6, (int)UnfoldRecoPtBins().size());
+              for (int i = 0; i < nPtUnf; ++i)
+              {
+                const PtBin& b = UnfoldRecoPtBins()[i];
+                const double cen = 0.5 * (b.lo + b.hi);
+
+                const int ibTruth = (hPhoUnfoldTruth ? hPhoUnfoldTruth->GetXaxis()->FindBin(cen) : -1);
+
+                const string labCanon = TString::Format("%d-%d GeV", b.lo, b.hi).Data();
+                const string labTruth = (hPhoUnfoldTruth ? AxisBinLabel(hPhoUnfoldTruth->GetXaxis(), ibTruth, "GeV", 0) : "N/A");
+
+                const double N = (hPhoUnfoldTruth ? hPhoUnfoldTruth->GetBinContent(ibTruth) : 0.0);
+                const double E = (hPhoUnfoldTruth ? hPhoUnfoldTruth->GetBinError  (ibTruth) : 0.0);
+
+                phoSummary.push_back(
+                  TString::Format("pT^gamma reco=%s  -> truthBin=%s  N_gamma(unf)=%.6g ± %.6g",
+                    labCanon.c_str(), labTruth.c_str(), N, E
+                  ).Data()
+                );
+              }
+              phoSummary.push_back("");
+              phoSummary.push_back("NOTE: unfolding RECO pT bins (YAML: unfold_reco_photon_pt_bins) are mapped to truth bins by FindBin(center).");
+              phoSummary.push_back("      The truth axis includes a 5-10 GeV underflow bin (YAML: unfold_truth_photon_pt_bins).");
+            }
 
           WriteTextFile(JoinPath(phoDir, "summary_photon_unfolding_first6bins.txt"), phoSummary);
 
