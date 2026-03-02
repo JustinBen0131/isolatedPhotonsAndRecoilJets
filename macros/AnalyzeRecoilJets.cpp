@@ -8728,6 +8728,15 @@ namespace ARJ
                   const string overlayDir = JoinPath(outBaseDir, "auau_pp_overlay");
                   EnsureDir(overlayDir);
 
+                  std::string auauLeg = "AuAu";
+                  {
+                      int clo = -1, chi = -1;
+                      if (std::sscanf(ds.centSuffix.c_str(), "_cent_%d_%d", &clo, &chi) == 2)
+                      {
+                        auauLeg = TString::Format("AuAu (%d-%d%%)", clo, chi).Data();
+                      }
+                  }
+
                   auto NormalizeUnitArea = [&](TH1* h)->void
                   {
                     if (!h) return;
@@ -8850,7 +8859,7 @@ namespace ARJ
                         leg->SetTextSize(0.038);
                         leg->SetEntrySeparation(0.22);
                         leg->AddEntry(hxPP, "pp",   "ep");
-                        leg->AddEntry(hxAu, "AuAu", "ep");
+                        leg->AddEntry(hxAu, auauLeg.c_str(), "ep");
                         leg->Draw();
 
                         const auto& cfgDef = DefaultSim10and20Config();
@@ -8950,7 +8959,7 @@ namespace ARJ
                     leg->SetTextSize(0.040);
                     leg->SetEntrySeparation(0.22);
                     leg->AddEntry(hxPP, "pp",   "ep");
-                    leg->AddEntry(hxAu, "AuAu", "ep");
+                    leg->AddEntry(hxAu, auauLeg.c_str(), "ep");
                     leg->Draw();
 
                     const auto& cfgDef = DefaultSim10and20Config();
@@ -18160,7 +18169,7 @@ namespace ARJ
               leg.SetFillStyle(0);
               leg.SetTextFont(42);
               leg.SetTextSize(0.036);
-              leg.AddEntry(hAAc, "Au+Au data (counts)", "ep");
+              leg.AddEntry(hAAc, "Au+Au", "ep");
               leg.Draw();
 
               // Centered pad title: what is plotted
@@ -18439,7 +18448,7 @@ namespace ARJ
               leg.SetFillStyle(0);
               leg.SetTextFont(42);
               leg.SetTextSize(0.036);
-              leg.AddEntry(hAAc, "Au+Au data (counts)", "ep");
+              leg.AddEntry(hAAc, "Au+Au", "ep");
               leg.Draw();
 
                 // Single centered title only (no extra on-canvas printouts, no "(inclusive)" label).
@@ -22536,6 +22545,71 @@ namespace ARJ
         }
 
         cout << ANSI_BOLD_GRN << "     [OK] Opened.\n" << ANSI_RESET;
+      }
+
+      // ---------------------------------------------------------------------------
+      // AuAu-only: Tabulate accepted events per centrality (and total) BEFORE any QA
+      // ---------------------------------------------------------------------------
+      if (isAuAuOnly)
+      {
+        cout << ANSI_BOLD_CYN << "\n[AuAuOnly] Accepted events summary (by centrality + total)\n" << ANSI_RESET;
+
+        std::map<std::string, std::vector<std::pair<std::pair<int,int>, double>>> accByTrig;
+
+        auto ParseCentLoHiFromSuffix = [&](const std::string& s, int& lo, int& hi)->bool
+        {
+          lo = -1; hi = -1;
+          if (s.empty()) return false;
+
+          int a = -1, b = -1;
+          if (std::sscanf(s.c_str(), "_cent_%d_%d", &a, &b) == 2)
+          {
+            lo = a; hi = b;
+            return true;
+          }
+          return false;
+        };
+
+        for (auto& ds : datasets)
+        {
+          if (ds.isSim) continue;
+          if (ds.centSuffix.empty()) continue;
+
+          int clo = -1, chi = -1;
+          if (!ParseCentLoHiFromSuffix(ds.centSuffix, clo, chi)) continue;
+
+          const double nEvt = ReadEventCount(ds);
+          accByTrig[ds.trigger].push_back({{clo, chi}, nEvt});
+        }
+
+        for (auto& kv : accByTrig)
+        {
+          const std::string& trig = kv.first;
+          auto& v = kv.second;
+
+          if (v.empty()) continue;
+
+          std::sort(v.begin(), v.end(),
+                    [](const auto& a, const auto& b){ return a.first.first < b.first.first; });
+
+          cout << ANSI_BOLD_YEL << "\n  Trigger: " << trig << ANSI_RESET << "\n";
+
+          double total = 0.0;
+          for (const auto& it : v)
+          {
+            const int clo = it.first.first;
+            const int chi = it.first.second;
+            const double nEvt = it.second;
+
+            total += nEvt;
+
+            cout << "    [DATA_AUAU_" << clo << "_" << chi << "] accepted events = "
+                 << std::fixed << std::setprecision(0) << nEvt << "\n";
+          }
+
+          cout << "    [TOTAL] accepted events (sum over centrality) = "
+               << std::fixed << std::setprecision(0) << total << "\n";
+        }
       }
 
       // ---------------------------------------------------------------------------
