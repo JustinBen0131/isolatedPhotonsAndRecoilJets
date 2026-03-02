@@ -8318,76 +8318,61 @@ namespace ARJ
                             gDat->Draw("P same");
                             gSim->Draw("P same");
 
-                            TLegend* legP = new TLegend(0.62, 0.72, 0.88, 0.86);
-                            legP->SetBorderSize(0);
-                            legP->SetFillStyle(0);
-                            legP->SetTextFont(42);
-                            legP->SetTextSize(0.055);
-                            legP->AddEntry(gDat, "DATA (reco)", "p");
-                            legP->AddEntry(gSim, "SIM (reco)",  "p");
-                            legP->Draw();
+                              TLegend* legP = new TLegend(0.62, 0.14, 0.88, 0.30);
+                              legP->SetBorderSize(0);
+                              legP->SetFillStyle(0);
+                              legP->SetTextFont(42);
+                              legP->SetTextSize(0.055);
+                              legP->AddEntry(gDat, "DATA (reco)", "p");
+                              legP->AddEntry(gSim, "SIM (reco)",  "p");
+                              legP->Draw();
 
-                            TLatex lat;
-                            lat.SetNDC(true);
-                            lat.SetTextFont(62);
-                            lat.SetTextSize(0.07);
-                            lat.DrawLatex(0.16, 0.90, "#bf{sPHENIX} Internal");
-                            lat.SetTextFont(42);
-                            lat.SetTextSize(0.055);
-                            lat.DrawLatex(0.16, 0.82, TString::Format("Jet R = %.1f", RFromKey(rKey)).Data());
-
-                            padBot.cd();
-                            TH1F* hBot = new TH1F(
-                              TString::Format("hMeanPanelBot_%s", rKey.c_str()).Data(),
-                              "", 100, xMin, xMax
-                            );
-                            hBot->SetStats(0);
-                            hBot->SetMinimum(yMinBot);
-                            hBot->SetMaximum(yMaxBot);
-                            hBot->SetTitle("");
-                            hBot->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                            hBot->GetYaxis()->SetTitle("Ratio DATA / SIM");
-                            hBot->GetXaxis()->SetTitleSize(0.12);
-                            hBot->GetXaxis()->SetLabelSize(0.10);
-                            hBot->GetYaxis()->SetTitleSize(0.10);
-                            hBot->GetYaxis()->SetLabelSize(0.10);
-                            hBot->GetYaxis()->SetTitleOffset(0.55);
-                            hBot->Draw();
-
-                            gRatio->Draw("P same");
-
-                            TLine lOneP(xMin, 1.0, xMax, 1.0);
-                            lOneP.SetLineStyle(3);
-                            lOneP.SetLineWidth(2);
-                            lOneP.Draw("same");
-
-                            TLine* lFitUp = nullptr;
-                            TLine* lFitDn = nullptr;
-                            if (fJES)
-                            {
-                              fJES->Draw("same");
-
-                              lFitUp = new TLine(fitMin, jesVal + jesErr, xMax, jesVal + jesErr);
-                              lFitDn = new TLine(fitMin, jesVal - jesErr, xMax, jesVal - jesErr);
-                              lFitUp->SetLineColor(kRed + 1);
-                              lFitDn->SetLineColor(kRed + 1);
-                              lFitUp->SetLineStyle(3);
-                              lFitDn->SetLineStyle(3);
-                              lFitUp->SetLineWidth(2);
-                              lFitDn->SetLineWidth(2);
-                              lFitUp->Draw("same");
-                              lFitDn->Draw("same");
-
-                              TLatex lat2;
-                              lat2.SetNDC(true);
-                              lat2.SetTextFont(42);
-                              lat2.SetTextSize(0.11);
-                              lat2.SetTextColor(kRed + 1);
-                              lat2.DrawLatex(
-                                0.18, 0.22,
-                                TString::Format("in situ JES = %.4f #pm %.4f", jesVal, jesErr).Data()
+                              TLatex lat;
+                              lat.SetNDC(true);
+                              lat.SetTextFont(42);
+                              lat.SetTextSize(0.060);
+                              lat.DrawLatex(
+                                0.16, 0.92,
+                                TString::Format("Photon+ Jet 10 + 20 Sim and Run24pp <x_{J#gamma}>, R = %.1f", RFromKey(rKey)).Data()
                               );
-                            }
+
+                              padBot.cd();
+                              TH1F* hBot = new TH1F(
+                                TString::Format("hMeanPanelBot_%s", rKey.c_str()).Data(),
+                                "", 100, xMin, xMax
+                              );
+                              hBot->SetStats(0);
+                              hBot->SetMinimum(yMinBot);
+                              hBot->SetMaximum(yMaxBot);
+                              hBot->SetTitle("");
+                              hBot->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                              hBot->GetYaxis()->SetTitle("Ratio DATA / SIM");
+                              hBot->GetXaxis()->SetTitleSize(0.12);
+                              hBot->GetXaxis()->SetLabelSize(0.10);
+                              hBot->GetYaxis()->SetTitleSize(0.10);
+                              hBot->GetYaxis()->SetLabelSize(0.10);
+                              hBot->GetYaxis()->SetTitleOffset(0.55);
+                              hBot->Draw();
+
+                              gRatio->Draw("P same");
+
+                              TLine lOneP(xMin, 1.0, xMax, 1.0);
+                              lOneP.SetLineStyle(2);
+                              lOneP.SetLineWidth(2);
+                              lOneP.Draw("same");
+
+                              if (fJES)
+                              {
+                                TLatex lat2;
+                                lat2.SetNDC(true);
+                                lat2.SetTextFont(42);
+                                lat2.SetTextSize(0.11);
+                                lat2.SetTextColor(kRed + 1);
+                                lat2.DrawLatex(
+                                  0.18, 0.22,
+                                  TString::Format("in situ JES = %.4f #pm %.4f", jesVal, jesErr).Data()
+                                );
+                              }
 
                             SaveCanvas(cPanel, JoinPath(dirOv, "meanVsPt_withRatioPanel_reco_integratedAlpha_overlayedWithSim_withFits.png"));
 
@@ -8518,27 +8503,230 @@ namespace ARJ
                     }
               }
 
-              // -------------------------------------------------------------------------
-              // 3x3 tables + text summary (existing behavior preserved)
-              // -------------------------------------------------------------------------
-
               auto Make3x3Table_xJ_FromTH3 =
                 [&](const TH3* h3, const string& outBaseDir, const string& tag, bool logy)
               {
-                if (!h3) return;
+                  if (!h3) return;
 
-                  const int nAll = h3->GetXaxis()->GetNbins();
+                    const int nAll = h3->GetXaxis()->GetNbins();
 
-                  const bool wantLast6 = (tag == "RECO");
-                  const int  n         = wantLast6 ? std::min(6, nAll) : nAll;
+                    const bool wantLast6 = (tag == "RECO");
+                    const int  n         = wantLast6 ? std::min(6, nAll) : nAll;
 
-                  const int perPage = wantLast6 ? 6 : (n <= 6 ? 6 : 9);
+                    const int perPage = wantLast6 ? 6 : (n <= 6 ? 6 : 9);
+
+                    const int nCols = 3;
+                    const int nRows = (perPage == 6 ? 2 : 3);
+
+                    const int firstBin = wantLast6 ? std::max(1, nAll - n + 1) : 1;
+                    const int lastStartBin = wantLast6 ? firstBin : n;
+
+                    int page = 0;
+                    for (int start = firstBin; start <= lastStartBin; start += perPage)
+                    {
+                      ++page;
+
+                      TCanvas c(
+                        TString::Format("c_tbl_xJ_%s_%s_%s_%s_p%d",
+                          ds.label.c_str(),
+                          rKey.c_str(),
+                          tag.c_str(),
+                          logy ? "logy" : "lin",
+                          page).Data(),
+                        "c_tbl_xJ", 1
+                      );
+
+                      c.SetCanvasSize(2400, (perPage == 6 ? 1400 : 2100));
+                      c.Divide(nCols, nRows, 0.002, 0.002);
+
+                      vector<TObject*> keep;
+                      int pad = 0;
+
+                      for (int ib = start; ib < start + perPage; ++ib)
+                      {
+                        ++pad;
+                        c.cd(pad);
+
+                        gPad->SetLeftMargin(0.13);
+                        gPad->SetRightMargin(0.04);
+                        gPad->SetBottomMargin(0.14);
+                        gPad->SetTopMargin(0.10);
+                        gPad->SetLogy(logy);
+
+                      if (ib > nAll)
+                      {
+                        TLatex t;
+                        t.SetNDC(true);
+                        t.SetTextFont(42);
+                        t.SetTextSize(0.06);
+                        t.DrawLatex(0.20, 0.55, "EMPTY");
+                        continue;
+                      }
+
+                      TH1* hx = ProjectY_AtXbin_TH3(
+                        h3, ib,
+                        TString::Format("jes3_xJ_tbl_%s_%s_%s_%d",
+                          rKey.c_str(), tag.c_str(), logy ? "logy" : "lin", ib).Data()
+                        );
+
+                      if (!hx)
+                      {
+                        TLatex t;
+                        t.SetNDC(true);
+                        t.SetTextFont(42);
+                        t.SetTextSize(0.06);
+                        t.DrawLatex(0.15, 0.55, "MISSING");
+                        continue;
+                      }
+
+                      hx->SetDirectory(nullptr);
+                      EnsureSumw2(hx);
+
+                      hx->SetLineWidth(2);
+                      hx->SetMarkerStyle(20);
+                      hx->SetMarkerSize(1.0);
+
+                        hx->SetTitle("");
+                        hx->GetXaxis()->SetTitle((tag == "TRUTH") ? "x_{J#gamma}^{truth}" : "x_{J#gamma}");
+                        hx->GetXaxis()->SetRangeUser(0.0, 2.0);
+                        hx->GetYaxis()->SetTitle((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts");
+
+                      if (logy)
+                      {
+                        const double minPos = SmallestPositiveBinContent(hx);
+                        hx->SetMinimum((minPos > 0.0) ? (0.5 * minPos) : 1e-6);
+                      }
+
+                        hx->Draw("E1");
+
+                        const auto& cfgDef = DefaultSim10and20Config();
+                        const double jetPtMin_GeV = cfgDef.jetMinPt;
+
+                        const double ptMin = h3->GetXaxis()->GetBinLowEdge(ib);
+                        const double ptMax = h3->GetXaxis()->GetBinUpEdge(ib);
+
+                        const double xAbs  = (ptMax > 0.0) ? (jetPtMin_GeV / ptMax) : -1.0;
+                        const double xFull = (ptMin > 0.0) ? (jetPtMin_GeV / ptMin) : -1.0;
+
+                        gPad->Update();
+                        const double yMin = gPad->GetUymin();
+                        const double yMax = gPad->GetUymax();
+
+                        TLine* lnAbs = new TLine(xAbs,  yMin, xAbs,  yMax);
+                        lnAbs->SetLineColor(kBlue + 1);
+                        lnAbs->SetLineStyle(2);
+                        lnAbs->SetLineWidth(2);
+
+                        TLine* lnFull = new TLine(xFull, yMin, xFull, yMax);
+                        lnFull->SetLineColor(kRed + 1);
+                        lnFull->SetLineStyle(2);
+                        lnFull->SetLineWidth(2);
+
+                        if (xAbs > 0.0)  lnAbs->Draw("same");
+                        if (xFull > 0.0) lnFull->Draw("same");
+
+                        TLegend* leg = new TLegend(0.44, 0.60, 0.96, 0.90);
+                        leg->SetBorderSize(0);
+                        leg->SetFillStyle(0);
+                        leg->SetTextFont(42);
+                        leg->SetTextSize(0.034);
+                        leg->SetEntrySeparation(0.22);
+
+                        if (xAbs > 0.0)
+                          leg->AddEntry(lnAbs,  TString::Format("x_{J, min}^{abs} = #frac{%.0f}{p_{T, max}^{#gamma}} = %.3f", jetPtMin_GeV, xAbs),  "l");
+                        if (xFull > 0.0)
+                          leg->AddEntry(lnFull, TString::Format("x_{J, min}^{full} = #frac{%.0f}{p_{T, min}^{#gamma}} = %.3f", jetPtMin_GeV, xFull), "l");
+
+                        leg->Draw();
+
+                        {
+                          TLatex tCuts;
+                          tCuts.SetNDC(true);
+                          tCuts.SetTextFont(42);
+                          tCuts.SetTextAlign(33);
+                          tCuts.SetTextSize(0.038);
+                          tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
+                          tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
+                        }
+
+                        {
+                          TLatex t;
+                          t.SetNDC(true);
+                          t.SetTextFont(42);
+                          t.SetTextAlign(13);
+                          t.SetTextSize(0.052);
+                          t.DrawLatex(0.14, 0.98,
+                            TString::Format("%s x_{J#gamma}, p_{T}^{#gamma} = %.0f - %.0f GeV, R = %.1f",
+                              tag.c_str(),
+                              ptMin, ptMax, R).Data());
+                        }
+
+                        keep.push_back(hx);
+                        keep.push_back(lnAbs);
+                        keep.push_back(lnFull);
+                        keep.push_back(leg);
+                    }
+
+                    string outName;
+                    if (n <= perPage)
+                    {
+                      outName = TString::Format("table3x3_xJ_%s_integratedAlpha%s.png",
+                        tag.c_str(), logy ? "_logy" : "").Data();
+                    }
+                    else
+                    {
+                      outName = TString::Format("table3x3_xJ_%s_integratedAlpha%s_page%d.png",
+                        tag.c_str(), logy ? "_logy" : "", page).Data();
+                    }
+
+                    SaveCanvas(c, JoinPath(outBaseDir, outName));
+
+                    for (auto* h : keep) delete h;
+                  }
+                };
+
+                auto Make3x3Table_xJ_AuAuPPOverlay_FromTH3 =
+                  [&](const TH3* h3Au, const string& outBaseDir, const string& tag, bool logy)
+                {
+                  if (!h3Au) return;
+                  if (!(isAuAuOnly && !ds.isSim && !ds.centSuffix.empty())) return;
+                  if (tag != "RECO") return;
+
+                  static TFile* fPP = nullptr;
+                  static TDirectory* dirPP = nullptr;
+
+                  if (!fPP)
+                  {
+                    fPP = TFile::Open(kInPP24.c_str(), "READ");
+                    if (fPP)
+                    {
+                      dirPP = fPP->GetDirectory(kTriggerPP.c_str());
+                      if (!dirPP) dirPP = fPP;
+                    }
+                  }
+
+                  if (!fPP || !dirPP) return;
+
+                  TH3* h3PP = dynamic_cast<TH3*>(dirPP->Get(
+                    TString::Format("h_JES3_pT_xJ_alpha_%s", rKey.c_str()).Data()
+                  ));
+                  if (!h3PP) return;
+
+                  const int nAll = h3Au->GetXaxis()->GetNbins();
+
+                  const bool wantLast6 = true;
+                  const int  n         = std::min(6, nAll);
+
+                  const int perPage = 6;
 
                   const int nCols = 3;
-                  const int nRows = (perPage == 6 ? 2 : 3);
+                  const int nRows = 2;
 
-                  const int firstBin = wantLast6 ? std::max(1, nAll - n + 1) : 1;
-                  const int lastStartBin = wantLast6 ? firstBin : n;
+                  const int firstBin = std::max(1, nAll - n + 1);
+                  const int lastStartBin = firstBin;
+
+                  const string overlayDir = JoinPath(outBaseDir, "auau_pp_overlay");
+                  EnsureDir(overlayDir);
 
                   int page = 0;
                   for (int start = firstBin; start <= lastStartBin; start += perPage)
@@ -8546,116 +8734,113 @@ namespace ARJ
                     ++page;
 
                     TCanvas c(
-                      TString::Format("c_tbl_xJ_%s_%s_%s_%s_p%d",
+                      TString::Format("c_tbl_xJ_auauPP_%s_%s_%s_%s_p%d",
                         ds.label.c_str(),
                         rKey.c_str(),
                         tag.c_str(),
                         logy ? "logy" : "lin",
                         page).Data(),
-                      "c_tbl_xJ", 1500, (perPage == 6 ? 900 : 1200)
+                      "c_tbl_xJ_auauPP", 1
                     );
 
-                      c.Divide(nCols, nRows, 0.001, 0.001);
+                    c.SetCanvasSize(2400, 1400);
+                    c.Divide(nCols, nRows, 0.002, 0.002);
 
-                      std::vector<TObject*> keep;
-                      keep.reserve(perPage * 4);
+                    vector<TObject*> keep;
+                    int pad = 0;
 
-                      for (int k = 0; k < perPage; ++k)
-                  {
-                    const int ib = start + k;
-                    c.cd(k+1);
-
-                    gPad->SetLeftMargin(0.14);
-                    gPad->SetRightMargin(0.05);
-                    gPad->SetBottomMargin(0.14);
-                    gPad->SetTopMargin(0.10);
-                    gPad->SetLogy(logy);
-
-                    if (ib > nAll)
+                    for (int ib = start; ib < start + perPage; ++ib)
                     {
-                      TLatex t;
-                      t.SetNDC(true);
-                      t.SetTextFont(42);
-                      t.SetTextSize(0.06);
-                      t.DrawLatex(0.20, 0.55, "EMPTY");
-                      continue;
-                    }
+                      ++pad;
+                      c.cd(pad);
 
-                    TH1* hx = ProjectY_AtXbin_TH3(
-                      h3, ib,
-                      TString::Format("jes3_xJ_tbl_%s_%s_%s_%d",
-                        rKey.c_str(), tag.c_str(), logy ? "logy" : "lin", ib).Data()
+                      gPad->SetLeftMargin(0.13);
+                      gPad->SetRightMargin(0.04);
+                      gPad->SetBottomMargin(0.14);
+                      gPad->SetTopMargin(0.10);
+                      gPad->SetLogy(logy);
+
+                      if (ib > nAll)
+                      {
+                        TLatex t;
+                        t.SetNDC(true);
+                        t.SetTextFont(42);
+                        t.SetTextSize(0.06);
+                        t.DrawLatex(0.20, 0.55, "EMPTY");
+                        continue;
+                      }
+
+                      TH1* hxAu = ProjectY_AtXbin_TH3(
+                        h3Au, ib,
+                        TString::Format("jes3_xJ_tbl_auau_%s_%s_%s_%d",
+                          rKey.c_str(), tag.c_str(), logy ? "logy" : "lin", ib).Data()
                       );
 
-                    if (!hx)
-                    {
-                      TLatex t;
-                      t.SetNDC(true);
-                      t.SetTextFont(42);
-                      t.SetTextSize(0.06);
-                      t.DrawLatex(0.15, 0.55, "MISSING");
-                      continue;
-                    }
+                      TH1* hxPP = ProjectY_AtXbin_TH3(
+                        h3PP, ib,
+                        TString::Format("jes3_xJ_tbl_pp_%s_%s_%s_%d",
+                          rKey.c_str(), tag.c_str(), logy ? "logy" : "lin", ib).Data()
+                      );
 
-                    hx->SetDirectory(nullptr);
-                    EnsureSumw2(hx);
+                      if (!hxAu || !hxPP)
+                      {
+                        TLatex t;
+                        t.SetNDC(true);
+                        t.SetTextFont(42);
+                        t.SetTextSize(0.06);
+                        t.DrawLatex(0.15, 0.55, "MISSING");
+                        if (hxAu) delete hxAu;
+                        if (hxPP) delete hxPP;
+                        continue;
+                      }
 
-                    hx->SetLineWidth(2);
-                    hx->SetMarkerStyle(20);
-                    hx->SetMarkerSize(1.0);
+                      hxAu->SetDirectory(nullptr);
+                      hxPP->SetDirectory(nullptr);
+                      EnsureSumw2(hxAu);
+                      EnsureSumw2(hxPP);
 
-                      hx->SetTitle("");
-                      hx->GetXaxis()->SetTitle((tag == "TRUTH") ? "x_{J#gamma}^{truth}" : "x_{J#gamma}");
-                      hx->GetXaxis()->SetRangeUser(0.0, 2.0);
-                      hx->GetYaxis()->SetTitle((ds.isSim && IsWeightedSIMSelected()) ? "Counts / pb^{-1}" : "Counts");
+                      hxAu->SetLineWidth(2);
+                      hxAu->SetMarkerStyle(20);
+                      hxAu->SetMarkerSize(1.0);
 
-                    if (logy)
-                    {
-                      const double minPos = SmallestPositiveBinContent(hx);
-                      hx->SetMinimum((minPos > 0.0) ? (0.5 * minPos) : 1e-6);
-                    }
+                      hxPP->SetLineWidth(2);
+                      hxPP->SetLineColor(kRed + 1);
+                      hxPP->SetMarkerColor(kRed + 1);
+                      hxPP->SetMarkerStyle(24);
+                      hxPP->SetMarkerSize(1.0);
 
-                      hx->Draw("E1");
+                      hxAu->SetTitle("");
+                      hxAu->GetXaxis()->SetTitle("x_{J#gamma}");
+                      hxAu->GetXaxis()->SetRangeUser(0.0, 2.0);
+                      hxAu->GetYaxis()->SetTitle("Counts");
+
+                      if (logy)
+                      {
+                        const double minPosAu = SmallestPositiveBinContent(hxAu);
+                        const double minPosPP = SmallestPositiveBinContent(hxPP);
+                        const double minPos   = (minPosAu > 0.0 && minPosPP > 0.0) ? std::min(minPosAu, minPosPP) :
+                                                (minPosAu > 0.0 ? minPosAu : (minPosPP > 0.0 ? minPosPP : -1.0));
+                        hxAu->SetMinimum((minPos > 0.0) ? (0.5 * minPos) : 1e-6);
+                      }
+
+                      hxAu->Draw("E1");
+                      hxPP->Draw("E1 same");
+
+                      TLegend* leg = new TLegend(0.18, 0.78, 0.52, 0.90);
+                      leg->SetBorderSize(0);
+                      leg->SetFillStyle(0);
+                      leg->SetTextFont(42);
+                      leg->SetTextSize(0.038);
+                      leg->SetEntrySeparation(0.22);
+                      leg->AddEntry(hxPP, "pp",   "ep");
+                      leg->AddEntry(hxAu, "AuAu", "ep");
+                      leg->Draw();
 
                       const auto& cfgDef = DefaultSim10and20Config();
                       const double jetPtMin_GeV = cfgDef.jetMinPt;
 
-                      const double ptMin = h3->GetXaxis()->GetBinLowEdge(ib);
-                      const double ptMax = h3->GetXaxis()->GetBinUpEdge(ib);
-
-                      const double xAbs  = (ptMax > 0.0) ? (jetPtMin_GeV / ptMax) : -1.0;
-                      const double xFull = (ptMin > 0.0) ? (jetPtMin_GeV / ptMin) : -1.0;
-
-                      gPad->Update();
-                      const double yMin = gPad->GetUymin();
-                      const double yMax = gPad->GetUymax();
-
-                      TLine* lnAbs = new TLine(xAbs,  yMin, xAbs,  yMax);
-                      lnAbs->SetLineColor(kBlue + 1);
-                      lnAbs->SetLineStyle(2);
-                      lnAbs->SetLineWidth(2);
-
-                      TLine* lnFull = new TLine(xFull, yMin, xFull, yMax);
-                      lnFull->SetLineColor(kRed + 1);
-                      lnFull->SetLineStyle(2);
-                      lnFull->SetLineWidth(2);
-
-                      if (xAbs > 0.0)  lnAbs->Draw("same");
-                      if (xFull > 0.0) lnFull->Draw("same");
-
-                      TLegend* leg = new TLegend(0.44, 0.60, 0.96, 0.90);
-                      leg->SetBorderSize(0);
-                      leg->SetFillStyle(0);
-                      leg->SetTextFont(42);
-                      leg->SetTextSize(0.034);
-                      leg->SetEntrySeparation(0.22);
-
-                      if (xAbs > 0.0)
-                        leg->AddEntry(lnAbs,  TString::Format("x_{J, min}^{abs} = #frac{%.0f}{p_{T, max}^{#gamma}} = %.3f", jetPtMin_GeV, xAbs),  "l");
-                      if (xFull > 0.0)
-                        leg->AddEntry(lnFull, TString::Format("x_{J, min}^{full} = #frac{%.0f}{p_{T, min}^{#gamma}} = %.3f", jetPtMin_GeV, xFull), "l");
-
-                      leg->Draw();
+                      const double ptMin = h3Au->GetXaxis()->GetBinLowEdge(ib);
+                      const double ptMax = h3Au->GetXaxis()->GetBinUpEdge(ib);
 
                       {
                         TLatex tCuts;
@@ -8667,37 +8852,39 @@ namespace ARJ
                         tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
                       }
 
-                      TLatex ttl;
-                      ttl.SetNDC(true);
-                      ttl.SetTextFont(42);
-                      ttl.SetTextSize(0.052);
-                      ttl.DrawLatex(0.14, 0.94,
-                        TString::Format("RECO x_{J#gamma}, p_{T}^{#gamma} = %.0f - %.0f GeV, R = %.1f",
-                          ptMin, ptMax, R).Data());
+                      {
+                        TLatex t;
+                        t.SetNDC(true);
+                        t.SetTextFont(42);
+                        t.SetTextAlign(13);
+                        t.SetTextSize(0.052);
+                        t.DrawLatex(0.14, 0.98,
+                          TString::Format("RECO x_{J#gamma}, p_{T}^{#gamma} = %.0f - %.0f GeV, R = %.1f",
+                            ptMin, ptMax, R).Data());
+                      }
 
-                      keep.push_back(hx);
-                      keep.push_back(lnAbs);
-                      keep.push_back(lnFull);
+                      keep.push_back(hxAu);
+                      keep.push_back(hxPP);
                       keep.push_back(leg);
-                  }
+                    }
 
-                  string outName;
-                  if (n <= perPage)
-                  {
-                    outName = TString::Format("table3x3_xJ_%s_integratedAlpha%s.png",
-                      tag.c_str(), logy ? "_logy" : "").Data();
-                  }
-                  else
-                  {
-                    outName = TString::Format("table3x3_xJ_%s_integratedAlpha%s_page%d.png",
-                      tag.c_str(), logy ? "_logy" : "", page).Data();
-                  }
+                    string outName;
+                    if (n <= perPage)
+                    {
+                      outName = TString::Format("table3x3_xJ_%s_integratedAlpha%s.png",
+                        tag.c_str(), logy ? "_logy" : "").Data();
+                    }
+                    else
+                    {
+                      outName = TString::Format("table3x3_xJ_%s_integratedAlpha%s_page%d.png",
+                        tag.c_str(), logy ? "_logy" : "", page).Data();
+                    }
 
-                  SaveCanvas(c, JoinPath(outBaseDir, outName));
+                    SaveCanvas(c, JoinPath(overlayDir, outName));
 
-                  for (auto* h : keep) delete h;
-                }
-              };
+                    for (auto* h : keep) delete h;
+                  }
+                };
 
               // NEW: 3x3 tables for RECO alpha cuts (linear-y only; requested)
               auto Make3x3Table_xJ_FromTH3_AlphaCut =
@@ -8805,22 +8992,24 @@ namespace ARJ
                 }
               };
 
-              // integrated-alpha tables (linear + logy)
-              Make3x3Table_xJ_FromTH3(H.hReco_xJ,               D.dirXJProjReco,                   "RECO",  false);
-              Make3x3Table_xJ_FromTH3(H.hRecoTruthPhoTagged_xJ, D.dirXJProjRecoTruthPhoTagged,     "RECO",  false);
-              Make3x3Table_xJ_FromTH3(H.hRecoTruthTagged_xJ,    D.dirXJProjRecoTruthTagged,        "RECO",  false);
+                // integrated-alpha tables (linear + logy)
+                Make3x3Table_xJ_FromTH3(H.hReco_xJ,               D.dirXJProjReco,                   "RECO",  false);
+                Make3x3Table_xJ_AuAuPPOverlay_FromTH3(H.hReco_xJ, D.dirXJProjReco,                   "RECO",  false);
+                Make3x3Table_xJ_FromTH3(H.hRecoTruthPhoTagged_xJ, D.dirXJProjRecoTruthPhoTagged,     "RECO",  false);
+                Make3x3Table_xJ_FromTH3(H.hRecoTruthTagged_xJ,    D.dirXJProjRecoTruthTagged,        "RECO",  false);
 
-              Make3x3Table_xJ_FromTH3(H.hTrut_xJ,               D.dirXJProjTruthRecoCond,           "TRUTH", false);
-              Make3x3Table_xJ_FromTH3(H.hTrutNoJM_xJ,           D.dirXJProjTruthRecoCondNoJetMatch, "TRUTH", false);
-              Make3x3Table_xJ_FromTH3(H.hTrutPure_xJ,           D.dirXJProjTruthPure,               "TRUTH", false);
+                Make3x3Table_xJ_FromTH3(H.hTrut_xJ,               D.dirXJProjTruthRecoCond,           "TRUTH", false);
+                Make3x3Table_xJ_FromTH3(H.hTrutNoJM_xJ,           D.dirXJProjTruthRecoCondNoJetMatch, "TRUTH", false);
+                Make3x3Table_xJ_FromTH3(H.hTrutPure_xJ,           D.dirXJProjTruthPure,               "TRUTH", false);
 
-              Make3x3Table_xJ_FromTH3(H.hReco_xJ,               D.dirXJProjReco,                   "RECO",  true);
-              Make3x3Table_xJ_FromTH3(H.hRecoTruthPhoTagged_xJ, D.dirXJProjRecoTruthPhoTagged,     "RECO",  true);
-              Make3x3Table_xJ_FromTH3(H.hRecoTruthTagged_xJ,    D.dirXJProjRecoTruthTagged,        "RECO",  true);
+                Make3x3Table_xJ_FromTH3(H.hReco_xJ,               D.dirXJProjReco,                   "RECO",  true);
+                Make3x3Table_xJ_AuAuPPOverlay_FromTH3(H.hReco_xJ, D.dirXJProjReco,                   "RECO",  true);
+                Make3x3Table_xJ_FromTH3(H.hRecoTruthPhoTagged_xJ, D.dirXJProjRecoTruthPhoTagged,     "RECO",  true);
+                Make3x3Table_xJ_FromTH3(H.hRecoTruthTagged_xJ,    D.dirXJProjRecoTruthTagged,        "RECO",  true);
 
-              Make3x3Table_xJ_FromTH3(H.hTrut_xJ,               D.dirXJProjTruthRecoCond,           "TRUTH", true);
-              Make3x3Table_xJ_FromTH3(H.hTrutNoJM_xJ,           D.dirXJProjTruthRecoCondNoJetMatch, "TRUTH", true);
-              Make3x3Table_xJ_FromTH3(H.hTrutPure_xJ,           D.dirXJProjTruthPure,               "TRUTH", true);
+                Make3x3Table_xJ_FromTH3(H.hTrut_xJ,               D.dirXJProjTruthRecoCond,           "TRUTH", true);
+                Make3x3Table_xJ_FromTH3(H.hTrutNoJM_xJ,           D.dirXJProjTruthRecoCondNoJetMatch, "TRUTH", true);
+                Make3x3Table_xJ_FromTH3(H.hTrutPure_xJ,           D.dirXJProjTruthPure,               "TRUTH", true);
 
                 // -------------------------------------------------------------------------
                 // NEW: Overlays (shape), integrated over alpha
