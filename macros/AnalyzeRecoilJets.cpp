@@ -8997,11 +8997,334 @@ namespace ARJ
                   }
                 };
 
-              // NEW: 3x3 tables for RECO alpha cuts (linear-y only; requested)
-              auto Make3x3Table_xJ_FromTH3_AlphaCut =
-                [&](const TH3* h3, const string& outBaseDir, const string& tag, double alphaMax)
-              {
-                if (!h3) return;
+                auto Make3x3Table_xJ_WithWithoutUESub_FromTH3 =
+                  [&](const TH3* h3NoUE, const string& outBaseDir, const string& tag, bool logy)
+                {
+                  if (!h3NoUE) return;
+                  if (!(isAuAuOnly && !ds.isSim && !ds.centSuffix.empty())) return;
+                  if (tag != "RECO") return;
+
+                  // Never produce log-y overlays for this comparison
+                  if (logy) return;
+
+                  static TFile* fUE = nullptr;
+                  static TDirectory* dirUE = nullptr;
+
+                  if (!fUE)
+                  {
+                    fUE = TFile::Open(kInAuAuGoldNew.c_str(), "READ");
+                    if (fUE)
+                    {
+                      dirUE = fUE->GetDirectory(ds.trigger.c_str());
+                      if (!dirUE) dirUE = fUE;
+                    }
+                  }
+
+                  if (!fUE || !dirUE) return;
+
+                  // Fetch the SAME TH3 from the UE-subtracted file, matching centrality
+                  TH3* h3UE = nullptr;
+                  {
+                    const std::string baseName =
+                      TString::Format("h_JES3_pT_xJ_alpha_%s", rKey.c_str()).Data();
+
+                    TObject* obj = dirUE->Get((baseName + ds.centSuffix).c_str());
+                    if (!obj) obj = dirUE->Get(baseName.c_str());
+                    h3UE = dynamic_cast<TH3*>(obj);
+                  }
+                  if (!h3UE) return;
+
+                  const int nAll = h3NoUE->GetXaxis()->GetNbins();
+                  if (nAll <= 0) return;
+
+                  // 2x3 table uses the FIRST 6 pT bins
+                  const int n = std::min(6, nAll);
+                  const int perPage = 6;
+                  const int nCols = 3;
+                  const int nRows = 2;
+
+                  const int firstBin = 1;
+                  const int lastStartBin = 1;
+
+                    const string overlayDir = JoinPath(outBaseDir, "with_withoutUEsub");
+                    EnsureDir(overlayDir);
+
+                    std::string centPar = "";
+                    {
+                      int clo = -1, chi = -1;
+                      if (std::sscanf(ds.centSuffix.c_str(), "_cent_%d_%d", &clo, &chi) == 2)
+                      {
+                        centPar = TString::Format(" (%d-%d%%)", clo, chi).Data();
+                      }
+                    }
+
+                  auto NormalizeUnitArea = [&](TH1* h)->void
+                  {
+                    if (!h) return;
+                    const double integ = h->Integral(0, h->GetNbinsX() + 1);
+                    if (integ > 0.0) h->Scale(1.0 / integ);
+                  };
+
+                  auto StyleNoUEvsUE = [&](TH1* hNoUE, TH1* hUE)->void
+                  {
+                    // without UE sub (baseline file): black
+                    hNoUE->SetLineWidth(2);
+                    hNoUE->SetMarkerStyle(20);
+                    hNoUE->SetMarkerSize(1.0);
+
+                    // with UE sub (kInAuAuGoldNew): red
+                    hUE->SetLineWidth(2);
+                    hUE->SetLineColor(kRed + 1);
+                    hUE->SetMarkerColor(kRed + 1);
+                    hUE->SetMarkerStyle(24);
+                    hUE->SetMarkerSize(1.0);
+
+                    hNoUE->SetTitle("");
+                    hNoUE->GetXaxis()->SetTitle("x_{J#gamma}");
+                    hNoUE->GetXaxis()->SetRangeUser(0.0, 2.0);
+                    hNoUE->GetYaxis()->SetTitle("Normalized Counts");
+
+                    const double maxNoUE = hNoUE->GetMaximum();
+                    const double maxUE   = hUE->GetMaximum();
+                    const double maxY    = std::max(maxNoUE, maxUE);
+
+                    hNoUE->SetMinimum(0.0);
+                    hNoUE->SetMaximum((maxY > 0.0) ? (1.25 * maxY) : 1.0);
+                  };
+
+                  // -----------------------
+                  // (A) 2x3 TABLE (first 6)
+                  // -----------------------
+                  {
+                    int page = 0;
+                    for (int start = firstBin; start <= lastStartBin; start += perPage)
+                    {
+                      ++page;
+
+                      TCanvas c(
+                        TString::Format("c_tbl_xJ_withWithoutUE_%s_%s_%s_lin_p%d",
+                          ds.label.c_str(),
+                          rKey.c_str(),
+                          tag.c_str(),
+                          page).Data(),
+                        "c_tbl_xJ_withWithoutUE", 1
+                      );
+
+                      c.SetCanvasSize(2400, 1400);
+                      c.Divide(nCols, nRows, 0.002, 0.002);
+
+                      vector<TObject*> keep;
+                      int pad = 0;
+
+                      for (int k = 0; k < perPage; ++k)
+                      {
+                        const int ib = start + k;
+                        ++pad;
+                        c.cd(pad);
+
+                        gPad->SetLeftMargin(0.13);
+                        gPad->SetRightMargin(0.04);
+                        gPad->SetBottomMargin(0.14);
+                        gPad->SetTopMargin(0.10);
+                        gPad->SetLogy(false);
+
+                        if (ib > n)
+                        {
+                          TLatex t;
+                          t.SetNDC(true);
+                          t.SetTextFont(42);
+                          t.SetTextSize(0.06);
+                          t.DrawLatex(0.20, 0.55, "EMPTY");
+                          continue;
+                        }
+
+                        TH1* hxNoUE = ProjectY_AtXbin_TH3(
+                          h3NoUE, ib,
+                          TString::Format("jes3_xJ_tbl_noUE_%s_%s_lin_%d",
+                            rKey.c_str(), tag.c_str(), ib).Data()
+                        );
+
+                        TH1* hxUE = ProjectY_AtXbin_TH3(
+                          h3UE, ib,
+                          TString::Format("jes3_xJ_tbl_withUE_%s_%s_lin_%d",
+                            rKey.c_str(), tag.c_str(), ib).Data()
+                        );
+
+                        if (!hxNoUE || !hxUE)
+                        {
+                          TLatex t;
+                          t.SetNDC(true);
+                          t.SetTextFont(42);
+                          t.SetTextSize(0.06);
+                          t.DrawLatex(0.15, 0.55, "MISSING");
+                          if (hxNoUE) delete hxNoUE;
+                          if (hxUE)   delete hxUE;
+                          continue;
+                        }
+
+                        hxNoUE->SetDirectory(nullptr);
+                        hxUE->SetDirectory(nullptr);
+                        EnsureSumw2(hxNoUE);
+                        EnsureSumw2(hxUE);
+
+                        NormalizeUnitArea(hxNoUE);
+                        NormalizeUnitArea(hxUE);
+
+                        StyleNoUEvsUE(hxNoUE, hxUE);
+
+                        hxNoUE->Draw("E1");
+                        hxUE->Draw("E1 same");
+
+                        TLegend* leg = new TLegend(0.18, 0.78, 0.56, 0.90);
+                        leg->SetBorderSize(0);
+                        leg->SetFillStyle(0);
+                        leg->SetTextFont(42);
+                        leg->SetTextSize(0.038);
+                        leg->SetEntrySeparation(0.22);
+                        leg->AddEntry(hxUE,   "with UE sub",    "ep");
+                        leg->AddEntry(hxNoUE, "without UE sub", "ep");
+                        leg->Draw();
+
+                        const auto& cfgDef = DefaultSim10and20Config();
+                        const double jetPtMin_GeV = cfgDef.jetMinPt;
+
+                        const double ptMin = h3NoUE->GetXaxis()->GetBinLowEdge(ib);
+                        const double ptMax = h3NoUE->GetXaxis()->GetBinUpEdge(ib);
+
+                        {
+                          TLatex tCuts;
+                          tCuts.SetNDC(true);
+                          tCuts.SetTextFont(42);
+                          tCuts.SetTextAlign(33);
+                          tCuts.SetTextSize(0.038);
+                          tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
+                          tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
+                        }
+
+                        {
+                          TLatex t;
+                          t.SetNDC(true);
+                          t.SetTextFont(42);
+                          t.SetTextAlign(13);
+                          t.SetTextSize(0.052);
+                            t.DrawLatex(0.14, 0.98,
+                              TString::Format("RECO x_{J#gamma}, p_{T}^{#gamma} = %.0f - %.0f GeV%s, R = %.1f",
+                                ptMin, ptMax, centPar.c_str(), R).Data());
+                        }
+
+                        keep.push_back(hxNoUE);
+                        keep.push_back(hxUE);
+                        keep.push_back(leg);
+                      }
+
+                      const string outName = TString::Format("table2x3_xJ_%s_integratedAlpha.png", tag.c_str()).Data();
+                      SaveCanvas(c, JoinPath(overlayDir, outName));
+
+                      for (auto* h : keep) delete h;
+                    }
+                  }
+
+                  // ----------------------------------------
+                  // (B) INDIVIDUAL PNG for EVERY pT bin (1..nAll)
+                  // ----------------------------------------
+                  for (int ib = 1; ib <= nAll; ++ib)
+                  {
+                    TH1* hxNoUE = ProjectY_AtXbin_TH3(
+                      h3NoUE, ib,
+                      TString::Format("jes3_xJ_indiv_noUE_%s_%s_lin_%d",
+                        rKey.c_str(), tag.c_str(), ib).Data()
+                    );
+
+                    TH1* hxUE = ProjectY_AtXbin_TH3(
+                      h3UE, ib,
+                      TString::Format("jes3_xJ_indiv_withUE_%s_%s_lin_%d",
+                        rKey.c_str(), tag.c_str(), ib).Data()
+                    );
+
+                    if (!hxNoUE || !hxUE)
+                    {
+                      if (hxNoUE) delete hxNoUE;
+                      if (hxUE)   delete hxUE;
+                      continue;
+                    }
+
+                    hxNoUE->SetDirectory(nullptr);
+                    hxUE->SetDirectory(nullptr);
+                    EnsureSumw2(hxNoUE);
+                    EnsureSumw2(hxUE);
+
+                    NormalizeUnitArea(hxNoUE);
+                    NormalizeUnitArea(hxUE);
+
+                    StyleNoUEvsUE(hxNoUE, hxUE);
+
+                    const double ptMin = h3NoUE->GetXaxis()->GetBinLowEdge(ib);
+                    const double ptMax = h3NoUE->GetXaxis()->GetBinUpEdge(ib);
+
+                    TCanvas c(
+                      TString::Format("c_xJ_withWithoutUE_%s_%s_%d",
+                        ds.label.c_str(), rKey.c_str(), ib).Data(),
+                      "c_xJ_withWithoutUE", 900, 700
+                    );
+
+                    c.SetTopMargin(0.10);
+                    c.SetBottomMargin(0.14);
+                    c.SetLeftMargin(0.13);
+                    c.SetRightMargin(0.05);
+
+                    hxNoUE->Draw("E1");
+                    hxUE->Draw("E1 same");
+
+                    TLegend* leg = new TLegend(0.18, 0.78, 0.56, 0.90);
+                    leg->SetBorderSize(0);
+                    leg->SetFillStyle(0);
+                    leg->SetTextFont(42);
+                    leg->SetTextSize(0.040);
+                    leg->SetEntrySeparation(0.22);
+                    leg->AddEntry(hxUE,   "with UE sub",    "ep");
+                    leg->AddEntry(hxNoUE, "without UE sub", "ep");
+                    leg->Draw();
+
+                    const auto& cfgDef = DefaultSim10and20Config();
+                    const double jetPtMin_GeV = cfgDef.jetMinPt;
+
+                    {
+                      TLatex tCuts;
+                      tCuts.SetNDC(true);
+                      tCuts.SetTextFont(42);
+                      tCuts.SetTextAlign(33);
+                      tCuts.SetTextSize(0.038);
+                      tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
+                      tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
+                    }
+
+                    {
+                      TLatex t;
+                      t.SetNDC(true);
+                      t.SetTextFont(42);
+                      t.SetTextAlign(13);
+                      t.SetTextSize(0.052);
+                      t.DrawLatex(0.14, 0.98,
+                        TString::Format("RECO x_{J#gamma}, p_{T}^{#gamma} = %.0f - %.0f GeV, R = %.1f",
+                          ptMin, ptMax, R).Data());
+                    }
+
+                    const string outName = TString::Format("xJ_%s_integratedAlpha_with_withoutUEsub_pTgamma_%d_%d.png",
+                      tag.c_str(), (int)ptMin, (int)ptMax).Data();
+
+                    SaveCanvas(c, JoinPath(overlayDir, outName));
+
+                    delete leg;
+                    delete hxNoUE;
+                    delete hxUE;
+                  }
+                };
+
+                // NEW: 3x3 tables for RECO alpha cuts (linear-y only; requested)
+                auto Make3x3Table_xJ_FromTH3_AlphaCut =
+                  [&](const TH3* h3, const string& outBaseDir, const string& tag, double alphaMax)
+                {
+                  if (!h3) return;
 
                 const int n = h3->GetXaxis()->GetNbins();
                 const int perPage = 9;
@@ -9104,9 +9427,10 @@ namespace ARJ
               };
 
                 // integrated-alpha tables (linear + logy)
-                Make3x3Table_xJ_FromTH3(H.hReco_xJ,               D.dirXJProjReco,                   "RECO",  false);
-                Make3x3Table_xJ_AuAuPPOverlay_FromTH3(H.hReco_xJ, D.dirXJProjReco,                   "RECO",  false);
-                Make3x3Table_xJ_FromTH3(H.hRecoTruthPhoTagged_xJ, D.dirXJProjRecoTruthPhoTagged,     "RECO",  false);
+                Make3x3Table_xJ_FromTH3(H.hReco_xJ,                    D.dirXJProjReco,                   "RECO",  false);
+                Make3x3Table_xJ_AuAuPPOverlay_FromTH3(H.hReco_xJ,      D.dirXJProjReco,                   "RECO",  false);
+                Make3x3Table_xJ_WithWithoutUESub_FromTH3(H.hReco_xJ,   D.dirXJProjReco,                   "RECO",  false);
+                Make3x3Table_xJ_FromTH3(H.hRecoTruthPhoTagged_xJ,      D.dirXJProjRecoTruthPhoTagged,     "RECO",  false);
                 Make3x3Table_xJ_FromTH3(H.hRecoTruthTagged_xJ,    D.dirXJProjRecoTruthTagged,        "RECO",  false);
 
                 Make3x3Table_xJ_FromTH3(H.hTrut_xJ,               D.dirXJProjTruthRecoCond,           "TRUTH", false);
@@ -18422,58 +18746,112 @@ namespace ARJ
 
           if (rawAA)
           {
-            TH1* hAAc = CloneTH1(rawAA,
-              TString::Format("aa_counts_%s_%s%s", histBase.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data());
-            if (hAAc)
-            {
-              EnsureSumw2(hAAc);
+              // Baseline (no UE subtraction): from current aaTop
+              TH1* hNoUE = CloneTH1(rawAA,
+                TString::Format("aa_counts_noUE_%s_%s%s", histBase.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data());
 
-              TCanvas cAA(
-                TString::Format("c_aa_counts_%s_%s%s", histBase.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data(),
-                "c_aa_counts", 900, 700
-              );
-              ApplyCanvasMargins1D(cAA);
-              cAA.SetLogy(false);
+              // UE-subtracted: open kInAuAuGoldNew and fetch the same hist name
+              static TFile* fUE = nullptr;
+              static TDirectory* aaTopUE = nullptr;
 
-              hAAc->GetXaxis()->UnZoom();
-              hAAc->SetTitle("");
-              hAAc->GetXaxis()->SetTitle(xTitle.c_str());
-              hAAc->GetYaxis()->SetTitle("Counts");
-
-              StyleOverlayHist(hAAc, kRed + 1, 24);
-              hAAc->Draw("E1");
-
-              TLegend leg(0.52, 0.70, 0.90, 0.86);
-              leg.SetBorderSize(0);
-              leg.SetFillStyle(0);
-              leg.SetTextFont(42);
-              leg.SetTextSize(0.036);
-              leg.AddEntry(hAAc, "Au+Au", "ep");
-              leg.Draw();
-
-                // Single centered title only (no extra on-canvas printouts, no "(inclusive)" label).
-                std::string centPretty = centLabel;
-                if (centPretty.rfind("cent:", 0) == 0)
+              if (!fUE)
+              {
+                fUE = TFile::Open(kInAuAuGoldNew.c_str(), "READ");
+                if (fUE && aaTop)
                 {
-                  centPretty = "Cent = " + centPretty.substr(5);
-                  while (!centPretty.empty() && centPretty[0] == ' ') centPretty.erase(centPretty.begin());
+                  aaTopUE = fUE->GetDirectory(aaTop->GetName());
+                  if (!aaTopUE) aaTopUE = fUE;
                 }
+              }
 
-                TLatex t;
-                t.SetNDC(true);
-                t.SetTextFont(42);
-                t.SetTextAlign(22);
-                t.SetTextSize(0.045);
+              TH1* rawUE = nullptr;
+              if (aaTopUE)
+              {
+                const string hUEName = histBase + pb.suffix + centSuffix;
+                rawUE = GetTH1FromTopDir(aaTopUE, hUEName);
+              }
 
-                t.DrawLatex(0.50, 0.94,
-                  TString::Format("E_{T}^{Iso}, run3auau, %s, p_{T}^{#gamma} = %d-%d GeV",
-                                  centPretty.c_str(), pb.lo, pb.hi).Data());
+              TH1* hUE = nullptr;
+              if (rawUE)
+              {
+                hUE = CloneTH1(rawUE,
+                  TString::Format("aa_counts_UEsub_%s_%s%s", histBase.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data());
+              }
 
-              SaveCanvas(cAA, JoinPath(qaDirAA,
-                TString::Format("AuAu_unNormalized_%s_%s.png", histBase.c_str(), pb.folder.c_str()).Data()));
+              if (hNoUE)
+              {
+                EnsureSumw2(hNoUE);
+                if (hUE) EnsureSumw2(hUE);
 
-              delete hAAc;
-            }
+                TCanvas cAA(
+                  TString::Format("c_aa_counts_%s_%s%s", histBase.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data(),
+                  "c_aa_counts", 900, 700
+                );
+                ApplyCanvasMargins1D(cAA);
+                cAA.SetLogy(false);
+
+                hNoUE->GetXaxis()->UnZoom();
+                hNoUE->SetTitle("");
+                hNoUE->GetXaxis()->SetTitle(xTitle.c_str());
+                hNoUE->GetYaxis()->SetTitle("Counts");
+
+                // Match table styling: black = no UE subtraction, red = UE subtracted
+                StyleOverlayHist(hNoUE, kBlack, 20);
+                if (hUE) StyleOverlayHist(hUE, kRed + 1, 24);
+
+                const double ymax = std::max(hNoUE->GetMaximum(), (hUE ? hUE->GetMaximum() : 0.0));
+                hNoUE->SetMaximum(ymax * 1.35);
+                if (hUE) hUE->SetMaximum(ymax * 1.35);
+
+                hNoUE->Draw("E1");
+                if (hUE) hUE->Draw("E1 same");
+
+                TLegend leg(0.52, 0.70, 0.90, 0.86);
+                leg.SetBorderSize(0);
+                leg.SetFillStyle(0);
+                leg.SetTextFont(42);
+                leg.SetTextSize(0.036);
+
+                if (hUE)
+                {
+                  leg.AddEntry(hNoUE, "no UE subtraction", "ep");
+                  leg.AddEntry(hUE,   "UE subtracted",    "ep");
+                }
+                else
+                {
+                  leg.AddEntry(hNoUE, "Au+Au", "ep");
+                }
+                leg.Draw();
+
+                  // Single centered title only (no extra on-canvas printouts, no "(inclusive)" label).
+                  std::string centPretty = centLabel;
+                  if (centPretty.rfind("cent:", 0) == 0)
+                  {
+                    centPretty = "Cent = " + centPretty.substr(5);
+                    while (!centPretty.empty() && centPretty[0] == ' ') centPretty.erase(centPretty.begin());
+                  }
+
+                  TLatex t;
+                  t.SetNDC(true);
+                  t.SetTextFont(42);
+                  t.SetTextAlign(22);
+                  t.SetTextSize(0.045);
+
+                  t.DrawLatex(0.50, 0.94,
+                    TString::Format("E_{T}^{Iso}, run3auau, %s, p_{T}^{#gamma} = %d-%d GeV",
+                                    centPretty.c_str(), pb.lo, pb.hi).Data());
+
+                SaveCanvas(cAA, JoinPath(qaDirAA,
+                  TString::Format("AuAu_unNormalized_%s_%s.png", histBase.c_str(), pb.folder.c_str()).Data()));
+
+                delete hNoUE;
+                if (hUE) delete hUE;
+              }
+              else
+              {
+                if (hNoUE) delete hNoUE;
+                if (hUE) delete hUE;
+              }
           }
 
           if (rawPP)
@@ -22582,34 +22960,90 @@ namespace ARJ
           accByTrig[ds.trigger].push_back({{clo, chi}, nEvt});
         }
 
-        for (auto& kv : accByTrig)
-        {
-          const std::string& trig = kv.first;
-          auto& v = kv.second;
-
-          if (v.empty()) continue;
-
-          std::sort(v.begin(), v.end(),
-                    [](const auto& a, const auto& b){ return a.first.first < b.first.first; });
-
-          cout << ANSI_BOLD_YEL << "\n  Trigger: " << trig << ANSI_RESET << "\n";
-
-          double total = 0.0;
-          for (const auto& it : v)
+          for (auto& kv : accByTrig)
           {
-            const int clo = it.first.first;
-            const int chi = it.first.second;
-            const double nEvt = it.second;
+            const std::string& trig = kv.first;
+            auto& v = kv.second;
 
-            total += nEvt;
+            if (v.empty()) continue;
 
-            cout << "    [DATA_AUAU_" << clo << "_" << chi << "] accepted events = "
-                 << std::fixed << std::setprecision(0) << nEvt << "\n";
+            std::sort(v.begin(), v.end(),
+                      [](const auto& a, const auto& b){ return a.first.first < b.first.first; });
+
+            cout << ANSI_BOLD_YEL << "\n  Trigger: " << trig << ANSI_RESET << "\n";
+
+            double total = 0.0;
+            for (const auto& it : v)
+            {
+              const int clo = it.first.first;
+              const int chi = it.first.second;
+              const double nEvt = it.second;
+
+              total += nEvt;
+
+              cout << "    [DATA_AUAU_" << clo << "_" << chi << "] accepted events = "
+                   << std::fixed << std::setprecision(0) << nEvt << "\n";
+            }
+
+            cout << "    [TOTAL] accepted events (sum over centrality) = "
+                 << std::fixed << std::setprecision(0) << total << "\n";
+
+            // ---------------------------------------------------------------------
+            // Also save the centrality distribution histogram to the SAME trigger dir
+            //   <kOutAuAuBase>/<trigger>/centrality_distribution.png
+            // ---------------------------------------------------------------------
+            Dataset* dsRef = nullptr;
+            for (auto& ds : datasets)
+            {
+              if (ds.isSim) continue;
+              if (ds.trigger != trig) continue;
+              dsRef = &ds;
+              break;
+            }
+
+            if (dsRef && dsRef->topDir)
+            {
+              TH1* hCent = dynamic_cast<TH1*>(dsRef->topDir->Get("h_centrality"));
+
+              if (hCent)
+              {
+                const std::string outDir  = JoinPath(kOutAuAuBase, trig);
+                const std::string outPath = JoinPath(outDir, "centrality_distribution.png");
+                EnsureDir(outDir);
+
+                TCanvas c("cCentralityDist", "", 900, 700);
+                c.SetTopMargin(0.12);
+                c.SetBottomMargin(0.14);
+                c.SetLeftMargin(0.13);
+                c.SetRightMargin(0.05);
+
+                hCent->SetTitle("");
+                hCent->SetStats(0);
+                hCent->GetXaxis()->SetTitle("Centrality [%]");
+                hCent->GetYaxis()->SetTitle("Counts");
+                hCent->GetYaxis()->SetTitleOffset(1.20);
+
+                hCent->Draw("hist");
+
+                TLatex t;
+                t.SetNDC(true);
+                t.SetTextFont(42);
+                t.SetTextAlign(23); // center, top
+                t.SetTextSize(0.045);
+                t.DrawLatex(0.50, 0.98, "Run25auau Centrality Distribution, MBD NS #geq 2 vtx < 150 cm");
+
+                c.SaveAs(outPath.c_str());
+              }
+              else
+              {
+                cout << "    [WARN] h_centrality not found for trigger '" << trig << "'\n";
+              }
+            }
+            else
+            {
+              cout << "    [WARN] Cannot save centrality plot (dataset not found/opened for trigger '" << trig << "')\n";
+            }
           }
-
-          cout << "    [TOTAL] accepted events (sum over centrality) = "
-               << std::fixed << std::setprecision(0) << total << "\n";
-        }
       }
 
       // ---------------------------------------------------------------------------
