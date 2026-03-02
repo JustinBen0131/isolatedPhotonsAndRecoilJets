@@ -186,7 +186,7 @@ namespace ARJ
 
   // If false, STEP 1 will NOT rebuild the photonJet10+20 merged ROOT file(s).
   // Downstream code will simply open the already-merged output at the configured path(s).
-  inline bool doRemergePhoton10and20sim  = false;
+  inline bool doRemergePhoton10and20sim  = true;
 
   inline bool allPhoton5and10and20sim    = false;
 
@@ -2454,17 +2454,35 @@ namespace ARJ
           return false;
         }
 
-        w[i] = sigmas_pb[i] / N[i];
-      }
+          w[i] = sigmas_pb[i] / N[i];
+        }
 
-      cout << ANSI_BOLD_YEL << "[MERGE SIM] Slice weights (w = sigma/N) [pb/event]:\n" << ANSI_RESET;
-      for (size_t i = 0; i < n; ++i)
-      {
-        const string lab = (!sliceLabels.empty() && sliceLabels.size() == n) ? sliceLabels[i] : std::to_string(i);
-        cout << "  [" << lab << "]  N=" << std::fixed << std::setprecision(0) << N[i]
-             << "   sigma_pb=" << std::setprecision(12) << sigmas_pb[i]
-             << "   w=" << std::setprecision(12) << w[i] << "\n";
-      }
+        // Normalize by a common factor so merged histograms remain "count-like",
+        // while preserving correct relative (sigma/N) weighting across slices.
+        double wRef = 0.0;
+        for (size_t i = 0; i < n; ++i)
+        {
+          if (w[i] > 0.0) { wRef = w[i]; break; }
+        }
+        if (wRef <= 0.0)
+        {
+          cout << ANSI_BOLD_RED << "[MERGE SIM][FATAL] wRef <= 0 (cannot normalize slice weights)." << ANSI_RESET << "\n";
+          CloseAll();
+          return false;
+        }
+        for (size_t i = 0; i < n; ++i)
+        {
+          w[i] /= wRef;
+        }
+
+        cout << ANSI_BOLD_YEL << "[MERGE SIM] Slice weights (relative): w = (sigma/N)/(sigma0/N0)\n" << ANSI_RESET;
+        for (size_t i = 0; i < n; ++i)
+        {
+          const string lab = (!sliceLabels.empty() && sliceLabels.size() == n) ? sliceLabels[i] : std::to_string(i);
+          cout << "  [" << lab << "]  N=" << std::fixed << std::setprecision(0) << N[i]
+               << "   sigma_pb=" << std::setprecision(12) << sigmas_pb[i]
+               << "   w=" << std::setprecision(12) << w[i] << "\n";
+        }
 
       EnsureParentDirForFile(outMerged);
       TFile* fout = TFile::Open(outMerged.c_str(), "RECREATE");
@@ -2548,7 +2566,7 @@ namespace ARJ
 
       cout << ANSI_BOLD_CYN
            << "[MERGE SIM] Done. Merged file written: " << outMerged << "\n"
-           << "[MERGE SIM] NOTE: histograms are weighted (units ~ pb per bin). Entries are no longer raw event counts.\n"
+           << "[MERGE SIM] NOTE: histograms are weighted by relative (sigma/N) slice weights (overall normalization arbitrary).\n"
            << ANSI_RESET;
 
       return true;

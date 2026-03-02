@@ -15850,13 +15850,53 @@ namespace ARJ
                 SaveCanvas(c, JoinPath(phoDir, "pho_unfolded_truth_pTgamma_overlay.png"));
 
                 // Also save a log-y version (keep the linear-y output above as-is)
-                c.SetLogy(1);
-                hRecoShape->SetMinimum(1e-3);
-                hRecoShape->SetMaximum(maxv * 50.0);
-                c.Modified();
-                c.Update();
-                SaveCanvas(c, JoinPath(phoDir, "pho_unfolded_truth_pTgamma_overlay_logy.png"));
-                c.SetLogy(0);
+                {
+                    // Compute a tighter log-y range from the actually drawn points
+                    double minPos = 1e99;
+                    auto scanMinPos = [&](TH1* h)
+                    {
+                      if (!h) return;
+                      const int nb = h->GetNbinsX();
+                      for (int ib = 1; ib <= nb; ++ib)
+                      {
+                        const double y = h->GetBinContent(ib);
+                        if (y > 0.0 && y < minPos) minPos = y;
+                      }
+                    };
+                    scanMinPos(hRecoShape);
+                    scanMinPos(hUnfShape);
+                    if (!(minPos < 1e98)) minPos = 1e-3;
+
+                    c.Clear();
+                    ApplyCanvasMargins1D(c);
+                    c.SetLogy(1);
+
+                    hRecoShape->SetTitle("");
+                    hRecoShape->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                    hRecoShape->GetYaxis()->SetTitle("Counts");
+
+                    hRecoShape->SetMinimum(minPos * 0.5);
+                    hRecoShape->SetMaximum(maxv * 3.0);
+
+                    hRecoShape->Draw("E1");
+                    hUnfShape->Draw("E1 same");
+
+                    TLegend leg(0.55,0.76,0.92,0.90);
+                    leg.SetTextFont(42);
+                    leg.SetTextSize(0.032);
+                    leg.AddEntry(hRecoShape, "PP DATA (reco)", "lep");
+                    leg.AddEntry(hUnfShape,  TString::Format("Unfolded (truth), Bayes it=%d", kBayesIterPho).Data(), "lep");
+                    leg.Draw();
+
+                    DrawLatexLines(0.14,0.92,
+                                   { "Photon 1D Unfolding, N_{#gamma}(p_{T}^{#gamma}), Photon 4 GeV + MBD NS #geq 1" },
+                                   0.034, 0.045);
+
+                    c.Modified();
+                    c.Update();
+                    SaveCanvas(c, JoinPath(phoDir, "pho_unfolded_truth_pTgamma_overlay_logy.png"));
+                    c.SetLogy(0);
+                }
 
                 delete hRecoShape;
                 delete hUnfShape;
@@ -16345,7 +16385,7 @@ namespace ARJ
                       tx.SetTextAlign(22);
                       tx.SetTextSize(0.042);
 
-                      tx.DrawLatex(0.52, 0.94,
+                      tx.DrawLatex(0.52, 0.955,
                                    TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV, R = %.1f",
                                                    b.lo, b.hi, R).Data());
                     }
@@ -16356,12 +16396,12 @@ namespace ARJ
                       tx.SetNDC();
                       tx.SetTextFont(42);
                       tx.SetTextAlign(31);
-                      tx.SetTextSize(0.034);
+                      tx.SetTextSize(0.04);
 
-                      const double xR = 0.96;
-                      tx.DrawLatex(xR, 0.88, "#Delta #phi > 7#pi/8");
-                      tx.DrawLatex(xR, 0.83, "p_{T}^{min, jet} > 5");
-                      tx.DrawLatex(xR, 0.78, "Trigger = Photon 4 + MBD NS #geq 1");
+                      const double xR = 0.93;
+                      tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
+                      tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
+                      tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
                     }
                 }
 
@@ -16467,91 +16507,109 @@ namespace ARJ
                   TH1* h04 = (have04 && (int)it04->second.size() > i) ? it04->second[i] : nullptr;
                   TH1* h06 = (have06 && (int)it06->second.size() > i) ? it06->second[i] : nullptr;
 
-                  double maxY = 0.0;
-                  auto scanMax = [&](TH1* h)
-                  {
-                    if (!h) return;
-                    const int nxb = h->GetNbinsX();
-                    for (int ib = 1; ib <= nxb; ++ib)
+                    double maxY = 0.0;
+                    auto scanMax = [&](TH1* h)
                     {
-                      const double y  = h->GetBinContent(ib);
-                      const double ey = h->GetBinError(ib);
-                      const double v  = y + ey;
-                      if (v > maxY) maxY = v;
+                      if (!h) return;
+                      const int nxb = h->GetNbinsX();
+                      for (int ib = 1; ib <= nxb; ++ib)
+                      {
+                        const double y  = h->GetBinContent(ib);
+                        const double ey = h->GetBinError(ib);
+
+                        // Avoid huge "empty-bin" errorbars blowing up the y-range
+                        if (y <= 0.0 && ey <= 0.0) continue;
+
+                        const double v = y + ey;
+                        if (v > maxY) maxY = v;
+                      }
+                    };
+                    scanMax(h02);
+                    scanMax(h04);
+                    scanMax(h06);
+
+                    // Use one of the actual hists to set axes/range (keeps ROOT styling consistent)
+                    TH1* hBase = (h04 ? h04 : (h02 ? h02 : h06));
+                    if (hBase)
+                    {
+                      hBase->SetTitle("");
+                      hBase->GetXaxis()->SetTitle("x_{J}");
+                      hBase->GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                      hBase->SetMinimum(0.0);
+                      hBase->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
+                      hBase->Draw("axis");
                     }
-                  };
-                  scanMax(h02);
-                  scanMax(h04);
-                  scanMax(h06);
+                    else
+                    {
+                      TH1F frame("frame","", 1, 0.0, 2.0);
+                      frame.SetMinimum(0.0);
+                      frame.SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
+                      frame.SetTitle("");
+                      frame.GetXaxis()->SetTitle("x_{J}");
+                      frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                      frame.Draw("axis");
+                    }
 
-                  TH1F frame("frame","", 1, 0.0, 2.0);
-                  frame.SetMinimum(0.0);
-                  frame.SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
-                  frame.SetTitle("");
-                  frame.GetXaxis()->SetTitle("x_{J}");
-                  frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
-                  frame.Draw("axis");
+                    if (h02)
+                    {
+                      h02->SetLineColor(kRed);
+                      h02->SetMarkerColor(kRed);
+                      h02->Draw("E1 same");
+                    }
+                    if (h04)
+                    {
+                      h04->SetLineColor(kBlue);
+                      h04->SetMarkerColor(kBlue);
+                      h04->Draw("E1 same");
+                    }
+                    if (h06)
+                    {
+                      h06->SetLineColor(kGreen + 2);
+                      h06->SetMarkerColor(kGreen + 2);
+                      h06->Draw("E1 same");
+                    }
 
-                  if (h02)
-                  {
-                    h02->SetLineColor(kRed);
-                    h02->SetMarkerColor(kRed);
-                    h02->Draw("E1 same");
-                  }
-                  if (h04)
-                  {
-                    h04->SetLineColor(kBlue);
-                    h04->SetMarkerColor(kBlue);
-                    h04->Draw("E1 same");
-                  }
-                  if (h06)
-                  {
-                    h06->SetLineColor(kGreen + 2);
-                    h06->SetMarkerColor(kGreen + 2);
-                    h06->Draw("E1 same");
-                  }
+                    // Centered per-pad title
+                    {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(22);
+                      tx.SetTextSize(0.042);
 
-                  // Centered per-pad title
-                  {
-                    TLatex tx;
-                    tx.SetNDC();
-                    tx.SetTextFont(42);
-                    tx.SetTextAlign(22);
-                    tx.SetTextSize(0.042);
+                      tx.DrawLatex(0.52, 0.94,
+                                   TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV",
+                                                   b.lo, b.hi).Data());
+                    }
 
-                    tx.DrawLatex(0.52, 0.94,
-                                 TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV",
-                                                 b.lo, b.hi).Data());
-                  }
+                    // Per-pad cut/trigger label (top-right, 3 lines)
+                    {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(31);
+                      tx.SetTextSize(0.034);
 
-                  // Per-pad cut/trigger label (top-right, 3 lines)
-                  {
-                    TLatex tx;
-                    tx.SetNDC();
-                    tx.SetTextFont(42);
-                    tx.SetTextAlign(31);
-                    tx.SetTextSize(0.034);
+                      const double xR = 0.96;
+                      tx.DrawLatex(xR, 0.88, "#Delta #phi > 7#pi/8");
+                      tx.DrawLatex(xR, 0.83, "p_{T}^{min, jet} > 5");
+                      tx.DrawLatex(xR, 0.78, "Trigger = Photon 4 + MBD NS #geq 1");
+                    }
 
-                    const double xR = 0.96;
-                    tx.DrawLatex(xR, 0.88, "#Delta #phi > 7#pi/8");
-                    tx.DrawLatex(xR, 0.83, "p_{T}^{min, jet} > 5");
-                    tx.DrawLatex(xR, 0.78, "Trigger = Photon 4 + MBD NS #geq 1");
-                  }
+                    // Legend under the TLatex block (top-right)  (heap-allocated so it persists into SaveCanvas)
+                    {
+                      auto* leg = new TLegend(0.62, 0.62, 0.95, 0.76);
+                      leg->SetBorderSize(0);
+                      leg->SetFillStyle(0);
+                      leg->SetTextFont(42);
+                      leg->SetTextSize(0.034);
 
-                  // Legend under the TLatex block (top-right)
-                  {
-                    TLegend leg(0.62, 0.62, 0.95, 0.76);
-                    leg.SetBorderSize(0);
-                    leg.SetFillStyle(0);
-                    leg.SetTextFont(42);
-                    leg.SetTextSize(0.034);
+                      if (h02) leg->AddEntry(h02, "R = 0.2", "lep");
+                      if (h04) leg->AddEntry(h04, "R = 0.4", "lep");
+                      if (h06) leg->AddEntry(h06, "R = 0.6", "lep");
 
-                    if (h02) leg.AddEntry(h02, "R = 0.2", "lep");
-                    if (h04) leg.AddEntry(h04, "R = 0.4", "lep");
-                    if (h06) leg.AddEntry(h06, "R = 0.6", "lep");
-
-                    leg.Draw();
-                  }
+                      leg->Draw();
+                    }
                 }
 
                 SaveCanvas(c, JoinPath(outBase, "table2x3_unfolded_perPhoton_dNdXJ_overlay_radii.png"));
