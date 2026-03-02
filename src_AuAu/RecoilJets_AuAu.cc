@@ -1019,14 +1019,29 @@ void RecoilJets::createHistos_Data()
 
       HistMap& H = qaHistogramsByTrigger[trig];
 
-      // 1) per-trigger event counter
-      const std::string hcnt = "cnt_" + trig;
-      if (H.find(hcnt) == H.end())
-      {
-        auto* h = new TH1I(hcnt.c_str(), (hcnt + ";count;entries").c_str(), 1, 0.5, 1.5);
-        h->GetXaxis()->SetBinLabel(1, "count");
-        H[hcnt] = h;
-      }
+        // 1) per-trigger event counter (TOTAL)
+        const std::string hcnt = "cnt_" + trig;
+        if (H.find(hcnt) == H.end())
+        {
+          auto* h = new TH1I(hcnt.c_str(), (hcnt + ";count;entries").c_str(), 1, 0.5, 1.5);
+          h->GetXaxis()->SetBinLabel(1, "count");
+          H[hcnt] = h;
+        }
+
+        // 1b) per-trigger event counter (PER CENTRALITY)  -> cnt_<trig>_cent_lo_hi
+        if (m_centEdges.size() >= 2)
+        {
+          for (std::size_t ic = 0; ic + 1 < m_centEdges.size(); ++ic)
+          {
+            const std::string hcntCent = hcnt + suffixForBins(-1, static_cast<int>(ic));
+            if (H.find(hcntCent) == H.end())
+            {
+              auto* h = new TH1I(hcntCent.c_str(), (hcntCent + ";count;entries").c_str(), 1, 0.5, 1.5);
+              h->GetXaxis()->SetBinLabel(1, "count");
+              H[hcntCent] = h;
+            }
+          }
+        }
 
       // 2) vertex-z QA
       if (H.find("h_vertexZ") == H.end())
@@ -1539,21 +1554,35 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
       LOG(5, CLR_GREEN, "    centrality bin = " << m_centBin << '%');
     }
 
-    // Fill centrality histogram if booked under each active trigger
-      if (centile >= 0.f && centile <= 100.f)
-      {
-        for (const auto& t : activeTrig)
+      // Fill centrality histogram AND per-centrality accepted-event counter (if booked)
+        if (centile >= 0.f && centile <= 100.f)
         {
-          auto itTrig = qaHistogramsByTrigger.find(t);
-          if (itTrig == qaHistogramsByTrigger.end()) continue;
+          const int centIdx = findCentBin(m_centBin);
 
-          auto& H = itTrig->second;
-          if (auto hc = H.find("h_centrality"); hc != H.end())
+          for (const auto& t : activeTrig)
           {
-            static_cast<TH1F*>(hc->second)->Fill(centile);
-            bumpHistFill(t, "h_centrality");
+            auto itTrig = qaHistogramsByTrigger.find(t);
+            if (itTrig == qaHistogramsByTrigger.end()) continue;
+
+            auto& H = itTrig->second;
+
+            if (auto hc = H.find("h_centrality"); hc != H.end())
+            {
+              static_cast<TH1F*>(hc->second)->Fill(centile);
+              bumpHistFill(t, "h_centrality");
+            }
+
+            // Per-centrality accepted-event counter: cnt_<trigger>_cent_lo_hi
+            if (centIdx >= 0)
+            {
+              const std::string hcntCent = std::string("cnt_") + t + suffixForBins(-1, centIdx);
+              if (auto hcc = H.find(hcntCent); hcc != H.end())
+              {
+                static_cast<TH1I*>(hcc->second)->Fill(1);
+                bumpHistFill(t, hcntCent);
+              }
+            }
           }
-        }
       }
   }
   else
