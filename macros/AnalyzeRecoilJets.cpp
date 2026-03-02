@@ -16161,8 +16161,11 @@ namespace ARJ
             lines.push_back(TString::Format("xJ unfolding (global-bin): Bayes it=%d (kCovariance)", kBayesIterXJ).Data());
             lines.push_back("");
 
-            const int nPtCanon = std::min(6, (int)PtBins().size());
-            vector<TH1*> perPhoHists(nPtCanon, nullptr);
+              const int nPtAll = (int)PtBins().size();
+              const int nPtTable = std::min(6, nPtAll);
+              const int tableLastStart = (nPtAll > 6) ? std::max(0, nPtAll - 6) : 0;
+
+              vector<TH1*> perPhoHists(nPtAll, nullptr);
 
               // ----------------------------------------------------------------------
               // Closure test (SIM): truth -> smear(reco) -> unfold -> compare back to truth
@@ -16322,7 +16325,7 @@ namespace ARJ
                 if (hMeasSimGlob_closure) delete hMeasSimGlob_closure;
             }
 
-            for (int i = 0; i < nPtCanon; ++i)
+            for (int i = 0; i < nPtAll; ++i)
             {
               const PtBin& b = PtBins()[i];
               const double cen = 0.5 * (b.lo + b.hi);
@@ -16524,93 +16527,123 @@ namespace ARJ
               bool any = false;
               for (auto* h : perPhoHists) if (h) { any = true; break; }
 
-              if (any)
-              {
-                TCanvas c(
-                  TString::Format("c_tbl_unf_perPho_%s", rKey.c_str()).Data(),
-                  "c_tbl_unf_perPho", 1800, 1100
-                );
-                c.Divide(3, 2, 0.001, 0.001);
-
-                for (int i = 0; i < nPtCanon; ++i)
+                if (any)
                 {
-                  c.cd(i + 1);
-                  gPad->SetLeftMargin(0.12);
-                  gPad->SetRightMargin(0.04);
-                  gPad->SetBottomMargin(0.12);
-                  gPad->SetTopMargin(0.06);
+                  auto drawTable6 = [&](const int startIdx, const std::string& outName)
+                  {
+                    TCanvas c(
+                      TString::Format("c_tbl_unf_perPho_%s_%d", rKey.c_str(), startIdx).Data(),
+                      "c_tbl_unf_perPho", 1800, 1100
+                    );
+                    c.Divide(3, 2, 0.001, 0.001);
 
-                  const PtBin& b = PtBins()[i];
-                  const string labCanon = TString::Format("%d-%d GeV", b.lo, b.hi).Data();
-
-                    if (perPhoHists[i])
+                    for (int ipad = 0; ipad < nPtTable; ++ipad)
                     {
-                      TH1* h = perPhoHists[i];
-                      h->GetXaxis()->SetRangeUser(0.0, 2.0);
+                      const int i = startIdx + ipad;
 
-                      // Recompute a tight Y-range from actual bin content+error (ignore any previously-set maximum)
-                      double maxY = 0.0;
-                      const int nxb = h->GetNbinsX();
-                      for (int ib = 1; ib <= nxb; ++ib)
+                      c.cd(ipad + 1);
+                      gPad->SetLeftMargin(0.12);
+                      gPad->SetRightMargin(0.04);
+                      gPad->SetBottomMargin(0.12);
+                      gPad->SetTopMargin(0.06);
+
+                      if (i < 0 || i >= nPtAll)
                       {
-                        const double y  = h->GetBinContent(ib);
-                        const double ey = h->GetBinError(ib);
-                        const double v  = y + ey;
-                        if (v > maxY) maxY = v;
+                        TH1F frame("frame","", 1, 0.0, 2.0);
+                        frame.SetMinimum(0.0);
+                        frame.SetMaximum(1.0);
+                        frame.SetTitle("");
+                        frame.GetXaxis()->SetTitle("x_{J}");
+                        frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                        frame.Draw("axis");
+
+                        TLatex tx;
+                        tx.SetNDC();
+                        tx.SetTextFont(42);
+                        tx.SetTextSize(0.050);
+                        tx.DrawLatex(0.16, 0.50, "MISSING");
+                        continue;
                       }
 
-                      h->SetMinimum(0.0);
-                      h->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
-                      h->Draw("E1");
+                      const PtBin& b = PtBins()[i];
+
+                      if (perPhoHists[i])
+                      {
+                        TH1* h = perPhoHists[i];
+                        h->GetXaxis()->SetRangeUser(0.0, 2.0);
+
+                        // Recompute a tight Y-range from actual bin content+error (ignore any previously-set maximum)
+                        double maxY = 0.0;
+                        const int nxb = h->GetNbinsX();
+                        for (int ib = 1; ib <= nxb; ++ib)
+                        {
+                          const double y  = h->GetBinContent(ib);
+                          const double ey = h->GetBinError(ib);
+                          const double v  = y + ey;
+                          if (v > maxY) maxY = v;
+                        }
+
+                        h->SetMinimum(0.0);
+                        h->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
+                        h->Draw("E1");
+                      }
+                      else
+                      {
+                        TH1F frame("frame","", 1, 0.0, 2.0);
+                        frame.SetMinimum(0.0);
+                        frame.SetMaximum(1.0);
+                        frame.SetTitle("");
+                        frame.GetXaxis()->SetTitle("x_{J}");
+                        frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                        frame.Draw("axis");
+
+                        TLatex tx;
+                        tx.SetNDC();
+                        tx.SetTextFont(42);
+                        tx.SetTextSize(0.050);
+                        tx.DrawLatex(0.16, 0.50, "MISSING");
+                      }
+
+                      // Centered per-pad title
+                      {
+                        TLatex tx;
+                        tx.SetNDC();
+                        tx.SetTextFont(42);
+                        tx.SetTextAlign(22);
+                        tx.SetTextSize(0.042);
+
+                        tx.DrawLatex(0.52, 0.955,
+                                     TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV, R = %.1f",
+                                                     b.lo, b.hi, R).Data());
+                      }
+
+                      // Per-pad cut/trigger label (top-right, 3 lines)
+                      {
+                        TLatex tx;
+                        tx.SetNDC();
+                        tx.SetTextFont(42);
+                        tx.SetTextAlign(31);
+                        tx.SetTextSize(0.04);
+
+                        const double xR = 0.93;
+                        tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
+                        tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
+                        tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
+                      }
                     }
-                    else
-                    {
-                      TH1F frame("frame","", 1, 0.0, 2.0);
-                      frame.SetMinimum(0.0);
-                      frame.SetMaximum(1.0);
-                      frame.SetTitle("");
-                      frame.GetXaxis()->SetTitle("x_{J}");
-                      frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
-                      frame.Draw("axis");
 
-                      TLatex tx;
-                      tx.SetNDC();
-                      tx.SetTextFont(42);
-                      tx.SetTextSize(0.050);
-                      tx.DrawLatex(0.16, 0.50, "MISSING");
-                    }
+                    SaveCanvas(c, JoinPath(rOut, outName));
+                  };
 
-                    // Centered per-pad title (remove rKey printout in the corner)
-                    {
-                      TLatex tx;
-                      tx.SetNDC();
-                      tx.SetTextFont(42);
-                      tx.SetTextAlign(22);
-                      tx.SetTextSize(0.042);
+                  // First 6
+                  drawTable6(0, "table2x3_unfolded_perPhoton_dNdXJ.png");
 
-                      tx.DrawLatex(0.52, 0.955,
-                                   TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV, R = %.1f",
-                                                   b.lo, b.hi, R).Data());
-                    }
-
-                    // Per-pad cut/trigger label (top-right, 3 lines)
-                    {
-                      TLatex tx;
-                      tx.SetNDC();
-                      tx.SetTextFont(42);
-                      tx.SetTextAlign(31);
-                      tx.SetTextSize(0.04);
-
-                      const double xR = 0.93;
-                      tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
-                      tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
-                      tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
-                    }
+                  // Last 6 (only if you actually have >6 pT bins)
+                  if (nPtAll > 6)
+                  {
+                    drawTable6(tableLastStart, "table2x3_unfolded_perPhoton_dNdXJ_last6.png");
+                  }
                 }
-
-                  SaveCanvas(c, JoinPath(rOut, "table2x3_unfolded_perPhoton_dNdXJ.png"));
-                }
-              }
 
               // ----------------------------------------------------------------------
               // Iteration stability / regularization diagnostic (DATA):
@@ -16801,10 +16834,10 @@ namespace ARJ
                 if (hUnfoldTruthGlob)     hUnfoldTruthGlob->Write("h_truthUnfold_global");
                 if (h2UnfoldTruth)        h2UnfoldTruth->Write("h2_truthUnfold_pTgamma_xJ");
 
-                for (int i = 0; i < nPtCanon; ++i)
-                {
-                  if (perPhoHists[i]) perPhoHists[i]->Write(TString::Format("h_xJ_unf_perPho_pTbin%d", i + 1).Data());
-                }
+                  for (int i = 0; i < nPtAll; ++i)
+                  {
+                    if (perPhoHists[i]) perPhoHists[i]->Write(TString::Format("h_xJ_unf_perPho_pTbin%d", i + 1).Data());
+                  }
 
                 f.Close();
               }
@@ -16813,9 +16846,9 @@ namespace ARJ
             // Keep clones for an all-radii overlay table produced after the per-radius loop
             {
                 auto& vv = perPhoHistsByRKey[rKey];
-                vv.assign(nPtCanon, nullptr);
+                vv.assign(nPtAll, nullptr);
 
-                for (int i = 0; i < nPtCanon; ++i)
+                for (int i = 0; i < nPtAll; ++i)
                 {
                   if (!perPhoHists[i]) { vv[i] = nullptr; continue; }
 
