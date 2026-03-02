@@ -15919,6 +15919,8 @@ namespace ARJ
           // ----------------------------------------------------------------------
           const int kBayesIterXJ = 4;
 
+          std::map<std::string, std::vector<TH1*>> perPhoHistsByRKey;
+
           for (const auto& rKey : kRKeys)
           {
             const double R = RFromKey(rKey);
@@ -16392,6 +16394,26 @@ namespace ARJ
               }
             }
 
+            // Keep clones for an all-radii overlay table produced after the per-radius loop
+            {
+                auto& vv = perPhoHistsByRKey[rKey];
+                vv.assign(nPtCanon, nullptr);
+
+                for (int i = 0; i < nPtCanon; ++i)
+                {
+                  if (!perPhoHists[i]) { vv[i] = nullptr; continue; }
+
+                  vv[i] = (TH1*)perPhoHists[i]->Clone(
+                    TString::Format("%s_clone_radiiOverlay_pTbin%d", perPhoHists[i]->GetName(), i + 1).Data()
+                  );
+                  if (vv[i])
+                  {
+                    vv[i]->SetDirectory(nullptr);
+                    EnsureSumw2(vv[i]);
+                  }
+                }
+              }
+
             for (auto* h : perPhoHists) if (h) delete h;
 
             delete hMeasSimGlob;
@@ -16406,14 +16428,150 @@ namespace ARJ
             delete h2RspSim;
           }
 
-          delete hPhoRecoData;
-          delete hPhoRecoSim;
-          delete hPhoTruthSim;
-          delete hPhoRespSim;
-          delete hPhoResp_measXtruth;
-          if (hPhoUnfoldTruth) delete hPhoUnfoldTruth;
+            // ----------------------------------------------------------------------
+            // (B.2) NEW: all-radii overlay table (r02, r04, r06) saved to <outBase>/
+            //   <triggerName>/unfolding/radii/table2x3_unfolded_perPhoton_dNdXJ_overlay_radii.png
+            // ----------------------------------------------------------------------
+            {
+              auto it02 = perPhoHistsByRKey.find("r02");
+              auto it04 = perPhoHistsByRKey.find("r04");
+              auto it06 = perPhoHistsByRKey.find("r06");
 
-          if (gAtlasPP) delete gAtlasPP;
+              const bool have02 = (it02 != perPhoHistsByRKey.end());
+              const bool have04 = (it04 != perPhoHistsByRKey.end());
+              const bool have06 = (it06 != perPhoHistsByRKey.end());
+
+              bool any = false;
+              if (have02) for (auto* h : it02->second) if (h) { any = true; break; }
+              if (!any && have04) for (auto* h : it04->second) if (h) { any = true; break; }
+              if (!any && have06) for (auto* h : it06->second) if (h) { any = true; break; }
+
+              if (any)
+              {
+                TCanvas c("c_tbl_unf_perPho_overlay_radii", "c_tbl_unf_perPho_overlay_radii", 1800, 1100);
+                c.Divide(3, 2, 0.001, 0.001);
+
+                const int nPtCanon = std::min(6, (int)PtBins().size());
+
+                for (int i = 0; i < nPtCanon; ++i)
+                {
+                  c.cd(i + 1);
+                  gPad->SetLeftMargin(0.12);
+                  gPad->SetRightMargin(0.04);
+                  gPad->SetBottomMargin(0.12);
+                  gPad->SetTopMargin(0.06);
+
+                  const PtBin& b = PtBins()[i];
+
+                  TH1* h02 = (have02 && (int)it02->second.size() > i) ? it02->second[i] : nullptr;
+                  TH1* h04 = (have04 && (int)it04->second.size() > i) ? it04->second[i] : nullptr;
+                  TH1* h06 = (have06 && (int)it06->second.size() > i) ? it06->second[i] : nullptr;
+
+                  double maxY = 0.0;
+                  auto scanMax = [&](TH1* h)
+                  {
+                    if (!h) return;
+                    const int nxb = h->GetNbinsX();
+                    for (int ib = 1; ib <= nxb; ++ib)
+                    {
+                      const double y  = h->GetBinContent(ib);
+                      const double ey = h->GetBinError(ib);
+                      const double v  = y + ey;
+                      if (v > maxY) maxY = v;
+                    }
+                  };
+                  scanMax(h02);
+                  scanMax(h04);
+                  scanMax(h06);
+
+                  TH1F frame("frame","", 1, 0.0, 2.0);
+                  frame.SetMinimum(0.0);
+                  frame.SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
+                  frame.SetTitle("");
+                  frame.GetXaxis()->SetTitle("x_{J}");
+                  frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                  frame.Draw("axis");
+
+                  if (h02)
+                  {
+                    h02->SetLineColor(kRed);
+                    h02->SetMarkerColor(kRed);
+                    h02->Draw("E1 same");
+                  }
+                  if (h04)
+                  {
+                    h04->SetLineColor(kBlue);
+                    h04->SetMarkerColor(kBlue);
+                    h04->Draw("E1 same");
+                  }
+                  if (h06)
+                  {
+                    h06->SetLineColor(kGreen + 2);
+                    h06->SetMarkerColor(kGreen + 2);
+                    h06->Draw("E1 same");
+                  }
+
+                  // Centered per-pad title
+                  {
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextAlign(22);
+                    tx.SetTextSize(0.042);
+
+                    tx.DrawLatex(0.52, 0.94,
+                                 TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV",
+                                                 b.lo, b.hi).Data());
+                  }
+
+                  // Per-pad cut/trigger label (top-right, 3 lines)
+                  {
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextAlign(31);
+                    tx.SetTextSize(0.034);
+
+                    const double xR = 0.96;
+                    tx.DrawLatex(xR, 0.88, "#Delta #phi > 7#pi/8");
+                    tx.DrawLatex(xR, 0.83, "p_{T}^{min, jet} > 5");
+                    tx.DrawLatex(xR, 0.78, "Trigger = Photon 4 + MBD NS #geq 1");
+                  }
+
+                  // Legend under the TLatex block (top-right)
+                  {
+                    TLegend leg(0.62, 0.62, 0.95, 0.76);
+                    leg.SetBorderSize(0);
+                    leg.SetFillStyle(0);
+                    leg.SetTextFont(42);
+                    leg.SetTextSize(0.034);
+
+                    if (h02) leg.AddEntry(h02, "R = 0.2", "lep");
+                    if (h04) leg.AddEntry(h04, "R = 0.4", "lep");
+                    if (h06) leg.AddEntry(h06, "R = 0.6", "lep");
+
+                    leg.Draw();
+                  }
+                }
+
+                SaveCanvas(c, JoinPath(outBase, "table2x3_unfolded_perPhoton_dNdXJ_overlay_radii.png"));
+              }
+            }
+
+            for (auto& kv : perPhoHistsByRKey)
+            {
+              for (auto* h : kv.second) if (h) delete h;
+            }
+            perPhoHistsByRKey.clear();
+
+            delete hPhoRecoData;
+            delete hPhoRecoSim;
+            delete hPhoTruthSim;
+            delete hPhoRespSim;
+            delete hPhoResp_measXtruth;
+            if (hPhoUnfoldTruth) delete hPhoUnfoldTruth;
+
+            if (gAtlasPP) delete gAtlasPP;
         }
   #else
         void RunRooUnfoldPipeline_SimAndDataPP(Dataset& dsData, Dataset& dsSim)
@@ -16426,8 +16584,8 @@ namespace ARJ
         }
   #endif
 
-        // =============================================================================
-        // OPTIONAL: PP vs Au+Au (gold-gold) photon-ID deliverables
+      // =============================================================================
+      // OPTIONAL: PP vs Au+Au (gold-gold) photon-ID deliverables
       //
       // Deliverable Set A (SS vars): per pT × centrality
       //   - inclusive (no isolation requirement)
