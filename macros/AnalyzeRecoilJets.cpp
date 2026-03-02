@@ -16072,38 +16072,55 @@ namespace ARJ
                   const PtBin& b = PtBins()[i];
                   const string labCanon = TString::Format("%d-%d GeV", b.lo, b.hi).Data();
 
-                  if (perPhoHists[i])
-                  {
-                    TH1* h = perPhoHists[i];
-                    h->GetXaxis()->SetRangeUser(0.0, 2.0);
-                    h->SetMaximum(h->GetMaximum() * 1.25);
-                    h->Draw("E1");
-                  }
-                  else
-                  {
-                    TH1F frame("frame","", 1, 0.0, 2.0);
-                    frame.SetMinimum(0.0);
-                    frame.SetMaximum(1.0);
-                    frame.SetTitle("");
-                    frame.GetXaxis()->SetTitle("x_{J}");
-                    frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
-                    frame.Draw("axis");
+                    if (perPhoHists[i])
+                    {
+                      TH1* h = perPhoHists[i];
+                      h->GetXaxis()->SetRangeUser(0.0, 2.0);
 
-                    TLatex tx;
-                    tx.SetNDC();
-                    tx.SetTextFont(42);
-                    tx.SetTextSize(0.050);
-                    tx.DrawLatex(0.16, 0.50, "MISSING");
-                  }
+                      // Recompute a tight Y-range from actual bin content+error (ignore any previously-set maximum)
+                      double maxY = 0.0;
+                      const int nxb = h->GetNbinsX();
+                      for (int ib = 1; ib <= nxb; ++ib)
+                      {
+                        const double y  = h->GetBinContent(ib);
+                        const double ey = h->GetBinError(ib);
+                        const double v  = y + ey;
+                        if (v > maxY) maxY = v;
+                      }
 
-                  TLatex tx;
-                  tx.SetNDC();
-                  tx.SetTextFont(42);
-                  tx.SetTextSize(0.050);
-                  tx.DrawLatex(0.16, 0.92, TString::Format("p_{T}^{#gamma}: %s", labCanon.c_str()).Data());
+                      h->SetMinimum(0.0);
+                      h->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
+                      h->Draw("E1");
+                    }
+                    else
+                    {
+                      TH1F frame("frame","", 1, 0.0, 2.0);
+                      frame.SetMinimum(0.0);
+                      frame.SetMaximum(1.0);
+                      frame.SetTitle("");
+                      frame.GetXaxis()->SetTitle("x_{J}");
+                      frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                      frame.Draw("axis");
 
-                  tx.SetTextSize(0.040);
-                  tx.DrawLatex(0.16, 0.86, TString::Format("%s (R=%.1f)", rKey.c_str(), R).Data());
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextSize(0.050);
+                      tx.DrawLatex(0.16, 0.50, "MISSING");
+                    }
+
+                    // Centered per-pad title (remove rKey printout in the corner)
+                    {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(22);
+                      tx.SetTextSize(0.042);
+
+                      tx.DrawLatex(0.52, 0.94,
+                                   TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV, R = %.1f",
+                                                   b.lo, b.hi, R).Data());
+                    }
                 }
 
                 c.cd(1);
