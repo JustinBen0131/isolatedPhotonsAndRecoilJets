@@ -22289,6 +22289,96 @@ namespace ARJ
       }
 
       // ---------------------------------------------------------------------------
+      // AuAu-only: Accepted events vs centrality (one plot per trigger)
+      //   Outputs to:  <kOutAuAuBase>/<trigger>/acceptedEvents_vs_centrality.png
+      // ---------------------------------------------------------------------------
+      if (isAuAuOnly)
+      {
+        std::map<std::string, std::vector<std::pair<std::pair<int,int>, double>>> accByTrig;
+
+        auto ParseCentLoHiFromSuffix = [&](const std::string& s, int& lo, int& hi)->bool
+        {
+          lo = -1; hi = -1;
+          if (s.empty()) return false;
+
+          // Expect: "_cent_<lo>_<hi>"
+          int a = -1, b = -1;
+          if (std::sscanf(s.c_str(), "_cent_%d_%d", &a, &b) == 2)
+          {
+            lo = a; hi = b;
+            return true;
+          }
+          return false;
+        };
+
+        for (auto& ds : datasets)
+        {
+          if (ds.isSim) continue;
+          if (ds.centSuffix.empty()) continue;
+
+          int clo = -1, chi = -1;
+          if (!ParseCentLoHiFromSuffix(ds.centSuffix, clo, chi)) continue;
+
+          const double nEvt = ReadEventCount(ds);
+          accByTrig[ds.trigger].push_back({{clo, chi}, nEvt});
+        }
+
+        for (auto& kv : accByTrig)
+        {
+          const std::string& trig = kv.first;
+          auto& v = kv.second;
+
+          if (v.empty()) continue;
+
+          std::sort(v.begin(), v.end(),
+                    [](const auto& a, const auto& b){ return a.first.first < b.first.first; });
+
+          const int n = (int)v.size();
+
+          const std::string outDir  = JoinPath(kOutAuAuBase, trig);
+          const std::string outPath = JoinPath(outDir, "acceptedEvents_vs_centrality.png");
+          EnsureDir(outDir);
+
+          TH1D* h = new TH1D("hAcceptedEventsVsCent", "", n, 0.0, (double)n);
+          h->SetStats(0);
+          h->GetYaxis()->SetTitle("Accepted Events");
+          h->GetXaxis()->SetTitle("Centrality [%]");
+          h->GetXaxis()->SetLabelSize(0.045);
+          h->GetYaxis()->SetTitleOffset(1.20);
+
+          for (int i = 0; i < n; ++i)
+          {
+            const int clo = v[i].first.first;
+            const int chi = v[i].first.second;
+            const double nEvt = v[i].second;
+
+            h->SetBinContent(i + 1, nEvt);
+            h->GetXaxis()->SetBinLabel(i + 1, TString::Format("%d-%d", clo, chi).Data());
+          }
+
+          TCanvas* c = new TCanvas("cAcceptedEventsVsCent", "", 900, 650);
+          c->SetTopMargin(0.12);
+          c->SetBottomMargin(0.15);
+          c->SetLeftMargin(0.14);
+          c->SetRightMargin(0.05);
+
+          h->Draw("hist");
+
+          TLatex t;
+          t.SetNDC(true);
+          t.SetTextFont(42);
+          t.SetTextAlign(23);   // center, top
+          t.SetTextSize(0.045);
+          t.DrawLatex(0.50, 0.98, "Run25auau Accepted Events, MBD NS #geq 2 vtx < 150 cm");
+
+          c->SaveAs(outPath.c_str());
+
+          delete c;
+          delete h;
+        }
+      }
+
+      // ---------------------------------------------------------------------------
       // Section 4: ABCD purity + sideband subtraction with optional leakage factors
       // ---------------------------------------------------------------------------
       cout << ANSI_BOLD_CYN << "\n[STEP 5] Section 4: ABCD purity + sideband subtraction\n" << ANSI_RESET;
