@@ -40,6 +40,18 @@ namespace ARJ
 
         vector<InvItem> items;
         CollectInventoryRecursive(ds.topDir, ds.topDirName + "/", items);
+        if (!ds.centSuffix.empty())
+        {
+          vector<InvItem> filtered;
+          filtered.reserve(items.size());
+          for (const auto& it : items)
+          {
+            const bool isCentHist = (it.path.find("_cent_") != string::npos);
+            if (isCentHist && it.path.find(ds.centSuffix) == string::npos) continue;
+            filtered.push_back(it);
+          }
+          items.swap(filtered);
+        }
         std::sort(items.begin(), items.end(), [](const InvItem& a, const InvItem& b){ return a.path < b.path; });
         PrintInventoryToTerminal(ds, items);
 
@@ -8179,6 +8191,212 @@ namespace ARJ
                             lOne->Draw();
 
                             SaveCanvas(cRatio, JoinPath(dirOv, "meanRatioVsPt_reco_integratedAlpha_overlayedWithSim_withFits.png"));
+
+                            // ------------------------------------------------------------------
+                            // NEW: Figure-8-style panel plot:
+                            //   top: mean vs pT (DATA vs SIM)
+                            //   bottom: (DATA/SIM) + constant fit (pT > 13 GeV)
+                            // ------------------------------------------------------------------
+                            const double fitMinUser = 13.0;
+                            const double fitMin     = std::max(fitMinUser, xMin);
+
+                            int nFitPts = 0;
+                            for (int i = 0; i < (int)vPtCtr_R.size(); ++i)
+                            {
+                              if (vPtCtr_R[i] >= fitMin) ++nFitPts;
+                            }
+
+                            double jesVal = -1.0;
+                            double jesErr =  0.0;
+
+                            TF1* fJES = nullptr;
+                            if (nFitPts >= 2)
+                            {
+                              fJES = new TF1(
+                                TString::Format("f_meanRatio_pol0_%s", rKey.c_str()).Data(),
+                                "pol0", fitMin, xMax
+                              );
+                              fJES->SetLineColor(kRed + 1);
+                              fJES->SetLineWidth(2);
+                              fJES->SetLineStyle(2);
+
+                              gRatio->Fit(fJES, "Q0R");
+
+                              jesVal = fJES->GetParameter(0);
+                              jesErr = fJES->GetParError(0);
+                            }
+
+                            // Determine y-ranges for the panel
+                            double yMinTop =  1e9;
+                            double yMaxTop = -1e9;
+                            for (int i = 0; i < (int)vPtCtr.size(); ++i)
+                            {
+                              if (vMuDat[i] > 0.0)
+                              {
+                                yMinTop = std::min(yMinTop, vMuDat[i] - vMuDatErr[i]);
+                                yMaxTop = std::max(yMaxTop, vMuDat[i] + vMuDatErr[i]);
+                              }
+                              if (vMuSim[i] > 0.0)
+                              {
+                                yMinTop = std::min(yMinTop, vMuSim[i] - vMuSimErr[i]);
+                                yMaxTop = std::max(yMaxTop, vMuSim[i] + vMuSimErr[i]);
+                              }
+                            }
+                            if (yMinTop > yMaxTop)
+                            {
+                              yMinTop = 0.0;
+                              yMaxTop = 1.0;
+                            }
+                            const double padYTop = std::max(0.02, 0.12 * (yMaxTop - yMinTop));
+                            yMinTop -= padYTop;
+                            yMaxTop += padYTop;
+
+                            double yMinBot =  1e9;
+                            double yMaxBot = -1e9;
+                            for (int i = 0; i < (int)vMuRatio.size(); ++i)
+                            {
+                              yMinBot = std::min(yMinBot, vMuRatio[i] - vMuRatioErr[i]);
+                              yMaxBot = std::max(yMaxBot, vMuRatio[i] + vMuRatioErr[i]);
+                            }
+                            yMinBot = std::min(yMinBot, 1.0);
+                            yMaxBot = std::max(yMaxBot, 1.0);
+                            if (yMinBot > yMaxBot)
+                            {
+                              yMinBot = 0.8;
+                              yMaxBot = 1.2;
+                            }
+                            const double padYBot = std::max(0.02, 0.20 * (yMaxBot - yMinBot));
+                            yMinBot -= padYBot;
+                            yMaxBot += padYBot;
+
+                            TCanvas cPanel(
+                              TString::Format("c_meanVsPt_withRatioPanel_%s_dataVsSim", rKey.c_str()).Data(),
+                              "c_meanVsPt_withRatioPanel_dataVsSim", 900, 900
+                            );
+
+                            TPad padTop(
+                              TString::Format("padTop_mean_%s", rKey.c_str()).Data(),
+                              "padTop", 0.0, 0.30, 1.0, 1.0
+                            );
+                            TPad padBot(
+                              TString::Format("padBot_mean_%s", rKey.c_str()).Data(),
+                              "padBot", 0.0, 0.00, 1.0, 0.30
+                            );
+
+                            padTop.SetBottomMargin(0.02);
+                            padTop.SetLeftMargin(0.14);
+                            padTop.SetRightMargin(0.05);
+                            padTop.SetTopMargin(0.08);
+                            padTop.SetTicks(1,1);
+
+                            padBot.SetTopMargin(0.02);
+                            padBot.SetBottomMargin(0.32);
+                            padBot.SetLeftMargin(0.14);
+                            padBot.SetRightMargin(0.05);
+                            padBot.SetTicks(1,1);
+
+                            padTop.Draw();
+                            padBot.Draw();
+
+                            padTop.cd();
+                            TH1F* hTop = new TH1F(
+                              TString::Format("hMeanPanelTop_%s", rKey.c_str()).Data(),
+                              "", 100, xMin, xMax
+                            );
+                            hTop->SetStats(0);
+                            hTop->SetMinimum(yMinTop);
+                            hTop->SetMaximum(yMaxTop);
+                            hTop->SetTitle("");
+                            hTop->GetXaxis()->SetLabelSize(0.0);
+                            hTop->GetXaxis()->SetTitleSize(0.0);
+                            hTop->GetYaxis()->SetTitle("Gaussian mean of x_{J#gamma}");
+                            hTop->GetYaxis()->SetTitleSize(0.07);
+                            hTop->GetYaxis()->SetLabelSize(0.06);
+                            hTop->GetYaxis()->SetTitleOffset(0.90);
+                            hTop->Draw();
+
+                            gDat->Draw("P same");
+                            gSim->Draw("P same");
+
+                            TLegend* legP = new TLegend(0.62, 0.72, 0.88, 0.86);
+                            legP->SetBorderSize(0);
+                            legP->SetFillStyle(0);
+                            legP->SetTextFont(42);
+                            legP->SetTextSize(0.055);
+                            legP->AddEntry(gDat, "DATA (reco)", "p");
+                            legP->AddEntry(gSim, "SIM (reco)",  "p");
+                            legP->Draw();
+
+                            TLatex lat;
+                            lat.SetNDC(true);
+                            lat.SetTextFont(62);
+                            lat.SetTextSize(0.07);
+                            lat.DrawLatex(0.16, 0.90, "#bf{sPHENIX} Internal");
+                            lat.SetTextFont(42);
+                            lat.SetTextSize(0.055);
+                            lat.DrawLatex(0.16, 0.82, TString::Format("Jet R = %.1f", RFromKey(rKey)).Data());
+
+                            padBot.cd();
+                            TH1F* hBot = new TH1F(
+                              TString::Format("hMeanPanelBot_%s", rKey.c_str()).Data(),
+                              "", 100, xMin, xMax
+                            );
+                            hBot->SetStats(0);
+                            hBot->SetMinimum(yMinBot);
+                            hBot->SetMaximum(yMaxBot);
+                            hBot->SetTitle("");
+                            hBot->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                            hBot->GetYaxis()->SetTitle("Ratio DATA / SIM");
+                            hBot->GetXaxis()->SetTitleSize(0.12);
+                            hBot->GetXaxis()->SetLabelSize(0.10);
+                            hBot->GetYaxis()->SetTitleSize(0.10);
+                            hBot->GetYaxis()->SetLabelSize(0.10);
+                            hBot->GetYaxis()->SetTitleOffset(0.55);
+                            hBot->Draw();
+
+                            gRatio->Draw("P same");
+
+                            TLine lOneP(xMin, 1.0, xMax, 1.0);
+                            lOneP.SetLineStyle(3);
+                            lOneP.SetLineWidth(2);
+                            lOneP.Draw("same");
+
+                            TLine* lFitUp = nullptr;
+                            TLine* lFitDn = nullptr;
+                            if (fJES)
+                            {
+                              fJES->Draw("same");
+
+                              lFitUp = new TLine(fitMin, jesVal + jesErr, xMax, jesVal + jesErr);
+                              lFitDn = new TLine(fitMin, jesVal - jesErr, xMax, jesVal - jesErr);
+                              lFitUp->SetLineColor(kRed + 1);
+                              lFitDn->SetLineColor(kRed + 1);
+                              lFitUp->SetLineStyle(3);
+                              lFitDn->SetLineStyle(3);
+                              lFitUp->SetLineWidth(2);
+                              lFitDn->SetLineWidth(2);
+                              lFitUp->Draw("same");
+                              lFitDn->Draw("same");
+
+                              TLatex lat2;
+                              lat2.SetNDC(true);
+                              lat2.SetTextFont(42);
+                              lat2.SetTextSize(0.11);
+                              lat2.SetTextColor(kRed + 1);
+                              lat2.DrawLatex(
+                                0.18, 0.22,
+                                TString::Format("in situ JES = %.4f #pm %.4f", jesVal, jesErr).Data()
+                              );
+                            }
+
+                            SaveCanvas(cPanel, JoinPath(dirOv, "meanVsPt_withRatioPanel_reco_integratedAlpha_overlayedWithSim_withFits.png"));
+
+                            if (lFitUp) delete lFitUp;
+                            if (lFitDn) delete lFitDn;
+                            if (fJES)   delete fJES;
+                            delete legP;
+                            delete hTop;
+                            delete hBot;
 
                             delete lOne;
                             delete gRatio;
@@ -21612,18 +21830,44 @@ namespace ARJ
 
         if (doAuAu)
         {
-          Dataset ds;
-          ds.label      = "DATA_AUAU";
-          ds.isSim      = false;
-          ds.trigger    = kTriggerAuAuGold;
-          ds.topDirName = kTriggerAuAuGold;
-          ds.inFilePath = kInAuAuGold;
+          const auto& centBins = CentBins();
 
-          // AuAu-only outputs are organized per-trigger, mirroring PP:
-          //   <AuAu base>/<trigger>/{baselineData,insituCalib,unfolding,...}
-          ds.outBase = JoinPath(kOutAuAuBase, ds.trigger);
+          if (centBins.empty())
+          {
+            Dataset ds;
+            ds.label      = "DATA_AUAU";
+            ds.isSim      = false;
+            ds.trigger    = kTriggerAuAuGold;
+            ds.topDirName = kTriggerAuAuGold;
+            ds.inFilePath = kInAuAuGold;
 
-          datasets.push_back(std::move(ds));
+            // Fallback: no YAML centrality bins available, keep legacy AuAu output path.
+            ds.outBase = JoinPath(kOutAuAuBase, ds.trigger);
+
+            datasets.push_back(std::move(ds));
+          }
+          else
+          {
+            for (const auto& cb : centBins)
+            {
+              Dataset ds;
+              ds.label      = TString::Format("DATA_AUAU_%d_%d", cb.lo, cb.hi).Data();
+              ds.isSim      = false;
+              ds.trigger    = kTriggerAuAuGold;
+              ds.topDirName = kTriggerAuAuGold;
+              ds.inFilePath = kInAuAuGold;
+
+              ds.centFolder = cb.folder;
+              ds.centSuffix = cb.suffix;
+              ds.centLabel  = TString::Format("Centrality: %d-%d%%", cb.lo, cb.hi).Data();
+
+              // AuAu-only outputs are organized per-trigger, per-centrality:
+              //   <AuAu base>/<trigger>/<centFolder>/{baselineData,insituCalib,unfolding,...}
+              ds.outBase = JoinPath(JoinPath(kOutAuAuBase, ds.trigger), ds.centFolder);
+
+              datasets.push_back(std::move(ds));
+            }
+          }
         }
 
         return datasets;
@@ -22270,9 +22514,16 @@ namespace ARJ
         map<string, InvItem> invByPath;
         for (const auto& it : items)
         {
-          if (!IsHistLikeClass(it.cls)) continue;
-          available.insert(it.path);
-          invByPath[it.path] = it;
+            if (!IsHistLikeClass(it.cls)) continue;
+
+            const bool isCentHist = (it.path.find("_cent_") != string::npos);
+            if (!ds.centSuffix.empty())
+            {
+              if (isCentHist && it.path.find(ds.centSuffix) == string::npos) continue;
+            }
+
+            available.insert(it.path);
+            invByPath[it.path] = it;
         }
 
         // --- Requested-but-not-in-file (called by code, missing from ROOT file) ---

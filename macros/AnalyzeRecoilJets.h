@@ -161,17 +161,17 @@ namespace ARJ
 //   - For single-slice SIM, y-axes remain raw "Counts" (unweighted).
 // =============================================================================
 
-  inline bool isPPdataOnly   = true;
+  inline bool isPPdataOnly   = false;
   inline bool isSimAndDataPP = false;
 
   // NEW: AuAu-only analysis mode (no SIM, no PP). When true, the full plotting
   // pipeline runs on AuAu only and outputs to dataOutput/auau/<trigger>/...
   // NOTE: Must be mutually exclusive with isPPdataOnly and isSimAndDataPP.
-  inline bool isAuAuOnly     = false;
+  inline bool isAuAuOnly     = true;
 
   // Optional comparison overlays: PP vs Au+Au (gold-gold) photon-ID deliverables.
   // If false, analysis behavior is IDENTICAL to the current pipeline.
-  inline bool isPPdataAndAUAU = true;
+  inline bool isPPdataAndAUAU = false;
 
   inline bool isRun25pp      = false;
 
@@ -801,33 +801,37 @@ namespace ARJ
   // Non-copyable but movable (safe for std::vector)
   struct Dataset
   {
-      string label;       // "SIM" or "DATA"
-      bool   isSim = false;
+        string label;       // "SIM" or "DATA"
+        bool   isSim = false;
 
-      string trigger;     // for data
-      string topDirName;  // "SIM" or trigger
+        string trigger;     // for data
+        string topDirName;  // "SIM" or trigger
 
-      string inFilePath;
-      string outBase;
+        string inFilePath;
+        string outBase;
 
-      TFile*      file   = nullptr;
-      TDirectory* topDir = nullptr;
+        string centFolder;  // e.g. "0_10" for Au+Au centrality-scoped plotting
+        string centSuffix;  // e.g. "_cent_0_10"
+        string centLabel;   // e.g. "Centrality: 0-10%"
 
-      // Existing raw missing-object log (one line per failure occurrence)
-      std::ofstream missingOut;
-      int missingCount = 0;
+        TFile*      file   = nullptr;
+        TDirectory* topDir = nullptr;
 
-      // NEW: Tracking for end-of-job histogram coverage summary
-      // Key is ALWAYS the full path as printed in inventory:  "<topDirName>/<relName>"
-      map<string, int>    requestCounts;   // fullpath -> #times GetObj was called
-      map<string, int>    missingCounts;   // fullpath -> #times LogMissing fired
-      map<string, string> missingReason;   // fullpath -> last recorded reason string
+        // Existing raw missing-object log (one line per failure occurrence)
+        std::ofstream missingOut;
+        int missingCount = 0;
 
-      Dataset() = default;
-      Dataset(const Dataset&) = delete;
-      Dataset& operator=(const Dataset&) = delete;
-      Dataset(Dataset&&) noexcept = default;
-      Dataset& operator=(Dataset&&) noexcept = default;
+        // NEW: Tracking for end-of-job histogram coverage summary
+        // Key is ALWAYS the full path as printed in inventory:  "<topDirName>/<relName>"
+        map<string, int>    requestCounts;   // fullpath -> #times GetObj was called
+        map<string, int>    missingCounts;   // fullpath -> #times LogMissing fired
+        map<string, string> missingReason;   // fullpath -> last recorded reason string
+
+        Dataset() = default;
+        Dataset(const Dataset&) = delete;
+        Dataset& operator=(const Dataset&) = delete;
+        Dataset(Dataset&&) noexcept = default;
+        Dataset& operator=(Dataset&&) noexcept = default;
   };
 
   struct MatchCache
@@ -902,47 +906,66 @@ namespace ARJ
   // =============================================================================
   template <class T>
   inline T* GetObj(Dataset& ds, const string& relName,
-                   bool logMissing = true,
-                   bool logZero = true,
-                   bool treatZeroAsMissing = false)
-  {
-    if (!ds.topDir) return nullptr;
-
-    // PP-only pass: ignore centrality-tagged objects if caller accidentally asks.
-    if (relName.find("_cent_") != string::npos) return nullptr;
-
-    const string fp = FullPath(ds, relName);
-    ds.requestCounts[fp]++;
-
-    TObject* obj = ds.topDir->Get(relName.c_str());
-
-    if (!obj)
+                     bool logMissing = true,
+                     bool logZero = true,
+                     bool treatZeroAsMissing = false)
     {
-      if (logMissing) LogMissing(ds, fp, "MISSING");
-      return nullptr;
-    }
+      if (!ds.topDir) return nullptr;
 
-    T* out = dynamic_cast<T*>(obj);
-    if (!out)
-    {
-      if (logMissing) LogMissing(ds, fp, string("WRONG_TYPE actual=") + obj->ClassName());
-      return nullptr;
-    }
+      vector<string> relNamesToTry;
+      relNamesToTry.reserve(2);
 
-    // entries check (works for TH* and profiles; for others, skip)
-    double ent = -1.0;
-    if (auto* h = dynamic_cast<TH1*>(out)) ent = h->GetEntries();
-    else if (auto* p = dynamic_cast<TProfile*>(out)) ent = p->GetEntries();
-    else if (auto* p2 = dynamic_cast<TProfile2D*>(out)) ent = p2->GetEntries();
-    else if (auto* p3 = dynamic_cast<TProfile3D*>(out)) ent = p3->GetEntries();
+      if (!ds.centSuffix.empty() && relName.find("_cent_") == string::npos)
+      {
+        relNamesToTry.push_back(relName + ds.centSuffix);
+      }
+      relNamesToTry.push_back(relName);
 
-    if (ent >= 0.0 && ent <= 0.0)
-    {
-      if (logZero) LogMissing(ds, fp, "ZERO_ENTRIES");
-      if (treatZeroAsMissing) return nullptr;
-    }
+      TObject* obj = nullptr;
+      string usedRelName;
 
-    return out;
+      for (const auto& cand : relNamesToTry)
+      {
+        obj = ds.topDir->Get(cand.c_str());
+        if (obj)
+        {
+          usedRelName = cand;
+          break;
+        }
+      }
+
+      if (!obj)
+      {
+        const string fp = FullPath(ds, relNamesToTry.front());
+        ds.requestCounts[fp]++;
+        if (logMissing) LogMissing(ds, fp, "MISSING");
+        return nullptr;
+      }
+
+      const string fp = FullPath(ds, usedRelName);
+      ds.requestCounts[fp]++;
+
+      T* out = dynamic_cast<T*>(obj);
+      if (!out)
+      {
+        if (logMissing) LogMissing(ds, fp, string("WRONG_TYPE actual=") + obj->ClassName());
+        return nullptr;
+      }
+
+      // entries check (works for TH* and profiles; for others, skip)
+      double ent = -1.0;
+      if (auto* h = dynamic_cast<TH1*>(out)) ent = h->GetEntries();
+      else if (auto* p = dynamic_cast<TProfile*>(out)) ent = p->GetEntries();
+      else if (auto* p2 = dynamic_cast<TProfile2D*>(out)) ent = p2->GetEntries();
+      else if (auto* p3 = dynamic_cast<TProfile3D*>(out)) ent = p3->GetEntries();
+
+      if (ent >= 0.0 && ent <= 0.0)
+      {
+        if (logZero) LogMissing(ds, fp, "ZERO_ENTRIES");
+        if (treatZeroAsMissing) return nullptr;
+      }
+
+      return out;
   }
 
   // =============================================================================
@@ -1096,28 +1119,33 @@ namespace ARJ
 
   inline vector<string> DefaultHeaderLines(const Dataset& ds)
   {
-        vector<string> lines;
+          vector<string> lines;
 
-        if (ds.isSim)
-        {
-          std::string simLabel = "UNKNOWN";
+          if (ds.isSim)
+          {
+            std::string simLabel = "UNKNOWN";
 
-          if (isPhotonJet5)                 simLabel = "photonJet5";
-          else if (isPhotonJet10)           simLabel = "photonJet10";
-          else if (isPhotonJet20)           simLabel = "photonJet20";
-          else if (bothPhoton5and10sim)     simLabel = "photonJet5+10 merged";
-          else if (bothPhoton5and20sim)     simLabel = "photonJet5+20 merged";
-          else if (bothPhoton10and20sim)    simLabel = "photonJet10+20 merged";
-          else if (allPhoton5and10and20sim) simLabel = "photonJet5+10+20 merged";
+            if (isPhotonJet5)                 simLabel = "photonJet5";
+            else if (isPhotonJet10)           simLabel = "photonJet10";
+            else if (isPhotonJet20)           simLabel = "photonJet20";
+            else if (bothPhoton5and10sim)     simLabel = "photonJet5+10 merged";
+            else if (bothPhoton5and20sim)     simLabel = "photonJet5+20 merged";
+            else if (bothPhoton10and20sim)    simLabel = "photonJet10+20 merged";
+            else if (allPhoton5and10and20sim) simLabel = "photonJet5+10+20 merged";
 
-          lines.push_back(std::string("Dataset: SIM (") + simLabel + ")");
-        }
-        else
-        {
-          lines.push_back(std::string("Dataset: DATA (") + ds.trigger + ")");
-        }
+            lines.push_back(std::string("Dataset: SIM (") + simLabel + ")");
+          }
+          else
+          {
+            lines.push_back(std::string("Dataset: DATA (") + ds.trigger + ")");
+          }
 
-        return lines;
+          if (!ds.centLabel.empty())
+          {
+            lines.push_back(ds.centLabel);
+          }
+
+          return lines;
   }
 
   inline void SaveCanvas(TCanvas& c, const string& filepath)
@@ -1151,26 +1179,32 @@ namespace ARJ
       return "E_{T}^{iso}";
   }
 
-  inline void DrawIsoCornerLabels1D(const string& isoTitle, const PtBin& pb)
+  inline void DrawIsoCornerLabels1D(const Dataset& ds, const string& isoTitle, const PtBin& pb)
   {
-      TLatex t;
-      t.SetNDC(true);
-      t.SetTextFont(42);
+        TLatex t;
+        t.SetNDC(true);
+        t.SetTextFont(42);
 
-      // Title (top-left) — match your table styling
-      t.SetTextAlign(13);     // left, top
-      t.SetTextSize(0.08);
-      t.DrawLatex(0.45, 0.985, isoTitle.c_str());
+        // Title (top-left) — match your table styling
+        t.SetTextAlign(13);     // left, top
+        t.SetTextSize(0.08);
+        t.DrawLatex(0.45, 0.985, isoTitle.c_str());
 
-      // pT bin (top-right, larger)
-      t.SetTextAlign(33);     // right, top
-      t.SetTextSize(0.070);
-      t.DrawLatex(0.95, 0.88,
-        TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
+        // pT bin (top-right, larger)
+        t.SetTextAlign(33);     // right, top
+        t.SetTextSize(0.070);
+        t.DrawLatex(0.95, 0.88,
+          TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
 
-      // eta cut (under pT, smaller)
-      t.SetTextSize(0.055);
-      t.DrawLatex(0.85, 0.75, "|#eta^{#gamma}| < 0.7");
+        // eta cut (under pT, smaller)
+        t.SetTextSize(0.055);
+        t.DrawLatex(0.85, 0.75, "|#eta^{#gamma}| < 0.7");
+
+        if (!ds.centLabel.empty())
+        {
+          t.SetTextSize(0.050);
+          t.DrawLatex(0.95, 0.66, ds.centLabel.c_str());
+        }
   }
 
   inline void DrawAndSaveTH1_Iso(const Dataset& ds,
@@ -1217,7 +1251,7 @@ namespace ARJ
       h->Draw(opt.c_str());
 
       // ISO corner label styling (NO DefaultHeaderLines, NO multi-line block)
-      DrawIsoCornerLabels1D(isoTitle, pb);
+      DrawIsoCornerLabels1D(ds, isoTitle, pb);
 
       SaveCanvas(c, filepath);
   }
@@ -1564,8 +1598,6 @@ namespace ARJ
       const string name = key->GetName();
       const string cls  = key->GetClassName();
 
-      if (name.find("_cent_") != string::npos) continue;
-
       const string full = prefix + name;
 
       if (cls == "TDirectoryFile" || cls == "TDirectory")
@@ -1694,6 +1726,12 @@ namespace ARJ
           // eta cut (under pT, smaller)
           t.SetTextSize(0.055);
           t.DrawLatex(0.85, 0.75, "|#eta^{#gamma}| < 0.7");
+
+          if (!ds.centLabel.empty())
+          {
+            t.SetTextSize(0.050);
+            t.DrawLatex(0.95, 0.66, ds.centLabel.c_str());
+          }
         };
 
         TH1* h = GetObj<TH1>(ds, hname, true, true, true);
@@ -1713,14 +1751,15 @@ namespace ARJ
           }
           else
           {
-            // old behavior for non-iso tables
-            vector<string> lines = commonLines;
-            {
-              std::ostringstream s;
-              s << histBase << "   pT^{#gamma}: " << b.lo << "-" << b.hi << " GeV";
-              lines.push_back(s.str());
-            }
-            DrawLatexLines(0.16, 0.90, lines, 0.040, 0.050);
+              // old behavior for non-iso tables
+              vector<string> lines = commonLines;
+              if (!ds.centLabel.empty()) lines.push_back(ds.centLabel);
+              {
+                std::ostringstream s;
+                s << histBase << "   pT^{#gamma}: " << b.lo << "-" << b.hi << " GeV";
+                lines.push_back(s.str());
+              }
+              DrawLatexLines(0.16, 0.90, lines, 0.040, 0.050);
           }
 
           continue;
@@ -1841,14 +1880,15 @@ namespace ARJ
         }
         else
         {
-          // old behavior for everything else
-          vector<string> lines = commonLines;
-          {
-            std::ostringstream s;
-            s << histBase << "   pT^{#gamma}: " << b.lo << "-" << b.hi << " GeV";
-            lines.push_back(s.str());
-          }
-          DrawLatexLines(0.16, 0.90, lines, 0.040, 0.050);
+            // old behavior for everything else
+            vector<string> lines = commonLines;
+            if (!ds.centLabel.empty()) lines.push_back(ds.centLabel);
+            {
+              std::ostringstream s;
+              s << histBase << "   pT^{#gamma}: " << b.lo << "-" << b.hi << " GeV";
+              lines.push_back(s.str());
+            }
+            DrawLatexLines(0.16, 0.90, lines, 0.040, 0.050);
         }
 
         keepAlive.push_back(hc);
