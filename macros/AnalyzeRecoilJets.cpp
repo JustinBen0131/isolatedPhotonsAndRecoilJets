@@ -15798,8 +15798,21 @@ namespace ARJ
               hPhoResp_measXtruth->SetTitle("");
               hPhoResp_measXtruth->GetXaxis()->SetTitle("p_{T}^{#gamma, reco} [GeV]");
               hPhoResp_measXtruth->GetYaxis()->SetTitle("p_{T}^{#gamma, truth} [GeV]");
+
+              // Show full unfolding ranges (reco: 10-40, truth: 5-40)
               hPhoResp_measXtruth->GetXaxis()->SetRangeUser(10.0, 35.0);
-              hPhoResp_measXtruth->GetYaxis()->SetRangeUser(5.0, 40.0);
+              hPhoResp_measXtruth->GetYaxis()->SetRangeUser(10.0, 40.0);
+
+              // Debug: verify the response histogram actually contains the expected bin edges
+              cout << "  [pho_response_recoVsTruth] X(reco) nbins=" << hPhoResp_measXtruth->GetXaxis()->GetNbins()
+                     << "  firstLowEdge=" << hPhoResp_measXtruth->GetXaxis()->GetBinLowEdge(1)
+                     << "  lastUpEdge="   << hPhoResp_measXtruth->GetXaxis()->GetBinUpEdge(hPhoResp_measXtruth->GetXaxis()->GetNbins())
+                     << "\n";
+              cout << "  [pho_response_recoVsTruth] Y(truth) nbins=" << hPhoResp_measXtruth->GetYaxis()->GetNbins()
+                     << "  firstLowEdge=" << hPhoResp_measXtruth->GetYaxis()->GetBinLowEdge(1)
+                     << "  lastUpEdge="   << hPhoResp_measXtruth->GetYaxis()->GetBinUpEdge(hPhoResp_measXtruth->GetYaxis()->GetNbins())
+                     << "\n";
+
               hPhoResp_measXtruth->Draw("colz");
 
               DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
@@ -15842,7 +15855,7 @@ namespace ARJ
                 TLegend leg(0.55,0.76,0.92,0.90);
                 leg.SetTextFont(42);
                 leg.SetTextSize(0.032);
-                leg.AddEntry(hRecoShape, "PP DATA (reco)", "lep");
+                leg.AddEntry(hRecoShape, "Run24pp Reco", "lep");
                 leg.AddEntry(hUnfShape,  TString::Format("Unfolded (truth), Bayes it=%d", kBayesIterPho).Data(), "lep");
                 leg.Draw();
 
@@ -15877,6 +15890,86 @@ namespace ARJ
                     hRecoShape->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
                     hRecoShape->GetYaxis()->SetTitle("Counts");
 
+                    // Debug: tabulate each plotted point (helps diagnose missing log-y markers, e.g. 35-40 GeV)
+                    {
+                      std::ios::fmtflags f = cout.flags();
+                      std::streamsize   p = cout.precision();
+
+                      cout << ANSI_BOLD_CYN
+                           << "\n[DEBUG] Tabulating points for pho_unfolded_truth_pTgamma_overlay_logy.png\n"
+                           << "        (PP DATA reco vs Unfolded truth)\n"
+                           << ANSI_RESET;
+
+                      auto dump = [&](const string& label, TH1* h)
+                      {
+                        if (!h)
+                        {
+                          cout << "  " << label << ": <null>\n";
+                          return;
+                        }
+
+                        cout << "  " << label
+                             << "  name=" << h->GetName()
+                             << "  nbins=" << h->GetNbinsX()
+                             << "  xmin=" << h->GetXaxis()->GetXmin()
+                             << "  xmax=" << h->GetXaxis()->GetXmax()
+                             << "  entries=" << std::fixed << std::setprecision(0) << h->GetEntries()
+                             << "\n";
+
+                        cout << "    bin   lo      hi      center      content      error\n";
+                        cout << std::fixed << std::setprecision(3);
+                        for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                        {
+                          const double lo  = h->GetXaxis()->GetBinLowEdge(ib);
+                          const double hi  = h->GetXaxis()->GetBinUpEdge(ib);
+                          const double cen = h->GetXaxis()->GetBinCenter(ib);
+                          const double y   = h->GetBinContent(ib);
+                          const double ey  = h->GetBinError(ib);
+
+                          cout << "    " << std::setw(3) << ib
+                               << "  " << std::setw(6) << lo
+                               << "  " << std::setw(6) << hi
+                               << "  " << std::setw(8) << cen
+                               << "  " << std::setw(11) << y
+                               << "  " << std::setw(11) << ey;
+
+                          if (y <= 0.0)
+                            cout << "   <-- non-positive (cannot be drawn on log-y)";
+                          cout << "\n";
+                        }
+
+                        // Under/overflow can hide counts if the binning doesn't match expectations
+                        {
+                          const double u = h->GetBinContent(0);
+                          const double o = h->GetBinContent(h->GetNbinsX()+1);
+                          if (u != 0.0 || o != 0.0)
+                          {
+                            cout << "    underflow=" << u
+                                 << "  overflow="  << o
+                                 << "   <-- check if high-pT is spilling into overflow\n";
+                          }
+                        }
+                      };
+
+                      dump("PP DATA (reco)", hRecoShape);
+                      dump("Unfolded (truth)", hUnfShape);
+
+                      if (hRecoShape)
+                      {
+                        const double probe = 37.5; // should fall in the 35-40 bin if that bin exists
+                        const int ib = hRecoShape->GetXaxis()->FindBin(probe);
+                        cout << "  [DEBUG] PP DATA probe pT=37.5 GeV -> bin " << ib
+                             << " [" << hRecoShape->GetXaxis()->GetBinLowEdge(ib) << ","
+                             << hRecoShape->GetXaxis()->GetBinUpEdge(ib) << "]"
+                             << " content=" << hRecoShape->GetBinContent(ib)
+                             << " error="   << hRecoShape->GetBinError(ib)
+                             << "\n";
+                      }
+
+                      cout.flags(f);
+                      cout.precision(p);
+                    }
+
                     hRecoShape->SetMinimum(minPos * 0.5);
                     hRecoShape->SetMaximum(maxv * 3.0);
 
@@ -15906,14 +15999,14 @@ namespace ARJ
             }
           }
 
-            // Photon summary for the first 6 unfolding RECO pT bins
-            vector<string> phoSummary;
-            phoSummary.push_back("Photon unfolding summary (PP DATA unfolded to truth pTgamma)");
-            phoSummary.push_back(TString::Format("Method: RooUnfoldBayes, iterations=%d, error=kCovariance", kBayesIterPho).Data());
-            phoSummary.push_back("");
+          // Photon summary for unfolding RECO pT bins
+          vector<string> phoSummary;
+          phoSummary.push_back("Photon unfolding summary (PP DATA unfolded to truth pTgamma)");
+          phoSummary.push_back(TString::Format("Method: RooUnfoldBayes, iterations=%d, error=kCovariance", kBayesIterPho).Data());
+          phoSummary.push_back("");
 
-            {
-              const int nPtUnf = std::min(6, (int)UnfoldRecoPtBins().size());
+          {
+              const int nPtUnf = (int)UnfoldRecoPtBins().size();
               for (int i = 0; i < nPtUnf; ++i)
               {
                 const PtBin& b = UnfoldRecoPtBins()[i];
@@ -15936,9 +16029,9 @@ namespace ARJ
               phoSummary.push_back("");
               phoSummary.push_back("NOTE: unfolding RECO pT bins (YAML: unfold_reco_photon_pt_bins) are mapped to truth bins by FindBin(center).");
               phoSummary.push_back("      The truth axis includes a 5-10 GeV underflow bin (YAML: unfold_truth_photon_pt_bins).");
-            }
+          }
 
-          WriteTextFile(JoinPath(phoDir, "summary_photon_unfolding_first6bins.txt"), phoSummary);
+          WriteTextFile(JoinPath(phoDir, "summary_photon_unfolding_bins.txt"), phoSummary);
 
           // Save photon ROOT outputs
           {
@@ -15976,13 +16069,13 @@ namespace ARJ
             const string nameTruth = "h2_unfoldTruth_pTgamma_xJ_incl_"    + rKey;
             const string nameRsp   = "h2_unfoldResponse_pTgamma_xJ_incl_" + rKey;
 
-              TH2* h2RecoData_in  = GetObj<TH2>(dsData, nameReco,  true, true, true);
-              TH2* h2RecoSim_in   = GetObj<TH2>(dsSim,  nameReco,  true, true, true);
-              TH2* h2TruthSim_in  = GetObj<TH2>(dsSim,  nameTruth, true, true, true);
-              TH2* h2RspSim_in    = GetObj<TH2>(dsSim,  nameRsp,   true, true, true);
+            TH2* h2RecoData_in  = GetObj<TH2>(dsData, nameReco,  true, true, true);
+            TH2* h2RecoSim_in   = GetObj<TH2>(dsSim,  nameReco,  true, true, true);
+            TH2* h2TruthSim_in  = GetObj<TH2>(dsSim,  nameTruth, true, true, true);
+            TH2* h2RspSim_in    = GetObj<TH2>(dsSim,  nameRsp,   true, true, true);
 
-              if (!h2RecoData_in || !h2RecoSim_in || !h2TruthSim_in || !h2RspSim_in)
-              {
+            if (!h2RecoData_in || !h2RecoSim_in || !h2TruthSim_in || !h2RspSim_in)
+            {
                 auto Status = [&](Dataset& ds, const string& relName, TObject* obj)->string
                 {
                   if (obj) return "FOUND";
@@ -16000,7 +16093,7 @@ namespace ARJ
                      << "       SIM   " << FullPath(dsSim,  nameRsp)   << " : " << Status(dsSim,  nameRsp,   h2RspSim_in)    << "\n"
                      << ANSI_RESET << "\n";
                 continue;
-              }
+            }
 
             TH2* h2RecoData  = CloneTH2(h2RecoData_in,  TString::Format("h2RecoData_%s", rKey.c_str()).Data());
             TH2* h2RecoSim   = CloneTH2(h2RecoSim_in,   TString::Format("h2RecoSim_%s",  rKey.c_str()).Data());
@@ -16161,18 +16254,18 @@ namespace ARJ
             lines.push_back(TString::Format("xJ unfolding (global-bin): Bayes it=%d (kCovariance)", kBayesIterXJ).Data());
             lines.push_back("");
 
-              const int nPtAll = (int)PtBins().size();
-              const int nPtTable = std::min(6, nPtAll);
-              const int tableLastStart = (nPtAll > 6) ? std::max(0, nPtAll - 6) : 0;
+            const int nPtAll = (int)UnfoldRecoPtBins().size();
+            const int nPtCols = 4;
+            const int nPtRows = 2;
+            const int nPtPads = nPtCols * nPtRows;
 
-              vector<TH1*> perPhoHists(nPtAll, nullptr);
-
-              // ----------------------------------------------------------------------
-              // Closure test (SIM): truth -> smear(reco) -> unfold -> compare back to truth
-              //   Summary vs pT: (Integral of unfolded xJ)/(Integral of truth xJ)  ~ 1
-              //   Output: <rOut>/closure_unfoldedOverTruth_integral_vs_pTgamma.png
-              // ----------------------------------------------------------------------
-              {
+            vector<TH1*> perPhoHists(nPtAll, nullptr);
+            // ----------------------------------------------------------------------
+            // Closure test (SIM): truth -> smear(reco) -> unfold -> compare back to truth
+            //   Summary vs pT: (Integral of unfolded xJ)/(Integral of truth xJ)  ~ 1
+            //   Output: <rOut>/closure_unfoldedOverTruth_integral_vs_pTgamma.png
+            // ----------------------------------------------------------------------
+            {
                 TH1* hMeasSimGlob_closure = CloneTH1(hMeasSimGlob,
                   TString::Format("hMeasSimGlob_forClosure_%s", rKey.c_str()).Data());
                 if (hMeasSimGlob_closure) hMeasSimGlob_closure->SetDirectory(nullptr);
@@ -16195,10 +16288,10 @@ namespace ARJ
 
                 vector<double> xPt, exPt, yRat, eyRat;
 
-                const int nPtClosure = (int)PtBins().size();
+                const int nPtClosure = (int)UnfoldRecoPtBins().size();
                 for (int i = 0; i < nPtClosure; ++i)
                 {
-                  const PtBin& b = PtBins()[i];
+                  const PtBin& b = UnfoldRecoPtBins()[i];
                   const double cen = 0.5 * (b.lo + b.hi);
                   const double ex  = 0.5 * (b.hi - b.lo);
 
@@ -16327,7 +16420,7 @@ namespace ARJ
 
             for (int i = 0; i < nPtAll; ++i)
             {
-              const PtBin& b = PtBins()[i];
+              const PtBin& b = UnfoldRecoPtBins()[i];
               const double cen = 0.5 * (b.lo + b.hi);
 
               if (!h2UnfoldTruth || !hPhoUnfoldTruth) continue;
@@ -16406,29 +16499,61 @@ namespace ARJ
               const double intPerPho = (Npho > 0.0 ? intNum / Npho : 0.0);
 
               lines.push_back(
-                TString::Format(
-                  "pT^gamma canon=%s  -> truthBin=%s  (phoTruthBin=%s)  Npho=%.6g±%.3g  Int[dN/dxJ]=%.6g  Int[(1/Npho)dN/dxJ]=%.6g",
-                  labCanon.c_str(), labTruth.c_str(), labPho.c_str(),
-                  Npho, eNpho,
-                  intNum, intPerPho
-                ).Data()
+                  TString::Format(
+                    "pT^gamma reco=%s  -> truthBin=%s  (phoTruthBin=%s)  Npho=%.6g±%.3g  Int[dN/dxJ]=%.6g  Int[(1/Npho)dN/dxJ]=%.6g",
+                    labCanon.c_str(), labTruth.c_str(), labPho.c_str(),
+                    Npho, eNpho,
+                    intNum, intPerPho
+                  ).Data()
               );
 
-                {
+              {
                   TCanvas c(TString::Format("c_perPho_%s_%d", rKey.c_str(), i + 1).Data(), "c_perPho", 900, 700);
                   ApplyCanvasMargins1D(c);
 
-                  hPerPho->SetMaximum(hPerPho->GetMaximum() * 1.35);
+                  // Match the table-pad styling: tight Y-range from content+error, same title + TLatex block
+                  double maxY = 0.0;
+                  const int nxb = hPerPho->GetNbinsX();
+                  for (int ib = 1; ib <= nxb; ++ib)
+                  {
+                    const double y  = hPerPho->GetBinContent(ib);
+                    const double ey = hPerPho->GetBinError(ib);
+                    const double v  = y + ey;
+                    if (v > maxY) maxY = v;
+                  }
+
+                  hPerPho->SetMinimum(0.0);
+                  hPerPho->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
                   hPerPho->GetXaxis()->SetRangeUser(0.0, 2.0);
                   hPerPho->Draw("E1");
 
-                  DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
-                  DrawLatexLines(0.14,0.78,
-                                 { TString::Format("Unfolded per-photon x_{J} (%s, R=%.1f)", rKey.c_str(), R).Data(),
-                                   TString::Format("p_{T}^{#gamma} (canon): %s", labCanon.c_str()).Data(),
-                                   TString::Format("truth bin used: %s", labTruth.c_str()).Data(),
-                                   TString::Format("N_{#gamma}^{unf}=%.3g", Npho).Data() },
-                                 0.030, 0.040);
+                  // Centered title (same as table pads)
+                  {
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextAlign(22);
+                    tx.SetTextSize(0.042);
+
+                    tx.DrawLatex(0.52, 0.955,
+                                 TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV, R = %.1f",
+                                                 b.lo, b.hi, R).Data());
+                  }
+
+                  // Per-pad cut/trigger label (top-right, 3 lines) (same as table pads)
+                  {
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextAlign(31);
+                    tx.SetTextSize(0.04);
+
+                      const double xR = 0.93;
+                      tx.DrawLatex(xR, 0.67, "z_{vtx} < 60 cm");
+                      tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
+                      tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
+                      tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
+                  }
 
                   SaveCanvas(c, JoinPath(rOut, TString::Format("xJ_unfolded_perPhoton_pTbin%d.png", i + 1).Data()));
 
@@ -16465,52 +16590,48 @@ namespace ARJ
                         if (v > maxY) maxY = v;
                       }
 
-                        hTmp->SetMinimum(0.0);
-                        hTmp->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
-                        hTmp->GetXaxis()->SetRangeUser(0.0, 2.0);
+                      hTmp->SetMinimum(0.0);
+                      hTmp->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
+                      hTmp->GetXaxis()->SetRangeUser(0.0, 2.0);
 
-                        // Draw axes using the histogram, but draw sPHENIX points as a TGraphErrors with EX=0
-                        // to remove horizontal error bars.
-                        hTmp->Draw("axis");
+                      // Draw sPHENIX with horizontal error bars on the plot (TH1::Draw("E1") keeps x-errors)
+                      hTmp->Draw("E1");
+                      gAtlasPP->Draw("PZ same");
 
-                        std::vector<double> gx, gy, gex, gey;
-                        gx.reserve((std::size_t)hTmp->GetNbinsX());
-                        gy.reserve((std::size_t)hTmp->GetNbinsX());
-                        gex.reserve((std::size_t)hTmp->GetNbinsX());
-                        gey.reserve((std::size_t)hTmp->GetNbinsX());
-
-                        for (int ib = 1; ib <= hTmp->GetNbinsX(); ++ib)
+                        // Legend icon for sPHENIX: vertical error bar only (EX=0, EY!=0)
+                        double lx = 0.0, ly = 0.0;
                         {
-                          const double x  = hTmp->GetXaxis()->GetBinCenter(ib);
-                          const double y  = hTmp->GetBinContent(ib);
-                          const double ey = hTmp->GetBinError(ib);
+                          int ib0 = -1;
+                          for (int ib = 1; ib <= hTmp->GetNbinsX(); ++ib)
+                          {
+                            if (hTmp->GetBinContent(ib) != 0.0 || hTmp->GetBinError(ib) != 0.0) { ib0 = ib; break; }
+                          }
+                          if (ib0 < 0) ib0 = 1;
 
-                          gx.push_back(x);
-                          gy.push_back(y);
-                          gex.push_back(0.0);
-                          gey.push_back(ey);
+                          lx = hTmp->GetXaxis()->GetBinCenter(ib0);
+                          ly = hTmp->GetBinContent(ib0);
                         }
+                        const double ley = hTmp->GetBinError(hTmp->GetXaxis()->FindBin(lx));
 
-                        TGraphErrors gSph((int)gx.size(), &gx[0], &gy[0], &gex[0], &gey[0]);
-                        gSph.SetMarkerStyle(hTmp->GetMarkerStyle());
-                        gSph.SetMarkerSize(hTmp->GetMarkerSize());
-                        gSph.SetMarkerColor(hTmp->GetMarkerColor());
-                        gSph.SetLineColor(hTmp->GetLineColor());
-                        gSph.SetLineWidth(hTmp->GetLineWidth());
-                        gSph.Draw("PZ same");
+                        TGraphErrors gSphLeg(1);
+                        gSphLeg.SetPoint(0, lx, ly);
+                        gSphLeg.SetPointError(0, 0.0, ley);
+                        gSphLeg.SetMarkerStyle(hTmp->GetMarkerStyle());
+                        gSphLeg.SetMarkerSize(hTmp->GetMarkerSize());
+                        gSphLeg.SetMarkerColor(hTmp->GetMarkerColor());
+                        gSphLeg.SetLineColor(hTmp->GetLineColor());
+                        gSphLeg.SetLineWidth(hTmp->GetLineWidth());
 
-                        gAtlasPP->Draw("PZ same");
-
-                        // Legend: move to top-left
-                        TLegend leg(0.16,0.76,0.52,0.90);
+                        // Legend: top-left
+                        TLegend leg(0.53,0.76,0.85,0.90);
                         leg.SetTextFont(42);
-                        leg.SetTextSize(0.032);
-                        leg.AddEntry(&gSph,
-                                     TString::Format("sPHENIX unfolded, p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data(),
-                                     "pe");
+                        leg.SetTextSize(0.029);
+                        leg.AddEntry(&gSphLeg,
+                                       TString::Format("sPHENIX unfolded, p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data(),
+                                       "pe");
                         leg.AddEntry(gAtlasPP,
-                                     TString::Format("ATLAS unfolded, p_{T}^{#gamma} = %s", kAtlasTable1PhoPtLabel.c_str()).Data(),
-                                     "pe");
+                                       TString::Format("ATLAS unfolded, p_{T}^{#gamma} = %s", kAtlasTable1PhoPtLabel.c_str()).Data(),
+                                       "pe");
                         leg.Draw();
 
                       SaveCanvas(cO, JoinPath(overlayOut, TString::Format("xJ_unfolded_perPhoton_LHCoverlay_pTbin%d.png", i + 1).Data()));
@@ -16523,127 +16644,117 @@ namespace ARJ
               delete hXJ;
             }
 
-            {
-              bool any = false;
-              for (auto* h : perPhoHists) if (h) { any = true; break; }
+              {
+                bool any = false;
+                for (auto* h : perPhoHists) if (h) { any = true; break; }
 
                 if (any)
                 {
-                  auto drawTable6 = [&](const int startIdx, const std::string& outName)
+                  TCanvas c(
+                    TString::Format("c_tbl_unf_perPho_%s", rKey.c_str()).Data(),
+                    "c_tbl_unf_perPho", 2200, 1100
+                  );
+                  c.Divide(nPtCols, nPtRows, 0.001, 0.001);
+
+                  for (int ipad = 0; ipad < nPtPads; ++ipad)
                   {
-                    TCanvas c(
-                      TString::Format("c_tbl_unf_perPho_%s_%d", rKey.c_str(), startIdx).Data(),
-                      "c_tbl_unf_perPho", 1800, 1100
-                    );
-                    c.Divide(3, 2, 0.001, 0.001);
+                    const int i = ipad;
 
-                    for (int ipad = 0; ipad < nPtTable; ++ipad)
+                    c.cd(ipad + 1);
+                    gPad->SetLeftMargin(0.12);
+                    gPad->SetRightMargin(0.04);
+                    gPad->SetBottomMargin(0.12);
+                    gPad->SetTopMargin(0.06);
+
+                    if (i < 0 || i >= nPtAll)
                     {
-                      const int i = startIdx + ipad;
+                      TH1F frame("frame","", 1, 0.0, 2.0);
+                      frame.SetMinimum(0.0);
+                      frame.SetMaximum(1.0);
+                      frame.SetTitle("");
+                      frame.GetXaxis()->SetTitle("x_{J}");
+                      frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                      frame.Draw("axis");
 
-                      c.cd(ipad + 1);
-                      gPad->SetLeftMargin(0.12);
-                      gPad->SetRightMargin(0.04);
-                      gPad->SetBottomMargin(0.12);
-                      gPad->SetTopMargin(0.06);
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextSize(0.050);
+                      tx.DrawLatex(0.16, 0.50, "MISSING");
+                      continue;
+                    }
 
-                      if (i < 0 || i >= nPtAll)
+                    const PtBin& b = UnfoldRecoPtBins()[i];
+
+                    if (perPhoHists[i])
+                    {
+                      TH1* h = perPhoHists[i];
+                      h->GetXaxis()->SetRangeUser(0.0, 2.0);
+
+                      // Recompute a tight Y-range from actual bin content+error (ignore any previously-set maximum)
+                      double maxY = 0.0;
+                      const int nxb = h->GetNbinsX();
+                      for (int ib = 1; ib <= nxb; ++ib)
                       {
-                        TH1F frame("frame","", 1, 0.0, 2.0);
-                        frame.SetMinimum(0.0);
-                        frame.SetMaximum(1.0);
-                        frame.SetTitle("");
-                        frame.GetXaxis()->SetTitle("x_{J}");
-                        frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
-                        frame.Draw("axis");
-
-                        TLatex tx;
-                        tx.SetNDC();
-                        tx.SetTextFont(42);
-                        tx.SetTextSize(0.050);
-                        tx.DrawLatex(0.16, 0.50, "MISSING");
-                        continue;
+                        const double y  = h->GetBinContent(ib);
+                        const double ey = h->GetBinError(ib);
+                        const double v  = y + ey;
+                        if (v > maxY) maxY = v;
                       }
 
-                      const PtBin& b = PtBins()[i];
+                      h->SetMinimum(0.0);
+                      h->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
+                      h->Draw("E1");
+                    }
+                    else
+                    {
+                      TH1F frame("frame","", 1, 0.0, 2.0);
+                      frame.SetMinimum(0.0);
+                      frame.SetMaximum(1.0);
+                      frame.SetTitle("");
+                      frame.GetXaxis()->SetTitle("x_{J}");
+                      frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                      frame.Draw("axis");
 
-                      if (perPhoHists[i])
-                      {
-                        TH1* h = perPhoHists[i];
-                        h->GetXaxis()->SetRangeUser(0.0, 2.0);
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextSize(0.050);
+                      tx.DrawLatex(0.16, 0.50, "MISSING");
+                    }
 
-                        // Recompute a tight Y-range from actual bin content+error (ignore any previously-set maximum)
-                        double maxY = 0.0;
-                        const int nxb = h->GetNbinsX();
-                        for (int ib = 1; ib <= nxb; ++ib)
-                        {
-                          const double y  = h->GetBinContent(ib);
-                          const double ey = h->GetBinError(ib);
-                          const double v  = y + ey;
-                          if (v > maxY) maxY = v;
-                        }
+                    // Centered per-pad title
+                    {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(22);
+                      tx.SetTextSize(0.042);
 
-                        h->SetMinimum(0.0);
-                        h->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
-                        h->Draw("E1");
-                      }
-                      else
-                      {
-                        TH1F frame("frame","", 1, 0.0, 2.0);
-                        frame.SetMinimum(0.0);
-                        frame.SetMaximum(1.0);
-                        frame.SetTitle("");
-                        frame.GetXaxis()->SetTitle("x_{J}");
-                        frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
-                        frame.Draw("axis");
+                      tx.DrawLatex(0.52, 0.955,
+                                   TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV, R = %.1f",
+                                                   b.lo, b.hi, R).Data());
+                    }
 
-                        TLatex tx;
-                        tx.SetNDC();
-                        tx.SetTextFont(42);
-                        tx.SetTextSize(0.050);
-                        tx.DrawLatex(0.16, 0.50, "MISSING");
-                      }
-
-                      // Centered per-pad title
-                      {
-                        TLatex tx;
-                        tx.SetNDC();
-                        tx.SetTextFont(42);
-                        tx.SetTextAlign(22);
-                        tx.SetTextSize(0.042);
-
-                        tx.DrawLatex(0.52, 0.955,
-                                     TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV, R = %.1f",
-                                                     b.lo, b.hi, R).Data());
-                      }
-
-                      // Per-pad cut/trigger label (top-right, 3 lines)
-                      {
-                        TLatex tx;
-                        tx.SetNDC();
-                        tx.SetTextFont(42);
-                        tx.SetTextAlign(31);
-                        tx.SetTextSize(0.04);
+                    // Per-pad cut/trigger label (top-right, 3 lines)
+                    {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(31);
+                      tx.SetTextSize(0.04);
 
                         const double xR = 0.93;
+                        tx.DrawLatex(xR, 0.67, "z_{vtx} < 60 cm");
                         tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
                         tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
                         tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
-                      }
                     }
-
-                    SaveCanvas(c, JoinPath(rOut, outName));
-                  };
-
-                  // First 6
-                  drawTable6(0, "table2x3_unfolded_perPhoton_dNdXJ.png");
-
-                  // Last 6 (only if you actually have >6 pT bins)
-                  if (nPtAll > 6)
-                  {
-                    drawTable6(tableLastStart, "table2x3_unfolded_perPhoton_dNdXJ_last6.png");
                   }
+
+                  SaveCanvas(c, JoinPath(rOut, "table2x4_unfolded_perPhoton_dNdXJ.png"));
                 }
+              }
 
               // ----------------------------------------------------------------------
               // Iteration stability / regularization diagnostic (DATA):
@@ -16793,17 +16904,14 @@ namespace ARJ
                   leg.AddEntry(&gChg,  "total relative deviation (it vs it-1)", "p");
                   leg.Draw();
 
-                  // Keep dataset header if you want it; title is centered at the very top
-                  DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
-
-                  {
-                    TLatex tx;
-                    tx.SetNDC();
-                    tx.SetTextFont(42);
-                    tx.SetTextAlign(22);
-                    tx.SetTextSize(0.040);
-                    tx.DrawLatex(0.50, 0.965, TString::Format("Iteration Stability, R = %.1f, Unfolding QA", R).Data());
-                  }
+                    {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(22);
+                      tx.SetTextSize(0.040);
+                      tx.DrawLatex(0.50, 0.965, "Iteration Stability, R = 0.4, Photon 4 + MBD NS #geq 1, Run24pp");
+                    }
 
                   cIt.Modified();
                   cIt.Update();
@@ -16877,11 +16985,11 @@ namespace ARJ
             delete h2RspSim;
           }
 
-            // ----------------------------------------------------------------------
-            // (B.2) NEW: all-radii overlay table (r02, r04, r06) saved to <outBase>/
-            //   <triggerName>/unfolding/radii/table2x3_unfolded_perPhoton_dNdXJ_overlay_radii.png
-            // ----------------------------------------------------------------------
-            {
+          // ----------------------------------------------------------------------
+          // (B.2) all-radii overlay table (r02, r04, r06) saved to <outBase>/
+          //   <triggerName>/unfolding/radii/table2x3_unfolded_perPhoton_dNdXJ_overlay_radii.png
+          // ----------------------------------------------------------------------
+          {
               auto it02 = perPhoHistsByRKey.find("r02");
               auto it04 = perPhoHistsByRKey.find("r04");
               auto it06 = perPhoHistsByRKey.find("r06");
@@ -16897,28 +17005,49 @@ namespace ARJ
 
               if (any)
               {
-                TCanvas c("c_tbl_unf_perPho_overlay_radii", "c_tbl_unf_perPho_overlay_radii", 1800, 1100);
-                c.Divide(3, 2, 0.001, 0.001);
+                  TCanvas c("c_tbl_unf_perPho_overlay_radii", "c_tbl_unf_perPho_overlay_radii", 2200, 1100);
+                  c.Divide(4, 2, 0.001, 0.001);
 
-                const int nPtCanon = std::min(6, (int)PtBins().size());
+                  const int nPtAll = (int)UnfoldRecoPtBins().size();
+                  const int nPads = 8;
 
-                for (int i = 0; i < nPtCanon; ++i)
-                {
-                  c.cd(i + 1);
-                  gPad->SetLeftMargin(0.12);
-                  gPad->SetRightMargin(0.04);
-                  gPad->SetBottomMargin(0.12);
-                  gPad->SetTopMargin(0.06);
+                  for (int ipad = 0; ipad < nPads; ++ipad)
+                  {
+                    const int i = ipad;
 
-                  const PtBin& b = PtBins()[i];
+                    c.cd(ipad + 1);
+                    gPad->SetLeftMargin(0.12);
+                    gPad->SetRightMargin(0.04);
+                    gPad->SetBottomMargin(0.12);
+                    gPad->SetTopMargin(0.06);
+
+                    if (i < 0 || i >= nPtAll)
+                    {
+                      TH1F frame("frame","", 1, 0.0, 2.0);
+                      frame.SetMinimum(0.0);
+                      frame.SetMaximum(1.0);
+                      frame.SetTitle("");
+                      frame.GetXaxis()->SetTitle("x_{J}");
+                      frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                      frame.Draw("axis");
+
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextSize(0.050);
+                      tx.DrawLatex(0.16, 0.50, "MISSING");
+                      continue;
+                    }
+
+                  const PtBin& b = UnfoldRecoPtBins()[i];
 
                   TH1* h02 = (have02 && (int)it02->second.size() > i) ? it02->second[i] : nullptr;
                   TH1* h04 = (have04 && (int)it04->second.size() > i) ? it04->second[i] : nullptr;
                   TH1* h06 = (have06 && (int)it06->second.size() > i) ? it06->second[i] : nullptr;
 
-                    double maxY = 0.0;
-                    auto scanMax = [&](TH1* h)
-                    {
+                  double maxY = 0.0;
+                  auto scanMax = [&](TH1* h)
+                  {
                       if (!h) return;
                       const int nxb = h->GetNbinsX();
                       for (int ib = 1; ib <= nxb; ++ib)
@@ -16932,15 +17061,15 @@ namespace ARJ
                         const double v = y + ey;
                         if (v > maxY) maxY = v;
                       }
-                    };
-                    scanMax(h02);
-                    scanMax(h04);
-                    scanMax(h06);
+                  };
+                  scanMax(h02);
+                  scanMax(h04);
+                  scanMax(h06);
 
-                    // Use one of the actual hists to set axes/range (keeps ROOT styling consistent)
-                    TH1* hBase = (h04 ? h04 : (h02 ? h02 : h06));
-                    if (hBase)
-                    {
+                  // Use one of the actual hists to set axes/range (keeps ROOT styling consistent)
+                  TH1* hBase = (h04 ? h04 : (h02 ? h02 : h06));
+                  if (hBase)
+                  {
                       hBase->SetTitle("");
                       hBase->GetXaxis()->SetTitle("x_{J}");
                       hBase->GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
@@ -16957,57 +17086,58 @@ namespace ARJ
                       frame.GetXaxis()->SetTitle("x_{J}");
                       frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
                       frame.Draw("axis");
-                    }
+                  }
 
-                    if (h02)
-                    {
+                  if (h02)
+                  {
                       h02->SetLineColor(kRed);
                       h02->SetMarkerColor(kRed);
                       h02->Draw("E1 same");
-                    }
-                    if (h04)
-                    {
+                  }
+                  if (h04)
+                  {
                       h04->SetLineColor(kBlue);
                       h04->SetMarkerColor(kBlue);
                       h04->Draw("E1 same");
-                    }
-                    if (h06)
-                    {
+                  }
+                  if (h06)
+                  {
                       h06->SetLineColor(kGreen + 2);
                       h06->SetMarkerColor(kGreen + 2);
                       h06->Draw("E1 same");
-                    }
+                  }
 
-                    // Centered per-pad title
-                    {
+                  // Centered per-pad title
+                  {
                       TLatex tx;
                       tx.SetNDC();
                       tx.SetTextFont(42);
                       tx.SetTextAlign(22);
                       tx.SetTextSize(0.042);
 
-                      tx.DrawLatex(0.52, 0.94,
+                      tx.DrawLatex(0.52, 0.955,
                                    TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV",
                                                    b.lo, b.hi).Data());
-                    }
+                  }
 
-                    // Per-pad cut/trigger label (top-right, 3 lines)
-                    {
+                  // Per-pad cut/trigger label (top-right, 3 lines)
+                  {
                       TLatex tx;
                       tx.SetNDC();
                       tx.SetTextFont(42);
                       tx.SetTextAlign(31);
                       tx.SetTextSize(0.034);
 
-                      const double xR = 0.96;
+                      const double xR = 0.94;
+                      tx.DrawLatex(xR, 0.73, "z_{vtx} < 60 cm");
                       tx.DrawLatex(xR, 0.78, "#Delta #phi > 7#pi/8");
                       tx.DrawLatex(xR, 0.83, "p_{T}^{min, jet} > 5");
                       tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
-                    }
+                  }
 
-                    // Legend under the TLatex block (top-right)  (heap-allocated so it persists into SaveCanvas)
-                    {
-                      auto* leg = new TLegend(0.62, 0.62, 0.95, 0.76);
+                  // Legend under the TLatex block (top-right)  (heap-allocated so it persists into SaveCanvas)
+                  {
+                      auto* leg = new TLegend(0.62, 0.5, 0.95, 0.7);
                       leg->SetBorderSize(0);
                       leg->SetFillStyle(0);
                       leg->SetTextFont(42);
@@ -17018,10 +17148,10 @@ namespace ARJ
                       if (h06) leg->AddEntry(h06, "R = 0.6", "lep");
 
                       leg->Draw();
-                    }
+                  }
                 }
 
-                SaveCanvas(c, JoinPath(outBase, "table2x3_unfolded_perPhoton_dNdXJ_overlay_radii.png"));
+                  SaveCanvas(c, JoinPath(outBase, "table2x4_unfolded_perPhoton_dNdXJ_overlay_radii.png"));
               }
             }
 
