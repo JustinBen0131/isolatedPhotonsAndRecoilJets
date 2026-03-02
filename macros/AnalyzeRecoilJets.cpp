@@ -8376,8 +8376,6 @@ namespace ARJ
 
                             SaveCanvas(cPanel, JoinPath(dirOv, "meanVsPt_withRatioPanel_reco_integratedAlpha_overlayedWithSim_withFits.png"));
 
-                            if (lFitUp) delete lFitUp;
-                            if (lFitDn) delete lFitDn;
                             if (fJES)   delete fJES;
                             delete legP;
                             delete hTop;
@@ -8692,6 +8690,9 @@ namespace ARJ
                   if (!(isAuAuOnly && !ds.isSim && !ds.centSuffix.empty())) return;
                   if (tag != "RECO") return;
 
+                  // Never produce a log-y overlay table (user requested no *_logy.png)
+                  if (logy) return;
+
                   static TFile* fPP = nullptr;
                   static TDirectory* dirPP = nullptr;
 
@@ -8713,176 +8714,277 @@ namespace ARJ
                   if (!h3PP) return;
 
                   const int nAll = h3Au->GetXaxis()->GetNbins();
+                  if (nAll <= 0) return;
 
-                  const bool wantLast6 = true;
-                  const int  n         = std::min(6, nAll);
-
+                  // 2x3 table uses the FIRST 6 pT bins
+                  const int n = std::min(6, nAll);
                   const int perPage = 6;
-
                   const int nCols = 3;
                   const int nRows = 2;
 
-                  const int firstBin = std::max(1, nAll - n + 1);
-                  const int lastStartBin = firstBin;
+                  const int firstBin = 1;
+                  const int lastStartBin = 1;
 
                   const string overlayDir = JoinPath(outBaseDir, "auau_pp_overlay");
                   EnsureDir(overlayDir);
 
-                  int page = 0;
-                  for (int start = firstBin; start <= lastStartBin; start += perPage)
+                  auto NormalizeUnitArea = [&](TH1* h)->void
                   {
-                    ++page;
+                    if (!h) return;
+                    const double integ = h->Integral(0, h->GetNbinsX() + 1);
+                    if (integ > 0.0) h->Scale(1.0 / integ);
+                  };
 
-                    TCanvas c(
-                      TString::Format("c_tbl_xJ_auauPP_%s_%s_%s_%s_p%d",
-                        ds.label.c_str(),
-                        rKey.c_str(),
-                        tag.c_str(),
-                        logy ? "logy" : "lin",
-                        page).Data(),
-                      "c_tbl_xJ_auauPP", 1
+                  auto StyleAuAuPP = [&](TH1* hxAu, TH1* hxPP)->void
+                  {
+                    hxAu->SetLineWidth(2);
+                    hxAu->SetMarkerStyle(20);
+                    hxAu->SetMarkerSize(1.0);
+
+                    hxPP->SetLineWidth(2);
+                    hxPP->SetLineColor(kRed + 1);
+                    hxPP->SetMarkerColor(kRed + 1);
+                    hxPP->SetMarkerStyle(24);
+                    hxPP->SetMarkerSize(1.0);
+
+                    hxAu->SetTitle("");
+                    hxAu->GetXaxis()->SetTitle("x_{J#gamma}");
+                    hxAu->GetXaxis()->SetRangeUser(0.0, 2.0);
+                    hxAu->GetYaxis()->SetTitle("Normalized Counts");
+
+                    const double maxAu = hxAu->GetMaximum();
+                    const double maxPP = hxPP->GetMaximum();
+                    const double maxY  = std::max(maxAu, maxPP);
+
+                    hxAu->SetMinimum(0.0);
+                    hxAu->SetMaximum((maxY > 0.0) ? (1.25 * maxY) : 1.0);
+                  };
+
+                  // -----------------------
+                  // (A) 2x3 TABLE (first 6)
+                  // -----------------------
+                  {
+                    int page = 0;
+                    for (int start = firstBin; start <= lastStartBin; start += perPage)
+                    {
+                      ++page;
+
+                      TCanvas c(
+                        TString::Format("c_tbl_xJ_auauPP_%s_%s_%s_lin_p%d",
+                          ds.label.c_str(),
+                          rKey.c_str(),
+                          tag.c_str(),
+                          page).Data(),
+                        "c_tbl_xJ_auauPP", 1
+                      );
+
+                      c.SetCanvasSize(2400, 1400);
+                      c.Divide(nCols, nRows, 0.002, 0.002);
+
+                      vector<TObject*> keep;
+                      int pad = 0;
+
+                      for (int k = 0; k < perPage; ++k)
+                      {
+                        const int ib = start + k;
+                        ++pad;
+                        c.cd(pad);
+
+                        gPad->SetLeftMargin(0.13);
+                        gPad->SetRightMargin(0.04);
+                        gPad->SetBottomMargin(0.14);
+                        gPad->SetTopMargin(0.10);
+                        gPad->SetLogy(false);
+
+                        if (ib > n)
+                        {
+                          TLatex t;
+                          t.SetNDC(true);
+                          t.SetTextFont(42);
+                          t.SetTextSize(0.06);
+                          t.DrawLatex(0.20, 0.55, "EMPTY");
+                          continue;
+                        }
+
+                        TH1* hxAu = ProjectY_AtXbin_TH3(
+                          h3Au, ib,
+                          TString::Format("jes3_xJ_tbl_auau_%s_%s_lin_%d",
+                            rKey.c_str(), tag.c_str(), ib).Data()
+                        );
+
+                        TH1* hxPP = ProjectY_AtXbin_TH3(
+                          h3PP, ib,
+                          TString::Format("jes3_xJ_tbl_pp_%s_%s_lin_%d",
+                            rKey.c_str(), tag.c_str(), ib).Data()
+                        );
+
+                        if (!hxAu || !hxPP)
+                        {
+                          TLatex t;
+                          t.SetNDC(true);
+                          t.SetTextFont(42);
+                          t.SetTextSize(0.06);
+                          t.DrawLatex(0.15, 0.55, "MISSING");
+                          if (hxAu) delete hxAu;
+                          if (hxPP) delete hxPP;
+                          continue;
+                        }
+
+                        hxAu->SetDirectory(nullptr);
+                        hxPP->SetDirectory(nullptr);
+                        EnsureSumw2(hxAu);
+                        EnsureSumw2(hxPP);
+
+                        NormalizeUnitArea(hxAu);
+                        NormalizeUnitArea(hxPP);
+
+                        StyleAuAuPP(hxAu, hxPP);
+
+                        hxAu->Draw("E1");
+                        hxPP->Draw("E1 same");
+
+                        TLegend* leg = new TLegend(0.18, 0.78, 0.52, 0.90);
+                        leg->SetBorderSize(0);
+                        leg->SetFillStyle(0);
+                        leg->SetTextFont(42);
+                        leg->SetTextSize(0.038);
+                        leg->SetEntrySeparation(0.22);
+                        leg->AddEntry(hxPP, "pp",   "ep");
+                        leg->AddEntry(hxAu, "AuAu", "ep");
+                        leg->Draw();
+
+                        const auto& cfgDef = DefaultSim10and20Config();
+                        const double jetPtMin_GeV = cfgDef.jetMinPt;
+
+                        const double ptMin = h3Au->GetXaxis()->GetBinLowEdge(ib);
+                        const double ptMax = h3Au->GetXaxis()->GetBinUpEdge(ib);
+
+                        {
+                          TLatex tCuts;
+                          tCuts.SetNDC(true);
+                          tCuts.SetTextFont(42);
+                          tCuts.SetTextAlign(33);
+                          tCuts.SetTextSize(0.038);
+                          tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
+                          tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
+                        }
+
+                        {
+                          TLatex t;
+                          t.SetNDC(true);
+                          t.SetTextFont(42);
+                          t.SetTextAlign(13);
+                          t.SetTextSize(0.052);
+                          t.DrawLatex(0.14, 0.98,
+                            TString::Format("RECO x_{J#gamma}, p_{T}^{#gamma} = %.0f - %.0f GeV, R = %.1f",
+                              ptMin, ptMax, R).Data());
+                        }
+
+                        keep.push_back(hxAu);
+                        keep.push_back(hxPP);
+                        keep.push_back(leg);
+                      }
+
+                      const string outName = TString::Format("table2x3_xJ_%s_integratedAlpha.png", tag.c_str()).Data();
+                      SaveCanvas(c, JoinPath(overlayDir, outName));
+
+                      for (auto* h : keep) delete h;
+                    }
+                  }
+
+                  // ----------------------------------------
+                  // (B) INDIVIDUAL PNG for EVERY pT bin (1..nAll)
+                  // ----------------------------------------
+                  for (int ib = 1; ib <= nAll; ++ib)
+                  {
+                    TH1* hxAu = ProjectY_AtXbin_TH3(
+                      h3Au, ib,
+                      TString::Format("jes3_xJ_indiv_auau_%s_%s_lin_%d",
+                        rKey.c_str(), tag.c_str(), ib).Data()
                     );
 
-                    c.SetCanvasSize(2400, 1400);
-                    c.Divide(nCols, nRows, 0.002, 0.002);
+                    TH1* hxPP = ProjectY_AtXbin_TH3(
+                      h3PP, ib,
+                      TString::Format("jes3_xJ_indiv_pp_%s_%s_lin_%d",
+                        rKey.c_str(), tag.c_str(), ib).Data()
+                    );
 
-                    vector<TObject*> keep;
-                    int pad = 0;
-
-                    for (int ib = start; ib < start + perPage; ++ib)
+                    if (!hxAu || !hxPP)
                     {
-                      ++pad;
-                      c.cd(pad);
-
-                      gPad->SetLeftMargin(0.13);
-                      gPad->SetRightMargin(0.04);
-                      gPad->SetBottomMargin(0.14);
-                      gPad->SetTopMargin(0.10);
-                      gPad->SetLogy(logy);
-
-                      if (ib > nAll)
-                      {
-                        TLatex t;
-                        t.SetNDC(true);
-                        t.SetTextFont(42);
-                        t.SetTextSize(0.06);
-                        t.DrawLatex(0.20, 0.55, "EMPTY");
-                        continue;
-                      }
-
-                      TH1* hxAu = ProjectY_AtXbin_TH3(
-                        h3Au, ib,
-                        TString::Format("jes3_xJ_tbl_auau_%s_%s_%s_%d",
-                          rKey.c_str(), tag.c_str(), logy ? "logy" : "lin", ib).Data()
-                      );
-
-                      TH1* hxPP = ProjectY_AtXbin_TH3(
-                        h3PP, ib,
-                        TString::Format("jes3_xJ_tbl_pp_%s_%s_%s_%d",
-                          rKey.c_str(), tag.c_str(), logy ? "logy" : "lin", ib).Data()
-                      );
-
-                      if (!hxAu || !hxPP)
-                      {
-                        TLatex t;
-                        t.SetNDC(true);
-                        t.SetTextFont(42);
-                        t.SetTextSize(0.06);
-                        t.DrawLatex(0.15, 0.55, "MISSING");
-                        if (hxAu) delete hxAu;
-                        if (hxPP) delete hxPP;
-                        continue;
-                      }
-
-                      hxAu->SetDirectory(nullptr);
-                      hxPP->SetDirectory(nullptr);
-                      EnsureSumw2(hxAu);
-                      EnsureSumw2(hxPP);
-
-                      hxAu->SetLineWidth(2);
-                      hxAu->SetMarkerStyle(20);
-                      hxAu->SetMarkerSize(1.0);
-
-                      hxPP->SetLineWidth(2);
-                      hxPP->SetLineColor(kRed + 1);
-                      hxPP->SetMarkerColor(kRed + 1);
-                      hxPP->SetMarkerStyle(24);
-                      hxPP->SetMarkerSize(1.0);
-
-                      hxAu->SetTitle("");
-                      hxAu->GetXaxis()->SetTitle("x_{J#gamma}");
-                      hxAu->GetXaxis()->SetRangeUser(0.0, 2.0);
-                      hxAu->GetYaxis()->SetTitle("Counts");
-
-                      if (logy)
-                      {
-                        const double minPosAu = SmallestPositiveBinContent(hxAu);
-                        const double minPosPP = SmallestPositiveBinContent(hxPP);
-                        const double minPos   = (minPosAu > 0.0 && minPosPP > 0.0) ? std::min(minPosAu, minPosPP) :
-                                                (minPosAu > 0.0 ? minPosAu : (minPosPP > 0.0 ? minPosPP : -1.0));
-                        hxAu->SetMinimum((minPos > 0.0) ? (0.5 * minPos) : 1e-6);
-                      }
-
-                      hxAu->Draw("E1");
-                      hxPP->Draw("E1 same");
-
-                      TLegend* leg = new TLegend(0.18, 0.78, 0.52, 0.90);
-                      leg->SetBorderSize(0);
-                      leg->SetFillStyle(0);
-                      leg->SetTextFont(42);
-                      leg->SetTextSize(0.038);
-                      leg->SetEntrySeparation(0.22);
-                      leg->AddEntry(hxPP, "pp",   "ep");
-                      leg->AddEntry(hxAu, "AuAu", "ep");
-                      leg->Draw();
-
-                      const auto& cfgDef = DefaultSim10and20Config();
-                      const double jetPtMin_GeV = cfgDef.jetMinPt;
-
-                      const double ptMin = h3Au->GetXaxis()->GetBinLowEdge(ib);
-                      const double ptMax = h3Au->GetXaxis()->GetBinUpEdge(ib);
-
-                      {
-                        TLatex tCuts;
-                        tCuts.SetNDC(true);
-                        tCuts.SetTextFont(42);
-                        tCuts.SetTextAlign(33);
-                        tCuts.SetTextSize(0.038);
-                        tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
-                        tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
-                      }
-
-                      {
-                        TLatex t;
-                        t.SetNDC(true);
-                        t.SetTextFont(42);
-                        t.SetTextAlign(13);
-                        t.SetTextSize(0.052);
-                        t.DrawLatex(0.14, 0.98,
-                          TString::Format("RECO x_{J#gamma}, p_{T}^{#gamma} = %.0f - %.0f GeV, R = %.1f",
-                            ptMin, ptMax, R).Data());
-                      }
-
-                      keep.push_back(hxAu);
-                      keep.push_back(hxPP);
-                      keep.push_back(leg);
+                      if (hxAu) delete hxAu;
+                      if (hxPP) delete hxPP;
+                      continue;
                     }
 
-                    string outName;
-                    if (n <= perPage)
+                    hxAu->SetDirectory(nullptr);
+                    hxPP->SetDirectory(nullptr);
+                    EnsureSumw2(hxAu);
+                    EnsureSumw2(hxPP);
+
+                    NormalizeUnitArea(hxAu);
+                    NormalizeUnitArea(hxPP);
+
+                    StyleAuAuPP(hxAu, hxPP);
+
+                    const double ptMin = h3Au->GetXaxis()->GetBinLowEdge(ib);
+                    const double ptMax = h3Au->GetXaxis()->GetBinUpEdge(ib);
+
+                    TCanvas c(
+                      TString::Format("c_xJ_auauPP_%s_%s_%d",
+                        ds.label.c_str(), rKey.c_str(), ib).Data(),
+                      "c_xJ_auauPP", 900, 700
+                    );
+
+                    c.SetTopMargin(0.10);
+                    c.SetBottomMargin(0.14);
+                    c.SetLeftMargin(0.13);
+                    c.SetRightMargin(0.05);
+
+                    hxAu->Draw("E1");
+                    hxPP->Draw("E1 same");
+
+                    TLegend* leg = new TLegend(0.18, 0.78, 0.42, 0.90);
+                    leg->SetBorderSize(0);
+                    leg->SetFillStyle(0);
+                    leg->SetTextFont(42);
+                    leg->SetTextSize(0.040);
+                    leg->SetEntrySeparation(0.22);
+                    leg->AddEntry(hxPP, "pp",   "ep");
+                    leg->AddEntry(hxAu, "AuAu", "ep");
+                    leg->Draw();
+
+                    const auto& cfgDef = DefaultSim10and20Config();
+                    const double jetPtMin_GeV = cfgDef.jetMinPt;
+
                     {
-                      outName = TString::Format("table3x3_xJ_%s_integratedAlpha%s.png",
-                        tag.c_str(), logy ? "_logy" : "").Data();
+                      TLatex tCuts;
+                      tCuts.SetNDC(true);
+                      tCuts.SetTextFont(42);
+                      tCuts.SetTextAlign(33);
+                      tCuts.SetTextSize(0.038);
+                      tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
+                      tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
                     }
-                    else
+
                     {
-                      outName = TString::Format("table3x3_xJ_%s_integratedAlpha%s_page%d.png",
-                        tag.c_str(), logy ? "_logy" : "", page).Data();
+                      TLatex t;
+                      t.SetNDC(true);
+                      t.SetTextFont(42);
+                      t.SetTextAlign(13);
+                      t.SetTextSize(0.052);
+                      t.DrawLatex(0.14, 0.98,
+                        TString::Format("RECO x_{J#gamma}, p_{T}^{#gamma} = %.0f - %.0f GeV, R = %.1f",
+                          ptMin, ptMax, R).Data());
                     }
+
+                    const string outName = TString::Format("xJ_%s_integratedAlpha_auau_pp_pTgamma_%d_%d.png",
+                      tag.c_str(), (int)ptMin, (int)ptMax).Data();
 
                     SaveCanvas(c, JoinPath(overlayDir, outName));
 
-                    for (auto* h : keep) delete h;
+                    delete leg;
+                    delete hxAu;
+                    delete hxPP;
                   }
                 };
 
@@ -9003,7 +9105,6 @@ namespace ARJ
                 Make3x3Table_xJ_FromTH3(H.hTrutPure_xJ,           D.dirXJProjTruthPure,               "TRUTH", false);
 
                 Make3x3Table_xJ_FromTH3(H.hReco_xJ,               D.dirXJProjReco,                   "RECO",  true);
-                Make3x3Table_xJ_AuAuPPOverlay_FromTH3(H.hReco_xJ, D.dirXJProjReco,                   "RECO",  true);
                 Make3x3Table_xJ_FromTH3(H.hRecoTruthPhoTagged_xJ, D.dirXJProjRecoTruthPhoTagged,     "RECO",  true);
                 Make3x3Table_xJ_FromTH3(H.hRecoTruthTagged_xJ,    D.dirXJProjRecoTruthTagged,        "RECO",  true);
 
