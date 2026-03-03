@@ -17272,6 +17272,306 @@ namespace ARJ
                 if (hMeasSimGlob_closure) delete hMeasSimGlob_closure;
             }
 
+            // ----------------------------------------------------------------------
+            // Half-closure test (SIM, single-file infrastructure):
+            //   Split the SIM response matrix into two disjoint halves (A/B) at the
+            //   response-matrix bin level (Binomial partition, 50/50).
+            //
+            //   Train response on half A, unfold half B reco, compare to half B truth.
+            //
+            //   Summary vs pT: (Integral of unfolded_B xJ)/(Integral of truth_B xJ)  ~ 1
+            //
+            //   Output: <rOut>/halfClosure_unfoldedOverTruth_integral_vs_pTgamma.png
+            // ----------------------------------------------------------------------
+            {
+                if (hRsp_measXtruth && hMeasSimGlob && hTruthSimGlob && h2TruthSim)
+                {
+                  unsigned int seed = 1337u;
+                  for (size_t ic = 0; ic < rKey.size(); ++ic)
+                  {
+                    seed = seed * 131u + (unsigned int)(unsigned char)rKey[ic];
+                  }
+                  std::mt19937 rng(seed);
+
+                  TH2D* hRsp_measXtruth_A = dynamic_cast<TH2D*>(CloneTH2(
+                    hRsp_measXtruth,
+                    TString::Format("h2_unfoldResponse_global_recoVsTruth_halfA_%s", rKey.c_str()).Data()
+                  ));
+                  TH2D* hRsp_measXtruth_B = dynamic_cast<TH2D*>(CloneTH2(
+                    hRsp_measXtruth,
+                    TString::Format("h2_unfoldResponse_global_recoVsTruth_halfB_%s", rKey.c_str()).Data()
+                  ));
+
+                  TH1* hMeasSimGlob_A  = CloneTH1(hMeasSimGlob,
+                    TString::Format("hMeasSimGlob_halfA_%s", rKey.c_str()).Data());
+                  TH1* hTruthSimGlob_A = CloneTH1(hTruthSimGlob,
+                    TString::Format("hTruthSimGlob_halfA_%s", rKey.c_str()).Data());
+                  TH1* hMeasSimGlob_B  = CloneTH1(hMeasSimGlob,
+                    TString::Format("hMeasSimGlob_halfB_%s", rKey.c_str()).Data());
+                  TH1* hTruthSimGlob_B = CloneTH1(hTruthSimGlob,
+                    TString::Format("hTruthSimGlob_halfB_%s", rKey.c_str()).Data());
+
+                  if (hRsp_measXtruth_A) { hRsp_measXtruth_A->Reset("ICES"); hRsp_measXtruth_A->SetDirectory(nullptr); hRsp_measXtruth_A->Sumw2(); }
+                  if (hRsp_measXtruth_B) { hRsp_measXtruth_B->Reset("ICES"); hRsp_measXtruth_B->SetDirectory(nullptr); hRsp_measXtruth_B->Sumw2(); }
+
+                  if (hMeasSimGlob_A)  { hMeasSimGlob_A ->Reset("ICES"); EnsureSumw2(hMeasSimGlob_A); }
+                  if (hTruthSimGlob_A) { hTruthSimGlob_A->Reset("ICES"); EnsureSumw2(hTruthSimGlob_A); }
+                  if (hMeasSimGlob_B)  { hMeasSimGlob_B ->Reset("ICES"); EnsureSumw2(hMeasSimGlob_B); }
+                  if (hTruthSimGlob_B) { hTruthSimGlob_B->Reset("ICES"); EnsureSumw2(hTruthSimGlob_B); }
+
+                  if (!hRsp_measXtruth_A || !hRsp_measXtruth_B || !hMeasSimGlob_A || !hTruthSimGlob_A || !hMeasSimGlob_B || !hTruthSimGlob_B)
+                  {
+                    cout << ANSI_BOLD_YEL
+                         << "[WARN] Half-closure: failed to allocate split response/marginals for " << rKey
+                         << ". Skipping half-closure."
+                         << ANSI_RESET << "\n";
+                  }
+                  else
+                  {
+                    vector<double> measA((std::size_t)nGlobReco_rsp  + 2, 0.0);
+                    vector<double> measB((std::size_t)nGlobReco_rsp  + 2, 0.0);
+                    vector<double> truthA((std::size_t)nGlobTruth_rsp + 2, 0.0);
+                    vector<double> truthB((std::size_t)nGlobTruth_rsp + 2, 0.0);
+
+                    for (int ixTruth = 0; ixTruth <= nGlobTruth_rsp + 1; ++ixTruth)
+                    {
+                      for (int iyReco = 0; iyReco <= nGlobReco_rsp + 1; ++iyReco)
+                      {
+                        const double nRaw = hRsp_measXtruth->GetBinContent(iyReco, ixTruth);
+                        if (!(nRaw > 0.0))
+                        {
+                          hRsp_measXtruth_A->SetBinContent(iyReco, ixTruth, 0.0);
+                          hRsp_measXtruth_A->SetBinError  (iyReco, ixTruth, 0.0);
+                          hRsp_measXtruth_B->SetBinContent(iyReco, ixTruth, 0.0);
+                          hRsp_measXtruth_B->SetBinError  (iyReco, ixTruth, 0.0);
+                          continue;
+                        }
+
+                        const long long N = (long long)std::llround(nRaw);
+                        if (N <= 0LL)
+                        {
+                          hRsp_measXtruth_A->SetBinContent(iyReco, ixTruth, 0.0);
+                          hRsp_measXtruth_A->SetBinError  (iyReco, ixTruth, 0.0);
+                          hRsp_measXtruth_B->SetBinContent(iyReco, ixTruth, 0.0);
+                          hRsp_measXtruth_B->SetBinError  (iyReco, ixTruth, 0.0);
+                          continue;
+                        }
+
+                        std::binomial_distribution<long long> d(N, 0.5);
+                        const long long NA = d(rng);
+                        const long long NB = N - NA;
+
+                        hRsp_measXtruth_A->SetBinContent(iyReco, ixTruth, (double)NA);
+                        hRsp_measXtruth_A->SetBinError  (iyReco, ixTruth, std::sqrt((double)NA));
+
+                        hRsp_measXtruth_B->SetBinContent(iyReco, ixTruth, (double)NB);
+                        hRsp_measXtruth_B->SetBinError  (iyReco, ixTruth, std::sqrt((double)NB));
+
+                        if (iyReco >= 0 && iyReco <= nGlobReco_rsp + 1)
+                        {
+                          measA[(std::size_t)iyReco] += (double)NA;
+                          measB[(std::size_t)iyReco] += (double)NB;
+                        }
+                        if (ixTruth >= 0 && ixTruth <= nGlobTruth_rsp + 1)
+                        {
+                          truthA[(std::size_t)ixTruth] += (double)NA;
+                          truthB[(std::size_t)ixTruth] += (double)NB;
+                        }
+                      }
+                    }
+
+                    for (int ib = 0; ib <= nGlobReco_rsp + 1; ++ib)
+                    {
+                      hMeasSimGlob_A->SetBinContent(ib, measA[(std::size_t)ib]);
+                      hMeasSimGlob_A->SetBinError  (ib, std::sqrt(measA[(std::size_t)ib]));
+                      hMeasSimGlob_B->SetBinContent(ib, measB[(std::size_t)ib]);
+                      hMeasSimGlob_B->SetBinError  (ib, std::sqrt(measB[(std::size_t)ib]));
+                    }
+
+                    for (int ib = 0; ib <= nGlobTruth_rsp + 1; ++ib)
+                    {
+                      hTruthSimGlob_A->SetBinContent(ib, truthA[(std::size_t)ib]);
+                      hTruthSimGlob_A->SetBinError  (ib, std::sqrt(truthA[(std::size_t)ib]));
+                      hTruthSimGlob_B->SetBinContent(ib, truthB[(std::size_t)ib]);
+                      hTruthSimGlob_B->SetBinError  (ib, std::sqrt(truthB[(std::size_t)ib]));
+                    }
+
+                    RooUnfoldResponse respXJ_half(hMeasSimGlob_A, hTruthSimGlob_A, hRsp_measXtruth_A,
+                                                 TString::Format("respXJ_halfA_%s", rKey.c_str()).Data(),
+                                                 TString::Format("respXJ_halfA_%s", rKey.c_str()).Data());
+
+                    TH1* hMeasSimGlob_halfB_meas = CloneTH1(hMeasSimGlob_B,
+                      TString::Format("hMeasSimGlob_forHalfClosure_%s", rKey.c_str()).Data());
+                    if (hMeasSimGlob_halfB_meas) hMeasSimGlob_halfB_meas->SetDirectory(nullptr);
+
+                    RooUnfoldBayes unfoldXJ_half(&respXJ_half, (hMeasSimGlob_halfB_meas ? hMeasSimGlob_halfB_meas : hMeasSimGlob_B), kBayesIterXJ);
+                    unfoldXJ_half.SetVerbose(0);
+
+                    TH1* hUnfoldTruthGlob_half = unfoldXJ_half.Hreco(RooUnfold::kCovariance);
+                    if (hUnfoldTruthGlob_half) hUnfoldTruthGlob_half->SetDirectory(nullptr);
+
+                    TH2* h2UnfoldTruth_half = nullptr;
+                    if (hUnfoldTruthGlob_half)
+                    {
+                      h2UnfoldTruth_half = UnflattenGlobalToTH2(
+                        hUnfoldTruthGlob_half,
+                        h2TruthSim,
+                        TString::Format("h2_unfoldedTruth_halfClosure_pTgamma_xJ_%s", rKey.c_str()).Data()
+                      );
+                    }
+
+                    TH2* h2Truth_halfB = nullptr;
+                    if (hTruthSimGlob_B)
+                    {
+                      h2Truth_halfB = UnflattenGlobalToTH2(
+                        hTruthSimGlob_B,
+                        h2TruthSim,
+                        TString::Format("h2_truth_halfB_pTgamma_xJ_%s", rKey.c_str()).Data()
+                      );
+                    }
+
+                    vector<double> xPt, exPt, yRat, eyRat;
+
+                    const int nPtHalf = (int)UnfoldRecoPtBins().size();
+                    for (int i = 0; i < nPtHalf; ++i)
+                    {
+                      const PtBin& b = UnfoldRecoPtBins()[i];
+                      const double cen = 0.5 * (b.lo + b.hi);
+                      const double ex  = 0.5 * (b.hi - b.lo);
+
+                      if (!h2UnfoldTruth_half || !h2Truth_halfB) continue;
+
+                      const int ixTruth = h2Truth_halfB->GetXaxis()->FindBin(cen);
+                      if (ixTruth < 1 || ixTruth > h2Truth_halfB->GetXaxis()->GetNbins()) continue;
+
+                      TH1D* hXJ_truth = h2Truth_halfB->ProjectionY(
+                        TString::Format("h_xJ_truthHalfClosure_%s_pTbin%d", rKey.c_str(), i + 1).Data(),
+                        ixTruth, ixTruth, "e"
+                      );
+                      TH1D* hXJ_unf = h2UnfoldTruth_half->ProjectionY(
+                        TString::Format("h_xJ_unfHalfClosure_%s_pTbin%d", rKey.c_str(), i + 1).Data(),
+                        ixTruth, ixTruth, "e"
+                      );
+
+                      if (!hXJ_truth || !hXJ_unf)
+                      {
+                        if (hXJ_truth) delete hXJ_truth;
+                        if (hXJ_unf)   delete hXJ_unf;
+                        continue;
+                      }
+
+                      hXJ_truth->SetDirectory(nullptr);
+                      hXJ_unf->SetDirectory(nullptr);
+                      EnsureSumw2(hXJ_truth);
+                      EnsureSumw2(hXJ_unf);
+
+                      double eTruth = 0.0;
+                      double eUnf   = 0.0;
+
+                      const double ITruth = hXJ_truth->IntegralAndError(1, hXJ_truth->GetNbinsX(), eTruth, "width");
+                      const double IUnf   = hXJ_unf  ->IntegralAndError(1, hXJ_unf  ->GetNbinsX(), eUnf,   "width");
+
+                      if (ITruth > 0.0)
+                      {
+                        const double r  = IUnf / ITruth;
+
+                        double relUnf = 0.0;
+                        if (IUnf > 0.0) relUnf = eUnf / IUnf;
+
+                        const double relTruth = eTruth / ITruth;
+                        const double er = std::fabs(r) * std::sqrt(relUnf*relUnf + relTruth*relTruth);
+
+                        xPt.push_back(cen);
+                        exPt.push_back(ex);
+                        yRat.push_back(r);
+                        eyRat.push_back(er);
+                      }
+
+                      delete hXJ_truth;
+                      delete hXJ_unf;
+                    }
+
+                    if (!xPt.empty())
+                    {
+                      double ymin =  1e99;
+                      double ymax = -1e99;
+                      for (size_t i = 0; i < yRat.size(); ++i)
+                      {
+                        ymin = std::min(ymin, yRat[i] - eyRat[i]);
+                        ymax = std::max(ymax, yRat[i] + eyRat[i]);
+                      }
+                      if (!(ymin < 1e98) || !(ymax > -1e98) || ymin >= ymax)
+                      {
+                        ymin = 0.5;
+                        ymax = 1.5;
+                      }
+                      else
+                      {
+                        const double pad = 0.15 * (ymax - ymin);
+                        ymin -= pad;
+                        ymax += pad;
+                        if (ymin < 0.0) ymin = 0.0;
+                        if (ymin > 1.0) ymin = 0.9;
+                        if (ymax < 1.0) ymax = 1.1;
+                      }
+
+                        TCanvas c(TString::Format("c_halfClosure_vs_pt_%s", rKey.c_str()).Data(), "c_halfClosure_vs_pt", 900, 700);
+                        ApplyCanvasMargins1D(c);
+
+                        TGraphErrors g((int)xPt.size(), &xPt[0], &yRat[0], &exPt[0], &eyRat[0]);
+                        g.SetLineWidth(2);
+                        g.SetMarkerStyle(20);
+                        g.SetTitle("");
+                        g.Draw("AP");
+
+                        g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
+                        g.GetYaxis()->SetTitle("Half-closure: Unfolded MC / Truth MC");
+                        g.GetYaxis()->SetRangeUser(ymin, ymax);
+
+                        TLine l1(g.GetXaxis()->GetXmin(), 1.0, g.GetXaxis()->GetXmax(), 1.0);
+                        l1.SetLineStyle(2);
+                        l1.SetLineWidth(2);
+                        l1.Draw("same");
+
+                        // Centered title
+                        {
+                          TLatex tx;
+                          tx.SetNDC();
+                          tx.SetTextFont(42);
+                          tx.SetTextAlign(22);
+                          tx.SetTextSize(0.040);
+                          tx.DrawLatex(0.50, 0.965,
+                                       TString::Format("Half-closure test, train(A) unfold(B), R = %.1f", R).Data());
+                        }
+
+                        // Top-left Bayes annotation
+                        {
+                          TLatex tx;
+                          tx.SetNDC();
+                          tx.SetTextFont(42);
+                          tx.SetTextAlign(13);
+                          tx.SetTextSize(0.038);
+                          tx.DrawLatex(0.15, 0.90, TString::Format("Bayes it=%d (xJ)", kBayesIterXJ).Data());
+                        }
+
+                        SaveCanvas(c, JoinPath(rOut, "halfClosure_unfoldedOverTruth_integral_vs_pTgamma.png"));
+                    }
+
+                    if (h2Truth_halfB) delete h2Truth_halfB;
+                    if (h2UnfoldTruth_half) delete h2UnfoldTruth_half;
+                    if (hUnfoldTruthGlob_half) delete hUnfoldTruthGlob_half;
+                    if (hMeasSimGlob_halfB_meas) delete hMeasSimGlob_halfB_meas;
+                  }
+
+                  if (hRsp_measXtruth_A) delete hRsp_measXtruth_A;
+                  if (hRsp_measXtruth_B) delete hRsp_measXtruth_B;
+                  if (hMeasSimGlob_A) delete hMeasSimGlob_A;
+                  if (hTruthSimGlob_A) delete hTruthSimGlob_A;
+                  if (hMeasSimGlob_B) delete hMeasSimGlob_B;
+                  if (hTruthSimGlob_B) delete hTruthSimGlob_B;
+                }
+            }
+
             for (int i = 0; i < nPtAll; ++i)
             {
               const PtBin& b = UnfoldRecoPtBins()[i];
@@ -17942,7 +18242,7 @@ namespace ARJ
                           hA->Draw("E1");
                           hB->Draw("E1 same");
 
-                          TLegend* leg = new TLegend(0.46, 0.72, 0.92, 0.88);
+                          TLegend* leg = new TLegend(0.46, 0.32, 0.92, 0.48);
                           leg->SetBorderSize(0);
                           leg->SetFillStyle(0);
                           leg->SetTextFont(42);
@@ -18070,11 +18370,11 @@ namespace ARJ
                             hT->Draw("E1");
                             hU->Draw("E1 same");
 
-                            TLegend* leg = new TLegend(0.52, 0.72, 0.92, 0.88);
+                            TLegend* leg = new TLegend(0.69, 0.33, 0.91, 0.58);
                             leg->SetBorderSize(0);
                             leg->SetFillStyle(0);
                             leg->SetTextFont(42);
-                            leg->SetTextSize(0.040);
+                            leg->SetTextSize(0.038);
                             leg->AddEntry(hT, "truth MC",      "pe");
                             leg->AddEntry(hU, "unfolded data", "pe");
                             leg->Draw();
