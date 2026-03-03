@@ -17519,7 +17519,35 @@ namespace ARJ
                   TCanvas c("c_pho_closure", "c_pho_closure", 900, 700);
                   ApplyCanvasMargins1D(c);
 
-                  hRat->GetYaxis()->SetRangeUser(0.7, 1.3);
+                  // Tight y-range: pad by the largest (value ± stat err), similar to 2D integral closure plots
+                  double ymin =  1e99;
+                  double ymax = -1e99;
+                  for (int ib = 1; ib <= hRat->GetNbinsX(); ++ib)
+                  {
+                      const double y  = hRat->GetBinContent(ib);
+                      const double ey = hRat->GetBinError(ib);
+                      if (y == 0.0 && ey == 0.0) continue;
+                      ymin = std::min(ymin, y - ey);
+                      ymax = std::max(ymax, y + ey);
+                    }
+
+                    if (!(ymin < 1e98) || !(ymax > -1e98) || ymin >= ymax)
+                    {
+                      ymin = 0.7;
+                      ymax = 1.3;
+                    }
+                    else
+                    {
+                      const double pad = 0.15 * (ymax - ymin);
+                      ymin -= pad;
+                      ymax += pad;
+
+                      // Ensure the reference line at 1 is comfortably inside view
+                      ymin = std::min(ymin, 1.0);
+                      ymax = std::max(ymax, 1.0);
+                  }
+
+                  hRat->GetYaxis()->SetRangeUser(ymin, ymax);
                   hRat->Draw("E1");
 
                   const double xmin = hRat->GetXaxis()->GetBinLowEdge(1);
