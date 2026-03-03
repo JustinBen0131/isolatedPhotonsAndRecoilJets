@@ -17448,23 +17448,23 @@ namespace ARJ
                 frame.GetYaxis()->SetTitle("Relative quantity");
                 frame.Draw("axis");
 
-                // total relative stat. uncertainty (RED)
-                TGraphErrors gStat((int)xIt.size(), &xIt[0], &yRelStat[0], &exIt[0], &eyRelStat[0]);
-                gStat.SetMarkerStyle(20);
-                gStat.SetMarkerSize(1.1);
-                gStat.SetMarkerColor(kRed + 1);
-                gStat.SetLineColor(kRed + 1);
-                gStat.SetLineWidth(2);
-                gStat.Draw("P same");
+                  // total relative stat. uncertainty (RED)
+                  TGraphErrors gStat((int)xIt.size(), &xIt[0], &yRelStat[0], &exIt[0], &eyRelStat[0]);
+                  gStat.SetMarkerStyle(24);
+                  gStat.SetMarkerSize(1.1);
+                  gStat.SetMarkerColor(kRed + 1);
+                  gStat.SetLineColor(kRed + 1);
+                  gStat.SetLineWidth(2);
+                  gStat.Draw("P same");
 
-                // total relative deviation (it vs it-1) (BLUE)
-                TGraphErrors gDev((int)xIt.size(), &xIt[0], &yRelDev[0], &exIt[0], &eyRelDev[0]);
-                gDev.SetMarkerStyle(20);
-                gDev.SetMarkerSize(1.1);
-                gDev.SetMarkerColor(kBlue + 1);
-                gDev.SetLineColor(kBlue + 1);
-                gDev.SetLineWidth(2);
-                gDev.Draw("P same");
+                  // total relative deviation (it vs it-1) (BLUE)
+                  TGraphErrors gDev((int)xIt.size(), &xIt[0], &yRelDev[0], &exIt[0], &eyRelDev[0]);
+                  gDev.SetMarkerStyle(24);
+                  gDev.SetMarkerSize(1.1);
+                  gDev.SetMarkerColor(kBlue + 1);
+                  gDev.SetLineColor(kBlue + 1);
+                  gDev.SetLineWidth(2);
+                  gDev.Draw("P same");
 
                 TLegend leg(0.55, 0.78, 0.89, 0.90);
                 leg.SetBorderSize(0);
@@ -17475,15 +17475,15 @@ namespace ARJ
                 leg.AddEntry(&gDev,  "total relative deviation (it vs it-1)", "p");
                 leg.Draw();
 
-                {
-                  TLatex tx;
-                  tx.SetNDC(true);
-                  tx.SetTextFont(42);
-                  tx.SetTextAlign(22);
-                  tx.SetTextSize(0.040);
-                  tx.DrawLatex(0.50, 0.965, TString::Format("Photon iteration stability, Bayes, Run24pp (k_{#gamma} = %d)", kBayesIterPho).Data());
-                }
-
+                  {
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextAlign(22);
+                    tx.SetTextSize(0.040);
+                    tx.DrawLatex(0.50, 0.965, TString::Format("Iteration Stability, R = %.1f, %s, Run24pp", 0.0, dsData.trigger.c_str()).Data());
+                  }
+                  
                 SaveCanvas(cSt, JoinPath(phoValDir, "pho_unfold_iterStability_relChange_relStat.png"));
               }
             }
@@ -17512,14 +17512,14 @@ namespace ARJ
                   hRat->SetTitle("");
                   hRat->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
                   hRat->GetYaxis()->SetTitle("Closure: unfolded MC / truth MC");
-                  hRat->SetMarkerStyle(20);
+                  hRat->SetMarkerStyle(24);
                   hRat->SetMarkerSize(1.1);
                   hRat->SetLineWidth(2);
 
                   TCanvas c("c_pho_closure", "c_pho_closure", 900, 700);
                   ApplyCanvasMargins1D(c);
 
-                  // Tight y-range: pad by the largest (value ± stat err), similar to 2D integral closure plots
+                  // Tight y-range (match 2D closure plots): min/max of (y ± ey) with padding
                   double ymin =  1e99;
                   double ymax = -1e99;
                   for (int ib = 1; ib <= hRat->GetNbinsX(); ++ib)
@@ -17529,22 +17529,21 @@ namespace ARJ
                       if (y == 0.0 && ey == 0.0) continue;
                       ymin = std::min(ymin, y - ey);
                       ymax = std::max(ymax, y + ey);
-                    }
+                  }
 
-                    if (!(ymin < 1e98) || !(ymax > -1e98) || ymin >= ymax)
-                    {
+                  if (!(ymin < 1e98) || !(ymax > -1e98) || ymin >= ymax)
+                  {
                       ymin = 0.7;
                       ymax = 1.3;
-                    }
-                    else
-                    {
+                  }
+                  else
+                  {
                       const double pad = 0.15 * (ymax - ymin);
                       ymin -= pad;
                       ymax += pad;
-
-                      // Ensure the reference line at 1 is comfortably inside view
-                      ymin = std::min(ymin, 1.0);
-                      ymax = std::max(ymax, 1.0);
+                      if (ymin < 0.0) ymin = 0.0;
+                      if (ymin > 1.0) ymin = 0.9;
+                      if (ymax < 1.0) ymax = 1.1;
                   }
 
                   hRat->GetYaxis()->SetRangeUser(ymin, ymax);
@@ -17557,14 +17556,26 @@ namespace ARJ
                   l1.SetLineWidth(2);
                   l1.Draw("same");
 
-                  {
-                    TLatex tx;
-                    tx.SetNDC(true);
-                    tx.SetTextFont(42);
-                    tx.SetTextAlign(22);
-                    tx.SetTextSize(0.040);
-                    tx.DrawLatex(0.50, 0.965, TString::Format("Photon closure test, unfold(reco) #rightarrow truth (SIM), k_{#gamma}=%d", kBayesIterPho).Data());
-                  }
+                    // Top-left Bayes + Step label (match 2D closure styling)
+                    {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(13);
+                      tx.SetTextSize(0.038);
+                      tx.DrawLatex(0.15, 0.90, TString::Format("Bayes it=%d (photon)", kBayesIterPho).Data());
+                      tx.DrawLatex(0.15, 0.855, "1D photon-yield unfolding");
+                    }
+
+                    // Centered title
+                    {
+                      TLatex tx;
+                      tx.SetNDC(true);
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(22);
+                      tx.SetTextSize(0.040);
+                      tx.DrawLatex(0.50, 0.965, "Photon closure test, unfold(reco) #rightarrow truth (SIM)");
+                    }
 
                   SaveCanvas(c, JoinPath(phoValDir, "pho_closure_unfoldedOverTruth_vs_pTgamma.png"));
 
@@ -17695,14 +17706,41 @@ namespace ARJ
                     hRat->SetTitle("");
                     hRat->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
                     hRat->GetYaxis()->SetTitle("Half-closure: unfolded MC / truth MC");
-                    hRat->SetMarkerStyle(20);
+                    hRat->SetMarkerStyle(24);
                     hRat->SetMarkerSize(1.1);
                     hRat->SetLineWidth(2);
 
                     TCanvas c("c_pho_halfClosure", "c_pho_halfClosure", 900, 700);
                     ApplyCanvasMargins1D(c);
 
-                    hRat->GetYaxis()->SetRangeUser(0.7, 1.3);
+                    // Tight y-range (match 2D half-closure plots): min/max of (y ± ey) with padding
+                    double ymin =  1e99;
+                    double ymax = -1e99;
+                    for (int ib = 1; ib <= hRat->GetNbinsX(); ++ib)
+                    {
+                          const double y  = hRat->GetBinContent(ib);
+                          const double ey = hRat->GetBinError(ib);
+                          if (y == 0.0 && ey == 0.0) continue;
+                          ymin = std::min(ymin, y - ey);
+                          ymax = std::max(ymax, y + ey);
+                    }
+
+                    if (!(ymin < 1e98) || !(ymax > -1e98) || ymin >= ymax)
+                    {
+                          ymin = 0.7;
+                          ymax = 1.3;
+                    }
+                    else
+                    {
+                          const double pad = 0.15 * (ymax - ymin);
+                          ymin -= pad;
+                          ymax += pad;
+                          if (ymin < 0.0) ymin = 0.0;
+                          if (ymin > 1.0) ymin = 0.9;
+                          if (ymax < 1.0) ymax = 1.1;
+                    }
+
+                    hRat->GetYaxis()->SetRangeUser(ymin, ymax);
                     hRat->Draw("E1");
 
                     const double xmin = hRat->GetXaxis()->GetBinLowEdge(1);
@@ -17712,13 +17750,25 @@ namespace ARJ
                     l1.SetLineWidth(2);
                     l1.Draw("same");
 
+                    // Top-left Bayes + Step label (match 2D half-closure styling)
                     {
-                      TLatex tx;
-                      tx.SetNDC(true);
-                      tx.SetTextFont(42);
-                      tx.SetTextAlign(22);
-                      tx.SetTextSize(0.040);
-                      tx.DrawLatex(0.50, 0.965, TString::Format("Photon half-closure test, train(A) unfold(B) (SIM), k_{#gamma}=%d", kBayesIterPho).Data());
+                        TLatex tx;
+                        tx.SetNDC();
+                        tx.SetTextFont(42);
+                        tx.SetTextAlign(13);
+                        tx.SetTextSize(0.038);
+                        tx.DrawLatex(0.15, 0.90, TString::Format("Bayes it=%d (photon)", kBayesIterPho).Data());
+                        tx.DrawLatex(0.15, 0.855, "1D photon-yield unfolding");
+                    }
+
+                    // Centered title
+                    {
+                        TLatex tx;
+                        tx.SetNDC(true);
+                        tx.SetTextFont(42);
+                        tx.SetTextAlign(22);
+                        tx.SetTextSize(0.040);
+                        tx.DrawLatex(0.50, 0.965, "Photon half-closure test, train(A) unfold(B) (SIM)");
                     }
 
                     SaveCanvas(c, JoinPath(phoValDir, "pho_halfClosure_unfoldedOverTruth_vs_pTgamma.png"));
@@ -18105,6 +18155,7 @@ namespace ARJ
                       tx.SetTextAlign(13);
                       tx.SetTextSize(0.038);
                       tx.DrawLatex(0.15, 0.90, TString::Format("Bayes it=%d (xJ)", kBayesIterXJ).Data());
+                      tx.DrawLatex(0.15, 0.855, "2D (p_{T}^{#gamma}, x_{J}) unfolding");
                     }
 
                     SaveCanvas(c, JoinPath(rOut, "closure_unfoldedOverTruth_integral_vs_pTgamma.png"));
@@ -18395,6 +18446,7 @@ namespace ARJ
                           tx.SetTextAlign(13);
                           tx.SetTextSize(0.038);
                           tx.DrawLatex(0.15, 0.90, TString::Format("Bayes it=%d (xJ)", kBayesIterXJ).Data());
+                          tx.DrawLatex(0.15, 0.855, "2D (p_{T}^{#gamma}, x_{J}) unfolding");
                         }
 
                         SaveCanvas(c, JoinPath(rOut, "halfClosure_unfoldedOverTruth_integral_vs_pTgamma.png"));
@@ -19435,10 +19487,19 @@ namespace ARJ
                       TLatex tx;
                       tx.SetNDC();
                       tx.SetTextFont(42);
-                      tx.SetTextAlign(22);
-                      tx.SetTextSize(0.040);
-                      tx.DrawLatex(0.50, 0.965, "Iteration Stability, R = 0.4, Photon 4 + MBD NS #geq 1, Run24pp");
+                      tx.SetTextAlign(31);
+                      tx.SetTextSize(0.032);
+                      tx.DrawLatex(0.89, 0.74, "2D (p_{T}^{#gamma}, x_{J}) unfolding");
                     }
+
+                      {
+                        TLatex tx;
+                        tx.SetNDC();
+                        tx.SetTextFont(42);
+                        tx.SetTextAlign(22);
+                        tx.SetTextSize(0.040);
+                        tx.DrawLatex(0.50, 0.965, "Iteration Stability, R = 0.4, Photon 4 + MBD NS #geq 1, Run24pp");
+                      }
 
                   cIt.Modified();
                   cIt.Update();
