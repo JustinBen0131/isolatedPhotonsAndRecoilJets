@@ -17338,6 +17338,379 @@ namespace ARJ
           }
 
           // ----------------------------------------------------------------------
+          // NEW (Step A validation): 1D photon unfolding QA package
+          //
+          // Output folder:
+          //   <phoDir>/validation/
+          //
+          // Includes:
+          //   (1) Iteration stability: rel(stat) + rel(change it vs it-1)
+          //   (2) Closure: unfold(reco SIM) -> truth SIM
+          //   (3) Half-closure: train(A) unfold(B) using binomial split of response
+          // ----------------------------------------------------------------------
+          {
+            const string phoValDir = JoinPath(phoDir, "validation");
+            EnsureDir(phoValDir);
+
+            // -----------------------------
+            // (1) Iteration stability (DATA)
+            // -----------------------------
+            if (hPhoRecoData && hPhoTruthSim && hPhoRecoSim && hPhoResp_measXtruth)
+            {
+              const int kMaxIt = 10;
+
+              vector<double> xIt, exIt, yRelStat, eyRelStat, yRelDev, eyRelDev;
+
+              TH1* hPrev = nullptr;
+
+              for (int it = 1; it <= kMaxIt; ++it)
+              {
+                RooUnfoldBayes uIt(&respPho, hPhoRecoData, it);
+                uIt.SetVerbose(0);
+
+                TH1* hIt = uIt.Hreco(RooUnfold::kCovariance);
+                if (!hIt) continue;
+
+                hIt->SetDirectory(nullptr);
+                EnsureSumw2(hIt);
+
+                const int nb = hIt->GetNbinsX();
+
+                double sumV  = 0.0;
+                double sumE2 = 0.0;
+
+                for (int ib = 1; ib <= nb; ++ib)
+                {
+                  const double v  = hIt->GetBinContent(ib);
+                  const double ev = hIt->GetBinError(ib);
+                  if (v == 0.0 && ev == 0.0) continue;
+                  sumV  += v;
+                  sumE2 += ev * ev;
+                }
+
+                double relStat = 0.0;
+                if (sumV > 0.0) relStat = std::sqrt(sumE2) / sumV;
+
+                double relDev = 0.0;
+                if (hPrev)
+                {
+                  double num2 = 0.0;
+                  double den2 = 0.0;
+
+                  for (int ib = 1; ib <= nb; ++ib)
+                  {
+                    const double v  = hIt->GetBinContent(ib);
+                    const double vp = hPrev->GetBinContent(ib);
+                    const double d  = v - vp;
+
+                    num2 += d * d;
+                    den2 += v * v;
+                  }
+
+                  if (den2 > 0.0) relDev = std::sqrt(num2 / den2);
+                }
+
+                xIt.push_back((double)it);
+                exIt.push_back(0.0);
+                yRelStat.push_back(relStat);
+                eyRelStat.push_back(0.0);
+                yRelDev.push_back(relDev);
+                eyRelDev.push_back(0.0);
+
+                if (hPrev) delete hPrev;
+                hPrev = hIt;
+              }
+
+              if (hPrev) delete hPrev;
+
+              if ((int)xIt.size() > 0)
+              {
+                TCanvas cSt("c_pho_iterStability_relChange_relStat", "c_pho_iterStability_relChange_relStat", 900, 700);
+                ApplyCanvasMargins1D(cSt);
+
+                // Determine y-range from content
+                double ymax = 0.0;
+                for (size_t i = 0; i < yRelStat.size(); ++i) ymax = std::max(ymax, yRelStat[i]);
+                for (size_t i = 0; i < yRelDev.size();  ++i) ymax = std::max(ymax, yRelDev[i]);
+                if (ymax <= 0.0) ymax = 0.1;
+                ymax *= 1.25;
+
+                TH1F frame("frame_phoIt", "", 1, 0.5, (double)kMaxIt + 0.5);
+                frame.SetMinimum(0.0);
+                frame.SetMaximum(ymax);
+                frame.SetTitle("");
+                frame.GetXaxis()->SetTitle("Iteration");
+                frame.GetYaxis()->SetTitle("Relative quantity");
+                frame.Draw("axis");
+
+                // total relative stat. uncertainty (RED)
+                TGraphErrors gStat((int)xIt.size(), &xIt[0], &yRelStat[0], &exIt[0], &eyRelStat[0]);
+                gStat.SetMarkerStyle(20);
+                gStat.SetMarkerSize(1.1);
+                gStat.SetMarkerColor(kRed + 1);
+                gStat.SetLineColor(kRed + 1);
+                gStat.SetLineWidth(2);
+                gStat.Draw("P same");
+
+                // total relative deviation (it vs it-1) (BLUE)
+                TGraphErrors gDev((int)xIt.size(), &xIt[0], &yRelDev[0], &exIt[0], &eyRelDev[0]);
+                gDev.SetMarkerStyle(20);
+                gDev.SetMarkerSize(1.1);
+                gDev.SetMarkerColor(kBlue + 1);
+                gDev.SetLineColor(kBlue + 1);
+                gDev.SetLineWidth(2);
+                gDev.Draw("P same");
+
+                TLegend leg(0.20, 0.78, 0.62, 0.90);
+                leg.SetBorderSize(0);
+                leg.SetFillStyle(0);
+                leg.SetTextFont(42);
+                leg.SetTextSize(0.033);
+                leg.AddEntry(&gStat, "total relative stat. uncertainty", "p");
+                leg.AddEntry(&gDev,  "total relative deviation (it vs it-1)", "p");
+                leg.Draw();
+
+                {
+                  TLatex tx;
+                  tx.SetNDC(true);
+                  tx.SetTextFont(42);
+                  tx.SetTextAlign(22);
+                  tx.SetTextSize(0.040);
+                  tx.DrawLatex(0.50, 0.965, TString::Format("Photon iteration stability, Bayes, Run24pp (k_{#gamma} = %d)", kBayesIterPho).Data());
+                }
+
+                SaveCanvas(cSt, JoinPath(phoValDir, "pho_unfold_iterStability_relChange_relStat.png"));
+              }
+            }
+
+            // -----------------------------
+            // (2) Closure: unfold(reco SIM) -> truth SIM
+            // -----------------------------
+            if (hPhoRecoSim && hPhoTruthSim)
+            {
+              RooUnfoldBayes uC(&respPho, hPhoRecoSim, kBayesIterPho);
+              uC.SetVerbose(0);
+
+              TH1* hUnfC = uC.Hreco(RooUnfold::kCovariance);
+              if (hUnfC)
+              {
+                hUnfC->SetDirectory(nullptr);
+                EnsureSumw2(hUnfC);
+
+                TH1* hRat = CloneTH1(hUnfC, "h_pho_closure_unfoldedOverTruth");
+                if (hRat)
+                {
+                  hRat->SetDirectory(nullptr);
+                  EnsureSumw2(hRat);
+                  hRat->Divide(hPhoTruthSim);
+
+                  hRat->SetTitle("");
+                  hRat->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                  hRat->GetYaxis()->SetTitle("Closure: unfolded MC / truth MC");
+                  hRat->SetMarkerStyle(20);
+                  hRat->SetMarkerSize(1.1);
+                  hRat->SetLineWidth(2);
+
+                  TCanvas c("c_pho_closure", "c_pho_closure", 900, 700);
+                  ApplyCanvasMargins1D(c);
+
+                  hRat->GetYaxis()->SetRangeUser(0.7, 1.3);
+                  hRat->Draw("E1");
+
+                  {
+                    const double xmin = hRat->GetXaxis()->GetXmin();
+                    const double xmax = hRat->GetXaxis()->GetXmax();
+                    TLine l1(xmin, 1.0, xmax, 1.0);
+                    l1.SetLineStyle(2);
+                    l1.SetLineWidth(2);
+                    l1.Draw("same");
+                  }
+
+                  {
+                    TLatex tx;
+                    tx.SetNDC(true);
+                    tx.SetTextFont(42);
+                    tx.SetTextAlign(22);
+                    tx.SetTextSize(0.040);
+                    tx.DrawLatex(0.50, 0.965, TString::Format("Photon closure test, unfold(reco) #rightarrow truth (SIM), k_{#gamma}=%d", kBayesIterPho).Data());
+                  }
+
+                  SaveCanvas(c, JoinPath(phoValDir, "pho_closure_unfoldedOverTruth_vs_pTgamma.png"));
+
+                  delete hRat;
+                }
+
+                delete hUnfC;
+              }
+            }
+
+            // -----------------------------
+            // (3) Half-closure: train(A) unfold(B)
+            //     Split response (reco x truth) bin-by-bin with Binomial(0.5)
+            // -----------------------------
+            if (hPhoResp_measXtruth && hPhoRecoSim && hPhoTruthSim)
+            {
+              const int nReco  = hPhoResp_measXtruth->GetNbinsX();
+              const int nTruth = hPhoResp_measXtruth->GetNbinsY();
+
+              unsigned int seed = 1337u;
+              seed = seed * 131u + (unsigned int)nReco;
+              seed = seed * 131u + (unsigned int)nTruth;
+              std::mt19937 rng(seed);
+
+              TH2* hRspA = CloneTH2(hPhoResp_measXtruth, "h2_phoResp_recoVsTruth_halfA");
+              TH2* hRspB = CloneTH2(hPhoResp_measXtruth, "h2_phoResp_recoVsTruth_halfB");
+
+              TH1* hMeasA  = CloneTH1(hPhoRecoSim,  "h_phoRecoSim_halfA");
+              TH1* hMeasB  = CloneTH1(hPhoRecoSim,  "h_phoRecoSim_halfB");
+              TH1* hTruthA = CloneTH1(hPhoTruthSim, "h_phoTruthSim_halfA");
+              TH1* hTruthB = CloneTH1(hPhoTruthSim, "h_phoTruthSim_halfB");
+
+              if (hRspA)  { hRspA->SetDirectory(nullptr);  hRspA->Reset("ICES");  hRspA->Sumw2(); }
+              if (hRspB)  { hRspB->SetDirectory(nullptr);  hRspB->Reset("ICES");  hRspB->Sumw2(); }
+              if (hMeasA) { hMeasA->SetDirectory(nullptr); hMeasA->Reset("ICES"); EnsureSumw2(hMeasA); }
+              if (hMeasB) { hMeasB->SetDirectory(nullptr); hMeasB->Reset("ICES"); EnsureSumw2(hMeasB); }
+              if (hTruthA){ hTruthA->SetDirectory(nullptr);hTruthA->Reset("ICES");EnsureSumw2(hTruthA); }
+              if (hTruthB){ hTruthB->SetDirectory(nullptr);hTruthB->Reset("ICES");EnsureSumw2(hTruthB); }
+
+              if (!hRspA || !hRspB || !hMeasA || !hMeasB || !hTruthA || !hTruthB)
+              {
+                cout << ANSI_BOLD_YEL
+                     << "[WARN] Photon half-closure: failed to allocate split response/marginals. Skipping.\n"
+                     << ANSI_RESET;
+              }
+              else
+              {
+                vector<double> measA((std::size_t)nReco + 2, 0.0), measB((std::size_t)nReco + 2, 0.0);
+                vector<double> truA ((std::size_t)nTruth + 2, 0.0), truB ((std::size_t)nTruth + 2, 0.0);
+
+                for (int ix = 0; ix <= nReco + 1; ++ix)
+                {
+                  for (int iy = 0; iy <= nTruth + 1; ++iy)
+                  {
+                    const double nRaw = hPhoResp_measXtruth->GetBinContent(ix, iy);
+                    if (!(nRaw > 0.0))
+                    {
+                      hRspA->SetBinContent(ix, iy, 0.0); hRspA->SetBinError(ix, iy, 0.0);
+                      hRspB->SetBinContent(ix, iy, 0.0); hRspB->SetBinError(ix, iy, 0.0);
+                      continue;
+                    }
+
+                    const long long N = (long long)std::llround(nRaw);
+                    if (N <= 0LL)
+                    {
+                      hRspA->SetBinContent(ix, iy, 0.0); hRspA->SetBinError(ix, iy, 0.0);
+                      hRspB->SetBinContent(ix, iy, 0.0); hRspB->SetBinError(ix, iy, 0.0);
+                      continue;
+                    }
+
+                    std::binomial_distribution<long long> d(N, 0.5);
+                    const long long NA = d(rng);
+                    const long long NB = N - NA;
+
+                    hRspA->SetBinContent(ix, iy, (double)NA);
+                    hRspA->SetBinError  (ix, iy, std::sqrt((double)NA));
+
+                    hRspB->SetBinContent(ix, iy, (double)NB);
+                    hRspB->SetBinError  (ix, iy, std::sqrt((double)NB));
+
+                    if (ix >= 0 && ix <= nReco + 1)
+                    {
+                      measA[(std::size_t)ix] += (double)NA;
+                      measB[(std::size_t)ix] += (double)NB;
+                    }
+                    if (iy >= 0 && iy <= nTruth + 1)
+                    {
+                      truA[(std::size_t)iy] += (double)NA;
+                      truB[(std::size_t)iy] += (double)NB;
+                    }
+                  }
+                }
+
+                for (int ib = 0; ib <= nReco + 1; ++ib)
+                {
+                  hMeasA->SetBinContent(ib, measA[(std::size_t)ib]);
+                  hMeasA->SetBinError  (ib, std::sqrt(measA[(std::size_t)ib]));
+                  hMeasB->SetBinContent(ib, measB[(std::size_t)ib]);
+                  hMeasB->SetBinError  (ib, std::sqrt(measB[(std::size_t)ib]));
+                }
+
+                for (int ib = 0; ib <= nTruth + 1; ++ib)
+                {
+                  hTruthA->SetBinContent(ib, truA[(std::size_t)ib]);
+                  hTruthA->SetBinError  (ib, std::sqrt(truA[(std::size_t)ib]));
+                  hTruthB->SetBinContent(ib, truB[(std::size_t)ib]);
+                  hTruthB->SetBinError  (ib, std::sqrt(truB[(std::size_t)ib]));
+                }
+
+                RooUnfoldResponse respPhoA(hMeasA, hTruthA, hRspA, "respPho_halfA", "respPho_halfA");
+
+                RooUnfoldBayes uH(&respPhoA, hMeasB, kBayesIterPho);
+                uH.SetVerbose(0);
+
+                TH1* hUnfB = uH.Hreco(RooUnfold::kCovariance);
+                if (hUnfB)
+                {
+                  hUnfB->SetDirectory(nullptr);
+                  EnsureSumw2(hUnfB);
+
+                  TH1* hRat = CloneTH1(hUnfB, "h_pho_halfClosure_unfoldedOverTruth");
+                  if (hRat)
+                  {
+                    hRat->SetDirectory(nullptr);
+                    EnsureSumw2(hRat);
+                    hRat->Divide(hTruthB);
+
+                    hRat->SetTitle("");
+                    hRat->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                    hRat->GetYaxis()->SetTitle("Half-closure: unfolded MC / truth MC");
+                    hRat->SetMarkerStyle(20);
+                    hRat->SetMarkerSize(1.1);
+                    hRat->SetLineWidth(2);
+
+                    TCanvas c("c_pho_halfClosure", "c_pho_halfClosure", 900, 700);
+                    ApplyCanvasMargins1D(c);
+
+                    hRat->GetYaxis()->SetRangeUser(0.7, 1.3);
+                    hRat->Draw("E1");
+
+                    {
+                      const double xmin = hRat->GetXaxis()->GetXmin();
+                      const double xmax = hRat->GetXaxis()->GetXmax();
+                      TLine l1(xmin, 1.0, xmax, 1.0);
+                      l1.SetLineStyle(2);
+                      l1.SetLineWidth(2);
+                      l1.Draw("same");
+                    }
+
+                    {
+                      TLatex tx;
+                      tx.SetNDC(true);
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(22);
+                      tx.SetTextSize(0.040);
+                      tx.DrawLatex(0.50, 0.965, TString::Format("Photon half-closure test, train(A) unfold(B) (SIM), k_{#gamma}=%d", kBayesIterPho).Data());
+                    }
+
+                    SaveCanvas(c, JoinPath(phoValDir, "pho_halfClosure_unfoldedOverTruth_vs_pTgamma.png"));
+
+                    delete hRat;
+                  }
+
+                  delete hUnfB;
+                }
+              }
+
+              if (hTruthB) delete hTruthB;
+              if (hTruthA) delete hTruthA;
+              if (hMeasB)  delete hMeasB;
+              if (hMeasA)  delete hMeasA;
+              if (hRspB)   delete hRspB;
+              if (hRspA)   delete hRspA;
+            }
+          }
+
+          // ----------------------------------------------------------------------
           // (B) Jet unfolding per radius: unfold global-bin vector and unflatten back
           // ----------------------------------------------------------------------
           const int kBayesIterXJ = 3;
