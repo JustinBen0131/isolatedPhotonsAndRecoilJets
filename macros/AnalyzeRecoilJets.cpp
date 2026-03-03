@@ -17363,63 +17363,68 @@ namespace ARJ
 
               TH1* hPrev = nullptr;
 
-              for (int it = 1; it <= kMaxIt; ++it)
-              {
-                RooUnfoldBayes uIt(&respPho, hPhoRecoData, it);
-                uIt.SetVerbose(0);
-
-                TH1* hIt = uIt.Hreco(RooUnfold::kCovariance);
-                if (!hIt) continue;
-
-                hIt->SetDirectory(nullptr);
-                EnsureSumw2(hIt);
-
-                const int nb = hIt->GetNbinsX();
-
-                double sumV  = 0.0;
-                double sumE2 = 0.0;
-
-                for (int ib = 1; ib <= nb; ++ib)
+                for (int it = 1; it <= kMaxIt; ++it)
                 {
-                  const double v  = hIt->GetBinContent(ib);
-                  const double ev = hIt->GetBinError(ib);
-                  if (v == 0.0 && ev == 0.0) continue;
-                  sumV  += v;
-                  sumE2 += ev * ev;
-                }
+                  RooUnfoldBayes uIt(&respPho, hPhoRecoData, it);
+                  uIt.SetVerbose(0);
 
-                double relStat = 0.0;
-                if (sumV > 0.0) relStat = std::sqrt(sumE2) / sumV;
+                  TH1* hIt = uIt.Hreco(RooUnfold::kCovariance);
+                  if (!hIt) continue;
 
-                double relDev = 0.0;
-                if (hPrev)
-                {
-                  double num2 = 0.0;
-                  double den2 = 0.0;
+                  hIt->SetDirectory(nullptr);
+                  EnsureSumw2(hIt);
+
+                  const int nb = hIt->GetNbinsX();
+
+                  double sumV  = 0.0;
+                  double sumE2 = 0.0;
 
                   for (int ib = 1; ib <= nb; ++ib)
                   {
                     const double v  = hIt->GetBinContent(ib);
-                    const double vp = hPrev->GetBinContent(ib);
-                    const double d  = v - vp;
-
-                    num2 += d * d;
-                    den2 += v * v;
+                    const double ev = hIt->GetBinError(ib);
+                    if (v == 0.0 && ev == 0.0) continue;
+                    sumV  += v;
+                    sumE2 += ev * ev;
                   }
 
-                  if (den2 > 0.0) relDev = std::sqrt(num2 / den2);
+                  double relStat = 0.0;
+                  if (sumV > 0.0) relStat = std::sqrt(sumE2) / sumV;
+
+                  if (!hPrev)
+                  {
+                    hPrev = hIt;
+                    continue;
+                  }
+
+                  double relDev = 0.0;
+                  {
+                    double num2 = 0.0;
+                    double den2 = 0.0;
+
+                    for (int ib = 1; ib <= nb; ++ib)
+                    {
+                      const double v  = hIt->GetBinContent(ib);
+                      const double vp = hPrev->GetBinContent(ib);
+                      const double d  = v - vp;
+
+                      num2 += d * d;
+                      den2 += v * v;
+                    }
+
+                    if (den2 > 0.0) relDev = std::sqrt(num2 / den2);
+                  }
+
+                  xIt.push_back((double)it);
+                  exIt.push_back(0.0);
+                  yRelStat.push_back(relStat);
+                  eyRelStat.push_back(0.0);
+                  yRelDev.push_back(relDev);
+                  eyRelDev.push_back(0.0);
+
+                  delete hPrev;
+                  hPrev = hIt;
                 }
-
-                xIt.push_back((double)it);
-                exIt.push_back(0.0);
-                yRelStat.push_back(relStat);
-                eyRelStat.push_back(0.0);
-                yRelDev.push_back(relDev);
-                eyRelDev.push_back(0.0);
-
-                if (hPrev) delete hPrev;
-                hPrev = hIt;
-              }
 
               if (hPrev) delete hPrev;
 
@@ -17435,7 +17440,7 @@ namespace ARJ
                 if (ymax <= 0.0) ymax = 0.1;
                 ymax *= 1.25;
 
-                TH1F frame("frame_phoIt", "", 1, 0.5, (double)kMaxIt + 0.5);
+                TH1F frame("frame_phoIt", "", 1, 1.0, (double)kMaxIt + 0.5);
                 frame.SetMinimum(0.0);
                 frame.SetMaximum(ymax);
                 frame.SetTitle("");
@@ -17517,14 +17522,14 @@ namespace ARJ
                   hRat->GetYaxis()->SetRangeUser(0.7, 1.3);
                   hRat->Draw("E1");
 
-                  {
-                    const double xmin = hRat->GetXaxis()->GetXmin();
-                    const double xmax = hRat->GetXaxis()->GetXmax();
-                    TLine l1(xmin, 1.0, xmax, 1.0);
-                    l1.SetLineStyle(2);
-                    l1.SetLineWidth(2);
-                    l1.Draw("same");
-                  }
+                    {
+                      const double xmin = hRat->GetXaxis()->GetBinLowEdge(1);
+                      const double xmax = hRat->GetXaxis()->GetBinUpEdge(hRat->GetNbinsX());
+                      TLine l1(xmin, 1.0, xmax, 1.0);
+                      l1.SetLineStyle(2);
+                      l1.SetLineWidth(2);
+                      l1.Draw("same");
+                    }
 
                   {
                     TLatex tx;
@@ -17674,14 +17679,14 @@ namespace ARJ
                     hRat->GetYaxis()->SetRangeUser(0.7, 1.3);
                     hRat->Draw("E1");
 
-                    {
-                      const double xmin = hRat->GetXaxis()->GetXmin();
-                      const double xmax = hRat->GetXaxis()->GetXmax();
-                      TLine l1(xmin, 1.0, xmax, 1.0);
-                      l1.SetLineStyle(2);
-                      l1.SetLineWidth(2);
-                      l1.Draw("same");
-                    }
+                      {
+                        const double xmin = hRat->GetXaxis()->GetBinLowEdge(1);
+                        const double xmax = hRat->GetXaxis()->GetBinUpEdge(hRat->GetNbinsX());
+                        TLine l1(xmin, 1.0, xmax, 1.0);
+                        l1.SetLineStyle(2);
+                        l1.SetLineWidth(2);
+                        l1.Draw("same");
+                      }
 
                     {
                       TLatex tx;
