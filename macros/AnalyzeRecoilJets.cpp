@@ -16610,7 +16610,7 @@ namespace ARJ
             return;
           }
 
-          const int kBayesIterPho = 4;
+          const int kBayesIterPho = 3;
 
           RooUnfoldResponse respPho(hPhoRecoSim, hPhoTruthSim, hPhoResp_measXtruth, "respPho", "respPho");
           RooUnfoldBayes    unfoldPho(&respPho, hPhoRecoData, kBayesIterPho);
@@ -16899,7 +16899,7 @@ namespace ARJ
           // ----------------------------------------------------------------------
           // (B) Jet unfolding per radius: unfold global-bin vector and unflatten back
           // ----------------------------------------------------------------------
-          const int kBayesIterXJ = 4;
+          const int kBayesIterXJ = 3;
 
           std::map<std::string, std::vector<TH1*>> perPhoHistsByRKey;
 
@@ -17659,7 +17659,7 @@ namespace ARJ
                         hT->Draw("E1");
                         hU->Draw("E1 same");
 
-                        TLegend leg(0.55, 0.75, 0.88, 0.88);
+                        TLegend leg(0.6, 0.3, 0.89, 0.55);
                         leg.SetBorderSize(0);
                         leg.SetFillStyle(0);
                         leg.SetTextFont(42);
