@@ -6701,10 +6701,10 @@ namespace ARJ
                   t.SetTextFont(42);
                   t.SetTextSize(0.032);
                   t.SetTextAlign(12);
-                  t.DrawLatex(0.60, 0.62, TString::Format("p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
-                  t.DrawLatex(0.60, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
-                  t.DrawLatex(0.60, 0.52, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
-                  t.DrawLatex(0.60, 0.47, TString::Format("Back-to-back: %s", bbLabel.c_str()).Data());
+                  t.DrawLatex(0.65, 0.62, TString::Format("p_{T}^{#gamma}: %.0f-%.0f GeV", ptLo, ptHi).Data());
+                  t.DrawLatex(0.65, 0.57, TString::Format("Sam p_{T}^{#gamma} used: %s GeV", samPtLabel.c_str()).Data());
+                  t.DrawLatex(0.65, 0.52, TString::Format("p_{T}^{jet,min} = %.0f GeV", jetMinPtGeV).Data());
+                  t.DrawLatex(0.65, 0.47, TString::Format("Back-to-back: %s", bbLabel.c_str()).Data());
 
                   const std::string outName =
                     TString::Format("overlay_SamVsJustin_JES3_RECO_NORM_pTgamma_%.0f_%.0f_Sam_%s_%s.png",
@@ -8318,61 +8318,67 @@ namespace ARJ
                             gDat->Draw("P same");
                             gSim->Draw("P same");
 
-                              TLegend* legP = new TLegend(0.62, 0.14, 0.88, 0.30);
-                              legP->SetBorderSize(0);
-                              legP->SetFillStyle(0);
-                              legP->SetTextFont(42);
-                              legP->SetTextSize(0.055);
-                              legP->AddEntry(gDat, "DATA (reco)", "p");
-                              legP->AddEntry(gSim, "SIM (reco)",  "p");
-                              legP->Draw();
+                            TLegend* legP = new TLegend(0.62, 0.14, 0.88, 0.30);
+                            legP->SetBorderSize(0);
+                            legP->SetFillStyle(0);
+                            legP->SetTextFont(42);
+                            legP->SetTextSize(0.055);
+                            legP->AddEntry(gDat, "DATA (reco)", "p");
+                            legP->AddEntry(gSim, "SIM (reco)",  "p");
+                            legP->Draw();
 
-                              TLatex lat;
-                              lat.SetNDC(true);
-                              lat.SetTextFont(42);
-                              lat.SetTextSize(0.060);
-                              lat.DrawLatex(
+                            TLatex lat;
+                            lat.SetNDC(true);
+                            lat.SetTextFont(42);
+                            lat.SetTextSize(0.045);
+                            lat.DrawLatex(
                                 0.16, 0.92,
                                 TString::Format("Photon+ Jet 10 + 20 Sim and Run24pp <x_{J#gamma}>, R = %.1f", RFromKey(rKey)).Data()
-                              );
+                            );
 
-                              padBot.cd();
-                              TH1F* hBot = new TH1F(
+                            padBot.cd();
+                            TH1F* hBot = new TH1F(
                                 TString::Format("hMeanPanelBot_%s", rKey.c_str()).Data(),
                                 "", 100, xMin, xMax
-                              );
-                              hBot->SetStats(0);
-                              hBot->SetMinimum(yMinBot);
-                              hBot->SetMaximum(yMaxBot);
-                              hBot->SetTitle("");
-                              hBot->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                              hBot->GetYaxis()->SetTitle("Ratio DATA / SIM");
-                              hBot->GetXaxis()->SetTitleSize(0.12);
-                              hBot->GetXaxis()->SetLabelSize(0.10);
-                              hBot->GetYaxis()->SetTitleSize(0.10);
-                              hBot->GetYaxis()->SetLabelSize(0.10);
-                              hBot->GetYaxis()->SetTitleOffset(0.55);
-                              hBot->Draw();
+                            );
+                            hBot->SetStats(0);
+                            hBot->SetMinimum(yMinBot);
+                            hBot->SetMaximum(yMaxBot);
+                            hBot->SetTitle("");
+                            hBot->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                            hBot->GetYaxis()->SetTitle("Ratio DATA / SIM");
+                            hBot->GetXaxis()->SetTitleSize(0.12);
+                            hBot->GetXaxis()->SetLabelSize(0.10);
+                            hBot->GetYaxis()->SetTitleSize(0.10);
+                            hBot->GetYaxis()->SetLabelSize(0.10);
+                            hBot->GetYaxis()->SetTitleOffset(0.55);
+                            hBot->Draw();
 
-                              gRatio->Draw("P same");
+                            gRatio->Draw("P same");
 
-                              TLine lOneP(xMin, 1.0, xMax, 1.0);
-                              lOneP.SetLineStyle(2);
-                              lOneP.SetLineWidth(2);
-                              lOneP.Draw("same");
+                            TLine lOneP(xMin, 1.0, xMax, 1.0);
+                            lOneP.SetLineStyle(2);
+                            lOneP.SetLineWidth(2);
+                            lOneP.Draw("same");
 
-                              if (fJES)
-                              {
+                            if (fJES)
+                            {
+                                fJES->SetLineColor(kRed + 1);
+                                fJES->SetLineStyle(2);
+                                fJES->SetLineWidth(2);
+                                fJES->Draw("same");
+
                                 TLatex lat2;
                                 lat2.SetNDC(true);
                                 lat2.SetTextFont(42);
-                                lat2.SetTextSize(0.11);
+                                lat2.SetTextSize(0.10);
                                 lat2.SetTextColor(kRed + 1);
+                                lat2.SetTextAlign(31);
                                 lat2.DrawLatex(
-                                  0.18, 0.22,
+                                  0.95, 0.88,
                                   TString::Format("in situ JES = %.4f #pm %.4f", jesVal, jesErr).Data()
                                 );
-                              }
+                            }
 
                             SaveCanvas(cPanel, JoinPath(dirOv, "meanVsPt_withRatioPanel_reco_integratedAlpha_overlayedWithSim_withFits.png"));
 

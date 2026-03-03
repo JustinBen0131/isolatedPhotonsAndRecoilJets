@@ -197,7 +197,7 @@ namespace ARJ
   }
 
   // One-off, hard-coded comparison overlays (Sam vs Justin unsmear files)
-  inline bool doSamVsJustinUnsmearOverlays = true;
+  inline bool doSamVsJustinUnsmearOverlays = false;
 
   // Displayed range [-vzCutCm,+vzCutCm] and 0.5 cm display bin width
   inline double VzCutCmFromYAML();
