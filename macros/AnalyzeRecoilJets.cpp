@@ -16840,8 +16840,173 @@ namespace ARJ
                     c.SetLogy(0);
                 }
 
-                delete hRecoShape;
-                delete hUnfShape;
+                  // -------------------------------------------------------------------
+                  // NEW: "efficiency-like" photon diagnostic in PP data (implied by unfolding)
+                  //
+                  //   eps_eff(pT) = N_reco,data(pT) / N_truth,data(unfolded)(pT)
+                  //
+                  //   This is NOT a pure data-driven efficiency (denominator comes from unfolding),
+                  //   but it directly explains the normalization gap between "per reco photon" and
+                  //   "per truth photon (unfolded)" definitions.
+                  //
+                  // Outputs (to <phoDir>, i.e. unfolding/radii/<rXX>/photons):
+                  //   - pho_efficiencyEff_data_vs_pTgamma.png
+                  //   - pho_efficiency_mc_vs_pTgamma.png           (if MC binning matches)
+                  //   - pho_efficiencyEff_dataOverMC_vs_pTgamma.png (if MC binning matches)
+                  // -------------------------------------------------------------------
+                  {
+                      auto sameBinning = [&](TH1* a, TH1* b)->bool
+                      {
+                        if (!a || !b) return false;
+                        if (a->GetNbinsX() != b->GetNbinsX()) return false;
+                        const int nb = a->GetNbinsX();
+                        for (int ib = 1; ib <= nb + 1; ++ib)
+                        {
+                          const double ea = a->GetXaxis()->GetBinUpEdge(ib);
+                          const double eb = b->GetXaxis()->GetBinUpEdge(ib);
+                          if (std::fabs(ea - eb) > 1e-9) return false;
+                        }
+                        return true;
+                      };
+
+                      // Data "effective efficiency": reco / unfolded-truth
+                      TH1* hEffData = CloneTH1(hRecoShape, "h_pho_effData_recoOverUnfoldTruth");
+                      if (hEffData)
+                      {
+                        hEffData->SetDirectory(nullptr);
+                        EnsureSumw2(hEffData);
+                        hEffData->Divide(hUnfShape);
+
+                        hEffData->SetTitle("");
+                        hEffData->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                        hEffData->GetYaxis()->SetTitle("#epsilon_{#gamma}^{eff} = N_{#gamma}^{reco,data} / N_{#gamma}^{truth,data (unfolded)}");
+                        hEffData->SetMarkerStyle(20);
+                        hEffData->SetMarkerSize(1.1);
+                        hEffData->SetLineWidth(2);
+
+                        TCanvas cEffD("c_pho_effData", "c_pho_effData", 900, 700);
+                        ApplyCanvasMargins1D(cEffD);
+
+                        hEffData->Draw("E1");
+
+                        // Dashed line at 1
+                        {
+                          const double xmin = hEffData->GetXaxis()->GetXmin();
+                          const double xmax = hEffData->GetXaxis()->GetXmax();
+                          TLine l1(xmin, 1.0, xmax, 1.0);
+                          l1.SetLineStyle(2);
+                          l1.SetLineWidth(2);
+                          l1.Draw("same");
+                        }
+
+                        DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
+                        DrawLatexLines(0.14,0.78, { "Photon unfolding diagnostic: implied #epsilon_{#gamma}^{eff}(p_{T}^{#gamma})" }, 0.030, 0.040);
+
+                        SaveCanvas(cEffD, JoinPath(phoDir, "pho_efficiencyEff_data_vs_pTgamma.png"));
+                      }
+
+                      // Optional: MC efficiency + Data/MC scale-factor-style diagnostic (only if binning matches)
+                      TH1* hEffMC = nullptr;
+                      TH1* hSF    = nullptr;
+
+                      if (hPhoRecoSim_in && hPhoTruthSim_in && hEffData && sameBinning(hPhoRecoSim_in, hPhoTruthSim_in) && sameBinning(hPhoRecoSim_in, hEffData))
+                      {
+                        TH1* hRecoSimShape  = CloneTH1(hPhoRecoSim_in,  "h_pho_recoSim_shape_forEff");
+                        TH1* hTruthSimShape = CloneTH1(hPhoTruthSim_in, "h_pho_truthSim_shape_forEff");
+                        if (hRecoSimShape && hTruthSimShape)
+                        {
+                          hRecoSimShape->SetDirectory(nullptr);
+                          hTruthSimShape->SetDirectory(nullptr);
+                          EnsureSumw2(hRecoSimShape);
+                          EnsureSumw2(hTruthSimShape);
+
+                          hEffMC = CloneTH1(hRecoSimShape, "h_pho_effMC_recoOverTruth");
+                          if (hEffMC)
+                          {
+                            hEffMC->SetDirectory(nullptr);
+                            EnsureSumw2(hEffMC);
+                            hEffMC->Divide(hTruthSimShape);
+
+                            hEffMC->SetTitle("");
+                            hEffMC->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                            hEffMC->GetYaxis()->SetTitle("#epsilon_{#gamma}^{MC} = N_{#gamma}^{reco,MC} / N_{#gamma}^{truth,MC}");
+                            hEffMC->SetMarkerStyle(21);
+                            hEffMC->SetMarkerSize(1.1);
+                            hEffMC->SetLineWidth(2);
+
+                            TCanvas cEffM("c_pho_effMC", "c_pho_effMC", 900, 700);
+                            ApplyCanvasMargins1D(cEffM);
+
+                            hEffMC->Draw("E1");
+
+                            {
+                              const double xmin = hEffMC->GetXaxis()->GetXmin();
+                              const double xmax = hEffMC->GetXaxis()->GetXmax();
+                              TLine l1(xmin, 1.0, xmax, 1.0);
+                              l1.SetLineStyle(2);
+                              l1.SetLineWidth(2);
+                              l1.Draw("same");
+                            }
+
+                            DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
+                            DrawLatexLines(0.14,0.78, { "Photon efficiency (MC): reco / truth" }, 0.030, 0.040);
+
+                            SaveCanvas(cEffM, JoinPath(phoDir, "pho_efficiency_mc_vs_pTgamma.png"));
+
+                            // Data/MC scale-factor-style ratio: eps_eff(data)/eps_MC
+                            hSF = CloneTH1(hEffData, "h_pho_effSF_dataOverMC");
+                            if (hSF)
+                            {
+                              hSF->SetDirectory(nullptr);
+                              EnsureSumw2(hSF);
+                              hSF->Divide(hEffMC);
+
+                              hSF->SetTitle("");
+                              hSF->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                              hSF->GetYaxis()->SetTitle("SF(p_{T}) = #epsilon_{#gamma}^{eff,data} / #epsilon_{#gamma}^{MC}");
+                              hSF->SetMarkerStyle(20);
+                              hSF->SetMarkerSize(1.1);
+                              hSF->SetLineWidth(2);
+
+                              TCanvas cSF("c_pho_effSF", "c_pho_effSF", 900, 700);
+                              ApplyCanvasMargins1D(cSF);
+
+                              hSF->Draw("E1");
+
+                              {
+                                const double xmin = hSF->GetXaxis()->GetXmin();
+                                const double xmax = hSF->GetXaxis()->GetXmax();
+                                TLine l1(xmin, 1.0, xmax, 1.0);
+                                l1.SetLineStyle(2);
+                                l1.SetLineWidth(2);
+                                l1.Draw("same");
+                              }
+
+                              DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
+                              DrawLatexLines(0.14,0.78, { "Photon unfolding diagnostic: #epsilon_{#gamma}^{eff,data} / #epsilon_{#gamma}^{MC}" }, 0.030, 0.040);
+
+                              SaveCanvas(cSF, JoinPath(phoDir, "pho_efficiencyEff_dataOverMC_vs_pTgamma.png"));
+                            }
+                          }
+                        }
+
+                        if (hRecoSimShape)  delete hRecoSimShape;
+                        if (hTruthSimShape) delete hTruthSimShape;
+                      }
+                      else
+                      {
+                        cout << ANSI_BOLD_YEL
+                             << "[WARN] Photon efficiency diagnostics: MC binning mismatch with data/unfolded axis -> skipping MC + SF plots.\n"
+                             << ANSI_RESET;
+                      }
+
+                      if (hSF)    delete hSF;
+                      if (hEffMC) delete hEffMC;
+                      if (hEffData) delete hEffData;
+                  }
+
+                  delete hRecoShape;
+                  delete hUnfShape;
               }
             }
           }
