@@ -16520,14 +16520,18 @@ namespace ARJ
           const string phoDir = JoinPath(outBase, "photons");
           EnsureDir(phoDir);
 
-            const string phoRecoName  = "h_unfoldRecoPho_pTgamma";
-            const string phoTruthName = "h_unfoldTruthPho_pTgamma";
-            const string phoRespName  = "h2_unfoldResponsePho_pTgamma";
+            const string phoRecoName   = "h_unfoldRecoPho_pTgamma";
+            const string phoTruthName  = "h_unfoldTruthPho_pTgamma";
+            const string phoRespName   = "h2_unfoldResponsePho_pTgamma";
+            const string phoFakesName  = "h_unfoldRecoPhoFakes_pTgamma";       // SIM-only bookkeeping
+            const string phoMissesName = "h_unfoldTruthPhoMisses_pTgamma";     // SIM-only bookkeeping
 
-            TH1* hPhoRecoData_in  = GetObj<TH1>(dsData, phoRecoName,  true, true, true);
-            TH1* hPhoRecoSim_in   = GetObj<TH1>(dsSim,  phoRecoName,  true, true, true);
-            TH1* hPhoTruthSim_in  = GetObj<TH1>(dsSim,  phoTruthName, true, true, true);
-            TH2* hPhoRespSim_in   = GetObj<TH2>(dsSim,  phoRespName,  true, true, true);
+            TH1* hPhoRecoData_in        = GetObj<TH1>(dsData, phoRecoName,   true, true, true);
+            TH1* hPhoRecoSim_in         = GetObj<TH1>(dsSim,  phoRecoName,   true, true, true);
+            TH1* hPhoTruthSim_in        = GetObj<TH1>(dsSim,  phoTruthName,  true, true, true);
+            TH2* hPhoRespSim_in         = GetObj<TH2>(dsSim,  phoRespName,   true, true, true);
+            TH1* hPhoRecoFakesSim_in    = GetObj<TH1>(dsSim,  phoFakesName,  true, true, true);
+            TH1* hPhoTruthMissesSim_in  = GetObj<TH1>(dsSim,  phoMissesName, true, true, true);
 
             auto MissingWhy = [&](Dataset& ds, const string& relName)->string
             {
@@ -16567,10 +16571,12 @@ namespace ARJ
             };
 
             cout << "\n  [5I] Photon unfolding inputs:\n";
-            PrintGet(dsData, phoRecoName,  hPhoRecoData_in);
-            PrintGet(dsSim,  phoRecoName,  hPhoRecoSim_in);
-            PrintGet(dsSim,  phoTruthName, hPhoTruthSim_in);
-            PrintGet(dsSim,  phoRespName,  hPhoRespSim_in);
+            PrintGet(dsData, phoRecoName,   hPhoRecoData_in);
+            PrintGet(dsSim,  phoRecoName,   hPhoRecoSim_in);
+            PrintGet(dsSim,  phoTruthName,  hPhoTruthSim_in);
+            PrintGet(dsSim,  phoRespName,   hPhoRespSim_in);
+            PrintGet(dsSim,  phoFakesName,  hPhoRecoFakesSim_in);
+            PrintGet(dsSim,  phoMissesName, hPhoTruthMissesSim_in);
 
             if (!hPhoRecoData_in || !hPhoRecoSim_in || !hPhoTruthSim_in || !hPhoRespSim_in)
             {
@@ -16582,15 +16588,15 @@ namespace ARJ
               return;
             }
 
-          TH1* hPhoRecoData  = CloneTH1(hPhoRecoData_in,  "hPhoRecoData");
-          TH1* hPhoRecoSim   = CloneTH1(hPhoRecoSim_in,   "hPhoRecoSim");
-          TH1* hPhoTruthSim  = CloneTH1(hPhoTruthSim_in,  "hPhoTruthSim");
-          TH2* hPhoRespSim   = CloneTH2(hPhoRespSim_in,   "hPhoRespSim_truthVsReco");
+            TH1* hPhoRecoData  = CloneTH1(hPhoRecoData_in,  "hPhoRecoData");
+            TH1* hPhoRecoSim   = CloneTH1(hPhoRecoSim_in,   "hPhoRecoSim");
+            TH1* hPhoTruthSim  = CloneTH1(hPhoTruthSim_in,  "hPhoTruthSim");
+            TH2* hPhoRespSim   = CloneTH2(hPhoRespSim_in,   "hPhoRespSim_truthVsReco");
 
-          EnsureSumw2(hPhoRecoData);
-          EnsureSumw2(hPhoRecoSim);
-          EnsureSumw2(hPhoTruthSim);
-          EnsureSumw2(hPhoRespSim);
+            EnsureSumw2(hPhoRecoData);
+            EnsureSumw2(hPhoRecoSim);
+            EnsureSumw2(hPhoTruthSim);
+            EnsureSumw2(hPhoRespSim);
 
           TH2D* hPhoResp_measXtruth = TransposeTH2(
             hPhoRespSim,
@@ -16840,169 +16846,439 @@ namespace ARJ
                     c.SetLogy(0);
                 }
 
-                  // -------------------------------------------------------------------
-                  // NEW: "efficiency-like" photon diagnostic in PP data (implied by unfolding)
+                  // NEW: photon efficiency/purity diagnostics (presentation-ready)
                   //
-                  //   eps_eff(pT) = N_reco,data(pT) / N_truth,data(unfolded)(pT)
+                  // These are SIM truth-matching bookkeeping diagnostics that explain the
+                  // normalization gap in before/after unfolding overlays.
                   //
-                  //   This is NOT a pure data-driven efficiency (denominator comes from unfolding),
-                  //   but it directly explains the normalization gap between "per reco photon" and
-                  //   "per truth photon (unfolded)" definitions.
+                  // (1) Purity (SIM, reco space):
+                  //     purity(pT) = 1 - N_fakeReco(pT)/N_reco(pT)
+                  //
+                  // (2) Efficiency (SIM, truth space):
+                  //     eff(pT)    = 1 - N_missTruth(pT)/N_truth(pT)
+                  //
+                  // (3) Truth/Reconstruction scale factor (SIM):
+                  //     N_truth(pT)/N_reco(pT)  (with bin-mapping when axes differ)
+                  //
+                  // (4) Implied "efficiency-like" curve in DATA (not purely data-driven):
+                  //     eps_eff,data(pT) = N_reco,data(pT) / N_truth,data(unfolded)(pT)
+                  //     (computed with bin-mapping when axes differ)
                   //
                   // Outputs (to <phoDir>, i.e. unfolding/radii/<rXX>/photons):
                   //   - pho_efficiencyEff_data_vs_pTgamma.png
-                  //   - pho_efficiency_mc_vs_pTgamma.png           (if MC binning matches)
-                  //   - pho_efficiencyEff_dataOverMC_vs_pTgamma.png (if MC binning matches)
+                  //   - pho_purity_sim_vs_pTgamma.png                 (if fakes hist exists)
+                  //   - pho_efficiency_sim_vs_pTgamma.png             (if misses hist exists)
+                  //   - pho_truthOverReco_sim_vs_pTgamma.png          (bin-mapped)
+                  //   - pho_recoOverTruth_sim_vs_pTgamma.png          (bin-mapped)
+                  //   - pho_efficiencyEff_data_vs_efficiency_sim.png  (overlay, if both exist)
                   // -------------------------------------------------------------------
                   {
-                      auto sameBinning = [&](TH1* a, TH1* b)->bool
+                    auto sameBinning = [&](TH1* a, TH1* b)->bool
+                    {
+                      if (!a || !b) return false;
+                      if (a->GetNbinsX() != b->GetNbinsX()) return false;
+                      const int nb = a->GetNbinsX();
+                      for (int ib = 1; ib <= nb + 1; ++ib)
                       {
-                        if (!a || !b) return false;
-                        if (a->GetNbinsX() != b->GetNbinsX()) return false;
-                        const int nb = a->GetNbinsX();
-                        for (int ib = 1; ib <= nb + 1; ++ib)
-                        {
-                          const double ea = a->GetXaxis()->GetBinUpEdge(ib);
-                          const double eb = b->GetXaxis()->GetBinUpEdge(ib);
-                          if (std::fabs(ea - eb) > 1e-9) return false;
-                        }
-                        return true;
-                      };
+                        const double ea = a->GetXaxis()->GetBinUpEdge(ib);
+                        const double eb = b->GetXaxis()->GetBinUpEdge(ib);
+                        if (std::fabs(ea - eb) > 1e-9) return false;
+                      }
+                      return true;
+                    };
 
-                      // Data "effective efficiency": reco / unfolded-truth
-                      TH1* hEffData = CloneTH1(hRecoShape, "h_pho_effData_recoOverUnfoldTruth");
-                      if (hEffData)
+                    auto mapToRefBinning = [&](TH1* src, TH1* ref, const char* newName)->TH1*
+                    {
+                      if (!src || !ref) return nullptr;
+
+                      TH1* h = CloneTH1(ref, newName);
+                      if (!h) return nullptr;
+
+                      h->SetDirectory(nullptr);
+                      EnsureSumw2(h);
+                      h->Reset("ICES");
+
+                      const int nb = ref->GetNbinsX();
+                      int nBad = 0;
+
+                      for (int ib = 1; ib <= nb; ++ib)
                       {
-                        hEffData->SetDirectory(nullptr);
-                        EnsureSumw2(hEffData);
-                        hEffData->Divide(hUnfShape);
+                        const double x  = ref->GetXaxis()->GetBinCenter(ib);
+                        const int isrc  = src->GetXaxis()->FindBin(x);
 
-                        hEffData->SetTitle("");
-                        hEffData->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                        hEffData->GetYaxis()->SetTitle("#epsilon_{#gamma}^{eff} = N_{#gamma}^{reco,data} / N_{#gamma}^{truth,data (unfolded)}");
-                        hEffData->SetMarkerStyle(20);
-                        hEffData->SetMarkerSize(1.1);
-                        hEffData->SetLineWidth(2);
+                        const double xsLo = src->GetXaxis()->GetBinLowEdge(isrc);
+                        const double xsHi = src->GetXaxis()->GetBinUpEdge(isrc);
+                        const double xrLo = ref->GetXaxis()->GetBinLowEdge(ib);
+                        const double xrHi = ref->GetXaxis()->GetBinUpEdge(ib);
 
-                        TCanvas cEffD("c_pho_effData", "c_pho_effData", 900, 700);
-                        ApplyCanvasMargins1D(cEffD);
+                        if (std::fabs(xsLo - xrLo) > 1e-3 || std::fabs(xsHi - xrHi) > 1e-3) ++nBad;
 
-                        hEffData->Draw("E1");
-
-                        // Dashed line at 1
-                        {
-                          const double xmin = hEffData->GetXaxis()->GetXmin();
-                          const double xmax = hEffData->GetXaxis()->GetXmax();
-                          TLine l1(xmin, 1.0, xmax, 1.0);
-                          l1.SetLineStyle(2);
-                          l1.SetLineWidth(2);
-                          l1.Draw("same");
-                        }
-
-                        DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
-                        DrawLatexLines(0.14,0.78, { "Photon unfolding diagnostic: implied #epsilon_{#gamma}^{eff}(p_{T}^{#gamma})" }, 0.030, 0.040);
-
-                        SaveCanvas(cEffD, JoinPath(phoDir, "pho_efficiencyEff_data_vs_pTgamma.png"));
+                        h->SetBinContent(ib, src->GetBinContent(isrc));
+                        h->SetBinError  (ib, src->GetBinError  (isrc));
                       }
 
-                      // Optional: MC efficiency + Data/MC scale-factor-style diagnostic (only if binning matches)
-                      TH1* hEffMC = nullptr;
-                      TH1* hSF    = nullptr;
-
-                      if (hPhoRecoSim_in && hPhoTruthSim_in && hEffData && sameBinning(hPhoRecoSim_in, hPhoTruthSim_in) && sameBinning(hPhoRecoSim_in, hEffData))
+                      if (nBad > 0)
                       {
-                        TH1* hRecoSimShape  = CloneTH1(hPhoRecoSim_in,  "h_pho_recoSim_shape_forEff");
-                        TH1* hTruthSimShape = CloneTH1(hPhoTruthSim_in, "h_pho_truthSim_shape_forEff");
-                        if (hRecoSimShape && hTruthSimShape)
+                        cout << ANSI_BOLD_YEL
+                             << "[WARN] Photon diagnostics: mapped histogram '" << newName
+                             << "' had " << nBad << " bins with mismatched edges (copied by bin-center)."
+                             << ANSI_RESET << "\n";
+                      }
+
+                      return h;
+                    };
+
+                    auto drawLineAtOne = [&](TH1* h)
+                    {
+                      if (!h) return;
+                      const double xmin = h->GetXaxis()->GetXmin();
+                      const double xmax = h->GetXaxis()->GetXmax();
+                      TLine l1(xmin, 1.0, xmax, 1.0);
+                      l1.SetLineStyle(2);
+                      l1.SetLineWidth(2);
+                      l1.Draw("same");
+                    };
+
+                    // -----------------------------
+                    // DATA: eps_eff = N_reco,data / N_truth,data(unfolded)
+                    // -----------------------------
+                    TH1* hEffData = nullptr;
+                    {
+                      TH1* hRecoD  = hPhoRecoData;
+                      TH1* hTruthD = hPhoUnfoldTruth;
+
+                      if (hRecoD && hTruthD)
+                      {
+                        TH1* hRecoD_m = nullptr;
+
+                        if (sameBinning(hRecoD, hTruthD))
                         {
-                          hRecoSimShape->SetDirectory(nullptr);
-                          hTruthSimShape->SetDirectory(nullptr);
-                          EnsureSumw2(hRecoSimShape);
-                          EnsureSumw2(hTruthSimShape);
+                          hRecoD_m = CloneTH1(hRecoD, "h_pho_recoData_counts_forEff");
+                          if (hRecoD_m) { hRecoD_m->SetDirectory(nullptr); EnsureSumw2(hRecoD_m); }
+                        }
+                        else
+                        {
+                          hRecoD_m = mapToRefBinning(hRecoD, hTruthD, "h_pho_recoData_counts_mappedToTruthBins_forEff");
+                        }
 
-                          hEffMC = CloneTH1(hRecoSimShape, "h_pho_effMC_recoOverTruth");
-                          if (hEffMC)
+                        if (hRecoD_m)
+                        {
+                          hEffData = CloneTH1(hRecoD_m, "h_pho_effData_recoOverUnfoldTruth");
+                          if (hEffData)
                           {
-                            hEffMC->SetDirectory(nullptr);
-                            EnsureSumw2(hEffMC);
-                            hEffMC->Divide(hTruthSimShape);
+                            hEffData->SetDirectory(nullptr);
+                            EnsureSumw2(hEffData);
+                            hEffData->Divide(hTruthD);
 
-                            hEffMC->SetTitle("");
-                            hEffMC->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                            hEffMC->GetYaxis()->SetTitle("#epsilon_{#gamma}^{MC} = N_{#gamma}^{reco,MC} / N_{#gamma}^{truth,MC}");
-                            hEffMC->SetMarkerStyle(21);
-                            hEffMC->SetMarkerSize(1.1);
-                            hEffMC->SetLineWidth(2);
+                            hEffData->SetTitle("");
+                            hEffData->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                            hEffData->GetYaxis()->SetTitle("#epsilon_{#gamma}^{eff,data} = N_{#gamma}^{reco,data} / N_{#gamma}^{truth,data (unfolded)}");
+                            hEffData->SetMarkerStyle(20);
+                            hEffData->SetMarkerSize(1.1);
+                            hEffData->SetLineWidth(2);
 
-                            TCanvas cEffM("c_pho_effMC", "c_pho_effMC", 900, 700);
-                            ApplyCanvasMargins1D(cEffM);
+                            TCanvas c("c_pho_effData", "c_pho_effData", 900, 700);
+                            ApplyCanvasMargins1D(c);
 
-                            hEffMC->Draw("E1");
+                            hEffData->GetYaxis()->SetRangeUser(0.0, 1.2);
+                            hEffData->Draw("E1");
+                            drawLineAtOne(hEffData);
 
-                            {
-                              const double xmin = hEffMC->GetXaxis()->GetXmin();
-                              const double xmax = hEffMC->GetXaxis()->GetXmax();
-                              TLine l1(xmin, 1.0, xmax, 1.0);
-                              l1.SetLineStyle(2);
-                              l1.SetLineWidth(2);
-                              l1.Draw("same");
-                            }
+                            DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
+                            DrawLatexLines(0.14,0.78, { "Photon unfolding diagnostic: implied #epsilon_{#gamma}^{eff,data}(p_{T}^{#gamma})" }, 0.030, 0.040);
 
-                            DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
-                            DrawLatexLines(0.14,0.78, { "Photon efficiency (MC): reco / truth" }, 0.030, 0.040);
-
-                            SaveCanvas(cEffM, JoinPath(phoDir, "pho_efficiency_mc_vs_pTgamma.png"));
-
-                            // Data/MC scale-factor-style ratio: eps_eff(data)/eps_MC
-                            hSF = CloneTH1(hEffData, "h_pho_effSF_dataOverMC");
-                            if (hSF)
-                            {
-                              hSF->SetDirectory(nullptr);
-                              EnsureSumw2(hSF);
-                              hSF->Divide(hEffMC);
-
-                              hSF->SetTitle("");
-                              hSF->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                              hSF->GetYaxis()->SetTitle("SF(p_{T}) = #epsilon_{#gamma}^{eff,data} / #epsilon_{#gamma}^{MC}");
-                              hSF->SetMarkerStyle(20);
-                              hSF->SetMarkerSize(1.1);
-                              hSF->SetLineWidth(2);
-
-                              TCanvas cSF("c_pho_effSF", "c_pho_effSF", 900, 700);
-                              ApplyCanvasMargins1D(cSF);
-
-                              hSF->Draw("E1");
-
-                              {
-                                const double xmin = hSF->GetXaxis()->GetXmin();
-                                const double xmax = hSF->GetXaxis()->GetXmax();
-                                TLine l1(xmin, 1.0, xmax, 1.0);
-                                l1.SetLineStyle(2);
-                                l1.SetLineWidth(2);
-                                l1.Draw("same");
-                              }
-
-                              DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
-                              DrawLatexLines(0.14,0.78, { "Photon unfolding diagnostic: #epsilon_{#gamma}^{eff,data} / #epsilon_{#gamma}^{MC}" }, 0.030, 0.040);
-
-                              SaveCanvas(cSF, JoinPath(phoDir, "pho_efficiencyEff_dataOverMC_vs_pTgamma.png"));
-                            }
+                            SaveCanvas(c, JoinPath(phoDir, "pho_efficiencyEff_data_vs_pTgamma.png"));
                           }
                         }
 
-                        if (hRecoSimShape)  delete hRecoSimShape;
-                        if (hTruthSimShape) delete hTruthSimShape;
+                        if (hRecoD_m && hRecoD_m != hRecoD) delete hRecoD_m;
+                      }
+                    }
+
+                    // -----------------------------
+                    // SIM: purity, efficiency, truth/reco ratios
+                    // -----------------------------
+                    TH1* hPurSim = nullptr;
+                    TH1* hEffSim = nullptr;
+                    TH1* hTruthOverRecoSim = nullptr;
+                    TH1* hRecoOverTruthSim = nullptr;
+
+                    // Purity: 1 - fakes/reco  (reco space)
+                    if (hPhoRecoSim && hPhoRecoFakesSim)
+                    {
+                      TH1* hFakeOverReco = CloneTH1(hPhoRecoFakesSim, "h_pho_fakeOverReco_sim");
+                      if (hFakeOverReco)
+                      {
+                        hFakeOverReco->SetDirectory(nullptr);
+                        EnsureSumw2(hFakeOverReco);
+                        hFakeOverReco->Divide(hPhoRecoSim);
+
+                        hPurSim = CloneTH1(hFakeOverReco, "h_pho_purity_sim");
+                        if (hPurSim)
+                        {
+                          hPurSim->SetDirectory(nullptr);
+                          EnsureSumw2(hPurSim);
+
+                          for (int ib = 1; ib <= hPurSim->GetNbinsX(); ++ib)
+                          {
+                            const double v  = 1.0 - hFakeOverReco->GetBinContent(ib);
+                            const double ev = hFakeOverReco->GetBinError(ib);
+                            hPurSim->SetBinContent(ib, v);
+                            hPurSim->SetBinError  (ib, ev);
+                          }
+
+                          hPurSim->SetTitle("");
+                          hPurSim->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                          hPurSim->GetYaxis()->SetTitle("Purity(p_{T}^{#gamma}) = 1 - N_{fake}^{reco}/N_{#gamma}^{reco}");
+                          hPurSim->SetMarkerStyle(21);
+                          hPurSim->SetMarkerSize(1.1);
+                          hPurSim->SetLineWidth(2);
+
+                          TCanvas c("c_pho_purity_sim", "c_pho_purity_sim", 900, 700);
+                          ApplyCanvasMargins1D(c);
+
+                          hPurSim->GetYaxis()->SetRangeUser(0.0, 1.2);
+                          hPurSim->Draw("E1");
+                          drawLineAtOne(hPurSim);
+
+                          DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
+                          DrawLatexLines(0.14,0.78, { "SIM photon purity: 1 - (reco fakes)/(reco selected)" }, 0.030, 0.040);
+
+                          SaveCanvas(c, JoinPath(phoDir, "pho_purity_sim_vs_pTgamma.png"));
+                        }
+
+                        delete hFakeOverReco;
+                      }
+                    }
+                    else
+                    {
+                      cout << ANSI_BOLD_YEL
+                           << "[WARN] Photon purity plot: missing SIM fakes histogram (h_unfoldRecoPhoFakes_pTgamma). Skipping purity plot."
+                           << ANSI_RESET << "\n";
+                    }
+
+                    // Efficiency: 1 - misses/truth (truth space)
+                    if (hPhoTruthSim && hPhoTruthMissesSim)
+                    {
+                      TH1* hMissOverTruth = CloneTH1(hPhoTruthMissesSim, "h_pho_missOverTruth_sim");
+                      if (hMissOverTruth)
+                      {
+                        hMissOverTruth->SetDirectory(nullptr);
+                        EnsureSumw2(hMissOverTruth);
+                        hMissOverTruth->Divide(hPhoTruthSim);
+
+                        hEffSim = CloneTH1(hMissOverTruth, "h_pho_efficiency_sim");
+                        if (hEffSim)
+                        {
+                          hEffSim->SetDirectory(nullptr);
+                          EnsureSumw2(hEffSim);
+
+                          for (int ib = 1; ib <= hEffSim->GetNbinsX(); ++ib)
+                          {
+                            const double v  = 1.0 - hMissOverTruth->GetBinContent(ib);
+                            const double ev = hMissOverTruth->GetBinError(ib);
+                            hEffSim->SetBinContent(ib, v);
+                            hEffSim->SetBinError  (ib, ev);
+                          }
+
+                          hEffSim->SetTitle("");
+                          hEffSim->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                          hEffSim->GetYaxis()->SetTitle("#epsilon_{#gamma}^{MC}(p_{T}^{#gamma}) = 1 - N_{miss}^{truth}/N_{#gamma}^{truth}");
+                          hEffSim->SetMarkerStyle(22);
+                          hEffSim->SetMarkerSize(1.1);
+                          hEffSim->SetLineWidth(2);
+
+                          TCanvas c("c_pho_efficiency_sim", "c_pho_efficiency_sim", 900, 700);
+                          ApplyCanvasMargins1D(c);
+
+                          hEffSim->GetYaxis()->SetRangeUser(0.0, 1.2);
+                          hEffSim->Draw("E1");
+                          drawLineAtOne(hEffSim);
+
+                          DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
+                          DrawLatexLines(0.14,0.78, { "SIM photon efficiency: 1 - (truth misses)/(truth signal)" }, 0.030, 0.040);
+
+                          SaveCanvas(c, JoinPath(phoDir, "pho_efficiency_sim_vs_pTgamma.png"));
+                        }
+
+                        delete hMissOverTruth;
+                      }
+                    }
+                    else
+                    {
+                      cout << ANSI_BOLD_YEL
+                           << "[WARN] Photon efficiency plot: missing SIM misses histogram (h_unfoldTruthPhoMisses_pTgamma). Skipping efficiency plot."
+                           << ANSI_RESET << "\n";
+                    }
+
+                    // Truth/Reco ratios in SIM (bin-mapped so it is well-defined)
+                    if (hPhoTruthSim && hPhoRecoSim)
+                    {
+                      TH1* hRecoSim_mTruth = nullptr;
+                      if (sameBinning(hPhoRecoSim, hPhoTruthSim))
+                      {
+                        hRecoSim_mTruth = CloneTH1(hPhoRecoSim, "h_pho_recoSim_counts_forTruthOverReco");
+                        if (hRecoSim_mTruth) { hRecoSim_mTruth->SetDirectory(nullptr); EnsureSumw2(hRecoSim_mTruth); }
                       }
                       else
                       {
-                        cout << ANSI_BOLD_YEL
-                             << "[WARN] Photon efficiency diagnostics: MC binning mismatch with data/unfolded axis -> skipping MC + SF plots.\n"
-                             << ANSI_RESET;
+                        hRecoSim_mTruth = mapToRefBinning(hPhoRecoSim, hPhoTruthSim, "h_pho_recoSim_counts_mappedToTruthBins_forTruthOverReco");
                       }
 
-                      if (hSF)    delete hSF;
-                      if (hEffMC) delete hEffMC;
-                      if (hEffData) delete hEffData;
+                      if (hRecoSim_mTruth)
+                      {
+                        hTruthOverRecoSim = CloneTH1(hPhoTruthSim, "h_pho_truthOverReco_sim");
+                        if (hTruthOverRecoSim)
+                        {
+                          hTruthOverRecoSim->SetDirectory(nullptr);
+                          EnsureSumw2(hTruthOverRecoSim);
+                          hTruthOverRecoSim->Divide(hRecoSim_mTruth);
+
+                          hTruthOverRecoSim->SetTitle("");
+                          hTruthOverRecoSim->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                          hTruthOverRecoSim->GetYaxis()->SetTitle("N_{#gamma}^{truth} / N_{#gamma}^{reco}  (SIM, bin-mapped)");
+                          hTruthOverRecoSim->SetMarkerStyle(20);
+                          hTruthOverRecoSim->SetMarkerSize(1.1);
+                          hTruthOverRecoSim->SetLineWidth(2);
+
+                          TCanvas c("c_pho_truthOverReco_sim", "c_pho_truthOverReco_sim", 900, 700);
+                          ApplyCanvasMargins1D(c);
+
+                          hTruthOverRecoSim->Draw("E1");
+
+                          DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
+                          DrawLatexLines(0.14,0.78, { "SIM normalization lever-arm: N_{#gamma}^{truth} / N_{#gamma}^{reco}" }, 0.030, 0.040);
+
+                          SaveCanvas(c, JoinPath(phoDir, "pho_truthOverReco_sim_vs_pTgamma.png"));
+                        }
+
+                        if (hRecoSim_mTruth && hRecoSim_mTruth != hPhoRecoSim) delete hRecoSim_mTruth;
+                      }
+
+                      TH1* hTruthSim_mReco = nullptr;
+                      if (sameBinning(hPhoTruthSim, hPhoRecoSim))
+                      {
+                        hTruthSim_mReco = CloneTH1(hPhoTruthSim, "h_pho_truthSim_counts_forRecoOverTruth");
+                        if (hTruthSim_mReco) { hTruthSim_mReco->SetDirectory(nullptr); EnsureSumw2(hTruthSim_mReco); }
+                      }
+                      else
+                      {
+                        hTruthSim_mReco = mapToRefBinning(hPhoTruthSim, hPhoRecoSim, "h_pho_truthSim_counts_mappedToRecoBins_forRecoOverTruth");
+                      }
+
+                      if (hTruthSim_mReco)
+                      {
+                        hRecoOverTruthSim = CloneTH1(hPhoRecoSim, "h_pho_recoOverTruth_sim");
+                        if (hRecoOverTruthSim)
+                        {
+                          hRecoOverTruthSim->SetDirectory(nullptr);
+                          EnsureSumw2(hRecoOverTruthSim);
+                          hRecoOverTruthSim->Divide(hTruthSim_mReco);
+
+                          hRecoOverTruthSim->SetTitle("");
+                          hRecoOverTruthSim->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                          hRecoOverTruthSim->GetYaxis()->SetTitle("N_{#gamma}^{reco} / N_{#gamma}^{truth}  (SIM, bin-mapped)");
+                          hRecoOverTruthSim->SetMarkerStyle(20);
+                          hRecoOverTruthSim->SetMarkerSize(1.1);
+                          hRecoOverTruthSim->SetLineWidth(2);
+
+                          TCanvas c("c_pho_recoOverTruth_sim", "c_pho_recoOverTruth_sim", 900, 700);
+                          ApplyCanvasMargins1D(c);
+
+                          hRecoOverTruthSim->GetYaxis()->SetRangeUser(0.0, 1.2);
+                          hRecoOverTruthSim->Draw("E1");
+                          drawLineAtOne(hRecoOverTruthSim);
+
+                          DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
+                          DrawLatexLines(0.14,0.78, { "SIM efficiency-like: N_{#gamma}^{reco} / N_{#gamma}^{truth}" }, 0.030, 0.040);
+
+                          SaveCanvas(c, JoinPath(phoDir, "pho_recoOverTruth_sim_vs_pTgamma.png"));
+                        }
+
+                        if (hTruthSim_mReco && hTruthSim_mReco != hPhoTruthSim) delete hTruthSim_mReco;
+                      }
+                    }
+
+                    // -----------------------------
+                    // Overlay: eps_eff,data vs eps_MC (if both exist)
+                    // -----------------------------
+                    if (hEffData && hEffSim)
+                    {
+                      TCanvas c("c_pho_effData_vs_effSim", "c_pho_effData_vs_effSim", 900, 700);
+                      ApplyCanvasMargins1D(c);
+
+                      TH1* hFrame = CloneTH1(hEffSim, "hFrame_effData_vs_effSim");
+                      if (hFrame)
+                      {
+                        hFrame->SetDirectory(nullptr);
+                        hFrame->Reset("ICES");
+                        hFrame->SetTitle("");
+                        hFrame->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                        hFrame->GetYaxis()->SetTitle("#epsilon_{#gamma}(p_{T}^{#gamma})");
+                        hFrame->GetYaxis()->SetRangeUser(0.0, 1.2);
+                        hFrame->Draw("axis");
+                      }
+
+                      hEffSim->SetMarkerColor(kBlue + 1);
+                      hEffSim->SetLineColor(kBlue + 1);
+                      hEffData->SetMarkerColor(kBlack);
+                      hEffData->SetLineColor(kBlack);
+
+                      hEffSim->Draw("E1 same");
+                      hEffData->Draw("E1 same");
+
+                      TGraphErrors gLegData(1), gLegSim(1);
+                      {
+                        int ib = 1;
+                        const double x  = hEffData->GetXaxis()->GetBinCenter(ib);
+                        const double y  = hEffData->GetBinContent(ib);
+                        const double ey = hEffData->GetBinError(ib);
+                        gLegData.SetPoint(0, x, y);
+                        gLegData.SetPointError(0, 0.0, ey);
+                        gLegData.SetMarkerStyle(hEffData->GetMarkerStyle());
+                        gLegData.SetMarkerSize(hEffData->GetMarkerSize());
+                        gLegData.SetMarkerColor(hEffData->GetMarkerColor());
+                        gLegData.SetLineColor(hEffData->GetLineColor());
+                        gLegData.SetLineWidth(hEffData->GetLineWidth());
+                      }
+                      {
+                        int ib = 1;
+                        const double x  = hEffSim->GetXaxis()->GetBinCenter(ib);
+                        const double y  = hEffSim->GetBinContent(ib);
+                        const double ey = hEffSim->GetBinError(ib);
+                        gLegSim.SetPoint(0, x, y);
+                        gLegSim.SetPointError(0, 0.0, ey);
+                        gLegSim.SetMarkerStyle(hEffSim->GetMarkerStyle());
+                        gLegSim.SetMarkerSize(hEffSim->GetMarkerSize());
+                        gLegSim.SetMarkerColor(hEffSim->GetMarkerColor());
+                        gLegSim.SetLineColor(hEffSim->GetLineColor());
+                        gLegSim.SetLineWidth(hEffSim->GetLineWidth());
+                      }
+
+                      TLegend leg(0.55, 0.74, 0.88, 0.88);
+                      leg.SetBorderSize(0);
+                      leg.SetFillStyle(0);
+                      leg.SetTextFont(42);
+                      leg.SetTextSize(0.035);
+                      leg.AddEntry(&gLegData, "#epsilon_{#gamma}^{eff,data} (reco / unfolded truth)", "pe");
+                      leg.AddEntry(&gLegSim,  "#epsilon_{#gamma}^{MC} (1 - misses/truth)", "pe");
+                      leg.Draw();
+
+                      drawLineAtOne(hEffSim);
+
+                      DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
+                      DrawLatexLines(0.14,0.78, { "Photon efficiency diagnostics: DATA implied vs SIM truth-matching" }, 0.030, 0.040);
+
+                      SaveCanvas(c, JoinPath(phoDir, "pho_efficiencyEff_data_vs_efficiency_sim.png"));
+
+                      if (hFrame) delete hFrame;
+                    }
+
+                    if (hRecoOverTruthSim) delete hRecoOverTruthSim;
+                    if (hTruthOverRecoSim) delete hTruthOverRecoSim;
+                    if (hEffSim) delete hEffSim;
+                    if (hPurSim) delete hPurSim;
+                    if (hEffData) delete hEffData;
                   }
 
                   delete hRecoShape;
