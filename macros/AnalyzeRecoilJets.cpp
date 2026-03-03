@@ -20417,10 +20417,37 @@ namespace ARJ
               t.SetNDC(true);
               t.SetTextFont(42);
               t.SetTextAlign(22);
-              t.SetTextSize(0.042);
+              t.SetTextSize(0.044);
               t.DrawLatex(0.50, 0.93,
-                TString::Format("%s, PP, p_{T}^{#gamma} = %d-%d GeV",
-                                xTitle.c_str(), pb.lo, pb.hi).Data());
+                  TString::Format("%s, PP, p_{T}^{#gamma} = %d-%d GeV, Run24pp",
+                                  xTitle.c_str(), pb.lo, pb.hi).Data());
+
+              // For E_{T}^{iso} plots: draw the isolation cut line and print the cut value per pT bin
+              if (xTitle.find("E_{T}^{iso}") != std::string::npos)
+              {
+                  const double pTmid  = 0.5 * ((double)pb.lo + (double)pb.hi);
+                  const double cutIso = 1.08128 + 0.0299107 * pTmid;
+
+                  gPad->Update();
+                  const double yMinIso = gPad->GetUymin();
+                  const double yMaxIso = gPad->GetUymax();
+
+                  TLine* lIso = new TLine(cutIso, yMinIso, cutIso, yMaxIso);
+                  lIso->SetLineColor(kRed + 1);
+                  lIso->SetLineWidth(2);
+                  lIso->SetLineStyle(2);
+                  lIso->Draw("same");
+
+                  TLatex txIso;
+                  txIso.SetNDC(true);
+                  txIso.SetTextFont(42);
+                  txIso.SetTextAlign(31);
+                  txIso.SetTextSize(0.04);
+                  txIso.DrawLatex(0.89, 0.8,
+                    TString::Format("E_{T}^{iso} < 1.08128 + 0.0299107*p_{T}^{#gamma} #approx %.7f", cutIso).Data());
+
+                  gPad->RedrawAxis();
+              }
 
               // SS cut text + cut lines (where applicable)
               TLatex tcut;
@@ -24110,10 +24137,124 @@ namespace ARJ
           //   <kOutPPAuAuBase>/noSS_isoSpectra/table2x3_AuAu_unNormalized.png
           // ---------------------------------------------------------------------
           {
-            const string outNoSS = JoinPath(outBase, "noSS_isoSpectra");
-            EnsureDir(outNoSS);
-            Make2x3Table_AuAuUnNormalized_ByCent(aaTop, outNoSS, "h_Eiso", "E_{T}^{iso} [GeV]");
-            Make2x3Table_AuAuUnNormalized_ByPtOverlaysPerCent(aaTop, outNoSS, "h_Eiso", "E_{T}^{iso} [GeV]");
+              const string outNoSS = JoinPath(outBase, "noSS_isoSpectra");
+              EnsureDir(outNoSS);
+
+              const string histBaseIso = "h_Eiso";
+              const string xTitleIso   = "E_{T}^{iso} [GeV]";
+
+              Make2x3Table_AuAuUnNormalized_ByCent(aaTop, outNoSS, histBaseIso, xTitleIso);
+              Make2x3Table_AuAuUnNormalized_ByPtOverlaysPerCent(aaTop, outNoSS, histBaseIso, xTitleIso);
+
+              // -------------------------------------------------------------------
+              // NEW: Terminal numeric summary for table2x3_AuAu_unNormalized_byPtOverlays.png
+              // Tabulate (per centrality, per pT bin):
+              //   xMin, xMax (axis range), yMax, and x-bin location of yMax
+              //
+              // Print for:
+              //   (1) kInAuAuGold    : non UE-subtracted
+              //   (2) kInAuAuGoldNew : UE-subtracted (if available)
+              // -------------------------------------------------------------------
+              auto PrintByPtOverlaySummary = [&](TDirectory* top,
+                                                 const std::string& tag,
+                                                 const std::string& filePath)
+              {
+                if (!top) return;
+
+                const auto& ptBins   = PtBins();
+                const auto& centBins = CentBins();
+
+                const int nPads = std::min(6, (int)centBins.size());
+                const int nPt   = (int)ptBins.size();
+
+                std::ios::fmtflags f = cout.flags();
+                std::streamsize    p = cout.precision();
+
+                cout << ANSI_BOLD_CYN
+                     << "\n[AuAu SUMMARY] table2x3_AuAu_unNormalized_byPtOverlays.png  (" << tag << ")\n"
+                     << ANSI_RESET;
+                cout << "  file: " << filePath << "\n";
+                cout << "  histBase: " << histBaseIso << "   xTitle: " << xTitleIso << "\n";
+                cout << "  pads: first " << nPads << " centrality bins (matches 2x3 table)\n\n";
+
+                cout << ANSI_BOLD_WHT;
+                cout << std::left
+                     << std::setw(10) << "cent"
+                     << std::setw(10) << "pTgamma"
+                     << std::setw(10) << "xMin"
+                     << std::setw(10) << "xMax"
+                     << std::setw(14) << "yMax"
+                     << std::setw(10) << "x@Max"
+                     << std::setw(12) << "binLo"
+                     << std::setw(12) << "binHi"
+                     << ANSI_RESET << "\n";
+
+                cout << std::string(88, '-') << "\n";
+
+                for (int ic = 0; ic < nPads; ++ic)
+                {
+                  const auto& cb = centBins[ic];
+                  const std::string centStr = TString::Format("%d-%d%%", cb.lo, cb.hi).Data();
+
+                  for (int ipt = 0; ipt < nPt; ++ipt)
+                  {
+                    const PtBin& pb = ptBins[ipt];
+                    const std::string ptStr = TString::Format("%d-%d", pb.lo, pb.hi).Data();
+
+                    const string hName = histBaseIso + pb.suffix + cb.suffix;
+                    TH1* h = GetTH1FromTopDir(top, hName);
+
+                    if (!h)
+                    {
+                      cout << std::left
+                           << std::setw(10) << centStr
+                           << std::setw(10) << ptStr
+                           << ANSI_BOLD_RED << "MISSING" << ANSI_RESET << "\n";
+                      continue;
+                    }
+
+                    const int nb = h->GetNbinsX();
+
+                    const double xMin = h->GetXaxis()->GetBinLowEdge(1);
+                    const double xMax = h->GetXaxis()->GetBinUpEdge(nb);
+
+                    const int ibMax = h->GetMaximumBin();
+                    const double yMax = h->GetBinContent(ibMax);
+
+                    const double xAtMax = h->GetXaxis()->GetBinCenter(ibMax);
+                    const double binLo  = h->GetXaxis()->GetBinLowEdge(ibMax);
+                    const double binHi  = h->GetXaxis()->GetBinUpEdge(ibMax);
+
+                    cout << std::left
+                         << std::setw(10) << centStr
+                         << std::setw(10) << ptStr
+                         << std::setw(10) << std::fixed << std::setprecision(3) << xMin
+                         << std::setw(10) << std::fixed << std::setprecision(3) << xMax
+                         << std::setw(14) << std::fixed << std::setprecision(3) << yMax
+                         << std::setw(10) << std::fixed << std::setprecision(3) << xAtMax
+                         << std::setw(12) << std::fixed << std::setprecision(3) << binLo
+                         << std::setw(12) << std::fixed << std::setprecision(3) << binHi
+                         << "\n";
+                  }
+                }
+
+                cout << "\n";
+                cout.flags(f);
+                cout.precision(p);
+              };
+
+              PrintByPtOverlaySummary(aaTop, "non UE-subtracted", kInAuAuGold);
+
+              if (aaTopNew)
+              {
+                PrintByPtOverlaySummary(aaTopNew, "UE-subtracted", kInAuAuGoldNew);
+              }
+              else
+              {
+                cout << ANSI_BOLD_YEL
+                     << "[WARN] UE-subtracted summary skipped (aaTopNew is null): " << kInAuAuGoldNew
+                     << ANSI_RESET << "\n";
+              }
           }
 
           cout << ANSI_BOLD_GRN
