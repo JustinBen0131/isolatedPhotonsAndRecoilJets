@@ -17546,7 +17546,7 @@ namespace ARJ
                       ymax = gYmax_r04_closure;
                   }
 
-                  hRat->GetYaxis()->SetRangeUser(ymin, ymax);
+                  hRat->GetYaxis()->SetRangeUser(0.9, 1.15);
                   hRat->Draw("E1");
 
                   const double xmin = hRat->GetXaxis()->GetBinLowEdge(1);
@@ -17723,7 +17723,7 @@ namespace ARJ
                         ymax = gYmax_r04_halfClosure;
                     }
 
-                    hRat->GetYaxis()->SetRangeUser(ymin, ymax);
+                    hRat->GetYaxis()->SetRangeUser(0.7, 1.1);
                     hRat->Draw("E1");
 
                     const double xmin = hRat->GetXaxis()->GetBinLowEdge(1);
@@ -18119,7 +18119,7 @@ namespace ARJ
 
                     g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
                     g.GetYaxis()->SetTitle("Closure: Unfolded MC / Truth MC");
-                    g.GetYaxis()->SetRangeUser(ymin, ymax);
+                    g.GetYaxis()->SetRangeUser(0.9, 1.15);
 
                     TLine l1(g.GetXaxis()->GetXmin(), 1.0, g.GetXaxis()->GetXmax(), 1.0);
                     l1.SetLineStyle(2);
@@ -18417,7 +18417,7 @@ namespace ARJ
 
                         g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
                         g.GetYaxis()->SetTitle("Half-closure: Unfolded MC / Truth MC");
-                        g.GetYaxis()->SetRangeUser(ymin, ymax);
+                        g.GetYaxis()->SetRangeUser(0.7, 1.1);
 
                         TLine l1(g.GetXaxis()->GetXmin(), 1.0, g.GetXaxis()->GetXmax(), 1.0);
                         l1.SetLineStyle(2);
