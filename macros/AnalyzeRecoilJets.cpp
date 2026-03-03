@@ -16514,11 +16514,18 @@ namespace ARJ
             return h2;
           };
 
-          // ----------------------------------------------------------------------
-          // (A) Photon unfolding: N_gamma(pT^gamma) at particle (truth) level
-          // ----------------------------------------------------------------------
-          const string phoDir = JoinPath(outBase, "photons");
-          EnsureDir(phoDir);
+            // ----------------------------------------------------------------------
+            // (A) Photon unfolding: N_gamma(pT^gamma) at particle (truth) level
+            // ----------------------------------------------------------------------
+
+            // Shared y-axis ranges (taken from Step-B r04 closure/half-closure) to enforce identical ranges in Step-A photon plots
+            static double gYmin_r04_closure     = std::numeric_limits<double>::quiet_NaN();
+            static double gYmax_r04_closure     = std::numeric_limits<double>::quiet_NaN();
+            static double gYmin_r04_halfClosure = std::numeric_limits<double>::quiet_NaN();
+            static double gYmax_r04_halfClosure = std::numeric_limits<double>::quiet_NaN();
+
+            const string phoDir = JoinPath(outBase, "photons");
+            EnsureDir(phoDir);
 
             const string phoRecoName   = "h_unfoldRecoPho_pTgamma";
             const string phoTruthName  = "h_unfoldTruthPho_pTgamma";
@@ -17448,23 +17455,23 @@ namespace ARJ
                 frame.GetYaxis()->SetTitle("Relative quantity");
                 frame.Draw("axis");
 
-                  // total relative stat. uncertainty (RED)
-                  TGraphErrors gStat((int)xIt.size(), &xIt[0], &yRelStat[0], &exIt[0], &eyRelStat[0]);
-                  gStat.SetMarkerStyle(24);
-                  gStat.SetMarkerSize(1.1);
-                  gStat.SetMarkerColor(kRed + 1);
-                  gStat.SetLineColor(kRed + 1);
-                  gStat.SetLineWidth(2);
-                  gStat.Draw("P same");
+                // total relative stat. uncertainty (RED)
+                TGraphErrors gStat((int)xIt.size(), &xIt[0], &yRelStat[0], &exIt[0], &eyRelStat[0]);
+                gStat.SetMarkerStyle(24);
+                gStat.SetMarkerSize(1.1);
+                gStat.SetMarkerColor(kRed + 1);
+                gStat.SetLineColor(kRed + 1);
+                gStat.SetLineWidth(2);
+                gStat.Draw("P same");
 
-                  // total relative deviation (it vs it-1) (BLUE)
-                  TGraphErrors gDev((int)xIt.size(), &xIt[0], &yRelDev[0], &exIt[0], &eyRelDev[0]);
-                  gDev.SetMarkerStyle(24);
-                  gDev.SetMarkerSize(1.1);
-                  gDev.SetMarkerColor(kBlue + 1);
-                  gDev.SetLineColor(kBlue + 1);
-                  gDev.SetLineWidth(2);
-                  gDev.Draw("P same");
+                // total relative deviation (it vs it-1) (BLUE)
+                TGraphErrors gDev((int)xIt.size(), &xIt[0], &yRelDev[0], &exIt[0], &eyRelDev[0]);
+                gDev.SetMarkerStyle(24);
+                gDev.SetMarkerSize(1.1);
+                gDev.SetMarkerColor(kBlue + 1);
+                gDev.SetLineColor(kBlue + 1);
+                gDev.SetLineWidth(2);
+                gDev.Draw("P same");
 
                 TLegend leg(0.55, 0.78, 0.89, 0.90);
                 leg.SetBorderSize(0);
@@ -17475,14 +17482,24 @@ namespace ARJ
                 leg.AddEntry(&gDev,  "total relative deviation (it vs it-1)", "p");
                 leg.Draw();
 
-                  {
+                {
                     TLatex tx;
                     tx.SetNDC();
                     tx.SetTextFont(42);
                     tx.SetTextAlign(22);
                     tx.SetTextSize(0.040);
-                    tx.DrawLatex(0.50, 0.965, TString::Format("Iteration Stability, R = %.1f, %s, Run24pp", 0.0, dsData.trigger.c_str()).Data());
-                  }
+                    tx.DrawLatex(0.50, 0.965, "Iteration Stability, Photon 4 + MBD NS #geq 1, Run24pp");
+                }
+
+                // Label under legend (photon 1D unfolding)
+                {
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextAlign(13);
+                    tx.SetTextSize(0.032);
+                    tx.DrawLatex(0.55, 0.74, "1D photon-yield unfolding");
+                }
                   
                 SaveCanvas(cSt, JoinPath(phoValDir, "pho_unfold_iterStability_relChange_relStat.png"));
               }
@@ -17519,31 +17536,14 @@ namespace ARJ
                   TCanvas c("c_pho_closure", "c_pho_closure", 900, 700);
                   ApplyCanvasMargins1D(c);
 
-                  // Tight y-range (match 2D closure plots): min/max of (y ± ey) with padding
-                  double ymin =  1e99;
-                  double ymax = -1e99;
-                  for (int ib = 1; ib <= hRat->GetNbinsX(); ++ib)
-                  {
-                      const double y  = hRat->GetBinContent(ib);
-                      const double ey = hRat->GetBinError(ib);
-                      if (y == 0.0 && ey == 0.0) continue;
-                      ymin = std::min(ymin, y - ey);
-                      ymax = std::max(ymax, y + ey);
-                  }
+                  // Force photon closure y-range to match the r04 2D closure plot range (if available)
+                  double ymin = 0.7;
+                  double ymax = 1.3;
 
-                  if (!(ymin < 1e98) || !(ymax > -1e98) || ymin >= ymax)
+                  if (std::isfinite(gYmin_r04_closure) && std::isfinite(gYmax_r04_closure) && gYmin_r04_closure < gYmax_r04_closure)
                   {
-                      ymin = 0.7;
-                      ymax = 1.3;
-                  }
-                  else
-                  {
-                      const double pad = 0.15 * (ymax - ymin);
-                      ymin -= pad;
-                      ymax += pad;
-                      if (ymin < 0.0) ymin = 0.0;
-                      if (ymin > 1.0) ymin = 0.9;
-                      if (ymax < 1.0) ymax = 1.1;
+                      ymin = gYmin_r04_closure;
+                      ymax = gYmax_r04_closure;
                   }
 
                   hRat->GetYaxis()->SetRangeUser(ymin, ymax);
@@ -17713,31 +17713,14 @@ namespace ARJ
                     TCanvas c("c_pho_halfClosure", "c_pho_halfClosure", 900, 700);
                     ApplyCanvasMargins1D(c);
 
-                    // Tight y-range (match 2D half-closure plots): min/max of (y ± ey) with padding
-                    double ymin =  1e99;
-                    double ymax = -1e99;
-                    for (int ib = 1; ib <= hRat->GetNbinsX(); ++ib)
-                    {
-                          const double y  = hRat->GetBinContent(ib);
-                          const double ey = hRat->GetBinError(ib);
-                          if (y == 0.0 && ey == 0.0) continue;
-                          ymin = std::min(ymin, y - ey);
-                          ymax = std::max(ymax, y + ey);
-                    }
+                    // Force photon half-closure y-range to match the r04 2D half-closure plot range (if available)
+                    double ymin = 0.7;
+                    double ymax = 1.3;
 
-                    if (!(ymin < 1e98) || !(ymax > -1e98) || ymin >= ymax)
+                    if (std::isfinite(gYmin_r04_halfClosure) && std::isfinite(gYmax_r04_halfClosure) && gYmin_r04_halfClosure < gYmax_r04_halfClosure)
                     {
-                          ymin = 0.7;
-                          ymax = 1.3;
-                    }
-                    else
-                    {
-                          const double pad = 0.15 * (ymax - ymin);
-                          ymin -= pad;
-                          ymax += pad;
-                          if (ymin < 0.0) ymin = 0.0;
-                          if (ymin > 1.0) ymin = 0.9;
-                          if (ymax < 1.0) ymax = 1.1;
+                        ymin = gYmin_r04_halfClosure;
+                        ymax = gYmax_r04_halfClosure;
                     }
 
                     hRat->GetYaxis()->SetRangeUser(ymin, ymax);
@@ -18103,20 +18086,27 @@ namespace ARJ
                     ymin = std::min(ymin, yRat[i] - eyRat[i]);
                     ymax = std::max(ymax, yRat[i] + eyRat[i]);
                   }
-                  if (!(ymin < 1e98) || !(ymax > -1e98) || ymin >= ymax)
-                  {
-                    ymin = 0.5;
-                    ymax = 1.5;
-                  }
-                  else
-                  {
-                    const double pad = 0.15 * (ymax - ymin);
-                    ymin -= pad;
-                    ymax += pad;
-                    if (ymin < 0.0) ymin = 0.0;
-                    if (ymin > 1.0) ymin = 0.9;
-                    if (ymax < 1.0) ymax = 1.1;
-                  }
+                    if (!(ymin < 1e98) || !(ymax > -1e98) || ymin >= ymax)
+                    {
+                      ymin = 0.5;
+                      ymax = 1.5;
+                    }
+                    else
+                    {
+                      const double pad = 0.15 * (ymax - ymin);
+                      ymin -= pad;
+                      ymax += pad;
+                      if (ymin < 0.0) ymin = 0.0;
+                      if (ymin > 1.0) ymin = 0.9;
+                      if (ymax < 1.0) ymax = 1.1;
+                    }
+
+                    // Save the r04 closure y-range to be reused by photon closure plots
+                    if (rKey == "r04")
+                    {
+                      gYmin_r04_closure = ymin;
+                      gYmax_r04_closure = ymax;
+                    }
 
                     TCanvas c(TString::Format("c_closure_vs_pt_%s", rKey.c_str()).Data(), "c_closure_vs_pt", 900, 700);
                     ApplyCanvasMargins1D(c);
@@ -18394,20 +18384,27 @@ namespace ARJ
                         ymin = std::min(ymin, yRat[i] - eyRat[i]);
                         ymax = std::max(ymax, yRat[i] + eyRat[i]);
                       }
-                      if (!(ymin < 1e98) || !(ymax > -1e98) || ymin >= ymax)
-                      {
-                        ymin = 0.5;
-                        ymax = 1.5;
-                      }
-                      else
-                      {
-                        const double pad = 0.15 * (ymax - ymin);
-                        ymin -= pad;
-                        ymax += pad;
-                        if (ymin < 0.0) ymin = 0.0;
-                        if (ymin > 1.0) ymin = 0.9;
-                        if (ymax < 1.0) ymax = 1.1;
-                      }
+                        if (!(ymin < 1e98) || !(ymax > -1e98) || ymin >= ymax)
+                        {
+                          ymin = 0.5;
+                          ymax = 1.5;
+                        }
+                        else
+                        {
+                          const double pad = 0.15 * (ymax - ymin);
+                          ymin -= pad;
+                          ymax += pad;
+                          if (ymin < 0.0) ymin = 0.0;
+                          if (ymin > 1.0) ymin = 0.9;
+                          if (ymax < 1.0) ymax = 1.1;
+                        }
+
+                        // Save the r04 half-closure y-range to be reused by photon half-closure plots
+                        if (rKey == "r04")
+                        {
+                          gYmin_r04_halfClosure = ymin;
+                          gYmax_r04_halfClosure = ymax;
+                        }
 
                         TCanvas c(TString::Format("c_halfClosure_vs_pt_%s", rKey.c_str()).Data(), "c_halfClosure_vs_pt", 900, 700);
                         ApplyCanvasMargins1D(c);
@@ -19487,9 +19484,9 @@ namespace ARJ
                       TLatex tx;
                       tx.SetNDC();
                       tx.SetTextFont(42);
-                      tx.SetTextAlign(31);
+                      tx.SetTextAlign(13);
                       tx.SetTextSize(0.032);
-                      tx.DrawLatex(0.89, 0.74, "2D (p_{T}^{#gamma}, x_{J}) unfolding");
+                      tx.DrawLatex(0.14, 0.74, "2D (p_{T}^{#gamma}, x_{J}) unfolding");
                     }
 
                       {
