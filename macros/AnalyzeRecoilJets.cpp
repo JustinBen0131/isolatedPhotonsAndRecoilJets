@@ -17003,15 +17003,15 @@ namespace ARJ
                     TH1* hTruthOverRecoSim = nullptr;
                     TH1* hRecoOverTruthSim = nullptr;
 
-                    // Purity: 1 - fakes/reco  (reco space)
-                    if (hPhoRecoSim && hPhoRecoFakesSim)
-                    {
-                      TH1* hFakeOverReco = CloneTH1(hPhoRecoFakesSim, "h_pho_fakeOverReco_sim");
-                      if (hFakeOverReco)
+                      // Purity: 1 - fakes/reco  (reco space)
+                      if (hPhoRecoSim && hPhoRecoFakesSim_in)
                       {
-                        hFakeOverReco->SetDirectory(nullptr);
-                        EnsureSumw2(hFakeOverReco);
-                        hFakeOverReco->Divide(hPhoRecoSim);
+                        TH1* hFakeOverReco = CloneTH1(hPhoRecoFakesSim_in, "h_pho_fakeOverReco_sim");
+                        if (hFakeOverReco)
+                        {
+                          hFakeOverReco->SetDirectory(nullptr);
+                          EnsureSumw2(hFakeOverReco);
+                          hFakeOverReco->Divide(hPhoRecoSim);
 
                         hPurSim = CloneTH1(hFakeOverReco, "h_pho_purity_sim");
                         if (hPurSim)
@@ -17057,15 +17057,15 @@ namespace ARJ
                            << ANSI_RESET << "\n";
                     }
 
-                    // Efficiency: 1 - misses/truth (truth space)
-                    if (hPhoTruthSim && hPhoTruthMissesSim)
+                      // Efficiency: 1 - misses/truth (truth space)
+                    if (hPhoTruthSim && hPhoTruthMissesSim_in)
                     {
-                      TH1* hMissOverTruth = CloneTH1(hPhoTruthMissesSim, "h_pho_missOverTruth_sim");
-                      if (hMissOverTruth)
-                      {
-                        hMissOverTruth->SetDirectory(nullptr);
-                        EnsureSumw2(hMissOverTruth);
-                        hMissOverTruth->Divide(hPhoTruthSim);
+                        TH1* hMissOverTruth = CloneTH1(hPhoTruthMissesSim_in, "h_pho_missOverTruth_sim");
+                        if (hMissOverTruth)
+                        {
+                          hMissOverTruth->SetDirectory(nullptr);
+                          EnsureSumw2(hMissOverTruth);
+                          hMissOverTruth->Divide(hPhoTruthSim);
 
                         hEffSim = CloneTH1(hMissOverTruth, "h_pho_efficiency_sim");
                         if (hEffSim)
@@ -18302,6 +18302,7 @@ namespace ARJ
                       tx.SetTextSize(0.04);
 
                         const double xR = 0.93;
+                        tx.DrawLatex(xR, 0.60, TString::Format("Bayes it = %d", kBayesIterXJ).Data());
                         tx.DrawLatex(xR, 0.67, "z_{vtx} < 60 cm");
                         tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
                         tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
@@ -18398,6 +18399,9 @@ namespace ARJ
                         hT->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
                         hT->GetXaxis()->SetRangeUser(0.0, 2.0);
                         hT->Draw("E1");
+                        hU->SetMarkerStyle(20);
+                        hU->SetMarkerColor(kBlue);
+                        hU->SetLineColor(kBlue);
                         hU->Draw("E1 same");
 
                         TLegend leg(0.6, 0.3, 0.89, 0.55);
@@ -18809,6 +18813,9 @@ namespace ARJ
                             hT->SetMinimum(0.0);
                             hT->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
                             hT->Draw("E1");
+                            hU->SetMarkerStyle(20);
+                            hU->SetMarkerColor(kBlue);
+                            hU->SetLineColor(kBlue);
                             hU->Draw("E1 same");
 
                             TLegend* leg = new TLegend(0.69, 0.33, 0.91, 0.58);
