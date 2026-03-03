@@ -17466,7 +17466,7 @@ namespace ARJ
                 gDev.SetLineWidth(2);
                 gDev.Draw("P same");
 
-                TLegend leg(0.20, 0.78, 0.62, 0.90);
+                TLegend leg(0.55, 0.78, 0.89, 0.90);
                 leg.SetBorderSize(0);
                 leg.SetFillStyle(0);
                 leg.SetTextFont(42);
@@ -17522,14 +17522,12 @@ namespace ARJ
                   hRat->GetYaxis()->SetRangeUser(0.7, 1.3);
                   hRat->Draw("E1");
 
-                    {
-                      const double xmin = hRat->GetXaxis()->GetBinLowEdge(1);
-                      const double xmax = hRat->GetXaxis()->GetBinUpEdge(hRat->GetNbinsX());
-                      TLine l1(xmin, 1.0, xmax, 1.0);
-                      l1.SetLineStyle(2);
-                      l1.SetLineWidth(2);
-                      l1.Draw("same");
-                    }
+                  const double xmin = hRat->GetXaxis()->GetBinLowEdge(1);
+                  const double xmax = hRat->GetXaxis()->GetBinUpEdge(hRat->GetNbinsX());
+                  TLine l1(xmin, 1.0, xmax, 1.0);
+                  l1.SetLineStyle(2);
+                  l1.SetLineWidth(2);
+                  l1.Draw("same");
 
                   {
                     TLatex tx;
@@ -17679,14 +17677,12 @@ namespace ARJ
                     hRat->GetYaxis()->SetRangeUser(0.7, 1.3);
                     hRat->Draw("E1");
 
-                      {
-                        const double xmin = hRat->GetXaxis()->GetBinLowEdge(1);
-                        const double xmax = hRat->GetXaxis()->GetBinUpEdge(hRat->GetNbinsX());
-                        TLine l1(xmin, 1.0, xmax, 1.0);
-                        l1.SetLineStyle(2);
-                        l1.SetLineWidth(2);
-                        l1.Draw("same");
-                      }
+                    const double xmin = hRat->GetXaxis()->GetBinLowEdge(1);
+                    const double xmax = hRat->GetXaxis()->GetBinUpEdge(hRat->GetNbinsX());
+                    TLine l1(xmin, 1.0, xmax, 1.0);
+                    l1.SetLineStyle(2);
+                    l1.SetLineWidth(2);
+                    l1.Draw("same");
 
                     {
                       TLatex tx;
