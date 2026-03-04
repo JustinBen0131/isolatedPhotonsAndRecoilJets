@@ -24312,9 +24312,10 @@ namespace ARJ
                       for (TH1* h : hAAs) { if (h != hFirst) h->Draw("E1 same"); }
 
                       const bool isTopRow = (ipad < 3);
+                      const bool shiftTopTwoLeft = (ipad == 1 || ipad == 2);
 
-                      const double lx1 = isTopRow ? 0.52 : 0.16;
-                      const double lx2 = isTopRow ? 0.93 : 0.57;
+                      const double lx1 = isTopRow ? (shiftTopTwoLeft ? 0.48 : 0.52) : 0.16;
+                      const double lx2 = isTopRow ? (shiftTopTwoLeft ? 0.89 : 0.93) : 0.57;
                       const double ly1 = 0.52;
                       const double ly2 = 0.78;
 
@@ -24392,28 +24393,42 @@ namespace ARJ
                           tcut.DrawLatex(0.16, 0.88, cutText.c_str());
                         }
 
-                        if (drawCuts)
-                        {
-                          gPad->Update();
-                          const double yMinPad = gPad->GetUymin();
-                          const double yMaxPad = gPad->GetUymax();
+                          if (drawCuts)
+                          {
+                            const double yMinPad = hFirst->GetMinimum();
+                            const double yMaxPad = hFirst->GetMaximum();
 
-                          TLine* l1 = new TLine(cutLo, yMinPad, cutLo, yMaxPad);
-                          l1->SetLineColor(kGreen + 2);
-                          l1->SetLineWidth(2);
-                          l1->SetLineStyle(2);
-                          l1->Draw("same");
-                          keepLines.push_back(l1);
+                            TLine* l1 = new TLine(cutLo, yMinPad, cutLo, yMaxPad);
+                            l1->SetLineColor(kBlack);
+                            l1->SetLineWidth(3);
+                            l1->SetLineStyle(2);
+                            l1->Draw("same");
+                            keepLines.push_back(l1);
 
-                          TLine* l2 = new TLine(cutHi, yMinPad, cutHi, yMaxPad);
-                          l2->SetLineColor(kOrange + 7);
-                          l2->SetLineWidth(2);
-                          l2->SetLineStyle(2);
-                          l2->Draw("same");
-                          keepLines.push_back(l2);
+                            TLine* l2 = new TLine(cutHi, yMinPad, cutHi, yMaxPad);
+                            l2->SetLineColor(kBlack);
+                            l2->SetLineWidth(3);
+                            l2->SetLineStyle(2);
+                            l2->Draw("same");
+                            keepLines.push_back(l2);
 
-                          gPad->RedrawAxis();
-                        }
+                            gPad->RedrawAxis();
+                          }
+
+                          if (v == "weta" || v == "wphi")
+                          {
+                            const double yMinPad = hFirst->GetMinimum();
+                            const double yMaxPad = hFirst->GetMaximum();
+
+                            TLine* lw = new TLine(0.3, yMinPad, 0.3, yMaxPad);
+                            lw->SetLineColor(kBlack);
+                            lw->SetLineWidth(3);
+                            lw->SetLineStyle(2);
+                            lw->Draw("same");
+                            keepLines.push_back(lw);
+
+                            gPad->RedrawAxis();
+                          }
 
                         gPad->RedrawAxis();
                       }
