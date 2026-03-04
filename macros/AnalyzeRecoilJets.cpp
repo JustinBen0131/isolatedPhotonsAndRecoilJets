@@ -24131,6 +24131,260 @@ namespace ARJ
             }
           }
 
+            // ---------------------------------------------------------------------
+            // NEW: noIsoRequired/0_10  (AuAu counts) — 1x5 SS pT-overlay summary table
+            //
+            // Purpose:
+            //   For the 0-10% centrality bin, make a single 1x5 canvas where each pad
+            //   is one SS variable with ALL pT bins overlaid (same legend in each pad),
+            //   including the SAME SS cut label + vertical cut lines used elsewhere.
+            //
+            // Output:
+            //   <kOutPPAuAuBase>/noIsoRequired/0_10/table1x5_AuAu_unNormalized_SS_byPtOverlays.png
+            //
+            // Ordering:
+            //   weta, wphi, e11e33, et1, e32e35
+            // Titles per pad:
+            //   <SS label>, cent = 0-10%, Run25auau
+            // ---------------------------------------------------------------------
+            {
+              if (aaTop)
+              {
+                const string baseNoIso = JoinPath(outBase, "noIsoRequired");
+                EnsureDir(baseNoIso);
+
+                const auto& centBinsLocal = CentBins();
+                const auto& ptBinsLocal   = PtBins();
+
+                const CentBin* cb0 = nullptr;
+                for (const auto& cb : centBinsLocal)
+                {
+                  if (cb.lo == 0 && cb.hi == 10) { cb0 = &cb; break; }
+                }
+                if (!cb0 && !centBinsLocal.empty()) cb0 = &centBinsLocal[0];
+
+                if (cb0 && !ptBinsLocal.empty())
+                {
+                  const string outCent = JoinPath(baseNoIso, cb0->folder);
+                  EnsureDir(outCent);
+
+                  struct VarDef { std::string var; std::string label; };
+                  const std::vector<VarDef> vars =
+                  {
+                    {"weta",   "w_{#eta}"},
+                    {"wphi",   "w_{#phi}"},
+                    {"e11e33", "E_{11}/E_{33}"},
+                    {"et1",    "et1"},
+                    {"e32e35", "E_{32}/E_{35}"}
+                  };
+
+                  const int colors[] = {
+                    kRed + 1, kBlue + 1, kGreen + 2, kMagenta + 1, kOrange + 7, kCyan + 1,
+                    kViolet + 1, kAzure + 2, kSpring + 5, kPink + 7, kTeal + 3, kGray + 2
+                  };
+                  const int nColors = (int)(sizeof(colors)/sizeof(colors[0]));
+
+                  TCanvas c("c_noIso_0_10_SS_byPt_1x5", "c_noIso_0_10_SS_byPt_1x5", 2600, 750);
+                  c.Divide(5, 1, 0.001, 0.001);
+
+                  std::vector<TH1*> keepAlive;
+                  keepAlive.reserve(vars.size() * ptBinsLocal.size());
+
+                  std::vector<TLegend*> keepLeg;
+                  keepLeg.reserve(vars.size());
+
+                  for (int iv = 0; iv < (int)vars.size(); ++iv)
+                  {
+                    const std::string& var    = vars[iv].var;
+                    const std::string& vlabel = vars[iv].label;
+
+                    c.cd(iv + 1);
+                    gPad->SetLeftMargin(0.14);
+                    gPad->SetRightMargin(0.05);
+                    gPad->SetBottomMargin(0.14);
+                    gPad->SetTopMargin(0.18);
+                    gPad->SetLogy(true);
+
+                    const bool isW = (var == "weta" || var == "wphi");
+
+                    const string histBaseAuAu = string("h_ss_") + var + string("_inclusive");
+
+                    std::vector<TH1*> histsPad;
+                    histsPad.reserve(ptBinsLocal.size());
+
+                    std::vector<std::string> labelsPad;
+                    labelsPad.reserve(ptBinsLocal.size());
+
+                    for (int ipt = 0; ipt < (int)ptBinsLocal.size(); ++ipt)
+                    {
+                      const PtBin& pb = ptBinsLocal[ipt];
+                      const string hAAName = histBaseAuAu + pb.suffix + cb0->suffix;
+
+                      TH1* rawAA = GetTH1FromTopDir(aaTop, hAAName);
+                      if (!rawAA) continue;
+
+                      TH1* hAAc = CloneTH1(rawAA,
+                        TString::Format("aa_noIso_0_10_SS_byPt_%s_%s%s",
+                                        var.c_str(), pb.folder.c_str(), cb0->suffix.c_str()).Data());
+                      if (!hAAc) continue;
+
+                      EnsureSumw2(hAAc);
+                      hAAc->GetXaxis()->UnZoom();
+                      hAAc->SetTitle("");
+                      hAAc->GetXaxis()->SetTitle(vlabel.c_str());
+                      hAAc->GetYaxis()->SetTitle("Counts");
+
+                      const int col = colors[ipt % nColors];
+                      StyleOverlayHist(hAAc, col, 20);
+                      hAAc->SetMarkerStyle(20);
+
+                      histsPad.push_back(hAAc);
+                      labelsPad.push_back(TString::Format("%d-%d GeV", pb.lo, pb.hi).Data());
+                    }
+
+                    if (histsPad.empty())
+                    {
+                      DrawMissingPad(TString::Format("%s, cent %d-%d%%", vlabel.c_str(), cb0->lo, cb0->hi).Data());
+                      continue;
+                    }
+
+                    double yMax = 0.0;
+                    double minPos = 1e99;
+                    for (TH1* h : histsPad)
+                    {
+                      yMax = std::max(yMax, (double)h->GetMaximum());
+                      const int nb = h->GetNbinsX();
+                      for (int ib = 1; ib <= nb; ++ib)
+                      {
+                        const double y = h->GetBinContent(ib);
+                        if (y > 0.0 && y < minPos) minPos = y;
+                      }
+                    }
+                    if (!(minPos < 1e98)) minPos = 0.5;
+
+                    histsPad[0]->SetMinimum(minPos * 0.5);
+                    histsPad[0]->SetMaximum((yMax > 0.0) ? (yMax * 3.0) : 1.0);
+                    histsPad[0]->Draw("E1");
+                    for (std::size_t j = 1; j < histsPad.size(); ++j) histsPad[j]->Draw("E1 same");
+
+                    // Same pT legend on every pad, but position depends on variable group
+                    //   weta/wphi: center-right
+                    //   e11e33/et1/e32e35: middle-left
+                    TLegend* leg = nullptr;
+                    if (isW)
+                      leg = new TLegend(0.55, 0.45, 0.93, 0.80);
+                    else
+                      leg = new TLegend(0.16, 0.45, 0.54, 0.80);
+
+                    leg->SetBorderSize(0);
+                    leg->SetFillStyle(0);
+                    leg->SetTextFont(42);
+                    leg->SetTextSize(0.032);
+                    leg->SetNColumns(2);
+
+                    for (std::size_t j = 0; j < histsPad.size(); ++j)
+                      leg->AddEntry(histsPad[j], labelsPad[j].c_str(), "ep");
+
+                    leg->Draw();
+                    keepLeg.push_back(leg);
+
+                    // Centered per-pad title (larger)
+                    {
+                      TLatex t;
+                      t.SetNDC(true);
+                      t.SetTextFont(42);
+                      t.SetTextAlign(22);
+                      t.SetTextSize(0.048);
+                      t.DrawLatex(0.50, 0.955,
+                        TString::Format("%s, cent = %d-%d%%, Run25auau", vlabel.c_str(), cb0->lo, cb0->hi).Data());
+                    }
+
+                    // SS cut label (top-left) + cut lines (where applicable) — match existing per-var styling
+                    {
+                      TLatex tcut;
+                      tcut.SetNDC(true);
+                      tcut.SetTextFont(42);
+                      tcut.SetTextAlign(13);
+                      tcut.SetTextSize(0.034);
+
+                      bool drawCuts = false;
+                      double cutLo = 0.0;
+                      double cutHi = 0.0;
+                      std::string cutText;
+
+                      if (var == "e11e33")
+                      {
+                        cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
+                        drawCuts = true;
+                        cutLo = 0.4;
+                        cutHi = 0.98;
+                      }
+                      else if (var == "e32e35")
+                      {
+                        cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
+                        drawCuts = true;
+                        cutLo = 0.92;
+                        cutHi = 1.0;
+                      }
+                      else if (var == "et1")
+                      {
+                        cutText = "#gamma-ID: 0.9 < et1 < 1.0";
+                        drawCuts = true;
+                        cutLo = 0.9;
+                        cutHi = 1.0;
+                      }
+                      else if (var == "weta")
+                      {
+                        cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                      }
+                      else if (var == "wphi")
+                      {
+                        cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                      }
+
+                      if (!cutText.empty())
+                      {
+                        tcut.DrawLatex(0.16, 0.88, cutText.c_str());
+                      }
+
+                      if (drawCuts)
+                      {
+                        gPad->Update();
+                        const double yMin = gPad->GetUymin();
+                        const double yMaxPad = gPad->GetUymax();
+
+                        TLine* l1 = new TLine(cutLo, yMin, cutLo, yMaxPad);
+                        l1->SetLineColor(kGreen + 2);
+                        l1->SetLineWidth(2);
+                        l1->SetLineStyle(2);
+                        l1->Draw("same");
+
+                        TLine* l2 = new TLine(cutHi, yMin, cutHi, yMaxPad);
+                        l2->SetLineColor(kOrange + 7);
+                        l2->SetLineWidth(2);
+                        l2->SetLineStyle(2);
+                        l2->Draw("same");
+
+                        gPad->RedrawAxis();
+                      }
+
+                      gPad->RedrawAxis();
+                    }
+
+                    for (TH1* h : histsPad) keepAlive.push_back(h);
+                  }
+
+                  SaveCanvas(c, JoinPath(outCent, "table1x5_AuAu_unNormalized_SS_byPtOverlays.png"));
+
+                  for (TLegend* l : keepLeg) delete l;
+                  keepLeg.clear();
+
+                  for (TH1* h : keepAlive) delete h;
+                  keepAlive.clear();
+                }
+              }
+            }
+
           // ---------------------------------------------------------------------
           // NEW: noSS_isoSpectra summary (AuAu counts by centrality per pT bin)
           // Output:
