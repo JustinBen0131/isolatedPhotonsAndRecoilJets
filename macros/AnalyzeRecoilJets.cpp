@@ -8643,15 +8643,17 @@ namespace ARJ
 
                         leg->Draw();
 
-                        {
-                          TLatex tCuts;
-                          tCuts.SetNDC(true);
-                          tCuts.SetTextFont(42);
-                          tCuts.SetTextAlign(33);
-                          tCuts.SetTextSize(0.038);
-                          tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
-                          tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
-                        }
+                          {
+                            TLatex tCuts;
+                            tCuts.SetNDC(true);
+                            tCuts.SetTextFont(42);
+                            tCuts.SetTextAlign(33);
+                            tCuts.SetTextSize(0.038);
+                            tCuts.DrawLatex(0.92, 0.78, "pp trigger = Photon 4 GeV + MBD NS #geq 1");
+                            tCuts.DrawLatex(0.92, 0.70, "auau trigger = MBD NS #geq 2 vtx < 150");
+                            tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
+                            tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
+                          }
 
                         {
                           TLatex t;
@@ -8977,6 +8979,8 @@ namespace ARJ
                       tCuts.SetTextFont(42);
                       tCuts.SetTextAlign(33);
                       tCuts.SetTextSize(0.038);
+                      tCuts.DrawLatex(0.92, 0.78, "pp trigger = Photon 4 GeV + MBD NS #geq 1");
+                      tCuts.DrawLatex(0.92, 0.70, "auau trigger = MBD NS #geq 2 vtx < 150");
                       tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
                       tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
                     }
@@ -24493,8 +24497,8 @@ namespace ARJ
                             t.SetNDC(true);
                             t.SetTextFont(42);
                             t.SetTextAlign(22);
-                            t.SetTextSize(0.048);
-                            t.DrawLatex(0.50, 0.955,
+                            t.SetTextSize(0.052);
+                            t.DrawLatex(0.50, 0.95,
                               TString::Format("%s, cent = %d-%d%%, Run25auau", vlabel.c_str(), cb0->lo, cb0->hi).Data());
                           }
 
@@ -24504,7 +24508,7 @@ namespace ARJ
                             tcut.SetNDC(true);
                             tcut.SetTextFont(42);
                             tcut.SetTextAlign(13);
-                            tcut.SetTextSize(0.034);
+                            tcut.SetTextSize(0.037);
 
                             bool drawCuts = false;
                             double cutLo = 0.0;
@@ -24546,28 +24550,61 @@ namespace ARJ
                               tcut.DrawLatex(0.16, 0.88, cutText.c_str());
                             }
 
-                            if (drawCuts)
-                            {
-                              gPad->Update();
-                              const double yMin = gPad->GetUymin();
-                              const double yMax = gPad->GetUymax();
+                              if (drawCuts)
+                              {
+                                gPad->Update();
+                                const double yMin = histsAA[0]->GetMinimum();
+                                const double yMax = histsAA[0]->GetMaximum();
 
-                              TLine* l1 = new TLine(cutLo, yMin, cutLo, yMax);
-                              l1->SetLineColor(kGreen + 2);
-                              l1->SetLineWidth(2);
-                              l1->SetLineStyle(2);
-                              l1->Draw("same");
+                                TLine* l1 = new TLine(cutLo, yMin, cutLo, yMax);
+                                l1->SetLineColor(kBlack);
+                                l1->SetLineWidth(3);
+                                l1->SetLineStyle(2);
+                                l1->Draw("same");
 
-                              TLine* l2 = new TLine(cutHi, yMin, cutHi, yMax);
-                              l2->SetLineColor(kOrange + 7);
-                              l2->SetLineWidth(2);
-                              l2->SetLineStyle(2);
-                              l2->Draw("same");
+                                TLine* l2 = new TLine(cutHi, yMin, cutHi, yMax);
+                                l2->SetLineColor(kBlack);
+                                l2->SetLineWidth(3);
+                                l2->SetLineStyle(2);
+                                l2->Draw("same");
+
+                                TLegend* legCut = new TLegend(0.62, 0.80, 0.93, 0.90);
+                                legCut->SetBorderSize(0);
+                                legCut->SetFillStyle(0);
+                                legCut->SetTextFont(42);
+                                legCut->SetTextSize(0.040);
+                                legCut->AddEntry(l1, "cut bounds", "l");
+                                legCut->Draw();
+                                keepLeg2.push_back(legCut);
+
+                                gPad->RedrawAxis();
+                              }
+
+                              if (isW)
+                              {
+                                gPad->Update();
+                                const double yMin = histsAA[0]->GetMinimum();
+                                const double yMax = histsAA[0]->GetMaximum();
+
+                                TLine* lw = new TLine(0.3, yMin, 0.3, yMax);
+                                lw->SetLineColor(kBlack);
+                                lw->SetLineWidth(3);
+                                lw->SetLineStyle(2);
+                                lw->Draw("same");
+
+                                  TLegend* legW = new TLegend(0.16, 0.80, 0.54, 0.92);
+                                  legW->SetBorderSize(0);
+                                  legW->SetFillStyle(0);
+                                  legW->SetTextFont(42);
+                                  legW->SetTextSize(0.040);
+                                  legW->AddEntry(lw, "w^{cogX, high} for p_{T}^{#gamma} = 25 GeV", "l");
+                                  legW->Draw();
+                                  keepLeg2.push_back(legW);
+
+                                gPad->RedrawAxis();
+                              }
 
                               gPad->RedrawAxis();
-                            }
-
-                            gPad->RedrawAxis();
                           }
                         }
 
@@ -24592,7 +24629,7 @@ namespace ARJ
                           const string hPPName = histBase + pb.suffix;
 
                           TH1* rawPP = nullptr;
-                          if (ppTop) rawPP = GetTH1FromTopDir(ppTop, hPPName);
+                          rawPP = GetTH1FromTopDir(dsPP.topDir, hPPName);
                           if (!rawPP) continue;
 
                           TH1* hPPc = CloneTH1(rawPP,
@@ -24644,8 +24681,8 @@ namespace ARJ
                             t.SetNDC(true);
                             t.SetTextFont(42);
                             t.SetTextAlign(22);
-                            t.SetTextSize(0.048);
-                            t.DrawLatex(0.50, 0.955,
+                            t.SetTextSize(0.052);
+                            t.DrawLatex(0.50, 0.95,
                               TString::Format("%s, Run24pp", vlabel.c_str()).Data());
                           }
 
@@ -24655,7 +24692,7 @@ namespace ARJ
                             tcut.SetNDC(true);
                             tcut.SetTextFont(42);
                             tcut.SetTextAlign(13);
-                            tcut.SetTextSize(0.034);
+                            tcut.SetTextSize(0.037);
 
                             bool drawCuts = false;
                             double cutLo = 0.0;
@@ -24700,20 +24737,53 @@ namespace ARJ
                             if (drawCuts)
                             {
                               gPad->Update();
-                              const double yMin = gPad->GetUymin();
-                              const double yMax = gPad->GetUymax();
+                              const double yMin = histsPP[0]->GetMinimum();
+                              const double yMax = histsPP[0]->GetMaximum();
 
                               TLine* l1 = new TLine(cutLo, yMin, cutLo, yMax);
-                              l1->SetLineColor(kGreen + 2);
-                              l1->SetLineWidth(2);
+                              l1->SetLineColor(kBlack);
+                              l1->SetLineWidth(3);
                               l1->SetLineStyle(2);
                               l1->Draw("same");
 
                               TLine* l2 = new TLine(cutHi, yMin, cutHi, yMax);
-                              l2->SetLineColor(kOrange + 7);
-                              l2->SetLineWidth(2);
+                              l2->SetLineColor(kBlack);
+                              l2->SetLineWidth(3);
                               l2->SetLineStyle(2);
                               l2->Draw("same");
+
+                                TLegend* legCut = new TLegend(0.62, 0.80, 0.93, 0.90);
+                                legCut->SetBorderSize(0);
+                                legCut->SetFillStyle(0);
+                                legCut->SetTextFont(42);
+                                legCut->SetTextSize(0.040);
+                                legCut->AddEntry(l1, "cut bounds", "l");
+                                legCut->Draw();
+                                keepLeg2.push_back(legCut);
+
+                              gPad->RedrawAxis();
+                            }
+
+                            if (isW)
+                            {
+                              gPad->Update();
+                              const double yMin = histsPP[0]->GetMinimum();
+                              const double yMax = histsPP[0]->GetMaximum();
+
+                              TLine* lw = new TLine(0.3, yMin, 0.3, yMax);
+                              lw->SetLineColor(kBlack);
+                              lw->SetLineWidth(3);
+                              lw->SetLineStyle(2);
+                              lw->Draw("same");
+
+                                TLegend* legW = new TLegend(0.16, 0.80, 0.54, 0.92);
+                                legW->SetBorderSize(0);
+                                legW->SetFillStyle(0);
+                                legW->SetTextFont(42);
+                                legW->SetTextSize(0.040);
+                                legW->AddEntry(lw, "w^{cogX, high} for p_{T}^{#gamma} = 25 GeV", "l");
+                                legW->Draw();
+                                keepLeg2.push_back(legW);
 
                               gPad->RedrawAxis();
                             }
