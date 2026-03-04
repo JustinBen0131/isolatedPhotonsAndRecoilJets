@@ -24374,13 +24374,371 @@ namespace ARJ
                     for (TH1* h : histsPad) keepAlive.push_back(h);
                   }
 
-                  SaveCanvas(c, JoinPath(outCent, "table1x5_AuAu_unNormalized_SS_byPtOverlays.png"));
+                    SaveCanvas(c, JoinPath(outCent, "table1x5_AuAu_unNormalized_SS_byPtOverlays.png"));
 
-                  for (TLegend* l : keepLeg) delete l;
-                  keepLeg.clear();
+                    // -------------------------------------------------------------------
+                    // NEW: 2x5 table: top row = AuAu 0-10% (same as 1x5), bottom row = PP (Run24pp)
+                    // Output (same folder as 1x5):
+                    //   <outCent>/table2x5_AuAu0_10_and_PP_unNormalized_SS_byPtOverlays.png
+                    //
+                    // Requirements:
+                    //   - bottom row: PP unnormalized counts, log-y, pT overlays, NO legend
+                    //   - titles: top row uses Run25auau; bottom row uses Run24pp
+                    // -------------------------------------------------------------------
+                    {
+                      TCanvas c2("c_noIso_0_10_SS_byPt_2x5", "c_noIso_0_10_SS_byPt_2x5", 2600, 1450);
+                      c2.Divide(5, 2, 0.001, 0.001);
 
-                  for (TH1* h : keepAlive) delete h;
-                  keepAlive.clear();
+                      std::vector<TH1*> keepAlive2;
+                      keepAlive2.reserve((std::size_t)vars.size() * (std::size_t)ptBinsLocal.size() * 2);
+
+                      std::vector<TLegend*> keepLeg2;
+                      keepLeg2.reserve((std::size_t)vars.size());
+
+                      for (int iv = 0; iv < (int)vars.size(); ++iv)
+                      {
+                        const std::string& var    = vars[iv].var;
+                        const std::string& vlabel = vars[iv].label;
+
+                        const bool isW = (var == "weta" || var == "wphi");
+                        const string histBase = string("h_ss_") + var + string("_inclusive");
+
+                        // -----------------------------
+                        // TOP ROW: AuAu 0-10% by pT overlays (with legend)
+                        // -----------------------------
+                        c2.cd(iv + 1);
+                        gPad->SetLeftMargin(0.14);
+                        gPad->SetRightMargin(0.05);
+                        gPad->SetBottomMargin(0.14);
+                        gPad->SetTopMargin(0.18);
+                        gPad->SetLogy(true);
+
+                        std::vector<TH1*> histsAA;
+                        histsAA.reserve(ptBinsLocal.size());
+
+                        std::vector<std::string> labelsAA;
+                        labelsAA.reserve(ptBinsLocal.size());
+
+                        for (int ipt = 0; ipt < (int)ptBinsLocal.size(); ++ipt)
+                        {
+                          const PtBin& pb = ptBinsLocal[ipt];
+                          const string hAAName = histBase + pb.suffix + cb0->suffix;
+
+                          TH1* rawAA = GetTH1FromTopDir(aaTop, hAAName);
+                          if (!rawAA) continue;
+
+                          TH1* hAAc = CloneTH1(rawAA,
+                            TString::Format("aa_noIso_0_10_SS_byPt_2x5_top_%s_%s%s",
+                                            var.c_str(), pb.folder.c_str(), cb0->suffix.c_str()).Data());
+                          if (!hAAc) continue;
+
+                          EnsureSumw2(hAAc);
+                          hAAc->GetXaxis()->UnZoom();
+                          hAAc->SetTitle("");
+                          hAAc->GetXaxis()->SetTitle(vlabel.c_str());
+                          hAAc->GetYaxis()->SetTitle("Counts");
+
+                          const int col = colors[ipt % nColors];
+                          StyleOverlayHist(hAAc, col, 20);
+                          hAAc->SetMarkerStyle(20);
+
+                          histsAA.push_back(hAAc);
+                          labelsAA.push_back(TString::Format("%d-%d GeV", pb.lo, pb.hi).Data());
+                        }
+
+                        if (histsAA.empty())
+                        {
+                          DrawMissingPad(TString::Format("%s, cent %d-%d%%", vlabel.c_str(), cb0->lo, cb0->hi).Data());
+                        }
+                        else
+                        {
+                          double yMaxAA = 0.0;
+                          double minPosAA = 1e99;
+                          for (TH1* h : histsAA)
+                          {
+                            yMaxAA = std::max(yMaxAA, (double)h->GetMaximum());
+                            const int nb = h->GetNbinsX();
+                            for (int ib = 1; ib <= nb; ++ib)
+                            {
+                              const double y = h->GetBinContent(ib);
+                              if (y > 0.0 && y < minPosAA) minPosAA = y;
+                            }
+                          }
+                          if (!(minPosAA < 1e98)) minPosAA = 0.5;
+
+                          histsAA[0]->SetMinimum(minPosAA * 0.5);
+                          histsAA[0]->SetMaximum((yMaxAA > 0.0) ? (yMaxAA * 3.0) : 1.0);
+                          histsAA[0]->Draw("E1");
+                          for (std::size_t j = 1; j < histsAA.size(); ++j) histsAA[j]->Draw("E1 same");
+
+                          TLegend* legTop = nullptr;
+                          if (isW) legTop = new TLegend(0.55, 0.45, 0.93, 0.80);
+                          else     legTop = new TLegend(0.16, 0.45, 0.54, 0.80);
+
+                          legTop->SetBorderSize(0);
+                          legTop->SetFillStyle(0);
+                          legTop->SetTextFont(42);
+                          legTop->SetTextSize(0.032);
+                          legTop->SetNColumns(2);
+
+                          for (std::size_t j = 0; j < histsAA.size(); ++j)
+                            legTop->AddEntry(histsAA[j], labelsAA[j].c_str(), "ep");
+
+                          legTop->Draw();
+                          keepLeg2.push_back(legTop);
+
+                          // Title (AuAu row)
+                          {
+                            TLatex t;
+                            t.SetNDC(true);
+                            t.SetTextFont(42);
+                            t.SetTextAlign(22);
+                            t.SetTextSize(0.048);
+                            t.DrawLatex(0.50, 0.955,
+                              TString::Format("%s, cent = %d-%d%%, Run25auau", vlabel.c_str(), cb0->lo, cb0->hi).Data());
+                          }
+
+                          // Cut label + cut lines (same behavior as 1x5)
+                          {
+                            TLatex tcut;
+                            tcut.SetNDC(true);
+                            tcut.SetTextFont(42);
+                            tcut.SetTextAlign(13);
+                            tcut.SetTextSize(0.034);
+
+                            bool drawCuts = false;
+                            double cutLo = 0.0;
+                            double cutHi = 0.0;
+                            std::string cutText;
+
+                            if (var == "e11e33")
+                            {
+                              cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
+                              drawCuts = true;
+                              cutLo = 0.4;
+                              cutHi = 0.98;
+                            }
+                            else if (var == "e32e35")
+                            {
+                              cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
+                              drawCuts = true;
+                              cutLo = 0.92;
+                              cutHi = 1.0;
+                            }
+                            else if (var == "et1")
+                            {
+                              cutText = "#gamma-ID: 0.9 < et1 < 1.0";
+                              drawCuts = true;
+                              cutLo = 0.9;
+                              cutHi = 1.0;
+                            }
+                            else if (var == "weta")
+                            {
+                              cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                            }
+                            else if (var == "wphi")
+                            {
+                              cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                            }
+
+                            if (!cutText.empty())
+                            {
+                              tcut.DrawLatex(0.16, 0.88, cutText.c_str());
+                            }
+
+                            if (drawCuts)
+                            {
+                              gPad->Update();
+                              const double yMin = gPad->GetUymin();
+                              const double yMax = gPad->GetUymax();
+
+                              TLine* l1 = new TLine(cutLo, yMin, cutLo, yMax);
+                              l1->SetLineColor(kGreen + 2);
+                              l1->SetLineWidth(2);
+                              l1->SetLineStyle(2);
+                              l1->Draw("same");
+
+                              TLine* l2 = new TLine(cutHi, yMin, cutHi, yMax);
+                              l2->SetLineColor(kOrange + 7);
+                              l2->SetLineWidth(2);
+                              l2->SetLineStyle(2);
+                              l2->Draw("same");
+
+                              gPad->RedrawAxis();
+                            }
+
+                            gPad->RedrawAxis();
+                          }
+                        }
+
+                        for (TH1* h : histsAA) keepAlive2.push_back(h);
+
+                        // -----------------------------
+                        // BOTTOM ROW: PP by pT overlays (NO legend)
+                        // -----------------------------
+                        c2.cd((iv + 1) + 5);
+                        gPad->SetLeftMargin(0.14);
+                        gPad->SetRightMargin(0.05);
+                        gPad->SetBottomMargin(0.14);
+                        gPad->SetTopMargin(0.18);
+                        gPad->SetLogy(true);
+
+                        std::vector<TH1*> histsPP;
+                        histsPP.reserve(ptBinsLocal.size());
+
+                        for (int ipt = 0; ipt < (int)ptBinsLocal.size(); ++ipt)
+                        {
+                          const PtBin& pb = ptBinsLocal[ipt];
+                          const string hPPName = histBase + pb.suffix;
+
+                          TH1* rawPP = nullptr;
+                          if (ppTop) rawPP = GetTH1FromTopDir(ppTop, hPPName);
+                          if (!rawPP) continue;
+
+                          TH1* hPPc = CloneTH1(rawPP,
+                            TString::Format("pp_SS_byPt_2x5_bot_%s_%s",
+                                            var.c_str(), pb.folder.c_str()).Data());
+                          if (!hPPc) continue;
+
+                          EnsureSumw2(hPPc);
+                          hPPc->GetXaxis()->UnZoom();
+                          hPPc->SetTitle("");
+                          hPPc->GetXaxis()->SetTitle(vlabel.c_str());
+                          hPPc->GetYaxis()->SetTitle("Counts");
+
+                          const int col = colors[ipt % nColors];
+                          StyleOverlayHist(hPPc, col, 20);
+                          hPPc->SetMarkerStyle(20);
+
+                          histsPP.push_back(hPPc);
+                        }
+
+                        if (histsPP.empty())
+                        {
+                          DrawMissingPad(TString::Format("%s, Run24pp", vlabel.c_str()).Data());
+                        }
+                        else
+                        {
+                          double yMaxPP = 0.0;
+                          double minPosPP = 1e99;
+                          for (TH1* h : histsPP)
+                          {
+                            yMaxPP = std::max(yMaxPP, (double)h->GetMaximum());
+                            const int nb = h->GetNbinsX();
+                            for (int ib = 1; ib <= nb; ++ib)
+                            {
+                              const double y = h->GetBinContent(ib);
+                              if (y > 0.0 && y < minPosPP) minPosPP = y;
+                            }
+                          }
+                          if (!(minPosPP < 1e98)) minPosPP = 0.5;
+
+                          histsPP[0]->SetMinimum(minPosPP * 0.5);
+                          histsPP[0]->SetMaximum((yMaxPP > 0.0) ? (yMaxPP * 3.0) : 1.0);
+                          histsPP[0]->Draw("E1");
+                          for (std::size_t j = 1; j < histsPP.size(); ++j) histsPP[j]->Draw("E1 same");
+
+                          // Title (PP row)
+                          {
+                            TLatex t;
+                            t.SetNDC(true);
+                            t.SetTextFont(42);
+                            t.SetTextAlign(22);
+                            t.SetTextSize(0.048);
+                            t.DrawLatex(0.50, 0.955,
+                              TString::Format("%s, Run24pp", vlabel.c_str()).Data());
+                          }
+
+                          // Cut label + cut lines (same as AuAu row)
+                          {
+                            TLatex tcut;
+                            tcut.SetNDC(true);
+                            tcut.SetTextFont(42);
+                            tcut.SetTextAlign(13);
+                            tcut.SetTextSize(0.034);
+
+                            bool drawCuts = false;
+                            double cutLo = 0.0;
+                            double cutHi = 0.0;
+                            std::string cutText;
+
+                            if (var == "e11e33")
+                            {
+                              cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
+                              drawCuts = true;
+                              cutLo = 0.4;
+                              cutHi = 0.98;
+                            }
+                            else if (var == "e32e35")
+                            {
+                              cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
+                              drawCuts = true;
+                              cutLo = 0.92;
+                              cutHi = 1.0;
+                            }
+                            else if (var == "et1")
+                            {
+                              cutText = "#gamma-ID: 0.9 < et1 < 1.0";
+                              drawCuts = true;
+                              cutLo = 0.9;
+                              cutHi = 1.0;
+                            }
+                            else if (var == "weta")
+                            {
+                              cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                            }
+                            else if (var == "wphi")
+                            {
+                              cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                            }
+
+                            if (!cutText.empty())
+                            {
+                              tcut.DrawLatex(0.16, 0.88, cutText.c_str());
+                            }
+
+                            if (drawCuts)
+                            {
+                              gPad->Update();
+                              const double yMin = gPad->GetUymin();
+                              const double yMax = gPad->GetUymax();
+
+                              TLine* l1 = new TLine(cutLo, yMin, cutLo, yMax);
+                              l1->SetLineColor(kGreen + 2);
+                              l1->SetLineWidth(2);
+                              l1->SetLineStyle(2);
+                              l1->Draw("same");
+
+                              TLine* l2 = new TLine(cutHi, yMin, cutHi, yMax);
+                              l2->SetLineColor(kOrange + 7);
+                              l2->SetLineWidth(2);
+                              l2->SetLineStyle(2);
+                              l2->Draw("same");
+
+                              gPad->RedrawAxis();
+                            }
+
+                            gPad->RedrawAxis();
+                          }
+                        }
+
+                        for (TH1* h : histsPP) keepAlive2.push_back(h);
+                      }
+
+                      SaveCanvas(c2, JoinPath(outCent, "table2x5_AuAu0_10_and_PP_unNormalized_SS_byPtOverlays.png"));
+
+                      for (TLegend* l : keepLeg2) delete l;
+                      keepLeg2.clear();
+
+                      for (TH1* h : keepAlive2) delete h;
+                      keepAlive2.clear();
+                    }
+
+                    for (TLegend* l : keepLeg) delete l;
+                    keepLeg.clear();
+
+                    for (TH1* h : keepAlive) delete h;
+                    keepAlive.clear();
                 }
               }
             }
