@@ -24147,13 +24147,15 @@ namespace ARJ
               Make2x3Table_AuAuUnNormalized_ByPtOverlaysPerCent(aaTop, outNoSS, histBaseIso, xTitleIso);
 
               // -------------------------------------------------------------------
-              // NEW: Terminal numeric summary for table2x3_AuAu_unNormalized_byPtOverlays.png
-              // Tabulate (per centrality, per pT bin):
-              //   xMin, xMax (axis range), yMax, and x-bin location of yMax
+              // NEW: Terminal numeric summaries for the AuAu noSS isolation QA block
               //
-              // Print for:
-              //   (1) kInAuAuGold    : non UE-subtracted
-              //   (2) kInAuAuGoldNew : UE-subtracted (if available)
+              // (1) table2x3_AuAu_unNormalized_byPtOverlays.png
+              //     -> h_Eiso shape summary (per centrality, per pT bin):
+              //        xMin, xMax, yMax, and x-bin location of yMax
+              //
+              // (2) Iso-decision acceptance comparison (no UE vs UE-sub)
+              //     -> h_isoDecision_*  (bin 1 = PASS, bin 2 = FAIL)
+              //        Print PASS / FAIL / pass fraction / gain in PASS yield
               // -------------------------------------------------------------------
               auto PrintByPtOverlaySummary = [&](TDirectory* top,
                                                  const std::string& tag,
@@ -24243,6 +24245,275 @@ namespace ARJ
                 cout.precision(p);
               };
 
+              auto PrintIsoDecisionSummary = [&](TDirectory* topNoUE,
+                                                 TDirectory* topUE,
+                                                 const std::string& fileNoUE,
+                                                 const std::string& fileUE)
+              {
+                if (!topNoUE || !topUE) return;
+
+                const auto& ptBins   = PtBins();
+                const auto& centBins = CentBins();
+
+                const int nPads = std::min(6, (int)centBins.size());
+                const int nPt   = (int)ptBins.size();
+                const string histBaseIsoDecision = "h_isoDecision";
+
+                struct IsoCounts
+                {
+                  bool ok = false;
+                  double nPass = 0.0;
+                  double nFail = 0.0;
+                  double nTot  = 0.0;
+                  double fPass = 0.0;
+                };
+
+                struct GainEntry
+                {
+                  double gain = 0.0;
+                  std::string cent;
+                  std::string pt;
+                  double passNoUE = 0.0;
+                  double passUE = 0.0;
+                  double fNoUE = 0.0;
+                  double fUE = 0.0;
+                };
+
+                auto ReadIsoCounts = [&](TDirectory* top, const std::string& hName) -> IsoCounts
+                {
+                  IsoCounts out;
+                  if (!top) return out;
+
+                  TH1* h = GetTH1FromTopDir(top, hName);
+                  if (!h) return out;
+
+                  out.ok = true;
+                  out.nPass = h->GetBinContent(1);
+                  out.nFail = h->GetBinContent(2);
+                  out.nTot  = out.nPass + out.nFail;
+                  out.fPass = (out.nTot > 0.0 ? out.nPass / out.nTot : 0.0);
+                  return out;
+                };
+
+                std::vector<GainEntry> gainEntries;
+                std::vector<GainEntry> revivedEntries;
+
+                std::ios::fmtflags f = cout.flags();
+                std::streamsize    p = cout.precision();
+
+                cout << ANSI_BOLD_CYN
+                     << "\n[AuAu ISO ACCEPTANCE SUMMARY] with / without UE subtraction\n"
+                     << ANSI_RESET;
+                cout << "  Histogram base : " << histBaseIsoDecision << "   (bin 1 = PASS, bin 2 = FAIL)\n";
+                cout << "  Quantity       : photons passing isolation cut, independent of tight photon ID\n";
+                cout << "  File (no UE)   : " << fileNoUE << "\n";
+                cout << "  File (UE-sub)  : " << fileUE << "\n";
+                cout << "  Pads compared  : first " << nPads << " centrality bins (matches 2x3 layout)\n";
+
+                for (int ic = 0; ic < nPads; ++ic)
+                {
+                  const auto& cb = centBins[ic];
+                  const std::string centStr = TString::Format("%d-%d%%", cb.lo, cb.hi).Data();
+
+                  cout << "\n" << ANSI_BOLD_WHT
+                       << "==============================================================================================\n"
+                       << "CENTRALITY = " << centStr << "\n"
+                       << "=============================================================================================="
+                       << ANSI_RESET << "\n";
+
+                  cout << ANSI_BOLD_WHT
+                       << std::left
+                       << std::setw(10) << "pTgamma"
+                       << std::setw(12) << "PASS(noUE)"
+                       << std::setw(12) << "FAIL(noUE)"
+                       << std::setw(14) << "fpass(noUE)"
+                       << std::setw(12) << "PASS(UE)"
+                       << std::setw(12) << "FAIL(UE)"
+                       << std::setw(12) << "fpass(UE)"
+                       << std::setw(12) << "Gain(PASS)"
+                       << std::setw(12) << "Delta fpass"
+                       << ANSI_RESET << "\n";
+
+                  cout << std::string(108, '-') << "\n";
+
+                  double sumPassNoUE = 0.0;
+                  double sumFailNoUE = 0.0;
+                  double sumPassUE   = 0.0;
+                  double sumFailUE   = 0.0;
+
+                  for (int ipt = 0; ipt < nPt; ++ipt)
+                  {
+                    const PtBin& pb = ptBins[ipt];
+                    const std::string ptStr = TString::Format("%d-%d", pb.lo, pb.hi).Data();
+
+                    const string hName = histBaseIsoDecision + pb.suffix + cb.suffix;
+
+                    const IsoCounts cNoUE = ReadIsoCounts(topNoUE, hName);
+                    const IsoCounts cUE   = ReadIsoCounts(topUE,   hName);
+
+                    const std::string sPassNoUE = cNoUE.ok ? std::string(TString::Format("%.0f", cNoUE.nPass).Data()) : "MISSING";
+                    const std::string sFailNoUE = cNoUE.ok ? std::string(TString::Format("%.0f", cNoUE.nFail).Data()) : "MISSING";
+                    const std::string sFNoUE    = cNoUE.ok ? std::string(TString::Format("%.3f", cNoUE.fPass).Data()) : "--";
+
+                    const std::string sPassUE = cUE.ok ? std::string(TString::Format("%.0f", cUE.nPass).Data()) : "MISSING";
+                    const std::string sFailUE = cUE.ok ? std::string(TString::Format("%.0f", cUE.nFail).Data()) : "MISSING";
+                    const std::string sFUE    = cUE.ok ? std::string(TString::Format("%.3f", cUE.fPass).Data()) : "--";
+
+                    std::string sGain = "--";
+                    std::string sDeltaF = "--";
+
+                    if (cNoUE.ok && cUE.ok)
+                    {
+                      sumPassNoUE += cNoUE.nPass;
+                      sumFailNoUE += cNoUE.nFail;
+                      sumPassUE   += cUE.nPass;
+                      sumFailUE   += cUE.nFail;
+
+                      sDeltaF = TString::Format("%+.3f", cUE.fPass - cNoUE.fPass).Data();
+
+                      if (cNoUE.nPass > 0.0)
+                      {
+                        const double gain = cUE.nPass / cNoUE.nPass;
+                        sGain = TString::Format("%.3f", gain).Data();
+
+                        GainEntry ge;
+                        ge.gain = gain;
+                        ge.cent = centStr;
+                        ge.pt = ptStr;
+                        ge.passNoUE = cNoUE.nPass;
+                        ge.passUE = cUE.nPass;
+                        ge.fNoUE = cNoUE.fPass;
+                        ge.fUE = cUE.fPass;
+                        gainEntries.push_back(ge);
+                      }
+                      else if (cUE.nPass > 0.0)
+                      {
+                        sGain = "INF";
+
+                        GainEntry ge;
+                        ge.gain = 1e99;
+                        ge.cent = centStr;
+                        ge.pt = ptStr;
+                        ge.passNoUE = cNoUE.nPass;
+                        ge.passUE = cUE.nPass;
+                        ge.fNoUE = cNoUE.fPass;
+                        ge.fUE = cUE.fPass;
+                        revivedEntries.push_back(ge);
+                      }
+                    }
+
+                    cout << std::left
+                         << std::setw(10) << ptStr
+                         << std::setw(12) << sPassNoUE
+                         << std::setw(12) << sFailNoUE
+                         << std::setw(14) << sFNoUE
+                         << std::setw(12) << sPassUE
+                         << std::setw(12) << sFailUE
+                         << std::setw(12) << sFUE
+                         << std::setw(12) << sGain
+                         << std::setw(12) << sDeltaF
+                         << "\n";
+                  }
+
+                  const double sumTotNoUE = sumPassNoUE + sumFailNoUE;
+                  const double sumTotUE   = sumPassUE   + sumFailUE;
+
+                  const double fTotNoUE = (sumTotNoUE > 0.0 ? sumPassNoUE / sumTotNoUE : 0.0);
+                  const double fTotUE   = (sumTotUE   > 0.0 ? sumPassUE   / sumTotUE   : 0.0);
+
+                  std::string sGainTot = "--";
+                  if (sumPassNoUE > 0.0) sGainTot = TString::Format("%.3f", sumPassUE / sumPassNoUE).Data();
+                  else if (sumPassUE > 0.0) sGainTot = "INF";
+
+                  cout << std::string(108, '-') << "\n";
+                  cout << ANSI_BOLD_YEL
+                       << std::left
+                       << std::setw(10) << "Subtotal"
+                       << std::setw(12) << std::string(TString::Format("%.0f", sumPassNoUE).Data())
+                       << std::setw(12) << std::string(TString::Format("%.0f", sumFailNoUE).Data())
+                       << std::setw(14) << std::string(TString::Format("%.3f", fTotNoUE).Data())
+                       << std::setw(12) << std::string(TString::Format("%.0f", sumPassUE).Data())
+                       << std::setw(12) << std::string(TString::Format("%.0f", sumFailUE).Data())
+                       << std::setw(12) << std::string(TString::Format("%.3f", fTotUE).Data())
+                       << std::setw(12) << sGainTot
+                       << std::setw(12) << std::string(TString::Format("%+.3f", fTotUE - fTotNoUE).Data())
+                       << ANSI_RESET << "\n";
+                }
+
+                if (!gainEntries.empty())
+                {
+                  std::sort(gainEntries.begin(), gainEntries.end(),
+                            [](const GainEntry& a, const GainEntry& b)
+                            {
+                              return a.gain > b.gain;
+                            });
+
+                  const int nShow = std::min(3, (int)gainEntries.size());
+
+                  cout << "\n" << ANSI_BOLD_GRN
+                       << "[Top " << nShow << " finite-gain bins by PASS(UE) / PASS(noUE)]"
+                       << ANSI_RESET << "\n";
+                  cout << ANSI_BOLD_WHT
+                       << std::left
+                       << std::setw(10) << "cent"
+                       << std::setw(10) << "pTgamma"
+                       << std::setw(14) << "PASS(noUE)"
+                       << std::setw(12) << "PASS(UE)"
+                       << std::setw(14) << "fpass(noUE)"
+                       << std::setw(12) << "fpass(UE)"
+                       << std::setw(12) << "Gain"
+                       << ANSI_RESET << "\n";
+                  cout << std::string(84, '-') << "\n";
+
+                  for (int i = 0; i < nShow; ++i)
+                  {
+                    const auto& ge = gainEntries[i];
+                    cout << std::left
+                         << std::setw(10) << ge.cent
+                         << std::setw(10) << ge.pt
+                         << std::setw(14) << std::string(TString::Format("%.0f", ge.passNoUE).Data())
+                         << std::setw(12) << std::string(TString::Format("%.0f", ge.passUE).Data())
+                         << std::setw(14) << std::string(TString::Format("%.3f", ge.fNoUE).Data())
+                         << std::setw(12) << std::string(TString::Format("%.3f", ge.fUE).Data())
+                         << std::setw(12) << std::string(TString::Format("%.3f", ge.gain).Data())
+                         << "\n";
+                  }
+                }
+
+                if (!revivedEntries.empty())
+                {
+                  cout << "\n" << ANSI_BOLD_GRN
+                       << "[Bins revived by UE subtraction: PASS(noUE) = 0 and PASS(UE) > 0]"
+                       << ANSI_RESET << "\n";
+                  cout << ANSI_BOLD_WHT
+                       << std::left
+                       << std::setw(10) << "cent"
+                       << std::setw(10) << "pTgamma"
+                       << std::setw(14) << "PASS(noUE)"
+                       << std::setw(12) << "PASS(UE)"
+                       << std::setw(14) << "fpass(noUE)"
+                       << std::setw(12) << "fpass(UE)"
+                       << ANSI_RESET << "\n";
+                  cout << std::string(72, '-') << "\n";
+
+                  for (const auto& ge : revivedEntries)
+                  {
+                    cout << std::left
+                         << std::setw(10) << ge.cent
+                         << std::setw(10) << ge.pt
+                         << std::setw(14) << std::string(TString::Format("%.0f", ge.passNoUE).Data())
+                         << std::setw(12) << std::string(TString::Format("%.0f", ge.passUE).Data())
+                         << std::setw(14) << std::string(TString::Format("%.3f", ge.fNoUE).Data())
+                         << std::setw(12) << std::string(TString::Format("%.3f", ge.fUE).Data())
+                         << "\n";
+                  }
+                }
+
+                cout << "\n";
+                cout.flags(f);
+                cout.precision(p);
+              };
+
               PrintByPtOverlaySummary(aaTop, "non UE-subtracted", kInAuAuGold);
 
               if (aaTopNew)
@@ -24252,7 +24523,18 @@ namespace ARJ
               else
               {
                 cout << ANSI_BOLD_YEL
-                     << "[WARN] UE-subtracted summary skipped (aaTopNew is null): " << kInAuAuGoldNew
+                     << "[WARN] UE-subtracted Eiso-shape summary skipped (aaTopNew is null): " << kInAuAuGoldNew
+                     << ANSI_RESET << "\n";
+              }
+
+              if (aaTop && aaTopNew)
+              {
+                PrintIsoDecisionSummary(aaTop, aaTopNew, kInAuAuGold, kInAuAuGoldNew);
+              }
+              else
+              {
+                cout << ANSI_BOLD_YEL
+                     << "[WARN] Iso-decision acceptance summary skipped because one or both AuAu top directories are null."
                      << ANSI_RESET << "\n";
               }
           }

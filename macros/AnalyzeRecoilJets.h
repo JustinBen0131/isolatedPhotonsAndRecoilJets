@@ -671,6 +671,7 @@ namespace ARJ
   inline const string ANSI_BOLD_GRN = "\033[1;32m";
   inline const string ANSI_BOLD_YEL = "\033[1;33m";
   inline const string ANSI_BOLD_CYN = "\033[1;36m";
+  inline const string ANSI_BOLD_WHT = "\033[1;37m";
   inline const string ANSI_DIM      = "\033[2m";
 
 
