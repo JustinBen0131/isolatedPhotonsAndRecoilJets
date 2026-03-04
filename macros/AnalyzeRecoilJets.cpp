@@ -24530,6 +24530,126 @@ namespace ARJ
               if (aaTop && aaTopNew)
               {
                 PrintIsoDecisionSummary(aaTop, aaTopNew, kInAuAuGold, kInAuAuGoldNew);
+
+                // -------------------------------------------------------------------
+                // NEW (presentation-ready): 0-10% isolation pass fraction vs pTgamma
+                // Output:
+                //   <outBase>/noSS_isoSpectra/0_10/pho_isoPassFraction_vs_pTgamma_noUE_vs_UEsub.png
+                //
+                // y = f_pass = PASS/(PASS+FAIL), with binomial uncertainty:
+                //   sigma_f = sqrt( f(1-f) / Ntot )
+                // -------------------------------------------------------------------
+                {
+                  const auto& ptBins   = PtBins();
+                  const auto& centBins = CentBins();
+
+                  if (!centBins.empty())
+                  {
+                    const auto& cb = centBins[0]; // 0-10% expected first bin
+                    const string centDir = JoinPath(outNoSS, TString::Format("%d_%d", cb.lo, cb.hi).Data());
+                    EnsureDir(centDir);
+
+                    const string histBaseIsoDecision = "h_isoDecision";
+
+                    vector<double> x, ex, yNoUE, eyNoUE, yUE, eyUE;
+
+                    for (int ipt = 0; ipt < (int)ptBins.size(); ++ipt)
+                    {
+                      const PtBin& pb = ptBins[ipt];
+
+                      const double xcen = 0.5 * ((double)pb.lo + (double)pb.hi);
+                      const double xerr = 0.5 * ((double)pb.hi - (double)pb.lo);
+
+                      const string hName = histBaseIsoDecision + pb.suffix + cb.suffix;
+
+                      TH1* hNo = GetTH1FromTopDir(aaTop,    hName);
+                      TH1* hU  = GetTH1FromTopDir(aaTopNew, hName);
+
+                      if (!hNo || !hU) continue;
+
+                      const double passNo  = hNo->GetBinContent(1);
+                      const double failNo  = hNo->GetBinContent(2);
+                      const double totNo   = passNo + failNo;
+                      const double fNo     = (totNo > 0.0 ? passNo / totNo : 0.0);
+                      const double efNo    = (totNo > 0.0 ? std::sqrt(fNo * (1.0 - fNo) / totNo) : 0.0);
+
+                      const double passUE  = hU->GetBinContent(1);
+                      const double failUE  = hU->GetBinContent(2);
+                      const double totUE   = passUE + failUE;
+                      const double fUEv    = (totUE > 0.0 ? passUE / totUE : 0.0);
+                      const double efUE    = (totUE > 0.0 ? std::sqrt(fUEv * (1.0 - fUEv) / totUE) : 0.0);
+
+                      x.push_back(xcen);
+                      ex.push_back(xerr);
+
+                      yNoUE.push_back(fNo);
+                      eyNoUE.push_back(efNo);
+
+                      yUE.push_back(fUEv);
+                      eyUE.push_back(efUE);
+                    }
+
+                    if (!x.empty())
+                    {
+                      TCanvas c("c_pho_isoPassFrac_0_10", "c_pho_isoPassFrac_0_10", 950, 700);
+                      ApplyCanvasMargins1D(c);
+
+                      TH1F frame("frame_isoPassFrac", "", 1, 12.0, 36.0);
+                      frame.SetMinimum(0.0);
+                      frame.SetMaximum(1.05);
+                      frame.SetTitle("");
+                      frame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
+                      frame.GetYaxis()->SetTitle("Isolation pass fraction  f_{pass} = PASS/(PASS+FAIL)");
+                      frame.Draw("axis");
+
+                      TGraphErrors gNo((int)x.size(), &x[0], &yNoUE[0], &ex[0], &eyNoUE[0]);
+                      gNo.SetMarkerStyle(20);
+                      gNo.SetMarkerSize(1.1);
+                      gNo.SetMarkerColor(kBlack);
+                      gNo.SetLineColor(kBlack);
+                      gNo.SetLineWidth(2);
+                      gNo.Draw("P same");
+
+                      TGraphErrors gU((int)x.size(), &x[0], &yUE[0], &ex[0], &eyUE[0]);
+                      gU.SetMarkerStyle(24);
+                      gU.SetMarkerSize(1.1);
+                      gU.SetMarkerColor(kRed + 1);
+                      gU.SetLineColor(kRed + 1);
+                      gU.SetLineWidth(2);
+                      gU.Draw("P same");
+
+                      // Reference line at f_pass = 0.5
+                      {
+                        TLine l(12.0, 0.5, 36.0, 0.5);
+                        l.SetLineStyle(2);
+                        l.SetLineWidth(2);
+                        l.Draw("same");
+                      }
+
+                      TLegend leg(0.55, 0.52, 0.88, 0.67);
+                      leg.SetBorderSize(0);
+                      leg.SetFillStyle(0);
+                      leg.SetTextFont(42);
+                      leg.SetTextSize(0.035);
+                      leg.AddEntry(&gNo, "no UE subtraction", "pe");
+                      leg.AddEntry(&gU,  "UE-subtracted iso", "pe");
+                      leg.Draw();
+
+                      // Centered title (presentation-ready)
+                      {
+                        TLatex tx;
+                        tx.SetNDC();
+                        tx.SetTextFont(42);
+                        tx.SetTextAlign(22);
+                        tx.SetTextSize(0.042);
+                        tx.DrawLatex(0.50, 0.965,
+                                     TString::Format("AuAu isolation acceptance vs p_{T}^{#gamma} (cent = %d-%d%%)", cb.lo, cb.hi).Data());
+                      }
+
+                      SaveCanvas(c, JoinPath(centDir, "pho_isoPassFraction_vs_pTgamma_noUE_vs_UEsub.png"));
+                    }
+                  }
+                }
               }
               else
               {
