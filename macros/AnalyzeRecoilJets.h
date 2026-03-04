@@ -161,17 +161,17 @@ namespace ARJ
 //   - For single-slice SIM, y-axes remain raw "Counts" (unweighted).
 // =============================================================================
 
-  inline bool isPPdataOnly   = true;
+  inline bool isPPdataOnly   = false;
   inline bool isSimAndDataPP = false;
 
   // NEW: AuAu-only analysis mode (no SIM, no PP). When true, the full plotting
   // pipeline runs on AuAu only and outputs to dataOutput/auau/<trigger>/...
   // NOTE: Must be mutually exclusive with isPPdataOnly and isSimAndDataPP.
-  inline bool isAuAuOnly     = false;
+  inline bool isAuAuOnly     = true;
 
   // Optional comparison overlays: PP vs Au+Au (gold-gold) photon-ID deliverables.
   // If false, analysis behavior is IDENTICAL to the current pipeline.
-  inline bool isPPdataAndAUAU = true;
+  inline bool isPPdataAndAUAU = false;
 
   inline bool isRun25pp      = false;
 
@@ -221,7 +221,7 @@ namespace ARJ
   // NOTE: Only the trigger directory below is used inside the file.
   inline const string kTriggerAuAuGold = "MBD_NS_geq_2_vtx_lt_150";
   inline const string kInAuAuGold =
-              "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet5/7pi_8_BB/RecoilJets_auau_ALL.root";
+              "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet5/7pi_8_BB/UE_subtractedIso_take1/RecoilJets_auau_ALL.root";
 
   inline const string kInAuAuGoldNew =
               "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet5/7pi_8_BB/UE_subtractedIso_take1/RecoilJets_auau_ALL.root";
