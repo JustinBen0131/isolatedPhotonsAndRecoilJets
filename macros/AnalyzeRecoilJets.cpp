@@ -8877,13 +8877,15 @@ namespace ARJ
                         const double ptMax = h3Au->GetXaxis()->GetBinUpEdge(ib);
 
                         {
-                          TLatex tCuts;
-                          tCuts.SetNDC(true);
-                          tCuts.SetTextFont(42);
-                          tCuts.SetTextAlign(33);
-                          tCuts.SetTextSize(0.038);
-                          tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
-                          tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
+                            TLatex tCuts;
+                            tCuts.SetNDC(true);
+                            tCuts.SetTextFont(42);
+                            tCuts.SetTextAlign(33);
+                            tCuts.SetTextSize(0.038);
+                            tCuts.DrawLatex(0.92, 0.78, "pp trigger = Photon 4 GeV + MBD NS #geq 1");
+                            tCuts.DrawLatex(0.92, 0.70, "auau trigger = MBD NS #geq 2 vtx < 150");
+                            tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
+                            tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
                         }
 
                         {
@@ -24136,6 +24138,312 @@ namespace ARJ
           }
 
             // ---------------------------------------------------------------------
+            // NEW: Per-pT unnormalized PP/AuAu overlays across centrality (skip 80-100),
+            // rendered as a 2x3 canvas containing ALL SS variables.
+            //
+            // Layout:
+            //   [ weta ] [ wphi ] [ blank ]
+            //   [ e11e33 ] [ et1 ] [ e32e35 ]
+            //
+            // Output (saved into each SS variable's pT folder):
+            //   <outBase>/noIsoRequired/<ssVar>/<pTbin>/table2x3_ppAuAu_unNormalized_SS_overlaysByCent.png
+            // ---------------------------------------------------------------------
+            {
+              if (aaTop)
+              {
+                const string baseNoIso = JoinPath(outBase, "noIsoRequired");
+                EnsureDir(baseNoIso);
+
+                const auto& ptBinsLocal   = PtBins();
+                const auto& centBinsLocal = CentBins();
+
+                if (!ptBinsLocal.empty() && !centBinsLocal.empty())
+                {
+                  struct VarDef { std::string var; std::string label; };
+                  const std::vector<VarDef> vars =
+                  {
+                    {"weta",   "w_{#eta}"},
+                    {"wphi",   "w_{#phi}"},
+                    {"e11e33", "E_{11}/E_{33}"},
+                    {"et1",    "et1"},
+                    {"e32e35", "E_{32}/E_{35}"}
+                  };
+
+                  auto LabelForVar = [&](const std::string& v) -> std::string
+                  {
+                    for (const auto& vd : vars) { if (vd.var == v) return vd.label; }
+                    return v;
+                  };
+
+                  const int centColors[] = { kRed + 1, kBlue + 1, kGreen + 2, kMagenta + 1, kOrange + 7, kCyan + 1, kViolet + 1, kAzure + 2 };
+                  const int nCentColors = (int)(sizeof(centColors)/sizeof(centColors[0]));
+
+                  for (int ipt = 0; ipt < (int)ptBinsLocal.size(); ++ipt)
+                  {
+                    const PtBin& pb = ptBinsLocal[ipt];
+
+                    TCanvas cAll(
+                      TString::Format("c_noIso_ppAuAu_unNorm_byCent_allSS_%s", pb.folder.c_str()).Data(),
+                      "c_noIso_ppAuAu_unNorm_byCent_allSS", 2100, 1400
+                    );
+                    cAll.Divide(3, 2, 0.001, 0.001);
+
+                    vector<TH1*> keepH;
+                    keepH.reserve((std::size_t)vars.size() * (std::size_t)centBinsLocal.size());
+
+                    vector<TLegend*> keepL;
+                    keepL.reserve((std::size_t)vars.size());
+
+                    vector<TLine*> keepLines;
+                    keepLines.reserve((std::size_t)vars.size() * 2);
+
+                    const std::string padVars[6] = {"", "weta", "wphi", "e11e33", "et1", "e32e35"};
+
+                    for (int ipad = 0; ipad < 6; ++ipad)
+                    {
+                      const std::string v = padVars[ipad];
+                      cAll.cd(ipad + 1);
+
+                      gPad->SetLeftMargin(0.14);
+                      gPad->SetRightMargin(0.05);
+                      gPad->SetBottomMargin(0.14);
+                      gPad->SetTopMargin(0.18);
+
+                      if (v.empty())
+                      {
+                        gPad->SetLogy(false);
+                        gPad->Clear();
+                        continue;
+                      }
+
+                      gPad->SetLogy(true);
+
+                      const std::string vlabel = LabelForVar(v);
+                      const string histBase = string("h_ss_") + v + string("_inclusive");
+
+                      TH1* rawPP = GetTH1FromTopDir(dsPP.topDir, histBase + pb.suffix);
+
+                      TH1* hPP = nullptr;
+                      if (rawPP)
+                      {
+                        hPP = CloneTH1(rawPP,
+                          TString::Format("pp_unNorm_byCent_%s_%s", v.c_str(), pb.folder.c_str()).Data());
+                        if (hPP)
+                        {
+                          EnsureSumw2(hPP);
+                          hPP->GetXaxis()->UnZoom();
+                          hPP->SetTitle("");
+                          hPP->GetXaxis()->SetTitle(vlabel.c_str());
+                          hPP->GetYaxis()->SetTitle("Counts");
+                          StyleOverlayHist(hPP, kBlack, 20);
+                          hPP->SetMarkerStyle(20);
+                          hPP->SetMarkerSize(1.05);
+                          keepH.push_back(hPP);
+                        }
+                      }
+
+                      std::vector<TH1*> hAAs;
+                      std::vector<std::string> aaLabels;
+
+                      for (int ic = 0, icDraw = 0; ic < (int)centBinsLocal.size(); ++ic)
+                      {
+                        const auto& cb = centBinsLocal[(std::size_t)ic];
+                        if (cb.lo == 80 && cb.hi == 100) continue;
+
+                        TH1* rawAA = GetTH1FromTopDir(aaTop, histBase + pb.suffix + cb.suffix);
+                        if (!rawAA) continue;
+
+                        const int col = centColors[icDraw % nCentColors];
+                        ++icDraw;
+
+                        TH1* hAA = CloneTH1(rawAA,
+                          TString::Format("aa_unNorm_byCent_%s_%s%s", v.c_str(), pb.folder.c_str(), cb.suffix.c_str()).Data());
+                        if (!hAA) continue;
+
+                        EnsureSumw2(hAA);
+                        hAA->GetXaxis()->UnZoom();
+                        hAA->SetTitle("");
+                        hAA->GetXaxis()->SetTitle(vlabel.c_str());
+                        hAA->GetYaxis()->SetTitle("Counts");
+                        StyleOverlayHist(hAA, col, 24);
+                        hAA->SetMarkerStyle(24);
+                        hAA->SetMarkerSize(1.05);
+
+                        hAAs.push_back(hAA);
+                        aaLabels.push_back(TString::Format("AuAu %d-%d%%", cb.lo, cb.hi).Data());
+                        keepH.push_back(hAA);
+                      }
+
+                      if (!hPP && hAAs.empty())
+                      {
+                        DrawMissingPad(TString::Format("%s, p_{T}^{#gamma} = %d-%d GeV", vlabel.c_str(), pb.lo, pb.hi).Data());
+                        continue;
+                      }
+
+                      double yMax = 0.0;
+                      double minPos = 1e99;
+
+                      auto ScanHist = [&](TH1* h)
+                      {
+                        if (!h) return;
+                        yMax = std::max(yMax, (double)h->GetMaximum());
+                        const int nb = h->GetNbinsX();
+                        for (int ib = 1; ib <= nb; ++ib)
+                        {
+                          const double y = h->GetBinContent(ib);
+                          if (y > 0.0 && y < minPos) minPos = y;
+                        }
+                      };
+
+                      ScanHist(hPP);
+                      for (TH1* h : hAAs) ScanHist(h);
+
+                      if (!(minPos < 1e98)) minPos = 0.5;
+
+                      const double yMin = minPos * 0.5;
+                      const double yMaxDraw = (yMax > 0.0 ? (yMax * 3.0) : 1.0);
+
+                      TH1* hFirst = hPP ? hPP : hAAs[0];
+                      hFirst->SetMinimum(yMin);
+                      hFirst->SetMaximum(yMaxDraw);
+                      hFirst->Draw("E1");
+
+                      if (hPP && hFirst != hPP) hPP->Draw("E1 same");
+                      for (TH1* h : hAAs) { if (h != hFirst) h->Draw("E1 same"); }
+
+                      const bool isTopRow = (ipad < 3);
+
+                      const double lx1 = isTopRow ? 0.52 : 0.16;
+                      const double lx2 = isTopRow ? 0.93 : 0.57;
+                      const double ly1 = 0.52;
+                      const double ly2 = 0.78;
+
+                      TLegend* leg = new TLegend(lx1, ly1, lx2, ly2);
+                      leg->SetBorderSize(0);
+                      leg->SetFillStyle(0);
+                      leg->SetTextFont(42);
+                      leg->SetTextSize(0.030);
+                      leg->SetNColumns(2);
+                      leg->SetEntrySeparation(0.10);
+                      leg->SetColumnSeparation(0.12);
+
+                      if (hPP) leg->AddEntry(hPP, "PP (Run24pp)", "ep");
+                      for (std::size_t j = 0; j < hAAs.size(); ++j)
+                          leg->AddEntry(hAAs[j], aaLabels[j].c_str(), "ep");
+
+                      leg->Draw();
+                      keepL.push_back(leg);
+
+                      {
+                        TLatex t;
+                        t.SetNDC(true);
+                        t.SetTextFont(42);
+                        t.SetTextAlign(22);
+                        t.SetTextSize(0.045);
+                        t.DrawLatex(0.50, 0.955,
+                          TString::Format("%s, p_{T}^{#gamma} = %d-%d GeV, pp/AuAu overlays",
+                                          vlabel.c_str(), pb.lo, pb.hi).Data());
+                      }
+
+                      {
+                        TLatex tcut;
+                        tcut.SetNDC(true);
+                        tcut.SetTextFont(42);
+                        tcut.SetTextAlign(13);
+                        tcut.SetTextSize(0.034);
+
+                        bool drawCuts = false;
+                        double cutLo = 0.0;
+                        double cutHi = 0.0;
+                        std::string cutText;
+
+                        if (v == "e11e33")
+                        {
+                          cutText = "#gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
+                          drawCuts = true;
+                          cutLo = 0.4;
+                          cutHi = 0.98;
+                        }
+                        else if (v == "e32e35")
+                        {
+                          cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
+                          drawCuts = true;
+                          cutLo = 0.92;
+                          cutHi = 1.0;
+                        }
+                        else if (v == "et1")
+                        {
+                          cutText = "#gamma-ID: 0.9 < et1 < 1.0";
+                          drawCuts = true;
+                          cutLo = 0.9;
+                          cutHi = 1.0;
+                        }
+                        else if (v == "weta")
+                        {
+                          cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                        }
+                        else if (v == "wphi")
+                        {
+                          cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                        }
+
+                        if (!cutText.empty())
+                        {
+                          tcut.DrawLatex(0.16, 0.88, cutText.c_str());
+                        }
+
+                        if (drawCuts)
+                        {
+                          gPad->Update();
+                          const double yMinPad = gPad->GetUymin();
+                          const double yMaxPad = gPad->GetUymax();
+
+                          TLine* l1 = new TLine(cutLo, yMinPad, cutLo, yMaxPad);
+                          l1->SetLineColor(kGreen + 2);
+                          l1->SetLineWidth(2);
+                          l1->SetLineStyle(2);
+                          l1->Draw("same");
+                          keepLines.push_back(l1);
+
+                          TLine* l2 = new TLine(cutHi, yMinPad, cutHi, yMaxPad);
+                          l2->SetLineColor(kOrange + 7);
+                          l2->SetLineWidth(2);
+                          l2->SetLineStyle(2);
+                          l2->Draw("same");
+                          keepLines.push_back(l2);
+
+                          gPad->RedrawAxis();
+                        }
+
+                        gPad->RedrawAxis();
+                      }
+                    }
+
+                    for (const auto& vd : vars)
+                    {
+                      const string varBase = JoinPath(baseNoIso, vd.var);
+                      EnsureDir(varBase);
+
+                      const string ptDir = JoinPath(varBase, pb.folder);
+                      EnsureDir(ptDir);
+
+                      SaveCanvas(cAll, JoinPath(ptDir, "table2x3_ppAuAu_unNormalized_SS_overlaysByCent.png"));
+                    }
+
+                    for (TLegend* l : keepL) delete l;
+                    keepL.clear();
+
+                    for (TLine* ln : keepLines) delete ln;
+                    keepLines.clear();
+
+                    for (TH1* h : keepH) delete h;
+                    keepH.clear();
+                  }
+                }
+              }
+            }
+
+            // ---------------------------------------------------------------------
             // NEW: noIsoRequired/0_10  (AuAu counts) — 1x5 SS pT-overlay summary table
             //
             // Purpose:
@@ -24517,7 +24825,7 @@ namespace ARJ
 
                             if (var == "e11e33")
                             {
-                              cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
+                              cutText = "#gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
                               drawCuts = true;
                               cutLo = 0.4;
                               cutHi = 0.98;
@@ -24592,11 +24900,11 @@ namespace ARJ
                                 lw->SetLineStyle(2);
                                 lw->Draw("same");
 
-                                  TLegend* legW = new TLegend(0.16, 0.80, 0.54, 0.92);
+                                  TLegend* legW = new TLegend(0.16, 0.89, 0.54, 0.93);
                                   legW->SetBorderSize(0);
                                   legW->SetFillStyle(0);
                                   legW->SetTextFont(42);
-                                  legW->SetTextSize(0.040);
+                                  legW->SetTextSize(0.038);
                                   legW->AddEntry(lw, "w^{cogX, high} for p_{T}^{#gamma} = 25 GeV", "l");
                                   legW->Draw();
                                   keepLeg2.push_back(legW);
@@ -24701,7 +25009,7 @@ namespace ARJ
 
                             if (var == "e11e33")
                             {
-                              cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
+                              cutText = "#gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
                               drawCuts = true;
                               cutLo = 0.4;
                               cutHi = 0.98;
@@ -24776,15 +25084,15 @@ namespace ARJ
                               lw->SetLineStyle(2);
                               lw->Draw("same");
 
-                                TLegend* legW = new TLegend(0.16, 0.80, 0.54, 0.92);
+                                TLegend* legW = new TLegend(0.16, 0.89, 0.54, 0.93);
                                 legW->SetBorderSize(0);
                                 legW->SetFillStyle(0);
                                 legW->SetTextFont(42);
-                                legW->SetTextSize(0.040);
+                                legW->SetTextSize(0.038);
                                 legW->AddEntry(lw, "w^{cogX, high} for p_{T}^{#gamma} = 25 GeV", "l");
                                 legW->Draw();
                                 keepLeg2.push_back(legW);
-
+                                
                               gPad->RedrawAxis();
                             }
 
