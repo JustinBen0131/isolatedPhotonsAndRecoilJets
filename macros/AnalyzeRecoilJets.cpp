@@ -24333,7 +24333,7 @@ namespace ARJ
           // Output (saved into each SS variable's pT folder):
           //   <outBase>/noIsoRequired/<ssVar>/<pTbin>/table2x3_ppAuAu_unNormalized_SS_overlaysByCent.png
           // ---------------------------------------------------------------------
-          spe{
+          {
               if (aaTop)
               {
                 const string baseNoIso = JoinPath(outBase, "noIsoRequired");
