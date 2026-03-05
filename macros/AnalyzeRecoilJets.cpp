@@ -25278,6 +25278,180 @@ namespace ARJ
 
                       SaveCanvas(c2, JoinPath(outCent, "table2x5_AuAu0_10_and_PP_unNormalized_SS_byPtOverlays.png"));
 
+                      // -------------------------------------------------------------------
+                      // NEW: PP-only (noIsoRequired) — per-pT-bin 1x5 SS *distributions* table
+                      //
+                      // Output (per pT folder):
+                      //   <kOutPPAuAuBase>/noIsoRequired/<pT_folder>/table1x5_PP_SS.png
+                      //
+                      // Pads (L->R):
+                      //   weta, wphi, e11e33, et1, e32e35
+                      //
+                      // Notes:
+                      //   - uses same SS cut label + vertical cut lines as other SS plots
+                      //   - NOT log-y
+                      //   - NOT unit-area normalized (raw counts, styled)
+                      //   - y-axis max set per-pad from data max with a consistent buffer
+                      // -------------------------------------------------------------------
+                      {
+                          const string outNoIso = JoinPath(kOutPPAuAuBase, "noIsoRequired");
+                          EnsureDir(outNoIso);
+
+                          for (int ipt = 0; ipt < (int)ptBinsLocal.size(); ++ipt)
+                          {
+                            const PtBin& pb = ptBinsLocal[ipt];
+                            const string outPt = JoinPath(outNoIso, pb.folder);
+                            EnsureDir(outPt);
+
+                            TCanvas cPP(
+                              TString::Format("c_noIso_pp_SS_1x5_%s", pb.folder.c_str()).Data(),
+                              "c_noIso_pp_SS_1x5", 2600, 750
+                            );
+                            cPP.Divide(5, 1, 0.001, 0.001);
+
+                            std::vector<TH1*> keepAlivePP;
+                            keepAlivePP.reserve(vars.size());
+
+                            for (int iv = 0; iv < (int)vars.size(); ++iv)
+                            {
+                              const std::string& var    = vars[iv].var;
+                              const std::string& vlabel = vars[iv].label;
+
+                              cPP.cd(iv + 1);
+                              gPad->SetLeftMargin(0.14);
+                              gPad->SetRightMargin(0.05);
+                              gPad->SetBottomMargin(0.14);
+                              gPad->SetTopMargin(0.18);
+                              gPad->SetLogy(false);
+
+                              const string hPPName = string("h_ss_") + var + string("_inclusive") + pb.suffix;
+                              TH1* rawPP = GetTH1FromTopDir(dsPP.topDir, hPPName);
+
+                              if (!rawPP)
+                              {
+                                TLatex tm;
+                                tm.SetNDC(true);
+                                tm.SetTextFont(42);
+                                tm.SetTextAlign(22);
+                                tm.SetTextSize(0.055);
+                                tm.DrawLatex(0.50, 0.55, "MISSING");
+                                continue;
+                              }
+
+                              TH1* hPPc = (TH1*)rawPP->Clone(
+                                TString::Format("pp_noIso_SS_%s_%s", var.c_str(), pb.folder.c_str()).Data()
+                              );
+                              if (!hPPc) continue;
+                              hPPc->SetDirectory(nullptr);
+
+                              hPPc->SetLineColor(kBlack);
+                              hPPc->SetMarkerColor(kBlack);
+
+                              hPPc->SetMarkerStyle(20);
+                              hPPc->SetMarkerSize(1.05);
+                              hPPc->GetXaxis()->SetTitle(vlabel.c_str());
+                              hPPc->GetYaxis()->SetTitle("Counts");
+                              hPPc->SetMinimum(0.0);
+
+                              const double yBuf = 1.25;
+                              const double ymax = yBuf * hPPc->GetMaximum();
+                              if (ymax > 0.0) hPPc->SetMaximum(ymax);
+
+                              hPPc->Draw("E1");
+
+                              // Pad header (SS label + pT bin)
+                              {
+                                TLatex th;
+                                th.SetNDC(true);
+                                th.SetTextFont(42);
+                                th.SetTextAlign(22);
+                                th.SetTextSize(0.055);
+                                th.DrawLatex(0.50, 0.94,
+                                  TString::Format("%s, p_{T}^{#gamma}: %d-%d GeV", vlabel.c_str(), pb.lo, pb.hi).Data());
+                              }
+
+                              // ------------------------------------------------------------
+                              // Add SS cut label (top-left) + cut lines (where applicable)
+                              // ------------------------------------------------------------
+                              {
+                                TLatex tcut;
+                                tcut.SetNDC(true);
+                                tcut.SetTextFont(42);
+                                tcut.SetTextAlign(13);
+                                tcut.SetTextSize(0.045);
+
+                                bool drawCuts = false;
+                                double cutLo = 0.0;
+                                double cutHi = 0.0;
+                                std::string cutText;
+
+                                if (var == "e11e33")
+                                {
+                                  cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
+                                  drawCuts = true;
+                                  cutLo = 0.4;
+                                  cutHi = 0.98;
+                                }
+                                else if (var == "e32e35")
+                                {
+                                  cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
+                                  drawCuts = true;
+                                  cutLo = 0.92;
+                                  cutHi = 1.0;
+                                }
+                                else if (var == "et1")
+                                {
+                                  cutText = "#gamma-ID: 0.9 < et1 < 1.0";
+                                  drawCuts = true;
+                                  cutLo = 0.9;
+                                  cutHi = 1.0;
+                                }
+                                else if (var == "weta")
+                                {
+                                  cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                                }
+                                else if (var == "wphi")
+                                {
+                                  cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                                }
+
+                                if (!cutText.empty())
+                                {
+                                  tcut.DrawLatex(0.16, 0.86, cutText.c_str());
+                                }
+
+                                if (drawCuts)
+                                {
+                                  gPad->Update();
+                                  const double yMin = gPad->GetUymin();
+                                  const double yMaxPad = gPad->GetUymax();
+
+                                  TLine* l1 = new TLine(cutLo, yMin, cutLo, yMaxPad);
+                                  l1->SetLineColor(kGreen + 2);
+                                  l1->SetLineWidth(2);
+                                  l1->SetLineStyle(2);
+                                  l1->Draw("same");
+
+                                  TLine* l2 = new TLine(cutHi, yMin, cutHi, yMaxPad);
+                                  l2->SetLineColor(kOrange + 7);
+                                  l2->SetLineWidth(2);
+                                  l2->SetLineStyle(2);
+                                  l2->Draw("same");
+                                }
+
+                                gPad->RedrawAxis();
+                              }
+
+                              keepAlivePP.push_back(hPPc);
+                            }
+
+                            SaveCanvas(cPP, JoinPath(outPt, "table1x5_PP_SS.png"));
+
+                            for (TH1* h : keepAlivePP) delete h;
+                            keepAlivePP.clear();
+                          }
+                        }
+
                       for (TLegend* l : keepLeg2) delete l;
                       keepLeg2.clear();
 
@@ -25291,8 +25465,8 @@ namespace ARJ
                     for (TH1* h : keepAlive) delete h;
                     keepAlive.clear();
                 }
-              }
-            }
+             }
+          }
 
           // ---------------------------------------------------------------------
           // NEW: noSS_isoSpectra summary (AuAu counts by centrality per pT bin)
