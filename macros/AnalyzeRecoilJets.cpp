@@ -26295,6 +26295,323 @@ namespace ARJ
       }
 
       // =============================================================================
+      // NEW: SIM+DATA PP — PPG12 SS template tables (Data vs Signal MC vs Background MC)
+      //
+      // Output:
+      //   <kOutPPAuAuBase>/noIsoRequired/<pTbin>/table1x5_PP_SS_<tag>_DataSigBkg.png
+      // where <tag> ∈ {pre, tight, nonTight}
+      //
+      // Notes:
+      //   - Forces the SIM source for *_sig/*_bkg SS templates to the DEFAULT merged
+      //     photonJet10+20 file keyed by kDefaultSimSampleKey (jetMinPt5_7piOver8).
+      //   - Runs even when isPPdataAndAUAU == false (intended for isSimAndDataPP mode).
+      // =============================================================================
+      void RunPPG12SSTables_DataSigBkg_PP(const Dataset& dsPP, const Dataset& dsSIM)
+      {
+        cout << ANSI_BOLD_CYN
+             << "\n[EXTRA] PPG12 SS template tables (SIM+DATA PP): Data vs Signal MC vs Background MC\n"
+             << ANSI_RESET;
+
+        if (!dsPP.topDir || !dsSIM.topDir)
+        {
+          cout << ANSI_BOLD_YEL
+               << "[WARN] PPG12 SS template tables skipped: PP or SIM dataset topDir is null."
+               << ANSI_RESET << "\n";
+          return;
+        }
+
+        const auto& ptBinsLocal = PtBins();
+        if (ptBinsLocal.empty())
+        {
+          cout << ANSI_BOLD_YEL
+               << "[WARN] PPG12 SS template tables skipped: PtBins() is empty."
+               << ANSI_RESET << "\n";
+          return;
+        }
+
+        // Force the SIM input used for the overlays to be the DEFAULT merged photonJet10+20 file
+        // keyed by kDefaultSimSampleKey (jetMinPt5_7piOver8).
+        TFile* fSimSS = nullptr;
+        TDirectory* simTopSS = dsSIM.topDir;
+
+        if (bothPhoton10and20sim)
+        {
+          const string simMerged = MergedSIMOut_10and20_Default();
+
+          cout << ANSI_DIM
+               << "  [SS templates] DefaultSimSampleKey()          = " << DefaultSimSampleKey() << "\n"
+               << "  [SS templates] MergedSIMOut_10and20_Default() = " << simMerged << "\n"
+               << ANSI_RESET;
+
+          if (!simMerged.empty())
+          {
+            fSimSS = TFile::Open(simMerged.c_str(), "READ");
+            if (fSimSS && !fSimSS->IsZombie())
+            {
+              TDirectory* d = fSimSS->GetDirectory(kDirSIM.c_str());
+              if (d) simTopSS = d;
+              else
+              {
+                cout << ANSI_BOLD_YEL
+                     << "[WARN] SS templates: missing topDir '" << kDirSIM
+                     << "' in merged SIM file: " << simMerged
+                     << ANSI_RESET << "\n";
+              }
+            }
+            else
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] SS templates: cannot open merged SIM file: " << simMerged
+                   << ANSI_RESET << "\n";
+              if (fSimSS) { fSimSS->Close(); delete fSimSS; }
+              fSimSS = nullptr;
+            }
+          }
+        }
+
+        const string outBase = JoinPath(kOutPPAuAuBase, "noIsoRequired");
+        EnsureDir(outBase);
+
+        struct VarDef { std::string var; std::string label; };
+        const std::vector<VarDef> vars =
+        {
+          {"weta",   "w_{#eta}"},
+          {"wphi",   "w_{#phi}"},
+          {"e11e33", "E_{11}/E_{33}"},
+          {"et1",    "et1"},
+          {"e32e35", "E_{32}/E_{35}"}
+        };
+
+        auto LabelForVar = [&](const std::string& v) -> std::string
+        {
+          for (const auto& vd : vars) { if (vd.var == v) return vd.label; }
+          return v;
+        };
+
+        const std::vector<std::string> ppg12Tags = {"pre", "tight", "nonTight"};
+
+        for (int ipt = 0; ipt < (int)ptBinsLocal.size(); ++ipt)
+        {
+          const PtBin& pb = ptBinsLocal[ipt];
+          const string outPt = JoinPath(outBase, pb.folder);
+          EnsureDir(outPt);
+
+          for (const auto& tag : ppg12Tags)
+          {
+            TCanvas cPP(
+              TString::Format("c_pp_ss_%s_%s", tag.c_str(), pb.folder.c_str()).Data(),
+              "c_pp_ss", 2600, 750
+            );
+            cPP.Divide(5, 1, 0.001, 0.001);
+
+            std::vector<TH1*> keepAlive;
+            keepAlive.reserve(vars.size() * 3);
+
+            std::vector<TLegend*> keepLeg;
+            keepLeg.reserve(vars.size());
+
+            bool anyPad = false;
+
+            for (int iv = 0; iv < (int)vars.size(); ++iv)
+            {
+              const std::string& var = vars[iv].var;
+              const std::string  vlabel = LabelForVar(var);
+
+              cPP.cd(iv + 1);
+              gPad->SetLeftMargin(0.14);
+              gPad->SetRightMargin(0.05);
+              gPad->SetBottomMargin(0.14);
+              gPad->SetTopMargin(0.18);
+              gPad->SetLogy(false);
+
+              const string hDataName = string("h_ss_") + var + string("_") + tag + pb.suffix;
+              const string hSigName  = string("h_ss_") + var + string("_") + tag + string("_sig") + pb.suffix;
+              const string hBkgName  = string("h_ss_") + var + string("_") + tag + string("_bkg") + pb.suffix;
+
+              TH1* rawData = GetTH1FromTopDir(dsPP.topDir, hDataName);
+              TH1* rawSig  = GetTH1FromTopDir(simTopSS,  hSigName);
+              TH1* rawBkg  = GetTH1FromTopDir(simTopSS,  hBkgName);
+
+              if (!rawData && !rawSig && !rawBkg)
+              {
+                DrawMissingPad(TString::Format("%s, %s, %s", var.c_str(), tag.c_str(), pb.folder.c_str()).Data());
+                continue;
+              }
+
+              anyPad = true;
+
+              TH1* hData = nullptr;
+              TH1* hSig  = nullptr;
+              TH1* hBkg  = nullptr;
+
+              if (rawData)
+                hData = CloneNormalizeStyle(rawData,
+                  TString::Format("ss_%s_%s_%s_data", tag.c_str(), var.c_str(), pb.folder.c_str()).Data(),
+                  kBlack, 20);
+
+              if (rawSig)
+                hSig = CloneNormalizeStyle(rawSig,
+                  TString::Format("ss_%s_%s_%s_sig", tag.c_str(), var.c_str(), pb.folder.c_str()).Data(),
+                  kRed + 1, 24);
+
+              if (rawBkg)
+                hBkg = CloneNormalizeStyle(rawBkg,
+                  TString::Format("ss_%s_%s_%s_bkg", tag.c_str(), var.c_str(), pb.folder.c_str()).Data(),
+                  kBlue + 1, 25);
+
+              TH1* hFirst = (hData ? hData : (hSig ? hSig : hBkg));
+              if (!hFirst)
+              {
+                DrawMissingPad(TString::Format("%s, %s, %s", var.c_str(), tag.c_str(), pb.folder.c_str()).Data());
+                continue;
+              }
+
+              hFirst->GetXaxis()->SetTitle(vlabel.c_str());
+              hFirst->GetYaxis()->SetTitle("Normalized counts");
+
+              double yMax = 0.0;
+              if (hData) yMax = std::max(yMax, (double)hData->GetMaximum());
+              if (hSig)  yMax = std::max(yMax, (double)hSig->GetMaximum());
+              if (hBkg)  yMax = std::max(yMax, (double)hBkg->GetMaximum());
+
+              hFirst->SetMinimum(0.0);
+              hFirst->SetMaximum((yMax > 0.0) ? (yMax * 1.35) : 1.0);
+
+              hFirst->Draw("E1");
+              if (hData && hData != hFirst) hData->Draw("E1 same");
+              if (hSig  && hSig  != hFirst) hSig->Draw("E1 same");
+              if (hBkg  && hBkg  != hFirst) hBkg->Draw("E1 same");
+
+              // Legend
+              {
+                const bool isW = (var == "weta" || var == "wphi");
+                TLegend* leg = (isW ? new TLegend(0.55, 0.62, 0.93, 0.86) : new TLegend(0.16, 0.62, 0.54, 0.86));
+                leg->SetBorderSize(0);
+                leg->SetFillStyle(0);
+                leg->SetTextFont(42);
+                leg->SetTextSize(0.036);
+
+                if (hData) leg->AddEntry(hData, "Data", "ep");
+                if (hSig)  leg->AddEntry(hSig,  "Signal MC", "ep");
+                if (hBkg)  leg->AddEntry(hBkg,  "Background MC", "ep");
+
+                leg->Draw();
+                keepLeg.push_back(leg);
+              }
+
+              // Pad header
+              {
+                std::string tagLabel = "Preselection";
+                if (tag == "tight") tagLabel = "Tight";
+                else if (tag == "nonTight") tagLabel = "Non-tight";
+
+                TLatex th;
+                th.SetNDC(true);
+                th.SetTextFont(42);
+                th.SetTextAlign(22);
+                th.SetTextSize(0.050);
+                th.DrawLatex(0.50, 0.94,
+                  TString::Format("%s, %s, p_{T}^{#gamma}: %d-%d GeV",
+                    vlabel.c_str(), tagLabel.c_str(), pb.lo, pb.hi).Data());
+              }
+
+              // SS cut label + cut lines (fixed-cut vars)
+              {
+                TLatex tcut;
+                tcut.SetNDC(true);
+                tcut.SetTextFont(42);
+                tcut.SetTextAlign(13);
+                tcut.SetTextSize(0.040);
+
+                bool drawCuts = false;
+                double cutLo = 0.0;
+                double cutHi = 0.0;
+                std::string cutText;
+
+                if (var == "e11e33")
+                {
+                  cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
+                  drawCuts = true;
+                  cutLo = 0.4;
+                  cutHi = 0.98;
+                }
+                else if (var == "e32e35")
+                {
+                  cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
+                  drawCuts = true;
+                  cutLo = 0.92;
+                  cutHi = 1.0;
+                }
+                else if (var == "et1")
+                {
+                  cutText = "#gamma-ID: 0.9 < et1 < 1.0";
+                  drawCuts = true;
+                  cutLo = 0.9;
+                  cutHi = 1.0;
+                }
+                else if (var == "weta")
+                {
+                  cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                }
+                else if (var == "wphi")
+                {
+                  cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                }
+
+                if (!cutText.empty())
+                {
+                  tcut.DrawLatex(0.16, 0.86, cutText.c_str());
+                }
+
+                if (drawCuts)
+                {
+                  gPad->Update();
+                  const double yMin = gPad->GetUymin();
+                  const double yMaxPad = gPad->GetUymax();
+
+                  TLine* l1 = new TLine(cutLo, yMin, cutLo, yMaxPad);
+                  l1->SetLineColor(kGreen + 2);
+                  l1->SetLineWidth(2);
+                  l1->SetLineStyle(2);
+                  l1->Draw("same");
+
+                  TLine* l2 = new TLine(cutHi, yMin, cutHi, yMaxPad);
+                  l2->SetLineColor(kOrange + 7);
+                  l2->SetLineWidth(2);
+                  l2->SetLineStyle(2);
+                  l2->Draw("same");
+                }
+
+                gPad->RedrawAxis();
+              }
+
+              if (hData) keepAlive.push_back(hData);
+              if (hSig)  keepAlive.push_back(hSig);
+              if (hBkg)  keepAlive.push_back(hBkg);
+            }
+
+            if (anyPad)
+            {
+              SaveCanvas(cPP, JoinPath(outPt,
+                TString::Format("table1x5_PP_SS_%s_DataSigBkg.png", tag.c_str()).Data()));
+            }
+
+            for (TLegend* l : keepLeg) delete l;
+            keepLeg.clear();
+
+            for (TH1* h : keepAlive) delete h;
+            keepAlive.clear();
+          }
+        }
+
+        if (fSimSS)
+        {
+          fSimSS->Close();
+          delete fSimSS;
+        }
+      }
+
+      // =============================================================================
       // High-level runner
       // =============================================================================
       // NOTE: Run-mode validation now lives in AnalyzeRecoilJets.h (ValidateRunConfig()).
@@ -27266,6 +27583,34 @@ namespace ARJ
                << "     Current: isSimAndDataPP=" << (isSimAndDataPP ? "true" : "false")
                << " bothPhoton10and20sim=" << (bothPhoton10and20sim ? "true" : "false")
                << ANSI_RESET << "\n";
+        }
+      }
+
+      // ---------------------------------------------------------------------------
+      // [5J] PPG12 SS template tables (SIM+DATA PP): Data vs Signal MC vs Background MC
+      // Output:
+      //   <kOutPPAuAuBase>/noIsoRequired/<pTbin>/table1x5_PP_SS_<tag>_DataSigBkg.png
+      // ---------------------------------------------------------------------------
+      if (isSimAndDataPP)
+      {
+        Dataset* dsSIM = nullptr;
+        Dataset* dsPP  = nullptr;
+
+        for (auto& ds : datasets)
+        {
+          if (ds.isSim) dsSIM = &ds;
+          else         dsPP  = &ds;
+        }
+
+        if (!dsSIM || !dsPP)
+        {
+          cout << ANSI_BOLD_YEL
+               << "[WARN] PPG12 SS template tables requested (isSimAndDataPP), but SIM or DATA dataset is missing. Skipping."
+               << ANSI_RESET << "\n";
+        }
+        else
+        {
+          analysis::RunPPG12SSTables_DataSigBkg_PP(*dsPP, *dsSIM);
         }
       }
 
