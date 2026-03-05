@@ -164,7 +164,7 @@ namespace ARJ
   inline bool isPPdataOnly   = false;
   inline bool isSimAndDataPP = true;
 
-  // NEW: AuAu-only analysis mode (no SIM, no PP). When true, the full plotting
+  // AuAu-only analysis mode (no SIM, no PP). When true, the full plotting
   // pipeline runs on AuAu only and outputs to dataOutput/auau/<trigger>/...
   // NOTE: Must be mutually exclusive with isPPdataOnly and isSimAndDataPP.
   inline bool isAuAuOnly     = false;

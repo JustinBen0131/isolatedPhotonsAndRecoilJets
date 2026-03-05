@@ -7786,7 +7786,7 @@ namespace ARJ
 
                         TF1* f = new TF1(fname.c_str(), "gaus", xLoHard, xHiHard);
                         f->SetLineColor(lcolor);
-                        f->SetLineWidth(2);
+                        f->SetLineWidth(3);
 
                         for (int it = 0; it < 3; ++it)
                         {
@@ -7874,76 +7874,89 @@ namespace ARJ
                           const string bbLabel = cfgDef.bbLabel;
 
                           TF1* fDat = FitIterGaus(hDatRaw, TString::Format("f_tbl_dat_%s_%d", rKey.c_str(), ib).Data(), kGreen + 2);
-                          TF1* fSim = FitIterGaus(hSimRaw, TString::Format("f_tbl_sim_%s_%d", rKey.c_str(), ib).Data(), kOrange + 7);
+                           TF1* fSim = FitIterGaus(hSimRaw, TString::Format("f_tbl_sim_%s_%d", rKey.c_str(), ib).Data(), kOrange + 7);
 
-                          if (fDat) { fDat->Draw("same"); keepFitFns.push_back(fDat); }
-                          if (fSim) { fSim->Draw("same"); keepFitFns.push_back(fSim); }
+                           if (fDat) { fDat->Draw("same"); keepFitFns.push_back(fDat); }
+                           if (fSim) { fSim->Draw("same"); keepFitFns.push_back(fSim); }
 
-                          TLegend* leg = new TLegend(0.70, 0.75, 0.94, 0.88);
-                          leg->SetBorderSize(0);
-                          leg->SetFillStyle(0);
-                          leg->SetTextFont(42);
-                          leg->SetTextSize(0.04);
+                           TLegend* leg = new TLegend(0.70, 0.75, 0.94, 0.88);
+                           leg->SetBorderSize(0);
+                           leg->SetFillStyle(0);
+                           leg->SetTextFont(42);
+                           leg->SetTextSize(0.04);
 
-                          leg->AddEntry(hDatRaw, "DATA (reco)", "ep");
-                          leg->AddEntry(hSimRaw, "SIM (reco)",  "ep");
+                           leg->AddEntry(hDatRaw, "DATA (reco)", "ep");
+                           leg->AddEntry(hSimRaw, "SIM (reco)",  "ep");
 
-                          leg->DrawClone();
-                          delete leg;
+                           leg->DrawClone();
+                           delete leg;
 
-                          {
-                            if (fDat && fDat->GetNDF() > 0)
-                            {
-                              const double mu   = fDat->GetParameter(1);
-                              const double sig  = fDat->GetParameter(2);
-                              const double chi2 = fDat->GetChisquare();
-                              const double ndf  = fDat->GetNDF();
+                           {
+                             if (fDat && fDat->GetNDF() > 0)
+                             {
+                               const double mu   = fDat->GetParameter(1);
+                               const double sig  = fDat->GetParameter(2);
+                               const double chi2 = fDat->GetChisquare();
+                               const double ndf  = fDat->GetNDF();
 
-                              vMuDat.push_back(mu);
-                              vMuDatErr.push_back(fDat->GetParError(1));
+                               vMuDat.push_back(mu);
+                               vMuDatErr.push_back(fDat->GetParError(1));
 
-                              vSigDat.push_back(sig);
-                              vSigDatErr.push_back(fDat->GetParError(2));
+                               vSigDat.push_back(sig);
+                               vSigDatErr.push_back(fDat->GetParError(2));
 
-                              vChi2NdfDat.push_back(chi2 / ndf);
-                            }
-                            else
-                            {
-                              vMuDat.push_back(-1.0);
-                              vMuDatErr.push_back(0.0);
+                               vChi2NdfDat.push_back(chi2 / ndf);
+                             }
+                             else
+                             {
+                               vMuDat.push_back(-1.0);
+                               vMuDatErr.push_back(0.0);
 
-                              vSigDat.push_back(-1.0);
-                              vSigDatErr.push_back(0.0);
+                               vSigDat.push_back(-1.0);
+                               vSigDatErr.push_back(0.0);
 
-                              vChi2NdfDat.push_back(-1.0);
-                            }
+                               vChi2NdfDat.push_back(-1.0);
+                             }
 
-                            if (fSim && fSim->GetNDF() > 0)
-                            {
-                              const double mu   = fSim->GetParameter(1);
-                              const double sig  = fSim->GetParameter(2);
-                              const double chi2 = fSim->GetChisquare();
-                              const double ndf  = fSim->GetNDF();
+                             if (fSim && fSim->GetNDF() > 0)
+                             {
+                               const double mu   = fSim->GetParameter(1);
+                               const double sig  = fSim->GetParameter(2);
+                               const double chi2 = fSim->GetChisquare();
+                               const double ndf  = fSim->GetNDF();
 
-                              vMuSim.push_back(mu);
-                              vMuSimErr.push_back(fSim->GetParError(1));
+                               vMuSim.push_back(mu);
+                               vMuSimErr.push_back(fSim->GetParError(1));
 
-                              vSigSim.push_back(sig);
-                              vSigSimErr.push_back(fSim->GetParError(2));
+                               vSigSim.push_back(sig);
+                               vSigSimErr.push_back(fSim->GetParError(2));
 
-                              vChi2NdfSim.push_back(chi2 / ndf);
-                            }
-                            else
-                            {
-                              vMuSim.push_back(-1.0);
-                              vMuSimErr.push_back(0.0);
+                               vChi2NdfSim.push_back(chi2 / ndf);
+                             }
+                             else
+                             {
+                               vMuSim.push_back(-1.0);
+                               vMuSimErr.push_back(0.0);
 
-                              vSigSim.push_back(-1.0);
-                              vSigSimErr.push_back(0.0);
+                               vSigSim.push_back(-1.0);
+                               vSigSimErr.push_back(0.0);
 
-                              vChi2NdfSim.push_back(-1.0);
-                            }
-                          }
+                               vChi2NdfSim.push_back(-1.0);
+                             }
+                           }
+
+                           const double muDatDraw = (fDat && fDat->GetNDF() > 0) ? fDat->GetParameter(1) : -1.0;
+                           const double muSimDraw = (fSim && fSim->GetNDF() > 0) ? fSim->GetParameter(1) : -1.0;
+
+                           TLatex tMean;
+                           tMean.SetNDC(true);
+                           tMean.SetTextFont(42);
+                           tMean.SetTextAlign(13);
+                           tMean.SetTextSize(0.040);
+                           if (muDatDraw >= 0.0) tMean.DrawLatex(0.16, 0.86, TString::Format("Data <x_{J}> = %.4f", muDatDraw).Data());
+                           else                  tMean.DrawLatex(0.16, 0.86, "Data <x_{J}> = N/A");
+                           if (muSimDraw >= 0.0) tMean.DrawLatex(0.16, 0.80, TString::Format("Sim <x_{J}> = %.4f", muSimDraw).Data());
+                           else                  tMean.DrawLatex(0.16, 0.80, "Sim <x_{J}> = N/A");
 
                           {
                             TLatex tCuts;
