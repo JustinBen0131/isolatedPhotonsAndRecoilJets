@@ -16790,14 +16790,23 @@ namespace ARJ
             return;
           }
 
-          const int kBayesIterPho = 3;
+            const int kBayesIterPho = 3;
+            const int kNToysPho = 2000;
 
-          RooUnfoldResponse respPho(hPhoRecoSim, hPhoTruthSim, hPhoResp_measXtruth, "respPho", "respPho");
-          RooUnfoldBayes    unfoldPho(&respPho, hPhoRecoData, kBayesIterPho);
-          unfoldPho.SetVerbose(0);
+            RooUnfoldResponse respPho(hPhoRecoSim, hPhoTruthSim, hPhoResp_measXtruth, "respPho", "respPho");
 
-          TH1* hPhoUnfoldTruth = unfoldPho.Hreco(RooUnfold::kCovariance);
-          if (hPhoUnfoldTruth) hPhoUnfoldTruth->SetDirectory(nullptr);
+            RooUnfoldBayes    unfoldPhoToy(&respPho, hPhoRecoData, kBayesIterPho);
+            unfoldPhoToy.SetVerbose(0);
+            unfoldPhoToy.SetNToys(kNToysPho);
+
+            TH1* hPhoUnfoldTruth = unfoldPhoToy.Hreco(RooUnfold::kCovToy);
+            if (hPhoUnfoldTruth) hPhoUnfoldTruth->SetDirectory(nullptr);
+
+            RooUnfoldBayes    unfoldPhoCov(&respPho, hPhoRecoData, kBayesIterPho);
+            unfoldPhoCov.SetVerbose(0);
+
+            TH1* hPhoUnfoldTruth_cov = unfoldPhoCov.Hreco(RooUnfold::kCovariance);
+            if (hPhoUnfoldTruth_cov) hPhoUnfoldTruth_cov->SetDirectory(nullptr);
 
           // Photon QA outputs
           {
@@ -17507,6 +17516,7 @@ namespace ARJ
               if (hPhoRecoSim)          hPhoRecoSim->Write("h_phoReco_sim");
               if (hPhoTruthSim)         hPhoTruthSim->Write("h_phoTruth_sim");
               if (hPhoUnfoldTruth)      hPhoUnfoldTruth->Write("h_phoTruth_unfolded_data");
+              if (hPhoUnfoldTruth_cov)  hPhoUnfoldTruth_cov->Write("h_phoTruth_unfolded_data_covariance");
               f.Close();
             }
           }
@@ -17943,6 +17953,7 @@ namespace ARJ
           // (B) Jet unfolding per radius: unfold global-bin vector and unflatten back
           // ----------------------------------------------------------------------
           const int kBayesIterXJ = 3;
+          const int kNToysXJ = 2000;
 
           std::map<std::string, std::vector<TH1*>> perPhoHistsByRKey;
 
@@ -17954,6 +17965,9 @@ namespace ARJ
 
             const string overlayOut = JoinPath(rOut, "LHC_overlay");
             EnsureDir(overlayOut);
+
+            const string toyVsCovOut = JoinPath(rOut, "ToyUnfoldingVsCovariance");
+            EnsureDir(toyVsCovOut);
 
             const string beforeAfterDataOut  = JoinPath(rOut, "before_after_unfoldingOverlay_data");
             const string beforeAfterTruthOut = JoinPath(rOut, "before_after_unfoldingOverlay_truth");
@@ -18062,31 +18076,48 @@ namespace ARJ
                                     TString::Format("respXJ_%s", rKey.c_str()).Data(),
                                     TString::Format("respXJ_%s", rKey.c_str()).Data());
 
-            RooUnfoldBayes unfoldXJ(&respXJ, hMeasDataGlob, kBayesIterXJ);
-            unfoldXJ.SetVerbose(0);
+              RooUnfoldBayes unfoldXJ_toy(&respXJ, hMeasDataGlob, kBayesIterXJ);
+              unfoldXJ_toy.SetVerbose(0);
+              unfoldXJ_toy.SetNToys(kNToysXJ);
 
-            TH1* hUnfoldTruthGlob = unfoldXJ.Hreco(RooUnfold::kCovariance);
-            if (hUnfoldTruthGlob) hUnfoldTruthGlob->SetDirectory(nullptr);
+              TH1* hUnfoldTruthGlob = unfoldXJ_toy.Hreco(RooUnfold::kCovToy);
+              if (hUnfoldTruthGlob) hUnfoldTruthGlob->SetDirectory(nullptr);
 
-            if (!hUnfoldTruthGlob)
-            {
-              cout << ANSI_BOLD_RED << "[ERROR] RooUnfold returned nullptr truth histogram for " << rKey << ". Skipping." << ANSI_RESET << "\n";
-              delete hMeasSimGlob;
-              delete hTruthSimGlob;
-              delete hMeasDataGlob;
-              delete hRsp_measXtruth;
-              delete h2RecoData;
-              delete h2RecoSim;
-              delete h2TruthSim;
-              delete h2RspSim;
-              continue;
-            }
+              RooUnfoldBayes unfoldXJ_cov(&respXJ, hMeasDataGlob, kBayesIterXJ);
+              unfoldXJ_cov.SetVerbose(0);
 
-            TH2* h2UnfoldTruth = UnflattenGlobalToTH2(
-              hUnfoldTruthGlob,
-              h2TruthSim,
-              TString::Format("h2_unfoldedTruth_pTgamma_xJ_incl_%s", rKey.c_str()).Data()
-            );
+              TH1* hUnfoldTruthGlob_cov = unfoldXJ_cov.Hreco(RooUnfold::kCovariance);
+              if (hUnfoldTruthGlob_cov) hUnfoldTruthGlob_cov->SetDirectory(nullptr);
+
+              if (!hUnfoldTruthGlob)
+              {
+                cout << ANSI_BOLD_RED << "[ERROR] RooUnfold returned nullptr truth histogram for " << rKey << ". Skipping." << ANSI_RESET << "\n";
+                delete hMeasSimGlob;
+                delete hTruthSimGlob;
+                delete hMeasDataGlob;
+                delete hRsp_measXtruth;
+                delete h2RecoData;
+                delete h2RecoSim;
+                delete h2TruthSim;
+                delete h2RspSim;
+                continue;
+              }
+
+              TH2* h2UnfoldTruth = UnflattenGlobalToTH2(
+                hUnfoldTruthGlob,
+                h2TruthSim,
+                TString::Format("h2_unfoldedTruth_pTgamma_xJ_incl_%s", rKey.c_str()).Data()
+              );
+
+              TH2* h2UnfoldTruth_cov = nullptr;
+              if (hUnfoldTruthGlob_cov)
+              {
+                h2UnfoldTruth_cov = UnflattenGlobalToTH2(
+                  hUnfoldTruthGlob_cov,
+                  h2TruthSim,
+                  TString::Format("h2_unfoldedTruth_pTgamma_xJ_incl_cov_%s", rKey.c_str()).Data()
+                );
+              }
 
             // Save response scatter (SIM) into the DATA unfolding folder for convenience
             {
@@ -18142,21 +18173,22 @@ namespace ARJ
               SaveCanvas(c, JoinPath(rOut, "unfoldedTruth_pTgamma_xJ_colz.png"));
             }
 
-            vector<string> lines;
-            lines.push_back("RooUnfold pipeline summary");
-            lines.push_back(TString::Format("Radius: %s (R=%.1f)", rKey.c_str(), R).Data());
-            lines.push_back(TString::Format("Photon unfolding: Bayes it=%d (kCovariance)", kBayesIterPho).Data());
-            lines.push_back(TString::Format("xJ unfolding (global-bin): Bayes it=%d (kCovariance)", kBayesIterXJ).Data());
-            lines.push_back("");
+              vector<string> lines;
+              lines.push_back("RooUnfold pipeline summary");
+              lines.push_back(TString::Format("Radius: %s (R=%.1f)", rKey.c_str(), R).Data());
+              lines.push_back(TString::Format("Photon unfolding: Bayes it=%d (kCovToy, Ntoys=%d) [also kCovariance for comparisons]", kBayesIterPho, kNToysPho).Data());
+              lines.push_back(TString::Format("xJ unfolding (global-bin): Bayes it=%d (kCovToy, Ntoys=%d) [also kCovariance for comparisons]", kBayesIterXJ, kNToysXJ).Data());
+              lines.push_back("");
 
-            const int nPtAll = (int)UnfoldRecoPtBins().size();
-            const int nPtCols = 4;
-            const int nPtRows = 2;
-            const int nPtPads = nPtCols * nPtRows;
+              const int nPtAll = (int)UnfoldRecoPtBins().size();
+              const int nPtCols = 4;
+              const int nPtRows = 2;
+              const int nPtPads = nPtCols * nPtRows;
 
-            vector<TH1*> perPhoHists(nPtAll, nullptr);
-            vector<TH1*> perPhoBeforeDataHists(nPtAll, nullptr);
-            vector<TH1*> perPhoTruthHists(nPtAll, nullptr);
+              vector<TH1*> perPhoHists(nPtAll, nullptr);
+              vector<TH1*> perPhoHists_cov(nPtAll, nullptr);
+              vector<TH1*> perPhoBeforeDataHists(nPtAll, nullptr);
+              vector<TH1*> perPhoTruthHists(nPtAll, nullptr);
             // ----------------------------------------------------------------------
             // Closure test (SIM): truth -> smear(reco) -> unfold -> compare back to truth
             //   Summary vs pT: (Integral of unfolded xJ)/(Integral of truth xJ)  ~ 1
@@ -18706,11 +18738,91 @@ namespace ARJ
               hPerPho->SetMarkerStyle(20);
               hPerPho->SetMarkerSize(0.85);
 
-              perPhoHists[i] = hPerPho;
+                perPhoHists[i] = hPerPho;
 
-              // -------------------------------------------------------------------
-              // "before unfolding data" (measured reco per-photon) for this pT bin
-              // -------------------------------------------------------------------
+                // -------------------------------------------------------------------
+                // NEW: covariance-error version of the same unfolded per-photon spectrum
+                //      (used only for ToyUnfoldingVsCovariance overlays)
+                // -------------------------------------------------------------------
+                if (h2UnfoldTruth_cov && hPhoUnfoldTruth_cov)
+                {
+                  const int ixTruthCov = h2UnfoldTruth_cov->GetXaxis()->FindBin(cen);
+                  const int ibPhoCov   = hPhoUnfoldTruth_cov->GetXaxis()->FindBin(cen);
+
+                  if (ixTruthCov >= 1 && ixTruthCov <= h2UnfoldTruth_cov->GetXaxis()->GetNbins() &&
+                      ibPhoCov   >= 1 && ibPhoCov   <= hPhoUnfoldTruth_cov->GetXaxis()->GetNbins())
+                  {
+                    const double NphoCov  = hPhoUnfoldTruth_cov->GetBinContent(ibPhoCov);
+                    const double eNphoCov = hPhoUnfoldTruth_cov->GetBinError  (ibPhoCov);
+
+                    TH1D* hXJ_cov = h2UnfoldTruth_cov->ProjectionY(
+                      TString::Format("h_xJ_unfTruth_cov_%s_pTbin%d", rKey.c_str(), i + 1).Data(),
+                      ixTruthCov, ixTruthCov, "e"
+                    );
+                    if (hXJ_cov)
+                    {
+                      hXJ_cov->SetDirectory(nullptr);
+                      EnsureSumw2(hXJ_cov);
+
+                      TH1D* hPerPhoCov = (TH1D*)hXJ_cov->Clone(
+                        TString::Format("h_xJ_unf_perPho_cov_%s_pTbin%d", rKey.c_str(), i + 1).Data()
+                      );
+                      hPerPhoCov->SetDirectory(nullptr);
+                      EnsureSumw2(hPerPhoCov);
+
+                      for (int ib = 0; ib <= hPerPhoCov->GetNbinsX() + 1; ++ib)
+                      {
+                        if (ib == 0 || ib == hPerPhoCov->GetNbinsX() + 1)
+                        {
+                          hPerPhoCov->SetBinContent(ib, 0.0);
+                          hPerPhoCov->SetBinError  (ib, 0.0);
+                          continue;
+                        }
+
+                        const double num  = hXJ_cov->GetBinContent(ib);
+                        const double eNum = hXJ_cov->GetBinError  (ib);
+                        const double wid  = hXJ_cov->GetBinWidth  (ib);
+
+                        if (NphoCov <= 0.0 || wid <= 0.0)
+                        {
+                          hPerPhoCov->SetBinContent(ib, 0.0);
+                          hPerPhoCov->SetBinError  (ib, 0.0);
+                          continue;
+                        }
+
+                        const double val = num / (NphoCov * wid);
+
+                        double relNum = 0.0;
+                        if (num > 0.0) relNum = eNum / num;
+
+                        double relDen = 0.0;
+                        if (NphoCov > 0.0) relDen = eNphoCov / NphoCov;
+
+                        const double err = val * std::sqrt(relNum*relNum + relDen*relDen);
+
+                        hPerPhoCov->SetBinContent(ib, val);
+                        hPerPhoCov->SetBinError  (ib, err);
+                      }
+
+                      hPerPhoCov->SetTitle("");
+                      hPerPhoCov->GetXaxis()->SetTitle("x_{J}");
+                      hPerPhoCov->GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                      hPerPhoCov->SetLineWidth(2);
+                      hPerPhoCov->SetMarkerStyle(24);
+                      hPerPhoCov->SetMarkerSize(0.85);
+                      hPerPhoCov->SetMarkerColor(kRed + 1);
+                      hPerPhoCov->SetLineColor(kRed + 1);
+
+                      perPhoHists_cov[i] = hPerPhoCov;
+
+                      delete hXJ_cov;
+                    }
+                  }
+                }
+
+                // -------------------------------------------------------------------
+                // "before unfolding data" (measured reco per-photon) for this pT bin
+                // -------------------------------------------------------------------
               if (h2RecoData && hPhoRecoData)
               {
                   const int ixReco = h2RecoData->GetXaxis()->FindBin(cen);
@@ -18928,6 +19040,92 @@ namespace ARJ
                     }
 
                     SaveCanvas(c, JoinPath(rOut, TString::Format("xJ_unfolded_perPhoton_pTbin%d.png", i + 1).Data()));
+
+                    // -------------------------------------------------------------------
+                    // NEW: Toy unfolding vs analytic covariance errors overlay (DATA)
+                    //   output: <rOut>/ToyUnfoldingVsCovariance/xJ_ToyUnfoldingVsCovariance_pTbin%d.png
+                    // -------------------------------------------------------------------
+                    if (perPhoHists[i] && perPhoHists_cov[i])
+                    {
+                        TCanvas cTC(
+                          TString::Format("c_toyVsCov_%s_pTbin%d", rKey.c_str(), i + 1).Data(),
+                          "c_toyVsCov", 900, 700
+                        );
+                        ApplyCanvasMargins1D(cTC);
+
+                        TH1* hToy = (TH1*)perPhoHists[i]->Clone(
+                          TString::Format("%s_clone_toyVsCov_toy_pTbin%d", perPhoHists[i]->GetName(), i + 1).Data()
+                        );
+                        TH1* hCov = (TH1*)perPhoHists_cov[i]->Clone(
+                          TString::Format("%s_clone_toyVsCov_cov_pTbin%d", perPhoHists_cov[i]->GetName(), i + 1).Data()
+                        );
+
+                        if (hToy) { hToy->SetDirectory(nullptr); EnsureSumw2(hToy); }
+                        if (hCov) { hCov->SetDirectory(nullptr); EnsureSumw2(hCov); }
+
+                        if (hToy && hCov)
+                        {
+                          hToy->GetXaxis()->SetRangeUser(0.0, 2.0);
+                          hCov->GetXaxis()->SetRangeUser(0.0, 2.0);
+
+                          double maxY = 0.0;
+                          const int nxb = hToy->GetNbinsX();
+                          for (int ib = 1; ib <= nxb; ++ib)
+                          {
+                            const double y1  = hToy->GetBinContent(ib);
+                            const double ey1 = hToy->GetBinError  (ib);
+                            const double y2  = hCov->GetBinContent(ib);
+                            const double ey2 = hCov->GetBinError  (ib);
+                            if (y1 + ey1 > maxY) maxY = y1 + ey1;
+                            if (y2 + ey2 > maxY) maxY = y2 + ey2;
+                          }
+
+                          hToy->SetMinimum(0.0);
+                          hToy->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
+                          hToy->Draw("E1");
+                          hCov->Draw("E1 same");
+
+                          // Centered title
+                          {
+                            TLatex tx;
+                            tx.SetNDC();
+                            tx.SetTextFont(42);
+                            tx.SetTextAlign(22);
+                            tx.SetTextSize(0.040);
+                            tx.DrawLatex(0.50, 0.965,
+                                         TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV, R = %.1f",
+                                                         b.lo, b.hi, R).Data());
+                          }
+
+                          // Per-pad cut/trigger label (top-right, match standard per-bin plots)
+                          {
+                            TLatex tx;
+                            tx.SetNDC();
+                            tx.SetTextFont(42);
+                            tx.SetTextAlign(31);
+                            tx.SetTextSize(0.035);
+
+                            const double xR = 0.92;
+                            tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
+                            tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
+                            tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
+                            tx.DrawLatex(xR, 0.67, "z_{vtx} < 60 cm");
+                            tx.DrawLatex(xR, 0.60, TString::Format("Bayes it = %d", kBayesIterXJ).Data());
+                          }
+
+                          TLegend leg(0.15, 0.78, 0.55, 0.90);
+                          leg.SetTextFont(42);
+                          leg.SetTextSize(0.030);
+                          leg.AddEntry(hToy, "Toy unfolding errors (kCovToy)", "pe");
+                          leg.AddEntry(hCov, "Analytic covariance (kCovariance)", "pe");
+                          leg.Draw();
+
+                          SaveCanvas(cTC, JoinPath(toyVsCovOut, TString::Format("xJ_ToyUnfoldingVsCovariance_pTbin%d.png", i + 1).Data()));
+                        }
+
+                        if (hToy) delete hToy;
+                        if (hCov) delete hCov;
+                    }
 
                     // -------------------------------------------------------------------
                     // NEW: before/after unfolding overlay (DATA)
@@ -19236,12 +19434,151 @@ namespace ARJ
                       }
                   }
 
-                  SaveCanvas(c, JoinPath(rOut, "table2x4_unfolded_perPhoton_dNdXJ.png"));
+                    SaveCanvas(c, JoinPath(rOut, "table2x4_unfolded_perPhoton_dNdXJ.png"));
 
-                  // -------------------------------------------------------------------
-                  // 2x4 summary table: before vs after unfolding (DATA)
-                  //   output: <rOut>/before_after_unfoldingOverlay_data/table2x4_before_after_unfoldingOverlay_data.png
-                  // -------------------------------------------------------------------
+                    // -------------------------------------------------------------------
+                    // 2x4 summary table: Toy unfolding errors vs analytic covariance errors
+                    //   output: <rOut>/ToyUnfoldingVsCovariance/table2x4_ToyUnfoldingVsCovariance.png
+                    // -------------------------------------------------------------------
+                    {
+                        bool anyTC = false;
+                        for (int ii = 0; ii < nPtAll; ++ii)
+                        {
+                          if (perPhoHists[ii] && perPhoHists_cov[ii]) { anyTC = true; break; }
+                        }
+
+                        if (anyTC)
+                        {
+                          TCanvas cTC(
+                            TString::Format("c_tbl_toyVsCov_%s", rKey.c_str()).Data(),
+                            "c_tbl_toyVsCov", 2200, 1100
+                          );
+                          cTC.Divide(nPtCols, nPtRows, 0.001, 0.001);
+
+                          std::vector<TLegend*> keepLegTC;
+                          keepLegTC.reserve((std::size_t)nPtPads);
+
+                          for (int ipad = 0; ipad < nPtPads; ++ipad)
+                          {
+                            const int i = ipad;
+
+                            cTC.cd(ipad + 1);
+                            gPad->SetLeftMargin(0.12);
+                            gPad->SetRightMargin(0.04);
+                            gPad->SetBottomMargin(0.12);
+                            gPad->SetTopMargin(0.06);
+
+                            if (i < 0 || i >= nPtAll)
+                            {
+                              TH1F frame("frame","", 1, 0.0, 2.0);
+                              frame.SetMinimum(0.0);
+                              frame.SetMaximum(1.0);
+                              frame.SetTitle("");
+                              frame.GetXaxis()->SetTitle("x_{J}");
+                              frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                              frame.Draw("axis");
+
+                              TLatex tx;
+                              tx.SetNDC();
+                              tx.SetTextFont(42);
+                              tx.SetTextSize(0.050);
+                              tx.DrawLatex(0.16, 0.50, "MISSING");
+                              continue;
+                            }
+
+                            const PtBin& b = UnfoldRecoPtBins()[i];
+
+                            if (perPhoHists[i] && perPhoHists_cov[i])
+                            {
+                              TH1* hToy = perPhoHists[i];
+                              TH1* hCov = perPhoHists_cov[i];
+
+                              hToy->GetXaxis()->SetRangeUser(0.0, 2.0);
+                              hCov->GetXaxis()->SetRangeUser(0.0, 2.0);
+
+                              double maxY = 0.0;
+                              const int nxb = hToy->GetNbinsX();
+                              for (int ib = 1; ib <= nxb; ++ib)
+                              {
+                                const double y1  = hToy->GetBinContent(ib);
+                                const double ey1 = hToy->GetBinError  (ib);
+                                const double y2  = hCov->GetBinContent(ib);
+                                const double ey2 = hCov->GetBinError  (ib);
+                                if (y1 + ey1 > maxY) maxY = y1 + ey1;
+                                if (y2 + ey2 > maxY) maxY = y2 + ey2;
+                              }
+
+                              hToy->SetMinimum(0.0);
+                              hToy->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
+                              hToy->Draw("E1");
+                              hCov->Draw("E1 same");
+
+                              TLegend* leg = new TLegend(0.15, 0.78, 0.55, 0.90);
+                              leg->SetTextFont(42);
+                              leg->SetTextSize(0.030);
+                              leg->AddEntry(hToy, "Toy unfolding errors (kCovToy)", "pe");
+                              leg->AddEntry(hCov, "Analytic covariance (kCovariance)", "pe");
+                              leg->Draw();
+                              keepLegTC.push_back(leg);
+                            }
+                            else
+                            {
+                              TH1F frame("frame","", 1, 0.0, 2.0);
+                              frame.SetMinimum(0.0);
+                              frame.SetMaximum(1.0);
+                              frame.SetTitle("");
+                              frame.GetXaxis()->SetTitle("x_{J}");
+                              frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                              frame.Draw("axis");
+
+                              TLatex tx;
+                              tx.SetNDC();
+                              tx.SetTextFont(42);
+                              tx.SetTextSize(0.050);
+                              tx.DrawLatex(0.16, 0.50, "MISSING");
+                            }
+
+                            // Centered per-pad title
+                            {
+                              TLatex tx;
+                              tx.SetNDC();
+                              tx.SetTextFont(42);
+                              tx.SetTextAlign(22);
+                              tx.SetTextSize(0.042);
+
+                              tx.DrawLatex(0.52, 0.955,
+                                           TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV, R = %.1f",
+                                                           b.lo, b.hi, R).Data());
+                            }
+
+                            // Per-pad cut/trigger label (top-right)
+                            {
+                              TLatex tx;
+                              tx.SetNDC();
+                              tx.SetTextFont(42);
+                              tx.SetTextAlign(31);
+                              tx.SetTextSize(0.04);
+
+                              const double xR = 0.93;
+                              tx.DrawLatex(xR, 0.67, "z_{vtx} < 60 cm");
+                              tx.DrawLatex(xR, 0.60, TString::Format("Bayes it = %d", kBayesIterXJ).Data());
+                              tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
+                              tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
+                              tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
+                            }
+                          }
+
+                          SaveCanvas(cTC, JoinPath(toyVsCovOut, "table2x4_ToyUnfoldingVsCovariance.png"));
+
+                          for (auto* l : keepLegTC) delete l;
+                          keepLegTC.clear();
+                        }
+                    }
+
+                    // -------------------------------------------------------------------
+                    // 2x4 summary table: before vs after unfolding (DATA)
+                    //   output: <rOut>/before_after_unfoldingOverlay_data/table2x4_before_after_unfoldingOverlay_data.png
+                    // -------------------------------------------------------------------
                   {
                       TCanvas cBA(
                         TString::Format("c_tbl_beforeAfter_data_%s", rKey.c_str()).Data(),
@@ -19647,23 +19984,23 @@ namespace ARJ
                   leg.AddEntry(&gChg,  "total relative deviation (it vs it-1)", "p");
                   leg.Draw();
 
-                    {
+                  {
                       TLatex tx;
                       tx.SetNDC();
                       tx.SetTextFont(42);
                       tx.SetTextAlign(13);
                       tx.SetTextSize(0.032);
                       tx.DrawLatex(0.14, 0.74, "2D (p_{T}^{#gamma}, x_{J}) unfolding");
-                    }
+                  }
 
-                      {
-                        TLatex tx;
-                        tx.SetNDC();
-                        tx.SetTextFont(42);
-                        tx.SetTextAlign(22);
-                        tx.SetTextSize(0.040);
-                        tx.DrawLatex(0.50, 0.965, "Iteration Stability, R = 0.4, Photon 4 + MBD NS #geq 1, Run24pp");
-                      }
+                  {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(22);
+                      tx.SetTextSize(0.040);
+                      tx.DrawLatex(0.50, 0.965, "Iteration Stability, R = 0.4, Photon 4 + MBD NS #geq 1, Run24pp");
+                  }
 
                   cIt.Modified();
                   cIt.Update();
@@ -19685,18 +20022,22 @@ namespace ARJ
               TFile f(outRoot.c_str(), "RECREATE");
               if (f.IsOpen())
               {
-                if (hPhoUnfoldTruth)      hPhoUnfoldTruth->Write("h_phoTruth_unfolded_data");
-                if (h2RspSim)             h2RspSim->Write("h2_rsp_truthVsReco_global");
-                if (hRsp_measXtruth)      hRsp_measXtruth->Write("h2_rsp_recoVsTruth_global");
-                if (hMeasDataGlob)        hMeasDataGlob->Write("h_measData_global");
-                if (hMeasSimGlob)         hMeasSimGlob->Write("h_measSim_global");
-                if (hTruthSimGlob)        hTruthSimGlob->Write("h_truthSim_global");
-                if (hUnfoldTruthGlob)     hUnfoldTruthGlob->Write("h_truthUnfold_global");
-                if (h2UnfoldTruth)        h2UnfoldTruth->Write("h2_truthUnfold_pTgamma_xJ");
+                  if (hPhoUnfoldTruth)      hPhoUnfoldTruth->Write("h_phoTruth_unfolded_data");
+                  if (hPhoUnfoldTruth_cov)  hPhoUnfoldTruth_cov->Write("h_phoTruth_unfolded_data_covariance");
+                  if (h2RspSim)             h2RspSim->Write("h2_rsp_truthVsReco_global");
+                  if (hRsp_measXtruth)      hRsp_measXtruth->Write("h2_rsp_recoVsTruth_global");
+                  if (hMeasDataGlob)        hMeasDataGlob->Write("h_measData_global");
+                  if (hMeasSimGlob)         hMeasSimGlob->Write("h_measSim_global");
+                  if (hTruthSimGlob)        hTruthSimGlob->Write("h_truthSim_global");
+                  if (hUnfoldTruthGlob)     hUnfoldTruthGlob->Write("h_truthUnfold_global");
+                  if (hUnfoldTruthGlob_cov) hUnfoldTruthGlob_cov->Write("h_truthUnfold_global_covariance");
+                  if (h2UnfoldTruth)        h2UnfoldTruth->Write("h2_truthUnfold_pTgamma_xJ");
+                  if (h2UnfoldTruth_cov)    h2UnfoldTruth_cov->Write("h2_truthUnfold_pTgamma_xJ_covariance");
 
                   for (int i = 0; i < nPtAll; ++i)
                   {
-                    if (perPhoHists[i]) perPhoHists[i]->Write(TString::Format("h_xJ_unf_perPho_pTbin%d", i + 1).Data());
+                      if (perPhoHists[i])     perPhoHists[i]->Write(TString::Format("h_xJ_unf_perPho_pTbin%d", i + 1).Data());
+                      if (perPhoHists_cov[i]) perPhoHists_cov[i]->Write(TString::Format("h_xJ_unf_perPho_cov_pTbin%d", i + 1).Data());
                   }
 
                 f.Close();
@@ -19723,13 +20064,18 @@ namespace ARJ
                 }
               }
 
-            for (auto* h : perPhoHists) if (h) delete h;
+              for (auto* h : perPhoHists) if (h) delete h;
+              for (auto* h : perPhoHists_cov) if (h) delete h;
 
-            delete hMeasSimGlob;
-            delete hTruthSimGlob;
-            delete hMeasDataGlob;
-            delete hRsp_measXtruth;
-            if (h2UnfoldTruth) delete h2UnfoldTruth;
+              if (hUnfoldTruthGlob) delete hUnfoldTruthGlob;
+              if (hUnfoldTruthGlob_cov) delete hUnfoldTruthGlob_cov;
+
+              delete hMeasSimGlob;
+              delete hTruthSimGlob;
+              delete hMeasDataGlob;
+              delete hRsp_measXtruth;
+              if (h2UnfoldTruth) delete h2UnfoldTruth;
+              if (h2UnfoldTruth_cov) delete h2UnfoldTruth_cov;
 
             delete h2RecoData;
             delete h2RecoSim;
@@ -19977,6 +20323,7 @@ namespace ARJ
             delete hPhoRespSim;
             delete hPhoResp_measXtruth;
             if (hPhoUnfoldTruth) delete hPhoUnfoldTruth;
+            if (hPhoUnfoldTruth_cov) delete hPhoUnfoldTruth_cov;
 
             if (gAtlasPP) delete gAtlasPP;
         }
