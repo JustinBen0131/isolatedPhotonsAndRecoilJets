@@ -4546,10 +4546,49 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
 
       // Keep a pointer to the actual leading reco photon cluster (needed for SIM truth↔reco association)
       const RawCluster* leadRc = nullptr;
-        
+          
       // Event-level diagnostic: number of reco photon candidates that pass the SAME
       // iso∧tight gate used for the event-leading photon selection in this event.
       int nIsoTightPhoCand = 0;
+
+      // ------------------------------------------------------------------
+      // SIM ONLY: objects needed to truth-tag reco clusters for PPG12-style
+      // shower-shape templates (signal vs background).
+      // ------------------------------------------------------------------
+      HepMC::GenEvent* evtHepMC_SS = nullptr;
+      bool haveCaloEval_SS = false;
+      std::unique_ptr<CaloRawClusterEval> clustereval_SS;
+
+      if (m_isSim)
+      {
+          PHHepMCGenEventMap* hepmcmap_SS = findNode::getClass<PHHepMCGenEventMap>(topNode, "PHHepMCGenEventMap");
+          PHHepMCGenEvent*    hepmc_SS    = nullptr;
+
+          if (hepmcmap_SS)
+          {
+            hepmc_SS = hepmcmap_SS->get(0);
+            if (!hepmc_SS) hepmc_SS = hepmcmap_SS->get(1);
+            if (!hepmc_SS && !hepmcmap_SS->empty()) hepmc_SS = hepmcmap_SS->begin()->second;
+            if (hepmc_SS) evtHepMC_SS = hepmc_SS->getEvent();
+          }
+
+          clustereval_SS.reset(new CaloRawClusterEval(topNode, "CEMC"));
+          clustereval_SS->set_usetowerinfo(true);
+          clustereval_SS->next_event(topNode);
+
+          if (!clustereval_SS->has_reduced_node_pointers())
+          {
+            clustereval_SS->set_usetowerinfo(false);
+            clustereval_SS->next_event(topNode);
+          }
+
+          haveCaloEval_SS = clustereval_SS->has_reduced_node_pointers();
+
+          if (!evtHepMC_SS && Verbosity() >= 5)
+            LOG(5, CLR_YELLOW, "      [SS templates] PHHepMCGenEventMap/HepMC event missing → will fill *_bkg only");
+          if (!haveCaloEval_SS && Verbosity() >= 5)
+            LOG(5, CLR_YELLOW, "      [SS templates] CaloRawClusterEval missing required nodes → will fill *_bkg only");
+      }
 
       int iPho = 0;
       for (auto pit = prange.first; pit != prange.second; ++pit, ++iPho)
@@ -4832,21 +4871,70 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
         else                       { tightTag = TightTag::kNeither;    ++m_bk.tight_neither; }
 
         // -------------------------------------------------------------------------
-        // Deliverable Set B:
-        //   Isolation-energy spectra split by tightness (NO isolation requirement)
-        //
-        //   - inclusive: already filled in fillPureIsolationQA() as:
-        //       h_Eiso, h_Eiso_emcal, h_Eiso_hcalin, h_Eiso_hcalout
-        //
-                    //   - tight / nonTight (PPG12 non-tight = fails >=2 of 5 tight cuts; "Neither" excluded):
-        //       h_Eiso_tight,            h_Eiso_nonTight
-        //       h_Eiso_emcal_tight,      h_Eiso_emcal_nonTight
-        //       h_Eiso_hcalin_tight,     h_Eiso_hcalin_nonTight
-        //       h_Eiso_hcalout_tight,    h_Eiso_hcalout_nonTight
+        // NEW: PPG12-style SS template histograms (preselection / tight / non-tight)
+        //   - DATA: tagKey = pre / tight / nonTight
+        //   - SIM : tagKey = pre_sig / pre_bkg, tight_sig / tight_bkg, nonTight_sig / nonTight_bkg
+        //     where "sig" is the truth isolated prompt photon definition and "bkg" is its complement.
         // -------------------------------------------------------------------------
-        if (tightTag == TightTag::kTight || tightTag == TightTag::kNonTight)
         {
-            const char* base_tot = (tightTag == TightTag::kTight) ? "h_Eiso_tight" : "h_Eiso_nonTight";
+            std::string mcSuffix;
+            if (!m_isSim) mcSuffix = "";
+            else
+            {
+              bool isSig = false;
+              double isoEtTruth = std::numeric_limits<double>::quiet_NaN();
+              if (evtHepMC_SS && clustereval_SS && haveCaloEval_SS)
+              {
+                isSig = isRecoClusterTruthSignalPPG12(evtHepMC_SS, *clustereval_SS, rc, isoEtTruth);
+              }
+              mcSuffix = (isSig ? "_sig" : "_bkg");
+            }
+
+            auto fillSSPPG12 = [&](const std::string& trigShort, const std::string& baseTag)
+            {
+              const std::string tagKey = baseTag + mcSuffix;
+
+              auto fill1 = [&](const std::string& key, double val)
+              {
+                if (!std::isfinite(val)) return;
+                if (auto* h = getOrBookSSHist(trigShort, key, tagKey, ptIdx, effCentIdx_SS))
+                {
+                  h->Fill(val);
+                  bumpHistFill(trigShort, "h_ss_" + key + "_" + tagKey + slice_SS);
+                }
+              };
+
+              fill1("weta",   v.weta_cogx);
+              fill1("wphi",   v.wphi_cogx);
+              fill1("et1",    v.et1);
+              fill1("e11e33", v.e11_over_e33);
+              fill1("e32e35", v.e32_over_e35);
+            };
+
+            for (const auto& trigShort : activeTrig)
+            {
+              fillSSPPG12(trigShort, "pre");
+              if (tightTag == TightTag::kTight) fillSSPPG12(trigShort, "tight");
+              else if (tightTag == TightTag::kNonTight) fillSSPPG12(trigShort, "nonTight");
+            }
+          }
+
+          // -------------------------------------------------------------------------
+          // Deliverable Set B:
+          //   Isolation-energy spectra split by tightness (NO isolation requirement)
+          //
+          //   - inclusive: already filled in fillPureIsolationQA() as:
+          //       h_Eiso, h_Eiso_emcal, h_Eiso_hcalin, h_Eiso_hcalout
+          //
+                      //   - tight / nonTight (PPG12 non-tight = fails >=2 of 5 tight cuts; "Neither" excluded):
+          //       h_Eiso_tight,            h_Eiso_nonTight
+          //       h_Eiso_emcal_tight,      h_Eiso_emcal_nonTight
+          //       h_Eiso_hcalin_tight,     h_Eiso_hcalin_nonTight
+          //       h_Eiso_hcalout_tight,    h_Eiso_hcalout_nonTight
+          // -------------------------------------------------------------------------
+          if (tightTag == TightTag::kTight || tightTag == TightTag::kNonTight)
+          {
+              const char* base_tot = (tightTag == TightTag::kTight) ? "h_Eiso_tight" : "h_Eiso_nonTight";
             const char* base_em  = (tightTag == TightTag::kTight) ? "h_Eiso_emcal_tight" : "h_Eiso_emcal_nonTight";
             const char* base_hi  = (tightTag == TightTag::kTight) ? "h_Eiso_hcalin_tight" : "h_Eiso_hcalin_nonTight";
             const char* base_ho  = (tightTag == TightTag::kTight) ? "h_Eiso_hcalout_tight" : "h_Eiso_hcalout_nonTight";
@@ -5856,6 +5944,41 @@ bool RecoilJets::findRecoPhotonMatchedToTruthSignal(const HepMC::GenEvent* evt,
   }
 
   return (recoPho != nullptr);
+}
+
+
+const HepMC::GenParticle* RecoilJets::findHepMCParticleByBarcode(const HepMC::GenEvent* evt, int bc) const
+{
+    if (!evt) return nullptr;
+
+    for (auto it = evt->particles_begin(); it != evt->particles_end(); ++it)
+    {
+      const HepMC::GenParticle* p = *it;
+      if (p && p->barcode() == bc) return p;
+    }
+
+    return nullptr;
+}
+
+bool RecoilJets::isRecoClusterTruthSignalPPG12(const HepMC::GenEvent* evt,
+                                               CaloRawClusterEval& clustereval,
+                                               const RawCluster* rc,
+                                               double& isoEtTruth) const
+{
+    isoEtTruth = std::numeric_limits<double>::quiet_NaN();
+    if (!evt || !rc) return false;
+
+    RawCluster* rc_nc = const_cast<RawCluster*>(rc);
+    PHG4Particle* primary = clustereval.max_truth_primary_particle_by_energy(rc_nc);
+    if (!primary) return false;
+
+    // Require the best-matched truth primary be a photon (PPG12 background selection is the complement of signal)
+    if (primary->get_pid() != 22) return false;
+
+    const HepMC::GenParticle* hepPho = findHepMCParticleByBarcode(evt, primary->get_barcode());
+    if (!hepPho) return false;
+
+    return isTruthPromptIsolatedSignalPhoton(evt, hepPho, isoEtTruth);
 }
 
 

@@ -545,20 +545,20 @@ private:
   bool   isIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const;
   bool   isNonIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const;
 
-    // Unified truth-MC signal definition for "isolated prompt photon" (SIM only)
-    // Definition
-    //   |eta| < 0.7, PID=22, status=1 (final state),
-    //   prompt classification via CaloAna photon_type logic:
-    //     - walk back photon-in/photon-out vertices
-    //     - direct=1 if 2->2 with |pdg|<=22 on all legs
-    //     - frag  =2 if 1->2 with |incoming pdg|<=11 and outgoing contains incoming pid (and photon)
-    //   and truth isolation ETiso_truth < 4 GeV where (CaloAna truth-iso):
-    //     ETiso = sum_{ΔR<0.3} Et(final-state)  -  sum_{ΔR<0.001} Et(final-state)
-    //     (the ΔR<0.001 subtraction removes the photon itself, and any ultra-merged pieces).
+  // Unified truth-MC signal definition for "isolated prompt photon" (SIM only)
+  // Definition
+  //   |eta| < 0.7, PID=22, status=1 (final state),
+  //   prompt classification via CaloAna photon_type logic:
+  //     - walk back photon-in/photon-out vertices
+  //     - direct=1 if 2->2 with |pdg|<=22 on all legs
+  //     - frag  =2 if 1->2 with |incoming pdg|<=11 and outgoing contains incoming pid (and photon)
+  //   and truth isolation ETiso_truth < 4 GeV where (CaloAna truth-iso):
+  //     ETiso = sum_{ΔR<0.3} Et(final-state)  -  sum_{ΔR<0.001} Et(final-state)
+  //     (the ΔR<0.001 subtraction removes the photon itself, and any ultra-merged pieces).
   bool isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
-                                          const HepMC::GenParticle* pho,
-                                          double& isoEt) const;
-    
+                                            const HepMC::GenParticle* pho,
+                                            double& isoEt) const;
+      
   // Unified truth→reco photon matching using CaloRawClusterEval.
   // Match requirements:
   //   - reco |eta| < 0.7, reco pT > 5 GeV
@@ -566,14 +566,23 @@ private:
   //   - reco cluster’s BEST-MATCHED truth primary (by deposited energy) has same barcode as truth photon
   // Chooses the candidate with the largest energy contribution (tie-breaker: smallest ΔR).
   bool findRecoPhotonMatchedToTruthSignal(const HepMC::GenEvent* evt,
-                                           const HepMC::GenParticle* truthPho,
-                                           CaloRawClusterEval& clustereval,
-                                           const RawCluster*& recoPho,
-                                           double& recoPt,
-                                           double& recoEta,
-                                           double& recoPhi,
-                                           double& drBest,
-                                           float& eContribBest) const;
+                                             const HepMC::GenParticle* truthPho,
+                                             CaloRawClusterEval& clustereval,
+                                             const RawCluster*& recoPho,
+                                             double& recoPt,
+                                             double& recoEta,
+                                             double& recoPhi,
+                                             double& drBest,
+                                             float& eContribBest) const;
+
+  // PPG12 truth-tagging for SS template overlays (SIM only)
+  //   - signal: reco cluster best-matched to a truth photon that satisfies isTruthPromptIsolatedSignalPhoton()
+  //   - background: everything else (complement of signal)
+  const HepMC::GenParticle* findHepMCParticleByBarcode(const HepMC::GenEvent* evt, int bc) const;
+  bool isRecoClusterTruthSignalPPG12(const HepMC::GenEvent* evt,
+                                     CaloRawClusterEval& clustereval,
+                                     const RawCluster* rc,
+                                     double& isoEtTruth) const;
 
 
   // -------------------------------------------------------------------------
