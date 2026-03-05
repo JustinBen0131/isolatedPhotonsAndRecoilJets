@@ -171,7 +171,7 @@ namespace ARJ
 
   // Optional comparison overlays: PP vs Au+Au (gold-gold) photon-ID deliverables.
   // If false, analysis behavior is IDENTICAL to the current pipeline.
-  inline bool isPPdataAndAUAU = true;
+  inline bool isPPdataAndAUAU = false;
 
   inline bool isRun25pp      = false;
 

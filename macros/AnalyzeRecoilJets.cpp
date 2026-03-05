@@ -19744,22 +19744,11 @@ namespace ARJ
 
               if (any)
               {
-                  TCanvas c("c_tbl_unf_perPho_overlay_radii", "c_tbl_unf_perPho_overlay_radii", 2200, 1100);
-                  c.Divide(4, 2, 0.001, 0.001);
-
                   const int nPtAll = (int)UnfoldRecoPtBins().size();
-                  const int nPads = 8;
 
-                  for (int ipad = 0; ipad < nPads; ++ipad)
+                  auto DrawPerPhotonOverlayPad =
+                    [&](int i)->void
                   {
-                    const int i = ipad;
-
-                    c.cd(ipad + 1);
-                    gPad->SetLeftMargin(0.12);
-                    gPad->SetRightMargin(0.04);
-                    gPad->SetBottomMargin(0.12);
-                    gPad->SetTopMargin(0.06);
-
                     if (i < 0 || i >= nPtAll)
                     {
                       TH1F frame("frame","", 1, 0.0, 2.0);
@@ -19775,153 +19764,191 @@ namespace ARJ
                       tx.SetTextFont(42);
                       tx.SetTextSize(0.050);
                       tx.DrawLatex(0.16, 0.50, "MISSING");
-                      continue;
+                      return;
                     }
 
-                  const PtBin& b = UnfoldRecoPtBins()[i];
+                    const PtBin& b = UnfoldRecoPtBins()[i];
 
-                  TH1* h02 = (have02 && (int)it02->second.size() > i) ? it02->second[i] : nullptr;
-                  TH1* h04 = (have04 && (int)it04->second.size() > i) ? it04->second[i] : nullptr;
-                  TH1* h06 = (have06 && (int)it06->second.size() > i) ? it06->second[i] : nullptr;
+                    TH1* h02 = (have02 && (int)it02->second.size() > i) ? it02->second[i] : nullptr;
+                    TH1* h04 = (have04 && (int)it04->second.size() > i) ? it04->second[i] : nullptr;
+                    TH1* h06 = (have06 && (int)it06->second.size() > i) ? it06->second[i] : nullptr;
 
-                  double maxY = 0.0;
-                  auto scanMax = [&](TH1* h)
-                  {
-                      if (!h) return;
-                      const int nxb = h->GetNbinsX();
-                      for (int ib = 1; ib <= nxb; ++ib)
-                      {
-                        const double y  = h->GetBinContent(ib);
-                        const double ey = h->GetBinError(ib);
-
-                        // Avoid huge "empty-bin" errorbars blowing up the y-range
-                        if (y <= 0.0 && ey <= 0.0) continue;
-
-                        const double v = y + ey;
-                        if (v > maxY) maxY = v;
-                      }
-                  };
-                  scanMax(h02);
-                  scanMax(h04);
-                  scanMax(h06);
-
-                  // Use one of the actual hists to set axes/range (keeps ROOT styling consistent)
-                  TH1* hBase = (h04 ? h04 : (h02 ? h02 : h06));
-                  if (hBase)
-                  {
-                      hBase->SetTitle("");
-                      hBase->GetXaxis()->SetTitle("x_{J}");
-                      hBase->GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
-                      hBase->SetMinimum(0.0);
-                      hBase->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
-                      hBase->Draw("axis");
-                    }
-                    else
+                    double maxY = 0.0;
+                    auto scanMax = [&](TH1* h)
                     {
-                      TH1F frame("frame","", 1, 0.0, 2.0);
-                      frame.SetMinimum(0.0);
-                      frame.SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
-                      frame.SetTitle("");
-                      frame.GetXaxis()->SetTitle("x_{J}");
-                      frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
-                      frame.Draw("axis");
-                  }
-
-                  if (h02)
-                  {
-                      h02->SetLineColor(kRed);
-                      h02->SetMarkerColor(kRed);
-                      h02->Draw("E1 X0 same");
-                  }
-                  if (h04)
-                  {
-                      h04->SetLineColor(kBlue);
-                      h04->SetMarkerColor(kBlue);
-                      h04->Draw("E1 X0 same");
-                  }
-                  if (h06)
-                  {
-                      h06->SetLineColor(kGreen + 2);
-                      h06->SetMarkerColor(kGreen + 2);
-                      h06->Draw("E1 X0 same");
-                  }
-
-                  // Centered per-pad title
-                  {
-                      TLatex tx;
-                      tx.SetNDC();
-                      tx.SetTextFont(42);
-                      tx.SetTextAlign(22);
-                      tx.SetTextSize(0.042);
-
-                      tx.DrawLatex(0.52, 0.955,
-                                       TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV",
-                                                       b.lo, b.hi).Data());
-                  }
-
-                  // Per-pad cut/trigger label (top-right, 3 lines)
-                  {
-                      TLatex tx;
-                      tx.SetNDC();
-                      tx.SetTextFont(42);
-                      tx.SetTextAlign(31);
-                      tx.SetTextSize(0.034);
-
-                      const double xR = 0.94;
-                      tx.DrawLatex(xR, 0.73, "z_{vtx} < 60 cm");
-                      tx.DrawLatex(xR, 0.78, "#Delta #phi > 7#pi/8");
-                      tx.DrawLatex(xR, 0.83, "p_{T}^{min, jet} > 5");
-                      tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
-                  }
-
-                  // Legend under the TLatex block (top-right) with VERTICAL-only error bars (EX=0)
-                  {
-                      auto* leg = new TLegend(0.62, 0.5, 0.95, 0.7);
-                      leg->SetBorderSize(0);
-                      leg->SetFillStyle(0);
-                      leg->SetTextFont(42);
-                      leg->SetTextSize(0.034);
-
-                      auto makeVertErrLegend = [&](TH1* h) -> TGraphErrors*
-                      {
-                        if (!h) return nullptr;
-
-                        int ib0 = -1;
-                        for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                        if (!h) return;
+                        const int nxb = h->GetNbinsX();
+                        for (int ib = 1; ib <= nxb; ++ib)
                         {
-                          if (h->GetBinContent(ib) != 0.0 || h->GetBinError(ib) != 0.0) { ib0 = ib; break; }
+                          const double y  = h->GetBinContent(ib);
+                          const double ey = h->GetBinError(ib);
+
+                          // Avoid huge "empty-bin" errorbars blowing up the y-range
+                          if (y <= 0.0 && ey <= 0.0) continue;
+
+                          const double v = y + ey;
+                          if (v > maxY) maxY = v;
                         }
-                        if (ib0 < 0) ib0 = 1;
+                    };
+                    scanMax(h02);
+                    scanMax(h04);
+                    scanMax(h06);
 
-                        const double lx  = h->GetXaxis()->GetBinCenter(ib0);
-                        const double ly  = h->GetBinContent(ib0);
-                        double ley = h->GetBinError(ib0);
-                        if (ley <= 0.0) ley = 1.0;
-
-                        auto* g = new TGraphErrors(1);
-                        g->SetPoint(0, lx, ly);
-                        g->SetPointError(0, 0.0, ley);
-                        g->SetMarkerStyle(h->GetMarkerStyle());
-                        g->SetMarkerSize(h->GetMarkerSize());
-                        g->SetMarkerColor(h->GetMarkerColor());
-                        g->SetLineColor(h->GetLineColor());
-                        g->SetLineWidth(h->GetLineWidth());
-                        return g;
-                      };
-
-                      TGraphErrors* gLeg02 = makeVertErrLegend(h02);
-                      TGraphErrors* gLeg04 = makeVertErrLegend(h04);
-                      TGraphErrors* gLeg06 = makeVertErrLegend(h06);
-
-                      if (gLeg02) leg->AddEntry(gLeg02, "R = 0.2", "pe");
-                      if (gLeg04) leg->AddEntry(gLeg04, "R = 0.4", "pe");
-                      if (gLeg06) leg->AddEntry(gLeg06, "R = 0.6", "pe");
-
-                      leg->Draw();
+                    // Use one of the actual hists to set axes/range (keeps ROOT styling consistent)
+                    TH1* hBase = (h04 ? h04 : (h02 ? h02 : h06));
+                    if (hBase)
+                    {
+                        hBase->SetTitle("");
+                        hBase->GetXaxis()->SetTitle("x_{J}");
+                        hBase->GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                        hBase->SetMinimum(0.0);
+                        hBase->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
+                        hBase->Draw("axis");
+                      }
+                      else
+                      {
+                        TH1F frame("frame","", 1, 0.0, 2.0);
+                        frame.SetMinimum(0.0);
+                        frame.SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
+                        frame.SetTitle("");
+                        frame.GetXaxis()->SetTitle("x_{J}");
+                        frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                        frame.Draw("axis");
                     }
-                }
 
-                SaveCanvas(c, JoinPath(outBase, "table2x4_unfolded_perPhoton_dNdXJ_overlay_radii.png"));
+                    if (h02)
+                    {
+                        h02->SetLineColor(kRed);
+                        h02->SetMarkerColor(kRed);
+                        h02->Draw("E1 X0 same");
+                    }
+                    if (h04)
+                    {
+                        h04->SetLineColor(kBlue);
+                        h04->SetMarkerColor(kBlue);
+                        h04->Draw("E1 X0 same");
+                    }
+                    if (h06)
+                    {
+                        h06->SetLineColor(kGreen + 2);
+                        h06->SetMarkerColor(kGreen + 2);
+                        h06->Draw("E1 X0 same");
+                    }
+
+                    // Centered per-pad title
+                    {
+                        TLatex tx;
+                        tx.SetNDC();
+                        tx.SetTextFont(42);
+                        tx.SetTextAlign(22);
+                        tx.SetTextSize(0.042);
+
+                        tx.DrawLatex(0.52, 0.955,
+                                         TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV",
+                                                         b.lo, b.hi).Data());
+                    }
+
+                    // Per-pad cut/trigger label (top-right, 3 lines)
+                    {
+                        TLatex tx;
+                        tx.SetNDC();
+                        tx.SetTextFont(42);
+                        tx.SetTextAlign(31);
+                        tx.SetTextSize(0.034);
+
+                        const double xR = 0.94;
+                        tx.DrawLatex(xR, 0.73, "z_{vtx} < 60 cm");
+                        tx.DrawLatex(xR, 0.78, "#Delta #phi > 7#pi/8");
+                        tx.DrawLatex(xR, 0.83, "p_{T}^{min, jet} > 5");
+                        tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
+                    }
+
+                    // Legend under the TLatex block (top-right) with VERTICAL-only error bars (EX=0)
+                    {
+                        auto* leg = new TLegend(0.62, 0.5, 0.95, 0.7);
+                        leg->SetBorderSize(0);
+                        leg->SetFillStyle(0);
+                        leg->SetTextFont(42);
+                        leg->SetTextSize(0.034);
+
+                        auto makeVertErrLegend = [&](TH1* h) -> TGraphErrors*
+                        {
+                          if (!h) return nullptr;
+
+                          int ib0 = -1;
+                          for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                          {
+                            if (h->GetBinContent(ib) != 0.0 || h->GetBinError(ib) != 0.0) { ib0 = ib; break; }
+                          }
+                          if (ib0 < 0) ib0 = 1;
+
+                          const double lx  = h->GetXaxis()->GetBinCenter(ib0);
+                          const double ly  = h->GetBinContent(ib0);
+                          double ley = h->GetBinError(ib0);
+                          if (ley <= 0.0) ley = 1.0;
+
+                          auto* g = new TGraphErrors(1);
+                          g->SetPoint(0, lx, ly);
+                          g->SetPointError(0, 0.0, ley);
+                          g->SetMarkerStyle(h->GetMarkerStyle());
+                          g->SetMarkerSize(h->GetMarkerSize());
+                          g->SetMarkerColor(h->GetMarkerColor());
+                          g->SetLineColor(h->GetLineColor());
+                          g->SetLineWidth(h->GetLineWidth());
+                          return g;
+                        };
+
+                        TGraphErrors* gLeg02 = makeVertErrLegend(h02);
+                        TGraphErrors* gLeg04 = makeVertErrLegend(h04);
+                        TGraphErrors* gLeg06 = makeVertErrLegend(h06);
+
+                        if (gLeg02) leg->AddEntry(gLeg02, "R = 0.2", "pe");
+                        if (gLeg04) leg->AddEntry(gLeg04, "R = 0.4", "pe");
+                        if (gLeg06) leg->AddEntry(gLeg06, "R = 0.6", "pe");
+
+                        leg->Draw();
+                    }
+                  };
+
+                  TCanvas c("c_tbl_unf_perPho_overlay_radii", "c_tbl_unf_perPho_overlay_radii", 2200, 1100);
+                  c.Divide(4, 2, 0.001, 0.001);
+
+                  const int nPads = 8;
+
+                  for (int ipad = 0; ipad < nPads; ++ipad)
+                  {
+                    c.cd(ipad + 1);
+                    gPad->SetLeftMargin(0.12);
+                    gPad->SetRightMargin(0.04);
+                    gPad->SetBottomMargin(0.12);
+                    gPad->SetTopMargin(0.06);
+
+                    DrawPerPhotonOverlayPad(ipad);
+                  }
+
+                  SaveCanvas(c, JoinPath(outBase, "table2x4_unfolded_perPhoton_dNdXJ_overlay_radii.png"));
+
+                  for (int i = 0; i < nPtAll; ++i)
+                  {
+                    const PtBin& b = UnfoldRecoPtBins()[i];
+
+                    TCanvas cSingle(
+                      TString::Format("c_unf_perPho_overlay_radii_%s", b.folder.c_str()).Data(),
+                      "c_unf_perPho_overlay_radii_single",
+                      900, 700
+                    );
+                    ApplyCanvasMargins1D(cSingle);
+
+                    DrawPerPhotonOverlayPad(i);
+
+                    SaveCanvas(
+                      cSingle,
+                      JoinPath(
+                        outBase,
+                        TString::Format("unfolded_perPhoton_dNdXJ_overlay_radii_%s.png", b.folder.c_str()).Data()
+                      )
+                    );
+                  }
               }
             }
 
