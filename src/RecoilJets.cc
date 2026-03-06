@@ -4607,8 +4607,6 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
       // Region-C sideband candidate for purity subtraction:
       // keep ONLY the event-leading iso ∧ nonTight photon (PPG12 non-tight = fails >=2 tight cuts).
       bool   haveLeadIsoNonTight = false;
-      int    leadNonTightPhoIndex = -1;
-      int    leadNonTightPtIdx    = -1;
       double leadNonTightPtGamma  = -1.0;
       double leadNonTightEtaGamma = 0.0;
       double leadNonTightPhiGamma = 0.0;
@@ -5156,16 +5154,14 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
 
          if (!haveLeadIsoNonTight || pt_gamma > leadNonTightPtGamma)
          {
-           haveLeadIsoNonTight = true;
-           leadNonTightPhoIndex = iPho;
-           leadNonTightPtIdx    = ptIdx;
-           leadNonTightPtGamma  = pt_gamma;
-           leadNonTightEtaGamma = eta;
-           leadNonTightPhiGamma = phi_gamma;
+            haveLeadIsoNonTight = true;
+            leadNonTightPtGamma  = pt_gamma;
+            leadNonTightEtaGamma = eta;
+            leadNonTightPhiGamma = phi_gamma;
 
-           if (Verbosity() >= 6)
-             LOG(6, CLR_CYAN, "      [pho#" << iPho << "] marked as event-leading iso∧nonTight photon for sideband-C recoil filling (pT="
-                                            << std::fixed << std::setprecision(2) << leadNonTightPtGamma << ")");
+            if (Verbosity() >= 6)
+              LOG(6, CLR_CYAN, "      [pho#" << iPho << "] marked as event-leading iso∧nonTight photon for sideband-C recoil filling (pT="
+                                             << std::fixed << std::setprecision(2) << leadNonTightPtGamma << ")");
          }
 
          continue;
