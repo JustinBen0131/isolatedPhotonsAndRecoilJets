@@ -8866,39 +8866,29 @@ namespace ARJ
                             delete gRatioMean;
 
                             // -----------------------------------------------------------------
-                            //  pure mean overlay (Gaussian means + GetMean means)
+                            //  pure mean overlay (DATA Gaussian means + DATA GetMean only)
                             // -----------------------------------------------------------------
                             TCanvas cMeanOverlay(
-                                TString::Format("c_meanVsPt_%s_gaussianAndGetMean", rKey.c_str()).Data(),
-                                "c_meanVsPt_gaussianAndGetMean", 900, 700
+                                    TString::Format("c_meanVsPt_%s_gaussianAndGetMean", rKey.c_str()).Data(),
+                                    "c_meanVsPt_gaussianAndGetMean", 900, 700
                             );
                             ApplyCanvasMargins1D(cMeanOverlay);
 
                             TGraphErrors* gDatGausOv = new TGraphErrors((int)vPtCtr.size());
-                            TGraphErrors* gSimGausOv = new TGraphErrors((int)vPtCtr.size());
                             TGraphErrors* gDatMeanOv = new TGraphErrors((int)vPtCtr.size());
-                            TGraphErrors* gSimMeanOv = new TGraphErrors((int)vPtCtr.size());
 
                             double yMaxOv = 0.0;
 
                             for (int i = 0; i < (int)vPtCtr.size(); ++i)
                             {
-                              gDatGausOv->SetPoint(i, vPtCtr[i], vMuDat[i]);
-                              gDatGausOv->SetPointError(i, vPtErr[i], vMuDatErr[i]);
+                                gDatGausOv->SetPoint(i, vPtCtr[i], vMuDat[i]);
+                                gDatGausOv->SetPointError(i, vPtErr[i], vMuDatErr[i]);
 
-                              gSimGausOv->SetPoint(i, vPtCtr[i], vMuSim[i]);
-                              gSimGausOv->SetPointError(i, vPtErr[i], vMuSimErr[i]);
+                                gDatMeanOv->SetPoint(i, vPtCtr[i], vMeanDat[i]);
+                                gDatMeanOv->SetPointError(i, vPtErr[i], vMeanDatErr[i]);
 
-                              gDatMeanOv->SetPoint(i, vPtCtr[i], vMeanDat[i]);
-                              gDatMeanOv->SetPointError(i, vPtErr[i], vMeanDatErr[i]);
-
-                              gSimMeanOv->SetPoint(i, vPtCtr[i], vMeanSim[i]);
-                              gSimMeanOv->SetPointError(i, vPtErr[i], vMeanSimErr[i]);
-
-                              yMaxOv = std::max(yMaxOv, vMuDat[i]   + vMuDatErr[i]);
-                              yMaxOv = std::max(yMaxOv, vMuSim[i]   + vMuSimErr[i]);
-                              yMaxOv = std::max(yMaxOv, vMeanDat[i] + vMeanDatErr[i]);
-                              yMaxOv = std::max(yMaxOv, vMeanSim[i] + vMeanSimErr[i]);
+                                yMaxOv = std::max(yMaxOv, vMuDat[i]   + vMuDatErr[i]);
+                                yMaxOv = std::max(yMaxOv, vMeanDat[i] + vMeanDatErr[i]);
                             }
 
                             gDatGausOv->SetTitle("");
@@ -8908,23 +8898,11 @@ namespace ARJ
                             gDatGausOv->SetLineColor(kGreen + 2);
                             gDatGausOv->SetLineWidth(2);
 
-                            gSimGausOv->SetMarkerStyle(20);
-                            gSimGausOv->SetMarkerSize(1.2);
-                            gSimGausOv->SetMarkerColor(kOrange + 7);
-                            gSimGausOv->SetLineColor(kOrange + 7);
-                            gSimGausOv->SetLineWidth(2);
-
                             gDatMeanOv->SetMarkerStyle(20);
                             gDatMeanOv->SetMarkerSize(1.2);
                             gDatMeanOv->SetMarkerColor(kBlue + 1);
                             gDatMeanOv->SetLineColor(kBlue + 1);
                             gDatMeanOv->SetLineWidth(2);
-
-                            gSimMeanOv->SetMarkerStyle(20);
-                            gSimMeanOv->SetMarkerSize(1.2);
-                            gSimMeanOv->SetMarkerColor(kRed + 1);
-                            gSimMeanOv->SetLineColor(kRed + 1);
-                            gSimMeanOv->SetLineWidth(2);
 
                             gDatGausOv->Draw("AP");
                             gDatGausOv->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
@@ -8932,35 +8910,29 @@ namespace ARJ
                             gDatGausOv->SetMinimum(0.0);
                             gDatGausOv->SetMaximum((yMaxOv > 0.0) ? (1.20 * yMaxOv) : 1.0);
 
-                            gSimGausOv->Draw("P same");
                             gDatMeanOv->Draw("P same");
-                            gSimMeanOv->Draw("P same");
 
-                            TLegend* legOv = new TLegend(0.54, 0.62, 0.90, 0.88);
+                            TLegend* legOv = new TLegend(0.18, 0.18, 0.46, 0.32);
                             legOv->SetBorderSize(0);
                             legOv->SetFillStyle(0);
                             legOv->SetTextFont(42);
                             legOv->SetTextSize(0.035);
                             legOv->AddEntry(gDatGausOv, "DATA Gaussian mean", "p");
-                            legOv->AddEntry(gSimGausOv, "SIM Gaussian mean",  "p");
                             legOv->AddEntry(gDatMeanOv, "DATA GetMean",       "p");
-                            legOv->AddEntry(gSimMeanOv, "SIM GetMean",        "p");
                             legOv->Draw();
 
                             TLatex ttlOv;
                             ttlOv.SetNDC(true);
                             ttlOv.SetTextFont(42);
                             ttlOv.SetTextSize(0.045);
-                            ttlOv.DrawLatex(0.16, 0.92, "RECO x_{J#gamma} mean overlay: Gaussian fits and Using GetMean");
+                            ttlOv.DrawLatex(0.16, 0.92, "RECO x_{J#gamma} mean overlay: DATA Gaussian fits and DATA GetMean");
 
                             SaveCanvas(cMeanOverlay,
-                              JoinPath(dirFits, "meanVsPt_reco_integratedAlpha_overlayedWithSim_gaussianAndGetMean.png"));
+                                  JoinPath(dirFits, "meanVsPt_reco_integratedAlpha_overlayedWithSim_gaussianAndGetMean.png"));
 
                             delete legOv;
                             delete gDatGausOv;
-                            delete gSimGausOv;
                             delete gDatMeanOv;
-                            delete gSimMeanOv;
                           }
 
                           delete legM;

@@ -2775,22 +2775,26 @@
                 SaveCanvas(c, JoinPath(rOut, TString::Format("xJ_unfolded_perPhoton_pTbin%d.png", i + 1).Data()));
 
                 // -------------------------------------------------------------------
-                //  Toy unfolding vs analytic covariance errors overlay (DATA)
-                //   output: <rOut>/ToyUnfoldingVsCovariance/xJ_ToyUnfoldingVsCovariance_pTbin%d.png
+                //  Toy unfolding vs analytic covariance errors (DATA)
+                //   NEW output: <rOut>/ToyUnfoldingVsCovariance/xJ_ToyUnfoldingVsCovariance_1x2_pTbin%d.png
+                //
+                //   Show as a 1x2 canvas:
+                //     LHS = analytic covariance (kCovariance)
+                //     RHS = toy unfolding errors (kCovToy)
                 // -------------------------------------------------------------------
                 if (perPhoHists[i] && perPhoHists_cov[i])
                 {
                     TCanvas cTC(
-                      TString::Format("c_toyVsCov_%s_pTbin%d", rKey.c_str(), i + 1).Data(),
-                      "c_toyVsCov", 900, 700
+                      TString::Format("c_toyVsCov_1x2_%s_pTbin%d", rKey.c_str(), i + 1).Data(),
+                      "c_toyVsCov_1x2", 1800, 700
                     );
-                    ApplyCanvasMargins1D(cTC);
+                    cTC.Divide(2, 1, 0.001, 0.001);
 
                     TH1* hToy = (TH1*)perPhoHists[i]->Clone(
-                      TString::Format("%s_clone_toyVsCov_toy_pTbin%d", perPhoHists[i]->GetName(), i + 1).Data()
+                      TString::Format("%s_clone_toyVsCov_1x2_toy_pTbin%d", perPhoHists[i]->GetName(), i + 1).Data()
                     );
                     TH1* hCov = (TH1*)perPhoHists_cov[i]->Clone(
-                      TString::Format("%s_clone_toyVsCov_cov_pTbin%d", perPhoHists_cov[i]->GetName(), i + 1).Data()
+                      TString::Format("%s_clone_toyVsCov_1x2_cov_pTbin%d", perPhoHists_cov[i]->GetName(), i + 1).Data()
                     );
 
                     if (hToy) { hToy->SetDirectory(nullptr); EnsureSumw2(hToy); }
@@ -2812,11 +2816,20 @@
                         if (y1 + ey1 > maxY) maxY = y1 + ey1;
                         if (y2 + ey2 > maxY) maxY = y2 + ey2;
                       }
+                      const double yMaxUse = (maxY > 0.0) ? (1.15 * maxY) : 1.0;
 
-                      hToy->SetMinimum(0.0);
-                      hToy->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
-                      hToy->Draw("E1");
-                      hCov->Draw("E1 same");
+                      // -----------------------------
+                      // Pad 1 (LHS): kCovariance
+                      // -----------------------------
+                      cTC.cd(1);
+                      gPad->SetLeftMargin(0.12);
+                      gPad->SetRightMargin(0.04);
+                      gPad->SetBottomMargin(0.12);
+                      gPad->SetTopMargin(0.06);
+
+                      hCov->SetMinimum(0.0);
+                      hCov->SetMaximum(yMaxUse);
+                      hCov->Draw("E1");
 
                       // Centered title
                       {
@@ -2830,7 +2843,17 @@
                                                      b.lo, b.hi, R).Data());
                       }
 
-                      // Per-pad cut/trigger label (top-right, match standard per-bin plots)
+                      // Method label (top-left)
+                      {
+                        TLatex tx;
+                        tx.SetNDC();
+                        tx.SetTextFont(42);
+                        tx.SetTextAlign(13);
+                        tx.SetTextSize(0.036);
+                        tx.DrawLatex(0.15, 0.88, "Analytic covariance (kCovariance)");
+                      }
+
+                      // Per-pad cut/trigger label (top-right)
                       {
                         TLatex tx;
                         tx.SetNDC();
@@ -2846,20 +2869,63 @@
                         tx.DrawLatex(xR, 0.60, TString::Format("Bayes it = %d", kBayesIterXJ).Data());
                       }
 
-                      TLegend leg(0.15, 0.78, 0.55, 0.90);
-                      leg.SetTextFont(42);
-                      leg.SetTextSize(0.030);
-                      leg.AddEntry(hToy, "Toy unfolding errors (kCovToy)", "pe");
-                      leg.AddEntry(hCov, "Analytic covariance (kCovariance)", "pe");
-                      leg.Draw();
+                      // -----------------------------
+                      // Pad 2 (RHS): kCovToy
+                      // -----------------------------
+                      cTC.cd(2);
+                      gPad->SetLeftMargin(0.12);
+                      gPad->SetRightMargin(0.04);
+                      gPad->SetBottomMargin(0.12);
+                      gPad->SetTopMargin(0.06);
 
-                      SaveCanvas(cTC, JoinPath(toyVsCovOut, TString::Format("xJ_ToyUnfoldingVsCovariance_pTbin%d.png", i + 1).Data()));
+                      hToy->SetMinimum(0.0);
+                      hToy->SetMaximum(yMaxUse);
+                      hToy->Draw("E1");
+
+                      // Centered title
+                      {
+                        TLatex tx;
+                        tx.SetNDC();
+                        tx.SetTextFont(42);
+                        tx.SetTextAlign(22);
+                        tx.SetTextSize(0.040);
+                        tx.DrawLatex(0.50, 0.965,
+                                     TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV, R = %.1f",
+                                                     b.lo, b.hi, R).Data());
+                      }
+
+                      // Method label (top-left)
+                      {
+                        TLatex tx;
+                        tx.SetNDC();
+                        tx.SetTextFont(42);
+                        tx.SetTextAlign(13);
+                        tx.SetTextSize(0.036);
+                        tx.DrawLatex(0.15, 0.88, "Toy unfolding errors (kCovToy)");
+                      }
+
+                      // Per-pad cut/trigger label (top-right)
+                      {
+                        TLatex tx;
+                        tx.SetNDC();
+                        tx.SetTextFont(42);
+                        tx.SetTextAlign(31);
+                        tx.SetTextSize(0.035);
+
+                        const double xR = 0.92;
+                        tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
+                        tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
+                        tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
+                        tx.DrawLatex(xR, 0.67, "z_{vtx} < 60 cm");
+                        tx.DrawLatex(xR, 0.60, TString::Format("Bayes it = %d", kBayesIterXJ).Data());
+                      }
+
+                      SaveCanvas(cTC, JoinPath(toyVsCovOut, TString::Format("xJ_ToyUnfoldingVsCovariance_1x2_pTbin%d.png", i + 1).Data()));
                     }
 
                     if (hToy) delete hToy;
                     if (hCov) delete hCov;
                 }
-
                 // -------------------------------------------------------------------
                 // before/after unfolding overlay (DATA)
                 // -------------------------------------------------------------------
@@ -3170,149 +3236,10 @@
               SaveCanvas(c, JoinPath(rOut, "table2x4_unfolded_perPhoton_dNdXJ.png"));
 
               // -------------------------------------------------------------------
-              // 2x4 summary table: Toy unfolding errors vs analytic covariance errors
-              //   output: <rOut>/ToyUnfoldingVsCovariance/table2x4_ToyUnfoldingVsCovariance.png
+              // 2x4 summary table: before vs after unfolding (DATA)
+              //   output: <rOut>/before_after_unfoldingOverlay_data/table2x4_before_after_unfoldingOverlay_data.png
               // -------------------------------------------------------------------
               {
-                    bool anyTC = false;
-                    for (int ii = 0; ii < nPtAll; ++ii)
-                    {
-                      if (perPhoHists[ii] && perPhoHists_cov[ii]) { anyTC = true; break; }
-                    }
-
-                    if (anyTC)
-                    {
-                      TCanvas cTC(
-                        TString::Format("c_tbl_toyVsCov_%s", rKey.c_str()).Data(),
-                        "c_tbl_toyVsCov", 2200, 1100
-                      );
-                      cTC.Divide(nPtCols, nPtRows, 0.001, 0.001);
-
-                      std::vector<TLegend*> keepLegTC;
-                      keepLegTC.reserve((std::size_t)nPtPads);
-
-                      for (int ipad = 0; ipad < nPtPads; ++ipad)
-                      {
-                        const int i = ipad;
-
-                        cTC.cd(ipad + 1);
-                        gPad->SetLeftMargin(0.12);
-                        gPad->SetRightMargin(0.04);
-                        gPad->SetBottomMargin(0.12);
-                        gPad->SetTopMargin(0.06);
-
-                        if (i < 0 || i >= nPtAll)
-                        {
-                          TH1F frame("frame","", 1, 0.0, 2.0);
-                          frame.SetMinimum(0.0);
-                          frame.SetMaximum(1.0);
-                          frame.SetTitle("");
-                          frame.GetXaxis()->SetTitle("x_{J}");
-                          frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
-                          frame.Draw("axis");
-
-                          TLatex tx;
-                          tx.SetNDC();
-                          tx.SetTextFont(42);
-                          tx.SetTextSize(0.050);
-                          tx.DrawLatex(0.16, 0.50, "MISSING");
-                          continue;
-                        }
-
-                        const PtBin& b = UnfoldRecoPtBins()[i];
-
-                        if (perPhoHists[i] && perPhoHists_cov[i])
-                        {
-                          TH1* hToy = perPhoHists[i];
-                          TH1* hCov = perPhoHists_cov[i];
-
-                          hToy->GetXaxis()->SetRangeUser(0.0, 2.0);
-                          hCov->GetXaxis()->SetRangeUser(0.0, 2.0);
-
-                          double maxY = 0.0;
-                          const int nxb = hToy->GetNbinsX();
-                          for (int ib = 1; ib <= nxb; ++ib)
-                          {
-                            const double y1  = hToy->GetBinContent(ib);
-                            const double ey1 = hToy->GetBinError  (ib);
-                            const double y2  = hCov->GetBinContent(ib);
-                            const double ey2 = hCov->GetBinError  (ib);
-                            if (y1 + ey1 > maxY) maxY = y1 + ey1;
-                            if (y2 + ey2 > maxY) maxY = y2 + ey2;
-                          }
-
-                          hToy->SetMinimum(0.0);
-                          hToy->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
-                          hToy->Draw("E1");
-                          hCov->Draw("E1 same");
-
-                          TLegend* leg = new TLegend(0.15, 0.78, 0.55, 0.90);
-                          leg->SetTextFont(42);
-                          leg->SetTextSize(0.030);
-                          leg->AddEntry(hToy, "Toy unfolding errors (kCovToy)", "pe");
-                          leg->AddEntry(hCov, "Analytic covariance (kCovariance)", "pe");
-                          leg->Draw();
-                          keepLegTC.push_back(leg);
-                        }
-                        else
-                        {
-                          TH1F frame("frame","", 1, 0.0, 2.0);
-                          frame.SetMinimum(0.0);
-                          frame.SetMaximum(1.0);
-                          frame.SetTitle("");
-                          frame.GetXaxis()->SetTitle("x_{J}");
-                          frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
-                          frame.Draw("axis");
-
-                          TLatex tx;
-                          tx.SetNDC();
-                          tx.SetTextFont(42);
-                          tx.SetTextSize(0.050);
-                          tx.DrawLatex(0.16, 0.50, "MISSING");
-                        }
-
-                        // Centered per-pad title
-                        {
-                          TLatex tx;
-                          tx.SetNDC();
-                          tx.SetTextFont(42);
-                          tx.SetTextAlign(22);
-                          tx.SetTextSize(0.042);
-
-                          tx.DrawLatex(0.52, 0.955,
-                                       TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV, R = %.1f",
-                                                       b.lo, b.hi, R).Data());
-                        }
-
-                        // Per-pad cut/trigger label (top-right)
-                        {
-                          TLatex tx;
-                          tx.SetNDC();
-                          tx.SetTextFont(42);
-                          tx.SetTextAlign(31);
-                          tx.SetTextSize(0.04);
-
-                          const double xR = 0.93;
-                          tx.DrawLatex(xR, 0.67, "z_{vtx} < 60 cm");
-                          tx.DrawLatex(xR, 0.60, TString::Format("Bayes it = %d", kBayesIterXJ).Data());
-                          tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
-                          tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
-                          tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
-                        }
-                      }
-
-                      SaveCanvas(cTC, JoinPath(toyVsCovOut, "table2x4_ToyUnfoldingVsCovariance.png"));
-
-                      for (auto* l : keepLegTC) delete l;
-                      keepLegTC.clear();
-                    }
-                }
-
-                // -------------------------------------------------------------------
-                // 2x4 summary table: before vs after unfolding (DATA)
-                //   output: <rOut>/before_after_unfoldingOverlay_data/table2x4_before_after_unfoldingOverlay_data.png
-                // -------------------------------------------------------------------
-                {
                   TCanvas cBA(
                     TString::Format("c_tbl_beforeAfter_data_%s", rKey.c_str()).Data(),
                     "c_tbl_beforeAfter_data", 2200, 1100
