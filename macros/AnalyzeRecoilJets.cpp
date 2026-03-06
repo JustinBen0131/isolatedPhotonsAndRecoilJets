@@ -7136,20 +7136,20 @@ namespace ARJ
                             ApplyCanvasMargins1D(c);
                             c.SetLogy(false);
 
-                           xJ_dat->SetTitle("");
-                           xJ_dat->SetLineWidth(2);
-                           xJ_dat->SetLineColor(kGreen + 2);
-                           xJ_dat->SetMarkerStyle(20);
-                           xJ_dat->SetMarkerSize(1.0);
-                           xJ_dat->SetMarkerColor(kGreen + 2);
+                            xJ_dat->SetTitle("");
+                            xJ_dat->SetLineWidth(2);
+                            xJ_dat->SetLineColor(kGreen + 2);
+                            xJ_dat->SetMarkerStyle(20);
+                            xJ_dat->SetMarkerSize(1.0);
+                            xJ_dat->SetMarkerColor(kGreen + 2);
 
-                           xJ_sim->SetLineWidth(2);
-                           xJ_sim->SetLineColor(kOrange + 7);
-                           xJ_sim->SetMarkerStyle(20);
-                           xJ_sim->SetMarkerSize(1.0);
-                           xJ_sim->SetMarkerColor(kOrange + 7);
+                            xJ_sim->SetLineWidth(2);
+                            xJ_sim->SetLineColor(kOrange + 7);
+                            xJ_sim->SetMarkerStyle(20);
+                            xJ_sim->SetMarkerSize(1.0);
+                            xJ_sim->SetMarkerColor(kOrange + 7);
 
-                           xJ_dat->GetXaxis()->SetTitle("x_{J#gamma}");
+                            xJ_dat->GetXaxis()->SetTitle("x_{J#gamma}");
                             xJ_dat->GetXaxis()->SetRangeUser(0.0, 2.0);
                             xJ_dat->GetYaxis()->SetTitle("Normalized counts");
 
@@ -7547,6 +7547,9 @@ namespace ARJ
                   const string dirOv = JoinPath(D.dirXJProjReco, "insituCalib");
                   EnsureDir(dirOv);
 
+                  const string dirFits = JoinPath(dirOv, "GaussianFits");
+                  EnsureDir(dirFits);
+
                   static std::string s_lastSimPath_tbl = "";
                   static TFile* s_fSim_tbl = nullptr;
                   static TDirectory* s_simTopDir_tbl = nullptr;
@@ -7751,26 +7754,32 @@ namespace ARJ
                       std::vector<TF1*> keepFitFns;
                       keepFitFns.reserve(2 * nTableBins);
 
-                        std::vector<double> vPtCtr, vPtErr;
-                        std::vector<double> vMuDat, vMuDatErr;
-                        std::vector<double> vMuSim, vMuSimErr;
-                        std::vector<double> vSigDat, vSigDatErr;
-                        std::vector<double> vSigSim, vSigSimErr;
-                        std::vector<double> vChi2NdfDat;
-                        std::vector<double> vChi2NdfSim;
+                      std::vector<double> vPtCtr, vPtErr;
+                      std::vector<double> vMuDat, vMuDatErr;
+                      std::vector<double> vMuSim, vMuSimErr;
+                      std::vector<double> vMeanDat, vMeanDatErr;
+                      std::vector<double> vMeanSim, vMeanSimErr;
+                      std::vector<double> vSigDat, vSigDatErr;
+                      std::vector<double> vSigSim, vSigSimErr;
+                      std::vector<double> vChi2NdfDat;
+                      std::vector<double> vChi2NdfSim;
 
-                        vPtCtr.reserve(nTableBins);
-                        vPtErr.reserve(nTableBins);
-                        vMuDat.reserve(nTableBins);
-                        vMuDatErr.reserve(nTableBins);
-                        vMuSim.reserve(nTableBins);
-                        vMuSimErr.reserve(nTableBins);
-                        vSigDat.reserve(nTableBins);
-                        vSigDatErr.reserve(nTableBins);
-                        vSigSim.reserve(nTableBins);
-                        vSigSimErr.reserve(nTableBins);
-                        vChi2NdfDat.reserve(nTableBins);
-                        vChi2NdfSim.reserve(nTableBins);
+                      vPtCtr.reserve(nPt);
+                      vPtErr.reserve(nPt);
+                      vMuDat.reserve(nPt);
+                      vMuDatErr.reserve(nPt);
+                      vMuSim.reserve(nPt);
+                      vMuSimErr.reserve(nPt);
+                      vMeanDat.reserve(nPt);
+                      vMeanDatErr.reserve(nPt);
+                      vMeanSim.reserve(nPt);
+                      vMeanSimErr.reserve(nPt);
+                      vSigDat.reserve(nPt);
+                      vSigDatErr.reserve(nPt);
+                      vSigSim.reserve(nPt);
+                      vSigSimErr.reserve(nPt);
+                      vChi2NdfDat.reserve(nPt);
+                      vChi2NdfSim.reserve(nPt);
 
                       auto FitIterGaus = [&](TH1* h, const std::string& fname, int lcolor) -> TF1*
                       {
@@ -7984,109 +7993,277 @@ namespace ARJ
                           keepFitsH.push_back(hSimRaw);
                       }
 
-                      SaveCanvas(canTblFits, JoinPath(dirOv, "table3x2_overlay_integratedAlpha_overlayedWithSim_withFits.png"));
+                      SaveCanvas(canTblFits, JoinPath(dirFits, "table3x2_overlay_integratedAlpha_overlayedWithSim_withFits.png"));
 
-                      // Also fit any remaining p_{T}^{#gamma} bins beyond the 2x3 table
-                      // so ALL summary PNGs (mean/sigma/chi2/ratio vs pT) use the full YAML pT binning.
-                      for (int k = nTableBins; k < nPt; ++k)
+                      // Cache GetMean values for the already-drawn table bins.
                       {
-                         const int ib = startBinForTable + k;
+                          const int nTableStored = (int)vPtCtr.size();
 
-                         const double ptMinGamma = H.hReco_xJ->GetXaxis()->GetBinLowEdge(ib);
-                         const double ptMaxGamma = H.hReco_xJ->GetXaxis()->GetBinUpEdge(ib);
-                         const double ptCtr = 0.5 * (ptMinGamma + ptMaxGamma);
-                         const double ptErr = 0.5 * (ptMaxGamma - ptMinGamma);
+                          vMeanDat.clear();
+                          vMeanDatErr.clear();
+                          vMeanSim.clear();
+                          vMeanSimErr.clear();
 
-                         TH1* hDatRaw = ProjectY_AtXbin_AndAlphaMax_TH3(
-                            H.hReco_xJ, ib, H.hReco_xJ->GetZaxis()->GetXmax(),
-                            TString::Format("h_tbl_fit_dat_%s_%d", rKey.c_str(), ib).Data()
-                         );
-                         TH1* hSimRaw = ProjectY_AtXbin_AndAlphaMax_TH3(
-                            hSim3, ib, hSim3->GetZaxis()->GetXmax(),
-                            TString::Format("h_tbl_fit_sim_%s_%d", rKey.c_str(), ib).Data()
-                         );
+                          for (int i = 0; i < nTableStored; ++i)
+                          {
+                            TH1* hDatMean = (2*i     < (int)keepFitsH.size()) ? keepFitsH[2*i]     : nullptr;
+                            TH1* hSimMean = (2*i + 1 < (int)keepFitsH.size()) ? keepFitsH[2*i + 1] : nullptr;
 
-                         if (!hDatRaw || !hSimRaw) { if (hDatRaw) delete hDatRaw; if (hSimRaw) delete hSimRaw; continue; }
-
-                         hDatRaw->SetDirectory(nullptr);
-                         hSimRaw->SetDirectory(nullptr);
-
-                         EnsureSumw2(hDatRaw);
-                         EnsureSumw2(hSimRaw);
-
-                         const double iDat = hDatRaw->Integral(0, hDatRaw->GetNbinsX() + 1);
-                         const double iSim = hSimRaw->Integral(0, hSimRaw->GetNbinsX() + 1);
-                         if (iDat > 0.0) hDatRaw->Scale(1.0 / iDat);
-                         if (iSim > 0.0) hSimRaw->Scale(1.0 / iSim);
-
-                         TF1* fDat = FitIterGaus(hDatRaw, TString::Format("f_tbl_dat_%s_%d", rKey.c_str(), ib).Data(), kGreen + 2);
-                         TF1* fSim = FitIterGaus(hSimRaw, TString::Format("f_tbl_sim_%s_%d", rKey.c_str(), ib).Data(), kOrange + 7);
-
-                         if (fDat) keepFitFns.push_back(fDat);
-                         if (fSim) keepFitFns.push_back(fSim);
-
-                         {
-                            if (fDat && fDat->GetNDF() > 0)
+                            if (hDatMean)
                             {
-                              const double mu   = fDat->GetParameter(1);
-                              const double sig  = fDat->GetParameter(2);
-                              const double chi2 = fDat->GetChisquare();
-                              const double ndf  = fDat->GetNDF();
-
-                              vMuDat.push_back(mu);
-                              vMuDatErr.push_back(fDat->GetParError(1));
-
-                              vSigDat.push_back(sig);
-                              vSigDatErr.push_back(fDat->GetParError(2));
-
-                              vChi2NdfDat.push_back(chi2 / ndf);
+                              vMeanDat.push_back(hDatMean->GetMean());
+                              vMeanDatErr.push_back(hDatMean->GetMeanError());
                             }
                             else
                             {
-                              vMuDat.push_back(-1.0);
-                              vMuDatErr.push_back(0.0);
-
-                              vSigDat.push_back(-1.0);
-                              vSigDatErr.push_back(0.0);
-
-                              vChi2NdfDat.push_back(-1.0);
+                              vMeanDat.push_back(-1.0);
+                              vMeanDatErr.push_back(0.0);
                             }
 
-                            if (fSim && fSim->GetNDF() > 0)
+                            if (hSimMean)
                             {
-                              const double mu   = fSim->GetParameter(1);
-                              const double sig  = fSim->GetParameter(2);
-                              const double chi2 = fSim->GetChisquare();
-                              const double ndf  = fSim->GetNDF();
-
-                              vMuSim.push_back(mu);
-                              vMuSimErr.push_back(fSim->GetParError(1));
-
-                              vSigSim.push_back(sig);
-                              vSigSimErr.push_back(fSim->GetParError(2));
-
-                              vChi2NdfSim.push_back(chi2 / ndf);
+                              vMeanSim.push_back(hSimMean->GetMean());
+                              vMeanSimErr.push_back(hSimMean->GetMeanError());
                             }
                             else
                             {
-                              vMuSim.push_back(-1.0);
-                              vMuSimErr.push_back(0.0);
-
-                              vSigSim.push_back(-1.0);
-                              vSigSimErr.push_back(0.0);
-
-                              vChi2NdfSim.push_back(-1.0);
+                              vMeanSim.push_back(-1.0);
+                              vMeanSimErr.push_back(0.0);
                             }
                           }
-
-                          vPtCtr.push_back(ptCtr);
-                          vPtErr.push_back(ptErr);
-
-                          keepFitsH.push_back(hDatRaw);
-                          keepFitsH.push_back(hSimRaw);
                         }
 
-                        if ((int)vPtCtr.size() > 0)
+                        auto SaveGaussianFitsPerPtBin =
+                          [&](int ib)
+                        {
+                          const double ptMinGamma = H.hReco_xJ->GetXaxis()->GetBinLowEdge(ib);
+                          const double ptMaxGamma = H.hReco_xJ->GetXaxis()->GetBinUpEdge(ib);
+
+                          TH1* hDatOne = ProjectY_AtXbin_AndAlphaMax_TH3(
+                            H.hReco_xJ, ib, H.hReco_xJ->GetZaxis()->GetXmax(),
+                            TString::Format("h_gausFit_dat_%s_%d", rKey.c_str(), ib).Data()
+                          );
+                          TH1* hSimOne = ProjectY_AtXbin_AndAlphaMax_TH3(
+                            hSim3, ib, hSim3->GetZaxis()->GetXmax(),
+                            TString::Format("h_gausFit_sim_%s_%d", rKey.c_str(), ib).Data()
+                          );
+
+                          if (!hDatOne || !hSimOne)
+                          {
+                            if (hDatOne) delete hDatOne;
+                            if (hSimOne) delete hSimOne;
+                            return;
+                          }
+
+                          hDatOne->SetDirectory(nullptr);
+                          hSimOne->SetDirectory(nullptr);
+
+                          EnsureSumw2(hDatOne);
+                          EnsureSumw2(hSimOne);
+
+                          const double iDatOne = hDatOne->Integral(0, hDatOne->GetNbinsX() + 1);
+                          const double iSimOne = hSimOne->Integral(0, hSimOne->GetNbinsX() + 1);
+                          if (iDatOne > 0.0) hDatOne->Scale(1.0 / iDatOne);
+                          if (iSimOne > 0.0) hSimOne->Scale(1.0 / iSimOne);
+
+                          TF1* fDatOne = FitIterGaus(hDatOne, TString::Format("f_gausFit_dat_%s_%d", rKey.c_str(), ib).Data(), kGreen + 2);
+                          TF1* fSimOne = FitIterGaus(hSimOne, TString::Format("f_gausFit_sim_%s_%d", rKey.c_str(), ib).Data(), kOrange + 7);
+
+                          TCanvas cOne(
+                            TString::Format("c_gausFit_%s_%d", rKey.c_str(), ib).Data(),
+                            "c_gausFit", 900, 700
+                          );
+                          ApplyCanvasMargins1D(cOne);
+                          cOne.SetLogy(false);
+
+                          hDatOne->SetTitle("");
+                          hDatOne->SetLineWidth(2);
+                          hDatOne->SetLineColor(kGreen + 2);
+                          hDatOne->SetMarkerStyle(20);
+                          hDatOne->SetMarkerSize(1.0);
+                          hDatOne->SetMarkerColor(kGreen + 2);
+
+                          hSimOne->SetLineWidth(2);
+                          hSimOne->SetLineColor(kOrange + 7);
+                          hSimOne->SetMarkerStyle(20);
+                          hSimOne->SetMarkerSize(1.0);
+                          hSimOne->SetMarkerColor(kOrange + 7);
+
+                          hDatOne->GetXaxis()->SetTitle("x_{J#gamma}");
+                          hDatOne->GetXaxis()->SetRangeUser(0.0, 2.0);
+                          hDatOne->GetYaxis()->SetTitle("Normalized counts");
+
+                          hDatOne->Draw("E1");
+                          hSimOne->Draw("E1 same");
+                          if (fDatOne) fDatOne->Draw("same");
+                          if (fSimOne) fSimOne->Draw("same");
+
+                          TLegend leg(0.70, 0.75, 0.94, 0.88);
+                          leg.SetBorderSize(0);
+                          leg.SetFillStyle(0);
+                          leg.SetTextFont(42);
+                          leg.SetTextSize(0.04);
+                          leg.AddEntry(hDatOne, "DATA (reco)", "ep");
+                          leg.AddEntry(hSimOne, "SIM (reco)",  "ep");
+                          leg.Draw();
+
+                          {
+                            const auto& cfgDef = DefaultSim10and20Config();
+                            const double jetPtMin_GeV = cfgDef.jetMinPt;
+                            const string bbLabel = cfgDef.bbLabel;
+
+                            TLatex tCuts;
+                            tCuts.SetNDC(true);
+                            tCuts.SetTextFont(42);
+                            tCuts.SetTextAlign(33);
+                            tCuts.SetTextSize(0.04);
+                            tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data());
+                            tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
+                            tCuts.DrawLatex(0.92, 0.46, TString::Format("|v_{z}| < %.0f cm", vzCutCm).Data());
+                          }
+
+                          TLatex ttl;
+                          ttl.SetNDC(true);
+                          ttl.SetTextFont(42);
+                          ttl.SetTextSize(0.043);
+                          ttl.DrawLatex(0.12, 0.94,
+                            TString::Format("RECO x_{J#gamma} (DATA vs SIM), p_{T}^{#gamma} = %.0f - %.0f GeV, R = %.1f",
+                              ptMinGamma, ptMaxGamma, R).Data());
+
+                          const double muDatDraw = (fDatOne && fDatOne->GetNDF() > 0) ? fDatOne->GetParameter(1) : -1.0;
+                          const double muSimDraw = (fSimOne && fSimOne->GetNDF() > 0) ? fSimOne->GetParameter(1) : -1.0;
+
+                          TLatex tMean;
+                          tMean.SetNDC(true);
+                          tMean.SetTextFont(42);
+                          tMean.SetTextAlign(13);
+                          tMean.SetTextSize(0.040);
+                          if (muDatDraw >= 0.0) tMean.DrawLatex(0.16, 0.86, TString::Format("Data <x_{J}> = %.4f", muDatDraw).Data());
+                          else                  tMean.DrawLatex(0.16, 0.86, "Data <x_{J}> = N/A");
+                          if (muSimDraw >= 0.0) tMean.DrawLatex(0.16, 0.80, TString::Format("Sim <x_{J}> = %.4f", muSimDraw).Data());
+                          else                  tMean.DrawLatex(0.16, 0.80, "Sim <x_{J}> = N/A");
+
+                          SaveCanvas(cOne, JoinPath(dirFits,
+                            TString::Format("xJ_reco_integratedAlpha_overlayedWithSim_withFits_pTbin%d.png", ib).Data()));
+
+                          if (fDatOne) delete fDatOne;
+                          if (fSimOne) delete fSimOne;
+                          delete hDatOne;
+                          delete hSimOne;
+                        };
+
+                        for (int ib = startBinForTable; ib <= nPt; ++ib)
+                        {
+                          SaveGaussianFitsPerPtBin(ib);
+                        }
+
+                        // Also fit any remaining p_{T}^{#gamma} bins beyond the 2x3 table
+                        // so ALL summary PNGs (mean/sigma/chi2/ratio vs pT) use the full YAML pT binning.
+                        for (int k = nTableBins; k < nPt; ++k)
+                        {
+                           const int ib = startBinForTable + k;
+
+                           const double ptMinGamma = H.hReco_xJ->GetXaxis()->GetBinLowEdge(ib);
+                           const double ptMaxGamma = H.hReco_xJ->GetXaxis()->GetBinUpEdge(ib);
+                           const double ptCtr = 0.5 * (ptMinGamma + ptMaxGamma);
+                           const double ptErr = 0.5 * (ptMaxGamma - ptMinGamma);
+
+                           TH1* hDatRaw = ProjectY_AtXbin_AndAlphaMax_TH3(
+                              H.hReco_xJ, ib, H.hReco_xJ->GetZaxis()->GetXmax(),
+                              TString::Format("h_tbl_fit_dat_%s_%d", rKey.c_str(), ib).Data()
+                           );
+                           TH1* hSimRaw = ProjectY_AtXbin_AndAlphaMax_TH3(
+                              hSim3, ib, hSim3->GetZaxis()->GetXmax(),
+                              TString::Format("h_tbl_fit_sim_%s_%d", rKey.c_str(), ib).Data()
+                           );
+
+                           if (!hDatRaw || !hSimRaw) { if (hDatRaw) delete hDatRaw; if (hSimRaw) delete hSimRaw; continue; }
+
+                           hDatRaw->SetDirectory(nullptr);
+                           hSimRaw->SetDirectory(nullptr);
+
+                           EnsureSumw2(hDatRaw);
+                           EnsureSumw2(hSimRaw);
+
+                           const double iDat = hDatRaw->Integral(0, hDatRaw->GetNbinsX() + 1);
+                           const double iSim = hSimRaw->Integral(0, hSimRaw->GetNbinsX() + 1);
+                           if (iDat > 0.0) hDatRaw->Scale(1.0 / iDat);
+                           if (iSim > 0.0) hSimRaw->Scale(1.0 / iSim);
+
+                           TF1* fDat = FitIterGaus(hDatRaw, TString::Format("f_tbl_dat_%s_%d", rKey.c_str(), ib).Data(), kGreen + 2);
+                           TF1* fSim = FitIterGaus(hSimRaw, TString::Format("f_tbl_sim_%s_%d", rKey.c_str(), ib).Data(), kOrange + 7);
+
+                           if (fDat) keepFitFns.push_back(fDat);
+                           if (fSim) keepFitFns.push_back(fSim);
+
+                           {
+                              if (fDat && fDat->GetNDF() > 0)
+                              {
+                                const double mu   = fDat->GetParameter(1);
+                                const double sig  = fDat->GetParameter(2);
+                                const double chi2 = fDat->GetChisquare();
+                                const double ndf  = fDat->GetNDF();
+
+                                vMuDat.push_back(mu);
+                                vMuDatErr.push_back(fDat->GetParError(1));
+
+                                vSigDat.push_back(sig);
+                                vSigDatErr.push_back(fDat->GetParError(2));
+
+                                vChi2NdfDat.push_back(chi2 / ndf);
+                              }
+                              else
+                              {
+                                vMuDat.push_back(-1.0);
+                                vMuDatErr.push_back(0.0);
+
+                                vSigDat.push_back(-1.0);
+                                vSigDatErr.push_back(0.0);
+
+                                vChi2NdfDat.push_back(-1.0);
+                              }
+
+                              if (fSim && fSim->GetNDF() > 0)
+                              {
+                                const double mu   = fSim->GetParameter(1);
+                                const double sig  = fSim->GetParameter(2);
+                                const double chi2 = fSim->GetChisquare();
+                                const double ndf  = fSim->GetNDF();
+
+                                vMuSim.push_back(mu);
+                                vMuSimErr.push_back(fSim->GetParError(1));
+
+                                vSigSim.push_back(sig);
+                                vSigSimErr.push_back(fSim->GetParError(2));
+
+                                vChi2NdfSim.push_back(chi2 / ndf);
+                              }
+                              else
+                              {
+                                vMuSim.push_back(-1.0);
+                                vMuSimErr.push_back(0.0);
+
+                                vSigSim.push_back(-1.0);
+                                vSigSimErr.push_back(0.0);
+
+                                vChi2NdfSim.push_back(-1.0);
+                              }
+                            }
+
+                            vMeanDat.push_back(hDatRaw->GetMean());
+                            vMeanDatErr.push_back(hDatRaw->GetMeanError());
+
+                            vMeanSim.push_back(hSimRaw->GetMean());
+                            vMeanSimErr.push_back(hSimRaw->GetMeanError());
+
+                            vPtCtr.push_back(ptCtr);
+                            vPtErr.push_back(ptErr);
+
+                            keepFitsH.push_back(hDatRaw);
+                            keepFitsH.push_back(hSimRaw);
+                      }
+
+                      if ((int)vPtCtr.size() > 0)
                       {
                         TCanvas cMean(
                           TString::Format("c_meanVsPt_%s_dataVsSim_withFits", rKey.c_str()).Data(),
@@ -8510,6 +8687,263 @@ namespace ARJ
                           delete gChiDat;
                           delete gChiSim;
 
+                          if ((int)vMeanDat.size() == (int)vPtCtr.size() && (int)vMeanSim.size() == (int)vPtCtr.size())
+                          {
+                            // -----------------------------------------------------------------
+                            // NEW: Using GetMean two-panel output
+                            // -----------------------------------------------------------------
+                            TCanvas cMeanGetMeanWithRatio(
+                              TString::Format("c_meanVsPt_withRatioPanel_%s_dataVsSim_usingGetMean", rKey.c_str()).Data(),
+                              "c_meanVsPt_withRatioPanel_dataVsSim_usingGetMean", 900, 900
+                            );
+
+                            TPad pTop(
+                              TString::Format("pTop_%s_usingGetMean", rKey.c_str()).Data(),
+                              "pTop_usingGetMean", 0.0, 0.30, 1.0, 1.0
+                            );
+                            TPad pBot(
+                              TString::Format("pBot_%s_usingGetMean", rKey.c_str()).Data(),
+                              "pBot_usingGetMean", 0.0, 0.00, 1.0, 0.30
+                            );
+
+                            pTop.SetLeftMargin(0.14);
+                            pTop.SetRightMargin(0.05);
+                            pTop.SetTopMargin(0.08);
+                            pTop.SetBottomMargin(0.02);
+
+                            pBot.SetLeftMargin(0.14);
+                            pBot.SetRightMargin(0.05);
+                            pBot.SetTopMargin(0.03);
+                            pBot.SetBottomMargin(0.32);
+
+                            pTop.Draw();
+                            pBot.Draw();
+
+                            TGraphErrors* gDatMean = new TGraphErrors((int)vPtCtr.size());
+                            TGraphErrors* gSimMean = new TGraphErrors((int)vPtCtr.size());
+
+                            for (int i = 0; i < (int)vPtCtr.size(); ++i)
+                            {
+                              gDatMean->SetPoint(i, vPtCtr[i], vMeanDat[i]);
+                              gDatMean->SetPointError(i, vPtErr[i], vMeanDatErr[i]);
+
+                              gSimMean->SetPoint(i, vPtCtr[i], vMeanSim[i]);
+                              gSimMean->SetPointError(i, vPtErr[i], vMeanSimErr[i]);
+                            }
+
+                            pTop.cd();
+
+                            gDatMean->SetTitle("");
+                            gDatMean->SetMarkerStyle(20);
+                            gDatMean->SetMarkerSize(1.2);
+                            gDatMean->SetMarkerColor(kBlue + 1);
+                            gDatMean->SetLineColor(kBlue + 1);
+                            gDatMean->SetLineWidth(2);
+
+                            gSimMean->SetMarkerStyle(20);
+                            gSimMean->SetMarkerSize(1.2);
+                            gSimMean->SetMarkerColor(kRed + 1);
+                            gSimMean->SetLineColor(kRed + 1);
+                            gSimMean->SetLineWidth(2);
+
+                            gDatMean->Draw("AP");
+                            gDatMean->GetXaxis()->SetTitle("");
+                            gDatMean->GetYaxis()->SetTitle("Mean of x_{J#gamma} (Using GetMean)");
+                            gSimMean->Draw("P same");
+
+                            TLegend* legMean = new TLegend(0.62, 0.16, 0.88, 0.28);
+                            legMean->SetBorderSize(0);
+                            legMean->SetFillStyle(0);
+                            legMean->SetTextFont(42);
+                            legMean->SetTextSize(0.04);
+                            legMean->AddEntry(gDatMean, "DATA (GetMean)", "p");
+                            legMean->AddEntry(gSimMean, "SIM (GetMean)",  "p");
+                            legMean->Draw();
+
+                            TLatex ttlMean;
+                            ttlMean.SetNDC(true);
+                            ttlMean.SetTextFont(42);
+                            ttlMean.SetTextSize(0.045);
+                            ttlMean.DrawLatex(0.16, 0.92, "RECO x_{J#gamma} mean vs p_{T}^{#gamma} Using GetMean");
+
+                            std::vector<double> vRatioMeanPt;
+                            std::vector<double> vRatioMeanPtErr;
+                            std::vector<double> vRatioMean;
+                            std::vector<double> vRatioMeanErr;
+
+                            for (int i = 0; i < (int)vPtCtr.size(); ++i)
+                            {
+                              if (vMeanSim[i] <= 0.0) continue;
+
+                              const double ratio = vMeanDat[i] / vMeanSim[i];
+                              const double fracDat = (vMeanDat[i] != 0.0) ? (vMeanDatErr[i] / vMeanDat[i]) : 0.0;
+                              const double fracSim = (vMeanSim[i] != 0.0) ? (vMeanSimErr[i] / vMeanSim[i]) : 0.0;
+                              const double ratioErr = ratio * std::sqrt(fracDat * fracDat + fracSim * fracSim);
+
+                              vRatioMeanPt.push_back(vPtCtr[i]);
+                              vRatioMeanPtErr.push_back(vPtErr[i]);
+                              vRatioMean.push_back(ratio);
+                              vRatioMeanErr.push_back(ratioErr);
+                            }
+
+                            pBot.cd();
+
+                            TGraphErrors* gRatioMean = new TGraphErrors((int)vRatioMeanPt.size());
+                            for (int i = 0; i < (int)vRatioMeanPt.size(); ++i)
+                            {
+                              gRatioMean->SetPoint(i, vRatioMeanPt[i], vRatioMean[i]);
+                              gRatioMean->SetPointError(i, vRatioMeanPtErr[i], vRatioMeanErr[i]);
+                            }
+
+                            gRatioMean->SetTitle("");
+                            gRatioMean->SetMarkerStyle(20);
+                            gRatioMean->SetMarkerSize(1.1);
+                            gRatioMean->SetMarkerColor(kBlack);
+                            gRatioMean->SetLineColor(kBlack);
+                            gRatioMean->SetLineWidth(2);
+
+                            gRatioMean->Draw("AP");
+                            gRatioMean->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                            gRatioMean->GetYaxis()->SetTitle("DATA / SIM");
+                            gRatioMean->GetXaxis()->SetTitleSize(0.12);
+                            gRatioMean->GetXaxis()->SetLabelSize(0.10);
+                            gRatioMean->GetYaxis()->SetTitleSize(0.10);
+                            gRatioMean->GetYaxis()->SetTitleOffset(0.55);
+                            gRatioMean->GetYaxis()->SetLabelSize(0.09);
+                            gRatioMean->SetMinimum(0.6);
+                            gRatioMean->SetMaximum(1.4);
+
+                            TLine lOne(
+                              vPtCtr.front() - vPtErr.front(), 1.0,
+                              vPtCtr.back()  + vPtErr.back(),  1.0
+                            );
+                            lOne.SetLineStyle(2);
+                            lOne.SetLineWidth(2);
+                            lOne.Draw("same");
+
+                            TF1* fRatioMean = nullptr;
+                            if ((int)vRatioMeanPt.size() > 0)
+                            {
+                              const double xLoFit = vRatioMeanPt.front() - vRatioMeanPtErr.front();
+                              const double xHiFit = vRatioMeanPt.back()  + vRatioMeanPtErr.back();
+
+                              fRatioMean = new TF1(
+                                TString::Format("fRatioMean_%s", rKey.c_str()).Data(),
+                                "pol0", xLoFit, xHiFit
+                              );
+                              fRatioMean->SetLineColor(kBlue + 1);
+                              fRatioMean->SetLineWidth(2);
+                              gRatioMean->Fit(fRatioMean, "Q");
+                              fRatioMean->Draw("same");
+                            }
+
+                            SaveCanvas(cMeanGetMeanWithRatio,
+                              JoinPath(dirFits, "meanVsPt_withRatioPanel_reco_integratedAlpha_overlayedWithSim_usingGetMean.png"));
+
+                            if (fRatioMean) delete fRatioMean;
+                            delete legMean;
+                            delete gDatMean;
+                            delete gSimMean;
+                            delete gRatioMean;
+
+                            // -----------------------------------------------------------------
+                            // NEW: pure mean overlay (Gaussian means + GetMean means)
+                            // -----------------------------------------------------------------
+                            TCanvas cMeanOverlay(
+                              TString::Format("c_meanVsPt_%s_gaussianAndGetMean", rKey.c_str()).Data(),
+                              "c_meanVsPt_gaussianAndGetMean", 900, 700
+                            );
+                            ApplyCanvasMargins1D(cMeanOverlay);
+
+                            TGraphErrors* gDatGausOv = new TGraphErrors((int)vPtCtr.size());
+                            TGraphErrors* gSimGausOv = new TGraphErrors((int)vPtCtr.size());
+                            TGraphErrors* gDatMeanOv = new TGraphErrors((int)vPtCtr.size());
+                            TGraphErrors* gSimMeanOv = new TGraphErrors((int)vPtCtr.size());
+
+                            double yMaxOv = 0.0;
+
+                            for (int i = 0; i < (int)vPtCtr.size(); ++i)
+                            {
+                              gDatGausOv->SetPoint(i, vPtCtr[i], vMuDat[i]);
+                              gDatGausOv->SetPointError(i, vPtErr[i], vMuDatErr[i]);
+
+                              gSimGausOv->SetPoint(i, vPtCtr[i], vMuSim[i]);
+                              gSimGausOv->SetPointError(i, vPtErr[i], vMuSimErr[i]);
+
+                              gDatMeanOv->SetPoint(i, vPtCtr[i], vMeanDat[i]);
+                              gDatMeanOv->SetPointError(i, vPtErr[i], vMeanDatErr[i]);
+
+                              gSimMeanOv->SetPoint(i, vPtCtr[i], vMeanSim[i]);
+                              gSimMeanOv->SetPointError(i, vPtErr[i], vMeanSimErr[i]);
+
+                              yMaxOv = std::max(yMaxOv, vMuDat[i]   + vMuDatErr[i]);
+                              yMaxOv = std::max(yMaxOv, vMuSim[i]   + vMuSimErr[i]);
+                              yMaxOv = std::max(yMaxOv, vMeanDat[i] + vMeanDatErr[i]);
+                              yMaxOv = std::max(yMaxOv, vMeanSim[i] + vMeanSimErr[i]);
+                            }
+
+                            gDatGausOv->SetTitle("");
+                            gDatGausOv->SetMarkerStyle(20);
+                            gDatGausOv->SetMarkerSize(1.2);
+                            gDatGausOv->SetMarkerColor(kGreen + 2);
+                            gDatGausOv->SetLineColor(kGreen + 2);
+                            gDatGausOv->SetLineWidth(2);
+
+                            gSimGausOv->SetMarkerStyle(20);
+                            gSimGausOv->SetMarkerSize(1.2);
+                            gSimGausOv->SetMarkerColor(kOrange + 7);
+                            gSimGausOv->SetLineColor(kOrange + 7);
+                            gSimGausOv->SetLineWidth(2);
+
+                            gDatMeanOv->SetMarkerStyle(20);
+                            gDatMeanOv->SetMarkerSize(1.2);
+                            gDatMeanOv->SetMarkerColor(kBlue + 1);
+                            gDatMeanOv->SetLineColor(kBlue + 1);
+                            gDatMeanOv->SetLineWidth(2);
+
+                            gSimMeanOv->SetMarkerStyle(20);
+                            gSimMeanOv->SetMarkerSize(1.2);
+                            gSimMeanOv->SetMarkerColor(kRed + 1);
+                            gSimMeanOv->SetLineColor(kRed + 1);
+                            gSimMeanOv->SetLineWidth(2);
+
+                            gDatGausOv->Draw("AP");
+                            gDatGausOv->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                            gDatGausOv->GetYaxis()->SetTitle("Mean of x_{J#gamma}");
+                            gDatGausOv->SetMinimum(0.0);
+                            gDatGausOv->SetMaximum((yMaxOv > 0.0) ? (1.20 * yMaxOv) : 1.0);
+
+                            gSimGausOv->Draw("P same");
+                            gDatMeanOv->Draw("P same");
+                            gSimMeanOv->Draw("P same");
+
+                            TLegend* legOv = new TLegend(0.54, 0.62, 0.90, 0.88);
+                            legOv->SetBorderSize(0);
+                            legOv->SetFillStyle(0);
+                            legOv->SetTextFont(42);
+                            legOv->SetTextSize(0.035);
+                            legOv->AddEntry(gDatGausOv, "DATA Gaussian mean", "p");
+                            legOv->AddEntry(gSimGausOv, "SIM Gaussian mean",  "p");
+                            legOv->AddEntry(gDatMeanOv, "DATA GetMean",       "p");
+                            legOv->AddEntry(gSimMeanOv, "SIM GetMean",        "p");
+                            legOv->Draw();
+
+                            TLatex ttlOv;
+                            ttlOv.SetNDC(true);
+                            ttlOv.SetTextFont(42);
+                            ttlOv.SetTextSize(0.045);
+                            ttlOv.DrawLatex(0.16, 0.92, "RECO x_{J#gamma} mean overlay: Gaussian fits and Using GetMean");
+
+                            SaveCanvas(cMeanOverlay,
+                              JoinPath(dirFits, "meanVsPt_reco_integratedAlpha_overlayedWithSim_gaussianAndGetMean.png"));
+
+                            delete legOv;
+                            delete gDatGausOv;
+                            delete gSimGausOv;
+                            delete gDatMeanOv;
+                            delete gSimMeanOv;
+                          }
+
                           delete legM;
                           delete gDat;
                           delete gSim;
@@ -8517,7 +8951,7 @@ namespace ARJ
 
                       for (auto* f : keepFitFns) delete f;
                       for (auto* h1 : keepFitsH) delete h1;
-                    }
+                  }
               }
 
               auto Make3x3Table_xJ_FromTH3 =
