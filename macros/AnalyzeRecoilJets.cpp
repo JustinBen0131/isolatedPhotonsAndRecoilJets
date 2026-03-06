@@ -23479,150 +23479,216 @@ namespace ARJ
 
               anyPad = true;
 
-              TH1* hData = nullptr;
-              TH1* hSig  = nullptr;
-              TH1* hBkg  = nullptr;
+                TH1* hData = nullptr;
+                TH1* hSig  = nullptr;
+                TH1* hBkg  = nullptr;
 
-              if (rawData)
-                hData = CloneNormalizeStyle(rawData,
-                  TString::Format("ss_%s_%s_%s_data", tag.c_str(), var.c_str(), pb.folder.c_str()).Data(),
-                  kBlack, 20);
-
-              if (rawSig)
-                hSig = CloneNormalizeStyle(rawSig,
-                  TString::Format("ss_%s_%s_%s_sig", tag.c_str(), var.c_str(), pb.folder.c_str()).Data(),
-                  kRed + 1, 24);
-
-              if (rawBkg)
-                hBkg = CloneNormalizeStyle(rawBkg,
-                  TString::Format("ss_%s_%s_%s_bkg", tag.c_str(), var.c_str(), pb.folder.c_str()).Data(),
-                  kBlue + 1, 25);
-
-              TH1* hFirst = (hData ? hData : (hSig ? hSig : hBkg));
-              if (!hFirst)
-              {
-                DrawMissingPad(TString::Format("%s, %s, %s", var.c_str(), tag.c_str(), pb.folder.c_str()).Data());
-                continue;
-              }
-
-              hFirst->GetXaxis()->SetTitle(vlabel.c_str());
-              hFirst->GetYaxis()->SetTitle("Normalized counts");
-
-              double yMax = 0.0;
-              if (hData) yMax = std::max(yMax, (double)hData->GetMaximum());
-              if (hSig)  yMax = std::max(yMax, (double)hSig->GetMaximum());
-              if (hBkg)  yMax = std::max(yMax, (double)hBkg->GetMaximum());
-
-              hFirst->SetMinimum(0.0);
-              hFirst->SetMaximum((yMax > 0.0) ? (yMax * 1.35) : 1.0);
-
-              hFirst->Draw("E1");
-              if (hData && hData != hFirst) hData->Draw("E1 same");
-              if (hSig  && hSig  != hFirst) hSig->Draw("E1 same");
-              if (hBkg  && hBkg  != hFirst) hBkg->Draw("E1 same");
-
-              // Legend
-              {
-                const bool isW = (var == "weta" || var == "wphi");
-                TLegend* leg = (isW ? new TLegend(0.55, 0.62, 0.93, 0.86) : new TLegend(0.16, 0.62, 0.54, 0.86));
-                leg->SetBorderSize(0);
-                leg->SetFillStyle(0);
-                leg->SetTextFont(42);
-                leg->SetTextSize(0.036);
-
-                if (hData) leg->AddEntry(hData, "Data", "ep");
-                if (hSig)  leg->AddEntry(hSig,  "Signal MC", "ep");
-                if (hBkg)  leg->AddEntry(hBkg,  "Background MC", "ep");
-
-                leg->Draw();
-                keepLeg.push_back(leg);
-              }
-
-              // Pad header
-              {
-                std::string tagLabel = "Preselection";
-                if (tag == "tight") tagLabel = "Tight";
-                else if (tag == "nonTight") tagLabel = "Non-tight";
-
-                TLatex th;
-                th.SetNDC(true);
-                th.SetTextFont(42);
-                th.SetTextAlign(22);
-                th.SetTextSize(0.050);
-                th.DrawLatex(0.50, 0.94,
-                  TString::Format("%s, %s, p_{T}^{#gamma}: %d-%d GeV",
-                    vlabel.c_str(), tagLabel.c_str(), pb.lo, pb.hi).Data());
-              }
-
-              // SS cut label + cut lines (fixed-cut vars)
-              {
-                TLatex tcut;
-                tcut.SetNDC(true);
-                tcut.SetTextFont(42);
-                tcut.SetTextAlign(13);
-                tcut.SetTextSize(0.040);
-
-                bool drawCuts = false;
-                double cutLo = 0.0;
-                double cutHi = 0.0;
-                std::string cutText;
-
-                if (var == "e11e33")
+                if (rawData)
                 {
-                  cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
-                  drawCuts = true;
-                  cutLo = 0.4;
-                  cutHi = 0.98;
-                }
-                else if (var == "e32e35")
-                {
-                  cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
-                  drawCuts = true;
-                  cutLo = 0.92;
-                  cutHi = 1.0;
-                }
-                else if (var == "et1")
-                {
-                  cutText = "#gamma-ID: 0.9 < et1 < 1.0";
-                  drawCuts = true;
-                  cutLo = 0.9;
-                  cutHi = 1.0;
-                }
-                else if (var == "weta")
-                {
-                  cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
-                }
-                else if (var == "wphi")
-                {
-                  cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                  hData = CloneNormalizeStyle(rawData,
+                    TString::Format("ss_%s_%s_%s_data", tag.c_str(), var.c_str(), pb.folder.c_str()).Data(),
+                    kBlack, 20);
+
+                  if (hData)
+                  {
+                    hData->SetLineWidth(2);
+                    hData->SetLineColor(kBlack);
+                    hData->SetMarkerColor(kBlack);
+                    hData->SetMarkerStyle(20);
+                    hData->SetMarkerSize(1.00);
+                    hData->SetFillStyle(0);
+                  }
                 }
 
-                if (!cutText.empty())
+                if (rawSig)
                 {
-                  tcut.DrawLatex(0.16, 0.86, cutText.c_str());
+                  hSig = CloneNormalizeStyle(rawSig,
+                    TString::Format("ss_%s_%s_%s_sig", tag.c_str(), var.c_str(), pb.folder.c_str()).Data(),
+                    kRed + 1, 24);
+
+                  if (hSig)
+                  {
+                    hSig->SetLineWidth(2);
+                    hSig->SetLineColor(kRed + 1);
+                    hSig->SetMarkerColor(kRed + 1);
+                    hSig->SetMarkerStyle(1);
+                    hSig->SetMarkerSize(0.0);
+                    hSig->SetFillStyle(0);
+                  }
                 }
 
-                if (drawCuts)
+                if (rawBkg)
                 {
-                  gPad->Update();
-                  const double yMin = gPad->GetUymin();
-                  const double yMaxPad = gPad->GetUymax();
+                  hBkg = CloneNormalizeStyle(rawBkg,
+                    TString::Format("ss_%s_%s_%s_bkg", tag.c_str(), var.c_str(), pb.folder.c_str()).Data(),
+                    kBlue + 1, 25);
 
-                  TLine* l1 = new TLine(cutLo, yMin, cutLo, yMaxPad);
-                  l1->SetLineColor(kGreen + 2);
-                  l1->SetLineWidth(2);
-                  l1->SetLineStyle(2);
-                  l1->Draw("same");
-
-                  TLine* l2 = new TLine(cutHi, yMin, cutHi, yMaxPad);
-                  l2->SetLineColor(kOrange + 7);
-                  l2->SetLineWidth(2);
-                  l2->SetLineStyle(2);
-                  l2->Draw("same");
+                  if (hBkg)
+                  {
+                    hBkg->SetLineWidth(2);
+                    hBkg->SetLineColor(kBlue + 1);
+                    hBkg->SetMarkerColor(kBlue + 1);
+                    hBkg->SetMarkerStyle(1);
+                    hBkg->SetMarkerSize(0.0);
+                    hBkg->SetFillStyle(0);
+                  }
                 }
 
-                gPad->RedrawAxis();
-              }
+                TH1* hFirst = (hData ? hData : (hSig ? hSig : hBkg));
+                if (!hFirst)
+                {
+                  DrawMissingPad(TString::Format("%s, %s, %s", var.c_str(), tag.c_str(), pb.folder.c_str()).Data());
+                  continue;
+                }
+
+                hFirst->GetXaxis()->SetTitle(vlabel.c_str());
+                hFirst->GetYaxis()->SetTitle("Normalized counts");
+
+                double yMax = 0.0;
+                if (hData) yMax = std::max(yMax, (double)hData->GetMaximum());
+                if (hSig)  yMax = std::max(yMax, (double)hSig->GetMaximum());
+                if (hBkg)  yMax = std::max(yMax, (double)hBkg->GetMaximum());
+
+                hFirst->SetMinimum(0.0);
+                hFirst->SetMaximum((yMax > 0.0) ? (yMax * 1.35) : 1.0);
+
+                if (hSig)
+                {
+                  hSig->Draw("HIST");
+                }
+                else if (hBkg)
+                {
+                  hBkg->Draw("HIST");
+                }
+                else
+                {
+                  hData->Draw("E1");
+                }
+
+                if (hBkg && hBkg != hSig)  hBkg->Draw("HIST same");
+                if (hData)                 hData->Draw("E1 same");
+
+                // Legend
+                {
+                  const bool isW = (var == "weta" || var == "wphi");
+                  TLegend* leg = (isW ? new TLegend(0.55, 0.62, 0.93, 0.82) : new TLegend(0.16, 0.62, 0.54, 0.82));
+                  leg->SetBorderSize(0);
+                  leg->SetFillStyle(0);
+                  leg->SetTextFont(42);
+                  leg->SetTextSize(0.036);
+
+                  if (hData) leg->AddEntry(hData, "Data", "ep");
+                  if (hSig)  leg->AddEntry(hSig,  "Signal MC", "l");
+                  if (hBkg)  leg->AddEntry(hBkg,  "Background MC", "l");
+
+                  leg->Draw();
+                  keepLeg.push_back(leg);
+                }
+
+                // Pad header
+                {
+                  std::string tagLabel = "Preselection";
+                  if (tag == "tight") tagLabel = "Tight";
+                  else if (tag == "nonTight") tagLabel = "Non-tight";
+
+                  TLatex th;
+                  th.SetNDC(true);
+                  th.SetTextFont(42);
+                  th.SetTextAlign(22);
+                  th.SetTextSize(0.050);
+                  th.DrawLatex(0.50, 0.94,
+                    TString::Format("%s, %s, p_{T}^{#gamma}: %d-%d GeV",
+                      vlabel.c_str(), tagLabel.c_str(), pb.lo, pb.hi).Data());
+                }
+
+                // SS cut label + cut lines (fixed-cut vars)
+                {
+                  TLatex tcut;
+                  tcut.SetNDC(true);
+                  tcut.SetTextFont(42);
+                  tcut.SetTextAlign(13);
+                  tcut.SetTextSize(0.040);
+
+                  bool drawCuts = false;
+                  bool drawSingleCut = false;
+                  double cutLo = 0.0;
+                  double cutHi = 0.0;
+                  std::string cutText;
+
+                  if (var == "e11e33")
+                  {
+                    cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
+                    drawCuts = true;
+                    cutLo = 0.4;
+                    cutHi = 0.98;
+                  }
+                  else if (var == "e32e35")
+                  {
+                    cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
+                    drawCuts = true;
+                    cutLo = 0.92;
+                    cutHi = 1.0;
+                  }
+                  else if (var == "et1")
+                  {
+                    cutText = "#gamma-ID: 0.9 < et1 < 1.0";
+                    drawCuts = true;
+                    cutLo = 0.9;
+                    cutHi = 1.0;
+                  }
+                  else if (var == "weta")
+                  {
+                    cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                    drawSingleCut = true;
+                    const double ptCenter = 0.5 * (pb.lo + pb.hi);
+                    cutHi = 0.15 + 0.006 * ptCenter;
+                  }
+                  else if (var == "wphi")
+                  {
+                    cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                    drawSingleCut = true;
+                    const double ptCenter = 0.5 * (pb.lo + pb.hi);
+                    cutHi = 0.15 + 0.006 * ptCenter;
+                  }
+
+                  if (!cutText.empty())
+                  {
+                    tcut.DrawLatex(0.16, 0.86, cutText.c_str());
+                  }
+
+                  if (drawCuts || drawSingleCut)
+                  {
+                    gPad->Update();
+                    const double yMin = gPad->GetUymin();
+                    const double yMaxPad = gPad->GetUymax();
+
+                    if (drawCuts)
+                    {
+                      TLine* l1 = new TLine(cutLo, yMin, cutLo, yMaxPad);
+                      l1->SetLineColor(kBlack);
+                      l1->SetLineWidth(2);
+                      l1->SetLineStyle(2);
+                      l1->Draw("same");
+
+                      TLine* l2 = new TLine(cutHi, yMin, cutHi, yMaxPad);
+                      l2->SetLineColor(kBlack);
+                      l2->SetLineWidth(2);
+                      l2->SetLineStyle(2);
+                      l2->Draw("same");
+                    }
+
+                    if (drawSingleCut)
+                    {
+                      TLine* l1 = new TLine(cutHi, yMin, cutHi, yMaxPad);
+                      l1->SetLineColor(kBlack);
+                      l1->SetLineWidth(2);
+                      l1->SetLineStyle(2);
+                      l1->Draw("same");
+                    }
+                  }
+
+                  gPad->RedrawAxis();
+                }
 
               if (hData) keepAlive.push_back(hData);
               if (hSig)  keepAlive.push_back(hSig);
@@ -24591,49 +24657,50 @@ namespace ARJ
                << "\n";
         }
 
-        if (isSimAndDataPP && bothPhoton10and20sim)
+        if (isSimAndDataPP && bothPhoton10and20sim && do_xJ_PPunfold)
         {
-          Dataset* dsSIM = nullptr;
-          Dataset* dsPP  = nullptr;
+            Dataset* dsSIM = nullptr;
+            Dataset* dsPP  = nullptr;
 
-          for (auto& ds : datasets)
-          {
-            if (ds.isSim) dsSIM = &ds;
-            else         dsPP  = &ds;
-          }
+            for (auto& ds : datasets)
+            {
+              if (ds.isSim) dsSIM = &ds;
+              else         dsPP  = &ds;
+            }
 
-          if (!dsSIM || !dsPP)
-          {
-            cout << ANSI_BOLD_YEL
-                 << "[WARN] RooUnfold pipeline requested (isSimAndDataPP && bothPhoton10and20sim), but SIM or DATA dataset is missing. Skipping."
-                 << ANSI_RESET << "\n";
+            if (!dsSIM || !dsPP)
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] RooUnfold pipeline requested (isSimAndDataPP && bothPhoton10and20sim && do_xJ_PPunfold), but SIM or DATA dataset is missing. Skipping."
+                   << ANSI_RESET << "\n";
+            }
+            else
+            {
+              cout << "  -> [5I] RooUnfold pipeline (SIM+DATA PP): non-purity-corrected unfold to particle level + per-photon x_{J} tables...\n";
+              gApplyPurityCorrectionForUnfolding = false;
+              analysis::RunRooUnfoldPipeline_SimAndDataPP(*dsPP, *dsSIM);
+              cout << "     [OK] nonPurityCorrected\n";
+
+              cout << "  -> [5I] RooUnfold pipeline (SIM+DATA PP): purity-corrected unfold to particle level + per-photon x_{J} tables...\n";
+              gApplyPurityCorrectionForUnfolding = true;
+              analysis::RunRooUnfoldPipeline_SimAndDataPP(*dsPP, *dsSIM);
+              gApplyPurityCorrectionForUnfolding = false;
+              cout << "     [OK] purityCorrected\n";
+
+              cout << "  -> [5I] purity-corrected vs non-purity-corrected per-photon x_{J} overlays...\n";
+              analysis::RunPurityCorrectedUncorrectedOverlayPP(*dsPP);
+              cout << "     [OK] purityCorrectedUncorrectedOverly\n";
+            }
           }
           else
           {
-            cout << "  -> [5I] RooUnfold pipeline (SIM+DATA PP): non-purity-corrected unfold to particle level + per-photon x_{J} tables...\n";
-            gApplyPurityCorrectionForUnfolding = false;
-            analysis::RunRooUnfoldPipeline_SimAndDataPP(*dsPP, *dsSIM);
-            cout << "     [OK] nonPurityCorrected\n";
-
-            cout << "  -> [5I] RooUnfold pipeline (SIM+DATA PP): purity-corrected unfold to particle level + per-photon x_{J} tables...\n";
-            gApplyPurityCorrectionForUnfolding = true;
-            analysis::RunRooUnfoldPipeline_SimAndDataPP(*dsPP, *dsSIM);
-            gApplyPurityCorrectionForUnfolding = false;
-            cout << "     [OK] purityCorrected\n";
-
-            cout << "  -> [5I] purity-corrected vs non-purity-corrected per-photon x_{J} overlays...\n";
-            analysis::RunPurityCorrectedUncorrectedOverlayPP(*dsPP);
-            cout << "     [OK] purityCorrectedUncorrectedOverly\n";
+            cout << ANSI_BOLD_YEL
+                 << "[5I] Skipping RooUnfold pipeline: requires (isSimAndDataPP && bothPhoton10and20sim && do_xJ_PPunfold).\n"
+                 << "     Current: isSimAndDataPP=" << (isSimAndDataPP ? "true" : "false")
+                 << " bothPhoton10and20sim=" << (bothPhoton10and20sim ? "true" : "false")
+                 << " do_xJ_PPunfold=" << (do_xJ_PPunfold ? "true" : "false")
+                 << ANSI_RESET << "\n";
           }
-        }
-        else
-        {
-          cout << ANSI_BOLD_YEL
-               << "[5I] Skipping RooUnfold pipeline: requires (isSimAndDataPP && bothPhoton10and20sim).\n"
-               << "     Current: isSimAndDataPP=" << (isSimAndDataPP ? "true" : "false")
-               << " bothPhoton10and20sim=" << (bothPhoton10and20sim ? "true" : "false")
-               << ANSI_RESET << "\n";
-        }
       }
 
       // ---------------------------------------------------------------------------

@@ -3500,15 +3500,15 @@
                     // Ensure pad coordinate system is finalized before drawing primitives
                     if (gPad) { gPad->Modified(); gPad->Update(); }
 
-                    // Dashed reference line at y = 1 (use pad user coordinates so it always appears)
+                    // Dashed reference line at y = 1 (persist it in the pad so it appears in saved output)
                     {
-                          const double xmin = (gPad ? gPad->GetUxmin() : 0.0);
-                          const double xmax = (gPad ? gPad->GetUxmax() : 2.0);
-                          TLine l1(xmin, 1.0, xmax, 1.0);
-                          l1.SetLineStyle(2);
-                          l1.SetLineWidth(2);
-                          l1.SetLineColor(kGray + 2);
-                          l1.Draw("same");
+                            const double xmin = (gPad ? gPad->GetUxmin() : 0.0);
+                            const double xmax = (gPad ? gPad->GetUxmax() : 2.0);
+                            TLine* l1 = new TLine(xmin, 1.0, xmax, 1.0);
+                            l1->SetLineStyle(2);
+                            l1->SetLineWidth(2);
+                            l1->SetLineColor(kGray + 2);
+                            l1->Draw("same");
                     }
 
                     // Per-pad cut/trigger label (moved to bottom-right corner)
