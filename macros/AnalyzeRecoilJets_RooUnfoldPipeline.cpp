@@ -3497,30 +3497,34 @@
                                    TString::Format("Error ratio, p_{T}^{#gamma} %d-%d GeV, R = %.1f", b.lo, b.hi, R).Data());
                     }
 
-                    // Dashed reference line at y = 1
+                    // Ensure pad coordinate system is finalized before drawing primitives
+                    if (gPad) { gPad->Modified(); gPad->Update(); }
+
+                    // Dashed reference line at y = 1 (use pad user coordinates so it always appears)
                     {
-                        const double xmin = 0.0;
-                        const double xmax = 2.0;
-                        TLine l1(xmin, 1.0, xmax, 1.0);
-                        l1.SetLineStyle(2);
-                        l1.SetLineWidth(2);
-                        l1.Draw("same");
+                          const double xmin = (gPad ? gPad->GetUxmin() : 0.0);
+                          const double xmax = (gPad ? gPad->GetUxmax() : 2.0);
+                          TLine l1(xmin, 1.0, xmax, 1.0);
+                          l1.SetLineStyle(2);
+                          l1.SetLineWidth(2);
+                          l1.SetLineColor(kGray + 2);
+                          l1.Draw("same");
                     }
 
-                    // Per-pad cut/trigger label (moved to lower-right to avoid overlap)
+                    // Per-pad cut/trigger label (moved to bottom-right corner)
                     {
-                        TLatex tx;
-                        tx.SetNDC();
-                        tx.SetTextFont(42);
-                        tx.SetTextAlign(31);
-                        tx.SetTextSize(0.04);
+                          TLatex tx;
+                          tx.SetNDC();
+                          tx.SetTextFont(42);
+                          tx.SetTextAlign(31);
+                          tx.SetTextSize(0.038);
 
-                        const double xR = 0.93;
-                        tx.DrawLatex(xR, 0.46, TString::Format("Bayes it = %d", kBayesIterXJ).Data());
-                        tx.DrawLatex(xR, 0.53, "z_{vtx} < 60 cm");
-                        tx.DrawLatex(xR, 0.60, "#Delta #phi > 7#pi/8");
-                        tx.DrawLatex(xR, 0.67, "p_{T}^{min, jet} > 5");
-                        tx.DrawLatex(xR, 0.74, "Trigger = Photon 4 + MBD NS #geq 1");
+                          const double xR = 0.93;
+                          tx.DrawLatex(xR, 0.28, TString::Format("Bayes it = %d", kBayesIterXJ).Data());
+                          tx.DrawLatex(xR, 0.35, "z_{vtx} < 60 cm");
+                          tx.DrawLatex(xR, 0.42, "#Delta #phi > 7#pi/8");
+                          tx.DrawLatex(xR, 0.49, "p_{T}^{min, jet} > 5");
+                          tx.DrawLatex(xR, 0.56, "Trigger = Photon 4 + MBD NS #geq 1");
                      }
                   }
 
