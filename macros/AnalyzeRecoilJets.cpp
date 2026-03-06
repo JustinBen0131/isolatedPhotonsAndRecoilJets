@@ -16791,15 +16791,23 @@ namespace ARJ
           }
 
             const int kBayesIterPho = 3;
-            const int kNToysPho = 2000;
+
+            // Toy settings:
+            //   - "final" is for the baseline unfolded spectrum that feeds your main outputs
+            //   - "scan" is for iteration-stability / closure / half-closure diagnostics
+            const int kNToysPhoFinal = 600;
+            const int kNToysPhoScan  = 120;
 
             RooUnfoldResponse respPho(hPhoRecoSim, hPhoTruthSim, hPhoResp_measXtruth, "respPho", "respPho");
 
             RooUnfoldBayes    unfoldPhoToy(&respPho, hPhoRecoData, kBayesIterPho);
             unfoldPhoToy.SetVerbose(0);
-            unfoldPhoToy.SetNToys(kNToysPho);
+            unfoldPhoToy.SetNToys(kNToysPhoFinal);
 
-            TH1* hPhoUnfoldTruth = unfoldPhoToy.Hreco(RooUnfold::kCovToy);
+            TH1* hPhoUnfoldTruth = nullptr;
+            if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
+            hPhoUnfoldTruth = unfoldPhoToy.Hreco(RooUnfold::kCovToy);
+            if (gSystem) gSystem->RedirectOutput(0);
             if (hPhoUnfoldTruth) hPhoUnfoldTruth->SetDirectory(nullptr);
 
             RooUnfoldBayes    unfoldPhoCov(&respPho, hPhoRecoData, kBayesIterPho);
@@ -17690,9 +17698,12 @@ namespace ARJ
             {
               RooUnfoldBayes uC(&respPho, hPhoRecoSim, kBayesIterPho);
               uC.SetVerbose(0);
-              uC.SetNToys(kNToysPho);
+              uC.SetNToys(kNToysPhoScan);
 
-              TH1* hUnfC = uC.Hreco(RooUnfold::kCovToy);
+              TH1* hUnfC = nullptr;
+              if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
+              hUnfC = uC.Hreco(RooUnfold::kCovToy);
+              if (gSystem) gSystem->RedirectOutput(0);
               if (hUnfC)
               {
                 hUnfC->SetDirectory(nullptr);
@@ -17868,9 +17879,12 @@ namespace ARJ
 
                 RooUnfoldBayes uH(&respPhoA, hMeasB, kBayesIterPho);
                 uH.SetVerbose(0);
-                uH.SetNToys(kNToysPho);
+                uH.SetNToys(kNToysPhoScan);
 
-                TH1* hUnfB = uH.Hreco(RooUnfold::kCovToy);
+                TH1* hUnfB = nullptr;
+                if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
+                hUnfB = uH.Hreco(RooUnfold::kCovToy);
+                if (gSystem) gSystem->RedirectOutput(0);
                 if (hUnfB)
                 {
                   hUnfB->SetDirectory(nullptr);
@@ -18079,11 +18093,18 @@ namespace ARJ
                                     TString::Format("respXJ_%s", rKey.c_str()).Data(),
                                     TString::Format("respXJ_%s", rKey.c_str()).Data());
 
+              // Toy settings for xJ:
+              const int kNToysXJFinal = 600;
+              const int kNToysXJScan  = 120;
+
               RooUnfoldBayes unfoldXJ_toy(&respXJ, hMeasDataGlob, kBayesIterXJ);
               unfoldXJ_toy.SetVerbose(0);
-              unfoldXJ_toy.SetNToys(kNToysXJ);
+              unfoldXJ_toy.SetNToys(kNToysXJFinal);
 
-              TH1* hUnfoldTruthGlob = unfoldXJ_toy.Hreco(RooUnfold::kCovToy);
+              TH1* hUnfoldTruthGlob = nullptr;
+              if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
+              hUnfoldTruthGlob = unfoldXJ_toy.Hreco(RooUnfold::kCovToy);
+              if (gSystem) gSystem->RedirectOutput(0);
               if (hUnfoldTruthGlob) hUnfoldTruthGlob->SetDirectory(nullptr);
 
               RooUnfoldBayes unfoldXJ_cov(&respXJ, hMeasDataGlob, kBayesIterXJ);
@@ -18204,9 +18225,12 @@ namespace ARJ
 
                 RooUnfoldBayes unfoldXJ_closure(&respXJ, (hMeasSimGlob_closure ? hMeasSimGlob_closure : hMeasSimGlob), kBayesIterXJ);
                 unfoldXJ_closure.SetVerbose(0);
-                unfoldXJ_closure.SetNToys(kNToysXJ);
+                unfoldXJ_closure.SetNToys(kNToysXJScan);
 
-                TH1* hUnfoldTruthGlob_closure = unfoldXJ_closure.Hreco(RooUnfold::kCovToy);
+                TH1* hUnfoldTruthGlob_closure = nullptr;
+                if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
+                hUnfoldTruthGlob_closure = unfoldXJ_closure.Hreco(RooUnfold::kCovToy);
+                if (gSystem) gSystem->RedirectOutput(0);
                 if (hUnfoldTruthGlob_closure) hUnfoldTruthGlob_closure->SetDirectory(nullptr);
 
                 TH2* h2UnfoldTruth_closure = nullptr;
@@ -18492,10 +18516,13 @@ namespace ARJ
                     if (hMeasSimGlob_halfB_meas) hMeasSimGlob_halfB_meas->SetDirectory(nullptr);
 
                     RooUnfoldBayes unfoldXJ_half(&respXJ_half, (hMeasSimGlob_halfB_meas ? hMeasSimGlob_halfB_meas : hMeasSimGlob_B), kBayesIterXJ);
-                    unfoldXJ_half.SetVerbose(0);
-                    unfoldXJ_half.SetNToys(kNToysXJ);
+                      unfoldXJ_half.SetVerbose(0);
+                      unfoldXJ_half.SetNToys(kNToysXJScan);
 
-                    TH1* hUnfoldTruthGlob_half = unfoldXJ_half.Hreco(RooUnfold::kCovToy);
+                    TH1* hUnfoldTruthGlob_half = nullptr;
+                    if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
+                    hUnfoldTruthGlob_half = unfoldXJ_half.Hreco(RooUnfold::kCovToy);
+                    if (gSystem) gSystem->RedirectOutput(0);
                     if (hUnfoldTruthGlob_half) hUnfoldTruthGlob_half->SetDirectory(nullptr);
 
                     TH2* h2UnfoldTruth_half = nullptr;
