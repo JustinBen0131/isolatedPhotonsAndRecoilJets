@@ -17473,7 +17473,7 @@ namespace ARJ
           // Photon summary for unfolding RECO pT bins
           vector<string> phoSummary;
           phoSummary.push_back("Photon unfolding summary (PP DATA unfolded to truth pTgamma)");
-          phoSummary.push_back(TString::Format("Method: RooUnfoldBayes, iterations=%d, error=kCovariance", kBayesIterPho).Data());
+          phoSummary.push_back(TString::Format("Method: RooUnfoldBayes, iterations=%d, error=kCovToy, Ntoys=%d", kBayesIterPho, kNToysPho).Data());
           phoSummary.push_back("");
 
           {
@@ -17551,8 +17551,9 @@ namespace ARJ
                 {
                   RooUnfoldBayes uIt(&respPho, hPhoRecoData, it);
                   uIt.SetVerbose(0);
+                  uIt.SetNToys(kNToysPho);
 
-                  TH1* hIt = uIt.Hreco(RooUnfold::kCovariance);
+                  TH1* hIt = uIt.Hreco(RooUnfold::kCovToy);
                   if (!hIt) continue;
 
                   hIt->SetDirectory(nullptr);
@@ -17689,8 +17690,9 @@ namespace ARJ
             {
               RooUnfoldBayes uC(&respPho, hPhoRecoSim, kBayesIterPho);
               uC.SetVerbose(0);
+              uC.SetNToys(kNToysPho);
 
-              TH1* hUnfC = uC.Hreco(RooUnfold::kCovariance);
+              TH1* hUnfC = uC.Hreco(RooUnfold::kCovToy);
               if (hUnfC)
               {
                 hUnfC->SetDirectory(nullptr);
@@ -17866,8 +17868,9 @@ namespace ARJ
 
                 RooUnfoldBayes uH(&respPhoA, hMeasB, kBayesIterPho);
                 uH.SetVerbose(0);
+                uH.SetNToys(kNToysPho);
 
-                TH1* hUnfB = uH.Hreco(RooUnfold::kCovariance);
+                TH1* hUnfB = uH.Hreco(RooUnfold::kCovToy);
                 if (hUnfB)
                 {
                   hUnfB->SetDirectory(nullptr);
@@ -18201,8 +18204,9 @@ namespace ARJ
 
                 RooUnfoldBayes unfoldXJ_closure(&respXJ, (hMeasSimGlob_closure ? hMeasSimGlob_closure : hMeasSimGlob), kBayesIterXJ);
                 unfoldXJ_closure.SetVerbose(0);
+                unfoldXJ_closure.SetNToys(kNToysXJ);
 
-                TH1* hUnfoldTruthGlob_closure = unfoldXJ_closure.Hreco(RooUnfold::kCovariance);
+                TH1* hUnfoldTruthGlob_closure = unfoldXJ_closure.Hreco(RooUnfold::kCovToy);
                 if (hUnfoldTruthGlob_closure) hUnfoldTruthGlob_closure->SetDirectory(nullptr);
 
                 TH2* h2UnfoldTruth_closure = nullptr;
@@ -18489,8 +18493,9 @@ namespace ARJ
 
                     RooUnfoldBayes unfoldXJ_half(&respXJ_half, (hMeasSimGlob_halfB_meas ? hMeasSimGlob_halfB_meas : hMeasSimGlob_B), kBayesIterXJ);
                     unfoldXJ_half.SetVerbose(0);
+                    unfoldXJ_half.SetNToys(kNToysXJ);
 
-                    TH1* hUnfoldTruthGlob_half = unfoldXJ_half.Hreco(RooUnfold::kCovariance);
+                    TH1* hUnfoldTruthGlob_half = unfoldXJ_half.Hreco(RooUnfold::kCovToy);
                     if (hUnfoldTruthGlob_half) hUnfoldTruthGlob_half->SetDirectory(nullptr);
 
                     TH2* h2UnfoldTruth_half = nullptr;
@@ -18738,14 +18743,14 @@ namespace ARJ
               hPerPho->SetMarkerStyle(20);
               hPerPho->SetMarkerSize(0.85);
 
-                perPhoHists[i] = hPerPho;
+              perPhoHists[i] = hPerPho;
 
-                // -------------------------------------------------------------------
-                // NEW: covariance-error version of the same unfolded per-photon spectrum
-                //      (used only for ToyUnfoldingVsCovariance overlays)
-                // -------------------------------------------------------------------
-                if (h2UnfoldTruth_cov && hPhoUnfoldTruth_cov)
-                {
+              // -------------------------------------------------------------------
+              //  covariance-error version of the same unfolded per-photon spectrum
+              //      (used only for ToyUnfoldingVsCovariance overlays)
+              // -------------------------------------------------------------------
+              if (h2UnfoldTruth_cov && hPhoUnfoldTruth_cov)
+              {
                   const int ixTruthCov = h2UnfoldTruth_cov->GetXaxis()->FindBin(cen);
                   const int ibPhoCov   = hPhoUnfoldTruth_cov->GetXaxis()->FindBin(cen);
 
@@ -18817,12 +18822,12 @@ namespace ARJ
 
                       delete hXJ_cov;
                     }
-                  }
-                }
+                 }
+              }
 
-                // -------------------------------------------------------------------
-                // "before unfolding data" (measured reco per-photon) for this pT bin
-                // -------------------------------------------------------------------
+              // -------------------------------------------------------------------
+              // "before unfolding data" (measured reco per-photon) for this pT bin
+              // -------------------------------------------------------------------
               if (h2RecoData && hPhoRecoData)
               {
                   const int ixReco = h2RecoData->GetXaxis()->FindBin(cen);
@@ -19042,7 +19047,7 @@ namespace ARJ
                     SaveCanvas(c, JoinPath(rOut, TString::Format("xJ_unfolded_perPhoton_pTbin%d.png", i + 1).Data()));
 
                     // -------------------------------------------------------------------
-                    // NEW: Toy unfolding vs analytic covariance errors overlay (DATA)
+                    //  Toy unfolding vs analytic covariance errors overlay (DATA)
                     //   output: <rOut>/ToyUnfoldingVsCovariance/xJ_ToyUnfoldingVsCovariance_pTbin%d.png
                     // -------------------------------------------------------------------
                     if (perPhoHists[i] && perPhoHists_cov[i])
@@ -19128,7 +19133,7 @@ namespace ARJ
                     }
 
                     // -------------------------------------------------------------------
-                    // NEW: before/after unfolding overlay (DATA)
+                    // before/after unfolding overlay (DATA)
                     // -------------------------------------------------------------------
                     if (perPhoBeforeDataHists[i] && perPhoHists[i])
                     {
@@ -19182,7 +19187,7 @@ namespace ARJ
                     }
 
                     // -------------------------------------------------------------------
-                    // NEW: truth MC vs unfolded data overlay
+                    // truth MC vs unfolded data overlay
                     // -------------------------------------------------------------------
                     if (perPhoTruthHists[i] && perPhoHists[i])
                     {
@@ -19325,7 +19330,7 @@ namespace ARJ
               delete hXJ;
             }
 
-              {
+            {
                 bool any = false;
                 for (auto* h : perPhoHists) if (h) { any = true; break; }
 
@@ -19434,13 +19439,13 @@ namespace ARJ
                       }
                   }
 
-                    SaveCanvas(c, JoinPath(rOut, "table2x4_unfolded_perPhoton_dNdXJ.png"));
+                  SaveCanvas(c, JoinPath(rOut, "table2x4_unfolded_perPhoton_dNdXJ.png"));
 
-                    // -------------------------------------------------------------------
-                    // 2x4 summary table: Toy unfolding errors vs analytic covariance errors
-                    //   output: <rOut>/ToyUnfoldingVsCovariance/table2x4_ToyUnfoldingVsCovariance.png
-                    // -------------------------------------------------------------------
-                    {
+                  // -------------------------------------------------------------------
+                  // 2x4 summary table: Toy unfolding errors vs analytic covariance errors
+                  //   output: <rOut>/ToyUnfoldingVsCovariance/table2x4_ToyUnfoldingVsCovariance.png
+                  // -------------------------------------------------------------------
+                  {
                         bool anyTC = false;
                         for (int ii = 0; ii < nPtAll; ++ii)
                         {
@@ -19579,7 +19584,7 @@ namespace ARJ
                     // 2x4 summary table: before vs after unfolding (DATA)
                     //   output: <rOut>/before_after_unfoldingOverlay_data/table2x4_before_after_unfoldingOverlay_data.png
                     // -------------------------------------------------------------------
-                  {
+                    {
                       TCanvas cBA(
                         TString::Format("c_tbl_beforeAfter_data_%s", rKey.c_str()).Data(),
                         "c_tbl_beforeAfter_data", 2200, 1100
@@ -19868,8 +19873,9 @@ namespace ARJ
 
                   RooUnfoldBayes u(&respXJ, hMeasDataGlob, it);
                   u.SetVerbose(0);
+                  u.SetNToys(kNToysXJ);
 
-                  TH1* hCurr = u.Hreco(RooUnfold::kCovariance);
+                  TH1* hCurr = u.Hreco(RooUnfold::kCovToy);
                   if (!hCurr)
                   {
                     cout << ANSI_BOLD_RED << "[UNF ITER QA][WARN] Hreco returned null at it=" << it << ANSI_RESET << "\n";
