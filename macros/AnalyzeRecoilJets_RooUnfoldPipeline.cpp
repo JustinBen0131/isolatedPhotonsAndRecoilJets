@@ -3497,21 +3497,31 @@
                                    TString::Format("Error ratio, p_{T}^{#gamma} %d-%d GeV, R = %.1f", b.lo, b.hi, R).Data());
                     }
 
-                    // Per-pad cut/trigger label (top-right)
+                    // Dashed reference line at y = 1
                     {
-                      TLatex tx;
-                      tx.SetNDC();
-                      tx.SetTextFont(42);
-                      tx.SetTextAlign(31);
-                      tx.SetTextSize(0.04);
-
-                      const double xR = 0.93;
-                      tx.DrawLatex(xR, 0.60, TString::Format("Bayes it = %d", kBayesIterXJ).Data());
-                      tx.DrawLatex(xR, 0.67, "z_{vtx} < 60 cm");
-                      tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
-                      tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
-                      tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
+                        const double xmin = 0.0;
+                        const double xmax = 2.0;
+                        TLine l1(xmin, 1.0, xmax, 1.0);
+                        l1.SetLineStyle(2);
+                        l1.SetLineWidth(2);
+                        l1.Draw("same");
                     }
+
+                    // Per-pad cut/trigger label (moved to lower-right to avoid overlap)
+                    {
+                        TLatex tx;
+                        tx.SetNDC();
+                        tx.SetTextFont(42);
+                        tx.SetTextAlign(31);
+                        tx.SetTextSize(0.04);
+
+                        const double xR = 0.93;
+                        tx.DrawLatex(xR, 0.46, TString::Format("Bayes it = %d", kBayesIterXJ).Data());
+                        tx.DrawLatex(xR, 0.53, "z_{vtx} < 60 cm");
+                        tx.DrawLatex(xR, 0.60, "#Delta #phi > 7#pi/8");
+                        tx.DrawLatex(xR, 0.67, "p_{T}^{min, jet} > 5");
+                        tx.DrawLatex(xR, 0.74, "Trigger = Photon 4 + MBD NS #geq 1");
+                     }
                   }
 
                   SaveCanvas(cER, JoinPath(toyVsCovOut, "table2x3_ToyUnfoldingVsCovariance_errorRatio.png"));
