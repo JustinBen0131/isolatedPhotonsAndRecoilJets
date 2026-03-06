@@ -7954,29 +7954,31 @@ namespace ARJ
                              }
                            }
 
-                           const double muDatDraw = (fDat && fDat->GetNDF() > 0) ? fDat->GetParameter(1) : -1.0;
-                           const double muSimDraw = (fSim && fSim->GetNDF() > 0) ? fSim->GetParameter(1) : -1.0;
+                          const double muDatDraw = (fDat && fDat->GetNDF() > 0) ? fDat->GetParameter(1) : -1.0;
+                          const double muSimDraw = (fSim && fSim->GetNDF() > 0) ? fSim->GetParameter(1) : -1.0;
 
+                         {
                            TLatex tMean;
                            tMean.SetNDC(true);
                            tMean.SetTextFont(42);
-                           tMean.SetTextAlign(13);
+                           tMean.SetTextAlign(33);
                            tMean.SetTextSize(0.040);
-                           if (muDatDraw >= 0.0) tMean.DrawLatex(0.16, 0.86, TString::Format("Data <x_{J}> = %.4f", muDatDraw).Data());
-                           else                  tMean.DrawLatex(0.16, 0.86, "Data <x_{J}> = N/A");
-                           if (muSimDraw >= 0.0) tMean.DrawLatex(0.16, 0.80, TString::Format("Sim <x_{J}> = %.4f", muSimDraw).Data());
-                           else                  tMean.DrawLatex(0.16, 0.80, "Sim <x_{J}> = N/A");
+                           if (muDatDraw >= 0.0) tMean.DrawLatex(0.92, 0.70, TString::Format("Data <x_{J}> = %.4f", muDatDraw).Data());
+                           else                  tMean.DrawLatex(0.92, 0.70, "Data <x_{J}> = N/A");
+                           if (muSimDraw >= 0.0) tMean.DrawLatex(0.92, 0.64, TString::Format("Sim <x_{J}> = %.4f", muSimDraw).Data());
+                           else                  tMean.DrawLatex(0.92, 0.64, "Sim <x_{J}> = N/A");
+                         }
 
-                          {
-                            TLatex tCuts;
-                            tCuts.SetNDC(true);
-                            tCuts.SetTextFont(42);
-                            tCuts.SetTextAlign(33);
-                            tCuts.SetTextSize(0.04);
-                            tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data());
-                            tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
-                              tCuts.DrawLatex(0.92, 0.46, TString::Format("|v_{z}| < %.0f cm", vzCutCm).Data());
-                          }
+                         {
+                           TLatex tCuts;
+                           tCuts.SetNDC(true);
+                           tCuts.SetTextFont(42);
+                           tCuts.SetTextAlign(33);
+                           tCuts.SetTextSize(0.04);
+                           tCuts.DrawLatex(0.92, 0.56, TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data());
+                           tCuts.DrawLatex(0.92, 0.50, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
+                             tCuts.DrawLatex(0.92, 0.44, TString::Format("|v_{z}| < %.0f cm", vzCutCm).Data());
+                         }
 
                           TLatex ttl;
                           ttl.SetNDC(true);
@@ -8751,7 +8753,7 @@ namespace ARJ
                             gDatMean->GetYaxis()->SetTitle("Mean of x_{J#gamma} (Using GetMean)");
                             gSimMean->Draw("P same");
 
-                            TLegend* legMean = new TLegend(0.62, 0.16, 0.88, 0.28);
+                            TLegend* legMean = new TLegend(0.25, 0.16, 0.5, 0.28);
                             legMean->SetBorderSize(0);
                             legMean->SetFillStyle(0);
                             legMean->SetTextFont(42);
@@ -9225,11 +9227,11 @@ namespace ARJ
                   };
 
                   // -----------------------
-                    // (A) 2x3 TABLE (first 6)
-                    //   - normalized overlay (existing)
-                    //   - PLUS an additional raw-counts overlay table
-                    // -----------------------
-                    {
+                  // (A) 2x3 TABLE (first 6)
+                  //   - normalized overlay (existing)
+                  //   - PLUS an additional raw-counts overlay table
+                  // -----------------------
+                  {
                       auto StyleAuAuPPCounts = [&](TH1* hxAu, TH1* hxPP)->void
                       {
                         hxAu->SetLineWidth(2);
@@ -10053,7 +10055,7 @@ namespace ARJ
                 Make3x3Table_xJ_FromTH3(H.hTrutPure_xJ,           D.dirXJProjTruthPure,               "TRUTH", true);
 
                 // -------------------------------------------------------------------------
-                // NEW: Overlays (shape), integrated over alpha
+                //  Overlays (shape), integrated over alpha
                 //
                 // Output folders (per rKey) under:
                 //   RecoilJetQA/JES3/<rKey>/xJ_fromJES3/
@@ -13835,32 +13837,32 @@ namespace ARJ
                           // -------------------------
                           // Load new TH2 diagnostics
                           // -------------------------
-                            const string hA1_num   = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_num_"   + rKey;
-                            const string hA1_mA    = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_missA_" + rKey;
-                            const string hA1_mA1   = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_missA1_" + rKey;
-                            const string hA1_mA2   = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_missA2_" + rKey;
-                            const string hA1_mB    = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_missB_" + rKey;
+                          const string hA1_num   = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_num_"   + rKey;
+                          const string hA1_mA    = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_missA_" + rKey;
+                          const string hA1_mA1   = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_missA1_" + rKey;
+                          const string hA1_mA2   = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_missA2_" + rKey;
+                          const string hA1_mB    = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTtruthLead_missB_" + rKey;
 
-                            const string hA2_num   = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTrecoTruthMatch_num_"   + rKey;
-                            const string hA2_mA    = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTrecoTruthMatch_missA_" + rKey;
+                          const string hA2_num   = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTrecoTruthMatch_num_"   + rKey;
+                          const string hA2_mA    = "h2_leadTruthRecoilMatch_pTrecoJet1_vs_pTrecoTruthMatch_missA_" + rKey;
 
-                            const string hB3_num   = "h2_leadTruthRecoilMatch_dphiRecoJet1_num_pTgammaTruth_"   + rKey;
-                            const string hB3_mA    = "h2_leadTruthRecoilMatch_dphiRecoJet1_missA_pTgammaTruth_" + rKey;
-                            const string hB3_mB    = "h2_leadTruthRecoilMatch_dphiRecoJet1_missB_pTgammaTruth_" + rKey;
+                          const string hB3_num   = "h2_leadTruthRecoilMatch_dphiRecoJet1_num_pTgammaTruth_"   + rKey;
+                          const string hB3_mA    = "h2_leadTruthRecoilMatch_dphiRecoJet1_missA_pTgammaTruth_" + rKey;
+                          const string hB3_mB    = "h2_leadTruthRecoilMatch_dphiRecoJet1_missB_pTgammaTruth_" + rKey;
 
-                            const string hB4_num   = "h2_leadTruthRecoilMatch_dRRecoJet1_vs_truthLead_num_pTgammaTruth_"   + rKey;
-                            const string hB4_mA    = "h2_leadTruthRecoilMatch_dRRecoJet1_vs_truthLead_missA_pTgammaTruth_" + rKey;
-                            const string hB4_mB    = "h2_leadTruthRecoilMatch_dRRecoJet1_vs_truthLead_missB_pTgammaTruth_" + rKey;
+                          const string hB4_num   = "h2_leadTruthRecoilMatch_dRRecoJet1_vs_truthLead_num_pTgammaTruth_"   + rKey;
+                          const string hB4_mA    = "h2_leadTruthRecoilMatch_dRRecoJet1_vs_truthLead_missA_pTgammaTruth_" + rKey;
+                          const string hB4_mB    = "h2_leadTruthRecoilMatch_dRRecoJet1_vs_truthLead_missB_pTgammaTruth_" + rKey;
 
-                            const string hC5_num   = "h2_leadTruthRecoilMatch_xJRecoJet1_vs_dphiRecoJet1_num_"   + rKey;
-                            const string hC5_mA    = "h2_leadTruthRecoilMatch_xJRecoJet1_vs_dphiRecoJet1_missA_" + rKey;
-                            const string hC5_mB    = "h2_leadTruthRecoilMatch_xJRecoJet1_vs_dphiRecoJet1_missB_" + rKey;
+                          const string hC5_num   = "h2_leadTruthRecoilMatch_xJRecoJet1_vs_dphiRecoJet1_num_"   + rKey;
+                          const string hC5_mA    = "h2_leadTruthRecoilMatch_xJRecoJet1_vs_dphiRecoJet1_missA_" + rKey;
+                          const string hC5_mB    = "h2_leadTruthRecoilMatch_xJRecoJet1_vs_dphiRecoJet1_missB_" + rKey;
 
-                            TH2* HA1n  = GetObj<TH2>(ds, hA1_num, false, false, false);
-                            TH2* HA1a  = GetObj<TH2>(ds, hA1_mA,  false, false, false);
-                            TH2* HA1a1 = GetObj<TH2>(ds, hA1_mA1, false, false, false);
-                            TH2* HA1a2 = GetObj<TH2>(ds, hA1_mA2, false, false, false);
-                            TH2* HA1b  = GetObj<TH2>(ds, hA1_mB,  false, false, false);
+                          TH2* HA1n  = GetObj<TH2>(ds, hA1_num, false, false, false);
+                          TH2* HA1a  = GetObj<TH2>(ds, hA1_mA,  false, false, false);
+                          TH2* HA1a1 = GetObj<TH2>(ds, hA1_mA1, false, false, false);
+                          TH2* HA1a2 = GetObj<TH2>(ds, hA1_mA2, false, false, false);
+                          TH2* HA1b  = GetObj<TH2>(ds, hA1_mB,  false, false, false);
 
                           TH2* HA2n = GetObj<TH2>(ds, hA2_num, false, false, false);
                           TH2* HA2a = GetObj<TH2>(ds, hA2_mA,  false, false, false);
