@@ -1912,6 +1912,7 @@
 
           vector<TH1*> perPhoHists(nPtAll, nullptr);
           vector<TH1*> perPhoHists_cov(nPtAll, nullptr);
+          vector<TH1*> perPhoErrRatio(nPtAll, nullptr);
           vector<TH1*> perPhoBeforeDataHists(nPtAll, nullptr);
           vector<TH1*> perPhoTruthHists(nPtAll, nullptr);
         // ----------------------------------------------------------------------
@@ -2776,11 +2777,15 @@
 
                 // -------------------------------------------------------------------
                 //  Toy unfolding vs analytic covariance errors (DATA)
-                //   NEW output: <rOut>/ToyUnfoldingVsCovariance/xJ_ToyUnfoldingVsCovariance_1x2_pTbin%d.png
+                //   output: <rOut>/ToyUnfoldingVsCovariance/xJ_ToyUnfoldingVsCovariance_1x2_pTbin%d.png
                 //
                 //   Show as a 1x2 canvas:
                 //     LHS = analytic covariance (kCovariance)
                 //     RHS = toy unfolding errors (kCovToy)
+                //
+                //  Additionally output the ratio of statistical error magnitudes vs xJ:
+                //     ratio(xJ) = err_cov(xJ) / err_toy(xJ)
+                //   output: <rOut>/ToyUnfoldingVsCovariance/xJ_ToyUnfoldingVsCovariance_errorRatio_pTbin%d.png
                 // -------------------------------------------------------------------
                 if (perPhoHists[i] && perPhoHists_cov[i])
                 {
@@ -2921,6 +2926,109 @@
                       }
 
                       SaveCanvas(cTC, JoinPath(toyVsCovOut, TString::Format("xJ_ToyUnfoldingVsCovariance_1x2_pTbin%d.png", i + 1).Data()));
+
+                      // -----------------------------
+                      // Error-magnitude ratio vs xJ: err_cov / err_toy
+                      // -----------------------------
+                      TH1* hRatio = (TH1*)hCov->Clone(
+                        TString::Format("h_errRatio_covOverToy_%s_pTbin%d", rKey.c_str(), i + 1).Data()
+                      );
+                      if (hRatio)
+                      {
+                        hRatio->SetDirectory(nullptr);
+                        EnsureSumw2(hRatio);
+
+                        for (int ib = 0; ib <= hRatio->GetNbinsX() + 1; ++ib)
+                        {
+                          if (ib == 0 || ib == hRatio->GetNbinsX() + 1)
+                          {
+                            hRatio->SetBinContent(ib, 0.0);
+                            hRatio->SetBinError  (ib, 0.0);
+                            continue;
+                          }
+
+                          const double eCov = hCov->GetBinError(ib);
+                          const double eToy = hToy->GetBinError(ib);
+
+                          if (eToy > 0.0)
+                          {
+                            hRatio->SetBinContent(ib, eCov / eToy);
+                            hRatio->SetBinError  (ib, 0.0);
+                          }
+                          else
+                          {
+                            hRatio->SetBinContent(ib, 0.0);
+                            hRatio->SetBinError  (ib, 0.0);
+                          }
+                        }
+
+                        hRatio->SetTitle("");
+                        hRatio->GetXaxis()->SetTitle("x_{J}");
+                        hRatio->GetYaxis()->SetTitle("#sigma_{cov} / #sigma_{toy}");
+                        hRatio->SetLineWidth(2);
+                        hRatio->SetMarkerStyle(20);
+                        hRatio->SetMarkerSize(0.85);
+
+                        // Store for optional summary table (first 6 pT bins)
+                        perPhoErrRatio[i] = (TH1*)hRatio->Clone(
+                          TString::Format("h_errRatio_covOverToy_store_%s_pTbin%d", rKey.c_str(), i + 1).Data()
+                        );
+                        if (perPhoErrRatio[i])
+                        {
+                          perPhoErrRatio[i]->SetDirectory(nullptr);
+                          EnsureSumw2(perPhoErrRatio[i]);
+                        }
+
+                        TCanvas cR(
+                          TString::Format("c_errRatio_%s_pTbin%d", rKey.c_str(), i + 1).Data(),
+                          "c_errRatio", 900, 700
+                        );
+                        ApplyCanvasMargins1D(cR);
+
+                        hRatio->GetXaxis()->SetRangeUser(0.0, 2.0);
+                        hRatio->SetMinimum(0.0);
+
+                        double rMax = 0.0;
+                        for (int ib = 1; ib <= hRatio->GetNbinsX(); ++ib)
+                        {
+                          const double v = hRatio->GetBinContent(ib);
+                          if (v > rMax) rMax = v;
+                        }
+                        hRatio->SetMaximum((rMax > 0.0) ? (1.25 * rMax) : 2.0);
+
+                        hRatio->Draw("E1");
+
+                        // Centered title
+                        {
+                          TLatex tx;
+                          tx.SetNDC();
+                          tx.SetTextFont(42);
+                          tx.SetTextAlign(22);
+                          tx.SetTextSize(0.040);
+                          tx.DrawLatex(0.50, 0.965,
+                                       TString::Format("Error ratio, p_{T}^{#gamma} %d-%d GeV, R = %.1f", b.lo, b.hi, R).Data());
+                        }
+
+                        // Per-pad cut/trigger label (top-right)
+                        {
+                          TLatex tx;
+                          tx.SetNDC();
+                          tx.SetTextFont(42);
+                          tx.SetTextAlign(31);
+                          tx.SetTextSize(0.035);
+
+                          const double xR = 0.92;
+                          tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
+                          tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
+                          tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
+                          tx.DrawLatex(xR, 0.67, "z_{vtx} < 60 cm");
+                          tx.DrawLatex(xR, 0.60, TString::Format("Bayes it = %d", kBayesIterXJ).Data());
+                        }
+
+                        SaveCanvas(cR, JoinPath(toyVsCovOut, TString::Format("xJ_ToyUnfoldingVsCovariance_errorRatio_pTbin%d.png", i + 1).Data()));
+
+                        delete hRatio;
+                      }
                     }
 
                     if (hToy) delete hToy;
@@ -3124,17 +3232,113 @@
           delete hXJ;
         }
 
-        {
-            bool any = false;
-            for (auto* h : perPhoHists) if (h) { any = true; break; }
+          {
+              // -------------------------------------------------------------------
+              // 2x3 table (first 6 pT bins): ratio of statistical error magnitudes
+              //   ratio(xJ) = err_cov(xJ) / err_toy(xJ)
+              //   output: <rOut>/ToyUnfoldingVsCovariance/table2x3_ToyUnfoldingVsCovariance_errorRatio.png
+              // -------------------------------------------------------------------
+              {
+                bool anyR = false;
+                const int nPadsR = 6;
+                for (int ii = 0; ii < nPadsR; ++ii)
+                {
+                  if (ii >= 0 && ii < nPtAll && perPhoErrRatio[ii]) { anyR = true; break; }
+                }
 
-            if (any)
-            {
-              TCanvas c(
-                TString::Format("c_tbl_unf_perPho_%s", rKey.c_str()).Data(),
-                "c_tbl_unf_perPho", 2200, 1100
-              );
-              c.Divide(nPtCols, nPtRows, 0.001, 0.001);
+                if (anyR)
+                {
+                  TCanvas cER(
+                    TString::Format("c_tbl_errRatio_%s", rKey.c_str()).Data(),
+                    "c_tbl_errRatio", 1800, 1100
+                  );
+                  cER.Divide(3, 2, 0.001, 0.001);
+
+                  for (int ipad = 0; ipad < nPadsR; ++ipad)
+                  {
+                    const int i = ipad;
+
+                    cER.cd(ipad + 1);
+                    gPad->SetLeftMargin(0.12);
+                    gPad->SetRightMargin(0.04);
+                    gPad->SetBottomMargin(0.12);
+                    gPad->SetTopMargin(0.06);
+
+                    if (i < 0 || i >= nPtAll || !perPhoErrRatio[i])
+                    {
+                      TH1F frame("frame","", 1, 0.0, 2.0);
+                      frame.SetMinimum(0.0);
+                      frame.SetMaximum(2.0);
+                      frame.SetTitle("");
+                      frame.GetXaxis()->SetTitle("x_{J}");
+                      frame.GetYaxis()->SetTitle("#sigma_{cov} / #sigma_{toy}");
+                      frame.Draw("axis");
+
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextSize(0.050);
+                      tx.DrawLatex(0.16, 0.50, "MISSING");
+                      continue;
+                    }
+
+                    const PtBin& b = UnfoldRecoPtBins()[i];
+
+                    TH1* hR = perPhoErrRatio[i];
+                    hR->GetXaxis()->SetRangeUser(0.0, 2.0);
+                    hR->SetMinimum(0.0);
+
+                    double rMax = 0.0;
+                    for (int ib = 1; ib <= hR->GetNbinsX(); ++ib)
+                    {
+                      const double v = hR->GetBinContent(ib);
+                      if (v > rMax) rMax = v;
+                    }
+                    hR->SetMaximum((rMax > 0.0) ? (1.25 * rMax) : 2.0);
+                    hR->Draw("E1");
+
+                    // Centered per-pad title
+                    {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(22);
+                      tx.SetTextSize(0.042);
+                      tx.DrawLatex(0.52, 0.955,
+                                   TString::Format("Error ratio, p_{T}^{#gamma} %d-%d GeV, R = %.1f", b.lo, b.hi, R).Data());
+                    }
+
+                    // Per-pad cut/trigger label (top-right)
+                    {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(31);
+                      tx.SetTextSize(0.04);
+
+                      const double xR = 0.93;
+                      tx.DrawLatex(xR, 0.60, TString::Format("Bayes it = %d", kBayesIterXJ).Data());
+                      tx.DrawLatex(xR, 0.67, "z_{vtx} < 60 cm");
+                      tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
+                      tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
+                      tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
+                    }
+                  }
+
+                  SaveCanvas(cER, JoinPath(toyVsCovOut, "table2x3_ToyUnfoldingVsCovariance_errorRatio.png"));
+                }
+              }
+
+              bool any = false;
+              for (auto* h : perPhoHists) if (h) { any = true; break; }
+
+              if (any)
+              {
+                TCanvas c(
+                  TString::Format("c_tbl_unf_perPho_%s", rKey.c_str()).Data(),
+                  "c_tbl_unf_perPho", 2200, 1100
+                );
+                c.Divide(nPtCols, nPtRows, 0.001, 0.001);
 
               for (int ipad = 0; ipad < nPtPads; ++ipad)
               {
@@ -3730,6 +3934,7 @@
 
           for (auto* h : perPhoHists) if (h) delete h;
           for (auto* h : perPhoHists_cov) if (h) delete h;
+          for (auto* h : perPhoErrRatio) if (h) delete h;
 
           if (hUnfoldTruthGlob) delete hUnfoldTruthGlob;
           if (hUnfoldTruthGlob_cov) delete hUnfoldTruthGlob_cov;
