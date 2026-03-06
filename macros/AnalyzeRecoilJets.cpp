@@ -1562,91 +1562,203 @@ namespace ARJ
             Make3x3Table_ABCDCounts(ds, cntDir, "table3x3_ABCDCounts.png", cntCommon);
           }
 
-          // purity_raw plot
+          // purity plots: use physical p_{T}^{#gamma} on the x axis and explicit purity uncertainties
           {
-            TH1F hPur("hPurRaw","hPurRaw", kNPtBins, 0.5, kNPtBins + 0.5);
-          hPur.SetDirectory(nullptr);
-          hPur.GetYaxis()->SetRangeUser(0.0, 1.05);
-          hPur.GetXaxis()->SetTitle("p_{T}^{#gamma} bin");
-          hPur.GetYaxis()->SetTitle("Purity (raw ABCD)");
-          for (int i = 0; i < kNPtBins; ++i)
-          {
-            hPur.SetBinContent(i+1, purityRaw[i]);
-            hPur.GetXaxis()->SetBinLabel(i+1, PtBins()[i].label.c_str());
-          }
+            auto RawPurityError = [&](double A, double B, double C, double D)->double
+            {
+              if (A <= 0.0 || D <= 0.0) return 0.0;
 
-          TCanvas c("c_pur_raw","c_pur_raw",900,700);
-          ApplyCanvasMargins1D(c);
+              const double dPdA =  (B * C) / (A * A * D);
+              const double dPdB = -(C) / (A * D);
+              const double dPdC = -(B) / (A * D);
+              const double dPdD =  (B * C) / (A * D * D);
 
-          hPur.SetLineWidth(2);
-          hPur.SetMarkerStyle(20);
-          hPur.SetMarkerSize(1.2);
-          hPur.Draw("E1");
+              double var = 0.0;
+              if (A > 0.0) var += dPdA * dPdA * A;
+              if (B > 0.0) var += dPdB * dPdB * B;
+              if (C > 0.0) var += dPdC * dPdC * C;
+              if (D > 0.0) var += dPdD * dPdD * D;
 
-          vector<string> box;
-          box.push_back("ABCD purity (raw)");
-          box.push_back("Cuts: p_{T}^{#gamma} #geq 5 GeV, |#eta| < 0.7, preselection pass");
-          box.push_back("Iso: E_{iso} < 1.08128 + 0.0299107 p_{T}^{#gamma}");
-          box.push_back("NonIso: E_{iso} > isoThresh + 1 GeV");
-          DrawLatexLines(0.14, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-          DrawLatexLines(0.14, 0.78, box, 0.030, 0.040);
+              return (var > 0.0) ? std::sqrt(var) : 0.0;
+            };
 
-          const string fp = JoinPath(outDir, ds.isSim ? "purity_raw_SIM.png" : "purity_raw_DATA.png");
-          SaveCanvas(c, fp);
-        }
+            auto CorrPurityValue = [&](double A, double B, double C, double D, int idx)->double
+            {
+              double Praw = 0.0;
+              if (A > 0.0 && D > 0.0)
+              {
+                double Asig = A - B * (C / D);
+                if (Asig < 0.0) Asig = 0.0;
+                Praw = Asig / A;
+              }
 
-        // overlay raw vs corrected if correction used
-        bool anyCorr = false;
-        for (bool b : hasCorr) if (b) { anyCorr = true; break; }
+              if (!lf.available) return Praw;
 
-        if (anyCorr)
-        {
-          TH1F hR("hPurRaw2","hPurRaw2", kNPtBins, 0.5, kNPtBins + 0.5);
-          TH1F hC("hPurCor2","hPurCor2", kNPtBins, 0.5, kNPtBins + 0.5);
-          hR.SetDirectory(nullptr);
-          hC.SetDirectory(nullptr);
+              double SA = 0.0;
+              const bool ok = SolveLeakageCorrectedSA(A, B, C, D, lf.fB[idx], lf.fC[idx], lf.fD[idx], SA);
+              if (ok && A > 0.0) return SA / A;
 
-          hR.GetYaxis()->SetRangeUser(0.0, 1.05);
-          hR.GetXaxis()->SetTitle("p_{T}^{#gamma} bin");
-          hR.GetYaxis()->SetTitle("Purity");
+              return Praw;
+            };
 
-          for (int i = 0; i < kNPtBins; ++i)
-          {
-            hR.SetBinContent(i+1, purityRaw[i]);
-            hC.SetBinContent(i+1, purityCorr[i]);
-            hR.GetXaxis()->SetBinLabel(i+1, PtBins()[i].label.c_str());
-            hC.GetXaxis()->SetBinLabel(i+1, PtBins()[i].label.c_str());
-          }
+            auto CorrPurityError = [&](double A, double B, double C, double D, int idx)->double
+            {
+              if (!(lf.available && hasCorr[idx])) return RawPurityError(A, B, C, D);
+              if (A <= 0.0) return 0.0;
 
-          hR.SetLineWidth(2); hC.SetLineWidth(2);
-          hR.SetMarkerStyle(20); hC.SetMarkerStyle(24);
-          hR.SetLineColor(1); hC.SetLineColor(2);
-          hR.SetMarkerColor(1); hC.SetMarkerColor(2);
+              const double dA = std::sqrt(std::max(A, 1.0));
+              const double dB = std::sqrt(std::max(B, 1.0));
+              const double dC = std::sqrt(std::max(C, 1.0));
+              const double dD = std::sqrt(std::max(D, 1.0));
 
-          TCanvas c("c_pur_ov","c_pur_ov",900,700);
-          ApplyCanvasMargins1D(c);
+              const double Aup = A + dA;
+              const double Adn = std::max(0.0, A - dA);
+              const double Bup = B + dB;
+              const double Bdn = std::max(0.0, B - dB);
+              const double Cup = C + dC;
+              const double Cdn = std::max(0.0, C - dC);
+              const double Dup = D + dD;
+              const double Ddn = std::max(0.0, D - dD);
 
-          hR.Draw("E1");
-          hC.Draw("E1 same");
+              const double dPdA = (Aup > Adn)
+                ? (CorrPurityValue(Aup, B,   C,   D,   idx) - CorrPurityValue(Adn, B,   C,   D,   idx)) / (Aup - Adn)
+                : 0.0;
+              const double dPdB = (Bup > Bdn)
+                ? (CorrPurityValue(A,   Bup, C,   D,   idx) - CorrPurityValue(A,   Bdn, C,   D,   idx)) / (Bup - Bdn)
+                : 0.0;
+              const double dPdC = (Cup > Cdn)
+                ? (CorrPurityValue(A,   B,   Cup, D,   idx) - CorrPurityValue(A,   B,   Cdn, D,   idx)) / (Cup - Cdn)
+                : 0.0;
+              const double dPdD = (Dup > Ddn)
+                ? (CorrPurityValue(A,   B,   C,   Dup, idx) - CorrPurityValue(A,   B,   C,   Ddn, idx)) / (Dup - Ddn)
+                : 0.0;
 
-          TLegend leg(0.62,0.77,0.92,0.90);
-          leg.SetTextFont(42);
-          leg.SetTextSize(0.033);
-          leg.AddEntry(&hR, "Raw ABCD", "lp");
-          leg.AddEntry(&hC, "Leakage-corrected", "lp");
-          leg.Draw();
+              double var = 0.0;
+              if (A > 0.0) var += dPdA * dPdA * A;
+              if (B > 0.0) var += dPdB * dPdB * B;
+              if (C > 0.0) var += dPdC * dPdC * C;
+              if (D > 0.0) var += dPdD * dPdD * D;
 
-          vector<string> box;
-          box.push_back("ABCD purity: raw vs leakage-corrected");
-          if (!ds.isSim) box.push_back("Leakage factors from SIM h_{sigABCD}^{MC}");
-          DrawLatexLines(0.14, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-          DrawLatexLines(0.14, 0.78, box, 0.030, 0.040);
+              return (var > 0.0) ? std::sqrt(var) : 0.0;
+            };
 
-          const string fp = JoinPath(outDir, ds.isSim
-            ? "purity_raw_vs_leakageCorrected_SIM.png"
-            : "purity_raw_vs_leakageCorrected_DATA.png");
+            vector<double> x(kNPtBins, 0.0), ex(kNPtBins, 0.0);
+            vector<double> yRaw(kNPtBins, 0.0), eyRaw(kNPtBins, 0.0);
+            vector<double> yCorr(kNPtBins, 0.0), eyCorr(kNPtBins, 0.0);
 
-          SaveCanvas(c, fp);
+            for (int i = 0; i < kNPtBins; ++i)
+            {
+              const PtBin& b = PtBins()[i];
+              const string& suf = b.suffix;
+
+              const double A = Read1BinCount(ds, "h_isIsolated_isTight" + suf);
+              const double B = Read1BinCount(ds, "h_notIsolated_isTight" + suf);
+              const double C = Read1BinCount(ds, "h_isIsolated_notTight" + suf);
+              const double D = Read1BinCount(ds, "h_notIsolated_notTight" + suf);
+
+              const double ptLo = kPtEdges[(std::size_t)i];
+              const double ptHi = kPtEdges[(std::size_t)i + 1];
+
+              x[i]  = 0.5 * (ptLo + ptHi);
+              ex[i] = 0.5 * (ptHi - ptLo);
+
+              yRaw[i]  = purityRaw[i];
+              eyRaw[i] = RawPurityError(A, B, C, D);
+
+              yCorr[i]  = purityCorr[i];
+              eyCorr[i] = CorrPurityError(A, B, C, D, i);
+            }
+
+            // purity_raw plot
+            {
+              TGraphErrors gRaw(kNPtBins, &x[0], &yRaw[0], &ex[0], &eyRaw[0]);
+              gRaw.SetLineWidth(2);
+              gRaw.SetLineColor(kBlack);
+              gRaw.SetMarkerStyle(20);
+              gRaw.SetMarkerSize(1.2);
+              gRaw.SetMarkerColor(kBlack);
+
+              TCanvas c("c_pur_raw","c_pur_raw",900,700);
+              ApplyCanvasMargins1D(c);
+
+              TH1F hFrame("hPurRawFrame","",100, kPtEdges.front(), kPtEdges.back());
+              hFrame.SetDirectory(nullptr);
+              hFrame.SetStats(0);
+              hFrame.SetMinimum(0.0);
+              hFrame.SetMaximum(1.05);
+              hFrame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+              hFrame.GetYaxis()->SetTitle("Purity (raw ABCD)");
+              hFrame.Draw();
+
+              gRaw.Draw("P SAME");
+
+              vector<string> box;
+              box.push_back("ABCD purity (raw)");
+              box.push_back("Cuts: p_{T}^{#gamma} #geq 5 GeV, |#eta| < 0.7, preselection pass");
+              box.push_back("Iso: E_{iso} < 1.08128 + 0.0299107 p_{T}^{#gamma}");
+              box.push_back("NonIso: E_{iso} > isoThresh + 1 GeV");
+              DrawLatexLines(0.14, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+              DrawLatexLines(0.14, 0.78, box, 0.030, 0.040);
+
+              const string fp = JoinPath(outDir, ds.isSim ? "purity_raw_SIM.png" : "purity_raw_DATA.png");
+              SaveCanvas(c, fp);
+            }
+
+            // overlay raw vs corrected if correction used
+            bool anyCorr = false;
+            for (bool b : hasCorr) if (b) { anyCorr = true; break; }
+
+            if (anyCorr)
+            {
+              TGraphErrors gRaw(kNPtBins, &x[0], &yRaw[0],  &ex[0], &eyRaw[0]);
+              TGraphErrors gCor(kNPtBins, &x[0], &yCorr[0], &ex[0], &eyCorr[0]);
+
+              gRaw.SetLineWidth(2);
+              gRaw.SetLineColor(kBlack);
+              gRaw.SetMarkerStyle(20);
+              gRaw.SetMarkerSize(1.2);
+              gRaw.SetMarkerColor(kBlack);
+
+              gCor.SetLineWidth(2);
+              gCor.SetLineColor(kBlue + 1);
+              gCor.SetMarkerStyle(24);
+              gCor.SetMarkerSize(1.2);
+              gCor.SetMarkerColor(kBlue + 1);
+
+              TCanvas c("c_pur_ov","c_pur_ov",900,700);
+              ApplyCanvasMargins1D(c);
+
+              TH1F hFrame("hPurCorFrame","",100, kPtEdges.front(), kPtEdges.back());
+              hFrame.SetDirectory(nullptr);
+              hFrame.SetStats(0);
+              hFrame.SetMinimum(0.0);
+              hFrame.SetMaximum(1.05);
+              hFrame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+              hFrame.GetYaxis()->SetTitle("Purity");
+              hFrame.Draw();
+
+              gRaw.Draw("P SAME");
+              gCor.Draw("P SAME");
+
+              TLegend leg(0.62,0.77,0.92,0.90);
+              leg.SetTextFont(42);
+              leg.SetTextSize(0.033);
+              leg.AddEntry(&gRaw, "Raw ABCD", "lp");
+              leg.AddEntry(&gCor, "Leakage-corrected", "lp");
+              leg.Draw();
+
+              vector<string> box;
+              box.push_back("ABCD purity: raw vs leakage-corrected");
+              if (!ds.isSim) box.push_back("Leakage factors from SIM h_{sigABCD}^{MC}");
+              DrawLatexLines(0.14, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+              DrawLatexLines(0.14, 0.78, box, 0.030, 0.040);
+
+              const string fp = JoinPath(outDir, ds.isSim
+                ? "purity_raw_vs_leakageCorrected_SIM.png"
+                : "purity_raw_vs_leakageCorrected_DATA.png");
+
+              SaveCanvas(c, fp);
+            }
         }
 
         // SS overlays
@@ -7674,44 +7786,44 @@ namespace ARJ
                         if (iDat > 0.0) hDatRaw->Scale(1.0 / iDat);
                         if (iSim > 0.0) hSimRaw->Scale(1.0 / iSim);
 
-                          hDatRaw->SetTitle("");
-                          hDatRaw->SetLineWidth(2);
-                          hDatRaw->SetLineColor(kGreen + 2);
-                          hDatRaw->SetMarkerStyle(20);
-                          hDatRaw->SetMarkerSize(1.0);
-                          hDatRaw->SetMarkerColor(kGreen + 2);
+                        hDatRaw->SetTitle("");
+                        hDatRaw->SetLineWidth(2);
+                        hDatRaw->SetLineColor(kGreen + 2);
+                        hDatRaw->SetMarkerStyle(20);
+                        hDatRaw->SetMarkerSize(1.0);
+                        hDatRaw->SetMarkerColor(kGreen + 2);
 
-                          hSimRaw->SetLineWidth(2);
-                          hSimRaw->SetLineColor(kOrange + 7);
-                          hSimRaw->SetMarkerStyle(20);
-                          hSimRaw->SetMarkerSize(1.0);
-                          hSimRaw->SetMarkerColor(kOrange + 7);
+                        hSimRaw->SetLineWidth(2);
+                        hSimRaw->SetLineColor(kOrange + 7);
+                        hSimRaw->SetMarkerStyle(20);
+                        hSimRaw->SetMarkerSize(1.0);
+                        hSimRaw->SetMarkerColor(kOrange + 7);
 
-                          hDatRaw->GetXaxis()->SetTitle("x_{J#gamma}");
-                          hDatRaw->GetXaxis()->SetRangeUser(0.0, 2.0);
-                          hDatRaw->GetYaxis()->SetTitle("Normalized counts");
+                        hDatRaw->GetXaxis()->SetTitle("x_{J#gamma}");
+                        hDatRaw->GetXaxis()->SetRangeUser(0.0, 2.0);
+                        hDatRaw->GetYaxis()->SetTitle("Normalized counts");
 
-                          hDatRaw->Draw("E1");
-                          hSimRaw->Draw("E1 same");
-                          gPad->Update();
+                        hDatRaw->Draw("E1");
+                        hSimRaw->Draw("E1 same");
+                        gPad->Update();
 
-                          const auto& cfgDef = DefaultSim10and20Config();
-                          const double jetPtMin_GeV = cfgDef.jetMinPt;
-                          const string bbLabel = cfgDef.bbLabel;
+                        const auto& cfgDef = DefaultSim10and20Config();
+                        const double jetPtMin_GeV = cfgDef.jetMinPt;
+                        const string bbLabel = cfgDef.bbLabel;
 
-                          TLegend* leg = new TLegend(0.70, 0.75, 0.94, 0.88);
-                          leg->SetBorderSize(0);
-                          leg->SetFillStyle(0);
-                          leg->SetTextFont(42);
-                          leg->SetTextSize(0.04);
+                        TLegend* leg = new TLegend(0.70, 0.75, 0.94, 0.88);
+                        leg->SetBorderSize(0);
+                        leg->SetFillStyle(0);
+                        leg->SetTextFont(42);
+                        leg->SetTextSize(0.04);
 
-                          leg->AddEntry(hDatRaw, "DATA (reco)", "ep");
-                          leg->AddEntry(hSimRaw, "SIM (reco)",  "ep");
+                        leg->AddEntry(hDatRaw, "DATA (reco)", "ep");
+                        leg->AddEntry(hSimRaw, "SIM (reco)",  "ep");
 
-                          leg->DrawClone();
-                          delete leg;
+                        leg->DrawClone();
+                        delete leg;
 
-                          {
+                        {
                             TLatex tCuts;
                             tCuts.SetNDC(true);
                             tCuts.SetTextFont(42);
@@ -7720,18 +7832,18 @@ namespace ARJ
                             tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data());
                             tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
                               tCuts.DrawLatex(0.92, 0.46, TString::Format("|v_{z}| < %.0f cm", vzCutCm).Data());
-                          }
+                        }
 
-                          TLatex ttl;
-                          ttl.SetNDC(true);
-                          ttl.SetTextFont(42);
-                          ttl.SetTextSize(0.043);
-                          ttl.DrawLatex(0.12, 0.94,
+                        TLatex ttl;
+                        ttl.SetNDC(true);
+                        ttl.SetTextFont(42);
+                        ttl.SetTextSize(0.043);
+                        ttl.DrawLatex(0.12, 0.94,
                             TString::Format("RECO x_{J#gamma} (DATA vs SIM), p_{T}^{#gamma} = %.0f - %.0f GeV, R = %.1f",
                               ptMinGamma, ptMaxGamma, R).Data());
 
-                          keep.push_back(hDatRaw);
-                          keep.push_back(hSimRaw);
+                        keep.push_back(hDatRaw);
+                        keep.push_back(hSimRaw);
                       }
 
                       SaveCanvas(canTbl, JoinPath(dirOv, "table3x2_overlay_integratedAlpha_overlayedWithSim.png"));
@@ -7743,13 +7855,22 @@ namespace ARJ
                       // plus mean vs pT plot from Gaussian mean
                       // ---------------------------------------------------------------------
                       TCanvas canTblFits(
-                        TString::Format("c_tbl_%s_dataVsSim_withFits", rKey.c_str()).Data(),
-                        "c_tbl_dataVsSim_withFits", 1500, 900
+                          TString::Format("c_tbl_%s_dataVsSim_withFits", rKey.c_str()).Data(),
+                          "c_tbl_dataVsSim_withFits", 1500, 900
                       );
                       canTblFits.Divide(nCols, nRows, 0.001, 0.001);
 
+                      TCanvas canTblMeans(
+                          TString::Format("c_tbl_%s_dataVsSim_withMeans", rKey.c_str()).Data(),
+                          "c_tbl_dataVsSim_withMeans", 1500, 900
+                      );
+                      canTblMeans.Divide(nCols, nRows, 0.001, 0.001);
+
                       std::vector<TH1*> keepFitsH;
                       keepFitsH.reserve(2 * nTableBins);
+
+                      std::vector<TH1*> keepMeansH;
+                      keepMeansH.reserve(2 * nTableBins);
 
                       std::vector<TF1*> keepFitFns;
                       keepFitFns.reserve(2 * nTableBins);
@@ -7783,79 +7904,90 @@ namespace ARJ
 
                       auto FitIterGaus = [&](TH1* h, const std::string& fname, int lcolor) -> TF1*
                       {
-                        if (!h) return nullptr;
+                          if (!h) return nullptr;
 
-                        double mu  = h->GetMean();
-                        double sig = h->GetRMS();
+                          double mu  = h->GetMean();
+                          double sig = h->GetRMS();
 
-                        if (!std::isfinite(mu) || !std::isfinite(sig) || sig <= 0.0) return nullptr;
+                          if (!std::isfinite(mu) || !std::isfinite(sig) || sig <= 0.0) return nullptr;
 
-                        const double xLoHard = h->GetXaxis()->GetXmin();
-                        const double xHiHard = h->GetXaxis()->GetXmax();
+                          const double xLoHard = h->GetXaxis()->GetXmin();
+                          const double xHiHard = h->GetXaxis()->GetXmax();
 
-                        TF1* f = new TF1(fname.c_str(), "gaus", xLoHard, xHiHard);
-                        f->SetLineColor(lcolor);
-                        f->SetLineWidth(3);
+                          TF1* f = new TF1(fname.c_str(), "gaus", xLoHard, xHiHard);
+                          f->SetLineColor(lcolor);
+                          f->SetLineWidth(3);
 
-                        for (int it = 0; it < 3; ++it)
-                        {
-                          double lo = mu - 1.5 * sig;
-                          double hi = mu + 1.5 * sig;
+                          for (int it = 0; it < 3; ++it)
+                          {
+                            double lo = mu - 1.5 * sig;
+                            double hi = mu + 1.5 * sig;
 
-                          if (lo < xLoHard) lo = xLoHard;
-                          if (hi > xHiHard) hi = xHiHard;
-                          if (hi <= lo) break;
+                            if (lo < xLoHard) lo = xLoHard;
+                            if (hi > xHiHard) hi = xHiHard;
+                            if (hi <= lo) break;
 
-                          f->SetRange(lo, hi);
+                            f->SetRange(lo, hi);
+
+                            h->Fit(f, "RQ0");
+
+                            mu  = f->GetParameter(1);
+                            sig = f->GetParameter(2);
+
+                            if (!std::isfinite(mu) || !std::isfinite(sig) || sig <= 0.0) break;
+                          }
 
                           h->Fit(f, "RQ0");
+                          return f;
+                        };
 
-                          mu  = f->GetParameter(1);
-                          sig = f->GetParameter(2);
+                        for (int k = 0; k < nTableBins; ++k)
+                        {
+                          const int ib = startBinForTable + k;
 
-                          if (!std::isfinite(mu) || !std::isfinite(sig) || sig <= 0.0) break;
-                        }
+                          const double ptMinGamma = H.hReco_xJ->GetXaxis()->GetBinLowEdge(ib);
+                          const double ptMaxGamma = H.hReco_xJ->GetXaxis()->GetBinUpEdge(ib);
+                          const double ptCtr = 0.5 * (ptMinGamma + ptMaxGamma);
+                          const double ptErr = 0.5 * (ptMaxGamma - ptMinGamma);
 
-                        h->Fit(f, "RQ0");
-                        return f;
-                      };
+                          TH1* hDatRaw = ProjectY_AtXbin_AndAlphaMax_TH3(
+                            H.hReco_xJ, ib, H.hReco_xJ->GetZaxis()->GetXmax(),
+                            TString::Format("h_tbl_fit_dat_%s_%d", rKey.c_str(), ib).Data()
+                          );
+                          TH1* hSimRaw = ProjectY_AtXbin_AndAlphaMax_TH3(
+                            hSim3, ib, hSim3->GetZaxis()->GetXmax(),
+                            TString::Format("h_tbl_fit_sim_%s_%d", rKey.c_str(), ib).Data()
+                          );
 
-                      for (int k = 0; k < nTableBins; ++k)
-                      {
-                        const int ib = startBinForTable + k;
-                        canTblFits.cd(k + 1);
+                          if (!hDatRaw || !hSimRaw) { if (hDatRaw) delete hDatRaw; if (hSimRaw) delete hSimRaw; continue; }
 
-                        gPad->SetLeftMargin(0.14);
-                        gPad->SetRightMargin(0.05);
-                        gPad->SetTopMargin(0.12);
-                        gPad->SetBottomMargin(0.14);
+                          hDatRaw->SetDirectory(nullptr);
+                          hSimRaw->SetDirectory(nullptr);
 
-                        const double ptMinGamma = H.hReco_xJ->GetXaxis()->GetBinLowEdge(ib);
-                        const double ptMaxGamma = H.hReco_xJ->GetXaxis()->GetBinUpEdge(ib);
-                        const double ptCtr = 0.5 * (ptMinGamma + ptMaxGamma);
-                        const double ptErr = 0.5 * (ptMaxGamma - ptMinGamma);
+                          EnsureSumw2(hDatRaw);
+                          EnsureSumw2(hSimRaw);
 
-                        TH1* hDatRaw = ProjectY_AtXbin_AndAlphaMax_TH3(
-                          H.hReco_xJ, ib, H.hReco_xJ->GetZaxis()->GetXmax(),
-                          TString::Format("h_tbl_fit_dat_%s_%d", rKey.c_str(), ib).Data()
-                        );
-                        TH1* hSimRaw = ProjectY_AtXbin_AndAlphaMax_TH3(
-                          hSim3, ib, hSim3->GetZaxis()->GetXmax(),
-                          TString::Format("h_tbl_fit_sim_%s_%d", rKey.c_str(), ib).Data()
-                        );
+                          const double iDat = hDatRaw->Integral(0, hDatRaw->GetNbinsX() + 1);
+                          const double iSim = hSimRaw->Integral(0, hSimRaw->GetNbinsX() + 1);
+                          if (iDat > 0.0) hDatRaw->Scale(1.0 / iDat);
+                          if (iSim > 0.0) hSimRaw->Scale(1.0 / iSim);
 
-                        if (!hDatRaw || !hSimRaw) { if (hDatRaw) delete hDatRaw; if (hSimRaw) delete hSimRaw; continue; }
+                          TH1* hDatMeanTbl = CloneTH1(hDatRaw, TString::Format("h_tbl_mean_dat_%s_%d", rKey.c_str(), ib).Data());
+                          TH1* hSimMeanTbl = CloneTH1(hSimRaw, TString::Format("h_tbl_mean_sim_%s_%d", rKey.c_str(), ib).Data());
 
-                        hDatRaw->SetDirectory(nullptr);
-                        hSimRaw->SetDirectory(nullptr);
+                          if (hDatMeanTbl) hDatMeanTbl->SetDirectory(nullptr);
+                          if (hSimMeanTbl) hSimMeanTbl->SetDirectory(nullptr);
 
-                        EnsureSumw2(hDatRaw);
-                        EnsureSumw2(hSimRaw);
+                          const auto& cfgDef = DefaultSim10and20Config();
+                          const double jetPtMin_GeV = cfgDef.jetMinPt;
+                          const string bbLabel = cfgDef.bbLabel;
 
-                        const double iDat = hDatRaw->Integral(0, hDatRaw->GetNbinsX() + 1);
-                        const double iSim = hSimRaw->Integral(0, hSimRaw->GetNbinsX() + 1);
-                        if (iDat > 0.0) hDatRaw->Scale(1.0 / iDat);
-                        if (iSim > 0.0) hSimRaw->Scale(1.0 / iSim);
+                          canTblFits.cd(k + 1);
+
+                          gPad->SetLeftMargin(0.14);
+                          gPad->SetRightMargin(0.05);
+                          gPad->SetTopMargin(0.12);
+                          gPad->SetBottomMargin(0.14);
 
                           hDatRaw->SetTitle("");
                           hDatRaw->SetLineWidth(2);
@@ -7878,115 +8010,241 @@ namespace ARJ
                           hSimRaw->Draw("E1 same");
                           gPad->Update();
 
-                          const auto& cfgDef = DefaultSim10and20Config();
-                          const double jetPtMin_GeV = cfgDef.jetMinPt;
-                          const string bbLabel = cfgDef.bbLabel;
-
                           TF1* fDat = FitIterGaus(hDatRaw, TString::Format("f_tbl_dat_%s_%d", rKey.c_str(), ib).Data(), kGreen + 2);
-                           TF1* fSim = FitIterGaus(hSimRaw, TString::Format("f_tbl_sim_%s_%d", rKey.c_str(), ib).Data(), kOrange + 7);
+                          TF1* fSim = FitIterGaus(hSimRaw, TString::Format("f_tbl_sim_%s_%d", rKey.c_str(), ib).Data(), kOrange + 7);
 
-                           if (fDat) { fDat->Draw("same"); keepFitFns.push_back(fDat); }
-                           if (fSim) { fSim->Draw("same"); keepFitFns.push_back(fSim); }
+                          if (fDat) { fDat->Draw("same"); keepFitFns.push_back(fDat); }
+                          if (fSim) { fSim->Draw("same"); keepFitFns.push_back(fSim); }
 
-                           TLegend* leg = new TLegend(0.70, 0.75, 0.94, 0.88);
-                           leg->SetBorderSize(0);
-                           leg->SetFillStyle(0);
-                           leg->SetTextFont(42);
-                           leg->SetTextSize(0.04);
+                          {
+                            TLegend* leg = new TLegend(0.70, 0.75, 0.94, 0.88);
+                            leg->SetBorderSize(0);
+                            leg->SetFillStyle(0);
+                            leg->SetTextFont(42);
+                            leg->SetTextSize(0.04);
+                            leg->AddEntry(hDatRaw, "DATA (reco)", "ep");
+                            leg->AddEntry(hSimRaw, "SIM (reco)",  "ep");
+                            leg->DrawClone();
+                            delete leg;
+                          }
 
-                           leg->AddEntry(hDatRaw, "DATA (reco)", "ep");
-                           leg->AddEntry(hSimRaw, "SIM (reco)",  "ep");
+                          {
+                            if (fDat && fDat->GetNDF() > 0)
+                            {
+                              const double mu   = fDat->GetParameter(1);
+                              const double sig  = fDat->GetParameter(2);
+                              const double chi2 = fDat->GetChisquare();
+                              const double ndf  = fDat->GetNDF();
 
-                           leg->DrawClone();
-                           delete leg;
+                              vMuDat.push_back(mu);
+                              vMuDatErr.push_back(fDat->GetParError(1));
 
-                           {
-                             if (fDat && fDat->GetNDF() > 0)
-                             {
-                               const double mu   = fDat->GetParameter(1);
-                               const double sig  = fDat->GetParameter(2);
-                               const double chi2 = fDat->GetChisquare();
-                               const double ndf  = fDat->GetNDF();
+                              vSigDat.push_back(sig);
+                              vSigDatErr.push_back(fDat->GetParError(2));
 
-                               vMuDat.push_back(mu);
-                               vMuDatErr.push_back(fDat->GetParError(1));
+                              vChi2NdfDat.push_back(chi2 / ndf);
+                            }
+                            else
+                            {
+                              vMuDat.push_back(-1.0);
+                              vMuDatErr.push_back(0.0);
 
-                               vSigDat.push_back(sig);
-                               vSigDatErr.push_back(fDat->GetParError(2));
+                              vSigDat.push_back(-1.0);
+                              vSigDatErr.push_back(0.0);
 
-                               vChi2NdfDat.push_back(chi2 / ndf);
-                             }
-                             else
-                             {
-                               vMuDat.push_back(-1.0);
-                               vMuDatErr.push_back(0.0);
+                              vChi2NdfDat.push_back(-1.0);
+                            }
 
-                               vSigDat.push_back(-1.0);
-                               vSigDatErr.push_back(0.0);
+                            if (fSim && fSim->GetNDF() > 0)
+                            {
+                              const double mu   = fSim->GetParameter(1);
+                              const double sig  = fSim->GetParameter(2);
+                              const double chi2 = fSim->GetChisquare();
+                              const double ndf  = fSim->GetNDF();
 
-                               vChi2NdfDat.push_back(-1.0);
-                             }
+                              vMuSim.push_back(mu);
+                              vMuSimErr.push_back(fSim->GetParError(1));
 
-                             if (fSim && fSim->GetNDF() > 0)
-                             {
-                               const double mu   = fSim->GetParameter(1);
-                               const double sig  = fSim->GetParameter(2);
-                               const double chi2 = fSim->GetChisquare();
-                               const double ndf  = fSim->GetNDF();
+                              vSigSim.push_back(sig);
+                              vSigSimErr.push_back(fSim->GetParError(2));
 
-                               vMuSim.push_back(mu);
-                               vMuSimErr.push_back(fSim->GetParError(1));
+                              vChi2NdfSim.push_back(chi2 / ndf);
+                            }
+                            else
+                            {
+                              vMuSim.push_back(-1.0);
+                              vMuSimErr.push_back(0.0);
 
-                               vSigSim.push_back(sig);
-                               vSigSimErr.push_back(fSim->GetParError(2));
+                              vSigSim.push_back(-1.0);
+                              vSigSimErr.push_back(0.0);
 
-                               vChi2NdfSim.push_back(chi2 / ndf);
-                             }
-                             else
-                             {
-                               vMuSim.push_back(-1.0);
-                               vMuSimErr.push_back(0.0);
-
-                               vSigSim.push_back(-1.0);
-                               vSigSimErr.push_back(0.0);
-
-                               vChi2NdfSim.push_back(-1.0);
-                             }
-                           }
+                              vChi2NdfSim.push_back(-1.0);
+                            }
+                          }
 
                           const double muDatDraw = (fDat && fDat->GetNDF() > 0) ? fDat->GetParameter(1) : -1.0;
                           const double muSimDraw = (fSim && fSim->GetNDF() > 0) ? fSim->GetParameter(1) : -1.0;
 
-                         {
-                           TLatex tMean;
-                           tMean.SetNDC(true);
-                           tMean.SetTextFont(42);
-                           tMean.SetTextAlign(33);
-                           tMean.SetTextSize(0.040);
-                           if (muDatDraw >= 0.0) tMean.DrawLatex(0.92, 0.70, TString::Format("Data <x_{J}> = %.4f", muDatDraw).Data());
-                           else                  tMean.DrawLatex(0.92, 0.70, "Data <x_{J}> = N/A");
-                           if (muSimDraw >= 0.0) tMean.DrawLatex(0.92, 0.64, TString::Format("Sim <x_{J}> = %.4f", muSimDraw).Data());
-                           else                  tMean.DrawLatex(0.92, 0.64, "Sim <x_{J}> = N/A");
-                         }
+                          gPad->Update();
+                          const double yMinFit = gPad->GetUymin();
+                          const double yMaxFit = gPad->GetUymax();
 
-                         {
-                           TLatex tCuts;
-                           tCuts.SetNDC(true);
-                           tCuts.SetTextFont(42);
-                           tCuts.SetTextAlign(33);
-                           tCuts.SetTextSize(0.04);
-                           tCuts.DrawLatex(0.92, 0.56, TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data());
-                           tCuts.DrawLatex(0.92, 0.50, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
-                             tCuts.DrawLatex(0.92, 0.44, TString::Format("|v_{z}| < %.0f cm", vzCutCm).Data());
-                         }
+                          if (muDatDraw >= 0.0)
+                          {
+                            TLine lDatFit(muDatDraw, yMinFit, muDatDraw, yMaxFit);
+                            lDatFit.SetLineColor(kGreen + 2);
+                            lDatFit.SetLineStyle(2);
+                            lDatFit.SetLineWidth(2);
+                            lDatFit.DrawClone("same");
+                          }
+                          if (muSimDraw >= 0.0)
+                          {
+                            TLine lSimFit(muSimDraw, yMinFit, muSimDraw, yMaxFit);
+                            lSimFit.SetLineColor(kOrange + 7);
+                            lSimFit.SetLineStyle(2);
+                            lSimFit.SetLineWidth(2);
+                            lSimFit.DrawClone("same");
+                          }
 
-                          TLatex ttl;
-                          ttl.SetNDC(true);
-                          ttl.SetTextFont(42);
-                          ttl.SetTextSize(0.043);
-                          ttl.DrawLatex(0.12, 0.94,
-                            TString::Format("RECO x_{J#gamma} (DATA vs SIM), p_{T}^{#gamma} = %.0f - %.0f GeV, R = %.1f",
-                              ptMinGamma, ptMaxGamma, R).Data());
+                          {
+                            TLatex tMean;
+                            tMean.SetNDC(true);
+                            tMean.SetTextFont(42);
+                            tMean.SetTextAlign(33);
+                            tMean.SetTextSize(0.040);
+                            if (muDatDraw >= 0.0) tMean.DrawLatex(0.92, 0.70, TString::Format("Data <x_{J}> = %.4f", muDatDraw).Data());
+                            else                  tMean.DrawLatex(0.92, 0.70, "Data <x_{J}> = N/A");
+                            if (muSimDraw >= 0.0) tMean.DrawLatex(0.92, 0.64, TString::Format("Sim <x_{J}> = %.4f", muSimDraw).Data());
+                            else                  tMean.DrawLatex(0.92, 0.64, "Sim <x_{J}> = N/A");
+                          }
+
+                          {
+                            TLatex tCuts;
+                            tCuts.SetNDC(true);
+                            tCuts.SetTextFont(42);
+                            tCuts.SetTextAlign(33);
+                            tCuts.SetTextSize(0.04);
+                            tCuts.DrawLatex(0.92, 0.56, TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data());
+                            tCuts.DrawLatex(0.92, 0.50, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
+                            tCuts.DrawLatex(0.92, 0.44, TString::Format("|v_{z}| < %.0f cm", vzCutCm).Data());
+                          }
+
+                          {
+                            TLatex ttl;
+                            ttl.SetNDC(true);
+                            ttl.SetTextFont(42);
+                            ttl.SetTextSize(0.043);
+                            ttl.DrawLatex(0.12, 0.94,
+                              TString::Format("RECO x_{J#gamma} (DATA vs SIM), p_{T}^{#gamma} = %.0f - %.0f GeV, R = %.1f",
+                                ptMinGamma, ptMaxGamma, R).Data());
+                          }
+
+                          canTblMeans.cd(k + 1);
+
+                          gPad->SetLeftMargin(0.14);
+                          gPad->SetRightMargin(0.05);
+                          gPad->SetTopMargin(0.12);
+                          gPad->SetBottomMargin(0.14);
+
+                          if (hDatMeanTbl && hSimMeanTbl)
+                          {
+                            hDatMeanTbl->SetTitle("");
+                            hDatMeanTbl->SetLineWidth(2);
+                            hDatMeanTbl->SetLineColor(kGreen + 2);
+                            hDatMeanTbl->SetMarkerStyle(20);
+                            hDatMeanTbl->SetMarkerSize(1.0);
+                            hDatMeanTbl->SetMarkerColor(kGreen + 2);
+
+                            hSimMeanTbl->SetLineWidth(2);
+                            hSimMeanTbl->SetLineColor(kOrange + 7);
+                            hSimMeanTbl->SetMarkerStyle(20);
+                            hSimMeanTbl->SetMarkerSize(1.0);
+                            hSimMeanTbl->SetMarkerColor(kOrange + 7);
+
+                            hDatMeanTbl->GetXaxis()->SetTitle("x_{J#gamma}");
+                            hDatMeanTbl->GetXaxis()->SetRangeUser(0.0, 2.0);
+                            hDatMeanTbl->GetYaxis()->SetTitle("Normalized counts");
+
+                            hDatMeanTbl->Draw("E1");
+                            hSimMeanTbl->Draw("E1 same");
+                            gPad->Update();
+
+                            const double meanDatDraw = hDatMeanTbl->GetMean();
+                            const double meanSimDraw = hSimMeanTbl->GetMean();
+
+                            const double yMinMean = gPad->GetUymin();
+                            const double yMaxMean = gPad->GetUymax();
+
+                            if (std::isfinite(meanDatDraw))
+                            {
+                              TLine lDatMean(meanDatDraw, yMinMean, meanDatDraw, yMaxMean);
+                              lDatMean.SetLineColor(kGreen + 2);
+                              lDatMean.SetLineStyle(2);
+                              lDatMean.SetLineWidth(2);
+                              lDatMean.DrawClone("same");
+                            }
+                            if (std::isfinite(meanSimDraw))
+                            {
+                              TLine lSimMean(meanSimDraw, yMinMean, meanSimDraw, yMaxMean);
+                              lSimMean.SetLineColor(kOrange + 7);
+                              lSimMean.SetLineStyle(2);
+                              lSimMean.SetLineWidth(2);
+                              lSimMean.DrawClone("same");
+                            }
+
+                            {
+                              TLegend* leg = new TLegend(0.70, 0.75, 0.94, 0.88);
+                              leg->SetBorderSize(0);
+                              leg->SetFillStyle(0);
+                              leg->SetTextFont(42);
+                              leg->SetTextSize(0.04);
+                              leg->AddEntry(hDatMeanTbl, "DATA (reco)", "ep");
+                              leg->AddEntry(hSimMeanTbl, "SIM (reco)",  "ep");
+                              leg->DrawClone();
+                              delete leg;
+                            }
+
+                            {
+                              TLatex tMean;
+                              tMean.SetNDC(true);
+                              tMean.SetTextFont(42);
+                              tMean.SetTextAlign(33);
+                              tMean.SetTextSize(0.040);
+                              if (std::isfinite(meanDatDraw)) tMean.DrawLatex(0.92, 0.70, TString::Format("Data <x_{J}> = %.4f", meanDatDraw).Data());
+                              else                           tMean.DrawLatex(0.92, 0.70, "Data <x_{J}> = N/A");
+                              if (std::isfinite(meanSimDraw)) tMean.DrawLatex(0.92, 0.64, TString::Format("Sim <x_{J}> = %.4f", meanSimDraw).Data());
+                              else                           tMean.DrawLatex(0.92, 0.64, "Sim <x_{J}> = N/A");
+                            }
+
+                            {
+                              TLatex tCuts;
+                              tCuts.SetNDC(true);
+                              tCuts.SetTextFont(42);
+                              tCuts.SetTextAlign(33);
+                              tCuts.SetTextSize(0.04);
+                              tCuts.DrawLatex(0.92, 0.56, TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data());
+                              tCuts.DrawLatex(0.92, 0.50, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
+                              tCuts.DrawLatex(0.92, 0.44, TString::Format("|v_{z}| < %.0f cm", vzCutCm).Data());
+                            }
+
+                            {
+                              TLatex ttl;
+                              ttl.SetNDC(true);
+                              ttl.SetTextFont(42);
+                              ttl.SetTextSize(0.043);
+                              ttl.DrawLatex(0.12, 0.94,
+                                TString::Format("RECO x_{J#gamma} (DATA vs SIM), p_{T}^{#gamma} = %.0f - %.0f GeV, R = %.1f",
+                                  ptMinGamma, ptMaxGamma, R).Data());
+                            }
+
+                            keepMeansH.push_back(hDatMeanTbl);
+                            keepMeansH.push_back(hSimMeanTbl);
+                          }
+                          else
+                          {
+                            if (hDatMeanTbl) delete hDatMeanTbl;
+                            if (hSimMeanTbl) delete hSimMeanTbl;
+                          }
 
                           vPtCtr.push_back(ptCtr);
                           vPtErr.push_back(ptErr);
@@ -7996,6 +8254,9 @@ namespace ARJ
                       }
 
                       SaveCanvas(canTblFits, JoinPath(dirFits, "table3x2_overlay_integratedAlpha_overlayedWithSim_withFits.png"));
+                      SaveCanvas(canTblMeans, JoinPath(dirFits, "table3x2_overlay_integratedAlpha_overlayedWithSim_withMeans.png"));
+
+                      for (auto* h1 : keepMeansH) delete h1;
 
                       // Cache GetMean values for the already-drawn table bins.
                       {
