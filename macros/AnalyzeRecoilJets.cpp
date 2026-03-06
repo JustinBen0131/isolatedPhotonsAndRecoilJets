@@ -24610,9 +24610,20 @@ namespace ARJ
           }
           else
           {
-            cout << "  -> [5I] RooUnfold pipeline (SIM+DATA PP): unfold to particle level + per-photon x_{J} tables...\n";
+            cout << "  -> [5I] RooUnfold pipeline (SIM+DATA PP): non-purity-corrected unfold to particle level + per-photon x_{J} tables...\n";
+            gApplyPurityCorrectionForUnfolding = false;
             analysis::RunRooUnfoldPipeline_SimAndDataPP(*dsPP, *dsSIM);
-            cout << "     [OK]\n";
+            cout << "     [OK] nonPurityCorrected\n";
+
+            cout << "  -> [5I] RooUnfold pipeline (SIM+DATA PP): purity-corrected unfold to particle level + per-photon x_{J} tables...\n";
+            gApplyPurityCorrectionForUnfolding = true;
+            analysis::RunRooUnfoldPipeline_SimAndDataPP(*dsPP, *dsSIM);
+            gApplyPurityCorrectionForUnfolding = false;
+            cout << "     [OK] purityCorrected\n";
+
+            cout << "  -> [5I] purity-corrected vs non-purity-corrected per-photon x_{J} overlays...\n";
+            analysis::RunPurityCorrectedUncorrectedOverlayPP(*dsPP);
+            cout << "     [OK] purityCorrectedUncorrectedOverly\n";
           }
         }
         else

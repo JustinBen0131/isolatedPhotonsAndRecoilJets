@@ -473,37 +473,44 @@ private:
                                       const Jet* recoil1Jet);
 
   bool runLeadIsoTightPhotonJetLoopAllRadii(
-            const std::vector<std::string>& activeTrig,
-            const int effCentIdx_M,
-            const int centIdx,
-            const int leadPhoIndex,
-            const int leadPtIdx,
-            const double leadPtGamma,
-            const double leadEtaGamma,
-            const double leadPhiGamma,
-            const bool haveTruthPho,
-            const double tPt,
-            const double tEta,
-            const double tPhi,
-            PHG4TruthInfoContainer* truth);
+              const std::vector<std::string>& activeTrig,
+              const int effCentIdx_M,
+              const int centIdx,
+              const int leadPhoIndex,
+              const int leadPtIdx,
+              const double leadPtGamma,
+              const double leadEtaGamma,
+              const double leadPhiGamma,
+              const bool haveTruthPho,
+              const double tPt,
+              const double tEta,
+              const double tPhi,
+              PHG4TruthInfoContainer* truth);
 
-      
+  void runLeadIsoNonTightPhotonJetLoopAllRadii_SidebandC(
+              const std::vector<std::string>& activeTrig,
+              const int effCentIdx_M,
+              const double leadPtGamma,
+              const double leadEtaGamma,
+              const double leadPhiGamma);
+
+        
   bool runLeadIsoTightPhotonJetMatchingAndUnfolding(
-            const std::vector<std::string>& activeTrig,
-            const int effCentIdx_M,
-            const int centIdx,
-            const int leadPhoIndex,
-            const int leadPtIdx,
-            const double leadPtGamma,
-            const double leadEtaGamma,
-            const double leadPhiGamma,
-            const bool haveTruthSigPho,
-            const double tPtSig,
-            const bool haveTruthPho,
-            const double tPt,
-            const double tEta,
-            const double tPhi,
-            PHG4TruthInfoContainer* truth);
+              const std::vector<std::string>& activeTrig,
+              const int effCentIdx_M,
+              const int centIdx,
+              const int leadPhoIndex,
+              const int leadPtIdx,
+              const double leadPtGamma,
+              const double leadEtaGamma,
+              const double leadPhiGamma,
+              const bool haveTruthSigPho,
+              const double tPtSig,
+              const bool haveTruthPho,
+              const double tPt,
+              const double tEta,
+              const double tPhi,
+              PHG4TruthInfoContainer* truth);
 
   void fillPureIsolationQA(PHCompositeNode* topNode,
                                const std::vector<std::string>& activeTrig,
@@ -697,6 +704,7 @@ private:
   //      h2_unfoldTruthMisses_pTgamma_xJ_incl_<rKey><centSuffix>
   // -------------------------------------------------------------------------
   TH2F* getOrBookUnfoldRecoPtXJIncl      (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookUnfoldRecoPtXJInclSidebandC(const std::string& trig, const std::string& rKey, int centIdx);
   TH2F* getOrBookUnfoldTruthPtXJIncl     (const std::string& trig, const std::string& rKey, int centIdx);
 
   // inclusive |Δphi(gamma,jet)| per recoil jet that passes pT+eta+recoil Δphi cuts

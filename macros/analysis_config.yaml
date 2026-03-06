@@ -40,7 +40,7 @@ back_to_back_dphi_min_pi_fraction: [0.875]
 use_vz_cut: true
 vz_cut_cm: 60.0
 
-centrality_edges: [0, 10, 20, 40, 60, 80, 100]
+centrality_edges: [0, 10, 20, 40, 60, 80]
 
 # -----------------------------------------------------------------------------
 # Isolation working point knobs (YAML-driven)

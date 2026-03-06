@@ -164,6 +164,11 @@ namespace ARJ
   inline bool isPPdataOnly   = false;
   inline bool isSimAndDataPP = true;
 
+  // Internal toggle used to run the RooUnfold pipeline twice:
+  //   false -> raw reco inputs                     -> unfolding/nonPurityCorrected/...
+  //   true  -> ABCD purity-corrected reco inputs  -> unfolding/purityCorrected/...
+  inline bool gApplyPurityCorrectionForUnfolding = false;
+
   // AuAu-only analysis mode (no SIM, no PP). When true, the full plotting
   // pipeline runs on AuAu only and outputs to dataOutput/auau/<trigger>/...
   // NOTE: Must be mutually exclusive with isPPdataOnly and isSimAndDataPP.

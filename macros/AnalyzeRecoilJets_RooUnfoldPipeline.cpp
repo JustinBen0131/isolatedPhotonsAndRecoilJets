@@ -65,18 +65,26 @@
 
       if (dsData.isSim || !dsSim.isSim)
       {
-          cout << ANSI_BOLD_YEL << "[WARN] RunRooUnfoldPipeline_SimAndDataPP called with unexpected dataset types (dsData.isSim="
-               << dsData.isSim << ", dsSim.isSim=" << dsSim.isSim << "). Continuing anyway." << ANSI_RESET << "\n";
+            cout << ANSI_BOLD_YEL << "[WARN] RunRooUnfoldPipeline_SimAndDataPP called with unexpected dataset types (dsData.isSim="
+                 << dsData.isSim << ", dsSim.isSim=" << dsSim.isSim << "). Continuing anyway." << ANSI_RESET << "\n";
       }
 
-        const string outBase = JoinPath(dsData.outBase, "unfolding/radii");
+        const string unfoldVariant = (gApplyPurityCorrectionForUnfolding ? "purityCorrected" : "nonPurityCorrected");
+        const string outBase = JoinPath(dsData.outBase, "unfolding/" + unfoldVariant + "/radii");
         int mkrc = -999;
         if (gSystem) mkrc = gSystem->mkdir(outBase.c_str(), true);
         else EnsureDir(outBase);
 
+        cout << "  Unfolding variant: " << unfoldVariant << "\n";
         cout << "  Output base: " << outBase;
         if (mkrc != -999) cout << "  (mkdir rc=" << mkrc << ")";
         cout << "\n";
+
+        LeakageFactors lfForPurity;
+        if (gApplyPurityCorrectionForUnfolding)
+        {
+            LoadLeakageFactorsFromSIM(dsSim, lfForPurity);
+        }
 
         // ----------------------------------------------------------------------
         // Load ATLAS pp (HEPData ins1694678 Table 1) x_{J#gamma} points for a simple overlay
@@ -378,6 +386,141 @@
       };
 
         // ----------------------------------------------------------------------
+        // Helpers for ATLAS-style purity correction before unfolding:
+        //   - photon normalization input: use S_A(pT^{#gamma}) from ABCD
+        //   - measured xJ input: H_A - (N_{bkg}^{A} / N_C) * H_C  in each pT^{#gamma} bin
+        //
+        // The response matrix remains the nominal signal response (truth signal -> reco A),
+        // which is the correct thing to use once the fake-photon recoil template has been
+        // subtracted from the measured reco distribution before unfolding.
+        // ----------------------------------------------------------------------
+        auto ComputeABCDSignalCounts =
+          [&](int iPt,
+              double& A,
+              double& B,
+              double& C,
+              double& D,
+              double& SA,
+              double& eSA,
+              double& nbkgA)->void
+        {
+          const PtBin& b = PtBins()[iPt];
+
+          A = Read1BinCount(dsData, "h_isIsolated_isTight"   + b.suffix);
+          B = Read1BinCount(dsData, "h_notIsolated_isTight"  + b.suffix);
+          C = Read1BinCount(dsData, "h_isIsolated_notTight"  + b.suffix);
+          D = Read1BinCount(dsData, "h_notIsolated_notTight" + b.suffix);
+
+          SA = 0.0;
+          if (A > 0.0 && D > 0.0)
+          {
+            SA = A - B * (C / D);
+            if (SA < 0.0) SA = 0.0;
+          }
+
+          if (gApplyPurityCorrectionForUnfolding && lfForPurity.available)
+          {
+            double SAcorr = 0.0;
+            if (SolveLeakageCorrectedSA(A, B, C, D,
+                                        lfForPurity.fB[iPt],
+                                        lfForPurity.fC[iPt],
+                                        lfForPurity.fD[iPt],
+                                        SAcorr))
+            {
+              SA = std::min(std::max(SAcorr, 0.0), A);
+            }
+          }
+
+          double varSA = 0.0;
+          if (A > 0.0) varSA += 1.0 * 1.0 * A;
+          if (D > 0.0)
+          {
+            const double dSdB = -(C / D);
+            const double dSdC = -(B / D);
+            const double dSdD =  (B * C) / (D * D);
+
+            if (B > 0.0) varSA += dSdB * dSdB * B;
+            if (C > 0.0) varSA += dSdC * dSdC * C;
+            if (D > 0.0) varSA += dSdD * dSdD * D;
+          }
+
+          eSA = (varSA > 0.0) ? std::sqrt(varSA) : 0.0;
+          nbkgA = std::max(0.0, A - SA);
+        };
+
+        auto ApplyPurityCorrectionToRecoPhotonHist =
+          [&](TH1* h)->bool
+        {
+          if (!h) return false;
+
+          h->Reset("ICES");
+          h->SetDirectory(nullptr);
+          EnsureSumw2(h);
+
+          for (int i = 0; i < kNPtBins; ++i)
+          {
+            double A = 0.0, B = 0.0, C = 0.0, D = 0.0;
+            double SA = 0.0, eSA = 0.0, nbkgA = 0.0;
+            ComputeABCDSignalCounts(i, A, B, C, D, SA, eSA, nbkgA);
+
+            const PtBin& b = PtBins()[i];
+            const double cen = 0.5 * (b.lo + b.hi);
+            const int ib = h->GetXaxis()->FindBin(cen);
+            if (ib < 1 || ib > h->GetNbinsX()) continue;
+
+            h->SetBinContent(ib, SA);
+            h->SetBinError  (ib, eSA);
+          }
+
+          return true;
+        };
+
+        auto ApplyPurityCorrectionToRecoXJHist =
+          [&](TH2* h, TH2* hSideC)->bool
+        {
+          if (!h || !hSideC) return false;
+
+          h->Reset("ICES");
+          h->SetDirectory(nullptr);
+          EnsureSumw2(h);
+
+          const int ny = h->GetYaxis()->GetNbins();
+
+          for (int i = 0; i < kNPtBins; ++i)
+          {
+            double A = 0.0, B = 0.0, C = 0.0, D = 0.0;
+            double SA = 0.0, eSA = 0.0, nbkgA = 0.0;
+            ComputeABCDSignalCounts(i, A, B, C, D, SA, eSA, nbkgA);
+
+            const double scaleC = (C > 0.0) ? (nbkgA / C) : 0.0;
+
+            const PtBin& b = PtBins()[i];
+            const double cen = 0.5 * (b.lo + b.hi);
+            const int ix = h->GetXaxis()->FindBin(cen);
+            if (ix < 1 || ix > h->GetXaxis()->GetNbins()) continue;
+
+            for (int iy = 0; iy <= ny + 1; ++iy)
+            {
+              const double valA = h->GetBinContent(ix, iy);
+              const double errA = h->GetBinError  (ix, iy);
+
+              const double valC = hSideC->GetBinContent(ix, iy);
+              const double errC = hSideC->GetBinError  (ix, iy);
+
+              double val  = valA - scaleC * valC;
+              double err2 = errA * errA + scaleC * scaleC * errC * errC;
+
+              if (val < 0.0) val = 0.0;
+
+              h->SetBinContent(ix, iy, val);
+              h->SetBinError  (ix, iy, (err2 > 0.0) ? std::sqrt(err2) : 0.0);
+            }
+          }
+
+          return true;
+        };
+
+        // ----------------------------------------------------------------------
         // (A) Photon unfolding: N_gamma(pT^gamma) at particle (truth) level
         // ----------------------------------------------------------------------
 
@@ -467,6 +610,22 @@
         EnsureSumw2(hPhoRecoSim);
         EnsureSumw2(hPhoTruthSim);
         EnsureSumw2(hPhoRespSim);
+
+        if (gApplyPurityCorrectionForUnfolding)
+        {
+          cout << "  [BUILD] DATA :: purity-corrected photon reco input from ABCD counts\n";
+          if (!ApplyPurityCorrectionToRecoPhotonHist(hPhoRecoData))
+          {
+            cout << ANSI_BOLD_RED
+                 << "[ERROR] Failed to build purity-corrected photon reco input. Aborting RooUnfold pipeline."
+                 << ANSI_RESET << "\n";
+            delete hPhoRecoData;
+            delete hPhoRecoSim;
+            delete hPhoTruthSim;
+            delete hPhoRespSim;
+            return;
+          }
+      }
 
       TH2D* hPhoResp_measXtruth = TransposeTH2(
         hPhoRespSim,
@@ -1695,45 +1854,68 @@
         EnsureDir(beforeAfterDataOut);
         EnsureDir(beforeAfterTruthOut);
 
-        const string nameReco  = "h2_unfoldReco_pTgamma_xJ_incl_"     + rKey;
-        const string nameTruth = "h2_unfoldTruth_pTgamma_xJ_incl_"    + rKey;
-        const string nameRsp   = "h2_unfoldResponse_pTgamma_xJ_incl_" + rKey;
+          const string nameReco   = "h2_unfoldReco_pTgamma_xJ_incl_"           + rKey;
+          const string nameRecoC  = "h2_unfoldReco_pTgamma_xJ_incl_sidebandC_" + rKey;
+          const string nameTruth  = "h2_unfoldTruth_pTgamma_xJ_incl_"          + rKey;
+          const string nameRsp    = "h2_unfoldResponse_pTgamma_xJ_incl_"       + rKey;
 
-        TH2* h2RecoData_in  = GetObj<TH2>(dsData, nameReco,  true, true, true);
-        TH2* h2RecoSim_in   = GetObj<TH2>(dsSim,  nameReco,  true, true, true);
-        TH2* h2TruthSim_in  = GetObj<TH2>(dsSim,  nameTruth, true, true, true);
-        TH2* h2RspSim_in    = GetObj<TH2>(dsSim,  nameRsp,   true, true, true);
+          TH2* h2RecoData_in       = GetObj<TH2>(dsData, nameReco,  true, true, true);
+          TH2* h2RecoData_sideC_in = (gApplyPurityCorrectionForUnfolding
+                                      ? GetObj<TH2>(dsData, nameRecoC, true, true, true)
+                                      : nullptr);
+          TH2* h2RecoSim_in        = GetObj<TH2>(dsSim,  nameReco,  true, true, true);
+          TH2* h2TruthSim_in       = GetObj<TH2>(dsSim,  nameTruth, true, true, true);
+          TH2* h2RspSim_in         = GetObj<TH2>(dsSim,  nameRsp,   true, true, true);
 
-        if (!h2RecoData_in || !h2RecoSim_in || !h2TruthSim_in || !h2RspSim_in)
-        {
-            auto Status = [&](Dataset& ds, const string& relName, TObject* obj)->string
+          if (!h2RecoData_in || !h2RecoSim_in || !h2TruthSim_in || !h2RspSim_in ||
+              (gApplyPurityCorrectionForUnfolding && !h2RecoData_sideC_in))
+          {
+              auto Status = [&](Dataset& ds, const string& relName, TObject* obj)->string
+              {
+                if (obj) return "FOUND";
+                const string fp = FullPath(ds, relName);
+                auto it = ds.missingReason.find(fp);
+                if (it == ds.missingReason.end()) return "MISSING";
+                return string("MISSING (") + it->second + ")";
+              };
+
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] Skipping RooUnfold xJ for " << rKey << " due to missing/zero inputs:\n"
+                   << "       DATA  " << FullPath(dsData, nameReco)  << " : " << Status(dsData, nameReco,  h2RecoData_in)  << "\n";
+              if (gApplyPurityCorrectionForUnfolding)
+                cout << "       DATA  " << FullPath(dsData, nameRecoC) << " : " << Status(dsData, nameRecoC, h2RecoData_sideC_in) << "\n";
+              cout << "       SIM   " << FullPath(dsSim,  nameReco)  << " : " << Status(dsSim,  nameReco,  h2RecoSim_in)   << "\n"
+                   << "       SIM   " << FullPath(dsSim,  nameTruth) << " : " << Status(dsSim,  nameTruth, h2TruthSim_in)  << "\n"
+                   << "       SIM   " << FullPath(dsSim,  nameRsp)   << " : " << Status(dsSim,  nameRsp,   h2RspSim_in)    << "\n"
+                   << ANSI_RESET << "\n";
+              continue;
+          }
+
+          TH2* h2RecoData  = CloneTH2(h2RecoData_in,  TString::Format("h2RecoData_%s", rKey.c_str()).Data());
+          TH2* h2RecoSim   = CloneTH2(h2RecoSim_in,   TString::Format("h2RecoSim_%s",  rKey.c_str()).Data());
+          TH2* h2TruthSim  = CloneTH2(h2TruthSim_in,  TString::Format("h2TruthSim_%s", rKey.c_str()).Data());
+          TH2* h2RspSim    = CloneTH2(h2RspSim_in,    TString::Format("h2RspSim_truthVsReco_%s", rKey.c_str()).Data());
+
+          EnsureSumw2(h2RecoData);
+          EnsureSumw2(h2RecoSim);
+          EnsureSumw2(h2TruthSim);
+          EnsureSumw2(h2RspSim);
+
+          if (gApplyPurityCorrectionForUnfolding)
+          {
+            cout << "  [BUILD] DATA :: purity-corrected xJ reco input for " << rKey << " from ABCD(A,B,C,D) + sideband C\n";
+            if (!ApplyPurityCorrectionToRecoXJHist(h2RecoData, h2RecoData_sideC_in))
             {
-              if (obj) return "FOUND";
-              const string fp = FullPath(ds, relName);
-              auto it = ds.missingReason.find(fp);
-              if (it == ds.missingReason.end()) return "MISSING";
-              return string("MISSING (") + it->second + ")";
-            };
-
-            cout << ANSI_BOLD_YEL
-                 << "[WARN] Skipping RooUnfold xJ for " << rKey << " due to missing/zero inputs:\n"
-                 << "       DATA  " << FullPath(dsData, nameReco)  << " : " << Status(dsData, nameReco,  h2RecoData_in)  << "\n"
-                 << "       SIM   " << FullPath(dsSim,  nameReco)  << " : " << Status(dsSim,  nameReco,  h2RecoSim_in)   << "\n"
-                 << "       SIM   " << FullPath(dsSim,  nameTruth) << " : " << Status(dsSim,  nameTruth, h2TruthSim_in)  << "\n"
-                 << "       SIM   " << FullPath(dsSim,  nameRsp)   << " : " << Status(dsSim,  nameRsp,   h2RspSim_in)    << "\n"
-                 << ANSI_RESET << "\n";
-            continue;
-        }
-
-        TH2* h2RecoData  = CloneTH2(h2RecoData_in,  TString::Format("h2RecoData_%s", rKey.c_str()).Data());
-        TH2* h2RecoSim   = CloneTH2(h2RecoSim_in,   TString::Format("h2RecoSim_%s",  rKey.c_str()).Data());
-        TH2* h2TruthSim  = CloneTH2(h2TruthSim_in,  TString::Format("h2TruthSim_%s", rKey.c_str()).Data());
-        TH2* h2RspSim    = CloneTH2(h2RspSim_in,    TString::Format("h2RspSim_truthVsReco_%s", rKey.c_str()).Data());
-
-        EnsureSumw2(h2RecoData);
-        EnsureSumw2(h2RecoSim);
-        EnsureSumw2(h2TruthSim);
-        EnsureSumw2(h2RspSim);
+              cout << ANSI_BOLD_RED
+                   << "[ERROR] Failed to build purity-corrected xJ reco input for " << rKey << ". Skipping this radius."
+                   << ANSI_RESET << "\n";
+              delete h2RecoData;
+              delete h2RecoSim;
+              delete h2TruthSim;
+              delete h2RspSim;
+              continue;
+            }
+          }
 
         const int nGlobTruth_rsp = h2RspSim->GetNbinsX();
         const int nGlobReco_rsp  = h2RspSim->GetNbinsY();
@@ -2938,36 +3120,42 @@
                         hRatio->SetDirectory(nullptr);
                         EnsureSumw2(hRatio);
 
-                        for (int ib = 0; ib <= hRatio->GetNbinsX() + 1; ++ib)
-                        {
-                          if (ib == 0 || ib == hRatio->GetNbinsX() + 1)
+                          const double relToySigma =
+                            (kNToysXJFinal > 1) ? (1.0 / std::sqrt(2.0 * (double)(kNToysXJFinal - 1))) : 0.0;
+
+                          for (int ib = 0; ib <= hRatio->GetNbinsX() + 1; ++ib)
                           {
-                            hRatio->SetBinContent(ib, 0.0);
-                            hRatio->SetBinError  (ib, 0.0);
-                            continue;
+                            if (ib == 0 || ib == hRatio->GetNbinsX() + 1)
+                            {
+                              hRatio->SetBinContent(ib, 0.0);
+                              hRatio->SetBinError  (ib, 0.0);
+                              continue;
+                            }
+
+                            const double eCov = hCov->GetBinError(ib);
+                            const double eToy = hToy->GetBinError(ib);
+
+                            if (eToy > 0.0 && eCov >= 0.0)
+                            {
+                              const double r  = eCov / eToy;
+                              const double er = std::fabs(r) * relToySigma;
+
+                              hRatio->SetBinContent(ib, r);
+                              hRatio->SetBinError  (ib, er);
+                            }
+                            else
+                            {
+                              hRatio->SetBinContent(ib, 0.0);
+                              hRatio->SetBinError  (ib, 0.0);
+                            }
                           }
 
-                          const double eCov = hCov->GetBinError(ib);
-                          const double eToy = hToy->GetBinError(ib);
-
-                          if (eToy > 0.0)
-                          {
-                            hRatio->SetBinContent(ib, eCov / eToy);
-                            hRatio->SetBinError  (ib, 0.0);
-                          }
-                          else
-                          {
-                            hRatio->SetBinContent(ib, 0.0);
-                            hRatio->SetBinError  (ib, 0.0);
-                          }
-                        }
-
-                        hRatio->SetTitle("");
-                        hRatio->GetXaxis()->SetTitle("x_{J}");
-                        hRatio->GetYaxis()->SetTitle("#sigma_{cov} / #sigma_{toy}");
-                        hRatio->SetLineWidth(2);
-                        hRatio->SetMarkerStyle(20);
-                        hRatio->SetMarkerSize(0.85);
+                          hRatio->SetTitle("");
+                          hRatio->GetXaxis()->SetTitle("x_{J}");
+                          hRatio->GetYaxis()->SetTitle("#sigma_{cov} / #sigma_{toy}");
+                          hRatio->SetLineWidth(0);
+                          hRatio->SetMarkerStyle(20);
+                          hRatio->SetMarkerSize(0.95);
 
                         // Store for optional summary table (first 6 pT bins)
                         perPhoErrRatio[i] = (TH1*)hRatio->Clone(
@@ -2996,7 +3184,7 @@
                         }
                         hRatio->SetMaximum((rMax > 0.0) ? (1.25 * rMax) : 2.0);
 
-                        hRatio->Draw("E1");
+                        hRatio->Draw("P E1");
 
                         // Centered title
                         {
@@ -3295,7 +3483,8 @@
                       if (v > rMax) rMax = v;
                     }
                     hR->SetMaximum((rMax > 0.0) ? (1.25 * rMax) : 2.0);
-                    hR->Draw("E1");
+                    hR->SetLineWidth(0);
+                    hR->Draw("P E1");
 
                     // Centered per-pad title
                     {
@@ -4196,6 +4385,186 @@
 
         if (gAtlasPP) delete gAtlasPP;
     }
+
+    void RunPurityCorrectedUncorrectedOverlayPP(Dataset& dsData)
+    {
+      const string inBaseUnc = JoinPath(dsData.outBase, "unfolding/nonPurityCorrected/radii");
+      const string inBaseCor = JoinPath(dsData.outBase, "unfolding/purityCorrected/radii");
+      const string outBase   = JoinPath(dsData.outBase, "unfolding/purityCorrectedUncorrectedOverly");
+
+      EnsureDir(outBase);
+
+      auto FindStoredUnfoldPtIndexForCanonical = [&](const PtBin& b)->int
+      {
+        const double cen = 0.5 * (b.lo + b.hi);
+        for (int i = 0; i < (int)UnfoldRecoPtBins().size(); ++i)
+        {
+          const PtBin& ub = UnfoldRecoPtBins()[i];
+          if (cen > ub.lo && cen < ub.hi) return i;
+        }
+        return -1;
+      };
+
+      for (const auto& rKey : kRKeys)
+      {
+        const string uncRoot = JoinPath(JoinPath(inBaseUnc, rKey), "rooUnfold_outputs.root");
+        const string corRoot = JoinPath(JoinPath(inBaseCor, rKey), "rooUnfold_outputs.root");
+        const string rOut    = JoinPath(outBase, rKey);
+
+        EnsureDir(rOut);
+
+        TFile* fUnc = TFile::Open(uncRoot.c_str(), "READ");
+        TFile* fCor = TFile::Open(corRoot.c_str(), "READ");
+
+        if (!fUnc || !fCor || fUnc->IsZombie() || fCor->IsZombie())
+        {
+          if (fUnc) { fUnc->Close(); delete fUnc; }
+          if (fCor) { fCor->Close(); delete fCor; }
+          continue;
+        }
+
+        auto GetH = [&](TFile* f, int iStored, const string& stem)->TH1*
+        {
+          if (!f || iStored < 0) return nullptr;
+          const string hname = TString::Format("%s_pTbin%d", stem.c_str(), iStored + 1).Data();
+          TH1* h = dynamic_cast<TH1*>(f->Get(hname.c_str()));
+          if (!h) return nullptr;
+
+          TH1* hc = dynamic_cast<TH1*>(h->Clone(TString::Format("%s_clone_%d", hname.c_str(), iStored + 1).Data()));
+          if (!hc) return nullptr;
+
+          hc->SetDirectory(nullptr);
+          EnsureSumw2(hc);
+          return hc;
+        };
+
+        auto DrawPad = [&](int iCanon)->void
+        {
+          if (iCanon < 0 || iCanon >= kNPtBins)
+          {
+            TH1F frame("frame","", 1, 0.0, 2.0);
+            frame.SetMinimum(0.0);
+            frame.SetMaximum(1.0);
+            frame.SetTitle("");
+            frame.GetXaxis()->SetTitle("x_{J}");
+            frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+            frame.Draw("axis");
+            return;
+          }
+
+          const PtBin& b = PtBins()[iCanon];
+          const int iStored = FindStoredUnfoldPtIndexForCanonical(b);
+
+          TH1* hUnc = GetH(fUnc, iStored, "h_xJ_unf_perPho");
+          TH1* hCor = GetH(fCor, iStored, "h_xJ_unf_perPho");
+
+          double maxY = 0.0;
+          auto scan = [&](TH1* h)
+          {
+            if (!h) return;
+            h->GetXaxis()->SetRangeUser(0.0, 2.0);
+            const int nb = h->GetNbinsX();
+            for (int ib = 1; ib <= nb; ++ib)
+            {
+              const double y  = h->GetBinContent(ib);
+              const double ey = h->GetBinError(ib);
+              if (y <= 0.0 && ey <= 0.0) continue;
+              maxY = std::max(maxY, y + ey);
+            }
+          };
+
+          scan(hUnc);
+          scan(hCor);
+
+          TH1* hBase = (hCor ? hCor : hUnc);
+          if (hBase)
+          {
+            hBase->GetXaxis()->SetRangeUser(0.0, 2.0);
+            hBase->SetTitle("");
+            hBase->GetXaxis()->SetTitle("x_{J}");
+            hBase->GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+            hBase->SetMinimum(0.0);
+            hBase->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
+            hBase->Draw("axis");
+          }
+          else
+          {
+            TH1F frame("frame","", 1, 0.0, 2.0);
+            frame.SetMinimum(0.0);
+            frame.SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
+            frame.SetTitle("");
+            frame.GetXaxis()->SetTitle("x_{J}");
+            frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+            frame.Draw("axis");
+          }
+
+          if (hUnc)
+          {
+            hUnc->SetLineColor(kBlack);
+            hUnc->SetMarkerColor(kBlack);
+            hUnc->SetMarkerStyle(20);
+            hUnc->SetMarkerSize(1.0);
+            hUnc->SetLineWidth(2);
+            hUnc->Draw("E1 X0 same");
+          }
+
+          if (hCor)
+          {
+            hCor->SetLineColor(kBlue + 1);
+            hCor->SetMarkerColor(kBlue + 1);
+            hCor->SetMarkerStyle(24);
+            hCor->SetMarkerSize(1.0);
+            hCor->SetLineWidth(2);
+            hCor->Draw("E1 X0 same");
+          }
+
+          TLatex tx;
+          tx.SetNDC();
+          tx.SetTextFont(42);
+          tx.SetTextAlign(22);
+          tx.SetTextSize(0.042);
+          tx.DrawLatex(0.50, 0.955,
+                       TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV",
+                                       b.lo, b.hi).Data());
+
+          if (hUnc || hCor)
+          {
+            TLegend leg(0.58, 0.72, 0.94, 0.88);
+            leg.SetBorderSize(0);
+            leg.SetFillStyle(0);
+            leg.SetTextFont(42);
+            leg.SetTextSize(0.032);
+            if (hUnc) leg.AddEntry(hUnc, "non-purity-corrected", "lp");
+            if (hCor) leg.AddEntry(hCor, "purity-corrected", "lp");
+            leg.Draw();
+          }
+
+          if (hUnc) delete hUnc;
+          if (hCor) delete hCor;
+        };
+
+        TCanvas c(TString::Format("c_tbl_purityOv_%s", rKey.c_str()).Data(), "c_tbl_purityOv", 2200, 1100);
+        c.Divide(4, 2, 0.001, 0.001);
+
+        for (int ipad = 0; ipad < kNPtBins; ++ipad)
+        {
+          c.cd(ipad + 1);
+          gPad->SetLeftMargin(0.12);
+          gPad->SetRightMargin(0.04);
+          gPad->SetBottomMargin(0.12);
+          gPad->SetTopMargin(0.06);
+
+          DrawPad(ipad);
+        }
+
+        SaveCanvas(c, JoinPath(rOut, "table2x4_purityCorrected_vs_nonPurityCorrected_perPhoton_dNdXJ.png"));
+
+        fUnc->Close();
+        fCor->Close();
+        delete fUnc;
+        delete fCor;
+      }
+    }
 #else
     void RunRooUnfoldPipeline_SimAndDataPP(Dataset& dsData, Dataset& dsSim)
     {
@@ -4203,6 +4572,14 @@
       (void)dsSim;
       cout << ANSI_BOLD_YEL
            << "[WARN] RooUnfold headers not found at compile time (ARJ_HAVE_ROOUNFOLD=0). Skipping RooUnfold pipeline."
+           << ANSI_RESET << "\n";
+    }
+
+    void RunPurityCorrectedUncorrectedOverlayPP(Dataset& dsData)
+    {
+      (void)dsData;
+      cout << ANSI_BOLD_YEL
+           << "[WARN] RooUnfold headers not found at compile time (ARJ_HAVE_ROOUNFOLD=0). Skipping purity-corrected vs non-purity-corrected overlay."
            << ANSI_RESET << "\n";
     }
 #endif

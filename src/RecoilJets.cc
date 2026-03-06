@@ -3757,6 +3757,73 @@ bool RecoilJets::runLeadIsoTightPhotonJetLoopAllRadii(
 }
 
 
+void RecoilJets::runLeadIsoNonTightPhotonJetLoopAllRadii_SidebandC(
+      const std::vector<std::string>& activeTrig,
+      const int effCentIdx_M,
+      const double leadPtGamma,
+      const double leadEtaGamma,
+      const double leadPhiGamma)
+{
+    for (const auto& kv : m_jets)
+    {
+      const std::string rKey = kv.first;
+      JetContainer* jets = kv.second;
+      const double jetEtaAbsMaxUse = jetEtaAbsMaxForRKey(rKey);
+
+      if (!jets) continue;
+
+      std::vector<const Jet*> recoJetsFid;
+      std::vector<char> recoJetsFidIsRecoil;
+      recoJetsFid.reserve(jets->size());
+      recoJetsFidIsRecoil.reserve(jets->size());
+
+      for (const Jet* j : *jets)
+      {
+        if (!j) continue;
+
+        const double jpt  = j->get_pt();
+        const double jeta = j->get_eta();
+        const double jphi = j->get_phi();
+
+        if (!std::isfinite(jpt) || !std::isfinite(jeta) || !std::isfinite(jphi)) continue;
+        if (jpt < m_minJetPt) continue;
+
+        const double dphiPho = TVector2::Phi_mpi_pi(jphi - leadPhiGamma);
+        const double detaPho = (jeta - leadEtaGamma);
+        const double dRPho2  = (detaPho*detaPho + dphiPho*dphiPho);
+
+        if (!std::isfinite(dRPho2) || (dRPho2 < (0.4 * 0.4))) continue;
+        if (std::fabs(jeta) >= jetEtaAbsMaxUse) continue;
+
+        const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(jphi - leadPhiGamma));
+
+        recoJetsFid.push_back(j);
+        recoJetsFidIsRecoil.push_back((dphiAbs >= m_minBackToBack) ? 1 : 0);
+      }
+
+      for (std::size_t irj = 0; irj < recoJetsFid.size(); ++irj)
+      {
+        if (!recoJetsFidIsRecoil[irj]) continue;
+
+        const Jet* rj = recoJetsFid[irj];
+        if (!rj) continue;
+
+        const double jpt = rj->get_pt();
+        if (!std::isfinite(jpt) || jpt <= 0.0) continue;
+
+        const double xJr = jpt / leadPtGamma;
+
+        for (const auto& trigShort : activeTrig)
+        {
+          if (auto* h2 = getOrBookUnfoldRecoPtXJInclSidebandC(trigShort, rKey, effCentIdx_M))
+          {
+            h2->Fill(leadPtGamma, xJr);
+            bumpHistFill(trigShort, h2->GetName());
+          }
+        }
+      }
+   }
+}
 
 
 bool RecoilJets::runLeadIsoTightPhotonJetMatchingAndUnfolding(
@@ -4537,6 +4604,15 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
       double leadEtaGamma     = 0.0;
       double leadPhiGamma     = 0.0;
 
+      // Region-C sideband candidate for purity subtraction:
+      // keep ONLY the event-leading iso ∧ nonTight photon (PPG12 non-tight = fails >=2 tight cuts).
+      bool   haveLeadIsoNonTight = false;
+      int    leadNonTightPhoIndex = -1;
+      int    leadNonTightPtIdx    = -1;
+      double leadNonTightPtGamma  = -1.0;
+      double leadNonTightEtaGamma = 0.0;
+      double leadNonTightPhiGamma = 0.0;
+
       //  leading reco photon candidate in pT^gamma within analysis pT bins,
       // WITHOUT requiring iso or tightness (used for jet-level cutflow QA vs pT^gamma)
       bool   haveLeadAnyPho  = false;
@@ -4546,7 +4622,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
 
       // Keep a pointer to the actual leading reco photon cluster (needed for SIM truth↔reco association)
       const RawCluster* leadRc = nullptr;
-          
+            
       // Event-level diagnostic: number of reco photon candidates that pass the SAME
       // iso∧tight gate used for the event-leading photon selection in this event.
       int nIsoTightPhoCand = 0;
@@ -5018,37 +5094,42 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
             fillIsoSSTagCounters(trigShort, rc, v, pt_gamma, centIdx, topNode);
           }
 
-           //  xJ usable gate (preselection already passed above):
-           //    - for ALL iso∧tight photons: fill the reco photon 3D baseline TH3
-           //    - for jet matching: defer to event-leading iso∧tight photon
-          if (!(iso && tightTag == TightTag::kTight))
-          {
-            if (!iso) ++nNotIso;
-            if (tightTag != TightTag::kTight) ++nNotTight;
-            if (Verbosity() >= 6)
-              LOG(6, CLR_BLUE, "      [pho#" << iPho << "] NOT used for xJ (iso=" << iso
-                                             << ", tightTag=" << tightTagName(tightTag) << ")");
-            continue;
-          }
+          //  xJ / unfolding gate (preselection already passed above):
+          //    - Region A: iso ∧ tight               -> nominal signal sample
+          //    - Region C: iso ∧ nonTight(>=2 fail) -> fake-photon sideband template
+          //    - all other categories are NOT used for jet-level xJ filling
+         const bool useSignalA   = (iso && tightTag == TightTag::kTight);
+         const bool useSidebandC = (iso && tightTag == TightTag::kNonTight);
 
-          // Count ALL iso∧tight photon candidates in this event (photon-side ambiguity diagnostic)
-          ++nIsoTightPhoCand;
+         if (!useSignalA && !useSidebandC)
+         {
+           if (!iso) ++nNotIso;
+           if (tightTag != TightTag::kTight) ++nNotTight;
+           if (Verbosity() >= 6)
+             LOG(6, CLR_BLUE, "      [pho#" << iPho << "] NOT used for xJ (iso=" << iso
+                                            << ", tightTag=" << tightTagName(tightTag) << ")");
+           continue;
+         }
 
-          for (const auto& trigShort : activeTrig)
-           {
-             if (auto* h3 = getOrBookPho3TightIso(trigShort))
-             {
-               h3->Fill(pt_gamma, eta, TVector2::Phi_mpi_pi(phi_gamma));
-               bumpHistFill(trigShort, h3->GetName());
-             }
-           }
+         if (useSignalA)
+         {
+           // Count ALL iso∧tight photon candidates in this event (photon-side ambiguity diagnostic)
+           ++nIsoTightPhoCand;
 
-            // ---- IMPORTANT CHANGE ----
-            // Do NOT jet-match here. If >1 photon passes iso∧tight in the same event,
-            // jet-matching here would double-fill xJ/JES histograms.
-            //
-            // Instead: keep ONLY the event-leading iso∧tight photon (highest pT^gamma),
-            // and do jet matching + JES3 fills ONCE after the photon loop.
+           for (const auto& trigShort : activeTrig)
+            {
+              if (auto* h3 = getOrBookPho3TightIso(trigShort))
+              {
+                h3->Fill(pt_gamma, eta, TVector2::Phi_mpi_pi(phi_gamma));
+                bumpHistFill(trigShort, h3->GetName());
+              }
+            }
+
+           // Do NOT jet-match here. If >1 photon passes iso∧tight in the same event,
+           // jet-matching here would double-fill xJ/JES histograms.
+           //
+           // Instead: keep ONLY the event-leading iso∧tight photon (highest pT^gamma),
+           // and do jet matching + JES3 fills ONCE after the photon loop.
            if (!haveLeadIsoTight || pt_gamma > leadPtGamma)
            {
              haveLeadIsoTight = true;
@@ -5066,8 +5147,28 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                                                << std::fixed << std::setprecision(2) << leadPtGamma << ")");
            }
 
-            // Defer jet matching (prevents double-filling JES TH3s if multiple photons pass).
-            continue;
+           // Defer jet matching (prevents double-filling JES TH3s if multiple photons pass).
+           continue;
+         }
+
+         // Region C sideband: keep ONLY the event-leading iso∧nonTight photon.
+         ++nNotTight;
+
+         if (!haveLeadIsoNonTight || pt_gamma > leadNonTightPtGamma)
+         {
+           haveLeadIsoNonTight = true;
+           leadNonTightPhoIndex = iPho;
+           leadNonTightPtIdx    = ptIdx;
+           leadNonTightPtGamma  = pt_gamma;
+           leadNonTightEtaGamma = eta;
+           leadNonTightPhiGamma = phi_gamma;
+
+           if (Verbosity() >= 6)
+             LOG(6, CLR_CYAN, "      [pho#" << iPho << "] marked as event-leading iso∧nonTight photon for sideband-C recoil filling (pT="
+                                            << std::fixed << std::setprecision(2) << leadNonTightPtGamma << ")");
+         }
+
+         continue;
         } // photon loop
         
         // ------------------------------------------------------------------
@@ -5296,6 +5397,20 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
         {
           if (Verbosity() >= 5)
             LOG(5, CLR_BLUE, "      [processCandidates] no iso∧tight photon in this event → no jet matching / JES fills");
+        }
+
+        if (haveLeadIsoNonTight)
+        {
+          runLeadIsoNonTightPhotonJetLoopAllRadii_SidebandC(activeTrig,
+                                                            effCentIdx_M,
+                                                            leadNonTightPtGamma,
+                                                            leadNonTightEtaGamma,
+                                                            leadNonTightPhiGamma);
+        }
+        else
+        {
+          if (Verbosity() >= 6)
+            LOG(6, CLR_BLUE, "      [processCandidates] no iso∧nonTight photon in this event → no sideband-C recoil fill");
         }
 
         // ------------------------------------------------------------------
@@ -6988,6 +7103,50 @@ TH2F* RecoilJets::getOrBookUnfoldRecoPtXJIncl(const std::string& trig,
     const std::vector<double>& kPtReco = m_unfoldRecoPhotonPtBins;
 
     // ATLAS-like log-ish xJ edges, with explicit under/overflow bins for unfolding stability
+    const std::vector<double>& kXJ = m_unfoldXJBins;
+
+    const int nx = static_cast<int>(kPtReco.size()) - 1;
+    const int ny = static_cast<int>(kXJ.size()) - 1;
+
+  const std::string title =
+    name + ";p_{T}^{#gamma,reco} [GeV];x_{J#gamma}^{reco}=p_{T}^{jet,reco}/p_{T}^{#gamma,reco}";
+
+  auto* h = new TH2F(name.c_str(), title.c_str(),
+                     nx, kPtReco.data(),
+                     ny, kXJ.data());
+  h->Sumw2();
+
+  H[name] = h;
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+TH2F* RecoilJets::getOrBookUnfoldRecoPtXJInclSidebandC(const std::string& trig,
+                                                       const std::string& rKey,
+                                                       int centIdx)
+{
+  const std::string base   = "h2_unfoldReco_pTgamma_xJ_incl_sidebandC";
+  const std::string suffix = suffixForBins(-1, centIdx);   // centrality-only (Au+Au); empty in pp
+  const std::string name   = base + "_" + rKey + suffix;
+
+  if (trig.empty() || rKey.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+  dir->cd();
+
+    const std::vector<double>& kPtReco = m_unfoldRecoPhotonPtBins;
     const std::vector<double>& kXJ = m_unfoldXJBins;
 
     const int nx = static_cast<int>(kPtReco.size()) - 1;
