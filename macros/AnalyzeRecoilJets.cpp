@@ -8572,140 +8572,140 @@ namespace ARJ
                                 );
                             }
 
-                            SaveCanvas(cPanel, JoinPath(dirOv, "meanVsPt_withRatioPanel_reco_integratedAlpha_overlayedWithSim_withFits.png"));
+                              SaveCanvas(cPanel, JoinPath(dirFits, "meanVsPt_withRatioPanel_reco_integratedAlpha_overlayedWithSim_withFits.png"));
 
-                            if (fJES)   delete fJES;
-                            delete legP;
-                            delete hTop;
-                            delete hBot;
+                              if (fJES)   delete fJES;
+                              delete legP;
+                              delete hTop;
+                              delete hBot;
 
-                            delete lOne;
-                            delete gRatio;
-                          }
+                              delete lOne;
+                              delete gRatio;
+                            }
 
-                          // ------------------------------------------------------------------
-                          // NEW: sigma vs pT (DATA vs SIM)
-                          // ------------------------------------------------------------------
-                          TCanvas cSig(
-                            TString::Format("c_sigmaVsPt_%s_dataVsSim_withFits", rKey.c_str()).Data(),
-                            "c_sigmaVsPt_dataVsSim_withFits", 900, 700
-                          );
+                            // ------------------------------------------------------------------
+                            // NEW: sigma vs pT (DATA vs SIM)
+                            // ------------------------------------------------------------------
+                            TCanvas cSig(
+                              TString::Format("c_sigmaVsPt_%s_dataVsSim_withFits", rKey.c_str()).Data(),
+                              "c_sigmaVsPt_dataVsSim_withFits", 900, 700
+                            );
 
-                          TGraphErrors* gSigDat = new TGraphErrors((int)vPtCtr.size());
-                          TGraphErrors* gSigSim = new TGraphErrors((int)vPtCtr.size());
+                            TGraphErrors* gSigDat = new TGraphErrors((int)vPtCtr.size());
+                            TGraphErrors* gSigSim = new TGraphErrors((int)vPtCtr.size());
 
-                          for (int i = 0; i < (int)vPtCtr.size(); ++i)
-                          {
-                            gSigDat->SetPoint(i, vPtCtr[i], vSigDat[i]);
-                            gSigDat->SetPointError(i, vPtErr[i], vSigDatErr[i]);
+                            for (int i = 0; i < (int)vPtCtr.size(); ++i)
+                            {
+                              gSigDat->SetPoint(i, vPtCtr[i], vSigDat[i]);
+                              gSigDat->SetPointError(i, vPtErr[i], vSigDatErr[i]);
 
-                            gSigSim->SetPoint(i, vPtCtr[i], vSigSim[i]);
-                            gSigSim->SetPointError(i, vPtErr[i], vSigSimErr[i]);
-                          }
+                              gSigSim->SetPoint(i, vPtCtr[i], vSigSim[i]);
+                              gSigSim->SetPointError(i, vPtErr[i], vSigSimErr[i]);
+                            }
 
-                          gSigDat->SetTitle("");
-                          gSigDat->SetMarkerStyle(20);
-                          gSigDat->SetMarkerSize(1.2);
-                          gSigDat->SetMarkerColor(kGreen + 2);
-                          gSigDat->SetLineColor(kGreen + 2);
-                          gSigDat->SetLineWidth(2);
+                            gSigDat->SetTitle("");
+                            gSigDat->SetMarkerStyle(20);
+                            gSigDat->SetMarkerSize(1.2);
+                            gSigDat->SetMarkerColor(kGreen + 2);
+                            gSigDat->SetLineColor(kGreen + 2);
+                            gSigDat->SetLineWidth(2);
 
-                          gSigSim->SetMarkerStyle(20);
-                          gSigSim->SetMarkerSize(1.2);
-                          gSigSim->SetMarkerColor(kOrange + 7);
-                          gSigSim->SetLineColor(kOrange + 7);
-                          gSigSim->SetLineWidth(2);
+                            gSigSim->SetMarkerStyle(20);
+                            gSigSim->SetMarkerSize(1.2);
+                            gSigSim->SetMarkerColor(kOrange + 7);
+                            gSigSim->SetLineColor(kOrange + 7);
+                            gSigSim->SetLineWidth(2);
 
-                          gSigDat->Draw("AP");
-                          gSigDat->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                          gSigDat->GetYaxis()->SetTitle("Gaussian #sigma of x_{J#gamma}");
-                          gSigSim->Draw("P same");
+                            gSigDat->Draw("AP");
+                            gSigDat->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                            gSigDat->GetYaxis()->SetTitle("Gaussian #sigma of x_{J#gamma}");
+                            gSigSim->Draw("P same");
 
-                          TLegend* legS = new TLegend(0.62, 0.16, 0.88, 0.28);
-                          legS->SetBorderSize(0);
-                          legS->SetFillStyle(0);
-                          legS->SetTextFont(42);
-                          legS->SetTextSize(0.04);
-                          legS->AddEntry(gSigDat, "DATA (reco)", "p");
-                          legS->AddEntry(gSigSim, "SIM (reco)",  "p");
-                          legS->Draw();
+                            TLegend* legS = new TLegend(0.62, 0.16, 0.88, 0.28);
+                            legS->SetBorderSize(0);
+                            legS->SetFillStyle(0);
+                            legS->SetTextFont(42);
+                            legS->SetTextSize(0.04);
+                            legS->AddEntry(gSigDat, "DATA (reco)", "p");
+                            legS->AddEntry(gSigSim, "SIM (reco)",  "p");
+                            legS->Draw();
 
-                          SaveCanvas(cSig, JoinPath(dirOv, "sigmaVsPt_reco_integratedAlpha_overlayedWithSim_withFits.png"));
+                            SaveCanvas(cSig, JoinPath(dirOv, "sigmaVsPt_reco_integratedAlpha_overlayedWithSim_withFits.png"));
 
-                          delete legS;
-                          delete gSigDat;
-                          delete gSigSim;
+                            delete legS;
+                            delete gSigDat;
+                            delete gSigSim;
 
-                          // ------------------------------------------------------------------
-                          // NEW: chi2/ndf vs pT (DATA vs SIM)
-                          // ------------------------------------------------------------------
-                          TCanvas cChi(
-                            TString::Format("c_chi2NdfVsPt_%s_dataVsSim_withFits", rKey.c_str()).Data(),
-                            "c_chi2NdfVsPt_dataVsSim_withFits", 900, 700
-                          );
+                            // ------------------------------------------------------------------
+                            // NEW: chi2/ndf vs pT (DATA vs SIM)
+                            // ------------------------------------------------------------------
+                            TCanvas cChi(
+                              TString::Format("c_chi2NdfVsPt_%s_dataVsSim_withFits", rKey.c_str()).Data(),
+                              "c_chi2NdfVsPt_dataVsSim_withFits", 900, 700
+                            );
 
-                          TGraphErrors* gChiDat = new TGraphErrors((int)vPtCtr.size());
-                          TGraphErrors* gChiSim = new TGraphErrors((int)vPtCtr.size());
+                            TGraphErrors* gChiDat = new TGraphErrors((int)vPtCtr.size());
+                            TGraphErrors* gChiSim = new TGraphErrors((int)vPtCtr.size());
 
-                          for (int i = 0; i < (int)vPtCtr.size(); ++i)
-                          {
-                            gChiDat->SetPoint(i, vPtCtr[i], vChi2NdfDat[i]);
-                            gChiDat->SetPointError(i, vPtErr[i], 0.0);
+                            for (int i = 0; i < (int)vPtCtr.size(); ++i)
+                            {
+                              gChiDat->SetPoint(i, vPtCtr[i], vChi2NdfDat[i]);
+                              gChiDat->SetPointError(i, vPtErr[i], 0.0);
 
-                            gChiSim->SetPoint(i, vPtCtr[i], vChi2NdfSim[i]);
-                            gChiSim->SetPointError(i, vPtErr[i], 0.0);
-                          }
+                              gChiSim->SetPoint(i, vPtCtr[i], vChi2NdfSim[i]);
+                              gChiSim->SetPointError(i, vPtErr[i], 0.0);
+                            }
 
-                          gChiDat->SetTitle("");
-                          gChiDat->SetMarkerStyle(20);
-                          gChiDat->SetMarkerSize(1.2);
-                          gChiDat->SetMarkerColor(kGreen + 2);
-                          gChiDat->SetLineColor(kGreen + 2);
-                          gChiDat->SetLineWidth(2);
+                            gChiDat->SetTitle("");
+                            gChiDat->SetMarkerStyle(20);
+                            gChiDat->SetMarkerSize(1.2);
+                            gChiDat->SetMarkerColor(kGreen + 2);
+                            gChiDat->SetLineColor(kGreen + 2);
+                            gChiDat->SetLineWidth(2);
 
-                          gChiSim->SetMarkerStyle(20);
-                          gChiSim->SetMarkerSize(1.2);
-                          gChiSim->SetMarkerColor(kOrange + 7);
-                          gChiSim->SetLineColor(kOrange + 7);
-                          gChiSim->SetLineWidth(2);
+                            gChiSim->SetMarkerStyle(20);
+                            gChiSim->SetMarkerSize(1.2);
+                            gChiSim->SetMarkerColor(kOrange + 7);
+                            gChiSim->SetLineColor(kOrange + 7);
+                            gChiSim->SetLineWidth(2);
 
-                          gChiDat->Draw("AP");
-                          gChiDat->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                          gChiDat->GetYaxis()->SetTitle("#chi^{2}/ndf of Gaussian fit");
-                          gChiSim->Draw("P same");
+                            gChiDat->Draw("AP");
+                            gChiDat->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                            gChiDat->GetYaxis()->SetTitle("#chi^{2}/ndf of Gaussian fit");
+                            gChiSim->Draw("P same");
 
-                          TLegend* legC = new TLegend(0.62, 0.16, 0.88, 0.28);
-                          legC->SetBorderSize(0);
-                          legC->SetFillStyle(0);
-                          legC->SetTextFont(42);
-                          legC->SetTextSize(0.04);
-                          legC->AddEntry(gChiDat, "DATA (reco)", "p");
-                          legC->AddEntry(gChiSim, "SIM (reco)",  "p");
-                          legC->Draw();
+                            TLegend* legC = new TLegend(0.62, 0.16, 0.88, 0.28);
+                            legC->SetBorderSize(0);
+                            legC->SetFillStyle(0);
+                            legC->SetTextFont(42);
+                            legC->SetTextSize(0.04);
+                            legC->AddEntry(gChiDat, "DATA (reco)", "p");
+                            legC->AddEntry(gChiSim, "SIM (reco)",  "p");
+                            legC->Draw();
 
-                          SaveCanvas(cChi, JoinPath(dirOv, "chi2NdfVsPt_reco_integratedAlpha_overlayedWithSim_withFits.png"));
+                            SaveCanvas(cChi, JoinPath(dirOv, "chi2NdfVsPt_reco_integratedAlpha_overlayedWithSim_withFits.png"));
 
-                          delete legC;
-                          delete gChiDat;
-                          delete gChiSim;
+                            delete legC;
+                            delete gChiDat;
+                            delete gChiSim;
 
-                          if ((int)vMeanDat.size() == (int)vPtCtr.size() && (int)vMeanSim.size() == (int)vPtCtr.size())
-                          {
+                            if ((int)vMeanDat.size() == (int)vPtCtr.size() && (int)vMeanSim.size() == (int)vPtCtr.size())
+                            {
                             // -----------------------------------------------------------------
                             // NEW: Using GetMean two-panel output
                             // -----------------------------------------------------------------
                             TCanvas cMeanGetMeanWithRatio(
-                              TString::Format("c_meanVsPt_withRatioPanel_%s_dataVsSim_usingGetMean", rKey.c_str()).Data(),
-                              "c_meanVsPt_withRatioPanel_dataVsSim_usingGetMean", 900, 900
+                                TString::Format("c_meanVsPt_withRatioPanel_%s_dataVsSim_usingGetMean", rKey.c_str()).Data(),
+                                "c_meanVsPt_withRatioPanel_dataVsSim_usingGetMean", 900, 900
                             );
 
                             TPad pTop(
-                              TString::Format("pTop_%s_usingGetMean", rKey.c_str()).Data(),
-                              "pTop_usingGetMean", 0.0, 0.30, 1.0, 1.0
+                                TString::Format("pTop_%s_usingGetMean", rKey.c_str()).Data(),
+                                "pTop_usingGetMean", 0.0, 0.30, 1.0, 1.0
                             );
                             TPad pBot(
-                              TString::Format("pBot_%s_usingGetMean", rKey.c_str()).Data(),
-                              "pBot_usingGetMean", 0.0, 0.00, 1.0, 0.30
+                                TString::Format("pBot_%s_usingGetMean", rKey.c_str()).Data(),
+                                "pBot_usingGetMean", 0.0, 0.00, 1.0, 0.30
                             );
 
                             pTop.SetLeftMargin(0.14);
@@ -8726,11 +8726,11 @@ namespace ARJ
 
                             for (int i = 0; i < (int)vPtCtr.size(); ++i)
                             {
-                              gDatMean->SetPoint(i, vPtCtr[i], vMeanDat[i]);
-                              gDatMean->SetPointError(i, vPtErr[i], vMeanDatErr[i]);
+                                gDatMean->SetPoint(i, vPtCtr[i], vMeanDat[i]);
+                                gDatMean->SetPointError(i, vPtErr[i], vMeanDatErr[i]);
 
-                              gSimMean->SetPoint(i, vPtCtr[i], vMeanSim[i]);
-                              gSimMean->SetPointError(i, vPtErr[i], vMeanSimErr[i]);
+                                gSimMean->SetPoint(i, vPtCtr[i], vMeanSim[i]);
+                                gSimMean->SetPointError(i, vPtErr[i], vMeanSimErr[i]);
                             }
 
                             pTop.cd();
@@ -8775,17 +8775,17 @@ namespace ARJ
 
                             for (int i = 0; i < (int)vPtCtr.size(); ++i)
                             {
-                              if (vMeanSim[i] <= 0.0) continue;
+                                if (vMeanSim[i] <= 0.0) continue;
 
-                              const double ratio = vMeanDat[i] / vMeanSim[i];
-                              const double fracDat = (vMeanDat[i] != 0.0) ? (vMeanDatErr[i] / vMeanDat[i]) : 0.0;
-                              const double fracSim = (vMeanSim[i] != 0.0) ? (vMeanSimErr[i] / vMeanSim[i]) : 0.0;
-                              const double ratioErr = ratio * std::sqrt(fracDat * fracDat + fracSim * fracSim);
+                                const double ratio = vMeanDat[i] / vMeanSim[i];
+                                const double fracDat = (vMeanDat[i] != 0.0) ? (vMeanDatErr[i] / vMeanDat[i]) : 0.0;
+                                const double fracSim = (vMeanSim[i] != 0.0) ? (vMeanSimErr[i] / vMeanSim[i]) : 0.0;
+                                const double ratioErr = ratio * std::sqrt(fracDat * fracDat + fracSim * fracSim);
 
-                              vRatioMeanPt.push_back(vPtCtr[i]);
-                              vRatioMeanPtErr.push_back(vPtErr[i]);
-                              vRatioMean.push_back(ratio);
-                              vRatioMeanErr.push_back(ratioErr);
+                                vRatioMeanPt.push_back(vPtCtr[i]);
+                                vRatioMeanPtErr.push_back(vPtErr[i]);
+                                vRatioMean.push_back(ratio);
+                                vRatioMeanErr.push_back(ratioErr);
                             }
 
                             pBot.cd();
@@ -8793,8 +8793,8 @@ namespace ARJ
                             TGraphErrors* gRatioMean = new TGraphErrors((int)vRatioMeanPt.size());
                             for (int i = 0; i < (int)vRatioMeanPt.size(); ++i)
                             {
-                              gRatioMean->SetPoint(i, vRatioMeanPt[i], vRatioMean[i]);
-                              gRatioMean->SetPointError(i, vRatioMeanPtErr[i], vRatioMeanErr[i]);
+                                gRatioMean->SetPoint(i, vRatioMeanPt[i], vRatioMean[i]);
+                                gRatioMean->SetPointError(i, vRatioMeanPtErr[i], vRatioMeanErr[i]);
                             }
 
                             gRatioMean->SetTitle("");
@@ -8816,31 +8816,48 @@ namespace ARJ
                             gRatioMean->SetMaximum(1.4);
 
                             TLine lOne(
-                              vPtCtr.front() - vPtErr.front(), 1.0,
-                              vPtCtr.back()  + vPtErr.back(),  1.0
+                                vPtCtr.front() - vPtErr.front(), 1.0,
+                                vPtCtr.back()  + vPtErr.back(),  1.0
                             );
                             lOne.SetLineStyle(2);
                             lOne.SetLineWidth(2);
                             lOne.Draw("same");
 
                             TF1* fRatioMean = nullptr;
+                            double jesMeanVal = -1.0;
+                            double jesMeanErr =  0.0;
                             if ((int)vRatioMeanPt.size() > 0)
                             {
-                              const double xLoFit = vRatioMeanPt.front() - vRatioMeanPtErr.front();
-                              const double xHiFit = vRatioMeanPt.back()  + vRatioMeanPtErr.back();
+                                const double xLoFit = vRatioMeanPt.front() - vRatioMeanPtErr.front();
+                                const double xHiFit = vRatioMeanPt.back()  + vRatioMeanPtErr.back();
 
-                              fRatioMean = new TF1(
-                                TString::Format("fRatioMean_%s", rKey.c_str()).Data(),
-                                "pol0", xLoFit, xHiFit
-                              );
-                              fRatioMean->SetLineColor(kBlue + 1);
-                              fRatioMean->SetLineWidth(2);
-                              gRatioMean->Fit(fRatioMean, "Q");
-                              fRatioMean->Draw("same");
+                                fRatioMean = new TF1(
+                                  TString::Format("fRatioMean_%s", rKey.c_str()).Data(),
+                                  "pol0", xLoFit, xHiFit
+                                );
+                                fRatioMean->SetLineColor(kRed + 1);
+                                fRatioMean->SetLineStyle(2);
+                                fRatioMean->SetLineWidth(2);
+                                gRatioMean->Fit(fRatioMean, "Q0R");
+                                fRatioMean->Draw("same");
+
+                                jesMeanVal = fRatioMean->GetParameter(0);
+                                jesMeanErr = fRatioMean->GetParError(0);
+
+                                TLatex latMean;
+                                latMean.SetNDC(true);
+                                latMean.SetTextFont(42);
+                                latMean.SetTextSize(0.10);
+                                latMean.SetTextColor(kRed + 1);
+                                latMean.SetTextAlign(31);
+                                latMean.DrawLatex(
+                                  0.95, 0.88,
+                                  TString::Format("in situ JES = %.4f #pm %.4f", jesMeanVal, jesMeanErr).Data()
+                                );
                             }
 
                             SaveCanvas(cMeanGetMeanWithRatio,
-                              JoinPath(dirFits, "meanVsPt_withRatioPanel_reco_integratedAlpha_overlayedWithSim_usingGetMean.png"));
+                                JoinPath(dirFits, "meanVsPt_withRatioPanel_reco_integratedAlpha_overlayedWithSim_usingGetMean.png"));
 
                             if (fRatioMean) delete fRatioMean;
                             delete legMean;
@@ -8849,11 +8866,11 @@ namespace ARJ
                             delete gRatioMean;
 
                             // -----------------------------------------------------------------
-                            // NEW: pure mean overlay (Gaussian means + GetMean means)
+                            //  pure mean overlay (Gaussian means + GetMean means)
                             // -----------------------------------------------------------------
                             TCanvas cMeanOverlay(
-                              TString::Format("c_meanVsPt_%s_gaussianAndGetMean", rKey.c_str()).Data(),
-                              "c_meanVsPt_gaussianAndGetMean", 900, 700
+                                TString::Format("c_meanVsPt_%s_gaussianAndGetMean", rKey.c_str()).Data(),
+                                "c_meanVsPt_gaussianAndGetMean", 900, 700
                             );
                             ApplyCanvasMargins1D(cMeanOverlay);
 
