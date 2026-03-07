@@ -23541,16 +23541,26 @@ namespace ARJ
                   continue;
                 }
 
-                hFirst->GetXaxis()->SetTitle(vlabel.c_str());
-                hFirst->GetYaxis()->SetTitle("Normalized counts");
+                TH1* hFrame = (hSig ? hSig : (hBkg ? hBkg : hData));
+
+                hFrame->GetXaxis()->SetTitle(vlabel.c_str());
+                hFrame->GetYaxis()->SetTitle("Unit Normalized");
 
                 double yMax = 0.0;
-                if (hData) yMax = std::max(yMax, (double)hData->GetMaximum());
+                if (hData)
+                {
+                  for (int ib = 1; ib <= hData->GetNbinsX(); ++ib)
+                  {
+                    yMax = std::max(yMax, (double)(hData->GetBinContent(ib) + hData->GetBinError(ib)));
+                  }
+                }
                 if (hSig)  yMax = std::max(yMax, (double)hSig->GetMaximum());
                 if (hBkg)  yMax = std::max(yMax, (double)hBkg->GetMaximum());
 
-                hFirst->SetMinimum(0.0);
-                hFirst->SetMaximum((yMax > 0.0) ? (yMax * 1.35) : 1.0);
+                const double yScale = ((var == "weta" || var == "wphi") ? 1.35 : 1.35);
+
+                hFrame->SetMinimum(0.0);
+                hFrame->SetMaximum((yMax > 0.0) ? (yMax * yScale) : 1.0);
 
                 if (hSig)
                 {
@@ -23571,11 +23581,11 @@ namespace ARJ
                 // Legend
                 {
                   const bool isW = (var == "weta" || var == "wphi");
-                  TLegend* leg = (isW ? new TLegend(0.55, 0.62, 0.93, 0.82) : new TLegend(0.16, 0.62, 0.54, 0.82));
+                  TLegend* leg = (isW ? new TLegend(0.55, 0.61, 0.93, 0.8) : new TLegend(0.16, 0.61, 0.54, 0.8));
                   leg->SetBorderSize(0);
                   leg->SetFillStyle(0);
                   leg->SetTextFont(42);
-                  leg->SetTextSize(0.036);
+                  leg->SetTextSize(0.038);
 
                   if (hData) leg->AddEntry(hData, "Data", "ep");
                   if (hSig)  leg->AddEntry(hSig,  "Signal MC", "l");
@@ -23596,7 +23606,7 @@ namespace ARJ
                   th.SetTextFont(42);
                   th.SetTextAlign(22);
                   th.SetTextSize(0.050);
-                  th.DrawLatex(0.50, 0.94,
+                  th.DrawLatex(0.50, 0.91,
                     TString::Format("%s, %s, p_{T}^{#gamma}: %d-%d GeV",
                       vlabel.c_str(), tagLabel.c_str(), pb.lo, pb.hi).Data());
                 }
