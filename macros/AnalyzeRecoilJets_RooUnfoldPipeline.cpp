@@ -583,6 +583,149 @@
           cout << "\n";
         };
 
+        auto DumpTH1Summary = [&](const string& tag, TH1* h)->void
+        {
+          cout << ANSI_BOLD_CYN << "[DEBUG TH1] " << tag << ANSI_RESET << "\n";
+          if (!h)
+          {
+            cout << "  <null>\n";
+            return;
+          }
+
+          cout << "  name=" << h->GetName()
+               << "  title=" << h->GetTitle()
+               << "  nbins=" << h->GetNbinsX()
+               << "  entries=" << h->GetEntries()
+               << "  integral(width)=" << h->Integral(1, h->GetNbinsX(), "width")
+               << "  integral=" << h->Integral(1, h->GetNbinsX())
+               << "\n";
+
+          for (int ib = 0; ib <= h->GetNbinsX() + 1; ++ib)
+          {
+            const double lo  = (ib >= 1 && ib <= h->GetNbinsX()) ? h->GetXaxis()->GetBinLowEdge(ib) : -999.0;
+            const double hi  = (ib >= 1 && ib <= h->GetNbinsX()) ? h->GetXaxis()->GetBinUpEdge(ib)  : -999.0;
+            const double val = h->GetBinContent(ib);
+            const double err = h->GetBinError(ib);
+
+            if (ib == 0)
+            {
+              cout << "    UF"
+                   << "  content=" << val
+                   << "  error="   << err << "\n";
+            }
+            else if (ib == h->GetNbinsX() + 1)
+            {
+              cout << "    OF"
+                   << "  content=" << val
+                   << "  error="   << err << "\n";
+            }
+            else
+            {
+              cout << "    bin " << ib
+                   << "  [" << lo << "," << hi << "]"
+                   << "  content=" << val
+                   << "  error="   << err << "\n";
+            }
+          }
+        };
+
+        auto DumpTH2Summary = [&](const string& tag, TH2* h)->void
+        {
+          cout << ANSI_BOLD_CYN << "[DEBUG TH2] " << tag << ANSI_RESET << "\n";
+          if (!h)
+          {
+            cout << "  <null>\n";
+            return;
+          }
+
+          cout << "  name=" << h->GetName()
+               << "  title=" << h->GetTitle()
+               << "  nbinsX=" << h->GetNbinsX()
+               << "  nbinsY=" << h->GetNbinsY()
+               << "  entries=" << h->GetEntries()
+               << "  integral=" << h->Integral(1, h->GetNbinsX(), 1, h->GetNbinsY())
+               << "\n";
+
+          for (int ix = 1; ix <= h->GetNbinsX(); ++ix)
+          {
+            double rowInt = 0.0;
+            double rowIntWidth = 0.0;
+            for (int iy = 1; iy <= h->GetNbinsY(); ++iy)
+            {
+              rowInt += h->GetBinContent(ix, iy);
+              rowIntWidth += h->GetBinContent(ix, iy) * h->GetYaxis()->GetBinWidth(iy);
+            }
+
+            cout << "    x-bin " << ix
+                 << "  [" << h->GetXaxis()->GetBinLowEdge(ix)
+                 << ","   << h->GetXaxis()->GetBinUpEdge(ix) << "]"
+                 << "  rowIntegral=" << rowInt
+                 << "  rowIntegral(widthY)=" << rowIntWidth
+                 << "\n";
+          }
+        };
+
+        auto DumpProjectionYSummary = [&](const string& tag, TH2* h2, int ix)->void
+        {
+          cout << ANSI_BOLD_CYN << "[DEBUG PROJY] " << tag << ANSI_RESET << "\n";
+          if (!h2)
+          {
+            cout << "  source TH2 is null\n";
+            return;
+          }
+          if (ix < 1 || ix > h2->GetNbinsX())
+          {
+            cout << "  requested ix=" << ix << " is out of range 1.." << h2->GetNbinsX() << "\n";
+            return;
+          }
+
+          TH1D* hp = h2->ProjectionY(
+            TString::Format("hDebugProjY_%s_ix%d", h2->GetName(), ix).Data(),
+            ix, ix, "e"
+          );
+          if (!hp)
+          {
+            cout << "  ProjectionY returned null\n";
+            return;
+          }
+
+          hp->SetDirectory(nullptr);
+          EnsureSumw2(hp);
+
+          cout << "  x-bin " << ix
+               << "  [" << h2->GetXaxis()->GetBinLowEdge(ix)
+               << ","   << h2->GetXaxis()->GetBinUpEdge(ix) << "]"
+               << "  projIntegral=" << hp->Integral(1, hp->GetNbinsX())
+               << "  projIntegral(width)=" << hp->Integral(1, hp->GetNbinsX(), "width")
+               << "\n";
+
+          for (int iy = 0; iy <= hp->GetNbinsX() + 1; ++iy)
+          {
+            if (iy == 0)
+            {
+              cout << "    UF"
+                   << "  content=" << hp->GetBinContent(iy)
+                   << "  error="   << hp->GetBinError(iy) << "\n";
+            }
+            else if (iy == hp->GetNbinsX() + 1)
+            {
+              cout << "    OF"
+                   << "  content=" << hp->GetBinContent(iy)
+                   << "  error="   << hp->GetBinError(iy) << "\n";
+            }
+            else
+            {
+              cout << "    y-bin " << iy
+                   << "  [" << hp->GetXaxis()->GetBinLowEdge(iy)
+                   << ","   << hp->GetXaxis()->GetBinUpEdge(iy) << "]"
+                   << "  content=" << hp->GetBinContent(iy)
+                   << "  error="   << hp->GetBinError(iy) << "\n";
+            }
+          }
+
+          delete hp;
+        };
+
         cout << "\n  [5I] Photon unfolding inputs:\n";
         PrintGet(dsData, phoRecoName,   hPhoRecoData_in);
         PrintGet(dsSim,  phoRecoName,   hPhoRecoSim_in);
@@ -1903,7 +2046,39 @@
 
           if (gApplyPurityCorrectionForUnfolding)
           {
-            cout << "  [BUILD] DATA :: purity-corrected xJ reco input for " << rKey << " from ABCD(A,B,C,D) + sideband C\n";
+            cout << ANSI_BOLD_CYN
+                 << "\n[DEBUG PURITY XJ] Building purity-corrected reco input for " << rKey << "\n"
+                 << "  source reco hist   = " << (h2RecoData ? h2RecoData->GetName() : "<null>") << "\n"
+                 << "  source sideband-C  = " << (h2RecoData_sideC_in ? h2RecoData_sideC_in->GetName() : "<null>") << "\n"
+                 << ANSI_RESET;
+
+            DumpTH2Summary(TString::Format("DATA reco BEFORE purity correction (%s)", rKey.c_str()).Data(), h2RecoData);
+            DumpTH2Summary(TString::Format("DATA sideband-C input (%s)", rKey.c_str()).Data(), h2RecoData_sideC_in);
+
+            for (int iDbg = 0; iDbg < kNPtBins; ++iDbg)
+            {
+              double ADbg = 0.0, BDbg = 0.0, CDbg = 0.0, DDbg = 0.0;
+              double SADbg = 0.0, eSADbg = 0.0, nbkgADbg = 0.0;
+              ComputeABCDSignalCounts(iDbg, ADbg, BDbg, CDbg, DDbg, SADbg, eSADbg, nbkgADbg);
+
+              const PtBin& bDbg = PtBins()[iDbg];
+              const double cenDbg = 0.5 * (bDbg.lo + bDbg.hi);
+              const int ixDbg = h2RecoData ? h2RecoData->GetXaxis()->FindBin(cenDbg) : -1;
+
+              cout << "  [ABCD " << rKey << "] pT=" << bDbg.lo << "-" << bDbg.hi
+                   << "  cen=" << cenDbg
+                   << "  ixReco=" << ixDbg
+                   << "  A=" << ADbg
+                   << "  B=" << BDbg
+                   << "  C=" << CDbg
+                   << "  D=" << DDbg
+                   << "  SA=" << SADbg
+                   << "  eSA=" << eSADbg
+                   << "  nbkgA=" << nbkgADbg
+                   << "  scaleC=" << ((CDbg > 0.0) ? (nbkgADbg / CDbg) : 0.0)
+                   << "\n";
+            }
+
             if (!ApplyPurityCorrectionToRecoXJHist(h2RecoData, h2RecoData_sideC_in))
             {
               cout << ANSI_BOLD_RED
@@ -1915,7 +2090,32 @@
               delete h2RspSim;
               continue;
             }
+
+            DumpTH2Summary(TString::Format("DATA reco AFTER purity correction (%s)", rKey.c_str()).Data(), h2RecoData);
+
+            for (int iDbg = 0; iDbg < kNPtBins; ++iDbg)
+            {
+              const PtBin& bDbg = PtBins()[iDbg];
+              const double cenDbg = 0.5 * (bDbg.lo + bDbg.hi);
+              const int ixDbg = h2RecoData ? h2RecoData->GetXaxis()->FindBin(cenDbg) : -1;
+              DumpProjectionYSummary(
+                TString::Format("Purity-corrected reco xJ projection (%s, pT %d-%d)", rKey.c_str(), bDbg.lo, bDbg.hi).Data(),
+                h2RecoData,
+                ixDbg
+              );
+            }
           }
+          else
+          {
+            cout << ANSI_BOLD_CYN
+                 << "\n[DEBUG XJ INPUT] Using NON-purity-corrected reco input for " << rKey << "\n"
+                 << ANSI_RESET;
+            DumpTH2Summary(TString::Format("DATA reco input without purity correction (%s)", rKey.c_str()).Data(), h2RecoData);
+          }
+
+        DumpTH2Summary(TString::Format("SIM reco input (%s)", rKey.c_str()).Data(), h2RecoSim);
+        DumpTH2Summary(TString::Format("SIM truth input (%s)", rKey.c_str()).Data(), h2TruthSim);
+        DumpTH2Summary(TString::Format("SIM response truthVsReco (%s)", rKey.c_str()).Data(), h2RspSim);
 
         const int nGlobTruth_rsp = h2RspSim->GetNbinsX();
         const int nGlobReco_rsp  = h2RspSim->GetNbinsY();
@@ -1936,6 +2136,10 @@
           delete h2RspSim;
           continue;
         }
+
+        DumpTH1Summary(TString::Format("Flattened SIM reco global (%s)", rKey.c_str()).Data(), hMeasSimGlob);
+        DumpTH1Summary(TString::Format("Flattened SIM truth global (%s)", rKey.c_str()).Data(), hTruthSimGlob);
+        DumpTH1Summary(TString::Format("Flattened DATA reco global (%s)", rKey.c_str()).Data(), hMeasDataGlob);
 
         if (hMeasSimGlob->GetNbinsX() != nGlobReco_rsp || hTruthSimGlob->GetNbinsX() != nGlobTruth_rsp)
         {
@@ -2655,6 +2859,28 @@
           hPerPho->SetMarkerSize(0.85);
 
           perPhoHists[i] = hPerPho;
+
+          cout << ANSI_BOLD_YEL
+                 << "[PER-PHOTON DEBUG] rKey=" << rKey
+                 << "  storedPtIndex=" << i
+                 << "  canonicalRecoPt=" << b.lo << "-" << b.hi
+                 << "  truthXbin=" << ixTruth
+                 << "  phoTruthBin=" << ibPho
+                 << "  Npho=" << Npho
+                 << "  eNpho=" << eNpho
+                 << "  rawIntegral=" << hXJ->Integral(1, hXJ->GetNbinsX())
+                 << "  rawIntegral(width)=" << hXJ->Integral(1, hXJ->GetNbinsX(), "width")
+                 << "  perPhoIntegral(width)=" << hPerPho->Integral(1, hPerPho->GetNbinsX(), "width")
+                 << ANSI_RESET << "\n";
+
+          DumpTH1Summary(
+              TString::Format("Raw unfolded xJ before per-photon normalization (%s, pT %d-%d)", rKey.c_str(), b.lo, b.hi).Data(),
+              hXJ
+            );
+          DumpTH1Summary(
+              TString::Format("Per-photon unfolded xJ used for plots (%s, pT %d-%d)", rKey.c_str(), b.lo, b.hi).Data(),
+              hPerPho
+            );
 
           // -------------------------------------------------------------------
           //  covariance-error version of the same unfolded per-photon spectrum
@@ -4439,17 +4665,81 @@
 
         auto GetH = [&](TFile* f, int iStored, const string& stem)->TH1*
         {
-          if (!f || iStored < 0) return nullptr;
-          const string hname = TString::Format("%s_pTbin%d", stem.c_str(), iStored + 1).Data();
-          TH1* h = dynamic_cast<TH1*>(f->Get(hname.c_str()));
-          if (!h) return nullptr;
+            if (!f)
+            {
+              cout << ANSI_BOLD_RED
+                   << "[PURITY OVERLAY DEBUG] null TFile for stem=" << stem
+                   << "  iStored=" << iStored
+                   << ANSI_RESET << "\n";
+              return nullptr;
+            }
 
-          TH1* hc = dynamic_cast<TH1*>(h->Clone(TString::Format("%s_clone_%d", hname.c_str(), iStored + 1).Data()));
-          if (!hc) return nullptr;
+            if (iStored < 0)
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[PURITY OVERLAY DEBUG] invalid stored index for stem=" << stem
+                   << "  iStored=" << iStored
+                   << ANSI_RESET << "\n";
+              return nullptr;
+            }
 
-          hc->SetDirectory(nullptr);
-          EnsureSumw2(hc);
-          return hc;
+            const string hname = TString::Format("%s_pTbin%d", stem.c_str(), iStored + 1).Data();
+
+            cout << ANSI_BOLD_CYN
+                 << "[PURITY OVERLAY DEBUG] file=" << f->GetName()
+                 << "  requesting hist=" << hname
+                 << ANSI_RESET << "\n";
+
+            TH1* h = dynamic_cast<TH1*>(f->Get(hname.c_str()));
+            if (!h)
+            {
+              cout << ANSI_BOLD_RED
+                   << "  -> missing histogram: " << hname
+                   << ANSI_RESET << "\n";
+              return nullptr;
+            }
+
+            TH1* hc = dynamic_cast<TH1*>(h->Clone(TString::Format("%s_clone_%d", hname.c_str(), iStored + 1).Data()));
+            if (!hc)
+            {
+              cout << ANSI_BOLD_RED
+                   << "  -> clone failed for histogram: " << hname
+                   << ANSI_RESET << "\n";
+              return nullptr;
+            }
+
+            hc->SetDirectory(nullptr);
+            EnsureSumw2(hc);
+
+            cout << "  -> found " << hc->GetName()
+                 << "  nbins=" << hc->GetNbinsX()
+                 << "  integral=" << hc->Integral(1, hc->GetNbinsX())
+                 << "  integral(width)=" << hc->Integral(1, hc->GetNbinsX(), "width")
+                 << "\n";
+
+            for (int ib = 0; ib <= hc->GetNbinsX() + 1; ++ib)
+            {
+              if (ib == 0)
+              {
+                cout << "     UF  content=" << hc->GetBinContent(ib)
+                     << "  error=" << hc->GetBinError(ib) << "\n";
+              }
+              else if (ib == hc->GetNbinsX() + 1)
+              {
+                cout << "     OF  content=" << hc->GetBinContent(ib)
+                     << "  error=" << hc->GetBinError(ib) << "\n";
+              }
+              else
+              {
+                cout << "     bin " << ib
+                     << "  [" << hc->GetXaxis()->GetBinLowEdge(ib)
+                     << ","   << hc->GetXaxis()->GetBinUpEdge(ib) << "]"
+                     << "  content=" << hc->GetBinContent(ib)
+                     << "  error="   << hc->GetBinError(ib) << "\n";
+              }
+            }
+
+            return hc;
         };
 
         auto DrawPad = [&](int iCanon)->void
