@@ -3,11 +3,11 @@
     // Section 5I: RooUnfold pipeline (SIM+DATA PP only)
     //   - Unfold N_{#gamma}(pT^{#gamma}) using SIM photon response
     //   - Unfold (pT^{#gamma}, x_{J}) using SIM global-bin response per radius
-    //   - Produce per-photon normalized particle-level x_{J} (2x3 table: first 6 pT bins)
+    //   - Produce per-photon normalized particle-level x_{J} (3x3 table: 9 analysis pT bins)
     //
     // Output base (DATA trigger):
     //   <triggerName>/unfolding/radii/<rKey>/
-    //     table2x3_unfolded_perPhoton_dNdXJ.png
+    //     table3x3_unfolded_perPhoton_dNdXJ.png
     //     rooUnfold_outputs.root
     //     summary_rooUnfold_pipeline.txt
     //
@@ -457,13 +457,41 @@
           h->SetDirectory(nullptr);
           EnsureSumw2(h);
 
-          for (int i = 0; i < kNPtBins; ++i)
+          const auto& recoBins = UnfoldRecoPtBins();
+          const int nRecoBins = (int)recoBins.size();
+
+          for (int i = 0; i < nRecoBins; ++i)
           {
             double A = 0.0, B = 0.0, C = 0.0, D = 0.0;
             double SA = 0.0, eSA = 0.0, nbkgA = 0.0;
-            ComputeABCDSignalCounts(i, A, B, C, D, SA, eSA, nbkgA);
 
-            const PtBin& b = PtBins()[i];
+            const PtBin& b = recoBins[i];
+
+            if (b.lo == 8  && b.hi == 10)
+            {
+              ComputeABCDSignalCounts(0, A, B, C, D, SA, eSA, nbkgA);
+            }
+            else if (b.lo == 35 && b.hi == 40)
+            {
+              ComputeABCDSignalCounts(kNPtBins - 1, A, B, C, D, SA, eSA, nbkgA);
+            }
+            else
+            {
+              int iCanon = -1;
+              for (int j = 0; j < kNPtBins; ++j)
+              {
+                const PtBin& pb = PtBins()[j];
+                if (pb.lo == b.lo && pb.hi == b.hi)
+                {
+                  iCanon = j;
+                  break;
+                }
+              }
+
+              if (iCanon < 0) continue;
+              ComputeABCDSignalCounts(iCanon, A, B, C, D, SA, eSA, nbkgA);
+            }
+
             const double cen = 0.5 * (b.lo + b.hi);
             const int ib = h->GetXaxis()->FindBin(cen);
             if (ib < 1 || ib > h->GetNbinsX()) continue;
@@ -480,35 +508,70 @@
         {
           if (!h || !hSideC) return false;
 
+          TH2* hAorig = CloneTH2(h, TString::Format("%s_Aorig_forPurity", h->GetName()).Data());
+          if (!hAorig) return false;
+          hAorig->SetDirectory(nullptr);
+          EnsureSumw2(hAorig);
+
           h->Reset("ICES");
           h->SetDirectory(nullptr);
           EnsureSumw2(h);
 
           const int ny = h->GetYaxis()->GetNbins();
+          const auto& recoBins = UnfoldRecoPtBins();
+          const int nRecoBins = (int)recoBins.size();
 
-          for (int i = 0; i < kNPtBins; ++i)
+          for (int i = 0; i < nRecoBins; ++i)
           {
             double A = 0.0, B = 0.0, C = 0.0, D = 0.0;
             double SA = 0.0, eSA = 0.0, nbkgA = 0.0;
-            ComputeABCDSignalCounts(i, A, B, C, D, SA, eSA, nbkgA);
+
+            const PtBin& b = recoBins[i];
+
+            if (b.lo == 8  && b.hi == 10)
+            {
+              ComputeABCDSignalCounts(0, A, B, C, D, SA, eSA, nbkgA);
+            }
+            else if (b.lo == 35 && b.hi == 40)
+            {
+              ComputeABCDSignalCounts(kNPtBins - 1, A, B, C, D, SA, eSA, nbkgA);
+            }
+            else
+            {
+              int iCanon = -1;
+              for (int j = 0; j < kNPtBins; ++j)
+              {
+                const PtBin& pb = PtBins()[j];
+                if (pb.lo == b.lo && pb.hi == b.hi)
+                {
+                  iCanon = j;
+                  break;
+                }
+              }
+
+              if (iCanon < 0) continue;
+              ComputeABCDSignalCounts(iCanon, A, B, C, D, SA, eSA, nbkgA);
+            }
 
             const double scaleC = (C > 0.0) ? (nbkgA / C) : 0.0;
 
-            const PtBin& b = PtBins()[i];
             const double cen = 0.5 * (b.lo + b.hi);
             const int ix = h->GetXaxis()->FindBin(cen);
             if (ix < 1 || ix > h->GetXaxis()->GetNbins()) continue;
 
             for (int iy = 0; iy <= ny + 1; ++iy)
             {
-              const double valA = h->GetBinContent(ix, iy);
-              const double errA = h->GetBinError  (ix, iy);
+              const double valA = hAorig->GetBinContent(ix, iy);
+              const double errA = hAorig->GetBinError  (ix, iy);
 
               const double valC = hSideC->GetBinContent(ix, iy);
               const double errC = hSideC->GetBinError  (ix, iy);
 
               double val  = valA - scaleC * valC;
               double err2 = errA * errA + scaleC * scaleC * errC * errC;
+
+              if (!std::isfinite(val))  val  = 0.0;
+              if (!std::isfinite(err2)) err2 = 0.0;
 
               if (val < 0.0) val = 0.0;
 
@@ -517,6 +580,7 @@
             }
           }
 
+          delete hAorig;
           return true;
         };
 
@@ -1476,37 +1540,41 @@
         }
       }
 
-      // Photon summary for unfolding RECO pT bins
-      vector<string> phoSummary;
-      phoSummary.push_back("Photon unfolding summary (PP DATA unfolded to truth pTgamma)");
-      phoSummary.push_back(TString::Format("Method: RooUnfoldBayes, iterations=%d, error=kCovToy, Ntoys=%d", kBayesIterPho, kNToysPhoFinal).Data());
-      phoSummary.push_back("");
+        // Photon summary for unfolding RECO pT bins
+        vector<string> phoSummary;
+        phoSummary.push_back("Photon unfolding summary (PP DATA unfolded to truth pTgamma)");
+        phoSummary.push_back(TString::Format("Method: RooUnfoldBayes, iterations=%d, error=kCovToy, Ntoys=%d", kBayesIterPho, kNToysPhoFinal).Data());
+        phoSummary.push_back("");
 
-      {
-          const int nPtUnf = (int)UnfoldRecoPtBins().size();
-          for (int i = 0; i < nPtUnf; ++i)
-          {
-            const PtBin& b = UnfoldRecoPtBins()[i];
-            const double cen = 0.5 * (b.lo + b.hi);
+        {
+            const auto& analysisRecoBins = UnfoldAnalysisRecoPtBins();
+            const int nPtUnf = (int)analysisRecoBins.size();
+            for (int i = 0; i < nPtUnf; ++i)
+            {
+              const PtBin& b = analysisRecoBins[i];
+              const double cen = 0.5 * (b.lo + b.hi);
 
-            const int ibTruth = (hPhoUnfoldTruth ? hPhoUnfoldTruth->GetXaxis()->FindBin(cen) : -1);
+              const int ibTruth = (hPhoUnfoldTruth ? hPhoUnfoldTruth->GetXaxis()->FindBin(cen) : -1);
 
-            const string labCanon = TString::Format("%d-%d GeV", b.lo, b.hi).Data();
-            const string labTruth = (hPhoUnfoldTruth ? AxisBinLabel(hPhoUnfoldTruth->GetXaxis(), ibTruth, "GeV", 0) : "N/A");
+              const string labCanon = TString::Format("%d-%d GeV", b.lo, b.hi).Data();
+              const string labTruth = (hPhoUnfoldTruth ? AxisBinLabel(hPhoUnfoldTruth->GetXaxis(), ibTruth, "GeV", 0) : "N/A");
 
-            const double N = (hPhoUnfoldTruth ? hPhoUnfoldTruth->GetBinContent(ibTruth) : 0.0);
-            const double E = (hPhoUnfoldTruth ? hPhoUnfoldTruth->GetBinError  (ibTruth) : 0.0);
+              const double N = (hPhoUnfoldTruth ? hPhoUnfoldTruth->GetBinContent(ibTruth) : 0.0);
+              const double E = (hPhoUnfoldTruth ? hPhoUnfoldTruth->GetBinError  (ibTruth) : 0.0);
 
-            phoSummary.push_back(
-              TString::Format("pT^gamma reco=%s  -> truthBin=%s  N_gamma(unf)=%.6g ± %.6g",
-                labCanon.c_str(), labTruth.c_str(), N, E
-              ).Data()
-            );
-          }
-          phoSummary.push_back("");
-          phoSummary.push_back("NOTE: unfolding RECO pT bins (YAML: unfold_reco_photon_pt_bins) are mapped to truth bins by FindBin(center).");
-          phoSummary.push_back("      The truth axis includes a 5-10 GeV underflow bin (YAML: unfold_truth_photon_pt_bins).");
-      }
+              phoSummary.push_back(
+                TString::Format("pT^gamma analysis=%s  -> truthBin=%s  N_gamma(unf)=%.6g ± %.6g",
+                  labCanon.c_str(), labTruth.c_str(), N, E
+                ).Data()
+              );
+            }
+            phoSummary.push_back("");
+            phoSummary.push_back("NOTE: only the 9 analysis bins are summarized/plotted: 10-12, 12-14, 14-16, 16-18, 18-20, 20-22, 22-24, 24-26, 26-35 GeV.");
+            phoSummary.push_back("      The reco 8-10 GeV bin is retained only as an unfolding support underflow bin.");
+            phoSummary.push_back("      The truth 5-8 GeV and 8-10 GeV bins are retained only as truth underflow support bins.");
+            phoSummary.push_back("      The reco/truth 35-40 GeV bin is retained only as an overflow support bin.");
+            phoSummary.push_back("      RooUnfold still uses the full YAML unfolding axes; only the displayed analysis-bin outputs are restricted here.");
+        }
 
       WriteTextFile(JoinPath(phoDir, "summary_photon_unfolding_bins.txt"), phoSummary);
 
@@ -2291,9 +2359,10 @@
           lines.push_back(TString::Format("xJ unfolding (global-bin): Bayes it=%d (kCovToy, Ntoys=%d) [also kCovariance for comparisons]", kBayesIterXJ, kNToysXJFinal).Data());
           lines.push_back("");
 
-          const int nPtAll = (int)UnfoldRecoPtBins().size();
-          const int nPtCols = 4;
-          const int nPtRows = 2;
+          const auto& analysisRecoBins = UnfoldAnalysisRecoPtBins();
+          const int nPtAll = (int)analysisRecoBins.size();
+          const int nPtCols = 3;
+          const int nPtRows = 3;
           const int nPtPads = nPtCols * nPtRows;
 
           vector<TH1*> perPhoHists(nPtAll, nullptr);
@@ -2333,10 +2402,11 @@
 
             vector<double> xPt, exPt, yRat, eyRat;
 
-            const int nPtClosure = (int)UnfoldRecoPtBins().size();
+            const auto& analysisRecoBins = UnfoldAnalysisRecoPtBins();
+            const int nPtClosure = (int)analysisRecoBins.size();
             for (int i = 0; i < nPtClosure; ++i)
             {
-              const PtBin& b = UnfoldRecoPtBins()[i];
+              const PtBin& b = analysisRecoBins[i];
               const double cen = 0.5 * (b.lo + b.hi);
               const double ex  = 0.5 * (b.hi - b.lo);
 
@@ -2635,10 +2705,11 @@
 
                 vector<double> xPt, exPt, yRat, eyRat;
 
-                const int nPtHalf = (int)UnfoldRecoPtBins().size();
+                const auto& analysisRecoBins = UnfoldAnalysisRecoPtBins();
+                const int nPtHalf = (int)analysisRecoBins.size();
                 for (int i = 0; i < nPtHalf; ++i)
                 {
-                  const PtBin& b = UnfoldRecoPtBins()[i];
+                  const PtBin& b = analysisRecoBins[i];
                   const double cen = 0.5 * (b.lo + b.hi);
                   const double ex  = 0.5 * (b.hi - b.lo);
 
@@ -2785,7 +2856,7 @@
 
         for (int i = 0; i < nPtAll; ++i)
         {
-          const PtBin& b = UnfoldRecoPtBins()[i];
+          const PtBin& b = analysisRecoBins[i];
           const double cen = 0.5 * (b.lo + b.hi);
 
           if (!h2UnfoldTruth || !hPhoUnfoldTruth) continue;
@@ -3654,19 +3725,19 @@
               // -------------------------------------------------------------------
               {
                 bool anyR = false;
-                const int nPadsR = 6;
+                const int nPadsR = nPtAll;
                 for (int ii = 0; ii < nPadsR; ++ii)
                 {
-                  if (ii >= 0 && ii < nPtAll && perPhoErrRatio[ii]) { anyR = true; break; }
+                    if (ii >= 0 && ii < nPtAll && perPhoErrRatio[ii]) { anyR = true; break; }
                 }
 
                 if (anyR)
                 {
                   TCanvas cER(
-                    TString::Format("c_tbl_errRatio_%s", rKey.c_str()).Data(),
-                    "c_tbl_errRatio", 1800, 1100
-                  );
-                  cER.Divide(3, 2, 0.001, 0.001);
+                      TString::Format("c_tbl_errRatio_%s", rKey.c_str()).Data(),
+                      "c_tbl_errRatio", 1800, 1300
+                    );
+                  cER.Divide(3, 3, 0.001, 0.001);
 
                   for (int ipad = 0; ipad < nPadsR; ++ipad)
                   {
@@ -3696,7 +3767,7 @@
                       continue;
                     }
 
-                    const PtBin& b = UnfoldRecoPtBins()[i];
+                    const PtBin& b = analysisRecoBins[i];
 
                     TH1* hR = perPhoErrRatio[i];
                     hR->GetXaxis()->SetRangeUser(0.0, 2.0);
@@ -3754,7 +3825,7 @@
                      }
                   }
 
-                  SaveCanvas(cER, JoinPath(toyVsCovOut, "table2x3_ToyUnfoldingVsCovariance_errorRatio.png"));
+                  SaveCanvas(cER, JoinPath(toyVsCovOut, "table3x3_ToyUnfoldingVsCovariance_errorRatio.png"));
                 }
               }
 
@@ -3763,11 +3834,11 @@
 
               if (any)
               {
-                TCanvas c(
-                  TString::Format("c_tbl_unf_perPho_%s", rKey.c_str()).Data(),
-                  "c_tbl_unf_perPho", 2200, 1100
-                );
-                c.Divide(nPtCols, nPtRows, 0.001, 0.001);
+                  TCanvas c(
+                    TString::Format("c_tbl_unf_perPho_%s", rKey.c_str()).Data(),
+                    "c_tbl_unf_perPho", 1800, 1300
+                  );
+                  c.Divide(nPtCols, nPtRows, 0.001, 0.001);
 
               for (int ipad = 0; ipad < nPtPads; ++ipad)
               {
@@ -3797,7 +3868,7 @@
                   continue;
                 }
 
-                const PtBin& b = UnfoldRecoPtBins()[i];
+                const PtBin& b = analysisRecoBins[i];
 
                 if (perPhoHists[i])
                 {
@@ -3866,7 +3937,7 @@
                   }
               }
 
-              SaveCanvas(c, JoinPath(rOut, "table2x4_unfolded_perPhoton_dNdXJ.png"));
+              SaveCanvas(c, JoinPath(rOut, "table3x3_unfolded_perPhoton_dNdXJ.png"));
 
               // -------------------------------------------------------------------
               // 2x4 summary table: before vs after unfolding (DATA)
@@ -3875,7 +3946,7 @@
               {
                   TCanvas cBA(
                     TString::Format("c_tbl_beforeAfter_data_%s", rKey.c_str()).Data(),
-                    "c_tbl_beforeAfter_data", 2200, 1100
+                    "c_tbl_beforeAfter_data", 1800, 1300
                   );
                   cBA.Divide(nPtCols, nPtRows, 0.001, 0.001);
 
@@ -3910,7 +3981,7 @@
                       continue;
                     }
 
-                    const PtBin& b = UnfoldRecoPtBins()[i];
+                    const PtBin& b = analysisRecoBins[i];
 
                     TH1* hA = perPhoBeforeDataHists[i];
                     TH1* hB = perPhoHists[i];
@@ -3991,7 +4062,7 @@
                     }
                   }
 
-                  SaveCanvas(cBA, JoinPath(beforeAfterDataOut, "table2x4_before_after_unfoldingOverlay_data.png"));
+                  SaveCanvas(cBA, JoinPath(beforeAfterDataOut, "table3x3_before_after_unfoldingOverlay_data.png"));
 
                   for (auto* p : keepLegBA) { delete p; }
                 }
@@ -4002,8 +4073,8 @@
                 // -------------------------------------------------------------------
                 {
                   TCanvas cTU(
-                    TString::Format("c_tbl_truthVsUnf_%s", rKey.c_str()).Data(),
-                    "c_tbl_truthVsUnf", 2200, 1100
+                      TString::Format("c_tbl_truthVsUnf_%s", rKey.c_str()).Data(),
+                      "c_tbl_truthVsUnf", 1800, 1300
                   );
                   cTU.Divide(nPtCols, nPtRows, 0.001, 0.001);
 
@@ -4038,7 +4109,7 @@
                         continue;
                       }
 
-                      const PtBin& b = UnfoldRecoPtBins()[i];
+                      const PtBin& b = analysisRecoBins[i];
 
                       TH1* hT = perPhoTruthHists[i];
                       TH1* hU = perPhoHists[i];
@@ -4122,7 +4193,7 @@
                       }
                   }
 
-                  SaveCanvas(cTU, JoinPath(beforeAfterTruthOut, "table2x4_before_after_unfoldingOverlay_truth.png"));
+                  SaveCanvas(cTU, JoinPath(beforeAfterTruthOut, "table3x3_before_after_unfoldingOverlay_truth.png"));
 
                   for (auto* p : keepLegTU) { delete p; }
                }
@@ -4401,7 +4472,8 @@
 
           if (any)
           {
-              const int nPtAll = (int)UnfoldRecoPtBins().size();
+              const auto& analysisRecoBins = UnfoldAnalysisRecoPtBins();
+              const int nPtAll = (int)analysisRecoBins.size();
 
               auto DrawPerPhotonOverlayPad =
                 [&](int i)->void
@@ -4424,7 +4496,7 @@
                   return;
                 }
 
-                const PtBin& b = UnfoldRecoPtBins()[i];
+                const PtBin& b = analysisRecoBins[i];
 
                 TH1* h02 = (have02 && (int)it02->second.size() > i) ? it02->second[i] : nullptr;
                 TH1* h04 = (have04 && (int)it04->second.size() > i) ? it04->second[i] : nullptr;
@@ -4567,10 +4639,10 @@
                 }
               };
 
-              TCanvas c("c_tbl_unf_perPho_overlay_radii", "c_tbl_unf_perPho_overlay_radii", 2200, 1100);
-              c.Divide(4, 2, 0.001, 0.001);
+              TCanvas c("c_tbl_unf_perPho_overlay_radii", "c_tbl_unf_perPho_overlay_radii", 1800, 1300);
+              c.Divide(3, 3, 0.001, 0.001);
 
-              const int nPads = 8;
+              const int nPads = nPtAll;
 
               for (int ipad = 0; ipad < nPads; ++ipad)
               {
@@ -4583,11 +4655,11 @@
                 DrawPerPhotonOverlayPad(ipad);
               }
 
-              SaveCanvas(c, JoinPath(outBase, "table2x4_unfolded_perPhoton_dNdXJ_overlay_radii.png"));
+              SaveCanvas(c, JoinPath(outBase, "table3x3_unfolded_perPhoton_dNdXJ_overlay_radii.png"));
 
               for (int i = 0; i < nPtAll; ++i)
               {
-                const PtBin& b = UnfoldRecoPtBins()[i];
+                const PtBin& b = analysisRecoBins[i];
 
                 TCanvas cSingle(
                   TString::Format("c_unf_perPho_overlay_radii_%s", b.folder.c_str()).Data(),
@@ -4634,15 +4706,14 @@
 
       EnsureDir(outBase);
 
-      auto FindStoredUnfoldPtIndexForCanonical = [&](const PtBin& b)->int
-      {
-        const double cen = 0.5 * (b.lo + b.hi);
-        for (int i = 0; i < (int)UnfoldRecoPtBins().size(); ++i)
+      auto FindStoredUnfoldPtIndexForAnalysis = [&](const PtBin& b)->int
         {
-          const PtBin& ub = UnfoldRecoPtBins()[i];
-          if (cen > ub.lo && cen < ub.hi) return i;
-        }
-        return -1;
+          const auto& analysisBins = UnfoldAnalysisRecoPtBins();
+          for (int i = 0; i < (int)analysisBins.size(); ++i)
+          {
+            if (analysisBins[i].lo == b.lo && analysisBins[i].hi == b.hi) return i;
+          }
+          return -1;
       };
 
       for (const auto& rKey : kRKeys)
@@ -4742,126 +4813,171 @@
             return hc;
         };
 
-        auto DrawPad = [&](int iCanon)->void
-        {
-          if (iCanon < 0 || iCanon >= kNPtBins)
+          auto DrawPad = [&](int iAnalysis)->void
           {
-            TH1F frame("frame","", 1, 0.0, 2.0);
-            frame.SetMinimum(0.0);
-            frame.SetMaximum(1.0);
-            frame.SetTitle("");
-            frame.GetXaxis()->SetTitle("x_{J}");
-            frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
-            frame.Draw("axis");
-            return;
-          }
+              const auto& analysisBins = UnfoldAnalysisRecoPtBins();
 
-          const PtBin& b = PtBins()[iCanon];
-          const int iStored = FindStoredUnfoldPtIndexForCanonical(b);
-
-          TH1* hUnc = GetH(fUnc, iStored, "h_xJ_unf_perPho");
-          TH1* hCor = GetH(fCor, iStored, "h_xJ_unf_perPho");
-
-          double maxY = 0.0;
-          auto scan = [&](TH1* h)
-          {
-            if (!h) return;
-            h->GetXaxis()->SetRangeUser(0.0, 2.0);
-            const int nb = h->GetNbinsX();
-            for (int ib = 1; ib <= nb; ++ib)
-            {
-              const double y  = h->GetBinContent(ib);
-              const double ey = h->GetBinError(ib);
-              if (y <= 0.0 && ey <= 0.0) continue;
-              maxY = std::max(maxY, y + ey);
+              if (iAnalysis < 0 || iAnalysis >= (int)analysisBins.size())
+              {
+                TH1F frame("frame","", 1, 0.0, 2.0);
+                frame.SetMinimum(0.0);
+                frame.SetMaximum(1.0);
+                frame.SetTitle("");
+                frame.GetXaxis()->SetTitle("x_{J}");
+                frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                frame.Draw("axis");
+                return;
             }
+
+            const PtBin& b = analysisBins[iAnalysis];
+            const int iStored = FindStoredUnfoldPtIndexForAnalysis(b);
+
+            TH1* hUnc = GetH(fUnc, iStored, "h_xJ_unf_perPho");
+            TH1* hCor = GetH(fCor, iStored, "h_xJ_unf_perPho");
+
+            auto HasFiniteDrawableContent = [&](TH1* h)->bool
+            {
+              if (!h) return false;
+              const int nb = h->GetNbinsX();
+              for (int ib = 1; ib <= nb; ++ib)
+              {
+                const double y  = h->GetBinContent(ib);
+                const double ey = h->GetBinError(ib);
+                if (std::isfinite(y) && std::isfinite(ey) && (y != 0.0 || ey != 0.0)) return true;
+              }
+              return false;
+            };
+
+            auto SanitizeHistForDraw = [&](TH1* h)->void
+            {
+              if (!h) return;
+              const int nb = h->GetNbinsX();
+              for (int ib = 0; ib <= nb + 1; ++ib)
+              {
+                double y  = h->GetBinContent(ib);
+                double ey = h->GetBinError(ib);
+                if (!std::isfinite(y))  y  = 0.0;
+                if (!std::isfinite(ey)) ey = 0.0;
+                h->SetBinContent(ib, y);
+                h->SetBinError  (ib, ey);
+              }
+            };
+
+            SanitizeHistForDraw(hUnc);
+            SanitizeHistForDraw(hCor);
+
+            const bool haveUncFinite = HasFiniteDrawableContent(hUnc);
+            const bool haveCorFinite = HasFiniteDrawableContent(hCor);
+
+            double maxY = 0.0;
+            auto scan = [&](TH1* h)
+            {
+              if (!h) return;
+              h->GetXaxis()->SetRangeUser(0.0, 2.0);
+              const int nb = h->GetNbinsX();
+              for (int ib = 1; ib <= nb; ++ib)
+              {
+                const double y  = h->GetBinContent(ib);
+                const double ey = h->GetBinError(ib);
+                if (!std::isfinite(y) || !std::isfinite(ey)) continue;
+                if (y <= 0.0 && ey <= 0.0) continue;
+                maxY = std::max(maxY, y + ey);
+              }
+            };
+
+            if (haveUncFinite) scan(hUnc);
+            if (haveCorFinite) scan(hCor);
+
+            TH1* hBase = (haveUncFinite ? hUnc : (haveCorFinite ? hCor : nullptr));
+            TH1* hUncDraw = nullptr;
+            TH1* hCorDraw = nullptr;
+
+            if (hBase)
+            {
+                hBase->GetXaxis()->SetRangeUser(0.0, 2.0);
+                hBase->SetTitle("");
+                hBase->GetXaxis()->SetTitle("x_{J}");
+                hBase->GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                hBase->SetMinimum(0.0);
+                hBase->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
+                hBase->DrawClone("axis");
+            }
+            else
+              {
+                TH1F frame("frame","", 1, 0.0, 2.0);
+                frame.SetMinimum(0.0);
+                frame.SetMaximum(1.0);
+                frame.SetTitle("");
+                frame.GetXaxis()->SetTitle("x_{J}");
+                frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                frame.DrawCopy("axis");
+            }
+
+            if (haveUncFinite)
+            {
+                hUnc->SetLineColor(kBlack);
+                hUnc->SetMarkerColor(kBlack);
+                hUnc->SetMarkerStyle(20);
+                hUnc->SetMarkerSize(1.0);
+                hUnc->SetLineWidth(2);
+                hUncDraw = dynamic_cast<TH1*>(hUnc->DrawClone("E1 X0 same"));
+            }
+
+            if (haveCorFinite)
+            {
+                hCor->SetLineColor(kBlue + 1);
+                hCor->SetMarkerColor(kBlue + 1);
+                hCor->SetMarkerStyle(24);
+                hCor->SetMarkerSize(1.0);
+                hCor->SetLineWidth(2);
+                hCorDraw = dynamic_cast<TH1*>(hCor->DrawClone("E1 X0 same"));
+            }
+
+            TLatex tx;
+            tx.SetNDC();
+            tx.SetTextFont(42);
+            tx.SetTextAlign(22);
+            tx.SetTextSize(0.042);
+            tx.DrawLatex(0.50, 0.955,
+                           TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV",
+                                           b.lo, b.hi).Data());
+
+            if (haveUncFinite || haveCorFinite)
+            {
+                TLegend leg(0.58, 0.72, 0.94, 0.88);
+                leg.SetBorderSize(0);
+                leg.SetFillStyle(0);
+                leg.SetTextFont(42);
+                leg.SetTextSize(0.032);
+                if (hUncDraw) leg.AddEntry(hUncDraw, "non-purity-corrected", "lp");
+                if (hCorDraw) leg.AddEntry(hCorDraw, "purity-corrected", "lp");
+                leg.DrawClone();
+            }
+
+            if (gPad) { gPad->Modified(); gPad->Update(); }
+
+            if (hUnc) delete hUnc;
+            if (hCor) delete hCor;
           };
 
-          scan(hUnc);
-          scan(hCor);
+        TCanvas c(TString::Format("c_tbl_purityOv_%s", rKey.c_str()).Data(), "c_tbl_purityOv", 1800, 1300);
+        c.Divide(3, 3, 0.001, 0.001);
 
-          TH1* hBase = (hCor ? hCor : hUnc);
-          if (hBase)
-          {
-            hBase->GetXaxis()->SetRangeUser(0.0, 2.0);
-            hBase->SetTitle("");
-            hBase->GetXaxis()->SetTitle("x_{J}");
-            hBase->GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
-            hBase->SetMinimum(0.0);
-            hBase->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
-            hBase->Draw("axis");
-          }
-          else
-          {
-            TH1F frame("frame","", 1, 0.0, 2.0);
-            frame.SetMinimum(0.0);
-            frame.SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
-            frame.SetTitle("");
-            frame.GetXaxis()->SetTitle("x_{J}");
-            frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
-            frame.Draw("axis");
-          }
+        const auto& analysisBins = UnfoldAnalysisRecoPtBins();
+        const int nPads = (int)analysisBins.size();
 
-          if (hUnc)
-          {
-            hUnc->SetLineColor(kBlack);
-            hUnc->SetMarkerColor(kBlack);
-            hUnc->SetMarkerStyle(20);
-            hUnc->SetMarkerSize(1.0);
-            hUnc->SetLineWidth(2);
-            hUnc->Draw("E1 X0 same");
-          }
-
-          if (hCor)
-          {
-            hCor->SetLineColor(kBlue + 1);
-            hCor->SetMarkerColor(kBlue + 1);
-            hCor->SetMarkerStyle(24);
-            hCor->SetMarkerSize(1.0);
-            hCor->SetLineWidth(2);
-            hCor->Draw("E1 X0 same");
-          }
-
-          TLatex tx;
-          tx.SetNDC();
-          tx.SetTextFont(42);
-          tx.SetTextAlign(22);
-          tx.SetTextSize(0.042);
-          tx.DrawLatex(0.50, 0.955,
-                       TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV",
-                                       b.lo, b.hi).Data());
-
-          if (hUnc || hCor)
-          {
-            TLegend leg(0.58, 0.72, 0.94, 0.88);
-            leg.SetBorderSize(0);
-            leg.SetFillStyle(0);
-            leg.SetTextFont(42);
-            leg.SetTextSize(0.032);
-            if (hUnc) leg.AddEntry(hUnc, "non-purity-corrected", "lp");
-            if (hCor) leg.AddEntry(hCor, "purity-corrected", "lp");
-            leg.Draw();
-          }
-
-          if (hUnc) delete hUnc;
-          if (hCor) delete hCor;
-        };
-
-        TCanvas c(TString::Format("c_tbl_purityOv_%s", rKey.c_str()).Data(), "c_tbl_purityOv", 2200, 1100);
-        c.Divide(4, 2, 0.001, 0.001);
-
-        for (int ipad = 0; ipad < kNPtBins; ++ipad)
+        for (int ipad = 0; ipad < nPads; ++ipad)
         {
-          c.cd(ipad + 1);
-          gPad->SetLeftMargin(0.12);
-          gPad->SetRightMargin(0.04);
-          gPad->SetBottomMargin(0.12);
-          gPad->SetTopMargin(0.06);
+              c.cd(ipad + 1);
+              gPad->SetLeftMargin(0.12);
+              gPad->SetRightMargin(0.04);
+              gPad->SetBottomMargin(0.12);
+              gPad->SetTopMargin(0.06);
 
-          DrawPad(ipad);
+              DrawPad(ipad);
         }
 
-        SaveCanvas(c, JoinPath(rOut, "table2x4_purityCorrected_vs_nonPurityCorrected_perPhoton_dNdXJ.png"));
+        SaveCanvas(c, JoinPath(rOut, "table3x3_purityCorrected_vs_nonPurityCorrected_perPhoton_dNdXJ.png"));
 
         fUnc->Close();
         fCor->Close();

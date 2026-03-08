@@ -751,6 +751,28 @@ namespace ARJ
         return v;
     }
 
+    // Analysis-visible unfolding RECO pT bins:
+    //   - exclude the first reco bin  (8-10)  -> treat as reco underflow support bin
+    //   - exclude the last reco bin   (35-40) -> treat as reco overflow support bin
+    // This yields the 9 analysis bins:
+    //   10-12, 12-14, 14-16, 16-18, 18-20, 20-22, 22-24, 24-26, 26-35
+    inline const vector<PtBin>& UnfoldAnalysisRecoPtBins()
+    {
+        static vector<PtBin> v;
+        if (!v.empty()) return v;
+
+        const auto& all = UnfoldRecoPtBins();
+        if (all.size() <= 2) return v;
+
+        v.reserve(all.size() - 2);
+        for (std::size_t i = 1; i + 1 < all.size(); ++i)
+        {
+          v.push_back(all[i]);
+        }
+
+        return v;
+    }
+
     struct CentBin
     {
         int lo = 0;
