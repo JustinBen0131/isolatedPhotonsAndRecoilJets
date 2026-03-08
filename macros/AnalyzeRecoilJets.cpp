@@ -411,14 +411,14 @@ namespace ARJ
 
           // Requested x-axis labels (keep these exact)
           const char* xLabels[8] = {
-            "#frac{E_{11}}{E_{33}}",
-            "et1 < 0.6",
-            "et1 > 1.0",
-            "0.6 < et1 < 1.0",
-            "#frac{E_{32}}{E_{35}} < 0.8",
-            "#frac{E_{32}}{E_{35}} > 1.0",
-            "0.8 < #frac{E_{32}}{E_{35}} < 1.0",
-            "w_{#eta}^{cogX} < 0.6"
+            "A",
+            "B",
+            "C",
+            "D",
+            "E",
+            "F",
+            "G",
+            "H"
           };
 
           // Clean, distinct solid colors per bin
@@ -449,10 +449,10 @@ namespace ARJ
             // pad layout
             if (compact)
             {
-                gPad->SetLeftMargin(0.17);
-                gPad->SetRightMargin(0.08);
-                gPad->SetTopMargin(0.14);
-                gPad->SetBottomMargin(0.46);
+                gPad->SetLeftMargin(0.16);
+                gPad->SetRightMargin(0.04);
+                gPad->SetTopMargin(0.09);
+                gPad->SetBottomMargin(0.18);
             }
             else
             {
@@ -483,14 +483,15 @@ namespace ARJ
 
             hAxis->GetYaxis()->SetTitle("Fail counts");
             hAxis->GetXaxis()->SetTitle("");
-            hAxis->GetXaxis()->LabelsOption("v");
+            hAxis->GetXaxis()->LabelsOption("h");
 
-            hAxis->GetXaxis()->SetLabelSize(compact ? 0.065 : 0.055);
-            hAxis->GetXaxis()->SetLabelOffset(compact ? 0.018 : 0.012);
+            hAxis->GetXaxis()->SetLabelSize(compact ? 0.060 : 0.055);
+            hAxis->GetXaxis()->SetLabelOffset(compact ? 0.010 : 0.012);
 
             // Y-axis title: bigger + closer in the 3x3 table
-            hAxis->GetYaxis()->SetTitleSize(compact ? 0.065 : 0.055);
-            hAxis->GetYaxis()->SetTitleOffset(compact ? 1.05 : 1.05);
+            hAxis->GetYaxis()->SetTitleSize(compact ? 0.058 : 0.055);
+            hAxis->GetYaxis()->SetTitleOffset(compact ? 1.15 : 1.05);
+            hAxis->GetYaxis()->SetLabelSize(compact ? 0.046 : 0.045);
 
             hAxis->SetLineColor(1);
             hAxis->SetLineWidth(2);
@@ -530,7 +531,7 @@ namespace ARJ
             TLatex t;
             t.SetTextFont(42);
             t.SetTextAlign(22); // centered
-            t.SetTextSize(compact ? 0.055 : 0.034);
+            t.SetTextSize(compact ? 0.050 : 0.034);
 
 
             for (int ib = 1; ib <= 8; ++ib)
@@ -556,22 +557,14 @@ namespace ARJ
             }
             else
             {
-              // --- Compact table annotation (NDC) ---
               TLatex tt;
               tt.SetTextFont(42);
               tt.SetNDC();
-
-              // pT range (top-left) — larger, replaces where "inclusive fails" used to sit
-              tt.SetTextAlign(13);   // left, top
-              tt.SetTextSize(0.07);
-              tt.DrawLatex(0.2, 0.8,
+              tt.SetTextAlign(23);
+              tt.SetTextSize(0.060);
+              tt.DrawLatex(0.50, 0.965,
                 TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data()
               );
-
-              // "Inclusive Fails" (top-right)
-              tt.SetTextAlign(33);   // right, top
-              tt.SetTextSize(0.062);
-              tt.DrawLatex(0.88, 0.93, "Inclusive Fails (Preselection)");
             }
 
             if (keepAlive) keepAlive->push_back(hAxis);
@@ -651,27 +644,211 @@ namespace ARJ
           // 3x3 summary table (pT bins in order)
           // ---------------------------------------------------------------------------
           {
-            TCanvas cTbl(
-                TString::Format("c_preFail_table3x3_%s", ds.label.c_str()).Data(),
-                "c_preFail_table3x3", 2400, 1400
-            );
-            cTbl.Divide(3,2, 0.002, 0.002);
+              const char* xLabelsTbl[8] = {
+                "A",
+                "B",
+                "C",
+                "D",
+                "E",
+                "F",
+                "G",
+                "H"
+              };
 
-            vector<TObject*> keepTbl;
-            for (int i = 0; i < kNPtBins; ++i)
-            {
-              cTbl.cd(i+1);
+              const int binColorsTbl[8] = {
+                kGray+1,
+                kGreen+2,
+                kRed+1,
+                kMagenta+1,
+                kOrange+7,
+                kYellow+2,
+                kAzure+1,
+                kCyan+1
+              };
 
-              double vv[8];
-              for (int ib = 0; ib < 8; ++ib) vv[ib] = valsByPt[i][ib];
-              DrawPreselectionBarsIntoPad(bins[i], vv, true, &keepTbl);
-            }
+              const int nCols = 3;
+              const int nRows = 3;
 
-            // Save one 3x3 PNG
-            SaveCanvas(cTbl, JoinPath(outDir, "table3x3_preselectionFails.png"));
+              TCanvas cTbl(
+                  TString::Format("c_preFail_table3x3_%s", ds.label.c_str()).Data(),
+                  "c_preFail_table3x3", 3000, 2200
+              );
+              cTbl.Divide(nCols, nRows, 0.0, 0.0);
 
-            // cleanup objects used in the table canvas
-            for (auto* obj : keepTbl) delete obj;
+              vector<TObject*> keepTbl;
+              keepTbl.reserve(kNPtBins * 12);
+
+              const double leftOuter   = 0.040;
+              const double rightOuter  = 0.020;
+              const double bottomOuter = 0.045;
+              const double headerBand  = 0.078;
+              const double gapX        = 0.018;
+              const double gapY        = 0.040;
+
+              const double padW = (1.0 - leftOuter - rightOuter - (nCols - 1)*gapX) / nCols;
+              const double padH = (1.0 - bottomOuter - headerBand - (nRows - 1)*gapY) / nRows;
+
+              for (int i = 0; i < kNPtBins; ++i)
+              {
+                TPad* pad = dynamic_cast<TPad*>(cTbl.cd(i+1));
+                if (!pad) continue;
+
+                const int row = i / nCols;
+                const int col = i % nCols;
+
+                const double x1 = leftOuter + col * (padW + gapX);
+                const double x2 = x1 + padW;
+                const double y2 = 1.0 - headerBand - row * (padH + gapY);
+                const double y1 = y2 - padH;
+
+                pad->SetPad(x1, y1, x2, y2);
+                pad->SetLeftMargin(0.13);
+                pad->SetRightMargin(0.030);
+                pad->SetTopMargin(0.085);
+                pad->SetBottomMargin(0.140);
+                pad->SetTicks(1,1);
+
+                double vv[8];
+                for (int ib = 0; ib < 8; ++ib) vv[ib] = valsByPt[i][ib];
+
+                double ymax = 0.0;
+                for (int ib = 0; ib < 8; ++ib) ymax = std::max(ymax, vv[ib]);
+                const double yMaxPlot = (ymax > 0.0) ? (1.30 * ymax) : 1.0;
+
+                TH1F* hAxis = new TH1F(
+                  TString::Format("h_preFailTblAxis_%s_%s", ds.label.c_str(), bins[i].folder.c_str()).Data(),
+                  "",
+                  8, 0.5, 8.5
+                );
+                hAxis->SetDirectory(nullptr);
+                hAxis->SetStats(0);
+                hAxis->SetMinimum(0.0);
+                hAxis->SetMaximum(yMaxPlot);
+
+                for (int ib = 1; ib <= 8; ++ib) hAxis->GetXaxis()->SetBinLabel(ib, xLabelsTbl[ib-1]);
+
+                hAxis->GetYaxis()->SetTitle("Fail counts");
+                hAxis->GetXaxis()->SetTitle("");
+                hAxis->GetXaxis()->LabelsOption("h");
+                hAxis->GetXaxis()->SetLabelSize(0.052);
+                hAxis->GetXaxis()->SetLabelOffset(0.010);
+
+                hAxis->GetYaxis()->SetTitleSize(0.048);
+                hAxis->GetYaxis()->SetTitleOffset(1.15);
+                hAxis->GetYaxis()->SetLabelSize(0.040);
+
+                hAxis->SetLineColor(1);
+                hAxis->SetLineWidth(2);
+                hAxis->SetFillStyle(0);
+                hAxis->Draw("hist");
+
+                for (int ib = 1; ib <= 8; ++ib)
+                {
+                  TH1F* hb = new TH1F(
+                    TString::Format("h_preFailTblBar_%s_%s_b%d", ds.label.c_str(), bins[i].folder.c_str(), ib).Data(),
+                    "",
+                    8, 0.5, 8.5
+                  );
+                  hb->SetDirectory(nullptr);
+                  hb->SetStats(0);
+
+                  hb->SetBinContent(ib, vv[ib-1]);
+                  hb->SetFillStyle(1001);
+                  hb->SetFillColor(binColorsTbl[ib-1]);
+                  hb->SetLineColor(1);
+                  hb->SetLineWidth(2);
+
+                  hb->SetBarWidth(0.88);
+                  hb->SetBarOffset(0.06);
+
+                  hb->Draw("BAR SAME");
+                  keepTbl.push_back(hb);
+                }
+
+                TLatex t;
+                t.SetTextFont(42);
+                t.SetTextAlign(22);
+                t.SetTextSize(0.043);
+
+                for (int ib = 1; ib <= 8; ++ib)
+                {
+                  const double y = vv[ib-1];
+                  if (y <= 0.0) continue;
+
+                  const double x = hAxis->GetXaxis()->GetBinCenter(ib);
+                  const double yText = std::min(y + 0.022*yMaxPlot, 0.93*yMaxPlot);
+                  t.DrawLatex(x, yText, TString::Format("%.0f", y).Data());
+                }
+
+                TLatex tt;
+                tt.SetTextFont(42);
+                tt.SetNDC();
+                tt.SetTextAlign(23);
+                tt.SetTextSize(0.052);
+                tt.DrawLatex(0.50, 0.958,
+                  TString::Format("p_{T}^{#gamma}: %d-%d GeV", bins[i].lo, bins[i].hi).Data()
+                );
+
+                keepTbl.push_back(hAxis);
+              }
+
+              cTbl.cd(0);
+
+              TLatex tGlobal;
+              tGlobal.SetNDC();
+              tGlobal.SetTextFont(42);
+              tGlobal.SetTextAlign(13);
+              tGlobal.SetTextSize(0.027);
+              tGlobal.DrawLatex(0.045, 0.983, "Inclusive Fails (Preselection)");
+
+              TPaveText* pCol1 = new TPaveText(0.34, 0.92, 0.52, 0.988, "NDC NB");
+              pCol1->SetFillStyle(0);
+              pCol1->SetBorderSize(0);
+              pCol1->SetTextFont(42);
+              pCol1->SetTextAlign(12);
+              pCol1->SetTextSize(0.019);
+              pCol1->AddText("A: #frac{E_{11}}{E_{33}} < 0.98");
+              pCol1->AddText("B: et1 < 0.6");
+              pCol1->Draw();
+              keepTbl.push_back(pCol1);
+
+              TPaveText* pCol2 = new TPaveText(0.51, 0.92, 0.67, 0.988, "NDC NB");
+              pCol2->SetFillStyle(0);
+              pCol2->SetBorderSize(0);
+              pCol2->SetTextFont(42);
+              pCol2->SetTextAlign(12);
+              pCol2->SetTextSize(0.019);
+              pCol2->AddText("C: et1 > 1.0");
+              pCol2->AddText("D: 0.6 < et1 < 1.0");
+              pCol2->Draw();
+              keepTbl.push_back(pCol2);
+
+              TPaveText* pCol3 = new TPaveText(0.66, 0.92, 0.82, 0.988, "NDC NB");
+              pCol3->SetFillStyle(0);
+              pCol3->SetBorderSize(0);
+              pCol3->SetTextFont(42);
+              pCol3->SetTextAlign(12);
+              pCol3->SetTextSize(0.019);
+              pCol3->AddText("E: #frac{E_{32}}{E_{35}} < 0.8");
+              pCol3->AddText("F: #frac{E_{32}}{E_{35}} > 1.0");
+              pCol3->Draw();
+              keepTbl.push_back(pCol3);
+
+              TPaveText* pCol4 = new TPaveText(0.80, 0.92, 0.975, 0.988, "NDC NB");
+              pCol4->SetFillStyle(0);
+              pCol4->SetBorderSize(0);
+              pCol4->SetTextFont(42);
+              pCol4->SetTextAlign(12);
+              pCol4->SetTextSize(0.019);
+              pCol4->AddText("G: 0.8 < #frac{E_{32}}{E_{35}} < 1.0");
+              pCol4->AddText("H: w_{#eta}^{cogX} < 0.6");
+              pCol4->Draw();
+              keepTbl.push_back(pCol4);
+              
+              
+              SaveCanvas(cTbl, JoinPath(outDir, "table3x3_preselectionFails.png"));
+
+              for (auto* obj : keepTbl) delete obj;
           }
 
           cout << ANSI_DIM
@@ -1226,12 +1403,11 @@ namespace ARJ
         const char* xLabelsABCD[4] = {"N_{A}", "N_{B}", "N_{C}", "N_{D}"};
         const int   colorsABCD[4]  = {kGreen+2, kRed+1, kAzure+1, kMagenta+1};
 
-        // Wider canvas for readability
         TCanvas c(
           TString::Format("c_abcd_cnt_tbl_%s", ds.label.c_str()).Data(),
-          "c_abcd_cnt_tbl", 2400, 1400
+          "c_abcd_cnt_tbl", 2700, 2300
         );
-        c.Divide(3,2, 0.002, 0.002);
+        c.Divide(3,3, 0.001, 0.001);
 
         vector<TObject*> keepAlive;
         keepAlive.reserve(kNPtBins * (1 + 4));
@@ -1243,17 +1419,25 @@ namespace ARJ
           c.cd(i+1);
           if (!gPad) continue;
 
-          // Match your preselection-table style
-          gPad->SetLeftMargin(0.17);
-          gPad->SetRightMargin(0.08);
-          gPad->SetTopMargin(0.14);
-          gPad->SetBottomMargin(0.38);
+          gPad->SetLeftMargin(0.16);
+          gPad->SetRightMargin(0.05);
+          gPad->SetTopMargin(0.11);
+          gPad->SetBottomMargin(0.22);
           gPad->SetTicks(1,1);
+
+          if (i < 3)
+          {
+            const double x1 = gPad->GetXlowNDC();
+            const double y1 = gPad->GetYlowNDC();
+            const double x2 = x1 + gPad->GetWNDC();
+            const double y2 = y1 + gPad->GetHNDC();
+            const double shiftDown = 0.045;
+            gPad->SetPad(x1, y1 - shiftDown, x2, y2 - shiftDown);
+          }
 
           const PtBin& b   = bins[i];
           const string suf = b.suffix;
 
-          // Read counts from the existing 1-bin histograms
           const double A = Read1BinCount(ds, "h_isIsolated_isTight"     + suf);
           const double B = Read1BinCount(ds, "h_notIsolated_isTight"    + suf);
           const double Cc = Read1BinCount(ds, "h_isIsolated_notTight"   + suf);
@@ -1265,7 +1449,6 @@ namespace ARJ
           for (int ib = 0; ib < 4; ++ib) ymax = std::max(ymax, vals[ib]);
           const double yMaxPlot = (ymax > 0.0) ? (1.35 * ymax) : 1.0;
 
-          // Axis frame
           TH1F* hAxis = new TH1F(
             TString::Format("h_abcdCntAxis_%s_%s", ds.label.c_str(), b.folder.c_str()).Data(),
             "",
@@ -1280,20 +1463,19 @@ namespace ARJ
 
           hAxis->GetYaxis()->SetTitle("Counts");
           hAxis->GetXaxis()->SetTitle("");
-          hAxis->GetXaxis()->LabelsOption("h"); // horizontal labels; only 4 bins
-          hAxis->GetXaxis()->SetLabelSize(0.080);
-          hAxis->GetXaxis()->SetLabelOffset(0.012);
+          hAxis->GetXaxis()->LabelsOption("h");
+          hAxis->GetXaxis()->SetLabelSize(0.070);
+          hAxis->GetXaxis()->SetLabelOffset(0.010);
 
-          hAxis->GetYaxis()->SetTitleSize(0.065);
-          hAxis->GetYaxis()->SetTitleOffset(1.05);
-          hAxis->GetYaxis()->SetLabelSize(0.055);
+          hAxis->GetYaxis()->SetTitleSize(0.054);
+          hAxis->GetYaxis()->SetTitleOffset(1.28);
+          hAxis->GetYaxis()->SetLabelSize(0.046);
 
           hAxis->SetLineColor(1);
           hAxis->SetLineWidth(2);
           hAxis->SetFillStyle(0);
           hAxis->Draw("hist");
 
-          // Bars (solid)
           for (int ib = 1; ib <= 4; ++ib)
           {
             TH1F* hb = new TH1F(
@@ -1317,11 +1499,10 @@ namespace ARJ
             keepAlive.push_back(hb);
           }
 
-          // Numeric labels above bars
           TLatex t;
           t.SetTextFont(42);
           t.SetTextAlign(22);
-          t.SetTextSize(0.060);
+          t.SetTextSize(0.052);
 
           for (int ib = 1; ib <= 4; ++ib)
           {
@@ -1329,29 +1510,31 @@ namespace ARJ
             if (y <= 0.0) continue;
 
             const double x = hAxis->GetXaxis()->GetBinCenter(ib);
-            const double yText = std::min(y + 0.03*yMaxPlot, 0.95*yMaxPlot);
+            const double yText = std::min(y + 0.025*yMaxPlot, 0.93*yMaxPlot);
             t.DrawLatex(x, yText, TString::Format("%.0f", y).Data());
           }
 
-          // Top annotations (NDC)
           TLatex tt;
           tt.SetTextFont(42);
           tt.SetNDC();
-
-          // Title (top-right)
-          tt.SetTextAlign(33);   // right, top
-          tt.SetTextSize(0.062);
-          tt.DrawLatex(0.95, 0.93, "ABCD counts");
-
-          // pT bin (centered horizontally, same vertical band as title)
-          tt.SetTextAlign(23);   // center, top
-          tt.SetTextSize(0.070);
-          tt.DrawLatex(0.50, 0.93,
+          tt.SetTextAlign(23);
+          tt.SetTextSize(0.060);
+          tt.DrawLatex(0.50, 0.965,
               TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data()
           );
 
           keepAlive.push_back(hAxis);
         }
+
+        c.cd(0);
+
+        TLatex tGlobal;
+        tGlobal.SetNDC();
+        tGlobal.SetTextFont(42);
+        tGlobal.SetTextAlign(22);
+        tGlobal.SetTextSize(0.028);
+        tGlobal.DrawLatex(0.50, 0.965,
+          "ABCD counts after preselection (A=iso&tight, B=nonIso&tight, C=iso&nonTight, D=nonIso&nonTight)");
 
         SaveCanvas(c, JoinPath(outDir, outName));
 

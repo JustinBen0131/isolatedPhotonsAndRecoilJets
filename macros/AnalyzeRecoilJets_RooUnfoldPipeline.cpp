@@ -2352,24 +2352,73 @@
           SaveCanvas(c, JoinPath(rOut, "unfoldedTruth_pTgamma_xJ_colz.png"));
         }
 
-          vector<string> lines;
-          lines.push_back("RooUnfold pipeline summary");
-          lines.push_back(TString::Format("Radius: %s (R=%.1f)", rKey.c_str(), R).Data());
-          lines.push_back(TString::Format("Photon unfolding: Bayes it=%d (kCovToy, Ntoys=%d) [also kCovariance for comparisons]", kBayesIterPho, kNToysPhoFinal).Data());
-          lines.push_back(TString::Format("xJ unfolding (global-bin): Bayes it=%d (kCovToy, Ntoys=%d) [also kCovariance for comparisons]", kBayesIterXJ, kNToysXJFinal).Data());
-          lines.push_back("");
+        vector<string> lines;
+        lines.push_back("RooUnfold pipeline summary");
+        lines.push_back(TString::Format("Radius: %s (R=%.1f)", rKey.c_str(), R).Data());
+        lines.push_back(TString::Format("Photon unfolding: Bayes it=%d (kCovToy, Ntoys=%d) [also kCovariance for comparisons]", kBayesIterPho, kNToysPhoFinal).Data());
+        lines.push_back(TString::Format("xJ unfolding (global-bin): Bayes it=%d (kCovToy, Ntoys=%d) [also kCovariance for comparisons]", kBayesIterXJ, kNToysXJFinal).Data());
+        lines.push_back("");
 
-          const auto& analysisRecoBins = UnfoldAnalysisRecoPtBins();
-          const int nPtAll = (int)analysisRecoBins.size();
-          const int nPtCols = 3;
-          const int nPtRows = 3;
-          const int nPtPads = nPtCols * nPtRows;
+        const auto& analysisRecoBins = UnfoldAnalysisRecoPtBins();
+        const int nPtAll = (int)analysisRecoBins.size();
+        const int nPtCols = 3;
+        const int nPtRows = 3;
+        const int nPtPads = nPtCols * nPtRows;
 
-          vector<TH1*> perPhoHists(nPtAll, nullptr);
-          vector<TH1*> perPhoHists_cov(nPtAll, nullptr);
-          vector<TH1*> perPhoErrRatio(nPtAll, nullptr);
-          vector<TH1*> perPhoBeforeDataHists(nPtAll, nullptr);
-          vector<TH1*> perPhoTruthHists(nPtAll, nullptr);
+        vector<TH1*> perPhoHists(nPtAll, nullptr);
+        vector<TH1*> perPhoHists_cov(nPtAll, nullptr);
+        vector<TH1*> perPhoErrRatio(nPtAll, nullptr);
+        vector<TH1*> perPhoBeforeDataHists(nPtAll, nullptr);
+        vector<TH1*> perPhoTruthHists(nPtAll, nullptr);
+        vector<TH1*> ratioBeforeVsAfterHists(nPtAll, nullptr);
+        vector<TH1*> ratioTruthVsUnfoldedHists(nPtAll, nullptr);
+
+        auto BuildRatioHist = [&](TH1* hNum, TH1* hDen, const char* newName)->TH1*
+        {
+            if (!hNum || !hDen) return nullptr;
+
+            TH1* hR = CloneTH1(hNum, newName);
+            if (!hR) return nullptr;
+
+            hR->SetDirectory(nullptr);
+            EnsureSumw2(hR);
+            hR->Reset("ICES");
+
+            const int nb = hR->GetNbinsX();
+            for (int ib = 0; ib <= nb + 1; ++ib)
+            {
+              if (ib == 0 || ib == nb + 1)
+              {
+                hR->SetBinContent(ib, 0.0);
+                hR->SetBinError  (ib, 0.0);
+                continue;
+              }
+
+              const double num  = hNum->GetBinContent(ib);
+              const double eNum = hNum->GetBinError  (ib);
+              const double den  = hDen->GetBinContent(ib);
+              const double eDen = hDen->GetBinError  (ib);
+
+              if (!(std::isfinite(num) && std::isfinite(eNum) && std::isfinite(den) && std::isfinite(eDen)) || den <= 0.0)
+              {
+                hR->SetBinContent(ib, 0.0);
+                hR->SetBinError  (ib, 0.0);
+                continue;
+              }
+
+              const double val = num / den;
+              const double var = (eNum * eNum) / (den * den)
+                               + (num * num * eDen * eDen) / (den * den * den * den);
+              const double err = (var > 0.0 && std::isfinite(var)) ? std::sqrt(var) : 0.0;
+
+              hR->SetBinContent(ib, val);
+              hR->SetBinError  (ib, err);
+            }
+
+            hR->SetTitle("");
+            hR->GetXaxis()->SetTitle("x_{J}");
+            return hR;
+        };
         // ----------------------------------------------------------------------
         // Closure test (SIM): truth -> smear(reco) -> unfold -> compare back to truth
         //   Summary vs pT: (Integral of unfolded xJ)/(Integral of truth xJ)  ~ 1
@@ -3568,6 +3617,48 @@
                       TString::Format("xJ_before_after_unfoldingOverlay_data_pTbin%d.png", i + 1).Data()
                     ));
 
+                    TH1* hRatioBA = BuildRatioHist(
+                      hA, hB,
+                      TString::Format("h_ratio_beforeOverUnfolded_%s_pTbin%d", rKey.c_str(), i + 1).Data()
+                    );
+
+                    if (hRatioBA)
+                    {
+                      hRatioBA->SetDirectory(nullptr);
+                      EnsureSumw2(hRatioBA);
+                      hRatioBA->SetMarkerStyle(20);
+                      hRatioBA->SetMarkerSize(0.95);
+                      hRatioBA->SetLineWidth(2);
+                      hRatioBA->GetYaxis()->SetTitle("Before unfolding / unfolded");
+
+                      double maxR = 0.0;
+                      for (int ib = 1; ib <= hRatioBA->GetNbinsX(); ++ib)
+                      {
+                        const double v = hRatioBA->GetBinContent(ib) + hRatioBA->GetBinError(ib);
+                        if (v > maxR) maxR = v;
+                      }
+
+                      TCanvas cBAR(TString::Format("c_beforeAfterRatio_data_%s_%d", rKey.c_str(), i + 1).Data(),
+                                   "c_beforeAfterRatio_data", 900, 700);
+                      ApplyCanvasMargins1D(cBAR);
+
+                      hRatioBA->SetMinimum(0.0);
+                      hRatioBA->SetMaximum((maxR > 0.0) ? (1.15 * maxR) : 2.0);
+                      hRatioBA->GetXaxis()->SetRangeUser(0.0, 2.0);
+                      hRatioBA->Draw("E1");
+
+                      TLine l1(0.0, 1.0, 2.0, 1.0);
+                      l1.SetLineStyle(2);
+                      l1.SetLineWidth(2);
+                      l1.Draw("same");
+
+                      SaveCanvas(cBAR, JoinPath(beforeAfterDataOut,
+                        TString::Format("xJ_ratio_before_over_unfolded_data_pTbin%d.png", i + 1).Data()
+                      ));
+
+                      ratioBeforeVsAfterHists[i] = hRatioBA;
+                    }
+
                     delete hA;
                     delete hB;
                   }
@@ -3624,6 +3715,48 @@
                     SaveCanvas(cTU, JoinPath(beforeAfterTruthOut,
                       TString::Format("xJ_before_after_unfoldingOverlay_truth_pTbin%d.png", i + 1).Data()
                     ));
+
+                    TH1* hRatioTU = BuildRatioHist(
+                      hT, hU,
+                      TString::Format("h_ratio_truthOverUnfolded_%s_pTbin%d", rKey.c_str(), i + 1).Data()
+                    );
+
+                    if (hRatioTU)
+                    {
+                      hRatioTU->SetDirectory(nullptr);
+                      EnsureSumw2(hRatioTU);
+                      hRatioTU->SetMarkerStyle(20);
+                      hRatioTU->SetMarkerSize(0.95);
+                      hRatioTU->SetLineWidth(2);
+                      hRatioTU->GetYaxis()->SetTitle("Truth MC / unfolded data");
+
+                      double maxR = 0.0;
+                      for (int ib = 1; ib <= hRatioTU->GetNbinsX(); ++ib)
+                      {
+                        const double v = hRatioTU->GetBinContent(ib) + hRatioTU->GetBinError(ib);
+                        if (v > maxR) maxR = v;
+                      }
+
+                      TCanvas cTUR(TString::Format("c_truthVsUnfRatio_%s_%d", rKey.c_str(), i + 1).Data(),
+                                   "c_truthVsUnfRatio", 900, 700);
+                      ApplyCanvasMargins1D(cTUR);
+
+                      hRatioTU->SetMinimum(0.0);
+                      hRatioTU->SetMaximum((maxR > 0.0) ? (1.15 * maxR) : 2.0);
+                      hRatioTU->GetXaxis()->SetRangeUser(0.0, 2.0);
+                      hRatioTU->Draw("E1");
+
+                      TLine l1(0.0, 1.0, 2.0, 1.0);
+                      l1.SetLineStyle(2);
+                      l1.SetLineWidth(2);
+                      l1.Draw("same");
+
+                      SaveCanvas(cTUR, JoinPath(beforeAfterTruthOut,
+                        TString::Format("xJ_ratio_truthMC_over_unfolded_data_pTbin%d.png", i + 1).Data()
+                      ));
+
+                      ratioTruthVsUnfoldedHists[i] = hRatioTU;
+                    }
 
                     delete hT;
                     delete hU;
@@ -4432,9 +4565,116 @@
             }
           }
 
+          auto DrawRatioOverlaySummary =
+            [&](const vector<TH1*>& hs,
+                const string& outDir,
+                const string& outName,
+                const string& yTitle,
+                const string& titleText)->void
+          {
+            bool anyRatio = false;
+            for (auto* h : hs) if (h) { anyRatio = true; break; }
+            if (!anyRatio) return;
+
+            vector<int> colors =
+            {
+              kBlack,
+              kRed + 1,
+              kBlue + 1,
+              kGreen + 2,
+              kMagenta + 1,
+              kOrange + 7,
+              kCyan + 2,
+              kViolet + 1,
+              kPink + 7
+            };
+
+            double maxY = 0.0;
+            for (int i = 0; i < nPtAll; ++i)
+            {
+              if (!hs[i]) continue;
+              hs[i]->GetXaxis()->SetRangeUser(0.0, 2.0);
+              for (int ib = 1; ib <= hs[i]->GetNbinsX(); ++ib)
+              {
+                const double v = hs[i]->GetBinContent(ib) + hs[i]->GetBinError(ib);
+                if (std::isfinite(v) && v > maxY) maxY = v;
+              }
+            }
+
+            TCanvas c(TString::Format("c_ratioOverlay_%s_%s", rKey.c_str(), outName.c_str()).Data(),
+                      "c_ratioOverlay", 950, 750);
+            ApplyCanvasMargins1D(c);
+
+            TH1F frame("frame_ratio_overlay","", 1, 0.0, 2.0);
+            frame.SetMinimum(0.0);
+            frame.SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 2.0);
+            frame.SetTitle("");
+            frame.GetXaxis()->SetTitle("x_{J}");
+            frame.GetYaxis()->SetTitle(yTitle.c_str());
+            frame.Draw("axis");
+
+            TLine l1(0.0, 1.0, 2.0, 1.0);
+            l1.SetLineStyle(2);
+            l1.SetLineWidth(2);
+            l1.Draw("same");
+
+            TLegend leg(0.58, 0.52, 0.90, 0.88);
+            leg.SetBorderSize(0);
+            leg.SetFillStyle(0);
+            leg.SetTextFont(42);
+            leg.SetTextSize(0.032);
+
+            for (int i = 0; i < nPtAll; ++i)
+            {
+              if (!hs[i]) continue;
+
+              TH1* h = hs[i];
+              h->SetLineColor(colors[(std::size_t)i % colors.size()]);
+              h->SetMarkerColor(colors[(std::size_t)i % colors.size()]);
+              h->SetMarkerStyle(20);
+              h->SetMarkerSize(0.95);
+              h->SetLineWidth(2);
+              h->Draw("E1 X0 same");
+
+              const PtBin& b = analysisRecoBins[i];
+              leg.AddEntry(h, TString::Format("%d-%d GeV", b.lo, b.hi).Data(), "pe");
+            }
+
+            leg.Draw();
+
+            TLatex tx;
+            tx.SetNDC();
+            tx.SetTextFont(42);
+            tx.SetTextAlign(22);
+            tx.SetTextSize(0.040);
+            tx.DrawLatex(0.50, 0.965, titleText.c_str());
+
+            SaveCanvas(c, JoinPath(outDir, outName));
+          };
+
+          DrawRatioOverlaySummary(
+            ratioBeforeVsAfterHists,
+            beforeAfterDataOut,
+            "overlay_ratio_beforeOverUnfolded_allPtBins.png",
+            "Before unfolding / unfolded",
+            TString::Format("Before / unfolded ratio overlay, R = %.1f", R).Data()
+          );
+
+          DrawRatioOverlaySummary(
+            ratioTruthVsUnfoldedHists,
+            beforeAfterTruthOut,
+            "overlay_ratio_truthOverUnfolded_allPtBins.png",
+            "Truth MC / unfolded data",
+            TString::Format("Truth / unfolded ratio overlay, R = %.1f", R).Data()
+          );
+
           for (auto* h : perPhoHists) if (h) delete h;
           for (auto* h : perPhoHists_cov) if (h) delete h;
           for (auto* h : perPhoErrRatio) if (h) delete h;
+          for (auto* h : perPhoBeforeDataHists) if (h) delete h;
+          for (auto* h : perPhoTruthHists) if (h) delete h;
+          for (auto* h : ratioBeforeVsAfterHists) if (h) delete h;
+          for (auto* h : ratioTruthVsUnfoldedHists) if (h) delete h;
 
           if (hUnfoldTruthGlob) delete hUnfoldTruthGlob;
           if (hUnfoldTruthGlob_cov) delete hUnfoldTruthGlob_cov;
@@ -4942,17 +5182,57 @@
                            TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV",
                                            b.lo, b.hi).Data());
 
-            if (haveUncFinite || haveCorFinite)
-            {
-                TLegend leg(0.58, 0.72, 0.94, 0.88);
-                leg.SetBorderSize(0);
-                leg.SetFillStyle(0);
-                leg.SetTextFont(42);
-                leg.SetTextSize(0.032);
-                if (hUncDraw) leg.AddEntry(hUncDraw, "non-purity-corrected", "lp");
-                if (hCorDraw) leg.AddEntry(hCorDraw, "purity-corrected", "lp");
-                leg.DrawClone();
-            }
+              if (haveUncFinite || haveCorFinite)
+              {
+                  auto MakeVerticalErrLegendProxy = [&](TH1* hSrc, const char* gname) -> TGraphErrors*
+                  {
+                    if (!hSrc) return nullptr;
+
+                    int ib0 = -1;
+                    for (int ib = 1; ib <= hSrc->GetNbinsX(); ++ib)
+                    {
+                      const double y  = hSrc->GetBinContent(ib);
+                      const double ey = hSrc->GetBinError(ib);
+                      if (std::isfinite(y) && std::isfinite(ey) && (y != 0.0 || ey != 0.0))
+                      {
+                        ib0 = ib;
+                        break;
+                      }
+                    }
+                    if (ib0 < 0) ib0 = 1;
+
+                    const double x  = hSrc->GetXaxis()->GetBinCenter(ib0);
+                    const double y  = hSrc->GetBinContent(ib0);
+                    double ey = hSrc->GetBinError(ib0);
+                    if (!std::isfinite(ey) || ey <= 0.0) ey = 1.0;
+
+                    TGraphErrors* g = new TGraphErrors(1);
+                    g->SetName(gname);
+                    g->SetPoint(0, x, y);
+                    g->SetPointError(0, 0.0, ey);
+                    g->SetMarkerStyle(hSrc->GetMarkerStyle());
+                    g->SetMarkerSize(hSrc->GetMarkerSize());
+                    g->SetMarkerColor(hSrc->GetMarkerColor());
+                    g->SetLineColor(hSrc->GetLineColor());
+                    g->SetLineWidth(hSrc->GetLineWidth());
+                    return g;
+                  };
+
+                  TGraphErrors* gLegUnc = MakeVerticalErrLegendProxy(hUncDraw, "gLegUnc_purityOverlay");
+                  TGraphErrors* gLegCor = MakeVerticalErrLegendProxy(hCorDraw, "gLegCor_purityOverlay");
+
+                  TLegend leg(0.58, 0.72, 0.94, 0.88);
+                  leg.SetBorderSize(0);
+                  leg.SetFillStyle(0);
+                  leg.SetTextFont(42);
+                  leg.SetTextSize(0.032);
+                  if (gLegUnc) leg.AddEntry(gLegUnc, "non-purity-corrected", "pe");
+                  if (gLegCor) leg.AddEntry(gLegCor, "purity-corrected", "pe");
+                  leg.DrawClone();
+
+                  if (gLegUnc) delete gLegUnc;
+                  if (gLegCor) delete gLegCor;
+              }
 
             if (gPad) { gPad->Modified(); gPad->Update(); }
 
