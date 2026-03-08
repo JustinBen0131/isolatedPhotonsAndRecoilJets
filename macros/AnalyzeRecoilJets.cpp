@@ -398,14 +398,14 @@ namespace ARJ
           cout << std::left
                << std::setw(wBin) << "pTbin"
                << std::right
-               << std::setw(wN) << "wetaFail"
-               << std::setw(wN) << "et1Low"
-               << std::setw(wN) << "et1High"
+               << std::setw(wN) << "weta>=0.6"
+               << std::setw(wN) << "et1<=0.6"
+               << std::setw(wN) << "et1>=1.0"
                << std::setw(wN) << "et1Out"
-               << std::setw(wN) << "e11e33Hi"
-               << std::setw(wN) << "e32e35Lo"
-               << std::setw(wN) << "e32e35Hi"
-               << std::setw(wN) << "e32e35Out"
+               << std::setw(wN) << "e11>=0.98"
+               << std::setw(wN) << "e32<=0.8"
+               << std::setw(wN) << "e32>=1.0"
+               << std::setw(wN) << "e32Out"
                << "\n";
           cout << string(wBin + 8*wN, '-') << "\n";
 
@@ -678,12 +678,12 @@ namespace ARJ
               vector<TObject*> keepTbl;
               keepTbl.reserve(kNPtBins * 12);
 
-              const double leftOuter   = 0.040;
-              const double rightOuter  = 0.020;
-              const double bottomOuter = 0.045;
+              const double leftOuter   = 0.036;
+              const double rightOuter  = 0.018;
+              const double bottomOuter = 0.025;
               const double headerBand  = 0.078;
-              const double gapX        = 0.018;
-              const double gapY        = 0.040;
+              const double gapX        = 0.014;
+              const double gapY        = 0.026;
 
               const double padW = (1.0 - leftOuter - rightOuter - (nCols - 1)*gapX) / nCols;
               const double padH = (1.0 - bottomOuter - headerBand - (nRows - 1)*gapY) / nRows;
@@ -730,8 +730,9 @@ namespace ARJ
                 hAxis->GetYaxis()->SetTitle("Fail counts");
                 hAxis->GetXaxis()->SetTitle("");
                 hAxis->GetXaxis()->LabelsOption("h");
-                hAxis->GetXaxis()->SetLabelSize(0.052);
-                hAxis->GetXaxis()->SetLabelOffset(0.010);
+                hAxis->GetXaxis()->SetLabelFont(62);
+                hAxis->GetXaxis()->SetLabelSize(0.060);
+                hAxis->GetXaxis()->SetLabelOffset(0.008);
 
                 hAxis->GetYaxis()->SetTitleSize(0.048);
                 hAxis->GetYaxis()->SetTitleOffset(1.15);
@@ -801,47 +802,47 @@ namespace ARJ
               tGlobal.SetTextSize(0.027);
               tGlobal.DrawLatex(0.045, 0.983, "Inclusive Fails (Preselection)");
 
-              TPaveText* pCol1 = new TPaveText(0.34, 0.92, 0.52, 0.988, "NDC NB");
+              TPaveText* pCol1 = new TPaveText(0.34, 0.915, 0.52, 0.988, "NDC NB");
               pCol1->SetFillStyle(0);
               pCol1->SetBorderSize(0);
               pCol1->SetTextFont(42);
               pCol1->SetTextAlign(12);
               pCol1->SetTextSize(0.019);
-              pCol1->AddText("A: #frac{E_{11}}{E_{33}} < 0.98");
-              pCol1->AddText("B: et1 < 0.6");
+              pCol1->AddText("A: #frac{E_{11}}{E_{33}} #geq 0.98");
+              pCol1->AddText("B: et1 #leq 0.6");
               pCol1->Draw();
               keepTbl.push_back(pCol1);
 
-              TPaveText* pCol2 = new TPaveText(0.51, 0.92, 0.67, 0.988, "NDC NB");
+              TPaveText* pCol2 = new TPaveText(0.51, 0.915, 0.67, 0.988, "NDC NB");
               pCol2->SetFillStyle(0);
               pCol2->SetBorderSize(0);
               pCol2->SetTextFont(42);
               pCol2->SetTextAlign(12);
               pCol2->SetTextSize(0.019);
-              pCol2->AddText("C: et1 > 1.0");
-              pCol2->AddText("D: 0.6 < et1 < 1.0");
+              pCol2->AddText("C: et1 #geq 1.0");
+              pCol2->AddText("D: et1 out of range");
               pCol2->Draw();
               keepTbl.push_back(pCol2);
 
-              TPaveText* pCol3 = new TPaveText(0.66, 0.92, 0.82, 0.988, "NDC NB");
+              TPaveText* pCol3 = new TPaveText(0.66, 0.915, 0.82, 0.988, "NDC NB");
               pCol3->SetFillStyle(0);
               pCol3->SetBorderSize(0);
               pCol3->SetTextFont(42);
               pCol3->SetTextAlign(12);
               pCol3->SetTextSize(0.019);
-              pCol3->AddText("E: #frac{E_{32}}{E_{35}} < 0.8");
-              pCol3->AddText("F: #frac{E_{32}}{E_{35}} > 1.0");
+              pCol3->AddText("E: #frac{E_{32}}{E_{35}} #leq 0.8");
+              pCol3->AddText("F: #frac{E_{32}}{E_{35}} #geq 1.0");
               pCol3->Draw();
               keepTbl.push_back(pCol3);
 
-              TPaveText* pCol4 = new TPaveText(0.80, 0.92, 0.975, 0.988, "NDC NB");
+              TPaveText* pCol4 = new TPaveText(0.80, 0.915, 0.975, 0.988, "NDC NB");
               pCol4->SetFillStyle(0);
               pCol4->SetBorderSize(0);
               pCol4->SetTextFont(42);
               pCol4->SetTextAlign(12);
               pCol4->SetTextSize(0.019);
-              pCol4->AddText("G: 0.8 < #frac{E_{32}}{E_{35}} < 1.0");
-              pCol4->AddText("H: w_{#eta}^{cogX} < 0.6");
+              pCol4->AddText("G: #frac{E_{32}}{E_{35}} out of range");
+              pCol4->AddText("H: w_{#eta}^{cogX} #geq 0.6");
               pCol4->Draw();
               keepTbl.push_back(pCol4);
               
