@@ -1065,6 +1065,19 @@ void RunJES3QA(Dataset& ds)
 
                       if (firstNZ > lastNZ) return nullptr;
 
+                      const double supportLo = h->GetBinLowEdge(firstNZ);
+                      const double supportHi = h->GetBinLowEdge(lastNZ) + h->GetBinWidth(lastNZ);
+
+                      int nActiveBins = 0;
+                      for (int ib = firstNZ; ib <= lastNZ; ++ib)
+                      {
+                        if (h->GetBinContent(ib) > 0.0) ++nActiveBins;
+                      }
+
+                      const double nEff = h->GetEffectiveEntries();
+                      const bool sparseHist     = (nEff < 80.0 || nActiveBins < 16);
+                      const bool verySparseHist = (nEff < 35.0 || nActiveBins < 11);
+
                       auto SmoothedContent = [&](int ib) -> double
                       {
                         if (ib < firstNZ) ib = firstNZ;
@@ -1156,8 +1169,8 @@ void RunJES3QA(Dataset& ds)
                       const double distToTurnOn  = peakX - firstNZCenter;
                       const double binW          = h->GetBinWidth(peakBin);
 
-                      const bool lhsTrusted     = (lhsFrac55 > 0.45 && lhsFrac35 > 0.38 && distToTurnOn > 3.0 * binW);
-                      const bool lhsVeryTrusted = (lhsFrac55 > 0.62 && lhsFrac35 > 0.52 && distToTurnOn > 4.5 * binW);
+                      const bool lhsTrusted     = (lhsFrac55 > 0.40 && lhsFrac35 > 0.34 && distToTurnOn > 2.5 * binW);
+                      const bool lhsVeryTrusted = (lhsFrac55 > 0.58 && lhsFrac35 > 0.48 && distToTurnOn > 4.0 * binW);
 
                       double sig55 = 0.0;
                       if (right55 > left55)
@@ -1174,11 +1187,12 @@ void RunJES3QA(Dataset& ds)
                       }
 
                       int momentLoBin = std::max(firstNZ, lhsTrusted ? left55 : left70);
-                      int momentHiBin = std::min(lastNZ, right55 + 1);
+                      int momentHiBin = std::min(lastNZ, right55 + (sparseHist ? 1 : 0));
+                      if (sparseHist && momentLoBin > firstNZ) momentLoBin = std::max(firstNZ, momentLoBin - 1);
                       if (momentHiBin <= momentLoBin)
                       {
-                        momentLoBin = std::max(firstNZ, peakBin - 1);
-                        momentHiBin = std::min(lastNZ, peakBin + 3);
+                        momentLoBin = std::max(firstNZ, peakBin - 2);
+                        momentHiBin = std::min(lastNZ, peakBin + (sparseHist ? 4 : 2));
                       }
 
                       double mu  = peakX;
@@ -1210,17 +1224,17 @@ void RunJES3QA(Dataset& ds)
 
                       if (std::isfinite(sig55) && sig55 > 0.0)
                       {
-                        sig = (std::isfinite(sig) && sig > 0.0 ? 0.50 * sig + 0.50 * sig55 : sig55);
+                        sig = (std::isfinite(sig) && sig > 0.0 ? 0.35 * sig + 0.65 * sig55 : sig55);
                       }
 
                       if (std::isfinite(sig35) && sig35 > 0.0)
                       {
-                        sig = (std::isfinite(sig) && sig > 0.0 ? 0.70 * sig + 0.30 * sig35 : sig35);
+                        sig = (std::isfinite(sig) && sig > 0.0 ? 0.80 * sig + 0.20 * sig35 : sig35);
                       }
 
                       if (!std::isfinite(sig) || sig <= 0.0)
                       {
-                        sig = 0.45 * h->GetRMS();
+                        sig = 0.40 * h->GetRMS();
                       }
 
                       if (!std::isfinite(sig) || sig <= 0.0)
@@ -1228,17 +1242,32 @@ void RunJES3QA(Dataset& ds)
                         sig = 2.0 * binW;
                       }
 
+                      const double visibleSpan = std::max(3.0 * binW, supportHi - supportLo);
+                      const double sigFloor = std::max(1.10 * binW, (verySparseHist ? 0.16 : (sparseHist ? 0.12 : 0.0)) * visibleSpan);
+                      if (sig < sigFloor) sig = sigFloor;
+
                       int leftSeedBin = left70;
                       if (lhsTrusted)     leftSeedBin = std::max(firstNZ, left55 - 1);
                       if (lhsVeryTrusted) leftSeedBin = std::max(firstNZ, left35 - 1);
 
-                      int rightSeedBin = std::min(lastNZ, right35 + 1);
-                      if (rightSeedBin <= peakBin) rightSeedBin = std::min(lastNZ, peakBin + 4);
+                      int rightSeedBin = std::min(lastNZ, right55 + 1);
+                      if (rightSeedBin <= peakBin) rightSeedBin = std::min(lastNZ, peakBin + (sparseHist ? 4 : 3));
+
+                      if (sparseHist)
+                      {
+                        leftSeedBin  = std::max(firstNZ, leftSeedBin - 1);
+                        rightSeedBin = std::min(lastNZ, rightSeedBin + 1);
+                      }
+                      if (verySparseHist)
+                      {
+                        leftSeedBin  = std::max(firstNZ, leftSeedBin - 1);
+                        rightSeedBin = std::min(lastNZ, rightSeedBin + 1);
+                      }
 
                       if (rightSeedBin <= leftSeedBin)
                       {
-                        leftSeedBin  = std::max(firstNZ, peakBin - 2);
-                        rightSeedBin = std::min(lastNZ, peakBin + 5);
+                        leftSeedBin  = std::max(firstNZ, peakBin - (sparseHist ? 3 : 2));
+                        rightSeedBin = std::min(lastNZ, peakBin + (sparseHist ? 6 : 4));
                       }
 
                       const double seedLo = h->GetBinLowEdge(leftSeedBin);
@@ -1247,26 +1276,33 @@ void RunJES3QA(Dataset& ds)
                       TF1* f = new TF1(fname.c_str(), "gaus", seedLo, seedHi);
                       f->SetLineColor(lcolor);
                       f->SetLineWidth(3);
+                      f->SetLineStyle(1);
+                      f->SetNpx(800);
                       f->SetParameters(peakY, mu, sig);
                       f->SetParLimits(0, 0.0, 10.0 * peakY);
-                      f->SetParLimits(1, seedLo, seedHi);
-                      f->SetParLimits(2, 0.5 * binW, 0.8 * (xHiHard - xLoHard));
 
-                      const double coreLeftMult  = (lhsTrusted ? 0.85 : 0.60);
-                      const double coreRightMult = 1.65;
+                      const double muWindow = std::max(2.0 * binW, std::min(0.60 * (supportHi - supportLo), std::max(0.18, 1.35 * sig)));
+                      f->SetParLimits(1, std::max(seedLo, peakX - muWindow), std::min(seedHi, peakX + muWindow));
+                      f->SetParLimits(2, 0.90 * sigFloor, 0.45 * (xHiHard - xLoHard));
 
-                      for (int it = 0; it < 4; ++it)
+                      double coreLeftMult  = (lhsTrusted ? 0.95 : 0.80);
+                      double coreRightMult = (sparseHist ? 1.20 : 1.05);
+                      if (verySparseHist) { coreLeftMult += 0.05; coreRightMult += 0.10; }
+
+                      const int nIter = (verySparseHist ? 6 : 5);
+
+                      for (int it = 0; it < nIter; ++it)
                       {
-                        double lo = mu - (coreLeftMult  + 0.05 * it) * sig;
-                        double hi = mu + (coreRightMult + 0.10 * it) * sig;
+                        double lo = peakX - (coreLeftMult  + 0.06 * it) * sig;
+                        double hi = peakX + (coreRightMult + 0.07 * it) * sig;
 
                         if (lo < seedLo) lo = seedLo;
                         if (hi > seedHi) hi = seedHi;
 
-                        if (hi - lo < 3.5 * binW)
+                        if (hi - lo < (sparseHist ? 4.5 : 3.8) * binW)
                         {
-                          lo = mu - 1.5 * binW;
-                          hi = mu + 3.5 * binW;
+                          lo = peakX - (sparseHist ? 2.2 : 1.7) * binW;
+                          hi = peakX + (sparseHist ? 3.2 : 2.6) * binW;
 
                           if (lo < seedLo) lo = seedLo;
                           if (hi > seedHi) hi = seedHi;
@@ -1286,20 +1322,27 @@ void RunJES3QA(Dataset& ds)
                         if (!std::isfinite(newMu) || !std::isfinite(newSig) || newSig <= 0.0) break;
 
                         mu  = newMu;
-                        sig = newSig;
+                        sig = std::max(newSig, sigFloor);
                       }
 
-                      double finalLeftMult = 0.75;
-                      if (lhsTrusted)     finalLeftMult = 1.05;
-                      if (lhsVeryTrusted) finalLeftMult = 1.30;
+                      double finalLeftMult  = (lhsTrusted ? 1.10 : 1.00);
+                      double finalRightMult = (sparseHist ? 1.35 : 1.20);
 
-                      const double finalRightMult = 1.70;
+                      if (lhsVeryTrusted) finalLeftMult = 1.25;
+                      if (verySparseHist) { finalLeftMult += 0.05; finalRightMult += 0.10; }
 
-                      double finalLo = mu - finalLeftMult * sig;
-                      double finalHi = mu + finalRightMult * sig;
+                      double finalLo = peakX - finalLeftMult * sig;
+                      double finalHi = peakX + finalRightMult * sig;
 
-                      const double guardLo = h->GetBinLowEdge(lhsTrusted ? left55 : left70);
+                      double guardLo = h->GetBinLowEdge(lhsTrusted ? left55 : left70);
+                      if (sparseHist)     guardLo = h->GetBinLowEdge(std::max(firstNZ, left70 - 1));
+                      if (verySparseHist) guardLo = seedLo;
+
+                      const int rightGuardBin = std::min(lastNZ, right55 + (sparseHist ? 1 : 0));
+                      const double guardHi = h->GetBinLowEdge(rightGuardBin) + h->GetBinWidth(rightGuardBin);
+
                       if (finalLo < guardLo) finalLo = guardLo;
+                      if (finalHi < guardHi) finalHi = guardHi;
 
                       if (lhsVeryTrusted)
                       {
@@ -1321,15 +1364,32 @@ void RunJES3QA(Dataset& ds)
 
                       h->Fit(f, "RQ0");
 
-                      if (!std::isfinite(f->GetParameter(1)) || !std::isfinite(f->GetParameter(2)) || std::fabs(f->GetParameter(2)) <= 0.0)
+                      const double fitMu  = f->GetParameter(1);
+                      const double fitSig = std::fabs(f->GetParameter(2));
+
+                      if (!std::isfinite(fitMu) || !std::isfinite(fitSig) || fitSig <= 0.0)
                       {
                         delete f;
                         return nullptr;
                       }
 
+                      f->SetRange(finalLo, finalHi);
+                      f->SetLineStyle(1);
+                      f->SetLineColor(lcolor);
+                      f->SetLineWidth(3);
+                      f->SetNpx(800);
                       return f;
-                  };
+                };
 
+                auto DrawFitOnly = [&](TF1* f)
+                {
+                      if (!f) return;
+
+                      f->SetLineStyle(1);
+                      f->SetLineWidth(3);
+                      f->SetNpx(800);
+                      f->Draw("same");
+                };
                 for (int k = 0; k < nTableBins; ++k)
                 {
                   const int ib = startBinForTable + k;
@@ -1402,8 +1462,8 @@ void RunJES3QA(Dataset& ds)
                   TF1* fDat = FitIterGaus(hDatRaw, TString::Format("f_tbl_dat_%s_%d", rKey.c_str(), ib).Data(), kGreen + 2);
                   TF1* fSim = FitIterGaus(hSimRaw, TString::Format("f_tbl_sim_%s_%d", rKey.c_str(), ib).Data(), kOrange + 7);
 
-                  if (fDat) { fDat->Draw("same"); keepFitFns.push_back(fDat); }
-                  if (fSim) { fSim->Draw("same"); keepFitFns.push_back(fSim); }
+                  if (fDat) { DrawFitOnly(fDat); keepFitFns.push_back(fDat); }
+                  if (fSim) { DrawFitOnly(fSim); keepFitFns.push_back(fSim); }
 
                   {
                     TLegend* leg = new TLegend(0.70, 0.75, 0.94, 0.88);
@@ -1747,8 +1807,8 @@ void RunJES3QA(Dataset& ds)
 
                   hDatOne->Draw("E1");
                   hSimOne->Draw("E1 same");
-                  if (fDatOne) fDatOne->Draw("same");
-                  if (fSimOne) fSimOne->Draw("same");
+                  if (fDatOne) DrawFitOnly(fDatOne);
+                  if (fSimOne) DrawFitOnly(fSimOne);
 
                   TLegend leg(0.70, 0.75, 0.94, 0.88);
                   leg.SetBorderSize(0);
@@ -3926,15 +3986,12 @@ void RunJES3QA(Dataset& ds)
             delete hB;
           }
 
-            // --- 2x3 table page of overlays (shape): last 6 pT bins (skip first pT bin) ---
+            // --- 3x3 table page of overlays (shape): all available pT bins (up to 9) ---
             const int nCols   = 3;
-            const int nRows   = 2;
-            const int perPage = nCols * nRows;  // 6
+            const int nRows   = 3;
+            const int perPage = nCols * nRows;  // 9
 
-            const int firstBinToTable = 2;  // skip the first pT bin
-            const int startBin = (ovTag == "RECO_vs_RECO_truthTaggedPhoJet")
-              ? 1
-              : std::max(firstBinToTable, nPtOv - perPage + 1);
+            const int startBin = 1;
 
             if (startBin <= nPtOv)
             {
@@ -3942,12 +3999,12 @@ void RunJES3QA(Dataset& ds)
 
               TCanvas c(
                 TString::Format("c_tbl_ov_%s_%s_p%d", ovTag.c_str(), rKey.c_str(), page).Data(),
-                "c_tbl_ov", 1500, 900
+                "c_tbl_ov", 1500, 1200
               );
               c.Divide(nCols, nRows, 0.001, 0.001);
 
               vector<TH1*> keep;
-              keep.reserve(2 * perPage);
+              keep.reserve(3 * perPage);
 
               const int nThisPage = std::min(perPage, nPtOv - startBin + 1);
               for (int k = 0; k < nThisPage; ++k)
@@ -4136,14 +4193,13 @@ void RunJES3QA(Dataset& ds)
                     tCuts.DrawLatex(tx, ty,
                       TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCut)).Data()
                     );
-                  }
-
+                }
 
                 keep.push_back(hA);
                 keep.push_back(hB);
               }
 
-              const string outName = "table2x3_overlay_shape.png";
+              const string outName = "table3x3_overlay_shape.png";
 
               SaveCanvas(c, JoinPath(dirOvBase, outName));
 

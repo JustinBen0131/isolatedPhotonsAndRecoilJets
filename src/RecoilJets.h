@@ -447,18 +447,19 @@ private:
   void createHistos_Data();
 
   void fillUnfoldResponseMatrixAndTruthDistributions(
-          const std::vector<std::string>& activeTrig,
-          const std::string& rKey,
-          const int effCentIdx_M,
-          const double leadPtGamma,
-          const double leadEtaGamma,
-          const double leadPhiGamma,
-          const double tPt,
-          const double tEta,
-          const double tPhi,
-          const std::vector<const Jet*>& recoJetsFid,
-          const std::vector<char>& recoJetsFidIsRecoil,
-          const Jet* recoil1Jet);
+            const std::vector<std::string>& activeTrig,
+            const std::string& rKey,
+            const int effCentIdx_M,
+            const double leadPtGamma,
+            const double leadEtaGamma,
+            const double leadPhiGamma,
+            const bool haveTruthPho,
+            const double tPt,
+            const double tEta,
+            const double tPhi,
+            const std::vector<const Jet*>& recoJetsFid,
+            const std::vector<char>& recoJetsFidIsRecoil,
+            const Jet* recoil1Jet);
 
       
   void fillRecoTruthJES3MatchingQA(const std::vector<std::string>& activeTrig,
