@@ -4764,19 +4764,19 @@ namespace ARJ
                       if (c6) delete c6;
                   }
 
-                  // Single 3x2 summary table using ONLY the last 6 JES3 pT bins (skip first bin)
+                  // Single 3x3 summary table using the full 9 JES3 pT bins
                   const int nCols   = 3;
-                  const int nRows   = 2;
-                  const int perPage = nCols * nRows; // 6
+                  const int nRows   = 3;
+                  const int perPage = nCols * nRows; // 9
 
-                  const int startBinForTable = 2; // skip 13-15; start at 15-17
-                  const int nTableBins = (nPt >= startBinForTable) ? std::min(perPage, nPt - startBinForTable + 1) : 0;
+                  const int startBinForTable = 1;
+                  const int nTableBins = std::min(perPage, nPt);
 
                   if (nTableBins > 0)
                   {
                       TCanvas canTbl(
-                        TString::Format("c_tbl_%s_last6", outDirHere.c_str()).Data(),
-                        "c_tbl_overlay_last6", 1500, 900
+                        TString::Format("c_tbl_%s_all9", outDirHere.c_str()).Data(),
+                        "c_tbl_overlay_all9", 1500, 1200
                       );
                       canTbl.Divide(nCols, nRows, 0.001, 0.001);
 
@@ -4974,8 +4974,8 @@ namespace ARJ
                       }
 
                       const std::string outName = useAlphaCut
-                        ? TString::Format("table3x2_overlay_alphaLT%.2f.png", alphaMax).Data()
-                        : "table3x2_overlay_integratedAlpha.png";
+                        ? TString::Format("table3x3_overlay_alphaLT%.2f.png", alphaMax).Data()
+                        : "table3x3_overlay_integratedAlpha.png";
 
                       SaveCanvas(canTbl, JoinPath(outDirHere, outName));
 
@@ -5551,7 +5551,7 @@ namespace ARJ
           EnsureDir(outRecoDir);
 
           const std::string outPng =
-            JoinPath(outRecoDir, "table3x2_overlay_integratedAlpha_dPhiCuts.png");
+              JoinPath(outRecoDir, "table3x3_overlay_integratedAlpha_dPhiCuts.png");
 
           // Baseline (π/2) comes from the currently-open merged dataset file
           TH3* hBase = GetObj<TH3>(ds, "h_JES3_pT_xJ_alpha_r04", true, true, true);
@@ -5656,11 +5656,11 @@ namespace ARJ
                  << ANSI_RESET;
 
             // -------------------------------------------------------------------------
-            // Make a 3x2 table (6 pads) across pTgamma bins: ProjectY (xJ) integrating alpha
+            // Make a 3x3 table (9 pads) across pTgamma bins: ProjectY (xJ) integrating alpha
             // AND also write per-pT individual overlays (same styling) into perPtBin_dPhiCuts/
             // -------------------------------------------------------------------------
             const int nCols = 3;
-            const int nRows = 2;
+            const int nRows = 3;
 
             const double R = RFromKey(rKey);
 
@@ -5671,15 +5671,15 @@ namespace ARJ
             const std::string outPerPtDir = JoinPath(outRecoDir, "perPtBin_dPhiCuts");
             EnsureDir(outPerPtDir);
 
-            TCanvas c("c_tbl_dphiCuts_r04", "c_tbl_dphiCuts_r04", 1500, 900);
+            TCanvas c("c_tbl_dphiCuts_r04", "c_tbl_dphiCuts_r04", 1500, 1200);
             c.Divide(nCols, nRows, 0.001, 0.001);
 
             std::vector<TH1*> keep;
-            keep.reserve(2 * 6);
+            keep.reserve(2 * 9);
 
-            const int ibStart = 2; // skip first pT bin (e.g. 13-15) in the table
+            const int ibStart = 1;
             const int nAvail  = (nPt >= ibStart) ? (nPt - ibStart + 1) : 0;
-            const int nPads   = std::min(6, nAvail);
+            const int nPads   = std::min(9, nAvail);
 
             for (int k = 0; k < nPads; ++k)
             {
@@ -6034,7 +6034,7 @@ namespace ARJ
               EnsureDir(outRecoDir);
 
               const std::string outPng =
-                JoinPath(outRecoDir, "table3x2_overlay_integratedAlpha_pTminCompare.png");
+                  JoinPath(outRecoDir, "table3x3_overlay_integratedAlpha_pTminCompare.png");
 
               const std::string h3name = "h_JES3_pT_xJ_alpha_" + rKey;
 
@@ -6042,10 +6042,10 @@ namespace ARJ
               TH3* hPt10 = GetObj<TH3>(ds, h3name, true, true, true);
               if (!hPt10)
               {
-                cout << ANSI_BOLD_YEL
-                     << "[WARN] pTmin overlay skipped: missing " << h3name << " in baseline merged dataset.\n"
-                     << ANSI_RESET;
-                continue;
+                  cout << ANSI_BOLD_YEL
+                       << "[WARN] pTmin overlay skipped: missing " << h3name << " in baseline merged dataset.\n"
+                       << ANSI_RESET;
+                  continue;
               }
 
               TH3* hPt5 = BuildWeightedMergedTH3(keyPt5, h3name, "pt5");
@@ -6053,13 +6053,13 @@ namespace ARJ
 
               if (!hPt5 || !hPt3)
               {
-                if (hPt5) delete hPt5;
-                if (hPt3) delete hPt3;
-                continue;
+                  if (hPt5) delete hPt5;
+                  if (hPt3) delete hPt3;
+                  continue;
               }
 
               const int nCols = 3;
-              const int nRows = 2;
+              const int nRows = 3;
 
               const int n10 = hPt10->GetXaxis()->GetNbins();
               const int n5  = hPt5->GetXaxis()->GetNbins();
@@ -6070,15 +6070,15 @@ namespace ARJ
               EnsureDir(outPerPtDir);
 
               TCanvas c(TString::Format("c_tbl_pTminCompare_%s", rKey.c_str()).Data(),
-                        TString::Format("c_tbl_pTminCompare_%s", rKey.c_str()).Data(),
-                        1500, 900);
+                          TString::Format("c_tbl_pTminCompare_%s", rKey.c_str()).Data(),
+                          1500, 1200);
               c.Divide(nCols, nRows, 0.001, 0.001);
 
               std::vector<TH1*> keep;
-              keep.reserve(3 * 6);
+              keep.reserve(3 * 9);
 
-                auto Style = [&](TH1* h, int col)->void
-                {
+              auto Style = [&](TH1* h, int col)->void
+              {
                   if (!h) return;
                   h->SetDirectory(nullptr);
                   EnsureSumw2(h);
@@ -6093,11 +6093,11 @@ namespace ARJ
                   h->GetXaxis()->SetRangeUser(0.0, 2.0);
                   h->GetYaxis()->SetTitle("A.U.");
                   NormalizeToUnitArea(h);
-                };
+              };
 
-                const int ibStart = 1; // start from first pT bin in the vector (ROOT bins are 1-indexed)
-                const int nAvail  = (nPt >= ibStart) ? (nPt - ibStart + 1) : 0;
-                const int nPads   = std::min(6, nAvail);
+              const int ibStart = 1; // start from first pT bin in the vector (ROOT bins are 1-indexed)
+              const int nAvail  = (nPt >= ibStart) ? (nPt - ibStart + 1) : 0;
+              const int nPads   = std::min(9, nAvail);
 
               for (int k = 0; k < nPads; ++k)
               {

@@ -879,7 +879,7 @@ void RunJES3QA(Dataset& ds)
             if (hSim3 && H.hReco_xJ)
             {
               const int nCols = 3;
-              const int nRows = 2;
+              const int nRows = 3;
               const int perPage = nCols * nRows;
 
               const int startBinForTable = 1;
@@ -1048,44 +1048,287 @@ void RunJES3QA(Dataset& ds)
               vChi2NdfDat.reserve(nPt);
               vChi2NdfSim.reserve(nPt);
 
-              auto FitIterGaus = [&](TH1* h, const std::string& fname, int lcolor) -> TF1*
-              {
-                  if (!h) return nullptr;
+                auto FitIterGaus = [&](TH1* h, const std::string& fname, int lcolor) -> TF1*
+                {
+                      if (!h) return nullptr;
+                      if (h->GetNbinsX() <= 0) return nullptr;
+                      if (h->Integral(0, h->GetNbinsX() + 1) <= 0.0) return nullptr;
 
-                  double mu  = h->GetMean();
-                  double sig = h->GetRMS();
+                      const double xLoHard = h->GetXaxis()->GetXmin();
+                      const double xHiHard = h->GetXaxis()->GetXmax();
 
-                  if (!std::isfinite(mu) || !std::isfinite(sig) || sig <= 0.0) return nullptr;
+                      int firstNZ = 1;
+                      while (firstNZ <= h->GetNbinsX() && h->GetBinContent(firstNZ) <= 0.0) ++firstNZ;
 
-                  const double xLoHard = h->GetXaxis()->GetXmin();
-                  const double xHiHard = h->GetXaxis()->GetXmax();
+                      int lastNZ = h->GetNbinsX();
+                      while (lastNZ >= 1 && h->GetBinContent(lastNZ) <= 0.0) --lastNZ;
 
-                  TF1* f = new TF1(fname.c_str(), "gaus", xLoHard, xHiHard);
-                  f->SetLineColor(lcolor);
-                  f->SetLineWidth(3);
+                      if (firstNZ > lastNZ) return nullptr;
 
-                  for (int it = 0; it < 3; ++it)
-                  {
-                    double lo = mu - 1.5 * sig;
-                    double hi = mu + 1.5 * sig;
+                      auto SmoothedContent = [&](int ib) -> double
+                      {
+                        if (ib < firstNZ) ib = firstNZ;
+                        if (ib > lastNZ)  ib = lastNZ;
 
-                    if (lo < xLoHard) lo = xLoHard;
-                    if (hi > xHiHard) hi = xHiHard;
-                    if (hi <= lo) break;
+                        double sum  = 0.0;
+                        double wsum = 0.0;
 
-                    f->SetRange(lo, hi);
+                        for (int jb = ib - 1; jb <= ib + 1; ++jb)
+                        {
+                          if (jb < firstNZ || jb > lastNZ) continue;
+                          const double w = (jb == ib ? 0.50 : 0.25);
+                          sum  += w * std::max(0.0, h->GetBinContent(jb));
+                          wsum += w;
+                        }
 
-                    h->Fit(f, "RQ0");
+                        return (wsum > 0.0 ? sum / wsum : std::max(0.0, h->GetBinContent(ib)));
+                      };
 
-                    mu  = f->GetParameter(1);
-                    sig = f->GetParameter(2);
+                      int peakBin = firstNZ;
+                      double peakScore = -1.0;
+                      for (int ib = firstNZ; ib <= lastNZ; ++ib)
+                      {
+                        const double s = SmoothedContent(ib);
+                        if (s > peakScore)
+                        {
+                          peakScore = s;
+                          peakBin   = ib;
+                        }
+                      }
 
-                    if (!std::isfinite(mu) || !std::isfinite(sig) || sig <= 0.0) break;
-                  }
+                      if (peakBin < 1 || peakBin > h->GetNbinsX()) return nullptr;
 
-                  h->Fit(f, "RQ0");
-                  return f;
-                };
+                      double peakX = h->GetBinCenter(peakBin);
+                      {
+                        double sw  = 0.0;
+                        double swx = 0.0;
+                        for (int jb = std::max(firstNZ, peakBin - 1); jb <= std::min(lastNZ, peakBin + 1); ++jb)
+                        {
+                          const double w = SmoothedContent(jb);
+                          if (w <= 0.0) continue;
+                          sw  += w;
+                          swx += w * h->GetBinCenter(jb);
+                        }
+                        if (sw > 0.0) peakX = swx / sw;
+                      }
+
+                      const double peakY = SmoothedContent(peakBin);
+                      if (!std::isfinite(peakY) || peakY <= 0.0) return nullptr;
+
+                      auto LeftCrossBin = [&](double frac) -> int
+                      {
+                        const double thr = frac * peakY;
+                        int ib = peakBin;
+                        while (ib > firstNZ && SmoothedContent(ib) > thr) --ib;
+                        if (SmoothedContent(ib) <= thr && ib < peakBin) ++ib;
+                        if (ib < firstNZ) ib = firstNZ;
+                        if (ib > peakBin) ib = peakBin;
+                        return ib;
+                      };
+
+                      auto RightCrossBin = [&](double frac) -> int
+                      {
+                        const double thr = frac * peakY;
+                        int ib = peakBin;
+                        while (ib < lastNZ && SmoothedContent(ib) > thr) ++ib;
+                        if (SmoothedContent(ib) <= thr && ib > peakBin) --ib;
+                        if (ib > lastNZ) ib = lastNZ;
+                        if (ib < peakBin) ib = peakBin;
+                        return ib;
+                      };
+
+                      const int left70  = LeftCrossBin(0.70);
+                      const int left55  = LeftCrossBin(0.55);
+                      const int left35  = LeftCrossBin(0.35);
+                      const int right70 = RightCrossBin(0.70);
+                      const int right55 = RightCrossBin(0.55);
+                      const int right35 = RightCrossBin(0.35);
+
+                      const double leftW55  = peakX - h->GetBinCenter(left55);
+                      const double rightW55 = h->GetBinCenter(right55) - peakX;
+                      const double leftW35  = peakX - h->GetBinCenter(left35);
+                      const double rightW35 = h->GetBinCenter(right35) - peakX;
+
+                      const double lhsFrac55 = (rightW55 > 0.0 ? leftW55 / rightW55 : 0.0);
+                      const double lhsFrac35 = (rightW35 > 0.0 ? leftW35 / rightW35 : 0.0);
+
+                      const double firstNZCenter = h->GetBinCenter(firstNZ);
+                      const double distToTurnOn  = peakX - firstNZCenter;
+                      const double binW          = h->GetBinWidth(peakBin);
+
+                      const bool lhsTrusted     = (lhsFrac55 > 0.45 && lhsFrac35 > 0.38 && distToTurnOn > 3.0 * binW);
+                      const bool lhsVeryTrusted = (lhsFrac55 > 0.62 && lhsFrac35 > 0.52 && distToTurnOn > 4.5 * binW);
+
+                      double sig55 = 0.0;
+                      if (right55 > left55)
+                      {
+                        const double width55 = h->GetBinCenter(right55) - h->GetBinCenter(left55);
+                        sig55 = width55 / 2.355;
+                      }
+
+                      double sig35 = 0.0;
+                      if (right35 > left35)
+                      {
+                        const double width35 = h->GetBinCenter(right35) - h->GetBinCenter(left35);
+                        sig35 = width35 / 2.90;
+                      }
+
+                      int momentLoBin = std::max(firstNZ, lhsTrusted ? left55 : left70);
+                      int momentHiBin = std::min(lastNZ, right55 + 1);
+                      if (momentHiBin <= momentLoBin)
+                      {
+                        momentLoBin = std::max(firstNZ, peakBin - 1);
+                        momentHiBin = std::min(lastNZ, peakBin + 3);
+                      }
+
+                      double mu  = peakX;
+                      double sig = 0.0;
+
+                      {
+                        double sw   = 0.0;
+                        double swx  = 0.0;
+                        double swx2 = 0.0;
+
+                        for (int ib = momentLoBin; ib <= momentHiBin; ++ib)
+                        {
+                          const double w = SmoothedContent(ib);
+                          if (w <= 0.0) continue;
+
+                          const double x = h->GetBinCenter(ib);
+                          sw   += w;
+                          swx  += w * x;
+                          swx2 += w * x * x;
+                        }
+
+                        if (sw > 0.0)
+                        {
+                          mu = swx / sw;
+                          const double var = swx2 / sw - mu * mu;
+                          if (var > 0.0) sig = std::sqrt(var);
+                        }
+                      }
+
+                      if (std::isfinite(sig55) && sig55 > 0.0)
+                      {
+                        sig = (std::isfinite(sig) && sig > 0.0 ? 0.50 * sig + 0.50 * sig55 : sig55);
+                      }
+
+                      if (std::isfinite(sig35) && sig35 > 0.0)
+                      {
+                        sig = (std::isfinite(sig) && sig > 0.0 ? 0.70 * sig + 0.30 * sig35 : sig35);
+                      }
+
+                      if (!std::isfinite(sig) || sig <= 0.0)
+                      {
+                        sig = 0.45 * h->GetRMS();
+                      }
+
+                      if (!std::isfinite(sig) || sig <= 0.0)
+                      {
+                        sig = 2.0 * binW;
+                      }
+
+                      int leftSeedBin = left70;
+                      if (lhsTrusted)     leftSeedBin = std::max(firstNZ, left55 - 1);
+                      if (lhsVeryTrusted) leftSeedBin = std::max(firstNZ, left35 - 1);
+
+                      int rightSeedBin = std::min(lastNZ, right35 + 1);
+                      if (rightSeedBin <= peakBin) rightSeedBin = std::min(lastNZ, peakBin + 4);
+
+                      if (rightSeedBin <= leftSeedBin)
+                      {
+                        leftSeedBin  = std::max(firstNZ, peakBin - 2);
+                        rightSeedBin = std::min(lastNZ, peakBin + 5);
+                      }
+
+                      const double seedLo = h->GetBinLowEdge(leftSeedBin);
+                      const double seedHi = h->GetBinLowEdge(rightSeedBin) + h->GetBinWidth(rightSeedBin);
+
+                      TF1* f = new TF1(fname.c_str(), "gaus", seedLo, seedHi);
+                      f->SetLineColor(lcolor);
+                      f->SetLineWidth(3);
+                      f->SetParameters(peakY, mu, sig);
+                      f->SetParLimits(0, 0.0, 10.0 * peakY);
+                      f->SetParLimits(1, seedLo, seedHi);
+                      f->SetParLimits(2, 0.5 * binW, 0.8 * (xHiHard - xLoHard));
+
+                      const double coreLeftMult  = (lhsTrusted ? 0.85 : 0.60);
+                      const double coreRightMult = 1.65;
+
+                      for (int it = 0; it < 4; ++it)
+                      {
+                        double lo = mu - (coreLeftMult  + 0.05 * it) * sig;
+                        double hi = mu + (coreRightMult + 0.10 * it) * sig;
+
+                        if (lo < seedLo) lo = seedLo;
+                        if (hi > seedHi) hi = seedHi;
+
+                        if (hi - lo < 3.5 * binW)
+                        {
+                          lo = mu - 1.5 * binW;
+                          hi = mu + 3.5 * binW;
+
+                          if (lo < seedLo) lo = seedLo;
+                          if (hi > seedHi) hi = seedHi;
+                        }
+
+                        if (hi <= lo) break;
+
+                        f->SetRange(lo, hi);
+                        f->SetParameter(1, mu);
+                        f->SetParameter(2, sig);
+
+                        h->Fit(f, "RQ0");
+
+                        const double newMu  = f->GetParameter(1);
+                        const double newSig = std::fabs(f->GetParameter(2));
+
+                        if (!std::isfinite(newMu) || !std::isfinite(newSig) || newSig <= 0.0) break;
+
+                        mu  = newMu;
+                        sig = newSig;
+                      }
+
+                      double finalLeftMult = 0.75;
+                      if (lhsTrusted)     finalLeftMult = 1.05;
+                      if (lhsVeryTrusted) finalLeftMult = 1.30;
+
+                      const double finalRightMult = 1.70;
+
+                      double finalLo = mu - finalLeftMult * sig;
+                      double finalHi = mu + finalRightMult * sig;
+
+                      const double guardLo = h->GetBinLowEdge(lhsTrusted ? left55 : left70);
+                      if (finalLo < guardLo) finalLo = guardLo;
+
+                      if (lhsVeryTrusted)
+                      {
+                        const double extendedLo = h->GetBinLowEdge(std::max(firstNZ, left35 - 1));
+                        if (extendedLo < finalLo) finalLo = extendedLo;
+                      }
+
+                      if (finalLo < seedLo) finalLo = seedLo;
+                      if (finalHi > seedHi) finalHi = seedHi;
+                      if (finalHi <= finalLo)
+                      {
+                        finalLo = seedLo;
+                        finalHi = seedHi;
+                      }
+
+                      f->SetRange(finalLo, finalHi);
+                      f->SetParameter(1, mu);
+                      f->SetParameter(2, sig);
+
+                      h->Fit(f, "RQ0");
+
+                      if (!std::isfinite(f->GetParameter(1)) || !std::isfinite(f->GetParameter(2)) || std::fabs(f->GetParameter(2)) <= 0.0)
+                      {
+                        delete f;
+                        return nullptr;
+                      }
+
+                      return f;
+                  };
 
                 for (int k = 0; k < nTableBins; ++k)
                 {
@@ -1399,8 +1642,8 @@ void RunJES3QA(Dataset& ds)
                   keepFitsH.push_back(hSimRaw);
               }
 
-              SaveCanvas(canTblFits, JoinPath(dirFits, "table3x2_overlay_integratedAlpha_overlayedWithSim_withFits.png"));
-              SaveCanvas(canTblMeans, JoinPath(dirFits, "table3x2_overlay_integratedAlpha_overlayedWithSim_withMeans.png"));
+              SaveCanvas(canTblFits, JoinPath(dirFits, "table3x3_overlay_integratedAlpha_overlayedWithSim_withFits.png"));
+              SaveCanvas(canTblMeans, JoinPath(dirFits, "table3x3_overlay_integratedAlpha_overlayedWithSim_withMeans.png"));
 
               for (auto* h1 : keepMeansH) delete h1;
 
@@ -1774,15 +2017,8 @@ void RunJES3QA(Dataset& ds)
                     gRatio->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
                     gRatio->GetYaxis()->SetTitle("Gaussian mean ratio: DATA / SIM");
 
-                    double xMin =  1e9;
-                    double xMax = -1e9;
-                    for (int i = 0; i < (int)vPtCtr_R.size(); ++i)
-                    {
-                      const double xl = vPtCtr_R[i] - vPtErr_R[i];
-                      const double xr = vPtCtr_R[i] + vPtErr_R[i];
-                      if (xl < xMin) xMin = xl;
-                      if (xr > xMax) xMax = xr;
-                    }
+                    double xMin = H.hReco_xJ->GetXaxis()->GetBinLowEdge(1);
+                    double xMax = H.hReco_xJ->GetXaxis()->GetBinUpEdge(nPt);
 
                     TLine* lOne = new TLine(xMin, 1.0, xMax, 1.0);
                     lOne->SetLineStyle(2);
@@ -2155,7 +2391,11 @@ void RunJES3QA(Dataset& ds)
                     gSimMean->SetLineColor(kRed + 1);
                     gSimMean->SetLineWidth(2);
 
+                    const double xMinMeanPlot = H.hReco_xJ->GetXaxis()->GetBinLowEdge(1);
+                    const double xMaxMeanPlot = H.hReco_xJ->GetXaxis()->GetBinUpEdge(nPt);
+
                     gDatMean->Draw("AP");
+                    gDatMean->GetXaxis()->SetLimits(xMinMeanPlot, xMaxMeanPlot);
                     gDatMean->GetXaxis()->SetTitle("");
                     gDatMean->GetYaxis()->SetTitle("Mean of x_{J#gamma} (Using GetMean)");
                     gSimMean->Draw("P same");
@@ -2212,6 +2452,7 @@ void RunJES3QA(Dataset& ds)
                     gRatioMean->SetLineWidth(2);
 
                     gRatioMean->Draw("AP");
+                    gRatioMean->GetXaxis()->SetLimits(xMinMeanPlot, xMaxMeanPlot);
                     gRatioMean->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
                     gRatioMean->GetYaxis()->SetTitle("DATA / SIM");
                     gRatioMean->GetXaxis()->SetTitleSize(0.12);
@@ -2223,8 +2464,8 @@ void RunJES3QA(Dataset& ds)
                     gRatioMean->SetMaximum(1.4);
 
                     TLine lOne(
-                        vPtCtr.front() - vPtErr.front(), 1.0,
-                        vPtCtr.back()  + vPtErr.back(),  1.0
+                            xMinMeanPlot, 1.0,
+                            xMaxMeanPlot, 1.0
                     );
                     lOne.SetLineStyle(2);
                     lOne.SetLineWidth(2);
@@ -2235,12 +2476,12 @@ void RunJES3QA(Dataset& ds)
                     double jesMeanErr =  0.0;
                     if ((int)vRatioMeanPt.size() > 0)
                     {
-                        const double xLoFit = vRatioMeanPt.front() - vRatioMeanPtErr.front();
-                        const double xHiFit = vRatioMeanPt.back()  + vRatioMeanPtErr.back();
+                        const double xLoFit = xMinMeanPlot;
+                        const double xHiFit = xMaxMeanPlot;
 
                         fRatioMean = new TF1(
-                          TString::Format("fRatioMean_%s", rKey.c_str()).Data(),
-                          "pol0", xLoFit, xHiFit
+                              TString::Format("fRatioMean_%s", rKey.c_str()).Data(),
+                              "pol0", xLoFit, xHiFit
                         );
                         fRatioMean->SetLineColor(kRed + 1);
                         fRatioMean->SetLineStyle(2);
@@ -2258,8 +2499,8 @@ void RunJES3QA(Dataset& ds)
                         latMean.SetTextColor(kRed + 1);
                         latMean.SetTextAlign(31);
                         latMean.DrawLatex(
-                          0.95, 0.88,
-                          TString::Format("in situ JES = %.4f #pm %.4f", jesMeanVal, jesMeanErr).Data()
+                              0.95, 0.88,
+                              TString::Format("in situ JES = %.4f #pm %.4f", jesMeanVal, jesMeanErr).Data()
                         );
                     }
 
@@ -2311,7 +2552,11 @@ void RunJES3QA(Dataset& ds)
                     gDatMeanOv->SetLineColor(kBlue + 1);
                     gDatMeanOv->SetLineWidth(2);
 
+                    const double xMinMeanOverlay = H.hReco_xJ->GetXaxis()->GetBinLowEdge(1);
+                    const double xMaxMeanOverlay = H.hReco_xJ->GetXaxis()->GetBinUpEdge(nPt);
+
                     gDatGausOv->Draw("AP");
+                    gDatGausOv->GetXaxis()->SetLimits(xMinMeanOverlay, xMaxMeanOverlay);
                     gDatGausOv->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
                     gDatGausOv->GetYaxis()->SetTitle("Mean of x_{J#gamma}");
                     gDatGausOv->SetMinimum(0.0);
