@@ -897,35 +897,93 @@
         }
         if (hPhoResp_measXtruth)
         {
-          TCanvas c("c_pho_respT","c_pho_respT", 900, 750);
-          ApplyCanvasMargins2D(c);
-          c.SetLogz();
+            TCanvas c("c_pho_respT","c_pho_respT", 900, 750);
+            ApplyCanvasMargins2D(c);
+            c.SetLogz();
 
-          hPhoResp_measXtruth->SetTitle("");
-          hPhoResp_measXtruth->GetXaxis()->SetTitle("p_{T}^{#gamma, reco} [GeV]");
-          hPhoResp_measXtruth->GetYaxis()->SetTitle("p_{T}^{#gamma, truth} [GeV]");
+            hPhoResp_measXtruth->SetTitle("");
+            hPhoResp_measXtruth->GetXaxis()->SetTitle("p_{T}^{#gamma, reco} [GeV]");
+            hPhoResp_measXtruth->GetYaxis()->SetTitle("p_{T}^{#gamma, truth} [GeV]");
 
-          // Show full unfolding ranges (reco: 10-40, truth: 5-40)
-          hPhoResp_measXtruth->GetXaxis()->SetRangeUser(10.0, 35.0);
-          hPhoResp_measXtruth->GetYaxis()->SetRangeUser(10.0, 40.0);
+            const auto& recoEdges  = kUnfoldRecoPtEdges;
+            const auto& truthEdges = kUnfoldTruthPtEdges;
 
-          // Debug: verify the response histogram actually contains the expected bin edges
-          cout << "  [pho_response_recoVsTruth] X(reco) nbins=" << hPhoResp_measXtruth->GetXaxis()->GetNbins()
-                 << "  firstLowEdge=" << hPhoResp_measXtruth->GetXaxis()->GetBinLowEdge(1)
-                 << "  lastUpEdge="   << hPhoResp_measXtruth->GetXaxis()->GetBinUpEdge(hPhoResp_measXtruth->GetXaxis()->GetNbins())
-                 << "\n";
-          cout << "  [pho_response_recoVsTruth] Y(truth) nbins=" << hPhoResp_measXtruth->GetYaxis()->GetNbins()
-                 << "  firstLowEdge=" << hPhoResp_measXtruth->GetYaxis()->GetBinLowEdge(1)
-                 << "  lastUpEdge="   << hPhoResp_measXtruth->GetYaxis()->GetBinUpEdge(hPhoResp_measXtruth->GetYaxis()->GetNbins())
-                 << "\n";
+            const double recoMin     = (!recoEdges.empty() ? recoEdges.front() : 8.0);
+            const double recoUFHi    = (recoEdges.size() >= 2 ? recoEdges[1] : 10.0);
+            const double recoOFLo    = (recoEdges.size() >= 2 ? recoEdges[recoEdges.size() - 2] : 35.0);
+            const double recoMax     = (!recoEdges.empty() ? recoEdges.back() : 40.0);
+            const double recoDrawMax = recoOFLo;
 
-          hPhoResp_measXtruth->Draw("colz");
+            const double truthMin   = (!truthEdges.empty() ? truthEdges.front() : 5.0);
+            const double truthUFMid = (truthEdges.size() >= 2 ? truthEdges[1] : 8.0);
+            const double truthUFHi  = (truthEdges.size() >= 3 ? truthEdges[2] : 10.0);
+            const double truthOFLo  = (truthEdges.size() >= 2 ? truthEdges[truthEdges.size() - 2] : 35.0);
+            const double truthMax   = (!truthEdges.empty() ? truthEdges.back() : 40.0);
 
-          DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
-          DrawLatexLines(0.14,0.88, { "SIM photon response (transpose)", "reco #rightarrow truth axis order" }, 0.030, 0.040);
+            // Show the full truth range, but cut the reco drawing range at 35 GeV
+            // so the reco overflow support bin (35-40) is indicated by the dashed line
+            // at 35 GeV rather than displayed as a full x-axis bin.
+            hPhoResp_measXtruth->GetXaxis()->SetRangeUser(recoMin, recoDrawMax);
+            hPhoResp_measXtruth->GetYaxis()->SetRangeUser(truthMin, truthMax);
 
-          SaveCanvas(c, JoinPath(phoDir, "pho_response_recoVsTruth.png"));
-        }
+            // Debug: verify the response histogram actually contains the expected bin edges
+            cout << "  [pho_response_recoVsTruth] X(reco) nbins=" << hPhoResp_measXtruth->GetXaxis()->GetNbins()
+                   << "  firstLowEdge=" << hPhoResp_measXtruth->GetXaxis()->GetBinLowEdge(1)
+                   << "  lastUpEdge="   << hPhoResp_measXtruth->GetXaxis()->GetBinUpEdge(hPhoResp_measXtruth->GetXaxis()->GetNbins())
+                   << "\n";
+            cout << "  [pho_response_recoVsTruth] Y(truth) nbins=" << hPhoResp_measXtruth->GetYaxis()->GetNbins()
+                   << "  firstLowEdge=" << hPhoResp_measXtruth->GetYaxis()->GetBinLowEdge(1)
+                   << "  lastUpEdge="   << hPhoResp_measXtruth->GetYaxis()->GetBinUpEdge(hPhoResp_measXtruth->GetYaxis()->GetNbins())
+                   << "\n";
+
+            hPhoResp_measXtruth->Draw("colz");
+            if (gPad) gPad->Update();
+
+            TLine lRecoUF(recoUFHi, truthMin, recoUFHi, truthMax);
+            TLine lRecoOF(recoOFLo, truthMin, recoOFLo, truthMax);
+            TLine lTruthUF1(recoMin, truthUFMid, recoDrawMax, truthUFMid);
+            TLine lTruthUF2(recoMin, truthUFHi, recoDrawMax, truthUFHi);
+            TLine lTruthOF(recoMin, truthOFLo, recoDrawMax, truthOFLo);
+
+            lRecoUF.SetLineColor(kBlack);
+            lRecoOF.SetLineColor(kBlack);
+            lTruthUF1.SetLineColor(kBlack);
+            lTruthUF2.SetLineColor(kBlack);
+            lTruthOF.SetLineColor(kBlack);
+
+            lRecoUF.SetLineStyle(2);
+            lRecoOF.SetLineStyle(2);
+            lTruthUF1.SetLineStyle(2);
+            lTruthUF2.SetLineStyle(2);
+            lTruthOF.SetLineStyle(2);
+
+            lRecoUF.SetLineWidth(2);
+            lRecoOF.SetLineWidth(2);
+            lTruthUF1.SetLineWidth(2);
+            lTruthUF2.SetLineWidth(2);
+            lTruthOF.SetLineWidth(2);
+
+            if (recoUFHi > recoMin && recoUFHi < recoMax) lRecoUF.Draw("same");
+            if (recoOFLo > recoMin && recoOFLo < recoMax) lRecoOF.Draw("same");
+            if (truthUFMid > truthMin && truthUFMid < truthMax) lTruthUF1.Draw("same");
+            if (truthUFHi > truthMin && truthUFHi < truthMax) lTruthUF2.Draw("same");
+            if (truthOFLo > truthMin && truthOFLo < truthMax) lTruthOF.Draw("same");
+
+            DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
+            DrawLatexLines(0.14,0.88, { "SIM photon response (transpose)", "reco #rightarrow truth axis order" }, 0.030, 0.040);
+            DrawLatexLines(0.46,0.36,
+                           {
+                             "UF / OF support bins:",
+                             "reco: 8-10 = UF, 35-40 = OF",
+                             "truth: 5-8 and 8-10 = UF, 35-40 = OF"
+                           },
+                           0.026, 0.035);
+
+            c.Modified();
+            c.Update();
+
+            SaveCanvas(c, JoinPath(phoDir, "pho_response_recoVsTruth.png"));
+          }
 
         if (hPhoUnfoldTruth)
         {
@@ -970,134 +1028,264 @@
 
             SaveCanvas(c, JoinPath(phoDir, "pho_unfolded_truth_pTgamma_overlay.png"));
 
-            // Also save a log-y version (keep the linear-y output above as-is)
+            // Also save a log-y version (keep the linear-y output above as-is),
+            // but only draw the common analysis bins (10-35 GeV) and add a ratio subpanel.
             {
-                // Compute a tighter log-y range from the actually drawn points
-                double minPos = 1e99;
-                auto scanMinPos = [&](TH1* h)
-                {
-                  if (!h) return;
-                  const int nb = h->GetNbinsX();
-                  for (int ib = 1; ib <= nb; ++ib)
+                  const double xPlotMin = 10.0;
+                  const double xPlotMax = 35.0;
+
+                  auto scanMaxInRange = [&](TH1* h)->double
                   {
-                    const double y = h->GetBinContent(ib);
-                    if (y > 0.0 && y < minPos) minPos = y;
-                  }
-                };
-                scanMinPos(hRecoShape);
-                scanMinPos(hUnfShape);
-                if (!(minPos < 1e98)) minPos = 1e-3;
+                    double maxY = 0.0;
+                    if (!h) return maxY;
 
-                c.Clear();
-                ApplyCanvasMargins1D(c);
-                c.SetLogy(1);
-
-                hRecoShape->SetTitle("");
-                hRecoShape->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                hRecoShape->GetYaxis()->SetTitle("Counts");
-
-                // Debug: tabulate each plotted point (helps diagnose missing log-y markers, e.g. 35-40 GeV)
-                {
-                  std::ios::fmtflags f = cout.flags();
-                  std::streamsize   p = cout.precision();
-
-                  cout << ANSI_BOLD_CYN
-                       << "\n[DEBUG] Tabulating points for pho_unfolded_truth_pTgamma_overlay_logy.png\n"
-                       << "        (PP DATA reco vs Unfolded truth)\n"
-                       << ANSI_RESET;
-
-                  auto dump = [&](const string& label, TH1* h)
-                  {
-                    if (!h)
+                    const int nb = h->GetNbinsX();
+                    for (int ib = 1; ib <= nb; ++ib)
                     {
-                      cout << "  " << label << ": <null>\n";
-                      return;
+                      const double lo = h->GetXaxis()->GetBinLowEdge(ib);
+                      const double hi = h->GetXaxis()->GetBinUpEdge(ib);
+                      if (lo < xPlotMin || hi > xPlotMax) continue;
+
+                      const double y  = h->GetBinContent(ib);
+                      const double ey = h->GetBinError(ib);
+                      if (!std::isfinite(y) || !std::isfinite(ey)) continue;
+                      if (y <= 0.0 && ey <= 0.0) continue;
+
+                      const double v = y + ey;
+                      if (v > maxY) maxY = v;
                     }
-
-                    cout << "  " << label
-                         << "  name=" << h->GetName()
-                         << "  nbins=" << h->GetNbinsX()
-                         << "  xmin=" << h->GetXaxis()->GetXmin()
-                         << "  xmax=" << h->GetXaxis()->GetXmax()
-                         << "  entries=" << std::fixed << std::setprecision(0) << h->GetEntries()
-                         << "\n";
-
-                    cout << "    bin   lo      hi      center      content      error\n";
-                    cout << std::fixed << std::setprecision(3);
-                    for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
-                    {
-                      const double lo  = h->GetXaxis()->GetBinLowEdge(ib);
-                      const double hi  = h->GetXaxis()->GetBinUpEdge(ib);
-                      const double cen = h->GetXaxis()->GetBinCenter(ib);
-                      const double y   = h->GetBinContent(ib);
-                      const double ey  = h->GetBinError(ib);
-
-                      cout << "    " << std::setw(3) << ib
-                           << "  " << std::setw(6) << lo
-                           << "  " << std::setw(6) << hi
-                           << "  " << std::setw(8) << cen
-                           << "  " << std::setw(11) << y
-                           << "  " << std::setw(11) << ey;
-
-                      if (y <= 0.0)
-                        cout << "   <-- non-positive (cannot be drawn on log-y)";
-                      cout << "\n";
-                    }
-
-                    // Under/overflow can hide counts if the binning doesn't match expectations
-                    {
-                      const double u = h->GetBinContent(0);
-                      const double o = h->GetBinContent(h->GetNbinsX()+1);
-                      if (u != 0.0 || o != 0.0)
-                      {
-                        cout << "    underflow=" << u
-                             << "  overflow="  << o
-                             << "   <-- check if high-pT is spilling into overflow\n";
-                      }
-                    }
+                    return maxY;
                   };
 
-                  dump("PP DATA (reco)", hRecoShape);
-                  dump("Unfolded (truth)", hUnfShape);
-
-                  if (hRecoShape)
+                  auto scanMinPosInRange = [&](TH1* h)->double
                   {
-                    const double probe = 37.5; // should fall in the 35-40 bin if that bin exists
-                    const int ib = hRecoShape->GetXaxis()->FindBin(probe);
-                    cout << "  [DEBUG] PP DATA probe pT=37.5 GeV -> bin " << ib
-                         << " [" << hRecoShape->GetXaxis()->GetBinLowEdge(ib) << ","
-                         << hRecoShape->GetXaxis()->GetBinUpEdge(ib) << "]"
-                         << " content=" << hRecoShape->GetBinContent(ib)
-                         << " error="   << hRecoShape->GetBinError(ib)
-                         << "\n";
+                    double minY = 1e99;
+                    if (!h) return minY;
+
+                    const int nb = h->GetNbinsX();
+                    for (int ib = 1; ib <= nb; ++ib)
+                    {
+                      const double lo = h->GetXaxis()->GetBinLowEdge(ib);
+                      const double hi = h->GetXaxis()->GetBinUpEdge(ib);
+                      if (lo < xPlotMin || hi > xPlotMax) continue;
+
+                      const double y = h->GetBinContent(ib);
+                      if (!std::isfinite(y)) continue;
+                      if (y > 0.0 && y < minY) minY = y;
+                    }
+                    return minY;
+                  };
+
+                  auto BuildPhotonAfterOverBeforeRatio = [&](TH1* hAfter, TH1* hBefore)->TH1D*
+                  {
+                    if (!hAfter || !hBefore) return nullptr;
+
+                    vector<double> ratioEdges =
+                    {
+                      10.0, 12.0, 14.0, 16.0, 18.0,
+                      20.0, 22.0, 24.0, 26.0, 35.0
+                    };
+
+                    TH1D* hRatio = new TH1D(
+                      "hPho_afterOverBefore_ratio",
+                      "",
+                      (int)ratioEdges.size() - 1,
+                      &ratioEdges[0]
+                    );
+                    hRatio->SetDirectory(nullptr);
+                    hRatio->Sumw2();
+
+                    for (int ib = 1; ib <= hRatio->GetNbinsX(); ++ib)
+                    {
+                      const double lo  = hRatio->GetXaxis()->GetBinLowEdge(ib);
+                      const double hi  = hRatio->GetXaxis()->GetBinUpEdge(ib);
+                      const double cen = hRatio->GetXaxis()->GetBinCenter(ib);
+
+                      const int iAfter  = hAfter ->GetXaxis()->FindBin(cen);
+                      const int iBefore = hBefore->GetXaxis()->FindBin(cen);
+
+                      if (iAfter  < 1 || iAfter  > hAfter ->GetNbinsX()) continue;
+                      if (iBefore < 1 || iBefore > hBefore->GetNbinsX()) continue;
+
+                      const double afterLo  = hAfter ->GetXaxis()->GetBinLowEdge(iAfter);
+                      const double afterHi  = hAfter ->GetXaxis()->GetBinUpEdge(iAfter);
+                      const double beforeLo = hBefore->GetXaxis()->GetBinLowEdge(iBefore);
+                      const double beforeHi = hBefore->GetXaxis()->GetBinUpEdge(iBefore);
+
+                      if (std::fabs(afterLo  - lo) > 1e-6 || std::fabs(afterHi  - hi) > 1e-6) continue;
+                      if (std::fabs(beforeLo - lo) > 1e-6 || std::fabs(beforeHi - hi) > 1e-6) continue;
+
+                      const double num  = hAfter ->GetBinContent(iAfter);
+                      const double eNum = hAfter ->GetBinError  (iAfter);
+                      const double den  = hBefore->GetBinContent(iBefore);
+                      const double eDen = hBefore->GetBinError  (iBefore);
+
+                      if (!std::isfinite(num) || !std::isfinite(eNum) ||
+                          !std::isfinite(den) || !std::isfinite(eDen) || den <= 0.0)
+                      {
+                        continue;
+                      }
+
+                      const double val = num / den;
+                      const double var = (eNum * eNum) / (den * den)
+                                       + (num * num * eDen * eDen) / (den * den * den * den);
+                      const double err = (var > 0.0 && std::isfinite(var)) ? std::sqrt(var) : 0.0;
+
+                      hRatio->SetBinContent(ib, val);
+                      hRatio->SetBinError  (ib, err);
+                    }
+
+                    return hRatio;
+                  };
+
+                  const double maxvTop = std::max(scanMaxInRange(hRecoShape), scanMaxInRange(hUnfShape));
+
+                  double minPos = std::min(scanMinPosInRange(hRecoShape), scanMinPosInRange(hUnfShape));
+                  if (!(minPos < 1e98)) minPos = 1e-3;
+
+                  TH1D* hRatio = BuildPhotonAfterOverBeforeRatio(hUnfShape, hRecoShape);
+
+                  double ratioMin = 0.8;
+                  double ratioMax = 1.2;
+                  if (hRatio)
+                  {
+                    double rMin =  1e99;
+                    double rMax = -1e99;
+
+                    for (int ib = 1; ib <= hRatio->GetNbinsX(); ++ib)
+                    {
+                      const double y  = hRatio->GetBinContent(ib);
+                      const double ey = hRatio->GetBinError(ib);
+                      if (!std::isfinite(y) || !std::isfinite(ey)) continue;
+                      if (y <= 0.0 && ey <= 0.0) continue;
+
+                      rMin = std::min(rMin, y - ey);
+                      rMax = std::max(rMax, y + ey);
+                    }
+
+                    if (rMin < 1e98 && rMax > -1e98 && rMin < rMax)
+                    {
+                      const double span = std::max(rMax - rMin, 0.04);
+                      const double pad  = 0.18 * span;
+                      ratioMin = rMin - pad;
+                      ratioMax = rMax + pad;
+
+                      if (ratioMin > 1.0) ratioMin = 1.0 - 0.5 * span;
+                      if (ratioMax < 1.0) ratioMax = 1.0 + 0.5 * span;
+                      if (ratioMin < 0.0) ratioMin = 0.0;
+                    }
                   }
 
-                  cout.flags(f);
-                  cout.precision(p);
-                }
+                  c.Clear();
 
-                hRecoShape->SetMinimum(minPos * 0.5);
-                hRecoShape->SetMaximum(maxv * 3.0);
+                  TPad* pTop = new TPad("pTop_pho_unf_logy", "pTop_pho_unf_logy", 0.0, 0.30, 1.0, 1.0);
+                  TPad* pBot = new TPad("pBot_pho_unf_logy", "pBot_pho_unf_logy", 0.0, 0.00, 1.0, 0.30);
 
-                hRecoShape->Draw("E1");
-                hUnfShape->Draw("E1 same");
+                  pTop->SetLeftMargin(0.12);
+                  pTop->SetRightMargin(0.04);
+                  pTop->SetTopMargin(0.08);
+                  pTop->SetBottomMargin(0.02);
+                  pTop->SetTicks(1, 1);
+                  pTop->SetLogy(1);
 
-                TLegend leg(0.55,0.76,0.92,0.90);
-                leg.SetTextFont(42);
-                leg.SetTextSize(0.032);
-                leg.AddEntry(hRecoShape, "PP DATA (reco)", "lep");
-                leg.AddEntry(hUnfShape,  TString::Format("Unfolded (truth), Bayes it=%d", kBayesIterPho).Data(), "lep");
-                leg.Draw();
+                  pBot->SetLeftMargin(0.12);
+                  pBot->SetRightMargin(0.04);
+                  pBot->SetTopMargin(0.02);
+                  pBot->SetBottomMargin(0.30);
+                  pBot->SetTicks(1, 1);
+                  pBot->SetGridy(1);
 
-                DrawLatexLines(0.14,0.92,
-                               { "Photon 1D Unfolding, N_{#gamma}(p_{T}^{#gamma}), Photon 4 GeV + MBD NS #geq 1" },
-                               0.034, 0.045);
+                  pTop->Draw();
+                  pBot->Draw();
 
-                c.Modified();
-                c.Update();
-                SaveCanvas(c, JoinPath(phoDir, "pho_unfolded_truth_pTgamma_overlay_logy.png"));
-                c.SetLogy(0);
-            }
+                  pTop->cd();
+
+                  hRecoShape->SetTitle("");
+                  hRecoShape->GetXaxis()->SetRangeUser(xPlotMin, xPlotMax);
+                  hUnfShape->GetXaxis()->SetRangeUser(xPlotMin, xPlotMax);
+
+                  hRecoShape->GetXaxis()->SetTitle("");
+                  hRecoShape->GetXaxis()->SetLabelSize(0.0);
+                  hRecoShape->GetXaxis()->SetTitleSize(0.0);
+
+                  hRecoShape->GetYaxis()->SetTitle("Counts");
+                  hRecoShape->GetYaxis()->SetTitleSize(0.055);
+                  hRecoShape->GetYaxis()->SetTitleOffset(0.95);
+                  hRecoShape->GetYaxis()->SetLabelSize(0.045);
+
+                  hRecoShape->SetMinimum(std::max(minPos * 0.5, 1e-6));
+                  hRecoShape->SetMaximum((maxvTop > 0.0) ? (maxvTop * 3.0) : 1.0);
+
+                  hRecoShape->Draw("E1");
+                  hUnfShape->Draw("E1 same");
+
+                  TLegend leg(0.55,0.76,0.92,0.90);
+                  leg.SetTextFont(42);
+                  leg.SetTextSize(0.032);
+                  leg.AddEntry(hRecoShape, "PP DATA (reco)", "lep");
+                  leg.AddEntry(hUnfShape,  TString::Format("Unfolded (truth), Bayes it=%d", kBayesIterPho).Data(), "lep");
+                  leg.Draw();
+
+                  DrawLatexLines(0.14,0.92,
+                                 { "Photon 1D Unfolding, N_{#gamma}(p_{T}^{#gamma}), Photon 4 GeV + MBD NS #geq 1" },
+                                 0.034, 0.045);
+
+                  pBot->cd();
+
+                  if (hRatio)
+                  {
+                    hRatio->SetTitle("");
+                    hRatio->SetMarkerStyle(20);
+                    hRatio->SetMarkerSize(0.95);
+                    hRatio->SetLineWidth(2);
+                    hRatio->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                    hRatio->GetYaxis()->SetTitle("After / before unfolding");
+                    hRatio->GetXaxis()->SetRangeUser(xPlotMin, xPlotMax);
+                    hRatio->GetYaxis()->SetRangeUser(ratioMin, ratioMax);
+                    hRatio->GetXaxis()->SetTitleSize(0.12);
+                    hRatio->GetXaxis()->SetLabelSize(0.11);
+                    hRatio->GetXaxis()->SetTitleOffset(1.00);
+                    hRatio->GetYaxis()->SetTitleSize(0.10);
+                    hRatio->GetYaxis()->SetLabelSize(0.09);
+                    hRatio->GetYaxis()->SetTitleOffset(0.55);
+                    hRatio->GetYaxis()->SetNdivisions(505);
+                    hRatio->Draw("E1");
+
+                    TLine l1(xPlotMin, 1.0, xPlotMax, 1.0);
+                    l1.SetLineStyle(2);
+                    l1.SetLineWidth(2);
+                    l1.Draw("same");
+                  }
+                  else
+                  {
+                    TH1F frame("frame_pho_ratio","", 1, xPlotMin, xPlotMax);
+                    frame.SetMinimum(ratioMin);
+                    frame.SetMaximum(ratioMax);
+                    frame.SetTitle("");
+                    frame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                    frame.GetYaxis()->SetTitle("After / before unfolding");
+                    frame.GetXaxis()->SetTitleSize(0.12);
+                    frame.GetXaxis()->SetLabelSize(0.11);
+                    frame.GetXaxis()->SetTitleOffset(1.00);
+                    frame.GetYaxis()->SetTitleSize(0.10);
+                    frame.GetYaxis()->SetLabelSize(0.09);
+                    frame.GetYaxis()->SetTitleOffset(0.55);
+                    frame.GetYaxis()->SetNdivisions(505);
+                    frame.Draw("axis");
+
+                    TLine l1(xPlotMin, 1.0, xPlotMax, 1.0);
+                    l1.SetLineStyle(2);
+                    l1.SetLineWidth(2);
+                    l1.Draw("same");
+                  }
+
+                  c.cd();
+                  c.Modified();
+                  c.Update();
+                  SaveCanvas(c, JoinPath(phoDir, "pho_unfolded_truth_pTgamma_overlay_logy.png"));
+
+                  if (hRatio) delete hRatio;
+              }
 
               // photon efficiency/purity diagnostics
               //
@@ -1760,244 +1948,90 @@
           }
         }
 
-        // -----------------------------
-        // (2) Closure: unfold(reco SIM) -> truth SIM
-        // -----------------------------
-        if (hPhoRecoSim && hPhoTruthSim)
-        {
-          RooUnfoldBayes uC(&respPho, hPhoRecoSim, kBayesIterPho);
-          uC.SetVerbose(0);
-          uC.SetNToys(kNToysPhoScan);
-
-          TH1* hUnfC = nullptr;
-          if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-          hUnfC = uC.Hreco(RooUnfold::kCovToy);
-          if (gSystem) gSystem->RedirectOutput(0);
-          if (hUnfC)
+          // -----------------------------
+          // (2) Closure: unfold(reco SIM) -> truth SIM
+          // -----------------------------
+          if (hPhoRecoSim && hPhoTruthSim)
           {
-            hUnfC->SetDirectory(nullptr);
-            EnsureSumw2(hUnfC);
+            RooUnfoldBayes uC(&respPho, hPhoRecoSim, kBayesIterPho);
+            uC.SetVerbose(0);
+            uC.SetNToys(kNToysPhoScan);
 
-            TH1* hRat = CloneTH1(hUnfC, "h_pho_closure_unfoldedOverTruth");
-            if (hRat)
-            {
-              hRat->SetDirectory(nullptr);
-              EnsureSumw2(hRat);
-              hRat->Divide(hPhoTruthSim);
-
-              hRat->SetTitle("");
-              hRat->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-              hRat->GetYaxis()->SetTitle("Closure: unfolded MC / truth MC");
-              hRat->SetMarkerStyle(24);
-              hRat->SetMarkerSize(1.1);
-              hRat->SetLineWidth(2);
-
-              TCanvas c("c_pho_closure", "c_pho_closure", 900, 700);
-              ApplyCanvasMargins1D(c);
-
-              // Force photon closure y-range to match the r04 2D closure plot range (if available)
-              double ymin = 0.7;
-              double ymax = 1.3;
-
-              if (std::isfinite(gYmin_r04_closure) && std::isfinite(gYmax_r04_closure) && gYmin_r04_closure < gYmax_r04_closure)
-              {
-                  ymin = gYmin_r04_closure;
-                  ymax = gYmax_r04_closure;
-              }
-
-              hRat->GetYaxis()->SetRangeUser(0.9, 1.15);
-              hRat->Draw("E1");
-
-              const double xmin = hRat->GetXaxis()->GetBinLowEdge(1);
-              const double xmax = hRat->GetXaxis()->GetBinUpEdge(hRat->GetNbinsX());
-              TLine l1(xmin, 1.0, xmax, 1.0);
-              l1.SetLineStyle(2);
-              l1.SetLineWidth(2);
-              l1.Draw("same");
-
-                // Top-left Bayes + Step label (match 2D closure styling)
-                {
-                  TLatex tx;
-                  tx.SetNDC();
-                  tx.SetTextFont(42);
-                  tx.SetTextAlign(13);
-                  tx.SetTextSize(0.038);
-                  tx.DrawLatex(0.15, 0.90, TString::Format("Bayes it=%d (photon)", kBayesIterPho).Data());
-                  tx.DrawLatex(0.15, 0.855, "1D photon-yield unfolding");
-                }
-
-                // Centered title
-                {
-                  TLatex tx;
-                  tx.SetNDC(true);
-                  tx.SetTextFont(42);
-                  tx.SetTextAlign(22);
-                  tx.SetTextSize(0.040);
-                  tx.DrawLatex(0.50, 0.965, "Photon closure test, unfold(reco) #rightarrow truth (SIM)");
-                }
-
-              SaveCanvas(c, JoinPath(phoValDir, "pho_closure_unfoldedOverTruth_vs_pTgamma.png"));
-
-              delete hRat;
-            }
-
-            delete hUnfC;
-          }
-        }
-
-        // -----------------------------
-        // (3) Half-closure: train(A) unfold(B)
-        //     Split response (reco x truth) bin-by-bin with Binomial(0.5)
-        // -----------------------------
-        if (hPhoResp_measXtruth && hPhoRecoSim && hPhoTruthSim)
-        {
-          const int nReco  = hPhoResp_measXtruth->GetNbinsX();
-          const int nTruth = hPhoResp_measXtruth->GetNbinsY();
-
-          unsigned int seed = 1337u;
-          seed = seed * 131u + (unsigned int)nReco;
-          seed = seed * 131u + (unsigned int)nTruth;
-          std::mt19937 rng(seed);
-
-          TH2* hRspA = CloneTH2(hPhoResp_measXtruth, "h2_phoResp_recoVsTruth_halfA");
-          TH2* hRspB = CloneTH2(hPhoResp_measXtruth, "h2_phoResp_recoVsTruth_halfB");
-
-          TH1* hMeasA  = CloneTH1(hPhoRecoSim,  "h_phoRecoSim_halfA");
-          TH1* hMeasB  = CloneTH1(hPhoRecoSim,  "h_phoRecoSim_halfB");
-          TH1* hTruthA = CloneTH1(hPhoTruthSim, "h_phoTruthSim_halfA");
-          TH1* hTruthB = CloneTH1(hPhoTruthSim, "h_phoTruthSim_halfB");
-
-          if (hRspA)  { hRspA->SetDirectory(nullptr);  hRspA->Reset("ICES");  hRspA->Sumw2(); }
-          if (hRspB)  { hRspB->SetDirectory(nullptr);  hRspB->Reset("ICES");  hRspB->Sumw2(); }
-          if (hMeasA) { hMeasA->SetDirectory(nullptr); hMeasA->Reset("ICES"); EnsureSumw2(hMeasA); }
-          if (hMeasB) { hMeasB->SetDirectory(nullptr); hMeasB->Reset("ICES"); EnsureSumw2(hMeasB); }
-          if (hTruthA){ hTruthA->SetDirectory(nullptr);hTruthA->Reset("ICES");EnsureSumw2(hTruthA); }
-          if (hTruthB){ hTruthB->SetDirectory(nullptr);hTruthB->Reset("ICES");EnsureSumw2(hTruthB); }
-
-          if (!hRspA || !hRspB || !hMeasA || !hMeasB || !hTruthA || !hTruthB)
-          {
-            cout << ANSI_BOLD_YEL
-                 << "[WARN] Photon half-closure: failed to allocate split response/marginals. Skipping.\n"
-                 << ANSI_RESET;
-          }
-          else
-          {
-            vector<double> measA((std::size_t)nReco + 2, 0.0), measB((std::size_t)nReco + 2, 0.0);
-            vector<double> truA ((std::size_t)nTruth + 2, 0.0), truB ((std::size_t)nTruth + 2, 0.0);
-
-            for (int ix = 0; ix <= nReco + 1; ++ix)
-            {
-              for (int iy = 0; iy <= nTruth + 1; ++iy)
-              {
-                const double nRaw = hPhoResp_measXtruth->GetBinContent(ix, iy);
-                if (!(nRaw > 0.0))
-                {
-                  hRspA->SetBinContent(ix, iy, 0.0); hRspA->SetBinError(ix, iy, 0.0);
-                  hRspB->SetBinContent(ix, iy, 0.0); hRspB->SetBinError(ix, iy, 0.0);
-                  continue;
-                }
-
-                const long long N = (long long)std::llround(nRaw);
-                if (N <= 0LL)
-                {
-                  hRspA->SetBinContent(ix, iy, 0.0); hRspA->SetBinError(ix, iy, 0.0);
-                  hRspB->SetBinContent(ix, iy, 0.0); hRspB->SetBinError(ix, iy, 0.0);
-                  continue;
-                }
-
-                std::binomial_distribution<long long> d(N, 0.5);
-                const long long NA = d(rng);
-                const long long NB = N - NA;
-
-                hRspA->SetBinContent(ix, iy, (double)NA);
-                hRspA->SetBinError  (ix, iy, std::sqrt((double)NA));
-
-                hRspB->SetBinContent(ix, iy, (double)NB);
-                hRspB->SetBinError  (ix, iy, std::sqrt((double)NB));
-
-                if (ix >= 0 && ix <= nReco + 1)
-                {
-                  measA[(std::size_t)ix] += (double)NA;
-                  measB[(std::size_t)ix] += (double)NB;
-                }
-                if (iy >= 0 && iy <= nTruth + 1)
-                {
-                  truA[(std::size_t)iy] += (double)NA;
-                  truB[(std::size_t)iy] += (double)NB;
-                }
-              }
-            }
-
-            for (int ib = 0; ib <= nReco + 1; ++ib)
-            {
-              hMeasA->SetBinContent(ib, measA[(std::size_t)ib]);
-              hMeasA->SetBinError  (ib, std::sqrt(measA[(std::size_t)ib]));
-              hMeasB->SetBinContent(ib, measB[(std::size_t)ib]);
-              hMeasB->SetBinError  (ib, std::sqrt(measB[(std::size_t)ib]));
-            }
-
-            for (int ib = 0; ib <= nTruth + 1; ++ib)
-            {
-              hTruthA->SetBinContent(ib, truA[(std::size_t)ib]);
-              hTruthA->SetBinError  (ib, std::sqrt(truA[(std::size_t)ib]));
-              hTruthB->SetBinContent(ib, truB[(std::size_t)ib]);
-              hTruthB->SetBinError  (ib, std::sqrt(truB[(std::size_t)ib]));
-            }
-
-            RooUnfoldResponse respPhoA(hMeasA, hTruthA, hRspA, "respPho_halfA", "respPho_halfA");
-
-            RooUnfoldBayes uH(&respPhoA, hMeasB, kBayesIterPho);
-            uH.SetVerbose(0);
-            uH.SetNToys(kNToysPhoScan);
-
-            TH1* hUnfB = nullptr;
+            TH1* hUnfC = nullptr;
             if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-            hUnfB = uH.Hreco(RooUnfold::kCovToy);
+            hUnfC = uC.Hreco(RooUnfold::kCovToy);
             if (gSystem) gSystem->RedirectOutput(0);
-            if (hUnfB)
+            if (hUnfC)
             {
-              hUnfB->SetDirectory(nullptr);
-              EnsureSumw2(hUnfB);
+              hUnfC->SetDirectory(nullptr);
+              EnsureSumw2(hUnfC);
 
-              TH1* hRat = CloneTH1(hUnfB, "h_pho_halfClosure_unfoldedOverTruth");
+              TH1* hRat = CloneTH1(hUnfC, "h_pho_closure_unfoldedOverTruth");
               if (hRat)
               {
                 hRat->SetDirectory(nullptr);
                 EnsureSumw2(hRat);
-                hRat->Divide(hTruthB);
+                hRat->Divide(hPhoTruthSim);
 
                 hRat->SetTitle("");
                 hRat->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                hRat->GetYaxis()->SetTitle("Half-closure: unfolded MC / truth MC");
+                hRat->GetYaxis()->SetTitle("Closure: unfolded MC / truth MC");
                 hRat->SetMarkerStyle(24);
                 hRat->SetMarkerSize(1.1);
                 hRat->SetLineWidth(2);
 
-                TCanvas c("c_pho_halfClosure", "c_pho_halfClosure", 900, 700);
+                TCanvas c("c_pho_closure", "c_pho_closure", 900, 700);
                 ApplyCanvasMargins1D(c);
 
-                // Force photon half-closure y-range to match the r04 2D half-closure plot range (if available)
-                double ymin = 0.7;
-                double ymax = 1.3;
+                const double xPlotMin = 10.0;
+                const double xPlotMax = 35.0;
 
-                if (std::isfinite(gYmin_r04_halfClosure) && std::isfinite(gYmax_r04_halfClosure) && gYmin_r04_halfClosure < gYmax_r04_halfClosure)
+                double ymin =  1e99;
+                double ymax = -1e99;
+                bool havePoint = false;
+
+                for (int ib = 1; ib <= hRat->GetNbinsX(); ++ib)
                 {
-                    ymin = gYmin_r04_halfClosure;
-                    ymax = gYmax_r04_halfClosure;
+                  const double lo = hRat->GetXaxis()->GetBinLowEdge(ib);
+                  const double hi = hRat->GetXaxis()->GetBinUpEdge(ib);
+                  if (lo < xPlotMin || hi > xPlotMax) continue;
+
+                  const double y  = hRat->GetBinContent(ib);
+                  const double ey = hRat->GetBinError(ib);
+                  if (!std::isfinite(y) || !std::isfinite(ey)) continue;
+                  if (y <= 0.0 && ey <= 0.0) continue;
+
+                  havePoint = true;
+                  ymin = std::min(ymin, y - ey);
+                  ymax = std::max(ymax, y + ey);
                 }
 
-                hRat->GetYaxis()->SetRangeUser(0.7, 1.1);
+                if (!havePoint || !(ymin < ymax))
+                {
+                  ymin = 0.90;
+                  ymax = 1.10;
+                }
+                else
+                {
+                  const double pad = std::max(0.15 * (ymax - ymin), 0.01);
+                  ymin -= pad;
+                  ymax += pad;
+
+                  if (ymin > 1.0) ymin = 1.0 - pad;
+                  if (ymax < 1.0) ymax = 1.0 + pad;
+                }
+
+                hRat->GetXaxis()->SetRangeUser(xPlotMin, xPlotMax);
+                hRat->GetYaxis()->SetRangeUser(ymin, ymax);
                 hRat->Draw("E1");
 
-                const double xmin = hRat->GetXaxis()->GetBinLowEdge(1);
-                const double xmax = hRat->GetXaxis()->GetBinUpEdge(hRat->GetNbinsX());
-                TLine l1(xmin, 1.0, xmax, 1.0);
+                TLine l1(xPlotMin, 1.0, xPlotMax, 1.0);
                 l1.SetLineStyle(2);
                 l1.SetLineWidth(2);
                 l1.Draw("same");
 
-                // Top-left Bayes + Step label (match 2D half-closure styling)
-                {
+                  // Top-left Bayes + Step label (match 2D closure styling)
+                  {
                     TLatex tx;
                     tx.SetNDC();
                     tx.SetTextFont(42);
@@ -2005,39 +2039,247 @@
                     tx.SetTextSize(0.038);
                     tx.DrawLatex(0.15, 0.90, TString::Format("Bayes it=%d (photon)", kBayesIterPho).Data());
                     tx.DrawLatex(0.15, 0.855, "1D photon-yield unfolding");
-                }
+                  }
 
-                // Centered title
-                {
+                  // Centered title
+                  {
                     TLatex tx;
                     tx.SetNDC(true);
                     tx.SetTextFont(42);
                     tx.SetTextAlign(22);
                     tx.SetTextSize(0.040);
-                    tx.DrawLatex(0.50, 0.965, "Photon half-closure test, train(A) unfold(B) (SIM)");
-                }
+                    tx.DrawLatex(0.50, 0.965, "Photon closure test, unfold(reco) #rightarrow truth (SIM)");
+                  }
 
-                SaveCanvas(c, JoinPath(phoValDir, "pho_halfClosure_unfoldedOverTruth_vs_pTgamma.png"));
+                SaveCanvas(c, JoinPath(phoValDir, "pho_closure_unfoldedOverTruth_vs_pTgamma.png"));
 
                 delete hRat;
               }
 
-              delete hUnfB;
+              delete hUnfC;
             }
-          }
-
-          if (hTruthB) delete hTruthB;
-          if (hTruthA) delete hTruthA;
-          if (hMeasB)  delete hMeasB;
-          if (hMeasA)  delete hMeasA;
-          if (hRspB)   delete hRspB;
-          if (hRspA)   delete hRspA;
         }
+
+          // -----------------------------
+          // (3) Half-closure: train(A) unfold(B)
+          //     Split response (reco x truth) bin-by-bin with Binomial(0.5)
+          // -----------------------------
+          if (hPhoResp_measXtruth && hPhoRecoSim && hPhoTruthSim)
+          {
+            const int nReco  = hPhoResp_measXtruth->GetNbinsX();
+            const int nTruth = hPhoResp_measXtruth->GetNbinsY();
+
+            unsigned int seed = 1337u;
+            seed = seed * 131u + (unsigned int)nReco;
+            seed = seed * 131u + (unsigned int)nTruth;
+            std::mt19937 rng(seed);
+
+            TH2* hRspA = CloneTH2(hPhoResp_measXtruth, "h2_phoResp_recoVsTruth_halfA");
+            TH2* hRspB = CloneTH2(hPhoResp_measXtruth, "h2_phoResp_recoVsTruth_halfB");
+
+            TH1* hMeasA  = CloneTH1(hPhoRecoSim,  "h_phoRecoSim_halfA");
+            TH1* hMeasB  = CloneTH1(hPhoRecoSim,  "h_phoRecoSim_halfB");
+            TH1* hTruthA = CloneTH1(hPhoTruthSim, "h_phoTruthSim_halfA");
+            TH1* hTruthB = CloneTH1(hPhoTruthSim, "h_phoTruthSim_halfB");
+
+            if (hRspA)  { hRspA->SetDirectory(nullptr);  hRspA->Reset("ICES");  hRspA->Sumw2(); }
+            if (hRspB)  { hRspB->SetDirectory(nullptr);  hRspB->Reset("ICES");  hRspB->Sumw2(); }
+            if (hMeasA) { hMeasA->SetDirectory(nullptr); hMeasA->Reset("ICES"); EnsureSumw2(hMeasA); }
+            if (hMeasB) { hMeasB->SetDirectory(nullptr); hMeasB->Reset("ICES"); EnsureSumw2(hMeasB); }
+            if (hTruthA){ hTruthA->SetDirectory(nullptr);hTruthA->Reset("ICES");EnsureSumw2(hTruthA); }
+            if (hTruthB){ hTruthB->SetDirectory(nullptr);hTruthB->Reset("ICES");EnsureSumw2(hTruthB); }
+
+            if (!hRspA || !hRspB || !hMeasA || !hMeasB || !hTruthA || !hTruthB)
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] Photon half-closure: failed to allocate split response/marginals. Skipping.\n"
+                   << ANSI_RESET;
+            }
+            else
+            {
+              vector<double> measA((std::size_t)nReco + 2, 0.0), measB((std::size_t)nReco + 2, 0.0);
+              vector<double> truA ((std::size_t)nTruth + 2, 0.0), truB ((std::size_t)nTruth + 2, 0.0);
+
+              for (int ix = 0; ix <= nReco + 1; ++ix)
+              {
+                for (int iy = 0; iy <= nTruth + 1; ++iy)
+                {
+                  const double nRaw = hPhoResp_measXtruth->GetBinContent(ix, iy);
+                  if (!(nRaw > 0.0))
+                  {
+                    hRspA->SetBinContent(ix, iy, 0.0); hRspA->SetBinError(ix, iy, 0.0);
+                    hRspB->SetBinContent(ix, iy, 0.0); hRspB->SetBinError(ix, iy, 0.0);
+                    continue;
+                  }
+
+                  const long long N = (long long)std::llround(nRaw);
+                  if (N <= 0LL)
+                  {
+                    hRspA->SetBinContent(ix, iy, 0.0); hRspA->SetBinError(ix, iy, 0.0);
+                    hRspB->SetBinContent(ix, iy, 0.0); hRspB->SetBinError(ix, iy, 0.0);
+                    continue;
+                  }
+
+                  std::binomial_distribution<long long> d(N, 0.5);
+                  const long long NA = d(rng);
+                  const long long NB = N - NA;
+
+                  hRspA->SetBinContent(ix, iy, (double)NA);
+                  hRspA->SetBinError  (ix, iy, std::sqrt((double)NA));
+
+                  hRspB->SetBinContent(ix, iy, (double)NB);
+                  hRspB->SetBinError  (ix, iy, std::sqrt((double)NB));
+
+                  if (ix >= 0 && ix <= nReco + 1)
+                  {
+                    measA[(std::size_t)ix] += (double)NA;
+                    measB[(std::size_t)ix] += (double)NB;
+                  }
+                  if (iy >= 0 && iy <= nTruth + 1)
+                  {
+                    truA[(std::size_t)iy] += (double)NA;
+                    truB[(std::size_t)iy] += (double)NB;
+                  }
+                }
+              }
+
+              for (int ib = 0; ib <= nReco + 1; ++ib)
+              {
+                hMeasA->SetBinContent(ib, measA[(std::size_t)ib]);
+                hMeasA->SetBinError  (ib, std::sqrt(measA[(std::size_t)ib]));
+                hMeasB->SetBinContent(ib, measB[(std::size_t)ib]);
+                hMeasB->SetBinError  (ib, std::sqrt(measB[(std::size_t)ib]));
+              }
+
+              for (int ib = 0; ib <= nTruth + 1; ++ib)
+              {
+                hTruthA->SetBinContent(ib, truA[(std::size_t)ib]);
+                hTruthA->SetBinError  (ib, std::sqrt(truA[(std::size_t)ib]));
+                hTruthB->SetBinContent(ib, truB[(std::size_t)ib]);
+                hTruthB->SetBinError  (ib, std::sqrt(truB[(std::size_t)ib]));
+              }
+
+              RooUnfoldResponse respPhoA(hMeasA, hTruthA, hRspA, "respPho_halfA", "respPho_halfA");
+
+              RooUnfoldBayes uH(&respPhoA, hMeasB, kBayesIterPho);
+              uH.SetVerbose(0);
+              uH.SetNToys(kNToysPhoScan);
+
+              TH1* hUnfB = nullptr;
+              if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
+              hUnfB = uH.Hreco(RooUnfold::kCovToy);
+              if (gSystem) gSystem->RedirectOutput(0);
+              if (hUnfB)
+              {
+                hUnfB->SetDirectory(nullptr);
+                EnsureSumw2(hUnfB);
+
+                TH1* hRat = CloneTH1(hUnfB, "h_pho_halfClosure_unfoldedOverTruth");
+                if (hRat)
+                {
+                  hRat->SetDirectory(nullptr);
+                  EnsureSumw2(hRat);
+                  hRat->Divide(hTruthB);
+
+                  hRat->SetTitle("");
+                  hRat->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                  hRat->GetYaxis()->SetTitle("Half-closure: unfolded MC / truth MC");
+                  hRat->SetMarkerStyle(24);
+                  hRat->SetMarkerSize(1.1);
+                  hRat->SetLineWidth(2);
+
+                  TCanvas c("c_pho_halfClosure", "c_pho_halfClosure", 900, 700);
+                  ApplyCanvasMargins1D(c);
+
+                  const double xPlotMin = 10.0;
+                  const double xPlotMax = 35.0;
+
+                  double ymin =  1e99;
+                  double ymax = -1e99;
+                  bool havePoint = false;
+
+                  for (int ib = 1; ib <= hRat->GetNbinsX(); ++ib)
+                  {
+                    const double lo = hRat->GetXaxis()->GetBinLowEdge(ib);
+                    const double hi = hRat->GetXaxis()->GetBinUpEdge(ib);
+                    if (lo < xPlotMin || hi > xPlotMax) continue;
+
+                    const double y  = hRat->GetBinContent(ib);
+                    const double ey = hRat->GetBinError(ib);
+                    if (!std::isfinite(y) || !std::isfinite(ey)) continue;
+                    if (y <= 0.0 && ey <= 0.0) continue;
+
+                    havePoint = true;
+                    ymin = std::min(ymin, y - ey);
+                    ymax = std::max(ymax, y + ey);
+                  }
+
+                  if (!havePoint || !(ymin < ymax))
+                  {
+                    ymin = 0.90;
+                    ymax = 1.10;
+                  }
+                  else
+                  {
+                    const double pad = std::max(0.15 * (ymax - ymin), 0.01);
+                    ymin -= pad;
+                    ymax += pad;
+
+                    if (ymin > 1.0) ymin = 1.0 - pad;
+                    if (ymax < 1.0) ymax = 1.0 + pad;
+                  }
+
+                  hRat->GetXaxis()->SetRangeUser(xPlotMin, xPlotMax);
+                  hRat->GetYaxis()->SetRangeUser(ymin, ymax);
+                  hRat->Draw("E1");
+
+                  TLine l1(xPlotMin, 1.0, xPlotMax, 1.0);
+                  l1.SetLineStyle(2);
+                  l1.SetLineWidth(2);
+                  l1.Draw("same");
+
+                  // Top-left Bayes + Step label (match 2D half-closure styling)
+                  {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(13);
+                      tx.SetTextSize(0.038);
+                      tx.DrawLatex(0.15, 0.90, TString::Format("Bayes it=%d (photon)", kBayesIterPho).Data());
+                      tx.DrawLatex(0.15, 0.855, "1D photon-yield unfolding");
+                  }
+
+                  // Centered title
+                  {
+                      TLatex tx;
+                      tx.SetNDC(true);
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(22);
+                      tx.SetTextSize(0.040);
+                      tx.DrawLatex(0.50, 0.965, "Photon half-closure test, train(A) unfold(B) (SIM)");
+                  }
+
+                  SaveCanvas(c, JoinPath(phoValDir, "pho_halfClosure_unfoldedOverTruth_vs_pTgamma.png"));
+
+                  delete hRat;
+                }
+
+                delete hUnfB;
+              }
+            }
+
+            if (hTruthB) delete hTruthB;
+            if (hTruthA) delete hTruthA;
+            if (hMeasB)  delete hMeasB;
+            if (hMeasA)  delete hMeasA;
+            if (hRspB)   delete hRspB;
+            if (hRspA)   delete hRspA;
+          }
       }
 
-      // ----------------------------------------------------------------------
+      // -------------------------------------------------------------------------
       // (B) Jet unfolding per radius: unfold global-bin vector and unflatten back
-      // ----------------------------------------------------------------------
+      // -------------------------------------------------------------------------
       const int kBayesIterXJ = 3;
 
       // Toy settings for xJ:
@@ -2553,7 +2795,7 @@
 
                 g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
                 g.GetYaxis()->SetTitle("Closure: Unfolded MC / Truth MC");
-                g.GetYaxis()->SetRangeUser(0.9, 1.15);
+                g.GetYaxis()->SetRangeUser(ymin, ymax);
 
                 TLine l1(g.GetXaxis()->GetXmin(), 1.0, g.GetXaxis()->GetXmax(), 1.0);
                 l1.SetLineStyle(2);
@@ -2856,7 +3098,7 @@
 
                     g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
                     g.GetYaxis()->SetTitle("Half-closure: Unfolded MC / Truth MC");
-                    g.GetYaxis()->SetRangeUser(0.7, 1.1);
+                    g.GetYaxis()->SetRangeUser(ymin, ymax);
 
                     TLine l1(g.GetXaxis()->GetXmin(), 1.0, g.GetXaxis()->GetXmax(), 1.0);
                     l1.SetLineStyle(2);
@@ -3598,20 +3840,47 @@
                       if (v2 > maxY) maxY = v2;
                     }
 
+                    hA->SetTitle("");
                     hA->SetMinimum(0.0);
                     hA->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
                     hA->GetXaxis()->SetRangeUser(0.0, 2.0);
                     hA->Draw("E1");
                     hB->Draw("E1 same");
 
-                    TLegend leg(0.55, 0.75, 0.88, 0.88);
+                    TLegend leg(0.46, 0.32, 0.92, 0.48);
                     leg.SetBorderSize(0);
                     leg.SetFillStyle(0);
                     leg.SetTextFont(42);
-                    leg.SetTextSize(0.035);
+                    leg.SetTextSize(0.040);
                     leg.AddEntry(hA, "before unfolding data", "pe");
                     leg.AddEntry(hB, "unfolded data",        "pe");
                     leg.Draw();
+
+                    {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(22);
+                      tx.SetTextSize(0.042);
+
+                      tx.DrawLatex(0.52, 0.955,
+                                   TString::Format("Before vs after unfolding (DATA), p_{T}^{#gamma} %d-%d GeV, R = %.1f",
+                                                   b.lo, b.hi, R).Data());
+                    }
+
+                    {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(31);
+                      tx.SetTextSize(0.04);
+
+                      const double xR = 0.93;
+                      tx.DrawLatex(xR, 0.67, "z_{vtx} < 60 cm");
+                      tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
+                      tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
+                      tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
+                    }
 
                     SaveCanvas(cBA, JoinPath(beforeAfterDataOut,
                       TString::Format("xJ_before_after_unfoldingOverlay_data_pTbin%d.png", i + 1).Data()
@@ -3629,21 +3898,72 @@
                       hRatioBA->SetMarkerStyle(20);
                       hRatioBA->SetMarkerSize(0.95);
                       hRatioBA->SetLineWidth(2);
+                      hRatioBA->SetTitle("");
                       hRatioBA->GetYaxis()->SetTitle("Before unfolding / unfolded");
 
-                      double maxR = 0.0;
-                      for (int ib = 1; ib <= hRatioBA->GetNbinsX(); ++ib)
-                      {
-                        const double v = hRatioBA->GetBinContent(ib) + hRatioBA->GetBinError(ib);
-                        if (v > maxR) maxR = v;
-                      }
+                        double minR =  1e99;
+                        double maxR = -1e99;
+                        bool haveRatioPoint = false;
+
+                        for (int ib = 1; ib <= hRatioBA->GetNbinsX(); ++ib)
+                        {
+                          const double y  = hRatioBA->GetBinContent(ib);
+                          const double ey = hRatioBA->GetBinError(ib);
+
+                          if (!std::isfinite(y) || !std::isfinite(ey)) continue;
+                          if (y <= 0.0 && ey <= 0.0) continue;
+
+                          const double lo = y - ey;
+                          const double hi = y + ey;
+
+                          haveRatioPoint = true;
+                          if (lo < minR) minR = lo;
+                          if (hi > maxR) maxR = hi;
+                        }
+
+                        double yMinUse = 0.8;
+                        double yMaxUse = 1.2;
+
+                        if (haveRatioPoint)
+                        {
+                          yMinUse = std::min(1.0, minR);
+                          yMaxUse = std::max(1.0, maxR);
+
+                          if (!std::isfinite(yMinUse) || !std::isfinite(yMaxUse))
+                          {
+                            yMinUse = 0.8;
+                            yMaxUse = 1.2;
+                          }
+                          else if (yMaxUse <= yMinUse)
+                          {
+                            const double mid = 0.5 * (yMinUse + yMaxUse);
+                            yMinUse = mid - 0.1;
+                            yMaxUse = mid + 0.1;
+                          }
+                          else
+                          {
+                            const double pad = 0.12 * (yMaxUse - yMinUse);
+                            yMinUse -= pad;
+                            yMaxUse += pad;
+                          }
+
+                          if (yMinUse < 0.0) yMinUse = 0.0;
+
+                          if ((yMaxUse - yMinUse) < 0.2)
+                          {
+                            const double mid = 0.5 * (yMinUse + yMaxUse);
+                            yMinUse = mid - 0.1;
+                            yMaxUse = mid + 0.1;
+                            if (yMinUse < 0.0) yMinUse = 0.0;
+                          }
+                        }
 
                       TCanvas cBAR(TString::Format("c_beforeAfterRatio_data_%s_%d", rKey.c_str(), i + 1).Data(),
                                    "c_beforeAfterRatio_data", 900, 700);
                       ApplyCanvasMargins1D(cBAR);
 
-                      hRatioBA->SetMinimum(0.0);
-                      hRatioBA->SetMaximum((maxR > 0.0) ? (1.15 * maxR) : 2.0);
+                      hRatioBA->SetMinimum(yMinUse);
+                      hRatioBA->SetMaximum(yMaxUse);
                       hRatioBA->GetXaxis()->SetRangeUser(0.0, 2.0);
                       hRatioBA->Draw("E1");
 
@@ -3651,6 +3971,32 @@
                       l1.SetLineStyle(2);
                       l1.SetLineWidth(2);
                       l1.Draw("same");
+
+                      {
+                        TLatex tx;
+                        tx.SetNDC();
+                        tx.SetTextFont(42);
+                        tx.SetTextAlign(22);
+                        tx.SetTextSize(0.042);
+
+                        tx.DrawLatex(0.52, 0.955,
+                                     TString::Format("Before / unfolded ratio, p_{T}^{#gamma} %d-%d GeV, R = %.1f",
+                                                     b.lo, b.hi, R).Data());
+                      }
+
+                      {
+                        TLatex tx;
+                        tx.SetNDC();
+                        tx.SetTextFont(42);
+                        tx.SetTextAlign(31);
+                        tx.SetTextSize(0.04);
+
+                        const double xR = 0.93;
+                        tx.DrawLatex(xR, 0.67, "z_{vtx} < 60 cm");
+                        tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
+                        tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
+                        tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
+                      }
 
                       SaveCanvas(cBAR, JoinPath(beforeAfterDataOut,
                         TString::Format("xJ_ratio_before_over_unfolded_data_pTbin%d.png", i + 1).Data()
@@ -3694,6 +4040,7 @@
                       if (v2 > maxY) maxY = v2;
                     }
 
+                    hT->SetTitle("");
                     hT->SetMinimum(0.0);
                     hT->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
                     hT->GetXaxis()->SetRangeUser(0.0, 2.0);
@@ -3703,60 +4050,264 @@
                     hU->SetLineColor(kBlue);
                     hU->Draw("E1 same");
 
-                    TLegend leg(0.6, 0.3, 0.89, 0.55);
+                    TLegend leg(0.69, 0.33, 0.91, 0.58);
                     leg.SetBorderSize(0);
                     leg.SetFillStyle(0);
                     leg.SetTextFont(42);
-                    leg.SetTextSize(0.035);
+                    leg.SetTextSize(0.038);
                     leg.AddEntry(hT, "truth MC",      "pe");
                     leg.AddEntry(hU, "unfolded data", "pe");
                     leg.Draw();
+
+                    {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(22);
+                      tx.SetTextSize(0.042);
+
+                      tx.DrawLatex(0.52, 0.955,
+                                   TString::Format("Truth MC vs unfolded data, p_{T}^{#gamma} %d-%d GeV, R = %.1f",
+                                                   b.lo, b.hi, R).Data());
+                    }
+
+                    {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(31);
+                      tx.SetTextSize(0.04);
+
+                      const double xR = 0.93;
+                      tx.DrawLatex(xR, 0.67, "z_{vtx} < 60 cm");
+                      tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
+                      tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
+                      tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
+                    }
 
                     SaveCanvas(cTU, JoinPath(beforeAfterTruthOut,
                       TString::Format("xJ_before_after_unfoldingOverlay_truth_pTbin%d.png", i + 1).Data()
                     ));
 
-                    TH1* hRatioTU = BuildRatioHist(
-                      hT, hU,
-                      TString::Format("h_ratio_truthOverUnfolded_%s_pTbin%d", rKey.c_str(), i + 1).Data()
-                    );
+                      TH1* hRatioTU = BuildRatioHist(
+                        hT, hU,
+                        TString::Format("h_ratio_truthOverUnfolded_%s_pTbin%d", rKey.c_str(), i + 1).Data()
+                      );
 
-                    if (hRatioTU)
-                    {
-                      hRatioTU->SetDirectory(nullptr);
-                      EnsureSumw2(hRatioTU);
-                      hRatioTU->SetMarkerStyle(20);
-                      hRatioTU->SetMarkerSize(0.95);
-                      hRatioTU->SetLineWidth(2);
-                      hRatioTU->GetYaxis()->SetTitle("Truth MC / unfolded data");
-
-                      double maxR = 0.0;
-                      for (int ib = 1; ib <= hRatioTU->GetNbinsX(); ++ib)
+                      if (hRatioTU)
                       {
-                        const double v = hRatioTU->GetBinContent(ib) + hRatioTU->GetBinError(ib);
-                        if (v > maxR) maxR = v;
+                        hRatioTU->SetDirectory(nullptr);
+                        EnsureSumw2(hRatioTU);
+                        hRatioTU->SetMarkerStyle(20);
+                        hRatioTU->SetMarkerSize(0.95);
+                        hRatioTU->SetLineWidth(2);
+                        hRatioTU->SetTitle("");
+                        hRatioTU->GetYaxis()->SetTitle("Truth MC / unfolded data");
+
+                        cout << ANSI_BOLD_CYN
+                             << "\n[TRUTH/UNFOLDED RATIO DEBUG] Building xJ_ratio_truthMC_over_unfolded_data_pTbin" << (i + 1)
+                             << ".png"
+                             << "\n  rKey=" << rKey
+                             << "  R=" << R
+                             << "  pTgamma=" << b.lo << "-" << b.hi << " GeV"
+                             << "\n  outputDir=" << beforeAfterTruthOut
+                             << "\n"
+                             << ANSI_RESET;
+
+                        cout << "  -------------------------------------------------------------------------------------------------------------\n";
+                        cout << "   ib          xJ range            truth MC         errT         unfolded         errU         ratio       errR   axis\n";
+                        cout << "  -------------------------------------------------------------------------------------------------------------\n";
+
+                        double minR =  1e99;
+                        double maxR = -1e99;
+                        bool haveRatioPoint = false;
+
+                        double minRRobust =  1e99;
+                        double maxRRobust = -1e99;
+                        bool haveRobustPoint = false;
+
+                        for (int ib = 1; ib <= hRatioTU->GetNbinsX(); ++ib)
+                        {
+                            const double xLo = hRatioTU->GetXaxis()->GetBinLowEdge(ib);
+                            const double xHi = hRatioTU->GetXaxis()->GetBinUpEdge(ib);
+
+                            const double t   = hT->GetBinContent(ib);
+                            const double eT  = hT->GetBinError  (ib);
+                            const double u   = hU->GetBinContent(ib);
+                            const double eU  = hU->GetBinError  (ib);
+
+                            const double y   = hRatioTU->GetBinContent(ib);
+                            const double ey  = hRatioTU->GetBinError  (ib);
+
+                            bool finiteAll = std::isfinite(t) && std::isfinite(eT) &&
+                                             std::isfinite(u) && std::isfinite(eU) &&
+                                             std::isfinite(y) && std::isfinite(ey);
+
+                            string axisTag = "SKIP";
+
+                            if (finiteAll && y > 0.0 && ey > 0.0)
+                            {
+                              const double lo = y - ey;
+                              const double hi = y + ey;
+
+                              haveRatioPoint = true;
+                              if (lo < minR) minR = lo;
+                              if (hi > maxR) maxR = hi;
+
+                              const double relErrU = (u > 0.0) ? (eU / u) : 1e99;
+                              const double relErrR = (y > 0.0) ? (ey / y) : 1e99;
+
+                              if (u > 0.0 && relErrU < 0.60 && relErrR < 0.60 && y < 5.0 && hi < 5.0)
+                              {
+                                axisTag = "USE";
+                                haveRobustPoint = true;
+
+                                const double loAxis = std::max(0.05, lo);
+                                const double hiAxis = hi;
+
+                                if (loAxis < minRRobust) minRRobust = loAxis;
+                                if (hiAxis > maxRRobust) maxRRobust = hiAxis;
+                              }
+                              else if (u <= 0.0)
+                              {
+                                axisTag = "DEN~0";
+                              }
+                              else if (relErrU >= 0.60)
+                              {
+                                axisTag = "UNSTABLE_DEN";
+                              }
+                              else if (relErrR >= 0.60)
+                              {
+                                axisTag = "HUGE_RATIO_ERR";
+                              }
+                              else if (y >= 5.0 || hi >= 5.0)
+                              {
+                                axisTag = "OUTLIER";
+                              }
+                            }
+
+                            cout << TString::Format(
+                                      "  %4d   [%6.3f,%6.3f]   %12.6g %11.6g %12.6g %11.6g %12.6g %10.6g   %s\n",
+                                      ib, xLo, xHi, t, eT, u, eU, y, ey, axisTag.c_str()
+                                    ).Data();
+                          }
+
+                          cout << "  -------------------------------------------------------------------------------------------------------------\n";
+                          cout << "  Full-axis scan:    haveRatioPoint=" << (haveRatioPoint ? "true" : "false")
+                               << "  minR=" << minR
+                               << "  maxR=" << maxR << "\n";
+                          cout << "  Robust-axis scan:  haveRobustPoint=" << (haveRobustPoint ? "true" : "false")
+                               << "  minRRobust=" << minRRobust
+                               << "  maxRRobust=" << maxRRobust << "\n";
+
+                          double yMinUse = 0.8;
+                          double yMaxUse = 1.2;
+
+                          if (haveRobustPoint)
+                          {
+                            yMinUse = std::min(1.0, minRRobust);
+                            yMaxUse = std::max(1.0, maxRRobust);
+
+                            if (!std::isfinite(yMinUse) || !std::isfinite(yMaxUse) || yMaxUse <= yMinUse)
+                            {
+                              yMinUse = 0.8;
+                              yMaxUse = 1.2;
+                            }
+                            else
+                            {
+                              const double pad = std::max(0.08, 0.12 * (yMaxUse - yMinUse));
+                              yMinUse -= pad;
+                              yMaxUse += pad;
+                            }
+
+                            yMinUse = std::max(0.05, yMinUse);
+
+                            if ((yMaxUse - yMinUse) < 0.20)
+                            {
+                              const double mid = 0.5 * (yMinUse + yMaxUse);
+                              yMinUse = std::max(0.05, mid - 0.10);
+                              yMaxUse = mid + 0.10;
+                            }
+                          }
+                          else if (haveRatioPoint)
+                          {
+                            yMinUse = std::min(1.0, std::max(0.05, minR));
+                            yMaxUse = std::max(1.0, maxR);
+
+                            if (!std::isfinite(yMinUse) || !std::isfinite(yMaxUse) || yMaxUse <= yMinUse)
+                            {
+                              yMinUse = 0.8;
+                              yMaxUse = 1.2;
+                            }
+                            else
+                            {
+                              const double pad = std::max(0.08, 0.12 * (yMaxUse - yMinUse));
+                              yMinUse -= pad;
+                              yMaxUse += pad;
+                            }
+
+                            yMinUse = std::max(0.05, yMinUse);
+
+                            if ((yMaxUse - yMinUse) < 0.20)
+                            {
+                              const double mid = 0.5 * (yMinUse + yMaxUse);
+                              yMinUse = std::max(0.05, mid - 0.10);
+                              yMaxUse = mid + 0.10;
+                            }
+                        }
+
+                        cout << ANSI_BOLD_YEL
+                             << "[TRUTH/UNFOLDED RATIO DEBUG] Final plotted y-range for pTbin" << (i + 1)
+                             << ": yMinUse=" << yMinUse
+                             << "  yMaxUse=" << yMaxUse
+                             << ANSI_RESET << "\n";
+
+                        TCanvas cTUR(TString::Format("c_truthVsUnfRatio_%s_%d", rKey.c_str(), i + 1).Data(),
+                                     "c_truthVsUnfRatio", 900, 700);
+                        ApplyCanvasMargins1D(cTUR);
+
+                        hRatioTU->SetMinimum(yMinUse);
+                        hRatioTU->SetMaximum(yMaxUse);
+                        hRatioTU->GetXaxis()->SetRangeUser(0.0, 2.0);
+                        hRatioTU->Draw("E1");
+
+                        TLine l1(0.0, 1.0, 2.0, 1.0);
+                        l1.SetLineStyle(2);
+                        l1.SetLineWidth(2);
+                        l1.Draw("same");
+
+                        {
+                          TLatex tx;
+                          tx.SetNDC();
+                          tx.SetTextFont(42);
+                          tx.SetTextAlign(22);
+                          tx.SetTextSize(0.042);
+
+                          tx.DrawLatex(0.52, 0.955,
+                                       TString::Format("Truth MC / unfolded data, p_{T}^{#gamma} %d-%d GeV, R = %.1f",
+                                                       b.lo, b.hi, R).Data());
+                        }
+
+                        {
+                          TLatex tx;
+                          tx.SetNDC();
+                          tx.SetTextFont(42);
+                          tx.SetTextAlign(31);
+                          tx.SetTextSize(0.04);
+
+                          const double xR = 0.93;
+                          tx.DrawLatex(xR, 0.67, "z_{vtx} < 60 cm");
+                          tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
+                          tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
+                          tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
+                        }
+
+                        SaveCanvas(cTUR, JoinPath(beforeAfterTruthOut,
+                          TString::Format("xJ_ratio_truthMC_over_unfolded_data_pTbin%d.png", i + 1).Data()
+                        ));
+
+                        ratioTruthVsUnfoldedHists[i] = hRatioTU;
                       }
-
-                      TCanvas cTUR(TString::Format("c_truthVsUnfRatio_%s_%d", rKey.c_str(), i + 1).Data(),
-                                   "c_truthVsUnfRatio", 900, 700);
-                      ApplyCanvasMargins1D(cTUR);
-
-                      hRatioTU->SetMinimum(0.0);
-                      hRatioTU->SetMaximum((maxR > 0.0) ? (1.15 * maxR) : 2.0);
-                      hRatioTU->GetXaxis()->SetRangeUser(0.0, 2.0);
-                      hRatioTU->Draw("E1");
-
-                      TLine l1(0.0, 1.0, 2.0, 1.0);
-                      l1.SetLineStyle(2);
-                      l1.SetLineWidth(2);
-                      l1.Draw("same");
-
-                      SaveCanvas(cTUR, JoinPath(beforeAfterTruthOut,
-                        TString::Format("xJ_ratio_truthMC_over_unfolded_data_pTbin%d.png", i + 1).Data()
-                      ));
-
-                      ratioTruthVsUnfoldedHists[i] = hRatioTU;
-                    }
 
                     delete hT;
                     delete hU;
