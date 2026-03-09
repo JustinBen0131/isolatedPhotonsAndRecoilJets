@@ -971,7 +971,7 @@
 
             DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
             DrawLatexLines(0.14,0.88, { "SIM photon response (transpose)", "reco #rightarrow truth axis order" }, 0.030, 0.040);
-            DrawLatexLines(0.46,0.36,
+            DrawLatexLines(0.52,0.36,
                            {
                              "UF / OF support bins:",
                              "reco: 8-10 = UF, 35-40 = OF",
@@ -3921,40 +3921,28 @@
                           if (hi > maxR) maxR = hi;
                         }
 
-                        double yMinUse = 0.8;
+                        double yMinUse = 0.0;
                         double yMaxUse = 1.2;
 
                         if (haveRatioPoint)
                         {
-                          yMinUse = std::min(1.0, minR);
                           yMaxUse = std::max(1.0, maxR);
 
-                          if (!std::isfinite(yMinUse) || !std::isfinite(yMaxUse))
+                          if (!std::isfinite(yMaxUse) || yMaxUse <= 0.0)
                           {
-                            yMinUse = 0.8;
+                            yMinUse = 0.0;
                             yMaxUse = 1.2;
-                          }
-                          else if (yMaxUse <= yMinUse)
-                          {
-                            const double mid = 0.5 * (yMinUse + yMaxUse);
-                            yMinUse = mid - 0.1;
-                            yMaxUse = mid + 0.1;
                           }
                           else
                           {
-                            const double pad = 0.12 * (yMaxUse - yMinUse);
-                            yMinUse -= pad;
+                            const double pad = std::max(0.08, 0.12 * yMaxUse);
+                            yMinUse = 0.0;
                             yMaxUse += pad;
                           }
 
-                          if (yMinUse < 0.0) yMinUse = 0.0;
-
-                          if ((yMaxUse - yMinUse) < 0.2)
+                          if (yMaxUse < 0.2)
                           {
-                            const double mid = 0.5 * (yMinUse + yMaxUse);
-                            yMinUse = mid - 0.1;
-                            yMaxUse = mid + 0.1;
-                            if (yMinUse < 0.0) yMinUse = 0.0;
+                            yMaxUse = 0.2;
                           }
                         }
 
@@ -4200,61 +4188,51 @@
                                << "  minRRobust=" << minRRobust
                                << "  maxRRobust=" << maxRRobust << "\n";
 
-                          double yMinUse = 0.8;
+                          double yMinUse = 0.0;
                           double yMaxUse = 1.2;
 
                           if (haveRobustPoint)
                           {
-                            yMinUse = std::min(1.0, minRRobust);
                             yMaxUse = std::max(1.0, maxRRobust);
 
-                            if (!std::isfinite(yMinUse) || !std::isfinite(yMaxUse) || yMaxUse <= yMinUse)
+                            if (!std::isfinite(yMaxUse) || yMaxUse <= 0.0)
                             {
-                              yMinUse = 0.8;
+                              yMinUse = 0.0;
                               yMaxUse = 1.2;
                             }
                             else
                             {
-                              const double pad = std::max(0.08, 0.12 * (yMaxUse - yMinUse));
-                              yMinUse -= pad;
+                              const double pad = std::max(0.08, 0.12 * yMaxUse);
+                              yMinUse = 0.0;
                               yMaxUse += pad;
                             }
 
-                            yMinUse = std::max(0.05, yMinUse);
-
-                            if ((yMaxUse - yMinUse) < 0.20)
+                            if (yMaxUse < 0.20)
                             {
-                              const double mid = 0.5 * (yMinUse + yMaxUse);
-                              yMinUse = std::max(0.05, mid - 0.10);
-                              yMaxUse = mid + 0.10;
+                              yMaxUse = 0.20;
                             }
                           }
                           else if (haveRatioPoint)
                           {
-                            yMinUse = std::min(1.0, std::max(0.05, minR));
                             yMaxUse = std::max(1.0, maxR);
 
-                            if (!std::isfinite(yMinUse) || !std::isfinite(yMaxUse) || yMaxUse <= yMinUse)
+                            if (!std::isfinite(yMaxUse) || yMaxUse <= 0.0)
                             {
-                              yMinUse = 0.8;
+                              yMinUse = 0.0;
                               yMaxUse = 1.2;
                             }
                             else
                             {
-                              const double pad = std::max(0.08, 0.12 * (yMaxUse - yMinUse));
-                              yMinUse -= pad;
+                              const double pad = std::max(0.08, 0.12 * yMaxUse);
+                              yMinUse = 0.0;
                               yMaxUse += pad;
                             }
 
-                            yMinUse = std::max(0.05, yMinUse);
-
-                            if ((yMaxUse - yMinUse) < 0.20)
+                            if (yMaxUse < 0.20)
                             {
-                              const double mid = 0.5 * (yMinUse + yMaxUse);
-                              yMinUse = std::max(0.05, mid - 0.10);
-                              yMaxUse = mid + 0.10;
+                              yMaxUse = 0.20;
                             }
-                        }
+                          }
 
                         cout << ANSI_BOLD_YEL
                              << "[TRUTH/UNFOLDED RATIO DEBUG] Final plotted y-range for pTbin" << (i + 1)
@@ -4672,33 +4650,43 @@
 
                     if (hA && hB)
                     {
-                      hA->GetXaxis()->SetRangeUser(0.0, 2.0);
-                      hB->GetXaxis()->SetRangeUser(0.0, 2.0);
+                        hA->GetXaxis()->SetRangeUser(0.0, 2.0);
+                        hB->GetXaxis()->SetRangeUser(0.0, 2.0);
 
-                      double maxY = 0.0;
-                      const int nxb = hA->GetNbinsX();
-                      for (int ib = 1; ib <= nxb; ++ib)
-                      {
-                        const double v1 = hA->GetBinContent(ib) + hA->GetBinError(ib);
-                        const double v2 = hB->GetBinContent(ib) + hB->GetBinError(ib);
-                        if (v1 > maxY) maxY = v1;
-                        if (v2 > maxY) maxY = v2;
-                      }
+                        hA->SetMarkerStyle(24);
+                        hA->SetMarkerColor(kRed + 1);
+                        hA->SetLineColor(kRed + 1);
+                        hA->SetLineWidth(2);
 
-                      hA->SetMinimum(0.0);
-                      hA->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
-                      hA->Draw("E1");
-                      hB->Draw("E1 same");
+                        hB->SetMarkerStyle(20);
+                        hB->SetMarkerColor(kBlue + 1);
+                        hB->SetLineColor(kBlue + 1);
+                        hB->SetLineWidth(2);
 
-                      TLegend* leg = new TLegend(0.46, 0.32, 0.92, 0.48);
-                      leg->SetBorderSize(0);
-                      leg->SetFillStyle(0);
-                      leg->SetTextFont(42);
-                      leg->SetTextSize(0.040);
-                      leg->AddEntry(hA, "before unfolding data", "pe");
-                      leg->AddEntry(hB, "unfolded data",        "pe");
-                      leg->Draw();
-                      keepLegBA.push_back(leg);
+                        double maxY = 0.0;
+                        const int nxb = hA->GetNbinsX();
+                        for (int ib = 1; ib <= nxb; ++ib)
+                        {
+                          const double v1 = hA->GetBinContent(ib) + hA->GetBinError(ib);
+                          const double v2 = hB->GetBinContent(ib) + hB->GetBinError(ib);
+                          if (v1 > maxY) maxY = v1;
+                          if (v2 > maxY) maxY = v2;
+                        }
+
+                        hA->SetMinimum(0.0);
+                        hA->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
+                        hA->Draw("E1");
+                        hB->Draw("E1 same");
+
+                        TLegend* leg = new TLegend(0.65, 0.4, 0.88, 0.55);
+                        leg->SetBorderSize(0);
+                        leg->SetFillStyle(0);
+                        leg->SetTextFont(42);
+                        leg->SetTextSize(0.040);
+                        leg->AddEntry(hA, "before unfolding data", "pe");
+                        leg->AddEntry(hB, "unfolded data",        "pe");
+                        leg->Draw();
+                        keepLegBA.push_back(leg);
                     }
                     else
                     {
