@@ -1086,10 +1086,15 @@ void RunJES3QA(Dataset& ds)
                         double sum  = 0.0;
                         double wsum = 0.0;
 
-                        for (int jb = ib - 1; jb <= ib + 1; ++jb)
+                        for (int jb = ib - 2; jb <= ib + 2; ++jb)
                         {
                           if (jb < firstNZ || jb > lastNZ) continue;
-                          const double w = (jb == ib ? 0.50 : 0.25);
+
+                          double w = 0.0;
+                          if (jb == ib) w = 0.40;
+                          else if (std::abs(jb - ib) == 1) w = 0.22;
+                          else w = 0.08;
+
                           sum  += w * std::max(0.0, h->GetBinContent(jb));
                           wsum += w;
                         }
@@ -1097,14 +1102,22 @@ void RunJES3QA(Dataset& ds)
                         return (wsum > 0.0 ? sum / wsum : std::max(0.0, h->GetBinContent(ib)));
                       };
 
+                      auto PeakScore = [&](int ib) -> double
+                      {
+                        return 0.44 * SmoothedContent(ib)
+                             + 0.30 * SmoothedContent(std::min(lastNZ, ib + 1))
+                             + 0.18 * SmoothedContent(std::min(lastNZ, ib + 2))
+                             + 0.08 * SmoothedContent(std::max(firstNZ, ib - 1));
+                      };
+
                       int peakBin = firstNZ;
-                      double peakScore = -1.0;
+                      double bestScore = -1.0;
                       for (int ib = firstNZ; ib <= lastNZ; ++ib)
                       {
-                        const double s = SmoothedContent(ib);
-                        if (s > peakScore)
+                        const double s = PeakScore(ib);
+                        if (s > bestScore)
                         {
-                          peakScore = s;
+                          bestScore = s;
                           peakBin   = ib;
                         }
                       }
@@ -1115,7 +1128,7 @@ void RunJES3QA(Dataset& ds)
                       {
                         double sw  = 0.0;
                         double swx = 0.0;
-                        for (int jb = std::max(firstNZ, peakBin - 1); jb <= std::min(lastNZ, peakBin + 1); ++jb)
+                        for (int jb = std::max(firstNZ, peakBin - 1); jb <= std::min(lastNZ, peakBin + 2); ++jb)
                         {
                           const double w = SmoothedContent(jb);
                           if (w <= 0.0) continue;
@@ -1128,150 +1141,111 @@ void RunJES3QA(Dataset& ds)
                       const double peakY = SmoothedContent(peakBin);
                       if (!std::isfinite(peakY) || peakY <= 0.0) return nullptr;
 
-                      auto LeftCrossBin = [&](double frac) -> int
-                      {
-                        const double thr = frac * peakY;
-                        int ib = peakBin;
-                        while (ib > firstNZ && SmoothedContent(ib) > thr) --ib;
-                        if (SmoothedContent(ib) <= thr && ib < peakBin) ++ib;
-                        if (ib < firstNZ) ib = firstNZ;
-                        if (ib > peakBin) ib = peakBin;
-                        return ib;
-                      };
-
-                      auto RightCrossBin = [&](double frac) -> int
+                      auto RightCrossX = [&](double frac) -> double
                       {
                         const double thr = frac * peakY;
                         int ib = peakBin;
                         while (ib < lastNZ && SmoothedContent(ib) > thr) ++ib;
-                        if (SmoothedContent(ib) <= thr && ib > peakBin) --ib;
-                        if (ib > lastNZ) ib = lastNZ;
-                        if (ib < peakBin) ib = peakBin;
-                        return ib;
+
+                        if (ib <= peakBin) return h->GetBinCenter(peakBin);
+                        if (ib > lastNZ)   return h->GetBinCenter(lastNZ);
+
+                        const double x1 = h->GetBinCenter(ib - 1);
+                        const double x2 = h->GetBinCenter(ib);
+                        const double y1 = SmoothedContent(ib - 1);
+                        const double y2 = SmoothedContent(ib);
+
+                        if (y2 >= y1 || !std::isfinite(y1) || !std::isfinite(y2)) return x2;
+
+                        const double t = (thr - y1) / (y2 - y1);
+                        return x1 + t * (x2 - x1);
                       };
 
-                      const int left70  = LeftCrossBin(0.70);
-                      const int left55  = LeftCrossBin(0.55);
-                      const int left35  = LeftCrossBin(0.35);
-                      const int right70 = RightCrossBin(0.70);
-                      const int right55 = RightCrossBin(0.55);
-                      const int right35 = RightCrossBin(0.35);
-
-                      const double leftW55  = peakX - h->GetBinCenter(left55);
-                      const double rightW55 = h->GetBinCenter(right55) - peakX;
-                      const double leftW35  = peakX - h->GetBinCenter(left35);
-                      const double rightW35 = h->GetBinCenter(right35) - peakX;
-
-                      const double lhsFrac55 = (rightW55 > 0.0 ? leftW55 / rightW55 : 0.0);
-                      const double lhsFrac35 = (rightW35 > 0.0 ? leftW35 / rightW35 : 0.0);
-
-                      const double firstNZCenter = h->GetBinCenter(firstNZ);
-                      const double distToTurnOn  = peakX - firstNZCenter;
-                      const double binW          = h->GetBinWidth(peakBin);
-
-                      const bool lhsTrusted     = (lhsFrac55 > 0.40 && lhsFrac35 > 0.34 && distToTurnOn > 2.5 * binW);
-                      const bool lhsVeryTrusted = (lhsFrac55 > 0.58 && lhsFrac35 > 0.48 && distToTurnOn > 4.0 * binW);
-
-                      double sig55 = 0.0;
-                      if (right55 > left55)
-                      {
-                        const double width55 = h->GetBinCenter(right55) - h->GetBinCenter(left55);
-                        sig55 = width55 / 2.355;
-                      }
-
-                      double sig35 = 0.0;
-                      if (right35 > left35)
-                      {
-                        const double width35 = h->GetBinCenter(right35) - h->GetBinCenter(left35);
-                        sig35 = width35 / 2.90;
-                      }
-
-                      int momentLoBin = std::max(firstNZ, lhsTrusted ? left55 : left70);
-                      int momentHiBin = std::min(lastNZ, right55 + (sparseHist ? 1 : 0));
-                      if (sparseHist && momentLoBin > firstNZ) momentLoBin = std::max(firstNZ, momentLoBin - 1);
-                      if (momentHiBin <= momentLoBin)
-                      {
-                        momentLoBin = std::max(firstNZ, peakBin - 2);
-                        momentHiBin = std::min(lastNZ, peakBin + (sparseHist ? 4 : 2));
-                      }
-
-                      double mu  = peakX;
                       double sig = 0.0;
+                      int nSigSeeds = 0;
 
+                      const double xR80 = RightCrossX(0.80);
+                      if (xR80 > peakX)
                       {
-                        double sw   = 0.0;
-                        double swx  = 0.0;
-                        double swx2 = 0.0;
+                        sig += (xR80 - peakX) / 0.668047;
+                        ++nSigSeeds;
+                      }
 
-                        for (int ib = momentLoBin; ib <= momentHiBin; ++ib)
+                      const double xR60 = RightCrossX(0.60);
+                      if (xR60 > peakX)
+                      {
+                        sig += (xR60 - peakX) / 1.010768;
+                        ++nSigSeeds;
+                      }
+
+                      const double xR40 = RightCrossX(0.40);
+                      if (xR40 > peakX)
+                      {
+                        sig += (xR40 - peakX) / 1.353729;
+                        ++nSigSeeds;
+                      }
+
+                      if (nSigSeeds > 0) sig /= nSigSeeds;
+
+                      if (!std::isfinite(sig) || sig <= 0.0)
+                      {
+                        double sw    = 0.0;
+                        double swdx2 = 0.0;
+
+                        for (int ib = peakBin; ib <= lastNZ; ++ib)
                         {
                           const double w = SmoothedContent(ib);
                           if (w <= 0.0) continue;
 
-                          const double x = h->GetBinCenter(ib);
-                          sw   += w;
-                          swx  += w * x;
-                          swx2 += w * x * x;
+                          const double dx = h->GetBinCenter(ib) - peakX;
+                          sw    += w;
+                          swdx2 += w * dx * dx;
                         }
 
-                        if (sw > 0.0)
-                        {
-                          mu = swx / sw;
-                          const double var = swx2 / sw - mu * mu;
-                          if (var > 0.0) sig = std::sqrt(var);
-                        }
+                        if (sw > 0.0) sig = std::sqrt(swdx2 / sw);
                       }
 
-                      if (std::isfinite(sig55) && sig55 > 0.0)
-                      {
-                        sig = (std::isfinite(sig) && sig > 0.0 ? 0.35 * sig + 0.65 * sig55 : sig55);
-                      }
-
-                      if (std::isfinite(sig35) && sig35 > 0.0)
-                      {
-                        sig = (std::isfinite(sig) && sig > 0.0 ? 0.80 * sig + 0.20 * sig35 : sig35);
-                      }
-
-                      if (!std::isfinite(sig) || sig <= 0.0)
-                      {
-                        sig = 0.40 * h->GetRMS();
-                      }
-
-                      if (!std::isfinite(sig) || sig <= 0.0)
-                      {
-                        sig = 2.0 * binW;
-                      }
+                      const double binW = h->GetBinWidth(peakBin);
+                      if (!std::isfinite(sig) || sig <= 0.0) sig = 2.5 * binW;
 
                       const double visibleSpan = std::max(3.0 * binW, supportHi - supportLo);
-                      const double sigFloor = std::max(1.10 * binW, (verySparseHist ? 0.16 : (sparseHist ? 0.12 : 0.0)) * visibleSpan);
+                      const double sigFloor = std::max(1.15 * binW, (verySparseHist ? 0.10 : (sparseHist ? 0.075 : 0.055)) * visibleSpan);
                       if (sig < sigFloor) sig = sigFloor;
 
-                      int leftSeedBin = left70;
-                      if (lhsTrusted)     leftSeedBin = std::max(firstNZ, left55 - 1);
-                      if (lhsVeryTrusted) leftSeedBin = std::max(firstNZ, left35 - 1);
+                      double mu = peakX;
 
-                      int rightSeedBin = std::min(lastNZ, right55 + 1);
-                      if (rightSeedBin <= peakBin) rightSeedBin = std::min(lastNZ, peakBin + (sparseHist ? 4 : 3));
-
-                      if (sparseHist)
+                      const double muShiftMax = (verySparseHist ? 0.35 : 0.25) * sig;
+                      const double xR90 = RightCrossX(0.90);
+                      if (xR90 > peakX)
                       {
-                        leftSeedBin  = std::max(firstNZ, leftSeedBin - 1);
-                        rightSeedBin = std::min(lastNZ, rightSeedBin + 1);
-                      }
-                      if (verySparseHist)
-                      {
-                        leftSeedBin  = std::max(firstNZ, leftSeedBin - 1);
-                        rightSeedBin = std::min(lastNZ, rightSeedBin + 1);
+                        const double rhsPull = 0.35 * (xR90 - peakX);
+                        mu = std::min(peakX + muShiftMax, peakX + rhsPull);
                       }
 
-                      if (rightSeedBin <= leftSeedBin)
-                      {
-                        leftSeedBin  = std::max(firstNZ, peakBin - (sparseHist ? 3 : 2));
-                        rightSeedBin = std::min(lastNZ, peakBin + (sparseHist ? 6 : 4));
-                      }
+                      double seedLo = mu - (sparseHist ? 1.35 : 1.20) * sig;
+                      double seedHi = mu + (verySparseHist ? 3.40 : (sparseHist ? 3.10 : 2.80)) * sig;
 
-                      const double seedLo = h->GetBinLowEdge(leftSeedBin);
-                      const double seedHi = h->GetBinLowEdge(rightSeedBin) + h->GetBinWidth(rightSeedBin);
+                      if (seedLo < supportLo) seedLo = supportLo;
+                      if (seedHi > supportHi) seedHi = supportHi;
+
+                      const double minSeedWidth = (verySparseHist ? 7.0 : (sparseHist ? 6.0 : 5.0)) * binW;
+                      if (seedHi - seedLo < minSeedWidth)
+                      {
+                        seedLo = mu - 0.35 * minSeedWidth;
+                        seedHi = mu + 0.65 * minSeedWidth;
+
+                        if (seedLo < supportLo)
+                        {
+                          seedHi += (supportLo - seedLo);
+                          seedLo  = supportLo;
+                        }
+                        if (seedHi > supportHi)
+                        {
+                          seedLo -= (seedHi - supportHi);
+                          seedHi  = supportHi;
+                        }
+                        if (seedLo < supportLo) seedLo = supportLo;
+                      }
 
                       TF1* f = new TF1(fname.c_str(), "gaus", seedLo, seedHi);
                       f->SetLineColor(lcolor);
@@ -1280,32 +1254,36 @@ void RunJES3QA(Dataset& ds)
                       f->SetNpx(800);
                       f->SetParameters(peakY, mu, sig);
                       f->SetParLimits(0, 0.0, 10.0 * peakY);
+                      f->SetParLimits(1, std::max(xLoHard, peakX - 0.60 * visibleSpan), std::min(xHiHard, peakX + 0.60 * visibleSpan));
+                      f->SetParLimits(2, 0.90 * sigFloor, 0.50 * (xHiHard - xLoHard));
 
-                      const double muWindow = std::max(2.0 * binW, std::min(0.60 * (supportHi - supportLo), std::max(0.18, 1.35 * sig)));
-                      f->SetParLimits(1, std::max(seedLo, peakX - muWindow), std::min(seedHi, peakX + muWindow));
-                      f->SetParLimits(2, 0.90 * sigFloor, 0.45 * (xHiHard - xLoHard));
-
-                      double coreLeftMult  = (lhsTrusted ? 0.95 : 0.80);
-                      double coreRightMult = (sparseHist ? 1.20 : 1.05);
-                      if (verySparseHist) { coreLeftMult += 0.05; coreRightMult += 0.10; }
-
-                      const int nIter = (verySparseHist ? 6 : 5);
+                      const int nIter = (verySparseHist ? 7 : 6);
 
                       for (int it = 0; it < nIter; ++it)
                       {
-                        double lo = peakX - (coreLeftMult  + 0.06 * it) * sig;
-                        double hi = peakX + (coreRightMult + 0.07 * it) * sig;
+                        double lo = mu - (sparseHist ? 1.45 : 1.30) * sig;
+                        double hi = mu + (verySparseHist ? 3.60 : (sparseHist ? 3.25 : 2.95)) * sig;
 
-                        if (lo < seedLo) lo = seedLo;
-                        if (hi > seedHi) hi = seedHi;
+                        if (lo < supportLo) lo = supportLo;
+                        if (hi > supportHi) hi = supportHi;
 
-                        if (hi - lo < (sparseHist ? 4.5 : 3.8) * binW)
+                        const double minFitWidth = (verySparseHist ? 7.5 : (sparseHist ? 6.5 : 5.5)) * binW;
+                        if (hi - lo < minFitWidth)
                         {
-                          lo = peakX - (sparseHist ? 2.2 : 1.7) * binW;
-                          hi = peakX + (sparseHist ? 3.2 : 2.6) * binW;
+                          lo = mu - 0.35 * minFitWidth;
+                          hi = mu + 0.65 * minFitWidth;
 
-                          if (lo < seedLo) lo = seedLo;
-                          if (hi > seedHi) hi = seedHi;
+                          if (lo < supportLo)
+                          {
+                            hi += (supportLo - lo);
+                            lo  = supportLo;
+                          }
+                          if (hi > supportHi)
+                          {
+                            lo -= (hi - supportHi);
+                            hi  = supportHi;
+                          }
+                          if (lo < supportLo) lo = supportLo;
                         }
 
                         if (hi <= lo) break;
@@ -1325,33 +1303,31 @@ void RunJES3QA(Dataset& ds)
                         sig = std::max(newSig, sigFloor);
                       }
 
-                      double finalLeftMult  = (lhsTrusted ? 1.10 : 1.00);
-                      double finalRightMult = (sparseHist ? 1.35 : 1.20);
+                      double finalLo = mu - (sparseHist ? 1.55 : 1.40) * sig;
+                      double finalHi = mu + (verySparseHist ? 3.80 : (sparseHist ? 3.40 : 3.10)) * sig;
 
-                      if (lhsVeryTrusted) finalLeftMult = 1.25;
-                      if (verySparseHist) { finalLeftMult += 0.05; finalRightMult += 0.10; }
+                      if (finalLo < supportLo) finalLo = supportLo;
+                      if (finalHi > supportHi) finalHi = supportHi;
 
-                      double finalLo = peakX - finalLeftMult * sig;
-                      double finalHi = peakX + finalRightMult * sig;
-
-                      double guardLo = h->GetBinLowEdge(lhsTrusted ? left55 : left70);
-                      if (sparseHist)     guardLo = h->GetBinLowEdge(std::max(firstNZ, left70 - 1));
-                      if (verySparseHist) guardLo = seedLo;
-
-                      const int rightGuardBin = std::min(lastNZ, right55 + (sparseHist ? 1 : 0));
-                      const double guardHi = h->GetBinLowEdge(rightGuardBin) + h->GetBinWidth(rightGuardBin);
-
-                      if (finalLo < guardLo) finalLo = guardLo;
-                      if (finalHi < guardHi) finalHi = guardHi;
-
-                      if (lhsVeryTrusted)
+                      const double minFinalWidth = (verySparseHist ? 8.0 : (sparseHist ? 7.0 : 6.0)) * binW;
+                      if (finalHi - finalLo < minFinalWidth)
                       {
-                        const double extendedLo = h->GetBinLowEdge(std::max(firstNZ, left35 - 1));
-                        if (extendedLo < finalLo) finalLo = extendedLo;
+                        finalLo = mu - 0.35 * minFinalWidth;
+                        finalHi = mu + 0.65 * minFinalWidth;
+
+                        if (finalLo < supportLo)
+                        {
+                          finalHi += (supportLo - finalLo);
+                          finalLo  = supportLo;
+                        }
+                        if (finalHi > supportHi)
+                        {
+                          finalLo -= (finalHi - supportHi);
+                          finalHi  = supportHi;
+                        }
+                        if (finalLo < supportLo) finalLo = supportLo;
                       }
 
-                      if (finalLo < seedLo) finalLo = seedLo;
-                      if (finalHi > seedHi) finalHi = seedHi;
                       if (finalHi <= finalLo)
                       {
                         finalLo = seedLo;
