@@ -163,8 +163,8 @@ namespace ARJ
 
   inline bool isPPdataOnly   = false;
   inline bool isSimAndDataPP = true;
+  
   inline bool do_xJ_PPunfold = false;
-
   // Internal toggle used to run the RooUnfold pipeline twice:
   //   false -> raw reco inputs                     -> unfolding/nonPurityCorrected/...
   //   true  -> ABCD purity-corrected reco inputs  -> unfolding/purityCorrected/...

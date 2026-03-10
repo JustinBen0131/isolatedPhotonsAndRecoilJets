@@ -878,175 +878,264 @@ void RunJES3QA(Dataset& ds)
 
             if (hSim3 && H.hReco_xJ)
             {
-              const int nCols = 3;
-              const int nRows = 3;
-              const int perPage = nCols * nRows;
+                const int nCols = 3;
+                const int nRows = 3;
+                const int perPage = nCols * nRows;
 
-              const int startBinForTable = 1;
-              const int nTableBins = std::min(perPage, nPt);
-
-              // ---------------------------------------------------------------------
-              // Table 1 (EXISTING): overlays only (KEEP IDENTICAL OUTPUT)
-              // ---------------------------------------------------------------------
-              TCanvas canTbl(
-                TString::Format("c_tbl_%s_dataVsSim", rKey.c_str()).Data(),
-                "c_tbl_dataVsSim", 1500, 900
-              );
-              canTbl.Divide(nCols, nRows, 0.001, 0.001);
-
-              std::vector<TH1*> keep;
-              keep.reserve(2 * nTableBins);
-
-              for (int k = 0; k < nTableBins; ++k)
-              {
-                const int ib = startBinForTable + k;
-                canTbl.cd(k + 1);
-
-                gPad->SetLeftMargin(0.14);
-                gPad->SetRightMargin(0.05);
-                gPad->SetTopMargin(0.12);
-                gPad->SetBottomMargin(0.14);
-
-                const double ptMinGamma = H.hReco_xJ->GetXaxis()->GetBinLowEdge(ib);
-                const double ptMaxGamma = H.hReco_xJ->GetXaxis()->GetBinUpEdge(ib);
-
-                TH1* hDatRaw = ProjectY_AtXbin_AndAlphaMax_TH3(
-                  H.hReco_xJ, ib, H.hReco_xJ->GetZaxis()->GetXmax(),
-                  TString::Format("h_tbl_dat_%s_%d", rKey.c_str(), ib).Data()
-                );
-                TH1* hSimRaw = ProjectY_AtXbin_AndAlphaMax_TH3(
-                  hSim3, ib, hSim3->GetZaxis()->GetXmax(),
-                  TString::Format("h_tbl_sim_%s_%d", rKey.c_str(), ib).Data()
-                );
-
-                if (!hDatRaw || !hSimRaw) { if (hDatRaw) delete hDatRaw; if (hSimRaw) delete hSimRaw; continue; }
-
-                hDatRaw->SetDirectory(nullptr);
-                hSimRaw->SetDirectory(nullptr);
-
-                EnsureSumw2(hDatRaw);
-                EnsureSumw2(hSimRaw);
-
-                const double iDat = hDatRaw->Integral(0, hDatRaw->GetNbinsX() + 1);
-                const double iSim = hSimRaw->Integral(0, hSimRaw->GetNbinsX() + 1);
-                if (iDat > 0.0) hDatRaw->Scale(1.0 / iDat);
-                if (iSim > 0.0) hSimRaw->Scale(1.0 / iSim);
-
-                hDatRaw->SetTitle("");
-                hDatRaw->SetLineWidth(2);
-                hDatRaw->SetLineColor(kGreen + 2);
-                hDatRaw->SetMarkerStyle(20);
-                hDatRaw->SetMarkerSize(1.0);
-                hDatRaw->SetMarkerColor(kGreen + 2);
-
-                hSimRaw->SetLineWidth(2);
-                hSimRaw->SetLineColor(kOrange + 7);
-                hSimRaw->SetMarkerStyle(20);
-                hSimRaw->SetMarkerSize(1.0);
-                hSimRaw->SetMarkerColor(kOrange + 7);
-
-                hDatRaw->GetXaxis()->SetTitle("x_{J#gamma}");
-                hDatRaw->GetXaxis()->SetRangeUser(0.0, 2.0);
-                hDatRaw->GetYaxis()->SetTitle("Normalized counts");
-
-                hDatRaw->Draw("E1");
-                hSimRaw->Draw("E1 same");
-                gPad->Update();
-
-                const auto& cfgDef = DefaultSim10and20Config();
-                const double jetPtMin_GeV = cfgDef.jetMinPt;
-                const string bbLabel = cfgDef.bbLabel;
-
-                TLegend* leg = new TLegend(0.70, 0.75, 0.94, 0.88);
-                leg->SetBorderSize(0);
-                leg->SetFillStyle(0);
-                leg->SetTextFont(42);
-                leg->SetTextSize(0.04);
-
-                leg->AddEntry(hDatRaw, "DATA (reco)", "ep");
-                leg->AddEntry(hSimRaw, "SIM (reco)",  "ep");
-
-                leg->DrawClone();
-                delete leg;
-
+                struct InSituPtGroup
                 {
-                    TLatex tCuts;
-                    tCuts.SetNDC(true);
-                    tCuts.SetTextFont(42);
-                    tCuts.SetTextAlign(33);
-                    tCuts.SetTextSize(0.04);
-                    tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data());
-                    tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
+                  double ptLo = 0.0;
+                  double ptHi = 0.0;
+                  string label;
+                  string tag;
+                };
+
+                const std::vector<InSituPtGroup> inSituPtGroups = {
+                  {10.0, 12.0, "10 - 12", "10_12"},
+                  {12.0, 14.0, "12 - 14", "12_14"},
+                  {14.0, 16.0, "14 - 16", "14_16"},
+                  {16.0, 18.0, "16 - 18", "16_18"},
+                  {18.0, 20.0, "18 - 20", "18_20"},
+                  {20.0, 24.0, "20 - 24", "20_24"},
+                  {24.0, 35.0, "24 - 35", "24_35"}
+                };
+
+                const int nCalibBins = (int)inSituPtGroups.size();
+
+                auto ProjectGroupedY_IntegratedAlpha_TH3 =
+                  [&](const TH3* h3,
+                      double ptLo,
+                      double ptHi,
+                      const std::string& newName)->TH1*
+                {
+                  if (!h3) return nullptr;
+
+                  int xbinLo = -1;
+                  int xbinHi = -1;
+                  std::vector<double> w;
+                  if (!XaxisOverlapWeights(h3->GetXaxis(), ptLo, ptHi, xbinLo, xbinHi, w)) return nullptr;
+
+                  TH1* sum = nullptr;
+                  const double alphaMax = h3->GetZaxis()->GetXmax();
+
+                  for (int xb = xbinLo; xb <= xbinHi; ++xb)
+                  {
+                    TH1* h1 = ProjectY_AtXbin_AndAlphaMax_TH3(
+                      h3, xb, alphaMax,
+                      newName + TString::Format("_xb%d", xb).Data()
+                    );
+                    if (!h1) continue;
+
+                    const int iw = xb - xbinLo;
+                    const double ww = (iw >= 0 && iw < (int)w.size()) ? w[iw] : 1.0;
+
+                    if (ww <= 0.0)
+                    {
+                      delete h1;
+                      continue;
+                    }
+
+                    h1->Scale(ww);
+
+                    if (!sum)
+                    {
+                      sum = CloneTH1(h1, newName);
+                      if (sum)
+                      {
+                        sum->Reset("ICES");
+                        sum->SetDirectory(nullptr);
+                      }
+                    }
+
+                    if (sum) sum->Add(h1);
+                    delete h1;
+                  }
+
+                  return sum;
+                };
+
+                auto PaintPadBlack = [&]()
+                {
+                  if (!gPad) return;
+                  gPad->Clear();
+                  gPad->SetFillColor(kBlack);
+                  gPad->SetFrameFillColor(kBlack);
+                  gPad->SetFillStyle(1001);
+                  gPad->Range(0.0, 0.0, 1.0, 1.0);
+                };
+
+                // ---------------------------------------------------------------------
+                // Table 1: overlays only (3x3 layout; last two pads black)
+                // ---------------------------------------------------------------------
+                TCanvas canTbl(
+                  TString::Format("c_tbl_%s_dataVsSim", rKey.c_str()).Data(),
+                  "c_tbl_dataVsSim", 1500, 900
+                );
+                canTbl.Divide(nCols, nRows, 0.001, 0.001);
+
+                std::vector<TH1*> keep;
+                keep.reserve(2 * nCalibBins);
+
+                for (int k = 0; k < perPage; ++k)
+                {
+                  canTbl.cd(k + 1);
+
+                  if (k >= nCalibBins)
+                  {
+                    PaintPadBlack();
+                    continue;
+                  }
+
+                  const auto& G = inSituPtGroups[k];
+
+                  gPad->SetLeftMargin(0.14);
+                  gPad->SetRightMargin(0.05);
+                  gPad->SetTopMargin(0.12);
+                  gPad->SetBottomMargin(0.14);
+
+                  const double ptMinGamma = G.ptLo;
+                  const double ptMaxGamma = G.ptHi;
+
+                  TH1* hDatRaw = ProjectGroupedY_IntegratedAlpha_TH3(
+                    H.hReco_xJ, G.ptLo, G.ptHi,
+                    TString::Format("h_tbl_dat_%s_%s", rKey.c_str(), G.tag.c_str()).Data()
+                  );
+                  TH1* hSimRaw = ProjectGroupedY_IntegratedAlpha_TH3(
+                    hSim3, G.ptLo, G.ptHi,
+                    TString::Format("h_tbl_sim_%s_%s", rKey.c_str(), G.tag.c_str()).Data()
+                  );
+
+                  if (!hDatRaw || !hSimRaw)
+                  {
+                    if (hDatRaw) delete hDatRaw;
+                    if (hSimRaw) delete hSimRaw;
+                    continue;
+                  }
+
+                  hDatRaw->SetDirectory(nullptr);
+                  hSimRaw->SetDirectory(nullptr);
+
+                  EnsureSumw2(hDatRaw);
+                  EnsureSumw2(hSimRaw);
+
+                  const double iDat = hDatRaw->Integral(0, hDatRaw->GetNbinsX() + 1);
+                  const double iSim = hSimRaw->Integral(0, hSimRaw->GetNbinsX() + 1);
+                  if (iDat > 0.0) hDatRaw->Scale(1.0 / iDat);
+                  if (iSim > 0.0) hSimRaw->Scale(1.0 / iSim);
+
+                  hDatRaw->SetTitle("");
+                  hDatRaw->SetLineWidth(2);
+                  hDatRaw->SetLineColor(kGreen + 2);
+                  hDatRaw->SetMarkerStyle(20);
+                  hDatRaw->SetMarkerSize(1.0);
+                  hDatRaw->SetMarkerColor(kGreen + 2);
+
+                  hSimRaw->SetLineWidth(2);
+                  hSimRaw->SetLineColor(kOrange + 7);
+                  hSimRaw->SetMarkerStyle(20);
+                  hSimRaw->SetMarkerSize(1.0);
+                  hSimRaw->SetMarkerColor(kOrange + 7);
+
+                  hDatRaw->GetXaxis()->SetTitle("x_{J#gamma}");
+                  hDatRaw->GetXaxis()->SetRangeUser(0.0, 2.0);
+                  hDatRaw->GetYaxis()->SetTitle("Normalized counts");
+
+                  hDatRaw->Draw("E1");
+                  hSimRaw->Draw("E1 same");
+                  gPad->Update();
+
+                  const auto& cfgDef = DefaultSim10and20Config();
+                  const double jetPtMin_GeV = cfgDef.jetMinPt;
+                  const string bbLabel = cfgDef.bbLabel;
+
+                  TLegend* leg = new TLegend(0.70, 0.75, 0.94, 0.88);
+                  leg->SetBorderSize(0);
+                  leg->SetFillStyle(0);
+                  leg->SetTextFont(42);
+                  leg->SetTextSize(0.04);
+                  leg->AddEntry(hDatRaw, "DATA (reco)", "ep");
+                  leg->AddEntry(hSimRaw, "SIM (reco)",  "ep");
+                  leg->DrawClone();
+                  delete leg;
+
+                  {
+                      TLatex tCuts;
+                      tCuts.SetNDC(true);
+                      tCuts.SetTextFont(42);
+                      tCuts.SetTextAlign(33);
+                      tCuts.SetTextSize(0.04);
+                      tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data());
+                      tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
                       tCuts.DrawLatex(0.92, 0.46, TString::Format("|v_{z}| < %.0f cm", vzCutCm).Data());
+                  }
+
+                  TLatex ttl;
+                  ttl.SetNDC(true);
+                  ttl.SetTextFont(42);
+                  ttl.SetTextSize(0.043);
+                  ttl.DrawLatex(0.12, 0.94,
+                      TString::Format("RECO x_{J#gamma} (DATA vs SIM), p_{T}^{#gamma} = %.0f - %.0f GeV, R = %.1f",
+                        ptMinGamma, ptMaxGamma, R).Data());
+
+                  keep.push_back(hDatRaw);
+                  keep.push_back(hSimRaw);
                 }
 
-                TLatex ttl;
-                ttl.SetNDC(true);
-                ttl.SetTextFont(42);
-                ttl.SetTextSize(0.043);
-                ttl.DrawLatex(0.12, 0.94,
-                    TString::Format("RECO x_{J#gamma} (DATA vs SIM), p_{T}^{#gamma} = %.0f - %.0f GeV, R = %.1f",
-                      ptMinGamma, ptMaxGamma, R).Data());
+                SaveCanvas(canTbl, JoinPath(dirOv, "table3x2_overlay_integratedAlpha_overlayedWithSim.png"));
 
-                keep.push_back(hDatRaw);
-                keep.push_back(hSimRaw);
-              }
+                for (auto* h1 : keep) delete h1;
 
-              SaveCanvas(canTbl, JoinPath(dirOv, "table3x2_overlay_integratedAlpha_overlayedWithSim.png"));
+                // ---------------------------------------------------------------------
+                // Table 2: overlays + iterative Gaussian fits + fit text
+                // plus mean vs pT plot from Gaussian mean
+                // ---------------------------------------------------------------------
+                TCanvas canTblFits(
+                    TString::Format("c_tbl_%s_dataVsSim_withFits", rKey.c_str()).Data(),
+                    "c_tbl_dataVsSim_withFits", 1500, 900
+                );
+                canTblFits.Divide(nCols, nRows, 0.001, 0.001);
 
-              for (auto* h1 : keep) delete h1;
+                TCanvas canTblMeans(
+                    TString::Format("c_tbl_%s_dataVsSim_withMeans", rKey.c_str()).Data(),
+                    "c_tbl_dataVsSim_withMeans", 1500, 900
+                );
+                canTblMeans.Divide(nCols, nRows, 0.001, 0.001);
 
-              // ---------------------------------------------------------------------
-              // Table 2: overlays + iterative Gaussian fits + fit text
-              // plus mean vs pT plot from Gaussian mean
-              // ---------------------------------------------------------------------
-              TCanvas canTblFits(
-                  TString::Format("c_tbl_%s_dataVsSim_withFits", rKey.c_str()).Data(),
-                  "c_tbl_dataVsSim_withFits", 1500, 900
-              );
-              canTblFits.Divide(nCols, nRows, 0.001, 0.001);
+                std::vector<TH1*> keepFitsH;
+                keepFitsH.reserve(2 * nCalibBins);
 
-              TCanvas canTblMeans(
-                  TString::Format("c_tbl_%s_dataVsSim_withMeans", rKey.c_str()).Data(),
-                  "c_tbl_dataVsSim_withMeans", 1500, 900
-              );
-              canTblMeans.Divide(nCols, nRows, 0.001, 0.001);
+                std::vector<TH1*> keepMeansH;
+                keepMeansH.reserve(2 * nCalibBins);
 
-              std::vector<TH1*> keepFitsH;
-              keepFitsH.reserve(2 * nTableBins);
+                std::vector<TF1*> keepFitFns;
+                keepFitFns.reserve(2 * nCalibBins);
 
-              std::vector<TH1*> keepMeansH;
-              keepMeansH.reserve(2 * nTableBins);
+                std::vector<double> vPtCtr, vPtErr;
+                std::vector<double> vMuDat, vMuDatErr;
+                std::vector<double> vMuSim, vMuSimErr;
+                std::vector<double> vMeanDat, vMeanDatErr;
+                std::vector<double> vMeanSim, vMeanSimErr;
+                std::vector<double> vSigDat, vSigDatErr;
+                std::vector<double> vSigSim, vSigSimErr;
+                std::vector<double> vChi2NdfDat;
+                std::vector<double> vChi2NdfSim;
 
-              std::vector<TF1*> keepFitFns;
-              keepFitFns.reserve(2 * nTableBins);
-
-              std::vector<double> vPtCtr, vPtErr;
-              std::vector<double> vMuDat, vMuDatErr;
-              std::vector<double> vMuSim, vMuSimErr;
-              std::vector<double> vMeanDat, vMeanDatErr;
-              std::vector<double> vMeanSim, vMeanSimErr;
-              std::vector<double> vSigDat, vSigDatErr;
-              std::vector<double> vSigSim, vSigSimErr;
-              std::vector<double> vChi2NdfDat;
-              std::vector<double> vChi2NdfSim;
-
-              vPtCtr.reserve(nPt);
-              vPtErr.reserve(nPt);
-              vMuDat.reserve(nPt);
-              vMuDatErr.reserve(nPt);
-              vMuSim.reserve(nPt);
-              vMuSimErr.reserve(nPt);
-              vMeanDat.reserve(nPt);
-              vMeanDatErr.reserve(nPt);
-              vMeanSim.reserve(nPt);
-              vMeanSimErr.reserve(nPt);
-              vSigDat.reserve(nPt);
-              vSigDatErr.reserve(nPt);
-              vSigSim.reserve(nPt);
-              vSigSimErr.reserve(nPt);
-              vChi2NdfDat.reserve(nPt);
-              vChi2NdfSim.reserve(nPt);
+                vPtCtr.reserve(nCalibBins);
+                vPtErr.reserve(nCalibBins);
+                vMuDat.reserve(nCalibBins);
+                vMuDatErr.reserve(nCalibBins);
+                vMuSim.reserve(nCalibBins);
+                vMuSimErr.reserve(nCalibBins);
+                vMeanDat.reserve(nCalibBins);
+                vMeanDatErr.reserve(nCalibBins);
+                vMeanSim.reserve(nCalibBins);
+                vMeanSimErr.reserve(nCalibBins);
+                vSigDat.reserve(nCalibBins);
+                vSigDatErr.reserve(nCalibBins);
+                vSigSim.reserve(nCalibBins);
+                vSigSimErr.reserve(nCalibBins);
+                vChi2NdfDat.reserve(nCalibBins);
+                vChi2NdfSim.reserve(nCalibBins);
 
                 auto FitIterGaus = [&](TH1* h, const std::string& fname, int lcolor) -> TF1*
                 {
@@ -1054,8 +1143,11 @@ void RunJES3QA(Dataset& ds)
                       if (h->GetNbinsX() <= 0) return nullptr;
                       if (h->Integral(0, h->GetNbinsX() + 1) <= 0.0) return nullptr;
 
-                      const double xLoHard = h->GetXaxis()->GetXmin();
-                      const double xHiHard = h->GetXaxis()->GetXmax();
+                      const TAxis* ax = h->GetXaxis();
+                      if (!ax) return nullptr;
+
+                      const double xLoHard = ax->GetXmin();
+                      const double xHiHard = ax->GetXmax();
 
                       int firstNZ = 1;
                       while (firstNZ <= h->GetNbinsX() && h->GetBinContent(firstNZ) <= 0.0) ++firstNZ;
@@ -1097,63 +1189,29 @@ void RunJES3QA(Dataset& ds)
                         return (wsum > 0.0 ? sum / wsum : std::max(0.0, h->GetBinContent(ib)));
                       };
 
-                      auto RobustContent = [&](int ib) -> double
-                      {
-                        if (ib < firstNZ) ib = firstNZ;
-                        if (ib > lastNZ)  ib = lastNZ;
-
-                        const double c = SmoothedContent(ib);
-                        const double l = SmoothedContent(std::max(firstNZ, ib - 1));
-                        const double r = SmoothedContent(std::min(lastNZ,  ib + 1));
-
-                        return std::max(c, 0.5 * (l + r));
-                      };
-
-                      auto PeakScore = [&](int ib) -> double
-                      {
-                        return 0.20 * RobustContent(ib - 2)
-                             + 0.60 * RobustContent(ib - 1)
-                             + 1.00 * RobustContent(ib)
-                             + 0.60 * RobustContent(ib + 1)
-                             + 0.20 * RobustContent(ib + 2);
-                      };
-
                       int peakBin = firstNZ;
-                      double bestPeakScore = -1.0;
+                      double peakY = -1.0;
                       for (int ib = firstNZ; ib <= lastNZ; ++ib)
                       {
-                        const double s = PeakScore(ib);
-                        if (s > bestPeakScore)
+                        const double s = SmoothedContent(ib);
+                        if (s > peakY)
                         {
-                          bestPeakScore = s;
-                          peakBin       = ib;
+                          peakY   = s;
+                          peakBin = ib;
                         }
                       }
 
                       if (peakBin < 1 || peakBin > h->GetNbinsX()) return nullptr;
-
-                      double peakY = 0.0;
-                      for (int jb = std::max(firstNZ, peakBin - 1); jb <= std::min(lastNZ, peakBin + 1); ++jb)
-                      {
-                        peakY = std::max(peakY, RobustContent(jb));
-                      }
-
                       if (!std::isfinite(peakY) || peakY <= 0.0) return nullptr;
 
                       const double binW = h->GetBinWidth(peakBin);
-                      const double firstNZCenter = h->GetBinCenter(firstNZ);
-                      const bool provisionalSharpTurnOn = ((h->GetBinCenter(peakBin) - firstNZCenter) < 3.0 * binW);
 
-                      int peakBinMax = peakBin;
-                      int plateauLo = peakBinMax;
-                      int plateauHi = peakBinMax;
+                      int plateauLo = peakBin;
+                      int plateauHi = peakBin;
+                      const double plateauFrac = (verySparseHist ? 0.90 : (sparseHist ? 0.92 : 0.94));
 
-                      const double plateauFrac = provisionalSharpTurnOn
-                                               ? (verySparseHist ? 0.90 : 0.93)
-                                               : (verySparseHist ? 0.86 : (sparseHist ? 0.88 : 0.90));
-
-                      while (plateauLo > firstNZ && RobustContent(plateauLo - 1) >= plateauFrac * peakY) --plateauLo;
-                      while (plateauHi < lastNZ  && RobustContent(plateauHi + 1) >= plateauFrac * peakY) ++plateauHi;
+                      while (plateauLo > firstNZ && SmoothedContent(plateauLo - 1) >= plateauFrac * peakY) --plateauLo;
+                      while (plateauHi < lastNZ  && SmoothedContent(plateauHi + 1) >= plateauFrac * peakY) ++plateauHi;
 
                       peakBin = plateauLo + (plateauHi - plateauLo) / 2;
 
@@ -1161,35 +1219,36 @@ void RunJES3QA(Dataset& ds)
                       {
                         double sw  = 0.0;
                         double swx = 0.0;
+
                         for (int jb = std::max(firstNZ, plateauLo - 1); jb <= std::min(lastNZ, plateauHi + 1); ++jb)
                         {
-                          const double y = RobustContent(jb);
+                          const double y = SmoothedContent(jb);
                           double w = std::max(0.0, y - plateauFrac * peakY);
-                          if (w <= 0.0) w = (provisionalSharpTurnOn ? 0.06 : 0.10) * y;
+                          if (w <= 0.0) w = ((plateauLo <= firstNZ + 1) ? 0.06 : 0.10) * y;
                           if (w <= 0.0) continue;
 
                           sw  += w;
                           swx += w * h->GetBinCenter(jb);
                         }
+
                         if (sw > 0.0) peakX = swx / sw;
                       }
 
-                      if (peakBinMax > firstNZ && peakBinMax < lastNZ)
+                      if (peakBin > firstNZ && peakBin < lastNZ)
                       {
-                        const double yL = RobustContent(peakBinMax - 1);
-                        const double yC = RobustContent(peakBinMax);
-                        const double yR = RobustContent(peakBinMax + 1);
+                        const double yL = SmoothedContent(peakBin - 1);
+                        const double yC = SmoothedContent(peakBin);
+                        const double yR = SmoothedContent(peakBin + 1);
 
                         const double denom = (yL - 2.0 * yC + yR);
                         if (std::isfinite(denom) && std::fabs(denom) > 1.0e-12)
                         {
                           double delta = 0.5 * (yL - yR) / denom;
-                          if (delta < -0.50) delta = -0.50;
-                          if (delta >  0.50) delta =  0.50;
+                          if (delta < -0.40) delta = -0.40;
+                          if (delta >  0.40) delta =  0.40;
 
-                          const double parPeakX = h->GetBinCenter(peakBinMax) + delta * binW;
-                          peakX = provisionalSharpTurnOn ? (0.85 * peakX + 0.15 * parPeakX)
-                                                         : (0.65 * peakX + 0.35 * parPeakX);
+                          const double parPeakX = h->GetBinCenter(peakBin) + delta * binW;
+                          peakX = 0.75 * peakX + 0.25 * parPeakX;
                         }
                       }
 
@@ -1200,8 +1259,8 @@ void RunJES3QA(Dataset& ds)
                         if (goLeft)
                         {
                           int ib = peakBin;
-                          while (ib > firstNZ && RobustContent(ib) > thr) --ib;
-                          if (RobustContent(ib) > thr) return false;
+                          while (ib > firstNZ && SmoothedContent(ib) > thr) --ib;
+                          if (SmoothedContent(ib) > thr) return false;
                           if (ib >= peakBin)
                           {
                             xCross = h->GetBinCenter(peakBin);
@@ -1210,8 +1269,8 @@ void RunJES3QA(Dataset& ds)
 
                           const double x1 = h->GetBinCenter(ib);
                           const double x2 = h->GetBinCenter(ib + 1);
-                          const double y1 = RobustContent(ib);
-                          const double y2 = RobustContent(ib + 1);
+                          const double y1 = SmoothedContent(ib);
+                          const double y2 = SmoothedContent(ib + 1);
 
                           if (!std::isfinite(y1) || !std::isfinite(y2) || std::fabs(y2 - y1) < 1.0e-12)
                           {
@@ -1225,8 +1284,8 @@ void RunJES3QA(Dataset& ds)
                         }
 
                         int ib = peakBin;
-                        while (ib < lastNZ && RobustContent(ib) > thr) ++ib;
-                        if (RobustContent(ib) > thr) return false;
+                        while (ib < lastNZ && SmoothedContent(ib) > thr) ++ib;
+                        if (SmoothedContent(ib) > thr) return false;
                         if (ib <= peakBin)
                         {
                           xCross = h->GetBinCenter(peakBin);
@@ -1235,8 +1294,8 @@ void RunJES3QA(Dataset& ds)
 
                         const double x1 = h->GetBinCenter(ib - 1);
                         const double x2 = h->GetBinCenter(ib);
-                        const double y1 = RobustContent(ib - 1);
-                        const double y2 = RobustContent(ib);
+                        const double y1 = SmoothedContent(ib - 1);
+                        const double y2 = SmoothedContent(ib);
 
                         if (!std::isfinite(y1) || !std::isfinite(y2) || std::fabs(y2 - y1) < 1.0e-12)
                         {
@@ -1307,7 +1366,7 @@ void RunJES3QA(Dataset& ds)
 
                         for (int ib = lo; ib <= hi; ++ib)
                         {
-                          const double w = RobustContent(ib);
+                          const double w = SmoothedContent(ib);
                           if (w <= 0.0) continue;
 
                           const double x = h->GetBinCenter(ib);
@@ -1330,33 +1389,30 @@ void RunJES3QA(Dataset& ds)
                       const double sigFloor = std::max(1.00 * binW, (verySparseHist ? 0.050 : (sparseHist ? 0.040 : 0.030)) * visibleSpan);
                       if (sig < sigFloor) sig = sigFloor;
 
-                      const bool sharpTurnOn = (!(hasL70 && hasL55) || plateauLo <= firstNZ + 1 || ((peakX - firstNZCenter) < 3.0 * binW));
+                      const double firstNZCenter = h->GetBinCenter(firstNZ);
+                      const bool sharpTurnOn = (!(hasL70 && hasL55) || plateauLo <= firstNZ + 1 || ((peakX - firstNZCenter) < 2.5 * binW));
 
-                      double seedLoBase = sharpTurnOn
-                                        ? (hasL70 ? xL70 : std::max(supportLo, peakX - 0.95 * sig))
-                                        : (hasL55 ? xL55 : std::max(supportLo, peakX - 1.20 * sig));
+                      double seedLo = sharpTurnOn
+                                    ? (hasL70 ? xL70 : peakX - 0.75 * sig)
+                                    : (hasL55 ? xL55 : peakX - 1.10 * sig);
 
-                      double seedHiBase = hasR40
-                                        ? std::min(supportHi, xR40 + (verySparseHist ? 0.80 * sig : (sparseHist ? 0.55 * sig : 0.20 * sig)))
-                                        : (hasR55 ? std::min(supportHi, peakX + (verySparseHist ? 2.05 * sig : (sparseHist ? 1.78 * sig : 1.58 * sig)))
-                                                  : std::min(supportHi, peakX + (verySparseHist ? 2.25 * sig : (sparseHist ? 1.98 * sig : 1.78 * sig))));
+                      double seedHi = hasR40
+                                    ? xR40
+                                    : (hasR55 ? peakX + 1.55 * sig : peakX + 1.80 * sig);
 
-                      const double lhsSeedExtend = sharpTurnOn ? 0.05 * sig : 0.12 * sig;
-                      const double rhsSeedExtend = verySparseHist ? 0.85 * sig : (sparseHist ? 0.60 * sig : 0.25 * sig);
+                      if (sparseHist)     seedHi += 0.25 * sig;
+                      if (verySparseHist) seedHi += 0.35 * sig;
 
-                      double seedLo = seedLoBase - lhsSeedExtend;
-                      double seedHi = seedHiBase + rhsSeedExtend;
-
-                      if (!std::isfinite(seedLo)) seedLo = std::max(supportLo, peakX - 1.00 * sig);
-                      if (!std::isfinite(seedHi)) seedHi = std::min(supportHi, peakX + 1.60 * sig);
+                      if (!std::isfinite(seedLo)) seedLo = peakX - 0.90 * sig;
+                      if (!std::isfinite(seedHi)) seedHi = peakX + 1.80 * sig;
 
                       if (seedLo < supportLo) seedLo = supportLo;
                       if (seedHi > supportHi) seedHi = supportHi;
 
-                      const double minSeedWidth = (verySparseHist ? 5.2 : (sparseHist ? 4.8 : 4.2)) * binW;
+                      const double minSeedWidth = (verySparseHist ? 4.8 : (sparseHist ? 4.4 : 4.0)) * binW;
                       if (seedHi - seedLo < minSeedWidth)
                       {
-                        const double leftFrac  = (sharpTurnOn ? 0.40 : 0.48);
+                        const double leftFrac  = sharpTurnOn ? 0.35 : 0.45;
                         const double rightFrac = 1.0 - leftFrac;
 
                         seedLo = peakX - leftFrac  * minSeedWidth;
@@ -1385,20 +1441,19 @@ void RunJES3QA(Dataset& ds)
                       f->SetParameters(peakY, peakX, sig);
                       f->SetParLimits(0, 0.0, 5.0 * std::max(peakY, h->GetMaximum()));
 
-                      double muLoLimit = seedLo;
-                      double muHiLimit = seedHi;
-                      if (sharpTurnOn)
-                      {
-                        muLoLimit = std::max(seedLo, peakX - 0.25 * sig);
-                        muHiLimit = std::min(seedHi, peakX + 0.55 * sig);
-                      }
+                      double muLoLimit = sharpTurnOn ? std::max(seedLo, peakX - 0.10 * sig)
+                                                     : std::max(seedLo, peakX - 0.30 * sig);
+                      double muHiLimit = sharpTurnOn ? std::min(seedHi, peakX + 0.30 * sig)
+                                                     : std::min(seedHi, peakX + 0.55 * sig);
+
                       if (muHiLimit <= muLoLimit)
                       {
                         muLoLimit = seedLo;
                         muHiLimit = seedHi;
                       }
+
                       f->SetParLimits(1, muLoLimit, muHiLimit);
-                      f->SetParLimits(2, 0.60 * sigFloor, 0.30 * (xHiHard - xLoHard));
+                      f->SetParLimits(2, 0.60 * sigFloor, 0.35 * (xHiHard - xLoHard));
 
                       int fitStatus = h->Fit(f, "RQ0NWLI");
                       if (fitStatus != 0) fitStatus = h->Fit(f, "RQ0NLI");
@@ -1410,17 +1465,17 @@ void RunJES3QA(Dataset& ds)
                       if (!std::isfinite(sigFit) || sigFit <= 0.0) sigFit = sig;
                       if (sigFit < sigFloor) sigFit = sigFloor;
 
-                      double finalLo = sharpTurnOn ? std::max(seedLo, muFit - 0.90 * sigFit)
-                                                   : std::max(seedLo, muFit - 1.15 * sigFit);
-                      double finalHi = std::min(supportHi,
-                                         muFit + (verySparseHist ? 2.20 * sigFit : (sparseHist ? 1.90 * sigFit : 1.50 * sigFit)));
+                      double finalLo = sharpTurnOn ? std::max(seedLo, muFit - 0.75 * sigFit)
+                                                   : std::max(seedLo, muFit - 1.00 * sigFit);
+                      double finalHi = std::min(
+                        supportHi,
+                        std::max(seedHi, muFit + (verySparseHist ? 2.20 * sigFit : (sparseHist ? 1.95 * sigFit : 1.70 * sigFit)))
+                      );
 
-                      if (finalHi < seedHi) finalHi = seedHi;
-
-                      const double minFinalWidth = (verySparseHist ? 4.9 : (sparseHist ? 4.4 : 3.9)) * binW;
+                      const double minFinalWidth = (verySparseHist ? 4.4 : (sparseHist ? 4.0 : 3.6)) * binW;
                       if (finalHi - finalLo < minFinalWidth)
                       {
-                        const double leftFrac  = (sharpTurnOn ? 0.40 : 0.48);
+                        const double leftFrac  = sharpTurnOn ? 0.35 : 0.45;
                         const double rightFrac = 1.0 - leftFrac;
 
                         finalLo = muFit - leftFrac  * minFinalWidth;
@@ -1467,9 +1522,11 @@ void RunJES3QA(Dataset& ds)
 
                       if (sparseHist)
                       {
-                        double refitLo = finalLo;
-                        double refitHi = std::min(supportHi,
-                                           std::max(finalHi, fitMu + (verySparseHist ? 2.40 * fitSig : 2.10 * fitSig)));
+                        const double refitLo = finalLo;
+                        const double refitHi = std::min(
+                          supportHi,
+                          std::max(finalHi, fitMu + (verySparseHist ? 2.35 * fitSig : 2.05 * fitSig))
+                        );
 
                         if (refitHi > refitLo + 0.5 * binW)
                         {
@@ -1485,9 +1542,8 @@ void RunJES3QA(Dataset& ds)
 
                           if (std::isfinite(refitMu) && std::isfinite(refitSig) && refitSig > 0.0)
                           {
-                            fitMu   = refitMu;
-                            fitSig  = refitSig;
-                            finalLo = refitLo;
+                            fitMu  = refitMu;
+                            fitSig = refitSig;
                             finalHi = refitHi;
                           }
                         }
@@ -1506,6 +1562,7 @@ void RunJES3QA(Dataset& ds)
                       f->SetNpx(800);
                       return f;
                 };
+                
                 auto DrawFitOnly = [&](TF1* f)
                 {
                       if (!f) return;
@@ -1515,25 +1572,44 @@ void RunJES3QA(Dataset& ds)
                       f->SetNpx(800);
                       f->Draw("same");
                 };
-                for (int k = 0; k < nTableBins; ++k)
+                for (int k = 0; k < perPage; ++k)
                 {
-                  const int ib = startBinForTable + k;
+                  canTblFits.cd(k + 1);
 
-                  const double ptMinGamma = H.hReco_xJ->GetXaxis()->GetBinLowEdge(ib);
-                  const double ptMaxGamma = H.hReco_xJ->GetXaxis()->GetBinUpEdge(ib);
+                  if (k >= nCalibBins)
+                  {
+                    PaintPadBlack();
+                    canTblMeans.cd(k + 1);
+                    PaintPadBlack();
+                    continue;
+                  }
+
+                  const auto& G = inSituPtGroups[k];
+
+                  const double ptMinGamma = G.ptLo;
+                  const double ptMaxGamma = G.ptHi;
                   const double ptCtr = 0.5 * (ptMinGamma + ptMaxGamma);
                   const double ptErr = 0.5 * (ptMaxGamma - ptMinGamma);
 
-                  TH1* hDatRaw = ProjectY_AtXbin_AndAlphaMax_TH3(
-                    H.hReco_xJ, ib, H.hReco_xJ->GetZaxis()->GetXmax(),
-                    TString::Format("h_tbl_fit_dat_%s_%d", rKey.c_str(), ib).Data()
+                  TH1* hDatRaw = ProjectGroupedY_IntegratedAlpha_TH3(
+                    H.hReco_xJ, G.ptLo, G.ptHi,
+                    TString::Format("h_tbl_fit_dat_%s_%s", rKey.c_str(), G.tag.c_str()).Data()
                   );
-                  TH1* hSimRaw = ProjectY_AtXbin_AndAlphaMax_TH3(
-                    hSim3, ib, hSim3->GetZaxis()->GetXmax(),
-                    TString::Format("h_tbl_fit_sim_%s_%d", rKey.c_str(), ib).Data()
+                  TH1* hSimRaw = ProjectGroupedY_IntegratedAlpha_TH3(
+                    hSim3, G.ptLo, G.ptHi,
+                    TString::Format("h_tbl_fit_sim_%s_%s", rKey.c_str(), G.tag.c_str()).Data()
                   );
 
-                  if (!hDatRaw || !hSimRaw) { if (hDatRaw) delete hDatRaw; if (hSimRaw) delete hSimRaw; continue; }
+                  if (!hDatRaw || !hSimRaw)
+                  {
+                    if (hDatRaw) delete hDatRaw;
+                    if (hSimRaw) delete hSimRaw;
+                    canTblFits.cd(k + 1);
+                    PaintPadBlack();
+                    canTblMeans.cd(k + 1);
+                    PaintPadBlack();
+                    continue;
+                  }
 
                   hDatRaw->SetDirectory(nullptr);
                   hSimRaw->SetDirectory(nullptr);
@@ -1546,8 +1622,8 @@ void RunJES3QA(Dataset& ds)
                   if (iDat > 0.0) hDatRaw->Scale(1.0 / iDat);
                   if (iSim > 0.0) hSimRaw->Scale(1.0 / iSim);
 
-                  TH1* hDatMeanTbl = CloneTH1(hDatRaw, TString::Format("h_tbl_mean_dat_%s_%d", rKey.c_str(), ib).Data());
-                  TH1* hSimMeanTbl = CloneTH1(hSimRaw, TString::Format("h_tbl_mean_sim_%s_%d", rKey.c_str(), ib).Data());
+                  TH1* hDatMeanTbl = CloneTH1(hDatRaw, TString::Format("h_tbl_mean_dat_%s_%s", rKey.c_str(), G.tag.c_str()).Data());
+                  TH1* hSimMeanTbl = CloneTH1(hSimRaw, TString::Format("h_tbl_mean_sim_%s_%s", rKey.c_str(), G.tag.c_str()).Data());
 
                   if (hDatMeanTbl) hDatMeanTbl->SetDirectory(nullptr);
                   if (hSimMeanTbl) hSimMeanTbl->SetDirectory(nullptr);
@@ -1584,8 +1660,8 @@ void RunJES3QA(Dataset& ds)
                   hSimRaw->Draw("E1 same");
                   gPad->Update();
 
-                  TF1* fDat = FitIterGaus(hDatRaw, TString::Format("f_tbl_dat_%s_%d", rKey.c_str(), ib).Data(), kGreen + 2);
-                  TF1* fSim = FitIterGaus(hSimRaw, TString::Format("f_tbl_sim_%s_%d", rKey.c_str(), ib).Data(), kOrange + 7);
+                  TF1* fDat = FitIterGaus(hDatRaw, TString::Format("f_tbl_dat_%s_%s", rKey.c_str(), G.tag.c_str()).Data(), kGreen + 2);
+                  TF1* fSim = FitIterGaus(hSimRaw, TString::Format("f_tbl_sim_%s_%s", rKey.c_str(), G.tag.c_str()).Data(), kOrange + 7);
 
                   if (fDat) { DrawFitOnly(fDat); keepFitFns.push_back(fDat); }
                   if (fSim) { DrawFitOnly(fSim); keepFitFns.push_back(fSim); }
@@ -1825,12 +1901,12 @@ void RunJES3QA(Dataset& ds)
 
                   keepFitsH.push_back(hDatRaw);
                   keepFitsH.push_back(hSimRaw);
-              }
+                }
 
-              SaveCanvas(canTblFits, JoinPath(dirFits, "table3x3_overlay_integratedAlpha_overlayedWithSim_withFits.png"));
-              SaveCanvas(canTblMeans, JoinPath(dirFits, "table3x3_overlay_integratedAlpha_overlayedWithSim_withMeans.png"));
+                SaveCanvas(canTblFits, JoinPath(dirFits, "table3x3_overlay_integratedAlpha_overlayedWithSim_withFits.png"));
+                SaveCanvas(canTblMeans, JoinPath(dirFits, "table3x3_overlay_integratedAlpha_overlayedWithSim_withMeans.png"));
 
-              for (auto* h1 : keepMeansH) delete h1;
+                for (auto* h1 : keepMeansH) delete h1;
 
               // Cache GetMean values for the already-drawn table bins.
               {
@@ -1871,18 +1947,21 @@ void RunJES3QA(Dataset& ds)
                 }
 
                 auto SaveGaussianFitsPerPtBin =
-                  [&](int ib)
+                  [&](int ig)
                 {
-                  const double ptMinGamma = H.hReco_xJ->GetXaxis()->GetBinLowEdge(ib);
-                  const double ptMaxGamma = H.hReco_xJ->GetXaxis()->GetBinUpEdge(ib);
+                  if (ig < 0 || ig >= nCalibBins) return;
 
-                  TH1* hDatOne = ProjectY_AtXbin_AndAlphaMax_TH3(
-                    H.hReco_xJ, ib, H.hReco_xJ->GetZaxis()->GetXmax(),
-                    TString::Format("h_gausFit_dat_%s_%d", rKey.c_str(), ib).Data()
+                  const auto& G = inSituPtGroups[ig];
+                  const double ptMinGamma = G.ptLo;
+                  const double ptMaxGamma = G.ptHi;
+
+                  TH1* hDatOne = ProjectGroupedY_IntegratedAlpha_TH3(
+                    H.hReco_xJ, G.ptLo, G.ptHi,
+                    TString::Format("h_gausFit_dat_%s_%s", rKey.c_str(), G.tag.c_str()).Data()
                   );
-                  TH1* hSimOne = ProjectY_AtXbin_AndAlphaMax_TH3(
-                    hSim3, ib, hSim3->GetZaxis()->GetXmax(),
-                    TString::Format("h_gausFit_sim_%s_%d", rKey.c_str(), ib).Data()
+                  TH1* hSimOne = ProjectGroupedY_IntegratedAlpha_TH3(
+                    hSim3, G.ptLo, G.ptHi,
+                    TString::Format("h_gausFit_sim_%s_%s", rKey.c_str(), G.tag.c_str()).Data()
                   );
 
                   if (!hDatOne || !hSimOne)
@@ -1903,11 +1982,11 @@ void RunJES3QA(Dataset& ds)
                   if (iDatOne > 0.0) hDatOne->Scale(1.0 / iDatOne);
                   if (iSimOne > 0.0) hSimOne->Scale(1.0 / iSimOne);
 
-                  TF1* fDatOne = FitIterGaus(hDatOne, TString::Format("f_gausFit_dat_%s_%d", rKey.c_str(), ib).Data(), kGreen + 2);
-                  TF1* fSimOne = FitIterGaus(hSimOne, TString::Format("f_gausFit_sim_%s_%d", rKey.c_str(), ib).Data(), kOrange + 7);
+                  TF1* fDatOne = FitIterGaus(hDatOne, TString::Format("f_gausFit_dat_%s_%s", rKey.c_str(), G.tag.c_str()).Data(), kGreen + 2);
+                  TF1* fSimOne = FitIterGaus(hSimOne, TString::Format("f_gausFit_sim_%s_%s", rKey.c_str(), G.tag.c_str()).Data(), kOrange + 7);
 
                   TCanvas cOne(
-                    TString::Format("c_gausFit_%s_%d", rKey.c_str(), ib).Data(),
+                    TString::Format("c_gausFit_%s_%s", rKey.c_str(), G.tag.c_str()).Data(),
                     "c_gausFit", 900, 700
                   );
                   ApplyCanvasMargins1D(cOne);
@@ -1981,7 +2060,7 @@ void RunJES3QA(Dataset& ds)
                   else                  tMean.DrawLatex(0.16, 0.80, "Sim <x_{J}> = N/A");
 
                   SaveCanvas(cOne, JoinPath(dirFits,
-                    TString::Format("xJ_reco_integratedAlpha_overlayedWithSim_withFits_pTbin%d.png", ib).Data()));
+                    TString::Format("xJ_reco_integratedAlpha_overlayedWithSim_withFits_pTbin%d.png", ig + 1).Data()));
 
                   if (fDatOne) delete fDatOne;
                   if (fSimOne) delete fSimOne;
@@ -1989,116 +2068,10 @@ void RunJES3QA(Dataset& ds)
                   delete hSimOne;
                 };
 
-                for (int ib = startBinForTable; ib <= nPt; ++ib)
+                for (int ig = 0; ig < nCalibBins; ++ig)
                 {
-                  SaveGaussianFitsPerPtBin(ib);
+                  SaveGaussianFitsPerPtBin(ig);
                 }
-
-                // Also fit any remaining p_{T}^{#gamma} bins beyond the 2x3 table
-                // so ALL summary PNGs (mean/sigma/chi2/ratio vs pT) use the full YAML pT binning.
-                for (int k = nTableBins; k < nPt; ++k)
-                {
-                   const int ib = startBinForTable + k;
-
-                   const double ptMinGamma = H.hReco_xJ->GetXaxis()->GetBinLowEdge(ib);
-                   const double ptMaxGamma = H.hReco_xJ->GetXaxis()->GetBinUpEdge(ib);
-                   const double ptCtr = 0.5 * (ptMinGamma + ptMaxGamma);
-                   const double ptErr = 0.5 * (ptMaxGamma - ptMinGamma);
-
-                   TH1* hDatRaw = ProjectY_AtXbin_AndAlphaMax_TH3(
-                      H.hReco_xJ, ib, H.hReco_xJ->GetZaxis()->GetXmax(),
-                      TString::Format("h_tbl_fit_dat_%s_%d", rKey.c_str(), ib).Data()
-                   );
-                   TH1* hSimRaw = ProjectY_AtXbin_AndAlphaMax_TH3(
-                      hSim3, ib, hSim3->GetZaxis()->GetXmax(),
-                      TString::Format("h_tbl_fit_sim_%s_%d", rKey.c_str(), ib).Data()
-                   );
-
-                   if (!hDatRaw || !hSimRaw) { if (hDatRaw) delete hDatRaw; if (hSimRaw) delete hSimRaw; continue; }
-
-                   hDatRaw->SetDirectory(nullptr);
-                   hSimRaw->SetDirectory(nullptr);
-
-                   EnsureSumw2(hDatRaw);
-                   EnsureSumw2(hSimRaw);
-
-                   const double iDat = hDatRaw->Integral(0, hDatRaw->GetNbinsX() + 1);
-                   const double iSim = hSimRaw->Integral(0, hSimRaw->GetNbinsX() + 1);
-                   if (iDat > 0.0) hDatRaw->Scale(1.0 / iDat);
-                   if (iSim > 0.0) hSimRaw->Scale(1.0 / iSim);
-
-                   TF1* fDat = FitIterGaus(hDatRaw, TString::Format("f_tbl_dat_%s_%d", rKey.c_str(), ib).Data(), kGreen + 2);
-                   TF1* fSim = FitIterGaus(hSimRaw, TString::Format("f_tbl_sim_%s_%d", rKey.c_str(), ib).Data(), kOrange + 7);
-
-                   if (fDat) keepFitFns.push_back(fDat);
-                   if (fSim) keepFitFns.push_back(fSim);
-
-                   {
-                      if (fDat && fDat->GetNDF() > 0)
-                      {
-                        const double mu   = fDat->GetParameter(1);
-                        const double sig  = fDat->GetParameter(2);
-                        const double chi2 = fDat->GetChisquare();
-                        const double ndf  = fDat->GetNDF();
-
-                        vMuDat.push_back(mu);
-                        vMuDatErr.push_back(fDat->GetParError(1));
-
-                        vSigDat.push_back(sig);
-                        vSigDatErr.push_back(fDat->GetParError(2));
-
-                        vChi2NdfDat.push_back(chi2 / ndf);
-                      }
-                      else
-                      {
-                        vMuDat.push_back(-1.0);
-                        vMuDatErr.push_back(0.0);
-
-                        vSigDat.push_back(-1.0);
-                        vSigDatErr.push_back(0.0);
-
-                        vChi2NdfDat.push_back(-1.0);
-                      }
-
-                      if (fSim && fSim->GetNDF() > 0)
-                      {
-                        const double mu   = fSim->GetParameter(1);
-                        const double sig  = fSim->GetParameter(2);
-                        const double chi2 = fSim->GetChisquare();
-                        const double ndf  = fSim->GetNDF();
-
-                        vMuSim.push_back(mu);
-                        vMuSimErr.push_back(fSim->GetParError(1));
-
-                        vSigSim.push_back(sig);
-                        vSigSimErr.push_back(fSim->GetParError(2));
-
-                        vChi2NdfSim.push_back(chi2 / ndf);
-                      }
-                      else
-                      {
-                        vMuSim.push_back(-1.0);
-                        vMuSimErr.push_back(0.0);
-
-                        vSigSim.push_back(-1.0);
-                        vSigSimErr.push_back(0.0);
-
-                        vChi2NdfSim.push_back(-1.0);
-                      }
-                    }
-
-                    vMeanDat.push_back(hDatRaw->GetMean());
-                    vMeanDatErr.push_back(hDatRaw->GetMeanError());
-
-                    vMeanSim.push_back(hSimRaw->GetMean());
-                    vMeanSimErr.push_back(hSimRaw->GetMeanError());
-
-                    vPtCtr.push_back(ptCtr);
-                    vPtErr.push_back(ptErr);
-
-                    keepFitsH.push_back(hDatRaw);
-                    keepFitsH.push_back(hSimRaw);
-              }
 
               if ((int)vPtCtr.size() > 0)
               {

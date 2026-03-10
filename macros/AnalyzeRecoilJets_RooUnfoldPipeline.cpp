@@ -1986,40 +1986,8 @@
                 const double xPlotMin = 10.0;
                 const double xPlotMax = 35.0;
 
-                double ymin =  1e99;
-                double ymax = -1e99;
-                bool havePoint = false;
-
-                for (int ib = 1; ib <= hRat->GetNbinsX(); ++ib)
-                {
-                  const double lo = hRat->GetXaxis()->GetBinLowEdge(ib);
-                  const double hi = hRat->GetXaxis()->GetBinUpEdge(ib);
-                  if (lo < xPlotMin || hi > xPlotMax) continue;
-
-                  const double y  = hRat->GetBinContent(ib);
-                  const double ey = hRat->GetBinError(ib);
-                  if (!std::isfinite(y) || !std::isfinite(ey)) continue;
-                  if (y <= 0.0 && ey <= 0.0) continue;
-
-                  havePoint = true;
-                  ymin = std::min(ymin, y - ey);
-                  ymax = std::max(ymax, y + ey);
-                }
-
-                if (!havePoint || !(ymin < ymax))
-                {
-                  ymin = 0.90;
-                  ymax = 1.10;
-                }
-                else
-                {
-                  const double pad = std::max(0.15 * (ymax - ymin), 0.01);
-                  ymin -= pad;
-                  ymax += pad;
-
-                  if (ymin > 1.0) ymin = 1.0 - pad;
-                  if (ymax < 1.0) ymax = 1.0 + pad;
-                }
+                const double ymin = 0.95;
+                const double ymax = 1.05;
 
                 hRat->GetXaxis()->SetRangeUser(xPlotMin, xPlotMax);
                 hRat->GetYaxis()->SetRangeUser(ymin, ymax);
@@ -2755,33 +2723,14 @@
 
             if (!xPt.empty())
             {
-              double ymin =  1e99;
-              double ymax = -1e99;
-              for (size_t i = 0; i < yRat.size(); ++i)
-              {
-                ymin = std::min(ymin, yRat[i] - eyRat[i]);
-                ymax = std::max(ymax, yRat[i] + eyRat[i]);
-              }
-                if (!(ymin < 1e98) || !(ymax > -1e98) || ymin >= ymax)
-                {
-                  ymin = 0.5;
-                  ymax = 1.5;
-                }
-                else
-                {
-                  const double pad = 0.15 * (ymax - ymin);
-                  ymin -= pad;
-                  ymax += pad;
-                  if (ymin < 0.0) ymin = 0.0;
-                  if (ymin > 1.0) ymin = 0.9;
-                  if (ymax < 1.0) ymax = 1.1;
-                }
+                const double ymin = 0.95;
+                const double ymax = 1.05;
 
                 // Save the r04 closure y-range to be reused by photon closure plots
                 if (rKey == "r04")
                 {
-                  gYmin_r04_closure = ymin;
-                  gYmax_r04_closure = ymax;
+                    gYmin_r04_closure = ymin;
+                    gYmax_r04_closure = ymax;
                 }
 
                 TCanvas c(TString::Format("c_closure_vs_pt_%s", rKey.c_str()).Data(), "c_closure_vs_pt", 900, 700);
