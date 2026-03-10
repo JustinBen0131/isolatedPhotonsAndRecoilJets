@@ -5436,7 +5436,6 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                                                              tPhi,
                                                              truth);
 
-            // Preserve your old "used" semantics: count once per event if any radius filled
           if (filledAnyRadius) ++nUsed;
 
         }
