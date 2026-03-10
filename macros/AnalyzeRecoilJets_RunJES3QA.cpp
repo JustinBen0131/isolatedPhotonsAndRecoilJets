@@ -997,7 +997,7 @@ void RunJES3QA(Dataset& ds)
               for (auto* h1 : keep) delete h1;
 
               // ---------------------------------------------------------------------
-              // Table 2 (NEW): overlays + iterative Gaussian fits + fit text
+              // Table 2: overlays + iterative Gaussian fits + fit text
               // plus mean vs pT plot from Gaussian mean
               // ---------------------------------------------------------------------
               TCanvas canTblFits(
@@ -1086,15 +1086,10 @@ void RunJES3QA(Dataset& ds)
                         double sum  = 0.0;
                         double wsum = 0.0;
 
-                        for (int jb = ib - 2; jb <= ib + 2; ++jb)
+                        for (int jb = ib - 1; jb <= ib + 1; ++jb)
                         {
                           if (jb < firstNZ || jb > lastNZ) continue;
-
-                          double w = 0.0;
-                          if (jb == ib) w = 0.40;
-                          else if (std::abs(jb - ib) == 1) w = 0.22;
-                          else w = 0.08;
-
+                          const double w = (jb == ib ? 0.50 : 0.25);
                           sum  += w * std::max(0.0, h->GetBinContent(jb));
                           wsum += w;
                         }
@@ -1102,137 +1097,270 @@ void RunJES3QA(Dataset& ds)
                         return (wsum > 0.0 ? sum / wsum : std::max(0.0, h->GetBinContent(ib)));
                       };
 
+                      auto RobustContent = [&](int ib) -> double
+                      {
+                        if (ib < firstNZ) ib = firstNZ;
+                        if (ib > lastNZ)  ib = lastNZ;
+
+                        const double c = SmoothedContent(ib);
+                        const double l = SmoothedContent(std::max(firstNZ, ib - 1));
+                        const double r = SmoothedContent(std::min(lastNZ,  ib + 1));
+
+                        return std::max(c, 0.5 * (l + r));
+                      };
+
                       auto PeakScore = [&](int ib) -> double
                       {
-                        return 0.44 * SmoothedContent(ib)
-                             + 0.30 * SmoothedContent(std::min(lastNZ, ib + 1))
-                             + 0.18 * SmoothedContent(std::min(lastNZ, ib + 2))
-                             + 0.08 * SmoothedContent(std::max(firstNZ, ib - 1));
+                        return 0.20 * RobustContent(ib - 2)
+                             + 0.60 * RobustContent(ib - 1)
+                             + 1.00 * RobustContent(ib)
+                             + 0.60 * RobustContent(ib + 1)
+                             + 0.20 * RobustContent(ib + 2);
                       };
 
                       int peakBin = firstNZ;
-                      double bestScore = -1.0;
+                      double bestPeakScore = -1.0;
                       for (int ib = firstNZ; ib <= lastNZ; ++ib)
                       {
                         const double s = PeakScore(ib);
-                        if (s > bestScore)
+                        if (s > bestPeakScore)
                         {
-                          bestScore = s;
-                          peakBin   = ib;
+                          bestPeakScore = s;
+                          peakBin       = ib;
                         }
                       }
 
                       if (peakBin < 1 || peakBin > h->GetNbinsX()) return nullptr;
 
-                      double peakX = h->GetBinCenter(peakBin);
+                      double peakY = 0.0;
+                      for (int jb = std::max(firstNZ, peakBin - 1); jb <= std::min(lastNZ, peakBin + 1); ++jb)
+                      {
+                        peakY = std::max(peakY, RobustContent(jb));
+                      }
+
+                      if (!std::isfinite(peakY) || peakY <= 0.0) return nullptr;
+
+                      const double binW = h->GetBinWidth(peakBin);
+                      const double firstNZCenter = h->GetBinCenter(firstNZ);
+                      const bool provisionalSharpTurnOn = ((h->GetBinCenter(peakBin) - firstNZCenter) < 3.0 * binW);
+
+                      int peakBinMax = peakBin;
+                      int plateauLo = peakBinMax;
+                      int plateauHi = peakBinMax;
+
+                      const double plateauFrac = provisionalSharpTurnOn
+                                               ? (verySparseHist ? 0.90 : 0.93)
+                                               : (verySparseHist ? 0.86 : (sparseHist ? 0.88 : 0.90));
+
+                      while (plateauLo > firstNZ && RobustContent(plateauLo - 1) >= plateauFrac * peakY) --plateauLo;
+                      while (plateauHi < lastNZ  && RobustContent(plateauHi + 1) >= plateauFrac * peakY) ++plateauHi;
+
+                      peakBin = plateauLo + (plateauHi - plateauLo) / 2;
+
+                      double peakX = 0.5 * (h->GetBinCenter(plateauLo) + h->GetBinCenter(plateauHi));
                       {
                         double sw  = 0.0;
                         double swx = 0.0;
-                        for (int jb = std::max(firstNZ, peakBin - 1); jb <= std::min(lastNZ, peakBin + 2); ++jb)
+                        for (int jb = std::max(firstNZ, plateauLo - 1); jb <= std::min(lastNZ, plateauHi + 1); ++jb)
                         {
-                          const double w = SmoothedContent(jb);
+                          const double y = RobustContent(jb);
+                          double w = std::max(0.0, y - plateauFrac * peakY);
+                          if (w <= 0.0) w = (provisionalSharpTurnOn ? 0.06 : 0.10) * y;
                           if (w <= 0.0) continue;
+
                           sw  += w;
                           swx += w * h->GetBinCenter(jb);
                         }
                         if (sw > 0.0) peakX = swx / sw;
                       }
 
-                      const double peakY = SmoothedContent(peakBin);
-                      if (!std::isfinite(peakY) || peakY <= 0.0) return nullptr;
+                      if (peakBinMax > firstNZ && peakBinMax < lastNZ)
+                      {
+                        const double yL = RobustContent(peakBinMax - 1);
+                        const double yC = RobustContent(peakBinMax);
+                        const double yR = RobustContent(peakBinMax + 1);
 
-                      auto RightCrossX = [&](double frac) -> double
+                        const double denom = (yL - 2.0 * yC + yR);
+                        if (std::isfinite(denom) && std::fabs(denom) > 1.0e-12)
+                        {
+                          double delta = 0.5 * (yL - yR) / denom;
+                          if (delta < -0.50) delta = -0.50;
+                          if (delta >  0.50) delta =  0.50;
+
+                          const double parPeakX = h->GetBinCenter(peakBinMax) + delta * binW;
+                          peakX = provisionalSharpTurnOn ? (0.85 * peakX + 0.15 * parPeakX)
+                                                         : (0.65 * peakX + 0.35 * parPeakX);
+                        }
+                      }
+
+                      auto FindCrossX = [&](double frac, bool goLeft, double& xCross) -> bool
                       {
                         const double thr = frac * peakY;
-                        int ib = peakBin;
-                        while (ib < lastNZ && SmoothedContent(ib) > thr) ++ib;
 
-                        if (ib <= peakBin) return h->GetBinCenter(peakBin);
-                        if (ib > lastNZ)   return h->GetBinCenter(lastNZ);
+                        if (goLeft)
+                        {
+                          int ib = peakBin;
+                          while (ib > firstNZ && RobustContent(ib) > thr) --ib;
+                          if (RobustContent(ib) > thr) return false;
+                          if (ib >= peakBin)
+                          {
+                            xCross = h->GetBinCenter(peakBin);
+                            return true;
+                          }
+
+                          const double x1 = h->GetBinCenter(ib);
+                          const double x2 = h->GetBinCenter(ib + 1);
+                          const double y1 = RobustContent(ib);
+                          const double y2 = RobustContent(ib + 1);
+
+                          if (!std::isfinite(y1) || !std::isfinite(y2) || std::fabs(y2 - y1) < 1.0e-12)
+                          {
+                            xCross = x2;
+                            return true;
+                          }
+
+                          const double t = (thr - y1) / (y2 - y1);
+                          xCross = x1 + t * (x2 - x1);
+                          return std::isfinite(xCross);
+                        }
+
+                        int ib = peakBin;
+                        while (ib < lastNZ && RobustContent(ib) > thr) ++ib;
+                        if (RobustContent(ib) > thr) return false;
+                        if (ib <= peakBin)
+                        {
+                          xCross = h->GetBinCenter(peakBin);
+                          return true;
+                        }
 
                         const double x1 = h->GetBinCenter(ib - 1);
                         const double x2 = h->GetBinCenter(ib);
-                        const double y1 = SmoothedContent(ib - 1);
-                        const double y2 = SmoothedContent(ib);
+                        const double y1 = RobustContent(ib - 1);
+                        const double y2 = RobustContent(ib);
 
-                        if (y2 >= y1 || !std::isfinite(y1) || !std::isfinite(y2)) return x2;
+                        if (!std::isfinite(y1) || !std::isfinite(y2) || std::fabs(y2 - y1) < 1.0e-12)
+                        {
+                          xCross = x1;
+                          return true;
+                        }
 
                         const double t = (thr - y1) / (y2 - y1);
-                        return x1 + t * (x2 - x1);
+                        xCross = x1 + t * (x2 - x1);
+                        return std::isfinite(xCross);
                       };
 
-                      double sig = 0.0;
-                      int nSigSeeds = 0;
+                      double xL70 = 0.0, xL55 = 0.0;
+                      double xR70 = 0.0, xR55 = 0.0, xR40 = 0.0;
 
-                      const double xR80 = RightCrossX(0.80);
-                      if (xR80 > peakX)
+                      const bool hasL70 = FindCrossX(0.70, true,  xL70);
+                      const bool hasL55 = FindCrossX(0.55, true,  xL55);
+                      const bool hasR70 = FindCrossX(0.70, false, xR70);
+                      const bool hasR55 = FindCrossX(0.55, false, xR55);
+                      const bool hasR40 = FindCrossX(0.40, false, xR40);
+
+                      auto SigmaFromOneSide = [&](double xCross, double frac) -> double
                       {
-                        sig += (xR80 - peakX) / 0.668047;
-                        ++nSigSeeds;
+                        if (!std::isfinite(xCross) || xCross <= peakX) return 0.0;
+                        const double scale = std::sqrt(std::max(1.0e-12, -2.0 * std::log(frac)));
+                        if (!std::isfinite(scale) || scale <= 0.0) return 0.0;
+                        return (xCross - peakX) / scale;
+                      };
+
+                      auto SigmaFromTwoSides = [&](double xLeft, double xRight, double frac) -> double
+                      {
+                        if (!std::isfinite(xLeft) || !std::isfinite(xRight) || xRight <= xLeft) return 0.0;
+                        const double scale = std::sqrt(std::max(1.0e-12, -2.0 * std::log(frac)));
+                        if (!std::isfinite(scale) || scale <= 0.0) return 0.0;
+                        return 0.5 * (xRight - xLeft) / scale;
+                      };
+
+                      double sigNum = 0.0;
+                      double sigDen = 0.0;
+
+                      auto AddSigma = [&](double s, double w)
+                      {
+                        if (!std::isfinite(s) || s <= 0.0 || !std::isfinite(w) || w <= 0.0) return;
+                        sigNum += w * s;
+                        sigDen += w;
+                      };
+
+                      if (hasL70 && hasR70) AddSigma(SigmaFromTwoSides(xL70, xR70, 0.70), 2.0);
+                      if (hasL55 && hasR55) AddSigma(SigmaFromTwoSides(xL55, xR55, 0.55), 1.5);
+
+                      if (sigDen <= 0.0)
+                      {
+                        if (hasR70) AddSigma(SigmaFromOneSide(xR70, 0.70), 2.0);
+                        if (hasR55) AddSigma(SigmaFromOneSide(xR55, 0.55), 1.5);
+                        if (hasR40) AddSigma(SigmaFromOneSide(xR40, 0.40), 1.0);
                       }
 
-                      const double xR60 = RightCrossX(0.60);
-                      if (xR60 > peakX)
-                      {
-                        sig += (xR60 - peakX) / 1.010768;
-                        ++nSigSeeds;
-                      }
-
-                      const double xR40 = RightCrossX(0.40);
-                      if (xR40 > peakX)
-                      {
-                        sig += (xR40 - peakX) / 1.353729;
-                        ++nSigSeeds;
-                      }
-
-                      if (nSigSeeds > 0) sig /= nSigSeeds;
+                      double sig = (sigDen > 0.0 ? sigNum / sigDen : 0.0);
 
                       if (!std::isfinite(sig) || sig <= 0.0)
                       {
-                        double sw    = 0.0;
-                        double swdx2 = 0.0;
+                        double sw   = 0.0;
+                        double swx  = 0.0;
+                        double swx2 = 0.0;
 
-                        for (int ib = peakBin; ib <= lastNZ; ++ib)
+                        const int lo = std::max(firstNZ, peakBin - 1);
+                        const int hi = std::min(lastNZ,  peakBin + (sparseHist ? 2 : 1));
+
+                        for (int ib = lo; ib <= hi; ++ib)
                         {
-                          const double w = SmoothedContent(ib);
+                          const double w = RobustContent(ib);
                           if (w <= 0.0) continue;
 
-                          const double dx = h->GetBinCenter(ib) - peakX;
-                          sw    += w;
-                          swdx2 += w * dx * dx;
+                          const double x = h->GetBinCenter(ib);
+                          sw   += w;
+                          swx  += w * x;
+                          swx2 += w * x * x;
                         }
 
-                        if (sw > 0.0) sig = std::sqrt(swdx2 / sw);
+                        if (sw > 0.0)
+                        {
+                          const double muTmp  = swx / sw;
+                          const double varTmp = swx2 / sw - muTmp * muTmp;
+                          if (varTmp > 0.0) sig = std::sqrt(varTmp);
+                        }
                       }
 
-                      const double binW = h->GetBinWidth(peakBin);
-                      if (!std::isfinite(sig) || sig <= 0.0) sig = 2.5 * binW;
+                      if (!std::isfinite(sig) || sig <= 0.0) sig = 2.0 * binW;
 
                       const double visibleSpan = std::max(3.0 * binW, supportHi - supportLo);
-                      const double sigFloor = std::max(1.15 * binW, (verySparseHist ? 0.10 : (sparseHist ? 0.075 : 0.055)) * visibleSpan);
+                      const double sigFloor = std::max(1.00 * binW, (verySparseHist ? 0.050 : (sparseHist ? 0.040 : 0.030)) * visibleSpan);
                       if (sig < sigFloor) sig = sigFloor;
 
-                      double mu = peakX;
+                      const bool sharpTurnOn = (!(hasL70 && hasL55) || plateauLo <= firstNZ + 1 || ((peakX - firstNZCenter) < 3.0 * binW));
 
-                      const double muShiftMax = (verySparseHist ? 0.35 : 0.25) * sig;
-                      const double xR90 = RightCrossX(0.90);
-                      if (xR90 > peakX)
-                      {
-                        const double rhsPull = 0.35 * (xR90 - peakX);
-                        mu = std::min(peakX + muShiftMax, peakX + rhsPull);
-                      }
+                      double seedLoBase = sharpTurnOn
+                                        ? (hasL70 ? xL70 : std::max(supportLo, peakX - 0.95 * sig))
+                                        : (hasL55 ? xL55 : std::max(supportLo, peakX - 1.20 * sig));
 
-                      double seedLo = mu - (sparseHist ? 1.35 : 1.20) * sig;
-                      double seedHi = mu + (verySparseHist ? 3.40 : (sparseHist ? 3.10 : 2.80)) * sig;
+                      double seedHiBase = hasR40
+                                        ? std::min(supportHi, xR40 + (verySparseHist ? 0.80 * sig : (sparseHist ? 0.55 * sig : 0.20 * sig)))
+                                        : (hasR55 ? std::min(supportHi, peakX + (verySparseHist ? 2.05 * sig : (sparseHist ? 1.78 * sig : 1.58 * sig)))
+                                                  : std::min(supportHi, peakX + (verySparseHist ? 2.25 * sig : (sparseHist ? 1.98 * sig : 1.78 * sig))));
+
+                      const double lhsSeedExtend = sharpTurnOn ? 0.05 * sig : 0.12 * sig;
+                      const double rhsSeedExtend = verySparseHist ? 0.85 * sig : (sparseHist ? 0.60 * sig : 0.25 * sig);
+
+                      double seedLo = seedLoBase - lhsSeedExtend;
+                      double seedHi = seedHiBase + rhsSeedExtend;
+
+                      if (!std::isfinite(seedLo)) seedLo = std::max(supportLo, peakX - 1.00 * sig);
+                      if (!std::isfinite(seedHi)) seedHi = std::min(supportHi, peakX + 1.60 * sig);
 
                       if (seedLo < supportLo) seedLo = supportLo;
                       if (seedHi > supportHi) seedHi = supportHi;
 
-                      const double minSeedWidth = (verySparseHist ? 7.0 : (sparseHist ? 6.0 : 5.0)) * binW;
+                      const double minSeedWidth = (verySparseHist ? 5.2 : (sparseHist ? 4.8 : 4.2)) * binW;
                       if (seedHi - seedLo < minSeedWidth)
                       {
-                        seedLo = mu - 0.35 * minSeedWidth;
-                        seedHi = mu + 0.65 * minSeedWidth;
+                        const double leftFrac  = (sharpTurnOn ? 0.40 : 0.48);
+                        const double rightFrac = 1.0 - leftFrac;
+
+                        seedLo = peakX - leftFrac  * minSeedWidth;
+                        seedHi = peakX + rightFrac * minSeedWidth;
 
                         if (seedLo < supportLo)
                         {
@@ -1247,73 +1375,56 @@ void RunJES3QA(Dataset& ds)
                         if (seedLo < supportLo) seedLo = supportLo;
                       }
 
+                      if (seedHi <= seedLo) return nullptr;
+
                       TF1* f = new TF1(fname.c_str(), "gaus", seedLo, seedHi);
                       f->SetLineColor(lcolor);
                       f->SetLineWidth(3);
                       f->SetLineStyle(1);
                       f->SetNpx(800);
-                      f->SetParameters(peakY, mu, sig);
-                      f->SetParLimits(0, 0.0, 10.0 * peakY);
-                      f->SetParLimits(1, std::max(xLoHard, peakX - 0.60 * visibleSpan), std::min(xHiHard, peakX + 0.60 * visibleSpan));
-                      f->SetParLimits(2, 0.90 * sigFloor, 0.50 * (xHiHard - xLoHard));
+                      f->SetParameters(peakY, peakX, sig);
+                      f->SetParLimits(0, 0.0, 5.0 * std::max(peakY, h->GetMaximum()));
 
-                      const int nIter = (verySparseHist ? 7 : 6);
-
-                      for (int it = 0; it < nIter; ++it)
+                      double muLoLimit = seedLo;
+                      double muHiLimit = seedHi;
+                      if (sharpTurnOn)
                       {
-                        double lo = mu - (sparseHist ? 1.45 : 1.30) * sig;
-                        double hi = mu + (verySparseHist ? 3.60 : (sparseHist ? 3.25 : 2.95)) * sig;
-
-                        if (lo < supportLo) lo = supportLo;
-                        if (hi > supportHi) hi = supportHi;
-
-                        const double minFitWidth = (verySparseHist ? 7.5 : (sparseHist ? 6.5 : 5.5)) * binW;
-                        if (hi - lo < minFitWidth)
-                        {
-                          lo = mu - 0.35 * minFitWidth;
-                          hi = mu + 0.65 * minFitWidth;
-
-                          if (lo < supportLo)
-                          {
-                            hi += (supportLo - lo);
-                            lo  = supportLo;
-                          }
-                          if (hi > supportHi)
-                          {
-                            lo -= (hi - supportHi);
-                            hi  = supportHi;
-                          }
-                          if (lo < supportLo) lo = supportLo;
-                        }
-
-                        if (hi <= lo) break;
-
-                        f->SetRange(lo, hi);
-                        f->SetParameter(1, mu);
-                        f->SetParameter(2, sig);
-
-                        h->Fit(f, "RQ0");
-
-                        const double newMu  = f->GetParameter(1);
-                        const double newSig = std::fabs(f->GetParameter(2));
-
-                        if (!std::isfinite(newMu) || !std::isfinite(newSig) || newSig <= 0.0) break;
-
-                        mu  = newMu;
-                        sig = std::max(newSig, sigFloor);
+                        muLoLimit = std::max(seedLo, peakX - 0.25 * sig);
+                        muHiLimit = std::min(seedHi, peakX + 0.55 * sig);
                       }
+                      if (muHiLimit <= muLoLimit)
+                      {
+                        muLoLimit = seedLo;
+                        muHiLimit = seedHi;
+                      }
+                      f->SetParLimits(1, muLoLimit, muHiLimit);
+                      f->SetParLimits(2, 0.60 * sigFloor, 0.30 * (xHiHard - xLoHard));
 
-                      double finalLo = mu - (sparseHist ? 1.55 : 1.40) * sig;
-                      double finalHi = mu + (verySparseHist ? 3.80 : (sparseHist ? 3.40 : 3.10)) * sig;
+                      int fitStatus = h->Fit(f, "RQ0NWLI");
+                      if (fitStatus != 0) fitStatus = h->Fit(f, "RQ0NLI");
 
-                      if (finalLo < supportLo) finalLo = supportLo;
-                      if (finalHi > supportHi) finalHi = supportHi;
+                      double muFit  = f->GetParameter(1);
+                      double sigFit = std::fabs(f->GetParameter(2));
 
-                      const double minFinalWidth = (verySparseHist ? 8.0 : (sparseHist ? 7.0 : 6.0)) * binW;
+                      if (!std::isfinite(muFit) || muFit < seedLo || muFit > seedHi) muFit = peakX;
+                      if (!std::isfinite(sigFit) || sigFit <= 0.0) sigFit = sig;
+                      if (sigFit < sigFloor) sigFit = sigFloor;
+
+                      double finalLo = sharpTurnOn ? std::max(seedLo, muFit - 0.90 * sigFit)
+                                                   : std::max(seedLo, muFit - 1.15 * sigFit);
+                      double finalHi = std::min(supportHi,
+                                         muFit + (verySparseHist ? 2.20 * sigFit : (sparseHist ? 1.90 * sigFit : 1.50 * sigFit)));
+
+                      if (finalHi < seedHi) finalHi = seedHi;
+
+                      const double minFinalWidth = (verySparseHist ? 4.9 : (sparseHist ? 4.4 : 3.9)) * binW;
                       if (finalHi - finalLo < minFinalWidth)
                       {
-                        finalLo = mu - 0.35 * minFinalWidth;
-                        finalHi = mu + 0.65 * minFinalWidth;
+                        const double leftFrac  = (sharpTurnOn ? 0.40 : 0.48);
+                        const double rightFrac = 1.0 - leftFrac;
+
+                        finalLo = muFit - leftFrac  * minFinalWidth;
+                        finalHi = muFit + rightFrac * minFinalWidth;
 
                         if (finalLo < supportLo)
                         {
@@ -1328,6 +1439,8 @@ void RunJES3QA(Dataset& ds)
                         if (finalLo < supportLo) finalLo = supportLo;
                       }
 
+                      if (finalLo < seedLo) finalLo = seedLo;
+                      if (finalHi > supportHi) finalHi = supportHi;
                       if (finalHi <= finalLo)
                       {
                         finalLo = seedLo;
@@ -1335,13 +1448,50 @@ void RunJES3QA(Dataset& ds)
                       }
 
                       f->SetRange(finalLo, finalHi);
-                      f->SetParameter(1, mu);
-                      f->SetParameter(2, sig);
+                      f->SetParameter(1, muFit);
+                      f->SetParameter(2, sigFit);
 
-                      h->Fit(f, "RQ0");
+                      fitStatus = h->Fit(f, "RQ0NWLI");
+                      if (fitStatus != 0) fitStatus = h->Fit(f, "RQ0NLI");
 
-                      const double fitMu  = f->GetParameter(1);
-                      const double fitSig = std::fabs(f->GetParameter(2));
+                      double fitMu  = f->GetParameter(1);
+                      double fitSig = std::fabs(f->GetParameter(2));
+
+                      if (!std::isfinite(fitMu) || !std::isfinite(fitSig) || fitSig <= 0.0)
+                      {
+                        delete f;
+                        return nullptr;
+                      }
+
+                      if (fitSig < sigFloor) fitSig = sigFloor;
+
+                      if (sparseHist)
+                      {
+                        double refitLo = finalLo;
+                        double refitHi = std::min(supportHi,
+                                           std::max(finalHi, fitMu + (verySparseHist ? 2.40 * fitSig : 2.10 * fitSig)));
+
+                        if (refitHi > refitLo + 0.5 * binW)
+                        {
+                          f->SetRange(refitLo, refitHi);
+                          f->SetParameter(1, fitMu);
+                          f->SetParameter(2, fitSig);
+
+                          fitStatus = h->Fit(f, "RQ0NWLI");
+                          if (fitStatus != 0) fitStatus = h->Fit(f, "RQ0NLI");
+
+                          const double refitMu  = f->GetParameter(1);
+                          const double refitSig = std::fabs(f->GetParameter(2));
+
+                          if (std::isfinite(refitMu) && std::isfinite(refitSig) && refitSig > 0.0)
+                          {
+                            fitMu   = refitMu;
+                            fitSig  = refitSig;
+                            finalLo = refitLo;
+                            finalHi = refitHi;
+                          }
+                        }
+                      }
 
                       if (!std::isfinite(fitMu) || !std::isfinite(fitSig) || fitSig <= 0.0)
                       {
@@ -1356,7 +1506,6 @@ void RunJES3QA(Dataset& ds)
                       f->SetNpx(800);
                       return f;
                 };
-
                 auto DrawFitOnly = [&](TF1* f)
                 {
                       if (!f) return;
