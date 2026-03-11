@@ -1798,16 +1798,36 @@
         const string phoValDir = JoinPath(phoDir, "validation");
         EnsureDir(phoValDir);
 
-        // -----------------------------
-        // (1) Iteration stability (DATA)
-        // -----------------------------
-        if (hPhoRecoData && hPhoTruthSim && hPhoRecoSim && hPhoResp_measXtruth)
-        {
-          const int kMaxIt = 10;
+          // -----------------------------
+          // (1) Iteration stability (DATA)
+          // -----------------------------
+          if (hPhoRecoData && hPhoTruthSim && hPhoRecoSim && hPhoResp_measXtruth)
+          {
+            const int kMaxIt = 10;
 
-          vector<double> xIt, exIt, yRelStat, eyRelStat, yRelDev, eyRelDev;
+            vector<double> xIt, exIt, yRelStat, eyRelStat, yRelDev, eyRelDev, yQuad, eyQuad;
 
-          TH1* hPrev = nullptr;
+            TH1* hPrev = nullptr;
+            TH1* hBaseline = CloneTH1(hPhoTruthSim, "hPhoRecoData_truthBinningBaselineForIterStability");
+
+            if (hBaseline)
+            {
+              hBaseline->SetDirectory(nullptr);
+              EnsureSumw2(hBaseline);
+              hBaseline->Reset("ICES");
+
+              for (int ib = 1; ib <= hBaseline->GetNbinsX(); ++ib)
+              {
+                const double xTruth = hBaseline->GetXaxis()->GetBinCenter(ib);
+                const int ibReco = hPhoRecoData->GetXaxis()->FindBin(xTruth);
+
+                hBaseline->SetBinContent(ib, hPhoRecoData->GetBinContent(ibReco));
+                hBaseline->SetBinError  (ib, hPhoRecoData->GetBinError  (ibReco));
+              }
+            }
+
+            int bestIt = -1;
+            double bestQuad = std::numeric_limits<double>::max();
 
             for (int it = 1; it <= kMaxIt; ++it)
             {
@@ -1841,13 +1861,10 @@
               double relStat = 0.0;
               if (sumV > 0.0) relStat = std::sqrt(sumE2) / sumV;
 
-              if (!hPrev)
-              {
-                hPrev = hIt;
-                continue;
-              }
-
               double relDev = 0.0;
+              const TH1* hRef = (it == 1 ? hBaseline : hPrev);
+
+              if (hRef)
               {
                 double num2 = 0.0;
                 double den2 = 0.0;
@@ -1855,7 +1872,7 @@
                 for (int ib = 1; ib <= nb; ++ib)
                 {
                   const double v  = hIt->GetBinContent(ib);
-                  const double vp = hPrev->GetBinContent(ib);
+                  const double vp = hRef->GetBinContent(ib);
                   const double d  = v - vp;
 
                   num2 += d * d;
@@ -1865,88 +1882,194 @@
                 if (den2 > 0.0) relDev = std::sqrt(num2 / den2);
               }
 
+              const double quad = std::sqrt(relStat * relStat + relDev * relDev);
+
               xIt.push_back((double)it);
               exIt.push_back(0.0);
               yRelStat.push_back(relStat);
               eyRelStat.push_back(0.0);
               yRelDev.push_back(relDev);
               eyRelDev.push_back(0.0);
+              yQuad.push_back(quad);
+              eyQuad.push_back(0.0);
 
-              delete hPrev;
+              if (quad < bestQuad)
+              {
+                bestQuad = quad;
+                bestIt = it;
+              }
+
+              if (hPrev) delete hPrev;
               hPrev = hIt;
             }
 
-          if (hPrev) delete hPrev;
+            if (hPrev) delete hPrev;
+            if (hBaseline) delete hBaseline;
 
-          if ((int)xIt.size() > 0)
-          {
-            TCanvas cSt("c_pho_iterStability_relChange_relStat", "c_pho_iterStability_relChange_relStat", 900, 700);
-            ApplyCanvasMargins1D(cSt);
-
-            // Determine y-range from content
-            double ymax = 0.0;
-            for (size_t i = 0; i < yRelStat.size(); ++i) ymax = std::max(ymax, yRelStat[i]);
-            for (size_t i = 0; i < yRelDev.size();  ++i) ymax = std::max(ymax, yRelDev[i]);
-            if (ymax <= 0.0) ymax = 0.1;
-            ymax *= 1.25;
-
-            TH1F frame("frame_phoIt", "", 1, 1.0, (double)kMaxIt + 0.5);
-            frame.SetMinimum(0.0);
-            frame.SetMaximum(ymax);
-            frame.SetTitle("");
-            frame.GetXaxis()->SetTitle("Iteration");
-            frame.GetYaxis()->SetTitle("Relative quantity");
-            frame.Draw("axis");
-
-            // total relative stat. uncertainty (RED)
-            TGraphErrors gStat((int)xIt.size(), &xIt[0], &yRelStat[0], &exIt[0], &eyRelStat[0]);
-            gStat.SetMarkerStyle(24);
-            gStat.SetMarkerSize(1.1);
-            gStat.SetMarkerColor(kRed + 1);
-            gStat.SetLineColor(kRed + 1);
-            gStat.SetLineWidth(2);
-            gStat.Draw("P same");
-
-            // total relative deviation (it vs it-1) (BLUE)
-            TGraphErrors gDev((int)xIt.size(), &xIt[0], &yRelDev[0], &exIt[0], &eyRelDev[0]);
-            gDev.SetMarkerStyle(24);
-            gDev.SetMarkerSize(1.1);
-            gDev.SetMarkerColor(kBlue + 1);
-            gDev.SetLineColor(kBlue + 1);
-            gDev.SetLineWidth(2);
-            gDev.Draw("P same");
-
-            TLegend leg(0.55, 0.78, 0.89, 0.90);
-            leg.SetBorderSize(0);
-            leg.SetFillStyle(0);
-            leg.SetTextFont(42);
-            leg.SetTextSize(0.033);
-            leg.AddEntry(&gStat, "total relative stat. uncertainty", "p");
-            leg.AddEntry(&gDev,  "total relative deviation (it vs it-1)", "p");
-            leg.Draw();
-
+            if ((int)xIt.size() > 0)
             {
-                TLatex tx;
-                tx.SetNDC();
-                tx.SetTextFont(42);
-                tx.SetTextAlign(22);
-                tx.SetTextSize(0.040);
-                tx.DrawLatex(0.50, 0.965, "Iteration Stability, Photon 4 + MBD NS #geq 1, Run24pp");
-            }
+              TCanvas cSt("c_pho_iterStability_relChange_relStat", "c_pho_iterStability_relChange_relStat", 900, 700);
+              ApplyCanvasMargins1D(cSt);
 
-            // Label under legend (photon 1D unfolding)
-            {
-                TLatex tx;
-                tx.SetNDC();
-                tx.SetTextFont(42);
-                tx.SetTextAlign(13);
-                tx.SetTextSize(0.032);
-                tx.DrawLatex(0.55, 0.74, "1D photon-yield unfolding");
+              // Determine y-range from content
+              double ymax = 0.0;
+              for (size_t i = 0; i < yRelStat.size(); ++i) ymax = std::max(ymax, yRelStat[i]);
+              for (size_t i = 0; i < yRelDev.size();  ++i) ymax = std::max(ymax, yRelDev[i]);
+              if (ymax <= 0.0) ymax = 0.1;
+              ymax *= 1.25;
+
+              TH1F frame("frame_phoIt", "", 1, 1.0, (double)kMaxIt + 0.5);
+              frame.SetMinimum(0.0);
+              frame.SetMaximum(ymax);
+              frame.SetTitle("");
+              frame.GetXaxis()->SetTitle("Iteration");
+              frame.GetYaxis()->SetTitle("Relative quantity");
+              frame.Draw("axis");
+
+              // total relative stat. uncertainty (RED)
+              TGraphErrors gStat((int)xIt.size(), &xIt[0], &yRelStat[0], &exIt[0], &eyRelStat[0]);
+              gStat.SetMarkerStyle(24);
+              gStat.SetMarkerSize(1.1);
+              gStat.SetMarkerColor(kRed + 1);
+              gStat.SetLineColor(kRed + 1);
+              gStat.SetLineWidth(2);
+              gStat.Draw("P same");
+
+              // total relative deviation (it vs it-1, with it=1 using 0->1 baseline) (BLUE)
+              TGraphErrors gDev((int)xIt.size(), &xIt[0], &yRelDev[0], &exIt[0], &eyRelDev[0]);
+              gDev.SetMarkerStyle(24);
+              gDev.SetMarkerSize(1.1);
+              gDev.SetMarkerColor(kBlue + 1);
+              gDev.SetLineColor(kBlue + 1);
+              gDev.SetLineWidth(2);
+              gDev.Draw("P same");
+
+              TLegend leg(0.55, 0.78, 0.89, 0.90);
+              leg.SetBorderSize(0);
+              leg.SetFillStyle(0);
+              leg.SetTextFont(42);
+              leg.SetTextSize(0.033);
+              leg.AddEntry(&gStat, "total relative stat. uncertainty", "p");
+              leg.AddEntry(&gDev,  "total relative deviation (it vs it-1)", "p");
+              leg.Draw();
+
+              {
+                  TLatex tx;
+                  tx.SetNDC();
+                  tx.SetTextFont(42);
+                  tx.SetTextAlign(22);
+                  tx.SetTextSize(0.040);
+                  tx.DrawLatex(0.50, 0.965, "Iteration Stability, Photon 4 + MBD NS #geq 1, Run24pp");
+              }
+
+              // Label under legend (photon 1D unfolding)
+              {
+                  TLatex tx;
+                  tx.SetNDC();
+                  tx.SetTextFont(42);
+                  tx.SetTextAlign(13);
+                  tx.SetTextSize(0.032);
+                  tx.DrawLatex(0.55, 0.74, "1D photon-yield unfolding");
+              }
+
+              SaveCanvas(cSt, JoinPath(phoValDir, "pho_unfold_iterStability_relChange_relStat.png"));
+
+              TCanvas cQuad("c_pho_iterStability_quadratureSum", "c_pho_iterStability_quadratureSum", 900, 700);
+              ApplyCanvasMargins1D(cQuad);
+
+              double ymaxQ = 0.0;
+              for (size_t i = 0; i < yQuad.size(); ++i) ymaxQ = std::max(ymaxQ, yQuad[i]);
+              if (ymaxQ <= 0.0) ymaxQ = 0.1;
+              ymaxQ *= 1.25;
+
+              TH1F frameQ("frame_phoItQuad", "", 1, 1.0, (double)kMaxIt + 0.5);
+              frameQ.SetMinimum(0.0);
+              frameQ.SetMaximum(ymaxQ);
+              frameQ.SetTitle("");
+              frameQ.GetXaxis()->SetTitle("Iteration");
+              frameQ.GetYaxis()->SetTitle("Quadrature sum");
+              frameQ.Draw("axis");
+
+              TGraphErrors gQuad((int)xIt.size(), &xIt[0], &yQuad[0], &exIt[0], &eyQuad[0]);
+              gQuad.SetMarkerStyle(20);
+              gQuad.SetMarkerSize(1.1);
+              gQuad.SetMarkerColor(kBlack);
+              gQuad.SetLineColor(kBlack);
+              gQuad.SetLineWidth(2);
+              gQuad.Draw("LP same");
+
+              TGraphErrors gBest;
+              if (bestIt > 0 && std::isfinite(bestQuad))
+              {
+                const double bestX[1]  = { (double)bestIt };
+                const double bestY[1]  = { bestQuad };
+                const double bestEX[1] = { 0.0 };
+                const double bestEY[1] = { 0.0 };
+
+                gBest = TGraphErrors(1, bestX, bestY, bestEX, bestEY);
+                gBest.SetMarkerStyle(29);
+                gBest.SetMarkerSize(1.6);
+                gBest.SetMarkerColor(kRed + 1);
+                gBest.SetLineColor(kRed + 1);
+                gBest.Draw("P same");
+              }
+
+              TLegend legQ(0.55, 0.78, 0.89, 0.90);
+              legQ.SetBorderSize(0);
+              legQ.SetFillStyle(0);
+              legQ.SetTextFont(42);
+              legQ.SetTextSize(0.033);
+              legQ.AddEntry(&gQuad, "quadrature sum", "lp");
+              if (bestIt > 0 && std::isfinite(bestQuad))
+              {
+                legQ.AddEntry(&gBest, TString::Format("minimum: it=%d", bestIt).Data(), "p");
+              }
+              legQ.Draw();
+
+              {
+                  TLatex tx;
+                  tx.SetNDC();
+                  tx.SetTextFont(42);
+                  tx.SetTextAlign(22);
+                  tx.SetTextSize(0.040);
+                  tx.DrawLatex(0.50, 0.965, "Quadrature-sum optimization, Photon 4 + MBD NS #geq 1, Run24pp");
+              }
+
+              {
+                  TLatex tx;
+                  tx.SetNDC();
+                  tx.SetTextFont(42);
+                  tx.SetTextAlign(13);
+                  tx.SetTextSize(0.032);
+                  tx.DrawLatex(0.55, 0.74, "1D photon-yield unfolding");
+              }
+
+              SaveCanvas(cQuad, JoinPath(phoValDir, "pho_unfold_iterStability_quadratureSum.png"));
+
+              vector<string> iterSummary;
+              iterSummary.push_back("Photon iteration-stability summary");
+              iterSummary.push_back(TString::Format("best iteration from quadrature sum = %d", bestIt).Data());
+              iterSummary.push_back(TString::Format("minimum quadrature sum = %.10g", bestQuad).Data());
+              iterSummary.push_back("iteration-1 point uses 0->1 baseline comparison (reco input mapped onto truth binning)");
+              iterSummary.push_back("quadrature sum definition: sqrt(relStat^2 + relChange^2)");
+              iterSummary.push_back("");
+
+              for (size_t i = 0; i < xIt.size(); ++i)
+              {
+                iterSummary.push_back(
+                  TString::Format("it=%d  relStat=%.10g  relChange=%.10g  quadratureSum=%.10g",
+                                  (int)xIt[i], yRelStat[i], yRelDev[i], yQuad[i]).Data()
+                );
+              }
+
+              WriteTextFile(JoinPath(phoValDir, "pho_unfold_iterStability_bestIteration.txt"), iterSummary);
+
+              cout << ANSI_BOLD_CYN
+                   << "[PHO ITER QA] best iteration from quadrature sum = " << bestIt
+                   << "  minimum = " << bestQuad
+                   << ANSI_RESET << "\n";
             }
-              
-            SaveCanvas(cSt, JoinPath(phoValDir, "pho_unfold_iterStability_relChange_relStat.png"));
           }
-        }
 
           // -----------------------------
           // (2) Closure: unfold(reco SIM) -> truth SIM
@@ -2695,15 +2818,28 @@
                     l1.SetLineWidth(2);
                     l1.Draw("same");
 
-                    DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
-                    DrawLatexLines(0.14,0.80,
-                                   {
-                                     TString::Format("Jet efficiency summary vs p_{T}^{#gamma} (R = %.1f)", R).Data(),
-                                     "Integrated over truth x_{J} unfolding bins"
-                                   },
-                                   0.030, 0.040);
+                      {
+                        TLatex tx;
+                        tx.SetNDC();
+                        tx.SetTextFont(42);
+                        tx.SetTextAlign(13);
+                        tx.SetTextSize(0.034);
+                        tx.DrawLatex(
+                          0.14, 0.98,
+                          TString::Format("Jet Efficiency vs p_{T}^{#gamma} (R = %.1f), Run24pp, Photon 4 GeV + MBD NS #geq 1", R).Data()
+                        );
+                      }
 
-                    SaveCanvas(cJetEffPt, JoinPath(withAndWithoutJetEffOut, "jetEfficiency_integrated_vs_pTgamma.png"));
+                      {
+                        TLatex tx;
+                        tx.SetNDC();
+                        tx.SetTextFont(42);
+                        tx.SetTextAlign(13);
+                        tx.SetTextSize(0.035);
+                        tx.DrawLatex(0.14, 0.3, "Integrated over truth x_{J} unfolding bins");
+                      }
+
+                      SaveCanvas(cJetEffPt, JoinPath(withAndWithoutJetEffOut, "jetEfficiency_integrated_vs_pTgamma.png"));
                   }
 
                   if (h2UnfoldTruth)
@@ -5074,11 +5210,11 @@
                         hNo->Draw("E1");
                         hYes->Draw("E1 same");
 
-                        TLegend leg(0.52, 0.74, 0.90, 0.88);
+                        TLegend leg(0.58, 0.35, 0.90, 0.53);
                         leg.SetBorderSize(0);
                         leg.SetFillStyle(0);
                         leg.SetTextFont(42);
-                        leg.SetTextSize(0.034);
+                        leg.SetTextSize(0.03);
                         leg.AddEntry(hNo,  "unfolded data (no jet eff. corr.)", "pe");
                         leg.AddEntry(hYes, "unfolded data (+ jet eff. corr.)",  "pe");
                         leg.Draw();
@@ -5397,7 +5533,10 @@
           //   • total relative deviation between successive iterations
           //   • total relative statistical uncertainty of the unfolded spectrum
           //
-          // Output: <rOut>/unfold_iterStability_relChange_relStat.png
+          // Output:
+          //   <rOut>/unfold_iterStability_relChange_relStat.png
+          //   <rOut>/unfold_iterStability_quadratureSum.png
+          //   <rOut>/unfold_iterStability_bestIteration.txt
           // ----------------------------------------------------------------------
           {
             const int kMaxIterPlot = 10;
@@ -5410,9 +5549,45 @@
                  << "  respXJ ptr=" << (void*)&respXJ << "  hMeasDataGlob ptr=" << (void*)hMeasDataGlob << "\n"
                  << ANSI_RESET;
 
-            std::vector<double> xIt, exIt, yRelStat, eyRelStat, yRelChange, eyRelChange;
+            std::vector<double> xIt, exIt, yRelStat, eyRelStat, yRelChange, eyRelChange, yQuad, eyQuad;
 
             TH1* hPrev = nullptr;
+            TH1* hBaselineGlob = CloneTH1(
+              hTruthSimGlob,
+              TString::Format("hMeasDataGlob_truthBinningBaselineForIterStability_%s", rKey.c_str()).Data()
+            );
+
+            if (hBaselineGlob)
+            {
+              hBaselineGlob->SetDirectory(nullptr);
+              EnsureSumw2(hBaselineGlob);
+              hBaselineGlob->Reset("ICES");
+
+              const int nxTruth = h2TruthSim->GetNbinsX();
+              const int nyTruth = h2TruthSim->GetNbinsY();
+
+              for (int ix = 0; ix <= nxTruth + 1; ++ix)
+              {
+                for (int iy = 0; iy <= nyTruth + 1; ++iy)
+                {
+                  const int gTruth = h2TruthSim->GetBin(ix, iy);
+                  const int bTruth = gTruth + 1;
+                  if (bTruth < 1 || bTruth > hBaselineGlob->GetNbinsX()) continue;
+
+                  const double xTruth = h2TruthSim->GetXaxis()->GetBinCenter(ix);
+                  const double yTruth = h2TruthSim->GetYaxis()->GetBinCenter(iy);
+
+                  const int ixReco = h2RecoData->GetXaxis()->FindBin(xTruth);
+                  const int iyReco = h2RecoData->GetYaxis()->FindBin(yTruth);
+
+                  hBaselineGlob->SetBinContent(bTruth, h2RecoData->GetBinContent(ixReco, iyReco));
+                  hBaselineGlob->SetBinError  (bTruth, h2RecoData->GetBinError  (ixReco, iyReco));
+                }
+              }
+            }
+
+            int bestIt = -1;
+            double bestQuad = std::numeric_limits<double>::max();
 
             for (int it = 1; it <= kMaxIterPlot; ++it)
             {
@@ -5432,8 +5607,8 @@
               if (gSystem) gSystem->RedirectOutput(0);
               if (!hCurr)
               {
-                  cout << ANSI_BOLD_RED << "[UNF ITER QA][WARN] Hreco returned null at it=" << it << ANSI_RESET << "\n";
-                  continue;
+                cout << ANSI_BOLD_RED << "[UNF ITER QA][WARN] Hreco returned null at it=" << it << ANSI_RESET << "\n";
+                continue;
               }
 
               hCurr->SetDirectory(nullptr);
@@ -5455,35 +5630,45 @@
               const double relStat = (sumV2 > 0.0) ? std::sqrt(sumE2 / sumV2) : 0.0;
 
               double relChg = 0.0;
-              if (hPrev)
+              const TH1* hRef = (it == 1 ? hBaselineGlob : hPrev);
+
+              if (hRef)
               {
                 double sumD2 = 0.0;
                 for (int ib = 1; ib <= nb; ++ib)
                 {
-                  const double d = hCurr->GetBinContent(ib) - hPrev->GetBinContent(ib);
+                  const double d = hCurr->GetBinContent(ib) - hRef->GetBinContent(ib);
                   sumD2 += d * d;
                 }
                 relChg = (sumV2 > 0.0) ? std::sqrt(sumD2 / sumV2) : 0.0;
               }
+
+              const double quad = std::sqrt(relStat * relStat + relChg * relChg);
 
               cout << ANSI_BOLD_YEL
                    << "[UNF ITER QA] it=" << it
                    << "  nb=" << nb
                    << "  relStat=" << std::setprecision(6) << relStat
                    << "  relChange(it vs it-1)=" << std::setprecision(6) << relChg
+                   << "  quadratureSum=" << std::setprecision(6) << quad
                    << ANSI_RESET << "\n";
 
-              // Plot starts at it=2 (but uses it=1 internally to compute change at it=2)
-              if (it >= 2)
+              xIt.push_back((double)it);
+              exIt.push_back(0.0);
+
+              yRelStat.push_back(relStat);
+              eyRelStat.push_back(0.0);
+
+              yRelChange.push_back(relChg);
+              eyRelChange.push_back(0.0);
+
+              yQuad.push_back(quad);
+              eyQuad.push_back(0.0);
+
+              if (quad < bestQuad)
               {
-                xIt.push_back((double)it);
-                exIt.push_back(0.0);
-
-                yRelStat.push_back(relStat);
-                eyRelStat.push_back(0.0);
-
-                yRelChange.push_back(relChg);
-                eyRelChange.push_back(0.0);
+                bestQuad = quad;
+                bestIt = it;
               }
 
               if (hPrev) delete hPrev;
@@ -5491,10 +5676,11 @@
             }
 
             if (hPrev) delete hPrev;
+            if (hBaselineGlob) delete hBaselineGlob;
 
             cout << ANSI_BOLD_CYN
                  << "[UNF ITER QA] Points prepared: n=" << xIt.size()
-                 << " (expected " << std::max(0, kMaxIterPlot - 1) << " for it=2..kMax)\n"
+                 << " (expected " << kMaxIterPlot << " for it=1..kMax)\n"
                  << ANSI_RESET;
 
             if (!xIt.empty())
@@ -5509,7 +5695,6 @@
               TCanvas cIt(TString::Format("c_iterStability_%s", rKey.c_str()).Data(), "c_iterStability", 900, 700);
               ApplyCanvasMargins1D(cIt);
 
-              // x-axis starts at 1 (but first point is it=2)
               TH1F frame("frame","", 1, 1.0, (double)kMaxIterPlot + 0.5);
               frame.SetMinimum(0.0);
               frame.SetMaximum(1.20 * yMax);
@@ -5559,7 +5744,7 @@
                   tx.SetTextFont(42);
                   tx.SetTextAlign(22);
                   tx.SetTextSize(0.040);
-                  tx.DrawLatex(0.50, 0.965, "Iteration Stability, R = 0.4, Photon 4 + MBD NS #geq 1, Run24pp");
+                  tx.DrawLatex(0.50, 0.965, TString::Format("Iteration Stability, R = %.1f, Photon 4 + MBD NS #geq 1, Run24pp", R).Data());
               }
 
               cIt.Modified();
@@ -5568,6 +5753,103 @@
               const std::string outPng = JoinPath(rOut, "unfold_iterStability_relChange_relStat.png");
               cout << ANSI_BOLD_CYN << "[UNF ITER QA] Saving: " << outPng << ANSI_RESET << "\n";
               SaveCanvas(cIt, outPng);
+
+              double yMaxQ = 0.0;
+              for (size_t i = 0; i < yQuad.size(); ++i) yMaxQ = std::max(yMaxQ, yQuad[i]);
+              if (yMaxQ <= 0.0) yMaxQ = 0.1;
+
+              TCanvas cQuad(TString::Format("c_iterQuadrature_%s", rKey.c_str()).Data(), "c_iterQuadrature", 900, 700);
+              ApplyCanvasMargins1D(cQuad);
+
+              TH1F frameQ("frameQ","", 1, 1.0, (double)kMaxIterPlot + 0.5);
+              frameQ.SetMinimum(0.0);
+              frameQ.SetMaximum(1.20 * yMaxQ);
+              frameQ.SetTitle("");
+              frameQ.GetXaxis()->SetTitle("Iteration");
+              frameQ.GetYaxis()->SetTitle("Quadrature sum");
+              frameQ.Draw("axis");
+
+              TGraphErrors gQuad((int)xIt.size(), &xIt[0], &yQuad[0], &exIt[0], &eyQuad[0]);
+              gQuad.SetMarkerStyle(20);
+              gQuad.SetMarkerSize(1.1);
+              gQuad.SetMarkerColor(kBlack);
+              gQuad.SetLineColor(kBlack);
+              gQuad.SetLineWidth(2);
+              gQuad.Draw("LP same");
+
+              TGraphErrors gBest;
+              if (bestIt > 0 && std::isfinite(bestQuad))
+              {
+                const double bestX[1]  = { (double)bestIt };
+                const double bestY[1]  = { bestQuad };
+                const double bestEX[1] = { 0.0 };
+                const double bestEY[1] = { 0.0 };
+
+                gBest = TGraphErrors(1, bestX, bestY, bestEX, bestEY);
+                gBest.SetMarkerStyle(29);
+                gBest.SetMarkerSize(1.6);
+                gBest.SetMarkerColor(kRed + 1);
+                gBest.SetLineColor(kRed + 1);
+                gBest.Draw("P same");
+              }
+
+              TLegend legQ(0.14, 0.78, 0.54, 0.92);
+              legQ.SetBorderSize(0);
+              legQ.SetFillStyle(0);
+              legQ.SetTextFont(42);
+              legQ.SetTextSize(0.032);
+              legQ.AddEntry(&gQuad, "quadrature sum", "lp");
+              if (bestIt > 0 && std::isfinite(bestQuad))
+              {
+                legQ.AddEntry(&gBest, TString::Format("minimum: it=%d", bestIt).Data(), "p");
+              }
+              legQ.Draw();
+
+              {
+                  TLatex tx;
+                  tx.SetNDC();
+                  tx.SetTextFont(42);
+                  tx.SetTextAlign(13);
+                  tx.SetTextSize(0.032);
+                  tx.DrawLatex(0.14, 0.74, "2D (p_{T}^{#gamma}, x_{J}) unfolding");
+              }
+
+              {
+                  TLatex tx;
+                  tx.SetNDC();
+                  tx.SetTextFont(42);
+                  tx.SetTextAlign(22);
+                  tx.SetTextSize(0.040);
+                  tx.DrawLatex(0.50, 0.965, TString::Format("Quadrature-sum optimization, R = %.1f, Photon 4 + MBD NS #geq 1, Run24pp", R).Data());
+              }
+
+              const std::string outQuadPng = JoinPath(rOut, "unfold_iterStability_quadratureSum.png");
+              cout << ANSI_BOLD_CYN << "[UNF ITER QA] Saving: " << outQuadPng << ANSI_RESET << "\n";
+              SaveCanvas(cQuad, outQuadPng);
+
+              vector<string> iterSummary;
+              iterSummary.push_back("xJ iteration-stability summary");
+              iterSummary.push_back(TString::Format("radius = %s (R=%.1f)", rKey.c_str(), R).Data());
+              iterSummary.push_back(TString::Format("best iteration from quadrature sum = %d", bestIt).Data());
+              iterSummary.push_back(TString::Format("minimum quadrature sum = %.10g", bestQuad).Data());
+              iterSummary.push_back("iteration-1 point uses 0->1 baseline comparison (measured reco input mapped onto truth global binning)");
+              iterSummary.push_back("quadrature sum definition: sqrt(relStat^2 + relChange^2)");
+              iterSummary.push_back("");
+
+              for (size_t i = 0; i < xIt.size(); ++i)
+              {
+                iterSummary.push_back(
+                  TString::Format("it=%d  relStat=%.10g  relChange=%.10g  quadratureSum=%.10g",
+                                  (int)xIt[i], yRelStat[i], yRelChange[i], yQuad[i]).Data()
+                );
+              }
+
+              WriteTextFile(JoinPath(rOut, "unfold_iterStability_bestIteration.txt"), iterSummary);
+
+              cout << ANSI_BOLD_CYN
+                   << "[UNF ITER QA] best iteration from quadrature sum = " << bestIt
+                   << "  minimum = " << bestQuad
+                   << ANSI_RESET << "\n";
             }
             else
             {

@@ -16122,50 +16122,60 @@ namespace ARJ
                << "\n";
         }
 
-        if (isSimAndDataPP && bothPhoton10and20sim && do_xJ_PPunfold)
-        {
-            Dataset* dsSIM = nullptr;
-            Dataset* dsPP  = nullptr;
+          if (isSimAndDataPP && bothPhoton10and20sim &&
+              (do_xJ_PPunfold || (!do_xJ_PPunfold && gApplyPurityCorrectionForUnfolding)))
+          {
+              Dataset* dsSIM = nullptr;
+              Dataset* dsPP  = nullptr;
 
-            for (auto& ds : datasets)
-            {
-              if (ds.isSim) dsSIM = &ds;
-              else         dsPP  = &ds;
-            }
+              for (auto& ds : datasets)
+              {
+                if (ds.isSim) dsSIM = &ds;
+                else         dsPP  = &ds;
+              }
 
-            if (!dsSIM || !dsPP)
-            {
-              cout << ANSI_BOLD_YEL
-                   << "[WARN] RooUnfold pipeline requested (isSimAndDataPP && bothPhoton10and20sim && do_xJ_PPunfold), but SIM or DATA dataset is missing. Skipping."
-                   << ANSI_RESET << "\n";
+              if (!dsSIM || !dsPP)
+              {
+                cout << ANSI_BOLD_YEL
+                     << "[WARN] RooUnfold pipeline requested, but SIM or DATA dataset is missing. Skipping."
+                     << ANSI_RESET << "\n";
+              }
+              else
+              {
+                const bool runOnlyPurityCorrected = (!do_xJ_PPunfold && gApplyPurityCorrectionForUnfolding);
+
+                if (!runOnlyPurityCorrected)
+                {
+                  cout << "  -> [5I] RooUnfold pipeline (SIM+DATA PP): non-purity-corrected unfold to particle level + per-photon x_{J} tables...\n";
+                  gApplyPurityCorrectionForUnfolding = false;
+                  analysis::RunRooUnfoldPipeline_SimAndDataPP(*dsPP, *dsSIM);
+                  cout << "     [OK] nonPurityCorrected\n";
+                }
+
+                cout << "  -> [5I] RooUnfold pipeline (SIM+DATA PP): purity-corrected unfold to particle level + per-photon x_{J} tables...\n";
+                gApplyPurityCorrectionForUnfolding = true;
+                analysis::RunRooUnfoldPipeline_SimAndDataPP(*dsPP, *dsSIM);
+                cout << "     [OK] purityCorrected\n";
+
+                if (!runOnlyPurityCorrected)
+                {
+                  gApplyPurityCorrectionForUnfolding = false;
+                  cout << "  -> [5I] purity-corrected vs non-purity-corrected per-photon x_{J} overlays...\n";
+                  analysis::RunPurityCorrectedUncorrectedOverlayPP(*dsPP);
+                  cout << "     [OK] purityCorrectedUncorrectedOverly\n";
+                }
+              }
             }
             else
             {
-              cout << "  -> [5I] RooUnfold pipeline (SIM+DATA PP): non-purity-corrected unfold to particle level + per-photon x_{J} tables...\n";
-              gApplyPurityCorrectionForUnfolding = false;
-              analysis::RunRooUnfoldPipeline_SimAndDataPP(*dsPP, *dsSIM);
-              cout << "     [OK] nonPurityCorrected\n";
-
-              cout << "  -> [5I] RooUnfold pipeline (SIM+DATA PP): purity-corrected unfold to particle level + per-photon x_{J} tables...\n";
-              gApplyPurityCorrectionForUnfolding = true;
-              analysis::RunRooUnfoldPipeline_SimAndDataPP(*dsPP, *dsSIM);
-              gApplyPurityCorrectionForUnfolding = false;
-              cout << "     [OK] purityCorrected\n";
-
-              cout << "  -> [5I] purity-corrected vs non-purity-corrected per-photon x_{J} overlays...\n";
-              analysis::RunPurityCorrectedUncorrectedOverlayPP(*dsPP);
-              cout << "     [OK] purityCorrectedUncorrectedOverly\n";
+              cout << ANSI_BOLD_YEL
+                   << "[5I] Skipping RooUnfold pipeline: requires isSimAndDataPP && bothPhoton10and20sim and either do_xJ_PPunfold=true or (do_xJ_PPunfold=false with gApplyPurityCorrectionForUnfolding=true).\n"
+                   << "     Current: isSimAndDataPP=" << (isSimAndDataPP ? "true" : "false")
+                   << " bothPhoton10and20sim=" << (bothPhoton10and20sim ? "true" : "false")
+                   << " do_xJ_PPunfold=" << (do_xJ_PPunfold ? "true" : "false")
+                   << " gApplyPurityCorrectionForUnfolding=" << (gApplyPurityCorrectionForUnfolding ? "true" : "false")
+                   << ANSI_RESET << "\n";
             }
-          }
-          else
-          {
-            cout << ANSI_BOLD_YEL
-                 << "[5I] Skipping RooUnfold pipeline: requires (isSimAndDataPP && bothPhoton10and20sim && do_xJ_PPunfold).\n"
-                 << "     Current: isSimAndDataPP=" << (isSimAndDataPP ? "true" : "false")
-                 << " bothPhoton10and20sim=" << (bothPhoton10and20sim ? "true" : "false")
-                 << " do_xJ_PPunfold=" << (do_xJ_PPunfold ? "true" : "false")
-                 << ANSI_RESET << "\n";
-          }
       }
 
       // ---------------------------------------------------------------------------

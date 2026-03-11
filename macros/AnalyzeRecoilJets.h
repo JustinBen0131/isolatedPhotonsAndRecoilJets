@@ -164,11 +164,27 @@ namespace ARJ
   inline bool isPPdataOnly   = false;
   inline bool isSimAndDataPP = true;
   
+  // RooUnfold control:
+  //   do_xJ_PPunfold = true
+  //     -> run the standard PP RooUnfold workflow exactly as before:
+  //        1) non-purity-corrected  -> unfolding/nonPurityCorrected/...
+  //        2) purity-corrected      -> unfolding/purityCorrected/...
+  //        3) overlay comparison
+  //
+  //   do_xJ_PPunfold = false and gApplyPurityCorrectionForUnfolding = true
+  //     -> run ONLY the purity-corrected PP RooUnfold workflow:
+  //        unfolding/purityCorrected/...
+  //
+  //   do_xJ_PPunfold = false and gApplyPurityCorrectionForUnfolding = false
+  //     -> skip the PP RooUnfold workflow
+  //
+  // Within the pipeline itself, gApplyPurityCorrectionForUnfolding still selects
+  // whether the reco input is raw or ABCD purity-corrected.
   inline bool do_xJ_PPunfold = false;
   // Internal toggle used to run the RooUnfold pipeline twice:
   //   false -> raw reco inputs                     -> unfolding/nonPurityCorrected/...
   //   true  -> ABCD purity-corrected reco inputs  -> unfolding/purityCorrected/...
-  inline bool gApplyPurityCorrectionForUnfolding = false;
+  inline bool gApplyPurityCorrectionForUnfolding = true;
 
   // AuAu-only analysis mode (no SIM, no PP). When true, the full plotting
   // pipeline runs on AuAu only and outputs to dataOutput/auau/<trigger>/...
