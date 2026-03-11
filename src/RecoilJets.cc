@@ -2591,6 +2591,97 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
     }
 
     // ------------------------------------------------------------------
+    // dedicated jet-efficiency bookkeeping for post-unfold ATLAS-style correction
+    //   Den: truth recoil jets in truth unfolding phase space
+    //   Num: subset with a selection-aware reco jet match, built independently
+    //        of the geometry-first response MissA/MissB taxonomy
+    // ------------------------------------------------------------------
+    std::vector<char> truthJetEffRecoPass(truthJetsFid.size(), 0);
+
+    if (haveTruthTarget)
+    {
+      JetContainer* recoJetsAll = nullptr;
+      if (auto itR = m_jets.find(rKey); itR != m_jets.end()) recoJetsAll = itR->second;
+
+      std::vector<const Jet*> recoJetsForJetEff;
+      if (recoJetsAll)
+      {
+        recoJetsForJetEff.reserve(recoJetsAll->size());
+
+        const double etaMaxRecoJetEff = jetEtaAbsMaxForRKey(rKey);
+        const double xJMinJetEff = (!m_unfoldXJBins.empty() ? m_unfoldXJBins.front() : 0.0);
+        const double xJMaxJetEff = (!m_unfoldXJBins.empty() ? m_unfoldXJBins.back() : std::numeric_limits<double>::infinity());
+
+        for (const Jet* rj : *recoJetsAll)
+        {
+          if (!rj) continue;
+
+          const double ptj  = rj->get_pt();
+          const double etaj = rj->get_eta();
+          const double phij = rj->get_phi();
+
+          if (!std::isfinite(ptj) || !std::isfinite(etaj) || !std::isfinite(phij)) continue;
+          if (ptj < m_minJetPt) continue;
+
+          const double dphiPho = TVector2::Phi_mpi_pi(phij - tPhi);
+          const double detaPho = (etaj - tEta);
+          const double dRPho2  = (detaPho*detaPho + dphiPho*dphiPho);
+
+          if (!std::isfinite(dRPho2) || (dRPho2 < (0.4 * 0.4))) continue;
+          if (std::fabs(etaj) >= etaMaxRecoJetEff) continue;
+
+          const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(phij - tPhi));
+          if (!std::isfinite(dphiAbs) || dphiAbs < m_minBackToBack) continue;
+
+          const double xJrTruthPho = ptj / tPt;
+          if (!(xJrTruthPho >= xJMinJetEff && xJrTruthPho < xJMaxJetEff)) continue;
+
+          recoJetsForJetEff.push_back(rj);
+        }
+      }
+
+      if (!recoJetsForJetEff.empty())
+      {
+        struct JetEffCandPair { double dr; int iReco; int iTruth; };
+        std::vector<JetEffCandPair> jetEffCands;
+        jetEffCands.reserve(recoJetsForJetEff.size() * truthJetsFid.size());
+
+        for (int ir = 0; ir < static_cast<int>(recoJetsForJetEff.size()); ++ir)
+        {
+          const Jet* rj = recoJetsForJetEff[ir];
+          if (!rj) continue;
+
+          for (int it = 0; it < static_cast<int>(truthJetsFid.size()); ++it)
+          {
+            if (!truthJetsFidIsRecoil[it]) continue;
+
+            const Jet* tj = truthJetsFid[it];
+            if (!tj) continue;
+
+            const double dr = dR(rj->get_eta(), rj->get_phi(), tj->get_eta(), tj->get_phi());
+            if (dr < m_jetMatchDRMax) jetEffCands.push_back({dr, ir, it});
+          }
+        }
+
+        std::sort(jetEffCands.begin(), jetEffCands.end(),
+                  [](const JetEffCandPair& a, const JetEffCandPair& b){ return a.dr < b.dr; });
+
+        std::vector<char> recoJetEffMatched(recoJetsForJetEff.size(), 0);
+        std::vector<char> truthJetEffMatched(truthJetsFid.size(), 0);
+
+        for (const auto& cp : jetEffCands)
+        {
+          if (recoJetEffMatched[cp.iReco]) continue;
+          if (truthJetEffMatched[cp.iTruth]) continue;
+
+          recoJetEffMatched[cp.iReco]    = 1;
+          truthJetEffMatched[cp.iTruth]  = 1;
+          truthJetEffRecoPass[cp.iTruth] = 1;
+        }
+      }
+    }
+
+    // ------------------------------------------------------------------
     //  leading-truth recoil jet1 match bookkeeping vs truth pT^gamma
     // ------------------------------------------------------------------
     if (haveTruthTarget && haveRecoPhoton)
@@ -3009,7 +3100,7 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
       if (!tj) continue;
 
       const double dr = dR(rj->get_eta(), rj->get_phi(), tj->get_eta(), tj->get_phi());
-      if (dr < 0.3) cands.push_back({dr, ir, it});
+      if (dr < m_jetMatchDRMax) cands.push_back({dr, ir, it});
     }
   }
 
@@ -3037,6 +3128,9 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
     auto* h2RecoM  = getOrBookUnfoldRecoMatchedPtXJIncl(trigShort, rKey, effCentIdx_M);
     auto* h2TruthM = getOrBookUnfoldTruthMatchedPtXJIncl(trigShort, rKey, effCentIdx_M);
 
+    auto* hJetEffDen = getOrBookUnfoldJetEffDenPtXJIncl(trigShort, rKey, effCentIdx_M);
+    auto* hJetEffNum = getOrBookUnfoldJetEffNumPtXJIncl(trigShort, rKey, effCentIdx_M);
+
     auto* hFakeA   = getOrBookUnfoldRecoFakesPtXJIncl_typeA(trigShort, rKey, effCentIdx_M);
     auto* hFakeB   = getOrBookUnfoldRecoFakesPtXJIncl_typeB(trigShort, rKey, effCentIdx_M);
     auto* hMissA   = getOrBookUnfoldTruthMissesPtXJIncl_typeA(trigShort, rKey, effCentIdx_M);
@@ -3049,7 +3143,38 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
     auto* hPtScatterLead= getOrBookLeadRecoilJetPtTruthPtReco(trigShort, rKey, effCentIdx_M);
     auto* hDRLead       = getOrBookLeadRecoilJetMatchDR(trigShort, rKey, effCentIdx_M);
 
-      if (!h2Reco || !h2Truth || !hRsp || !hFake || !hMiss) continue;
+    if (!h2Reco || !h2Truth || !hRsp || !hFake || !hMiss || !hJetEffDen || !hJetEffNum) continue;
+
+    if (haveTruthTarget)
+    {
+        const double ptTruthMinJetEff = (!m_unfoldTruthPhotonPtBins.empty() ? m_unfoldTruthPhotonPtBins.front() : 0.0);
+        const double ptTruthMaxJetEff = (!m_unfoldTruthPhotonPtBins.empty() ? m_unfoldTruthPhotonPtBins.back() : std::numeric_limits<double>::infinity());
+        const double xJMinJetEff = (!m_unfoldXJBins.empty() ? m_unfoldXJBins.front() : 0.0);
+        const double xJMaxJetEff = (!m_unfoldXJBins.empty() ? m_unfoldXJBins.back() : std::numeric_limits<double>::infinity());
+
+        if (tPt >= ptTruthMinJetEff && tPt < ptTruthMaxJetEff)
+        {
+          for (std::size_t it = 0; it < truthJetsFid.size(); ++it)
+          {
+            if (!truthJetsFidIsRecoil[it]) continue;
+
+            const Jet* tj = truthJetsFid[it];
+            if (!tj) continue;
+
+            const double xJt = tj->get_pt() / tPt;
+            if (!(xJt >= xJMinJetEff && xJt < xJMaxJetEff)) continue;
+
+            hJetEffDen->Fill(tPt, xJt);
+            bumpHistFill(trigShort, hJetEffDen->GetName());
+
+            if (truthJetEffRecoPass[it])
+            {
+              hJetEffNum->Fill(tPt, xJt);
+              bumpHistFill(trigShort, hJetEffNum->GetName());
+            }
+          }
+        }
+      }
 
       if (!haveTruthPho)
       {
@@ -3362,12 +3487,12 @@ void RecoilJets::fillRecoTruthJES3MatchingQA(const std::vector<std::string>& act
   const double recoJphi = recoil1Jet->get_phi();
   const double drJet = dR(recoJeta, recoJphi, tj1->get_eta(), tj1->get_phi());
 
-  if (drJet > 0.3)
+  if (drJet > m_jetMatchDRMax)
   {
-    if (Verbosity() >= 5)
-      LOG(5, CLR_YELLOW, "      [truthQA] rKey=" << rKey
-                      << " reco jet1 ↔ truth jet1 ΔR=" << drJet << " > 0.3 → skip jet-matched truth JES3 fills");
-    return;
+      if (Verbosity() >= 5)
+        LOG(5, CLR_YELLOW, "      [truthQA] rKey=" << rKey
+                        << " reco jet1 ↔ truth jet1 ΔR=" << drJet << " > " << m_jetMatchDRMax << " → skip jet-matched truth JES3 fills");
+      return;
   }
 
   for (const auto& trigShort : activeTrig)
@@ -7798,6 +7923,94 @@ TH2F* RecoilJets::getOrBookUnfoldRecoMatchedPtXJIncl(const std::string& trig,
   return h;
 }
 
+TH2F* RecoilJets::getOrBookUnfoldJetEffDenPtXJIncl(const std::string& trig,
+                                                   const std::string& rKey,
+                                                   int centIdx)
+{
+  const std::string base   = "h2_unfoldJetEffDen_pTgamma_xJ_incl";
+  const std::string suffix = suffixForBins(-1, centIdx);
+  const std::string name   = base + "_" + rKey + suffix;
+
+  if (trig.empty() || rKey.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+  dir->cd();
+
+  const std::vector<double>& kPtTruth = m_unfoldTruthPhotonPtBins;
+  const std::vector<double>& kXJ = m_unfoldXJBins;
+
+  const int nx = static_cast<int>(kPtTruth.size()) - 1;
+  const int ny = static_cast<int>(kXJ.size()) - 1;
+
+  const std::string title =
+    name + ";p_{T}^{#gamma,truth} [GeV];x_{J#gamma}^{truth} (jet-eff DEN: truth recoil jets in unfolding phase space)";
+
+  auto* h = new TH2F(name.c_str(), title.c_str(),
+                     nx, kPtTruth.data(),
+                     ny, kXJ.data());
+  h->Sumw2();
+
+  H[name] = h;
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+TH2F* RecoilJets::getOrBookUnfoldJetEffNumPtXJIncl(const std::string& trig,
+                                                   const std::string& rKey,
+                                                   int centIdx)
+{
+  const std::string base   = "h2_unfoldJetEffNum_pTgamma_xJ_incl";
+  const std::string suffix = suffixForBins(-1, centIdx);
+  const std::string name   = base + "_" + rKey + suffix;
+
+  if (trig.empty() || rKey.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+  dir->cd();
+
+  const std::vector<double>& kPtTruth = m_unfoldTruthPhotonPtBins;
+  const std::vector<double>& kXJ = m_unfoldXJBins;
+
+  const int nx = static_cast<int>(kPtTruth.size()) - 1;
+  const int ny = static_cast<int>(kXJ.size()) - 1;
+
+  const std::string title =
+    name + ";p_{T}^{#gamma,truth} [GeV];x_{J#gamma}^{truth} (jet-eff NUM: selected reco jet matched to truth recoil jet)";
+
+  auto* h = new TH2F(name.c_str(), title.c_str(),
+                     nx, kPtTruth.data(),
+                     ny, kXJ.data());
+  h->Sumw2();
+
+  H[name] = h;
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
 TH2F* RecoilJets::getOrBookUnfoldRecoFakesPtXJIncl_typeA(const std::string& trig,
                                                          const std::string& rKey,
                                                          int centIdx)
@@ -8000,8 +8213,8 @@ TH1F* RecoilJets::getOrBookUnfoldJetMatchDR(const std::string& trig,
   dir->cd();
 
   auto* h = new TH1F(name.c_str(),
-                     (name + ";#DeltaR(reco jet, truth jet);Counts").c_str(),
-                     60, 0.0, 0.30);
+                       (name + ";#DeltaR(reco jet, truth jet);Counts").c_str(),
+                       60, 0.0, m_jetMatchDRMax);
   h->Sumw2();
 
   H[name] = h;
@@ -8219,8 +8432,8 @@ TH1F* RecoilJets::getOrBookLeadRecoilJetMatchDR(const std::string& trig,
   dir->cd();
 
   auto* h = new TH1F(name.c_str(),
-                     (name + ";#DeltaR(lead recoil jet1, matched truth jet);Counts").c_str(),
-                     60, 0.0, 0.30);
+                       (name + ";#DeltaR(lead recoil jet1, matched truth jet);Counts").c_str(),
+                       60, 0.0, m_jetMatchDRMax);
   h->Sumw2();
 
   H[name] = h;
@@ -8498,7 +8711,7 @@ TH1F* RecoilJets::getOrBookLeadTruthRecoilMatchMissB_PtGammaTruth(const std::str
     const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
     const std::string title =
-      name + ";p_{T}^{#gamma,truth} [GeV];MissB (no reco fid jet within #DeltaR<0.3 of truth jet1)";
+      name + ";p_{T}^{#gamma,truth} [GeV];MissB (no reco fid jet within jet-match #DeltaR of truth jet1)";
 
     auto* h = new TH1F(name.c_str(), title.c_str(), nb, kPtTruth.data());
     h->Sumw2();

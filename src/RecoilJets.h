@@ -726,6 +726,14 @@ private:
   // unfolding QA helpers (SIM only): explicit matched distributions + type-split fakes/misses
   TH2F* getOrBookUnfoldTruthMatchedPtXJIncl      (const std::string& trig, const std::string& rKey, int centIdx);
   TH2F* getOrBookUnfoldRecoMatchedPtXJIncl       (const std::string& trig, const std::string& rKey, int centIdx);
+
+  // dedicated post-unfold jet-efficiency inputs (SIM only)
+  //   Den: truth recoil jets in truth unfolding phase space
+  //   Num: subset with a selection-aware reco jet match, built independently
+  //        of the geometry-first response MissA/MissB taxonomy
+  TH2F* getOrBookUnfoldJetEffDenPtXJIncl         (const std::string& trig, const std::string& rKey, int centIdx);
+  TH2F* getOrBookUnfoldJetEffNumPtXJIncl         (const std::string& trig, const std::string& rKey, int centIdx);
+
   TH2F* getOrBookUnfoldRecoFakesPtXJIncl_typeA   (const std::string& trig, const std::string& rKey, int centIdx);
   TH2F* getOrBookUnfoldRecoFakesPtXJIncl_typeB   (const std::string& trig, const std::string& rKey, int centIdx);
   TH2F* getOrBookUnfoldTruthMissesPtXJIncl_typeA (const std::string& trig, const std::string& rKey, int centIdx);
@@ -747,9 +755,9 @@ private:
   // -------------------------------------------------------------------------
   // (SIM ONLY): JES3-style *leading truth recoil jet1* match bookkeeping vs truth pT^gamma
   //   Den  : truth leading recoil jet1 exists (truth recoil definition)
-  //   Num  : Den + reco recoil jet1 matches truth jet1 (ΔR < 0.3)
-  //   MissA: Den + some reco fid jet within ΔR < 0.3 of truth jet1, but Num failed
-  //   MissB: Den + no reco fid jet within ΔR < 0.3 of truth jet1
+  //   Num  : Den + reco recoil jet1 matches truth jet1 (ΔR < m_jetMatchDRMax)
+  //   MissA: Den + some reco fid jet within ΔR < m_jetMatchDRMax of truth jet1, but Num failed
+  //   MissB: Den + no reco fid jet within ΔR < m_jetMatchDRMax of truth jet1
   // -------------------------------------------------------------------------
   TH1F* getOrBookLeadTruthRecoilMatchDenPtGammaTruth    (const std::string& trig, const std::string& rKey, int centIdx);
   TH1F* getOrBookLeadTruthRecoilMatchNumPtGammaTruth    (const std::string& trig, const std::string& rKey, int centIdx);
