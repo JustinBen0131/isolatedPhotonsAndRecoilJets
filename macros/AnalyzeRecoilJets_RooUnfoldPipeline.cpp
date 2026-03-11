@@ -4306,8 +4306,8 @@
                       gSphLeg.SetLineColor(hTmp->GetLineColor());
                       gSphLeg.SetLineWidth(hTmp->GetLineWidth());
 
-                      // Legend: top-left
-                      TLegend leg(0.53,0.76,0.85,0.90);
+                      // Legend: shifted right
+                      TLegend leg(0.61,0.76,0.96,0.90);
                       leg.SetTextFont(42);
                       leg.SetTextSize(0.029);
                       leg.AddEntry(&gSphLeg,
@@ -4317,6 +4317,51 @@
                                      TString::Format("ATLAS unfolded, p_{T}^{#gamma} = %s", kAtlasTable1PhoPtLabel.c_str()).Data(),
                                      "pe");
                       leg.Draw();
+
+                      if (i == 5)
+                      {
+                        const double sphJetPtMin     = 5.0;
+                        const double sphPhotonPtMin  = 20.0;
+                        const double sphTurnOnXJ     = sphJetPtMin / sphPhotonPtMin;
+
+                        const double atlasJetPtMin    = 31.6;
+                        const double atlasPhotonPtMin = 63.1;
+                        const double atlasTurnOnXJ    = atlasJetPtMin / atlasPhotonPtMin;
+
+                        if (gPad) { gPad->Modified(); gPad->Update(); }
+                        const double yMin = (gPad ? gPad->GetUymin() : 0.0);
+                        const double yMax = (gPad ? gPad->GetUymax() : ((maxY > 0.0) ? (1.15 * maxY) : 1.0));
+
+                        TLine* lSph = new TLine(sphTurnOnXJ, yMin, sphTurnOnXJ, yMax);
+                        lSph->SetLineColor(kBlue + 1);
+                        lSph->SetLineStyle(2);
+                        lSph->SetLineWidth(2);
+                        lSph->Draw("same");
+
+                        TLine* lAtlas = new TLine(atlasTurnOnXJ, yMin, atlasTurnOnXJ, yMax);
+                        lAtlas->SetLineColor(kRed + 1);
+                        lAtlas->SetLineStyle(2);
+                        lAtlas->SetLineWidth(2);
+                        lAtlas->Draw("same");
+
+                        if (gPad) { gPad->Modified(); gPad->Update(); }
+
+                        TLatex tx;
+                        tx.SetNDC();
+                        tx.SetTextFont(42);
+                        tx.SetTextAlign(13);
+                        tx.SetTextSize(0.026);
+
+                        tx.SetTextColor(kBlue + 1);
+                        tx.DrawLatex(0.61, 0.72,
+                                     TString::Format("sPHENIX x_{J} turn-on: p_{T}^{jet, min}/p_{T}^{#gamma, min} = %.0f/%.0f = %.3f",
+                                                     sphJetPtMin, sphPhotonPtMin, sphTurnOnXJ).Data());
+
+                        tx.SetTextColor(kRed + 1);
+                        tx.DrawLatex(0.61, 0.68,
+                                     TString::Format("ATLAS x_{J} turn-on: p_{T}^{jet, min}/p_{T}^{#gamma, min} = %.1f/%.1f = %.3f",
+                                                     atlasJetPtMin, atlasPhotonPtMin, atlasTurnOnXJ).Data());
+                      }
 
                     SaveCanvas(cO, JoinPath(overlayOut, TString::Format("xJ_unfolded_perPhoton_LHCoverlay_pTbin%d.png", i + 1).Data()));
 
