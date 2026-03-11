@@ -2264,29 +2264,39 @@
         const string rOut = JoinPath(outBase, rKey);
         EnsureDir(rOut);
 
-        const string overlayOut = JoinPath(rOut, "LHC_overlay");
-        EnsureDir(overlayOut);
+          const string overlayOut = JoinPath(rOut, "LHC_overlay");
+          EnsureDir(overlayOut);
 
-        const string toyVsCovOut = JoinPath(rOut, "ToyUnfoldingVsCovariance");
-        EnsureDir(toyVsCovOut);
+          const string toyVsCovOut = JoinPath(rOut, "ToyUnfoldingVsCovariance");
+          EnsureDir(toyVsCovOut);
 
-        const string beforeAfterDataOut  = JoinPath(rOut, "before_after_unfoldingOverlay_data");
-        const string beforeAfterTruthOut = JoinPath(rOut, "before_after_unfoldingOverlay_truth");
-        EnsureDir(beforeAfterDataOut);
-        EnsureDir(beforeAfterTruthOut);
+          const string beforeAfterDataOut  = JoinPath(rOut, "before_after_unfoldingOverlay_data");
+          const string beforeAfterTruthOut = JoinPath(rOut, "before_after_unfoldingOverlay_truth");
+          const string withAndWithoutJetEffOut = JoinPath(rOut, "withAndWithoutJetEffCorr");
+          EnsureDir(beforeAfterDataOut);
+          EnsureDir(beforeAfterTruthOut);
+          if (gApplyPurityCorrectionForUnfolding) EnsureDir(withAndWithoutJetEffOut);
 
-          const string nameReco   = "h2_unfoldReco_pTgamma_xJ_incl_"           + rKey;
-          const string nameRecoC  = "h2_unfoldReco_pTgamma_xJ_incl_sidebandC_" + rKey;
-          const string nameTruth  = "h2_unfoldTruth_pTgamma_xJ_incl_"          + rKey;
-          const string nameRsp    = "h2_unfoldResponse_pTgamma_xJ_incl_"       + rKey;
+            const string nameReco      = "h2_unfoldReco_pTgamma_xJ_incl_"           + rKey;
+            const string nameRecoC     = "h2_unfoldReco_pTgamma_xJ_incl_sidebandC_" + rKey;
+            const string nameTruth     = "h2_unfoldTruth_pTgamma_xJ_incl_"          + rKey;
+            const string nameRsp       = "h2_unfoldResponse_pTgamma_xJ_incl_"       + rKey;
+            const string nameJetEffDen = "h2_unfoldJetEffDen_pTgamma_xJ_incl_"      + rKey;
+            const string nameJetEffNum = "h2_unfoldJetEffNum_pTgamma_xJ_incl_"      + rKey;
 
-          TH2* h2RecoData_in       = GetObj<TH2>(dsData, nameReco,  true, true, true);
-          TH2* h2RecoData_sideC_in = (gApplyPurityCorrectionForUnfolding
-                                      ? GetObj<TH2>(dsData, nameRecoC, true, true, true)
-                                      : nullptr);
-          TH2* h2RecoSim_in        = GetObj<TH2>(dsSim,  nameReco,  true, true, true);
-          TH2* h2TruthSim_in       = GetObj<TH2>(dsSim,  nameTruth, true, true, true);
-          TH2* h2RspSim_in         = GetObj<TH2>(dsSim,  nameRsp,   true, true, true);
+            TH2* h2RecoData_in       = GetObj<TH2>(dsData, nameReco,  true, true, true);
+            TH2* h2RecoData_sideC_in = (gApplyPurityCorrectionForUnfolding
+                                        ? GetObj<TH2>(dsData, nameRecoC, true, true, true)
+                                        : nullptr);
+            TH2* h2RecoSim_in        = GetObj<TH2>(dsSim,  nameReco,      true,  true, true);
+            TH2* h2TruthSim_in       = GetObj<TH2>(dsSim,  nameTruth,     true,  true, true);
+            TH2* h2RspSim_in         = GetObj<TH2>(dsSim,  nameRsp,       true,  true, true);
+            TH2* h2JetEffDen_in      = (gApplyPurityCorrectionForUnfolding
+                                        ? GetObj<TH2>(dsSim, nameJetEffDen, true, true, false)
+                                        : nullptr);
+            TH2* h2JetEffNum_in      = (gApplyPurityCorrectionForUnfolding
+                                        ? GetObj<TH2>(dsSim, nameJetEffNum, true, true, false)
+                                        : nullptr);
 
           if (!h2RecoData_in || !h2RecoSim_in || !h2TruthSim_in || !h2RspSim_in ||
               (gApplyPurityCorrectionForUnfolding && !h2RecoData_sideC_in))
@@ -2575,15 +2585,130 @@
         const int nPtRows = 3;
         const int nPtPads = nPtCols * nPtRows;
 
-        vector<TH1*> perPhoHists(nPtAll, nullptr);
-        vector<TH1*> perPhoHists_cov(nPtAll, nullptr);
-        vector<TH1*> perPhoErrRatio(nPtAll, nullptr);
-        vector<TH1*> perPhoBeforeDataHists(nPtAll, nullptr);
-        vector<TH1*> perPhoTruthHists(nPtAll, nullptr);
-        vector<TH1*> ratioBeforeVsAfterHists(nPtAll, nullptr);
-        vector<TH1*> ratioTruthVsUnfoldedHists(nPtAll, nullptr);
+          vector<TH1*> perPhoHists(nPtAll, nullptr);
+          vector<TH1*> perPhoHists_cov(nPtAll, nullptr);
+          vector<TH1*> perPhoErrRatio(nPtAll, nullptr);
+          vector<TH1*> perPhoBeforeDataHists(nPtAll, nullptr);
+          vector<TH1*> perPhoTruthHists(nPtAll, nullptr);
+          vector<TH1*> perPhoHists_jetEffCorr(nPtAll, nullptr);
+          vector<TH1*> ratioBeforeVsAfterHists(nPtAll, nullptr);
+          vector<TH1*> ratioTruthVsUnfoldedHists(nPtAll, nullptr);
 
-        auto BuildRatioHist = [&](TH1* hNum, TH1* hDen, const char* newName)->TH1*
+          TH2* h2JetEff = nullptr;
+
+          if (gApplyPurityCorrectionForUnfolding)
+          {
+            if (!h2JetEffDen_in || !h2JetEffNum_in)
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] Missing jet-efficiency inputs for " << rKey
+                   << " (need " << nameJetEffDen << " and " << nameJetEffNum << "). "
+                   << "Skipping withAndWithoutJetEffCorr outputs for this radius."
+                   << ANSI_RESET << "\n";
+            }
+            else
+            {
+              h2JetEff = CloneTH2(
+                h2JetEffNum_in,
+                TString::Format("h2JetEff_%s", rKey.c_str()).Data()
+              );
+
+              if (h2JetEff)
+              {
+                h2JetEff->SetDirectory(nullptr);
+                EnsureSumw2(h2JetEff);
+                h2JetEff->Divide(h2JetEffDen_in);
+
+                vector<double> xPt, exPt, yEff, eyEff;
+                xPt.reserve((std::size_t)nPtAll);
+                exPt.reserve((std::size_t)nPtAll);
+                yEff.reserve((std::size_t)nPtAll);
+                eyEff.reserve((std::size_t)nPtAll);
+
+                for (int i = 0; i < nPtAll; ++i)
+                {
+                  const PtBin& b = analysisRecoBins[i];
+                  const double cen = 0.5 * (b.lo + b.hi);
+                  const double ex  = 0.5 * (b.hi - b.lo);
+
+                  const int ixEff = h2JetEffDen_in->GetXaxis()->FindBin(cen);
+                  if (ixEff < 1 || ixEff > h2JetEffDen_in->GetXaxis()->GetNbins()) continue;
+
+                  double eNumInt = 0.0;
+                  double eDenInt = 0.0;
+
+                  const double numInt = h2JetEffNum_in->IntegralAndError(
+                    ixEff, ixEff,
+                    1, h2JetEffNum_in->GetYaxis()->GetNbins(),
+                    eNumInt
+                  );
+                  const double denInt = h2JetEffDen_in->IntegralAndError(
+                    ixEff, ixEff,
+                    1, h2JetEffDen_in->GetYaxis()->GetNbins(),
+                    eDenInt
+                  );
+
+                  if (!(denInt > 0.0)) continue;
+
+                  const double eff = numInt / denInt;
+                  const double var = (eNumInt * eNumInt) / (denInt * denInt)
+                                   + (numInt * numInt * eDenInt * eDenInt) / (denInt * denInt * denInt * denInt);
+                  const double err = (var > 0.0 && std::isfinite(var)) ? std::sqrt(var) : 0.0;
+
+                  xPt.push_back(cen);
+                  exPt.push_back(ex);
+                  yEff.push_back(eff);
+                  eyEff.push_back(err);
+                }
+
+                if (!xPt.empty())
+                {
+                  TCanvas cJetEffPt(
+                    TString::Format("c_jetEffPt_%s", rKey.c_str()).Data(),
+                    "c_jetEffPt", 900, 700
+                  );
+                  ApplyCanvasMargins1D(cJetEffPt);
+
+                  TH1F frame("frame_jetEffPt","", 1, 10.0, 35.0);
+                  frame.SetMinimum(0.0);
+                  frame.SetMaximum(1.05);
+                  frame.SetTitle("");
+                  frame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                  frame.GetYaxis()->SetTitle("Integrated jet efficiency");
+                  frame.Draw("axis");
+
+                  TGraphErrors gJetEff(
+                    (int)xPt.size(),
+                    &xPt[0], &yEff[0],
+                    &exPt[0], &eyEff[0]
+                  );
+                  gJetEff.SetMarkerStyle(20);
+                  gJetEff.SetMarkerSize(1.05);
+                  gJetEff.SetMarkerColor(kBlue + 1);
+                  gJetEff.SetLineColor(kBlue + 1);
+                  gJetEff.SetLineWidth(2);
+                  gJetEff.Draw("P same");
+
+                  TLine l1(10.0, 1.0, 35.0, 1.0);
+                  l1.SetLineStyle(2);
+                  l1.SetLineWidth(2);
+                  l1.Draw("same");
+
+                  DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
+                  DrawLatexLines(0.14,0.80,
+                                 {
+                                   TString::Format("Jet efficiency summary vs p_{T}^{#gamma} (R = %.1f)", R).Data(),
+                                   "Integrated over truth x_{J} unfolding bins"
+                                 },
+                                 0.030, 0.040);
+
+                  SaveCanvas(cJetEffPt, JoinPath(withAndWithoutJetEffOut, "jetEfficiency_integrated_vs_pTgamma.png"));
+                }
+              }
+            }
+          }
+
+          auto BuildRatioHist = [&](TH1* hNum, TH1* hDen, const char* newName)->TH1*
         {
             if (!hNum || !hDen) return nullptr;
 
@@ -3162,14 +3287,79 @@
             hPerPho->SetBinError  (ib, err);
           }
 
-          hPerPho->SetTitle("");
-          hPerPho->GetXaxis()->SetTitle("x_{J}");
-          hPerPho->GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
-          hPerPho->SetLineWidth(2);
-          hPerPho->SetMarkerStyle(20);
-          hPerPho->SetMarkerSize(0.85);
+            hPerPho->SetTitle("");
+            hPerPho->GetXaxis()->SetTitle("x_{J}");
+            hPerPho->GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+            hPerPho->SetLineWidth(2);
+            hPerPho->SetMarkerStyle(20);
+            hPerPho->SetMarkerSize(0.85);
 
-          perPhoHists[i] = hPerPho;
+            perPhoHists[i] = hPerPho;
+
+            if (gApplyPurityCorrectionForUnfolding && h2JetEff)
+            {
+              const int ixJetEff = h2JetEff->GetXaxis()->FindBin(cen);
+
+              if (ixJetEff >= 1 && ixJetEff <= h2JetEff->GetXaxis()->GetNbins())
+              {
+                TH1D* hPerPhoJetEffCorr = (TH1D*)hPerPho->Clone(
+                  TString::Format("h_xJ_unf_perPho_jetEffCorr_%s_pTbin%d", rKey.c_str(), i + 1).Data()
+                );
+
+                if (hPerPhoJetEffCorr)
+                {
+                  hPerPhoJetEffCorr->SetDirectory(nullptr);
+                  EnsureSumw2(hPerPhoJetEffCorr);
+
+                  for (int ib = 0; ib <= hPerPhoJetEffCorr->GetNbinsX() + 1; ++ib)
+                  {
+                    if (ib == 0 || ib == hPerPhoJetEffCorr->GetNbinsX() + 1)
+                    {
+                      hPerPhoJetEffCorr->SetBinContent(ib, 0.0);
+                      hPerPhoJetEffCorr->SetBinError  (ib, 0.0);
+                      continue;
+                    }
+
+                    const double val  = hPerPho->GetBinContent(ib);
+                    const double eVal = hPerPho->GetBinError  (ib);
+
+                    const double eff  = h2JetEff->GetBinContent(ixJetEff, ib);
+                    const double eEff = h2JetEff->GetBinError  (ixJetEff, ib);
+
+                    if (!(std::isfinite(eff) && eff > 0.0))
+                    {
+                      hPerPhoJetEffCorr->SetBinContent(ib, 0.0);
+                      hPerPhoJetEffCorr->SetBinError  (ib, 0.0);
+                      continue;
+                    }
+
+                    const double corr = val / eff;
+
+                    double relVal = 0.0;
+                    if (val > 0.0) relVal = eVal / val;
+
+                    double relEff = 0.0;
+                    if (eff > 0.0) relEff = eEff / eff;
+
+                    const double err = corr * std::sqrt(relVal*relVal + relEff*relEff);
+
+                    hPerPhoJetEffCorr->SetBinContent(ib, corr);
+                    hPerPhoJetEffCorr->SetBinError  (ib, err);
+                  }
+
+                  hPerPhoJetEffCorr->SetTitle("");
+                  hPerPhoJetEffCorr->GetXaxis()->SetTitle("x_{J}");
+                  hPerPhoJetEffCorr->GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                  hPerPhoJetEffCorr->SetLineWidth(2);
+                  hPerPhoJetEffCorr->SetMarkerStyle(24);
+                  hPerPhoJetEffCorr->SetMarkerSize(0.85);
+                  hPerPhoJetEffCorr->SetMarkerColor(kRed + 1);
+                  hPerPhoJetEffCorr->SetLineColor(kRed + 1);
+
+                  perPhoHists_jetEffCorr[i] = hPerPhoJetEffCorr;
+                }
+              }
+            }
 
           cout << ANSI_BOLD_YEL
                  << "[PER-PHOTON DEBUG] rKey=" << rKey
@@ -4307,9 +4497,9 @@
                       gSphLeg.SetLineWidth(hTmp->GetLineWidth());
 
                       // Legend: shifted right
-                      TLegend leg(0.61,0.76,0.96,0.90);
+                      TLegend leg(0.55,0.76,0.92,0.90);
                       leg.SetTextFont(42);
-                      leg.SetTextSize(0.029);
+                      leg.SetTextSize(0.027);
                       leg.AddEntry(&gSphLeg,
                                      TString::Format("sPHENIX unfolded, p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data(),
                                      "pe");
@@ -4350,15 +4540,15 @@
                         tx.SetNDC();
                         tx.SetTextFont(42);
                         tx.SetTextAlign(13);
-                        tx.SetTextSize(0.026);
+                        tx.SetTextSize(0.025);
 
                         tx.SetTextColor(kBlue + 1);
-                        tx.DrawLatex(0.61, 0.72,
+                        tx.DrawLatex(0.54, 0.72,
                                      TString::Format("sPHENIX x_{J} turn-on: p_{T}^{jet, min}/p_{T}^{#gamma, min} = %.0f/%.0f = %.3f",
                                                      sphJetPtMin, sphPhotonPtMin, sphTurnOnXJ).Data());
 
                         tx.SetTextColor(kRed + 1);
-                        tx.DrawLatex(0.61, 0.68,
+                        tx.DrawLatex(0.54, 0.66,
                                      TString::Format("ATLAS x_{J} turn-on: p_{T}^{jet, min}/p_{T}^{#gamma, min} = %.1f/%.1f = %.3f",
                                                      atlasJetPtMin, atlasPhotonPtMin, atlasTurnOnXJ).Data());
                       }
@@ -4593,12 +4783,246 @@
                   }
               }
 
-              SaveCanvas(c, JoinPath(rOut, "table3x3_unfolded_perPhoton_dNdXJ.png"));
+                  SaveCanvas(c, JoinPath(rOut, "table3x3_unfolded_perPhoton_dNdXJ.png"));
 
-              // -------------------------------------------------------------------
-              // 2x4 summary table: before vs after unfolding (DATA)
-              //   output: <rOut>/before_after_unfoldingOverlay_data/table2x4_before_after_unfoldingOverlay_data.png
-              // -------------------------------------------------------------------
+                  if (gApplyPurityCorrectionForUnfolding)
+                  {
+                    bool anyJetEffCorr = false;
+                    for (int i = 0; i < nPtAll; ++i)
+                    {
+                      if (perPhoHists[i] && perPhoHists_jetEffCorr[i])
+                      {
+                        anyJetEffCorr = true;
+                        break;
+                      }
+                    }
+
+                    if (anyJetEffCorr)
+                    {
+                      TCanvas cJE(
+                        TString::Format("c_tbl_withAndWithoutJetEff_%s", rKey.c_str()).Data(),
+                        "c_tbl_withAndWithoutJetEff", 1800, 1300
+                      );
+                      cJE.Divide(nPtCols, nPtRows, 0.001, 0.001);
+
+                      std::vector<TLegend*> keepLegJE;
+                      keepLegJE.reserve((std::size_t)nPtPads);
+
+                      for (int ipad = 0; ipad < nPtPads; ++ipad)
+                      {
+                        const int i = ipad;
+
+                        cJE.cd(ipad + 1);
+                        gPad->SetLeftMargin(0.12);
+                        gPad->SetRightMargin(0.04);
+                        gPad->SetBottomMargin(0.12);
+                        gPad->SetTopMargin(0.06);
+
+                        if (i < 0 || i >= nPtAll)
+                        {
+                          TH1F frame("frame","", 1, 0.0, 2.0);
+                          frame.SetMinimum(0.0);
+                          frame.SetMaximum(1.0);
+                          frame.SetTitle("");
+                          frame.GetXaxis()->SetTitle("x_{J}");
+                          frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                          frame.Draw("axis");
+
+                          TLatex tx;
+                          tx.SetNDC();
+                          tx.SetTextFont(42);
+                          tx.SetTextSize(0.050);
+                          tx.DrawLatex(0.16, 0.50, "MISSING");
+                          continue;
+                        }
+
+                        const PtBin& b = analysisRecoBins[i];
+
+                        TH1* hNo  = perPhoHists[i];
+                        TH1* hYes = perPhoHists_jetEffCorr[i];
+
+                        if (hNo && hYes)
+                        {
+                          hNo->GetXaxis()->SetRangeUser(0.0, 2.0);
+                          hYes->GetXaxis()->SetRangeUser(0.0, 2.0);
+
+                          hNo->SetMarkerStyle(20);
+                          hNo->SetMarkerColor(kBlack);
+                          hNo->SetLineColor(kBlack);
+                          hNo->SetLineWidth(2);
+
+                          hYes->SetMarkerStyle(24);
+                          hYes->SetMarkerColor(kRed + 1);
+                          hYes->SetLineColor(kRed + 1);
+                          hYes->SetLineWidth(2);
+
+                          double maxY = 0.0;
+                          const int nxb = hNo->GetNbinsX();
+                          for (int ib = 1; ib <= nxb; ++ib)
+                          {
+                            const double v1 = hNo->GetBinContent(ib)  + hNo->GetBinError(ib);
+                            const double v2 = hYes->GetBinContent(ib) + hYes->GetBinError(ib);
+                            if (v1 > maxY) maxY = v1;
+                            if (v2 > maxY) maxY = v2;
+                          }
+
+                          hNo->SetMinimum(0.0);
+                          hNo->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
+                          hNo->Draw("E1");
+                          hYes->Draw("E1 same");
+
+                          TLegend* leg = new TLegend(0.54, 0.33, 0.90, 0.55);
+                          leg->SetBorderSize(0);
+                          leg->SetFillStyle(0);
+                          leg->SetTextFont(42);
+                          leg->SetTextSize(0.038);
+                          leg->AddEntry(hNo,  "unfolded data (no jet eff. corr.)", "pe");
+                          leg->AddEntry(hYes, "unfolded data (+ jet eff. corr.)",  "pe");
+                          leg->Draw();
+                          keepLegJE.push_back(leg);
+                        }
+                        else
+                        {
+                          TH1F frame("frame","", 1, 0.0, 2.0);
+                          frame.SetMinimum(0.0);
+                          frame.SetMaximum(1.0);
+                          frame.SetTitle("");
+                          frame.GetXaxis()->SetTitle("x_{J}");
+                          frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                          frame.Draw("axis");
+
+                          TLatex tx;
+                          tx.SetNDC();
+                          tx.SetTextFont(42);
+                          tx.SetTextSize(0.050);
+                          tx.DrawLatex(0.16, 0.50, "MISSING");
+                        }
+
+                        {
+                          TLatex tx;
+                          tx.SetNDC();
+                          tx.SetTextFont(42);
+                          tx.SetTextAlign(22);
+                          tx.SetTextSize(0.040);
+
+                          tx.DrawLatex(0.52, 0.955,
+                                       TString::Format("Without vs with jet eff. corr., p_{T}^{#gamma} %d-%d GeV, R = %.1f",
+                                                       b.lo, b.hi, R).Data());
+                        }
+
+                        {
+                          TLatex tx;
+                          tx.SetNDC();
+                          tx.SetTextFont(42);
+                          tx.SetTextAlign(31);
+                          tx.SetTextSize(0.04);
+
+                          const double xR = 0.93;
+                          tx.DrawLatex(xR, 0.67, "z_{vtx} < 60 cm");
+                          tx.DrawLatex(xR, 0.60, TString::Format("Bayes it = %d", kBayesIterXJ).Data());
+                          tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
+                          tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
+                          tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
+                        }
+                      }
+
+                      SaveCanvas(cJE, JoinPath(withAndWithoutJetEffOut, "table3x3_withAndWithoutJetEffCorr.png"));
+
+                      for (auto* p : keepLegJE) { delete p; }
+
+                      for (int i = 0; i < nPtAll; ++i)
+                      {
+                        const PtBin& b = analysisRecoBins[i];
+
+                        TH1* hNo  = perPhoHists[i];
+                        TH1* hYes = perPhoHists_jetEffCorr[i];
+                        if (!hNo || !hYes) continue;
+
+                        TCanvas cSingle(
+                          TString::Format("c_withAndWithoutJetEff_%s_%d", rKey.c_str(), i + 1).Data(),
+                          "c_withAndWithoutJetEff", 900, 700
+                        );
+                        ApplyCanvasMargins1D(cSingle);
+
+                        hNo->GetXaxis()->SetRangeUser(0.0, 2.0);
+                        hYes->GetXaxis()->SetRangeUser(0.0, 2.0);
+
+                        hNo->SetMarkerStyle(20);
+                        hNo->SetMarkerColor(kBlack);
+                        hNo->SetLineColor(kBlack);
+                        hNo->SetLineWidth(2);
+
+                        hYes->SetMarkerStyle(24);
+                        hYes->SetMarkerColor(kRed + 1);
+                        hYes->SetLineColor(kRed + 1);
+                        hYes->SetLineWidth(2);
+
+                        double maxY = 0.0;
+                        const int nxb = hNo->GetNbinsX();
+                        for (int ib = 1; ib <= nxb; ++ib)
+                        {
+                          const double v1 = hNo->GetBinContent(ib)  + hNo->GetBinError(ib);
+                          const double v2 = hYes->GetBinContent(ib) + hYes->GetBinError(ib);
+                          if (v1 > maxY) maxY = v1;
+                          if (v2 > maxY) maxY = v2;
+                        }
+
+                        hNo->SetMinimum(0.0);
+                        hNo->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
+                        hNo->Draw("E1");
+                        hYes->Draw("E1 same");
+
+                        TLegend leg(0.52, 0.74, 0.90, 0.88);
+                        leg.SetBorderSize(0);
+                        leg.SetFillStyle(0);
+                        leg.SetTextFont(42);
+                        leg.SetTextSize(0.034);
+                        leg.AddEntry(hNo,  "unfolded data (no jet eff. corr.)", "pe");
+                        leg.AddEntry(hYes, "unfolded data (+ jet eff. corr.)",  "pe");
+                        leg.Draw();
+
+                        {
+                          TLatex tx;
+                          tx.SetNDC();
+                          tx.SetTextFont(42);
+                          tx.SetTextAlign(22);
+                          tx.SetTextSize(0.040);
+
+                          tx.DrawLatex(0.50, 0.955,
+                                       TString::Format("Without vs with jet eff. corr., p_{T}^{#gamma} %d-%d GeV, R = %.1f",
+                                                       b.lo, b.hi, R).Data());
+                        }
+
+                        {
+                          TLatex tx;
+                          tx.SetNDC();
+                          tx.SetTextFont(42);
+                          tx.SetTextAlign(31);
+                          tx.SetTextSize(0.04);
+
+                          const double xR = 0.93;
+                          tx.DrawLatex(xR, 0.67, "z_{vtx} < 60 cm");
+                          tx.DrawLatex(xR, 0.60, TString::Format("Bayes it = %d", kBayesIterXJ).Data());
+                          tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
+                          tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
+                          tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
+                        }
+
+                        SaveCanvas(
+                          cSingle,
+                          JoinPath(
+                            withAndWithoutJetEffOut,
+                            TString::Format("xJ_withAndWithoutJetEffCorr_pTbin%d.png", i + 1).Data()
+                          )
+                        );
+                      }
+                    }
+                  }
+
+                  // -------------------------------------------------------------------
+                  // 2x4 summary table: before vs after unfolding (DATA)
+                  //   output: <rOut>/before_after_unfoldingOverlay_data/table2x4_before_after_unfoldingOverlay_data.png
+                  // -------------------------------------------------------------------
               {
                   TCanvas cBA(
                     TString::Format("c_tbl_beforeAfter_data_%s", rKey.c_str()).Data(),
@@ -5051,32 +5475,34 @@
 
           WriteTextFile(JoinPath(rOut, "summary_rooUnfold_pipeline.txt"), lines);
 
-        {
-          const string outRoot = JoinPath(rOut, "rooUnfold_outputs.root");
-          TFile f(outRoot.c_str(), "RECREATE");
-          if (f.IsOpen())
           {
-              if (hPhoUnfoldTruth)      hPhoUnfoldTruth->Write("h_phoTruth_unfolded_data");
-              if (hPhoUnfoldTruth_cov)  hPhoUnfoldTruth_cov->Write("h_phoTruth_unfolded_data_covariance");
-              if (h2RspSim)             h2RspSim->Write("h2_rsp_truthVsReco_global");
-              if (hRsp_measXtruth)      hRsp_measXtruth->Write("h2_rsp_recoVsTruth_global");
-              if (hMeasDataGlob)        hMeasDataGlob->Write("h_measData_global");
-              if (hMeasSimGlob)         hMeasSimGlob->Write("h_measSim_global");
-              if (hTruthSimGlob)        hTruthSimGlob->Write("h_truthSim_global");
-              if (hUnfoldTruthGlob)     hUnfoldTruthGlob->Write("h_truthUnfold_global");
-              if (hUnfoldTruthGlob_cov) hUnfoldTruthGlob_cov->Write("h_truthUnfold_global_covariance");
-              if (h2UnfoldTruth)        h2UnfoldTruth->Write("h2_truthUnfold_pTgamma_xJ");
-              if (h2UnfoldTruth_cov)    h2UnfoldTruth_cov->Write("h2_truthUnfold_pTgamma_xJ_covariance");
+            const string outRoot = JoinPath(rOut, "rooUnfold_outputs.root");
+            TFile f(outRoot.c_str(), "RECREATE");
+            if (f.IsOpen())
+            {
+                if (hPhoUnfoldTruth)      hPhoUnfoldTruth->Write("h_phoTruth_unfolded_data");
+                if (hPhoUnfoldTruth_cov)  hPhoUnfoldTruth_cov->Write("h_phoTruth_unfolded_data_covariance");
+                if (h2RspSim)             h2RspSim->Write("h2_rsp_truthVsReco_global");
+                if (hRsp_measXtruth)      hRsp_measXtruth->Write("h2_rsp_recoVsTruth_global");
+                if (hMeasDataGlob)        hMeasDataGlob->Write("h_measData_global");
+                if (hMeasSimGlob)         hMeasSimGlob->Write("h_measSim_global");
+                if (hTruthSimGlob)        hTruthSimGlob->Write("h_truthSim_global");
+                if (hUnfoldTruthGlob)     hUnfoldTruthGlob->Write("h_truthUnfold_global");
+                if (hUnfoldTruthGlob_cov) hUnfoldTruthGlob_cov->Write("h_truthUnfold_global_covariance");
+                if (h2UnfoldTruth)        h2UnfoldTruth->Write("h2_truthUnfold_pTgamma_xJ");
+                if (h2UnfoldTruth_cov)    h2UnfoldTruth_cov->Write("h2_truthUnfold_pTgamma_xJ_covariance");
+                if (h2JetEff)             h2JetEff->Write("h2_jetEff_pTgamma_xJ");
 
-              for (int i = 0; i < nPtAll; ++i)
-              {
-                  if (perPhoHists[i])     perPhoHists[i]->Write(TString::Format("h_xJ_unf_perPho_pTbin%d", i + 1).Data());
-                  if (perPhoHists_cov[i]) perPhoHists_cov[i]->Write(TString::Format("h_xJ_unf_perPho_cov_pTbin%d", i + 1).Data());
-              }
+                for (int i = 0; i < nPtAll; ++i)
+                {
+                    if (perPhoHists[i])             perPhoHists[i]->Write(TString::Format("h_xJ_unf_perPho_pTbin%d", i + 1).Data());
+                    if (perPhoHists_cov[i])         perPhoHists_cov[i]->Write(TString::Format("h_xJ_unf_perPho_cov_pTbin%d", i + 1).Data());
+                    if (perPhoHists_jetEffCorr[i])  perPhoHists_jetEffCorr[i]->Write(TString::Format("h_xJ_unf_perPho_jetEffCorr_pTbin%d", i + 1).Data());
+                }
 
-            f.Close();
+              f.Close();
+            }
           }
-        }
 
         // Keep clones for an all-radii overlay table produced after the per-radius loop
         {
@@ -5206,11 +5632,13 @@
           for (auto* h : perPhoErrRatio) if (h) delete h;
           for (auto* h : perPhoBeforeDataHists) if (h) delete h;
           for (auto* h : perPhoTruthHists) if (h) delete h;
+          for (auto* h : perPhoHists_jetEffCorr) if (h) delete h;
           for (auto* h : ratioBeforeVsAfterHists) if (h) delete h;
           for (auto* h : ratioTruthVsUnfoldedHists) if (h) delete h;
 
           if (hUnfoldTruthGlob) delete hUnfoldTruthGlob;
           if (hUnfoldTruthGlob_cov) delete hUnfoldTruthGlob_cov;
+          if (h2JetEff) delete h2JetEff;
 
           delete hMeasSimGlob;
           delete hTruthSimGlob;

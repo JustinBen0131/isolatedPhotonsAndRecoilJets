@@ -1931,15 +1931,29 @@ namespace ARJ
               leg.AddEntry(&gCor, "Leakage-corrected", "lp");
               leg.Draw();
 
-              vector<string> box;
-              box.push_back("ABCD purity: raw vs leakage-corrected");
-              if (!ds.isSim) box.push_back("Leakage factors from SIM h_{sigABCD}^{MC}");
-              DrawLatexLines(0.14, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-              DrawLatexLines(0.14, 0.78, box, 0.030, 0.040);
+              const double etaCut = PhotonEtaAbsMaxFromYAML();
+
+              TLatex tTitle;
+              tTitle.SetNDC(true);
+              tTitle.SetTextFont(42);
+              tTitle.SetTextAlign(23);
+              tTitle.SetTextSize(0.045);
+              tTitle.DrawLatex(0.50, 0.96,
+                  ds.isSim
+                    ? "Purity for SIM"
+                    : "Purity for Run24pp, Photon 4 GeV + MBD NS #geq 1");
+
+              TLatex tCuts;
+              tCuts.SetNDC(true);
+              tCuts.SetTextFont(42);
+              tCuts.SetTextAlign(13);
+              tCuts.SetTextSize(0.038);
+              tCuts.DrawLatex(0.155, 0.88, TString::Format("|v_{z}| < %.3g cm", std::fabs(vzCutCm)).Data());
+              tCuts.DrawLatex(0.155, 0.82, TString::Format("|#eta^{#gamma}| < %.3g", etaCut).Data());
 
               const string fp = JoinPath(outDir, ds.isSim
-                ? "purity_raw_vs_leakageCorrected_SIM.png"
-                : "purity_raw_vs_leakageCorrected_DATA.png");
+                  ? "purity_raw_vs_leakageCorrected_SIM.png"
+                  : "purity_raw_vs_leakageCorrected_DATA.png");
 
               SaveCanvas(c, fp);
             }
