@@ -4616,7 +4616,7 @@
               }
             }
 
-          auto BuildRatioHist = [&](TH1* hNum, TH1* hDen, const char* newName)->TH1*
+        auto BuildRatioHist = [&](TH1* hNum, TH1* hDen, const char* newName)->TH1*
         {
             if (!hNum || !hDen) return nullptr;
 
