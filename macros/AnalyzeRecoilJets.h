@@ -231,11 +231,19 @@ namespace ARJ
   inline const string kTriggerPP = "Photon_4_GeV_plus_MBD_NS_geq_1";
   inline const string kDirSIM    = "SIM";
 
+  inline string InputFilesSimBaseDirFromYAML()
+  {
+        const string base = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim";
+        if (std::fabs(vzCutCm - 60.0) < 1e-6) return base + "/vz_lt_60";
+        if (std::fabs(vzCutCm - 30.0) < 1e-6) return base + "/vz_lt_30";
+        return base;
+  }
+
   inline const string kInPP24 =
-        "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/RecoilJets_pp_ALL.root";
+          InputFilesSimBaseDirFromYAML() + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/RecoilJets_pp_ALL.root";
 
   inline const string kInPP25 =
-        "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet5/7pi_8_BB/RecoilJets_pp25_ALL.root";
+          InputFilesSimBaseDirFromYAML() + "/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet5/7pi_8_BB/RecoilJets_pp25_ALL.root";
 
   inline const string kInPP = (isRun25pp ? kInPP25 : kInPP24);
 
@@ -243,13 +251,13 @@ namespace ARJ
   // NOTE: Only the trigger directory below is used inside the file.
   inline const string kTriggerAuAuGold = "MBD_NS_geq_2_vtx_lt_150";
   inline const string kInAuAuGold =
-              "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet5/7pi_8_BB/UE_subtractedIso_take1/RecoilJets_auau_ALL.root";
+                InputFilesSimBaseDirFromYAML() + "/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet5/7pi_8_BB/UE_subtractedIso_take1/RecoilJets_auau_ALL.root";
 
   inline const string kInAuAuGoldNew =
-              "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet5/7pi_8_BB/UE_subtractedIso_take1/RecoilJets_auau_ALL.root";
+                InputFilesSimBaseDirFromYAML() + "/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet5/7pi_8_BB/UE_subtractedIso_take1/RecoilJets_auau_ALL.root";
 
   inline const string kInSIM5 =
-      "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5_SIM/RecoilJets_photonjet5_ALL.root";
+        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5_SIM/RecoilJets_photonjet5_ALL.root";
 
 
   // ---------------------------------------------------------------------------
@@ -294,15 +302,7 @@ namespace ARJ
           static map<string, Sim10and20Config> m;
           if (!m.empty()) return m;
 
-          const string base = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim";
-          string vzTag = "";
-
-          // Toggle: if YAML has vz_cut_cm = 60 or 30, switch to vz_lt_60 / vz_lt_30 subfolder.
-          // Otherwise, keep legacy paths (no vz subfolder) with identical behavior.
-          if (std::fabs(vzCutCm - 60.0) < 1e-6) vzTag = "/vz_lt_60";
-          else if (std::fabs(vzCutCm - 30.0) < 1e-6) vzTag = "/vz_lt_30";
-
-          const string root = base + vzTag;
+          const string root = InputFilesSimBaseDirFromYAML();
 
           m["jetMinPt10_pihalves"] = Sim10and20Config{
               "jetMinPt10_pihalves",
@@ -2555,180 +2555,191 @@ namespace ARJ
 
   // Generic N-slice merge (use for 2-slice or 3-slice weighted merges)
   inline bool BuildMergedSIMFile_PhotonSlices(const vector<string>& inFiles,
-                                                const vector<double>& sigmas_pb,
-                                                const string& outMerged,
-                                                const string& topDirName,
-                                                const vector<string>& sliceLabels = {})
-    {
-      cout << ANSI_BOLD_CYN
-           << "\n[MERGE SIM] Building merged SIM file with cross-section weights\n"
-           << "  out    = " << outMerged << "\n"
-           << "  topDir = " << topDirName << "\n"
-           << ANSI_RESET;
-
-      const size_t n = inFiles.size();
-      if (n < 2 || sigmas_pb.size() != n)
+                                                  const vector<double>& sigmas_pb,
+                                                  const string& outMerged,
+                                                  const string& topDirName,
+                                                  const vector<string>& sliceLabels = {})
       {
-        cout << ANSI_BOLD_RED
-             << "[MERGE SIM][FATAL] BuildMergedSIMFile_PhotonSlices needs >=2 inputs and matching sigma list.\n"
+        cout << ANSI_BOLD_CYN
+             << "\n[MERGE SIM] Building merged SIM file with cross-section weights\n"
+             << "  out    = " << outMerged << "\n"
+             << "  topDir = " << topDirName << "\n"
              << ANSI_RESET;
-        return false;
-      }
 
-      vector<TFile*> fin(n, nullptr);
-      vector<TDirectory*> din(n, nullptr);
-      vector<double> N(n, 0.0);
-      vector<double> w(n, 0.0);
-
-      auto CloseAll = [&](){
-        for (auto* f : fin) { if (f) f->Close(); }
-      };
-
-      for (size_t i = 0; i < n; ++i)
-      {
-        cout << "  in[" << i << "] = " << inFiles[i]
-             << "   sigma_pb=" << std::setprecision(12) << sigmas_pb[i] << "\n";
-
-        fin[i] = TFile::Open(inFiles[i].c_str(), "READ");
-        if (!fin[i] || fin[i]->IsZombie())
+        const size_t n = inFiles.size();
+        if (n < 2 || sigmas_pb.size() != n)
         {
-          cout << ANSI_BOLD_RED << "[MERGE SIM][FATAL] Cannot open input SIM file: " << inFiles[i] << ANSI_RESET << "\n";
-          CloseAll();
+          cout << ANSI_BOLD_YEL
+               << "[MERGE SIM][WARN] BuildMergedSIMFile_PhotonSlices needs >=2 inputs and a matching sigma list. Skipping this merge target.\n"
+               << ANSI_RESET;
           return false;
         }
 
-        din[i] = fin[i]->GetDirectory(topDirName.c_str());
-        if (!din[i])
-        {
-          cout << ANSI_BOLD_RED << "[MERGE SIM][FATAL] Missing topDir in SIM file: " << inFiles[i] << ANSI_RESET << "\n";
-          CloseAll();
-          return false;
-        }
+        vector<TFile*> fin(n, nullptr);
+        vector<TDirectory*> din(n, nullptr);
+        vector<double> N(n, 0.0);
+        vector<double> w(n, 0.0);
 
-        N[i] = ReadEventCountFromFile(fin[i], topDirName);
-        if (N[i] <= 0.0)
-        {
-          cout << ANSI_BOLD_RED << "[MERGE SIM][FATAL] Naccepted <= 0 for input: " << inFiles[i] << ANSI_RESET << "\n";
-          CloseAll();
-          return false;
-        }
-
-          w[i] = sigmas_pb[i] / N[i];
-        }
-
-        // Normalize by a common factor so merged histograms remain "count-like",
-        // while preserving correct relative (sigma/N) weighting across slices.
-        double wRef = 0.0;
-        for (size_t i = 0; i < n; ++i)
-        {
-          if (w[i] > 0.0) { wRef = w[i]; break; }
-        }
-        if (wRef <= 0.0)
-        {
-          cout << ANSI_BOLD_RED << "[MERGE SIM][FATAL] wRef <= 0 (cannot normalize slice weights)." << ANSI_RESET << "\n";
-          CloseAll();
-          return false;
-        }
-        for (size_t i = 0; i < n; ++i)
-        {
-          w[i] /= wRef;
-        }
-
-        cout << ANSI_BOLD_YEL << "[MERGE SIM] Slice weights (relative): w = (sigma/N)/(sigma0/N0)\n" << ANSI_RESET;
-        for (size_t i = 0; i < n; ++i)
-        {
-          const string lab = (!sliceLabels.empty() && sliceLabels.size() == n) ? sliceLabels[i] : std::to_string(i);
-          cout << "  [" << lab << "]  N=" << std::fixed << std::setprecision(0) << N[i]
-               << "   sigma_pb=" << std::setprecision(12) << sigmas_pb[i]
-               << "   w=" << std::setprecision(12) << w[i] << "\n";
-        }
-
-      EnsureParentDirForFile(outMerged);
-      TFile* fout = TFile::Open(outMerged.c_str(), "RECREATE");
-      if (!fout || fout->IsZombie())
-      {
-        cout << ANSI_BOLD_RED << "[MERGE SIM][FATAL] Cannot create merged output file." << ANSI_RESET << "\n";
-        CloseAll();
-        return false;
-      }
-
-      fout->cd();
-      TDirectory* outTop = fout->mkdir(topDirName.c_str());
-      if (!outTop)
-      {
-        cout << ANSI_BOLD_RED << "[MERGE SIM][FATAL] Cannot create topDir in merged output." << ANSI_RESET << "\n";
-        fout->Close();
-        CloseAll();
-        return false;
-      }
-
-      // Build output by adding each slice into the same output tree
-      for (size_t i = 0; i < n; ++i)
-      {
-        AddScaledRecursive(outTop, din[i], w[i]);
-      }
-
-      // Carry over / merge EventDisplayTree (diagnostic TTree) so merged SIM keeps eventDisplay capability.
-      // NOTE: this is UNWEIGHTED: we simply concatenate entries across slices (diagnostics only).
-      {
-        TTree* tOutED = nullptr;
+        auto CloseAll = [&](){
+          for (auto* f : fin) { if (f) f->Close(); }
+        };
 
         for (size_t i = 0; i < n; ++i)
         {
-          TTree* tInED = dynamic_cast<TTree*>(fin[i] ? fin[i]->Get("EventDisplayTree") : nullptr);
-          if (!tInED && din[i])
+          cout << "  in[" << i << "] = " << inFiles[i]
+               << "   sigma_pb=" << std::setprecision(12) << sigmas_pb[i] << "\n";
+
+          fin[i] = TFile::Open(inFiles[i].c_str(), "READ");
+          if (!fin[i] || fin[i]->IsZombie())
           {
-            tInED = dynamic_cast<TTree*>(din[i]->Get("EventDisplayTree"));
+            cout << ANSI_BOLD_YEL
+                 << "[MERGE SIM][WARN] Cannot open input SIM file. Skipping this merge target:\n"
+                 << "  " << inFiles[i] << "\n"
+                 << ANSI_RESET;
+            CloseAll();
+            return false;
           }
-          if (!tInED) continue;
 
-          if (!tOutED)
+          din[i] = fin[i]->GetDirectory(topDirName.c_str());
+          if (!din[i])
           {
-            outTop->cd();
-            tOutED = tInED->CloneTree(0);
-            if (tOutED) tOutED->SetDirectory(outTop);
+            cout << ANSI_BOLD_YEL
+                 << "[MERGE SIM][WARN] Missing topDir '" << topDirName << "' in input SIM file. Skipping this merge target:\n"
+                 << "  " << inFiles[i] << "\n"
+                 << ANSI_RESET;
+            CloseAll();
+            return false;
+          }
+
+          N[i] = ReadEventCountFromFile(fin[i], topDirName);
+          if (N[i] <= 0.0)
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[MERGE SIM][WARN] Naccepted <= 0 for input. Skipping this merge target:\n"
+                 << "  " << inFiles[i] << "\n"
+                 << ANSI_RESET;
+            CloseAll();
+            return false;
+          }
+
+            w[i] = sigmas_pb[i] / N[i];
+          }
+
+          // Normalize by a common factor so merged histograms remain "count-like",
+          // while preserving correct relative (sigma/N) weighting across slices.
+          double wRef = 0.0;
+          for (size_t i = 0; i < n; ++i)
+          {
+            if (w[i] > 0.0) { wRef = w[i]; break; }
+          }
+          if (wRef <= 0.0)
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[MERGE SIM][WARN] wRef <= 0 (cannot normalize slice weights). Skipping this merge target.\n"
+                 << ANSI_RESET;
+            CloseAll();
+            return false;
+          }
+          for (size_t i = 0; i < n; ++i)
+          {
+            w[i] /= wRef;
+          }
+
+          cout << ANSI_BOLD_YEL << "[MERGE SIM] Slice weights (relative): w = (sigma/N)/(sigma0/N0)\n" << ANSI_RESET;
+          for (size_t i = 0; i < n; ++i)
+          {
+            const string lab = (!sliceLabels.empty() && sliceLabels.size() == n) ? sliceLabels[i] : std::to_string(i);
+            cout << "  [" << lab << "]  N=" << std::fixed << std::setprecision(0) << N[i]
+                 << "   sigma_pb=" << std::setprecision(12) << sigmas_pb[i]
+                 << "   w=" << std::setprecision(12) << w[i] << "\n";
+          }
+
+        EnsureParentDirForFile(outMerged);
+        TFile* fout = TFile::Open(outMerged.c_str(), "RECREATE");
+        if (!fout || fout->IsZombie())
+        {
+          cout << ANSI_BOLD_YEL << "[MERGE SIM][WARN] Cannot create merged output file. Skipping this merge target." << ANSI_RESET << "\n";
+          CloseAll();
+          return false;
+        }
+
+        fout->cd();
+        TDirectory* outTop = fout->mkdir(topDirName.c_str());
+        if (!outTop)
+        {
+          cout << ANSI_BOLD_YEL << "[MERGE SIM][WARN] Cannot create topDir in merged output. Skipping this merge target." << ANSI_RESET << "\n";
+          fout->Close();
+          CloseAll();
+          return false;
+        }
+
+        // Build output by adding each slice into the same output tree
+        for (size_t i = 0; i < n; ++i)
+        {
+          AddScaledRecursive(outTop, din[i], w[i]);
+        }
+
+        // Carry over / merge EventDisplayTree (diagnostic TTree) so merged SIM keeps eventDisplay capability.
+        // NOTE: this is UNWEIGHTED: we simply concatenate entries across slices (diagnostics only).
+        {
+          TTree* tOutED = nullptr;
+
+          for (size_t i = 0; i < n; ++i)
+          {
+            TTree* tInED = dynamic_cast<TTree*>(fin[i] ? fin[i]->Get("EventDisplayTree") : nullptr);
+            if (!tInED && din[i])
+            {
+              tInED = dynamic_cast<TTree*>(din[i]->Get("EventDisplayTree"));
+            }
+            if (!tInED) continue;
+
+            if (!tOutED)
+            {
+              outTop->cd();
+              tOutED = tInED->CloneTree(0);
+              if (tOutED) tOutED->SetDirectory(outTop);
+            }
+
+            if (tOutED)
+            {
+              tOutED->CopyEntries(tInED);
+            }
           }
 
           if (tOutED)
           {
-            tOutED->CopyEntries(tInED);
+            outTop->cd();
+            tOutED->Write("EventDisplayTree", TObject::kOverwrite);
           }
         }
 
-        if (tOutED)
+        // Metadata
+        std::ostringstream oss;
+        oss << "Merged photonJet slices. Nslices=" << n << " ";
+        for (size_t i = 0; i < n; ++i)
         {
-          outTop->cd();
-          tOutED->Write("EventDisplayTree", TObject::kOverwrite);
+          const string lab = (!sliceLabels.empty() && sliceLabels.size() == n) ? sliceLabels[i] : std::to_string(i);
+          oss << "[" << lab
+              << " N=" << std::fixed << std::setprecision(0) << N[i]
+              << " sigma_pb=" << std::setprecision(12) << sigmas_pb[i]
+              << " w=" << std::setprecision(12) << w[i]
+              << "] ";
         }
-      }
 
-      // Metadata
-      std::ostringstream oss;
-      oss << "Merged photonJet slices. Nslices=" << n << " ";
-      for (size_t i = 0; i < n; ++i)
-      {
-        const string lab = (!sliceLabels.empty() && sliceLabels.size() == n) ? sliceLabels[i] : std::to_string(i);
-        oss << "[" << lab
-            << " N=" << std::fixed << std::setprecision(0) << N[i]
-            << " sigma_pb=" << std::setprecision(12) << sigmas_pb[i]
-            << " w=" << std::setprecision(12) << w[i]
-            << "] ";
-      }
+        outTop->cd();
+        TNamed meta("MERGE_INFO", oss.str().c_str());
+        meta.Write("MERGE_INFO", TObject::kOverwrite);
 
-      outTop->cd();
-      TNamed meta("MERGE_INFO", oss.str().c_str());
-      meta.Write("MERGE_INFO", TObject::kOverwrite);
+        fout->Write();
+        fout->Close();
+        CloseAll();
 
-      fout->Write();
-      fout->Close();
-      CloseAll();
+        cout << ANSI_BOLD_CYN
+             << "[MERGE SIM] Done. Merged file written: " << outMerged << "\n"
+             << "[MERGE SIM] NOTE: histograms are weighted by relative (sigma/N) slice weights (overall normalization arbitrary).\n"
+             << ANSI_RESET;
 
-      cout << ANSI_BOLD_CYN
-           << "[MERGE SIM] Done. Merged file written: " << outMerged << "\n"
-           << "[MERGE SIM] NOTE: histograms are weighted by relative (sigma/N) slice weights (overall normalization arbitrary).\n"
-           << ANSI_RESET;
-
-      return true;
+        return true;
   }
 
   // Backwards-compatible wrapper (existing call sites remain valid)

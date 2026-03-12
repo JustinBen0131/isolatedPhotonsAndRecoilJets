@@ -15426,24 +15426,26 @@ namespace ARJ
           }
           else
           {
-              const auto& cfgs = Sim10and20Configs();
-              for (const auto& kv : cfgs)
-              {
-                  const auto& cfg = kv.second;
+              const auto& cfg = DefaultSim10and20Config();
 
-                  const string outMerged =
-                      MergedSIMOut_10and20_ForKey(cfg.key);
+              const string outMerged =
+                  MergedSIMOut_10and20_ForKey(cfg.key);
 
-                  ok = BuildMergedSIMFile_PhotonSlices(
-                    {cfg.photon10, cfg.photon20},
-                    {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
-                    outMerged,
-                    kDirSIM,
-                    {"photonJet10", "photonJet20"}
-                  );
+              cout << ANSI_BOLD_CYN
+                   << "\n[MERGE SIM] Rebuilding ONLY the default SIM10+20 merged file.\n"
+                   << "            cfg.key = " << cfg.key << "\n"
+                   << "            in10    = " << cfg.photon10 << "\n"
+                   << "            in20    = " << cfg.photon20 << "\n"
+                   << "            out     = " << outMerged << "\n"
+                   << ANSI_RESET;
 
-                  if (!ok) break;
-              }
+              ok = BuildMergedSIMFile_PhotonSlices(
+                {cfg.photon10, cfg.photon20},
+                {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+                outMerged,
+                kDirSIM,
+                {"photonJet10", "photonJet20"}
+              );
           }
       }
       else if (ss == SimSample::kPhotonJet5And10And20Merged)

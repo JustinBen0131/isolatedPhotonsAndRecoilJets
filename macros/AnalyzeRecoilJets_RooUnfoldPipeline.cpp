@@ -787,8 +787,248 @@
             }
           }
 
-          delete hp;
-        };
+            delete hp;
+          };
+
+          struct IterScanSummary
+          {
+            vector<double> xIt;
+            vector<double> exIt;
+            vector<double> yRelStat;
+            vector<double> eyRelStat;
+            vector<double> yRelChange;
+            vector<double> eyRelChange;
+            vector<double> yQuad;
+            vector<double> eyQuad;
+            int bestIt = -1;
+            double bestQuad = std::numeric_limits<double>::max();
+          };
+
+          auto BuildPhotonIterScan = [&](RooUnfoldResponse& resp,
+                                         TH1* hRecoMeasured,
+                                         TH1* hTruthTemplate,
+                                         int kMaxIt,
+                                         int nToys)->IterScanSummary
+          {
+            IterScanSummary s;
+            if (!hRecoMeasured || !hTruthTemplate) return s;
+
+            TH1* hPrev = nullptr;
+            TH1* hBaseline = CloneTH1(hTruthTemplate, "hPhoRecoData_truthBinningBaselineForIterStability");
+
+            if (hBaseline)
+            {
+              hBaseline->SetDirectory(nullptr);
+              EnsureSumw2(hBaseline);
+              hBaseline->Reset("ICES");
+
+              for (int ib = 1; ib <= hBaseline->GetNbinsX(); ++ib)
+              {
+                const double xTruth = hBaseline->GetXaxis()->GetBinCenter(ib);
+                const int ibReco = hRecoMeasured->GetXaxis()->FindBin(xTruth);
+
+                hBaseline->SetBinContent(ib, hRecoMeasured->GetBinContent(ibReco));
+                hBaseline->SetBinError  (ib, hRecoMeasured->GetBinError  (ibReco));
+              }
+            }
+
+            for (int it = 1; it <= kMaxIt; ++it)
+            {
+              RooUnfoldBayes uIt(&resp, hRecoMeasured, it);
+              uIt.SetVerbose(0);
+              uIt.SetNToys(nToys);
+
+              TH1* hIt = nullptr;
+              if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
+              hIt = uIt.Hreco(RooUnfold::kCovToy);
+              if (gSystem) gSystem->RedirectOutput(0);
+              if (!hIt) continue;
+
+              hIt->SetDirectory(nullptr);
+              EnsureSumw2(hIt);
+
+              const int nb = hIt->GetNbinsX();
+
+              double sumV  = 0.0;
+              double sumE2 = 0.0;
+
+              for (int ib = 1; ib <= nb; ++ib)
+              {
+                const double v  = hIt->GetBinContent(ib);
+                const double ev = hIt->GetBinError(ib);
+                if (v == 0.0 && ev == 0.0) continue;
+                sumV  += v;
+                sumE2 += ev * ev;
+              }
+
+              double relStat = 0.0;
+              if (sumV > 0.0) relStat = std::sqrt(sumE2) / sumV;
+
+              double relDev = 0.0;
+              const TH1* hRef = (it == 1 ? hBaseline : hPrev);
+
+              if (hRef)
+              {
+                double num2 = 0.0;
+                double den2 = 0.0;
+
+                for (int ib = 1; ib <= nb; ++ib)
+                {
+                  const double v  = hIt->GetBinContent(ib);
+                  const double vp = hRef->GetBinContent(ib);
+                  const double d  = v - vp;
+
+                  num2 += d * d;
+                  den2 += v * v;
+                }
+
+                if (den2 > 0.0) relDev = std::sqrt(num2 / den2);
+              }
+
+              const double quad = std::sqrt(relStat * relStat + relDev * relDev);
+
+              s.xIt.push_back((double)it);
+              s.exIt.push_back(0.0);
+              s.yRelStat.push_back(relStat);
+              s.eyRelStat.push_back(0.0);
+              s.yRelChange.push_back(relDev);
+              s.eyRelChange.push_back(0.0);
+              s.yQuad.push_back(quad);
+              s.eyQuad.push_back(0.0);
+
+              if (quad < s.bestQuad)
+              {
+                s.bestQuad = quad;
+                s.bestIt = it;
+              }
+
+              if (hPrev) delete hPrev;
+              hPrev = hIt;
+            }
+
+            if (hPrev) delete hPrev;
+            if (hBaseline) delete hBaseline;
+
+            return s;
+          };
+
+          auto BuildXJIterScan = [&](RooUnfoldResponse& resp,
+                                     TH1* hMeasuredGlob,
+                                     TH1* hTruthTemplateGlob,
+                                     TH2* hMeasured2D,
+                                     TH2* hTruthTemplate2D,
+                                     int kMaxIt,
+                                     int nToys,
+                                     const string& nameSuffix)->IterScanSummary
+          {
+            IterScanSummary s;
+            if (!hMeasuredGlob || !hTruthTemplateGlob || !hMeasured2D || !hTruthTemplate2D) return s;
+
+            TH1* hPrev = nullptr;
+            TH1* hBaselineGlob = CloneTH1(
+              hTruthTemplateGlob,
+              TString::Format("hMeasDataGlob_truthBinningBaselineForIterStability_%s", nameSuffix.c_str()).Data()
+            );
+
+            if (hBaselineGlob)
+            {
+              hBaselineGlob->SetDirectory(nullptr);
+              EnsureSumw2(hBaselineGlob);
+              hBaselineGlob->Reset("ICES");
+
+              const int nxTruth = hTruthTemplate2D->GetNbinsX();
+              const int nyTruth = hTruthTemplate2D->GetNbinsY();
+
+              for (int ix = 0; ix <= nxTruth + 1; ++ix)
+              {
+                for (int iy = 0; iy <= nyTruth + 1; ++iy)
+                {
+                  const int gTruth = hTruthTemplate2D->GetBin(ix, iy);
+                  const int bTruth = gTruth + 1;
+                  if (bTruth < 1 || bTruth > hBaselineGlob->GetNbinsX()) continue;
+
+                  const double xTruth = hTruthTemplate2D->GetXaxis()->GetBinCenter(ix);
+                  const double yTruth = hTruthTemplate2D->GetYaxis()->GetBinCenter(iy);
+
+                  const int ixReco = hMeasured2D->GetXaxis()->FindBin(xTruth);
+                  const int iyReco = hMeasured2D->GetYaxis()->FindBin(yTruth);
+
+                  hBaselineGlob->SetBinContent(bTruth, hMeasured2D->GetBinContent(ixReco, iyReco));
+                  hBaselineGlob->SetBinError  (bTruth, hMeasured2D->GetBinError  (ixReco, iyReco));
+                }
+              }
+            }
+
+            for (int it = 1; it <= kMaxIt; ++it)
+            {
+              RooUnfoldBayes u(&resp, hMeasuredGlob, it);
+              u.SetVerbose(0);
+              u.SetNToys(nToys);
+
+              TH1* hCurr = nullptr;
+              if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
+              hCurr = u.Hreco(RooUnfold::kCovToy);
+              if (gSystem) gSystem->RedirectOutput(0);
+              if (!hCurr) continue;
+
+              hCurr->SetDirectory(nullptr);
+              EnsureSumw2(hCurr);
+
+              const int nb = hCurr->GetNbinsX();
+
+              double sumV2 = 0.0;
+              double sumE2 = 0.0;
+
+              for (int ib = 1; ib <= nb; ++ib)
+              {
+                const double v  = hCurr->GetBinContent(ib);
+                const double ev = hCurr->GetBinError(ib);
+                sumV2 += v * v;
+                sumE2 += ev * ev;
+              }
+
+              const double relStat = (sumV2 > 0.0) ? std::sqrt(sumE2 / sumV2) : 0.0;
+
+              double relChg = 0.0;
+              const TH1* hRef = (it == 1 ? hBaselineGlob : hPrev);
+
+              if (hRef)
+              {
+                double sumD2 = 0.0;
+                for (int ib = 1; ib <= nb; ++ib)
+                {
+                  const double d = hCurr->GetBinContent(ib) - hRef->GetBinContent(ib);
+                  sumD2 += d * d;
+                }
+                relChg = (sumV2 > 0.0) ? std::sqrt(sumD2 / sumV2) : 0.0;
+              }
+
+              const double quad = std::sqrt(relStat * relStat + relChg * relChg);
+
+              s.xIt.push_back((double)it);
+              s.exIt.push_back(0.0);
+              s.yRelStat.push_back(relStat);
+              s.eyRelStat.push_back(0.0);
+              s.yRelChange.push_back(relChg);
+              s.eyRelChange.push_back(0.0);
+              s.yQuad.push_back(quad);
+              s.eyQuad.push_back(0.0);
+
+              if (quad < s.bestQuad)
+              {
+                s.bestQuad = quad;
+                s.bestIt = it;
+              }
+
+              if (hPrev) delete hPrev;
+              hPrev = hCurr;
+            }
+
+            if (hPrev) delete hPrev;
+            if (hBaselineGlob) delete hBaselineGlob;
+
+            return s;
+          };
 
         cout << "\n  [5I] Photon unfolding inputs:\n";
         PrintGet(dsData, phoRecoName,   hPhoRecoData_in);
@@ -852,31 +1092,54 @@
         return;
       }
 
-        const int kBayesIterPho = 3;
+        const int kDefaultBayesIterPho = 3;
+        const int kMaxBayesIterPhoScan = 10;
 
-        // Toy settings:
-        //   - "final" is for the baseline unfolded spectrum that feeds your main outputs
-        //   - "scan" is for iteration-stability / closure / half-closure diagnostics
-        const int kNToysPhoFinal = 600;
-        const int kNToysPhoScan  = 120;
+      // Toy settings:
+      //   - "final" is for the baseline unfolded spectrum that feeds your main outputs
+      //   - "scan" is for iteration-stability / closure / half-closure diagnostics
+      const int kNToysPhoFinal = 600;
+      const int kNToysPhoScan  = 120;
 
-        RooUnfoldResponse respPho(hPhoRecoSim, hPhoTruthSim, hPhoResp_measXtruth, "respPho", "respPho");
+      RooUnfoldResponse respPho(hPhoRecoSim, hPhoTruthSim, hPhoResp_measXtruth, "respPho", "respPho");
 
-        RooUnfoldBayes    unfoldPhoToy(&respPho, hPhoRecoData, kBayesIterPho);
-        unfoldPhoToy.SetVerbose(0);
-        unfoldPhoToy.SetNToys(kNToysPhoFinal);
+      const IterScanSummary phoIterScan = BuildPhotonIterScan(
+          respPho,
+          hPhoRecoData,
+          hPhoTruthSim,
+          kMaxBayesIterPhoScan,
+          kNToysPhoScan
+      );
 
-        TH1* hPhoUnfoldTruth = nullptr;
-        if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-        hPhoUnfoldTruth = unfoldPhoToy.Hreco(RooUnfold::kCovToy);
-        if (gSystem) gSystem->RedirectOutput(0);
-        if (hPhoUnfoldTruth) hPhoUnfoldTruth->SetDirectory(nullptr);
+      const int kBayesIterPho = (phoIterScan.bestIt > 0 ? phoIterScan.bestIt : kDefaultBayesIterPho);
 
-        RooUnfoldBayes    unfoldPhoCov(&respPho, hPhoRecoData, kBayesIterPho);
-        unfoldPhoCov.SetVerbose(0);
+      cout << ANSI_BOLD_CYN
+             << "[PHO ITER AUTO] Using Bayes iteration " << kBayesIterPho;
+      if (phoIterScan.bestIt > 0 && std::isfinite(phoIterScan.bestQuad))
+      {
+          cout << " from quadrature-sum minimum (" << phoIterScan.bestQuad << ")";
+        }
+        else
+        {
+          cout << " (fallback default; automatic scan unavailable)";
+      }
+      cout << ANSI_RESET << "\n";
 
-        TH1* hPhoUnfoldTruth_cov = unfoldPhoCov.Hreco(RooUnfold::kCovariance);
-        if (hPhoUnfoldTruth_cov) hPhoUnfoldTruth_cov->SetDirectory(nullptr);
+      RooUnfoldBayes    unfoldPhoToy(&respPho, hPhoRecoData, kBayesIterPho);
+      unfoldPhoToy.SetVerbose(0);
+      unfoldPhoToy.SetNToys(kNToysPhoFinal);
+
+      TH1* hPhoUnfoldTruth = nullptr;
+      if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
+      hPhoUnfoldTruth = unfoldPhoToy.Hreco(RooUnfold::kCovToy);
+      if (gSystem) gSystem->RedirectOutput(0);
+      if (hPhoUnfoldTruth) hPhoUnfoldTruth->SetDirectory(nullptr);
+
+      RooUnfoldBayes    unfoldPhoCov(&respPho, hPhoRecoData, kBayesIterPho);
+      unfoldPhoCov.SetVerbose(0);
+
+      TH1* hPhoUnfoldTruth_cov = unfoldPhoCov.Hreco(RooUnfold::kCovariance);
+      if (hPhoUnfoldTruth_cov) hPhoUnfoldTruth_cov->SetDirectory(nullptr);
 
       // Photon QA outputs
       {
@@ -1803,108 +2066,18 @@
           // -----------------------------
           if (hPhoRecoData && hPhoTruthSim && hPhoRecoSim && hPhoResp_measXtruth)
           {
-            const int kMaxIt = 10;
+            const int kMaxIt = kMaxBayesIterPhoScan;
 
-            vector<double> xIt, exIt, yRelStat, eyRelStat, yRelDev, eyRelDev, yQuad, eyQuad;
-
-            TH1* hPrev = nullptr;
-            TH1* hBaseline = CloneTH1(hPhoTruthSim, "hPhoRecoData_truthBinningBaselineForIterStability");
-
-            if (hBaseline)
-            {
-              hBaseline->SetDirectory(nullptr);
-              EnsureSumw2(hBaseline);
-              hBaseline->Reset("ICES");
-
-              for (int ib = 1; ib <= hBaseline->GetNbinsX(); ++ib)
-              {
-                const double xTruth = hBaseline->GetXaxis()->GetBinCenter(ib);
-                const int ibReco = hPhoRecoData->GetXaxis()->FindBin(xTruth);
-
-                hBaseline->SetBinContent(ib, hPhoRecoData->GetBinContent(ibReco));
-                hBaseline->SetBinError  (ib, hPhoRecoData->GetBinError  (ibReco));
-              }
-            }
-
-            int bestIt = -1;
-            double bestQuad = std::numeric_limits<double>::max();
-
-            for (int it = 1; it <= kMaxIt; ++it)
-            {
-              RooUnfoldBayes uIt(&respPho, hPhoRecoData, it);
-              uIt.SetVerbose(0);
-              uIt.SetNToys(kNToysPhoScan);
-
-              TH1* hIt = nullptr;
-              if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-              hIt = uIt.Hreco(RooUnfold::kCovToy);
-              if (gSystem) gSystem->RedirectOutput(0);
-              if (!hIt) continue;
-
-              hIt->SetDirectory(nullptr);
-              EnsureSumw2(hIt);
-
-              const int nb = hIt->GetNbinsX();
-
-              double sumV  = 0.0;
-              double sumE2 = 0.0;
-
-              for (int ib = 1; ib <= nb; ++ib)
-              {
-                const double v  = hIt->GetBinContent(ib);
-                const double ev = hIt->GetBinError(ib);
-                if (v == 0.0 && ev == 0.0) continue;
-                sumV  += v;
-                sumE2 += ev * ev;
-              }
-
-              double relStat = 0.0;
-              if (sumV > 0.0) relStat = std::sqrt(sumE2) / sumV;
-
-              double relDev = 0.0;
-              const TH1* hRef = (it == 1 ? hBaseline : hPrev);
-
-              if (hRef)
-              {
-                double num2 = 0.0;
-                double den2 = 0.0;
-
-                for (int ib = 1; ib <= nb; ++ib)
-                {
-                  const double v  = hIt->GetBinContent(ib);
-                  const double vp = hRef->GetBinContent(ib);
-                  const double d  = v - vp;
-
-                  num2 += d * d;
-                  den2 += v * v;
-                }
-
-                if (den2 > 0.0) relDev = std::sqrt(num2 / den2);
-              }
-
-              const double quad = std::sqrt(relStat * relStat + relDev * relDev);
-
-              xIt.push_back((double)it);
-              exIt.push_back(0.0);
-              yRelStat.push_back(relStat);
-              eyRelStat.push_back(0.0);
-              yRelDev.push_back(relDev);
-              eyRelDev.push_back(0.0);
-              yQuad.push_back(quad);
-              eyQuad.push_back(0.0);
-
-              if (quad < bestQuad)
-              {
-                bestQuad = quad;
-                bestIt = it;
-              }
-
-              if (hPrev) delete hPrev;
-              hPrev = hIt;
-            }
-
-            if (hPrev) delete hPrev;
-            if (hBaseline) delete hBaseline;
+            const vector<double>& xIt       = phoIterScan.xIt;
+            const vector<double>& exIt      = phoIterScan.exIt;
+            const vector<double>& yRelStat  = phoIterScan.yRelStat;
+            const vector<double>& eyRelStat = phoIterScan.eyRelStat;
+            const vector<double>& yRelDev   = phoIterScan.yRelChange;
+            const vector<double>& eyRelDev  = phoIterScan.eyRelChange;
+            const vector<double>& yQuad     = phoIterScan.yQuad;
+            const vector<double>& eyQuad    = phoIterScan.eyQuad;
+            const int bestIt                = phoIterScan.bestIt;
+            const double bestQuad           = phoIterScan.bestQuad;
 
             if ((int)xIt.size() > 0)
             {
@@ -2368,16 +2541,17 @@
           }
       }
 
-      // -------------------------------------------------------------------------
-      // (B) Jet unfolding per radius: unfold global-bin vector and unflatten back
-      // -------------------------------------------------------------------------
-      const int kBayesIterXJ = 3;
+        // -------------------------------------------------------------------------
+        // (B) Jet unfolding per radius: unfold global-bin vector and unflatten back
+        // -------------------------------------------------------------------------
+        const int kDefaultBayesIterXJ = 3;
+        const int kMaxBayesIterXJScan = 10;
 
-      // Toy settings for xJ:
-      //   - "final" is for the baseline unfolded spectrum that feeds your main outputs
-      //   - "scan" is for iteration-stability / closure / half-closure diagnostics
-      const int kNToysXJFinal = 600;
-      const int kNToysXJScan  = 120;
+        // Toy settings for xJ:
+        //   - "final" is for the baseline unfolded spectrum that feeds your main outputs
+        //   - "scan" is for iteration-stability / closure / half-closure diagnostics
+        const int kNToysXJFinal = 600;
+        const int kNToysXJScan  = 120;
 
       std::map<std::string, std::vector<TH1*>> perPhoHistsByRKey;
 
@@ -2590,26 +2764,51 @@
           }
         }
 
-        RooUnfoldResponse respXJ(hMeasSimGlob, hTruthSimGlob, hRsp_measXtruth,
-                                TString::Format("respXJ_%s", rKey.c_str()).Data(),
-                                TString::Format("respXJ_%s", rKey.c_str()).Data());
+          RooUnfoldResponse respXJ(hMeasSimGlob, hTruthSimGlob, hRsp_measXtruth,
+                                  TString::Format("respXJ_%s", rKey.c_str()).Data(),
+                                  TString::Format("respXJ_%s", rKey.c_str()).Data());
 
+          const IterScanSummary xjIterScan = BuildXJIterScan(
+            respXJ,
+            hMeasDataGlob,
+            hTruthSimGlob,
+            h2RecoData,
+            h2TruthSim,
+            kMaxBayesIterXJScan,
+            kNToysXJScan,
+            rKey
+          );
 
-        RooUnfoldBayes unfoldXJ_toy(&respXJ, hMeasDataGlob, kBayesIterXJ);
-        unfoldXJ_toy.SetVerbose(0);
-        unfoldXJ_toy.SetNToys(kNToysXJFinal);
+          const int kBayesIterXJ = (xjIterScan.bestIt > 0 ? xjIterScan.bestIt : kDefaultBayesIterXJ);
 
-        TH1* hUnfoldTruthGlob = nullptr;
-        if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-        hUnfoldTruthGlob = unfoldXJ_toy.Hreco(RooUnfold::kCovToy);
-        if (gSystem) gSystem->RedirectOutput(0);
-        if (hUnfoldTruthGlob) hUnfoldTruthGlob->SetDirectory(nullptr);
+          cout << ANSI_BOLD_CYN
+               << "[UNF ITER AUTO] rKey=" << rKey
+               << "  Using Bayes iteration " << kBayesIterXJ;
+          if (xjIterScan.bestIt > 0 && std::isfinite(xjIterScan.bestQuad))
+          {
+            cout << " from quadrature-sum minimum (" << xjIterScan.bestQuad << ")";
+          }
+          else
+          {
+            cout << " (fallback default; automatic scan unavailable)";
+          }
+          cout << ANSI_RESET << "\n";
 
-        RooUnfoldBayes unfoldXJ_cov(&respXJ, hMeasDataGlob, kBayesIterXJ);
-        unfoldXJ_cov.SetVerbose(0);
+          RooUnfoldBayes unfoldXJ_toy(&respXJ, hMeasDataGlob, kBayesIterXJ);
+          unfoldXJ_toy.SetVerbose(0);
+          unfoldXJ_toy.SetNToys(kNToysXJFinal);
 
-        TH1* hUnfoldTruthGlob_cov = unfoldXJ_cov.Hreco(RooUnfold::kCovariance);
-        if (hUnfoldTruthGlob_cov) hUnfoldTruthGlob_cov->SetDirectory(nullptr);
+          TH1* hUnfoldTruthGlob = nullptr;
+          if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
+          hUnfoldTruthGlob = unfoldXJ_toy.Hreco(RooUnfold::kCovToy);
+          if (gSystem) gSystem->RedirectOutput(0);
+          if (hUnfoldTruthGlob) hUnfoldTruthGlob->SetDirectory(nullptr);
+
+          RooUnfoldBayes unfoldXJ_cov(&respXJ, hMeasDataGlob, kBayesIterXJ);
+          unfoldXJ_cov.SetVerbose(0);
+
+          TH1* hUnfoldTruthGlob_cov = unfoldXJ_cov.Hreco(RooUnfold::kCovariance);
+          if (hUnfoldTruthGlob_cov) hUnfoldTruthGlob_cov->SetDirectory(nullptr);
 
         if (!hUnfoldTruthGlob)
           {
@@ -5539,144 +5738,26 @@
           //   <rOut>/unfold_iterStability_bestIteration.txt
           // ----------------------------------------------------------------------
           {
-            const int kMaxIterPlot = 10;
+            const int kMaxIterPlot = kMaxBayesIterXJScan;
 
             cout << ANSI_BOLD_CYN
-                 << "[UNF ITER QA] Building iteration-stability plot\n"
+                 << "[UNF ITER QA] Building iteration-stability plot from cached scan\n"
                  << "  rKey=" << rKey << "  R=" << std::fixed << std::setprecision(1) << R << "\n"
                  << "  outdir=" << rOut << "\n"
                  << "  kMaxIterPlot=" << kMaxIterPlot << "\n"
-                 << "  respXJ ptr=" << (void*)&respXJ << "  hMeasDataGlob ptr=" << (void*)hMeasDataGlob << "\n"
+                 << "  selectedBayesIter=" << kBayesIterXJ << "\n"
                  << ANSI_RESET;
 
-            std::vector<double> xIt, exIt, yRelStat, eyRelStat, yRelChange, eyRelChange, yQuad, eyQuad;
-
-            TH1* hPrev = nullptr;
-            TH1* hBaselineGlob = CloneTH1(
-              hTruthSimGlob,
-              TString::Format("hMeasDataGlob_truthBinningBaselineForIterStability_%s", rKey.c_str()).Data()
-            );
-
-            if (hBaselineGlob)
-            {
-              hBaselineGlob->SetDirectory(nullptr);
-              EnsureSumw2(hBaselineGlob);
-              hBaselineGlob->Reset("ICES");
-
-              const int nxTruth = h2TruthSim->GetNbinsX();
-              const int nyTruth = h2TruthSim->GetNbinsY();
-
-              for (int ix = 0; ix <= nxTruth + 1; ++ix)
-              {
-                for (int iy = 0; iy <= nyTruth + 1; ++iy)
-                {
-                  const int gTruth = h2TruthSim->GetBin(ix, iy);
-                  const int bTruth = gTruth + 1;
-                  if (bTruth < 1 || bTruth > hBaselineGlob->GetNbinsX()) continue;
-
-                  const double xTruth = h2TruthSim->GetXaxis()->GetBinCenter(ix);
-                  const double yTruth = h2TruthSim->GetYaxis()->GetBinCenter(iy);
-
-                  const int ixReco = h2RecoData->GetXaxis()->FindBin(xTruth);
-                  const int iyReco = h2RecoData->GetYaxis()->FindBin(yTruth);
-
-                  hBaselineGlob->SetBinContent(bTruth, h2RecoData->GetBinContent(ixReco, iyReco));
-                  hBaselineGlob->SetBinError  (bTruth, h2RecoData->GetBinError  (ixReco, iyReco));
-                }
-              }
-            }
-
-            int bestIt = -1;
-            double bestQuad = std::numeric_limits<double>::max();
-
-            for (int it = 1; it <= kMaxIterPlot; ++it)
-            {
-              if (!hMeasDataGlob)
-              {
-                cout << ANSI_BOLD_RED << "[UNF ITER QA][FATAL] hMeasDataGlob is null. Skipping." << ANSI_RESET << "\n";
-                break;
-              }
-
-              RooUnfoldBayes u(&respXJ, hMeasDataGlob, it);
-              u.SetVerbose(0);
-              u.SetNToys(kNToysXJScan);
-
-              TH1* hCurr = nullptr;
-              if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-              hCurr = u.Hreco(RooUnfold::kCovToy);
-              if (gSystem) gSystem->RedirectOutput(0);
-              if (!hCurr)
-              {
-                cout << ANSI_BOLD_RED << "[UNF ITER QA][WARN] Hreco returned null at it=" << it << ANSI_RESET << "\n";
-                continue;
-              }
-
-              hCurr->SetDirectory(nullptr);
-              EnsureSumw2(hCurr);
-
-              const int nb = hCurr->GetNbinsX();
-
-              double sumV2 = 0.0;
-              double sumE2 = 0.0;
-
-              for (int ib = 1; ib <= nb; ++ib)
-              {
-                const double v  = hCurr->GetBinContent(ib);
-                const double ev = hCurr->GetBinError(ib);
-                sumV2 += v * v;
-                sumE2 += ev * ev;
-              }
-
-              const double relStat = (sumV2 > 0.0) ? std::sqrt(sumE2 / sumV2) : 0.0;
-
-              double relChg = 0.0;
-              const TH1* hRef = (it == 1 ? hBaselineGlob : hPrev);
-
-              if (hRef)
-              {
-                double sumD2 = 0.0;
-                for (int ib = 1; ib <= nb; ++ib)
-                {
-                  const double d = hCurr->GetBinContent(ib) - hRef->GetBinContent(ib);
-                  sumD2 += d * d;
-                }
-                relChg = (sumV2 > 0.0) ? std::sqrt(sumD2 / sumV2) : 0.0;
-              }
-
-              const double quad = std::sqrt(relStat * relStat + relChg * relChg);
-
-              cout << ANSI_BOLD_YEL
-                   << "[UNF ITER QA] it=" << it
-                   << "  nb=" << nb
-                   << "  relStat=" << std::setprecision(6) << relStat
-                   << "  relChange(it vs it-1)=" << std::setprecision(6) << relChg
-                   << "  quadratureSum=" << std::setprecision(6) << quad
-                   << ANSI_RESET << "\n";
-
-              xIt.push_back((double)it);
-              exIt.push_back(0.0);
-
-              yRelStat.push_back(relStat);
-              eyRelStat.push_back(0.0);
-
-              yRelChange.push_back(relChg);
-              eyRelChange.push_back(0.0);
-
-              yQuad.push_back(quad);
-              eyQuad.push_back(0.0);
-
-              if (quad < bestQuad)
-              {
-                bestQuad = quad;
-                bestIt = it;
-              }
-
-              if (hPrev) delete hPrev;
-              hPrev = hCurr;
-            }
-
-            if (hPrev) delete hPrev;
-            if (hBaselineGlob) delete hBaselineGlob;
+            const std::vector<double>& xIt         = xjIterScan.xIt;
+            const std::vector<double>& exIt        = xjIterScan.exIt;
+            const std::vector<double>& yRelStat    = xjIterScan.yRelStat;
+            const std::vector<double>& eyRelStat   = xjIterScan.eyRelStat;
+            const std::vector<double>& yRelChange  = xjIterScan.yRelChange;
+            const std::vector<double>& eyRelChange = xjIterScan.eyRelChange;
+            const std::vector<double>& yQuad       = xjIterScan.yQuad;
+            const std::vector<double>& eyQuad      = xjIterScan.eyQuad;
+            const int bestIt                       = xjIterScan.bestIt;
+            const double bestQuad                  = xjIterScan.bestQuad;
 
             cout << ANSI_BOLD_CYN
                  << "[UNF ITER QA] Points prepared: n=" << xIt.size()
