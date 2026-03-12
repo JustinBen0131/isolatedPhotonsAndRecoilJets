@@ -180,7 +180,7 @@ namespace ARJ
   //
   // Within the pipeline itself, gApplyPurityCorrectionForUnfolding still selects
   // whether the reco input is raw or ABCD purity-corrected.
-  inline bool do_xJ_PPunfold = false;
+  inline bool do_xJ_PPunfold = true;
   // Internal toggle used to run the RooUnfold pipeline twice:
   //   false -> raw reco inputs                     -> unfolding/nonPurityCorrected/...
   //   true  -> ABCD purity-corrected reco inputs  -> unfolding/purityCorrected/...
@@ -208,7 +208,7 @@ namespace ARJ
 
   // If false, STEP 1 will NOT rebuild the photonJet10+20 merged ROOT file(s).
   // Downstream code will simply open the already-merged output at the configured path(s).
-  inline bool doRemergePhoton10and20sim  = false;
+  inline bool doRemergePhoton10and20sim  = true;
 
   inline bool allPhoton5and10and20sim    = false;
 
