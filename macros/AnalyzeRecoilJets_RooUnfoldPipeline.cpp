@@ -597,6 +597,312 @@
         const string phoDir = JoinPath(outBase, "photons");
         EnsureDir(phoDir);
 
+        auto MakeSamOverlayRawPurityPlot =
+          [&]()->void
+        {
+          if (gApplyPurityCorrectionForUnfolding) return;
+
+          const string samDir = JoinPath(phoDir, "SamOverlay");
+          EnsureDir(samDir);
+
+          const string kBoxCutsFile =
+            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet5/7pi_8_BB/RecoilJets_pp_ALL.root";
+          const string kBDTFile =
+            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet3/7pi_8_BB/histsData.root";
+
+          const int nSamBins = 7;
+          const double samPtEdges[nSamBins + 1] = {13.0, 15.0, 17.0, 19.0, 21.0, 23.0, 26.0, 35.0};
+
+          auto ComputeRawPurityFromCounts =
+            [&](double A, double eA,
+                double B, double eB,
+                double C, double eC,
+                double D, double eD,
+                double& P, double& eP)->bool
+          {
+            P = 0.0;
+            eP = 0.0;
+
+            if (A <= 0.0 || D <= 0.0) return false;
+
+            double SA = A - B * (C / D);
+            if (SA < 0.0) SA = 0.0;
+            P = SA / A;
+
+            const double dPdA =  (B * C) / (A * A * D);
+            const double dPdB = -(C) / (A * D);
+            const double dPdC = -(B) / (A * D);
+            const double dPdD =  (B * C) / (A * D * D);
+
+            double var = 0.0;
+            var += dPdA * dPdA * eA * eA;
+            var += dPdB * dPdB * eB * eB;
+            var += dPdC * dPdC * eC * eC;
+            var += dPdD * dPdD * eD * eD;
+
+            eP = (var > 0.0) ? std::sqrt(var) : 0.0;
+            return true;
+          };
+
+          auto IntegrateHistWithOverlap =
+            [&](TH1* h, double xLo, double xHi, double& err)->double
+          {
+            err = 0.0;
+            if (!h) return 0.0;
+
+            double sum = 0.0;
+            double err2 = 0.0;
+
+            const int nb = h->GetNbinsX();
+            for (int ib = 1; ib <= nb; ++ib)
+            {
+              const double bLo = h->GetXaxis()->GetBinLowEdge(ib);
+              const double bHi = h->GetXaxis()->GetBinUpEdge(ib);
+              const double ovLo = std::max(xLo, bLo);
+              const double ovHi = std::min(xHi, bHi);
+              if (ovHi <= ovLo) continue;
+
+              const double width = bHi - bLo;
+              if (width <= 0.0) continue;
+
+              const double frac = (ovHi - ovLo) / width;
+              const double val = h->GetBinContent(ib);
+              double eBin = h->GetBinError(ib);
+              if (eBin <= 0.0 && val > 0.0) eBin = std::sqrt(val);
+
+              sum  += frac * val;
+              err2 += frac * frac * eBin * eBin;
+            }
+
+            err = (err2 > 0.0) ? std::sqrt(err2) : 0.0;
+            return sum;
+          };
+
+          auto GetObjFromMaybeDir =
+            [&](TDirectory* dPrimary, TDirectory* dFallback, const string& name)->TObject*
+          {
+            TObject* obj = nullptr;
+            if (dPrimary) obj = dPrimary->Get(name.c_str());
+            if (!obj && dFallback) obj = dFallback->Get(name.c_str());
+            return obj;
+          };
+
+          TFile* fBox = TFile::Open(kBoxCutsFile.c_str(), "READ");
+          if (!fBox || fBox->IsZombie())
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] SamOverlay purity plot skipped: could not open box-cuts file: "
+                 << kBoxCutsFile << ANSI_RESET << "\n";
+            if (fBox) { fBox->Close(); delete fBox; }
+            return;
+          }
+
+          TFile* fBDT = TFile::Open(kBDTFile.c_str(), "READ");
+          if (!fBDT || fBDT->IsZombie())
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] SamOverlay purity plot skipped: could not open BDT file: "
+                 << kBDTFile << ANSI_RESET << "\n";
+            if (fBox) { fBox->Close(); delete fBox; }
+            if (fBDT) { fBDT->Close(); delete fBDT; }
+            return;
+          }
+
+          TDirectory* dBox = fBox->GetDirectory(kTriggerPP.c_str());
+          if (!dBox) dBox = fBox;
+
+          TDirectory* dBDTTop = fBDT;
+          TDirectory* dBDTTrig = fBDT->GetDirectory(kTriggerPP.c_str());
+
+          std::vector<double> xBox, exBox, yBox, eyBox;
+          std::vector<double> xBDT, exBDT, yBDT, eyBDT;
+
+          xBox.reserve(nSamBins);
+          exBox.reserve(nSamBins);
+          yBox.reserve(nSamBins);
+          eyBox.reserve(nSamBins);
+
+          xBDT.reserve(nSamBins);
+          exBDT.reserve(nSamBins);
+          yBDT.reserve(nSamBins);
+          eyBDT.reserve(nSamBins);
+
+          TH1* hBDTA = dynamic_cast<TH1*>(GetObjFromMaybeDir(dBDTTop, dBDTTrig, "hclusterptabcd0"));
+          TH1* hBDTB = dynamic_cast<TH1*>(GetObjFromMaybeDir(dBDTTop, dBDTTrig, "hclusterptabcd1"));
+          TH1* hBDTC = dynamic_cast<TH1*>(GetObjFromMaybeDir(dBDTTop, dBDTTrig, "hclusterptabcd2"));
+          TH1* hBDTD = dynamic_cast<TH1*>(GetObjFromMaybeDir(dBDTTop, dBDTTrig, "hclusterptabcd3"));
+
+          if (!hBDTA || !hBDTB || !hBDTC || !hBDTD)
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] SamOverlay purity plot skipped: missing one or more BDT histograms hclusterptabcd{0,1,2,3} in "
+                 << kBDTFile << ANSI_RESET << "\n";
+            fBox->Close();
+            fBDT->Close();
+            delete fBox;
+            delete fBDT;
+            return;
+          }
+
+          for (int i = 0; i < nSamBins; ++i)
+          {
+            const int ptLo = (int)std::llround(samPtEdges[i]);
+            const int ptHi = (int)std::llround(samPtEdges[i + 1]);
+            const double ptCtr = 0.5 * (samPtEdges[i] + samPtEdges[i + 1]);
+            const double ptErr = 0.5 * (samPtEdges[i + 1] - samPtEdges[i]);
+
+            {
+              const string hAName = TString::Format("h_isIsolated_isTight_pT_%d_%d", ptLo, ptHi).Data();
+              const string hBName = TString::Format("h_notIsolated_isTight_pT_%d_%d", ptLo, ptHi).Data();
+              const string hCName = TString::Format("h_isIsolated_notTight_pT_%d_%d", ptLo, ptHi).Data();
+              const string hDName = TString::Format("h_notIsolated_notTight_pT_%d_%d", ptLo, ptHi).Data();
+
+              TH1* hA = dynamic_cast<TH1*>(dBox->Get(hAName.c_str()));
+              TH1* hB = dynamic_cast<TH1*>(dBox->Get(hBName.c_str()));
+              TH1* hC = dynamic_cast<TH1*>(dBox->Get(hCName.c_str()));
+              TH1* hD = dynamic_cast<TH1*>(dBox->Get(hDName.c_str()));
+
+              if (hA && hB && hC && hD)
+              {
+                const double A = hA->GetBinContent(1);
+                const double B = hB->GetBinContent(1);
+                const double C = hC->GetBinContent(1);
+                const double D = hD->GetBinContent(1);
+
+                double eA = hA->GetBinError(1);
+                double eB = hB->GetBinError(1);
+                double eC = hC->GetBinError(1);
+                double eD = hD->GetBinError(1);
+
+                if (eA <= 0.0 && A > 0.0) eA = std::sqrt(A);
+                if (eB <= 0.0 && B > 0.0) eB = std::sqrt(B);
+                if (eC <= 0.0 && C > 0.0) eC = std::sqrt(C);
+                if (eD <= 0.0 && D > 0.0) eD = std::sqrt(D);
+
+                double P = 0.0;
+                double eP = 0.0;
+                if (ComputeRawPurityFromCounts(A, eA, B, eB, C, eC, D, eD, P, eP))
+                {
+                  xBox.push_back(ptCtr);
+                  exBox.push_back(ptErr);
+                  yBox.push_back(P);
+                  eyBox.push_back(eP);
+                }
+              }
+              else
+              {
+                cout << ANSI_BOLD_YEL
+                     << "[WARN] SamOverlay box-cuts purity: missing one or more ABCD histograms for pT bin "
+                     << ptLo << "-" << ptHi << " GeV in " << kBoxCutsFile
+                     << ANSI_RESET << "\n";
+              }
+            }
+
+            {
+              double eA = 0.0, eB = 0.0, eC = 0.0, eD = 0.0;
+              const double A = IntegrateHistWithOverlap(hBDTA, samPtEdges[i], samPtEdges[i + 1], eA);
+              const double B = IntegrateHistWithOverlap(hBDTB, samPtEdges[i], samPtEdges[i + 1], eB);
+              const double C = IntegrateHistWithOverlap(hBDTC, samPtEdges[i], samPtEdges[i + 1], eC);
+              const double D = IntegrateHistWithOverlap(hBDTD, samPtEdges[i], samPtEdges[i + 1], eD);
+
+              double P = 0.0;
+              double eP = 0.0;
+              if (ComputeRawPurityFromCounts(A, eA, B, eB, C, eC, D, eD, P, eP))
+              {
+                xBDT.push_back(ptCtr);
+                exBDT.push_back(ptErr);
+                yBDT.push_back(P);
+                eyBDT.push_back(eP);
+              }
+              else
+              {
+                cout << ANSI_BOLD_YEL
+                     << "[WARN] SamOverlay BDT purity: invalid raw ABCD counts for pT bin "
+                     << ptLo << "-" << ptHi << " GeV in " << kBDTFile
+                     << ANSI_RESET << "\n";
+              }
+            }
+          }
+
+          if (xBox.empty() || xBDT.empty())
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] SamOverlay purity plot skipped: no valid overlay points were built."
+                 << ANSI_RESET << "\n";
+            fBox->Close();
+            fBDT->Close();
+            delete fBox;
+            delete fBDT;
+            return;
+          }
+
+          TGraphErrors gBDT((int)xBDT.size(), &xBDT[0], &yBDT[0], &exBDT[0], &eyBDT[0]);
+          TGraphErrors gBox((int)xBox.size(), &xBox[0], &yBox[0], &exBox[0], &eyBox[0]);
+
+          gBDT.SetTitle("");
+          gBDT.SetMarkerStyle(20);
+          gBDT.SetMarkerSize(1.20);
+          gBDT.SetMarkerColor(kBlue + 1);
+          gBDT.SetLineColor(kBlue + 1);
+          gBDT.SetLineWidth(2);
+
+          gBox.SetTitle("");
+          gBox.SetMarkerStyle(20);
+          gBox.SetMarkerSize(1.20);
+          gBox.SetMarkerColor(kRed + 1);
+          gBox.SetLineColor(kRed + 1);
+          gBox.SetLineWidth(2);
+
+          TCanvas c("c_samOverlay_purityRaw", "c_samOverlay_purityRaw", 900, 700);
+          ApplyCanvasMargins1D(c);
+
+          TH1F hFrame("hSamOverlayPurityFrame", "", 100, samPtEdges[0], samPtEdges[nSamBins]);
+          hFrame.SetDirectory(nullptr);
+          hFrame.SetStats(0);
+          hFrame.SetTitle("");
+          hFrame.SetMinimum(0.0);
+          hFrame.SetMaximum(1.05);
+          hFrame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+          hFrame.GetYaxis()->SetTitle("Purity (raw ABCD)");
+          hFrame.Draw();
+
+          gBox.Draw("PE same");
+          gBDT.Draw("PE same");
+
+          TLegend leg(0.58, 0.72, 0.88, 0.84);
+          leg.SetBorderSize(0);
+          leg.SetFillStyle(0);
+          leg.SetTextFont(42);
+          leg.SetTextSize(0.035);
+          leg.AddEntry(&gBDT, "BDT tight-ID", "pe");
+          leg.AddEntry(&gBox, "Box-cuts tight-ID", "pe");
+          leg.Draw();
+
+          TLatex tTitle;
+          tTitle.SetNDC(true);
+          tTitle.SetTextFont(42);
+          tTitle.SetTextAlign(23);
+          tTitle.SetTextSize(0.045);
+          tTitle.DrawLatex(0.50, 0.96, "Purity Overlay, BDT vs Box Cuts");
+
+          TLatex tInfo;
+          tInfo.SetNDC(true);
+          tInfo.SetTextFont(42);
+          tInfo.SetTextAlign(33);
+          tInfo.SetTextSize(0.038);
+          tInfo.DrawLatex(0.92, 0.18, "Iso cone: 0.04");
+          tInfo.DrawLatex(0.92, 0.12, "|v_{z}| < 60 cm");
+
+          SaveCanvas(c, JoinPath(samDir, "purity_raw_overlay_BDT_vs_BoxCuts.png"));
+
+          fBox->Close();
+          fBDT->Close();
+          delete fBox;
+          delete fBDT;
+        };
+
+        MakeSamOverlayRawPurityPlot();
+
         const string phoRecoName   = "h_unfoldRecoPho_pTgamma";
         const string phoTruthName  = "h_unfoldTruthPho_pTgamma";
         const string phoRespName   = "h2_unfoldResponsePho_pTgamma";
