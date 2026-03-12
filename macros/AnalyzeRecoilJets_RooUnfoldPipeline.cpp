@@ -2055,6 +2055,9 @@
                 const string phoQABudgetDir = JoinPath(phoQADir, "02_budget");
                 const string phoQARespDir   = JoinPath(phoQADir, "03_response");
 
+                const double xPlotMin = 10.0;
+                const double xPlotMax = 35.0;
+
                 EnsureDir(phoQADir);
                 EnsureDir(phoQAMasterDir);
                 EnsureDir(phoQABudgetDir);
