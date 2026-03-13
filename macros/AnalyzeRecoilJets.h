@@ -1152,18 +1152,18 @@ namespace ARJ
   // =============================================================================
   // Style / plotting primitives
   // =============================================================================
-  inline void SetupGlobalStyle()
-  {
-    gStyle->SetOptStat(0);
-    gStyle->SetTitleBorderSize(0);
-    gStyle->SetTitleFillColor(0);
-    gStyle->SetPadLeftMargin(0.12);
-    gStyle->SetPadRightMargin(0.05);
-    gStyle->SetPadBottomMargin(0.12);
-    gStyle->SetPadTopMargin(0.08);
-    gStyle->SetLegendBorderSize(0);
-    gStyle->SetLegendFillColor(0);
-  }
+inline void SetupGlobalStyle()
+{
+  gStyle->SetOptStat(0);
+  gStyle->SetTitleBorderSize(0);
+  gStyle->SetTitleFillColor(0);
+  gStyle->SetPadLeftMargin(0.12);
+  gStyle->SetPadRightMargin(0.05);
+  gStyle->SetPadBottomMargin(0.12);
+  gStyle->SetPadTopMargin(0.08);
+  gStyle->SetLegendBorderSize(0);
+  gStyle->SetLegendFillColor(0);
+}
 
   inline void ApplyCanvasMargins1D(TCanvas& c)
   {

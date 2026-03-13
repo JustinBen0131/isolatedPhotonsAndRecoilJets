@@ -1447,25 +1447,1359 @@
         TH1* hPhoUnfoldTruth_cov = unfoldPhoCov.Hreco(RooUnfold::kCovariance);
         if (hPhoUnfoldTruth_cov) hPhoUnfoldTruth_cov->SetDirectory(nullptr);
 
-      // Photon QA outputs
-      {
+        // Photon QA outputs
         {
-          TCanvas c("c_pho_resp","c_pho_resp", 900, 750);
-          ApplyCanvasMargins2D(c);
-          c.SetLogz();
+          {
+            TCanvas c("c_pho_resp","c_pho_resp", 900, 750);
+            ApplyCanvasMargins2D(c);
+            c.SetLogz();
 
-          hPhoRespSim->SetTitle("");
-          hPhoRespSim->GetXaxis()->SetTitle("p_{T}^{#gamma, truth} [GeV]");
-          hPhoRespSim->GetYaxis()->SetTitle("p_{T}^{#gamma, reco} [GeV]");
-          hPhoRespSim->Draw("colz");
+            hPhoRespSim->SetTitle("");
+            hPhoRespSim->GetXaxis()->SetTitle("p_{T}^{#gamma, truth} [GeV]");
+            hPhoRespSim->GetYaxis()->SetTitle("p_{T}^{#gamma, reco} [GeV]");
+            hPhoRespSim->Draw("colz");
 
-          DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
-          DrawLatexLines(0.14,0.78, { "SIM photon response", "truth #rightarrow reco" }, 0.030, 0.040);
+            DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
+            DrawLatexLines(0.14,0.78, { "SIM photon response", "truth #rightarrow reco" }, 0.030, 0.040);
 
-          SaveCanvas(c, JoinPath(phoDir, "pho_response_truthVsReco.png"));
+            SaveCanvas(c, JoinPath(phoDir, "pho_response_truthVsReco.png"));
+          }
+          if (hPhoResp_measXtruth)
+          {
+              TCanvas c("c_pho_respT","c_pho_respT", 900, 750);
+              ApplyCanvasMargins2D(c);
+              c.SetLogz();
+
+              hPhoResp_measXtruth->SetTitle("");
+              hPhoResp_measXtruth->GetXaxis()->SetTitle("p_{T}^{#gamma, reco} [GeV]");
+              hPhoResp_measXtruth->GetYaxis()->SetTitle("p_{T}^{#gamma, truth} [GeV]");
+
+              const auto& recoEdges  = kUnfoldRecoPtEdges;
+              const auto& truthEdges = kUnfoldTruthPtEdges;
+
+              const double recoMin     = (!recoEdges.empty() ? recoEdges.front() : 8.0);
+              const double recoUFHi    = (recoEdges.size() >= 2 ? recoEdges[1] : 10.0);
+              const double recoOFLo    = (recoEdges.size() >= 2 ? recoEdges[recoEdges.size() - 2] : 35.0);
+              const double recoMax     = (!recoEdges.empty() ? recoEdges.back() : 40.0);
+              const double recoDrawMax = recoOFLo;
+
+              const double truthMin   = (!truthEdges.empty() ? truthEdges.front() : 5.0);
+              const double truthUFMid = (truthEdges.size() >= 2 ? truthEdges[1] : 8.0);
+              const double truthUFHi  = (truthEdges.size() >= 3 ? truthEdges[2] : 10.0);
+              const double truthOFLo  = (truthEdges.size() >= 2 ? truthEdges[truthEdges.size() - 2] : 35.0);
+              const double truthMax   = (!truthEdges.empty() ? truthEdges.back() : 40.0);
+
+              // Show the full truth range, but cut the reco drawing range at 35 GeV
+              // so the reco overflow support bin (35-40) is indicated by the dashed line
+              // at 35 GeV rather than displayed as a full x-axis bin.
+              hPhoResp_measXtruth->GetXaxis()->SetRangeUser(recoMin, recoDrawMax);
+              hPhoResp_measXtruth->GetYaxis()->SetRangeUser(truthMin, truthMax);
+
+              // Debug: verify the response histogram actually contains the expected bin edges
+              cout << "  [pho_response_recoVsTruth] X(reco) nbins=" << hPhoResp_measXtruth->GetXaxis()->GetNbins()
+                     << "  firstLowEdge=" << hPhoResp_measXtruth->GetXaxis()->GetBinLowEdge(1)
+                     << "  lastUpEdge="   << hPhoResp_measXtruth->GetXaxis()->GetBinUpEdge(hPhoResp_measXtruth->GetXaxis()->GetNbins())
+                     << "\n";
+              cout << "  [pho_response_recoVsTruth] Y(truth) nbins=" << hPhoResp_measXtruth->GetYaxis()->GetNbins()
+                     << "  firstLowEdge=" << hPhoResp_measXtruth->GetYaxis()->GetBinLowEdge(1)
+                     << "  lastUpEdge="   << hPhoResp_measXtruth->GetYaxis()->GetBinUpEdge(hPhoResp_measXtruth->GetYaxis()->GetNbins())
+                     << "\n";
+
+              hPhoResp_measXtruth->Draw("colz");
+              if (gPad) gPad->Update();
+
+              TLine lRecoUF(recoUFHi, truthMin, recoUFHi, truthMax);
+              TLine lRecoOF(recoOFLo, truthMin, recoOFLo, truthMax);
+              TLine lTruthUF1(recoMin, truthUFMid, recoDrawMax, truthUFMid);
+              TLine lTruthUF2(recoMin, truthUFHi, recoDrawMax, truthUFHi);
+              TLine lTruthOF(recoMin, truthOFLo, recoDrawMax, truthOFLo);
+
+              lRecoUF.SetLineColor(kBlack);
+              lRecoOF.SetLineColor(kBlack);
+              lTruthUF1.SetLineColor(kBlack);
+              lTruthUF2.SetLineColor(kBlack);
+              lTruthOF.SetLineColor(kBlack);
+
+              lRecoUF.SetLineStyle(2);
+              lRecoOF.SetLineStyle(2);
+              lTruthUF1.SetLineStyle(2);
+              lTruthUF2.SetLineStyle(2);
+              lTruthOF.SetLineStyle(2);
+
+              lRecoUF.SetLineWidth(2);
+              lRecoOF.SetLineWidth(2);
+              lTruthUF1.SetLineWidth(2);
+              lTruthUF2.SetLineWidth(2);
+              lTruthOF.SetLineWidth(2);
+
+              if (recoUFHi > recoMin && recoUFHi < recoMax) lRecoUF.Draw("same");
+              if (recoOFLo > recoMin && recoOFLo < recoMax) lRecoOF.Draw("same");
+              if (truthUFMid > truthMin && truthUFMid < truthMax) lTruthUF1.Draw("same");
+              if (truthUFHi > truthMin && truthUFHi < truthMax) lTruthUF2.Draw("same");
+              if (truthOFLo > truthMin && truthOFLo < truthMax) lTruthOF.Draw("same");
+
+              DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
+              DrawLatexLines(0.14,0.88, { "SIM photon response (transpose)", "reco #rightarrow truth axis order" }, 0.030, 0.040);
+              DrawLatexLines(0.52,0.36,
+                             {
+                               "UF / OF support bins:",
+                               "reco: 8-10 = UF, 35-40 = OF",
+                               "truth: 5-8 and 8-10 = UF, 35-40 = OF"
+                             },
+                             0.026, 0.035);
+
+              c.Modified();
+              c.Update();
+
+              SaveCanvas(c, JoinPath(phoDir, "pho_response_recoVsTruth.png"));
+            }
+
+          if (hPhoUnfoldTruth)
+          {
+            TH1* hRecoShape = CloneTH1(hPhoRecoData, "hPhoRecoData_forOverlay");
+            TH1* hUnfShape  = CloneTH1(hPhoUnfoldTruth, "hPhoUnfoldTruth_forOverlay");
+            if (hRecoShape && hUnfShape)
+            {
+              hRecoShape->SetDirectory(nullptr);
+              hUnfShape->SetDirectory(nullptr);
+
+              hRecoShape->SetLineColor(2);
+              hRecoShape->SetMarkerColor(2);
+              hRecoShape->SetMarkerStyle(20);
+              hRecoShape->SetLineWidth(2);
+
+              hUnfShape->SetLineColor(1);
+              hUnfShape->SetMarkerColor(1);
+              hUnfShape->SetMarkerStyle(24);
+              hUnfShape->SetLineWidth(2);
+
+              TCanvas c("c_pho_unf","c_pho_unf", 900, 700);
+              ApplyCanvasMargins1D(c);
+
+              const double maxv = std::max(hRecoShape->GetMaximum(), hUnfShape->GetMaximum());
+              hRecoShape->SetMaximum(maxv * 1.35);
+              hRecoShape->SetTitle("");
+              hRecoShape->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+              hRecoShape->GetYaxis()->SetTitle("Counts");
+
+              hRecoShape->Draw("E1");
+              hUnfShape->Draw("E1 same");
+
+              TLegend leg(0.55,0.76,0.92,0.90);
+              leg.SetTextFont(42);
+              leg.SetTextSize(0.032);
+              leg.AddEntry(hRecoShape, "Run24pp Reco", "lep");
+              leg.AddEntry(hUnfShape,  TString::Format("Unfolded (truth), Bayes it=%d", kBayesIterPho).Data(), "lep");
+              leg.Draw();
+
+              DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
+              DrawLatexLines(0.14,0.78, { "Photon unfolding: N_{#gamma}(p_{T}^{#gamma})" }, 0.030, 0.040);
+
+              SaveCanvas(c, JoinPath(phoDir, "pho_unfolded_truth_pTgamma_overlay.png"));
+
+              // Also save a log-y version (keep the linear-y output above as-is),
+              // but only draw the common analysis bins (10-35 GeV) and add a ratio subpanel.
+              {
+                    const double xPlotMin = 10.0;
+                    const double xPlotMax = 35.0;
+
+                    auto scanMaxInRange = [&](TH1* h)->double
+                    {
+                      double maxY = 0.0;
+                      if (!h) return maxY;
+
+                      const int nb = h->GetNbinsX();
+                      for (int ib = 1; ib <= nb; ++ib)
+                      {
+                        const double lo = h->GetXaxis()->GetBinLowEdge(ib);
+                        const double hi = h->GetXaxis()->GetBinUpEdge(ib);
+                        if (lo < xPlotMin || hi > xPlotMax) continue;
+
+                        const double y  = h->GetBinContent(ib);
+                        const double ey = h->GetBinError(ib);
+                        if (!std::isfinite(y) || !std::isfinite(ey)) continue;
+                        if (y <= 0.0 && ey <= 0.0) continue;
+
+                        const double v = y + ey;
+                        if (v > maxY) maxY = v;
+                      }
+                      return maxY;
+                    };
+
+                    auto scanMinPosInRange = [&](TH1* h)->double
+                    {
+                      double minY = 1e99;
+                      if (!h) return minY;
+
+                      const int nb = h->GetNbinsX();
+                      for (int ib = 1; ib <= nb; ++ib)
+                      {
+                        const double lo = h->GetXaxis()->GetBinLowEdge(ib);
+                        const double hi = h->GetXaxis()->GetBinUpEdge(ib);
+                        if (lo < xPlotMin || hi > xPlotMax) continue;
+
+                        const double y = h->GetBinContent(ib);
+                        if (!std::isfinite(y)) continue;
+                        if (y > 0.0 && y < minY) minY = y;
+                      }
+                      return minY;
+                    };
+
+                    auto BuildPhotonAfterOverBeforeRatio = [&](TH1* hAfter, TH1* hBefore)->TH1D*
+                    {
+                      if (!hAfter || !hBefore) return nullptr;
+
+                      vector<double> ratioEdges =
+                      {
+                        10.0, 12.0, 14.0, 16.0, 18.0,
+                        20.0, 22.0, 24.0, 26.0, 35.0
+                      };
+
+                      TH1D* hRatio = new TH1D(
+                        "hPho_afterOverBefore_ratio",
+                        "",
+                        (int)ratioEdges.size() - 1,
+                        &ratioEdges[0]
+                      );
+                      hRatio->SetDirectory(nullptr);
+                      hRatio->Sumw2();
+
+                      for (int ib = 1; ib <= hRatio->GetNbinsX(); ++ib)
+                      {
+                        const double lo  = hRatio->GetXaxis()->GetBinLowEdge(ib);
+                        const double hi  = hRatio->GetXaxis()->GetBinUpEdge(ib);
+                        const double cen = hRatio->GetXaxis()->GetBinCenter(ib);
+
+                        const int iAfter  = hAfter ->GetXaxis()->FindBin(cen);
+                        const int iBefore = hBefore->GetXaxis()->FindBin(cen);
+
+                        if (iAfter  < 1 || iAfter  > hAfter ->GetNbinsX()) continue;
+                        if (iBefore < 1 || iBefore > hBefore->GetNbinsX()) continue;
+
+                        const double afterLo  = hAfter ->GetXaxis()->GetBinLowEdge(iAfter);
+                        const double afterHi  = hAfter ->GetXaxis()->GetBinUpEdge(iAfter);
+                        const double beforeLo = hBefore->GetXaxis()->GetBinLowEdge(iBefore);
+                        const double beforeHi = hBefore->GetXaxis()->GetBinUpEdge(iBefore);
+
+                        if (std::fabs(afterLo  - lo) > 1e-6 || std::fabs(afterHi  - hi) > 1e-6) continue;
+                        if (std::fabs(beforeLo - lo) > 1e-6 || std::fabs(beforeHi - hi) > 1e-6) continue;
+
+                        const double num  = hAfter ->GetBinContent(iAfter);
+                        const double eNum = hAfter ->GetBinError  (iAfter);
+                        const double den  = hBefore->GetBinContent(iBefore);
+                        const double eDen = hBefore->GetBinError  (iBefore);
+
+                        if (!std::isfinite(num) || !std::isfinite(eNum) ||
+                            !std::isfinite(den) || !std::isfinite(eDen) || den <= 0.0)
+                        {
+                          continue;
+                        }
+
+                        const double val = num / den;
+                        const double var = (eNum * eNum) / (den * den)
+                                         + (num * num * eDen * eDen) / (den * den * den * den);
+                        const double err = (var > 0.0 && std::isfinite(var)) ? std::sqrt(var) : 0.0;
+
+                        hRatio->SetBinContent(ib, val);
+                        hRatio->SetBinError  (ib, err);
+                      }
+
+                      return hRatio;
+                    };
+
+                    const double maxvTop = std::max(scanMaxInRange(hRecoShape), scanMaxInRange(hUnfShape));
+
+                    double minPos = std::min(scanMinPosInRange(hRecoShape), scanMinPosInRange(hUnfShape));
+                    if (!(minPos < 1e98)) minPos = 1e-3;
+
+                    TH1D* hRatio = BuildPhotonAfterOverBeforeRatio(hUnfShape, hRecoShape);
+
+                    double ratioMin = 0.8;
+                    double ratioMax = 1.2;
+                    if (hRatio)
+                    {
+                      double rMin =  1e99;
+                      double rMax = -1e99;
+
+                      for (int ib = 1; ib <= hRatio->GetNbinsX(); ++ib)
+                      {
+                        const double y  = hRatio->GetBinContent(ib);
+                        const double ey = hRatio->GetBinError(ib);
+                        if (!std::isfinite(y) || !std::isfinite(ey)) continue;
+                        if (y <= 0.0 && ey <= 0.0) continue;
+
+                        rMin = std::min(rMin, y - ey);
+                        rMax = std::max(rMax, y + ey);
+                      }
+
+                      if (rMin < 1e98 && rMax > -1e98 && rMin < rMax)
+                      {
+                        const double span = std::max(rMax - rMin, 0.04);
+                        const double pad  = 0.18 * span;
+                        ratioMin = rMin - pad;
+                        ratioMax = rMax + pad;
+
+                        if (ratioMin > 1.0) ratioMin = 1.0 - 0.5 * span;
+                        if (ratioMax < 1.0) ratioMax = 1.0 + 0.5 * span;
+                        if (ratioMin < 0.0) ratioMin = 0.0;
+                      }
+                    }
+
+                    c.Clear();
+
+                    TPad* pTop = new TPad("pTop_pho_unf_logy", "pTop_pho_unf_logy", 0.0, 0.30, 1.0, 1.0);
+                    TPad* pBot = new TPad("pBot_pho_unf_logy", "pBot_pho_unf_logy", 0.0, 0.00, 1.0, 0.30);
+
+                    pTop->SetLeftMargin(0.12);
+                    pTop->SetRightMargin(0.04);
+                    pTop->SetTopMargin(0.08);
+                    pTop->SetBottomMargin(0.02);
+                    pTop->SetTicks(1, 1);
+                    pTop->SetLogy(1);
+
+                    pBot->SetLeftMargin(0.12);
+                    pBot->SetRightMargin(0.04);
+                    pBot->SetTopMargin(0.02);
+                    pBot->SetBottomMargin(0.30);
+                    pBot->SetTicks(1, 1);
+                    pBot->SetGridy(1);
+
+                    pTop->Draw();
+                    pBot->Draw();
+
+                    pTop->cd();
+
+                    hRecoShape->SetTitle("");
+                    hRecoShape->GetXaxis()->SetRangeUser(xPlotMin, xPlotMax);
+                    hUnfShape->GetXaxis()->SetRangeUser(xPlotMin, xPlotMax);
+
+                    hRecoShape->GetXaxis()->SetTitle("");
+                    hRecoShape->GetXaxis()->SetLabelSize(0.0);
+                    hRecoShape->GetXaxis()->SetTitleSize(0.0);
+
+                    hRecoShape->GetYaxis()->SetTitle("Counts");
+                    hRecoShape->GetYaxis()->SetTitleSize(0.055);
+                    hRecoShape->GetYaxis()->SetTitleOffset(0.95);
+                    hRecoShape->GetYaxis()->SetLabelSize(0.045);
+
+                    hRecoShape->SetMinimum(std::max(minPos * 0.5, 1e-6));
+                    hRecoShape->SetMaximum((maxvTop > 0.0) ? (maxvTop * 3.0) : 1.0);
+
+                    hRecoShape->Draw("E1");
+                    hUnfShape->Draw("E1 same");
+
+                    TLegend leg(0.55,0.76,0.92,0.90);
+                    leg.SetTextFont(42);
+                    leg.SetTextSize(0.032);
+                    leg.AddEntry(hRecoShape, "PP DATA (reco)", "lep");
+                    leg.AddEntry(hUnfShape,  TString::Format("Unfolded (truth), Bayes it=%d", kBayesIterPho).Data(), "lep");
+                    leg.Draw();
+
+                    DrawLatexLines(0.14,0.92,
+                                   { "Photon 1D Unfolding, N_{#gamma}(p_{T}^{#gamma}), Photon 4 GeV + MBD NS #geq 1" },
+                                   0.034, 0.045);
+
+                    pBot->cd();
+
+                    if (hRatio)
+                    {
+                      hRatio->SetTitle("");
+                      hRatio->SetMarkerStyle(20);
+                      hRatio->SetMarkerSize(0.95);
+                      hRatio->SetLineWidth(2);
+                      hRatio->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                      hRatio->GetYaxis()->SetTitle("After / before unfolding");
+                      hRatio->GetXaxis()->SetRangeUser(xPlotMin, xPlotMax);
+                      hRatio->GetYaxis()->SetRangeUser(ratioMin, ratioMax);
+                      hRatio->GetXaxis()->SetTitleSize(0.12);
+                      hRatio->GetXaxis()->SetLabelSize(0.11);
+                      hRatio->GetXaxis()->SetTitleOffset(1.00);
+                      hRatio->GetYaxis()->SetTitleSize(0.10);
+                      hRatio->GetYaxis()->SetLabelSize(0.09);
+                      hRatio->GetYaxis()->SetTitleOffset(0.55);
+                      hRatio->GetYaxis()->SetNdivisions(505);
+                      hRatio->Draw("E1");
+
+                      TLine l1(xPlotMin, 1.0, xPlotMax, 1.0);
+                      l1.SetLineStyle(2);
+                      l1.SetLineWidth(2);
+                      l1.Draw("same");
+                    }
+                    else
+                    {
+                      TH1F frame("frame_pho_ratio","", 1, xPlotMin, xPlotMax);
+                      frame.SetMinimum(ratioMin);
+                      frame.SetMaximum(ratioMax);
+                      frame.SetTitle("");
+                      frame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                      frame.GetYaxis()->SetTitle("After / before unfolding");
+                      frame.GetXaxis()->SetTitleSize(0.12);
+                      frame.GetXaxis()->SetLabelSize(0.11);
+                      frame.GetXaxis()->SetTitleOffset(1.00);
+                      frame.GetYaxis()->SetTitleSize(0.10);
+                      frame.GetYaxis()->SetLabelSize(0.09);
+                      frame.GetYaxis()->SetTitleOffset(0.55);
+                      frame.GetYaxis()->SetNdivisions(505);
+                      frame.Draw("axis");
+
+                      TLine l1(xPlotMin, 1.0, xPlotMax, 1.0);
+                      l1.SetLineStyle(2);
+                      l1.SetLineWidth(2);
+                      l1.Draw("same");
+                    }
+
+                    c.cd();
+                    c.Modified();
+                    c.Update();
+                    SaveCanvas(c, JoinPath(phoDir, "pho_unfolded_truth_pTgamma_overlay_logy.png"));
+
+                    if (hRatio) delete hRatio;
+                }
+
+                // photon efficiency/purity diagnostics
+                //
+                // These are SIM truth-matching bookkeeping diagnostics that explain the
+                // normalization gap in before/after unfolding overlays.
+                //
+                // (1) Purity (SIM, reco space):
+                //     purity(pT) = 1 - N_fakeReco(pT)/N_reco(pT)
+                //
+                // (2) Efficiency (SIM, truth space):
+                //     eff(pT)    = 1 - N_missTruth(pT)/N_truth(pT)
+                //
+                // (3) Truth/Reconstruction scale factor (SIM):
+                //     N_truth(pT)/N_reco(pT)  (with bin-mapping when axes differ)
+                //
+                // (4) Implied "efficiency-like" curve in DATA (not purely data-driven):
+                //     eps_eff,data(pT) = N_reco,data(pT) / N_truth,data(unfolded)(pT)
+                //     (computed with bin-mapping when axes differ)
+                //
+                // Outputs (to <phoDir>, i.e. unfolding/radii/<rXX>/photons):
+                //   - pho_efficiencyEff_data_vs_pTgamma.png
+                //   - pho_purity_sim_vs_pTgamma.png                 (if fakes hist exists)
+                //   - pho_efficiency_sim_vs_pTgamma.png             (if misses hist exists)
+                //   - pho_truthOverReco_sim_vs_pTgamma.png          (bin-mapped)
+                //   - pho_recoOverTruth_sim_vs_pTgamma.png          (bin-mapped)
+                //   - pho_efficiencyEff_data_vs_efficiency_sim.png  (overlay, if both exist)
+                // -------------------------------------------------------------------
+                {
+                  auto sameBinning = [&](TH1* a, TH1* b)->bool
+                  {
+                    if (!a || !b) return false;
+                    if (a->GetNbinsX() != b->GetNbinsX()) return false;
+                    const int nb = a->GetNbinsX();
+                    for (int ib = 1; ib <= nb + 1; ++ib)
+                    {
+                      const double ea = a->GetXaxis()->GetBinUpEdge(ib);
+                      const double eb = b->GetXaxis()->GetBinUpEdge(ib);
+                      if (std::fabs(ea - eb) > 1e-9) return false;
+                    }
+                    return true;
+                  };
+
+                  auto mapToRefBinning = [&](TH1* src, TH1* ref, const char* newName)->TH1*
+                  {
+                    if (!src || !ref) return nullptr;
+
+                    TH1* h = CloneTH1(ref, newName);
+                    if (!h) return nullptr;
+
+                    h->SetDirectory(nullptr);
+                    EnsureSumw2(h);
+                    h->Reset("ICES");
+
+                    const int nb = ref->GetNbinsX();
+                    int nBad = 0;
+
+                    for (int ib = 1; ib <= nb; ++ib)
+                    {
+                      const double x  = ref->GetXaxis()->GetBinCenter(ib);
+                      const int isrc  = src->GetXaxis()->FindBin(x);
+
+                      const double xsLo = src->GetXaxis()->GetBinLowEdge(isrc);
+                      const double xsHi = src->GetXaxis()->GetBinUpEdge(isrc);
+                      const double xrLo = ref->GetXaxis()->GetBinLowEdge(ib);
+                      const double xrHi = ref->GetXaxis()->GetBinUpEdge(ib);
+
+                      if (std::fabs(xsLo - xrLo) > 1e-3 || std::fabs(xsHi - xrHi) > 1e-3) ++nBad;
+
+                      h->SetBinContent(ib, src->GetBinContent(isrc));
+                      h->SetBinError  (ib, src->GetBinError  (isrc));
+                    }
+
+                    if (nBad > 0)
+                    {
+                      cout << ANSI_BOLD_YEL
+                           << "[WARN] Photon diagnostics: mapped histogram '" << newName
+                           << "' had " << nBad << " bins with mismatched edges (copied by bin-center)."
+                           << ANSI_RESET << "\n";
+                    }
+
+                    return h;
+                  };
+
+                  auto drawLineAtOne = [&](TH1* h)
+                  {
+                    if (!h) return;
+                    const double xmin = h->GetXaxis()->GetXmin();
+                    const double xmax = h->GetXaxis()->GetXmax();
+                    TLine l1(xmin, 1.0, xmax, 1.0);
+                    l1.SetLineStyle(2);
+                    l1.SetLineWidth(2);
+                    l1.Draw("same");
+                  };
+
+                  // -----------------------------
+                  // DATA: eps_eff = N_reco,data / N_truth,data(unfolded)
+                  // -----------------------------
+                  TH1* hEffData = nullptr;
+                  {
+                    TH1* hRecoD  = hPhoRecoData;
+                    TH1* hTruthD = hPhoUnfoldTruth;
+
+                    if (hRecoD && hTruthD)
+                    {
+                      TH1* hRecoD_m = nullptr;
+
+                      if (sameBinning(hRecoD, hTruthD))
+                      {
+                        hRecoD_m = CloneTH1(hRecoD, "h_pho_recoData_counts_forEff");
+                        if (hRecoD_m) { hRecoD_m->SetDirectory(nullptr); EnsureSumw2(hRecoD_m); }
+                      }
+                      else
+                      {
+                        hRecoD_m = mapToRefBinning(hRecoD, hTruthD, "h_pho_recoData_counts_mappedToTruthBins_forEff");
+                      }
+
+                      if (hRecoD_m)
+                      {
+                        hEffData = CloneTH1(hRecoD_m, "h_pho_effData_recoOverUnfoldTruth");
+                        if (hEffData)
+                        {
+                          hEffData->SetDirectory(nullptr);
+                          EnsureSumw2(hEffData);
+                          hEffData->Divide(hTruthD);
+
+                          hEffData->SetTitle("");
+                          hEffData->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                          hEffData->GetYaxis()->SetTitle("#epsilon_{#gamma}^{eff,data} = N_{#gamma}^{reco,data} / N_{#gamma}^{truth,data (unfolded)}");
+                          hEffData->SetMarkerStyle(20);
+                          hEffData->SetMarkerSize(1.1);
+                          hEffData->SetLineWidth(2);
+
+                          TCanvas c("c_pho_effData", "c_pho_effData", 900, 700);
+                          ApplyCanvasMargins1D(c);
+
+                          hEffData->GetYaxis()->SetRangeUser(0.0, 1.2);
+                          hEffData->Draw("E1");
+                          drawLineAtOne(hEffData);
+
+                          DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
+                          DrawLatexLines(0.14,0.78, { "Photon unfolding diagnostic: implied #epsilon_{#gamma}^{eff,data}(p_{T}^{#gamma})" }, 0.030, 0.040);
+
+                          SaveCanvas(c, JoinPath(phoDir, "pho_efficiencyEff_data_vs_pTgamma.png"));
+                        }
+                      }
+
+                      if (hRecoD_m && hRecoD_m != hRecoD) delete hRecoD_m;
+                    }
+                  }
+
+                  // -----------------------------
+                  // SIM: purity, efficiency, truth/reco ratios
+                  // -----------------------------
+                  TH1* hPurSim = nullptr;
+                  TH1* hEffSim = nullptr;
+                  TH1* hTruthOverRecoSim = nullptr;
+                  TH1* hRecoOverTruthSim = nullptr;
+
+                    // Purity: 1 - fakes/reco  (reco space)
+                    if (hPhoRecoSim && hPhoRecoFakesSim_in)
+                    {
+                      TH1* hFakeOverReco = CloneTH1(hPhoRecoFakesSim_in, "h_pho_fakeOverReco_sim");
+                      if (hFakeOverReco)
+                      {
+                        hFakeOverReco->SetDirectory(nullptr);
+                        EnsureSumw2(hFakeOverReco);
+                        hFakeOverReco->Divide(hPhoRecoSim);
+
+                      hPurSim = CloneTH1(hFakeOverReco, "h_pho_purity_sim");
+                      if (hPurSim)
+                      {
+                        hPurSim->SetDirectory(nullptr);
+                        EnsureSumw2(hPurSim);
+
+                        for (int ib = 1; ib <= hPurSim->GetNbinsX(); ++ib)
+                        {
+                          const double v  = 1.0 - hFakeOverReco->GetBinContent(ib);
+                          const double ev = hFakeOverReco->GetBinError(ib);
+                          hPurSim->SetBinContent(ib, v);
+                          hPurSim->SetBinError  (ib, ev);
+                        }
+
+                        hPurSim->SetTitle("");
+                        hPurSim->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                        hPurSim->GetYaxis()->SetTitle("Purity(p_{T}^{#gamma}) = 1 - N_{fake}^{reco}/N_{#gamma}^{reco}");
+                        hPurSim->SetMarkerStyle(21);
+                        hPurSim->SetMarkerSize(1.1);
+                        hPurSim->SetLineWidth(2);
+
+                        TCanvas c("c_pho_purity_sim", "c_pho_purity_sim", 900, 700);
+                        ApplyCanvasMargins1D(c);
+
+                        hPurSim->GetYaxis()->SetRangeUser(0.0, 1.2);
+                        hPurSim->Draw("E1");
+                        drawLineAtOne(hPurSim);
+
+                        DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
+                        DrawLatexLines(0.14,0.78, { "SIM photon purity: 1 - (reco fakes)/(reco selected)" }, 0.030, 0.040);
+
+                        SaveCanvas(c, JoinPath(phoDir, "pho_purity_sim_vs_pTgamma.png"));
+                      }
+
+                      delete hFakeOverReco;
+                    }
+                  }
+                  else
+                  {
+                    cout << ANSI_BOLD_YEL
+                         << "[WARN] Photon purity plot: missing SIM fakes histogram (h_unfoldRecoPhoFakes_pTgamma). Skipping purity plot."
+                         << ANSI_RESET << "\n";
+                  }
+
+                    // Efficiency: 1 - misses/truth (truth space)
+                  if (hPhoTruthSim && hPhoTruthMissesSim_in)
+                  {
+                      TH1* hMissOverTruth = CloneTH1(hPhoTruthMissesSim_in, "h_pho_missOverTruth_sim");
+                      if (hMissOverTruth)
+                      {
+                        hMissOverTruth->SetDirectory(nullptr);
+                        EnsureSumw2(hMissOverTruth);
+                        hMissOverTruth->Divide(hPhoTruthSim);
+
+                      hEffSim = CloneTH1(hMissOverTruth, "h_pho_efficiency_sim");
+                      if (hEffSim)
+                      {
+                        hEffSim->SetDirectory(nullptr);
+                        EnsureSumw2(hEffSim);
+
+                        for (int ib = 1; ib <= hEffSim->GetNbinsX(); ++ib)
+                        {
+                          const double v  = 1.0 - hMissOverTruth->GetBinContent(ib);
+                          const double ev = hMissOverTruth->GetBinError(ib);
+                          hEffSim->SetBinContent(ib, v);
+                          hEffSim->SetBinError  (ib, ev);
+                        }
+
+                        hEffSim->SetTitle("");
+                        hEffSim->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                        hEffSim->GetYaxis()->SetTitle("#epsilon_{#gamma}^{MC}(p_{T}^{#gamma}) = 1 - N_{miss}^{truth}/N_{#gamma}^{truth}");
+                        hEffSim->SetMarkerStyle(22);
+                        hEffSim->SetMarkerSize(1.1);
+                        hEffSim->SetLineWidth(2);
+
+                        TCanvas c("c_pho_efficiency_sim", "c_pho_efficiency_sim", 900, 700);
+                        ApplyCanvasMargins1D(c);
+
+                        hEffSim->GetYaxis()->SetRangeUser(0.0, 1.2);
+                        hEffSim->Draw("E1");
+                        drawLineAtOne(hEffSim);
+
+                        DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
+                        DrawLatexLines(0.14,0.78, { "SIM photon efficiency: 1 - (truth misses)/(truth signal)" }, 0.030, 0.040);
+
+                        SaveCanvas(c, JoinPath(phoDir, "pho_efficiency_sim_vs_pTgamma.png"));
+                      }
+
+                      delete hMissOverTruth;
+                    }
+                  }
+                  else
+                  {
+                    cout << ANSI_BOLD_YEL
+                         << "[WARN] Photon efficiency plot: missing SIM misses histogram (h_unfoldTruthPhoMisses_pTgamma). Skipping efficiency plot."
+                         << ANSI_RESET << "\n";
+                  }
+
+                  // Truth/Reco ratios in SIM (bin-mapped so it is well-defined)
+                  if (hPhoTruthSim && hPhoRecoSim)
+                  {
+                    TH1* hRecoSim_mTruth = nullptr;
+                    if (sameBinning(hPhoRecoSim, hPhoTruthSim))
+                    {
+                      hRecoSim_mTruth = CloneTH1(hPhoRecoSim, "h_pho_recoSim_counts_forTruthOverReco");
+                      if (hRecoSim_mTruth) { hRecoSim_mTruth->SetDirectory(nullptr); EnsureSumw2(hRecoSim_mTruth); }
+                    }
+                    else
+                    {
+                      hRecoSim_mTruth = mapToRefBinning(hPhoRecoSim, hPhoTruthSim, "h_pho_recoSim_counts_mappedToTruthBins_forTruthOverReco");
+                    }
+
+                    if (hRecoSim_mTruth)
+                    {
+                      hTruthOverRecoSim = CloneTH1(hPhoTruthSim, "h_pho_truthOverReco_sim");
+                      if (hTruthOverRecoSim)
+                      {
+                        hTruthOverRecoSim->SetDirectory(nullptr);
+                        EnsureSumw2(hTruthOverRecoSim);
+                        hTruthOverRecoSim->Divide(hRecoSim_mTruth);
+
+                        hTruthOverRecoSim->SetTitle("");
+                        hTruthOverRecoSim->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                        hTruthOverRecoSim->GetYaxis()->SetTitle("N_{#gamma}^{truth} / N_{#gamma}^{reco}  (SIM, bin-mapped)");
+                        hTruthOverRecoSim->SetMarkerStyle(20);
+                        hTruthOverRecoSim->SetMarkerSize(1.1);
+                        hTruthOverRecoSim->SetLineWidth(2);
+
+                        TCanvas c("c_pho_truthOverReco_sim", "c_pho_truthOverReco_sim", 900, 700);
+                        ApplyCanvasMargins1D(c);
+
+                        hTruthOverRecoSim->Draw("E1");
+
+                        DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
+                        DrawLatexLines(0.14,0.78, { "SIM normalization lever-arm: N_{#gamma}^{truth} / N_{#gamma}^{reco}" }, 0.030, 0.040);
+
+                        SaveCanvas(c, JoinPath(phoDir, "pho_truthOverReco_sim_vs_pTgamma.png"));
+                      }
+
+                      if (hRecoSim_mTruth && hRecoSim_mTruth != hPhoRecoSim) delete hRecoSim_mTruth;
+                    }
+
+                    TH1* hTruthSim_mReco = nullptr;
+                    if (sameBinning(hPhoTruthSim, hPhoRecoSim))
+                    {
+                      hTruthSim_mReco = CloneTH1(hPhoTruthSim, "h_pho_truthSim_counts_forRecoOverTruth");
+                      if (hTruthSim_mReco) { hTruthSim_mReco->SetDirectory(nullptr); EnsureSumw2(hTruthSim_mReco); }
+                    }
+                    else
+                    {
+                      hTruthSim_mReco = mapToRefBinning(hPhoTruthSim, hPhoRecoSim, "h_pho_truthSim_counts_mappedToRecoBins_forRecoOverTruth");
+                    }
+
+                    if (hTruthSim_mReco)
+                    {
+                      hRecoOverTruthSim = CloneTH1(hPhoRecoSim, "h_pho_recoOverTruth_sim");
+                      if (hRecoOverTruthSim)
+                      {
+                        hRecoOverTruthSim->SetDirectory(nullptr);
+                        EnsureSumw2(hRecoOverTruthSim);
+                        hRecoOverTruthSim->Divide(hTruthSim_mReco);
+
+                        hRecoOverTruthSim->SetTitle("");
+                        hRecoOverTruthSim->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                        hRecoOverTruthSim->GetYaxis()->SetTitle("N_{#gamma}^{reco} / N_{#gamma}^{truth}  (SIM, bin-mapped)");
+                        hRecoOverTruthSim->SetMarkerStyle(20);
+                        hRecoOverTruthSim->SetMarkerSize(1.1);
+                        hRecoOverTruthSim->SetLineWidth(2);
+
+                        TCanvas c("c_pho_recoOverTruth_sim", "c_pho_recoOverTruth_sim", 900, 700);
+                        ApplyCanvasMargins1D(c);
+
+                        hRecoOverTruthSim->GetYaxis()->SetRangeUser(0.0, 1.2);
+                        hRecoOverTruthSim->Draw("E1");
+                        drawLineAtOne(hRecoOverTruthSim);
+
+                        DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
+                        DrawLatexLines(0.14,0.78, { "SIM efficiency-like: N_{#gamma}^{reco} / N_{#gamma}^{truth}" }, 0.030, 0.040);
+
+                        SaveCanvas(c, JoinPath(phoDir, "pho_recoOverTruth_sim_vs_pTgamma.png"));
+                      }
+
+                      if (hTruthSim_mReco && hTruthSim_mReco != hPhoTruthSim) delete hTruthSim_mReco;
+                    }
+                  }
+
+                  // -----------------------------
+                  // Overlay: eps_eff,data vs eps_MC (if both exist)
+                  // -----------------------------
+                  if (hEffData && hEffSim)
+                  {
+                    TCanvas c("c_pho_effData_vs_effSim", "c_pho_effData_vs_effSim", 900, 700);
+                    ApplyCanvasMargins1D(c);
+
+                    TH1* hFrame = CloneTH1(hEffSim, "hFrame_effData_vs_effSim");
+                    if (hFrame)
+                    {
+                      hFrame->SetDirectory(nullptr);
+                      hFrame->Reset("ICES");
+                      hFrame->SetTitle("");
+                      hFrame->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                      hFrame->GetYaxis()->SetTitle("#epsilon_{#gamma}(p_{T}^{#gamma})");
+                      hFrame->GetYaxis()->SetRangeUser(0.0, 1.2);
+                      hFrame->Draw("axis");
+                    }
+
+                    hEffSim->SetMarkerColor(kBlue + 1);
+                    hEffSim->SetLineColor(kBlue + 1);
+                    hEffData->SetMarkerColor(kBlack);
+                    hEffData->SetLineColor(kBlack);
+
+                    hEffSim->Draw("E1 same");
+                    hEffData->Draw("E1 same");
+
+                    TGraphErrors gLegData(1), gLegSim(1);
+                    {
+                      int ib = 1;
+                      const double x  = hEffData->GetXaxis()->GetBinCenter(ib);
+                      const double y  = hEffData->GetBinContent(ib);
+                      const double ey = hEffData->GetBinError(ib);
+                      gLegData.SetPoint(0, x, y);
+                      gLegData.SetPointError(0, 0.0, ey);
+                      gLegData.SetMarkerStyle(hEffData->GetMarkerStyle());
+                      gLegData.SetMarkerSize(hEffData->GetMarkerSize());
+                      gLegData.SetMarkerColor(hEffData->GetMarkerColor());
+                      gLegData.SetLineColor(hEffData->GetLineColor());
+                      gLegData.SetLineWidth(hEffData->GetLineWidth());
+                    }
+                    {
+                      int ib = 1;
+                      const double x  = hEffSim->GetXaxis()->GetBinCenter(ib);
+                      const double y  = hEffSim->GetBinContent(ib);
+                      const double ey = hEffSim->GetBinError(ib);
+                      gLegSim.SetPoint(0, x, y);
+                      gLegSim.SetPointError(0, 0.0, ey);
+                      gLegSim.SetMarkerStyle(hEffSim->GetMarkerStyle());
+                      gLegSim.SetMarkerSize(hEffSim->GetMarkerSize());
+                      gLegSim.SetMarkerColor(hEffSim->GetMarkerColor());
+                      gLegSim.SetLineColor(hEffSim->GetLineColor());
+                      gLegSim.SetLineWidth(hEffSim->GetLineWidth());
+                    }
+
+                    TLegend leg(0.55, 0.74, 0.88, 0.88);
+                    leg.SetBorderSize(0);
+                    leg.SetFillStyle(0);
+                    leg.SetTextFont(42);
+                    leg.SetTextSize(0.035);
+                    leg.AddEntry(&gLegData, "#epsilon_{#gamma}^{eff,data} (reco / unfolded truth)", "pe");
+                    leg.AddEntry(&gLegSim,  "#epsilon_{#gamma}^{MC} (1 - misses/truth)", "pe");
+                    leg.Draw();
+
+                    drawLineAtOne(hEffSim);
+
+                    DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
+                    DrawLatexLines(0.14,0.78, { "Photon efficiency diagnostics: DATA implied vs SIM truth-matching" }, 0.030, 0.040);
+
+                    SaveCanvas(c, JoinPath(phoDir, "pho_efficiencyEff_data_vs_efficiency_sim.png"));
+
+                    if (hFrame) delete hFrame;
+                  }
+
+                  if (hRecoOverTruthSim) delete hRecoOverTruthSim;
+                  if (hTruthOverRecoSim) delete hTruthOverRecoSim;
+                  if (hEffSim) delete hEffSim;
+                  if (hPurSim) delete hPurSim;
+                  if (hEffData) delete hEffData;
+                }
+
+                delete hRecoShape;
+                delete hUnfShape;
+            }
+          }
         }
-        if (hPhoResp_measXtruth)
+        // Photon QA outputs
         {
+          auto sameBinning = [&](TH1* a, TH1* b)->bool
+          {
+            if (!a || !b) return false;
+            if (a->GetNbinsX() != b->GetNbinsX()) return false;
+            const int nb = a->GetNbinsX();
+            for (int ib = 1; ib <= nb + 1; ++ib)
+            {
+              const double ea = a->GetXaxis()->GetBinUpEdge(ib);
+              const double eb = b->GetXaxis()->GetBinUpEdge(ib);
+              if (std::fabs(ea - eb) > 1e-9) return false;
+            }
+            return true;
+          };
+
+          auto mapToRefBinning = [&](TH1* src, TH1* ref, const char* newName)->TH1*
+          {
+            if (!src || !ref) return nullptr;
+
+            TH1* h = CloneTH1(ref, newName);
+            if (!h) return nullptr;
+
+            h->SetDirectory(nullptr);
+            EnsureSumw2(h);
+            h->Reset("ICES");
+
+            const int nb = ref->GetNbinsX();
+            int nBad = 0;
+
+            for (int ib = 1; ib <= nb; ++ib)
+            {
+              const double x  = ref->GetXaxis()->GetBinCenter(ib);
+              const int isrc  = src->GetXaxis()->FindBin(x);
+
+              const double xsLo = src->GetXaxis()->GetBinLowEdge(isrc);
+              const double xsHi = src->GetXaxis()->GetBinUpEdge(isrc);
+              const double xrLo = ref->GetXaxis()->GetBinLowEdge(ib);
+              const double xrHi = ref->GetXaxis()->GetBinUpEdge(ib);
+
+              if (std::fabs(xsLo - xrLo) > 1e-3 || std::fabs(xsHi - xrHi) > 1e-3) ++nBad;
+
+              h->SetBinContent(ib, src->GetBinContent(isrc));
+              h->SetBinError  (ib, src->GetBinError  (isrc));
+            }
+
+            if (nBad > 0)
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] Photon QA: mapped histogram '" << newName
+                   << "' had " << nBad << " bins with mismatched edges (copied by bin-center)."
+                   << ANSI_RESET << "\n";
+            }
+
+            return h;
+          };
+
+          auto cloneOrMapToRef = [&](TH1* src, TH1* ref, const char* newName)->TH1*
+          {
+            if (!src || !ref) return nullptr;
+
+            TH1* h = nullptr;
+            if (sameBinning(src, ref))
+            {
+              h = CloneTH1(src, newName);
+              if (h)
+              {
+                h->SetDirectory(nullptr);
+                EnsureSumw2(h);
+              }
+            }
+            else
+            {
+              h = mapToRefBinning(src, ref, newName);
+            }
+            return h;
+          };
+
+          auto makeRatioOnRef = [&](TH1* hNum, TH1* hDen, TH1* hRef, const char* newName)->TH1*
+          {
+            if (!hNum || !hDen || !hRef) return nullptr;
+
+            TH1* hNumR = cloneOrMapToRef(hNum, hRef, TString::Format("%s_numRef", newName).Data());
+            TH1* hDenR = cloneOrMapToRef(hDen, hRef, TString::Format("%s_denRef", newName).Data());
+            if (!hNumR || !hDenR)
+            {
+              if (hNumR) delete hNumR;
+              if (hDenR) delete hDenR;
+              return nullptr;
+            }
+
+            TH1* hR = CloneTH1(hNumR, newName);
+            if (hR)
+            {
+              hR->SetDirectory(nullptr);
+              EnsureSumw2(hR);
+              hR->Divide(hDenR);
+            }
+
+            delete hNumR;
+            delete hDenR;
+            return hR;
+          };
+
+          auto makeOneMinus = [&](TH1* hIn, const char* newName)->TH1*
+          {
+            if (!hIn) return nullptr;
+
+            TH1* h = CloneTH1(hIn, newName);
+            if (!h) return nullptr;
+
+            h->SetDirectory(nullptr);
+            EnsureSumw2(h);
+
+            for (int ib = 0; ib <= h->GetNbinsX() + 1; ++ib)
+            {
+              if (ib == 0 || ib == h->GetNbinsX() + 1)
+              {
+                h->SetBinContent(ib, 0.0);
+                h->SetBinError  (ib, 0.0);
+                continue;
+              }
+
+              const double v  = 1.0 - hIn->GetBinContent(ib);
+              const double ev = hIn->GetBinError(ib);
+              h->SetBinContent(ib, v);
+              h->SetBinError  (ib, ev);
+            }
+
+            return h;
+          };
+
+          auto makeHistFromAxis = [&](const TAxis* ax, const char* newName, const char* yTitle)->TH1D*
+          {
+            if (!ax) return nullptr;
+
+            TH1D* h = nullptr;
+            if (ax->GetXbins() && ax->GetXbins()->GetSize() > 0)
+            {
+              h = new TH1D(newName, "", ax->GetNbins(), ax->GetXbins()->GetArray());
+            }
+            else
+            {
+              h = new TH1D(newName, "", ax->GetNbins(), ax->GetXmin(), ax->GetXmax());
+            }
+
+            if (!h) return nullptr;
+            h->SetDirectory(nullptr);
+            h->Sumw2();
+            h->SetTitle("");
+            h->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+            h->GetYaxis()->SetTitle(yTitle);
+            return h;
+          };
+
+          auto normalizeResponseByTruth = [&](TH2* hIn, const char* newName)->TH2*
+          {
+            if (!hIn) return nullptr;
+
+            TH2* h = CloneTH2(hIn, newName);
+            if (!h) return nullptr;
+
+            h->SetDirectory(nullptr);
+            EnsureSumw2(h);
+            h->Reset("ICES");
+
+            for (int ix = 1; ix <= hIn->GetNbinsX(); ++ix)
+            {
+              double sum = 0.0;
+              for (int iy = 1; iy <= hIn->GetNbinsY(); ++iy) sum += hIn->GetBinContent(ix, iy);
+              if (!(sum > 0.0)) continue;
+
+              for (int iy = 1; iy <= hIn->GetNbinsY(); ++iy)
+              {
+                const double v = hIn->GetBinContent(ix, iy) / sum;
+                h->SetBinContent(ix, iy, v);
+                h->SetBinError  (ix, iy, 0.0);
+              }
+            }
+
+            return h;
+          };
+
+          auto normalizeResponseByReco = [&](TH2* hIn, const char* newName)->TH2*
+          {
+            if (!hIn) return nullptr;
+
+            TH2* h = CloneTH2(hIn, newName);
+            if (!h) return nullptr;
+
+            h->SetDirectory(nullptr);
+            EnsureSumw2(h);
+            h->Reset("ICES");
+
+            for (int iy = 1; iy <= hIn->GetNbinsY(); ++iy)
+            {
+              double sum = 0.0;
+              for (int ix = 1; ix <= hIn->GetNbinsX(); ++ix) sum += hIn->GetBinContent(ix, iy);
+              if (!(sum > 0.0)) continue;
+
+              for (int ix = 1; ix <= hIn->GetNbinsX(); ++ix)
+              {
+                const double v = hIn->GetBinContent(ix, iy) / sum;
+                h->SetBinContent(ix, iy, v);
+                h->SetBinError  (ix, iy, 0.0);
+              }
+            }
+
+            return h;
+          };
+
+          auto normalizeRecoFeedIn = [&](TH2* hIn, const char* newName)->TH2*
+          {
+            if (!hIn) return nullptr;
+
+            TH2* h = CloneTH2(hIn, newName);
+            if (!h) return nullptr;
+
+            h->SetDirectory(nullptr);
+            EnsureSumw2(h);
+            h->Reset("ICES");
+
+            for (int ix = 1; ix <= hIn->GetNbinsX(); ++ix)
+            {
+              double sum = 0.0;
+              for (int iy = 1; iy <= hIn->GetNbinsY(); ++iy) sum += hIn->GetBinContent(ix, iy);
+              if (!(sum > 0.0)) continue;
+
+              for (int iy = 1; iy <= hIn->GetNbinsY(); ++iy)
+              {
+                const double v = hIn->GetBinContent(ix, iy) / sum;
+                h->SetBinContent(ix, iy, v);
+                h->SetBinError  (ix, iy, 0.0);
+              }
+            }
+
+            return h;
+          };
+
+          auto buildResponseMeanRecoOverTruth = [&](TH2* hResp, const char* newName)->TH1D*
+          {
+            if (!hResp) return nullptr;
+
+            TH1D* h = makeHistFromAxis(hResp->GetXaxis(), newName, "Mean(reco / truth)");
+            if (!h) return nullptr;
+
+            for (int ix = 1; ix <= hResp->GetNbinsX(); ++ix)
+            {
+              const double xTruth = hResp->GetXaxis()->GetBinCenter(ix);
+              if (!(xTruth > 0.0)) continue;
+
+              double sumW = 0.0;
+              double sumR = 0.0;
+              double sumR2 = 0.0;
+
+              for (int iy = 1; iy <= hResp->GetNbinsY(); ++iy)
+              {
+                const double w = hResp->GetBinContent(ix, iy);
+                if (!(w > 0.0)) continue;
+
+                const double xReco = hResp->GetYaxis()->GetBinCenter(iy);
+                const double r = xReco / xTruth;
+
+                sumW  += w;
+                sumR  += w * r;
+                sumR2 += w * r * r;
+              }
+
+              if (!(sumW > 0.0)) continue;
+
+              const double mean = sumR / sumW;
+              const double var  = std::max(0.0, sumR2 / sumW - mean * mean);
+              const double err  = std::sqrt(var / sumW);
+
+              h->SetBinContent(ix, mean);
+              h->SetBinError  (ix, err);
+            }
+
+            return h;
+          };
+
+          auto buildResponseWidthRecoOverTruth = [&](TH2* hResp, const char* newName)->TH1D*
+          {
+            if (!hResp) return nullptr;
+
+            TH1D* h = makeHistFromAxis(hResp->GetXaxis(), newName, "RMS(reco / truth)");
+            if (!h) return nullptr;
+
+            for (int ix = 1; ix <= hResp->GetNbinsX(); ++ix)
+            {
+              const double xTruth = hResp->GetXaxis()->GetBinCenter(ix);
+              if (!(xTruth > 0.0)) continue;
+
+              double sumW = 0.0;
+              double sumR = 0.0;
+              double sumR2 = 0.0;
+
+              for (int iy = 1; iy <= hResp->GetNbinsY(); ++iy)
+              {
+                const double w = hResp->GetBinContent(ix, iy);
+                if (!(w > 0.0)) continue;
+
+                const double xReco = hResp->GetYaxis()->GetBinCenter(iy);
+                const double r = xReco / xTruth;
+
+                sumW  += w;
+                sumR  += w * r;
+                sumR2 += w * r * r;
+              }
+
+              if (!(sumW > 0.0)) continue;
+
+              const double mean = sumR / sumW;
+              const double var  = std::max(0.0, sumR2 / sumW - mean * mean);
+              const double rms  = std::sqrt(var);
+              const double err  = (sumW > 1.0) ? (rms / std::sqrt(2.0 * (sumW - 1.0))) : 0.0;
+
+              h->SetBinContent(ix, rms);
+              h->SetBinError  (ix, err);
+            }
+
+            return h;
+          };
+
+          auto buildResponseDiagonalFraction = [&](TH2* hResp, const char* newName)->TH1D*
+          {
+            if (!hResp) return nullptr;
+
+            TH1D* h = makeHistFromAxis(hResp->GetXaxis(), newName, "Same-bin fraction");
+            if (!h) return nullptr;
+
+            for (int ix = 1; ix <= hResp->GetNbinsX(); ++ix)
+            {
+              const double xLo = hResp->GetXaxis()->GetBinLowEdge(ix);
+              const double xHi = hResp->GetXaxis()->GetBinUpEdge(ix);
+
+              int iyMatch = -1;
+              for (int iy = 1; iy <= hResp->GetNbinsY(); ++iy)
+              {
+                const double yLo = hResp->GetYaxis()->GetBinLowEdge(iy);
+                const double yHi = hResp->GetYaxis()->GetBinUpEdge(iy);
+                if (std::fabs(yLo - xLo) < 1e-9 && std::fabs(yHi - xHi) < 1e-9)
+                {
+                  iyMatch = iy;
+                  break;
+                }
+              }
+
+              double sum = 0.0;
+              for (int iy = 1; iy <= hResp->GetNbinsY(); ++iy) sum += hResp->GetBinContent(ix, iy);
+              if (!(sum > 0.0) || iyMatch < 0) continue;
+
+              const double frac = hResp->GetBinContent(ix, iyMatch) / sum;
+              const double err  = std::sqrt(std::max(0.0, frac * (1.0 - frac) / sum));
+
+              h->SetBinContent(ix, frac);
+              h->SetBinError  (ix, err);
+            }
+
+            return h;
+          };
+
+          auto findExactBinByEdges = [&](const TAxis* ax, double lo, double hi)->int
+          {
+            if (!ax) return -1;
+            for (int ib = 1; ib <= ax->GetNbins(); ++ib)
+            {
+              const double bLo = ax->GetBinLowEdge(ib);
+              const double bHi = ax->GetBinUpEdge(ib);
+              if (std::fabs(bLo - lo) < 1e-9 && std::fabs(bHi - hi) < 1e-9) return ib;
+            }
+            return -1;
+          };
+
+          auto styleHist = [&](TH1* h, int color, int marker)->void
+          {
+            if (!h) return;
+            h->SetLineColor(color);
+            h->SetMarkerColor(color);
+            h->SetMarkerStyle(marker);
+            h->SetMarkerSize(0.95);
+            h->SetLineWidth(2);
+            h->SetTitle("");
+          };
+
+          auto prepPad = [&]()->void
+          {
+            if (!gPad) return;
+            gPad->SetLeftMargin(0.12);
+            gPad->SetRightMargin(0.05);
+            gPad->SetBottomMargin(0.12);
+            gPad->SetTopMargin(0.10);
+            gPad->SetTicks(1, 1);
+          };
+
+          auto drawPadTitle = [&](const string& txt)->void
+          {
+            TLatex tx;
+            tx.SetNDC();
+            tx.SetTextFont(42);
+            tx.SetTextAlign(22);
+            tx.SetTextSize(0.050);
+            tx.DrawLatex(0.50, 0.95, txt.c_str());
+          };
+
+          auto drawCanvasTitle = [&](const string& txt, double size)->void
+          {
+            TLatex tx;
+            tx.SetNDC();
+            tx.SetTextFont(42);
+            tx.SetTextAlign(22);
+            tx.SetTextSize(size);
+            tx.DrawLatex(0.50, 0.985, txt.c_str());
+          };
+
+          auto drawCanvasNote = [&](const vector<string>& lines, double x, double y, int align, double size)->void
+          {
+            TLatex tx;
+            tx.SetNDC();
+            tx.SetTextFont(42);
+            tx.SetTextAlign(align);
+            tx.SetTextSize(size);
+            double yy = y;
+            for (const auto& line : lines)
+            {
+              tx.DrawLatex(x, yy, line.c_str());
+              yy -= 0.045;
+            }
+          };
+
+          auto drawMissingPad = [&](const string& yTitle, const string& msg)->void
+          {
+            TH1F frame("frame_missing_phoQA", "", 1, 10.0, 35.0);
+            frame.SetMinimum(0.0);
+            frame.SetMaximum(1.0);
+            frame.SetTitle("");
+            frame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+            frame.GetYaxis()->SetTitle(yTitle.c_str());
+            frame.Draw("axis");
+
+            TLatex tx;
+            tx.SetNDC();
+            tx.SetTextFont(42);
+            tx.SetTextAlign(22);
+            tx.SetTextSize(0.050);
+            tx.DrawLatex(0.50, 0.50, msg.c_str());
+          };
+
+          auto setRatioRange = [&](TH1* h, double yMinDefault, double yMaxDefault)->void
+          {
+            if (!h) return;
+
+            double yMin =  1e99;
+            double yMax = -1e99;
+            bool have = false;
+
+            for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+            {
+              const double lo = h->GetXaxis()->GetBinLowEdge(ib);
+              const double hi = h->GetXaxis()->GetBinUpEdge(ib);
+              if (lo < 10.0 || hi > 35.0) continue;
+
+              const double y  = h->GetBinContent(ib);
+              const double ey = h->GetBinError(ib);
+              if (!std::isfinite(y) || !std::isfinite(ey)) continue;
+              if (y <= 0.0 && ey <= 0.0) continue;
+
+              have = true;
+              yMin = std::min(yMin, y - ey);
+              yMax = std::max(yMax, y + ey);
+            }
+
+            if (!have || !(yMin < yMax))
+            {
+              h->GetYaxis()->SetRangeUser(yMinDefault, yMaxDefault);
+              return;
+            }
+
+            const double pad = std::max(0.08, 0.18 * (yMax - yMin));
+            yMin = std::min(yMin, 1.0) - pad;
+            yMax = std::max(yMax, 1.0) + pad;
+            if (yMin < 0.0) yMin = 0.0;
+            if (yMax <= yMin) yMax = yMin + 0.5;
+            h->GetYaxis()->SetRangeUser(yMin, yMax);
+          };
+
+          const bool buildPhotonQA = gApplyPurityCorrectionForUnfolding;
+          const string phoQADir       = JoinPath(phoDir, "QA");
+          const string qaMasterDir    = JoinPath(phoQADir, "01_master");
+          const string qaBudgetDir    = JoinPath(phoQADir, "02_budget");
+          const string qaResponseDir  = JoinPath(phoQADir, "03_response");
+          const string qaSupportDir   = JoinPath(phoQADir, "04_support");
+
+          if (buildPhotonQA)
+          {
+            EnsureDir(phoQADir);
+            EnsureDir(qaMasterDir);
+            EnsureDir(qaBudgetDir);
+            EnsureDir(qaResponseDir);
+            EnsureDir(qaSupportDir);
+          }
+
+          if (hPhoResp_measXtruth)
+          {
             TCanvas c("c_pho_respT","c_pho_respT", 900, 750);
             ApplyCanvasMargins2D(c);
             c.SetLogz();
@@ -1480,7 +2814,6 @@
             const double recoMin     = (!recoEdges.empty() ? recoEdges.front() : 8.0);
             const double recoUFHi    = (recoEdges.size() >= 2 ? recoEdges[1] : 10.0);
             const double recoOFLo    = (recoEdges.size() >= 2 ? recoEdges[recoEdges.size() - 2] : 35.0);
-            const double recoMax     = (!recoEdges.empty() ? recoEdges.back() : 40.0);
             const double recoDrawMax = recoOFLo;
 
             const double truthMin   = (!truthEdges.empty() ? truthEdges.front() : 5.0);
@@ -1489,22 +2822,8 @@
             const double truthOFLo  = (truthEdges.size() >= 2 ? truthEdges[truthEdges.size() - 2] : 35.0);
             const double truthMax   = (!truthEdges.empty() ? truthEdges.back() : 40.0);
 
-            // Show the full truth range, but cut the reco drawing range at 35 GeV
-            // so the reco overflow support bin (35-40) is indicated by the dashed line
-            // at 35 GeV rather than displayed as a full x-axis bin.
             hPhoResp_measXtruth->GetXaxis()->SetRangeUser(recoMin, recoDrawMax);
             hPhoResp_measXtruth->GetYaxis()->SetRangeUser(truthMin, truthMax);
-
-            // Debug: verify the response histogram actually contains the expected bin edges
-            cout << "  [pho_response_recoVsTruth] X(reco) nbins=" << hPhoResp_measXtruth->GetXaxis()->GetNbins()
-                   << "  firstLowEdge=" << hPhoResp_measXtruth->GetXaxis()->GetBinLowEdge(1)
-                   << "  lastUpEdge="   << hPhoResp_measXtruth->GetXaxis()->GetBinUpEdge(hPhoResp_measXtruth->GetXaxis()->GetNbins())
-                   << "\n";
-            cout << "  [pho_response_recoVsTruth] Y(truth) nbins=" << hPhoResp_measXtruth->GetYaxis()->GetNbins()
-                   << "  firstLowEdge=" << hPhoResp_measXtruth->GetYaxis()->GetBinLowEdge(1)
-                   << "  lastUpEdge="   << hPhoResp_measXtruth->GetYaxis()->GetBinUpEdge(hPhoResp_measXtruth->GetYaxis()->GetNbins())
-                   << "\n";
-
             hPhoResp_measXtruth->Draw("colz");
             if (gPad) gPad->Update();
 
@@ -1532,11 +2851,11 @@
             lTruthUF2.SetLineWidth(2);
             lTruthOF.SetLineWidth(2);
 
-            if (recoUFHi > recoMin && recoUFHi < recoMax) lRecoUF.Draw("same");
-            if (recoOFLo > recoMin && recoOFLo < recoMax) lRecoOF.Draw("same");
-            if (truthUFMid > truthMin && truthUFMid < truthMax) lTruthUF1.Draw("same");
-            if (truthUFHi > truthMin && truthUFHi < truthMax) lTruthUF2.Draw("same");
-            if (truthOFLo > truthMin && truthOFLo < truthMax) lTruthOF.Draw("same");
+            if (recoUFHi > recoMin) lRecoUF.Draw("same");
+            if (recoOFLo > recoMin) lRecoOF.Draw("same");
+            if (truthUFMid > truthMin) lTruthUF1.Draw("same");
+            if (truthUFHi > truthMin) lTruthUF2.Draw("same");
+            if (truthOFLo > truthMin) lTruthOF.Draw("same");
 
             DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
             DrawLatexLines(0.14,0.88, { "SIM photon response (transpose)", "reco #rightarrow truth axis order" }, 0.030, 0.040);
@@ -1550,752 +2869,712 @@
 
             c.Modified();
             c.Update();
-
             SaveCanvas(c, JoinPath(phoDir, "pho_response_recoVsTruth.png"));
           }
 
-        if (hPhoUnfoldTruth)
-        {
-          TH1* hRecoShape = CloneTH1(hPhoRecoData, "hPhoRecoData_forOverlay");
-          TH1* hUnfShape  = CloneTH1(hPhoUnfoldTruth, "hPhoUnfoldTruth_forOverlay");
-          if (hRecoShape && hUnfShape)
+          if (hPhoUnfoldTruth)
           {
-            hRecoShape->SetDirectory(nullptr);
-            hUnfShape->SetDirectory(nullptr);
+            TH1* hRecoShape = CloneTH1(hPhoRecoData, "hPhoRecoData_forOverlayLog");
+            TH1* hUnfShape  = CloneTH1(hPhoUnfoldTruth, "hPhoUnfoldTruth_forOverlayLog");
 
-            hRecoShape->SetLineColor(2);
-            hRecoShape->SetMarkerColor(2);
-            hRecoShape->SetMarkerStyle(20);
-            hRecoShape->SetLineWidth(2);
-
-            hUnfShape->SetLineColor(1);
-            hUnfShape->SetMarkerColor(1);
-            hUnfShape->SetMarkerStyle(24);
-            hUnfShape->SetLineWidth(2);
-
-            TCanvas c("c_pho_unf","c_pho_unf", 900, 700);
-            ApplyCanvasMargins1D(c);
-
-            const double maxv = std::max(hRecoShape->GetMaximum(), hUnfShape->GetMaximum());
-            hRecoShape->SetMaximum(maxv * 1.35);
-            hRecoShape->SetTitle("");
-            hRecoShape->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-            hRecoShape->GetYaxis()->SetTitle("Counts");
-
-            hRecoShape->Draw("E1");
-            hUnfShape->Draw("E1 same");
-
-            TLegend leg(0.55,0.76,0.92,0.90);
-            leg.SetTextFont(42);
-            leg.SetTextSize(0.032);
-            leg.AddEntry(hRecoShape, "Run24pp Reco", "lep");
-            leg.AddEntry(hUnfShape,  TString::Format("Unfolded (truth), Bayes it=%d", kBayesIterPho).Data(), "lep");
-            leg.Draw();
-
-            DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
-            DrawLatexLines(0.14,0.78, { "Photon unfolding: N_{#gamma}(p_{T}^{#gamma})" }, 0.030, 0.040);
-
-            SaveCanvas(c, JoinPath(phoDir, "pho_unfolded_truth_pTgamma_overlay.png"));
-
-            // Also save a log-y version (keep the linear-y output above as-is),
-            // but only draw the common analysis bins (10-35 GeV) and add a ratio subpanel.
+            if (hRecoShape && hUnfShape)
             {
-                  const double xPlotMin = 10.0;
-                  const double xPlotMax = 35.0;
+              hRecoShape->SetDirectory(nullptr);
+              hUnfShape->SetDirectory(nullptr);
+              EnsureSumw2(hRecoShape);
+              EnsureSumw2(hUnfShape);
 
-                  auto scanMaxInRange = [&](TH1* h)->double
-                  {
-                    double maxY = 0.0;
-                    if (!h) return maxY;
+              hRecoShape->SetLineColor(2);
+              hRecoShape->SetMarkerColor(2);
+              hRecoShape->SetMarkerStyle(20);
+              hRecoShape->SetLineWidth(2);
 
-                    const int nb = h->GetNbinsX();
-                    for (int ib = 1; ib <= nb; ++ib)
-                    {
-                      const double lo = h->GetXaxis()->GetBinLowEdge(ib);
-                      const double hi = h->GetXaxis()->GetBinUpEdge(ib);
-                      if (lo < xPlotMin || hi > xPlotMax) continue;
+              hUnfShape->SetLineColor(1);
+              hUnfShape->SetMarkerColor(1);
+              hUnfShape->SetMarkerStyle(24);
+              hUnfShape->SetLineWidth(2);
 
-                      const double y  = h->GetBinContent(ib);
-                      const double ey = h->GetBinError(ib);
-                      if (!std::isfinite(y) || !std::isfinite(ey)) continue;
-                      if (y <= 0.0 && ey <= 0.0) continue;
+              const double xPlotMin = 10.0;
+              const double xPlotMax = 35.0;
 
-                      const double v = y + ey;
-                      if (v > maxY) maxY = v;
-                    }
-                    return maxY;
-                  };
+              auto scanMaxInRange = [&](TH1* h)->double
+              {
+                double maxY = 0.0;
+                if (!h) return maxY;
 
-                  auto scanMinPosInRange = [&](TH1* h)->double
-                  {
-                    double minY = 1e99;
-                    if (!h) return minY;
+                const int nb = h->GetNbinsX();
+                for (int ib = 1; ib <= nb; ++ib)
+                {
+                  const double lo = h->GetXaxis()->GetBinLowEdge(ib);
+                  const double hi = h->GetXaxis()->GetBinUpEdge(ib);
+                  if (lo < xPlotMin || hi > xPlotMax) continue;
 
-                    const int nb = h->GetNbinsX();
-                    for (int ib = 1; ib <= nb; ++ib)
-                    {
-                      const double lo = h->GetXaxis()->GetBinLowEdge(ib);
-                      const double hi = h->GetXaxis()->GetBinUpEdge(ib);
-                      if (lo < xPlotMin || hi > xPlotMax) continue;
+                  const double y  = h->GetBinContent(ib);
+                  const double ey = h->GetBinError(ib);
+                  if (!std::isfinite(y) || !std::isfinite(ey)) continue;
+                  if (y <= 0.0 && ey <= 0.0) continue;
 
-                      const double y = h->GetBinContent(ib);
-                      if (!std::isfinite(y)) continue;
-                      if (y > 0.0 && y < minY) minY = y;
-                    }
-                    return minY;
-                  };
+                  const double v = y + ey;
+                  if (v > maxY) maxY = v;
+                }
+                return maxY;
+              };
 
-                  auto BuildPhotonAfterOverBeforeRatio = [&](TH1* hAfter, TH1* hBefore)->TH1D*
-                  {
-                    if (!hAfter || !hBefore) return nullptr;
+              auto scanMinPosInRange = [&](TH1* h)->double
+              {
+                double minY = 1e99;
+                if (!h) return minY;
 
-                    vector<double> ratioEdges =
-                    {
-                      10.0, 12.0, 14.0, 16.0, 18.0,
-                      20.0, 22.0, 24.0, 26.0, 35.0
-                    };
+                const int nb = h->GetNbinsX();
+                for (int ib = 1; ib <= nb; ++ib)
+                {
+                  const double lo = h->GetXaxis()->GetBinLowEdge(ib);
+                  const double hi = h->GetXaxis()->GetBinUpEdge(ib);
+                  if (lo < xPlotMin || hi > xPlotMax) continue;
 
-                    TH1D* hRatio = new TH1D(
-                      "hPho_afterOverBefore_ratio",
-                      "",
-                      (int)ratioEdges.size() - 1,
-                      &ratioEdges[0]
-                    );
-                    hRatio->SetDirectory(nullptr);
-                    hRatio->Sumw2();
+                  const double y = h->GetBinContent(ib);
+                  if (!std::isfinite(y)) continue;
+                  if (y > 0.0 && y < minY) minY = y;
+                }
+                return minY;
+              };
 
-                    for (int ib = 1; ib <= hRatio->GetNbinsX(); ++ib)
-                    {
-                      const double lo  = hRatio->GetXaxis()->GetBinLowEdge(ib);
-                      const double hi  = hRatio->GetXaxis()->GetBinUpEdge(ib);
-                      const double cen = hRatio->GetXaxis()->GetBinCenter(ib);
+              const double maxvTop = std::max(scanMaxInRange(hRecoShape), scanMaxInRange(hUnfShape));
+              double minPos = std::min(scanMinPosInRange(hRecoShape), scanMinPosInRange(hUnfShape));
+              if (!(minPos < 1e98)) minPos = 1e-3;
 
-                      const int iAfter  = hAfter ->GetXaxis()->FindBin(cen);
-                      const int iBefore = hBefore->GetXaxis()->FindBin(cen);
-
-                      if (iAfter  < 1 || iAfter  > hAfter ->GetNbinsX()) continue;
-                      if (iBefore < 1 || iBefore > hBefore->GetNbinsX()) continue;
-
-                      const double afterLo  = hAfter ->GetXaxis()->GetBinLowEdge(iAfter);
-                      const double afterHi  = hAfter ->GetXaxis()->GetBinUpEdge(iAfter);
-                      const double beforeLo = hBefore->GetXaxis()->GetBinLowEdge(iBefore);
-                      const double beforeHi = hBefore->GetXaxis()->GetBinUpEdge(iBefore);
-
-                      if (std::fabs(afterLo  - lo) > 1e-6 || std::fabs(afterHi  - hi) > 1e-6) continue;
-                      if (std::fabs(beforeLo - lo) > 1e-6 || std::fabs(beforeHi - hi) > 1e-6) continue;
-
-                      const double num  = hAfter ->GetBinContent(iAfter);
-                      const double eNum = hAfter ->GetBinError  (iAfter);
-                      const double den  = hBefore->GetBinContent(iBefore);
-                      const double eDen = hBefore->GetBinError  (iBefore);
-
-                      if (!std::isfinite(num) || !std::isfinite(eNum) ||
-                          !std::isfinite(den) || !std::isfinite(eDen) || den <= 0.0)
-                      {
-                        continue;
-                      }
-
-                      const double val = num / den;
-                      const double var = (eNum * eNum) / (den * den)
-                                       + (num * num * eDen * eDen) / (den * den * den * den);
-                      const double err = (var > 0.0 && std::isfinite(var)) ? std::sqrt(var) : 0.0;
-
-                      hRatio->SetBinContent(ib, val);
-                      hRatio->SetBinError  (ib, err);
-                    }
-
-                    return hRatio;
-                  };
-
-                  const double maxvTop = std::max(scanMaxInRange(hRecoShape), scanMaxInRange(hUnfShape));
-
-                  double minPos = std::min(scanMinPosInRange(hRecoShape), scanMinPosInRange(hUnfShape));
-                  if (!(minPos < 1e98)) minPos = 1e-3;
-
-                  TH1D* hRatio = BuildPhotonAfterOverBeforeRatio(hUnfShape, hRecoShape);
-
-                  double ratioMin = 0.8;
-                  double ratioMax = 1.2;
-                  if (hRatio)
-                  {
-                    double rMin =  1e99;
-                    double rMax = -1e99;
-
-                    for (int ib = 1; ib <= hRatio->GetNbinsX(); ++ib)
-                    {
-                      const double y  = hRatio->GetBinContent(ib);
-                      const double ey = hRatio->GetBinError(ib);
-                      if (!std::isfinite(y) || !std::isfinite(ey)) continue;
-                      if (y <= 0.0 && ey <= 0.0) continue;
-
-                      rMin = std::min(rMin, y - ey);
-                      rMax = std::max(rMax, y + ey);
-                    }
-
-                    if (rMin < 1e98 && rMax > -1e98 && rMin < rMax)
-                    {
-                      const double span = std::max(rMax - rMin, 0.04);
-                      const double pad  = 0.18 * span;
-                      ratioMin = rMin - pad;
-                      ratioMax = rMax + pad;
-
-                      if (ratioMin > 1.0) ratioMin = 1.0 - 0.5 * span;
-                      if (ratioMax < 1.0) ratioMax = 1.0 + 0.5 * span;
-                      if (ratioMin < 0.0) ratioMin = 0.0;
-                    }
-                  }
-
-                  c.Clear();
-
-                  TPad* pTop = new TPad("pTop_pho_unf_logy", "pTop_pho_unf_logy", 0.0, 0.30, 1.0, 1.0);
-                  TPad* pBot = new TPad("pBot_pho_unf_logy", "pBot_pho_unf_logy", 0.0, 0.00, 1.0, 0.30);
-
-                  pTop->SetLeftMargin(0.12);
-                  pTop->SetRightMargin(0.04);
-                  pTop->SetTopMargin(0.08);
-                  pTop->SetBottomMargin(0.02);
-                  pTop->SetTicks(1, 1);
-                  pTop->SetLogy(1);
-
-                  pBot->SetLeftMargin(0.12);
-                  pBot->SetRightMargin(0.04);
-                  pBot->SetTopMargin(0.02);
-                  pBot->SetBottomMargin(0.30);
-                  pBot->SetTicks(1, 1);
-                  pBot->SetGridy(1);
-
-                  pTop->Draw();
-                  pBot->Draw();
-
-                  pTop->cd();
-
-                  hRecoShape->SetTitle("");
-                  hRecoShape->GetXaxis()->SetRangeUser(xPlotMin, xPlotMax);
-                  hUnfShape->GetXaxis()->SetRangeUser(xPlotMin, xPlotMax);
-
-                  hRecoShape->GetXaxis()->SetTitle("");
-                  hRecoShape->GetXaxis()->SetLabelSize(0.0);
-                  hRecoShape->GetXaxis()->SetTitleSize(0.0);
-
-                  hRecoShape->GetYaxis()->SetTitle("Counts");
-                  hRecoShape->GetYaxis()->SetTitleSize(0.055);
-                  hRecoShape->GetYaxis()->SetTitleOffset(0.95);
-                  hRecoShape->GetYaxis()->SetLabelSize(0.045);
-
-                  hRecoShape->SetMinimum(std::max(minPos * 0.5, 1e-6));
-                  hRecoShape->SetMaximum((maxvTop > 0.0) ? (maxvTop * 3.0) : 1.0);
-
-                  hRecoShape->Draw("E1");
-                  hUnfShape->Draw("E1 same");
-
-                  TLegend leg(0.55,0.76,0.92,0.90);
-                  leg.SetTextFont(42);
-                  leg.SetTextSize(0.032);
-                  leg.AddEntry(hRecoShape, "PP DATA (reco)", "lep");
-                  leg.AddEntry(hUnfShape,  TString::Format("Unfolded (truth), Bayes it=%d", kBayesIterPho).Data(), "lep");
-                  leg.Draw();
-
-                  DrawLatexLines(0.14,0.92,
-                                 { "Photon 1D Unfolding, N_{#gamma}(p_{T}^{#gamma}), Photon 4 GeV + MBD NS #geq 1" },
-                                 0.034, 0.045);
-
-                  pBot->cd();
-
-                  if (hRatio)
-                  {
-                    hRatio->SetTitle("");
-                    hRatio->SetMarkerStyle(20);
-                    hRatio->SetMarkerSize(0.95);
-                    hRatio->SetLineWidth(2);
-                    hRatio->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                    hRatio->GetYaxis()->SetTitle("After / before unfolding");
-                    hRatio->GetXaxis()->SetRangeUser(xPlotMin, xPlotMax);
-                    hRatio->GetYaxis()->SetRangeUser(ratioMin, ratioMax);
-                    hRatio->GetXaxis()->SetTitleSize(0.12);
-                    hRatio->GetXaxis()->SetLabelSize(0.11);
-                    hRatio->GetXaxis()->SetTitleOffset(1.00);
-                    hRatio->GetYaxis()->SetTitleSize(0.10);
-                    hRatio->GetYaxis()->SetLabelSize(0.09);
-                    hRatio->GetYaxis()->SetTitleOffset(0.55);
-                    hRatio->GetYaxis()->SetNdivisions(505);
-                    hRatio->Draw("E1");
-
-                    TLine l1(xPlotMin, 1.0, xPlotMax, 1.0);
-                    l1.SetLineStyle(2);
-                    l1.SetLineWidth(2);
-                    l1.Draw("same");
-                  }
-                  else
-                  {
-                    TH1F frame("frame_pho_ratio","", 1, xPlotMin, xPlotMax);
-                    frame.SetMinimum(ratioMin);
-                    frame.SetMaximum(ratioMax);
-                    frame.SetTitle("");
-                    frame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                    frame.GetYaxis()->SetTitle("After / before unfolding");
-                    frame.GetXaxis()->SetTitleSize(0.12);
-                    frame.GetXaxis()->SetLabelSize(0.11);
-                    frame.GetXaxis()->SetTitleOffset(1.00);
-                    frame.GetYaxis()->SetTitleSize(0.10);
-                    frame.GetYaxis()->SetLabelSize(0.09);
-                    frame.GetYaxis()->SetTitleOffset(0.55);
-                    frame.GetYaxis()->SetNdivisions(505);
-                    frame.Draw("axis");
-
-                    TLine l1(xPlotMin, 1.0, xPlotMax, 1.0);
-                    l1.SetLineStyle(2);
-                    l1.SetLineWidth(2);
-                    l1.Draw("same");
-                  }
-
-                  c.cd();
-                  c.Modified();
-                  c.Update();
-                  SaveCanvas(c, JoinPath(phoDir, "pho_unfolded_truth_pTgamma_overlay_logy.png"));
-
-                  if (hRatio) delete hRatio;
+              TH1* hRatio = makeRatioOnRef(hPhoUnfoldTruth, hPhoRecoData, hPhoRecoData, "hPho_afterOverBefore_ratio");
+              if (hRatio)
+              {
+                hRatio->SetDirectory(nullptr);
+                EnsureSumw2(hRatio);
               }
 
-              // photon efficiency/purity diagnostics
-              //
-              // These are SIM truth-matching bookkeeping diagnostics that explain the
-              // normalization gap in before/after unfolding overlays.
-              //
-              // (1) Purity (SIM, reco space):
-              //     purity(pT) = 1 - N_fakeReco(pT)/N_reco(pT)
-              //
-              // (2) Efficiency (SIM, truth space):
-              //     eff(pT)    = 1 - N_missTruth(pT)/N_truth(pT)
-              //
-              // (3) Truth/Reconstruction scale factor (SIM):
-              //     N_truth(pT)/N_reco(pT)  (with bin-mapping when axes differ)
-              //
-              // (4) Implied "efficiency-like" curve in DATA (not purely data-driven):
-              //     eps_eff,data(pT) = N_reco,data(pT) / N_truth,data(unfolded)(pT)
-              //     (computed with bin-mapping when axes differ)
-              //
-              // Outputs (to <phoDir>, i.e. unfolding/radii/<rXX>/photons):
-              //   - pho_efficiencyEff_data_vs_pTgamma.png
-              //   - pho_purity_sim_vs_pTgamma.png                 (if fakes hist exists)
-              //   - pho_efficiency_sim_vs_pTgamma.png             (if misses hist exists)
-              //   - pho_truthOverReco_sim_vs_pTgamma.png          (bin-mapped)
-              //   - pho_recoOverTruth_sim_vs_pTgamma.png          (bin-mapped)
-              //   - pho_efficiencyEff_data_vs_efficiency_sim.png  (overlay, if both exist)
-              // -------------------------------------------------------------------
+              TCanvas c("c_pho_unf_logy","c_pho_unf_logy", 900, 700);
+              TPad* pTop = new TPad("pTop_pho_unf_logy", "pTop_pho_unf_logy", 0.0, 0.30, 1.0, 1.0);
+              TPad* pBot = new TPad("pBot_pho_unf_logy", "pBot_pho_unf_logy", 0.0, 0.00, 1.0, 0.30);
+
+              pTop->SetLeftMargin(0.12);
+              pTop->SetRightMargin(0.04);
+              pTop->SetTopMargin(0.08);
+              pTop->SetBottomMargin(0.02);
+              pTop->SetTicks(1, 1);
+              pTop->SetLogy(1);
+
+              pBot->SetLeftMargin(0.12);
+              pBot->SetRightMargin(0.04);
+              pBot->SetTopMargin(0.02);
+              pBot->SetBottomMargin(0.30);
+              pBot->SetTicks(1, 1);
+              pBot->SetGridy(1);
+
+              pTop->Draw();
+              pBot->Draw();
+
+              pTop->cd();
+              hRecoShape->SetTitle("");
+              hRecoShape->GetXaxis()->SetRangeUser(xPlotMin, xPlotMax);
+              hUnfShape->GetXaxis()->SetRangeUser(xPlotMin, xPlotMax);
+              hRecoShape->GetXaxis()->SetTitle("");
+              hRecoShape->GetXaxis()->SetLabelSize(0.0);
+              hRecoShape->GetXaxis()->SetTitleSize(0.0);
+              hRecoShape->GetYaxis()->SetTitle("Counts");
+              hRecoShape->GetYaxis()->SetTitleSize(0.055);
+              hRecoShape->GetYaxis()->SetTitleOffset(0.95);
+              hRecoShape->GetYaxis()->SetLabelSize(0.045);
+              hRecoShape->SetMinimum(std::max(minPos * 0.5, 1e-6));
+              hRecoShape->SetMaximum((maxvTop > 0.0) ? (maxvTop * 3.0) : 1.0);
+              hRecoShape->Draw("E1");
+              hUnfShape->Draw("E1 same");
+
+              TLegend leg(0.55,0.76,0.92,0.90);
+              leg.SetTextFont(42);
+              leg.SetTextSize(0.032);
+              leg.AddEntry(hRecoShape, "PP DATA (reco)", "lep");
+              leg.AddEntry(hUnfShape,  TString::Format("Unfolded (truth), Bayes it=%d", kBayesIterPho).Data(), "lep");
+              leg.Draw();
+
+              DrawLatexLines(0.14,0.92,
+                             { "Photon 1D Unfolding, N_{#gamma}(p_{T}^{#gamma}), Photon 4 GeV + MBD NS #geq 1" },
+                             0.034, 0.045);
+
+              pBot->cd();
+              if (hRatio)
               {
-                auto sameBinning = [&](TH1* a, TH1* b)->bool
+                hRatio->SetTitle("");
+                hRatio->SetMarkerStyle(20);
+                hRatio->SetMarkerSize(0.95);
+                hRatio->SetLineWidth(2);
+                hRatio->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                hRatio->GetYaxis()->SetTitle("After / before unfolding");
+                hRatio->GetXaxis()->SetRangeUser(xPlotMin, xPlotMax);
+                setRatioRange(hRatio, 0.8, 1.2);
+                hRatio->GetXaxis()->SetTitleSize(0.12);
+                hRatio->GetXaxis()->SetLabelSize(0.11);
+                hRatio->GetXaxis()->SetTitleOffset(1.00);
+                hRatio->GetYaxis()->SetTitleSize(0.10);
+                hRatio->GetYaxis()->SetLabelSize(0.09);
+                hRatio->GetYaxis()->SetTitleOffset(0.55);
+                hRatio->GetYaxis()->SetNdivisions(505);
+                hRatio->Draw("E1");
+
+                TLine l1(xPlotMin, 1.0, xPlotMax, 1.0);
+                l1.SetLineStyle(2);
+                l1.SetLineWidth(2);
+                l1.Draw("same");
+              }
+              else
+              {
+                TH1F frame("frame_pho_ratio","", 1, xPlotMin, xPlotMax);
+                frame.SetMinimum(0.8);
+                frame.SetMaximum(1.2);
+                frame.SetTitle("");
+                frame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                frame.GetYaxis()->SetTitle("After / before unfolding");
+                frame.GetXaxis()->SetTitleSize(0.12);
+                frame.GetXaxis()->SetLabelSize(0.11);
+                frame.GetXaxis()->SetTitleOffset(1.00);
+                frame.GetYaxis()->SetTitleSize(0.10);
+                frame.GetYaxis()->SetLabelSize(0.09);
+                frame.GetYaxis()->SetTitleOffset(0.55);
+                frame.GetYaxis()->SetNdivisions(505);
+                frame.Draw("axis");
+
+                TLine l1(xPlotMin, 1.0, xPlotMax, 1.0);
+                l1.SetLineStyle(2);
+                l1.SetLineWidth(2);
+                l1.Draw("same");
+              }
+
+              c.cd();
+              c.Modified();
+              c.Update();
+              SaveCanvas(c, JoinPath(phoDir, "pho_unfolded_truth_pTgamma_overlay_logy.png"));
+
+              if (hRatio) delete hRatio;
+              delete pTop;
+              delete pBot;
+            }
+
+            if (hRecoShape) delete hRecoShape;
+            if (hUnfShape) delete hUnfShape;
+          }
+
+          if (buildPhotonQA)
+          {
+            TH1* hRecoDataQA   = cloneOrMapToRef(hPhoRecoData, hPhoRecoData, "hPhoRecoData_QA");
+            TH1* hRecoSimQA    = cloneOrMapToRef(hPhoRecoSim,  hPhoRecoData, "hPhoRecoSim_QA");
+            TH1* hTruthSimQA   = cloneOrMapToRef(hPhoTruthSim, hPhoRecoData, "hPhoTruthSim_onReco_QA");
+            TH1* hMissesSimQA  = cloneOrMapToRef(hPhoTruthMissesSim_in, hPhoRecoData, "hPhoTruthMisses_onReco_QA");
+            TH1* hUnfoldDataQA = cloneOrMapToRef(hPhoUnfoldTruth, hPhoRecoData, "hPhoUnfoldTruth_onReco_QA");
+
+            TH1* hTruthOverRecoSim = makeRatioOnRef(hPhoTruthSim, hPhoRecoSim, hPhoRecoData, "hPho_truthOverRecoSim_QA");
+            TH1* hRecoOverData     = makeRatioOnRef(hPhoRecoSim, hPhoRecoData, hPhoRecoData, "hPho_recoSimOverData_QA");
+            TH1* hTruthOverData    = makeRatioOnRef(hPhoTruthSim, hPhoRecoData, hPhoRecoData, "hPho_truthSimOverData_QA");
+
+            TH1* hFakeFracSim = makeRatioOnRef(hPhoRecoFakesSim_in, hPhoRecoSim, hPhoRecoData, "hPho_fakeFractionSim_QA");
+            TH1* hPuritySim   = makeOneMinus(hFakeFracSim, "hPho_puritySim_QA");
+            TH1* hMissFracSim = makeRatioOnRef(hPhoTruthMissesSim_in, hPhoTruthSim, hPhoRecoData, "hPho_missFractionSim_QA");
+            TH1* hEffSim      = makeOneMinus(hMissFracSim, "hPho_efficiencySim_QA");
+            TH1* hAfterOverBefore = makeRatioOnRef(hPhoUnfoldTruth, hPhoRecoData, hPhoRecoData, "hPho_afterOverBefore_QA");
+
+            styleHist(hRecoDataQA,   kBlack,    20);
+            styleHist(hRecoSimQA,    kBlue + 1, 24);
+            styleHist(hTruthSimQA,   kRed + 1,  25);
+            styleHist(hTruthOverRecoSim, kBlack,    20);
+            styleHist(hRecoOverData,     kBlue + 1, 20);
+            styleHist(hTruthOverData,    kRed + 1,  20);
+            styleHist(hFakeFracSim,      kRed + 1,  20);
+            styleHist(hPuritySim,        kBlue + 1, 20);
+            styleHist(hMissFracSim,      kRed + 1,  20);
+            styleHist(hEffSim,           kBlue + 1, 20);
+            styleHist(hAfterOverBefore,  kBlack,    20);
+
+            if (hRecoDataQA && hRecoSimQA && hTruthSimQA && hTruthOverRecoSim && hRecoOverData && hTruthOverData)
+            {
+              TCanvas c("c_pho_masterQA", "c_pho_masterQA", 1500, 1050);
+              c.Divide(2, 2, 0.001, 0.001);
+
+              c.cd(1);
+              prepPad();
+              if (gPad) gPad->SetLogy(1);
+
+              double maxTop = 0.0;
+              auto scanMasterMax = [&](TH1* h)->void
+              {
+                if (!h) return;
+                for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
                 {
-                  if (!a || !b) return false;
-                  if (a->GetNbinsX() != b->GetNbinsX()) return false;
-                  const int nb = a->GetNbinsX();
-                  for (int ib = 1; ib <= nb + 1; ++ib)
-                  {
-                    const double ea = a->GetXaxis()->GetBinUpEdge(ib);
-                    const double eb = b->GetXaxis()->GetBinUpEdge(ib);
-                    if (std::fabs(ea - eb) > 1e-9) return false;
-                  }
-                  return true;
-                };
+                  const double lo = h->GetXaxis()->GetBinLowEdge(ib);
+                  const double hi = h->GetXaxis()->GetBinUpEdge(ib);
+                  if (lo < 10.0 || hi > 35.0) continue;
+                  const double v = h->GetBinContent(ib) + h->GetBinError(ib);
+                  if (std::isfinite(v) && v > maxTop) maxTop = v;
+                }
+              };
+              scanMasterMax(hRecoDataQA);
+              scanMasterMax(hRecoSimQA);
+              scanMasterMax(hTruthSimQA);
 
-                auto mapToRefBinning = [&](TH1* src, TH1* ref, const char* newName)->TH1*
+              double minPos = 1e99;
+              auto scanMasterMinPos = [&](TH1* h)->void
+              {
+                if (!h) return;
+                for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
                 {
-                  if (!src || !ref) return nullptr;
+                  const double lo = h->GetXaxis()->GetBinLowEdge(ib);
+                  const double hi = h->GetXaxis()->GetBinUpEdge(ib);
+                  if (lo < 10.0 || hi > 35.0) continue;
+                  const double v = h->GetBinContent(ib);
+                  if (std::isfinite(v) && v > 0.0 && v < minPos) minPos = v;
+                }
+              };
+              scanMasterMinPos(hRecoDataQA);
+              scanMasterMinPos(hRecoSimQA);
+              scanMasterMinPos(hTruthSimQA);
+              if (!(minPos < 1e98)) minPos = 1e-3;
 
-                  TH1* h = CloneTH1(ref, newName);
-                  if (!h) return nullptr;
+              hRecoDataQA->SetMinimum(std::max(0.5 * minPos, 1e-6));
+              hRecoDataQA->SetMaximum((maxTop > 0.0) ? (3.0 * maxTop) : 1.0);
+              hRecoDataQA->GetXaxis()->SetRangeUser(10.0, 35.0);
+              hRecoDataQA->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+              hRecoDataQA->GetYaxis()->SetTitle("Counts");
+              hRecoDataQA->Draw("E1");
+              hRecoSimQA->GetXaxis()->SetRangeUser(10.0, 35.0);
+              hRecoSimQA->Draw("E1 same");
+              hTruthSimQA->GetXaxis()->SetRangeUser(10.0, 35.0);
+              hTruthSimQA->Draw("E1 same");
+              drawPadTitle("DATA reco vs SIM reco vs SIM truth");
 
-                  h->SetDirectory(nullptr);
-                  EnsureSumw2(h);
-                  h->Reset("ICES");
+              TLegend leg(0.52, 0.70, 0.90, 0.88);
+              leg.SetBorderSize(0);
+              leg.SetFillStyle(0);
+              leg.SetTextFont(42);
+              leg.SetTextSize(0.040);
+              leg.AddEntry(hRecoDataQA, "DATA reco", "pe");
+              leg.AddEntry(hRecoSimQA,  "SIM reco",  "pe");
+              leg.AddEntry(hTruthSimQA, "SIM truth (bin-mapped)", "pe");
+              leg.Draw();
 
-                  const int nb = ref->GetNbinsX();
-                  int nBad = 0;
+              c.cd(2);
+              prepPad();
+              hTruthOverRecoSim->GetXaxis()->SetRangeUser(10.0, 35.0);
+              hTruthOverRecoSim->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+              hTruthOverRecoSim->GetYaxis()->SetTitle("SIM truth / SIM reco");
+              setRatioRange(hTruthOverRecoSim, 0.5, 2.5);
+              hTruthOverRecoSim->Draw("E1");
+              {
+                TLine l1(10.0, 1.0, 35.0, 1.0);
+                l1.SetLineStyle(2);
+                l1.SetLineWidth(2);
+                l1.Draw("same");
+              }
+              drawPadTitle("SIM lever-arm");
 
-                  for (int ib = 1; ib <= nb; ++ib)
-                  {
-                    const double x  = ref->GetXaxis()->GetBinCenter(ib);
-                    const int isrc  = src->GetXaxis()->FindBin(x);
+              c.cd(3);
+              prepPad();
+              hRecoOverData->GetXaxis()->SetRangeUser(10.0, 35.0);
+              hRecoOverData->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+              hRecoOverData->GetYaxis()->SetTitle("SIM reco / DATA reco");
+              setRatioRange(hRecoOverData, 0.5, 1.5);
+              hRecoOverData->Draw("E1");
+              {
+                TLine l1(10.0, 1.0, 35.0, 1.0);
+                l1.SetLineStyle(2);
+                l1.SetLineWidth(2);
+                l1.Draw("same");
+              }
+              drawPadTitle("Reco data/MC check");
 
-                    const double xsLo = src->GetXaxis()->GetBinLowEdge(isrc);
-                    const double xsHi = src->GetXaxis()->GetBinUpEdge(isrc);
-                    const double xrLo = ref->GetXaxis()->GetBinLowEdge(ib);
-                    const double xrHi = ref->GetXaxis()->GetBinUpEdge(ib);
+              c.cd(4);
+              prepPad();
+              hTruthOverData->GetXaxis()->SetRangeUser(10.0, 35.0);
+              hTruthOverData->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+              hTruthOverData->GetYaxis()->SetTitle("SIM truth / DATA reco");
+              setRatioRange(hTruthOverData, 0.5, 2.5);
+              hTruthOverData->Draw("E1");
+              {
+                TLine l1(10.0, 1.0, 35.0, 1.0);
+                l1.SetLineStyle(2);
+                l1.SetLineWidth(2);
+                l1.Draw("same");
+              }
+              drawPadTitle("Overall truth/data gap");
 
-                    if (std::fabs(xsLo - xrLo) > 1e-3 || std::fabs(xsHi - xrHi) > 1e-3) ++nBad;
-
-                    h->SetBinContent(ib, src->GetBinContent(isrc));
-                    h->SetBinError  (ib, src->GetBinError  (isrc));
-                  }
-
-                  if (nBad > 0)
-                  {
-                    cout << ANSI_BOLD_YEL
-                         << "[WARN] Photon diagnostics: mapped histogram '" << newName
-                         << "' had " << nBad << " bins with mismatched edges (copied by bin-center)."
-                         << ANSI_RESET << "\n";
-                  }
-
-                  return h;
-                };
-
-                auto drawLineAtOne = [&](TH1* h)
+              c.cd();
+              drawCanvasTitle("Photon master QA: yields and key ratios", 0.028);
+              drawCanvasNote(
                 {
-                  if (!h) return;
-                  const double xmin = h->GetXaxis()->GetXmin();
-                  const double xmax = h->GetXaxis()->GetXmax();
-                  TLine l1(xmin, 1.0, xmax, 1.0);
+                  "Displayed bins: 10-12, 12-14, 14-16, 16-18, 18-20, 20-22, 22-24, 24-26, 26-35 GeV",
+                  "SIM truth is mapped onto the reco analysis axis when needed"
+                },
+                0.97, 0.05, 31, 0.020
+              );
+              SaveCanvas(c, JoinPath(qaMasterDir, "pho_master_yields_and_ratios.png"));
+            }
+
+            if (hFakeFracSim && hPuritySim && hMissFracSim && hEffSim && hTruthOverRecoSim && hAfterOverBefore)
+            {
+              TCanvas c("c_pho_budgetQA", "c_pho_budgetQA", 1700, 1050);
+              c.Divide(3, 2, 0.001, 0.001);
+
+              vector<pair<TH1*, string>> pads =
+              {
+                { hFakeFracSim,     "Fake fraction" },
+                { hPuritySim,       "Purity = 1 - fake/reco" },
+                { hMissFracSim,     "Miss fraction" },
+                { hEffSim,          "Efficiency = 1 - miss/truth" },
+                { hTruthOverRecoSim,"SIM truth / SIM reco" },
+                { hAfterOverBefore, "DATA after / before unfolding" }
+              };
+
+              for (int ipad = 0; ipad < 6; ++ipad)
+              {
+                c.cd(ipad + 1);
+                prepPad();
+
+                TH1* h = pads[(std::size_t)ipad].first;
+                if (!h)
+                {
+                  drawMissingPad("Value", "MISSING");
+                  continue;
+                }
+
+                h->GetXaxis()->SetRangeUser(10.0, 35.0);
+                h->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                h->GetYaxis()->SetTitle("Value");
+
+                if (ipad < 4)
+                {
+                  h->GetYaxis()->SetRangeUser(0.0, 1.2);
+                }
+                else
+                {
+                  setRatioRange(h, 0.5, 2.5);
+                }
+
+                h->Draw("E1");
+
+                if (ipad != 0 && ipad != 2)
+                {
+                  TLine l1(10.0, 1.0, 35.0, 1.0);
                   l1.SetLineStyle(2);
                   l1.SetLineWidth(2);
                   l1.Draw("same");
-                };
-
-                // -----------------------------
-                // DATA: eps_eff = N_reco,data / N_truth,data(unfolded)
-                // -----------------------------
-                TH1* hEffData = nullptr;
-                {
-                  TH1* hRecoD  = hPhoRecoData;
-                  TH1* hTruthD = hPhoUnfoldTruth;
-
-                  if (hRecoD && hTruthD)
-                  {
-                    TH1* hRecoD_m = nullptr;
-
-                    if (sameBinning(hRecoD, hTruthD))
-                    {
-                      hRecoD_m = CloneTH1(hRecoD, "h_pho_recoData_counts_forEff");
-                      if (hRecoD_m) { hRecoD_m->SetDirectory(nullptr); EnsureSumw2(hRecoD_m); }
-                    }
-                    else
-                    {
-                      hRecoD_m = mapToRefBinning(hRecoD, hTruthD, "h_pho_recoData_counts_mappedToTruthBins_forEff");
-                    }
-
-                    if (hRecoD_m)
-                    {
-                      hEffData = CloneTH1(hRecoD_m, "h_pho_effData_recoOverUnfoldTruth");
-                      if (hEffData)
-                      {
-                        hEffData->SetDirectory(nullptr);
-                        EnsureSumw2(hEffData);
-                        hEffData->Divide(hTruthD);
-
-                        hEffData->SetTitle("");
-                        hEffData->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                        hEffData->GetYaxis()->SetTitle("#epsilon_{#gamma}^{eff,data} = N_{#gamma}^{reco,data} / N_{#gamma}^{truth,data (unfolded)}");
-                        hEffData->SetMarkerStyle(20);
-                        hEffData->SetMarkerSize(1.1);
-                        hEffData->SetLineWidth(2);
-
-                        TCanvas c("c_pho_effData", "c_pho_effData", 900, 700);
-                        ApplyCanvasMargins1D(c);
-
-                        hEffData->GetYaxis()->SetRangeUser(0.0, 1.2);
-                        hEffData->Draw("E1");
-                        drawLineAtOne(hEffData);
-
-                        DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
-                        DrawLatexLines(0.14,0.78, { "Photon unfolding diagnostic: implied #epsilon_{#gamma}^{eff,data}(p_{T}^{#gamma})" }, 0.030, 0.040);
-
-                        SaveCanvas(c, JoinPath(phoDir, "pho_efficiencyEff_data_vs_pTgamma.png"));
-                      }
-                    }
-
-                    if (hRecoD_m && hRecoD_m != hRecoD) delete hRecoD_m;
-                  }
                 }
 
-                // -----------------------------
-                // SIM: purity, efficiency, truth/reco ratios
-                // -----------------------------
-                TH1* hPurSim = nullptr;
-                TH1* hEffSim = nullptr;
-                TH1* hTruthOverRecoSim = nullptr;
-                TH1* hRecoOverTruthSim = nullptr;
+                drawPadTitle(pads[(std::size_t)ipad].second);
+              }
 
-                  // Purity: 1 - fakes/reco  (reco space)
-                  if (hPhoRecoSim && hPhoRecoFakesSim_in)
+              c.cd();
+              drawCanvasTitle("Photon correction-budget QA", 0.028);
+              drawCanvasNote(
+                {
+                  "Top row: reco fake contamination and truth-matching loss terms",
+                  "Bottom-right compares the observed data correction to the SIM truth/reco lever-arm"
+                },
+                0.97, 0.05, 31, 0.020
+              );
+              SaveCanvas(c, JoinPath(qaBudgetDir, "pho_correction_budget_summary.png"));
+            }
+
+            if (hPhoRespSim)
+            {
+              TH2* hRespTruthNorm = normalizeResponseByTruth(hPhoRespSim, "hPhoResp_truthNorm_QA");
+              TH2* hRespRecoNorm  = normalizeResponseByReco (hPhoRespSim, "hPhoResp_recoNorm_QA");
+              TH1D* hRespMean     = buildResponseMeanRecoOverTruth(hPhoRespSim, "hPhoResp_meanRecoOverTruth_QA");
+              TH1D* hRespWidth    = buildResponseWidthRecoOverTruth(hPhoRespSim, "hPhoResp_widthRecoOverTruth_QA");
+              TH1D* hRespDiagFrac = buildResponseDiagonalFraction(hPhoRespSim, "hPhoResp_diagFrac_QA");
+
+              styleHist(hRespMean,     kBlack,    20);
+              styleHist(hRespWidth,    kBlue + 1, 20);
+              styleHist(hRespDiagFrac, kRed + 1,  20);
+
+              TCanvas c("c_pho_responseShapeQA", "c_pho_responseShapeQA", 1750, 1050);
+              c.Divide(3, 2, 0.001, 0.001);
+
+              c.cd(1);
+              prepPad();
+              if (gPad) gPad->SetLogz(1);
+              TH2* hRawDraw = CloneTH2(hPhoRespSim, "hPhoResp_rawDraw_QA");
+              if (hRawDraw)
+              {
+                hRawDraw->SetDirectory(nullptr);
+                hRawDraw->SetTitle("");
+                hRawDraw->GetXaxis()->SetTitle("p_{T}^{#gamma, truth} [GeV]");
+                hRawDraw->GetYaxis()->SetTitle("p_{T}^{#gamma, reco} [GeV]");
+                double minPos = 1e99;
+                for (int ix = 1; ix <= hRawDraw->GetNbinsX(); ++ix)
+                {
+                  for (int iy = 1; iy <= hRawDraw->GetNbinsY(); ++iy)
                   {
-                    TH1* hFakeOverReco = CloneTH1(hPhoRecoFakesSim_in, "h_pho_fakeOverReco_sim");
-                    if (hFakeOverReco)
-                    {
-                      hFakeOverReco->SetDirectory(nullptr);
-                      EnsureSumw2(hFakeOverReco);
-                      hFakeOverReco->Divide(hPhoRecoSim);
-
-                    hPurSim = CloneTH1(hFakeOverReco, "h_pho_purity_sim");
-                    if (hPurSim)
-                    {
-                      hPurSim->SetDirectory(nullptr);
-                      EnsureSumw2(hPurSim);
-
-                      for (int ib = 1; ib <= hPurSim->GetNbinsX(); ++ib)
-                      {
-                        const double v  = 1.0 - hFakeOverReco->GetBinContent(ib);
-                        const double ev = hFakeOverReco->GetBinError(ib);
-                        hPurSim->SetBinContent(ib, v);
-                        hPurSim->SetBinError  (ib, ev);
-                      }
-
-                      hPurSim->SetTitle("");
-                      hPurSim->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                      hPurSim->GetYaxis()->SetTitle("Purity(p_{T}^{#gamma}) = 1 - N_{fake}^{reco}/N_{#gamma}^{reco}");
-                      hPurSim->SetMarkerStyle(21);
-                      hPurSim->SetMarkerSize(1.1);
-                      hPurSim->SetLineWidth(2);
-
-                      TCanvas c("c_pho_purity_sim", "c_pho_purity_sim", 900, 700);
-                      ApplyCanvasMargins1D(c);
-
-                      hPurSim->GetYaxis()->SetRangeUser(0.0, 1.2);
-                      hPurSim->Draw("E1");
-                      drawLineAtOne(hPurSim);
-
-                      DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
-                      DrawLatexLines(0.14,0.78, { "SIM photon purity: 1 - (reco fakes)/(reco selected)" }, 0.030, 0.040);
-
-                      SaveCanvas(c, JoinPath(phoDir, "pho_purity_sim_vs_pTgamma.png"));
-                    }
-
-                    delete hFakeOverReco;
+                    const double z = hRawDraw->GetBinContent(ix, iy);
+                    if (std::isfinite(z) && z > 0.0 && z < minPos) minPos = z;
                   }
+                }
+                if (minPos < 1e98) hRawDraw->SetMinimum(std::max(0.5 * minPos, 1e-6));
+                hRawDraw->Draw("colz");
+                drawPadTitle("Raw response counts");
+              }
+
+              c.cd(2);
+              prepPad();
+              if (hRespTruthNorm)
+              {
+                hRespTruthNorm->SetTitle("");
+                hRespTruthNorm->GetXaxis()->SetTitle("p_{T}^{#gamma, truth} [GeV]");
+                hRespTruthNorm->GetYaxis()->SetTitle("p_{T}^{#gamma, reco} [GeV]");
+                hRespTruthNorm->SetMinimum(0.0);
+                hRespTruthNorm->SetMaximum(1.0);
+                hRespTruthNorm->Draw("colz");
+                drawPadTitle("Truth-bin normalized: P(reco|truth)");
+              }
+              else
+              {
+                drawMissingPad("Probability", "MISSING");
+              }
+
+              c.cd(3);
+              prepPad();
+              if (hRespRecoNorm)
+              {
+                hRespRecoNorm->SetTitle("");
+                hRespRecoNorm->GetXaxis()->SetTitle("p_{T}^{#gamma, truth} [GeV]");
+                hRespRecoNorm->GetYaxis()->SetTitle("p_{T}^{#gamma, reco} [GeV]");
+                hRespRecoNorm->SetMinimum(0.0);
+                hRespRecoNorm->SetMaximum(1.0);
+                hRespRecoNorm->Draw("colz");
+                drawPadTitle("Reco-bin normalized: P(truth|reco)");
+              }
+              else
+              {
+                drawMissingPad("Probability", "MISSING");
+              }
+
+              c.cd(4);
+              prepPad();
+              if (hRespMean)
+              {
+                hRespMean->GetXaxis()->SetRangeUser(5.0, 40.0);
+                hRespMean->GetYaxis()->SetRangeUser(0.6, 1.4);
+                hRespMean->Draw("E1");
+                TLine l1(5.0, 1.0, 40.0, 1.0);
+                l1.SetLineStyle(2);
+                l1.SetLineWidth(2);
+                l1.Draw("same");
+                drawPadTitle("Mean reco/truth vs truth p_{T}");
+              }
+              else
+              {
+                drawMissingPad("Mean(reco / truth)", "MISSING");
+              }
+
+              c.cd(5);
+              prepPad();
+              if (hRespWidth)
+              {
+                hRespWidth->GetXaxis()->SetRangeUser(5.0, 40.0);
+                hRespWidth->GetYaxis()->SetRangeUser(0.0, 0.6);
+                hRespWidth->Draw("E1");
+                drawPadTitle("RMS(reco/truth) vs truth p_{T}");
+              }
+              else
+              {
+                drawMissingPad("RMS(reco / truth)", "MISSING");
+              }
+
+              c.cd(6);
+              prepPad();
+              if (hRespDiagFrac)
+              {
+                hRespDiagFrac->GetXaxis()->SetRangeUser(5.0, 40.0);
+                hRespDiagFrac->GetYaxis()->SetRangeUser(0.0, 1.05);
+                hRespDiagFrac->Draw("E1");
+                drawPadTitle("Same-bin fraction vs truth p_{T}");
+              }
+              else
+              {
+                drawMissingPad("Same-bin fraction", "MISSING");
+              }
+
+              c.cd();
+              drawCanvasTitle("Photon response-shape QA", 0.028);
+              drawCanvasNote(
+                {
+                  "Top row shows the raw response and its truth/reco normalizations",
+                  "Bottom row compresses the matrix into migration bias, width, and diagonal fraction"
+                },
+                0.97, 0.05, 31, 0.020
+              );
+              SaveCanvas(c, JoinPath(qaResponseDir, "pho_responseShape_summary.png"));
+
+              if (hRawDraw) delete hRawDraw;
+              if (hRespTruthNorm) delete hRespTruthNorm;
+              if (hRespRecoNorm) delete hRespRecoNorm;
+              if (hRespMean) delete hRespMean;
+              if (hRespWidth) delete hRespWidth;
+              if (hRespDiagFrac) delete hRespDiagFrac;
+            }
+
+            if (hPhoResp_measXtruth)
+            {
+              TH2* hFeedIn = normalizeRecoFeedIn(hPhoResp_measXtruth, "hPhoResp_recoFeedIn_QA");
+              TH1* hFeed58 = CloneTH1(hPhoRecoData, "hPho_feedFromTruth5to8_QA");
+              TH1* hFeed810 = CloneTH1(hPhoRecoData, "hPho_feedFromTruth8to10_QA");
+              TH1* hFeedSupport = CloneTH1(hPhoRecoData, "hPho_feedFromTruthSupport_QA");
+
+              if (hFeed58)     { hFeed58->SetDirectory(nullptr);     EnsureSumw2(hFeed58);     hFeed58->Reset("ICES"); }
+              if (hFeed810)    { hFeed810->SetDirectory(nullptr);    EnsureSumw2(hFeed810);    hFeed810->Reset("ICES"); }
+              if (hFeedSupport){ hFeedSupport->SetDirectory(nullptr);EnsureSumw2(hFeedSupport);hFeedSupport->Reset("ICES"); }
+
+              const int iy58  = (hFeedIn ? findExactBinByEdges(hFeedIn->GetYaxis(), 5.0, 8.0)  : -1);
+              const int iy810 = (hFeedIn ? findExactBinByEdges(hFeedIn->GetYaxis(), 8.0, 10.0) : -1);
+
+              if (hFeedIn && hFeed58 && hFeed810 && hFeedSupport)
+              {
+                for (int ix = 1; ix <= hFeedIn->GetNbinsX(); ++ix)
+                {
+                  const double recoLo = hFeedIn->GetXaxis()->GetBinLowEdge(ix);
+                  const double recoHi = hFeedIn->GetXaxis()->GetBinUpEdge(ix);
+                  const double recoCtr = hFeedIn->GetXaxis()->GetBinCenter(ix);
+                  const int ibRef = hFeed58->GetXaxis()->FindBin(recoCtr);
+                  if (ibRef < 1 || ibRef > hFeed58->GetNbinsX()) continue;
+
+                  if (recoLo < 10.0 || recoHi > 35.0) continue;
+
+                  double f58  = (iy58  > 0 ? hFeedIn->GetBinContent(ix, iy58)  : 0.0);
+                  double f810 = (iy810 > 0 ? hFeedIn->GetBinContent(ix, iy810) : 0.0);
+                  const double fSup = f58 + f810;
+
+                  hFeed58->SetBinContent(ibRef, f58);
+                  hFeed810->SetBinContent(ibRef, f810);
+                  hFeedSupport->SetBinContent(ibRef, fSup);
+                  hFeed58->SetBinError(ibRef, 0.0);
+                  hFeed810->SetBinError(ibRef, 0.0);
+                  hFeedSupport->SetBinError(ibRef, 0.0);
+                }
+
+                styleHist(hFeed58,      kBlue + 1, 24);
+                styleHist(hFeed810,     kRed + 1,  25);
+                styleHist(hFeedSupport, kBlack,    20);
+
+                TCanvas c("c_pho_supportQA", "c_pho_supportQA", 1600, 760);
+                c.Divide(2, 1, 0.001, 0.001);
+
+                c.cd(1);
+                prepPad();
+                if (hFeedIn)
+                {
+                  hFeedIn->SetTitle("");
+                  hFeedIn->GetXaxis()->SetTitle("p_{T}^{#gamma, reco} [GeV]");
+                  hFeedIn->GetYaxis()->SetTitle("p_{T}^{#gamma, truth} [GeV]");
+                  hFeedIn->GetXaxis()->SetRangeUser(10.0, 35.0);
+                  hFeedIn->GetYaxis()->SetRangeUser(5.0, 40.0);
+                  hFeedIn->SetMinimum(0.0);
+                  hFeedIn->SetMaximum(1.0);
+                  hFeedIn->Draw("colz");
+
+                  if (iy58 > 0)
+                  {
+                    TLine l(10.0, hFeedIn->GetYaxis()->GetBinUpEdge(iy58), 35.0, hFeedIn->GetYaxis()->GetBinUpEdge(iy58));
+                    l.SetLineStyle(2);
+                    l.SetLineWidth(2);
+                    l.Draw("same");
+                  }
+                  if (iy810 > 0)
+                  {
+                    TLine l(10.0, hFeedIn->GetYaxis()->GetBinUpEdge(iy810), 35.0, hFeedIn->GetYaxis()->GetBinUpEdge(iy810));
+                    l.SetLineStyle(2);
+                    l.SetLineWidth(2);
+                    l.Draw("same");
+                  }
+
+                  drawPadTitle("Reco-bin feed-in from truth bins");
                 }
                 else
                 {
-                  cout << ANSI_BOLD_YEL
-                       << "[WARN] Photon purity plot: missing SIM fakes histogram (h_unfoldRecoPhoFakes_pTgamma). Skipping purity plot."
-                       << ANSI_RESET << "\n";
+                  drawMissingPad("Fraction", "MISSING");
                 }
 
-                  // Efficiency: 1 - misses/truth (truth space)
-                if (hPhoTruthSim && hPhoTruthMissesSim_in)
+                c.cd(2);
+                prepPad();
+                if (hFeed58 && hFeed810 && hFeedSupport)
                 {
-                    TH1* hMissOverTruth = CloneTH1(hPhoTruthMissesSim_in, "h_pho_missOverTruth_sim");
-                    if (hMissOverTruth)
+                  double maxY = 0.0;
+                  auto scan = [&](TH1* h)->void
+                  {
+                    for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
                     {
-                      hMissOverTruth->SetDirectory(nullptr);
-                      EnsureSumw2(hMissOverTruth);
-                      hMissOverTruth->Divide(hPhoTruthSim);
-
-                    hEffSim = CloneTH1(hMissOverTruth, "h_pho_efficiency_sim");
-                    if (hEffSim)
-                    {
-                      hEffSim->SetDirectory(nullptr);
-                      EnsureSumw2(hEffSim);
-
-                      for (int ib = 1; ib <= hEffSim->GetNbinsX(); ++ib)
-                      {
-                        const double v  = 1.0 - hMissOverTruth->GetBinContent(ib);
-                        const double ev = hMissOverTruth->GetBinError(ib);
-                        hEffSim->SetBinContent(ib, v);
-                        hEffSim->SetBinError  (ib, ev);
-                      }
-
-                      hEffSim->SetTitle("");
-                      hEffSim->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                      hEffSim->GetYaxis()->SetTitle("#epsilon_{#gamma}^{MC}(p_{T}^{#gamma}) = 1 - N_{miss}^{truth}/N_{#gamma}^{truth}");
-                      hEffSim->SetMarkerStyle(22);
-                      hEffSim->SetMarkerSize(1.1);
-                      hEffSim->SetLineWidth(2);
-
-                      TCanvas c("c_pho_efficiency_sim", "c_pho_efficiency_sim", 900, 700);
-                      ApplyCanvasMargins1D(c);
-
-                      hEffSim->GetYaxis()->SetRangeUser(0.0, 1.2);
-                      hEffSim->Draw("E1");
-                      drawLineAtOne(hEffSim);
-
-                      DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
-                      DrawLatexLines(0.14,0.78, { "SIM photon efficiency: 1 - (truth misses)/(truth signal)" }, 0.030, 0.040);
-
-                      SaveCanvas(c, JoinPath(phoDir, "pho_efficiency_sim_vs_pTgamma.png"));
+                      const double lo = h->GetXaxis()->GetBinLowEdge(ib);
+                      const double hi = h->GetXaxis()->GetBinUpEdge(ib);
+                      if (lo < 10.0 || hi > 35.0) continue;
+                      const double v = h->GetBinContent(ib) + h->GetBinError(ib);
+                      if (std::isfinite(v) && v > maxY) maxY = v;
                     }
+                  };
+                  scan(hFeed58);
+                  scan(hFeed810);
+                  scan(hFeedSupport);
 
-                    delete hMissOverTruth;
-                  }
-                }
-                else
-                {
-                  cout << ANSI_BOLD_YEL
-                       << "[WARN] Photon efficiency plot: missing SIM misses histogram (h_unfoldTruthPhoMisses_pTgamma). Skipping efficiency plot."
-                       << ANSI_RESET << "\n";
-                }
+                  hFeedSupport->GetXaxis()->SetRangeUser(10.0, 35.0);
+                  hFeedSupport->GetXaxis()->SetTitle("p_{T}^{#gamma, reco} [GeV]");
+                  hFeedSupport->GetYaxis()->SetTitle("Feed-in fraction");
+                  hFeedSupport->GetYaxis()->SetRangeUser(0.0, (maxY > 0.0) ? (1.15 * maxY) : 0.20);
+                  hFeedSupport->Draw("E1");
+                  hFeed58->GetXaxis()->SetRangeUser(10.0, 35.0);
+                  hFeed810->GetXaxis()->SetRangeUser(10.0, 35.0);
+                  hFeed58->Draw("E1 same");
+                  hFeed810->Draw("E1 same");
+                  drawPadTitle("Low-p_{T}^{truth} support feed-in");
 
-                // Truth/Reco ratios in SIM (bin-mapped so it is well-defined)
-                if (hPhoTruthSim && hPhoRecoSim)
-                {
-                  TH1* hRecoSim_mTruth = nullptr;
-                  if (sameBinning(hPhoRecoSim, hPhoTruthSim))
-                  {
-                    hRecoSim_mTruth = CloneTH1(hPhoRecoSim, "h_pho_recoSim_counts_forTruthOverReco");
-                    if (hRecoSim_mTruth) { hRecoSim_mTruth->SetDirectory(nullptr); EnsureSumw2(hRecoSim_mTruth); }
-                  }
-                  else
-                  {
-                    hRecoSim_mTruth = mapToRefBinning(hPhoRecoSim, hPhoTruthSim, "h_pho_recoSim_counts_mappedToTruthBins_forTruthOverReco");
-                  }
-
-                  if (hRecoSim_mTruth)
-                  {
-                    hTruthOverRecoSim = CloneTH1(hPhoTruthSim, "h_pho_truthOverReco_sim");
-                    if (hTruthOverRecoSim)
-                    {
-                      hTruthOverRecoSim->SetDirectory(nullptr);
-                      EnsureSumw2(hTruthOverRecoSim);
-                      hTruthOverRecoSim->Divide(hRecoSim_mTruth);
-
-                      hTruthOverRecoSim->SetTitle("");
-                      hTruthOverRecoSim->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                      hTruthOverRecoSim->GetYaxis()->SetTitle("N_{#gamma}^{truth} / N_{#gamma}^{reco}  (SIM, bin-mapped)");
-                      hTruthOverRecoSim->SetMarkerStyle(20);
-                      hTruthOverRecoSim->SetMarkerSize(1.1);
-                      hTruthOverRecoSim->SetLineWidth(2);
-
-                      TCanvas c("c_pho_truthOverReco_sim", "c_pho_truthOverReco_sim", 900, 700);
-                      ApplyCanvasMargins1D(c);
-
-                      hTruthOverRecoSim->Draw("E1");
-
-                      DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
-                      DrawLatexLines(0.14,0.78, { "SIM normalization lever-arm: N_{#gamma}^{truth} / N_{#gamma}^{reco}" }, 0.030, 0.040);
-
-                      SaveCanvas(c, JoinPath(phoDir, "pho_truthOverReco_sim_vs_pTgamma.png"));
-                    }
-
-                    if (hRecoSim_mTruth && hRecoSim_mTruth != hPhoRecoSim) delete hRecoSim_mTruth;
-                  }
-
-                  TH1* hTruthSim_mReco = nullptr;
-                  if (sameBinning(hPhoTruthSim, hPhoRecoSim))
-                  {
-                    hTruthSim_mReco = CloneTH1(hPhoTruthSim, "h_pho_truthSim_counts_forRecoOverTruth");
-                    if (hTruthSim_mReco) { hTruthSim_mReco->SetDirectory(nullptr); EnsureSumw2(hTruthSim_mReco); }
-                  }
-                  else
-                  {
-                    hTruthSim_mReco = mapToRefBinning(hPhoTruthSim, hPhoRecoSim, "h_pho_truthSim_counts_mappedToRecoBins_forRecoOverTruth");
-                  }
-
-                  if (hTruthSim_mReco)
-                  {
-                    hRecoOverTruthSim = CloneTH1(hPhoRecoSim, "h_pho_recoOverTruth_sim");
-                    if (hRecoOverTruthSim)
-                    {
-                      hRecoOverTruthSim->SetDirectory(nullptr);
-                      EnsureSumw2(hRecoOverTruthSim);
-                      hRecoOverTruthSim->Divide(hTruthSim_mReco);
-
-                      hRecoOverTruthSim->SetTitle("");
-                      hRecoOverTruthSim->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                      hRecoOverTruthSim->GetYaxis()->SetTitle("N_{#gamma}^{reco} / N_{#gamma}^{truth}  (SIM, bin-mapped)");
-                      hRecoOverTruthSim->SetMarkerStyle(20);
-                      hRecoOverTruthSim->SetMarkerSize(1.1);
-                      hRecoOverTruthSim->SetLineWidth(2);
-
-                      TCanvas c("c_pho_recoOverTruth_sim", "c_pho_recoOverTruth_sim", 900, 700);
-                      ApplyCanvasMargins1D(c);
-
-                      hRecoOverTruthSim->GetYaxis()->SetRangeUser(0.0, 1.2);
-                      hRecoOverTruthSim->Draw("E1");
-                      drawLineAtOne(hRecoOverTruthSim);
-
-                      DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
-                      DrawLatexLines(0.14,0.78, { "SIM efficiency-like: N_{#gamma}^{reco} / N_{#gamma}^{truth}" }, 0.030, 0.040);
-
-                      SaveCanvas(c, JoinPath(phoDir, "pho_recoOverTruth_sim_vs_pTgamma.png"));
-                    }
-
-                    if (hTruthSim_mReco && hTruthSim_mReco != hPhoTruthSim) delete hTruthSim_mReco;
-                  }
-                }
-
-                // -----------------------------
-                // Overlay: eps_eff,data vs eps_MC (if both exist)
-                // -----------------------------
-                if (hEffData && hEffSim)
-                {
-                  TCanvas c("c_pho_effData_vs_effSim", "c_pho_effData_vs_effSim", 900, 700);
-                  ApplyCanvasMargins1D(c);
-
-                  TH1* hFrame = CloneTH1(hEffSim, "hFrame_effData_vs_effSim");
-                  if (hFrame)
-                  {
-                    hFrame->SetDirectory(nullptr);
-                    hFrame->Reset("ICES");
-                    hFrame->SetTitle("");
-                    hFrame->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                    hFrame->GetYaxis()->SetTitle("#epsilon_{#gamma}(p_{T}^{#gamma})");
-                    hFrame->GetYaxis()->SetRangeUser(0.0, 1.2);
-                    hFrame->Draw("axis");
-                  }
-
-                  hEffSim->SetMarkerColor(kBlue + 1);
-                  hEffSim->SetLineColor(kBlue + 1);
-                  hEffData->SetMarkerColor(kBlack);
-                  hEffData->SetLineColor(kBlack);
-
-                  hEffSim->Draw("E1 same");
-                  hEffData->Draw("E1 same");
-
-                  TGraphErrors gLegData(1), gLegSim(1);
-                  {
-                    int ib = 1;
-                    const double x  = hEffData->GetXaxis()->GetBinCenter(ib);
-                    const double y  = hEffData->GetBinContent(ib);
-                    const double ey = hEffData->GetBinError(ib);
-                    gLegData.SetPoint(0, x, y);
-                    gLegData.SetPointError(0, 0.0, ey);
-                    gLegData.SetMarkerStyle(hEffData->GetMarkerStyle());
-                    gLegData.SetMarkerSize(hEffData->GetMarkerSize());
-                    gLegData.SetMarkerColor(hEffData->GetMarkerColor());
-                    gLegData.SetLineColor(hEffData->GetLineColor());
-                    gLegData.SetLineWidth(hEffData->GetLineWidth());
-                  }
-                  {
-                    int ib = 1;
-                    const double x  = hEffSim->GetXaxis()->GetBinCenter(ib);
-                    const double y  = hEffSim->GetBinContent(ib);
-                    const double ey = hEffSim->GetBinError(ib);
-                    gLegSim.SetPoint(0, x, y);
-                    gLegSim.SetPointError(0, 0.0, ey);
-                    gLegSim.SetMarkerStyle(hEffSim->GetMarkerStyle());
-                    gLegSim.SetMarkerSize(hEffSim->GetMarkerSize());
-                    gLegSim.SetMarkerColor(hEffSim->GetMarkerColor());
-                    gLegSim.SetLineColor(hEffSim->GetLineColor());
-                    gLegSim.SetLineWidth(hEffSim->GetLineWidth());
-                  }
-
-                  TLegend leg(0.55, 0.74, 0.88, 0.88);
+                  TLegend leg(0.48, 0.68, 0.90, 0.88);
                   leg.SetBorderSize(0);
                   leg.SetFillStyle(0);
                   leg.SetTextFont(42);
-                  leg.SetTextSize(0.035);
-                  leg.AddEntry(&gLegData, "#epsilon_{#gamma}^{eff,data} (reco / unfolded truth)", "pe");
-                  leg.AddEntry(&gLegSim,  "#epsilon_{#gamma}^{MC} (1 - misses/truth)", "pe");
+                  leg.SetTextSize(0.040);
+                  leg.AddEntry(hFeedSupport, "Total support feed-in (5-10 GeV truth)", "pe");
+                  leg.AddEntry(hFeed58,      "5-8 GeV truth", "pe");
+                  leg.AddEntry(hFeed810,     "8-10 GeV truth", "pe");
                   leg.Draw();
-
-                  drawLineAtOne(hEffSim);
-
-                  DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
-                  DrawLatexLines(0.14,0.78, { "Photon efficiency diagnostics: DATA implied vs SIM truth-matching" }, 0.030, 0.040);
-
-                  SaveCanvas(c, JoinPath(phoDir, "pho_efficiencyEff_data_vs_efficiency_sim.png"));
-
-                  if (hFrame) delete hFrame;
+                }
+                else
+                {
+                  drawMissingPad("Feed-in fraction", "MISSING");
                 }
 
-                if (hRecoOverTruthSim) delete hRecoOverTruthSim;
-                if (hTruthOverRecoSim) delete hTruthOverRecoSim;
-                if (hEffSim) delete hEffSim;
-                if (hPurSim) delete hPurSim;
-                if (hEffData) delete hEffData;
+                c.cd();
+                drawCanvasTitle("Photon support-bin feed-in QA", 0.028);
+                drawCanvasNote(
+                  {
+                    "Left: each reco analysis bin normalized to unit truth-bin feed-in",
+                    "Right: isolates how much of each displayed reco bin comes from the low-p_{T}^{truth} support bins"
+                  },
+                  0.97, 0.05, 31, 0.020
+                );
+                SaveCanvas(c, JoinPath(qaSupportDir, "pho_supportFeedin_summary.png"));
               }
 
-              delete hRecoShape;
-              delete hUnfShape;
+              if (hFeedIn) delete hFeedIn;
+              if (hFeed58) delete hFeed58;
+              if (hFeed810) delete hFeed810;
+              if (hFeedSupport) delete hFeedSupport;
+            }
+
+            if (hAfterOverBefore) delete hAfterOverBefore;
+            if (hEffSim) delete hEffSim;
+            if (hMissFracSim) delete hMissFracSim;
+            if (hPuritySim) delete hPuritySim;
+            if (hFakeFracSim) delete hFakeFracSim;
+            if (hTruthOverData) delete hTruthOverData;
+            if (hRecoOverData) delete hRecoOverData;
+            if (hTruthOverRecoSim) delete hTruthOverRecoSim;
+            if (hUnfoldDataQA) delete hUnfoldDataQA;
+            if (hMissesSimQA) delete hMissesSimQA;
+            if (hTruthSimQA) delete hTruthSimQA;
+            if (hRecoSimQA) delete hRecoSimQA;
+            if (hRecoDataQA) delete hRecoDataQA;
           }
         }
-      }
 
         // Photon summary for unfolding RECO pT bins
         vector<string> phoSummary;
@@ -3242,336 +4521,150 @@
             }
             else
             {
-              auto DrawJetEffTH2Colz = [&](TH2* h,
-                                           const string& outPath,
-                                           const string& titleText,
-                                           const string& zTitle,
-                                           bool useLogZ)->void
-              {
-                if (!h) return;
-
-                TCanvas c(TString::Format("c_%s_%s", h->GetName(), rKey.c_str()).Data(), "c_jetEffQA_2D", 950, 800);
-                ApplyCanvasMargins2D(c);
-                if (useLogZ) c.SetLogz();
-
-                TH2* hDraw = CloneTH2(h, TString::Format("%s_drawClone", h->GetName()).Data());
-                if (!hDraw) return;
-                hDraw->SetDirectory(nullptr);
-                EnsureSumw2(hDraw);
-                hDraw->SetTitle("");
-                hDraw->GetXaxis()->SetTitle("p_{T}^{#gamma, truth} [GeV]");
-                hDraw->GetYaxis()->SetTitle("x_{J}^{truth}");
-                hDraw->GetZaxis()->SetTitle(zTitle.c_str());
-
-                if (useLogZ)
+                auto DrawJetEffTH2Colz = [&](TH2* h,
+                                             const string& outPath,
+                                             const string& titleText,
+                                             const string& zTitle,
+                                             bool useLogZ)->void
                 {
-                  double minPos = 1e99;
-                  for (int ix = 1; ix <= hDraw->GetNbinsX(); ++ix)
+                  if (!h) return;
+
+                  TCanvas c(TString::Format("c_%s_%s", h->GetName(), rKey.c_str()).Data(), "c_jetEffQA_2D", 950, 800);
+                  ApplyCanvasMargins2D(c);
+                  c.SetLeftMargin(0.16);
+                  c.SetRightMargin(0.16);
+                  c.SetBottomMargin(0.14);
+                  c.SetTopMargin(0.08);
+                  if (useLogZ) c.SetLogz();
+
+                  TH2* hDraw = CloneTH2(h, TString::Format("%s_drawClone", h->GetName()).Data());
+                  if (!hDraw) return;
+                  hDraw->SetDirectory(nullptr);
+                  EnsureSumw2(hDraw);
+                  hDraw->SetTitle("");
+                  hDraw->GetXaxis()->SetTitle("p_{T}^{#gamma, truth} [GeV]");
+                  hDraw->GetYaxis()->SetTitle("x_{J}^{truth}");
+                  hDraw->GetZaxis()->SetTitle(zTitle.c_str());
+                  hDraw->GetXaxis()->SetTitleOffset(1.10);
+                  hDraw->GetYaxis()->SetTitleOffset(1.55);
+                  hDraw->GetZaxis()->SetTitleOffset(1.35);
+
+                  if (useLogZ)
                   {
-                    for (int iy = 1; iy <= hDraw->GetNbinsY(); ++iy)
+                    double minPos = 1e99;
+                    for (int ix = 1; ix <= hDraw->GetNbinsX(); ++ix)
                     {
-                      const double z = hDraw->GetBinContent(ix, iy);
-                      if (std::isfinite(z) && z > 0.0 && z < minPos) minPos = z;
+                      for (int iy = 1; iy <= hDraw->GetNbinsY(); ++iy)
+                      {
+                        const double z = hDraw->GetBinContent(ix, iy);
+                        if (std::isfinite(z) && z > 0.0 && z < minPos) minPos = z;
+                      }
                     }
+                    if (minPos < 1e98) hDraw->SetMinimum(std::max(0.5 * minPos, 1e-6));
                   }
-                  if (minPos < 1e98) hDraw->SetMinimum(std::max(0.5 * minPos, 1e-6));
-                }
 
-                hDraw->Draw("colz");
+                  hDraw->Draw("colz");
 
-                TLatex tx;
-                tx.SetNDC();
-                tx.SetTextFont(42);
-                tx.SetTextAlign(22);
-                tx.SetTextSize(0.040);
-                tx.DrawLatex(0.50, 0.965, titleText.c_str());
+                  TLatex tx;
+                  tx.SetNDC();
+                  tx.SetTextFont(42);
+                  tx.SetTextAlign(22);
+                  tx.SetTextSize(0.040);
+                  tx.DrawLatex(0.50, 0.965, titleText.c_str());
 
-                SaveCanvas(c, outPath);
-                delete hDraw;
-              };
+                  SaveCanvas(c, outPath);
+                  delete hDraw;
+                };
 
-              auto DrawJetEffIntegratedVsXJ = [&](TH2* hNum,
-                                                  TH2* hDen,
-                                                  const string& outPath)->void
-              {
-                if (!hNum || !hDen) return;
-
-                const int ny = hDen->GetYaxis()->GetNbins();
-                vector<double> x, ex, y, ey;
-                x.reserve((std::size_t)ny);
-                ex.reserve((std::size_t)ny);
-                y.reserve((std::size_t)ny);
-                ey.reserve((std::size_t)ny);
-
-                for (int iy = 1; iy <= ny; ++iy)
+                auto FindExactXBinForAnalysisPt = [&](const TAxis* ax,
+                                                      const PtBin& b)->int
                 {
-                  double eNumInt = 0.0;
-                  double eDenInt = 0.0;
+                  if (!ax) return -1;
 
-                  const double numInt = hNum->IntegralAndError(
-                    1, hNum->GetXaxis()->GetNbins(),
-                    iy, iy,
-                    eNumInt
-                  );
-                  const double denInt = hDen->IntegralAndError(
-                    1, hDen->GetXaxis()->GetNbins(),
-                    iy, iy,
-                    eDenInt
-                  );
-
-                  if (!(denInt > 0.0)) continue;
-
-                  const double xcen = hDen->GetYaxis()->GetBinCenter(iy);
-                  const double xerr = 0.5 * hDen->GetYaxis()->GetBinWidth(iy);
-                  const double eff  = numInt / denInt;
-                  const double var  = (eNumInt * eNumInt) / (denInt * denInt)
-                                    + (numInt * numInt * eDenInt * eDenInt) / (denInt * denInt * denInt * denInt);
-                  const double err  = (var > 0.0 && std::isfinite(var)) ? std::sqrt(var) : 0.0;
-
-                  x.push_back(xcen);
-                  ex.push_back(xerr);
-                  y.push_back(eff);
-                  ey.push_back(err);
-                }
-
-                if (x.empty()) return;
-
-                TCanvas c(TString::Format("c_jetEffVsXJ_%s", rKey.c_str()).Data(), "c_jetEffVsXJ", 900, 700);
-                ApplyCanvasMargins1D(c);
-
-                TH1F frame("frame_jetEffVsXJ", "", 1, 0.0, 2.0);
-                frame.SetMinimum(0.0);
-                frame.SetMaximum(1.05);
-                frame.SetTitle("");
-                frame.GetXaxis()->SetTitle("x_{J}^{truth}");
-                frame.GetYaxis()->SetTitle("Integrated jet efficiency");
-                frame.Draw("axis");
-
-                TGraphErrors g(
-                  (int)x.size(),
-                  &x[0], &y[0],
-                  &ex[0], &ey[0]
-                );
-                g.SetMarkerStyle(20);
-                g.SetMarkerSize(1.05);
-                g.SetMarkerColor(kBlue + 1);
-                g.SetLineColor(kBlue + 1);
-                g.SetLineWidth(2);
-                g.Draw("P same");
-
-                TLine l1(0.0, 1.0, 2.0, 1.0);
-                l1.SetLineStyle(2);
-                l1.SetLineWidth(2);
-                l1.Draw("same");
-
-                TLatex tx;
-                tx.SetNDC();
-                tx.SetTextFont(42);
-                tx.SetTextAlign(13);
-                tx.SetTextSize(0.034);
-                tx.DrawLatex(
-                  0.14, 0.98,
-                  TString::Format("Jet Efficiency vs x_{J}^{truth} (R = %.1f), Run24pp, Photon 4 GeV + MBD NS #geq 1", R).Data()
-                );
-                tx.SetTextSize(0.035);
-                tx.DrawLatex(0.14, 0.30, "Integrated over truth p_{T}^{#gamma} unfolding bins");
-
-                SaveCanvas(c, outPath);
-              };
-
-              auto MakeJetEffSliceHist = [&](TH2* hNum,
-                                             TH2* hDen,
-                                             int ix,
-                                             const char* name)->TH1D*
-              {
-                if (!hNum || !hDen) return nullptr;
-                if (ix < 1 || ix > hDen->GetXaxis()->GetNbins()) return nullptr;
-
-                TH1D* hSlice = hDen->ProjectionY(name, ix, ix, "e");
-                if (!hSlice) return nullptr;
-
-                hSlice->SetDirectory(nullptr);
-                EnsureSumw2(hSlice);
-                hSlice->Reset("ICES");
-
-                const int ny = hDen->GetYaxis()->GetNbins();
-                for (int iy = 1; iy <= ny; ++iy)
-                {
-                  const double num  = hNum->GetBinContent(ix, iy);
-                  const double eNum = hNum->GetBinError(ix, iy);
-                  const double den  = hDen->GetBinContent(ix, iy);
-                  const double eDen = hDen->GetBinError(ix, iy);
-
-                  if (!(std::isfinite(num) && std::isfinite(eNum) &&
-                        std::isfinite(den) && std::isfinite(eDen) && den > 0.0))
+                  for (int ix = 1; ix <= ax->GetNbins(); ++ix)
                   {
-                    hSlice->SetBinContent(iy, 0.0);
-                    hSlice->SetBinError  (iy, 0.0);
-                    continue;
+                    const double lo = ax->GetBinLowEdge(ix);
+                    const double hi = ax->GetBinUpEdge(ix);
+                    if (std::fabs(lo - (double)b.lo) < 1e-9 && std::fabs(hi - (double)b.hi) < 1e-9) return ix;
                   }
 
-                  const double val = num / den;
-                  const double var = (eNum * eNum) / (den * den)
-                                   + (num * num * eDen * eDen) / (den * den * den * den);
-                  const double err = (var > 0.0 && std::isfinite(var)) ? std::sqrt(var) : 0.0;
-
-                  hSlice->SetBinContent(iy, val);
-                  hSlice->SetBinError  (iy, err);
-                }
-
-                hSlice->SetTitle("");
-                hSlice->GetXaxis()->SetTitle("x_{J}^{truth}");
-                hSlice->GetYaxis()->SetTitle("Jet efficiency");
-                hSlice->SetMarkerStyle(20);
-                hSlice->SetMarkerSize(0.85);
-                hSlice->SetLineWidth(2);
-                return hSlice;
-              };
-
-              auto DrawJetEffSliceTable = [&](TH2* hNum,
-                                              TH2* hDen,
-                                              const string& outPath)->void
-              {
-                if (!hNum || !hDen) return;
-
-                TCanvas c(
-                  TString::Format("c_tbl_jetEffSlices_%s", rKey.c_str()).Data(),
-                  "c_tbl_jetEffSlices", 1800, 1300
-                );
-                c.Divide(nPtCols, nPtRows, 0.001, 0.001);
-
-                for (int ipad = 0; ipad < nPtPads; ++ipad)
-                {
-                  const int i = ipad;
-
-                  c.cd(ipad + 1);
-                  gPad->SetLeftMargin(0.12);
-                  gPad->SetRightMargin(0.04);
-                  gPad->SetBottomMargin(0.12);
-                  gPad->SetTopMargin(0.06);
-
-                  if (i < 0 || i >= nPtAll)
-                  {
-                    TH1F frame("frame","", 1, 0.0, 2.0);
-                    frame.SetMinimum(0.0);
-                    frame.SetMaximum(1.05);
-                    frame.SetTitle("");
-                    frame.GetXaxis()->SetTitle("x_{J}^{truth}");
-                    frame.GetYaxis()->SetTitle("Jet efficiency");
-                    frame.Draw("axis");
-
-                    TLatex tx;
-                    tx.SetNDC();
-                    tx.SetTextFont(42);
-                    tx.SetTextSize(0.050);
-                    tx.DrawLatex(0.16, 0.50, "MISSING");
-                    continue;
-                  }
-
-                  const PtBin& b = analysisRecoBins[i];
                   const double cen = 0.5 * (b.lo + b.hi);
-                  const int ix = hDen->GetXaxis()->FindBin(cen);
+                  const int ix = ax->FindBin(cen);
+                  if (ix < 1 || ix > ax->GetNbins()) return -1;
+                  return ix;
+                };
 
-                  TH1D* hSlice = MakeJetEffSliceHist(
-                    hNum,
-                    hDen,
-                    ix,
-                    TString::Format("h_jetEffSlice_%s_pTbin%d", rKey.c_str(), i + 1).Data()
-                  );
-
-                  if (hSlice)
-                  {
-                    hSlice->GetXaxis()->SetRangeUser(0.0, 2.0);
-                    hSlice->SetMinimum(0.0);
-                    hSlice->SetMaximum(1.05);
-                    hSlice->Draw("E1");
-
-                    TLine l1(0.0, 1.0, 2.0, 1.0);
-                    l1.SetLineStyle(2);
-                    l1.SetLineWidth(2);
-                    l1.Draw("same");
-                  }
-                  else
-                  {
-                    TH1F frame("frame","", 1, 0.0, 2.0);
-                    frame.SetMinimum(0.0);
-                    frame.SetMaximum(1.05);
-                    frame.SetTitle("");
-                    frame.GetXaxis()->SetTitle("x_{J}^{truth}");
-                    frame.GetYaxis()->SetTitle("Jet efficiency");
-                    frame.Draw("axis");
-
-                    TLatex tx;
-                    tx.SetNDC();
-                    tx.SetTextFont(42);
-                    tx.SetTextSize(0.050);
-                    tx.DrawLatex(0.16, 0.50, "MISSING");
-                  }
-
-                  {
-                    TLatex tx;
-                    tx.SetNDC();
-                    tx.SetTextFont(42);
-                    tx.SetTextAlign(22);
-                    tx.SetTextSize(0.040);
-                    tx.DrawLatex(0.52, 0.955,
-                                 TString::Format("Jet efficiency vs x_{J}^{truth}, p_{T}^{#gamma} %d-%d GeV, R = %.1f",
-                                                 b.lo, b.hi, R).Data());
-                  }
-
-                  {
-                    TLatex tx;
-                    tx.SetNDC();
-                    tx.SetTextFont(42);
-                    tx.SetTextAlign(31);
-                    tx.SetTextSize(0.04);
-                    const double xR = 0.93;
-                    tx.DrawLatex(xR, 0.67, "truth-space efficiency slice");
-                    tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
-                    tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
-                    tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
-                  }
-
-                  if (hSlice) delete hSlice;
-                }
-
-                SaveCanvas(c, outPath);
-              };
-
-              auto BuildTH2Ratio = [&](TH2* hNum,
-                                       TH2* hDen,
-                                       const string& name)->TH2*
-              {
-                if (!hNum || !hDen) return nullptr;
-
-                TH2* hR = CloneTH2(hNum, name);
-                if (!hR) return nullptr;
-
-                hR->SetDirectory(nullptr);
-                EnsureSumw2(hR);
-                hR->Reset("ICES");
-
-                for (int ix = 0; ix <= hR->GetNbinsX() + 1; ++ix)
+                auto BuildIntegratedVsPtgamma = [&](TH2* h,
+                                                    const char* name,
+                                                    const char* yTitle)->TH1D*
                 {
-                  for (int iy = 0; iy <= hR->GetNbinsY() + 1; ++iy)
-                  {
-                    if (ix == 0 || ix == hR->GetNbinsX() + 1 || iy == 0 || iy == hR->GetNbinsY() + 1)
-                    {
-                      hR->SetBinContent(ix, iy, 0.0);
-                      hR->SetBinError  (ix, iy, 0.0);
-                      continue;
-                    }
+                  if (!h) return nullptr;
 
-                    const double num  = hNum->GetBinContent(ix, iy);
-                    const double eNum = hNum->GetBinError  (ix, iy);
-                    const double den  = hDen->GetBinContent(ix, iy);
-                    const double eDen = hDen->GetBinError  (ix, iy);
+                  vector<double> edges;
+                  edges.reserve((std::size_t)nPtAll + 1);
+                  for (int i = 0; i < nPtAll; ++i)
+                  {
+                    if (i == 0) edges.push_back((double)analysisRecoBins[i].lo);
+                    edges.push_back((double)analysisRecoBins[i].hi);
+                  }
+
+                  TH1D* hOut = new TH1D(name, "", (int)edges.size() - 1, &edges[0]);
+                  hOut->SetDirectory(nullptr);
+                  hOut->Sumw2();
+                  hOut->SetTitle("");
+                  hOut->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                  hOut->GetYaxis()->SetTitle(yTitle);
+
+                  for (int i = 0; i < nPtAll; ++i)
+                  {
+                    const PtBin& b = analysisRecoBins[i];
+                    const int ix = FindExactXBinForAnalysisPt(h->GetXaxis(), b);
+                    if (ix < 1 || ix > h->GetXaxis()->GetNbins()) continue;
+
+                    double eInt = 0.0;
+                    const double val = h->IntegralAndError(
+                      ix, ix,
+                      1, h->GetYaxis()->GetNbins(),
+                      eInt
+                    );
+
+                    hOut->SetBinContent(i + 1, val);
+                    hOut->SetBinError  (i + 1, eInt);
+                  }
+
+                  return hOut;
+                };
+
+                auto BuildRatio1D = [&](TH1* hNum,
+                                        TH1* hDen,
+                                        const char* name,
+                                        const char* yTitle)->TH1D*
+                {
+                  if (!hNum || !hDen) return nullptr;
+                  if (hNum->GetNbinsX() != hDen->GetNbinsX()) return nullptr;
+
+                  TH1D* hR = dynamic_cast<TH1D*>(hNum->Clone(name));
+                  if (!hR) return nullptr;
+
+                  hR->SetDirectory(nullptr);
+                  EnsureSumw2(hR);
+                  hR->Reset("ICES");
+                  hR->SetTitle("");
+                  hR->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                  hR->GetYaxis()->SetTitle(yTitle);
+
+                  for (int ib = 1; ib <= hR->GetNbinsX(); ++ib)
+                  {
+                    const double num  = hNum->GetBinContent(ib);
+                    const double eNum = hNum->GetBinError  (ib);
+                    const double den  = hDen->GetBinContent(ib);
+                    const double eDen = hDen->GetBinError  (ib);
 
                     if (!(std::isfinite(num) && std::isfinite(eNum) &&
                           std::isfinite(den) && std::isfinite(eDen) && den > 0.0))
                     {
-                      hR->SetBinContent(ix, iy, 0.0);
-                      hR->SetBinError  (ix, iy, 0.0);
+                      hR->SetBinContent(ib, 0.0);
+                      hR->SetBinError  (ib, 0.0);
                       continue;
                     }
 
@@ -3580,293 +4673,743 @@
                                      + (num * num * eDen * eDen) / (den * den * den * den);
                     const double err = (var > 0.0 && std::isfinite(var)) ? std::sqrt(var) : 0.0;
 
-                    hR->SetBinContent(ix, iy, val);
-                    hR->SetBinError  (ix, iy, err);
+                    hR->SetBinContent(ib, val);
+                    hR->SetBinError  (ib, err);
                   }
-                }
 
-                return hR;
-              };
+                  return hR;
+                };
 
-              h2JetEff = CloneTH2(
-                h2JetEffNum_in,
-                TString::Format("h2JetEff_%s", rKey.c_str()).Data()
-              );
-
-              if (h2JetEff)
-              {
-                h2JetEff->SetDirectory(nullptr);
-                EnsureSumw2(h2JetEff);
-                h2JetEff->Divide(h2JetEffDen_in);
-
-                vector<double> xPt, exPt, yEff, eyEff;
-                xPt.reserve((std::size_t)nPtAll);
-                exPt.reserve((std::size_t)nPtAll);
-                yEff.reserve((std::size_t)nPtAll);
-                eyEff.reserve((std::size_t)nPtAll);
-
-                for (int i = 0; i < nPtAll; ++i)
+                auto DrawJetEffIntegrated1D = [&](TH1* h,
+                                                  const string& outPath,
+                                                  const string& titleText,
+                                                  bool drawUnity)->void
                 {
-                  const PtBin& b = analysisRecoBins[i];
-                  const double cen = 0.5 * (b.lo + b.hi);
-                  const double ex  = 0.5 * (b.hi - b.lo);
+                  if (!h) return;
 
-                  const int ixEff = h2JetEffDen_in->GetXaxis()->FindBin(cen);
-                  if (ixEff < 1 || ixEff > h2JetEffDen_in->GetXaxis()->GetNbins()) continue;
+                  TCanvas c(TString::Format("c_%s_%s", h->GetName(), rKey.c_str()).Data(), "c_jetEffQA_1D", 900, 700);
+                  ApplyCanvasMargins1D(c);
+                  c.SetLeftMargin(0.16);
+                  c.SetRightMargin(0.05);
+                  c.SetBottomMargin(0.14);
+                  c.SetTopMargin(0.08);
 
-                  double eNumInt = 0.0;
-                  double eDenInt = 0.0;
+                  double maxY = 0.0;
+                  for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                  {
+                    const double v = h->GetBinContent(ib) + h->GetBinError(ib);
+                    if (std::isfinite(v) && v > maxY) maxY = v;
+                  }
 
-                  const double numInt = h2JetEffNum_in->IntegralAndError(
-                    ixEff, ixEff,
-                    1, h2JetEffNum_in->GetYaxis()->GetNbins(),
-                    eNumInt
-                  );
-                  const double denInt = h2JetEffDen_in->IntegralAndError(
-                    ixEff, ixEff,
-                    1, h2JetEffDen_in->GetYaxis()->GetNbins(),
-                    eDenInt
-                  );
+                  TH1F frame("frame_jetEffInt1D", "", 1, 10.0, 35.0);
+                  frame.SetMinimum(0.0);
+                  frame.SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.05);
+                  frame.SetTitle("");
+                  frame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                  frame.GetYaxis()->SetTitle(h->GetYaxis()->GetTitle());
+                  frame.GetXaxis()->SetTitleOffset(1.10);
+                  frame.GetYaxis()->SetTitleOffset(1.55);
+                  frame.Draw("axis");
 
-                  if (!(denInt > 0.0)) continue;
+                  h->SetMarkerStyle(20);
+                  h->SetMarkerSize(1.05);
+                  h->SetLineWidth(2);
+                  h->Draw("E1 same");
 
-                  const double eff = numInt / denInt;
-                  const double var = (eNumInt * eNumInt) / (denInt * denInt)
-                                   + (numInt * numInt * eDenInt * eDenInt) / (denInt * denInt * denInt * denInt);
-                  const double err = (var > 0.0 && std::isfinite(var)) ? std::sqrt(var) : 0.0;
+                  if (drawUnity)
+                  {
+                    TLine l1(10.0, 1.0, 35.0, 1.0);
+                    l1.SetLineStyle(2);
+                    l1.SetLineWidth(2);
+                    l1.Draw("same");
+                  }
 
-                  xPt.push_back(cen);
-                  exPt.push_back(ex);
-                  yEff.push_back(eff);
-                  eyEff.push_back(err);
-                }
+                  TLatex tx;
+                  tx.SetNDC();
+                  tx.SetTextFont(42);
+                  tx.SetTextAlign(13);
+                  tx.SetTextSize(0.034);
+                  tx.DrawLatex(0.14, 0.98, titleText.c_str());
 
-                if (!xPt.empty())
+                  SaveCanvas(c, outPath);
+                };
+
+                auto DrawJetEffIntegratedVsXJ = [&](TH2* hNum,
+                                                    TH2* hDen,
+                                                    const string& outPath)->void
                 {
-                  TCanvas cJetEffPt(
-                    TString::Format("c_jetEffPt_%s", rKey.c_str()).Data(),
-                    "c_jetEffPt", 900, 700
-                  );
-                  ApplyCanvasMargins1D(cJetEffPt);
+                  if (!hNum || !hDen) return;
 
-                  TH1F frame("frame_jetEffPt","", 1, 10.0, 35.0);
+                  const int ny = hDen->GetYaxis()->GetNbins();
+                  vector<double> x, ex, y, ey;
+                  x.reserve((std::size_t)ny);
+                  ex.reserve((std::size_t)ny);
+                  y.reserve((std::size_t)ny);
+                  ey.reserve((std::size_t)ny);
+
+                  for (int iy = 1; iy <= ny; ++iy)
+                  {
+                    double eNumInt = 0.0;
+                    double eDenInt = 0.0;
+
+                    const double numInt = hNum->IntegralAndError(
+                      1, hNum->GetXaxis()->GetNbins(),
+                      iy, iy,
+                      eNumInt
+                    );
+                    const double denInt = hDen->IntegralAndError(
+                      1, hDen->GetXaxis()->GetNbins(),
+                      iy, iy,
+                      eDenInt
+                    );
+
+                    if (!(denInt > 0.0)) continue;
+
+                    const double xcen = hDen->GetYaxis()->GetBinCenter(iy);
+                    const double xerr = 0.5 * hDen->GetYaxis()->GetBinWidth(iy);
+                    const double eff  = numInt / denInt;
+                    const double var  = (eNumInt * eNumInt) / (denInt * denInt)
+                                      + (numInt * numInt * eDenInt * eDenInt) / (denInt * denInt * denInt * denInt);
+                    const double err  = (var > 0.0 && std::isfinite(var)) ? std::sqrt(var) : 0.0;
+
+                    x.push_back(xcen);
+                    ex.push_back(xerr);
+                    y.push_back(eff);
+                    ey.push_back(err);
+                  }
+
+                  if (x.empty()) return;
+
+                  TCanvas c(TString::Format("c_jetEffVsXJ_%s", rKey.c_str()).Data(), "c_jetEffVsXJ", 900, 700);
+                  ApplyCanvasMargins1D(c);
+                  c.SetLeftMargin(0.16);
+                  c.SetRightMargin(0.05);
+                  c.SetBottomMargin(0.14);
+                  c.SetTopMargin(0.08);
+
+                  TH1F frame("frame_jetEffVsXJ", "", 1, 0.0, 2.0);
                   frame.SetMinimum(0.0);
                   frame.SetMaximum(1.05);
                   frame.SetTitle("");
-                  frame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                  frame.GetXaxis()->SetTitle("x_{J}^{truth}");
                   frame.GetYaxis()->SetTitle("Integrated jet efficiency");
+                  frame.GetXaxis()->SetTitleOffset(1.10);
+                  frame.GetYaxis()->SetTitleOffset(1.55);
                   frame.Draw("axis");
 
-                  TGraphErrors gJetEff(
-                    (int)xPt.size(),
-                    &xPt[0], &yEff[0],
-                    &exPt[0], &eyEff[0]
+                  TGraphErrors g(
+                    (int)x.size(),
+                    &x[0], &y[0],
+                    &ex[0], &ey[0]
                   );
-                  gJetEff.SetMarkerStyle(20);
-                  gJetEff.SetMarkerSize(1.05);
-                  gJetEff.SetMarkerColor(kBlue + 1);
-                  gJetEff.SetLineColor(kBlue + 1);
-                  gJetEff.SetLineWidth(2);
-                  gJetEff.Draw("P same");
+                  g.SetMarkerStyle(20);
+                  g.SetMarkerSize(1.05);
+                  g.SetMarkerColor(kBlue + 1);
+                  g.SetLineColor(kBlue + 1);
+                  g.SetLineWidth(2);
+                  g.Draw("P same");
 
-                  TLine l1(10.0, 1.0, 35.0, 1.0);
+                  TLine l1(0.0, 1.0, 2.0, 1.0);
                   l1.SetLineStyle(2);
                   l1.SetLineWidth(2);
                   l1.Draw("same");
 
-                  {
-                    TLatex tx;
-                    tx.SetNDC();
-                    tx.SetTextFont(42);
-                    tx.SetTextAlign(13);
-                    tx.SetTextSize(0.034);
-                    tx.DrawLatex(
-                      0.14, 0.98,
-                      TString::Format("Jet Efficiency vs p_{T}^{#gamma} (R = %.1f), Run24pp, Photon 4 GeV + MBD NS #geq 1", R).Data()
-                    );
-                  }
+                  TLatex tx;
+                  tx.SetNDC();
+                  tx.SetTextFont(42);
+                  tx.SetTextAlign(13);
+                  tx.SetTextSize(0.034);
+                  tx.DrawLatex(
+                    0.14, 0.98,
+                    TString::Format("Jet Efficiency vs x_{J}^{truth} (R = %.1f), Run24pp, Photon 4 GeV + MBD NS #geq 1", R).Data()
+                  );
+                  tx.SetTextSize(0.035);
+                  tx.DrawLatex(0.14, 0.30, "Integrated over truth p_{T}^{#gamma} unfolding bins");
 
-                  {
-                    TLatex tx;
-                    tx.SetNDC();
-                    tx.SetTextFont(42);
-                    tx.SetTextAlign(13);
-                    tx.SetTextSize(0.035);
-                    tx.DrawLatex(0.14, 0.3, "Integrated over truth x_{J} unfolding bins");
-                  }
+                  SaveCanvas(c, outPath);
+                };
 
-                  SaveCanvas(cJetEffPt, JoinPath(withAndWithoutJetEffOut, "jetEfficiency_integrated_vs_pTgamma.png"));
-                }
-
-                DrawJetEffTH2Colz(
-                  h2JetEffDen_in,
-                  JoinPath(jetEffQAOut, "jetEff_truthPhaseSpace_den_pTgamma_xJ_colz.png"),
-                  TString::Format("Jet-efficiency denominator, R = %.1f", R).Data(),
-                  "Truth recoil-jet counts",
-                  true
-                );
-
-                DrawJetEffTH2Colz(
-                  h2JetEffNum_in,
-                  JoinPath(jetEffQAOut, "jetEff_truthPhaseSpace_num_pTgamma_xJ_colz.png"),
-                  TString::Format("Jet-efficiency numerator, R = %.1f", R).Data(),
-                  "Matched truth recoil-jet counts",
-                  true
-                );
-
-                DrawJetEffTH2Colz(
-                  h2JetEff,
-                  JoinPath(jetEffQAOut, "jetEff_truthPhaseSpace_eff_pTgamma_xJ_colz.png"),
-                  TString::Format("Jet efficiency map, R = %.1f", R).Data(),
-                  "Jet efficiency",
-                  false
-                );
-
-                DrawJetEffIntegratedVsXJ(
-                  h2JetEffNum_in,
-                  h2JetEffDen_in,
-                  JoinPath(jetEffQAOut, "jetEfficiency_integrated_vs_xJ.png")
-                );
-
-                DrawJetEffSliceTable(
-                  h2JetEffNum_in,
-                  h2JetEffDen_in,
-                  JoinPath(jetEffQAOut, "table3x3_jetEfficiency_vs_xJ_truthSlices.png")
-                );
-
-                if (h2UnfoldTruth)
+                auto MakeJetEffSliceHist = [&](TH2* hNum,
+                                               TH2* hDen,
+                                               int ix,
+                                               const char* name)->TH1D*
                 {
-                  bool sameJetEffBinning = true;
+                  if (!hNum || !hDen) return nullptr;
+                  if (ix < 1 || ix > hDen->GetXaxis()->GetNbins()) return nullptr;
 
-                  if (h2JetEff->GetNbinsX() != h2UnfoldTruth->GetNbinsX() ||
-                      h2JetEff->GetNbinsY() != h2UnfoldTruth->GetNbinsY())
-                  {
-                    sameJetEffBinning = false;
-                  }
+                  TH1D* hSlice = hDen->ProjectionY(name, ix, ix, "e");
+                  if (!hSlice) return nullptr;
 
-                  if (sameJetEffBinning)
+                  hSlice->SetDirectory(nullptr);
+                  EnsureSumw2(hSlice);
+                  hSlice->Reset("ICES");
+
+                  const int ny = hDen->GetYaxis()->GetNbins();
+                  for (int iy = 1; iy <= ny; ++iy)
                   {
-                    for (int ix = 1; ix <= h2UnfoldTruth->GetNbinsX() + 1; ++ix)
+                    const double num  = hNum->GetBinContent(ix, iy);
+                    const double eNum = hNum->GetBinError(ix, iy);
+                    const double den  = hDen->GetBinContent(ix, iy);
+                    const double eDen = hDen->GetBinError(ix, iy);
+
+                    if (!(std::isfinite(num) && std::isfinite(eNum) &&
+                          std::isfinite(den) && std::isfinite(eDen) && den > 0.0))
                     {
-                      const double e1 = h2JetEff->GetXaxis()->GetBinUpEdge(ix);
-                      const double e2 = h2UnfoldTruth->GetXaxis()->GetBinUpEdge(ix);
-                      if (std::fabs(e1 - e2) > 1e-9)
-                      {
-                        sameJetEffBinning = false;
-                        break;
-                      }
+                      hSlice->SetBinContent(iy, 0.0);
+                      hSlice->SetBinError  (iy, 0.0);
+                      continue;
                     }
+
+                    const double val = num / den;
+                    const double var = (eNum * eNum) / (den * den)
+                                     + (num * num * eDen * eDen) / (den * den * den * den);
+                    const double err = (var > 0.0 && std::isfinite(var)) ? std::sqrt(var) : 0.0;
+
+                    hSlice->SetBinContent(iy, val);
+                    hSlice->SetBinError  (iy, err);
                   }
 
-                  if (sameJetEffBinning)
+                  hSlice->SetTitle("");
+                  hSlice->GetXaxis()->SetTitle("x_{J}^{truth}");
+                  hSlice->GetYaxis()->SetTitle("Jet efficiency");
+                  hSlice->GetXaxis()->SetTitleOffset(1.10);
+                  hSlice->GetYaxis()->SetTitleOffset(1.60);
+                  hSlice->SetMarkerStyle(20);
+                  hSlice->SetMarkerSize(0.85);
+                  hSlice->SetLineWidth(2);
+                  return hSlice;
+                };
+
+                auto DrawJetEffSliceTable = [&](TH2* hNum,
+                                                TH2* hDen,
+                                                const string& outPath)->void
+                {
+                  if (!hNum || !hDen) return;
+
+                  TCanvas c(
+                    TString::Format("c_tbl_jetEffSlices_%s", rKey.c_str()).Data(),
+                    "c_tbl_jetEffSlices", 1800, 1300
+                  );
+                  c.Divide(nPtCols, nPtRows, 0.001, 0.001);
+
+                  for (int ipad = 0; ipad < nPtPads; ++ipad)
                   {
-                    for (int iy = 1; iy <= h2UnfoldTruth->GetNbinsY() + 1; ++iy)
+                    const int i = ipad;
+
+                    c.cd(ipad + 1);
+                    gPad->SetLeftMargin(0.16);
+                    gPad->SetRightMargin(0.05);
+                    gPad->SetBottomMargin(0.14);
+                    gPad->SetTopMargin(0.08);
+
+                    TH1F frame(TString::Format("frame_jetEffSlice_%d", ipad).Data(), "", 1, 0.0, 2.0);
+                    frame.SetMinimum(0.0);
+                    frame.SetMaximum(1.05);
+                    frame.SetTitle("");
+                    frame.GetXaxis()->SetTitle("x_{J}^{truth}");
+                    frame.GetYaxis()->SetTitle("Jet efficiency");
+                    frame.GetXaxis()->SetTitleOffset(1.10);
+                    frame.GetYaxis()->SetTitleOffset(1.60);
+                    frame.Draw("axis");
+
+                    if (i < 0 || i >= nPtAll)
                     {
-                      const double e1 = h2JetEff->GetYaxis()->GetBinUpEdge(iy);
-                      const double e2 = h2UnfoldTruth->GetYaxis()->GetBinUpEdge(iy);
-                      if (std::fabs(e1 - e2) > 1e-9)
-                      {
-                        sameJetEffBinning = false;
-                        break;
-                      }
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextSize(0.050);
+                      tx.DrawLatex(0.16, 0.50, "MISSING");
+                      continue;
                     }
-                  }
 
-                  if (!sameJetEffBinning)
-                  {
-                    cout << ANSI_BOLD_YEL
-                         << "[WARN] Jet-efficiency binning mismatch for " << rKey
-                         << ". Skipping 2D jet-efficiency correction for this radius."
-                         << ANSI_RESET << "\n";
-                  }
-                  else
-                  {
-                    h2UnfoldTruth_jetEffCorr = CloneTH2(
-                      h2UnfoldTruth,
-                      TString::Format("h2_unfoldedTruth_pTgamma_xJ_incl_jetEffCorr_%s", rKey.c_str()).Data()
+                    const PtBin& b = analysisRecoBins[i];
+                    const int ix = FindExactXBinForAnalysisPt(hDen->GetXaxis(), b);
+
+                    TH1D* hSlice = MakeJetEffSliceHist(
+                      hNum,
+                      hDen,
+                      ix,
+                      TString::Format("h_jetEffSlice_%s_pTbin%d", rKey.c_str(), i + 1).Data()
                     );
 
-                    if (h2UnfoldTruth_jetEffCorr)
+                    bool haveSliceContent = false;
+                    if (hSlice)
                     {
-                      h2UnfoldTruth_jetEffCorr->SetDirectory(nullptr);
-                      EnsureSumw2(h2UnfoldTruth_jetEffCorr);
-                      h2UnfoldTruth_jetEffCorr->Reset("ICES");
-
-                      const int nxJC = h2UnfoldTruth->GetNbinsX();
-                      const int nyJC = h2UnfoldTruth->GetNbinsY();
-
-                      for (int ix = 0; ix <= nxJC + 1; ++ix)
+                      for (int ib = 1; ib <= hSlice->GetNbinsX(); ++ib)
                       {
-                        for (int iy = 0; iy <= nyJC + 1; ++iy)
+                        const double y  = hSlice->GetBinContent(ib);
+                        const double ey = hSlice->GetBinError(ib);
+                        if (std::isfinite(y) && std::isfinite(ey) && (y != 0.0 || ey != 0.0))
                         {
-                          if (ix == 0 || ix == nxJC + 1 || iy == 0 || iy == nyJC + 1)
-                          {
-                            h2UnfoldTruth_jetEffCorr->SetBinContent(ix, iy, 0.0);
-                            h2UnfoldTruth_jetEffCorr->SetBinError  (ix, iy, 0.0);
-                            continue;
-                          }
-
-                          const double num  = h2UnfoldTruth->GetBinContent(ix, iy);
-                          const double eNum = h2UnfoldTruth->GetBinError  (ix, iy);
-                          const double eff  = h2JetEff->GetBinContent(ix, iy);
-                          const double eEff = h2JetEff->GetBinError  (ix, iy);
-
-                          if (!(std::isfinite(num) && std::isfinite(eNum) &&
-                                std::isfinite(eff) && std::isfinite(eEff) && eff > 0.0))
-                          {
-                            h2UnfoldTruth_jetEffCorr->SetBinContent(ix, iy, 0.0);
-                            h2UnfoldTruth_jetEffCorr->SetBinError  (ix, iy, 0.0);
-                            continue;
-                          }
-
-                          const double corr = num / eff;
-                          const double var  = (eNum * eNum) / (eff * eff)
-                                            + (num * num * eEff * eEff) / (eff * eff * eff * eff);
-                          const double err  = (var > 0.0 && std::isfinite(var)) ? std::sqrt(var) : 0.0;
-
-                          h2UnfoldTruth_jetEffCorr->SetBinContent(ix, iy, corr);
-                          h2UnfoldTruth_jetEffCorr->SetBinError  (ix, iy, err);
+                          haveSliceContent = true;
+                          break;
                         }
                       }
+                    }
 
-                      DrawJetEffTH2Colz(
-                        h2UnfoldTruth,
-                        JoinPath(jetEffQAOut, "unfoldedTruth_withoutJetEffCorr_pTgamma_xJ_colz.png"),
-                        TString::Format("Unfolded truth without jet-eff. correction, R = %.1f", R).Data(),
-                        "Unfolded yield",
-                        true
-                      );
+                    if (hSlice && haveSliceContent)
+                    {
+                      hSlice->GetXaxis()->SetRangeUser(0.0, 2.0);
+                      hSlice->SetMinimum(0.0);
+                      hSlice->SetMaximum(1.05);
+                      hSlice->Draw("E1 same");
 
-                      DrawJetEffTH2Colz(
-                        h2UnfoldTruth_jetEffCorr,
-                        JoinPath(jetEffQAOut, "unfoldedTruth_withJetEffCorr_pTgamma_xJ_colz.png"),
-                        TString::Format("Unfolded truth with jet-eff. correction, R = %.1f", R).Data(),
-                        "Corrected unfolded yield",
-                        true
-                      );
+                      TLine l1(0.0, 1.0, 2.0, 1.0);
+                      l1.SetLineStyle(2);
+                      l1.SetLineWidth(2);
+                      l1.Draw("same");
+                    }
+                    else
+                    {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextSize(0.045);
+                      tx.DrawLatex(0.16, 0.50, "NO VALID ENTRIES");
+                    }
 
-                      TH2* h2CorrOverUncorr = BuildTH2Ratio(
-                        h2UnfoldTruth_jetEffCorr,
-                        h2UnfoldTruth,
-                        TString::Format("h2_corrOverUncorr_%s", rKey.c_str()).Data()
-                      );
+                    {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(22);
+                      tx.SetTextSize(0.040);
+                      tx.DrawLatex(0.52, 0.955,
+                                   TString::Format("Jet efficiency vs x_{J}^{truth}, p_{T}^{#gamma} %d-%d GeV, R = %.1f",
+                                                   b.lo, b.hi, R).Data());
+                    }
 
-                      if (h2CorrOverUncorr)
+                    {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(31);
+                      tx.SetTextSize(0.04);
+                      const double xR = 0.93;
+                      tx.DrawLatex(xR, 0.67, "truth-space efficiency slice");
+                      tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
+                      tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
+                      tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
+                    }
+
+                    if (hSlice) delete hSlice;
+                  }
+
+                  SaveCanvas(c, outPath);
+                };
+
+                auto BuildTH2Ratio = [&](TH2* hNum,
+                                         TH2* hDen,
+                                         const string& name)->TH2*
+                {
+                  if (!hNum || !hDen) return nullptr;
+
+                  TH2* hR = CloneTH2(hNum, name);
+                  if (!hR) return nullptr;
+
+                  hR->SetDirectory(nullptr);
+                  EnsureSumw2(hR);
+                  hR->Reset("ICES");
+
+                  for (int ix = 0; ix <= hR->GetNbinsX() + 1; ++ix)
+                  {
+                    for (int iy = 0; iy <= hR->GetNbinsY() + 1; ++iy)
+                    {
+                      if (ix == 0 || ix == hR->GetNbinsX() + 1 || iy == 0 || iy == hR->GetNbinsY() + 1)
                       {
+                        hR->SetBinContent(ix, iy, 0.0);
+                        hR->SetBinError  (ix, iy, 0.0);
+                        continue;
+                      }
+
+                      const double num  = hNum->GetBinContent(ix, iy);
+                      const double eNum = hNum->GetBinError  (ix, iy);
+                      const double den  = hDen->GetBinContent(ix, iy);
+                      const double eDen = hDen->GetBinError  (ix, iy);
+
+                      if (!(std::isfinite(num) && std::isfinite(eNum) &&
+                            std::isfinite(den) && std::isfinite(eDen) && den > 0.0))
+                      {
+                        hR->SetBinContent(ix, iy, 0.0);
+                        hR->SetBinError  (ix, iy, 0.0);
+                        continue;
+                      }
+
+                      const double val = num / den;
+                      const double var = (eNum * eNum) / (den * den)
+                                       + (num * num * eDen * eDen) / (den * den * den * den);
+                      const double err = (var > 0.0 && std::isfinite(var)) ? std::sqrt(var) : 0.0;
+
+                      hR->SetBinContent(ix, iy, val);
+                      hR->SetBinError  (ix, iy, err);
+                    }
+                  }
+
+                  return hR;
+                };
+
+                h2JetEff = CloneTH2(
+                  h2JetEffNum_in,
+                  TString::Format("h2JetEff_%s", rKey.c_str()).Data()
+                );
+
+                if (h2JetEff)
+                {
+                  h2JetEff->SetDirectory(nullptr);
+                  EnsureSumw2(h2JetEff);
+                  h2JetEff->Divide(h2JetEffDen_in);
+
+                  vector<double> xPt, exPt, yEff, eyEff;
+                  xPt.reserve((std::size_t)nPtAll);
+                  exPt.reserve((std::size_t)nPtAll);
+                  yEff.reserve((std::size_t)nPtAll);
+                  eyEff.reserve((std::size_t)nPtAll);
+
+                  for (int i = 0; i < nPtAll; ++i)
+                  {
+                    const PtBin& b = analysisRecoBins[i];
+                    const double ex  = 0.5 * (b.hi - b.lo);
+
+                    const int ixEff = FindExactXBinForAnalysisPt(h2JetEffDen_in->GetXaxis(), b);
+                    if (ixEff < 1 || ixEff > h2JetEffDen_in->GetXaxis()->GetNbins()) continue;
+
+                    double eNumInt = 0.0;
+                    double eDenInt = 0.0;
+
+                    const double numInt = h2JetEffNum_in->IntegralAndError(
+                      ixEff, ixEff,
+                      1, h2JetEffNum_in->GetYaxis()->GetNbins(),
+                      eNumInt
+                    );
+                    const double denInt = h2JetEffDen_in->IntegralAndError(
+                      ixEff, ixEff,
+                      1, h2JetEffDen_in->GetYaxis()->GetNbins(),
+                      eDenInt
+                    );
+
+                    if (!(denInt > 0.0)) continue;
+
+                    const double eff = numInt / denInt;
+                    const double var = (eNumInt * eNumInt) / (denInt * denInt)
+                                     + (numInt * numInt * eDenInt * eDenInt) / (denInt * denInt * denInt * denInt);
+                    const double err = (var > 0.0 && std::isfinite(var)) ? std::sqrt(var) : 0.0;
+
+                    xPt.push_back(0.5 * (b.lo + b.hi));
+                    exPt.push_back(ex);
+                    yEff.push_back(eff);
+                    eyEff.push_back(err);
+                  }
+
+                  if (!xPt.empty())
+                  {
+                    TCanvas cJetEffPt(
+                      TString::Format("c_jetEffPt_%s", rKey.c_str()).Data(),
+                      "c_jetEffPt", 900, 700
+                    );
+                    ApplyCanvasMargins1D(cJetEffPt);
+                    cJetEffPt.SetLeftMargin(0.16);
+                    cJetEffPt.SetRightMargin(0.05);
+                    cJetEffPt.SetBottomMargin(0.14);
+                    cJetEffPt.SetTopMargin(0.08);
+
+                    TH1F frame("frame_jetEffPt","", 1, 10.0, 35.0);
+                    frame.SetMinimum(0.0);
+                    frame.SetMaximum(1.05);
+                    frame.SetTitle("");
+                    frame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                    frame.GetYaxis()->SetTitle("Integrated jet efficiency");
+                    frame.GetXaxis()->SetTitleOffset(1.10);
+                    frame.GetYaxis()->SetTitleOffset(1.55);
+                    frame.Draw("axis");
+
+                    TGraphErrors gJetEff(
+                      (int)xPt.size(),
+                      &xPt[0], &yEff[0],
+                      &exPt[0], &eyEff[0]
+                    );
+                    gJetEff.SetMarkerStyle(20);
+                    gJetEff.SetMarkerSize(1.05);
+                    gJetEff.SetMarkerColor(kBlue + 1);
+                    gJetEff.SetLineColor(kBlue + 1);
+                    gJetEff.SetLineWidth(2);
+                    gJetEff.Draw("P same");
+
+                    TLine l1(10.0, 1.0, 35.0, 1.0);
+                    l1.SetLineStyle(2);
+                    l1.SetLineWidth(2);
+                    l1.Draw("same");
+
+                    {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(13);
+                      tx.SetTextSize(0.034);
+                      tx.DrawLatex(
+                        0.14, 0.98,
+                        TString::Format("Jet Efficiency vs p_{T}^{#gamma} (R = %.1f), Run24pp, Photon 4 GeV + MBD NS #geq 1", R).Data()
+                      );
+                    }
+
+                    {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(13);
+                      tx.SetTextSize(0.035);
+                      tx.DrawLatex(0.14, 0.30, "Integrated over truth x_{J} unfolding bins");
+                    }
+
+                    SaveCanvas(cJetEffPt, JoinPath(withAndWithoutJetEffOut, "jetEfficiency_integrated_vs_pTgamma.png"));
+                  }
+
+                  DrawJetEffTH2Colz(
+                    h2JetEffDen_in,
+                    JoinPath(jetEffQAOut, "jetEff_truthPhaseSpace_den_pTgamma_xJ_colz.png"),
+                    TString::Format("Jet-efficiency denominator, R = %.1f", R).Data(),
+                    "Truth recoil-jet counts",
+                    true
+                  );
+
+                  DrawJetEffTH2Colz(
+                    h2JetEffNum_in,
+                    JoinPath(jetEffQAOut, "jetEff_truthPhaseSpace_num_pTgamma_xJ_colz.png"),
+                    TString::Format("Jet-efficiency numerator, R = %.1f", R).Data(),
+                    "Matched truth recoil-jet counts",
+                    true
+                  );
+
+                  DrawJetEffTH2Colz(
+                    h2JetEff,
+                    JoinPath(jetEffQAOut, "jetEff_truthPhaseSpace_eff_pTgamma_xJ_colz.png"),
+                    TString::Format("Jet efficiency map, R = %.1f", R).Data(),
+                    "Jet efficiency",
+                    false
+                  );
+
+                  DrawJetEffIntegratedVsXJ(
+                    h2JetEffNum_in,
+                    h2JetEffDen_in,
+                    JoinPath(jetEffQAOut, "jetEfficiency_integrated_vs_xJ.png")
+                  );
+
+                  DrawJetEffSliceTable(
+                    h2JetEffNum_in,
+                    h2JetEffDen_in,
+                    JoinPath(jetEffQAOut, "table3x3_jetEfficiency_vs_xJ_truthSlices.png")
+                  );
+
+                  TH1D* hTruthJetIntegrated = BuildIntegratedVsPtgamma(
+                    h2JetEffDen_in,
+                    TString::Format("hTruthJetIntegrated_%s", rKey.c_str()).Data(),
+                    "Integrated truth recoil-jet counts"
+                  );
+                  TH1D* hRecoJetMCIntegrated = BuildIntegratedVsPtgamma(
+                    h2RecoSim,
+                    TString::Format("hRecoJetMCIntegrated_%s", rKey.c_str()).Data(),
+                    "Integrated reco-jet counts (MC)"
+                  );
+                  TH1D* hRecoJetDataIntegrated = BuildIntegratedVsPtgamma(
+                    h2RecoData,
+                    TString::Format("hRecoJetDataIntegrated_%s", rKey.c_str()).Data(),
+                    "Integrated reco-jet counts (DATA)"
+                  );
+
+                  TH1D* hTruthOverRecoMC = BuildRatio1D(
+                    hTruthJetIntegrated,
+                    hRecoJetMCIntegrated,
+                    TString::Format("hTruthOverRecoMC_%s", rKey.c_str()).Data(),
+                    "Truth jet / reco jet (MC)"
+                  );
+                  TH1D* hTruthOverData = BuildRatio1D(
+                    hTruthJetIntegrated,
+                    hRecoJetDataIntegrated,
+                    TString::Format("hTruthOverData_%s", rKey.c_str()).Data(),
+                    "Truth jet / reco jet (DATA)"
+                  );
+                  TH1D* hRecoMCOverData = BuildRatio1D(
+                    hRecoJetMCIntegrated,
+                    hRecoJetDataIntegrated,
+                    TString::Format("hRecoMCOverData_%s", rKey.c_str()).Data(),
+                    "Reco jet (MC) / reco jet (DATA)"
+                  );
+
+                  if (hTruthOverRecoMC)
+                  {
+                    hTruthOverRecoMC->SetMarkerColor(kBlack);
+                    hTruthOverRecoMC->SetLineColor(kBlack);
+                    DrawJetEffIntegrated1D(
+                      hTruthOverRecoMC,
+                      JoinPath(jetEffQAOut, "jetTruthOverReco_MC_integrated_vs_pTgamma.png"),
+                      TString::Format("Truth / reco jet ratio (MC), R = %.1f", R).Data(),
+                      true
+                    );
+                  }
+
+                  if (hTruthOverData)
+                  {
+                    hTruthOverData->SetMarkerColor(kRed + 1);
+                    hTruthOverData->SetLineColor(kRed + 1);
+                    DrawJetEffIntegrated1D(
+                      hTruthOverData,
+                      JoinPath(jetEffQAOut, "jetTruthOverReco_DATA_integrated_vs_pTgamma.png"),
+                      TString::Format("Truth / reco jet ratio (truth vs DATA reco), R = %.1f", R).Data(),
+                      true
+                    );
+                  }
+
+                  if (hRecoMCOverData)
+                  {
+                    hRecoMCOverData->SetMarkerColor(kBlue + 1);
+                    hRecoMCOverData->SetLineColor(kBlue + 1);
+                    DrawJetEffIntegrated1D(
+                      hRecoMCOverData,
+                      JoinPath(jetEffQAOut, "jetRecoMCOverRecoDATA_integrated_vs_pTgamma.png"),
+                      TString::Format("Reco jet ratio (MC / DATA), R = %.1f", R).Data(),
+                      true
+                    );
+                  }
+
+                  if (h2UnfoldTruth)
+                  {
+                    bool sameJetEffBinning = true;
+
+                    if (h2JetEff->GetNbinsX() != h2UnfoldTruth->GetNbinsX() ||
+                        h2JetEff->GetNbinsY() != h2UnfoldTruth->GetNbinsY())
+                    {
+                      sameJetEffBinning = false;
+                    }
+
+                    if (sameJetEffBinning)
+                    {
+                      for (int ix = 1; ix <= h2UnfoldTruth->GetNbinsX() + 1; ++ix)
+                      {
+                        const double e1 = h2JetEff->GetXaxis()->GetBinUpEdge(ix);
+                        const double e2 = h2UnfoldTruth->GetXaxis()->GetBinUpEdge(ix);
+                        if (std::fabs(e1 - e2) > 1e-9)
+                        {
+                          sameJetEffBinning = false;
+                          break;
+                        }
+                      }
+                    }
+
+                    if (sameJetEffBinning)
+                    {
+                      for (int iy = 1; iy <= h2UnfoldTruth->GetNbinsY() + 1; ++iy)
+                      {
+                        const double e1 = h2JetEff->GetYaxis()->GetBinUpEdge(iy);
+                        const double e2 = h2UnfoldTruth->GetYaxis()->GetBinUpEdge(iy);
+                        if (std::fabs(e1 - e2) > 1e-9)
+                        {
+                          sameJetEffBinning = false;
+                          break;
+                        }
+                      }
+                    }
+
+                    if (!sameJetEffBinning)
+                    {
+                      cout << ANSI_BOLD_YEL
+                           << "[WARN] Jet-efficiency binning mismatch for " << rKey
+                           << ". Skipping 2D jet-efficiency correction for this radius."
+                           << ANSI_RESET << "\n";
+                    }
+                    else
+                    {
+                      h2UnfoldTruth_jetEffCorr = CloneTH2(
+                        h2UnfoldTruth,
+                        TString::Format("h2_unfoldedTruth_pTgamma_xJ_incl_jetEffCorr_%s", rKey.c_str()).Data()
+                      );
+
+                      if (h2UnfoldTruth_jetEffCorr)
+                      {
+                        h2UnfoldTruth_jetEffCorr->SetDirectory(nullptr);
+                        EnsureSumw2(h2UnfoldTruth_jetEffCorr);
+                        h2UnfoldTruth_jetEffCorr->Reset("ICES");
+
+                        const int nxJC = h2UnfoldTruth->GetNbinsX();
+                        const int nyJC = h2UnfoldTruth->GetNbinsY();
+
+                        for (int ix = 0; ix <= nxJC + 1; ++ix)
+                        {
+                          for (int iy = 0; iy <= nyJC + 1; ++iy)
+                          {
+                            if (ix == 0 || ix == nxJC + 1 || iy == 0 || iy == nyJC + 1)
+                            {
+                              h2UnfoldTruth_jetEffCorr->SetBinContent(ix, iy, 0.0);
+                              h2UnfoldTruth_jetEffCorr->SetBinError  (ix, iy, 0.0);
+                              continue;
+                            }
+
+                            const double num  = h2UnfoldTruth->GetBinContent(ix, iy);
+                            const double eNum = h2UnfoldTruth->GetBinError  (ix, iy);
+                            const double eff  = h2JetEff->GetBinContent(ix, iy);
+                            const double eEff = h2JetEff->GetBinError  (ix, iy);
+
+                            if (!(std::isfinite(num) && std::isfinite(eNum) &&
+                                  std::isfinite(eff) && std::isfinite(eEff) && eff > 0.0))
+                            {
+                              h2UnfoldTruth_jetEffCorr->SetBinContent(ix, iy, 0.0);
+                              h2UnfoldTruth_jetEffCorr->SetBinError  (ix, iy, 0.0);
+                              continue;
+                            }
+
+                            const double corr = num / eff;
+                            const double var  = (eNum * eNum) / (eff * eff)
+                                              + (num * num * eEff * eEff) / (eff * eff * eff * eff);
+                            const double err  = (var > 0.0 && std::isfinite(var)) ? std::sqrt(var) : 0.0;
+
+                            h2UnfoldTruth_jetEffCorr->SetBinContent(ix, iy, corr);
+                            h2UnfoldTruth_jetEffCorr->SetBinError  (ix, iy, err);
+                          }
+                        }
+
                         DrawJetEffTH2Colz(
-                          h2CorrOverUncorr,
-                          JoinPath(jetEffQAOut, "unfoldedTruth_ratio_withOverWithoutJetEffCorr_pTgamma_xJ_colz.png"),
-                          TString::Format("Effect of jet-eff. correction, R = %.1f", R).Data(),
-                          "With jet-eff. corr. / without",
-                          false
+                          h2UnfoldTruth,
+                          JoinPath(jetEffQAOut, "unfoldedTruth_withoutJetEffCorr_pTgamma_xJ_colz.png"),
+                          TString::Format("Unfolded truth without jet-eff. correction, R = %.1f", R).Data(),
+                          "Unfolded yield",
+                          true
                         );
-                        delete h2CorrOverUncorr;
+
+                        DrawJetEffTH2Colz(
+                          h2UnfoldTruth_jetEffCorr,
+                          JoinPath(jetEffQAOut, "unfoldedTruth_withJetEffCorr_pTgamma_xJ_colz.png"),
+                          TString::Format("Unfolded truth with jet-eff. correction, R = %.1f", R).Data(),
+                          "Corrected unfolded yield",
+                          true
+                        );
+
+                        TH2* h2CorrOverUncorr = BuildTH2Ratio(
+                          h2UnfoldTruth_jetEffCorr,
+                          h2UnfoldTruth,
+                          TString::Format("h2_corrOverUncorr_%s", rKey.c_str()).Data()
+                        );
+
+                        if (h2CorrOverUncorr)
+                        {
+                          DrawJetEffTH2Colz(
+                            h2CorrOverUncorr,
+                            JoinPath(jetEffQAOut, "unfoldedTruth_ratio_withOverWithoutJetEffCorr_pTgamma_xJ_colz.png"),
+                            TString::Format("Effect of jet-eff. correction, R = %.1f", R).Data(),
+                            "With jet-eff. corr. / without",
+                            false
+                          );
+                          delete h2CorrOverUncorr;
+                        }
                       }
                     }
                   }
+
+                  if (hTruthOverRecoMC) delete hTruthOverRecoMC;
+                  if (hTruthOverData) delete hTruthOverData;
+                  if (hRecoMCOverData) delete hRecoMCOverData;
+                  if (hTruthJetIntegrated) delete hTruthJetIntegrated;
+                  if (hRecoJetMCIntegrated) delete hRecoJetMCIntegrated;
+                  if (hRecoJetDataIntegrated) delete hRecoJetDataIntegrated;
                 }
-              }
-            }
+             }
           }
 
           auto BuildRatioHist = [&](TH1* hNum, TH1* hDen, const char* newName)->TH1*
@@ -5599,11 +7142,24 @@
                 // LHC overlay (ATLAS pp, HEPData ins1694678 Table 1):
                 //   overlay the same ATLAS pp curve on every sPHENIX pT bin (simple first comparison)
                 //   output: <rOut>/LHC_overlay/xJ_unfolded_perPhoton_LHCoverlay_pTbinX.png
+                //
+                //   Also make an identical jet-efficiency-corrected version when available:
+                //   output: <rOut>/LHC_overlay/effCorrected/xJ_unfolded_perPhoton_LHCoverlay_pTbinX.png
                 // -------------------------------------------------------------------
                 if (gAtlasPP)
                 {
+                  const double yHeadroomScale = 1.45;
+                  const auto& cfgDef = DefaultSim10and20Config();
+                  const double sphJetPtMin = cfgDef.jetMinPt;
+                  const string bbLabel = cfgDef.bbLabel;
+                  const double atlasJetPtMin = 31.6;
+
                   TCanvas cO(TString::Format("c_perPho_LHC_%s_%d", rKey.c_str(), i + 1).Data(), "c_perPho_LHC", 900, 700);
                   ApplyCanvasMargins1D(cO);
+                  cO.SetLeftMargin(0.16);
+                  cO.SetRightMargin(0.05);
+                  cO.SetBottomMargin(0.14);
+                  cO.SetTopMargin(0.08);
 
                   TH1* hTmp = (TH1*)hPerPho->Clone(TString::Format("hTmp_perPho_%s_%d", rKey.c_str(), i + 1).Data());
                   if (hTmp)
@@ -5629,8 +7185,12 @@
                     }
 
                     hTmp->SetMinimum(0.0);
-                    hTmp->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
+                    hTmp->SetMaximum((maxY > 0.0) ? (yHeadroomScale * maxY) : 1.0);
                     hTmp->GetXaxis()->SetRangeUser(0.0, 2.0);
+                    hTmp->GetXaxis()->CenterTitle();
+                    hTmp->GetYaxis()->CenterTitle();
+                    hTmp->GetXaxis()->SetTitleOffset(1.15);
+                    hTmp->GetYaxis()->SetTitleOffset(1.70);
 
                     // Draw sPHENIX with horizontal error bars on the plot (TH1::Draw("E1") keeps x-errors)
                     hTmp->Draw("E1");
@@ -5660,69 +7220,205 @@
                       gSphLeg.SetLineColor(hTmp->GetLineColor());
                       gSphLeg.SetLineWidth(hTmp->GetLineWidth());
 
-                      // Legend: shifted right
-                      TLegend leg(0.55,0.76,0.92,0.90);
+                      TLegend extraLegend(0.18, 0.82, 0.46, 0.93);
+                      extraLegend.SetBorderSize(0);
+                      extraLegend.SetFillStyle(0);
+                      extraLegend.SetTextFont(42);
+                      extraLegend.SetTextSize(0.040);
+                      extraLegend.AddEntry((TObject*)nullptr, "#it{#bf{sPHENIX}} Internal", "");
+                      extraLegend.AddEntry((TObject*)nullptr, "p+p #sqrt{s} = 200 GeV", "");
+                      extraLegend.Draw();
+
+                      TLegend leg(0.49,0.82,0.90,0.93);
+                      leg.SetBorderSize(0);
+                      leg.SetFillStyle(0);
                       leg.SetTextFont(42);
-                      leg.SetTextSize(0.027);
+                      leg.SetTextSize(0.029);
                       leg.AddEntry(&gSphLeg,
-                                     TString::Format("sPHENIX unfolded, p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data(),
+                                     TString::Format("sPHENIX run24pp").Data(),
                                      "pe");
                       leg.AddEntry(gAtlasPP,
-                                     TString::Format("ATLAS unfolded, p_{T}^{#gamma} = %s", kAtlasTable1PhoPtLabel.c_str()).Data(),
+                                     TString::Format("ATLAS Phys. Lett. B 789 (2019) 167").Data(),
                                      "pe");
                       leg.Draw();
 
-                      if (i == 5)
-                      {
-                        const double sphJetPtMin     = 5.0;
-                        const double sphPhotonPtMin  = 20.0;
-                        const double sphTurnOnXJ     = sphJetPtMin / sphPhotonPtMin;
+                      TLatex txHdr;
+                      txHdr.SetNDC();
+                      txHdr.SetTextFont(42);
+                      txHdr.SetTextAlign(13);
+                      txHdr.SetTextSize(0.031);
+                      txHdr.SetTextColor(kBlack);
 
-                        const double atlasJetPtMin    = 31.6;
-                        const double atlasPhotonPtMin = 63.1;
-                        const double atlasTurnOnXJ    = atlasJetPtMin / atlasPhotonPtMin;
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(13);
+                      tx.SetTextSize(0.023);
+                      tx.SetTextColor(kBlack);
 
-                        if (gPad) { gPad->Modified(); gPad->Update(); }
-                        const double yMin = (gPad ? gPad->GetUymin() : 0.0);
-                        const double yMax = (gPad ? gPad->GetUymax() : ((maxY > 0.0) ? (1.15 * maxY) : 1.0));
+                      txHdr.DrawLatex(0.60, 0.60, "#it{#bf{sPHENIX}}");
+                      tx.DrawLatex(0.60, 0.56, "run24pp");
+                      tx.DrawLatex(0.60, 0.51, TString::Format("1D kBayes = %d", kBayesIterPho).Data());
+                      tx.DrawLatex(0.60, 0.46, TString::Format("2D kBayes = %d", kBayesIterXJ).Data());
+                      tx.DrawLatex(0.60, 0.41, TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
+                      tx.DrawLatex(0.60, 0.36, TString::Format("|#Delta#phi| > %s", bbLabel.c_str()).Data());
+                      tx.DrawLatex(0.60, 0.31, TString::Format("p_{T}^{jet} > %.0f GeV", sphJetPtMin).Data());
+                      tx.DrawLatex(0.60, 0.26, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
 
-                        TLine* lSph = new TLine(sphTurnOnXJ, yMin, sphTurnOnXJ, yMax);
-                        lSph->SetLineColor(kBlue + 1);
-                        lSph->SetLineStyle(2);
-                        lSph->SetLineWidth(2);
-                        lSph->Draw("same");
-
-                        TLine* lAtlas = new TLine(atlasTurnOnXJ, yMin, atlasTurnOnXJ, yMax);
-                        lAtlas->SetLineColor(kRed + 1);
-                        lAtlas->SetLineStyle(2);
-                        lAtlas->SetLineWidth(2);
-                        lAtlas->Draw("same");
-
-                        if (gPad) { gPad->Modified(); gPad->Update(); }
-
-                        TLatex tx;
-                        tx.SetNDC();
-                        tx.SetTextFont(42);
-                        tx.SetTextAlign(13);
-                        tx.SetTextSize(0.025);
-
-                        tx.SetTextColor(kBlue + 1);
-                        tx.DrawLatex(0.54, 0.72,
-                                     TString::Format("sPHENIX x_{J} turn-on: p_{T}^{jet, min}/p_{T}^{#gamma, min} = %.0f/%.0f = %.3f",
-                                                     sphJetPtMin, sphPhotonPtMin, sphTurnOnXJ).Data());
-
-                        tx.SetTextColor(kRed + 1);
-                        tx.DrawLatex(0.54, 0.66,
-                                     TString::Format("ATLAS x_{J} turn-on: p_{T}^{jet, min}/p_{T}^{#gamma, min} = %.1f/%.1f = %.3f",
-                                                     atlasJetPtMin, atlasPhotonPtMin, atlasTurnOnXJ).Data());
-                      }
+                      txHdr.DrawLatex(0.81, 0.60, "#bf{ATLAS}");
+                      tx.DrawLatex(0.81, 0.56, "pp #sqrt{s} = 5.02 TeV");
+                      tx.DrawLatex(0.81, 0.51, "kBayes = 2-4");
+                      tx.DrawLatex(0.81, 0.46, "|#eta^{#gamma}| < 2.37 (excl. 1.37-1.52)");
+                      tx.DrawLatex(0.81, 0.41, "|#eta^{jet}| < 2.8");
+                      tx.DrawLatex(0.81, 0.36, "|#Delta#phi| > 7#pi/8");
+                      tx.DrawLatex(0.81, 0.31, TString::Format("p_{T}^{jet} > %.1f GeV", atlasJetPtMin).Data());
+                      tx.DrawLatex(0.81, 0.26, TString::Format("p_{T}^{#gamma} = %s", kAtlasTable1PhoPtLabel.c_str()).Data());
 
                     SaveCanvas(cO, JoinPath(overlayOut, TString::Format("xJ_unfolded_perPhoton_LHCoverlay_pTbin%d.png", i + 1).Data()));
 
                     delete hTmp;
                   }
-                }
+
+                  if (gApplyPurityCorrectionForUnfolding &&
+                      i >= 0 &&
+                      i < (int)perPhoHists_jetEffCorr.size() &&
+                      perPhoHists_jetEffCorr[i])
+                  {
+                    const string overlayOutEffCorrected = JoinPath(overlayOut, "effCorrected");
+                    EnsureDir(overlayOutEffCorrected);
+
+                    TCanvas cOEff(TString::Format("c_perPho_LHC_effCorrected_%s_%d", rKey.c_str(), i + 1).Data(), "c_perPho_LHC_effCorrected", 900, 700);
+                    ApplyCanvasMargins1D(cOEff);
+                    cOEff.SetLeftMargin(0.16);
+                    cOEff.SetRightMargin(0.05);
+                    cOEff.SetBottomMargin(0.14);
+                    cOEff.SetTopMargin(0.08);
+
+                    TH1* hTmpEff = (TH1*)perPhoHists_jetEffCorr[i]->Clone(TString::Format("hTmp_perPho_effCorrected_%s_%d", rKey.c_str(), i + 1).Data());
+                    if (hTmpEff)
+                    {
+                      hTmpEff->SetDirectory(nullptr);
+                      hTmpEff->SetMarkerStyle(hPerPho->GetMarkerStyle());
+                      hTmpEff->SetMarkerSize(hPerPho->GetMarkerSize());
+                      hTmpEff->SetMarkerColor(hPerPho->GetMarkerColor());
+                      hTmpEff->SetLineColor(hPerPho->GetLineColor());
+                      hTmpEff->SetLineWidth(hPerPho->GetLineWidth());
+
+                      double maxY = 0.0;
+                      for (int ib = 1; ib <= hTmpEff->GetNbinsX(); ++ib)
+                      {
+                        const double y  = hTmpEff->GetBinContent(ib);
+                        const double ey = hTmpEff->GetBinError(ib);
+                        const double v  = y + ey;
+                        if (v > maxY) maxY = v;
+                      }
+
+                      for (int ip = 0; ip < gAtlasPP->GetN(); ++ip)
+                      {
+                        double x = 0.0, y = 0.0;
+                        gAtlasPP->GetPoint(ip, x, y);
+                        const double ey = gAtlasPP->GetErrorYhigh(ip);
+                        const double v  = y + ey;
+                        if (v > maxY) maxY = v;
+                      }
+
+                      hTmpEff->SetMinimum(0.0);
+                      hTmpEff->SetMaximum((maxY > 0.0) ? (yHeadroomScale * maxY) : 1.0);
+                      hTmpEff->GetXaxis()->SetRangeUser(0.0, 2.0);
+                      hTmpEff->GetXaxis()->CenterTitle();
+                      hTmpEff->GetYaxis()->CenterTitle();
+                      hTmpEff->GetXaxis()->SetTitleOffset(1.15);
+                      hTmpEff->GetYaxis()->SetTitleOffset(1.70);
+
+                      // Draw sPHENIX with horizontal error bars on the plot (TH1::Draw("E1") keeps x-errors)
+                      hTmpEff->Draw("E1");
+                      gAtlasPP->Draw("PZ same");
+
+                        // Legend icon for sPHENIX: vertical error bar only (EX=0, EY!=0)
+                        double lx = 0.0, ly = 0.0;
+                        {
+                          int ib0 = -1;
+                          for (int ib = 1; ib <= hTmpEff->GetNbinsX(); ++ib)
+                          {
+                            if (hTmpEff->GetBinContent(ib) != 0.0 || hTmpEff->GetBinError(ib) != 0.0) { ib0 = ib; break; }
+                          }
+                          if (ib0 < 0) ib0 = 1;
+
+                          lx = hTmpEff->GetXaxis()->GetBinCenter(ib0);
+                          ly = hTmpEff->GetBinContent(ib0);
+                        }
+                        const double ley = hTmpEff->GetBinError(hTmpEff->GetXaxis()->FindBin(lx));
+
+                        TGraphErrors gSphLeg(1);
+                        gSphLeg.SetPoint(0, lx, ly);
+                        gSphLeg.SetPointError(0, 0.0, ley);
+                        gSphLeg.SetMarkerStyle(hTmpEff->GetMarkerStyle());
+                        gSphLeg.SetMarkerSize(hTmpEff->GetMarkerSize());
+                        gSphLeg.SetMarkerColor(hTmpEff->GetMarkerColor());
+                        gSphLeg.SetLineColor(hTmpEff->GetLineColor());
+                        gSphLeg.SetLineWidth(hTmpEff->GetLineWidth());
+
+                        TLegend extraLegend(0.18, 0.82, 0.46, 0.93);
+                        extraLegend.SetBorderSize(0);
+                        extraLegend.SetFillStyle(0);
+                        extraLegend.SetTextFont(42);
+                        extraLegend.SetTextSize(0.040);
+                        extraLegend.AddEntry((TObject*)nullptr, "#it{#bf{sPHENIX}} Internal", "");
+                        extraLegend.AddEntry((TObject*)nullptr, "p+p #sqrt{s} = 200 GeV", "");
+                        extraLegend.Draw();
+
+                        TLegend leg(0.49,0.82,0.90,0.93);
+                        leg.SetBorderSize(0);
+                        leg.SetFillStyle(0);
+                        leg.SetTextFont(42);
+                        leg.SetTextSize(0.029);
+                        leg.AddEntry(&gSphLeg,
+                                       TString::Format("sPHENIX run24pp + jet eff. corr.").Data(),
+                                       "pe");
+                        leg.AddEntry(gAtlasPP,
+                                       TString::Format("ATLAS Phys. Lett. B 789 (2019) 167").Data(),
+                                       "pe");
+                        leg.Draw();
+
+                        TLatex txHdr;
+                        txHdr.SetNDC();
+                        txHdr.SetTextFont(42);
+                        txHdr.SetTextAlign(13);
+                        txHdr.SetTextSize(0.031);
+                        txHdr.SetTextColor(kBlack);
+
+                        TLatex tx;
+                        tx.SetNDC();
+                        tx.SetTextFont(42);
+                        tx.SetTextAlign(13);
+                        tx.SetTextSize(0.023);
+                        tx.SetTextColor(kBlack);
+
+                        txHdr.DrawLatex(0.60, 0.60, "#it{#bf{sPHENIX}}");
+                        tx.DrawLatex(0.60, 0.56, "run24pp");
+                        tx.DrawLatex(0.60, 0.51, TString::Format("1D kBayes = %d", kBayesIterPho).Data());
+                        tx.DrawLatex(0.60, 0.46, TString::Format("2D kBayes = %d", kBayesIterXJ).Data());
+                        tx.DrawLatex(0.60, 0.41, TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
+                        tx.DrawLatex(0.60, 0.36, TString::Format("|#Delta#phi| > %s", bbLabel.c_str()).Data());
+                        tx.DrawLatex(0.60, 0.31, TString::Format("p_{T}^{jet} > %.0f GeV", sphJetPtMin).Data());
+                        tx.DrawLatex(0.60, 0.26, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+
+                        txHdr.DrawLatex(0.81, 0.60, "#bf{ATLAS}");
+                        tx.DrawLatex(0.81, 0.56, "pp #sqrt{s} = 5.02 TeV");
+                        tx.DrawLatex(0.81, 0.51, "kBayes = 2-4");
+                        tx.DrawLatex(0.81, 0.46, "|#eta^{#gamma}| < 2.37 (excl. 1.37-1.52)");
+                        tx.DrawLatex(0.81, 0.41, "|#eta^{jet}| < 2.8");
+                        tx.DrawLatex(0.81, 0.36, "|#Delta#phi| > 7#pi/8");
+                        tx.DrawLatex(0.81, 0.31, TString::Format("p_{T}^{jet} > %.1f GeV", atlasJetPtMin).Data());
+                        tx.DrawLatex(0.81, 0.26, TString::Format("p_{T}^{#gamma} = %s", kAtlasTable1PhoPtLabel.c_str()).Data());
+
+                      SaveCanvas(cOEff, JoinPath(overlayOutEffCorrected, TString::Format("xJ_unfolded_perPhoton_LHCoverlay_pTbin%d.png", i + 1).Data()));
+
+                      delete hTmpEff;
+                    }
+                  }
               }
+            }
 
           delete hXJ;
         }

@@ -15475,9 +15475,25 @@ namespace ARJ
   // =============================================================================
   int Run()
   {
+      static bool sDidLoadSPhenixStyle = false;
+      if (!sDidLoadSPhenixStyle)
+      {
+          sDidLoadSPhenixStyle = true;
+          if (!gROOT->GetStyle("sPHENIX"))
+          {
+            gROOT->LoadMacro("sPhenixStyle.C");
+            gROOT->ProcessLine("SetsPhenixStyle();");
+          }
+          else
+          {
+            gROOT->SetStyle("sPHENIX");
+            gROOT->ForceStyle();
+          }
+      }
+
       SetupGlobalStyle();
 
-      // ---------------------------------------------------------------------------
+        // ---------------------------------------------------------------------------
       // Banner
       // ---------------------------------------------------------------------------
       cout << ANSI_BOLD_CYN
