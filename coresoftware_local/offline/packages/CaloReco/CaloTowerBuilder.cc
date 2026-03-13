@@ -75,6 +75,14 @@ int CaloTowerBuilder::InitRun(PHCompositeNode *topNode)
     WaveformProcessing->set_bitFlipRecovery(m_dobitfliprecovery);
   }
 
+  // Set functional fit parameters
+  if (_processingtype == CaloWaveformProcessing::FUNCFIT)
+  {
+    WaveformProcessing->set_funcfit_type(m_funcfit_type);
+    WaveformProcessing->set_powerlaw_params(m_powerlaw_power, m_powerlaw_decay);
+    WaveformProcessing->set_doubleexp_params(m_doubleexp_power, m_doubleexp_peaktime1, m_doubleexp_peaktime2, m_doubleexp_ratio);
+  }
+
   if (m_dettype == CaloTowerDefs::CEMC)
   {
     m_detector = "CEMC";
@@ -232,6 +240,7 @@ int CaloTowerBuilder::process_sim()
     {
       towerinfo->set_isRecovered(true);
     }
+    towerinfo->set_FitStatus(static_cast<bool>(processed_waveforms.at(i).at(5)));
     int n_samples = waveforms.at(i).size();
     if (n_samples == m_nzerosuppsamples || SZS)
     {
@@ -298,6 +307,25 @@ int CaloTowerBuilder::process_data(PHCompositeNode *topNode, std::vector<std::ve
     {
       int nchannels = packet->iValue(0, "CHANNELS");
       unsigned int adc_skip_mask = 0;
+
+      if (nchannels == 0)  // push back -1 and return for empty packets
+      {
+        for (int channel = 0; channel < m_nchannels; channel++)
+        {
+          if (skipChannel(channel, pid))
+          {
+            continue;
+          }
+          std::vector<float> waveform;
+          waveform.reserve(m_nzerosuppsamples);
+          for (int samp = 0; samp < m_nzerosuppsamples; samp++)
+          {
+            waveform.push_back(-1);
+          }
+          waveforms.push_back(waveform);
+        }
+        return Fun4AllReturnCodes::EVENT_OK;
+      }
 
       if (m_dettype == CaloTowerDefs::CEMC)
       {
@@ -398,7 +426,7 @@ int CaloTowerBuilder::process_data(PHCompositeNode *topNode, std::vector<std::ve
         waveform.reserve(2);
         for (int samp = 0; samp < m_nzerosuppsamples; samp++)
         {
-          waveform.push_back(0);
+          waveform.push_back(-1);  // push back -1 for missing packets
         }
         waveforms.push_back(waveform);
         waveform.clear();
@@ -476,6 +504,7 @@ int CaloTowerBuilder::process_event(PHCompositeNode *topNode)
     towerinfo->set_pedestal(processed_waveforms.at(idx).at(2));
     towerinfo->set_chi2(processed_waveforms.at(idx).at(3));
     bool SZS = isSZS(processed_waveforms.at(idx).at(1), processed_waveforms.at(idx).at(3));
+
     if (processed_waveforms.at(idx).at(4) == 0)
     {
       towerinfo->set_isRecovered(false);
@@ -484,10 +513,11 @@ int CaloTowerBuilder::process_event(PHCompositeNode *topNode)
     {
       towerinfo->set_isRecovered(true);
     }
+    towerinfo->set_FitStatus(static_cast<bool>(processed_waveforms.at(idx).at(5)));
     int n_samples = waveforms.at(idx).size();
     if (n_samples == m_nzerosuppsamples || SZS)
     {
-      if (waveforms.at(idx).at(0) == 0)
+      if (waveforms.at(idx).at(0) == -1)
       {
         towerinfo->set_isNotInstr(true);
       }

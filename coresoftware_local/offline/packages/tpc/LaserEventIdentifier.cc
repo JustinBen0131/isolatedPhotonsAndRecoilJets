@@ -89,7 +89,7 @@ int LaserEventIdentifier::InitRun(PHCompositeNode *topNode)
   {
     m_debugFile = new TFile(m_debugFileName.c_str(), "RECREATE");
   }
-  float timeHistMax = m_time_samples_max;
+  double timeHistMax = m_time_samples_max;
   timeHistMax -= 0.5;
   m_itHist_0 = new TH1I("m_itHist_0", "side 0;it", m_time_samples_max, -0.5, timeHistMax);
   m_itHist_1 = new TH1I("m_itHist_1", "side 1;it", m_time_samples_max, -0.5, timeHistMax);
@@ -130,7 +130,7 @@ int LaserEventIdentifier::process_event(PHCompositeNode *topNode)
   }
   else if(m_runnumber > 66153)
   {
-    if ((gl1pkt->getGTMAllBusyVector() & (1<<14)) == 0)
+    if ((gl1pkt->getGTMAllBusyVector() & (1U<<14U)) == 0)
     {
       m_laserEventInfo->setIsGl1LaserEvent(true);
       m_laserEventInfo->setIsGl1LaserPileupEvent(false);

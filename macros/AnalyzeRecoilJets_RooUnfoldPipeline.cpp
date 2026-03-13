@@ -2876,9 +2876,14 @@
           const string beforeAfterDataOut  = JoinPath(rOut, "before_after_unfoldingOverlay_data");
           const string beforeAfterTruthOut = JoinPath(rOut, "before_after_unfoldingOverlay_truth");
           const string withAndWithoutJetEffOut = JoinPath(rOut, "withAndWithoutJetEffCorr");
+          const string jetEffQAOut = JoinPath(withAndWithoutJetEffOut, "jetEffQA");
           EnsureDir(beforeAfterDataOut);
           EnsureDir(beforeAfterTruthOut);
-          if (gApplyPurityCorrectionForUnfolding) EnsureDir(withAndWithoutJetEffOut);
+          if (gApplyPurityCorrectionForUnfolding)
+          {
+            EnsureDir(withAndWithoutJetEffOut);
+            EnsureDir(jetEffQAOut);
+          }
 
             const string nameReco      = "h2_unfoldReco_pTgamma_xJ_incl_"           + rKey;
             const string nameRecoC     = "h2_unfoldReco_pTgamma_xJ_incl_sidebandC_" + rKey;
@@ -3237,6 +3242,352 @@
             }
             else
             {
+              auto DrawJetEffTH2Colz = [&](TH2* h,
+                                           const string& outPath,
+                                           const string& titleText,
+                                           const string& zTitle,
+                                           bool useLogZ)->void
+              {
+                if (!h) return;
+
+                TCanvas c(TString::Format("c_%s_%s", h->GetName(), rKey.c_str()).Data(), "c_jetEffQA_2D", 950, 800);
+                ApplyCanvasMargins2D(c);
+                if (useLogZ) c.SetLogz();
+
+                TH2* hDraw = CloneTH2(h, TString::Format("%s_drawClone", h->GetName()).Data());
+                if (!hDraw) return;
+                hDraw->SetDirectory(nullptr);
+                EnsureSumw2(hDraw);
+                hDraw->SetTitle("");
+                hDraw->GetXaxis()->SetTitle("p_{T}^{#gamma, truth} [GeV]");
+                hDraw->GetYaxis()->SetTitle("x_{J}^{truth}");
+                hDraw->GetZaxis()->SetTitle(zTitle.c_str());
+
+                if (useLogZ)
+                {
+                  double minPos = 1e99;
+                  for (int ix = 1; ix <= hDraw->GetNbinsX(); ++ix)
+                  {
+                    for (int iy = 1; iy <= hDraw->GetNbinsY(); ++iy)
+                    {
+                      const double z = hDraw->GetBinContent(ix, iy);
+                      if (std::isfinite(z) && z > 0.0 && z < minPos) minPos = z;
+                    }
+                  }
+                  if (minPos < 1e98) hDraw->SetMinimum(std::max(0.5 * minPos, 1e-6));
+                }
+
+                hDraw->Draw("colz");
+
+                TLatex tx;
+                tx.SetNDC();
+                tx.SetTextFont(42);
+                tx.SetTextAlign(22);
+                tx.SetTextSize(0.040);
+                tx.DrawLatex(0.50, 0.965, titleText.c_str());
+
+                SaveCanvas(c, outPath);
+                delete hDraw;
+              };
+
+              auto DrawJetEffIntegratedVsXJ = [&](TH2* hNum,
+                                                  TH2* hDen,
+                                                  const string& outPath)->void
+              {
+                if (!hNum || !hDen) return;
+
+                const int ny = hDen->GetYaxis()->GetNbins();
+                vector<double> x, ex, y, ey;
+                x.reserve((std::size_t)ny);
+                ex.reserve((std::size_t)ny);
+                y.reserve((std::size_t)ny);
+                ey.reserve((std::size_t)ny);
+
+                for (int iy = 1; iy <= ny; ++iy)
+                {
+                  double eNumInt = 0.0;
+                  double eDenInt = 0.0;
+
+                  const double numInt = hNum->IntegralAndError(
+                    1, hNum->GetXaxis()->GetNbins(),
+                    iy, iy,
+                    eNumInt
+                  );
+                  const double denInt = hDen->IntegralAndError(
+                    1, hDen->GetXaxis()->GetNbins(),
+                    iy, iy,
+                    eDenInt
+                  );
+
+                  if (!(denInt > 0.0)) continue;
+
+                  const double xcen = hDen->GetYaxis()->GetBinCenter(iy);
+                  const double xerr = 0.5 * hDen->GetYaxis()->GetBinWidth(iy);
+                  const double eff  = numInt / denInt;
+                  const double var  = (eNumInt * eNumInt) / (denInt * denInt)
+                                    + (numInt * numInt * eDenInt * eDenInt) / (denInt * denInt * denInt * denInt);
+                  const double err  = (var > 0.0 && std::isfinite(var)) ? std::sqrt(var) : 0.0;
+
+                  x.push_back(xcen);
+                  ex.push_back(xerr);
+                  y.push_back(eff);
+                  ey.push_back(err);
+                }
+
+                if (x.empty()) return;
+
+                TCanvas c(TString::Format("c_jetEffVsXJ_%s", rKey.c_str()).Data(), "c_jetEffVsXJ", 900, 700);
+                ApplyCanvasMargins1D(c);
+
+                TH1F frame("frame_jetEffVsXJ", "", 1, 0.0, 2.0);
+                frame.SetMinimum(0.0);
+                frame.SetMaximum(1.05);
+                frame.SetTitle("");
+                frame.GetXaxis()->SetTitle("x_{J}^{truth}");
+                frame.GetYaxis()->SetTitle("Integrated jet efficiency");
+                frame.Draw("axis");
+
+                TGraphErrors g(
+                  (int)x.size(),
+                  &x[0], &y[0],
+                  &ex[0], &ey[0]
+                );
+                g.SetMarkerStyle(20);
+                g.SetMarkerSize(1.05);
+                g.SetMarkerColor(kBlue + 1);
+                g.SetLineColor(kBlue + 1);
+                g.SetLineWidth(2);
+                g.Draw("P same");
+
+                TLine l1(0.0, 1.0, 2.0, 1.0);
+                l1.SetLineStyle(2);
+                l1.SetLineWidth(2);
+                l1.Draw("same");
+
+                TLatex tx;
+                tx.SetNDC();
+                tx.SetTextFont(42);
+                tx.SetTextAlign(13);
+                tx.SetTextSize(0.034);
+                tx.DrawLatex(
+                  0.14, 0.98,
+                  TString::Format("Jet Efficiency vs x_{J}^{truth} (R = %.1f), Run24pp, Photon 4 GeV + MBD NS #geq 1", R).Data()
+                );
+                tx.SetTextSize(0.035);
+                tx.DrawLatex(0.14, 0.30, "Integrated over truth p_{T}^{#gamma} unfolding bins");
+
+                SaveCanvas(c, outPath);
+              };
+
+              auto MakeJetEffSliceHist = [&](TH2* hNum,
+                                             TH2* hDen,
+                                             int ix,
+                                             const char* name)->TH1D*
+              {
+                if (!hNum || !hDen) return nullptr;
+                if (ix < 1 || ix > hDen->GetXaxis()->GetNbins()) return nullptr;
+
+                TH1D* hSlice = hDen->ProjectionY(name, ix, ix, "e");
+                if (!hSlice) return nullptr;
+
+                hSlice->SetDirectory(nullptr);
+                EnsureSumw2(hSlice);
+                hSlice->Reset("ICES");
+
+                const int ny = hDen->GetYaxis()->GetNbins();
+                for (int iy = 1; iy <= ny; ++iy)
+                {
+                  const double num  = hNum->GetBinContent(ix, iy);
+                  const double eNum = hNum->GetBinError(ix, iy);
+                  const double den  = hDen->GetBinContent(ix, iy);
+                  const double eDen = hDen->GetBinError(ix, iy);
+
+                  if (!(std::isfinite(num) && std::isfinite(eNum) &&
+                        std::isfinite(den) && std::isfinite(eDen) && den > 0.0))
+                  {
+                    hSlice->SetBinContent(iy, 0.0);
+                    hSlice->SetBinError  (iy, 0.0);
+                    continue;
+                  }
+
+                  const double val = num / den;
+                  const double var = (eNum * eNum) / (den * den)
+                                   + (num * num * eDen * eDen) / (den * den * den * den);
+                  const double err = (var > 0.0 && std::isfinite(var)) ? std::sqrt(var) : 0.0;
+
+                  hSlice->SetBinContent(iy, val);
+                  hSlice->SetBinError  (iy, err);
+                }
+
+                hSlice->SetTitle("");
+                hSlice->GetXaxis()->SetTitle("x_{J}^{truth}");
+                hSlice->GetYaxis()->SetTitle("Jet efficiency");
+                hSlice->SetMarkerStyle(20);
+                hSlice->SetMarkerSize(0.85);
+                hSlice->SetLineWidth(2);
+                return hSlice;
+              };
+
+              auto DrawJetEffSliceTable = [&](TH2* hNum,
+                                              TH2* hDen,
+                                              const string& outPath)->void
+              {
+                if (!hNum || !hDen) return;
+
+                TCanvas c(
+                  TString::Format("c_tbl_jetEffSlices_%s", rKey.c_str()).Data(),
+                  "c_tbl_jetEffSlices", 1800, 1300
+                );
+                c.Divide(nPtCols, nPtRows, 0.001, 0.001);
+
+                for (int ipad = 0; ipad < nPtPads; ++ipad)
+                {
+                  const int i = ipad;
+
+                  c.cd(ipad + 1);
+                  gPad->SetLeftMargin(0.12);
+                  gPad->SetRightMargin(0.04);
+                  gPad->SetBottomMargin(0.12);
+                  gPad->SetTopMargin(0.06);
+
+                  if (i < 0 || i >= nPtAll)
+                  {
+                    TH1F frame("frame","", 1, 0.0, 2.0);
+                    frame.SetMinimum(0.0);
+                    frame.SetMaximum(1.05);
+                    frame.SetTitle("");
+                    frame.GetXaxis()->SetTitle("x_{J}^{truth}");
+                    frame.GetYaxis()->SetTitle("Jet efficiency");
+                    frame.Draw("axis");
+
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextSize(0.050);
+                    tx.DrawLatex(0.16, 0.50, "MISSING");
+                    continue;
+                  }
+
+                  const PtBin& b = analysisRecoBins[i];
+                  const double cen = 0.5 * (b.lo + b.hi);
+                  const int ix = hDen->GetXaxis()->FindBin(cen);
+
+                  TH1D* hSlice = MakeJetEffSliceHist(
+                    hNum,
+                    hDen,
+                    ix,
+                    TString::Format("h_jetEffSlice_%s_pTbin%d", rKey.c_str(), i + 1).Data()
+                  );
+
+                  if (hSlice)
+                  {
+                    hSlice->GetXaxis()->SetRangeUser(0.0, 2.0);
+                    hSlice->SetMinimum(0.0);
+                    hSlice->SetMaximum(1.05);
+                    hSlice->Draw("E1");
+
+                    TLine l1(0.0, 1.0, 2.0, 1.0);
+                    l1.SetLineStyle(2);
+                    l1.SetLineWidth(2);
+                    l1.Draw("same");
+                  }
+                  else
+                  {
+                    TH1F frame("frame","", 1, 0.0, 2.0);
+                    frame.SetMinimum(0.0);
+                    frame.SetMaximum(1.05);
+                    frame.SetTitle("");
+                    frame.GetXaxis()->SetTitle("x_{J}^{truth}");
+                    frame.GetYaxis()->SetTitle("Jet efficiency");
+                    frame.Draw("axis");
+
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextSize(0.050);
+                    tx.DrawLatex(0.16, 0.50, "MISSING");
+                  }
+
+                  {
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextAlign(22);
+                    tx.SetTextSize(0.040);
+                    tx.DrawLatex(0.52, 0.955,
+                                 TString::Format("Jet efficiency vs x_{J}^{truth}, p_{T}^{#gamma} %d-%d GeV, R = %.1f",
+                                                 b.lo, b.hi, R).Data());
+                  }
+
+                  {
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextAlign(31);
+                    tx.SetTextSize(0.04);
+                    const double xR = 0.93;
+                    tx.DrawLatex(xR, 0.67, "truth-space efficiency slice");
+                    tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
+                    tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
+                    tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
+                  }
+
+                  if (hSlice) delete hSlice;
+                }
+
+                SaveCanvas(c, outPath);
+              };
+
+              auto BuildTH2Ratio = [&](TH2* hNum,
+                                       TH2* hDen,
+                                       const string& name)->TH2*
+              {
+                if (!hNum || !hDen) return nullptr;
+
+                TH2* hR = CloneTH2(hNum, name);
+                if (!hR) return nullptr;
+
+                hR->SetDirectory(nullptr);
+                EnsureSumw2(hR);
+                hR->Reset("ICES");
+
+                for (int ix = 0; ix <= hR->GetNbinsX() + 1; ++ix)
+                {
+                  for (int iy = 0; iy <= hR->GetNbinsY() + 1; ++iy)
+                  {
+                    if (ix == 0 || ix == hR->GetNbinsX() + 1 || iy == 0 || iy == hR->GetNbinsY() + 1)
+                    {
+                      hR->SetBinContent(ix, iy, 0.0);
+                      hR->SetBinError  (ix, iy, 0.0);
+                      continue;
+                    }
+
+                    const double num  = hNum->GetBinContent(ix, iy);
+                    const double eNum = hNum->GetBinError  (ix, iy);
+                    const double den  = hDen->GetBinContent(ix, iy);
+                    const double eDen = hDen->GetBinError  (ix, iy);
+
+                    if (!(std::isfinite(num) && std::isfinite(eNum) &&
+                          std::isfinite(den) && std::isfinite(eDen) && den > 0.0))
+                    {
+                      hR->SetBinContent(ix, iy, 0.0);
+                      hR->SetBinError  (ix, iy, 0.0);
+                      continue;
+                    }
+
+                    const double val = num / den;
+                    const double var = (eNum * eNum) / (den * den)
+                                     + (num * num * eDen * eDen) / (den * den * den * den);
+                    const double err = (var > 0.0 && std::isfinite(var)) ? std::sqrt(var) : 0.0;
+
+                    hR->SetBinContent(ix, iy, val);
+                    hR->SetBinError  (ix, iy, err);
+                  }
+                }
+
+                return hR;
+              };
+
               h2JetEff = CloneTH2(
                 h2JetEffNum_in,
                 TString::Format("h2JetEff_%s", rKey.c_str()).Data()
@@ -3290,163 +3641,233 @@
                   eyEff.push_back(err);
                 }
 
-                  if (!xPt.empty())
+                if (!xPt.empty())
+                {
+                  TCanvas cJetEffPt(
+                    TString::Format("c_jetEffPt_%s", rKey.c_str()).Data(),
+                    "c_jetEffPt", 900, 700
+                  );
+                  ApplyCanvasMargins1D(cJetEffPt);
+
+                  TH1F frame("frame_jetEffPt","", 1, 10.0, 35.0);
+                  frame.SetMinimum(0.0);
+                  frame.SetMaximum(1.05);
+                  frame.SetTitle("");
+                  frame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                  frame.GetYaxis()->SetTitle("Integrated jet efficiency");
+                  frame.Draw("axis");
+
+                  TGraphErrors gJetEff(
+                    (int)xPt.size(),
+                    &xPt[0], &yEff[0],
+                    &exPt[0], &eyEff[0]
+                  );
+                  gJetEff.SetMarkerStyle(20);
+                  gJetEff.SetMarkerSize(1.05);
+                  gJetEff.SetMarkerColor(kBlue + 1);
+                  gJetEff.SetLineColor(kBlue + 1);
+                  gJetEff.SetLineWidth(2);
+                  gJetEff.Draw("P same");
+
+                  TLine l1(10.0, 1.0, 35.0, 1.0);
+                  l1.SetLineStyle(2);
+                  l1.SetLineWidth(2);
+                  l1.Draw("same");
+
                   {
-                    TCanvas cJetEffPt(
-                      TString::Format("c_jetEffPt_%s", rKey.c_str()).Data(),
-                      "c_jetEffPt", 900, 700
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextAlign(13);
+                    tx.SetTextSize(0.034);
+                    tx.DrawLatex(
+                      0.14, 0.98,
+                      TString::Format("Jet Efficiency vs p_{T}^{#gamma} (R = %.1f), Run24pp, Photon 4 GeV + MBD NS #geq 1", R).Data()
                     );
-                    ApplyCanvasMargins1D(cJetEffPt);
-
-                    TH1F frame("frame_jetEffPt","", 1, 10.0, 35.0);
-                    frame.SetMinimum(0.0);
-                    frame.SetMaximum(1.05);
-                    frame.SetTitle("");
-                    frame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                    frame.GetYaxis()->SetTitle("Integrated jet efficiency");
-                    frame.Draw("axis");
-
-                    TGraphErrors gJetEff(
-                      (int)xPt.size(),
-                      &xPt[0], &yEff[0],
-                      &exPt[0], &eyEff[0]
-                    );
-                    gJetEff.SetMarkerStyle(20);
-                    gJetEff.SetMarkerSize(1.05);
-                    gJetEff.SetMarkerColor(kBlue + 1);
-                    gJetEff.SetLineColor(kBlue + 1);
-                    gJetEff.SetLineWidth(2);
-                    gJetEff.Draw("P same");
-
-                    TLine l1(10.0, 1.0, 35.0, 1.0);
-                    l1.SetLineStyle(2);
-                    l1.SetLineWidth(2);
-                    l1.Draw("same");
-
-                      {
-                        TLatex tx;
-                        tx.SetNDC();
-                        tx.SetTextFont(42);
-                        tx.SetTextAlign(13);
-                        tx.SetTextSize(0.034);
-                        tx.DrawLatex(
-                          0.14, 0.98,
-                          TString::Format("Jet Efficiency vs p_{T}^{#gamma} (R = %.1f), Run24pp, Photon 4 GeV + MBD NS #geq 1", R).Data()
-                        );
-                      }
-
-                      {
-                        TLatex tx;
-                        tx.SetNDC();
-                        tx.SetTextFont(42);
-                        tx.SetTextAlign(13);
-                        tx.SetTextSize(0.035);
-                        tx.DrawLatex(0.14, 0.3, "Integrated over truth x_{J} unfolding bins");
-                      }
-
-                      SaveCanvas(cJetEffPt, JoinPath(withAndWithoutJetEffOut, "jetEfficiency_integrated_vs_pTgamma.png"));
                   }
 
-                  if (h2UnfoldTruth)
                   {
-                    bool sameJetEffBinning = true;
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextAlign(13);
+                    tx.SetTextSize(0.035);
+                    tx.DrawLatex(0.14, 0.3, "Integrated over truth x_{J} unfolding bins");
+                  }
 
-                    if (h2JetEff->GetNbinsX() != h2UnfoldTruth->GetNbinsX() ||
-                        h2JetEff->GetNbinsY() != h2UnfoldTruth->GetNbinsY())
-                    {
-                      sameJetEffBinning = false;
-                    }
+                  SaveCanvas(cJetEffPt, JoinPath(withAndWithoutJetEffOut, "jetEfficiency_integrated_vs_pTgamma.png"));
+                }
 
-                    if (sameJetEffBinning)
+                DrawJetEffTH2Colz(
+                  h2JetEffDen_in,
+                  JoinPath(jetEffQAOut, "jetEff_truthPhaseSpace_den_pTgamma_xJ_colz.png"),
+                  TString::Format("Jet-efficiency denominator, R = %.1f", R).Data(),
+                  "Truth recoil-jet counts",
+                  true
+                );
+
+                DrawJetEffTH2Colz(
+                  h2JetEffNum_in,
+                  JoinPath(jetEffQAOut, "jetEff_truthPhaseSpace_num_pTgamma_xJ_colz.png"),
+                  TString::Format("Jet-efficiency numerator, R = %.1f", R).Data(),
+                  "Matched truth recoil-jet counts",
+                  true
+                );
+
+                DrawJetEffTH2Colz(
+                  h2JetEff,
+                  JoinPath(jetEffQAOut, "jetEff_truthPhaseSpace_eff_pTgamma_xJ_colz.png"),
+                  TString::Format("Jet efficiency map, R = %.1f", R).Data(),
+                  "Jet efficiency",
+                  false
+                );
+
+                DrawJetEffIntegratedVsXJ(
+                  h2JetEffNum_in,
+                  h2JetEffDen_in,
+                  JoinPath(jetEffQAOut, "jetEfficiency_integrated_vs_xJ.png")
+                );
+
+                DrawJetEffSliceTable(
+                  h2JetEffNum_in,
+                  h2JetEffDen_in,
+                  JoinPath(jetEffQAOut, "table3x3_jetEfficiency_vs_xJ_truthSlices.png")
+                );
+
+                if (h2UnfoldTruth)
+                {
+                  bool sameJetEffBinning = true;
+
+                  if (h2JetEff->GetNbinsX() != h2UnfoldTruth->GetNbinsX() ||
+                      h2JetEff->GetNbinsY() != h2UnfoldTruth->GetNbinsY())
+                  {
+                    sameJetEffBinning = false;
+                  }
+
+                  if (sameJetEffBinning)
+                  {
+                    for (int ix = 1; ix <= h2UnfoldTruth->GetNbinsX() + 1; ++ix)
                     {
-                      for (int ix = 1; ix <= h2UnfoldTruth->GetNbinsX() + 1; ++ix)
+                      const double e1 = h2JetEff->GetXaxis()->GetBinUpEdge(ix);
+                      const double e2 = h2UnfoldTruth->GetXaxis()->GetBinUpEdge(ix);
+                      if (std::fabs(e1 - e2) > 1e-9)
                       {
-                        const double e1 = h2JetEff->GetXaxis()->GetBinUpEdge(ix);
-                        const double e2 = h2UnfoldTruth->GetXaxis()->GetBinUpEdge(ix);
-                        if (std::fabs(e1 - e2) > 1e-9)
-                        {
-                          sameJetEffBinning = false;
-                          break;
-                        }
+                        sameJetEffBinning = false;
+                        break;
                       }
                     }
+                  }
 
-                    if (sameJetEffBinning)
+                  if (sameJetEffBinning)
+                  {
+                    for (int iy = 1; iy <= h2UnfoldTruth->GetNbinsY() + 1; ++iy)
                     {
-                      for (int iy = 1; iy <= h2UnfoldTruth->GetNbinsY() + 1; ++iy)
+                      const double e1 = h2JetEff->GetYaxis()->GetBinUpEdge(iy);
+                      const double e2 = h2UnfoldTruth->GetYaxis()->GetBinUpEdge(iy);
+                      if (std::fabs(e1 - e2) > 1e-9)
                       {
-                        const double e1 = h2JetEff->GetYaxis()->GetBinUpEdge(iy);
-                        const double e2 = h2UnfoldTruth->GetYaxis()->GetBinUpEdge(iy);
-                        if (std::fabs(e1 - e2) > 1e-9)
-                        {
-                          sameJetEffBinning = false;
-                          break;
-                        }
+                        sameJetEffBinning = false;
+                        break;
                       }
                     }
+                  }
 
-                    if (!sameJetEffBinning)
+                  if (!sameJetEffBinning)
+                  {
+                    cout << ANSI_BOLD_YEL
+                         << "[WARN] Jet-efficiency binning mismatch for " << rKey
+                         << ". Skipping 2D jet-efficiency correction for this radius."
+                         << ANSI_RESET << "\n";
+                  }
+                  else
+                  {
+                    h2UnfoldTruth_jetEffCorr = CloneTH2(
+                      h2UnfoldTruth,
+                      TString::Format("h2_unfoldedTruth_pTgamma_xJ_incl_jetEffCorr_%s", rKey.c_str()).Data()
+                    );
+
+                    if (h2UnfoldTruth_jetEffCorr)
                     {
-                      cout << ANSI_BOLD_YEL
-                           << "[WARN] Jet-efficiency binning mismatch for " << rKey
-                           << ". Skipping 2D jet-efficiency correction for this radius."
-                           << ANSI_RESET << "\n";
-                    }
-                    else
-                    {
-                      h2UnfoldTruth_jetEffCorr = CloneTH2(
+                      h2UnfoldTruth_jetEffCorr->SetDirectory(nullptr);
+                      EnsureSumw2(h2UnfoldTruth_jetEffCorr);
+                      h2UnfoldTruth_jetEffCorr->Reset("ICES");
+
+                      const int nxJC = h2UnfoldTruth->GetNbinsX();
+                      const int nyJC = h2UnfoldTruth->GetNbinsY();
+
+                      for (int ix = 0; ix <= nxJC + 1; ++ix)
+                      {
+                        for (int iy = 0; iy <= nyJC + 1; ++iy)
+                        {
+                          if (ix == 0 || ix == nxJC + 1 || iy == 0 || iy == nyJC + 1)
+                          {
+                            h2UnfoldTruth_jetEffCorr->SetBinContent(ix, iy, 0.0);
+                            h2UnfoldTruth_jetEffCorr->SetBinError  (ix, iy, 0.0);
+                            continue;
+                          }
+
+                          const double num  = h2UnfoldTruth->GetBinContent(ix, iy);
+                          const double eNum = h2UnfoldTruth->GetBinError  (ix, iy);
+                          const double eff  = h2JetEff->GetBinContent(ix, iy);
+                          const double eEff = h2JetEff->GetBinError  (ix, iy);
+
+                          if (!(std::isfinite(num) && std::isfinite(eNum) &&
+                                std::isfinite(eff) && std::isfinite(eEff) && eff > 0.0))
+                          {
+                            h2UnfoldTruth_jetEffCorr->SetBinContent(ix, iy, 0.0);
+                            h2UnfoldTruth_jetEffCorr->SetBinError  (ix, iy, 0.0);
+                            continue;
+                          }
+
+                          const double corr = num / eff;
+                          const double var  = (eNum * eNum) / (eff * eff)
+                                            + (num * num * eEff * eEff) / (eff * eff * eff * eff);
+                          const double err  = (var > 0.0 && std::isfinite(var)) ? std::sqrt(var) : 0.0;
+
+                          h2UnfoldTruth_jetEffCorr->SetBinContent(ix, iy, corr);
+                          h2UnfoldTruth_jetEffCorr->SetBinError  (ix, iy, err);
+                        }
+                      }
+
+                      DrawJetEffTH2Colz(
                         h2UnfoldTruth,
-                        TString::Format("h2_unfoldedTruth_pTgamma_xJ_incl_jetEffCorr_%s", rKey.c_str()).Data()
+                        JoinPath(jetEffQAOut, "unfoldedTruth_withoutJetEffCorr_pTgamma_xJ_colz.png"),
+                        TString::Format("Unfolded truth without jet-eff. correction, R = %.1f", R).Data(),
+                        "Unfolded yield",
+                        true
                       );
 
-                      if (h2UnfoldTruth_jetEffCorr)
+                      DrawJetEffTH2Colz(
+                        h2UnfoldTruth_jetEffCorr,
+                        JoinPath(jetEffQAOut, "unfoldedTruth_withJetEffCorr_pTgamma_xJ_colz.png"),
+                        TString::Format("Unfolded truth with jet-eff. correction, R = %.1f", R).Data(),
+                        "Corrected unfolded yield",
+                        true
+                      );
+
+                      TH2* h2CorrOverUncorr = BuildTH2Ratio(
+                        h2UnfoldTruth_jetEffCorr,
+                        h2UnfoldTruth,
+                        TString::Format("h2_corrOverUncorr_%s", rKey.c_str()).Data()
+                      );
+
+                      if (h2CorrOverUncorr)
                       {
-                        h2UnfoldTruth_jetEffCorr->SetDirectory(nullptr);
-                        EnsureSumw2(h2UnfoldTruth_jetEffCorr);
-                        h2UnfoldTruth_jetEffCorr->Reset("ICES");
-
-                        const int nxJC = h2UnfoldTruth->GetNbinsX();
-                        const int nyJC = h2UnfoldTruth->GetNbinsY();
-
-                        for (int ix = 0; ix <= nxJC + 1; ++ix)
-                        {
-                          for (int iy = 0; iy <= nyJC + 1; ++iy)
-                          {
-                            if (ix == 0 || ix == nxJC + 1 || iy == 0 || iy == nyJC + 1)
-                            {
-                              h2UnfoldTruth_jetEffCorr->SetBinContent(ix, iy, 0.0);
-                              h2UnfoldTruth_jetEffCorr->SetBinError  (ix, iy, 0.0);
-                              continue;
-                            }
-
-                            const double num  = h2UnfoldTruth->GetBinContent(ix, iy);
-                            const double eNum = h2UnfoldTruth->GetBinError  (ix, iy);
-                            const double eff  = h2JetEff->GetBinContent(ix, iy);
-                            const double eEff = h2JetEff->GetBinError  (ix, iy);
-
-                            if (!(std::isfinite(num) && std::isfinite(eNum) &&
-                                  std::isfinite(eff) && std::isfinite(eEff) && eff > 0.0))
-                            {
-                              h2UnfoldTruth_jetEffCorr->SetBinContent(ix, iy, 0.0);
-                              h2UnfoldTruth_jetEffCorr->SetBinError  (ix, iy, 0.0);
-                              continue;
-                            }
-
-                            const double corr = num / eff;
-                            const double var  = (eNum * eNum) / (eff * eff)
-                                              + (num * num * eEff * eEff) / (eff * eff * eff * eff);
-                            const double err  = (var > 0.0 && std::isfinite(var)) ? std::sqrt(var) : 0.0;
-
-                            h2UnfoldTruth_jetEffCorr->SetBinContent(ix, iy, corr);
-                            h2UnfoldTruth_jetEffCorr->SetBinError  (ix, iy, err);
-                          }
-                        }
+                        DrawJetEffTH2Colz(
+                          h2CorrOverUncorr,
+                          JoinPath(jetEffQAOut, "unfoldedTruth_ratio_withOverWithoutJetEffCorr_pTgamma_xJ_colz.png"),
+                          TString::Format("Effect of jet-eff. correction, R = %.1f", R).Data(),
+                          "With jet-eff. corr. / without",
+                          false
+                        );
+                        delete h2CorrOverUncorr;
                       }
                     }
                   }
                 }
               }
             }
+          }
 
           auto BuildRatioHist = [&](TH1* hNum, TH1* hDen, const char* newName)->TH1*
         {

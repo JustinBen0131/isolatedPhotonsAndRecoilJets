@@ -31,6 +31,9 @@ class MbdSig
   void SetNSamples( const int s ) { _nsamples = s; }
   void SetY(const Float_t *y, const int invert = 1);
   void SetXY(const Float_t *x, const Float_t *y, const int invert = 1);
+  void SetEvtNum(const int evtnum) { _evt_counter = evtnum; }
+
+  int  GetNSamples() { return _nsamples; }
 
   void SetCalib(MbdCalib *mcal);
 
@@ -39,6 +42,10 @@ class MbdSig
   Double_t GetAmpl() { return f_ampl; }
   Double_t GetTime() { return f_time; }
   Double_t GetIntegral() { return f_integral; }
+  Double_t GetChi2() { return f_chi2; }
+  Double_t GetNDF() { return f_ndf; }
+  Double_t GetChi2NDF() { return (f_ndf > 0.) ? (f_chi2 / f_ndf) : std::numeric_limits<double>::quiet_NaN(); }
+  UShort_t GetFitInfo() { return f_fitmode; }
 
   /**
    * Fill hists from data between minsamp and maxsamp bins
@@ -108,11 +115,17 @@ class MbdSig
 
   // Double_t FitPulse();
   void SetTimeOffset(const Double_t o) { f_time_offset = o; }
+  Double_t SignalTail(const Double_t *x, const Double_t *par);
   Double_t TemplateFcn(const Double_t *x, const Double_t *par);
+  Double_t TwoTemplateFcn(const Double_t *x, const Double_t *par);
   TF1 *GetTemplateFcn() { return template_fcn; }
   void SetMinMaxFitTime(const Double_t mintime, const Double_t maxtime);
 
+  void PrintResiduals(TGraphErrors *g, TF1 *f);
+
   void WritePedHist();
+  void WritePedvsEvent();
+  void WriteChi2Hist();
 
   void DrawWaveform();      /// Draw Subtracted Waveform
   void PadUpdate() const;
@@ -142,6 +155,10 @@ class MbdSig
 
   Double_t f_integral{0.}; /** integral */
 
+  UShort_t f_fitmode{0};
+  Double_t f_chi2{0.};
+  Double_t f_ndf{0.};
+
   TH1 *hRawPulse{nullptr};           //!
   TH1 *hSubPulse{nullptr};           //!
   TH1 *hpulse{nullptr};              //!
@@ -150,22 +167,21 @@ class MbdSig
   TGraphErrors *gpulse{nullptr};     //!
 
   /** for CalcPed0 */
-  //std::unique_ptr<MbdRunningStats> ped0stats{nullptr};    //!
-  MbdRunningStats *ped0stats{nullptr};    //!
-  TH1 *hPed0{nullptr};            //! all events
-  TH1 *hPedEvt{nullptr};          //! evt-by-event pedestal
+  MbdRunningStats *ped0stats{nullptr};    //! running pedestal
+  TH1 *hPed0{nullptr};                //! all events
+  TH1 *hPedEvt{nullptr};              //! evt-by-event pedestal
+  TGraphErrors *gPedvsEvent{nullptr}; //! Keep track of pedestal vs evtnum
   TF1 *ped_fcn{nullptr};
-  TF1 *ped_tail{nullptr};         //! tail of prev signal
   Double_t ped0{0.};                  //!
   Double_t ped0rms{0.};               //!
-  int   use_ped0{0};                 //! whether to apply ped0
-  Int_t minped0samp{-9999};       //! min sample for event-by-event ped, inclusive
-  Int_t maxped0samp{-9999};       //! max sample for event-by-event ped, inclusive
+  int   use_ped0{0};                  //! whether to apply ped0
+  Int_t minped0samp{-9999};           //! min sample for event-by-event ped, inclusive
+  Int_t maxped0samp{-9999};           //! max sample for event-by-event ped, inclusive
   Double_t minped0x{0.};              //! min x for event-by-event ped, inclusive
   Double_t maxped0x{0.};              //! max x for event-by-event ped, inclusive
-  Double_t ped_presamp{};         //! presamples for ped calculation
-  Double_t ped_presamp_nsamps{};  //! num of presamples for ped calculation
-  Double_t ped_presamp_maxsamp{-1}; //! a peak sample for ped calc (-1 = use max)
+  Double_t ped_presamp{};             //! presamples for ped calculation
+  Double_t ped_presamp_nsamps{};      //! num of presamples for ped calculation
+  Double_t ped_presamp_maxsamp{-1};   //! a peak sample for ped calc (-1 = use max)
 
   /** for time calibration */
   // Double_t time_calib;
@@ -180,21 +196,20 @@ class MbdSig
   Int_t template_npointsy{0};
   Double_t template_begintime{0.};
   Double_t template_endtime{0.};
-  // Double_t template_min_good_amplitude{20.};    //! for template, in original units of waveform data
-  // Double_t template_max_good_amplitude{4080.};  //! for template, in original units of waveform data
-  // Double_t template_min_xrange{0.};             //! for template, in original units of waveform data
-  // Double_t template_max_xrange{0.};             //! for template, in original units of waveform data
   std::vector<float> template_y;
   std::vector<float> template_yrms;
   TF1 *template_fcn{nullptr};
+  TF1 *twotemplate_fcn{nullptr};
   Double_t fit_min_time{};  //! min time for fit, in original units of waveform data
   Double_t fit_max_time{};  //! max time for fit, in original units of waveform data
 
   std::ofstream *_pileupfile{nullptr};  // for writing out waveforms from prev. crossing pileup
                                         // use for calibrating out the tail from these events
 
+  TH1 *h_chi2ndf{nullptr};  //! for eval
 
   int _verbose{0};
+  bool _pedstudyflag{false};
 };
 
 #endif  // __MBDSIG_H__

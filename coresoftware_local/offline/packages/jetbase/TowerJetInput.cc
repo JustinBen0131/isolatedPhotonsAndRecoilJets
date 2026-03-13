@@ -10,7 +10,7 @@
 #include <calobase/RawTowerGeomContainer.h>
 #include <calobase/TowerInfo.h>
 #include <calobase/TowerInfoContainer.h>
-#include <globalvertex/GlobalVertexv2.h>
+#include <globalvertex/GlobalVertexv3.h>
 #include <globalvertex/GlobalVertexMapv1.h>
 
 #include <phool/getClass.h>
@@ -84,26 +84,26 @@ std::vector<Jet *> TowerJetInput::get_input(PHCompositeNode *topNode)
   {
     if(m_use_vertextype)
       {
-    std::vector<GlobalVertex*> vertices = vertexmap->get_gvtxs_with_type(m_vertex_type);
-    if(!vertices.empty())
-      {
-        if(vertices.at(0))
-          {
-        vtxz = vertices.at(0)->get_z();
-          }
-        if(vertices.size() > 1 && Verbosity() > 0)
-          {
-        std::cout << "TowerJetInput::WARNING!! More than one vertex of selected type!" << std::endl;
-          }
-      }
+	std::vector<GlobalVertex*> vertices = vertexmap->get_gvtxs_with_type(m_vertex_type);
+	if(!vertices.empty())
+	  {
+	    if(vertices.at(0))
+	      {
+		vtxz = vertices.at(0)->get_z();
+	      }
+	    if(vertices.size() > 1 && Verbosity() > 0)
+	      {
+		std::cout << "TowerJetInput::WARNING!! More than one vertex of selected type!" << std::endl;
+	      }
+	  }
       }
     else
       {
-    GlobalVertex *vtx = vertexmap->begin()->second;
-    if (vtx)
-      {
-        vtxz = vtx->get_z();
-      }
+	GlobalVertex *vtx = vertexmap->begin()->second;
+	if (vtx)
+	  {
+	    vtxz = vtx->get_z();
+	  }
       }
   }
   if (std::isnan(vtxz))
@@ -471,7 +471,7 @@ std::vector<Jet *> TowerJetInput::get_input(PHCompositeNode *topNode)
       int iphi = towerinfos->getTowerPhiBin(calokey);
       const RawTowerDefs::keytype key = RawTowerDefs::encode_towerid(geocaloid, ieta, iphi);
       // skip masked towers
-      if (tower->get_isHot() || tower->get_isNoCalib() || tower->get_isNotInstr() || tower->get_isBadChi2())
+      if (!tower->get_isGood())
       {
         continue;
       }
@@ -508,17 +508,17 @@ std::vector<Jet *> TowerJetInput::get_input(PHCompositeNode *topNode)
       jet->insert_comp(m_input, channel);
       float tower_t = 17.6*tower->get_time(); // 17.6 ns/sample and get_time() returns t in samples
       if(jet->size_properties() < Jet::PROPERTY::prop_t+1)
-    {
-      jet->resize_properties(Jet::PROPERTY::prop_t + 1);
-    }
+	{
+	  jet->resize_properties(Jet::PROPERTY::prop_t + 1);
+	}
       if(e > m_timing_e_threshold)
-    {
-      jet->set_property(Jet::PROPERTY::prop_t, tower_t);
-    }
+	{
+	  jet->set_property(Jet::PROPERTY::prop_t, tower_t);
+	}
       else
-    {
-      jet->set_property(Jet::PROPERTY::prop_t, std::numeric_limits<float>::quiet_NaN());
-    }
+	{
+	  jet->set_property(Jet::PROPERTY::prop_t, std::numeric_limits<float>::quiet_NaN());
+	}
       pseudojets.push_back(jet);
     }
   }
