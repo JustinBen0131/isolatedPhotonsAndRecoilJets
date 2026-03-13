@@ -7218,7 +7218,7 @@
                         gSphLeg.SetLineColor(hTmp->GetLineColor());
                         gSphLeg.SetLineWidth(hTmp->GetLineWidth());
 
-                        TLegend extraLegend(0.18, 0.82, 0.46, 0.93);
+                        TLegend extraLegend(0.15, 0.78, 0.43, 0.88);
                         extraLegend.SetBorderSize(0);
                         extraLegend.SetFillStyle(0);
                         extraLegend.SetTextFont(42);
@@ -7227,7 +7227,7 @@
                         extraLegend.AddEntry((TObject*)nullptr, "p+p #sqrt{s} = 200 GeV", "");
                         extraLegend.Draw();
 
-                        TLegend leg(0.49,0.82,0.90,0.93);
+                        TLegend leg(0.49,0.79,0.90,0.89);
                         leg.SetBorderSize(0);
                         leg.SetFillStyle(0);
                         leg.SetTextFont(42);
@@ -7244,37 +7244,30 @@
                         txHdr.SetNDC();
                         txHdr.SetTextFont(42);
                         txHdr.SetTextAlign(13);
-                        txHdr.SetTextSize(0.031);
+                        txHdr.SetTextSize(0.028);
                         txHdr.SetTextColor(kBlack);
 
                         TLatex tx;
                         tx.SetNDC();
                         tx.SetTextFont(42);
                         tx.SetTextAlign(13);
-                        tx.SetTextSize(0.023);
+                        tx.SetTextSize(0.024);
                         tx.SetTextColor(kBlack);
 
-                        txHdr.DrawLatex(0.60, 0.65, "#it{#bf{sPHENIX}}");
-                        tx.DrawLatex(0.60, 0.61, "run24pp");
-                        tx.DrawLatex(0.60, 0.56, TString::Format("1D kBayes = %d", kBayesIterPho).Data());
-                        tx.DrawLatex(0.60, 0.51, TString::Format("2D kBayes = %d", kBayesIterXJ).Data());
-                        tx.DrawLatex(0.60, 0.46, TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
-                        tx.DrawLatex(0.60, 0.41, TString::Format("|#Delta#phi| > %s", bbLabel.c_str()).Data());
-                        tx.DrawLatex(0.60, 0.36, TString::Format("p_{T}^{jet} > %.0f GeV", sphJetPtMin).Data());
-                        tx.DrawLatex(0.60, 0.31, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+                        txHdr.DrawLatex(0.58, 0.75, "#it{#bf{sPHENIX}}");
+                        tx.DrawLatex(0.58, 0.7, TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
+                        tx.DrawLatex(0.58, 0.65, TString::Format("|#Delta#phi| > %s", bbLabel.c_str()).Data());
+                        tx.DrawLatex(0.58, 0.6, TString::Format("p_{T}^{jet} > %.0f GeV", sphJetPtMin).Data());
+                        tx.DrawLatex(0.58, 0.55, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
 
-                        txHdr.DrawLatex(0.81, 0.65, "#bf{ATLAS}");
-                        tx.DrawLatex(0.81, 0.61, "pp #sqrt{s} = 5.02 TeV");
-                        tx.DrawLatex(0.81, 0.56, "kBayes = 2-4");
-                        tx.DrawLatex(0.81, 0.51, "|#eta^{#gamma}| < 2.37 (excl. 1.37-1.52)");
-                        tx.DrawLatex(0.81, 0.46, "|#eta^{jet}| < 2.8");
-                        tx.DrawLatex(0.81, 0.41, "|#Delta#phi| > 7#pi/8");
-                        tx.DrawLatex(0.81, 0.36, TString::Format("p_{T}^{jet} > %.1f GeV", atlasJetPtMin).Data());
-                        tx.DrawLatex(0.81, 0.31, TString::Format("p_{T}^{#gamma} = %s", kAtlasTable1PhoPtLabel.c_str()).Data());
+                        txHdr.DrawLatex(0.72, 0.75, "#bf{ATLAS} pp #sqrt{s} = 5.02 TeV");
+                        tx.DrawLatex(0.72, 0.7, "|#Delta#phi| > 7#pi/8");
+                        tx.DrawLatex(0.72, 0.65, TString::Format("p_{T}^{jet} > %.1f GeV", atlasJetPtMin).Data());
+                        tx.DrawLatex(0.72, 0.6, TString::Format("p_{T}^{#gamma} = %s", kAtlasTable1PhoPtLabel.c_str()).Data());
 
-                    SaveCanvas(cO, JoinPath(overlayOut, TString::Format("xJ_unfolded_perPhoton_LHCoverlay_pTbin%d.png", i + 1).Data()));
+                        SaveCanvas(cO, JoinPath(overlayOut, TString::Format("xJ_unfolded_perPhoton_LHCoverlay_pTbin%d.png", i + 1).Data()));
 
-                    delete hTmp;
+                        delete hTmp;
                   }
 
                   if (gApplyPurityCorrectionForUnfolding &&

@@ -73,6 +73,7 @@
 #include <jetbackground/CopyAndSubtractJets.h>
 #include <jetbackground/TowerBackground.h>
 #if defined(RJ_UNIFIED_ANALYSIS_AUAU)
+#include <eventplaneinfo/EventPlaneReco.h>
 #include "/sphenix/u/patsfan753/scratch/thesisAnalysis/src_AuAu/RecoilJets_AuAu.h"
 #else
 #include "/sphenix/u/patsfan753/scratch/thesisAnalysis/src/RecoilJets.h"
@@ -117,6 +118,9 @@ R__LOAD_LIBRARY(libcaloTreeGen.so)
 R__LOAD_LIBRARY(libjetbackground.so)
 R__LOAD_LIBRARY(libg4jets.so)
 R__LOAD_LIBRARY(libglobalvertex.so)
+#if defined(RJ_UNIFIED_ANALYSIS_AUAU)
+R__LOAD_LIBRARY(libeventplaneinfo.so)
+#endif
 R__LOAD_LIBRARY(libcentrality.so)      // always
 R__LOAD_LIBRARY(libcentrality_io.so)   // if you instantiate CentralityReco
 R__LOAD_LIBRARY(libcalotrigger.so)
@@ -1741,16 +1745,16 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     if (vlevel > 0) std::cout << "[pp dataset] skipping CentralityReco" << std::endl;
   }
 
-    // ---------------------- Reco jets -----------------------------------------
-    // Au+Au:
-    //   - tower-level UE subtraction (RetowerCEMC + DTB + CASJ + DTB2 + SubtractTowers)
-    //   - final jets are built from SUB1 tower containers
-    //   - jets are written to: AntiKt_Tower_<rKey>_Sub1  (e.g. AntiKt_Tower_r04_Sub1)
-    //
-    // PP / isSim:
-    //   - keep the existing pp-style JetReco + JetCalib chain (see 'else' below)
-    // --------------------------------------------------------------------------
-    if (isAuAuData)
+  // ---------------------- Reco jets -----------------------------------------
+  // Au+Au:
+  //   - tower-level UE subtraction (RetowerCEMC + DTB + CASJ + DTB2 + SubtractTowers)
+  //   - final jets are built from SUB1 tower containers
+  //   - jets are written to: AntiKt_Tower_<rKey>_Sub1  (e.g. AntiKt_Tower_r04_Sub1)
+  //
+  // PP / isSim:
+  //   - keep the existing pp-style JetReco + JetCalib chain (see 'else' below)
+  // --------------------------------------------------------------------------
+  if (isAuAuData)
     {
       // Ensure JetBackground modules can attach nodes under DST/TOWER
       auto* ensure = new EnsureJetCalibNodes("EnsureJetCalibNodes_forHIJets");
@@ -1760,6 +1764,14 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         // Optional: control HI UE-subtraction verbosity independently
         int hiV = 0;
         if (const char* env = std::getenv("RJ_HIUE_VERBOSITY")) hiV = std::atoi(env);
+
+        // Match Macro_HIJetReco.C semantics:
+        //   0 = no flow
+        //   1 = psi2 derived from calo
+        //   2 = psi2 derived from HIJING
+        //   3 = psi2 derived from sEPD
+        int hiFlow = 0;
+        if (const char* env = std::getenv("RJ_HI_DO_FLOW")) hiFlow = std::atoi(env);
 
         // TowerInfo node prefix for HI background chain.
         // calo-fitting Au+Au DSTs often publish per-detector nodes as:
@@ -1773,7 +1785,15 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         }
 
         if (vlevel > 0)
-          std::cout << "[HI] UE subtraction enabled: towerPrefix=" << towerPrefix << " (HIUE Verbosity=" << hiV << ")\n";
+          std::cout << "[HI] UE subtraction enabled: towerPrefix=" << towerPrefix
+                    << " do_flow=" << hiFlow
+                    << " (HIUE Verbosity=" << hiV << ")\n";
+
+        if (hiFlow == 3)
+        {
+          auto* epreco = new EventPlaneReco();
+          se->registerSubsystem(epreco);
+        }
 
       // ------------------------------------------------------------------
       // 1) Retower CEMC (towerinfo)
@@ -1817,7 +1837,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
       // ------------------------------------------------------------------
       auto* dtb = new DetermineTowerBackground();
       dtb->SetBackgroundOutputName("TowerInfoBackground_Sub1");
-      dtb->SetFlow(0);
+      dtb->SetFlow(hiFlow);
       dtb->SetSeedType(0);
       dtb->SetSeedJetD(3);
       dtb->Verbosity(hiV);
@@ -1829,7 +1849,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
       //     -> creates AntiKt_TowerInfo_HIRecoSeedsSub_r02
       // ------------------------------------------------------------------
       auto* casj = new CopyAndSubtractJets();
-      casj->SetFlowModulation(0);
+      casj->SetFlowModulation(hiFlow);
       casj->Verbosity(hiV);
       casj->set_towerinfo(true);
       casj->set_towerNodePrefix(towerPrefix);
@@ -1841,7 +1861,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
       // ------------------------------------------------------------------
       auto* dtb2 = new DetermineTowerBackground();
       dtb2->SetBackgroundOutputName("TowerInfoBackground_Sub2");
-      dtb2->SetFlow(0);
+      dtb2->SetFlow(hiFlow);
       dtb2->SetSeedType(1);
       dtb2->SetSeedJetPt(7);
       dtb2->Verbosity(hiV);
@@ -1853,7 +1873,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
       //     -> writes *SUB1 tower containers used for final jet reco
       // ------------------------------------------------------------------
       auto* st = new SubtractTowers();
-      st->SetFlowModulation(0);
+      st->SetFlowModulation(hiFlow);
       st->Verbosity(hiV);
       st->set_towerinfo(true);
       st->set_towerNodePrefix(towerPrefix);
@@ -2161,51 +2181,89 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         const float background_v2 = towerbackground->get_v2();
         const float background_Psi2 = towerbackground->get_Psi2();
 
-        const unsigned int nchannels = src->size();
-        for (unsigned int channel = 0; channel < nchannels; ++channel)
-        {
-          TowerInfo* srcTower = src->get_tower_at_channel(channel);
-          TowerInfo* dstTower = dst->get_tower_at_channel(channel);
-          if (!srcTower || !dstTower)
+        static std::vector<float> s_retowerAreaByIHCalEta;
+        if (s_retowerAreaByIHCalEta.size() != static_cast<std::size_t>(geomIH->get_etabins()))
           {
-            continue;
-          }
-
-          unsigned int towerkey = src->encode_key(channel);
-          int ieta = src->getTowerEtaBin(towerkey);
-          int iphi = src->getTowerPhiBin(towerkey);
-
-          const RawTowerDefs::keytype emKey =
-              RawTowerDefs::encode_towerid(RawTowerDefs::CalorimeterId::CEMC, ieta, iphi);
-          RawTowerGeom* emGeom = geomEM->get_tower_geometry(emKey);
-
-          float new_energy = 0.0f;
-          if (emGeom)
-          {
-            const int ue_ieta = geomIH->get_etabin(emGeom->get_eta());
-
-            float UE = 0.0f;
-            if (ue_ieta >= 0 && static_cast<std::size_t>(ue_ieta) < ueVec.size())
+            s_retowerAreaByIHCalEta.assign(geomIH->get_etabins(), 0.0f);
+            for (int ieta_ihcal = 0; ieta_ihcal < geomIH->get_etabins(); ++ieta_ihcal)
             {
-              UE = ueVec.at(static_cast<std::size_t>(ue_ieta));
-            }
+              const auto ihBounds = geomIH->get_etabounds(ieta_ihcal);
+              const double ihLower = ihBounds.first;
+              const double ihUpper = ihBounds.second;
 
-            if (m_use_flow_modulation)
-            {
-              float modulation_factor = 1 + 2 * background_v2 * std::cos(2 * (emGeom->get_phi() - background_Psi2));
-              modulation_factor = std::max(0.F, modulation_factor);
-              UE *= modulation_factor;
-            }
+              double weightedEtaSpan = 0.0;
+              for (int ieta_emcal = 0; ieta_emcal < geomEM->get_etabins(); ++ieta_emcal)
+              {
+                const auto emBounds = geomEM->get_etabounds(ieta_emcal);
+                const double emLower = emBounds.first;
+                const double emUpper = emBounds.second;
 
-            new_energy = srcTower->get_energy() - UE;
-            if (!srcTower->get_isGood())
-            {
-              new_energy = 0.0f;
+                const double overlap = std::min(ihUpper, emUpper) - std::max(ihLower, emLower);
+                const double emWidth = emUpper - emLower;
+                if (overlap <= 0.0 || emWidth <= 0.0)
+                {
+                  continue;
+                }
+
+                weightedEtaSpan += overlap / emWidth;
+              }
+
+              s_retowerAreaByIHCalEta.at(static_cast<std::size_t>(ieta_ihcal)) =
+                  4.0f * static_cast<float>(weightedEtaSpan);
             }
           }
 
-          dstTower->set_time(srcTower->get_time());
-          dstTower->set_energy(new_energy);
+          const unsigned int nchannels = src->size();
+          for (unsigned int channel = 0; channel < nchannels; ++channel)
+          {
+            TowerInfo* srcTower = src->get_tower_at_channel(channel);
+            TowerInfo* dstTower = dst->get_tower_at_channel(channel);
+            if (!srcTower || !dstTower)
+            {
+              continue;
+            }
+
+            unsigned int towerkey = src->encode_key(channel);
+            int ieta = src->getTowerEtaBin(towerkey);
+            int iphi = src->getTowerPhiBin(towerkey);
+
+            const RawTowerDefs::keytype emKey =
+                RawTowerDefs::encode_towerid(RawTowerDefs::CalorimeterId::CEMC, ieta, iphi);
+            RawTowerGeom* emGeom = geomEM->get_tower_geometry(emKey);
+
+            float new_energy = 0.0f;
+            if (emGeom)
+            {
+              const int ue_ieta = geomIH->get_etabin(emGeom->get_eta());
+
+              float UE = 0.0f;
+              if (ue_ieta >= 0 && static_cast<std::size_t>(ue_ieta) < ueVec.size())
+              {
+                UE = ueVec.at(static_cast<std::size_t>(ue_ieta));
+
+                const float shared_area = s_retowerAreaByIHCalEta.at(static_cast<std::size_t>(ue_ieta));
+                if (shared_area > 0.0f)
+                {
+                  UE /= shared_area;
+                }
+              }
+
+              if (m_use_flow_modulation)
+              {
+                float modulation_factor = 1 + 2 * background_v2 * std::cos(2 * (emGeom->get_phi() - background_Psi2));
+                modulation_factor = std::max(0.F, modulation_factor);
+                UE *= modulation_factor;
+              }
+
+              new_energy = srcTower->get_energy() - UE;
+              if (!srcTower->get_isGood())
+              {
+                new_energy = 0.0f;
+              }
+            }
+
+            dstTower->set_time(srcTower->get_time());
+            dstTower->set_energy(new_energy);
         }
 
         return Fun4AllReturnCodes::EVENT_OK;
@@ -2293,11 +2351,14 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         int nativeUEV = 0;
         if (const char* env = std::getenv("RJ_HIUE_VERBOSITY")) nativeUEV = std::atoi(env);
 
+        int nativeFlow = 0;
+        if (const char* env = std::getenv("RJ_HI_DO_FLOW")) nativeFlow = std::atoi(env);
+
         auto* nativeSub = new NativeCEMCUESubtractor("NativeCEMCUESubtractor",
-                                                     towerPrefixPCB + "_CEMC",
-                                                     nativeCemcNode,
-                                                     "TowerInfoBackground_Sub2");
-        nativeSub->SetFlowModulation(false);
+                                                   towerPrefixPCB + "_CEMC",
+                                                   nativeCemcNode,
+                                                   "TowerInfoBackground_Sub2");
+        nativeSub->SetFlowModulation(nativeFlow != 0);
         nativeSub->Verbosity(nativeUEV);
         se->registerSubsystem(nativeSub);
 

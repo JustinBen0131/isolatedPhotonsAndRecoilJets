@@ -313,76 +313,173 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
   // iterate over clusters via map to have access to keys if needed
   const auto& rcmap = m_rawclusters->getClustersMap();
 
-  size_t nClusters = rcmap.size();
-  size_t nPassET = 0;
-  size_t nBuilt = 0;
-  size_t nMeanTimeDefault = 0;
+    size_t nClusters = rcmap.size();
+    size_t nPassET = 0;
+    size_t nBuilt = 0;
+    size_t nMeanTimeDefault = 0;
+    size_t nNonFiniteEta = 0;
+    size_t nNonFinitePhi = 0;
+    size_t nNonFiniteET = 0;
 
-  for (const auto& kv : rcmap)
-  {
-    RawCluster* rc = kv.second;
-    if (!rc)
+    float bestE = -999.0f;
+    float bestET = -999.0f;
+    float bestEta = -999.0f;
+    float bestPhi = -999.0f;
+    int bestLeadIeta = -999;
+    int bestLeadIphi = -999;
+    std::size_t bestTowermapSize = 0;
+    float best_et1 = -999.0f;
+    float best_et2 = -999.0f;
+    float best_et3 = -999.0f;
+    float best_et4 = -999.0f;
+    float best_avg_eta = -999.0f;
+    float best_avg_phi = -999.0f;
+
+    for (const auto& kv : rcmap)
     {
-      continue;
-    }
-
-    CLHEP::Hep3Vector vertex_vec(0, 0, m_vertex);
-
-
-
-    float eta = RawClusterUtility::GetPseudorapidity(*rc, vertex_vec);
-    float phi = RawClusterUtility::GetAzimuthAngle(*rc, vertex_vec);
-    float E = rc->get_energy();
-    float ET = E / std::cosh(eta);
-      if (ET < m_min_cluster_et)
+      RawCluster* rc = kv.second;
+      if (!rc)
       {
         continue;
       }
-      ++nPassET;
 
-        PhotonClusterv1* photon = new PhotonClusterv1(*rc);
+      CLHEP::Hep3Vector vertex_vec(0, 0, m_vertex);
 
-      // ------------------------------------------------------------------
-      // Persist kinematics used by PhotonClusterBuilder so downstream
-      // (e.g. RecoilJets) can read consistent eta/phi/pt and vertex.
-      //
-      // NOTE:
-      //   - We compute eta/phi using the chosen vertex_z (truth for SIM, MBD for DATA)
-      //   - ET = E / cosh(eta)
-      //   - For photons, pT == ET (massless)
-      // ------------------------------------------------------------------
-      photon->set_shower_shape_parameter("vertex_z",    m_vertex);
-      photon->set_shower_shape_parameter("cluster_eta", eta);
-      photon->set_shower_shape_parameter("cluster_phi", phi);
-      photon->set_shower_shape_parameter("cluster_et",  ET);
-      photon->set_shower_shape_parameter("cluster_pt",  ET);
 
-      calculate_shower_shapes(rc, photon, eta, phi);
 
-      const float mt = photon->get_shower_shape_parameter("mean_time");
-      if (mt <= -998.5f) ++nMeanTimeDefault;
+      float eta = RawClusterUtility::GetPseudorapidity(*rc, vertex_vec);
+      float phi = RawClusterUtility::GetAzimuthAngle(*rc, vertex_vec);
+      float E = rc->get_energy();
+      float ET = E / std::cosh(eta);
 
-      //this is defensive coding, if do bdt is set false the bdt object should be nullptr
-      //and this method will simply pass
-      if (m_do_bdt)
+      if (!std::isfinite(eta)) ++nNonFiniteEta;
+      if (!std::isfinite(phi)) ++nNonFinitePhi;
+      if (!std::isfinite(ET)) ++nNonFiniteET;
+
+      if (std::isfinite(ET) && ET > bestET)
       {
-        calculate_bdt_score(photon);
+        bestE = E;
+        bestET = ET;
+        bestEta = eta;
+        bestPhi = phi;
+
+        const auto leadtowerindex = rc->get_lead_tower();
+        bestLeadIeta = leadtowerindex.first;
+        bestLeadIphi = leadtowerindex.second;
+        bestTowermapSize = rc->get_towermap().size();
+
+        const std::vector<float> showershape_dbg = rc->get_shower_shapes(m_shape_min_tower_E);
+        if (!showershape_dbg.empty())
+        {
+          if (showershape_dbg.size() > 0) best_et1 = showershape_dbg[0];
+          if (showershape_dbg.size() > 1) best_et2 = showershape_dbg[1];
+          if (showershape_dbg.size() > 2) best_et3 = showershape_dbg[2];
+          if (showershape_dbg.size() > 3) best_et4 = showershape_dbg[3];
+          if (showershape_dbg.size() > 4) best_avg_eta = showershape_dbg[4] + 0.5F;
+          if (showershape_dbg.size() > 5) best_avg_phi = showershape_dbg[5] + 0.5F;
+        }
+        else
+        {
+          best_et1 = -999.0f;
+          best_et2 = -999.0f;
+          best_et3 = -999.0f;
+          best_et4 = -999.0f;
+          best_avg_eta = -999.0f;
+          best_avg_phi = -999.0f;
+        }
       }
 
-      ++nBuilt;
-      m_photon_container->AddCluster(photon);
-  }
+        if (ET < m_min_cluster_et)
+        {
+          continue;
+        }
+        ++nPassET;
 
-  if (Verbosity() >= 2)
-  {
-    std::cout << Name()
-              << ": [evt=" << s_evt << "] SUMMARY"
-              << " | clusters=" << nClusters
-              << " | passET(ET>" << m_min_cluster_et << ")=" << nPassET
-              << " | photonsBuilt=" << nBuilt
-              << " | mean_time=-999 count=" << nMeanTimeDefault
-              << std::endl;
-  }
+          PhotonClusterv1* photon = new PhotonClusterv1(*rc);
+
+        // ------------------------------------------------------------------
+        // Persist kinematics used by PhotonClusterBuilder so downstream
+        // (e.g. RecoilJets) can read consistent eta/phi/pt and vertex.
+        //
+        // NOTE:
+        //   - We compute eta/phi using the chosen vertex_z (truth for SIM, MBD for DATA)
+        //   - ET = E / cosh(eta)
+        //   - For photons, pT == ET (massless)
+        // ------------------------------------------------------------------
+        photon->set_shower_shape_parameter("vertex_z",    m_vertex);
+        photon->set_shower_shape_parameter("cluster_eta", eta);
+        photon->set_shower_shape_parameter("cluster_phi", phi);
+        photon->set_shower_shape_parameter("cluster_et",  ET);
+        photon->set_shower_shape_parameter("cluster_pt",  ET);
+
+        calculate_shower_shapes(rc, photon, eta, phi);
+
+        const float mt = photon->get_shower_shape_parameter("mean_time");
+        if (mt <= -998.5f) ++nMeanTimeDefault;
+
+        //this is defensive coding, if do bdt is set false the bdt object should be nullptr
+        //and this method will simply pass
+        if (m_do_bdt)
+        {
+          calculate_bdt_score(photon);
+        }
+
+        ++nBuilt;
+        m_photon_container->AddCluster(photon);
+    }
+
+    if (Verbosity() >= 2)
+    {
+      std::cout << Name()
+                << ": [evt=" << s_evt << "] SUMMARY"
+                << " | clusters=" << nClusters
+                << " | passET(ET>" << m_min_cluster_et << ")=" << nPassET
+                << " | photonsBuilt=" << nBuilt
+                << " | mean_time=-999 count=" << nMeanTimeDefault
+                << std::endl;
+
+      if (nBuilt == 0)
+      {
+        std::cout << Name()
+                  << ": [evt=" << s_evt << "] ZERO-PHOTON DEBUG"
+                  << " | nonFinite(eta,phi,ET)=(" << nNonFiniteEta
+                  << "," << nNonFinitePhi
+                  << "," << nNonFiniteET << ")";
+
+        if (nClusters == 0)
+        {
+          std::cout << " | reason=no input clusters in " << m_input_cluster_node;
+        }
+        else if (nPassET == 0)
+        {
+          std::cout << " | likely reason=all clusters failed ET threshold"
+                    << " | bestCluster: E=" << bestE
+                    << " ET=" << bestET
+                    << " eta=" << bestEta
+                    << " phi=" << bestPhi
+                    << " lead=(" << bestLeadIeta << "," << bestLeadIphi << ")"
+                    << " towermap=" << bestTowermapSize
+                    << " | shower(et1,et2,et3,et4)=("
+                    << best_et1 << "," << best_et2 << "," << best_et3 << "," << best_et4 << ")"
+                    << " | avgTower=(" << best_avg_eta << "," << best_avg_phi << ")";
+        }
+        else
+        {
+          std::cout << " | reason=clusters passed ET but no photons survived downstream shaping/storage"
+                    << " | bestCluster: E=" << bestE
+                    << " ET=" << bestET
+                    << " eta=" << bestEta
+                    << " phi=" << bestPhi
+                    << " lead=(" << bestLeadIeta << "," << bestLeadIphi << ")"
+                    << " towermap=" << bestTowermapSize
+                    << " | shower(et1,et2,et3,et4)=("
+                    << best_et1 << "," << best_et2 << "," << best_et3 << "," << best_et4 << ")"
+                    << " | avgTower=(" << best_avg_eta << "," << best_avg_phi << ")";
+        }
+
+        std::cout << std::endl;
+      }
+    }
 
   return Fun4AllReturnCodes::EVENT_OK;
 }
