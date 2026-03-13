@@ -59,6 +59,7 @@
 #include <ffarawobjects/Gl1Packet.h>
 #include <mbd/MbdPmtContainer.h>
 #include <centrality/CentralityInfo.h>
+#include <calotrigger/MinimumBiasInfo.h>
 // Standard C++ -------------------------------------------------------------
 #include <atomic>
 #include <algorithm>   // std::clamp
@@ -1242,7 +1243,10 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
   }
   else
   {
-    // ---------- Au+Au: scaled GL1 bits only ----------
+    // ---------- Au+Au: require MinimumBiasInfo AND scaled GL1 bits ----------
+    auto* mbInfo = findNode::getClass<MinimumBiasInfo>(topNode, "MinimumBiasInfo");
+    const bool isMB = (mbInfo && mbInfo->isAuAuMinimumBias());
+
     uint64_t wScaled = 0;
     if (auto* gl1 = findNode::getClass<Gl1Packet>(topNode, "GL1Packet"))
       wScaled = gl1->lValue(0, "ScaledVector");
@@ -1252,8 +1256,8 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
     if (Verbosity() >= 6)
     {
       std::ostringstream os;
-      os << "    [AuAu trigger] ScaledVector="
-         << "0x" << std::hex << wScaled << std::dec
+      os << "    [AuAu trigger] isMB=" << (isMB ? 1 : 0)
+         << " | ScaledVector=0x" << std::hex << wScaled << std::dec
          << " (event_count=" << event_count << ")";
       LOG(6, CLR_CYAN, os.str());
     }
@@ -1266,14 +1270,18 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
           activeTrig.push_back(key);
     }
 
-    if (activeTrig.empty())
+    if (!isMB || activeTrig.empty())
     {
       m_lastReject = EventReject::Trigger;
 
       if (Verbosity() >= 4)
       {
         std::ostringstream os;
-        os << "    [firstEventCuts] REJECT (Au+Au Trigger): no configured scaled triggers fired"
+        os << "    [firstEventCuts] REJECT (Au+Au Trigger/MB): ";
+        if (!isMB) os << "MinimumBiasInfo failed";
+        if (!isMB && activeTrig.empty()) os << " and ";
+        if (activeTrig.empty()) os << "no configured scaled triggers fired";
+        os << " | isMB=" << (isMB ? 1 : 0)
            << " | ScaledVector=0x" << std::hex << wScaled << std::dec
            << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
         if (m_useVzCut) os << " (|vz|cut=" << m_vzCut << ")";
@@ -1286,6 +1294,7 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
     {
       std::ostringstream os;
       os << "    [firstEventCuts] Trigger PASS (Au+Au)"
+         << " | isMB=1"
          << " | activeTrig={" << joinList(activeTrig, ", ") << "}"
          << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
       LOG(4, CLR_GREEN, os.str());
@@ -6770,25 +6779,25 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
   m_evtDiag_eventCount = event_count;
   m_evtDiag_vz = static_cast<float>(m_vz);
 
-    m_evtDiag_rKey   = rKey;
-    m_evtDiag_ptBin  = ptBin;
-    m_evtDiag_cat    = static_cast<int>(cat);
-    m_evtDiag_isSim  = (m_isSim ? 1 : 0);
+  m_evtDiag_rKey   = rKey;
+  m_evtDiag_ptBin  = ptBin;
+  m_evtDiag_cat    = static_cast<int>(cat);
+  m_evtDiag_isSim  = (m_isSim ? 1 : 0);
 
-    m_evtDiag_ptGammaReco   = static_cast<float>(recoGammaPt);
-    m_evtDiag_etaGammaReco  = static_cast<float>(recoGammaEta);
-    m_evtDiag_phiGammaReco  = static_cast<float>(recoGammaPhi);
+  m_evtDiag_ptGammaReco   = static_cast<float>(recoGammaPt);
+  m_evtDiag_etaGammaReco  = static_cast<float>(recoGammaEta);
+  m_evtDiag_phiGammaReco  = static_cast<float>(recoGammaPhi);
 
-    if (m_isSim)
-    {
+  if (m_isSim)
+  {
       m_evtDiag_ptGammaTruth  = static_cast<float>(truthGammaPt);
       m_evtDiag_phiGammaTruth = static_cast<float>(truthGammaPhi);
-    }
-    else
-    {
+  }
+  else
+  {
       m_evtDiag_ptGammaTruth  = -9999.0f;
       m_evtDiag_phiGammaTruth = -9999.0f;
-    }
+  }
 
   if (selectedRecoilJet)
   {
@@ -6797,19 +6806,19 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
     m_evtDiag_sel_phi = static_cast<float>(selectedRecoilJet->get_phi());
   }
 
-    if (m_isSim && recoTruthBest)
-    {
+  if (m_isSim && recoTruthBest)
+  {
       m_evtDiag_best_pt  = static_cast<float>(recoTruthBest->get_pt());
       m_evtDiag_best_eta = static_cast<float>(recoTruthBest->get_eta());
       m_evtDiag_best_phi = static_cast<float>(recoTruthBest->get_phi());
-    }
+  }
 
-    if (m_isSim && truthLeadRecoilJet)
-    {
+  if (m_isSim && truthLeadRecoilJet)
+  {
       m_evtDiag_truthLead_pt  = static_cast<float>(truthLeadRecoilJet->get_pt());
       m_evtDiag_truthLead_eta = static_cast<float>(truthLeadRecoilJet->get_eta());
       m_evtDiag_truthLead_phi = static_cast<float>(truthLeadRecoilJet->get_phi());
-    }
+  }
 
   auto dR = [](double eta1, double phi1, double eta2, double phi2)
   {
@@ -6818,16 +6827,16 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
     return std::sqrt(deta * deta + dphi * dphi);
   };
 
-    if (m_isSim && selectedRecoilJet && truthLeadRecoilJet)
-    {
+  if (m_isSim && selectedRecoilJet && truthLeadRecoilJet)
+  {
       m_evtDiag_drSelToTruthLead = static_cast<float>(dR(selectedRecoilJet->get_eta(),
                                                          selectedRecoilJet->get_phi(),
                                                          truthLeadRecoilJet->get_eta(),
                                                          truthLeadRecoilJet->get_phi()));
-    }
+  }
 
-    if (m_isSim && recoTruthBest && truthLeadRecoilJet)
-    {
+  if (m_isSim && recoTruthBest && truthLeadRecoilJet)
+  {
       m_evtDiag_drBestToTruthLead = static_cast<float>(dR(recoTruthBest->get_eta(),
                                                           recoTruthBest->get_phi(),
                                                           truthLeadRecoilJet->get_eta(),
@@ -6849,11 +6858,11 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
       JetContainer* calib = itCal->second;
       JetContainer* raw   = itRaw->second;
 
-        // Require RAW constituents; otherwise tower payload will be empty.
-        auto hasConstituents = [&](const Jet* j) -> bool
-        {
+      // Require RAW constituents; otherwise tower payload will be empty.
+      auto hasConstituents = [&](const Jet* j) -> bool
+      {
           return (j && (j->size_comp() > 0));
-        };
+      };
 
       // 1) Primary: ID-based mapping (JetCalib sets calibrated jet id in the same loop as raw jets).
       const int idC = static_cast<int>(calibJet->get_id());
@@ -10433,10 +10442,10 @@ TH1F* RecoilJets::getOrBookIsoHist(const std::string& trig, int etIdx, int centI
 
   dir->cd();
 
-  // Binning chosen to match your previous layout
-  const int    nbins = 170;
-  const double xmin  = -5.0;
-  const double xmax  = 12.0;
+  // Wider binning for AuAu isolation spectra while keeping 0.1 GeV/bin
+  const int    nbins = 300;
+  const double xmin  = -10.0;
+  const double xmax  = 20.0;
 
   const std::string title = name + ";E_{T}^{iso} [GeV];Entries";
 
@@ -10507,10 +10516,10 @@ TH1F* RecoilJets::getOrBookIsoPartHist(const std::string& trig,
 
   dir->cd();
 
-  // Match h_Eiso binning
-  const int    nbins = 170;
-  const double xmin  = -5.0;
-  const double xmax  = 12.0;
+  // Match h_Eiso wider binning
+  const int    nbins = 300;
+  const double xmin  = -10.0;
+  const double xmax  = 20.0;
 
   const std::string xlab  = (xAxisTitle.empty() ? "E_{T}^{iso} [GeV]" : xAxisTitle);
   const std::string title = name + ";" + xlab + ";Entries";
