@@ -127,101 +127,28 @@ PSQL=(psql -h sphnxdaqdbreplica -d daq -At -F $'\t' -q)
 sql()         { "${PSQL[@]}" -c "$1" 2>/dev/null || true; }
 num_or_zero() { [[ $1 =~ ^-?[0-9]+$ ]] && printf '%s' "$1" || printf 0; }
 
-# ---------- Stage 1: All printruns ----------
-say "Collecting run numbers  (CreateDstList.pl --printruns ${PREFIX})"
-mapfile -t RUNS_ALL < <(CreateDstList.pl --tag "$TAG" --dataset "$DATASET" --printruns "$PREFIX")
+# ---------- Load golden runs directly from personal manifest ----------
+PERSONAL_LIST_PATH="/sphenix/u/patsfan753/scratch/thesisAnalysis/Full_AuAuGoldenRunList_Version1_personal.list"
+
+say "Loading golden run numbers directly from personal manifest"
+say "  Source: ${BOLD}${PERSONAL_LIST_PATH}${RESET}"
+[[ -f "$PERSONAL_LIST_PATH" ]] || fatal "Personal golden run list not found: $PERSONAL_LIST_PATH"
+
+mapfile -t RUNS_ALL < <(awk 'NF {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $0); if ($0 ~ /^[0-9]+$/) print $0}' "$PERSONAL_LIST_PATH")
 TOTAL_STAGE1_RUNS=${#RUNS_ALL[@]}
-say "  Stage 1 count: ${TOTAL_STAGE1_RUNS} run(s) from printruns"
-(( TOTAL_STAGE1_RUNS > 0 )) || fatal "No runs returned by CreateDstList.pl"
+say "  Loaded ${TOTAL_STAGE1_RUNS} run(s) from personal manifest"
+(( TOTAL_STAGE1_RUNS > 0 )) || fatal "No runs found in personal golden run list: $PERSONAL_LIST_PATH"
 
-# ---------- Stage 2: Magnet ON ----------
-say "Checking MAGNET status (magnet_info.magnet_on=='t') …"
-RUNS_MAGNET_ON=()
+# ---------- Runtime / GL1 bookkeeping only (no run filtering) ----------
+say "Fetching per-run runtime and GL1 .evt counts for summary bookkeeping …"
+ROWS=()
+tot_rt_all=0
+tot_ev_all=0
 rej_magnet=0
-declare -A MAGNET_T
-idx=0
-for run in "${RUNS_ALL[@]}"; do
-  ((idx+=1))
-  mg=$(sql "SELECT magnet_on FROM magnet_info WHERE runnumber=$run;" | tr -d '[:space:]')
-  if [[ "$mg" == "t" ]]; then
-    MAGNET_T["$run"]=1
-    RUNS_MAGNET_ON+=("$run")
-  else
-    ((rej_magnet+=1))
-  fi
-  (( idx % 200 == 0 )) && say "  MAGNET progress: $idx / $TOTAL_STAGE1_RUNS (kept: ${#RUNS_MAGNET_ON[@]})"
-done
-say "  Stage 2 count (MAGNET ON): ${#RUNS_MAGNET_ON[@]}  | dropped: ${rej_magnet}"
-
-# ---------- Stage 3: Calo QA GOLDEN (EMC∩IHC∩OHC) ----------
-say "Querying Calo QA (Production_write.goodruns) → require GOLDEN for EMCal, IHCal, and OHCal …"
-
-CALO_QA_PY=$(cat <<'PY'
-import sys, pyodbc
-def log(msg): print(f"[CaloQA] {msg}", file=sys.stderr, flush=True)
-runs = [int(x.strip()) for x in sys.stdin if x.strip()]
-log(f"Received {len(runs)} run(s) from printruns.")
-if not runs: sys.exit(0)
-try:
-    cn = pyodbc.connect("DSN=Production_write"); cur = cn.cursor(); log("Connected to DSN=Production_write.")
-except Exception as e:
-    log(f"ERROR connecting to Production_write: {e!r}"); sys.exit(0)
-
-def has_column(name):
-    try:
-        cur.execute("""SELECT 1 FROM information_schema.columns
-                       WHERE table_name='goodruns' AND column_name=? LIMIT 1""",(name,))
-        return cur.fetchone() is not None
-    except Exception as e:
-        log(f"Schema probe failed for '{name}': {e!r}"); return False
-
-style_struct = has_column('emcal_auto')
-style_flat   = has_column('emcal_auto_runclass')
-log(f"Schema detect → struct={style_struct}, flat={style_flat}")
-if not style_struct and not style_flat:
-    log("Neither style detected; will try BOTH syntaxes."); style_struct=True; style_flat=True
-
-gold=None
-for det in ('emcal','ihcal','ohcal'):
-    S=set(); tried=False
-    if style_struct:
-        tried=True
-        try:
-            cur.execute(f"SELECT runnumber FROM goodruns WHERE ({det}_auto).runclass='GOLDEN'")
-            rows=cur.fetchall(); log(f"{det.upper()}: struct GOLDEN rows = {len(rows)}")
-            S |= {int(r.runnumber) for r in rows}
-        except Exception as e:
-            log(f"{det.upper()}: struct query failed: {e!r}")
-    if style_flat:
-        tried=True
-        try:
-            cur.execute(f"SELECT runnumber FROM goodruns WHERE {det}_auto_runclass='GOLDEN'")
-            rows=cur.fetchall(); log(f"{det.upper()}: flat   GOLDEN rows = {len(rows)}")
-            S |= {int(r.runnumber) for r in rows}
-        except Exception as e:
-            log(f"{det.upper()}: flat query failed: {e!r}")
-    if not tried:
-        log(f"{det.upper()}: no query attempted.")
-    gold = S if gold is None else (gold & S)
-
-gold_ct = 0 if gold is None else len(gold)
-log(f"Intersection GOLDEN(EMC∩IHC∩OHC) size = {gold_ct}")
-keep = sorted(set(runs) & (gold if gold is not None else set()))
-log(f"Post-intersection with printruns: kept {len(keep)} run(s).")
-for r in keep: print(r)
-PY
-)
-
-mapfile -t RUNS_CALO_GOLDEN < <( printf '%s\n' "${RUNS_ALL[@]}" | python3 -c "$CALO_QA_PY" )
-declare -A CALO_G; for r in "${RUNS_CALO_GOLDEN[@]}"; do CALO_G["$r"]=1; done
-rej_calo=$(( TOTAL_STAGE1_RUNS - ${#RUNS_CALO_GOLDEN[@]} ))
-say "  Stage 3 count (Calo QA GOLDEN EMC∩IHC∩OHC): ${#RUNS_CALO_GOLDEN[@]}  | dropped vs. Stage1: ${rej_calo}"
-
-# ---------- Stage 4 & 5: Runtime / GL1 ----------
-say "Fetching per-run runtime and GL1 .evt counts, applying thresholds …"
-ROWS=() RUNS_TIME_OK=() RUNS_EVENT_OK=()
-tot_rt_all=0 tot_ev_all=0
-rej_short=0 rej_lowevt=0 rej_both=0
+rej_calo=0
+rej_short=0
+rej_lowevt=0
+rej_both=0
 idx=0
 for run in "${RUNS_ALL[@]}"; do
   ((idx+=1))
@@ -230,21 +157,11 @@ for run in "${RUNS_ALL[@]}"; do
   ev=$(sql "SELECT COALESCE(SUM(lastevent-firstevent+1),0)::BIGINT
             FROM filelist WHERE runnumber=$run AND filename LIKE '%GL1_physics_gl1daq%.evt';" | tr -d ' ')
   ev=$(num_or_zero "$ev")
-  short=$(( rt < MIN_RUNTIME ? 1 : 0 ))
-  lowev=$(( ev < MIN_GL1_EVT ? 1 : 0 ))
-  flag="OK"
-  if (( short==1 && lowev==0 )); then flag="SHORT";        ((rej_short+=1));  fi
-  if (( short==0 && lowev==1 )); then flag="LOWEVT";       ((rej_lowevt+=1)); fi
-  if (( short==1 && lowev==1 )); then flag="SHORT+LOWEVT"; ((rej_both+=1));   fi
-  ROWS+=("$run"$'\t'"$rt"$'\t'"$ev"$'\t'"$flag")
+  ROWS+=("$run"$'\t'"$rt"$'\t'"$ev"$'\t'"DIRECT")
   tot_rt_all=$(( tot_rt_all + rt ))
   tot_ev_all=$(( tot_ev_all + ev ))
-  (( rt >= MIN_RUNTIME )) && RUNS_TIME_OK+=("$run")
-  (( ev >= MIN_GL1_EVT )) && RUNS_EVENT_OK+=("$run")
-  (( idx % 200 == 0 )) && say "  RUNTIME/GL1 progress: $idx / $TOTAL_STAGE1_RUNS (time-ok: ${#RUNS_TIME_OK[@]}, evt-ok: ${#RUNS_EVENT_OK[@]})"
+  (( idx % 200 == 0 )) && say "  Runtime/GL1 bookkeeping progress: $idx / $TOTAL_STAGE1_RUNS"
 done
-say "  Stage 4 count (Runtime ≥ ${MIN_RUNTIME}s): ${#RUNS_TIME_OK[@]}"
-say "  Stage 5 count (GL1 .evt ≥ ${MIN_GL1_EVT}): ${#RUNS_EVENT_OK[@]}"
 
 # ---------- Utility: sum events/runtime over a run list ----------
 _sum_ev_rt_over() {
@@ -262,152 +179,15 @@ _sum_ev_rt_over() {
   printf '%s\t%s\n' "$sum_ev" "$sum_rt"
 }
 
-# ---------- Build per-stage vectors (PROGRESSIVE gates) ----------
+# ---------- All stages mirror the provided personal manifest ----------
 STAGE1_LIST=("${RUNS_ALL[@]}")
-STAGE2_LIST=("${RUNS_MAGNET_ON[@]}")
-
-# Stage 3 should be magnet∩caloQA (not caloQA alone)
-declare -A Mset Cset
-for r in "${RUNS_MAGNET_ON[@]}";   do Mset["$r"]=1; done
-for r in "${RUNS_CALO_GOLDEN[@]}"; do Cset["$r"]=1; done
-
-STAGE3_LIST=()
-for r in "${RUNS_ALL[@]}"; do
-  if [[ -n "${Mset[$r]:-}" && -n "${Cset[$r]:-}" ]]; then
-    STAGE3_LIST+=("$r")
-  fi
-done
-
-# Stage 4/5 should be applied after Stage 3 (not globally)
-declare -A Tset Eset
-for r in "${RUNS_TIME_OK[@]}";   do Tset["$r"]=1; done
-for r in "${RUNS_EVENT_OK[@]}";  do Eset["$r"]=1; done
-
-STAGE4_LIST=()
-for r in "${STAGE3_LIST[@]}"; do
-  if [[ -n "${Tset[$r]:-}" ]]; then
-    STAGE4_LIST+=("$r")
-  fi
-done
-
-STAGE5_LIST=()
-for r in "${STAGE4_LIST[@]}"; do
-  if [[ -n "${Eset[$r]:-}" ]]; then
-    STAGE5_LIST+=("$r")
-  fi
-done
-
-# Final GOLDEN starts as Stage 5, then optional gates refine RUNS_GOLDEN_FINAL
-RUNS_GOLDEN_FINAL=("${STAGE5_LIST[@]}")
-
-# ---------- Stage 6 (optional): Bad-tower map availability (CEMC) ----------
+STAGE2_LIST=("${RUNS_ALL[@]}")
+STAGE3_LIST=("${RUNS_ALL[@]}")
+STAGE4_LIST=("${RUNS_ALL[@]}")
+STAGE5_LIST=("${RUNS_ALL[@]}")
+RUNS_GOLDEN_FINAL=("${RUNS_ALL[@]}")
 RUNS_MISSING_MAPS=()
-if $REMOVE_BAD_TOWER_MAPS; then
-  CDB_DIR="/cvmfs/sphenix.sdcc.bnl.gov/calibrations/sphnxpro/cdb/CEMC_BadTowerMap"
-  say "Checking availability of CEMC bad-tower maps (CDB)…"
-  say "CDB directory: ${BOLD}${CDB_DIR}${RESET}"
-
-  MAP_FILE_COUNT=$(find "$CDB_DIR" -type f 2>/dev/null | wc -l | tr -d ' ')
-  say "Total files under CDB dir: ${BOLD}${MAP_FILE_COUNT}${RESET}"
-
-  say "Sampling first 30 CDB files and extracted run ids:"
-  mapfile -t _MAP_FILES_SAMPLE < <(find "$CDB_DIR" -type f 2>/dev/null | head -n 30)
-  idx=0
-  for f in "${_MAP_FILES_SAMPLE[@]}"; do
-    ((idx+=1))
-    rid=$(echo "$f" | sed -E 's#.*[^0-9]([0-9]{5,8})[^0-9]*$#\1#')
-    printf "    [%02d] %s -> runid=%s\n" "$idx" "$f" "${rid:-N/A}"
-  done
-
-  mapfile -t _MAP_RUNS < <(
-    find "$CDB_DIR" -type f 2>/dev/null \
-    | sed -E 's#.*[^0-9]([0-9]{5,8})[^0-9]*$#\1#' \
-    | awk '{ printf "%d\n", $1 }' \
-    | sort -u
-  )
-
-  say "Unique run-ids extracted from CDB: ${BOLD}${#_MAP_RUNS[@]}${RESET}"
-
-  printf '%s\n' "${_MAP_RUNS[@]}"                 > "${OUT_DIR}/debug_map_runids.txt"
-  printf '%s\n' "${RUNS_GOLDEN_FINAL[@]}"         > "${OUT_DIR}/debug_golden_before_mapgate.txt"
-
-  if ((${#_MAP_RUNS[@]})); then
-    say "CDB run-ids (first 20): $(printf '%s ' "${_MAP_RUNS[@]:0:20}")"
-    tail_start=$(( ${#_MAP_RUNS[@]} > 20 ? ${#_MAP_RUNS[@]}-20 : 0 ))
-    say "CDB run-ids (last 20):  $(printf '%s ' "${_MAP_RUNS[@]:$tail_start}")"
-  fi
-
-  declare -A MAPSET
-  for r in "${_MAP_RUNS[@]}"; do MAPSET["$r"]=1; done
-
-  RUNS_WITH_MAP=()
-  RUNS_GOLDEN_FINAL_BEFORE_MAP=("${RUNS_GOLDEN_FINAL[@]}")
-  for r in "${RUNS_GOLDEN_FINAL[@]}"; do
-    if [[ -n "${MAPSET[$r]:-}" ]]; then
-      RUNS_WITH_MAP+=("$r")
-    else
-      RUNS_MISSING_MAPS+=("$r")
-    fi
-  done
-  RUNS_GOLDEN_FINAL=("${RUNS_WITH_MAP[@]}")
-
-  printf '%s\n' "${RUNS_GOLDEN_FINAL_BEFORE_MAP[@]}" > "${OUT_DIR}/debug_golden_before_mapgate_dup.txt"
-  printf '%s\n' "${RUNS_GOLDEN_FINAL[@]}"            > "${OUT_DIR}/debug_golden_after_mapgate.txt"
-  printf '%s\n' "${RUNS_MISSING_MAPS[@]}"            > "${OUT_DIR}/debug_missing_map_runs.txt"
-
-  say "Map-gate summary:"
-  say "  Golden runs before map gate : ${BOLD}${#RUNS_GOLDEN_FINAL_BEFORE_MAP[@]}${RESET}"
-  say "  Golden runs WITH maps       : ${BOLD}${#RUNS_GOLDEN_FINAL[@]}${RESET}"
-  say "  Golden runs MISSING maps    : ${BOLD}${#RUNS_MISSING_MAPS[@]}${RESET}"
-
-  if ((${#RUNS_GOLDEN_FINAL[@]})); then
-    say "  Sample WITH maps (first 20): $(printf '%08d ' "${RUNS_GOLDEN_FINAL[@]:0:20}")"
-  else
-    warn "  No runs passed the map gate (WITH maps = 0)."
-  fi
-  if ((${#RUNS_MISSING_MAPS[@]})); then
-    say "  Sample MISSING maps (first 20): $(printf '%08d ' "${RUNS_MISSING_MAPS[@]:0:20}")"
-  fi
-
-  say "Directory listing sample from CDB (depth 2, first 40 entries):"
-  find "$CDB_DIR" -maxdepth 2 -type f 2>/dev/null | head -n 40 | sed 's/^/    /'
-
-  # Note about normalization
-  say "Note: run-id normalization uses integer conversion (drops leading zeros)."
-
-  # Record Stage 6 scalars (post-map gate)
-  s6_runs=${#RUNS_GOLDEN_FINAL[@]}
-  read s6_ev s6_rt < <(_sum_ev_rt_over RUNS_GOLDEN_FINAL)
-fi
-
-# ---------- Stage 7 (optional): Require trigger active (scaledown != -1) ----------
 RUNS_MISSING_TRIG=()
-if $FILTER_TRIGGER; then
-  say "Applying trigger gate: ${BOLD}${TRIG_NAME_DB}${RESET}  (bit=${TRIG_BIT}, scaledown != -1)"
-  RUNS_GOLDEN_FINAL_BEFORE_TRIG=("${RUNS_GOLDEN_FINAL[@]}")
-  RUNS_WITH_TRIG=()
-  for r in "${RUNS_GOLDEN_FINAL[@]}"; do
-    val=$(sql "SELECT scaledown${TRIG_BIT} FROM gl1_scaledown WHERE runnumber=${r};" | tr -d '[:space:]')
-    # treat empty as disabled
-    if [[ -n "$val" && "$val" != "-1" ]]; then
-      RUNS_WITH_TRIG+=("$r")
-    else
-      RUNS_MISSING_TRIG+=("$r")
-    fi
-  done
-  RUNS_GOLDEN_FINAL=("${RUNS_WITH_TRIG[@]}")
-
-  # Record Stage 7 scalars (post-trigger gate)
-  s7_runs=${#RUNS_GOLDEN_FINAL[@]}
-  read s7_ev s7_rt < <(_sum_ev_rt_over RUNS_GOLDEN_FINAL)
-
-  printf '%s\n' "${RUNS_MISSING_TRIG[@]}" > "${OUT_DIR}/runs_missing_${TRIG_KEY}.txt"
-  say "Trigger gate summary:"
-  say "  Golden runs WITH ${TRIG_KEY} : ${BOLD}${#RUNS_GOLDEN_FINAL[@]}${RESET}"
-  say "  Golden runs MISSING trigger  : ${BOLD}${#RUNS_MISSING_TRIG[@]}${RESET}"
-fi
-
-
 
 # ---------- Per-stage scalars ----------
 s1_runs=${#STAGE1_LIST[@]}; read s1_ev s1_rt < <(printf '%s\t%s\n' "$tot_ev_all" "$tot_rt_all")
@@ -415,22 +195,14 @@ s2_runs=${#STAGE2_LIST[@]}; read s2_ev s2_rt < <(_sum_ev_rt_over STAGE2_LIST)
 s3_runs=${#STAGE3_LIST[@]}; read s3_ev s3_rt < <(_sum_ev_rt_over STAGE3_LIST)
 s4_runs=${#STAGE4_LIST[@]}; read s4_ev s4_rt < <(_sum_ev_rt_over STAGE4_LIST)
 s5_runs=${#STAGE5_LIST[@]}; read s5_ev s5_rt < <(_sum_ev_rt_over STAGE5_LIST)
+s6_runs=$s5_runs
+s6_ev=$s5_ev
+s6_rt=$s5_rt
+s7_runs=$s6_runs
+s7_ev=$s6_ev
+s7_rt=$s6_rt
 
-# Ensure Stage 6 exists: if maps gate was not applied, Stage 6 = Stage 5
-if ! $REMOVE_BAD_TOWER_MAPS; then
-  s6_runs=$s5_runs
-  s6_ev=$s5_ev
-  s6_rt=$s5_rt
-fi
-
-# Ensure Stage 7 exists: if trigger gate was not applied, Stage 7 = Stage 6
-if ! $FILTER_TRIGGER; then
-  s7_runs=$s6_runs
-  s7_ev=$s6_ev
-  s7_rt=$s6_rt
-fi
-
-# Final “gold” must reflect the actual RUNS_GOLDEN_FINAL list (after optional gates)
+# Final “gold” is exactly the provided personal manifest
 gold_runs=${#RUNS_GOLDEN_FINAL[@]}
 read gold_ev gold_rt < <(_sum_ev_rt_over RUNS_GOLDEN_FINAL)
 
