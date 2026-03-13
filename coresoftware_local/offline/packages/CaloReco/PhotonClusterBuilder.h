@@ -51,6 +51,10 @@ class PhotonClusterBuilder : public SubsysReco
     bool get_use_vz_cut() const { return m_use_vz_cut; }
     float get_vz_cut_cm() const { return m_vz_cut_cm; }
 
+    void set_emc_tower_node(const std::string& n) { m_emc_tower_node = n; }
+    void set_ihcal_tower_node(const std::string& n) { m_ihcal_tower_node = n; }
+    void set_ohcal_tower_node(const std::string& n) { m_ohcal_tower_node = n; }
+
     // Au+Au mode: use UE-subtracted tower nodes for isolation cone sums
     void set_is_auau(bool isAuAu) { m_is_auau = isAuAu; }
     bool get_is_auau() const { return m_is_auau; }
@@ -70,32 +74,35 @@ class PhotonClusterBuilder : public SubsysReco
   float calculate_layer_et(float seed_eta, float seed_phi, float radius, TowerInfoContainer* towerContainer, RawTowerGeomContainer* geomContainer, RawTowerDefs::CalorimeterId calo_id, float vertex_z);
   bool m_do_bdt{false};
 
-  std::string m_input_cluster_node{"CLUSTERINFO_CEMC"};
-  std::string m_output_photon_node{"PHOTONCLUSTER_CEMC"};
-  float m_min_cluster_et{8.0f};
-  float m_shape_min_tower_E{0.070f};
-  std::string m_bdt_model_file{"myBDT_5.root"};
-    std::vector<std::string> m_bdt_feature_list;
-    float m_vertex{std::numeric_limits<float>::quiet_NaN()};
-    bool m_use_vz_cut{true};
-    float m_vz_cut_cm{30.0f};
+    std::string m_input_cluster_node{"CLUSTERINFO_CEMC"};
+    std::string m_output_photon_node{"PHOTONCLUSTER_CEMC"};
+    float m_min_cluster_et{8.0f};
+    float m_shape_min_tower_E{0.070f};
+    std::string m_bdt_model_file{"myBDT_5.root"};
+      std::vector<std::string> m_bdt_feature_list;
+      float m_vertex{std::numeric_limits<float>::quiet_NaN()};
+      bool m_use_vz_cut{true};
+      float m_vz_cut_cm{30.0f};
 
-    RawClusterContainer* m_rawclusters{nullptr};
-  RawClusterContainer* m_photon_container{nullptr};
-  TowerInfoContainer* m_emc_tower_container{nullptr};
-  RawTowerGeomContainer* m_geomEM{nullptr};
-  TowerInfoContainer* m_ihcal_tower_container{nullptr};
-  RawTowerGeomContainer* m_geomIH{nullptr};
-  TowerInfoContainer* m_ohcal_tower_container{nullptr};
-  RawTowerGeomContainer* m_geomOH{nullptr};
+      RawClusterContainer* m_rawclusters{nullptr};
+    RawClusterContainer* m_photon_container{nullptr};
+    std::string m_emc_tower_node{"TOWERINFO_CALIB_CEMC"};
+    TowerInfoContainer* m_emc_tower_container{nullptr};
+    RawTowerGeomContainer* m_geomEM{nullptr};
+    std::string m_ihcal_tower_node{"TOWERINFO_CALIB_HCALIN"};
+    TowerInfoContainer* m_ihcal_tower_container{nullptr};
+    RawTowerGeomContainer* m_geomIH{nullptr};
+    std::string m_ohcal_tower_node{"TOWERINFO_CALIB_HCALOUT"};
+    TowerInfoContainer* m_ohcal_tower_container{nullptr};
+    RawTowerGeomContainer* m_geomOH{nullptr};
 
-  // Au+Au UE-subtracted tower nodes (used ONLY for isolation sums)
-  bool m_is_auau{false};
-  std::string m_tower_node_prefix{"TOWERINFO_CALIB"};
-  TowerInfoContainer* m_emc_tower_container_iso{nullptr};
-  RawTowerGeomContainer* m_geomEM_iso{nullptr};  // retowered CEMC uses HCALIN geometry
-  TowerInfoContainer* m_ihcal_tower_container_iso{nullptr};
-  TowerInfoContainer* m_ohcal_tower_container_iso{nullptr};
+    // Au+Au UE-subtracted tower nodes (used ONLY for isolation sums)
+    bool m_is_auau{false};
+    std::string m_tower_node_prefix{"TOWERINFO_CALIB"};
+    TowerInfoContainer* m_emc_tower_container_iso{nullptr};
+    RawTowerGeomContainer* m_geomEM_iso{nullptr};  // retowered CEMC uses HCALIN geometry
+    TowerInfoContainer* m_ihcal_tower_container_iso{nullptr};
+    TowerInfoContainer* m_ohcal_tower_container_iso{nullptr};
 
   std::unique_ptr<TMVA::Experimental::RBDT> m_bdt;
 };

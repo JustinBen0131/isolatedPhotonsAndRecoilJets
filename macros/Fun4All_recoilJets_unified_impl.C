@@ -2275,101 +2275,101 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 
   if (cfg.clusterUEpipeline && isAuAuData)
   {
-      const std::string nativeCemcNode = towerPrefixPCB + "_CEMC_NATIVE_SUB1";
-      const std::string nativeClusterNode = "CLUSTERINFO_CEMC_NATIVE_SUB1";
+        const std::string nativeCemcNode = towerPrefixPCB + "_CEMC_NATIVE_SUB1";
+        const std::string nativeClusterNode = "CLUSTERINFO_CEMC_NATIVE_SUB1";
 
-      int nativeUEV = 0;
-      if (const char* env = std::getenv("RJ_HIUE_VERBOSITY")) nativeUEV = std::atoi(env);
+        int nativeUEV = 0;
+        if (const char* env = std::getenv("RJ_HIUE_VERBOSITY")) nativeUEV = std::atoi(env);
 
-      auto* nativeSub = new NativeCEMCUESubtractor("NativeCEMCUESubtractor",
-                                                   towerPrefixPCB + "_CEMC",
-                                                   nativeCemcNode,
-                                                   "TowerInfoBackground_Sub2");
-      nativeSub->SetFlowModulation(false);
-      nativeSub->Verbosity(nativeUEV);
-      se->registerSubsystem(nativeSub);
+        auto* nativeSub = new NativeCEMCUESubtractor("NativeCEMCUESubtractor",
+                                                     towerPrefixPCB + "_CEMC",
+                                                     nativeCemcNode,
+                                                     "TowerInfoBackground_Sub2");
+        nativeSub->SetFlowModulation(false);
+        nativeSub->Verbosity(nativeUEV);
+        se->registerSubsystem(nativeSub);
 
-      auto* nativeClusterBuilder = new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate_NativeSub1");
-      nativeClusterBuilder->Detector("CEMC");
-      nativeClusterBuilder->set_threshold_energy(0.070);
+        auto* nativeClusterBuilder = new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate_NativeSub1");
+        nativeClusterBuilder->Detector("CEMC");
+        nativeClusterBuilder->set_threshold_energy(0.070);
 
-      const char* calibroot = std::getenv("CALIBRATIONROOT");
-      if (calibroot && std::string(calibroot).size())
-      {
-        std::string emc_prof = std::string(calibroot) + "/EmcProfile/CEMCprof_Thresh30MeV.root";
-        nativeClusterBuilder->LoadProfile(emc_prof);
-        if (vlevel > 0) std::cout << "[clusterUEpipeline] Native cluster builder LoadProfile: " << emc_prof << "\n";
+        const char* calibroot = std::getenv("CALIBRATIONROOT");
+        if (calibroot && std::string(calibroot).size())
+        {
+          std::string emc_prof = std::string(calibroot) + "/EmcProfile/CEMCprof_Thresh30MeV.root";
+          nativeClusterBuilder->LoadProfile(emc_prof);
+          if (vlevel > 0) std::cout << "[clusterUEpipeline] Native cluster builder LoadProfile: " << emc_prof << "\n";
+        }
+        else
+        {
+          if (vlevel > 0) std::cout << "[clusterUEpipeline][WARN] CALIBRATIONROOT not set; native cluster profile not loaded\n";
+        }
+
+        nativeClusterBuilder->set_UseTowerInfo(1);
+        nativeClusterBuilder->set_UseAltZVertex(1);
+        nativeClusterBuilder->setInputTowerNodeName(nativeCemcNode);
+        nativeClusterBuilder->setOutputClusterNodeName(nativeClusterNode);
+        se->registerSubsystem(nativeClusterBuilder);
+
+        auto* rebaseCEMC = new TowerInfoCanonicalRebaser("TowerInfoCanonicalRebaser_CEMC",
+                                                         nativeCemcNode,
+                                                         towerPrefixPCB + "_CEMC");
+        rebaseCEMC->Verbosity(0);
+        se->registerSubsystem(rebaseCEMC);
+
+        auto* rebaseHCALIN = new TowerInfoCanonicalRebaser("TowerInfoCanonicalRebaser_HCALIN",
+                                                           towerPrefixPCB + "_HCALIN_SUB1",
+                                                           towerPrefixPCB + "_HCALIN");
+        rebaseHCALIN->Verbosity(0);
+        se->registerSubsystem(rebaseHCALIN);
+
+        auto* rebaseHCALOUT = new TowerInfoCanonicalRebaser("TowerInfoCanonicalRebaser_HCALOUT",
+                                                            towerPrefixPCB + "_HCALOUT_SUB1",
+                                                            towerPrefixPCB + "_HCALOUT");
+        rebaseHCALOUT->Verbosity(0);
+        se->registerSubsystem(rebaseHCALOUT);
+
+        photonInputClusterNode = nativeClusterNode;
+        photonBuilderIsAuAu = false;
+
+        if (vlevel > 0)
+        {
+          std::cout << "[clusterUEpipeline] enabled for AuAu"
+                    << " | nativeCemcNode=" << nativeCemcNode
+                    << " | nativeClusterNode=" << nativeClusterNode
+                    << " | PhotonClusterBuilder will read rebased canonical tower nodes"
+                    << std::endl;
+        }
       }
-      else
+
+      auto* photonBuilder = new PhotonClusterBuilder("PhotonClusterBuilder");
+      photonBuilder->set_input_cluster_node(photonInputClusterNode);
+      photonBuilder->set_output_photon_node("PHOTONCLUSTER_CEMC");
+
+      photonBuilder->set_use_vz_cut(cfg.use_vz_cut);
+      photonBuilder->set_vz_cut_cm(cfg.vz_cut_cm);
+
+      photonBuilder->set_is_auau(photonBuilderIsAuAu);
+      if (photonBuilderIsAuAu)
       {
-        if (vlevel > 0) std::cout << "[clusterUEpipeline][WARN] CALIBRATIONROOT not set; native cluster profile not loaded\n";
-      }
-
-      nativeClusterBuilder->set_UseTowerInfo(1);
-      nativeClusterBuilder->set_UseAltZVertex(1);
-      nativeClusterBuilder->setInputTowerNodeName(nativeCemcNode);
-      nativeClusterBuilder->setOutputClusterNodeName(nativeClusterNode);
-      se->registerSubsystem(nativeClusterBuilder);
-
-      auto* rebaseCEMC = new TowerInfoCanonicalRebaser("TowerInfoCanonicalRebaser_CEMC",
-                                                       nativeCemcNode,
-                                                       towerPrefixPCB + "_CEMC");
-      rebaseCEMC->Verbosity(0);
-      se->registerSubsystem(rebaseCEMC);
-
-      auto* rebaseHCALIN = new TowerInfoCanonicalRebaser("TowerInfoCanonicalRebaser_HCALIN",
-                                                         towerPrefixPCB + "_HCALIN_SUB1",
-                                                         towerPrefixPCB + "_HCALIN");
-      rebaseHCALIN->Verbosity(0);
-      se->registerSubsystem(rebaseHCALIN);
-
-      auto* rebaseHCALOUT = new TowerInfoCanonicalRebaser("TowerInfoCanonicalRebaser_HCALOUT",
-                                                          towerPrefixPCB + "_HCALOUT_SUB1",
-                                                          towerPrefixPCB + "_HCALOUT");
-      rebaseHCALOUT->Verbosity(0);
-      se->registerSubsystem(rebaseHCALOUT);
-
-      photonInputClusterNode = nativeClusterNode;
-      photonBuilderIsAuAu = false;
-
-      if (vlevel > 0)
-      {
-        std::cout << "[clusterUEpipeline] enabled for AuAu"
-                  << " | nativeCemcNode=" << nativeCemcNode
-                  << " | nativeClusterNode=" << nativeClusterNode
-                  << " | PhotonClusterBuilder will read rebased canonical tower nodes"
-                  << std::endl;
-      }
-    }
-
-    auto* photonBuilder = new PhotonClusterBuilder("PhotonClusterBuilder");
-    photonBuilder->set_input_cluster_node(photonInputClusterNode);
-    photonBuilder->set_output_photon_node("PHOTONCLUSTER_CEMC");
-
-    photonBuilder->set_use_vz_cut(cfg.use_vz_cut);
-    photonBuilder->set_vz_cut_cm(cfg.vz_cut_cm);
-
-    photonBuilder->set_is_auau(photonBuilderIsAuAu);
-    if (photonBuilderIsAuAu)
-    {
-      photonBuilder->set_tower_node_prefix(towerPrefixPCB);
+        photonBuilder->set_tower_node_prefix(towerPrefixPCB);
   }
 
   if (vlevel > 0)
   {
-      Dl_info pcbInfo{};
-      if (dladdr((void*)&typeid(PhotonClusterBuilder), &pcbInfo) && pcbInfo.dli_fname)
-        std::cout << "[DBG] PhotonClusterBuilder RTTI from: " << pcbInfo.dli_fname << "\n";
-      else
-        std::cout << "[DBG] PhotonClusterBuilder RTTI probe: dladdr failed\n";
+        Dl_info pcbInfo{};
+        if (dladdr((void*)&typeid(PhotonClusterBuilder), &pcbInfo) && pcbInfo.dli_fname)
+          std::cout << "[DBG] PhotonClusterBuilder RTTI from: " << pcbInfo.dli_fname << "\n";
+        else
+          std::cout << "[DBG] PhotonClusterBuilder RTTI probe: dladdr failed\n";
 
-      std::cout << "[DBG] PhotonClusterBuilder vzCut config: use="
-                << (cfg.use_vz_cut ? "true" : "false")
-                << " vz_cut_cm=" << cfg.vz_cut_cm
-                << " | isAuAuData=" << (isAuAuData ? "true" : "false")
-                << " | photonBuilderIsAuAu=" << (photonBuilderIsAuAu ? "true" : "false")
-                << " | clusterUEpipeline=" << (cfg.clusterUEpipeline ? "true" : "false")
-                << " | inputClusterNode=" << photonInputClusterNode << "\n";
+        std::cout << "[DBG] PhotonClusterBuilder vzCut config: use="
+                  << (cfg.use_vz_cut ? "true" : "false")
+                  << " vz_cut_cm=" << cfg.vz_cut_cm
+                  << " | isAuAuData=" << (isAuAuData ? "true" : "false")
+                  << " | photonBuilderIsAuAu=" << (photonBuilderIsAuAu ? "true" : "false")
+                  << " | clusterUEpipeline=" << (cfg.clusterUEpipeline ? "true" : "false")
+                  << " | inputClusterNode=" << photonInputClusterNode << "\n";
   }
 
   photonBuilder->Verbosity(vlevel);

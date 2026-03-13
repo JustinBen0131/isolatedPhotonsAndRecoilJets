@@ -70,63 +70,63 @@ int PhotonClusterBuilder::InitRun(PHCompositeNode* topNode)
     m_bdt = std::make_unique<TMVA::Experimental::RBDT>("myBDT", m_bdt_model_file);
   }
 
-  // locate input raw cluster container
-  m_rawclusters = findNode::getClass<RawClusterContainer>(topNode, m_input_cluster_node);
-  if (!m_rawclusters)
-  {
-    std::cerr << Name() << ": could not find RawClusterContainer node '" << m_input_cluster_node << "'" << std::endl;
-    return Fun4AllReturnCodes::ABORTRUN;
-  }
-
-  m_emc_tower_container = findNode::getClass<TowerInfoContainer>(topNode, "TOWERINFO_CALIB_CEMC");
-  if (!m_emc_tower_container)
-  {
-    std::cerr << Name() << ": could not find TowerInfoContainer node 'TOWERINFO_CALIB_CEMC'" << std::endl;
-    return Fun4AllReturnCodes::ABORTRUN;
-  }
-
-  m_geomEM = findNode::getClass<RawTowerGeomContainer>(topNode, "TOWERGEOM_CEMC");
-  if (!m_geomEM)
+    // locate input raw cluster container
+    m_rawclusters = findNode::getClass<RawClusterContainer>(topNode, m_input_cluster_node);
+    if (!m_rawclusters)
     {
-      m_geomEM = findNode::getClass<RawTowerGeomContainer>(topNode, "TOWERGEOM_CEMC_DETAILED");
+      std::cerr << Name() << ": could not find RawClusterContainer node '" << m_input_cluster_node << "'" << std::endl;
+      return Fun4AllReturnCodes::ABORTRUN;
     }
 
+    m_emc_tower_container = findNode::getClass<TowerInfoContainer>(topNode, m_emc_tower_node);
+    if (!m_emc_tower_container)
+    {
+      std::cerr << Name() << ": could not find TowerInfoContainer node '" << m_emc_tower_node << "'" << std::endl;
+      return Fun4AllReturnCodes::ABORTRUN;
+    }
+
+    m_geomEM = findNode::getClass<RawTowerGeomContainer>(topNode, "TOWERGEOM_CEMC");
     if (!m_geomEM)
+      {
+        m_geomEM = findNode::getClass<RawTowerGeomContainer>(topNode, "TOWERGEOM_CEMC_DETAILED");
+      }
+
+      if (!m_geomEM)
+      {
+        std::cerr << Name()
+                  << ": could not find RawTowerGeomContainer node 'TOWERGEOM_CEMC' "
+                  << "(or fallback 'TOWERGEOM_CEMC_DETAILED')"
+                  << std::endl;
+        return Fun4AllReturnCodes::ABORTRUN;
+    }
+
+    m_ihcal_tower_container = findNode::getClass<TowerInfoContainer>(topNode, m_ihcal_tower_node);
+    if (!m_ihcal_tower_container)
     {
-      std::cerr << Name()
-                << ": could not find RawTowerGeomContainer node 'TOWERGEOM_CEMC' "
-                << "(or fallback 'TOWERGEOM_CEMC_DETAILED')"
-                << std::endl;
+      std::cerr << Name() << ": could not find TowerInfoContainer node '" << m_ihcal_tower_node << "'" << std::endl;
       return Fun4AllReturnCodes::ABORTRUN;
-  }
+    }
 
-  m_ihcal_tower_container = findNode::getClass<TowerInfoContainer>(topNode, "TOWERINFO_CALIB_HCALIN");
-  if (!m_ihcal_tower_container)
-  {
-    std::cerr << Name() << ": could not find TowerInfoContainer node 'TOWERINFO_CALIB_HCALIN'" << std::endl;
-    return Fun4AllReturnCodes::ABORTRUN;
-  }
-
-  m_geomIH = findNode::getClass<RawTowerGeomContainer>(topNode, "TOWERGEOM_HCALIN");
-  if (!m_geomIH)
-  {
-    std::cerr << Name() << ": could not find RawTowerGeomContainer node 'TOWERGEOM_HCALIN'" << std::endl;
-    return Fun4AllReturnCodes::ABORTRUN;
-  }
-
-  m_ohcal_tower_container = findNode::getClass<TowerInfoContainer>(topNode, "TOWERINFO_CALIB_HCALOUT");
-  if (!m_ohcal_tower_container)
-  {
-    std::cerr << Name() << ": could not find TowerInfoContainer node 'TOWERINFO_CALIB_HCALOUT'" << std::endl;
-    return Fun4AllReturnCodes::ABORTRUN;
-  }
-
-  m_geomOH = findNode::getClass<RawTowerGeomContainer>(topNode, "TOWERGEOM_HCALOUT");
-  if (!m_geomOH)
+    m_geomIH = findNode::getClass<RawTowerGeomContainer>(topNode, "TOWERGEOM_HCALIN");
+    if (!m_geomIH)
     {
-      std::cerr << Name() << ": could not find RawTowerGeomContainer node 'TOWERGEOM_HCALOUT'" << std::endl;
+      std::cerr << Name() << ": could not find RawTowerGeomContainer node 'TOWERGEOM_HCALIN'" << std::endl;
       return Fun4AllReturnCodes::ABORTRUN;
-  }
+    }
+
+    m_ohcal_tower_container = findNode::getClass<TowerInfoContainer>(topNode, m_ohcal_tower_node);
+    if (!m_ohcal_tower_container)
+    {
+      std::cerr << Name() << ": could not find TowerInfoContainer node '" << m_ohcal_tower_node << "'" << std::endl;
+      return Fun4AllReturnCodes::ABORTRUN;
+    }
+
+    m_geomOH = findNode::getClass<RawTowerGeomContainer>(topNode, "TOWERGEOM_HCALOUT");
+    if (!m_geomOH)
+      {
+        std::cerr << Name() << ": could not find RawTowerGeomContainer node 'TOWERGEOM_HCALOUT'" << std::endl;
+        return Fun4AllReturnCodes::ABORTRUN;
+    }
 
     // ------------------------------------------------------------
     // Optional: Au+Au UE-subtracted isolation (cone ET sums)
