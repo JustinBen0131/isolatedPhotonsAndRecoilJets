@@ -34,21 +34,21 @@ TStyle* sPhenixStyle()
   sphenixStyle->SetStatColor(icol);
   //sphenixStyle->SetFillColor(icol); // don't use: white fill color for *all* objects
 
-  // set the paper & margin sizes
-  sphenixStyle->SetPaperSize(20,26);
+    // set the paper & margin sizes
+    sphenixStyle->SetPaperSize(20,26);
 
-    // set margin sizes
-    sphenixStyle->SetPadTopMargin(0.06);
-    sphenixStyle->SetPadRightMargin(0.10);
-    sphenixStyle->SetPadBottomMargin(0.18);
-    sphenixStyle->SetPadLeftMargin(0.18);
+      // set margin sizes
+      sphenixStyle->SetPadTopMargin(0.06);
+      sphenixStyle->SetPadRightMargin(0.10);
+      sphenixStyle->SetPadBottomMargin(0.18);
+      sphenixStyle->SetPadLeftMargin(0.18);
 
-    // set title offsets (for axis label)
-    sphenixStyle->SetTitleXOffset(1.15);
-    sphenixStyle->SetTitleYOffset(1.65);
-    sphenixStyle->SetTitleOffset(1.15,"x");
-    sphenixStyle->SetTitleOffset(1.65,"y");
-    sphenixStyle->SetTitleOffset(1.35,"z");
+      // set title offsets (for axis label)
+      sphenixStyle->SetTitleXOffset(0.95);
+      sphenixStyle->SetTitleYOffset(1.20);
+      sphenixStyle->SetTitleOffset(0.95,"x");
+      sphenixStyle->SetTitleOffset(1.20,"y");
+      sphenixStyle->SetTitleOffset(1.15,"z");
 
   // use large fonts
   //Int_t font=72; // Helvetica italics

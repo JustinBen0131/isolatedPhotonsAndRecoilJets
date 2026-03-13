@@ -1600,56 +1600,68 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
   }
   else if (!isSim && caloInputMode == "calofitting")
   {
-    if (vlevel > 0)
+    if (isAuAuRequested)
     {
-      std::cout << "[DATA] Skipping Process_Calo_Calib() "
-                   "(CALOFITTING DST → re-calibrating towers & rebuilding clusters)\n";
-      std::cout << "[DATA] Running CaloTowerCalib: inputPrefix=TOWERS_ -> outputPrefix=TOWERINFO_CALIB_\n";
-    }
-
-    CaloTowerCalib* calibEMC = new CaloTowerCalib("CaloTowerCalib_CEMC_fromTOWERS");
-    calibEMC->set_detector_type(CaloTowerDefs::CEMC);
-    calibEMC->set_inputNodePrefix("TOWERS_");
-    calibEMC->set_outputNodePrefix("TOWERINFO_CALIB_");
-    calibEMC->set_doCalibOnly(true);
-    se->registerSubsystem(calibEMC);
-
-    CaloTowerCalib* calibIHCal = new CaloTowerCalib("CaloTowerCalib_HCALIN_fromTOWERS");
-    calibIHCal->set_detector_type(CaloTowerDefs::HCALIN);
-    calibIHCal->set_inputNodePrefix("TOWERS_");
-    calibIHCal->set_outputNodePrefix("TOWERINFO_CALIB_");
-    calibIHCal->set_doCalibOnly(true);
-    se->registerSubsystem(calibIHCal);
-
-    CaloTowerCalib* calibOHCal = new CaloTowerCalib("CaloTowerCalib_HCALOUT_fromTOWERS");
-    calibOHCal->set_detector_type(CaloTowerDefs::HCALOUT);
-    calibOHCal->set_inputNodePrefix("TOWERS_");
-    calibOHCal->set_outputNodePrefix("TOWERINFO_CALIB_");
-    calibOHCal->set_doCalibOnly(true);
-    se->registerSubsystem(calibOHCal);
-
-    if (vlevel > 0) std::cout << "[DATA] Building clusters: RawClusterBuilderTemplate -> CLUSTERINFO_CEMC\n";
-
-    RawClusterBuilderTemplate* ClusterBuilder =
-        new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate");
-    ClusterBuilder->Detector("CEMC");
-    ClusterBuilder->set_threshold_energy(0.070);
-
-    const char* calibroot = std::getenv("CALIBRATIONROOT");
-    if (calibroot && std::string(calibroot).size())
-    {
-      std::string emc_prof = std::string(calibroot) + "/EmcProfile/CEMCprof_Thresh30MeV.root";
-      ClusterBuilder->LoadProfile(emc_prof);
-      if (vlevel > 0) std::cout << "[DATA] ClusterBuilder LoadProfile: " << emc_prof << "\n";
+      if (vlevel > 0)
+      {
+        std::cout << "[DATA][AuAu] running Process_Calo_Calib() on CALOFITTING input\n";
+        std::cout << "[DATA][AuAu] clusterUEpipeline may still apply native UE subtraction and reclusterization afterward\n";
+      }
+      Process_Calo_Calib();
     }
     else
     {
-      if (vlevel > 0) std::cout << "[DATA][WARN] CALIBRATIONROOT not set; cluster profile not loaded\n";
-    }
+      if (vlevel > 0)
+      {
+        std::cout << "[DATA] Skipping Process_Calo_Calib() "
+                     "(CALOFITTING DST → re-calibrating towers & rebuilding clusters)\n";
+        std::cout << "[DATA] Running CaloTowerCalib: inputPrefix=TOWERS_ -> outputPrefix=TOWERINFO_CALIB_\n";
+      }
 
-    ClusterBuilder->set_UseTowerInfo(1);
-    ClusterBuilder->set_UseAltZVertex(1);
-    se->registerSubsystem(ClusterBuilder);
+      CaloTowerCalib* calibEMC = new CaloTowerCalib("CaloTowerCalib_CEMC_fromTOWERS");
+      calibEMC->set_detector_type(CaloTowerDefs::CEMC);
+      calibEMC->set_inputNodePrefix("TOWERS_");
+      calibEMC->set_outputNodePrefix("TOWERINFO_CALIB_");
+      calibEMC->set_doCalibOnly(true);
+      se->registerSubsystem(calibEMC);
+
+      CaloTowerCalib* calibIHCal = new CaloTowerCalib("CaloTowerCalib_HCALIN_fromTOWERS");
+      calibIHCal->set_detector_type(CaloTowerDefs::HCALIN);
+      calibIHCal->set_inputNodePrefix("TOWERS_");
+      calibIHCal->set_outputNodePrefix("TOWERINFO_CALIB_");
+      calibIHCal->set_doCalibOnly(true);
+      se->registerSubsystem(calibIHCal);
+
+      CaloTowerCalib* calibOHCal = new CaloTowerCalib("CaloTowerCalib_HCALOUT_fromTOWERS");
+      calibOHCal->set_detector_type(CaloTowerDefs::HCALOUT);
+      calibOHCal->set_inputNodePrefix("TOWERS_");
+      calibOHCal->set_outputNodePrefix("TOWERINFO_CALIB_");
+      calibOHCal->set_doCalibOnly(true);
+      se->registerSubsystem(calibOHCal);
+
+      if (vlevel > 0) std::cout << "[DATA] Building clusters: RawClusterBuilderTemplate -> CLUSTERINFO_CEMC\n";
+
+      RawClusterBuilderTemplate* ClusterBuilder =
+          new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate");
+      ClusterBuilder->Detector("CEMC");
+      ClusterBuilder->set_threshold_energy(0.070);
+
+      const char* calibroot = std::getenv("CALIBRATIONROOT");
+      if (calibroot && std::string(calibroot).size())
+      {
+        std::string emc_prof = std::string(calibroot) + "/EmcProfile/CEMCprof_Thresh30MeV.root";
+        ClusterBuilder->LoadProfile(emc_prof);
+        if (vlevel > 0) std::cout << "[DATA] ClusterBuilder LoadProfile: " << emc_prof << "\n";
+      }
+      else
+      {
+        if (vlevel > 0) std::cout << "[DATA][WARN] CALIBRATIONROOT not set; cluster profile not loaded\n";
+      }
+
+      ClusterBuilder->set_UseTowerInfo(1);
+      ClusterBuilder->set_UseAltZVertex(1);
+      se->registerSubsystem(ClusterBuilder);
+    }
   }
   else
   {

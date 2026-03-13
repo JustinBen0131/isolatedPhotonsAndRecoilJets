@@ -1152,32 +1152,37 @@ namespace ARJ
   // =============================================================================
   // Style / plotting primitives
   // =============================================================================
-inline void SetupGlobalStyle()
-{
-  gStyle->SetOptStat(0);
-  gStyle->SetTitleBorderSize(0);
-  gStyle->SetTitleFillColor(0);
-  gStyle->SetPadLeftMargin(0.12);
-  gStyle->SetPadRightMargin(0.05);
-  gStyle->SetPadBottomMargin(0.12);
-  gStyle->SetPadTopMargin(0.08);
-  gStyle->SetLegendBorderSize(0);
-  gStyle->SetLegendFillColor(0);
-}
+  inline void SetupGlobalStyle()
+  {
+      gStyle->SetOptStat(0);
+      gStyle->SetTitleBorderSize(0);
+      gStyle->SetTitleFillColor(0);
+      gStyle->SetPadLeftMargin(0.16);
+      gStyle->SetPadRightMargin(0.05);
+      gStyle->SetPadBottomMargin(0.14);
+      gStyle->SetPadTopMargin(0.08);
+      gStyle->SetTitleXOffset(0.95);
+      gStyle->SetTitleYOffset(1.20);
+      gStyle->SetTitleOffset(0.95,"x");
+      gStyle->SetTitleOffset(1.20,"y");
+      gStyle->SetTitleOffset(1.15,"z");
+      gStyle->SetLegendBorderSize(0);
+      gStyle->SetLegendFillColor(0);
+  }
 
   inline void ApplyCanvasMargins1D(TCanvas& c)
   {
-    c.SetLeftMargin(0.12);
+    c.SetLeftMargin(0.16);
     c.SetRightMargin(0.05);
-    c.SetBottomMargin(0.12);
+    c.SetBottomMargin(0.14);
     c.SetTopMargin(0.08);
   }
 
   inline void ApplyCanvasMargins2D(TCanvas& c)
   {
-    c.SetLeftMargin(0.12);
+    c.SetLeftMargin(0.18);
     c.SetRightMargin(0.15);
-    c.SetBottomMargin(0.12);
+    c.SetBottomMargin(0.16);
     c.SetTopMargin(0.08);
   }
 

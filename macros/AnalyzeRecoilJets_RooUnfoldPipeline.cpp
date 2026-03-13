@@ -7148,131 +7148,129 @@
                 // -------------------------------------------------------------------
                 if (gAtlasPP)
                 {
-                  const double yHeadroomScale = 1.45;
-                  const auto& cfgDef = DefaultSim10and20Config();
-                  const double sphJetPtMin = cfgDef.jetMinPt;
-                  const string bbLabel = cfgDef.bbLabel;
-                  const double atlasJetPtMin = 31.6;
+                    const double yHeadroomScale = 1.30;
+                    const auto& cfgDef = DefaultSim10and20Config();
+                    const double sphJetPtMin = cfgDef.jetMinPt;
+                    const string bbLabel = cfgDef.bbLabel;
+                    const double atlasJetPtMin = 31.6;
 
-                  TCanvas cO(TString::Format("c_perPho_LHC_%s_%d", rKey.c_str(), i + 1).Data(), "c_perPho_LHC", 900, 700);
-                  ApplyCanvasMargins1D(cO);
-                  cO.SetLeftMargin(0.16);
-                  cO.SetRightMargin(0.05);
-                  cO.SetBottomMargin(0.14);
-                  cO.SetTopMargin(0.08);
+                    TCanvas cO(TString::Format("c_perPho_LHC_%s_%d", rKey.c_str(), i + 1).Data(), "c_perPho_LHC", 900, 700);
+                    ApplyCanvasMargins1D(cO);
+                    cO.SetLeftMargin(0.18);
+                    cO.SetRightMargin(0.05);
+                    cO.SetBottomMargin(0.16);
+                    cO.SetTopMargin(0.08);
 
-                  TH1* hTmp = (TH1*)hPerPho->Clone(TString::Format("hTmp_perPho_%s_%d", rKey.c_str(), i + 1).Data());
-                  if (hTmp)
-                  {
-                    hTmp->SetDirectory(nullptr);
-
-                    double maxY = 0.0;
-                    for (int ib = 1; ib <= hTmp->GetNbinsX(); ++ib)
+                    TH1* hTmp = (TH1*)hPerPho->Clone(TString::Format("hTmp_perPho_%s_%d", rKey.c_str(), i + 1).Data());
+                    if (hTmp)
                     {
-                      const double y  = hTmp->GetBinContent(ib);
-                      const double ey = hTmp->GetBinError(ib);
-                      const double v  = y + ey;
-                      if (v > maxY) maxY = v;
-                    }
+                      hTmp->SetDirectory(nullptr);
 
-                    for (int ip = 0; ip < gAtlasPP->GetN(); ++ip)
-                    {
-                      double x = 0.0, y = 0.0;
-                      gAtlasPP->GetPoint(ip, x, y);
-                      const double ey = gAtlasPP->GetErrorYhigh(ip);
-                      const double v  = y + ey;
-                      if (v > maxY) maxY = v;
-                    }
-
-                    hTmp->SetMinimum(0.0);
-                    hTmp->SetMaximum((maxY > 0.0) ? (yHeadroomScale * maxY) : 1.0);
-                    hTmp->GetXaxis()->SetRangeUser(0.0, 2.0);
-                    hTmp->GetXaxis()->CenterTitle();
-                    hTmp->GetYaxis()->CenterTitle();
-                    hTmp->GetXaxis()->SetTitleOffset(1.15);
-                    hTmp->GetYaxis()->SetTitleOffset(1.70);
-
-                    // Draw sPHENIX with horizontal error bars on the plot (TH1::Draw("E1") keeps x-errors)
-                    hTmp->Draw("E1");
-                    gAtlasPP->Draw("PZ same");
-
-                      // Legend icon for sPHENIX: vertical error bar only (EX=0, EY!=0)
-                      double lx = 0.0, ly = 0.0;
+                      double maxY = 0.0;
+                      for (int ib = 1; ib <= hTmp->GetNbinsX(); ++ib)
                       {
-                        int ib0 = -1;
-                        for (int ib = 1; ib <= hTmp->GetNbinsX(); ++ib)
-                        {
-                          if (hTmp->GetBinContent(ib) != 0.0 || hTmp->GetBinError(ib) != 0.0) { ib0 = ib; break; }
-                        }
-                        if (ib0 < 0) ib0 = 1;
-
-                        lx = hTmp->GetXaxis()->GetBinCenter(ib0);
-                        ly = hTmp->GetBinContent(ib0);
+                        const double y  = hTmp->GetBinContent(ib);
+                        const double ey = hTmp->GetBinError(ib);
+                        const double v  = y + ey;
+                        if (v > maxY) maxY = v;
                       }
-                      const double ley = hTmp->GetBinError(hTmp->GetXaxis()->FindBin(lx));
 
-                      TGraphErrors gSphLeg(1);
-                      gSphLeg.SetPoint(0, lx, ly);
-                      gSphLeg.SetPointError(0, 0.0, ley);
-                      gSphLeg.SetMarkerStyle(hTmp->GetMarkerStyle());
-                      gSphLeg.SetMarkerSize(hTmp->GetMarkerSize());
-                      gSphLeg.SetMarkerColor(hTmp->GetMarkerColor());
-                      gSphLeg.SetLineColor(hTmp->GetLineColor());
-                      gSphLeg.SetLineWidth(hTmp->GetLineWidth());
+                      for (int ip = 0; ip < gAtlasPP->GetN(); ++ip)
+                      {
+                        double x = 0.0, y = 0.0;
+                        gAtlasPP->GetPoint(ip, x, y);
+                        const double ey = gAtlasPP->GetErrorYhigh(ip);
+                        const double v  = y + ey;
+                        if (v > maxY) maxY = v;
+                      }
 
-                      TLegend extraLegend(0.18, 0.82, 0.46, 0.93);
-                      extraLegend.SetBorderSize(0);
-                      extraLegend.SetFillStyle(0);
-                      extraLegend.SetTextFont(42);
-                      extraLegend.SetTextSize(0.040);
-                      extraLegend.AddEntry((TObject*)nullptr, "#it{#bf{sPHENIX}} Internal", "");
-                      extraLegend.AddEntry((TObject*)nullptr, "p+p #sqrt{s} = 200 GeV", "");
-                      extraLegend.Draw();
+                      hTmp->SetMinimum(0.0);
+                      hTmp->SetMaximum((maxY > 0.0) ? (yHeadroomScale * maxY) : 1.0);
+                      hTmp->GetXaxis()->SetRangeUser(0.0, 2.0);
+                      hTmp->GetXaxis()->SetTitleOffset(0.95);
+                      hTmp->GetYaxis()->SetTitleOffset(1.10);
 
-                      TLegend leg(0.49,0.82,0.90,0.93);
-                      leg.SetBorderSize(0);
-                      leg.SetFillStyle(0);
-                      leg.SetTextFont(42);
-                      leg.SetTextSize(0.029);
-                      leg.AddEntry(&gSphLeg,
-                                     TString::Format("sPHENIX run24pp").Data(),
-                                     "pe");
-                      leg.AddEntry(gAtlasPP,
-                                     TString::Format("ATLAS Phys. Lett. B 789 (2019) 167").Data(),
-                                     "pe");
-                      leg.Draw();
+                      // Draw sPHENIX with horizontal error bars on the plot (TH1::Draw("E1") keeps x-errors)
+                      hTmp->Draw("E1");
+                      gAtlasPP->Draw("PZ same");
 
-                      TLatex txHdr;
-                      txHdr.SetNDC();
-                      txHdr.SetTextFont(42);
-                      txHdr.SetTextAlign(13);
-                      txHdr.SetTextSize(0.031);
-                      txHdr.SetTextColor(kBlack);
+                        // Legend icon for sPHENIX: vertical error bar only (EX=0, EY!=0)
+                        double lx = 0.0, ly = 0.0;
+                        {
+                          int ib0 = -1;
+                          for (int ib = 1; ib <= hTmp->GetNbinsX(); ++ib)
+                          {
+                            if (hTmp->GetBinContent(ib) != 0.0 || hTmp->GetBinError(ib) != 0.0) { ib0 = ib; break; }
+                          }
+                          if (ib0 < 0) ib0 = 1;
 
-                      TLatex tx;
-                      tx.SetNDC();
-                      tx.SetTextFont(42);
-                      tx.SetTextAlign(13);
-                      tx.SetTextSize(0.023);
-                      tx.SetTextColor(kBlack);
+                          lx = hTmp->GetXaxis()->GetBinCenter(ib0);
+                          ly = hTmp->GetBinContent(ib0);
+                        }
+                        const double ley = hTmp->GetBinError(hTmp->GetXaxis()->FindBin(lx));
 
-                      txHdr.DrawLatex(0.60, 0.60, "#it{#bf{sPHENIX}}");
-                      tx.DrawLatex(0.60, 0.56, "run24pp");
-                      tx.DrawLatex(0.60, 0.51, TString::Format("1D kBayes = %d", kBayesIterPho).Data());
-                      tx.DrawLatex(0.60, 0.46, TString::Format("2D kBayes = %d", kBayesIterXJ).Data());
-                      tx.DrawLatex(0.60, 0.41, TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
-                      tx.DrawLatex(0.60, 0.36, TString::Format("|#Delta#phi| > %s", bbLabel.c_str()).Data());
-                      tx.DrawLatex(0.60, 0.31, TString::Format("p_{T}^{jet} > %.0f GeV", sphJetPtMin).Data());
-                      tx.DrawLatex(0.60, 0.26, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+                        TGraphErrors gSphLeg(1);
+                        gSphLeg.SetPoint(0, lx, ly);
+                        gSphLeg.SetPointError(0, 0.0, ley);
+                        gSphLeg.SetMarkerStyle(hTmp->GetMarkerStyle());
+                        gSphLeg.SetMarkerSize(hTmp->GetMarkerSize());
+                        gSphLeg.SetMarkerColor(hTmp->GetMarkerColor());
+                        gSphLeg.SetLineColor(hTmp->GetLineColor());
+                        gSphLeg.SetLineWidth(hTmp->GetLineWidth());
 
-                      txHdr.DrawLatex(0.81, 0.60, "#bf{ATLAS}");
-                      tx.DrawLatex(0.81, 0.56, "pp #sqrt{s} = 5.02 TeV");
-                      tx.DrawLatex(0.81, 0.51, "kBayes = 2-4");
-                      tx.DrawLatex(0.81, 0.46, "|#eta^{#gamma}| < 2.37 (excl. 1.37-1.52)");
-                      tx.DrawLatex(0.81, 0.41, "|#eta^{jet}| < 2.8");
-                      tx.DrawLatex(0.81, 0.36, "|#Delta#phi| > 7#pi/8");
-                      tx.DrawLatex(0.81, 0.31, TString::Format("p_{T}^{jet} > %.1f GeV", atlasJetPtMin).Data());
-                      tx.DrawLatex(0.81, 0.26, TString::Format("p_{T}^{#gamma} = %s", kAtlasTable1PhoPtLabel.c_str()).Data());
+                        TLegend extraLegend(0.18, 0.82, 0.46, 0.93);
+                        extraLegend.SetBorderSize(0);
+                        extraLegend.SetFillStyle(0);
+                        extraLegend.SetTextFont(42);
+                        extraLegend.SetTextSize(0.040);
+                        extraLegend.AddEntry((TObject*)nullptr, "#it{#bf{sPHENIX}} Internal", "");
+                        extraLegend.AddEntry((TObject*)nullptr, "p+p #sqrt{s} = 200 GeV", "");
+                        extraLegend.Draw();
+
+                        TLegend leg(0.49,0.82,0.90,0.93);
+                        leg.SetBorderSize(0);
+                        leg.SetFillStyle(0);
+                        leg.SetTextFont(42);
+                        leg.SetTextSize(0.029);
+                        leg.AddEntry(&gSphLeg,
+                                       TString::Format("sPHENIX run24pp").Data(),
+                                       "pe");
+                        leg.AddEntry(gAtlasPP,
+                                       TString::Format("ATLAS Phys. Lett. B 789 (2019) 167").Data(),
+                                       "pe");
+                        leg.Draw();
+
+                        TLatex txHdr;
+                        txHdr.SetNDC();
+                        txHdr.SetTextFont(42);
+                        txHdr.SetTextAlign(13);
+                        txHdr.SetTextSize(0.031);
+                        txHdr.SetTextColor(kBlack);
+
+                        TLatex tx;
+                        tx.SetNDC();
+                        tx.SetTextFont(42);
+                        tx.SetTextAlign(13);
+                        tx.SetTextSize(0.023);
+                        tx.SetTextColor(kBlack);
+
+                        txHdr.DrawLatex(0.60, 0.65, "#it{#bf{sPHENIX}}");
+                        tx.DrawLatex(0.60, 0.61, "run24pp");
+                        tx.DrawLatex(0.60, 0.56, TString::Format("1D kBayes = %d", kBayesIterPho).Data());
+                        tx.DrawLatex(0.60, 0.51, TString::Format("2D kBayes = %d", kBayesIterXJ).Data());
+                        tx.DrawLatex(0.60, 0.46, TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
+                        tx.DrawLatex(0.60, 0.41, TString::Format("|#Delta#phi| > %s", bbLabel.c_str()).Data());
+                        tx.DrawLatex(0.60, 0.36, TString::Format("p_{T}^{jet} > %.0f GeV", sphJetPtMin).Data());
+                        tx.DrawLatex(0.60, 0.31, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+
+                        txHdr.DrawLatex(0.81, 0.65, "#bf{ATLAS}");
+                        tx.DrawLatex(0.81, 0.61, "pp #sqrt{s} = 5.02 TeV");
+                        tx.DrawLatex(0.81, 0.56, "kBayes = 2-4");
+                        tx.DrawLatex(0.81, 0.51, "|#eta^{#gamma}| < 2.37 (excl. 1.37-1.52)");
+                        tx.DrawLatex(0.81, 0.46, "|#eta^{jet}| < 2.8");
+                        tx.DrawLatex(0.81, 0.41, "|#Delta#phi| > 7#pi/8");
+                        tx.DrawLatex(0.81, 0.36, TString::Format("p_{T}^{jet} > %.1f GeV", atlasJetPtMin).Data());
+                        tx.DrawLatex(0.81, 0.31, TString::Format("p_{T}^{#gamma} = %s", kAtlasTable1PhoPtLabel.c_str()).Data());
 
                     SaveCanvas(cO, JoinPath(overlayOut, TString::Format("xJ_unfolded_perPhoton_LHCoverlay_pTbin%d.png", i + 1).Data()));
 
