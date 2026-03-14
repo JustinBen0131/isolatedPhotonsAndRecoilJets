@@ -1062,6 +1062,69 @@ void PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
   float E = photon->get_energy();
   float ET = E / std::cosh(cluster_eta);
 
+  const bool use_variant_a_iso = (m_emc_tower_node.find("_PHOSUB") != std::string::npos);
+
+  auto calculate_layer_iso_signed = [&](TowerInfoContainer* towerContainer,
+                                          RawTowerGeomContainer* geomContainer,
+                                          RawTowerDefs::CalorimeterId calo_id,
+                                          float radius,
+                                          float core_radius)
+    {
+      if (!towerContainer || !geomContainer)
+      {
+        return std::numeric_limits<float>::quiet_NaN();
+      }
+
+      float layer_et = 0.0f;
+      const unsigned int ntowers = towerContainer->size();
+      for (unsigned int channel = 0; channel < ntowers; ++channel)
+      {
+        TowerInfo* tower = towerContainer->get_tower_at_channel(channel);
+        if (!tower || !tower->get_isGood())
+        {
+          continue;
+        }
+
+        const unsigned int towerkey = towerContainer->encode_key(channel);
+        const int ieta = towerContainer->getTowerEtaBin(towerkey);
+        const int iphi = towerContainer->getTowerPhiBin(towerkey);
+
+        const RawTowerDefs::keytype geom_key = RawTowerDefs::encode_towerid(calo_id, ieta, iphi);
+        RawTowerGeom* tower_geom = geomContainer->get_tower_geometry(geom_key);
+        if (!tower_geom)
+        {
+          continue;
+        }
+
+        const double tower_eta = getTowerEta(tower_geom, 0, 0, m_vertex);
+        const double tower_phi = tower_geom->get_phi();
+        if (!std::isfinite(tower_eta) || !std::isfinite(tower_phi))
+        {
+          continue;
+        }
+
+        const double dr = deltaR(cluster_eta, cluster_phi, tower_eta, tower_phi);
+        if (dr >= radius)
+        {
+          continue;
+        }
+        if (core_radius > 0.0f && dr < core_radius)
+        {
+          continue;
+        }
+
+        const float energy = tower->get_energy();
+        if (!std::isfinite(energy))
+        {
+          continue;
+        }
+
+        layer_et += energy / std::cosh(tower_eta);
+      }
+
+      return layer_et;
+    };
+
     auto compute_layer_iso = [&](RawTowerDefs::CalorimeterId calo_id, float radius)
     {
       TowerInfoContainer* container = nullptr;
@@ -1070,7 +1133,7 @@ void PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
 
       if (calo_id == RawTowerDefs::CalorimeterId::CEMC)
       {
-        if (m_is_auau && m_emc_tower_container_iso && m_geomEM_iso)
+        if (!use_variant_a_iso && m_is_auau && m_emc_tower_container_iso && m_geomEM_iso)
         {
           container = m_emc_tower_container_iso;
           geom = m_geomEM_iso;
@@ -1084,7 +1147,7 @@ void PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
       }
       else if (calo_id == RawTowerDefs::CalorimeterId::HCALIN)
       {
-        if (m_is_auau && m_ihcal_tower_container_iso)
+        if (!use_variant_a_iso && m_is_auau && m_ihcal_tower_container_iso)
         {
           container = m_ihcal_tower_container_iso;
         }
@@ -1096,7 +1159,7 @@ void PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
       }
       else
       {
-        if (m_is_auau && m_ohcal_tower_container_iso)
+        if (!use_variant_a_iso && m_is_auau && m_ohcal_tower_container_iso)
         {
           container = m_ohcal_tower_container_iso;
         }
@@ -1105,6 +1168,13 @@ void PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
           container = m_ohcal_tower_container;
         }
         geom = m_geomOH;
+      }
+
+      if (use_variant_a_iso)
+      {
+        const float core_radius =
+            (calo_id == RawTowerDefs::CalorimeterId::CEMC && radius > 0.05f) ? 0.05f : 0.0f;
+        return calculate_layer_iso_signed(container, geom, geom_id, radius, core_radius);
       }
 
       return calculate_layer_et(cluster_eta, cluster_phi, radius, container, geom, geom_id, m_vertex);
@@ -1123,13 +1193,13 @@ void PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
   const float emcal_et_005 = compute_layer_iso(RawTowerDefs::CalorimeterId::CEMC, 0.05);
 
     // -----------------------------
-    // Build iso values (same as before)
+    // Build iso values
     // -----------------------------
-    const float iso_04_emcal  = emcal_et_04  - ET;
-    const float iso_03_emcal  = emcal_et_03  - ET;
-    const float iso_02_emcal  = emcal_et_02  - ET;
-    const float iso_01_emcal  = emcal_et_01  - ET;
-    const float iso_005_emcal = emcal_et_005 - ET;
+    const float iso_04_emcal  = use_variant_a_iso ? emcal_et_04  : (emcal_et_04  - ET);
+    const float iso_03_emcal  = use_variant_a_iso ? emcal_et_03  : (emcal_et_03  - ET);
+    const float iso_02_emcal  = use_variant_a_iso ? emcal_et_02  : (emcal_et_02  - ET);
+    const float iso_01_emcal  = use_variant_a_iso ? emcal_et_01  : (emcal_et_01  - ET);
+    const float iso_005_emcal = use_variant_a_iso ? emcal_et_005 : (emcal_et_005 - ET);
 
     // Total iso (what RecoilJets effectively uses when it adds EMCal + HCal pieces)
     const float iso03_total = iso_03_emcal + ihcal_et_03 + ohcal_et_03;
@@ -1475,11 +1545,45 @@ float PhotonClusterBuilder::calculate_layer_et(float seed_eta, float seed_phi, f
 
   float layer_et = 0.0;
   const unsigned int ntowers = towerContainer->size();
+
+  unsigned int nNull = 0;
+  unsigned int nIsGood = 0;
+  unsigned int nIsBad = 0;
+  unsigned int nGeomMissing = 0;
+  unsigned int nInConeGood = 0;
+  unsigned int nBelowThreshold = 0;
+  unsigned int nAccepted = 0;
+
+  const char* calo_name = "UNKNOWN";
+  if (calo_id == RawTowerDefs::CalorimeterId::CEMC)
+  {
+    calo_name = "CEMC";
+  }
+  else if (calo_id == RawTowerDefs::CalorimeterId::HCALIN)
+  {
+    calo_name = "HCALIN";
+  }
+  else if (calo_id == RawTowerDefs::CalorimeterId::HCALOUT)
+  {
+    calo_name = "HCALOUT";
+  }
+
   for (unsigned int channel = 0; channel < ntowers; ++channel)
   {
     TowerInfo* tower = towerContainer->get_tower_at_channel(channel);
-    if (!tower || !tower->get_isGood())
+    if (!tower)
     {
+      ++nNull;
+      continue;
+    }
+
+    if (tower->get_isGood())
+    {
+      ++nIsGood;
+    }
+    else
+    {
+      ++nIsBad;
       continue;
     }
 
@@ -1491,6 +1595,7 @@ float PhotonClusterBuilder::calculate_layer_et(float seed_eta, float seed_phi, f
     RawTowerGeom* tower_geom = geomContainer->get_tower_geometry(geom_key);
     if (!tower_geom)
     {
+      ++nGeomMissing;
       continue;
     }
 
@@ -1502,14 +1607,36 @@ float PhotonClusterBuilder::calculate_layer_et(float seed_eta, float seed_phi, f
       continue;
     }
 
+    ++nInConeGood;
+
     float energy = tower->get_energy();
     if (energy <= m_shape_min_tower_E)
     {
+      ++nBelowThreshold;
       continue;
     }
 
     float et = energy / std::cosh(tower_eta);
     layer_et += et;
+    ++nAccepted;
+  }
+
+  if (Verbosity() >= 4)
+  {
+    std::cout << Name()
+              << ": calculate_layer_et isGood summary"
+              << " | calo=" << calo_name
+              << " | R=" << radius
+              << " | ntowers=" << ntowers
+              << " | null=" << nNull
+              << " | isGood=1=" << nIsGood
+              << " | isGood=0=" << nIsBad
+              << " | geomMissing=" << nGeomMissing
+              << " | inCone_good=" << nInConeGood
+              << " | inCone_E<=" << m_shape_min_tower_E << "=" << nBelowThreshold
+              << " | accepted=" << nAccepted
+              << " | sumEt=" << layer_et
+              << std::endl;
   }
 
   return layer_et;

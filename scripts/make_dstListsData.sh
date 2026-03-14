@@ -61,16 +61,40 @@ mode_requested_type() {
 
 mode_output_files() {
   if [[ "${BUILD_MODE:-}" == "per_run" ]]; then
-    compgen -G "${OUT_DIR}/dst_jetcalo-*.list" || true
-    compgen -G "${OUT_DIR}/DST_JETCALO-*.list" || true
+    {
+      compgen -G "${OUT_DIR}/dst_jetcalo-*.list" || true
+      compgen -G "${OUT_DIR}/DST_JETCALO-*.list" || true
+    } | sort -u
   else
-    compgen -G "${OUT_DIR}/${PREFIX}_${DATASET}_${TAG}-*.list" || true
+    local stem
+    stem="${PREFIX#DST_}"
+    stem="$(echo "$stem" | tr '[:upper:]' '[:lower:]')"
+    {
+      compgen -G "${OUT_DIR}/dst_${stem}-*.list" || true
+      compgen -G "${OUT_DIR}/${PREFIX}-*.list" || true
+      compgen -G "${OUT_DIR}/${PREFIX}_${DATASET}_${TAG}-*.list" || true
+    } | sort -u
+  fi
+}
+
+print_naming_scheme_summary() {
+  local stem
+  echo "Naming scheme summary:"
+  if [[ "${BUILD_MODE:-}" == "per_run" ]]; then
+    echo "  Primary emitted pattern : dst_jetcalo-<RUN8>.list"
+    echo "  Also accepted           : DST_JETCALO-<RUN8>.list"
+  else
+    stem="${PREFIX#DST_}"
+    stem="$(echo "$stem" | tr '[:upper:]' '[:lower:]')"
+    echo "  Primary emitted pattern : dst_${stem}-<RUN8>.list"
+    echo "  Also accepted           : ${PREFIX}-<RUN8>.list"
+    echo "  Also accepted           : ${PREFIX}_${DATASET}_${TAG}-<RUN8>.list"
   fi
 }
 
 probe_type_counts() {
   local probe_type="$1"
-  local tmpdir rc files entries f
+  local tmpdir rc files entries f probe_stem
 
   command -v CreateDstList.pl >/dev/null 2>&1 || { printf '0|0|CreateDstList.pl unavailable\n'; return; }
   [[ -n "${DATASET:-}" ]] || { printf '0|0|dataset unavailable\n'; return; }
@@ -90,7 +114,16 @@ probe_type_counts() {
     return
   fi
 
-  mapfile -t _probe_files < <(compgen -G "${tmpdir}/${probe_type}_${DATASET}_${TAG}-*.list" || true)
+  probe_stem="${probe_type#DST_}"
+  probe_stem="$(echo "$probe_stem" | tr '[:upper:]' '[:lower:]')"
+
+  mapfile -t _probe_files < <(
+    {
+      compgen -G "${tmpdir}/dst_${probe_stem}-*.list" || true
+      compgen -G "${tmpdir}/${probe_type}-*.list" || true
+      compgen -G "${tmpdir}/${probe_type}_${DATASET}_${TAG}-*.list" || true
+    } | sort -u
+  )
   files=${#_probe_files[@]}
   entries=0
   for f in "${_probe_files[@]}"; do
@@ -522,6 +555,7 @@ build_pp24_lists() {
   echo "Requested runs: $total"
   echo "List files made: $made"
   echo "Done. Files are in: $OUT_DIR"
+  print_naming_scheme_summary
 }
 
 build_dataset_lists() {
@@ -566,10 +600,14 @@ build_dataset_lists() {
   echo "[INFO] CreateDstList.pl finished with exit code: $rc"
   echo "[INFO] Scanning output files for expected per-run list coverage"
 
+  local stem
+  stem="${PREFIX#DST_}"
+  stem="$(echo "$stem" | tr '[:upper:]' '[:lower:]')"
+
   made=0
   for r in "${RUNS_ALL[@]}"; do
     r8=$(printf "%08d" "$((10#$r))")
-    if ls -1 "${OUT_DIR}/${PREFIX}_${DATASET}_${TAG}-${r8}.list" >/dev/null 2>&1; then
+    if [[ -s "${OUT_DIR}/dst_${stem}-${r8}.list" || -s "${OUT_DIR}/${PREFIX}-${r8}.list" || -s "${OUT_DIR}/${PREFIX}_${DATASET}_${TAG}-${r8}.list" ]]; then
       ((made+=1))
     else
       echo "[WARN] Missing expected list for run $r"
@@ -585,6 +623,13 @@ build_dataset_lists() {
     echo "CreateDstList exit code: $rc"
   fi
   echo "Done. Files are in: $OUT_DIR"
+  print_naming_scheme_summary
+
+  if (( rc != 0 || miss_count > 0 )); then
+    return 1
+  fi
+
+  return 0
 }
 
 if [[ -n "$ACTION" && "$ACTION" != "QA" ]]; then

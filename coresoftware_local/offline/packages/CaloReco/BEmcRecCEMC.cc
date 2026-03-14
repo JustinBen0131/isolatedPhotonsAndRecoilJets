@@ -4,6 +4,7 @@
 #include "BEmcProfile.h"
 
 #include <cmath>
+#include <cstdlib>
 #include <iostream>
 #include <Math/Vector3D.h>   // for TVector3 used in calculateIncidence
 #include <algorithm>    // for std::max
@@ -594,67 +595,85 @@ void BEmcRecCEMC::CorrectPosition(float Energy, float x, float y,
     return;
   }
 
-  bx = 0.15;
-  by = 0.15;
+    bx = 0.15;
+    by = 0.15;
 
-  x0 = x;
-  ix0 = EmcCluster::lowint(x0 + 0.5);
+    const char* disableAsinhEnv = std::getenv("BEMCREC_CEMC_DISABLE_ASINH_POSITION");
+    const bool disableAsinhByEnv = (disableAsinhEnv && std::atoi(disableAsinhEnv) != 0);
+    const bool applyAsinhPositionCorrection = (m_ApplyAsinhPositionCorrection && !disableAsinhByEnv);
 
-  if (std::abs(x0 - ix0) <= 0.5)
-  {
-    x0 = ix0 + bx * asinh(2. * (x0 - ix0) * sinh(0.5 / bx));
-  }
-  else
-  {
     x0 = x;
-    std::cout << "????? Something wrong in BEmcRecCEMC::CorrectPosition: x = "
-              << x << " dx = " << x0 - ix0 << std::endl;
-  }
+    ix0 = EmcCluster::lowint(x0 + 0.5);
 
-  // Correct for phi bias within module of 8 towers
-// NOLINTNEXTLINE(bugprone-incorrect-roundings)
-  int ix8 = int(x + 0.5) / 8; // that is hokey - suggest lroundf(x)
-  float x8 = x + 0.5 - (ix8 * 8) - 4;  // from -4 to +4
-  float dx = 0;
-  if (m_UseDetailedGeometry)
-  {
-    // Don't know why there is a different factor for each tower of the sector
-    // Just tuned from MC
-// NOLINTNEXTLINE(bugprone-incorrect-roundings)
-    int local_ix8 = int(x+0.5) - ix8 * 8; // that is hokey - suggest lroundf(x)
-    dx = factor_[local_ix8] * x8 / 4.;
-  }
-  else
-  {
-    dx = 0.10 * x8 / 4.;
-    if (std::fabs(x8) > 3.3)
+    if (std::abs(x0 - ix0) <= 0.5)
     {
-      dx = 0;  // Don't correct near the module edge
+      if (applyAsinhPositionCorrection)
+      {
+        x0 = ix0 + bx * asinh(2. * (x0 - ix0) * sinh(0.5 / bx));
+      }
+      else
+      {
+        x0 = x;
+      }
     }
-  }
+    else
+    {
+      x0 = x;
+      std::cout << "????? Something wrong in BEmcRecCEMC::CorrectPosition: x = "
+                << x << " dx = " << x0 - ix0 << std::endl;
+    }
 
-  xc = x0 - dx;
-  while (xc < -0.5)
-  {
-    xc += float(fNx);
-  }
-  while (xc >= fNx - 0.5)
-  {
-    xc -= float(fNx);
-  }
+    // Correct for phi bias within module of 8 towers
+  // NOLINTNEXTLINE(bugprone-incorrect-roundings)
+    int ix8 = int(x + 0.5) / 8; // that is hokey - suggest lroundf(x)
+    float x8 = x + 0.5 - (ix8 * 8) - 4;  // from -4 to +4
+    float dx = 0;
+    if (m_UseDetailedGeometry)
+    {
+      // Don't know why there is a different factor for each tower of the sector
+      // Just tuned from MC
+  // NOLINTNEXTLINE(bugprone-incorrect-roundings)
+      int local_ix8 = int(x+0.5) - ix8 * 8; // that is hokey - suggest lroundf(x)
+      dx = factor_[local_ix8] * x8 / 4.;
+    }
+    else
+    {
+      dx = 0.10 * x8 / 4.;
+      if (std::fabs(x8) > 3.3)
+      {
+        dx = 0;  // Don't correct near the module edge
+      }
+    }
 
-  y0 = y;
-  iy0 = EmcCluster::lowint(y0 + 0.5);
+    xc = x0 - dx;
+    while (xc < -0.5)
+    {
+      xc += float(fNx);
+    }
+    while (xc >= fNx - 0.5)
+    {
+      xc -= float(fNx);
+    }
 
-  if (std::abs(y0 - iy0) <= 0.5)
-  {
-    y0 = iy0 + by * std::asinh(2. * (y0 - iy0) * sinh(0.5 / by));
-  }
-  else
-  {
     y0 = y;
-    std::cout << "????? Something wrong in BEmcRecCEMC::CorrectPosition: y = "
-              << y << "dy = " << y0 - iy0 << std::endl;
+    iy0 = EmcCluster::lowint(y0 + 0.5);
+
+    if (std::abs(y0 - iy0) <= 0.5)
+    {
+      if (applyAsinhPositionCorrection)
+      {
+        y0 = iy0 + by * std::asinh(2. * (y0 - iy0) * sinh(0.5 / by));
+      }
+      else
+      {
+        y0 = y;
+      }
+    }
+    else
+    {
+      y0 = y;
+      std::cout << "????? Something wrong in BEmcRecCEMC::CorrectPosition: y = "
+                << y << "dy = " << y0 - iy0 << std::endl;
+    }
+    yc = y0;
   }
-  yc = y0;
-}

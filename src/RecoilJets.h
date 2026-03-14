@@ -362,10 +362,11 @@ public:
   // Analysis provenance stamping (written once into output ROOT by RecoilJets.cc)
   void setAnalysisConfigYAML(const std::string& yamlText, const std::string& tag)
   {
-        m_analysisConfigYAMLText = yamlText;
-        m_analysisConfigTag      = tag;
+          m_analysisConfigYAMLText = yamlText;
+          m_analysisConfigTag      = tag;
   }
 
+  void enablePi0Analysis(bool on = true) { m_doPi0Analysis = on; }
 
   void setCentEdges(const std::vector<int>& edges)     { m_centEdges = edges; }
 
@@ -522,10 +523,11 @@ private:
                                const double pt_gamma);
 
   void fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
-                                         const std::vector<std::string>& activeTrig,
-                                         const int centIdx);
+                                           const std::vector<std::string>& activeTrig,
+                                           const int centIdx);
 
   void processCandidates(PHCompositeNode* topNode, const std::vector<std::string>& activeTrig);
+  void fillPi0MassVsPtHistograms(const std::string& trig, RawClusterContainer* clusterContainer, bool useCorr);
 
   bool getCentralitySlice(int& lo, int& hi, std::string& tag) const;
 
@@ -928,6 +930,7 @@ private:
   // Dataset flags (these may be overridden at runtime by env in fetchNodes())
   bool m_isSim  = false;
   bool m_isAuAu = false;
+  bool m_doPi0Analysis = false;
 
   // Vertex / event selection
   GlobalVertex* m_vtx = nullptr;
@@ -1004,8 +1007,9 @@ private:
   std::string m_xjRecoJetKey = "r04";
 
   // Nodes: photons / clusters
-  RawClusterContainer* m_clus    = nullptr;
-  RawClusterContainer* m_photons = nullptr;
+  RawClusterContainer* m_clus        = nullptr;
+  RawClusterContainer* m_clus_nocorr = nullptr;
+  RawClusterContainer* m_photons     = nullptr;
 
   // Calo tower bundles (node cache)
   struct CaloBundle

@@ -311,6 +311,7 @@ namespace yamlcfg
       bool event_display_tree = true;
       int  event_display_tree_max_per_bin = 0;
       bool clusterUEpipeline = false;
+      bool doPi0Analysis = false;
     };
 
   inline std::string DefaultYAMLPath()
@@ -568,6 +569,12 @@ namespace yamlcfg
           if (!ParseBool(rhs, cfg.clusterUEpipeline))
             warn_parse("clusterUEpipeline", rhs, "expected true/false");
         }
+        else if (StartsWithKey(line, "doPi0Analysis"))
+        {
+          const std::string rhs = AfterColon(line);
+          if (!ParseBool(rhs, cfg.doPi0Analysis))
+            warn_parse("doPi0Analysis", rhs, "expected true/false");
+        }
         else if (StartsWithKey(line, "event_display_tree"))
         {
           const std::string rhs = AfterColon(line);
@@ -746,6 +753,34 @@ class EnsureJetCalibNodes final : public SubsysReco
 
     return Fun4AllReturnCodes::EVENT_OK;
   }
+};
+
+class ProcessEnvSetter final : public SubsysReco
+{
+ public:
+  ProcessEnvSetter(const std::string& name,
+                   const std::string& key,
+                   const std::string& value)
+    : SubsysReco(name)
+    , m_key(key)
+    , m_value(value)
+  {}
+
+  int InitRun(PHCompositeNode* /*topNode*/) override
+  {
+    setenv(m_key.c_str(), m_value.c_str(), 1);
+    return Fun4AllReturnCodes::EVENT_OK;
+  }
+
+  int process_event(PHCompositeNode* /*topNode*/) override
+  {
+    setenv(m_key.c_str(), m_value.c_str(), 1);
+    return Fun4AllReturnCodes::EVENT_OK;
+  }
+
+ private:
+  std::string m_key;
+  std::string m_value;
 };
 
 
@@ -1334,13 +1369,14 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
       {
         std::cout << cfg.unfold_xj_bins[i] << (i + 1 < cfg.unfold_xj_bins.size() ? ", " : "");
       }
-      std::cout << "]\n"
-                << "  clusterUEpipeline: " << (cfg.clusterUEpipeline ? "true" : "false") << "\n"
-                << "  event_display_tree: " << (cfg.event_display_tree ? "true" : "false") << "\n"
-                << "  event_display_tree_max_per_bin: " << cfg.event_display_tree_max_per_bin << "\n\n";
+        std::cout << "]\n"
+                  << "  clusterUEpipeline: " << (cfg.clusterUEpipeline ? "true" : "false") << "\n"
+                  << "  doPi0Analysis: " << (cfg.doPi0Analysis ? "true" : "false") << "\n"
+                  << "  event_display_tree: " << (cfg.event_display_tree ? "true" : "false") << "\n"
+                  << "  event_display_tree_max_per_bin: " << cfg.event_display_tree_max_per_bin << "\n\n";
 
-      std::cout << "[CFG] caloInputMode: " << caloInputMode << "\n";
-    }
+        std::cout << "[CFG] caloInputMode: " << caloInputMode << "\n";
+      }
 
   // --------------------------------------------------------------------
   // 2.  CDB + IO managers
@@ -1590,91 +1626,45 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
   }
 
 
-  // ------------------------------------------------------------------
-  // Calo calibration + clustering contract
-  //
-  //   jetcalo     -> raw-compatible production input: call Process_Calo_Calib()
-  //   calofitting -> rebuild TOWERINFO_CALIB_* and CLUSTERINFO_CEMC from TOWERS_*
-  //   simdst      -> analysis DST already carries calibrated towers/clusters
-  // ------------------------------------------------------------------
-  if (!isSim && caloInputMode == "jetcalo")
-  {
-    if (vlevel > 0) std::cout << "[DATA] running Process_Calo_Calib()\n";
-    Process_Calo_Calib();
-  }
-  else if (!isSim && caloInputMode == "calofitting")
-  {
-    if (isAuAuRequested)
+    // ------------------------------------------------------------------
+    // Calo calibration + clustering contract
+    //
+    //   jetcalo     -> production-calibrated real-data input: do NOT call Process_Calo_Calib()
+    //   calofitting -> real-data waveform-fit input: run Process_Calo_Calib()
+    //   simdst      -> analysis DST already carries calibrated towers/clusters
+    // ------------------------------------------------------------------
+    if (isSim)
     {
       if (vlevel > 0)
       {
-        std::cout << "[DATA][AuAu] running Process_Calo_Calib() on CALOFITTING input\n";
-        std::cout << "[DATA][AuAu] clusterUEpipeline may still apply native UE subtraction and reclusterization afterward\n";
+        std::cout << "[isSim] skipping Process_Calo_Calib() "
+                     "(SIM DST already has TOWERINFO_CALIB and CLUSTERINFO_CEMC)\n";
+      }
+    }
+    else if (caloInputMode == "calofitting")
+    {
+      if (vlevel > 0)
+      {
+        std::cout << "[DATA] running Process_Calo_Calib() on CALOFITTING input\n";
+        if (isAuAuRequested)
+        {
+          std::cout << "[DATA][AuAu] clusterUEpipeline may still apply native UE subtraction and reclusterization afterward\n";
+        }
       }
       Process_Calo_Calib();
     }
-    else
+    else if (caloInputMode == "jetcalo")
     {
       if (vlevel > 0)
       {
-        std::cout << "[DATA] Skipping Process_Calo_Calib() "
-                     "(CALOFITTING DST → re-calibrating towers & rebuilding clusters)\n";
-        std::cout << "[DATA] Running CaloTowerCalib: inputPrefix=TOWERS_ -> outputPrefix=TOWERINFO_CALIB_\n";
+        std::cout << "[DATA] skipping Process_Calo_Calib() "
+                     "(JETCALO DST already carries production-calibrated tower/cluster content)\n";
       }
-
-      CaloTowerCalib* calibEMC = new CaloTowerCalib("CaloTowerCalib_CEMC_fromTOWERS");
-      calibEMC->set_detector_type(CaloTowerDefs::CEMC);
-      calibEMC->set_inputNodePrefix("TOWERS_");
-      calibEMC->set_outputNodePrefix("TOWERINFO_CALIB_");
-      calibEMC->set_doCalibOnly(true);
-      se->registerSubsystem(calibEMC);
-
-      CaloTowerCalib* calibIHCal = new CaloTowerCalib("CaloTowerCalib_HCALIN_fromTOWERS");
-      calibIHCal->set_detector_type(CaloTowerDefs::HCALIN);
-      calibIHCal->set_inputNodePrefix("TOWERS_");
-      calibIHCal->set_outputNodePrefix("TOWERINFO_CALIB_");
-      calibIHCal->set_doCalibOnly(true);
-      se->registerSubsystem(calibIHCal);
-
-      CaloTowerCalib* calibOHCal = new CaloTowerCalib("CaloTowerCalib_HCALOUT_fromTOWERS");
-      calibOHCal->set_detector_type(CaloTowerDefs::HCALOUT);
-      calibOHCal->set_inputNodePrefix("TOWERS_");
-      calibOHCal->set_outputNodePrefix("TOWERINFO_CALIB_");
-      calibOHCal->set_doCalibOnly(true);
-      se->registerSubsystem(calibOHCal);
-
-      if (vlevel > 0) std::cout << "[DATA] Building clusters: RawClusterBuilderTemplate -> CLUSTERINFO_CEMC\n";
-
-      RawClusterBuilderTemplate* ClusterBuilder =
-          new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate");
-      ClusterBuilder->Detector("CEMC");
-      ClusterBuilder->set_threshold_energy(0.070);
-
-      const char* calibroot = std::getenv("CALIBRATIONROOT");
-      if (calibroot && std::string(calibroot).size())
-      {
-        std::string emc_prof = std::string(calibroot) + "/EmcProfile/CEMCprof_Thresh30MeV.root";
-        ClusterBuilder->LoadProfile(emc_prof);
-        if (vlevel > 0) std::cout << "[DATA] ClusterBuilder LoadProfile: " << emc_prof << "\n";
-      }
-      else
-      {
-        if (vlevel > 0) std::cout << "[DATA][WARN] CALIBRATIONROOT not set; cluster profile not loaded\n";
-      }
-
-      ClusterBuilder->set_UseTowerInfo(1);
-      ClusterBuilder->set_UseAltZVertex(1);
-      se->registerSubsystem(ClusterBuilder);
     }
-  }
-  else
-  {
-    if (vlevel > 0)
+    else
     {
-      std::cout << "[isSim] skipping Process_Calo_Calib() "
-                   "(SIM DST already has TOWERINFO_CALIB and CLUSTERINFO_CEMC)\n";
+      detail::bail("unsupported caloInputMode '" + caloInputMode + "'");
     }
-  }
 
 
   if (vlevel > 0) std::cout << "Calibrating MBD" << std::endl;
@@ -1743,6 +1733,50 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
   else
   {
     if (vlevel > 0) std::cout << "[pp dataset] skipping CentralityReco" << std::endl;
+  }
+
+  setenv("BEMCREC_CEMC_DISABLE_ASINH_POSITION", "0", 1);
+
+  if (cfg.doPi0Analysis && !isSim && !isAuAuData && !isPPrun25)
+  {
+    if (vlevel > 0)
+    {
+      std::cout << "[pp][pi0] Building parallel no-correction cluster branch -> CLUSTERINFO_CEMC_NOCORR" << std::endl;
+    }
+
+    auto* pi0NoCorrOn = new ProcessEnvSetter("Pi0NoCorrEnvOn",
+                                             "BEMCREC_CEMC_DISABLE_ASINH_POSITION",
+                                             "1");
+    pi0NoCorrOn->Verbosity(0);
+    se->registerSubsystem(pi0NoCorrOn);
+
+    auto* pi0ClusterBuilder = new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate_NOCORR");
+    pi0ClusterBuilder->Detector("CEMC");
+    pi0ClusterBuilder->set_threshold_energy(0.070);
+
+    const char* calibroot = std::getenv("CALIBRATIONROOT");
+    if (calibroot && std::string(calibroot).size())
+    {
+      std::string emc_prof = std::string(calibroot) + "/EmcProfile/CEMCprof_Thresh30MeV.root";
+      pi0ClusterBuilder->LoadProfile(emc_prof);
+      if (vlevel > 0) std::cout << "[pp][pi0] NOCORR cluster builder LoadProfile: " << emc_prof << "\n";
+    }
+    else
+    {
+      if (vlevel > 0) std::cout << "[pp][pi0][WARN] CALIBRATIONROOT not set; NOCORR cluster profile not loaded\n";
+    }
+
+    pi0ClusterBuilder->set_UseTowerInfo(1);
+    pi0ClusterBuilder->set_UseAltZVertex(1);
+    pi0ClusterBuilder->setInputTowerNodeName("TOWERINFO_CALIB_CEMC");
+    pi0ClusterBuilder->setOutputClusterNodeName("CLUSTERINFO_CEMC_NOCORR");
+    se->registerSubsystem(pi0ClusterBuilder);
+
+    auto* pi0NoCorrOff = new ProcessEnvSetter("Pi0NoCorrEnvOff",
+                                              "BEMCREC_CEMC_DISABLE_ASINH_POSITION",
+                                              "0");
+    pi0NoCorrOff->Verbosity(0);
+    se->registerSubsystem(pi0NoCorrOff);
   }
 
   // ---------------------- Reco jets -----------------------------------------
@@ -2106,114 +2140,106 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 
   // Build photon clusters
   class NativeCEMCUESubtractor final : public SubsysReco
-    {
-     public:
-      NativeCEMCUESubtractor(const std::string& name,
-                             const std::string& inputNode,
-                             const std::string& outputNode,
-                             const std::string& backgroundNode)
-        : SubsysReco(name)
-        , m_inputNode(inputNode)
-        , m_outputNode(outputNode)
-        , m_backgroundNode(backgroundNode)
-      {
-      }
-
-      int InitRun(PHCompositeNode* topNode) override
-      {
-        auto* src = findNode::getClass<TowerInfoContainer>(topNode, m_inputNode);
-        if (!src)
+  {
+       public:
+        NativeCEMCUESubtractor(const std::string& name,
+                               const std::string& inputNode,
+                               const std::string& outputNode)
+          : SubsysReco(name)
+          , m_inputNode(inputNode)
+          , m_outputNode(outputNode)
         {
-          std::cerr << Name() << ": missing input tower node '" << m_inputNode << "'" << std::endl;
-          return Fun4AllReturnCodes::ABORTRUN;
         }
 
-        PHNodeIterator iter(topNode);
-        auto* cemcNode = dynamic_cast<PHCompositeNode*>(iter.findFirst("PHCompositeNode", "CEMC"));
-        if (!cemcNode)
+        int InitRun(PHCompositeNode* topNode) override
         {
-          std::cerr << Name() << ": missing CEMC composite node" << std::endl;
-          return Fun4AllReturnCodes::ABORTRUN;
-        }
-
-        m_output = findNode::getClass<TowerInfoContainer>(topNode, m_outputNode);
-        if (!m_output)
-        {
-          m_output = dynamic_cast<TowerInfoContainer*>(src->CloneMe());
-          if (!m_output)
+          auto* src = findNode::getClass<TowerInfoContainer>(topNode, m_inputNode);
+          if (!src)
           {
-            std::cerr << Name() << ": failed to clone input tower container '" << m_inputNode << "'" << std::endl;
+            std::cerr << Name() << ": missing input tower node '" << m_inputNode << "'" << std::endl;
             return Fun4AllReturnCodes::ABORTRUN;
           }
 
-          auto* outNode = new PHIODataNode<PHObject>(m_output, m_outputNode, "PHObject");
-          cemcNode->addNode(outNode);
-        }
-
-        return Fun4AllReturnCodes::EVENT_OK;
-      }
-
-      int process_event(PHCompositeNode* topNode) override
-      {
-        auto* src = findNode::getClass<TowerInfoContainer>(topNode, m_inputNode);
-        auto* dst = findNode::getClass<TowerInfoContainer>(topNode, m_outputNode);
-        auto* towerbackground = findNode::getClass<TowerBackground>(topNode, m_backgroundNode);
-        auto* geomEM = findNode::getClass<RawTowerGeomContainer>(topNode, "TOWERGEOM_CEMC");
-        if (!geomEM)
-        {
-          geomEM = findNode::getClass<RawTowerGeomContainer>(topNode, "TOWERGEOM_CEMC_DETAILED");
-        }
-        auto* geomIH = findNode::getClass<RawTowerGeomContainer>(topNode, "TOWERGEOM_HCALIN");
-
-        if (!src || !dst || !towerbackground || !geomEM || !geomIH)
-        {
-          std::cerr << Name()
-                    << ": missing required nodes (src=" << m_inputNode
-                    << ", dst=" << m_outputNode
-                    << ", bkg=" << m_backgroundNode
-                    << ", geomEM=TOWERGEOM_CEMC/TOWERGEOM_CEMC_DETAILED"
-                    << ", geomIH=TOWERGEOM_HCALIN)"
-                    << std::endl;
-          return Fun4AllReturnCodes::ABORTEVENT;
-        }
-
-        const auto ueVec = towerbackground->get_UE(0);
-        const float background_v2 = towerbackground->get_v2();
-        const float background_Psi2 = towerbackground->get_Psi2();
-
-        static std::vector<float> s_retowerAreaByIHCalEta;
-        if (s_retowerAreaByIHCalEta.size() != static_cast<std::size_t>(geomIH->get_etabins()))
+          PHNodeIterator iter(topNode);
+          auto* cemcNode = dynamic_cast<PHCompositeNode*>(iter.findFirst("PHCompositeNode", "CEMC"));
+          if (!cemcNode)
           {
-            s_retowerAreaByIHCalEta.assign(geomIH->get_etabins(), 0.0f);
-            for (int ieta_ihcal = 0; ieta_ihcal < geomIH->get_etabins(); ++ieta_ihcal)
-            {
-              const auto ihBounds = geomIH->get_etabounds(ieta_ihcal);
-              const double ihLower = ihBounds.first;
-              const double ihUpper = ihBounds.second;
-
-              double weightedEtaSpan = 0.0;
-              for (int ieta_emcal = 0; ieta_emcal < geomEM->get_etabins(); ++ieta_emcal)
-              {
-                const auto emBounds = geomEM->get_etabounds(ieta_emcal);
-                const double emLower = emBounds.first;
-                const double emUpper = emBounds.second;
-
-                const double overlap = std::min(ihUpper, emUpper) - std::max(ihLower, emLower);
-                const double emWidth = emUpper - emLower;
-                if (overlap <= 0.0 || emWidth <= 0.0)
-                {
-                  continue;
-                }
-
-                weightedEtaSpan += overlap / emWidth;
-              }
-
-              s_retowerAreaByIHCalEta.at(static_cast<std::size_t>(ieta_ihcal)) =
-                  4.0f * static_cast<float>(weightedEtaSpan);
-            }
+            std::cerr << Name() << ": missing CEMC composite node" << std::endl;
+            return Fun4AllReturnCodes::ABORTRUN;
           }
 
+          m_output = findNode::getClass<TowerInfoContainer>(topNode, m_outputNode);
+          if (!m_output)
+          {
+            m_output = dynamic_cast<TowerInfoContainer*>(src->CloneMe());
+            if (!m_output)
+            {
+              std::cerr << Name() << ": failed to clone input tower container '" << m_inputNode << "'" << std::endl;
+              return Fun4AllReturnCodes::ABORTRUN;
+            }
+
+            auto* outNode = new PHIODataNode<PHObject>(m_output, m_outputNode, "PHObject");
+            cemcNode->addNode(outNode);
+          }
+
+          return Fun4AllReturnCodes::EVENT_OK;
+        }
+
+        int process_event(PHCompositeNode* topNode) override
+        {
+          auto* src = findNode::getClass<TowerInfoContainer>(topNode, m_inputNode);
+          auto* dst = findNode::getClass<TowerInfoContainer>(topNode, m_outputNode);
+
+          if (!src || !dst)
+          {
+            std::cerr << Name()
+                      << ": missing required nodes (src=" << m_inputNode
+                      << ", dst=" << m_outputNode
+                      << ")"
+                      << std::endl;
+            return Fun4AllReturnCodes::ABORTEVENT;
+          }
+
+          std::vector<double> stripSum;
+          std::vector<unsigned int> stripCount;
+
           const unsigned int nchannels = src->size();
+          for (unsigned int channel = 0; channel < nchannels; ++channel)
+          {
+            TowerInfo* srcTower = src->get_tower_at_channel(channel);
+            if (!srcTower)
+            {
+              continue;
+            }
+
+            const unsigned int towerkey = src->encode_key(channel);
+            const int ieta = src->getTowerEtaBin(towerkey);
+            if (ieta < 0)
+            {
+              continue;
+            }
+
+            if (static_cast<std::size_t>(ieta + 1) > stripSum.size())
+            {
+              stripSum.resize(static_cast<std::size_t>(ieta + 1), 0.0);
+              stripCount.resize(static_cast<std::size_t>(ieta + 1), 0U);
+            }
+
+            if (!srcTower->get_isGood())
+            {
+              continue;
+            }
+
+            const float energy = srcTower->get_energy();
+            if (!std::isfinite(energy))
+            {
+              continue;
+            }
+
+            stripSum.at(static_cast<std::size_t>(ieta)) += energy;
+            stripCount.at(static_cast<std::size_t>(ieta)) += 1U;
+          }
+
           for (unsigned int channel = 0; channel < nchannels; ++channel)
           {
             TowerInfo* srcTower = src->get_tower_at_channel(channel);
@@ -2223,63 +2249,35 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
               continue;
             }
 
-            unsigned int towerkey = src->encode_key(channel);
-            int ieta = src->getTowerEtaBin(towerkey);
-            int iphi = src->getTowerPhiBin(towerkey);
-
-            const RawTowerDefs::keytype emKey =
-                RawTowerDefs::encode_towerid(RawTowerDefs::CalorimeterId::CEMC, ieta, iphi);
-            RawTowerGeom* emGeom = geomEM->get_tower_geometry(emKey);
+            const unsigned int towerkey = src->encode_key(channel);
+            const int ieta = src->getTowerEtaBin(towerkey);
 
             float new_energy = 0.0f;
-            if (emGeom)
+            if (ieta >= 0 && static_cast<std::size_t>(ieta) < stripSum.size() && srcTower->get_isGood())
             {
-              const int ue_ieta = geomIH->get_etabin(emGeom->get_eta());
+              const unsigned int nstrip = stripCount.at(static_cast<std::size_t>(ieta));
+              const float stripMean = (nstrip > 0U)
+                  ? static_cast<float>(stripSum.at(static_cast<std::size_t>(ieta)) / static_cast<double>(nstrip))
+                  : 0.0f;
 
-              float UE = 0.0f;
-              if (ue_ieta >= 0 && static_cast<std::size_t>(ue_ieta) < ueVec.size())
+              const float src_energy = srcTower->get_energy();
+              if (std::isfinite(src_energy))
               {
-                UE = ueVec.at(static_cast<std::size_t>(ue_ieta));
-
-                const float shared_area = s_retowerAreaByIHCalEta.at(static_cast<std::size_t>(ue_ieta));
-                if (shared_area > 0.0f)
-                {
-                  UE /= shared_area;
-                }
-              }
-
-              if (m_use_flow_modulation)
-              {
-                float modulation_factor = 1 + 2 * background_v2 * std::cos(2 * (emGeom->get_phi() - background_Psi2));
-                modulation_factor = std::max(0.F, modulation_factor);
-                UE *= modulation_factor;
-              }
-
-              new_energy = srcTower->get_energy() - UE;
-              if (!srcTower->get_isGood())
-              {
-                new_energy = 0.0f;
+                new_energy = src_energy - stripMean;
               }
             }
 
             dstTower->set_time(srcTower->get_time());
             dstTower->set_energy(new_energy);
+          }
+
+          return Fun4AllReturnCodes::EVENT_OK;
         }
 
-        return Fun4AllReturnCodes::EVENT_OK;
-      }
-
-      void SetFlowModulation(bool use_flow_modulation)
-      {
-        m_use_flow_modulation = use_flow_modulation;
-      }
-
-     private:
-      std::string m_inputNode;
-      std::string m_outputNode;
-      std::string m_backgroundNode;
-      TowerInfoContainer* m_output{nullptr};
-      bool m_use_flow_modulation{false};
+       private:
+        std::string m_inputNode;
+        std::string m_outputNode;
+        TowerInfoContainer* m_output{nullptr};
   };
 
   class TowerInfoCanonicalRebaser final : public SubsysReco
@@ -2341,91 +2339,52 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
   }
 
   std::string photonInputClusterNode = "CLUSTERINFO_CEMC";
-  bool photonBuilderIsAuAu = isAuAuData;
+  bool photonBuilderIsAuAu = false;
 
   if (cfg.clusterUEpipeline && isAuAuData)
   {
-        const std::string nativeCemcNode = towerPrefixPCB + "_CEMC_NATIVE_SUB1";
-        const std::string nativeClusterNode = "CLUSTERINFO_CEMC_NATIVE_SUB1";
+          const std::string nativeCemcNode = towerPrefixPCB + "_CEMC_PHOSUB";
 
-        int nativeUEV = 0;
-        if (const char* env = std::getenv("RJ_HIUE_VERBOSITY")) nativeUEV = std::atoi(env);
+          int nativeUEV = 0;
+          if (const char* env = std::getenv("RJ_HIUE_VERBOSITY")) nativeUEV = std::atoi(env);
 
-        int nativeFlow = 0;
-        if (const char* env = std::getenv("RJ_HI_DO_FLOW")) nativeFlow = std::atoi(env);
+          auto* nativeSub = new NativeCEMCUESubtractor("NativeCEMCUESubtractor",
+                                                       towerPrefixPCB + "_CEMC",
+                                                       nativeCemcNode);
+          nativeSub->Verbosity(nativeUEV);
+          se->registerSubsystem(nativeSub);
 
-        auto* nativeSub = new NativeCEMCUESubtractor("NativeCEMCUESubtractor",
-                                                   towerPrefixPCB + "_CEMC",
-                                                   nativeCemcNode,
-                                                   "TowerInfoBackground_Sub2");
-        nativeSub->SetFlowModulation(nativeFlow != 0);
-        nativeSub->Verbosity(nativeUEV);
-        se->registerSubsystem(nativeSub);
+          photonInputClusterNode = "CLUSTERINFO_CEMC";
 
-        auto* nativeClusterBuilder = new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate_NativeSub1");
-        nativeClusterBuilder->Detector("CEMC");
-        nativeClusterBuilder->set_threshold_energy(0.070);
-
-        const char* calibroot = std::getenv("CALIBRATIONROOT");
-        if (calibroot && std::string(calibroot).size())
-        {
-          std::string emc_prof = std::string(calibroot) + "/EmcProfile/CEMCprof_Thresh30MeV.root";
-          nativeClusterBuilder->LoadProfile(emc_prof);
-          if (vlevel > 0) std::cout << "[clusterUEpipeline] Native cluster builder LoadProfile: " << emc_prof << "\n";
-        }
-        else
-        {
-          if (vlevel > 0) std::cout << "[clusterUEpipeline][WARN] CALIBRATIONROOT not set; native cluster profile not loaded\n";
+          if (vlevel > 0)
+          {
+            std::cout << "[clusterUEpipeline] enabled for AuAu"
+                      << " | nativeCemcNode=" << nativeCemcNode
+                      << " | photonInputClusterNode=" << photonInputClusterNode
+                      << " | PhotonClusterBuilder will read explicit PHOSUB/SUB1 tower nodes"
+                      << std::endl;
+          }
         }
 
-        nativeClusterBuilder->set_UseTowerInfo(1);
-        nativeClusterBuilder->set_UseAltZVertex(1);
-        nativeClusterBuilder->setInputTowerNodeName(nativeCemcNode);
-        nativeClusterBuilder->setOutputClusterNodeName(nativeClusterNode);
-        se->registerSubsystem(nativeClusterBuilder);
+        auto* photonBuilder = new PhotonClusterBuilder("PhotonClusterBuilder");
+        photonBuilder->set_input_cluster_node(photonInputClusterNode);
+        photonBuilder->set_output_photon_node("PHOTONCLUSTER_CEMC");
 
-        auto* rebaseCEMC = new TowerInfoCanonicalRebaser("TowerInfoCanonicalRebaser_CEMC",
-                                                         nativeCemcNode,
-                                                         towerPrefixPCB + "_CEMC");
-        rebaseCEMC->Verbosity(0);
-        se->registerSubsystem(rebaseCEMC);
+        photonBuilder->set_use_vz_cut(cfg.use_vz_cut);
+        photonBuilder->set_vz_cut_cm(cfg.vz_cut_cm);
 
-        auto* rebaseHCALIN = new TowerInfoCanonicalRebaser("TowerInfoCanonicalRebaser_HCALIN",
-                                                           towerPrefixPCB + "_HCALIN_SUB1",
-                                                           towerPrefixPCB + "_HCALIN");
-        rebaseHCALIN->Verbosity(0);
-        se->registerSubsystem(rebaseHCALIN);
-
-        auto* rebaseHCALOUT = new TowerInfoCanonicalRebaser("TowerInfoCanonicalRebaser_HCALOUT",
-                                                            towerPrefixPCB + "_HCALOUT_SUB1",
-                                                            towerPrefixPCB + "_HCALOUT");
-        rebaseHCALOUT->Verbosity(0);
-        se->registerSubsystem(rebaseHCALOUT);
-
-        photonInputClusterNode = nativeClusterNode;
-        photonBuilderIsAuAu = false;
-
-        if (vlevel > 0)
+        photonBuilder->set_is_auau(photonBuilderIsAuAu);
+        if (cfg.clusterUEpipeline && isAuAuData)
         {
-          std::cout << "[clusterUEpipeline] enabled for AuAu"
-                    << " | nativeCemcNode=" << nativeCemcNode
-                    << " | nativeClusterNode=" << nativeClusterNode
-                    << " | PhotonClusterBuilder will read rebased canonical tower nodes"
-                    << std::endl;
+          photonBuilder->set_emc_tower_node(towerPrefixPCB + "_CEMC_PHOSUB");
+          photonBuilder->set_ihcal_tower_node(towerPrefixPCB + "_HCALIN_SUB1");
+          photonBuilder->set_ohcal_tower_node(towerPrefixPCB + "_HCALOUT_SUB1");
         }
-      }
-
-      auto* photonBuilder = new PhotonClusterBuilder("PhotonClusterBuilder");
-      photonBuilder->set_input_cluster_node(photonInputClusterNode);
-      photonBuilder->set_output_photon_node("PHOTONCLUSTER_CEMC");
-
-      photonBuilder->set_use_vz_cut(cfg.use_vz_cut);
-      photonBuilder->set_vz_cut_cm(cfg.vz_cut_cm);
-
-      photonBuilder->set_is_auau(photonBuilderIsAuAu);
-      if (photonBuilderIsAuAu)
-      {
-        photonBuilder->set_tower_node_prefix(towerPrefixPCB);
+        else if (isAuAuData)
+        {
+          photonBuilder->set_emc_tower_node(towerPrefixPCB + "_CEMC");
+          photonBuilder->set_ihcal_tower_node(towerPrefixPCB + "_HCALIN");
+          photonBuilder->set_ohcal_tower_node(towerPrefixPCB + "_HCALOUT");
   }
 
   if (vlevel > 0)
@@ -2491,6 +2450,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
   recoilJets->setUnfoldJetPtBins(unfoldJetPtEdges);
   recoilJets->setUnfoldXJBins(cfg.unfold_xj_bins);
 
+  recoilJets->enablePi0Analysis(cfg.doPi0Analysis && !isSim && !isAuAuData && !isPPrun25);
   recoilJets->setAnalysisConfigYAML(cfg.yamlText, "analysis_config.yaml");
 
   if (vlevel > 0)
