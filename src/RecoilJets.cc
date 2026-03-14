@@ -1406,157 +1406,181 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     return Fun4AllReturnCodes::ABORTEVENT;
   }
 
-  /* ------------------------------------------------------------------ */
-  /* 2) Trigger gating (pp & Au+Au) — unified in firstEventCuts()       */
-  /* ------------------------------------------------------------------ */
+    /* ------------------------------------------------------------------ */
+    /* 2) Trigger gating (pp & Au+Au) — unified in firstEventCuts()       */
+    /* ------------------------------------------------------------------ */
 
-  // ------------------------------------------------------------------
-  // pp DATA ONLY: doNotScale max-cluster-energy trigger-efficiency fill
-  // MATCHES caloTreeGen::checkMbdAndFillNewHists(...) logic:
-  //   - decodeTriggers(topNode)
-  //   - MBD baseline uses didTriggerFire("MBD N&S >= 1")
-  //   - if MBD fired: fill MBD doNotScale hist
-  //   - then for rare triggers: checkRawTrigger(dbTriggerName) and fill
-  // This is separate from (and occurs BEFORE) the main analysis trigger gating.
-  // ------------------------------------------------------------------
-  if (!m_isSim && !m_isAuAu)
-  {
+    // ------------------------------------------------------------------
+    // pp DATA ONLY: doNotScale max-cluster-energy trigger-efficiency fill
+    // Match caloTreeGen logic while keeping the effect local to the
+    // doNotScale block:
+    //   - require the configured vertex cut to pass BEFORE filling
+    //   - keep the 1 GeV minimum cluster-energy cut when building
+    //     max_energy_clus
+    //   - re-enter the doNotScale filler once per active trigger from
+    //     triggerNameMap_pp_doNotScale (same repeated-call semantics as
+    //     caloTreeGen::checkMbdAndFillNewHists)
+    // ------------------------------------------------------------------
+    if (!m_isSim && !m_isAuAu)
+    {
         if (trigAna)
         {
-          trigAna->decodeTriggers(topNode);
+            trigAna->decodeTriggers(topNode);
 
-          const std::string mbdDbName    = "MBD N&S >= 1";
-          const std::string mbdShortName = "MBD_NandS_geq_1";
+            std::vector<std::string> activeDoNotScaleTrig;
+            activeDoNotScaleTrig.reserve(triggerNameMap_pp_doNotScale.size());
 
-          bool isMB = trigAna->didTriggerFire(mbdDbName);
-          if (isMB)
-          {
-              float max_energy_clus = 0.f;
-
-              if (m_clus)
-              {
-                const auto range = m_clus->getClusters();
-                for (auto it = range.first; it != range.second; ++it)
-                {
-                  const RawCluster* cl = it->second;
-                  if (!cl) continue;
-                  const float e = cl->get_energy();
-                  if (!std::isfinite(e)) continue;
-                  if (e < 1.0f) continue;
-                  if (e > max_energy_clus) max_energy_clus = e;
-                }
-              }
-              else if (m_photons)
-              {
-                const auto range = m_photons->getClusters();
-                for (auto it = range.first; it != range.second; ++it)
-                {
-                  const RawCluster* cl = it->second;
-                  if (!cl) continue;
-                  const float e = cl->get_energy();
-                  if (!std::isfinite(e)) continue;
-                  if (e < 1.0f) continue;
-                  if (e > max_energy_clus) max_energy_clus = e;
-                }
-              }
-
-              // Fill the new histogram for MBD itself
-              {
-                std::string mbdHistName = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + mbdShortName;
-
-                auto &mbdHistogramMap = qaHistogramsByTrigger[mbdShortName];
-                auto it = mbdHistogramMap.find(mbdHistName);
-                if (!(it == mbdHistogramMap.end() || !(it->second)))
-                {
-                  TH1F* hMbdHist = dynamic_cast<TH1F*>(it->second);
-                  if (hMbdHist)
-                  {
-                    hMbdHist->Fill(max_energy_clus);
-                  }
-                }
-              }
-
-              if (m_doPi0Analysis)
-              {
-                const bool passPi0Vz = (!m_useVzCut || std::fabs(m_vz) < m_vzCut);
-
-                if (passPi0Vz && m_clus && m_clus_nocorr)
-                {
-                  fillPi0MassVsPtHistograms(mbdShortName, m_clus, true);
-                  fillPi0MassVsPtHistograms(mbdShortName, m_clus_nocorr, false);
-                }
-                else if (Verbosity() >= 2)
-                {
-                  LOG(2, CLR_YELLOW,
-                      "    [process_event][pi0] requested pp pi0 fill skipped"
-                      << " | passVz=" << (passPi0Vz ? "true" : "false")
-                      << " | CLUSTERINFO_CEMC=" << (m_clus ? "OK" : "MISSING")
-                      << " | CLUSTERINFO_CEMC_NOCORR=" << (m_clus_nocorr ? "OK" : "MISSING"));
-                }
-              }
-
-              // Now check the “rare” triggers if MBD fired
             for (const auto &kv : triggerNameMap_pp_doNotScale)
             {
               const std::string &dbTriggerName   = kv.first;
               const std::string &histFriendlyStr = kv.second;
 
-              // Avoid *re*-filling MBD's own histogram
-              if (dbTriggerName == mbdDbName)
-                  continue;
-
-              bool firedRare = trigAna->checkRawTrigger(dbTriggerName);
-              if (!firedRare) continue;
-
-              std::string newHistName = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + histFriendlyStr;
-
-              auto &rareHistogramMap = qaHistogramsByTrigger[histFriendlyStr];
-              auto it = rareHistogramMap.find(newHistName);
-              if (it == rareHistogramMap.end() || !(it->second))
+              if (trigAna->didTriggerFire(dbTriggerName))
               {
-                continue;
+                activeDoNotScaleTrig.push_back(histFriendlyStr);
               }
+            }
 
-              TH1F* hNew = dynamic_cast<TH1F*>(it->second);
-              if (hNew)
-              {
-                hNew->Fill(max_energy_clus);
-              }
+            const bool passVzForDoNotScale =
+                (std::isfinite(m_vz) && (!m_useVzCut || std::fabs(m_vz) < m_vzCut));
+
+            const std::string mbdDbName    = "MBD N&S >= 1";
+            const std::string mbdShortName = "MBD_NandS_geq_1";
+
+            bool isMB = trigAna->didTriggerFire(mbdDbName);
+            if (isMB && passVzForDoNotScale)
+            {
+                float max_energy_clus = 0.f;
+
+                if (m_clus)
+                {
+                  const auto range = m_clus->getClusters();
+                  for (auto it = range.first; it != range.second; ++it)
+                  {
+                    const RawCluster* cl = it->second;
+                    if (!cl) continue;
+                    const float e = cl->get_energy();
+                    if (!std::isfinite(e)) continue;
+                    if (e < 1.0f) continue;
+                    if (e > max_energy_clus) max_energy_clus = e;
+                  }
+                }
+                else if (m_photons)
+                {
+                  const auto range = m_photons->getClusters();
+                  for (auto it = range.first; it != range.second; ++it)
+                  {
+                    const RawCluster* cl = it->second;
+                    if (!cl) continue;
+                    const float e = cl->get_energy();
+                    if (!std::isfinite(e)) continue;
+                    if (e < 1.0f) continue;
+                    if (e > max_energy_clus) max_energy_clus = e;
+                  }
+                }
+
+                for (const auto &firedShortName : activeDoNotScaleTrig)
+                {
+                  (void) firedShortName;
+
+                  // Fill the new histogram for MBD itself
+                  {
+                    std::string mbdHistName = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + mbdShortName;
+
+                    auto &mbdHistogramMap = qaHistogramsByTrigger[mbdShortName];
+                    auto it = mbdHistogramMap.find(mbdHistName);
+                    if (!(it == mbdHistogramMap.end() || !(it->second)))
+                    {
+                      TH1F* hMbdHist = dynamic_cast<TH1F*>(it->second);
+                      if (hMbdHist)
+                      {
+                        hMbdHist->Fill(max_energy_clus);
+                      }
+                    }
+                  }
+
+                  // Now check the “rare” triggers if MBD fired
+                  for (const auto &kv : triggerNameMap_pp_doNotScale)
+                  {
+                    const std::string &dbTriggerName   = kv.first;
+                    const std::string &histFriendlyStr = kv.second;
+
+                    // Avoid *re*-filling MBD's own histogram
+                    if (dbTriggerName == mbdDbName)
+                        continue;
+
+                    bool firedRare = trigAna->checkRawTrigger(dbTriggerName);
+                    if (!firedRare) continue;
+
+                    std::string newHistName = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + histFriendlyStr;
+
+                    auto &rareHistogramMap = qaHistogramsByTrigger[histFriendlyStr];
+                    auto it = rareHistogramMap.find(newHistName);
+                    if (it == rareHistogramMap.end() || !(it->second))
+                    {
+                      continue;
+                    }
+
+                    TH1F* hNew = dynamic_cast<TH1F*>(it->second);
+                    if (hNew)
+                    {
+                      hNew->Fill(max_energy_clus);
+                    }
+                  }
+                }
+
+                if (m_doPi0Analysis)
+                {
+                  const bool passPi0Vz = (!m_useVzCut || std::fabs(m_vz) < m_vzCut);
+
+                  if (passPi0Vz && m_clus && m_clus_nocorr)
+                  {
+                    fillPi0MassVsPtHistograms(mbdShortName, m_clus, true);
+                    fillPi0MassVsPtHistograms(mbdShortName, m_clus_nocorr, false);
+                  }
+                  else if (Verbosity() >= 2)
+                  {
+                    LOG(2, CLR_YELLOW,
+                        "    [process_event][pi0] requested pp pi0 fill skipped"
+                        << " | passVz=" << (passPi0Vz ? "true" : "false")
+                        << " | CLUSTERINFO_CEMC=" << (m_clus ? "OK" : "MISSING")
+                        << " | CLUSTERINFO_CEMC_NOCORR=" << (m_clus_nocorr ? "OK" : "MISSING"));
+                  }
+                }
             }
           }
         }
-      }
 
-      std::vector<std::string> activeTrig;
-      if (!firstEventCuts(topNode, activeTrig))
-      {
-        ++m_evtNoTrig;  // keep your legacy counter
-        if (m_lastReject == EventReject::Trigger) ++m_bk.evt_fail_trigger;
-        else if (m_lastReject == EventReject::Vz) ++m_bk.evt_fail_vz;
-
-        const char* why = "UNKNOWN";
-        if (m_lastReject == EventReject::Trigger) why = "Trigger";
-        else if (m_lastReject == EventReject::Vz) why = "|vz|";
-
-        std::ostringstream os;
-        os << "    event rejected by " << why << " gate – skip"
-           << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
-        if (m_useVzCut) os << " (|vz|cut=" << m_vzCut << ")";
-        os << " | nActiveTrig=" << activeTrig.size();
-
-        if (!activeTrig.empty())
+        std::vector<std::string> activeTrig;
+        if (!firstEventCuts(topNode, activeTrig))
         {
-          os << " | triggers={";
-          for (std::size_t i = 0; i < activeTrig.size(); ++i)
-          {
-            if (i) os << ", ";
-            os << activeTrig[i];
-          }
-          os << "}";
-        }
+          ++m_evtNoTrig;  // keep your legacy counter
+          if (m_lastReject == EventReject::Trigger) ++m_bk.evt_fail_trigger;
+          else if (m_lastReject == EventReject::Vz) ++m_bk.evt_fail_vz;
 
-        LOG(4, CLR_YELLOW, os.str());
-        return Fun4AllReturnCodes::ABORTEVENT;
+          const char* why = "UNKNOWN";
+          if (m_lastReject == EventReject::Trigger) why = "Trigger";
+          else if (m_lastReject == EventReject::Vz) why = "|vz|";
+
+          std::ostringstream os;
+          os << "    event rejected by " << why << " gate – skip"
+             << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
+          if (m_useVzCut) os << " (|vz|cut=" << m_vzCut << ")";
+          os << " | nActiveTrig=" << activeTrig.size();
+
+          if (!activeTrig.empty())
+          {
+            os << " | triggers={";
+            for (std::size_t i = 0; i < activeTrig.size(); ++i)
+            {
+              if (i) os << ", ";
+              os << activeTrig[i];
+            }
+            os << "}";
+          }
+
+          LOG(4, CLR_YELLOW, os.str());
+          return Fun4AllReturnCodes::ABORTEVENT;
   }
   /* ------------------------------------------------------------------ */
   /* 3) Trigger counters (one per trigger) + Vertex-z QA                */
