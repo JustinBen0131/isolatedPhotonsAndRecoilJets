@@ -47,7 +47,7 @@ centrality_edges: [0, 10, 20, 40, 60, 80]
 #   true  -> reserved for the native-EMCal UE-subtracted photon pipeline
 #            (the unified macro currently guards and aborts if enabled)
 clusterUEpipeline: true
-doPi0Analysis: true
+doPi0Analysis: false
 
 # -----------------------------------------------------------------------------
 # Isolation working point knobs (YAML-driven)

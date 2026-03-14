@@ -153,9 +153,9 @@ OUT_DIR="${BASE}/stdout"
 ERR_DIR="${BASE}/error"
 
 # Golden lists provided by you
-PP_GOLDEN="${BASE}/Full_ppGoldenRunList_Version3.list"
-PP25_GOLDEN="${BASE}/dst_lists_pp_run25/run3goldenruns.txt"
-AA_GOLDEN="${BASE}/Full_AuAuGoldenRunList_Version1_personal.list"
+PP_GOLDEN="${BASE}/GRLs_tanner/run2pp_ana509_2024p022_v001_dst_calofitting_grl.list"
+PP25_GOLDEN="${BASE}/GRLs_tanner/run3pp_new_newcdbtag_v008_dst_calofitting_grl.list"
+AA_GOLDEN="${BASE}/GRLs_tanner/run3auau_new_newcdbtag_v008_dst_calofitting_grl.list"
 
 # Per-run input list directories
 PP_LIST_DIR="${BASE}/dst_lists_pp"

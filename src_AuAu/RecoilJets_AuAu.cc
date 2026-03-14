@@ -1019,45 +1019,68 @@ void RecoilJets::createHistos_Data()
   // ------------------------------------------------------------------
   // DATA MODE: per-trigger directories
   // ------------------------------------------------------------------
-  if (m_isAuAu)
-  {
-    for (const auto& kv : triggerNameMapAuAu) // kv: std::pair<int,std::string>
+    if (m_isAuAu)
     {
-      const std::string trig = kv.second;
-
-      // Make sure the trigger directory exists
-      TDirectory* dir = out->GetDirectory(trig.c_str());
-      if (!dir) dir = out->mkdir(trig.c_str());
-      dir->cd();
-
-      HistMap& H = qaHistogramsByTrigger[trig];
-
-      // 1) per-trigger event counter
-      const std::string hcnt = "cnt_" + trig;
-      if (H.find(hcnt) == H.end())
+      for (const auto& kv : triggerNameMapAuAu) // kv: std::pair<int,std::string>
       {
-        auto* h = new TH1I(hcnt.c_str(), (hcnt + ";count;entries").c_str(), 1, 0.5, 1.5);
-        h->GetXaxis()->SetBinLabel(1, "count");
-        H[hcnt] = h;
-      }
+        const std::string trig = kv.second;
 
-      // 2) vertex-z QA
-      if (H.find("h_vertexZ") == H.end())
-      {
-        auto* hvz = new TH1F("h_vertexZ", "h_vertexZ;v_{z} [cm];Entries", nbVz, vzMin, vzMax);
-        H["h_vertexZ"] = hvz;
-      }
+        // Make sure the trigger directory exists
+        TDirectory* dir = out->GetDirectory(trig.c_str());
+        if (!dir) dir = out->mkdir(trig.c_str());
+        dir->cd();
 
-      // 3) centrality QA (Au+Au only)
-      if (H.find("h_centrality") == H.end())
-      {
-        auto* hc = new TH1F("h_centrality", "h_centrality;Centrality [%];Entries", 100, 0.0, 100.0);
-        H["h_centrality"] = hc;
-      }
+        HistMap& H = qaHistogramsByTrigger[trig];
 
-      out->cd();
+        // 1) per-trigger event counter
+        const std::string hcnt = "cnt_" + trig;
+        if (H.find(hcnt) == H.end())
+        {
+          auto* h = new TH1I(hcnt.c_str(), (hcnt + ";count;entries").c_str(), 1, 0.5, 1.5);
+          h->GetXaxis()->SetBinLabel(1, "count");
+          H[hcnt] = h;
+        }
+
+        // 2) vertex-z QA
+        if (H.find("h_vertexZ") == H.end())
+        {
+          auto* hvz = new TH1F("h_vertexZ", "h_vertexZ;v_{z} [cm];Entries", nbVz, vzMin, vzMax);
+          H["h_vertexZ"] = hvz;
+        }
+
+        // 3) centrality QA (Au+Au only)
+        if (H.find("h_centrality") == H.end())
+        {
+          auto* hc = new TH1F("h_centrality", "h_centrality;Centrality [%];Entries", 100, 0.0, 100.0);
+          H["h_centrality"] = hc;
+        }
+
+        if (m_doPi0Analysis)
+        {
+          if (H.find("h2_pi0_mass_vs_pi0pt_corr") == H.end())
+          {
+            TH2F* hist = new TH2F("h2_pi0_mass_vs_pi0pt_corr",
+                                  "h2_pi0_mass_vs_pi0pt_corr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{#pi^{0}} [GeV/c]",
+                                  240, 0, 0.6,
+                                  240, 0, 60);
+            hist->SetDirectory(out);
+            H["h2_pi0_mass_vs_pi0pt_corr"] = hist;
+          }
+
+          if (H.find("h2_pi0_mass_vs_leadcluspt_corr") == H.end())
+          {
+            TH2F* hist = new TH2F("h2_pi0_mass_vs_leadcluspt_corr",
+                                  "h2_pi0_mass_vs_leadcluspt_corr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{lead cluster} [GeV/c]",
+                                  240, 0, 0.6,
+                                  240, 0, 60);
+            hist->SetDirectory(out);
+            H["h2_pi0_mass_vs_leadcluspt_corr"] = hist;
+          }
+        }
+
+        out->cd();
+      }
     }
-  }
   else
   {
     // ------------------------------------------------------------------
@@ -1075,8 +1098,8 @@ void RecoilJets::createHistos_Data()
 
       HistMap& H = qaHistogramsByTrigger[trig];
 
-        const std::string hturn = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + trig;
-        if (H.find(hturn) == H.end())
+      const std::string hturn = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + trig;
+      if (H.find(hturn) == H.end())
         {
           TH1F* hist = new TH1F(hturn.c_str(),
                                 "Max Cluster Energy; Cluster Energy [GeV]",
@@ -1589,7 +1612,7 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         static_cast<TH1F*>(hvz->second)->Fill(m_vz);
         bumpHistFill(t, "h_vertexZ");
       }
-    }
+  }
 
   /* ------------------------------------------------------------------ */
   /* 4) Centrality lookup (Au+Au only)                                  */
@@ -1655,6 +1678,26 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
       return Fun4AllReturnCodes::ABORTEVENT;
   }
     
+  if (m_doPi0Analysis)
+  {
+      const bool passPi0Vz = (!m_useVzCut || std::fabs(m_vz) < m_vzCut);
+
+      if (passPi0Vz && m_clus)
+      {
+        for (const auto& t : activeTrig)
+        {
+          fillPi0MassVsPtHistograms(t, m_clus, true);
+        }
+      }
+      else if (Verbosity() >= 2)
+      {
+        LOG(2, CLR_YELLOW,
+            "    [process_event][pi0] requested pi0 fill skipped"
+            << " | passVz=" << (passPi0Vz ? "true" : "false")
+            << " | CLUSTERINFO_CEMC=" << (m_clus ? "OK" : "MISSING"));
+      }
+  }
+
   /* ------------------------------------------------------------------ */
   /* 6) Pure jet QA (independent of photon pipeline)                     */
   /*     Filled once per accepted event, after centrality/vz.            */
@@ -1662,7 +1705,7 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
   const int centIdxForJets = (m_isAuAu ? findCentBin(m_centBin) : -1);
   for (const auto& kv : m_jets)
   {
-        fillInclusiveJetQA(activeTrig, centIdxForJets, kv.first);
+          fillInclusiveJetQA(activeTrig, centIdxForJets, kv.first);
   }
 
   processCandidates(topNode, activeTrig);
