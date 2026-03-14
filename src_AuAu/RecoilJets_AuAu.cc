@@ -431,29 +431,41 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     LOG(5, CLR_BLUE, "    [fetchNodes] towers OK: " << lbl << "  node=" << node << "  geom=" << geo);
   }
 
-  // ------------------------------------------------------------------
-  // Clusters & photons
-  // ------------------------------------------------------------------
-  m_clus    = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC");
-  m_photons = findNode::getClass<RawClusterContainer>(top, "PHOTONCLUSTER_CEMC");
-
-  if (Verbosity() >= 3)
-  {
-    auto countClusters = [](RawClusterContainer* c) -> size_t
+    // ------------------------------------------------------------------
+    // Clusters & photons
+    // ------------------------------------------------------------------
+    m_clus        = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC");
+    m_clus_nocorr = nullptr;
+    if (m_doPi0Analysis && !isSim && !isAuAu)
     {
-      if (!c) return 0;
-      size_t n = 0;
-      auto r = c->getClusters();
-      for (auto it = r.first; it != r.second; ++it) ++n;
-      return n;
-    };
+      m_clus_nocorr = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC_NOCORR");
+    }
+    m_photons     = findNode::getClass<RawClusterContainer>(top, "PHOTONCLUSTER_CEMC");
 
-    LOG(3, CLR_CYAN,
-        "    [fetchNodes] sizes: CLUSTERINFO_CEMC=" << countClusters(m_clus)
-        << " | PHOTONCLUSTER_CEMC=" << countClusters(m_photons));
-  }
+    if (Verbosity() >= 3)
+    {
+      auto countClusters = [](RawClusterContainer* c) -> size_t
+      {
+        if (!c) return 0;
+        size_t n = 0;
+        auto r = c->getClusters();
+        for (auto it = r.first; it != r.second; ++it) ++n;
+        return n;
+      };
 
-  if (!m_photons)
+      LOG(3, CLR_CYAN,
+          "    [fetchNodes] sizes: CLUSTERINFO_CEMC=" << countClusters(m_clus)
+          << " | CLUSTERINFO_CEMC_NOCORR=" << countClusters(m_clus_nocorr)
+          << " | PHOTONCLUSTER_CEMC=" << countClusters(m_photons));
+    }
+
+    if (m_doPi0Analysis && !isSim && !isAuAu && !m_clus_nocorr && Verbosity() >= 2)
+    {
+      LOG(2, CLR_YELLOW,
+          "    [fetchNodes] CLUSTERINFO_CEMC_NOCORR missing while doPi0Analysis is enabled");
+    }
+
+    if (!m_photons)
   {
     LOG(0, CLR_YELLOW,
         "    [fetchNodes] PHOTONCLUSTER_CEMC is MISSING → ABORTEVENT. "
@@ -1063,18 +1075,61 @@ void RecoilJets::createHistos_Data()
 
       HistMap& H = qaHistogramsByTrigger[trig];
 
-      const std::string hturn = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + trig;
-      if (H.find(hturn) == H.end())
-      {
-        TH1F* hist = new TH1F(hturn.c_str(),
-                              "Max Cluster Energy; Cluster Energy [GeV]",
-                              40, 0, 20);
-        hist->SetDirectory(out);
-        H[hturn] = hist;
-      }
+        const std::string hturn = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + trig;
+        if (H.find(hturn) == H.end())
+        {
+          TH1F* hist = new TH1F(hturn.c_str(),
+                                "Max Cluster Energy; Cluster Energy [GeV]",
+                                40, 0, 20);
+          hist->SetDirectory(out);
+          H[hturn] = hist;
+        }
 
-      out->cd();
-    }
+        if (m_doPi0Analysis && trig == "MBD_NandS_geq_1")
+        {
+          if (H.find("h2_pi0_mass_vs_pi0pt_corr") == H.end())
+          {
+            TH2F* hist = new TH2F("h2_pi0_mass_vs_pi0pt_corr",
+                                  "h2_pi0_mass_vs_pi0pt_corr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{#pi^{0}} [GeV/c]",
+                                  240, 0, 0.6,
+                                  240, 0, 60);
+            hist->SetDirectory(out);
+            H["h2_pi0_mass_vs_pi0pt_corr"] = hist;
+          }
+
+          if (H.find("h2_pi0_mass_vs_pi0pt_nocorr") == H.end())
+          {
+            TH2F* hist = new TH2F("h2_pi0_mass_vs_pi0pt_nocorr",
+                                  "h2_pi0_mass_vs_pi0pt_nocorr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{#pi^{0}} [GeV/c]",
+                                  240, 0, 0.6,
+                                  240, 0, 60);
+            hist->SetDirectory(out);
+            H["h2_pi0_mass_vs_pi0pt_nocorr"] = hist;
+          }
+
+          if (H.find("h2_pi0_mass_vs_leadcluspt_corr") == H.end())
+          {
+            TH2F* hist = new TH2F("h2_pi0_mass_vs_leadcluspt_corr",
+                                  "h2_pi0_mass_vs_leadcluspt_corr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{lead cluster} [GeV/c]",
+                                  240, 0, 0.6,
+                                  240, 0, 60);
+            hist->SetDirectory(out);
+            H["h2_pi0_mass_vs_leadcluspt_corr"] = hist;
+          }
+
+          if (H.find("h2_pi0_mass_vs_leadcluspt_nocorr") == H.end())
+          {
+            TH2F* hist = new TH2F("h2_pi0_mass_vs_leadcluspt_nocorr",
+                                  "h2_pi0_mass_vs_leadcluspt_nocorr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{lead cluster} [GeV/c]",
+                                  240, 0, 0.6,
+                                  240, 0, 60);
+            hist->SetDirectory(out);
+            H["h2_pi0_mass_vs_leadcluspt_nocorr"] = hist;
+          }
+        }
+
+        out->cd();
+      }
 
     // ------------------------------------------------------------------
     // Existing pp per-trigger QA booking (unchanged; still uses triggerNameMap_pp)
@@ -1410,23 +1465,42 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
               }
             }
 
-            // Fill the new histogram for MBD itself
-            {
-              std::string mbdHistName = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + mbdShortName;
-
-              auto &mbdHistogramMap = qaHistogramsByTrigger[mbdShortName];
-              auto it = mbdHistogramMap.find(mbdHistName);
-              if (!(it == mbdHistogramMap.end() || !(it->second)))
+              // Fill the new histogram for MBD itself
               {
-                TH1F* hMbdHist = dynamic_cast<TH1F*>(it->second);
-                if (hMbdHist)
+                std::string mbdHistName = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + mbdShortName;
+
+                auto &mbdHistogramMap = qaHistogramsByTrigger[mbdShortName];
+                auto it = mbdHistogramMap.find(mbdHistName);
+                if (!(it == mbdHistogramMap.end() || !(it->second)))
                 {
-                  hMbdHist->Fill(max_energy_clus);
+                  TH1F* hMbdHist = dynamic_cast<TH1F*>(it->second);
+                  if (hMbdHist)
+                  {
+                    hMbdHist->Fill(max_energy_clus);
+                  }
                 }
               }
-            }
 
-            // Now check the “rare” triggers if MBD fired
+              if (m_doPi0Analysis)
+              {
+                const bool passPi0Vz = (!m_useVzCut || std::fabs(m_vz) < m_vzCut);
+
+                if (passPi0Vz && m_clus && m_clus_nocorr)
+                {
+                  fillPi0MassVsPtHistograms(mbdShortName, m_clus, true);
+                  fillPi0MassVsPtHistograms(mbdShortName, m_clus_nocorr, false);
+                }
+                else if (Verbosity() >= 2)
+                {
+                  LOG(2, CLR_YELLOW,
+                      "    [process_event][pi0] requested pp pi0 fill skipped"
+                      << " | passVz=" << (passPi0Vz ? "true" : "false")
+                      << " | CLUSTERINFO_CEMC=" << (m_clus ? "OK" : "MISSING")
+                      << " | CLUSTERINFO_CEMC_NOCORR=" << (m_clus_nocorr ? "OK" : "MISSING"));
+                }
+              }
+
+              // Now check the “rare” triggers if MBD fired
             for (const auto &kv : triggerNameMap_pp_doNotScale)
             {
               const std::string &dbTriggerName   = kv.first;
@@ -5695,18 +5769,89 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
   return;
 }
 
+void RecoilJets::fillPi0MassVsPtHistograms(const std::string& trig,
+                                             RawClusterContainer* clusterContainer,
+                                             bool useCorr)
+{
+    if (!m_doPi0Analysis || !clusterContainer) return;
+
+    auto itTrig = qaHistogramsByTrigger.find(trig);
+    if (itTrig == qaHistogramsByTrigger.end()) return;
+
+    auto& H = itTrig->second;
+
+    const std::string hMassPi0PtName = useCorr ? "h2_pi0_mass_vs_pi0pt_corr" : "h2_pi0_mass_vs_pi0pt_nocorr";
+    const std::string hMassLeadPtName = useCorr ? "h2_pi0_mass_vs_leadcluspt_corr" : "h2_pi0_mass_vs_leadcluspt_nocorr";
+
+    auto itMassPi0Pt = H.find(hMassPi0PtName);
+    auto itMassLeadPt = H.find(hMassLeadPtName);
+    if (itMassPi0Pt == H.end() || itMassLeadPt == H.end()) return;
+
+    TH2F* hMassPi0Pt = dynamic_cast<TH2F*>(itMassPi0Pt->second);
+    TH2F* hMassLeadPt = dynamic_cast<TH2F*>(itMassLeadPt->second);
+    if (!hMassPi0Pt || !hMassLeadPt) return;
+
+    CLHEP::Hep3Vector vertex(0, 0, m_vz);
+    RawClusterContainer::ConstRange cRange = clusterContainer->getClusters();
+
+    for (auto cIt1 = cRange.first; cIt1 != cRange.second; ++cIt1)
+    {
+      const RawCluster* clus1 = cIt1->second;
+      if (!clus1) continue;
+
+      const CLHEP::Hep3Vector eVec1 = RawClusterUtility::GetEVec(*clus1, vertex);
+      const double e1 = eVec1.mag();
+      if (!std::isfinite(e1) || e1 <= 0.0) continue;
+
+      TLorentzVector photon1;
+      photon1.SetPxPyPzE(eVec1.x(), eVec1.y(), eVec1.z(), e1);
+
+      if (!std::isfinite(photon1.Pt()) || photon1.Pt() <= 0.0) continue;
+
+      auto cIt2 = cIt1;
+      ++cIt2;
+      for (; cIt2 != cRange.second; ++cIt2)
+      {
+        const RawCluster* clus2 = cIt2->second;
+        if (!clus2) continue;
+
+        const CLHEP::Hep3Vector eVec2 = RawClusterUtility::GetEVec(*clus2, vertex);
+        const double e2 = eVec2.mag();
+        if (!std::isfinite(e2) || e2 <= 0.0) continue;
+
+        TLorentzVector photon2;
+        photon2.SetPxPyPzE(eVec2.x(), eVec2.y(), eVec2.z(), e2);
+
+        if (!std::isfinite(photon2.Pt()) || photon2.Pt() <= 0.0) continue;
+
+        const TLorentzVector pi0 = photon1 + photon2;
+        const double mass = pi0.M();
+        const double pi0pt = pi0.Pt();
+        const double leadClusPt = std::max(photon1.Pt(), photon2.Pt());
+
+        if (!std::isfinite(mass) || !std::isfinite(pi0pt) || !std::isfinite(leadClusPt)) continue;
+
+        hMassPi0Pt->Fill(mass, pi0pt);
+        bumpHistFill(trig, hMassPi0PtName);
+
+        hMassLeadPt->Fill(mass, leadClusPt);
+        bumpHistFill(trig, hMassLeadPtName);
+      }
+   }
+}
+
 
 
 bool RecoilJets::passesPhotonPreselection(const SSVars& v)
 {
   // Basic sanity on inputs
   const bool ok_vals =
-      std::isfinite(v.weta_cogx) &&
-      std::isfinite(v.wphi_cogx) &&
-      std::isfinite(v.et1) &&
-      std::isfinite(v.e11_over_e33) &&
-      std::isfinite(v.e32_over_e35) &&
-      std::isfinite(v.pt_gamma);
+  std::isfinite(v.weta_cogx) &&
+  std::isfinite(v.wphi_cogx) &&
+  std::isfinite(v.et1) &&
+  std::isfinite(v.e11_over_e33) &&
+  std::isfinite(v.e32_over_e35) &&
+  std::isfinite(v.pt_gamma);
 
   if (!ok_vals)
   {
