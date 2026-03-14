@@ -16294,29 +16294,51 @@ namespace ARJ
       cout << ANSI_RESET << "\n";
 
       // ---------------------------------------------------------------------------
-      // Explicit default SIM10+20 config printout (so it's obvious what drives the merge + analysis)
+      // Explicit default SIM config printout (so it's obvious what drives the merge + analysis)
       // ---------------------------------------------------------------------------
       if (mode == RunMode::kSimOnly || mode == RunMode::kSimAndDataPP)
       {
         const Sim10and20Config& cfgDef = DefaultSim10and20Config();
 
         cout << ANSI_DIM
-             << "\n  [SIM10+20 DEFAULT CONFIG]\n"
+             << "\n  [DEFAULT SIM CONFIG]\n"
              << "    DefaultSimSampleKey()           = " << DefaultSimSampleKey() << "\n"
-             << "    cfg.key                         = " << cfgDef.key << "\n"
-             << "    cfg.photon10                    = " << cfgDef.photon10 << "\n"
+             << "    cfg.key                         = " << cfgDef.key << "\n";
+
+        if (ss == SimSample::kPhotonJet5And10And20Merged)
+        {
+          cout << "    cfg.photon5                     = " << cfgDef.photon5 << "\n";
+        }
+
+        cout << "    cfg.photon10                    = " << cfgDef.photon10 << "\n"
              << "    cfg.photon20                    = " << cfgDef.photon20 << "\n"
              << "    cfg.jetMinPt                    = " << cfgDef.jetMinPt << " GeV\n"
-             << "    cfg.bbLabel                     = " << cfgDef.bbLabel << "\n"
-             << "    kInSIM10 (alias)                = " << kInSIM10 << "\n"
-             << "    kInSIM20 (alias)                = " << kInSIM20 << "\n"
-             << "    MergedSIMOut_10and20_Default()  = " << MergedSIMOut_10and20_Default() << "\n"
-             << ANSI_RESET;
+             << "    cfg.bbLabel                     = " << cfgDef.bbLabel << "\n";
 
-        if (ss == SimSample::kPhotonJet10And20Merged)
+        if (ss == SimSample::kPhotonJet5And10And20Merged)
+        {
+          cout << "    kInSIM5 (alias)                 = " << kInSIM5 << "\n";
+        }
+
+        cout << "    kInSIM10 (alias)                = " << kInSIM10 << "\n"
+             << "    kInSIM20 (alias)                = " << kInSIM20 << "\n";
+
+        if (ss == SimSample::kPhotonJet5And10And20Merged)
+        {
+          cout << "    kMergedSIMOut_5and10and20       = " << kMergedSIMOut_5and10and20 << "\n";
+        }
+        else
+        {
+          cout << "    MergedSIMOut_10and20_Default()  = " << MergedSIMOut_10and20_Default() << "\n";
+        }
+
+        cout << ANSI_RESET;
+
+        if (ss == SimSample::kPhotonJet10And20Merged ||
+            ss == SimSample::kPhotonJet5And10And20Merged)
         {
           cout << ANSI_DIM
-               << "  [SIM10+20 MERGED DATASET PATH]\n"
+               << "  [ACTIVE MERGED DATASET PATH]\n"
                << "    SimInputPathForSample(ss)       = " << SimInputPathForSample(ss) << "\n"
                << "    (This is the file opened in STEP 3 and used for the full analysis.)\n"
                << ANSI_RESET;

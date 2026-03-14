@@ -280,6 +280,8 @@ run_all_modes() {
     echo "[INFO] Build mode: $BUILD_MODE"
 
     if [[ "$ACTION" == "QA" ]]; then
+      echo "[INFO] QA-only mode for $LABEL: using only the input golden run list."
+      echo "[INFO] QA-only mode for $LABEL: no DST lists will be created, removed, modified, or scanned."
       echo "[INFO] Starting trigger QA for $LABEL"
       if run_trigger_qa; then
         rc=0
@@ -416,93 +418,221 @@ run_trigger_qa() {
 
   PSQL=(psql -h sphnxdaqdbreplica -d daq -At -F $'\t' -q)
   sql()         { "${PSQL[@]}" -c "$1" 2>/dev/null || true; }
-  num_or_zero() { [[ $1 =~ ^-?[0-9]+$ ]] && printf '%s' "$1" || printf 0; }
+  num_or_zero() { [[ $1 =~ ^-?[0-9]+([.][0-9]+)?$ ]] && printf '%s' "$1" || printf 0; }
 
-  ROWS=()
-  tot_rt_all=0
-  tot_ev_all=0
-  idx=0
-  for run in "${RUNS_ALL[@]}"; do
-    ((idx+=1))
-    rt=$(sql "SELECT FLOOR(EXTRACT(EPOCH FROM (ertimestamp-brtimestamp)))::INT FROM run WHERE runnumber=$run;" | tr -d ' ')
-    rt=$(num_or_zero "$rt")
-    ev=$(sql "SELECT COALESCE(SUM(lastevent-firstevent+1),0)::BIGINT
-              FROM filelist WHERE runnumber=$run AND filename LIKE '%GL1_physics_gl1daq%.evt';" | tr -d ' ')
-    ev=$(num_or_zero "$ev")
-    ROWS+=("$run"$'\t'"$rt"$'\t'"$ev")
-    tot_rt_all=$(( tot_rt_all + rt ))
-    tot_ev_all=$(( tot_ev_all + ev ))
-    (( idx % 200 == 0 )) && echo "[INFO] Runtime/GL1 bookkeeping progress: $idx / ${#RUNS_ALL[@]}"
-  done
+  local ANSI_BOLD ANSI_DIM ANSI_CYAN ANSI_GREEN ANSI_YELLOW ANSI_RED ANSI_RESET
+  ANSI_BOLD=$'\033[1m'
+  ANSI_DIM=$'\033[2m'
+  ANSI_CYAN=$'\033[36m'
+  ANSI_GREEN=$'\033[32m'
+  ANSI_YELLOW=$'\033[33m'
+  ANSI_RED=$'\033[31m'
+  ANSI_RESET=$'\033[0m'
 
   echo
-  echo "Trigger QA summary for: $LABEL"
-  echo "Input list: $LIST_FILE"
+  printf "%sTrigger QA summary for: %s%s\n" "$ANSI_BOLD$ANSI_CYAN" "$LABEL" "$ANSI_RESET"
+  echo "Input golden run list: $LIST_FILE"
   echo "Runs in input list: ${#RUNS_ALL[@]}"
-  printf "Total GL1 .evt counts: %s\n" "$tot_ev_all"
-  printf "Total runtime (hours): %.2f\n" "$(bc -l <<< "$tot_rt_all/3600")"
+  echo "Requested QA metrics per trigger:"
+  echo "  - trigger name"
+  echo "  - trigger bit"
+  echo "  - active runs (scaledown != -1)"
+  echo "  - average scaledown factor over active runs"
+  echo "  - total scaled events"
+  echo "Ranking: most scaled events to least scaled events"
+  echo "QA mode behavior:"
+  echo "  - reads only the input golden run list"
+  echo "  - queries trigger metadata from daq tables"
+  echo "  - does not create, clean, scan, or modify any DST list files"
+  echo "Active-run rule:"
+  echo "  - a trigger is counted active for a run only when scaledown != -1"
+  echo "Average scaledown rule:"
+  echo "  - computed only from rows with scaled > 0 and raw >= 0"
+  echo "Scaled-event rule:"
+  echo "  - accumulated only from rows with scaled > 0"
+  echo
+
+  echo "[INFO] Verifying psql connectivity expectation: host=sphnxdaqdbreplica db=daq"
+  echo "[INFO] Beginning trigger scan over ${#RUNS_ALL[@]} golden-list runs"
 
   declare -A TRIG_NAME
-  declare -A TRIG_ONRUNS
+  declare -A TRIG_ACTIVE_RUNS
   declare -A TRIG_SUMSCALED
+  declare -A TRIG_SUMSDFACTOR
+  declare -A TRIG_SDCOUNT
+
+  local total_query_rows=0
+  local runs_with_no_rows=0
+  local runs_with_only_inactive=0
+  local runs_with_active_rows=0
+  local rows_scaled_minus_one=0
+  local rows_scaled_zero=0
+  local rows_scaled_positive=0
+  local rows_bad_idx=0
+  local rows_missing_name=0
+  local rows_used_for_avg=0
+  local first_problem_run=""
 
   gidx=0
   for run in "${RUNS_ALL[@]}"; do
     ((gidx+=1))
-    declare -A SEEN_RUN=()
-    while IFS=$'\t' read -r trg idx scaled; do
+    declare -A SEEN_ACTIVE=()
+
+    local run_row_count=0
+    local run_active_row_count=0
+    local run_positive_scaled_count=0
+    local run_avg_usable_count=0
+
+    while IFS=$'\t' read -r trg idx scaled raw; do
       [[ -z "$idx" ]] && continue
+      ((run_row_count+=1))
+      ((total_query_rows+=1))
+
       idx=$(num_or_zero "$idx")
       scaled=$(num_or_zero "$scaled")
-      if (( scaled > 0 )); then
-        TRIG_NAME["$idx"]="$trg"
-        TRIG_SUMSCALED["$idx"]=$(( ${TRIG_SUMSCALED["$idx"]:-0} + scaled ))
-        if [[ -z "${SEEN_RUN[$idx]:-}" ]]; then
-          TRIG_ONRUNS["$idx"]=$(( ${TRIG_ONRUNS["$idx"]:-0} + 1 ))
-          SEEN_RUN["$idx"]=1
+      raw=$(num_or_zero "$raw")
+
+      if [[ ! "$idx" =~ ^[0-9]+$ ]]; then
+        ((rows_bad_idx+=1))
+        [[ -z "$first_problem_run" ]] && first_problem_run="$run"
+        continue
+      fi
+
+      [[ -z "$trg" ]] && ((rows_missing_name+=1))
+
+      TRIG_NAME["$idx"]="$trg"
+
+      if (( scaled == -1 )); then
+        ((rows_scaled_minus_one+=1))
+      elif (( scaled == 0 )); then
+        ((rows_scaled_zero+=1))
+      elif (( scaled > 0 )); then
+        ((rows_scaled_positive+=1))
+      fi
+
+      if (( scaled != -1 )); then
+        ((run_active_row_count+=1))
+
+        if [[ -z "${SEEN_ACTIVE[$idx]:-}" ]]; then
+          TRIG_ACTIVE_RUNS["$idx"]=$(( ${TRIG_ACTIVE_RUNS["$idx"]:-0} + 1 ))
+          SEEN_ACTIVE["$idx"]=1
+        fi
+
+        if (( scaled > 0 )); then
+          TRIG_SUMSCALED["$idx"]=$(( ${TRIG_SUMSCALED["$idx"]:-0} + scaled ))
+          ((run_positive_scaled_count+=1))
+        fi
+
+        if (( scaled > 0 && raw >= 0 )); then
+          sdf=$(awk -v r="$raw" -v s="$scaled" 'BEGIN{ if (s>0) printf "%.6f", r/s; else printf "0"; }')
+          TRIG_SUMSDFACTOR["$idx"]="$(awk -v a="${TRIG_SUMSDFACTOR["$idx"]:-0}" -v b="$sdf" 'BEGIN{ printf "%.6f", a+b }')"
+          TRIG_SDCOUNT["$idx"]=$(( ${TRIG_SDCOUNT["$idx"]:-0} + 1 ))
+          ((run_avg_usable_count+=1))
+          ((rows_used_for_avg+=1))
         fi
       fi
-    done < <(sql "SELECT t.triggername, s.index, s.scaled
+    done < <(sql "SELECT t.triggername, s.index, s.scaled, s.raw
                    FROM gl1_scalers s
                    JOIN gl1_triggernames t
                      ON s.index = t.index
                     AND s.runnumber BETWEEN t.runnumber AND t.runnumber_last
                   WHERE s.runnumber = $run;")
-    (( gidx % 200 == 0 )) && echo "[INFO] Trigger scan progress: $gidx / ${#RUNS_ALL[@]}"
+
+    if (( run_row_count == 0 )); then
+      ((runs_with_no_rows+=1))
+      [[ -z "$first_problem_run" ]] && first_problem_run="$run"
+      printf "%s[WARN]%s Run %s returned zero rows from gl1_scalers/gl1_triggernames join\n" "$ANSI_YELLOW" "$ANSI_RESET" "$run"
+    elif (( run_active_row_count == 0 )); then
+      ((runs_with_only_inactive+=1))
+      printf "%s[WARN]%s Run %s returned %d trigger rows, but all had scaledown = -1\n" \
+        "$ANSI_YELLOW" "$ANSI_RESET" "$run" "$run_row_count"
+    else
+      ((runs_with_active_rows+=1))
+    fi
+
+    if (( gidx <= 5 || gidx % 100 == 0 || gidx == ${#RUNS_ALL[@]} )); then
+      printf "[INFO] Trigger QA progress: %d / %d | run=%s | rows=%d | activeRows=%d | scaled>0 rows=%d | avgUsableRows=%d\n" \
+        "$gidx" "${#RUNS_ALL[@]}" "$run" "$run_row_count" "$run_active_row_count" "$run_positive_scaled_count" "$run_avg_usable_count"
+    fi
   done
 
   tmp_rows=()
-  maxlen=7
-  for idx in "${!TRIG_ONRUNS[@]}"; do
+  maxlen=11
+  for idx in "${!TRIG_ACTIVE_RUNS[@]}"; do
     trg="${TRIG_NAME["$idx"]}"
+    [[ -z "$trg" ]] && trg="(missing-name)"
     (( ${#trg} > maxlen )) && maxlen=${#trg}
-    onr=${TRIG_ONRUNS["$idx"]}
-    sum=${TRIG_SUMSCALED["$idx"]}
-    tmp_rows+=( "$idx|$trg|$onr|$sum" )
+    active_runs=${TRIG_ACTIVE_RUNS["$idx"]:-0}
+    sumscaled=${TRIG_SUMSCALED["$idx"]:-0}
+    sdcount=${TRIG_SDCOUNT["$idx"]:-0}
+    if (( sdcount > 0 )); then
+      avg_sd=$(awk -v a="${TRIG_SUMSDFACTOR["$idx"]:-0}" -v n="$sdcount" 'BEGIN{ if (n>0) printf "%.3f", a/n; else printf "0.000"; }')
+    else
+      avg_sd="0.000"
+    fi
+    tmp_rows+=( "$idx|$trg|$active_runs|$avg_sd|$sumscaled|$sdcount" )
   done
   (( maxlen+=2 ))
 
+  echo
+  printf "%sQA bookkeeping diagnostics%s\n" "$ANSI_BOLD$ANSI_CYAN" "$ANSI_RESET"
+  printf "  Total query rows read: %d\n" "$total_query_rows"
+  printf "  Runs with active trigger rows: %d / %d\n" "$runs_with_active_rows" "${#RUNS_ALL[@]}"
+  printf "  Runs with zero returned rows: %d\n" "$runs_with_no_rows"
+  printf "  Runs with only scaledown=-1 rows: %d\n" "$runs_with_only_inactive"
+  printf "  Row counts by scaled value class:\n"
+  printf "    scaled = -1 : %d\n" "$rows_scaled_minus_one"
+  printf "    scaled = 0  : %d\n" "$rows_scaled_zero"
+  printf "    scaled > 0  : %d\n" "$rows_scaled_positive"
+  printf "  Rows used for average scaledown calculation: %d\n" "$rows_used_for_avg"
+  printf "  Rows with missing trigger names: %d\n" "$rows_missing_name"
+  printf "  Rows with unusable trigger bit values: %d\n" "$rows_bad_idx"
+  if [[ -n "$first_problem_run" ]]; then
+    printf "%s  First run showing a warning condition: %s%s\n" "$ANSI_YELLOW" "$first_problem_run" "$ANSI_RESET"
+  else
+    printf "%s  No per-run warning conditions were encountered during scan%s\n" "$ANSI_GREEN" "$ANSI_RESET"
+  fi
+
   if ((${#tmp_rows[@]})); then
     echo
-    printf "  %4s | %-*s | %8s | %14s\n" "Bit" "$maxlen" "Trigger" "ONruns" "ΣScaled"
-    printf "  %-4s-+-%-*s-+-%-8s-+-%-14s\n" \
+    printf "%sDataset: %s%s\n" "$ANSI_BOLD$ANSI_GREEN" "$LABEL" "$ANSI_RESET"
+    printf "%sTotal available active triggers in golden-run scan: %d%s\n" "$ANSI_DIM" "${#tmp_rows[@]}" "$ANSI_RESET"
+    printf "%sTable notes: ActiveRuns uses scaledown != -1, AvgScale uses only scaled > 0 rows, ScaledEvents is the total of scaled > 0 rows.%s\n" "$ANSI_DIM" "$ANSI_RESET"
+    echo
+
+    printf "%s  %4s | %-*s | %11s | %11s | %14s | %10s%s\n" \
+      "$ANSI_BOLD" "Bit" "$maxlen" "TriggerName" "ActiveRuns" "AvgScale" "ScaledEvents" "AvgNRows" "$ANSI_RESET"
+    printf "%s  %-4s-+-%-*s-+-%-11s-+-%-11s-+-%-14s-+-%-10s%s\n" \
+      "$ANSI_DIM" \
       "$(printf '─%.0s' $(seq 1 4))" \
       "$maxlen" "$(printf '─%.0s' $(seq 1 $maxlen))" \
-      "$(printf '─%.0s' $(seq 1 8))" \
-      "$(printf '─%.0s' $(seq 1 14))"
+      "$(printf '─%.0s' $(seq 1 11))" \
+      "$(printf '─%.0s' $(seq 1 11))" \
+      "$(printf '─%.0s' $(seq 1 14))" \
+      "$(printf '─%.0s' $(seq 1 10))" \
+      "$ANSI_RESET"
 
     printf "%s\n" "${tmp_rows[@]}" \
-    | awk -F'|' '{printf "%015d|%04d|%08d|%s\n",$4,$1,$3,$2}' \
-    | sort -n \
-    | while IFS='|' read -r padSum padIdx padOn trg; do
-        sum=$((10#$padSum))
+    | awk -F'|' '{printf "%015d|%04d|%011d|%s|%s|%010d\n",$5,$1,$3,$4,$2,$6}' \
+    | sort -r -n \
+    | while IFS='|' read -r padScaled padIdx padActive avgsd trg padAvgN; do
+        sumscaled=$((10#$padScaled))
         idx=$((10#$padIdx))
-        on=$((10#$padOn))
-        printf "  %4d | %-*s | %8d | %14d\n" "$idx" "$maxlen" "$trg" "$on" "$sum"
+        active_runs=$((10#$padActive))
+        avg_n=$((10#$padAvgN))
+        printf "  %4d | %-*s | %11d | %11s | %14d | %10d\n" \
+          "$idx" "$maxlen" "$trg" "$active_runs" "$avgsd" "$sumscaled" "$avg_n"
       done
     echo
   else
-    echo "[WARN] No trigger activity found for the provided run list."
+    printf "%s[WARN] No active trigger rows found for the provided golden run list.%s\n" "$ANSI_YELLOW" "$ANSI_RESET"
+    printf "%s[WARN] This usually means the query returned no rows, all rows had scaledown = -1, or the run list does not match the expected DB content.%s\n" "$ANSI_YELLOW" "$ANSI_RESET"
+  fi
+
+  if (( runs_with_no_rows > 0 || rows_bad_idx > 0 )); then
+    printf "%s[WARN] QA completed with transparency warnings. Review the diagnostics block above before trusting the table blindly.%s\n" "$ANSI_YELLOW" "$ANSI_RESET"
+  else
+    printf "%s[INFO] QA completed without structural warning conditions.%s\n" "$ANSI_GREEN" "$ANSI_RESET"
   fi
 }
 

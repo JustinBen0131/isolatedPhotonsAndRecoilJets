@@ -1547,7 +1547,7 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
                         << " | CLUSTERINFO_CEMC_NOCORR=" << (m_clus_nocorr ? "OK" : "MISSING"));
                   }
                 }
-            }
+             }
           }
         }
 
@@ -4113,6 +4113,8 @@ bool RecoilJets::runLeadIsoTightPhotonJetMatchingAndUnfolding(
     const double leadPhiGamma,
     const bool haveTruthSigPho,
     const double tPtSig,
+    const bool haveTruthPhoPPG12,
+    const double recoPtTruthMatchPPG12,
     const bool haveTruthPho,
     const double tPt,
     const double tEta,
@@ -4137,15 +4139,16 @@ bool RecoilJets::runLeadIsoTightPhotonJetMatchingAndUnfolding(
         { hRF->Fill(leadPtGamma); bumpHistFill(trigShort, hRF->GetName()); }
       }
   
-      // Photon response (truth -> reco) only for matched truth signal photon
-      if (haveTruthSigPho && haveTruthPho)
+      // Photon response (truth -> reco) for the PPG12-style truth↔reco photon match:
+      // truth signal photon matched to a reco cluster that passes the final iso+tight selection.
+      if (haveTruthSigPho && haveTruthPhoPPG12 && std::isfinite(recoPtTruthMatchPPG12) && recoPtTruthMatchPPG12 > 0.0)
       {
         if (auto* hResp = getOrBookUnfoldResponsePhoPtGamma(trigShort, effCentIdx_M))
-        { hResp->Fill(tPtSig, leadPtGamma); bumpHistFill(trigShort, hResp->GetName()); }
+        { hResp->Fill(tPtSig, recoPtTruthMatchPPG12); bumpHistFill(trigShort, hResp->GetName()); }
       }
   
-      // Truth misses (truth signal exists but does not appear as the selected reco photon)
-      if (haveTruthSigPho && !haveTruthPho)
+      // Truth misses (truth signal exists but has no matched reco cluster passing iso+tight).
+      if (haveTruthSigPho && !haveTruthPhoPPG12)
       {
         if (auto* hTM = getOrBookUnfoldTruthPhoMissesPtGamma(trigShort, effCentIdx_M))
         { hTM->Fill(tPtSig); bumpHistFill(trigShort, hTM->GetName()); }
@@ -5556,8 +5559,19 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
             return std::sqrt(deta*deta + dphi*dphi);
           };
 
-          // -------------------- SIM: does the leading reco iso∧tight photon correspond to the event-leading truth signal photon? --------------------
+          // -------------------- SIM truth↔reco photon association --------------------
+          //   haveTruthPho:
+          //     strict event-leading reco iso∧tight photon ↔ event-leading truth signal photon
+          //     association, kept for the recoil-jet/xJ truth pairing.
+          //
+          //   haveTruthPhoPPG12:
+          //     PPG12-style photon-only unfolding association:
+          //     event-leading truth signal photon matched to a reco cluster that passes
+          //     the final iso+tight reco photon selection, independent of event-leading competition.
           bool   haveTruthPho = false;
+          bool   haveTruthPhoPPG12 = false;
+          double recoPtTruthMatchPPG12 = 0.0;
+
           double tPt  = (haveTruthSigPho ? tPtSig  : 0.0);
           double tEta = (haveTruthSigPho ? tEtaSig : 0.0);
           double tPhi = (haveTruthSigPho ? tPhiSig : 0.0);
@@ -5574,7 +5588,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
             else if (!evtHepMC || !haveTruthSigPho || !truthSigPho)
             {
               LOG(4, CLR_YELLOW,
-                  "      [truthQA] no truth signal photon / HepMC event missing → skip truth photon association to lead reco photon");
+                  "      [truthQA] no truth signal photon / HepMC event missing → skip truth photon association to reco photons");
             }
             else if (!leadRc)
             {
@@ -5611,7 +5625,36 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 if (findRecoPhotonMatchedToTruthSignal(evtHepMC, truthSigPho, clustereval,
                                                       recoMatch, rPt, rEta, rPhi, drBest, eBest))
                 {
-                  // Require: the truth signal photon's matched reco is the event-leading iso∧tight photon
+                  const auto* recoPhoPPG12 = dynamic_cast<const PhotonClusterv1*>(recoMatch);
+                  if (recoPhoPPG12)
+                  {
+                    const SSVars vMatch = makeSSFromPhoton(recoPhoPPG12, rPt);
+                    const TightTag recoMatchTag = classifyPhotonTightness(vMatch);
+                    const bool recoMatchIso = isIsolated(recoMatch, rPt, topNode);
+
+                    if (recoMatchTag == TightTag::kTight && recoMatchIso)
+                    {
+                      haveTruthPhoPPG12 = true;
+                      recoPtTruthMatchPPG12 = rPt;
+
+                      if (Verbosity() >= 5)
+                      {
+                        LOG(5, CLR_GREEN,
+                            "      [truthQA] PPG12 photon match found:"
+                            << " barcode=" << truthSigPho->barcode()
+                            << " pT^truth=" << std::fixed << std::setprecision(2) << tPtSig
+                            << " pT^reco(match)=" << std::fixed << std::setprecision(2) << recoPtTruthMatchPPG12
+                            << " eta^reco(match)=" << std::fixed << std::setprecision(3) << rEta
+                            << " phi^reco(match)=" << std::fixed << std::setprecision(3) << rPhi
+                            << " ETiso^truth=" << std::fixed << std::setprecision(3) << tIsoEtSig
+                            << " ΔR(match)=" << std::fixed << std::setprecision(4) << drBest
+                            << " Edep(best)=" << eBest);
+                      }
+                    }
+                  }
+
+                  // Keep the strict leading-photon identity requirement ONLY for the
+                  // recoil-jet/xJ truth pairing.
                   if (recoMatch == leadRc)
                   {
                     const double drPho = dR(leadEtaGamma, leadPhiGamma, tEtaSig, tPhiSig);
@@ -5643,6 +5686,12 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                   LOG(5, CLR_YELLOW,
                       "      [truthQA] event-leading truth signal photon does NOT match the event-leading reco iso∧tight photon");
                 }
+
+                if (haveTruthPhoPPG12 && !haveTruthPho && Verbosity() >= 5)
+                {
+                  LOG(5, CLR_CYAN,
+                      "      [truthQA] PPG12 photon match passes iso+tight, but is not the selected event-leading reco iso∧tight photon");
+                }
               }
             }
           }
@@ -5657,6 +5706,8 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                                                              leadPhiGamma,
                                                              haveTruthSigPho,
                                                              tPtSig,
+                                                             haveTruthPhoPPG12,
+                                                             recoPtTruthMatchPPG12,
                                                              haveTruthPho,
                                                              tPt,
                                                              tEta,

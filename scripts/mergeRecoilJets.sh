@@ -102,6 +102,7 @@ err()  { printf "${RED}✘ %s${RST}\n" "$*" >&2; }
 RUN_BASE_PP="/sphenix/tg/tg01/bulk/jbennett/thesisAna/pp"
 RUN_BASE_PP25="/sphenix/tg/tg01/bulk/jbennett/thesisAna/pp25"
 RUN_BASE_AA="/sphenix/tg/tg01/bulk/jbennett/thesisAna/auau"
+RUN_BASE_OO="/sphenix/tg/tg01/bulk/jbennett/thesisAna/oo"
 
 # ---------- Output base (required by you) ----------
 OUT_BASE="/sphenix/u/patsfan753/scratch/thesisAnalysis/output"
@@ -136,15 +137,17 @@ FINAL_PREFIX="RecoilJets"                # final combined file prefix
 usage() {
   cat <<USAGE
 ${BOLD}Usage:${RST}
-  $0 condor <pp|auau> [test|firstHalf]
-  $0 addChunks <pp|auau> [condor]
-  $0 checkFileOutput <pp|auau>
+  $0 condor <pp|pp25|auau|oo> [test|firstHalf]
+  $0 addChunks <pp|pp25|auau|oo> [condor]
+  $0 checkFileOutput <pp|pp25|auau|oo>
 
 Examples:
   $0 condor pp
   $0 condor auau firstHalf
+  $0 condor oo
   $0 addChunks pp
   $0 addChunks auau condor
+  $0 addChunks oo
 USAGE
   exit 2
 }
@@ -236,7 +239,8 @@ to_tag() {
     pp|PP|isPP|PP_DATA|pp_data)   echo "pp" ;;
     pp25|PP25|isPPrun25|pprun25|PP_RUN25|pp_run25) echo "pp25" ;;
     auau|AA|isAuAu|AuAu|aa|AA_DATA|auau_data) echo "auau" ;;
-    *) err "Dataset must be 'pp', 'pp25', or 'auau'"; exit 4 ;;
+    oo|OO|isOO|OO_DATA|oo_data) echo "oo" ;;
+    *) err "Dataset must be 'pp', 'pp25', 'auau', or 'oo'"; exit 4 ;;
   esac
 }
 
@@ -246,6 +250,7 @@ resolve_dataset() {
     pp)   RUN_BASE="$RUN_BASE_PP" ;;
     pp25) RUN_BASE="$RUN_BASE_PP25" ;;
     auau) RUN_BASE="$RUN_BASE_AA" ;;
+    oo)   RUN_BASE="$RUN_BASE_OO" ;;
   esac
 
   DEST_DIR="${OUT_BASE}/${TAG}"      # where partials and final live
@@ -401,16 +406,20 @@ build_active_skiplist() {
     want="isPPrun25"
     outds="isPP"
   fi
+  if [[ "$TAG" == "oo" ]]; then
+    want="isOO"
+    outds="isOO"
+  fi
 
   if command -v condor_q >/dev/null 2>&1; then
     (
       set +e +o pipefail
       condor_q "${USER:-$(id -un)}" \
-        -constraint 'regexp("RecoilJets_Condor.sh",Cmd) && (JobStatus==1 || JobStatus==2 || JobStatus==5 || JobStatus==6 || JobStatus==7)' \
+        -constraint '(regexp("RecoilJets_Condor.sh",Cmd) || regexp("RecoilJets_Condor_AuAu.sh",Cmd)) && (JobStatus==1 || JobStatus==2 || JobStatus==5 || JobStatus==6 || JobStatus==7)' \
         -af Args 2>/dev/null |
       awk -v want="$want" -v outds="$outds" '
         # Args format (from your submit):
-        #   run8  chunkList  isPP|isPPrun25|isAuAu  Cluster  0  grpIdx  NONE  destBase
+        #   run8  chunkList  isPP|isPPrun25|isAuAu|isOO  Cluster  0  grpIdx  NONE  destBase
         ($3 == want) {
           run  = $1
           lst  = $2
@@ -422,7 +431,7 @@ build_active_skiplist() {
           sub(/^.*\//,"",n)
           sub(/\.list$/,"",n)
 
-          # output ROOT path matches RecoilJets_Condor.sh naming:
+          # output ROOT path matches RecoilJets_Condor.sh / RecoilJets_Condor_AuAu.sh naming:
           #   destBase/run8/RecoilJets_<outds>_<chunkTag>.root
           printf "%s/%s/RecoilJets_%s_%s.root\n", dest, run, outds, n
         }
@@ -434,8 +443,7 @@ build_active_skiplist() {
 
   local nskip
   nskip=$(wc -l < "$SKIP_FILE" | awk '{print $1}')
-  local want2="isPP"
-  [[ "$TAG" == "auau" ]] && want2="isAuAu"
+  local want2="$want"
 
   if (( nskip > 0 )); then
     printf "${YEL}⚠${RST} [skiplist] %d active %s outputs will be excluded (from condor_q)\n" "$nskip" "$want2" >&2

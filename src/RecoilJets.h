@@ -498,21 +498,23 @@ private:
 
         
   bool runLeadIsoTightPhotonJetMatchingAndUnfolding(
-              const std::vector<std::string>& activeTrig,
-              const int effCentIdx_M,
-              const int centIdx,
-              const int leadPhoIndex,
-              const int leadPtIdx,
-              const double leadPtGamma,
-              const double leadEtaGamma,
-              const double leadPhiGamma,
-              const bool haveTruthSigPho,
-              const double tPtSig,
-              const bool haveTruthPho,
-              const double tPt,
-              const double tEta,
-              const double tPhi,
-              PHG4TruthInfoContainer* truth);
+                const std::vector<std::string>& activeTrig,
+                const int effCentIdx_M,
+                const int centIdx,
+                const int leadPhoIndex,
+                const int leadPtIdx,
+                const double leadPtGamma,
+                const double leadEtaGamma,
+                const double leadPhiGamma,
+                const bool haveTruthSigPho,
+                const double tPtSig,
+                const bool haveTruthPhoPPG12,
+                const double recoPtTruthMatchPPG12,
+                const bool haveTruthPho,
+                const double tPt,
+                const double tEta,
+                const double tPhi,
+                PHG4TruthInfoContainer* truth);
 
   void fillPureIsolationQA(PHCompositeNode* topNode,
                                const std::vector<std::string>& activeTrig,

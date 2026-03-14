@@ -17,7 +17,7 @@ set -euo pipefail
 # ------------------------ Arguments ------------------------
 run8="${1:?run8 (DATA) or SIM_SAMPLE (SIM) required}"
 chunk_list="${2:?chunk list (.list) required}"
-dataset_raw="${3:-isAuAu}"          # isPP | isAuAu
+dataset_raw="${3:-isAuAu}"          # isPP | isAuAu | isOO | isSim
 cluster_id="${4:-LOCAL}"            # informational
 nevents="${5:-0}"                   # 0 → all events in the list
 chunk_idx="${6:-0}"                 # informational; not used for naming
@@ -76,6 +76,12 @@ case "$dataset_raw" in
     export RJ_DATASET="isAuAu"
     export RJ_IS_SIM=0
     ;;
+  isOO|oo|OO)
+    dataset="isOO"
+    analysis_tag="isOO"
+    export RJ_DATASET="isAuAu"
+    export RJ_IS_SIM=0
+    ;;
   isSim|sim|SIM)
     dataset="isSim"
     analysis_tag="isSim"
@@ -95,6 +101,8 @@ esac
 if [[ -z "$dest_base" ]]; then
   if [[ "$analysis_tag" == "isSim" ]]; then
     dest_base="/sphenix/tg/tg01/bulk/jbennett/thesisAna/sim"
+  elif [[ "$analysis_tag" == "isOO" ]]; then
+    dest_base="/sphenix/tg/tg01/bulk/jbennett/thesisAna/oo"
   elif [[ "$dataset" == "isPP" ]]; then
     dest_base="/sphenix/tg/tg01/bulk/jbennett/thesisAna/pp"
   else

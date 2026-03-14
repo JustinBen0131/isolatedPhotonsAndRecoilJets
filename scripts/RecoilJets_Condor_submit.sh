@@ -156,11 +156,13 @@ ERR_DIR="${BASE}/error"
 PP_GOLDEN="${BASE}/GRLs_tanner/run2pp_ana509_2024p022_v001_dst_calofitting_grl.list"
 PP25_GOLDEN="${BASE}/GRLs_tanner/run3pp_new_newcdbtag_v008_dst_calofitting_grl.list"
 AA_GOLDEN="${BASE}/GRLs_tanner/run3auau_new_newcdbtag_v008_dst_calofitting_grl.list"
+OO_GOLDEN="${BASE}/GRLs_tanner/run3oo_ana536_2025p010_v001_dst_calofitting_grl.list"
 
 # Per-run input list directories
 PP_LIST_DIR="${BASE}/dst_lists_pp"
 PP25_LIST_DIR="${BASE}/dst_lists_pp_run25"
 AA_LIST_DIR="${BASE}/dst_lists_auau"
+OO_LIST_DIR="${BASE}/dst_lists_oo"
 
 # Where we stage grouped chunk .list files and the round files
 STAGE_ROOT="${BASE}/condor_lists"
@@ -170,6 +172,7 @@ ROUND_ROOT="${BASE}/condor_segments"
 PP_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/pp"
 PP25_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/pp25"
 AA_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/auau"
+OO_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/oo"
 
 # ------------------------ Defaults -------------------------
 GROUP_SIZE=7         # files per Condor job (never mixes runs)
@@ -205,12 +208,12 @@ usage() {
 ${BOLD}Usage:${RST}
 
 ${BOLD}DATA modes:${RST}
-  ${BOLD}$0 <isPP|isPPrun25|isAuAu> local [Nevents] [VERBOSE=N]${RST}
-  ${BOLD}$0 <isPP|isPPrun25|isAuAu> CHECKJOBS [groupSize N]${RST}
-  ${BOLD}$0 <isPP|isPPrun25|isAuAu> splitGoldenRunList [groupSize N] [maxJobs M]${RST}
-  ${BOLD}$0 <isPP|isPPrun25|isAuAu> condor testJob${RST}
-  ${BOLD}$0 <isPP|isPPrun25|isAuAu> condor round <N> [groupSize N] [firstChunk]${RST}
-  ${BOLD}$0 <isPP|isPPrun25|isAuAu> condor all [groupSize N]${RST}
+  ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> local [Nevents] [VERBOSE=N]${RST}
+  ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> CHECKJOBS [groupSize N]${RST}
+  ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> splitGoldenRunList [groupSize N] [maxJobs M]${RST}
+  ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor testJob${RST}
+  ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor round <N> [groupSize N] [firstChunk]${RST}
+  ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor all [groupSize N]${RST}
 
 ${BOLD}SIM mode:${RST}
   ${BOLD}$0 isSim local [Nevents] [VERBOSE=N] [SAMPLE=run28_photonjet10]${RST}
@@ -348,6 +351,16 @@ resolve_dataset() {
       LIST_PREFIX="dst_calofitting"
       DEST_BASE="$AA_DEST_BASE"
       TAG="auau"
+      MACRO="${BASE}/macros/Fun4All_recoilJets_AuAu.C"
+      EXE="${BASE}/RecoilJets_Condor_AuAu.sh"
+      ;;
+    isOO|oo|OO)
+      DATASET="isOO"
+      GOLDEN="$OO_GOLDEN"
+      LIST_DIR="$OO_LIST_DIR"
+      LIST_PREFIX="dst_calofitting"
+      DEST_BASE="$OO_DEST_BASE"
+      TAG="oo"
       MACRO="${BASE}/macros/Fun4All_recoilJets_AuAu.C"
       EXE="${BASE}/RecoilJets_Condor_AuAu.sh"
       ;;
@@ -629,9 +642,9 @@ submit_condor() {
       [[ "$DEST_BASE" != "/" ]] || { err "DEST_BASE is '/' ; refusing to wipe."; exit 60; }
 
       case "$DEST_BASE" in
-        */thesisAna/pp|*/thesisAna/pp25|*/thesisAna/auau) ;;
+        */thesisAna/pp|*/thesisAna/pp25|*/thesisAna/auau|*/thesisAna/oo) ;;
         *)
-          err "Refusing to wipe DEST_BASE='$DEST_BASE' (not an expected thesisAna/{pp|pp25|auau} path)"
+          err "Refusing to wipe DEST_BASE='$DEST_BASE' (not an expected thesisAna/{pp|pp25|auau|oo} path)"
           exit 61
           ;;
       esac
