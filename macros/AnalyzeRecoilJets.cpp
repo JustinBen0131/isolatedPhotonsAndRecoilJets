@@ -16563,6 +16563,10 @@ namespace ARJ
         analysis::RunTriggerAna_DoNotScaleMaxClusterEnergy(ds);
         cout << "     [OK] triggerAna complete.\n";
 
+        cout << "  -> [pi0 QA] corrected vs no-asinh-correction overlays (DATA only)...\n";
+        analysis::RunPi0QA(ds);
+        cout << "     [OK] pi0 QA complete.\n";
+
         cout << "  -> [Section 2] Preselection failure table...\n";
         analysis::RunPreselectionFailureTable(ds);
         cout << "     [OK] Preselection failure table complete.\n";
