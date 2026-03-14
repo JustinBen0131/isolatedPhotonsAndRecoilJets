@@ -373,6 +373,497 @@ namespace ARJ
       }
 
       // =============================================================================
+      // pi0 QA (pp DATA only): corrected vs no-asinh-correction in lead-cluster pT bins
+      // =============================================================================
+      void RunPi0QA(Dataset& ds)
+      {
+        if (ds.isSim) return;
+        if (ds.trigger != kTriggerPP) return;
+        if (!ds.file) return;
+
+        cout << ANSI_BOLD_CYN << "\n==============================\n"
+             << "[pi0 QA] corrected vs no-asinh-correction (" << ds.label << ")\n"
+             << "==============================" << ANSI_RESET << "\n";
+
+        const string outDir = JoinPath(kOutPPBase, "pi0_QA");
+        EnsureDir(outDir);
+
+        TDirectory* dir = ds.file->GetDirectory("MBD_NandS_geq_1");
+        if (!dir)
+        {
+          cout << ANSI_BOLD_YEL
+               << "[WARN] Missing pi0 directory: MBD_NandS_geq_1"
+               << ANSI_RESET << "\n";
+          return;
+        }
+
+        TH2* h2Corr = dynamic_cast<TH2*>(dir->Get("h2_pi0_mass_vs_leadcluspt_corr"));
+        TH2* h2NoCorr = dynamic_cast<TH2*>(dir->Get("h2_pi0_mass_vs_leadcluspt_nocorr"));
+
+        if (!h2Corr || !h2NoCorr)
+        {
+          cout << ANSI_BOLD_YEL
+               << "[WARN] Missing pi0 TH2(s) needed for pi0 QA.\n"
+               << "       Need:\n"
+               << "         MBD_NandS_geq_1/h2_pi0_mass_vs_leadcluspt_corr\n"
+               << "         MBD_NandS_geq_1/h2_pi0_mass_vs_leadcluspt_nocorr\n"
+               << ANSI_RESET << "\n";
+          return;
+        }
+
+        const int nLeadPtBins = 9;
+        const double ptLo[nLeadPtBins] = {1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 12.0, 15.0};
+        const double ptHi[nLeadPtBins] = {2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 12.0, 15.0, -1.0};
+        const char* ptLabels[nLeadPtBins] = {"1-2", "2-3", "3-4", "4-6", "6-8", "8-10", "10-12", "12-15", "> 15"};
+
+        struct Pi0FitResult
+        {
+          bool ok = false;
+          double mean = 0.0;
+          double meanErr = 0.0;
+          double sigma = 0.0;
+          double sigmaErr = 0.0;
+        };
+
+        auto ProjectMass = [&](TH2* h2, double lo, double hi, const string& newName)->TH1D*
+        {
+          if (!h2) return nullptr;
+
+          const int nx = h2->GetXaxis()->GetNbins();
+          int xbinLo = h2->GetXaxis()->FindBin(lo + 1e-6);
+          int xbinHi = (hi > lo) ? h2->GetXaxis()->FindBin(hi - 1e-6) : nx;
+
+          if (xbinLo < 1) xbinLo = 1;
+          if (xbinHi > nx) xbinHi = nx;
+          if (xbinHi < xbinLo) return nullptr;
+
+          TH1D* h = h2->ProjectionY(newName.c_str(), xbinLo, xbinHi);
+          if (h) h->SetDirectory(nullptr);
+          return h;
+        };
+
+        auto FitPi0 = [&](TH1* h, const string& tag)->Pi0FitResult
+        {
+          Pi0FitResult R;
+          if (!h) return R;
+          if (h->Integral(0, h->GetNbinsX() + 1) <= 0.0) return R;
+
+          const int bLo = h->GetXaxis()->FindBin(0.08);
+          const int bHi = h->GetXaxis()->FindBin(0.20);
+
+          int bMax = h->GetMaximumBin();
+          double cMax = -1.0;
+          for (int ib = bLo; ib <= bHi; ++ib)
+          {
+            const double c = h->GetBinContent(ib);
+            if (c > cMax)
+            {
+              cMax = c;
+              bMax = ib;
+            }
+          }
+
+          if (cMax <= 0.0) cMax = h->GetMaximum();
+          if (!(cMax > 0.0)) return R;
+
+          const double m0 = h->GetXaxis()->GetBinCenter(bMax);
+
+          TF1 f(TString::Format("f_pi0_%s", tag.c_str()).Data(), "gaus(0)+pol3(3)", 0.05, 0.25);
+          f.SetLineWidth(2);
+          f.SetParameters(cMax, m0, 0.010, 0.0, 0.0, 0.0, 0.0);
+          f.SetParLimits(1, 0.10, 0.17);
+          f.SetParLimits(2, 0.003, 0.040);
+
+          h->Fit(&f, "RQ0N");
+
+          const double mean  = f.GetParameter(1);
+          const double sigma = std::fabs(f.GetParameter(2));
+
+          if (!std::isfinite(mean) || !std::isfinite(sigma) || !(sigma > 0.0))
+          {
+            return R;
+          }
+
+          R.ok       = true;
+          R.mean     = mean;
+          R.meanErr  = f.GetParError(1);
+          R.sigma    = sigma;
+          R.sigmaErr = f.GetParError(2);
+          return R;
+        };
+
+        double x[nLeadPtBins];
+        double ex[nLeadPtBins];
+        double meanCorr[nLeadPtBins];
+        double meanCorrErr[nLeadPtBins];
+        double sigmaCorr[nLeadPtBins];
+        double sigmaCorrErr[nLeadPtBins];
+        double resCorr[nLeadPtBins];
+        double resCorrErr[nLeadPtBins];
+        double meanNoCorr[nLeadPtBins];
+        double meanNoCorrErr[nLeadPtBins];
+        double sigmaNoCorr[nLeadPtBins];
+        double sigmaNoCorrErr[nLeadPtBins];
+        double resNoCorr[nLeadPtBins];
+        double resNoCorrErr[nLeadPtBins];
+        bool okMeanCorr[nLeadPtBins];
+        bool okMeanNoCorr[nLeadPtBins];
+
+        for (int i = 0; i < nLeadPtBins; ++i)
+        {
+          x[i] = i + 1.0;
+          ex[i] = 0.0;
+
+          meanCorr[i] = 0.0;
+          meanCorrErr[i] = 0.0;
+          sigmaCorr[i] = 0.0;
+          sigmaCorrErr[i] = 0.0;
+          resCorr[i] = 0.0;
+          resCorrErr[i] = 0.0;
+
+          meanNoCorr[i] = 0.0;
+          meanNoCorrErr[i] = 0.0;
+          sigmaNoCorr[i] = 0.0;
+          sigmaNoCorrErr[i] = 0.0;
+          resNoCorr[i] = 0.0;
+          resNoCorrErr[i] = 0.0;
+
+          okMeanCorr[i] = false;
+          okMeanNoCorr[i] = false;
+        }
+
+        TCanvas cTbl("c_pi0_table", "c_pi0_table", 1800, 1200);
+        cTbl.Divide(3, 3, 0.001, 0.001);
+
+        vector<TH1*> keepAlive;
+        keepAlive.reserve(2 * nLeadPtBins);
+
+        for (int i = 0; i < nLeadPtBins; ++i)
+        {
+          cTbl.cd(i + 1);
+
+          gPad->SetLeftMargin(0.14);
+          gPad->SetRightMargin(0.05);
+          gPad->SetBottomMargin(0.14);
+          gPad->SetTopMargin(0.10);
+          gPad->SetTicks(1,1);
+
+          TH1D* hCorr = ProjectMass(
+            h2Corr,
+            ptLo[i],
+            ptHi[i],
+            TString::Format("h_pi0_corr_leadPt_%d", i).Data()
+          );
+
+          TH1D* hNoCorr = ProjectMass(
+            h2NoCorr,
+            ptLo[i],
+            ptHi[i],
+            TString::Format("h_pi0_nocorr_leadPt_%d", i).Data()
+          );
+
+          const double iCorr = hCorr ? hCorr->Integral(0, hCorr->GetNbinsX() + 1) : 0.0;
+          const double iNoCorr = hNoCorr ? hNoCorr->Integral(0, hNoCorr->GetNbinsX() + 1) : 0.0;
+
+          if (iCorr <= 0.0 && iNoCorr <= 0.0)
+          {
+            TLatex t;
+            t.SetNDC(true);
+            t.SetTextFont(42);
+            t.SetTextAlign(22);
+            t.SetTextSize(0.075);
+            t.DrawLatex(0.50, 0.55, "MISSING");
+            t.SetTextSize(0.055);
+            t.DrawLatex(0.50, 0.42, TString::Format("p_{T, lead}^{#gamma}: %s GeV", ptLabels[i]).Data());
+
+            if (hCorr) delete hCorr;
+            if (hNoCorr) delete hNoCorr;
+            continue;
+          }
+
+          if (hCorr)
+          {
+            hCorr->SetTitle("");
+            hCorr->SetLineWidth(2);
+            hCorr->SetLineColor(kBlack);
+            hCorr->SetMarkerStyle(20);
+            hCorr->SetMarkerSize(0.85);
+            hCorr->SetMarkerColor(kBlack);
+            hCorr->SetFillStyle(0);
+            hCorr->GetXaxis()->SetTitle("m_{#gamma#gamma} [GeV]");
+            hCorr->GetYaxis()->SetTitle("Counts");
+            hCorr->GetXaxis()->SetRangeUser(0.02, 0.30);
+          }
+
+          if (hNoCorr)
+          {
+            hNoCorr->SetTitle("");
+            hNoCorr->SetLineWidth(2);
+            hNoCorr->SetLineColor(kRed + 1);
+            hNoCorr->SetMarkerStyle(24);
+            hNoCorr->SetMarkerSize(0.85);
+            hNoCorr->SetMarkerColor(kRed + 1);
+            hNoCorr->SetFillStyle(0);
+            hNoCorr->GetXaxis()->SetTitle("m_{#gamma#gamma} [GeV]");
+            hNoCorr->GetYaxis()->SetTitle("Counts");
+            hNoCorr->GetXaxis()->SetRangeUser(0.02, 0.30);
+          }
+
+          if (hCorr)
+          {
+            const Pi0FitResult fit = FitPi0(hCorr, TString::Format("corr_%d", i).Data());
+            if (fit.ok)
+            {
+              meanCorr[i] = fit.mean;
+              meanCorrErr[i] = fit.meanErr;
+              sigmaCorr[i] = fit.sigma;
+              sigmaCorrErr[i] = fit.sigmaErr;
+              resCorr[i] = fit.sigma / fit.mean;
+
+              const double relSigmaErr = (fit.sigma > 0.0) ? (fit.sigmaErr / fit.sigma) : 0.0;
+              const double relMeanErr  = (fit.mean  > 0.0) ? (fit.meanErr  / fit.mean ) : 0.0;
+              resCorrErr[i] = resCorr[i] * std::sqrt(relSigmaErr * relSigmaErr + relMeanErr * relMeanErr);
+
+              okMeanCorr[i] = true;
+            }
+          }
+
+          if (hNoCorr)
+          {
+            const Pi0FitResult fit = FitPi0(hNoCorr, TString::Format("nocorr_%d", i).Data());
+            if (fit.ok)
+            {
+              meanNoCorr[i] = fit.mean;
+              meanNoCorrErr[i] = fit.meanErr;
+              sigmaNoCorr[i] = fit.sigma;
+              sigmaNoCorrErr[i] = fit.sigmaErr;
+              resNoCorr[i] = fit.sigma / fit.mean;
+
+              const double relSigmaErr = (fit.sigma > 0.0) ? (fit.sigmaErr / fit.sigma) : 0.0;
+              const double relMeanErr  = (fit.mean  > 0.0) ? (fit.meanErr  / fit.mean ) : 0.0;
+              resNoCorrErr[i] = resNoCorr[i] * std::sqrt(relSigmaErr * relSigmaErr + relMeanErr * relMeanErr);
+
+              okMeanNoCorr[i] = true;
+            }
+          }
+
+          double ymax = 0.0;
+          if (hCorr) ymax = std::max(ymax, hCorr->GetMaximum());
+          if (hNoCorr) ymax = std::max(ymax, hNoCorr->GetMaximum());
+
+          TH1* first = hCorr ? hCorr : hNoCorr;
+          if (first) first->SetMaximum((ymax > 0.0) ? (1.25 * ymax) : 1.0);
+
+          if (hCorr) hCorr->Draw("E1");
+          else if (hNoCorr) hNoCorr->Draw("E1");
+
+          if (hNoCorr && hNoCorr != first) hNoCorr->Draw("E1 SAME");
+
+          TLegend leg(0.42, 0.70, 0.93, 0.89);
+          leg.SetBorderSize(0);
+          leg.SetFillStyle(0);
+          leg.SetTextSize(0.045);
+          if (hCorr)   leg.AddEntry(hCorr,   "with b = 0.15", "ep");
+          if (hNoCorr) leg.AddEntry(hNoCorr, "no asinh correction", "ep");
+          leg.Draw();
+
+          TLatex t;
+          t.SetNDC(true);
+          t.SetTextFont(42);
+          t.SetTextAlign(13);
+          t.SetTextSize(0.055);
+          t.DrawLatex(0.16, 0.94, TString::Format("p_{T, lead}^{#gamma}: %s GeV", ptLabels[i]).Data());
+
+          t.SetTextSize(0.040);
+          if (okMeanCorr[i])
+          {
+            t.SetTextColor(kBlack);
+            t.DrawLatex(0.16, 0.84,
+              TString::Format("b=0.15: #mu = %.5f, #sigma = %.5f", meanCorr[i], sigmaCorr[i]).Data()
+            );
+          }
+          if (okMeanNoCorr[i])
+          {
+            t.SetTextColor(kRed + 1);
+            t.DrawLatex(0.16, 0.78,
+              TString::Format("no asinh: #mu = %.5f, #sigma = %.5f", meanNoCorr[i], sigmaNoCorr[i]).Data()
+            );
+          }
+          t.SetTextColor(kBlack);
+
+          if (hCorr) keepAlive.push_back(hCorr);
+          if (hNoCorr) keepAlive.push_back(hNoCorr);
+        }
+
+        SaveCanvas(cTbl, JoinPath(outDir, "table3x3_pi0_mass_leadPhotonPt_corr_vs_nocorr.png"));
+
+        for (auto* h : keepAlive) delete h;
+
+        auto DrawSummaryGraph =
+          [&](const string& outName,
+              const string& yTitle,
+              const double yCorrIn[],
+              const double yCorrErrIn[],
+              const bool okCorrIn[],
+              const double yNoCorrIn[],
+              const double yNoCorrErrIn[],
+              const bool okNoCorrIn[],
+              bool forceZeroMin)
+        {
+          vector<double> xCorr;
+          vector<double> exCorr;
+          vector<double> yCorr;
+          vector<double> eyCorr;
+
+          vector<double> xNoCorr;
+          vector<double> exNoCorr;
+          vector<double> yNoCorr;
+          vector<double> eyNoCorr;
+
+          double yMin = std::numeric_limits<double>::max();
+          double yMax = -std::numeric_limits<double>::max();
+
+          for (int i = 0; i < nLeadPtBins; ++i)
+          {
+            if (okCorrIn[i] && std::isfinite(yCorrIn[i]))
+            {
+              xCorr.push_back(x[i]);
+              exCorr.push_back(0.0);
+              yCorr.push_back(yCorrIn[i]);
+              eyCorr.push_back(yCorrErrIn[i]);
+              yMin = std::min(yMin, yCorrIn[i]);
+              yMax = std::max(yMax, yCorrIn[i]);
+            }
+
+            if (okNoCorrIn[i] && std::isfinite(yNoCorrIn[i]))
+            {
+              xNoCorr.push_back(x[i]);
+              exNoCorr.push_back(0.0);
+              yNoCorr.push_back(yNoCorrIn[i]);
+              eyNoCorr.push_back(yNoCorrErrIn[i]);
+              yMin = std::min(yMin, yNoCorrIn[i]);
+              yMax = std::max(yMax, yNoCorrIn[i]);
+            }
+          }
+
+          if (!(yMax > -std::numeric_limits<double>::max()))
+          {
+            yMin = 0.0;
+            yMax = 1.0;
+          }
+
+          double pad = yMax - yMin;
+          if (!(pad > 0.0)) pad = (yMax != 0.0 ? 0.25 * std::fabs(yMax) : 0.25);
+
+          double frameMin = forceZeroMin ? 0.0 : (yMin - 0.20 * pad);
+          double frameMax = yMax + 0.25 * pad;
+
+          if (forceZeroMin && frameMax <= 0.0) frameMax = 1.0;
+          if (!forceZeroMin && frameMax <= frameMin) frameMax = frameMin + 1.0;
+
+          TCanvas c(TString::Format("c_%s", outName.c_str()).Data(), "c_pi0_summary", 900, 700);
+          ApplyCanvasMargins1D(c);
+
+          TH1F hFrame(TString::Format("hFrame_%s", outName.c_str()).Data(), "", nLeadPtBins, 0.5, nLeadPtBins + 0.5);
+          hFrame.SetDirectory(nullptr);
+          hFrame.SetStats(0);
+          hFrame.SetMinimum(frameMin);
+          hFrame.SetMaximum(frameMax);
+          hFrame.GetXaxis()->SetTitle("p_{T, lead}^{#gamma} [GeV]");
+          hFrame.GetYaxis()->SetTitle(yTitle.c_str());
+
+          for (int i = 1; i <= nLeadPtBins; ++i)
+          {
+            hFrame.GetXaxis()->SetBinLabel(i, ptLabels[i - 1]);
+          }
+
+          hFrame.Draw();
+
+          TGraphErrors* gCorr = nullptr;
+          TGraphErrors* gNoCorr = nullptr;
+
+          if (!xCorr.empty())
+          {
+            gCorr = new TGraphErrors((int)xCorr.size(), &xCorr[0], &yCorr[0], &exCorr[0], &eyCorr[0]);
+            gCorr->SetLineWidth(2);
+            gCorr->SetLineColor(kBlack);
+            gCorr->SetMarkerStyle(20);
+            gCorr->SetMarkerSize(1.0);
+            gCorr->SetMarkerColor(kBlack);
+            gCorr->Draw("PE1 SAME");
+          }
+
+          if (!xNoCorr.empty())
+          {
+            gNoCorr = new TGraphErrors((int)xNoCorr.size(), &xNoCorr[0], &yNoCorr[0], &exNoCorr[0], &eyNoCorr[0]);
+            gNoCorr->SetLineWidth(2);
+            gNoCorr->SetLineColor(kRed + 1);
+            gNoCorr->SetMarkerStyle(24);
+            gNoCorr->SetMarkerSize(1.0);
+            gNoCorr->SetMarkerColor(kRed + 1);
+            gNoCorr->Draw("PE1 SAME");
+          }
+
+          TLegend leg(0.58, 0.74, 0.92, 0.89);
+          leg.SetBorderSize(0);
+          leg.SetFillStyle(0);
+          leg.SetTextSize(0.033);
+          if (gCorr)   leg.AddEntry(gCorr,   "with b = 0.15", "ep");
+          if (gNoCorr) leg.AddEntry(gNoCorr, "no asinh correction", "ep");
+          leg.Draw();
+
+          TLatex t;
+          t.SetNDC(true);
+          t.SetTextFont(42);
+          t.SetTextAlign(13);
+          t.SetTextSize(0.038);
+          t.DrawLatex(0.16, 0.92, "p+p #sqrt{s} = 200 GeV");
+          t.DrawLatex(0.16, 0.86, "#pi^{0} mass fit summary vs p_{T, lead}^{#gamma}");
+
+          SaveCanvas(c, JoinPath(outDir, outName));
+
+          if (gCorr) delete gCorr;
+          if (gNoCorr) delete gNoCorr;
+        };
+
+        DrawSummaryGraph(
+          "pi0_mean_vs_leadPhotonPt.png",
+          "Gaussian mean [GeV]",
+          meanCorr,
+          meanCorrErr,
+          okMeanCorr,
+          meanNoCorr,
+          meanNoCorrErr,
+          okMeanNoCorr,
+          false
+        );
+
+        DrawSummaryGraph(
+          "pi0_sigma_vs_leadPhotonPt.png",
+          "Gaussian #sigma [GeV]",
+          sigmaCorr,
+          sigmaCorrErr,
+          okMeanCorr,
+          sigmaNoCorr,
+          sigmaNoCorrErr,
+          okMeanNoCorr,
+          true
+        );
+
+        DrawSummaryGraph(
+          "pi0_resolution_vs_leadPhotonPt.png",
+          "#sigma / #mu",
+          resCorr,
+          resCorrErr,
+          okMeanCorr,
+          resNoCorr,
+          resNoCorrErr,
+          okMeanNoCorr,
+          true
+        );
+      }
+
+      // =============================================================================
       // Section 2: preselection fail counters (terminal only)
       // =============================================================================
       void RunPreselectionFailureTable(Dataset& ds)
@@ -15450,13 +15941,48 @@ namespace ARJ
       }
       else if (ss == SimSample::kPhotonJet5And10And20Merged)
       {
-          ok = BuildMergedSIMFile_PhotonSlices(
-            {kInSIM5, DefaultSim10and20Config().photon10, DefaultSim10and20Config().photon20},
-            {kSigmaPhoton5_pb, kSigmaPhoton10_pb, kSigmaPhoton20_pb},
-            kMergedSIMOut_5and10and20,
-            kDirSIM,
-            {"photonJet5", "photonJet10", "photonJet20"}
-          );
+          if (!doRemergePhoton5and10and20sim)
+          {
+              const string outMerged = kMergedSIMOut_5and10and20;
+
+              cout << ANSI_BOLD_CYN
+                   << "\n[MERGE SIM] doRemergePhoton5and10and20sim=false -> skipping SIM5+10+20 rebuild step.\n"
+                   << "            Using existing merged output: " << outMerged << "\n"
+                   << ANSI_RESET;
+
+              if (gSystem->AccessPathName(outMerged.c_str()))
+              {
+                cout << ANSI_BOLD_RED
+                     << "[MERGE SIM][FATAL] Merged SIM5+10+20 file not found, but doRemergePhoton5and10and20sim=false:\n"
+                     << "  " << outMerged << "\n"
+                     << ANSI_RESET;
+                ok = false;
+              }
+          }
+          else
+          {
+              const auto& cfg = DefaultSim10and20Config();
+
+              const string outMerged =
+                  kMergedSIMOut_5and10and20;
+
+              cout << ANSI_BOLD_CYN
+                   << "\n[MERGE SIM] Rebuilding ONLY the default SIM5+10+20 merged file.\n"
+                   << "            cfg.key = " << cfg.key << "\n"
+                   << "            in5     = " << kInSIM5 << "\n"
+                   << "            in10    = " << cfg.photon10 << "\n"
+                   << "            in20    = " << cfg.photon20 << "\n"
+                   << "            out     = " << outMerged << "\n"
+                   << ANSI_RESET;
+
+              ok = BuildMergedSIMFile_PhotonSlices(
+                {kInSIM5, cfg.photon10, cfg.photon20},
+                {kSigmaPhoton5_pb, kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+                outMerged,
+                kDirSIM,
+                {"photonJet5", "photonJet10", "photonJet20"}
+              );
+          }
       }
 
       if (!ok)
@@ -16122,12 +16648,16 @@ namespace ARJ
       // [5I] RooUnfold pipeline (SIM+DATA PP only): unfold photons + (pTgamma,xJ) and produce per-photon xJ tables
       // ---------------------------------------------------------------------------
       {
+        const bool simAndDataPPMergedForUnfold =
+          (bothPhoton10and20sim || allPhoton5and10and20sim);
+
         cout << ANSI_BOLD_CYN
              << "\n[5I] RooUnfold gate check\n"
-             << "  ARJ_HAVE_ROOUNFOLD   = " << ARJ_HAVE_ROOUNFOLD << "\n"
-             << "  isSimAndDataPP       = " << (isSimAndDataPP ? "true" : "false") << "\n"
-             << "  bothPhoton10and20sim = " << (bothPhoton10and20sim ? "true" : "false") << "\n"
-             << "  datasets.size()      = " << datasets.size() << "\n"
+             << "  ARJ_HAVE_ROOUNFOLD        = " << ARJ_HAVE_ROOUNFOLD << "\n"
+             << "  isSimAndDataPP            = " << (isSimAndDataPP ? "true" : "false") << "\n"
+             << "  bothPhoton10and20sim      = " << (bothPhoton10and20sim ? "true" : "false") << "\n"
+             << "  allPhoton5and10and20sim   = " << (allPhoton5and10and20sim ? "true" : "false") << "\n"
+             << "  datasets.size()           = " << datasets.size() << "\n"
              << ANSI_RESET;
 
         for (auto& ds : datasets)
@@ -16140,7 +16670,7 @@ namespace ARJ
                << "\n";
         }
 
-          if (isSimAndDataPP && bothPhoton10and20sim &&
+          if (isSimAndDataPP && simAndDataPPMergedForUnfold &&
               (do_xJ_PPunfold || (!do_xJ_PPunfold && gApplyPurityCorrectionForUnfolding)))
           {
               Dataset* dsSIM = nullptr;
@@ -16187,9 +16717,10 @@ namespace ARJ
             else
             {
               cout << ANSI_BOLD_YEL
-                   << "[5I] Skipping RooUnfold pipeline: requires isSimAndDataPP && bothPhoton10and20sim and either do_xJ_PPunfold=true or (do_xJ_PPunfold=false with gApplyPurityCorrectionForUnfolding=true).\n"
+                   << "[5I] Skipping RooUnfold pipeline: requires isSimAndDataPP && (bothPhoton10and20sim || allPhoton5and10and20sim) and either do_xJ_PPunfold=true or (do_xJ_PPunfold=false with gApplyPurityCorrectionForUnfolding=true).\n"
                    << "     Current: isSimAndDataPP=" << (isSimAndDataPP ? "true" : "false")
                    << " bothPhoton10and20sim=" << (bothPhoton10and20sim ? "true" : "false")
+                   << " allPhoton5and10and20sim=" << (allPhoton5and10and20sim ? "true" : "false")
                    << " do_xJ_PPunfold=" << (do_xJ_PPunfold ? "true" : "false")
                    << " gApplyPurityCorrectionForUnfolding=" << (gApplyPurityCorrectionForUnfolding ? "true" : "false")
                    << ANSI_RESET << "\n";

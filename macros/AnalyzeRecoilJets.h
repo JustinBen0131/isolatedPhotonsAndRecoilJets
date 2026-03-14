@@ -204,13 +204,17 @@ namespace ARJ
 
   inline bool bothPhoton5and10sim        = false;
   inline bool bothPhoton5and20sim        = false;
-  inline bool bothPhoton10and20sim       = true;
+  inline bool bothPhoton10and20sim       = false;
+  inline bool allPhoton5and10and20sim    = true;
 
   // If false, STEP 1 will NOT rebuild the photonJet10+20 merged ROOT file(s).
   // Downstream code will simply open the already-merged output at the configured path(s).
   inline bool doRemergePhoton10and20sim  = false;
 
-  inline bool allPhoton5and10and20sim    = false;
+  // If false, STEP 1 will NOT rebuild the photonJet5+10+20 merged ROOT file(s).
+  // Downstream code will simply open the already-merged output at the configured path(s).
+  inline bool doRemergePhoton5and10and20sim  = true;
+
 
   // True if the selected SIM sample is a weighted multi-slice merge (hist units become ~pb/bin)
   inline bool IsWeightedSIMSelected()
@@ -330,6 +334,7 @@ namespace ARJ
 
           m["jetMinPt5_7piOver8"] = Sim10and20Config{
               "jetMinPt5_7piOver8",
+              root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/RecoilJets_photonjet5_ALL_jetMinPt5_7piOver8.root",
               root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt5_7piOver8.root",
               root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt5_7piOver8.root",
               5.0,
@@ -2935,16 +2940,19 @@ namespace ARJ
         return false;
       }
 
-      // SIM+DATA mode contract: in-situ calibration + combined steps are defined ONLY
-      // for the photonJet10+20 merged sample (and it is keyed by kDefaultSimSampleKey).
-      if (isSimAndDataPP && ss != SimSample::kPhotonJet10And20Merged)
+      // SIM+DATA mode contract: in-situ calibration + combined steps are defined for
+      // the merged photonJet10+20 or photonJet5+10+20 SIM sample.
+      if (isSimAndDataPP &&
+          ss != SimSample::kPhotonJet10And20Merged &&
+          ss != SimSample::kPhotonJet5And10And20Merged)
       {
         if (errMsg)
         {
           *errMsg =
-            "SIM+DATA (isSimAndDataPP=true) requires the merged photonJet10+20 SIM sample. "
-            "Set: bothPhoton10and20sim=true (all other SIM sample toggles false). "
-            "This uses the default SIM key: " + DefaultSimSampleKey();
+            "SIM+DATA (isSimAndDataPP=true) requires a merged photonJet10+20 or photonJet5+10+20 SIM sample. "
+            "Set: bothPhoton10and20sim=true or allPhoton5and10and20sim=true "
+            "(all other SIM sample toggles false). "
+            "This uses the default SIM key for the photonJet10/20 slices: " + DefaultSimSampleKey();
         }
         return false;
       }
