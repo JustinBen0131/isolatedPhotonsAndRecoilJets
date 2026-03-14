@@ -1914,47 +1914,69 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
       st->set_towerNodePrefix(towerPrefix);
       se->registerSubsystem(st);
 
-      // ------------------------------------------------------------------
-      // 7) Final jets from SUB1 tower containers (one node per R)
-      //     -> AntiKt_Tower_<rKey>_Sub1
-      // ------------------------------------------------------------------
-      for (const auto& radKey : activeJetRKeys)
-      {
-        int D = 0;
-        try { D = std::stoi(radKey.substr(1)); } catch (...) { continue; }
-        if (D <= 0) continue;
-        const float R = 0.1f * D;
+        // ------------------------------------------------------------------
+        // 7) Final jets from SUB1 tower containers (one node per R)
+        //     -> RAW jets written to AntiKt_Tower_<rKey>_Sub1_RAW
+        //     -> JetCalib output written to AntiKt_Tower_<rKey>_Sub1
+        // ------------------------------------------------------------------
+        int jetcalV = 0;
+        if (const char* env = std::getenv("RJ_JETCALIB_VERBOSITY")) jetcalV = std::atoi(env);
 
-        const std::string outNode = std::string("AntiKt_Tower_") + radKey + "_Sub1";
-        const std::string recoName = std::string("JetsReco_AuAuSub_") + radKey;
+        for (const auto& radKey : activeJetRKeys)
+        {
+          int D = 0;
+          try { D = std::stoi(radKey.substr(1)); } catch (...) { continue; }
+          if (D <= 0) continue;
+          const float R = 0.1f * D;
 
-        auto* jreco = new JetReco(recoName);
+          const std::string calibNode = std::string("AntiKt_Tower_") + radKey + "_Sub1";
+          const std::string rawNode   = calibNode + "_RAW";
+          const std::string recoName  = std::string("JetsReco_AuAuSub_") + radKey;
 
-        auto* incemc  = new TowerJetInput(Jet::CEMC_TOWERINFO_SUB1,   towerPrefix);
-        auto* inihcal = new TowerJetInput(Jet::HCALIN_TOWERINFO_SUB1, towerPrefix);
-        auto* inohcal = new TowerJetInput(Jet::HCALOUT_TOWERINFO_SUB1, towerPrefix);
+          auto* jreco = new JetReco(recoName);
 
-        incemc->set_GlobalVertexType(GlobalVertex::MBD);
-        inihcal->set_GlobalVertexType(GlobalVertex::MBD);
-        inohcal->set_GlobalVertexType(GlobalVertex::MBD);
+          auto* incemc  = new TowerJetInput(Jet::CEMC_TOWERINFO_SUB1,   towerPrefix);
+          auto* inihcal = new TowerJetInput(Jet::HCALIN_TOWERINFO_SUB1, towerPrefix);
+          auto* inohcal = new TowerJetInput(Jet::HCALOUT_TOWERINFO_SUB1, towerPrefix);
 
-        jreco->add_input(incemc);
-        jreco->add_input(inihcal);
-        jreco->add_input(inohcal);
+          incemc->set_GlobalVertexType(GlobalVertex::MBD);
+          inihcal->set_GlobalVertexType(GlobalVertex::MBD);
+          inohcal->set_GlobalVertexType(GlobalVertex::MBD);
 
-        jreco->add_algo(detail::fjAlgo(R), outNode);
-        jreco->set_algo_node("ANTIKT");
-        jreco->set_input_node("TOWER");
+          jreco->add_input(incemc);
+          jreco->add_input(inihcal);
+          jreco->add_input(inohcal);
 
-        int jetrecoV = 0;
-        if (const char* env = std::getenv("RJ_JETRECO_VERBOSITY")) jetrecoV = std::atoi(env);
-        jreco->Verbosity(jetrecoV);
+          jreco->add_algo(detail::fjAlgo(R), rawNode);
+          jreco->set_algo_node("ANTIKT");
+          jreco->set_input_node("TOWER");
 
-        se->registerSubsystem(jreco);
+          int jetrecoV = 0;
+          if (const char* env = std::getenv("RJ_JETRECO_VERBOSITY")) jetrecoV = std::atoi(env);
+          jreco->Verbosity(jetrecoV);
 
-        if (vlevel > 0)
-          std::cout << "[INFO] (AuAu) reco jets: built " << outNode << " (R=" << R << ") from SUB1 towers\n";
-      }
+          se->registerSubsystem(jreco);
+
+          auto* jcal = new JetCalib(std::string("JetCalib_AuAuSub_") + radKey);
+          jcal->set_InputNode(rawNode);
+          jcal->set_OutputNode(calibNode);
+          jcal->set_JetRadius(R);
+          jcal->set_ZvrtxNode("GlobalVertexMap");
+          jcal->set_ApplyZvrtxDependentCalib(true);
+          jcal->set_ApplyEtaDependentCalib(true);
+          jcal->Verbosity(jetcalV);
+          se->registerSubsystem(jcal);
+
+          auto* probe = new JetCalibOneEventProbe(std::string("JetCalibOneEventProbe_AuAuSub_") + radKey,
+                                                 rawNode,
+                                                 calibNode,
+                                                 /*maxJetsToPrint=*/12);
+          probe->Verbosity(vlevel);
+          se->registerSubsystem(probe);
+
+          if (vlevel > 0)
+            std::cout << "[INFO] (AuAu) reco jets: built " << rawNode << " -> " << calibNode << " (R=" << R << ") from SUB1 towers with JetCalib\n";
+        }
     }
     else
     {
@@ -1967,24 +1989,19 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     //
       // Apply pp JES calibration for ALL pp-style running (pp data AND isSim).
       // Keep Au+Au excluded.
-      const bool doJetCalibAny = (!isAuAuData && !isPPrun25);
-      if (doJetCalibAny)
-      {
-          auto* ensure = new EnsureJetCalibNodes("EnsureJetCalibNodes_forJES");
-          // keep this modest; set RJ_JETCALIB_NODE_VERBOSE=1 for prints
-          int nodeV = 0;
-          if (const char* env = std::getenv("RJ_JETCALIB_NODE_VERBOSE")) nodeV = std::atoi(env);
-          ensure->Verbosity(nodeV);
-          se->registerSubsystem(ensure);
+        const bool doJetCalibAny = (!isAuAuData);
+        if (doJetCalibAny)
+        {
+            auto* ensure = new EnsureJetCalibNodes("EnsureJetCalibNodes_forJES");
+            // keep this modest; set RJ_JETCALIB_NODE_VERBOSE=1 for prints
+            int nodeV = 0;
+            if (const char* env = std::getenv("RJ_JETCALIB_NODE_VERBOSE")) nodeV = std::atoi(env);
+            ensure->Verbosity(nodeV);
+            se->registerSubsystem(ensure);
 
-          if (vlevel > 0)
-            std::cout << "[INFO] JES: enabling JetCalib (pp-style: pp data + isSim) => ensuring DST/TOWER exists\n";
-      }
-      else
-      {
-          if (vlevel > 0 && isPPrun25)
-            std::cout << "[INFO] JES: skipping JetCalib for isPPrun25 (missing JES TF payloads in CDB)\n";
-      }
+            if (vlevel > 0)
+              std::cout << "[INFO] JES: enabling JetCalib (pp-style: pp data + isSim) => ensuring DST/TOWER exists\n";
+        }
 
     // Optional: control JetCalib verbosity independently
     int jetcalV = 0; // default: show InitRun/process_event messages
@@ -2005,7 +2022,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 
         // Apply JES calibration for pp-like chains (pp data + pp-style SIM)
         // Run pp JES calibration in BOTH pp data and isSim (pp-style chains)
-        const bool doJetCalib = (!isAuAuData && !isPPrun25);
+        const bool doJetCalib = (!isAuAuData);
 
         // If calibrating: build RAW jets to a separate node to avoid name collision
         const std::string rawNode = doJetCalib ? (calibNode + "_RAW") : calibNode;

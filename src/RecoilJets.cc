@@ -1431,30 +1431,34 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
           bool isMB = trigAna->didTriggerFire(mbdDbName);
           if (isMB)
           {
-            float max_energy_clus = 0.f;
+              float max_energy_clus = 0.f;
 
-            if (m_clus)
-            {
-              const auto range = m_clus->getClusters();
-              for (auto it = range.first; it != range.second; ++it)
+              if (m_clus)
               {
-                const RawCluster* cl = it->second;
-                if (!cl) continue;
-                const float e = cl->get_energy();
-                if (std::isfinite(e) && e > max_energy_clus) max_energy_clus = e;
+                const auto range = m_clus->getClusters();
+                for (auto it = range.first; it != range.second; ++it)
+                {
+                  const RawCluster* cl = it->second;
+                  if (!cl) continue;
+                  const float e = cl->get_energy();
+                  if (!std::isfinite(e)) continue;
+                  if (e < 1.0f) continue;
+                  if (e > max_energy_clus) max_energy_clus = e;
+                }
               }
-            }
-            else if (m_photons)
-            {
-              const auto range = m_photons->getClusters();
-              for (auto it = range.first; it != range.second; ++it)
+              else if (m_photons)
               {
-                const RawCluster* cl = it->second;
-                if (!cl) continue;
-                const float e = cl->get_energy();
-                if (std::isfinite(e) && e > max_energy_clus) max_energy_clus = e;
+                const auto range = m_photons->getClusters();
+                for (auto it = range.first; it != range.second; ++it)
+                {
+                  const RawCluster* cl = it->second;
+                  if (!cl) continue;
+                  const float e = cl->get_energy();
+                  if (!std::isfinite(e)) continue;
+                  if (e < 1.0f) continue;
+                  if (e > max_energy_clus) max_energy_clus = e;
+                }
               }
-            }
 
               // Fill the new histogram for MBD itself
               {
@@ -5793,7 +5797,7 @@ void RecoilJets::fillPi0MassVsPtHistograms(const std::string& trig,
       const CLHEP::Hep3Vector eVec1 = RawClusterUtility::GetEVec(*clus1, vertex);
       const double e1 = eVec1.mag();
       if (!std::isfinite(e1) || e1 <= 0.0) continue;
-      if (e1 < 2.0) continue;
+      if (e1 < 1.0) continue;
 
       const double chi1 = clus1->get_chi2();
       if (!std::isfinite(chi1) || chi1 > 4.0) continue;
@@ -5813,6 +5817,7 @@ void RecoilJets::fillPi0MassVsPtHistograms(const std::string& trig,
         const CLHEP::Hep3Vector eVec2 = RawClusterUtility::GetEVec(*clus2, vertex);
         const double e2 = eVec2.mag();
         if (!std::isfinite(e2) || e2 <= 0.0) continue;
+        if (e2 < 1.0) continue;
 
         const double chi2 = clus2->get_chi2();
         if (!std::isfinite(chi2) || chi2 > 4.0) continue;

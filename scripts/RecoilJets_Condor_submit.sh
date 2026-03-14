@@ -868,7 +868,7 @@ case "$ACTION" in
 
       samples=()
       if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
-        samples=( "run28_photonjet10" "run28_photonjet20" )
+        samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" )
       else
         samples=( "${SIM_SAMPLE}" )
       fi
@@ -1036,7 +1036,7 @@ SUB
 
     samples=()
     if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
-      samples=( "run28_photonjet10" "run28_photonjet20" )
+      samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" )
     else
       samples=( "${SIM_SAMPLE}" )
     fi
