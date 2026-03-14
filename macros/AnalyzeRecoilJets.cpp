@@ -372,9 +372,6 @@ namespace ARJ
           }
       }
 
-      // =============================================================================
-      // pi0 QA (pp DATA only): corrected vs no-asinh-correction in lead-cluster pT bins
-      // =============================================================================
       void RunPi0QA(Dataset& ds)
       {
         if (ds.isSim) return;
@@ -418,10 +415,10 @@ namespace ARJ
             ? string(TString::Format("|v_{z}| < %.0f cm", vzCutCm).Data())
             : string(TString::Format("|v_{z}| < %.1f cm", vzCutCm).Data());
 
-        const int nLeadPtBins = 9;
-        const double ptLo[nLeadPtBins] = {1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 12.0, 15.0};
-        const double ptHi[nLeadPtBins] = {2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 12.0, 15.0, -1.0};
-        const char* ptLabels[nLeadPtBins] = {"1-2", "2-3", "3-4", "4-6", "6-8", "8-10", "10-12", "12-15", "> 15"};
+        const int nLeadPtBins = 4;
+        const double ptLo[nLeadPtBins] = {1.0, 2.0, 3.0, 5.0};
+        const double ptHi[nLeadPtBins] = {2.0, 3.0, 5.0, -1.0};
+        const char* ptLabels[nLeadPtBins] = {"1-2", "2-3", "3-5", "> 5"};
 
         struct Pi0FitResult
         {
@@ -439,10 +436,10 @@ namespace ARJ
           {
             return TString::Format("p_{T}^{#gamma} = %s GeV", ptLabels[i]).Data();
           }
-          return "p_{T}^{#gamma} > 15 GeV";
+          return "p_{T}^{#gamma} > 5 GeV";
         };
 
-        auto DrawCenteredHeader = [&](const string& secondLine, double size)
+        auto DrawCenteredHeader = [&](const string& qualifier, double size)
         {
           TLatex title;
           title.SetNDC(true);
@@ -451,8 +448,8 @@ namespace ARJ
           title.SetTextSize(size);
           title.DrawLatex(
             0.50, 0.965,
-            TString::Format("#splitline{%s, #pi^{0} with/without b-correction}{%s}",
-                            datasetTitle.c_str(), secondLine.c_str()).Data()
+            TString::Format("%s, #pi^{0} with/without b-correction (%s)",
+                            datasetTitle.c_str(), qualifier.c_str()).Data()
           );
         };
 
@@ -464,7 +461,7 @@ namespace ARJ
           t.SetTextAlign(33);
           t.SetTextSize(size);
           t.DrawLatex(x, y, "Trigger: MBD NS #geq 1");
-          t.DrawLatex(x, y - dy, vertexLabel.c_str());
+          t.DrawLatex(x, y - 1.0 * dy, vertexLabel.c_str());
           t.DrawLatex(x, y - 2.0 * dy, "#alpha #leq 0.6");
           t.DrawLatex(x, y - 3.0 * dy, "E_{#gamma} #geq 1 GeV, #chi^{2} #leq 4");
         };
@@ -473,15 +470,15 @@ namespace ARJ
         {
           if (!h2) return nullptr;
 
-          const int nx = h2->GetXaxis()->GetNbins();
-          int xbinLo = h2->GetXaxis()->FindBin(lo + 1e-6);
-          int xbinHi = (hi > lo) ? h2->GetXaxis()->FindBin(hi - 1e-6) : nx;
+          const int ny = h2->GetYaxis()->GetNbins();
+          int ybinLo = h2->GetYaxis()->FindBin(lo + 1e-6);
+          int ybinHi = (hi > lo) ? h2->GetYaxis()->FindBin(hi - 1e-6) : ny;
 
-          if (xbinLo < 1) xbinLo = 1;
-          if (xbinHi > nx) xbinHi = nx;
-          if (xbinHi < xbinLo) return nullptr;
+          if (ybinLo < 1) ybinLo = 1;
+          if (ybinHi > ny) ybinHi = ny;
+          if (ybinHi < ybinLo) return nullptr;
 
-          TH1D* h = h2->ProjectionY(newName.c_str(), xbinLo, xbinHi);
+          TH1D* h = h2->ProjectionX(newName.c_str(), ybinLo, ybinHi);
           if (h) h->SetDirectory(nullptr);
           return h;
         };
@@ -578,14 +575,17 @@ namespace ARJ
           okMeanNoCorr[i] = false;
         }
 
-        TCanvas cTbl("c_pi0_table", "c_pi0_table", 1800, 1200);
-        cTbl.Divide(3, 3, 0.001, 0.001);
+        TCanvas cTbl("c_pi0_table", "c_pi0_table", 1800, 1400);
+        cTbl.Divide(2, 2, 0.001, 0.001);
 
         vector<TH1*> keepAlive;
         keepAlive.reserve(2 * nLeadPtBins);
 
         vector<TF1*> keepFits;
         keepFits.reserve(2 * nLeadPtBins);
+
+        vector<TLegend*> keepLegends;
+        keepLegends.reserve(nLeadPtBins);
 
         for (int i = 0; i < nLeadPtBins; ++i)
         {
@@ -618,8 +618,8 @@ namespace ARJ
 
           if (iCorr <= 0.0 && iNoCorr <= 0.0)
           {
-            DrawCenteredHeader(ptTitle, 0.040);
-            DrawTopRightSelection(0.94, 0.88, 0.032, 0.05);
+            DrawCenteredHeader(ptTitle, 0.036);
+            DrawTopRightSelection(0.94, 0.72, 0.040, 0.065);
 
             TLatex t;
             t.SetNDC(true);
@@ -637,13 +637,13 @@ namespace ARJ
           {
             hCorr->SetTitle("");
             hCorr->SetLineWidth(2);
-            hCorr->SetLineColor(kBlack);
+            hCorr->SetLineColor(kRed + 1);
             hCorr->SetMarkerStyle(20);
             hCorr->SetMarkerSize(0.85);
-            hCorr->SetMarkerColor(kBlack);
+            hCorr->SetMarkerColor(kRed + 1);
             hCorr->SetFillStyle(0);
             hCorr->SetMinimum(0.0);
-            hCorr->GetXaxis()->SetTitle("m_{#gamma#gamma} [GeV/c^{2}]");
+            hCorr->GetXaxis()->SetTitle("m_{#gamma#gamma} [GeV]");
             hCorr->GetYaxis()->SetTitle("Counts");
             hCorr->GetXaxis()->SetRangeUser(0.02, 0.30);
             hCorr->GetXaxis()->SetTitleSize(0.055);
@@ -657,13 +657,13 @@ namespace ARJ
           {
             hNoCorr->SetTitle("");
             hNoCorr->SetLineWidth(2);
-            hNoCorr->SetLineColor(kRed + 1);
+            hNoCorr->SetLineColor(kBlack);
             hNoCorr->SetMarkerStyle(24);
             hNoCorr->SetMarkerSize(0.85);
-            hNoCorr->SetMarkerColor(kRed + 1);
+            hNoCorr->SetMarkerColor(kBlack);
             hNoCorr->SetFillStyle(0);
             hNoCorr->SetMinimum(0.0);
-            hNoCorr->GetXaxis()->SetTitle("m_{#gamma#gamma} [GeV/c^{2}]");
+            hNoCorr->GetXaxis()->SetTitle("m_{#gamma#gamma} [GeV]");
             hNoCorr->GetYaxis()->SetTitle("Counts");
             hNoCorr->GetXaxis()->SetRangeUser(0.02, 0.30);
             hNoCorr->GetXaxis()->SetTitleSize(0.055);
@@ -731,7 +731,7 @@ namespace ARJ
 
           if (fitCorrRes.func)
           {
-            fitCorrRes.func->SetLineColor(kBlack);
+            fitCorrRes.func->SetLineColor(kRed + 1);
             fitCorrRes.func->SetLineWidth(2);
             fitCorrRes.func->SetNpx(500);
             fitCorrRes.func->Draw("SAME");
@@ -740,41 +740,36 @@ namespace ARJ
 
           if (fitNoCorrRes.func)
           {
-            fitNoCorrRes.func->SetLineColor(kRed + 1);
+            fitNoCorrRes.func->SetLineColor(kBlack);
             fitNoCorrRes.func->SetLineWidth(2);
             fitNoCorrRes.func->SetNpx(500);
             fitNoCorrRes.func->Draw("SAME");
             keepFits.push_back(fitNoCorrRes.func);
           }
 
-          TLegend leg(0.16, 0.61, 0.53, 0.74);
-          leg.SetBorderSize(0);
-          leg.SetFillStyle(0);
-          leg.SetTextSize(0.040);
-          if (hCorr)   leg.AddEntry(hCorr,   "with b = 0.15", "lep");
-          if (hNoCorr) leg.AddEntry(hNoCorr, "no asinh correction", "lep");
-          leg.Draw();
+          auto* leg = new TLegend(0.16, 0.72, 0.53, 0.82);
+          leg->SetBorderSize(0);
+          leg->SetFillStyle(0);
+          leg->SetTextSize(0.037);
+          if (hCorr)   leg->AddEntry(hCorr,   "with b = 0.15", "lep");
+          if (hNoCorr) leg->AddEntry(hNoCorr, "no asinh correction", "lep");
+          leg->Draw();
+          keepLegends.push_back(leg);
 
-          DrawCenteredHeader(ptTitle, 0.040);
-          DrawTopRightSelection(0.94, 0.88, 0.032, 0.05);
+          DrawCenteredHeader(ptTitle, 0.036);
+          DrawTopRightSelection(0.94, 0.72, 0.040, 0.065);
 
           TLatex t;
           t.SetNDC(true);
           t.SetTextFont(42);
           t.SetTextAlign(13);
-          t.SetTextSize(0.034);
-          if (okMeanCorr[i])
+          t.SetTextSize(0.038);
+          if (okMeanCorr[i] && okMeanNoCorr[i] && resNoCorr[i] > 0.0)
           {
+            const double resolutionGainPct = 100.0 * (resNoCorr[i] - resCorr[i]) / resNoCorr[i];
             t.SetTextColor(kBlack);
-            t.DrawLatex(0.16, 0.56,
-              TString::Format("with b = 0.15: #mu = %.5f, #sigma = %.5f", meanCorr[i], sigmaCorr[i]).Data()
-            );
-          }
-          if (okMeanNoCorr[i])
-          {
-            t.SetTextColor(kRed + 1);
-            t.DrawLatex(0.16, 0.50,
-              TString::Format("no asinh correction: #mu = %.5f, #sigma = %.5f", meanNoCorr[i], sigmaNoCorr[i]).Data()
+            t.DrawLatex(0.16, 0.87,
+              TString::Format("Resolution gain with correction: %.2f%%", resolutionGainPct).Data()
             );
           }
           t.SetTextColor(kBlack);
@@ -783,10 +778,11 @@ namespace ARJ
           if (hNoCorr) keepAlive.push_back(hNoCorr);
         }
 
-        SaveCanvas(cTbl, JoinPath(outDir, "table3x3_pi0_mass_leadPhotonPt_corr_vs_nocorr.png"));
+        SaveCanvas(cTbl, JoinPath(outDir, "table2x2_pi0_mass_leadPhotonPt_corr_vs_nocorr.png"));
 
         for (auto* h : keepAlive) delete h;
         for (auto* f : keepFits) delete f;
+        for (auto* leg : keepLegends) delete leg;
 
         auto DrawSummaryGraph =
           [&](const string& outName,
@@ -884,10 +880,10 @@ namespace ARJ
           {
             gCorr = new TGraphErrors((int)xCorr.size(), &xCorr[0], &yCorr[0], &exCorr[0], &eyCorr[0]);
             gCorr->SetLineWidth(2);
-            gCorr->SetLineColor(kBlack);
+            gCorr->SetLineColor(kRed + 1);
             gCorr->SetMarkerStyle(20);
             gCorr->SetMarkerSize(1.0);
-            gCorr->SetMarkerColor(kBlack);
+            gCorr->SetMarkerColor(kRed + 1);
             gCorr->Draw("PE1 SAME");
           }
 
@@ -895,10 +891,10 @@ namespace ARJ
           {
             gNoCorr = new TGraphErrors((int)xNoCorr.size(), &xNoCorr[0], &yNoCorr[0], &exNoCorr[0], &eyNoCorr[0]);
             gNoCorr->SetLineWidth(2);
-            gNoCorr->SetLineColor(kRed + 1);
+            gNoCorr->SetLineColor(kBlack);
             gNoCorr->SetMarkerStyle(24);
             gNoCorr->SetMarkerSize(1.0);
-            gNoCorr->SetMarkerColor(kRed + 1);
+            gNoCorr->SetMarkerColor(kBlack);
             gNoCorr->Draw("PE1 SAME");
           }
 
@@ -910,8 +906,8 @@ namespace ARJ
           if (gNoCorr) leg.AddEntry(gNoCorr, "no asinh correction", "lep");
           leg.Draw();
 
-          DrawCenteredHeader(summaryLine, 0.040);
-          DrawTopRightSelection(0.94, 0.88, 0.032, 0.05);
+          DrawCenteredHeader(summaryLine, 0.036);
+          DrawTopRightSelection(0.93, 0.74, 0.036, 0.060);
 
           SaveCanvas(c, JoinPath(outDir, outName));
 
@@ -958,6 +954,7 @@ namespace ARJ
           true
         );
       }
+
 
       // =============================================================================
       // Section 2: preselection fail counters (terminal only)

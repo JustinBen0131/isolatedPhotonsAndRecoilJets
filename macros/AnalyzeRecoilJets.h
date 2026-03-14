@@ -209,7 +209,7 @@ namespace ARJ
 
   // If false, STEP 1 will NOT rebuild the photonJet10+20 merged ROOT file(s).
   // Downstream code will simply open the already-merged output at the configured path(s).
-  inline bool doRemergePhoton10and20sim  = true;
+  inline bool doRemergePhoton10and20sim  = false;
 
   // If false, STEP 1 will NOT rebuild the photonJet5+10+20 merged ROOT file(s).
   // Downstream code will simply open the already-merged output at the configured path(s).
