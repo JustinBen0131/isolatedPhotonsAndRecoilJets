@@ -260,10 +260,6 @@ namespace ARJ
   inline const string kInAuAuGoldNew =
                 InputFilesSimBaseDirFromYAML() + "/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet5/7pi_8_BB/UE_subtractedIso_take1/RecoilJets_auau_ALL.root";
 
-  inline const string kInSIM5 =
-        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5_SIM/RecoilJets_photonjet5_ALL.root";
-
-
   // ---------------------------------------------------------------------------
   // SIM (photonJet10/20) configurations: jet-min-pt + back-to-back cut variants.
   //
@@ -274,11 +270,12 @@ namespace ARJ
   // ---------------------------------------------------------------------------
   struct Sim10and20Config
   {
-      string key;
-      string photon10;
-      string photon20;
-      double jetMinPt = 10.0;
-      string bbLabel;   // for plotting labels only (e.g. "#pi/2", "7#pi/8")
+        string key;
+        string photon5;
+        string photon10;
+        string photon20;
+        double jetMinPt = 10.0;
+        string bbLabel;   // for plotting labels only (e.g. "#pi/2", "7#pi/8")
   };
 
   inline const string kDefaultSimSampleKey = "jetMinPt5_7piOver8";
@@ -303,61 +300,66 @@ namespace ARJ
 
   inline const map<string, Sim10and20Config>& Sim10and20Configs()
   {
-          static map<string, Sim10and20Config> m;
-          if (!m.empty()) return m;
+            static map<string, Sim10and20Config> m;
+            if (!m.empty()) return m;
 
-          const string root = InputFilesSimBaseDirFromYAML();
+            const string root = InputFilesSimBaseDirFromYAML();
 
-          m["jetMinPt10_pihalves"] = Sim10and20Config{
-              "jetMinPt10_pihalves",
-              root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet10/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt10_pihalves.root",
-              root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet10/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt10_pihalves.root",
-              10.0,
-              "#pi/2"
-          };
+            m["jetMinPt10_pihalves"] = Sim10and20Config{
+                "jetMinPt10_pihalves",
+                root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet10/pi_2_BB/RecoilJets_photonjet5_ALL_jetMinPt10_pihalves.root",
+                root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet10/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt10_pihalves.root",
+                root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet10/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt10_pihalves.root",
+                10.0,
+                "#pi/2"
+            };
 
-          m["jetMinPt10_7piOver8"] = Sim10and20Config{
-              "jetMinPt10_7piOver8",
-              root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet10/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt10_7piOver8.root",
-              root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet10/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt10_7piOver8.root",
-              10.0,
-              "7#pi/8"
-          };
+            m["jetMinPt10_7piOver8"] = Sim10and20Config{
+                "jetMinPt10_7piOver8",
+                root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet10/7pi_8_BB/RecoilJets_photonjet5_ALL_jetMinPt10_7piOver8.root",
+                root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet10/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt10_7piOver8.root",
+                root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet10/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt10_7piOver8.root",
+                10.0,
+                "7#pi/8"
+            };
 
-          m["jetMinPt5_pihalves"] = Sim10and20Config{
-              "jetMinPt5_pihalves",
-              root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt5_pihalves.root",
-              root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt5_pihalves.root",
-              5.0,
-              "#pi/2"
-          };
+            m["jetMinPt5_pihalves"] = Sim10and20Config{
+                "jetMinPt5_pihalves",
+                root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/pi_2_BB/RecoilJets_photonjet5_ALL_jetMinPt5_pihalves.root",
+                root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt5_pihalves.root",
+                root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt5_pihalves.root",
+                5.0,
+                "#pi/2"
+            };
 
-          m["jetMinPt5_7piOver8"] = Sim10and20Config{
-              "jetMinPt5_7piOver8",
-              root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/RecoilJets_photonjet5_ALL_jetMinPt5_7piOver8.root",
-              root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt5_7piOver8.root",
-              root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt5_7piOver8.root",
-              5.0,
-              "7#pi/8"
-          };
+            m["jetMinPt5_7piOver8"] = Sim10and20Config{
+                "jetMinPt5_7piOver8",
+                root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/RecoilJets_photonjet5_ALL_jetMinPt5_7piOver8.root",
+                root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt5_7piOver8.root",
+                root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt5_7piOver8.root",
+                5.0,
+                "7#pi/8"
+            };
 
-          m["jetMinPt3_pihalves"] = Sim10and20Config{
-              "jetMinPt3_pihalves",
-              root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet3/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt3_pihalves.root",
-              root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet3/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt3_pihalves.root",
-              3.0,
-              "#pi/2"
-          };
+            m["jetMinPt3_pihalves"] = Sim10and20Config{
+                "jetMinPt3_pihalves",
+                root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet3/pi_2_BB/RecoilJets_photonjet5_ALL_jetMinPt3_pihalves.root",
+                root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet3/pi_2_BB/RecoilJets_photonjet10_ALL_jetMinPt3_pihalves.root",
+                root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet3/pi_2_BB/RecoilJets_photonjet20_ALL_jetMinPt3_pihalves.root",
+                3.0,
+                "#pi/2"
+            };
 
-          m["jetMinPt3_7piOver8"] = Sim10and20Config{
-              "jetMinPt3_7piOver8",
-              root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet3/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt3_7piOver8.root",
-              root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet3/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt3_7piOver8.root",
-              3.0,
-              "7#pi/8"
-          };
+            m["jetMinPt3_7piOver8"] = Sim10and20Config{
+                "jetMinPt3_7piOver8",
+                root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet3/7pi_8_BB/RecoilJets_photonjet5_ALL_jetMinPt3_7piOver8.root",
+                root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet3/7pi_8_BB/RecoilJets_photonjet10_ALL_jetMinPt3_7piOver8.root",
+                root + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet3/7pi_8_BB/RecoilJets_photonjet20_ALL_jetMinPt3_7piOver8.root",
+                3.0,
+                "7#pi/8"
+            };
 
-          return m;
+            return m;
   }
 
   inline const Sim10and20Config& Sim10and20ConfigForKey(const string& key)
@@ -391,6 +393,7 @@ namespace ARJ
   }
 
   // Backwards-compatible aliases (so older call sites remain readable)
+  inline const string kInSIM5  = DefaultSim10and20Config().photon5;
   inline const string kInSIM10 = DefaultSim10and20Config().photon10;
   inline const string kInSIM20 = DefaultSim10and20Config().photon20;
 

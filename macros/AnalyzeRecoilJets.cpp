@@ -411,6 +411,13 @@ namespace ARJ
           return;
         }
 
+        const string datasetTitle = "Run24pp";
+        const bool vzIsInteger = (std::fabs(vzCutCm - std::round(vzCutCm)) < 1e-6);
+        const string vertexLabel =
+          vzIsInteger
+            ? string(TString::Format("|v_{z}| < %.0f cm", vzCutCm).Data())
+            : string(TString::Format("|v_{z}| < %.1f cm", vzCutCm).Data());
+
         const int nLeadPtBins = 9;
         const double ptLo[nLeadPtBins] = {1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 12.0, 15.0};
         const double ptHi[nLeadPtBins] = {2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 12.0, 15.0, -1.0};
@@ -423,6 +430,43 @@ namespace ARJ
           double meanErr = 0.0;
           double sigma = 0.0;
           double sigmaErr = 0.0;
+          TF1* func = nullptr;
+        };
+
+        auto LeadPhotonPtTitle = [&](int i)->string
+        {
+          if (ptHi[i] > ptLo[i])
+          {
+            return TString::Format("p_{T}^{#gamma} = %s GeV", ptLabels[i]).Data();
+          }
+          return "p_{T}^{#gamma} > 15 GeV";
+        };
+
+        auto DrawCenteredHeader = [&](const string& secondLine, double size)
+        {
+          TLatex title;
+          title.SetNDC(true);
+          title.SetTextFont(42);
+          title.SetTextAlign(23);
+          title.SetTextSize(size);
+          title.DrawLatex(
+            0.50, 0.965,
+            TString::Format("#splitline{%s, #pi^{0} with/without b-correction}{%s}",
+                            datasetTitle.c_str(), secondLine.c_str()).Data()
+          );
+        };
+
+        auto DrawTopRightSelection = [&](double x, double y, double size, double dy)
+        {
+          TLatex t;
+          t.SetNDC(true);
+          t.SetTextFont(42);
+          t.SetTextAlign(33);
+          t.SetTextSize(size);
+          t.DrawLatex(x, y, "Trigger: MBD NS #geq 1");
+          t.DrawLatex(x, y - dy, vertexLabel.c_str());
+          t.DrawLatex(x, y - 2.0 * dy, "#alpha #leq 0.6");
+          t.DrawLatex(x, y - 3.0 * dy, "E_{#gamma} #geq 1 GeV, #chi^{2} #leq 4");
         };
 
         auto ProjectMass = [&](TH2* h2, double lo, double hi, const string& newName)->TH1D*
@@ -470,6 +514,7 @@ namespace ARJ
 
           TF1 f(TString::Format("f_pi0_%s", tag.c_str()).Data(), "gaus(0)+pol3(3)", 0.05, 0.25);
           f.SetLineWidth(2);
+          f.SetNpx(500);
           f.SetParameters(cMax, m0, 0.010, 0.0, 0.0, 0.0, 0.0);
           f.SetParLimits(1, 0.10, 0.17);
           f.SetParLimits(2, 0.003, 0.040);
@@ -489,6 +534,7 @@ namespace ARJ
           R.meanErr  = f.GetParError(1);
           R.sigma    = sigma;
           R.sigmaErr = f.GetParError(2);
+          R.func     = static_cast<TF1*>(f.Clone(TString::Format("f_pi0_%s_clone", tag.c_str()).Data()));
           return R;
         };
 
@@ -538,6 +584,9 @@ namespace ARJ
         vector<TH1*> keepAlive;
         keepAlive.reserve(2 * nLeadPtBins);
 
+        vector<TF1*> keepFits;
+        keepFits.reserve(2 * nLeadPtBins);
+
         for (int i = 0; i < nLeadPtBins; ++i)
         {
           cTbl.cd(i + 1);
@@ -562,19 +611,22 @@ namespace ARJ
             TString::Format("h_pi0_nocorr_leadPt_%d", i).Data()
           );
 
+          const string ptTitle = LeadPhotonPtTitle(i);
+
           const double iCorr = hCorr ? hCorr->Integral(0, hCorr->GetNbinsX() + 1) : 0.0;
           const double iNoCorr = hNoCorr ? hNoCorr->Integral(0, hNoCorr->GetNbinsX() + 1) : 0.0;
 
           if (iCorr <= 0.0 && iNoCorr <= 0.0)
           {
+            DrawCenteredHeader(ptTitle, 0.040);
+            DrawTopRightSelection(0.94, 0.88, 0.032, 0.05);
+
             TLatex t;
             t.SetNDC(true);
             t.SetTextFont(42);
             t.SetTextAlign(22);
             t.SetTextSize(0.075);
             t.DrawLatex(0.50, 0.55, "MISSING");
-            t.SetTextSize(0.055);
-            t.DrawLatex(0.50, 0.42, TString::Format("p_{T, lead}^{#gamma}: %s GeV", ptLabels[i]).Data());
 
             if (hCorr) delete hCorr;
             if (hNoCorr) delete hNoCorr;
@@ -590,9 +642,15 @@ namespace ARJ
             hCorr->SetMarkerSize(0.85);
             hCorr->SetMarkerColor(kBlack);
             hCorr->SetFillStyle(0);
-            hCorr->GetXaxis()->SetTitle("m_{#gamma#gamma} [GeV]");
+            hCorr->SetMinimum(0.0);
+            hCorr->GetXaxis()->SetTitle("m_{#gamma#gamma} [GeV/c^{2}]");
             hCorr->GetYaxis()->SetTitle("Counts");
             hCorr->GetXaxis()->SetRangeUser(0.02, 0.30);
+            hCorr->GetXaxis()->SetTitleSize(0.055);
+            hCorr->GetYaxis()->SetTitleSize(0.055);
+            hCorr->GetXaxis()->SetLabelSize(0.045);
+            hCorr->GetYaxis()->SetLabelSize(0.045);
+            hCorr->GetYaxis()->SetTitleOffset(1.15);
           }
 
           if (hNoCorr)
@@ -604,24 +662,33 @@ namespace ARJ
             hNoCorr->SetMarkerSize(0.85);
             hNoCorr->SetMarkerColor(kRed + 1);
             hNoCorr->SetFillStyle(0);
-            hNoCorr->GetXaxis()->SetTitle("m_{#gamma#gamma} [GeV]");
+            hNoCorr->SetMinimum(0.0);
+            hNoCorr->GetXaxis()->SetTitle("m_{#gamma#gamma} [GeV/c^{2}]");
             hNoCorr->GetYaxis()->SetTitle("Counts");
             hNoCorr->GetXaxis()->SetRangeUser(0.02, 0.30);
+            hNoCorr->GetXaxis()->SetTitleSize(0.055);
+            hNoCorr->GetYaxis()->SetTitleSize(0.055);
+            hNoCorr->GetXaxis()->SetLabelSize(0.045);
+            hNoCorr->GetYaxis()->SetLabelSize(0.045);
+            hNoCorr->GetYaxis()->SetTitleOffset(1.15);
           }
+
+          Pi0FitResult fitCorrRes;
+          Pi0FitResult fitNoCorrRes;
 
           if (hCorr)
           {
-            const Pi0FitResult fit = FitPi0(hCorr, TString::Format("corr_%d", i).Data());
-            if (fit.ok)
+            fitCorrRes = FitPi0(hCorr, TString::Format("corr_%d", i).Data());
+            if (fitCorrRes.ok)
             {
-              meanCorr[i] = fit.mean;
-              meanCorrErr[i] = fit.meanErr;
-              sigmaCorr[i] = fit.sigma;
-              sigmaCorrErr[i] = fit.sigmaErr;
-              resCorr[i] = fit.sigma / fit.mean;
+              meanCorr[i] = fitCorrRes.mean;
+              meanCorrErr[i] = fitCorrRes.meanErr;
+              sigmaCorr[i] = fitCorrRes.sigma;
+              sigmaCorrErr[i] = fitCorrRes.sigmaErr;
+              resCorr[i] = fitCorrRes.sigma / fitCorrRes.mean;
 
-              const double relSigmaErr = (fit.sigma > 0.0) ? (fit.sigmaErr / fit.sigma) : 0.0;
-              const double relMeanErr  = (fit.mean  > 0.0) ? (fit.meanErr  / fit.mean ) : 0.0;
+              const double relSigmaErr = (fitCorrRes.sigma > 0.0) ? (fitCorrRes.sigmaErr / fitCorrRes.sigma) : 0.0;
+              const double relMeanErr  = (fitCorrRes.mean  > 0.0) ? (fitCorrRes.meanErr  / fitCorrRes.mean ) : 0.0;
               resCorrErr[i] = resCorr[i] * std::sqrt(relSigmaErr * relSigmaErr + relMeanErr * relMeanErr);
 
               okMeanCorr[i] = true;
@@ -630,17 +697,17 @@ namespace ARJ
 
           if (hNoCorr)
           {
-            const Pi0FitResult fit = FitPi0(hNoCorr, TString::Format("nocorr_%d", i).Data());
-            if (fit.ok)
+            fitNoCorrRes = FitPi0(hNoCorr, TString::Format("nocorr_%d", i).Data());
+            if (fitNoCorrRes.ok)
             {
-              meanNoCorr[i] = fit.mean;
-              meanNoCorrErr[i] = fit.meanErr;
-              sigmaNoCorr[i] = fit.sigma;
-              sigmaNoCorrErr[i] = fit.sigmaErr;
-              resNoCorr[i] = fit.sigma / fit.mean;
+              meanNoCorr[i] = fitNoCorrRes.mean;
+              meanNoCorrErr[i] = fitNoCorrRes.meanErr;
+              sigmaNoCorr[i] = fitNoCorrRes.sigma;
+              sigmaNoCorrErr[i] = fitNoCorrRes.sigmaErr;
+              resNoCorr[i] = fitNoCorrRes.sigma / fitNoCorrRes.mean;
 
-              const double relSigmaErr = (fit.sigma > 0.0) ? (fit.sigmaErr / fit.sigma) : 0.0;
-              const double relMeanErr  = (fit.mean  > 0.0) ? (fit.meanErr  / fit.mean ) : 0.0;
+              const double relSigmaErr = (fitNoCorrRes.sigma > 0.0) ? (fitNoCorrRes.sigmaErr / fitNoCorrRes.sigma) : 0.0;
+              const double relMeanErr  = (fitNoCorrRes.mean  > 0.0) ? (fitNoCorrRes.meanErr  / fitNoCorrRes.mean ) : 0.0;
               resNoCorrErr[i] = resNoCorr[i] * std::sqrt(relSigmaErr * relSigmaErr + relMeanErr * relMeanErr);
 
               okMeanNoCorr[i] = true;
@@ -652,41 +719,62 @@ namespace ARJ
           if (hNoCorr) ymax = std::max(ymax, hNoCorr->GetMaximum());
 
           TH1* first = hCorr ? hCorr : hNoCorr;
-          if (first) first->SetMaximum((ymax > 0.0) ? (1.25 * ymax) : 1.0);
+          if (first)
+          {
+            first->SetMinimum(0.0);
+            first->SetMaximum((ymax > 0.0) ? (1.35 * ymax) : 1.0);
+            first->Draw("E1");
+          }
 
-          if (hCorr) hCorr->Draw("E1");
-          else if (hNoCorr) hNoCorr->Draw("E1");
-
+          if (hCorr && hCorr != first) hCorr->Draw("E1 SAME");
           if (hNoCorr && hNoCorr != first) hNoCorr->Draw("E1 SAME");
 
-          TLegend leg(0.42, 0.70, 0.93, 0.89);
+          if (fitCorrRes.func)
+          {
+            fitCorrRes.func->SetLineColor(kBlack);
+            fitCorrRes.func->SetLineWidth(2);
+            fitCorrRes.func->SetNpx(500);
+            fitCorrRes.func->Draw("SAME");
+            keepFits.push_back(fitCorrRes.func);
+          }
+
+          if (fitNoCorrRes.func)
+          {
+            fitNoCorrRes.func->SetLineColor(kRed + 1);
+            fitNoCorrRes.func->SetLineWidth(2);
+            fitNoCorrRes.func->SetNpx(500);
+            fitNoCorrRes.func->Draw("SAME");
+            keepFits.push_back(fitNoCorrRes.func);
+          }
+
+          TLegend leg(0.16, 0.61, 0.53, 0.74);
           leg.SetBorderSize(0);
           leg.SetFillStyle(0);
-          leg.SetTextSize(0.045);
-          if (hCorr)   leg.AddEntry(hCorr,   "with b = 0.15", "ep");
-          if (hNoCorr) leg.AddEntry(hNoCorr, "no asinh correction", "ep");
+          leg.SetTextSize(0.040);
+          if (hCorr)   leg.AddEntry(hCorr,   "with b = 0.15", "lep");
+          if (hNoCorr) leg.AddEntry(hNoCorr, "no asinh correction", "lep");
           leg.Draw();
+
+          DrawCenteredHeader(ptTitle, 0.040);
+          DrawTopRightSelection(0.94, 0.88, 0.032, 0.05);
 
           TLatex t;
           t.SetNDC(true);
           t.SetTextFont(42);
           t.SetTextAlign(13);
-          t.SetTextSize(0.055);
-          t.DrawLatex(0.16, 0.94, TString::Format("p_{T, lead}^{#gamma}: %s GeV", ptLabels[i]).Data());
-
-          t.SetTextSize(0.040);
+          t.SetTextSize(0.034);
           if (okMeanCorr[i])
           {
             t.SetTextColor(kBlack);
-            t.DrawLatex(0.16, 0.84,
-              TString::Format("b=0.15: #mu = %.5f, #sigma = %.5f", meanCorr[i], sigmaCorr[i]).Data()
+            t.DrawLatex(0.16, 0.56,
+              TString::Format("with b = 0.15: #mu = %.5f, #sigma = %.5f", meanCorr[i], sigmaCorr[i]).Data()
             );
           }
           if (okMeanNoCorr[i])
           {
             t.SetTextColor(kRed + 1);
-            t.DrawLatex(0.16, 0.78,
-              TString::Format("no asinh: #mu = %.5f, #sigma = %.5f", meanNoCorr[i], sigmaNoCorr[i]).Data()
+            t.DrawLatex(0.16, 0.50,
+              TString::Format("no asinh correction: #mu = %.5f, #sigma = %.5f", meanNoCorr[i], sigmaNoCorr[i]).Data()
             );
           }
           t.SetTextColor(kBlack);
@@ -698,10 +786,12 @@ namespace ARJ
         SaveCanvas(cTbl, JoinPath(outDir, "table3x3_pi0_mass_leadPhotonPt_corr_vs_nocorr.png"));
 
         for (auto* h : keepAlive) delete h;
+        for (auto* f : keepFits) delete f;
 
         auto DrawSummaryGraph =
           [&](const string& outName,
               const string& yTitle,
+              const string& summaryLine,
               const double yCorrIn[],
               const double yCorrErrIn[],
               const bool okCorrIn[],
@@ -763,14 +853,22 @@ namespace ARJ
 
           TCanvas c(TString::Format("c_%s", outName.c_str()).Data(), "c_pi0_summary", 900, 700);
           ApplyCanvasMargins1D(c);
+          c.SetTopMargin(0.10);
+          c.SetTicks(1,1);
 
           TH1F hFrame(TString::Format("hFrame_%s", outName.c_str()).Data(), "", nLeadPtBins, 0.5, nLeadPtBins + 0.5);
           hFrame.SetDirectory(nullptr);
           hFrame.SetStats(0);
           hFrame.SetMinimum(frameMin);
           hFrame.SetMaximum(frameMax);
-          hFrame.GetXaxis()->SetTitle("p_{T, lead}^{#gamma} [GeV]");
+          hFrame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
           hFrame.GetYaxis()->SetTitle(yTitle.c_str());
+          hFrame.GetXaxis()->SetTitleSize(0.050);
+          hFrame.GetYaxis()->SetTitleSize(0.050);
+          hFrame.GetXaxis()->SetLabelSize(0.040);
+          hFrame.GetYaxis()->SetLabelSize(0.040);
+          hFrame.GetYaxis()->SetTitleOffset(1.20);
+          hFrame.GetXaxis()->CenterLabels(true);
 
           for (int i = 1; i <= nLeadPtBins; ++i)
           {
@@ -804,21 +902,16 @@ namespace ARJ
             gNoCorr->Draw("PE1 SAME");
           }
 
-          TLegend leg(0.58, 0.74, 0.92, 0.89);
+          TLegend leg(0.16, 0.74, 0.45, 0.86);
           leg.SetBorderSize(0);
           leg.SetFillStyle(0);
-          leg.SetTextSize(0.033);
-          if (gCorr)   leg.AddEntry(gCorr,   "with b = 0.15", "ep");
-          if (gNoCorr) leg.AddEntry(gNoCorr, "no asinh correction", "ep");
+          leg.SetTextSize(0.034);
+          if (gCorr)   leg.AddEntry(gCorr,   "with b = 0.15", "lep");
+          if (gNoCorr) leg.AddEntry(gNoCorr, "no asinh correction", "lep");
           leg.Draw();
 
-          TLatex t;
-          t.SetNDC(true);
-          t.SetTextFont(42);
-          t.SetTextAlign(13);
-          t.SetTextSize(0.038);
-          t.DrawLatex(0.16, 0.92, "p+p #sqrt{s} = 200 GeV");
-          t.DrawLatex(0.16, 0.86, "#pi^{0} mass fit summary vs p_{T, lead}^{#gamma}");
+          DrawCenteredHeader(summaryLine, 0.040);
+          DrawTopRightSelection(0.94, 0.88, 0.032, 0.05);
 
           SaveCanvas(c, JoinPath(outDir, outName));
 
@@ -829,6 +922,7 @@ namespace ARJ
         DrawSummaryGraph(
           "pi0_mean_vs_leadPhotonPt.png",
           "Gaussian mean [GeV]",
+          "Gaussian mean vs p_{T}^{#gamma}",
           meanCorr,
           meanCorrErr,
           okMeanCorr,
@@ -841,6 +935,7 @@ namespace ARJ
         DrawSummaryGraph(
           "pi0_sigma_vs_leadPhotonPt.png",
           "Gaussian #sigma [GeV]",
+          "Gaussian #sigma vs p_{T}^{#gamma}",
           sigmaCorr,
           sigmaCorrErr,
           okMeanCorr,
@@ -853,6 +948,7 @@ namespace ARJ
         DrawSummaryGraph(
           "pi0_resolution_vs_leadPhotonPt.png",
           "#sigma / #mu",
+          "Resolution (#sigma / #mu) vs p_{T}^{#gamma}",
           resCorr,
           resCorrErr,
           okMeanCorr,
