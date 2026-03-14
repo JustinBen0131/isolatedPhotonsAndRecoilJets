@@ -1629,7 +1629,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     // ------------------------------------------------------------------
     // Calo calibration + clustering contract
     //
-    //   jetcalo     -> production-calibrated real-data input: do NOT call Process_Calo_Calib()
+    //   jetcalo     -> real-data lower-level tower input: run Process_Calo_Calib()
     //   calofitting -> real-data waveform-fit input: run Process_Calo_Calib()
     //   simdst      -> analysis DST already carries calibrated towers/clusters
     // ------------------------------------------------------------------
@@ -1641,25 +1641,24 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                      "(SIM DST already has TOWERINFO_CALIB and CLUSTERINFO_CEMC)\n";
       }
     }
-    else if (caloInputMode == "calofitting")
+    else if (caloInputMode == "calofitting" || caloInputMode == "jetcalo")
     {
       if (vlevel > 0)
       {
-        std::cout << "[DATA] running Process_Calo_Calib() on CALOFITTING input\n";
+        if (caloInputMode == "calofitting")
+        {
+          std::cout << "[DATA] running Process_Calo_Calib() on CALOFITTING input\n";
+        }
+        else
+        {
+          std::cout << "[DATA] running Process_Calo_Calib() on JETCALO input\n";
+        }
         if (isAuAuRequested)
         {
           std::cout << "[DATA][AuAu] clusterUEpipeline may still apply native UE subtraction and reclusterization afterward\n";
         }
       }
       Process_Calo_Calib();
-    }
-    else if (caloInputMode == "jetcalo")
-    {
-      if (vlevel > 0)
-      {
-        std::cout << "[DATA] skipping Process_Calo_Calib() "
-                     "(JETCALO DST already carries production-calibrated tower/cluster content)\n";
-      }
     }
     else
     {
@@ -1823,11 +1822,13 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                     << " do_flow=" << hiFlow
                     << " (HIUE Verbosity=" << hiV << ")\n";
 
+#if defined(RJ_UNIFIED_ANALYSIS_AUAU)
         if (hiFlow == 3)
         {
           auto* epreco = new EventPlaneReco();
           se->registerSubsystem(epreco);
         }
+#endif
 
       // ------------------------------------------------------------------
       // 1) Retower CEMC (towerinfo)
@@ -2070,7 +2071,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
           }
        }
     }
-    }
+  }
 
   // ---------------------- Truth jets -----------------------------------------
   // If useDSTTruthJets==true: they already exist from DST_JETS_IN.
@@ -2185,100 +2186,239 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
           return Fun4AllReturnCodes::EVENT_OK;
         }
 
-        int process_event(PHCompositeNode* topNode) override
+      int process_event(PHCompositeNode* topNode) override
+      {
+        auto* src = findNode::getClass<TowerInfoContainer>(topNode, m_inputNode);
+        auto* dst = findNode::getClass<TowerInfoContainer>(topNode, m_outputNode);
+
+        if (!src || !dst)
         {
-          auto* src = findNode::getClass<TowerInfoContainer>(topNode, m_inputNode);
-          auto* dst = findNode::getClass<TowerInfoContainer>(topNode, m_outputNode);
-
-          if (!src || !dst)
-          {
-            std::cerr << Name()
-                      << ": missing required nodes (src=" << m_inputNode
-                      << ", dst=" << m_outputNode
-                      << ")"
-                      << std::endl;
-            return Fun4AllReturnCodes::ABORTEVENT;
-          }
-
-          std::vector<double> stripSum;
-          std::vector<unsigned int> stripCount;
-
-          const unsigned int nchannels = src->size();
-          for (unsigned int channel = 0; channel < nchannels; ++channel)
-          {
-            TowerInfo* srcTower = src->get_tower_at_channel(channel);
-            if (!srcTower)
-            {
-              continue;
-            }
-
-            const unsigned int towerkey = src->encode_key(channel);
-            const int ieta = src->getTowerEtaBin(towerkey);
-            if (ieta < 0)
-            {
-              continue;
-            }
-
-            if (static_cast<std::size_t>(ieta + 1) > stripSum.size())
-            {
-              stripSum.resize(static_cast<std::size_t>(ieta + 1), 0.0);
-              stripCount.resize(static_cast<std::size_t>(ieta + 1), 0U);
-            }
-
-            if (!srcTower->get_isGood())
-            {
-              continue;
-            }
-
-            const float energy = srcTower->get_energy();
-            if (!std::isfinite(energy))
-            {
-              continue;
-            }
-
-            stripSum.at(static_cast<std::size_t>(ieta)) += energy;
-            stripCount.at(static_cast<std::size_t>(ieta)) += 1U;
-          }
-
-          for (unsigned int channel = 0; channel < nchannels; ++channel)
-          {
-            TowerInfo* srcTower = src->get_tower_at_channel(channel);
-            TowerInfo* dstTower = dst->get_tower_at_channel(channel);
-            if (!srcTower || !dstTower)
-            {
-              continue;
-            }
-
-            const unsigned int towerkey = src->encode_key(channel);
-            const int ieta = src->getTowerEtaBin(towerkey);
-
-            float new_energy = 0.0f;
-            if (ieta >= 0 && static_cast<std::size_t>(ieta) < stripSum.size() && srcTower->get_isGood())
-            {
-              const unsigned int nstrip = stripCount.at(static_cast<std::size_t>(ieta));
-              const float stripMean = (nstrip > 0U)
-                  ? static_cast<float>(stripSum.at(static_cast<std::size_t>(ieta)) / static_cast<double>(nstrip))
-                  : 0.0f;
-
-              const float src_energy = srcTower->get_energy();
-              if (std::isfinite(src_energy))
-              {
-                new_energy = src_energy - stripMean;
-              }
-            }
-
-            dstTower->set_time(srcTower->get_time());
-            dstTower->set_energy(new_energy);
-          }
-
-          return Fun4AllReturnCodes::EVENT_OK;
+          std::cerr << Name()
+                    << ": missing required nodes (src=" << m_inputNode
+                    << ", dst=" << m_outputNode
+                    << ")"
+                    << std::endl;
+          return Fun4AllReturnCodes::ABORTEVENT;
         }
 
-       private:
-        std::string m_inputNode;
-        std::string m_outputNode;
-        TowerInfoContainer* m_output{nullptr};
-  };
+        ++m_evt;
+
+        std::vector<double> stripSum;
+        std::vector<unsigned int> stripCount;
+        std::vector<double> stripMeanCache;
+
+        double srcSumEAll = 0.0;
+        double srcSumEGood = 0.0;
+        unsigned int nSrcFiniteAll = 0;
+        unsigned int nSrcFiniteGood = 0;
+        unsigned int nSrcPositiveGood = 0;
+
+        const unsigned int nchannels = src->size();
+        for (unsigned int channel = 0; channel < nchannels; ++channel)
+        {
+          TowerInfo* srcTower = src->get_tower_at_channel(channel);
+          if (!srcTower)
+          {
+            continue;
+          }
+
+          const float energy = srcTower->get_energy();
+          if (std::isfinite(energy))
+          {
+            srcSumEAll += energy;
+            ++nSrcFiniteAll;
+          }
+
+          const unsigned int towerkey = src->encode_key(channel);
+          const int ieta = src->getTowerEtaBin(towerkey);
+          if (ieta < 0)
+          {
+            continue;
+          }
+
+          if (static_cast<std::size_t>(ieta + 1) > stripSum.size())
+          {
+            stripSum.resize(static_cast<std::size_t>(ieta + 1), 0.0);
+            stripCount.resize(static_cast<std::size_t>(ieta + 1), 0U);
+          }
+
+          if (!srcTower->get_isGood())
+          {
+            continue;
+          }
+
+          if (!std::isfinite(energy))
+          {
+            continue;
+          }
+
+          srcSumEGood += energy;
+          ++nSrcFiniteGood;
+          if (energy > 0.0f) ++nSrcPositiveGood;
+
+          stripSum.at(static_cast<std::size_t>(ieta)) += energy;
+          stripCount.at(static_cast<std::size_t>(ieta)) += 1U;
+        }
+
+        stripMeanCache.resize(stripSum.size(), 0.0);
+        unsigned int nNonEmptyStrips = 0;
+        double meanStripMean = 0.0;
+        double maxStripMean = -std::numeric_limits<double>::infinity();
+        int maxStripEta = -1;
+
+        for (std::size_t ieta = 0; ieta < stripSum.size(); ++ieta)
+        {
+          const unsigned int nstrip = stripCount.at(ieta);
+          if (nstrip == 0U) continue;
+
+          const double stripMean = stripSum.at(ieta) / static_cast<double>(nstrip);
+          stripMeanCache.at(ieta) = stripMean;
+          meanStripMean += stripMean;
+          ++nNonEmptyStrips;
+
+          if (stripMean > maxStripMean)
+          {
+            maxStripMean = stripMean;
+            maxStripEta = static_cast<int>(ieta);
+          }
+        }
+
+        if (nNonEmptyStrips > 0)
+        {
+          meanStripMean /= static_cast<double>(nNonEmptyStrips);
+        }
+        else
+        {
+          maxStripMean = 0.0;
+        }
+
+        double dstSumEAll = 0.0;
+        double dstSumEGood = 0.0;
+        unsigned int nDstFiniteAll = 0;
+        unsigned int nDstFiniteGood = 0;
+        unsigned int nDstPositiveGood = 0;
+        unsigned int nNegativeGood = 0;
+        unsigned int nZeroedGood = 0;
+        double mostNegative = 0.0;
+        double maxSubtracted = -std::numeric_limits<double>::infinity();
+        int maxSubtractedEta = -1;
+        float maxSubtractedSrcE = 0.0f;
+        float maxSubtractedDstE = 0.0f;
+
+        for (unsigned int channel = 0; channel < nchannels; ++channel)
+        {
+          TowerInfo* srcTower = src->get_tower_at_channel(channel);
+          TowerInfo* dstTower = dst->get_tower_at_channel(channel);
+          if (!srcTower || !dstTower)
+          {
+            continue;
+          }
+
+          const unsigned int towerkey = src->encode_key(channel);
+          const int ieta = src->getTowerEtaBin(towerkey);
+
+          float new_energy = 0.0f;
+          float stripMean = 0.0f;
+          const float src_energy = srcTower->get_energy();
+
+          if (ieta >= 0 && static_cast<std::size_t>(ieta) < stripMeanCache.size() && srcTower->get_isGood())
+          {
+            stripMean = static_cast<float>(stripMeanCache.at(static_cast<std::size_t>(ieta)));
+            if (std::isfinite(src_energy))
+            {
+              new_energy = src_energy - stripMean;
+            }
+          }
+
+          dstTower->set_time(srcTower->get_time());
+          dstTower->set_energy(new_energy);
+
+          if (std::isfinite(new_energy))
+          {
+            dstSumEAll += new_energy;
+            ++nDstFiniteAll;
+          }
+
+          if (srcTower->get_isGood() && std::isfinite(new_energy))
+          {
+            dstSumEGood += new_energy;
+            ++nDstFiniteGood;
+            if (new_energy > 0.0f) ++nDstPositiveGood;
+            if (new_energy < 0.0f)
+            {
+              ++nNegativeGood;
+              if (new_energy < mostNegative) mostNegative = new_energy;
+            }
+            if (std::fabs(new_energy) < 1e-6f) ++nZeroedGood;
+          }
+
+          if (srcTower->get_isGood() && std::isfinite(src_energy))
+          {
+            const double subtracted = static_cast<double>(src_energy) - static_cast<double>(new_energy);
+            if (subtracted > maxSubtracted)
+            {
+              maxSubtracted = subtracted;
+              maxSubtractedEta = ieta;
+              maxSubtractedSrcE = src_energy;
+              maxSubtractedDstE = new_energy;
+            }
+          }
+        }
+
+        if (Verbosity() > 0)
+        {
+          std::cout << "[" << Name() << "] evt=" << m_evt
+                    << " PHOSUB summary"
+                    << " | srcNode=" << m_inputNode
+                    << " dstNode=" << m_outputNode
+                    << " | nchannels=" << nchannels
+                    << " | strips(nonEmpty)=" << nNonEmptyStrips
+                    << " meanStrip=" << std::fixed << std::setprecision(4) << meanStripMean
+                    << " maxStrip=" << maxStripMean << "@ieta=" << maxStripEta
+                    << " | srcSumE(all/good)=" << std::setprecision(3) << srcSumEAll << "/" << srcSumEGood
+                    << " | dstSumE(all/good)=" << dstSumEAll << "/" << dstSumEGood
+                    << " | goodFinite(src/dst)=" << nSrcFiniteGood << "/" << nDstFiniteGood
+                    << " | goodE>0(src/dst)=" << nSrcPositiveGood << "/" << nDstPositiveGood
+                    << " | negGood=" << nNegativeGood
+                    << " zeroGood=" << nZeroedGood
+                    << " mostNegative=" << mostNegative
+                    << " | maxSubtracted=" << maxSubtracted
+                    << " (src=" << maxSubtractedSrcE
+                    << " -> dst=" << maxSubtractedDstE
+                    << ", ieta=" << maxSubtractedEta << ")"
+                    << std::endl;
+        }
+
+        if (Verbosity() > 1)
+        {
+          std::cout << "[" << Name() << "] evt=" << m_evt << " strip means:";
+          int printed = 0;
+          for (std::size_t ieta = 0; ieta < stripMeanCache.size(); ++ieta)
+          {
+            if (stripCount.at(ieta) == 0U) continue;
+            std::cout << " (" << ieta
+                      << ": n=" << stripCount.at(ieta)
+                      << ", mean=" << std::fixed << std::setprecision(4) << stripMeanCache.at(ieta)
+                      << ")";
+            ++printed;
+            if (printed >= 24)
+            {
+              std::cout << " ...";
+              break;
+            }
+          }
+          std::cout << std::endl;
+        }
+
+        return Fun4AllReturnCodes::EVENT_OK;
+      }
+
+      private:
+       std::string m_inputNode;
+       std::string m_outputNode;
+       TowerInfoContainer* m_output{nullptr};
+       int m_evt{0};
+    };
 
   class TowerInfoCanonicalRebaser final : public SubsysReco
   {
@@ -2353,6 +2493,25 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                                                        nativeCemcNode);
           nativeSub->Verbosity(nativeUEV);
           se->registerSubsystem(nativeSub);
+
+          if (nativeUEV > 0)
+          {
+            auto* auditBefore = new TowerAudit("TowerAudit_PHOSUB_before",
+                                               towerPrefixPCB + "_CEMC",
+                                               towerPrefixPCB + "_HCALIN_SUB1",
+                                               towerPrefixPCB + "_HCALOUT_SUB1",
+                                               10);
+            auditBefore->Verbosity(nativeUEV);
+            se->registerSubsystem(auditBefore);
+
+            auto* auditAfter = new TowerAudit("TowerAudit_PHOSUB_after",
+                                              nativeCemcNode,
+                                              towerPrefixPCB + "_HCALIN_SUB1",
+                                              towerPrefixPCB + "_HCALOUT_SUB1",
+                                              10);
+            auditAfter->Verbosity(nativeUEV);
+            se->registerSubsystem(auditAfter);
+          }
 
           photonInputClusterNode = "CLUSTERINFO_CEMC";
 

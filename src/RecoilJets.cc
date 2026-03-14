@@ -5793,6 +5793,10 @@ void RecoilJets::fillPi0MassVsPtHistograms(const std::string& trig,
       const CLHEP::Hep3Vector eVec1 = RawClusterUtility::GetEVec(*clus1, vertex);
       const double e1 = eVec1.mag();
       if (!std::isfinite(e1) || e1 <= 0.0) continue;
+      if (e1 < 2.0) continue;
+
+      const double chi1 = clus1->get_chi2();
+      if (!std::isfinite(chi1) || chi1 > 4.0) continue;
 
       TLorentzVector photon1;
       photon1.SetPxPyPzE(eVec1.x(), eVec1.y(), eVec1.z(), e1);
@@ -5810,10 +5814,17 @@ void RecoilJets::fillPi0MassVsPtHistograms(const std::string& trig,
         const double e2 = eVec2.mag();
         if (!std::isfinite(e2) || e2 <= 0.0) continue;
 
+        const double chi2 = clus2->get_chi2();
+        if (!std::isfinite(chi2) || chi2 > 4.0) continue;
+
         TLorentzVector photon2;
         photon2.SetPxPyPzE(eVec2.x(), eVec2.y(), eVec2.z(), e2);
 
-        if (!std::isfinite(photon2.Pt()) || photon2.Pt() <= 0.0) continue;
+        const double pt2 = photon2.Pt();
+        if (!std::isfinite(pt2) || pt2 < 0.9 || pt2 > 100.0) continue;
+
+        const double alpha = std::fabs(e1 - e2) / (e1 + e2);
+        if (!std::isfinite(alpha) || alpha > 0.6) continue;
 
         const TLorentzVector pi0 = photon1 + photon2;
         const double mass = pi0.M();
