@@ -624,6 +624,111 @@ run_trigger_qa() {
           "$idx" "$maxlen" "$trg" "$active_runs" "$avgsd" "$sumscaled" "$avg_n"
       done
     echo
+
+    local special_rows=()
+    local special_maxlen=11
+    local special_bit special_name special_active special_avg special_scaled special_avgn
+
+    add_special_row() {
+      local want_idx="$1"
+      local have_row=""
+      local row
+      for row in "${tmp_rows[@]}"; do
+        IFS='|' read -r special_bit special_name special_active special_avg special_scaled special_avgn <<< "$row"
+        if [[ "$special_bit" == "$want_idx" ]]; then
+          have_row="$row"
+          break
+        fi
+      done
+
+      if [[ -n "$have_row" ]]; then
+        IFS='|' read -r special_bit special_name special_active special_avg special_scaled special_avgn <<< "$have_row"
+      else
+        special_bit="$want_idx"
+        case "$want_idx" in
+          10) special_name="MBD N&S >= 1" ;;
+          12) special_name="MBD N&S >= 1, vtx < 10 cm" ;;
+          24) special_name="Photon 2 GeV+ MBD NS >= 1" ;;
+          25) special_name="Photon 3 GeV + MBD NS >= 1" ;;
+          26) special_name="Photon 4 GeV + MBD NS >= 1" ;;
+          27) special_name="Photon 5 GeV + MBD NS >= 1" ;;
+          36) special_name="Photon 3 GeV, MBD N&S >= 1, vtx < 10 cm" ;;
+          37) special_name="Photon 4 GeV, MBD N&S >= 1, vtx < 10 cm" ;;
+          38) special_name="Photon 5 GeV, MBD N&S >= 1, vtx < 10 cm" ;;
+          *)  special_name="(missing-name)" ;;
+        esac
+        special_active=0
+        special_avg="0.000"
+        special_scaled=0
+        special_avgn=0
+      fi
+
+      (( ${#special_name} > special_maxlen )) && special_maxlen=${#special_name}
+      special_rows+=( "$special_bit|$special_name|$special_active|$special_avg|$special_scaled" )
+    }
+
+    add_special_row 10
+    add_special_row 24
+    add_special_row 25
+    add_special_row 26
+    add_special_row 27
+    add_special_row 12
+    add_special_row 36
+    add_special_row 37
+    add_special_row 38
+    (( special_maxlen+=2 ))
+
+    echo
+    printf "%sRare-trigger organization for %s%s\n" "$ANSI_BOLD$ANSI_CYAN" "$LABEL" "$ANSI_RESET"
+    echo
+
+    printf "%sNo vertex cut table%s\n" "$ANSI_BOLD$ANSI_GREEN" "$ANSI_RESET"
+    printf "%s  %4s | %-*s | %11s | %11s | %14s%s\n" \
+      "$ANSI_BOLD" "Bit" "$special_maxlen" "TriggerName" "ActiveRuns" "AvgScale" "ScaledEventSum" "$ANSI_RESET"
+    printf "%s  %-4s-+-%-*s-+-%-11s-+-%-11s-+-%-14s%s\n" \
+      "$ANSI_DIM" \
+      "$(printf '─%.0s' $(seq 1 4))" \
+      "$special_maxlen" "$(printf '─%.0s' $(seq 1 $special_maxlen))" \
+      "$(printf '─%.0s' $(seq 1 11))" \
+      "$(printf '─%.0s' $(seq 1 11))" \
+      "$(printf '─%.0s' $(seq 1 14))" \
+      "$ANSI_RESET"
+
+    for special_bit in 10 24 25 26 27; do
+      for row in "${special_rows[@]}"; do
+        IFS='|' read -r sb sn sa savg sscaled <<< "$row"
+        if [[ "$sb" == "$special_bit" ]]; then
+          printf "  %4d | %-*s | %11d | %11s | %14d\n" \
+            "$sb" "$special_maxlen" "$sn" "$sa" "$savg" "$sscaled"
+          break
+        fi
+      done
+    done
+
+    echo
+    printf "%sVertex cut table%s\n" "$ANSI_BOLD$ANSI_GREEN" "$ANSI_RESET"
+    printf "%s  %4s | %-*s | %11s | %11s | %14s%s\n" \
+      "$ANSI_BOLD" "Bit" "$special_maxlen" "TriggerName" "ActiveRuns" "AvgScale" "ScaledEventSum" "$ANSI_RESET"
+    printf "%s  %-4s-+-%-*s-+-%-11s-+-%-11s-+-%-14s%s\n" \
+      "$ANSI_DIM" \
+      "$(printf '─%.0s' $(seq 1 4))" \
+      "$special_maxlen" "$(printf '─%.0s' $(seq 1 $special_maxlen))" \
+      "$(printf '─%.0s' $(seq 1 11))" \
+      "$(printf '─%.0s' $(seq 1 11))" \
+      "$(printf '─%.0s' $(seq 1 14))" \
+      "$ANSI_RESET"
+
+    for special_bit in 12 36 37 38; do
+      for row in "${special_rows[@]}"; do
+        IFS='|' read -r sb sn sa savg sscaled <<< "$row"
+        if [[ "$sb" == "$special_bit" ]]; then
+          printf "  %4d | %-*s | %11d | %11s | %14d\n" \
+            "$sb" "$special_maxlen" "$sn" "$sa" "$savg" "$sscaled"
+          break
+        fi
+      done
+    done
+    echo
   else
     printf "%s[WARN] No active trigger rows found for the provided golden run list.%s\n" "$ANSI_YELLOW" "$ANSI_RESET"
     printf "%s[WARN] This usually means the query returned no rows, all rows had scaledown = -1, or the run list does not match the expected DB content.%s\n" "$ANSI_YELLOW" "$ANSI_RESET"
@@ -635,6 +740,8 @@ run_trigger_qa() {
     printf "%s[INFO] QA completed without structural warning conditions.%s\n" "$ANSI_GREEN" "$ANSI_RESET"
   fi
 }
+
+
 
 build_pp24_lists() {
   command -v CreateDstList.pl >/dev/null 2>&1 || { echo "[ERROR] CreateDstList.pl not in PATH"; exit 1; }

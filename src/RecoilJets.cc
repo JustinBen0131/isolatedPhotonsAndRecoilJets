@@ -1059,20 +1059,21 @@ void RecoilJets::createHistos_Data()
   }
   else
   {
-    // ------------------------------------------------------------------
-    // pp DATA: book the doNotScale max-cluster-energy histograms under
-    // the separate doNotScale trigger directories (independent of analysis gating)
-    // ------------------------------------------------------------------
-    for (const auto& kv : triggerNameMap_pp_doNotScale) // kv: std::pair<std::string,std::string>
-    {
-      const std::string trig = kv.second;
+      // ------------------------------------------------------------------
+      // pp DATA: book the doNotScale max-cluster-energy histograms under
+      // three separate doNotScale trigger-family directories:
+      //   1) no-vtx family
+      //   2) vtx<10 family
+      //   3) inclusive OR family
+      // This remains intentionally independent of the main analysis trigger gating.
+      // ------------------------------------------------------------------
+      auto bookDoNotScaleHist = [&](const std::string& trig)
+      {
+        TDirectory* dir = out->GetDirectory(trig.c_str());
+        if (!dir) dir = out->mkdir(trig.c_str());
+        dir->cd();
 
-      // Make sure the trigger directory exists
-      TDirectory* dir = out->GetDirectory(trig.c_str());
-      if (!dir) dir = out->mkdir(trig.c_str());
-      dir->cd();
-
-      HistMap& H = qaHistogramsByTrigger[trig];
+        HistMap& H = qaHistogramsByTrigger[trig];
 
         const std::string hturn = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + trig;
         if (H.find(hturn) == H.end())
@@ -1084,7 +1085,34 @@ void RecoilJets::createHistos_Data()
           H[hturn] = hist;
         }
 
-        if (m_doPi0Analysis && trig == "MBD_NandS_geq_1")
+        out->cd();
+      };
+
+      for (const auto& kv : triggerNameMap_pp_doNotScale_noVtx)
+      {
+        bookDoNotScaleHist(kv.second);
+      }
+
+      for (const auto& kv : triggerNameMap_pp_doNotScale_withVtx)
+      {
+        bookDoNotScaleHist(kv.second);
+      }
+
+      for (const auto& kv : triggerNameMap_pp_doNotScale_inclusiveOR)
+      {
+        bookDoNotScaleHist(std::get<2>(kv));
+      }
+
+      {
+        const std::string trig = "MBD_NandS_geq_1";
+
+        TDirectory* dir = out->GetDirectory(trig.c_str());
+        if (!dir) dir = out->mkdir(trig.c_str());
+        dir->cd();
+
+        HistMap& H = qaHistogramsByTrigger[trig];
+
+        if (m_doPi0Analysis)
         {
           if (H.find("h2_pi0_mass_vs_pi0pt_corr") == H.end())
           {
@@ -1412,14 +1440,16 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
 
     // ------------------------------------------------------------------
     // pp DATA ONLY: doNotScale max-cluster-energy trigger-efficiency fill
-    // Match caloTreeGen logic while keeping the effect local to the
-    // doNotScale block:
-    //   - require the configured vertex cut to pass BEFORE filling
-    //   - keep the 1 GeV minimum cluster-energy cut when building
-    //     max_energy_clus
-    //   - re-enter the doNotScale filler once per active trigger from
-    //     triggerNameMap_pp_doNotScale (same repeated-call semantics as
-    //     caloTreeGen::checkMbdAndFillNewHists)
+    // Keep the effect local to the doNotScale block:
+    //   - apply a dedicated global |vz|<30 cm requirement BEFORE any
+    //     doNotScale-family logic
+    //   - build max_energy_clus exactly once for the event
+    //   - fill three independent doNotScale families:
+    //       1) no-vtx family
+    //       2) vtx<10 family
+    //       3) inclusive OR family
+    //   - preserve the existing inclusive repeated-call semantics WITHIN
+    //     each family only
     // ------------------------------------------------------------------
     if (!m_isSim && !m_isAuAu)
     {
@@ -1427,28 +1457,17 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         {
             trigAna->decodeTriggers(topNode);
 
-            std::vector<std::string> activeDoNotScaleTrig;
-            activeDoNotScaleTrig.reserve(triggerNameMap_pp_doNotScale.size());
+            const std::string mbdNoVtxDbName      = "MBD N&S >= 1";
+            const std::string mbdNoVtxShortName   = "MBD_NandS_geq_1";
+            const std::string mbdWithVtxDbName    = "MBD N&S >= 1, vtx < 10 cm";
+            const std::string mbdWithVtxShortName = "MBD_NandS_geq_1_vtx_lt_10";
+            const std::string mbdInclusiveOrShortName = "MBD_NandS_geq_1_OR_MBD_NandS_geq_1_vtx_lt_10";
 
-            for (const auto &kv : triggerNameMap_pp_doNotScale)
-            {
-              const std::string &dbTriggerName   = kv.first;
-              const std::string &histFriendlyStr = kv.second;
-
-              if (trigAna->didTriggerFire(dbTriggerName))
-              {
-                activeDoNotScaleTrig.push_back(histFriendlyStr);
-              }
-            }
-
+            const bool isMBNoVtx = trigAna->didTriggerFire(mbdNoVtxDbName);
             const bool passVzForDoNotScale =
-                (std::isfinite(m_vz) && (!m_useVzCut || std::fabs(m_vz) < m_vzCut));
+                (std::isfinite(m_vz) && std::fabs(m_vz) < 30.0);
 
-            const std::string mbdDbName    = "MBD N&S >= 1";
-            const std::string mbdShortName = "MBD_NandS_geq_1";
-
-            bool isMB = trigAna->didTriggerFire(mbdDbName);
-            if (isMB && passVzForDoNotScale)
+            if (passVzForDoNotScale)
             {
                 float max_energy_clus = 0.f;
 
@@ -1479,64 +1498,146 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
                   }
                 }
 
-                for (const auto &firedShortName : activeDoNotScaleTrig)
+                auto fillBookedDoNotScaleHist = [&](const std::string& histFriendlyStr)
                 {
-                  (void) firedShortName;
-
-                  // Fill the new histogram for MBD itself
+                  const std::string histName = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + histFriendlyStr;
+                  auto& histogramMap = qaHistogramsByTrigger[histFriendlyStr];
+                  auto it = histogramMap.find(histName);
+                  if (it == histogramMap.end() || !(it->second))
                   {
-                    std::string mbdHistName = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + mbdShortName;
+                    return;
+                  }
 
-                    auto &mbdHistogramMap = qaHistogramsByTrigger[mbdShortName];
-                    auto it = mbdHistogramMap.find(mbdHistName);
-                    if (!(it == mbdHistogramMap.end() || !(it->second)))
+                  TH1F* h = dynamic_cast<TH1F*>(it->second);
+                  if (h)
+                  {
+                    h->Fill(max_energy_clus);
+                  }
+                };
+
+                auto fillDoNotScaleFamily = [&](const std::vector<std::pair<std::string, std::string>>& familyMap,
+                                                const std::string& familyMbdDbName,
+                                                const std::string& familyMbdShortName)
+                {
+                  std::vector<std::string> activeFamilyTrig;
+                  activeFamilyTrig.reserve(familyMap.size());
+
+                  for (const auto& kv : familyMap)
+                  {
+                    const std::string& dbTriggerName   = kv.first;
+                    const std::string& histFriendlyStr = kv.second;
+
+                    if (trigAna->didTriggerFire(dbTriggerName))
                     {
-                      TH1F* hMbdHist = dynamic_cast<TH1F*>(it->second);
-                      if (hMbdHist)
+                      activeFamilyTrig.push_back(histFriendlyStr);
+                    }
+                  }
+
+                  if (!trigAna->didTriggerFire(familyMbdDbName))
+                  {
+                    return;
+                  }
+
+                  for (const auto& firedShortName : activeFamilyTrig)
+                  {
+                    (void) firedShortName;
+
+                    fillBookedDoNotScaleHist(familyMbdShortName);
+
+                    for (const auto& kv : familyMap)
+                    {
+                      const std::string& dbTriggerName   = kv.first;
+                      const std::string& histFriendlyStr = kv.second;
+
+                      if (dbTriggerName == familyMbdDbName)
                       {
-                        hMbdHist->Fill(max_energy_clus);
-                      }
-                    }
-                  }
-
-                  // Now check the “rare” triggers if MBD fired
-                  for (const auto &kv : triggerNameMap_pp_doNotScale)
-                  {
-                    const std::string &dbTriggerName   = kv.first;
-                    const std::string &histFriendlyStr = kv.second;
-
-                    // Avoid *re*-filling MBD's own histogram
-                    if (dbTriggerName == mbdDbName)
                         continue;
+                      }
 
-                    bool firedRare = trigAna->checkRawTrigger(dbTriggerName);
-                    if (!firedRare) continue;
+                      if (!trigAna->checkRawTrigger(dbTriggerName))
+                      {
+                        continue;
+                      }
 
-                    std::string newHistName = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + histFriendlyStr;
-
-                    auto &rareHistogramMap = qaHistogramsByTrigger[histFriendlyStr];
-                    auto it = rareHistogramMap.find(newHistName);
-                    if (it == rareHistogramMap.end() || !(it->second))
-                    {
-                      continue;
-                    }
-
-                    TH1F* hNew = dynamic_cast<TH1F*>(it->second);
-                    if (hNew)
-                    {
-                      hNew->Fill(max_energy_clus);
+                      fillBookedDoNotScaleHist(histFriendlyStr);
                     }
                   }
-                }
+                };
 
-                if (m_doPi0Analysis)
+                auto fillDoNotScaleFamilyInclusiveOR = [&](const std::vector<std::tuple<std::string, std::string, std::string>>& familyMap,
+                                                           const std::string& familyMbdNoVtxDbName,
+                                                           const std::string& familyMbdWithVtxDbName,
+                                                           const std::string& familyMbdShortName)
                 {
+                  std::vector<std::string> activeFamilyTrig;
+                  activeFamilyTrig.reserve(familyMap.size());
+
+                  for (const auto& kv : familyMap)
+                  {
+                    const std::string& dbTriggerNameNoVtx   = std::get<0>(kv);
+                    const std::string& dbTriggerNameWithVtx = std::get<1>(kv);
+                    const std::string& histFriendlyStr      = std::get<2>(kv);
+
+                    if (trigAna->didTriggerFire(dbTriggerNameNoVtx) || trigAna->didTriggerFire(dbTriggerNameWithVtx))
+                    {
+                      activeFamilyTrig.push_back(histFriendlyStr);
+                    }
+                  }
+
+                  if (!(trigAna->didTriggerFire(familyMbdNoVtxDbName) || trigAna->didTriggerFire(familyMbdWithVtxDbName)))
+                  {
+                    return;
+                  }
+
+                  for (const auto& firedShortName : activeFamilyTrig)
+                  {
+                    (void) firedShortName;
+
+                    fillBookedDoNotScaleHist(familyMbdShortName);
+
+                    for (const auto& kv : familyMap)
+                    {
+                      const std::string& dbTriggerNameNoVtx   = std::get<0>(kv);
+                      const std::string& dbTriggerNameWithVtx = std::get<1>(kv);
+                      const std::string& histFriendlyStr      = std::get<2>(kv);
+
+                      if (histFriendlyStr == familyMbdShortName)
+                      {
+                        continue;
+                      }
+
+                      if (!(trigAna->checkRawTrigger(dbTriggerNameNoVtx) || trigAna->checkRawTrigger(dbTriggerNameWithVtx)))
+                      {
+                        continue;
+                      }
+
+                      fillBookedDoNotScaleHist(histFriendlyStr);
+                    }
+                  }
+                };
+
+                fillDoNotScaleFamily(triggerNameMap_pp_doNotScale_noVtx,
+                                     mbdNoVtxDbName,
+                                     mbdNoVtxShortName);
+
+                fillDoNotScaleFamily(triggerNameMap_pp_doNotScale_withVtx,
+                                     mbdWithVtxDbName,
+                                     mbdWithVtxShortName);
+
+                fillDoNotScaleFamilyInclusiveOR(triggerNameMap_pp_doNotScale_inclusiveOR,
+                                                mbdNoVtxDbName,
+                                                mbdWithVtxDbName,
+                                                mbdInclusiveOrShortName);
+            }
+
+            if (isMBNoVtx && m_doPi0Analysis)
+            {
                   const bool passPi0Vz = (!m_useVzCut || std::fabs(m_vz) < m_vzCut);
 
                   if (passPi0Vz && m_clus && m_clus_nocorr)
                   {
-                    fillPi0MassVsPtHistograms(mbdShortName, m_clus, true);
-                    fillPi0MassVsPtHistograms(mbdShortName, m_clus_nocorr, false);
+                    fillPi0MassVsPtHistograms(mbdNoVtxShortName, m_clus, true);
+                    fillPi0MassVsPtHistograms(mbdNoVtxShortName, m_clus_nocorr, false);
                   }
                   else if (Verbosity() >= 2)
                   {
@@ -1546,14 +1647,13 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
                         << " | CLUSTERINFO_CEMC=" << (m_clus ? "OK" : "MISSING")
                         << " | CLUSTERINFO_CEMC_NOCORR=" << (m_clus_nocorr ? "OK" : "MISSING"));
                   }
-                }
-             }
-          }
+            }
         }
+    }
 
-        std::vector<std::string> activeTrig;
-        if (!firstEventCuts(topNode, activeTrig))
-        {
+    std::vector<std::string> activeTrig;
+    if (!firstEventCuts(topNode, activeTrig))
+    {
           ++m_evtNoTrig;  // keep your legacy counter
           if (m_lastReject == EventReject::Trigger) ++m_bk.evt_fail_trigger;
           else if (m_lastReject == EventReject::Vz) ++m_bk.evt_fail_vz;
@@ -4123,39 +4223,67 @@ bool RecoilJets::runLeadIsoTightPhotonJetMatchingAndUnfolding(
 {
   // This function only does unfolding photon bookkeeping + delegates jet logic per radius.
 
-  // -------------------- Photon-only unfolding fills (N_gamma) --------------------
-  for (const auto& trigShort : activeTrig)
-  {
-    // Measured reco photon spectrum (DATA + SIM)
-    if (auto* hR = getOrBookUnfoldRecoPhoPtGamma(trigShort, effCentIdx_M))
-    { hR->Fill(leadPtGamma); bumpHistFill(trigShort, hR->GetName()); }
-  
-    if (m_isSim)
+    // -------------------- Photon-only unfolding fills (N_gamma) --------------------
+    for (const auto& trigShort : activeTrig)
     {
-      // Reco photon fakes (selected reco photon not matching truth signal photon)
-      if (!haveTruthPho)
+      // Measured reco photon spectrum (DATA + SIM): baseline selected-anchor family
+      if (auto* hR = getOrBookUnfoldRecoPhoPtGamma(trigShort, effCentIdx_M))
+      { hR->Fill(leadPtGamma); bumpHistFill(trigShort, hR->GetName()); }
+
+      // Measured reco photon spectrum for the exploratory PPG12-style object-match family.
+      // This intentionally keeps the same reco-leading spectrum and only changes the
+      // truth↔reco bookkeeping under separate histogram names.
+      if (auto* hRAlt = getOrBookUnfoldRecoPhoPtGammaPPG12Obj(trigShort, effCentIdx_M))
+      { hRAlt->Fill(leadPtGamma); bumpHistFill(trigShort, hRAlt->GetName()); }
+    
+      if (m_isSim)
       {
-        if (auto* hRF = getOrBookUnfoldRecoPhoFakesPtGamma(trigShort, effCentIdx_M))
-        { hRF->Fill(leadPtGamma); bumpHistFill(trigShort, hRF->GetName()); }
-      }
-  
-      // Photon response (truth -> reco) for the PPG12-style truth↔reco photon match:
-      // truth signal photon matched to a reco cluster that passes the final iso+tight selection.
-      if (haveTruthSigPho && haveTruthPhoPPG12 && std::isfinite(recoPtTruthMatchPPG12) && recoPtTruthMatchPPG12 > 0.0)
-      {
-        if (auto* hResp = getOrBookUnfoldResponsePhoPtGamma(trigShort, effCentIdx_M))
-        { hResp->Fill(tPtSig, recoPtTruthMatchPPG12); bumpHistFill(trigShort, hResp->GetName()); }
-      }
-  
-      // Truth misses (truth signal exists but has no matched reco cluster passing iso+tight).
-      if (haveTruthSigPho && !haveTruthPhoPPG12)
-      {
-        if (auto* hTM = getOrBookUnfoldTruthPhoMissesPtGamma(trigShort, effCentIdx_M))
-        { hTM->Fill(tPtSig); bumpHistFill(trigShort, hTM->GetName()); }
+        // Baseline reco photon fakes: selected reco photon not matching the truth signal photon
+        // under the strict selected-anchor definition.
+        if (!haveTruthPho)
+        {
+          if (auto* hRF = getOrBookUnfoldRecoPhoFakesPtGamma(trigShort, effCentIdx_M))
+          { hRF->Fill(leadPtGamma); bumpHistFill(trigShort, hRF->GetName()); }
+        }
+
+        // Exploratory reco photon fakes under the PPG12-style object-match definition.
+        if (!haveTruthPhoPPG12)
+        {
+          if (auto* hRFAlt = getOrBookUnfoldRecoPhoFakesPtGammaPPG12Obj(trigShort, effCentIdx_M))
+          { hRFAlt->Fill(leadPtGamma); bumpHistFill(trigShort, hRFAlt->GetName()); }
+        }
+    
+        // Baseline photon response (truth -> reco): strict selected-anchor definition.
+        if (haveTruthSigPho && haveTruthPho)
+        {
+          if (auto* hResp = getOrBookUnfoldResponsePhoPtGamma(trigShort, effCentIdx_M))
+          { hResp->Fill(tPtSig, leadPtGamma); bumpHistFill(trigShort, hResp->GetName()); }
+        }
+
+        // Exploratory photon response (truth -> reco) for the PPG12-style truth↔reco photon match:
+        // truth signal photon matched to a reco cluster that passes the final iso+tight selection.
+        if (haveTruthSigPho && haveTruthPhoPPG12 && std::isfinite(recoPtTruthMatchPPG12) && recoPtTruthMatchPPG12 > 0.0)
+        {
+          if (auto* hRespAlt = getOrBookUnfoldResponsePhoPtGammaPPG12Obj(trigShort, effCentIdx_M))
+          { hRespAlt->Fill(tPtSig, recoPtTruthMatchPPG12); bumpHistFill(trigShort, hRespAlt->GetName()); }
+        }
+    
+        // Baseline truth misses: strict selected-anchor definition.
+        if (haveTruthSigPho && !haveTruthPho)
+        {
+          if (auto* hTM = getOrBookUnfoldTruthPhoMissesPtGamma(trigShort, effCentIdx_M))
+          { hTM->Fill(tPtSig); bumpHistFill(trigShort, hTM->GetName()); }
+        }
+
+        // Exploratory truth misses: no matched reco cluster passing iso+tight.
+        if (haveTruthSigPho && !haveTruthPhoPPG12)
+        {
+          if (auto* hTMAlt = getOrBookUnfoldTruthPhoMissesPtGammaPPG12Obj(trigShort, effCentIdx_M))
+          { hTMAlt->Fill(tPtSig); bumpHistFill(trigShort, hTMAlt->GetName()); }
+        }
       }
     }
-  }
-  
+
   
   if (Verbosity() >= 5)
   {
@@ -5531,22 +5659,28 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                   "      [truthQA] PHHepMCGenEventMap/HepMC event missing → skip truth photon unfolding helpers");
           }
 
-          // Fill truth photon spectrum once per event (SIM)
-          if (haveTruthSigPho)
-          {
-            for (const auto& trigShort : activeTrig)
+            // Fill truth photon spectrum once per event (SIM)
+            if (haveTruthSigPho)
             {
-              if (auto* hT = getOrBookUnfoldTruthPhoPtGamma(trigShort, effCentIdx_M))
-              { hT->Fill(tPtSig); bumpHistFill(trigShort, hT->GetName()); }
-
-              // If no reco leading iso∧tight photon exists, this truth photon is a MISS for N_gamma
-              if (!haveLeadIsoTight)
+              for (const auto& trigShort : activeTrig)
               {
-                if (auto* hTM = getOrBookUnfoldTruthPhoMissesPtGamma(trigShort, effCentIdx_M))
-                { hTM->Fill(tPtSig); bumpHistFill(trigShort, hTM->GetName()); }
+                if (auto* hT = getOrBookUnfoldTruthPhoPtGamma(trigShort, effCentIdx_M))
+                { hT->Fill(tPtSig); bumpHistFill(trigShort, hT->GetName()); }
+
+                if (auto* hTAlt = getOrBookUnfoldTruthPhoPtGammaPPG12Obj(trigShort, effCentIdx_M))
+                { hTAlt->Fill(tPtSig); bumpHistFill(trigShort, hTAlt->GetName()); }
+
+                // If no reco leading iso∧tight photon exists, this truth photon is a MISS for N_gamma
+                if (!haveLeadIsoTight)
+                {
+                  if (auto* hTM = getOrBookUnfoldTruthPhoMissesPtGamma(trigShort, effCentIdx_M))
+                  { hTM->Fill(tPtSig); bumpHistFill(trigShort, hTM->GetName()); }
+
+                  if (auto* hTMAlt = getOrBookUnfoldTruthPhoMissesPtGammaPPG12Obj(trigShort, effCentIdx_M))
+                  { hTMAlt->Fill(tPtSig); bumpHistFill(trigShort, hTMAlt->GetName()); }
+                }
               }
             }
-          }
         }
 
         if (haveLeadIsoTight)
@@ -8059,6 +8193,201 @@ TH1F* RecoilJets::getOrBookUnfoldTruthPhoMissesPtGamma(const std::string& trig,
 
   const std::string title =
     name + ";p_{T}^{#gamma,truth} [GeV];Truth misses";
+
+  auto* h = new TH1F(name.c_str(), title.c_str(), nb, kPtTruth.data());
+  h->Sumw2();
+
+  H[name] = h;
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+TH1F* RecoilJets::getOrBookUnfoldRecoPhoPtGammaPPG12Obj(const std::string& trig,
+                                                        int centIdx)
+{
+  const std::string base   = "h_unfoldRecoPho_pTgamma_ppg12obj";
+  const std::string suffix = suffixForBins(-1, centIdx);
+  const std::string name   = base + suffix;
+
+  if (trig.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH1F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+  dir->cd();
+
+  const std::vector<double>& kPtReco = m_unfoldRecoPhotonPtBins;
+  const int nb = static_cast<int>(kPtReco.size()) - 1;
+
+  const std::string title =
+    name + ";p_{T}^{#gamma,reco} [GeV];N_{#gamma}^{reco} (PPG12 object-match trial)";
+
+  auto* h = new TH1F(name.c_str(), title.c_str(), nb, kPtReco.data());
+  h->Sumw2();
+
+  H[name] = h;
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+TH1F* RecoilJets::getOrBookUnfoldTruthPhoPtGammaPPG12Obj(const std::string& trig,
+                                                         int centIdx)
+{
+  const std::string base   = "h_unfoldTruthPho_pTgamma_ppg12obj";
+  const std::string suffix = suffixForBins(-1, centIdx);
+  const std::string name   = base + suffix;
+
+  if (trig.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH1F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+  dir->cd();
+
+  const std::vector<double>& kPtTruth = m_unfoldTruthPhotonPtBins;
+  const int nb = static_cast<int>(kPtTruth.size()) - 1;
+
+  const std::string title =
+    name + ";p_{T}^{#gamma,truth} [GeV];N_{#gamma}^{truth} (PPG12 object-match trial)";
+
+  auto* h = new TH1F(name.c_str(), title.c_str(), nb, kPtTruth.data());
+  h->Sumw2();
+
+  H[name] = h;
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+TH2F* RecoilJets::getOrBookUnfoldResponsePhoPtGammaPPG12Obj(const std::string& trig,
+                                                            int centIdx)
+{
+  const std::string base   = "h2_unfoldResponsePho_pTgamma_ppg12obj";
+  const std::string suffix = suffixForBins(-1, centIdx);
+  const std::string name   = base + suffix;
+
+  if (trig.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+  dir->cd();
+
+  const std::vector<double>& kPtTruth = m_unfoldTruthPhotonPtBins;
+  const std::vector<double>& kPtReco  = m_unfoldRecoPhotonPtBins;
+
+  const int nx = static_cast<int>(kPtTruth.size()) - 1;
+  const int ny = static_cast<int>(kPtReco.size())  - 1;
+
+  const std::string title =
+    name + ";p_{T}^{#gamma,truth} [GeV];p_{T}^{#gamma,reco} [GeV] (PPG12 object-match trial)";
+
+  auto* h = new TH2F(name.c_str(), title.c_str(),
+                     nx, kPtTruth.data(),
+                     ny, kPtReco.data());
+  h->Sumw2();
+
+  H[name] = h;
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+TH1F* RecoilJets::getOrBookUnfoldRecoPhoFakesPtGammaPPG12Obj(const std::string& trig,
+                                                             int centIdx)
+{
+  const std::string base   = "h_unfoldRecoPhoFakes_pTgamma_ppg12obj";
+  const std::string suffix = suffixForBins(-1, centIdx);
+  const std::string name   = base + suffix;
+
+  if (trig.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH1F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+  dir->cd();
+
+  const std::vector<double>& kPtReco = m_unfoldRecoPhotonPtBins;
+  const int nb = static_cast<int>(kPtReco.size()) - 1;
+
+  const std::string title =
+    name + ";p_{T}^{#gamma,reco} [GeV];Reco fakes (PPG12 object-match trial)";
+
+  auto* h = new TH1F(name.c_str(), title.c_str(), nb, kPtReco.data());
+  h->Sumw2();
+
+  H[name] = h;
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+TH1F* RecoilJets::getOrBookUnfoldTruthPhoMissesPtGammaPPG12Obj(const std::string& trig,
+                                                               int centIdx)
+{
+  const std::string base   = "h_unfoldTruthPhoMisses_pTgamma_ppg12obj";
+  const std::string suffix = suffixForBins(-1, centIdx);
+  const std::string name   = base + suffix;
+
+  if (trig.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH1F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+  dir->cd();
+
+  const std::vector<double>& kPtTruth = m_unfoldTruthPhotonPtBins;
+  const int nb = static_cast<int>(kPtTruth.size()) - 1;
+
+  const std::string title =
+    name + ";p_{T}^{#gamma,truth} [GeV];Truth misses (PPG12 object-match trial)";
 
   auto* h = new TH1F(name.c_str(), title.c_str(), nb, kPtTruth.data());
   h->Sumw2();

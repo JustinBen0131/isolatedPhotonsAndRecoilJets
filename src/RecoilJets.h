@@ -269,13 +269,31 @@ public:
       //      {"Photon 5 GeV + MBD NS >= 1","Photon_5_GeV_plus_MBD_NS_geq_1"}
   };
 
-  // Separate pp trigger map used ONLY for the doNotScale max-cluster-energy histograms.
-  // This is intentionally independent of the main analysis trigger gating above.
-  inline static const std::vector<std::pair<std::string, std::string>> triggerNameMap_pp_doNotScale = {
-      {"MBD N&S >= 1",          "MBD_NandS_geq_1"},
-      {"Photon 3 GeV + MBD NS >= 1","Photon_3_GeV_plus_MBD_NS_geq_1"},
-      {"Photon 4 GeV + MBD NS >= 1","Photon_4_GeV_plus_MBD_NS_geq_1"}
-      //      {"Photon 5 GeV + MBD NS >= 1","Photon_5_GeV_plus_MBD_NS_geq_1"}
+  // Separate pp trigger maps used ONLY for the doNotScale max-cluster-energy histograms.
+  // These are intentionally independent of the main analysis trigger gating above.
+  inline static const std::vector<std::pair<std::string, std::string>> triggerNameMap_pp_doNotScale_noVtx = {
+        {"MBD N&S >= 1",          "MBD_NandS_geq_1"},
+        {"Photon 2 GeV+ MBD NS >= 1","Photon_2_GeV_plus_MBD_NS_geq_1"},
+        {"Photon 3 GeV + MBD NS >= 1","Photon_3_GeV_plus_MBD_NS_geq_1"},
+        {"Photon 4 GeV + MBD NS >= 1","Photon_4_GeV_plus_MBD_NS_geq_1"},
+        {"Photon 5 GeV + MBD NS >= 1","Photon_5_GeV_plus_MBD_NS_geq_1"}
+  };
+
+  inline static const std::vector<std::pair<std::string, std::string>> triggerNameMap_pp_doNotScale_withVtx = {
+        {"MBD N&S >= 1, vtx < 10 cm",          "MBD_NandS_geq_1_vtx_lt_10"},
+        {"Photon 3 GeV, MBD N&S >= 1, vtx < 10 cm","Photon_3_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+        {"Photon 4 GeV, MBD N&S >= 1, vtx < 10 cm","Photon_4_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+        {"Photon 5 GeV, MBD N&S >= 1, vtx < 10 cm","Photon_5_GeV_plus_MBD_NS_geq_1_vtx_lt_10"}
+  };
+
+  // Inclusive OR family used ONLY for the doNotScale histograms.
+  // Each entry merges the no-vtx and vtx<10 cm trigger families into one
+  // analysis-level population with an explicit combined short-name for output.
+  inline static const std::vector<std::tuple<std::string, std::string, std::string>> triggerNameMap_pp_doNotScale_inclusiveOR = {
+        {"MBD N&S >= 1", "MBD N&S >= 1, vtx < 10 cm", "MBD_NandS_geq_1_OR_MBD_NandS_geq_1_vtx_lt_10"},
+        {"Photon 3 GeV + MBD NS >= 1", "Photon 3 GeV, MBD N&S >= 1, vtx < 10 cm", "Photon_3_GeV_plus_MBD_NS_geq_1_OR_Photon_3_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+        {"Photon 4 GeV + MBD NS >= 1", "Photon 4 GeV, MBD N&S >= 1, vtx < 10 cm", "Photon_4_GeV_plus_MBD_NS_geq_1_OR_Photon_4_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+        {"Photon 5 GeV + MBD NS >= 1", "Photon 5 GeV, MBD N&S >= 1, vtx < 10 cm", "Photon_5_GeV_plus_MBD_NS_geq_1_OR_Photon_5_GeV_plus_MBD_NS_geq_1_vtx_lt_10"}
   };
       
   inline static const std::vector<std::pair<int, std::string>> triggerNameMapAuAu = {
@@ -726,6 +744,15 @@ private:
   TH2F* getOrBookUnfoldResponsePhoPtGamma    (const std::string& trig, int centIdx);
   TH1F* getOrBookUnfoldRecoPhoFakesPtGamma   (const std::string& trig, int centIdx);
   TH1F* getOrBookUnfoldTruthPhoMissesPtGamma (const std::string& trig, int centIdx);
+
+  // exploratory 1D photon-only family:
+  // same reco-leading photon spectrum, but response/miss/fake bookkeeping uses the
+  // PPG12-style object match (matched reco iso∧tight photon, not necessarily leading).
+  TH1F* getOrBookUnfoldRecoPhoPtGammaPPG12Obj        (const std::string& trig, int centIdx);
+  TH1F* getOrBookUnfoldTruthPhoPtGammaPPG12Obj       (const std::string& trig, int centIdx);
+  TH2F* getOrBookUnfoldResponsePhoPtGammaPPG12Obj    (const std::string& trig, int centIdx);
+  TH1F* getOrBookUnfoldRecoPhoFakesPtGammaPPG12Obj   (const std::string& trig, int centIdx);
+  TH1F* getOrBookUnfoldTruthPhoMissesPtGammaPPG12Obj (const std::string& trig, int centIdx);
 
   // unfolding QA helpers (SIM only): explicit matched distributions + type-split fakes/misses
   TH2F* getOrBookUnfoldTruthMatchedPtXJIncl      (const std::string& trig, const std::string& rKey, int centIdx);
