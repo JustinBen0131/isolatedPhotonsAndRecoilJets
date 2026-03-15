@@ -127,11 +127,68 @@ namespace ARJ
 
         EnsureDir(outDir);
 
-        const std::string mbdShort = "MBD_NandS_geq_1";
-        const std::string p3Short  = "Photon_3_GeV_plus_MBD_NS_geq_1";
-        const std::string p4Short  = "Photon_4_GeV_plus_MBD_NS_geq_1";
-
         const std::string prefix  = "h_maxEnergyClus_NewTriggerFilling_doNotScale_";
+
+        struct TriggerCfg
+        {
+          std::string shortName;
+          std::string legendLabel;
+        };
+
+        struct FamilyCfg
+        {
+          std::string outFolder;
+          std::string familyLabel;
+          TriggerCfg  mbd;
+          std::vector<TriggerCfg> numerators;
+        };
+
+        const std::vector<FamilyCfg> families =
+        {
+          {
+            "noVtxFamily",
+            "No-vtx doNotScale family",
+            {"MBD_NandS_geq_1", "MBD N&S #geq 1"},
+            {
+              {"Photon_2_GeV_plus_MBD_NS_geq_1", "Photon 2 GeV + MBD NS #geq 1"},
+              {"Photon_3_GeV_plus_MBD_NS_geq_1", "Photon 3 GeV + MBD NS #geq 1"},
+              {"Photon_4_GeV_plus_MBD_NS_geq_1", "Photon 4 GeV + MBD NS #geq 1"},
+              {"Photon_5_GeV_plus_MBD_NS_geq_1", "Photon 5 GeV + MBD NS #geq 1"}
+            }
+          },
+          {
+            "withVtx10Family",
+            "vtx < 10 cm doNotScale family",
+            {"MBD_NandS_geq_1_vtx_lt_10", "MBD N&S #geq 1, vtx < 10 cm"},
+            {
+              {"Photon_3_GeV_plus_MBD_NS_geq_1_vtx_lt_10", "Photon 3 GeV, MBD N&S #geq 1, vtx < 10 cm"},
+              {"Photon_4_GeV_plus_MBD_NS_geq_1_vtx_lt_10", "Photon 4 GeV, MBD N&S #geq 1, vtx < 10 cm"},
+              {"Photon_5_GeV_plus_MBD_NS_geq_1_vtx_lt_10", "Photon 5 GeV, MBD N&S #geq 1, vtx < 10 cm"}
+            }
+          },
+          {
+            "inclusiveOR_noVtxPlusVtx10Family",
+            "Inclusive OR doNotScale family",
+            {
+              "MBD_NandS_geq_1_OR_MBD_NandS_geq_1_vtx_lt_10",
+              "MBD N&S #geq 1 OR MBD N&S #geq 1, vtx < 10 cm"
+            },
+            {
+              {
+                "Photon_3_GeV_plus_MBD_NS_geq_1_OR_Photon_3_GeV_plus_MBD_NS_geq_1_vtx_lt_10",
+                "Photon 3 GeV + MBD NS #geq 1 OR Photon 3 GeV, MBD N&S #geq 1, vtx < 10 cm"
+              },
+              {
+                "Photon_4_GeV_plus_MBD_NS_geq_1_OR_Photon_4_GeV_plus_MBD_NS_geq_1_vtx_lt_10",
+                "Photon 4 GeV + MBD NS #geq 1 OR Photon 4 GeV, MBD N&S #geq 1, vtx < 10 cm"
+              },
+              {
+                "Photon_5_GeV_plus_MBD_NS_geq_1_OR_Photon_5_GeV_plus_MBD_NS_geq_1_vtx_lt_10",
+                "Photon 5 GeV + MBD NS #geq 1 OR Photon 5 GeV, MBD N&S #geq 1, vtx < 10 cm"
+              }
+            }
+          }
+        };
 
         auto getHist = [&](const std::string& trigShort)->TH1*
         {
@@ -145,29 +202,90 @@ namespace ARJ
           return h;
         };
 
-        TH1* hMBD = getHist(mbdShort);
-        TH1* hP3  = getHist(p3Short);
-        TH1* hP4  = getHist(p4Short);
-
-        if (!hMBD || !hP3 || !hP4)
+        auto colorForTrigger = [&](const std::string& trigShort)->int
         {
-          cout << ANSI_BOLD_YEL
-               << "[WARN] Missing doNotScale trigger hist(s) needed for triggerAna outputs.\n"
-               << "       Need directories + hists:\n"
-               << "         " << mbdShort << "/" << prefix << mbdShort << "\n"
-               << "         " << p3Short  << "/" << prefix << p3Short  << "\n"
-               << "         " << p4Short  << "/" << prefix << p4Short  << "\n"
-               << ANSI_RESET << "\n";
-          return;
-        }
+          if (trigShort.find("Photon_2") != std::string::npos) return kOrange+7;
+          if (trigShort.find("Photon_3") != std::string::npos) return kBlue+1;
+          if (trigShort.find("Photon_4") != std::string::npos) return kGreen+2;
+          if (trigShort.find("Photon_5") != std::string::npos) return kMagenta+1;
+          return kRed+1;
+        };
+
+        auto markerForTrigger = [&](const std::string& trigShort)->int
+        {
+          if (trigShort.find("Photon_2") != std::string::npos) return 20;
+          if (trigShort.find("Photon_3") != std::string::npos) return 21;
+          if (trigShort.find("Photon_4") != std::string::npos) return 22;
+          if (trigShort.find("Photon_5") != std::string::npos) return 33;
+          return 20;
+        };
+
+        auto FindXAtEff = [&](TH1* h, double target)->double
+        {
+          if (!h) return -1.0;
+          for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+          {
+            const double y = h->GetBinContent(ib);
+            if (!std::isfinite(y)) continue;
+            if (y >= target) return h->GetBinCenter(ib);
+          }
+          return -1.0;
+        };
+
+        auto DrawFamilyPlots = [&](const FamilyCfg& family)
+        {
+          const std::string familyOutDir = JoinPath(outDir, family.outFolder);
+          EnsureDir(familyOutDir);
+
+          TH1* hMBD = getHist(family.mbd.shortName);
+          if (!hMBD)
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] Missing family denominator for triggerQA family " << family.outFolder << "\n"
+                 << "       Need: " << family.mbd.shortName << "/" << prefix << family.mbd.shortName << "\n"
+                 << ANSI_RESET << "\n";
+            return;
+          }
+
+          struct LoadedTrig
+          {
+            TriggerCfg cfg;
+            TH1* hist = nullptr;
+          };
+
+          std::vector<LoadedTrig> loaded;
+          loaded.reserve(family.numerators.size());
+
+          for (const auto& trig : family.numerators)
+          {
+            TH1* h = getHist(trig.shortName);
+            if (!h)
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] Missing doNotScale trigger histogram for family " << family.outFolder << "\n"
+                   << "       Missing: " << trig.shortName << "/" << prefix << trig.shortName << "\n"
+                   << ANSI_RESET << "\n";
+              continue;
+            }
+
+            loaded.push_back({trig, h});
+          }
+
+          if (loaded.empty())
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] No numerator trigger histograms available for family " << family.outFolder
+                 << ANSI_RESET << "\n";
+            return;
+          }
 
           // ------------------------------------------------------------------
-          // (1) Overlay: MBD vs Photon3 vs Photon4 (doNotScale max cluster energy)
-          //   - Match AnalyzeTriggerGroupings styling: distinct colors + thicker lines
-          //   - Log-y scale + "Prescaled Counts" label
+          // (1) Overlay: denominator + all available triggers in this family
           // ------------------------------------------------------------------
           {
-            TCanvas c("c_trigAna_overlay", "c_trigAna_overlay", 900, 700);
+            TCanvas c(TString::Format("c_trigAna_overlay_%s", family.outFolder.c_str()).Data(),
+                      TString::Format("c_trigAna_overlay_%s", family.outFolder.c_str()).Data(),
+                      900, 700);
             c.cd();
             c.SetLeftMargin(0.14);
             c.SetRightMargin(0.05);
@@ -177,9 +295,21 @@ namespace ARJ
             c.SetLogy();
 
             double ymax = hMBD->GetMaximum();
-            ymax = std::max(ymax, hP3->GetMaximum());
-            ymax = std::max(ymax, hP4->GetMaximum());
+            double minPos = SmallestPositiveBinContent(hMBD);
+
+            for (const auto& item : loaded)
+            {
+              ymax = std::max(ymax, item.hist->GetMaximum());
+              const double thisMinPos = SmallestPositiveBinContent(item.hist);
+              if (thisMinPos > 0.0)
+              {
+                if (minPos > 0.0) minPos = std::min(minPos, thisMinPos);
+                else              minPos = thisMinPos;
+              }
+            }
+
             const double yMaxPlot = (ymax > 0.0) ? (1.20 * ymax) : 1.0;
+            const double yMinPlot = (minPos > 0.0) ? (0.5 * minPos) : 1e-6;
 
             hMBD->SetTitle("");
             hMBD->GetXaxis()->SetTitle("Maximum Cluster Energy [GeV]");
@@ -194,78 +324,102 @@ namespace ARJ
             hMBD->GetYaxis()->SetLabelSize(0.045);
 
             hMBD->GetXaxis()->SetRangeUser(0.0, 20.0);
-            hMBD->SetMinimum(10.0);
+            hMBD->SetMinimum(yMinPlot);
             hMBD->SetMaximum(yMaxPlot);
 
             hMBD->SetLineColor(kBlack);
             hMBD->SetLineWidth(4);
 
-            hP3->SetLineColor(kBlue+1);
-            hP3->SetLineWidth(4);
-
-            hP4->SetLineColor(kGreen+2);
-            hP4->SetLineWidth(4);
-
             hMBD->Draw("HIST");
-            hP3->Draw("HIST SAME");
-            hP4->Draw("HIST SAME");
 
-            TLegend leg(0.55, 0.66, 0.88, 0.88);
+            for (auto& item : loaded)
+            {
+              item.hist->SetLineColor(colorForTrigger(item.cfg.shortName));
+              item.hist->SetLineWidth(4);
+              item.hist->Draw("HIST SAME");
+            }
+
+            TLegend leg(0.42, 0.60, 0.88, 0.88);
             leg.SetBorderSize(0);
             leg.SetFillStyle(0);
-            leg.SetTextSize(0.035);
-            leg.AddEntry(hMBD, "MBD N&S #geq 1", "l");
-            leg.AddEntry(hP3,  "Photon 3 GeV + MBD NS #geq 1", "l");
-            leg.AddEntry(hP4,  "Photon 4 GeV + MBD NS #geq 1", "l");
+            leg.SetTextSize(0.028);
+            leg.AddEntry(hMBD, family.mbd.legendLabel.c_str(), "l");
+            for (const auto& item : loaded)
+            {
+              leg.AddEntry(item.hist, item.cfg.legendLabel.c_str(), "l");
+            }
             leg.Draw();
 
-            TLegend extra(0.18, 0.20, 0.50, 0.30);
+            TLegend extra(0.18, 0.18, 0.54, 0.32);
             extra.SetBorderSize(0);
             extra.SetFillStyle(0);
-            extra.SetTextSize(0.038);
+            extra.SetTextSize(0.032);
             extra.AddEntry((TObject*)nullptr, "#it{#bf{sPHENIX}} Internal", "");
             extra.AddEntry((TObject*)nullptr, "p+p #sqrt{s} = 200 GeV", "");
+            extra.AddEntry((TObject*)nullptr, family.familyLabel.c_str(), "");
             extra.Draw();
 
-            const std::string outPng = JoinPath(outDir, "hMaxClusterEnergy_doNotScale_overlay.png");
+            const std::string outPng = JoinPath(familyOutDir, "hMaxClusterEnergy_doNotScale_overlay.png");
             c.SaveAs(outPng.c_str());
             cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";
           }
 
           // ------------------------------------------------------------------
-          // (2) Ratios: Photon3/MBD and Photon4/MBD (turn-on style)
-          //   - Match AnalyzeTriggerGroupings styling: markers + error bars + colors
-          //   - Add y=1 dashed reference + per-trigger 95% estimate + vlines
+          // (2) Ratios: each available trigger / family denominator
           // ------------------------------------------------------------------
           {
-            auto FindXAtEff = [&](TH1* h, double target)->double
-            {
-              if (!h) return -1.0;
-              for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
-              {
-                const double y = h->GetBinContent(ib);
-                if (!std::isfinite(y)) continue;
-                if (y >= target) return h->GetBinCenter(ib);
-              }
-              return -1.0;
-            };
+            std::vector<TH1*> ratioHists;
+            std::vector<TLine*> ratioLines;
+            ratioHists.reserve(loaded.size());
+            ratioLines.reserve(loaded.size());
 
-            TH1* rP3 = dynamic_cast<TH1*>(hP3->Clone("ratio_P3_over_MBD"));
-            TH1* rP4 = dynamic_cast<TH1*>(hP4->Clone("ratio_P4_over_MBD"));
-
-            if (!rP3 || !rP4)
+            for (std::size_t i = 0; i < loaded.size(); ++i)
             {
-              cout << ANSI_BOLD_YEL << "[WARN] Failed to clone histograms for ratio plot." << ANSI_RESET << "\n";
+              TH1* r = dynamic_cast<TH1*>(
+                loaded[i].hist->Clone(
+                  TString::Format("ratio_%s_over_%s_%s",
+                    loaded[i].cfg.shortName.c_str(),
+                    family.mbd.shortName.c_str(),
+                    family.outFolder.c_str()).Data()
+                )
+              );
+
+              if (!r) continue;
+
+              r->SetDirectory(nullptr);
+              r->Divide(loaded[i].hist, hMBD, 1.0, 1.0, "B");
+              r->SetTitle("");
+              r->GetXaxis()->SetTitle("Maximum Cluster Energy [GeV]");
+              r->GetYaxis()->SetTitle("Efficiency");
+              r->GetXaxis()->SetTitleSize(0.055);
+              r->GetXaxis()->SetTitleOffset(1.05);
+              r->GetXaxis()->SetLabelSize(0.045);
+              r->GetYaxis()->SetTitleSize(0.055);
+              r->GetYaxis()->SetTitleOffset(1.20);
+              r->GetYaxis()->SetLabelSize(0.045);
+              r->GetXaxis()->SetRangeUser(0.0, 20.0);
+              r->SetMinimum(0.0);
+              r->SetMaximum(1.4);
+              r->SetMarkerStyle(markerForTrigger(loaded[i].cfg.shortName));
+              r->SetMarkerSize(1.0);
+              r->SetMarkerColor(colorForTrigger(loaded[i].cfg.shortName));
+              r->SetLineColor(colorForTrigger(loaded[i].cfg.shortName));
+              r->SetLineWidth(4);
+
+              ratioHists.push_back(r);
+            }
+
+            if (ratioHists.empty())
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] Failed to build ratio histograms for family " << family.outFolder
+                   << ANSI_RESET << "\n";
               return;
             }
 
-            rP3->SetDirectory(nullptr);
-            rP4->SetDirectory(nullptr);
-
-            rP3->Divide(hP3, hMBD, 1.0, 1.0, "B");
-            rP4->Divide(hP4, hMBD, 1.0, 1.0, "B");
-
-            TCanvas c("c_trigAna_ratio", "c_trigAna_ratio", 900, 700);
+            TCanvas c(TString::Format("c_trigAna_ratio_%s", family.outFolder.c_str()).Data(),
+                      TString::Format("c_trigAna_ratio_%s", family.outFolder.c_str()).Data(),
+                      900, 700);
             c.cd();
             c.SetLeftMargin(0.14);
             c.SetRightMargin(0.05);
@@ -273,39 +427,11 @@ namespace ARJ
             c.SetTopMargin(0.08);
             c.SetTicks(1,1);
 
-            rP3->SetTitle("");
-            rP3->GetXaxis()->SetTitle("Maximum Cluster Energy [GeV]");
-            rP3->GetYaxis()->SetTitle("Efficiency");
-
-            rP3->GetXaxis()->SetTitleSize(0.055);
-            rP3->GetXaxis()->SetTitleOffset(1.05);
-            rP3->GetXaxis()->SetLabelSize(0.045);
-
-            rP3->GetYaxis()->SetTitleSize(0.055);
-            rP3->GetYaxis()->SetTitleOffset(1.20);
-            rP3->GetYaxis()->SetLabelSize(0.045);
-
-            rP3->GetXaxis()->SetRangeUser(0.0, 20.0);
-            rP3->SetMinimum(0.0);
-            rP3->SetMaximum(1.4);
-
-            rP3->SetMarkerStyle(20);
-            rP3->SetMarkerSize(1.0);
-            rP3->SetMarkerColor(kBlue+1);
-            rP3->SetLineColor(kBlue+1);
-            rP3->SetLineWidth(4);
-
-            rP4->SetMarkerStyle(21);
-            rP4->SetMarkerSize(1.0);
-            rP4->SetMarkerColor(kGreen+2);
-            rP4->SetLineColor(kGreen+2);
-            rP4->SetLineWidth(4);
-
-            rP3->Draw("E1");
-            rP4->Draw("E1 SAME");
-
-            const double x95P3 = FindXAtEff(rP3, 0.95);
-            const double x95P4 = FindXAtEff(rP4, 0.95);
+            ratioHists[0]->Draw("E1");
+            for (std::size_t i = 1; i < ratioHists.size(); ++i)
+            {
+              ratioHists[i]->Draw("E1 SAME");
+            }
 
             TLine l1(0.0, 1.0, 20.0, 1.0);
             l1.SetLineStyle(2);
@@ -313,63 +439,59 @@ namespace ARJ
             l1.SetLineColor(kBlack);
             l1.Draw("SAME");
 
-            TLine* vP3 = nullptr;
-            TLine* vP4 = nullptr;
-
-            if (x95P3 > 0.0)
-            {
-              vP3 = new TLine(x95P3, 0.0, x95P3, 1.0);
-              vP3->SetLineStyle(2);
-              vP3->SetLineWidth(3);
-              vP3->SetLineColor(kBlue+1);
-              vP3->Draw("SAME");
-            }
-
-            if (x95P4 > 0.0)
-            {
-              vP4 = new TLine(x95P4, 0.0, x95P4, 1.0);
-              vP4->SetLineStyle(2);
-              vP4->SetLineWidth(3);
-              vP4->SetLineColor(kGreen+2);
-              vP4->Draw("SAME");
-            }
-
-            TLegend leg(0.18, 0.74, 0.55, 0.90);
+            TLegend leg(0.18, 0.66, 0.64, 0.90);
             leg.SetBorderSize(0);
             leg.SetFillStyle(0);
-            leg.SetTextSize(0.032);
+            leg.SetTextSize(0.028);
 
-            const std::string legP3 =
-              (x95P3 > 0.0)
-                ? std::string(TString::Format("Photon 3 GeV + MBD NS #geq 1 (95%%=%.1f GeV)", x95P3).Data())
-                : std::string("Photon 3 GeV + MBD NS #geq 1");
+            for (std::size_t i = 0; i < ratioHists.size(); ++i)
+            {
+              const double x95 = FindXAtEff(ratioHists[i], 0.95);
 
-            const std::string legP4 =
-              (x95P4 > 0.0)
-                ? std::string(TString::Format("Photon 4 GeV + MBD NS #geq 1 (95%%=%.1f GeV)", x95P4).Data())
-                : std::string("Photon 4 GeV + MBD NS #geq 1");
+              if (x95 > 0.0)
+              {
+                TLine* v = new TLine(x95, 0.0, x95, 1.0);
+                v->SetLineStyle(2);
+                v->SetLineWidth(3);
+                v->SetLineColor(colorForTrigger(loaded[i].cfg.shortName));
+                v->Draw("SAME");
+                ratioLines.push_back(v);
 
-            leg.AddEntry(rP3, legP3.c_str(), "p");
-            leg.AddEntry(rP4, legP4.c_str(), "p");
+                leg.AddEntry(
+                  ratioHists[i],
+                  TString::Format("%s (95%%=%.1f GeV)", loaded[i].cfg.legendLabel.c_str(), x95).Data(),
+                  "p"
+                );
+              }
+              else
+              {
+                leg.AddEntry(ratioHists[i], loaded[i].cfg.legendLabel.c_str(), "p");
+              }
+            }
             leg.Draw();
 
-            TLegend extra(0.58, 0.20, 0.88, 0.30);
+            TLegend extra(0.58, 0.18, 0.88, 0.32);
             extra.SetBorderSize(0);
             extra.SetFillStyle(0);
-            extra.SetTextSize(0.038);
+            extra.SetTextSize(0.032);
             extra.AddEntry((TObject*)nullptr, "#it{#bf{sPHENIX}} Internal", "");
             extra.AddEntry((TObject*)nullptr, "p+p #sqrt{s} = 200 GeV", "");
+            extra.AddEntry((TObject*)nullptr, family.familyLabel.c_str(), "");
             extra.Draw();
 
-            const std::string outPng = JoinPath(outDir, "hMaxClusterEnergy_doNotScale_ratioToMBD.png");
+            const std::string outPng = JoinPath(familyOutDir, "hMaxClusterEnergy_doNotScale_ratioToMBD.png");
             c.SaveAs(outPng.c_str());
             cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";
 
-            delete rP3;
-            delete rP4;
-            if (vP3) delete vP3;
-            if (vP4) delete vP4;
+            for (auto* h : ratioHists) delete h;
+            for (auto* l : ratioLines) delete l;
           }
+        };
+
+        for (const auto& family : families)
+        {
+          DrawFamilyPlots(family);
+        }
       }
 
       void RunPi0QA(Dataset& ds)

@@ -434,63 +434,75 @@ run_trigger_qa() {
   echo "Input golden run list: $LIST_FILE"
   echo "Runs in input list: ${#RUNS_ALL[@]}"
   echo "Requested QA metrics per trigger:"
-  echo "  - trigger name"
-  echo "  - trigger bit"
-  echo "  - active runs (scaledown != -1)"
-  echo "  - average scaledown factor over active runs"
-  echo "  - total scaled events"
-  echo "Ranking: most scaled events to least scaled events"
+  echo "  - trigger-menu bit -> name stability across all runs"
+  echo "  - first adjacent run where the trigger bit -> name map changes"
+  echo "  - menu presence by run"
+  echo "  - raw-positive run coverage and total raw counts"
+  echo "  - live-positive run coverage and total live counts"
+  echo "  - scaled-positive run coverage and total scaled counts (reference only)"
+  echo "  - scaledown averages (reference only)"
   echo "QA mode behavior:"
   echo "  - reads only the input golden run list"
   echo "  - queries trigger metadata from daq tables"
   echo "  - does not create, clean, scan, or modify any DST list files"
-  echo "Active-run rule:"
-  echo "  - a trigger is counted active for a run only when scaledown != -1"
-  echo "Average scaledown rule:"
-  echo "  - computed only from rows with scaled > 0 and raw >= 0"
-  echo "Scaled-event rule:"
-  echo "  - accumulated only from rows with scaled > 0"
+  echo "doNotScale interpretation guidance:"
+  echo "  - raw/live are the primary quantities to inspect for raw-trigger efficiency studies"
+  echo "  - scaled/scaledown are kept only as secondary reference QA"
   echo
 
   echo "[INFO] Verifying psql connectivity expectation: host=sphnxdaqdbreplica db=daq"
-  echo "[INFO] Beginning trigger scan over ${#RUNS_ALL[@]} golden-list runs"
+  echo "[INFO] Beginning trigger-menu scan over ${#RUNS_ALL[@]} golden-list runs"
 
   declare -A TRIG_NAME
-  declare -A TRIG_ACTIVE_RUNS
+  declare -A TRIG_MENU_RUNS
+  declare -A TRIG_MENU_FIRSTRUN
+  declare -A TRIG_RAWON_RUNS
+  declare -A TRIG_RAW_FIRSTRUN
+  declare -A TRIG_SUMRAW
+  declare -A TRIG_LIVEON_RUNS
+  declare -A TRIG_LIVE_FIRSTRUN
+  declare -A TRIG_SUMLIVE
+  declare -A TRIG_SCALEDON_RUNS
+  declare -A TRIG_SCALED_FIRSTRUN
   declare -A TRIG_SUMSCALED
   declare -A TRIG_SUMSDFACTOR
   declare -A TRIG_SDCOUNT
 
-  local total_query_rows=0
-  local runs_with_no_rows=0
-  local runs_with_only_inactive=0
-  local runs_with_active_rows=0
+  local total_menu_rows=0
+  local runs_with_no_menu_rows=0
+  local total_scaler_rows=0
+  local runs_with_no_scaler_rows=0
+  local rows_bad_idx=0
+  local rows_raw_positive=0
+  local rows_live_positive=0
   local rows_scaled_minus_one=0
   local rows_scaled_zero=0
   local rows_scaled_positive=0
-  local rows_bad_idx=0
-  local rows_missing_name=0
   local rows_used_for_avg=0
   local first_problem_run=""
 
-  gidx=0
+  local first_menu_run=""
+  local prev_menu_run=""
+  local first_menu_change_run=""
+  local first_menu_change_prev_run=""
+  local menu_change_count=0
+  local -a first_menu_change_rows=()
+
+  declare -A PREV_MENU=()
+
+  midx=0
   for run in "${RUNS_ALL[@]}"; do
-    ((gidx+=1))
-    declare -A SEEN_ACTIVE=()
+    ((midx+=1))
 
-    local run_row_count=0
-    local run_active_row_count=0
-    local run_positive_scaled_count=0
-    local run_avg_usable_count=0
+    unset CUR_MENU
+    declare -A CUR_MENU=()
 
-    while IFS=$'\t' read -r trg idx scaled raw; do
+    local menu_row_count=0
+
+    while IFS=$'\t' read -r idx trg; do
       [[ -z "$idx" ]] && continue
-      ((run_row_count+=1))
-      ((total_query_rows+=1))
 
       idx=$(num_or_zero "$idx")
-      scaled=$(num_or_zero "$scaled")
-      raw=$(num_or_zero "$raw")
 
       if [[ ! "$idx" =~ ^[0-9]+$ ]]; then
         ((rows_bad_idx+=1))
@@ -498,9 +510,117 @@ run_trigger_qa() {
         continue
       fi
 
-      [[ -z "$trg" ]] && ((rows_missing_name+=1))
+      [[ -z "$trg" ]] && trg="(missing-name)"
 
-      TRIG_NAME["$idx"]="$trg"
+      CUR_MENU["$idx"]="$trg"
+      [[ -z "${TRIG_NAME["$idx"]:-}" ]] && TRIG_NAME["$idx"]="$trg"
+
+      TRIG_MENU_RUNS["$idx"]=$(( ${TRIG_MENU_RUNS["$idx"]:-0} + 1 ))
+      [[ -z "${TRIG_MENU_FIRSTRUN["$idx"]:-}" ]] && TRIG_MENU_FIRSTRUN["$idx"]="$run"
+
+      ((menu_row_count+=1))
+      ((total_menu_rows+=1))
+    done < <(sql "SELECT index, triggername
+                  FROM gl1_triggernames
+                  WHERE $run BETWEEN runnumber AND runnumber_last
+                  ORDER BY index;")
+
+    if (( menu_row_count == 0 )); then
+      ((runs_with_no_menu_rows+=1))
+      [[ -z "$first_problem_run" ]] && first_problem_run="$run"
+      printf "%s[WARN]%s Run %s returned zero rows from gl1_triggernames menu query\n" "$ANSI_YELLOW" "$ANSI_RESET" "$run"
+    fi
+
+    if [[ -z "$first_menu_run" ]]; then
+      first_menu_run="$run"
+    else
+      unset MENU_KEYS
+      declare -A MENU_KEYS=()
+
+      for idx in "${!PREV_MENU[@]}"; do
+        MENU_KEYS["$idx"]=1
+      done
+
+      for idx in "${!CUR_MENU[@]}"; do
+        MENU_KEYS["$idx"]=1
+      done
+
+      local menu_changed=0
+      local -a diff_rows=()
+
+      for idx in "${!MENU_KEYS[@]}"; do
+        prev_name="${PREV_MENU["$idx"]:-"(absent)"}"
+        cur_name="${CUR_MENU["$idx"]:-"(absent)"}"
+
+        if [[ "$prev_name" != "$cur_name" ]]; then
+          menu_changed=1
+          diff_rows+=( "$idx|$prev_name|$cur_name" )
+        fi
+      done
+
+      if (( menu_changed )); then
+        ((menu_change_count+=1))
+
+        if [[ -z "$first_menu_change_run" ]]; then
+          first_menu_change_run="$run"
+          first_menu_change_prev_run="$prev_menu_run"
+          first_menu_change_rows=( "${diff_rows[@]}" )
+        fi
+      fi
+    fi
+
+    unset PREV_MENU
+    declare -A PREV_MENU=()
+
+    for idx in "${!CUR_MENU[@]}"; do
+      PREV_MENU["$idx"]="${CUR_MENU["$idx"]}"
+    done
+
+    prev_menu_run="$run"
+
+    if (( midx <= 5 || midx % 200 == 0 || midx == ${#RUNS_ALL[@]} )); then
+      printf "[INFO] Menu QA progress: %d / %d | run=%s | menuBits=%d\n" \
+        "$midx" "${#RUNS_ALL[@]}" "$run" "$menu_row_count"
+    fi
+  done
+
+  echo "[INFO] Beginning raw/live/scaled scaler scan over ${#RUNS_ALL[@]} golden-list runs"
+
+  gidx=0
+  for run in "${RUNS_ALL[@]}"; do
+    ((gidx+=1))
+
+    unset SEEN_RAW
+    unset SEEN_LIVE
+    unset SEEN_SCALED
+    declare -A SEEN_RAW=()
+    declare -A SEEN_LIVE=()
+    declare -A SEEN_SCALED=()
+
+    local run_scaler_row_count=0
+    local run_raw_positive_count=0
+    local run_live_positive_count=0
+    local run_scaled_positive_count=0
+
+    while IFS=$'\t' read -r trg idx scaled raw live; do
+      [[ -z "$idx" ]] && continue
+
+      ((run_scaler_row_count+=1))
+      ((total_scaler_rows+=1))
+
+      idx=$(num_or_zero "$idx")
+      scaled=$(num_or_zero "$scaled")
+      raw=$(num_or_zero "$raw")
+      live=$(num_or_zero "$live")
+
+      if [[ ! "$idx" =~ ^[0-9]+$ ]]; then
+        ((rows_bad_idx+=1))
+        [[ -z "$first_problem_run" ]] && first_problem_run="$run"
+        continue
+      fi
+
+      [[ -z "$trg" ]] && trg="${TRIG_NAME["$idx"]:-"(missing-name)"}"
+      [[ -z "${TRIG_NAME["$idx"]:-}" ]] && TRIG_NAME["$idx"]="$trg"
 
       if (( scaled == -1 )); then
         ((rows_scaled_minus_one+=1))
@@ -510,232 +630,240 @@ run_trigger_qa() {
         ((rows_scaled_positive+=1))
       fi
 
-      if (( scaled != -1 )); then
-        ((run_active_row_count+=1))
+      if (( raw > 0 )); then
+        TRIG_SUMRAW["$idx"]=$(( ${TRIG_SUMRAW["$idx"]:-0} + raw ))
+        ((run_raw_positive_count+=1))
+        ((rows_raw_positive+=1))
 
-        if [[ -z "${SEEN_ACTIVE[$idx]:-}" ]]; then
-          TRIG_ACTIVE_RUNS["$idx"]=$(( ${TRIG_ACTIVE_RUNS["$idx"]:-0} + 1 ))
-          SEEN_ACTIVE["$idx"]=1
+        if [[ -z "${SEEN_RAW["$idx"]:-}" ]]; then
+          TRIG_RAWON_RUNS["$idx"]=$(( ${TRIG_RAWON_RUNS["$idx"]:-0} + 1 ))
+          SEEN_RAW["$idx"]=1
         fi
 
-        if (( scaled > 0 )); then
-          TRIG_SUMSCALED["$idx"]=$(( ${TRIG_SUMSCALED["$idx"]:-0} + scaled ))
-          ((run_positive_scaled_count+=1))
-        fi
-
-        if (( scaled > 0 && raw >= 0 )); then
-          sdf=$(awk -v r="$raw" -v s="$scaled" 'BEGIN{ if (s>0) printf "%.6f", r/s; else printf "0"; }')
-          TRIG_SUMSDFACTOR["$idx"]="$(awk -v a="${TRIG_SUMSDFACTOR["$idx"]:-0}" -v b="$sdf" 'BEGIN{ printf "%.6f", a+b }')"
-          TRIG_SDCOUNT["$idx"]=$(( ${TRIG_SDCOUNT["$idx"]:-0} + 1 ))
-          ((run_avg_usable_count+=1))
-          ((rows_used_for_avg+=1))
-        fi
+        [[ -z "${TRIG_RAW_FIRSTRUN["$idx"]:-}" ]] && TRIG_RAW_FIRSTRUN["$idx"]="$run"
       fi
-    done < <(sql "SELECT t.triggername, s.index, s.scaled, s.raw
+
+      if (( live > 0 )); then
+        TRIG_SUMLIVE["$idx"]=$(( ${TRIG_SUMLIVE["$idx"]:-0} + live ))
+        ((run_live_positive_count+=1))
+        ((rows_live_positive+=1))
+
+        if [[ -z "${SEEN_LIVE["$idx"]:-}" ]]; then
+          TRIG_LIVEON_RUNS["$idx"]=$(( ${TRIG_LIVEON_RUNS["$idx"]:-0} + 1 ))
+          SEEN_LIVE["$idx"]=1
+        fi
+
+        [[ -z "${TRIG_LIVE_FIRSTRUN["$idx"]:-}" ]] && TRIG_LIVE_FIRSTRUN["$idx"]="$run"
+      fi
+
+      if (( scaled > 0 )); then
+        TRIG_SUMSCALED["$idx"]=$(( ${TRIG_SUMSCALED["$idx"]:-0} + scaled ))
+        ((run_scaled_positive_count+=1))
+
+        if [[ -z "${SEEN_SCALED["$idx"]:-}" ]]; then
+          TRIG_SCALEDON_RUNS["$idx"]=$(( ${TRIG_SCALEDON_RUNS["$idx"]:-0} + 1 ))
+          SEEN_SCALED["$idx"]=1
+        fi
+
+        [[ -z "${TRIG_SCALED_FIRSTRUN["$idx"]:-}" ]] && TRIG_SCALED_FIRSTRUN["$idx"]="$run"
+      fi
+
+      if (( scaled > 0 && raw >= 0 )); then
+        sdf=$(awk -v r="$raw" -v s="$scaled" 'BEGIN{ if (s>0) printf "%.6f", r/s; else printf "0"; }')
+        TRIG_SUMSDFACTOR["$idx"]="$(awk -v a="${TRIG_SUMSDFACTOR["$idx"]:-0}" -v b="$sdf" 'BEGIN{ printf "%.6f", a+b }')"
+        TRIG_SDCOUNT["$idx"]=$(( ${TRIG_SDCOUNT["$idx"]:-0} + 1 ))
+        ((rows_used_for_avg+=1))
+      fi
+    done < <(sql "SELECT COALESCE(t.triggername,''), s.index, s.scaled, s.raw, s.live
                    FROM gl1_scalers s
-                   JOIN gl1_triggernames t
+                   LEFT JOIN gl1_triggernames t
                      ON s.index = t.index
                     AND s.runnumber BETWEEN t.runnumber AND t.runnumber_last
-                  WHERE s.runnumber = $run;")
+                  WHERE s.runnumber = $run
+                  ORDER BY s.index;")
 
-    if (( run_row_count == 0 )); then
-      ((runs_with_no_rows+=1))
+    if (( run_scaler_row_count == 0 )); then
+      ((runs_with_no_scaler_rows+=1))
       [[ -z "$first_problem_run" ]] && first_problem_run="$run"
-      printf "%s[WARN]%s Run %s returned zero rows from gl1_scalers/gl1_triggernames join\n" "$ANSI_YELLOW" "$ANSI_RESET" "$run"
-    elif (( run_active_row_count == 0 )); then
-      ((runs_with_only_inactive+=1))
-      printf "%s[WARN]%s Run %s returned %d trigger rows, but all had scaledown = -1\n" \
-        "$ANSI_YELLOW" "$ANSI_RESET" "$run" "$run_row_count"
-    else
-      ((runs_with_active_rows+=1))
+      printf "%s[WARN]%s Run %s returned zero rows from gl1_scalers query\n" "$ANSI_YELLOW" "$ANSI_RESET" "$run"
     fi
 
-    if (( gidx <= 5 || gidx % 100 == 0 || gidx == ${#RUNS_ALL[@]} )); then
-      printf "[INFO] Trigger QA progress: %d / %d | run=%s | rows=%d | activeRows=%d | scaled>0 rows=%d | avgUsableRows=%d\n" \
-        "$gidx" "${#RUNS_ALL[@]}" "$run" "$run_row_count" "$run_active_row_count" "$run_positive_scaled_count" "$run_avg_usable_count"
+    if (( gidx <= 5 || gidx % 200 == 0 || gidx == ${#RUNS_ALL[@]} )); then
+      printf "[INFO] Scaler QA progress: %d / %d | run=%s | rows=%d | raw>0 rows=%d | live>0 rows=%d | scaled>0 rows=%d\n" \
+        "$gidx" "${#RUNS_ALL[@]}" "$run" "$run_scaler_row_count" "$run_raw_positive_count" "$run_live_positive_count" "$run_scaled_positive_count"
     fi
   done
 
   tmp_rows=()
   maxlen=11
-  for idx in "${!TRIG_ACTIVE_RUNS[@]}"; do
+  for idx in "${!TRIG_NAME[@]}"; do
     trg="${TRIG_NAME["$idx"]}"
     [[ -z "$trg" ]] && trg="(missing-name)"
     (( ${#trg} > maxlen )) && maxlen=${#trg}
-    active_runs=${TRIG_ACTIVE_RUNS["$idx"]:-0}
+
+    menu_runs=${TRIG_MENU_RUNS["$idx"]:-0}
+    raw_runs=${TRIG_RAWON_RUNS["$idx"]:-0}
+    live_runs=${TRIG_LIVEON_RUNS["$idx"]:-0}
+    scaled_runs=${TRIG_SCALEDON_RUNS["$idx"]:-0}
+    sumraw=${TRIG_SUMRAW["$idx"]:-0}
+    sumlive=${TRIG_SUMLIVE["$idx"]:-0}
     sumscaled=${TRIG_SUMSCALED["$idx"]:-0}
-    sdcount=${TRIG_SDCOUNT["$idx"]:-0}
-    if (( sdcount > 0 )); then
-      avg_sd=$(awk -v a="${TRIG_SUMSDFACTOR["$idx"]:-0}" -v n="$sdcount" 'BEGIN{ if (n>0) printf "%.3f", a/n; else printf "0.000"; }')
+
+    if (( sumraw > 0 )); then
+      live_over_raw=$(awk -v l="$sumlive" -v r="$sumraw" 'BEGIN{ if (r>0) printf "%.3f", l/r; else printf "0.000"; }')
+    else
+      live_over_raw="0.000"
+    fi
+
+    if (( ${TRIG_SDCOUNT["$idx"]:-0} > 0 )); then
+      avg_sd=$(awk -v a="${TRIG_SUMSDFACTOR["$idx"]:-0}" -v n="${TRIG_SDCOUNT["$idx"]:-0}" 'BEGIN{ if (n>0) printf "%.3f", a/n; else printf "0.000"; }')
     else
       avg_sd="0.000"
     fi
-    tmp_rows+=( "$idx|$trg|$active_runs|$avg_sd|$sumscaled|$sdcount" )
+
+    tmp_rows+=( "$idx|$trg|$menu_runs|$raw_runs|$live_runs|$scaled_runs|$sumraw|$sumlive|$sumscaled|$live_over_raw|$avg_sd" )
   done
   (( maxlen+=2 ))
 
   echo
-  printf "%sQA bookkeeping diagnostics%s\n" "$ANSI_BOLD$ANSI_CYAN" "$ANSI_RESET"
-  printf "  Total query rows read: %d\n" "$total_query_rows"
-  printf "  Runs with active trigger rows: %d / %d\n" "$runs_with_active_rows" "${#RUNS_ALL[@]}"
-  printf "  Runs with zero returned rows: %d\n" "$runs_with_no_rows"
-  printf "  Runs with only scaledown=-1 rows: %d\n" "$runs_with_only_inactive"
-  printf "  Row counts by scaled value class:\n"
+  printf "%sTrigger-menu QA%s\n" "$ANSI_BOLD$ANSI_CYAN" "$ANSI_RESET"
+  printf "  Total menu rows read: %d\n" "$total_menu_rows"
+  printf "  Runs with zero menu rows: %d\n" "$runs_with_no_menu_rows"
+  printf "  Distinct trigger-menu epochs across adjacent GRL runs: %d\n" "$(( menu_change_count + 1 ))"
+  printf "  Adjacent-run trigger-menu changes observed: %d\n" "$menu_change_count"
+  printf "  First GRL run used as menu baseline: %s\n" "$first_menu_run"
+
+  if [[ -n "$first_menu_change_run" ]]; then
+    echo "  First adjacent-run menu change detected:"
+    printf "    previous run: %s\n" "$first_menu_change_prev_run"
+    printf "    current  run: %s\n" "$first_menu_change_run"
+    echo "    Changed bits:"
+    printf "%s\n" "${first_menu_change_rows[@]}" \
+    | awk -F'|' '{printf "%04d|%s|%s\n",$1,$2,$3}' \
+    | sort -n \
+    | while IFS='|' read -r padIdx oldname newname; do
+        idx=$((10#$padIdx))
+        printf "      bit %d : %s  -->  %s\n" "$idx" "$oldname" "$newname"
+      done
+  else
+    printf "  No adjacent-run trigger-menu changes were detected across the provided GRL.\n"
+  fi
+
+  echo
+  printf "%sRaw/Live/Scaled bookkeeping diagnostics%s\n" "$ANSI_BOLD$ANSI_CYAN" "$ANSI_RESET"
+  printf "  Total scaler rows read: %d\n" "$total_scaler_rows"
+  printf "  Runs with zero scaler rows: %d\n" "$runs_with_no_scaler_rows"
+  printf "  Row counts by content class:\n"
+  printf "    raw   > 0 : %d\n" "$rows_raw_positive"
+  printf "    live  > 0 : %d\n" "$rows_live_positive"
   printf "    scaled = -1 : %d\n" "$rows_scaled_minus_one"
   printf "    scaled = 0  : %d\n" "$rows_scaled_zero"
   printf "    scaled > 0  : %d\n" "$rows_scaled_positive"
-  printf "  Rows used for average scaledown calculation: %d\n" "$rows_used_for_avg"
-  printf "  Rows with missing trigger names: %d\n" "$rows_missing_name"
+  printf "  Rows used for average scaledown calculation (reference only): %d\n" "$rows_used_for_avg"
   printf "  Rows with unusable trigger bit values: %d\n" "$rows_bad_idx"
   if [[ -n "$first_problem_run" ]]; then
     printf "%s  First run showing a warning condition: %s%s\n" "$ANSI_YELLOW" "$first_problem_run" "$ANSI_RESET"
   else
-    printf "%s  No per-run warning conditions were encountered during scan%s\n" "$ANSI_GREEN" "$ANSI_RESET"
+    printf "%s  No per-run structural warning conditions were encountered during scan%s\n" "$ANSI_GREEN" "$ANSI_RESET"
   fi
 
   if ((${#tmp_rows[@]})); then
     echo
     printf "%sDataset: %s%s\n" "$ANSI_BOLD$ANSI_GREEN" "$LABEL" "$ANSI_RESET"
-    printf "%sTotal available active triggers in golden-run scan: %d%s\n" "$ANSI_DIM" "${#tmp_rows[@]}" "$ANSI_RESET"
-    printf "%sTable notes: ActiveRuns uses scaledown != -1, AvgScale uses only scaled > 0 rows, ScaledEvents is the total of scaled > 0 rows.%s\n" "$ANSI_DIM" "$ANSI_RESET"
+    printf "%sTotal trigger bits seen in menu/scaler scans: %d%s\n" "$ANSI_DIM" "${#tmp_rows[@]}" "$ANSI_RESET"
+    printf "%sTable notes: MenuRuns counts runs where the bit->name exists in the trigger menu; RawRuns and LiveRuns are the primary doNotScale-relevant QA; scaled columns are printed only for reference.%s\n" "$ANSI_DIM" "$ANSI_RESET"
     echo
 
-    printf "%s  %4s | %-*s | %11s | %11s | %14s | %10s%s\n" \
-      "$ANSI_BOLD" "Bit" "$maxlen" "TriggerName" "ActiveRuns" "AvgScale" "ScaledEvents" "AvgNRows" "$ANSI_RESET"
-    printf "%s  %-4s-+-%-*s-+-%-11s-+-%-11s-+-%-14s-+-%-10s%s\n" \
+    printf "%s  %4s | %-*s | %8s | %8s | %8s | %10s | %14s | %14s | %8s | %11s%s\n" \
+      "$ANSI_BOLD" "Bit" "$maxlen" "TriggerName" "MenuRuns" "RawRuns" "LiveRuns" "ScaledRuns" "SumRaw" "SumLive" "L/R" "AvgScale" "$ANSI_RESET"
+    printf "%s  %-4s-+-%-*s-+-%-8s-+-%-8s-+-%-8s-+-%-10s-+-%-14s-+-%-14s-+-%-8s-+-%-11s%s\n" \
       "$ANSI_DIM" \
       "$(printf '─%.0s' $(seq 1 4))" \
       "$maxlen" "$(printf '─%.0s' $(seq 1 $maxlen))" \
-      "$(printf '─%.0s' $(seq 1 11))" \
-      "$(printf '─%.0s' $(seq 1 11))" \
-      "$(printf '─%.0s' $(seq 1 14))" \
+      "$(printf '─%.0s' $(seq 1 8))" \
+      "$(printf '─%.0s' $(seq 1 8))" \
+      "$(printf '─%.0s' $(seq 1 8))" \
       "$(printf '─%.0s' $(seq 1 10))" \
+      "$(printf '─%.0s' $(seq 1 14))" \
+      "$(printf '─%.0s' $(seq 1 14))" \
+      "$(printf '─%.0s' $(seq 1 8))" \
+      "$(printf '─%.0s' $(seq 1 11))" \
       "$ANSI_RESET"
 
     printf "%s\n" "${tmp_rows[@]}" \
-    | awk -F'|' '{printf "%015d|%04d|%011d|%s|%s|%010d\n",$5,$1,$3,$4,$2,$6}' \
+    | awk -F'|' '{printf "%016d|%04d|%08d|%08d|%08d|%010d|%016d|%016d|%s|%s|%s\n",$7,$1,$3,$4,$5,$6,$8,$9,$10,$11,$2}' \
     | sort -r -n \
-    | while IFS='|' read -r padScaled padIdx padActive avgsd trg padAvgN; do
-        sumscaled=$((10#$padScaled))
+    | while IFS='|' read -r padSumRaw padIdx padMenu padRawRuns padLiveRuns padScaledRuns padSumLive padSumScaled liveOverRaw avgScale trg; do
+        sumraw=$((10#$padSumRaw))
         idx=$((10#$padIdx))
-        active_runs=$((10#$padActive))
-        avg_n=$((10#$padAvgN))
-        printf "  %4d | %-*s | %11d | %11s | %14d | %10d\n" \
-          "$idx" "$maxlen" "$trg" "$active_runs" "$avgsd" "$sumscaled" "$avg_n"
+        menu_runs=$((10#$padMenu))
+        raw_runs=$((10#$padRawRuns))
+        live_runs=$((10#$padLiveRuns))
+        scaled_runs=$((10#$padScaledRuns))
+        sumlive=$((10#$padSumLive))
+        printf "  %4d | %-*s | %8d | %8d | %8d | %10d | %14d | %14d | %8s | %11s\n" \
+          "$idx" "$maxlen" "$trg" "$menu_runs" "$raw_runs" "$live_runs" "$scaled_runs" "$sumraw" "$sumlive" "$liveOverRaw" "$avgScale"
       done
     echo
 
-    local special_rows=()
-    local special_maxlen=11
-    local special_bit special_name special_active special_avg special_scaled special_avgn
+    print_focus_table() {
+      local title="$1"
+      shift
+      local -a bits=( "$@" )
+      local focus_maxlen=11
+      local bit name
 
-    add_special_row() {
-      local want_idx="$1"
-      local have_row=""
-      local row
-      for row in "${tmp_rows[@]}"; do
-        IFS='|' read -r special_bit special_name special_active special_avg special_scaled special_avgn <<< "$row"
-        if [[ "$special_bit" == "$want_idx" ]]; then
-          have_row="$row"
-          break
-        fi
+      for bit in "${bits[@]}"; do
+        name="${TRIG_NAME["$bit"]:-"(missing-name)"}"
+        (( ${#name} > focus_maxlen )) && focus_maxlen=${#name}
       done
+      (( focus_maxlen+=2 ))
 
-      if [[ -n "$have_row" ]]; then
-        IFS='|' read -r special_bit special_name special_active special_avg special_scaled special_avgn <<< "$have_row"
-      else
-        special_bit="$want_idx"
-        case "$want_idx" in
-          10) special_name="MBD N&S >= 1" ;;
-          12) special_name="MBD N&S >= 1, vtx < 10 cm" ;;
-          24) special_name="Photon 2 GeV+ MBD NS >= 1" ;;
-          25) special_name="Photon 3 GeV + MBD NS >= 1" ;;
-          26) special_name="Photon 4 GeV + MBD NS >= 1" ;;
-          27) special_name="Photon 5 GeV + MBD NS >= 1" ;;
-          36) special_name="Photon 3 GeV, MBD N&S >= 1, vtx < 10 cm" ;;
-          37) special_name="Photon 4 GeV, MBD N&S >= 1, vtx < 10 cm" ;;
-          38) special_name="Photon 5 GeV, MBD N&S >= 1, vtx < 10 cm" ;;
-          *)  special_name="(missing-name)" ;;
-        esac
-        special_active=0
-        special_avg="0.000"
-        special_scaled=0
-        special_avgn=0
-      fi
+      printf "%s%s%s\n" "$ANSI_BOLD$ANSI_GREEN" "$title" "$ANSI_RESET"
+      printf "%s  %4s | %-*s | %8s | %8s | %8s | %8s | %8s | %8s | %12s | %12s%s\n" \
+        "$ANSI_BOLD" "Bit" "$focus_maxlen" "TriggerName" "1stMenu" "MenuRuns" "1stRaw" "RawRuns" "1stLive" "LiveRuns" "SumRaw" "SumLive" "$ANSI_RESET"
+      printf "%s  %-4s-+-%-*s-+-%-8s-+-%-8s-+-%-8s-+-%-8s-+-%-8s-+-%-8s-+-%-12s-+-%-12s%s\n" \
+        "$ANSI_DIM" \
+        "$(printf '─%.0s' $(seq 1 4))" \
+        "$focus_maxlen" "$(printf '─%.0s' $(seq 1 $focus_maxlen))" \
+        "$(printf '─%.0s' $(seq 1 8))" \
+        "$(printf '─%.0s' $(seq 1 8))" \
+        "$(printf '─%.0s' $(seq 1 8))" \
+        "$(printf '─%.0s' $(seq 1 8))" \
+        "$(printf '─%.0s' $(seq 1 8))" \
+        "$(printf '─%.0s' $(seq 1 8))" \
+        "$(printf '─%.0s' $(seq 1 12))" \
+        "$(printf '─%.0s' $(seq 1 12))" \
+        "$ANSI_RESET"
 
-      (( ${#special_name} > special_maxlen )) && special_maxlen=${#special_name}
-      special_rows+=( "$special_bit|$special_name|$special_active|$special_avg|$special_scaled" )
+      for bit in "${bits[@]}"; do
+        name="${TRIG_NAME["$bit"]:-"(missing-name)"}"
+        first_menu="${TRIG_MENU_FIRSTRUN["$bit"]:--}"
+        menu_runs="${TRIG_MENU_RUNS["$bit"]:-0}"
+        first_raw="${TRIG_RAW_FIRSTRUN["$bit"]:--}"
+        raw_runs="${TRIG_RAWON_RUNS["$bit"]:-0}"
+        first_live="${TRIG_LIVE_FIRSTRUN["$bit"]:--}"
+        live_runs="${TRIG_LIVEON_RUNS["$bit"]:-0}"
+        sumraw="${TRIG_SUMRAW["$bit"]:-0}"
+        sumlive="${TRIG_SUMLIVE["$bit"]:-0}"
+
+        printf "  %4d | %-*s | %8s | %8d | %8s | %8d | %8s | %8d | %12d | %12d\n" \
+          "$bit" "$focus_maxlen" "$name" "$first_menu" "$menu_runs" "$first_raw" "$raw_runs" "$first_live" "$live_runs" "$sumraw" "$sumlive"
+      done
+      echo
     }
 
-    add_special_row 10
-    add_special_row 24
-    add_special_row 25
-    add_special_row 26
-    add_special_row 27
-    add_special_row 12
-    add_special_row 36
-    add_special_row 37
-    add_special_row 38
-    (( special_maxlen+=2 ))
-
+    printf "%sTrigger-family focus for %s%s\n" "$ANSI_BOLD$ANSI_CYAN" "$LABEL" "$ANSI_RESET"
     echo
-    printf "%sRare-trigger organization for %s%s\n" "$ANSI_BOLD$ANSI_CYAN" "$LABEL" "$ANSI_RESET"
-    echo
-
-    printf "%sNo vertex cut table%s\n" "$ANSI_BOLD$ANSI_GREEN" "$ANSI_RESET"
-    printf "%s  %4s | %-*s | %11s | %11s | %14s%s\n" \
-      "$ANSI_BOLD" "Bit" "$special_maxlen" "TriggerName" "ActiveRuns" "AvgScale" "ScaledEventSum" "$ANSI_RESET"
-    printf "%s  %-4s-+-%-*s-+-%-11s-+-%-11s-+-%-14s%s\n" \
-      "$ANSI_DIM" \
-      "$(printf '─%.0s' $(seq 1 4))" \
-      "$special_maxlen" "$(printf '─%.0s' $(seq 1 $special_maxlen))" \
-      "$(printf '─%.0s' $(seq 1 11))" \
-      "$(printf '─%.0s' $(seq 1 11))" \
-      "$(printf '─%.0s' $(seq 1 14))" \
-      "$ANSI_RESET"
-
-    for special_bit in 10 24 25 26 27; do
-      for row in "${special_rows[@]}"; do
-        IFS='|' read -r sb sn sa savg sscaled <<< "$row"
-        if [[ "$sb" == "$special_bit" ]]; then
-          printf "  %4d | %-*s | %11d | %11s | %14d\n" \
-            "$sb" "$special_maxlen" "$sn" "$sa" "$savg" "$sscaled"
-          break
-        fi
-      done
-    done
-
-    echo
-    printf "%sVertex cut table%s\n" "$ANSI_BOLD$ANSI_GREEN" "$ANSI_RESET"
-    printf "%s  %4s | %-*s | %11s | %11s | %14s%s\n" \
-      "$ANSI_BOLD" "Bit" "$special_maxlen" "TriggerName" "ActiveRuns" "AvgScale" "ScaledEventSum" "$ANSI_RESET"
-    printf "%s  %-4s-+-%-*s-+-%-11s-+-%-11s-+-%-14s%s\n" \
-      "$ANSI_DIM" \
-      "$(printf '─%.0s' $(seq 1 4))" \
-      "$special_maxlen" "$(printf '─%.0s' $(seq 1 $special_maxlen))" \
-      "$(printf '─%.0s' $(seq 1 11))" \
-      "$(printf '─%.0s' $(seq 1 11))" \
-      "$(printf '─%.0s' $(seq 1 14))" \
-      "$ANSI_RESET"
-
-    for special_bit in 12 36 37 38; do
-      for row in "${special_rows[@]}"; do
-        IFS='|' read -r sb sn sa savg sscaled <<< "$row"
-        if [[ "$sb" == "$special_bit" ]]; then
-          printf "  %4d | %-*s | %11d | %11s | %14d\n" \
-            "$sb" "$special_maxlen" "$sn" "$sa" "$savg" "$sscaled"
-          break
-        fi
-      done
-    done
-    echo
+    print_focus_table "No vertex cut focus table" 10 24 25 26 27
+    print_focus_table "Vertex cut focus table" 12 36 37 38
   else
-    printf "%s[WARN] No active trigger rows found for the provided golden run list.%s\n" "$ANSI_YELLOW" "$ANSI_RESET"
-    printf "%s[WARN] This usually means the query returned no rows, all rows had scaledown = -1, or the run list does not match the expected DB content.%s\n" "$ANSI_YELLOW" "$ANSI_RESET"
+    printf "%s[WARN] No trigger rows were found for the provided golden run list.%s\n" "$ANSI_YELLOW" "$ANSI_RESET"
+    printf "%s[WARN] This usually means the queries returned no menu/scaler rows for the supplied run list.%s\n" "$ANSI_YELLOW" "$ANSI_RESET"
   fi
 
-  if (( runs_with_no_rows > 0 || rows_bad_idx > 0 )); then
-    printf "%s[WARN] QA completed with transparency warnings. Review the diagnostics block above before trusting the table blindly.%s\n" "$ANSI_YELLOW" "$ANSI_RESET"
+  if (( runs_with_no_menu_rows > 0 || runs_with_no_scaler_rows > 0 || rows_bad_idx > 0 )); then
+    printf "%s[WARN] QA completed with transparency warnings. Review the trigger-menu and raw/live diagnostics above before trusting the tables blindly.%s\n" "$ANSI_YELLOW" "$ANSI_RESET"
   else
     printf "%s[INFO] QA completed without structural warning conditions.%s\n" "$ANSI_GREEN" "$ANSI_RESET"
   fi
