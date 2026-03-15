@@ -254,7 +254,7 @@ print_all_final_qa_summary() {
 }
 
 run_all_modes() {
-  local -a modes=(pp24 pp25 auau oo25 run2auau)
+  local -a modes=(auau pp24 pp25 oo25 run2auau)
   local -a summary_rows=()
   local mode rc status
 
@@ -853,10 +853,80 @@ run_trigger_qa() {
       echo
     }
 
+    print_trigger_groupings() {
+      local outfile="$OUT_DIR/trigger_groupings_${LABEL}.txt"
+      local mbd_bit mbd_name mbd_thr mbd_vtx pho_bit pho_name pho_thr pho_vtx pho_e
+      local -a novtx_rows=()
+      local -a vtx_rows=()
+
+      mkdir -p "$OUT_DIR"
+
+      for mbd_bit in "${!TRIG_NAME[@]}"; do
+        mbd_name="${TRIG_NAME["$mbd_bit"]:-}"
+
+        if [[ "$mbd_name" =~ ^MBD[[:space:]]+N\&S[[:space:]]+\>\=[[:space:]]+([0-9]+)(,[[:space:]]+vtx[[:space:]]+\<[[:space:]]+([0-9]+)[[:space:]]+cm)?$ ]]; then
+          mbd_thr="${BASH_REMATCH[1]}"
+          mbd_vtx="${BASH_REMATCH[3]:-}"
+
+          for pho_bit in "${!TRIG_NAME[@]}"; do
+            pho_name="${TRIG_NAME["$pho_bit"]:-}"
+
+            if [[ "$pho_name" =~ ^Photon[[:space:]]+([0-9]+)[[:space:]]+GeV([[:space:]]+\+[[:space:]]+MBD[[:space:]]+NS|,[[:space:]]+MBD[[:space:]]+N\&S)[[:space:]]+\>\=[[:space:]]+([0-9]+)(,[[:space:]]+vtx[[:space:]]+\<[[:space:]]+([0-9]+)[[:space:]]+cm)?$ ]]; then
+              pho_e="${BASH_REMATCH[1]}"
+              pho_thr="${BASH_REMATCH[3]}"
+              pho_vtx="${BASH_REMATCH[5]:-}"
+
+              if [[ "$pho_thr" == "$mbd_thr" ]]; then
+                if [[ -z "$mbd_vtx" && -z "$pho_vtx" ]]; then
+                  novtx_rows+=( "$mbd_thr|$pho_e|$mbd_bit|$mbd_name|$pho_bit|$pho_name" )
+                elif [[ -n "$mbd_vtx" && "$pho_vtx" == "$mbd_vtx" ]]; then
+                  vtx_rows+=( "$mbd_thr|$mbd_vtx|$pho_e|$mbd_bit|$mbd_name|$pho_bit|$pho_name" )
+                fi
+              fi
+            fi
+          done
+        fi
+      done
+
+      {
+        echo "Trigger groupings for $LABEL"
+        echo "Input golden run list: $LIST_FILE"
+        echo "Runs in input list: ${#RUNS_ALL[@]}"
+        echo "Trigger-menu epochs observed: $(( menu_change_count + 1 ))"
+        if [[ -n "$first_menu_change_run" ]]; then
+          echo "First adjacent-run menu change: ${first_menu_change_prev_run} -> ${first_menu_change_run}"
+        else
+          echo "First adjacent-run menu change: none"
+        fi
+        echo
+        echo "No vertex cut combinations"
+        if ((${#novtx_rows[@]})); then
+          printf "%s\n" "${novtx_rows[@]}" | sort -t'|' -k1,1n -k2,2n | while IFS='|' read -r _thr _e mbd_bit mbd_name pho_bit pho_name; do
+            printf "  MBD bit %-3s %-35s || Photon bit %-3s %s\n" "$mbd_bit" "$mbd_name" "$pho_bit" "$pho_name"
+          done
+        else
+          echo "  (none)"
+        fi
+        echo
+        echo "Vertex cut combinations"
+        if ((${#vtx_rows[@]})); then
+          printf "%s\n" "${vtx_rows[@]}" | sort -t'|' -k1,1n -k2,2n -k3,3n | while IFS='|' read -r _thr _vtx _e mbd_bit mbd_name pho_bit pho_name; do
+            printf "  MBD bit %-3s %-35s || Photon bit %-3s %s\n" "$mbd_bit" "$mbd_name" "$pho_bit" "$pho_name"
+          done
+        else
+          echo "  (none)"
+        fi
+      } | tee "$outfile"
+
+      echo "[INFO] Trigger grouping summary saved to: $outfile"
+      echo
+    }
+
     printf "%sTrigger-family focus for %s%s\n" "$ANSI_BOLD$ANSI_CYAN" "$LABEL" "$ANSI_RESET"
     echo
     print_focus_table "No vertex cut focus table" 10 24 25 26 27
     print_focus_table "Vertex cut focus table" 12 36 37 38
+    print_trigger_groupings
   else
     printf "%s[WARN] No trigger rows were found for the provided golden run list.%s\n" "$ANSI_YELLOW" "$ANSI_RESET"
     printf "%s[WARN] This usually means the queries returned no menu/scaler rows for the supplied run list.%s\n" "$ANSI_YELLOW" "$ANSI_RESET"
