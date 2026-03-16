@@ -4230,11 +4230,9 @@ bool RecoilJets::runLeadIsoTightPhotonJetMatchingAndUnfolding(
       if (auto* hR = getOrBookUnfoldRecoPhoPtGamma(trigShort, effCentIdx_M))
       { hR->Fill(leadPtGamma); bumpHistFill(trigShort, hR->GetName()); }
 
-      // Measured reco photon spectrum for the exploratory PPG12-style object-match family.
-      // This intentionally keeps the same reco-leading spectrum and only changes the
-      // truth↔reco bookkeeping under separate histogram names.
-      if (auto* hRAlt = getOrBookUnfoldRecoPhoPtGammaPPG12Obj(trigShort, effCentIdx_M))
-      { hRAlt->Fill(leadPtGamma); bumpHistFill(trigShort, hRAlt->GetName()); }
+      // Measured reco photon spectrum for the exploratory PPG12-style object-match family
+      // is filled per reco iso+tight photon candidate in the photon loop so that it stays
+      // inclusive and independent of event-leading competition.
     
       if (m_isSim)
       {
@@ -5521,14 +5519,24 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
            // Count ALL iso∧tight photon candidates in this event (photon-side ambiguity diagnostic)
            ++nIsoTightPhoCand;
 
-           for (const auto& trigShort : activeTrig)
-            {
-              if (auto* h3 = getOrBookPho3TightIso(trigShort))
+             for (const auto& trigShort : activeTrig)
               {
-                h3->Fill(pt_gamma, eta, TVector2::Phi_mpi_pi(phi_gamma));
-                bumpHistFill(trigShort, h3->GetName());
+                if (auto* h3 = getOrBookPho3TightIso(trigShort))
+                {
+                  h3->Fill(pt_gamma, eta, TVector2::Phi_mpi_pi(phi_gamma));
+                  bumpHistFill(trigShort, h3->GetName());
+                }
               }
-            }
+
+             const int effCentIdx_PPG12 = (m_isAuAu ? centIdx : -1);
+             for (const auto& trigShort : activeTrig)
+             {
+               if (auto* hRAlt = getOrBookUnfoldRecoPhoPtGammaPPG12Obj(trigShort, effCentIdx_PPG12))
+               {
+                 hRAlt->Fill(pt_gamma);
+                 bumpHistFill(trigShort, hRAlt->GetName());
+               }
+             }
 
            // Do NOT jet-match here. If >1 photon passes iso∧tight in the same event,
            // jet-matching here would double-fill xJ/JES histograms.

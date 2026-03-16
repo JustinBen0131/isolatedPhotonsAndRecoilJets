@@ -855,38 +855,89 @@ run_trigger_qa() {
 
     print_trigger_groupings() {
       local outfile="$OUT_DIR/trigger_groupings_${LABEL}.txt"
-      local mbd_bit mbd_name mbd_thr mbd_vtx pho_bit pho_name pho_thr pho_vtx pho_e
-      local -a novtx_rows=()
-      local -a vtx_rows=()
+      local epoch_idx=0
+      local epoch_start=""
+      local prev_run=""
+      local run idx trg
 
       mkdir -p "$OUT_DIR"
 
-      for mbd_bit in "${!TRIG_NAME[@]}"; do
-        mbd_name="${TRIG_NAME["$mbd_bit"]:-}"
+      emit_epoch_groupings() {
+        local run_start="$1"
+        local run_end="$2"
+        local map_name="$3"
+        local -n epoch_menu_ref="$map_name"
+        local mbd_bit mbd_name mbd_thr mbd_vtx pho_bit pho_name pho_thr pho_vtx pho_e
+        local -a novtx_rows=()
+        local -a vtx_rows=()
 
-        if [[ "$mbd_name" =~ ^MBD[[:space:]]+N\&S[[:space:]]+\>\=[[:space:]]+([0-9]+)(,[[:space:]]+vtx[[:space:]]+\<[[:space:]]+([0-9]+)[[:space:]]+cm)?$ ]]; then
-          mbd_thr="${BASH_REMATCH[1]}"
-          mbd_vtx="${BASH_REMATCH[3]:-}"
+        ((epoch_idx+=1))
 
-          for pho_bit in "${!TRIG_NAME[@]}"; do
-            pho_name="${TRIG_NAME["$pho_bit"]:-}"
+        for mbd_bit in "${!epoch_menu_ref[@]}"; do
+          mbd_name="${epoch_menu_ref["$mbd_bit"]:-}"
 
-            if [[ "$pho_name" =~ ^Photon[[:space:]]+([0-9]+)[[:space:]]+GeV([[:space:]]+\+[[:space:]]+MBD[[:space:]]+NS|,[[:space:]]+MBD[[:space:]]+N\&S)[[:space:]]+\>\=[[:space:]]+([0-9]+)(,[[:space:]]+vtx[[:space:]]+\<[[:space:]]+([0-9]+)[[:space:]]+cm)?$ ]]; then
-              pho_e="${BASH_REMATCH[1]}"
-              pho_thr="${BASH_REMATCH[3]}"
-              pho_vtx="${BASH_REMATCH[5]:-}"
+          if [[ "$mbd_name" =~ ^MBD[[:space:]]+N\&S[[:space:]]+\>\=[[:space:]]+([0-9]+)$ ]]; then
+            mbd_thr="${BASH_REMATCH[1]}"
 
-              if [[ "$pho_thr" == "$mbd_thr" ]]; then
-                if [[ -z "$mbd_vtx" && -z "$pho_vtx" ]]; then
+            for pho_bit in "${!epoch_menu_ref[@]}"; do
+              pho_name="${epoch_menu_ref["$pho_bit"]:-}"
+
+              if [[ "$pho_name" =~ ^Photon[[:space:]]+([0-9]+([.][0-9]+)?)[[:space:]]+GeV[[:space:]]*\+[[:space:]]+MBD[[:space:]]+N\&?S[[:space:]]+\>\=[[:space:]]+([0-9]+)$ ]]; then
+                pho_e="${BASH_REMATCH[1]}"
+                pho_thr="${BASH_REMATCH[3]}"
+
+                if [[ "$pho_thr" == "$mbd_thr" ]]; then
                   novtx_rows+=( "$mbd_thr|$pho_e|$mbd_bit|$mbd_name|$pho_bit|$pho_name" )
-                elif [[ -n "$mbd_vtx" && "$pho_vtx" == "$mbd_vtx" ]]; then
+                fi
+              fi
+            done
+          elif [[ "$mbd_name" =~ ^MBD[[:space:]]+N\&S[[:space:]]+\>\=[[:space:]]+([0-9]+),[[:space:]]+vtx[[:space:]]+\<[[:space:]]+([0-9]+([.][0-9]+)?)[[:space:]]+cm$ ]]; then
+            mbd_thr="${BASH_REMATCH[1]}"
+            mbd_vtx="${BASH_REMATCH[2]}"
+
+            for pho_bit in "${!epoch_menu_ref[@]}"; do
+              pho_name="${epoch_menu_ref["$pho_bit"]:-}"
+
+              if [[ "$pho_name" =~ ^Photon[[:space:]]+([0-9]+([.][0-9]+)?)[[:space:]]+GeV([[:space:]]*\+|,)[[:space:]]+MBD[[:space:]]+N\&?S[[:space:]]+\>\=[[:space:]]+([0-9]+),[[:space:]]+vtx[[:space:]]+\<[[:space:]]+([0-9]+([.][0-9]+)?)[[:space:]]+cm$ ]]; then
+                pho_e="${BASH_REMATCH[1]}"
+                pho_thr="${BASH_REMATCH[4]}"
+                pho_vtx="${BASH_REMATCH[5]}"
+
+                if [[ "$pho_thr" == "$mbd_thr" && "$pho_vtx" == "$mbd_vtx" ]]; then
                   vtx_rows+=( "$mbd_thr|$mbd_vtx|$pho_e|$mbd_bit|$mbd_name|$pho_bit|$pho_name" )
                 fi
               fi
-            fi
+            done
+          fi
+        done
+
+        echo "Epoch $epoch_idx"
+        echo "  Runs: $run_start -> $run_end"
+
+        echo "  No vertex cut combinations"
+        if ((${#novtx_rows[@]})); then
+          printf "%s\n" "${novtx_rows[@]}" | sort -t'|' -k1,1n -k2,2n | while IFS='|' read -r _thr _e mbd_bit mbd_name pho_bit pho_name; do
+            printf "    MBD bit %-3s %-35s || Photon bit %-3s %s\n" "$mbd_bit" "$mbd_name" "$pho_bit" "$pho_name"
+            printf "    CONFIG runMin=%s runMax=%s baselineBit=%s probeBit=%s baselineName=\"%s\" probeName=\"%s\"\n" \
+              "$run_start" "$run_end" "$mbd_bit" "$pho_bit" "$mbd_name" "$pho_name"
           done
+        else
+          echo "    (none)"
         fi
-      done
+
+        echo "  Vertex cut combinations"
+        if ((${#vtx_rows[@]})); then
+          printf "%s\n" "${vtx_rows[@]}" | sort -t'|' -k1,1n -k2,2n -k3,3n | while IFS='|' read -r _thr _vtx _e mbd_bit mbd_name pho_bit pho_name; do
+            printf "    MBD bit %-3s %-35s || Photon bit %-3s %s\n" "$mbd_bit" "$mbd_name" "$pho_bit" "$pho_name"
+            printf "    CONFIG runMin=%s runMax=%s baselineBit=%s probeBit=%s baselineName=\"%s\" probeName=\"%s\"\n" \
+              "$run_start" "$run_end" "$mbd_bit" "$pho_bit" "$mbd_name" "$pho_name"
+          done
+        else
+          echo "    (none)"
+        fi
+
+        echo
+      }
 
       {
         echo "Trigger groupings for $LABEL"
@@ -899,22 +950,67 @@ run_trigger_qa() {
           echo "First adjacent-run menu change: none"
         fi
         echo
-        echo "No vertex cut combinations"
-        if ((${#novtx_rows[@]})); then
-          printf "%s\n" "${novtx_rows[@]}" | sort -t'|' -k1,1n -k2,2n | while IFS='|' read -r _thr _e mbd_bit mbd_name pho_bit pho_name; do
-            printf "  MBD bit %-3s %-35s || Photon bit %-3s %s\n" "$mbd_bit" "$mbd_name" "$pho_bit" "$pho_name"
-          done
-        else
-          echo "  (none)"
-        fi
-        echo
-        echo "Vertex cut combinations"
-        if ((${#vtx_rows[@]})); then
-          printf "%s\n" "${vtx_rows[@]}" | sort -t'|' -k1,1n -k2,2n -k3,3n | while IFS='|' read -r _thr _vtx _e mbd_bit mbd_name pho_bit pho_name; do
-            printf "  MBD bit %-3s %-35s || Photon bit %-3s %s\n" "$mbd_bit" "$mbd_name" "$pho_bit" "$pho_name"
-          done
-        else
-          echo "  (none)"
+
+        declare -A EPOCH_MENU=()
+
+        for run in "${RUNS_ALL[@]}"; do
+          unset CUR_MENU
+          declare -A CUR_MENU=()
+
+          while IFS=$'\t' read -r idx trg; do
+            [[ -z "$idx" ]] && continue
+            idx=$(num_or_zero "$idx")
+            [[ "$idx" =~ ^[0-9]+$ ]] || continue
+            [[ -z "$trg" ]] && trg="(missing-name)"
+            CUR_MENU["$idx"]="$trg"
+          done < <(sql "SELECT index, triggername
+                        FROM gl1_triggernames
+                        WHERE $run BETWEEN runnumber AND runnumber_last
+                        ORDER BY index;")
+
+          if [[ -z "$epoch_start" ]]; then
+            epoch_start="$run"
+            unset EPOCH_MENU
+            declare -A EPOCH_MENU=()
+            for idx in "${!CUR_MENU[@]}"; do
+              EPOCH_MENU["$idx"]="${CUR_MENU["$idx"]}"
+            done
+          else
+            unset MENU_KEYS
+            declare -A MENU_KEYS=()
+
+            for idx in "${!EPOCH_MENU[@]}"; do
+              MENU_KEYS["$idx"]=1
+            done
+
+            for idx in "${!CUR_MENU[@]}"; do
+              MENU_KEYS["$idx"]=1
+            done
+
+            local epoch_changed=0
+            for idx in "${!MENU_KEYS[@]}"; do
+              if [[ "${EPOCH_MENU["$idx"]:-"(absent)"}" != "${CUR_MENU["$idx"]:-"(absent)"}" ]]; then
+                epoch_changed=1
+                break
+              fi
+            done
+
+            if (( epoch_changed )); then
+              emit_epoch_groupings "$epoch_start" "$prev_run" EPOCH_MENU
+              epoch_start="$run"
+              unset EPOCH_MENU
+              declare -A EPOCH_MENU=()
+              for idx in "${!CUR_MENU[@]}"; do
+                EPOCH_MENU["$idx"]="${CUR_MENU["$idx"]}"
+              done
+            fi
+          fi
+
+          prev_run="$run"
+        done
+
+        if [[ -n "$epoch_start" ]]; then
+          emit_epoch_groupings "$epoch_start" "$prev_run" EPOCH_MENU
         fi
       } | tee "$outfile"
 

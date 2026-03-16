@@ -900,7 +900,7 @@ namespace ARJ
           if (hNoCorr) keepAlive.push_back(hNoCorr);
         }
 
-        SaveCanvas(cTbl, JoinPath(outDir, "table2x2_pi0_mass_leadPhotonPt_corr_vs_nocorr.png"));
+        SaveCanvas(cTbl, JoinPath(outDir, "table2x2_pi0_mass_leadPhotonPt_corr_vs_nocorr.pdf"));
 
         for (auto* h : keepAlive) delete h;
         for (auto* f : keepFits) delete f;
@@ -14477,6 +14477,19 @@ namespace ARJ
                       }
 
                       SaveCanvas(c2, JoinPath(outCent, "table2x5_AuAu0_10_and_PP_unNormalized_SS_byPtOverlays.png"));
+
+                      for (int ipad = 1; ipad <= 10; ++ipad)
+                      {
+                        TPad* p = dynamic_cast<TPad*>(c2.cd(ipad));
+                        if (!p) continue;
+                        p->SetLogy(false);
+                        p->Modified();
+                      }
+                      c2.cd();
+                      c2.Modified();
+                      c2.Update();
+
+                      SaveCanvas(c2, JoinPath(outCent, "table2x5_AuAu0_10_and_PP_unNormalized_SS_byPtOverlays_linearY.png"));
 
                       // -------------------------------------------------------------------
                       // NEW: PP-only (noIsoRequired) — per-pT-bin 1x5 SS tables
