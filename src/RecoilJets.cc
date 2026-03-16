@@ -4287,6 +4287,8 @@ bool RecoilJets::runLeadIsoTightPhotonJetMatchingAndUnfolding(
     PHG4TruthInfoContainer* truth)
 {
   // This function only does unfolding photon bookkeeping + delegates jet logic per radius.
+  (void)haveTruthPhoPPG12;
+  (void)recoPtTruthMatchPPG12;
 
     // -------------------- Photon-only unfolding fills (N_gamma) --------------------
     for (const auto& trigShort : activeTrig)
@@ -4313,34 +4315,19 @@ bool RecoilJets::runLeadIsoTightPhotonJetMatchingAndUnfolding(
           // are filled per reco iso+tight photon candidate before this event-level
           // jet-matching call so unmatched candidates are counted inclusively.
       
-        // Baseline photon response (truth -> reco): strict selected-anchor definition.
-        if (haveTruthSigPho && haveTruthPho)
-        {
-          if (auto* hResp = getOrBookUnfoldResponsePhoPtGamma(trigShort, effCentIdx_M))
-          { hResp->Fill(tPtSig, leadPtGamma); bumpHistFill(trigShort, hResp->GetName()); }
-        }
-
-        // Exploratory photon response (truth -> reco) for the PPG12-style truth↔reco photon match:
-        // truth signal photon matched to a reco cluster that passes the final iso+tight selection.
-        if (haveTruthSigPho && haveTruthPhoPPG12 && std::isfinite(recoPtTruthMatchPPG12) && recoPtTruthMatchPPG12 > 0.0)
-        {
-          if (auto* hRespAlt = getOrBookUnfoldResponsePhoPtGammaPPG12Obj(trigShort, effCentIdx_M))
-          { hRespAlt->Fill(tPtSig, recoPtTruthMatchPPG12); bumpHistFill(trigShort, hRespAlt->GetName()); }
-        }
-    
-        // Baseline truth misses: strict selected-anchor definition.
-        if (haveTruthSigPho && !haveTruthPho)
-        {
-          if (auto* hTM = getOrBookUnfoldTruthPhoMissesPtGamma(trigShort, effCentIdx_M))
-          { hTM->Fill(tPtSig); bumpHistFill(trigShort, hTM->GetName()); }
-        }
-
-        // Exploratory truth misses: no matched reco cluster passing iso+tight.
-        if (haveTruthSigPho && !haveTruthPhoPPG12)
-        {
-          if (auto* hTMAlt = getOrBookUnfoldTruthPhoMissesPtGammaPPG12Obj(trigShort, effCentIdx_M))
-          { hTMAlt->Fill(tPtSig); bumpHistFill(trigShort, hTMAlt->GetName()); }
-        }
+          // Baseline photon response (truth -> reco): strict selected-anchor definition.
+          if (haveTruthSigPho && haveTruthPho)
+          {
+            if (auto* hResp = getOrBookUnfoldResponsePhoPtGamma(trigShort, effCentIdx_M))
+            { hResp->Fill(tPtSig, leadPtGamma); bumpHistFill(trigShort, hResp->GetName()); }
+          }
+      
+          // Baseline truth misses: strict selected-anchor definition.
+          if (haveTruthSigPho && !haveTruthPho)
+          {
+            if (auto* hTM = getOrBookUnfoldTruthPhoMissesPtGamma(trigShort, effCentIdx_M))
+            { hTM->Fill(tPtSig); bumpHistFill(trigShort, hTM->GetName()); }
+          }
       }
     }
 
@@ -5096,6 +5083,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
       // alternate reco and fake spectra can be filled per object, independent of leading selection.
       std::vector<const RawCluster*> recoIsoTightPhoClustersPPG12;
       std::vector<double>            recoIsoTightPhoPtsPPG12;
+      std::vector<const RawCluster*> recoMatchedTruthPhoClustersPPG12;
 
       // ------------------------------------------------------------------
       // SIM ONLY: objects needed to truth-tag reco clusters for PPG12-style
@@ -5688,6 +5676,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
         double tEtaSig = 0.0;
         double tPhiSig = 0.0;
         double tIsoEtSig = 0.0;
+        std::vector<const HepMC::GenParticle*> truthSigPhoPPG12Objs;
 
         if (m_isSim)
         {
@@ -5719,6 +5708,8 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
               const double phi = p->momentum().phi();
               if (!std::isfinite(pt) || !std::isfinite(eta) || !std::isfinite(phi) || pt <= 0.0) continue;
 
+              truthSigPhoPPG12Objs.push_back(p);
+
               if (!haveTruthSigPho || pt > tPtSig)
               {
                 haveTruthSigPho = true;
@@ -5737,7 +5728,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                   "      [truthQA] PHHepMCGenEventMap/HepMC event missing → skip truth photon unfolding helpers");
           }
 
-            // Fill truth photon spectrum once per event (SIM)
+            // Fill truth photon spectrum once per event (SIM) for the baseline selected-anchor family.
             if (haveTruthSigPho)
             {
               for (const auto& trigShort : activeTrig)
@@ -5745,17 +5736,33 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 if (auto* hT = getOrBookUnfoldTruthPhoPtGamma(trigShort, effCentIdx_M))
                 { hT->Fill(tPtSig); bumpHistFill(trigShort, hT->GetName()); }
 
-                if (auto* hTAlt = getOrBookUnfoldTruthPhoPtGammaPPG12Obj(trigShort, effCentIdx_M))
-                { hTAlt->Fill(tPtSig); bumpHistFill(trigShort, hTAlt->GetName()); }
-
                 // If no reco leading iso∧tight photon exists, this truth photon is a MISS for N_gamma
                 if (!haveLeadIsoTight)
                 {
                   if (auto* hTM = getOrBookUnfoldTruthPhoMissesPtGamma(trigShort, effCentIdx_M))
                   { hTM->Fill(tPtSig); bumpHistFill(trigShort, hTM->GetName()); }
+                }
+              }
+            }
 
+            // Fill the exploratory PPG12-style truth photon spectrum per truth signal photon object.
+            for (const auto* truthPhoPPG12 : truthSigPhoPPG12Objs)
+            {
+              if (!truthPhoPPG12) continue;
+
+              const double tPtPPG12 = std::hypot(truthPhoPPG12->momentum().px(),
+                                                 truthPhoPPG12->momentum().py());
+              if (!std::isfinite(tPtPPG12) || tPtPPG12 <= 0.0) continue;
+
+              for (const auto& trigShort : activeTrig)
+              {
+                if (auto* hTAlt = getOrBookUnfoldTruthPhoPtGammaPPG12Obj(trigShort, effCentIdx_M))
+                { hTAlt->Fill(tPtPPG12); bumpHistFill(trigShort, hTAlt->GetName()); }
+
+                if (!haveLeadIsoTight)
+                {
                   if (auto* hTMAlt = getOrBookUnfoldTruthPhoMissesPtGammaPPG12Obj(trigShort, effCentIdx_M))
-                  { hTMAlt->Fill(tPtSig); bumpHistFill(trigShort, hTMAlt->GetName()); }
+                  { hTMAlt->Fill(tPtPPG12); bumpHistFill(trigShort, hTMAlt->GetName()); }
                 }
               }
             }
@@ -5901,11 +5908,58 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                       "      [truthQA] event-leading truth signal photon does NOT match the event-leading reco iso∧tight photon");
                 }
 
-                if (haveTruthPhoPPG12 && !haveTruthPho && Verbosity() >= 5)
-                {
-                  LOG(5, CLR_CYAN,
-                      "      [truthQA] PPG12 photon match passes iso+tight, but is not the selected event-leading reco iso∧tight photon");
-                }
+                  if (haveTruthPhoPPG12 && !haveTruthPho && Verbosity() >= 5)
+                  {
+                    LOG(5, CLR_CYAN,
+                        "      [truthQA] PPG12 photon match passes iso+tight, but is not the selected event-leading reco iso∧tight photon");
+                  }
+
+                  for (const auto* truthPhoPPG12 : truthSigPhoPPG12Objs)
+                  {
+                    if (!truthPhoPPG12) continue;
+
+                    const double tPtPPG12 = std::hypot(truthPhoPPG12->momentum().px(),
+                                                       truthPhoPPG12->momentum().py());
+                    if (!std::isfinite(tPtPPG12) || tPtPPG12 <= 0.0) continue;
+
+                    const RawCluster* recoMatchAlt = nullptr;
+                    double rPtAlt = 0.0, rEtaAlt = 0.0, rPhiAlt = 0.0, drBestAlt = 1e9;
+                    float  eBestAlt = -1.0f;
+
+                    bool haveTruthPhoPPG12Obj = false;
+
+                    if (findRecoPhotonMatchedToTruthSignal(evtHepMC, truthPhoPPG12, clustereval,
+                                                          recoMatchAlt, rPtAlt, rEtaAlt, rPhiAlt, drBestAlt, eBestAlt))
+                    {
+                      const auto* recoPhoPPG12Obj = dynamic_cast<const PhotonClusterv1*>(recoMatchAlt);
+                      if (recoPhoPPG12Obj)
+                      {
+                        const SSVars vMatchAlt = makeSSFromPhoton(recoPhoPPG12Obj, rPtAlt);
+                        const TightTag recoMatchTagAlt = classifyPhotonTightness(vMatchAlt);
+                        const bool recoMatchIsoAlt = isIsolated(recoMatchAlt, rPtAlt, topNode);
+
+                        if (recoMatchTagAlt == TightTag::kTight && recoMatchIsoAlt)
+                        {
+                          haveTruthPhoPPG12Obj = true;
+                          recoMatchedTruthPhoClustersPPG12.push_back(recoMatchAlt);
+                        }
+                      }
+                    }
+
+                    for (const auto& trigShort : activeTrig)
+                    {
+                      if (haveTruthPhoPPG12Obj)
+                      {
+                        if (auto* hRespAlt = getOrBookUnfoldResponsePhoPtGammaPPG12Obj(trigShort, effCentIdx_M))
+                        { hRespAlt->Fill(tPtPPG12, rPtAlt); bumpHistFill(trigShort, hRespAlt->GetName()); }
+                      }
+                      else
+                      {
+                        if (auto* hTMAlt = getOrBookUnfoldTruthPhoMissesPtGammaPPG12Obj(trigShort, effCentIdx_M))
+                        { hTMAlt->Fill(tPtPPG12); bumpHistFill(trigShort, hTMAlt->GetName()); }
+                      }
+                    }
+                  }
               }
             }
           }
@@ -5914,15 +5968,17 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
           {
             for (const auto& trigShort : activeTrig)
             {
-              if (auto* hRFAlt = getOrBookUnfoldRecoPhoFakesPtGammaPPG12Obj(trigShort, effCentIdx_M))
-              {
-                for (size_t iPPG12 = 0; iPPG12 < recoIsoTightPhoPtsPPG12.size(); ++iPPG12)
+                if (auto* hRFAlt = getOrBookUnfoldRecoPhoFakesPtGammaPPG12Obj(trigShort, effCentIdx_M))
                 {
-                  if (haveTruthPhoPPG12 && recoIsoTightPhoClustersPPG12[iPPG12] == recoMatchPPG12) continue;
-                  hRFAlt->Fill(recoIsoTightPhoPtsPPG12[iPPG12]);
-                  bumpHistFill(trigShort, hRFAlt->GetName());
+                  for (size_t iPPG12 = 0; iPPG12 < recoIsoTightPhoPtsPPG12.size(); ++iPPG12)
+                  {
+                    if (std::find(recoMatchedTruthPhoClustersPPG12.begin(),
+                                  recoMatchedTruthPhoClustersPPG12.end(),
+                                  recoIsoTightPhoClustersPPG12[iPPG12]) != recoMatchedTruthPhoClustersPPG12.end()) continue;
+                    hRFAlt->Fill(recoIsoTightPhoPtsPPG12[iPPG12]);
+                    bumpHistFill(trigShort, hRFAlt->GetName());
+                  }
                 }
-              }
             }
           }
 

@@ -518,6 +518,8 @@ namespace ARJ
 
         TH2* h2Corr = dynamic_cast<TH2*>(dir->Get("h2_pi0_mass_vs_leadcluspt_corr"));
         TH2* h2NoCorr = dynamic_cast<TH2*>(dir->Get("h2_pi0_mass_vs_leadcluspt_nocorr"));
+        TH2* h2Pi0PtCorr = dynamic_cast<TH2*>(dir->Get("h2_pi0_mass_vs_pi0pt_corr"));
+        TH2* h2Pi0PtNoCorr = dynamic_cast<TH2*>(dir->Get("h2_pi0_mass_vs_pi0pt_nocorr"));
 
         if (!h2Corr || !h2NoCorr)
         {
@@ -559,6 +561,15 @@ namespace ARJ
             return TString::Format("p_{T}^{#gamma} = %s GeV", ptLabels[i]).Data();
           }
           return "p_{T}^{#gamma} > 5 GeV";
+        };
+
+        auto Pi0PtTitle = [&](int i)->string
+        {
+          if (ptHi[i] > ptLo[i])
+          {
+            return TString::Format("p_{T}^{#pi^{0}} = %s GeV", ptLabels[i]).Data();
+          }
+          return "p_{T}^{#pi^{0}} > 5 GeV";
         };
 
         auto DrawCenteredHeader = [&](const string& qualifier, double size)
@@ -657,6 +668,226 @@ namespace ARJ
           return R;
         };
 
+        auto DrawPi0Table = [&](TH2* h2CorrIn,
+                                TH2* h2NoCorrIn,
+                                const string& canvasName,
+                                const string& outName,
+                                const string& tagPrefix,
+                                auto&& TitleFunc)
+        {
+          if (!h2CorrIn || !h2NoCorrIn) return;
+
+          TCanvas cTbl(canvasName.c_str(), canvasName.c_str(), 1800, 1400);
+          cTbl.Divide(2, 2, 0.001, 0.001);
+
+          vector<TH1*> keepAlive;
+          keepAlive.reserve(2 * nLeadPtBins);
+
+          vector<TF1*> keepFits;
+          keepFits.reserve(2 * nLeadPtBins);
+
+          vector<TLegend*> keepLegends;
+          keepLegends.reserve(nLeadPtBins);
+
+          double meanCorrLocal[nLeadPtBins];
+          double meanNoCorrLocal[nLeadPtBins];
+          double resCorrLocal[nLeadPtBins];
+          double resNoCorrLocal[nLeadPtBins];
+          bool okMeanCorrLocal[nLeadPtBins];
+          bool okMeanNoCorrLocal[nLeadPtBins];
+
+          for (int i = 0; i < nLeadPtBins; ++i)
+          {
+            meanCorrLocal[i] = 0.0;
+            meanNoCorrLocal[i] = 0.0;
+            resCorrLocal[i] = 0.0;
+            resNoCorrLocal[i] = 0.0;
+            okMeanCorrLocal[i] = false;
+            okMeanNoCorrLocal[i] = false;
+          }
+
+          for (int i = 0; i < nLeadPtBins; ++i)
+          {
+            cTbl.cd(i + 1);
+
+            gPad->SetLeftMargin(0.14);
+            gPad->SetRightMargin(0.05);
+            gPad->SetBottomMargin(0.14);
+            gPad->SetTopMargin(0.10);
+            gPad->SetTicks(1,1);
+
+            TH1D* hCorr = ProjectMass(
+              h2CorrIn,
+              ptLo[i],
+              ptHi[i],
+              TString::Format("h_pi0_corr_%s_%d", tagPrefix.c_str(), i).Data()
+            );
+
+            TH1D* hNoCorr = ProjectMass(
+              h2NoCorrIn,
+              ptLo[i],
+              ptHi[i],
+              TString::Format("h_pi0_nocorr_%s_%d", tagPrefix.c_str(), i).Data()
+            );
+
+            const string ptTitle = TitleFunc(i);
+
+            const double iCorr = hCorr ? hCorr->Integral(0, hCorr->GetNbinsX() + 1) : 0.0;
+            const double iNoCorr = hNoCorr ? hNoCorr->Integral(0, hNoCorr->GetNbinsX() + 1) : 0.0;
+
+            if (iCorr <= 0.0 && iNoCorr <= 0.0)
+            {
+              DrawCenteredHeader(ptTitle, 0.036);
+              DrawTopRightSelection(0.94, 0.72, 0.040, 0.065);
+
+              TLatex t;
+              t.SetNDC(true);
+              t.SetTextFont(42);
+              t.SetTextAlign(22);
+              t.SetTextSize(0.075);
+              t.DrawLatex(0.50, 0.55, "MISSING");
+
+              if (hCorr) delete hCorr;
+              if (hNoCorr) delete hNoCorr;
+              continue;
+            }
+
+            if (hCorr)
+            {
+              hCorr->SetTitle("");
+              hCorr->SetLineWidth(2);
+              hCorr->SetLineColor(kRed + 1);
+              hCorr->SetMarkerStyle(20);
+              hCorr->SetMarkerSize(0.85);
+              hCorr->SetMarkerColor(kRed + 1);
+              hCorr->SetFillStyle(0);
+              hCorr->SetMinimum(0.0);
+              hCorr->GetXaxis()->SetTitle("m_{#gamma#gamma} [GeV]");
+              hCorr->GetYaxis()->SetTitle("Counts");
+              hCorr->GetXaxis()->SetRangeUser(0.02, 0.30);
+              hCorr->GetXaxis()->SetTitleSize(0.055);
+              hCorr->GetYaxis()->SetTitleSize(0.055);
+              hCorr->GetXaxis()->SetLabelSize(0.045);
+              hCorr->GetYaxis()->SetLabelSize(0.045);
+              hCorr->GetYaxis()->SetTitleOffset(1.15);
+            }
+
+            if (hNoCorr)
+            {
+              hNoCorr->SetTitle("");
+              hNoCorr->SetLineWidth(2);
+              hNoCorr->SetLineColor(kBlack);
+              hNoCorr->SetMarkerStyle(24);
+              hNoCorr->SetMarkerSize(0.85);
+              hNoCorr->SetMarkerColor(kBlack);
+              hNoCorr->SetFillStyle(0);
+              hNoCorr->SetMinimum(0.0);
+              hNoCorr->GetXaxis()->SetTitle("m_{#gamma#gamma} [GeV]");
+              hNoCorr->GetYaxis()->SetTitle("Counts");
+              hNoCorr->GetXaxis()->SetRangeUser(0.02, 0.30);
+              hNoCorr->GetXaxis()->SetTitleSize(0.055);
+              hNoCorr->GetYaxis()->SetTitleSize(0.055);
+              hNoCorr->GetXaxis()->SetLabelSize(0.045);
+              hNoCorr->GetYaxis()->SetLabelSize(0.045);
+              hNoCorr->GetYaxis()->SetTitleOffset(1.15);
+            }
+
+            Pi0FitResult fitCorrRes;
+            Pi0FitResult fitNoCorrRes;
+
+            if (hCorr)
+            {
+              fitCorrRes = FitPi0(hCorr, TString::Format("%s_corr_%d", tagPrefix.c_str(), i).Data());
+              if (fitCorrRes.ok)
+              {
+                meanCorrLocal[i] = fitCorrRes.mean;
+                resCorrLocal[i] = fitCorrRes.sigma / fitCorrRes.mean;
+                okMeanCorrLocal[i] = true;
+              }
+            }
+
+            if (hNoCorr)
+            {
+              fitNoCorrRes = FitPi0(hNoCorr, TString::Format("%s_nocorr_%d", tagPrefix.c_str(), i).Data());
+              if (fitNoCorrRes.ok)
+              {
+                meanNoCorrLocal[i] = fitNoCorrRes.mean;
+                resNoCorrLocal[i] = fitNoCorrRes.sigma / fitNoCorrRes.mean;
+                okMeanNoCorrLocal[i] = true;
+              }
+            }
+
+            double ymax = 0.0;
+            if (hCorr) ymax = std::max(ymax, hCorr->GetMaximum());
+            if (hNoCorr) ymax = std::max(ymax, hNoCorr->GetMaximum());
+
+            TH1* first = hCorr ? hCorr : hNoCorr;
+            if (first)
+            {
+              first->SetMinimum(0.0);
+              first->SetMaximum((ymax > 0.0) ? (1.35 * ymax) : 1.0);
+              first->Draw("E1");
+            }
+
+            if (hCorr && hCorr != first) hCorr->Draw("E1 SAME");
+            if (hNoCorr && hNoCorr != first) hNoCorr->Draw("E1 SAME");
+
+            if (fitCorrRes.func)
+            {
+              fitCorrRes.func->SetLineColor(kRed + 1);
+              fitCorrRes.func->SetLineWidth(2);
+              fitCorrRes.func->SetNpx(500);
+              fitCorrRes.func->Draw("SAME");
+              keepFits.push_back(fitCorrRes.func);
+            }
+
+            if (fitNoCorrRes.func)
+            {
+              fitNoCorrRes.func->SetLineColor(kBlack);
+              fitNoCorrRes.func->SetLineWidth(2);
+              fitNoCorrRes.func->SetNpx(500);
+              fitNoCorrRes.func->Draw("SAME");
+              keepFits.push_back(fitNoCorrRes.func);
+            }
+
+            auto* leg = new TLegend(0.16, 0.72, 0.53, 0.82);
+            leg->SetBorderSize(0);
+            leg->SetFillStyle(0);
+            leg->SetTextSize(0.037);
+            if (hCorr)   leg->AddEntry(hCorr,   "with b = 0.15", "lep");
+            if (hNoCorr) leg->AddEntry(hNoCorr, "no asinh correction", "lep");
+            leg->Draw();
+            keepLegends.push_back(leg);
+
+            DrawCenteredHeader(ptTitle, 0.036);
+            DrawTopRightSelection(0.94, 0.72, 0.040, 0.065);
+
+            TLatex t;
+            t.SetNDC(true);
+            t.SetTextFont(42);
+            t.SetTextAlign(13);
+            t.SetTextSize(0.038);
+            if (okMeanCorrLocal[i] && okMeanNoCorrLocal[i] && resNoCorrLocal[i] > 0.0)
+            {
+              const double resolutionGainPct = 100.0 * (resNoCorrLocal[i] - resCorrLocal[i]) / resNoCorrLocal[i];
+              t.SetTextColor(kBlack);
+              t.DrawLatex(0.16, 0.87,
+                TString::Format("Resolution gain with correction: %.2f%%", resolutionGainPct).Data()
+              );
+            }
+            t.SetTextColor(kBlack);
+
+            if (hCorr) keepAlive.push_back(hCorr);
+            if (hNoCorr) keepAlive.push_back(hNoCorr);
+          }
+
+          SaveCanvas(cTbl, JoinPath(outDir, outName));
+
+          for (auto* h : keepAlive) delete h;
+          for (auto* f : keepFits) delete f;
+          for (auto* leg : keepLegends) delete leg;
+        };
+
         double x[nLeadPtBins];
         double ex[nLeadPtBins];
         double meanCorr[nLeadPtBins];
@@ -697,214 +928,14 @@ namespace ARJ
           okMeanNoCorr[i] = false;
         }
 
-        TCanvas cTbl("c_pi0_table", "c_pi0_table", 1800, 1400);
-        cTbl.Divide(2, 2, 0.001, 0.001);
-
-        vector<TH1*> keepAlive;
-        keepAlive.reserve(2 * nLeadPtBins);
-
-        vector<TF1*> keepFits;
-        keepFits.reserve(2 * nLeadPtBins);
-
-        vector<TLegend*> keepLegends;
-        keepLegends.reserve(nLeadPtBins);
-
-        for (int i = 0; i < nLeadPtBins; ++i)
-        {
-          cTbl.cd(i + 1);
-
-          gPad->SetLeftMargin(0.14);
-          gPad->SetRightMargin(0.05);
-          gPad->SetBottomMargin(0.14);
-          gPad->SetTopMargin(0.10);
-          gPad->SetTicks(1,1);
-
-          TH1D* hCorr = ProjectMass(
-            h2Corr,
-            ptLo[i],
-            ptHi[i],
-            TString::Format("h_pi0_corr_leadPt_%d", i).Data()
-          );
-
-          TH1D* hNoCorr = ProjectMass(
-            h2NoCorr,
-            ptLo[i],
-            ptHi[i],
-            TString::Format("h_pi0_nocorr_leadPt_%d", i).Data()
-          );
-
-          const string ptTitle = LeadPhotonPtTitle(i);
-
-          const double iCorr = hCorr ? hCorr->Integral(0, hCorr->GetNbinsX() + 1) : 0.0;
-          const double iNoCorr = hNoCorr ? hNoCorr->Integral(0, hNoCorr->GetNbinsX() + 1) : 0.0;
-
-          if (iCorr <= 0.0 && iNoCorr <= 0.0)
-          {
-            DrawCenteredHeader(ptTitle, 0.036);
-            DrawTopRightSelection(0.94, 0.72, 0.040, 0.065);
-
-            TLatex t;
-            t.SetNDC(true);
-            t.SetTextFont(42);
-            t.SetTextAlign(22);
-            t.SetTextSize(0.075);
-            t.DrawLatex(0.50, 0.55, "MISSING");
-
-            if (hCorr) delete hCorr;
-            if (hNoCorr) delete hNoCorr;
-            continue;
-          }
-
-          if (hCorr)
-          {
-            hCorr->SetTitle("");
-            hCorr->SetLineWidth(2);
-            hCorr->SetLineColor(kRed + 1);
-            hCorr->SetMarkerStyle(20);
-            hCorr->SetMarkerSize(0.85);
-            hCorr->SetMarkerColor(kRed + 1);
-            hCorr->SetFillStyle(0);
-            hCorr->SetMinimum(0.0);
-            hCorr->GetXaxis()->SetTitle("m_{#gamma#gamma} [GeV]");
-            hCorr->GetYaxis()->SetTitle("Counts");
-            hCorr->GetXaxis()->SetRangeUser(0.02, 0.30);
-            hCorr->GetXaxis()->SetTitleSize(0.055);
-            hCorr->GetYaxis()->SetTitleSize(0.055);
-            hCorr->GetXaxis()->SetLabelSize(0.045);
-            hCorr->GetYaxis()->SetLabelSize(0.045);
-            hCorr->GetYaxis()->SetTitleOffset(1.15);
-          }
-
-          if (hNoCorr)
-          {
-            hNoCorr->SetTitle("");
-            hNoCorr->SetLineWidth(2);
-            hNoCorr->SetLineColor(kBlack);
-            hNoCorr->SetMarkerStyle(24);
-            hNoCorr->SetMarkerSize(0.85);
-            hNoCorr->SetMarkerColor(kBlack);
-            hNoCorr->SetFillStyle(0);
-            hNoCorr->SetMinimum(0.0);
-            hNoCorr->GetXaxis()->SetTitle("m_{#gamma#gamma} [GeV]");
-            hNoCorr->GetYaxis()->SetTitle("Counts");
-            hNoCorr->GetXaxis()->SetRangeUser(0.02, 0.30);
-            hNoCorr->GetXaxis()->SetTitleSize(0.055);
-            hNoCorr->GetYaxis()->SetTitleSize(0.055);
-            hNoCorr->GetXaxis()->SetLabelSize(0.045);
-            hNoCorr->GetYaxis()->SetLabelSize(0.045);
-            hNoCorr->GetYaxis()->SetTitleOffset(1.15);
-          }
-
-          Pi0FitResult fitCorrRes;
-          Pi0FitResult fitNoCorrRes;
-
-          if (hCorr)
-          {
-            fitCorrRes = FitPi0(hCorr, TString::Format("corr_%d", i).Data());
-            if (fitCorrRes.ok)
-            {
-              meanCorr[i] = fitCorrRes.mean;
-              meanCorrErr[i] = fitCorrRes.meanErr;
-              sigmaCorr[i] = fitCorrRes.sigma;
-              sigmaCorrErr[i] = fitCorrRes.sigmaErr;
-              resCorr[i] = fitCorrRes.sigma / fitCorrRes.mean;
-
-              const double relSigmaErr = (fitCorrRes.sigma > 0.0) ? (fitCorrRes.sigmaErr / fitCorrRes.sigma) : 0.0;
-              const double relMeanErr  = (fitCorrRes.mean  > 0.0) ? (fitCorrRes.meanErr  / fitCorrRes.mean ) : 0.0;
-              resCorrErr[i] = resCorr[i] * std::sqrt(relSigmaErr * relSigmaErr + relMeanErr * relMeanErr);
-
-              okMeanCorr[i] = true;
-            }
-          }
-
-          if (hNoCorr)
-          {
-            fitNoCorrRes = FitPi0(hNoCorr, TString::Format("nocorr_%d", i).Data());
-            if (fitNoCorrRes.ok)
-            {
-              meanNoCorr[i] = fitNoCorrRes.mean;
-              meanNoCorrErr[i] = fitNoCorrRes.meanErr;
-              sigmaNoCorr[i] = fitNoCorrRes.sigma;
-              sigmaNoCorrErr[i] = fitNoCorrRes.sigmaErr;
-              resNoCorr[i] = fitNoCorrRes.sigma / fitNoCorrRes.mean;
-
-              const double relSigmaErr = (fitNoCorrRes.sigma > 0.0) ? (fitNoCorrRes.sigmaErr / fitNoCorrRes.sigma) : 0.0;
-              const double relMeanErr  = (fitNoCorrRes.mean  > 0.0) ? (fitNoCorrRes.meanErr  / fitNoCorrRes.mean ) : 0.0;
-              resNoCorrErr[i] = resNoCorr[i] * std::sqrt(relSigmaErr * relSigmaErr + relMeanErr * relMeanErr);
-
-              okMeanNoCorr[i] = true;
-            }
-          }
-
-          double ymax = 0.0;
-          if (hCorr) ymax = std::max(ymax, hCorr->GetMaximum());
-          if (hNoCorr) ymax = std::max(ymax, hNoCorr->GetMaximum());
-
-          TH1* first = hCorr ? hCorr : hNoCorr;
-          if (first)
-          {
-            first->SetMinimum(0.0);
-            first->SetMaximum((ymax > 0.0) ? (1.35 * ymax) : 1.0);
-            first->Draw("E1");
-          }
-
-          if (hCorr && hCorr != first) hCorr->Draw("E1 SAME");
-          if (hNoCorr && hNoCorr != first) hNoCorr->Draw("E1 SAME");
-
-          if (fitCorrRes.func)
-          {
-            fitCorrRes.func->SetLineColor(kRed + 1);
-            fitCorrRes.func->SetLineWidth(2);
-            fitCorrRes.func->SetNpx(500);
-            fitCorrRes.func->Draw("SAME");
-            keepFits.push_back(fitCorrRes.func);
-          }
-
-          if (fitNoCorrRes.func)
-          {
-            fitNoCorrRes.func->SetLineColor(kBlack);
-            fitNoCorrRes.func->SetLineWidth(2);
-            fitNoCorrRes.func->SetNpx(500);
-            fitNoCorrRes.func->Draw("SAME");
-            keepFits.push_back(fitNoCorrRes.func);
-          }
-
-          auto* leg = new TLegend(0.16, 0.72, 0.53, 0.82);
-          leg->SetBorderSize(0);
-          leg->SetFillStyle(0);
-          leg->SetTextSize(0.037);
-          if (hCorr)   leg->AddEntry(hCorr,   "with b = 0.15", "lep");
-          if (hNoCorr) leg->AddEntry(hNoCorr, "no asinh correction", "lep");
-          leg->Draw();
-          keepLegends.push_back(leg);
-
-          DrawCenteredHeader(ptTitle, 0.036);
-          DrawTopRightSelection(0.94, 0.72, 0.040, 0.065);
-
-          TLatex t;
-          t.SetNDC(true);
-          t.SetTextFont(42);
-          t.SetTextAlign(13);
-          t.SetTextSize(0.038);
-          if (okMeanCorr[i] && okMeanNoCorr[i] && resNoCorr[i] > 0.0)
-          {
-            const double resolutionGainPct = 100.0 * (resNoCorr[i] - resCorr[i]) / resNoCorr[i];
-            t.SetTextColor(kBlack);
-            t.DrawLatex(0.16, 0.87,
-              TString::Format("Resolution gain with correction: %.2f%%", resolutionGainPct).Data()
-            );
-          }
-          t.SetTextColor(kBlack);
-
-          if (hCorr) keepAlive.push_back(hCorr);
-          if (hNoCorr) keepAlive.push_back(hNoCorr);
-        }
-
-        SaveCanvas(cTbl, JoinPath(outDir, "table2x2_pi0_mass_leadPhotonPt_corr_vs_nocorr.pdf"));
-
-        for (auto* h : keepAlive) delete h;
-        for (auto* f : keepFits) delete f;
-        for (auto* leg : keepLegends) delete leg;
+        DrawPi0Table(
+          h2Corr,
+          h2NoCorr,
+          "c_pi0_table",
+          "table2x2_pi0_mass_leadPhotonPt_corr_vs_nocorr.pdf",
+          "leadPt",
+          LeadPhotonPtTitle
+        );
 
         auto DrawSummaryGraph =
           [&](const string& outName,
@@ -1075,6 +1106,27 @@ namespace ARJ
           okMeanNoCorr,
           true
         );
+
+        if (h2Pi0PtCorr && h2Pi0PtNoCorr)
+        {
+          DrawPi0Table(
+            h2Pi0PtCorr,
+            h2Pi0PtNoCorr,
+            "c_pi0_table_pi0pt",
+            "table2x2_pi0_mass_pi0Pt_corr_vs_nocorr.pdf",
+            "pi0Pt",
+            Pi0PtTitle
+          );
+        }
+        else
+        {
+          cout << ANSI_BOLD_YEL
+               << "[WARN] Missing pi0 TH2(s) needed for additional pi0-pT QA table.\n"
+               << "       Need:\n"
+               << "         MBD_NandS_geq_1/h2_pi0_mass_vs_pi0pt_corr\n"
+               << "         MBD_NandS_geq_1/h2_pi0_mass_vs_pi0pt_nocorr\n"
+               << ANSI_RESET << "\n";
+        }
       }
 
 
