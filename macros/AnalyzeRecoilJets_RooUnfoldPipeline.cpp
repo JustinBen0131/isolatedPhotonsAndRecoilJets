@@ -453,7 +453,6 @@
         {
           if (!h) return false;
 
-          h->Reset("ICES");
           h->SetDirectory(nullptr);
           EnsureSumw2(h);
 
@@ -496,8 +495,17 @@
             const int ib = h->GetXaxis()->FindBin(cen);
             if (ib < 1 || ib > h->GetNbinsX()) continue;
 
-            h->SetBinContent(ib, SA);
-            h->SetBinError  (ib, eSA);
+            const double raw     = h->GetBinContent(ib);
+            const double eraw    = h->GetBinError  (ib);
+            const double purity  = (A > 0.0 ? std::min(std::max(SA / A, 0.0), 1.0) : 0.0);
+            const double epurity = (A > 0.0 ? eSA / A : 0.0);
+
+            const double corr  = raw * purity;
+            const double ecorr = std::sqrt((purity * eraw) * (purity * eraw) +
+                                           (raw * epurity) * (raw * epurity));
+
+            h->SetBinContent(ib, corr);
+            h->SetBinError  (ib, ecorr);
           }
 
           return true;
