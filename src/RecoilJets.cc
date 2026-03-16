@@ -132,6 +132,154 @@ namespace
     const double etaMax = 1.1 - R;
     return (etaMax > 0.0 ? etaMax : 0.0);
   }
+
+  struct DoNotScalePairConfig
+  {
+    uint64_t runMin;
+    uint64_t runMax;
+    int baselineBit;
+    int probeBit;
+    const char* probeHistKey;
+  };
+
+  inline bool doNotScaleRunMatch(const uint64_t runNumber,
+                                 const DoNotScalePairConfig& cfg)
+  {
+    return (runNumber >= cfg.runMin && runNumber <= cfg.runMax);
+  }
+
+  inline bool doNotScaleBitIsSet(const uint64_t vec, const int bit)
+  {
+    return (bit >= 0 && bit < 64) ? (((vec >> bit) & 0x1ULL) != 0ULL) : false;
+  }
+
+  inline std::string doNotScaleBaselineHistKey(const DoNotScalePairConfig& cfg)
+  {
+    return std::string("baseline_") + cfg.probeHistKey;
+  }
+
+  inline const std::vector<DoNotScalePairConfig>& getDoNotScalePairConfigs()
+  {
+    static const std::vector<DoNotScalePairConfig> cfgs = {
+      // pp24
+      {47289, 51015, 10, 24, "Photon_2_GeV_plus_MBD_NS_geq_1"},
+      {47289, 51015, 10, 25, "Photon_3_GeV_plus_MBD_NS_geq_1"},
+      {47289, 51015, 10, 26, "Photon_4_GeV_plus_MBD_NS_geq_1"},
+      {47289, 51015, 10, 27, "Photon_5_GeV_plus_MBD_NS_geq_1"},
+      {51093, 52596, 10, 24, "Photon_2_GeV_plus_MBD_NS_geq_1"},
+      {51093, 52596, 10, 25, "Photon_3_GeV_plus_MBD_NS_geq_1"},
+      {51093, 52596, 10, 26, "Photon_4_GeV_plus_MBD_NS_geq_1"},
+      {51093, 52596, 10, 27, "Photon_5_GeV_plus_MBD_NS_geq_1"},
+      {51093, 52596, 12, 36, "Photon_3_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+      {51093, 52596, 12, 37, "Photon_4_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+      {51093, 52596, 12, 38, "Photon_5_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+      {52610, 53864, 10, 24, "Photon_2_GeV_plus_MBD_NS_geq_1"},
+      {52610, 53864, 10, 25, "Photon_3_GeV_plus_MBD_NS_geq_1"},
+      {52610, 53864, 10, 26, "Photon_4_GeV_plus_MBD_NS_geq_1"},
+      {52610, 53864, 10, 27, "Photon_5_GeV_plus_MBD_NS_geq_1"},
+      {52610, 53864, 12, 36, "Photon_3_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+      {52610, 53864, 12, 37, "Photon_4_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+      {52610, 53864, 12, 38, "Photon_5_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+
+      // pp25
+      {79269, 79493, 10, 24, "Photon_2_GeV_plus_MBD_NS_geq_1"},
+      {79269, 79493, 10, 25, "Photon_3_GeV_plus_MBD_NS_geq_1"},
+      {79269, 79493, 10, 26, "Photon_4_GeV_plus_MBD_NS_geq_1"},
+      {79269, 79493, 10, 27, "Photon_5_GeV_plus_MBD_NS_geq_1"},
+      {79269, 79493, 12, 36, "Photon_3_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+      {79269, 79493, 12, 37, "Photon_4_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+      {79269, 79493, 12, 38, "Photon_5_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+      {79494, 79494, 10, 24, "Photon_2_GeV_plus_MBD_NS_geq_1"},
+      {79494, 79494, 10, 25, "Photon_3_GeV_plus_MBD_NS_geq_1"},
+      {79494, 79494, 10, 26, "Photon_4_GeV_plus_MBD_NS_geq_1"},
+      {79494, 79494, 10, 27, "Photon_5_GeV_plus_MBD_NS_geq_1"},
+      {79494, 79494, 12, 36, "Photon_3_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+      {79494, 79494, 12, 37, "Photon_4_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+      {79494, 79494, 12, 38, "Photon_5_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+      {79495, 81664, 10, 24, "Photon_2_GeV_plus_MBD_NS_geq_1"},
+      {79495, 81664, 10, 25, "Photon_3_GeV_plus_MBD_NS_geq_1"},
+      {79495, 81664, 10, 26, "Photon_4_GeV_plus_MBD_NS_geq_1"},
+      {79495, 81664, 10, 27, "Photon_5_GeV_plus_MBD_NS_geq_1"},
+      {79495, 81664, 12, 35, "Photon_2_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+      {79495, 81664, 12, 36, "Photon_3_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+      {79495, 81664, 12, 37, "Photon_4_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+      {79495, 81664, 12, 38, "Photon_5_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+
+      // oo25
+      {82400, 82702, 10, 24, "Photon_2_GeV_plus_MBD_NS_geq_1"},
+      {82400, 82702, 10, 25, "Photon_3_GeV_plus_MBD_NS_geq_1"},
+      {82400, 82702, 10, 26, "Photon_4_GeV_plus_MBD_NS_geq_1"},
+      {82400, 82702, 10, 27, "Photon_5_GeV_plus_MBD_NS_geq_1"},
+      {82400, 82702, 12, 35, "Photon_2_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+      {82400, 82702, 12, 36, "Photon_3_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+      {82400, 82702, 12, 37, "Photon_4_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+      {82400, 82702, 12, 38, "Photon_5_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+
+      // run2auau
+      {54264, 54547, 10, 24, "Photon_2_GeV_plus_MBD_NS_geq_2"},
+      {54264, 54547, 10, 25, "Photon_3_GeV_plus_MBD_NS_geq_2"},
+      {54264, 54547, 10, 26, "Photon_4_GeV_plus_MBD_NS_geq_2"},
+      {54264, 54547, 10, 27, "Photon_5_GeV_plus_MBD_NS_geq_2"},
+      {54264, 54547, 12, 36, "Photon_3_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {54264, 54547, 12, 37, "Photon_4_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {54264, 54547, 12, 38, "Photon_5_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {54549, 54974, 10, 24, "Photon_10_GeV_plus_MBD_NS_geq_2"},
+      {54549, 54974, 10, 25, "Photon_14_GeV_plus_MBD_NS_geq_2"},
+      {54549, 54974, 10, 26, "Photon_18_GeV_plus_MBD_NS_geq_2"},
+      {54549, 54974, 10, 27, "Photon_20_GeV_plus_MBD_NS_geq_2"},
+      {54549, 54974, 12, 35, "Photon_10_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {54549, 54974, 12, 36, "Photon_14_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {54549, 54974, 12, 37, "Photon_18_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {54549, 54974, 12, 38, "Photon_20_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+
+      // auau
+      {67599, 68155, 10, 16, "Photon_6_GeV_plus_MBD_NS_geq_2"},
+      {67599, 68155, 10, 17, "Photon_8_GeV_plus_MBD_NS_geq_2"},
+      {67599, 68155, 10, 18, "Photon_10_GeV_plus_MBD_NS_geq_2"},
+      {67599, 68155, 10, 19, "Photon_12_GeV_plus_MBD_NS_geq_2"},
+      {68208, 68220, 12, 16, "Photon_6_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {68208, 68220, 12, 17, "Photon_8_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {68208, 68220, 12, 18, "Photon_10_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {68208, 68220, 12, 19, "Photon_12_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {68208, 68220, 14, 20, "Photon_6_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+      {68208, 68220, 14, 21, "Photon_8_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+      {68208, 68220, 14, 22, "Photon_10_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+      {68208, 68220, 14, 23, "Photon_12_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+      {68335, 69616, 12, 16, "Photon_6_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {68335, 69616, 12, 17, "Photon_8_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {68335, 69616, 12, 18, "Photon_10_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {68335, 69616, 12, 19, "Photon_12_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {68335, 69616, 14, 20, "Photon_6_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+      {68335, 69616, 14, 21, "Photon_8_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+      {68335, 69616, 14, 22, "Photon_10_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+      {68335, 69616, 14, 23, "Photon_12_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+      {71328, 78572, 12, 16, "Photon_6_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {71328, 78572, 12, 17, "Photon_8_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {71328, 78572, 12, 18, "Photon_10_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {71328, 78572, 12, 19, "Photon_12_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {71328, 78572, 14, 20, "Photon_6_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+      {71328, 78572, 14, 21, "Photon_8_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+      {71328, 78572, 14, 22, "Photon_10_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+      {71328, 78572, 14, 23, "Photon_12_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+      {78686, 78686, 10, 24, "Photon_2_GeV_plus_MBD_NS_geq_2"},
+      {78686, 78686, 10, 25, "Photon_3_GeV_plus_MBD_NS_geq_2"},
+      {78686, 78686, 10, 26, "Photon_4_GeV_plus_MBD_NS_geq_2"},
+      {78686, 78686, 12, 36, "Photon_3_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {78686, 78686, 12, 17, "Photon_8_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {78686, 78686, 12, 18, "Photon_10_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {78686, 78686, 14, 21, "Photon_8_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+      {78689, 78954, 12, 16, "Photon_6_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {78689, 78954, 12, 17, "Photon_8_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {78689, 78954, 12, 18, "Photon_10_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {78689, 78954, 12, 19, "Photon_12_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+      {78689, 78954, 14, 20, "Photon_6_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+      {78689, 78954, 14, 21, "Photon_8_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+      {78689, 78954, 14, 22, "Photon_10_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+      {78689, 78954, 14, 23, "Photon_12_GeV_plus_MBD_NS_geq_2_vtx_lt_150"}
+    };
+
+    return cfgs;
+  }
 }
 
 
@@ -1438,32 +1586,24 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     /* 2) Trigger gating (pp & Au+Au) — unified in firstEventCuts()       */
     /* ------------------------------------------------------------------ */
 
+    // DATA ONLY: doNotScale max-cluster-energy trigger-efficiency fill
+    //   - baseline gate uses the event-level raw/unscaled GL1 TriggerVector bit
+    //   - probe gate uses the event-level GL1 LiveVector bit
+    //   - denominator is filled ONCE per pair when the baseline bit is on
+    //   - numerator   is filled ONCE per pair when baseline AND probe are on
+    //   - run-range/bit mapping is hard-coded from the ALL QA output above
     // ------------------------------------------------------------------
-    // pp DATA ONLY: doNotScale max-cluster-energy trigger-efficiency fill
-    // Keep the effect local to the doNotScale block:
-    //   - apply a dedicated global |vz|<30 cm requirement BEFORE any
-    //     doNotScale-family logic
-    //   - build max_energy_clus exactly once for the event
-    //   - fill three independent doNotScale families:
-    //       1) no-vtx family
-    //       2) vtx<10 family
-    //       3) inclusive OR family
-    //   - preserve the existing inclusive repeated-call semantics WITHIN
-    //     each family only
-    // ------------------------------------------------------------------
-    if (!m_isSim && !m_isAuAu)
+    if (!m_isSim)
     {
-        if (trigAna)
+        Gl1Packet* gl1Packet = findNode::getClass<Gl1Packet>(topNode, "GL1Packet");
+        if (!gl1Packet) gl1Packet = findNode::getClass<Gl1Packet>(topNode, "14001");
+
+        if (gl1Packet)
         {
-            trigAna->decodeTriggers(topNode);
+            const uint64_t runNumber     = recoConsts::instance()->get_uint64Flag("TIMESTAMP", 0);
+            const uint64_t triggerVector = static_cast<uint64_t>(gl1Packet->lValue(0, "TriggerVector"));
+            const uint64_t liveVector    = static_cast<uint64_t>(gl1Packet->lValue(0, "LiveVector"));
 
-            const std::string mbdNoVtxDbName      = "MBD N&S >= 1";
-            const std::string mbdNoVtxShortName   = "MBD_NandS_geq_1";
-            const std::string mbdWithVtxDbName    = "MBD N&S >= 1, vtx < 10 cm";
-            const std::string mbdWithVtxShortName = "MBD_NandS_geq_1_vtx_lt_10";
-            const std::string mbdInclusiveOrShortName = "MBD_NandS_geq_1_OR_MBD_NandS_geq_1_vtx_lt_10";
-
-            const bool isMBNoVtx = trigAna->didTriggerFire(mbdNoVtxDbName);
             const bool passVzForDoNotScale =
                 (std::isfinite(m_vz) && std::fabs(m_vz) < 30.0);
 
@@ -1498,137 +1638,62 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
                   }
                 }
 
-                auto fillBookedDoNotScaleHist = [&](const std::string& histFriendlyStr)
+                auto fillDoNotScaleHist = [&](const std::string& histKey)
                 {
-                  const std::string histName = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + histFriendlyStr;
-                  auto& histogramMap = qaHistogramsByTrigger[histFriendlyStr];
+                  const std::string histName = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + histKey;
+                  auto& histogramMap = qaHistogramsByTrigger[histKey];
+
+                  TH1F* h = nullptr;
                   auto it = histogramMap.find(histName);
-                  if (it == histogramMap.end() || !(it->second))
+                  if (it != histogramMap.end())
                   {
-                    return;
+                    h = dynamic_cast<TH1F*>(it->second);
                   }
 
-                  TH1F* h = dynamic_cast<TH1F*>(it->second);
-                  if (h)
+                  if (!h)
                   {
-                    h->Fill(max_energy_clus);
+                    TDirectory* dir = out->GetDirectory(histKey.c_str());
+                    if (!dir) dir = out->mkdir(histKey.c_str());
+                    if (!dir) return;
+
+                    TDirectory* prevDir = gDirectory;
+                    dir->cd();
+
+                    h = new TH1F(histName.c_str(),
+                                 "Max Cluster Energy; Cluster Energy [GeV]",
+                                 40, 0, 20);
+                    h->SetDirectory(dir);
+                    histogramMap[histName] = h;
+
+                    if (prevDir) prevDir->cd();
                   }
+
+                  h->Fill(max_energy_clus);
+                  bumpHistFill(histKey, histName);
                 };
 
-                auto fillDoNotScaleFamily = [&](const std::vector<std::pair<std::string, std::string>>& familyMap,
-                                                const std::string& familyMbdDbName,
-                                                const std::string& familyMbdShortName)
+                for (const auto& cfg : getDoNotScalePairConfigs())
                 {
-                  std::vector<std::string> activeFamilyTrig;
-                  activeFamilyTrig.reserve(familyMap.size());
+                  if (!doNotScaleRunMatch(runNumber, cfg)) continue;
+                  if (!doNotScaleBitIsSet(triggerVector, cfg.baselineBit)) continue;
 
-                  for (const auto& kv : familyMap)
+                  fillDoNotScaleHist(doNotScaleBaselineHistKey(cfg));
+
+                  if (doNotScaleBitIsSet(liveVector, cfg.probeBit))
                   {
-                    const std::string& dbTriggerName   = kv.first;
-                    const std::string& histFriendlyStr = kv.second;
-
-                    if (trigAna->didTriggerFire(dbTriggerName))
-                    {
-                      activeFamilyTrig.push_back(histFriendlyStr);
-                    }
+                    fillDoNotScaleHist(cfg.probeHistKey);
                   }
-
-                  if (!trigAna->didTriggerFire(familyMbdDbName))
-                  {
-                    return;
-                  }
-
-                  for (const auto& firedShortName : activeFamilyTrig)
-                  {
-                    (void) firedShortName;
-
-                    fillBookedDoNotScaleHist(familyMbdShortName);
-
-                    for (const auto& kv : familyMap)
-                    {
-                      const std::string& dbTriggerName   = kv.first;
-                      const std::string& histFriendlyStr = kv.second;
-
-                      if (dbTriggerName == familyMbdDbName)
-                      {
-                        continue;
-                      }
-
-                      if (!trigAna->checkRawTrigger(dbTriggerName))
-                      {
-                        continue;
-                      }
-
-                      fillBookedDoNotScaleHist(histFriendlyStr);
-                    }
-                  }
-                };
-
-                auto fillDoNotScaleFamilyInclusiveOR = [&](const std::vector<std::tuple<std::string, std::string, std::string>>& familyMap,
-                                                           const std::string& familyMbdNoVtxDbName,
-                                                           const std::string& familyMbdWithVtxDbName,
-                                                           const std::string& familyMbdShortName)
-                {
-                  std::vector<std::string> activeFamilyTrig;
-                  activeFamilyTrig.reserve(familyMap.size());
-
-                  for (const auto& kv : familyMap)
-                  {
-                    const std::string& dbTriggerNameNoVtx   = std::get<0>(kv);
-                    const std::string& dbTriggerNameWithVtx = std::get<1>(kv);
-                    const std::string& histFriendlyStr      = std::get<2>(kv);
-
-                    if (trigAna->didTriggerFire(dbTriggerNameNoVtx) || trigAna->didTriggerFire(dbTriggerNameWithVtx))
-                    {
-                      activeFamilyTrig.push_back(histFriendlyStr);
-                    }
-                  }
-
-                  if (!(trigAna->didTriggerFire(familyMbdNoVtxDbName) || trigAna->didTriggerFire(familyMbdWithVtxDbName)))
-                  {
-                    return;
-                  }
-
-                  for (const auto& firedShortName : activeFamilyTrig)
-                  {
-                    (void) firedShortName;
-
-                    fillBookedDoNotScaleHist(familyMbdShortName);
-
-                    for (const auto& kv : familyMap)
-                    {
-                      const std::string& dbTriggerNameNoVtx   = std::get<0>(kv);
-                      const std::string& dbTriggerNameWithVtx = std::get<1>(kv);
-                      const std::string& histFriendlyStr      = std::get<2>(kv);
-
-                      if (histFriendlyStr == familyMbdShortName)
-                      {
-                        continue;
-                      }
-
-                      if (!(trigAna->checkRawTrigger(dbTriggerNameNoVtx) || trigAna->checkRawTrigger(dbTriggerNameWithVtx)))
-                      {
-                        continue;
-                      }
-
-                      fillBookedDoNotScaleHist(histFriendlyStr);
-                    }
-                  }
-                };
-
-                fillDoNotScaleFamily(triggerNameMap_pp_doNotScale_noVtx,
-                                     mbdNoVtxDbName,
-                                     mbdNoVtxShortName);
-
-                fillDoNotScaleFamily(triggerNameMap_pp_doNotScale_withVtx,
-                                     mbdWithVtxDbName,
-                                     mbdWithVtxShortName);
-
-                fillDoNotScaleFamilyInclusiveOR(triggerNameMap_pp_doNotScale_inclusiveOR,
-                                                mbdNoVtxDbName,
-                                                mbdWithVtxDbName,
-                                                mbdInclusiveOrShortName);
+                }
             }
+        }
+
+        if (!m_isAuAu && trigAna)
+        {
+            trigAna->decodeTriggers(topNode);
+
+            const std::string mbdNoVtxDbName    = "MBD N&S >= 1";
+            const std::string mbdNoVtxShortName = "MBD_NandS_geq_1";
+            const bool isMBNoVtx = trigAna->didTriggerFire(mbdNoVtxDbName);
 
             if (isMBNoVtx && m_doPi0Analysis)
             {
@@ -4244,13 +4309,10 @@ bool RecoilJets::runLeadIsoTightPhotonJetMatchingAndUnfolding(
           { hRF->Fill(leadPtGamma); bumpHistFill(trigShort, hRF->GetName()); }
         }
 
-        // Exploratory reco photon fakes under the PPG12-style object-match definition.
-        if (!haveTruthPhoPPG12)
-        {
-          if (auto* hRFAlt = getOrBookUnfoldRecoPhoFakesPtGammaPPG12Obj(trigShort, effCentIdx_M))
-          { hRFAlt->Fill(leadPtGamma); bumpHistFill(trigShort, hRFAlt->GetName()); }
-        }
-    
+          // Exploratory reco photon fakes under the PPG12-style object-match definition
+          // are filled per reco iso+tight photon candidate before this event-level
+          // jet-matching call so unmatched candidates are counted inclusively.
+      
         // Baseline photon response (truth -> reco): strict selected-anchor definition.
         if (haveTruthSigPho && haveTruthPho)
         {
@@ -5030,6 +5092,11 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
       // iso∧tight gate used for the event-leading photon selection in this event.
       int nIsoTightPhoCand = 0;
 
+      // PPG12-style photon-only bookkeeping: keep every reco iso∧tight candidate so the
+      // alternate reco and fake spectra can be filled per object, independent of leading selection.
+      std::vector<const RawCluster*> recoIsoTightPhoClustersPPG12;
+      std::vector<double>            recoIsoTightPhoPtsPPG12;
+
       // ------------------------------------------------------------------
       // SIM ONLY: objects needed to truth-tag reco clusters for PPG12-style
       // shower-shape templates (signal vs background).
@@ -5524,9 +5591,12 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 if (auto* h3 = getOrBookPho3TightIso(trigShort))
                 {
                   h3->Fill(pt_gamma, eta, TVector2::Phi_mpi_pi(phi_gamma));
-                  bumpHistFill(trigShort, h3->GetName());
+                    bumpHistFill(trigShort, h3->GetName());
                 }
               }
+
+             recoIsoTightPhoClustersPPG12.push_back(rc);
+             recoIsoTightPhoPtsPPG12.push_back(pt_gamma);
 
              const int effCentIdx_PPG12 = (m_isAuAu ? centIdx : -1);
              for (const auto& trigShort : activeTrig)
@@ -5535,8 +5605,8 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                {
                  hRAlt->Fill(pt_gamma);
                  bumpHistFill(trigShort, hRAlt->GetName());
-               }
              }
+            }
 
            // Do NOT jet-match here. If >1 photon passes iso∧tight in the same event,
            // jet-matching here would double-fill xJ/JES histograms.
@@ -5713,6 +5783,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
           bool   haveTruthPho = false;
           bool   haveTruthPhoPPG12 = false;
           double recoPtTruthMatchPPG12 = 0.0;
+          const RawCluster* recoMatchPPG12 = nullptr;
 
           double tPt  = (haveTruthSigPho ? tPtSig  : 0.0);
           double tEta = (haveTruthSigPho ? tEtaSig : 0.0);
@@ -5778,6 +5849,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                     {
                       haveTruthPhoPPG12 = true;
                       recoPtTruthMatchPPG12 = rPt;
+                      recoMatchPPG12 = recoMatch;
 
                       if (Verbosity() >= 5)
                       {
@@ -5837,6 +5909,23 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
               }
             }
           }
+
+          if (m_isSim)
+          {
+            for (const auto& trigShort : activeTrig)
+            {
+              if (auto* hRFAlt = getOrBookUnfoldRecoPhoFakesPtGammaPPG12Obj(trigShort, effCentIdx_M))
+              {
+                for (size_t iPPG12 = 0; iPPG12 < recoIsoTightPhoPtsPPG12.size(); ++iPPG12)
+                {
+                  if (haveTruthPhoPPG12 && recoIsoTightPhoClustersPPG12[iPPG12] == recoMatchPPG12) continue;
+                  hRFAlt->Fill(recoIsoTightPhoPtsPPG12[iPPG12]);
+                  bumpHistFill(trigShort, hRFAlt->GetName());
+                }
+              }
+            }
+          }
+
             const bool filledAnyRadius =
                 runLeadIsoTightPhotonJetMatchingAndUnfolding(activeTrig,
                                                              effCentIdx_M,
