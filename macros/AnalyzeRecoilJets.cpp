@@ -10308,6 +10308,118 @@ namespace ARJ
 
         MakePerPtOverlays_PPvsAuAu(ppTop, aaTop, histBase, centSuffix, centLabel, outDir,
                                    xTitle, topLeftTitle, forceIsoXRange);
+
+        if (histBase == "h_Eiso")
+        {
+          static std::set<string> s_donePeripheralVsPP;
+
+          const auto& centBins = CentBins();
+          if (centBins.empty()) return;
+
+          const auto& ptBins = PtBins();
+          if (ptBins.empty()) return;
+
+          const CentBin& peripheralBin = centBins.back();
+
+          const string peripheralDir = JoinPath(DirnameFromPath(outDir), peripheralBin.folder);
+          EnsureDir(peripheralDir);
+
+          const string peripheralTablePng = JoinPath(peripheralDir, "table3x3_overlay_peripheral_vs_pp.png");
+          if (s_donePeripheralVsPP.count(peripheralTablePng)) return;
+          s_donePeripheralVsPP.insert(peripheralTablePng);
+
+          TCanvas cTbl("c_peripheral_vs_pp_iso_tbl", "c_peripheral_vs_pp_iso_tbl", 1500, 1200);
+          cTbl.Divide(3, 3, 0.001, 0.001);
+
+          vector<TH1*> keepAlive;
+          keepAlive.reserve((std::size_t)std::min(9, kNPtBins) * 2);
+
+          vector<TLegend*> keepAliveLeg;
+          keepAliveLeg.reserve((std::size_t)std::min(9, kNPtBins));
+
+          const int nPads = std::min(9, kNPtBins);
+
+          for (int i = 0; i < nPads; ++i)
+          {
+            const PtBin& pb = ptBins[i];
+
+            const string hPPName = histBase + pb.suffix;
+            const string hAAName = histBase + pb.suffix + peripheralBin.suffix;
+
+            TH1* rawPP = GetTH1FromTopDir(ppTop, hPPName);
+            TH1* rawAA = GetTH1FromTopDir(aaTop, hAAName);
+
+            cTbl.cd(i + 1);
+            gPad->SetLeftMargin(0.14);
+            gPad->SetRightMargin(0.05);
+            gPad->SetBottomMargin(0.14);
+            gPad->SetTopMargin(0.12);
+            gPad->SetLogy(false);
+
+            if (!rawPP || !rawAA)
+            {
+              DrawMissingPad(TString::Format("Peripheral vs pp, p_{T}^{#gamma} = %d-%d GeV", pb.lo, pb.hi).Data());
+              continue;
+            }
+
+            TH1* hPP = CloneNormalizeStyle(rawPP,
+              TString::Format("h_peripheralVsPP_pp_%s", pb.folder.c_str()).Data(),
+              kBlack, 24);
+
+            TH1* hAA = CloneNormalizeStyle(rawAA,
+              TString::Format("h_peripheralVsPP_auau_%s", pb.folder.c_str()).Data(),
+              kRed + 1, 20);
+
+            if (!hPP || !hAA)
+            {
+              if (hPP) delete hPP;
+              if (hAA) delete hAA;
+              DrawMissingPad(TString::Format("Peripheral vs pp, p_{T}^{#gamma} = %d-%d GeV", pb.lo, pb.hi).Data());
+              continue;
+            }
+
+            hPP->GetXaxis()->SetTitle(xTitle.c_str());
+            hPP->GetYaxis()->SetTitle("Normalized counts");
+            hAA->GetXaxis()->SetTitle(xTitle.c_str());
+            hAA->GetYaxis()->SetTitle("Normalized counts");
+
+            hPP->GetXaxis()->SetRangeUser(-2.0, 6.0);
+            hAA->GetXaxis()->SetRangeUser(-2.0, 6.0);
+
+            double yMax = std::max(hPP->GetMaximum(), hAA->GetMaximum());
+            hPP->SetMaximum((yMax > 0.0) ? (1.25 * yMax) : 1.0);
+            hPP->SetMinimum(0.0);
+
+            hPP->Draw("E1");
+            hAA->Draw("E1 same");
+
+            auto* leg = new TLegend(0.62, 0.72, 0.90, 0.86);
+            leg->SetBorderSize(0);
+            leg->SetFillStyle(0);
+            leg->SetTextSize(0.040);
+            leg->AddEntry(hPP, "Run24pp", "ep");
+            leg->AddEntry(hAA, "Run3auau", "ep");
+            leg->Draw();
+            keepAliveLeg.push_back(leg);
+
+            TLatex t;
+            t.SetNDC(true);
+            t.SetTextFont(42);
+            t.SetTextAlign(23);
+            t.SetTextSize(0.052);
+            t.DrawLatex(0.50, 0.958,
+              TString::Format("Peripheral vs pp for p_{T}^{#gamma} = %d - %d GeV", pb.lo, pb.hi).Data()
+            );
+
+            keepAlive.push_back(hPP);
+            keepAlive.push_back(hAA);
+          }
+
+          SaveCanvas(cTbl, peripheralTablePng);
+
+          for (TH1* h : keepAlive) delete h;
+          for (TLegend* leg : keepAliveLeg) delete leg;
+        }
       }
 
       // =============================================================================

@@ -269,32 +269,11 @@ public:
       //      {"Photon 5 GeV + MBD NS >= 1","Photon_5_GeV_plus_MBD_NS_geq_1"}
   };
 
-  // Separate pp trigger maps used ONLY for the doNotScale max-cluster-energy histograms.
-  // These are intentionally independent of the main analysis trigger gating above.
-  inline static const std::vector<std::pair<std::string, std::string>> triggerNameMap_pp_doNotScale_noVtx = {
-        {"MBD N&S >= 1",          "MBD_NandS_geq_1"},
-        {"Photon 2 GeV+ MBD NS >= 1","Photon_2_GeV_plus_MBD_NS_geq_1"},
-        {"Photon 3 GeV + MBD NS >= 1","Photon_3_GeV_plus_MBD_NS_geq_1"},
-        {"Photon 4 GeV + MBD NS >= 1","Photon_4_GeV_plus_MBD_NS_geq_1"},
-        {"Photon 5 GeV + MBD NS >= 1","Photon_5_GeV_plus_MBD_NS_geq_1"}
-  };
-
-  inline static const std::vector<std::pair<std::string, std::string>> triggerNameMap_pp_doNotScale_withVtx = {
-        {"MBD N&S >= 1, vtx < 10 cm",          "MBD_NandS_geq_1_vtx_lt_10"},
-        {"Photon 3 GeV, MBD N&S >= 1, vtx < 10 cm","Photon_3_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
-        {"Photon 4 GeV, MBD N&S >= 1, vtx < 10 cm","Photon_4_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
-        {"Photon 5 GeV, MBD N&S >= 1, vtx < 10 cm","Photon_5_GeV_plus_MBD_NS_geq_1_vtx_lt_10"}
-  };
-
-  // Inclusive OR family used ONLY for the doNotScale histograms.
-  // Each entry merges the no-vtx and vtx<10 cm trigger families into one
-  // analysis-level population with an explicit combined short-name for output.
-  inline static const std::vector<std::tuple<std::string, std::string, std::string>> triggerNameMap_pp_doNotScale_inclusiveOR = {
-        {"MBD N&S >= 1", "MBD N&S >= 1, vtx < 10 cm", "MBD_NandS_geq_1_OR_MBD_NandS_geq_1_vtx_lt_10"},
-        {"Photon 3 GeV + MBD NS >= 1", "Photon 3 GeV, MBD N&S >= 1, vtx < 10 cm", "Photon_3_GeV_plus_MBD_NS_geq_1_OR_Photon_3_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
-        {"Photon 4 GeV + MBD NS >= 1", "Photon 4 GeV, MBD N&S >= 1, vtx < 10 cm", "Photon_4_GeV_plus_MBD_NS_geq_1_OR_Photon_4_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
-        {"Photon 5 GeV + MBD NS >= 1", "Photon 5 GeV, MBD N&S >= 1, vtx < 10 cm", "Photon_5_GeV_plus_MBD_NS_geq_1_OR_Photon_5_GeV_plus_MBD_NS_geq_1_vtx_lt_10"}
-  };
+  // doNotScale turn-on bookkeeping is configured in RecoilJets.cc as
+  // run-resolved (baseline raw bit, probe live bit) pairs.
+  // Pair-specific histograms are filled as:
+  //   h_maxEnergyClus_NewTriggerFilling_doNotScale_<probeHistKey>
+  //   h_maxEnergyClus_NewTriggerFilling_doNotScale_baseline_<probeHistKey>
       
   inline static const std::vector<std::pair<int, std::string>> triggerNameMapAuAu = {
     //        {10, "MBD_NS_geq_2"},

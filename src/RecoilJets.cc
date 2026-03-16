@@ -106,6 +106,7 @@ using namespace PhoIDCuts;
 //   rKey format: "r02" -> R=0.2, "r04" -> R=0.4
 //   Containment/fiducial policy: |eta_jet| < 1.1 - R
 // ============================================================================
+
 namespace
 {
   inline double jetRFromKey(const std::string& rKey)
@@ -156,6 +157,33 @@ namespace
   inline std::string doNotScaleBaselineHistKey(const DoNotScalePairConfig& cfg)
   {
     return std::string("baseline_") + cfg.probeHistKey;
+  }
+
+  inline std::string doNotScaleHistName(const std::string& histKey)
+  {
+    return std::string("h_maxEnergyClus_NewTriggerFilling_doNotScale_") + histKey;
+  }
+
+  inline void getDoNotScaleEventVectors(const Gl1Packet* gl1Packet,
+                                        uint64_t& rawVector,
+                                        uint64_t& liveVector)
+  {
+    rawVector = 0;
+    liveVector = 0;
+
+    if (!gl1Packet)
+    {
+      return;
+    }
+
+    // IMPORTANT:
+    //   Use the explicit getter interface from Gl1Packet instead of the
+    //   string-dispatch lValue("TriggerVector") compatibility path.
+    //   The attached GL1 variants show that the string path can alias
+    //   deprecated compatibility behavior, while these getters are the
+    //   cleanest available accessors without changing coresoftware.
+    rawVector  = static_cast<uint64_t>(gl1Packet->getTriggerVector());
+    liveVector = static_cast<uint64_t>(gl1Packet->getLiveVector());
   }
 
   inline const std::vector<DoNotScalePairConfig>& getDoNotScalePairConfigs()
@@ -281,6 +309,7 @@ namespace
     return cfgs;
   }
 }
+
 
 
 // Friendly label for printing tight category
@@ -1095,10 +1124,52 @@ int RecoilJets::InitRun(PHCompositeNode* /*topNode*/)
       initEventDisplayDiagnosticsTree();
     }
 
+    // -------------------------------------------------------------------------
+    // Pre-book the EXACT doNotScale pair histograms that are valid for this run.
+    //   - numerator   : <probeHistKey>
+    //   - denominator : baseline_<probeHistKey>
+    // This keeps the output schema aligned with the run-resolved pair table and
+    // removes the old family-level pp-only doNotScale bookkeeping.
+    // -------------------------------------------------------------------------
+    if (!m_isSim && out && out->IsOpen())
+    {
+      auto bookDoNotScaleHist = [&](const std::string& histKey)
+      {
+        TDirectory* dir = out->GetDirectory(histKey.c_str());
+        if (!dir) dir = out->mkdir(histKey.c_str());
+        if (!dir) return;
+
+        TDirectory* prevDir = gDirectory;
+        dir->cd();
+
+        HistMap& H = qaHistogramsByTrigger[histKey];
+        const std::string histName = doNotScaleHistName(histKey);
+        if (H.find(histName) == H.end())
+        {
+          TH1F* hist = new TH1F(histName.c_str(),
+                                "Max Cluster Energy; Cluster Energy [GeV]",
+                                40, 0, 20);
+          hist->SetDirectory(dir);
+          H[histName] = hist;
+        }
+
+        if (prevDir) prevDir->cd();
+      };
+
+      for (const auto& cfg : getDoNotScalePairConfigs())
+      {
+        if (!doNotScaleRunMatch(run, cfg)) continue;
+
+        bookDoNotScaleHist(doNotScaleBaselineHistKey(cfg));
+        bookDoNotScaleHist(cfg.probeHistKey);
+      }
+
+      out->cd();
+    }
 
     LOG(1, CLR_BLUE, "[InitRun] InitRun completed successfully");
     return Fun4AllReturnCodes::EVENT_OK;
-  }
+}
 
 
 
@@ -1207,50 +1278,6 @@ void RecoilJets::createHistos_Data()
   }
   else
   {
-      // ------------------------------------------------------------------
-      // pp DATA: book the doNotScale max-cluster-energy histograms under
-      // three separate doNotScale trigger-family directories:
-      //   1) no-vtx family
-      //   2) vtx<10 family
-      //   3) inclusive OR family
-      // This remains intentionally independent of the main analysis trigger gating.
-      // ------------------------------------------------------------------
-      auto bookDoNotScaleHist = [&](const std::string& trig)
-      {
-        TDirectory* dir = out->GetDirectory(trig.c_str());
-        if (!dir) dir = out->mkdir(trig.c_str());
-        dir->cd();
-
-        HistMap& H = qaHistogramsByTrigger[trig];
-
-        const std::string hturn = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + trig;
-        if (H.find(hturn) == H.end())
-        {
-          TH1F* hist = new TH1F(hturn.c_str(),
-                                "Max Cluster Energy; Cluster Energy [GeV]",
-                                40, 0, 20);
-          hist->SetDirectory(out);
-          H[hturn] = hist;
-        }
-
-        out->cd();
-      };
-
-      for (const auto& kv : triggerNameMap_pp_doNotScale_noVtx)
-      {
-        bookDoNotScaleHist(kv.second);
-      }
-
-      for (const auto& kv : triggerNameMap_pp_doNotScale_withVtx)
-      {
-        bookDoNotScaleHist(kv.second);
-      }
-
-      for (const auto& kv : triggerNameMap_pp_doNotScale_inclusiveOR)
-      {
-        bookDoNotScaleHist(std::get<2>(kv));
-      }
-
       {
         const std::string trig = "MBD_NandS_geq_1";
 
@@ -1601,8 +1628,9 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         if (gl1Packet)
         {
             const uint64_t runNumber     = recoConsts::instance()->get_uint64Flag("TIMESTAMP", 0);
-            const uint64_t triggerVector = static_cast<uint64_t>(gl1Packet->lValue(0, "TriggerVector"));
-            const uint64_t liveVector    = static_cast<uint64_t>(gl1Packet->lValue(0, "LiveVector"));
+            uint64_t triggerVector = 0;
+            uint64_t liveVector    = 0;
+            getDoNotScaleEventVectors(gl1Packet, triggerVector, liveVector);
 
             const bool passVzForDoNotScale =
                 (std::isfinite(m_vz) && std::fabs(m_vz) < 30.0);
