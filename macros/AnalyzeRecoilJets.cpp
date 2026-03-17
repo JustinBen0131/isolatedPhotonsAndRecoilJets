@@ -10362,13 +10362,11 @@ namespace ARJ
               continue;
             }
 
-            TH1* hPP = CloneNormalizeStyle(rawPP,
-              TString::Format("h_peripheralVsPP_pp_%s", pb.folder.c_str()).Data(),
-              kBlack, 24);
+            TH1* hPP = CloneTH1(rawPP,
+              TString::Format("h_peripheralVsPP_pp_%s", pb.folder.c_str()).Data());
 
-            TH1* hAA = CloneNormalizeStyle(rawAA,
-              TString::Format("h_peripheralVsPP_auau_%s", pb.folder.c_str()).Data(),
-              kRed + 1, 20);
+            TH1* hAA = CloneTH1(rawAA,
+              TString::Format("h_peripheralVsPP_auau_%s", pb.folder.c_str()).Data());
 
             if (!hPP || !hAA)
             {
@@ -10378,15 +10376,29 @@ namespace ARJ
               continue;
             }
 
+            hPP->SetLineWidth(2);
+            hPP->SetLineColor(kBlack);
+            hPP->SetMarkerStyle(24);
+            hPP->SetMarkerSize(0.85);
+            hPP->SetMarkerColor(kBlack);
+            hPP->SetFillStyle(0);
+
+            hAA->SetLineWidth(2);
+            hAA->SetLineColor(kRed + 1);
+            hAA->SetMarkerStyle(20);
+            hAA->SetMarkerSize(0.85);
+            hAA->SetMarkerColor(kRed + 1);
+            hAA->SetFillStyle(0);
+
             hPP->GetXaxis()->SetTitle(xTitle.c_str());
-            hPP->GetYaxis()->SetTitle("Normalized counts");
+            hPP->GetYaxis()->SetTitle("Counts");
             hAA->GetXaxis()->SetTitle(xTitle.c_str());
-            hAA->GetYaxis()->SetTitle("Normalized counts");
+            hAA->GetYaxis()->SetTitle("Counts");
 
             hPP->GetXaxis()->SetRangeUser(-2.0, 6.0);
             hAA->GetXaxis()->SetRangeUser(-2.0, 6.0);
 
-            double yMax = std::max(hPP->GetMaximum(), hAA->GetMaximum());
+            const double yMax = std::max(hPP->GetMaximum(), hAA->GetMaximum());
             hPP->SetMaximum((yMax > 0.0) ? (1.25 * yMax) : 1.0);
             hPP->SetMinimum(0.0);
 
