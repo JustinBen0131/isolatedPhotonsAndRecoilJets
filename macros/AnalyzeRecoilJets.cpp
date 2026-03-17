@@ -110,12 +110,10 @@ namespace ARJ
         delete hFixed;
       }
 
-      // =============================================================================
-      // Trigger turn-on QA (pp DATA only): doNotScale hMaxClusterEnergy overlays + ratios
-      // =============================================================================
       void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
       {
         if (ds.isSim) return;
+        if (!ds.file || ds.file->IsZombie()) return;
 
         static std::set<std::string> s_doneOutDirs;
 
@@ -127,100 +125,244 @@ namespace ARJ
 
         EnsureDir(outDir);
 
-        const std::string prefix  = "h_maxEnergyClus_NewTriggerFilling_doNotScale_";
+        const std::string prefix        = "h_maxEnergyClus_NewTriggerFilling_doNotScale_";
+        const std::string baselineTag   = "baseline_";
 
-        struct TriggerCfg
+        struct RunSpan
         {
-          std::string shortName;
-          std::string legendLabel;
+          uint64_t lo = 0;
+          uint64_t hi = 0;
         };
 
-        struct FamilyCfg
+        struct LoadedPair
         {
-          std::string outFolder;
-          std::string familyLabel;
-          TriggerCfg  mbd;
-          std::vector<TriggerCfg> numerators;
+          std::string basisKey;
+          std::string basisLabel;
+          std::string groupFolder;
+          std::string probeKey;
+          std::string probeLabel;
+          std::string baselineKey;
+          std::string baselineLabel;
+          std::string coverageText;
+          int         nRunSpans = 0;
+          TH1*        hProbe = nullptr;
+          TH1*        hBase  = nullptr;
         };
 
-        const std::vector<FamilyCfg> families =
+        auto datasetBucket = [&]() -> std::string
         {
+          const std::string hay = ds.inFilePath + " " + ds.outBase;
+          if (hay.find("pp25") != std::string::npos) return "pp25";
+          if (hay.find("RecoilJets_pp_ALL.root") != std::string::npos) return "pp24";
+          if (hay.find("auau") != std::string::npos) return "auau";
+          return "unknown";
+        };
+
+        auto extractPhotonThresholdGeV = [&](const std::string& key) -> int
+        {
+          std::smatch m;
+          static const std::regex re("Photon_([0-9]+)_GeV");
+          if (std::regex_search(key, m, re) && m.size() > 1)
           {
-            "noVtxFamily",
-            "No-vtx doNotScale family",
-            {"MBD_NandS_geq_1", "MBD N&S #geq 1"},
-            {
-              {"Photon_2_GeV_plus_MBD_NS_geq_1", "Photon 2 GeV + MBD NS #geq 1"},
-              {"Photon_3_GeV_plus_MBD_NS_geq_1", "Photon 3 GeV + MBD NS #geq 1"},
-              {"Photon_4_GeV_plus_MBD_NS_geq_1", "Photon 4 GeV + MBD NS #geq 1"},
-              {"Photon_5_GeV_plus_MBD_NS_geq_1", "Photon 5 GeV + MBD NS #geq 1"}
-            }
-          },
-          {
-            "withVtx10Family",
-            "vtx < 10 cm doNotScale family",
-            {"MBD_NandS_geq_1_vtx_lt_10", "MBD N&S #geq 1, vtx < 10 cm"},
-            {
-              {"Photon_3_GeV_plus_MBD_NS_geq_1_vtx_lt_10", "Photon 3 GeV, MBD N&S #geq 1, vtx < 10 cm"},
-              {"Photon_4_GeV_plus_MBD_NS_geq_1_vtx_lt_10", "Photon 4 GeV, MBD N&S #geq 1, vtx < 10 cm"},
-              {"Photon_5_GeV_plus_MBD_NS_geq_1_vtx_lt_10", "Photon 5 GeV, MBD N&S #geq 1, vtx < 10 cm"}
-            }
-          },
-          {
-            "inclusiveOR_noVtxPlusVtx10Family",
-            "Inclusive OR doNotScale family",
-            {
-              "MBD_NandS_geq_1_OR_MBD_NandS_geq_1_vtx_lt_10",
-              "MBD N&S #geq 1 OR MBD N&S #geq 1, vtx < 10 cm"
-            },
-            {
-              {
-                "Photon_3_GeV_plus_MBD_NS_geq_1_OR_Photon_3_GeV_plus_MBD_NS_geq_1_vtx_lt_10",
-                "Photon 3 GeV + MBD NS #geq 1 OR Photon 3 GeV, MBD N&S #geq 1, vtx < 10 cm"
-              },
-              {
-                "Photon_4_GeV_plus_MBD_NS_geq_1_OR_Photon_4_GeV_plus_MBD_NS_geq_1_vtx_lt_10",
-                "Photon 4 GeV + MBD NS #geq 1 OR Photon 4 GeV, MBD N&S #geq 1, vtx < 10 cm"
-              },
-              {
-                "Photon_5_GeV_plus_MBD_NS_geq_1_OR_Photon_5_GeV_plus_MBD_NS_geq_1_vtx_lt_10",
-                "Photon 5 GeV + MBD NS #geq 1 OR Photon 5 GeV, MBD N&S #geq 1, vtx < 10 cm"
-              }
-            }
+            return std::atoi(m[1].str().c_str());
           }
+          return 999;
         };
 
-        auto getHist = [&](const std::string& trigShort)->TH1*
+        auto deduceBasisKey = [&](const std::string& probeKey) -> std::string
         {
-          if (!ds.file) return nullptr;
-
-          TDirectory* dir = ds.file->GetDirectory(trigShort.c_str());
-          if (!dir) return nullptr;
-
-          const std::string hname = prefix + trigShort;
-          TH1* h = dynamic_cast<TH1*>(dir->Get(hname.c_str()));
-          return h;
+          if (probeKey.find("_MBD_NS_geq_1_vtx_lt_10") != std::string::npos)   return "MBD_NS_geq_1_vtx_lt_10";
+          if (probeKey.find("_MBD_NS_geq_2_vtx_lt_150") != std::string::npos)  return "MBD_NS_geq_2_vtx_lt_150";
+          if (probeKey.find("_MBD_NS_geq_2_vtx_lt_10") != std::string::npos)   return "MBD_NS_geq_2_vtx_lt_10";
+          if (probeKey.find("_MBD_NS_geq_2") != std::string::npos)             return "MBD_NS_geq_2";
+          if (probeKey.find("_MBD_NS_geq_1") != std::string::npos)             return "MBD_NS_geq_1";
+          return "";
         };
 
-        auto colorForTrigger = [&](const std::string& trigShort)->int
+        auto basisLabelFromKey = [&](const std::string& basisKey) -> std::string
         {
-          if (trigShort.find("Photon_2") != std::string::npos) return kOrange+7;
-          if (trigShort.find("Photon_3") != std::string::npos) return kBlue+1;
-          if (trigShort.find("Photon_4") != std::string::npos) return kGreen+2;
-          if (trigShort.find("Photon_5") != std::string::npos) return kMagenta+1;
+          if (basisKey == "MBD_NS_geq_1")            return "MBD N&S >= 1";
+          if (basisKey == "MBD_NS_geq_1_vtx_lt_10")  return "MBD N&S >= 1, vtx < 10 cm";
+          if (basisKey == "MBD_NS_geq_2")            return "MBD N&S >= 2";
+          if (basisKey == "MBD_NS_geq_2_vtx_lt_10")  return "MBD N&S >= 2, vtx < 10 cm";
+          if (basisKey == "MBD_NS_geq_2_vtx_lt_150") return "MBD N&S >= 2, vtx < 150 cm";
+          return basisKey;
+        };
+
+        auto groupFolderFromBasis = [&](const std::string& basisKey) -> std::string
+        {
+          if (basisKey == "MBD_NS_geq_1")            return "commonBasis_MBD_NandS_geq_1";
+          if (basisKey == "MBD_NS_geq_1_vtx_lt_10")  return "commonBasis_MBD_NandS_geq_1_vtx_lt_10";
+          if (basisKey == "MBD_NS_geq_2")            return "commonBasis_MBD_NS_geq_2";
+          if (basisKey == "MBD_NS_geq_2_vtx_lt_10")  return "commonBasis_MBD_NS_geq_2_vtx_lt_10";
+          if (basisKey == "MBD_NS_geq_2_vtx_lt_150") return "commonBasis_MBD_NS_geq_2_vtx_lt_150";
+          return "commonBasis_UNKNOWN";
+        };
+
+        auto probeLabelFromKey = [&](const std::string& probeKey) -> std::string
+        {
+          const int thr = extractPhotonThresholdGeV(probeKey);
+          const std::string basisKey = deduceBasisKey(probeKey);
+          const std::string basisLabel = basisLabelFromKey(basisKey);
+
+          if (thr >= 0 && !basisLabel.empty())
+          {
+            return TString::Format("Photon %d GeV + %s", thr, basisLabel.c_str()).Data();
+          }
+
+          return probeKey;
+        };
+
+        auto colorForProbe = [&](const std::string& probeKey) -> int
+        {
+          const int thr = extractPhotonThresholdGeV(probeKey);
+          if (thr <= 2)  return kOrange+7;
+          if (thr == 3)  return kBlue+1;
+          if (thr == 4)  return kGreen+2;
+          if (thr == 5)  return kMagenta+1;
+          if (thr == 6)  return kRed+1;
+          if (thr == 8)  return kAzure+2;
+          if (thr == 10) return kViolet+1;
+          if (thr == 12) return kCyan+2;
+          if (thr == 14) return kOrange+1;
+          if (thr == 18) return kGreen+3;
+          if (thr == 20) return kPink+1;
           return kRed+1;
         };
 
-        auto markerForTrigger = [&](const std::string& trigShort)->int
+        auto markerForProbe = [&](const std::string& probeKey) -> int
         {
-          if (trigShort.find("Photon_2") != std::string::npos) return 20;
-          if (trigShort.find("Photon_3") != std::string::npos) return 21;
-          if (trigShort.find("Photon_4") != std::string::npos) return 22;
-          if (trigShort.find("Photon_5") != std::string::npos) return 33;
+          const int thr = extractPhotonThresholdGeV(probeKey);
+          if (thr <= 2)  return 20;
+          if (thr == 3)  return 21;
+          if (thr == 4)  return 22;
+          if (thr == 5)  return 33;
+          if (thr == 6)  return 29;
+          if (thr == 8)  return 34;
+          if (thr == 10) return 23;
+          if (thr == 12) return 24;
+          if (thr == 14) return 25;
+          if (thr == 18) return 26;
+          if (thr == 20) return 32;
           return 20;
         };
 
-        auto FindXAtEff = [&](TH1* h, double target)->double
+        auto getHist = [&](const std::string& dirKey)->TH1*
+        {
+          if (!ds.file) return nullptr;
+
+          TDirectory* dir = ds.file->GetDirectory(dirKey.c_str());
+          if (!dir) return nullptr;
+
+          const std::string hname = prefix + dirKey;
+          return dynamic_cast<TH1*>(dir->Get(hname.c_str()));
+        };
+
+        auto spansForProbe = [&](const std::string& probeKey)->std::vector<RunSpan>
+        {
+          std::vector<RunSpan> spans;
+
+          const std::string bucket = datasetBucket();
+          const int thr = extractPhotonThresholdGeV(probeKey);
+          const bool geq1   = (probeKey.find("_MBD_NS_geq_1") != std::string::npos);
+          const bool geq2   = (probeKey.find("_MBD_NS_geq_2") != std::string::npos);
+          const bool vtx10  = (probeKey.find("_vtx_lt_10")  != std::string::npos);
+          const bool vtx150 = (probeKey.find("_vtx_lt_150") != std::string::npos);
+
+          auto add = [&](uint64_t lo, uint64_t hi)
+          {
+            spans.push_back({lo, hi});
+          };
+
+          if (bucket == "pp24")
+          {
+            if (geq1 && !vtx10 && !vtx150)
+            {
+              if (thr >= 2 && thr <= 5)
+              {
+                add(47289, 51015);
+                add(51093, 52596);
+                add(52610, 53864);
+              }
+            }
+            else if (geq1 && vtx10)
+            {
+              if (thr >= 3 && thr <= 5)
+              {
+                add(51093, 52596);
+                add(52610, 53864);
+              }
+            }
+          }
+          else if (bucket == "pp25")
+          {
+            if (geq1 && !vtx10 && !vtx150)
+            {
+              if (thr >= 2 && thr <= 5) add(79269, 81664);
+            }
+            else if (geq1 && vtx10)
+            {
+              if (thr == 2) add(79495, 81664);
+              if (thr >= 3 && thr <= 5) add(79269, 81664);
+            }
+          }
+          else if (bucket == "auau")
+          {
+            if (geq2 && !vtx10 && !vtx150)
+            {
+              if (thr >= 6 && thr <= 12 && (thr % 2 == 0)) add(67599, 68155);
+              if (thr >= 2 && thr <= 4) add(78686, 78686);
+            }
+            else if (geq2 && vtx10)
+            {
+              if (thr >= 6 && thr <= 12 && (thr % 2 == 0))
+              {
+                add(68208, 68220);
+                add(68335, 69616);
+                add(71328, 78572);
+                add(78689, 78954);
+              }
+              if (thr == 3 || thr == 8 || thr == 10) add(78686, 78686);
+            }
+            else if (geq2 && vtx150)
+            {
+              if (thr >= 6 && thr <= 12 && (thr % 2 == 0))
+              {
+                add(68208, 68220);
+                add(68335, 69616);
+                add(71328, 78572);
+                add(78689, 78954);
+              }
+              if (thr == 8 || thr == 10) add(78686, 78686);
+            }
+          }
+
+          return spans;
+        };
+
+        auto coverageTextForProbe = [&](const std::string& probeKey)->std::string
+        {
+          const auto spans = spansForProbe(probeKey);
+          if (spans.empty())
+          {
+            return "pair-specific coverage encoded by baseline_<probe>; exact run spans not written to ROOT";
+          }
+
+          std::ostringstream os;
+          for (std::size_t i = 0; i < spans.size(); ++i)
+          {
+            if (i) os << ", ";
+            os << spans[i].lo << "-" << spans[i].hi;
+          }
+          return os.str();
+        };
+
+        auto runSpanCountForProbe = [&](const std::string& probeKey)->int
+        {
+          return static_cast<int>(spansForProbe(probeKey).size());
+        };
+
+        auto findXAtEff = [&](TH1* h, double target)->double
         {
           if (!h) return -1.0;
           for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
@@ -232,266 +374,512 @@ namespace ARJ
           return -1.0;
         };
 
-        auto DrawFamilyPlots = [&](const FamilyCfg& family)
-        {
-          const std::string familyOutDir = JoinPath(outDir, family.outFolder);
-          EnsureDir(familyOutDir);
+        std::vector<LoadedPair> pairs;
 
-          TH1* hMBD = getHist(family.mbd.shortName);
-          if (!hMBD)
+        TIter next(ds.file->GetListOfKeys());
+        while (TKey* key = dynamic_cast<TKey*>(next()))
+        {
+          const std::string dirKey = key->GetName();
+          if (dirKey.empty()) continue;
+          if (dirKey.find(baselineTag) == 0) continue;
+
+          TH1* hProbe = getHist(dirKey);
+          if (!hProbe) continue;
+
+          const std::string baselineKey = baselineTag + dirKey;
+          TH1* hBase = getHist(baselineKey);
+          if (!hBase)
           {
             cout << ANSI_BOLD_YEL
-                 << "[WARN] Missing family denominator for triggerQA family " << family.outFolder << "\n"
-                 << "       Need: " << family.mbd.shortName << "/" << prefix << family.mbd.shortName << "\n"
+                 << "[WARN] Missing doNotScale baseline histogram for probe " << dirKey << "\n"
+                 << "       Need: " << baselineKey << "/" << prefix << baselineKey << "\n"
                  << ANSI_RESET << "\n";
+            continue;
+          }
+
+          const std::string basisKey = deduceBasisKey(dirKey);
+          if (basisKey.empty())
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] Could not deduce common baseline group for probe " << dirKey
+                 << ANSI_RESET << "\n";
+            continue;
+          }
+
+          LoadedPair P;
+          P.basisKey      = basisKey;
+          P.basisLabel    = basisLabelFromKey(basisKey);
+          P.groupFolder   = groupFolderFromBasis(basisKey);
+          P.probeKey      = dirKey;
+          P.probeLabel    = probeLabelFromKey(dirKey);
+          P.baselineKey   = baselineKey;
+          P.baselineLabel = TString::Format("Baseline raw %s", P.basisLabel.c_str()).Data();
+          P.coverageText  = coverageTextForProbe(dirKey);
+          P.nRunSpans     = runSpanCountForProbe(dirKey);
+          P.hProbe        = hProbe;
+          P.hBase         = hBase;
+          pairs.push_back(P);
+        }
+
+        if (pairs.empty())
+        {
+          cout << ANSI_BOLD_YEL
+               << "[WARN] No pairwise doNotScale numerator/baseline histogram pairs found in " << ds.inFilePath
+               << ANSI_RESET << "\n";
+          return;
+        }
+
+        const std::vector<std::string> groupOrder = {
+          "commonBasis_MBD_NandS_geq_1",
+          "commonBasis_MBD_NandS_geq_1_vtx_lt_10",
+          "commonBasis_MBD_NS_geq_2",
+          "commonBasis_MBD_NS_geq_2_vtx_lt_10",
+          "commonBasis_MBD_NS_geq_2_vtx_lt_150"
+        };
+
+        auto groupRank = [&](const std::string& folder) -> int
+        {
+          for (std::size_t i = 0; i < groupOrder.size(); ++i)
+          {
+            if (groupOrder[i] == folder) return static_cast<int>(i);
+          }
+          return 999;
+        };
+
+        std::sort(pairs.begin(), pairs.end(), [&](const LoadedPair& a, const LoadedPair& b)
+        {
+          const int ra = groupRank(a.groupFolder);
+          const int rb = groupRank(b.groupFolder);
+          if (ra != rb) return ra < rb;
+
+          const int ta = extractPhotonThresholdGeV(a.probeKey);
+          const int tb = extractPhotonThresholdGeV(b.probeKey);
+          if (ta != tb) return ta < tb;
+
+          return a.probeKey < b.probeKey;
+        });
+
+        std::map<std::string, std::vector<LoadedPair>> groups;
+        for (const auto& P : pairs) groups[P.groupFolder].push_back(P);
+
+        std::vector<std::string> indexLines;
+        indexLines.push_back(string("triggerQA doNotScale summary (") + ds.label + ")");
+        indexLines.push_back(string("Input: ") + ds.inFilePath);
+        indexLines.push_back("Schema: numerator=<probe>, denominator=baseline_<probe>");
+        indexLines.push_back("Efficiency definition: probe live / baseline raw");
+        indexLines.push_back("");
+
+        auto drawPairOverlay = [&](const LoadedPair& P, const std::string& pairOutDir)
+        {
+          TH1* hBase = CloneTH1(P.hBase, TString::Format("hBase_pairOverlay_%s", P.probeKey.c_str()).Data());
+          TH1* hProbe = CloneTH1(P.hProbe, TString::Format("hProbe_pairOverlay_%s", P.probeKey.c_str()).Data());
+          if (!hBase || !hProbe)
+          {
+            if (hBase) delete hBase;
+            if (hProbe) delete hProbe;
             return;
           }
 
-          struct LoadedTrig
-          {
-            TriggerCfg cfg;
-            TH1* hist = nullptr;
-          };
+          TCanvas c(TString::Format("c_trigAna_pairOverlay_%s", P.probeKey.c_str()).Data(),
+                    TString::Format("c_trigAna_pairOverlay_%s", P.probeKey.c_str()).Data(),
+                    900, 700);
+          c.cd();
+          c.SetLeftMargin(0.14);
+          c.SetRightMargin(0.05);
+          c.SetBottomMargin(0.14);
+          c.SetTopMargin(0.08);
+          c.SetTicks(1,1);
+          c.SetLogy();
 
-          std::vector<LoadedTrig> loaded;
-          loaded.reserve(family.numerators.size());
-
-          for (const auto& trig : family.numerators)
+          const double ymax = std::max(hBase->GetMaximum(), hProbe->GetMaximum());
+          double minPos = SmallestPositiveBinContent(hBase);
+          const double probeMinPos = SmallestPositiveBinContent(hProbe);
+          if (probeMinPos > 0.0)
           {
-            TH1* h = getHist(trig.shortName);
-            if (!h)
+            if (minPos > 0.0) minPos = std::min(minPos, probeMinPos);
+            else              minPos = probeMinPos;
+          }
+
+          hBase->SetTitle("");
+          hBase->GetXaxis()->SetTitle("Maximum Cluster Energy [GeV]");
+          hBase->GetYaxis()->SetTitle("Counts");
+          hBase->GetXaxis()->SetTitleSize(0.055);
+          hBase->GetXaxis()->SetTitleOffset(1.05);
+          hBase->GetXaxis()->SetLabelSize(0.045);
+          hBase->GetYaxis()->SetTitleSize(0.055);
+          hBase->GetYaxis()->SetTitleOffset(1.20);
+          hBase->GetYaxis()->SetLabelSize(0.045);
+          hBase->GetXaxis()->SetRangeUser(0.0, 20.0);
+          hBase->SetMinimum((minPos > 0.0) ? (0.5 * minPos) : 1e-6);
+          hBase->SetMaximum((ymax > 0.0) ? (1.25 * ymax) : 1.0);
+          hBase->SetLineColor(kBlack);
+          hBase->SetLineWidth(4);
+
+          hProbe->SetLineColor(colorForProbe(P.probeKey));
+          hProbe->SetLineWidth(4);
+
+          hBase->Draw("HIST");
+          hProbe->Draw("HIST SAME");
+
+          TLegend leg(0.42, 0.62, 0.90, 0.88);
+          leg.SetBorderSize(0);
+          leg.SetFillStyle(0);
+          leg.SetTextSize(0.028);
+          leg.AddEntry(hBase, P.baselineLabel.c_str(), "l");
+          leg.AddEntry(hProbe, TString::Format("Probe live %s", P.probeLabel.c_str()).Data(), "l");
+          leg.Draw();
+
+          std::vector<std::string> lines = DefaultHeaderLines(ds);
+          lines.push_back(P.basisLabel);
+          lines.push_back("Pairwise doNotScale overlay");
+          lines.push_back(TString::Format("Run spans (%d): %s", P.nRunSpans, P.coverageText.c_str()).Data());
+          DrawLatexLines(0.18, 0.30, lines, 0.028, 0.040);
+
+          const std::string outPng = JoinPath(pairOutDir, "hMaxClusterEnergy_pairOverlay.png");
+          SaveCanvas(c, outPng);
+          cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";
+
+          delete hBase;
+          delete hProbe;
+        };
+
+        auto drawPairTurnOn = [&](const LoadedPair& P, const std::string& pairOutDir, double& x95Out)
+        {
+          x95Out = -1.0;
+
+          TH1* hBase = CloneTH1(P.hBase, TString::Format("hBase_pairTurnOn_%s", P.probeKey.c_str()).Data());
+          TH1* hProbe = CloneTH1(P.hProbe, TString::Format("hProbe_pairTurnOn_%s", P.probeKey.c_str()).Data());
+          if (!hBase || !hProbe)
+          {
+            if (hBase) delete hBase;
+            if (hProbe) delete hProbe;
+            return;
+          }
+
+          TH1* hRatio = CloneTH1(hProbe, TString::Format("hRatio_pairTurnOn_%s", P.probeKey.c_str()).Data());
+          if (!hRatio)
+          {
+            delete hBase;
+            delete hProbe;
+            return;
+          }
+
+          EnsureSumw2(hBase);
+          EnsureSumw2(hProbe);
+          EnsureSumw2(hRatio);
+          hRatio->SetDirectory(nullptr);
+          hRatio->Divide(hProbe, hBase, 1.0, 1.0, "B");
+          x95Out = findXAtEff(hRatio, 0.95);
+
+          TCanvas c(TString::Format("c_trigAna_pairTurnOn_%s", P.probeKey.c_str()).Data(),
+                    TString::Format("c_trigAna_pairTurnOn_%s", P.probeKey.c_str()).Data(),
+                    900, 700);
+          c.cd();
+          c.SetLeftMargin(0.14);
+          c.SetRightMargin(0.05);
+          c.SetBottomMargin(0.14);
+          c.SetTopMargin(0.08);
+          c.SetTicks(1,1);
+
+          hRatio->SetTitle("");
+          hRatio->GetXaxis()->SetTitle("Maximum Cluster Energy [GeV]");
+          hRatio->GetYaxis()->SetTitle("Probe live / baseline raw");
+          hRatio->GetXaxis()->SetTitleSize(0.055);
+          hRatio->GetXaxis()->SetTitleOffset(1.05);
+          hRatio->GetXaxis()->SetLabelSize(0.045);
+          hRatio->GetYaxis()->SetTitleSize(0.055);
+          hRatio->GetYaxis()->SetTitleOffset(1.20);
+          hRatio->GetYaxis()->SetLabelSize(0.045);
+          hRatio->GetXaxis()->SetRangeUser(0.0, 20.0);
+          hRatio->SetMinimum(0.0);
+          hRatio->SetMaximum(1.20);
+          hRatio->SetMarkerStyle(markerForProbe(P.probeKey));
+          hRatio->SetMarkerSize(1.0);
+          hRatio->SetMarkerColor(colorForProbe(P.probeKey));
+          hRatio->SetLineColor(colorForProbe(P.probeKey));
+          hRatio->SetLineWidth(3);
+          hRatio->Draw("E1");
+
+          TLine l1(0.0, 1.0, 20.0, 1.0);
+          l1.SetLineStyle(2);
+          l1.SetLineWidth(2);
+          l1.SetLineColor(kBlack);
+          l1.Draw("SAME");
+
+          TLine l95(0.0, 0.95, 20.0, 0.95);
+          l95.SetLineStyle(3);
+          l95.SetLineWidth(2);
+          l95.SetLineColor(kGray+2);
+          l95.Draw("SAME");
+
+          TLegend leg(0.18, 0.68, 0.64, 0.88);
+          leg.SetBorderSize(0);
+          leg.SetFillStyle(0);
+          leg.SetTextSize(0.028);
+          if (x95Out > 0.0)
+          {
+            leg.AddEntry(hRatio,
+              TString::Format("%s (95%% = %.2f GeV)", P.probeLabel.c_str(), x95Out).Data(),
+              "pe");
+          }
+          else
+          {
+            leg.AddEntry(hRatio, P.probeLabel.c_str(), "pe");
+          }
+          leg.Draw();
+
+          std::vector<std::string> lines = DefaultHeaderLines(ds);
+          lines.push_back(P.basisLabel);
+          lines.push_back("Pairwise doNotScale turn-on");
+          lines.push_back(TString::Format("Run spans (%d): %s", P.nRunSpans, P.coverageText.c_str()).Data());
+          DrawLatexLines(0.18, 0.30, lines, 0.028, 0.040);
+
+          const std::string outPng = JoinPath(pairOutDir, "hMaxClusterEnergy_pairTurnOn.png");
+          SaveCanvas(c, outPng);
+          cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";
+
+          delete hBase;
+          delete hProbe;
+          delete hRatio;
+        };
+
+        auto drawGroupTurnOnOverlay = [&](const std::vector<LoadedPair>& loaded, const std::string& groupOutDir)
+        {
+          std::vector<TH1*> ratioHists;
+          std::vector<double> x95s;
+          ratioHists.reserve(loaded.size());
+          x95s.reserve(loaded.size());
+
+          for (const auto& P : loaded)
+          {
+            TH1* hBase = CloneTH1(P.hBase, TString::Format("hBase_groupTurnOn_%s", P.probeKey.c_str()).Data());
+            TH1* hProbe = CloneTH1(P.hProbe, TString::Format("hProbe_groupTurnOn_%s", P.probeKey.c_str()).Data());
+            if (!hBase || !hProbe)
             {
-              cout << ANSI_BOLD_YEL
-                   << "[WARN] Missing doNotScale trigger histogram for family " << family.outFolder << "\n"
-                   << "       Missing: " << trig.shortName << "/" << prefix << trig.shortName << "\n"
-                   << ANSI_RESET << "\n";
+              if (hBase) delete hBase;
+              if (hProbe) delete hProbe;
               continue;
             }
 
-            loaded.push_back({trig, h});
+            TH1* hRatio = CloneTH1(hProbe, TString::Format("hRatio_groupTurnOn_%s", P.probeKey.c_str()).Data());
+            if (!hRatio)
+            {
+              delete hBase;
+              delete hProbe;
+              continue;
+            }
+
+            EnsureSumw2(hBase);
+            EnsureSumw2(hProbe);
+            EnsureSumw2(hRatio);
+            hRatio->Divide(hProbe, hBase, 1.0, 1.0, "B");
+            hRatio->SetDirectory(nullptr);
+            hRatio->SetMarkerStyle(markerForProbe(P.probeKey));
+            hRatio->SetMarkerSize(1.0);
+            hRatio->SetMarkerColor(colorForProbe(P.probeKey));
+            hRatio->SetLineColor(colorForProbe(P.probeKey));
+            hRatio->SetLineWidth(3);
+
+            ratioHists.push_back(hRatio);
+            x95s.push_back(findXAtEff(hRatio, 0.95));
+
+            delete hBase;
+            delete hProbe;
           }
 
-          if (loaded.empty())
+          if (ratioHists.empty()) return;
+
+          TCanvas c(TString::Format("c_trigAna_groupTurnOn_%s", loaded.front().groupFolder.c_str()).Data(),
+                    TString::Format("c_trigAna_groupTurnOn_%s", loaded.front().groupFolder.c_str()).Data(),
+                    900, 700);
+          c.cd();
+          c.SetLeftMargin(0.14);
+          c.SetRightMargin(0.05);
+          c.SetBottomMargin(0.14);
+          c.SetTopMargin(0.08);
+          c.SetTicks(1,1);
+
+          ratioHists[0]->SetTitle("");
+          ratioHists[0]->GetXaxis()->SetTitle("Maximum Cluster Energy [GeV]");
+          ratioHists[0]->GetYaxis()->SetTitle("Probe live / baseline raw");
+          ratioHists[0]->GetXaxis()->SetTitleSize(0.055);
+          ratioHists[0]->GetXaxis()->SetTitleOffset(1.05);
+          ratioHists[0]->GetXaxis()->SetLabelSize(0.045);
+          ratioHists[0]->GetYaxis()->SetTitleSize(0.055);
+          ratioHists[0]->GetYaxis()->SetTitleOffset(1.20);
+          ratioHists[0]->GetYaxis()->SetLabelSize(0.045);
+          ratioHists[0]->GetXaxis()->SetRangeUser(0.0, 20.0);
+          ratioHists[0]->SetMinimum(0.0);
+          ratioHists[0]->SetMaximum(1.20);
+          ratioHists[0]->Draw("E1");
+
+          for (std::size_t i = 1; i < ratioHists.size(); ++i)
           {
-            cout << ANSI_BOLD_YEL
-                 << "[WARN] No numerator trigger histograms available for family " << family.outFolder
-                 << ANSI_RESET << "\n";
-            return;
+            ratioHists[i]->Draw("E1 SAME");
           }
 
-          // ------------------------------------------------------------------
-          // (1) Overlay: denominator + all available triggers in this family
-          // ------------------------------------------------------------------
+          TLine l1(0.0, 1.0, 20.0, 1.0);
+          l1.SetLineStyle(2);
+          l1.SetLineWidth(2);
+          l1.SetLineColor(kBlack);
+          l1.Draw("SAME");
+
+          TLine l95(0.0, 0.95, 20.0, 0.95);
+          l95.SetLineStyle(3);
+          l95.SetLineWidth(2);
+          l95.SetLineColor(kGray+2);
+          l95.Draw("SAME");
+
+          TLegend leg(0.18, 0.56, 0.68, 0.88);
+          leg.SetBorderSize(0);
+          leg.SetFillStyle(0);
+          leg.SetTextSize(0.026);
+          for (std::size_t i = 0; i < loaded.size() && i < ratioHists.size(); ++i)
           {
-            TCanvas c(TString::Format("c_trigAna_overlay_%s", family.outFolder.c_str()).Data(),
-                      TString::Format("c_trigAna_overlay_%s", family.outFolder.c_str()).Data(),
-                      900, 700);
-            c.cd();
-            c.SetLeftMargin(0.14);
-            c.SetRightMargin(0.05);
-            c.SetBottomMargin(0.14);
-            c.SetTopMargin(0.08);
-            c.SetTicks(1,1);
-            c.SetLogy();
-
-            double ymax = hMBD->GetMaximum();
-            double minPos = SmallestPositiveBinContent(hMBD);
-
-            for (const auto& item : loaded)
+            if (x95s[i] > 0.0)
             {
-              ymax = std::max(ymax, item.hist->GetMaximum());
-              const double thisMinPos = SmallestPositiveBinContent(item.hist);
-              if (thisMinPos > 0.0)
-              {
-                if (minPos > 0.0) minPos = std::min(minPos, thisMinPos);
-                else              minPos = thisMinPos;
-              }
+              leg.AddEntry(ratioHists[i],
+                TString::Format("%s (%d span%s, 95%%=%.2f GeV)",
+                  loaded[i].probeLabel.c_str(),
+                  loaded[i].nRunSpans,
+                  (loaded[i].nRunSpans == 1 ? "" : "s"),
+                  x95s[i]).Data(),
+                "pe");
             }
-
-            const double yMaxPlot = (ymax > 0.0) ? (1.20 * ymax) : 1.0;
-            const double yMinPlot = (minPos > 0.0) ? (0.5 * minPos) : 1e-6;
-
-            hMBD->SetTitle("");
-            hMBD->GetXaxis()->SetTitle("Maximum Cluster Energy [GeV]");
-            hMBD->GetYaxis()->SetTitle("Prescaled Counts");
-
-            hMBD->GetXaxis()->SetTitleSize(0.055);
-            hMBD->GetXaxis()->SetTitleOffset(1.05);
-            hMBD->GetXaxis()->SetLabelSize(0.045);
-
-            hMBD->GetYaxis()->SetTitleSize(0.055);
-            hMBD->GetYaxis()->SetTitleOffset(1.20);
-            hMBD->GetYaxis()->SetLabelSize(0.045);
-
-            hMBD->GetXaxis()->SetRangeUser(0.0, 20.0);
-            hMBD->SetMinimum(yMinPlot);
-            hMBD->SetMaximum(yMaxPlot);
-
-            hMBD->SetLineColor(kBlack);
-            hMBD->SetLineWidth(4);
-
-            hMBD->Draw("HIST");
-
-            for (auto& item : loaded)
+            else
             {
-              item.hist->SetLineColor(colorForTrigger(item.cfg.shortName));
-              item.hist->SetLineWidth(4);
-              item.hist->Draw("HIST SAME");
+              leg.AddEntry(ratioHists[i],
+                TString::Format("%s (%d span%s)",
+                  loaded[i].probeLabel.c_str(),
+                  loaded[i].nRunSpans,
+                  (loaded[i].nRunSpans == 1 ? "" : "s")).Data(),
+                "pe");
             }
-
-            TLegend leg(0.42, 0.60, 0.88, 0.88);
-            leg.SetBorderSize(0);
-            leg.SetFillStyle(0);
-            leg.SetTextSize(0.028);
-            leg.AddEntry(hMBD, family.mbd.legendLabel.c_str(), "l");
-            for (const auto& item : loaded)
-            {
-              leg.AddEntry(item.hist, item.cfg.legendLabel.c_str(), "l");
-            }
-            leg.Draw();
-
-            TLegend extra(0.18, 0.18, 0.54, 0.32);
-            extra.SetBorderSize(0);
-            extra.SetFillStyle(0);
-            extra.SetTextSize(0.032);
-            extra.AddEntry((TObject*)nullptr, "#it{#bf{sPHENIX}} Internal", "");
-            extra.AddEntry((TObject*)nullptr, "p+p #sqrt{s} = 200 GeV", "");
-            extra.AddEntry((TObject*)nullptr, family.familyLabel.c_str(), "");
-            extra.Draw();
-
-            const std::string outPng = JoinPath(familyOutDir, "hMaxClusterEnergy_doNotScale_overlay.png");
-            c.SaveAs(outPng.c_str());
-            cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";
           }
+          leg.Draw();
 
-          // ------------------------------------------------------------------
-          // (2) Ratios: each available trigger / family denominator
-          // ------------------------------------------------------------------
-          {
-            std::vector<TH1*> ratioHists;
-            std::vector<TLine*> ratioLines;
-            ratioHists.reserve(loaded.size());
-            ratioLines.reserve(loaded.size());
+          std::vector<std::string> lines = DefaultHeaderLines(ds);
+          lines.push_back(loaded.front().basisLabel);
+          lines.push_back("Common-basis turn-on comparison");
+          lines.push_back("Each curve uses its own baseline_<probe>");
+          lines.push_back("Exact run spans are pair-specific and written to summary.txt");
+          DrawLatexLines(0.18, 0.24, lines, 0.026, 0.036);
 
-            for (std::size_t i = 0; i < loaded.size(); ++i)
-            {
-              TH1* r = dynamic_cast<TH1*>(
-                loaded[i].hist->Clone(
-                  TString::Format("ratio_%s_over_%s_%s",
-                    loaded[i].cfg.shortName.c_str(),
-                    family.mbd.shortName.c_str(),
-                    family.outFolder.c_str()).Data()
-                )
-              );
+          const std::string outPng = JoinPath(groupOutDir, "hMaxClusterEnergy_groupTurnOnOverlay.png");
+          SaveCanvas(c, outPng);
+          cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";
 
-              if (!r) continue;
-
-              r->SetDirectory(nullptr);
-              r->Divide(loaded[i].hist, hMBD, 1.0, 1.0, "B");
-              r->SetTitle("");
-              r->GetXaxis()->SetTitle("Maximum Cluster Energy [GeV]");
-              r->GetYaxis()->SetTitle("Efficiency");
-              r->GetXaxis()->SetTitleSize(0.055);
-              r->GetXaxis()->SetTitleOffset(1.05);
-              r->GetXaxis()->SetLabelSize(0.045);
-              r->GetYaxis()->SetTitleSize(0.055);
-              r->GetYaxis()->SetTitleOffset(1.20);
-              r->GetYaxis()->SetLabelSize(0.045);
-              r->GetXaxis()->SetRangeUser(0.0, 20.0);
-              r->SetMinimum(0.0);
-              r->SetMaximum(1.4);
-              r->SetMarkerStyle(markerForTrigger(loaded[i].cfg.shortName));
-              r->SetMarkerSize(1.0);
-              r->SetMarkerColor(colorForTrigger(loaded[i].cfg.shortName));
-              r->SetLineColor(colorForTrigger(loaded[i].cfg.shortName));
-              r->SetLineWidth(4);
-
-              ratioHists.push_back(r);
-            }
-
-            if (ratioHists.empty())
-            {
-              cout << ANSI_BOLD_YEL
-                   << "[WARN] Failed to build ratio histograms for family " << family.outFolder
-                   << ANSI_RESET << "\n";
-              return;
-            }
-
-            TCanvas c(TString::Format("c_trigAna_ratio_%s", family.outFolder.c_str()).Data(),
-                      TString::Format("c_trigAna_ratio_%s", family.outFolder.c_str()).Data(),
-                      900, 700);
-            c.cd();
-            c.SetLeftMargin(0.14);
-            c.SetRightMargin(0.05);
-            c.SetBottomMargin(0.14);
-            c.SetTopMargin(0.08);
-            c.SetTicks(1,1);
-
-            ratioHists[0]->Draw("E1");
-            for (std::size_t i = 1; i < ratioHists.size(); ++i)
-            {
-              ratioHists[i]->Draw("E1 SAME");
-            }
-
-            TLine l1(0.0, 1.0, 20.0, 1.0);
-            l1.SetLineStyle(2);
-            l1.SetLineWidth(2);
-            l1.SetLineColor(kBlack);
-            l1.Draw("SAME");
-
-            TLegend leg(0.18, 0.66, 0.64, 0.90);
-            leg.SetBorderSize(0);
-            leg.SetFillStyle(0);
-            leg.SetTextSize(0.028);
-
-            for (std::size_t i = 0; i < ratioHists.size(); ++i)
-            {
-              const double x95 = FindXAtEff(ratioHists[i], 0.95);
-
-              if (x95 > 0.0)
-              {
-                TLine* v = new TLine(x95, 0.0, x95, 1.0);
-                v->SetLineStyle(2);
-                v->SetLineWidth(3);
-                v->SetLineColor(colorForTrigger(loaded[i].cfg.shortName));
-                v->Draw("SAME");
-                ratioLines.push_back(v);
-
-                leg.AddEntry(
-                  ratioHists[i],
-                  TString::Format("%s (95%%=%.1f GeV)", loaded[i].cfg.legendLabel.c_str(), x95).Data(),
-                  "p"
-                );
-              }
-              else
-              {
-                leg.AddEntry(ratioHists[i], loaded[i].cfg.legendLabel.c_str(), "p");
-              }
-            }
-            leg.Draw();
-
-            TLegend extra(0.58, 0.18, 0.88, 0.32);
-            extra.SetBorderSize(0);
-            extra.SetFillStyle(0);
-            extra.SetTextSize(0.032);
-            extra.AddEntry((TObject*)nullptr, "#it{#bf{sPHENIX}} Internal", "");
-            extra.AddEntry((TObject*)nullptr, "p+p #sqrt{s} = 200 GeV", "");
-            extra.AddEntry((TObject*)nullptr, family.familyLabel.c_str(), "");
-            extra.Draw();
-
-            const std::string outPng = JoinPath(familyOutDir, "hMaxClusterEnergy_doNotScale_ratioToMBD.png");
-            c.SaveAs(outPng.c_str());
-            cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";
-
-            for (auto* h : ratioHists) delete h;
-            for (auto* l : ratioLines) delete l;
-          }
+          for (auto* h : ratioHists) delete h;
         };
 
-        for (const auto& family : families)
+        std::set<std::string> writtenGroups;
+        for (const auto& folder : groupOrder)
         {
-          DrawFamilyPlots(family);
+          auto it = groups.find(folder);
+          if (it == groups.end()) continue;
+          writtenGroups.insert(folder);
+
+          const std::string groupOutDir = JoinPath(outDir, folder);
+          EnsureDir(groupOutDir);
+
+          std::vector<std::string> summary;
+          summary.push_back(string("triggerQA doNotScale common-basis summary: ") + folder);
+          summary.push_back(string("Input: ") + ds.inFilePath);
+          summary.push_back(string("Basis: ") + it->second.front().basisLabel);
+          summary.push_back("Schema: numerator=<probe>, denominator=baseline_<probe>");
+          summary.push_back("Efficiency = probe live / baseline raw");
+          summary.push_back("");
+
+          for (const auto& P : it->second)
+          {
+            const std::string pairOutDir = JoinPath(groupOutDir, P.probeKey);
+            EnsureDir(pairOutDir);
+
+            double x95 = -1.0;
+            drawPairOverlay(P, pairOutDir);
+            drawPairTurnOn(P, pairOutDir, x95);
+
+            summary.push_back(TString::Format(
+              "%s | baseline=%s | entries(probe)=%.0f | entries(base)=%.0f | run spans (%d): %s | x95=%s",
+              P.probeLabel.c_str(),
+              P.baselineKey.c_str(),
+              (P.hProbe ? P.hProbe->GetEntries() : 0.0),
+              (P.hBase  ? P.hBase->GetEntries()  : 0.0),
+              P.nRunSpans,
+              P.coverageText.c_str(),
+              (x95 > 0.0 ? TString::Format("%.4f GeV", x95).Data() : "n/a")
+            ).Data());
+          }
+
+          drawGroupTurnOnOverlay(it->second, groupOutDir);
+          WriteTextFile(JoinPath(groupOutDir, "summary.txt"), summary);
+
+          indexLines.push_back(folder + " -> " + it->second.front().basisLabel);
+          for (const auto& P : it->second)
+          {
+            indexLines.push_back(TString::Format(
+              "  %s | baseline_%s | spans=%d | %s",
+              P.probeKey.c_str(),
+              P.probeKey.c_str(),
+              P.nRunSpans,
+              P.coverageText.c_str()).Data());
+          }
+          indexLines.push_back("");
         }
+
+        for (const auto& kv : groups)
+        {
+          if (writtenGroups.count(kv.first)) continue;
+
+          const std::string groupOutDir = JoinPath(outDir, kv.first);
+          EnsureDir(groupOutDir);
+
+          std::vector<std::string> summary;
+          summary.push_back(string("triggerQA doNotScale common-basis summary: ") + kv.first);
+          summary.push_back(string("Input: ") + ds.inFilePath);
+          summary.push_back(string("Basis: ") + kv.second.front().basisLabel);
+          summary.push_back("Schema: numerator=<probe>, denominator=baseline_<probe>");
+          summary.push_back("Efficiency = probe live / baseline raw");
+          summary.push_back("");
+
+          for (const auto& P : kv.second)
+          {
+            const std::string pairOutDir = JoinPath(groupOutDir, P.probeKey);
+            EnsureDir(pairOutDir);
+
+            double x95 = -1.0;
+            drawPairOverlay(P, pairOutDir);
+            drawPairTurnOn(P, pairOutDir, x95);
+
+            summary.push_back(TString::Format(
+              "%s | baseline=%s | entries(probe)=%.0f | entries(base)=%.0f | run spans (%d): %s | x95=%s",
+              P.probeLabel.c_str(),
+              P.baselineKey.c_str(),
+              (P.hProbe ? P.hProbe->GetEntries() : 0.0),
+              (P.hBase  ? P.hBase->GetEntries()  : 0.0),
+              P.nRunSpans,
+              P.coverageText.c_str(),
+              (x95 > 0.0 ? TString::Format("%.4f GeV", x95).Data() : "n/a")
+            ).Data());
+          }
+
+          drawGroupTurnOnOverlay(kv.second, groupOutDir);
+          WriteTextFile(JoinPath(groupOutDir, "summary.txt"), summary);
+
+          indexLines.push_back(kv.first + " -> " + kv.second.front().basisLabel);
+          for (const auto& P : kv.second)
+          {
+            indexLines.push_back(TString::Format(
+              "  %s | baseline_%s | spans=%d | %s",
+              P.probeKey.c_str(),
+              P.probeKey.c_str(),
+              P.nRunSpans,
+              P.coverageText.c_str()).Data());
+          }
+          indexLines.push_back("");
+        }
+
+        WriteTextFile(JoinPath(outDir, "summary_triggerQA_doNotScale.txt"), indexLines);
       }
 
       void RunPi0QA(Dataset& ds)
@@ -10029,29 +10417,102 @@ namespace ARJ
                 }
                 leg.Draw();
 
-                  // Single centered title only (no extra on-canvas printouts, no "(inclusive)" label).
-                  std::string centPretty = centLabel;
-                  if (centPretty.rfind("cent:", 0) == 0)
-                  {
+                // Single centered title only (no extra on-canvas printouts, no "(inclusive)" label).
+                std::string centPretty = centLabel;
+                if (centPretty.rfind("cent:", 0) == 0)
+                {
                     centPretty = "Cent = " + centPretty.substr(5);
                     while (!centPretty.empty() && centPretty[0] == ' ') centPretty.erase(centPretty.begin());
-                  }
+                }
 
-                  TLatex t;
-                  t.SetNDC(true);
-                  t.SetTextFont(42);
-                  t.SetTextAlign(22);
-                  t.SetTextSize(0.045);
+                TLatex t;
+                t.SetNDC(true);
+                t.SetTextFont(42);
+                t.SetTextAlign(22);
+                t.SetTextSize(0.045);
 
-                  t.DrawLatex(0.50, 0.94,
+                t.DrawLatex(0.50, 0.94,
                     TString::Format("E_{T}^{Iso}, run3auau, %s, p_{T}^{#gamma} = %d-%d GeV",
                                     centPretty.c_str(), pb.lo, pb.hi).Data());
 
                 SaveCanvas(cAA, JoinPath(qaDirAA,
-                  TString::Format("AuAu_unNormalized_%s_%s.png", histBase.c_str(), pb.folder.c_str()).Data()));
+                    TString::Format("AuAu_unNormalized_%s_%s.png", histBase.c_str(), pb.folder.c_str()).Data()));
 
-                delete hNoUE;
-                if (hUE) delete hUE;
+                  // ---------------------------------------------------------------
+                  // NEW: PP + AuAu overlay per centrality per pT bin
+                  //   -> <outDir>/noSS_isoSpectra/<pb.folder>/ppAuAu_overlay_<histBase>_<pb.folder>.png
+                  // ---------------------------------------------------------------
+                  if (rawPP)
+                  {
+                    const string qaDirOverlay = JoinPath(JoinPath(outDir, "noSS_isoSpectra"), pb.folder);
+                    EnsureDir(qaDirOverlay);
+
+                    TH1* hPPov = CloneTH1(rawPP,
+                      TString::Format("pp_ov_%s_%s%s", histBase.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data());
+
+                    if (hPPov)
+                    {
+                      EnsureSumw2(hPPov);
+
+                      TCanvas cOv(
+                        TString::Format("c_ov_%s_%s%s", histBase.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data(),
+                        "c_ov", 900, 700
+                      );
+                      ApplyCanvasMargins1D(cOv);
+                      cOv.SetLogy(false);
+
+                      hNoUE->GetXaxis()->UnZoom();
+                      hPPov->GetXaxis()->UnZoom();
+
+                      hNoUE->SetTitle("");
+                      hPPov->SetTitle("");
+                      hNoUE->GetXaxis()->SetTitle(xTitle.c_str());
+                      hNoUE->GetYaxis()->SetTitle("Counts");
+
+                      StyleOverlayHist(hNoUE, kBlack,  20);
+                      StyleOverlayHist(hPPov, kBlue+1, 24);
+
+                      const double ymaxOv = std::max(hNoUE->GetMaximum(), hPPov->GetMaximum());
+                      hNoUE->SetMaximum(ymaxOv * 1.35);
+
+                      hNoUE->Draw("E1");
+                      hPPov->Draw("E1 same");
+
+                      TLegend legOv(0.52, 0.70, 0.90, 0.86);
+                      legOv.SetBorderSize(0);
+                      legOv.SetFillStyle(0);
+                      legOv.SetTextFont(42);
+                      legOv.SetTextSize(0.036);
+                      legOv.AddEntry(hNoUE, "Au+Au (no UE sub)", "ep");
+                      legOv.AddEntry(hPPov, "PP data",           "ep");
+                      legOv.Draw();
+
+                      std::string centPrettyOv = centLabel;
+                      if (centPrettyOv.rfind("cent:", 0) == 0)
+                      {
+                        centPrettyOv = "Cent = " + centPrettyOv.substr(5);
+                        while (!centPrettyOv.empty() && centPrettyOv[0] == ' ') centPrettyOv.erase(centPrettyOv.begin());
+                      }
+
+                      TLatex tOv;
+                      tOv.SetNDC(true);
+                      tOv.SetTextFont(42);
+                      tOv.SetTextAlign(22);
+                      tOv.SetTextSize(0.045);
+                      tOv.DrawLatex(0.50, 0.94,
+                        TString::Format("E_{T}^{Iso} PP+AuAu, %s, p_{T}^{#gamma} = %d-%d GeV",
+                                        centPrettyOv.c_str(), pb.lo, pb.hi).Data());
+
+                      SaveCanvas(cOv, JoinPath(qaDirOverlay,
+                        TString::Format("ppAuAu_overlay_%s_%s.png", histBase.c_str(), pb.folder.c_str()).Data()));
+
+                      delete hPPov;
+                    }
+                  }
+                  // ---------------------------------------------------------------
+
+                  delete hNoUE;
+                  if (hUE) delete hUE;
               }
               else
               {

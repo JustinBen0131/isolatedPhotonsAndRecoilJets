@@ -3203,101 +3203,103 @@ void RunJES3QA(Dataset& ds)
             Draw3x3Table(true,
               TString::Format("table3x3_xJ_%s_integratedAlpha_shapeNormalized.png", tag.c_str()).Data());
 
-            // ----------------------------------------
-            // (B) INDIVIDUAL PNG for EVERY pT bin (1..nAll)
-            // ----------------------------------------
-            for (int ib = 1; ib <= nAll; ++ib)
+              // ----------------------------------------
+              // (B) INDIVIDUAL PNG for EVERY analysis pT bin
+              // ----------------------------------------
+            for (int i = 0; i < (int)recoBinsAll.size(); ++i)
             {
-              TH1* hxAu = ProjectY_AtXbin_TH3(
-                h3Au, ib,
-                TString::Format("jes3_xJ_indiv_auau_%s_%s_lin_%d",
-                  rKey.c_str(), tag.c_str(), ib).Data()
-              );
+                const PtBin& pb = recoBinsAll[i];
 
-              TH1* hxPP = ProjectY_AtXbin_TH3(
-                h3PP, ib,
-                TString::Format("jes3_xJ_indiv_pp_%s_%s_lin_%d",
-                  rKey.c_str(), tag.c_str(), ib).Data()
-              );
+                TH1* hxAu = ProjectGroupedY_IntegratedAlpha_TH3(
+                  h3Au, pb,
+                  TString::Format("jes3_xJ_indiv_auau_%s_%s_%s",
+                    rKey.c_str(), tag.c_str(), pb.folder.c_str()).Data()
+                );
 
-              if (!hxAu || !hxPP)
-              {
-                if (hxAu) delete hxAu;
-                if (hxPP) delete hxPP;
-                continue;
-              }
+                TH1* hxPP = ProjectGroupedY_IntegratedAlpha_TH3(
+                  h3PP, pb,
+                  TString::Format("jes3_xJ_indiv_pp_%s_%s_%s",
+                    rKey.c_str(), tag.c_str(), pb.folder.c_str()).Data()
+                );
 
-              hxAu->SetDirectory(nullptr);
-              hxPP->SetDirectory(nullptr);
-              EnsureSumw2(hxAu);
-              EnsureSumw2(hxPP);
+                if (!hxAu || !hxPP)
+                {
+                  if (hxAu) delete hxAu;
+                  if (hxPP) delete hxPP;
+                  continue;
+                }
 
-              NormalizeUnitArea(hxAu);
-              NormalizeUnitArea(hxPP);
+                hxAu->SetDirectory(nullptr);
+                hxPP->SetDirectory(nullptr);
+                EnsureSumw2(hxAu);
+                EnsureSumw2(hxPP);
 
-              StyleAuAuPP(hxAu, hxPP, true);
+                NormalizeUnitArea(hxAu);
+                NormalizeUnitArea(hxPP);
 
-              const double ptMin = h3Au->GetXaxis()->GetBinLowEdge(ib);
-              const double ptMax = h3Au->GetXaxis()->GetBinUpEdge(ib);
+                StyleAuAuPP(hxAu, hxPP, true);
 
-              TCanvas c(
-                TString::Format("c_xJ_auauPP_%s_%s_%d",
-                  ds.label.c_str(), rKey.c_str(), ib).Data(),
-                "c_xJ_auauPP", 900, 700
-              );
+                const double ptMin = pb.lo;
+                const double ptMax = pb.hi;
 
-              c.SetTopMargin(0.10);
-              c.SetBottomMargin(0.14);
-              c.SetLeftMargin(0.13);
-              c.SetRightMargin(0.05);
+                TCanvas c(
+                  TString::Format("c_xJ_auauPP_%s_%s_%d",
+                    ds.label.c_str(), rKey.c_str(), i + 1).Data(),
+                  "c_xJ_auauPP", 900, 700
+                );
 
-              hxAu->Draw("E1");
-              hxPP->Draw("E1 same");
+                c.SetTopMargin(0.10);
+                c.SetBottomMargin(0.14);
+                c.SetLeftMargin(0.13);
+                c.SetRightMargin(0.05);
 
-              TLegend* leg = new TLegend(0.18, 0.78, 0.42, 0.90);
-              leg->SetBorderSize(0);
-              leg->SetFillStyle(0);
-              leg->SetTextFont(42);
-              leg->SetTextSize(0.040);
-              leg->SetEntrySeparation(0.22);
-              leg->AddEntry(hxPP, "pp",   "ep");
-              leg->AddEntry(hxAu, auauLeg.c_str(), "ep");
-              leg->Draw();
+                hxAu->Draw("E1");
+                hxPP->Draw("E1 same");
 
-              const auto& cfgDef = DefaultSim10and20Config();
-              const double jetPtMin_GeV = cfgDef.jetMinPt;
+                TLegend* leg = new TLegend(0.18, 0.78, 0.42, 0.90);
+                leg->SetBorderSize(0);
+                leg->SetFillStyle(0);
+                leg->SetTextFont(42);
+                leg->SetTextSize(0.040);
+                leg->SetEntrySeparation(0.22);
+                leg->AddEntry(hxPP, "pp",   "ep");
+                leg->AddEntry(hxAu, auauLeg.c_str(), "ep");
+                leg->Draw();
 
-              {
-                TLatex tCuts;
-                tCuts.SetNDC(true);
-                tCuts.SetTextFont(42);
-                tCuts.SetTextAlign(33);
-                tCuts.SetTextSize(0.038);
-                tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
-                tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
-              }
+                const auto& cfgDef = DefaultSim10and20Config();
+                const double jetPtMin_GeV = cfgDef.jetMinPt;
 
-              {
-                TLatex t;
-                t.SetNDC(true);
-                t.SetTextFont(42);
-                t.SetTextAlign(13);
-                t.SetTextSize(0.052);
-                t.DrawLatex(0.14, 0.98,
-                  TString::Format("RECO x_{J#gamma}, p_{T}^{#gamma} = %.0f - %.0f GeV, R = %.1f",
-                    ptMin, ptMax, R).Data());
-              }
+                {
+                  TLatex tCuts;
+                  tCuts.SetNDC(true);
+                  tCuts.SetTextFont(42);
+                  tCuts.SetTextAlign(33);
+                  tCuts.SetTextSize(0.038);
+                  tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
+                  tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
+                }
 
-              const string outName = TString::Format("xJ_%s_integratedAlpha_auau_pp_pTgamma_%d_%d.png",
-                tag.c_str(), (int)ptMin, (int)ptMax).Data();
+                {
+                  TLatex t;
+                  t.SetNDC(true);
+                  t.SetTextFont(42);
+                  t.SetTextAlign(13);
+                  t.SetTextSize(0.052);
+                  t.DrawLatex(0.14, 0.98,
+                    TString::Format("RECO x_{J#gamma}, p_{T}^{#gamma} = %.0f - %.0f GeV, R = %.1f",
+                      ptMin, ptMax, R).Data());
+                }
 
-              SaveCanvas(c, JoinPath(overlayDir, outName));
+                const string outName = TString::Format("xJ_%s_integratedAlpha_auau_pp_pTgamma_%d_%d.png",
+                  tag.c_str(), (int)ptMin, (int)ptMax).Data();
 
-              delete leg;
-              delete hxAu;
-              delete hxPP;
+                SaveCanvas(c, JoinPath(overlayDir, outName));
+
+                delete leg;
+                delete hxAu;
+                delete hxPP;
             }
-          };
+        };
 
         auto Make3x3Table_xJ_WithWithoutUESub_FromTH3 =
           [&](const TH3* h3NoUE, const string& outBaseDir, const string& tag, bool logy)
