@@ -1343,8 +1343,10 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                 << "  vz_cut_cm: " << cfg.vz_cut_cm << "\n"
                 << "  matching: {pho_dr_max=" << cfg.pho_dr_max << ", jet_dr_max=" << cfg.jet_dr_max << "}\n"
                 << "  isolation_wp: {aGeV=" << cfg.isoA << ", bPerGeV=" << cfg.isoB
-                << ", sideGapGeV=" << cfg.isoGap << ", coneR=" << cfg.isoConeR
-                << ", towerMin=" << cfg.isoTowMin << "}\n"
+                << ", sideGapGeV=" << cfg.isoGap << ", fixedGeV=" << cfg.isoFixed
+                << ", coneR=" << cfg.isoConeR
+                << ", towerMin=" << cfg.isoTowMin
+                << ", isSlidingIso=" << (cfg.isSlidingIso ? "true" : "false") << "}\n"
                 << "  jes3_photon_pt_bins: [";
       for (std::size_t i = 0; i < cfg.jes3_photon_pt_bins.size(); ++i)
       {

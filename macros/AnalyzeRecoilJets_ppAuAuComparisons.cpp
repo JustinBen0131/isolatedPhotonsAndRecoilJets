@@ -393,6 +393,183 @@ keepAlive.clear();
 // NOTE:
 //   - FULL RANGE ONLY: no SetRangeUser() anywhere; we UnZoom() explicitly.
 // =============================================================================
+// =============================================================================
+// NEW: per-pT-bin PP+AuAu overlay across ALL centrality bins
+//   Outputs (inside <outDir>/noSS_isoSpectra/<pb.folder>/):
+//     ppAuAu_allCent_overlay_<histBase>_<pb.folder>.png        (unnormalized counts)
+//     ppAuAu_allCent_overlay_norm_<histBase>_<pb.folder>.png   (unit-area normalized)
+//
+//   AuAu curves: one per centrality bin, distinct closed-circle colors
+//   PP curve: closed blue circles (kBlue+1, marker 20), drawn last on top
+// =============================================================================
+static void MakePPAuAuAllCent_OverlayByCent(TDirectory* ppTop,
+                                            TDirectory* aaTop,
+                                            const string& outDir,
+                                            const string& histBase,
+                                            const PtBin& pb,
+                                            const string& xTitle)
+{
+  const auto& centBins = CentBins();
+  if (centBins.empty() || !aaTop) return;
+
+  const string qaDirOverlay = JoinPath(JoinPath(outDir, "noSS_isoSpectra"), pb.folder);
+  EnsureDir(qaDirOverlay);
+
+  // Distinct colors for centrality bins (closed circles throughout)
+  const int centColors[] = {
+    kRed + 1, kOrange + 7, kGreen + 2, kMagenta + 1, kCyan + 2, kViolet + 1,
+    kAzure + 2, kSpring + 5, kPink + 7, kTeal + 3, kGray + 2, kYellow + 2
+  };
+  const int nCentColors = (int)(sizeof(centColors) / sizeof(centColors[0]));
+
+  // Fetch PP histogram once
+  const string hPPName = histBase + pb.suffix;
+  TH1* rawPP = GetTH1FromTopDir(ppTop, hPPName);
+
+  // ---------------------------------------------------------------
+  // Inner lambda: build and save one overlay canvas
+  //   normalize=false -> raw counts
+  //   normalize=true  -> unit-area shape
+  // ---------------------------------------------------------------
+  auto MakeOneCanvas = [&](bool normalize)
+  {
+    const string cName = TString::Format("c_allCent_ov%s_%s_%s",
+      normalize ? "_norm" : "",
+      histBase.c_str(), pb.folder.c_str()).Data();
+
+    TCanvas cOv(cName.c_str(), cName.c_str(), 900, 700);
+    ApplyCanvasMargins1D(cOv);
+    cOv.SetLogy(false);
+
+    double yMax = 0.0;
+    TH1* hFirst = nullptr;
+
+    TLegend leg(0.52, 0.52, 0.90, 0.88);
+    leg.SetBorderSize(0);
+    leg.SetFillStyle(0);
+    leg.SetTextFont(42);
+    leg.SetTextSize(0.030);
+
+    vector<TH1*> keepAlive;
+    keepAlive.reserve(centBins.size() + 1);
+
+    // Draw AuAu per centrality
+    for (int ic = 0; ic < (int)centBins.size(); ++ic)
+    {
+      const auto& cb = centBins[ic];
+      const string hAAName = histBase + pb.suffix + cb.suffix;
+      TH1* rawAA = GetTH1FromTopDir(aaTop, hAAName);
+      if (!rawAA) continue;
+
+      TH1* hAA = CloneTH1(rawAA,
+        TString::Format("aa_allCent_ov%s_%s_%s%s",
+          normalize ? "_norm" : "",
+          histBase.c_str(), pb.folder.c_str(), cb.suffix.c_str()).Data());
+      if (!hAA) continue;
+
+      EnsureSumw2(hAA);
+      hAA->GetXaxis()->UnZoom();
+      hAA->SetTitle("");
+      hAA->GetXaxis()->SetTitle(xTitle.c_str());
+      hAA->GetYaxis()->SetTitle(normalize ? "Normalized counts" : "Counts");
+
+      if (normalize)
+      {
+        const double integral = hAA->Integral(0, hAA->GetNbinsX() + 1);
+        if (integral > 0.0) hAA->Scale(1.0 / integral);
+      }
+
+      const int col = centColors[ic % nCentColors];
+      StyleOverlayHist(hAA, col, 20);
+
+      yMax = std::max(yMax, hAA->GetMaximum());
+
+      if (!hFirst)
+      {
+        hFirst = hAA;
+        hFirst->Draw("E1");
+      }
+      else
+      {
+        hAA->Draw("E1 same");
+      }
+
+      leg.AddEntry(hAA,
+        TString::Format("Au+Au %d-%d%%", cb.lo, cb.hi).Data(), "ep");
+
+      keepAlive.push_back(hAA);
+    }
+
+    // Draw PP on top (closed blue circles)
+    if (rawPP)
+    {
+      TH1* hPP = CloneTH1(rawPP,
+        TString::Format("pp_allCent_ov%s_%s_%s",
+          normalize ? "_norm" : "",
+          histBase.c_str(), pb.folder.c_str()).Data());
+      if (hPP)
+      {
+        EnsureSumw2(hPP);
+        hPP->GetXaxis()->UnZoom();
+        hPP->SetTitle("");
+        hPP->GetXaxis()->SetTitle(xTitle.c_str());
+        hPP->GetYaxis()->SetTitle(normalize ? "Normalized counts" : "Counts");
+
+        if (normalize)
+        {
+          const double integral = hPP->Integral(0, hPP->GetNbinsX() + 1);
+          if (integral > 0.0) hPP->Scale(1.0 / integral);
+        }
+
+        StyleOverlayHist(hPP, kBlue + 1, 20);
+
+        yMax = std::max(yMax, hPP->GetMaximum());
+
+        if (!hFirst)
+        {
+          hFirst = hPP;
+          hFirst->Draw("E1");
+        }
+        else
+        {
+          hPP->Draw("E1 same");
+        }
+
+        leg.AddEntry(hPP, "PP data", "ep");
+        keepAlive.push_back(hPP);
+      }
+    }
+
+    if (hFirst)
+    {
+      hFirst->SetMaximum(yMax * 1.35);
+
+      leg.Draw();
+
+      TLatex tOv;
+      tOv.SetNDC(true);
+      tOv.SetTextFont(42);
+      tOv.SetTextAlign(22);
+      tOv.SetTextSize(0.042);
+      tOv.DrawLatex(0.50, 0.94,
+        TString::Format("E_{T}^{Iso} PP+AuAu%s, p_{T}^{#gamma} = %d-%d GeV, all cent",
+                        normalize ? " (norm)" : "", pb.lo, pb.hi).Data());
+
+      const string outPng = JoinPath(qaDirOverlay,
+        TString::Format("ppAuAu_allCent_overlay%s_%s_%s.png",
+          normalize ? "_norm" : "",
+          histBase.c_str(), pb.folder.c_str()).Data());
+
+      SaveCanvas(cOv, outPng);
+    }
+
+    for (TH1* h : keepAlive) delete h;
+  };
+
+  MakeOneCanvas(false); // unnormalized counts
+  MakeOneCanvas(true);  // unit-area normalized
+}
+
 static void MakeUnnormalizedQA_PPvsAuAu(TDirectory* ppTop,
                                      TDirectory* aaTop,
                                      const string& outDir,
@@ -877,7 +1054,7 @@ for (int i = 0; i < nPads; ++i)
               hNoUE->GetYaxis()->SetTitle("Counts");
 
               StyleOverlayHist(hNoUE, kBlack,  20);
-              StyleOverlayHist(hPPov, kBlue+1, 24);
+              StyleOverlayHist(hPPov, kBlue+1, 20);
 
               const double ymaxOv = std::max(hNoUE->GetMaximum(), hPPov->GetMaximum());
               hNoUE->SetMaximum(ymaxOv * 1.35);
@@ -907,14 +1084,21 @@ for (int i = 0; i < nPads; ++i)
               tOv.SetTextAlign(22);
               tOv.SetTextSize(0.045);
               tOv.DrawLatex(0.50, 0.94,
-                TString::Format("E_{T}^{Iso} PP+AuAu, %s, p_{T}^{#gamma} = %d-%d GeV",
+              TString::Format("E_{T}^{Iso} PP+AuAu, %s, p_{T}^{#gamma} = %d-%d GeV",
                                 centPrettyOv.c_str(), pb.lo, pb.hi).Data());
 
               SaveCanvas(cOv, JoinPath(qaDirOverlay,
-                TString::Format("ppAuAu_overlay_%s_%s.png", histBase.c_str(), pb.folder.c_str()).Data()));
+                                TString::Format("ppAuAu_overlay_%s_%s.png", histBase.c_str(), pb.folder.c_str()).Data()));
 
               delete hPPov;
             }
+
+            // ---------------------------------------------------------------
+            // NEW: PP+AuAu overlay across ALL centrality bins (unnorm + norm)
+            //   -> noSS_isoSpectra/<pb.folder>/ppAuAu_allCent_overlay_<histBase>_<pb.folder>.png
+            //   -> noSS_isoSpectra/<pb.folder>/ppAuAu_allCent_overlay_norm_<histBase>_<pb.folder>.png
+            // ---------------------------------------------------------------
+            MakePPAuAuAllCent_OverlayByCent(ppTop, aaTop, outDir, histBase, pb, xTitle);
           }
           // ---------------------------------------------------------------
 
