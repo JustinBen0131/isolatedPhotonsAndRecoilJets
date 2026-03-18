@@ -416,7 +416,7 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
   {
     const std::string s = toLower(trim(std::string(ds)));
 
-    if (s == "issim" || s == "sim")
+    if (s == "issim" || s == "sim" || s == "issimjet5" || s == "simjet5" || s == "issimmb" || s == "simmb")
     {
       isSim  = true;
       isAuAu = false;
@@ -1206,28 +1206,78 @@ void RecoilJets::createHistos_Data()
       H[hcnt] = h;
     }
 
-      // 2) vertex-z QA
-      if (H.find("h_vertexZ") == H.end())
-      {
-        auto* hvz = new TH1F("h_vertexZ", "h_vertexZ;v_{z} [cm];Entries", nbVz, vzMin, vzMax);
-        H["h_vertexZ"] = hvz;
-      }
+    // 2) vertex-z QA
+    if (H.find("h_vertexZ") == H.end())
+    {
+      auto* hvz = new TH1F("h_vertexZ", "h_vertexZ;v_{z} [cm];Entries", nbVz, vzMin, vzMax);
+      H["h_vertexZ"] = hvz;
+    }
 
-      // 3) SIM ONLY: truth-vs-reco vertex comparison (filled BEFORE |vz| cut)
-      if (H.find("h_vzTruthVsReco") == H.end())
-      {
-        auto* h2 = new TH2F("h_vzTruthVsReco",
-                            "h_vzTruthVsReco;v_{z}^{truth} [cm];v_{z}^{reco-used} [cm]",
-                            nbVz, vzMin, vzMax,
-                            nbVz, vzMin, vzMax);
-        H["h_vzTruthVsReco"] = h2;
-      }
+    // 3) SIM ONLY: truth-vs-reco vertex comparison (filled BEFORE |vz| cut)
+    if (H.find("h_vzTruthVsReco") == H.end())
+    {
+      auto* h2 = new TH2F("h_vzTruthVsReco",
+                           "h_vzTruthVsReco;v_{z}^{truth} [cm];v_{z}^{reco-used} [cm]",
+                           nbVz, vzMin, vzMax,
+                           nbVz, vzMin, vzMax);
+      H["h_vzTruthVsReco"] = h2;
+    }
 
     // Optional: if you ever run a HI-like sim with centrality available
     if (m_isAuAu && H.find("h_centrality") == H.end())
     {
       auto* hc = new TH1F("h_centrality", "h_centrality;Centrality [%];Entries", 100, 0.0, 100.0);
       H["h_centrality"] = hc;
+    }
+
+    // SIM pi0 analysis: book pi0 TH2s under the SIM directory itself
+    // so that AnalyzeRecoilJets RunPi0QA can find them via ds.topDir ("SIM").
+    if (m_doPi0Analysis)
+    {
+      dir->cd();
+      HistMap& Hpi0 = H;
+
+      if (Hpi0.find("h2_pi0_mass_vs_pi0pt_corr") == Hpi0.end())
+      {
+        TH2F* hist = new TH2F("h2_pi0_mass_vs_pi0pt_corr",
+                               "h2_pi0_mass_vs_pi0pt_corr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{#pi^{0}} [GeV/c]",
+                               240, 0, 0.6,
+                               240, 0, 60);
+        hist->SetDirectory(out);
+        Hpi0["h2_pi0_mass_vs_pi0pt_corr"] = hist;
+      }
+
+      if (Hpi0.find("h2_pi0_mass_vs_pi0pt_nocorr") == Hpi0.end())
+      {
+        TH2F* hist = new TH2F("h2_pi0_mass_vs_pi0pt_nocorr",
+                               "h2_pi0_mass_vs_pi0pt_nocorr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{#pi^{0}} [GeV/c]",
+                               240, 0, 0.6,
+                               240, 0, 60);
+        hist->SetDirectory(out);
+        Hpi0["h2_pi0_mass_vs_pi0pt_nocorr"] = hist;
+      }
+
+      if (Hpi0.find("h2_pi0_mass_vs_leadcluspt_corr") == Hpi0.end())
+      {
+        TH2F* hist = new TH2F("h2_pi0_mass_vs_leadcluspt_corr",
+                               "h2_pi0_mass_vs_leadcluspt_corr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{lead cluster} [GeV/c]",
+                               240, 0, 0.6,
+                               240, 0, 60);
+        hist->SetDirectory(out);
+        Hpi0["h2_pi0_mass_vs_leadcluspt_corr"] = hist;
+      }
+
+      if (Hpi0.find("h2_pi0_mass_vs_leadcluspt_nocorr") == Hpi0.end())
+      {
+        TH2F* hist = new TH2F("h2_pi0_mass_vs_leadcluspt_nocorr",
+                               "h2_pi0_mass_vs_leadcluspt_nocorr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{lead cluster} [GeV/c]",
+                               240, 0, 0.6,
+                               240, 0, 60);
+        hist->SetDirectory(out);
+        Hpi0["h2_pi0_mass_vs_leadcluspt_nocorr"] = hist;
+      }
+
+      out->cd();
     }
 
     out->cd();
@@ -1278,60 +1328,60 @@ void RecoilJets::createHistos_Data()
   }
   else
   {
+    {
+      const std::string trig = "MBD_NandS_geq_1";
+
+      TDirectory* dir = out->GetDirectory(trig.c_str());
+      if (!dir) dir = out->mkdir(trig.c_str());
+      dir->cd();
+
+      HistMap& H = qaHistogramsByTrigger[trig];
+
+      if (m_doPi0Analysis)
       {
-        const std::string trig = "MBD_NandS_geq_1";
-
-        TDirectory* dir = out->GetDirectory(trig.c_str());
-        if (!dir) dir = out->mkdir(trig.c_str());
-        dir->cd();
-
-        HistMap& H = qaHistogramsByTrigger[trig];
-
-        if (m_doPi0Analysis)
+        if (H.find("h2_pi0_mass_vs_pi0pt_corr") == H.end())
         {
-          if (H.find("h2_pi0_mass_vs_pi0pt_corr") == H.end())
-          {
-            TH2F* hist = new TH2F("h2_pi0_mass_vs_pi0pt_corr",
-                                  "h2_pi0_mass_vs_pi0pt_corr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{#pi^{0}} [GeV/c]",
-                                  240, 0, 0.6,
-                                  240, 0, 60);
-            hist->SetDirectory(out);
-            H["h2_pi0_mass_vs_pi0pt_corr"] = hist;
-          }
-
-          if (H.find("h2_pi0_mass_vs_pi0pt_nocorr") == H.end())
-          {
-            TH2F* hist = new TH2F("h2_pi0_mass_vs_pi0pt_nocorr",
-                                  "h2_pi0_mass_vs_pi0pt_nocorr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{#pi^{0}} [GeV/c]",
-                                  240, 0, 0.6,
-                                  240, 0, 60);
-            hist->SetDirectory(out);
-            H["h2_pi0_mass_vs_pi0pt_nocorr"] = hist;
-          }
-
-          if (H.find("h2_pi0_mass_vs_leadcluspt_corr") == H.end())
-          {
-            TH2F* hist = new TH2F("h2_pi0_mass_vs_leadcluspt_corr",
-                                  "h2_pi0_mass_vs_leadcluspt_corr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{lead cluster} [GeV/c]",
-                                  240, 0, 0.6,
-                                  240, 0, 60);
-            hist->SetDirectory(out);
-            H["h2_pi0_mass_vs_leadcluspt_corr"] = hist;
-          }
-
-          if (H.find("h2_pi0_mass_vs_leadcluspt_nocorr") == H.end())
-          {
-            TH2F* hist = new TH2F("h2_pi0_mass_vs_leadcluspt_nocorr",
-                                  "h2_pi0_mass_vs_leadcluspt_nocorr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{lead cluster} [GeV/c]",
-                                  240, 0, 0.6,
-                                  240, 0, 60);
-            hist->SetDirectory(out);
-            H["h2_pi0_mass_vs_leadcluspt_nocorr"] = hist;
-          }
+          TH2F* hist = new TH2F("h2_pi0_mass_vs_pi0pt_corr",
+                                "h2_pi0_mass_vs_pi0pt_corr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{#pi^{0}} [GeV/c]",
+                                240, 0, 0.6,
+                                240, 0, 60);
+          hist->SetDirectory(out);
+          H["h2_pi0_mass_vs_pi0pt_corr"] = hist;
         }
 
-        out->cd();
+        if (H.find("h2_pi0_mass_vs_pi0pt_nocorr") == H.end())
+        {
+          TH2F* hist = new TH2F("h2_pi0_mass_vs_pi0pt_nocorr",
+                                "h2_pi0_mass_vs_pi0pt_nocorr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{#pi^{0}} [GeV/c]",
+                                240, 0, 0.6,
+                                240, 0, 60);
+          hist->SetDirectory(out);
+          H["h2_pi0_mass_vs_pi0pt_nocorr"] = hist;
+        }
+
+        if (H.find("h2_pi0_mass_vs_leadcluspt_corr") == H.end())
+        {
+          TH2F* hist = new TH2F("h2_pi0_mass_vs_leadcluspt_corr",
+                                "h2_pi0_mass_vs_leadcluspt_corr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{lead cluster} [GeV/c]",
+                                240, 0, 0.6,
+                                240, 0, 60);
+          hist->SetDirectory(out);
+          H["h2_pi0_mass_vs_leadcluspt_corr"] = hist;
+        }
+
+        if (H.find("h2_pi0_mass_vs_leadcluspt_nocorr") == H.end())
+        {
+          TH2F* hist = new TH2F("h2_pi0_mass_vs_leadcluspt_nocorr",
+                                "h2_pi0_mass_vs_leadcluspt_nocorr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{lead cluster} [GeV/c]",
+                                240, 0, 0.6,
+                                240, 0, 60);
+          hist->SetDirectory(out);
+          H["h2_pi0_mass_vs_leadcluspt_nocorr"] = hist;
+        }
       }
+
+      out->cd();
+    }
 
     // ------------------------------------------------------------------
     // Existing pp per-trigger QA booking (unchanged; still uses triggerNameMap_pp)
@@ -1609,199 +1659,213 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     return Fun4AllReturnCodes::ABORTEVENT;
   }
 
-    /* ------------------------------------------------------------------ */
-    /* 2) Trigger gating (pp & Au+Au) — unified in firstEventCuts()       */
-    /* ------------------------------------------------------------------ */
+  /* ------------------------------------------------------------------ */
+  /* 2) Trigger gating (pp & Au+Au) — unified in firstEventCuts()       */
+  /* ------------------------------------------------------------------ */
 
-    // DATA ONLY: doNotScale max-cluster-energy trigger-efficiency fill
-    //   - baseline gate uses the event-level raw/unscaled GL1 TriggerVector bit
-    //   - probe gate uses the event-level GL1 LiveVector bit
-    //   - denominator is filled ONCE per pair when the baseline bit is on
-    //   - numerator   is filled ONCE per pair when baseline AND probe are on
-    //   - run-range/bit mapping is hard-coded from the ALL QA output above
-    // ------------------------------------------------------------------
-    if (!m_isSim)
+  // DATA ONLY: doNotScale max-cluster-energy trigger-efficiency fill
+  //   - baseline gate uses the event-level raw/unscaled GL1 TriggerVector bit
+  //   - probe gate uses the event-level GL1 LiveVector bit
+  //   - denominator is filled ONCE per pair when the baseline bit is on
+  //   - numerator   is filled ONCE per pair when baseline AND probe are on
+  //   - run-range/bit mapping is hard-coded from the ALL QA output above
+  // ------------------------------------------------------------------
+  if (!m_isSim)
+  {
+    Gl1Packet* gl1Packet = findNode::getClass<Gl1Packet>(topNode, "GL1Packet");
+    if (!gl1Packet) gl1Packet = findNode::getClass<Gl1Packet>(topNode, "14001");
+
+    if (gl1Packet)
     {
-        Gl1Packet* gl1Packet = findNode::getClass<Gl1Packet>(topNode, "GL1Packet");
-        if (!gl1Packet) gl1Packet = findNode::getClass<Gl1Packet>(topNode, "14001");
+      const uint64_t runNumber     = recoConsts::instance()->get_uint64Flag("TIMESTAMP", 0);
+      uint64_t triggerVector = 0;
+      uint64_t liveVector    = 0;
+      getDoNotScaleEventVectors(gl1Packet, triggerVector, liveVector);
 
-        if (gl1Packet)
+      const bool passVzForDoNotScale =
+          (std::isfinite(m_vz) && std::fabs(m_vz) < 30.0);
+
+      if (passVzForDoNotScale)
+      {
+        float max_energy_clus = 0.f;
+
+        if (m_clus)
         {
-            const uint64_t runNumber     = recoConsts::instance()->get_uint64Flag("TIMESTAMP", 0);
-            uint64_t triggerVector = 0;
-            uint64_t liveVector    = 0;
-            getDoNotScaleEventVectors(gl1Packet, triggerVector, liveVector);
-
-            const bool passVzForDoNotScale =
-                (std::isfinite(m_vz) && std::fabs(m_vz) < 30.0);
-
-            if (passVzForDoNotScale)
-            {
-                float max_energy_clus = 0.f;
-
-                if (m_clus)
-                {
-                  const auto range = m_clus->getClusters();
-                  for (auto it = range.first; it != range.second; ++it)
-                  {
-                    const RawCluster* cl = it->second;
-                    if (!cl) continue;
-                    const float e = cl->get_energy();
-                    if (!std::isfinite(e)) continue;
-                    if (e < 1.0f) continue;
-                    if (e > max_energy_clus) max_energy_clus = e;
-                  }
-                }
-                else if (m_photons)
-                {
-                  const auto range = m_photons->getClusters();
-                  for (auto it = range.first; it != range.second; ++it)
-                  {
-                    const RawCluster* cl = it->second;
-                    if (!cl) continue;
-                    const float e = cl->get_energy();
-                    if (!std::isfinite(e)) continue;
-                    if (e < 1.0f) continue;
-                    if (e > max_energy_clus) max_energy_clus = e;
-                  }
-                }
-
-                auto fillDoNotScaleHist = [&](const std::string& histKey)
-                {
-                  const std::string histName = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + histKey;
-                  auto& histogramMap = qaHistogramsByTrigger[histKey];
-
-                  TH1F* h = nullptr;
-                  auto it = histogramMap.find(histName);
-                  if (it != histogramMap.end())
-                  {
-                    h = dynamic_cast<TH1F*>(it->second);
-                  }
-
-                  if (!h)
-                  {
-                    TDirectory* dir = out->GetDirectory(histKey.c_str());
-                    if (!dir) dir = out->mkdir(histKey.c_str());
-                    if (!dir) return;
-
-                    TDirectory* prevDir = gDirectory;
-                    dir->cd();
-
-                    h = new TH1F(histName.c_str(),
-                                 "Max Cluster Energy; Cluster Energy [GeV]",
-                                 40, 0, 20);
-                    h->SetDirectory(dir);
-                    histogramMap[histName] = h;
-
-                    if (prevDir) prevDir->cd();
-                  }
-
-                  h->Fill(max_energy_clus);
-                  bumpHistFill(histKey, histName);
-                };
-
-                for (const auto& cfg : getDoNotScalePairConfigs())
-                {
-                  if (!doNotScaleRunMatch(runNumber, cfg)) continue;
-                  if (!doNotScaleBitIsSet(triggerVector, cfg.baselineBit)) continue;
-
-                  fillDoNotScaleHist(doNotScaleBaselineHistKey(cfg));
-
-                  if (doNotScaleBitIsSet(liveVector, cfg.probeBit))
-                  {
-                    fillDoNotScaleHist(cfg.probeHistKey);
-                  }
-                }
-            }
-        }
-
-        if (!m_isAuAu && trigAna)
-        {
-            trigAna->decodeTriggers(topNode);
-
-            const std::string mbdNoVtxDbName    = "MBD N&S >= 1";
-            const std::string mbdNoVtxShortName = "MBD_NandS_geq_1";
-            const bool isMBNoVtx = trigAna->didTriggerFire(mbdNoVtxDbName);
-
-            if (isMBNoVtx && m_doPi0Analysis)
-            {
-                  const bool passPi0Vz = (!m_useVzCut || std::fabs(m_vz) < m_vzCut);
-
-                  if (passPi0Vz && m_clus && m_clus_nocorr)
-                  {
-                    fillPi0MassVsPtHistograms(mbdNoVtxShortName, m_clus, true);
-                    fillPi0MassVsPtHistograms(mbdNoVtxShortName, m_clus_nocorr, false);
-                  }
-                  else if (Verbosity() >= 2)
-                  {
-                    LOG(2, CLR_YELLOW,
-                        "    [process_event][pi0] requested pp pi0 fill skipped"
-                        << " | passVz=" << (passPi0Vz ? "true" : "false")
-                        << " | CLUSTERINFO_CEMC=" << (m_clus ? "OK" : "MISSING")
-                        << " | CLUSTERINFO_CEMC_NOCORR=" << (m_clus_nocorr ? "OK" : "MISSING"));
-                  }
-            }
-        }
-    }
-
-    std::vector<std::string> activeTrig;
-    if (!firstEventCuts(topNode, activeTrig))
-    {
-          ++m_evtNoTrig;  // keep your legacy counter
-          if (m_lastReject == EventReject::Trigger) ++m_bk.evt_fail_trigger;
-          else if (m_lastReject == EventReject::Vz) ++m_bk.evt_fail_vz;
-
-          const char* why = "UNKNOWN";
-          if (m_lastReject == EventReject::Trigger) why = "Trigger";
-          else if (m_lastReject == EventReject::Vz) why = "|vz|";
-
-          std::ostringstream os;
-          os << "    event rejected by " << why << " gate – skip"
-             << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
-          if (m_useVzCut) os << " (|vz|cut=" << m_vzCut << ")";
-          os << " | nActiveTrig=" << activeTrig.size();
-
-          if (!activeTrig.empty())
+          const auto range = m_clus->getClusters();
+          for (auto it = range.first; it != range.second; ++it)
           {
-            os << " | triggers={";
-            for (std::size_t i = 0; i < activeTrig.size(); ++i)
-            {
-              if (i) os << ", ";
-              os << activeTrig[i];
-            }
-            os << "}";
+            const RawCluster* cl = it->second;
+            if (!cl) continue;
+            const float e = cl->get_energy();
+            if (!std::isfinite(e)) continue;
+            if (e < 1.0f) continue;
+            if (e > max_energy_clus) max_energy_clus = e;
+          }
+        }
+        else if (m_photons)
+        {
+          const auto range = m_photons->getClusters();
+          for (auto it = range.first; it != range.second; ++it)
+          {
+            const RawCluster* cl = it->second;
+            if (!cl) continue;
+            const float e = cl->get_energy();
+            if (!std::isfinite(e)) continue;
+            if (e < 1.0f) continue;
+            if (e > max_energy_clus) max_energy_clus = e;
+          }
+        }
+
+        auto fillDoNotScaleHist = [&](const std::string& histKey)
+        {
+          const std::string histName = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + histKey;
+          auto& histogramMap = qaHistogramsByTrigger[histKey];
+
+          TH1F* h = nullptr;
+          auto it = histogramMap.find(histName);
+          if (it != histogramMap.end())
+          {
+            h = dynamic_cast<TH1F*>(it->second);
           }
 
-          LOG(4, CLR_YELLOW, os.str());
-          return Fun4AllReturnCodes::ABORTEVENT;
+          if (!h)
+          {
+            TDirectory* dir = out->GetDirectory(histKey.c_str());
+            if (!dir) dir = out->mkdir(histKey.c_str());
+            if (!dir) return;
+
+            TDirectory* prevDir = gDirectory;
+            dir->cd();
+
+            h = new TH1F(histName.c_str(),
+                         "Max Cluster Energy; Cluster Energy [GeV]",
+                         40, 0, 20);
+            h->SetDirectory(dir);
+            histogramMap[histName] = h;
+
+            if (prevDir) prevDir->cd();
+          }
+
+          h->Fill(max_energy_clus);
+          bumpHistFill(histKey, histName);
+        };
+
+        for (const auto& cfg : getDoNotScalePairConfigs())
+        {
+          if (!doNotScaleRunMatch(runNumber, cfg)) continue;
+          if (!doNotScaleBitIsSet(triggerVector, cfg.baselineBit)) continue;
+
+          fillDoNotScaleHist(doNotScaleBaselineHistKey(cfg));
+
+          if (doNotScaleBitIsSet(liveVector, cfg.probeBit))
+          {
+            fillDoNotScaleHist(cfg.probeHistKey);
+          }
+        }
+      }
+    }
+
+    if (!m_isAuAu && trigAna)
+    {
+      trigAna->decodeTriggers(topNode);
+
+      const std::string mbdNoVtxDbName    = "MBD N&S >= 1";
+      const std::string mbdNoVtxShortName = "MBD_NandS_geq_1";
+      const bool isMBNoVtx = trigAna->didTriggerFire(mbdNoVtxDbName);
+
+      if (isMBNoVtx && m_doPi0Analysis)
+      {
+        const bool passPi0Vz = (!m_useVzCut || std::fabs(m_vz) < m_vzCut);
+
+        if (passPi0Vz && m_clus && m_clus_nocorr)
+        {
+          fillPi0MassVsPtHistograms(mbdNoVtxShortName, m_clus, true);
+          fillPi0MassVsPtHistograms(mbdNoVtxShortName, m_clus_nocorr, false);
+        }
+        else if (Verbosity() >= 2)
+        {
+          LOG(2, CLR_YELLOW,
+              "    [process_event][pi0] requested pp pi0 fill skipped"
+              << " | passVz=" << (passPi0Vz ? "true" : "false")
+              << " | CLUSTERINFO_CEMC=" << (m_clus ? "OK" : "MISSING")
+              << " | CLUSTERINFO_CEMC_NOCORR=" << (m_clus_nocorr ? "OK" : "MISSING"));
+        }
+      }
+    }
   }
+
+  // SIM pi0 fill: not trigger-gated, only vertex-gated (mirrors pp pi0 logic)
+  // Histograms live under the "SIM" directory (same as all other SIM histograms).
+  if (m_isSim && m_doPi0Analysis)
+  {
+        const bool passPi0Vz = (!m_useVzCut || std::fabs(m_vz) < m_vzCut);
+        if (passPi0Vz && m_clus && m_clus_nocorr)
+        {
+          const std::string pi0Trig = "SIM";
+          fillPi0MassVsPtHistograms(pi0Trig, m_clus, true);
+          fillPi0MassVsPtHistograms(pi0Trig, m_clus_nocorr, false);
+     }
+  }
+
+  std::vector<std::string> activeTrig;
+  if (!firstEventCuts(topNode, activeTrig))
+  {
+    ++m_evtNoTrig;  // keep your legacy counter
+    if (m_lastReject == EventReject::Trigger) ++m_bk.evt_fail_trigger;
+    else if (m_lastReject == EventReject::Vz) ++m_bk.evt_fail_vz;
+
+    const char* why = "UNKNOWN";
+    if (m_lastReject == EventReject::Trigger) why = "Trigger";
+    else if (m_lastReject == EventReject::Vz) why = "|vz|";
+
+    std::ostringstream os;
+    os << "    event rejected by " << why << " gate – skip"
+       << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
+    if (m_useVzCut) os << " (|vz|cut=" << m_vzCut << ")";
+    os << " | nActiveTrig=" << activeTrig.size();
+
+    if (!activeTrig.empty())
+    {
+      os << " | triggers={";
+      for (std::size_t i = 0; i < activeTrig.size(); ++i)
+      {
+        if (i) os << ", ";
+        os << activeTrig[i];
+      }
+      os << "}";
+    }
+
+    LOG(4, CLR_YELLOW, os.str());
+    return Fun4AllReturnCodes::ABORTEVENT;
+  }
+
   /* ------------------------------------------------------------------ */
   /* 3) Trigger counters (one per trigger) + Vertex-z QA                */
   /* ------------------------------------------------------------------ */
 
-    // Bump the per-trigger counter once per accepted event (and LOG fills via bumpHistFill)
-    for (const auto& t : activeTrig)
+  // Bump the per-trigger counter once per accepted event (and LOG fills via bumpHistFill)
+  for (const auto& t : activeTrig)
+  {
+    auto itTrig = qaHistogramsByTrigger.find(t);
+    if (itTrig == qaHistogramsByTrigger.end()) continue;
+
+    auto& H = itTrig->second;
+
+    // (1) per-trigger event counter
+    const std::string hcnt = "cnt_" + t;
+    if (auto hc = H.find(hcnt); hc != H.end())
     {
-      auto itTrig = qaHistogramsByTrigger.find(t);
-      if (itTrig == qaHistogramsByTrigger.end()) continue;
-
-      auto& H = itTrig->second;
-
-      // (1) per-trigger event counter
-      const std::string hcnt = "cnt_" + t;
-      if (auto hc = H.find(hcnt); hc != H.end())
-      {
-        static_cast<TH1I*>(hc->second)->Fill(1);
-        bumpHistFill(t, hcnt);
-      }
-
-      // (2) vertex-z QA
-      if (auto hvz = H.find("h_vertexZ"); hvz != H.end())
-      {
-        static_cast<TH1F*>(hvz->second)->Fill(m_vz);
-        bumpHistFill(t, "h_vertexZ");
-      }
+      static_cast<TH1I*>(hc->second)->Fill(1);
+      bumpHistFill(t, hcnt);
     }
+
+    // (2) vertex-z QA
+    if (auto hvz = H.find("h_vertexZ"); hvz != H.end())
+    {
+      static_cast<TH1F*>(hvz->second)->Fill(m_vz);
+      bumpHistFill(t, "h_vertexZ");
+    }
+  }
 
   /* ------------------------------------------------------------------ */
   /* 4) Centrality lookup (Au+Au only)                                  */
@@ -1835,21 +1899,21 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     }
 
     // Fill centrality histogram if booked under each active trigger
-      if (centile >= 0.f && centile <= 100.f)
+    if (centile >= 0.f && centile <= 100.f)
+    {
+      for (const auto& t : activeTrig)
       {
-        for (const auto& t : activeTrig)
-        {
-          auto itTrig = qaHistogramsByTrigger.find(t);
-          if (itTrig == qaHistogramsByTrigger.end()) continue;
+        auto itTrig = qaHistogramsByTrigger.find(t);
+        if (itTrig == qaHistogramsByTrigger.end()) continue;
 
-          auto& H = itTrig->second;
-          if (auto hc = H.find("h_centrality"); hc != H.end())
-          {
-            static_cast<TH1F*>(hc->second)->Fill(centile);
-            bumpHistFill(t, "h_centrality");
-          }
+        auto& H = itTrig->second;
+        if (auto hc = H.find("h_centrality"); hc != H.end())
+        {
+          static_cast<TH1F*>(hc->second)->Fill(centile);
+          bumpHistFill(t, "h_centrality");
         }
       }
+    }
   }
   else
   {
@@ -1862,11 +1926,11 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
   /* ------------------------------------------------------------------ */
   if (!std::isfinite(m_vz) || (m_useVzCut && std::fabs(m_vz) >= m_vzCut))
   {
-      LOG(4, CLR_YELLOW,
-          "    Vertex-z (" << m_vz << " cm) outside bounds – skip event");
-      return Fun4AllReturnCodes::ABORTEVENT;
+    LOG(4, CLR_YELLOW,
+        "    Vertex-z (" << m_vz << " cm) outside bounds – skip event");
+    return Fun4AllReturnCodes::ABORTEVENT;
   }
-    
+
   /* ------------------------------------------------------------------ */
   /* 6) Pure jet QA (independent of photon pipeline)                     */
   /*     Filled once per accepted event, after centrality/vz.            */
@@ -1874,7 +1938,7 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
   const int centIdxForJets = (m_isAuAu ? findCentBin(m_centBin) : -1);
   for (const auto& kv : m_jets)
   {
-        fillInclusiveJetQA(activeTrig, centIdxForJets, kv.first);
+    fillInclusiveJetQA(activeTrig, centIdxForJets, kv.first);
   }
 
   processCandidates(topNode, activeTrig);
@@ -5818,7 +5882,6 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
           bool   haveTruthPho = false;
           bool   haveTruthPhoPPG12 = false;
           double recoPtTruthMatchPPG12 = 0.0;
-          const RawCluster* recoMatchPPG12 = nullptr;
 
           double tPt  = (haveTruthSigPho ? tPtSig  : 0.0);
           double tEta = (haveTruthSigPho ? tEtaSig : 0.0);
@@ -5884,7 +5947,6 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                     {
                       haveTruthPhoPPG12 = true;
                       recoPtTruthMatchPPG12 = rPt;
-                      recoMatchPPG12 = recoMatch;
 
                       if (Verbosity() >= 5)
                       {

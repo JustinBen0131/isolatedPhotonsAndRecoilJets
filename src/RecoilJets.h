@@ -315,7 +315,7 @@ public:
       //   "isAuAu"/"auau"-> Au+Au
       //   "ispp"/"pp"    -> pp
       const std::string t = s;
-      if (t == "isSim" || t == "sim") { m_isSim = true;  m_isAuAu = false; }
+      if (t == "isSim" || t == "sim" || t == "isSimJet5" || t == "isSimMB") { m_isSim = true;  m_isAuAu = false; }
       if (t == "isAuAu" || t == "auau"|| t == "aa") { m_isSim = false; m_isAuAu = true; }
       if (t == "ispp"  || t == "pp")  { m_isSim = false; m_isAuAu = false; }
   }
