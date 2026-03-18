@@ -196,6 +196,11 @@ SIM_MASTER5_NAME="DST_SIM_MASTER_5COL.list"
 
 # Output dir root for sim is: ${SIM_DEST_BASE}/<cfgTag>/<SIM_SAMPLE>
 SIM_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/sim"
+SIMJET5_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simjet5"
+SIMMB_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simmb"
+
+# Flag: set to 1 for any isSim variant (isSim, isSimJet5, isSimMB)
+IS_SIM=0
 
 # YAML config (Fun4All default is next to the macro unless RJ_CONFIG_YAML is set)
 SIM_YAML_DEFAULT="${BASE}/macros/analysis_config.yaml"
@@ -373,6 +378,33 @@ resolve_dataset() {
       TAG="sim"
       MACRO="${BASE}/macros/Fun4All_recoilJets.C"
       EXE="${BASE}/RecoilJets_Condor.sh"
+      IS_SIM=1
+      ;;
+    isSimJet5|simjet5|SIMJET5)
+      DATASET="isSimJet5"
+      GOLDEN=""
+      LIST_DIR=""
+      LIST_PREFIX=""
+      DEST_BASE="$SIMJET5_DEST_BASE"
+      TAG="simjet5"
+      MACRO="${BASE}/macros/Fun4All_recoilJets.C"
+      EXE="${BASE}/RecoilJets_Condor.sh"
+      IS_SIM=1
+      SIM_SAMPLE_DEFAULT="run28_jet5"
+      SIM_SAMPLE="$SIM_SAMPLE_DEFAULT"
+      ;;
+    isSimMB|simmb|SIMMB)
+      DATASET="isSimMB"
+      GOLDEN=""
+      LIST_DIR=""
+      LIST_PREFIX=""
+      DEST_BASE="$SIMMB_DEST_BASE"
+      TAG="simmb"
+      MACRO="${BASE}/macros/Fun4All_recoilJets.C"
+      EXE="${BASE}/RecoilJets_Condor.sh"
+      IS_SIM=1
+      SIM_SAMPLE_DEFAULT="run28_detroit"
+      SIM_SAMPLE="$SIM_SAMPLE_DEFAULT"
       ;;
     *)
       usage
@@ -803,7 +835,7 @@ done
 
 # Default action if none provided
 if [[ -z "$ACTION" ]]; then
-  if [[ "$DATASET" == "isSim" ]]; then
+  if [[ "$IS_SIM" -eq 1 ]]; then
     ACTION="CHECKJOBS"
   else
     ACTION="condor"
@@ -835,7 +867,7 @@ fi
 case "$ACTION" in
   CHECKJOBS)
     # Dry-run only
-    if [[ "$DATASET" == "isSim" ]]; then
+    if [[ "$IS_SIM" -eq 1 ]]; then
       check_jobs_sim
     else
       check_jobs_all
@@ -858,7 +890,7 @@ case "$ACTION" in
       fi
     done
 
-    if [[ "$DATASET" == "isSim" ]]; then
+    if [[ "$IS_SIM" -eq 1 ]]; then
       # Default SIM local smoke test should be fast unless user explicitly sets Nevents
       if (( user_nevt_set == 0 )); then
         nevt="100"
@@ -881,22 +913,29 @@ case "$ACTION" in
 
       samples=()
       if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
-        samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" )
+        case "$DATASET" in
+          isSimJet5) samples=( "run28_jet5" ) ;;
+          isSimMB)   samples=( "run28_detroit" ) ;;
+          *)         samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
+        esac
       else
         samples=( "${SIM_SAMPLE}" )
       fi
+
+      SIM_DEST_BASE_RESOLVED="$DEST_BASE"
 
       say "SIM local smoke test (mirrors condorDoAll matrix)"
       say "  YAML master : ${master_yaml}"
       say "  groupSize   : ${gs_local} (condorDoAll default)"
       say "  events      : ${nevt} (default for SIM local)"
       say "  samples     : ${samples[*]}"
+      say "  dest base   : ${SIM_DEST_BASE_RESOLVED}"
       echo
 
       for pt in "${sim_pts[@]}"; do
         for frac in "${sim_fracs[@]}"; do
           SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")"
-          DEST_BASE="${SIM_DEST_BASE}/${SIM_CFG_TAG}"
+          DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
           yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$SIM_CFG_TAG")"
 
           for samp in "${samples[@]}"; do
@@ -928,7 +967,7 @@ case "$ACTION" in
             say "  out ROOT      : ${out_root_preview}"
             say "Invoking wrapper locally…"
 
-            RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" bash "$EXE" "$SIM_SAMPLE" "$tmp" "isSim" LOCAL "$nevt" 1 NONE "$DEST_BASE"
+            RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
             echo
           done
         done
@@ -983,7 +1022,7 @@ case "$ACTION" in
 
   condorTest)
     # One verbose Condor job on first sim file
-    [[ "$DATASET" == "isSim" ]] || { err "condorTest is only valid for isSim"; exit 2; }
+    [[ "$IS_SIM" -eq 1 ]] || { err "condorTest is only valid for isSim variants"; exit 2; }
     need_cmd condor_submit
 
     master_yaml="$(sim_yaml_master_path)"
@@ -994,10 +1033,12 @@ case "$ACTION" in
     (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
     (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
 
+    SIM_DEST_BASE_RESOLVED="$DEST_BASE"
+
     pt0="${sim_pts[0]}"
     frac0="${sim_fracs[0]}"
     SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt0")_$(sim_b2b_tag "$frac0")"
-    DEST_BASE="${SIM_DEST_BASE}/${SIM_CFG_TAG}"
+    DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
     yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt0" "$frac0" "$SIM_CFG_TAG")"
 
     sim_init
@@ -1021,11 +1062,11 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 environment   = RJ_VERBOSITY=10;RJ_CONFIG_YAML=${yaml_override}
-arguments     = ${SIM_SAMPLE} ${tmp} isSim \$(Cluster) 0 1 NONE ${DEST_BASE}
+arguments     = ${SIM_SAMPLE} ${tmp} ${DATASET} \$(Cluster) 0 1 NONE ${DEST_BASE}
 queue
 SUB
 
-    say "Submitting 1 isSim condorTest job (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG}) → $(basename "$sub")"
+    say "Submitting 1 ${DATASET} condorTest job (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG}) → $(basename "$sub")"
     say "Output ROOT dir: ${DEST_BASE}/${SIM_SAMPLE}"
     say "YAML override: ${yaml_override}"
     condor_submit "$sub"
@@ -1033,7 +1074,7 @@ SUB
 
   condorDoAll)
     # Submit all sim files in grouped chunks. MUST wipe outputs/logs first.
-    [[ "$DATASET" == "isSim" ]] || { err "condorDoAll is only valid for isSim"; exit 2; }
+    [[ "$IS_SIM" -eq 1 ]] || { err "condorDoAll is only valid for isSim variants"; exit 2; }
     gs_doall="$GROUP_SIZE"
     if [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 0 ]]; then
       gs_doall="7"
@@ -1049,7 +1090,11 @@ SUB
 
     samples=()
     if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
-      samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" )
+      case "$DATASET" in
+        isSimJet5) samples=( "run28_jet5" ) ;;
+        isSimMB)   samples=( "run28_detroit" ) ;;
+        *)         samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
+      esac
     else
       samples=( "${SIM_SAMPLE}" )
     fi
@@ -1081,11 +1126,13 @@ SUB
       exit 0
     fi
 
+    SIM_DEST_BASE_RESOLVED="$DEST_BASE"
+
     need_cmd condor_submit
     for pt in "${sim_pts[@]}"; do
       for frac in "${sim_fracs[@]}"; do
         SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")"
-        DEST_BASE="${SIM_DEST_BASE}/${SIM_CFG_TAG}"
+        DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
         yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$SIM_CFG_TAG")"
 
         for samp in "${samples[@]}"; do
@@ -1119,7 +1166,7 @@ SUB
           for glist in "${groups[@]}"; do
             (( gidx+=1 ))
             printf 'arguments = %s %s %s $(Cluster) 0 %d NONE %s\nqueue\n\n' \
-                   "$SIM_SAMPLE" "$glist" "isSim" "$gidx" "$DEST_BASE" >> "$sub"
+                   "$SIM_SAMPLE" "$glist" "$DATASET" "$gidx" "$DEST_BASE" >> "$sub"
           done
 
           say "Submitting isSim condorDoAll (tag=${SIM_CFG_TAG}, sample=${SIM_SAMPLE}, groupSize=${GROUP_SIZE}) → jobs=${BOLD}${#groups[@]}${RST}"
@@ -1132,12 +1179,12 @@ SUB
     ;;
 
   splitGoldenRunList)
-    [[ "$DATASET" == "isSim" ]] && { err "splitGoldenRunList is not used in isSim mode"; exit 2; }
+    [[ "$IS_SIM" -eq 1 ]] && { err "splitGoldenRunList is not used in isSim mode"; exit 2; }
     split_golden "$GROUP_SIZE" "$MAX_JOBS"
     ;;
 
   condor)
-    [[ "$DATASET" == "isSim" ]] && { err "Use: isSim condorTest | isSim condorDoAll (not 'condor')"; exit 2; }
+    [[ "$IS_SIM" -eq 1 ]] && { err "Use: isSim condorTest | isSim condorDoAll (not 'condor')"; exit 2; }
 
     # DATA ONLY: condor testJob | condor round <N> [firstChunk] | condor all
     submode="${3:-}"

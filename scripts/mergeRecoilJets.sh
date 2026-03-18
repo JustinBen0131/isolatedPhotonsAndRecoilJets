@@ -518,11 +518,12 @@ make_run_list() {
 # where simTag defaults to suffix after last "_" in SAMPLE:
 #   run28_photonjet10 -> photonjet10
 # ============================================================
-if [[ "${1}" =~ ^(isSim|sim|SIM)$ ]]; then
+if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|simjet5|SIMJET5|isSimMB|simmb|SIMMB)$ ]]; then
+  SIM_DATASET_TOKEN="${1}"
   SIM_ACTION="${2:-}"
   shift 2
 
-  # Defaults (overrideable)
+  # Defaults (overrideable); variant-specific below
   SIM_SAMPLE="run28_photonjet10"
   SIM_SAMPLE_EXPLICIT=0
   SIM_GROUP_SIZE="300"          # number of ROOT files per firstRound hadd (default = 300)
@@ -562,8 +563,23 @@ if [[ "${1}" =~ ^(isSim|sim|SIM)$ ]]; then
   [[ "$SIM_GROUP_SIZE" =~ ^[0-9]+$ ]] || { err "groupSize must be an integer"; exit 2; }
   (( SIM_GROUP_SIZE > 0 )) || { err "groupSize must be > 0"; exit 2; }
 
-  # Input sim outputs live here (matches new Condor output layout)
-  SIM_INPUT_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/sim"
+  # Input sim outputs live here (matches Condor output layout per variant)
+  case "$SIM_DATASET_TOKEN" in
+    isSimJet5|simjet5|SIMJET5)
+      SIM_INPUT_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simjet5"
+      SIM_OUTPUT_TAG="simjet5"
+      [[ "$SIM_SAMPLE_EXPLICIT" -eq 0 ]] && SIM_SAMPLE="run28_jet5"
+      ;;
+    isSimMB|simmb|SIMMB)
+      SIM_INPUT_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simmb"
+      SIM_OUTPUT_TAG="simmb"
+      [[ "$SIM_SAMPLE_EXPLICIT" -eq 0 ]] && SIM_SAMPLE="run28_detroit"
+      ;;
+    *)
+      SIM_INPUT_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/sim"
+      SIM_OUTPUT_TAG="sim"
+      ;;
+  esac
 
   master_yaml="$(sim_yaml_master_path)"
   [[ -s "$master_yaml" ]] || { err "Master YAML not found or empty: $master_yaml"; exit 72; }
@@ -585,15 +601,19 @@ if [[ "${1}" =~ ^(isSim|sim|SIM)$ ]]; then
 
   samples=()
   if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
-    samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" )
+    case "$SIM_DATASET_TOKEN" in
+      isSimJet5|simjet5|SIMJET5) samples=( "run28_jet5" ) ;;
+      isSimMB|simmb|SIMMB)       samples=( "run28_detroit" ) ;;
+      *)                         samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
+    esac
   else
     samples=( "${SIM_SAMPLE}" )
   fi
 
-  say "Dataset : ${BOLD}isSim${RST}"
+  say "Dataset : ${BOLD}${SIM_DATASET_TOKEN}${RST}"
   say "YAML    : ${master_yaml}"
   say "Input base: ${SIM_INPUT_BASE}"
-  say "Output base: ${OUT_BASE}/sim"
+  say "Output base: ${OUT_BASE}/${SIM_OUTPUT_TAG}"
   say "groupSize (merge) : ${SIM_GROUP_SIZE}"
   say "Samples : ${samples[*]}"
   echo
@@ -606,7 +626,7 @@ if [[ "${1}" =~ ^(isSim|sim|SIM)$ ]]; then
       cfg_file_tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_file_tag "$frac")"
 
       COMBO_INPUT_BASE="${SIM_INPUT_BASE}/${cfg_dir_tag}"
-      DEST_DIR="${OUT_BASE}/sim/${cfg_dir_tag}"
+      DEST_DIR="${OUT_BASE}/${SIM_OUTPUT_TAG}/${cfg_dir_tag}"
       mkdir -p "$DEST_DIR" "$LOG_DIR" "$OUT_DIR" "$ERR_DIR" "$TMP_DIR"
 
       say "-----------------------------"
