@@ -162,7 +162,7 @@ namespace ARJ
 // =============================================================================
 
   inline bool isPPdataOnly   = false;
-  inline bool isSimAndDataPP = false;
+  inline bool isSimAndDataPP = true;
   
   // RooUnfold control:
   //   do_xJ_PPunfold = true
@@ -189,7 +189,7 @@ namespace ARJ
   // AuAu-only analysis mode (no SIM, no PP). When true, the full plotting
   // pipeline runs on AuAu only and outputs to dataOutput/auau/<trigger>/...
   // NOTE: Must be mutually exclusive with isPPdataOnly and isSimAndDataPP.
-  inline bool isAuAuOnly     = true;
+  inline bool isAuAuOnly     = false;
 
   // Optional comparison overlays: PP vs Au+Au (gold-gold) photon-ID deliverables.
   // If false, analysis behavior is IDENTICAL to the current pipeline.
@@ -208,7 +208,7 @@ namespace ARJ
   inline bool allPhoton5and10and20sim    = false;
 
   // MinBias SIM (DETROIT tune): single file, no merging, full isSim pipeline + pi0 QA
-  inline bool isSimMB                    = false;
+  inline bool isSimMB                    = true;
 
   // If false, STEP 1 will NOT rebuild the photonJet10+20 merged ROOT file(s).
   // Downstream code will simply open the already-merged output at the configured path(s).
@@ -2963,13 +2963,15 @@ namespace ARJ
       // the merged photonJet10+20 or photonJet5+10+20 SIM sample.
       if (isSimAndDataPP &&
           ss != SimSample::kPhotonJet10And20Merged &&
-          ss != SimSample::kPhotonJet5And10And20Merged)
+          ss != SimSample::kPhotonJet5And10And20Merged &&
+          ss != SimSample::kSimMB)
       {
         if (errMsg)
         {
           *errMsg =
-            "SIM+DATA (isSimAndDataPP=true) requires a merged photonJet10+20 or photonJet5+10+20 SIM sample. "
-            "Set: bothPhoton10and20sim=true or allPhoton5and10and20sim=true "
+            "SIM+DATA (isSimAndDataPP=true) requires a merged photonJet10+20 or photonJet5+10+20 SIM sample, "
+            "or isSimMB=true. "
+            "Set: bothPhoton10and20sim=true or allPhoton5and10and20sim=true or isSimMB=true "
             "(all other SIM sample toggles false). "
             "This uses the default SIM key for the photonJet10/20 slices: " + DefaultSimSampleKey();
         }
