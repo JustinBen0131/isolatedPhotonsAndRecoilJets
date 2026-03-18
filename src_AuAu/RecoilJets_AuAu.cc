@@ -1114,9 +1114,51 @@ int RecoilJets::InitRun(PHCompositeNode* /*topNode*/)
 
     if (m_evtDiagEnabled)
     {
-      initEventDisplayDiagnosticsTree();
+        initEventDisplayDiagnosticsTree();
     }
 
+    // -------------------------------------------------------------------------
+    // Pre-book the EXACT doNotScale pair histograms that are valid for this run.
+    //   - numerator   : <probeHistKey>
+    //   - denominator : baseline_<probeHistKey>
+    // This keeps the output schema aligned with the run-resolved pair table and
+    // removes the old family-level pp-only doNotScale bookkeeping.
+    // -------------------------------------------------------------------------
+    if (!m_isSim && out && out->IsOpen())
+    {
+      auto bookDoNotScaleHist = [&](const std::string& histKey)
+      {
+        TDirectory* dir = out->GetDirectory(histKey.c_str());
+        if (!dir) dir = out->mkdir(histKey.c_str());
+        if (!dir) return;
+
+        TDirectory* prevDir = gDirectory;
+        dir->cd();
+
+        HistMap& H = qaHistogramsByTrigger[histKey];
+        const std::string histName = doNotScaleHistName(histKey);
+        if (H.find(histName) == H.end())
+        {
+          TH1F* hist = new TH1F(histName.c_str(),
+                                "Max Cluster Energy; Cluster Energy [GeV]",
+                                40, 0, 20);
+          hist->SetDirectory(dir);
+          H[histName] = hist;
+        }
+
+        if (prevDir) prevDir->cd();
+      };
+
+      for (const auto& cfg : getDoNotScalePairConfigs())
+      {
+        if (!doNotScaleRunMatch(run, cfg)) continue;
+
+        bookDoNotScaleHist(doNotScaleBaselineHistKey(cfg));
+        bookDoNotScaleHist(cfg.probeHistKey);
+      }
+
+      out->cd();
+    }
 
     LOG(1, CLR_BLUE, "[InitRun] InitRun completed successfully");
     return Fun4AllReturnCodes::EVENT_OK;
@@ -1252,49 +1294,6 @@ void RecoilJets::createHistos_Data()
     }
   else
   {
-      // -------------------------------------------------------------------------
-      // Pre-book the EXACT doNotScale pair histograms that are valid for this run.
-      //   - numerator   : <probeHistKey>
-      //   - denominator : baseline_<probeHistKey>
-      // This keeps the output schema aligned with the run-resolved pair table and
-      // removes the old family-level pp-only doNotScale bookkeeping.
-      // -------------------------------------------------------------------------
-      if (out && out->IsOpen())
-      {
-        auto bookDoNotScaleHist = [&](const std::string& histKey)
-        {
-          TDirectory* dir = out->GetDirectory(histKey.c_str());
-          if (!dir) dir = out->mkdir(histKey.c_str());
-          if (!dir) return;
-
-          TDirectory* prevDir = gDirectory;
-          dir->cd();
-
-          HistMap& H = qaHistogramsByTrigger[histKey];
-          const std::string histName = doNotScaleHistName(histKey);
-          if (H.find(histName) == H.end())
-          {
-            TH1F* hist = new TH1F(histName.c_str(),
-                                  "Max Cluster Energy; Cluster Energy [GeV]",
-                                  40, 0, 20);
-            hist->SetDirectory(dir);
-            H[histName] = hist;
-          }
-
-          if (prevDir) prevDir->cd();
-        };
-
-        for (const auto& cfg : getDoNotScalePairConfigs())
-        {
-          if (!doNotScaleRunMatch(run, cfg)) continue;
-
-          bookDoNotScaleHist(doNotScaleBaselineHistKey(cfg));
-          bookDoNotScaleHist(cfg.probeHistKey);
-        }
-
-        out->cd();
-    }
-
     // ------------------------------------------------------------------
     // Existing pp per-trigger QA booking (unchanged; still uses triggerNameMap_pp)
     // ------------------------------------------------------------------
