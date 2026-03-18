@@ -1740,8 +1740,8 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 
   setenv("BEMCREC_CEMC_DISABLE_ASINH_POSITION", "0", 1);
 
-  if (cfg.doPi0Analysis && !isAuAuData && !isPPrun25)
-    {
+  if (cfg.doPi0Analysis)
+  {
      if (vlevel > 0)
      {
         std::cout << "[pi0] Building parallel no-correction cluster branch -> CLUSTERINFO_CEMC_NOCORR" << std::endl;
@@ -2638,7 +2638,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
   recoilJets->setUnfoldJetPtBins(unfoldJetPtEdges);
   recoilJets->setUnfoldXJBins(cfg.unfold_xj_bins);
 
-  recoilJets->enablePi0Analysis(cfg.doPi0Analysis && !isAuAuData && !isPPrun25);
+  recoilJets->enablePi0Analysis(cfg.doPi0Analysis);
   recoilJets->setAnalysisConfigYAML(cfg.yamlText, "analysis_config.yaml");
 
   if (vlevel > 0)
