@@ -1187,7 +1187,9 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
   bool isPPrun25 = false;
   bool isAuAuRequested = false;
   std::string datasetToken = env_lower("RJ_DATASET", "ispp");
-  if (datasetToken == "issim" || datasetToken == "sim")
+  if (datasetToken == "issim" || datasetToken == "sim"
+       || datasetToken == "issimjet5" || datasetToken == "simjet5"
+       || datasetToken == "issimmb" || datasetToken == "simmb")
   {
     isSim = true;
   }
@@ -1738,14 +1740,14 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 
   setenv("BEMCREC_CEMC_DISABLE_ASINH_POSITION", "0", 1);
 
-  if (cfg.doPi0Analysis && !isSim && !isAuAuData && !isPPrun25)
-  {
-    if (vlevel > 0)
+  if (cfg.doPi0Analysis && !isAuAuData && !isPPrun25)
     {
-      std::cout << "[pp][pi0] Building parallel no-correction cluster branch -> CLUSTERINFO_CEMC_NOCORR" << std::endl;
-    }
+     if (vlevel > 0)
+     {
+        std::cout << "[pi0] Building parallel no-correction cluster branch -> CLUSTERINFO_CEMC_NOCORR" << std::endl;
+   }
 
-    auto* pi0NoCorrOn = new ProcessEnvSetter("Pi0NoCorrEnvOn",
+   auto* pi0NoCorrOn = new ProcessEnvSetter("Pi0NoCorrEnvOn",
                                              "BEMCREC_CEMC_DISABLE_ASINH_POSITION",
                                              "1");
     pi0NoCorrOn->Verbosity(0);
@@ -2636,7 +2638,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
   recoilJets->setUnfoldJetPtBins(unfoldJetPtEdges);
   recoilJets->setUnfoldXJBins(cfg.unfold_xj_bins);
 
-  recoilJets->enablePi0Analysis(cfg.doPi0Analysis && !isSim && !isAuAuData && !isPPrun25);
+  recoilJets->enablePi0Analysis(cfg.doPi0Analysis && !isAuAuData && !isPPrun25);
   recoilJets->setAnalysisConfigYAML(cfg.yamlText, "analysis_config.yaml");
 
   if (vlevel > 0)
@@ -2667,8 +2669,19 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
   recoilJets->Verbosity(vlevel);
   if (verbose) std::cout << "[INFO] RJ_VERBOSITY → " << vlevel << "\n";
 
-  std::string dtype = (isSim ? "isSim" : (isAuAuData ? "isAuAu" : "isPP"));
-  if (isPPrun25) dtype = "isPP";
+  std::string dtype;
+  if (isSim)
+  {
+    if (datasetToken == "issimjet5" || datasetToken == "simjet5")
+          dtype = "isSimJet5";
+    else if (datasetToken == "issimmb" || datasetToken == "simmb")
+          dtype = "isSimMB";
+    else
+          dtype = "isSim";
+    }
+    else if (isAuAuData) dtype = "isAuAu";
+    else dtype = "isPP";
+    if (isPPrun25) dtype = "isPP";
 #if defined(RJ_UNIFIED_ANALYSIS_PP)
   if (dtype == "isAuAu")
     detail::bail("Fun4All_recoilJets.C wrapper is pp analysis-module only; use Fun4All_recoilJets_AuAu.C for isAuAu jobs.");

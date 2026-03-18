@@ -25,7 +25,7 @@ jet_pt_min: [5.0]
 #   - tell RecoilJets to only expect/process these radii
 #
 # Baseline behavior matches current code: r02 + r04
-jet_radii: [0.2, 0.4]
+jet_radii: [0.2, 0.4, 0.6]
 
 # Back-to-back cut expressed ONLY as a fraction of π.
 # Examples:

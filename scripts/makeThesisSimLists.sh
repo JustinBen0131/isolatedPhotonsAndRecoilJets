@@ -52,8 +52,9 @@ VERBOSE="true"
 # We will NOT use the catalog. We will scan lustre directories directly.
 RUNNUM="28"
 PHOTONJET_SAMPLES=( "photonjet5" "photonjet10" "photonjet20" )
+JET_SAMPLES=( "jet5" )
+MB_SAMPLES=( "detroit" )
 
-# Source base (what you just proved exists)
 MDC2_BASE="/sphenix/lustre01/sphnxpro/mdc2/js_pp200_signal"
 
 # These are the exact directories you found:
@@ -915,29 +916,20 @@ discover_photon_types() {
 # --------------------------- Main ---------------------------------------------
 mkdir -p "$OUTROOT"
 
-# Hard reset: always start fresh for this Run's photonjet packs (+ any stale run-level logs)
-clean_glob="${OUTROOT}/run${RUNNUM}_photonjet"*
-if compgen -G "$clean_glob" >/dev/null 2>&1; then
-  step "Clean: removing previous outputs -> ${clean_glob}"
-  rm -rf $clean_glob 2>/dev/null || true
-else
-  step "Clean: no prior outputs found for run${RUNNUM}_photonjet*"
-fi
-
+# Per-pack cleanup is handled inside build_pack (rm -rf per outdir).
+# No aggressive glob wipe here, so building new samples never removes existing outputs.
 rm -f "${OUTROOT}/run${RUNNUM}_candidate_types_"*.txt "${OUTROOT}/run${RUNNUM}_probe_"*.log 2>/dev/null || true
 
+ALL_SAMPLES=( "${PHOTONJET_SAMPLES[@]}" "${JET_SAMPLES[@]}" "${MB_SAMPLES[@]}" )
+
 rule
-say "Building Run-${RUNNUM} Pythia photon+jet lists under: ${OUTROOT}"
+say "Building Run-${RUNNUM} Pythia sim lists under: ${OUTROOT}"
 say "Mode: filesystem scan (no catalog)"
 say "Base: ${MDC2_BASE}"
-say "Samples: ${PHOTONJET_SAMPLES[*]}"
+say "Samples: ${ALL_SAMPLES[*]}"
 rule
 
-say "Building Run-${RUNNUM} photon+jet lists from filesystem (no catalog)…"
-say "Base: ${MDC2_BASE}"
-say "Samples: ${PHOTONJET_SAMPLES[*]}"
-
-for sample in "${PHOTONJET_SAMPLES[@]}"; do
+for sample in "${ALL_SAMPLES[@]}"; do
   build_pack "$sample"
 done
 

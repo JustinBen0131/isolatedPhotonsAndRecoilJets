@@ -77,6 +77,18 @@ case "$dataset_raw" in
     export RJ_DATASET="isSim"
     export RJ_IS_SIM=1
     ;;
+  isSimJet5|simjet5|SIMJET5)
+    dataset="isSimJet5"
+    analysis_tag="isSimJet5"
+    export RJ_DATASET="isSimJet5"
+    export RJ_IS_SIM=1
+    ;;
+  isSimMB|simmb|SIMMB)
+    dataset="isSimMB"
+    analysis_tag="isSimMB"
+    export RJ_DATASET="isSimMB"
+    export RJ_IS_SIM=1
+    ;;
   isAuAu|auau|AA)
     echo "[FATAL] RecoilJets_Condor.sh is pp-style only. Use RecoilJets_Condor_AuAu.sh for isAuAu."
     exit 50
@@ -92,7 +104,11 @@ esac
 
 # Destination base (if not supplied as arg 8)
 if [[ -z "$dest_base" ]]; then
-  if [[ "$analysis_tag" == "isSim" ]]; then
+  if [[ "$analysis_tag" == "isSimJet5" ]]; then
+    dest_base="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simjet5"
+  elif [[ "$analysis_tag" == "isSimMB" ]]; then
+    dest_base="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simmb"
+  elif [[ "$analysis_tag" == "isSim" ]]; then
     dest_base="/sphenix/tg/tg01/bulk/jbennett/thesisAna/sim"
   elif [[ "$dataset" == "isPPrun25" ]]; then
     dest_base="/sphenix/tg/tg01/bulk/jbennett/thesisAna/pp25"
