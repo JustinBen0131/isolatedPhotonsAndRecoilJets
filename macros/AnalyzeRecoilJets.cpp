@@ -893,12 +893,15 @@ namespace ARJ
             : JoinPath(kOutPPBase, "pi0_QA");
         EnsureDir(outDir);
 
-        TDirectory* dir = ds.file->GetDirectory("MBD_NandS_geq_1");
+        // SIM: pi0 histograms live under the "SIM" topDir alongside all other SIM hists.
+        // DATA: pi0 histograms live under "MBD_NandS_geq_1".
+        const string pi0DirName = isSimMBDataset ? "SIM" : "MBD_NandS_geq_1";
+        TDirectory* dir = ds.file->GetDirectory(pi0DirName.c_str());
         if (!dir)
         {
           cout << ANSI_BOLD_YEL
-               << "[WARN] Missing pi0 directory: MBD_NandS_geq_1"
-               << ANSI_RESET << "\n";
+                 << "[WARN] Missing pi0 directory: " << pi0DirName
+                 << ANSI_RESET << "\n";
           return;
         }
 
@@ -912,8 +915,8 @@ namespace ARJ
           cout << ANSI_BOLD_YEL
                << "[WARN] Missing pi0 TH2(s) needed for pi0 QA.\n"
                << "       Need:\n"
-               << "         MBD_NandS_geq_1/h2_pi0_mass_vs_leadcluspt_corr\n"
-               << "         MBD_NandS_geq_1/h2_pi0_mass_vs_leadcluspt_nocorr\n"
+               << "         " << pi0DirName << "/h2_pi0_mass_vs_leadcluspt_corr\n"
+               << "         " << pi0DirName << "/h2_pi0_mass_vs_leadcluspt_nocorr\n"
                << ANSI_RESET << "\n";
           return;
         }
