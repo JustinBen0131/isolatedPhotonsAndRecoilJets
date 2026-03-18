@@ -879,15 +879,18 @@ namespace ARJ
 
       void RunPi0QA(Dataset& ds)
       {
-        if (ds.isSim) return;
-        if (ds.trigger != kTriggerPP) return;
+        const bool isSimMBDataset = (ds.isSim && isSimMB);
+        if (ds.isSim && !isSimMBDataset) return;
+        if (!isSimMBDataset && ds.trigger != kTriggerPP) return;
         if (!ds.file) return;
 
         cout << ANSI_BOLD_CYN << "\n==============================\n"
-             << "[pi0 QA] corrected vs no-asinh-correction (" << ds.label << ")\n"
-             << "==============================" << ANSI_RESET << "\n";
+               << "[pi0 QA] corrected vs no-asinh-correction (" << ds.label << ")\n"
+               << "==============================" << ANSI_RESET << "\n";
 
-        const string outDir = JoinPath(kOutPPBase, "pi0_QA");
+        const string outDir = isSimMBDataset
+            ? JoinPath(ds.outBase, "pi0_QA")
+            : JoinPath(kOutPPBase, "pi0_QA");
         EnsureDir(outDir);
 
         TDirectory* dir = ds.file->GetDirectory("MBD_NandS_geq_1");
@@ -915,7 +918,7 @@ namespace ARJ
           return;
         }
 
-        const string datasetTitle = "Run24pp";
+        const string datasetTitle = isSimMBDataset ? "MinBias SIM (DETROIT)" : "Run24pp";
         const bool vzIsInteger = (std::fabs(vzCutCm - std::round(vzCutCm)) < 1e-6);
         const string vertexLabel =
           vzIsInteger

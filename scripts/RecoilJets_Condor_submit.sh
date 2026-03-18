@@ -220,11 +220,23 @@ ${BOLD}DATA modes:${RST}
   ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor round <N> [groupSize N] [firstChunk]${RST}
   ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor all [groupSize N]${RST}
 
-${BOLD}SIM mode:${RST}
+${BOLD}SIM mode (photonJet10/20 merged):${RST}
   ${BOLD}$0 isSim local [Nevents] [VERBOSE=N] [SAMPLE=run28_photonjet10]${RST}
   ${BOLD}$0 isSim CHECKJOBS [groupSize N] [SAMPLE=run28_photonjet10]${RST}
   ${BOLD}$0 isSim condorTest [SAMPLE=run28_photonjet10]${RST}
   ${BOLD}$0 isSim condorDoAll [groupSize N] [SAMPLE=run28_photonjet10]${RST}
+
+${BOLD}SIM mode (photonJet5 single-slice):${RST}
+  ${BOLD}$0 isSimJet5 local [Nevents] [VERBOSE=N] [SAMPLE=run28_jet5]${RST}
+  ${BOLD}$0 isSimJet5 CHECKJOBS [groupSize N] [SAMPLE=run28_jet5]${RST}
+  ${BOLD}$0 isSimJet5 condorTest [SAMPLE=run28_jet5]${RST}
+  ${BOLD}$0 isSimJet5 condorDoAll [groupSize N] [SAMPLE=run28_jet5]${RST}
+
+${BOLD}SIM mode (MinBias DETROIT):${RST}
+  ${BOLD}$0 isSimMB local [Nevents] [VERBOSE=N] [SAMPLE=run28_detroit]${RST}
+  ${BOLD}$0 isSimMB CHECKJOBS [groupSize N] [SAMPLE=run28_detroit]${RST}
+  ${BOLD}$0 isSimMB condorTest [SAMPLE=run28_detroit]${RST}
+  ${BOLD}$0 isSimMB condorDoAll [groupSize N] [SAMPLE=run28_detroit]${RST}
 
 Examples:
   $0 isPP  local 5000
@@ -237,6 +249,11 @@ Examples:
   $0 isSim local 5000
   $0 isSim condorTest
   $0 isSim condorDoAll groupSize 5
+
+  $0 isSimJet5 local 5000
+  $0 isSimJet5 condorDoAll groupSize 5
+  $0 isSimMB local 5000
+  $0 isSimMB condorDoAll groupSize 5
 USAGE
   exit 2
 }
@@ -380,7 +397,7 @@ resolve_dataset() {
       EXE="${BASE}/RecoilJets_Condor.sh"
       IS_SIM=1
       ;;
-    isSimJet5|simjet5|SIMJET5)
+    isSimJet5|isSimjet5|simjet5|SIMJET5)
       DATASET="isSimJet5"
       GOLDEN=""
       LIST_DIR=""
@@ -393,7 +410,7 @@ resolve_dataset() {
       SIM_SAMPLE_DEFAULT="run28_jet5"
       SIM_SAMPLE="$SIM_SAMPLE_DEFAULT"
       ;;
-    isSimMB|simmb|SIMMB)
+    isSimMB|isSimMb|issimmb|simmb|SIMMB)
       DATASET="isSimMB"
       GOLDEN=""
       LIST_DIR=""

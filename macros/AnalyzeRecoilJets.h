@@ -207,6 +207,9 @@ namespace ARJ
   inline bool bothPhoton10and20sim       = false;
   inline bool allPhoton5and10and20sim    = false;
 
+  // MinBias SIM (DETROIT tune): single file, no merging, full isSim pipeline + pi0 QA
+  inline bool isSimMB                    = false;
+
   // If false, STEP 1 will NOT rebuild the photonJet10+20 merged ROOT file(s).
   // Downstream code will simply open the already-merged output at the configured path(s).
   inline bool doRemergePhoton10and20sim  = false;
@@ -402,6 +405,10 @@ namespace ARJ
   inline const string kInSIM10_jetMinPt5_pihalves = Sim10and20ConfigForKey(kAltSimSampleKey_jetMinPt5_pihalves).photon10;
   inline const string kInSIM20_jetMinPt5_pihalves = Sim10and20ConfigForKey(kAltSimSampleKey_jetMinPt5_pihalves).photon20;
 
+  // MinBias SIM (DETROIT tune) – single file, no merging
+  inline const string kInSimMB =
+          InputFilesSimBaseDirFromYAML() + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/MinBiasSIM_DETROITtune/RecoilJets_detroit_ALL_jetMinPt5_7piOver8.root";
+
   inline const string kOutPPBase =
         "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp";
 
@@ -435,6 +442,10 @@ namespace ARJ
 
   inline const string kOutSIM5and10and20MergedBase =
         "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/photonJet5and10and20merged_SIM";
+
+  // MinBias SIM (DETROIT tune) output base
+  inline const string kOutSimMBBase =
+        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/simMBpp";
 
   // Merged SIM ROOT outputs (weighted merges)
   inline const string kMergedSIMOut =
@@ -2782,6 +2793,7 @@ namespace ARJ
         kPhotonJet5And20Merged,
         kPhotonJet10And20Merged,
         kPhotonJet5And10And20Merged,
+        kSimMB,
         kInvalid
   };
 
@@ -2802,7 +2814,8 @@ namespace ARJ
           (bothPhoton5and10sim ? 1 : 0) +
           (bothPhoton5and20sim ? 1 : 0) +
           (bothPhoton10and20sim ? 1 : 0) +
-          (allPhoton5and10and20sim ? 1 : 0);
+          (allPhoton5and10and20sim ? 1 : 0) +
+          (isSimMB ? 1 : 0);
 
         if (nTrue == 0) return SimSample::kNone;
         if (nTrue != 1) return SimSample::kInvalid;
@@ -2814,6 +2827,7 @@ namespace ARJ
         if (bothPhoton5and20sim)     return SimSample::kPhotonJet5And20Merged;
         if (bothPhoton10and20sim)    return SimSample::kPhotonJet10And20Merged;
         if (allPhoton5and10and20sim) return SimSample::kPhotonJet5And10And20Merged;
+        if (isSimMB)                 return SimSample::kSimMB;
 
         return SimSample::kInvalid;
   }
@@ -2830,6 +2844,7 @@ namespace ARJ
           case SimSample::kPhotonJet5And20Merged:    return "photonJet5and20merged";
           case SimSample::kPhotonJet10And20Merged:   return "photonJet10and20merged";
           case SimSample::kPhotonJet5And10And20Merged:return "photonJet5and10and20merged";
+          case SimSample::kSimMB:                    return "simMB";
           default:                                   return "INVALID";
         }
   }
@@ -2845,6 +2860,7 @@ namespace ARJ
         case SimSample::kPhotonJet5And20Merged:     return kMergedSIMOut_5and20;
         case SimSample::kPhotonJet10And20Merged:    return MergedSIMOut_10and20_Default();
         case SimSample::kPhotonJet5And10And20Merged:return kMergedSIMOut_5and10and20;
+        case SimSample::kSimMB:                     return kInSimMB;
         default:                                    return "";
       }
   }
@@ -2860,6 +2876,7 @@ namespace ARJ
           case SimSample::kPhotonJet5And20Merged:     return kOutSIM5and20MergedBase;
           case SimSample::kPhotonJet10And20Merged:    return kOutSIMMergedBase;
           case SimSample::kPhotonJet5And10And20Merged:return kOutSIM5and10and20MergedBase;
+          case SimSample::kSimMB:                     return kOutSimMBBase;
           default:                                    return "";
         }
   }
