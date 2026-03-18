@@ -485,11 +485,16 @@ sim_init() {
   [[ -s "$mbd"  ]] || { err "Missing: $mbd";  err "Run makeThesisSimLists.sh for ${SIM_SAMPLE}"; exit 23; }
 
   SIM_MASTER_LIST="${SIM_STAGE_DIR}/sim_${SIM_SAMPLE}_${SIM_MASTER5_NAME}"
+  local _ninput; _ninput=$(wc -l < "$calo" | tr -d ' ')
+  say "    [sim_init] paste 5 matched lists (${_ninput} lines each) → master list…" >&2
   paste "$calo" "$g4" "$jets" "$glob" "$mbd" > "$SIM_MASTER_LIST"
+  say "    [sim_init] paste done ($(wc -l < "$SIM_MASTER_LIST" | tr -d ' ') lines)" >&2
 
   # Clean master list: strip blank lines + comment lines (keeps ALL columns)
   SIM_CLEAN_LIST="${SIM_STAGE_DIR}/sim_${SIM_SAMPLE}_PAIR_MASTER_CLEAN.list"
+  say "    [sim_init] cleaning master list (strip blanks/comments)…" >&2
   grep -E -v '^[[:space:]]*($|#)' "$SIM_MASTER_LIST" > "$SIM_CLEAN_LIST" || true
+  say "    [sim_init] clean list ready: $(wc -l < "$SIM_CLEAN_LIST" | tr -d ' ') lines → $(basename "$SIM_CLEAN_LIST")" >&2
   [[ -s "$SIM_CLEAN_LIST" ]] || { err "Sim master list empty after cleaning: $SIM_MASTER_LIST"; exit 22; }
 
   SIM_OUT_DIR="${DEST_BASE}/${SIM_SAMPLE}"
@@ -509,20 +514,25 @@ make_sim_groups() {
 
   rm -f "${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_grp"*.list 2>/dev/null || true
 
-  local nfiles; nfiles=$(wc -l < "$SIM_CLEAN_LIST" | awk '{print $1}')
-  local ngroups; ngroups=$(ceil_div "$nfiles" "$gs")
+  local _nclean; _nclean=$(wc -l < "$SIM_CLEAN_LIST" | tr -d ' ')
+  local _nexpect=$(( (_nclean + gs - 1) / gs ))
+  say "    [make_sim_groups] splitting ${_nclean} lines into chunks of ${gs} (expect ~${_nexpect} groups)…" >&2
 
-  local start=1
-  local g=1
-  while (( g <= ngroups )); do
-    local end=$(( start + gs - 1 ))
+  # Use split(1) for O(n) grouping instead of sed-in-a-loop (critical for 200k+ file samples)
+  local prefix="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_grp_raw_"
+  split -l "$gs" -d -a 5 "$SIM_CLEAN_LIST" "$prefix"
+  say "    [make_sim_groups] split done, renaming chunk files…" >&2
+
+  # Rename split's numeric suffixes to our grpNNN.list naming convention
+  local g=0
+  for raw in "${prefix}"*; do
+    [[ -s "$raw" ]] || { rm -f "$raw"; continue; }
+    (( g+=1 ))
     local out="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_grp$(printf "%03d" "$g").list"
-    if (( end > nfiles )); then end="$nfiles"; fi
-    sed -n "${start},${end}p" "$SIM_CLEAN_LIST" > "$out"
+    mv "$raw" "$out"
     echo "$out"
-    start=$(( end + 1 ))
-    g=$(( g + 1 ))
   done
+  say "    [make_sim_groups] renamed ${g} group files" >&2
 }
 
 # Dry-run job count for isSim
@@ -942,15 +952,13 @@ case "$ACTION" in
             SIM_SAMPLE="$samp"
             GROUP_SIZE="$gs_local"
 
-            # Build the same grp001 list that condorDoAll would submit, then run only the first file from it
-            mapfile -t groups < <( make_sim_groups "$GROUP_SIZE" )
-            (( ${#groups[@]} )) || { err "No sim groups produced (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG})"; exit 30; }
-
-            glist0="${groups[0]}"
+            # For local mode we only need the first input line — skip creating all group files
             sim_init
+            say "  [local] sample=${SIM_SAMPLE} ($(wc -l < "$SIM_CLEAN_LIST" | tr -d ' ') entries) — extracting first line, skipping full grouping"
 
             tmp="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_LOCAL_firstfile_grp001.list"
-            head -n 1 "$glist0" > "$tmp"
+            head -n 1 "$SIM_CLEAN_LIST" > "$tmp"
+            [[ -s "$tmp" ]] || { err "No sim entries (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG})"; exit 30; }
 
             in_line="$(head -n 1 "$tmp" 2>/dev/null || true)"
             chunk_base="$(basename "$tmp")"
@@ -961,7 +969,7 @@ case "$ACTION" in
             say "SIM local: tag=${SIM_CFG_TAG}  sample=${SIM_SAMPLE}"
             say "  jet_pt_min=${pt}  back_to_back_pi_fraction=${frac}"
             say "  YAML override: ${yaml_override}"
-            say "  grp001 list   : ${glist0}"
+            say "  grp001 list   : ${tmp}"
             say "  input line    : ${in_line}"
             say "  temp list     : ${tmp}"
             say "  out ROOT      : ${out_root_preview}"
