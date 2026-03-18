@@ -268,15 +268,6 @@ public:
       {"Photon 4 GeV + MBD NS >= 1","Photon_4_GeV_plus_MBD_NS_geq_1"}
       //      {"Photon 5 GeV + MBD NS >= 1","Photon_5_GeV_plus_MBD_NS_geq_1"}
   };
-
-  // Separate pp trigger map used ONLY for the doNotScale max-cluster-energy histograms.
-  // This is intentionally independent of the main analysis trigger gating above.
-  inline static const std::vector<std::pair<std::string, std::string>> triggerNameMap_pp_doNotScale = {
-      {"MBD N&S >= 1",          "MBD_NandS_geq_1"},
-      {"Photon 3 GeV + MBD NS >= 1","Photon_3_GeV_plus_MBD_NS_geq_1"},
-      {"Photon 4 GeV + MBD NS >= 1","Photon_4_GeV_plus_MBD_NS_geq_1"}
-      //      {"Photon 5 GeV + MBD NS >= 1","Photon_5_GeV_plus_MBD_NS_geq_1"}
-  };
       
   inline static const std::vector<std::pair<int, std::string>> triggerNameMapAuAu = {
     //        {10, "MBD_NS_geq_2"},

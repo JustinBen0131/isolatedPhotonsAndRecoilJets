@@ -162,7 +162,7 @@ namespace ARJ
 // =============================================================================
 
   inline bool isPPdataOnly   = false;
-  inline bool isSimAndDataPP = true;
+  inline bool isSimAndDataPP = false;
   
   // RooUnfold control:
   //   do_xJ_PPunfold = true
@@ -180,20 +180,20 @@ namespace ARJ
   //
   // Within the pipeline itself, gApplyPurityCorrectionForUnfolding still selects
   // whether the reco input is raw or ABCD purity-corrected.
-  inline bool do_xJ_PPunfold = true;
+  inline bool do_xJ_PPunfold = false;
   // Internal toggle used to run the RooUnfold pipeline twice:
   //   false -> raw reco inputs                     -> unfolding/nonPurityCorrected/...
   //   true  -> ABCD purity-corrected reco inputs  -> unfolding/purityCorrected/...
-  inline bool gApplyPurityCorrectionForUnfolding = true;
+  inline bool gApplyPurityCorrectionForUnfolding = false;
 
   // AuAu-only analysis mode (no SIM, no PP). When true, the full plotting
   // pipeline runs on AuAu only and outputs to dataOutput/auau/<trigger>/...
   // NOTE: Must be mutually exclusive with isPPdataOnly and isSimAndDataPP.
-  inline bool isAuAuOnly     = false;
+  inline bool isAuAuOnly     = true;
 
   // Optional comparison overlays: PP vs Au+Au (gold-gold) photon-ID deliverables.
   // If false, analysis behavior is IDENTICAL to the current pipeline.
-  inline bool isPPdataAndAUAU = false;
+  inline bool isPPdataAndAUAU = true;
 
   inline bool isRun25pp      = false;
 
@@ -205,7 +205,7 @@ namespace ARJ
   inline bool bothPhoton5and10sim        = false;
   inline bool bothPhoton5and20sim        = false;
   inline bool bothPhoton10and20sim       = false;
-  inline bool allPhoton5and10and20sim    = true;
+  inline bool allPhoton5and10and20sim    = false;
 
   // If false, STEP 1 will NOT rebuild the photonJet10+20 merged ROOT file(s).
   // Downstream code will simply open the already-merged output at the configured path(s).
@@ -252,10 +252,9 @@ namespace ARJ
   inline const string kInPP = (isRun25pp ? kInPP25 : kInPP24);
 
   // Gold-gold (Au+Au) merged output for PP vs AuAu deliverables (photon ID QA)
-  // NOTE: Only the trigger directory below is used inside the file. /Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_30/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB
   inline const string kTriggerAuAuGold = "MBD_NS_geq_2_vtx_lt_150";
   inline const string kInAuAuGold =
-                InputFilesSimBaseDirFromYAML() + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/AuAuWithUEsubVariantA/RecoilJets_auau_ALL.root";
+                InputFilesSimBaseDirFromYAML() + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/AuAuWithOutUEsub/RecoilJets_auau_ALL.root";
 
   inline const string kInAuAuGoldNew =
                 InputFilesSimBaseDirFromYAML() + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/AuAuWithUEsubVariantA/RecoilJets_auau_ALL.root";

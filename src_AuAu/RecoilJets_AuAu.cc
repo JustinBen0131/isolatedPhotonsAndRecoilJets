@@ -132,11 +132,180 @@ namespace
     // sPHENIX calorimeter acceptance: |eta| < 1.1
     const double etaMax = 1.1 - R;
     return (etaMax > 0.0 ? etaMax : 0.0);
+    }
+
+    struct DoNotScalePairConfig
+    {
+      uint64_t runMin;
+      uint64_t runMax;
+      int baselineBit;
+      int probeBit;
+      const char* probeHistKey;
+    };
+
+    inline bool doNotScaleRunMatch(const uint64_t runNumber,
+                                   const DoNotScalePairConfig& cfg)
+    {
+      return (runNumber >= cfg.runMin && runNumber <= cfg.runMax);
+    }
+
+    inline bool doNotScaleBitIsSet(const uint64_t vec, const int bit)
+    {
+      return (bit >= 0 && bit < 64) ? (((vec >> bit) & 0x1ULL) != 0ULL) : false;
+    }
+
+    inline std::string doNotScaleBaselineHistKey(const DoNotScalePairConfig& cfg)
+    {
+      return std::string("baseline_") + cfg.probeHistKey;
+    }
+
+    inline std::string doNotScaleHistName(const std::string& histKey)
+    {
+      return std::string("h_maxEnergyClus_NewTriggerFilling_doNotScale_") + histKey;
+    }
+
+    inline void getDoNotScaleEventVectors(const Gl1Packet* gl1Packet,
+                                          uint64_t& rawVector,
+                                          uint64_t& liveVector)
+    {
+      rawVector = 0;
+      liveVector = 0;
+
+      if (!gl1Packet)
+      {
+        return;
+      }
+
+      rawVector  = static_cast<uint64_t>(gl1Packet->getTriggerVector());
+      liveVector = static_cast<uint64_t>(gl1Packet->getLiveVector());
+    }
+
+    inline const std::vector<DoNotScalePairConfig>& getDoNotScalePairConfigs()
+    {
+      static const std::vector<DoNotScalePairConfig> cfgs = {
+        // pp24
+        {47289, 51015, 10, 24, "Photon_2_GeV_plus_MBD_NS_geq_1"},
+        {47289, 51015, 10, 25, "Photon_3_GeV_plus_MBD_NS_geq_1"},
+        {47289, 51015, 10, 26, "Photon_4_GeV_plus_MBD_NS_geq_1"},
+        {47289, 51015, 10, 27, "Photon_5_GeV_plus_MBD_NS_geq_1"},
+        {51093, 52596, 10, 24, "Photon_2_GeV_plus_MBD_NS_geq_1"},
+        {51093, 52596, 10, 25, "Photon_3_GeV_plus_MBD_NS_geq_1"},
+        {51093, 52596, 10, 26, "Photon_4_GeV_plus_MBD_NS_geq_1"},
+        {51093, 52596, 10, 27, "Photon_5_GeV_plus_MBD_NS_geq_1"},
+        {51093, 52596, 12, 36, "Photon_3_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+        {51093, 52596, 12, 37, "Photon_4_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+        {51093, 52596, 12, 38, "Photon_5_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+        {52610, 53864, 10, 24, "Photon_2_GeV_plus_MBD_NS_geq_1"},
+        {52610, 53864, 10, 25, "Photon_3_GeV_plus_MBD_NS_geq_1"},
+        {52610, 53864, 10, 26, "Photon_4_GeV_plus_MBD_NS_geq_1"},
+        {52610, 53864, 10, 27, "Photon_5_GeV_plus_MBD_NS_geq_1"},
+        {52610, 53864, 12, 36, "Photon_3_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+        {52610, 53864, 12, 37, "Photon_4_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+        {52610, 53864, 12, 38, "Photon_5_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+
+        // pp25
+        {79269, 79493, 10, 24, "Photon_2_GeV_plus_MBD_NS_geq_1"},
+        {79269, 79493, 10, 25, "Photon_3_GeV_plus_MBD_NS_geq_1"},
+        {79269, 79493, 10, 26, "Photon_4_GeV_plus_MBD_NS_geq_1"},
+        {79269, 79493, 10, 27, "Photon_5_GeV_plus_MBD_NS_geq_1"},
+        {79269, 79493, 12, 36, "Photon_3_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+        {79269, 79493, 12, 37, "Photon_4_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+        {79269, 79493, 12, 38, "Photon_5_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+        {79494, 79494, 10, 24, "Photon_2_GeV_plus_MBD_NS_geq_1"},
+        {79494, 79494, 10, 25, "Photon_3_GeV_plus_MBD_NS_geq_1"},
+        {79494, 79494, 10, 26, "Photon_4_GeV_plus_MBD_NS_geq_1"},
+        {79494, 79494, 10, 27, "Photon_5_GeV_plus_MBD_NS_geq_1"},
+        {79494, 79494, 12, 36, "Photon_3_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+        {79494, 79494, 12, 37, "Photon_4_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+        {79494, 79494, 12, 38, "Photon_5_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+        {79495, 81664, 10, 24, "Photon_2_GeV_plus_MBD_NS_geq_1"},
+        {79495, 81664, 10, 25, "Photon_3_GeV_plus_MBD_NS_geq_1"},
+        {79495, 81664, 10, 26, "Photon_4_GeV_plus_MBD_NS_geq_1"},
+        {79495, 81664, 10, 27, "Photon_5_GeV_plus_MBD_NS_geq_1"},
+        {79495, 81664, 12, 35, "Photon_2_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+        {79495, 81664, 12, 36, "Photon_3_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+        {79495, 81664, 12, 37, "Photon_4_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+        {79495, 81664, 12, 38, "Photon_5_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+
+        // oo25
+        {82400, 82702, 10, 24, "Photon_2_GeV_plus_MBD_NS_geq_1"},
+        {82400, 82702, 10, 25, "Photon_3_GeV_plus_MBD_NS_geq_1"},
+        {82400, 82702, 10, 26, "Photon_4_GeV_plus_MBD_NS_geq_1"},
+        {82400, 82702, 10, 27, "Photon_5_GeV_plus_MBD_NS_geq_1"},
+        {82400, 82702, 12, 35, "Photon_2_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+        {82400, 82702, 12, 36, "Photon_3_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+        {82400, 82702, 12, 37, "Photon_4_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+        {82400, 82702, 12, 38, "Photon_5_GeV_plus_MBD_NS_geq_1_vtx_lt_10"},
+
+        // run2auau
+        {54264, 54547, 10, 24, "Photon_2_GeV_plus_MBD_NS_geq_2"},
+        {54264, 54547, 10, 25, "Photon_3_GeV_plus_MBD_NS_geq_2"},
+        {54264, 54547, 10, 26, "Photon_4_GeV_plus_MBD_NS_geq_2"},
+        {54264, 54547, 10, 27, "Photon_5_GeV_plus_MBD_NS_geq_2"},
+        {54264, 54547, 12, 36, "Photon_3_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {54264, 54547, 12, 37, "Photon_4_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {54264, 54547, 12, 38, "Photon_5_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {54549, 54974, 10, 24, "Photon_10_GeV_plus_MBD_NS_geq_2"},
+        {54549, 54974, 10, 25, "Photon_14_GeV_plus_MBD_NS_geq_2"},
+        {54549, 54974, 10, 26, "Photon_18_GeV_plus_MBD_NS_geq_2"},
+        {54549, 54974, 10, 27, "Photon_20_GeV_plus_MBD_NS_geq_2"},
+        {54549, 54974, 12, 35, "Photon_10_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {54549, 54974, 12, 36, "Photon_14_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {54549, 54974, 12, 37, "Photon_18_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {54549, 54974, 12, 38, "Photon_20_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+
+        // auau
+        {67599, 68155, 10, 16, "Photon_6_GeV_plus_MBD_NS_geq_2"},
+        {67599, 68155, 10, 17, "Photon_8_GeV_plus_MBD_NS_geq_2"},
+        {67599, 68155, 10, 18, "Photon_10_GeV_plus_MBD_NS_geq_2"},
+        {67599, 68155, 10, 19, "Photon_12_GeV_plus_MBD_NS_geq_2"},
+        {68208, 68220, 12, 16, "Photon_6_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {68208, 68220, 12, 17, "Photon_8_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {68208, 68220, 12, 18, "Photon_10_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {68208, 68220, 12, 19, "Photon_12_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {68208, 68220, 14, 20, "Photon_6_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+        {68208, 68220, 14, 21, "Photon_8_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+        {68208, 68220, 14, 22, "Photon_10_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+        {68208, 68220, 14, 23, "Photon_12_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+        {68335, 69616, 12, 16, "Photon_6_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {68335, 69616, 12, 17, "Photon_8_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {68335, 69616, 12, 18, "Photon_10_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {68335, 69616, 12, 19, "Photon_12_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {68335, 69616, 14, 20, "Photon_6_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+        {68335, 69616, 14, 21, "Photon_8_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+        {68335, 69616, 14, 22, "Photon_10_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+        {68335, 69616, 14, 23, "Photon_12_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+        {71328, 78572, 12, 16, "Photon_6_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {71328, 78572, 12, 17, "Photon_8_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {71328, 78572, 12, 18, "Photon_10_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {71328, 78572, 12, 19, "Photon_12_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {71328, 78572, 14, 20, "Photon_6_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+        {71328, 78572, 14, 21, "Photon_8_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+        {71328, 78572, 14, 22, "Photon_10_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+        {71328, 78572, 14, 23, "Photon_12_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+        {78686, 78686, 10, 24, "Photon_2_GeV_plus_MBD_NS_geq_2"},
+        {78686, 78686, 10, 25, "Photon_3_GeV_plus_MBD_NS_geq_2"},
+        {78686, 78686, 10, 26, "Photon_4_GeV_plus_MBD_NS_geq_2"},
+        {78686, 78686, 12, 36, "Photon_3_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {78686, 78686, 12, 17, "Photon_8_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {78686, 78686, 12, 18, "Photon_10_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {78686, 78686, 14, 21, "Photon_8_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+        {78689, 78954, 12, 16, "Photon_6_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {78689, 78954, 12, 17, "Photon_8_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {78689, 78954, 12, 18, "Photon_10_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {78689, 78954, 12, 19, "Photon_12_GeV_plus_MBD_NS_geq_2_vtx_lt_10"},
+        {78689, 78954, 14, 20, "Photon_6_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+        {78689, 78954, 14, 21, "Photon_8_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+        {78689, 78954, 14, 22, "Photon_10_GeV_plus_MBD_NS_geq_2_vtx_lt_150"},
+        {78689, 78954, 14, 23, "Photon_12_GeV_plus_MBD_NS_geq_2_vtx_lt_150"}
+      };
+
+      return cfgs;
   }
 }
 
 
-// Friendly label for printing tight category
+  // Friendly label for printing tight category
 static const char* tightTagName(RecoilJets::TightTag t)
 {
   switch (t) {
@@ -1083,76 +1252,48 @@ void RecoilJets::createHistos_Data()
     }
   else
   {
-    // ------------------------------------------------------------------
-    // pp DATA: book the doNotScale max-cluster-energy histograms under
-    // the separate doNotScale trigger directories (independent of analysis gating)
-    // ------------------------------------------------------------------
-    for (const auto& kv : triggerNameMap_pp_doNotScale) // kv: std::pair<std::string,std::string>
-    {
-      const std::string trig = kv.second;
-
-      // Make sure the trigger directory exists
-      TDirectory* dir = out->GetDirectory(trig.c_str());
-      if (!dir) dir = out->mkdir(trig.c_str());
-      dir->cd();
-
-      HistMap& H = qaHistogramsByTrigger[trig];
-
-      const std::string hturn = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + trig;
-      if (H.find(hturn) == H.end())
+      // -------------------------------------------------------------------------
+      // Pre-book the EXACT doNotScale pair histograms that are valid for this run.
+      //   - numerator   : <probeHistKey>
+      //   - denominator : baseline_<probeHistKey>
+      // This keeps the output schema aligned with the run-resolved pair table and
+      // removes the old family-level pp-only doNotScale bookkeeping.
+      // -------------------------------------------------------------------------
+      if (out && out->IsOpen())
+      {
+        auto bookDoNotScaleHist = [&](const std::string& histKey)
         {
-          TH1F* hist = new TH1F(hturn.c_str(),
-                                "Max Cluster Energy; Cluster Energy [GeV]",
-                                40, 0, 20);
-          hist->SetDirectory(out);
-          H[hturn] = hist;
-        }
+          TDirectory* dir = out->GetDirectory(histKey.c_str());
+          if (!dir) dir = out->mkdir(histKey.c_str());
+          if (!dir) return;
 
-        if (m_doPi0Analysis && trig == "MBD_NandS_geq_1")
+          TDirectory* prevDir = gDirectory;
+          dir->cd();
+
+          HistMap& H = qaHistogramsByTrigger[histKey];
+          const std::string histName = doNotScaleHistName(histKey);
+          if (H.find(histName) == H.end())
+          {
+            TH1F* hist = new TH1F(histName.c_str(),
+                                  "Max Cluster Energy; Cluster Energy [GeV]",
+                                  40, 0, 20);
+            hist->SetDirectory(dir);
+            H[histName] = hist;
+          }
+
+          if (prevDir) prevDir->cd();
+        };
+
+        for (const auto& cfg : getDoNotScalePairConfigs())
         {
-          if (H.find("h2_pi0_mass_vs_pi0pt_corr") == H.end())
-          {
-            TH2F* hist = new TH2F("h2_pi0_mass_vs_pi0pt_corr",
-                                  "h2_pi0_mass_vs_pi0pt_corr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{#pi^{0}} [GeV/c]",
-                                  240, 0, 0.6,
-                                  240, 0, 60);
-            hist->SetDirectory(out);
-            H["h2_pi0_mass_vs_pi0pt_corr"] = hist;
-          }
+          if (!doNotScaleRunMatch(run, cfg)) continue;
 
-          if (H.find("h2_pi0_mass_vs_pi0pt_nocorr") == H.end())
-          {
-            TH2F* hist = new TH2F("h2_pi0_mass_vs_pi0pt_nocorr",
-                                  "h2_pi0_mass_vs_pi0pt_nocorr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{#pi^{0}} [GeV/c]",
-                                  240, 0, 0.6,
-                                  240, 0, 60);
-            hist->SetDirectory(out);
-            H["h2_pi0_mass_vs_pi0pt_nocorr"] = hist;
-          }
-
-          if (H.find("h2_pi0_mass_vs_leadcluspt_corr") == H.end())
-          {
-            TH2F* hist = new TH2F("h2_pi0_mass_vs_leadcluspt_corr",
-                                  "h2_pi0_mass_vs_leadcluspt_corr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{lead cluster} [GeV/c]",
-                                  240, 0, 0.6,
-                                  240, 0, 60);
-            hist->SetDirectory(out);
-            H["h2_pi0_mass_vs_leadcluspt_corr"] = hist;
-          }
-
-          if (H.find("h2_pi0_mass_vs_leadcluspt_nocorr") == H.end())
-          {
-            TH2F* hist = new TH2F("h2_pi0_mass_vs_leadcluspt_nocorr",
-                                  "h2_pi0_mass_vs_leadcluspt_nocorr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{lead cluster} [GeV/c]",
-                                  240, 0, 0.6,
-                                  240, 0, 60);
-            hist->SetDirectory(out);
-            H["h2_pi0_mass_vs_leadcluspt_nocorr"] = hist;
-          }
+          bookDoNotScaleHist(doNotScaleBaselineHistKey(cfg));
+          bookDoNotScaleHist(cfg.probeHistKey);
         }
 
         out->cd();
-      }
+    }
 
     // ------------------------------------------------------------------
     // Existing pp per-trigger QA booking (unchanged; still uses triggerNameMap_pp)
@@ -1442,117 +1583,107 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
   /* 2) Trigger gating (pp & Au+Au) — unified in firstEventCuts()       */
   /* ------------------------------------------------------------------ */
 
-  // ------------------------------------------------------------------
-  // pp DATA ONLY: doNotScale max-cluster-energy trigger-efficiency fill
-  // MATCHES caloTreeGen::checkMbdAndFillNewHists(...) logic:
-  //   - decodeTriggers(topNode)
-  //   - MBD baseline uses didTriggerFire("MBD N&S >= 1")
-  //   - if MBD fired: fill MBD doNotScale hist
-  //   - then for rare triggers: checkRawTrigger(dbTriggerName) and fill
-  // This is separate from (and occurs BEFORE) the main analysis trigger gating.
-  // ------------------------------------------------------------------
-  if (!m_isSim && !m_isAuAu)
-  {
-        if (trigAna)
-        {
-          trigAna->decodeTriggers(topNode);
+    // DATA ONLY: doNotScale max-cluster-energy trigger-efficiency fill
+    //   - baseline gate uses the event-level raw/unscaled GL1 TriggerVector bit
+    //   - probe gate uses the event-level GL1 LiveVector bit
+    //   - denominator is filled ONCE per pair when the baseline bit is on
+    //   - numerator   is filled ONCE per pair when baseline AND probe are on
+    //   - run-range/bit mapping is hard-coded from the ALL QA output above
+    // ------------------------------------------------------------------
+    if (!m_isSim)
+    {
+            Gl1Packet* gl1Packet = findNode::getClass<Gl1Packet>(topNode, "GL1Packet");
+            if (!gl1Packet) gl1Packet = findNode::getClass<Gl1Packet>(topNode, "14001");
 
-          const std::string mbdDbName    = "MBD N&S >= 1";
-          const std::string mbdShortName = "MBD_NandS_geq_1";
-
-          bool isMB = trigAna->didTriggerFire(mbdDbName);
-          if (isMB)
-          {
-            float max_energy_clus = 0.f;
-
-            if (m_clus)
+            if (gl1Packet)
             {
-              const auto range = m_clus->getClusters();
-              for (auto it = range.first; it != range.second; ++it)
-              {
-                const RawCluster* cl = it->second;
-                if (!cl) continue;
-                const float e = cl->get_energy();
-                if (std::isfinite(e) && e > max_energy_clus) max_energy_clus = e;
-              }
-            }
-            else if (m_photons)
-            {
-              const auto range = m_photons->getClusters();
-              for (auto it = range.first; it != range.second; ++it)
-              {
-                const RawCluster* cl = it->second;
-                if (!cl) continue;
-                const float e = cl->get_energy();
-                if (std::isfinite(e) && e > max_energy_clus) max_energy_clus = e;
-              }
-            }
+                const uint64_t runNumber     = recoConsts::instance()->get_uint64Flag("TIMESTAMP", 0);
+                uint64_t triggerVector = 0;
+                uint64_t liveVector    = 0;
+                getDoNotScaleEventVectors(gl1Packet, triggerVector, liveVector);
 
-              // Fill the new histogram for MBD itself
-              {
-                std::string mbdHistName = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + mbdShortName;
+                const bool passVzForDoNotScale =
+                    (std::isfinite(m_vz) && std::fabs(m_vz) < 30.0);
 
-                auto &mbdHistogramMap = qaHistogramsByTrigger[mbdShortName];
-                auto it = mbdHistogramMap.find(mbdHistName);
-                if (!(it == mbdHistogramMap.end() || !(it->second)))
+                if (passVzForDoNotScale)
                 {
-                  TH1F* hMbdHist = dynamic_cast<TH1F*>(it->second);
-                  if (hMbdHist)
-                  {
-                    hMbdHist->Fill(max_energy_clus);
+                    float max_energy_clus = 0.f;
+
+                    if (m_clus)
+                    {
+                      const auto range = m_clus->getClusters();
+                      for (auto it = range.first; it != range.second; ++it)
+                      {
+                        const RawCluster* cl = it->second;
+                        if (!cl) continue;
+                        const float e = cl->get_energy();
+                        if (!std::isfinite(e)) continue;
+                        if (e < 1.0f) continue;
+                        if (e > max_energy_clus) max_energy_clus = e;
+                      }
+                    }
+                    else if (m_photons)
+                    {
+                      const auto range = m_photons->getClusters();
+                      for (auto it = range.first; it != range.second; ++it)
+                      {
+                        const RawCluster* cl = it->second;
+                        if (!cl) continue;
+                        const float e = cl->get_energy();
+                        if (!std::isfinite(e)) continue;
+                        if (e < 1.0f) continue;
+                        if (e > max_energy_clus) max_energy_clus = e;
+                      }
+                    }
+
+                    auto fillDoNotScaleHist = [&](const std::string& histKey)
+                    {
+                      const std::string histName = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + histKey;
+                      auto& histogramMap = qaHistogramsByTrigger[histKey];
+
+                      TH1F* h = nullptr;
+                      auto it = histogramMap.find(histName);
+                      if (it != histogramMap.end())
+                      {
+                        h = dynamic_cast<TH1F*>(it->second);
+                      }
+
+                      if (!h)
+                      {
+                        TDirectory* dir = out->GetDirectory(histKey.c_str());
+                        if (!dir) dir = out->mkdir(histKey.c_str());
+                        if (!dir) return;
+
+                        TDirectory* prevDir = gDirectory;
+                        dir->cd();
+
+                        h = new TH1F(histName.c_str(),
+                                     "Max Cluster Energy; Cluster Energy [GeV]",
+                                     40, 0, 20);
+                        h->SetDirectory(dir);
+                        histogramMap[histName] = h;
+
+                        if (prevDir) prevDir->cd();
+                      }
+
+                      h->Fill(max_energy_clus);
+                      bumpHistFill(histKey, histName);
+                    };
+
+                    for (const auto& cfg : getDoNotScalePairConfigs())
+                    {
+                      if (!doNotScaleRunMatch(runNumber, cfg)) continue;
+                      if (!doNotScaleBitIsSet(triggerVector, cfg.baselineBit)) continue;
+
+                      fillDoNotScaleHist(doNotScaleBaselineHistKey(cfg));
+
+                      if (doNotScaleBitIsSet(liveVector, cfg.probeBit))
+                      {
+                        fillDoNotScaleHist(cfg.probeHistKey);
+                      }
                   }
-                }
               }
-
-              if (m_doPi0Analysis)
-              {
-                const bool passPi0Vz = (!m_useVzCut || std::fabs(m_vz) < m_vzCut);
-
-                if (passPi0Vz && m_clus && m_clus_nocorr)
-                {
-                  fillPi0MassVsPtHistograms(mbdShortName, m_clus, true);
-                  fillPi0MassVsPtHistograms(mbdShortName, m_clus_nocorr, false);
-                }
-                else if (Verbosity() >= 2)
-                {
-                  LOG(2, CLR_YELLOW,
-                      "    [process_event][pi0] requested pp pi0 fill skipped"
-                      << " | passVz=" << (passPi0Vz ? "true" : "false")
-                      << " | CLUSTERINFO_CEMC=" << (m_clus ? "OK" : "MISSING")
-                      << " | CLUSTERINFO_CEMC_NOCORR=" << (m_clus_nocorr ? "OK" : "MISSING"));
-                }
-              }
-
-              // Now check the “rare” triggers if MBD fired
-            for (const auto &kv : triggerNameMap_pp_doNotScale)
-            {
-              const std::string &dbTriggerName   = kv.first;
-              const std::string &histFriendlyStr = kv.second;
-
-              // Avoid *re*-filling MBD's own histogram
-              if (dbTriggerName == mbdDbName)
-                  continue;
-
-              bool firedRare = trigAna->checkRawTrigger(dbTriggerName);
-              if (!firedRare) continue;
-
-              std::string newHistName = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + histFriendlyStr;
-
-              auto &rareHistogramMap = qaHistogramsByTrigger[histFriendlyStr];
-              auto it = rareHistogramMap.find(newHistName);
-              if (it == rareHistogramMap.end() || !(it->second))
-              {
-                continue;
-              }
-
-              TH1F* hNew = dynamic_cast<TH1F*>(it->second);
-              if (hNew)
-              {
-                hNew->Fill(max_energy_clus);
-              }
-            }
           }
-        }
       }
 
       std::vector<std::string> activeTrig;
