@@ -699,9 +699,12 @@ namespace ARJ
           c.SetTopMargin(0.08);
           c.SetTicks(1,1);
 
-          ratioHists[0]->SetTitle("");
+          const int dsThr = extractPhotonThresholdGeV(ds.trigger);
+          ratioHists[0]->SetTitle(
+            TString::Format("Turn-on Curves Photon %d GeV + MBD NS #geq 1 Run24pp", dsThr).Data());
           ratioHists[0]->GetXaxis()->SetTitle("Maximum Cluster Energy [GeV]");
-          ratioHists[0]->GetYaxis()->SetTitle("Probe live / baseline raw");
+          ratioHists[0]->GetYaxis()->SetTitle(
+            TString::Format("Photon %d / MBD NS", dsThr).Data());
           ratioHists[0]->GetXaxis()->SetTitleSize(0.055);
           ratioHists[0]->GetXaxis()->SetTitleOffset(1.05);
           ratioHists[0]->GetXaxis()->SetLabelSize(0.045);
@@ -730,7 +733,7 @@ namespace ARJ
           l95.SetLineColor(kGray+2);
           l95.Draw("SAME");
 
-          TLegend leg(0.18, 0.56, 0.68, 0.88);
+          TLegend leg(0.50, 0.15, 0.93, 0.42);
           leg.SetBorderSize(0);
           leg.SetFillStyle(0);
           leg.SetTextSize(0.026);
@@ -757,14 +760,6 @@ namespace ARJ
             }
           }
           leg.Draw();
-
-          std::vector<std::string> lines = DefaultHeaderLines(ds);
-          lines.push_back(loaded.front().basisLabel);
-          lines.push_back("Common-basis turn-on comparison");
-          lines.push_back("Each curve uses its own baseline_<probe>");
-          lines.push_back("Exact run spans are pair-specific and written to summary.txt");
-          DrawLatexLines(0.18, 0.24, lines, 0.026, 0.036);
-
           const std::string outPng = JoinPath(groupOutDir, "hMaxClusterEnergy_groupTurnOnOverlay.png");
           SaveCanvas(c, outPng);
           cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";

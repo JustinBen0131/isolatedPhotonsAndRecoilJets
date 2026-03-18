@@ -1088,7 +1088,73 @@ for (int i = 0; i < nPads; ++i)
                                 centPrettyOv.c_str(), pb.lo, pb.hi).Data());
 
               SaveCanvas(cOv, JoinPath(qaDirOverlay,
-                                TString::Format("ppAuAu_overlay_%s_%s.png", histBase.c_str(), pb.folder.c_str()).Data()));
+                                                TString::Format("ppAuAu_overlay_%s_%s.png", histBase.c_str(), pb.folder.c_str()).Data()));
+
+              // -------------------------------------------------------
+              // unit-area normalized counterpart in the same folder
+              // -------------------------------------------------------
+              {
+                TH1* hNoUEnorm = CloneTH1(hNoUE,
+                  TString::Format("pp_ov_norm_AA_%s_%s%s", histBase.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data());
+                TH1* hPPnorm   = CloneTH1(hPPov,
+                  TString::Format("pp_ov_norm_PP_%s_%s%s", histBase.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data());
+                if (hNoUEnorm && hPPnorm)
+                {
+                  EnsureSumw2(hNoUEnorm);
+                  EnsureSumw2(hPPnorm);
+                  const double iAA = hNoUEnorm->Integral(0, hNoUEnorm->GetNbinsX() + 1);
+                  const double iPP = hPPnorm->Integral(0, hPPnorm->GetNbinsX() + 1);
+                  if (iAA > 0.0) hNoUEnorm->Scale(1.0 / iAA);
+                  if (iPP > 0.0) hPPnorm->Scale(1.0 / iPP);
+
+                  TCanvas cOvN(
+                    TString::Format("c_ovN_%s_%s%s", histBase.c_str(), pb.folder.c_str(), centSuffix.c_str()).Data(),
+                    "c_ovN", 900, 700
+                  );
+                  ApplyCanvasMargins1D(cOvN);
+                  cOvN.SetLogy(false);
+
+                  hNoUEnorm->GetXaxis()->UnZoom();
+                  hPPnorm->GetXaxis()->UnZoom();
+
+                  hNoUEnorm->SetTitle("");
+                  hPPnorm->SetTitle("");
+                  hNoUEnorm->GetXaxis()->SetTitle(xTitle.c_str());
+                  hNoUEnorm->GetYaxis()->SetTitle("Normalized counts");
+
+                  StyleOverlayHist(hNoUEnorm, kBlack,  20);
+                  StyleOverlayHist(hPPnorm,   kBlue+1, 20);
+
+                  const double ymaxN = std::max(hNoUEnorm->GetMaximum(), hPPnorm->GetMaximum());
+                  hNoUEnorm->SetMaximum(ymaxN * 1.35);
+
+                  hNoUEnorm->Draw("E1");
+                  hPPnorm->Draw("E1 same");
+
+                  TLegend legOvN(0.52, 0.70, 0.90, 0.86);
+                  legOvN.SetBorderSize(0);
+                  legOvN.SetFillStyle(0);
+                  legOvN.SetTextFont(42);
+                  legOvN.SetTextSize(0.036);
+                  legOvN.AddEntry(hNoUEnorm, "Au+Au (no UE sub)", "ep");
+                  legOvN.AddEntry(hPPnorm,   "PP data",           "ep");
+                  legOvN.Draw();
+
+                  TLatex tOvN;
+                  tOvN.SetNDC(true);
+                  tOvN.SetTextFont(42);
+                  tOvN.SetTextAlign(22);
+                  tOvN.SetTextSize(0.045);
+                  tOvN.DrawLatex(0.50, 0.94,
+                  TString::Format("E_{T}^{Iso} PP+AuAu (norm), %s, p_{T}^{#gamma} = %d-%d GeV",
+                                    centPrettyOv.c_str(), pb.lo, pb.hi).Data());
+
+                  SaveCanvas(cOvN, JoinPath(qaDirOverlay,
+                    TString::Format("ppAuAu_overlay_norm_%s_%s.png", histBase.c_str(), pb.folder.c_str()).Data()));
+                }
+                delete hNoUEnorm;
+                delete hPPnorm;
+              }
 
               delete hPPov;
             }
