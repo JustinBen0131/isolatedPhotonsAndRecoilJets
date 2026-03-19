@@ -607,19 +607,19 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     LOG(5, CLR_BLUE, "    [fetchNodes] towers OK: " << lbl << "  node=" << node << "  geom=" << geo);
   }
 
-    // ------------------------------------------------------------------
-    // Clusters & photons
-    // ------------------------------------------------------------------
-    m_clus        = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC");
-    m_clus_nocorr = nullptr;
-    if (m_doPi0Analysis && !isSim && !isAuAu)
-    {
-      m_clus_nocorr = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC_NOCORR");
-    }
-    m_photons     = findNode::getClass<RawClusterContainer>(top, "PHOTONCLUSTER_CEMC");
+  // ------------------------------------------------------------------
+  // Clusters & photons
+  // ------------------------------------------------------------------
+  m_clus        = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC");
+  m_clus_nocorr = nullptr;
+  if (m_doPi0Analysis && !isAuAu)
+  {
+        m_clus_nocorr = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC_NOCORR");
+  }
+  m_photons     = findNode::getClass<RawClusterContainer>(top, "PHOTONCLUSTER_CEMC");
 
-    if (Verbosity() >= 3)
-    {
+  if (Verbosity() >= 3)
+  {
       auto countClusters = [](RawClusterContainer* c) -> size_t
       {
         if (!c) return 0;
@@ -633,15 +633,15 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
           "    [fetchNodes] sizes: CLUSTERINFO_CEMC=" << countClusters(m_clus)
           << " | CLUSTERINFO_CEMC_NOCORR=" << countClusters(m_clus_nocorr)
           << " | PHOTONCLUSTER_CEMC=" << countClusters(m_photons));
-    }
+  }
 
-    if (m_doPi0Analysis && !isSim && !isAuAu && !m_clus_nocorr && Verbosity() >= 2)
-    {
+  if (m_doPi0Analysis && !isAuAu && !m_clus_nocorr && Verbosity() >= 2)
+  {
       LOG(2, CLR_YELLOW,
           "    [fetchNodes] CLUSTERINFO_CEMC_NOCORR missing while doPi0Analysis is enabled");
-    }
+  }
 
-    if (!m_photons)
+  if (!m_photons)
   {
     LOG(0, CLR_YELLOW,
         "    [fetchNodes] PHOTONCLUSTER_CEMC is MISSING → ABORTEVENT. "

@@ -25,7 +25,7 @@ jet_pt_min: [5.0]
 #   - tell RecoilJets to only expect/process these radii
 #
 # Baseline behavior matches current code: r02 + r04
-jet_radii: [0.2, 0.4]
+jet_radii: [0.2, 0.4, 0.6]
 
 # Back-to-back cut expressed ONLY as a fraction of π.
 # Examples:
@@ -47,7 +47,7 @@ centrality_edges: [0, 10, 20, 40, 60, 80]
 #   true  -> reserved for the native-EMCal UE-subtracted photon pipeline
 #            (the unified macro currently guards and aborts if enabled)
 clusterUEpipeline: false
-doPi0Analysis: false
+doPi0Analysis: true
 
 # -----------------------------------------------------------------------------
 # Isolation working point knobs (YAML-driven)
@@ -64,8 +64,8 @@ doPi0Analysis: false
 #   - PhotonClusterBuilder provides full-calo isolation for R=0.3 and R=0.4
 #   - set to 0.40 to force iso_04 in all cases
 # -----------------------------------------------------------------------------
-isSlidingIso: false
-isolation_wp: {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0, fixedGeV: 4.0, truthIsoGeV: 4.0, coneR: 0.40, towerMin: 0.0}
+isSlidingIso: true
+isolation_wp: {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0, fixedGeV: 4.0, truthIsoGeV: 4.0, coneR: 0.30, towerMin: 0.0}
 
 # -----------------------------------------------------------------------------
 # Photon shower-shape ID cuts (PPG12 Table 4) (YAML-driven; baseline matches header)

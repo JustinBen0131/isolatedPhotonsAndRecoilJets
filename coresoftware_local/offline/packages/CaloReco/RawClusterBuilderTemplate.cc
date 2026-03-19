@@ -365,6 +365,10 @@ int RawClusterBuilderTemplate::process_event(PHCompositeNode *topNode)
       return Fun4AllReturnCodes::DISCARDEVENT;
     }
   }
+  if (Verbosity() > 1)
+  {
+     std::cout << Name() << "::process_event m_UseTowerInfo=" << m_UseTowerInfo << std::endl;
+  }
 
   // At this stage, it is more efficient to read the simple geometry node in any case
   // Indeed, we only need to read the calorimeter ID
@@ -580,10 +584,25 @@ int RawClusterBuilderTemplate::process_event(PHCompositeNode *topNode)
     //std::cout << "Total hit energy = " << total_energy << std::endl;
   }
 
+  if (Verbosity() > 1)
+  {
+      std::cout << Name() << "::process_event HitList.size()=" << HitList.size()
+                << " m_do_tower_selection=" << m_do_tower_selection
+                << " _min_tower_e=" << _min_tower_e
+                << " NBINX=" << NBINX << " NBINY=" << NBINY
+                << " inputNode=" << m_inputnodename
+                << " outputNode=" << m_outputnodename
+                << std::endl;
+  }
+
   bemc->SetModules(&HitList);
 
   // Find clusters (as a set of towers with common edge)
   int ncl = bemc->FindClusters();
+  if (Verbosity() > 1)
+  {
+      std::cout << Name() << "::process_event ncl=" << ncl << std::endl;
+  }
   if (ncl < 0)
   {
     std::cout << "!!! Error in BEmcRec::FindClusters(): numbers of cluster "
@@ -811,6 +830,15 @@ int RawClusterBuilderTemplate::process_event(PHCompositeNode *topNode)
   else if (chkenergyconservation)
   {
     std::cout << "RawClusterBuilderTemplate : energy conservation check asked for but tower or cluster container is NULL" << std::endl;
+  }
+
+  if (Verbosity() > 1)
+  {
+      std::cout << Name() << "::process_event FINAL _clusters=" << (void*)_clusters
+                << " size=" << (int)_clusters->getClusters().second - (int)_clusters->getClusters().first
+                << " ptr_on_tree=" << (void*)findNode::getClass<RawClusterContainer>(topNode, ClusterNodeName)
+                << " ClusterNodeName=" << ClusterNodeName
+                << std::endl;
   }
 
   return Fun4AllReturnCodes::EVENT_OK;

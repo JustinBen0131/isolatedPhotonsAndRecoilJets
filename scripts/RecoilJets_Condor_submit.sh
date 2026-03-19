@@ -727,6 +727,13 @@ submit_condor() {
   local stamp; stamp="$(date +%Y%m%d_%H%M%S)"
   local sub="${BASE}/RecoilJets_${TAG}_${stamp}.sub"
 
+  # Snapshot YAML at submit time so idle jobs are immune to later edits
+  local yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
+  local yaml_snap="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${stamp}.yaml"
+  mkdir -p "$SIM_YAML_OVERRIDE_DIR"
+  cp -f "$yaml_src" "$yaml_snap"
+  say "YAML snapshot: ${yaml_snap}"
+
   cat > "$sub" <<SUB
 universe      = vanilla
 executable    = ${EXE}
@@ -739,8 +746,8 @@ request_memory= 2000MB
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
-# Force dataset & quiet macro on Condor:
-environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0
+# Force dataset & quiet macro on Condor (YAML frozen at submit time):
+environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_snap}
 SUB
 
   local queued=0
@@ -1235,6 +1242,13 @@ SUB
         stamp="$(date +%Y%m%d_%H%M%S)"
         sub="${BASE}/RecoilJets_${TAG}_${stamp}_TEST.sub"
 
+        # Snapshot YAML at submit time so idle jobs are immune to later edits
+        local yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
+        local yaml_snap="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${stamp}_TEST.yaml"
+        mkdir -p "$SIM_YAML_OVERRIDE_DIR"
+        cp -f "$yaml_src" "$yaml_snap"
+        say "YAML snapshot: ${yaml_snap}"
+
         cat > "$sub" <<SUB
 universe      = vanilla
 executable    = ${EXE}
@@ -1247,7 +1261,7 @@ request_memory= 2000MB
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
-environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=10
+environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=10;RJ_CONFIG_YAML=${yaml_snap}
 arguments     = ${r8} ${glist} ${DATASET} \$(Cluster) 0 1 NONE ${DEST_BASE}
 queue
 SUB
