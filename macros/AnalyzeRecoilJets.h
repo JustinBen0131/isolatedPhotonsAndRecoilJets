@@ -161,7 +161,7 @@ namespace ARJ
 //   - For single-slice SIM, y-axes remain raw "Counts" (unweighted).
 // =============================================================================
 
-  inline bool isPPdataOnly   = false;
+  inline bool isPPdataOnly   = true;
   inline bool isSimAndDataPP = false;
   
   // RooUnfold control:
@@ -189,13 +189,13 @@ namespace ARJ
   // AuAu-only analysis mode (no SIM, no PP). When true, the full plotting
   // pipeline runs on AuAu only and outputs to dataOutput/auau/<trigger>/...
   // NOTE: Must be mutually exclusive with isPPdataOnly and isSimAndDataPP.
-  inline bool isAuAuOnly     = true;
+  inline bool isAuAuOnly     = false;
 
   // Optional comparison overlays: PP vs Au+Au (gold-gold) photon-ID deliverables.
   // If false, analysis behavior is IDENTICAL to the current pipeline.
-  inline bool isPPdataAndAUAU = true;
+  inline bool isPPdataAndAUAU = false;
 
-  inline bool isRun25pp      = false;
+  inline bool isRun25pp      = true;
 
   // SIM sample selection toggles (choose EXACTLY ONE for any SIM-including run)
   inline bool isPhotonJet5               = false;
@@ -253,7 +253,7 @@ namespace ARJ
           InputFilesSimBaseDirFromYAML() + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/RecoilJets_pp_ALL.root";
 
   inline const string kInPP25 =
-          InputFilesSimBaseDirFromYAML() + "/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet5/7pi_8_BB/RecoilJets_pp25_ALL.root";
+          InputFilesSimBaseDirFromYAML() + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/RecoilJets_pp25_ALL.root";
 
   inline const string kInPP = (isRun25pp ? kInPP25 : kInPP24);
 

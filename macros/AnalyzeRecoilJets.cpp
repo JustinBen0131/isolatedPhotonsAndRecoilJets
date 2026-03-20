@@ -700,11 +700,9 @@ namespace ARJ
           c.SetTicks(1,1);
 
           const int dsThr = extractPhotonThresholdGeV(ds.trigger);
-          ratioHists[0]->SetTitle(
-            TString::Format("Turn-on Curves Photon %d GeV + MBD NS #geq 1 Run24pp", dsThr).Data());
+          ratioHists[0]->SetTitle("");
           ratioHists[0]->GetXaxis()->SetTitle("Maximum Cluster Energy [GeV]");
-          ratioHists[0]->GetYaxis()->SetTitle(
-            TString::Format("Photon %d / MBD NS", dsThr).Data());
+          ratioHists[0]->GetYaxis()->SetTitle("Photon X / MBD NS");
           ratioHists[0]->GetXaxis()->SetTitleSize(0.055);
           ratioHists[0]->GetXaxis()->SetTitleOffset(1.05);
           ratioHists[0]->GetXaxis()->SetLabelSize(0.045);
@@ -733,10 +731,10 @@ namespace ARJ
           l95.SetLineColor(kGray+2);
           l95.Draw("SAME");
 
-          TLegend leg(0.50, 0.15, 0.93, 0.42);
+          TLegend leg(0.33, 0.25, 0.86, 0.52);
           leg.SetBorderSize(0);
           leg.SetFillStyle(0);
-          leg.SetTextSize(0.026);
+          leg.SetTextSize(0.023);
           for (std::size_t i = 0; i < loaded.size() && i < ratioHists.size(); ++i)
           {
             if (x95s[i] > 0.0)
@@ -759,7 +757,17 @@ namespace ARJ
                 "pe");
             }
           }
-          leg.Draw();
+            leg.Draw();
+
+          {
+            TLatex tDS;
+            tDS.SetNDC(true);
+            tDS.SetTextFont(42);
+            tDS.SetTextAlign(33);
+            tDS.SetTextSize(0.045);
+            tDS.DrawLatex(0.93, 0.97, isRun25pp ? "Run25pp" : "Run24pp");
+          }
+
           const std::string outPng = JoinPath(groupOutDir, "hMaxClusterEnergy_groupTurnOnOverlay.png");
           SaveCanvas(c, outPng);
           cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";

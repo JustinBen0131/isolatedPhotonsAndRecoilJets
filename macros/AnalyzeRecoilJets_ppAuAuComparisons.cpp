@@ -6382,7 +6382,7 @@ for (const auto& cb : centBins)
                     hPP->GetYaxis()->SetTitle("Counts");
                 }
 
-                hPP->GetYaxis()->SetTitleOffset(1.6);
+                hPP->GetYaxis()->SetTitleOffset(1.7);
 
                 StyleOverlayHist(hPP, kBlack,   20);
                 StyleOverlayHist(hAA, kRed + 1, 24);
@@ -6394,11 +6394,11 @@ for (const auto& cb : centBins)
                 hPP->Draw("E1");
                 hAA->Draw("E1 same");
 
-                TLegend* leg = new TLegend(0.62, 0.78, 0.93, 0.92);
+                TLegend* leg = new TLegend(0.62, 0.78, 0.93, 0.88);
                 leg->SetBorderSize(0);
                 leg->SetFillStyle(0);
                 leg->SetTextFont(42);
-                leg->SetTextSize(0.045);
+                leg->SetTextSize(0.043);
                 leg->AddEntry(hPP, "Run24pp", "ep");
                 leg->AddEntry(hAA, TString::Format("AuAu %d-%d%%", cb.lo, cb.hi).Data(), "ep");
                 leg->Draw();
