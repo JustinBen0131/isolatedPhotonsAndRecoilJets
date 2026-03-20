@@ -518,7 +518,7 @@ make_run_list() {
 # where simTag defaults to suffix after last "_" in SAMPLE:
 #   run28_photonjet10 -> photonjet10
 # ============================================================
-if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|simjet5|SIMJET5|isSimMB|simmb|SIMMB)$ ]]; then
+if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simmb|SIMMB)$ ]]; then
   SIM_DATASET_TOKEN="${1}"
   SIM_ACTION="${2:-}"
   shift 2
@@ -565,7 +565,7 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|simjet5|SIMJET5|isSimMB|simmb|SIMMB)$ 
 
   # Input sim outputs live here (matches Condor output layout per variant)
   case "$SIM_DATASET_TOKEN" in
-    isSimJet5|simjet5|SIMJET5)
+    isSimJet5|isSimjet5|simjet5|SIMJET5)
       SIM_INPUT_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simjet5"
       SIM_OUTPUT_TAG="simjet5"
       [[ "$SIM_SAMPLE_EXPLICIT" -eq 0 ]] && SIM_SAMPLE="run28_jet5"
@@ -602,7 +602,7 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|simjet5|SIMJET5|isSimMB|simmb|SIMMB)$ 
   samples=()
   if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
     case "$SIM_DATASET_TOKEN" in
-      isSimJet5|simjet5|SIMJET5) samples=( "run28_jet5" ) ;;
+      isSimJet5|isSimjet5|simjet5|SIMJET5) samples=( "run28_jet5" ) ;;
       isSimMB|simmb|SIMMB)       samples=( "run28_detroit" ) ;;
       *)                         samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
     esac

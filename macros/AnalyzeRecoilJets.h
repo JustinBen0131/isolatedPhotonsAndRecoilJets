@@ -162,7 +162,7 @@ namespace ARJ
 // =============================================================================
 
   inline bool isPPdataOnly   = false;
-  inline bool isSimAndDataPP = true;
+  inline bool isSimAndDataPP = false;
   
   // RooUnfold control:
   //   do_xJ_PPunfold = true
@@ -189,7 +189,7 @@ namespace ARJ
   // AuAu-only analysis mode (no SIM, no PP). When true, the full plotting
   // pipeline runs on AuAu only and outputs to dataOutput/auau/<trigger>/...
   // NOTE: Must be mutually exclusive with isPPdataOnly and isSimAndDataPP.
-  inline bool isAuAuOnly     = false;
+  inline bool isAuAuOnly     = true;
 
   // Optional comparison overlays: PP vs Au+Au (gold-gold) photon-ID deliverables.
   // If false, analysis behavior is IDENTICAL to the current pipeline.
@@ -208,7 +208,10 @@ namespace ARJ
   inline bool allPhoton5and10and20sim    = false;
 
   // MinBias SIM (DETROIT tune): single file, no merging, full isSim pipeline + pi0 QA
-  inline bool isSimMB                    = true;
+  inline bool isSimMB                    = false;
+
+  // photonJet5 standalone SIM (single file, no merging, full isSim pipeline + pi0 QA)
+  inline bool isSimJet5                  = false;
 
   // If false, STEP 1 will NOT rebuild the photonJet10+20 merged ROOT file(s).
   // Downstream code will simply open the already-merged output at the configured path(s).
@@ -257,7 +260,7 @@ namespace ARJ
   // Gold-gold (Au+Au) merged output for PP vs AuAu deliverables (photon ID QA)
   inline const string kTriggerAuAuGold = "MBD_NS_geq_2_vtx_lt_150";
   inline const string kInAuAuGold =
-                InputFilesSimBaseDirFromYAML() + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/AuAuWithOutUEsub/RecoilJets_auau_ALL.root";
+                InputFilesSimBaseDirFromYAML() + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/AuAuWithUEsubVariantA/RecoilJets_auau_ALL.root";
 
   inline const string kInAuAuGoldNew =
                 InputFilesSimBaseDirFromYAML() + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/AuAuWithUEsubVariantA/RecoilJets_auau_ALL.root";
@@ -409,6 +412,10 @@ namespace ARJ
   inline const string kInSimMB =
           InputFilesSimBaseDirFromYAML() + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/MinBiasSIM_DETROITtune/RecoilJets_detroit_ALL_jetMinPt5_7piOver8.root";
 
+  // photonJet5 standalone SIM – single file, no merging
+  inline const string kInSimJet5 =
+          InputFilesSimBaseDirFromYAML() + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/InclusiveJetSIM/RecoilJets_jet5_ALL_jetMinPt5_7piOver8.root";
+
   inline const string kOutPPBase =
         "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp";
 
@@ -446,6 +453,10 @@ namespace ARJ
   // MinBias SIM (DETROIT tune) output base
   inline const string kOutSimMBBase =
         "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/simMBpp";
+
+  // photonJet5 standalone SIM output base
+  inline const string kOutSimJet5Base =
+        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/simJet5ppINCLUSIVE";
 
   // Merged SIM ROOT outputs (weighted merges)
   inline const string kMergedSIMOut =
@@ -2794,6 +2805,7 @@ namespace ARJ
         kPhotonJet10And20Merged,
         kPhotonJet5And10And20Merged,
         kSimMB,
+        kSimJet5,
         kInvalid
   };
 
@@ -2815,7 +2827,8 @@ namespace ARJ
           (bothPhoton5and20sim ? 1 : 0) +
           (bothPhoton10and20sim ? 1 : 0) +
           (allPhoton5and10and20sim ? 1 : 0) +
-          (isSimMB ? 1 : 0);
+          (isSimMB ? 1 : 0) +
+          (isSimJet5 ? 1 : 0);
 
         if (nTrue == 0) return SimSample::kNone;
         if (nTrue != 1) return SimSample::kInvalid;
@@ -2828,6 +2841,7 @@ namespace ARJ
         if (bothPhoton10and20sim)    return SimSample::kPhotonJet10And20Merged;
         if (allPhoton5and10and20sim) return SimSample::kPhotonJet5And10And20Merged;
         if (isSimMB)                 return SimSample::kSimMB;
+        if (isSimJet5)               return SimSample::kSimJet5;
 
         return SimSample::kInvalid;
   }
@@ -2845,6 +2859,7 @@ namespace ARJ
           case SimSample::kPhotonJet10And20Merged:   return "photonJet10and20merged";
           case SimSample::kPhotonJet5And10And20Merged:return "photonJet5and10and20merged";
           case SimSample::kSimMB:                    return "simMB";
+          case SimSample::kSimJet5:                  return "simJet5";
           default:                                   return "INVALID";
         }
   }
@@ -2861,6 +2876,7 @@ namespace ARJ
         case SimSample::kPhotonJet10And20Merged:    return MergedSIMOut_10and20_Default();
         case SimSample::kPhotonJet5And10And20Merged:return kMergedSIMOut_5and10and20;
         case SimSample::kSimMB:                     return kInSimMB;
+        case SimSample::kSimJet5:                   return kInSimJet5;
         default:                                    return "";
       }
   }
@@ -2877,6 +2893,7 @@ namespace ARJ
           case SimSample::kPhotonJet10And20Merged:    return kOutSIMMergedBase;
           case SimSample::kPhotonJet5And10And20Merged:return kOutSIM5and10and20MergedBase;
           case SimSample::kSimMB:                     return kOutSimMBBase;
+          case SimSample::kSimJet5:                   return kOutSimJet5Base;
           default:                                    return "";
         }
   }
@@ -2964,14 +2981,15 @@ namespace ARJ
       if (isSimAndDataPP &&
           ss != SimSample::kPhotonJet10And20Merged &&
           ss != SimSample::kPhotonJet5And10And20Merged &&
-          ss != SimSample::kSimMB)
+          ss != SimSample::kSimMB &&
+          ss != SimSample::kSimJet5)
       {
-        if (errMsg)
-        {
-          *errMsg =
+      if (errMsg)
+      {
+            *errMsg =
             "SIM+DATA (isSimAndDataPP=true) requires a merged photonJet10+20 or photonJet5+10+20 SIM sample, "
-            "or isSimMB=true. "
-            "Set: bothPhoton10and20sim=true or allPhoton5and10and20sim=true or isSimMB=true "
+            "or isSimMB=true or isSimJet5=true. "
+            "Set: bothPhoton10and20sim=true or allPhoton5and10and20sim=true or isSimMB=true or isSimJet5=true "
             "(all other SIM sample toggles false). "
             "This uses the default SIM key for the photonJet10/20 slices: " + DefaultSimSampleKey();
         }

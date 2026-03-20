@@ -879,7 +879,7 @@ namespace ARJ
 
       void RunPi0QA(Dataset& ds)
       {
-        const bool isSimMBDataset = (ds.isSim && isSimMB);
+        const bool isSimMBDataset = (ds.isSim && (isSimMB || isSimJet5));
         if (ds.isSim && !isSimMBDataset) return;
         if (!isSimMBDataset && ds.trigger != kTriggerPP) return;
         if (!ds.file) return;
@@ -921,7 +921,7 @@ namespace ARJ
           return;
         }
 
-        const string datasetTitle = isSimMBDataset ? "MinBias SIM (DETROIT)" : "Run24pp";
+        const string datasetTitle = isSimMBDataset ? (isSimJet5 ? "InclusiveJet5 SIM" : "MinBias SIM (DETROIT)") : "Run24pp";
         const bool vzIsInteger = (std::fabs(vzCutCm - std::round(vzCutCm)) < 1e-6);
         const string vertexLabel =
           vzIsInteger
@@ -11099,26 +11099,65 @@ namespace ARJ
       // ---------------------------------------------------------------------------
       if (isPPdataAndAUAU)
       {
-        Dataset* dsPP = nullptr;
-        for (auto& ds : datasets)
-        {
-          if (!ds.isSim)
-          {
-            dsPP = &ds;
-            break;
+          // Find the PP dataset: must match kTriggerPP (not just !isSim, which also matches AuAu)
+          Dataset* dsPP = nullptr;
+          for (auto& ds : datasets)
+              {
+                if (!ds.isSim && ds.trigger == kTriggerPP)
+                {
+                  dsPP = &ds;
+                  break;
+                }
           }
-        }
 
-        if (!dsPP)
-        {
-          cout << ANSI_BOLD_YEL
-               << "[WARN] isPPdataAndAUAU=true but no PP dataset is open (mode=" << RunModeLabel(mode) << "). Skipping PP vs AuAu overlays."
-               << ANSI_RESET << "\n";
-        }
-        else
-        {
-          analysis::RunPPvsAuAuDeliverables(*dsPP);
-        }
+          // In kAuAuOnly mode the PP dataset is not in the datasets vector.
+          // Open it on-the-fly so the PP vs AuAu overlays use the real PP data.
+          Dataset ppFallback;
+          TFile* ppFallbackFile = nullptr;
+          if (!dsPP)
+          {
+                ppFallbackFile = TFile::Open(kInPP.c_str(), "READ");
+                if (ppFallbackFile && !ppFallbackFile->IsZombie())
+                {
+                  ppFallback.label      = "DATA_PP";
+                  ppFallback.isSim      = false;
+                  ppFallback.trigger    = kTriggerPP;
+                  ppFallback.topDirName = kTriggerPP;
+                  ppFallback.inFilePath = kInPP;
+                  ppFallback.outBase    = JoinPath(kOutPPBase, kTriggerPP);
+                  ppFallback.file       = ppFallbackFile;
+                  ppFallback.topDir     = ppFallbackFile->GetDirectory(kTriggerPP.c_str());
+
+                  if (ppFallback.topDir)
+                  {
+                    dsPP = &ppFallback;
+                    cout << ANSI_BOLD_CYN
+                         << "[INFO] Opened PP file on-the-fly for PP vs AuAu overlays: " << kInPP
+                         << ANSI_RESET << "\n";
+                  }
+                  else
+                  {
+                    cout << ANSI_BOLD_YEL
+                         << "[WARN] PP file opened but missing trigger dir '" << kTriggerPP
+                         << "' in: " << kInPP << ". Skipping PP vs AuAu overlays."
+                         << ANSI_RESET << "\n";
+                  }
+                }
+                else
+                {
+                  cout << ANSI_BOLD_YEL
+                       << "[WARN] isPPdataAndAUAU=true but cannot open PP file: " << kInPP
+                       << " (mode=" << RunModeLabel(mode) << "). Skipping PP vs AuAu overlays."
+                       << ANSI_RESET << "\n";
+                }
+          }
+
+          if (dsPP)
+          {
+                analysis::RunPPvsAuAuDeliverables(*dsPP);
+          }
+
+          if (ppFallbackFile) { ppFallbackFile->Close(); delete ppFallbackFile; }
       }
 
       // ---------------------------------------------------------------------------

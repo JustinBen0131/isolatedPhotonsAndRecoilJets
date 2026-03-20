@@ -3256,7 +3256,7 @@ void RunJES3QA(Dataset& ds)
                 hxAu->Draw("E1");
                 hxPP->Draw("E1 same");
 
-                TLegend* leg = new TLegend(0.18, 0.78, 0.42, 0.90);
+                TLegend* leg = new TLegend(0.62, 0.78, 0.92, 0.90);
                 leg->SetBorderSize(0);
                 leg->SetFillStyle(0);
                 leg->SetTextFont(42);

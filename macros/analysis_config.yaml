@@ -46,8 +46,8 @@ centrality_edges: [0, 10, 20, 40, 60, 80]
 #   false -> keep the current production-compatible behavior
 #   true  -> reserved for the native-EMCal UE-subtracted photon pipeline
 #            (the unified macro currently guards and aborts if enabled)
-clusterUEpipeline: false
-doPi0Analysis: true
+clusterUEpipeline: true
+doPi0Analysis: false
 
 # -----------------------------------------------------------------------------
 # Isolation working point knobs (YAML-driven)
@@ -64,8 +64,8 @@ doPi0Analysis: true
 #   - PhotonClusterBuilder provides full-calo isolation for R=0.3 and R=0.4
 #   - set to 0.40 to force iso_04 in all cases
 # -----------------------------------------------------------------------------
-isSlidingIso: true
-isolation_wp: {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0, fixedGeV: 4.0, truthIsoGeV: 4.0, coneR: 0.30, towerMin: 0.0}
+isSlidingIso: false
+isolation_wp: {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0, fixedGeV: 4.0, truthIsoGeV: 4.0, coneR: 0.40, towerMin: 0.0}
 
 # -----------------------------------------------------------------------------
 # Photon shower-shape ID cuts (PPG12 Table 4) (YAML-driven; baseline matches header)
