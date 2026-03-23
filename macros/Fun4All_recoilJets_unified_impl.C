@@ -315,7 +315,7 @@ namespace yamlcfg
       // EventDisplay diagnostics payload (EventDisplayTree)
       bool event_display_tree = true;
       int  event_display_tree_max_per_bin = 0;
-      bool clusterUEpipeline = false;
+      std::string clusterUEpipeline = "noSub";
       bool doPi0Analysis = false;
     };
 
@@ -576,9 +576,18 @@ namespace yamlcfg
         }
         else if (StartsWithKey(line, "clusterUEpipeline"))
         {
-          const std::string rhs = AfterColon(line);
-          if (!ParseBool(rhs, cfg.clusterUEpipeline))
-            warn_parse("clusterUEpipeline", rhs, "expected true/false");
+          std::string rhs = AfterColon(line);
+          // trim leading/trailing whitespace
+          while (!rhs.empty() && (rhs.front() == ' ' || rhs.front() == '\t')) rhs.erase(rhs.begin());
+          while (!rhs.empty() && (rhs.back() == ' ' || rhs.back() == '\t')) rhs.pop_back();
+          if (rhs == "true" || rhs == "1")
+            cfg.clusterUEpipeline = "variantA";
+          else if (rhs == "false" || rhs == "0")
+            cfg.clusterUEpipeline = "noSub";
+          else if (rhs == "noSub" || rhs == "baseVariant" || rhs == "variantA")
+            cfg.clusterUEpipeline = rhs;
+          else
+            warn_parse("clusterUEpipeline", rhs, "expected noSub|baseVariant|variantA (or true/false for compat)");
         }
         else if (StartsWithKey(line, "doPi0Analysis"))
         {
@@ -1382,7 +1391,11 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     yamlcfg::Config cfg = yamlcfg::LoadConfig();
     if (const char* env = std::getenv("RJ_CLUSTER_UEPIPELINE"))
     {
-      cfg.clusterUEpipeline = (std::atoi(env) != 0);
+      std::string s(env);
+      if (s == "0" || s == "false" || s == "noSub") cfg.clusterUEpipeline = "noSub";
+      else if (s == "1" || s == "true" || s == "variantA") cfg.clusterUEpipeline = "variantA";
+      else if (s == "baseVariant") cfg.clusterUEpipeline = "baseVariant";
+      else cfg.clusterUEpipeline = s;  // pass through unknown for diagnostics
     }
 
     const std::vector<std::string> activeJetRKeys = yamlcfg::LoadJetRKeys(vlevel);
@@ -1438,7 +1451,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         std::cout << cfg.unfold_xj_bins[i] << (i + 1 < cfg.unfold_xj_bins.size() ? ", " : "");
       }
         std::cout << "]\n"
-                  << "  clusterUEpipeline: " << (cfg.clusterUEpipeline ? "true" : "false") << "\n"
+                  << "  clusterUEpipeline: " << cfg.clusterUEpipeline << "\n"
                   << "  doPi0Analysis: " << (cfg.doPi0Analysis ? "true" : "false") << "\n"
                   << "  event_display_tree: " << (cfg.event_display_tree ? "true" : "false") << "\n"
                   << "  event_display_tree_max_per_bin: " << cfg.event_display_tree_max_per_bin << "\n\n";
@@ -2617,87 +2630,108 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
   std::string photonInputClusterNode = "CLUSTERINFO_CEMC";
   bool photonBuilderIsAuAu = false;
 
-  if (cfg.clusterUEpipeline && isAuAuData)
+  if (cfg.clusterUEpipeline == "variantA" && isAuAuData)
   {
-          const std::string nativeCemcNode = towerPrefixPCB + "_CEMC_PHOSUB";
+            const std::string nativeCemcNode = towerPrefixPCB + "_CEMC_PHOSUB";
 
-          int nativeUEV = 0;
-          if (const char* env = std::getenv("RJ_HIUE_VERBOSITY")) nativeUEV = std::atoi(env);
+            int nativeUEV = 0;
+            if (const char* env = std::getenv("RJ_HIUE_VERBOSITY")) nativeUEV = std::atoi(env);
 
-          auto* nativeSub = new NativeCEMCUESubtractor("NativeCEMCUESubtractor",
-                                                       towerPrefixPCB + "_CEMC",
-                                                       nativeCemcNode);
-          nativeSub->Verbosity(nativeUEV);
-          se->registerSubsystem(nativeSub);
+            auto* nativeSub = new NativeCEMCUESubtractor("NativeCEMCUESubtractor",
+                                                         towerPrefixPCB + "_CEMC",
+                                                         nativeCemcNode);
+            nativeSub->Verbosity(nativeUEV);
+            se->registerSubsystem(nativeSub);
 
-          if (nativeUEV > 0)
-          {
-            auto* auditBefore = new TowerAudit("TowerAudit_PHOSUB_before",
-                                               towerPrefixPCB + "_CEMC",
-                                               towerPrefixPCB + "_HCALIN_SUB1",
-                                               towerPrefixPCB + "_HCALOUT_SUB1",
-                                               10);
-            auditBefore->Verbosity(nativeUEV);
-            se->registerSubsystem(auditBefore);
+            if (nativeUEV > 0)
+            {
+              auto* auditBefore = new TowerAudit("TowerAudit_PHOSUB_before",
+                                                 towerPrefixPCB + "_CEMC",
+                                                 towerPrefixPCB + "_HCALIN_SUB1",
+                                                 towerPrefixPCB + "_HCALOUT_SUB1",
+                                                 10);
+              auditBefore->Verbosity(nativeUEV);
+              se->registerSubsystem(auditBefore);
 
-            auto* auditAfter = new TowerAudit("TowerAudit_PHOSUB_after",
-                                              nativeCemcNode,
-                                              towerPrefixPCB + "_HCALIN_SUB1",
-                                              towerPrefixPCB + "_HCALOUT_SUB1",
-                                              10);
-            auditAfter->Verbosity(nativeUEV);
-            se->registerSubsystem(auditAfter);
+              auto* auditAfter = new TowerAudit("TowerAudit_PHOSUB_after",
+                                                nativeCemcNode,
+                                                towerPrefixPCB + "_HCALIN_SUB1",
+                                                towerPrefixPCB + "_HCALOUT_SUB1",
+                                                10);
+              auditAfter->Verbosity(nativeUEV);
+              se->registerSubsystem(auditAfter);
+            }
+
+            photonInputClusterNode = "CLUSTERINFO_CEMC";
+
+            if (vlevel > 0)
+            {
+              std::cout << "[clusterUEpipeline=variantA] enabled for AuAu"
+                        << " | nativeCemcNode=" << nativeCemcNode
+                        << " | photonInputClusterNode=" << photonInputClusterNode
+                        << " | PhotonClusterBuilder will read explicit PHOSUB/SUB1 tower nodes"
+                        << std::endl;
+            }
+          }
+    else if (cfg.clusterUEpipeline == "baseVariant" && isAuAuData)
+    {
+            photonBuilderIsAuAu = true;
+
+            if (vlevel > 0)
+            {
+              std::cout << "[clusterUEpipeline=baseVariant] enabled for AuAu"
+                        << " | PCB m_is_auau=true → isolation uses RETOWER_SUB1/HCAL_SUB1 internally"
+                        << " | shower shapes use standard CEMC towers"
+                        << std::endl;
+            }
           }
 
-          photonInputClusterNode = "CLUSTERINFO_CEMC";
+          auto* photonBuilder = new PhotonClusterBuilder("PhotonClusterBuilder");
+          photonBuilder->set_input_cluster_node(photonInputClusterNode);
+          photonBuilder->set_output_photon_node("PHOTONCLUSTER_CEMC");
 
-          if (vlevel > 0)
+          photonBuilder->set_use_vz_cut(cfg.use_vz_cut);
+          photonBuilder->set_vz_cut_cm(cfg.vz_cut_cm);
+
+          photonBuilder->set_is_auau(photonBuilderIsAuAu);
+          if (cfg.clusterUEpipeline == "variantA" && isAuAuData)
           {
-            std::cout << "[clusterUEpipeline] enabled for AuAu"
-                      << " | nativeCemcNode=" << nativeCemcNode
-                      << " | photonInputClusterNode=" << photonInputClusterNode
-                      << " | PhotonClusterBuilder will read explicit PHOSUB/SUB1 tower nodes"
-                      << std::endl;
+            photonBuilder->set_emc_tower_node(towerPrefixPCB + "_CEMC_PHOSUB");
+            photonBuilder->set_ihcal_tower_node(towerPrefixPCB + "_HCALIN_SUB1");
+            photonBuilder->set_ohcal_tower_node(towerPrefixPCB + "_HCALOUT_SUB1");
           }
-        }
+          else if (cfg.clusterUEpipeline == "baseVariant" && isAuAuData)
+          {
+            photonBuilder->set_emc_tower_node(towerPrefixPCB + "_CEMC");
+            photonBuilder->set_ihcal_tower_node(towerPrefixPCB + "_HCALIN");
+            photonBuilder->set_ohcal_tower_node(towerPrefixPCB + "_HCALOUT");
+            photonBuilder->set_tower_node_prefix(towerPrefixPCB);
+          }
+          else if (isAuAuData)
+          {
+            // noSub: standard towers, no AuAu iso path
+            photonBuilder->set_emc_tower_node(towerPrefixPCB + "_CEMC");
+            photonBuilder->set_ihcal_tower_node(towerPrefixPCB + "_HCALIN");
+            photonBuilder->set_ohcal_tower_node(towerPrefixPCB + "_HCALOUT");
+    }
 
-        auto* photonBuilder = new PhotonClusterBuilder("PhotonClusterBuilder");
-        photonBuilder->set_input_cluster_node(photonInputClusterNode);
-        photonBuilder->set_output_photon_node("PHOTONCLUSTER_CEMC");
+    if (vlevel > 0)
+    {
+          Dl_info pcbInfo{};
+          if (dladdr((void*)&typeid(PhotonClusterBuilder), &pcbInfo) && pcbInfo.dli_fname)
+            std::cout << "[DBG] PhotonClusterBuilder RTTI from: " << pcbInfo.dli_fname << "\n";
+          else
+            std::cout << "[DBG] PhotonClusterBuilder RTTI probe: dladdr failed\n";
 
-        photonBuilder->set_use_vz_cut(cfg.use_vz_cut);
-        photonBuilder->set_vz_cut_cm(cfg.vz_cut_cm);
-
-        photonBuilder->set_is_auau(photonBuilderIsAuAu);
-        if (cfg.clusterUEpipeline && isAuAuData)
-        {
-          photonBuilder->set_emc_tower_node(towerPrefixPCB + "_CEMC_PHOSUB");
-          photonBuilder->set_ihcal_tower_node(towerPrefixPCB + "_HCALIN_SUB1");
-          photonBuilder->set_ohcal_tower_node(towerPrefixPCB + "_HCALOUT_SUB1");
-        }
-        else if (isAuAuData)
-        {
-          photonBuilder->set_emc_tower_node(towerPrefixPCB + "_CEMC");
-          photonBuilder->set_ihcal_tower_node(towerPrefixPCB + "_HCALIN");
-          photonBuilder->set_ohcal_tower_node(towerPrefixPCB + "_HCALOUT");
+          std::cout << "[DBG] PhotonClusterBuilder vzCut config: use="
+                    << (cfg.use_vz_cut ? "true" : "false")
+                    << " vz_cut_cm=" << cfg.vz_cut_cm
+                    << " | isAuAuData=" << (isAuAuData ? "true" : "false")
+                    << " | photonBuilderIsAuAu=" << (photonBuilderIsAuAu ? "true" : "false")
+                    << " | clusterUEpipeline=" << cfg.clusterUEpipeline
+                    << " | inputClusterNode=" << photonInputClusterNode << "\n";
   }
 
-  if (vlevel > 0)
-  {
-        Dl_info pcbInfo{};
-        if (dladdr((void*)&typeid(PhotonClusterBuilder), &pcbInfo) && pcbInfo.dli_fname)
-          std::cout << "[DBG] PhotonClusterBuilder RTTI from: " << pcbInfo.dli_fname << "\n";
-        else
-          std::cout << "[DBG] PhotonClusterBuilder RTTI probe: dladdr failed\n";
-
-        std::cout << "[DBG] PhotonClusterBuilder vzCut config: use="
-                  << (cfg.use_vz_cut ? "true" : "false")
-                  << " vz_cut_cm=" << cfg.vz_cut_cm
-                  << " | isAuAuData=" << (isAuAuData ? "true" : "false")
-                  << " | photonBuilderIsAuAu=" << (photonBuilderIsAuAu ? "true" : "false")
-                  << " | clusterUEpipeline=" << (cfg.clusterUEpipeline ? "true" : "false")
-                  << " | inputClusterNode=" << photonInputClusterNode << "\n";
-  }
 
   photonBuilder->Verbosity(vlevel);
   se->registerSubsystem(photonBuilder);
@@ -2844,10 +2878,6 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     {
       detail::bail(std::string("exception in Fun4All: ") + e.what());
     }
-//  //--------------------------------------------------------------------
-//  // 7.  Clean exit
-//  //--------------------------------------------------------------------
-//  gSystem->Exit(0);
 }
 
 #endif   // ROOT_VERSION guard

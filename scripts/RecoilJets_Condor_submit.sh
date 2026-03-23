@@ -401,8 +401,37 @@ build_iso_modes() {
   fi
 }
 
+# Determine UE pipeline matrix modes based on dataset type.
+# For AuAu/OO: reads clusterUEpipeline array from YAML; adds to naming tag.
+# For pp/SIM:  always "noSub", NOT included in naming tag.
+read_uepipe_modes() {
+  local yaml="$1" tag="$2"
+  uepipe_modes=()
+  uepipe_in_tag=0
+  if [[ "$tag" == "auau" || "$tag" == "oo" ]]; then
+    mapfile -t uepipe_modes < <( yaml_get_values "clusterUEpipeline" "$yaml" 2>/dev/null )
+    # Translate legacy bool values
+    local -a cleaned=()
+    for v in "${uepipe_modes[@]}"; do
+      v="$(trim_ws "$v")"
+      case "$v" in
+        true|1)  cleaned+=( "variantA" ) ;;
+        false|0) cleaned+=( "noSub" ) ;;
+        noSub|baseVariant|variantA) cleaned+=( "$v" ) ;;
+        *) err "Unknown clusterUEpipeline value '$v'"; exit 73 ;;
+      esac
+    done
+    uepipe_modes=( "${cleaned[@]}" )
+    (( ${#uepipe_modes[@]} )) || uepipe_modes=( "noSub" )
+    uepipe_in_tag=1
+  else
+    uepipe_modes=( "noSub" )
+    uepipe_in_tag=0
+  fi
+}
+
 sim_make_yaml_override() {
-  local master="$1" pt="$2" frac="$3" vz="$4" cone="$5" sliding="$6" fixed="$7" tag="$8"
+  local master="$1" pt="$2" frac="$3" vz="$4" cone="$5" sliding="$6" fixed="$7" uepipe="$8" tag="$9"
   mkdir -p "$SIM_YAML_OVERRIDE_DIR"
   local out="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${tag}.yaml"
 
@@ -419,6 +448,7 @@ sim_make_yaml_override() {
     -e "s|^([[:space:]]*coneR:).*|\\1 ${cone}|" \
     -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${sliding}|" \
     -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${fixed}|" \
+    -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe}|" \
     "$master" > "$out"
 
   echo "$out"
@@ -1064,7 +1094,7 @@ case "$ACTION" in
           for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
           SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso_tags[$iso_idx]}"
           DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
-          yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}" "$SIM_CFG_TAG")"
+          yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}" "noSub" "$SIM_CFG_TAG")"
 
           for samp in "${samples[@]}"; do
             SIM_SAMPLE="$samp"
@@ -1147,14 +1177,17 @@ case "$ACTION" in
       (( ${#data_vzs[@]} ))   || { err "No values found for vz_cut_cm in $data_yaml_src"; exit 72; }
       (( ${#data_cones[@]} )) || { err "No values found for coneR in $data_yaml_src"; exit 72; }
       build_iso_modes "$data_yaml_src"
+      read_uepipe_modes "$data_yaml_src" "$TAG"
       DATA_DEST_BASE_SAVED="$DEST_BASE"
 
       for data_vz in "${data_vzs[@]}"; do
         for data_cone in "${data_cones[@]}"; do
         for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
+        for uepipe in "${uepipe_modes[@]}"; do
         local dvz_tag; dvz_tag="$(sim_vz_tag "$data_vz")"
         local dcone_tag; dcone_tag="$(sim_cone_tag "$data_cone")"
         local data_cfg_tag="${dvz_tag}_${dcone_tag}_${iso_tags[$iso_idx]}"
+        (( uepipe_in_tag )) && data_cfg_tag="${data_cfg_tag}_${uepipe}"
         local yaml_override="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}_LOCAL.yaml"
         mkdir -p "$SIM_YAML_OVERRIDE_DIR"
         sed -E \
@@ -1162,11 +1195,12 @@ case "$ACTION" in
           -e "s|^([[:space:]]*coneR:).*|\\1 ${data_cone}|" \
           -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${iso_sliding[$iso_idx]}|" \
           -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[$iso_idx]}|" \
+          -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe}|" \
           "$data_yaml_src" > "$yaml_override"
         DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"
 
         say "----------------------------------------"
-        say "DATA local: vz_cut_cm=${data_vz}  coneR=${data_cone}  iso=${iso_tags[$iso_idx]}  tag=${data_cfg_tag}"
+        say "DATA local: vz_cut_cm=${data_vz}  coneR=${data_cone}  iso=${iso_tags[$iso_idx]}  uepipe=${uepipe}  tag=${data_cfg_tag}"
         say "  YAML override: ${yaml_override}"
         say "  DEST_BASE    : ${DEST_BASE}"
         say "Invoking wrapper locally…"
@@ -1178,6 +1212,7 @@ case "$ACTION" in
         RJ_STEP_EVENTS="$RJ_STEP_EVENTS_LOCAL" \
         bash "$EXE" "$r8" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
         echo
+        done
         done
         done
       done
@@ -1210,7 +1245,7 @@ case "$ACTION" in
     cone0="${sim_cones[0]}"
     SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt0")_$(sim_b2b_tag "$frac0")_$(sim_vz_tag "$vz0")_$(sim_cone_tag "$cone0")_${iso_tags[0]}"
     DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
-    yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt0" "$frac0" "$vz0" "$cone0" "${iso_sliding[0]}" "${iso_fixed[0]}" "$SIM_CFG_TAG")"
+    yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt0" "$frac0" "$vz0" "$cone0" "${iso_sliding[0]}" "${iso_fixed[0]}" "noSub" "$SIM_CFG_TAG")"
 
     sim_init
 
@@ -1312,7 +1347,7 @@ SUB
         for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
         SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso_tags[$iso_idx]}"
         DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
-        yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}" "$SIM_CFG_TAG")"
+        yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}" "noSub" "$SIM_CFG_TAG")"
 
         for samp in "${samples[@]}"; do
           SIM_SAMPLE="$samp"
@@ -1375,6 +1410,7 @@ SUB
     (( ${#data_vzs[@]} ))   || { err "No values found for vz_cut_cm in $data_yaml_src"; exit 72; }
     (( ${#data_cones[@]} )) || { err "No values found for coneR in $data_yaml_src"; exit 72; }
     build_iso_modes "$data_yaml_src"
+    read_uepipe_modes "$data_yaml_src" "$TAG"
     DATA_DEST_BASE_SAVED="$DEST_BASE"
 
     # DATA ONLY: condor testJob | condor round <N> [firstChunk] | condor all
@@ -1404,11 +1440,12 @@ SUB
         local dvz_tag; dvz_tag="$(sim_vz_tag "$vz0")"
         local dcone_tag; dcone_tag="$(sim_cone_tag "$cone0")"
         local data_cfg_tag="${dvz_tag}_${dcone_tag}_${iso_tags[0]}"
+        (( uepipe_in_tag )) && data_cfg_tag="${data_cfg_tag}_${uepipe_modes[0]}"
 
         stamp="$(date +%Y%m%d_%H%M%S)"
         sub="${BASE}/RecoilJets_${TAG}_${data_cfg_tag}_${stamp}_TEST.sub"
 
-        # Snapshot YAML at submit time, pinning vz_cut_cm + coneR + iso to first values
+        # Snapshot YAML at submit time, pinning vz_cut_cm + coneR + iso + UE to first values
         local yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
         local yaml_snap="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}_${stamp}_TEST.yaml"
         mkdir -p "$SIM_YAML_OVERRIDE_DIR"
@@ -1417,8 +1454,9 @@ SUB
           -e "s|^([[:space:]]*coneR:).*|\\1 ${cone0}|" \
           -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${iso_sliding[0]}|" \
           -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[0]}|" \
+          -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe_modes[0]}|" \
           "$yaml_src" > "$yaml_snap"
-        say "YAML snapshot (vz=${vz0}, coneR=${cone0}, iso=${iso_tags[0]}): ${yaml_snap}"
+        say "YAML snapshot (vz=${vz0}, coneR=${cone0}, iso=${iso_tags[0]}, uepipe=${uepipe_modes[0]}): ${yaml_snap}"
         DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"
 
         cat > "$sub" <<SUB
@@ -1449,9 +1487,11 @@ SUB
         for data_vz in "${data_vzs[@]}"; do
           for data_cone in "${data_cones[@]}"; do
           for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
+          for uepipe in "${uepipe_modes[@]}"; do
           local dvz_tag; dvz_tag="$(sim_vz_tag "$data_vz")"
           local dcone_tag; dcone_tag="$(sim_cone_tag "$data_cone")"
           local data_cfg_tag="${dvz_tag}_${dcone_tag}_${iso_tags[$iso_idx]}"
+          (( uepipe_in_tag )) && data_cfg_tag="${data_cfg_tag}_${uepipe}"
           local yaml_override="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}.yaml"
           mkdir -p "$SIM_YAML_OVERRIDE_DIR"
           sed -E \
@@ -1459,14 +1499,16 @@ SUB
             -e "s|^([[:space:]]*coneR:).*|\\1 ${data_cone}|" \
             -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${iso_sliding[$iso_idx]}|" \
             -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[$iso_idx]}|" \
+            -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe}|" \
             "$data_yaml_src" > "$yaml_override"
           export RJ_CONFIG_YAML="$yaml_override"
           DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"
 
-          say "DATA condor round (vz_cut_cm=${data_vz}, coneR=${data_cone}, iso=${iso_tags[$iso_idx]}, tag=${data_cfg_tag})"
+          say "DATA condor round (vz_cut_cm=${data_vz}, coneR=${data_cone}, iso=${iso_tags[$iso_idx]}, uepipe=${uepipe}, tag=${data_cfg_tag})"
           say "  YAML override: ${yaml_override}"
           say "  DEST_BASE    : ${DEST_BASE}"
           submit_condor "$round_file" "$firstChunk" "once"
+          done
           done
           done
         done
@@ -1475,9 +1517,11 @@ SUB
         for data_vz in "${data_vzs[@]}"; do
           for data_cone in "${data_cones[@]}"; do
           for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
+          for uepipe in "${uepipe_modes[@]}"; do
           local dvz_tag; dvz_tag="$(sim_vz_tag "$data_vz")"
           local dcone_tag; dcone_tag="$(sim_cone_tag "$data_cone")"
           local data_cfg_tag="${dvz_tag}_${dcone_tag}_${iso_tags[$iso_idx]}"
+          (( uepipe_in_tag )) && data_cfg_tag="${data_cfg_tag}_${uepipe}"
           local yaml_override="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}.yaml"
           mkdir -p "$SIM_YAML_OVERRIDE_DIR"
           sed -E \
@@ -1485,11 +1529,12 @@ SUB
             -e "s|^([[:space:]]*coneR:).*|\\1 ${data_cone}|" \
             -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${iso_sliding[$iso_idx]}|" \
             -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[$iso_idx]}|" \
+            -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe}|" \
             "$data_yaml_src" > "$yaml_override"
           export RJ_CONFIG_YAML="$yaml_override"
           DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"
 
-          say "Preparing CONDOR ALL submission (dataset=${DATASET}, groupSize=${GROUP_SIZE}, vz_cut_cm=${data_vz}, coneR=${data_cone}, iso=${iso_tags[$iso_idx]})"
+          say "Preparing CONDOR ALL submission (dataset=${DATASET}, groupSize=${GROUP_SIZE}, vz_cut_cm=${data_vz}, coneR=${data_cone}, iso=${iso_tags[$iso_idx]}, uepipe=${uepipe})"
           say "  YAML override: ${yaml_override}"
           say "  DEST_BASE    : ${DEST_BASE}"
           say "This step generates per-run grouped chunk lists and a large submit file before calling condor_submit."
@@ -1497,6 +1542,7 @@ SUB
           grep -E '^[0-9]+' "$GOLDEN" > "$tmp_src"
 
           submit_condor "$tmp_src" "" "always"
+          done
           done
           done
         done

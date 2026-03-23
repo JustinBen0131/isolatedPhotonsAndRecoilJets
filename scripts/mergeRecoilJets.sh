@@ -372,10 +372,24 @@ ENDMACRO
   _fixed="${_fixed#*:}"; _fixed="${_fixed%%#*}"; _fixed="$(trim_ws "$_fixed")"
   [[ -n "$_fixed" ]] || _fixed="2.0"
 
+  local _uepipe
+  _uepipe="$(grep -E '^[[:space:]]*clusterUEpipeline:' "$_tmpyaml" | head -1 || true)"
+  _uepipe="${_uepipe#*:}"; _uepipe="${_uepipe%%#*}"; _uepipe="$(trim_ws "$_uepipe")"
+  # Translate legacy bool values
+  case "$_uepipe" in
+    true|1) _uepipe="variantA" ;;
+    false|0|"") _uepipe="noSub" ;;
+  esac
+
   rm -f "$_tmpyaml"
 
   # Build tag using existing helpers (same naming as submission scripts)
-  echo "jetMinPt$(sim_pt_tag "$_pt")_$(sim_b2b_dir_tag "$_frac")_$(sim_vz_tag "$_vz")_$(sim_cone_tag "$_cone")_$(sim_iso_tag "$_sliding" "$_fixed")"
+  local _tag="jetMinPt$(sim_pt_tag "$_pt")_$(sim_b2b_dir_tag "$_frac")_$(sim_vz_tag "$_vz")_$(sim_cone_tag "$_cone")_$(sim_iso_tag "$_sliding" "$_fixed")"
+  # Append UE pipeline mode only if not noSub (AuAu files will have a non-noSub value)
+  if [[ "$_uepipe" != "noSub" ]]; then
+    _tag="${_tag}_${_uepipe}"
+  fi
+  echo "$_tag"
 }
 
 to_tag() {
