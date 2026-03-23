@@ -39,6 +39,7 @@ back_to_back_dphi_min_pi_fraction: [0.875]
 # -----------------------------------------------------------------------------
 use_vz_cut: true
 vz_cut_cm: [30.0, 60.0]
+coneR: [0.30]
 
 centrality_edges: [0, 10, 20, 40, 60, 80]
 
@@ -65,7 +66,7 @@ doPi0Analysis: false
 #   - set to 0.40 to force iso_04 in all cases
 # -----------------------------------------------------------------------------
 isSlidingIso: false
-isolation_wp: {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0, fixedGeV: 2.0, truthIsoGeV: 4.0, coneR: 0.30, towerMin: 0.0}
+isolation_wp: {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0, fixedGeV: 2.0, truthIsoGeV: 4.0, towerMin: 0.0}
 
 # -----------------------------------------------------------------------------
 # Photon shower-shape ID cuts (PPG12 Table 4) (YAML-driven; baseline matches header)

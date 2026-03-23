@@ -549,6 +549,12 @@ namespace yamlcfg
           if (!ParseDouble(rhs, cfg.vz_cut_cm))
             warn_parse("vz_cut_cm", rhs, "expected a scalar double");
         }
+        else if (StartsWithKey(line, "coneR"))
+        {
+          const std::string rhs = AfterColon(line);
+          if (!ParseDouble(rhs, cfg.isoConeR))
+            warn_parse("coneR", rhs, "expected a scalar double");
+        }
         else if (StartsWithKey(line, "centrality_edges"))
         {
           const std::string rhs = AfterColon(line);
@@ -1343,6 +1349,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                 << "  -> radians=" << (cfg.back_to_back_dphi_min_pi_fraction * M_PI) << "\n"
                 << "  use_vz_cut: " << (cfg.use_vz_cut ? "true" : "false") << "\n"
                 << "  vz_cut_cm: " << cfg.vz_cut_cm << "\n"
+                << "  coneR: " << cfg.isoConeR << "\n"
                 << "  matching: {pho_dr_max=" << cfg.pho_dr_max << ", jet_dr_max=" << cfg.jet_dr_max << "}\n"
                 << "  isolation_wp: {aGeV=" << cfg.isoA << ", bPerGeV=" << cfg.isoB
                 << ", sideGapGeV=" << cfg.isoGap << ", fixedGeV=" << cfg.isoFixed

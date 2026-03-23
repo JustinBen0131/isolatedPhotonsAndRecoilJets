@@ -338,8 +338,15 @@ sim_vz_tag() {
   fi
 }
 
+sim_cone_tag() {
+  local r="$1"
+  local r100
+  r100=$(awk -v r="$r" 'BEGIN{v=int(r*100+0.5); printf "%d", v}')
+  echo "isoR${r100}"
+}
+
 sim_make_yaml_override() {
-  local master="$1" pt="$2" frac="$3" vz="$4" tag="$5"
+  local master="$1" pt="$2" frac="$3" vz="$4" cone="$5" tag="$6"
   mkdir -p "$SIM_YAML_OVERRIDE_DIR"
   local out="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${tag}.yaml"
 
@@ -347,11 +354,13 @@ sim_make_yaml_override() {
   grep -Eq '^[[:space:]]*jet_pt_min:' "$master" || { err "YAML missing key 'jet_pt_min' in $master"; exit 71; }
   grep -Eq '^[[:space:]]*back_to_back_dphi_min_pi_fraction:' "$master" || { err "YAML missing key 'back_to_back_dphi_min_pi_fraction' in $master"; exit 71; }
   grep -Eq '^[[:space:]]*vz_cut_cm:' "$master" || { err "YAML missing key 'vz_cut_cm' in $master"; exit 71; }
+  grep -Eq '^[[:space:]]*coneR:' "$master" || { err "YAML missing key 'coneR' in $master"; exit 71; }
 
   sed -E \
     -e "s|^([[:space:]]*jet_pt_min:).*|\\1 ${pt}|" \
     -e "s|^([[:space:]]*back_to_back_dphi_min_pi_fraction:).*|\\1 ${frac}|" \
     -e "s|^([[:space:]]*vz_cut_cm:).*|\\1 ${vz}|" \
+    -e "s|^([[:space:]]*coneR:).*|\\1 ${cone}|" \
     "$master" > "$out"
 
   echo "$out"
@@ -962,9 +971,11 @@ case "$ACTION" in
       mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
       mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
       mapfile -t sim_vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
+      mapfile -t sim_cones < <( yaml_get_values "coneR" "$master_yaml" )
       (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
       (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
       (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
+      (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
 
       samples=()
       if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
@@ -990,9 +1001,10 @@ case "$ACTION" in
       for pt in "${sim_pts[@]}"; do
         for frac in "${sim_fracs[@]}"; do
           for vz in "${sim_vzs[@]}"; do
-          SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")"
+          for cone in "${sim_cones[@]}"; do
+          SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")"
           DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
-          yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$SIM_CFG_TAG")"
+          yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "$SIM_CFG_TAG")"
 
           for samp in "${samples[@]}"; do
             SIM_SAMPLE="$samp"
@@ -1013,7 +1025,7 @@ case "$ACTION" in
 
             say "----------------------------------------"
             say "SIM local: tag=${SIM_CFG_TAG}  sample=${SIM_SAMPLE}"
-            say "  jet_pt_min=${pt}  back_to_back_pi_fraction=${frac}  vz_cut_cm=${vz}"
+            say "  jet_pt_min=${pt}  back_to_back_pi_fraction=${frac}  vz_cut_cm=${vz}  coneR=${cone}"
             say "  YAML override: ${yaml_override}"
             say "  grp001 list   : ${tmp}"
             say "  input line    : ${in_line}"
@@ -1023,6 +1035,7 @@ case "$ACTION" in
 
             RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
             echo
+          done
           done
           done
         done
@@ -1066,32 +1079,41 @@ case "$ACTION" in
         RJ_STEP_EVENTS_LOCAL=1
       fi
 
-      # Read vz_cut_cm array for DATA vz matrix
+      # Read vz_cut_cm + coneR arrays for DATA matrix
       local data_yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
-      mapfile -t data_vzs < <( yaml_get_values "vz_cut_cm" "$data_yaml_src" )
-      (( ${#data_vzs[@]} )) || { err "No values found for vz_cut_cm in $data_yaml_src"; exit 72; }
+      mapfile -t data_vzs   < <( yaml_get_values "vz_cut_cm" "$data_yaml_src" )
+      mapfile -t data_cones < <( yaml_get_values "coneR" "$data_yaml_src" )
+      (( ${#data_vzs[@]} ))   || { err "No values found for vz_cut_cm in $data_yaml_src"; exit 72; }
+      (( ${#data_cones[@]} )) || { err "No values found for coneR in $data_yaml_src"; exit 72; }
       DATA_DEST_BASE_SAVED="$DEST_BASE"
 
       for data_vz in "${data_vzs[@]}"; do
+        for data_cone in "${data_cones[@]}"; do
         local dvz_tag; dvz_tag="$(sim_vz_tag "$data_vz")"
-        local yaml_vz="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${dvz_tag}_LOCAL.yaml"
+        local dcone_tag; dcone_tag="$(sim_cone_tag "$data_cone")"
+        local data_cfg_tag="${dvz_tag}_${dcone_tag}"
+        local yaml_vzcone="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}_LOCAL.yaml"
         mkdir -p "$SIM_YAML_OVERRIDE_DIR"
-        sed -E -e "s|^([[:space:]]*vz_cut_cm:).*|\\1 ${data_vz}|" "$data_yaml_src" > "$yaml_vz"
-        DEST_BASE="${DATA_DEST_BASE_SAVED}/${dvz_tag}"
+        sed -E \
+          -e "s|^([[:space:]]*vz_cut_cm:).*|\\1 ${data_vz}|" \
+          -e "s|^([[:space:]]*coneR:).*|\\1 ${data_cone}|" \
+          "$data_yaml_src" > "$yaml_vzcone"
+        DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"
 
         say "----------------------------------------"
-        say "DATA local: vz_cut_cm=${data_vz}  tag=${dvz_tag}"
-        say "  YAML override: ${yaml_vz}"
+        say "DATA local: vz_cut_cm=${data_vz}  coneR=${data_cone}  tag=${data_cfg_tag}"
+        say "  YAML override: ${yaml_vzcone}"
         say "  DEST_BASE    : ${DEST_BASE}"
         say "Invoking wrapper locally…"
 
         RJ_DATASET="$DATASET" RJ_VERBOSITY="$RJV" \
-        RJ_CONFIG_YAML="$yaml_vz" \
+        RJ_CONFIG_YAML="$yaml_vzcone" \
         RJ_CRASH_BACKTRACE="$RJ_CRASH_BACKTRACE_LOCAL" \
         RJ_F4A_VERBOSE="$RJ_F4A_VERBOSE_LOCAL" \
         RJ_STEP_EVENTS="$RJ_STEP_EVENTS_LOCAL" \
         bash "$EXE" "$r8" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
         echo
+        done
       done
     fi
     ;;
@@ -1107,18 +1129,21 @@ case "$ACTION" in
     mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
     mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
     mapfile -t sim_vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
+    mapfile -t sim_cones < <( yaml_get_values "coneR" "$master_yaml" )
     (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
     (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
     (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
+    (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
 
     SIM_DEST_BASE_RESOLVED="$DEST_BASE"
 
     pt0="${sim_pts[0]}"
     frac0="${sim_fracs[0]}"
     vz0="${sim_vzs[0]}"
-    SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt0")_$(sim_b2b_tag "$frac0")_$(sim_vz_tag "$vz0")"
+    cone0="${sim_cones[0]}"
+    SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt0")_$(sim_b2b_tag "$frac0")_$(sim_vz_tag "$vz0")_$(sim_cone_tag "$cone0")"
     DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
-    yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt0" "$frac0" "$vz0" "$SIM_CFG_TAG")"
+    yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt0" "$frac0" "$vz0" "$cone0" "$SIM_CFG_TAG")"
 
     sim_init
 
@@ -1165,9 +1190,11 @@ SUB
     mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
     mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
     mapfile -t sim_vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
+    mapfile -t sim_cones < <( yaml_get_values "coneR" "$master_yaml" )
     (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
     (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
     (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
+    (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
 
     samples=()
     if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
@@ -1182,13 +1209,13 @@ SUB
 
     # If CHECKJOBS was also provided, do a dry-run count for the FULL condorDoAll matrix and exit.
     if [[ "${DRYRUN:-0}" -eq 1 ]]; then
-      n_cfg=$(( ${#sim_pts[@]} * ${#sim_fracs[@]} * ${#sim_vzs[@]} ))
+      n_cfg=$(( ${#sim_pts[@]} * ${#sim_fracs[@]} * ${#sim_vzs[@]} * ${#sim_cones[@]} ))
       per_cfg_jobs=0
 
       say "CHECKJOBS (isSim condorDoAll matrix)"
       say "  YAML master         : ${master_yaml}"
       say "  groupSize (baseline): ${gs_doall}"
-      say "  cfg grid            : Npt=${#sim_pts[@]}  Nfrac=${#sim_fracs[@]}  Nvz=${#sim_vzs[@]}  Ncfg=${n_cfg}"
+      say "  cfg grid            : Npt=${#sim_pts[@]}  Nfrac=${#sim_fracs[@]}  Nvz=${#sim_vzs[@]}  Ncone=${#sim_cones[@]}  Ncfg=${n_cfg}"
       say "  samples             : ${samples[*]}"
       echo
 
@@ -1213,9 +1240,10 @@ SUB
     for pt in "${sim_pts[@]}"; do
       for frac in "${sim_fracs[@]}"; do
         for vz in "${sim_vzs[@]}"; do
-        SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")"
+        for cone in "${sim_cones[@]}"; do
+        SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")"
         DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
-        yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$SIM_CFG_TAG")"
+        yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "$SIM_CFG_TAG")"
 
         for samp in "${samples[@]}"; do
           SIM_SAMPLE="$samp"
@@ -1257,6 +1285,7 @@ SUB
           condor_submit "$sub"
         done
         done
+        done
       done
     done
     ;;
@@ -1269,10 +1298,12 @@ SUB
   condor)
     [[ "$IS_SIM" -eq 1 ]] && { err "Use: isSim condorTest | isSim condorDoAll (not 'condor')"; exit 2; }
 
-    # Read vz_cut_cm array from YAML for DATA vz matrix
+    # Read vz_cut_cm + coneR arrays from YAML for DATA matrix
     local data_yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
-    mapfile -t data_vzs < <( yaml_get_values "vz_cut_cm" "$data_yaml_src" )
-    (( ${#data_vzs[@]} )) || { err "No values found for vz_cut_cm in $data_yaml_src"; exit 72; }
+    mapfile -t data_vzs   < <( yaml_get_values "vz_cut_cm" "$data_yaml_src" )
+    mapfile -t data_cones < <( yaml_get_values "coneR" "$data_yaml_src" )
+    (( ${#data_vzs[@]} ))   || { err "No values found for vz_cut_cm in $data_yaml_src"; exit 72; }
+    (( ${#data_cones[@]} )) || { err "No values found for coneR in $data_yaml_src"; exit 72; }
     DATA_DEST_BASE_SAVED="$DEST_BASE"
 
     # DATA ONLY: condor testJob | condor round <N> [firstChunk] | condor all
@@ -1296,20 +1327,26 @@ SUB
         (( ${#groups[@]} )) || { err "No groups produced for run $r8"; exit 9; }
         glist="${groups[0]}"
 
-        # Use first vz value for testJob (mirrors SIM condorTest)
+        # Use first vz + cone values for testJob (mirrors SIM condorTest)
         local vz0="${data_vzs[0]}"
+        local cone0="${data_cones[0]}"
         local dvz_tag; dvz_tag="$(sim_vz_tag "$vz0")"
+        local dcone_tag; dcone_tag="$(sim_cone_tag "$cone0")"
+        local data_cfg_tag="${dvz_tag}_${dcone_tag}"
 
         stamp="$(date +%Y%m%d_%H%M%S)"
-        sub="${BASE}/RecoilJets_${TAG}_${dvz_tag}_${stamp}_TEST.sub"
+        sub="${BASE}/RecoilJets_${TAG}_${data_cfg_tag}_${stamp}_TEST.sub"
 
-        # Snapshot YAML at submit time, pinning vz_cut_cm to first value
+        # Snapshot YAML at submit time, pinning vz_cut_cm + coneR to first values
         local yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
-        local yaml_snap="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${dvz_tag}_${stamp}_TEST.yaml"
+        local yaml_snap="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}_${stamp}_TEST.yaml"
         mkdir -p "$SIM_YAML_OVERRIDE_DIR"
-        sed -E -e "s|^([[:space:]]*vz_cut_cm:).*|\\1 ${vz0}|" "$yaml_src" > "$yaml_snap"
-        say "YAML snapshot (vz=${vz0}): ${yaml_snap}"
-        DEST_BASE="${DATA_DEST_BASE_SAVED}/${dvz_tag}"
+        sed -E \
+          -e "s|^([[:space:]]*vz_cut_cm:).*|\\1 ${vz0}|" \
+          -e "s|^([[:space:]]*coneR:).*|\\1 ${cone0}|" \
+          "$yaml_src" > "$yaml_snap"
+        say "YAML snapshot (vz=${vz0}, coneR=${cone0}): ${yaml_snap}"
+        DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"
 
         cat > "$sub" <<SUB
 universe      = vanilla
@@ -1337,36 +1374,50 @@ SUB
         [[ -s "$round_file" ]] || { err "Round file not found: $round_file. Run 'splitGoldenRunList' first."; exit 8; }
 
         for data_vz in "${data_vzs[@]}"; do
+          for data_cone in "${data_cones[@]}"; do
           local dvz_tag; dvz_tag="$(sim_vz_tag "$data_vz")"
-          local yaml_vz="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${dvz_tag}.yaml"
+          local dcone_tag; dcone_tag="$(sim_cone_tag "$data_cone")"
+          local data_cfg_tag="${dvz_tag}_${dcone_tag}"
+          local yaml_vzcone="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}.yaml"
           mkdir -p "$SIM_YAML_OVERRIDE_DIR"
-          sed -E -e "s|^([[:space:]]*vz_cut_cm:).*|\\1 ${data_vz}|" "$data_yaml_src" > "$yaml_vz"
-          export RJ_CONFIG_YAML="$yaml_vz"
-          DEST_BASE="${DATA_DEST_BASE_SAVED}/${dvz_tag}"
+          sed -E \
+            -e "s|^([[:space:]]*vz_cut_cm:).*|\\1 ${data_vz}|" \
+            -e "s|^([[:space:]]*coneR:).*|\\1 ${data_cone}|" \
+            "$data_yaml_src" > "$yaml_vzcone"
+          export RJ_CONFIG_YAML="$yaml_vzcone"
+          DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"
 
-          say "DATA condor round (vz_cut_cm=${data_vz}, tag=${dvz_tag})"
-          say "  YAML override: ${yaml_vz}"
+          say "DATA condor round (vz_cut_cm=${data_vz}, coneR=${data_cone}, tag=${data_cfg_tag})"
+          say "  YAML override: ${yaml_vzcone}"
           say "  DEST_BASE    : ${DEST_BASE}"
           submit_condor "$round_file" "$firstChunk" "once"
+          done
         done
         ;;
       all|"")
         for data_vz in "${data_vzs[@]}"; do
+          for data_cone in "${data_cones[@]}"; do
           local dvz_tag; dvz_tag="$(sim_vz_tag "$data_vz")"
-          local yaml_vz="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${dvz_tag}.yaml"
+          local dcone_tag; dcone_tag="$(sim_cone_tag "$data_cone")"
+          local data_cfg_tag="${dvz_tag}_${dcone_tag}"
+          local yaml_vzcone="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}.yaml"
           mkdir -p "$SIM_YAML_OVERRIDE_DIR"
-          sed -E -e "s|^([[:space:]]*vz_cut_cm:).*|\\1 ${data_vz}|" "$data_yaml_src" > "$yaml_vz"
-          export RJ_CONFIG_YAML="$yaml_vz"
-          DEST_BASE="${DATA_DEST_BASE_SAVED}/${dvz_tag}"
+          sed -E \
+            -e "s|^([[:space:]]*vz_cut_cm:).*|\\1 ${data_vz}|" \
+            -e "s|^([[:space:]]*coneR:).*|\\1 ${data_cone}|" \
+            "$data_yaml_src" > "$yaml_vzcone"
+          export RJ_CONFIG_YAML="$yaml_vzcone"
+          DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"
 
-          say "Preparing CONDOR ALL submission (dataset=${DATASET}, groupSize=${GROUP_SIZE}, vz_cut_cm=${data_vz})"
-          say "  YAML override: ${yaml_vz}"
+          say "Preparing CONDOR ALL submission (dataset=${DATASET}, groupSize=${GROUP_SIZE}, vz_cut_cm=${data_vz}, coneR=${data_cone})"
+          say "  YAML override: ${yaml_vzcone}"
           say "  DEST_BASE    : ${DEST_BASE}"
           say "This step generates per-run grouped chunk lists and a large submit file before calling condor_submit."
-          tmp_src="${ROUND_DIR}/ALL_${TAG}_${dvz_tag}_$(date +%s).txt"
+          tmp_src="${ROUND_DIR}/ALL_${TAG}_${data_cfg_tag}_$(date +%s).txt"
           grep -E '^[0-9]+' "$GOLDEN" > "$tmp_src"
 
           submit_condor "$tmp_src" "" "always"
+          done
         done
         ;;
       *)
