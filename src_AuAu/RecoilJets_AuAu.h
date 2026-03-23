@@ -268,22 +268,29 @@ public:
       {"Photon 4 GeV + MBD NS >= 1","Photon_4_GeV_plus_MBD_NS_geq_1"}
       //      {"Photon 5 GeV + MBD NS >= 1","Photon_5_GeV_plus_MBD_NS_geq_1"}
   };
-      
+    
+  // NOTE: bit 18 changed meaning across the Run-3 Au+Au GRL.
+  //   Epoch 1 (runs 67599–68155, 21 runs): bit 18 = "Photon 10 GeV + MBD NS >= 2" (no vtx cut)
+  //   Epoch 2–6 (runs 68208–78954, 1065 runs): bit 18 = "Photon 10 GeV + MBD NS >= 2, vtx < 10 cm"
+  // The photon_10_plus_MBD_NS_geq_2_vtx_lt_10 folder will therefore include some events
+  // with |vtx| > 10 cm from those 21 epoch-1 runs. Given 21/1086 runs the contamination
+  // is negligible for a first look. If needed, add a software vtx < 10 cm cut in
+  // RecoilJets_AuAu.cc specifically for the bit-18 path.
   inline static const std::vector<std::pair<int, std::string>> triggerNameMapAuAu = {
-    //        {10, "MBD_NS_geq_2"},
-    //        {11, "MBD_NS_geq_1"},
-    //        {12, "MBD_NS_geq_2_vtx_lt_10"},
-    //        {13, "MBD_NS_geq_2_vtx_lt_30"},
-            {14, "MBD_NS_geq_2_vtx_lt_150"}
-    //        {15, "MBD_NS_geq_1_vtx_lt_10"},
-    //        {16, "photon_6_plus_MBD_NS_geq_2_vtx_lt_10"},
-    //        {17, "photon_8_plus_MBD_NS_geq_2_vtx_lt_10"},
-    //        {18, "photon_10_plus_MBD_NS_geq_2_vtx_lt_10"},
-    //        {19, "photon_12_plus_MBD_NS_geq_2_vtx_lt_10"},
-    //        {20, "photon_6_plus_MBD_NS_geq_2_vtx_lt_150"},
-    //        {21, "photon_8_plus_MBD_NS_geq_2_vtx_lt_150"},
-    //        {22, "photon_10_plus_MBD_NS_geq_2_vtx_lt_150"},
-    //        {23, "photon_12_plus_MBD_NS_geq_2_vtx_lt_150"}
+        //        {10, "MBD_NS_geq_2"},
+        //        {11, "MBD_NS_geq_1"},
+        //        {12, "MBD_NS_geq_2_vtx_lt_10"},
+        //        {13, "MBD_NS_geq_2_vtx_lt_30"},
+                {14, "MBD_NS_geq_2_vtx_lt_150"},
+        //        {15, "MBD_NS_geq_1_vtx_lt_10"},
+        //        {16, "photon_6_plus_MBD_NS_geq_2_vtx_lt_10"},
+        //        {17, "photon_8_plus_MBD_NS_geq_2_vtx_lt_10"},
+                {18, "photon_10_plus_MBD_NS_geq_2_vtx_lt_10"},
+        //        {19, "photon_12_plus_MBD_NS_geq_2_vtx_lt_10"},
+        //        {20, "photon_6_plus_MBD_NS_geq_2_vtx_lt_150"},
+        //        {21, "photon_8_plus_MBD_NS_geq_2_vtx_lt_150"},
+                {22, "photon_10_plus_MBD_NS_geq_2_vtx_lt_150"}
+        //        {23, "photon_12_plus_MBD_NS_geq_2_vtx_lt_150"}
   };
 
   // -------------------------------------------------------------------------
