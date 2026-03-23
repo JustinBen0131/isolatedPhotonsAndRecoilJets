@@ -305,6 +305,79 @@ build_iso_modes() {
   fi
 }
 
+# ---------------------------------------------------------------------------
+# Extract the analysis cfg tag directly from a ROOT file's stamped YAML.
+# Every segment ROOT file contains a TObjString "analysis_config_yaml" with
+# the per-job override YAML (all scalar values). This function reads it,
+# parses the scalar keys, and prints the same cfg tag string the submission
+# scripts would produce. Returns empty string on any failure.
+# ---------------------------------------------------------------------------
+extract_cfg_tag_from_root() {
+  local rootfile="$1"
+  [[ -f "$rootfile" ]] || return 1
+
+  # Write a temp ROOT macro (quoted heredoc prevents bash expansion of C++ $variables)
+  local _macro="${TMP_DIR}/_extract_cfg_$$.C"
+  cat > "$_macro" <<'ENDMACRO'
+#include <TFile.h>
+#include <TObjString.h>
+#include <iostream>
+void _extract_cfg(const char* fname) {
+  TFile* f = TFile::Open(fname, "READ");
+  if (!f || f->IsZombie()) { std::cout << "__FAIL__" << std::endl; return; }
+  TObjString* obj = dynamic_cast<TObjString*>(f->Get("analysis_config_yaml"));
+  if (!obj) { std::cout << "__FAIL__" << std::endl; f->Close(); return; }
+  std::cout << "__YAMLBEGIN__" << std::endl;
+  std::cout << obj->GetString().Data() << std::endl;
+  std::cout << "__YAMLEND__" << std::endl;
+  f->Close();
+}
+ENDMACRO
+
+  local _raw
+  _raw="$(root -b -l -q "${_macro}(\"${rootfile}\")" 2>/dev/null || true)"
+  rm -f "$_macro"
+
+  local _yaml
+  _yaml="$(echo "$_raw" | sed -n '/__YAMLBEGIN__/,/__YAMLEND__/{ /__YAML/d; p; }')"
+  [[ -n "$_yaml" ]] || return 1
+
+  local _tmpyaml="${TMP_DIR}/_extract_yaml_$$.yaml"
+  echo "$_yaml" > "$_tmpyaml"
+
+  # Parse scalar keys from the per-job override YAML
+  local _pt _frac _vz _cone _sliding _fixed
+
+  _pt="$(grep -E '^[[:space:]]*jet_pt_min:' "$_tmpyaml" | head -1 || true)"
+  _pt="${_pt#*:}"; _pt="${_pt%%#*}"; _pt="$(trim_ws "$_pt")"
+  [[ -n "$_pt" ]] || _pt="5.0"
+
+  _frac="$(grep -E '^[[:space:]]*back_to_back_dphi_min_pi_fraction:' "$_tmpyaml" | head -1 || true)"
+  _frac="${_frac#*:}"; _frac="${_frac%%#*}"; _frac="$(trim_ws "$_frac")"
+  [[ -n "$_frac" ]] || _frac="0.875"
+
+  _vz="$(grep -E '^[[:space:]]*vz_cut_cm:' "$_tmpyaml" | head -1 || true)"
+  _vz="${_vz#*:}"; _vz="${_vz%%#*}"; _vz="$(trim_ws "$_vz")"
+  [[ -n "$_vz" ]] || _vz="30.0"
+
+  _cone="$(grep -E '^[[:space:]]*coneR:' "$_tmpyaml" | head -1 || true)"
+  _cone="${_cone#*:}"; _cone="${_cone%%#*}"; _cone="$(trim_ws "$_cone")"
+  [[ -n "$_cone" ]] || _cone="0.30"
+
+  _sliding="$(grep -E '^[[:space:]]*isSlidingIso:' "$_tmpyaml" | head -1 || true)"
+  _sliding="${_sliding#*:}"; _sliding="${_sliding%%#*}"; _sliding="$(trim_ws "$_sliding")"
+  [[ -n "$_sliding" ]] || _sliding="false"
+
+  _fixed="$(grep -E '^[[:space:]]*fixedGeV:' "$_tmpyaml" | head -1 || true)"
+  _fixed="${_fixed#*:}"; _fixed="${_fixed%%#*}"; _fixed="$(trim_ws "$_fixed")"
+  [[ -n "$_fixed" ]] || _fixed="2.0"
+
+  rm -f "$_tmpyaml"
+
+  # Build tag using existing helpers (same naming as submission scripts)
+  echo "jetMinPt$(sim_pt_tag "$_pt")_$(sim_b2b_dir_tag "$_frac")_$(sim_vz_tag "$_vz")_$(sim_cone_tag "$_cone")_$(sim_iso_tag "$_sliding" "$_fixed")"
+}
+
 to_tag() {
   case "${1:-}" in
     pp|PP|isPP|PP_DATA|pp_data)   echo "pp" ;;
@@ -852,6 +925,18 @@ EOT
           LIST="${TMP_DIR}/sim_${cfg_dir_tag}_${SIM_TAG}_partialList.txt"
           printf "%s\n" "${partials[@]}" > "$LIST"
 
+          # Derive cfg tag from ROOT file content (immune to YAML edits post-submit)
+          local _root_tag
+          _root_tag="$(extract_cfg_tag_from_root "${partials[0]}" 2>/dev/null || true)"
+          if [[ -n "$_root_tag" ]]; then
+            local _flat_dir="${OUT_BASE}/${SIM_OUTPUT_TAG}"
+            mkdir -p "$_flat_dir"
+            SIM_FINAL="${_flat_dir}/${FINAL_PREFIX}_${SIM_TAG}_ALL_${_root_tag}.root"
+            say "  [auto-tag] cfg tag from ROOT: ${_root_tag}"
+          else
+            say "  [auto-tag] extraction failed; using YAML-derived tag: ${cfg_file_tag}"
+          fi
+
           say "SIM secondRound: cfg=${cfg_dir_tag} sample=${SIM_SAMPLE} partials=${#partials[@]} -> ${SIM_FINAL}"
 
           if $SIM_PREFER_CONDOR; then
@@ -1160,7 +1245,16 @@ if [[ "$MODE" == "addChunks" ]]; then
 
   LIST="${TMP_DIR}/partialList_${TAG}.txt"
   printf "%s\n" "${partials[@]}" > "$LIST"
-  FINAL="${DEST_DIR}/${FINAL_PREFIX}_${TAG}_ALL.root"
+
+  # Derive cfg tag from ROOT file content for naming safety
+  local _root_tag
+  _root_tag="$(extract_cfg_tag_from_root "${partials[0]}" 2>/dev/null || true)"
+  if [[ -n "$_root_tag" ]]; then
+    FINAL="${DEST_DIR}/${FINAL_PREFIX}_${TAG}_ALL_${_root_tag}.root"
+    say "  [auto-tag] cfg tag from ROOT: ${_root_tag}"
+  else
+    FINAL="${DEST_DIR}/${FINAL_PREFIX}_${TAG}_ALL.root"
+  fi
 
   say "Final merge target: ${FINAL}"
   say "Inputs: ${#partials[@]} partials"
