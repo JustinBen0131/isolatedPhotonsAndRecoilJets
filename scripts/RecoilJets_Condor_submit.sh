@@ -345,8 +345,64 @@ sim_cone_tag() {
   echo "isoR${r100}"
 }
 
+sim_iso_tag() {
+  local sliding="$1" fixed="$2"
+  if [[ "$sliding" == "true" ]]; then
+    echo "isSliding"
+  else
+    if [[ "$fixed" =~ ^([0-9]+)\.0+$ ]]; then
+      echo "fixedIso${BASH_REMATCH[1]}GeV"
+    else
+      local s="$fixed"
+      s="${s//./p}"
+      echo "fixedIso${s}GeV"
+    fi
+  fi
+}
+
+# Build parallel arrays: iso_tags[], iso_sliding[], iso_fixed[]
+# from YAML keys: isSlidingAndFixed, isSlidingIso, fixedGeV[]
+build_iso_modes() {
+  local yaml_file="$1"
+  iso_tags=()
+  iso_sliding=()
+  iso_fixed=()
+
+  local _both; _both="$(yaml_get_values "isSlidingAndFixed" "$yaml_file" 2>/dev/null || echo "false")"
+  local _slide; _slide="$(yaml_get_values "isSlidingIso" "$yaml_file" 2>/dev/null || echo "false")"
+  local -a _fixeds
+  mapfile -t _fixeds < <( yaml_get_values "fixedGeV" "$yaml_file" 2>/dev/null )
+  (( ${#_fixeds[@]} )) || _fixeds=( "2.0" )
+
+  _both="$(trim_ws "$_both")"
+  _slide="$(trim_ws "$_slide")"
+
+  if [[ "$_both" == "true" ]]; then
+    # sliding mode entry
+    iso_tags+=( "$(sim_iso_tag "true" "0")" )
+    iso_sliding+=( "true" )
+    iso_fixed+=( "${_fixeds[0]}" )
+    # one fixed entry per fixedGeV value
+    for fv in "${_fixeds[@]}"; do
+      iso_tags+=( "$(sim_iso_tag "false" "$fv")" )
+      iso_sliding+=( "false" )
+      iso_fixed+=( "$fv" )
+    done
+  elif [[ "$_slide" == "true" ]]; then
+    iso_tags+=( "$(sim_iso_tag "true" "0")" )
+    iso_sliding+=( "true" )
+    iso_fixed+=( "${_fixeds[0]}" )
+  else
+    for fv in "${_fixeds[@]}"; do
+      iso_tags+=( "$(sim_iso_tag "false" "$fv")" )
+      iso_sliding+=( "false" )
+      iso_fixed+=( "$fv" )
+    done
+  fi
+}
+
 sim_make_yaml_override() {
-  local master="$1" pt="$2" frac="$3" vz="$4" cone="$5" tag="$6"
+  local master="$1" pt="$2" frac="$3" vz="$4" cone="$5" sliding="$6" fixed="$7" tag="$8"
   mkdir -p "$SIM_YAML_OVERRIDE_DIR"
   local out="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${tag}.yaml"
 
@@ -361,6 +417,8 @@ sim_make_yaml_override() {
     -e "s|^([[:space:]]*back_to_back_dphi_min_pi_fraction:).*|\\1 ${frac}|" \
     -e "s|^([[:space:]]*vz_cut_cm:).*|\\1 ${vz}|" \
     -e "s|^([[:space:]]*coneR:).*|\\1 ${cone}|" \
+    -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${sliding}|" \
+    -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${fixed}|" \
     "$master" > "$out"
 
   echo "$out"
@@ -976,6 +1034,7 @@ case "$ACTION" in
       (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
       (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
       (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
+      build_iso_modes "$master_yaml"
 
       samples=()
       if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
@@ -1002,9 +1061,10 @@ case "$ACTION" in
         for frac in "${sim_fracs[@]}"; do
           for vz in "${sim_vzs[@]}"; do
           for cone in "${sim_cones[@]}"; do
-          SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")"
+          for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
+          SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso_tags[$iso_idx]}"
           DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
-          yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "$SIM_CFG_TAG")"
+          yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}" "$SIM_CFG_TAG")"
 
           for samp in "${samples[@]}"; do
             SIM_SAMPLE="$samp"
@@ -1035,6 +1095,7 @@ case "$ACTION" in
 
             RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
             echo
+          done
           done
           done
           done
@@ -1085,34 +1146,39 @@ case "$ACTION" in
       mapfile -t data_cones < <( yaml_get_values "coneR" "$data_yaml_src" )
       (( ${#data_vzs[@]} ))   || { err "No values found for vz_cut_cm in $data_yaml_src"; exit 72; }
       (( ${#data_cones[@]} )) || { err "No values found for coneR in $data_yaml_src"; exit 72; }
+      build_iso_modes "$data_yaml_src"
       DATA_DEST_BASE_SAVED="$DEST_BASE"
 
       for data_vz in "${data_vzs[@]}"; do
         for data_cone in "${data_cones[@]}"; do
+        for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
         local dvz_tag; dvz_tag="$(sim_vz_tag "$data_vz")"
         local dcone_tag; dcone_tag="$(sim_cone_tag "$data_cone")"
-        local data_cfg_tag="${dvz_tag}_${dcone_tag}"
-        local yaml_vzcone="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}_LOCAL.yaml"
+        local data_cfg_tag="${dvz_tag}_${dcone_tag}_${iso_tags[$iso_idx]}"
+        local yaml_override="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}_LOCAL.yaml"
         mkdir -p "$SIM_YAML_OVERRIDE_DIR"
         sed -E \
           -e "s|^([[:space:]]*vz_cut_cm:).*|\\1 ${data_vz}|" \
           -e "s|^([[:space:]]*coneR:).*|\\1 ${data_cone}|" \
-          "$data_yaml_src" > "$yaml_vzcone"
+          -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${iso_sliding[$iso_idx]}|" \
+          -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[$iso_idx]}|" \
+          "$data_yaml_src" > "$yaml_override"
         DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"
 
         say "----------------------------------------"
-        say "DATA local: vz_cut_cm=${data_vz}  coneR=${data_cone}  tag=${data_cfg_tag}"
-        say "  YAML override: ${yaml_vzcone}"
+        say "DATA local: vz_cut_cm=${data_vz}  coneR=${data_cone}  iso=${iso_tags[$iso_idx]}  tag=${data_cfg_tag}"
+        say "  YAML override: ${yaml_override}"
         say "  DEST_BASE    : ${DEST_BASE}"
         say "Invoking wrapper locally…"
 
         RJ_DATASET="$DATASET" RJ_VERBOSITY="$RJV" \
-        RJ_CONFIG_YAML="$yaml_vzcone" \
+        RJ_CONFIG_YAML="$yaml_override" \
         RJ_CRASH_BACKTRACE="$RJ_CRASH_BACKTRACE_LOCAL" \
         RJ_F4A_VERBOSE="$RJ_F4A_VERBOSE_LOCAL" \
         RJ_STEP_EVENTS="$RJ_STEP_EVENTS_LOCAL" \
         bash "$EXE" "$r8" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
         echo
+        done
         done
       done
     fi
@@ -1134,6 +1200,7 @@ case "$ACTION" in
     (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
     (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
     (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
+    build_iso_modes "$master_yaml"
 
     SIM_DEST_BASE_RESOLVED="$DEST_BASE"
 
@@ -1141,9 +1208,9 @@ case "$ACTION" in
     frac0="${sim_fracs[0]}"
     vz0="${sim_vzs[0]}"
     cone0="${sim_cones[0]}"
-    SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt0")_$(sim_b2b_tag "$frac0")_$(sim_vz_tag "$vz0")_$(sim_cone_tag "$cone0")"
+    SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt0")_$(sim_b2b_tag "$frac0")_$(sim_vz_tag "$vz0")_$(sim_cone_tag "$cone0")_${iso_tags[0]}"
     DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
-    yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt0" "$frac0" "$vz0" "$cone0" "$SIM_CFG_TAG")"
+    yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt0" "$frac0" "$vz0" "$cone0" "${iso_sliding[0]}" "${iso_fixed[0]}" "$SIM_CFG_TAG")"
 
     sim_init
 
@@ -1195,6 +1262,7 @@ SUB
     (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
     (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
     (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
+    build_iso_modes "$master_yaml"
 
     samples=()
     if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
@@ -1209,7 +1277,7 @@ SUB
 
     # If CHECKJOBS was also provided, do a dry-run count for the FULL condorDoAll matrix and exit.
     if [[ "${DRYRUN:-0}" -eq 1 ]]; then
-      n_cfg=$(( ${#sim_pts[@]} * ${#sim_fracs[@]} * ${#sim_vzs[@]} * ${#sim_cones[@]} ))
+      n_cfg=$(( ${#sim_pts[@]} * ${#sim_fracs[@]} * ${#sim_vzs[@]} * ${#sim_cones[@]} * ${#iso_tags[@]} ))
       per_cfg_jobs=0
 
       say "CHECKJOBS (isSim condorDoAll matrix)"
@@ -1241,9 +1309,10 @@ SUB
       for frac in "${sim_fracs[@]}"; do
         for vz in "${sim_vzs[@]}"; do
         for cone in "${sim_cones[@]}"; do
-        SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")"
+        for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
+        SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso_tags[$iso_idx]}"
         DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
-        yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "$SIM_CFG_TAG")"
+        yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}" "$SIM_CFG_TAG")"
 
         for samp in "${samples[@]}"; do
           SIM_SAMPLE="$samp"
@@ -1286,6 +1355,7 @@ SUB
         done
         done
         done
+        done
       done
     done
     ;;
@@ -1304,6 +1374,7 @@ SUB
     mapfile -t data_cones < <( yaml_get_values "coneR" "$data_yaml_src" )
     (( ${#data_vzs[@]} ))   || { err "No values found for vz_cut_cm in $data_yaml_src"; exit 72; }
     (( ${#data_cones[@]} )) || { err "No values found for coneR in $data_yaml_src"; exit 72; }
+    build_iso_modes "$data_yaml_src"
     DATA_DEST_BASE_SAVED="$DEST_BASE"
 
     # DATA ONLY: condor testJob | condor round <N> [firstChunk] | condor all
@@ -1332,20 +1403,22 @@ SUB
         local cone0="${data_cones[0]}"
         local dvz_tag; dvz_tag="$(sim_vz_tag "$vz0")"
         local dcone_tag; dcone_tag="$(sim_cone_tag "$cone0")"
-        local data_cfg_tag="${dvz_tag}_${dcone_tag}"
+        local data_cfg_tag="${dvz_tag}_${dcone_tag}_${iso_tags[0]}"
 
         stamp="$(date +%Y%m%d_%H%M%S)"
         sub="${BASE}/RecoilJets_${TAG}_${data_cfg_tag}_${stamp}_TEST.sub"
 
-        # Snapshot YAML at submit time, pinning vz_cut_cm + coneR to first values
+        # Snapshot YAML at submit time, pinning vz_cut_cm + coneR + iso to first values
         local yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
         local yaml_snap="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}_${stamp}_TEST.yaml"
         mkdir -p "$SIM_YAML_OVERRIDE_DIR"
         sed -E \
           -e "s|^([[:space:]]*vz_cut_cm:).*|\\1 ${vz0}|" \
           -e "s|^([[:space:]]*coneR:).*|\\1 ${cone0}|" \
+          -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${iso_sliding[0]}|" \
+          -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[0]}|" \
           "$yaml_src" > "$yaml_snap"
-        say "YAML snapshot (vz=${vz0}, coneR=${cone0}): ${yaml_snap}"
+        say "YAML snapshot (vz=${vz0}, coneR=${cone0}, iso=${iso_tags[0]}): ${yaml_snap}"
         DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"
 
         cat > "$sub" <<SUB
@@ -1375,48 +1448,56 @@ SUB
 
         for data_vz in "${data_vzs[@]}"; do
           for data_cone in "${data_cones[@]}"; do
+          for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
           local dvz_tag; dvz_tag="$(sim_vz_tag "$data_vz")"
           local dcone_tag; dcone_tag="$(sim_cone_tag "$data_cone")"
-          local data_cfg_tag="${dvz_tag}_${dcone_tag}"
-          local yaml_vzcone="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}.yaml"
+          local data_cfg_tag="${dvz_tag}_${dcone_tag}_${iso_tags[$iso_idx]}"
+          local yaml_override="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}.yaml"
           mkdir -p "$SIM_YAML_OVERRIDE_DIR"
           sed -E \
             -e "s|^([[:space:]]*vz_cut_cm:).*|\\1 ${data_vz}|" \
             -e "s|^([[:space:]]*coneR:).*|\\1 ${data_cone}|" \
-            "$data_yaml_src" > "$yaml_vzcone"
-          export RJ_CONFIG_YAML="$yaml_vzcone"
+            -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${iso_sliding[$iso_idx]}|" \
+            -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[$iso_idx]}|" \
+            "$data_yaml_src" > "$yaml_override"
+          export RJ_CONFIG_YAML="$yaml_override"
           DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"
 
-          say "DATA condor round (vz_cut_cm=${data_vz}, coneR=${data_cone}, tag=${data_cfg_tag})"
-          say "  YAML override: ${yaml_vzcone}"
+          say "DATA condor round (vz_cut_cm=${data_vz}, coneR=${data_cone}, iso=${iso_tags[$iso_idx]}, tag=${data_cfg_tag})"
+          say "  YAML override: ${yaml_override}"
           say "  DEST_BASE    : ${DEST_BASE}"
           submit_condor "$round_file" "$firstChunk" "once"
+          done
           done
         done
         ;;
       all|"")
         for data_vz in "${data_vzs[@]}"; do
           for data_cone in "${data_cones[@]}"; do
+          for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
           local dvz_tag; dvz_tag="$(sim_vz_tag "$data_vz")"
           local dcone_tag; dcone_tag="$(sim_cone_tag "$data_cone")"
-          local data_cfg_tag="${dvz_tag}_${dcone_tag}"
-          local yaml_vzcone="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}.yaml"
+          local data_cfg_tag="${dvz_tag}_${dcone_tag}_${iso_tags[$iso_idx]}"
+          local yaml_override="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}.yaml"
           mkdir -p "$SIM_YAML_OVERRIDE_DIR"
           sed -E \
             -e "s|^([[:space:]]*vz_cut_cm:).*|\\1 ${data_vz}|" \
             -e "s|^([[:space:]]*coneR:).*|\\1 ${data_cone}|" \
-            "$data_yaml_src" > "$yaml_vzcone"
-          export RJ_CONFIG_YAML="$yaml_vzcone"
+            -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${iso_sliding[$iso_idx]}|" \
+            -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[$iso_idx]}|" \
+            "$data_yaml_src" > "$yaml_override"
+          export RJ_CONFIG_YAML="$yaml_override"
           DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"
 
-          say "Preparing CONDOR ALL submission (dataset=${DATASET}, groupSize=${GROUP_SIZE}, vz_cut_cm=${data_vz}, coneR=${data_cone})"
-          say "  YAML override: ${yaml_vzcone}"
+          say "Preparing CONDOR ALL submission (dataset=${DATASET}, groupSize=${GROUP_SIZE}, vz_cut_cm=${data_vz}, coneR=${data_cone}, iso=${iso_tags[$iso_idx]})"
+          say "  YAML override: ${yaml_override}"
           say "  DEST_BASE    : ${DEST_BASE}"
           say "This step generates per-run grouped chunk lists and a large submit file before calling condor_submit."
           tmp_src="${ROUND_DIR}/ALL_${TAG}_${data_cfg_tag}_$(date +%s).txt"
           grep -E '^[0-9]+' "$GOLDEN" > "$tmp_src"
 
           submit_condor "$tmp_src" "" "always"
+          done
           done
         done
         ;;

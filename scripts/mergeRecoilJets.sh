@@ -253,6 +253,58 @@ sim_cone_tag() {
   echo "isoR${r100}"
 }
 
+sim_iso_tag() {
+  local sliding="$1" fixed="$2"
+  if [[ "$sliding" == "true" ]]; then
+    echo "isSliding"
+  else
+    if [[ "$fixed" =~ ^([0-9]+)\.0+$ ]]; then
+      echo "fixedIso${BASH_REMATCH[1]}GeV"
+    else
+      local s="$fixed"
+      s="${s//./p}"
+      echo "fixedIso${s}GeV"
+    fi
+  fi
+}
+
+build_iso_modes() {
+  local yaml_file="$1"
+  iso_tags=()
+  iso_sliding=()
+  iso_fixed=()
+
+  local _both; _both="$(yaml_get_values "isSlidingAndFixed" "$yaml_file" 2>/dev/null || echo "false")"
+  local _slide; _slide="$(yaml_get_values "isSlidingIso" "$yaml_file" 2>/dev/null || echo "false")"
+  local -a _fixeds
+  mapfile -t _fixeds < <( yaml_get_values "fixedGeV" "$yaml_file" 2>/dev/null )
+  (( ${#_fixeds[@]} )) || _fixeds=( "2.0" )
+
+  _both="$(trim_ws "$_both")"
+  _slide="$(trim_ws "$_slide")"
+
+  if [[ "$_both" == "true" ]]; then
+    iso_tags+=( "$(sim_iso_tag "true" "0")" )
+    iso_sliding+=( "true" )
+    iso_fixed+=( "${_fixeds[0]}" )
+    for fv in "${_fixeds[@]}"; do
+      iso_tags+=( "$(sim_iso_tag "false" "$fv")" )
+      iso_sliding+=( "false" )
+      iso_fixed+=( "$fv" )
+    done
+  elif [[ "$_slide" == "true" ]]; then
+    iso_tags+=( "$(sim_iso_tag "true" "0")" )
+    iso_sliding+=( "true" )
+    iso_fixed+=( "${_fixeds[0]}" )
+  else
+    for fv in "${_fixeds[@]}"; do
+      iso_tags+=( "$(sim_iso_tag "false" "$fv")" )
+      iso_sliding+=( "false" )
+      iso_fixed+=( "$fv" )
+    done
+  fi
+}
+
 to_tag() {
   case "${1:-}" in
     pp|PP|isPP|PP_DATA|pp_data)   echo "pp" ;;
@@ -612,7 +664,8 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simm
     sim_fracs=( "0.5" "0.875" )
     sim_vzs=( "30.0" )
     sim_cones=( "0.30" )
-    say "RJ_SIM_FORCE_SWEEP=1 → forcing SIM sweep grid: jet_pt_min=[${sim_pts[*]}], back_to_back_pi_fraction=[${sim_fracs[*]}], vz_cut_cm=[${sim_vzs[*]}], coneR=[${sim_cones[*]}]"
+    iso_tags=( "fixedIso2GeV" ); iso_sliding=( "false" ); iso_fixed=( "2.0" )
+    say "RJ_SIM_FORCE_SWEEP=1 → forcing SIM sweep grid: jet_pt_min=[${sim_pts[*]}], back_to_back_pi_fraction=[${sim_fracs[*]}], vz_cut_cm=[${sim_vzs[*]}], coneR=[${sim_cones[*]}], iso=[${iso_tags[*]}]"
   else
     mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
     mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
@@ -622,6 +675,7 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simm
     (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
     (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
     (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
+    build_iso_modes "$master_yaml"
   fi
 
   samples=()
@@ -649,8 +703,9 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simm
     for frac in "${sim_fracs[@]}"; do
       for vz in "${sim_vzs[@]}"; do
       for cone in "${sim_cones[@]}"; do
-      cfg_dir_tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_dir_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")"
-      cfg_file_tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_file_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")"
+      for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
+      cfg_dir_tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_dir_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso_tags[$iso_idx]}"
+      cfg_file_tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_file_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso_tags[$iso_idx]}"
 
       COMBO_INPUT_BASE="${SIM_INPUT_BASE}/${cfg_dir_tag}"
       DEST_DIR="${OUT_BASE}/${SIM_OUTPUT_TAG}/${cfg_dir_tag}"
@@ -838,12 +893,13 @@ EOT
       done
       done
       done
+      done
     done
   done
 
   if [[ "$SIM_ACTION" == "secondRound" ]]; then
     say "====================================================================="
-    say "SecondRound outputs (final files), grouped by cfg tag (jetMinPt + back-to-back + vz + coneR):"
+    say "SecondRound outputs (final files), grouped by cfg tag (jetMinPt + back-to-back + vz + coneR + iso):"
 
     declare -A group_to_paths
     declare -a group_keys

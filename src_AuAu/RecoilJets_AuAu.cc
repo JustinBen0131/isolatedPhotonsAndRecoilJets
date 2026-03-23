@@ -4412,7 +4412,9 @@ void RecoilJets::fillPureIsolationQA(PHCompositeNode* topNode,
   }
 
   // Pure isolation threshold decision (signal line only)
-  const double thrIso  = (m_isSlidingIso ? (m_isoA + m_isoB * pt_gamma) : m_isoFixed);
+  double _iA, _iB, _iG;
+  getIsoParams(centIdx, _iA, _iB, _iG);
+  const double thrIso  = (m_isSlidingIso ? (_iA + _iB * pt_gamma) : m_isoFixed);
   const bool   isoPass = (eiso_tot < thrIso);
 
   for (const auto& trigShort : activeTrig)
@@ -4648,8 +4650,10 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
       continue;
     }
 
-    const double thrIso    = (m_isSlidingIso ? (m_isoA + m_isoB * rPt) : m_isoFixed);
-    const double thrNonIso = thrIso + m_isoGap;
+    double _sA, _sB, _sG;
+    getIsoParams(centIdx, _sA, _sB, _sG);
+    const double thrIso    = (m_isSlidingIso ? (_sA + _sB * rPt) : m_isoFixed);
+    const double thrNonIso = thrIso + _sG;
 
     const bool iso    = (eiso_et < thrIso);
     const bool nonIso = (eiso_et > thrNonIso);
@@ -5242,8 +5246,10 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
 
         if (std::isfinite(eiso_et) && eiso_et < 1e8)
         {
-              const double thrIsoSS    = (m_isSlidingIso ? (m_isoA + m_isoB * pt_gamma) : m_isoFixed);
-              const double thrNonIsoSS = thrIsoSS + m_isoGap;
+              double _ssA, _ssB, _ssG;
+              getIsoParams(centIdx, _ssA, _ssB, _ssG);
+              const double thrIsoSS    = (m_isSlidingIso ? (_ssA + _ssB * pt_gamma) : m_isoFixed);
+              const double thrNonIsoSS = thrIsoSS + _ssG;
 
               ssIso    = (eiso_et < thrIsoSS);
               ssNonIso = (eiso_et > thrNonIsoSS);
@@ -6299,7 +6305,9 @@ bool RecoilJets::isIsolated(const RawCluster* clus, double et_gamma, PHComposite
     return false;
   }
 
-    const double thr  = (m_isSlidingIso ? (m_isoA + m_isoB * et_gamma) : m_isoFixed);
+    double _iiA, _iiB, _iiG;
+    getIsoParams(findCentBin(m_centBin), _iiA, _iiB, _iiG);
+    const double thr  = (m_isSlidingIso ? (_iiA + _iiB * et_gamma) : m_isoFixed);
     const double eiso_val = this->eiso(clus, topNode);
     const bool passIso = (eiso_val < thr);
 
@@ -6321,12 +6329,14 @@ bool RecoilJets::isNonIsolated(const RawCluster* clus, double et_gamma, PHCompos
     return false;
   }
 
-  const double thr  = (m_isSlidingIso ? (m_isoA + m_isoB * et_gamma) : m_isoFixed) + m_isoGap;
-  const double eiso_val = this->eiso(clus, topNode);
+    double _niA, _niB, _niG;
+    getIsoParams(findCentBin(m_centBin), _niA, _niB, _niG);
+    const double thr  = (m_isSlidingIso ? (_niA + _niB * et_gamma) : m_isoFixed) + _niG;
+    const double eiso_val = this->eiso(clus, topNode);
 
-  if (Verbosity() >= 5)
-    LOG(5, CLR_BLUE, "  [isNonIsolated] ET^γ=" << et_gamma << "  thr=" << thr << "  eiso=" << eiso_val
-                        << "  pass=" << (eiso_val >= thr));
+    if (Verbosity() >= 5)
+        LOG(5, CLR_BLUE, "  [isNonIsolated] ET^γ=" << et_gamma << "  thr=" << thr << "  eiso=" << eiso_val
+                            << "  pass=" << (eiso_val >= thr));
 
   return (eiso_val > thr);
 }
@@ -6690,6 +6700,24 @@ int RecoilJets::findCentBin(int cent) const
   if (Verbosity() >= 5)
     LOG(5, CLR_BLUE, "  [findCentBin] cent=" << cent << " out of configured range – returning -1");
   return -1;
+}
+
+
+void RecoilJets::getIsoParams(int centIdx, double& outA, double& outB, double& outGap) const
+{
+    if (!m_centIsoWPs.empty() && centIdx >= 0
+        && centIdx < static_cast<int>(m_centIsoWPs.size()))
+    {
+      outA   = m_centIsoWPs[centIdx].aGeV;
+      outB   = m_centIsoWPs[centIdx].bPerGeV;
+      outGap = m_centIsoWPs[centIdx].sideGapGeV;
+    }
+    else
+    {
+      outA   = m_isoA;
+      outB   = m_isoB;
+      outGap = m_isoGap;
+    }
 }
 
 
