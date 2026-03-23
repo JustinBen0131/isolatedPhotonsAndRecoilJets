@@ -161,7 +161,7 @@ namespace ARJ
 //   - For single-slice SIM, y-axes remain raw "Counts" (unweighted).
 // =============================================================================
 
-  inline bool isPPdataOnly   = true;
+  inline bool isPPdataOnly   = false;
   inline bool isSimAndDataPP = false;
   
   // RooUnfold control:
@@ -189,13 +189,13 @@ namespace ARJ
   // AuAu-only analysis mode (no SIM, no PP). When true, the full plotting
   // pipeline runs on AuAu only and outputs to dataOutput/auau/<trigger>/...
   // NOTE: Must be mutually exclusive with isPPdataOnly and isSimAndDataPP.
-  inline bool isAuAuOnly     = false;
+  inline bool isAuAuOnly     = true;
 
   // Optional comparison overlays: PP vs Au+Au (gold-gold) photon-ID deliverables.
   // If false, analysis behavior is IDENTICAL to the current pipeline.
-  inline bool isPPdataAndAUAU = false;
+  inline bool isPPdataAndAUAU = true;
 
-  inline bool isRun25pp      = true;
+  inline bool isRun25pp      = false;
 
   // SIM sample selection toggles (choose EXACTLY ONE for any SIM-including run)
   inline bool isPhotonJet5               = false;
@@ -259,11 +259,9 @@ namespace ARJ
 
   // Gold-gold (Au+Au) merged output for PP vs AuAu deliverables (photon ID QA)
   inline const string kTriggerAuAuGold = "MBD_NS_geq_2_vtx_lt_150";
-  inline const string kInAuAuGold =
-                InputFilesSimBaseDirFromYAML() + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/AuAuWithUEsubVariantA/RecoilJets_auau_ALL.root";
+  inline const string kInAuAuGold = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_WITHfixedIso/coneSize04/pTminJet5/7pi_8_BB/AuAuWithUEsubVariantA/RecoilJets_auau_ALL.root";
 
-  inline const string kInAuAuGoldNew =
-                InputFilesSimBaseDirFromYAML() + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/AuAuWithUEsubVariantA/RecoilJets_auau_ALL.root";
+  inline const string kInAuAuGoldNew = "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_WITHfixedIso/coneSize04/pTminJet5/7pi_8_BB/AuAuWithUEsubVariantA/RecoilJets_auau_ALL.root";
 
   // ---------------------------------------------------------------------------
   // SIM (photonJet10/20) configurations: jet-min-pt + back-to-back cut variants.

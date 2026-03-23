@@ -6394,26 +6394,26 @@ for (const auto& cb : centBins)
                 hPP->Draw("E1");
                 hAA->Draw("E1 same");
 
-                TLegend* leg = new TLegend(0.62, 0.78, 0.93, 0.88);
+                TLegend* leg = new TLegend(0.62, 0.7, 0.93, 0.85);
                 leg->SetBorderSize(0);
                 leg->SetFillStyle(0);
                 leg->SetTextFont(42);
-                leg->SetTextSize(0.043);
+                leg->SetTextSize(0.045);
                 leg->AddEntry(hPP, "Run24pp", "ep");
                 leg->AddEntry(hAA, TString::Format("AuAu %d-%d%%", cb.lo, cb.hi).Data(), "ep");
                 leg->Draw();
                 keepLeg.push_back(leg);
 
                 {
-                    TLatex t;
-                    t.SetNDC(true);
-                    t.SetTextFont(42);
-                    t.SetTextAlign(22);
-                    t.SetTextSize(0.048);
-                    t.DrawLatex(0.50, 0.92,
-                      TString::Format("%s, p_{T}^{#gamma} %d-%d GeV, %d-%d%%",
-                        vlabel.c_str(),
-                        pb.lo, pb.hi, cb.lo, cb.hi).Data());
+                  TLatex t;
+                  t.SetNDC(true);
+                  t.SetTextFont(42);
+                  t.SetTextAlign(22);
+                  t.SetTextSize(0.058);
+                  t.DrawLatex(0.50, 0.88,
+                    TString::Format("%s, p_{T}^{#gamma} %d-%d GeV, %d-%d%%",
+                      vlabel.c_str(),
+                      pb.lo, pb.hi, cb.lo, cb.hi).Data());
                 }
 
                 keepH.push_back(hPP);
@@ -6913,9 +6913,9 @@ for (const auto& cb : centBins)
           const auto& ptBins   = PtBins();
           const auto& centBins = CentBins();
 
-          if (!centBins.empty())
+          for (int icb = 0; icb < (int)centBins.size(); ++icb)
           {
-            const auto& cb = centBins[0]; // 0-10% expected first bin
+            const auto& cb = centBins[icb];
             const string centDir = JoinPath(outNoSS, TString::Format("%d_%d", cb.lo, cb.hi).Data());
             EnsureDir(centDir);
 
@@ -6961,10 +6961,12 @@ for (const auto& cb : centBins)
 
             if (!x.empty())
             {
-              TCanvas c("c_pho_isoPassFrac_0_10", "c_pho_isoPassFrac_0_10", 950, 700);
+              TCanvas c(TString::Format("c_pho_isoPassFrac_%d_%d", cb.lo, cb.hi).Data(),
+                        TString::Format("c_pho_isoPassFrac_%d_%d", cb.lo, cb.hi).Data(), 950, 700);
               ApplyCanvasMargins1D(c);
 
-              TH1F frame("frame_isoPassFrac", "", 1, 12.0, 36.0);
+              TH1F frame(TString::Format("frame_isoPassFrac_%d_%d", cb.lo, cb.hi).Data(),
+                         "", 1, 12.0, 36.0);
               frame.SetMinimum(0.0);
               frame.SetMaximum(1.05);
               frame.SetTitle("");
@@ -6996,7 +6998,7 @@ for (const auto& cb : centBins)
                 l.Draw("same");
               }
 
-              TLegend leg(0.55, 0.52, 0.88, 0.67);
+              TLegend leg(0.58, 0.78, 0.93, 0.93);
               leg.SetBorderSize(0);
               leg.SetFillStyle(0);
               leg.SetTextFont(42);

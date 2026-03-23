@@ -117,8 +117,14 @@ namespace ARJ
 
         static std::set<std::string> s_doneOutDirs;
 
-        const std::string ppBase  = DirnameFromPath(ds.outBase);
-        const std::string outDir  = JoinPath(ppBase, "triggerQA");
+          // For AuAu (no centFolder): outBase = kOutAuAuBase/<trigger>
+          //   -> dirname = kOutAuAuBase -> triggerQA lands in auau/triggerQA
+          // For AuAu (with centFolder): outBase = kOutAuAuBase/<trigger>/<cent>
+          //   -> dirname = kOutAuAuBase/<trigger> -> triggerQA lands per-trigger
+          // For PP: outBase = kOutPPBase/<trigger>
+          //   -> dirname = kOutPPBase -> triggerQA lands in pp/triggerQA
+        const std::string baseDir = DirnameFromPath(ds.outBase);
+        const std::string outDir  = JoinPath(baseDir, "triggerQA");
 
         if (s_doneOutDirs.count(outDir)) return;
         s_doneOutDirs.insert(outDir);
@@ -740,20 +746,15 @@ namespace ARJ
             if (x95s[i] > 0.0)
             {
               leg.AddEntry(ratioHists[i],
-                TString::Format("%s (%d span%s, 95%%=%.2f GeV)",
+                TString::Format("%s (95%%=%.2f GeV)",
                   loaded[i].probeLabel.c_str(),
-                  loaded[i].nRunSpans,
-                  (loaded[i].nRunSpans == 1 ? "" : "s"),
                   x95s[i]).Data(),
                 "pe");
             }
             else
             {
               leg.AddEntry(ratioHists[i],
-                TString::Format("%s (%d span%s)",
-                  loaded[i].probeLabel.c_str(),
-                  loaded[i].nRunSpans,
-                  (loaded[i].nRunSpans == 1 ? "" : "s")).Data(),
+                loaded[i].probeLabel.c_str(),
                 "pe");
             }
           }
@@ -882,8 +883,222 @@ namespace ARJ
           indexLines.push_back("");
         }
 
-        WriteTextFile(JoinPath(outDir, "summary_triggerQA_doNotScale.txt"), indexLines);
-      }
+          WriteTextFile(JoinPath(outDir, "summary_triggerQA_doNotScale.txt"), indexLines);
+
+          // -------------------------------------------------------------------
+          // NEW: Run24pp vs Run25pp 95% efficiency turn-on point overlay
+          //
+          // For each of the two common-basis groups:
+          //   commonBasis_MBD_NandS_geq_1
+          //   commonBasis_MBD_NandS_geq_1_vtx_lt_10
+          //
+          // Output:
+          //   <outDir>/<group>/x95_overlay_run24pp_vs_run25pp.png
+          //
+          // X-axis: trigger label bins (Photon 2, 3, 4, 5, ...)
+          // Y-axis: 95% efficiency turn-on point [GeV]
+          // Markers: open circles = Run24pp, closed circles = Run25pp
+          // Colors: match colorForProbe per photon threshold
+          //
+          // FORCEFULLY opens both kInPP24 and kInPP25 regardless of toggles.
+          // -------------------------------------------------------------------
+          {
+            const std::vector<std::string> targetGroups = {
+              "commonBasis_MBD_NandS_geq_1",
+              "commonBasis_MBD_NandS_geq_1_vtx_lt_10"
+            };
+
+            auto getHistFromFile = [&](TFile* f, const std::string& dirKey) -> TH1*
+            {
+              if (!f) return nullptr;
+              TDirectory* dir = f->GetDirectory(dirKey.c_str());
+              if (!dir) return nullptr;
+              return dynamic_cast<TH1*>(dir->Get((prefix + dirKey).c_str()));
+            };
+
+            auto computeX95Map = [&](TFile* f, const std::string& groupTarget) -> std::map<int, double>
+            {
+              std::map<int, double> result;
+              if (!f) return result;
+
+              TIter nextKey(f->GetListOfKeys());
+              while (TKey* key = dynamic_cast<TKey*>(nextKey()))
+              {
+                const std::string dirKey = key->GetName();
+                if (dirKey.empty() || dirKey.find(baselineTag) == 0) continue;
+
+                const std::string bKey = deduceBasisKey(dirKey);
+                if (bKey.empty()) continue;
+                if (groupFolderFromBasis(bKey) != groupTarget) continue;
+
+                TH1* hProbe = getHistFromFile(f, dirKey);
+                TH1* hBase  = getHistFromFile(f, baselineTag + dirKey);
+                if (!hProbe || !hBase) continue;
+
+                TH1* hP = CloneTH1(hProbe, TString::Format("x95ov_p_%s", dirKey.c_str()).Data());
+                TH1* hB = CloneTH1(hBase,  TString::Format("x95ov_b_%s", dirKey.c_str()).Data());
+                if (!hP || !hB) { if (hP) delete hP; if (hB) delete hB; continue; }
+
+                EnsureSumw2(hP);
+                EnsureSumw2(hB);
+
+                TH1* hR = CloneTH1(hP, TString::Format("x95ov_r_%s", dirKey.c_str()).Data());
+                if (!hR) { delete hP; delete hB; continue; }
+                EnsureSumw2(hR);
+                hR->Divide(hP, hB, 1.0, 1.0, "B");
+
+                const int thr = extractPhotonThresholdGeV(dirKey);
+                const double x95 = findXAtEff(hR, 0.95);
+                if (x95 > 0.0) result[thr] = x95;
+
+                delete hP;
+                delete hB;
+                delete hR;
+              }
+              return result;
+            };
+
+            TFile* f24 = TFile::Open(kInPP24.c_str(), "READ");
+            TFile* f25 = TFile::Open(kInPP25.c_str(), "READ");
+
+            const bool ok24 = (f24 && !f24->IsZombie());
+            const bool ok25 = (f25 && !f25->IsZombie());
+
+            if (ok24 && ok25)
+            {
+              for (const auto& grp : targetGroups)
+              {
+                const auto x95_24 = computeX95Map(f24, grp);
+                const auto x95_25 = computeX95Map(f25, grp);
+
+                std::set<int> allThresholds;
+                for (const auto& kv : x95_24) allThresholds.insert(kv.first);
+                for (const auto& kv : x95_25) allThresholds.insert(kv.first);
+
+                if (allThresholds.empty()) continue;
+
+                const int nBins = (int)allThresholds.size();
+                std::vector<int> thrs(allThresholds.begin(), allThresholds.end());
+
+                TCanvas cOv(TString::Format("c_x95ov_%s", grp.c_str()).Data(),
+                            "c_x95ov", 1000, 700);
+                cOv.SetLeftMargin(0.14);
+                cOv.SetRightMargin(0.05);
+                cOv.SetBottomMargin(0.16);
+                cOv.SetTopMargin(0.08);
+                cOv.SetTicks(1, 1);
+
+                TH1F frame(TString::Format("frame_x95ov_%s", grp.c_str()).Data(),
+                           "", nBins, 0.5, nBins + 0.5);
+                frame.SetTitle("");
+                frame.GetXaxis()->SetTitle("Photon Trigger");
+                frame.GetYaxis()->SetTitle("95% Efficiency Turn-on [GeV]");
+                frame.GetYaxis()->SetTitleOffset(1.3);
+                frame.GetXaxis()->SetLabelSize(0.050);
+                frame.GetXaxis()->SetTitleSize(0.050);
+                frame.GetYaxis()->SetLabelSize(0.045);
+                frame.GetYaxis()->SetTitleSize(0.050);
+
+                for (int i = 0; i < nBins; ++i)
+                  frame.GetXaxis()->SetBinLabel(i + 1, TString::Format("Photon %d", thrs[i]).Data());
+
+                double yMax = 0.0;
+                for (const auto& kv : x95_24) yMax = std::max(yMax, kv.second);
+                for (const auto& kv : x95_25) yMax = std::max(yMax, kv.second);
+
+                frame.SetMinimum(0.0);
+                frame.SetMaximum(yMax * 1.35);
+                frame.Draw("axis");
+
+                std::vector<TGraphErrors*> keepG;
+
+                TGraphErrors gLeg24(0);
+                gLeg24.SetMarkerStyle(24);
+                gLeg24.SetMarkerColor(kBlack);
+                gLeg24.SetMarkerSize(1.3);
+
+                TGraphErrors gLeg25(0);
+                gLeg25.SetMarkerStyle(20);
+                gLeg25.SetMarkerColor(kBlack);
+                gLeg25.SetMarkerSize(1.3);
+
+                for (int i = 0; i < nBins; ++i)
+                {
+                  const int thr = thrs[i];
+                  const std::string fakeKey = TString::Format("Photon_%d_GeV_dummy", thr).Data();
+                  const int col = colorForProbe(fakeKey);
+
+                  auto it24 = x95_24.find(thr);
+                  if (it24 != x95_24.end())
+                  {
+                    TGraphErrors* g = new TGraphErrors(1);
+                    g->SetPoint(0, (double)(i + 1) - 0.12, it24->second);
+                    g->SetPointError(0, 0.0, 0.0);
+                    g->SetMarkerStyle(24);
+                    g->SetMarkerSize(1.5);
+                    g->SetMarkerColor(col);
+                    g->SetLineColor(col);
+                    g->Draw("P same");
+                    keepG.push_back(g);
+                  }
+
+                  auto it25 = x95_25.find(thr);
+                  if (it25 != x95_25.end())
+                  {
+                    TGraphErrors* g = new TGraphErrors(1);
+                    g->SetPoint(0, (double)(i + 1) + 0.12, it25->second);
+                    g->SetPointError(0, 0.0, 0.0);
+                    g->SetMarkerStyle(20);
+                    g->SetMarkerSize(1.5);
+                    g->SetMarkerColor(col);
+                    g->SetLineColor(col);
+                    g->Draw("P same");
+                    keepG.push_back(g);
+                  }
+                }
+
+                TLegend leg(0.18, 0.78, 0.50, 0.92);
+                leg.SetBorderSize(0);
+                leg.SetFillStyle(0);
+                leg.SetTextFont(42);
+                leg.SetTextSize(0.040);
+                leg.AddEntry(&gLeg24, "Run24pp (open)", "p");
+                leg.AddEntry(&gLeg25, "Run25pp (closed)", "p");
+                leg.Draw();
+
+                {
+                  TLatex tGrp;
+                  tGrp.SetNDC(true);
+                  tGrp.SetTextFont(42);
+                  tGrp.SetTextAlign(33);
+                  tGrp.SetTextSize(0.035);
+                  tGrp.DrawLatex(0.93, 0.97, grp.c_str());
+                }
+
+                const string grpOutDir = JoinPath(outDir, grp);
+                EnsureDir(grpOutDir);
+                SaveCanvas(cOv, JoinPath(grpOutDir, "x95_overlay_run24pp_vs_run25pp.png"));
+
+                cout << ANSI_BOLD_GRN
+                     << "[WROTE] " << JoinPath(grpOutDir, "x95_overlay_run24pp_vs_run25pp.png")
+                     << ANSI_RESET << "\n";
+
+                for (auto* g : keepG) delete g;
+              }
+            }
+            else
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] x95 overlay: could not open both PP files.\n"
+                   << "       PP24: " << kInPP24 << (ok24 ? " (OK)" : " (MISSING)") << "\n"
+                   << "       PP25: " << kInPP25 << (ok25 ? " (OK)" : " (MISSING)")
+                   << ANSI_RESET << "\n";
+            }
+
+            if (f24) { f24->Close(); delete f24; }
+            if (f25) { f25->Close(); delete f25; }
+          }
+        }
 
       void RunPi0QA(Dataset& ds)
       {
