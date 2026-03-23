@@ -66,7 +66,20 @@ doPi0Analysis: false
 #   - set to 0.40 to force iso_04 in all cases
 # -----------------------------------------------------------------------------
 isSlidingIso: false
-isolation_wp: {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0, fixedGeV: 2.0, truthIsoGeV: 4.0, towerMin: 0.0}
+isSlidingAndFixed: false
+fixedGeV: [2.0]
+isolation_wp: {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0, truthIsoGeV: 4.0, towerMin: 0.0}
+
+# Per-centrality AuAu sliding isolation WP (one entry per centrality bin interval).
+# Indexed by centrality_edges intervals: 0-10%, 10-20%, 20-40%, 40-60%, 60-80%.
+# Initialized to pp defaults; override per-bin for AuAu-specific tuning.
+# Only used by RecoilJets_AuAu when isSlidingIso is active.
+auau_cent_iso_wp:
+  - {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0}
+  - {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0}
+  - {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0}
+  - {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0}
+  - {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0}
 
 # -----------------------------------------------------------------------------
 # Photon shower-shape ID cuts (PPG12 Table 4) (YAML-driven; baseline matches header)

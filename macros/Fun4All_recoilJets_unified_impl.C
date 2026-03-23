@@ -272,6 +272,11 @@ namespace yamlcfg
       double isoConeR = 0.30;
       double isoTowMin = 0.0;
       bool   isSlidingIso = true;
+      bool   isSlidingAndFixed = false;
+
+      // Per-centrality AuAu sliding WPs: each entry = {aGeV, bPerGeV, sideGapGeV}
+      struct CentIsoWP { double aGeV; double bPerGeV; double sideGapGeV; };
+      std::vector<CentIsoWP> auauCentIsoWP;
 
       // Photon ID cuts (PPG12 Table 4) baseline
       double pre_e11e33_max = 0.98;
@@ -620,6 +625,55 @@ namespace yamlcfg
           const std::string rhs = AfterColon(line);
           if (!ParseBool(rhs, cfg.isSlidingIso))
             warn_parse("isSlidingIso", rhs, "expected true/false");
+        }
+        else if (StartsWithKey(line, "isSlidingAndFixed"))
+        {
+          const std::string rhs = AfterColon(line);
+          if (!ParseBool(rhs, cfg.isSlidingAndFixed))
+            warn_parse("isSlidingAndFixed", rhs, "expected true/false");
+        }
+        else if (StartsWithKey(line, "fixedGeV"))
+        {
+          const std::string rhs = AfterColon(line);
+          if (!ParseDouble(rhs, cfg.isoFixed))
+          {
+            std::vector<double> v;
+            ParseInlineListDoubles(rhs, v);
+            if (!v.empty())
+            {
+              cfg.isoFixed = v.front();
+              std::ostringstream oss;
+              oss << "[CFG] fixedGeV is a list (n=" << v.size() << "); using first value = " << cfg.isoFixed;
+              info_parse(oss.str());
+            }
+            else
+            {
+              warn_parse("fixedGeV", rhs, "expected a scalar double or an inline list [..]");
+            }
+          }
+        }
+        else if (StartsWithKey(line, "auau_cent_iso_wp"))
+        {
+          // Multi-line list: read subsequent "  - {aGeV: ..., bPerGeV: ..., sideGapGeV: ...}" lines
+          cfg.auauCentIsoWP.clear();
+          while (std::getline(iss, line))
+          {
+            line = detail::trim(line);
+            if (line.empty()) continue;
+            if (line[0] == '#') continue;
+            if (line[0] != '-') break;  // end of list
+            std::map<std::string, double> m;
+            ParseInlineMapDoubles(line.substr(1), m);
+            Config::CentIsoWP wp{};
+            wp.aGeV       = m.count("aGeV")       ? m["aGeV"]       : cfg.isoA;
+            wp.bPerGeV    = m.count("bPerGeV")     ? m["bPerGeV"]    : cfg.isoB;
+            wp.sideGapGeV = m.count("sideGapGeV")  ? m["sideGapGeV"] : cfg.isoGap;
+            cfg.auauCentIsoWP.push_back(wp);
+          }
+          if (yamlV > 0)
+          {
+            std::cout << "[CFG] auau_cent_iso_wp: parsed " << cfg.auauCentIsoWP.size() << " entries\n";
+          }
         }
         else if (StartsWithKey(line, "photon_id_pre"))
         {
@@ -1356,6 +1410,9 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                 << ", coneR=" << cfg.isoConeR
                 << ", towerMin=" << cfg.isoTowMin
                 << ", isSlidingIso=" << (cfg.isSlidingIso ? "true" : "false") << "}\n"
+                << "  isSlidingAndFixed: " << (cfg.isSlidingAndFixed ? "true" : "false") << "\n"
+                << "  fixedGeV: " << cfg.isoFixed << "\n"
+                << "  auau_cent_iso_wp: " << cfg.auauCentIsoWP.size() << " entries\n"
                 << "  jes3_photon_pt_bins: [";
       for (std::size_t i = 0; i < cfg.jes3_photon_pt_bins.size(); ++i)
       {
@@ -2662,6 +2719,16 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
   recoilJets->setIsolationWP(cfg.isoA, cfg.isoB, cfg.isoGap, cfg.isoConeR, cfg.isoTowMin, cfg.isoFixed);
   recoilJets->setIsSlidingIso(cfg.isSlidingIso);
   recoilJets->setTruthIsoMaxGeV(cfg.truthIsoGeV);
+#if defined(RJ_UNIFIED_ANALYSIS_AUAU)
+  if (!cfg.auauCentIsoWP.empty())
+  {
+    std::vector<RecoilJets::CentIsoWP> wps;
+    wps.reserve(cfg.auauCentIsoWP.size());
+    for (const auto& e : cfg.auauCentIsoWP)
+        wps.push_back({e.aGeV, e.bPerGeV, e.sideGapGeV});
+    recoilJets->setCentIsoWPs(wps);
+  }
+#endif
 
   recoilJets->setPhotonIDCuts(cfg.pre_e11e33_max,
                               cfg.pre_et1_min,

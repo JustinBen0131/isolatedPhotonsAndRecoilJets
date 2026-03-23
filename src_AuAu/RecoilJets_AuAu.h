@@ -367,6 +367,10 @@ public:
                                   double fixedGeV = 2.0);
   void setIsSlidingIso(bool on) { m_isSlidingIso = on; }
 
+  // Per-centrality sliding isolation WP (AuAu only)
+  struct CentIsoWP { double aGeV; double bPerGeV; double sideGapGeV; };
+  void setCentIsoWPs(const std::vector<CentIsoWP>& wps) { m_centIsoWPs = wps; }
+
   // Truth isolation max (independent of sliding/fixed reco mode)
   void setTruthIsoMaxGeV(double isoGeV)
   {
@@ -988,6 +992,10 @@ private:
   double m_isoConeR  = 0.3;
   double m_isoTowMin = 0.0;
   bool   m_isSlidingIso = true;
+
+  // Per-centrality sliding WPs (indexed by findCentBin result; falls back to global if empty)
+  std::vector<CentIsoWP> m_centIsoWPs;
+  void getIsoParams(int centIdx, double& outA, double& outB, double& outGap) const;
 
   // Jet selection WP
   //  double m_minJetPt      = 5.0;
