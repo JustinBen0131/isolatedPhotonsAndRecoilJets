@@ -326,18 +326,32 @@ sim_b2b_tag() {
   fi
 }
 
+sim_vz_tag() {
+  local vz="$1"
+  if [[ "$vz" =~ ^([0-9]+)\.0+$ ]]; then
+    echo "vz${BASH_REMATCH[1]}"
+  else
+    local s="$vz"
+    s="${s//./p}"
+    s="${s//-/m}"
+    echo "vz${s}"
+  fi
+}
+
 sim_make_yaml_override() {
-  local master="$1" pt="$2" frac="$3" tag="$4"
+  local master="$1" pt="$2" frac="$3" vz="$4" tag="$5"
   mkdir -p "$SIM_YAML_OVERRIDE_DIR"
   local out="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${tag}.yaml"
 
   [[ -s "$master" ]] || { err "Master YAML not found or empty: $master"; exit 71; }
   grep -Eq '^[[:space:]]*jet_pt_min:' "$master" || { err "YAML missing key 'jet_pt_min' in $master"; exit 71; }
   grep -Eq '^[[:space:]]*back_to_back_dphi_min_pi_fraction:' "$master" || { err "YAML missing key 'back_to_back_dphi_min_pi_fraction' in $master"; exit 71; }
+  grep -Eq '^[[:space:]]*vz_cut_cm:' "$master" || { err "YAML missing key 'vz_cut_cm' in $master"; exit 71; }
 
   sed -E \
     -e "s|^([[:space:]]*jet_pt_min:).*|\\1 ${pt}|" \
     -e "s|^([[:space:]]*back_to_back_dphi_min_pi_fraction:).*|\\1 ${frac}|" \
+    -e "s|^([[:space:]]*vz_cut_cm:).*|\\1 ${vz}|" \
     "$master" > "$out"
 
   echo "$out"
@@ -686,7 +700,11 @@ submit_condor() {
   #   ${BASE}/.RJ_OUTPUTS_WIPED_<tag>.stamp
   # -------------------------------------------------------------------
   if [[ "$DATASET" != "isSim" ]]; then
-    local stamp_file="${BASE}/.RJ_OUTPUTS_WIPED_${TAG}.stamp"
+    # Per-vz stamp so each vz subdir can wipe independently
+    local _dest_leaf; _dest_leaf="$(basename "$DEST_BASE")"
+    local _stamp_suffix="${TAG}"
+    if [[ "$_dest_leaf" == vz* ]]; then _stamp_suffix="${TAG}_${_dest_leaf}"; fi
+    local stamp_file="${BASE}/.RJ_OUTPUTS_WIPED_${_stamp_suffix}.stamp"
     local do_wipe=0
 
     if [[ "$wipe_mode" == "always" ]]; then
@@ -702,6 +720,7 @@ submit_condor() {
 
       case "$DEST_BASE" in
         */thesisAna/pp|*/thesisAna/pp25|*/thesisAna/auau|*/thesisAna/oo) ;;
+        */thesisAna/pp/vz*|*/thesisAna/pp25/vz*|*/thesisAna/auau/vz*|*/thesisAna/oo/vz*) ;;
         *)
           err "Refusing to wipe DEST_BASE='$DEST_BASE' (not an expected thesisAna/{pp|pp25|auau|oo} path)"
           exit 61
@@ -942,8 +961,10 @@ case "$ACTION" in
 
       mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
       mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
+      mapfile -t sim_vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
       (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
       (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
+      (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
 
       samples=()
       if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
@@ -968,9 +989,10 @@ case "$ACTION" in
 
       for pt in "${sim_pts[@]}"; do
         for frac in "${sim_fracs[@]}"; do
-          SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")"
+          for vz in "${sim_vzs[@]}"; do
+          SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")"
           DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
-          yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$SIM_CFG_TAG")"
+          yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$SIM_CFG_TAG")"
 
           for samp in "${samples[@]}"; do
             SIM_SAMPLE="$samp"
@@ -991,7 +1013,7 @@ case "$ACTION" in
 
             say "----------------------------------------"
             say "SIM local: tag=${SIM_CFG_TAG}  sample=${SIM_SAMPLE}"
-            say "  jet_pt_min=${pt}  back_to_back_pi_fraction=${frac}"
+            say "  jet_pt_min=${pt}  back_to_back_pi_fraction=${frac}  vz_cut_cm=${vz}"
             say "  YAML override: ${yaml_override}"
             say "  grp001 list   : ${tmp}"
             say "  input line    : ${in_line}"
@@ -1001,6 +1023,7 @@ case "$ACTION" in
 
             RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
             echo
+          done
           done
         done
       done
@@ -1030,7 +1053,6 @@ case "$ACTION" in
       tmp="${STAGE_DIR}/run${r8}_LOCAL_firstfile.list"
       head -n 1 "$src" > "$tmp"
       say "Temp list → $tmp"
-      say "Invoking wrapper locally…"
 
       # Local debug helpers (safe defaults):
       #   RJ_CRASH_BACKTRACE=1 prints a stack trace on SIGSEGV/SIGABRT.
@@ -1044,11 +1066,33 @@ case "$ACTION" in
         RJ_STEP_EVENTS_LOCAL=1
       fi
 
-      RJ_DATASET="$DATASET" RJ_VERBOSITY="$RJV" \
-      RJ_CRASH_BACKTRACE="$RJ_CRASH_BACKTRACE_LOCAL" \
-      RJ_F4A_VERBOSE="$RJ_F4A_VERBOSE_LOCAL" \
-      RJ_STEP_EVENTS="$RJ_STEP_EVENTS_LOCAL" \
-      bash "$EXE" "$r8" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
+      # Read vz_cut_cm array for DATA vz matrix
+      local data_yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
+      mapfile -t data_vzs < <( yaml_get_values "vz_cut_cm" "$data_yaml_src" )
+      (( ${#data_vzs[@]} )) || { err "No values found for vz_cut_cm in $data_yaml_src"; exit 72; }
+      DATA_DEST_BASE_SAVED="$DEST_BASE"
+
+      for data_vz in "${data_vzs[@]}"; do
+        local dvz_tag; dvz_tag="$(sim_vz_tag "$data_vz")"
+        local yaml_vz="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${dvz_tag}_LOCAL.yaml"
+        mkdir -p "$SIM_YAML_OVERRIDE_DIR"
+        sed -E -e "s|^([[:space:]]*vz_cut_cm:).*|\\1 ${data_vz}|" "$data_yaml_src" > "$yaml_vz"
+        DEST_BASE="${DATA_DEST_BASE_SAVED}/${dvz_tag}"
+
+        say "----------------------------------------"
+        say "DATA local: vz_cut_cm=${data_vz}  tag=${dvz_tag}"
+        say "  YAML override: ${yaml_vz}"
+        say "  DEST_BASE    : ${DEST_BASE}"
+        say "Invoking wrapper locally…"
+
+        RJ_DATASET="$DATASET" RJ_VERBOSITY="$RJV" \
+        RJ_CONFIG_YAML="$yaml_vz" \
+        RJ_CRASH_BACKTRACE="$RJ_CRASH_BACKTRACE_LOCAL" \
+        RJ_F4A_VERBOSE="$RJ_F4A_VERBOSE_LOCAL" \
+        RJ_STEP_EVENTS="$RJ_STEP_EVENTS_LOCAL" \
+        bash "$EXE" "$r8" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
+        echo
+      done
     fi
     ;;
 
@@ -1062,16 +1106,19 @@ case "$ACTION" in
 
     mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
     mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
+    mapfile -t sim_vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
     (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
     (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
+    (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
 
     SIM_DEST_BASE_RESOLVED="$DEST_BASE"
 
     pt0="${sim_pts[0]}"
     frac0="${sim_fracs[0]}"
-    SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt0")_$(sim_b2b_tag "$frac0")"
+    vz0="${sim_vzs[0]}"
+    SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt0")_$(sim_b2b_tag "$frac0")_$(sim_vz_tag "$vz0")"
     DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
-    yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt0" "$frac0" "$SIM_CFG_TAG")"
+    yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt0" "$frac0" "$vz0" "$SIM_CFG_TAG")"
 
     sim_init
 
@@ -1117,8 +1164,10 @@ SUB
 
     mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
     mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
+    mapfile -t sim_vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
     (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
     (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
+    (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
 
     samples=()
     if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
@@ -1133,13 +1182,13 @@ SUB
 
     # If CHECKJOBS was also provided, do a dry-run count for the FULL condorDoAll matrix and exit.
     if [[ "${DRYRUN:-0}" -eq 1 ]]; then
-      n_cfg=$(( ${#sim_pts[@]} * ${#sim_fracs[@]} ))
+      n_cfg=$(( ${#sim_pts[@]} * ${#sim_fracs[@]} * ${#sim_vzs[@]} ))
       per_cfg_jobs=0
 
       say "CHECKJOBS (isSim condorDoAll matrix)"
       say "  YAML master         : ${master_yaml}"
       say "  groupSize (baseline): ${gs_doall}"
-      say "  cfg grid            : Npt=${#sim_pts[@]}  Nfrac=${#sim_fracs[@]}  Ncfg=${n_cfg}"
+      say "  cfg grid            : Npt=${#sim_pts[@]}  Nfrac=${#sim_fracs[@]}  Nvz=${#sim_vzs[@]}  Ncfg=${n_cfg}"
       say "  samples             : ${samples[*]}"
       echo
 
@@ -1163,9 +1212,10 @@ SUB
     need_cmd condor_submit
     for pt in "${sim_pts[@]}"; do
       for frac in "${sim_fracs[@]}"; do
-        SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")"
+        for vz in "${sim_vzs[@]}"; do
+        SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")"
         DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
-        yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$SIM_CFG_TAG")"
+        yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$SIM_CFG_TAG")"
 
         for samp in "${samples[@]}"; do
           SIM_SAMPLE="$samp"
@@ -1206,6 +1256,7 @@ SUB
           say "YAML override: ${yaml_override}"
           condor_submit "$sub"
         done
+        done
       done
     done
     ;;
@@ -1217,6 +1268,12 @@ SUB
 
   condor)
     [[ "$IS_SIM" -eq 1 ]] && { err "Use: isSim condorTest | isSim condorDoAll (not 'condor')"; exit 2; }
+
+    # Read vz_cut_cm array from YAML for DATA vz matrix
+    local data_yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
+    mapfile -t data_vzs < <( yaml_get_values "vz_cut_cm" "$data_yaml_src" )
+    (( ${#data_vzs[@]} )) || { err "No values found for vz_cut_cm in $data_yaml_src"; exit 72; }
+    DATA_DEST_BASE_SAVED="$DEST_BASE"
 
     # DATA ONLY: condor testJob | condor round <N> [firstChunk] | condor all
     submode="${3:-}"
@@ -1239,15 +1296,20 @@ SUB
         (( ${#groups[@]} )) || { err "No groups produced for run $r8"; exit 9; }
         glist="${groups[0]}"
 
-        stamp="$(date +%Y%m%d_%H%M%S)"
-        sub="${BASE}/RecoilJets_${TAG}_${stamp}_TEST.sub"
+        # Use first vz value for testJob (mirrors SIM condorTest)
+        local vz0="${data_vzs[0]}"
+        local dvz_tag; dvz_tag="$(sim_vz_tag "$vz0")"
 
-        # Snapshot YAML at submit time so idle jobs are immune to later edits
+        stamp="$(date +%Y%m%d_%H%M%S)"
+        sub="${BASE}/RecoilJets_${TAG}_${dvz_tag}_${stamp}_TEST.sub"
+
+        # Snapshot YAML at submit time, pinning vz_cut_cm to first value
         local yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
-        local yaml_snap="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${stamp}_TEST.yaml"
+        local yaml_snap="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${dvz_tag}_${stamp}_TEST.yaml"
         mkdir -p "$SIM_YAML_OVERRIDE_DIR"
-        cp -f "$yaml_src" "$yaml_snap"
-        say "YAML snapshot: ${yaml_snap}"
+        sed -E -e "s|^([[:space:]]*vz_cut_cm:).*|\\1 ${vz0}|" "$yaml_src" > "$yaml_snap"
+        say "YAML snapshot (vz=${vz0}): ${yaml_snap}"
+        DEST_BASE="${DATA_DEST_BASE_SAVED}/${dvz_tag}"
 
         cat > "$sub" <<SUB
 universe      = vanilla
@@ -1265,7 +1327,7 @@ environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=10;RJ_CONFIG_YAML=${yaml_snap
 arguments     = ${r8} ${glist} ${DATASET} \$(Cluster) 0 1 NONE ${DEST_BASE}
 queue
 SUB
-        say "Submitting 1 test job on run ${BOLD}${r8}${RST} (first chunk, groupSize=1) → $(basename "$sub")"
+        say "Submitting 1 test job on run ${BOLD}${r8}${RST} (first chunk, groupSize=1, vz=${vz0}) → $(basename "$sub")"
         condor_submit "$sub"
         ;;
       round)
@@ -1274,17 +1336,38 @@ SUB
         round_file="${ROUND_DIR}/goldenRuns_${TAG}_segment${seg}.txt"
         [[ -s "$round_file" ]] || { err "Round file not found: $round_file. Run 'splitGoldenRunList' first."; exit 8; }
 
-        # Wipe outputs only the FIRST time you submit any round (stamp-based)
-        submit_condor "$round_file" "$firstChunk" "once"
+        for data_vz in "${data_vzs[@]}"; do
+          local dvz_tag; dvz_tag="$(sim_vz_tag "$data_vz")"
+          local yaml_vz="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${dvz_tag}.yaml"
+          mkdir -p "$SIM_YAML_OVERRIDE_DIR"
+          sed -E -e "s|^([[:space:]]*vz_cut_cm:).*|\\1 ${data_vz}|" "$data_yaml_src" > "$yaml_vz"
+          export RJ_CONFIG_YAML="$yaml_vz"
+          DEST_BASE="${DATA_DEST_BASE_SAVED}/${dvz_tag}"
+
+          say "DATA condor round (vz_cut_cm=${data_vz}, tag=${dvz_tag})"
+          say "  YAML override: ${yaml_vz}"
+          say "  DEST_BASE    : ${DEST_BASE}"
+          submit_condor "$round_file" "$firstChunk" "once"
+        done
         ;;
       all|"")
-        say "Preparing CONDOR ALL submission (dataset=${DATASET}, groupSize=${GROUP_SIZE})"
-        say "This step generates per-run grouped chunk lists and a large submit file before calling condor_submit."
-        tmp_src="${ROUND_DIR}/ALL_${TAG}_$(date +%s).txt"
-        grep -E '^[0-9]+' "$GOLDEN" > "$tmp_src"
+        for data_vz in "${data_vzs[@]}"; do
+          local dvz_tag; dvz_tag="$(sim_vz_tag "$data_vz")"
+          local yaml_vz="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${dvz_tag}.yaml"
+          mkdir -p "$SIM_YAML_OVERRIDE_DIR"
+          sed -E -e "s|^([[:space:]]*vz_cut_cm:).*|\\1 ${data_vz}|" "$data_yaml_src" > "$yaml_vz"
+          export RJ_CONFIG_YAML="$yaml_vz"
+          DEST_BASE="${DATA_DEST_BASE_SAVED}/${dvz_tag}"
 
-        # Always wipe outputs before a full 'condor all' submit
-        submit_condor "$tmp_src" "" "always"
+          say "Preparing CONDOR ALL submission (dataset=${DATASET}, groupSize=${GROUP_SIZE}, vz_cut_cm=${data_vz})"
+          say "  YAML override: ${yaml_vz}"
+          say "  DEST_BASE    : ${DEST_BASE}"
+          say "This step generates per-run grouped chunk lists and a large submit file before calling condor_submit."
+          tmp_src="${ROUND_DIR}/ALL_${TAG}_${dvz_tag}_$(date +%s).txt"
+          grep -E '^[0-9]+' "$GOLDEN" > "$tmp_src"
+
+          submit_condor "$tmp_src" "" "always"
+        done
         ;;
       *)
         usage

@@ -117,13 +117,15 @@ namespace ARJ
 
         static std::set<std::string> s_doneOutDirs;
 
-          // For AuAu (no centFolder): outBase = kOutAuAuBase/<trigger>
-          //   -> dirname = kOutAuAuBase -> triggerQA lands in auau/triggerQA
-          // For AuAu (with centFolder): outBase = kOutAuAuBase/<trigger>/<cent>
-          //   -> dirname = kOutAuAuBase/<trigger> -> triggerQA lands per-trigger
-          // For PP: outBase = kOutPPBase/<trigger>
-          //   -> dirname = kOutPPBase -> triggerQA lands in pp/triggerQA
-        const std::string baseDir = DirnameFromPath(ds.outBase);
+        // For AuAu (no centFolder): outBase = kOutAuAuBase/<trigger>
+        //   -> dirname = kOutAuAuBase -> triggerQA lands in auau/triggerQA
+        // For AuAu (with centFolder): outBase = kOutAuAuBase/<trigger>/<cent>
+        //   -> dirname(dirname) = kOutAuAuBase -> triggerQA lands in auau/triggerQA
+        // For PP: outBase = kOutPPBase/<trigger>
+        //   -> dirname = kOutPPBase -> triggerQA lands in pp/triggerQA
+        const std::string baseDir = ds.centFolder.empty()
+                                                ? DirnameFromPath(ds.outBase)
+                                                : DirnameFromPath(DirnameFromPath(ds.outBase));
         const std::string outDir  = JoinPath(baseDir, "triggerQA");
 
         if (s_doneOutDirs.count(outDir)) return;
@@ -649,7 +651,7 @@ namespace ARJ
           delete hRatio;
         };
 
-        auto drawGroupTurnOnOverlay = [&](const std::vector<LoadedPair>& loaded, const std::string& groupOutDir)
+        auto drawGroupTurnOnOverlay = [&](const std::vector<LoadedPair>& loaded, const std::string& groupOutDir, const std::string& filenameTag = "")
         {
           std::vector<TH1*> ratioHists;
           std::vector<double> x95s;
@@ -737,10 +739,10 @@ namespace ARJ
           l95.SetLineColor(kGray+2);
           l95.Draw("SAME");
 
-          TLegend leg(0.33, 0.25, 0.86, 0.52);
+          TLegend leg(0.35, 0.3, 0.79, 0.45);
           leg.SetBorderSize(0);
           leg.SetFillStyle(0);
-          leg.SetTextSize(0.023);
+          leg.SetTextSize(0.024);
           for (std::size_t i = 0; i < loaded.size() && i < ratioHists.size(); ++i)
           {
             if (x95s[i] > 0.0)
@@ -769,14 +771,118 @@ namespace ARJ
             tDS.DrawLatex(0.93, 0.97, isAuAuOnly ? "AuAu" : (isRun25pp ? "Run25pp" : "Run24pp"));
           }
 
-          const std::string outPng = JoinPath(groupOutDir, "hMaxClusterEnergy_groupTurnOnOverlay.png");
+          const std::string outPng = JoinPath(groupOutDir, "hMaxClusterEnergy_groupTurnOnOverlay" + filenameTag + ".png");
           SaveCanvas(c, outPng);
           cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";
 
-          for (auto* h : ratioHists) delete h;
-        };
+            for (auto* h : ratioHists) delete h;
+          };
 
-        std::set<std::string> writtenGroups;
+          auto drawGroupMaxClusterOverlay = [&](const std::vector<LoadedPair>& loaded, const std::string& groupOutDir, const std::string& filenameTag = "")
+          {
+            if (loaded.empty()) return;
+
+            std::vector<TH1*> probeHists;
+            TH1* hBaseGroup = nullptr;
+
+            for (const auto& P : loaded)
+            {
+              TH1* hB = CloneTH1(P.hBase,  TString::Format("hBase_groupOverlay_%s",  P.probeKey.c_str()).Data());
+              TH1* hP = CloneTH1(P.hProbe, TString::Format("hProbe_groupOverlay_%s", P.probeKey.c_str()).Data());
+              if (!hB || !hP)
+              {
+                if (hB) delete hB;
+                if (hP) delete hP;
+                continue;
+              }
+              if (!hBaseGroup) { hBaseGroup = hB; }
+              else             { delete hB; }
+              hP->SetLineColor(colorForProbe(P.probeKey));
+              hP->SetLineWidth(4);
+              probeHists.push_back(hP);
+            }
+
+            if (!hBaseGroup || probeHists.empty())
+            {
+              if (hBaseGroup) delete hBaseGroup;
+              for (auto* h : probeHists) delete h;
+              return;
+            }
+
+            double ymax = hBaseGroup->GetMaximum();
+            for (auto* h : probeHists) ymax = std::max(ymax, h->GetMaximum());
+
+            double minPos = SmallestPositiveBinContent(hBaseGroup);
+            for (auto* h : probeHists)
+            {
+              const double m = SmallestPositiveBinContent(h);
+              if (m > 0.0) { if (minPos > 0.0) minPos = std::min(minPos, m); else minPos = m; }
+            }
+
+            TCanvas c(TString::Format("c_trigAna_groupOverlay_%s", loaded.front().groupFolder.c_str()).Data(),
+                      TString::Format("c_trigAna_groupOverlay_%s", loaded.front().groupFolder.c_str()).Data(),
+                      900, 700);
+            c.cd();
+            c.SetLeftMargin(0.14);
+            c.SetRightMargin(0.05);
+            c.SetBottomMargin(0.14);
+            c.SetTopMargin(0.08);
+            c.SetTicks(1,1);
+            c.SetLogy();
+
+            hBaseGroup->SetTitle("");
+            hBaseGroup->GetXaxis()->SetTitle("Maximum Cluster Energy [GeV]");
+            hBaseGroup->GetYaxis()->SetTitle("Counts");
+            hBaseGroup->GetXaxis()->SetTitleSize(0.055);
+            hBaseGroup->GetXaxis()->SetTitleOffset(1.05);
+            hBaseGroup->GetXaxis()->SetLabelSize(0.045);
+            hBaseGroup->GetYaxis()->SetTitleSize(0.055);
+            hBaseGroup->GetYaxis()->SetTitleOffset(1.20);
+            hBaseGroup->GetYaxis()->SetLabelSize(0.045);
+            hBaseGroup->GetXaxis()->SetRangeUser(0.0, 20.0);
+            hBaseGroup->SetMinimum((minPos > 0.0) ? (0.5 * minPos) : 1e-6);
+            hBaseGroup->SetMaximum((ymax  > 0.0) ? (1.25 * ymax)  : 1.0);
+            hBaseGroup->SetLineColor(kBlack);
+            hBaseGroup->SetLineWidth(4);
+            hBaseGroup->Draw("HIST");
+
+            for (auto* h : probeHists) h->Draw("HIST SAME");
+
+              TLegend leg(0.4, 0.68, 0.95, 0.86);
+              leg.SetBorderSize(0);
+              leg.SetFillStyle(0);
+              leg.SetTextSize(0.028);
+              {
+                std::string baseLbl = loaded.front().baselineLabel;
+                auto replGeq = [](std::string s) -> std::string {
+                  std::size_t p = 0;
+                  while ((p = s.find(">=", p)) != std::string::npos) { s.replace(p, 2, "#geq"); p += 4; }
+                  return s;
+                };
+                leg.AddEntry(hBaseGroup, replGeq(baseLbl).c_str(), "l");
+                for (std::size_t i = 0; i < loaded.size() && i < probeHists.size(); ++i)
+                  leg.AddEntry(probeHists[i], replGeq(loaded[i].probeLabel).c_str(), "l");
+              }
+              leg.Draw();
+
+            {
+              TLatex tDS;
+              tDS.SetNDC(true);
+              tDS.SetTextFont(42);
+              tDS.SetTextAlign(33);
+              tDS.SetTextSize(0.045);
+              tDS.DrawLatex(0.93, 0.97, isAuAuOnly ? "AuAu" : (isRun25pp ? "Run25pp" : "Run24pp"));
+            }
+
+            const std::string outPng = JoinPath(groupOutDir, "hMaxClusterEnergy_groupOverlay" + filenameTag + ".png");
+            SaveCanvas(c, outPng);
+            cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";
+
+            delete hBaseGroup;
+            for (auto* h : probeHists) delete h;
+          };
+
+          std::set<std::string> writtenGroups;
         for (const auto& folder : groupOrder)
         {
           auto it = groups.find(folder);
@@ -815,9 +921,37 @@ namespace ARJ
             ).Data());
           }
 
-          drawGroupTurnOnOverlay(it->second, groupOutDir);
-          WriteTextFile(JoinPath(groupOutDir, "summary.txt"), summary);
+          if (isAuAuOnly && folder == "commonBasis_MBD_NS_geq_2_vtx_lt_150")
+          {
+            std::vector<LoadedPair> filteredAuAu;
+            for (const auto& P : it->second)
+            {
+              const int thr = extractPhotonThresholdGeV(P.probeKey);
+              if (thr == 10 || thr == 12) filteredAuAu.push_back(P);
+            }
+            if (!filteredAuAu.empty())
+            {
+              drawGroupMaxClusterOverlay(filteredAuAu, groupOutDir, "");
+              drawGroupTurnOnOverlay(filteredAuAu, groupOutDir, "");
+            }
 
+            std::vector<LoadedPair> filtered6_8;
+            for (const auto& P : it->second)
+            {
+              const int thr = extractPhotonThresholdGeV(P.probeKey);
+              if (thr == 6 || thr == 8) filtered6_8.push_back(P);
+            }
+            if (!filtered6_8.empty())
+            {
+              drawGroupMaxClusterOverlay(filtered6_8, groupOutDir, "_photon6_8");
+              drawGroupTurnOnOverlay(filtered6_8, groupOutDir, "_photon6_8");
+            }
+          }
+          else
+          {
+            drawGroupTurnOnOverlay(it->second, groupOutDir, "");
+          }
+          WriteTextFile(JoinPath(groupOutDir, "summary.txt"), summary);
           indexLines.push_back(folder + " -> " + it->second.front().basisLabel);
           for (const auto& P : it->second)
           {
@@ -867,7 +1001,36 @@ namespace ARJ
             ).Data());
           }
 
-          drawGroupTurnOnOverlay(kv.second, groupOutDir);
+            if (isAuAuOnly && kv.first == "commonBasis_MBD_NS_geq_2_vtx_lt_150")
+            {
+              std::vector<LoadedPair> filteredAuAu;
+              for (const auto& P : kv.second)
+              {
+                const int thr = extractPhotonThresholdGeV(P.probeKey);
+                if (thr == 10 || thr == 12) filteredAuAu.push_back(P);
+              }
+              if (!filteredAuAu.empty())
+              {
+                drawGroupMaxClusterOverlay(filteredAuAu, groupOutDir, "");
+                drawGroupTurnOnOverlay(filteredAuAu, groupOutDir, "");
+              }
+
+              std::vector<LoadedPair> filtered6_8;
+              for (const auto& P : kv.second)
+              {
+                const int thr = extractPhotonThresholdGeV(P.probeKey);
+                if (thr == 6 || thr == 8) filtered6_8.push_back(P);
+              }
+              if (!filtered6_8.empty())
+              {
+                drawGroupMaxClusterOverlay(filtered6_8, groupOutDir, "_photon6_8");
+                drawGroupTurnOnOverlay(filtered6_8, groupOutDir, "_photon6_8");
+              }
+            }
+            else
+            {
+              drawGroupTurnOnOverlay(kv.second, groupOutDir, "");
+          }
           WriteTextFile(JoinPath(groupOutDir, "summary.txt"), summary);
 
           indexLines.push_back(kv.first + " -> " + kv.second.front().basisLabel);
@@ -885,7 +1048,7 @@ namespace ARJ
 
           WriteTextFile(JoinPath(outDir, "summary_triggerQA_doNotScale.txt"), indexLines);
 
-          // -------------------------------------------------------------------
+        // -------------------------------------------------------------------
         // NEW: Run24pp vs Run25pp 95% efficiency turn-on point overlay
         //
         // For each of the two common-basis groups:
@@ -1098,8 +1261,7 @@ namespace ARJ
             }
 
             if (f24) { f24->Close(); delete f24; }
-                        if (f25) { f25->Close(); delete f25; }
-            }
+            if (f25) { f25->Close(); delete f25; }
           } // end !isAuAuOnly guard
         }
 

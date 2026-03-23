@@ -234,6 +234,18 @@ sim_b2b_file_tag() {
   fi
 }
 
+sim_vz_tag() {
+  local vz="$1"
+  if [[ "$vz" =~ ^([0-9]+)\.0+$ ]]; then
+    echo "vz${BASH_REMATCH[1]}"
+  else
+    local s="$vz"
+    s="${s//./p}"
+    s="${s//-/m}"
+    echo "vz${s}"
+  fi
+}
+
 to_tag() {
   case "${1:-}" in
     pp|PP|isPP|PP_DATA|pp_data)   echo "pp" ;;
@@ -591,12 +603,15 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simm
   if [[ "${RJ_SIM_FORCE_SWEEP:-0}" == "1" ]]; then
     sim_pts=( "3.0" "5.0" "10.0" )
     sim_fracs=( "0.5" "0.875" )
-    say "RJ_SIM_FORCE_SWEEP=1 → forcing SIM sweep grid: jet_pt_min=[${sim_pts[*]}], back_to_back_pi_fraction=[${sim_fracs[*]}]"
+    sim_vzs=( "30.0" )
+    say "RJ_SIM_FORCE_SWEEP=1 → forcing SIM sweep grid: jet_pt_min=[${sim_pts[*]}], back_to_back_pi_fraction=[${sim_fracs[*]}], vz_cut_cm=[${sim_vzs[*]}]"
   else
     mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
     mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
+    mapfile -t sim_vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
     (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
     (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
+    (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
   fi
 
   samples=()
@@ -622,15 +637,16 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simm
 
   for pt in "${sim_pts[@]}"; do
     for frac in "${sim_fracs[@]}"; do
-      cfg_dir_tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_dir_tag "$frac")"
-      cfg_file_tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_file_tag "$frac")"
+      for vz in "${sim_vzs[@]}"; do
+      cfg_dir_tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_dir_tag "$frac")_$(sim_vz_tag "$vz")"
+      cfg_file_tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_file_tag "$frac")_$(sim_vz_tag "$vz")"
 
       COMBO_INPUT_BASE="${SIM_INPUT_BASE}/${cfg_dir_tag}"
       DEST_DIR="${OUT_BASE}/${SIM_OUTPUT_TAG}/${cfg_dir_tag}"
       mkdir -p "$DEST_DIR" "$LOG_DIR" "$OUT_DIR" "$ERR_DIR" "$TMP_DIR"
 
       say "-----------------------------"
-      say "SIM config: jet_pt_min=${pt}, back_to_back_pi_fraction=${frac}"
+      say "SIM config: jet_pt_min=${pt}, back_to_back_pi_fraction=${frac}, vz_cut_cm=${vz}"
       say "  cfgDir  : ${cfg_dir_tag}"
       say "  cfgFile : ${cfg_file_tag}"
       say "  Input   : ${COMBO_INPUT_BASE}"
@@ -809,12 +825,13 @@ EOT
 
         echo
       done
+      done
     done
   done
 
   if [[ "$SIM_ACTION" == "secondRound" ]]; then
     say "====================================================================="
-    say "SecondRound outputs (final files), grouped by cfg tag (jetMinPt + back-to-back):"
+    say "SecondRound outputs (final files), grouped by cfg tag (jetMinPt + back-to-back + vz):"
 
     declare -A group_to_paths
     declare -a group_keys

@@ -15,6 +15,7 @@
 #include <TMath.h>
 #include <TH2Poly.h>
 #include <TKey.h>
+#include <TObjString.h>
 #include <CLHEP/Vector/ThreeVector.h>
 #include <cdbobjects/CDBTTree.h>
 #include <ffamodules/CDBInterface.h>
@@ -2666,6 +2667,14 @@ int RecoilJets::End(PHCompositeNode*)
         out->cd();
         m_evtDiagTree->Write("", TObject::kOverwrite);
       }
+
+    if (!m_analysisConfigYAMLText.empty())
+    {
+      out->cd();
+      TObjString yamlObj(m_analysisConfigYAMLText.c_str());
+      yamlObj.Write("analysis_config_yaml", TObject::kOverwrite);
+      m_analysisConfigStamped = true;
+    }
 
     try
     {
