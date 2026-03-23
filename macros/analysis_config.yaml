@@ -39,7 +39,7 @@ jet_pt_min: [5.0]
 # The steering macro builds reco jets (and SIM truth jets) for each radius.
 # RecoilJets processes only the radii listed here.
 # Baseline: r02 + r04 + r06
-jet_radii: [0.2, 0.4, 0.6]
+jet_radii: [0.2, 0.4]
 
 # Back-to-back azimuthal cut as a fraction of π.
 #   0.5   → Δφ > π/2
@@ -53,7 +53,7 @@ back_to_back_dphi_min_pi_fraction: [0.875]
 use_vz_cut: true
 
 # MATRIX AXIS: one job per vz_cut_cm value.
-vz_cut_cm: [30.0, 60.0]
+vz_cut_cm: [30.0]
 
 # -----------------------------------------------------------------------------
 # Centrality binning (AuAu only; ignored for pp/SIM)
@@ -140,10 +140,10 @@ isSlidingIso: false
 isSlidingAndFixed: false
 
 # MATRIX AXIS: one job per fixedGeV value (when isSlidingIso is false).
-fixedGeV: [2.0, 4.0, 8.0]
+fixedGeV: [4.0, 8.0]
 
 # MATRIX AXIS: isolation cone radius.
-coneR: [0.30]
+coneR: [0.40]
 
 # Sliding WP parameters (used when isSlidingIso is true):
 #   thrReco = aGeV + bPerGeV × pT(γ)

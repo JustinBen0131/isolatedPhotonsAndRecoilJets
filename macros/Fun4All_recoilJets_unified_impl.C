@@ -2082,33 +2082,27 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 
           se->registerSubsystem(jreco);
 
-          if (radKey != "r06")
-          {
-            auto* jcal = new JetCalib(std::string("JetCalib_AuAuSub_") + radKey);
-            jcal->set_InputNode(rawNode);
-            jcal->set_OutputNode(calibNode);
-            jcal->set_JetRadius(R);
-            jcal->set_ZvrtxNode("GlobalVertexMap");
-            jcal->set_ApplyZvrtxDependentCalib(true);
-            jcal->set_ApplyEtaDependentCalib(true);
-            jcal->Verbosity(jetcalV);
-            se->registerSubsystem(jcal);
+            {
+              auto* jcal = new JetCalib(std::string("JetCalib_AuAuSub_") + radKey);
+              jcal->set_InputNode(rawNode);
+              jcal->set_OutputNode(calibNode);
+              jcal->set_JetRadius(R);
+              jcal->set_ZvrtxNode("GlobalVertexMap");
+              jcal->set_ApplyZvrtxDependentCalib(true);
+              jcal->set_ApplyEtaDependentCalib(true);
+              jcal->Verbosity(jetcalV);
+              se->registerSubsystem(jcal);
 
-            auto* probe = new JetCalibOneEventProbe(std::string("JetCalibOneEventProbe_AuAuSub_") + radKey,
-                                                   rawNode,
-                                                   calibNode,
-                                                   /*maxJetsToPrint=*/12);
-            probe->Verbosity(vlevel);
-            se->registerSubsystem(probe);
+              auto* probe = new JetCalibOneEventProbe(std::string("JetCalibOneEventProbe_AuAuSub_") + radKey,
+                                                     rawNode,
+                                                     calibNode,
+                                                     /*maxJetsToPrint=*/12);
+              probe->Verbosity(vlevel);
+              se->registerSubsystem(probe);
 
-            if (vlevel > 0)
-              std::cout << "[INFO] (AuAu) reco jets: built " << rawNode << " -> " << calibNode << " (R=" << R << ") from SUB1 towers with JetCalib\n";
-          }
-          else
-          {
-            if (vlevel > 0)
-              std::cout << "[INFO] (AuAu) reco jets: built " << rawNode << " (R=" << R << ") from SUB1 towers; skipping JetCalib for " << radKey << "\n";
-          }
+              if (vlevel > 0)
+                std::cout << "[INFO] (AuAu) reco jets: built " << rawNode << " -> " << calibNode << " (R=" << R << ") from SUB1 towers with JetCalib\n";
+            }
         }
     }
     else

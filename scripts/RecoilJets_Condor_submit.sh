@@ -802,17 +802,21 @@ check_jobs_all() {
   echo
 
   say "${BOLD}Full cfg tag list (${n_matrix} entries):${RST}"
+  echo
+  printf "  ${BOLD}%3s │ %-55s │ %-7s %-7s %-18s %-12s${RST}\n" \
+         "#" "cfg_tag" "vz" "cone" "iso" "uepipe"
+  printf "  ────┼─────────────────────────────────────────────────────────┼─────── ─────── ────────────────── ────────────\n"
   local cfg_num=0
   for _vz in "${ck_vzs[@]}"; do
     for _cone in "${ck_cones[@]}"; do
     for (( _ci=0; _ci<${#iso_tags[@]}; _ci++ )); do
     for _ue in "${uepipe_modes[@]}"; do
-      (( cfg_num++ ))
+      (( ++cfg_num ))
       local _dvz; _dvz="$(sim_vz_tag "$_vz")"
       local _dcone; _dcone="$(sim_cone_tag "$_cone")"
       local _tag="${_dvz}_${_dcone}_${iso_tags[$_ci]}"
       (( uepipe_in_tag )) && _tag="${_tag}_${_ue}"
-      printf "  ${DIM}%3d${RST} │ %-55s │ vz=%-5s cone=%-5s iso=%-16s uepipe=%-12s\n" \
+      printf "  %3d │ %-55s │ %-7s %-7s %-18s %-12s\n" \
              "$cfg_num" "$_tag" "$_vz" "$_cone" "${iso_tags[$_ci]}" "$_ue"
     done
     done
@@ -820,12 +824,35 @@ check_jobs_all() {
   done
   echo
 
-  say "${BOLD}Job count summary:${RST}"
+  say "${BOLD}Job count summary (groupSize=${gs}):${RST}"
   say "  matrix combos          : ${n_matrix}"
   say "  base jobs per combo    : ${base_jobs}"
   say "  ─────────────────────────────────"
   say "  ${BOLD}TOTAL CONDOR JOBS        : ${total_jobs}${RST}"
   echo
+
+  # groupSize sensitivity table
+  say "${BOLD}groupSize sensitivity (total Condor jobs submitted):${RST}"
+  echo
+  printf "  ${BOLD}%-12s │ %-14s${RST}\n" "groupSize" "TOTAL JOBS"
+  printf "  ─────────────┼───────────────\n"
+  for _gs_try in 4 6 7 8 10; do
+    local _bj=0
+    while IFS= read -r _rn; do
+      [[ -z "$_rn" || "$_rn" =~ ^# ]] && continue
+      local _r8t; _r8t="$(run8 "$_rn")"
+      local _lft="${LIST_DIR}/${LIST_PREFIX}-${_r8t}.list"
+      [[ -s "$_lft" ]] || continue
+      local _nft; _nft=$(wc -l < "$_lft" | awk '{print $1}')
+      _bj=$(( _bj + $( ceil_div "$_nft" "$_gs_try" ) ))
+    done < "$GOLDEN"
+    local _tj=$(( n_matrix * _bj ))
+    local _marker=""
+    [[ "$_gs_try" -eq "$gs" ]] && _marker=" ${BOLD}← current${RST}"
+    printf "  %-12s │ %14s%s\n" "$_gs_try" "$_tj" "$_marker"
+  done
+  echo
+
   say "Output tree: ${DEST_BASE}/<cfg_tag>/<run8>/*.root"
   local _ex_tag="$(sim_vz_tag "${ck_vzs[0]}")_$(sim_cone_tag "${ck_cones[0]}")_${iso_tags[0]}"
   (( uepipe_in_tag )) && _ex_tag="${_ex_tag}_${uepipe_modes[0]}"
