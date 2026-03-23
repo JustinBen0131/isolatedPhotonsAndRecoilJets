@@ -1318,22 +1318,55 @@ SUB
       say "CHECKJOBS (isSim condorDoAll matrix)"
       say "  YAML master         : ${master_yaml}"
       say "  groupSize (baseline): ${gs_doall}"
-      say "  cfg grid            : Npt=${#sim_pts[@]}  Nfrac=${#sim_fracs[@]}  Nvz=${#sim_vzs[@]}  Ncone=${#sim_cones[@]}  Ncfg=${n_cfg}"
-      say "  samples             : ${samples[*]}"
+      echo
+      say "${BOLD}Matrix dimensions:${RST}"
+      say "  jet_pt_min                       : [${sim_pts[*]}]  (${#sim_pts[@]} values)"
+      say "  back_to_back_dphi_min_pi_fraction: [${sim_fracs[*]}]  (${#sim_fracs[@]} values)"
+      say "  vz_cut_cm                        : [${sim_vzs[*]}]  (${#sim_vzs[@]} values)"
+      say "  coneR                            : [${sim_cones[*]}]  (${#sim_cones[@]} values)"
+      say "  iso modes                        : [${iso_tags[*]}]  (${#iso_tags[@]} values)"
+      say "  cfg combos (product)             : ${BOLD}${n_cfg}${RST}"
+      say "  samples                          : [${samples[*]}]  (${#samples[@]} values)"
       echo
 
+      say "${BOLD}Per-sample input file counts:${RST}"
       for samp in "${samples[@]}"; do
         SIM_SAMPLE="$samp"
         sim_init
         nfiles=$(wc -l < "$SIM_CLEAN_LIST" | awk '{print $1}')
         njobs=$(ceil_div "$nfiles" "$gs_doall")
-        say "  sample=${SIM_SAMPLE}  input_files=${nfiles}  jobs_per_cfg=${njobs}"
+        say "  sample=${BOLD}${SIM_SAMPLE}${RST}  input_files=${nfiles}  jobs_per_cfg=${njobs}"
         per_cfg_jobs=$(( per_cfg_jobs + njobs ))
       done
+      echo
+
+      say "${BOLD}Full cfg tag list (${n_cfg} entries × ${#samples[@]} samples = ${BOLD}$((n_cfg * ${#samples[@]}))${RST} submit blocks):${RST}"
+      cfg_num=0
+      for pt in "${sim_pts[@]}"; do
+        for frac in "${sim_fracs[@]}"; do
+          for vz in "${sim_vzs[@]}"; do
+          for cone in "${sim_cones[@]}"; do
+          for (( _ci=0; _ci<${#iso_tags[@]}; _ci++ )); do
+            (( cfg_num+=1 ))
+            _tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso_tags[$_ci]}"
+            printf "  ${DIM}%3d${RST} │ %-70s │ pt=%-5s frac=%-6s vz=%-5s cone=%-5s iso=%-16s\n" \
+                   "$cfg_num" "$_tag" "$pt" "$frac" "$vz" "$cone" "${iso_tags[$_ci]}"
+          done
+          done
+          done
+        done
+      done
+      echo
 
       total_jobs=$(( n_cfg * per_cfg_jobs ))
+      say "${BOLD}Job count summary:${RST}"
+      say "  cfg combos             : ${n_cfg}"
+      say "  jobs per combo (Σsamp) : ${per_cfg_jobs}"
+      say "  ─────────────────────────────────"
+      say "  ${BOLD}TOTAL CONDOR JOBS        : ${BOLD}${total_jobs}${RST}"
       echo
-      say "TOTAL jobs that baseline 'isSim condorDoAll' would submit (without CHECKJOBS): ${BOLD}${total_jobs}${RST}"
+      say "Output tree: each tag becomes a subdirectory under ${DEST_BASE}/"
+      say "  e.g. ${DIM}${DEST_BASE}/jetMinPt5_7pi_8_vz30_isoR30_fixedIso2GeV/<sample>/*.root${RST}"
       exit 0
     fi
 
