@@ -417,7 +417,7 @@ read_uepipe_modes() {
       case "$v" in
         true|1)  cleaned+=( "variantA" ) ;;
         false|0) cleaned+=( "noSub" ) ;;
-        noSub|baseVariant|variantA) cleaned+=( "$v" ) ;;
+        noSub|baseVariant|variantA|variantB) cleaned+=( "$v" ) ;;
         *) err "Unknown clusterUEpipeline value '$v'"; exit 73 ;;
       esac
     done

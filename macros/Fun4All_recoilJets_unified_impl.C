@@ -584,10 +584,10 @@ namespace yamlcfg
             cfg.clusterUEpipeline = "variantA";
           else if (rhs == "false" || rhs == "0")
             cfg.clusterUEpipeline = "noSub";
-          else if (rhs == "noSub" || rhs == "baseVariant" || rhs == "variantA")
+          else if (rhs == "noSub" || rhs == "baseVariant" || rhs == "variantA" || rhs == "variantB")
             cfg.clusterUEpipeline = rhs;
           else
-            warn_parse("clusterUEpipeline", rhs, "expected noSub|baseVariant|variantA (or true/false for compat)");
+            warn_parse("clusterUEpipeline", rhs, "expected noSub|baseVariant|variantA|variantB (or true/false for compat)");
         }
         else if (StartsWithKey(line, "doPi0Analysis"))
         {
@@ -1395,6 +1395,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
       if (s == "0" || s == "false" || s == "noSub") cfg.clusterUEpipeline = "noSub";
       else if (s == "1" || s == "true" || s == "variantA") cfg.clusterUEpipeline = "variantA";
       else if (s == "baseVariant") cfg.clusterUEpipeline = "baseVariant";
+      else if (s == "variantB") cfg.clusterUEpipeline = "variantB";
       else cfg.clusterUEpipeline = s;  // pass through unknown for diagnostics
     }
 
@@ -2301,6 +2302,11 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         {
         }
 
+        void setDoSeedExclusion(bool v) { m_doSeedExclusion = v; }
+        void setSeedJetNode(const std::string& n) { m_seedJetNode = n; }
+        void setSeedMinPt(float v) { m_seedMinPt = v; }
+        void setExclusionDR(float v) { m_exclusionDR = v; }
+
         int InitRun(PHCompositeNode* topNode) override
         {
           auto* src = findNode::getClass<TowerInfoContainer>(topNode, m_inputNode);
@@ -2351,6 +2357,32 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         }
 
         ++m_evt;
+
+        // --- variantB: build seed-exclusion mask from coresoftware's refined seed jets ---
+        std::vector<std::pair<float,float>> seedPositions;  // (eta, phi)
+        RawTowerGeomContainer* geomCEMC_excl = nullptr;
+        float exclusionDR2 = m_exclusionDR * m_exclusionDR;
+        if (m_doSeedExclusion)
+        {
+            geomCEMC_excl = findNode::getClass<RawTowerGeomContainer>(topNode, "TOWERGEOM_CEMC");
+            auto* seeds = findNode::getClass<JetContainer>(topNode, m_seedJetNode);
+            if (seeds && geomCEMC_excl)
+            {
+              for (auto* jet : *seeds)
+              {
+                if (!jet) continue;
+                if (jet->get_pt() < m_seedMinPt) continue;
+                seedPositions.emplace_back(jet->get_eta(), jet->get_phi());
+              }
+            }
+            if (Verbosity() > 0)
+            {
+              std::cout << "[" << Name() << "] evt=" << m_evt
+                        << " seedExclusion: " << seedPositions.size()
+                        << " seeds above " << m_seedMinPt << " GeV from " << m_seedJetNode
+                        << " (DR=" << m_exclusionDR << ")" << std::endl;
+            }
+        }
 
         std::vector<double> stripSum;
         std::vector<unsigned int> stripCount;
@@ -2405,8 +2437,32 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
           ++nSrcFiniteGood;
           if (energy > 0.0f) ++nSrcPositiveGood;
 
-          stripSum.at(static_cast<std::size_t>(ieta)) += energy;
-          stripCount.at(static_cast<std::size_t>(ieta)) += 1U;
+          // variantB: skip towers within exclusion cone of any seed jet
+          if (m_doSeedExclusion && !seedPositions.empty() && geomCEMC_excl)
+          {
+              const int iphi = src->getTowerPhiBin(towerkey);
+              const RawTowerDefs::keytype gkey = RawTowerDefs::encode_towerid(
+                  RawTowerDefs::CalorimeterId::CEMC, ieta, iphi);
+              RawTowerGeom* tg = geomCEMC_excl->get_tower_geometry(gkey);
+              if (tg)
+              {
+                const float tEta = tg->get_eta();
+                const float tPhi = tg->get_phi();
+                bool masked = false;
+                for (const auto& sp : seedPositions)
+                {
+                  float deta = tEta - sp.first;
+                  float dphi = tPhi - sp.second;
+                  while (dphi >  M_PI) dphi -= 2.0f * M_PI;
+                  while (dphi < -M_PI) dphi += 2.0f * M_PI;
+                  if (deta * deta + dphi * dphi < exclusionDR2) { masked = true; break; }
+                }
+                if (masked) continue;
+              }
+            }
+
+            stripSum.at(static_cast<std::size_t>(ieta)) += energy;
+            stripCount.at(static_cast<std::size_t>(ieta)) += 1U;
         }
 
         stripMeanCache.resize(stripSum.size(), 0.0);
@@ -2567,6 +2623,10 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
        std::string m_outputNode;
        TowerInfoContainer* m_output{nullptr};
        int m_evt{0};
+       bool m_doSeedExclusion{false};
+       std::string m_seedJetNode{"AntiKt_TowerInfo_HIRecoSeedsSub_r02"};
+       float m_seedMinPt{5.0f};
+       float m_exclusionDR{0.4f};
     };
 
   class TowerInfoCanonicalRebaser final : public SubsysReco
@@ -2694,6 +2754,53 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                         << std::endl;
             }
     }
+    else if (cfg.clusterUEpipeline == "variantB" && isAuAuData)
+    {
+            const std::string nativeCemcNode = towerPrefixPCB + "_CEMC_PHOSUB";
+
+            int nativeUEV = 0;
+            if (const char* env = std::getenv("RJ_HIUE_VERBOSITY")) nativeUEV = std::atoi(env);
+
+            auto* nativeSub = new NativeCEMCUESubtractor("NativeCEMCUESubtractor_B",
+                                                         towerPrefixPCB + "_CEMC",
+                                                         nativeCemcNode);
+            nativeSub->setDoSeedExclusion(true);
+            nativeSub->setSeedJetNode("AntiKt_TowerInfo_HIRecoSeedsSub_r02");
+            nativeSub->setSeedMinPt(5.0f);
+            nativeSub->setExclusionDR(0.4f);
+            nativeSub->Verbosity(nativeUEV);
+            se->registerSubsystem(nativeSub);
+
+            // Recluster from seed-masked UE-subtracted PHOSUB towers
+            {
+                auto* phoSubClusterBuilder = new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate_PHOSUB");
+                phoSubClusterBuilder->Detector("CEMC");
+                phoSubClusterBuilder->set_threshold_energy(0.070);
+                const char* _calibroot = std::getenv("CALIBRATIONROOT");
+                if (_calibroot && std::string(_calibroot).size())
+                {
+                  std::string emc_prof_phosub = std::string(_calibroot) + "/EmcProfile/CEMCprof_Thresh30MeV.root";
+                  phoSubClusterBuilder->LoadProfile(emc_prof_phosub);
+                }
+                phoSubClusterBuilder->set_UseTowerInfo(1);
+                phoSubClusterBuilder->set_UseAltZVertex(1);
+                phoSubClusterBuilder->setInputTowerNodeName(nativeCemcNode);
+                phoSubClusterBuilder->setOutputClusterNodeName("CLUSTERINFO_CEMC_PHOSUB");
+                phoSubClusterBuilder->Verbosity(nativeUEV);
+                se->registerSubsystem(phoSubClusterBuilder);
+            }
+
+            photonInputClusterNode = "CLUSTERINFO_CEMC_PHOSUB";
+
+            if (vlevel > 0)
+            {
+              std::cout << "[clusterUEpipeline=variantB] enabled for AuAu"
+                        << " | nativeCemcNode=" << nativeCemcNode
+                        << " | seed exclusion: DR=0.4 from HIRecoSeedsSub_r02 (pt>5 GeV)"
+                        << " | photonInputClusterNode=" << photonInputClusterNode
+                        << std::endl;
+            }
+    }
     else if (cfg.clusterUEpipeline == "baseVariant" && isAuAuData)
     {
             photonBuilderIsAuAu = true;
@@ -2715,7 +2822,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
           photonBuilder->set_vz_cut_cm(cfg.vz_cut_cm);
 
           photonBuilder->set_is_auau(photonBuilderIsAuAu);
-          if (cfg.clusterUEpipeline == "variantA" && isAuAuData)
+          if ((cfg.clusterUEpipeline == "variantA" || cfg.clusterUEpipeline == "variantB") && isAuAuData)
           {
             photonBuilder->set_emc_tower_node(towerPrefixPCB + "_CEMC_PHOSUB");
             photonBuilder->set_ihcal_tower_node(towerPrefixPCB + "_HCALIN_SUB1");
