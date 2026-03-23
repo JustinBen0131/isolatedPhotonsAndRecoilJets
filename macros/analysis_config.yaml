@@ -1,123 +1,204 @@
 # =============================================================================
-# analysis_config.yaml  (Phase-1 YAML "global knob" consolidation)
+# analysis_config.yaml
+# =============================================================================
 #
-# CONTRACT
-#   YAML -> Fun4All_recoilJets.C (parse/validate/print) -> RecoilJets setters
-#       -> RecoilJets analysis (NO YAML parsing) -> ROOT output stamped once
-#       -> mergeRecoilJets.sh re-reads YAML to tag FINAL merged filename.
+# Master configuration for the sPHENIX recoil-jet (γ+jet) analysis pipeline.
 #
-# BASELINE / ZERO-REGRESSION GUARANTEE
-#   The values below are initialized to match the CURRENT hard-coded defaults
-#   in your attached source files. With these baseline values, all histograms
-#   (names, binning, fills, conditions, directory structure) MUST remain
-#   identical to the current behavior for BOTH SIM and DATA.
+# DATA FLOW
+#   1. RecoilJets_Condor_submit.sh reads this file to build the matrix of
+#      job configurations. For each matrix cell it produces a per-job YAML
+#      override with array keys replaced by scalar values.
+#   2. Fun4All_recoilJets_unified_impl.C parses the (scalar) per-job YAML,
+#      validates it, prints a summary, and passes values to RecoilJets via
+#      setter calls. No YAML parsing happens inside RecoilJets itself.
+#   3. The full per-job YAML text is stamped into each output ROOT file as
+#      a TObjString ("analysis_config_yaml") for provenance.
+#   4. mergeRecoilJets.sh extracts that stamped YAML from ROOT files to
+#      derive the cfg tag for naming merged outputs — no re-read of this
+#      master file is needed at merge time.
+#
+# MATRIX DIMENSIONS
+#   The submit script loops over the Cartesian product of all array-valued
+#   keys below. Each combination becomes one independent Condor job (or
+#   local invocation) with its own scalar YAML override.
+#
+#   Current matrix axes (order matches loop nesting):
+#     jet_pt_min × back_to_back_dphi_min_pi_fraction × vz_cut_cm × coneR
+#       × iso_mode (derived from isSlidingAndFixed/isSlidingIso/fixedGeV)
+#       × clusterUEpipeline (AuAu/OO DATA only; SIM always "noSub")
+#
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# Global photon + jet selection knobs (YAML-driven)
+# Photon + jet kinematic selection
 # -----------------------------------------------------------------------------
 photon_eta_abs_max: 0.7
 jet_pt_min: [5.0]
 
-# Jet radii to run (R values). The steering macro will:
-#   - build reco jets for these radii
-#   - (SIM) build truth jets for these radii (if building from particles)
-#   - tell RecoilJets to only expect/process these radii
-#
-# Baseline behavior matches current code: r02 + r04
+# Jet radii to reconstruct (R values).
+# The steering macro builds reco jets (and SIM truth jets) for each radius.
+# RecoilJets processes only the radii listed here.
+# Baseline: r02 + r04 + r06
 jet_radii: [0.2, 0.4, 0.6]
 
-# Back-to-back cut expressed ONLY as a fraction of π.
-# Examples:
-#   0.5   -> π/2
-#   0.875 -> 7π/8
-# (runtime should compute: back_to_back_dphi_min_rad = back_to_back_dphi_min_pi_fraction * M_PI)
+# Back-to-back azimuthal cut as a fraction of π.
+#   0.5   → Δφ > π/2
+#   0.875 → Δφ > 7π/8  (ATLAS-like)
+# The macro computes: back_to_back_dphi_min_rad = fraction × π
 back_to_back_dphi_min_pi_fraction: [0.875]
 
 # -----------------------------------------------------------------------------
-# Vertex selection knobs
+# Vertex selection
 # -----------------------------------------------------------------------------
 use_vz_cut: true
-vz_cut_cm: [30.0, 60.0]
-coneR: [0.30]
 
+# MATRIX AXIS: one job per vz_cut_cm value.
+vz_cut_cm: [30.0, 60.0]
+
+# -----------------------------------------------------------------------------
+# Centrality binning (AuAu only; ignored for pp/SIM)
+# -----------------------------------------------------------------------------
 centrality_edges: [0, 10, 20, 40, 60, 80]
 
-# Photon baseline mode:
-#   false -> keep the current production-compatible behavior
-#   true  -> reserved for the native-EMCal UE-subtracted photon pipeline
-#            (the unified macro currently guards and aborts if enabled)
+# -----------------------------------------------------------------------------
+# Cluster UE pipeline (AuAu/OO DATA only)
+#
+# MATRIX AXIS: one independent job per entry.
+# For pp and SIM jobs the submit script forces "noSub" and excludes
+# this axis from the naming tag.
+#
+# Available variants:
+#
+#   noSub
+#     No photon-side UE subtraction. Clusters, shower shapes, and isolation
+#     all use the original unsubtracted TOWERINFO_CALIB_CEMC towers.
+#     This is the pp-equivalent baseline for AuAu comparisons.
+#
+#   baseVariant
+#     PhotonClusterBuilder runs with m_is_auau=true, which routes the
+#     isolation calculation to the coresoftware retowered SUB1 nodes
+#     (CEMC_RETOWER_SUB1, HCALIN_SUB1, HCALOUT_SUB1) via PCB's internal
+#     AuAu isolation path. Clusters and shower shapes still use the
+#     original unsubtracted CEMC towers.
+#
+#   variantA
+#     Native-grid EMCal UE subtraction for photons. A simple η-strip mean
+#     (averaged over all 256 φ towers per η index) is subtracted tower-by-
+#     tower from TOWERINFO_CALIB_CEMC at the full 96×256 granularity,
+#     producing a new node (CEMC_PHOSUB). Clusters are then rebuilt from
+#     PHOSUB towers via RawClusterBuilderTemplate, so cluster energies,
+#     positions, shower shapes, and isolation all use the same subtracted
+#     basis. No hard-object exclusion is applied to the strip mean.
+#     Jet reconstruction is unchanged (standard coresoftware SUB1 chain).
+#
+#   variantB
+#     Same as variantA, but with iterative hard-object masking. Before
+#     computing the η-strip mean, towers within ΔR < 0.4 of any refined
+#     coresoftware seed jet (AntiKt_TowerInfo_HIRecoSeedsSub_r02, pT > 5
+#     GeV) are excluded from the average. This follows the ATLAS approach
+#     (Phys. Lett. B 789, 167 (2019), arXiv:1809.07280, Sec. 4.1–4.2)
+#     where hard objects are masked so the UE estimate reflects only the
+#     soft underlying event. Everything downstream (reclustering, shower
+#     shapes, isolation) is identical to variantA.
+#
+# -----------------------------------------------------------------------------
 clusterUEpipeline: [noSub, baseVariant, variantA, variantB]
+
+# -----------------------------------------------------------------------------
+# Pi0 analysis (parallel no-correction cluster branch)
+# -----------------------------------------------------------------------------
 doPi0Analysis: false
 
 # -----------------------------------------------------------------------------
-# Isolation working point knobs (YAML-driven)
+# Isolation working point
 #
-# RECO isolation definition:
-#   - if isSlidingIso == true  : thrReco = A + B * pT(gamma)
-#   - if isSlidingIso == false : thrReco = fixedGeV
-#   - nonIso sideband threshold: thrNonIso = thrReco + sideGapGeV
+# The isolation threshold for each photon candidate is determined by the
+# combination of isSlidingIso, isSlidingAndFixed, and fixedGeV:
 #
-# TRUTH isolation definition (independent of sliding/fixed RECO mode):
-#   - thrTruth = truthIsoGeV   (default 4.0 GeV; set to 2.0 if you want that)
+#   isSlidingAndFixed  isSlidingIso   Matrix behavior
+#   ─────────────────  ────────────   ─────────────────────────────────────
+#   false              false          Fixed only: one job per fixedGeV value.
+#                                     Each job uses thrReco = fixedGeV.
+#   false              true           Sliding only: one job total.
+#                                     thrReco = aGeV + bPerGeV × pT(γ).
+#   true               (ignored)      Both: sliding job + one fixed job per
+#                                     fixedGeV value. Allows direct comparison
+#                                     of sliding vs fixed at each threshold.
 #
-# coneR:
-#   - PhotonClusterBuilder provides full-calo isolation for R=0.3 and R=0.4
-#   - set to 0.40 to force iso_04 in all cases
+# MATRIX AXIS: the submit script calls build_iso_modes() to expand these
+# three keys into parallel arrays (iso_tags[], iso_sliding[], iso_fixed[])
+# and loops over them. Each job's override YAML receives scalar values
+# for isSlidingIso and fixedGeV.
+#
+# The non-isolated sideband is always: thrNonIso = thrReco + sideGapGeV.
+# Truth isolation (SIM only) uses truthIsoGeV independently.
+#
+# MATRIX AXIS: coneR sets the isolation cone radius.
+# PhotonClusterBuilder provides isolation sums for R=0.3 and R=0.4.
 # -----------------------------------------------------------------------------
 isSlidingIso: false
 isSlidingAndFixed: false
-fixedGeV: [2.0]
+
+# MATRIX AXIS: one job per fixedGeV value (when isSlidingIso is false).
+fixedGeV: [2.0, 4.0, 8.0]
+
+# MATRIX AXIS: isolation cone radius.
+coneR: [0.30]
+
+# Sliding WP parameters (used when isSlidingIso is true):
+#   thrReco = aGeV + bPerGeV × pT(γ)
+# sideGapGeV: offset for non-isolated sideband
+# truthIsoGeV: generator-level isolation cut (SIM only)
+# towerMin: minimum tower energy for isolation sum (0 = no floor)
 isolation_wp: {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0, truthIsoGeV: 4.0, towerMin: 0.0}
 
-# Per-centrality AuAu sliding isolation WP (one entry per centrality bin interval).
-# Indexed by centrality_edges intervals: 0-10%, 10-20%, 20-40%, 40-60%, 60-80%.
-# Initialized to pp defaults; override per-bin for AuAu-specific tuning.
+# Per-centrality AuAu sliding isolation working points.
+# One entry per centrality_edges interval: 0–10%, 10–20%, 20–40%, 40–60%, 60–80%.
 # Only used by RecoilJets_AuAu when isSlidingIso is active.
+# When empty or centIdx is out of range, falls back to the global isolation_wp.
+# Initialized to pp defaults; override per-bin for AuAu-specific tuning.
 auau_cent_iso_wp:
-  - {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0}
-  - {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0}
-  - {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0}
-  - {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0}
-  - {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0}
+  - {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0}   # 0–10%
+  - {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0}   # 10–20%
+  - {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0}   # 20–40%
+  - {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0}   # 40–60%
+  - {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0}   # 60–80%
 
 # -----------------------------------------------------------------------------
-# Photon shower-shape ID cuts (PPG12 Table 4) (YAML-driven; baseline matches header)
+# Photon shower-shape ID cuts (PPG12 Table 4)
+# Baseline values match the header defaults in RecoilJets.h / RecoilJets_AuAu.h.
 # -----------------------------------------------------------------------------
 photon_id_pre:   {e11e33_max: 0.98, et1_min: 0.60, et1_max: 1.00, e32e35_min: 0.80, e32e35_max: 1.00, weta_max: 0.60}
 photon_id_tight: {w_lo: 0.0, w_hi_intercept: 0.15, w_hi_slope: 0.006, e11e33_min: 0.40, e11e33_max: 0.98, et1_min: 0.90, et1_max: 1.00, e32e35_min: 0.92, e32e35_max: 1.00}
 
 # -----------------------------------------------------------------------------
-# Matching thresholds (YAML-driven)
+# Matching thresholds (truth ↔ reco, SIM only)
 # -----------------------------------------------------------------------------
 matching: {pho_dr_max: 0.05, jet_dr_max: 0.3}
 
 # -----------------------------------------------------------------------------
 # JES3 / xJγ photon pT bin edges (AUTHORITATIVE)
-#   - drives ALL reco photon pT slicing for JES3/xJγ booking + filling
-#   - drives ALL truth photon pT slicing for JES3/xJγ truth booking + filling
-#   - reco and truth MUST match exactly
+# Drives ALL reco and truth photon pT slicing for JES3/xJγ booking + filling.
+# Reco and truth bins MUST match exactly.
 # -----------------------------------------------------------------------------
 jes3_photon_pt_bins: [10, 12, 14, 16, 18, 20, 22, 24, 26, 35]
 
 # -----------------------------------------------------------------------------
-# UNFOLDING bin edges (explicit, independent from JES3 bins)
+# Unfolding bin edges (independent from JES3 bins)
 # -----------------------------------------------------------------------------
 unfold_reco_photon_pt_bins:  [8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35, 40]
 unfold_truth_photon_pt_bins: [5, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35, 40]
 
-# Unfolding jet pT binning
+# Uniform jet pT binning: edges generated as range(start, stop, step)
 unfold_jet_pt_binning: {start: 0.0, stop: 60.0, step: 0.5}
 
-# Unfolding xJ bin edges
+# xJ = pT(jet) / pT(γ) bin edges
 unfold_xj_bins: [0.0, 0.20, 0.24, 0.29, 0.35, 0.41, 0.50, 0.60, 0.72, 0.86, 1.03, 1.24, 1.49, 1.78, 2.14, 3.0]
 
 # -----------------------------------------------------------------------------
-# EventDisplay diagnostics payload (written into ROOT as EventDisplayTree)
-#   - Default: true (always write the TTree so offline you can make event displays)
-#   - max_per_bin:
-#       0  => unlimited entries
-#       N>0 => cap entries per (rKey × pTγ bin × {NUM,MissA,MissB})
+# EventDisplay diagnostics (written into ROOT as EventDisplayTree)
+#   enable: true → always write the TTree for offline event displays
+#   max_per_bin: 0 = unlimited, N>0 = cap entries per (rKey × pTγ bin × category)
 # -----------------------------------------------------------------------------
 event_display_tree: false
 event_display_tree_max_per_bin: 1

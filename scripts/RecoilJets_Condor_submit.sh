@@ -749,7 +749,17 @@ check_jobs_all() {
   local gs="$GROUP_SIZE"
   [[ -s "$GOLDEN" ]] || { err "Golden run list not found or empty: $GOLDEN"; exit 4; }
 
-  local total_runs=0 total_files=0 total_jobs=0 missing=0
+  # Read YAML matrix dimensions (same logic as condor all / local paths)
+  local data_yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
+  local -a ck_vzs ck_cones
+  mapfile -t ck_vzs   < <( yaml_get_values "vz_cut_cm" "$data_yaml_src" )
+  mapfile -t ck_cones < <( yaml_get_values "coneR" "$data_yaml_src" )
+  (( ${#ck_vzs[@]} ))   || { err "No values found for vz_cut_cm in $data_yaml_src"; exit 72; }
+  (( ${#ck_cones[@]} )) || { err "No values found for coneR in $data_yaml_src"; exit 72; }
+  build_iso_modes "$data_yaml_src"
+  read_uepipe_modes "$data_yaml_src" "$TAG"
+
+  local total_runs=0 total_files=0 base_jobs=0 missing=0
 
   while IFS= read -r rn; do
     [[ -z "$rn" || "$rn" =~ ^# ]] && continue
@@ -767,15 +777,59 @@ check_jobs_all() {
 
     (( total_runs  += 1    ))
     (( total_files += nfiles ))
-    (( total_jobs  += nj   ))
+    (( base_jobs   += nj   ))
   done < "$GOLDEN"
 
-  say "CHECKJOBS (dataset=${DATASET})"
-  say "  groupSize         : ${gs}"
-  say "  runs (with lists) : ${total_runs}"
-  say "  total input files : ${total_files}"
-  say "  total jobs (all)  : ${total_jobs}"
-  (( missing > 0 )) && warn "runs skipped due to missing per-run lists: ${missing}"
+  local n_matrix=$(( ${#ck_vzs[@]} * ${#ck_cones[@]} * ${#iso_tags[@]} * ${#uepipe_modes[@]} ))
+  local total_jobs=$(( n_matrix * base_jobs ))
+
+  say "CHECKJOBS (dataset=${DATASET}, tag=${TAG})"
+  say "  YAML source          : ${data_yaml_src}"
+  say "  groupSize            : ${gs}"
+  echo
+  say "${BOLD}Matrix dimensions:${RST}"
+  say "  vz_cut_cm            : [${ck_vzs[*]}]  (${#ck_vzs[@]} values)"
+  say "  coneR                : [${ck_cones[*]}]  (${#ck_cones[@]} values)"
+  say "  iso modes            : [${iso_tags[*]}]  (${#iso_tags[@]} values)"
+  say "  clusterUEpipeline    : [${uepipe_modes[*]}]  (${#uepipe_modes[@]} values)"
+  say "  matrix combos        : ${BOLD}${n_matrix}${RST}"
+  echo
+  say "${BOLD}Per-matrix-cell base:${RST}"
+  say "  golden runs (w/lists): ${total_runs}"
+  say "  total input files    : ${total_files}"
+  say "  base jobs per combo  : ${base_jobs}"
+  (( missing > 0 )) && warn "  runs skipped (missing lists): ${missing}"
+  echo
+
+  say "${BOLD}Full cfg tag list (${n_matrix} entries):${RST}"
+  local cfg_num=0
+  for _vz in "${ck_vzs[@]}"; do
+    for _cone in "${ck_cones[@]}"; do
+    for (( _ci=0; _ci<${#iso_tags[@]}; _ci++ )); do
+    for _ue in "${uepipe_modes[@]}"; do
+      (( cfg_num++ ))
+      local _dvz; _dvz="$(sim_vz_tag "$_vz")"
+      local _dcone; _dcone="$(sim_cone_tag "$_cone")"
+      local _tag="${_dvz}_${_dcone}_${iso_tags[$_ci]}"
+      (( uepipe_in_tag )) && _tag="${_tag}_${_ue}"
+      printf "  ${DIM}%3d${RST} │ %-55s │ vz=%-5s cone=%-5s iso=%-16s uepipe=%-12s\n" \
+             "$cfg_num" "$_tag" "$_vz" "$_cone" "${iso_tags[$_ci]}" "$_ue"
+    done
+    done
+    done
+  done
+  echo
+
+  say "${BOLD}Job count summary:${RST}"
+  say "  matrix combos          : ${n_matrix}"
+  say "  base jobs per combo    : ${base_jobs}"
+  say "  ─────────────────────────────────"
+  say "  ${BOLD}TOTAL CONDOR JOBS        : ${total_jobs}${RST}"
+  echo
+  say "Output tree: ${DEST_BASE}/<cfg_tag>/<run8>/*.root"
+  local _ex_tag="$(sim_vz_tag "${ck_vzs[0]}")_$(sim_cone_tag "${ck_cones[0]}")_${iso_tags[0]}"
+  (( uepipe_in_tag )) && _ex_tag="${_ex_tag}_${uepipe_modes[0]}"
+  say "  e.g. ${DIM}${DEST_BASE}/${_ex_tag}/00067599/*.root${RST}"
 }
 
 # Submit a set of runs (from a round file or the whole golden list) to Condor
