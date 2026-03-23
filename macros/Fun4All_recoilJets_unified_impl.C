@@ -2662,17 +2662,38 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
               se->registerSubsystem(auditAfter);
             }
 
-            photonInputClusterNode = "CLUSTERINFO_CEMC";
+            // Recluster from UE-subtracted PHOSUB towers (ATLAS-like approach:
+            // cluster on subtracted input so cluster energies, positions, and
+            // tower membership all reflect the subtracted state)
+            {
+                auto* phoSubClusterBuilder = new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate_PHOSUB");
+                phoSubClusterBuilder->Detector("CEMC");
+                phoSubClusterBuilder->set_threshold_energy(0.070);
+                const char* _calibroot = std::getenv("CALIBRATIONROOT");
+                if (_calibroot && std::string(_calibroot).size())
+                {
+                  std::string emc_prof_phosub = std::string(_calibroot) + "/EmcProfile/CEMCprof_Thresh30MeV.root";
+                  phoSubClusterBuilder->LoadProfile(emc_prof_phosub);
+                }
+                phoSubClusterBuilder->set_UseTowerInfo(1);
+                phoSubClusterBuilder->set_UseAltZVertex(1);
+                phoSubClusterBuilder->setInputTowerNodeName(nativeCemcNode);
+                phoSubClusterBuilder->setOutputClusterNodeName("CLUSTERINFO_CEMC_PHOSUB");
+                phoSubClusterBuilder->Verbosity(nativeUEV);
+                se->registerSubsystem(phoSubClusterBuilder);
+            }
+
+            photonInputClusterNode = "CLUSTERINFO_CEMC_PHOSUB";
 
             if (vlevel > 0)
             {
               std::cout << "[clusterUEpipeline=variantA] enabled for AuAu"
                         << " | nativeCemcNode=" << nativeCemcNode
                         << " | photonInputClusterNode=" << photonInputClusterNode
-                        << " | PhotonClusterBuilder will read explicit PHOSUB/SUB1 tower nodes"
+                        << " | PhotonClusterBuilder will read PHOSUB clusters + PHOSUB/SUB1 tower nodes"
                         << std::endl;
             }
-          }
+    }
     else if (cfg.clusterUEpipeline == "baseVariant" && isAuAuData)
     {
             photonBuilderIsAuAu = true;
