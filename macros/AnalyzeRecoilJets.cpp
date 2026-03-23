@@ -766,7 +766,7 @@ namespace ARJ
             tDS.SetTextFont(42);
             tDS.SetTextAlign(33);
             tDS.SetTextSize(0.045);
-            tDS.DrawLatex(0.93, 0.97, isRun25pp ? "Run25pp" : "Run24pp");
+            tDS.DrawLatex(0.93, 0.97, isAuAuOnly ? "AuAu" : (isRun25pp ? "Run25pp" : "Run24pp"));
           }
 
           const std::string outPng = JoinPath(groupOutDir, "hMaxClusterEnergy_groupTurnOnOverlay.png");
@@ -886,27 +886,29 @@ namespace ARJ
           WriteTextFile(JoinPath(outDir, "summary_triggerQA_doNotScale.txt"), indexLines);
 
           // -------------------------------------------------------------------
-          // NEW: Run24pp vs Run25pp 95% efficiency turn-on point overlay
-          //
-          // For each of the two common-basis groups:
-          //   commonBasis_MBD_NandS_geq_1
-          //   commonBasis_MBD_NandS_geq_1_vtx_lt_10
-          //
-          // Output:
-          //   <outDir>/<group>/x95_overlay_run24pp_vs_run25pp.png
-          //
-          // X-axis: trigger label bins (Photon 2, 3, 4, 5, ...)
-          // Y-axis: 95% efficiency turn-on point [GeV]
-          // Markers: open circles = Run24pp, closed circles = Run25pp
-          // Colors: match colorForProbe per photon threshold
-          //
-          // FORCEFULLY opens both kInPP24 and kInPP25 regardless of toggles.
-          // -------------------------------------------------------------------
-          {
-            const std::vector<std::string> targetGroups = {
-              "commonBasis_MBD_NandS_geq_1",
-              "commonBasis_MBD_NandS_geq_1_vtx_lt_10"
-            };
+        // NEW: Run24pp vs Run25pp 95% efficiency turn-on point overlay
+        //
+        // For each of the two common-basis groups:
+        //   commonBasis_MBD_NandS_geq_1
+        //   commonBasis_MBD_NandS_geq_1_vtx_lt_10
+        //
+        // Output:
+        //   <outDir>/<group>/x95_overlay_run24pp_vs_run25pp.png
+        //
+        // X-axis: trigger label bins (Photon 2, 3, 4, 5, ...)
+        // Y-axis: 95% efficiency turn-on point [GeV]
+        // Markers: open circles = Run24pp, closed circles = Run25pp
+        // Colors: match colorForProbe per photon threshold
+        //
+        // FORCEFULLY opens both kInPP24 and kInPP25 regardless of toggles.
+        // Skipped entirely in AuAu-only mode (no PP files to compare).
+        // -------------------------------------------------------------------
+        if (!isAuAuOnly)
+        {
+          const std::vector<std::string> targetGroups = {
+            "commonBasis_MBD_NandS_geq_1",
+            "commonBasis_MBD_NandS_geq_1_vtx_lt_10"
+          };
 
             auto getHistFromFile = [&](TFile* f, const std::string& dirKey) -> TH1*
             {
@@ -1096,8 +1098,9 @@ namespace ARJ
             }
 
             if (f24) { f24->Close(); delete f24; }
-            if (f25) { f25->Close(); delete f25; }
-          }
+                        if (f25) { f25->Close(); delete f25; }
+            }
+          } // end !isAuAuOnly guard
         }
 
       void RunPi0QA(Dataset& ds)
@@ -10212,11 +10215,8 @@ namespace ARJ
       // High-level runner
       // =============================================================================
       // NOTE: Run-mode validation now lives in AnalyzeRecoilJets.h (ValidateRunConfig()).
-      // This wrapper is kept only to avoid stale references inside the analysis namespace.
-      static bool ExactlyOneModeSet()
-      {
-          return ValidateRunConfig(nullptr);
-      }
+      // ExactlyOneModeSet() is provided by the header (ARJ scope) and no longer
+      // needs a local wrapper here.
 
   } // namespace analysis
 

@@ -3733,6 +3733,215 @@ void RunJES3QA(Dataset& ds)
         // integrated-alpha tables (linear + logy)
         Make3x3Table_xJ_FromTH3(H.hReco_xJ,                    D.dirXJProjReco,                   "RECO",  false);
         Make3x3Table_xJ_AuAuPPOverlay_FromTH3(H.hReco_xJ,      D.dirXJProjReco,                   "RECO",  false);
+
+        // =================================================================
+        // NEW: xJoverlays — multi-centrality AuAu + PP overlay for first
+        //      pT bin (10-12 GeV), output to auau/<trigger>/xJoverlays/
+        //      Runs once (static guard) for rKey == "r04" only.
+        // =================================================================
+        {
+          static bool s_xJoverlaysDone = false;
+          if (!s_xJoverlaysDone
+              && isAuAuOnly && !ds.isSim && !ds.centSuffix.empty()
+              && rKey == "r04")
+          {
+            s_xJoverlaysDone = true;
+
+            // Build trigger-level output: <kOutAuAuBase>/<trigger>/xJoverlays/
+            const string trigBase = JoinPath(kOutAuAuBase, ds.trigger);
+            const string xJovDir  = JoinPath(trigBase, "xJoverlays");
+            EnsureDir(xJovDir);
+
+            // Open PP file
+            TFile* fPPov = TFile::Open(kInPP24.c_str(), "READ");
+            TDirectory* dirPPov = nullptr;
+            if (fPPov)
+            {
+              dirPPov = fPPov->GetDirectory(kTriggerPP.c_str());
+              if (!dirPPov) dirPPov = fPPov;
+            }
+
+            // Open AuAu file (baseline, non-UE-subtracted)
+            TFile* fAAov = TFile::Open(kInAuAuGold.c_str(), "READ");
+            TDirectory* dirAAov = nullptr;
+            if (fAAov)
+            {
+              dirAAov = fAAov->GetDirectory(ds.trigger.c_str());
+              if (!dirAAov) dirAAov = fAAov;
+            }
+
+            if (fPPov && dirPPov && fAAov && dirAAov)
+            {
+              const string h3name = "h_JES3_pT_xJ_alpha_r04";
+
+              // PP TH3
+              TH3* h3PP = dynamic_cast<TH3*>(dirPPov->Get(h3name.c_str()));
+
+              // AuAu TH3 per centrality
+              struct CentEntry { const char* suffix; const char* label; int color; };
+              const CentEntry centEntries[] = {
+                { "_cent_0_10",  "AuAu 0-10%",  kBlue + 1  },
+                { "_cent_10_20", "AuAu 10-20%", kGreen + 2 },
+                { "_cent_20_40", "AuAu 20-40%", kMagenta + 1 },
+                { "_cent_40_60", "AuAu 40-60%", kBlack     },
+              };
+              const int nCent = 4;
+
+              TH3* h3AA[4] = { nullptr, nullptr, nullptr, nullptr };
+              for (int ic = 0; ic < nCent; ++ic)
+              {
+                const string fullName = h3name + centEntries[ic].suffix;
+                h3AA[ic] = dynamic_cast<TH3*>(dirAAov->Get(fullName.c_str()));
+              }
+
+              // First pT bin: 10-12 GeV
+              const auto& recoBinsAll = UnfoldAnalysisRecoPtBins();
+              const PtBin* pb10_12 = nullptr;
+              for (const auto& pb : recoBinsAll)
+              {
+                if (pb.lo == 10 && pb.hi == 12) { pb10_12 = &pb; break; }
+              }
+
+              if (h3PP && pb10_12)
+              {
+                // Reuse the same grouped-projection helper already in scope
+                auto ProjectXJ = [&](const TH3* h3, const PtBin& pb, const string& name)->TH1*
+                {
+                  if (!h3) return nullptr;
+                  int xbinLo = -1, xbinHi = -1;
+                  std::vector<double> w;
+                  if (!XaxisOverlapWeights(h3->GetXaxis(), pb.lo, pb.hi, xbinLo, xbinHi, w))
+                    return nullptr;
+
+                  TH1* sum = nullptr;
+                  const double alphaMax = h3->GetZaxis()->GetXmax();
+                  for (int xb = xbinLo; xb <= xbinHi; ++xb)
+                  {
+                    TH1* h1 = ProjectY_AtXbin_AndAlphaMax_TH3(
+                      h3, xb, alphaMax,
+                      name + TString::Format("_xb%d", xb).Data()
+                    );
+                    if (!h1) continue;
+                    const int iw = xb - xbinLo;
+                    const double ww = (iw >= 0 && iw < (int)w.size()) ? w[iw] : 1.0;
+                    if (ww <= 0.0) { delete h1; continue; }
+                    h1->Scale(ww);
+                    if (!sum)
+                    {
+                      sum = CloneTH1(h1, name);
+                      if (sum) { sum->Reset("ICES"); sum->SetDirectory(nullptr); }
+                    }
+                    if (sum) sum->Add(h1);
+                    delete h1;
+                  }
+                  return sum;
+                };
+
+                auto NormUnit = [](TH1* h) {
+                  if (!h) return;
+                  const double I = h->Integral(0, h->GetNbinsX() + 1);
+                  if (I > 0.0) h->Scale(1.0 / I);
+                };
+
+                // Project PP
+                TH1* hxPP = ProjectXJ(h3PP, *pb10_12, "xJov_pp_10_12");
+                if (hxPP) { hxPP->SetDirectory(nullptr); EnsureSumw2(hxPP); NormUnit(hxPP); }
+
+                // Project AuAu centralities
+                TH1* hxAA[4] = { nullptr, nullptr, nullptr, nullptr };
+                for (int ic = 0; ic < nCent; ++ic)
+                {
+                  if (!h3AA[ic]) continue;
+                  hxAA[ic] = ProjectXJ(h3AA[ic], *pb10_12,
+                    TString::Format("xJov_auau%s_10_12", centEntries[ic].suffix).Data());
+                  if (hxAA[ic]) { hxAA[ic]->SetDirectory(nullptr); EnsureSumw2(hxAA[ic]); NormUnit(hxAA[ic]); }
+                }
+
+                // Check at least PP + one AuAu exist
+                bool anyAA = false;
+                for (int ic = 0; ic < nCent; ++ic) if (hxAA[ic]) anyAA = true;
+
+                if (hxPP && anyAA)
+                {
+                  TCanvas cOv("c_xJov_multiCent", "c_xJov_multiCent", 900, 700);
+                  cOv.SetTopMargin(0.08);
+                  cOv.SetBottomMargin(0.14);
+                  cOv.SetLeftMargin(0.13);
+                  cOv.SetRightMargin(0.05);
+
+                  // Style PP: open red circles
+                  hxPP->SetLineWidth(2);
+                  hxPP->SetLineColor(kRed + 1);
+                  hxPP->SetMarkerColor(kRed + 1);
+                  hxPP->SetMarkerStyle(24);
+                  hxPP->SetMarkerSize(1.1);
+
+                  // Style AuAu: closed circles, color per centrality
+                  for (int ic = 0; ic < nCent; ++ic)
+                  {
+                    if (!hxAA[ic]) continue;
+                    hxAA[ic]->SetLineWidth(2);
+                    hxAA[ic]->SetLineColor(centEntries[ic].color);
+                    hxAA[ic]->SetMarkerColor(centEntries[ic].color);
+                    hxAA[ic]->SetMarkerStyle(20);
+                    hxAA[ic]->SetMarkerSize(1.0);
+                  }
+
+                  // Determine y-max across all curves
+                  double ymax = hxPP->GetMaximum();
+                  for (int ic = 0; ic < nCent; ++ic)
+                    if (hxAA[ic]) ymax = std::max(ymax, hxAA[ic]->GetMaximum());
+
+                  // Use PP as frame
+                  hxPP->SetTitle("");
+                  hxPP->GetXaxis()->SetTitle("x_{J#gamma}");
+                  hxPP->GetXaxis()->SetRangeUser(0.0, 2.0);
+                  hxPP->GetYaxis()->SetTitle("Normalized Counts");
+                  hxPP->SetMinimum(0.0);
+                  hxPP->SetMaximum(ymax * 1.35);
+
+                  hxPP->Draw("E1");
+                  for (int ic = 0; ic < nCent; ++ic)
+                    if (hxAA[ic]) hxAA[ic]->Draw("E1 same");
+
+                  // Legend in top-right
+                  TLegend* legOv = new TLegend(0.60, 0.65, 0.93, 0.92);
+                  legOv->SetBorderSize(0);
+                  legOv->SetFillStyle(0);
+                  legOv->SetTextFont(42);
+                  legOv->SetTextSize(0.035);
+                  legOv->AddEntry(hxPP, "pp", "ep");
+                  for (int ic = 0; ic < nCent; ++ic)
+                    if (hxAA[ic]) legOv->AddEntry(hxAA[ic], centEntries[ic].label, "ep");
+                  legOv->Draw();
+
+                  // Title annotation
+                  {
+                    TLatex t;
+                    t.SetNDC(true);
+                    t.SetTextFont(42);
+                    t.SetTextAlign(13);
+                    t.SetTextSize(0.042);
+                    t.DrawLatex(0.14, 0.98,
+                      TString::Format("RECO x_{J#gamma}, p_{T}^{#gamma} = 10-12 GeV, R = 0.4").Data());
+                  }
+
+                  SaveCanvas(cOv, JoinPath(xJovDir, "xJ_RECO_multiCent_pp_overlay_pTgamma_10_12.png"));
+
+                  delete legOv;
+                }
+
+                // Cleanup
+                if (hxPP) delete hxPP;
+                for (int ic = 0; ic < nCent; ++ic) if (hxAA[ic]) delete hxAA[ic];
+              }
+            }
+
+            if (fPPov) { fPPov->Close(); delete fPPov; }
+            if (fAAov) { fAAov->Close(); delete fAAov; }
+          }
+        }
+
         Make3x3Table_xJ_WithWithoutUESub_FromTH3(H.hReco_xJ,   D.dirXJProjReco,                   "RECO",  false);
         Make3x3Table_xJ_FromTH3(H.hRecoTruthPhoTagged_xJ,      D.dirXJProjRecoTruthPhoTagged,     "RECO",  false);
         Make3x3Table_xJ_FromTH3(H.hRecoTruthTagged_xJ,    D.dirXJProjRecoTruthTagged,        "RECO",  false);
