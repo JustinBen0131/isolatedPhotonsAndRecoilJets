@@ -549,8 +549,8 @@ make_run_list() {
 
   build_active_skiplist
 
-  # 1) All ROOTs on disk for this run
-  find "$srcdir" -maxdepth 1 -type f -name "*.root" | sort -V > "$all"
+  # 1) All ROOTs on disk for this run (exclude LOCAL test outputs)
+  find "$srcdir" -maxdepth 1 -type f -name "*.root" -not -name "*_LOCAL_*" | sort -V > "$all"
   [[ -s "$all" ]] || { rm -f "$all" 2>/dev/null || true; return 1; }
 
   local total busy_present eligible busy_inq
@@ -746,7 +746,7 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simm
           continue
         fi
 
-        mapfile -t SIM_INPUTS < <(find "$SIM_INPUT_DIR" -maxdepth 1 -type f -name "*.root" | sort -V || true)
+        mapfile -t SIM_INPUTS < <(find "$SIM_INPUT_DIR" -maxdepth 1 -type f -name "*.root" -not -name "*_LOCAL_*" | sort -V || true)
         if (( ${#SIM_INPUTS[@]} == 0 )); then
           warn "No *.root files found in: $SIM_INPUT_DIR (skipping)"
           continue
@@ -1031,7 +1031,7 @@ if [[ "$MODE" == "checkFileOutput" ]]; then
       srcdir="${_run_base}/${r}"
 
       all="${TMP_DIR}/check_${_cfg:-flat}_${r}.all.txt"
-      find "$srcdir" -maxdepth 1 -type f -name "*.root" | sort -V > "$all"
+      find "$srcdir" -maxdepth 1 -type f -name "*.root" -not -name "*_LOCAL_*" | sort -V > "$all"
       total=$(wc -l < "$all" | awk '{print $1}')
 
       busyInQ=0

@@ -140,7 +140,7 @@ isSlidingIso: false
 isSlidingAndFixed: false
 
 # MATRIX AXIS: one job per fixedGeV value (when isSlidingIso is false).
-fixedGeV: [4.0, 8.0]
+fixedGeV: [5.0]
 
 # MATRIX AXIS: isolation cone radius.
 coneR: [0.40]
