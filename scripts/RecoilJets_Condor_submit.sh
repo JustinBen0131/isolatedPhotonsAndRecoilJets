@@ -894,7 +894,7 @@ submit_condor() {
 
     case "$DEST_BASE" in
       */thesisAna/pp|*/thesisAna/pp25|*/thesisAna/auau|*/thesisAna/oo) ;;
-      */thesisAna/pp/vz*|*/thesisAna/pp25/vz*|*/thesisAna/auau/vz*|*/thesisAna/oo/vz*) ;;
+      */thesisAna/pp/*|*/thesisAna/pp25/*|*/thesisAna/auau/*|*/thesisAna/oo/*) ;;
       *)
         err "Refusing to wipe DEST_BASE='$DEST_BASE' (not an expected thesisAna/{pp|pp25|auau|oo} path)"
         exit 61
@@ -1657,6 +1657,19 @@ SUB
         # Clean stale YAML overrides before fresh submission
         rm -f "${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_"*.yaml 2>/dev/null || true
 
+        n_matrix=$(( ${#data_pts[@]} * ${#data_fracs[@]} * ${#data_vzs[@]} * ${#data_cones[@]} * ${#iso_tags[@]} * ${#uepipe_modes[@]} ))
+        say "═══════════════════════════════════════════════════════════════"
+        say "${BOLD}CONDOR ALL: ${n_matrix} matrix configuration(s), groupSize=${GROUP_SIZE}${RST}"
+        say "  dataset       : ${DATASET}"
+        say "  YAML source   : ${data_yaml_src}"
+        say "  golden list   : $(basename "$GOLDEN") ($(grep -cE '^[0-9]+' "$GOLDEN") runs)"
+        say "═══════════════════════════════════════════════════════════════"
+        echo
+
+        cell_num=0
+        total_queued_all=0
+        t0_all="$(date +%s)"
+
         for data_pt in "${data_pts[@]}"; do
         for data_frac in "${data_fracs[@]}"; do
         for data_vz in "${data_vzs[@]}"; do
@@ -1683,10 +1696,11 @@ SUB
           export RJ_CONFIG_YAML="$yaml_override"
           DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"
 
-          say "Preparing CONDOR ALL submission (dataset=${DATASET}, groupSize=${GROUP_SIZE}, pt=${data_pt}, frac=${data_frac}, vz=${data_vz}, coneR=${data_cone}, iso=${iso_tags[$iso_idx]}, uepipe=${uepipe})"
-          say "  YAML override: ${yaml_override}"
-          say "  DEST_BASE    : ${DEST_BASE}"
-          say "This step generates per-run grouped chunk lists and a large submit file before calling condor_submit."
+          (( ++cell_num ))
+          say "───────────────────────────────────────────────────────────────"
+          say "${BOLD}[${cell_num}/${n_matrix}] ${data_cfg_tag}${RST}"
+          say "  YAML override : ${yaml_override}"
+          say "  DEST_BASE     : ${DEST_BASE}"
           tmp_src="${ROUND_DIR}/ALL_${TAG}_${data_cfg_tag}_$(date +%s).txt"
           grep -E '^[0-9]+' "$GOLDEN" > "$tmp_src"
 
@@ -1697,6 +1711,11 @@ SUB
         done
         done
         done
+
+        elapsed_all=$(( $(date +%s) - t0_all ))
+        say "═══════════════════════════════════════════════════════════════"
+        say "${BOLD}CONDOR ALL complete: ${cell_num} configurations submitted (${elapsed_all}s)${RST}"
+        say "═══════════════════════════════════════════════════════════════"
         ;;
       *)
         usage
