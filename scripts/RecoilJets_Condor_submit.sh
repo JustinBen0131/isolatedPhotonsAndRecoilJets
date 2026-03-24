@@ -151,6 +151,7 @@ EXE=""
 LOG_DIR="${BASE}/log"
 OUT_DIR="${BASE}/stdout"
 ERR_DIR="${BASE}/error"
+SUB_DIR="${BASE}/condor_sub"
 
 # Golden lists provided by you
 PP_GOLDEN="${BASE}/GRLs_tanner/run2pp_ana509_2024p022_v001_dst_calofitting_grl.list"
@@ -431,9 +432,9 @@ read_uepipe_modes() {
 }
 
 sim_make_yaml_override() {
-  local master="$1" pt="$2" frac="$3" vz="$4" cone="$5" sliding="$6" fixed="$7" uepipe="$8" tag="$9"
+  local master="$1" pt="$2" frac="$3" vz="$4" cone="$5" sliding="$6" fixed="$7" uepipe="$8" tag="$9" stamp="${10:-}"
   mkdir -p "$SIM_YAML_OVERRIDE_DIR"
-  local out="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${tag}.yaml"
+  local out="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${tag}${stamp:+_${stamp}}.yaml"
 
   [[ -s "$master" ]] || { err "Master YAML not found or empty: $master"; exit 71; }
   grep -Eq '^[[:space:]]*jet_pt_min:' "$master" || { err "YAML missing key 'jet_pt_min' in $master"; exit 71; }
@@ -541,7 +542,7 @@ resolve_dataset() {
 
   STAGE_DIR="${STAGE_ROOT}/${TAG}"
   ROUND_DIR="${ROUND_ROOT}/${TAG}"
-  mkdir -p "$STAGE_DIR" "$ROUND_DIR" "$LOG_DIR" "$OUT_DIR" "$ERR_DIR"
+  mkdir -p "$STAGE_DIR" "$ROUND_DIR" "$LOG_DIR" "$OUT_DIR" "$ERR_DIR" "$SUB_DIR"
 }
 
 # Count ceil(n/d)
@@ -572,6 +573,7 @@ make_groups() {
 
   # Clean old groups for this run
   rm -f "${STAGE_DIR}/run${r8}_grp"*.list 2>/dev/null || true
+  rm -f "${STAGE_DIR}/run${r8}_LOCAL_"*.list 2>/dev/null || true
 
   local nfiles; nfiles=$(wc -l < "$src" | awk '{print $1}')
   local ngroups; ngroups=$(ceil_div "$nfiles" "$gs")
@@ -686,7 +688,8 @@ wipe_sim_artifacts() {
   say "  Output ROOT dir : ${SIM_OUT_DIR}"
   say "  Logs prefix     : ${SIM_JOB_PREFIX}"
 
-  rm -f "${SIM_OUT_DIR}/RecoilJets_"*.root 2>/dev/null || true
+  rm -f "${SIM_OUT_DIR}/"*.root 2>/dev/null || true
+  find "${SIM_OUT_DIR}" -maxdepth 1 -name "*_LOCAL_*.root" -delete 2>/dev/null || true
   rm -f "${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_grp"*.list 2>/dev/null || true
   rm -f "${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_LOCAL_"*.list 2>/dev/null || true
   rm -f "${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_condorTest_"*.list 2>/dev/null || true
@@ -864,65 +867,36 @@ check_jobs_all() {
 submit_condor() {
   local source="$1"
   local first_chunk="${2:-}"
-  local wipe_mode="${3:-never}"   # never | once | always
 
   [[ -s "$source" ]] || { err "Run source not found or empty: $source"; exit 5; }
 
+  # Clean stale .sub files and YAML overrides for this TAG
+  rm -f "${SUB_DIR}/RecoilJets_${TAG}_"*.sub 2>/dev/null || true
+  rm -f "${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_"*.yaml 2>/dev/null || true
+
   # -------------------------------------------------------------------
-  # DATA output wipe policy (pp/auau only):
-  #   wipe_mode=always -> wipe DEST_BASE every time before submit
-  #   wipe_mode=once   -> wipe DEST_BASE only if stamp is not present
-  #   wipe_mode=never  -> never wipe
-  #
-  # Stamp file lives in BASE and persists across rounds:
-  #   ${BASE}/.RJ_OUTPUTS_WIPED_<tag>.stamp
+  # DATA output wipe (pp/auau/oo only): unconditional on every submit
   # -------------------------------------------------------------------
   if [[ "$DATASET" != "isSim" ]]; then
-    # Per-vz stamp so each vz subdir can wipe independently
-    local _dest_leaf; _dest_leaf="$(basename "$DEST_BASE")"
-    local _stamp_suffix="${TAG}"
-    if [[ "$_dest_leaf" == vz* ]]; then _stamp_suffix="${TAG}_${_dest_leaf}"; fi
-    local stamp_file="${BASE}/.RJ_OUTPUTS_WIPED_${_stamp_suffix}.stamp"
-    local do_wipe=0
+    [[ -n "${DEST_BASE:-}" ]] || { err "DEST_BASE is empty; refusing to wipe."; exit 60; }
+    [[ "$DEST_BASE" != "/" ]] || { err "DEST_BASE is '/' ; refusing to wipe."; exit 60; }
 
-    if [[ "$wipe_mode" == "always" ]]; then
-      do_wipe=1
-    elif [[ "$wipe_mode" == "once" ]]; then
-      [[ -f "$stamp_file" ]] || do_wipe=1
-    fi
+    case "$DEST_BASE" in
+      */thesisAna/pp|*/thesisAna/pp25|*/thesisAna/auau|*/thesisAna/oo) ;;
+      */thesisAna/pp/vz*|*/thesisAna/pp25/vz*|*/thesisAna/auau/vz*|*/thesisAna/oo/vz*) ;;
+      *)
+        err "Refusing to wipe DEST_BASE='$DEST_BASE' (not an expected thesisAna/{pp|pp25|auau|oo} path)"
+        exit 61
+        ;;
+    esac
 
-    if (( do_wipe )); then
-      # Safety checks to avoid catastrophic wipes
-      [[ -n "${DEST_BASE:-}" ]] || { err "DEST_BASE is empty; refusing to wipe."; exit 60; }
-      [[ "$DEST_BASE" != "/" ]] || { err "DEST_BASE is '/' ; refusing to wipe."; exit 60; }
-
-      case "$DEST_BASE" in
-        */thesisAna/pp|*/thesisAna/pp25|*/thesisAna/auau|*/thesisAna/oo) ;;
-        */thesisAna/pp/vz*|*/thesisAna/pp25/vz*|*/thesisAna/auau/vz*|*/thesisAna/oo/vz*) ;;
-        *)
-          err "Refusing to wipe DEST_BASE='$DEST_BASE' (not an expected thesisAna/{pp|pp25|auau|oo} path)"
-          exit 61
-          ;;
-      esac
-
-      say "WIPING OUTPUT TREE (dataset=${DATASET}, mode=${wipe_mode}) → ${DEST_BASE}"
-      mkdir -p "$DEST_BASE"
-
-      # Remove everything *inside* DEST_BASE (files + subdirs), keep DEST_BASE itself
-      find "$DEST_BASE" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
-
-      date +"%Y-%m-%d %H:%M:%S" > "$stamp_file"
-      say "Wipe complete. Stamp written: $stamp_file"
-      say "To force another wipe later, delete the stamp: rm -f $stamp_file"
-    else
-      if [[ "$wipe_mode" != "never" ]]; then
-        say "Not wiping outputs (mode=${wipe_mode}); stamp exists: ${BASE}/.RJ_OUTPUTS_WIPED_${TAG}.stamp"
-      fi
-    fi
+    say "WIPING OUTPUT TREE (dataset=${DATASET}) → ${DEST_BASE}"
+    mkdir -p "$DEST_BASE"
+    find "$DEST_BASE" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
   fi
 
   local stamp; stamp="$(date +%Y%m%d_%H%M%S)"
-  local sub="${BASE}/RecoilJets_${TAG}_${stamp}.sub"
+  local sub="${SUB_DIR}/RecoilJets_${TAG}_${stamp}.sub"
 
   # Snapshot YAML at submit time so idle jobs are immune to later edits
   local yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
@@ -1175,7 +1149,7 @@ case "$ACTION" in
           for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
           SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso_tags[$iso_idx]}"
           DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
-          yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}" "noSub" "$SIM_CFG_TAG")"
+          yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}" "noSub" "$SIM_CFG_TAG" "LOCAL")"
 
           for samp in "${samples[@]}"; do
             SIM_SAMPLE="$samp"
@@ -1202,6 +1176,7 @@ case "$ACTION" in
             say "  input line    : ${in_line}"
             say "  temp list     : ${tmp}"
             say "  out ROOT      : ${out_root_preview}"
+            find "${DEST_BASE}/${SIM_SAMPLE}" -type f -name "*_LOCAL_*.root" -delete 2>/dev/null || true
             say "Invoking wrapper locally…"
 
             RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
@@ -1284,6 +1259,7 @@ case "$ACTION" in
         say "DATA local: vz_cut_cm=${data_vz}  coneR=${data_cone}  iso=${iso_tags[$iso_idx]}  uepipe=${uepipe}  tag=${data_cfg_tag}"
         say "  YAML override: ${yaml_override}"
         say "  DEST_BASE    : ${DEST_BASE}"
+        find "${DEST_BASE}" -type f -name "*_LOCAL_*.root" -delete 2>/dev/null || true
         say "Invoking wrapper locally…"
 
         RJ_DATASET="$DATASET" RJ_VERBOSITY="$RJV" \
@@ -1326,15 +1302,17 @@ case "$ACTION" in
     cone0="${sim_cones[0]}"
     SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt0")_$(sim_b2b_tag "$frac0")_$(sim_vz_tag "$vz0")_$(sim_cone_tag "$cone0")_${iso_tags[0]}"
     DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
-    yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt0" "$frac0" "$vz0" "$cone0" "${iso_sliding[0]}" "${iso_fixed[0]}" "noSub" "$SIM_CFG_TAG")"
+    stamp="$(date +%Y%m%d_%H%M%S)"
+    yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt0" "$frac0" "$vz0" "$cone0" "${iso_sliding[0]}" "${iso_fixed[0]}" "noSub" "$SIM_CFG_TAG" "$stamp")"
 
     sim_init
 
     tmp="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_condorTest_firstfile.list"
     head -n 1 "$SIM_CLEAN_LIST" > "$tmp"
 
-    stamp="$(date +%Y%m%d_%H%M%S)"
-    sub="${BASE}/RecoilJets_sim_${SIM_CFG_TAG}_${SIM_SAMPLE}_${stamp}_TEST.sub"
+    # Clean stale .sub files for SIM
+    rm -f "${SUB_DIR}/RecoilJets_sim_"*.sub 2>/dev/null || true
+    sub="${SUB_DIR}/RecoilJets_sim_${SIM_CFG_TAG}_${SIM_SAMPLE}_${stamp}_TEST.sub"
 
     cat > "$sub" <<SUB
 universe      = vanilla
@@ -1454,6 +1432,10 @@ SUB
     SIM_DEST_BASE_RESOLVED="$DEST_BASE"
 
     need_cmd condor_submit
+    doall_stamp="$(date +%Y%m%d_%H%M%S)"
+    # Clean stale .sub files and YAML overrides for SIM
+    rm -f "${SUB_DIR}/RecoilJets_sim_"*.sub "${SUB_DIR}/RecoilJets_${TAG}_"*.sub 2>/dev/null || true
+    rm -f "${SIM_YAML_OVERRIDE_DIR}/analysis_config_jetMinPt"*.yaml "${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_"*.yaml 2>/dev/null || true
     for pt in "${sim_pts[@]}"; do
       for frac in "${sim_fracs[@]}"; do
         for vz in "${sim_vzs[@]}"; do
@@ -1461,7 +1443,7 @@ SUB
         for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
         SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso_tags[$iso_idx]}"
         DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
-        yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}" "noSub" "$SIM_CFG_TAG")"
+        yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}" "noSub" "$SIM_CFG_TAG" "$doall_stamp")"
 
         for samp in "${samples[@]}"; do
           SIM_SAMPLE="$samp"
@@ -1473,7 +1455,7 @@ SUB
           (( ${#groups[@]} )) || { err "No sim groups produced (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG})"; exit 30; }
 
           stamp="$(date +%Y%m%d_%H%M%S)"
-          sub="${BASE}/RecoilJets_sim_${SIM_CFG_TAG}_${SIM_SAMPLE}_${stamp}.sub"
+          sub="${SUB_DIR}/RecoilJets_sim_${SIM_CFG_TAG}_${SIM_SAMPLE}_${stamp}.sub"
 
           cat > "$sub" <<SUB
 universe      = vanilla
@@ -1557,7 +1539,7 @@ SUB
         (( uepipe_in_tag )) && data_cfg_tag="${data_cfg_tag}_${uepipe_modes[0]}"
 
         stamp="$(date +%Y%m%d_%H%M%S)"
-        sub="${BASE}/RecoilJets_${TAG}_${data_cfg_tag}_${stamp}_TEST.sub"
+        sub="${SUB_DIR}/RecoilJets_${TAG}_${data_cfg_tag}_${stamp}_TEST.sub"
 
         # Snapshot YAML at submit time, pinning vz_cut_cm + coneR + iso + UE to first values
         local yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
@@ -1621,7 +1603,7 @@ SUB
           say "DATA condor round (vz_cut_cm=${data_vz}, coneR=${data_cone}, iso=${iso_tags[$iso_idx]}, uepipe=${uepipe}, tag=${data_cfg_tag})"
           say "  YAML override: ${yaml_override}"
           say "  DEST_BASE    : ${DEST_BASE}"
-          submit_condor "$round_file" "$firstChunk" "once"
+          submit_condor "$round_file" "$firstChunk"
           done
           done
           done
@@ -1655,7 +1637,7 @@ SUB
           tmp_src="${ROUND_DIR}/ALL_${TAG}_${data_cfg_tag}_$(date +%s).txt"
           grep -E '^[0-9]+' "$GOLDEN" > "$tmp_src"
 
-          submit_condor "$tmp_src" "" "always"
+          submit_condor "$tmp_src" ""
           done
           done
           done

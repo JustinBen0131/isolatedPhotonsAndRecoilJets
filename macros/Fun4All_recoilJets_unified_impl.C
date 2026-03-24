@@ -19,7 +19,7 @@
 #endif
 #if ROOT_VERSION_CODE >= ROOT_VERSION(6,00,0)
 
-//–––– Standard Fun4All / sPHENIX ––––––––––––––––––––––––––––––––––––––
+//–––– Standard Fun4All ––––––––––––––––––––––––––––––––––––––
 #include <fun4all/SubsysReco.h>
 #include <fun4all/Fun4AllServer.h>
 #include <fun4all/Fun4AllDstInputManager.h>
