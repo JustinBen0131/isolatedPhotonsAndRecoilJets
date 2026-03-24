@@ -1238,7 +1238,7 @@ case "$ACTION" in
       fi
 
       # Read YAML matrix arrays for DATA local
-      local data_yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
+      data_yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
       mapfile -t data_pts   < <( yaml_get_values "jet_pt_min" "$data_yaml_src" )
       mapfile -t data_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$data_yaml_src" )
       mapfile -t data_vzs   < <( yaml_get_values "vz_cut_cm" "$data_yaml_src" )
@@ -1257,13 +1257,13 @@ case "$ACTION" in
         for data_cone in "${data_cones[@]}"; do
         for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
         for uepipe in "${uepipe_modes[@]}"; do
-        local dpt_tag; dpt_tag="jetMinPt$(sim_pt_tag "$data_pt")"
-        local dfrac_tag; dfrac_tag="$(sim_b2b_tag "$data_frac")"
-        local dvz_tag; dvz_tag="$(sim_vz_tag "$data_vz")"
-        local dcone_tag; dcone_tag="$(sim_cone_tag "$data_cone")"
-        local data_cfg_tag="${dpt_tag}_${dfrac_tag}_${dvz_tag}_${dcone_tag}_${iso_tags[$iso_idx]}"
+        dpt_tag="jetMinPt$(sim_pt_tag "$data_pt")"
+        dfrac_tag="$(sim_b2b_tag "$data_frac")"
+        dvz_tag="$(sim_vz_tag "$data_vz")"
+        dcone_tag="$(sim_cone_tag "$data_cone")"
+        data_cfg_tag="${dpt_tag}_${dfrac_tag}_${dvz_tag}_${dcone_tag}_${iso_tags[$iso_idx]}"
         (( uepipe_in_tag )) && data_cfg_tag="${data_cfg_tag}_${uepipe}"
-        local yaml_override="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}_LOCAL.yaml"
+        yaml_override="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}_LOCAL.yaml"
         mkdir -p "$SIM_YAML_OVERRIDE_DIR"
         sed -E \
           -e "s|^([[:space:]]*jet_pt_min:).*|\\1 ${data_pt}|" \
@@ -1523,7 +1523,7 @@ SUB
     [[ "$IS_SIM" -eq 1 ]] && { err "Use: isSim condorTest | isSim condorDoAll (not 'condor')"; exit 2; }
 
     # Read YAML matrix arrays for DATA
-    local data_yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
+    data_yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
     mapfile -t data_pts   < <( yaml_get_values "jet_pt_min" "$data_yaml_src" )
     mapfile -t data_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$data_yaml_src" )
     mapfile -t data_vzs   < <( yaml_get_values "vz_cut_cm" "$data_yaml_src" )
@@ -1558,23 +1558,23 @@ SUB
         glist="${groups[0]}"
 
         # Use first values for testJob (mirrors SIM condorTest)
-        local pt0="${data_pts[0]}"
-        local frac0="${data_fracs[0]}"
-        local vz0="${data_vzs[0]}"
-        local cone0="${data_cones[0]}"
-        local dpt_tag; dpt_tag="jetMinPt$(sim_pt_tag "$pt0")"
-        local dfrac_tag; dfrac_tag="$(sim_b2b_tag "$frac0")"
-        local dvz_tag; dvz_tag="$(sim_vz_tag "$vz0")"
-        local dcone_tag; dcone_tag="$(sim_cone_tag "$cone0")"
-        local data_cfg_tag="${dpt_tag}_${dfrac_tag}_${dvz_tag}_${dcone_tag}_${iso_tags[0]}"
+        pt0="${data_pts[0]}"
+        frac0="${data_fracs[0]}"
+        vz0="${data_vzs[0]}"
+        cone0="${data_cones[0]}"
+        dpt_tag="jetMinPt$(sim_pt_tag "$pt0")"
+        dfrac_tag="$(sim_b2b_tag "$frac0")"
+        dvz_tag="$(sim_vz_tag "$vz0")"
+        dcone_tag="$(sim_cone_tag "$cone0")"
+        data_cfg_tag="${dpt_tag}_${dfrac_tag}_${dvz_tag}_${dcone_tag}_${iso_tags[0]}"
         (( uepipe_in_tag )) && data_cfg_tag="${data_cfg_tag}_${uepipe_modes[0]}"
 
         stamp="$(date +%Y%m%d_%H%M%S)"
         sub="${SUB_DIR}/RecoilJets_${TAG}_${data_cfg_tag}_${stamp}_TEST.sub"
 
         # Snapshot YAML at submit time, pinning all matrix axes to first values
-        local yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
-        local yaml_snap="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}_${stamp}_TEST.yaml"
+        yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
+        yaml_snap="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}_${stamp}_TEST.yaml"
         mkdir -p "$SIM_YAML_OVERRIDE_DIR"
         sed -E \
           -e "s|^([[:space:]]*jet_pt_min:).*|\\1 ${pt0}|" \
@@ -1622,13 +1622,13 @@ SUB
           for data_cone in "${data_cones[@]}"; do
           for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
           for uepipe in "${uepipe_modes[@]}"; do
-          local dpt_tag; dpt_tag="jetMinPt$(sim_pt_tag "$data_pt")"
-          local dfrac_tag; dfrac_tag="$(sim_b2b_tag "$data_frac")"
-          local dvz_tag; dvz_tag="$(sim_vz_tag "$data_vz")"
-          local dcone_tag; dcone_tag="$(sim_cone_tag "$data_cone")"
-          local data_cfg_tag="${dpt_tag}_${dfrac_tag}_${dvz_tag}_${dcone_tag}_${iso_tags[$iso_idx]}"
+          dpt_tag="jetMinPt$(sim_pt_tag "$data_pt")"
+          dfrac_tag="$(sim_b2b_tag "$data_frac")"
+          dvz_tag="$(sim_vz_tag "$data_vz")"
+          dcone_tag="$(sim_cone_tag "$data_cone")"
+          data_cfg_tag="${dpt_tag}_${dfrac_tag}_${dvz_tag}_${dcone_tag}_${iso_tags[$iso_idx]}"
           (( uepipe_in_tag )) && data_cfg_tag="${data_cfg_tag}_${uepipe}"
-          local yaml_override="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}.yaml"
+          yaml_override="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}.yaml"
           mkdir -p "$SIM_YAML_OVERRIDE_DIR"
           sed -E \
             -e "s|^([[:space:]]*jet_pt_min:).*|\\1 ${data_pt}|" \
@@ -1663,13 +1663,13 @@ SUB
           for data_cone in "${data_cones[@]}"; do
           for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
           for uepipe in "${uepipe_modes[@]}"; do
-          local dpt_tag; dpt_tag="jetMinPt$(sim_pt_tag "$data_pt")"
-          local dfrac_tag; dfrac_tag="$(sim_b2b_tag "$data_frac")"
-          local dvz_tag; dvz_tag="$(sim_vz_tag "$data_vz")"
-          local dcone_tag; dcone_tag="$(sim_cone_tag "$data_cone")"
-          local data_cfg_tag="${dpt_tag}_${dfrac_tag}_${dvz_tag}_${dcone_tag}_${iso_tags[$iso_idx]}"
+          dpt_tag="jetMinPt$(sim_pt_tag "$data_pt")"
+          dfrac_tag="$(sim_b2b_tag "$data_frac")"
+          dvz_tag="$(sim_vz_tag "$data_vz")"
+          dcone_tag="$(sim_cone_tag "$data_cone")"
+          data_cfg_tag="${dpt_tag}_${dfrac_tag}_${dvz_tag}_${dcone_tag}_${iso_tags[$iso_idx]}"
           (( uepipe_in_tag )) && data_cfg_tag="${data_cfg_tag}_${uepipe}"
-          local yaml_override="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}.yaml"
+          yaml_override="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}.yaml"
           mkdir -p "$SIM_YAML_OVERRIDE_DIR"
           sed -E \
             -e "s|^([[:space:]]*jet_pt_min:).*|\\1 ${data_pt}|" \
