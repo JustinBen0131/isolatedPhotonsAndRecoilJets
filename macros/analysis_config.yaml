@@ -181,7 +181,7 @@ matching: {pho_dr_max: 0.05, jet_dr_max: 0.3}
 # Drives ALL reco and truth photon pT slicing for JES3/xJγ booking + filling.
 # Reco and truth bins MUST match exactly.
 # -----------------------------------------------------------------------------
-jes3_photon_pt_bins: [10, 12, 14, 16, 18, 20, 22, 24, 26, 35]
+jes3_photon_pt_bins: [8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35]
 
 # -----------------------------------------------------------------------------
 # Unfolding bin edges (independent from JES3 bins)
