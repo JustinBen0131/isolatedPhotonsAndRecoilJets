@@ -285,12 +285,12 @@ public:
         //        {15, "MBD_NS_geq_1_vtx_lt_10"},
         //        {16, "photon_6_plus_MBD_NS_geq_2_vtx_lt_10"},
         //        {17, "photon_8_plus_MBD_NS_geq_2_vtx_lt_10"},
-                {18, "photon_10_plus_MBD_NS_geq_2_vtx_lt_10"},
+//                {18, "photon_10_plus_MBD_NS_geq_2_vtx_lt_10"},
         //        {19, "photon_12_plus_MBD_NS_geq_2_vtx_lt_10"},
         //        {20, "photon_6_plus_MBD_NS_geq_2_vtx_lt_150"},
         //        {21, "photon_8_plus_MBD_NS_geq_2_vtx_lt_150"},
-                {22, "photon_10_plus_MBD_NS_geq_2_vtx_lt_150"}
-        //        {23, "photon_12_plus_MBD_NS_geq_2_vtx_lt_150"}
+                {22, "photon_10_plus_MBD_NS_geq_2_vtx_lt_150"},
+                {23, "photon_12_plus_MBD_NS_geq_2_vtx_lt_150"}
   };
 
   // -------------------------------------------------------------------------
@@ -1082,16 +1082,16 @@ private:
   long long m_evtDiag_eventCount = 0;
   float     m_evtDiag_vz         = 0.0f;
 
-    std::string m_evtDiag_rKey;
-    int         m_evtDiag_ptBin = -1;
-    int         m_evtDiag_cat   = -1;
-    int         m_evtDiag_isSim = 0;
+  std::string m_evtDiag_rKey;
+  int         m_evtDiag_ptBin = -1;
+  int         m_evtDiag_cat   = -1;
+  int         m_evtDiag_isSim = 0;
 
-    float m_evtDiag_ptGammaTruth  = 0.0f;
-    float m_evtDiag_phiGammaTruth = 0.0f;
-    float m_evtDiag_ptGammaReco   = 0.0f;
-    float m_evtDiag_etaGammaReco  = 0.0f;
-    float m_evtDiag_phiGammaReco  = 0.0f;
+  float m_evtDiag_ptGammaTruth  = 0.0f;
+  float m_evtDiag_phiGammaTruth = 0.0f;
+  float m_evtDiag_ptGammaReco   = 0.0f;
+  float m_evtDiag_etaGammaReco  = 0.0f;
+  float m_evtDiag_phiGammaReco  = 0.0f;
 
   float m_evtDiag_sel_pt  = 0.0f;
   float m_evtDiag_sel_eta = 0.0f;
