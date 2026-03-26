@@ -323,6 +323,10 @@ create_pipeline_snapshot() {
   [[ -f "${user_root}/thesisAnalysis/install/lib/libRecoilJets.so" ]] && cp -f "${user_root}/thesisAnalysis/install/lib/libRecoilJets.so" "$snap_lib_dir/"
   [[ -f "${user_root}/thesisAnalysis_auau/install/lib/libRecoilJetsAuAu.so" ]] && cp -f "${user_root}/thesisAnalysis_auau/install/lib/libRecoilJetsAuAu.so" "$snap_lib_dir/"
 
+  # Copy companion ROOT PCM dictionaries so R__LOAD_LIBRARY doesn't spew missing-PCM errors
+  cp -f "${user_root}/thesisAnalysis/install/lib/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
+  cp -f "${user_root}/thesisAnalysis_auau/install/lib/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
+
   sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/macros/Fun4All_recoilJets_unified_impl.C\"|#include \"${snap_impl}\"|" "$snap_macro"
   sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/macros/Calo_Calib.C\"|#include \"${snap_calo}\"|" "$snap_impl"
   sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/src/RecoilJets.h\"|#include \"${snap_pp_header}\"|" "$snap_impl"
@@ -1228,7 +1232,7 @@ SUB
   submit_elapsed=$(( $(date +%s) - t0 ))
   say "Submitting ${BOLD}${queued}${RST} jobs → $(basename "$sub")"
   say "Submit summary: runsProcessed=${run_counter}  groupSize=${GROUP_SIZE}  firstChunk=${first_chunk:-none}  elapsed=${submit_elapsed}s"
-  say "Wrapper path: ${EXE}"
+  say "Wrapper path: ${exe_to_use}"
   need_cmd condor_submit
   condor_submit "$sub"
 }

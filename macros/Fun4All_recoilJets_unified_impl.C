@@ -1685,9 +1685,9 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     }
 
 
-      // ------------------ Jets DST (SIM optional; for truth jets) -------
-      if (isSim && useDSTTruthJets)
-      {
+    // ------------------ Jets DST (SIM optional; for truth jets) -------
+    if (isSim && useDSTTruthJets)
+    {
         if (!listHasJets)
         {
           std::ostringstream os;
@@ -1705,10 +1705,10 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 
         if (verbose)
           std::cout << "[INFO] isSim: registered DST_JETS input manager (truth jets from DST)\n";
-      }
+    }
 
-      if (verbose && isSim)
-      {
+    if (verbose && isSim)
+    {
         std::cout << "[INFO] Truth-jet mode (RJ_TRUTH_JETS_MODE=" << truthMode << "): "
                   << (useDSTTruthJets ? "DST" : "")
                   << ((useDSTTruthJets && buildTruthJetsFromParticles) ? "+" : "")
