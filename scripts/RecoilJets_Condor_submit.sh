@@ -268,6 +268,84 @@ SIM_YAML_DEFAULT="${BASE}/macros/analysis_config.yaml"
 SIM_YAML_OVERRIDE_DIR="${BASE}/condor_yaml_overrides"
 SIM_CFG_TAG=""
 
+# Frozen bulk-submission runtime snapshots.
+# IMPORTANT:
+#   - used ONLY for DATA "condor all" and SIM "condorDoAll"
+#   - each bulk submission gets a unique timestamped snapshot directory
+#   - do NOT recycle one shared snapshot path, or idle old jobs can break
+SNAPSHOT_ROOT="${BASE}/condor_snapshots"
+BULK_FROZEN_EXE=""
+BULK_FROZEN_MACRO=""
+
+create_pipeline_snapshot() {
+  local mode="$1"   # pp | auau
+  local stamp="$2"
+
+  local snap_dir="${SNAPSHOT_ROOT}/${TAG}_${stamp}"
+  local snap_lib_dir="${snap_dir}/lib"
+  local user_root="/sphenix/u/${USER:-$(id -u -n)}"
+
+  local live_wrapper=""
+  local live_macro=""
+  local snap_wrapper=""
+  local snap_macro=""
+
+  local snap_impl="${snap_dir}/Fun4All_recoilJets_unified_impl.C"
+  local snap_calo="${snap_dir}/Calo_Calib.C"
+  local snap_pp_header="${snap_dir}/RecoilJets.h"
+  local snap_auau_header="${snap_dir}/RecoilJets_AuAu.h"
+
+  mkdir -p "$snap_dir" "$snap_lib_dir"
+
+  if [[ "$mode" == "auau" ]]; then
+    live_wrapper="${BASE}/RecoilJets_Condor_AuAu.sh"
+    live_macro="${BASE}/macros/Fun4All_recoilJets_AuAu.C"
+    snap_wrapper="${snap_dir}/RecoilJets_Condor_AuAu.sh"
+    snap_macro="${snap_dir}/Fun4All_recoilJets_AuAu.C"
+  else
+    live_wrapper="${BASE}/RecoilJets_Condor.sh"
+    live_macro="${BASE}/macros/Fun4All_recoilJets.C"
+    snap_wrapper="${snap_dir}/RecoilJets_Condor.sh"
+    snap_macro="${snap_dir}/Fun4All_recoilJets.C"
+  fi
+
+  cp -f "$live_wrapper" "$snap_wrapper"
+  cp -f "$live_macro" "$snap_macro"
+  cp -f "${BASE}/macros/Fun4All_recoilJets_unified_impl.C" "$snap_impl"
+  cp -f "${BASE}/macros/Calo_Calib.C" "$snap_calo"
+  cp -f "${BASE}/src/RecoilJets.h" "$snap_pp_header"
+  cp -f "${BASE}/src_AuAu/RecoilJets_AuAu.h" "$snap_auau_header"
+
+  cp -f "${user_root}/thesisAnalysis/install/lib/libcalo_reco.so" "$snap_lib_dir/"
+  cp -f "${user_root}/thesisAnalysis/install/lib/libcalo_io.so" "$snap_lib_dir/"
+  cp -f "${user_root}/thesisAnalysis/install/lib/libclusteriso.so" "$snap_lib_dir/"
+  cp -f "${user_root}/thesisAnalysis/install/lib/libjetbase.so" "$snap_lib_dir/"
+  [[ -f "${user_root}/thesisAnalysis/install/lib/libRecoilJets.so" ]] && cp -f "${user_root}/thesisAnalysis/install/lib/libRecoilJets.so" "$snap_lib_dir/"
+  [[ -f "${user_root}/thesisAnalysis_auau/install/lib/libRecoilJetsAuAu.so" ]] && cp -f "${user_root}/thesisAnalysis_auau/install/lib/libRecoilJetsAuAu.so" "$snap_lib_dir/"
+
+  sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/macros/Fun4All_recoilJets_unified_impl.C\"|#include \"${snap_impl}\"|" "$snap_macro"
+  sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/macros/Calo_Calib.C\"|#include \"${snap_calo}\"|" "$snap_impl"
+  sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/src/RecoilJets.h\"|#include \"${snap_pp_header}\"|" "$snap_impl"
+  sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/src_AuAu/RecoilJets_AuAu.h\"|#include \"${snap_auau_header}\"|" "$snap_impl"
+
+  sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libcalo_reco.so)|" "$snap_impl"
+  sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_io.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libcalo_io.so)|" "$snap_impl"
+  sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libclusteriso.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libclusteriso.so)|" "$snap_impl"
+  sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libjetbase.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libjetbase.so)|" "$snap_impl"
+  sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libRecoilJets.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libRecoilJets.so)|" "$snap_impl"
+  sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis_auau/install/lib/libRecoilJetsAuAu.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libRecoilJetsAuAu.so)|" "$snap_impl"
+
+  chmod +x "$snap_wrapper"
+
+  BULK_FROZEN_EXE="$snap_wrapper"
+  BULK_FROZEN_MACRO="$snap_macro"
+
+  say "Pipeline snapshot created:"
+  say "  snapshot dir : ${snap_dir}"
+  say "  frozen exe   : ${BULK_FROZEN_EXE}"
+  say "  frozen macro : ${BULK_FROZEN_MACRO}"
+}
+
 # ------------------------ Helpers --------------------------
 usage() {
   cat <<USAGE

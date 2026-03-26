@@ -23,6 +23,7 @@
 #include <fun4all/SubsysReco.h>
 #include <fun4all/Fun4AllServer.h>
 #include <fun4all/Fun4AllDstInputManager.h>
+#include <fun4all/Fun4AllNoSyncDstInputManager.h>
 #include <fun4all/Fun4AllUtils.h>
 #include <phool/getClass.h>
 #include <phool/PHCompositeNode.h>
@@ -1309,7 +1310,8 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
   {
     std::string forced = env_lower("RJ_CALO_INPUT_MODE");
     if (forced == "jetcalo" || forced == "calofitting" || forced == "simdst") return forced;
-    if (isSim) return "simdst";
+    if (isSim && !isSimEmbedded) return "simdst";
+    if (isSimEmbedded) return "calofitting";
     if (firstFileLower.find("calofitting") != std::string::npos) return "calofitting";
     if (firstFileLower.find("jetcalo") != std::string::npos) return "jetcalo";
     if (isPPrun25 || isAuAuRequested) return "calofitting";
@@ -1500,20 +1502,21 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
   //  - SIM : use a known-good fixed timestamp (SIM does NOT run Process_Calo_Calib)
   unsigned long long cdbts = static_cast<unsigned long long>(run);
 
-  if (!isSim)
-  {
-      // DATA must satisfy Calo_Calib's heuristic (TIMESTAMP > 1000 => data)
-      if (cdbts <= 1000ULL)
+    if (!isSim || isSimEmbedded)
       {
-        std::cerr << "[FATAL] DATA run number " << cdbts
-                  << " would make Calo_Calib treat this as SIM (TIMESTAMP<=1000).\n";
-        throw std::runtime_error("Invalid DATA TIMESTAMP for Calo_Calib (must be > 1000).");
-      }
-    }
-    else
-    {
-      cdbts = 47289ULL;  // keep your old working SIM timestamp
-    }
+          // DATA (and isSimEmbedded) must satisfy Calo_Calib's heuristic (TIMESTAMP > 1000 => data)
+          // isSimEmbedded uses real AuAu calofitting DSTs, so it needs the actual run number.
+          if (cdbts <= 1000ULL)
+          {
+            std::cerr << "[FATAL] DATA/embedded run number " << cdbts
+                      << " would make Calo_Calib treat this as SIM (TIMESTAMP<=1000).\n";
+            throw std::runtime_error("Invalid DATA/embedded TIMESTAMP for Calo_Calib (must be > 1000).");
+          }
+        }
+        else
+        {
+          cdbts = 47289ULL;  // keep your old working SIM timestamp
+        }
 
     if (const char* ts = std::getenv("RJ_CDB_TIMESTAMP"))
     {
@@ -1636,7 +1639,9 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 
         if (listHasG4)
         {
-          auto* inG4 = new Fun4AllDstInputManager("DST_G4HITS_IN");
+          auto* inG4 = isSimEmbedded
+            ? static_cast<Fun4AllInputManager*>(new Fun4AllNoSyncDstInputManager("DST_G4HITS_IN"))
+            : static_cast<Fun4AllInputManager*>(new Fun4AllDstInputManager("DST_G4HITS_IN"));
           for (const auto& f : filesG4) inG4->AddFile(f);
           se->registerInputManager(inG4);
         }
@@ -1653,13 +1658,17 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
           }
         }
 
-        auto* inGlobal = new Fun4AllDstInputManager("DST_GLOBAL_IN");
+        auto* inGlobal = isSimEmbedded
+          ? static_cast<Fun4AllInputManager*>(new Fun4AllNoSyncDstInputManager("DST_GLOBAL_IN"))
+          : static_cast<Fun4AllInputManager*>(new Fun4AllDstInputManager("DST_GLOBAL_IN"));
         for (const auto& f : filesGlobal) inGlobal->AddFile(f);
         se->registerInputManager(inGlobal);
 
         if (listHasMbd)
         {
-          auto* inMbd = new Fun4AllDstInputManager("DST_MBD_EPD_IN");
+          auto* inMbd = isSimEmbedded
+            ? static_cast<Fun4AllInputManager*>(new Fun4AllNoSyncDstInputManager("DST_MBD_EPD_IN"))
+            : static_cast<Fun4AllInputManager*>(new Fun4AllDstInputManager("DST_MBD_EPD_IN"));
           for (const auto& f : filesMbd) inMbd->AddFile(f);
           se->registerInputManager(inMbd);
         }
@@ -1688,7 +1697,9 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
           detail::bail(os.str());
         }
 
-        auto* inJets = new Fun4AllDstInputManager("DST_JETS_IN");
+        auto* inJets = isSimEmbedded
+                    ? static_cast<Fun4AllInputManager*>(new Fun4AllNoSyncDstInputManager("DST_JETS_IN"))
+                    : static_cast<Fun4AllInputManager*>(new Fun4AllDstInputManager("DST_JETS_IN"));
         for (const auto& f : filesJets) inJets->AddFile(f);
         se->registerInputManager(inJets);
 
@@ -1756,25 +1767,25 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     //   calofitting -> real-data waveform-fit input: run Process_Calo_Calib()
     //   simdst      -> analysis DST already carries calibrated towers/clusters
     // ------------------------------------------------------------------
-    if (isSim)
+    if (isSim && !isSimEmbedded)
     {
-      if (vlevel > 0)
-      {
-        std::cout << "[isSim] skipping Process_Calo_Calib() "
-                     "(SIM DST already has TOWERINFO_CALIB and CLUSTERINFO_CEMC)\n";
-      }
+          if (vlevel > 0)
+          {
+            std::cout << "[isSim] skipping Process_Calo_Calib() "
+                         "(SIM DST already has TOWERINFO_CALIB and CLUSTERINFO_CEMC)\n";
+    }
 
-      // RawClusterBuilderTemplate (used by the NOCORR pi0 branch) requires:
-      //   1) the CDB geometry file for its internal BEmcRecCEMC tower map
-      //   2) CaloTowerStatus to properly set isGood() flags on towers
-      // Process_Calo_Calib() normally provides both, but is skipped for SIM.
-      // Mirror what Process_Calo_Calib() does for SIM (see Calo_Calib.C):
-      //   - load CDB geometry
-      //   - run CaloTowerStatus with SIM hot tower map
-      // We target TOWERINFO_CALIB_CEMC directly (instead of TOWERS_CEMC)
-      // since the SIM DST already has calibrated towers and we skip CaloTowerCalib.
-      if (cfg.doPi0Analysis)
-      {
+    // RawClusterBuilderTemplate (used by the NOCORR pi0 branch) requires:
+    //   1) the CDB geometry file for its internal BEmcRecCEMC tower map
+    //   2) CaloTowerStatus to properly set isGood() flags on towers
+    // Process_Calo_Calib() normally provides both, but is skipped for SIM.
+    // Mirror what Process_Calo_Calib() does for SIM (see Calo_Calib.C):
+    //   - load CDB geometry
+    //   - run CaloTowerStatus with SIM hot tower map
+    // We target TOWERINFO_CALIB_CEMC directly (instead of TOWERS_CEMC)
+    // since the SIM DST already has calibrated towers and we skip CaloTowerCalib.
+    if (cfg.doPi0Analysis)
+    {
             // 1) CDB geometry for BEmcRecCEMC tower map
             std::string geoLocation = CDBInterface::instance()->getUrl("calo_geo");
             auto* ingeo = new Fun4AllRunNodeInputManager("DST_GEO_SIM");
@@ -1973,9 +1984,19 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
   // PP / isSim:
   //   - keep the existing pp-style JetReco + JetCalib chain (see 'else' below)
   // --------------------------------------------------------------------------
+  std::string towerPrefixPCB = "TOWERINFO_CALIB";
+  if (isAuAuLike)
+  {
+            if (const char* env = std::getenv("RJ_TOWERINFO_PREFIX"))
+            {
+              std::string s = detail::trim(std::string(env));
+              if (!s.empty()) towerPrefixPCB = s;
+            }
+  }
+
   if (verbose || vlevel > 0)
   {
-        std::cout << "[FLOW] reco/calibration branch:"
+            std::cout << "[FLOW] reco/calibration branch:"
                   << " | branch=" << (isAuAuLike ? "AuAu-like HI UE subtraction + SUB1 jets + JetCalib"
                                                  : "pp-style jets + JetCalib")
                   << " | Process_Calo_Calib=" << ((!isSim && (caloInputMode == "calofitting" || caloInputMode == "jetcalo")) ? "ON" : "OFF")
@@ -2744,16 +2765,6 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
       std::string m_sourceNode;
       std::string m_destNode;
   };
-
-  std::string towerPrefixPCB = "TOWERINFO_CALIB";
-  if (isAuAuLike)
-  {
-        if (const char* env = std::getenv("RJ_TOWERINFO_PREFIX"))
-        {
-          std::string s = detail::trim(std::string(env));
-          if (!s.empty()) towerPrefixPCB = s;
-        }
-  }
 
   std::string photonInputClusterNode = "CLUSTERINFO_CEMC";
   bool photonBuilderIsAuAu = false;
