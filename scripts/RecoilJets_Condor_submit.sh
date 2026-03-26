@@ -346,6 +346,16 @@ create_pipeline_snapshot() {
   say "  frozen macro : ${BULK_FROZEN_MACRO}"
 }
 
+cleanup_bulk_snapshots_for_tag() {
+  mkdir -p "$SNAPSHOT_ROOT"
+  local n_old
+  n_old=$(find "$SNAPSHOT_ROOT" -mindepth 1 -maxdepth 1 -type d -name "${TAG}_*" 2>/dev/null | wc -l | awk '{print $1}')
+  if (( n_old > 0 )); then
+    say "Removing ${n_old} older bulk snapshot dir(s) for tag ${TAG}"
+    find "$SNAPSHOT_ROOT" -mindepth 1 -maxdepth 1 -type d -name "${TAG}_*" -exec rm -rf {} +
+  fi
+}
+
 # ------------------------ Helpers --------------------------
 usage() {
   cat <<USAGE
@@ -1121,6 +1131,9 @@ submit_condor() {
 
   local stamp; stamp="$(date +%Y%m%d_%H%M%S)"
   local sub="${SUB_DIR}/RecoilJets_${TAG}_${stamp}.sub"
+  local exe_to_use="${BULK_FROZEN_EXE:-${EXE}}"
+  local macro_env=""
+  [[ -n "${BULK_FROZEN_MACRO:-}" ]] && macro_env=";RJ_MACRO_PATH=${BULK_FROZEN_MACRO}"
 
   # Snapshot YAML at submit time so idle jobs are immune to later edits
   local yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
@@ -1131,11 +1144,11 @@ submit_condor() {
   cp -f "$yaml_src" "$yaml_snap"
   say "YAML snapshot: ${yaml_snap}"
   say "Submit context: source=${source}  runs=${source_runs:-0}  groupSize=${GROUP_SIZE}  firstChunk=${first_chunk:-none}"
-  say "Submit environment: RJ_DATASET=${DATASET}  RJ_VERBOSITY=0  RJ_CONFIG_YAML=${yaml_snap}"
+  say "Submit environment: RJ_DATASET=${DATASET}  RJ_VERBOSITY=0  RJ_CONFIG_YAML=${yaml_snap}${macro_env}"
 
   cat > "$sub" <<SUB
 universe      = vanilla
-executable    = ${EXE}
+executable    = ${exe_to_use}
 initialdir    = ${BASE}
 getenv        = True
 log           = ${LOG_DIR}/job.\$(Cluster).\$(Process).log
@@ -1146,7 +1159,7 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 # Force dataset & quiet macro on Condor (YAML frozen at submit time):
-environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_snap}
+environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_snap}${macro_env}
 SUB
 
   local queued=0
@@ -1700,6 +1713,12 @@ SUB
 
     need_cmd condor_submit
     doall_stamp="$(date +%Y%m%d_%H%M%S)"
+    # Freeze pipeline for this bulk submission
+    cleanup_bulk_snapshots_for_tag
+    case "$DATASET" in
+      isSimEmbedded) create_pipeline_snapshot "auau" "$doall_stamp" ;;
+      *)             create_pipeline_snapshot "pp" "$doall_stamp" ;;
+    esac
     # Clean stale .sub files and YAML overrides for SIM
     rm -f "${SUB_DIR}/RecoilJets_sim_"*.sub "${SUB_DIR}/RecoilJets_${TAG}_"*.sub 2>/dev/null || true
     rm -f "${SIM_YAML_OVERRIDE_DIR}/analysis_config_jetMinPt"*.yaml "${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_"*.yaml 2>/dev/null || true
@@ -1725,10 +1744,13 @@ SUB
 
           stamp="$(date +%Y%m%d_%H%M%S)"
           sub="${SUB_DIR}/RecoilJets_sim_${SIM_CFG_TAG}_${SIM_SAMPLE}_${stamp}.sub"
+          exe_for_sub="${BULK_FROZEN_EXE:-${EXE}}"
+          macro_env_for_sub=""
+          [[ -n "${BULK_FROZEN_MACRO:-}" ]] && macro_env_for_sub=";RJ_MACRO_PATH=${BULK_FROZEN_MACRO}"
 
           cat > "$sub" <<SUB
 universe      = vanilla
-executable    = ${EXE}
+executable    = ${exe_for_sub}
 initialdir    = ${BASE}
 getenv        = True
 log           = ${LOG_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).log
@@ -1738,7 +1760,7 @@ request_memory= 2000MB
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
-environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_override}
+environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_override}${macro_env_for_sub}
 SUB
 
           gidx=0
@@ -1903,6 +1925,13 @@ SUB
       all|"")
         # Clean stale YAML overrides before fresh submission
         rm -f "${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_"*.yaml 2>/dev/null || true
+
+        # Freeze pipeline for this bulk submission
+        cleanup_bulk_snapshots_for_tag
+        case "$DATASET" in
+          isAuAu|isOO) create_pipeline_snapshot "auau" "$(date +%Y%m%d_%H%M%S)" ;;
+          *)           create_pipeline_snapshot "pp" "$(date +%Y%m%d_%H%M%S)" ;;
+        esac
 
         n_matrix=$(( ${#data_pts[@]} * ${#data_fracs[@]} * ${#data_vzs[@]} * ${#data_cones[@]} * ${#iso_tags[@]} * ${#uepipe_modes[@]} ))
         say "═══════════════════════════════════════════════════════════════"
