@@ -405,42 +405,56 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
   // ------------------------------------------------------------------
   bool isSim  = m_isSim;
   bool isAuAu = m_isAuAu;
+  bool isSimEmbedded = (isSim && isAuAu);
 
   if (const char* ds = std::getenv("RJ_DATASET"))
   {
-    const std::string s = toLower(trim(std::string(ds)));
+      const std::string s = toLower(trim(std::string(ds)));
 
-    if (s == "issim" || s == "sim")
-    {
-      isSim  = true;
-      isAuAu = false;
-    }
-    else if (s == "isauau" || s == "auau" || s == "aa")
-    {
-      isSim  = false;
-      isAuAu = true;
-    }
-    else if (s == "ispp" || s == "pp")
-    {
-      isSim  = false;
-      isAuAu = false;
-    }
+      if (s == "isimembedded" || s == "simembedded")
+      {
+        isSim         = true;
+        isAuAu        = true;
+        isSimEmbedded = true;
+      }
+      else if (s == "issim" || s == "sim")
+      {
+        isSim         = true;
+        isAuAu        = false;
+        isSimEmbedded = false;
+      }
+      else if (s == "isauau" || s == "auau" || s == "aa")
+      {
+        isSim         = false;
+        isSim         = false;
+        isAuAu        = true;
+        isSimEmbedded = false;
+      }
+      else if (s == "ispp" || s == "pp")
+      {
+        isSim         = false;
+        isAuAu        = false;
+        isSimEmbedded = false;
+      }
   }
 
   if (const char* f = std::getenv("RJ_IS_SIM"))
   {
-    // RJ_IS_SIM=1 forces sim; RJ_IS_SIM=0 forces "not sim"
-    const bool envSim = (std::atoi(f) != 0);
-    if (envSim)
-    {
-      isSim  = true;
-      isAuAu = false;
-    }
-    else
-    {
-      isSim = false;
-      // Do NOT force isAuAu here — RJ_DATASET should set that if needed.
-    }
+      // RJ_IS_SIM=1 forces sim; RJ_IS_SIM=0 forces "not sim"
+      const bool envSim = (std::atoi(f) != 0);
+      if (envSim)
+      {
+        isSim = true;
+        if (!isSimEmbedded)
+        {
+          isAuAu = false;
+        }
+      }
+      else if (!isSimEmbedded)
+      {
+        isSim = false;
+        // Do NOT force isAuAu here — RJ_DATASET should set that if needed.
+      }
   }
 
   // Keep internal flags consistent with what this event will do

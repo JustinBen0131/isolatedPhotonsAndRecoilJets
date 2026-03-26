@@ -1250,41 +1250,59 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
   const std::string& firstFile = filesCalo.front(); // used for GetRunSegment
 
   // Dataset / input-mode detection
-  //  - RJ_DATASET drives analysis mode: isPP | isPPrun25 | isAuAu | isSim
+  //  - RJ_DATASET drives analysis mode: isPP | isPPrun25 | isAuAu | isSim | isSimEmbedded
   //  - RJ_CALO_INPUT_MODE optionally overrides input provenance: jetcalo | calofitting | simdst
   bool isSim = false;
+  bool isSimEmbedded = false;
   bool isPPrun25 = false;
   bool isAuAuRequested = false;
   std::string datasetToken = env_lower("RJ_DATASET", "ispp");
-  if (datasetToken == "issim" || datasetToken == "sim"
-       || datasetToken == "issimjet5" || datasetToken == "simjet5"
-       || datasetToken == "issimmb" || datasetToken == "simmb")
+  if (datasetToken == "issimembedded" || datasetToken == "simembedded")
   {
-    isSim = true;
+        isSim = true;
+        isSimEmbedded = true;
+        isAuAuRequested = true;
+  }
+  else if (datasetToken == "issim" || datasetToken == "sim"
+           || datasetToken == "issimjet5" || datasetToken == "simjet5"
+           || datasetToken == "issimmb" || datasetToken == "simmb")
+  {
+        isSim = true;
   }
   else if (datasetToken == "ispprun25" || datasetToken == "pprun25" || datasetToken == "pp25")
   {
-    isPPrun25 = true;
+        isPPrun25 = true;
   }
   else if (datasetToken == "isauau" || datasetToken == "auau" || datasetToken == "aa")
   {
-    isAuAuRequested = true;
+        isAuAuRequested = true;
   }
   else
   {
-    datasetToken = "ispp";
+        datasetToken = "ispp";
   }
 
   if (!isSim)
   {
-    if (const char* f = std::getenv("RJ_IS_SIM"))
-      isSim = (std::atoi(f) != 0);
-    if (isSim)
-    {
-      datasetToken = "issim";
-      isPPrun25 = false;
-      isAuAuRequested = false;
-    }
+        if (const char* f = std::getenv("RJ_IS_SIM"))
+          isSim = (std::atoi(f) != 0);
+        if (isSim)
+        {
+          datasetToken = "issim";
+          isPPrun25 = false;
+          isAuAuRequested = false;
+        }
+  }
+
+  if (verbose)
+  {
+        std::cout << "[FLOW] dataset token resolution:"
+                  << " RJ_DATASET=" << datasetToken
+                  << " | isSim=" << (isSim ? "true" : "false")
+                  << " | isSimEmbedded=" << (isSimEmbedded ? "true" : "false")
+                  << " | isPPrun25=" << (isPPrun25 ? "true" : "false")
+                  << " | isAuAuRequested=" << (isAuAuRequested ? "true" : "false")
+                  << std::endl;
   }
 
   auto detect_input_mode = [&](const std::string& firstFileLower) -> std::string
@@ -1537,23 +1555,35 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
   bool buildTruthJetsFromParticles = false;
   bool buildTruthJetsAsAltNode = false;   // only true in BOTH mode
 
-    auto all_nonempty = [](const std::vector<std::string>& v) -> bool
-    {
+  auto all_nonempty = [](const std::vector<std::string>& v) -> bool
+  {
         if (v.empty()) return false;
         for (const auto& s : v) if (s.empty()) return false;
         return true;
-      };
+  };
 
-      const bool listHasG4     = all_nonempty(filesG4);
-      const bool listHasJets   = all_nonempty(filesJets);
-      const bool listHasGlobal = all_nonempty(filesGlobal);
-      const bool listHasMbd    = all_nonempty(filesMbd);
+  const bool listHasG4     = all_nonempty(filesG4);
+  const bool listHasJets   = all_nonempty(filesJets);
+  const bool listHasGlobal = all_nonempty(filesGlobal);
+  const bool listHasMbd    = all_nonempty(filesMbd);
 
-      // Normalize env token to lowercase
+  if (verbose || vlevel > 0)
+  {
+      std::cout << "[FLOW] input contract:"
+                << " caloFiles=" << filesCalo.size()
+                << " | G4=" << (listHasG4 ? "present" : "missing")
+                << " | DST_JETS=" << (listHasJets ? "present" : "missing")
+                << " | DST_GLOBAL=" << (listHasGlobal ? "present" : "missing")
+                << " | DST_MBD_EPD=" << (listHasMbd ? "present" : "missing")
+                << " | caloInputMode=" << caloInputMode
+                << std::endl;
+  }
 
-      const std::string truthMode = env_lower("RJ_TRUTH_JETS_MODE", "auto");
-      if (truthMode == "dst")
-      {
+  // Normalize env token to lowercase
+
+  const std::string truthMode = env_lower("RJ_TRUTH_JETS_MODE", "auto");
+  if (truthMode == "dst")
+  {
         useDSTTruthJets = true;
         buildTruthJetsFromParticles = false;
         buildTruthJetsAsAltNode = false;
@@ -1585,15 +1615,17 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 
     if (isSim)
     {
-        // For SIM we REQUIRE reco-vertex streams (GLOBAL + MBD_EPD).
+        // For SIM we REQUIRE a reco-vertex stream from DST_GLOBAL.
+        // DST_MBD_EPD is OPTIONAL: if absent (or 'NONE'), downstream code
+        // will fall back to GlobalVertexMap for the reco vertex.
         // G4Hits is OPTIONAL: if missing, we skip truth-photon matching QA.
-        if (!listHasGlobal || !listHasMbd)
+        if (!listHasGlobal)
         {
           std::ostringstream os;
-          os << "isSim requires reco-vertex DSTs (DST_GLOBAL + DST_MBD_EPD) paired 1:1 with calo files.\n"
+          os << "isSim requires a reco-vertex DST_GLOBAL stream paired 1:1 with calo files.\n"
              << "Input list must include these columns per line:\n"
-             << "  <DST_CALO_CLUSTER> <G4_or_NONE> <DST_JETS_or_NONE> <DST_GLOBAL> <DST_MBD_EPD>\n"
-             << "But your list is missing DST_GLOBAL and/or DST_MBD_EPD on at least one line.";
+             << "  <DST_CALO_CLUSTER> <G4_or_NONE> <DST_JETS_or_NONE> <DST_GLOBAL> [<DST_MBD_EPD_or_NONE>]\n"
+             << "But your list is missing DST_GLOBAL on at least one line.";
           detail::bail(os.str());
         }
 
@@ -1625,12 +1657,21 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         for (const auto& f : filesGlobal) inGlobal->AddFile(f);
         se->registerInputManager(inGlobal);
 
-        auto* inMbd = new Fun4AllDstInputManager("DST_MBD_EPD_IN");
-        for (const auto& f : filesMbd) inMbd->AddFile(f);
-        se->registerInputManager(inMbd);
+        if (listHasMbd)
+        {
+          auto* inMbd = new Fun4AllDstInputManager("DST_MBD_EPD_IN");
+          for (const auto& f : filesMbd) inMbd->AddFile(f);
+          se->registerInputManager(inMbd);
+        }
+        else
+        {
+          std::cout << "\033[31m[WARN] isSim: no DST_MBD_EPD stream provided (or it's 'NONE'). "
+                       "Continuing; reco vertex will use GlobalVertexMap fallback.\033[0m\n";
+        }
 
         if (verbose)
-          std::cout << "[INFO] isSim: registered input managers (Calo + Global + MBD_EPD"
+          std::cout << "[INFO] isSim: registered input managers (Calo + Global"
+                    << (listHasMbd ? " + MBD_EPD" : " (no MBD_EPD)")
                     << (listHasG4 ? " + G4" : " (no G4)") << ")\n";
     }
 
@@ -1662,7 +1703,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                   << ((useDSTTruthJets && buildTruthJetsFromParticles) ? "+" : "")
                   << (buildTruthJetsFromParticles ? "BUILD" : "")
                   << "\n";
-    }
+  }
 
   // --------------------------------------------------------------------
   // 3.  Geometry + status + calibration + clustering
@@ -1795,45 +1836,65 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
   se->registerSubsystem(gvertex.release());
 
   bool isAuAuData = false;
-  if (isSim)
+  bool isAuAuLike = false;
+  if (isSimEmbedded)
   {
-    isAuAuData = false;
+        isAuAuData = false;
+        isAuAuLike = true;
+  }
+  else if (isSim)
+  {
+        isAuAuData = false;
+        isAuAuLike = false;
   }
   else if (const char* env = std::getenv("RJ_DATASET"))
   {
-    std::string sLower = detail::trim(std::string(env));
-    std::transform(sLower.begin(), sLower.end(), sLower.begin(), [](unsigned char c){ return std::tolower(c); });
-    if (sLower == "isauau" || sLower == "auau" || sLower == "aa")
-      isAuAuData = true;
-    else if (sLower == "ispp" || sLower == "pp" || sLower == "ispprun25" || sLower == "pprun25" || sLower == "pp25")
-      isAuAuData = false;
-    else
-      isAuAuData = (run > 53864);
+        std::string sLower = detail::trim(std::string(env));
+        std::transform(sLower.begin(), sLower.end(), sLower.begin(), [](unsigned char c){ return std::tolower(c); });
+        if (sLower == "isauau" || sLower == "auau" || sLower == "aa")
+          isAuAuData = true;
+        else if (sLower == "ispp" || sLower == "pp" || sLower == "ispprun25" || sLower == "pprun25" || sLower == "pp25")
+          isAuAuData = false;
+        else
+          isAuAuData = (run > 53864);
+        isAuAuLike = isAuAuData;
   }
   else
   {
-    isAuAuData = (run > 53864);
+        isAuAuData = (run > 53864);
+        isAuAuLike = isAuAuData;
   }
 
-  if (isAuAuData)
+  if (verbose || vlevel > 0)
   {
-    std::cout << "building minbias classifier" << std::endl;
-    auto* mb = new MinimumBiasClassifier();
-    mb->Verbosity(0);
-    mb->setOverwriteScale(
-          "/cvmfs/sphenix.sdcc.bnl.gov/calibrations/sphnxpro/cdb/CentralityScale/42/6b/426bc1b56ba544201b0213766bee9478_cdb_centrality_scale_54912.root");
-    se->registerSubsystem(mb);
+        std::cout << "[FLOW] dataset semantics:"
+                  << " | isSim=" << (isSim ? "true" : "false")
+                  << " | isSimEmbedded=" << (isSimEmbedded ? "true" : "false")
+                  << " | isAuAuData=" << (isAuAuData ? "true" : "false")
+                  << " | isAuAuLike=" << (isAuAuLike ? "true" : "false")
+                  << " | isPPrun25=" << (isPPrun25 ? "true" : "false")
+                  << std::endl;
+  }
 
-    if (vlevel > 0) std::cout << "building centrality classifier (Au+Au)" << std::endl;
-    auto* cent = new CentralityReco();
-    cent->Verbosity(0);
-    cent->setOverwriteScale(
+  if (isAuAuLike)
+  {
+      std::cout << "building minbias classifier" << std::endl;
+      auto* mb = new MinimumBiasClassifier();
+      mb->Verbosity(0);
+      mb->setOverwriteScale(
             "/cvmfs/sphenix.sdcc.bnl.gov/calibrations/sphnxpro/cdb/CentralityScale/42/6b/426bc1b56ba544201b0213766bee9478_cdb_centrality_scale_54912.root");
-    se->registerSubsystem(cent);
+      se->registerSubsystem(mb);
+
+      if (vlevel > 0) std::cout << "building centrality classifier (Au+Au-like)" << std::endl;
+      auto* cent = new CentralityReco();
+      cent->Verbosity(0);
+      cent->setOverwriteScale(
+              "/cvmfs/sphenix.sdcc.bnl.gov/calibrations/sphnxpro/cdb/CentralityScale/42/6b/426bc1b56ba544201b0213766bee9478_cdb_centrality_scale_54912.root");
+      se->registerSubsystem(cent);
   }
   else
   {
-    if (vlevel > 0) std::cout << "[pp dataset] skipping CentralityReco" << std::endl;
+      if (vlevel > 0) std::cout << "[pp dataset] skipping CentralityReco" << std::endl;
   }
 
   setenv("BEMCREC_CEMC_DISABLE_ASINH_POSITION", "0", 1);
@@ -1912,8 +1973,21 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
   // PP / isSim:
   //   - keep the existing pp-style JetReco + JetCalib chain (see 'else' below)
   // --------------------------------------------------------------------------
-  if (isAuAuData)
-    {
+  if (verbose || vlevel > 0)
+  {
+        std::cout << "[FLOW] reco/calibration branch:"
+                  << " | branch=" << (isAuAuLike ? "AuAu-like HI UE subtraction + SUB1 jets + JetCalib"
+                                                 : "pp-style jets + JetCalib")
+                  << " | Process_Calo_Calib=" << ((!isSim && (caloInputMode == "calofitting" || caloInputMode == "jetcalo")) ? "ON" : "OFF")
+                  << " | clusterUEpipeline=" << cfg.clusterUEpipeline
+                  << " | towerPrefixPCB=" << towerPrefixPCB
+                  << " | truthJets=" << (useDSTTruthJets ? "DST" : "BUILD")
+                  << ((useDSTTruthJets && buildTruthJetsFromParticles) ? "+BUILD" : "")
+                  << std::endl;
+  }
+
+  if (isAuAuLike)
+  {
       // Ensure JetBackground modules can attach nodes under DST/TOWER
       auto* ensure = new EnsureJetCalibNodes("EnsureJetCalibNodes_forHIJets");
       ensure->Verbosity(0);
@@ -2114,11 +2188,11 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     // Many pp DSTs do NOT have it, so JetCalib aborts unless we create it.
     // We register EnsureJetCalibNodes once (only when we intend to run JetCalib).
     //
-      // Apply pp JES calibration for ALL pp-style running (pp data AND isSim).
-      // Keep Au+Au excluded.
-        const bool doJetCalibAny = (!isAuAuData);
-        if (doJetCalibAny)
-        {
+    // Apply pp JES calibration for ALL pp-style running (pp data AND isSim).
+    // Keep Au+Au-like chains excluded.
+    const bool doJetCalibAny = (!isAuAuLike);
+    if (doJetCalibAny)
+    {
             auto* ensure = new EnsureJetCalibNodes("EnsureJetCalibNodes_forJES");
             // keep this modest; set RJ_JETCALIB_NODE_VERBOSE=1 for prints
             int nodeV = 0;
@@ -2128,7 +2202,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 
             if (vlevel > 0)
               std::cout << "[INFO] JES: enabling JetCalib (pp-style: pp data + isSim) => ensuring DST/TOWER exists\n";
-        }
+    }
 
     // Optional: control JetCalib verbosity independently
     int jetcalV = 0; // default: show InitRun/process_event messages
@@ -2149,7 +2223,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 
         // Apply JES calibration for pp-like chains (pp data + pp-style SIM)
         // Run pp JES calibration in BOTH pp data and isSim (pp-style chains)
-        const bool doJetCalib = (!isAuAuData);
+        const bool doJetCalib = (!isAuAuLike);
 
         // If calibrating: build RAW jets to a separate node to avoid name collision
         const std::string rawNode = doJetCalib ? (calibNode + "_RAW") : calibNode;
@@ -2672,187 +2746,188 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
   };
 
   std::string towerPrefixPCB = "TOWERINFO_CALIB";
-  if (isAuAuData)
+  if (isAuAuLike)
   {
-      if (const char* env = std::getenv("RJ_TOWERINFO_PREFIX"))
-      {
-        std::string s = detail::trim(std::string(env));
-        if (!s.empty()) towerPrefixPCB = s;
-      }
+        if (const char* env = std::getenv("RJ_TOWERINFO_PREFIX"))
+        {
+          std::string s = detail::trim(std::string(env));
+          if (!s.empty()) towerPrefixPCB = s;
+        }
   }
 
   std::string photonInputClusterNode = "CLUSTERINFO_CEMC";
   bool photonBuilderIsAuAu = false;
 
-  if (cfg.clusterUEpipeline == "variantA" && isAuAuData)
+  if (cfg.clusterUEpipeline == "variantA" && isAuAuLike)
   {
-            const std::string nativeCemcNode = towerPrefixPCB + "_CEMC_PHOSUB";
+              const std::string nativeCemcNode = towerPrefixPCB + "_CEMC_PHOSUB";
 
-            int nativeUEV = 0;
-            if (const char* env = std::getenv("RJ_HIUE_VERBOSITY")) nativeUEV = std::atoi(env);
+              int nativeUEV = 0;
+              if (const char* env = std::getenv("RJ_HIUE_VERBOSITY")) nativeUEV = std::atoi(env);
 
-            auto* nativeSub = new NativeCEMCUESubtractor("NativeCEMCUESubtractor",
-                                                         towerPrefixPCB + "_CEMC",
-                                                         nativeCemcNode);
-            nativeSub->Verbosity(nativeUEV);
-            se->registerSubsystem(nativeSub);
+              auto* nativeSub = new NativeCEMCUESubtractor("NativeCEMCUESubtractor",
+                                                           towerPrefixPCB + "_CEMC",
+                                                           nativeCemcNode);
+              nativeSub->Verbosity(nativeUEV);
+              se->registerSubsystem(nativeSub);
 
-            if (nativeUEV > 0)
-            {
-              auto* auditBefore = new TowerAudit("TowerAudit_PHOSUB_before",
-                                                 towerPrefixPCB + "_CEMC",
-                                                 towerPrefixPCB + "_HCALIN_SUB1",
-                                                 towerPrefixPCB + "_HCALOUT_SUB1",
-                                                 10);
-              auditBefore->Verbosity(nativeUEV);
-              se->registerSubsystem(auditBefore);
+              if (nativeUEV > 0)
+              {
+                auto* auditBefore = new TowerAudit("TowerAudit_PHOSUB_before",
+                                                   towerPrefixPCB + "_CEMC",
+                                                   towerPrefixPCB + "_HCALIN_SUB1",
+                                                   towerPrefixPCB + "_HCALOUT_SUB1",
+                                                   10);
+                auditBefore->Verbosity(nativeUEV);
+                se->registerSubsystem(auditBefore);
 
-              auto* auditAfter = new TowerAudit("TowerAudit_PHOSUB_after",
-                                                nativeCemcNode,
-                                                towerPrefixPCB + "_HCALIN_SUB1",
-                                                towerPrefixPCB + "_HCALOUT_SUB1",
-                                                10);
-              auditAfter->Verbosity(nativeUEV);
-              se->registerSubsystem(auditAfter);
+                auto* auditAfter = new TowerAudit("TowerAudit_PHOSUB_after",
+                                                  nativeCemcNode,
+                                                  towerPrefixPCB + "_HCALIN_SUB1",
+                                                  towerPrefixPCB + "_HCALOUT_SUB1",
+                                                  10);
+                auditAfter->Verbosity(nativeUEV);
+                se->registerSubsystem(auditAfter);
+              }
+
+              // Recluster from UE-subtracted PHOSUB towers (ATLAS-like approach:
+              // cluster on subtracted input so cluster energies, positions, and
+              // tower membership all reflect the subtracted state)
+              {
+                  auto* phoSubClusterBuilder = new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate_PHOSUB");
+                  phoSubClusterBuilder->Detector("CEMC");
+                  phoSubClusterBuilder->set_threshold_energy(0.070);
+                  const char* _calibroot = std::getenv("CALIBRATIONROOT");
+                  if (_calibroot && std::string(_calibroot).size())
+                  {
+                    std::string emc_prof_phosub = std::string(_calibroot) + "/EmcProfile/CEMCprof_Thresh30MeV.root";
+                    phoSubClusterBuilder->LoadProfile(emc_prof_phosub);
+                  }
+                  phoSubClusterBuilder->set_UseTowerInfo(1);
+                  phoSubClusterBuilder->set_UseAltZVertex(1);
+                  phoSubClusterBuilder->setInputTowerNodeName(nativeCemcNode);
+                  phoSubClusterBuilder->setOutputClusterNodeName("CLUSTERINFO_CEMC_PHOSUB");
+                  phoSubClusterBuilder->Verbosity(nativeUEV);
+                  se->registerSubsystem(phoSubClusterBuilder);
+              }
+
+              photonInputClusterNode = "CLUSTERINFO_CEMC_PHOSUB";
+
+              if (vlevel > 0)
+              {
+                std::cout << "[clusterUEpipeline=variantA] enabled for AuAu-like running"
+                          << " | nativeCemcNode=" << nativeCemcNode
+                          << " | photonInputClusterNode=" << photonInputClusterNode
+                          << " | PhotonClusterBuilder will read PHOSUB clusters + PHOSUB/SUB1 tower nodes"
+                          << std::endl;
+              }
+      }
+      else if (cfg.clusterUEpipeline == "variantB" && isAuAuLike)
+      {
+              const std::string nativeCemcNode = towerPrefixPCB + "_CEMC_PHOSUB";
+
+              int nativeUEV = 0;
+              if (const char* env = std::getenv("RJ_HIUE_VERBOSITY")) nativeUEV = std::atoi(env);
+
+              auto* nativeSub = new NativeCEMCUESubtractor("NativeCEMCUESubtractor_B",
+                                                           towerPrefixPCB + "_CEMC",
+                                                           nativeCemcNode);
+              nativeSub->setDoSeedExclusion(true);
+              nativeSub->setSeedJetNode("AntiKt_TowerInfo_HIRecoSeedsSub_r02");
+              nativeSub->setSeedMinPt(5.0f);
+              nativeSub->setExclusionDR(0.4f);
+              nativeSub->Verbosity(nativeUEV);
+              se->registerSubsystem(nativeSub);
+
+              // Recluster from seed-masked UE-subtracted PHOSUB towers
+              {
+                  auto* phoSubClusterBuilder = new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate_PHOSUB");
+                  phoSubClusterBuilder->Detector("CEMC");
+                  phoSubClusterBuilder->set_threshold_energy(0.070);
+                  const char* _calibroot = std::getenv("CALIBRATIONROOT");
+                  if (_calibroot && std::string(_calibroot).size())
+                  {
+                    std::string emc_prof_phosub = std::string(_calibroot) + "/EmcProfile/CEMCprof_Thresh30MeV.root";
+                    phoSubClusterBuilder->LoadProfile(emc_prof_phosub);
+                  }
+                  phoSubClusterBuilder->set_UseTowerInfo(1);
+                  phoSubClusterBuilder->set_UseAltZVertex(1);
+                  phoSubClusterBuilder->setInputTowerNodeName(nativeCemcNode);
+                  phoSubClusterBuilder->setOutputClusterNodeName("CLUSTERINFO_CEMC_PHOSUB");
+                  phoSubClusterBuilder->Verbosity(nativeUEV);
+                  se->registerSubsystem(phoSubClusterBuilder);
+              }
+
+              photonInputClusterNode = "CLUSTERINFO_CEMC_PHOSUB";
+
+              if (vlevel > 0)
+              {
+                std::cout << "[clusterUEpipeline=variantB] enabled for AuAu-like running"
+                          << " | nativeCemcNode=" << nativeCemcNode
+                          << " | seed exclusion: DR=0.4 from HIRecoSeedsSub_r02 (pt>5 GeV)"
+                          << " | photonInputClusterNode=" << photonInputClusterNode
+                          << std::endl;
+              }
+      }
+      else if (cfg.clusterUEpipeline == "baseVariant" && isAuAuLike)
+      {
+              photonBuilderIsAuAu = true;
+
+              if (vlevel > 0)
+              {
+                std::cout << "[clusterUEpipeline=baseVariant] enabled for AuAu-like running"
+                          << " | PCB m_is_auau=true → isolation uses RETOWER_SUB1/HCAL_SUB1 internally"
+                          << " | shower shapes use standard CEMC towers"
+                          << std::endl;
+              }
             }
 
-            // Recluster from UE-subtracted PHOSUB towers (ATLAS-like approach:
-            // cluster on subtracted input so cluster energies, positions, and
-            // tower membership all reflect the subtracted state)
-            {
-                auto* phoSubClusterBuilder = new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate_PHOSUB");
-                phoSubClusterBuilder->Detector("CEMC");
-                phoSubClusterBuilder->set_threshold_energy(0.070);
-                const char* _calibroot = std::getenv("CALIBRATIONROOT");
-                if (_calibroot && std::string(_calibroot).size())
-                {
-                  std::string emc_prof_phosub = std::string(_calibroot) + "/EmcProfile/CEMCprof_Thresh30MeV.root";
-                  phoSubClusterBuilder->LoadProfile(emc_prof_phosub);
-                }
-                phoSubClusterBuilder->set_UseTowerInfo(1);
-                phoSubClusterBuilder->set_UseAltZVertex(1);
-                phoSubClusterBuilder->setInputTowerNodeName(nativeCemcNode);
-                phoSubClusterBuilder->setOutputClusterNodeName("CLUSTERINFO_CEMC_PHOSUB");
-                phoSubClusterBuilder->Verbosity(nativeUEV);
-                se->registerSubsystem(phoSubClusterBuilder);
-            }
+            auto* photonBuilder = new PhotonClusterBuilder("PhotonClusterBuilder");
+            photonBuilder->set_input_cluster_node(photonInputClusterNode);
+            photonBuilder->set_output_photon_node("PHOTONCLUSTER_CEMC");
 
-            photonInputClusterNode = "CLUSTERINFO_CEMC_PHOSUB";
+            photonBuilder->set_use_vz_cut(cfg.use_vz_cut);
+            photonBuilder->set_vz_cut_cm(cfg.vz_cut_cm);
 
-            if (vlevel > 0)
+            photonBuilder->set_is_auau(photonBuilderIsAuAu);
+            if ((cfg.clusterUEpipeline == "variantA" || cfg.clusterUEpipeline == "variantB") && isAuAuLike)
             {
-              std::cout << "[clusterUEpipeline=variantA] enabled for AuAu"
-                        << " | nativeCemcNode=" << nativeCemcNode
-                        << " | photonInputClusterNode=" << photonInputClusterNode
-                        << " | PhotonClusterBuilder will read PHOSUB clusters + PHOSUB/SUB1 tower nodes"
-                        << std::endl;
+              photonBuilder->set_emc_tower_node(towerPrefixPCB + "_CEMC_PHOSUB");
+              photonBuilder->set_ihcal_tower_node(towerPrefixPCB + "_HCALIN_SUB1");
+              photonBuilder->set_ohcal_tower_node(towerPrefixPCB + "_HCALOUT_SUB1");
             }
+            else if (cfg.clusterUEpipeline == "baseVariant" && isAuAuLike)
+            {
+              photonBuilder->set_emc_tower_node(towerPrefixPCB + "_CEMC");
+              photonBuilder->set_ihcal_tower_node(towerPrefixPCB + "_HCALIN");
+              photonBuilder->set_ohcal_tower_node(towerPrefixPCB + "_HCALOUT");
+              photonBuilder->set_tower_node_prefix(towerPrefixPCB);
+            }
+            else if (isAuAuLike)
+            {
+              // noSub: standard towers, no AuAu iso path
+              photonBuilder->set_emc_tower_node(towerPrefixPCB + "_CEMC");
+              photonBuilder->set_ihcal_tower_node(towerPrefixPCB + "_HCALIN");
+              photonBuilder->set_ohcal_tower_node(towerPrefixPCB + "_HCALOUT");
+      }
+
+      if (vlevel > 0)
+      {
+            Dl_info pcbInfo{};
+            if (dladdr((void*)&typeid(PhotonClusterBuilder), &pcbInfo) && pcbInfo.dli_fname)
+              std::cout << "[DBG] PhotonClusterBuilder RTTI from: " << pcbInfo.dli_fname << "\n";
+            else
+              std::cout << "[DBG] PhotonClusterBuilder RTTI probe: dladdr failed\n";
+
+            std::cout << "[DBG] PhotonClusterBuilder vzCut config: use="
+                      << (cfg.use_vz_cut ? "true" : "false")
+                      << " vz_cut_cm=" << cfg.vz_cut_cm
+                      << " | isAuAuLike=" << (isAuAuLike ? "true" : "false")
+                      << " | isSimEmbedded=" << (isSimEmbedded ? "true" : "false")
+                      << " | photonBuilderIsAuAu=" << (photonBuilderIsAuAu ? "true" : "false")
+                      << " | clusterUEpipeline=" << cfg.clusterUEpipeline
+                      << " | inputClusterNode=" << photonInputClusterNode << "\n";
     }
-    else if (cfg.clusterUEpipeline == "variantB" && isAuAuData)
-    {
-            const std::string nativeCemcNode = towerPrefixPCB + "_CEMC_PHOSUB";
-
-            int nativeUEV = 0;
-            if (const char* env = std::getenv("RJ_HIUE_VERBOSITY")) nativeUEV = std::atoi(env);
-
-            auto* nativeSub = new NativeCEMCUESubtractor("NativeCEMCUESubtractor_B",
-                                                         towerPrefixPCB + "_CEMC",
-                                                         nativeCemcNode);
-            nativeSub->setDoSeedExclusion(true);
-            nativeSub->setSeedJetNode("AntiKt_TowerInfo_HIRecoSeedsSub_r02");
-            nativeSub->setSeedMinPt(5.0f);
-            nativeSub->setExclusionDR(0.4f);
-            nativeSub->Verbosity(nativeUEV);
-            se->registerSubsystem(nativeSub);
-
-            // Recluster from seed-masked UE-subtracted PHOSUB towers
-            {
-                auto* phoSubClusterBuilder = new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate_PHOSUB");
-                phoSubClusterBuilder->Detector("CEMC");
-                phoSubClusterBuilder->set_threshold_energy(0.070);
-                const char* _calibroot = std::getenv("CALIBRATIONROOT");
-                if (_calibroot && std::string(_calibroot).size())
-                {
-                  std::string emc_prof_phosub = std::string(_calibroot) + "/EmcProfile/CEMCprof_Thresh30MeV.root";
-                  phoSubClusterBuilder->LoadProfile(emc_prof_phosub);
-                }
-                phoSubClusterBuilder->set_UseTowerInfo(1);
-                phoSubClusterBuilder->set_UseAltZVertex(1);
-                phoSubClusterBuilder->setInputTowerNodeName(nativeCemcNode);
-                phoSubClusterBuilder->setOutputClusterNodeName("CLUSTERINFO_CEMC_PHOSUB");
-                phoSubClusterBuilder->Verbosity(nativeUEV);
-                se->registerSubsystem(phoSubClusterBuilder);
-            }
-
-            photonInputClusterNode = "CLUSTERINFO_CEMC_PHOSUB";
-
-            if (vlevel > 0)
-            {
-              std::cout << "[clusterUEpipeline=variantB] enabled for AuAu"
-                        << " | nativeCemcNode=" << nativeCemcNode
-                        << " | seed exclusion: DR=0.4 from HIRecoSeedsSub_r02 (pt>5 GeV)"
-                        << " | photonInputClusterNode=" << photonInputClusterNode
-                        << std::endl;
-            }
-    }
-    else if (cfg.clusterUEpipeline == "baseVariant" && isAuAuData)
-    {
-            photonBuilderIsAuAu = true;
-
-            if (vlevel > 0)
-            {
-              std::cout << "[clusterUEpipeline=baseVariant] enabled for AuAu"
-                        << " | PCB m_is_auau=true → isolation uses RETOWER_SUB1/HCAL_SUB1 internally"
-                        << " | shower shapes use standard CEMC towers"
-                        << std::endl;
-            }
-          }
-
-          auto* photonBuilder = new PhotonClusterBuilder("PhotonClusterBuilder");
-          photonBuilder->set_input_cluster_node(photonInputClusterNode);
-          photonBuilder->set_output_photon_node("PHOTONCLUSTER_CEMC");
-
-          photonBuilder->set_use_vz_cut(cfg.use_vz_cut);
-          photonBuilder->set_vz_cut_cm(cfg.vz_cut_cm);
-
-          photonBuilder->set_is_auau(photonBuilderIsAuAu);
-          if ((cfg.clusterUEpipeline == "variantA" || cfg.clusterUEpipeline == "variantB") && isAuAuData)
-          {
-            photonBuilder->set_emc_tower_node(towerPrefixPCB + "_CEMC_PHOSUB");
-            photonBuilder->set_ihcal_tower_node(towerPrefixPCB + "_HCALIN_SUB1");
-            photonBuilder->set_ohcal_tower_node(towerPrefixPCB + "_HCALOUT_SUB1");
-          }
-          else if (cfg.clusterUEpipeline == "baseVariant" && isAuAuData)
-          {
-            photonBuilder->set_emc_tower_node(towerPrefixPCB + "_CEMC");
-            photonBuilder->set_ihcal_tower_node(towerPrefixPCB + "_HCALIN");
-            photonBuilder->set_ohcal_tower_node(towerPrefixPCB + "_HCALOUT");
-            photonBuilder->set_tower_node_prefix(towerPrefixPCB);
-          }
-          else if (isAuAuData)
-          {
-            // noSub: standard towers, no AuAu iso path
-            photonBuilder->set_emc_tower_node(towerPrefixPCB + "_CEMC");
-            photonBuilder->set_ihcal_tower_node(towerPrefixPCB + "_HCALIN");
-            photonBuilder->set_ohcal_tower_node(towerPrefixPCB + "_HCALOUT");
-    }
-
-    if (vlevel > 0)
-    {
-          Dl_info pcbInfo{};
-          if (dladdr((void*)&typeid(PhotonClusterBuilder), &pcbInfo) && pcbInfo.dli_fname)
-            std::cout << "[DBG] PhotonClusterBuilder RTTI from: " << pcbInfo.dli_fname << "\n";
-          else
-            std::cout << "[DBG] PhotonClusterBuilder RTTI probe: dladdr failed\n";
-
-          std::cout << "[DBG] PhotonClusterBuilder vzCut config: use="
-                    << (cfg.use_vz_cut ? "true" : "false")
-                    << " vz_cut_cm=" << cfg.vz_cut_cm
-                    << " | isAuAuData=" << (isAuAuData ? "true" : "false")
-                    << " | photonBuilderIsAuAu=" << (photonBuilderIsAuAu ? "true" : "false")
-                    << " | clusterUEpipeline=" << cfg.clusterUEpipeline
-                    << " | inputClusterNode=" << photonInputClusterNode << "\n";
-  }
 
 
   photonBuilder->Verbosity(vlevel);
@@ -2945,22 +3020,32 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
   std::string dtype;
   if (isSim)
   {
-    if (datasetToken == "issimjet5" || datasetToken == "simjet5")
-          dtype = "isSimJet5";
-    else if (datasetToken == "issimmb" || datasetToken == "simmb")
-          dtype = "isSimMB";
-    else
-          dtype = "isSim";
-    }
-    else if (isAuAuData) dtype = "isAuAu";
-    else dtype = "isPP";
-    if (isPPrun25) dtype = "isPP";
+        if (datasetToken == "issimembedded" || datasetToken == "simembedded")
+              dtype = "isSimEmbedded";
+        else if (datasetToken == "issimjet5" || datasetToken == "simjet5")
+              dtype = "isSimJet5";
+        else if (datasetToken == "issimmb" || datasetToken == "simmb")
+              dtype = "isSimMB";
+        else
+              dtype = "isSim";
+  }
+  else if (isAuAuData) dtype = "isAuAu";
+  else dtype = "isPP";
+  if (isPPrun25) dtype = "isPP";
 #if defined(RJ_UNIFIED_ANALYSIS_PP)
-  if (dtype == "isAuAu")
-    detail::bail("Fun4All_recoilJets.C wrapper is pp analysis-module only; use Fun4All_recoilJets_AuAu.C for isAuAu jobs.");
+    if (dtype == "isAuAu" || dtype == "isSimEmbedded")
+        detail::bail("Fun4All_recoilJets.C wrapper is pp analysis-module only; use Fun4All_recoilJets_AuAu.C for isAuAu/isSimEmbedded jobs.");
 #endif
 
-  if (verbose) std::cout << "[INFO] setDataType(" << dtype << ")" << "\n";
+  if (verbose || vlevel > 0)
+  {
+        std::cout << "[FLOW] final RecoilJets mode:"
+                  << " dtype=" << dtype
+                  << " | datasetToken=" << datasetToken
+                  << " | photonInputClusterNode=" << photonInputClusterNode
+                  << " | photonBuilderIsAuAu=" << (photonBuilderIsAuAu ? "true" : "false")
+                  << std::endl;
+  }
   recoilJets->setDataType(dtype);
 
   se->registerSubsystem(recoilJets);

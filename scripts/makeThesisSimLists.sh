@@ -3,41 +3,87 @@
 # makeThesisSimLists.sh
 # ==============================================================================
 # PURPOSE
-#   Generate analysis-ready *.list files for Run-23 Pythia8 jets embedded into
-#   Au+Au (HIJING) at two energies:
-#     • type 11 → 30 GeV jets
-#     • type 12 → 10 GeV jets
+#   Generate analysis-ready *.list files by filesystem scan for the thesis
+#   simulation samples stored under:
+#     /sphenix/u/patsfan753/scratch/thesisAnalysis/simListFiles
 #
-#   For each type, we request the following filetypes from the catalog:
-#     DST_CALO_CLUSTER  DST_CALO_G4HIT  DST_GLOBAL  DST_MBD_EPD
-#     DST_TRUTH_G4HIT   DST_TRUTH_JET   G4Hits
+#   Supported packs:
+#     • Run-28 pp photon+jet truth samples:
+#         photonjet5, photonjet10, photonjet20
+#     • Run-28 pp jet truth sample:
+#         jet5
+#     • Run-28 pp minimum-bias / Detroit sample:
+#         detroit
+#     • Run-28 embedded photon+jet sample:
+#         embeddedPhoton20
 #
-#   Output (created if missing):
-#     /sphenix/u/patsfan753/scratch/thesisAnalysis/simFiles/
-#       ├─ run23_type11_auau/   (30 GeV jets)
-#       └─ run23_type12_auau/   (10 GeV jets)
+#   Standard Run-28 pp packs are built from:
+#     /sphenix/lustre01/sphnxpro/mdc2/js_pp200_signal
+#       g4hits/run0028/<sample>
+#       nopileup/calocluster/run0028/<sample>
+#       nopileup/global/run0028/<sample>
+#       nopileup/jets/run0028/<sample>
+#       nopileup/mbdepd/run0028/<sample>
 #
-#   Diagnostics per pack:
-#     • Line counts per list
-#     • Pairing check: segment-key overlap across lists (anchor = DST_CALO_CLUSTER)
-#       - Reports coverage and a small sample of missing keys, if any
+#   embeddedPhoton20 is built from:
+#     /sphenix/tg/tg01/commissioning/CaloCalibWG/bseidlitz/embed/photon20/OutDir*/
+#       DST_CALOFITTING-*.root        -> DST_CALO_CLUSTER.list
+#       DST_TRUTH_G4HIT_*.root        -> G4Hits.list
+#       DST_TRUTH_JET_*.root          -> DST_JETS.list
+#       DST_GLOBAL_*.root             -> DST_GLOBAL.list
+#       no standalone DST_MBD_EPD     -> placeholder NONE list
+#
+# OUTPUT
+#   /sphenix/u/patsfan753/scratch/thesisAnalysis/simListFiles/
+#     ├─ run28_photonjet5/
+#     ├─ run28_photonjet10/
+#     ├─ run28_photonjet20/
+#     ├─ run28_jet5/
+#     ├─ run28_detroit/
+#     └─ run28_embeddedPhoton20/
+#
+#   Each pack contains:
+#     • raw single-column lists
+#     • matched single-column lists
+#     • paired / triplet convenience lists
+#     • pair_report.txt
+#     • summary.txt
 #
 # USAGE
-#   ./makeThesisSimLists.sh
+#   Build everything:
+#     ./makeThesisSimLists.sh
+#
+#   Build only selected packs:
+#     ./makeThesisSimLists.sh photonjet20
+#     ./makeThesisSimLists.sh embeddedPhoton20
+#     ./makeThesisSimLists.sh photonjet10 jet5
+#
 #   Optional flags:
-#     --outroot DIR       (default: /sphenix/u/patsfan753/scratch/thesisAnalysis/simFiles)
-#     --head N            (preview first N lines of each list; default: 8; 0 = no preview)
-#     --quiet             (suppress INFO logs)
+#     --outroot DIR
+#     --head N
+#     --quiet
 #     -h | --help
 #
-# REQUIREMENTS
-#   • sPHENIX environment sourced; CreateFileList.pl must be in PATH
-#   • The catalog must know about: -type {11,12} -run 23 -embed auau
+# SAMPLE-SELECTION BEHAVIOR
+#   If one or more sample names are passed on the command line, only those packs
+#   are built. Cleanup happens per-pack inside build_pack(), so:
+#     ./makeThesisSimLists.sh embeddedPhoton20
+#   only removes / rebuilds:
+#     /sphenix/u/patsfan753/scratch/thesisAnalysis/simListFiles/run28_embeddedPhoton20
+#   and does not touch the other sim output directories.
+#
+# DIAGNOSTICS
+#   For each pack the script prints:
+#     • raw line counts
+#     • matched line counts
+#     • pair / triplet counts
+#     • pairing coverage / missing / extra key reports
 #
 # NOTES
-#   • We normalize list filenames to UPPERCASE (e.g., DST_TRUTH_JET.list, G4Hits.list)
-#   • Segment-pairing keys are inferred from the trailing "-<number>-<number>.root"
-#     (best effort; robust against most standard sPHENIX filenames).
+#   • Files are matched by the trailing "-<number>-<number>.root" segment key
+#     when possible.
+#   • G4Hits and/or DST_MBD_EPD can be represented by aligned placeholder
+#     "NONE" lists when the upstream sample does not provide a standalone file.
 # ==============================================================================
 
 set -Eeuo pipefail
@@ -54,8 +100,11 @@ RUNNUM="28"
 PHOTONJET_SAMPLES=( "photonjet5" "photonjet10" "photonjet20" )
 JET_SAMPLES=( "jet5" )
 MB_SAMPLES=( "detroit" )
+EMBEDDED_PHOTONJET_SAMPLES=( "embeddedPhoton20" )
+REQUESTED_SAMPLES=()
 
 MDC2_BASE="/sphenix/lustre01/sphnxpro/mdc2/js_pp200_signal"
+EMBED_BASE="/sphenix/tg/tg01/commissioning/CaloCalibWG/bseidlitz/embed"
 
 # These are the exact directories you found:
 #   g4hits/run0028/photonjetX
@@ -64,6 +113,13 @@ MDC2_BASE="/sphenix/lustre01/sphnxpro/mdc2/js_pp200_signal"
 #   nopileup/jets/run0028/photonjetX
 #   nopileup/mbdepd/run0028/photonjetX
 #   nopileup/trkrhit/run0028/photonjetX
+#
+# Embedded photon+jet sample:
+#   /sphenix/tg/tg01/commissioning/CaloCalibWG/bseidlitz/embed/photon20/OutDir*/
+#     DST_CALOFITTING-*.root
+#     DST_GLOBAL_PhotonJet20-*.root
+#     DST_TRUTH_G4HIT_PhotonJet20-*.root
+#     DST_TRUTH_JET_PhotonJet20-*.root
 
 
 # --------------------------- CLI ----------------------------------------------
@@ -75,6 +131,9 @@ while [[ $# -gt 0 ]]; do
     -h|--help)
       sed -n '1,200p' "$0" | sed 's/^# \{0,1\}//g'
       exit 0
+      ;;
+    photonjet5|photonjet10|photonjet20|jet5|detroit|embeddedPhoton20)
+      REQUESTED_SAMPLES+=( "$1" ); shift 1
       ;;
     *) echo "[WARN $(date '+%H:%M:%S')] Unknown arg: $1"; shift 1 ;;
   esac
@@ -546,6 +605,140 @@ pair_check() {
   } >> "$report"
 }
 
+build_embedded_pack_lists() {
+  local embeddir="$1"
+  local outdir="$2"
+
+  local report="${outdir}/pair_report.txt"
+  : > "$report"
+
+  local tmpdir; tmpdir="$(mktemp -d)"
+  trap '[[ -n "${tmpdir:-}" ]] && rm -rf "${tmpdir}"' RETURN
+
+  local outdir_list="${tmpdir}/embedded_outdirs.list"
+  find "$embeddir" -mindepth 1 -maxdepth 1 -type d -name 'OutDir*' -print | sort -V > "$outdir_list"
+
+  local n_outdirs
+  n_outdirs=$(wc -l < "$outdir_list" | tr -d ' ')
+  (( n_outdirs > 0 )) || die "No OutDir* directories found under: ${embeddir}"
+
+  say "Embedded mode: pairing by OutDir container (not filename segment key)"
+  ok "Found $(printf '%6d' "$n_outdirs") -> OutDir containers"
+
+  local raw_calo="${outdir}/DST_CALO_CLUSTER.list"
+  local raw_g4="${outdir}/G4Hits.list"
+  local raw_jets="${outdir}/DST_JETS.list"
+  local raw_global="${outdir}/DST_GLOBAL.list"
+  local raw_mbd="${outdir}/DST_MBD_EPD.list"
+
+  : > "$raw_calo"
+  : > "$raw_g4"
+  : > "$raw_jets"
+  : > "$raw_global"
+  : > "$raw_mbd"
+
+  local miss_calo="${outdir}/missing_outdirs_DST_CALO_CLUSTER.list"
+  local miss_g4="${outdir}/missing_outdirs_G4Hits.list"
+  local miss_jets="${outdir}/missing_outdirs_DST_JETS.list"
+  local miss_global="${outdir}/missing_outdirs_DST_GLOBAL.list"
+
+  : > "$miss_calo"
+  : > "$miss_g4"
+  : > "$miss_jets"
+  : > "$miss_global"
+
+  local od calo g4 jets global keep
+  while IFS= read -r od; do
+    [[ -n "$od" ]] || continue
+
+    calo="$(find "$od" -maxdepth 1 \( -type f -o -type l \) -iname 'DST_CALOFITTING-*.root' -print | sort -V | head -n 1 || true)"
+    g4="$(find "$od" -maxdepth 1 \( -type f -o -type l \) -iname 'DST_TRUTH_G4HIT_*.root' -print | sort -V | head -n 1 || true)"
+    jets="$(find "$od" -maxdepth 1 \( -type f -o -type l \) -iname 'DST_TRUTH_JET_*.root' -print | sort -V | head -n 1 || true)"
+    global="$(find "$od" -maxdepth 1 \( -type f -o -type l \) -iname 'DST_GLOBAL_*.root' -print | sort -V | head -n 1 || true)"
+
+    keep="true"
+    [[ -n "$calo" ]] || { printf '%s\n' "$od" >> "$miss_calo"; keep="false"; }
+    [[ -n "$g4" ]] || { printf '%s\n' "$od" >> "$miss_g4"; keep="false"; }
+    [[ -n "$jets" ]] || { printf '%s\n' "$od" >> "$miss_jets"; keep="false"; }
+    [[ -n "$global" ]] || { printf '%s\n' "$od" >> "$miss_global"; keep="false"; }
+
+    if [[ "$keep" == "true" ]]; then
+      printf '%s\n' "$calo" >> "$raw_calo"
+      printf '%s\n' "$g4" >> "$raw_g4"
+      printf '%s\n' "$jets" >> "$raw_jets"
+      printf '%s\n' "$global" >> "$raw_global"
+      printf 'NONE\n' >> "$raw_mbd"
+    fi
+  done < "$outdir_list"
+
+  local n_keep n_miss_calo n_miss_g4 n_miss_jets n_miss_global
+  n_keep=$(wc -l < "$raw_calo" | tr -d ' ')
+  n_miss_calo=$(wc -l < "$miss_calo" | tr -d ' ')
+  n_miss_g4=$(wc -l < "$miss_g4" | tr -d ' ')
+  n_miss_jets=$(wc -l < "$miss_jets" | tr -d ' ')
+  n_miss_global=$(wc -l < "$miss_global" | tr -d ' ')
+
+  (( n_keep > 0 )) || die "No complete embedded OutDir entries found under: ${embeddir}"
+
+  ok "Wrote $(printf '%6d' "$n_keep") -> DST_CALO_CLUSTER.list"
+  preview_head "$raw_calo" "$HEAD_TAIL_LINES"
+  ok "Wrote $(printf '%6d' "$n_keep") -> DST_JETS.list"
+  preview_head "$raw_jets" "$HEAD_TAIL_LINES"
+  ok "Wrote $(printf '%6d' "$n_keep") -> DST_GLOBAL.list"
+  preview_head "$raw_global" "$HEAD_TAIL_LINES"
+  ok "Wrote $(printf '%6d' "$n_keep") -> G4Hits.list"
+  preview_head "$raw_g4" "$HEAD_TAIL_LINES"
+
+  printf "\033[31m[WARN %s] No standalone DST_MBD_EPD files configured for embedded pack. Writing placeholder DST_MBD_EPD.list filled with 'NONE' (lines=%d).\033[0m\n" \
+    "$(ts)" "${n_keep}" >&2
+
+  cp -f "$raw_calo" "${outdir}/DST_CALO_CLUSTER.matched.list"
+  cp -f "$raw_g4" "${outdir}/G4Hits.matched.list"
+  cp -f "$raw_jets" "${outdir}/DST_JETS.matched.list"
+  cp -f "$raw_global" "${outdir}/DST_GLOBAL.matched.list"
+  cp -f "$raw_mbd" "${outdir}/DST_MBD_EPD.matched.list"
+
+  paste "${outdir}/DST_CALO_CLUSTER.matched.list" "${outdir}/G4Hits.matched.list" > "${outdir}/DST_CALO_CLUSTER__G4Hits.pairs.list"
+  paste "${outdir}/DST_CALO_CLUSTER.matched.list" "${outdir}/DST_JETS.matched.list" > "${outdir}/DST_CALO_CLUSTER__DST_JETS.pairs.list"
+  paste "${outdir}/DST_CALO_CLUSTER.matched.list" "${outdir}/DST_GLOBAL.matched.list" > "${outdir}/DST_CALO_CLUSTER__DST_GLOBAL.pairs.list"
+  paste "${outdir}/DST_CALO_CLUSTER.matched.list" "${outdir}/DST_MBD_EPD.matched.list" > "${outdir}/DST_CALO_CLUSTER__DST_MBD_EPD.pairs.list"
+  paste "${outdir}/DST_CALO_CLUSTER.matched.list" "${outdir}/G4Hits.matched.list" "${outdir}/DST_JETS.matched.list" > "${outdir}/DST_CALO_CLUSTER__G4Hits__DST_JETS.triplets.list"
+  paste "${outdir}/DST_CALO_CLUSTER.matched.list" "${outdir}/DST_GLOBAL.matched.list" "${outdir}/DST_MBD_EPD.matched.list" > "${outdir}/DST_CALO_CLUSTER__DST_GLOBAL__DST_MBD_EPD.triplets.list"
+
+  {
+    echo "EMBEDDED MODE: paired by OutDir container"
+    echo "SOURCE ROOT: ${embeddir}"
+    echo "TOTAL OutDir containers : ${n_outdirs}"
+    echo "USABLE aligned entries  : ${n_keep}"
+    echo "MISSING COUNTS:"
+    printf "  DST_CALO_CLUSTER : %d  (%s)\n" "$n_miss_calo" "$miss_calo"
+    printf "  G4Hits           : %d  (%s)\n" "$n_miss_g4" "$miss_g4"
+    printf "  DST_JETS         : %d  (%s)\n" "$n_miss_jets" "$miss_jets"
+    printf "  DST_GLOBAL       : %d  (%s)\n" "$n_miss_global" "$miss_global"
+    echo "  DST_MBD_EPD      : placeholder NONE list"
+    echo ""
+    echo "MATCHED OUTPUTS (aligned one-per-OutDir):"
+    printf "  %s (%d)\n" "DST_CALO_CLUSTER.matched.list" "$n_keep"
+    printf "  %s (%d)\n" "G4Hits.matched.list" "$n_keep"
+    printf "  %s (%d)\n" "DST_JETS.matched.list" "$n_keep"
+    printf "  %s (%d)\n" "DST_GLOBAL.matched.list" "$n_keep"
+    printf "  %s (%d)\n" "DST_MBD_EPD.matched.list" "$n_keep"
+    echo "PAIR/TRIPLET LISTS:"
+    printf "  %s (%d)\n" "DST_CALO_CLUSTER__G4Hits.pairs.list" "$n_keep"
+    printf "  %s (%d)\n" "DST_CALO_CLUSTER__DST_JETS.pairs.list" "$n_keep"
+    printf "  %s (%d)\n" "DST_CALO_CLUSTER__DST_GLOBAL.pairs.list" "$n_keep"
+    printf "  %s (%d)\n" "DST_CALO_CLUSTER__DST_MBD_EPD.pairs.list" "$n_keep"
+    printf "  %s (%d)\n" "DST_CALO_CLUSTER__G4Hits__DST_JETS.triplets.list" "$n_keep"
+    printf "  %s (%d)\n" "DST_CALO_CLUSTER__DST_GLOBAL__DST_MBD_EPD.triplets.list" "$n_keep"
+  } > "$report"
+
+  if (( n_miss_calo > 0 || n_miss_g4 > 0 || n_miss_jets > 0 || n_miss_global > 0 )); then
+    warn "Embedded pack dropped some OutDir containers. See: ${report}"
+  else
+    ok "Embedded pairing OK: aligned entries across all required files = ${n_keep}"
+  fi
+}
+
 
 preview_head() {
   local f="$1" k="$2"
@@ -593,6 +786,48 @@ build_pack() {
   local mbddir="${MDC2_BASE}/nopileup/mbdepd/run00${RUNNUM}/${sample}"
   local trkdir="${MDC2_BASE}/nopileup/trkrhit/run00${RUNNUM}/${sample}"
 
+  local calo_pattern="*.root"
+  local g4_pattern="*.root"
+  local jets_pattern="*.root"
+  local global_pattern="*.root"
+  local mbd_pattern="*.root"
+
+  local calo_label="DST_CALO_CLUSTER (calocluster) [ANCHOR]"
+  local jets_label="DST_JETS (nopileup/jets)"
+  local global_label="DST_GLOBAL (nopileup/global) [VERTEX]"
+  local mbd_label="DST_MBD_EPD (nopileup/mbdepd) [VERTEX]"
+
+  local EMBED_MODE="false"
+  local MBD_OK="true"
+  local G4_OK="true"
+  local embeddir=""
+
+  if [[ "$sample" == "embeddedPhoton20" ]]; then
+    EMBED_MODE="true"
+
+    embeddir="${EMBED_BASE}/photon20"
+
+    g4dir="$embeddir"
+    calodir="$embeddir"
+    gldir="$embeddir"
+    jetsdir="$embeddir"
+    mbddir=""
+    trkdir="$embeddir"
+
+    calo_pattern="DST_CALOFITTING-*.root"
+    g4_pattern="DST_TRUTH_G4HIT_*.root"
+    jets_pattern="DST_TRUTH_JET_*.root"
+    global_pattern="DST_GLOBAL_*.root"
+    mbd_pattern=""
+
+    calo_label="DST_CALO_CLUSTER (mapped from embedded DST_CALOFITTING) [ANCHOR]"
+    jets_label="DST_JETS (mapped from embedded DST_TRUTH_JET)"
+    global_label="DST_GLOBAL (embedded)"
+    mbd_label="DST_MBD_EPD (placeholder NONE; no standalone embedded MBD file found)"
+
+    MBD_OK="false"
+  fi
+
   rule
   say "PACK: ${tag}"
   say "OUT : ${outdir}"
@@ -600,6 +835,12 @@ build_pack() {
   say "  CaloClus   = ${calodir}   (anchor)"
   say "  G4Hits     = ${g4dir}"
   say "  Jets       = ${jetsdir}"
+  say "  Global     = ${gldir}"
+  if [[ "$EMBED_MODE" == "true" ]]; then
+    say "  Mode       = embedded photonjet20"
+    say "  Patterns   = calo='${calo_pattern}' g4='${g4_pattern}' jets='${jets_pattern}' global='${global_pattern}'"
+    say "  MBD_EPD    = placeholder NONE (no standalone DST_MBD_EPD file under embedded sample)"
+  fi
   rule
 
   # Helper: write a list from a directory (root files only)
@@ -607,15 +848,16 @@ build_pack() {
     local src="$1"
     local out="$2"
     local label="$3"
+    local pattern="${4:-*.root}"
 
     if [[ ! -d "$src" ]]; then
       die "Missing directory for ${label}: ${src}"
     fi
 
-    find "$src" \( -type f -o -type l \) -iname '*.root' -print 2>/dev/null | sort -V > "$out"
+    find "$src" \( -type f -o -type l \) -iname "$pattern" -print 2>/dev/null | sort -V > "$out"
     local n; n=$(wc -l < "$out" | tr -d ' ')
     if (( n == 0 )); then
-      echo "[ERR  $(ts)] 0 ROOT files found for ${label} in: ${src}" >&2
+      echo "[ERR  $(ts)] 0 ROOT files found for ${label} in: ${src} (pattern=${pattern})" >&2
       echo "[ERR  $(ts)] Debug: listing directory (first 30 entries):" >&2
       ls -la "$src" 2>/dev/null | head -n 30 >&2 || true
       echo "[ERR  $(ts)] Debug: any symlinks here? (first 30):" >&2
@@ -629,72 +871,103 @@ build_pack() {
     preview_head "$out" "$HEAD_TAIL_LINES"
   }
 
-  step "Write raw lists (filesystem scan → *.list)"
-  write_list "$calodir" "${outdir}/DST_CALO_CLUSTER.list" "DST_CALO_CLUSTER (calocluster) [ANCHOR]"
-  write_list "$jetsdir" "${outdir}/DST_JETS.list"        "DST_JETS (nopileup/jets)"
-  write_list "$gldir"   "${outdir}/DST_GLOBAL.list"      "DST_GLOBAL (nopileup/global) [VERTEX]"
-  write_list "$mbddir"  "${outdir}/DST_MBD_EPD.list"     "DST_MBD_EPD (nopileup/mbdepd) [VERTEX]"
+  if [[ "$EMBED_MODE" == "true" ]]; then
+    step "Write raw lists (filesystem scan → *.list) [EMBEDDED OutDir mode]"
+    build_embedded_pack_lists "$embeddir" "$outdir"
+  else
+    step "Write raw lists (filesystem scan → *.list)"
+    write_list "$calodir" "${outdir}/DST_CALO_CLUSTER.list" "${calo_label}" "${calo_pattern}"
+    write_list "$jetsdir" "${outdir}/DST_JETS.list"        "${jets_label}" "${jets_pattern}"
+    write_list "$gldir"   "${outdir}/DST_GLOBAL.list"      "${global_label}" "${global_pattern}"
 
-  # --------------------------- G4Hits (optional) ---------------------------
-  # If missing/empty, warn in RED and create a placeholder list of "NONE"
-  # with the same number of lines as the anchor list so downstream stays aligned.
-  {
-    if [[ -d "$g4dir" ]]; then
-      find "$g4dir" \( -type f -o -type l \) -iname '*.root' -print 2>/dev/null | sort -V > "${outdir}/G4Hits.list"
+    if [[ "$MBD_OK" == "true" ]]; then
+      write_list "$mbddir"  "${outdir}/DST_MBD_EPD.list"   "${mbd_label}" "${mbd_pattern}"
     else
-      : > "${outdir}/G4Hits.list"
+      printf "\033[31m[WARN %s] No standalone DST_MBD_EPD files configured for %s. Writing placeholder DST_MBD_EPD.list filled with 'NONE' (lines=%d).\033[0m\n" \
+        "$(ts)" "${tag}" "$(wc -l < "${outdir}/DST_CALO_CLUSTER.list" | tr -d ' ')" >&2
+      awk '{print "NONE"}' "${outdir}/DST_CALO_CLUSTER.list" > "${outdir}/DST_MBD_EPD.list"
     fi
-  } || true
 
-  n_g4="$(wc -l < "${outdir}/G4Hits.list" 2>/dev/null | tr -d ' ' || echo 0)"
-  n_calo="$(wc -l < "${outdir}/DST_CALO_CLUSTER.list" 2>/dev/null | tr -d ' ' || echo 0)"
-
-  G4_OK="true"
-  if [[ "${n_g4}" == "0" ]]; then
-    G4_OK="false"
-    # RED warning
-    printf "\033[31m[WARN %s] G4Hits missing/empty for %s (dir=%s). Continuing WITHOUT real G4Hits.\033[0m\n" \
-      "$(ts)" "${tag}" "${g4dir}" >&2
-    printf "\033[31m[WARN %s] Writing placeholder G4Hits.list filled with 'NONE' (lines=%d) so 5-col lists can still be built.\033[0m\n" \
-      "$(ts)" "${n_calo}" >&2
-
-    awk '{print "NONE"}' "${outdir}/DST_CALO_CLUSTER.list" > "${outdir}/G4Hits.list"
-    n_g4="$(wc -l < "${outdir}/G4Hits.list" | tr -d ' ')"
-  else
-    ok "Wrote $(printf '%6d' "$n_g4") -> G4Hits.list"
-    dbg "Path: ${outdir}/G4Hits.list"
-    preview_head "${outdir}/G4Hits.list" "$HEAD_TAIL_LINES"
-  fi
-
-  # --------------------------- Pairing (include G4 if present) ---------------------------
-  # Rule:
-  #   - If we found >=1 real G4Hits file, G4Hits becomes REQUIRED for pairing and must produce nonzero matches.
-  #   - Only run "NO G4" mode if truly NONE exist (then we will generate placeholder 'NONE' aligned lists later).
-  if [[ "$G4_OK" == "true" ]]; then
-    step "Pairing check + generate matched/pairs/triplets (key-aligned) [WITH G4]"
-    pair_check "$outdir" "DST_CALO_CLUSTER.list" \
-      "G4Hits.list" "DST_JETS.list" "DST_GLOBAL.list" "DST_MBD_EPD.list"
-  else
-    step "Pairing check + generate matched/pairs/triplets (key-aligned) [NO G4]"
-    pair_check "$outdir" "DST_CALO_CLUSTER.list" \
-      "DST_JETS.list" "DST_GLOBAL.list" "DST_MBD_EPD.list"
-  fi
-
-  # --------------------------- Placeholder matched/pairs for G4 (if missing) ---------------------------
-  # Create key-aligned placeholder matched/pairs/triplets so downstream tooling that expects these files
-  # doesn't explode, while still clearly encoding "NONE".
-  if [[ "$G4_OK" == "false" ]]; then
-    awk '{print "NONE"}' "${outdir}/DST_CALO_CLUSTER.matched.list" > "${outdir}/G4Hits.matched.list"
-    paste "${outdir}/DST_CALO_CLUSTER.matched.list" "${outdir}/G4Hits.matched.list" > "${outdir}/DST_CALO_CLUSTER__G4Hits.pairs.list"
-    paste "${outdir}/DST_CALO_CLUSTER.matched.list" "${outdir}/G4Hits.matched.list" "${outdir}/DST_JETS.matched.list" > "${outdir}/DST_CALO_CLUSTER__G4Hits__DST_JETS.triplets.list"
-
-    # Also append a note to the pairing report
+    # --------------------------- G4Hits (optional) ---------------------------
+    # If missing/empty, warn in RED and create a placeholder list of "NONE"
+    # with the same number of lines as the anchor list so downstream stays aligned.
     {
-      echo ""
-      echo "NOTE: G4Hits missing/empty for this pack; wrote placeholder 'NONE' lists."
-      echo "  - G4Hits.list and G4Hits.matched.list are placeholders"
-      echo "  - DST_CALO_CLUSTER__G4Hits.pairs.list and ...triplets.list are placeholders"
-    } >> "${outdir}/pair_report.txt" 2>/dev/null || true
+      if [[ -d "$g4dir" ]]; then
+        find "$g4dir" \( -type f -o -type l \) -iname "$g4_pattern" -print 2>/dev/null | sort -V > "${outdir}/G4Hits.list"
+      else
+        : > "${outdir}/G4Hits.list"
+      fi
+    } || true
+
+    n_g4="$(wc -l < "${outdir}/G4Hits.list" 2>/dev/null | tr -d ' ' || echo 0)"
+    n_calo="$(wc -l < "${outdir}/DST_CALO_CLUSTER.list" 2>/dev/null | tr -d ' ' || echo 0)"
+
+    G4_OK="true"
+    if [[ "${n_g4}" == "0" ]]; then
+      G4_OK="false"
+      # RED warning
+      printf "\033[31m[WARN %s] G4Hits missing/empty for %s (dir=%s). Continuing WITHOUT real G4Hits.\033[0m\n" \
+        "$(ts)" "${tag}" "${g4dir}" >&2
+      printf "\033[31m[WARN %s] Writing placeholder G4Hits.list filled with 'NONE' (lines=%d) so 5-col lists can still be built.\033[0m\n" \
+        "$(ts)" "${n_calo}" >&2
+
+      awk '{print "NONE"}' "${outdir}/DST_CALO_CLUSTER.list" > "${outdir}/G4Hits.list"
+      n_g4="$(wc -l < "${outdir}/G4Hits.list" | tr -d ' ')"
+    else
+      ok "Wrote $(printf '%6d' "$n_g4") -> G4Hits.list"
+      dbg "Path: ${outdir}/G4Hits.list"
+      preview_head "${outdir}/G4Hits.list" "$HEAD_TAIL_LINES"
+    fi
+
+    # --------------------------- Pairing (include G4 / MBD if present) ---------------------------
+    if [[ "$G4_OK" == "true" && "$MBD_OK" == "true" ]]; then
+      step "Pairing check + generate matched/pairs/triplets (key-aligned) [WITH G4]"
+      pair_check "$outdir" "DST_CALO_CLUSTER.list" \
+        "G4Hits.list" "DST_JETS.list" "DST_GLOBAL.list" "DST_MBD_EPD.list"
+    elif [[ "$G4_OK" == "true" && "$MBD_OK" == "false" ]]; then
+      step "Pairing check + generate matched/pairs/triplets (key-aligned) [WITH G4, NO MBD]"
+      pair_check "$outdir" "DST_CALO_CLUSTER.list" \
+        "G4Hits.list" "DST_JETS.list" "DST_GLOBAL.list"
+    elif [[ "$G4_OK" == "false" && "$MBD_OK" == "true" ]]; then
+      step "Pairing check + generate matched/pairs/triplets (key-aligned) [NO G4]"
+      pair_check "$outdir" "DST_CALO_CLUSTER.list" \
+        "DST_JETS.list" "DST_GLOBAL.list" "DST_MBD_EPD.list"
+    else
+      step "Pairing check + generate matched/pairs/triplets (key-aligned) [NO G4, NO MBD]"
+      pair_check "$outdir" "DST_CALO_CLUSTER.list" \
+        "DST_JETS.list" "DST_GLOBAL.list"
+    fi
+
+    # --------------------------- Placeholder matched/pairs for G4 (if missing) ---------------------------
+    # Create key-aligned placeholder matched/pairs/triplets so downstream tooling that expects these files
+    # doesn't explode, while still clearly encoding "NONE".
+    if [[ "$G4_OK" == "false" ]]; then
+      awk '{print "NONE"}' "${outdir}/DST_CALO_CLUSTER.matched.list" > "${outdir}/G4Hits.matched.list"
+      paste "${outdir}/DST_CALO_CLUSTER.matched.list" "${outdir}/G4Hits.matched.list" > "${outdir}/DST_CALO_CLUSTER__G4Hits.pairs.list"
+      paste "${outdir}/DST_CALO_CLUSTER.matched.list" "${outdir}/G4Hits.matched.list" "${outdir}/DST_JETS.matched.list" > "${outdir}/DST_CALO_CLUSTER__G4Hits__DST_JETS.triplets.list"
+
+      # Also append a note to the pairing report
+      {
+        echo ""
+        echo "NOTE: G4Hits missing/empty for this pack; wrote placeholder 'NONE' lists."
+        echo "  - G4Hits.list and G4Hits.matched.list are placeholders"
+        echo "  - DST_CALO_CLUSTER__G4Hits.pairs.list and ...triplets.list are placeholders"
+      } >> "${outdir}/pair_report.txt" 2>/dev/null || true
+    fi
+
+    # --------------------------- Placeholder matched/pairs for MBD (if missing) ---------------------------
+    if [[ "$MBD_OK" == "false" ]]; then
+      awk '{print "NONE"}' "${outdir}/DST_CALO_CLUSTER.matched.list" > "${outdir}/DST_MBD_EPD.matched.list"
+      paste "${outdir}/DST_CALO_CLUSTER.matched.list" "${outdir}/DST_MBD_EPD.matched.list" > "${outdir}/DST_CALO_CLUSTER__DST_MBD_EPD.pairs.list"
+      paste "${outdir}/DST_CALO_CLUSTER.matched.list" "${outdir}/DST_GLOBAL.matched.list" "${outdir}/DST_MBD_EPD.matched.list" > "${outdir}/DST_CALO_CLUSTER__DST_GLOBAL__DST_MBD_EPD.triplets.list"
+
+      {
+        echo ""
+        echo "NOTE: DST_MBD_EPD missing/empty for this pack; wrote placeholder 'NONE' lists."
+        echo "  - DST_MBD_EPD.list and DST_MBD_EPD.matched.list are placeholders"
+        echo "  - DST_CALO_CLUSTER__DST_MBD_EPD.pairs.list and ...triplets.list are placeholders"
+      } >> "${outdir}/pair_report.txt" 2>/dev/null || true
+    fi
   fi
 
   step "Write summary.txt (counts + pointers)"
@@ -705,7 +978,7 @@ build_pack() {
     echo ""
 
     echo "-- Raw list counts (filesystem scan) --"
-    for f in DST_CALO_CLUSTER G4Hits DST_JETS; do
+    for f in DST_CALO_CLUSTER G4Hits DST_JETS DST_GLOBAL DST_MBD_EPD; do
       printf "%-26s : %6d  (%s)\n" \
         "${f}.list" \
         "$(wc -l < "${outdir}/${f}.list" | tr -d ' ')" \
@@ -714,7 +987,7 @@ build_pack() {
     echo ""
 
     echo "-- Matched counts (intersection across ALL lists) --"
-    for f in DST_CALO_CLUSTER G4Hits DST_JETS; do
+    for f in DST_CALO_CLUSTER G4Hits DST_JETS DST_GLOBAL DST_MBD_EPD; do
       printf "%-26s : %6d  (%s)\n" \
         "${f}.matched.list" \
         "$(wc -l < "${outdir}/${f}.matched.list" | tr -d ' ')" \
@@ -733,11 +1006,28 @@ build_pack() {
       "$(wc -l < "${outdir}/DST_CALO_CLUSTER__DST_JETS.pairs.list" | tr -d ' ')" \
       "${outdir}/DST_CALO_CLUSTER__DST_JETS.pairs.list"
 
+    printf "%-26s : %6d  (%s)\n" \
+      "DST_CALO_CLUSTER__DST_GLOBAL.pairs.list" \
+      "$(wc -l < "${outdir}/DST_CALO_CLUSTER__DST_GLOBAL.pairs.list" | tr -d ' ')" \
+      "${outdir}/DST_CALO_CLUSTER__DST_GLOBAL.pairs.list"
+
+    printf "%-26s : %6d  (%s)\n" \
+      "DST_CALO_CLUSTER__DST_MBD_EPD.pairs.list" \
+      "$(wc -l < "${outdir}/DST_CALO_CLUSTER__DST_MBD_EPD.pairs.list" | tr -d ' ')" \
+      "${outdir}/DST_CALO_CLUSTER__DST_MBD_EPD.pairs.list"
+
     if [[ -f "${outdir}/DST_CALO_CLUSTER__G4Hits__DST_JETS.triplets.list" ]]; then
       printf "%-26s : %6d  (%s)\n" \
         "DST_CALO_CLUSTER__G4Hits__DST_JETS.triplets.list" \
         "$(wc -l < "${outdir}/DST_CALO_CLUSTER__G4Hits__DST_JETS.triplets.list" | tr -d ' ')" \
         "${outdir}/DST_CALO_CLUSTER__G4Hits__DST_JETS.triplets.list"
+    fi
+
+    if [[ -f "${outdir}/DST_CALO_CLUSTER__DST_GLOBAL__DST_MBD_EPD.triplets.list" ]]; then
+      printf "%-26s : %6d  (%s)\n" \
+        "DST_CALO_CLUSTER__DST_GLOBAL__DST_MBD_EPD.triplets.list" \
+        "$(wc -l < "${outdir}/DST_CALO_CLUSTER__DST_GLOBAL__DST_MBD_EPD.triplets.list" | tr -d ' ')" \
+        "${outdir}/DST_CALO_CLUSTER__DST_GLOBAL__DST_MBD_EPD.triplets.list"
     fi
 
     echo ""
@@ -758,12 +1048,18 @@ build_pack() {
     say "  (1) Calo + Jets paired list (real):"
     say "      ${outdir}/DST_CALO_CLUSTER__DST_JETS.pairs.list"
   fi
+  if [[ "${MBD_OK:-true}" == "false" ]]; then
+    warn "$(printf "\033[31mDST_MBD_EPD is a placeholder ('NONE') for this pack.\033[0m")"
+  fi
   say "  (2) Matched single-column lists (same key-order):"
   say "      ${outdir}/DST_CALO_CLUSTER.matched.list"
   say "      ${outdir}/G4Hits.matched.list"
   say "      ${outdir}/DST_JETS.matched.list"
+  say "      ${outdir}/DST_GLOBAL.matched.list"
+  say "      ${outdir}/DST_MBD_EPD.matched.list"
   say "  (3) Optional convenience:"
   say "      ${outdir}/DST_CALO_CLUSTER__G4Hits__DST_JETS.triplets.list"
+  say "      ${outdir}/DST_CALO_CLUSTER__DST_GLOBAL__DST_MBD_EPD.triplets.list"
 
   record_pack "$tag" "$outdir"
   step "END PACK: ${tag}"
@@ -920,16 +1216,22 @@ mkdir -p "$OUTROOT"
 # No aggressive glob wipe here, so building new samples never removes existing outputs.
 rm -f "${OUTROOT}/run${RUNNUM}_candidate_types_"*.txt "${OUTROOT}/run${RUNNUM}_probe_"*.log 2>/dev/null || true
 
-ALL_SAMPLES=( "${PHOTONJET_SAMPLES[@]}" "${JET_SAMPLES[@]}" "${MB_SAMPLES[@]}" )
+ALL_SAMPLES=( "${PHOTONJET_SAMPLES[@]}" "${JET_SAMPLES[@]}" "${MB_SAMPLES[@]}" "${EMBEDDED_PHOTONJET_SAMPLES[@]}" )
+SAMPLES_TO_BUILD=( "${ALL_SAMPLES[@]}" )
+
+if (( ${#REQUESTED_SAMPLES[@]} > 0 )); then
+  SAMPLES_TO_BUILD=( "${REQUESTED_SAMPLES[@]}" )
+fi
 
 rule
 say "Building Run-${RUNNUM} Pythia sim lists under: ${OUTROOT}"
 say "Mode: filesystem scan (no catalog)"
-say "Base: ${MDC2_BASE}"
-say "Samples: ${ALL_SAMPLES[*]}"
+say "Base (pp truth)        : ${MDC2_BASE}"
+say "Base (embedded photon) : ${EMBED_BASE}"
+say "Samples: ${SAMPLES_TO_BUILD[*]}"
 rule
 
-for sample in "${ALL_SAMPLES[@]}"; do
+for sample in "${SAMPLES_TO_BUILD[@]}"; do
   build_pack "$sample"
 done
 

@@ -311,14 +311,16 @@ public:
   // -------------------------------------------------------------------------
   void setDataType(const std::string& s)
   {
-      // Supported user-facing keys (also overridden by env RJ_DATASET / RJ_IS_SIM)
-      //   "isSim"/"sim"  -> sim
-      //   "isAuAu"/"auau"-> Au+Au
-      //   "ispp"/"pp"    -> pp
-      const std::string t = s;
-      if (t == "isSim" || t == "sim") { m_isSim = true;  m_isAuAu = false; }
-      if (t == "isAuAu" || t == "auau"|| t == "aa") { m_isSim = false; m_isAuAu = true; }
-      if (t == "ispp"  || t == "pp")  { m_isSim = false; m_isAuAu = false; }
+        // Supported user-facing keys (also overridden by env RJ_DATASET / RJ_IS_SIM)
+        //   "isSim"/"sim"                 -> sim
+        //   "isSimEmbedded"/"simembedded" -> sim input + AuAu-like reconstruction
+        //   "isAuAu"/"auau"               -> Au+Au
+        //   "ispp"/"pp"                   -> pp
+        const std::string t = s;
+        if (t == "isSimEmbedded" || t == "simembedded") { m_isSim = true;  m_isAuAu = true;  }
+        if (t == "isSim" || t == "sim")                 { m_isSim = true;  m_isAuAu = false; }
+        if (t == "isAuAu" || t == "auau"|| t == "aa")  { m_isSim = false; m_isAuAu = true;  }
+        if (t == "ispp"  || t == "pp")                 { m_isSim = false; m_isAuAu = false; }
   }
 
   // Optional: limit active jet radii (keys like "r02","r04"). Empty => all kJetRadii.

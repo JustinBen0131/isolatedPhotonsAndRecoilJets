@@ -88,6 +88,12 @@ case "$dataset_raw" in
     export RJ_DATASET="isSim"
     export RJ_IS_SIM=1
     ;;
+  isSimEmbedded|issimembedded|simembedded|SIMEMBEDDED)
+    dataset="isSimEmbedded"
+    analysis_tag="isSimEmbedded"
+    export RJ_DATASET="isSimEmbedded"
+    export RJ_IS_SIM=1
+    ;;
   *)
     echo "[WARN] Unknown dataset '$dataset_raw' → defaulting to 'isAuAu'"
     dataset="isAuAu"
@@ -99,7 +105,9 @@ esac
 
 # Destination base (if not supplied as arg 8)
 if [[ -z "$dest_base" ]]; then
-  if [[ "$analysis_tag" == "isSim" ]]; then
+  if [[ "$analysis_tag" == "isSimEmbedded" ]]; then
+    dest_base="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded"
+  elif [[ "$analysis_tag" == "isSim" ]]; then
     dest_base="/sphenix/tg/tg01/bulk/jbennett/thesisAna/sim"
   elif [[ "$analysis_tag" == "isOO" ]]; then
     dest_base="/sphenix/tg/tg01/bulk/jbennett/thesisAna/oo"

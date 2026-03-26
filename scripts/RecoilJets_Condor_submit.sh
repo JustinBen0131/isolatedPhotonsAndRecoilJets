@@ -2,136 +2,195 @@
 ###############################################################################
 # RecoilJets_Condor_submit.sh — one-stop driver for LOCAL testing and CONDOR
 #
-# BASELINE SIM COMMAND TO SUBMIT ALL JOBS I CARE ABOUT IN SIM FOR 10 AND 20 samples --> ./RecoilJets_Condor_submit.sh isSim local && ./RecoilJets_Condor_submit.sh isSim condorDoAll
+# QUICK START
+#   isPP:
+#     ./RecoilJets_Condor_submit.sh isPP local
+#     ./RecoilJets_Condor_submit.sh isPP condor all
 #
+#   isPPrun25:
+#     ./RecoilJets_Condor_submit.sh isPPrun25 local
+#     ./RecoilJets_Condor_submit.sh isPPrun25 condor all
+#
+#   isAuAu:
+#     ./RecoilJets_Condor_submit.sh isAuAu local
+#     ./RecoilJets_Condor_submit.sh isAuAu condor all
+#
+#   isOO:
+#     ./RecoilJets_Condor_submit.sh isOO local
+#     ./RecoilJets_Condor_submit.sh isOO condor all
+#
+#   isSim:
+#     ./RecoilJets_Condor_submit.sh isSim local
+#     ./RecoilJets_Condor_submit.sh isSim condorDoAll
+#
+#   isSimJet5:
+#     ./RecoilJets_Condor_submit.sh isSimJet5 local
+#     ./RecoilJets_Condor_submit.sh isSimJet5 condorDoAll
+#
+#   isSimMB:
+#     ./RecoilJets_Condor_submit.sh isSimMB local
+#     ./RecoilJets_Condor_submit.sh isSimMB condorDoAll
+#
+#   isSimEmbedded:
+#     ./RecoilJets_Condor_submit.sh isSimEmbedded local
+#     ./RecoilJets_Condor_submit.sh isSimEmbedded condorDoAll
 #
 # OVERVIEW
-#   • Two datasets are supported: isPP and isAuAu.
-#   • Input comes from per‑run *.list files (one ROOT path per line).
-#   • Jobs never mix files across runs. Each job processes a fixed-size group
-#     of files from a single run (grouping is configurable).
-#   • Optional “rounds” (segments) let you cap the total number of jobs
-#     per submit wave; you can submit a specific round later.
+#   • This script is the top-level submission driver for:
+#       isPP, isPPrun25, isAuAu, isOO, isSim, isSimJet5, isSimMB, isSimEmbedded
+#   • DATA modes use per-run runlists and can do:
+#       local, CHECKJOBS, splitGoldenRunList, condor testJob, condor round, condor all
+#   • SIM modes use staged matched master lists and can do:
+#       local, CHECKJOBS, condorTest, condorDoAll
+#   • Jobs never mix files across runs in DATA mode.
+#   • SIM condorDoAll/local sweep over the YAML matrix:
+#       jet_pt_min × back_to_back_dphi_min_pi_fraction × vz_cut_cm × coneR × iso mode
+#       and, for AuAu-like tags, also clusterUEpipeline.
 #
 # DATASET TOKENS (case-insensitive)
-#   isPP  | pp  | PP    → proton-proton
-#   isAuAu| auau| AA    → Au+Au
+#   DATA:
+#     isPP        | pp         | PP
+#     isPPrun25   | pprun25    | pp25 | PP25
+#     isAuAu      | auau       | AA
+#     isOO        | oo         | OO
+#
+#   SIM:
+#     isSim       | sim        | SIM
+#     isSimJet5   | simjet5    | SIMJET5
+#     isSimMB     | simmb      | SIMMB
+#     isSimEmbedded | simembedded | SIMEMBEDDED
+#
+# DATASET MATRIX
+#   ┌────────────────┬──────────────┬──────────────────────────────────────────┬─────────────────────────────┐
+#   │ dataset        │ wrapper      │ macro                                    │ standard bulk action        │
+#   ├────────────────┼──────────────┼──────────────────────────────────────────┼─────────────────────────────┤
+#   │ isPP           │ RecoilJets_Condor.sh      │ Fun4All_recoilJets.C        │ condor all                  │
+#   │ isPPrun25      │ RecoilJets_Condor.sh      │ Fun4All_recoilJets.C        │ condor all                  │
+#   │ isAuAu         │ RecoilJets_Condor_AuAu.sh │ Fun4All_recoilJets_AuAu.C   │ condor all                  │
+#   │ isOO           │ RecoilJets_Condor_AuAu.sh │ Fun4All_recoilJets_AuAu.C   │ condor all                  │
+#   │ isSim          │ RecoilJets_Condor.sh      │ Fun4All_recoilJets.C        │ condorDoAll                 │
+#   │ isSimJet5      │ RecoilJets_Condor.sh      │ Fun4All_recoilJets.C        │ condorDoAll                 │
+#   │ isSimMB        │ RecoilJets_Condor.sh      │ Fun4All_recoilJets.C        │ condorDoAll                 │
+#   │ isSimEmbedded  │ RecoilJets_Condor_AuAu.sh │ Fun4All_recoilJets_AuAu.C   │ condorDoAll                 │
+#   └────────────────┴──────────────┴──────────────────────────────────────────┴─────────────────────────────┘
+#
+# LOCAL / BULK COPY-PASTE MATRIX
+#   DATA:
+#     ./RecoilJets_Condor_submit.sh isPP local
+#     ./RecoilJets_Condor_submit.sh isPP condor all
+#
+#     ./RecoilJets_Condor_submit.sh isPPrun25 local
+#     ./RecoilJets_Condor_submit.sh isPPrun25 condor all
+#
+#     ./RecoilJets_Condor_submit.sh isAuAu local
+#     ./RecoilJets_Condor_submit.sh isAuAu condor all
+#
+#     ./RecoilJets_Condor_submit.sh isOO local
+#     ./RecoilJets_Condor_submit.sh isOO condor all
+#
+#   SIM:
+#     ./RecoilJets_Condor_submit.sh isSim local
+#     ./RecoilJets_Condor_submit.sh isSim condorDoAll
+#
+#     ./RecoilJets_Condor_submit.sh isSimJet5 local
+#     ./RecoilJets_Condor_submit.sh isSimJet5 condorDoAll
+#
+#     ./RecoilJets_Condor_submit.sh isSimMB local
+#     ./RecoilJets_Condor_submit.sh isSimMB condorDoAll
+#
+#     ./RecoilJets_Condor_submit.sh isSimEmbedded local
+#     ./RecoilJets_Condor_submit.sh isSimEmbedded condorDoAll
+#
+# INPUT CONTRACTS
+#   DATA:
+#     • Golden run list + per-run list files.
+#     • Per-run list file contains one ROOT file path per line.
+#
+#   SIM:
+#     • Staged matched lists under ${BASE}/simListFiles/<sample>/.
+#     • sim_init() builds a 5-column master list:
+#         col1 = DST_CALO_CLUSTER
+#         col2 = G4Hits
+#         col3 = DST_JETS
+#         col4 = DST_GLOBAL
+#         col5 = DST_MBD_EPD
+#     • isSimEmbedded currently still uses the same 5-column staged contract.
 #
 # DIRECTORY LAYOUT (fixed)
 #   BASE          = /sphenix/u/patsfan753/scratch/thesisAnalysis
-#   MACRO         = ${BASE}/macros/Fun4All_recoilJets.C   # for display only here
-#   EXE (wrapper) = ${BASE}/RecoilJets_Condor.sh          # actually runs the macro
+#   LOG_DIR       = ${BASE}/log
+#   OUT_DIR       = ${BASE}/stdout
+#   ERR_DIR       = ${BASE}/error
+#   SUB_DIR       = ${BASE}/condor_sub
+#   STAGE_ROOT    = ${BASE}/condor_lists
+#   ROUND_ROOT    = ${BASE}/condor_segments
 #
-# INPUTS YOU PROVIDE
+# DATA INPUTS
 #   Golden run lists:
-#     • PP  : ${BASE}/Full_ppGoldenRunList_Version3.list
-#     • AuAu: ${BASE}/Full_AuAuGoldenRunList_Version1_personal.list
-#   Per-run file lists (one per run8):
-#     • PP  : ${BASE}/dst_lists_pp/dst_jetcalo-<run8>.list
-#     • AuAu: ${BASE}/dst_lists_auau/dst_calofitting-<run8>.list
+#     • PP      : ${BASE}/GRLs_tanner/run2pp_ana509_2024p022_v001_dst_calofitting_grl.list
+#     • PP run25: ${BASE}/GRLs_tanner/run3pp_new_newcdbtag_v008_dst_calofitting_grl.list
+#     • AuAu    : ${BASE}/GRLs_tanner/run3auau_new_newcdbtag_v008_dst_calofitting_grl.list
+#     • OO      : ${BASE}/GRLs_tanner/run3oo_ana536_2025p010_v001_dst_calofitting_grl.list
 #
-# ARTIFACTS THIS SCRIPT CREATES (and where)
-#   Grouped chunk lists (per run) — used by Condor jobs:
-#     ${BASE}/condor_lists/<pp|auau>/run<run8>_grpNNN.list
-#     • CLEANING: When grouping a given run, all existing run<run8>_grp*.list
-#       in that dataset’s condor_lists directory are removed first, then
-#       regenerated according to the current groupSize.
+#   Per-run list directories:
+#     • PP      : ${BASE}/dst_lists_pp
+#     • PP run25: ${BASE}/dst_lists_pp_run25
+#     • AuAu    : ${BASE}/dst_lists_auau
+#     • OO      : ${BASE}/dst_lists_oo
 #
-#   Round (segment) files — lists of run8 identifiers that define a “round”:
-#     ${BASE}/condor_segments/<pp|auau>/goldenRuns_<tag>_segment<k>.txt
-#     • CLEANING: When you run `splitGoldenRunList`, all existing
-#       goldenRuns_<tag>_segment*.txt for that dataset are deleted and
-#       re-created using the current groupSize and maxJobs cap.
+# OUTPUT ROOT DESTINATIONS
+#   DATA:
+#     • isPP        → /sphenix/tg/tg01/bulk/jbennett/thesisAna/pp
+#     • isPPrun25   → /sphenix/tg/tg01/bulk/jbennett/thesisAna/pp25
+#     • isAuAu      → /sphenix/tg/tg01/bulk/jbennett/thesisAna/auau
+#     • isOO        → /sphenix/tg/tg01/bulk/jbennett/thesisAna/oo
 #
-#   Condor submit files (auto-named):
-#     ${BASE}/RecoilJets_<tag>_YYYYMMDD_HHMMSS.sub
-#     • Settings baked in: request_memory=2000MB, should_transfer_files=NO,
-#       stream_output/error=True, getenv=True.
-#     • One queued job per chunk list line (i.e., one job per group).
-#     • Environment exported to each job:
-#         RJ_DATASET=<isPP|isAuAu>   (used by the macro to set data type)
-#         RJ_VERBOSITY=0             (quiet macro in batch by default)
+#   SIM:
+#     • isSim         → /sphenix/tg/tg01/bulk/jbennett/thesisAna/sim
+#     • isSimJet5     → /sphenix/tg/tg01/bulk/jbennett/thesisAna/simjet5
+#     • isSimMB       → /sphenix/tg/tg01/bulk/jbennett/thesisAna/simmb
+#     • isSimEmbedded → /sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded
 #
-# LOG/STDOUT/STDERR DIRECTORIES (auto-created)
-#   ${BASE}/log     — Condor *.log
-#   ${BASE}/stdout  — Condor *.out
-#   ${BASE}/error   — Condor *.err
+# VERBOSITY POLICY
+#   • LOCAL mode:
+#       RJ_VERBOSITY defaults to 10, unless overridden by VERBOSE=N.
+#   • CONDOR mode:
+#       RJ_VERBOSITY is forced to 0 in submit files.
+#   • Useful debug knobs:
+#       RJ_GROUP_TRACE=1
+#       RJ_SUBMIT_TRACE=1
+#       RJ_SUBMIT_PROGRESS_EVERY=N
 #
-# OUTPUT ROOT FILE DESTINATION TREE (used by the wrapper EXE)
-#   • PP  → /sphenix/tg/tg01/bulk/jbennett/thesisAna/pp/<run8>/
-#   • AuAu→ /sphenix/tg/tg01/bulk/jbennett/thesisAna/auau/<run8>/
+# COMMAND SUMMARY
+#   DATA:
+#     $ ./RecoilJets_Condor_submit.sh <dataset> local [Nevents] [VERBOSE=N]
+#     $ ./RecoilJets_Condor_submit.sh <dataset> CHECKJOBS [groupSize N]
+#     $ ./RecoilJets_Condor_submit.sh <dataset> splitGoldenRunList [groupSize N] [maxJobs M]
+#     $ ./RecoilJets_Condor_submit.sh <dataset> condor testJob
+#     $ ./RecoilJets_Condor_submit.sh <dataset> condor round <N> [groupSize N] [firstChunk]
+#     $ ./RecoilJets_Condor_submit.sh <dataset> condor all [groupSize N]
 #
-# VERBOSITY POLICY (propagates to the Fun4All macro via RJ_VERBOSITY)
-#   • LOCAL mode: default RJ_VERBOSITY=10 (chatty). You can override with:
-#       - trailing token  VERBOSE=N   (preferred), or
-#       - environment     VERBOSE=N   (fallback)
-#     The script exports RJ_VERBOSITY accordingly to the wrapper.
-#   • CONDOR mode: RJ_VERBOSITY is forced to 0 in the submit file.
+#   SIM:
+#     $ ./RecoilJets_Condor_submit.sh <simDataset> local [Nevents] [VERBOSE=N] [SAMPLE=...]
+#     $ ./RecoilJets_Condor_submit.sh <simDataset> CHECKJOBS [groupSize N] [SAMPLE=...]
+#     $ ./RecoilJets_Condor_submit.sh <simDataset> condorTest [SAMPLE=...]
+#     $ ./RecoilJets_Condor_submit.sh <simDataset> condorDoAll [groupSize N] [SAMPLE=...]
 #
-# COMMANDS (argument grammar and exact behavior)
-#
-#   1) LOCAL quick test on the FIRST RUN (first file only)
-#      $ ./RecoilJets_Condor_submit.sh <isPP|isAuAu> local [Nevents] [VERBOSE=N]
-#        • Picks the first uncommented run from the dataset’s golden list.
-#        • Uses only the first file of that run’s per‑run list.
-#        • Creates a temporary chunk list:
-#            ${BASE}/condor_lists/<tag>/run<run8>_LOCAL_firstfile.list
-#        • Invokes the wrapper with:
-#            RJ_DATASET=<dataset>, RJ_VERBOSITY=<10 or override>,
-#            nevents=<Nevents or 5000 default>.
-#
-#   2) PREPARE ROUND FILES (segment the golden list by job budget)
-#      $ ./RecoilJets_Condor_submit.sh <isPP|isAuAu> splitGoldenRunList \
-#            [groupSize N] [maxJobs M]
-#        • Computes number of jobs per run as ceil(nFiles / groupSize).
-#        • Sequentially fills round<k> until adding next run would exceed cap M,
-#          then starts a new round file.
-#        • Writes: ${BASE}/condor_segments/<tag>/goldenRuns_<tag>_segment<k>.txt
-#        • CLEANING: deletes all previous segment*.txt for this dataset first.
-#
-#   3) SUBMIT A SPECIFIC ROUND TO CONDOR
-#      $ ./RecoilJets_Condor_submit.sh <isPP|isAuAu> condor round <K> \
-#            [groupSize N] [firstChunk]
-#        • Reads runs from the prebuilt round file <K>.
-#        • Regroups each run’s per‑run list using the (possibly overridden)
-#          groupSize and queues one job per group.
-#        • If ‘firstChunk’ is provided, only the first group of each run is
-#          submitted (smoke test).
-#        • RJ_DATASET is exported; RJ_VERBOSITY is forced to 0.
-#        • NOTE: maxJobs is IGNORED here — it’s only used by splitGoldenRunList.
-#
-#   4) SUBMIT ALL RUNS CURRENTLY IN THE GOLDEN LIST
-#      $ ./RecoilJets_Condor_submit.sh <isPP|isAuAu> condor all [groupSize N]
-#        • Builds a temporary ALL‑runs source from the golden list and submits.
-#        • Regroups with the given groupSize if provided.
-#        • RJ_DATASET is exported; RJ_VERBOSITY is forced to 0.
-#        • NOTE: ‘firstChunk’ is NOT supported in ‘condor all’.
-#        • NOTE: maxJobs is IGNORED here.
-#
-# OPTIONS (placement matters)
-#   • Place [groupSize N] and [maxJobs M] AFTER the subcommand, exactly as in
-#     the examples below (the parser expects this order).
-#
-# EXAMPLES
-#   • Local quick check (PP, first run’s first file), 5000 events, verbose=10:
-#       ./RecoilJets_Condor_submit.sh isPP  local 5000
-#   • Local with explicit verbosity 4 (events default to 5000 when VERBOSE=N
-#     is given as the 3rd token):
-#       ./RecoilJets_Condor_submit.sh isAuAu local VERBOSE=4
-#   • Make round files for AuAu with 3 files/job and cap of 15000 jobs/round:
-#       ./RecoilJets_Condor_submit.sh isAuAu splitGoldenRunList groupSize 3 maxJobs 15000
-#   • Submit AuAu round 1 (uses existing segment file):
-#       ./RecoilJets_Condor_submit.sh isAuAu condor round 1
-#   • Submit PP round 2 but only the first chunk per run:
-#       ./RecoilJets_Condor_submit.sh isPP  condor round 2 firstChunk
-#   • Submit ALL PP runs with 4 files per job:
-#       ./RecoilJets_Condor_submit.sh isPP  condor all groupSize 4
+# CLEANING BEHAVIOR
+#   • make_groups():
+#       removes previous run<run8>_grp*.list for that run before regenerating.
+#   • splitGoldenRunList:
+#       removes previous goldenRuns_<tag>_segment*.txt before rebuilding rounds.
+#   • submit_condor() in DATA mode:
+#       wipes the dataset output tree under DEST_BASE before submission.
+#   • condorDoAll() in SIM mode:
+#       wipes previous staged group files, outputs, and tagged logs before resubmitting.
 #
 # REQUIREMENTS
 #   • condor_submit must be on PATH for Condor submissions.
-#   • Golden lists and per‑run list files must exist as described above.
+#   • psql must be on PATH if using TRIGGER=<bit>.
+#   • Required golden lists, per-run lists, and staged sim lists must exist.
 ###############################################################################
-
 set -euo pipefail
 
 # ------------------------ Pretty printing ------------------
@@ -199,8 +258,9 @@ SIM_MASTER5_NAME="DST_SIM_MASTER_5COL.list"
 SIM_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/sim"
 SIMJET5_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simjet5"
 SIMMB_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simmb"
+SIMEMBED_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded"
 
-# Flag: set to 1 for any isSim variant (isSim, isSimJet5, isSimMB)
+# Flag: set to 1 for any isSim variant (isSim, isSimJet5, isSimMB, isSimEmbedded)
 IS_SIM=0
 
 # YAML config (Fun4All default is next to the macro unless RJ_CONFIG_YAML is set)
@@ -409,7 +469,7 @@ read_uepipe_modes() {
   local yaml="$1" tag="$2"
   uepipe_modes=()
   uepipe_in_tag=0
-  if [[ "$tag" == "auau" || "$tag" == "oo" ]]; then
+  if [[ "$tag" == "auau" || "$tag" == "oo" || "$tag" == "simembedded" ]]; then
     mapfile -t uepipe_modes < <( yaml_get_values "clusterUEpipeline" "$yaml" 2>/dev/null )
     # Translate legacy bool values
     local -a cleaned=()
@@ -509,6 +569,19 @@ resolve_dataset() {
       EXE="${BASE}/RecoilJets_Condor.sh"
       IS_SIM=1
       ;;
+    isSimEmbedded|issimembedded|simembedded|SIMEMBEDDED)
+      DATASET="isSimEmbedded"
+      GOLDEN=""
+      LIST_DIR=""
+      LIST_PREFIX=""
+      DEST_BASE="$SIMEMBED_DEST_BASE"
+      TAG="simembedded"
+      MACRO="${BASE}/macros/Fun4All_recoilJets_AuAu.C"
+      EXE="${BASE}/RecoilJets_Condor_AuAu.sh"
+      IS_SIM=1
+      SIM_SAMPLE_DEFAULT="run28_embeddedPhoton20"
+      SIM_SAMPLE="$SIM_SAMPLE_DEFAULT"
+      ;;
     isSimJet5|isSimjet5|simjet5|SIMJET5)
       DATASET="isSimJet5"
       GOLDEN=""
@@ -578,6 +651,10 @@ make_groups() {
   local nfiles; nfiles=$(wc -l < "$src" | awk '{print $1}')
   local ngroups; ngroups=$(ceil_div "$nfiles" "$gs")
 
+  if [[ "${RJ_GROUP_TRACE:-0}" == "1" ]]; then
+    say "[group] run=${r8} src=$(basename "$src") files=${nfiles} groupSize=${gs} groups=${ngroups}" >&2
+  fi
+
   local start=1
   local g=1
   while (( g <= ngroups )); do
@@ -590,6 +667,10 @@ make_groups() {
     start=$(( end + 1 ))
     g=$(( g + 1 ))
   done
+
+  if [[ "${RJ_GROUP_TRACE:-0}" == "1" ]]; then
+    say "[group] run=${r8} finished grouping under ${STAGE_DIR}" >&2
+  fi
 }
 
 # ------------------------ Simulation helpers --------------------------
@@ -655,29 +736,83 @@ make_sim_groups() {
 
   # Rename split's numeric suffixes to our grpNNN.list naming convention
   local g=0
+  local first_group=""
+  local last_group=""
   for raw in "${prefix}"*; do
     [[ -s "$raw" ]] || { rm -f "$raw"; continue; }
     (( g+=1 ))
     local out="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_grp$(printf "%03d" "$g").list"
     mv "$raw" "$out"
+    [[ -z "$first_group" ]] && first_group="$out"
+    last_group="$out"
     echo "$out"
   done
   say "    [make_sim_groups] renamed ${g} group files" >&2
+  if [[ "${RJ_GROUP_TRACE:-0}" == "1" && "$g" -gt 0 ]]; then
+    say "    [make_sim_groups] first=$(basename "$first_group")  last=$(basename "$last_group")" >&2
+  fi
 }
 
 # Dry-run job count for isSim
 check_jobs_sim() {
   local gs="$GROUP_SIZE"
-  sim_init
+  local master_yaml
+  local n_cfg=1
+  local per_cfg_jobs=0
+  local total_jobs=0
+  local -a samples=()
 
-  local nfiles; nfiles=$(wc -l < "$SIM_CLEAN_LIST" | awk '{print $1}')
-  local njobs; njobs=$(ceil_div "$nfiles" "$gs")
+  master_yaml="$(sim_yaml_master_path)"
+  [[ -s "$master_yaml" ]] || { err "Master YAML not found or empty: $master_yaml"; exit 72; }
 
-  say "CHECKJOBS (dataset=isSim, sample=${SIM_SAMPLE})"
-  say "  groupSize         : ${gs}"
-  say "  total input files : ${nfiles}"
-  say "  total jobs (all)  : ${njobs}"
-  say "  master list       : ${SIM_MASTER_LIST}"
+  mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
+  mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
+  mapfile -t sim_vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
+  mapfile -t sim_cones < <( yaml_get_values "coneR" "$master_yaml" )
+  (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
+  (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
+  (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
+  (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
+  build_iso_modes "$master_yaml"
+  read_uepipe_modes "$master_yaml" "$TAG"
+
+  if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
+    case "$DATASET" in
+      isSimEmbedded) samples=( "run28_embeddedPhoton20" ) ;;
+      isSimJet5)     samples=( "run28_jet5" ) ;;
+      isSimMB)       samples=( "run28_detroit" ) ;;
+      *)             samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
+    esac
+  else
+    samples=( "${SIM_SAMPLE}" )
+  fi
+
+  n_cfg=$(( ${#sim_pts[@]} * ${#sim_fracs[@]} * ${#sim_vzs[@]} * ${#sim_cones[@]} * ${#iso_tags[@]} * ${#uepipe_modes[@]} ))
+
+  say "CHECKJOBS (dataset=${DATASET}, tag=${TAG})"
+  say "  YAML master        : ${master_yaml}"
+  say "  groupSize          : ${gs}"
+  say "  clusterUEpipeline  : [${uepipe_modes[*]}]"
+  say "  cfg combos         : ${n_cfg}"
+  say "  samples            : [${samples[*]}]"
+  say "  master list source : ${SIM_ROOT}"
+  echo
+
+  for samp in "${samples[@]}"; do
+    SIM_SAMPLE="$samp"
+    sim_init
+    local nfiles
+    local njobs
+    nfiles=$(wc -l < "$SIM_CLEAN_LIST" | awk '{print $1}')
+    njobs=$(ceil_div "$nfiles" "$gs")
+    per_cfg_jobs=$(( per_cfg_jobs + njobs ))
+    say "  sample=${BOLD}${SIM_SAMPLE}${RST}  input_files=${nfiles}  jobs_per_cfg=${njobs}  master_list=${SIM_MASTER_LIST}"
+  done
+
+  total_jobs=$(( n_cfg * per_cfg_jobs ))
+  echo
+  say "  jobs per cfg (Σsamp): ${per_cfg_jobs}"
+  say "  total jobs (matrix): ${total_jobs}"
 }
 
 # Wipe previous sim outputs + sim-tagged logs/out/err (ONLY used before condorDoAll)
@@ -912,9 +1047,13 @@ submit_condor() {
   # Snapshot YAML at submit time so idle jobs are immune to later edits
   local yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
   local yaml_snap="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${stamp}.yaml"
+  local source_runs
+  source_runs=$(grep -cE '^[0-9]+' "$source" 2>/dev/null || true)
   mkdir -p "$SIM_YAML_OVERRIDE_DIR"
   cp -f "$yaml_src" "$yaml_snap"
   say "YAML snapshot: ${yaml_snap}"
+  say "Submit context: source=${source}  runs=${source_runs:-0}  groupSize=${GROUP_SIZE}  firstChunk=${first_chunk:-none}"
+  say "Submit environment: RJ_DATASET=${DATASET}  RJ_VERBOSITY=0  RJ_CONFIG_YAML=${yaml_snap}"
 
   cat > "$sub" <<SUB
 universe      = vanilla
@@ -994,7 +1133,11 @@ SUB
 
   done < "$source"
 
+  local submit_elapsed
+  submit_elapsed=$(( $(date +%s) - t0 ))
   say "Submitting ${BOLD}${queued}${RST} jobs → $(basename "$sub")"
+  say "Submit summary: runsProcessed=${run_counter}  groupSize=${GROUP_SIZE}  firstChunk=${first_chunk:-none}  elapsed=${submit_elapsed}s"
+  say "Wrapper path: ${EXE}"
   need_cmd condor_submit
   condor_submit "$sub"
 }
@@ -1065,17 +1208,25 @@ fi
 
 # Only print the full banner when we're actually running work (not CHECKJOBS)
 if [[ "$ACTION" != "CHECKJOBS" ]]; then
-  say "Dataset=${BOLD}${DATASET}${RST}  Tag=${TAG}"
+  yaml_src_print="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
+  say "Action=${BOLD}${ACTION}${RST}  Dataset=${BOLD}${DATASET}${RST}  Tag=${TAG}"
+  say "Executable=${EXE}"
   say "Macro=${MACRO}"
-  say "Input lists dir=${LIST_DIR}"
-  say "Golden runs=${GOLDEN}"
+  say "YAML source=${yaml_src_print}"
+  if [[ "$IS_SIM" -eq 1 ]]; then
+    say "Sim sample default=${SIM_SAMPLE_DEFAULT}  current=${SIM_SAMPLE}  explicit=${SIM_SAMPLE_EXPLICIT}"
+  else
+    say "Input lists dir=${LIST_DIR}"
+    say "Golden runs=${GOLDEN}"
+  fi
   say "Stage dir=${STAGE_DIR}"
   say "Rounds dir=${ROUND_DIR}"
   say "Dest base=${DEST_BASE}"
   if [[ -n "${TRIGGER_BIT}" ]]; then
     say "Trigger filter      : bit=${TRIGGER_BIT} (scaledown != -1 required)"
   fi
-  say "Group size=${GROUP_SIZE}, Max jobs/round=${MAX_JOBS}"
+  say "Group size=${GROUP_SIZE} (explicit=${GROUP_SIZE_EXPLICIT})  Max jobs/round=${MAX_JOBS}"
+  say "Trace knobs         : RJ_GROUP_TRACE=${RJ_GROUP_TRACE:-0}  RJ_SUBMIT_TRACE=${RJ_SUBMIT_TRACE:-0}  RJ_SUBMIT_PROGRESS_EVERY=${RJ_SUBMIT_PROGRESS_EVERY:-25}"
   echo
 fi
 
@@ -1131,13 +1282,15 @@ case "$ACTION" in
       (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
       (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
       build_iso_modes "$master_yaml"
+      read_uepipe_modes "$master_yaml" "$TAG"
 
       samples=()
       if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
         case "$DATASET" in
-          isSimJet5) samples=( "run28_jet5" ) ;;
-          isSimMB)   samples=( "run28_detroit" ) ;;
-          *)         samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
+          isSimEmbedded) samples=( "run28_embeddedPhoton20" ) ;;
+          isSimJet5)     samples=( "run28_jet5" ) ;;
+          isSimMB)       samples=( "run28_detroit" ) ;;
+          *)             samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
         esac
       else
         samples=( "${SIM_SAMPLE}" )
@@ -1158,9 +1311,11 @@ case "$ACTION" in
           for vz in "${sim_vzs[@]}"; do
           for cone in "${sim_cones[@]}"; do
           for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
+          for uepipe in "${uepipe_modes[@]}"; do
           SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso_tags[$iso_idx]}"
+          (( uepipe_in_tag )) && SIM_CFG_TAG="${SIM_CFG_TAG}_${uepipe}"
           DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
-          yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}" "noSub" "$SIM_CFG_TAG" "LOCAL")"
+          yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}" "${uepipe}" "$SIM_CFG_TAG" "LOCAL")"
 
           for samp in "${samples[@]}"; do
             SIM_SAMPLE="$samp"
@@ -1177,21 +1332,24 @@ case "$ACTION" in
             in_line="$(head -n 1 "$tmp" 2>/dev/null || true)"
             chunk_base="$(basename "$tmp")"
             chunk_tag="${chunk_base%.list}"
-            out_root_preview="${DEST_BASE}/${SIM_SAMPLE}/RecoilJets_isSim_${chunk_tag}.root"
+            out_root_preview="${DEST_BASE}/${SIM_SAMPLE}/RecoilJets_${DATASET}_${chunk_tag}.root"
 
             say "----------------------------------------"
             say "SIM local: tag=${SIM_CFG_TAG}  sample=${SIM_SAMPLE}"
-            say "  jet_pt_min=${pt}  back_to_back_pi_fraction=${frac}  vz_cut_cm=${vz}  coneR=${cone}"
+            say "  jet_pt_min=${pt}  back_to_back_pi_fraction=${frac}  vz_cut_cm=${vz}  coneR=${cone}  iso=${iso_tags[$iso_idx]}  uepipe=${uepipe}"
             say "  YAML override: ${yaml_override}"
             say "  grp001 list   : ${tmp}"
             say "  input line    : ${in_line}"
             say "  temp list     : ${tmp}"
             say "  out ROOT      : ${out_root_preview}"
+            say "  wrapper env   : RJ_VERBOSITY=${RJV} RJ_CONFIG_YAML=${yaml_override}"
+            say "  wrapper args  : sample=${SIM_SAMPLE} dataset=${DATASET} mode=LOCAL nevents=${nevt} chunk=1 dest=${DEST_BASE}"
             find "${DEST_BASE}/${SIM_SAMPLE}" -type f -name "*_LOCAL_*.root" -delete 2>/dev/null || true
             say "Invoking wrapper locally…"
 
             RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
             echo
+          done
           done
           done
           done
@@ -1280,6 +1438,8 @@ case "$ACTION" in
         say "DATA local: pt=${data_pt}  frac=${data_frac}  vz=${data_vz}  coneR=${data_cone}  iso=${iso_tags[$iso_idx]}  uepipe=${uepipe}  tag=${data_cfg_tag}"
         say "  YAML override: ${yaml_override}"
         say "  DEST_BASE    : ${DEST_BASE}"
+        say "  wrapper env  : RJ_DATASET=${DATASET} RJ_VERBOSITY=${RJV} RJ_CONFIG_YAML=${yaml_override} RJ_CRASH_BACKTRACE=${RJ_CRASH_BACKTRACE_LOCAL} RJ_F4A_VERBOSE=${RJ_F4A_VERBOSE_LOCAL} RJ_STEP_EVENTS=${RJ_STEP_EVENTS_LOCAL}"
+        say "  wrapper args : run=${r8} dataset=${DATASET} mode=LOCAL nevents=${nevt} chunk=1 dest=${DEST_BASE}"
         find "${DEST_BASE}" -type f -name "*_LOCAL_*.root" -delete 2>/dev/null || true
         say "Invoking wrapper locally…"
 
@@ -1380,13 +1540,15 @@ SUB
     (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
     (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
     build_iso_modes "$master_yaml"
+    read_uepipe_modes "$master_yaml" "$TAG"
 
     samples=()
     if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
       case "$DATASET" in
-        isSimJet5) samples=( "run28_jet5" ) ;;
-        isSimMB)   samples=( "run28_detroit" ) ;;
-        *)         samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
+        isSimEmbedded) samples=( "run28_embeddedPhoton20" ) ;;
+        isSimJet5)     samples=( "run28_jet5" ) ;;
+        isSimMB)       samples=( "run28_detroit" ) ;;
+        *)             samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
       esac
     else
       samples=( "${SIM_SAMPLE}" )
@@ -1394,21 +1556,22 @@ SUB
 
     # If CHECKJOBS was also provided, do a dry-run count for the FULL condorDoAll matrix and exit.
     if [[ "${DRYRUN:-0}" -eq 1 ]]; then
-      n_cfg=$(( ${#sim_pts[@]} * ${#sim_fracs[@]} * ${#sim_vzs[@]} * ${#sim_cones[@]} * ${#iso_tags[@]} ))
+      n_cfg=$(( ${#sim_pts[@]} * ${#sim_fracs[@]} * ${#sim_vzs[@]} * ${#sim_cones[@]} * ${#iso_tags[@]} * ${#uepipe_modes[@]} ))
       per_cfg_jobs=0
 
-      say "CHECKJOBS (isSim condorDoAll matrix)"
+      say "CHECKJOBS (${DATASET} condorDoAll matrix)"
       say "  YAML master         : ${master_yaml}"
       say "  groupSize (baseline): ${gs_doall}"
       echo
       say "${BOLD}Matrix dimensions:${RST}"
-      say "  jet_pt_min                       : [${sim_pts[*]}]  (${#sim_pts[@]} values)"
-      say "  back_to_back_dphi_min_pi_fraction: [${sim_fracs[*]}]  (${#sim_fracs[@]} values)"
-      say "  vz_cut_cm                        : [${sim_vzs[*]}]  (${#sim_vzs[@]} values)"
-      say "  coneR                            : [${sim_cones[*]}]  (${#sim_cones[@]} values)"
-      say "  iso modes                        : [${iso_tags[*]}]  (${#iso_tags[@]} values)"
-      say "  cfg combos (product)             : ${BOLD}${n_cfg}${RST}"
-      say "  samples                          : [${samples[*]}]  (${#samples[@]} values)"
+      say "  jet_pt_min                        : [${sim_pts[*]}]  (${#sim_pts[@]} values)"
+      say "  back_to_back_dphi_min_pi_fraction : [${sim_fracs[*]}]  (${#sim_fracs[@]} values)"
+      say "  vz_cut_cm                         : [${sim_vzs[*]}]  (${#sim_vzs[@]} values)"
+      say "  coneR                             : [${sim_cones[*]}]  (${#sim_cones[@]} values)"
+      say "  iso modes                         : [${iso_tags[*]}]  (${#iso_tags[@]} values)"
+      say "  clusterUEpipeline                 : [${uepipe_modes[*]}]  (${#uepipe_modes[@]} values)"
+      say "  cfg combos (product)              : ${BOLD}${n_cfg}${RST}"
+      say "  samples                           : [${samples[*]}]  (${#samples[@]} values)"
       echo
 
       say "${BOLD}Per-sample input file counts:${RST}"
@@ -1429,10 +1592,13 @@ SUB
           for vz in "${sim_vzs[@]}"; do
           for cone in "${sim_cones[@]}"; do
           for (( _ci=0; _ci<${#iso_tags[@]}; _ci++ )); do
+          for uepipe in "${uepipe_modes[@]}"; do
             (( cfg_num+=1 ))
             _tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso_tags[$_ci]}"
-            printf "  ${DIM}%3d${RST} │ %-70s │ pt=%-5s frac=%-6s vz=%-5s cone=%-5s iso=%-16s\n" \
-                   "$cfg_num" "$_tag" "$pt" "$frac" "$vz" "$cone" "${iso_tags[$_ci]}"
+            (( uepipe_in_tag )) && _tag="${_tag}_${uepipe}"
+            printf "  ${DIM}%3d${RST} │ %-70s │ pt=%-5s frac=%-6s vz=%-5s cone=%-5s iso=%-16s uepipe=%s\n" \
+                   "$cfg_num" "$_tag" "$pt" "$frac" "$vz" "$cone" "${iso_tags[$_ci]}" "$uepipe"
+          done
           done
           done
           done
@@ -1464,9 +1630,11 @@ SUB
         for vz in "${sim_vzs[@]}"; do
         for cone in "${sim_cones[@]}"; do
         for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
+        for uepipe in "${uepipe_modes[@]}"; do
         SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso_tags[$iso_idx]}"
+        (( uepipe_in_tag )) && SIM_CFG_TAG="${SIM_CFG_TAG}_${uepipe}"
         DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
-        yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}" "noSub" "$SIM_CFG_TAG" "$doall_stamp")"
+        yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}" "${uepipe}" "$SIM_CFG_TAG" "$doall_stamp")"
 
         for samp in "${samples[@]}"; do
           SIM_SAMPLE="$samp"
@@ -1502,10 +1670,11 @@ SUB
                    "$SIM_SAMPLE" "$glist" "$DATASET" "$gidx" "$DEST_BASE" >> "$sub"
           done
 
-          say "Submitting isSim condorDoAll (tag=${SIM_CFG_TAG}, sample=${SIM_SAMPLE}, groupSize=${GROUP_SIZE}) → jobs=${BOLD}${#groups[@]}${RST}"
+          say "Submitting ${DATASET} condorDoAll (tag=${SIM_CFG_TAG}, sample=${SIM_SAMPLE}, groupSize=${GROUP_SIZE}, uepipe=${uepipe}) → jobs=${BOLD}${#groups[@]}${RST}"
           say "Output ROOT dir: ${DEST_BASE}/${SIM_SAMPLE}"
           say "YAML override: ${yaml_override}"
           condor_submit "$sub"
+        done
         done
         done
         done

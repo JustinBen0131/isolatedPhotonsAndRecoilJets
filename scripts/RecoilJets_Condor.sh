@@ -93,6 +93,10 @@ case "$dataset_raw" in
     echo "[FATAL] RecoilJets_Condor.sh is pp-style only. Use RecoilJets_Condor_AuAu.sh for isAuAu."
     exit 50
     ;;
+  isSimEmbedded|issimembedded|simembedded|SIMEMBEDDED)
+    echo "[FATAL] RecoilJets_Condor.sh is pp-style only. Use RecoilJets_Condor_AuAu.sh for isSimEmbedded."
+    exit 50
+    ;;
   *)
     echo "[WARN] Unknown dataset '$dataset_raw' → defaulting to 'isPP'"
     dataset="isPP"
