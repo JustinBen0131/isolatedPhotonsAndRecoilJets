@@ -2474,46 +2474,47 @@ namespace ARJ
               TCanvas cSurv("c_presel_survFrac","c_presel_survFrac", 1400, 600);
               cSurv.Divide(2,1, 0.002, 0.002);
 
-              auto DrawSurvPad = [&](int padN, TGraphErrors* gIso, TGraphErrors* gNon,
-                                     const char* varLabel, const char* cutText)
-              {
-                cSurv.cd(padN);
-                gPad->SetLeftMargin(0.16);
-                gPad->SetRightMargin(0.05);
-                gPad->SetBottomMargin(0.16);
-                gPad->SetTopMargin(0.10);
-                gPad->SetTicks(1,1);
+                auto DrawSurvPad = [&](int padN, TGraphErrors* gIso, TGraphErrors* gNon,
+                                       const char* varLabel, const char* cutText)
+                {
+                  cSurv.cd(padN);
+                  gPad->SetLeftMargin(0.16);
+                  gPad->SetRightMargin(0.05);
+                  gPad->SetBottomMargin(0.16);
+                  gPad->SetTopMargin(0.10);
+                  gPad->SetTicks(1,1);
 
-                TH1F hF(TString::Format("hSurvFrame_%d",padN),"",
-                        100, kPtEdges.front(), kPtEdges.back());
-                hF.SetDirectory(nullptr);
-                hF.SetStats(0);
-                hF.SetMinimum(0.0);
-                hF.SetMaximum(1.05);
-                hF.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                hF.GetYaxis()->SetTitle("Preselection survival fraction");
-                hF.GetXaxis()->SetTitleSize(0.055);
-                hF.GetYaxis()->SetTitleSize(0.052);
-                hF.GetXaxis()->SetLabelSize(0.048);
-                hF.GetYaxis()->SetLabelSize(0.048);
-                hF.Draw();
+                  // heap-allocate so the pad owns these past the lambda return
+                  TH1F* hF = new TH1F(TString::Format("hSurvFrame_%d",padN),"",
+                                      100, kPtEdges.front(), kPtEdges.back());
+                  hF->SetDirectory(nullptr);
+                  hF->SetStats(0);
+                  hF->SetMinimum(0.0);
+                  hF->SetMaximum(1.05);
+                  hF->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                  hF->GetYaxis()->SetTitle("Preselection survival fraction");
+                  hF->GetXaxis()->SetTitleSize(0.055);
+                  hF->GetYaxis()->SetTitleSize(0.052);
+                  hF->GetXaxis()->SetLabelSize(0.048);
+                  hF->GetYaxis()->SetLabelSize(0.048);
+                  hF->Draw();
 
-                if (gIso) gIso->Draw("PE same");
-                if (gNon) gNon->Draw("PE same");
+                  if (gIso) gIso->Draw("PE same");
+                  if (gNon) gNon->Draw("PE same");
 
-                TLegend leg(0.55, 0.20, 0.92, 0.38);
-                leg.SetBorderSize(0); leg.SetFillStyle(0); leg.SetTextFont(42); leg.SetTextSize(0.045);
-                if (gIso) leg.AddEntry(gIso, "Isolated",     "lpe");
-                if (gNon) leg.AddEntry(gNon, "Non-isolated", "lpe");
-                leg.Draw();
+                  TLegend* leg = new TLegend(0.55, 0.20, 0.92, 0.38);
+                  leg->SetBorderSize(0); leg->SetFillStyle(0); leg->SetTextFont(42); leg->SetTextSize(0.045);
+                  if (gIso) leg->AddEntry(gIso, "Isolated",     "lpe");
+                  if (gNon) leg->AddEntry(gNon, "Non-isolated", "lpe");
+                  leg->Draw();
 
-                TLine lUnity(kPtEdges.front(), 1.0, kPtEdges.back(), 1.0);
-                lUnity.SetLineStyle(2); lUnity.SetLineColor(kGray+1); lUnity.SetLineWidth(1);
-                lUnity.DrawClone();
+                  TLine lUnity(kPtEdges.front(), 1.0, kPtEdges.back(), 1.0);
+                  lUnity.SetLineStyle(2); lUnity.SetLineColor(kGray+1); lUnity.SetLineWidth(1);
+                  lUnity.DrawClone();
 
-                TLatex tt; tt.SetNDC(); tt.SetTextFont(42); tt.SetTextAlign(23); tt.SetTextSize(0.050);
-                tt.DrawLatex(0.50, 0.965, TString::Format("Presel survival: %s  (cut: %s)", varLabel, cutText));
-              };
+                  TLatex tt; tt.SetNDC(); tt.SetTextFont(42); tt.SetTextAlign(23); tt.SetTextSize(0.050);
+                  tt.DrawLatex(0.50, 0.965, TString::Format("Presel survival: %s  (cut: %s)", varLabel, cutText));
+                };
 
               DrawSurvPad(1, gWIso, gWNon, "weta", "weta < 0.6");
               DrawSurvPad(2, gEIso, gENon, "et1",  "0.6 < et1 < 1.0");
@@ -2560,10 +2561,10 @@ namespace ARJ
                 TH1* cIso = hIso ? CloneTH1(hIso, TString::Format("wshp_iso_%d",i).Data())  : nullptr;
                 TH1* cNon = hNon ? CloneTH1(hNon, TString::Format("wshp_non_%d",i).Data())  : nullptr;
 
-                if (cIso) { cIso->SetDirectory(nullptr); NormalizeToUnitArea(cIso);
-                            cIso->SetLineColor(kBlue+1); cIso->SetLineWidth(2); keepShape.push_back(cIso); }
-                if (cNon) { cNon->SetDirectory(nullptr); NormalizeToUnitArea(cNon);
-                            cNon->SetLineColor(kRed+1);  cNon->SetLineWidth(2); keepShape.push_back(cNon); }
+                if (cIso) { cIso->SetDirectory(nullptr); cIso->Rebin(4); NormalizeToUnitArea(cIso);
+                               cIso->SetLineColor(kBlue+1); cIso->SetLineWidth(2); keepShape.push_back(cIso); }
+                if (cNon) { cNon->SetDirectory(nullptr); cNon->Rebin(4); NormalizeToUnitArea(cNon);
+                               cNon->SetLineColor(kRed+1);  cNon->SetLineWidth(2); keepShape.push_back(cNon); }
 
                 double ymax = 0.0;
                 if (cIso) ymax = std::max(ymax, cIso->GetMaximum());
