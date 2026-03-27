@@ -100,7 +100,7 @@ RUNNUM="28"
 PHOTONJET_SAMPLES=( "photonjet5" "photonjet10" "photonjet20" )
 JET_SAMPLES=( "jet5" )
 MB_SAMPLES=( "detroit" )
-EMBEDDED_PHOTONJET_SAMPLES=( "embeddedPhoton20" )
+EMBEDDED_PHOTONJET_SAMPLES=( "embeddedPhoton10" "embeddedPhoton20" )
 REQUESTED_SAMPLES=()
 
 MDC2_BASE="/sphenix/lustre01/sphnxpro/mdc2/js_pp200_signal"
@@ -132,7 +132,10 @@ while [[ $# -gt 0 ]]; do
       sed -n '1,200p' "$0" | sed 's/^# \{0,1\}//g'
       exit 0
       ;;
-    photonjet5|photonjet10|photonjet20|jet5|detroit|embeddedPhoton20)
+    embeddedSim)
+      REQUESTED_SAMPLES+=( "embeddedPhoton10" "embeddedPhoton20" ); shift 1
+      ;;
+    photonjet5|photonjet10|photonjet20|jet5|detroit|embeddedPhoton10|embeddedPhoton20)
       REQUESTED_SAMPLES+=( "$1" ); shift 1
       ;;
     *) echo "[WARN $(date '+%H:%M:%S')] Unknown arg: $1"; shift 1 ;;
@@ -802,7 +805,31 @@ build_pack() {
   local G4_OK="true"
   local embeddir=""
 
-  if [[ "$sample" == "embeddedPhoton20" ]]; then
+  if [[ "$sample" == "embeddedPhoton10" ]]; then
+    # Flat embedded directory (no OutDir* containers) — use standard scan+pair path
+    local flatdir="${EMBED_BASE}/photon10"
+
+    g4dir="$flatdir"
+    calodir="$flatdir"
+    gldir="$flatdir"
+    jetsdir="$flatdir"
+    mbddir=""
+    trkdir="$flatdir"
+
+    calo_pattern="DST_CALOFITTING-*.root"
+    g4_pattern="DST_TRUTH_G4HIT_*.root"
+    jets_pattern="DST_TRUTH_JET_*.root"
+    global_pattern="DST_GLOBAL_PhotonJet*-*.root"
+    mbd_pattern=""
+
+    calo_label="DST_CALO_CLUSTER (mapped from embedded DST_CALOFITTING, flat dir) [ANCHOR]"
+    jets_label="DST_JETS (mapped from embedded DST_TRUTH_JET, flat dir)"
+    global_label="DST_GLOBAL (embedded, flat dir)"
+    mbd_label="DST_MBD_EPD (placeholder NONE; no standalone embedded MBD file found)"
+
+    MBD_OK="false"
+
+  elif [[ "$sample" == "embeddedPhoton20" ]]; then
     EMBED_MODE="true"
 
     embeddir="${EMBED_BASE}/photon20"

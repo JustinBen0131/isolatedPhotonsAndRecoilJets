@@ -2780,7 +2780,7 @@
                       gLegSim.SetLineWidth(hEffSim->GetLineWidth());
                     }
 
-                    TLegend leg(0.55, 0.74, 0.88, 0.88);
+                    TLegend leg(0.22, 0.74, 0.45, 0.88);
                     leg.SetBorderSize(0);
                     leg.SetFillStyle(0);
                     leg.SetTextFont(42);
@@ -2791,8 +2791,7 @@
 
                     drawLineAtOne(hEffSim);
 
-                    DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
-                    DrawLatexLines(0.14,0.78, { "Photon efficiency diagnostics: DATA implied vs SIM truth-matching" }, 0.030, 0.040);
+                    DrawLatexLines(0.14,0.935, DefaultHeaderLines(dsData), 0.034, 0.045);
 
                     SaveCanvas(c, JoinPath(phoDir, "pho_efficiencyEff_data_vs_efficiency_sim.png"));
 
