@@ -10480,42 +10480,45 @@ namespace ARJ
 
         if (doSim)
         {
-          if (ss == SimSample::kSimEmbedded)
-          {
-            // Embedded SIM: per-centrality datasets (same file, filtered by centSuffix)
-            const auto& centBins = CentBins();
-            const string simInPath  = SimInputPathForSample(ss);
-            const string simOutBase = SimOutBaseForSample(ss);
+            if (ss == SimSample::kSimEmbedded)
+            {
+              // Embedded SIM: per-centrality datasets (same file, filtered by centSuffix)
+              // For embedded SIM, derive the cfg tag from the actual ROOT file name so the
+              // filename itself is the source of truth for vz / cone / iso / UE variant.
+              const auto& centBins = CentBins();
+              const string simInPath  = SimInputPathForSample(ss);
+              const string simCfgTag  = EmbeddedSimCfgTagForPathOrDefault(simInPath);
+              const string simOutBase = kOutSimEmbeddedBasePath(simInPath);
 
-            if (centBins.empty())
-            {
-              Dataset ds;
-              ds.label      = "SIM_EMBEDDED";
-              ds.isSim      = true;
-              ds.trigger    = "";
-              ds.topDirName = kDirSIM;
-              ds.inFilePath = simInPath;
-              ds.outBase    = simOutBase;
-              datasets.push_back(std::move(ds));
-            }
-            else
-            {
-              for (const auto& cb : centBins)
+              if (centBins.empty())
               {
                 Dataset ds;
-                ds.label      = TString::Format("SIM_EMBEDDED_%d_%d", cb.lo, cb.hi).Data();
+                ds.label      = "SIM_EMBEDDED_" + simCfgTag;
                 ds.isSim      = true;
                 ds.trigger    = "";
                 ds.topDirName = kDirSIM;
                 ds.inFilePath = simInPath;
-                ds.centFolder = cb.folder;
-                ds.centSuffix = cb.suffix;
-                ds.centLabel  = TString::Format("Centrality: %d-%d%%", cb.lo, cb.hi).Data();
-                ds.outBase    = JoinPath(simOutBase, cb.folder);
+                ds.outBase    = simOutBase;
                 datasets.push_back(std::move(ds));
               }
+              else
+              {
+                for (const auto& cb : centBins)
+                {
+                  Dataset ds;
+                  ds.label      = TString::Format("SIM_EMBEDDED_%s_%d_%d", simCfgTag.c_str(), cb.lo, cb.hi).Data();
+                  ds.isSim      = true;
+                  ds.trigger    = "";
+                  ds.topDirName = kDirSIM;
+                  ds.inFilePath = simInPath;
+                  ds.centFolder = cb.folder;
+                  ds.centSuffix = cb.suffix;
+                  ds.centLabel  = TString::Format("Centrality: %d-%d%%", cb.lo, cb.hi).Data();
+                  ds.outBase    = JoinPath(simOutBase, cb.folder);
+                  datasets.push_back(std::move(ds));
+                }
+              }
             }
-          }
           else
           {
             Dataset ds;

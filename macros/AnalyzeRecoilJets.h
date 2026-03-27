@@ -213,36 +213,77 @@ namespace ARJ
   // photonJet5 standalone SIM (single file, no merging, full isSim pipeline + pi0 QA)
   inline bool isSimJet5                  = false;
 
-  // -------------------------------------------------------------------------
-  // Embedded photon20 SIM in Au+Au (per-centrality analysis)
-  //
-  //   isSimEmbedded = true  (all other SIM toggles false)
-  //
-  //   kEmbeddedCutTag      : cut combination from condorDoAll cfg_tag prefix
-  //                          (matches the directory names under simembedded/)
-  //
-  //   kEmbeddedUEVariant   : UE subtraction pipeline variant
-  //       "noSub"        — no underlying-event subtraction
-  //       "baseVariant"  — AuAu UE-subtracted isolation enabled
-  //       "variantA"     — PHOSUB clusters + recluster
-  //       "variantB"     — PHOSUB + seed exclusion DR=0.4
-  //
-  //   The input filename is built automatically:
-  //     <InputFilesSimBaseDir>/embeddedSim/
-  //       RecoilJets_embeddedPhoton20_ALL_<cutTag>_<ueVariant>.root
-  //
-  //   Output goes to:
-  //     dataOutput/auau/embeddedPhoton20/<cutTag>_<ueVariant>/<centFolder>/...
-  // -------------------------------------------------------------------------
-  inline bool isSimEmbedded              = true;
+    // -------------------------------------------------------------------------
+    // Embedded photon20 SIM in Au+Au (per-centrality analysis)
+    //
+    //   isSimEmbedded = true  (all other SIM toggles false)
+    //
+    //   kEmbeddedCutTag      : default cut combination from condorDoAll cfg_tag
+    //   kEmbeddedUEVariant   : default UE subtraction pipeline variant
+    //
+    //   The on-disk embedded files live directly under:
+    //     <InputFilesSim base>/embeddedSim/
+    //
+    //   with filename pattern:
+    //     RecoilJets_embeddedPhoton20_ALL_<cutTag>_<ueVariant>.root
+    //
+    //   We keep the defaults below for steering, but also expose helpers that
+    //   parse the cfg tag back out of the actual filename so the embedded path
+    //   itself is the source of truth.
+    // -------------------------------------------------------------------------
+    inline bool isSimEmbedded              = true;
 
-  inline const string kEmbeddedCutTag    = "jetMinPt5_7pi_8_vz30_isoR40_fixedIso5GeV";
-  inline const string kEmbeddedUEVariant = "variantB";
+    inline const string kEmbeddedCutTag    = "jetMinPt5_7pi_8_vz30_isoR40_fixedIso5GeV";
+    inline const string kEmbeddedUEVariant = "variantB";
 
-  inline string EmbeddedSimCfgTag()
-  {
-      return kEmbeddedCutTag + "_" + kEmbeddedUEVariant;
-  }
+    inline string EmbeddedSimCfgTag()
+    {
+        return kEmbeddedCutTag + "_" + kEmbeddedUEVariant;
+    }
+
+    inline string EmbeddedSimRootDir()
+    {
+        return "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/embeddedSim";
+    }
+
+    inline bool StartsWith(const string& s, const string& prefix)
+    {
+        return s.size() >= prefix.size() && s.compare(0, prefix.size(), prefix) == 0;
+    }
+
+    inline bool EndsWith(const string& s, const string& suffix)
+    {
+        return s.size() >= suffix.size() &&
+               s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+    }
+
+    inline string BasenameOnly(const string& path)
+    {
+        const size_t pos = path.find_last_of("/\\");
+        return (pos == string::npos) ? path : path.substr(pos + 1);
+    }
+
+    inline string EmbeddedSimCfgTagFromPath(const string& path)
+    {
+        const string base   = BasenameOnly(path);
+        const string prefix = "RecoilJets_embeddedPhoton20_ALL_";
+        const string suffix = ".root";
+
+        if (!StartsWith(base, prefix)) return "";
+        if (!EndsWith(base, suffix))   return "";
+
+        const size_t begin = prefix.size();
+        const size_t end   = base.size() - suffix.size();
+        if (end <= begin) return "";
+
+        return base.substr(begin, end - begin);
+    }
+
+    inline string EmbeddedSimCfgTagForPathOrDefault(const string& path)
+    {
+        const string parsed = EmbeddedSimCfgTagFromPath(path);
+        return parsed.empty() ? EmbeddedSimCfgTag() : parsed;
+    }
 
   // If false, STEP 1 will NOT rebuild the photonJet10+20 merged ROOT file(s).
   // Downstream code will simply open the already-merged output at the configured path(s).
@@ -262,9 +303,12 @@ namespace ARJ
   // One-off, hard-coded comparison overlays (Sam vs Justin unsmear files)
   inline bool doSamVsJustinUnsmearOverlays = false;
 
-  // Displayed range [-vzCutCm,+vzCutCm] and 0.5 cm display bin width
-  inline double VzCutCmFromYAML();
-  inline double vzCutCm = VzCutCmFromYAML();
+    // Displayed range [-vzCutCm,+vzCutCm] and 0.5 cm display bin width
+    inline double VzCutCmFromYAML();
+    // TEMP STABILIZATION:
+    // Avoid YAML parsing during Cling static initialization.
+    // Once the header loads cleanly again, this can be converted back to a lazy runtime accessor.
+    inline double vzCutCm = 30.0;
 
   // =============================================================================
   // FIXED INPUTS (pp + photonJet5/10/20 SIM)
@@ -445,12 +489,14 @@ namespace ARJ
   inline const string kInSimJet5 =
           InputFilesSimBaseDirFromYAML() + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/InclusiveJetSIM/RecoilJets_jet5_ALL_jetMinPt5_7piOver8.root";
 
-  // Embedded photon20 SIM in Au+Au (built from kEmbeddedCutTag + kEmbeddedUEVariant)
-  // NOTE: lazy function avoids Cling JIT static-init crash with chained function calls
-  inline string kInSimEmbeddedPath()
-  {
-      return InputFilesSimBaseDirFromYAML() + "/embeddedSim/RecoilJets_embeddedPhoton20_ALL_" + EmbeddedSimCfgTag() + ".root";
-  }
+    // Embedded photon20 SIM in Au+Au (built from kEmbeddedCutTag + kEmbeddedUEVariant)
+    // NOTE:
+    //   Embedded files live directly under InputFilesSim/embeddedSim/ and do NOT
+    //   follow the vz_lt_30 / vz_lt_60 subdirectory layout used by the other SIM samples.
+    inline string kInSimEmbeddedPath()
+    {
+        return EmbeddedSimRootDir() + "/RecoilJets_embeddedPhoton20_ALL_" + EmbeddedSimCfgTag() + ".root";
+    }
 
   inline const string kOutPPBase =
         "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp";
@@ -494,13 +540,14 @@ namespace ARJ
   inline const string kOutSimJet5Base =
         "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/simJet5ppINCLUSIVE";
 
-  // Embedded photon20 SIM output base (per-centrality subdirs created automatically)
-  // Layout: .../embeddedPhoton20/<cutTag>_<ueVariant>/<centFolder>/...
-  // NOTE: lazy function avoids Cling JIT static-init crash with chained function calls
-  inline string kOutSimEmbeddedBasePath()
-  {
-      return "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auau/embeddedPhoton20/" + EmbeddedSimCfgTag();
-  }
+    // Embedded photon20 SIM output base (per-centrality subdirs created automatically)
+    // Layout: .../embeddedPhoton20/<cutTag>_<ueVariant>/<centFolder>/...
+    // If an input file path is supplied, derive the cfg tag from the actual file name.
+    inline string kOutSimEmbeddedBasePath(const string& inPath = "")
+    {
+        return "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auau/embeddedPhoton20/" +
+               EmbeddedSimCfgTagForPathOrDefault(inPath);
+    }
 
   // Merged SIM ROOT outputs (weighted merges)
   inline const string kMergedSIMOut =
@@ -715,71 +762,22 @@ namespace ARJ
       if (edges.empty() || std::fabs(edges.back() - stop) > 1e-9) edges.push_back(stop);
   }
 
-  inline const BinningCfg& Binning()
-  {
-      static BinningCfg cfg;
-      static bool loaded = false;
-      if (loaded) return cfg;
-      loaded = true;
+    inline const BinningCfg& Binning()
+    {
+        static BinningCfg cfg;
+        static bool loaded = false;
+        if (loaded) return cfg;
+        loaded = true;
 
-      const string yamlPath = DefaultYAMLPath();
-      string yamlText;
-      if (!ReadWholeFile(yamlPath, yamlText))
-      {
+        // TEMP STABILIZATION:
+        // Avoid YAML parsing during Cling static initialization.
+        // Keep the baseline defaults and just expand the jet-pt edges.
         ExpandUniformEdges(cfg.unfold_jet_pt_edges, cfg.unfold_jet_pt_start, cfg.unfold_jet_pt_stop, cfg.unfold_jet_pt_step);
+        if (cfg.unfold_jet_pt_edges.size() < 2)
+          ExpandUniformEdges(cfg.unfold_jet_pt_edges, 0.0, 60.0, 0.5);
+
         return cfg;
-      }
-
-      std::istringstream iss(yamlText);
-      for (string line; std::getline(iss, line); )
-      {
-        line = Trim(line);
-        if (line.empty()) continue;
-        if (!line.empty() && line[0] == '#') continue;
-
-        if (StartsWithKey(line, "jes3_photon_pt_bins"))
-        {
-          ParseInlineListDoubles(AfterColon(line), cfg.jes3_photon_pt_bins);
-        }
-        else if (StartsWithKey(line, "unfold_reco_photon_pt_bins"))
-        {
-          ParseInlineListDoubles(AfterColon(line), cfg.unfold_reco_photon_pt_bins);
-        }
-        else if (StartsWithKey(line, "unfold_truth_photon_pt_bins"))
-        {
-          ParseInlineListDoubles(AfterColon(line), cfg.unfold_truth_photon_pt_bins);
-        }
-        else if (StartsWithKey(line, "unfold_xj_bins"))
-        {
-          ParseInlineListDoubles(AfterColon(line), cfg.unfold_xj_bins);
-        }
-        else if (StartsWithKey(line, "centrality_edges"))
-        {
-          ParseInlineListDoubles(AfterColon(line), cfg.centrality_edges);
-        }
-        else if (StartsWithKey(line, "unfold_jet_pt_binning"))
-        {
-          map<string, double> m;
-          ParseInlineMapDoubles(AfterColon(line), m);
-          if (m.count("start")) cfg.unfold_jet_pt_start = m["start"];
-          if (m.count("stop"))  cfg.unfold_jet_pt_stop  = m["stop"];
-          if (m.count("step"))  cfg.unfold_jet_pt_step  = m["step"];
-        }
-      }
-
-      // Light sanity: need at least 2 edges; otherwise revert to baseline
-      if (cfg.jes3_photon_pt_bins.size() < 2) cfg.jes3_photon_pt_bins = {15,17,19,21,23,26,35};
-      if (cfg.unfold_reco_photon_pt_bins.size() < 2)  cfg.unfold_reco_photon_pt_bins  = {10,15,17,19,21,23,26,35,40};
-      if (cfg.unfold_truth_photon_pt_bins.size() < 2) cfg.unfold_truth_photon_pt_bins = {5,10,15,17,19,21,23,26,35,40};
-      if (cfg.unfold_xj_bins.size() < 2) cfg.unfold_xj_bins = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
-      if (cfg.centrality_edges.size() < 2) cfg.centrality_edges = {0, 10, 20, 40, 60, 80, 100};
-
-      ExpandUniformEdges(cfg.unfold_jet_pt_edges, cfg.unfold_jet_pt_start, cfg.unfold_jet_pt_stop, cfg.unfold_jet_pt_step);
-      if (cfg.unfold_jet_pt_edges.size() < 2)
-        ExpandUniformEdges(cfg.unfold_jet_pt_edges, 0.0, 60.0, 0.5);
-
-      return cfg;
-  }
+    }
 
   // JES3 photon pT bin edges (authoritative for pT-bin loops/labels)
   inline const vector<double>& kPtEdges = Binning().jes3_photon_pt_bins;
@@ -2907,7 +2905,7 @@ namespace ARJ
           case SimSample::kPhotonJet5And10And20Merged:return "photonJet5and10and20merged";
           case SimSample::kSimMB:                    return "simMB";
           case SimSample::kSimJet5:                  return "simJet5";
-          case SimSample::kSimEmbedded:              return "embeddedPhoton20_" + EmbeddedSimCfgTag();
+          case SimSample::kSimEmbedded:              return "embeddedPhoton20_ALL_" + EmbeddedSimCfgTag();
           default:                                   return "INVALID";
         }
   }
