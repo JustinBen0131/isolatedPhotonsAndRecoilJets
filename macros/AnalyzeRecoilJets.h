@@ -446,8 +446,11 @@ namespace ARJ
           InputFilesSimBaseDirFromYAML() + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/InclusiveJetSIM/RecoilJets_jet5_ALL_jetMinPt5_7piOver8.root";
 
   // Embedded photon20 SIM in Au+Au (built from kEmbeddedCutTag + kEmbeddedUEVariant)
-  inline const string kInSimEmbedded =
-          InputFilesSimBaseDirFromYAML() + "/embeddedSim/RecoilJets_embeddedPhoton20_ALL_" + EmbeddedSimCfgTag() + ".root";
+  // NOTE: lazy function avoids Cling JIT static-init crash with chained function calls
+  inline string kInSimEmbeddedPath()
+  {
+      return InputFilesSimBaseDirFromYAML() + "/embeddedSim/RecoilJets_embeddedPhoton20_ALL_" + EmbeddedSimCfgTag() + ".root";
+  }
 
   inline const string kOutPPBase =
         "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp";
@@ -493,8 +496,11 @@ namespace ARJ
 
   // Embedded photon20 SIM output base (per-centrality subdirs created automatically)
   // Layout: .../embeddedPhoton20/<cutTag>_<ueVariant>/<centFolder>/...
-  inline const string kOutSimEmbeddedBase =
-        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auau/embeddedPhoton20/" + EmbeddedSimCfgTag();
+  // NOTE: lazy function avoids Cling JIT static-init crash with chained function calls
+  inline string kOutSimEmbeddedBasePath()
+  {
+      return "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auau/embeddedPhoton20/" + EmbeddedSimCfgTag();
+  }
 
   // Merged SIM ROOT outputs (weighted merges)
   inline const string kMergedSIMOut =
@@ -2919,7 +2925,7 @@ namespace ARJ
         case SimSample::kPhotonJet5And10And20Merged:return kMergedSIMOut_5and10and20;
         case SimSample::kSimMB:                     return kInSimMB;
         case SimSample::kSimJet5:                   return kInSimJet5;
-        case SimSample::kSimEmbedded:               return kInSimEmbedded;
+        case SimSample::kSimEmbedded:               return kInSimEmbeddedPath();
         default:                                    return "";
       }
   }
@@ -2937,7 +2943,7 @@ namespace ARJ
           case SimSample::kPhotonJet5And10And20Merged:return kOutSIM5and10and20MergedBase;
           case SimSample::kSimMB:                     return kOutSimMBBase;
           case SimSample::kSimJet5:                   return kOutSimJet5Base;
-          case SimSample::kSimEmbedded:               return kOutSimEmbeddedBase;
+          case SimSample::kSimEmbedded:               return kOutSimEmbeddedBasePath();
           default:                                    return "";
         }
   }
