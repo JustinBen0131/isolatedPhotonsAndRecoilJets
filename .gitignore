@@ -2,7 +2,7 @@
 dataOutput/
 
 # Ignore simulation inputs
-InputFilesSim/
+InputFiles/
 
 # Local external deps + build artifacts
 external/
