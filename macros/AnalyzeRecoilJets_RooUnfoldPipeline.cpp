@@ -879,7 +879,7 @@
           gBox.Draw("PE same");
           gBDT.Draw("PE same");
 
-          TLegend leg(0.58, 0.72, 0.88, 0.84);
+          TLegend leg(0.58, 0.76, 0.88, 0.88);
           leg.SetBorderSize(0);
           leg.SetFillStyle(0);
           leg.SetTextFont(42);
@@ -1100,13 +1100,6 @@
           }
 
           cPanel.cd(0);
-          TLatex tGlobal;
-          tGlobal.SetNDC();
-          tGlobal.SetTextFont(42);
-          tGlobal.SetTextAlign(22);
-          tGlobal.SetTextSize(0.021);
-          tGlobal.DrawLatex(0.50, 0.985,
-            "Raw counts: Box cuts vs BDT tight-ID  |  A=iso&tight, B=nonIso&tight, C=iso&nonTight, D=nonIso&nonTight");
 
           SaveCanvas(cPanel, JoinPath(JoinPath(phoDir, "SamOverlay"), "abcd_counts_compare_BoxCuts_vs_BDT.png"));
 

@@ -2387,13 +2387,230 @@ namespace ARJ
               for (auto* obj : keepTbl) delete obj;
           }
 
+          // ---------------------------------------------------------------------------
+          // additionalQA: survival-fraction vs pT (iso vs nonIso) + weta shape overlay
+          // ---------------------------------------------------------------------------
+          {
+            const string qaDir = JoinPath(outDir, "additionalQA");
+            EnsureDir(qaDir);
+
+            // weta preselection cut (pass = weta < 0.6)
+            const double kWetaCut  = 0.6;
+            // et1 preselection window (pass = 0.6 < et1 < 1.0)
+            const double kEt1Lo    = 0.6;
+            const double kEt1Hi    = 1.0;
+
+            const auto& bins = PtBins();
+
+            // ------------------------------------------------------------------
+            // Panel 1: survival fraction vs pT  (weta top, et1 bottom)
+            // ------------------------------------------------------------------
+            {
+              vector<double> xPt(kNPtBins, 0.0), exPt(kNPtBins, 0.0);
+              vector<double> fWIso(kNPtBins, 0.0),  fWNon(kNPtBins, 0.0);
+              vector<double> fEIso(kNPtBins, 0.0),  fENon(kNPtBins, 0.0);
+
+              for (int i = 0; i < kNPtBins; ++i)
+              {
+                const PtBin& b   = bins[i];
+                xPt[i]  = 0.5 * (kPtEdges[(size_t)i] + kPtEdges[(size_t)i+1]);
+                exPt[i] = 0.5 * (kPtEdges[(size_t)i+1] - kPtEdges[(size_t)i]);
+
+                auto survFrac = [&](const string& hname, double lo, double hi, bool useLo)->double
+                {
+                  TH1* h = GetObj<TH1>(ds, hname, false, false, false);
+                  if (!h) return -1.0;
+                  const double tot = h->Integral(0, h->GetNbinsX()+1);
+                  if (tot <= 0.0) return -1.0;
+                  if (useLo)
+                  {
+                    // pass = val < lo
+                    const int bCut = h->GetXaxis()->FindBin(lo - 1e-6);
+                    return h->Integral(1, bCut) / tot;
+                  }
+                  else
+                  {
+                    // pass = lo < val < hi (open interval)
+                    const int b1 = h->GetXaxis()->FindBin(lo + 1e-6);
+                    const int b2 = h->GetXaxis()->FindBin(hi - 1e-6);
+                    return h->Integral(b1, b2) / tot;
+                  }
+                };
+
+                fWIso[i] = survFrac("h_ss_weta_iso"   + b.suffix, kWetaCut, 0.0,    true);
+                fWNon[i] = survFrac("h_ss_weta_nonIso" + b.suffix, kWetaCut, 0.0,    true);
+                fEIso[i] = survFrac("h_ss_et1_iso"    + b.suffix, kEt1Lo,   kEt1Hi, false);
+                fENon[i] = survFrac("h_ss_et1_nonIso"  + b.suffix, kEt1Lo,   kEt1Hi, false);
+              }
+
+              // Build graphs (skip bins where hist was missing, flagged by -1)
+              auto MakeGraph = [&](const vector<double>& yv,
+                                   int col, int mStyle)->TGraphErrors*
+              {
+                vector<double> gx, gex, gy, gey;
+                for (int i = 0; i < kNPtBins; ++i)
+                {
+                  if (yv[i] < 0.0) continue;
+                  gx.push_back(xPt[i]);
+                  gex.push_back(exPt[i]);
+                  gy.push_back(yv[i]);
+                  gey.push_back(0.0);
+                }
+                if (gx.empty()) return nullptr;
+                TGraphErrors* g = new TGraphErrors((int)gx.size(),
+                                                   &gx[0], &gy[0],
+                                                   &gex[0], &gey[0]);
+                g->SetLineColor(col);   g->SetLineWidth(2);
+                g->SetMarkerColor(col); g->SetMarkerStyle(mStyle);
+                g->SetMarkerSize(1.2);
+                return g;
+              };
+
+              TGraphErrors* gWIso = MakeGraph(fWIso, kBlue+1,  20);
+              TGraphErrors* gWNon = MakeGraph(fWNon, kRed+1,   21);
+              TGraphErrors* gEIso = MakeGraph(fEIso, kBlue+1,  20);
+              TGraphErrors* gENon = MakeGraph(fENon, kRed+1,   21);
+
+              TCanvas cSurv("c_presel_survFrac","c_presel_survFrac", 1400, 600);
+              cSurv.Divide(2,1, 0.002, 0.002);
+
+              auto DrawSurvPad = [&](int padN, TGraphErrors* gIso, TGraphErrors* gNon,
+                                     const char* varLabel, const char* cutText)
+              {
+                cSurv.cd(padN);
+                gPad->SetLeftMargin(0.16);
+                gPad->SetRightMargin(0.05);
+                gPad->SetBottomMargin(0.16);
+                gPad->SetTopMargin(0.10);
+                gPad->SetTicks(1,1);
+
+                TH1F hF(TString::Format("hSurvFrame_%d",padN),"",
+                        100, kPtEdges.front(), kPtEdges.back());
+                hF.SetDirectory(nullptr);
+                hF.SetStats(0);
+                hF.SetMinimum(0.0);
+                hF.SetMaximum(1.05);
+                hF.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                hF.GetYaxis()->SetTitle("Preselection survival fraction");
+                hF.GetXaxis()->SetTitleSize(0.055);
+                hF.GetYaxis()->SetTitleSize(0.052);
+                hF.GetXaxis()->SetLabelSize(0.048);
+                hF.GetYaxis()->SetLabelSize(0.048);
+                hF.Draw();
+
+                if (gIso) gIso->Draw("PE same");
+                if (gNon) gNon->Draw("PE same");
+
+                TLegend leg(0.55, 0.20, 0.92, 0.38);
+                leg.SetBorderSize(0); leg.SetFillStyle(0); leg.SetTextFont(42); leg.SetTextSize(0.045);
+                if (gIso) leg.AddEntry(gIso, "Isolated",     "lpe");
+                if (gNon) leg.AddEntry(gNon, "Non-isolated", "lpe");
+                leg.Draw();
+
+                TLine lUnity(kPtEdges.front(), 1.0, kPtEdges.back(), 1.0);
+                lUnity.SetLineStyle(2); lUnity.SetLineColor(kGray+1); lUnity.SetLineWidth(1);
+                lUnity.DrawClone();
+
+                TLatex tt; tt.SetNDC(); tt.SetTextFont(42); tt.SetTextAlign(23); tt.SetTextSize(0.050);
+                tt.DrawLatex(0.50, 0.965, TString::Format("Presel survival: %s  (cut: %s)", varLabel, cutText));
+              };
+
+              DrawSurvPad(1, gWIso, gWNon, "weta", "weta < 0.6");
+              DrawSurvPad(2, gEIso, gENon, "et1",  "0.6 < et1 < 1.0");
+
+              SaveCanvas(cSurv, JoinPath(qaDir, "presel_survivalFraction_iso_vs_nonIso.png"));
+
+              delete gWIso; delete gWNon; delete gEIso; delete gENon;
+            }
+
+            // ------------------------------------------------------------------
+            // Panel 2: weta shape overlay (iso vs nonIso) for last two pT bins
+            // ------------------------------------------------------------------
+            {
+              // last two bins: kNPtBins-2 and kNPtBins-1
+              const int nPanel = std::min(2, kNPtBins);
+              TCanvas cShape("c_weta_shape_lastBins","c_weta_shape_lastBins", 1400, 600);
+              cShape.Divide(nPanel, 1, 0.002, 0.002);
+
+              vector<TH1*> keepShape;
+              keepShape.reserve(nPanel * 2);
+
+              for (int ip = 0; ip < nPanel; ++ip)
+              {
+                const int i      = kNPtBins - nPanel + ip;
+                const PtBin& b   = bins[i];
+
+                TH1* hIso = GetObj<TH1>(ds, "h_ss_weta_iso"    + b.suffix, false, false, false);
+                TH1* hNon = GetObj<TH1>(ds, "h_ss_weta_nonIso" + b.suffix, false, false, false);
+
+                cShape.cd(ip + 1);
+                gPad->SetLeftMargin(0.16);
+                gPad->SetRightMargin(0.05);
+                gPad->SetBottomMargin(0.16);
+                gPad->SetTopMargin(0.10);
+                gPad->SetTicks(1,1);
+
+                if (!hIso && !hNon)
+                {
+                  TLatex tm; tm.SetNDC(); tm.SetTextFont(42); tm.SetTextAlign(22); tm.SetTextSize(0.07);
+                  tm.DrawLatex(0.50, 0.55, "MISSING");
+                  continue;
+                }
+
+                TH1* cIso = hIso ? CloneTH1(hIso, TString::Format("wshp_iso_%d",i).Data())  : nullptr;
+                TH1* cNon = hNon ? CloneTH1(hNon, TString::Format("wshp_non_%d",i).Data())  : nullptr;
+
+                if (cIso) { cIso->SetDirectory(nullptr); NormalizeToUnitArea(cIso);
+                            cIso->SetLineColor(kBlue+1); cIso->SetLineWidth(2); keepShape.push_back(cIso); }
+                if (cNon) { cNon->SetDirectory(nullptr); NormalizeToUnitArea(cNon);
+                            cNon->SetLineColor(kRed+1);  cNon->SetLineWidth(2); keepShape.push_back(cNon); }
+
+                double ymax = 0.0;
+                if (cIso) ymax = std::max(ymax, cIso->GetMaximum());
+                if (cNon) ymax = std::max(ymax, cNon->GetMaximum());
+
+                TH1* first = cIso ? cIso : cNon;
+                first->SetTitle("");
+                first->SetMaximum(ymax * 1.30);
+                first->GetXaxis()->SetTitle("w_{#eta}^{cogX}");
+                first->GetYaxis()->SetTitle("A.U.");
+                first->GetXaxis()->SetTitleSize(0.055);
+                first->GetYaxis()->SetTitleSize(0.052);
+                first->GetXaxis()->SetLabelSize(0.048);
+                first->GetYaxis()->SetLabelSize(0.048);
+                first->Draw("hist");
+                if (cIso && cNon) cNon->Draw("hist same");
+
+                TLine lCut(kWetaCut, 0.0, kWetaCut, ymax * 1.25);
+                lCut.SetLineColor(kBlack); lCut.SetLineStyle(2); lCut.SetLineWidth(2);
+                lCut.DrawClone();
+
+                TLegend leg(0.55, 0.68, 0.92, 0.84);
+                leg.SetBorderSize(0); leg.SetFillStyle(0); leg.SetTextFont(42); leg.SetTextSize(0.045);
+                if (cIso) leg.AddEntry(cIso, "Isolated",     "l");
+                if (cNon) leg.AddEntry(cNon, "Non-isolated", "l");
+                leg.Draw();
+
+                TLatex tt; tt.SetNDC(); tt.SetTextFont(42); tt.SetTextAlign(23); tt.SetTextSize(0.050);
+                tt.DrawLatex(0.50, 0.965,
+                  TString::Format("w_{#eta}^{cogX} shape  p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi));
+
+                TLatex tc; tc.SetNDC(); tc.SetTextFont(42); tc.SetTextAlign(13); tc.SetTextSize(0.040);
+                tc.DrawLatex(0.17, 0.86,
+                  TString::Format("Dashed: presel cut (weta < %.1f)", kWetaCut));
+              }
+
+              SaveCanvas(cShape, JoinPath(qaDir, "weta_shape_iso_vs_nonIso_lastTwoBins.png"));
+              for (auto* h : keepShape) delete h;
+            }
+          }
+
           cout << ANSI_DIM
                << "\nNOTE: Preselection fail counters are inclusive (one photon can increment multiple fail histograms).\n"
                << "Per-bin plots written under: " << outDir << "\n"
                << "3x3 table written to: " << JoinPath(outDir, "table3x3_preselectionFails.png") << "\n"
                << ANSI_RESET;
       }
-
       // =============================================================================
       // Section 3: general isolation QA
       // =============================================================================
