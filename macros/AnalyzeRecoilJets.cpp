@@ -2601,10 +2601,135 @@ namespace ARJ
                   TString::Format("Dashed: presel cut (weta < %.1f)", kWetaCut));
               }
 
-              SaveCanvas(cShape, JoinPath(qaDir, "weta_shape_iso_vs_nonIso_lastTwoBins.png"));
-              for (auto* h : keepShape) delete h;
+                SaveCanvas(cShape, JoinPath(qaDir, "weta_shape_iso_vs_nonIso_lastTwoBins.png"));
+                for (auto* h : keepShape) delete h;
+              }
+
+              // ------------------------------------------------------------------
+              // Panel 3: weta preselection survival per ABCD region vs pT
+              // f_A, f_B, f_C, f_D = fraction of region candidates with weta < 0.6
+              // If f_A~f_B >> f_C~f_D  =>  preselection biases the ABCD estimate
+              // ------------------------------------------------------------------
+              {
+                const double kWetaCutABCD = 0.6;
+
+                const char* regionNames[4]    = {"A (iso&tight)",    "B (nonIso&tight)",
+                                                 "C (iso&nonTight)", "D (nonIso&nonTight)"};
+                // h_ss_weta_isIsolated_isTight etc. are POST-preselection fills:
+                // weta < 0.6 is guaranteed, so survival would be trivially 1.
+                // Instead: denominator = pre-preselection inclusive count per pT bin
+                //          numerators  = post-preselection ABCD region counts A,B,C,D
+                // This shows what fraction of ALL pre-presel candidates survive INTO each cell.
+                // If f_C, f_D fall faster than f_A, f_B with pT => presel biases ABCD.
+                const char* regionCountBases[4] = {"h_isIsolated_isTight",
+                                                   "h_notIsolated_isTight",
+                                                   "h_isIsolated_notTight",
+                                                   "h_notIsolated_notTight"};
+                const int   regionColors[4]   = {kGreen+2, kRed+1, kAzure+1, kMagenta+1};
+                const int   regionMarkers[4]  = {20, 21, 22, 23};
+
+                vector<double> xPtA(kNPtBins, 0.0), exPtA(kNPtBins, 0.0);
+                for (int i = 0; i < kNPtBins; ++i)
+                {
+                  xPtA[i]  = 0.5 * (kPtEdges[(size_t)i] + kPtEdges[(size_t)i+1]);
+                  exPtA[i] = 0.5 * (kPtEdges[(size_t)i+1] - kPtEdges[(size_t)i]);
+                }
+
+                // compute fraction of pre-presel candidates landing in each ABCD cell
+                vector< vector<double> > fRegion(4, vector<double>(kNPtBins, -1.0));
+                for (int i = 0; i < kNPtBins; ++i)
+                {
+                  const PtBin& b = bins[i];
+                  // pre-preselection denominator: inclusive SS hist filled before presel check
+                  TH1* hInc = GetObj<TH1>(ds, "h_ss_weta_inclusive" + b.suffix,
+                                          false, false, false);
+                  if (!hInc) continue;
+                  const double preTotal = hInc->Integral(0, hInc->GetNbinsX()+1);
+                  if (preTotal <= 0.0) continue;
+
+                  for (int r = 0; r < 4; ++r)
+                  {
+                    // post-preselection ABCD count (bin 1 of count histogram)
+                    const double abcdN = Read1BinCount(ds, string(regionCountBases[r]) + b.suffix);
+                    if (abcdN < 0.0) continue;
+                    fRegion[r][i] = abcdN / preTotal;
+                  }
+                }
+
+                // build one graph per region
+                vector<TGraphErrors*> gRegion(4, nullptr);
+                for (int r = 0; r < 4; ++r)
+                {
+                  vector<double> gx, gex, gy, gey;
+                  for (int i = 0; i < kNPtBins; ++i)
+                  {
+                    if (fRegion[r][i] < 0.0) continue;
+                    gx.push_back(xPtA[i]);
+                    gex.push_back(exPtA[i]);
+                    gy.push_back(fRegion[r][i]);
+                    gey.push_back(0.0);
+                  }
+                  if (gx.empty()) continue;
+                  gRegion[r] = new TGraphErrors((int)gx.size(),
+                                                &gx[0], &gy[0], &gex[0], &gey[0]);
+                  gRegion[r]->SetLineColor(regionColors[r]);
+                  gRegion[r]->SetLineWidth(2);
+                  gRegion[r]->SetMarkerColor(regionColors[r]);
+                  gRegion[r]->SetMarkerStyle(regionMarkers[r]);
+                  gRegion[r]->SetMarkerSize(1.3);
+                }
+
+                TCanvas cABCDSurv("c_weta_surv_ABCD","c_weta_surv_ABCD", 900, 700);
+                cABCDSurv.SetLeftMargin(0.16);
+                cABCDSurv.SetRightMargin(0.05);
+                cABCDSurv.SetBottomMargin(0.14);
+                cABCDSurv.SetTopMargin(0.08);
+                cABCDSurv.SetTicks(1,1);
+
+                TH1F* hFA = new TH1F("hWetaSurvABCDFrame","",
+                                     100, kPtEdges.front(), kPtEdges.back());
+                hFA->SetDirectory(nullptr);
+                hFA->SetStats(0);
+                hFA->SetMinimum(0.0);
+                hFA->SetMaximum(1.05);
+                hFA->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                hFA->GetYaxis()->SetTitle("Fraction of pre-presel candidates surviving into ABCD cell");
+                hFA->GetXaxis()->SetTitleSize(0.050);
+                hFA->GetYaxis()->SetTitleSize(0.046);
+                hFA->GetXaxis()->SetLabelSize(0.044);
+                hFA->GetYaxis()->SetLabelSize(0.044);
+                hFA->GetYaxis()->SetTitleOffset(1.55);
+                hFA->Draw();
+
+                for (int r = 0; r < 4; ++r)
+                  if (gRegion[r]) gRegion[r]->Draw("PE same");
+
+                TLine lU(kPtEdges.front(), 1.0, kPtEdges.back(), 1.0);
+                lU.SetLineStyle(2); lU.SetLineColor(kGray+1); lU.SetLineWidth(1);
+                lU.DrawClone();
+
+                TLegend* legA = new TLegend(0.38, 0.18, 0.92, 0.44);
+                legA->SetBorderSize(0); legA->SetFillStyle(0);
+                legA->SetTextFont(42);  legA->SetTextSize(0.038);
+                legA->SetHeader("ABCD region (pre-preselection candidates)", "C");
+                for (int r = 0; r < 4; ++r)
+                  if (gRegion[r]) legA->AddEntry(gRegion[r], regionNames[r], "lpe");
+                legA->Draw();
+
+                TLatex ttA; ttA.SetNDC(); ttA.SetTextFont(42);
+                ttA.SetTextAlign(23);   ttA.SetTextSize(0.044);
+                ttA.DrawLatex(0.50, 0.965,
+                  "Weta preselection survival per ABCD region vs p_{T}^{#gamma}");
+
+                TLatex tcA; tcA.SetNDC(); tcA.SetTextFont(42);
+                tcA.SetTextAlign(13);  tcA.SetTextSize(0.036);
+                tcA.DrawLatex(0.17, 0.88, "If f_{C},f_{D} fall faster than f_{A},f_{B} with p_{T}: presel biases ABCD");
+
+                SaveCanvas(cABCDSurv, JoinPath(qaDir, "weta_survivalFrac_perABCDregion_vs_pT.png"));
+
+                for (int r = 0; r < 4; ++r) delete gRegion[r];
+              }
             }
-          }
 
           cout << ANSI_DIM
                << "\nNOTE: Preselection fail counters are inclusive (one photon can increment multiple fail histograms).\n"
