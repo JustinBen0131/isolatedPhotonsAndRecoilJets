@@ -1156,7 +1156,7 @@
 
               TH1* hIt = nullptr;
               if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-              hIt = uIt.Hreco(RooUnfold::kCovToy);
+              hIt = uIt.Hunfold(RooUnfolding::kCovToy);
               if (gSystem) gSystem->RedirectOutput(0);
               if (!hIt) continue;
 
@@ -1283,7 +1283,7 @@
 
               TH1* hCurr = nullptr;
               if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-              hCurr = u.Hreco(RooUnfold::kCovToy);
+              hCurr = u.Hunfold(RooUnfolding::kCovToy);
               if (gSystem) gSystem->RedirectOutput(0);
               if (!hCurr) continue;
 
@@ -1450,14 +1450,14 @@
 
         TH1* hPhoUnfoldTruth = nullptr;
         if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-        hPhoUnfoldTruth = unfoldPhoToy.Hreco(RooUnfold::kCovToy);
+        hPhoUnfoldTruth = unfoldPhoToy.Hunfold(RooUnfolding::kCovToy);
         if (gSystem) gSystem->RedirectOutput(0);
         if (hPhoUnfoldTruth) hPhoUnfoldTruth->SetDirectory(nullptr);
 
         RooUnfoldBayes    unfoldPhoCov(&respPho, hPhoRecoData, kBayesIterPho);
         unfoldPhoCov.SetVerbose(0);
 
-        TH1* hPhoUnfoldTruth_cov = unfoldPhoCov.Hreco(RooUnfold::kCovariance);
+        TH1* hPhoUnfoldTruth_cov = unfoldPhoCov.Hunfold(RooUnfolding::kCovariance);
         if (hPhoUnfoldTruth_cov) hPhoUnfoldTruth_cov->SetDirectory(nullptr);
 
         // Photon QA outputs
@@ -3853,7 +3853,7 @@
 
             TH1* hUnfC = nullptr;
             if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-            hUnfC = uC.Hreco(RooUnfold::kCovToy);
+            hUnfC = uC.Hunfold(RooUnfolding::kCovToy);
             if (gSystem) gSystem->RedirectOutput(0);
             if (hUnfC)
             {
@@ -4029,7 +4029,7 @@
 
               TH1* hUnfB = nullptr;
               if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-              hUnfB = uH.Hreco(RooUnfold::kCovToy);
+              hUnfB = uH.Hunfold(RooUnfolding::kCovToy);
               if (gSystem) gSystem->RedirectOutput(0);
               if (hUnfB)
               {
@@ -4388,7 +4388,7 @@
       
                     TH1* hIt = nullptr;
                     if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-                    hIt = uIt.Hreco(RooUnfold::kCovToy);
+                    hIt = uIt.Hunfold(RooUnfolding::kCovToy);
                     if (gSystem) gSystem->RedirectOutput(0);
                     if (!hIt) continue;
       
@@ -4515,7 +4515,7 @@
       
                     TH1* hCurr = nullptr;
                     if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-                    hCurr = u.Hreco(RooUnfold::kCovToy);
+                    hCurr = u.Hunfold(RooUnfolding::kCovToy);
                     if (gSystem) gSystem->RedirectOutput(0);
                     if (!hCurr) continue;
       
@@ -4682,14 +4682,14 @@
       
               TH1* hPhoUnfoldTruth = nullptr;
               if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-              hPhoUnfoldTruth = unfoldPhoToy.Hreco(RooUnfold::kCovToy);
+              hPhoUnfoldTruth = unfoldPhoToy.Hunfold(RooUnfolding::kCovToy);
               if (gSystem) gSystem->RedirectOutput(0);
               if (hPhoUnfoldTruth) hPhoUnfoldTruth->SetDirectory(nullptr);
       
               RooUnfoldBayes    unfoldPhoCov(&respPho, hPhoRecoData, kBayesIterPho);
               unfoldPhoCov.SetVerbose(0);
       
-              TH1* hPhoUnfoldTruth_cov = unfoldPhoCov.Hreco(RooUnfold::kCovariance);
+              TH1* hPhoUnfoldTruth_cov = unfoldPhoCov.Hunfold(RooUnfolding::kCovariance);
               if (hPhoUnfoldTruth_cov) hPhoUnfoldTruth_cov->SetDirectory(nullptr);
       
               // Photon QA outputs
@@ -7085,7 +7085,7 @@
       
                   TH1* hUnfC = nullptr;
                   if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-                  hUnfC = uC.Hreco(RooUnfold::kCovToy);
+                  hUnfC = uC.Hunfold(RooUnfolding::kCovToy);
                   if (gSystem) gSystem->RedirectOutput(0);
                   if (hUnfC)
                   {
@@ -7261,7 +7261,7 @@
       
                     TH1* hUnfB = nullptr;
                     if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-                    hUnfB = uH.Hreco(RooUnfold::kCovToy);
+                    hUnfB = uH.Hunfold(RooUnfolding::kCovToy);
                     if (gSystem) gSystem->RedirectOutput(0);
                     if (hUnfB)
                     {
@@ -7645,14 +7645,14 @@
 
           TH1* hUnfoldTruthGlob = nullptr;
           if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-          hUnfoldTruthGlob = unfoldXJ_toy.Hreco(RooUnfold::kCovToy);
+          hUnfoldTruthGlob = unfoldXJ_toy.Hunfold(RooUnfolding::kCovToy);
           if (gSystem) gSystem->RedirectOutput(0);
           if (hUnfoldTruthGlob) hUnfoldTruthGlob->SetDirectory(nullptr);
 
           RooUnfoldBayes unfoldXJ_cov(&respXJ, hMeasDataGlob, kBayesIterXJ);
           unfoldXJ_cov.SetVerbose(0);
 
-          TH1* hUnfoldTruthGlob_cov = unfoldXJ_cov.Hreco(RooUnfold::kCovariance);
+          TH1* hUnfoldTruthGlob_cov = unfoldXJ_cov.Hunfold(RooUnfolding::kCovariance);
           if (hUnfoldTruthGlob_cov) hUnfoldTruthGlob_cov->SetDirectory(nullptr);
 
         if (!hUnfoldTruthGlob)
@@ -8729,7 +8729,7 @@
 
             TH1* hUnfoldTruthGlob_closure = nullptr;
             if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-            hUnfoldTruthGlob_closure = unfoldXJ_closure.Hreco(RooUnfold::kCovToy);
+            hUnfoldTruthGlob_closure = unfoldXJ_closure.Hunfold(RooUnfolding::kCovToy);
             if (gSystem) gSystem->RedirectOutput(0);
             if (hUnfoldTruthGlob_closure) hUnfoldTruthGlob_closure->SetDirectory(nullptr);
 
@@ -9003,7 +9003,7 @@
 
                 TH1* hUnfoldTruthGlob_half = nullptr;
                 if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-                hUnfoldTruthGlob_half = unfoldXJ_half.Hreco(RooUnfold::kCovToy);
+                hUnfoldTruthGlob_half = unfoldXJ_half.Hunfold(RooUnfolding::kCovToy);
                 if (gSystem) gSystem->RedirectOutput(0);
                 if (hUnfoldTruthGlob_half) hUnfoldTruthGlob_half->SetDirectory(nullptr);
 
