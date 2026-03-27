@@ -2615,126 +2615,153 @@ namespace ARJ
               {
                 const double kWetaCutABCD = 0.6;
 
-                const char* regionNames[4]    = {"A (iso&tight)",    "B (nonIso&tight)",
-                                                 "C (iso&nonTight)", "D (nonIso&nonTight)"};
-                  vector<double> xPtD(kNPtBins, 0.0), exPtD(kNPtBins, 0.0);
-                  vector<double> yFtIso(kNPtBins, -1.0), yFtNon(kNPtBins, -1.0), yR(kNPtBins, -1.0);
+                  const char* regionNames[4]    = {"A (iso&tight)",    "B (nonIso&tight)",
+                                                   "C (iso&nonTight)", "D (nonIso&nonTight)"};
+                    vector<double> xPtD(kNPtBins, 0.0), exPtD(kNPtBins, 0.0);
+                    vector<double> yFtIso(kNPtBins, -1.0), eyFtIso(kNPtBins, 0.0);
+                    vector<double> yFtNon(kNPtBins, -1.0), eyFtNon(kNPtBins, 0.0);
+                    vector<double> yR(kNPtBins,     -1.0), eyR(kNPtBins,     0.0);
 
-                  for (int i = 0; i < kNPtBins; ++i)
-                  {
-                    const PtBin& b = bins[i];
-                    xPtD[i]  = 0.5 * (kPtEdges[(size_t)i] + kPtEdges[(size_t)i+1]);
-                    exPtD[i] = 0.5 * (kPtEdges[(size_t)i+1] - kPtEdges[(size_t)i]);
-
-                    const double A  = Read1BinCount(ds, "h_isIsolated_isTight"   + b.suffix);
-                    const double B  = Read1BinCount(ds, "h_notIsolated_isTight"  + b.suffix);
-                    const double C  = Read1BinCount(ds, "h_isIsolated_notTight"  + b.suffix);
-                    const double D  = Read1BinCount(ds, "h_notIsolated_notTight" + b.suffix);
-
-                    if ((A + C) > 0.0) yFtIso[i] = A / (A + C);
-                    if ((B + D) > 0.0) yFtNon[i] = B / (B + D);
-                    if (B > 0.0 && C > 0.0 && D > 0.0) yR[i] = (A * D) / (B * C);
-                  }
-
-                  auto MakeGr = [&](const vector<double>& yv, int col, int ms)->TGraphErrors*
-                  {
-                    vector<double> gx, gex, gy, gey;
                     for (int i = 0; i < kNPtBins; ++i)
                     {
-                      if (yv[i] < 0.0) continue;
-                      gx.push_back(xPtD[i]); gex.push_back(exPtD[i]);
-                      gy.push_back(yv[i]);   gey.push_back(0.0);
+                      const PtBin& b = bins[i];
+                      xPtD[i]  = 0.5 * (kPtEdges[(size_t)i] + kPtEdges[(size_t)i+1]);
+                      exPtD[i] = 0.5 * (kPtEdges[(size_t)i+1] - kPtEdges[(size_t)i]);
+
+                      const double A  = Read1BinCount(ds, "h_isIsolated_isTight"   + b.suffix);
+                      const double B  = Read1BinCount(ds, "h_notIsolated_isTight"  + b.suffix);
+                      const double C  = Read1BinCount(ds, "h_isIsolated_notTight"  + b.suffix);
+                      const double D  = Read1BinCount(ds, "h_notIsolated_notTight" + b.suffix);
+
+                      // f_tight,iso = A/(A+C)
+                      // binomial error: sigma = sqrt(A*C) / (A+C)^(3/2)
+                      if ((A + C) > 0.0)
+                      {
+                        yFtIso[i]  = A / (A + C);
+                        eyFtIso[i] = (A > 0.0 && C > 0.0)
+                                     ? std::sqrt(A * C) / std::pow(A + C, 1.5)
+                                     : std::sqrt(A) / (A + C);
+                      }
+
+                      // f_tight,nonIso = B/(B+D)
+                      if ((B + D) > 0.0)
+                      {
+                        yFtNon[i]  = B / (B + D);
+                        eyFtNon[i] = (B > 0.0 && D > 0.0)
+                                     ? std::sqrt(B * D) / std::pow(B + D, 1.5)
+                                     : std::sqrt(B) / (B + D);
+                      }
+
+                      // R = A*D/(B*C)
+                      // relative error: sigma_R/R = sqrt(1/A + 1/B + 1/C + 1/D)
+                      if (A > 0.0 && B > 0.0 && C > 0.0 && D > 0.0)
+                      {
+                        yR[i]  = (A * D) / (B * C);
+                        eyR[i] = yR[i] * std::sqrt(1.0/A + 1.0/B + 1.0/C + 1.0/D);
+                      }
                     }
-                    if (gx.empty()) return nullptr;
-                    TGraphErrors* g = new TGraphErrors((int)gx.size(),
-                                                       &gx[0], &gy[0], &gex[0], &gey[0]);
-                    g->SetLineColor(col); g->SetLineWidth(2);
-                    g->SetMarkerColor(col); g->SetMarkerStyle(ms); g->SetMarkerSize(1.3);
-                    return g;
-                  };
 
-                  TGraphErrors* gFtIso = MakeGr(yFtIso, kBlue+1,  20);
-                  TGraphErrors* gFtNon = MakeGr(yFtNon, kRed+1,   21);
-                  TGraphErrors* gR     = MakeGr(yR,     kBlack,   20);
+                    auto MakeGrE = [&](const vector<double>& yv, const vector<double>& eyv,
+                                       int col, int ms)->TGraphErrors*
+                    {
+                      vector<double> gx, gex, gy, gey;
+                      for (int i = 0; i < kNPtBins; ++i)
+                      {
+                        if (yv[i] < 0.0) continue;
+                        gx.push_back(xPtD[i]); gex.push_back(exPtD[i]);
+                        gy.push_back(yv[i]);   gey.push_back(eyv[i]);
+                      }
+                      if (gx.empty()) return nullptr;
+                      TGraphErrors* g = new TGraphErrors((int)gx.size(),
+                                                         &gx[0], &gy[0], &gex[0], &gey[0]);
+                      g->SetLineColor(col); g->SetLineWidth(2);
+                      g->SetMarkerColor(col); g->SetMarkerStyle(ms); g->SetMarkerSize(1.3);
+                      return g;
+                    };
 
-                  TCanvas cDisc("c_abcd_discrim","c_abcd_discrim", 1600, 700);
-                  cDisc.Divide(2, 1, 0.002, 0.002);
+                    TGraphErrors* gFtIso = MakeGrE(yFtIso, eyFtIso, kBlue+1, 20);
+                    TGraphErrors* gFtNon = MakeGrE(yFtNon, eyFtNon, kRed+1,  21);
+                    TGraphErrors* gR     = MakeGrE(yR,     eyR,     kBlack,  20);
 
-                  // --- pad 1: tight fraction iso vs nonIso ---
-                  cDisc.cd(1);
-                  gPad->SetLeftMargin(0.16); gPad->SetRightMargin(0.05);
-                  gPad->SetBottomMargin(0.14); gPad->SetTopMargin(0.10); gPad->SetTicks(1,1);
+                    // --- canvas 1: tight fraction iso vs nonIso ---
+                    {
+                      TCanvas cDisc1("c_abcd_tightFrac","c_abcd_tightFrac", 900, 700);
+                      cDisc1.SetLeftMargin(0.16); cDisc1.SetRightMargin(0.05);
+                      cDisc1.SetBottomMargin(0.14); cDisc1.SetTopMargin(0.10); cDisc1.SetTicks(1,1);
 
-                  TH1F* hF1 = new TH1F("hDiscFrame1","", 100, kPtEdges.front(), kPtEdges.back());
-                  hF1->SetDirectory(nullptr); hF1->SetStats(0);
-                  hF1->SetMinimum(0.0); hF1->SetMaximum(1.05);
-                  hF1->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                  hF1->GetYaxis()->SetTitle("Tight fraction");
-                  hF1->GetXaxis()->SetTitleSize(0.052); hF1->GetYaxis()->SetTitleSize(0.050);
-                  hF1->GetXaxis()->SetLabelSize(0.046); hF1->GetYaxis()->SetLabelSize(0.046);
-                  hF1->Draw();
+                      TH1F* hF1 = new TH1F("hDiscFrame1","", 100, kPtEdges.front(), kPtEdges.back());
+                      hF1->SetDirectory(nullptr); hF1->SetStats(0);
+                      hF1->SetMinimum(0.0); hF1->SetMaximum(1.05);
+                      hF1->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                      hF1->GetYaxis()->SetTitle("Tight fraction");
+                      hF1->GetXaxis()->SetTitleSize(0.052); hF1->GetYaxis()->SetTitleSize(0.050);
+                      hF1->GetXaxis()->SetLabelSize(0.046); hF1->GetYaxis()->SetLabelSize(0.046);
+                      hF1->Draw();
 
-                  {
-                    TLine lHalf(kPtEdges.front(), 0.5, kPtEdges.back(), 0.5);
-                    lHalf.SetLineStyle(2); lHalf.SetLineColor(kGray+1); lHalf.SetLineWidth(1);
-                    lHalf.DrawClone();
-                  }
-                  if (gFtIso) gFtIso->Draw("PE same");
-                  if (gFtNon) gFtNon->Draw("PE same");
+                      {
+                        TLine lHalf(kPtEdges.front(), 0.5, kPtEdges.back(), 0.5);
+                        lHalf.SetLineStyle(2); lHalf.SetLineColor(kGray+1); lHalf.SetLineWidth(1);
+                        lHalf.DrawClone();
+                      }
+                      if (gFtIso) gFtIso->Draw("PE same");
+                      if (gFtNon) gFtNon->Draw("PE same");
 
-                  {
-                    TLegend* leg1 = new TLegend(0.40, 0.65, 0.92, 0.82);
-                    leg1->SetBorderSize(0); leg1->SetFillStyle(0);
-                    leg1->SetTextFont(42);  leg1->SetTextSize(0.042);
-                    if (gFtIso) leg1->AddEntry(gFtIso, "f_{tight,iso}  = A/(A+C)", "lpe");
-                    if (gFtNon) leg1->AddEntry(gFtNon, "f_{tight,nonIso} = B/(B+D)", "lpe");
-                    leg1->Draw();
-                  }
+                      {
+                        TLegend* leg1 = new TLegend(0.50, 0.76, 0.92, 0.9);
+                        leg1->SetBorderSize(0); leg1->SetFillStyle(0);
+                        leg1->SetTextFont(42);  leg1->SetTextSize(0.04);
+                        if (gFtIso) leg1->AddEntry(gFtIso, "f_{tight,iso}  = A/(A+C)", "lpe");
+                        if (gFtNon) leg1->AddEntry(gFtNon, "f_{tight,nonIso} = B/(B+D)", "lpe");
+                        leg1->Draw();
+                      }
 
-                  {
-                    TLatex tt1; tt1.SetNDC(); tt1.SetTextFont(42); tt1.SetTextAlign(23); tt1.SetTextSize(0.048);
-                    tt1.DrawLatex(0.50, 0.965, "Tight-ID discrimination vs p_{T}^{#gamma}");
-                    TLatex tc1; tc1.SetNDC(); tc1.SetTextFont(42); tc1.SetTextAlign(13); tc1.SetTextSize(0.036);
-                    tc1.DrawLatex(0.17, 0.58, "If f_{tight,iso} = f_{tight,nonIso} #Rightarrow purity = 0");
-                  }
+                      {
+                        TLatex tt1; tt1.SetNDC(); tt1.SetTextFont(42); tt1.SetTextAlign(23); tt1.SetTextSize(0.048);
+                        tt1.DrawLatex(0.50, 0.965, "Tight-ID discrimination vs p_{T}^{#gamma}");
+                      }
 
-                  // --- pad 2: ABCD signal ratio R = A*D/(B*C) ---
-                  cDisc.cd(2);
-                  gPad->SetLeftMargin(0.16); gPad->SetRightMargin(0.05);
-                  gPad->SetBottomMargin(0.14); gPad->SetTopMargin(0.10); gPad->SetTicks(1,1);
+                      SaveCanvas(cDisc1, JoinPath(qaDir, "abcd_tightFrac_discrimination_vs_pT.png"));
+                    }
 
-                  // find y range
-                  double Rmax = 1.5;
-                  for (int i = 0; i < kNPtBins; ++i) if (yR[i] > 0.0) Rmax = std::max(Rmax, yR[i] * 1.25);
-                  Rmax = std::min(Rmax, 15.0); // cap for display
+                    // --- canvas 2: ABCD signal ratio R = A*D/(B*C) ---
+                    {
+                      double Rmax = 1.5;
+                      for (int i = 0; i < kNPtBins; ++i)
+                        if (yR[i] > 0.0) Rmax = std::max(Rmax, (yR[i] + eyR[i]) * 1.25);
+                      Rmax = std::min(Rmax, 15.0);
 
-                  TH1F* hF2 = new TH1F("hDiscFrame2","", 100, kPtEdges.front(), kPtEdges.back());
-                  hF2->SetDirectory(nullptr); hF2->SetStats(0);
-                  hF2->SetMinimum(0.0); hF2->SetMaximum(Rmax);
-                  hF2->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                  hF2->GetYaxis()->SetTitle("R = A#timesD / (B#timesC)");
-                  hF2->GetXaxis()->SetTitleSize(0.052); hF2->GetYaxis()->SetTitleSize(0.050);
-                  hF2->GetXaxis()->SetLabelSize(0.046); hF2->GetYaxis()->SetLabelSize(0.046);
-                  hF2->Draw();
+                      TCanvas cDisc2("c_abcd_Rratio","c_abcd_Rratio", 900, 700);
+                      cDisc2.SetLeftMargin(0.16); cDisc2.SetRightMargin(0.05);
+                      cDisc2.SetBottomMargin(0.14); cDisc2.SetTopMargin(0.10); cDisc2.SetTicks(1,1);
 
-                  {
-                    TLine lOne(kPtEdges.front(), 1.0, kPtEdges.back(), 1.0);
-                    lOne.SetLineStyle(2); lOne.SetLineColor(kRed+1); lOne.SetLineWidth(2);
-                    lOne.DrawClone();
-                  }
-                  if (gR) gR->Draw("PE same");
+                      TH1F* hF2 = new TH1F("hDiscFrame2","", 100, kPtEdges.front(), kPtEdges.back());
+                      hF2->SetDirectory(nullptr); hF2->SetStats(0);
+                      hF2->SetMinimum(0.0); hF2->SetMaximum(Rmax);
+                      hF2->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                      hF2->GetYaxis()->SetTitle("R = A#timesD / (B#timesC)");
+                      hF2->GetXaxis()->SetTitleSize(0.052); hF2->GetYaxis()->SetTitleSize(0.050);
+                      hF2->GetXaxis()->SetLabelSize(0.046); hF2->GetYaxis()->SetLabelSize(0.046);
+                      hF2->Draw();
 
-                  {
-                    TLatex tt2; tt2.SetNDC(); tt2.SetTextFont(42); tt2.SetTextAlign(23); tt2.SetTextSize(0.048);
-                    tt2.DrawLatex(0.50, 0.965, "ABCD signal ratio R = A#timesD/(B#timesC)");
-                    TLatex tc2; tc2.SetNDC(); tc2.SetTextFont(42); tc2.SetTextAlign(13); tc2.SetTextSize(0.036);
-                    tc2.DrawLatex(0.17, 0.88, "Purity = 1 #minus 1/R  (R=1 #Rightarrow purity=0)");
-                    tc2.DrawLatex(0.17, 0.82, "Dashed red: R=1 boundary");
-                  }
+                      {
+                        TLine lOne(kPtEdges.front(), 1.0, kPtEdges.back(), 1.0);
+                        lOne.SetLineStyle(2); lOne.SetLineColor(kRed+1); lOne.SetLineWidth(2);
+                        lOne.DrawClone();
+                      }
+                      if (gR) gR->Draw("PE same");
 
-                  SaveCanvas(cDisc, JoinPath(qaDir, "abcd_discrimination_diagnostics_vs_pT.png"));
+                      {
+                        TLatex tt2; tt2.SetNDC(); tt2.SetTextFont(42); tt2.SetTextAlign(23); tt2.SetTextSize(0.048);
+                        tt2.DrawLatex(0.50, 0.965, "ABCD signal ratio R = A#timesD/(B#timesC)");
+                        TLatex tc2; tc2.SetNDC(); tc2.SetTextFont(42); tc2.SetTextAlign(13); tc2.SetTextSize(0.038);
+                        tc2.DrawLatex(0.17, 0.88, "Purity = 1 #minus 1/R  (R=1 #Rightarrow purity=0)");
+                        tc2.DrawLatex(0.17, 0.82, "Dashed red: R=1 boundary");
+                      }
 
-                  delete gFtIso; delete gFtNon; delete gR;
+                      SaveCanvas(cDisc2, JoinPath(qaDir, "abcd_signalRatio_R_vs_pT.png"));
+                    }
+
+                    delete gFtIso; delete gFtNon; delete gR;
               }
             }
 
@@ -4002,8 +4029,8 @@ namespace ARJ
               box.push_back("Cuts: p_{T}^{#gamma} #geq 5 GeV, |#eta| < 0.7, preselection pass");
               box.push_back("Iso: E_{iso} < 1.08128 + 0.0299107 p_{T}^{#gamma}");
               box.push_back("NonIso: E_{iso} > isoThresh + 1 GeV");
-              DrawLatexLines(0.14, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-              DrawLatexLines(0.14, 0.78, box, 0.030, 0.040);
+              DrawLatexLines(0.2, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+              DrawLatexLines(0.2, 0.78, box, 0.030, 0.040);
 
               const string fp = JoinPath(outDir, ds.isSim ? "purity_raw_SIM.png" : "purity_raw_DATA.png");
               SaveCanvas(c, fp);
