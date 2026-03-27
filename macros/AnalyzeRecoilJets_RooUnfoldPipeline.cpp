@@ -616,12 +616,12 @@
           EnsureDir(samDir);
 
           const string kBoxCutsFile =
-            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet5/7pi_8_BB/RecoilJets_pp_ALL.root";
+            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_30/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/RecoilJets_pp_ALL.root";
           const string kBDTFile =
             "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet3/7pi_8_BB/histsData.root";
 
-          const int nSamBins = 7;
-          const double samPtEdges[nSamBins + 1] = {13.0, 15.0, 17.0, 19.0, 21.0, 23.0, 26.0, 35.0};
+          const int nSamBins = 9;
+                      const double samPtEdges[nSamBins + 1] = {10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 35.0};
 
           auto ComputeRawPurityFromCounts =
             [&](double A, double eA,
@@ -900,8 +900,8 @@
           tInfo.SetTextFont(42);
           tInfo.SetTextAlign(33);
           tInfo.SetTextSize(0.038);
-          tInfo.DrawLatex(0.92, 0.18, "Iso cone: 0.04");
-          tInfo.DrawLatex(0.92, 0.12, "|v_{z}| < 60 cm");
+          tInfo.DrawLatex(0.92, 0.45, "Iso cone: 0.03");
+          tInfo.DrawLatex(0.92, 0.35, "|v_{z}| < 30 cm");
 
           SaveCanvas(c, JoinPath(samDir, "purity_raw_overlay_BDT_vs_BoxCuts.png"));
 
@@ -912,6 +912,210 @@
         };
 
         MakeSamOverlayRawPurityPlot();
+
+        // -----------------------------------------------------------------
+        // 2x2 ABCD counts comparison panel: last 2 pT bins, Box vs BDT
+        // rows = pT bin (24-26, 26-35), cols = Box cuts | BDT (Sam)
+        // -----------------------------------------------------------------
+        auto MakeABCDComparisonPanel = [&]()->void
+        {
+          const string kBDTFile2 =
+            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet3/7pi_8_BB/histsData.root";
+
+          TFile* fBDT2 = TFile::Open(kBDTFile2.c_str(), "READ");
+          if (!fBDT2 || fBDT2->IsZombie())
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] ABCDComparePanel skipped: could not open BDT file: "
+                 << kBDTFile2 << ANSI_RESET << "\n";
+            if (fBDT2) { fBDT2->Close(); delete fBDT2; }
+            return;
+          }
+
+          TDirectory* dBDTTop2  = fBDT2;
+          TDirectory* dBDTTrig2 = fBDT2->GetDirectory(kTriggerPP.c_str());
+
+          TH1* hBDTA2 = dynamic_cast<TH1*>(dBDTTop2->Get("hclusterptabcd0"));
+          if (!hBDTA2 && dBDTTrig2) hBDTA2 = dynamic_cast<TH1*>(dBDTTrig2->Get("hclusterptabcd0"));
+          TH1* hBDTB2 = dynamic_cast<TH1*>(dBDTTop2->Get("hclusterptabcd1"));
+          if (!hBDTB2 && dBDTTrig2) hBDTB2 = dynamic_cast<TH1*>(dBDTTrig2->Get("hclusterptabcd1"));
+          TH1* hBDTC2 = dynamic_cast<TH1*>(dBDTTop2->Get("hclusterptabcd2"));
+          if (!hBDTC2 && dBDTTrig2) hBDTC2 = dynamic_cast<TH1*>(dBDTTrig2->Get("hclusterptabcd2"));
+          TH1* hBDTD2 = dynamic_cast<TH1*>(dBDTTop2->Get("hclusterptabcd3"));
+          if (!hBDTD2 && dBDTTrig2) hBDTD2 = dynamic_cast<TH1*>(dBDTTrig2->Get("hclusterptabcd3"));
+
+          if (!hBDTA2 || !hBDTB2 || !hBDTC2 || !hBDTD2)
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] ABCDComparePanel skipped: missing hclusterptabcd{0-3} in "
+                 << kBDTFile2 << ANSI_RESET << "\n";
+            fBDT2->Close(); delete fBDT2;
+            return;
+          }
+
+          auto IntegrateSlice = [](TH1* h, double xLo, double xHi)->double
+          {
+            if (!h) return 0.0;
+            double sum = 0.0;
+            const int nb = h->GetNbinsX();
+            for (int ib = 1; ib <= nb; ++ib)
+            {
+              const double bLo = h->GetXaxis()->GetBinLowEdge(ib);
+              const double bHi = h->GetXaxis()->GetBinUpEdge(ib);
+              const double ovLo = std::max(xLo, bLo);
+              const double ovHi = std::min(xHi, bHi);
+              if (ovHi <= ovLo) continue;
+              const double width = bHi - bLo;
+              if (width <= 0.0) continue;
+              sum += (ovHi - ovLo) / width * h->GetBinContent(ib);
+            }
+            return sum;
+          };
+
+          // pT bins to display: last two from kPtEdges = {...,24,26,35}
+          struct PanelBin { int lo; int hi; const char* suf; };
+          const PanelBin panelBins[2] = {
+            {24, 26, "_pT_24_26"},
+            {26, 35, "_pT_26_35"}
+          };
+
+          const char* xLabelsABCD[4]  = {"N_{A}", "N_{B}", "N_{C}", "N_{D}"};
+          const int   colorsABCD[4]   = {kGreen+2, kRed+1, kAzure+1, kMagenta+1};
+
+          // Canvas: 2 columns x 2 rows  (col1=Box, col2=BDT; row1=24-26, row2=26-35)
+          TCanvas cPanel("c_abcd_compare_panel","c_abcd_compare_panel", 1800, 1600);
+          cPanel.Divide(2, 2, 0.002, 0.002);
+
+          vector<TObject*> keepAlive2;
+          keepAlive2.reserve(2 * 2 * 5);
+
+          auto DrawABCDBarPad = [&](int padIdx,
+                                    double A, double B, double Cc, double D,
+                                    const char* colTitle,
+                                    int ptLo, int ptHi)
+          {
+            cPanel.cd(padIdx);
+            if (!gPad) return;
+
+            gPad->SetLeftMargin(0.16);
+            gPad->SetRightMargin(0.05);
+            gPad->SetTopMargin(0.14);
+            gPad->SetBottomMargin(0.22);
+            gPad->SetTicks(1,1);
+
+            const double vals[4] = {A, B, Cc, D};
+            double ymax = 0.0;
+            for (int ib = 0; ib < 4; ++ib) ymax = std::max(ymax, vals[ib]);
+            const double yMaxPlot = (ymax > 0.0) ? (1.35 * ymax) : 1.0;
+
+            TH1F* hAxis = new TH1F(
+              TString::Format("h_cmpAxis_p%d", padIdx).Data(),
+              "", 4, 0.5, 4.5
+            );
+            hAxis->SetDirectory(nullptr);
+            hAxis->SetStats(0);
+            hAxis->SetMinimum(0.0);
+            hAxis->SetMaximum(yMaxPlot);
+            for (int ib = 1; ib <= 4; ++ib) hAxis->GetXaxis()->SetBinLabel(ib, xLabelsABCD[ib-1]);
+            hAxis->GetYaxis()->SetTitle("Counts");
+            hAxis->GetXaxis()->SetTitle("");
+            hAxis->GetXaxis()->LabelsOption("h");
+            hAxis->GetXaxis()->SetLabelSize(0.070);
+            hAxis->GetXaxis()->SetLabelOffset(0.010);
+            hAxis->GetYaxis()->SetTitleSize(0.054);
+            hAxis->GetYaxis()->SetTitleOffset(1.28);
+            hAxis->GetYaxis()->SetLabelSize(0.046);
+            hAxis->SetLineColor(1);
+            hAxis->SetLineWidth(2);
+            hAxis->SetFillStyle(0);
+            hAxis->Draw("hist");
+            keepAlive2.push_back(hAxis);
+
+            for (int ib = 1; ib <= 4; ++ib)
+            {
+              TH1F* hb = new TH1F(
+                TString::Format("h_cmpBar_p%d_b%d", padIdx, ib).Data(),
+                "", 4, 0.5, 4.5
+              );
+              hb->SetDirectory(nullptr);
+              hb->SetStats(0);
+              hb->SetBinContent(ib, vals[ib-1]);
+              hb->SetFillStyle(1001);
+              hb->SetFillColor(colorsABCD[ib-1]);
+              hb->SetLineColor(1);
+              hb->SetLineWidth(2);
+              hb->SetBarWidth(0.90);
+              hb->SetBarOffset(0.05);
+              hb->Draw("BAR SAME");
+              keepAlive2.push_back(hb);
+            }
+
+            TLatex t;
+            t.SetTextFont(42);
+            t.SetTextAlign(22);
+            t.SetTextSize(0.052);
+            for (int ib = 1; ib <= 4; ++ib)
+            {
+              const double y = vals[ib-1];
+              if (y <= 0.0) continue;
+              const double x = hAxis->GetXaxis()->GetBinCenter(ib);
+              const double yText = std::min(y + 0.025*yMaxPlot, 0.93*yMaxPlot);
+              t.DrawLatex(x, yText, TString::Format("%.0f", y).Data());
+            }
+
+            TLatex tt;
+            tt.SetTextFont(42);
+            tt.SetNDC();
+            tt.SetTextAlign(23);
+            tt.SetTextSize(0.058);
+            tt.DrawLatex(0.50, 0.965,
+              TString::Format("p_{T}^{#gamma}: %d-%d GeV  [%s]", ptLo, ptHi, colTitle).Data()
+            );
+          };
+
+          // Row 1: pT 24-26  |  Row 2: pT 26-35
+          // Pad ordering: Divide(2,2) -> pad 1=top-left, 2=top-right, 3=bot-left, 4=bot-right
+          for (int row = 0; row < 2; ++row)
+          {
+            const PanelBin& pb = panelBins[row];
+            const string sufStr = pb.suf;
+
+            // Box cuts column (pad 2*row+1)
+            {
+              const double A  = Read1BinCount(dsData, "h_isIsolated_isTight"  + sufStr);
+              const double B  = Read1BinCount(dsData, "h_notIsolated_isTight" + sufStr);
+              const double Cc = Read1BinCount(dsData, "h_isIsolated_notTight" + sufStr);
+              const double D  = Read1BinCount(dsData, "h_notIsolated_notTight"+ sufStr);
+              DrawABCDBarPad(2*row + 1, A, B, Cc, D, "Box cuts", pb.lo, pb.hi);
+            }
+
+            // BDT column (pad 2*row+2)
+            {
+              const double A  = IntegrateSlice(hBDTA2, (double)pb.lo, (double)pb.hi);
+              const double B  = IntegrateSlice(hBDTB2, (double)pb.lo, (double)pb.hi);
+              const double Cc = IntegrateSlice(hBDTC2, (double)pb.lo, (double)pb.hi);
+              const double D  = IntegrateSlice(hBDTD2, (double)pb.lo, (double)pb.hi);
+              DrawABCDBarPad(2*row + 2, A, B, Cc, D, "BDT", pb.lo, pb.hi);
+            }
+          }
+
+          cPanel.cd(0);
+          TLatex tGlobal;
+          tGlobal.SetNDC();
+          tGlobal.SetTextFont(42);
+          tGlobal.SetTextAlign(22);
+          tGlobal.SetTextSize(0.021);
+          tGlobal.DrawLatex(0.50, 0.985,
+            "Raw counts: Box cuts vs BDT tight-ID  |  A=iso&tight, B=nonIso&tight, C=iso&nonTight, D=nonIso&nonTight");
+
+          SaveCanvas(cPanel, JoinPath(JoinPath(phoDir, "SamOverlay"), "abcd_counts_compare_BoxCuts_vs_BDT.png"));
+
+          for (auto* obj : keepAlive2) delete obj;
+          fBDT2->Close();
+          delete fBDT2;
+        };
+
+        MakeABCDComparisonPanel();
 
         const string phoRecoName   = "h_unfoldRecoPho_pTgamma";
         const string phoTruthName  = "h_unfoldTruthPho_pTgamma";

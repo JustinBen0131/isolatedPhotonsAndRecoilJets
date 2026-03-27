@@ -2738,16 +2738,10 @@ namespace ARJ
         EnsureDir(outDir);
         for (const auto& b : PtBins()) EnsureDir(JoinPath(outDir, b.folder));
 
-        // 1) RECO/DATA isolation QA (always runs)
-        RunIsolationQA_Reco(ds, outDir);
-
         // ------------------------------------------------------------------
-        // Embedded photon20: overlay total reco isolation across UE variants
-        //   noSub / baseVariant / variantA / variantB
-        // Output:
-        //   embeddedPhoton20/<cent>/isoQA/
-        //     - table3x3_Eiso_total_variantOverlay_page*.png
-        //     - <pT folder>/Eiso_total_variantOverlay_<pT folder>.png
+        // Embedded photon20 special mode:
+        //   ONLY produce reco total-isolation overlays across UE variants
+        //   inside embeddedPhoton20/<cent>/isoQA/
         // ------------------------------------------------------------------
         if (doEmbeddedVariantOverlay)
         {
@@ -2898,7 +2892,6 @@ namespace ARJ
               }
             };
 
-            // Individual per-pT overlays
             for (int i = 0; i < kNPtBins; ++i)
             {
               const PtBin& b = PtBins()[i];
@@ -2919,7 +2912,6 @@ namespace ARJ
               for (auto* obj : keep) delete obj;
             }
 
-            // 3x3 summary tables over pT bins
             const int nCols   = 3;
             const int nRows   = 3;
             const int perPage = nCols * nRows;
@@ -2978,7 +2970,12 @@ namespace ARJ
                 V.dsVar.topDir = nullptr;
               }
             }
+
+            return;
         }
+
+        // 1) RECO/DATA isolation QA (always runs outside embedded special mode)
+        RunIsolationQA_Reco(ds, outDir);
 
         // 2) Keep exactly where you had it before (after reco plots, before truth block)
         PrintIsoDecisionTable(ds);
@@ -3002,7 +2999,6 @@ namespace ARJ
             multLines.push_back("Counts ALL reco photon candidates passing the SAME iso#wedge tight gate");
             multLines.push_back("Filled once per event; pT bin = leading iso#wedge tight photon p_{T}");
 
-            // 3x3 table of the N-candidate distribution in each pT bin
             Make3x3Table_TH1(ds,
                              "h_nIsoTightPhoCand",
                              outDirMult,
@@ -3013,7 +3009,6 @@ namespace ARJ
                              true,
                              multLines);
 
-            // Per-pT summary: fraction of events with N>=2
             const bool weighted = (ds.isSim && IsWeightedSIMSelected());
 
             cout << ANSI_BOLD_CYN
@@ -3060,7 +3055,7 @@ namespace ARJ
                 sumw  = h->Integral(0, nb + 1);
                 meanN = h->GetMean();
 
-                const int b2 = h->GetXaxis()->FindBin(2.0); // N>=2
+                const int b2 = h->GetXaxis()->FindBin(2.0);
                 const double ge2 = h->Integral(b2, nb + 1);
                 fracGe2 = (sumw > 0.0) ? (ge2 / sumw) : 0.0;
               }
@@ -3090,7 +3085,6 @@ namespace ARJ
                  << "  -> Wrote: " << JoinPath(outDirMult, "summary_nIsoTightPhoCand.txt") << ANSI_RESET << "\n";
          }
 
-         // 3) SIM-only truth isolation QA + overlays (only runs in SIM)
          if (ds.isSim)
          {
             RunIsolationQA_TruthSim(ds, outDir);
@@ -3725,8 +3719,8 @@ namespace ARJ
               tCuts.SetTextFont(42);
               tCuts.SetTextAlign(13);
               tCuts.SetTextSize(0.038);
-              tCuts.DrawLatex(0.155, 0.88, TString::Format("|v_{z}| < %.3g cm", std::fabs(vzCutCm)).Data());
-              tCuts.DrawLatex(0.155, 0.82, TString::Format("|#eta^{#gamma}| < %.3g", etaCut).Data());
+              tCuts.DrawLatex(0.162, 0.88, TString::Format("|v_{z}| < %.3g cm", std::fabs(vzCutCm)).Data());
+              tCuts.DrawLatex(0.162, 0.82, TString::Format("|#eta^{#gamma}| < %.3g", etaCut).Data());
 
               const string fp = JoinPath(outDir, ds.isSim
                   ? "purity_raw_vs_leakageCorrected_SIM.png"

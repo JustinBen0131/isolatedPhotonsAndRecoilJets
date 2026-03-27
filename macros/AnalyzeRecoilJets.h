@@ -162,7 +162,7 @@ namespace ARJ
 // =============================================================================
 
   inline bool isPPdataOnly   = false;
-  inline bool isSimAndDataPP = false;
+  inline bool isSimAndDataPP = true;
   
   // RooUnfold control:
   //   do_xJ_PPunfold = true
@@ -180,11 +180,11 @@ namespace ARJ
   //
   // Within the pipeline itself, gApplyPurityCorrectionForUnfolding still selects
   // whether the reco input is raw or ABCD purity-corrected.
-  inline bool do_xJ_PPunfold = false;
+  inline bool do_xJ_PPunfold = true;
   // Internal toggle used to run the RooUnfold pipeline twice:
   //   false -> raw reco inputs                     -> unfolding/nonPurityCorrected/...
   //   true  -> ABCD purity-corrected reco inputs  -> unfolding/purityCorrected/...
-  inline bool gApplyPurityCorrectionForUnfolding = false;
+  inline bool gApplyPurityCorrectionForUnfolding = true;
 
   // AuAu-only analysis mode (no SIM, no PP). When true, the full plotting
   // pipeline runs on AuAu only and outputs to dataOutput/auau/<trigger>/...
@@ -205,7 +205,7 @@ namespace ARJ
   inline bool bothPhoton5and10sim        = false;
   inline bool bothPhoton5and20sim        = false;
   inline bool bothPhoton10and20sim       = false;
-  inline bool allPhoton5and10and20sim    = false;
+  inline bool allPhoton5and10and20sim    = true;
 
   // MinBias SIM (DETROIT tune): single file, no merging, full isSim pipeline + pi0 QA
   inline bool isSimMB                    = false;
@@ -231,7 +231,7 @@ namespace ARJ
     //   parse the cfg tag back out of the actual filename so the embedded path
     //   itself is the source of truth.
     // -------------------------------------------------------------------------
-    inline bool isSimEmbedded              = true;
+    inline bool isSimEmbedded              = false;
 
     inline const string kEmbeddedCutTag    = "jetMinPt5_7pi_8_vz30_isoR40_fixedIso5GeV";
     inline const string kEmbeddedUEVariant = "noSub";
@@ -291,7 +291,7 @@ namespace ARJ
 
   // If false, STEP 1 will NOT rebuild the photonJet5+10+20 merged ROOT file(s).
   // Downstream code will simply open the already-merged output at the configured path(s).
-  inline bool doRemergePhoton5and10and20sim  = false;
+  inline bool doRemergePhoton5and10and20sim  = true;
 
 
   // True if the selected SIM sample is a weighted multi-slice merge (hist units become ~pb/bin)
@@ -303,12 +303,12 @@ namespace ARJ
   // One-off, hard-coded comparison overlays (Sam vs Justin unsmear files)
   inline bool doSamVsJustinUnsmearOverlays = false;
 
-    // Displayed range [-vzCutCm,+vzCutCm] and 0.5 cm display bin width
-    inline double VzCutCmFromYAML();
-    // TEMP STABILIZATION:
-    // Avoid YAML parsing during Cling static initialization.
-    // Once the header loads cleanly again, this can be converted back to a lazy runtime accessor.
-    inline double vzCutCm = 30.0;
+  // Displayed range [-vzCutCm,+vzCutCm] and 0.5 cm display bin width
+  inline double VzCutCmFromYAML();
+  // TEMP STABILIZATION:
+  // Avoid YAML parsing during Cling static initialization.
+  // Once the header loads cleanly again, this can be converted back to a lazy runtime accessor.
+  inline double vzCutCm = 30.0;
 
   // =============================================================================
   // FIXED INPUTS (pp + photonJet5/10/20 SIM)
@@ -594,13 +594,13 @@ namespace ARJ
   // =============================================================================
   struct BinningCfg
   {
-        vector<double> jes3_photon_pt_bins         = {15,17,19,21,23,26,35};
-        vector<double> unfold_reco_photon_pt_bins  = {10,15,17,19,21,23,26,35,40};
-        vector<double> unfold_truth_photon_pt_bins = {5,10,15,17,19,21,23,26,35,40};
+        vector<double> jes3_photon_pt_bins         = {10,12,14,16,18,20,22,24,26,35};
+        vector<double> unfold_reco_photon_pt_bins  = {8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35, 40};
+        vector<double> unfold_truth_photon_pt_bins = {5, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35, 40};
         vector<double> unfold_xj_bins              = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
 
         // Au+Au centrality bin edges (percent) used for PP vs AuAu overlays
-        vector<double> centrality_edges             = {0, 10, 20, 40, 60, 80, 100};
+        vector<double> centrality_edges             = {0, 10, 20, 40, 60, 80};
 
         double unfold_jet_pt_start = 0.0;
         double unfold_jet_pt_stop  = 60.0;
