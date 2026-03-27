@@ -3981,7 +3981,32 @@ void RunJES3QA(Dataset& ds)
               const string& legRed,
               const vector<string>& headerLines)
         {
-          if (!hBlack || !hRed) return;
+          cout << ANSI_BOLD_CYN
+               << "\n[JES3 overlay 2-way] ovTag=" << ovTag
+               << "  rKey=" << rKey
+               << "  ds=" << ds.label
+               << ANSI_RESET << "\n";
+          cout << "  hBlack=" << (hBlack ? "FOUND" : "MISSING")
+               << "  hRed=" << (hRed ? "FOUND" : "MISSING") << "\n";
+          if (hBlack)
+          {
+            cout << "    hBlack name=" << hBlack->GetName()
+                 << "  entries=" << hBlack->GetEntries()
+                 << "  nPt=" << hBlack->GetXaxis()->GetNbins() << "\n";
+          }
+          if (hRed)
+          {
+            cout << "    hRed   name=" << hRed->GetName()
+                 << "  entries=" << hRed->GetEntries()
+                 << "  nPt=" << hRed->GetXaxis()->GetNbins() << "\n";
+          }
+          if (!hBlack || !hRed)
+          {
+            cout << ANSI_BOLD_YEL
+                 << "  [SKIP] 2-way overlay missing source TH3"
+                 << ANSI_RESET << "\n";
+            return;
+          }
 
             const string dirOvBase = JoinPath(D.dirXJProjOverlay, ovTag);
             const string dirOvPer  = JoinPath(dirOvBase, "perPtBin");
@@ -4006,12 +4031,22 @@ void RunJES3QA(Dataset& ds)
             if (hA) { hA->SetDirectory(nullptr); EnsureSumw2(hA); }
             if (hB) { hB->SetDirectory(nullptr); EnsureSumw2(hB); }
 
-            if (!hA || !hB || (hA->GetEntries() <= 0.0 && hB->GetEntries() <= 0.0))
-            {
-              if (hA) delete hA;
-              if (hB) delete hB;
-              continue;
-            }
+              if (!hA || !hB || (hA->GetEntries() <= 0.0 && hB->GetEntries() <= 0.0))
+              {
+                cout << ANSI_BOLD_YEL
+                     << "  [SKIP perPtBin] ovTag=" << ovTag
+                     << "  rKey=" << rKey
+                     << "  ib=" << ib
+                     << "  hA=" << (hA ? "FOUND" : "MISSING")
+                     << "  hB=" << (hB ? "FOUND" : "MISSING");
+                if (hA) cout << "  entriesA=" << hA->GetEntries();
+                if (hB) cout << "  entriesB=" << hB->GetEntries();
+                cout << ANSI_RESET << "\n";
+
+                if (hA) delete hA;
+                if (hB) delete hB;
+                continue;
+              }
 
             NormalizeToUnitArea(hA);
             NormalizeToUnitArea(hB);
@@ -4183,10 +4218,13 @@ void RunJES3QA(Dataset& ds)
                 );
               }
 
-            SaveCanvas(c, outPng);
+              SaveCanvas(c, outPng);
+              cout << ANSI_BOLD_GRN
+                   << "  [WROTE perPtBin] " << outPng
+                   << ANSI_RESET << "\n";
 
-            delete hA;
-            delete hB;
+              delete hA;
+              delete hB;
           }
 
             // --- 3x3 table page of overlays (shape): all available pT bins (up to 9) ---
@@ -4404,9 +4442,12 @@ void RunJES3QA(Dataset& ds)
 
               const string outName = "table3x3_overlay_shape.png";
 
-              SaveCanvas(c, JoinPath(dirOvBase, outName));
+                SaveCanvas(c, JoinPath(dirOvBase, outName));
+                cout << ANSI_BOLD_GRN
+                     << "  [WROTE table] " << JoinPath(dirOvBase, outName)
+                     << ANSI_RESET << "\n";
 
-              for (auto* h : keep) delete h;
+                for (auto* h : keep) delete h;
             }
         };
 
@@ -4491,7 +4532,39 @@ void RunJES3QA(Dataset& ds)
               const string& legRecoTruth,
               const vector<string>& headerLines)
         {
-          if (!hReco || !hTruth || !hRecoTruth) return;
+          cout << ANSI_BOLD_CYN
+               << "\n[JES3 overlay 3-way] ovTag=" << ovTag
+               << "  rKey=" << rKey
+               << "  ds=" << ds.label
+               << ANSI_RESET << "\n";
+          cout << "  hReco=" << (hReco ? "FOUND" : "MISSING")
+               << "  hTruth=" << (hTruth ? "FOUND" : "MISSING")
+               << "  hRecoTruth=" << (hRecoTruth ? "FOUND" : "MISSING") << "\n";
+          if (hReco)
+          {
+            cout << "    hReco      name=" << hReco->GetName()
+                 << "  entries=" << hReco->GetEntries()
+                 << "  nPt=" << hReco->GetXaxis()->GetNbins() << "\n";
+          }
+          if (hTruth)
+          {
+            cout << "    hTruth     name=" << hTruth->GetName()
+                 << "  entries=" << hTruth->GetEntries()
+                 << "  nPt=" << hTruth->GetXaxis()->GetNbins() << "\n";
+          }
+          if (hRecoTruth)
+          {
+            cout << "    hRecoTruth name=" << hRecoTruth->GetName()
+                 << "  entries=" << hRecoTruth->GetEntries()
+                 << "  nPt=" << hRecoTruth->GetXaxis()->GetNbins() << "\n";
+          }
+          if (!hReco || !hTruth || !hRecoTruth)
+          {
+            cout << ANSI_BOLD_YEL
+                 << "  [SKIP] 3-way overlay missing source TH3"
+                 << ANSI_RESET << "\n";
+            return;
+          }
 
           // --------------------------------------------------------------------------
           // KINEMATIC FLOOR (requested)
@@ -4587,13 +4660,25 @@ void RunJES3QA(Dataset& ds)
             if (hT) { hT->SetDirectory(nullptr); EnsureSumw2(hT); }
             if (hB) { hB->SetDirectory(nullptr); EnsureSumw2(hB); }
 
-            if (!hR || !hT || !hB || (hR->GetEntries() <= 0.0 && hT->GetEntries() <= 0.0 && hB->GetEntries() <= 0.0))
-            {
-              if (hR) delete hR;
-              if (hT) delete hT;
-              if (hB) delete hB;
-              continue;
-            }
+              if (!hR || !hT || !hB || (hR->GetEntries() <= 0.0 && hT->GetEntries() <= 0.0 && hB->GetEntries() <= 0.0))
+              {
+                cout << ANSI_BOLD_YEL
+                     << "  [SKIP perPtBin 3-way] ovTag=" << ovTag
+                     << "  rKey=" << rKey
+                     << "  ib=" << ib
+                     << "  hR=" << (hR ? "FOUND" : "MISSING")
+                     << "  hT=" << (hT ? "FOUND" : "MISSING")
+                     << "  hB=" << (hB ? "FOUND" : "MISSING");
+                if (hR) cout << "  entriesReco=" << hR->GetEntries();
+                if (hT) cout << "  entriesTruth=" << hT->GetEntries();
+                if (hB) cout << "  entriesRecoTruth=" << hB->GetEntries();
+                cout << ANSI_RESET << "\n";
+
+                if (hR) delete hR;
+                if (hT) delete hT;
+                if (hB) delete hB;
+                continue;
+              }
 
             // Normalize to unit area (shape overlays, consistent with your existing output)
             NormalizeToUnitArea(hR);
@@ -4715,6 +4800,9 @@ void RunJES3QA(Dataset& ds)
               }
 
               SaveCanvas(c, outPng);
+              cout << ANSI_BOLD_GRN
+                   << "  [WROTE perPtBin 3-way] " << outPng
+                   << ANSI_RESET << "\n";
 
             // ---------------------- Ratio canvas (requested) ----------------------
             // Ratios (shape ratios because inputs are unit-area normalized):
@@ -5104,9 +5192,12 @@ void RunJES3QA(Dataset& ds)
                 ? "table3x3_ratio.png"
                 : TString::Format("table3x3_ratio_page%d.png", page).Data();
 
-            SaveCanvas(c, JoinPath(dirOvBase, outName));
+              SaveCanvas(c, JoinPath(dirOvBase, outName));
+              cout << ANSI_BOLD_GRN
+                   << "  [WROTE ratio/table] " << JoinPath(dirOvBase, outName)
+                   << ANSI_RESET << "\n";
 
-            for (auto* h : keep) delete h;
+              for (auto* h : keep) delete h;
           }
         };
 

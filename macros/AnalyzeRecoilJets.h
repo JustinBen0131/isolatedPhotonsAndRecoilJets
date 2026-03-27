@@ -234,7 +234,7 @@ namespace ARJ
     inline bool isSimEmbedded              = true;
 
     inline const string kEmbeddedCutTag    = "jetMinPt5_7pi_8_vz30_isoR40_fixedIso5GeV";
-    inline const string kEmbeddedUEVariant = "variantB";
+    inline const string kEmbeddedUEVariant = "noSub";
 
     inline string EmbeddedSimCfgTag()
     {
@@ -498,6 +498,17 @@ namespace ARJ
         return EmbeddedSimRootDir() + "/RecoilJets_embeddedPhoton20_ALL_" + EmbeddedSimCfgTag() + ".root";
     }
 
+    inline string kInSimEmbeddedPathForVariant(const string& ueVariant)
+    {
+        return EmbeddedSimRootDir() + "/RecoilJets_embeddedPhoton20_ALL_" +
+               kEmbeddedCutTag + "_" + ueVariant + ".root";
+    }
+
+    inline bool EmbeddedSimUseCentralityRootOutput(const string& inPath = "")
+    {
+        return EmbeddedSimCfgTagForPathOrDefault(inPath) == EmbeddedSimCfgTag();
+    }
+
   inline const string kOutPPBase =
         "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp";
 
@@ -545,8 +556,14 @@ namespace ARJ
     // If an input file path is supplied, derive the cfg tag from the actual file name.
     inline string kOutSimEmbeddedBasePath(const string& inPath = "")
     {
-        return "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auau/embeddedPhoton20/" +
-               EmbeddedSimCfgTagForPathOrDefault(inPath);
+        const string base = "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auau/embeddedPhoton20";
+
+        if (EmbeddedSimUseCentralityRootOutput(inPath))
+        {
+          return base;
+        }
+
+        return base + "/" + EmbeddedSimCfgTagForPathOrDefault(inPath);
     }
 
   // Merged SIM ROOT outputs (weighted merges)

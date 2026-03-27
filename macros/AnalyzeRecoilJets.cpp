@@ -2728,15 +2728,257 @@ namespace ARJ
              << "[SECTION 3] GENERAL ISOLATION QA (" << ds.label << ")\n"
              << "==============================" << ANSI_RESET << "\n";
 
+        const bool doEmbeddedVariantOverlay = (isSimEmbedded && ds.isSim && !ds.centFolder.empty());
+
         string outDir;
-        if (ds.isSim) outDir = JoinPath(ds.outBase, "isoQAgeneral");
-        else          outDir = JoinPath(ds.outBase, "baselineData/isoQAgeneral");
+        if (doEmbeddedVariantOverlay) outDir = JoinPath(ds.outBase, "isoQA");
+        else if (ds.isSim)           outDir = JoinPath(ds.outBase, "isoQAgeneral");
+        else                         outDir = JoinPath(ds.outBase, "baselineData/isoQAgeneral");
 
         EnsureDir(outDir);
         for (const auto& b : PtBins()) EnsureDir(JoinPath(outDir, b.folder));
 
         // 1) RECO/DATA isolation QA (always runs)
         RunIsolationQA_Reco(ds, outDir);
+
+        // ------------------------------------------------------------------
+        // Embedded photon20: overlay total reco isolation across UE variants
+        //   noSub / baseVariant / variantA / variantB
+        // Output:
+        //   embeddedPhoton20/<cent>/isoQA/
+        //     - table3x3_Eiso_total_variantOverlay_page*.png
+        //     - <pT folder>/Eiso_total_variantOverlay_<pT folder>.png
+        // ------------------------------------------------------------------
+        if (doEmbeddedVariantOverlay)
+        {
+            struct EmbeddedIsoVariantHandle
+            {
+              string variant;
+              int color = 1;
+              TFile* file = nullptr;
+              Dataset dsVar;
+            };
+
+            vector<EmbeddedIsoVariantHandle> vars;
+            vars.reserve(4);
+
+            auto addVariant = [&](const string& variant, int color)
+            {
+              EmbeddedIsoVariantHandle H;
+              H.variant = variant;
+              H.color = color;
+              H.file = TFile::Open(kInSimEmbeddedPathForVariant(variant).c_str(), "READ");
+
+              if (!H.file || H.file->IsZombie())
+              {
+                if (H.file) { H.file->Close(); delete H.file; H.file = nullptr; }
+
+                cout << ANSI_BOLD_YEL
+                     << "[WARN] Missing embedded iso overlay input: "
+                     << kInSimEmbeddedPathForVariant(variant)
+                     << ANSI_RESET << "\n";
+
+                vars.push_back(std::move(H));
+                return;
+              }
+
+              H.dsVar.label = "SIM";
+              H.dsVar.isSim = true;
+              H.dsVar.trigger = "";
+              H.dsVar.topDirName = kDirSIM;
+              H.dsVar.inFilePath = kInSimEmbeddedPathForVariant(variant);
+              H.dsVar.outBase = outDir;
+              H.dsVar.centFolder = ds.centFolder;
+              H.dsVar.centSuffix = ds.centSuffix;
+              H.dsVar.centLabel = ds.centLabel;
+              H.dsVar.file = H.file;
+              H.dsVar.topDir = H.file->GetDirectory(H.dsVar.topDirName.c_str());
+
+              if (!H.dsVar.topDir)
+              {
+                cout << ANSI_BOLD_YEL
+                     << "[WARN] Missing " << kDirSIM << " directory in embedded iso overlay input: "
+                     << kInSimEmbeddedPathForVariant(variant)
+                     << ANSI_RESET << "\n";
+              }
+
+              vars.push_back(std::move(H));
+            };
+
+            addVariant("noSub",       kBlack);
+            addVariant("baseVariant", kBlue+1);
+            addVariant("variantA",    kRed+1);
+            addVariant("variantB",    kGreen+2);
+
+            auto DrawVariantOverlayPad =
+              [&](const PtBin& b, bool compact, vector<TObject*>* keepAlive)
+            {
+              vector<TH1*> hs;
+              vector<string> labels;
+              double ymax = 0.0;
+
+              for (auto& V : vars)
+              {
+                if (!V.dsVar.topDir) continue;
+
+                TH1* hSrc = GetObj<TH1>(V.dsVar, "h_Eiso" + b.suffix, false, false, false);
+                if (!hSrc) continue;
+
+                TH1* h = CloneTH1(
+                  hSrc,
+                  TString::Format("h_Eiso_variantOverlay_%s_%s_%s",
+                    ds.centFolder.c_str(), b.folder.c_str(), V.variant.c_str()).Data()
+                );
+                if (!h) continue;
+
+                h->SetLineColor(V.color);
+                h->SetLineWidth(2);
+                h->SetFillStyle(0);
+
+                ymax = std::max(ymax, h->GetMaximum());
+                hs.push_back(h);
+                labels.push_back(V.variant);
+
+                if (keepAlive) keepAlive->push_back(h);
+              }
+
+              if (hs.empty())
+              {
+                TLatex t;
+                t.SetNDC(true);
+                t.SetTextFont(42);
+                t.SetTextSize(compact ? 0.060 : 0.055);
+                t.DrawLatex(0.18, 0.55, "MISSING");
+                return;
+              }
+
+              TH1* first = hs[0];
+              first->SetTitle("");
+              first->GetXaxis()->SetTitle("E_{iso} [GeV]");
+              first->GetYaxis()->SetTitle("Counts");
+              first->GetXaxis()->SetTitleSize(compact ? 0.060 : 0.055);
+              first->GetYaxis()->SetTitleSize(compact ? 0.060 : 0.055);
+              first->GetXaxis()->SetLabelSize(compact ? 0.045 : 0.045);
+              first->GetYaxis()->SetLabelSize(compact ? 0.045 : 0.045);
+              first->GetYaxis()->SetTitleOffset(compact ? 1.00 : 1.15);
+              first->SetMinimum(0.0);
+              first->SetMaximum((ymax > 0.0) ? (1.25 * ymax) : 1.0);
+
+              first->Draw("hist");
+              for (std::size_t ih = 1; ih < hs.size(); ++ih) hs[ih]->Draw("hist same");
+
+              TLegend* leg = new TLegend(compact ? 0.52 : 0.56, compact ? 0.63 : 0.68, 0.92, 0.90);
+              leg->SetBorderSize(0);
+              leg->SetFillStyle(0);
+              leg->SetTextFont(42);
+              leg->SetTextSize(compact ? 0.038 : 0.032);
+              for (std::size_t ih = 0; ih < hs.size(); ++ih)
+              {
+                leg->AddEntry(hs[ih], labels[ih].c_str(), "l");
+              }
+              leg->Draw();
+              if (keepAlive) keepAlive->push_back(leg);
+
+              if (compact)
+              {
+                TLatex tt;
+                tt.SetTextFont(42);
+                tt.SetNDC();
+                tt.SetTextAlign(23);
+                tt.SetTextSize(0.052);
+                tt.DrawLatex(0.50, 0.965,
+                  TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data());
+              }
+              else
+              {
+                vector<string> lines = DefaultHeaderLines(ds);
+                lines.push_back("E_{T}^{iso, Total} overlay by embedded UE variant");
+                lines.push_back(TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data());
+                DrawLatexLines(0.16, 0.92, lines, 0.030, 0.040);
+              }
+            };
+
+            // Individual per-pT overlays
+            for (int i = 0; i < kNPtBins; ++i)
+            {
+              const PtBin& b = PtBins()[i];
+
+              TCanvas c(
+                TString::Format("c_embIsoVariantOverlay_%s_%s", ds.centFolder.c_str(), b.folder.c_str()).Data(),
+                "c_embIsoVariantOverlay", 900, 700
+              );
+              ApplyCanvasMargins1D(c);
+              c.cd();
+
+              vector<TObject*> keep;
+              DrawVariantOverlayPad(b, false, &keep);
+
+              const string fp = JoinPath(outDir, b.folder + "/Eiso_total_variantOverlay_" + b.folder + ".png");
+              SaveCanvas(c, fp);
+
+              for (auto* obj : keep) delete obj;
+            }
+
+            // 3x3 summary tables over pT bins
+            const int nCols   = 3;
+            const int nRows   = 3;
+            const int perPage = nCols * nRows;
+            const int nPages  = (kNPtBins + perPage - 1) / perPage;
+
+            for (int ipage = 0; ipage < nPages; ++ipage)
+            {
+              TCanvas cTbl(
+                TString::Format("c_embIsoVariantOverlayTbl_%s_page%d", ds.centFolder.c_str(), ipage + 1).Data(),
+                "c_embIsoVariantOverlayTbl", 1800, 1400
+              );
+              cTbl.Divide(nCols, nRows, 0.001, 0.001);
+
+              vector<TObject*> keepTbl;
+
+              for (int ipad = 0; ipad < perPage; ++ipad)
+              {
+                cTbl.cd(ipad + 1);
+                gPad->SetLeftMargin(0.14);
+                gPad->SetRightMargin(0.05);
+                gPad->SetBottomMargin(0.14);
+                gPad->SetTopMargin(0.10);
+                gPad->SetTicks(1,1);
+
+                const int idx = ipage * perPage + ipad;
+                if (idx >= kNPtBins)
+                {
+                  TLatex t;
+                  t.SetNDC(true);
+                  t.SetTextFont(42);
+                  t.SetTextSize(0.060);
+                  t.DrawLatex(0.32, 0.55, "EMPTY");
+                  continue;
+                }
+
+                DrawVariantOverlayPad(PtBins()[idx], true, &keepTbl);
+              }
+
+              SaveCanvas(
+                cTbl,
+                JoinPath(outDir,
+                  TString::Format("table3x3_Eiso_total_variantOverlay_page%d.png", ipage + 1).Data())
+              );
+
+              for (auto* obj : keepTbl) delete obj;
+            }
+
+            for (auto& V : vars)
+            {
+              if (V.file)
+              {
+                V.file->Close();
+                delete V.file;
+                V.file = nullptr;
+                V.dsVar.file = nullptr;
+                V.dsVar.topDir = nullptr;
+              }
+            }
+        }
 
         // 2) Keep exactly where you had it before (after reco plots, before truth block)
         PrintIsoDecisionTable(ds);
@@ -10485,7 +10727,19 @@ namespace ARJ
               // Embedded SIM: per-centrality datasets (same file, filtered by centSuffix)
               // For embedded SIM, derive the cfg tag from the actual ROOT file name so the
               // filename itself is the source of truth for vz / cone / iso / UE variant.
-              const auto& centBins = CentBins();
+              //
+              // IMPORTANT:
+              // The current embedded photon20 files were only analyzed for:
+              //   0-10, 10-20, 20-40, 40-60, 60-80
+              // and do NOT contain 80-100 histograms. So suppress 80-100 here to avoid
+              // creating empty output folders like .../80_100.
+              vector<CentBin> centBins;
+              for (const auto& cb : CentBins())
+              {
+                if (cb.lo == 80 && cb.hi == 100) continue;
+                centBins.push_back(cb);
+              }
+
               const string simInPath  = SimInputPathForSample(ss);
               const string simCfgTag  = EmbeddedSimCfgTagForPathOrDefault(simInPath);
               const string simOutBase = kOutSimEmbeddedBasePath(simInPath);
