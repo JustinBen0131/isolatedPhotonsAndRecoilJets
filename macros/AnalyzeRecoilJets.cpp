@@ -2698,22 +2698,22 @@ namespace ARJ
                       hF1->GetXaxis()->SetLabelSize(0.046); hF1->GetYaxis()->SetLabelSize(0.046);
                       hF1->Draw();
 
-                      {
-                        TLine lHalf(kPtEdges.front(), 0.5, kPtEdges.back(), 0.5);
-                        lHalf.SetLineStyle(2); lHalf.SetLineColor(kGray+1); lHalf.SetLineWidth(1);
-                        lHalf.DrawClone();
-                      }
-                      if (gFtIso) gFtIso->Draw("PE same");
-                      if (gFtNon) gFtNon->Draw("PE same");
+                        TLine* lHalfPtr = new TLine(kPtEdges.front(), 0.5, kPtEdges.back(), 0.5);
+                        lHalfPtr->SetLineStyle(2); lHalfPtr->SetLineColor(kGray+1); lHalfPtr->SetLineWidth(2);
+                        lHalfPtr->Draw();
 
-                      {
-                        TLegend* leg1 = new TLegend(0.50, 0.76, 0.92, 0.9);
-                        leg1->SetBorderSize(0); leg1->SetFillStyle(0);
-                        leg1->SetTextFont(42);  leg1->SetTextSize(0.04);
-                        if (gFtIso) leg1->AddEntry(gFtIso, "f_{tight,iso}  = A/(A+C)", "lpe");
-                        if (gFtNon) leg1->AddEntry(gFtNon, "f_{tight,nonIso} = B/(B+D)", "lpe");
-                        leg1->Draw();
-                      }
+                        if (gFtIso) gFtIso->Draw("PE same");
+                        if (gFtNon) gFtNon->Draw("PE same");
+
+                        {
+                          TLegend* leg1 = new TLegend(0.18, 0.74, 0.62, 0.89);
+                          leg1->SetBorderSize(0); leg1->SetFillStyle(0);
+                          leg1->SetTextFont(42);  leg1->SetTextSize(0.036);
+                          if (gFtIso) leg1->AddEntry(gFtIso, "f_{tight,iso}  = A/(A+C)", "lpe");
+                          if (gFtNon) leg1->AddEntry(gFtNon, "f_{tight,nonIso} = B/(B+D)", "lpe");
+                          leg1->AddEntry(lHalfPtr, "No-discrimination boundary (f = 0.5)", "l");
+                          leg1->Draw();
+                        }
 
                       {
                         TLatex tt1; tt1.SetNDC(); tt1.SetTextFont(42); tt1.SetTextAlign(23); tt1.SetTextSize(0.048);
@@ -4030,7 +4030,7 @@ namespace ARJ
               box.push_back("Iso: E_{iso} < 1.08128 + 0.0299107 p_{T}^{#gamma}");
               box.push_back("NonIso: E_{iso} > isoThresh + 1 GeV");
               DrawLatexLines(0.2, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-              DrawLatexLines(0.2, 0.78, box, 0.030, 0.040);
+              DrawLatexLines(0.2, 0.8, box, 0.030, 0.040);
 
               const string fp = JoinPath(outDir, ds.isSim ? "purity_raw_SIM.png" : "purity_raw_DATA.png");
               SaveCanvas(c, fp);

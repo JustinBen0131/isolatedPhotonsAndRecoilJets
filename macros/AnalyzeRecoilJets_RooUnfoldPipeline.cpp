@@ -2063,7 +2063,312 @@
                     c.Update();
                     SaveCanvas(c, JoinPath(phoDir, "pho_unfolded_truth_pTgamma_overlay_logy.png"));
 
-                    if (hRatio) delete hRatio;
+                  if (hRatio) delete hRatio;
+              }
+
+              // -----------------------------------------------------------------
+              // 3-curve overlay: raw  vs  purity-corrected  vs  unfolded (logy)
+              // Only meaningful when purity correction was applied so that we have
+              // distinct raw and corrected inputs.
+              // Output: <phoDir>/pho_raw_purityCorr_unfolded_pTgamma_overlay_logy.png
+              // -----------------------------------------------------------------
+              if (gApplyPurityCorrectionForUnfolding)
+              {
+                  const double xPlotMin = 10.0;
+                  const double xPlotMax = 35.0;
+
+                  TH1* hRaw = CloneTH1(hPhoRecoData_in,   "hPhoRecoRaw_3ov");
+                  TH1* hPur = CloneTH1(hPhoRecoData,       "hPhoRecoPur_3ov");
+                  TH1* hUnf = CloneTH1(hPhoUnfoldTruth,    "hPhoUnfold_3ov");
+
+                  if (hRaw && hPur && hUnf)
+                  {
+                    hRaw->SetDirectory(nullptr);
+                    hPur->SetDirectory(nullptr);
+                    hUnf->SetDirectory(nullptr);
+
+                    hRaw->SetLineColor(kGray + 2);
+                    hRaw->SetMarkerColor(kGray + 2);
+                    hRaw->SetMarkerStyle(21);
+                    hRaw->SetMarkerSize(0.9);
+                    hRaw->SetLineWidth(2);
+
+                    hPur->SetLineColor(kRed);
+                    hPur->SetMarkerColor(kRed);
+                    hPur->SetMarkerStyle(20);
+                    hPur->SetMarkerSize(0.9);
+                    hPur->SetLineWidth(2);
+
+                    hUnf->SetLineColor(kBlue + 1);
+                    hUnf->SetMarkerColor(kBlue + 1);
+                    hUnf->SetMarkerStyle(24);
+                    hUnf->SetMarkerSize(0.9);
+                    hUnf->SetLineWidth(2);
+
+                    auto scanMax3 = [&](TH1* h)->double
+                    {
+                      double mx = 0.0;
+                      if (!h) return mx;
+                      for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                      {
+                        const double lo = h->GetXaxis()->GetBinLowEdge(ib);
+                        const double hi = h->GetXaxis()->GetBinUpEdge(ib);
+                        if (lo < xPlotMin || hi > xPlotMax) continue;
+                        const double y  = h->GetBinContent(ib);
+                        const double ey = h->GetBinError(ib);
+                        if (!std::isfinite(y) || !std::isfinite(ey)) continue;
+                        if (y <= 0.0 && ey <= 0.0) continue;
+                        mx = std::max(mx, y + ey);
+                      }
+                      return mx;
+                    };
+
+                    auto scanMinPos3 = [&](TH1* h)->double
+                    {
+                      double mn = 1e99;
+                      if (!h) return mn;
+                      for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                      {
+                        const double lo = h->GetXaxis()->GetBinLowEdge(ib);
+                        const double hi = h->GetXaxis()->GetBinUpEdge(ib);
+                        if (lo < xPlotMin || hi > xPlotMax) continue;
+                        const double y = h->GetBinContent(ib);
+                        if (std::isfinite(y) && y > 0.0 && y < mn) mn = y;
+                      }
+                      return mn;
+                    };
+
+                    const double maxvTop3 = std::max({scanMax3(hRaw), scanMax3(hPur), scanMax3(hUnf)});
+                    double minPos3 = std::min({scanMinPos3(hRaw), scanMinPos3(hPur), scanMinPos3(hUnf)});
+                    if (!(minPos3 < 1e98)) minPos3 = 1e-3;
+
+                    // -- build ratio hists (denominator = raw) --
+                    auto buildRatio3 = [&](TH1* hNum, TH1* hDen, const char* name)->TH1D*
+                    {
+                      if (!hNum || !hDen) return nullptr;
+                      vector<double> edges = { 10.0, 12.0, 14.0, 16.0, 18.0,
+                                               20.0, 22.0, 24.0, 26.0, 35.0 };
+                      TH1D* hR = new TH1D(name, "", (int)edges.size() - 1, &edges[0]);
+                      hR->SetDirectory(nullptr);
+                      hR->Sumw2();
+                      for (int ib = 1; ib <= hR->GetNbinsX(); ++ib)
+                      {
+                        const double cen = hR->GetXaxis()->GetBinCenter(ib);
+                        const int iN = hNum->GetXaxis()->FindBin(cen);
+                        const int iD = hDen->GetXaxis()->FindBin(cen);
+                        if (iN < 1 || iN > hNum->GetNbinsX()) continue;
+                        if (iD < 1 || iD > hDen->GetNbinsX()) continue;
+                        const double num  = hNum->GetBinContent(iN);
+                        const double eNum = hNum->GetBinError(iN);
+                        const double den  = hDen->GetBinContent(iD);
+                        const double eDen = hDen->GetBinError(iD);
+                        if (!std::isfinite(num) || !std::isfinite(den) || den <= 0.0) continue;
+                        const double val = num / den;
+                        const double var = (eNum*eNum)/(den*den)
+                                         + (num*num*eDen*eDen)/(den*den*den*den);
+                        hR->SetBinContent(ib, val);
+                        hR->SetBinError(ib, (var > 0.0 && std::isfinite(var)) ? std::sqrt(var) : 0.0);
+                      }
+                      return hR;
+                    };
+
+                    TH1D* hRatioPurOverRaw = buildRatio3(hPur, hRaw, "hRatio3_purOverRaw");
+                    TH1D* hRatioUnfOverRaw = buildRatio3(hUnf, hRaw, "hRatio3_unfOverRaw");
+
+                    // -- auto-range ratio panel --
+                    double ratioMin3 = 0.5, ratioMax3 = 1.5;
+                    {
+                      double rLo =  1e99, rHi = -1e99;
+                      auto scanR = [&](TH1D* h)
+                      {
+                        if (!h) return;
+                        for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                        {
+                          const double y  = h->GetBinContent(ib);
+                          const double ey = h->GetBinError(ib);
+                          if (!std::isfinite(y) || (y <= 0.0 && ey <= 0.0)) continue;
+                          rLo = std::min(rLo, y - ey);
+                          rHi = std::max(rHi, y + ey);
+                        }
+                      };
+                      scanR(hRatioPurOverRaw);
+                      scanR(hRatioUnfOverRaw);
+                      if (rLo < 1e98 && rHi > -1e98 && rLo < rHi)
+                      {
+                        const double span = std::max(rHi - rLo, 0.04);
+                        const double pad  = 0.18 * span;
+                        ratioMin3 = rLo - pad;
+                        ratioMax3 = rHi + pad;
+                        if (ratioMin3 > 1.0) ratioMin3 = 1.0 - 0.5 * span;
+                        if (ratioMax3 < 1.0) ratioMax3 = 1.0 + 0.5 * span;
+                        if (ratioMin3 < 0.0) ratioMin3 = 0.0;
+                      }
+                    }
+
+                    TCanvas c3("c_pho_3ov_logy", "c_pho_3ov_logy", 900, 800);
+
+                    TPad* pTop3 = new TPad("pTop_3ov", "pTop_3ov", 0.0, 0.30, 1.0, 1.0);
+                    TPad* pBot3 = new TPad("pBot_3ov", "pBot_3ov", 0.0, 0.00, 1.0, 0.30);
+
+                    pTop3->SetLeftMargin(0.12);
+                    pTop3->SetRightMargin(0.04);
+                    pTop3->SetTopMargin(0.08);
+                    pTop3->SetBottomMargin(0.02);
+                    pTop3->SetTicks(1, 1);
+                    pTop3->SetLogy(1);
+
+                    pBot3->SetLeftMargin(0.12);
+                    pBot3->SetRightMargin(0.04);
+                    pBot3->SetTopMargin(0.02);
+                    pBot3->SetBottomMargin(0.30);
+                    pBot3->SetTicks(1, 1);
+                    pBot3->SetGridy(1);
+
+                    pTop3->Draw();
+                    pBot3->Draw();
+
+                    // --- top: logy overlay of 3 curves ---
+                    pTop3->cd();
+
+                    hRaw->SetTitle("");
+                    hRaw->GetXaxis()->SetRangeUser(xPlotMin, xPlotMax);
+                    hPur->GetXaxis()->SetRangeUser(xPlotMin, xPlotMax);
+                    hUnf->GetXaxis()->SetRangeUser(xPlotMin, xPlotMax);
+
+                    hRaw->GetXaxis()->SetTitle("");
+                    hRaw->GetXaxis()->SetLabelSize(0.0);
+                    hRaw->GetXaxis()->SetTitleSize(0.0);
+
+                    hRaw->GetYaxis()->SetTitle("Counts");
+                    hRaw->GetYaxis()->SetTitleSize(0.055);
+                    hRaw->GetYaxis()->SetTitleOffset(0.95);
+                    hRaw->GetYaxis()->SetLabelSize(0.045);
+
+                    hRaw->SetMinimum(std::max(minPos3 * 0.5, 1e-6));
+                    hRaw->SetMaximum((maxvTop3 > 0.0) ? (maxvTop3 * 3.0) : 1.0);
+
+                    hRaw->Draw("E1");
+                    hPur->Draw("E1 same");
+                    hUnf->Draw("E1 same");
+
+                    TLegend leg3(0.48, 0.70, 0.92, 0.90);
+                    leg3.SetTextFont(42);
+                    leg3.SetTextSize(0.032);
+                    leg3.AddEntry(hRaw, "PP DATA (reco, non-purity-corrected)", "lep");
+                    leg3.AddEntry(hPur, "PP DATA (reco, purity-corrected)", "lep");
+                    leg3.AddEntry(hUnf, TString::Format("Unfolded (truth), Bayes it=%d", kBayesIterPho).Data(), "lep");
+                    leg3.Draw();
+
+                    DrawLatexLines(0.14, 0.92,
+                                   { "Photon 1D: raw vs purity-corrected vs unfolded, N_{#gamma}(p_{T}^{#gamma})" },
+                                   0.034, 0.045);
+
+                    // --- bottom: ratios over raw ---
+                    pBot3->cd();
+
+                    bool drewFirst = false;
+                    if (hRatioPurOverRaw)
+                    {
+                      hRatioPurOverRaw->SetTitle("");
+                      hRatioPurOverRaw->SetMarkerStyle(20);
+                      hRatioPurOverRaw->SetMarkerSize(0.85);
+                      hRatioPurOverRaw->SetMarkerColor(kRed);
+                      hRatioPurOverRaw->SetLineColor(kRed);
+                      hRatioPurOverRaw->SetLineWidth(2);
+                      hRatioPurOverRaw->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                      hRatioPurOverRaw->GetYaxis()->SetTitle("Ratio / raw");
+                      hRatioPurOverRaw->GetXaxis()->SetRangeUser(xPlotMin, xPlotMax);
+                      hRatioPurOverRaw->GetYaxis()->SetRangeUser(ratioMin3, ratioMax3);
+                      hRatioPurOverRaw->GetXaxis()->SetTitleSize(0.12);
+                      hRatioPurOverRaw->GetXaxis()->SetLabelSize(0.11);
+                      hRatioPurOverRaw->GetXaxis()->SetTitleOffset(1.00);
+                      hRatioPurOverRaw->GetYaxis()->SetTitleSize(0.10);
+                      hRatioPurOverRaw->GetYaxis()->SetLabelSize(0.09);
+                      hRatioPurOverRaw->GetYaxis()->SetTitleOffset(0.55);
+                      hRatioPurOverRaw->GetYaxis()->SetNdivisions(505);
+                      hRatioPurOverRaw->Draw("E1");
+                      drewFirst = true;
+                    }
+
+                    if (hRatioUnfOverRaw)
+                    {
+                      hRatioUnfOverRaw->SetMarkerStyle(24);
+                      hRatioUnfOverRaw->SetMarkerSize(0.85);
+                      hRatioUnfOverRaw->SetMarkerColor(kBlue + 1);
+                      hRatioUnfOverRaw->SetLineColor(kBlue + 1);
+                      hRatioUnfOverRaw->SetLineWidth(2);
+
+                      if (!drewFirst)
+                      {
+                        hRatioUnfOverRaw->SetTitle("");
+                        hRatioUnfOverRaw->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                        hRatioUnfOverRaw->GetYaxis()->SetTitle("Ratio / raw");
+                        hRatioUnfOverRaw->GetXaxis()->SetRangeUser(xPlotMin, xPlotMax);
+                        hRatioUnfOverRaw->GetYaxis()->SetRangeUser(ratioMin3, ratioMax3);
+                        hRatioUnfOverRaw->GetXaxis()->SetTitleSize(0.12);
+                        hRatioUnfOverRaw->GetXaxis()->SetLabelSize(0.11);
+                        hRatioUnfOverRaw->GetXaxis()->SetTitleOffset(1.00);
+                        hRatioUnfOverRaw->GetYaxis()->SetTitleSize(0.10);
+                        hRatioUnfOverRaw->GetYaxis()->SetLabelSize(0.09);
+                        hRatioUnfOverRaw->GetYaxis()->SetTitleOffset(0.55);
+                        hRatioUnfOverRaw->GetYaxis()->SetNdivisions(505);
+                        hRatioUnfOverRaw->Draw("E1");
+                      }
+                      else
+                      {
+                        hRatioUnfOverRaw->Draw("E1 same");
+                      }
+                    }
+
+                    if (!drewFirst && !hRatioUnfOverRaw)
+                    {
+                      TH1F frame3("frame_3ov_ratio","", 1, xPlotMin, xPlotMax);
+                      frame3.SetMinimum(ratioMin3);
+                      frame3.SetMaximum(ratioMax3);
+                      frame3.SetTitle("");
+                      frame3.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                      frame3.GetYaxis()->SetTitle("Ratio / raw");
+                      frame3.GetXaxis()->SetTitleSize(0.12);
+                      frame3.GetXaxis()->SetLabelSize(0.11);
+                      frame3.GetXaxis()->SetTitleOffset(1.00);
+                      frame3.GetYaxis()->SetTitleSize(0.10);
+                      frame3.GetYaxis()->SetLabelSize(0.09);
+                      frame3.GetYaxis()->SetTitleOffset(0.55);
+                      frame3.GetYaxis()->SetNdivisions(505);
+                      frame3.Draw("axis");
+                    }
+
+                    {
+                      TLine l1(xPlotMin, 1.0, xPlotMax, 1.0);
+                      l1.SetLineStyle(2);
+                      l1.SetLineWidth(2);
+                      l1.Draw("same");
+                    }
+
+                    // ratio legend
+                    {
+                      TLegend legR(0.48, 0.72, 0.92, 0.92);
+                      legR.SetBorderSize(0);
+                      legR.SetFillStyle(0);
+                      legR.SetTextFont(42);
+                      legR.SetTextSize(0.085);
+                      if (hRatioPurOverRaw) legR.AddEntry(hRatioPurOverRaw, "purity-corr / raw", "lep");
+                      if (hRatioUnfOverRaw) legR.AddEntry(hRatioUnfOverRaw, "unfolded / raw",    "lep");
+                      legR.DrawClone();
+                    }
+
+                    c3.cd();
+                    c3.Modified();
+                    c3.Update();
+                    SaveCanvas(c3, JoinPath(phoDir, "pho_raw_purityCorr_unfolded_pTgamma_overlay_logy.png"));
+
+                    if (hRatioPurOverRaw) delete hRatioPurOverRaw;
+                    if (hRatioUnfOverRaw) delete hRatioUnfOverRaw;
+                  }
+
+                  if (hRaw) delete hRaw;
+                  if (hPur) delete hPur;
+                  if (hUnf) delete hUnf;
                 }
 
                 // photon efficiency/purity diagnostics
