@@ -213,6 +213,37 @@ namespace ARJ
   // photonJet5 standalone SIM (single file, no merging, full isSim pipeline + pi0 QA)
   inline bool isSimJet5                  = false;
 
+  // -------------------------------------------------------------------------
+  // Embedded photon20 SIM in Au+Au (per-centrality analysis)
+  //
+  //   isSimEmbedded = true  (all other SIM toggles false)
+  //
+  //   kEmbeddedCutTag      : cut combination from condorDoAll cfg_tag prefix
+  //                          (matches the directory names under simembedded/)
+  //
+  //   kEmbeddedUEVariant   : UE subtraction pipeline variant
+  //       "noSub"        — no underlying-event subtraction
+  //       "baseVariant"  — AuAu UE-subtracted isolation enabled
+  //       "variantA"     — PHOSUB clusters + recluster
+  //       "variantB"     — PHOSUB + seed exclusion DR=0.4
+  //
+  //   The input filename is built automatically:
+  //     <InputFilesSimBaseDir>/embeddedSIM/
+  //       RecoilJets_embeddedPhoton20_ALL_<cutTag>_<ueVariant>.root
+  //
+  //   Output goes to:
+  //     dataOutput/auau/embeddedPhoton20/<cutTag>_<ueVariant>/<centFolder>/...
+  // -------------------------------------------------------------------------
+  inline bool isSimEmbedded              = false;
+
+  inline const string kEmbeddedCutTag    = "jetMinPt5_7pi_8_vz30_isoR40_fixedIso5GeV";
+  inline const string kEmbeddedUEVariant = "noSub";
+
+  inline string EmbeddedSimCfgTag()
+  {
+      return kEmbeddedCutTag + "_" + kEmbeddedUEVariant;
+  }
+
   // If false, STEP 1 will NOT rebuild the photonJet10+20 merged ROOT file(s).
   // Downstream code will simply open the already-merged output at the configured path(s).
   inline bool doRemergePhoton10and20sim  = false;
@@ -414,6 +445,10 @@ namespace ARJ
   inline const string kInSimJet5 =
           InputFilesSimBaseDirFromYAML() + "/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/InclusiveJetSIM/RecoilJets_jet5_ALL_jetMinPt5_7piOver8.root";
 
+  // Embedded photon20 SIM in Au+Au (built from kEmbeddedCutTag + kEmbeddedUEVariant)
+  inline const string kInSimEmbedded =
+          InputFilesSimBaseDirFromYAML() + "/embeddedSIM/RecoilJets_embeddedPhoton20_ALL_" + EmbeddedSimCfgTag() + ".root";
+
   inline const string kOutPPBase =
         "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp";
 
@@ -455,6 +490,11 @@ namespace ARJ
   // photonJet5 standalone SIM output base
   inline const string kOutSimJet5Base =
         "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/simJet5ppINCLUSIVE";
+
+  // Embedded photon20 SIM output base (per-centrality subdirs created automatically)
+  // Layout: .../embeddedPhoton20/<cutTag>_<ueVariant>/<centFolder>/...
+  inline const string kOutSimEmbeddedBase =
+        "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auau/embeddedPhoton20/" + EmbeddedSimCfgTag();
 
   // Merged SIM ROOT outputs (weighted merges)
   inline const string kMergedSIMOut =
@@ -2804,6 +2844,7 @@ namespace ARJ
         kPhotonJet5And10And20Merged,
         kSimMB,
         kSimJet5,
+        kSimEmbedded,
         kInvalid
   };
 
@@ -2826,7 +2867,8 @@ namespace ARJ
           (bothPhoton10and20sim ? 1 : 0) +
           (allPhoton5and10and20sim ? 1 : 0) +
           (isSimMB ? 1 : 0) +
-          (isSimJet5 ? 1 : 0);
+          (isSimJet5 ? 1 : 0) +
+          (isSimEmbedded ? 1 : 0);
 
         if (nTrue == 0) return SimSample::kNone;
         if (nTrue != 1) return SimSample::kInvalid;
@@ -2840,6 +2882,7 @@ namespace ARJ
         if (allPhoton5and10and20sim) return SimSample::kPhotonJet5And10And20Merged;
         if (isSimMB)                 return SimSample::kSimMB;
         if (isSimJet5)               return SimSample::kSimJet5;
+        if (isSimEmbedded)           return SimSample::kSimEmbedded;
 
         return SimSample::kInvalid;
   }
@@ -2858,6 +2901,7 @@ namespace ARJ
           case SimSample::kPhotonJet5And10And20Merged:return "photonJet5and10and20merged";
           case SimSample::kSimMB:                    return "simMB";
           case SimSample::kSimJet5:                  return "simJet5";
+          case SimSample::kSimEmbedded:              return "embeddedPhoton20_" + EmbeddedSimCfgTag();
           default:                                   return "INVALID";
         }
   }
@@ -2875,6 +2919,7 @@ namespace ARJ
         case SimSample::kPhotonJet5And10And20Merged:return kMergedSIMOut_5and10and20;
         case SimSample::kSimMB:                     return kInSimMB;
         case SimSample::kSimJet5:                   return kInSimJet5;
+        case SimSample::kSimEmbedded:               return kInSimEmbedded;
         default:                                    return "";
       }
   }
@@ -2892,6 +2937,7 @@ namespace ARJ
           case SimSample::kPhotonJet5And10And20Merged:return kOutSIM5and10and20MergedBase;
           case SimSample::kSimMB:                     return kOutSimMBBase;
           case SimSample::kSimJet5:                   return kOutSimJet5Base;
+          case SimSample::kSimEmbedded:               return kOutSimEmbeddedBase;
           default:                                    return "";
         }
   }

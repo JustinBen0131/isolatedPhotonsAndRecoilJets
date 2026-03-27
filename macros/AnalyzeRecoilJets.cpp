@@ -10480,14 +10480,53 @@ namespace ARJ
 
         if (doSim)
         {
-          Dataset ds;
-          ds.label      = "SIM";
-          ds.isSim      = true;
-          ds.trigger    = "";
-          ds.topDirName = kDirSIM;
-          ds.inFilePath = SimInputPathForSample(ss);
-          ds.outBase    = SimOutBaseForSample(ss);
-          datasets.push_back(std::move(ds));
+          if (ss == SimSample::kSimEmbedded)
+          {
+            // Embedded SIM: per-centrality datasets (same file, filtered by centSuffix)
+            const auto& centBins = CentBins();
+            const string simInPath  = SimInputPathForSample(ss);
+            const string simOutBase = SimOutBaseForSample(ss);
+
+            if (centBins.empty())
+            {
+              Dataset ds;
+              ds.label      = "SIM_EMBEDDED";
+              ds.isSim      = true;
+              ds.trigger    = "";
+              ds.topDirName = kDirSIM;
+              ds.inFilePath = simInPath;
+              ds.outBase    = simOutBase;
+              datasets.push_back(std::move(ds));
+            }
+            else
+            {
+              for (const auto& cb : centBins)
+              {
+                Dataset ds;
+                ds.label      = TString::Format("SIM_EMBEDDED_%d_%d", cb.lo, cb.hi).Data();
+                ds.isSim      = true;
+                ds.trigger    = "";
+                ds.topDirName = kDirSIM;
+                ds.inFilePath = simInPath;
+                ds.centFolder = cb.folder;
+                ds.centSuffix = cb.suffix;
+                ds.centLabel  = TString::Format("Centrality: %d-%d%%", cb.lo, cb.hi).Data();
+                ds.outBase    = JoinPath(simOutBase, cb.folder);
+                datasets.push_back(std::move(ds));
+              }
+            }
+          }
+          else
+          {
+            Dataset ds;
+            ds.label      = "SIM";
+            ds.isSim      = true;
+            ds.trigger    = "";
+            ds.topDirName = kDirSIM;
+            ds.inFilePath = SimInputPathForSample(ss);
+            ds.outBase    = SimOutBaseForSample(ss);
+            datasets.push_back(std::move(ds));
+          }
         }
 
         if (doPP)
@@ -10743,7 +10782,11 @@ namespace ARJ
            << "    bothPhoton5and20sim     = " << (bothPhoton5and20sim ? "true" : "false") << "\n"
            << "    bothPhoton10and20sim    = " << (bothPhoton10and20sim ? "true" : "false") << "\n"
            << "    doRemergePhoton10and20sim = " << (doRemergePhoton10and20sim ? "true" : "false") << "\n"
-           << "    allPhoton5and10and20sim = " << (allPhoton5and10and20sim ? "true" : "false") << "\n";
+           << "    allPhoton5and10and20sim = " << (allPhoton5and10and20sim ? "true" : "false") << "\n"
+           << "    isSimEmbedded           = " << (isSimEmbedded ? "true" : "false") << "\n"
+           << "      kEmbeddedCutTag       = " << kEmbeddedCutTag << "\n"
+           << "      kEmbeddedUEVariant    = " << kEmbeddedUEVariant << "\n"
+           << "      EmbeddedSimCfgTag()   = " << EmbeddedSimCfgTag() << "\n";
 
       // ---------------------------------------------------------------------------
       //  Multi-SIM sequential runner
