@@ -162,7 +162,7 @@ namespace ARJ
 // =============================================================================
 
   inline bool isPPdataOnly   = false;
-  inline bool isSimAndDataPP = true;
+  inline bool isSimAndDataPP = false;
   
   // RooUnfold control:
   //   do_xJ_PPunfold = true
@@ -180,11 +180,11 @@ namespace ARJ
   //
   // Within the pipeline itself, gApplyPurityCorrectionForUnfolding still selects
   // whether the reco input is raw or ABCD purity-corrected.
-  inline bool do_xJ_PPunfold = true;
+  inline bool do_xJ_PPunfold = false;
   // Internal toggle used to run the RooUnfold pipeline twice:
   //   false -> raw reco inputs                     -> unfolding/nonPurityCorrected/...
   //   true  -> ABCD purity-corrected reco inputs  -> unfolding/purityCorrected/...
-  inline bool gApplyPurityCorrectionForUnfolding = true;
+  inline bool gApplyPurityCorrectionForUnfolding = false;
 
   // AuAu-only analysis mode (no SIM, no PP). When true, the full plotting
   // pipeline runs on AuAu only and outputs to dataOutput/auau/<trigger>/...
@@ -205,7 +205,7 @@ namespace ARJ
   inline bool bothPhoton5and10sim        = false;
   inline bool bothPhoton5and20sim        = false;
   inline bool bothPhoton10and20sim       = false;
-  inline bool allPhoton5and10and20sim    = true;
+  inline bool allPhoton5and10and20sim    = false;
 
   // MinBias SIM (DETROIT tune): single file, no merging, full isSim pipeline + pi0 QA
   inline bool isSimMB                    = false;
@@ -228,16 +228,16 @@ namespace ARJ
   //       "variantB"     — PHOSUB + seed exclusion DR=0.4
   //
   //   The input filename is built automatically:
-  //     <InputFilesSimBaseDir>/embeddedSIM/
+  //     <InputFilesSimBaseDir>/embeddedSim/
   //       RecoilJets_embeddedPhoton20_ALL_<cutTag>_<ueVariant>.root
   //
   //   Output goes to:
   //     dataOutput/auau/embeddedPhoton20/<cutTag>_<ueVariant>/<centFolder>/...
   // -------------------------------------------------------------------------
-  inline bool isSimEmbedded              = false;
+  inline bool isSimEmbedded              = true;
 
   inline const string kEmbeddedCutTag    = "jetMinPt5_7pi_8_vz30_isoR40_fixedIso5GeV";
-  inline const string kEmbeddedUEVariant = "noSub";
+  inline const string kEmbeddedUEVariant = "variantB";
 
   inline string EmbeddedSimCfgTag()
   {
@@ -447,7 +447,7 @@ namespace ARJ
 
   // Embedded photon20 SIM in Au+Au (built from kEmbeddedCutTag + kEmbeddedUEVariant)
   inline const string kInSimEmbedded =
-          InputFilesSimBaseDirFromYAML() + "/embeddedSIM/RecoilJets_embeddedPhoton20_ALL_" + EmbeddedSimCfgTag() + ".root";
+          InputFilesSimBaseDirFromYAML() + "/embeddedSim/RecoilJets_embeddedPhoton20_ALL_" + EmbeddedSimCfgTag() + ".root";
 
   inline const string kOutPPBase =
         "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/pp";
