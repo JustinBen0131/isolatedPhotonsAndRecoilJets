@@ -801,7 +801,7 @@ sim_init() {
   [[ -s "$SIM_CLEAN_LIST" ]] || { err "Sim master list empty after cleaning: $SIM_MASTER_LIST"; exit 22; }
 
   SIM_OUT_DIR="${DEST_BASE}/${SIM_SAMPLE}"
-  mkdir -p "$SIM_OUT_DIR"
+  [[ "${ACTION:-}" != "CHECKJOBS" ]] && mkdir -p "$SIM_OUT_DIR"
 
   if [[ -n "${SIM_CFG_TAG:-}" ]]; then
     SIM_JOB_PREFIX="sim_${SIM_SAMPLE}_${SIM_CFG_TAG}"
