@@ -1,7 +1,4 @@
 // AnalyzeRecoilJets.h
-// -----------------------------------------------------------------------------
-// Toolbox + shared infrastructure for AnalyzeRecoilJets.cpp
-// -----------------------------------------------------------------------------
 
 #ifndef ANALYZE_RECOIL_JETS_H
 #define ANALYZE_RECOIL_JETS_H

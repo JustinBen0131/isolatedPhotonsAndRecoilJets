@@ -8208,8 +8208,8 @@ namespace ARJ
                   continue;
               }
 
-              TH3* hPt5 = BuildWeightedMergedTH3(keyPt5, h3name, "pt5");
-              TH3* hPt3 = BuildWeightedMergedTH3(keyPt3, h3name, "pt3");
+              TH3* hPt5 = BuildWeightedMergedTH3(cfgTagPt5, h3name, "pt5");
+              TH3* hPt3 = BuildWeightedMergedTH3(cfgTagPt3, h3name, "pt3");
 
               if (!hPt5 || !hPt3)
               {
@@ -11281,7 +11281,6 @@ namespace ARJ
           else
           {
               // Use new path builders instead of DefaultSim10and20Config
-
               const string outMerged =
                   MergedSimPath("photonJet10and20merged_SIM", "RecoilJets_photonjet10plus20_MERGED.root");
 
@@ -11294,11 +11293,11 @@ namespace ARJ
                    << ANSI_RESET;
 
               ok = BuildMergedSIMFile_PhotonSlices(
-                {in10, in20},
-                {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
-                outMerged,
-                kDirSIM,
-                {"photonJet10", "photonJet20"}
+                  {InputSim("photonjet10"), InputSim("photonjet20")},
+                  {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+                  outMerged,
+                  kDirSIM,
+                  {"photonJet10", "photonJet20"}
               );
           }
       }
