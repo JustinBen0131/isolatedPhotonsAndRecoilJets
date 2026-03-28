@@ -1354,7 +1354,7 @@
 
               TH1* hIt = nullptr;
               if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-              hIt = uIt.Hunfold(RooUnfolding::kCovToys);
+              hIt = uIt.Hreco(RooUnfold::kCovToy);
               if (gSystem) gSystem->RedirectOutput(0);
               if (!hIt) continue;
 
@@ -1481,7 +1481,7 @@
 
               TH1* hCurr = nullptr;
               if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-              hCurr = u.Hunfold(RooUnfolding::kCovToys);
+              hCurr = u.Hreco(RooUnfold::kCovToy);
               if (gSystem) gSystem->RedirectOutput(0);
               if (!hCurr) continue;
 
@@ -1648,7 +1648,7 @@
 
         TH1* hPhoUnfoldTruth = nullptr;
         if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-        hPhoUnfoldTruth = unfoldPhoToy.Hunfold(RooUnfolding::kCovToys);
+        hPhoUnfoldTruth = unfoldPhoToy.Hreco(RooUnfold::kCovToy);
         if (gSystem) gSystem->RedirectOutput(0);
         if (hPhoUnfoldTruth) hPhoUnfoldTruth->SetDirectory(nullptr);
 
@@ -4355,7 +4355,7 @@
 
             TH1* hUnfC = nullptr;
             if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-            hUnfC = uC.Hunfold(RooUnfolding::kCovToys);
+            hUnfC = uC.Hreco(RooUnfold::kCovToy);
             if (gSystem) gSystem->RedirectOutput(0);
             if (hUnfC)
             {
@@ -4531,7 +4531,7 @@
 
               TH1* hUnfB = nullptr;
               if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-              hUnfB = uH.Hunfold(RooUnfolding::kCovToys);
+              hUnfB = uH.Hreco(RooUnfold::kCovToy);
               if (gSystem) gSystem->RedirectOutput(0);
               if (hUnfB)
               {
@@ -4890,7 +4890,7 @@
       
                     TH1* hIt = nullptr;
                     if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-                    hIt = uIt.Hunfold(RooUnfolding::kCovToys);
+                    hIt = uIt.Hreco(RooUnfold::kCovToy);
                     if (gSystem) gSystem->RedirectOutput(0);
                     if (!hIt) continue;
       
@@ -5017,7 +5017,7 @@
       
                     TH1* hCurr = nullptr;
                     if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-                    hCurr = u.Hunfold(RooUnfolding::kCovToys);
+                    hCurr = u.Hreco(RooUnfold::kCovToy);
                     if (gSystem) gSystem->RedirectOutput(0);
                     if (!hCurr) continue;
       
@@ -5184,7 +5184,7 @@
       
               TH1* hPhoUnfoldTruth = nullptr;
               if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-              hPhoUnfoldTruth = unfoldPhoToy.Hunfold(RooUnfolding::kCovToys);
+              hPhoUnfoldTruth = unfoldPhoToy.Hreco(RooUnfold::kCovToy);
               if (gSystem) gSystem->RedirectOutput(0);
               if (hPhoUnfoldTruth) hPhoUnfoldTruth->SetDirectory(nullptr);
       
@@ -7587,7 +7587,7 @@
       
                   TH1* hUnfC = nullptr;
                   if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-                  hUnfC = uC.Hunfold(RooUnfolding::kCovToys);
+                  hUnfC = uC.Hreco(RooUnfold::kCovToy);
                   if (gSystem) gSystem->RedirectOutput(0);
                   if (hUnfC)
                   {
@@ -7763,7 +7763,7 @@
       
                     TH1* hUnfB = nullptr;
                     if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-                    hUnfB = uH.Hunfold(RooUnfolding::kCovToys);
+                    hUnfB = uH.Hreco(RooUnfold::kCovToy);
                     if (gSystem) gSystem->RedirectOutput(0);
                     if (hUnfB)
                     {
@@ -8147,7 +8147,7 @@
 
           TH1* hUnfoldTruthGlob = nullptr;
           if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-          hUnfoldTruthGlob = unfoldXJ_toy.Hunfold(RooUnfolding::kCovToys);
+          hUnfoldTruthGlob = unfoldXJ_toy.Hreco(RooUnfold::kCovToy);
           if (gSystem) gSystem->RedirectOutput(0);
           if (hUnfoldTruthGlob) hUnfoldTruthGlob->SetDirectory(nullptr);
 
@@ -9231,7 +9231,7 @@
 
             TH1* hUnfoldTruthGlob_closure = nullptr;
             if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-            hUnfoldTruthGlob_closure = unfoldXJ_closure.Hunfold(RooUnfolding::kCovToys);
+            hUnfoldTruthGlob_closure = unfoldXJ_closure.Hreco(RooUnfold::kCovToy);
             if (gSystem) gSystem->RedirectOutput(0);
             if (hUnfoldTruthGlob_closure) hUnfoldTruthGlob_closure->SetDirectory(nullptr);
 
@@ -9505,7 +9505,7 @@
 
                 TH1* hUnfoldTruthGlob_half = nullptr;
                 if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-                hUnfoldTruthGlob_half = unfoldXJ_half.Hunfold(RooUnfolding::kCovToys);
+                hUnfoldTruthGlob_half = unfoldXJ_half.Hreco(RooUnfold::kCovToy);
                 if (gSystem) gSystem->RedirectOutput(0);
                 if (hUnfoldTruthGlob_half) hUnfoldTruthGlob_half->SetDirectory(nullptr);
 
