@@ -4036,6 +4036,127 @@ namespace ARJ
               SaveCanvas(c, fp);
             }
 
+              // overlay purity: vz30 vs vz60 (DATA only)
+              if (!ds.isSim)
+              {
+                const int altVz = (kVzCut == 30) ? 60 : 30;
+                const string altTag = CfgTagFor(kJetPtMin, kB2BCut, altVz, kIsoConeR, kIsoMode);
+                const string altPath = kInputBase + "/pp24/RecoilJets_pp_ALL_" + altTag + ".root";
+
+                TFile* fAlt = TFile::Open(altPath.c_str(), "READ");
+                if (fAlt && !fAlt->IsZombie())
+                {
+                  TDirectory* dAlt = fAlt->GetDirectory(kTriggerPP.c_str());
+                  if (!dAlt) dAlt = fAlt;
+
+                  vector<double> yAlt(kNPtBins, 0.0), eyAlt(kNPtBins, 0.0);
+                  bool altOK = true;
+
+                  for (int i = 0; i < kNPtBins; ++i)
+                  {
+                    const PtBin& b = PtBins()[i];
+                    const string& suf = b.suffix;
+
+                    auto Get1Bin = [&](const string& hname)->double
+                    {
+                      TH1* h = dynamic_cast<TH1*>(dAlt->Get(hname.c_str()));
+                      return (h ? h->GetBinContent(1) : 0.0);
+                    };
+
+                    const double A = Get1Bin("h_isIsolated_isTight" + suf);
+                    const double B = Get1Bin("h_notIsolated_isTight" + suf);
+                    const double C = Get1Bin("h_isIsolated_notTight" + suf);
+                    const double D = Get1Bin("h_notIsolated_notTight" + suf);
+
+                    if (A <= 0.0 || D <= 0.0) { altOK = false; break; }
+
+                    double SA = A - B * (C / D);
+                    if (SA < 0.0) SA = 0.0;
+                    yAlt[i] = SA / A;
+
+                    const double dPdA =  (B * C) / (A * A * D);
+                    const double dPdB = -(C) / (A * D);
+                    const double dPdC = -(B) / (A * D);
+                    const double dPdD =  (B * C) / (A * D * D);
+
+                    double var = 0.0;
+                    if (A > 0.0) var += dPdA * dPdA * A;
+                    if (B > 0.0) var += dPdB * dPdB * B;
+                    if (C > 0.0) var += dPdC * dPdC * C;
+                    if (D > 0.0) var += dPdD * dPdD * D;
+
+                    eyAlt[i] = (var > 0.0) ? std::sqrt(var) : 0.0;
+                  }
+
+                  if (altOK)
+                  {
+                    TGraphErrors gDef(kNPtBins, &x[0], &yRaw[0], &ex[0], &eyRaw[0]);
+                    TGraphErrors gAlt(kNPtBins, &x[0], &yAlt[0], &ex[0], &eyAlt[0]);
+
+                    gDef.SetLineWidth(2);
+                    gDef.SetLineColor(kBlack);
+                    gDef.SetMarkerStyle(20);
+                    gDef.SetMarkerSize(1.2);
+                    gDef.SetMarkerColor(kBlack);
+
+                    gAlt.SetLineWidth(2);
+                    gAlt.SetLineColor(kRed + 1);
+                    gAlt.SetMarkerStyle(24);
+                    gAlt.SetMarkerSize(1.2);
+                    gAlt.SetMarkerColor(kRed + 1);
+
+                    const std::string isoConeLabel = (kIsoConeR == "isoR40")
+                      ? "#DeltaR^{iso} < 0.4"
+                      : "#DeltaR^{iso} < 0.3";
+
+                    TCanvas cOv("c_pur_vz_ov","c_pur_vz_ov",900,700);
+                    ApplyCanvasMargins1D(cOv);
+
+                    TH1F hFrOv("hPurVzOvFrame","",100, kPtEdges.front(), kPtEdges.back());
+                    hFrOv.SetDirectory(nullptr);
+                    hFrOv.SetStats(0);
+                    hFrOv.SetMinimum(0.0);
+                    hFrOv.SetMaximum(1.05);
+                    hFrOv.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                    hFrOv.GetYaxis()->SetTitle("Purity (raw ABCD)");
+                    hFrOv.Draw();
+
+                    gDef.Draw("P SAME");
+                    gAlt.Draw("P SAME");
+
+                    TLegend leg(0.55, 0.20, 0.88, 0.36);
+                    leg.SetBorderSize(0);
+                    leg.SetFillStyle(0);
+                    leg.SetTextFont(42);
+                    leg.SetTextSize(0.035);
+                    leg.AddEntry(&gDef, TString::Format("|v_{z}| < %d cm", kVzCut).Data(), "pe");
+                    leg.AddEntry(&gAlt, TString::Format("|v_{z}| < %d cm", altVz).Data(),  "pe");
+                    leg.Draw();
+
+                    TLatex tTitle;
+                    tTitle.SetNDC(true);
+                    tTitle.SetTextFont(42);
+                    tTitle.SetTextAlign(23);
+                    tTitle.SetTextSize(0.045);
+                    tTitle.DrawLatex(0.50, 0.96,
+                      TString::Format("Purity Overlay, %s, Run24pp", isoConeLabel.c_str()).Data()
+                    );
+
+                    SaveCanvas(cOv, JoinPath(outDir, "purity_raw_DATA_overlay_vz.png"));
+                  }
+
+                  fAlt->Close();
+                  delete fAlt;
+                }
+                else
+                {
+                  cout << ANSI_BOLD_YEL
+                       << "[WARN] vz overlay purity skipped: could not open " << altPath
+                       << ANSI_RESET << "\n";
+                  if (fAlt) { fAlt->Close(); delete fAlt; }
+                }
+              }
+
             // overlay raw vs corrected if correction used
             bool anyCorr = false;
             for (bool b : hasCorr) if (b) { anyCorr = true; break; }

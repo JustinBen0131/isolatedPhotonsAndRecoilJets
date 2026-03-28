@@ -4270,145 +4270,286 @@
             const int bestIt                = phoIterScan.bestIt;
             const double bestQuad           = phoIterScan.bestQuad;
 
-            if ((int)xIt.size() > 0)
-            {
-              TCanvas cSt("c_pho_iterStability_relChange_relStat", "c_pho_iterStability_relChange_relStat", 900, 700);
-              ApplyCanvasMargins1D(cSt);
-
-              // Determine y-range from content
-              double ymax = 0.0;
-              for (size_t i = 0; i < yRelStat.size(); ++i) ymax = std::max(ymax, yRelStat[i]);
-              for (size_t i = 0; i < yRelDev.size();  ++i) ymax = std::max(ymax, yRelDev[i]);
-              if (ymax <= 0.0) ymax = 0.1;
-              ymax *= 1.25;
-
-              TH1F frame("frame_phoIt", "", 1, 1.0, (double)kMaxIt + 0.5);
-              frame.SetMinimum(0.0);
-              frame.SetMaximum(ymax);
-              frame.SetTitle("");
-              frame.GetXaxis()->SetTitle("Iteration");
-              frame.GetYaxis()->SetTitle("Relative quantity");
-              frame.Draw("axis");
-
-              // total relative stat. uncertainty (RED)
-              TGraphErrors gStat((int)xIt.size(), &xIt[0], &yRelStat[0], &exIt[0], &eyRelStat[0]);
-              gStat.SetMarkerStyle(24);
-              gStat.SetMarkerSize(1.1);
-              gStat.SetMarkerColor(kRed + 1);
-              gStat.SetLineColor(kRed + 1);
-              gStat.SetLineWidth(2);
-              gStat.Draw("P same");
-
-              // total relative deviation (it vs it-1, with it=1 using 0->1 baseline) (BLUE)
-              TGraphErrors gDev((int)xIt.size(), &xIt[0], &yRelDev[0], &exIt[0], &eyRelDev[0]);
-              gDev.SetMarkerStyle(24);
-              gDev.SetMarkerSize(1.1);
-              gDev.SetMarkerColor(kBlue + 1);
-              gDev.SetLineColor(kBlue + 1);
-              gDev.SetLineWidth(2);
-              gDev.Draw("P same");
-
-              TLegend leg(0.55, 0.78, 0.89, 0.90);
-              leg.SetBorderSize(0);
-              leg.SetFillStyle(0);
-              leg.SetTextFont(42);
-              leg.SetTextSize(0.033);
-              leg.AddEntry(&gStat, "total relative stat. uncertainty", "p");
-              leg.AddEntry(&gDev,  "total relative deviation (it vs it-1)", "p");
-              leg.Draw();
-
+              if ((int)xIt.size() > 0)
               {
-                  TLatex tx;
-                  tx.SetNDC();
-                  tx.SetTextFont(42);
-                  tx.SetTextAlign(22);
-                  tx.SetTextSize(0.040);
-                  tx.DrawLatex(0.50, 0.965, "Iteration Stability, Photon 4 + MBD NS #geq 1, Run24pp");
-              }
+                vector<double> xItNo1;
+                vector<double> exItNo1;
+                vector<double> yRelStatNo1;
+                vector<double> eyRelStatNo1;
+                vector<double> yRelDevNo1;
+                vector<double> eyRelDevNo1;
+                vector<double> yQuadNo1;
+                vector<double> eyQuadNo1;
 
-              // Label under legend (photon 1D unfolding)
-              {
-                  TLatex tx;
-                  tx.SetNDC();
-                  tx.SetTextFont(42);
-                  tx.SetTextAlign(13);
-                  tx.SetTextSize(0.032);
-                  tx.DrawLatex(0.55, 0.74, "1D photon-yield unfolding");
-              }
+                for (size_t i = 0; i < xIt.size(); ++i)
+                {
+                  if (xIt[i] <= 1.0) continue;
+                  xItNo1.push_back(xIt[i]);
+                  exItNo1.push_back(exIt[i]);
+                  yRelStatNo1.push_back(yRelStat[i]);
+                  eyRelStatNo1.push_back(eyRelStat[i]);
+                  yRelDevNo1.push_back(yRelDev[i]);
+                  eyRelDevNo1.push_back(eyRelDev[i]);
+                  yQuadNo1.push_back(yQuad[i]);
+                  eyQuadNo1.push_back(eyQuad[i]);
+                }
 
-              SaveCanvas(cSt, JoinPath(phoValDir, "pho_unfold_iterStability_relChange_relStat.png"));
+                TCanvas cSt("c_pho_iterStability_relChange_relStat", "c_pho_iterStability_relChange_relStat", 900, 700);
+                ApplyCanvasMargins1D(cSt);
 
-              TCanvas cQuad("c_pho_iterStability_quadratureSum", "c_pho_iterStability_quadratureSum", 900, 700);
-              ApplyCanvasMargins1D(cQuad);
+                // Determine y-range from content
+                double ymax = 0.0;
+                for (size_t i = 0; i < yRelStat.size(); ++i) ymax = std::max(ymax, yRelStat[i]);
+                for (size_t i = 0; i < yRelDev.size();  ++i) ymax = std::max(ymax, yRelDev[i]);
+                if (ymax <= 0.0) ymax = 0.1;
+                ymax *= 1.25;
 
-              double ymaxQ = 0.0;
-              for (size_t i = 0; i < yQuad.size(); ++i) ymaxQ = std::max(ymaxQ, yQuad[i]);
-              if (ymaxQ <= 0.0) ymaxQ = 0.1;
-              ymaxQ *= 1.25;
+                TH1F frame("frame_phoIt", "", 1, 1.0, (double)kMaxIt + 0.5);
+                frame.SetMinimum(0.0);
+                frame.SetMaximum(ymax);
+                frame.SetTitle("");
+                frame.GetXaxis()->SetTitle("Iteration");
+                frame.GetYaxis()->SetTitle("Relative quantity");
+                frame.Draw("axis");
 
-              TH1F frameQ("frame_phoItQuad", "", 1, 1.0, (double)kMaxIt + 0.5);
-              frameQ.SetMinimum(0.0);
-              frameQ.SetMaximum(ymaxQ);
-              frameQ.SetTitle("");
-              frameQ.GetXaxis()->SetTitle("Iteration");
-              frameQ.GetYaxis()->SetTitle("Quadrature sum");
-              frameQ.Draw("axis");
+                // total relative stat. uncertainty (RED)
+                TGraphErrors gStat((int)xIt.size(), &xIt[0], &yRelStat[0], &exIt[0], &eyRelStat[0]);
+                gStat.SetMarkerStyle(24);
+                gStat.SetMarkerSize(1.1);
+                gStat.SetMarkerColor(kRed + 1);
+                gStat.SetLineColor(kRed + 1);
+                gStat.SetLineWidth(2);
+                gStat.Draw("P same");
 
-              TGraphErrors gQuad((int)xIt.size(), &xIt[0], &yQuad[0], &exIt[0], &eyQuad[0]);
-              gQuad.SetMarkerStyle(20);
-              gQuad.SetMarkerSize(1.1);
-              gQuad.SetMarkerColor(kBlack);
-              gQuad.SetLineColor(kBlack);
-              gQuad.SetLineWidth(2);
-              gQuad.Draw("LP same");
+                // total relative deviation (it vs it-1, with it=1 using 0->1 baseline) (BLUE)
+                TGraphErrors gDev((int)xIt.size(), &xIt[0], &yRelDev[0], &exIt[0], &eyRelDev[0]);
+                gDev.SetMarkerStyle(24);
+                gDev.SetMarkerSize(1.1);
+                gDev.SetMarkerColor(kBlue + 1);
+                gDev.SetLineColor(kBlue + 1);
+                gDev.SetLineWidth(2);
+                gDev.Draw("P same");
 
-              TGraphErrors gBest;
-              if (bestIt > 0 && std::isfinite(bestQuad))
-              {
-                const double bestX[1]  = { (double)bestIt };
-                const double bestY[1]  = { bestQuad };
-                const double bestEX[1] = { 0.0 };
-                const double bestEY[1] = { 0.0 };
+                TLegend leg(0.55, 0.78, 0.89, 0.90);
+                leg.SetBorderSize(0);
+                leg.SetFillStyle(0);
+                leg.SetTextFont(42);
+                leg.SetTextSize(0.033);
+                leg.AddEntry(&gStat, "total relative stat. uncertainty", "p");
+                leg.AddEntry(&gDev,  "total relative deviation (it vs it-1)", "p");
+                leg.Draw();
 
-                gBest = TGraphErrors(1, bestX, bestY, bestEX, bestEY);
-                gBest.SetMarkerStyle(29);
-                gBest.SetMarkerSize(1.6);
-                gBest.SetMarkerColor(kRed + 1);
-                gBest.SetLineColor(kRed + 1);
-                gBest.Draw("P same");
-              }
+                {
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextAlign(22);
+                    tx.SetTextSize(0.040);
+                    tx.DrawLatex(0.50, 0.965, "Iteration Stability, Photon 4 + MBD NS #geq 1, Run24pp");
+                }
 
-              TLegend legQ(0.55, 0.78, 0.89, 0.90);
-              legQ.SetBorderSize(0);
-              legQ.SetFillStyle(0);
-              legQ.SetTextFont(42);
-              legQ.SetTextSize(0.033);
-              legQ.AddEntry(&gQuad, "quadrature sum", "lp");
-              if (bestIt > 0 && std::isfinite(bestQuad))
-              {
-                legQ.AddEntry(&gBest, TString::Format("minimum: it=%d", bestIt).Data(), "p");
-              }
-              legQ.Draw();
+                {
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextAlign(13);
+                    tx.SetTextSize(0.032);
+                    tx.DrawLatex(0.55, 0.74, "1D photon-yield unfolding");
+                }
 
-              {
-                  TLatex tx;
-                  tx.SetNDC();
-                  tx.SetTextFont(42);
-                  tx.SetTextAlign(22);
-                  tx.SetTextSize(0.040);
-                  tx.DrawLatex(0.50, 0.965, "Quadrature-sum optimization, Photon 4 + MBD NS #geq 1, Run24pp");
-              }
+                SaveCanvas(cSt, JoinPath(phoValDir, "pho_unfold_iterStability_relChange_relStat.png"));
 
-              {
-                  TLatex tx;
-                  tx.SetNDC();
-                  tx.SetTextFont(42);
-                  tx.SetTextAlign(13);
-                  tx.SetTextSize(0.032);
-                  tx.DrawLatex(0.55, 0.74, "1D photon-yield unfolding");
-              }
+                if (!xItNo1.empty())
+                {
+                  TCanvas cStNo1("c_pho_iterStability_relChange_relStat_noIter1", "c_pho_iterStability_relChange_relStat_noIter1", 900, 700);
+                  ApplyCanvasMargins1D(cStNo1);
 
-              SaveCanvas(cQuad, JoinPath(phoValDir, "pho_unfold_iterStability_quadratureSum.png"));
+                  double ymaxNo1 = 0.0;
+                  for (size_t i = 0; i < yRelStatNo1.size(); ++i) ymaxNo1 = std::max(ymaxNo1, yRelStatNo1[i]);
+                  for (size_t i = 0; i < yRelDevNo1.size();  ++i) ymaxNo1 = std::max(ymaxNo1, yRelDevNo1[i]);
+                  if (ymaxNo1 <= 0.0) ymaxNo1 = 0.1;
+                  ymaxNo1 *= 1.25;
+
+                  TH1F frameNo1("frame_phoIt_noIter1", "", 1, 2.0, (double)kMaxIt + 0.5);
+                  frameNo1.SetMinimum(0.0);
+                  frameNo1.SetMaximum(ymaxNo1);
+                  frameNo1.SetTitle("");
+                  frameNo1.GetXaxis()->SetTitle("Iteration");
+                  frameNo1.GetYaxis()->SetTitle("Relative quantity");
+                  frameNo1.Draw("axis");
+
+                  TGraphErrors gStatNo1((int)xItNo1.size(), &xItNo1[0], &yRelStatNo1[0], &exItNo1[0], &eyRelStatNo1[0]);
+                  gStatNo1.SetMarkerStyle(24);
+                  gStatNo1.SetMarkerSize(1.1);
+                  gStatNo1.SetMarkerColor(kRed + 1);
+                  gStatNo1.SetLineColor(kRed + 1);
+                  gStatNo1.SetLineWidth(2);
+                  gStatNo1.Draw("P same");
+
+                  TGraphErrors gDevNo1((int)xItNo1.size(), &xItNo1[0], &yRelDevNo1[0], &exItNo1[0], &eyRelDevNo1[0]);
+                  gDevNo1.SetMarkerStyle(24);
+                  gDevNo1.SetMarkerSize(1.1);
+                  gDevNo1.SetMarkerColor(kBlue + 1);
+                  gDevNo1.SetLineColor(kBlue + 1);
+                  gDevNo1.SetLineWidth(2);
+                  gDevNo1.Draw("P same");
+
+                  TLegend legNo1(0.55, 0.78, 0.89, 0.90);
+                  legNo1.SetBorderSize(0);
+                  legNo1.SetFillStyle(0);
+                  legNo1.SetTextFont(42);
+                  legNo1.SetTextSize(0.033);
+                  legNo1.AddEntry(&gStatNo1, "total relative stat. uncertainty", "p");
+                  legNo1.AddEntry(&gDevNo1,  "total relative deviation (it vs it-1)", "p");
+                  legNo1.Draw();
+
+                  {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(22);
+                      tx.SetTextSize(0.040);
+                      tx.DrawLatex(0.50, 0.965, "Iteration Stability, Photon 4 + MBD NS #geq 1, Run24pp");
+                  }
+
+                  {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(13);
+                      tx.SetTextSize(0.032);
+                      tx.DrawLatex(0.55, 0.74, "1D photon-yield unfolding (it #geq 2 only)");
+                  }
+
+                  SaveCanvas(cStNo1, JoinPath(phoValDir, "pho_unfold_iterStability_relChange_relStat_noIter1.png"));
+                }
+
+                TCanvas cQuad("c_pho_iterStability_quadratureSum", "c_pho_iterStability_quadratureSum", 900, 700);
+                ApplyCanvasMargins1D(cQuad);
+
+                double ymaxQ = 0.0;
+                for (size_t i = 0; i < yQuad.size(); ++i) ymaxQ = std::max(ymaxQ, yQuad[i]);
+                if (ymaxQ <= 0.0) ymaxQ = 0.1;
+                ymaxQ *= 1.25;
+
+                TH1F frameQ("frame_phoItQuad", "", 1, 1.0, (double)kMaxIt + 0.5);
+                frameQ.SetMinimum(0.0);
+                frameQ.SetMaximum(ymaxQ);
+                frameQ.SetTitle("");
+                frameQ.GetXaxis()->SetTitle("Iteration");
+                frameQ.GetYaxis()->SetTitle("Quadrature sum");
+                frameQ.Draw("axis");
+
+                TGraphErrors gQuad((int)xIt.size(), &xIt[0], &yQuad[0], &exIt[0], &eyQuad[0]);
+                gQuad.SetMarkerStyle(20);
+                gQuad.SetMarkerSize(1.1);
+                gQuad.SetMarkerColor(kBlack);
+                gQuad.SetLineColor(kBlack);
+                gQuad.SetLineWidth(2);
+                gQuad.Draw("LP same");
+
+                TGraphErrors gBest;
+                if (bestIt > 0 && std::isfinite(bestQuad))
+                {
+                  const double bestX[1]  = { (double)bestIt };
+                  const double bestY[1]  = { bestQuad };
+                  const double bestEX[1] = { 0.0 };
+                  const double bestEY[1] = { 0.0 };
+
+                  gBest = TGraphErrors(1, bestX, bestY, bestEX, bestEY);
+                  gBest.SetMarkerStyle(29);
+                  gBest.SetMarkerSize(1.6);
+                  gBest.SetMarkerColor(kRed + 1);
+                  gBest.SetLineColor(kRed + 1);
+                  gBest.Draw("P same");
+                }
+
+                TLegend legQ(0.55, 0.78, 0.89, 0.90);
+                legQ.SetBorderSize(0);
+                legQ.SetFillStyle(0);
+                legQ.SetTextFont(42);
+                legQ.SetTextSize(0.033);
+                legQ.AddEntry(&gQuad, "quadrature sum", "lp");
+                if (bestIt > 0 && std::isfinite(bestQuad))
+                {
+                  legQ.AddEntry(&gBest, TString::Format("minimum: it=%d", bestIt).Data(), "p");
+                }
+                legQ.Draw();
+
+                {
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextAlign(22);
+                    tx.SetTextSize(0.040);
+                    tx.DrawLatex(0.50, 0.965, "Quadrature-sum optimization, Photon 4 + MBD NS #geq 1, Run24pp");
+                }
+
+                {
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextAlign(13);
+                    tx.SetTextSize(0.032);
+                    tx.DrawLatex(0.55, 0.74, "1D photon-yield unfolding");
+                }
+
+                SaveCanvas(cQuad, JoinPath(phoValDir, "pho_unfold_iterStability_quadratureSum.png"));
+
+                if (!xItNo1.empty())
+                {
+                  TCanvas cQuadNo1("c_pho_iterStability_quadratureSum_noIter1", "c_pho_iterStability_quadratureSum_noIter1", 900, 700);
+                  ApplyCanvasMargins1D(cQuadNo1);
+
+                  double ymaxQNo1 = 0.0;
+                  for (size_t i = 0; i < yQuadNo1.size(); ++i) ymaxQNo1 = std::max(ymaxQNo1, yQuadNo1[i]);
+                  if (ymaxQNo1 <= 0.0) ymaxQNo1 = 0.1;
+                  ymaxQNo1 *= 1.25;
+
+                  TH1F frameQNo1("frame_phoItQuad_noIter1", "", 1, 2.0, (double)kMaxIt + 0.5);
+                  frameQNo1.SetMinimum(0.0);
+                  frameQNo1.SetMaximum(ymaxQNo1);
+                  frameQNo1.SetTitle("");
+                  frameQNo1.GetXaxis()->SetTitle("Iteration");
+                  frameQNo1.GetYaxis()->SetTitle("Quadrature sum");
+                  frameQNo1.Draw("axis");
+
+                  TGraphErrors gQuadNo1((int)xItNo1.size(), &xItNo1[0], &yQuadNo1[0], &exItNo1[0], &eyQuadNo1[0]);
+                  gQuadNo1.SetMarkerStyle(20);
+                  gQuadNo1.SetMarkerSize(1.1);
+                  gQuadNo1.SetMarkerColor(kBlack);
+                  gQuadNo1.SetLineColor(kBlack);
+                  gQuadNo1.SetLineWidth(2);
+                  gQuadNo1.Draw("LP same");
+
+                  TLegend legQNo1(0.55, 0.78, 0.89, 0.90);
+                  legQNo1.SetBorderSize(0);
+                  legQNo1.SetFillStyle(0);
+                  legQNo1.SetTextFont(42);
+                  legQNo1.SetTextSize(0.033);
+                  legQNo1.AddEntry(&gQuadNo1, "quadrature sum", "lp");
+                  legQNo1.Draw();
+
+                  {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(22);
+                      tx.SetTextSize(0.040);
+                      tx.DrawLatex(0.50, 0.965, "Quadrature-sum optimization, Photon 4 + MBD NS #geq 1, Run24pp");
+                  }
+
+                  {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(13);
+                      tx.SetTextSize(0.032);
+                      tx.DrawLatex(0.55, 0.74, "1D photon-yield unfolding (it #geq 2 only)");
+                  }
+
+                  SaveCanvas(cQuadNo1, JoinPath(phoValDir, "pho_unfold_iterStability_quadratureSum_noIter1.png"));
+                }
 
                 vector<string> iterSummary;
                 iterSummary.push_back("Photon iteration-stability summary");
@@ -4416,26 +4557,27 @@
                 iterSummary.push_back(TString::Format("minimum quadrature sum = %.10g", bestQuad).Data());
                 iterSummary.push_back("relChange is defined as the successive-iterate difference it vs (it-1), with iteration 1 using the explicit 0->1 baseline.");
                 iterSummary.push_back("iteration 0 baseline is the measured input histogram mapped onto the unfolding comparison axis, so iteration 1 is included in the best-iteration choice.");
+                iterSummary.push_back("additional plots with suffix _noIter1 exclude iteration 1 from the display only; they do not change the scan or best-iteration choice.");
                 iterSummary.push_back("relStat is built from the full RooUnfold::kCovToy covariance restricted to the 9 analysis p_{T}^{#gamma} bins.");
                 iterSummary.push_back("support / underflow / overflow bins are excluded from the stability scalar.");
                 iterSummary.push_back("quadrature sum definition: sqrt(relStat^2 + relChange^2)");
                 iterSummary.push_back("");
 
-              for (size_t i = 0; i < xIt.size(); ++i)
-              {
-                iterSummary.push_back(
-                  TString::Format("it=%d  relStat=%.10g  relChange=%.10g  quadratureSum=%.10g",
-                                  (int)xIt[i], yRelStat[i], yRelDev[i], yQuad[i]).Data()
-                );
+                for (size_t i = 0; i < xIt.size(); ++i)
+                {
+                  iterSummary.push_back(
+                    TString::Format("it=%d  relStat=%.10g  relChange=%.10g  quadratureSum=%.10g",
+                                    (int)xIt[i], yRelStat[i], yRelDev[i], yQuad[i]).Data()
+                  );
+                }
+
+                WriteTextFile(JoinPath(phoValDir, "pho_unfold_iterStability_bestIteration.txt"), iterSummary);
+
+                cout << ANSI_BOLD_CYN
+                     << "[PHO ITER QA] best iteration from quadrature sum = " << bestIt
+                     << "  minimum = " << bestQuad
+                     << ANSI_RESET << "\n";
               }
-
-              WriteTextFile(JoinPath(phoValDir, "pho_unfold_iterStability_bestIteration.txt"), iterSummary);
-
-              cout << ANSI_BOLD_CYN
-                   << "[PHO ITER QA] best iteration from quadrature sum = " << bestIt
-                   << "  minimum = " << bestQuad
-                   << ANSI_RESET << "\n";
-            }
           }
 
           // -----------------------------
@@ -12193,181 +12335,328 @@
                  << " (expected " << kMaxIterPlot << " for it=1..kMax)\n"
                  << ANSI_RESET;
 
-            if (!xIt.empty())
-            {
-              double yMax = 0.0;
-              for (size_t i = 0; i < yRelStat.size();   ++i) yMax = std::max(yMax, yRelStat[i]);
-              for (size_t i = 0; i < yRelChange.size(); ++i) yMax = std::max(yMax, yRelChange[i]);
-              if (yMax <= 0.0) yMax = 1.0;
-
-              cout << ANSI_BOLD_CYN << "[UNF ITER QA] yMax=" << std::setprecision(6) << yMax << ANSI_RESET << "\n";
-
-              TCanvas cIt(TString::Format("c_iterStability_%s", rKey.c_str()).Data(), "c_iterStability", 900, 700);
-              ApplyCanvasMargins1D(cIt);
-
-              TH1F frame("frame","", 1, 1.0, (double)kMaxIterPlot + 0.5);
-              frame.SetMinimum(0.0);
-              frame.SetMaximum(1.20 * yMax);
-              frame.SetTitle("");
-              frame.GetXaxis()->SetTitle("Iteration");
-              frame.GetYaxis()->SetTitle("Relative quantity");
-              frame.Draw("axis");
-
-              TGraphErrors gStat((int)xIt.size(), &xIt[0], &yRelStat[0], &exIt[0], &eyRelStat[0]);
-              gStat.SetMarkerStyle(20);
-              gStat.SetMarkerSize(1.1);
-              gStat.SetMarkerColor(kRed + 1);
-              gStat.SetLineColor(kRed + 1);
-              gStat.SetLineWidth(2);
-              gStat.Draw("P same");
-
-              TGraphErrors gChg((int)xIt.size(), &xIt[0], &yRelChange[0], &exIt[0], &eyRelChange[0]);
-              gChg.SetMarkerStyle(20);
-              gChg.SetMarkerSize(1.1);
-              gChg.SetMarkerColor(kBlue);
-              gChg.SetLineColor(kBlue);
-              gChg.SetLineWidth(2);
-              gChg.Draw("P same");
-
-              // Legend higher in the top-left
-              TLegend leg(0.14, 0.78, 0.54, 0.92);
-              leg.SetBorderSize(0);
-              leg.SetFillStyle(0);
-              leg.SetTextFont(42);
-              leg.SetTextSize(0.032);
-              leg.AddEntry(&gStat, "total relative stat. uncertainty", "p");
-              leg.AddEntry(&gChg,  "total relative deviation (it vs it-1)", "p");
-              leg.Draw();
-
+              if (!xIt.empty())
               {
-                  TLatex tx;
-                  tx.SetNDC();
-                  tx.SetTextFont(42);
-                  tx.SetTextAlign(13);
-                  tx.SetTextSize(0.032);
-                  tx.DrawLatex(0.14, 0.74, "2D (p_{T}^{#gamma}, x_{J}) unfolding");
-              }
+                vector<double> xItNo1;
+                vector<double> exItNo1;
+                vector<double> yRelStatNo1;
+                vector<double> eyRelStatNo1;
+                vector<double> yRelChangeNo1;
+                vector<double> eyRelChangeNo1;
+                vector<double> yQuadNo1;
+                vector<double> eyQuadNo1;
 
+                for (size_t i = 0; i < xIt.size(); ++i)
+                {
+                  if (xIt[i] <= 1.0) continue;
+                  xItNo1.push_back(xIt[i]);
+                  exItNo1.push_back(exIt[i]);
+                  yRelStatNo1.push_back(yRelStat[i]);
+                  eyRelStatNo1.push_back(eyRelStat[i]);
+                  yRelChangeNo1.push_back(yRelChange[i]);
+                  eyRelChangeNo1.push_back(eyRelChange[i]);
+                  yQuadNo1.push_back(yQuad[i]);
+                  eyQuadNo1.push_back(eyQuad[i]);
+                }
+
+                double yMax = 0.0;
+                for (size_t i = 0; i < yRelStat.size();   ++i) yMax = std::max(yMax, yRelStat[i]);
+                for (size_t i = 0; i < yRelChange.size(); ++i) yMax = std::max(yMax, yRelChange[i]);
+                if (yMax <= 0.0) yMax = 1.0;
+
+                cout << ANSI_BOLD_CYN << "[UNF ITER QA] yMax=" << std::setprecision(6) << yMax << ANSI_RESET << "\n";
+
+                TCanvas cIt(TString::Format("c_iterStability_%s", rKey.c_str()).Data(), "c_iterStability", 900, 700);
+                ApplyCanvasMargins1D(cIt);
+
+                TH1F frame("frame","", 1, 1.0, (double)kMaxIterPlot + 0.5);
+                frame.SetMinimum(0.0);
+                frame.SetMaximum(1.20 * yMax);
+                frame.SetTitle("");
+                frame.GetXaxis()->SetTitle("Iteration");
+                frame.GetYaxis()->SetTitle("Relative quantity");
+                frame.Draw("axis");
+
+                TGraphErrors gStat((int)xIt.size(), &xIt[0], &yRelStat[0], &exIt[0], &eyRelStat[0]);
+                gStat.SetMarkerStyle(20);
+                gStat.SetMarkerSize(1.1);
+                gStat.SetMarkerColor(kRed + 1);
+                gStat.SetLineColor(kRed + 1);
+                gStat.SetLineWidth(2);
+                gStat.Draw("P same");
+
+                TGraphErrors gChg((int)xIt.size(), &xIt[0], &yRelChange[0], &exIt[0], &eyRelChange[0]);
+                gChg.SetMarkerStyle(20);
+                gChg.SetMarkerSize(1.1);
+                gChg.SetMarkerColor(kBlue);
+                gChg.SetLineColor(kBlue);
+                gChg.SetLineWidth(2);
+                gChg.Draw("P same");
+
+                TLegend leg(0.14, 0.78, 0.54, 0.92);
+                leg.SetBorderSize(0);
+                leg.SetFillStyle(0);
+                leg.SetTextFont(42);
+                leg.SetTextSize(0.032);
+                leg.AddEntry(&gStat, "total relative stat. uncertainty", "p");
+                leg.AddEntry(&gChg,  "total relative deviation (it vs it-1)", "p");
+                leg.Draw();
+
+                {
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextAlign(13);
+                    tx.SetTextSize(0.032);
+                    tx.DrawLatex(0.14, 0.74, "2D (p_{T}^{#gamma}, x_{J}) unfolding");
+                }
+
+                {
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextAlign(22);
+                    tx.SetTextSize(0.040);
+                    tx.DrawLatex(0.50, 0.965, TString::Format("Iteration Stability, R = %.1f, Photon 4 + MBD NS #geq 1, Run24pp", R).Data());
+                }
+
+                cIt.Modified();
+                cIt.Update();
+
+                const std::string outPng = JoinPath(rOut, "unfold_iterStability_relChange_relStat.png");
+                cout << ANSI_BOLD_CYN << "[UNF ITER QA] Saving: " << outPng << ANSI_RESET << "\n";
+                SaveCanvas(cIt, outPng);
+
+                if (!xItNo1.empty())
+                {
+                  double yMaxNo1 = 0.0;
+                  for (size_t i = 0; i < yRelStatNo1.size();   ++i) yMaxNo1 = std::max(yMaxNo1, yRelStatNo1[i]);
+                  for (size_t i = 0; i < yRelChangeNo1.size(); ++i) yMaxNo1 = std::max(yMaxNo1, yRelChangeNo1[i]);
+                  if (yMaxNo1 <= 0.0) yMaxNo1 = 1.0;
+
+                  TCanvas cItNo1(TString::Format("c_iterStability_noIter1_%s", rKey.c_str()).Data(), "c_iterStability_noIter1", 900, 700);
+                  ApplyCanvasMargins1D(cItNo1);
+
+                  TH1F frameNo1("frameNo1","", 1, 2.0, (double)kMaxIterPlot + 0.5);
+                  frameNo1.SetMinimum(0.0);
+                  frameNo1.SetMaximum(1.20 * yMaxNo1);
+                  frameNo1.SetTitle("");
+                  frameNo1.GetXaxis()->SetTitle("Iteration");
+                  frameNo1.GetYaxis()->SetTitle("Relative quantity");
+                  frameNo1.Draw("axis");
+
+                  TGraphErrors gStatNo1((int)xItNo1.size(), &xItNo1[0], &yRelStatNo1[0], &exItNo1[0], &eyRelStatNo1[0]);
+                  gStatNo1.SetMarkerStyle(20);
+                  gStatNo1.SetMarkerSize(1.1);
+                  gStatNo1.SetMarkerColor(kRed + 1);
+                  gStatNo1.SetLineColor(kRed + 1);
+                  gStatNo1.SetLineWidth(2);
+                  gStatNo1.Draw("P same");
+
+                  TGraphErrors gChgNo1((int)xItNo1.size(), &xItNo1[0], &yRelChangeNo1[0], &exItNo1[0], &eyRelChangeNo1[0]);
+                  gChgNo1.SetMarkerStyle(20);
+                  gChgNo1.SetMarkerSize(1.1);
+                  gChgNo1.SetMarkerColor(kBlue);
+                  gChgNo1.SetLineColor(kBlue);
+                  gChgNo1.SetLineWidth(2);
+                  gChgNo1.Draw("P same");
+
+                  TLegend legNo1(0.14, 0.78, 0.54, 0.92);
+                  legNo1.SetBorderSize(0);
+                  legNo1.SetFillStyle(0);
+                  legNo1.SetTextFont(42);
+                  legNo1.SetTextSize(0.032);
+                  legNo1.AddEntry(&gStatNo1, "total relative stat. uncertainty", "p");
+                  legNo1.AddEntry(&gChgNo1,  "total relative deviation (it vs it-1)", "p");
+                  legNo1.Draw();
+
+                  {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(13);
+                      tx.SetTextSize(0.032);
+                      tx.DrawLatex(0.14, 0.74, "2D (p_{T}^{#gamma}, x_{J}) unfolding (it #geq 2 only)");
+                  }
+
+                  {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(22);
+                      tx.SetTextSize(0.040);
+                      tx.DrawLatex(0.50, 0.965, TString::Format("Iteration Stability, R = %.1f, Photon 4 + MBD NS #geq 1, Run24pp", R).Data());
+                  }
+
+                  cItNo1.Modified();
+                  cItNo1.Update();
+
+                  const std::string outPngNo1 = JoinPath(rOut, "unfold_iterStability_relChange_relStat_noIter1.png");
+                  cout << ANSI_BOLD_CYN << "[UNF ITER QA] Saving: " << outPngNo1 << ANSI_RESET << "\n";
+                  SaveCanvas(cItNo1, outPngNo1);
+                }
+
+                double yMaxQ = 0.0;
+                for (size_t i = 0; i < yQuad.size(); ++i) yMaxQ = std::max(yMaxQ, yQuad[i]);
+                if (yMaxQ <= 0.0) yMaxQ = 0.1;
+
+                TCanvas cQuad(TString::Format("c_iterQuadrature_%s", rKey.c_str()).Data(), "c_iterQuadrature", 900, 700);
+                ApplyCanvasMargins1D(cQuad);
+
+                TH1F frameQ("frameQ","", 1, 1.0, (double)kMaxIterPlot + 0.5);
+                frameQ.SetMinimum(0.0);
+                frameQ.SetMaximum(1.20 * yMaxQ);
+                frameQ.SetTitle("");
+                frameQ.GetXaxis()->SetTitle("Iteration");
+                frameQ.GetYaxis()->SetTitle("Quadrature sum");
+                frameQ.Draw("axis");
+
+                TGraphErrors gQuad((int)xIt.size(), &xIt[0], &yQuad[0], &exIt[0], &eyQuad[0]);
+                gQuad.SetMarkerStyle(20);
+                gQuad.SetMarkerSize(1.1);
+                gQuad.SetMarkerColor(kBlack);
+                gQuad.SetLineColor(kBlack);
+                gQuad.SetLineWidth(2);
+                gQuad.Draw("LP same");
+
+                TGraphErrors gBest;
+                if (bestIt > 0 && std::isfinite(bestQuad))
+                {
+                  const double bestX[1]  = { (double)bestIt };
+                  const double bestY[1]  = { bestQuad };
+                  const double bestEX[1] = { 0.0 };
+                  const double bestEY[1] = { 0.0 };
+
+                  gBest = TGraphErrors(1, bestX, bestY, bestEX, bestEY);
+                  gBest.SetMarkerStyle(29);
+                  gBest.SetMarkerSize(1.6);
+                  gBest.SetMarkerColor(kRed + 1);
+                  gBest.SetLineColor(kRed + 1);
+                  gBest.Draw("P same");
+                }
+
+                TLegend legQ(0.14, 0.78, 0.54, 0.92);
+                legQ.SetBorderSize(0);
+                legQ.SetFillStyle(0);
+                legQ.SetTextFont(42);
+                legQ.SetTextSize(0.032);
+                legQ.AddEntry(&gQuad, "quadrature sum", "lp");
+                if (bestIt > 0 && std::isfinite(bestQuad))
+                {
+                  legQ.AddEntry(&gBest, TString::Format("minimum: it=%d", bestIt).Data(), "p");
+                }
+                legQ.Draw();
+
+                {
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextAlign(13);
+                    tx.SetTextSize(0.032);
+                    tx.DrawLatex(0.14, 0.74, "2D (p_{T}^{#gamma}, x_{J}) unfolding");
+                }
+
+                {
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextAlign(22);
+                    tx.SetTextSize(0.040);
+                    tx.DrawLatex(0.50, 0.965, TString::Format("Quadrature-sum optimization, R = %.1f, Photon 4 + MBD NS #geq 1, Run24pp", R).Data());
+                }
+
+                const std::string outQuadPng = JoinPath(rOut, "unfold_iterStability_quadratureSum.png");
+                cout << ANSI_BOLD_CYN << "[UNF ITER QA] Saving: " << outQuadPng << ANSI_RESET << "\n";
+                SaveCanvas(cQuad, outQuadPng);
+
+                if (!xItNo1.empty())
+                {
+                  double yMaxQNo1 = 0.0;
+                  for (size_t i = 0; i < yQuadNo1.size(); ++i) yMaxQNo1 = std::max(yMaxQNo1, yQuadNo1[i]);
+                  if (yMaxQNo1 <= 0.0) yMaxQNo1 = 0.1;
+
+                  TCanvas cQuadNo1(TString::Format("c_iterQuadrature_noIter1_%s", rKey.c_str()).Data(), "c_iterQuadrature_noIter1", 900, 700);
+                  ApplyCanvasMargins1D(cQuadNo1);
+
+                  TH1F frameQNo1("frameQNo1","", 1, 2.0, (double)kMaxIterPlot + 0.5);
+                  frameQNo1.SetMinimum(0.0);
+                  frameQNo1.SetMaximum(1.20 * yMaxQNo1);
+                  frameQNo1.SetTitle("");
+                  frameQNo1.GetXaxis()->SetTitle("Iteration");
+                  frameQNo1.GetYaxis()->SetTitle("Quadrature sum");
+                  frameQNo1.Draw("axis");
+
+                  TGraphErrors gQuadNo1((int)xItNo1.size(), &xItNo1[0], &yQuadNo1[0], &exItNo1[0], &eyQuadNo1[0]);
+                  gQuadNo1.SetMarkerStyle(20);
+                  gQuadNo1.SetMarkerSize(1.1);
+                  gQuadNo1.SetMarkerColor(kBlack);
+                  gQuadNo1.SetLineColor(kBlack);
+                  gQuadNo1.SetLineWidth(2);
+                  gQuadNo1.Draw("LP same");
+
+                  TLegend legQNo1(0.14, 0.78, 0.54, 0.92);
+                  legQNo1.SetBorderSize(0);
+                  legQNo1.SetFillStyle(0);
+                  legQNo1.SetTextFont(42);
+                  legQNo1.SetTextSize(0.032);
+                  legQNo1.AddEntry(&gQuadNo1, "quadrature sum", "lp");
+                  legQNo1.Draw();
+
+                  {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(13);
+                      tx.SetTextSize(0.032);
+                      tx.DrawLatex(0.14, 0.74, "2D (p_{T}^{#gamma}, x_{J}) unfolding (it #geq 2 only)");
+                  }
+
+                  {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(22);
+                      tx.SetTextSize(0.040);
+                      tx.DrawLatex(0.50, 0.965, TString::Format("Quadrature-sum optimization, R = %.1f, Photon 4 + MBD NS #geq 1, Run24pp", R).Data());
+                  }
+
+                  const std::string outQuadPngNo1 = JoinPath(rOut, "unfold_iterStability_quadratureSum_noIter1.png");
+                  cout << ANSI_BOLD_CYN << "[UNF ITER QA] Saving: " << outQuadPngNo1 << ANSI_RESET << "\n";
+                  SaveCanvas(cQuadNo1, outQuadPngNo1);
+                }
+
+                vector<string> iterSummary;
+                iterSummary.push_back("xJ iteration-stability summary");
+                iterSummary.push_back(TString::Format("radius = %s (R=%.1f)", rKey.c_str(), R).Data());
+                iterSummary.push_back(TString::Format("best iteration from quadrature sum = %d", bestIt).Data());
+                iterSummary.push_back(TString::Format("minimum quadrature sum = %.10g", bestQuad).Data());
+                iterSummary.push_back("relChange is defined as the successive-iterate difference it vs (it-1), with iteration 1 using the explicit 0->1 baseline.");
+                iterSummary.push_back("iteration 0 baseline is the measured reco global-bin histogram mapped onto the truth comparison axis, so iteration 1 is included in the best-iteration choice.");
+                iterSummary.push_back("additional plots with suffix _noIter1 exclude iteration 1 from the display only; they do not change the scan or best-iteration choice.");
+                iterSummary.push_back("The stability scan is evaluated only in the 9 analysis p_{T}^{#gamma} bins and in-range x_{J} bins; support / underflow / overflow bins are excluded.");
+                iterSummary.push_back("relStat is built from the full RooUnfold::kCovToy covariance restricted to those physics bins.");
+                iterSummary.push_back("quadrature sum definition: sqrt(relStat^2 + relChange^2)");
+                iterSummary.push_back("");
+
+                for (size_t i = 0; i < xIt.size(); ++i)
+                {
+                  iterSummary.push_back(
+                    TString::Format("it=%d  relStat=%.10g  relChange=%.10g  quadratureSum=%.10g",
+                                    (int)xIt[i], yRelStat[i], yRelChange[i], yQuad[i]).Data()
+                  );
+                }
+
+                WriteTextFile(JoinPath(rOut, "unfold_iterStability_bestIteration.txt"), iterSummary);
+
+                cout << ANSI_BOLD_CYN
+                     << "[UNF ITER QA] best iteration from quadrature sum = " << bestIt
+                     << "  minimum = " << bestQuad
+                     << ANSI_RESET << "\n";
+              }
+              else
               {
-                  TLatex tx;
-                  tx.SetNDC();
-                  tx.SetTextFont(42);
-                  tx.SetTextAlign(22);
-                  tx.SetTextSize(0.040);
-                  tx.DrawLatex(0.50, 0.965, TString::Format("Iteration Stability, R = %.1f, Photon 4 + MBD NS #geq 1, Run24pp", R).Data());
+                cout << ANSI_BOLD_RED << "[UNF ITER QA][WARN] No points to plot; not saving PNG." << ANSI_RESET << "\n";
               }
-
-              cIt.Modified();
-              cIt.Update();
-
-              const std::string outPng = JoinPath(rOut, "unfold_iterStability_relChange_relStat.png");
-              cout << ANSI_BOLD_CYN << "[UNF ITER QA] Saving: " << outPng << ANSI_RESET << "\n";
-              SaveCanvas(cIt, outPng);
-
-              double yMaxQ = 0.0;
-              for (size_t i = 0; i < yQuad.size(); ++i) yMaxQ = std::max(yMaxQ, yQuad[i]);
-              if (yMaxQ <= 0.0) yMaxQ = 0.1;
-
-              TCanvas cQuad(TString::Format("c_iterQuadrature_%s", rKey.c_str()).Data(), "c_iterQuadrature", 900, 700);
-              ApplyCanvasMargins1D(cQuad);
-
-              TH1F frameQ("frameQ","", 1, 1.0, (double)kMaxIterPlot + 0.5);
-              frameQ.SetMinimum(0.0);
-              frameQ.SetMaximum(1.20 * yMaxQ);
-              frameQ.SetTitle("");
-              frameQ.GetXaxis()->SetTitle("Iteration");
-              frameQ.GetYaxis()->SetTitle("Quadrature sum");
-              frameQ.Draw("axis");
-
-              TGraphErrors gQuad((int)xIt.size(), &xIt[0], &yQuad[0], &exIt[0], &eyQuad[0]);
-              gQuad.SetMarkerStyle(20);
-              gQuad.SetMarkerSize(1.1);
-              gQuad.SetMarkerColor(kBlack);
-              gQuad.SetLineColor(kBlack);
-              gQuad.SetLineWidth(2);
-              gQuad.Draw("LP same");
-
-              TGraphErrors gBest;
-              if (bestIt > 0 && std::isfinite(bestQuad))
-              {
-                const double bestX[1]  = { (double)bestIt };
-                const double bestY[1]  = { bestQuad };
-                const double bestEX[1] = { 0.0 };
-                const double bestEY[1] = { 0.0 };
-
-                gBest = TGraphErrors(1, bestX, bestY, bestEX, bestEY);
-                gBest.SetMarkerStyle(29);
-                gBest.SetMarkerSize(1.6);
-                gBest.SetMarkerColor(kRed + 1);
-                gBest.SetLineColor(kRed + 1);
-                gBest.Draw("P same");
-              }
-
-              TLegend legQ(0.14, 0.78, 0.54, 0.92);
-              legQ.SetBorderSize(0);
-              legQ.SetFillStyle(0);
-              legQ.SetTextFont(42);
-              legQ.SetTextSize(0.032);
-              legQ.AddEntry(&gQuad, "quadrature sum", "lp");
-              if (bestIt > 0 && std::isfinite(bestQuad))
-              {
-                legQ.AddEntry(&gBest, TString::Format("minimum: it=%d", bestIt).Data(), "p");
-              }
-              legQ.Draw();
-
-              {
-                  TLatex tx;
-                  tx.SetNDC();
-                  tx.SetTextFont(42);
-                  tx.SetTextAlign(13);
-                  tx.SetTextSize(0.032);
-                  tx.DrawLatex(0.14, 0.74, "2D (p_{T}^{#gamma}, x_{J}) unfolding");
-              }
-
-              {
-                  TLatex tx;
-                  tx.SetNDC();
-                  tx.SetTextFont(42);
-                  tx.SetTextAlign(22);
-                  tx.SetTextSize(0.040);
-                  tx.DrawLatex(0.50, 0.965, TString::Format("Quadrature-sum optimization, R = %.1f, Photon 4 + MBD NS #geq 1, Run24pp", R).Data());
-              }
-
-              const std::string outQuadPng = JoinPath(rOut, "unfold_iterStability_quadratureSum.png");
-              cout << ANSI_BOLD_CYN << "[UNF ITER QA] Saving: " << outQuadPng << ANSI_RESET << "\n";
-              SaveCanvas(cQuad, outQuadPng);
-
-              vector<string> iterSummary;
-              iterSummary.push_back("xJ iteration-stability summary");
-              iterSummary.push_back(TString::Format("radius = %s (R=%.1f)", rKey.c_str(), R).Data());
-              iterSummary.push_back(TString::Format("best iteration from quadrature sum = %d", bestIt).Data());
-              iterSummary.push_back(TString::Format("minimum quadrature sum = %.10g", bestQuad).Data());
-              iterSummary.push_back("relChange is defined as the successive-iterate difference it vs (it-1), with iteration 1 using the explicit 0->1 baseline.");
-              iterSummary.push_back("iteration 0 baseline is the measured reco global-bin histogram mapped onto the truth comparison axis, so iteration 1 is included in the best-iteration choice.");
-              iterSummary.push_back("The stability scan is evaluated only in the 9 analysis p_{T}^{#gamma} bins and in-range x_{J} bins; support / underflow / overflow bins are excluded.");
-              iterSummary.push_back("relStat is built from the full RooUnfold::kCovToy covariance restricted to those physics bins.");
-              iterSummary.push_back("quadrature sum definition: sqrt(relStat^2 + relChange^2)");
-              iterSummary.push_back("");
-
-              for (size_t i = 0; i < xIt.size(); ++i)
-              {
-                iterSummary.push_back(
-                  TString::Format("it=%d  relStat=%.10g  relChange=%.10g  quadratureSum=%.10g",
-                                  (int)xIt[i], yRelStat[i], yRelChange[i], yQuad[i]).Data()
-                );
-              }
-
-              WriteTextFile(JoinPath(rOut, "unfold_iterStability_bestIteration.txt"), iterSummary);
-
-              cout << ANSI_BOLD_CYN
-                   << "[UNF ITER QA] best iteration from quadrature sum = " << bestIt
-                   << "  minimum = " << bestQuad
-                   << ANSI_RESET << "\n";
-            }
-            else
-            {
-              cout << ANSI_BOLD_RED << "[UNF ITER QA][WARN] No points to plot; not saving PNG." << ANSI_RESET << "\n";
-            }
           }
 
           WriteTextFile(JoinPath(rOut, "summary_rooUnfold_pipeline.txt"), lines);
