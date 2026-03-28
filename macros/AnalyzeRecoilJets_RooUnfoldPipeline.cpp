@@ -1485,124 +1485,7 @@
 
             return s;
         };
-          auto BuildXJIterScan = [&](RooUnfoldResponse& resp,
-                                     TH1* hMeasuredGlob,
-                                     TH1* hTruthTemplateGlob,
-                                     TH2* hMeasured2D,
-                                     TH2* hTruthTemplate2D,
-                                     int kMaxIt,
-                                     int nToys,
-                                     const string& nameSuffix)->IterScanSummary
-          {
-            IterScanSummary s;
-            if (!hMeasuredGlob || !hTruthTemplateGlob || !hMeasured2D || !hTruthTemplate2D) return s;
-
-            TH1* hPrev = nullptr;
-            TH1* hBaselineGlob = CloneTH1(
-              hTruthTemplateGlob,
-              TString::Format("hMeasDataGlob_truthBinningBaselineForIterStability_%s", nameSuffix.c_str()).Data()
-            );
-
-            if (hBaselineGlob)
-            {
-              hBaselineGlob->SetDirectory(nullptr);
-              EnsureSumw2(hBaselineGlob);
-              hBaselineGlob->Reset("ICES");
-
-              const int nxTruth = hTruthTemplate2D->GetNbinsX();
-              const int nyTruth = hTruthTemplate2D->GetNbinsY();
-
-              for (int ix = 0; ix <= nxTruth + 1; ++ix)
-              {
-                for (int iy = 0; iy <= nyTruth + 1; ++iy)
-                {
-                  const int gTruth = hTruthTemplate2D->GetBin(ix, iy);
-                  const int bTruth = gTruth + 1;
-                  if (bTruth < 1 || bTruth > hBaselineGlob->GetNbinsX()) continue;
-
-                  const double xTruth = hTruthTemplate2D->GetXaxis()->GetBinCenter(ix);
-                  const double yTruth = hTruthTemplate2D->GetYaxis()->GetBinCenter(iy);
-
-                  const int ixReco = hMeasured2D->GetXaxis()->FindBin(xTruth);
-                  const int iyReco = hMeasured2D->GetYaxis()->FindBin(yTruth);
-
-                  hBaselineGlob->SetBinContent(bTruth, hMeasured2D->GetBinContent(ixReco, iyReco));
-                  hBaselineGlob->SetBinError  (bTruth, hMeasured2D->GetBinError  (ixReco, iyReco));
-                }
-              }
-            }
-
-            for (int it = 1; it <= kMaxIt; ++it)
-            {
-              RooUnfoldBayes u(&resp, hMeasuredGlob, it);
-              u.SetVerbose(0);
-              u.SetNToys(nToys);
-
-              TH1* hCurr = nullptr;
-              if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-              hCurr = u.Hreco();
-              if (gSystem) gSystem->RedirectOutput(0);
-              if (!hCurr) continue;
-
-              hCurr->SetDirectory(nullptr);
-              EnsureSumw2(hCurr);
-
-              const int nb = hCurr->GetNbinsX();
-
-              double sumV2 = 0.0;
-              double sumE2 = 0.0;
-
-              for (int ib = 1; ib <= nb; ++ib)
-              {
-                const double v  = hCurr->GetBinContent(ib);
-                const double ev = hCurr->GetBinError(ib);
-                sumV2 += v * v;
-                sumE2 += ev * ev;
-              }
-
-              const double relStat = (sumV2 > 0.0) ? std::sqrt(sumE2 / sumV2) : 0.0;
-
-              double relChg = 0.0;
-              const TH1* hRef = (it == 1 ? hBaselineGlob : hPrev);
-
-              if (hRef)
-              {
-                double sumD2 = 0.0;
-                for (int ib = 1; ib <= nb; ++ib)
-                {
-                  const double d = hCurr->GetBinContent(ib) - hRef->GetBinContent(ib);
-                  sumD2 += d * d;
-                }
-                relChg = (sumV2 > 0.0) ? std::sqrt(sumD2 / sumV2) : 0.0;
-              }
-
-              const double quad = std::sqrt(relStat * relStat + relChg * relChg);
-
-              s.xIt.push_back((double)it);
-              s.exIt.push_back(0.0);
-              s.yRelStat.push_back(relStat);
-              s.eyRelStat.push_back(0.0);
-              s.yRelChange.push_back(relChg);
-              s.eyRelChange.push_back(0.0);
-              s.yQuad.push_back(quad);
-              s.eyQuad.push_back(0.0);
-
-              if (quad < s.bestQuad)
-              {
-                s.bestQuad = quad;
-                s.bestIt = it;
-              }
-
-              if (hPrev) delete hPrev;
-              hPrev = hCurr;
-            }
-
-            if (hPrev) delete hPrev;
-            if (hBaselineGlob) delete hBaselineGlob;
-
-            return s;
-        };
-
+ 
         cout << "\n  [5I] Photon unfolding inputs:\n";
         PrintGet(dsData, phoRecoName,   hPhoRecoData_in);
         PrintGet(dsSim,  phoRecoName,   hPhoRecoSim_in);
@@ -1771,6 +1654,11 @@
                      << "  firstLowEdge=" << hPhoResp_measXtruth->GetYaxis()->GetBinLowEdge(1)
                      << "  lastUpEdge="   << hPhoResp_measXtruth->GetYaxis()->GetBinUpEdge(hPhoResp_measXtruth->GetYaxis()->GetNbins())
                      << "\n";
+
+              hPhoResp_measXtruth->GetZaxis()->SetTitle("Counts");
+              hPhoResp_measXtruth->GetZaxis()->SetTitleSize(0.035);
+              hPhoResp_measXtruth->GetZaxis()->SetTitleOffset(1.25);
+              hPhoResp_measXtruth->GetZaxis()->SetLabelSize(0.030);
 
               hPhoResp_measXtruth->Draw("colz");
               if (gPad) gPad->Update();
@@ -4613,7 +4501,7 @@
 
               TH1* hUnfB = nullptr;
               if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-              hUnfB = uH.Hreco();
+              hUnfB = uH.Hreco(RooUnfold::kCovToy);
               if (gSystem) gSystem->RedirectOutput(0);
               if (hUnfB)
               {
@@ -5113,124 +5001,6 @@
         
                     return s;
                 };
-      
-                auto BuildXJIterScan = [&](RooUnfoldResponse& resp,
-                                           TH1* hMeasuredGlob,
-                                           TH1* hTruthTemplateGlob,
-                                           TH2* hMeasured2D,
-                                           TH2* hTruthTemplate2D,
-                                           int kMaxIt,
-                                           int nToys,
-                                           const string& nameSuffix)->IterScanSummary
-                {
-                  IterScanSummary s;
-                  if (!hMeasuredGlob || !hTruthTemplateGlob || !hMeasured2D || !hTruthTemplate2D) return s;
-      
-                  TH1* hPrev = nullptr;
-                  TH1* hBaselineGlob = CloneTH1(
-                    hTruthTemplateGlob,
-                    TString::Format("hMeasDataGlob_truthBinningBaselineForIterStability_%s", nameSuffix.c_str()).Data()
-                  );
-      
-                  if (hBaselineGlob)
-                  {
-                    hBaselineGlob->SetDirectory(nullptr);
-                    EnsureSumw2(hBaselineGlob);
-                    hBaselineGlob->Reset("ICES");
-      
-                    const int nxTruth = hTruthTemplate2D->GetNbinsX();
-                    const int nyTruth = hTruthTemplate2D->GetNbinsY();
-      
-                    for (int ix = 0; ix <= nxTruth + 1; ++ix)
-                    {
-                      for (int iy = 0; iy <= nyTruth + 1; ++iy)
-                      {
-                        const int gTruth = hTruthTemplate2D->GetBin(ix, iy);
-                        const int bTruth = gTruth + 1;
-                        if (bTruth < 1 || bTruth > hBaselineGlob->GetNbinsX()) continue;
-      
-                        const double xTruth = hTruthTemplate2D->GetXaxis()->GetBinCenter(ix);
-                        const double yTruth = hTruthTemplate2D->GetYaxis()->GetBinCenter(iy);
-      
-                        const int ixReco = hMeasured2D->GetXaxis()->FindBin(xTruth);
-                        const int iyReco = hMeasured2D->GetYaxis()->FindBin(yTruth);
-      
-                        hBaselineGlob->SetBinContent(bTruth, hMeasured2D->GetBinContent(ixReco, iyReco));
-                        hBaselineGlob->SetBinError  (bTruth, hMeasured2D->GetBinError  (ixReco, iyReco));
-                      }
-                    }
-                  }
-      
-                  for (int it = 1; it <= kMaxIt; ++it)
-                  {
-                    RooUnfoldBayes u(&resp, hMeasuredGlob, it);
-                    u.SetVerbose(0);
-                    u.SetNToys(nToys);
-      
-                    TH1* hCurr = nullptr;
-                    if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-                    hCurr = u.Hreco();
-                    if (gSystem) gSystem->RedirectOutput(0);
-                    if (!hCurr) continue;
-      
-                    hCurr->SetDirectory(nullptr);
-                    EnsureSumw2(hCurr);
-      
-                    const int nb = hCurr->GetNbinsX();
-      
-                    double sumV2 = 0.0;
-                    double sumE2 = 0.0;
-      
-                    for (int ib = 1; ib <= nb; ++ib)
-                    {
-                      const double v  = hCurr->GetBinContent(ib);
-                      const double ev = hCurr->GetBinError(ib);
-                      sumV2 += v * v;
-                      sumE2 += ev * ev;
-                    }
-      
-                    const double relStat = (sumV2 > 0.0) ? std::sqrt(sumE2 / sumV2) : 0.0;
-      
-                    double relChg = 0.0;
-                    const TH1* hRef = (it == 1 ? hBaselineGlob : hPrev);
-      
-                    if (hRef)
-                    {
-                      double sumD2 = 0.0;
-                      for (int ib = 1; ib <= nb; ++ib)
-                      {
-                        const double d = hCurr->GetBinContent(ib) - hRef->GetBinContent(ib);
-                        sumD2 += d * d;
-                      }
-                      relChg = (sumV2 > 0.0) ? std::sqrt(sumD2 / sumV2) : 0.0;
-                    }
-      
-                    const double quad = std::sqrt(relStat * relStat + relChg * relChg);
-      
-                    s.xIt.push_back((double)it);
-                    s.exIt.push_back(0.0);
-                    s.yRelStat.push_back(relStat);
-                    s.eyRelStat.push_back(0.0);
-                    s.yRelChange.push_back(relChg);
-                    s.eyRelChange.push_back(0.0);
-                    s.yQuad.push_back(quad);
-                    s.eyQuad.push_back(0.0);
-      
-                    if (quad < s.bestQuad)
-                    {
-                      s.bestQuad = quad;
-                      s.bestIt = it;
-                    }
-      
-                    if (hPrev) delete hPrev;
-                    hPrev = hCurr;
-                  }
-      
-                  if (hPrev) delete hPrev;
-                  if (hBaselineGlob) delete hBaselineGlob;
-      
-                  return s;
-              };
       
               cout << "\n  [5I] Photon unfolding inputs (photons_INCLUSIVE_QA / PPG12 object-match):\n";
               PrintGet(dsData, phoRecoName,   hPhoRecoData_in);
@@ -7738,7 +7508,7 @@
       
                   TH1* hUnfC = nullptr;
                   if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-                  hUnfC = uC.Hreco();
+                  hUnfC = uC.Hreco(RooUnfold::kCovToy);
                   if (gSystem) gSystem->RedirectOutput(0);
                   if (hUnfC)
                   {
@@ -7914,7 +7684,7 @@
       
                     TH1* hUnfB = nullptr;
                     if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-                    hUnfB = uH.Hreco();
+                    hUnfB = uH.Hreco(RooUnfold::kCovToy);
                     if (gSystem) gSystem->RedirectOutput(0);
                     if (hUnfB)
                     {
@@ -8348,25 +8118,39 @@
           {
             c.SetLogz(1);
 
-            hScat->SetTitle("");
-            hScat->GetXaxis()->SetTitle("global bin (truth: p_{T}^{#gamma}, x_{J})");
-            hScat->GetYaxis()->SetTitle("global bin (reco:  p_{T}^{#gamma}, x_{J})");
-            hScat->GetZaxis()->SetTitle("Counts");
+              hScat->SetTitle("");
+              hScat->GetXaxis()->SetTitle("global bin (truth: p_{T}^{#gamma}, x_{J})");
+              hScat->GetYaxis()->SetTitle("global bin (reco:  p_{T}^{#gamma}, x_{J})");
+              hScat->GetZaxis()->SetTitle("Counts");
 
-            // required for log-z (must be > 0)
-            hScat->SetMinimum(0.5);
+              hScat->GetXaxis()->SetTitleOffset(1.35);
+              hScat->GetYaxis()->SetTitleOffset(1.45);
 
-            hScat->Draw("COLZ");
+              hScat->GetZaxis()->SetTitleSize(0.035);
+              hScat->GetZaxis()->SetTitleOffset(1.25);
+              hScat->GetZaxis()->SetLabelSize(0.030);
 
-            {
-                TLatex tx;
-                tx.SetNDC();
-                tx.SetTextFont(42);
-                tx.SetTextAlign(22);
-                tx.SetTextSize(0.040);
-                tx.DrawLatex(0.50, 0.965,
-                             TString::Format("2D Response Matrix, Photon 10 + 20 GeV merged Pythia, R = %.1f", R).Data());
-            }
+              // required for log-z (must be > 0)
+              hScat->SetMinimum(0.5);
+
+              hScat->Draw("COLZ");
+
+              {
+                  TString simMergeLabel;
+                  if      (allPhoton5and10and20sim) simMergeLabel = "Photon 5+10+20 GeV";
+                  else if (bothPhoton5and10sim)     simMergeLabel = "Photon 5+10 GeV";
+                  else if (bothPhoton5and20sim)     simMergeLabel = "Photon 5+20 GeV";
+                  else if (bothPhoton10and20sim)    simMergeLabel = "Photon 10+20 GeV";
+                  else                              simMergeLabel = "Photon";
+
+                  TLatex tx;
+                  tx.SetNDC();
+                  tx.SetTextFont(42);
+                  tx.SetTextAlign(22);
+                  tx.SetTextSize(0.040);
+                  tx.DrawLatex(0.50, 0.965,
+                               TString::Format("2D Response Matrix, %s, R = %.1f", simMergeLabel.Data(), R).Data());
+              }
 
             SaveCanvas(c, JoinPath(rOut, "unfold_response_globalTruth_vs_globalReco_SCAT.png"));
             delete hScat;
@@ -9685,7 +9469,7 @@
 
                 TH1* hUnfoldTruthGlob_half = nullptr;
                 if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-                hUnfoldTruthGlob_half = unfoldXJ_half.Hreco();
+                hUnfoldTruthGlob_half = unfoldXJ_half.Hreco(RooUnfold::kCovToy);
                 if (gSystem) gSystem->RedirectOutput(0);
                 if (hUnfoldTruthGlob_half) hUnfoldTruthGlob_half->SetDirectory(nullptr);
 

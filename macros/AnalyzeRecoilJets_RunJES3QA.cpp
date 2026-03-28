@@ -4815,62 +4815,81 @@ void RunJES3QA(Dataset& ds)
 
                      const string ptLab = AxisBinLabel(H.hReco_xJ->GetXaxis(), ib, "GeV", 0);
 
-                     {
-                       TLatex tt;
-                       tt.SetNDC(true);
-                       tt.SetTextFont(42);
+                       {
+                         // Build SIM sample title dynamically from current toggle
+                         std::string simTitleTag = "Sim";
+                         {
+                           const SimSample ss = CurrentSimSample();
+                           switch (ss)
+                           {
+                             case SimSample::kPhotonJet5:                 simTitleTag = "Photon+Jet 5 Sim"; break;
+                             case SimSample::kPhotonJet10:                simTitleTag = "Photon+Jet 10 Sim"; break;
+                             case SimSample::kPhotonJet20:                simTitleTag = "Photon+Jet 20 Sim"; break;
+                             case SimSample::kPhotonJet5And10Merged:      simTitleTag = "Photon+Jet 5+10 Sim"; break;
+                             case SimSample::kPhotonJet5And20Merged:      simTitleTag = "Photon+Jet 5+20 Sim"; break;
+                             case SimSample::kPhotonJet10And20Merged:     simTitleTag = "Photon+Jet 10+20 Sim"; break;
+                             case SimSample::kPhotonJet5And10And20Merged: simTitleTag = "Photon+Jet 5+10+20 Sim"; break;
+                             case SimSample::kSimMB:                      simTitleTag = "MinBias Sim"; break;
+                             case SimSample::kSimJet5:                    simTitleTag = "InclusiveJet5 Sim"; break;
+                             case SimSample::kSimEmbedded:                simTitleTag = "Embedded Photon20 Sim"; break;
+                             default:                                     simTitleTag = "Sim"; break;
+                           }
+                         }
 
-                       tt.SetTextAlign(22);
-                       tt.SetTextSize(0.050);
-                       tt.DrawLatex(0.52, 0.95,
-                         TString::Format("Photon+Jet 10 and 20 Combined Sim + Data (R = %.1f)", R).Data()
-                       );
+                         TLatex tt;
+                         tt.SetNDC(true);
+                         tt.SetTextFont(42);
 
-                       tt.SetTextAlign(13);
-                       tt.SetTextSize(0.043);
-                       tt.DrawLatex(0.18, 0.89,
-                         TString::Format("p_{T}^{#gamma} = %s", ptLab.c_str()).Data()
-                       );
-                     }
+                         tt.SetTextAlign(22);
+                         tt.SetTextSize(0.050);
+                         tt.DrawLatex(0.52, 0.95,
+                           TString::Format("%s + Data (R = %.1f)", simTitleTag.c_str(), R).Data()
+                         );
+                       }
 
-                     TLegend leg(0.87, 0.73, 0.99, 0.9);
-                     leg.SetTextFont(42);
-                     leg.SetTextSize(0.040);
-                     leg.SetFillStyle(0);
-                     leg.SetBorderSize(0);
-                     leg.SetMargin(0.20);
-                     leg.SetEntrySeparation(0.08);
-                     leg.AddEntry(hA, legSimTruthTag.c_str(), "ep");
-                     leg.AddEntry(hB, legSimReco.c_str(),     "ep");
-                     leg.AddEntry(hD, legData.c_str(),        "ep");
-                     leg.DrawClone();
+                       TLegend leg(0.58, 0.73, 0.92, 0.9);
+                       leg.SetTextFont(42);
+                       leg.SetTextSize(0.040);
+                       leg.SetFillStyle(0);
+                       leg.SetBorderSize(0);
+                       leg.SetMargin(0.20);
+                       leg.SetEntrySeparation(0.08);
+                       leg.AddEntry(hA, legSimTruthTag.c_str(), "ep");
+                       leg.AddEntry(hB, legSimReco.c_str(),     "ep");
+                       leg.AddEntry(hD, legData.c_str(),        "ep");
+                       leg.DrawClone();
 
-                     {
-                       const std::string bbLabelD = B2BLabel();
-                       const double jetMinPtD     = static_cast<double>(kJetPtMin);
+                       {
+                         const std::string bbLabelD = B2BLabel();
+                         const double jetMinPtD     = static_cast<double>(kJetPtMin);
 
-                       TLatex tCuts;
-                       tCuts.SetNDC(true);
-                       tCuts.SetTextFont(42);
-                       tCuts.SetTextAlign(33);
-                       tCuts.SetTextSize(0.045);
+                         TLatex tCuts;
+                         tCuts.SetNDC(true);
+                         tCuts.SetTextFont(42);
+                         tCuts.SetTextAlign(33);
+                         tCuts.SetTextSize(0.045);
 
-                       const double tx = 0.85;
-                       double ty = 0.63;
-                       const double dY = 0.060;
+                         const double tx = 0.85;
+                         double ty = 0.63;
+                         const double dY = 0.060;
 
-                       tCuts.DrawLatex(tx, ty,
-                         TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabelD.c_str()).Data()
-                       );
-                       ty -= dY;
-                       tCuts.DrawLatex(tx, ty,
-                         TString::Format("p_{T}^{jet} > %.0f GeV", jetMinPtD).Data()
-                       );
-                       ty -= dY;
-                       tCuts.DrawLatex(tx, ty,
-                         TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data()
-                       );
-                     }
+                         tCuts.DrawLatex(tx, ty,
+                           TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabelD.c_str()).Data()
+                         );
+                         ty -= dY;
+                         tCuts.DrawLatex(tx, ty,
+                           TString::Format("p_{T}^{jet} > %.0f GeV", jetMinPtD).Data()
+                         );
+                         ty -= dY;
+                         tCuts.DrawLatex(tx, ty,
+                           TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data()
+                         );
+                         ty -= dY;
+                         tCuts.SetTextSize(0.050);
+                         tCuts.DrawLatex(tx, ty,
+                           TString::Format("p_{T}^{#gamma} = %s", ptLab.c_str()).Data()
+                         );
+                       }
 
                      keep.push_back(hA);
                      keep.push_back(hB);
