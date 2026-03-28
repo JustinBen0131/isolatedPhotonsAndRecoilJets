@@ -606,10 +606,9 @@
           const string samDir = JoinPath(phoDir, "SamOverlay");
           EnsureDir(samDir);
 
-          const string kBoxCutsFile =
-            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_30/FixDeltaRgammaJetCheck_slidinIso/coneSize03/pTminJet5/7pi_8_BB/RecoilJets_pp_ALL.root";
+          const string kBoxCutsFile = InputPP();
           const string kBDTFile =
-            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet3/7pi_8_BB/histsData.root";
+                        "/Users/patsfan753/Desktop/ThesisAnalysis/InputFiles/SamsInputFiles/histData.root";
 
           const int nSamBins = 9;
                       const double samPtEdges[nSamBins + 1] = {10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 35.0};
@@ -911,7 +910,7 @@
         auto MakeABCDComparisonPanel = [&]()->void
         {
           const string kBDTFile2 =
-            "/Users/patsfan753/Desktop/ThesisAnalysis/InputFilesSim/vz_lt_60/FixDeltaRgammaJetCheck_slidinIso/coneSize04/pTminJet3/7pi_8_BB/histsData.root";
+                        "/Users/patsfan753/Desktop/ThesisAnalysis/InputFiles/SamsInputFiles/histData.root";
 
           TFile* fBDT2 = TFile::Open(kBDTFile2.c_str(), "READ");
           if (!fBDT2 || fBDT2->IsZombie())
@@ -1317,6 +1316,32 @@
             IterScanSummary s;
             if (!hRecoMeasured || !hTruthTemplate) return s;
 
+            vector<int> selTruthBins;
+            {
+              const auto& analysisBins = UnfoldAnalysisRecoPtBins();
+              TAxis* axTruth = hTruthTemplate->GetXaxis();
+
+              for (const auto& b : analysisBins)
+              {
+                int ibMatch = -1;
+                for (int ib = 1; ib <= axTruth->GetNbins(); ++ib)
+                {
+                  const double lo = axTruth->GetBinLowEdge(ib);
+                  const double hi = axTruth->GetBinUpEdge(ib);
+                  if (std::fabs(lo - (double)b.lo) < 1e-9 &&
+                      std::fabs(hi - (double)b.hi) < 1e-9)
+                  {
+                    ibMatch = ib;
+                    break;
+                  }
+                }
+
+                if (ibMatch > 0) selTruthBins.push_back(ibMatch);
+              }
+            }
+
+            if (selTruthBins.empty()) return s;
+
             TH1* hPrev = CloneTH1(hTruthTemplate, "hPhoIter0Baseline");
             if (!hPrev) return s;
 
@@ -1343,36 +1368,49 @@
               TH1* hIt = nullptr;
               if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
               hIt = uIt.Hreco(RooUnfold::kCovToy);
+              const auto cov = uIt.Ereco(RooUnfold::kCovToy);
               if (gSystem) gSystem->RedirectOutput(0);
               if (!hIt) continue;
 
               hIt->SetDirectory(nullptr);
               EnsureSumw2(hIt);
 
-              const int nb = hIt->GetNbinsX();
-
-              double sumV  = 0.0;
-              double sumE2 = 0.0;
-
-              for (int ib = 1; ib <= nb; ++ib)
+              double sumV = 0.0;
+              for (const int ib : selTruthBins)
               {
-                const double v  = hIt->GetBinContent(ib);
-                const double ev = hIt->GetBinError(ib);
-                if (v == 0.0 && ev == 0.0) continue;
-                sumV  += v;
-                sumE2 += ev * ev;
+                if (ib < 1 || ib > hIt->GetNbinsX()) continue;
+                sumV += hIt->GetBinContent(ib);
+              }
+
+              double sumCov = 0.0;
+              const int nCovRows = cov.GetNrows();
+              const int nCovCols = cov.GetNcols();
+
+              for (size_t i = 0; i < selTruthBins.size(); ++i)
+              {
+                const int ii = selTruthBins[i] - 1;
+                if (ii < 0 || ii >= nCovRows) continue;
+
+                for (size_t j = 0; j < selTruthBins.size(); ++j)
+                {
+                  const int jj = selTruthBins[j] - 1;
+                  if (jj < 0 || jj >= nCovCols) continue;
+                  sumCov += cov(ii, jj);
+                }
               }
 
               double relStat = 0.0;
-              if (sumV > 0.0) relStat = std::sqrt(sumE2) / sumV;
+              if (sumV > 0.0) relStat = std::sqrt(std::max(0.0, sumCov)) / sumV;
 
               double relDev = 0.0;
               {
                 double num2 = 0.0;
                 double den2 = 0.0;
 
-                for (int ib = 1; ib <= nb; ++ib)
+                for (const int ib : selTruthBins)
                 {
+                  if (ib < 1 || ib > hIt->GetNbinsX()) continue;
+
                   const double v  = hIt->GetBinContent(ib);
                   const double vp = hPrev->GetBinContent(ib);
                   const double d  = v - vp;
@@ -1422,16 +1460,62 @@
               IterScanSummary s;
               if (!hMeasuredGlob || !hTruthTemplateGlob || !hMeasured2D || !hTruthTemplate2D) return s;
 
-              (void)hTruthTemplateGlob;
-              (void)hMeasured2D;
-              (void)hTruthTemplate2D;
-              (void)nameSuffix;
+              const int nGlobMeasured2D = (hMeasured2D->GetNbinsX() + 2) * (hMeasured2D->GetNbinsY() + 2);
+              const int nGlobTruth2D    = (hTruthTemplate2D->GetNbinsX() + 2) * (hTruthTemplate2D->GetNbinsY() + 2);
 
-              TH1* hPrev = CloneTH1(hMeasuredGlob, "hXJIter0Baseline");
+              if (hMeasuredGlob->GetNbinsX() != nGlobMeasured2D) return s;
+              if (hTruthTemplateGlob->GetNbinsX() != nGlobTruth2D) return s;
+
+              vector<int> selTruthXBins;
+              vector<int> selTruthGlobalBins;
+
+              {
+                const auto& analysisBins = UnfoldAnalysisRecoPtBins();
+                TAxis* axTruth = hTruthTemplate2D->GetXaxis();
+
+                for (const auto& b : analysisBins)
+                {
+                  int ixMatch = -1;
+                  for (int ix = 1; ix <= axTruth->GetNbins(); ++ix)
+                  {
+                    const double lo = axTruth->GetBinLowEdge(ix);
+                    const double hi = axTruth->GetBinUpEdge(ix);
+                    if (std::fabs(lo - (double)b.lo) < 1e-9 &&
+                        std::fabs(hi - (double)b.hi) < 1e-9)
+                    {
+                      ixMatch = ix;
+                      break;
+                    }
+                  }
+
+                  if (ixMatch > 0) selTruthXBins.push_back(ixMatch);
+                }
+
+                const int nyTruth = hTruthTemplate2D->GetNbinsY();
+                for (const int ix : selTruthXBins)
+                {
+                  for (int iy = 1; iy <= nyTruth; ++iy)
+                  {
+                    selTruthGlobalBins.push_back(hTruthTemplate2D->GetBin(ix, iy));
+                  }
+                }
+              }
+
+              if (selTruthXBins.empty() || selTruthGlobalBins.empty()) return s;
+
+              TH1* hPrev = CloneTH1(hTruthTemplateGlob, "hXJIter0Baseline");
               if (!hPrev) return s;
 
               hPrev->SetDirectory(nullptr);
               EnsureSumw2(hPrev);
+              hPrev->Reset("ICES");
+
+              const int nbPrevFill = std::min(hPrev->GetNbinsX(), hMeasuredGlob->GetNbinsX());
+              for (int ib = 1; ib <= nbPrevFill; ++ib)
+              {
+                hPrev->SetBinContent(ib, hMeasuredGlob->GetBinContent(ib));
+                hPrev->SetBinError  (ib, hMeasuredGlob->GetBinError  (ib));
+              }
 
               for (int it = 1; it <= kMaxIt; ++it)
               {
@@ -1442,42 +1526,85 @@
                 TH1* hCurr = nullptr;
                 if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
                 hCurr = u.Hreco(RooUnfold::kCovToy);
+                const auto cov = u.Ereco(RooUnfold::kCovToy);
                 if (gSystem) gSystem->RedirectOutput(0);
                 if (!hCurr) continue;
 
                 hCurr->SetDirectory(nullptr);
                 EnsureSumw2(hCurr);
 
-                const int nb = hCurr->GetNbinsX();
+                if (hCurr->GetNbinsX() != hTruthTemplateGlob->GetNbinsX())
+                {
+                  delete hCurr;
+                  continue;
+                }
+
+                TH2* hCurr2D = UnflattenGlobalToTH2(
+                  hCurr,
+                  hTruthTemplate2D,
+                  TString::Format("hXJIterCurr2D_%s_it%d", nameSuffix.c_str(), it).Data()
+                );
+                TH2* hPrev2D = UnflattenGlobalToTH2(
+                  hPrev,
+                  hTruthTemplate2D,
+                  TString::Format("hXJIterPrev2D_%s_it%d", nameSuffix.c_str(), it).Data()
+                );
+
+                if (!hCurr2D || !hPrev2D)
+                {
+                  if (hCurr2D) delete hCurr2D;
+                  if (hPrev2D) delete hPrev2D;
+                  delete hPrev;
+                  hPrev = hCurr;
+                  continue;
+                }
+
+                hCurr2D->SetDirectory(nullptr);
+                hPrev2D->SetDirectory(nullptr);
 
                 double sumV  = 0.0;
                 double sumV2 = 0.0;
-                double sumE2 = 0.0;
+                double sumD2 = 0.0;
 
-                for (int ib = 1; ib <= nb; ++ib)
+                const int nyTruth = hCurr2D->GetNbinsY();
+
+                for (const int ix : selTruthXBins)
                 {
-                  const double v  = hCurr->GetBinContent(ib);
-                  const double ev = hCurr->GetBinError(ib);
-                  if (v == 0.0 && ev == 0.0) continue;
-                  sumV  += v;
-                  sumV2 += v * v;
-                  sumE2 += ev * ev;
-                }
+                  if (ix < 1 || ix > hCurr2D->GetNbinsX()) continue;
 
-                const double relStat = (sumV > 0.0) ? (std::sqrt(sumE2) / sumV) : 0.0;
-
-                double relChg = 0.0;
-                {
-                  double sumD2 = 0.0;
-                  for (int ib = 1; ib <= nb; ++ib)
+                  for (int iy = 1; iy <= nyTruth; ++iy)
                   {
-                    const double d = hCurr->GetBinContent(ib) - hPrev->GetBinContent(ib);
+                    const double v  = hCurr2D->GetBinContent(ix, iy);
+                    const double vp = hPrev2D->GetBinContent(ix, iy);
+                    const double d  = v - vp;
+
+                    if (v == 0.0 && vp == 0.0) continue;
+
+                    sumV  += v;
+                    sumV2 += v * v;
                     sumD2 += d * d;
                   }
-                  relChg = (sumV2 > 0.0) ? std::sqrt(sumD2 / sumV2) : 0.0;
                 }
 
-                const double quad = std::sqrt(relStat * relStat + relChg * relChg);
+                double sumCov = 0.0;
+                const int nCovRows = cov.GetNrows();
+                const int nCovCols = cov.GetNcols();
+
+                for (size_t i = 0; i < selTruthGlobalBins.size(); ++i)
+                {
+                  const int ii = selTruthGlobalBins[i];
+                  if (ii < 0 || ii >= nCovRows) continue;
+
+                  for (size_t j = 0; j < selTruthGlobalBins.size(); ++j)
+                  {
+                    const int jj = selTruthGlobalBins[j];
+                    if (jj < 0 || jj >= nCovCols) continue;
+                    sumCov += cov(ii, jj);
+                  }
+                }
+
+                const double relStat = (sumV > 0.0) ? (std::sqrt(std::max(0.0, sumCov)) / sumV) : 0.0;
+                const double relChg  = (sumV2 > 0.0) ? std::sqrt(sumD2 / sumV2) : 0.0;
 
                 s.xIt.push_back((double)it);
                 s.exIt.push_back(0.0);
@@ -1485,15 +1612,17 @@
                 s.eyRelStat.push_back(0.0);
                 s.yRelChange.push_back(relChg);
                 s.eyRelChange.push_back(0.0);
-                s.yQuad.push_back(quad);
+                s.yQuad.push_back(std::sqrt(relStat * relStat + relChg * relChg));
                 s.eyQuad.push_back(0.0);
 
-                if (quad < s.bestQuad)
+                if (s.yQuad.back() < s.bestQuad)
                 {
-                  s.bestQuad = quad;
+                  s.bestQuad = s.yQuad.back();
                   s.bestIt = it;
                 }
 
+                delete hCurr2D;
+                delete hPrev2D;
                 delete hPrev;
                 hPrev = hCurr;
               }
@@ -4285,9 +4414,10 @@
                 iterSummary.push_back("Photon iteration-stability summary");
                 iterSummary.push_back(TString::Format("best iteration from quadrature sum = %d", bestIt).Data());
                 iterSummary.push_back(TString::Format("minimum quadrature sum = %.10g", bestQuad).Data());
-                iterSummary.push_back("relChange is defined as the successive-iterate difference it vs (it-1).");
-                iterSummary.push_back("iteration 1 has no previous iterate, so relChange=0 there for display only and it is excluded from the best-iteration choice.");
-                iterSummary.push_back("scan uses RooUnfold::kCovToy, matching the final unfolding error treatment.");
+                iterSummary.push_back("relChange is defined as the successive-iterate difference it vs (it-1), with iteration 1 using the explicit 0->1 baseline.");
+                iterSummary.push_back("iteration 0 baseline is the measured input histogram mapped onto the unfolding comparison axis, so iteration 1 is included in the best-iteration choice.");
+                iterSummary.push_back("relStat is built from the full RooUnfold::kCovToy covariance restricted to the 9 analysis p_{T}^{#gamma} bins.");
+                iterSummary.push_back("support / underflow / overflow bins are excluded from the stability scalar.");
                 iterSummary.push_back("quadrature sum definition: sqrt(relStat^2 + relChange^2)");
                 iterSummary.push_back("");
 
@@ -4841,70 +4971,123 @@
                   double bestQuad = std::numeric_limits<double>::max();
               };
       
-              auto BuildPhotonIterScan = [&](RooUnfoldResponse& resp,
-                                               TH1* hRecoMeasured,
-                                               TH1* hTruthTemplate,
-                                               int kMaxIt,
-                                               int nToys)->IterScanSummary
-              {
-                  IterScanSummary s;
-                  if (!hRecoMeasured || !hTruthTemplate) return s;
-        
-                  TH1* hPrev = nullptr;
-        
-                  for (int it = 1; it <= kMaxIt; ++it)
-                  {
-                    RooUnfoldBayes uIt(&resp, hRecoMeasured, it);
-                    uIt.SetVerbose(0);
-                    uIt.SetNToys(nToys);
-        
-                    TH1* hIt = nullptr;
-                    if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-                    hIt = uIt.Hreco(RooUnfold::kCovToy);
-                    if (gSystem) gSystem->RedirectOutput(0);
-                    if (!hIt) continue;
-        
-                    hIt->SetDirectory(nullptr);
-                    EnsureSumw2(hIt);
-        
-                    const int nb = hIt->GetNbinsX();
-        
-                    double sumV  = 0.0;
-                    double sumE2 = 0.0;
-        
-                    for (int ib = 1; ib <= nb; ++ib)
+                auto BuildPhotonIterScan = [&](RooUnfoldResponse& resp,
+                                                 TH1* hRecoMeasured,
+                                                 TH1* hTruthTemplate,
+                                                 int kMaxIt,
+                                                 int nToys)->IterScanSummary
+                {
+                    IterScanSummary s;
+                    if (!hRecoMeasured || !hTruthTemplate) return s;
+
+                    vector<int> selTruthBins;
                     {
-                        const double v  = hIt->GetBinContent(ib);
-                        const double ev = hIt->GetBinError(ib);
-                        if (v == 0.0 && ev == 0.0) continue;
-                        sumV  += v;
-                        sumE2 += ev * ev;
+                      const auto& analysisBins = UnfoldAnalysisRecoPtBins();
+                      TAxis* axTruth = hTruthTemplate->GetXaxis();
+
+                      for (const auto& b : analysisBins)
+                      {
+                        int ibMatch = -1;
+                        for (int ib = 1; ib <= axTruth->GetNbins(); ++ib)
+                        {
+                          const double lo = axTruth->GetBinLowEdge(ib);
+                          const double hi = axTruth->GetBinUpEdge(ib);
+                          if (std::fabs(lo - (double)b.lo) < 1e-9 &&
+                              std::fabs(hi - (double)b.hi) < 1e-9)
+                          {
+                            ibMatch = ib;
+                            break;
+                          }
+                        }
+
+                        if (ibMatch > 0) selTruthBins.push_back(ibMatch);
                       }
-        
+                    }
+
+                    if (selTruthBins.empty()) return s;
+
+                    TH1* hPrev = CloneTH1(hTruthTemplate, "hPhoIter0Baseline");
+                    if (!hPrev) return s;
+
+                    hPrev->SetDirectory(nullptr);
+                    EnsureSumw2(hPrev);
+                    hPrev->Reset("ICES");
+
+                    for (int ib = 1; ib <= hPrev->GetNbinsX(); ++ib)
+                    {
+                      const double x = hPrev->GetXaxis()->GetBinCenter(ib);
+                      const int iReco = hRecoMeasured->GetXaxis()->FindBin(x);
+                      if (iReco < 1 || iReco > hRecoMeasured->GetNbinsX()) continue;
+
+                      hPrev->SetBinContent(ib, hRecoMeasured->GetBinContent(iReco));
+                      hPrev->SetBinError  (ib, hRecoMeasured->GetBinError  (iReco));
+                    }
+
+                    for (int it = 1; it <= kMaxIt; ++it)
+                    {
+                      RooUnfoldBayes uIt(&resp, hRecoMeasured, it);
+                      uIt.SetVerbose(0);
+                      uIt.SetNToys(nToys);
+
+                      TH1* hIt = nullptr;
+                      if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
+                      hIt = uIt.Hreco(RooUnfold::kCovToy);
+                      const auto cov = uIt.Ereco(RooUnfold::kCovToy);
+                      if (gSystem) gSystem->RedirectOutput(0);
+                      if (!hIt) continue;
+
+                      hIt->SetDirectory(nullptr);
+                      EnsureSumw2(hIt);
+
+                      double sumV = 0.0;
+                      for (const int ib : selTruthBins)
+                      {
+                        if (ib < 1 || ib > hIt->GetNbinsX()) continue;
+                        sumV += hIt->GetBinContent(ib);
+                      }
+
+                      double sumCov = 0.0;
+                      const int nCovRows = cov.GetNrows();
+                      const int nCovCols = cov.GetNcols();
+
+                      for (size_t i = 0; i < selTruthBins.size(); ++i)
+                      {
+                        const int ii = selTruthBins[i] - 1;
+                        if (ii < 0 || ii >= nCovRows) continue;
+
+                        for (size_t j = 0; j < selTruthBins.size(); ++j)
+                        {
+                          const int jj = selTruthBins[j] - 1;
+                          if (jj < 0 || jj >= nCovCols) continue;
+                          sumCov += cov(ii, jj);
+                        }
+                      }
+
                       double relStat = 0.0;
-                      if (sumV > 0.0) relStat = std::sqrt(sumE2) / sumV;
-        
+                      if (sumV > 0.0) relStat = std::sqrt(std::max(0.0, sumCov)) / sumV;
+
                       double relDev = 0.0;
-                      if (hPrev)
                       {
                         double num2 = 0.0;
                         double den2 = 0.0;
-        
-                        for (int ib = 1; ib <= nb; ++ib)
+
+                        for (const int ib : selTruthBins)
                         {
+                          if (ib < 1 || ib > hIt->GetNbinsX()) continue;
+
                           const double v  = hIt->GetBinContent(ib);
                           const double vp = hPrev->GetBinContent(ib);
                           const double d  = v - vp;
-        
+
                           num2 += d * d;
                           den2 += v * v;
                         }
-        
+
                         if (den2 > 0.0) relDev = std::sqrt(num2 / den2);
                       }
-        
+
                       const double quad = std::sqrt(relStat * relStat + relDev * relDev);
-        
+
                       s.xIt.push_back((double)it);
                       s.exIt.push_back(0.0);
                       s.yRelStat.push_back(relStat);
@@ -4913,111 +5096,205 @@
                       s.eyRelChange.push_back(0.0);
                       s.yQuad.push_back(quad);
                       s.eyQuad.push_back(0.0);
-        
-                      if (hPrev && quad < s.bestQuad)
+
+                      if (quad < s.bestQuad)
                       {
                         s.bestQuad = quad;
                         s.bestIt = it;
                       }
-        
-                      if (hPrev) delete hPrev;
+
+                      delete hPrev;
                       hPrev = hIt;
                     }
-        
+
                     if (hPrev) delete hPrev;
-        
+
                     return s;
                   };
         
-                  auto BuildXJIterScan = [&](RooUnfoldResponse& resp,
-                                             TH1* hMeasuredGlob,
-                                             TH1* hTruthTemplateGlob,
-                                             TH2* hMeasured2D,
-                                             TH2* hTruthTemplate2D,
-                                             int kMaxIt,
-                                             int nToys,
-                                             const string& nameSuffix)->IterScanSummary
+                auto BuildXJIterScan = [&](RooUnfoldResponse& resp,
+                                           TH1* hMeasuredGlob,
+                                           TH1* hTruthTemplateGlob,
+                                           TH2* hMeasured2D,
+                                           TH2* hTruthTemplate2D,
+                                           int kMaxIt,
+                                           int nToys,
+                                           const string& nameSuffix)->IterScanSummary
+                {
+                  IterScanSummary s;
+                  if (!hMeasuredGlob || !hTruthTemplateGlob || !hMeasured2D || !hTruthTemplate2D) return s;
+
+                  const int nGlobMeasured2D = (hMeasured2D->GetNbinsX() + 2) * (hMeasured2D->GetNbinsY() + 2);
+                  const int nGlobTruth2D    = (hTruthTemplate2D->GetNbinsX() + 2) * (hTruthTemplate2D->GetNbinsY() + 2);
+
+                  if (hMeasuredGlob->GetNbinsX() != nGlobMeasured2D) return s;
+                  if (hTruthTemplateGlob->GetNbinsX() != nGlobTruth2D) return s;
+
+                  vector<int> selTruthXBins;
+                  vector<int> selTruthGlobalBins;
+
                   {
-                    IterScanSummary s;
-                    if (!hMeasuredGlob || !hTruthTemplateGlob || !hMeasured2D || !hTruthTemplate2D) return s;
-        
-                    (void)hTruthTemplateGlob;
-                    (void)hMeasured2D;
-                    (void)hTruthTemplate2D;
-                    (void)nameSuffix;
-        
-                    TH1* hPrev = nullptr;
-        
-                    for (int it = 1; it <= kMaxIt; ++it)
+                    const auto& analysisBins = UnfoldAnalysisRecoPtBins();
+                    TAxis* axTruth = hTruthTemplate2D->GetXaxis();
+
+                    for (const auto& b : analysisBins)
                     {
-                      RooUnfoldBayes u(&resp, hMeasuredGlob, it);
-                      u.SetVerbose(0);
-                      u.SetNToys(nToys);
-        
-                      TH1* hCurr = nullptr;
-                      if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-                      hCurr = u.Hreco(RooUnfold::kCovToy);
-                      if (gSystem) gSystem->RedirectOutput(0);
-                      if (!hCurr) continue;
-        
-                      hCurr->SetDirectory(nullptr);
-                      EnsureSumw2(hCurr);
-        
-                      const int nb = hCurr->GetNbinsX();
-        
-                      double sumV  = 0.0;
-                      double sumV2 = 0.0;
-                      double sumE2 = 0.0;
-        
-                      for (int ib = 1; ib <= nb; ++ib)
+                      int ixMatch = -1;
+                      for (int ix = 1; ix <= axTruth->GetNbins(); ++ix)
                       {
-                        const double v  = hCurr->GetBinContent(ib);
-                        const double ev = hCurr->GetBinError(ib);
-                        if (v == 0.0 && ev == 0.0) continue;
+                        const double lo = axTruth->GetBinLowEdge(ix);
+                        const double hi = axTruth->GetBinUpEdge(ix);
+                        if (std::fabs(lo - (double)b.lo) < 1e-9 &&
+                            std::fabs(hi - (double)b.hi) < 1e-9)
+                        {
+                          ixMatch = ix;
+                          break;
+                        }
+                      }
+
+                      if (ixMatch > 0) selTruthXBins.push_back(ixMatch);
+                    }
+
+                    const int nyTruth = hTruthTemplate2D->GetNbinsY();
+                    for (const int ix : selTruthXBins)
+                    {
+                      for (int iy = 1; iy <= nyTruth; ++iy)
+                      {
+                        selTruthGlobalBins.push_back(hTruthTemplate2D->GetBin(ix, iy));
+                      }
+                    }
+                  }
+
+                  if (selTruthXBins.empty() || selTruthGlobalBins.empty()) return s;
+
+                  TH1* hPrev = CloneTH1(hTruthTemplateGlob, "hXJIter0Baseline");
+                  if (!hPrev) return s;
+
+                  hPrev->SetDirectory(nullptr);
+                  EnsureSumw2(hPrev);
+                  hPrev->Reset("ICES");
+
+                  const int nbPrevFill = std::min(hPrev->GetNbinsX(), hMeasuredGlob->GetNbinsX());
+                  for (int ib = 1; ib <= nbPrevFill; ++ib)
+                  {
+                    hPrev->SetBinContent(ib, hMeasuredGlob->GetBinContent(ib));
+                    hPrev->SetBinError  (ib, hMeasuredGlob->GetBinError  (ib));
+                  }
+
+                  for (int it = 1; it <= kMaxIt; ++it)
+                  {
+                    RooUnfoldBayes u(&resp, hMeasuredGlob, it);
+                    u.SetVerbose(0);
+                    u.SetNToys(nToys);
+
+                    TH1* hCurr = nullptr;
+                    if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
+                    hCurr = u.Hreco(RooUnfold::kCovToy);
+                    const auto cov = u.Ereco(RooUnfold::kCovToy);
+                    if (gSystem) gSystem->RedirectOutput(0);
+                    if (!hCurr) continue;
+
+                    hCurr->SetDirectory(nullptr);
+                    EnsureSumw2(hCurr);
+
+                    if (hCurr->GetNbinsX() != hTruthTemplateGlob->GetNbinsX())
+                    {
+                      delete hCurr;
+                      continue;
+                    }
+
+                    TH2* hCurr2D = UnflattenGlobalToTH2(
+                      hCurr,
+                      hTruthTemplate2D,
+                      TString::Format("hXJIterCurr2D_%s_it%d", nameSuffix.c_str(), it).Data()
+                    );
+                    TH2* hPrev2D = UnflattenGlobalToTH2(
+                      hPrev,
+                      hTruthTemplate2D,
+                      TString::Format("hXJIterPrev2D_%s_it%d", nameSuffix.c_str(), it).Data()
+                    );
+
+                    if (!hCurr2D || !hPrev2D)
+                    {
+                      if (hCurr2D) delete hCurr2D;
+                      if (hPrev2D) delete hPrev2D;
+                      delete hPrev;
+                      hPrev = hCurr;
+                      continue;
+                    }
+
+                    hCurr2D->SetDirectory(nullptr);
+                    hPrev2D->SetDirectory(nullptr);
+
+                    double sumV  = 0.0;
+                    double sumV2 = 0.0;
+                    double sumD2 = 0.0;
+
+                    const int nyTruth = hCurr2D->GetNbinsY();
+
+                    for (const int ix : selTruthXBins)
+                    {
+                      if (ix < 1 || ix > hCurr2D->GetNbinsX()) continue;
+
+                      for (int iy = 1; iy <= nyTruth; ++iy)
+                      {
+                        const double v  = hCurr2D->GetBinContent(ix, iy);
+                        const double vp = hPrev2D->GetBinContent(ix, iy);
+                        const double d  = v - vp;
+
+                        if (v == 0.0 && vp == 0.0) continue;
+
                         sumV  += v;
                         sumV2 += v * v;
-                        sumE2 += ev * ev;
+                        sumD2 += d * d;
                       }
-        
-                      const double relStat = (sumV > 0.0) ? (std::sqrt(sumE2) / sumV) : 0.0;
-        
-                      double relChg = 0.0;
-                      if (hPrev)
-                      {
-                        double sumD2 = 0.0;
-                        for (int ib = 1; ib <= nb; ++ib)
-                        {
-                          const double d = hCurr->GetBinContent(ib) - hPrev->GetBinContent(ib);
-                          sumD2 += d * d;
-                        }
-                        relChg = (sumV2 > 0.0) ? std::sqrt(sumD2 / sumV2) : 0.0;
-                      }
-        
-                      const double quad = std::sqrt(relStat * relStat + relChg * relChg);
-        
-                      s.xIt.push_back((double)it);
-                      s.exIt.push_back(0.0);
-                      s.yRelStat.push_back(relStat);
-                      s.eyRelStat.push_back(0.0);
-                      s.yRelChange.push_back(relChg);
-                      s.eyRelChange.push_back(0.0);
-                      s.yQuad.push_back(quad);
-                      s.eyQuad.push_back(0.0);
-        
-                      if (hPrev && quad < s.bestQuad)
-                      {
-                        s.bestQuad = quad;
-                        s.bestIt = it;
-                      }
-        
-                      if (hPrev) delete hPrev;
-                      hPrev = hCurr;
                     }
-        
-                    if (hPrev) delete hPrev;
-        
-                    return s;
-                };
+
+                    double sumCov = 0.0;
+                    const int nCovRows = cov.GetNrows();
+                    const int nCovCols = cov.GetNcols();
+
+                    for (size_t i = 0; i < selTruthGlobalBins.size(); ++i)
+                    {
+                      const int ii = selTruthGlobalBins[i];
+                      if (ii < 0 || ii >= nCovRows) continue;
+
+                      for (size_t j = 0; j < selTruthGlobalBins.size(); ++j)
+                      {
+                        const int jj = selTruthGlobalBins[j];
+                        if (jj < 0 || jj >= nCovCols) continue;
+                        sumCov += cov(ii, jj);
+                      }
+                    }
+
+                    const double relStat = (sumV > 0.0) ? (std::sqrt(std::max(0.0, sumCov)) / sumV) : 0.0;
+                    const double relChg  = (sumV2 > 0.0) ? std::sqrt(sumD2 / sumV2) : 0.0;
+
+                    s.xIt.push_back((double)it);
+                    s.exIt.push_back(0.0);
+                    s.yRelStat.push_back(relStat);
+                    s.eyRelStat.push_back(0.0);
+                    s.yRelChange.push_back(relChg);
+                    s.eyRelChange.push_back(0.0);
+                    s.yQuad.push_back(std::sqrt(relStat * relStat + relChg * relChg));
+                    s.eyQuad.push_back(0.0);
+
+                    if (s.yQuad.back() < s.bestQuad)
+                    {
+                      s.bestQuad = s.yQuad.back();
+                      s.bestIt = it;
+                    }
+
+                    delete hCurr2D;
+                    delete hPrev2D;
+                    delete hPrev;
+                    hPrev = hCurr;
+                  }
+
+                  if (hPrev) delete hPrev;
+
+                  return s;
+              };
       
               cout << "\n  [5I] Photon unfolding inputs (photons_INCLUSIVE_QA / PPG12 object-match):\n";
               PrintGet(dsData, phoRecoName,   hPhoRecoData_in);
@@ -7487,15 +7764,16 @@
       
                     SaveCanvas(cQuad, JoinPath(phoValDir, "pho_unfold_iterStability_quadratureSum.png"));
       
-                      vector<string> iterSummary;
-                      iterSummary.push_back("Photon iteration-stability summary");
-                      iterSummary.push_back(TString::Format("best iteration from quadrature sum = %d", bestIt).Data());
-                      iterSummary.push_back(TString::Format("minimum quadrature sum = %.10g", bestQuad).Data());
-                      iterSummary.push_back("relChange is defined as the successive-iterate difference it vs (it-1), with iteration 1 using the explicit 0->1 baseline.");
-                      iterSummary.push_back("iteration 0 baseline is the measured input histogram mapped onto the unfolding comparison axis, so iteration 1 is included in the best-iteration choice.");
-                      iterSummary.push_back("scan uses RooUnfold::kCovToy, matching the final unfolding error treatment.");
-                      iterSummary.push_back("quadrature sum definition: sqrt(relStat^2 + relChange^2)");
-                      iterSummary.push_back("");
+                    vector<string> iterSummary;
+                    iterSummary.push_back("Photon iteration-stability summary");
+                    iterSummary.push_back(TString::Format("best iteration from quadrature sum = %d", bestIt).Data());
+                    iterSummary.push_back(TString::Format("minimum quadrature sum = %.10g", bestQuad).Data());
+                    iterSummary.push_back("relChange is defined as the successive-iterate difference it vs (it-1), with iteration 1 using the explicit 0->1 baseline.");
+                    iterSummary.push_back("iteration 0 baseline is the measured input histogram mapped onto the unfolding comparison axis, so iteration 1 is included in the best-iteration choice.");
+                    iterSummary.push_back("relStat is built from the full RooUnfold::kCovToy covariance restricted to the 9 analysis p_{T}^{#gamma} bins.");
+                    iterSummary.push_back("support / underflow / overflow bins are excluded from the stability scalar.");
+                    iterSummary.push_back("quadrature sum definition: sqrt(relStat^2 + relChange^2)");
+                    iterSummary.push_back("");
       
                     for (size_t i = 0; i < xIt.size(); ++i)
                     {
@@ -12059,16 +12337,17 @@
               cout << ANSI_BOLD_CYN << "[UNF ITER QA] Saving: " << outQuadPng << ANSI_RESET << "\n";
               SaveCanvas(cQuad, outQuadPng);
 
-                vector<string> iterSummary;
-                iterSummary.push_back("xJ iteration-stability summary");
-                iterSummary.push_back(TString::Format("radius = %s (R=%.1f)", rKey.c_str(), R).Data());
-                iterSummary.push_back(TString::Format("best iteration from quadrature sum = %d", bestIt).Data());
-                iterSummary.push_back(TString::Format("minimum quadrature sum = %.10g", bestQuad).Data());
-                iterSummary.push_back("relChange is defined as the successive-iterate difference it vs (it-1).");
-                iterSummary.push_back("iteration 1 has no previous iterate, so relChange=0 there for display only and it is excluded from the best-iteration choice.");
-                iterSummary.push_back("scan uses RooUnfold::kCovToy, matching the final unfolding error treatment.");
-                iterSummary.push_back("quadrature sum definition: sqrt(relStat^2 + relChange^2)");
-                iterSummary.push_back("");
+              vector<string> iterSummary;
+              iterSummary.push_back("xJ iteration-stability summary");
+              iterSummary.push_back(TString::Format("radius = %s (R=%.1f)", rKey.c_str(), R).Data());
+              iterSummary.push_back(TString::Format("best iteration from quadrature sum = %d", bestIt).Data());
+              iterSummary.push_back(TString::Format("minimum quadrature sum = %.10g", bestQuad).Data());
+              iterSummary.push_back("relChange is defined as the successive-iterate difference it vs (it-1), with iteration 1 using the explicit 0->1 baseline.");
+              iterSummary.push_back("iteration 0 baseline is the measured reco global-bin histogram mapped onto the truth comparison axis, so iteration 1 is included in the best-iteration choice.");
+              iterSummary.push_back("The stability scan is evaluated only in the 9 analysis p_{T}^{#gamma} bins and in-range x_{J} bins; support / underflow / overflow bins are excluded.");
+              iterSummary.push_back("relStat is built from the full RooUnfold::kCovToy covariance restricted to those physics bins.");
+              iterSummary.push_back("quadrature sum definition: sqrt(relStat^2 + relChange^2)");
+              iterSummary.push_back("");
 
               for (size_t i = 0; i < xIt.size(); ++i)
               {
