@@ -1318,23 +1318,6 @@
             if (!hRecoMeasured || !hTruthTemplate) return s;
 
             TH1* hPrev = nullptr;
-            TH1* hBaseline = CloneTH1(hTruthTemplate, "hPhoRecoData_truthBinningBaselineForIterStability");
-
-            if (hBaseline)
-            {
-              hBaseline->SetDirectory(nullptr);
-              EnsureSumw2(hBaseline);
-              hBaseline->Reset("ICES");
-
-              for (int ib = 1; ib <= hBaseline->GetNbinsX(); ++ib)
-              {
-                const double xTruth = hBaseline->GetXaxis()->GetBinCenter(ib);
-                const int ibReco = hRecoMeasured->GetXaxis()->FindBin(xTruth);
-
-                hBaseline->SetBinContent(ib, hRecoMeasured->GetBinContent(ibReco));
-                hBaseline->SetBinError  (ib, hRecoMeasured->GetBinError  (ibReco));
-              }
-            }
 
             for (int it = 1; it <= kMaxIt; ++it)
             {
@@ -1344,7 +1327,7 @@
 
               TH1* hIt = nullptr;
               if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-              hIt = uIt.Hreco();
+              hIt = uIt.Hreco(RooUnfold::kCovToy);
               if (gSystem) gSystem->RedirectOutput(0);
               if (!hIt) continue;
 
@@ -1369,7 +1352,7 @@
               if (sumV > 0.0) relStat = std::sqrt(sumE2) / sumV;
 
               double relDev = 0.0;
-              const TH1* hRef = (it == 1 ? hBaseline : hPrev);
+              const TH1* hRef = hPrev;
 
               if (hRef)
               {
@@ -1411,7 +1394,6 @@
             }
 
             if (hPrev) delete hPrev;
-            if (hBaseline) delete hBaseline;
 
             return s;
           };
@@ -1615,7 +1597,7 @@
           kNToysPhoScan
         );
 
-        const int kBayesIterPho = kDefaultBayesIterPho;
+        const int kBayesIterPho = (phoIterScan.bestIt > 0 ? phoIterScan.bestIt : kDefaultBayesIterPho);
 
         cout << ANSI_BOLD_CYN
              << "[PHO ITER AUTO] Using Bayes iteration " << kBayesIterPho;
@@ -4334,81 +4316,104 @@
           // -----------------------------
           // (2) Closure: unfold(reco SIM) -> truth SIM
           // -----------------------------
-          if (hPhoRecoSim && hPhoTruthSim)
+          if (hPhoResp_measXtruth)
           {
-            RooUnfoldBayes uC(&respPho, hPhoRecoSim, kBayesIterPho);
-            uC.SetVerbose(0);
-            uC.SetNToys(kNToysPhoScan);
+            TH1D* hPhoRecoClosure = hPhoResp_measXtruth->ProjectionX(
+              "h_phoRecoClosure_fromResponse",
+              0, hPhoResp_measXtruth->GetNbinsY() + 1, "e"
+            );
+            TH1D* hPhoTruthClosure = hPhoResp_measXtruth->ProjectionY(
+              "h_phoTruthClosure_fromResponse",
+              0, hPhoResp_measXtruth->GetNbinsX() + 1, "e"
+            );
 
-            TH1* hUnfC = nullptr;
-            if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-            hUnfC = uC.Hreco();
-            if (gSystem) gSystem->RedirectOutput(0);
-            if (hUnfC)
+            if (hPhoRecoClosure)  { hPhoRecoClosure->SetDirectory(nullptr);  EnsureSumw2(hPhoRecoClosure); }
+            if (hPhoTruthClosure) { hPhoTruthClosure->SetDirectory(nullptr); EnsureSumw2(hPhoTruthClosure); }
+
+            if (hPhoRecoClosure && hPhoTruthClosure)
             {
-              hUnfC->SetDirectory(nullptr);
-              EnsureSumw2(hUnfC);
+              RooUnfoldResponse respPhoClosure(
+                hPhoRecoClosure, hPhoTruthClosure, hPhoResp_measXtruth,
+                "respPhoClosure", "respPhoClosure"
+              );
 
-              TH1* hRat = CloneTH1(hUnfC, "h_pho_closure_unfoldedOverTruth");
-              if (hRat)
+              RooUnfoldBayes uC(&respPhoClosure, hPhoRecoClosure, kBayesIterPho);
+              uC.SetVerbose(0);
+              uC.SetNToys(kNToysPhoScan);
+
+              TH1* hUnfC = nullptr;
+              if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
+              hUnfC = uC.Hreco(RooUnfold::kCovToy);
+              if (gSystem) gSystem->RedirectOutput(0);
+              if (hUnfC)
               {
-                hRat->SetDirectory(nullptr);
-                EnsureSumw2(hRat);
-                hRat->Divide(hPhoTruthSim);
+                hUnfC->SetDirectory(nullptr);
+                EnsureSumw2(hUnfC);
 
-                hRat->SetTitle("");
-                hRat->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                hRat->GetYaxis()->SetTitle("Closure: unfolded MC / truth MC");
-                hRat->SetMarkerStyle(24);
-                hRat->SetMarkerSize(1.1);
-                hRat->SetLineWidth(2);
+                TH1* hRat = CloneTH1(hUnfC, "h_pho_closure_unfoldedOverTruth");
+                if (hRat)
+                {
+                  hRat->SetDirectory(nullptr);
+                  EnsureSumw2(hRat);
+                  hRat->Divide(hPhoTruthClosure);
 
-                TCanvas c("c_pho_closure", "c_pho_closure", 900, 700);
-                ApplyCanvasMargins1D(c);
+                  hRat->SetTitle("");
+                  hRat->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                  hRat->GetYaxis()->SetTitle("Closure: unfolded MC / truth MC");
+                  hRat->SetMarkerStyle(24);
+                  hRat->SetMarkerSize(1.1);
+                  hRat->SetLineWidth(2);
 
-                const double xPlotMin = 10.0;
-                const double xPlotMax = 35.0;
+                  TCanvas c("c_pho_closure", "c_pho_closure", 900, 700);
+                  ApplyCanvasMargins1D(c);
 
-                const double ymin = 0.95;
-                const double ymax = 1.05;
+                  const double xPlotMin = 10.0;
+                  const double xPlotMax = 35.0;
 
-                hRat->GetXaxis()->SetRangeUser(xPlotMin, xPlotMax);
-                hRat->GetYaxis()->SetRangeUser(ymin, ymax);
-                hRat->Draw("E1");
+                  const double ymin = 0.95;
+                  const double ymax = 1.05;
 
-                TLine l1(xPlotMin, 1.0, xPlotMax, 1.0);
-                l1.SetLineStyle(2);
-                l1.SetLineWidth(2);
-                l1.Draw("same");
+                  hRat->GetXaxis()->SetRangeUser(xPlotMin, xPlotMax);
+                  hRat->GetYaxis()->SetRangeUser(ymin, ymax);
+                  hRat->Draw("E1");
 
-                  // Top-left Bayes + Step label (match 2D closure styling)
-                  {
-                    TLatex tx;
-                    tx.SetNDC();
-                    tx.SetTextFont(42);
-                    tx.SetTextAlign(13);
-                    tx.SetTextSize(0.038);
-                    tx.DrawLatex(0.15, 0.90, TString::Format("Bayes it=%d (photon)", kBayesIterPho).Data());
-                    tx.DrawLatex(0.15, 0.855, "1D photon-yield unfolding");
-                  }
+                  TLine l1(xPlotMin, 1.0, xPlotMax, 1.0);
+                  l1.SetLineStyle(2);
+                  l1.SetLineWidth(2);
+                  l1.Draw("same");
 
-                  // Centered title
-                  {
-                    TLatex tx;
-                    tx.SetNDC(true);
-                    tx.SetTextFont(42);
-                    tx.SetTextAlign(22);
-                    tx.SetTextSize(0.040);
-                    tx.DrawLatex(0.50, 0.965, "Photon closure test, unfold(reco) #rightarrow truth (SIM)");
-                  }
+                    // Top-left Bayes + Step label (match 2D closure styling)
+                    {
+                      TLatex tx;
+                      tx.SetNDC();
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(13);
+                      tx.SetTextSize(0.038);
+                      tx.DrawLatex(0.15, 0.90, TString::Format("Bayes it=%d (photon)", kBayesIterPho).Data());
+                      tx.DrawLatex(0.15, 0.855, "1D photon-yield unfolding");
+                    }
 
-                SaveCanvas(c, JoinPath(phoValDir, "pho_closure_unfoldedOverTruth_vs_pTgamma.png"));
+                    // Centered title
+                    {
+                      TLatex tx;
+                      tx.SetNDC(true);
+                      tx.SetTextFont(42);
+                      tx.SetTextAlign(22);
+                      tx.SetTextSize(0.040);
+                      tx.DrawLatex(0.50, 0.965, "Photon closure test, unfold(reco) #rightarrow truth (SIM)");
+                    }
 
-                delete hRat;
+                  SaveCanvas(c, JoinPath(phoValDir, "pho_closure_unfoldedOverTruth_vs_pTgamma.png"));
+
+                  delete hRat;
+                }
+
+                delete hUnfC;
               }
-
-              delete hUnfC;
             }
+
+            if (hPhoRecoClosure) delete hPhoRecoClosure;
+            if (hPhoTruthClosure) delete hPhoTruthClosure;
         }
 
           // -----------------------------
@@ -5162,21 +5167,21 @@
               }
               cout << ANSI_RESET << "\n";
       
-              RooUnfoldBayes    unfoldPhoToy(&respPho, hPhoRecoData, kBayesIterPho);
-              unfoldPhoToy.SetVerbose(0);
-              unfoldPhoToy.SetNToys(kNToysPhoFinal);
-      
-              TH1* hPhoUnfoldTruth = nullptr;
-              if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-              hPhoUnfoldTruth = unfoldPhoToy.Hreco();
-              if (gSystem) gSystem->RedirectOutput(0);
-              if (hPhoUnfoldTruth) hPhoUnfoldTruth->SetDirectory(nullptr);
-      
-              RooUnfoldBayes    unfoldPhoCov(&respPho, hPhoRecoData, kBayesIterPho);
-              unfoldPhoCov.SetVerbose(0);
-      
-              TH1* hPhoUnfoldTruth_cov = unfoldPhoCov.Hunfold(RooUnfolding::kCovariance);
-              if (hPhoUnfoldTruth_cov) hPhoUnfoldTruth_cov->SetDirectory(nullptr);
+                RooUnfoldBayes    unfoldPhoToy(&respPho, hPhoRecoData, kBayesIterPho);
+                unfoldPhoToy.SetVerbose(0);
+                unfoldPhoToy.SetNToys(kNToysPhoFinal);
+        
+                TH1* hPhoUnfoldTruth = nullptr;
+                if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
+                hPhoUnfoldTruth = unfoldPhoToy.Hreco(RooUnfold::kCovToy);
+                if (gSystem) gSystem->RedirectOutput(0);
+                if (hPhoUnfoldTruth) hPhoUnfoldTruth->SetDirectory(nullptr);
+        
+                RooUnfoldBayes    unfoldPhoCov(&respPho, hPhoRecoData, kBayesIterPho);
+                unfoldPhoCov.SetVerbose(0);
+        
+                TH1* hPhoUnfoldTruth_cov = unfoldPhoCov.Hreco(RooUnfold::kCovariance);
+                if (hPhoUnfoldTruth_cov) hPhoUnfoldTruth_cov->SetDirectory(nullptr);
       
               // Photon QA outputs
               {
@@ -8110,7 +8115,7 @@
             rKey
           );
 
-          const int kBayesIterXJ = kDefaultBayesIterXJ;
+          const int kBayesIterXJ = (xjIterScan.bestIt > 0 ? xjIterScan.bestIt : kDefaultBayesIterXJ);
 
           cout << ANSI_BOLD_CYN
                << "[UNF ITER AUTO] rKey=" << rKey
@@ -9204,152 +9209,181 @@
         //   Summary vs pT: (Integral of unfolded xJ)/(Integral of truth xJ)  ~ 1
         //   Output: <rOut>/closure_unfoldedOverTruth_integral_vs_pTgamma.png
         // ----------------------------------------------------------------------
-        {
-            TH1* hMeasSimGlob_closure = CloneTH1(hMeasSimGlob,
-              TString::Format("hMeasSimGlob_forClosure_%s", rKey.c_str()).Data());
-            if (hMeasSimGlob_closure) hMeasSimGlob_closure->SetDirectory(nullptr);
-
-            RooUnfoldBayes unfoldXJ_closure(&respXJ, (hMeasSimGlob_closure ? hMeasSimGlob_closure : hMeasSimGlob), kBayesIterXJ);
-            unfoldXJ_closure.SetVerbose(0);
-            unfoldXJ_closure.SetNToys(kNToysXJScan);
-
-            TH1* hUnfoldTruthGlob_closure = nullptr;
-            if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-            hUnfoldTruthGlob_closure = unfoldXJ_closure.Hreco();
-            if (gSystem) gSystem->RedirectOutput(0);
-            if (hUnfoldTruthGlob_closure) hUnfoldTruthGlob_closure->SetDirectory(nullptr);
-
-            TH2* h2UnfoldTruth_closure = nullptr;
-            if (hUnfoldTruthGlob_closure)
-            {
-              h2UnfoldTruth_closure = UnflattenGlobalToTH2(
-                hUnfoldTruthGlob_closure,
-                h2TruthSim,
-                TString::Format("h2_unfoldedTruth_closure_pTgamma_xJ_%s", rKey.c_str()).Data()
+          {
+              TH1D* hMeasSimGlob_closure = hRsp_measXtruth->ProjectionX(
+                TString::Format("hMeasSimGlob_forClosure_%s", rKey.c_str()).Data(),
+                0, hRsp_measXtruth->GetNbinsY() + 1, "e"
               );
-            }
-
-            vector<double> xPt, exPt, yRat, eyRat;
-
-            const auto& analysisRecoBins = UnfoldAnalysisRecoPtBins();
-            const int nPtClosure = (int)analysisRecoBins.size();
-            for (int i = 0; i < nPtClosure; ++i)
-            {
-              const PtBin& b = analysisRecoBins[i];
-              const double cen = 0.5 * (b.lo + b.hi);
-              const double ex  = 0.5 * (b.hi - b.lo);
-
-              if (!h2UnfoldTruth_closure || !h2TruthSim) continue;
-
-              const int ixTruth = h2TruthSim->GetXaxis()->FindBin(cen);
-              if (ixTruth < 1 || ixTruth > h2TruthSim->GetXaxis()->GetNbins()) continue;
-
-              TH1D* hXJ_truth = h2TruthSim->ProjectionY(
-                TString::Format("h_xJ_truthClosure_%s_pTbin%d", rKey.c_str(), i + 1).Data(),
-                ixTruth, ixTruth, "e"
+              TH1D* hTruthSimGlob_closure = hRsp_measXtruth->ProjectionY(
+                TString::Format("hTruthSimGlob_forClosure_%s", rKey.c_str()).Data(),
+                0, hRsp_measXtruth->GetNbinsX() + 1, "e"
               );
-              TH1D* hXJ_unf = h2UnfoldTruth_closure->ProjectionY(
-                TString::Format("h_xJ_unfClosure_%s_pTbin%d", rKey.c_str(), i + 1).Data(),
-                ixTruth, ixTruth, "e"
+              if (hMeasSimGlob_closure)  { hMeasSimGlob_closure->SetDirectory(nullptr);  EnsureSumw2(hMeasSimGlob_closure); }
+              if (hTruthSimGlob_closure) { hTruthSimGlob_closure->SetDirectory(nullptr); EnsureSumw2(hTruthSimGlob_closure); }
+
+              RooUnfoldResponse respXJ_closure(
+                hMeasSimGlob_closure, hTruthSimGlob_closure, hRsp_measXtruth,
+                TString::Format("respXJ_closure_%s", rKey.c_str()).Data(),
+                TString::Format("respXJ_closure_%s", rKey.c_str()).Data()
               );
 
-              if (!hXJ_truth || !hXJ_unf)
+              RooUnfoldBayes unfoldXJ_closure(
+                &respXJ_closure,
+                (hMeasSimGlob_closure ? hMeasSimGlob_closure : hMeasSimGlob),
+                kBayesIterXJ
+              );
+              unfoldXJ_closure.SetVerbose(0);
+              unfoldXJ_closure.SetNToys(kNToysXJScan);
+
+              TH1* hUnfoldTruthGlob_closure = nullptr;
+              if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
+              hUnfoldTruthGlob_closure = unfoldXJ_closure.Hreco(RooUnfold::kCovToy);
+              if (gSystem) gSystem->RedirectOutput(0);
+              if (hUnfoldTruthGlob_closure) hUnfoldTruthGlob_closure->SetDirectory(nullptr);
+
+              TH2* h2UnfoldTruth_closure = nullptr;
+              if (hUnfoldTruthGlob_closure)
               {
-                if (hXJ_truth) delete hXJ_truth;
-                if (hXJ_unf)   delete hXJ_unf;
-                continue;
+                h2UnfoldTruth_closure = UnflattenGlobalToTH2(
+                  hUnfoldTruthGlob_closure,
+                  h2TruthSim,
+                  TString::Format("h2_unfoldedTruth_closure_pTgamma_xJ_%s", rKey.c_str()).Data()
+                );
               }
 
-              hXJ_truth->SetDirectory(nullptr);
-              hXJ_unf->SetDirectory(nullptr);
-              EnsureSumw2(hXJ_truth);
-              EnsureSumw2(hXJ_unf);
-
-              double eTruth = 0.0;
-              double eUnf   = 0.0;
-
-              const double ITruth = hXJ_truth->IntegralAndError(1, hXJ_truth->GetNbinsX(), eTruth, "width");
-              const double IUnf   = hXJ_unf  ->IntegralAndError(1, hXJ_unf  ->GetNbinsX(), eUnf,   "width");
-
-              if (ITruth > 0.0)
+              TH2* h2Truth_closure = nullptr;
+              if (hTruthSimGlob_closure)
               {
-                const double r  = IUnf / ITruth;
-
-                double relUnf = 0.0;
-                if (IUnf > 0.0) relUnf = eUnf / IUnf;
-
-                const double relTruth = eTruth / ITruth;
-                const double er = std::fabs(r) * std::sqrt(relUnf*relUnf + relTruth*relTruth);
-
-                xPt.push_back(cen);
-                exPt.push_back(ex);
-                yRat.push_back(r);
-                eyRat.push_back(er);
+                h2Truth_closure = UnflattenGlobalToTH2(
+                  hTruthSimGlob_closure,
+                  h2TruthSim,
+                  TString::Format("h2_truthClosure_pTgamma_xJ_%s", rKey.c_str()).Data()
+                );
               }
 
-              delete hXJ_truth;
-              delete hXJ_unf;
-            }
+              vector<double> xPt, exPt, yRat, eyRat;
 
-            if (!xPt.empty())
-            {
-                const double ymin = 0.95;
-                const double ymax = 1.05;
+              const auto& analysisRecoBins = UnfoldAnalysisRecoPtBins();
+              const int nPtClosure = (int)analysisRecoBins.size();
+              for (int i = 0; i < nPtClosure; ++i)
+              {
+                const PtBin& b = analysisRecoBins[i];
+                const double cen = 0.5 * (b.lo + b.hi);
+                const double ex  = 0.5 * (b.hi - b.lo);
 
-                // Save the r04 closure y-range to be reused by photon closure plots
-                if (rKey == "r04")
+                if (!h2UnfoldTruth_closure || !h2Truth_closure) continue;
+
+                const int ixTruth = h2Truth_closure->GetXaxis()->FindBin(cen);
+                if (ixTruth < 1 || ixTruth > h2Truth_closure->GetXaxis()->GetNbins()) continue;
+
+                TH1D* hXJ_truth = h2Truth_closure->ProjectionY(
+                  TString::Format("h_xJ_truthClosure_%s_pTbin%d", rKey.c_str(), i + 1).Data(),
+                  ixTruth, ixTruth, "e"
+                );
+                TH1D* hXJ_unf = h2UnfoldTruth_closure->ProjectionY(
+                  TString::Format("h_xJ_unfClosure_%s_pTbin%d", rKey.c_str(), i + 1).Data(),
+                  ixTruth, ixTruth, "e"
+                );
+
+                if (!hXJ_truth || !hXJ_unf)
                 {
-                    gYmin_r04_closure = ymin;
-                    gYmax_r04_closure = ymax;
+                  if (hXJ_truth) delete hXJ_truth;
+                  if (hXJ_unf)   delete hXJ_unf;
+                  continue;
                 }
 
-                TCanvas c(TString::Format("c_closure_vs_pt_%s", rKey.c_str()).Data(), "c_closure_vs_pt", 900, 700);
-                ApplyCanvasMargins1D(c);
+                hXJ_truth->SetDirectory(nullptr);
+                hXJ_unf->SetDirectory(nullptr);
+                EnsureSumw2(hXJ_truth);
+                EnsureSumw2(hXJ_unf);
 
-                TGraphErrors g((int)xPt.size(), &xPt[0], &yRat[0], &exPt[0], &eyRat[0]);
-                g.SetLineWidth(2);
-                g.SetMarkerStyle(20);
-                g.SetTitle("");
-                g.Draw("AP");
+                double eTruth = 0.0;
+                double eUnf   = 0.0;
 
-                g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
-                g.GetYaxis()->SetTitle("Closure: Unfolded MC / Truth MC");
-                g.GetYaxis()->SetRangeUser(ymin, ymax);
+                const double ITruth = hXJ_truth->IntegralAndError(1, hXJ_truth->GetNbinsX(), eTruth, "width");
+                const double IUnf   = hXJ_unf  ->IntegralAndError(1, hXJ_unf  ->GetNbinsX(), eUnf,   "width");
 
-                TLine l1(g.GetXaxis()->GetXmin(), 1.0, g.GetXaxis()->GetXmax(), 1.0);
-                l1.SetLineStyle(2);
-                l1.SetLineWidth(2);
-                l1.Draw("same");
-
-                // Centered title (replaces the old TLatex header lines)
+                if (ITruth > 0.0)
                 {
-                  TLatex tx;
-                  tx.SetNDC();
-                  tx.SetTextFont(42);
-                  tx.SetTextAlign(22);
-                  tx.SetTextSize(0.040);
-                  tx.DrawLatex(0.50, 0.965,
-                               TString::Format("Closure test, unfold(reco) #rightarrow truth, R = %.1f", R).Data());
+                  const double r  = IUnf / ITruth;
+
+                  double relUnf = 0.0;
+                  if (IUnf > 0.0) relUnf = eUnf / IUnf;
+
+                  const double relTruth = eTruth / ITruth;
+                  const double er = std::fabs(r) * std::sqrt(relUnf*relUnf + relTruth*relTruth);
+
+                  xPt.push_back(cen);
+                  exPt.push_back(ex);
+                  yRat.push_back(r);
+                  eyRat.push_back(er);
                 }
 
-                // Top-left Bayes annotation (moved up/left)
-                {
-                  TLatex tx;
-                  tx.SetNDC();
-                  tx.SetTextFont(42);
-                  tx.SetTextAlign(13);
-                  tx.SetTextSize(0.038);
-                  tx.DrawLatex(0.15, 0.90, TString::Format("Bayes it=%d (xJ)", kBayesIterXJ).Data());
-                  tx.DrawLatex(0.15, 0.855, "2D (p_{T}^{#gamma}, x_{J}) unfolding");
-                }
+                delete hXJ_truth;
+                delete hXJ_unf;
+              }
 
-                SaveCanvas(c, JoinPath(rOut, "closure_unfoldedOverTruth_integral_vs_pTgamma.png"));
-            }
+              if (!xPt.empty())
+              {
+                  const double ymin = 0.95;
+                  const double ymax = 1.05;
 
-            if (h2UnfoldTruth_closure) delete h2UnfoldTruth_closure;
-            if (hUnfoldTruthGlob_closure) delete hUnfoldTruthGlob_closure;
-            if (hMeasSimGlob_closure) delete hMeasSimGlob_closure;
-        }
+                  // Save the r04 closure y-range to be reused by photon closure plots
+                  if (rKey == "r04")
+                  {
+                      gYmin_r04_closure = ymin;
+                      gYmax_r04_closure = ymax;
+                  }
+
+                  TCanvas c(TString::Format("c_closure_vs_pt_%s", rKey.c_str()).Data(), "c_closure_vs_pt", 900, 700);
+                  ApplyCanvasMargins1D(c);
+
+                  TGraphErrors g((int)xPt.size(), &xPt[0], &yRat[0], &exPt[0], &eyRat[0]);
+                  g.SetLineWidth(2);
+                  g.SetMarkerStyle(20);
+                  g.SetTitle("");
+                  g.Draw("AP");
+
+                  g.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
+                  g.GetYaxis()->SetTitle("Closure: Unfolded MC / Truth MC");
+                  g.GetYaxis()->SetRangeUser(ymin, ymax);
+
+                  TLine l1(g.GetXaxis()->GetXmin(), 1.0, g.GetXaxis()->GetXmax(), 1.0);
+                  l1.SetLineStyle(2);
+                  l1.SetLineWidth(2);
+                  l1.Draw("same");
+
+                  // Centered title (replaces the old TLatex header lines)
+                  {
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextAlign(22);
+                    tx.SetTextSize(0.040);
+                    tx.DrawLatex(0.50, 0.965,
+                                 TString::Format("Closure test, unfold(reco) #rightarrow truth, R = %.1f", R).Data());
+                  }
+
+                  // Top-left Bayes annotation (moved up/left)
+                  {
+                    TLatex tx;
+                    tx.SetNDC();
+                    tx.SetTextFont(42);
+                    tx.SetTextAlign(13);
+                    tx.SetTextSize(0.038);
+                    tx.DrawLatex(0.15, 0.90, TString::Format("Bayes it=%d (xJ)", kBayesIterXJ).Data());
+                    tx.DrawLatex(0.15, 0.855, "2D (p_{T}^{#gamma}, x_{J}) unfolding");
+                  }
+
+                  SaveCanvas(c, JoinPath(rOut, "closure_unfoldedOverTruth_integral_vs_pTgamma.png"));
+              }
+
+              if (h2Truth_closure) delete h2Truth_closure;
+              if (h2UnfoldTruth_closure) delete h2UnfoldTruth_closure;
+              if (hUnfoldTruthGlob_closure) delete hUnfoldTruthGlob_closure;
+              if (hTruthSimGlob_closure) delete hTruthSimGlob_closure;
+              if (hMeasSimGlob_closure) delete hMeasSimGlob_closure;
+          }
 
         // ----------------------------------------------------------------------
         // Half-closure test (SIM, single-file infrastructure):
