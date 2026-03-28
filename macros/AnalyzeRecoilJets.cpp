@@ -4095,9 +4095,9 @@ namespace ARJ
               tCuts.SetNDC(true);
               tCuts.SetTextFont(42);
               tCuts.SetTextAlign(13);
-              tCuts.SetTextSize(0.038);
-              tCuts.DrawLatex(0.162, 0.88, TString::Format("|v_{z}| < %.3g cm", std::fabs(vzCutCm)).Data());
-              tCuts.DrawLatex(0.162, 0.82, TString::Format("|#eta^{#gamma}| < %.3g", etaCut).Data());
+              tCuts.SetTextSize(0.041);
+              tCuts.DrawLatex(0.2, 0.88, TString::Format("|v_{z}| < %.3g cm", std::fabs(vzCutCm)).Data());
+              tCuts.DrawLatex(0.2, 0.82, TString::Format("|#eta^{#gamma}| < %.3g", etaCut).Data());
 
               const string fp = JoinPath(outDir, ds.isSim
                   ? "purity_raw_vs_leakageCorrected_SIM.png"

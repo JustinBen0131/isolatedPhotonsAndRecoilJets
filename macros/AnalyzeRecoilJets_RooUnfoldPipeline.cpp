@@ -1317,7 +1317,22 @@
             IterScanSummary s;
             if (!hRecoMeasured || !hTruthTemplate) return s;
 
-            TH1* hPrev = nullptr;
+            TH1* hPrev = CloneTH1(hTruthTemplate, "hPhoIter0Baseline");
+            if (!hPrev) return s;
+
+            hPrev->SetDirectory(nullptr);
+            EnsureSumw2(hPrev);
+            hPrev->Reset("ICES");
+
+            for (int ib = 1; ib <= hPrev->GetNbinsX(); ++ib)
+            {
+              const double x = hPrev->GetXaxis()->GetBinCenter(ib);
+              const int iReco = hRecoMeasured->GetXaxis()->FindBin(x);
+              if (iReco < 1 || iReco > hRecoMeasured->GetNbinsX()) continue;
+
+              hPrev->SetBinContent(ib, hRecoMeasured->GetBinContent(iReco));
+              hPrev->SetBinError  (ib, hRecoMeasured->GetBinError  (iReco));
+            }
 
             for (int it = 1; it <= kMaxIt; ++it)
             {
@@ -1352,7 +1367,6 @@
               if (sumV > 0.0) relStat = std::sqrt(sumE2) / sumV;
 
               double relDev = 0.0;
-              if (hPrev)
               {
                 double num2 = 0.0;
                 double den2 = 0.0;
@@ -1381,13 +1395,13 @@
               s.yQuad.push_back(quad);
               s.eyQuad.push_back(0.0);
 
-              if (hPrev && quad < s.bestQuad)
+              if (quad < s.bestQuad)
               {
                 s.bestQuad = quad;
                 s.bestIt = it;
               }
 
-              if (hPrev) delete hPrev;
+              delete hPrev;
               hPrev = hIt;
             }
 
@@ -1397,95 +1411,98 @@
           };
 
           auto BuildXJIterScan = [&](RooUnfoldResponse& resp,
-                                     TH1* hMeasuredGlob,
-                                     TH1* hTruthTemplateGlob,
-                                     TH2* hMeasured2D,
-                                     TH2* hTruthTemplate2D,
-                                     int kMaxIt,
-                                     int nToys,
-                                     const string& nameSuffix)->IterScanSummary
+                                       TH1* hMeasuredGlob,
+                                       TH1* hTruthTemplateGlob,
+                                       TH2* hMeasured2D,
+                                       TH2* hTruthTemplate2D,
+                                       int kMaxIt,
+                                       int nToys,
+                                       const string& nameSuffix)->IterScanSummary
           {
-            IterScanSummary s;
-            if (!hMeasuredGlob || !hTruthTemplateGlob || !hMeasured2D || !hTruthTemplate2D) return s;
+              IterScanSummary s;
+              if (!hMeasuredGlob || !hTruthTemplateGlob || !hMeasured2D || !hTruthTemplate2D) return s;
 
-            (void)hTruthTemplateGlob;
-            (void)hMeasured2D;
-            (void)hTruthTemplate2D;
-            (void)nameSuffix;
+              (void)hTruthTemplateGlob;
+              (void)hMeasured2D;
+              (void)hTruthTemplate2D;
+              (void)nameSuffix;
 
-            TH1* hPrev = nullptr;
+              TH1* hPrev = CloneTH1(hMeasuredGlob, "hXJIter0Baseline");
+              if (!hPrev) return s;
 
-            for (int it = 1; it <= kMaxIt; ++it)
-            {
-              RooUnfoldBayes u(&resp, hMeasuredGlob, it);
-              u.SetVerbose(0);
-              u.SetNToys(nToys);
+              hPrev->SetDirectory(nullptr);
+              EnsureSumw2(hPrev);
 
-              TH1* hCurr = nullptr;
-              if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-              hCurr = u.Hreco(RooUnfold::kCovToy);
-              if (gSystem) gSystem->RedirectOutput(0);
-              if (!hCurr) continue;
-
-              hCurr->SetDirectory(nullptr);
-              EnsureSumw2(hCurr);
-
-              const int nb = hCurr->GetNbinsX();
-
-              double sumV  = 0.0;
-              double sumV2 = 0.0;
-              double sumE2 = 0.0;
-
-              for (int ib = 1; ib <= nb; ++ib)
+              for (int it = 1; it <= kMaxIt; ++it)
               {
-                const double v  = hCurr->GetBinContent(ib);
-                const double ev = hCurr->GetBinError(ib);
-                if (v == 0.0 && ev == 0.0) continue;
-                sumV  += v;
-                sumV2 += v * v;
-                sumE2 += ev * ev;
-              }
+                RooUnfoldBayes u(&resp, hMeasuredGlob, it);
+                u.SetVerbose(0);
+                u.SetNToys(nToys);
 
-              const double relStat = (sumV > 0.0) ? (std::sqrt(sumE2) / sumV) : 0.0;
+                TH1* hCurr = nullptr;
+                if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
+                hCurr = u.Hreco(RooUnfold::kCovToy);
+                if (gSystem) gSystem->RedirectOutput(0);
+                if (!hCurr) continue;
 
-              double relChg = 0.0;
-              if (hPrev)
-              {
-                double sumD2 = 0.0;
+                hCurr->SetDirectory(nullptr);
+                EnsureSumw2(hCurr);
+
+                const int nb = hCurr->GetNbinsX();
+
+                double sumV  = 0.0;
+                double sumV2 = 0.0;
+                double sumE2 = 0.0;
+
                 for (int ib = 1; ib <= nb; ++ib)
                 {
-                  const double d = hCurr->GetBinContent(ib) - hPrev->GetBinContent(ib);
-                  sumD2 += d * d;
+                  const double v  = hCurr->GetBinContent(ib);
+                  const double ev = hCurr->GetBinError(ib);
+                  if (v == 0.0 && ev == 0.0) continue;
+                  sumV  += v;
+                  sumV2 += v * v;
+                  sumE2 += ev * ev;
                 }
-                relChg = (sumV2 > 0.0) ? std::sqrt(sumD2 / sumV2) : 0.0;
-              }
 
-              const double quad = std::sqrt(relStat * relStat + relChg * relChg);
+                const double relStat = (sumV > 0.0) ? (std::sqrt(sumE2) / sumV) : 0.0;
 
-              s.xIt.push_back((double)it);
-              s.exIt.push_back(0.0);
-              s.yRelStat.push_back(relStat);
-              s.eyRelStat.push_back(0.0);
-              s.yRelChange.push_back(relChg);
-              s.eyRelChange.push_back(0.0);
-              s.yQuad.push_back(quad);
-              s.eyQuad.push_back(0.0);
+                double relChg = 0.0;
+                {
+                  double sumD2 = 0.0;
+                  for (int ib = 1; ib <= nb; ++ib)
+                  {
+                    const double d = hCurr->GetBinContent(ib) - hPrev->GetBinContent(ib);
+                    sumD2 += d * d;
+                  }
+                  relChg = (sumV2 > 0.0) ? std::sqrt(sumD2 / sumV2) : 0.0;
+                }
 
-              if (hPrev && quad < s.bestQuad)
-              {
-                s.bestQuad = quad;
-                s.bestIt = it;
+                const double quad = std::sqrt(relStat * relStat + relChg * relChg);
+
+                s.xIt.push_back((double)it);
+                s.exIt.push_back(0.0);
+                s.yRelStat.push_back(relStat);
+                s.eyRelStat.push_back(0.0);
+                s.yRelChange.push_back(relChg);
+                s.eyRelChange.push_back(0.0);
+                s.yQuad.push_back(quad);
+                s.eyQuad.push_back(0.0);
+
+                if (quad < s.bestQuad)
+                {
+                  s.bestQuad = quad;
+                  s.bestIt = it;
+                }
+
+                delete hPrev;
+                hPrev = hCurr;
               }
 
               if (hPrev) delete hPrev;
-              hPrev = hCurr;
-            }
 
-            if (hPrev) delete hPrev;
-
-            return s;
+              return s;
         };
- 
+     
         cout << "\n  [5I] Photon unfolding inputs:\n";
         PrintGet(dsData, phoRecoName,   hPhoRecoData_in);
         PrintGet(dsSim,  phoRecoName,   hPhoRecoSim_in);
@@ -7474,8 +7491,8 @@
                       iterSummary.push_back("Photon iteration-stability summary");
                       iterSummary.push_back(TString::Format("best iteration from quadrature sum = %d", bestIt).Data());
                       iterSummary.push_back(TString::Format("minimum quadrature sum = %.10g", bestQuad).Data());
-                      iterSummary.push_back("relChange is defined as the successive-iterate difference it vs (it-1).");
-                      iterSummary.push_back("iteration 1 has no previous iterate, so relChange=0 there for display only and it is excluded from the best-iteration choice.");
+                      iterSummary.push_back("relChange is defined as the successive-iterate difference it vs (it-1), with iteration 1 using the explicit 0->1 baseline.");
+                      iterSummary.push_back("iteration 0 baseline is the measured input histogram mapped onto the unfolding comparison axis, so iteration 1 is included in the best-iteration choice.");
                       iterSummary.push_back("scan uses RooUnfold::kCovToy, matching the final unfolding error treatment.");
                       iterSummary.push_back("quadrature sum definition: sqrt(relStat^2 + relChange^2)");
                       iterSummary.push_back("");

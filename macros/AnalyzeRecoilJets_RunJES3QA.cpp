@@ -4843,13 +4843,19 @@ void RunJES3QA(Dataset& ds)
                          tt.SetTextAlign(22);
                          tt.SetTextSize(0.050);
                          tt.DrawLatex(0.52, 0.95,
-                           TString::Format("%s + Data (R = %.1f)", simTitleTag.c_str(), R).Data()
+                             TString::Format("%s + Data (R = %.1f)", simTitleTag.c_str(), R).Data()
                          );
+
+                         tt.SetTextAlign(13);
+                         tt.SetTextSize(0.048);
+                         tt.DrawLatex(0.18, 0.88,
+                             TString::Format("p_{T}^{#gamma} = %s", ptLab.c_str()).Data()
+                           );
                        }
 
-                       TLegend leg(0.58, 0.73, 0.92, 0.9);
+                       TLegend leg(0.53, 0.71, 0.89, 0.89);
                        leg.SetTextFont(42);
-                       leg.SetTextSize(0.040);
+                       leg.SetTextSize(0.041);
                        leg.SetFillStyle(0);
                        leg.SetBorderSize(0);
                        leg.SetMargin(0.20);
@@ -4867,9 +4873,9 @@ void RunJES3QA(Dataset& ds)
                          tCuts.SetNDC(true);
                          tCuts.SetTextFont(42);
                          tCuts.SetTextAlign(33);
-                         tCuts.SetTextSize(0.045);
+                         tCuts.SetTextSize(0.043);
 
-                         const double tx = 0.85;
+                         const double tx = 0.87;
                          double ty = 0.63;
                          const double dY = 0.060;
 
@@ -4881,15 +4887,10 @@ void RunJES3QA(Dataset& ds)
                            TString::Format("p_{T}^{jet} > %.0f GeV", jetMinPtD).Data()
                          );
                          ty -= dY;
-                         tCuts.DrawLatex(tx, ty,
-                           TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data()
-                         );
-                         ty -= dY;
-                         tCuts.SetTextSize(0.050);
-                         tCuts.DrawLatex(tx, ty,
-                           TString::Format("p_{T}^{#gamma} = %s", ptLab.c_str()).Data()
-                         );
-                       }
+                           tCuts.DrawLatex(tx, ty,
+                             TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data()
+                           );
+                     }
 
                      keep.push_back(hA);
                      keep.push_back(hB);
