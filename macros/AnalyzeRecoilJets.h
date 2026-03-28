@@ -347,13 +347,8 @@ namespace ARJ
       return OutputCombinedSimOnly(cfgTag, comboLabel) + "/" + mergedFilename;
   }
 
-  // Cross sections (pb) used for per-event weights w = sigma / Naccepted
-  inline constexpr double kSigmaPhoton5_pb  = 89266.571;
-  inline constexpr double kSigmaPhoton10_pb = 6692.7611;
-  inline constexpr double kSigmaPhoton20_pb = 105.79868;
-
   // =============================================================================
-  // Binning (hardcoded; no YAML)
+  // Binning (initialized from Configuration Panel constants above)
   // =============================================================================
   struct BinningCfg
   {

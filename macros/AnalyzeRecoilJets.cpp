@@ -7326,20 +7326,20 @@ namespace ARJ
                       return BuildMergedSIMFile_PhotonSlices(ins, sigmas, outFile, kDirSIM, labs);
                   };
 
-                  EnsureMerged(kMergedSIMOut_5and10,
-                               {kInSIM5, DefaultSim10and20Config().photon10},
-                               {kSigmaPhoton5_pb, kSigmaPhoton10_pb},
-                               {"photonJet5", "photonJet10"});
+                  EnsureMerged(MergedSimPath("photonJet5and10merged_SIM", "RecoilJets_photonjet5plus10_MERGED.root"),
+                                                 {InputSim("photonjet5"), InputSim("photonjet10")},
+                                                 {kSigmaPhoton5_pb, kSigmaPhoton10_pb},
+                                                 {"photonJet5", "photonJet10"});
 
-                  EnsureMerged(kMergedSIMOut_5and20,
-                               {kInSIM5, DefaultSim10and20Config().photon20},
-                               {kSigmaPhoton5_pb, kSigmaPhoton20_pb},
-                               {"photonJet5", "photonJet20"});
+                  EnsureMerged(MergedSimPath("photonJet5and20merged_SIM", "RecoilJets_photonjet5plus20_MERGED.root"),
+                             {InputSim("photonjet5"), InputSim("photonjet20")},
+                             {kSigmaPhoton5_pb, kSigmaPhoton20_pb},
+                             {"photonJet5", "photonJet20"});
 
-                  EnsureMerged(MergedSIMOut_10and20_Default(),
-                               {DefaultSim10and20Config().photon10, DefaultSim10and20Config().photon20},
-                               {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
-                               {"photonJet10", "photonJet20"});
+                  EnsureMerged(MergedSimPath("photonJet10and20merged_SIM", "RecoilJets_photonjet10plus20_MERGED.root"),
+                             {InputSim("photonjet10"), InputSim("photonjet20")},
+                             {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+                             {"photonJet10", "photonJet20"});
 
                   const std::string base = JoinPath(outDir, "recoSampleOverlays");
                   EnsureDir(base);
@@ -7356,13 +7356,13 @@ namespace ARJ
 
                   std::vector<Sample> S =
                   {
-                      {"photon jet 5 GeV",            kInSIM5,                             kBlack,      false, nullptr, nullptr},
-                      {"photon jet 10 GeV",           DefaultSim10and20Config().photon10,  kRed+1,      false, nullptr, nullptr},
-                      {"photon jet 20 GeV",           DefaultSim10and20Config().photon20,  kBlue+1,     false, nullptr, nullptr},
-                      {"photon jet 5 + 10 GeV",       kMergedSIMOut_5and10,                kGreen+3,    true,  nullptr, nullptr},
-                      {"photon jet 5 + 20 GeV",       kMergedSIMOut_5and20,                kMagenta+1,  true,  nullptr, nullptr},
-                      {"photon jet 10 + 20 GeV",      MergedSIMOut_10and20_Default(),      kOrange+7,   true,  nullptr, nullptr},
-                      {"photon jet 5 + 10 + 20 GeV",  kMergedSIMOut_5and10and20,           kViolet+1,   true,  nullptr, nullptr}
+                      {"photon jet 5 GeV",            InputSim("photonjet5"),                                                                          kBlack,      false, nullptr, nullptr},
+                      {"photon jet 10 GeV",           InputSim("photonjet10"),                                                                         kRed+1,      false, nullptr, nullptr},
+                      {"photon jet 20 GeV",           InputSim("photonjet20"),                                                                         kBlue+1,     false, nullptr, nullptr},
+                      {"photon jet 5 + 10 GeV",       MergedSimPath("photonJet5and10merged_SIM", "RecoilJets_photonjet5plus10_MERGED.root"),            kGreen+3,    true,  nullptr, nullptr},
+                      {"photon jet 5 + 20 GeV",       MergedSimPath("photonJet5and20merged_SIM", "RecoilJets_photonjet5plus20_MERGED.root"),            kMagenta+1,  true,  nullptr, nullptr},
+                      {"photon jet 10 + 20 GeV",      MergedSimPath("photonJet10and20merged_SIM", "RecoilJets_photonjet10plus20_MERGED.root"),          kOrange+7,   true,  nullptr, nullptr},
+                      {"photon jet 5 + 10 + 20 GeV",  MergedSimPath("photonJet5and10and20merged_SIM", "RecoilJets_photonjet5plus10plus20_MERGED.root"), kViolet+1,   true,  nullptr, nullptr}
                   };
 
                   auto CloseAll = [&]()
@@ -7724,12 +7724,13 @@ namespace ARJ
 
             // Alternate (7π/8): MUST use the merged photonJet10+20 ROOT file for this cfgKey
             // IMPORTANT: read cfgKey from the header default so the jetMinPt printed + used is always consistent.
-            const std::string altKey = DefaultSimSampleKey();
-            const Sim10and20Config& altCfg = Sim10and20ConfigForKey(altKey);
-            const std::string altMerged = MergedSIMOut_10and20_ForKey(altKey);
+            const std::string altKey = CfgTag();
+            const std::string altIn10 = InputSim("photonjet10");
+            const std::string altIn20 = InputSim("photonjet20");
+            const std::string altMerged = MergedSimPath("photonJet10and20merged_SIM", "RecoilJets_photonjet10plus20_MERGED.root");
 
-            const double jetMinPtGeV = altCfg.jetMinPt;
-            const std::string bbLabel = altCfg.bbLabel;
+            const double jetMinPtGeV = static_cast<double>(kJetPtMin);
+            const std::string bbLabel = B2BLabel();
 
             auto EnsureAltMerged = [&]()->bool
             {
@@ -7738,13 +7739,13 @@ namespace ARJ
               cout << ANSI_BOLD_CYN
                    << "\n[MERGE] Building merged SIM10+20 file for Δφ overlay:\n"
                    << "  cfgKey   = " << altKey << "\n"
-                   << "  in10     = " << altCfg.photon10 << "\n"
-                   << "  in20     = " << altCfg.photon20 << "\n"
+                   << "  in10     = " << altIn10 << "\n"
+                   << "  in20     = " << altIn20 << "\n"
                    << "  out      = " << altMerged << "\n"
                    << ANSI_RESET;
 
               return BuildMergedSIMFile_PhotonSlices(
-                {altCfg.photon10, altCfg.photon20},
+                {altIn10, altIn20},
                 {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
                 altMerged,
                 kDirSIM,
@@ -10632,12 +10633,12 @@ namespace ARJ
 
         if (bothPhoton10and20sim)
         {
-          const string simMerged = MergedSIMOut_10and20_Default();
+            const string simMerged = MergedSimPath("photonJet10and20merged_SIM", "RecoilJets_photonjet10plus20_MERGED.root");
 
-          cout << ANSI_DIM
-               << "  [SS templates] DefaultSimSampleKey()          = " << DefaultSimSampleKey() << "\n"
-               << "  [SS templates] MergedSIMOut_10and20_Default() = " << simMerged << "\n"
-               << ANSI_RESET;
+            cout << ANSI_DIM
+                 << "  [SS templates] CfgTag()                      = " << CfgTag() << "\n"
+                 << "  [SS templates] MergedSimPath(10+20)           = " << simMerged << "\n"
+                 << ANSI_RESET;
 
           if (!simMerged.empty())
           {
@@ -10665,7 +10666,7 @@ namespace ARJ
           }
         }
 
-        const string outBase = JoinPath(kOutPPAuAuBase, "noIsoRequired");
+        const string outBase = JoinPath(OutputPPAuAu(), "noIsoRequired");
         EnsureDir(outBase);
 
         struct VarDef { std::string var; std::string label; };
@@ -11010,8 +11011,8 @@ namespace ARJ
 
     inline string PPOutBaseForThisRun()
     {
-        if (gPPOutBaseSubdir.empty()) return kOutPPBase;
-        return JoinPath(kOutPPBase, gPPOutBaseSubdir);
+        if (gPPOutBaseSubdir.empty()) return OutputPP();
+        return JoinPath(OutputPP(), gPPOutBaseSubdir);
     }
 
     inline bool OpenDataset(Dataset& ds)

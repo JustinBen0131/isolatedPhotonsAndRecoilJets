@@ -934,7 +934,7 @@ for (int i = 0; i < nPads; ++i)
 
       if (!fUE)
       {
-        fUE = TFile::Open(kInAuAuGoldNew.c_str(), "READ");
+        fUE = TFile::Open(InputAuAu().c_str(), "READ");
         if (fUE && aaTop)
         {
           aaTopUE = fUE->GetDirectory(aaTop->GetName());
@@ -3854,229 +3854,20 @@ static void Make2x3Table_AuAuUnNormalized_SS_ByPtOverlaysPerCent(TDirectory* aaT
     keepAlive.clear();
 }
 
-void RunPPvsAuAuDeliverables(Dataset& dsPP)
+
+
+// ---------------------------------------------------------------------------
+// Extracted from RunPPvsAuAuDeliverables: noIsoRequired summary tables
+// (PP vs AuAu by centrality, per-SS-var, per-pT-bin overlays)
+// ---------------------------------------------------------------------------
+static void ProduceNoIsoSummaryTablesOutsideCent(
+    const string& outBase,
+    TDirectory* aaTop,
+    Dataset& dsPP,
+    const vector<string>& ssVars)
 {
-  cout << ANSI_BOLD_CYN << "\n[EXTRA] PP vs Au+Au (gold-gold) photon-ID deliverables\n" << ANSI_RESET;
+  const auto& centBins = CentBins();
 
-// --- Open AuAu gold-gold file(s) ---
-//   (1) kInAuAuGold    : "no UE-sub" (current)
-//   (2) kInAuAuGoldNew : "with UE-sub nodes" (new)
-TFile* fAA = TFile::Open(kInAuAuGold.c_str(), "READ");
-if (!fAA || fAA->IsZombie())
-  {
-    cout << ANSI_BOLD_RED
-         << "[ERROR] Cannot open AuAu gold file: " << kInAuAuGold
-         << ANSI_RESET << "\n";
-    if (fAA) { fAA->Close(); delete fAA; }
-    return;
-  }
-
-  TDirectory* aaTop = fAA->GetDirectory(kTriggerAuAuGold.c_str());
-  if (!aaTop)
-  {
-    cout << ANSI_BOLD_RED
-         << "[ERROR] Missing AuAu trigger directory '" << kTriggerAuAuGold
-         << "' in file: " << kInAuAuGold
-         << ANSI_RESET << "\n";
-    fAA->Close(); delete fAA;
-    return;
-  }
-
-  TFile* fAANew = TFile::Open(kInAuAuGoldNew.c_str(), "READ");
-  if (!fAANew || fAANew->IsZombie())
-  {
-    cout << ANSI_BOLD_YEL
-         << "[WARN] Cannot open AuAu gold NEW file (UE-sub overlay disabled): " << kInAuAuGoldNew
-         << ANSI_RESET << "\n";
-    if (fAANew) { fAANew->Close(); delete fAANew; }
-    fAANew = nullptr;
-  }
-
-  TDirectory* aaTopNew = nullptr;
-  if (fAANew)
-  {
-    aaTopNew = fAANew->GetDirectory(kTriggerAuAuGold.c_str());
-    if (!aaTopNew)
-    {
-      cout << ANSI_BOLD_YEL
-           << "[WARN] Missing AuAu trigger directory '" << kTriggerAuAuGold
-           << "' in NEW file (UE-sub overlay disabled): " << kInAuAuGoldNew
-           << ANSI_RESET << "\n";
-    }
-}
-
-if (!dsPP.topDir)
-{
-  cout << ANSI_BOLD_RED
-       << "[ERROR] PP dataset topDir is null (cannot read PP histograms)."
-       << ANSI_RESET << "\n";
-  fAA->Close(); delete fAA;
-  return;
-}
-
-// Output base (dedicated PP vs AuAu folder)
-const string outBase = kOutPPAuAuBase;
-EnsureDir(outBase);
-
-const auto& centBins = CentBins();
-if (centBins.empty())
-{
-  cout << ANSI_BOLD_YEL
-       << "[WARN] centrality_edges missing/invalid (no centrality bins). Nothing to do."
-       << ANSI_RESET << "\n";
-  fAA->Close(); delete fAA;
-  return;
-}
-
-// ---------------------------------------------------------------------
-// Deliverable Set A: SS spectra (inclusive / iso / nonIso)
-// ---------------------------------------------------------------------
-const vector<string> ssVars = {"weta","wphi","et1","e11e33","e32e35"};
-
-struct SSDef { string folder; string tag; string label; };
-const vector<SSDef> ssDefs = {
-  {"noIsoRequired",  "inclusive", "Inclusive"},
-  {"isoPassSSplots", "iso",       "Iso pass"},
-  {"isoFailSSplots", "nonIso",    "Iso fail"}
-};
-
-for (const auto& cb : centBins)
-{
-    const string centFolder = cb.folder;
-    const string centSuffix = cb.suffix;
-    const string centLabel  = TString::Format("cent: %d-%d%%", cb.lo, cb.hi).Data();
-
-    cout << ANSI_BOLD_CYN
-         << "\n[PP_AuAu] =========================================================\n"
-         << "[PP_AuAu] Centrality bin: " << centLabel << "  (suffix=" << centSuffix << ", folder=" << centFolder << ")\n"
-         << "[PP_AuAu] ========================================================="
-         << ANSI_RESET << "\n";
-
-    cout << ANSI_BOLD_CYN
-         << "\n[PP_AuAu] --- Shower-shape tables (2x3) + per-pT overlays: Inclusive / Iso pass / Iso fail ---"
-         << ANSI_RESET << "\n";
-
-    for (const auto& def : ssDefs)
-    {
-      cout << ANSI_BOLD_GRN
-           << "\n[PP_AuAu]   SS category: " << def.label
-           << "  (folder=" << def.folder << ", tag=" << def.tag << ")"
-           << ANSI_RESET << "\n";
-
-      for (const auto& var : ssVars)
-      {
-        cout << "  [PP_AuAu]     SS var: " << var
-             << "  -> building table2x3 + per-bin overlays" << "\n";
-
-        const string outDir = JoinPath(outBase, JoinPath(def.folder, JoinPath(centFolder, var)));
-        const string histBase = "h_ss_" + var + "_" + def.tag;
-
-        const string topLeft = TString::Format("SS %s (%s)", var.c_str(), def.label.c_str()).Data();
-
-        ProduceFamily_PPvsAuAu(dsPP.topDir, aaTop, outDir, histBase, centSuffix, centLabel,
-                                 var, topLeft, false);
-
-        // ------------------------------------------------------------
-        // NEW: For noIsoRequired/e32e35 only, write an additional PP-only
-        // unnormalized ZOOMED 2x3 table under:
-        //   <outDir>/pp_unNormalized/table2x3_pp_unNormalized_zoom.png
-        // Does NOT affect existing outputs.
-        // ------------------------------------------------------------
-        if (def.folder == "noIsoRequired" && var == "e32e35")
-        {
-            MakePPUnNormalizedZoomTable_e32e35(dsPP.topDir, outDir, centLabel);
-        }
-
-        // ---------------------------------------------------------------------
-        // NEW: In noIsoRequired only, also write FULL-range UNNORMALIZED SS
-        // distributions (PP + AuAu) per pT bin per centrality, plus 2x3 tables.
-        // Output inside:
-        //   .../noIsoRequired/<cent>/<ssVar>/{AuAu_unNormalized,pp_unNormalized}/...
-        // ---------------------------------------------------------------------
-        if (def.folder == "noIsoRequired")
-        {
-            MakeUnnormalizedQA_PPvsAuAu(dsPP.topDir, aaTop, outDir, histBase, centSuffix, centLabel, var, topLeft);
-        }
-      }
-    }
-
-    // ---------------------------------------------------------------------
-    // Deliverable Set B: total Eiso spectra split by tightness
-    // ---------------------------------------------------------------------
-    cout << ANSI_BOLD_CYN
-         << "\n[PP_AuAu] --- Isolation spectra (2x3) + per-pT overlays: inclusive / tight / nonTight ---"
-         << ANSI_RESET << "\n";
-
-    struct IsoDef { string folder; string base; string label; };
-    const vector<IsoDef> isoDefs = {
-      {"noSS_isoSpectra",    "h_Eiso",          "E_{T}^{iso, Total} (inclusive)"},
-      {"tightIsoSpectra",    "h_Eiso_tight",    "E_{T}^{iso, Total} (tight pass)"},
-      {"nonTightIsoSpectra", "h_Eiso_nonTight", "E_{T}^{iso, Total} (tight fail)"}
-    };
-
-    for (const auto& idef : isoDefs)
-    {
-      cout << ANSI_BOLD_GRN
-           << "\n[PP_AuAu]   Iso category: " << idef.label
-           << "  (folder=" << idef.folder << ", base=" << idef.base << ")"
-           << ANSI_RESET << "\n";
-
-      const string outDir = JoinPath(outBase, JoinPath(idef.folder, centFolder));
-      ProduceFamily_PPvsAuAu(dsPP.topDir, aaTop, outDir, idef.base, centSuffix, centLabel,
-                               "E_{T}^{iso} [GeV]", idef.label, true);
-
-      // ---------------------------------------------------------------------
-      // NEW: For inclusive noSS_isoSpectra only, also write an AuAu (counts)
-      // 2x3 table overlaying the current AuAu file vs the UE-subtracted file.
-      // Output:
-      //   <outDir>/AuAu_unNormalized/table2x3_AuAu_unNormalized_overlay_UEsub.png
-      // ---------------------------------------------------------------------
-      if (idef.folder == "noSS_isoSpectra" && aaTopNew)
-      {
-          Make2x3Table_AuAuUnNormalized_OverlayUEsub(aaTop, aaTopNew, outDir,
-                                                    idef.base, centSuffix, centLabel,
-                                                    "E_{T}^{iso} [GeV]");
-        }
-    }
-
-    // ---------------------------------------------------------------------
-    // NEW: Tight vs nonTight overlays (PP and AuAu per centrality)
-    // Output:
-    //   kOutPPAuAuBase/tight_nonTight_isoSpectraOverlay/pp/...
-    //   kOutPPAuAuBase/tight_nonTight_isoSpectraOverlay/AuAu/<cent>/...
-    // ---------------------------------------------------------------------
-    {
-      const string tnBase = JoinPath(outBase, "tight_nonTight_isoSpectraOverlay");
-      EnsureDir(tnBase);
-      ProduceTightNonTightIsoOverlays(dsPP.topDir, aaTop, tnBase, centFolder, centSuffix, centLabel);
-    }
-
-    // ---------------------------------------------------------------------
-    // NEW: isoFail vs isoPass SS overlays (PP and AuAu per centrality)
-    // Output:
-    //   kOutPPAuAuBase/isoFail_isoPass_SSspectra/pp/<ssVar>/...
-    //   kOutPPAuAuBase/isoFail_isoPass_SSspectra/AuAu/<cent>/<ssVar>/...
-    // ---------------------------------------------------------------------
-    {
-      const string outSS = JoinPath(outBase, "isoFail_isoPass_SSspectra");
-      EnsureDir(outSS);
-      ProduceIsoFailIsoPassSSOverlays(dsPP.topDir, aaTop, outSS, centFolder, centSuffix, centLabel, ssVars);
-    }
-  }
-
-  // ---------------------------------------------------------------------
-  // NEW (noIsoRequired summary outside per-centrality folders):
-  //
-  // Output to:
-  //   <kOutPPAuAuBase>/noIsoRequired/<ssVar>/<pTbin>/table2x3_overlay_pp_vs_auau_byCent.png
-  //
-  // For each SS variable and each pT bin, produce a 2x3 table where each pad
-  // corresponds to a centrality bin (first 6), overlaying:
-  //   - PP (same curve in every pad for that pT bin)
-  //   - AuAu (centrality-dependent curve)
-  // with legend + centered title including SS var, centrality, and pT bin.
-  // ---------------------------------------------------------------------
-  {
     const int nPtPads = std::min(6, kNPtBins);
     const int nCentPads = std::min(6, (int)centBins.size());
 
@@ -4787,7 +4578,222 @@ for (const auto& cb : centBins)
         }
       }
     }
+}
+
+
+
+void RunPPvsAuAuDeliverables(Dataset& dsPP)
+{
+  cout << ANSI_BOLD_CYN << "\n[EXTRA] PP vs Au+Au (gold-gold) photon-ID deliverables\n" << ANSI_RESET;
+
+    // --- Open AuAu gold-gold file(s) ---
+    //   (1) kInAuAuGold    : "no UE-sub" (current)
+    //   (2) kInAuAuGoldNew : "with UE-sub nodes" (new)
+    const string kInAuAuPath = InputAuAu();
+    TFile* fAA = TFile::Open(kInAuAuPath.c_str(), "READ");
+    if (!fAA || fAA->IsZombie())
+      {
+        cout << ANSI_BOLD_RED
+             << "[ERROR] Cannot open AuAu gold file: " << kInAuAuPath
+             << ANSI_RESET << "\n";
+        if (fAA) { fAA->Close(); delete fAA; }
+        return;
+      }
+
+      TDirectory* aaTop = fAA->GetDirectory(kTriggerAuAuGold.c_str());
+      if (!aaTop)
+      {
+        cout << ANSI_BOLD_RED
+             << "[ERROR] Missing AuAu trigger directory '" << kTriggerAuAuGold
+             << "' in file: " << kInAuAuPath
+             << ANSI_RESET << "\n";
+        fAA->Close(); delete fAA;
+        return;
+      }
+
+      TFile* fAANew = TFile::Open(kInAuAuPath.c_str(), "READ");
+      if (!fAANew || fAANew->IsZombie())
+      {
+        cout << ANSI_BOLD_YEL
+             << "[WARN] Cannot open AuAu gold NEW file (UE-sub overlay disabled): " << kInAuAuPath
+             << ANSI_RESET << "\n";
+        if (fAANew) { fAANew->Close(); delete fAANew; }
+        fAANew = nullptr;
+      }
+
+      TDirectory* aaTopNew = nullptr;
+      if (fAANew)
+      {
+        aaTopNew = fAANew->GetDirectory(kTriggerAuAuGold.c_str());
+        if (!aaTopNew)
+        {
+          cout << ANSI_BOLD_YEL
+               << "[WARN] Missing AuAu trigger directory '" << kTriggerAuAuGold
+               << "' in NEW file (UE-sub overlay disabled): " << kInAuAuPath
+               << ANSI_RESET << "\n";
+        }
+    }
+
+    if (!dsPP.topDir)
+    {
+      cout << ANSI_BOLD_RED
+           << "[ERROR] PP dataset topDir is null (cannot read PP histograms)."
+           << ANSI_RESET << "\n";
+      fAA->Close(); delete fAA;
+      return;
+    }
+
+    // Output base (dedicated PP vs AuAu folder)
+    const string outBase = OutputPPAuAu();
+    EnsureDir(outBase);
+
+    const auto& centBins = CentBins();
+    if (centBins.empty())
+    {
+      cout << ANSI_BOLD_YEL
+           << "[WARN] centrality_edges missing/invalid (no centrality bins). Nothing to do."
+           << ANSI_RESET << "\n";
+      fAA->Close(); delete fAA;
+      return;
+    }
+
+    // ---------------------------------------------------------------------
+    // Deliverable Set A: SS spectra (inclusive / iso / nonIso)
+    // ---------------------------------------------------------------------
+  const vector<string> ssVars = {"weta","wphi","et1","e11e33","e32e35"};
+
+  struct SSDef { string folder; string tag; string label; };
+  const vector<SSDef> ssDefs = {
+      {"noIsoRequired",  "inclusive", "Inclusive"},
+      {"isoPassSSplots", "iso",       "Iso pass"},
+      {"isoFailSSplots", "nonIso",    "Iso fail"}
+  };
+
+  for (const auto& cb : centBins)
+  {
+    const string centFolder = cb.folder;
+    const string centSuffix = cb.suffix;
+    const string centLabel  = TString::Format("cent: %d-%d%%", cb.lo, cb.hi).Data();
+
+    cout << ANSI_BOLD_CYN
+         << "\n[PP_AuAu] =========================================================\n"
+         << "[PP_AuAu] Centrality bin: " << centLabel << "  (suffix=" << centSuffix << ", folder=" << centFolder << ")\n"
+         << "[PP_AuAu] ========================================================="
+         << ANSI_RESET << "\n";
+
+    cout << ANSI_BOLD_CYN
+         << "\n[PP_AuAu] --- Shower-shape tables (2x3) + per-pT overlays: Inclusive / Iso pass / Iso fail ---"
+         << ANSI_RESET << "\n";
+
+    for (const auto& def : ssDefs)
+    {
+      cout << ANSI_BOLD_GRN
+           << "\n[PP_AuAu]   SS category: " << def.label
+           << "  (folder=" << def.folder << ", tag=" << def.tag << ")"
+           << ANSI_RESET << "\n";
+
+      for (const auto& var : ssVars)
+      {
+        cout << "  [PP_AuAu]     SS var: " << var
+             << "  -> building table2x3 + per-bin overlays" << "\n";
+
+        const string outDir = JoinPath(outBase, JoinPath(def.folder, JoinPath(centFolder, var)));
+        const string histBase = "h_ss_" + var + "_" + def.tag;
+
+        const string topLeft = TString::Format("SS %s (%s)", var.c_str(), def.label.c_str()).Data();
+
+        ProduceFamily_PPvsAuAu(dsPP.topDir, aaTop, outDir, histBase, centSuffix, centLabel,
+                                 var, topLeft, false);
+
+        // ------------------------------------------------------------
+        // NEW: For noIsoRequired/e32e35 only, write an additional PP-only
+        // unnormalized ZOOMED 2x3 table under:
+        //   <outDir>/pp_unNormalized/table2x3_pp_unNormalized_zoom.png
+        // Does NOT affect existing outputs.
+        // ------------------------------------------------------------
+        if (def.folder == "noIsoRequired" && var == "e32e35")
+        {
+            MakePPUnNormalizedZoomTable_e32e35(dsPP.topDir, outDir, centLabel);
+        }
+
+        // ---------------------------------------------------------------------
+        // NEW: In noIsoRequired only, also write FULL-range UNNORMALIZED SS
+        // distributions (PP + AuAu) per pT bin per centrality, plus 2x3 tables.
+        // Output inside:
+        //   .../noIsoRequired/<cent>/<ssVar>/{AuAu_unNormalized,pp_unNormalized}/...
+        // ---------------------------------------------------------------------
+        if (def.folder == "noIsoRequired")
+        {
+            MakeUnnormalizedQA_PPvsAuAu(dsPP.topDir, aaTop, outDir, histBase, centSuffix, centLabel, var, topLeft);
+        }
+      }
+    }
+
+    // ---------------------------------------------------------------------
+    // Deliverable Set B: total Eiso spectra split by tightness
+    // ---------------------------------------------------------------------
+    cout << ANSI_BOLD_CYN
+         << "\n[PP_AuAu] --- Isolation spectra (2x3) + per-pT overlays: inclusive / tight / nonTight ---"
+         << ANSI_RESET << "\n";
+
+    struct IsoDef { string folder; string base; string label; };
+    const vector<IsoDef> isoDefs = {
+      {"noSS_isoSpectra",    "h_Eiso",          "E_{T}^{iso, Total} (inclusive)"},
+      {"tightIsoSpectra",    "h_Eiso_tight",    "E_{T}^{iso, Total} (tight pass)"},
+      {"nonTightIsoSpectra", "h_Eiso_nonTight", "E_{T}^{iso, Total} (tight fail)"}
+    };
+
+    for (const auto& idef : isoDefs)
+    {
+      cout << ANSI_BOLD_GRN
+           << "\n[PP_AuAu]   Iso category: " << idef.label
+           << "  (folder=" << idef.folder << ", base=" << idef.base << ")"
+           << ANSI_RESET << "\n";
+
+      const string outDir = JoinPath(outBase, JoinPath(idef.folder, centFolder));
+      ProduceFamily_PPvsAuAu(dsPP.topDir, aaTop, outDir, idef.base, centSuffix, centLabel,
+                               "E_{T}^{iso} [GeV]", idef.label, true);
+
+      // ---------------------------------------------------------------------
+      // NEW: For inclusive noSS_isoSpectra only, also write an AuAu (counts)
+      // 2x3 table overlaying the current AuAu file vs the UE-subtracted file.
+      // Output:
+      //   <outDir>/AuAu_unNormalized/table2x3_AuAu_unNormalized_overlay_UEsub.png
+      // ---------------------------------------------------------------------
+      if (idef.folder == "noSS_isoSpectra" && aaTopNew)
+      {
+          Make2x3Table_AuAuUnNormalized_OverlayUEsub(aaTop, aaTopNew, outDir,
+                                                    idef.base, centSuffix, centLabel,
+                                                    "E_{T}^{iso} [GeV]");
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // NEW: Tight vs nonTight overlays (PP and AuAu per centrality)
+    // Output:
+    //   kOutPPAuAuBase/tight_nonTight_isoSpectraOverlay/pp/...
+    //   kOutPPAuAuBase/tight_nonTight_isoSpectraOverlay/AuAu/<cent>/...
+    // ---------------------------------------------------------------------
+    {
+      const string tnBase = JoinPath(outBase, "tight_nonTight_isoSpectraOverlay");
+      EnsureDir(tnBase);
+      ProduceTightNonTightIsoOverlays(dsPP.topDir, aaTop, tnBase, centFolder, centSuffix, centLabel);
+    }
+
+    // ---------------------------------------------------------------------
+    // NEW: isoFail vs isoPass SS overlays (PP and AuAu per centrality)
+    // Output:
+    //   kOutPPAuAuBase/isoFail_isoPass_SSspectra/pp/<ssVar>/...
+    //   kOutPPAuAuBase/isoFail_isoPass_SSspectra/AuAu/<cent>/<ssVar>/...
+    // ---------------------------------------------------------------------
+    {
+      const string outSS = JoinPath(outBase, "isoFail_isoPass_SSspectra");
+      EnsureDir(outSS);
+      ProduceIsoFailIsoPassSSOverlays(dsPP.topDir, aaTop, outSS, centFolder, centSuffix, centLabel, ssVars);
+    }
   }
+
+  ProduceNoIsoSummaryTablesOutsideCent(outBase, aaTop, dsPP, ssVars);
 
   // ---------------------------------------------------------------------
   // NEW: Per-pT unnormalized PP/AuAu overlays across centrality (skip 80-100),
@@ -5823,7 +5829,7 @@ for (const auto& cb : centBins)
                         //   - (B-D) use unit-area normalization (shape comparison), NOT log-y
                         // -------------------------------------------------------------------
                         {
-                            const string outNoIso = JoinPath(kOutPPAuAuBase, "noIsoRequired");
+                            const string outNoIso = JoinPath(OutputPPAuAu(), "noIsoRequired");
                             EnsureDir(outNoIso);
                             
                             // SIM input (for *_sig / *_bkg SS templates)
@@ -6884,22 +6890,22 @@ for (const auto& cb : centBins)
         cout.precision(p);
       };
 
-      PrintByPtOverlaySummary(aaTop, "non UE-subtracted", kInAuAuGold);
+      PrintByPtOverlaySummary(aaTop, "non UE-subtracted", kInAuAuPath);
 
-      if (aaTopNew)
-      {
-        PrintByPtOverlaySummary(aaTopNew, "UE-subtracted", kInAuAuGoldNew);
-      }
-      else
-      {
-        cout << ANSI_BOLD_YEL
-             << "[WARN] UE-subtracted Eiso-shape summary skipped (aaTopNew is null): " << kInAuAuGoldNew
-             << ANSI_RESET << "\n";
-      }
+        if (aaTopNew)
+        {
+          PrintByPtOverlaySummary(aaTopNew, "UE-subtracted", kInAuAuPath);
+        }
+        else
+        {
+          cout << ANSI_BOLD_YEL
+               << "[WARN] UE-subtracted Eiso-shape summary skipped (aaTopNew is null): " << kInAuAuPath
+               << ANSI_RESET << "\n";
+        }
 
-      if (aaTop && aaTopNew)
-      {
-        PrintIsoDecisionSummary(aaTop, aaTopNew, kInAuAuGold, kInAuAuGoldNew);
+        if (aaTop && aaTopNew)
+        {
+          PrintIsoDecisionSummary(aaTop, aaTopNew, kInAuAuPath, kInAuAuPath);
 
         // -------------------------------------------------------------------
         // NEW (presentation-ready): 0-10% isolation pass fraction vs pTgamma
