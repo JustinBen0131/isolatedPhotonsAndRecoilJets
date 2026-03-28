@@ -4086,7 +4086,7 @@ void RunJES3QA(Dataset& ds)
 
             hA->SetTitle("");
             hA->GetXaxis()->SetTitle("x_{J#gamma}");
-            hA->GetYaxis()->SetTitle("A.U.");
+            hA->GetYaxis()->SetTitle("Normalized to Unit Area");
 
             const double ymax = std::max(hA->GetMaximum(), hB->GetMaximum());
             hA->SetMaximum(ymax * 1.25);
@@ -4311,7 +4311,7 @@ void RunJES3QA(Dataset& ds)
 
                   hA->SetTitle("");
                   hA->GetXaxis()->SetTitle("x_{J#gamma}");
-                  hA->GetYaxis()->SetTitle("A.U.");
+                  hA->GetYaxis()->SetTitle("Normalized to Unit Area");
                   if (ds.isSim && (ovTag == "RECO_vs_RECO_truthTaggedPhoJet"))
                   {
                     hA->GetXaxis()->SetRangeUser(0.0, 2.0);
@@ -4617,7 +4617,7 @@ void RunJES3QA(Dataset& ds)
 
                  hA->SetTitle("");
                  hA->GetXaxis()->SetTitle("x_{J#gamma}");
-                 hA->GetYaxis()->SetTitle("A.U.");
+                 hA->GetYaxis()->SetTitle("Normalized to Unit Area");
                  hA->GetXaxis()->SetRangeUser(0.0, 2.0);
                  hA->SetMaximum(ymax * 1.25);
 
@@ -4625,60 +4625,94 @@ void RunJES3QA(Dataset& ds)
                  hB->Draw("E1 same");
                  hD->Draw("E1 same");
 
-                 {
-                   TLatex tt;
-                   tt.SetNDC(true);
-                   tt.SetTextFont(42);
+                   {
+                     // Build SIM sample title dynamically from current toggle
+                     std::string simTitleTag = "Sim";
+                     {
+                       const SimSample ss = CurrentSimSample();
+                       switch (ss)
+                       {
+                         case SimSample::kPhotonJet5:                 simTitleTag = "Photon+Jet 5 Sim"; break;
+                         case SimSample::kPhotonJet10:                simTitleTag = "Photon+Jet 10 Sim"; break;
+                         case SimSample::kPhotonJet20:                simTitleTag = "Photon+Jet 20 Sim"; break;
+                         case SimSample::kPhotonJet5And10Merged:      simTitleTag = "Photon+Jet 5+10 Sim"; break;
+                         case SimSample::kPhotonJet5And20Merged:      simTitleTag = "Photon+Jet 5+20 Sim"; break;
+                         case SimSample::kPhotonJet10And20Merged:     simTitleTag = "Photon+Jet 10+20 Sim"; break;
+                         case SimSample::kPhotonJet5And10And20Merged: simTitleTag = "Photon+Jet 5+10+20 Sim"; break;
+                         case SimSample::kSimMB:                      simTitleTag = "MinBias Sim"; break;
+                         case SimSample::kSimJet5:                    simTitleTag = "InclusiveJet5 Sim"; break;
+                         case SimSample::kSimEmbedded:                simTitleTag = "Embedded Photon20 Sim"; break;
+                         default:                                     simTitleTag = "Sim"; break;
+                       }
+                     }
 
-                   tt.SetTextAlign(22);
-                   tt.SetTextSize(0.050);
-                   tt.DrawLatex(0.52, 0.95,
-                     TString::Format("Photon+Jet 10 and 20 Combined Sim + Data (R = %.1f)", R).Data()
-                   );
+                     TLatex tt;
+                     tt.SetNDC(true);
+                     tt.SetTextFont(42);
 
-                   tt.SetTextAlign(13);
-                   tt.SetTextSize(0.043);
-                   tt.DrawLatex(0.18, 0.89,
-                     TString::Format("p_{T}^{#gamma} = %s", ptLab.c_str()).Data()
-                   );
-                 }
+                     tt.SetTextAlign(22);
+                     tt.SetTextSize(0.050);
+                     tt.DrawLatex(0.52, 0.95,
+                       TString::Format("%s + Data (R = %.1f)", simTitleTag.c_str(), R).Data()
+                     );
+                   }
 
-                 TLegend leg(0.55, 0.73, 0.92, 0.90);
-                 leg.SetTextFont(42);
-                 leg.SetTextSize(0.030);
-                 leg.SetFillStyle(0);
-                 leg.SetBorderSize(0);
-                 leg.AddEntry(hA, legSimTruthTag.c_str(), "ep");
-                 leg.AddEntry(hB, legSimReco.c_str(),     "ep");
-                 leg.AddEntry(hD, legData.c_str(),        "ep");
-                 leg.Draw();
+                   TLegend leg(0.55, 0.73, 0.92, 0.90);
+                   leg.SetTextFont(42);
+                   leg.SetTextSize(0.036);
+                   leg.SetFillStyle(0);
+                   leg.SetBorderSize(0);
+                   leg.AddEntry(hA, legSimTruthTag.c_str(), "ep");
+                   leg.AddEntry(hB, legSimReco.c_str(),     "ep");
+                   leg.AddEntry(hD, legData.c_str(),        "ep");
+                   leg.Draw();
 
-                 {
-                   const std::string bbLabelD = B2BLabel();
-                   const double jetMinPtD     = static_cast<double>(kJetPtMin);
+                   TLegend extraLegend(0.12, 0.78, 0.4, 0.88);
+                   extraLegend.SetBorderSize(0);
+                   extraLegend.SetFillStyle(0);
+                   extraLegend.SetTextFont(42);
+                   extraLegend.SetTextSize(0.040);
+                   extraLegend.AddEntry((TObject*)nullptr, "#it{#bf{sPHENIX}} Internal", "");
+                   extraLegend.AddEntry((TObject*)nullptr, "p+p #sqrt{s} = 200 GeV", "");
+                   extraLegend.Draw();
 
-                   TLatex tCuts;
-                   tCuts.SetNDC(true);
-                   tCuts.SetTextFont(42);
-                   tCuts.SetTextAlign(33);
-                   tCuts.SetTextSize(0.045);
+                  {
+                    const std::string bbLabelD = B2BLabel();
+                     const double jetMinPtD     = static_cast<double>(kJetPtMin);
 
-                   const double tx = 0.92;
-                   double ty = 0.63;
-                   const double dY = 0.060;
+                     // Derive iso cone label from kIsoConeR
+                     const std::string isoConeLabel = (kIsoConeR == "isoR40")
+                       ? "#DeltaR^{iso} < 0.4"
+                       : "#DeltaR^{iso} < 0.3";
 
-                   tCuts.DrawLatex(tx, ty,
-                     TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabelD.c_str()).Data()
-                   );
-                   ty -= dY;
-                   tCuts.DrawLatex(tx, ty,
-                     TString::Format("p_{T}^{jet} > %.0f GeV", jetMinPtD).Data()
-                   );
-                   ty -= dY;
-                   tCuts.DrawLatex(tx, ty,
-                     TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data()
-                   );
-                 }
+                     TLatex tCuts;
+                     tCuts.SetNDC(true);
+                     tCuts.SetTextFont(42);
+                     tCuts.SetTextAlign(33);
+                     tCuts.SetTextSize(0.041);
+
+                     const double tx = 0.92;
+                     double ty = 0.63;
+                     const double dY = 0.065;
+
+                     tCuts.DrawLatex(tx, ty,
+                       TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabelD.c_str()).Data()
+                     );
+                     ty -= dY;
+                     tCuts.DrawLatex(tx, ty,
+                       TString::Format("p_{T}^{jet} > %.0f GeV", jetMinPtD).Data()
+                     );
+                     ty -= dY;
+                     tCuts.DrawLatex(tx, ty,
+                       TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data()
+                     );
+                     ty -= dY;
+                     tCuts.DrawLatex(tx, ty,
+                       TString::Format("p_{T}^{#gamma} = %s", ptLab.c_str()).Data()
+                     );
+                     ty -= dY;
+                     tCuts.DrawLatex(tx, ty, isoConeLabel.c_str());
+                   }
 
                  SaveCanvas(c, outPng);
                  cout << ANSI_BOLD_GRN
@@ -4773,7 +4807,7 @@ void RunJES3QA(Dataset& ds)
 
                      hA->SetTitle("");
                      hA->GetXaxis()->SetTitle("x_{J#gamma}");
-                     hA->GetYaxis()->SetTitle("A.U.");
+                     hA->GetYaxis()->SetTitle("Normalized to Unit Area");
                      hA->GetXaxis()->SetRangeUser(0.0, 2.0);
                      hA->Draw("E1");
                      hB->Draw("E1 same");
@@ -5059,7 +5093,7 @@ void RunJES3QA(Dataset& ds)
 
             hR->SetTitle("");
             hR->GetXaxis()->SetTitle("x_{J#gamma}");
-            hR->GetYaxis()->SetTitle("A.U.");
+            hR->GetYaxis()->SetTitle("Normalized to Unit Area");
 
             const string ptLab  = AxisBinLabel(hReco->GetXaxis(), ib, "GeV", 0);
             const string outPng = JoinPath(dirOvPer, TString::Format("overlay_pTbin%d.png", ib).Data());
@@ -5325,7 +5359,7 @@ void RunJES3QA(Dataset& ds)
 
                 hR->SetTitle("");
                 hR->GetXaxis()->SetTitle("x_{J#gamma}");
-                hR->GetYaxis()->SetTitle("A.U.");
+                hR->GetYaxis()->SetTitle("Normalized to Unit Area");
                 hR->Draw("E1");
                 hT->Draw("E1 same");
                 hB->Draw("E1 same");
@@ -9010,7 +9044,7 @@ void RunJES3QA(Dataset& ds)
 
                         pN->SetTitle("");
                         pN->GetXaxis()->SetTitle("|#Delta#phi(#gamma^{truth}, recoilJet_{1}^{reco})| [rad]");
-                        pN->GetYaxis()->SetTitle("A.U.");
+                        pN->GetYaxis()->SetTitle("Normalized to Unit Area");
 
                         pN->Draw("hist");
                         pA->Draw("hist same");
@@ -9350,7 +9384,7 @@ void RunJES3QA(Dataset& ds)
 
                     p->SetTitle("");
                     p->GetXaxis()->SetTitle("|#Delta#phi(#gamma, recoilJet_{1})| [rad]");
-                    p->GetYaxis()->SetTitle("A.U.");
+                    p->GetYaxis()->SetTitle("Normalized to Unit Area");
 
                     p->SetLineWidth(2);
                     p->SetLineColor(kBlack);
