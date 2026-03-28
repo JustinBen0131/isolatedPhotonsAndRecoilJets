@@ -4553,7 +4553,7 @@ void RunJES3QA(Dataset& ds)
 
                const std::string legSimTruthTag = "Sim Reco (#gamma^{truth} + jet^{truth})";
                const std::string legSimReco     = "Sim Reco";
-               const std::string legData        = "Data";
+               const std::string legData        = "Run24pp";
 
                // ---- Per pT bin overlay PNGs ----
                for (int ib = 1; ib <= nPtOvD; ++ib)
@@ -4643,9 +4643,9 @@ void RunJES3QA(Dataset& ds)
                    );
                  }
 
-                 TLegend leg(0.35, 0.73, 0.72, 0.90);
+                 TLegend leg(0.55, 0.73, 0.92, 0.90);
                  leg.SetTextFont(42);
-                 leg.SetTextSize(0.040);
+                 leg.SetTextSize(0.030);
                  leg.SetFillStyle(0);
                  leg.SetBorderSize(0);
                  leg.AddEntry(hA, legSimTruthTag.c_str(), "ep");

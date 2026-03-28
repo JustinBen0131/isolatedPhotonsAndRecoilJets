@@ -3290,7 +3290,9 @@
 
             hPhoResp_measXtruth->SetTitle("");
             hPhoResp_measXtruth->GetXaxis()->SetTitle("p_{T}^{#gamma, reco} [GeV]");
+            hPhoResp_measXtruth->GetXaxis()->SetTitleOffset(1.15);
             hPhoResp_measXtruth->GetYaxis()->SetTitle("p_{T}^{#gamma, truth} [GeV]");
+            hPhoResp_measXtruth->GetZaxis()->SetTitle("Counts");
 
             const auto& recoEdges  = kUnfoldRecoPtEdges;
             const auto& truthEdges = kUnfoldTruthPtEdges;
@@ -3341,8 +3343,7 @@
             if (truthUFHi > truthMin) lTruthUF2.Draw("same");
             if (truthOFLo > truthMin) lTruthOF.Draw("same");
 
-            DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
-            DrawLatexLines(0.14,0.88, { "SIM photon response (transpose)", "reco #rightarrow truth axis order" }, 0.030, 0.040);
+            DrawLatexLines(0.14,0.95, DefaultHeaderLines(dsSim), 0.034, 0.045);
             DrawLatexLines(0.52,0.36,
                            {
                              "UF / OF support bins:",
