@@ -386,61 +386,6 @@
           return h2;
         };
 
-        auto HistFromRecoVector1D =
-          [](RooUnfoldBayes& unfold, const TH1* tmpl, const string& newName) -> TH1*
-        {
-          if (!tmpl) return nullptr;
-
-          TH1* h = CloneTH1(tmpl, newName);
-          if (!h) return nullptr;
-
-          h->Reset("ICES");
-          h->SetDirectory(nullptr);
-          EnsureSumw2(h);
-
-          const TVectorD& v = unfold.Vreco();
-          const TMatrixD& cov = unfold.Ereco(RooUnfolding::kCovariance);
-
-          const int nb = h->GetNbinsX();
-          for (int ib = 1; ib <= nb; ++ib)
-          {
-            const int iv = ib - 1;
-            if (iv < 0 || iv >= v.GetNrows()) continue;
-
-            h->SetBinContent(ib, v[iv]);
-
-            double err2 = 0.0;
-            if (iv < cov.GetNrows() && iv < cov.GetNcols()) err2 = cov(iv, iv);
-            h->SetBinError(ib, (err2 > 0.0 && std::isfinite(err2)) ? std::sqrt(err2) : 0.0);
-          }
-
-          return h;
-        };
-
-        auto HistFromRecoVectorGlobal =
-          [](RooUnfoldBayes& unfold, const string& newName) -> TH1D*
-        {
-          const TVectorD& v = unfold.Vreco();
-          const TMatrixD& cov = unfold.Ereco(RooUnfolding::kCovariance);
-
-          const int n = v.GetNrows();
-          TH1D* h = new TH1D(newName.c_str(), "", n, -0.5, n - 0.5);
-          h->SetDirectory(nullptr);
-          h->Sumw2();
-
-          for (int i = 0; i < n; ++i)
-          {
-            const int b = i + 1;
-            h->SetBinContent(b, v[i]);
-
-            double err2 = 0.0;
-            if (i < cov.GetNrows() && i < cov.GetNcols()) err2 = cov(i, i);
-            h->SetBinError(b, (err2 > 0.0 && std::isfinite(err2)) ? std::sqrt(err2) : 0.0);
-          }
-
-          return h;
-        };
-
         // ----------------------------------------------------------------------
         // Helpers for ATLAS-style purity correction before unfolding:
         //   - photon normalization input: use S_A(pT^{#gamma}) from ABCD
@@ -1690,17 +1635,14 @@
 
         TH1* hPhoUnfoldTruth = nullptr;
         if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-        hPhoUnfoldTruth = HistFromRecoVector1D(unfoldPhoToy, hPhoTruthSim, "hPhoUnfoldTruth_fromVreco");
+        hPhoUnfoldTruth = unfoldPhoToy.Hreco(RooUnfold::kCovToy);
         if (gSystem) gSystem->RedirectOutput(0);
         if (hPhoUnfoldTruth) hPhoUnfoldTruth->SetDirectory(nullptr);
 
         RooUnfoldBayes    unfoldPhoCov(&respPho, hPhoRecoData, kBayesIterPho);
         unfoldPhoCov.SetVerbose(0);
 
-        TH1* hPhoUnfoldTruth_cov = nullptr;
-        if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-        hPhoUnfoldTruth_cov = HistFromRecoVector1D(unfoldPhoCov, hPhoTruthSim, "hPhoUnfoldTruth_cov_fromVreco");
-        if (gSystem) gSystem->RedirectOutput(0);
+        TH1* hPhoUnfoldTruth_cov = unfoldPhoCov.Hreco(RooUnfold::kCovariance);
         if (hPhoUnfoldTruth_cov) hPhoUnfoldTruth_cov->SetDirectory(nullptr);
 
         // Photon QA outputs
@@ -8189,17 +8131,14 @@
 
           TH1* hUnfoldTruthGlob = nullptr;
           if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-          hUnfoldTruthGlob = HistFromRecoVectorGlobal(unfoldXJ_toy, TString::Format("hUnfoldTruthGlob_fromVreco_%s", rKey.c_str()).Data());
+          hUnfoldTruthGlob = unfoldXJ_toy.Hreco(RooUnfold::kCovToy);
           if (gSystem) gSystem->RedirectOutput(0);
           if (hUnfoldTruthGlob) hUnfoldTruthGlob->SetDirectory(nullptr);
 
           RooUnfoldBayes unfoldXJ_cov(&respXJ, hMeasDataGlob, kBayesIterXJ);
           unfoldXJ_cov.SetVerbose(0);
 
-          TH1* hUnfoldTruthGlob_cov = nullptr;
-          if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-          hUnfoldTruthGlob_cov = HistFromRecoVectorGlobal(unfoldXJ_cov, TString::Format("hUnfoldTruthGlob_cov_fromVreco_%s", rKey.c_str()).Data());
-          if (gSystem) gSystem->RedirectOutput(0);
+          TH1* hUnfoldTruthGlob_cov = unfoldXJ_cov.Hreco(RooUnfold::kCovariance);
           if (hUnfoldTruthGlob_cov) hUnfoldTruthGlob_cov->SetDirectory(nullptr);
 
         if (!hUnfoldTruthGlob)
