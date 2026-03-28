@@ -7326,20 +7326,23 @@ namespace ARJ
                       return BuildMergedSIMFile_PhotonSlices(ins, sigmas, outFile, kDirSIM, labs);
                   };
 
+                  if (bothPhoton5and10sim)
                   EnsureMerged(MergedSimPath("photonJet5and10merged_SIM", "RecoilJets_photonjet5plus10_MERGED.root"),
-                                                 {InputSim("photonjet5"), InputSim("photonjet10")},
-                                                 {kSigmaPhoton5_pb, kSigmaPhoton10_pb},
-                                                 {"photonJet5", "photonJet10"});
+                                                   {InputSim("photonjet5"), InputSim("photonjet10")},
+                                                   {kSigmaPhoton5_pb, kSigmaPhoton10_pb},
+                                                   {"photonJet5", "photonJet10"});
 
+                  if (bothPhoton5and20sim)
                   EnsureMerged(MergedSimPath("photonJet5and20merged_SIM", "RecoilJets_photonjet5plus20_MERGED.root"),
-                             {InputSim("photonjet5"), InputSim("photonjet20")},
-                             {kSigmaPhoton5_pb, kSigmaPhoton20_pb},
-                             {"photonJet5", "photonJet20"});
+                               {InputSim("photonjet5"), InputSim("photonjet20")},
+                               {kSigmaPhoton5_pb, kSigmaPhoton20_pb},
+                               {"photonJet5", "photonJet20"});
 
+                  if (bothPhoton10and20sim)
                   EnsureMerged(MergedSimPath("photonJet10and20merged_SIM", "RecoilJets_photonjet10plus20_MERGED.root"),
-                             {InputSim("photonjet10"), InputSim("photonjet20")},
-                             {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
-                             {"photonJet10", "photonJet20"});
+                               {InputSim("photonjet10"), InputSim("photonjet20")},
+                               {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+                               {"photonJet10", "photonJet20"});
 
                   const std::string base = JoinPath(outDir, "recoSampleOverlays");
                   EnsureDir(base);
@@ -7637,6 +7640,7 @@ namespace ARJ
                       const std::string outR = JoinPath(base, rKey);
                       EnsureDir(outR);
 
+                      if (bothPhoton5and10sim && bothPhoton5and20sim && bothPhoton10and20sim)
                       Make3x3OverlayTable(
                         rKey, outR,
                         "recoJES3_xJ_overlays_allSamples",
@@ -7657,12 +7661,14 @@ namespace ARJ
                         {0, 1, 2, 6}
                       );
 
+                      if (bothPhoton5and10sim && bothPhoton10and20sim)
                       Make3x3OverlayTable(
                         rKey, outR,
                         "recoJES3_xJ_overlays_mergedPairsPlusAllMerged",
                         {3, 5, 6}
                       );
 
+                      if (bothPhoton10and20sim)
                       Make3x3OverlayTable(
                         rKey, outR,
                         "recoJES3_xJ_overlays_10and20_vs_5and10and20",
