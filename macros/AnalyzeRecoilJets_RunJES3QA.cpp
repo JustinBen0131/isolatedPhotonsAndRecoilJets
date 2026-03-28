@@ -2954,12 +2954,12 @@ void RunJES3QA(Dataset& ds)
 
             if (!fPP)
             {
-              fPP = TFile::Open(kInPP24.c_str(), "READ");
-              if (fPP)
-              {
-                dirPP = fPP->GetDirectory(kTriggerPP.c_str());
-                if (!dirPP) dirPP = fPP;
-              }
+                fPP = TFile::Open(InputPP().c_str(), "READ");
+                if (fPP)
+                {
+                  dirPP = fPP->GetDirectory(kTriggerPP.c_str());
+                  if (!dirPP) dirPP = fPP;
+                }
             }
 
             if (!fPP || !dirPP) return;
@@ -3316,12 +3316,12 @@ void RunJES3QA(Dataset& ds)
 
           if (!fUE)
           {
-            fUE = TFile::Open(kInAuAuGoldNew.c_str(), "READ");
-            if (fUE)
-            {
-              dirUE = fUE->GetDirectory(ds.trigger.c_str());
-              if (!dirUE) dirUE = fUE;
-            }
+              fUE = TFile::Open(InputAuAu().c_str(), "READ");
+              if (fUE)
+              {
+                dirUE = fUE->GetDirectory(ds.trigger.c_str());
+                if (!dirUE) dirUE = fUE;
+              }
           }
 
           if (!fUE || !dirUE) return;
@@ -3747,27 +3747,26 @@ void RunJES3QA(Dataset& ds)
           {
             s_xJoverlaysDone = true;
 
-            // Build trigger-level output: <kOutAuAuBase>/<trigger>/xJoverlays/
-            const string trigBase = JoinPath(kOutAuAuBase, ds.trigger);
+            // Build trigger-level output: <OutputAuAu()>/<trigger>/xJoverlays/
+            const string trigBase = JoinPath(OutputAuAu(), ds.trigger);
             const string xJovDir  = JoinPath(trigBase, "xJoverlays");
             EnsureDir(xJovDir);
 
             // Open PP file
-            TFile* fPPov = TFile::Open(kInPP24.c_str(), "READ");
+            TFile* fPPov = TFile::Open(InputPP().c_str(), "READ");
             TDirectory* dirPPov = nullptr;
             if (fPPov)
             {
-              dirPPov = fPPov->GetDirectory(kTriggerPP.c_str());
-              if (!dirPPov) dirPPov = fPPov;
+                dirPPov = fPPov->GetDirectory(kTriggerPP.c_str());
+                if (!dirPPov) dirPPov = fPPov;
             }
-
             // Open AuAu file (baseline, non-UE-subtracted)
-            TFile* fAAov = TFile::Open(kInAuAuGold.c_str(), "READ");
+            TFile* fAAov = TFile::Open(InputAuAu().c_str(), "READ");
             TDirectory* dirAAov = nullptr;
             if (fAAov)
             {
-              dirAAov = fAAov->GetDirectory(ds.trigger.c_str());
-              if (!dirAAov) dirAAov = fAAov;
+                dirAAov = fAAov->GetDirectory(ds.trigger.c_str());
+                if (!dirAAov) dirAAov = fAAov;
             }
 
             if (fPPov && dirPPov && fAAov && dirAAov)
@@ -6205,53 +6204,49 @@ void RunJES3QA(Dataset& ds)
                   one.SetLineWidth(2);
                   one.Draw("same");
 
-                      const double Rval =
+                  const double Rval =
                         (rKey == "r02") ? 0.2 :
                         (rKey == "r04") ? 0.4 :
                         (rKey == "r06") ? 0.6 : -1.0;
 
-                      const auto& simCfgMap = Sim10and20Configs();
-                      const auto  itSimCfg  = simCfgMap.find(DefaultSimSampleKey());
-                      const Sim10and20Config* simCfg = (itSimCfg != simCfgMap.end() ? &itSimCfg->second : nullptr);
+                  const string bbLabel = B2BLabel();
+                  const double jetPtMin_GeV = static_cast<double>(kJetPtMin);
 
-                      DrawLatexLines(0.14, 0.92,
+                  DrawLatexLines(0.14, 0.92,
                         {TString::Format("Lead recoil-jet match efficiency (R = %.1f)", Rval).Data()},
                         0.030, 0.040
-                      );
-                      DrawLatexLines(0.14, 0.86, DefaultHeaderLines(ds), 0.030, 0.040);
+                  );
+                  DrawLatexLines(0.14, 0.86, DefaultHeaderLines(ds), 0.030, 0.040);
 
-                      if (simCfg)
-                      {
-                        TLatex tCuts;
-                        tCuts.SetNDC(true);
-                        tCuts.SetTextFont(42);
-                        tCuts.SetTextAlign(33);
-                        tCuts.SetTextSize(0.028);
-                        tCuts.DrawLatex(0.92, 0.78, TString::Format("|#Delta#phi(#gamma,jet)| > %s", simCfg->bbLabel.c_str()).Data());
-                        tCuts.DrawLatex(0.92, 0.70, TString::Format("Reco (p_{T}^{jet} > %.0f GeV)", simCfg->jetMinPt).Data());
-                      }
+                  TLatex tCuts;
+                  tCuts.SetNDC(true);
+                  tCuts.SetTextFont(42);
+                  tCuts.SetTextAlign(33);
+                  tCuts.SetTextSize(0.028);
+                  tCuts.DrawLatex(0.92, 0.78, TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data());
+                  tCuts.DrawLatex(0.92, 0.70, TString::Format("Reco (p_{T}^{jet} > %.0f GeV)", jetPtMin_GeV).Data());
 
 
-                    const string outPng = JoinPath(
+                  const string outPng = JoinPath(
                       D.dirXJProjEffLeadMatch,
                       TString::Format("leadRecoilJetMatchEff_vs_pTgammaTruth_%s.png", rKey.c_str()).Data()
-                    );
-                    SaveCanvas(c, outPng);
+                  );
+                  SaveCanvas(c, outPng);
 
-                    cout << "    Wrote: " << outPng << "\n";
-                    effSummary.push_back("  - " + outPng);
+                  cout << "    Wrote: " << outPng << "\n";
+                  effSummary.push_back("  - " + outPng);
 
-                    // ------------------------------------------------------------
-                    // NEW: overlay efficiency curves for r02 and r04 on one canvas
-                    //   - r02: red filled circles
-                    //   - r04: blue filled circles
-                    //
-                    // Output (exact):
-                    //   <...>/xJ_fromJES3/Efficiency/LeadTruthRecoilMatch/
-                    //     leadRecoilJetMatchEff_vs_pTgammaTruth_overlay_r02_r04.png
-                    // ------------------------------------------------------------
-                    if (rKey == "r04")
-                    {
+                  // ------------------------------------------------------------
+                  // NEW: overlay efficiency curves for r02 and r04 on one canvas
+                  //   - r02: red filled circles
+                  //   - r04: blue filled circles
+                  //
+                  // Output (exact):
+                  //   <...>/xJ_fromJES3/Efficiency/LeadTruthRecoilMatch/
+                  //     leadRecoilJetMatchEff_vs_pTgammaTruth_overlay_r02_r04.png
+                  // ------------------------------------------------------------
+                  if (rKey == "r04")
+                  {
                       const std::string rk02 = "r02";
                       const std::string rk04 = "r04";
 
@@ -8037,12 +8032,11 @@ void RunJES3QA(Dataset& ds)
                             0.030, 0.040
                           );
 
-                          // Default SIM cuts (from kDefaultSimSampleKey) — print UNDER the title block (2 lines)
-                          const auto& cfgDef = DefaultSim10and20Config();
+                          // Default SIM cuts — print UNDER the title block (2 lines)
                           DrawLatexLines(0.14, 0.80,
                             {
-                              TString::Format("#Delta#phi(#gamma,jet) > %s", cfgDef.bbLabel.c_str()).Data(),
-                              TString::Format("p_{T}^{jet} > %.0f GeV", cfgDef.jetMinPt).Data()
+                              TString::Format("#Delta#phi(#gamma,jet) > %s", B2BLabel().c_str()).Data(),
+                              TString::Format("p_{T}^{jet} > %.0f GeV", static_cast<double>(kJetPtMin)).Data()
                             },
                             0.028, 0.036
                           );

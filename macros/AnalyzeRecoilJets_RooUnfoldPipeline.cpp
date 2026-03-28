@@ -10905,9 +10905,8 @@
                 if (gAtlasPP)
                 {
                     const double yHeadroomScale = 1.30;
-                    const auto& cfgDef = DefaultSim10and20Config();
-                    const double sphJetPtMin = cfgDef.jetMinPt;
-                    const string bbLabel = cfgDef.bbLabel;
+                    const double sphJetPtMin = static_cast<double>(kJetPtMin);
+                    const string bbLabel = B2BLabel();
                     const double atlasJetPtMin = 31.6;
 
                     TCanvas cO(TString::Format("c_perPho_LHC_%s_%d", rKey.c_str(), i + 1).Data(), "c_perPho_LHC", 900, 700);
@@ -11170,7 +11169,7 @@
           delete hXJ;
         }
 
-          {
+        {
               // -------------------------------------------------------------------
               // 2x3 table (first 6 pT bins): ratio of statistical error magnitudes
               //   ratio(xJ) = err_cov(xJ) / err_toy(xJ)

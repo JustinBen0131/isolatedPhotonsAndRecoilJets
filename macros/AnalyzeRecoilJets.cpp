@@ -11108,20 +11108,20 @@ namespace ARJ
                 centBins.push_back(cb);
               }
 
-              const string simInPath  = SimInputPathForSample(ss);
-              const string simCfgTag  = EmbeddedSimCfgTagForPathOrDefault(simInPath);
-              const string simOutBase = kOutSimEmbeddedBasePath(simInPath);
+                const string simInPath  = SimInputPathForSample(ss);
+                const string simCfgTag  = CfgTagWithUE();
+                const string simOutBase = OutputSimEmbedded();
 
-              if (centBins.empty())
-              {
-                Dataset ds;
-                ds.label      = "SIM_EMBEDDED_" + simCfgTag;
-                ds.isSim      = true;
-                ds.trigger    = "";
-                ds.topDirName = kDirSIM;
-                ds.inFilePath = simInPath;
-                ds.outBase    = simOutBase;
-                datasets.push_back(std::move(ds));
+                if (centBins.empty())
+                {
+                  Dataset ds;
+                  ds.label      = "SIM_EMBEDDED_" + simCfgTag;
+                  ds.isSim      = true;
+                  ds.trigger    = "";
+                  ds.topDirName = kDirSIM;
+                  ds.inFilePath = simInPath;
+                  ds.outBase    = simOutBase;
+                  datasets.push_back(std::move(ds));
               }
               else
               {
@@ -11161,18 +11161,18 @@ namespace ARJ
           ds.isSim      = false;
           ds.trigger    = kTriggerPP;
           ds.topDirName = kTriggerPP;
-          ds.inFilePath = kInPP;
+          ds.inFilePath = InputPP(isRun25pp);
 
             // NOTE:
-            // - Legacy single-run behavior: PP output goes to kOutPPBase
-            // - Multi-run SIM+DATA behavior: PP output goes to kOutPPBase/with_<simSampleLabel>
+            // - Legacy single-run behavior: PP output goes to OutputPP()
+            // - Multi-run SIM+DATA behavior: PP output goes to OutputPP()/with_<simSampleLabel>
             //   (so you can loop over multiple SIM selections without clobbering PP outputs)
             //
             // DATA outputs are organized per-trigger:
             //   <PP base>/<trigger>/{baselineData,insituCalib,unfolding,...}
             if (mode == RunMode::kPPDataOnly)
             {
-              ds.outBase = JoinPath(kOutPPBase, ds.trigger);
+              ds.outBase = JoinPath(OutputPP(), ds.trigger);
             }
             else
             {
@@ -11193,10 +11193,10 @@ namespace ARJ
             ds.isSim      = false;
             ds.trigger    = kTriggerAuAuGold;
             ds.topDirName = kTriggerAuAuGold;
-            ds.inFilePath = kInAuAuGold;
+            ds.inFilePath = InputAuAu();
 
             // Fallback: no YAML centrality bins available, keep legacy AuAu output path.
-            ds.outBase = JoinPath(kOutAuAuBase, ds.trigger);
+            ds.outBase = JoinPath(OutputAuAu(), ds.trigger);
 
             datasets.push_back(std::move(ds));
           }
@@ -11209,7 +11209,7 @@ namespace ARJ
               ds.isSim      = false;
               ds.trigger    = kTriggerAuAuGold;
               ds.topDirName = kTriggerAuAuGold;
-              ds.inFilePath = kInAuAuGold;
+              ds.inFilePath = InputAuAu();
 
               ds.centFolder = cb.folder;
               ds.centSuffix = cb.suffix;
@@ -11217,7 +11217,7 @@ namespace ARJ
 
               // AuAu-only outputs are organized per-trigger, per-centrality:
               //   <AuAu base>/<trigger>/<centFolder>/{baselineData,insituCalib,unfolding,...}
-              ds.outBase = JoinPath(JoinPath(kOutAuAuBase, ds.trigger), ds.centFolder);
+              ds.outBase = JoinPath(JoinPath(OutputAuAu(), ds.trigger), ds.centFolder);
 
               datasets.push_back(std::move(ds));
             }
@@ -11763,7 +11763,7 @@ namespace ARJ
 
               if (hCent)
               {
-                const std::string outDir  = JoinPath(kOutAuAuBase, trig);
+                const std::string outDir  = JoinPath(OutputAuAu(), trig);
                 const std::string outPath = JoinPath(outDir, "centrality_distribution.png");
                 EnsureDir(outDir);
 
@@ -11893,7 +11893,7 @@ namespace ARJ
 
           const int n = (int)v.size();
 
-          const std::string outDir  = JoinPath(kOutAuAuBase, trig);
+          const std::string outDir  = JoinPath(OutputAuAu(), trig);
           const std::string outPath = JoinPath(outDir, "acceptedEvents_vs_centrality.png");
           EnsureDir(outDir);
 
@@ -12169,15 +12169,15 @@ namespace ARJ
           TFile* ppFallbackFile = nullptr;
           if (!dsPP)
           {
-                ppFallbackFile = TFile::Open(kInPP.c_str(), "READ");
+                ppFallbackFile = TFile::Open(InputPP(isRun25pp).c_str(), "READ");
                 if (ppFallbackFile && !ppFallbackFile->IsZombie())
                 {
                   ppFallback.label      = "DATA_PP";
                   ppFallback.isSim      = false;
                   ppFallback.trigger    = kTriggerPP;
                   ppFallback.topDirName = kTriggerPP;
-                  ppFallback.inFilePath = kInPP;
-                  ppFallback.outBase    = JoinPath(kOutPPBase, kTriggerPP);
+                  ppFallback.inFilePath = InputPP(isRun25pp);
+                  ppFallback.outBase    = JoinPath(OutputPP(), kTriggerPP);
                   ppFallback.file       = ppFallbackFile;
                   ppFallback.topDir     = ppFallbackFile->GetDirectory(kTriggerPP.c_str());
 
@@ -12185,21 +12185,21 @@ namespace ARJ
                   {
                     dsPP = &ppFallback;
                     cout << ANSI_BOLD_CYN
-                         << "[INFO] Opened PP file on-the-fly for PP vs AuAu overlays: " << kInPP
+                         << "[INFO] Opened PP file on-the-fly for PP vs AuAu overlays: " << InputPP(isRun25pp)
                          << ANSI_RESET << "\n";
                   }
                   else
                   {
                     cout << ANSI_BOLD_YEL
                          << "[WARN] PP file opened but missing trigger dir '" << kTriggerPP
-                         << "' in: " << kInPP << ". Skipping PP vs AuAu overlays."
+                         << "' in: " << InputPP(isRun25pp) << ". Skipping PP vs AuAu overlays."
                          << ANSI_RESET << "\n";
                   }
                 }
                 else
                 {
                   cout << ANSI_BOLD_YEL
-                       << "[WARN] isPPdataAndAUAU=true but cannot open PP file: " << kInPP
+                       << "[WARN] isPPdataAndAUAU=true but cannot open PP file: " << InputPP(isRun25pp)
                        << " (mode=" << RunModeLabel(mode) << "). Skipping PP vs AuAu overlays."
                        << ANSI_RESET << "\n";
                 }

@@ -73,200 +73,109 @@ namespace ARJ
   using std::vector;
   using std::map;
 
-// =============================================================================
-// HOW TO USE THESE TOGGLES (pp data + photonJet SIM: 5 / 10 / 20)
-// =============================================================================
-//
-// You control TWO things:
-//
-// (A) RUN MODE (PP-only vs SIM-only vs SIM+PP):
-//
-//   1) PP DATA ONLY (no SIM at all)
-//        isPPdataOnly   = true;
-//        isSimAndDataPP = false;
-//        // IMPORTANT: all SIM sample toggles below MUST be false.
-//
-//   2) SIM ONLY (no PP data)
-//        isPPdataOnly   = false;
-//        isSimAndDataPP = false;
-//        // choose EXACTLY ONE SIM sample toggle below.
-//
-//   3) SIM + PP DATA (run both; enables SIM/Data combined steps where implemented)
-//        isPPdataOnly   = false;
-//        isSimAndDataPP = true;
-//        // choose EXACTLY ONE SIM sample toggle below.
-//
-// (B) WHICH SIM SAMPLE TO USE (choose EXACTLY ONE when SIM is included):
-//
-//   --- Single-slice SIM (raw event-count histograms) ---
-//   - photonJet5 only:
-//        isPhotonJet5 = true;
-//        // all other SIM toggles false
-//        -> SIM input:  kInSIM5
-//        -> SIM output: kOutSIM5Base  (.../photonJet5_SIM)
-//
-//   - photonJet10 only:
-//        isPhotonJet10 = true;
-//        // all other SIM toggles false
-//        -> SIM input:  kInSIM10
-//        -> SIM output: kOutSIM10Base (.../photonJet10_SIM)
-//
-//   - photonJet20 only:
-//        isPhotonJet20 = true;
-//        // all other SIM toggles false
-//        -> SIM input:  kInSIM20
-//        -> SIM output: kOutSIM20Base (.../photonJet20_SIM)
-//
-//   --- Weighted merged SIM (histograms become weighted; y-axis ~ "Counts / pb^{-1}") ---
-//   When a merged mode is selected, the code builds/uses a merged ROOT file whose histograms are:
-//        H_merged = sum_i ( (sigma_i / N_i) * H_i )
-//   where N_i is read from cnt_SIM bin 1 in each slice file (accepted event count).
-//
-//   - merged photonJet5+10:
-//        bothPhoton5and10sim = true;
-//        // all other SIM toggles false
-//        -> merged output file: kMergedSIMOut_5and10
-//        -> SIM output base:    kOutSIM5and10MergedBase (.../photonJet5and10merged_SIM)
-//
-//   - merged photonJet5+20:
-//        bothPhoton5and20sim = true;
-//        // all other SIM toggles false
-//        -> merged output file: kMergedSIMOut_5and20
-//        -> SIM output base:    kOutSIM5and20MergedBase (.../photonJet5and20merged_SIM)
-//
-//   - merged photonJet10+20:
-//        bothPhoton10and20sim = true;
-//        // all other SIM toggles false
-//        -> merged output file: kMergedSIMOut
-//        -> SIM output base:    kOutSIMMergedBase (.../photonJet10and20merged_SIM)
-//
-//   - merged photonJet5+10+20:
-//        allPhoton5and10and20sim = true;
-//        // all other SIM toggles false
-//        -> merged output file: kMergedSIMOut_5and10and20
-//        -> SIM output base:    kOutSIM5and10and20MergedBase (.../photonJet5and10and20merged_SIM)
-//
-// Cross sections used for weights (pb):
-//   - photonJet5  : kSigmaPhoton5_pb  = 89266.571
-//   - photonJet10 : kSigmaPhoton10_pb = 6692.7611
-//   - photonJet20 : kSigmaPhoton20_pb = 105.79868
-//
-// INVALID COMBINATIONS (hard error):
-//   - Setting more than one SIM sample toggle true.
-//   - Setting any SIM sample toggle true while isPPdataOnly=true.
-//   - Setting isPPdataOnly=true AND isSimAndDataPP=true.
-//
-// NOTES:
-//   - For merged modes, IsWeightedSIMSelected() returns true, so plotting helpers label y-axes as "Counts / pb^{-1}".
-//   - For single-slice SIM, y-axes remain raw "Counts" (unweighted).
-// =============================================================================
+  // #############################################################################
+  // #                                                                           #
+  // #                       CONFIGURATION PANEL                                 #
+  // #                                                                           #
+  // #  Edit ONLY this section. Everything below is derived automatically.       #
+  // #                                                                           #
+  // #############################################################################
 
+  // ===========================================================================
+  // 1. RUN MODE  (set exactly one group to true)
+  // ===========================================================================
+  //   PP DATA ONLY:   isPPdataOnly=true,  isSimAndDataPP=false
+  //   SIM ONLY:       isPPdataOnly=false, isSimAndDataPP=false  + one SIM toggle
+  //   SIM + PP DATA:  isPPdataOnly=false, isSimAndDataPP=true   + one SIM toggle
+  //   AuAu ONLY:      isAuAuOnly=true    (all others false)
+  // ---------------------------------------------------------------------------
   inline bool isPPdataOnly   = false;
   inline bool isSimAndDataPP = true;
-  
-  // RooUnfold control:
-  //   do_xJ_PPunfold = true
-  //     -> run the standard PP RooUnfold workflow exactly as before:
-  //        1) non-purity-corrected  -> unfolding/nonPurityCorrected/...
-  //        2) purity-corrected      -> unfolding/purityCorrected/...
-  //        3) overlay comparison
-  //
-  //   do_xJ_PPunfold = false and gApplyPurityCorrectionForUnfolding = true
-  //     -> run ONLY the purity-corrected PP RooUnfold workflow:
-  //        unfolding/purityCorrected/...
-  //
-  //   do_xJ_PPunfold = false and gApplyPurityCorrectionForUnfolding = false
-  //     -> skip the PP RooUnfold workflow
-  //
-  // Within the pipeline itself, gApplyPurityCorrectionForUnfolding still selects
-  // whether the reco input is raw or ABCD purity-corrected.
-  inline bool do_xJ_PPunfold = true;
-  // Internal toggle used to run the RooUnfold pipeline twice:
-  //   false -> raw reco inputs                     -> unfolding/nonPurityCorrected/...
-  //   true  -> ABCD purity-corrected reco inputs  -> unfolding/purityCorrected/...
-  inline bool gApplyPurityCorrectionForUnfolding = true;
-
-  // AuAu-only analysis mode (no SIM, no PP). When true, the full plotting
-  // pipeline runs on AuAu only and outputs to dataOutput/auau/<trigger>/...
-  // NOTE: Must be mutually exclusive with isPPdataOnly and isSimAndDataPP.
   inline bool isAuAuOnly     = false;
-
-  // Optional comparison overlays: PP vs Au+Au (gold-gold) photon-ID deliverables.
-  // If false, analysis behavior is IDENTICAL to the current pipeline.
-  inline bool isPPdataAndAUAU = false;
-
   inline bool isRun25pp      = false;
 
-  // SIM sample selection toggles (choose EXACTLY ONE for any SIM-including run)
+  // ===========================================================================
+  // 2. SIM SAMPLE  (set exactly ONE to true when SIM is included)
+  // ===========================================================================
+  //   Single-slice (raw counts):
   inline bool isPhotonJet5               = false;
   inline bool isPhotonJet10              = false;
   inline bool isPhotonJet20              = false;
-
+  //   Weighted merged (y-axis ~ "Counts / pb^{-1}"):
   inline bool bothPhoton5and10sim        = false;
   inline bool bothPhoton5and20sim        = false;
   inline bool bothPhoton10and20sim       = true;
   inline bool allPhoton5and10and20sim    = false;
+  //   Special SIM samples:
+  inline bool isSimMB                    = false;   // MinBias DETROIT tune
+  inline bool isSimJet5                  = false;   // inclusive jet5
+  inline bool isSimEmbedded              = false;   // embedded photon20 in AuAu
 
-  // MinBias SIM (DETROIT tune): single file, no merging, full isSim pipeline + pi0 QA
-  inline bool isSimMB                    = false;
+  // ===========================================================================
+  // 3. CUT DEFAULTS  (edit these to select any cut combination)
+  //    All input/output paths are derived automatically from these values.
+  // ===========================================================================
+  inline const int    kJetPtMin        = 5;            // GeV: 3, 5, or 10
+  inline const string kB2BCut          = "7pi_8";      // "7pi_8" or "pi_2"
+  inline const int    kVzCut           = 30;            // cm: 30 or 60
+  inline const string kIsoConeR        = "isoR30";     // "isoR30" or "isoR40"
+  inline const string kIsoMode         = "isSliding";  // "isSliding" or "fixedIso5GeV"
+  inline const string kUEVariant       = "noSub";      // "noSub","baseVariant","variantA","variantB"
+                                                        // (only used for auau/simEmbedded)
+  inline const double kPhotonEtaAbsMax = 0.7;
 
-  // photonJet5 standalone SIM (single file, no merging, full isSim pipeline + pi0 QA)
-  inline bool isSimJet5                  = false;
+  // ===========================================================================
+  // 4. BINNING  (edit these arrays to change pT / xJ / centrality slicing)
+  // ===========================================================================
+  //   JES3 photon pT bin edges (drives pT-sliced QA tables + JES3 booking):
+  inline const vector<double> kJES3PhotonPtBins         = {10, 12, 14, 16, 18, 20, 22, 24, 26, 35};
+  //   Unfolding photon pT bin edges (reco and truth, independent from JES3):
+  inline const vector<double> kUnfoldRecoPhotonPtBins   = {8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35, 40};
+  inline const vector<double> kUnfoldTruthPhotonPtBins  = {5, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35, 40};
+  //   xJ = pT(jet) / pT(gamma) bin edges:
+  inline const vector<double> kUnfoldXjBins             = {0.0, 0.20, 0.24, 0.29, 0.35, 0.41, 0.50, 0.60, 0.72, 0.86, 1.03, 1.24, 1.49, 1.78, 2.14, 3.0};
+  //   Uniform jet pT binning (expanded into edges at startup):
+  inline constexpr double kUnfoldJetPtStart = 0.0;
+  inline constexpr double kUnfoldJetPtStop  = 60.0;
+  inline constexpr double kUnfoldJetPtStep  = 0.5;
+  //   Au+Au centrality bin edges (percent):
+  inline const vector<double> kCentralityEdges          = {0, 10, 20, 40, 60, 80};
 
-  // -------------------------------------------------------------------------
-  // Embedded photon20 SIM in Au+Au (per-centrality analysis)
-  // -------------------------------------------------------------------------
-  inline bool isSimEmbedded              = false;
-
-  inline bool StartsWith(const string& s, const string& prefix)
-  {
-        return s.size() >= prefix.size() && s.compare(0, prefix.size(), prefix) == 0;
-  }
-
-  inline bool EndsWith(const string& s, const string& suffix)
-  {
-        return s.size() >= suffix.size() &&
-               s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
-  }
-
-  inline string BasenameOnly(const string& path)
-  {
-        const size_t pos = path.find_last_of("/\\");
-        return (pos == string::npos) ? path : path.substr(pos + 1);
-  }
-
-  inline string DirFromPathSimple(const string& filepath)
-  {
-        const size_t pos = filepath.find_last_of('/');
-        if (pos == string::npos) return "";
-        return filepath.substr(0, pos);
-  }
-
-  // If true, rebuild weighted-merged ROOT files for any enabled merged-sim toggle.
-  // If false, use existing merged file — abort if it does not exist.
+  // ===========================================================================
+  // 5. MERGE + PIPELINE TOGGLES
+  // ===========================================================================
+  //   If true, rebuild weighted-merged ROOT files for any enabled merged-sim toggle.
+  //   If false, use existing merged file — abort if it does not exist.
   inline bool doPhotonJetMerge = true;
+
+  //   RooUnfold: true = run both non-purity and purity-corrected passes + overlay.
+  inline bool do_xJ_PPunfold = true;
+  //   Internal: selects raw vs ABCD purity-corrected reco inputs per pass.
+  inline bool gApplyPurityCorrectionForUnfolding = true;
+
+  //   PP vs Au+Au comparison overlays (photon-ID deliverables):
+  inline bool isPPdataAndAUAU = false;
+
+  //   One-off Sam vs Justin unsmear comparison:
+  inline bool doSamVsJustinUnsmearOverlays = false;
+
+  // ===========================================================================
+  // 6. CROSS SECTIONS  (pb, for SIM slice weighting)
+  // ===========================================================================
+  inline constexpr double kSigmaPhoton5_pb  = 89266.571;
+  inline constexpr double kSigmaPhoton10_pb = 6692.7611;
+  inline constexpr double kSigmaPhoton20_pb = 105.79868;
+
+  // #############################################################################
+  // #                  END OF CONFIGURATION PANEL                               #
+  // #  Everything below is derived — you should not need to edit it.            #
+  // #############################################################################
 
   // True if the selected SIM sample is a weighted multi-slice merge (hist units become ~pb/bin)
   inline bool IsWeightedSIMSelected()
   {
         return (bothPhoton5and10sim || bothPhoton5and20sim || bothPhoton10and20sim || allPhoton5and10and20sim);
   }
-
-  // One-off, hard-coded comparison overlays (Sam vs Justin unsmear files)
-  inline bool doSamVsJustinUnsmearOverlays = false;
-
-  // =========================================================================
-  // CUT CONFIGURATION — edit these 6 values to select any cut combination.
-  // All input/output paths are derived automatically from these settings.
-  // =========================================================================
-  inline const int    kJetPtMin   = 5;            // GeV: 3, 5, or 10
-  inline const string kB2BCut     = "7pi_8";      // "7pi_8" or "pi_2"
-  inline const int    kVzCut      = 30;            // cm: 30 or 60
-  inline const string kIsoConeR   = "isoR30";     // "isoR30" or "isoR40"
-  inline const string kIsoMode    = "isSliding";  // "isSliding" or "fixedIso5GeV"
-  inline const string kUEVariant  = "noSub";      // "noSub","baseVariant","variantA","variantB"
-                                                   // (only used for auau/simEmbedded)
-  inline const double kPhotonEtaAbsMax = 0.7;     // hardcoded, no YAML
 
   // --- Derived tag builders (DO NOT EDIT) ---
   inline string CfgTag()
@@ -281,6 +190,7 @@ namespace ARJ
       return CfgTag() + "_" + kUEVariant;
   }
 
+  // For overlay comparisons across different cut combos
   inline string CfgTagFor(int jetPtMin,
                           const string& b2bCut,
                           int vzCut,
@@ -562,7 +472,7 @@ namespace ARJ
         return v;
     }
 
-    // Cached unfolding RECO pT bin list (derived from YAML key: unfold_reco_photon_pt_bins)
+    // Cached unfolding RECO pT bin list (derived from BinningCfg::unfold_reco_photon_pt_bins)
     inline const vector<PtBin>& UnfoldRecoPtBins()
     {
         static vector<PtBin> v;
@@ -771,6 +681,24 @@ namespace ARJ
       // NEW: tabulate unique missing objects (and how often they were missing)
       ds.missingCounts[fullpath]++;
       ds.missingReason[fullpath] = reason;
+  }
+
+  // =============================================================================
+  // Required-file opener (abort with clear message if missing)
+  // =============================================================================
+  inline TFile* OpenRequiredFile(const string& path, const string& context = "")
+  {
+      TFile* f = TFile::Open(path.c_str(), "READ");
+      if (!f || f->IsZombie())
+      {
+          cerr << ANSI_BOLD_RED
+               << "[FATAL] Required input file not found"
+               << (context.empty() ? "" : " (" + context + ")")
+               << ":\n  " << path << "\n"
+               << ANSI_RESET;
+          std::exit(1);
+      }
+      return f;
   }
 
   // =============================================================================
