@@ -2829,7 +2829,7 @@ keepAlive.clear();
 }
 
 // =============================================================================
-// NEW: AuAu unnormalized Eiso (counts) summary by pT overlays (all pT bins)
+// AuAu unnormalized Eiso (counts) summary by pT overlays (all pT bins)
 //
 // Output:
 //   <kOutPPAuAuBase>/noSS_isoSpectra/table2x3_AuAu_unNormalized_byPtOverlays.png
