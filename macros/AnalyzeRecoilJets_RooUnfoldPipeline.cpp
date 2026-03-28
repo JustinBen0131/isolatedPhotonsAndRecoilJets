@@ -449,14 +449,12 @@
           nbkgA = std::max(0.0, A - SA);
         };
 
-        auto BuildPurityCorrectedRecoPhotonHist =
-          [&](const TH1* hIn, const std::string& outName)->TH1*
+        auto ApplyPurityCorrectionToRecoPhotonHist =
+          [&](TH1* h)->bool
         {
-          if (!hIn) return nullptr;
+          if (!h) return false;
 
-          TH1* h = CloneTH1(hIn, outName.c_str());
-          if (!h) return nullptr;
-
+          h->Reset("ICES");
           h->SetDirectory(nullptr);
           EnsureSumw2(h);
 
@@ -495,23 +493,15 @@
               ComputeABCDSignalCounts(iCanon, A, B, C, D, SA, eSA, nbkgA);
             }
 
-            const int ib = h->GetXaxis()->FindBin(0.5 * (b.lo + b.hi));
+            const double cen = 0.5 * (b.lo + b.hi);
+            const int ib = h->GetXaxis()->FindBin(cen);
             if (ib < 1 || ib > h->GetNbinsX()) continue;
 
-            const double raw     = hIn->GetBinContent(ib);
-            const double eraw    = hIn->GetBinError  (ib);
-            const double purity  = (A > 0.0 ? std::min(std::max(SA / A, 0.0), 1.0) : 0.0);
-            const double epurity = (A > 0.0 ? eSA / A : 0.0);
-
-            const double corr  = raw * purity;
-            const double ecorr = std::sqrt((purity * eraw) * (purity * eraw) +
-                                           (raw * epurity) * (raw * epurity));
-
-            h->SetBinContent(ib, corr);
-            h->SetBinError  (ib, ecorr);
+            h->SetBinContent(ib, SA);
+            h->SetBinError  (ib, eSA);
           }
 
-          return h;
+          return true;
         };
 
         auto ApplyPurityCorrectionToRecoXJHist =
@@ -1575,8 +1565,7 @@
         if (gApplyPurityCorrectionForUnfolding)
         {
           cout << "  [BUILD] DATA :: purity-corrected photon reco input from ABCD counts\n";
-          TH1* hPhoRecoData_corr = BuildPurityCorrectedRecoPhotonHist(hPhoRecoData, "hPhoRecoData_purityCorrected");
-          if (!hPhoRecoData_corr)
+          if (!ApplyPurityCorrectionToRecoPhotonHist(hPhoRecoData))
           {
             cout << ANSI_BOLD_RED
                  << "[ERROR] Failed to build purity-corrected photon reco input. Aborting RooUnfold pipeline."
@@ -1587,8 +1576,6 @@
             delete hPhoRespSim;
             return;
           }
-          delete hPhoRecoData;
-          hPhoRecoData = hPhoRecoData_corr;
       }
 
       TH2D* hPhoResp_measXtruth = TransposeTH2(

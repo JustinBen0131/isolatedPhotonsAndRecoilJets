@@ -4502,6 +4502,365 @@ void RunJES3QA(Dataset& ds)
           {"Overlay (shape): RECO vs doubly truth-tagged RECO", "Reco is jet-matched (#DeltaR<=0.3)"}
         );
 
+        // NEW: RECO_vs_RECO_truthTaggedPhoJet + DATA overlay
+        //   Three curves per pad: SIM reco (truth-tagged), SIM reco (all), DATA reco
+        //   Only active when isSimAndDataPP = true (uses the default PP data file).
+        if (isSimAndDataPP && H.hRecoTruthTagged_xJ && H.hReco_xJ)
+        {
+             static TFile* fPPdataOv = nullptr;
+             static TDirectory* dirPPdataOv = nullptr;
+
+             if (!fPPdataOv)
+             {
+               fPPdataOv = TFile::Open(InputPP().c_str(), "READ");
+               if (fPPdataOv)
+               {
+                 dirPPdataOv = fPPdataOv->GetDirectory(kTriggerPP.c_str());
+                 if (!dirPPdataOv) dirPPdataOv = fPPdataOv;
+               }
+             }
+
+             TH3* hDataReco_xJ = nullptr;
+             if (fPPdataOv && dirPPdataOv)
+             {
+               hDataReco_xJ = dynamic_cast<TH3*>(dirPPdataOv->Get(
+                 TString::Format("h_JES3_pT_xJ_alpha_%s", rKey.c_str()).Data()
+               ));
+             }
+
+             if (hDataReco_xJ)
+             {
+               const string ovTagData = "RECO_vs_RECO_truthTaggedPhoJet_data";
+               const string dirOvBaseData = JoinPath(D.dirXJProjOverlay, ovTagData);
+               const string dirOvPerData  = JoinPath(dirOvBaseData, "perPtBin");
+               EnsureDir(D.dirXJProjOverlay);
+               EnsureDir(dirOvBaseData);
+               EnsureDir(dirOvPerData);
+
+               cout << ANSI_BOLD_CYN
+                    << "\n[JES3 overlay 3-way+data] ovTag=" << ovTagData
+                    << "  rKey=" << rKey
+                    << "  ds=" << ds.label
+                    << ANSI_RESET << "\n";
+               cout << "  hRecoTruthTagged=" << (H.hRecoTruthTagged_xJ ? "FOUND" : "MISSING")
+                    << "  hReco=" << (H.hReco_xJ ? "FOUND" : "MISSING")
+                    << "  hDataReco=" << (hDataReco_xJ ? "FOUND" : "MISSING") << "\n";
+
+               const int nPtSim  = std::min(H.hRecoTruthTagged_xJ->GetXaxis()->GetNbins(),
+                                            H.hReco_xJ->GetXaxis()->GetNbins());
+               const int nPtData = hDataReco_xJ->GetXaxis()->GetNbins();
+               const int nPtOvD  = std::min(nPtSim, nPtData);
+
+               const std::string legSimTruthTag = "Sim Reco (#gamma^{truth} + jet^{truth})";
+               const std::string legSimReco     = "Sim Reco";
+               const std::string legData        = "Data";
+
+               // ---- Per pT bin overlay PNGs ----
+               for (int ib = 1; ib <= nPtOvD; ++ib)
+               {
+                 TH1* hA = ProjectY_AtXbin_TH3(H.hRecoTruthTagged_xJ, ib,
+                   TString::Format("ov3d_%s_simTT_%s_%d", ovTagData.c_str(), rKey.c_str(), ib).Data()
+                 );
+                 TH1* hB = ProjectY_AtXbin_TH3(H.hReco_xJ, ib,
+                   TString::Format("ov3d_%s_simR_%s_%d", ovTagData.c_str(), rKey.c_str(), ib).Data()
+                 );
+                 TH1* hD = ProjectY_AtXbin_TH3(hDataReco_xJ, ib,
+                   TString::Format("ov3d_%s_data_%s_%d", ovTagData.c_str(), rKey.c_str(), ib).Data()
+                 );
+
+                 if (hA) { hA->SetDirectory(nullptr); EnsureSumw2(hA); }
+                 if (hB) { hB->SetDirectory(nullptr); EnsureSumw2(hB); }
+                 if (hD) { hD->SetDirectory(nullptr); EnsureSumw2(hD); }
+
+                 if (!hA || !hB || !hD ||
+                     (hA->GetEntries() <= 0.0 && hB->GetEntries() <= 0.0 && hD->GetEntries() <= 0.0))
+                 {
+                   if (hA) delete hA;
+                   if (hB) delete hB;
+                   if (hD) delete hD;
+                   continue;
+                 }
+
+                 NormalizeToUnitArea(hA);
+                 NormalizeToUnitArea(hB);
+                 NormalizeToUnitArea(hD);
+
+                 hA->SetLineWidth(2);
+                 hA->SetMarkerStyle(24);
+                 hA->SetMarkerSize(1.00);
+                 hA->SetLineColor(kViolet + 1);
+                 hA->SetMarkerColor(kViolet + 1);
+
+                 hB->SetLineWidth(2);
+                 hB->SetMarkerStyle(20);
+                 hB->SetMarkerSize(1.00);
+                 hB->SetLineColor(kRed);
+                 hB->SetMarkerColor(kRed);
+
+                 hD->SetLineWidth(2);
+                 hD->SetMarkerStyle(21);
+                 hD->SetMarkerSize(1.00);
+                 hD->SetLineColor(kBlack);
+                 hD->SetMarkerColor(kBlack);
+
+                 const string ptLab = AxisBinLabel(H.hReco_xJ->GetXaxis(), ib, "GeV", 0);
+
+                 const string outPng = JoinPath(dirOvPerData, TString::Format("overlay_pTbin%d.png", ib).Data());
+
+                 TCanvas c(
+                   TString::Format("c_ov3d_%s_%s_b%d", ds.label.c_str(), rKey.c_str(), ib).Data(),
+                   "c_ov3d", 900, 700
+                 );
+                 ApplyCanvasMargins1D(c);
+
+                 const double ymax = std::max(std::max(hA->GetMaximum(), hB->GetMaximum()), hD->GetMaximum());
+
+                 hA->SetTitle("");
+                 hA->GetXaxis()->SetTitle("x_{J#gamma}");
+                 hA->GetYaxis()->SetTitle("A.U.");
+                 hA->GetXaxis()->SetRangeUser(0.0, 2.0);
+                 hA->SetMaximum(ymax * 1.25);
+
+                 hA->Draw("E1");
+                 hB->Draw("E1 same");
+                 hD->Draw("E1 same");
+
+                 {
+                   TLatex tt;
+                   tt.SetNDC(true);
+                   tt.SetTextFont(42);
+
+                   tt.SetTextAlign(22);
+                   tt.SetTextSize(0.050);
+                   tt.DrawLatex(0.52, 0.95,
+                     TString::Format("Photon+Jet 10 and 20 Combined Sim + Data (R = %.1f)", R).Data()
+                   );
+
+                   tt.SetTextAlign(13);
+                   tt.SetTextSize(0.043);
+                   tt.DrawLatex(0.18, 0.89,
+                     TString::Format("p_{T}^{#gamma} = %s", ptLab.c_str()).Data()
+                   );
+                 }
+
+                 TLegend leg(0.35, 0.73, 0.72, 0.90);
+                 leg.SetTextFont(42);
+                 leg.SetTextSize(0.040);
+                 leg.SetFillStyle(0);
+                 leg.SetBorderSize(0);
+                 leg.AddEntry(hA, legSimTruthTag.c_str(), "ep");
+                 leg.AddEntry(hB, legSimReco.c_str(),     "ep");
+                 leg.AddEntry(hD, legData.c_str(),        "ep");
+                 leg.Draw();
+
+                 {
+                   const std::string bbLabelD = B2BLabel();
+                   const double jetMinPtD     = static_cast<double>(kJetPtMin);
+
+                   TLatex tCuts;
+                   tCuts.SetNDC(true);
+                   tCuts.SetTextFont(42);
+                   tCuts.SetTextAlign(33);
+                   tCuts.SetTextSize(0.045);
+
+                   const double tx = 0.92;
+                   double ty = 0.63;
+                   const double dY = 0.060;
+
+                   tCuts.DrawLatex(tx, ty,
+                     TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabelD.c_str()).Data()
+                   );
+                   ty -= dY;
+                   tCuts.DrawLatex(tx, ty,
+                     TString::Format("p_{T}^{jet} > %.0f GeV", jetMinPtD).Data()
+                   );
+                   ty -= dY;
+                   tCuts.DrawLatex(tx, ty,
+                     TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data()
+                   );
+                 }
+
+                 SaveCanvas(c, outPng);
+                 cout << ANSI_BOLD_GRN
+                      << "  [WROTE perPtBin+data] " << outPng
+                      << ANSI_RESET << "\n";
+
+                 delete hA;
+                 delete hB;
+                 delete hD;
+               }
+
+               // ---- 3x3 table overlay (shape) ----
+               {
+                 const int nCols   = 3;
+                 const int nRows   = 3;
+                 const int perPage = nCols * nRows;
+
+                 if (nPtOvD > 0)
+                 {
+                   TCanvas c(
+                     TString::Format("c_tbl_ov3d_%s_%s", ovTagData.c_str(), rKey.c_str()).Data(),
+                     "c_tbl_ov3d", 1500, 1200
+                   );
+                   c.Divide(nCols, nRows, 0.001, 0.001);
+
+                   vector<TH1*> keep;
+                   keep.reserve(3 * perPage);
+
+                   const int nThisPage = std::min(perPage, nPtOvD);
+                   for (int k = 0; k < nThisPage; ++k)
+                   {
+                     const int ib = 1 + k;
+                     c.cd(k+1);
+
+                     gPad->SetLeftMargin(0.14);
+                     gPad->SetRightMargin(0.05);
+                     gPad->SetBottomMargin(0.14);
+                     gPad->SetTopMargin(0.10);
+
+                     TH1* hA = ProjectY_AtXbin_TH3(H.hRecoTruthTagged_xJ, ib,
+                       TString::Format("tbl3d_%s_simTT_%s_%d", ovTagData.c_str(), rKey.c_str(), ib).Data()
+                     );
+                     TH1* hB = ProjectY_AtXbin_TH3(H.hReco_xJ, ib,
+                       TString::Format("tbl3d_%s_simR_%s_%d", ovTagData.c_str(), rKey.c_str(), ib).Data()
+                     );
+                     TH1* hD = ProjectY_AtXbin_TH3(hDataReco_xJ, ib,
+                       TString::Format("tbl3d_%s_data_%s_%d", ovTagData.c_str(), rKey.c_str(), ib).Data()
+                     );
+
+                     if (hA) { hA->SetDirectory(nullptr); EnsureSumw2(hA); }
+                     if (hB) { hB->SetDirectory(nullptr); EnsureSumw2(hB); }
+                     if (hD) { hD->SetDirectory(nullptr); EnsureSumw2(hD); }
+
+                     if (!hA || !hB || !hD ||
+                         (hA->GetEntries() <= 0.0 && hB->GetEntries() <= 0.0 && hD->GetEntries() <= 0.0))
+                     {
+                       if (hA) delete hA;
+                       if (hB) delete hB;
+                       if (hD) delete hD;
+                       TLatex t;
+                       t.SetNDC(true);
+                       t.SetTextFont(42);
+                       t.SetTextSize(0.06);
+                       t.DrawLatex(0.15, 0.55, "MISSING");
+                       continue;
+                     }
+
+                     NormalizeToUnitArea(hA);
+                     NormalizeToUnitArea(hB);
+                     NormalizeToUnitArea(hD);
+
+                     hA->SetLineWidth(2);
+                     hA->SetMarkerStyle(24);
+                     hA->SetMarkerSize(0.95);
+                     hA->SetLineColor(kViolet + 1);
+                     hA->SetMarkerColor(kViolet + 1);
+
+                     hB->SetLineWidth(2);
+                     hB->SetMarkerStyle(20);
+                     hB->SetMarkerSize(0.95);
+                     hB->SetLineColor(kRed);
+                     hB->SetMarkerColor(kRed);
+
+                     hD->SetLineWidth(2);
+                     hD->SetMarkerStyle(21);
+                     hD->SetMarkerSize(0.95);
+                     hD->SetLineColor(kBlack);
+                     hD->SetMarkerColor(kBlack);
+
+                     const double ymax = std::max(std::max(hA->GetMaximum(), hB->GetMaximum()), hD->GetMaximum());
+                     hA->SetMaximum(ymax * 1.25);
+
+                     hA->SetTitle("");
+                     hA->GetXaxis()->SetTitle("x_{J#gamma}");
+                     hA->GetYaxis()->SetTitle("A.U.");
+                     hA->GetXaxis()->SetRangeUser(0.0, 2.0);
+                     hA->Draw("E1");
+                     hB->Draw("E1 same");
+                     hD->Draw("E1 same");
+
+                     const string ptLab = AxisBinLabel(H.hReco_xJ->GetXaxis(), ib, "GeV", 0);
+
+                     {
+                       TLatex tt;
+                       tt.SetNDC(true);
+                       tt.SetTextFont(42);
+
+                       tt.SetTextAlign(22);
+                       tt.SetTextSize(0.050);
+                       tt.DrawLatex(0.52, 0.95,
+                         TString::Format("Photon+Jet 10 and 20 Combined Sim + Data (R = %.1f)", R).Data()
+                       );
+
+                       tt.SetTextAlign(13);
+                       tt.SetTextSize(0.043);
+                       tt.DrawLatex(0.18, 0.89,
+                         TString::Format("p_{T}^{#gamma} = %s", ptLab.c_str()).Data()
+                       );
+                     }
+
+                     TLegend leg(0.87, 0.73, 0.99, 0.9);
+                     leg.SetTextFont(42);
+                     leg.SetTextSize(0.040);
+                     leg.SetFillStyle(0);
+                     leg.SetBorderSize(0);
+                     leg.SetMargin(0.20);
+                     leg.SetEntrySeparation(0.08);
+                     leg.AddEntry(hA, legSimTruthTag.c_str(), "ep");
+                     leg.AddEntry(hB, legSimReco.c_str(),     "ep");
+                     leg.AddEntry(hD, legData.c_str(),        "ep");
+                     leg.DrawClone();
+
+                     {
+                       const std::string bbLabelD = B2BLabel();
+                       const double jetMinPtD     = static_cast<double>(kJetPtMin);
+
+                       TLatex tCuts;
+                       tCuts.SetNDC(true);
+                       tCuts.SetTextFont(42);
+                       tCuts.SetTextAlign(33);
+                       tCuts.SetTextSize(0.045);
+
+                       const double tx = 0.85;
+                       double ty = 0.63;
+                       const double dY = 0.060;
+
+                       tCuts.DrawLatex(tx, ty,
+                         TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabelD.c_str()).Data()
+                       );
+                       ty -= dY;
+                       tCuts.DrawLatex(tx, ty,
+                         TString::Format("p_{T}^{jet} > %.0f GeV", jetMinPtD).Data()
+                       );
+                       ty -= dY;
+                       tCuts.DrawLatex(tx, ty,
+                         TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data()
+                       );
+                     }
+
+                     keep.push_back(hA);
+                     keep.push_back(hB);
+                     keep.push_back(hD);
+                   }
+
+                   const string outName = "table3x3_overlay_shape.png";
+                   SaveCanvas(c, JoinPath(dirOvBaseData, outName));
+                   cout << ANSI_BOLD_GRN
+                        << "  [WROTE table+data] " << JoinPath(dirOvBaseData, outName)
+                        << ANSI_RESET << "\n";
+
+                   for (auto* h : keep) delete h;
+                 }
+               }
+             }
+             else
+             {
+               cout << ANSI_BOLD_YEL
+                    << "  [SKIP] RECO_vs_RECO_truthTaggedPhoJet_data: missing DATA TH3 for rKey=" << rKey
+                    << ANSI_RESET << "\n";
+             }
+        }
+
         // NEW: Reco (truth-#gamma + truth-jet tagged) vs Truth (reco-#gamma + reco-jet tagged)
         //   Purple: Reco (#gamma^{truth} + jet^{truth} tagged)  -> H.hRecoTruthTagged_xJ
         //   Pink  : Truth (#gamma^{reco} + jet^{reco} tagged)  -> H.hTrut_xJ  (your legacy jet-matched truth)

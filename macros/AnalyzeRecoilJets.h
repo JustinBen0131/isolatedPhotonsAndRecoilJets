@@ -89,6 +89,7 @@ namespace ARJ
   inline bool isPPdataOnly   = false;
   inline bool isSimAndDataPP = true;
   inline bool isAuAuOnly     = false;
+  inline bool isPPdataAndAUAU = false;
   inline bool isRun25pp      = false;
 
   // ===========================================================================
@@ -107,6 +108,16 @@ namespace ARJ
   inline bool isSimMB                    = false;   // MinBias DETROIT tune
   inline bool isSimJet5                  = false;   // inclusive jet5
   inline bool isSimEmbedded              = false;   // embedded photon20 in AuAu
+
+  inline bool doPhotonJetMerge = true;
+
+  //   RooUnfold: true = run both non-purity and purity-corrected passes + overlay.
+  inline bool do_xJ_PPunfold = true;
+  //   Internal: selects raw vs ABCD purity-corrected reco inputs per pass.
+  inline bool gApplyPurityCorrectionForUnfolding = true;
+
+  //   One-off Sam vs Justin unsmear comparison:
+  inline bool doSamVsJustinUnsmearOverlays = false;
 
   // ===========================================================================
   // 3. CUT DEFAULTS  (edit these to select any cut combination)
@@ -138,23 +149,6 @@ namespace ARJ
   //   Au+Au centrality bin edges (percent):
   inline const vector<double> kCentralityEdges          = {0, 10, 20, 40, 60, 80};
 
-  // ===========================================================================
-  // 5. MERGE + PIPELINE TOGGLES
-  // ===========================================================================
-  //   If true, rebuild weighted-merged ROOT files for any enabled merged-sim toggle.
-  //   If false, use existing merged file — abort if it does not exist.
-  inline bool doPhotonJetMerge = true;
-
-  //   RooUnfold: true = run both non-purity and purity-corrected passes + overlay.
-  inline bool do_xJ_PPunfold = true;
-  //   Internal: selects raw vs ABCD purity-corrected reco inputs per pass.
-  inline bool gApplyPurityCorrectionForUnfolding = true;
-
-  //   PP vs Au+Au comparison overlays (photon-ID deliverables):
-  inline bool isPPdataAndAUAU = false;
-
-  //   One-off Sam vs Justin unsmear comparison:
-  inline bool doSamVsJustinUnsmearOverlays = false;
 
   // ===========================================================================
   // 6. CROSS SECTIONS  (pb, for SIM slice weighting)
