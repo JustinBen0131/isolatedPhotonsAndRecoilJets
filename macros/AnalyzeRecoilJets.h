@@ -104,8 +104,8 @@ namespace ARJ
   //   Weighted merged (y-axis ~ "Counts / pb^{-1}"):
   inline bool bothPhoton5and10sim        = false;
   inline bool bothPhoton5and20sim        = false;
-  inline bool bothPhoton10and20sim       = true;
-  inline bool allPhoton5and10and20sim    = false;
+  inline bool bothPhoton10and20sim       = false;
+  inline bool allPhoton5and10and20sim    = true;
   //   Special SIM samples:
   inline bool isSimMB                    = false;   // MinBias DETROIT tune
   inline bool isSimJet5                  = false;   // inclusive jet5

@@ -415,9 +415,8 @@ void RunJES3QA(Dataset& ds)
                     xJ_sim->Draw("E1 same");
                     gPad->Update();
 
-                    const auto& cfgDef = DefaultSim10and20Config();
-                    const double jetPtMin_GeV = cfgDef.jetMinPt;
-                    const string bbLabel = cfgDef.bbLabel;
+                    const double jetPtMin_GeV = static_cast<double>(kJetPtMin);
+                    const string bbLabel = B2BLabel();
 
                     const double xAbs  = (ptMaxGamma > 0.0) ? (jetPtMin_GeV / ptMaxGamma) : -1.0;
                     const double xFull = (ptMinGamma > 0.0) ? (jetPtMin_GeV / ptMinGamma) : -1.0;
@@ -1044,9 +1043,8 @@ void RunJES3QA(Dataset& ds)
                   hSimRaw->Draw("E1 same");
                   gPad->Update();
 
-                  const auto& cfgDef = DefaultSim10and20Config();
-                  const double jetPtMin_GeV = cfgDef.jetMinPt;
-                  const string bbLabel = cfgDef.bbLabel;
+                  const double jetPtMin_GeV = static_cast<double>(kJetPtMin);
+                  const string bbLabel = B2BLabel();
 
                   TLegend* leg = new TLegend(0.70, 0.75, 0.94, 0.88);
                   leg->SetBorderSize(0);
@@ -1628,9 +1626,8 @@ void RunJES3QA(Dataset& ds)
                   if (hDatMeanTbl) hDatMeanTbl->SetDirectory(nullptr);
                   if (hSimMeanTbl) hSimMeanTbl->SetDirectory(nullptr);
 
-                  const auto& cfgDef = DefaultSim10and20Config();
-                  const double jetPtMin_GeV = cfgDef.jetMinPt;
-                  const string bbLabel = cfgDef.bbLabel;
+                  const double jetPtMin_GeV = static_cast<double>(kJetPtMin);
+                  const string bbLabel = B2BLabel();
 
                   canTblFits.cd(k + 1);
 
@@ -2024,9 +2021,8 @@ void RunJES3QA(Dataset& ds)
                   leg.Draw();
 
                   {
-                    const auto& cfgDef = DefaultSim10and20Config();
-                    const double jetPtMin_GeV = cfgDef.jetMinPt;
-                    const string bbLabel = cfgDef.bbLabel;
+                    const double jetPtMin_GeV = static_cast<double>(kJetPtMin);
+                    const string bbLabel = B2BLabel();
 
                     TLatex tCuts;
                     tCuts.SetNDC(true);
@@ -2851,8 +2847,7 @@ void RunJES3QA(Dataset& ds)
 
                 hx->Draw("E1");
 
-                const auto& cfgDef = DefaultSim10and20Config();
-                const double jetPtMin_GeV = cfgDef.jetMinPt;
+                const double jetPtMin_GeV = static_cast<double>(kJetPtMin);
 
                 const double ptMin = h3->GetXaxis()->GetBinLowEdge(ib);
                 const double ptMax = h3->GetXaxis()->GetBinUpEdge(ib);
@@ -2899,7 +2894,7 @@ void RunJES3QA(Dataset& ds)
                     tCuts.SetTextSize(0.038);
                     tCuts.DrawLatex(0.92, 0.78, "pp trigger = Photon 4 GeV + MBD NS #geq 1");
                     tCuts.DrawLatex(0.92, 0.70, "auau trigger = MBD NS #geq 2 vtx < 150");
-                    tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
+                    tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", B2BLabel().c_str()).Data());
                     tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
                   }
 
@@ -3160,8 +3155,7 @@ void RunJES3QA(Dataset& ds)
                 leg->AddEntry(hxAu, auauLeg.c_str(), "ep");
                 leg->Draw();
 
-                const auto& cfgDef = DefaultSim10and20Config();
-                const double jetPtMin_GeV = cfgDef.jetMinPt;
+                const double jetPtMin_GeV = static_cast<double>(kJetPtMin);
 
                 {
                   TLatex tCuts;
@@ -3169,7 +3163,7 @@ void RunJES3QA(Dataset& ds)
                   tCuts.SetTextFont(42);
                   tCuts.SetTextAlign(33);
                   tCuts.SetTextSize(0.038);
-                  tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
+                  tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", B2BLabel().c_str()).Data());
                   tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
                 }
 
@@ -3266,8 +3260,7 @@ void RunJES3QA(Dataset& ds)
                 leg->AddEntry(hxAu, auauLeg.c_str(), "ep");
                 leg->Draw();
 
-                const auto& cfgDef = DefaultSim10and20Config();
-                const double jetPtMin_GeV = cfgDef.jetMinPt;
+                const double jetPtMin_GeV = static_cast<double>(kJetPtMin);
 
                 {
                   TLatex tCuts;
@@ -3275,7 +3268,7 @@ void RunJES3QA(Dataset& ds)
                   tCuts.SetTextFont(42);
                   tCuts.SetTextAlign(33);
                   tCuts.SetTextSize(0.038);
-                  tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
+                  tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", B2BLabel().c_str()).Data());
                   tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
                 }
 
@@ -3489,8 +3482,7 @@ void RunJES3QA(Dataset& ds)
                 leg->AddEntry(hxNoUE, "without UE sub", "ep");
                 leg->Draw();
 
-                const auto& cfgDef = DefaultSim10and20Config();
-                const double jetPtMin_GeV = cfgDef.jetMinPt;
+                const double jetPtMin_GeV = static_cast<double>(kJetPtMin);
 
                 const double ptMin = h3NoUE->GetXaxis()->GetBinLowEdge(ib);
                 const double ptMax = h3NoUE->GetXaxis()->GetBinUpEdge(ib);
@@ -3501,7 +3493,7 @@ void RunJES3QA(Dataset& ds)
                   tCuts.SetTextFont(42);
                   tCuts.SetTextAlign(33);
                   tCuts.SetTextSize(0.038);
-                  tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
+                  tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", B2BLabel().c_str()).Data());
                   tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
                 }
 
@@ -3589,8 +3581,7 @@ void RunJES3QA(Dataset& ds)
             leg->AddEntry(hxNoUE, "without UE sub", "ep");
             leg->Draw();
 
-            const auto& cfgDef = DefaultSim10and20Config();
-            const double jetPtMin_GeV = cfgDef.jetMinPt;
+            const double jetPtMin_GeV = static_cast<double>(kJetPtMin);
 
             {
               TLatex tCuts;
@@ -3598,7 +3589,7 @@ void RunJES3QA(Dataset& ds)
               tCuts.SetTextFont(42);
               tCuts.SetTextAlign(33);
               tCuts.SetTextSize(0.038);
-              tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
+              tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", B2BLabel().c_str()).Data());
               tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
             }
 
@@ -4103,8 +4094,8 @@ void RunJES3QA(Dataset& ds)
             hA->Draw("E1");
             hB->Draw("E1 same");
 
-            const std::string bbLabel = DefaultSim10and20Config().bbLabel;
-            const double jetMinPt     = DefaultSim10and20Config().jetMinPt;
+            const std::string bbLabel = B2BLabel();
+            const double jetMinPt     = static_cast<double>(kJetPtMin);
             const double vzCut        = vzCutCm;
 
             const bool isThisSimRecoVsRecoTruthTaggedPhoJet =
@@ -4330,8 +4321,8 @@ void RunJES3QA(Dataset& ds)
 
                 const string ptLab = AxisBinLabel(hBlack->GetXaxis(), ib, "GeV", 0);
 
-                  const std::string bbLabel = DefaultSim10and20Config().bbLabel;
-                  const double jetMinPt     = DefaultSim10and20Config().jetMinPt;
+                  const std::string bbLabel = B2BLabel();
+                  const double jetMinPt     = static_cast<double>(kJetPtMin);
                   const double vzCut        = vzCutCm;
 
                   const bool isThisSimRecoVsRecoTruthTaggedPhoJet =
@@ -4781,9 +4772,8 @@ void RunJES3QA(Dataset& ds)
                   TString::Format("Reco vs Reco (#gamma+jet truth tagged), p_{T}^{#gamma} = %s, R = %.1f", ptLab.c_str(), R).Data()
                 );
 
-                const auto& cfg = DefaultSim10and20Config();
                 vector<string> cutLines;
-                cutLines.push_back(TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfg.bbLabel.c_str()).Data());
+                cutLines.push_back(TString::Format("|#Delta#phi(#gamma,jet)| > %s", B2BLabel().c_str()).Data());
                 cutLines.push_back(TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
                 cutLines.push_back(TString::Format("|v_{z}| < %.0f cm", vzCutCm).Data());
                 DrawLatexLines(0.62, 0.62, cutLines, 0.036, 0.045);

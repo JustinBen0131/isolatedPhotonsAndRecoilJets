@@ -7731,6 +7731,7 @@ namespace ARJ
 
             const double jetMinPtGeV = static_cast<double>(kJetPtMin);
             const std::string bbLabel = B2BLabel();
+            const std::string baseLabel = B2BLabel();
 
             auto EnsureAltMerged = [&]()->bool
             {
@@ -8092,20 +8093,19 @@ namespace ARJ
             if (!ds.isSim) return;
             if (CurrentSimSample() != SimSample::kPhotonJet10And20Merged) return;
 
-            const bool is7pi8 = (DefaultSimSampleKey().find("7piOver8") != std::string::npos);
+            // Build cfgTags for jetPtMin=5 and jetPtMin=3 (same b2b + vz + iso as current config)
 
-            const std::string keyPt5  = is7pi8 ? kAltSimSampleKey_jetMinPt5_7piOver8
-                                               : kAltSimSampleKey_jetMinPt5_pihalves;
-            const std::string keyPt3  = is7pi8 ? kAltSimSampleKey_jetMinPt3_7piOver8
-                                               : kAltSimSampleKey_jetMinPt3_pihalves;
+            const std::string cfgTagPt5 = CfgTagFor(5, kB2BCut, kVzCut, kIsoConeR, kIsoMode);
+            const std::string cfgTagPt3 = CfgTagFor(3, kB2BCut, kVzCut, kIsoConeR, kIsoMode);
 
-            const std::string bbLabel = Sim10and20ConfigForKey(keyPt3).bbLabel;
+            const std::string bbLabel = B2BLabel();
 
             auto BuildWeightedMergedTH3 =
               [&](const std::string& cfgKey, const std::string& h3name, const std::string& tag)->TH3*
             {
-              const Sim10and20Config& cfg = Sim10and20ConfigForKey(cfgKey);
-              const std::string merged = MergedSIMOut_10and20_ForKey(cfgKey);
+              const std::string in10 = InputSim("photonjet10", cfgKey);
+              const std::string in20 = InputSim("photonjet20", cfgKey);
+              const std::string merged = MergedSimPath(cfgKey, "photonJet10and20merged_SIM", "RecoilJets_photonjet10plus20_MERGED.root");
 
               auto EnsureMerged = [&]()->bool
               {
@@ -8114,13 +8114,13 @@ namespace ARJ
                 cout << ANSI_BOLD_CYN
                      << "\n[MERGE] Building merged SIM10+20 file for pTmin overlay:\n"
                      << "  cfgKey   = " << cfgKey << "\n"
-                     << "  in10     = " << cfg.photon10 << "\n"
-                     << "  in20     = " << cfg.photon20 << "\n"
+                     << "  in10     = " << in10 << "\n"
+                     << "  in20     = " << in20 << "\n"
                      << "  out      = " << merged << "\n"
                      << ANSI_RESET;
 
                 return BuildMergedSIMFile_PhotonSlices(
-                  {cfg.photon10, cfg.photon20},
+                  {in10, in20},
                   {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
                   merged,
                   kDirSIM,
@@ -8433,9 +8433,9 @@ namespace ARJ
           (void)outDir; // this block is intentionally hard-coded to write ONLY under InputFilesSim/.../plots
 
           // Justin reference: jetMinPt3_7piOver8 (matched cuts)
-          const Sim10and20Config& cfgJ = Sim10and20ConfigForKey(kAltSimSampleKey_jetMinPt3_7piOver8);
+          // Sam vs Justin: use jetMinPt3 + 7pi/8 config
 
-          const std::string baseDir  = DirFromPathSimple(cfgJ.photon10);
+          const std::string baseDir  = DirnameFromPath(InputSim("photonjet10", CfgTagFor(3, "7pi_8", kVzCut, kIsoConeR, kIsoMode)));
           const std::string plotsDir = JoinPath(baseDir, "plots");
 
           // Output: ONE folder only
@@ -8461,10 +8461,10 @@ namespace ARJ
                << "  overlays   = " << dirOver << "\n"
                << "  sam10      = " << sam10 << "\n"
                << "  sam20      = " << sam20 << "\n"
-               << "  justin10   = " << cfgJ.photon10 << "\n"
-               << "  justin20   = " << cfgJ.photon20 << "\n"
-               << "  jetMinPt   = " << cfgJ.jetMinPt << " GeV\n"
-               << "  backToBack = " << cfgJ.bbLabel << "\n"
+               << "  justin10   = " << InputSim("photonjet10", CfgTagFor(3, "7pi_8", kVzCut, kIsoConeR, kIsoMode)) << "\n"
+               << "  justin20   = " << InputSim("photonjet20", CfgTagFor(3, "7pi_8", kVzCut, kIsoConeR, kIsoMode)) << "\n"
+               << "  jetMinPt   = " << 3.0 << " GeV\n"
+               << "  backToBack = " << B2BLabelFor("7pi_8") << "\n"
                << ANSI_RESET;
 
           auto ReadXsecAndNev = [&](TFile* f, double& xsec_pb, double& nev_acc)->bool
@@ -8531,8 +8531,8 @@ namespace ARJ
           // -------------------------------------------------------------------------
           // Open Justin slice files (jetMinPt3_7piOver8), and compute merge weights.
           // -------------------------------------------------------------------------
-          TFile* fJ10 = TFile::Open(cfgJ.photon10.c_str(), "READ");
-          TFile* fJ20 = TFile::Open(cfgJ.photon20.c_str(), "READ");
+          TFile* fJ10 = TFile::Open(InputSim("photonjet10", CfgTagFor(3, "7pi_8", kVzCut, kIsoConeR, kIsoMode)).c_str(), "READ");
+          TFile* fJ20 = TFile::Open(InputSim("photonjet20", CfgTagFor(3, "7pi_8", kVzCut, kIsoConeR, kIsoMode)).c_str(), "READ");
           if (!fJ10 || fJ10->IsZombie() || !fJ20 || fJ20->IsZombie())
           {
             cout << ANSI_BOLD_YEL
@@ -8858,8 +8858,8 @@ namespace ARJ
             {"r06", 2, 0.6}
           };
 
-          const double jetMinPtGeV = cfgJ.jetMinPt;
-          const std::string bbLabel = cfgJ.bbLabel;
+          const double jetMinPtGeV = 3.0;
+          const std::string bbLabel = B2BLabelFor("7pi_8");
 
           cout << ANSI_BOLD_CYN
                << "[PLOTS] Writing ONLY into: " << dirOver << "\n"
@@ -11241,9 +11241,9 @@ namespace ARJ
       if (ss == SimSample::kPhotonJet5And10Merged)
       {
           ok = BuildMergedSIMFile_PhotonSlices(
-            {kInSIM5, DefaultSim10and20Config().photon10},
+            {InputSim("photonjet5"), InputSim("photonjet10")},
             {kSigmaPhoton5_pb, kSigmaPhoton10_pb},
-            kMergedSIMOut_5and10,
+            MergedSimPath("photonJet5and10merged_SIM", "RecoilJets_photonjet5plus10_MERGED.root"),
             kDirSIM,
             {"photonJet5", "photonJet10"}
           );
@@ -11251,28 +11251,28 @@ namespace ARJ
       else if (ss == SimSample::kPhotonJet5And20Merged)
       {
           ok = BuildMergedSIMFile_PhotonSlices(
-            {kInSIM5, DefaultSim10and20Config().photon20},
+            {InputSim("photonjet5"), InputSim("photonjet20")},
             {kSigmaPhoton5_pb, kSigmaPhoton20_pb},
-            kMergedSIMOut_5and20,
+            MergedSimPath("photonJet5and20merged_SIM", "RecoilJets_photonjet5plus20_MERGED.root"),
             kDirSIM,
             {"photonJet5", "photonJet20"}
           );
       }
       else if (ss == SimSample::kPhotonJet10And20Merged)
       {
-          if (!doRemergePhoton10and20sim)
+          if (!doPhotonJetMerge)
           {
-              const string outMerged = MergedSIMOut_10and20_Default();
+              const string outMerged = MergedSimPath("photonJet10and20merged_SIM", "RecoilJets_photonjet10plus20_MERGED.root");
 
               cout << ANSI_BOLD_CYN
-                   << "\n[MERGE SIM] doRemergePhoton10and20sim=false -> skipping SIM10+20 rebuild step.\n"
+                   << "\n[MERGE SIM] doPhotonJetMerge=false -> skipping SIM10+20 rebuild step.\n"
                    << "            Using existing merged output: " << outMerged << "\n"
                    << ANSI_RESET;
 
               if (gSystem->AccessPathName(outMerged.c_str()))
               {
                 cout << ANSI_BOLD_RED
-                     << "[MERGE SIM][FATAL] Merged SIM10+20 file not found, but doRemergePhoton10and20sim=false:\n"
+                     << "[MERGE SIM][FATAL] Merged SIM10+20 file not found, but doPhotonJetMerge=false:\n"
                      << "  " << outMerged << "\n"
                      << ANSI_RESET;
                 ok = false;
@@ -11280,21 +11280,21 @@ namespace ARJ
           }
           else
           {
-              const auto& cfg = DefaultSim10and20Config();
+              // Use new path builders instead of DefaultSim10and20Config
 
               const string outMerged =
-                  MergedSIMOut_10and20_ForKey(cfg.key);
+                  MergedSimPath("photonJet10and20merged_SIM", "RecoilJets_photonjet10plus20_MERGED.root");
 
               cout << ANSI_BOLD_CYN
                    << "\n[MERGE SIM] Rebuilding ONLY the default SIM10+20 merged file.\n"
-                   << "            cfg.key = " << cfg.key << "\n"
-                   << "            in10    = " << cfg.photon10 << "\n"
-                   << "            in20    = " << cfg.photon20 << "\n"
+                   << "            CfgTag() = " << CfgTag() << "\n"
+                   << "            in10    = " << InputSim("photonjet10") << "\n"
+                   << "            in20    = " << InputSim("photonjet20") << "\n"
                    << "            out     = " << outMerged << "\n"
                    << ANSI_RESET;
 
               ok = BuildMergedSIMFile_PhotonSlices(
-                {cfg.photon10, cfg.photon20},
+                {in10, in20},
                 {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
                 outMerged,
                 kDirSIM,
@@ -11304,19 +11304,19 @@ namespace ARJ
       }
       else if (ss == SimSample::kPhotonJet5And10And20Merged)
       {
-          if (!doRemergePhoton5and10and20sim)
+          if (!doPhotonJetMerge)
           {
-              const string outMerged = kMergedSIMOut_5and10and20;
+              const string outMerged = MergedSimPath("photonJet5and10and20merged_SIM", "RecoilJets_photonjet5plus10plus20_MERGED.root");
 
               cout << ANSI_BOLD_CYN
-                   << "\n[MERGE SIM] doRemergePhoton5and10and20sim=false -> skipping SIM5+10+20 rebuild step.\n"
+                   << "\n[MERGE SIM] doPhotonJetMerge=false -> skipping SIM5+10+20 rebuild step.\n"
                    << "            Using existing merged output: " << outMerged << "\n"
                    << ANSI_RESET;
 
               if (gSystem->AccessPathName(outMerged.c_str()))
               {
                 cout << ANSI_BOLD_RED
-                     << "[MERGE SIM][FATAL] Merged SIM5+10+20 file not found, but doRemergePhoton5and10and20sim=false:\n"
+                     << "[MERGE SIM][FATAL] Merged SIM5+10+20 file not found, but doPhotonJetMerge=false:\n"
                      << "  " << outMerged << "\n"
                      << ANSI_RESET;
                 ok = false;
@@ -11324,22 +11324,22 @@ namespace ARJ
           }
           else
           {
-              const auto& cfg = DefaultSim10and20Config();
+              // Use new path builders instead of DefaultSim10and20Config
 
               const string outMerged =
-                  kMergedSIMOut_5and10and20;
+                  MergedSimPath("photonJet5and10and20merged_SIM", "RecoilJets_photonjet5plus10plus20_MERGED.root");
 
               cout << ANSI_BOLD_CYN
                    << "\n[MERGE SIM] Rebuilding ONLY the default SIM5+10+20 merged file.\n"
-                   << "            cfg.key = " << cfg.key << "\n"
-                   << "            in5     = " << kInSIM5 << "\n"
-                   << "            in10    = " << cfg.photon10 << "\n"
-                   << "            in20    = " << cfg.photon20 << "\n"
+                   << "            CfgTag() = " << CfgTag() << "\n"
+                   << "            in5     = " << InputSim("photonjet5") << "\n"
+                   << "            in10    = " << InputSim("photonjet10") << "\n"
+                   << "            in20    = " << InputSim("photonjet20") << "\n"
                    << "            out     = " << outMerged << "\n"
                    << ANSI_RESET;
 
               ok = BuildMergedSIMFile_PhotonSlices(
-                {kInSIM5, cfg.photon10, cfg.photon20},
+                {InputSim("photonjet5"), InputSim("photonjet10"), InputSim("photonjet20")},
                 {kSigmaPhoton5_pb, kSigmaPhoton10_pb, kSigmaPhoton20_pb},
                 outMerged,
                 kDirSIM,
@@ -11407,12 +11407,12 @@ namespace ARJ
            << "    bothPhoton5and10sim     = " << (bothPhoton5and10sim ? "true" : "false") << "\n"
            << "    bothPhoton5and20sim     = " << (bothPhoton5and20sim ? "true" : "false") << "\n"
            << "    bothPhoton10and20sim    = " << (bothPhoton10and20sim ? "true" : "false") << "\n"
-           << "    doRemergePhoton10and20sim = " << (doRemergePhoton10and20sim ? "true" : "false") << "\n"
+           << "    doPhotonJetMerge = " << (doPhotonJetMerge ? "true" : "false") << "\n"
            << "    allPhoton5and10and20sim = " << (allPhoton5and10and20sim ? "true" : "false") << "\n"
            << "    isSimEmbedded           = " << (isSimEmbedded ? "true" : "false") << "\n"
-           << "      kEmbeddedCutTag       = " << kEmbeddedCutTag << "\n"
-           << "      kEmbeddedUEVariant    = " << kEmbeddedUEVariant << "\n"
-           << "      EmbeddedSimCfgTag()   = " << EmbeddedSimCfgTag() << "\n";
+           << "      CfgTag()              = " << CfgTag() << "\n"
+           << "      kUEVariant            = " << kUEVariant << "\n"
+           << "      CfgTagWithUE()        = " << CfgTagWithUE() << "\n";
 
       // ---------------------------------------------------------------------------
       //  Multi-SIM sequential runner
@@ -11565,42 +11565,35 @@ namespace ARJ
       cout << ANSI_RESET << "\n";
 
       // ---------------------------------------------------------------------------
-      // Explicit default SIM config printout (so it's obvious what drives the merge + analysis)
+      // Explicit default CUT config printout (so it's obvious what drives the merge + analysis)
       // ---------------------------------------------------------------------------
       if (mode == RunMode::kSimOnly || mode == RunMode::kSimAndDataPP)
       {
-        const Sim10and20Config& cfgDef = DefaultSim10and20Config();
-
         cout << ANSI_DIM
-             << "\n  [DEFAULT SIM CONFIG]\n"
-             << "    DefaultSimSampleKey()           = " << DefaultSimSampleKey() << "\n"
-             << "    cfg.key                         = " << cfgDef.key << "\n";
+             << "\n  [DEFAULT CUT CONFIG]\n"
+             << "    CfgTag()                        = " << CfgTag() << "\n"
+             << "    kJetPtMin                       = " << kJetPtMin << " GeV\n"
+             << "    B2BLabel()                      = " << B2BLabel() << "\n"
+             << "    kVzCut                          = " << kVzCut << " cm\n"
+             << "    kIsoConeR                       = " << kIsoConeR << "\n"
+             << "    kIsoMode                        = " << kIsoMode << "\n"
+             << "    kUEVariant                      = " << kUEVariant << "\n";
 
         if (ss == SimSample::kPhotonJet5And10And20Merged)
         {
-          cout << "    cfg.photon5                     = " << cfgDef.photon5 << "\n";
+          cout << "    InputSim(photonjet5)             = " << InputSim("photonjet5") << "\n";
         }
 
-        cout << "    cfg.photon10                    = " << cfgDef.photon10 << "\n"
-             << "    cfg.photon20                    = " << cfgDef.photon20 << "\n"
-             << "    cfg.jetMinPt                    = " << cfgDef.jetMinPt << " GeV\n"
-             << "    cfg.bbLabel                     = " << cfgDef.bbLabel << "\n";
+        cout << "    InputSim(photonjet10)            = " << InputSim("photonjet10") << "\n"
+             << "    InputSim(photonjet20)            = " << InputSim("photonjet20") << "\n";
 
         if (ss == SimSample::kPhotonJet5And10And20Merged)
         {
-          cout << "    kInSIM5 (alias)                 = " << kInSIM5 << "\n";
-        }
-
-        cout << "    kInSIM10 (alias)                = " << kInSIM10 << "\n"
-             << "    kInSIM20 (alias)                = " << kInSIM20 << "\n";
-
-        if (ss == SimSample::kPhotonJet5And10And20Merged)
-        {
-          cout << "    kMergedSIMOut_5and10and20       = " << kMergedSIMOut_5and10and20 << "\n";
+          cout << "    MergedSimPath(5+10+20)          = " << MergedSimPath("photonJet5and10and20merged_SIM", "RecoilJets_photonjet5plus10plus20_MERGED.root") << "\n";
         }
         else
         {
-          cout << "    MergedSIMOut_10and20_Default()  = " << MergedSIMOut_10and20_Default() << "\n";
+          cout << "    MergedSimPath(10+20)            = " << MergedSimPath("photonJet10and20merged_SIM", "RecoilJets_photonjet10plus20_MERGED.root") << "\n";
         }
 
         cout << ANSI_RESET;
@@ -11615,7 +11608,6 @@ namespace ARJ
                << ANSI_RESET;
         }
       }
-
       // ---------------------------------------------------------------------------
       // Optional SIM slice merge
       // ---------------------------------------------------------------------------
