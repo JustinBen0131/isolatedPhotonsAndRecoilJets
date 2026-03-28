@@ -12099,7 +12099,7 @@ namespace ARJ
                 {
                   gApplyPurityCorrectionForUnfolding = false;
                   cout << "  -> [5I] purity-corrected vs non-purity-corrected per-photon x_{J} overlays...\n";
-                  analysis::RunPurityCorrectedUncorrectedOverlayPP(*dsPP);
+                  analysis::RunPurityCorrectedUncorrectedOverlayPP(*dsPP, *dsSIM);
                   cout << "     [OK] purityCorrectedUncorrectedOverly\n";
                 }
               }

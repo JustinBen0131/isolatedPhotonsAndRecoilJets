@@ -70,7 +70,8 @@
       }
 
         const string unfoldVariant = (gApplyPurityCorrectionForUnfolding ? "purityCorrected" : "nonPurityCorrected");
-        const string outBase = JoinPath(dsData.outBase, "unfolding/" + unfoldVariant + "/radii");
+        const string simDataBase = JoinPath(dsSim.outBase, dsData.trigger);
+        const string outBase = JoinPath(simDataBase, "unfolding/" + unfoldVariant + "/radii");
         int mkrc = -999;
         if (gSystem) mkrc = gSystem->mkdir(outBase.c_str(), true);
         else EnsureDir(outBase);
@@ -1627,7 +1628,7 @@
           kNToysPhoScan
         );
 
-        const int kBayesIterPho = (phoIterScan.bestIt > 0 ? phoIterScan.bestIt : kDefaultBayesIterPho);
+        const int kBayesIterPho = kDefaultBayesIterPho;
 
         cout << ANSI_BOLD_CYN
              << "[PHO ITER AUTO] Using Bayes iteration " << kBayesIterPho;
@@ -8125,7 +8126,7 @@
             rKey
           );
 
-          const int kBayesIterXJ = (xjIterScan.bestIt > 0 ? xjIterScan.bestIt : kDefaultBayesIterXJ);
+          const int kBayesIterXJ = kDefaultBayesIterXJ;
 
           cout << ANSI_BOLD_CYN
                << "[UNF ITER AUTO] rKey=" << rKey
@@ -12535,11 +12536,12 @@
         if (gAtlasPP) delete gAtlasPP;
     }
 
-    void RunPurityCorrectedUncorrectedOverlayPP(Dataset& dsData)
+    void RunPurityCorrectedUncorrectedOverlayPP(Dataset& dsData, Dataset& dsSim)
     {
-      const string inBaseUnc = JoinPath(dsData.outBase, "unfolding/nonPurityCorrected/radii");
-      const string inBaseCor = JoinPath(dsData.outBase, "unfolding/purityCorrected/radii");
-      const string outBase   = JoinPath(dsData.outBase, "unfolding/purityCorrectedUncorrectedOverly");
+      const string simDataBase = JoinPath(dsSim.outBase, dsData.trigger);
+      const string inBaseUnc = JoinPath(simDataBase, "unfolding/nonPurityCorrected/radii");
+      const string inBaseCor = JoinPath(simDataBase, "unfolding/purityCorrected/radii");
+      const string outBase   = JoinPath(simDataBase, "unfolding/purityCorrectedUncorrectedOverly");
 
       EnsureDir(outBase);
 
@@ -12872,9 +12874,10 @@
            << ANSI_RESET << "\n";
     }
 
-    void RunPurityCorrectedUncorrectedOverlayPP(Dataset& dsData)
+    void RunPurityCorrectedUncorrectedOverlayPP(Dataset& dsData, Dataset& dsSim)
     {
       (void)dsData;
+      (void)dsSim;
       cout << ANSI_BOLD_YEL
            << "[WARN] RooUnfold headers not found at compile time (ARJ_HAVE_ROOUNFOLD=0). Skipping purity-corrected vs non-purity-corrected overlay."
            << ANSI_RESET << "\n";

@@ -114,7 +114,7 @@ namespace ARJ
   // ===========================================================================
   inline const int    kJetPtMin        = 5;            // GeV: 3, 5, or 10
   inline const string kB2BCut          = "7pi_8";      // "7pi_8" or "pi_2"
-  inline const int    kVzCut           = 30;            // cm: 30 or 60
+  inline const int    kVzCut           = 60;            // cm: 30 or 60
   inline const string kIsoConeR        = "isoR30";     // "isoR30" or "isoR40"
   inline const string kIsoMode         = "isSliding";  // "isSliding" or "fixedIso5GeV"
   inline const string kUEVariant       = "noSub";      // "noSub","baseVariant","variantA","variantB"
