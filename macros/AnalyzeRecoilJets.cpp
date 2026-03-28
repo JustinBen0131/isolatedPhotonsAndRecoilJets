@@ -117,12 +117,12 @@ namespace ARJ
 
         static std::set<std::string> s_doneOutDirs;
 
-        // For AuAu (no centFolder): outBase = kOutAuAuBase/<trigger>
-        //   -> dirname = kOutAuAuBase -> triggerQA lands in auau/triggerQA
-        // For AuAu (with centFolder): outBase = kOutAuAuBase/<trigger>/<cent>
-        //   -> dirname(dirname) = kOutAuAuBase -> triggerQA lands in auau/triggerQA
-        // For PP: outBase = kOutPPBase/<trigger>
-        //   -> dirname = kOutPPBase -> triggerQA lands in pp/triggerQA
+        // For AuAu (no centFolder): outBase = OutputAuAu()/<trigger>
+        //   -> dirname = OutputAuAu() -> triggerQA lands in auau/triggerQA
+        // For AuAu (with centFolder): outBase = OutputAuAu()/<trigger>/<cent>
+        //   -> dirname(dirname) = OutputAuAu() -> triggerQA lands in auau/triggerQA
+        // For PP: outBase = OutputPP()/<trigger>
+        //   -> dirname = OutputPP() -> triggerQA lands in pp/triggerQA
         const std::string baseDir = ds.centFolder.empty()
                                                 ? DirnameFromPath(ds.outBase)
                                                 : DirnameFromPath(DirnameFromPath(ds.outBase));
@@ -1063,68 +1063,68 @@ namespace ARJ
         // Markers: open circles = Run24pp, closed circles = Run25pp
         // Colors: match colorForProbe per photon threshold
         //
-        // FORCEFULLY opens both kInPP24 and kInPP25 regardless of toggles.
+        // FORCEFULLY opens both InputPP() and InputPP25() regardless of toggles.
         // Skipped entirely in AuAu-only mode (no PP files to compare).
         // -------------------------------------------------------------------
         if (!isAuAuOnly)
         {
-          const std::vector<std::string> targetGroups = {
-            "commonBasis_MBD_NandS_geq_1",
-            "commonBasis_MBD_NandS_geq_1_vtx_lt_10"
-          };
-
-            auto getHistFromFile = [&](TFile* f, const std::string& dirKey) -> TH1*
-            {
-              if (!f) return nullptr;
-              TDirectory* dir = f->GetDirectory(dirKey.c_str());
-              if (!dir) return nullptr;
-              return dynamic_cast<TH1*>(dir->Get((prefix + dirKey).c_str()));
+            const std::vector<std::string> targetGroups = {
+              "commonBasis_MBD_NandS_geq_1",
+              "commonBasis_MBD_NandS_geq_1_vtx_lt_10"
             };
 
-            auto computeX95Map = [&](TFile* f, const std::string& groupTarget) -> std::map<int, double>
-            {
-              std::map<int, double> result;
-              if (!f) return result;
-
-              TIter nextKey(f->GetListOfKeys());
-              while (TKey* key = dynamic_cast<TKey*>(nextKey()))
+              auto getHistFromFile = [&](TFile* f, const std::string& dirKey) -> TH1*
               {
-                const std::string dirKey = key->GetName();
-                if (dirKey.empty() || dirKey.find(baselineTag) == 0) continue;
+                if (!f) return nullptr;
+                TDirectory* dir = f->GetDirectory(dirKey.c_str());
+                if (!dir) return nullptr;
+                return dynamic_cast<TH1*>(dir->Get((prefix + dirKey).c_str()));
+              };
 
-                const std::string bKey = deduceBasisKey(dirKey);
-                if (bKey.empty()) continue;
-                if (groupFolderFromBasis(bKey) != groupTarget) continue;
+              auto computeX95Map = [&](TFile* f, const std::string& groupTarget) -> std::map<int, double>
+              {
+                std::map<int, double> result;
+                if (!f) return result;
 
-                TH1* hProbe = getHistFromFile(f, dirKey);
-                TH1* hBase  = getHistFromFile(f, baselineTag + dirKey);
-                if (!hProbe || !hBase) continue;
+                TIter nextKey(f->GetListOfKeys());
+                while (TKey* key = dynamic_cast<TKey*>(nextKey()))
+                {
+                  const std::string dirKey = key->GetName();
+                  if (dirKey.empty() || dirKey.find(baselineTag) == 0) continue;
 
-                TH1* hP = CloneTH1(hProbe, TString::Format("x95ov_p_%s", dirKey.c_str()).Data());
-                TH1* hB = CloneTH1(hBase,  TString::Format("x95ov_b_%s", dirKey.c_str()).Data());
-                if (!hP || !hB) { if (hP) delete hP; if (hB) delete hB; continue; }
+                  const std::string bKey = deduceBasisKey(dirKey);
+                  if (bKey.empty()) continue;
+                  if (groupFolderFromBasis(bKey) != groupTarget) continue;
 
-                EnsureSumw2(hP);
-                EnsureSumw2(hB);
+                  TH1* hProbe = getHistFromFile(f, dirKey);
+                  TH1* hBase  = getHistFromFile(f, baselineTag + dirKey);
+                  if (!hProbe || !hBase) continue;
 
-                TH1* hR = CloneTH1(hP, TString::Format("x95ov_r_%s", dirKey.c_str()).Data());
-                if (!hR) { delete hP; delete hB; continue; }
-                EnsureSumw2(hR);
-                hR->Divide(hP, hB, 1.0, 1.0, "B");
+                  TH1* hP = CloneTH1(hProbe, TString::Format("x95ov_p_%s", dirKey.c_str()).Data());
+                  TH1* hB = CloneTH1(hBase,  TString::Format("x95ov_b_%s", dirKey.c_str()).Data());
+                  if (!hP || !hB) { if (hP) delete hP; if (hB) delete hB; continue; }
 
-                const int thr = extractPhotonThresholdGeV(dirKey);
-                const double x95 = findXAtEff(hR, 0.95);
-                if (x95 > 0.0) result[thr] = x95;
+                  EnsureSumw2(hP);
+                  EnsureSumw2(hB);
 
-                delete hP;
-                delete hB;
-                delete hR;
-              }
-              return result;
-            };
+                  TH1* hR = CloneTH1(hP, TString::Format("x95ov_r_%s", dirKey.c_str()).Data());
+                  if (!hR) { delete hP; delete hB; continue; }
+                  EnsureSumw2(hR);
+                  hR->Divide(hP, hB, 1.0, 1.0, "B");
 
-            TFile* f24 = TFile::Open(kInPP24.c_str(), "READ");
-            TFile* f25 = TFile::Open(kInPP25.c_str(), "READ");
+                  const int thr = extractPhotonThresholdGeV(dirKey);
+                  const double x95 = findXAtEff(hR, 0.95);
+                  if (x95 > 0.0) result[thr] = x95;
+
+                  delete hP;
+                  delete hB;
+                  delete hR;
+                }
+                return result;
+              };
+
+              TFile* f24 = TFile::Open(InputPP().c_str(), "READ");
+              TFile* f25 = TFile::Open(InputPP25().c_str(), "READ");
 
             const bool ok24 = (f24 && !f24->IsZombie());
             const bool ok25 = (f25 && !f25->IsZombie());
@@ -1255,10 +1255,10 @@ namespace ARJ
             {
               cout << ANSI_BOLD_YEL
                    << "[WARN] x95 overlay: could not open both PP files.\n"
-                   << "       PP24: " << kInPP24 << (ok24 ? " (OK)" : " (MISSING)") << "\n"
-                   << "       PP25: " << kInPP25 << (ok25 ? " (OK)" : " (MISSING)")
+                   << "       PP24: " << InputPP() << (ok24 ? " (OK)" : " (MISSING)") << "\n"
+                   << "       PP25: " << InputPP25() << (ok25 ? " (OK)" : " (MISSING)")
                    << ANSI_RESET << "\n";
-            }
+             }
 
             if (f24) { f24->Close(); delete f24; }
             if (f25) { f25->Close(); delete f25; }
@@ -1273,13 +1273,13 @@ namespace ARJ
         if (!ds.file) return;
 
         cout << ANSI_BOLD_CYN << "\n==============================\n"
-               << "[pi0 QA] corrected vs no-asinh-correction (" << ds.label << ")\n"
-               << "==============================" << ANSI_RESET << "\n";
+                << "[pi0 QA] corrected vs no-asinh-correction (" << ds.label << ")\n"
+                << "==============================" << ANSI_RESET << "\n";
 
         const string outDir = isSimMBDataset
-            ? JoinPath(ds.outBase, "pi0_QA")
-            : JoinPath(kOutPPBase, "pi0_QA");
-        EnsureDir(outDir);
+             ? JoinPath(ds.outBase, "pi0_QA")
+             : JoinPath(OutputPP(), "pi0_QA");
+            EnsureDir(outDir);
 
         // SIM: pi0 histograms live under the "SIM" topDir alongside all other SIM hists.
         // DATA: pi0 histograms live under "MBD_NandS_geq_1".
@@ -3138,38 +3138,38 @@ namespace ARJ
               EmbeddedIsoVariantHandle H;
               H.variant = variant;
               H.color = color;
-              H.file = TFile::Open(kInSimEmbeddedPathForVariant(variant).c_str(), "READ");
+              H.file = TFile::Open(InputSimEmbedded(variant).c_str(), "READ");
 
-              if (!H.file || H.file->IsZombie())
-              {
-                if (H.file) { H.file->Close(); delete H.file; H.file = nullptr; }
+                if (!H.file || H.file->IsZombie())
+                {
+                  if (H.file) { H.file->Close(); delete H.file; H.file = nullptr; }
 
-                cout << ANSI_BOLD_YEL
-                     << "[WARN] Missing embedded iso overlay input: "
-                     << kInSimEmbeddedPathForVariant(variant)
-                     << ANSI_RESET << "\n";
+                  cout << ANSI_BOLD_YEL
+                       << "[WARN] Missing embedded iso overlay input: "
+                       << InputSimEmbedded(variant)
+                       << ANSI_RESET << "\n";
 
-                vars.push_back(std::move(H));
-                return;
-              }
+                  vars.push_back(std::move(H));
+                  return;
+                }
 
-              H.dsVar.label = "SIM";
-              H.dsVar.isSim = true;
-              H.dsVar.trigger = "";
-              H.dsVar.topDirName = kDirSIM;
-              H.dsVar.inFilePath = kInSimEmbeddedPathForVariant(variant);
-              H.dsVar.outBase = outDir;
-              H.dsVar.centFolder = ds.centFolder;
-              H.dsVar.centSuffix = ds.centSuffix;
-              H.dsVar.centLabel = ds.centLabel;
-              H.dsVar.file = H.file;
-              H.dsVar.topDir = H.file->GetDirectory(H.dsVar.topDirName.c_str());
+                H.dsVar.label = "SIM";
+                H.dsVar.isSim = true;
+                H.dsVar.trigger = "";
+                H.dsVar.topDirName = kDirSIM;
+                H.dsVar.inFilePath = InputSimEmbedded(variant);
+                H.dsVar.outBase = outDir;
+                H.dsVar.centFolder = ds.centFolder;
+                H.dsVar.centSuffix = ds.centSuffix;
+                H.dsVar.centLabel = ds.centLabel;
+                H.dsVar.file = H.file;
+                H.dsVar.topDir = H.file->GetDirectory(H.dsVar.topDirName.c_str());
 
-              if (!H.dsVar.topDir)
-              {
-                cout << ANSI_BOLD_YEL
-                     << "[WARN] Missing " << kDirSIM << " directory in embedded iso overlay input: "
-                     << kInSimEmbeddedPathForVariant(variant)
+                if (!H.dsVar.topDir)
+                {
+                  cout << ANSI_BOLD_YEL
+                       << "[WARN] Missing " << kDirSIM << " directory in embedded iso overlay input: "
+                       << InputSimEmbedded(variant)
                      << ANSI_RESET << "\n";
               }
 
@@ -4079,7 +4079,7 @@ namespace ARJ
               leg.AddEntry(&gCor, "Leakage-corrected", "lp");
               leg.Draw();
 
-              const double etaCut = PhotonEtaAbsMaxFromYAML();
+              const double etaCut = kPhotonEtaAbsMax;
 
               TLatex tTitle;
               tTitle.SetNDC(true);
@@ -6913,10 +6913,9 @@ namespace ARJ
                       if (useAlphaCut) lines.push_back(TString::Format("#alpha < %.2f", alphaMax).Data());
                       DrawLatexLines(0.14, 0.875, lines, 0.030, 0.038);
 
-                      const auto& cfg = DefaultSim10and20Config();
                       std::vector<std::string> cutLines;
-                      cutLines.push_back(TString::Format("Back-to-back: #Delta#phi_{#gamma,jet} > %s", cfg.bbLabel.c_str()).Data());
-                      cutLines.push_back(TString::Format("p_{T}^{jet} > %.0f GeV", cfg.jetMinPt).Data());
+                      cutLines.push_back(TString::Format("Back-to-back: #Delta#phi_{#gamma,jet} > %s", B2BLabel().c_str()).Data());
+                      cutLines.push_back(TString::Format("p_{T}^{jet} > %.0f GeV", static_cast<double>(kJetPtMin)).Data());
                       DrawLatexLines(0.70, 0.74, cutLines, 0.030, 0.038);
 
                       SaveCanvas(can, JoinPath(outDirHere, TString::Format("overlay_pTbin%d.png", ib).Data()));
@@ -7100,15 +7099,13 @@ namespace ARJ
                             TString::Format("%s %s, %s = %s", levelTag, xTitle.c_str(), pTTag, ptLab.c_str()).Data()
                           );
 
-                          const auto& cfgDef = DefaultSim10and20Config();
-
                           TLatex tcuts;
                           tcuts.SetNDC(true);
                           tcuts.SetTextFont(42);
                           tcuts.SetTextAlign(33);
                           tcuts.SetTextSize(0.040);
-                          tcuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", cfgDef.bbLabel.c_str()).Data());
-                          tcuts.DrawLatex(0.92, 0.54, TString::Format("Reco (p_{T}^{jet} > %.0f GeV)", cfgDef.jetMinPt).Data());
+                          tcuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", B2BLabel().c_str()).Data());
+                          tcuts.DrawLatex(0.92, 0.54, TString::Format("Reco (p_{T}^{jet} > %.0f GeV)", static_cast<double>(kJetPtMin)).Data());
 
                           TLegend leg(0.72, 0.68, 0.92, 0.90);
                           leg.SetTextFont(42);
@@ -7934,8 +7931,8 @@ namespace ARJ
                 leg.SetTextSize(0.045);
                 leg.SetFillStyle(0);
                 leg.SetBorderSize(0);
-                if (hPi2) leg.AddEntry(hPi2,  "|#Delta#phi(#gamma,jet)| > #pi/2",   "ep");
-                if (h7p8) leg.AddEntry(h7p8,  "|#Delta#phi(#gamma,jet)| > 7#pi/8", "ep");
+                if (hPi2) leg.AddEntry(hPi2,  TString::Format("|#Delta#phi(#gamma,jet)| > %s", baseLabel.c_str()).Data(), "ep");
+                if (h7p8) leg.AddEntry(h7p8,  TString::Format("|#Delta#phi(#gamma,jet)| > %s", bbLabel.c_str()).Data(), "ep");
                 leg.DrawClone();
 
                 // Print the jetMinPt (from header default cfgKey) + back-to-back label under the legend
