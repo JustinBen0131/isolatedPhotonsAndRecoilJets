@@ -345,46 +345,101 @@
       // Helper: un-flatten TH1(globalTruth) back into TH2(truth pT,xJ) using a
       //         template TH2 for binning.
       // ----------------------------------------------------------------------
-      auto UnflattenGlobalToTH2 = [](const TH1* hGlob, const TH2* tmpl, const string& newName) -> TH2*
-      {
-        if (!hGlob || !tmpl) return nullptr;
-
-        TH2* h2 = CloneTH2(tmpl, newName);
-        if (!h2) return nullptr;
-
-        h2->Reset("ICES");
-        h2->SetDirectory(nullptr);
-
-        const int nx = h2->GetNbinsX();
-        const int ny = h2->GetNbinsY();
-        const int nGlob = (nx + 2) * (ny + 2);
-
-        if (hGlob->GetNbinsX() != nGlob)
+        auto UnflattenGlobalToTH2 = [](const TH1* hGlob, const TH2* tmpl, const string& newName) -> TH2*
         {
-          cout << ANSI_BOLD_YEL
-               << "[WARN] UnflattenGlobalToTH2: template nGlob=" << nGlob
-               << " but hGlob nbins=" << hGlob->GetNbinsX()
-               << ". Proceeding (bins beyond overlap will be ignored)."
-               << ANSI_RESET << "\n";
-        }
+          if (!hGlob || !tmpl) return nullptr;
 
-        const int nCopy = std::min(nGlob, hGlob->GetNbinsX());
+          TH2* h2 = CloneTH2(tmpl, newName);
+          if (!h2) return nullptr;
 
-        for (int ix = 0; ix <= nx + 1; ++ix)
-        {
-          for (int iy = 0; iy <= ny + 1; ++iy)
+          h2->Reset("ICES");
+          h2->SetDirectory(nullptr);
+
+          const int nx = h2->GetNbinsX();
+          const int ny = h2->GetNbinsY();
+          const int nGlob = (nx + 2) * (ny + 2);
+
+          if (hGlob->GetNbinsX() != nGlob)
           {
-            const int g = h2->GetBin(ix, iy); // 0..nGlob-1
-            const int b = g + 1;
-            if (b < 1 || b > nCopy) continue;
-
-            h2->SetBinContent(ix, iy, hGlob->GetBinContent(b));
-            h2->SetBinError  (ix, iy, hGlob->GetBinError  (b));
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] UnflattenGlobalToTH2: template nGlob=" << nGlob
+                 << " but hGlob nbins=" << hGlob->GetNbinsX()
+                 << ". Proceeding (bins beyond overlap will be ignored)."
+                 << ANSI_RESET << "\n";
           }
-        }
 
-        return h2;
-      };
+          const int nCopy = std::min(nGlob, hGlob->GetNbinsX());
+
+          for (int ix = 0; ix <= nx + 1; ++ix)
+          {
+            for (int iy = 0; iy <= ny + 1; ++iy)
+            {
+              const int g = h2->GetBin(ix, iy); // 0..nGlob-1
+              const int b = g + 1;
+              if (b < 1 || b > nCopy) continue;
+
+              h2->SetBinContent(ix, iy, hGlob->GetBinContent(b));
+              h2->SetBinError  (ix, iy, hGlob->GetBinError  (b));
+            }
+          }
+
+          return h2;
+        };
+
+        auto HistFromRecoVector1D =
+          [](RooUnfoldBayes& unfold, const TH1* tmpl, const string& newName) -> TH1*
+        {
+          if (!tmpl) return nullptr;
+
+          TH1* h = CloneTH1(tmpl, newName);
+          if (!h) return nullptr;
+
+          h->Reset("ICES");
+          h->SetDirectory(nullptr);
+          EnsureSumw2(h);
+
+          const TVectorD& v = unfold.Vreco();
+          const TMatrixD& cov = unfold.Ereco(RooUnfolding::kCovariance);
+
+          const int nb = h->GetNbinsX();
+          for (int ib = 1; ib <= nb; ++ib)
+          {
+            const int iv = ib - 1;
+            if (iv < 0 || iv >= v.GetNrows()) continue;
+
+            h->SetBinContent(ib, v[iv]);
+
+            double err2 = 0.0;
+            if (iv < cov.GetNrows() && iv < cov.GetNcols()) err2 = cov(iv, iv);
+            h->SetBinError(ib, (err2 > 0.0 && std::isfinite(err2)) ? std::sqrt(err2) : 0.0);
+          }
+
+          return h;
+        };
+
+        auto HistFromRecoVectorGlobal =
+          [](RooUnfoldBayes& unfold, const string& newName) -> TH1D*
+        {
+          const TVectorD& v = unfold.Vreco();
+          const TMatrixD& cov = unfold.Ereco(RooUnfolding::kCovariance);
+
+          const int n = v.GetNrows();
+          TH1D* h = new TH1D(newName.c_str(), "", n, -0.5, n - 0.5);
+          h->SetDirectory(nullptr);
+          h->Sumw2();
+
+          for (int i = 0; i < n; ++i)
+          {
+            const int b = i + 1;
+            h->SetBinContent(b, v[i]);
+
+            double err2 = 0.0;
+            if (i < cov.GetNrows() && i < cov.GetNcols()) err2 = cov(i, i);
+            h->SetBinError(b, (err2 > 0.0 && std::isfinite(err2)) ? std::sqrt(err2) : 0.0);
+          }
+
+          return h;
+        };
 
         // ----------------------------------------------------------------------
         // Helpers for ATLAS-style purity correction before unfolding:
@@ -1344,7 +1399,7 @@
 
               TH1* hIt = nullptr;
               if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-              hIt = uIt.Hunfold(RooUnfolding::kCovToys);
+              hIt = uIt.Hreco();
               if (gSystem) gSystem->RedirectOutput(0);
               if (!hIt) continue;
 
@@ -1471,7 +1526,7 @@
 
               TH1* hCurr = nullptr;
               if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-              hCurr = u.Hunfold(RooUnfolding::kCovToys);
+              hCurr = u.Hreco();
               if (gSystem) gSystem->RedirectOutput(0);
               if (!hCurr) continue;
 
@@ -1635,14 +1690,17 @@
 
         TH1* hPhoUnfoldTruth = nullptr;
         if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-        hPhoUnfoldTruth = unfoldPhoToy.Hunfold(RooUnfolding::kCovToys);
+        hPhoUnfoldTruth = HistFromRecoVector1D(unfoldPhoToy, hPhoTruthSim, "hPhoUnfoldTruth_fromVreco");
         if (gSystem) gSystem->RedirectOutput(0);
         if (hPhoUnfoldTruth) hPhoUnfoldTruth->SetDirectory(nullptr);
 
         RooUnfoldBayes    unfoldPhoCov(&respPho, hPhoRecoData, kBayesIterPho);
         unfoldPhoCov.SetVerbose(0);
 
-        TH1* hPhoUnfoldTruth_cov = unfoldPhoCov.Hunfold(RooUnfolding::kCovariance);
+        TH1* hPhoUnfoldTruth_cov = nullptr;
+        if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
+        hPhoUnfoldTruth_cov = HistFromRecoVector1D(unfoldPhoCov, hPhoTruthSim, "hPhoUnfoldTruth_cov_fromVreco");
+        if (gSystem) gSystem->RedirectOutput(0);
         if (hPhoUnfoldTruth_cov) hPhoUnfoldTruth_cov->SetDirectory(nullptr);
 
         // Photon QA outputs
@@ -4342,7 +4400,7 @@
 
             TH1* hUnfC = nullptr;
             if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-            hUnfC = uC.Hunfold(RooUnfolding::kCovToys);
+            hUnfC = uC.Hreco();
             if (gSystem) gSystem->RedirectOutput(0);
             if (hUnfC)
             {
@@ -4518,7 +4576,7 @@
 
               TH1* hUnfB = nullptr;
               if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-              hUnfB = uH.Hunfold(RooUnfolding::kCovToys);
+              hUnfB = uH.Hreco();
               if (gSystem) gSystem->RedirectOutput(0);
               if (hUnfB)
               {
@@ -4877,7 +4935,7 @@
       
                     TH1* hIt = nullptr;
                     if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-                    hIt = uIt.Hunfold(RooUnfolding::kCovToys);
+                    hIt = uIt.Hreco();
                     if (gSystem) gSystem->RedirectOutput(0);
                     if (!hIt) continue;
       
@@ -5004,7 +5062,7 @@
       
                     TH1* hCurr = nullptr;
                     if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-                    hCurr = u.Hunfold(RooUnfolding::kCovToys);
+                    hCurr = u.Hreco();
                     if (gSystem) gSystem->RedirectOutput(0);
                     if (!hCurr) continue;
       
@@ -5168,7 +5226,7 @@
       
               TH1* hPhoUnfoldTruth = nullptr;
               if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-              hPhoUnfoldTruth = unfoldPhoToy.Hunfold(RooUnfolding::kCovToys);
+              hPhoUnfoldTruth = unfoldPhoToy.Hreco();
               if (gSystem) gSystem->RedirectOutput(0);
               if (hPhoUnfoldTruth) hPhoUnfoldTruth->SetDirectory(nullptr);
       
@@ -7571,7 +7629,7 @@
       
                   TH1* hUnfC = nullptr;
                   if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-                  hUnfC = uC.Hunfold(RooUnfolding::kCovToys);
+                  hUnfC = uC.Hreco();
                   if (gSystem) gSystem->RedirectOutput(0);
                   if (hUnfC)
                   {
@@ -7747,7 +7805,7 @@
       
                     TH1* hUnfB = nullptr;
                     if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-                    hUnfB = uH.Hunfold(RooUnfolding::kCovToys);
+                    hUnfB = uH.Hreco();
                     if (gSystem) gSystem->RedirectOutput(0);
                     if (hUnfB)
                     {
@@ -8131,14 +8189,17 @@
 
           TH1* hUnfoldTruthGlob = nullptr;
           if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-          hUnfoldTruthGlob = unfoldXJ_toy.Hunfold(RooUnfolding::kCovToys);
+          hUnfoldTruthGlob = HistFromRecoVectorGlobal(unfoldXJ_toy, TString::Format("hUnfoldTruthGlob_fromVreco_%s", rKey.c_str()).Data());
           if (gSystem) gSystem->RedirectOutput(0);
           if (hUnfoldTruthGlob) hUnfoldTruthGlob->SetDirectory(nullptr);
 
           RooUnfoldBayes unfoldXJ_cov(&respXJ, hMeasDataGlob, kBayesIterXJ);
           unfoldXJ_cov.SetVerbose(0);
 
-          TH1* hUnfoldTruthGlob_cov = unfoldXJ_cov.Hunfold(RooUnfolding::kCovariance);
+          TH1* hUnfoldTruthGlob_cov = nullptr;
+          if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
+          hUnfoldTruthGlob_cov = HistFromRecoVectorGlobal(unfoldXJ_cov, TString::Format("hUnfoldTruthGlob_cov_fromVreco_%s", rKey.c_str()).Data());
+          if (gSystem) gSystem->RedirectOutput(0);
           if (hUnfoldTruthGlob_cov) hUnfoldTruthGlob_cov->SetDirectory(nullptr);
 
         if (!hUnfoldTruthGlob)
@@ -9215,7 +9276,7 @@
 
             TH1* hUnfoldTruthGlob_closure = nullptr;
             if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-            hUnfoldTruthGlob_closure = unfoldXJ_closure.Hunfold(RooUnfolding::kCovToys);
+            hUnfoldTruthGlob_closure = unfoldXJ_closure.Hreco();
             if (gSystem) gSystem->RedirectOutput(0);
             if (hUnfoldTruthGlob_closure) hUnfoldTruthGlob_closure->SetDirectory(nullptr);
 
@@ -9489,7 +9550,7 @@
 
                 TH1* hUnfoldTruthGlob_half = nullptr;
                 if (gSystem) gSystem->RedirectOutput("/dev/null", "w");
-                hUnfoldTruthGlob_half = unfoldXJ_half.Hunfold(RooUnfolding::kCovToys);
+                hUnfoldTruthGlob_half = unfoldXJ_half.Hreco();
                 if (gSystem) gSystem->RedirectOutput(0);
                 if (hUnfoldTruthGlob_half) hUnfoldTruthGlob_half->SetDirectory(nullptr);
 
