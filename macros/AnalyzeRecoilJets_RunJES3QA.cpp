@@ -4053,14 +4053,14 @@ void RunJES3QA(Dataset& ds)
                 // Keep PINK for other overlay folders that intentionally use pink.
                 colA = (ovTag == "RECO_vs_TRUTHrecoConditioned") ? (kBlue + 1) : (kPink + 7);
               }
-              if (legBlack == "Truth (PURE)" || legBlack == "uncond truth") colA = kBlue + 1;  // blue open circles for unconditioned truth
+              if (legBlack == "Truth (PURE)" || legBlack == "uncond truth" || legBlack == "Sim Truth (Uncond)") colA = kBlue + 1;  // blue open circles for unconditioned truth
 
               if (legRed  == "Reco (#gamma^{truth} + jet^{truth} tagged)") colB = kViolet + 1;  // purple
               if (legRed  == "Truth (#gamma^{reco} + jet^{reco} tagged)")
               {
                 colB = (ovTag == "RECO_vs_TRUTHrecoConditioned") ? (kBlue + 1) : (kPink + 7);
               }
-              if (legRed == "Truth (PURE)" || legRed == "uncond truth") colB = kBlue + 1;    // blue open circles for unconditioned truth
+              if (legRed == "Truth (PURE)" || legRed == "uncond truth" || legRed == "Sim Truth (Uncond)") colB = kBlue + 1;    // blue open circles for unconditioned truth
 
               hA->SetLineWidth(2);
               hA->SetMarkerStyle(24);
@@ -4098,26 +4098,46 @@ void RunJES3QA(Dataset& ds)
             const double jetMinPt     = static_cast<double>(kJetPtMin);
             const double vzCut        = vzCutCm;
 
-            const bool isThisSimRecoVsRecoTruthTaggedPhoJet =
-                (ds.isSim && (ovTag == "RECO_vs_RECO_truthTaggedPhoJet"));
+              const bool isThisSimRecoVsRecoTruthTaggedPhoJet =
+                  (ds.isSim && (ovTag == "RECO_vs_RECO_truthTaggedPhoJet" || ovTag == "RECO_vs_TRUTHpure"));
 
-            if (isThisSimRecoVsRecoTruthTaggedPhoJet)
-            {
-                // Match the 2x3-table pad look (and clamp x-range)
-                hA->GetXaxis()->SetRangeUser(0.0, 2.0);
+              if (isThisSimRecoVsRecoTruthTaggedPhoJet)
+              {
+                  // Match the 2x3-table pad look (and clamp x-range)
+                  hA->GetXaxis()->SetRangeUser(0.0, 2.0);
+
+                  // Build SIM sample title dynamically from current toggle
+                  std::string simTitleTagPer = "Sim";
+                  {
+                    const SimSample ss = CurrentSimSample();
+                    switch (ss)
+                    {
+                      case SimSample::kPhotonJet5:                 simTitleTagPer = "Photon+Jet 5 Sim"; break;
+                      case SimSample::kPhotonJet10:                simTitleTagPer = "Photon+Jet 10 Sim"; break;
+                      case SimSample::kPhotonJet20:                simTitleTagPer = "Photon+Jet 20 Sim"; break;
+                      case SimSample::kPhotonJet5And10Merged:      simTitleTagPer = "Photon+Jet 5+10 Sim"; break;
+                      case SimSample::kPhotonJet5And20Merged:      simTitleTagPer = "Photon+Jet 5+20 Sim"; break;
+                      case SimSample::kPhotonJet10And20Merged:     simTitleTagPer = "Photon+Jet 10+20 Sim"; break;
+                      case SimSample::kPhotonJet5And10And20Merged: simTitleTagPer = "Photon+Jet 5+10+20 Sim"; break;
+                      case SimSample::kSimMB:                      simTitleTagPer = "MinBias Sim"; break;
+                      case SimSample::kSimJet5:                    simTitleTagPer = "InclusiveJet5 Sim"; break;
+                      case SimSample::kSimEmbedded:                simTitleTagPer = "Embedded Photon20 Sim"; break;
+                      default:                                     simTitleTagPer = "Sim"; break;
+                    }
+                }
 
                 // Title + pT label (same placement style as table)
                 {
-                  TLatex tt;
-                  tt.SetNDC(true);
-                  tt.SetTextFont(42);
+                    TLatex tt;
+                    tt.SetNDC(true);
+                    tt.SetTextFont(42);
 
-                  // Main title (top-center)
-                  tt.SetTextAlign(22);
-                  tt.SetTextSize(0.050);
-                  tt.DrawLatex(0.52, 0.95,
-                    TString::Format("Photon+Jet 10 and 20 Combined Sim (R = %.1f)", R).Data()
-                  );
+                    // Main title (top-center)
+                    tt.SetTextAlign(22);
+                    tt.SetTextSize(0.050);
+                    tt.DrawLatex(0.52, 0.95,
+                      TString::Format("%s (R = %.1f)", simTitleTagPer.c_str(), R).Data()
+                    );
 
                   // pT label (upper-left)
                   tt.SetTextAlign(13);
@@ -4273,38 +4293,38 @@ void RunJES3QA(Dataset& ds)
                 NormalizeToUnitArea(hA);
                 NormalizeToUnitArea(hB);
 
-                  // Style: default black vs red, but override for specific legend labels
-                  int colA = 1;  // default "black"
-                  int colB = 2;  // default "red"
+                // Style: default black vs red, but override for specific legend labels
+                int colA = 1;  // default "black"
+                int colB = 2;  // default "red"
 
-                  // Force special colors by legend label (applies no matter which histogram is A/B)
-                  if (legBlack == "Reco (#gamma^{truth} + jet^{truth} tagged)") colA = kViolet + 1;  // purple
-                  if (legBlack == "Truth (#gamma^{reco} + jet^{reco} tagged)")
-                  {
+                // Force special colors by legend label (applies no matter which histogram is A/B)
+                if (legBlack == "Reco (#gamma^{truth} + jet^{truth} tagged)") colA = kViolet + 1;  // purple
+                if (legBlack == "Truth (#gamma^{reco} + jet^{reco} tagged)")
+                {
                     // For RECO_vs_TRUTHrecoConditioned we want Truth drawn in BLUE (open circles).
                     // Keep PINK for other overlay folders that intentionally use pink.
                     colA = (ovTag == "RECO_vs_TRUTHrecoConditioned") ? (kBlue + 1) : (kPink + 7);
-                  }
-                  if (legBlack == "Truth (PURE)" || legBlack == "uncond truth") colA = kBlue + 1;  // unconditioned truth in blue
+                }
+                if (legBlack == "Truth (PURE)" || legBlack == "uncond truth" || legBlack == "Sim Truth (Uncond)") colA = kBlue + 1;  // unconditioned truth in blue
 
-                  if (legRed  == "Reco (#gamma^{truth} + jet^{truth} tagged)") colB = kViolet + 1;  // purple
-                  if (legRed  == "Truth (#gamma^{reco} + jet^{reco} tagged)")
-                  {
+                if (legRed  == "Reco (#gamma^{truth} + jet^{truth} tagged)") colB = kViolet + 1;  // purple
+                if (legRed  == "Truth (#gamma^{reco} + jet^{reco} tagged)")
+                {
                     colB = (ovTag == "RECO_vs_TRUTHrecoConditioned") ? (kBlue + 1) : (kPink + 7);
-                  }
-                  if (legRed == "Truth (PURE)" || legRed == "uncond truth") colB = kBlue + 1;       // unconditioned truth in blue
+                }
+                if (legRed == "Truth (PURE)" || legRed == "uncond truth" || legRed == "Sim Truth (Uncond)") colB = kBlue + 1;       // unconditioned truth in blue
 
-                  hA->SetLineWidth(2);
-                  hA->SetMarkerStyle(24);
-                  hA->SetMarkerSize(0.95);
-                  hA->SetLineColor(colA);
-                  hA->SetMarkerColor(colA);
+                hA->SetLineWidth(2);
+                hA->SetMarkerStyle(24);
+                hA->SetMarkerSize(0.95);
+                hA->SetLineColor(colA);
+                hA->SetMarkerColor(colA);
 
-                  hB->SetLineWidth(2);
-                  hB->SetMarkerStyle(20);
-                  hB->SetMarkerSize(0.95);
-                  hB->SetLineColor(colB);
-                  hB->SetMarkerColor(colB);
+                hB->SetLineWidth(2);
+                hB->SetMarkerStyle(20);
+                hB->SetMarkerSize(0.95);
+                hB->SetLineColor(colB);
+                hB->SetMarkerColor(colB);
 
                 const double ymax = std::max(hA->GetMaximum(), hB->GetMaximum());
                 hA->SetMaximum(ymax * 1.25);
@@ -4312,7 +4332,7 @@ void RunJES3QA(Dataset& ds)
                   hA->SetTitle("");
                   hA->GetXaxis()->SetTitle("x_{J#gamma}");
                   hA->GetYaxis()->SetTitle("Normalized to Unit Area");
-                  if (ds.isSim && (ovTag == "RECO_vs_RECO_truthTaggedPhoJet"))
+                  if (ds.isSim && (ovTag == "RECO_vs_RECO_truthTaggedPhoJet" || ovTag == "RECO_vs_TRUTHpure"))
                   {
                     hA->GetXaxis()->SetRangeUser(0.0, 2.0);
                   }
@@ -4326,7 +4346,7 @@ void RunJES3QA(Dataset& ds)
                   const double vzCut        = vzCutCm;
 
                   const bool isThisSimRecoVsRecoTruthTaggedPhoJet =
-                    (ds.isSim && (ovTag == "RECO_vs_RECO_truthTaggedPhoJet"));
+                    (ds.isSim && (ovTag == "RECO_vs_RECO_truthTaggedPhoJet" || ovTag == "RECO_vs_TRUTHpure"));
 
                   // Title + pT label
                   {
@@ -4336,42 +4356,62 @@ void RunJES3QA(Dataset& ds)
 
                       if (isThisSimRecoVsRecoTruthTaggedPhoJet)
                       {
+                        // Build SIM sample title dynamically from current toggle
+                        std::string simTitleTagTbl = "Sim";
+                        {
+                          const SimSample ss = CurrentSimSample();
+                          switch (ss)
+                          {
+                            case SimSample::kPhotonJet5:                 simTitleTagTbl = "Photon+Jet 5 Sim"; break;
+                            case SimSample::kPhotonJet10:                simTitleTagTbl = "Photon+Jet 10 Sim"; break;
+                            case SimSample::kPhotonJet20:                simTitleTagTbl = "Photon+Jet 20 Sim"; break;
+                            case SimSample::kPhotonJet5And10Merged:      simTitleTagTbl = "Photon+Jet 5+10 Sim"; break;
+                            case SimSample::kPhotonJet5And20Merged:      simTitleTagTbl = "Photon+Jet 5+20 Sim"; break;
+                            case SimSample::kPhotonJet10And20Merged:     simTitleTagTbl = "Photon+Jet 10+20 Sim"; break;
+                            case SimSample::kPhotonJet5And10And20Merged: simTitleTagTbl = "Photon+Jet 5+10+20 Sim"; break;
+                            case SimSample::kSimMB:                      simTitleTagTbl = "MinBias Sim"; break;
+                            case SimSample::kSimJet5:                    simTitleTagTbl = "InclusiveJet5 Sim"; break;
+                            case SimSample::kSimEmbedded:                simTitleTagTbl = "Embedded Photon20 Sim"; break;
+                            default:                                     simTitleTagTbl = "Sim"; break;
+                          }
+                        }
+
                         // Main title (top-center)
                         tt.SetTextAlign(22);
                         tt.SetTextSize(0.050);
                         tt.DrawLatex(0.52, 0.95,
-                          TString::Format("Photon+Jet 10 and 20 Combined Sim (R = %.1f)", R).Data()
+                          TString::Format("%s (R = %.1f)", simTitleTagTbl.c_str(), R).Data()
                         );
 
-                        // pT label (upper-left, smaller & snug in corner)
-                        tt.SetTextAlign(13);
-                        tt.SetTextSize(0.043);
-                        tt.DrawLatex(0.18, 0.89,
-                          TString::Format("p_{T}^{#gamma} = %s", ptLab.c_str()).Data()
-                        );
-                      }
-                      else
-                      {
-                        // Default behavior
-                        tt.SetTextAlign(22);
-                        tt.SetTextSize(0.060);
-                        tt.DrawLatex(0.52, 0.95,
-                          TString::Format("p_{T}^{#gamma} = %s  (R=%.1f)", ptLab.c_str(), R).Data()
-                        );
-                      }
-                  }
+                          // pT label (upper-left)
+                          tt.SetTextAlign(13);
+                          tt.SetTextSize(0.048);
+                          tt.DrawLatex(0.18, 0.88,
+                            TString::Format("p_{T}^{#gamma} = %s", ptLab.c_str()).Data()
+                          );
+                        }
+                        else
+                        {
+                          // Default behavior
+                          tt.SetTextAlign(22);
+                          tt.SetTextSize(0.060);
+                          tt.DrawLatex(0.52, 0.95,
+                            TString::Format("p_{T}^{#gamma} = %s  (R=%.1f)", ptLab.c_str(), R).Data()
+                          );
+                        }
+                    }
 
-                  // Legend placement: top-right, but protect long labels in table pads
-                  double lx1 = 0.52, ly1 = 0.74, lx2 = 0.92, ly2 = 0.90;
-                  double legTextSize = 0.055;
-                  double legMargin   = 0.25;   // fraction of box reserved for markers/lines
+                    // Legend placement: top-right, but protect long labels in table pads
+                    double lx1 = 0.52, ly1 = 0.74, lx2 = 0.92, ly2 = 0.90;
+                    double legTextSize = 0.055;
+                    double legMargin   = 0.25;   // fraction of box reserved for markers/lines
 
-                  if (isThisSimRecoVsRecoTruthTaggedPhoJet)
-                  {
-                    // Snug legend in the top-right and tighten vertically
-                    lx1 = 0.87; ly1 = 0.78; lx2 = 0.99; ly2 = 0.9;
-                    legTextSize = 0.048;
-                    legMargin   = 0.20;
+                    if (isThisSimRecoVsRecoTruthTaggedPhoJet)
+                    {
+                      // Match RECO_vs_RECO_truthTaggedPhoJet_data table layout
+                      lx1 = 0.53; ly1 = 0.71; lx2 = 0.89; ly2 = 0.89;
+                      legTextSize = 0.041;
+                      legMargin   = 0.20;
                   }
 
                   // If either legend entry is long, shift the whole legend LEFT and give it more width
@@ -4454,8 +4494,8 @@ void RunJES3QA(Dataset& ds)
         MakeOverlayShape_TH3xJ(
           H.hTrutPure_xJ, H.hReco_xJ,
           "RECO_vs_TRUTHpure",
-          "uncond truth",
-          "uncond reco",
+          "Sim Truth (Uncond)",
+          "Sim Reco (Uncond)",
           {"unconditioned truth versus reco"}
         );
 

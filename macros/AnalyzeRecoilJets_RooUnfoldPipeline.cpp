@@ -608,7 +608,7 @@
 
           const string kBoxCutsFile = InputPP();
           const string kBDTFile =
-                        "/Users/patsfan753/Desktop/ThesisAnalysis/InputFiles/SamsInputFiles/histData.root";
+                        "/Users/patsfan753/Desktop/ThesisAnalysis/InputFiles/SamsInputFiles/histsData.root";
 
           const int nSamBins = 9;
                       const double samPtEdges[nSamBins + 1] = {10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 35.0};
@@ -910,7 +910,7 @@
         auto MakeABCDComparisonPanel = [&]()->void
         {
           const string kBDTFile2 =
-                        "/Users/patsfan753/Desktop/ThesisAnalysis/InputFiles/SamsInputFiles/histData.root";
+                        "/Users/patsfan753/Desktop/ThesisAnalysis/InputFiles/SamsInputFiles/histsData.root";
 
           TFile* fBDT2 = TFile::Open(kBDTFile2.c_str(), "READ");
           if (!fBDT2 || fBDT2->IsZombie())
