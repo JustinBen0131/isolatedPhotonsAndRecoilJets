@@ -3439,7 +3439,7 @@ static void Make2x3Table_AuAuUnNormalized_SS_ByCent(TDirectory* aaTop,
 }
 
 // =============================================================================
-// NEW: AuAu-only SS (counts) summary by pT overlays (all pT bins) — WITH SS cut label + vlines
+// AuAu-only SS (counts) summary by pT overlays (all pT bins) — WITH SS cut label + vlines
 //
 // Output (inside noIsoRequired/<ssVar>/):
 //   table2x3_AuAu_unNormalized_byPtOverlays.png
@@ -3855,11 +3855,6 @@ static void Make2x3Table_AuAuUnNormalized_SS_ByPtOverlaysPerCent(TDirectory* aaT
 }
 
 
-
-// ---------------------------------------------------------------------------
-// Extracted from RunPPvsAuAuDeliverables: noIsoRequired summary tables
-// (PP vs AuAu by centrality, per-SS-var, per-pT-bin overlays)
-// ---------------------------------------------------------------------------
 static void ProduceNoIsoSummaryTablesOutsideCent(
     const string& outBase,
     TDirectory* aaTop,
@@ -4580,10 +4575,7 @@ static void ProduceNoIsoSummaryTablesOutsideCent(
    }
 }
 
-// ---------------------------------------------------------------------------
-// Extracted from RunPPvsAuAuDeliverables: per-centrality 1x5 + 2x5 SS tables
-// (AuAu counts by pT overlays, PP row, PPG12 Data-vs-MC tables)
-// ---------------------------------------------------------------------------
+
 static void ProducePerCentSSTables_1x5_2x5(
     const string& outBase,
     TDirectory* aaTop,
@@ -5738,7 +5730,219 @@ static void ProducePerCentSSTables_1x5_2x5(
                     keepAlive.clear();
                 }
             }
-       }
+      }
+}
+
+
+static void ProducePerCentPPvsAuAuSSOverlays(
+    const string& outBase,
+    TDirectory* aaTop,
+    Dataset& dsPP)
+{
+          if (aaTop && dsPP.topDir)
+          {
+            const string baseNoIso = JoinPath(outBase, "noIsoRequired");
+            EnsureDir(baseNoIso);
+
+            const auto& ptBinsLocal   = PtBins();
+            const auto& centBinsLocal = CentBins();
+
+            if (!ptBinsLocal.empty() && !centBinsLocal.empty())
+            {
+              struct VarDefOv { std::string var; std::string label; };
+              const std::vector<VarDefOv> varsOv =
+              {
+                {"weta",   "w_{#eta}"},
+                {"wphi",   "w_{#phi}"},
+                {"e11e33", "E_{11}/E_{33}"},
+                {"et1",    "et1"},
+                {"e32e35", "E_{32}/E_{35}"}
+              };
+
+              const CentBin& peripheralBin = centBinsLocal.back();
+              const int nPtRows = std::min(5, (int)ptBinsLocal.size());
+
+              // Helper lambda: draw one PP-vs-AuAu pad (works for both 1x5 and 5x5)
+              auto DrawOnePPvsAAPad = [&](const PtBin& pb, const CentBin& cb,
+                                          const std::string& var, const std::string& vlabel,
+                                          bool doNorm, const std::string& uniqueTag,
+                                          std::vector<TH1*>& keepH,
+                                          std::vector<TLegend*>& keepLeg)
+              {
+                gPad->SetLeftMargin(0.14);
+                gPad->SetRightMargin(0.05);
+                gPad->SetBottomMargin(0.14);
+                gPad->SetTopMargin(0.16);
+                gPad->SetLogy(false);
+
+                const string histBase = string("h_ss_") + var + string("_inclusive");
+                const string hPPName = histBase + pb.suffix;
+                const string hAAName = histBase + pb.suffix + cb.suffix;
+
+                TH1* rawPP = GetTH1FromTopDir(dsPP.topDir, hPPName);
+                TH1* rawAA = GetTH1FromTopDir(aaTop, hAAName);
+
+                if (!rawPP || !rawAA)
+                {
+                  DrawMissingPad(TString::Format("%s, %d-%d%%, pT %d-%d",
+                    vlabel.c_str(), cb.lo, cb.hi, pb.lo, pb.hi).Data());
+                  return;
+                }
+
+                TH1* hPP = CloneTH1(rawPP,
+                  TString::Format("ppvsaa_%s_pp_%s_%s_%d_%d",
+                    uniqueTag.c_str(), var.c_str(), pb.folder.c_str(), cb.lo, cb.hi).Data());
+                TH1* hAA = CloneTH1(rawAA,
+                  TString::Format("ppvsaa_%s_aa_%s_%s_%d_%d",
+                    uniqueTag.c_str(), var.c_str(), pb.folder.c_str(), cb.lo, cb.hi).Data());
+
+                if (!hPP || !hAA)
+                {
+                  if (hPP) delete hPP;
+                  if (hAA) delete hAA;
+                  DrawMissingPad(TString::Format("%s, %d-%d%%, pT %d-%d",
+                    vlabel.c_str(), cb.lo, cb.hi, pb.lo, pb.hi).Data());
+                  return;
+                }
+
+                EnsureSumw2(hPP);
+                EnsureSumw2(hAA);
+                hPP->GetXaxis()->UnZoom();
+                hAA->GetXaxis()->UnZoom();
+                hPP->SetTitle("");
+                hAA->SetTitle("");
+                hPP->GetXaxis()->SetTitle(vlabel.c_str());
+
+                if (doNorm)
+                {
+                    const double iPP = hPP->Integral(0, hPP->GetNbinsX() + 1);
+                    const double iAA = hAA->Integral(0, hAA->GetNbinsX() + 1);
+                    if (iPP > 0.0) hPP->Scale(1.0 / iPP);
+                    if (iAA > 0.0) hAA->Scale(1.0 / iAA);
+                    hPP->GetYaxis()->SetTitle("Normalized");
+                }
+                else
+                {
+                    hPP->GetYaxis()->SetTitle("Counts");
+                }
+
+                hPP->GetYaxis()->SetTitleOffset(1.7);
+
+                StyleOverlayHist(hPP, kBlack,   20);
+                StyleOverlayHist(hAA, kRed + 1, 24);
+
+                const double yMax = std::max(hPP->GetMaximum(), hAA->GetMaximum());
+                hPP->SetMaximum(yMax * 1.35);
+                hPP->SetMinimum(0.0);
+
+                hPP->Draw("E1");
+                hAA->Draw("E1 same");
+
+                TLegend* leg = new TLegend(0.62, 0.7, 0.93, 0.85);
+                leg->SetBorderSize(0);
+                leg->SetFillStyle(0);
+                leg->SetTextFont(42);
+                leg->SetTextSize(0.045);
+                leg->AddEntry(hPP, "Run24pp", "ep");
+                leg->AddEntry(hAA, TString::Format("AuAu %d-%d%%", cb.lo, cb.hi).Data(), "ep");
+                leg->Draw();
+                keepLeg.push_back(leg);
+
+                {
+                  TLatex t;
+                  t.SetNDC(true);
+                  t.SetTextFont(42);
+                  t.SetTextAlign(22);
+                  t.SetTextSize(0.058);
+                  t.DrawLatex(0.50, 0.88,
+                    TString::Format("%s, p_{T}^{#gamma} %d-%d GeV, %d-%d%%",
+                      vlabel.c_str(),
+                      pb.lo, pb.hi, cb.lo, cb.hi).Data());
+                }
+
+                keepH.push_back(hPP);
+                keepH.push_back(hAA);
+              };
+
+              for (int icb = 0; icb < (int)centBinsLocal.size(); ++icb)
+              {
+                const CentBin& cb = centBinsLocal[icb];
+                const bool isPeripheral = (cb.lo == peripheralBin.lo && cb.hi == peripheralBin.hi);
+                const int nPasses = isPeripheral ? 2 : 1;
+
+                const string outCent = JoinPath(baseNoIso, cb.folder);
+                EnsureDir(outCent);
+
+                for (int ipass = 0; ipass < nPasses; ++ipass)
+                {
+                  const bool doNorm = (ipass == 0);
+                  const string tag = doNorm ? "norm" : "unNorm";
+
+                  // (A) Per-pT 1×5 canvases
+                  for (int ipt = 0; ipt < (int)ptBinsLocal.size(); ++ipt)
+                  {
+                    const PtBin& pb = ptBinsLocal[ipt];
+                    const string cName = TString::Format("c_ppvsaa_1x5_%s_%d_%d_pT_%d_%d",
+                      tag.c_str(), cb.lo, cb.hi, pb.lo, pb.hi).Data();
+
+                    TCanvas c1x5(cName.c_str(), cName.c_str(), 2600, 750);
+                    c1x5.Divide(5, 1, 0.001, 0.001);
+
+                    std::vector<TH1*> keepH;
+                    keepH.reserve(varsOv.size() * 2);
+                    std::vector<TLegend*> keepLeg;
+                    keepLeg.reserve(varsOv.size());
+
+                    for (int iv = 0; iv < (int)varsOv.size(); ++iv)
+                    {
+                        c1x5.cd(iv + 1);
+                        const string utag = TString::Format("1x5_%s_%d", tag.c_str(), ipt).Data();
+                        DrawOnePPvsAAPad(pb, cb, varsOv[iv].var, varsOv[iv].label,
+                                         doNorm, utag, keepH, keepLeg);
+                    }
+
+                    SaveCanvas(c1x5, JoinPath(outCent,
+                        TString::Format("table1x5_PPvsAuAu_%s_SS_pT_%d_%d.png",
+                          tag.c_str(), pb.lo, pb.hi).Data()));
+
+                    for (TLegend* l : keepLeg) delete l;
+                    for (TH1* h : keepH) delete h;
+                  }
+                    // (B) 5×5 summary table (nPtRows rows × 5 SS columns)
+                  {
+                    const string cName5x5 = TString::Format("c_ppvsaa_5x5_%s_%d_%d",
+                      tag.c_str(), cb.lo, cb.hi).Data();
+
+                    TCanvas c5x5(cName5x5.c_str(), cName5x5.c_str(), 4000, 900 * nPtRows);
+                    c5x5.Divide(5, nPtRows, 0.002, 0.002);
+
+                    std::vector<TH1*> keepH;
+                    keepH.reserve(varsOv.size() * nPtRows * 2);
+                    std::vector<TLegend*> keepLeg;
+                    keepLeg.reserve(varsOv.size() * nPtRows);
+
+                    for (int ipt = 0; ipt < nPtRows; ++ipt)
+                    {
+                      const PtBin& pb = ptBinsLocal[ipt];
+                      for (int iv = 0; iv < (int)varsOv.size(); ++iv)
+                      {
+                        c5x5.cd(ipt * 5 + iv + 1);
+                        const string utag = TString::Format("5x5_%s_%d_%d", tag.c_str(), ipt, iv).Data();
+                        DrawOnePPvsAAPad(pb, cb, varsOv[iv].var, varsOv[iv].label,
+                                         doNorm, utag, keepH, keepLeg);
+                      }
+                    }
+
+                    SaveCanvas(c5x5, JoinPath(outCent,
+                      TString::Format("table5x5_PPvsAuAu_%s_SS.png", tag.c_str()).Data()));
+
+                    for (TLegend* l : keepLeg) delete l;
+                    for (TH1* h : keepH) delete h;
+                  }
+                }
+             }
+          }
+     }
 }
 
 
@@ -6273,234 +6477,15 @@ void RunPPvsAuAuDeliverables(Dataset& dsPP)
             keepH.clear();
           }
         }
-      }
-    }
+     }
+  }
 
-    ProducePerCentSSTables_1x5_2x5(outBase, aaTop, dsPP);
-    // ---------------------------------------------------------------------
-    // NEW: Per-centrality PP vs AuAu SS overlay (normalized + peripheral unNorm)
-    //
-    // For EACH centrality folder (<kOutPPAuAuBase>/noIsoRequired/<cent>/):
-    //   (A) Per-pT 1×5 canvases:
-    //       table1x5_PPvsAuAu_norm_SS_pT_<lo>_<hi>.png       (all cent bins)
-    //       table1x5_PPvsAuAu_unNorm_SS_pT_<lo>_<hi>.png     (peripheral only)
-    //   (B) 5×5 summary table (5 pT rows × 5 SS columns):
-    //       table5x5_PPvsAuAu_norm_SS.png                    (all cent bins)
-    //       table5x5_PPvsAuAu_unNorm_SS.png                  (peripheral only)
-    //
-    // Layout per pad:
-    //   PP   : closed black circles (marker 20)
-    //   AuAu : open red circles    (marker 24)
-    // ---------------------------------------------------------------------
-    {
-          if (aaTop && dsPP.topDir)
-          {
-            const string baseNoIso = JoinPath(outBase, "noIsoRequired");
-            EnsureDir(baseNoIso);
+  ProducePerCentSSTables_1x5_2x5(outBase, aaTop, dsPP);
+  ProducePerCentPPvsAuAuSSOverlays(outBase, aaTop, dsPP);
 
-            const auto& ptBinsLocal   = PtBins();
-            const auto& centBinsLocal = CentBins();
-
-            if (!ptBinsLocal.empty() && !centBinsLocal.empty())
-            {
-              struct VarDefOv { std::string var; std::string label; };
-              const std::vector<VarDefOv> varsOv =
-              {
-                {"weta",   "w_{#eta}"},
-                {"wphi",   "w_{#phi}"},
-                {"e11e33", "E_{11}/E_{33}"},
-                {"et1",    "et1"},
-                {"e32e35", "E_{32}/E_{35}"}
-              };
-
-              const CentBin& peripheralBin = centBinsLocal.back();
-              const int nPtRows = std::min(5, (int)ptBinsLocal.size());
-
-              // Helper lambda: draw one PP-vs-AuAu pad (works for both 1x5 and 5x5)
-              auto DrawOnePPvsAAPad = [&](const PtBin& pb, const CentBin& cb,
-                                          const std::string& var, const std::string& vlabel,
-                                          bool doNorm, const std::string& uniqueTag,
-                                          std::vector<TH1*>& keepH,
-                                          std::vector<TLegend*>& keepLeg)
-              {
-                gPad->SetLeftMargin(0.14);
-                gPad->SetRightMargin(0.05);
-                gPad->SetBottomMargin(0.14);
-                gPad->SetTopMargin(0.16);
-                gPad->SetLogy(false);
-
-                const string histBase = string("h_ss_") + var + string("_inclusive");
-                const string hPPName = histBase + pb.suffix;
-                const string hAAName = histBase + pb.suffix + cb.suffix;
-
-                TH1* rawPP = GetTH1FromTopDir(dsPP.topDir, hPPName);
-                TH1* rawAA = GetTH1FromTopDir(aaTop, hAAName);
-
-                if (!rawPP || !rawAA)
-                {
-                  DrawMissingPad(TString::Format("%s, %d-%d%%, pT %d-%d",
-                    vlabel.c_str(), cb.lo, cb.hi, pb.lo, pb.hi).Data());
-                  return;
-                }
-
-                TH1* hPP = CloneTH1(rawPP,
-                  TString::Format("ppvsaa_%s_pp_%s_%s_%d_%d",
-                    uniqueTag.c_str(), var.c_str(), pb.folder.c_str(), cb.lo, cb.hi).Data());
-                TH1* hAA = CloneTH1(rawAA,
-                  TString::Format("ppvsaa_%s_aa_%s_%s_%d_%d",
-                    uniqueTag.c_str(), var.c_str(), pb.folder.c_str(), cb.lo, cb.hi).Data());
-
-                if (!hPP || !hAA)
-                {
-                  if (hPP) delete hPP;
-                  if (hAA) delete hAA;
-                  DrawMissingPad(TString::Format("%s, %d-%d%%, pT %d-%d",
-                    vlabel.c_str(), cb.lo, cb.hi, pb.lo, pb.hi).Data());
-                  return;
-                }
-
-                EnsureSumw2(hPP);
-                EnsureSumw2(hAA);
-                hPP->GetXaxis()->UnZoom();
-                hAA->GetXaxis()->UnZoom();
-                hPP->SetTitle("");
-                hAA->SetTitle("");
-                hPP->GetXaxis()->SetTitle(vlabel.c_str());
-
-                if (doNorm)
-                {
-                    const double iPP = hPP->Integral(0, hPP->GetNbinsX() + 1);
-                    const double iAA = hAA->Integral(0, hAA->GetNbinsX() + 1);
-                    if (iPP > 0.0) hPP->Scale(1.0 / iPP);
-                    if (iAA > 0.0) hAA->Scale(1.0 / iAA);
-                    hPP->GetYaxis()->SetTitle("Normalized");
-                }
-                else
-                {
-                    hPP->GetYaxis()->SetTitle("Counts");
-                }
-
-                hPP->GetYaxis()->SetTitleOffset(1.7);
-
-                StyleOverlayHist(hPP, kBlack,   20);
-                StyleOverlayHist(hAA, kRed + 1, 24);
-
-                const double yMax = std::max(hPP->GetMaximum(), hAA->GetMaximum());
-                hPP->SetMaximum(yMax * 1.35);
-                hPP->SetMinimum(0.0);
-
-                hPP->Draw("E1");
-                hAA->Draw("E1 same");
-
-                TLegend* leg = new TLegend(0.62, 0.7, 0.93, 0.85);
-                leg->SetBorderSize(0);
-                leg->SetFillStyle(0);
-                leg->SetTextFont(42);
-                leg->SetTextSize(0.045);
-                leg->AddEntry(hPP, "Run24pp", "ep");
-                leg->AddEntry(hAA, TString::Format("AuAu %d-%d%%", cb.lo, cb.hi).Data(), "ep");
-                leg->Draw();
-                keepLeg.push_back(leg);
-
-                {
-                  TLatex t;
-                  t.SetNDC(true);
-                  t.SetTextFont(42);
-                  t.SetTextAlign(22);
-                  t.SetTextSize(0.058);
-                  t.DrawLatex(0.50, 0.88,
-                    TString::Format("%s, p_{T}^{#gamma} %d-%d GeV, %d-%d%%",
-                      vlabel.c_str(),
-                      pb.lo, pb.hi, cb.lo, cb.hi).Data());
-                }
-
-                keepH.push_back(hPP);
-                keepH.push_back(hAA);
-              };
-
-              for (int icb = 0; icb < (int)centBinsLocal.size(); ++icb)
-              {
-                const CentBin& cb = centBinsLocal[icb];
-                const bool isPeripheral = (cb.lo == peripheralBin.lo && cb.hi == peripheralBin.hi);
-                const int nPasses = isPeripheral ? 2 : 1;
-
-                const string outCent = JoinPath(baseNoIso, cb.folder);
-                EnsureDir(outCent);
-
-                for (int ipass = 0; ipass < nPasses; ++ipass)
-                {
-                  const bool doNorm = (ipass == 0);
-                  const string tag = doNorm ? "norm" : "unNorm";
-
-                  // (A) Per-pT 1×5 canvases
-                  for (int ipt = 0; ipt < (int)ptBinsLocal.size(); ++ipt)
-                  {
-                    const PtBin& pb = ptBinsLocal[ipt];
-                    const string cName = TString::Format("c_ppvsaa_1x5_%s_%d_%d_pT_%d_%d",
-                      tag.c_str(), cb.lo, cb.hi, pb.lo, pb.hi).Data();
-
-                    TCanvas c1x5(cName.c_str(), cName.c_str(), 2600, 750);
-                    c1x5.Divide(5, 1, 0.001, 0.001);
-
-                    std::vector<TH1*> keepH;
-                    keepH.reserve(varsOv.size() * 2);
-                    std::vector<TLegend*> keepLeg;
-                    keepLeg.reserve(varsOv.size());
-
-                    for (int iv = 0; iv < (int)varsOv.size(); ++iv)
-                    {
-                        c1x5.cd(iv + 1);
-                        const string utag = TString::Format("1x5_%s_%d", tag.c_str(), ipt).Data();
-                        DrawOnePPvsAAPad(pb, cb, varsOv[iv].var, varsOv[iv].label,
-                                         doNorm, utag, keepH, keepLeg);
-                    }
-
-                    SaveCanvas(c1x5, JoinPath(outCent,
-                        TString::Format("table1x5_PPvsAuAu_%s_SS_pT_%d_%d.png",
-                          tag.c_str(), pb.lo, pb.hi).Data()));
-
-                    for (TLegend* l : keepLeg) delete l;
-                    for (TH1* h : keepH) delete h;
-                  }
-                    // (B) 5×5 summary table (nPtRows rows × 5 SS columns)
-                  {
-                    const string cName5x5 = TString::Format("c_ppvsaa_5x5_%s_%d_%d",
-                      tag.c_str(), cb.lo, cb.hi).Data();
-
-                    TCanvas c5x5(cName5x5.c_str(), cName5x5.c_str(), 4000, 900 * nPtRows);
-                    c5x5.Divide(5, nPtRows, 0.002, 0.002);
-
-                    std::vector<TH1*> keepH;
-                    keepH.reserve(varsOv.size() * nPtRows * 2);
-                    std::vector<TLegend*> keepLeg;
-                    keepLeg.reserve(varsOv.size() * nPtRows);
-
-                    for (int ipt = 0; ipt < nPtRows; ++ipt)
-                    {
-                      const PtBin& pb = ptBinsLocal[ipt];
-                      for (int iv = 0; iv < (int)varsOv.size(); ++iv)
-                      {
-                        c5x5.cd(ipt * 5 + iv + 1);
-                        const string utag = TString::Format("5x5_%s_%d_%d", tag.c_str(), ipt, iv).Data();
-                        DrawOnePPvsAAPad(pb, cb, varsOv[iv].var, varsOv[iv].label,
-                                         doNorm, utag, keepH, keepLeg);
-                      }
-                    }
-
-                    SaveCanvas(c5x5, JoinPath(outCent,
-                      TString::Format("table5x5_PPvsAuAu_%s_SS.png", tag.c_str()).Data()));
-
-                    for (TLegend* l : keepLeg) delete l;
-                    for (TH1* h : keepH) delete h;
-                  }
-                }
-             }
-          }
-      }
-   }
 
   // ---------------------------------------------------------------------
-  // NEW: noSS_isoSpectra summary (AuAu counts by centrality per pT bin)
+  // noSS_isoSpectra summary (AuAu counts by centrality per pT bin)
   // Output:
   //   <kOutPPAuAuBase>/noSS_isoSpectra/table2x3_AuAu_unNormalized.png
   // ---------------------------------------------------------------------
