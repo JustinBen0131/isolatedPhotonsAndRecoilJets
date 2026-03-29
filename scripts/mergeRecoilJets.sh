@@ -6,6 +6,18 @@
 # ./mergeRecoilJets.sh isSim secondRound
 #
 #
+# Merge the three finished variants now:
+#   CFG_FILTER=allButVariantB ./mergeRecoilJets.sh condor auau
+#   CFG_FILTER=allButVariantB ./mergeRecoilJets.sh addChunks auau condor
+#
+# Later, after variantB completes:
+#   CFG_FILTER=variantB ./mergeRecoilJets.sh condor auau
+#   CFG_FILTER=variantB ./mergeRecoilJets.sh addChunks auau condor
+#
+# Or merge everything (no filter, original behavior):
+#   ./mergeRecoilJets.sh condor auau
+#
+#
 # PURPOSE
 #   Merge RecoilJets outputs produced by RecoilJets_Condor_submit.sh /
 #   RecoilJets_Condor.sh. Supports:
@@ -1004,6 +1016,31 @@ else
   say "Discovered cfg_tags: ${#DATA_CFG_TAGS[@]}"
   for _ct in "${DATA_CFG_TAGS[@]}"; do say "  ${_ct}"; done
 fi
+
+# ── Optional CFG_FILTER: select a subset of discovered cfg_tags ──
+# Recognised values:
+#   allButVariantB  – keep every tag EXCEPT those ending in _variantB
+#   variantB        – keep ONLY tags ending in _variantB
+if [[ -n "${CFG_FILTER:-}" ]]; then
+  _filtered=()
+  for _ct in "${DATA_CFG_TAGS[@]}"; do
+    case "$CFG_FILTER" in
+      allButVariantB)
+        [[ "$_ct" == *_variantB ]] && continue ;;
+      variantB)
+        [[ "$_ct" != *_variantB ]] && continue ;;
+      *)
+        die "Unknown CFG_FILTER='${CFG_FILTER}'. Recognised: allButVariantB, variantB" ;;
+    esac
+    _filtered+=( "$_ct" )
+  done
+  DATA_CFG_TAGS=( "${_filtered[@]}" )
+  say "CFG_FILTER=${CFG_FILTER} → kept ${#DATA_CFG_TAGS[@]} cfg_tag(s):"
+  for _ct in "${DATA_CFG_TAGS[@]}"; do say "  ${_ct}"; done
+  if (( ${#DATA_CFG_TAGS[@]} == 0 )); then
+    die "CFG_FILTER=${CFG_FILTER} removed all cfg_tags – nothing to do."
+  fi
+fi
 echo
 
 # ---------- Modes ----------
@@ -1239,6 +1276,28 @@ if [[ "$MODE" == "addChunks" ]]; then
   if (( ${#MERGE_CFG_TAGS[@]} == 0 )); then
     # Fallback: flat layout (partials directly in perRun base)
     MERGE_CFG_TAGS=( "" )
+  fi
+
+  # ── Optional CFG_FILTER (same env-var as stage-1) ──
+  if [[ -n "${CFG_FILTER:-}" ]]; then
+    _filtered=()
+    for _ct in "${MERGE_CFG_TAGS[@]}"; do
+      case "$CFG_FILTER" in
+        allButVariantB)
+          [[ "$_ct" == *_variantB ]] && continue ;;
+        variantB)
+          [[ "$_ct" != *_variantB ]] && continue ;;
+        *)
+          die "Unknown CFG_FILTER='${CFG_FILTER}'. Recognised: allButVariantB, variantB" ;;
+      esac
+      _filtered+=( "$_ct" )
+    done
+    MERGE_CFG_TAGS=( "${_filtered[@]}" )
+    say "CFG_FILTER=${CFG_FILTER} → kept ${#MERGE_CFG_TAGS[@]} merge cfg_tag(s):"
+    for _ct in "${MERGE_CFG_TAGS[@]}"; do say "  ${_ct}"; done
+    if (( ${#MERGE_CFG_TAGS[@]} == 0 )); then
+      die "CFG_FILTER=${CFG_FILTER} removed all merge cfg_tags – nothing to do."
+    fi
   fi
 
   for _cfg in "${MERGE_CFG_TAGS[@]}"; do

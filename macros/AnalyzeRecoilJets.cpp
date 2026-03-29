@@ -4139,7 +4139,7 @@ namespace ARJ
                     tTitle.SetTextAlign(23);
                     tTitle.SetTextSize(0.045);
                     tTitle.DrawLatex(0.50, 0.96,
-                      TString::Format("Purity Overlay, v_{z} < 30 and 60 cm, Run24pp", isoConeLabel.c_str()).Data()
+                       TString::Format("Purity Overlay, %s, v_{z} < 30 and 60 cm, Run24pp", isoConeLabel.c_str()).Data()
                     );
 
                     SaveCanvas(cOv, JoinPath(outDir, "purity_raw_DATA_overlay_vz.png"));
