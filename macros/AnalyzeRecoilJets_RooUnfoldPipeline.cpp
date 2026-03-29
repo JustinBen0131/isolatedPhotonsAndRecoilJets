@@ -4370,7 +4370,7 @@
                   if (ymaxNo1 <= 0.0) ymaxNo1 = 0.1;
                   ymaxNo1 *= 1.25;
 
-                  TH1F frameNo1("frame_phoIt_noIter1", "", 1, 2.0, (double)kMaxIt + 0.5);
+                  TH1F frameNo1("frame_phoIt_noIter1", "", 1, 1.0, (double)kMaxIt + 0.5);
                   frameNo1.SetMinimum(0.0);
                   frameNo1.SetMaximum(ymaxNo1);
                   frameNo1.SetTitle("");
@@ -4506,7 +4506,7 @@
                   if (ymaxQNo1 <= 0.0) ymaxQNo1 = 0.1;
                   ymaxQNo1 *= 1.25;
 
-                  TH1F frameQNo1("frame_phoItQuad_noIter1", "", 1, 2.0, (double)kMaxIt + 0.5);
+                  TH1F frameQNo1("frame_phoItQuad_noIter1", "", 1, 1.0, (double)kMaxIt + 0.5);
                   frameQNo1.SetMinimum(0.0);
                   frameQNo1.SetMaximum(ymaxQNo1);
                   frameQNo1.SetTitle("");

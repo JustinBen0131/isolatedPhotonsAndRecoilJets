@@ -4124,11 +4124,11 @@ namespace ARJ
                     gDef.Draw("P SAME");
                     gAlt.Draw("P SAME");
 
-                    TLegend leg(0.55, 0.20, 0.88, 0.36);
+                    TLegend leg(0.65, 0.81, 0.88, 0.89);
                     leg.SetBorderSize(0);
                     leg.SetFillStyle(0);
                     leg.SetTextFont(42);
-                    leg.SetTextSize(0.035);
+                    leg.SetTextSize(0.038);
                     leg.AddEntry(&gDef, TString::Format("|v_{z}| < %d cm", kVzCut).Data(), "pe");
                     leg.AddEntry(&gAlt, TString::Format("|v_{z}| < %d cm", altVz).Data(),  "pe");
                     leg.Draw();
@@ -4139,7 +4139,7 @@ namespace ARJ
                     tTitle.SetTextAlign(23);
                     tTitle.SetTextSize(0.045);
                     tTitle.DrawLatex(0.50, 0.96,
-                      TString::Format("Purity Overlay, %s, Run24pp", isoConeLabel.c_str()).Data()
+                      TString::Format("Purity Overlay, v_{z} < 30 and 60 cm, Run24pp", isoConeLabel.c_str()).Data()
                     );
 
                     SaveCanvas(cOv, JoinPath(outDir, "purity_raw_DATA_overlay_vz.png"));
