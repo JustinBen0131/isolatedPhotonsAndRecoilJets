@@ -1161,7 +1161,7 @@ if [[ "$MODE" == "condor" ]]; then
       PERRUN_CFG_DIR="$PERRUN_DIR_ORIG"
     fi
 
-    mkdir -p "$DEST_DIR" "$PERRUN_CFG_DIR"
+    mkdir -p "$PERRUN_CFG_DIR"
 
     say "Preparing per-run Condor merges (one job per run)"
 
