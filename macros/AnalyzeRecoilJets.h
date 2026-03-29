@@ -156,7 +156,7 @@ namespace ARJ
   // 4. BINNING  (edit these arrays to change pT / xJ / centrality slicing)
   // ===========================================================================
   //   JES3 photon pT bin edges (drives pT-sliced QA tables + JES3 booking):
-  inline const vector<double> kJES3PhotonPtBins         = {10, 12, 14, 16, 18, 20, 22, 24, 26, 35};
+  inline const vector<double> kJES3PhotonPtBins         = {8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35};
   //   Unfolding photon pT bin edges (reco and truth, independent from JES3):
   inline const vector<double> kUnfoldRecoPhotonPtBins   = {8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35, 40};
   inline const vector<double> kUnfoldTruthPhotonPtBins  = {5, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35, 40};
@@ -378,7 +378,7 @@ namespace ARJ
   // =============================================================================
   struct BinningCfg
   {
-        vector<double> jes3_photon_pt_bins         = {10,12,14,16,18,20,22,24,26,35};
+        vector<double> jes3_photon_pt_bins         = {8, 10,12,14,16,18,20,22,24,26,35};
         vector<double> unfold_reco_photon_pt_bins  = {8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35, 40};
         vector<double> unfold_truth_photon_pt_bins = {5, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35, 40};
         vector<double> unfold_xj_bins              = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};

@@ -12727,81 +12727,107 @@ namespace ARJ
                 hFrame.GetYaxis()->SetTitle("Purity (raw ABCD)");
                 hFrame.Draw();
 
-                TLegend leg(0.62, 0.18, 0.92, 0.48);
+                TLegend leg(0.73, 0.15, 0.87, 0.43);
                 leg.SetBorderSize(0);
                 leg.SetFillStyle(0);
                 leg.SetTextFont(42);
-                leg.SetTextSize(0.033);
+                leg.SetTextSize(0.032);
 
                 vector<TGraphErrors*> keepGraphs;
 
-                for (int ic = 0; ic < (int)centBinsOv.size(); ++ic)
+                // Build merged centrality bins for overlay (0-10 + 10-20 → 0-20)
+                struct OvCent { int lo; int hi; vector<string> suffixes; };
+                vector<OvCent> ovCents;
                 {
-                  const auto& cb = centBinsOv[ic];
-
-                  vector<double> xPur(kNPtBins), exPur(kNPtBins), yPur(kNPtBins), eyPur(kNPtBins);
-                  bool anyBin = false;
-
-                  for (int i = 0; i < kNPtBins; ++i)
-                  {
-                    const PtBin& b = PtBins()[i];
-
-                    auto Get1 = [&](const string& hname)->double {
-                      TH1* h = dynamic_cast<TH1*>(trigDir->Get(hname.c_str()));
-                      return h ? h->GetBinContent(1) : 0.0;
-                    };
-
-                    const double A = Get1("h_isIsolated_isTight"     + b.suffix + cb.suffix);
-                    const double B = Get1("h_notIsolated_isTight"    + b.suffix + cb.suffix);
-                    const double C = Get1("h_isIsolated_notTight"    + b.suffix + cb.suffix);
-                    const double D = Get1("h_notIsolated_notTight"   + b.suffix + cb.suffix);
-
-                    const double ptLo = kPtEdges[(std::size_t)i];
-                    const double ptHi = kPtEdges[(std::size_t)i + 1];
-                    xPur[i]  = 0.5 * (ptLo + ptHi);
-                    exPur[i] = 0.5 * (ptHi - ptLo);
-
-                    double Praw = 0.0;
-                    if (A > 0.0 && D > 0.0)
+                    bool have0_10 = false, have10_20 = false;
+                    string suf0_10, suf10_20;
+                    for (const auto& cb : centBinsOv)
                     {
-                      double Asig = A - B * (C / D);
-                      if (Asig < 0.0) Asig = 0.0;
-                      Praw = Asig / A;
+                      if (cb.lo == 0  && cb.hi == 10) { have0_10 = true; suf0_10 = cb.suffix; continue; }
+                      if (cb.lo == 10 && cb.hi == 20) { have10_20 = true; suf10_20 = cb.suffix; continue; }
+                      ovCents.push_back({cb.lo, cb.hi, {cb.suffix}});
                     }
-                    yPur[i] = Praw;
-
-                    double eP = 0.0;
-                    if (A > 0.0 && D > 0.0)
+                    if (have0_10 || have10_20)
                     {
-                      const double dPdA =  (B * C) / (A * A * D);
-                      const double dPdB = -(C) / (A * D);
-                      const double dPdC = -(B) / (A * D);
-                      const double dPdD =  (B * C) / (A * D * D);
-                      double var = 0.0;
-                      if (A > 0.0) var += dPdA * dPdA * A;
-                      if (B > 0.0) var += dPdB * dPdB * B;
-                      if (C > 0.0) var += dPdC * dPdC * C;
-                      if (D > 0.0) var += dPdD * dPdD * D;
-                      eP = (var > 0.0) ? std::sqrt(var) : 0.0;
+                      OvCent merged020 = {0, 20, {}};
+                      if (have0_10)  merged020.suffixes.push_back(suf0_10);
+                      if (have10_20) merged020.suffixes.push_back(suf10_20);
+                      ovCents.insert(ovCents.begin(), merged020);
                     }
-                    eyPur[i] = eP;
-
-                    if (A > 0.0) anyBin = true;
                   }
 
-                  if (!anyBin) continue;
+                  for (int ic = 0; ic < (int)ovCents.size(); ++ic)
+                  {
+                    const auto& oc = ovCents[ic];
 
-                  TGraphErrors* g = new TGraphErrors(kNPtBins, &xPur[0], &yPur[0], &exPur[0], &eyPur[0]);
-                  const int col = centColors[ic % nCentColors];
-                  g->SetLineWidth(2);
-                  g->SetLineColor(col);
-                  g->SetMarkerStyle(20);
-                  g->SetMarkerSize(1.1);
-                  g->SetMarkerColor(col);
-                  g->Draw("P SAME");
+                    vector<double> xPur(kNPtBins), exPur(kNPtBins), yPur(kNPtBins), eyPur(kNPtBins);
+                    bool anyBin = false;
 
-                  leg.AddEntry(g, TString::Format("Cent %d-%d%%", cb.lo, cb.hi).Data(), "pe");
-                  keepGraphs.push_back(g);
+                    for (int i = 0; i < kNPtBins; ++i)
+                    {
+                      const PtBin& b = PtBins()[i];
+
+                      auto Get1 = [&](const string& hname)->double {
+                        TH1* h = dynamic_cast<TH1*>(trigDir->Get(hname.c_str()));
+                        return h ? h->GetBinContent(1) : 0.0;
+                      };
+
+                      // Sum ABCD counts across constituent centrality suffixes
+                      double A = 0, B = 0, C = 0, D = 0;
+                      for (const auto& suf : oc.suffixes)
+                      {
+                        A += Get1("h_isIsolated_isTight"     + b.suffix + suf);
+                        B += Get1("h_notIsolated_isTight"    + b.suffix + suf);
+                        C += Get1("h_isIsolated_notTight"    + b.suffix + suf);
+                        D += Get1("h_notIsolated_notTight"   + b.suffix + suf);
+                      }
+
+                        const double ptLo = kPtEdges[(std::size_t)i];
+                      const double ptHi = kPtEdges[(std::size_t)i + 1];
+                      xPur[i]  = 0.5 * (ptLo + ptHi);
+                      exPur[i] = 0.0;
+
+                      double Praw = 0.0;
+                      if (A > 0.0 && D > 0.0)
+                      {
+                        double Asig = A - B * (C / D);
+                        if (Asig < 0.0) Asig = 0.0;
+                        Praw = Asig / A;
+                      }
+                      yPur[i] = Praw;
+
+                      double eP = 0.0;
+                      if (A > 0.0 && D > 0.0)
+                      {
+                        const double dPdA =  (B * C) / (A * A * D);
+                        const double dPdB = -(C) / (A * D);
+                        const double dPdC = -(B) / (A * D);
+                        const double dPdD =  (B * C) / (A * D * D);
+                        double var = 0.0;
+                        if (A > 0.0) var += dPdA * dPdA * A;
+                        if (B > 0.0) var += dPdB * dPdB * B;
+                        if (C > 0.0) var += dPdC * dPdC * C;
+                        if (D > 0.0) var += dPdD * dPdD * D;
+                        eP = (var > 0.0) ? std::sqrt(var) : 0.0;
+                      }
+                      eyPur[i] = eP;
+
+                      if (A > 0.0) anyBin = true;
+                    }
+
+                    if (!anyBin) continue;
+
+                    TGraphErrors* g = new TGraphErrors(kNPtBins, &xPur[0], &yPur[0], &exPur[0], &eyPur[0]);
+                    const int col = centColors[ic % nCentColors];
+                    g->SetLineWidth(2);
+                    g->SetLineColor(col);
+                    g->SetMarkerStyle(20);
+                    g->SetMarkerSize(1.1);
+                    g->SetMarkerColor(col);
+                    g->Draw("P SAME");
+
+                    leg.AddEntry(g, TString::Format("Cent %d-%d%%", oc.lo, oc.hi).Data(), "pe");
+                    keepGraphs.push_back(g);
                 }
 
                 leg.Draw();
@@ -12842,14 +12868,19 @@ namespace ARJ
                   for (auto* g : keepGraphs) delete g;
 
                   // ---------------------------------------------------------------
-                  // Selected-centrality (0-10, 20-40, 60-80) + PP overlay
+                  // Selected-centrality (0-20, 20-40, 60-80) + PP overlay
+                  // (0-20 merges ABCD counts from 0-10 + 10-20)
                   // ---------------------------------------------------------------
                   {
-                    struct SelCent { int lo; int hi; int color; };
-                    const std::vector<SelCent> selCents = { {0,10,kBlue+1}, {20,40,kGreen+2}, {60,80,kMagenta+1} };
+                    struct SelCent { int lo; int hi; int color; vector<string> suffixes; };
+                    const std::vector<SelCent> selCents = {
+                    {0,  20, kBlue+1,    {"_cent_0_10", "_cent_10_20"}},
+                    {20, 40, kGreen+2,   {"_cent_20_40"}},
+                    {60, 80, kMagenta+1, {"_cent_60_80"}},
+                  };
 
-                    // Open PP file for purity
-                    TFile* fPP = TFile::Open(InputPP(isRun25pp).c_str(), "READ");
+                  // Open PP file for purity
+                  TFile* fPP = TFile::Open(InputPP(isRun25pp).c_str(), "READ");
                     TDirectory* ppDir = nullptr;
                     if (fPP && !fPP->IsZombie())
                     {
@@ -12944,33 +12975,30 @@ namespace ARJ
                       }
                     }
 
-                    // Selected AuAu centralities (closed circles)
-                    for (const auto& sc : selCents)
-                    {
-                      // Find matching CentBin
-                      const CentBin* cbMatch = nullptr;
-                      for (const auto& cb : centBinsOv)
+                      // Selected AuAu centralities (closed circles)
+                      for (const auto& sc : selCents)
                       {
-                        if (cb.lo == sc.lo && cb.hi == sc.hi) { cbMatch = &cb; break; }
-                      }
-                      if (!cbMatch) continue;
+                        vector<double> xAA(kNPtBins), exAA(kNPtBins), yAA(kNPtBins), eyAA(kNPtBins);
+                        bool anyAA = false;
 
-                      vector<double> xAA(kNPtBins), exAA(kNPtBins), yAA(kNPtBins), eyAA(kNPtBins);
-                      bool anyAA = false;
+                        for (int i = 0; i < kNPtBins; ++i)
+                        {
+                          const PtBin& b = PtBins()[i];
 
-                      for (int i = 0; i < kNPtBins; ++i)
-                      {
-                        const PtBin& b = PtBins()[i];
+                          auto Get1AA = [&](const string& hname)->double {
+                            TH1* h = dynamic_cast<TH1*>(trigDir->Get(hname.c_str()));
+                            return h ? h->GetBinContent(1) : 0.0;
+                          };
 
-                        auto Get1AA = [&](const string& hname)->double {
-                          TH1* h = dynamic_cast<TH1*>(trigDir->Get(hname.c_str()));
-                          return h ? h->GetBinContent(1) : 0.0;
-                        };
-
-                        const double A = Get1AA("h_isIsolated_isTight"     + b.suffix + cbMatch->suffix);
-                        const double B = Get1AA("h_notIsolated_isTight"    + b.suffix + cbMatch->suffix);
-                        const double C = Get1AA("h_isIsolated_notTight"    + b.suffix + cbMatch->suffix);
-                        const double D = Get1AA("h_notIsolated_notTight"   + b.suffix + cbMatch->suffix);
+                          // Sum ABCD counts across constituent centrality suffixes
+                          double A = 0, B = 0, C = 0, D = 0;
+                          for (const auto& suf : sc.suffixes)
+                          {
+                            A += Get1AA("h_isIsolated_isTight"     + b.suffix + suf);
+                            B += Get1AA("h_notIsolated_isTight"    + b.suffix + suf);
+                            C += Get1AA("h_isIsolated_notTight"    + b.suffix + suf);
+                            D += Get1AA("h_notIsolated_notTight"   + b.suffix + suf);
+                          }
 
                         const double ptLo = kPtEdges[(std::size_t)i];
                         const double ptHi = kPtEdges[(std::size_t)i + 1];
