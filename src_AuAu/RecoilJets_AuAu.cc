@@ -4012,40 +4012,49 @@ bool RecoilJets::runLeadIsoTightPhotonJetLoopAllRadii(
       }
     }
 
-    // ------------------------------------------------------------------
-    // Inclusive γ–jet pairing histograms for unfolding (ATLAS-style)
-    // ------------------------------------------------------------------
-    for (std::size_t irj = 0; irj < recoJetsFid.size(); ++irj)
-    {
-      if (!recoJetsFidIsRecoil[irj]) continue;
-
-      const Jet* rj = recoJetsFid[irj];
-      if (!rj) continue;
-
-      const double jpt  = rj->get_pt();
-      const double jphi = rj->get_phi();
-      if (!std::isfinite(jpt) || jpt <= 0.0) continue;
-      if (!std::isfinite(jphi)) continue;
-
-      const double xJr     = jpt / leadPtGamma;
-      const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(jphi - leadPhiGamma));
-
-      for (const auto& trigShort : activeTrig)
+      // ------------------------------------------------------------------
+      // Inclusive γ–jet pairing histograms for unfolding (ATLAS-style)
+      //
+      // DATA reco stays unchanged.
+      // SIM reco is now truth-signal-photon anchored so the reco marginal used by
+      // RooUnfold matches the same photon-tagged signal definition as the 2D response.
+      // Pairwise truth↔reco jet matching still happens below in
+      // fillUnfoldResponseMatrixAndTruthDistributions().
+      // ------------------------------------------------------------------
+      if (!m_isSim || haveTruthPho)
       {
-        if (auto* h2 = getOrBookUnfoldRecoPtXJIncl(trigShort, rKey, effCentIdx_M))
+        for (std::size_t irj = 0; irj < recoJetsFid.size(); ++irj)
         {
-          h2->Fill(leadPtGamma, xJr);
-          bumpHistFill(trigShort, h2->GetName());
-        }
+          if (!recoJetsFidIsRecoil[irj]) continue;
 
-        // inclusive |Δphi(γ,jet)| for each recoil jet passing cuts
-        if (auto* h2d = getOrBookUnfoldRecoPtDphiIncl(trigShort, rKey, effCentIdx_M))
-        {
-          h2d->Fill(leadPtGamma, dphiAbs);
-          bumpHistFill(trigShort, h2d->GetName());
+          const Jet* rj = recoJetsFid[irj];
+          if (!rj) continue;
+
+          const double jpt  = rj->get_pt();
+          const double jphi = rj->get_phi();
+          if (!std::isfinite(jpt) || jpt <= 0.0) continue;
+          if (!std::isfinite(jphi)) continue;
+
+          const double xJr     = jpt / leadPtGamma;
+          const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(jphi - leadPhiGamma));
+
+          for (const auto& trigShort : activeTrig)
+          {
+            if (auto* h2 = getOrBookUnfoldRecoPtXJIncl(trigShort, rKey, effCentIdx_M))
+            {
+              h2->Fill(leadPtGamma, xJr);
+              bumpHistFill(trigShort, h2->GetName());
+            }
+
+            // inclusive |Δphi(γ,jet)| for each recoil jet passing cuts
+            if (auto* h2d = getOrBookUnfoldRecoPtDphiIncl(trigShort, rKey, effCentIdx_M))
+            {
+              h2d->Fill(leadPtGamma, dphiAbs);
+              bumpHistFill(trigShort, h2d->GetName());
+            }
+          }
         }
       }
-    }
 
       // ------------------------------------------------------------------
       // response matrix + truth distribution for unfolding
@@ -4298,37 +4307,42 @@ bool RecoilJets::runLeadIsoTightPhotonJetMatchingAndUnfolding(
 {
   // This function only does unfolding photon bookkeeping + delegates jet logic per radius.
 
-  // -------------------- Photon-only unfolding fills (N_gamma) --------------------
-  for (const auto& trigShort : activeTrig)
-  {
-    // Measured reco photon spectrum (DATA + SIM)
-    if (auto* hR = getOrBookUnfoldRecoPhoPtGamma(trigShort, effCentIdx_M))
-    { hR->Fill(leadPtGamma); bumpHistFill(trigShort, hR->GetName()); }
-  
-    if (m_isSim)
+    // -------------------- Photon-only unfolding fills (N_gamma) --------------------
+    for (const auto& trigShort : activeTrig)
     {
-      // Reco photon fakes (selected reco photon not matching truth signal photon)
-      if (!haveTruthPho)
+      // DATA reco stays unchanged.
+      // SIM reco is now truth-signal-photon conditioned so the measured SIM marginal
+      // handed to RooUnfold is consistent with the strict selected-anchor response.
+      if (!m_isSim || haveTruthPho)
       {
-        if (auto* hRF = getOrBookUnfoldRecoPhoFakesPtGamma(trigShort, effCentIdx_M))
-        { hRF->Fill(leadPtGamma); bumpHistFill(trigShort, hRF->GetName()); }
+        if (auto* hR = getOrBookUnfoldRecoPhoPtGamma(trigShort, effCentIdx_M))
+        { hR->Fill(leadPtGamma); bumpHistFill(trigShort, hR->GetName()); }
       }
-  
-      // Photon response (truth -> reco) only for matched truth signal photon
-      if (haveTruthSigPho && haveTruthPho)
+    
+      if (m_isSim)
       {
-        if (auto* hResp = getOrBookUnfoldResponsePhoPtGamma(trigShort, effCentIdx_M))
-        { hResp->Fill(tPtSig, leadPtGamma); bumpHistFill(trigShort, hResp->GetName()); }
-      }
-  
-      // Truth misses (truth signal exists but does not appear as the selected reco photon)
-      if (haveTruthSigPho && !haveTruthPho)
-      {
-        if (auto* hTM = getOrBookUnfoldTruthPhoMissesPtGamma(trigShort, effCentIdx_M))
-        { hTM->Fill(tPtSig); bumpHistFill(trigShort, hTM->GetName()); }
+        // Reco photon fakes (selected reco photon not matching truth signal photon)
+        if (!haveTruthPho)
+        {
+          if (auto* hRF = getOrBookUnfoldRecoPhoFakesPtGamma(trigShort, effCentIdx_M))
+          { hRF->Fill(leadPtGamma); bumpHistFill(trigShort, hRF->GetName()); }
+        }
+    
+        // Photon response (truth -> reco) only for matched truth signal photon
+        if (haveTruthSigPho && haveTruthPho)
+        {
+          if (auto* hResp = getOrBookUnfoldResponsePhoPtGamma(trigShort, effCentIdx_M))
+          { hResp->Fill(tPtSig, leadPtGamma); bumpHistFill(trigShort, hResp->GetName()); }
+        }
+    
+        // Truth misses (truth signal exists but does not appear as the selected reco photon)
+        if (haveTruthSigPho && !haveTruthPho)
+        {
+          if (auto* hTM = getOrBookUnfoldTruthPhoMissesPtGamma(trigShort, effCentIdx_M))
+          { hTM->Fill(tPtSig); bumpHistFill(trigShort, hTM->GetName()); }
+        }
       }
     }
-  }
   
   
   if (Verbosity() >= 5)

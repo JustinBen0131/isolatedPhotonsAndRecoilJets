@@ -4220,16 +4220,583 @@ namespace ARJ
               tCuts.DrawLatex(0.2, 0.88, TString::Format("|v_{z}| < %.3g cm", std::fabs(vzCutCm)).Data());
               tCuts.DrawLatex(0.2, 0.82, TString::Format("|#eta^{#gamma}| < %.3g", etaCut).Data());
 
-              const string fp = JoinPath(outDir, ds.isSim
-                  ? "purity_raw_vs_leakageCorrected_SIM.png"
-                  : "purity_raw_vs_leakageCorrected_DATA.png");
+                const string fp = JoinPath(outDir, ds.isSim
+                    ? "purity_raw_vs_leakageCorrected_SIM.png"
+                    : "purity_raw_vs_leakageCorrected_DATA.png");
 
-              SaveCanvas(c, fp);
+                SaveCanvas(c, fp);
+              }
+          }
+
+          if (!ds.isSim)
+          {
+            const string qaDir = JoinPath(outDir, "leakageCorrectionQA");
+            EnsureDir(qaDir);
+
+            vector<double> x(kNPtBins, 0.0), ex(kNPtBins, 0.0), ey0(kNPtBins, 0.0);
+
+            vector<double> Aobs(kNPtBins, 0.0), Bobs(kNPtBins, 0.0), Cobs(kNPtBins, 0.0), Dobs(kNPtBins, 0.0);
+            vector<double> SAraw(kNPtBins, 0.0), SAcorr(kNPtBins, 0.0);
+            vector<double> SAratio(kNPtBins, 0.0), deltaSoverA(kNPtBins, 0.0);
+
+            vector<double> bAraw(kNPtBins, 0.0), bAcorr(kNPtBins, 0.0), bAratio(kNPtBins, 0.0);
+            vector<double> sideScaleRaw(kNPtBins, 0.0), sideScaleCorr(kNPtBins, 0.0), sideScaleRatio(kNPtBins, 0.0);
+
+            vector<double> fBsim(kNPtBins, 0.0), fCsim(kNPtBins, 0.0), fDsim(kNPtBins, 0.0);
+            vector<double> fracAsig(kNPtBins, 0.0), fracBsig(kNPtBins, 0.0), fracCsig(kNPtBins, 0.0), fracDsig(kNPtBins, 0.0);
+            vector<double> purBench(kNPtBins, -1.0);
+
+            bool haveLeakFractions = lf.available;
+            bool haveSimSigABCD = false;
+            bool havePurityBench = false;
+
+            for (int i = 0; i < kNPtBins; ++i)
+            {
+              const PtBin& b = PtBins()[i];
+              const string& suf = b.suffix;
+
+              x[i]  = 0.5 * (kPtEdges[(std::size_t)i] + kPtEdges[(std::size_t)i + 1]);
+              ex[i] = 0.5 * (kPtEdges[(std::size_t)i + 1] - kPtEdges[(std::size_t)i]);
+
+              Aobs[i] = Read1BinCount(ds, "h_isIsolated_isTight" + suf);
+              Bobs[i] = Read1BinCount(ds, "h_notIsolated_isTight" + suf);
+              Cobs[i] = Read1BinCount(ds, "h_isIsolated_notTight" + suf);
+              Dobs[i] = Read1BinCount(ds, "h_notIsolated_notTight" + suf);
+
+              if (lf.available)
+              {
+                fBsim[i] = lf.fB[i];
+                fCsim[i] = lf.fC[i];
+                fDsim[i] = lf.fD[i];
+              }
+
+              double sRaw = 0.0;
+              if (Aobs[i] > 0.0 && Dobs[i] > 0.0)
+              {
+                sRaw = Aobs[i] - Bobs[i] * (Cobs[i] / Dobs[i]);
+                if (sRaw < 0.0) sRaw = 0.0;
+              }
+              SAraw[i] = sRaw;
+
+              double sCorr = sRaw;
+              if (lf.available)
+              {
+                double sSolve = 0.0;
+                const bool ok = SolveLeakageCorrectedSA(Aobs[i], Bobs[i], Cobs[i], Dobs[i],
+                                                        lf.fB[i], lf.fC[i], lf.fD[i], sSolve);
+                if (ok && Aobs[i] > 0.0) sCorr = sSolve;
+              }
+              SAcorr[i] = sCorr;
+
+              SAratio[i]    = (SAraw[i] > 0.0) ? (SAcorr[i] / SAraw[i]) : 0.0;
+              deltaSoverA[i]= (Aobs[i] > 0.0) ? ((SAcorr[i] - SAraw[i]) / Aobs[i]) : 0.0;
+
+              bAraw[i]   = (Dobs[i] > 0.0) ? (Bobs[i] * (Cobs[i] / Dobs[i])) : 0.0;
+              bAcorr[i]  = std::max(0.0, Aobs[i] - SAcorr[i]);
+              bAratio[i] = (bAraw[i] > 0.0) ? (bAcorr[i] / bAraw[i]) : 0.0;
+
+              sideScaleRaw[i]   = (Cobs[i] > 0.0) ? (std::max(0.0, Aobs[i] - SAraw[i])  / Cobs[i]) : 0.0;
+              sideScaleCorr[i]  = (Cobs[i] > 0.0) ? (std::max(0.0, Aobs[i] - SAcorr[i]) / Cobs[i]) : 0.0;
+              sideScaleRatio[i] = (sideScaleRaw[i] > 0.0) ? (sideScaleCorr[i] / sideScaleRaw[i]) : 0.0;
             }
-        }
 
-        // SS overlays
-        cout << ANSI_BOLD_CYN << "\n[SS OVERLAYS] " << ds.label << "\n" << ANSI_RESET;
+            string simPathUsed = "";
+            string purityBenchRKey = "";
+            TFile* fSimQA = nullptr;
+            Dataset dsSimQA;
+            dsSimQA.label = "SIM";
+            dsSimQA.isSim = true;
+            dsSimQA.topDirName = kDirSIM;
+            dsSimQA.outBase = qaDir;
+
+            const SimSample simSel = CurrentSimSample();
+            if (simSel != SimSample::kNone && simSel != SimSample::kInvalid)
+            {
+              simPathUsed = SimInputPathForSample(simSel);
+
+              if (!simPathUsed.empty())
+              {
+                fSimQA = TFile::Open(simPathUsed.c_str(), "READ");
+                if (fSimQA && !fSimQA->IsZombie())
+                {
+                  dsSimQA.inFilePath = simPathUsed;
+                  dsSimQA.file = fSimQA;
+                  dsSimQA.topDir = fSimQA->GetDirectory(kDirSIM.c_str());
+                  if (!dsSimQA.topDir) dsSimQA.topDir = fSimQA;
+
+                  if (dsSimQA.topDir)
+                  {
+                    bool anySigABCD = false;
+
+                    for (int i = 0; i < kNPtBins; ++i)
+                    {
+                      const PtBin& b = PtBins()[i];
+                      const string hname = "h_sigABCD_MC" + b.suffix;
+
+                      TH1* hSig = GetObj<TH1>(dsSimQA, hname, false, false, false);
+                      if (!hSig) continue;
+
+                      const double As = hSig->GetBinContent(1);
+                      const double Bs = hSig->GetBinContent(2);
+                      const double Cs = hSig->GetBinContent(3);
+                      const double Ds = hSig->GetBinContent(4);
+                      const double sumSig = As + Bs + Cs + Ds;
+
+                      if (As > 0.0)
+                      {
+                        fBsim[i] = Bs / As;
+                        fCsim[i] = Cs / As;
+                        fDsim[i] = Ds / As;
+                        haveLeakFractions = true;
+                      }
+
+                      if (sumSig > 0.0)
+                      {
+                        fracAsig[i] = As / sumSig;
+                        fracBsig[i] = Bs / sumSig;
+                        fracCsig[i] = Cs / sumSig;
+                        fracDsig[i] = Ds / sumSig;
+                        anySigABCD = true;
+                      }
+                    }
+
+                    haveSimSigABCD = anySigABCD;
+
+                    const vector<string> benchTry = {"r04", "r02", "r06"};
+                    for (const auto& rk : benchTry)
+                    {
+                      TH2* hRecoBench = GetObj<TH2>(dsSimQA, "h2_unfoldReco_pTgamma_xJ_incl_" + rk, false, false, false);
+                      TH2* hFakeBench = GetObj<TH2>(dsSimQA, "h2_unfoldRecoFakes_pTgamma_xJ_incl_" + rk, false, false, false);
+
+                      if (!hRecoBench || !hFakeBench) continue;
+
+                      vector<double> purTmp(kNPtBins, -1.0);
+                      bool anyBenchBin = false;
+
+                      for (int i = 0; i < kNPtBins; ++i)
+                      {
+                        const double wantLo = kPtEdges[(std::size_t)i];
+                        const double wantHi = kPtEdges[(std::size_t)i + 1];
+
+                        int xbinUse = -1;
+                        for (int ix = 1; ix <= hRecoBench->GetXaxis()->GetNbins(); ++ix)
+                        {
+                          const double axlo = hRecoBench->GetXaxis()->GetBinLowEdge(ix);
+                          const double axhi = hRecoBench->GetXaxis()->GetBinUpEdge(ix);
+
+                          const bool exact =
+                            (std::fabs(axlo - wantLo) < 1e-6 && std::fabs(axhi - wantHi) < 1e-6);
+
+                          const bool contained =
+                            (axlo <= wantLo + 1e-6 && axhi >= wantHi - 1e-6);
+
+                          if (exact || contained)
+                          {
+                            xbinUse = ix;
+                            break;
+                          }
+                        }
+
+                        if (xbinUse < 1) continue;
+
+                        const double Nreco = hRecoBench->Integral(
+                          xbinUse, xbinUse, 0, hRecoBench->GetYaxis()->GetNbins() + 1
+                        );
+                        const double Nfake = hFakeBench->Integral(
+                          xbinUse, xbinUse, 0, hFakeBench->GetYaxis()->GetNbins() + 1
+                        );
+
+                        if (Nreco > 0.0)
+                        {
+                          purTmp[i] = std::max(0.0, (Nreco - Nfake) / Nreco);
+                          anyBenchBin = true;
+                        }
+                      }
+
+                      if (anyBenchBin)
+                      {
+                        purBench = purTmp;
+                        purityBenchRKey = rk;
+                        havePurityBench = true;
+                        break;
+                      }
+                    }
+                  }
+                  else
+                  {
+                    cout << ANSI_BOLD_YEL
+                         << "[WARN] leakageCorrectionQA: missing topDir '" << kDirSIM
+                         << "' in SIM file " << simPathUsed
+                         << ANSI_RESET << "\n";
+                  }
+                }
+                else
+                {
+                  cout << ANSI_BOLD_YEL
+                       << "[WARN] leakageCorrectionQA: could not open SIM file " << simPathUsed
+                       << ANSI_RESET << "\n";
+                  if (fSimQA)
+                  {
+                    fSimQA->Close();
+                    delete fSimQA;
+                    fSimQA = nullptr;
+                  }
+                }
+              }
+            }
+
+            auto DrawPtGraphSet =
+              [&](const vector< vector<double> >& ys,
+                  const vector<string>& labels,
+                  const vector<int>& colors,
+                  const vector<int>& markers,
+                  const string& yTitle,
+                  const string& outName,
+                  const vector<string>& extraLines,
+                  bool clampUnitBox,
+                  bool forceZeroFloor,
+                  bool drawRefLine,
+                  double refY)
+              {
+                if (ys.empty()) return;
+
+                double yLo = std::numeric_limits<double>::max();
+                double yHi = -std::numeric_limits<double>::max();
+
+                for (const auto& yv : ys)
+                {
+                  for (double v : yv)
+                  {
+                    if (!std::isfinite(v)) continue;
+                    yLo = std::min(yLo, v);
+                    yHi = std::max(yHi, v);
+                  }
+                }
+
+                if (!std::isfinite(yLo) || !std::isfinite(yHi))
+                {
+                  yLo = 0.0;
+                  yHi = 1.0;
+                }
+
+                if (clampUnitBox)
+                {
+                  yLo = 0.0;
+                  yHi = 1.05;
+                }
+                else
+                {
+                  if (!(yHi > yLo))
+                  {
+                    const double pad = (std::fabs(yHi) > 0.0) ? (0.25 * std::fabs(yHi)) : 0.25;
+                    yLo -= pad;
+                    yHi += pad;
+                  }
+                  else
+                  {
+                    const double pad = 0.15 * (yHi - yLo);
+                    yLo -= pad;
+                    yHi += pad;
+                  }
+
+                  if (forceZeroFloor && yLo > 0.0) yLo = 0.0;
+
+                  if (drawRefLine)
+                  {
+                    yLo = std::min(yLo, refY - 0.05 * (std::fabs(refY) > 0.0 ? std::fabs(refY) : 1.0));
+                    yHi = std::max(yHi, refY + 0.05 * (std::fabs(refY) > 0.0 ? std::fabs(refY) : 1.0));
+                  }
+                }
+
+                TCanvas c(TString::Format("c_leakqa_%s", outName.c_str()).Data(), "c_leakqa", 900, 700);
+                ApplyCanvasMargins1D(c);
+
+                TH1F hFrame(TString::Format("hFrame_leakqa_%s", outName.c_str()).Data(), "",
+                            100, kPtEdges.front(), kPtEdges.back());
+                hFrame.SetDirectory(nullptr);
+                hFrame.SetStats(0);
+                hFrame.SetMinimum(yLo);
+                hFrame.SetMaximum(yHi);
+                hFrame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                hFrame.GetYaxis()->SetTitle(yTitle.c_str());
+                hFrame.Draw();
+
+                if (drawRefLine)
+                {
+                  TLine lRef(kPtEdges.front(), refY, kPtEdges.back(), refY);
+                  lRef.SetLineStyle(2);
+                  lRef.SetLineColor(kGray + 2);
+                  lRef.SetLineWidth(2);
+                  lRef.DrawClone();
+                }
+
+                vector<TGraphErrors*> graphs;
+                graphs.reserve(ys.size());
+
+                for (std::size_t ig = 0; ig < ys.size(); ++ig)
+                {
+                  if (ys[ig].size() != x.size()) continue;
+
+                  TGraphErrors* g = new TGraphErrors(
+                    (int)ys[ig].size(),
+                    &x[0],
+                    const_cast<double*>(ys[ig].data()),
+                    &ex[0],
+                    &ey0[0]
+                  );
+
+                  g->SetLineWidth(2);
+                  g->SetLineColor((ig < colors.size()) ? colors[ig] : 1);
+                  g->SetMarkerColor((ig < colors.size()) ? colors[ig] : 1);
+                  g->SetMarkerStyle((ig < markers.size()) ? markers[ig] : 20);
+                  g->SetMarkerSize(1.15);
+                  g->Draw("PE1 SAME");
+
+                  graphs.push_back(g);
+                }
+
+                TLegend leg(0.56, 0.72, 0.92, 0.90);
+                leg.SetBorderSize(0);
+                leg.SetFillStyle(0);
+                leg.SetTextFont(42);
+                leg.SetTextSize(0.032);
+                for (std::size_t ig = 0; ig < graphs.size() && ig < labels.size(); ++ig)
+                {
+                  leg.AddEntry(graphs[ig], labels[ig].c_str(), "pe");
+                }
+                leg.Draw();
+
+                DrawLatexLines(0.14, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+                DrawLatexLines(0.14, 0.80, extraLines, 0.030, 0.040);
+
+                SaveCanvas(c, JoinPath(qaDir, outName));
+
+                for (auto* g : graphs) delete g;
+              };
+
+            if (haveLeakFractions)
+            {
+              DrawPtGraphSet(
+                {fBsim, fCsim, fDsim},
+                {"f_{B} = B_{sig}/A_{sig}", "f_{C} = C_{sig}/A_{sig}", "f_{D} = D_{sig}/A_{sig}"},
+                {kGreen + 2, kBlue + 1, kRed + 1},
+                {20, 21, 24},
+                "Leakage fraction",
+                "simLeakageFractions_fB_fC_fD_vs_pT.png",
+                {"SIM truth-signal leakage fractions",
+                 "Derived from truth-isolated signal photons classified into reco ABCD bins"},
+                true,
+                true,
+                false,
+                0.0
+              );
+            }
+
+            if (haveSimSigABCD)
+            {
+              DrawPtGraphSet(
+                {fracAsig, fracBsig, fracCsig, fracDsig},
+                {"A_{sig}/#Sigma", "B_{sig}/#Sigma", "C_{sig}/#Sigma", "D_{sig}/#Sigma"},
+                {kGreen + 2, kRed + 1, kBlue + 1, kMagenta + 1},
+                {20, 21, 24, 25},
+                "Fraction of truth-signal reco matches",
+                "simTruthSignalRecoABCD_fractions_vs_pT.png",
+                {"SIM truth-signal reco ABCD composition",
+                 "A/B/C/D fractions sum to unity within each p_{T}^{#gamma} bin"},
+                true,
+                true,
+                false,
+                0.0
+              );
+            }
+
+            DrawPtGraphSet(
+              {SAraw, SAcorr},
+              {"S_{A}^{raw}", "S_{A}^{corr}"},
+              {kBlack, kBlue + 1},
+              {20, 24},
+              "Signal yield in A",
+              "signalYield_raw_vs_corr_vs_pT.png",
+              {"Extracted signal in region A",
+               "Raw ABCD vs leakage-corrected solution"},
+              false,
+              true,
+              false,
+              0.0
+            );
+
+            DrawPtGraphSet(
+              {SAratio},
+              {"S_{A}^{corr} / S_{A}^{raw}"},
+              {kBlue + 1},
+              {20},
+              "Signal-yield ratio",
+              "signalYield_corrOverRaw_vs_pT.png",
+              {"Leakage-correction size on extracted signal",
+               "Dashed line: no change"},
+              false,
+              true,
+              true,
+              1.0
+            );
+
+            DrawPtGraphSet(
+              {deltaSoverA},
+              {"(S_{A}^{corr} - S_{A}^{raw}) / A"},
+              {kBlue + 1},
+              {20},
+              "Signed correction relative to A",
+              "signalYield_deltaOverA_vs_pT.png",
+              {"Signed signal correction normalized by observed A",
+               "Dashed line: zero correction"},
+              false,
+              false,
+              true,
+              0.0
+            );
+
+            DrawPtGraphSet(
+              {bAraw, bAcorr},
+              {"b_{A}^{raw} = BC/D", "b_{A}^{corr} = A - S_{A}^{corr}"},
+              {kBlack, kBlue + 1},
+              {20, 24},
+              "Background estimate in A",
+              "backgroundInA_raw_vs_corr_vs_pT.png",
+              {"Background estimate in region A",
+               "Raw ABCD vs leakage-corrected"},
+              false,
+              true,
+              false,
+              0.0
+            );
+
+            DrawPtGraphSet(
+              {bAratio},
+              {"b_{A}^{corr} / b_{A}^{raw}"},
+              {kBlue + 1},
+              {20},
+              "Background ratio",
+              "backgroundInA_corrOverRaw_vs_pT.png",
+              {"Leakage-correction size on background in A",
+               "Dashed line: no change"},
+              false,
+              true,
+              true,
+              1.0
+            );
+
+            if (havePurityBench)
+            {
+              DrawPtGraphSet(
+                {purityRaw, purityCorr, purBench},
+                {"Raw ABCD", "Leakage-corrected ABCD",
+                 TString::Format("SIM benchmark (integrated x_{J}, %s)", purityBenchRKey.c_str()).Data()},
+                {kBlack, kBlue + 1, kRed + 1},
+                {20, 24, 21},
+                "Purity",
+                "purity_raw_corr_truthBenchmark_vs_pT.png",
+                {"Purity comparison",
+                 TString::Format("SIM benchmark from unfolding reco-fake subtraction (%s)", purityBenchRKey.c_str()).Data()},
+                true,
+                true,
+                false,
+                0.0
+              );
+            }
+
+            DrawPtGraphSet(
+              {sideScaleRaw, sideScaleCorr},
+              {"(A - S_{A}^{raw}) / C", "(A - S_{A}^{corr}) / C"},
+              {kBlack, kBlue + 1},
+              {20, 24},
+              "Region-C normalization factor",
+              "sidebandC_normalization_raw_vs_corr_vs_pT.png",
+              {"Region-C sideband normalization into A",
+               "Raw vs leakage-corrected normalization"},
+              false,
+              true,
+              false,
+              0.0
+            );
+
+            DrawPtGraphSet(
+              {sideScaleRatio},
+              {"scale_{corr} / scale_{raw}"},
+              {kBlue + 1},
+              {20},
+              "Normalization-factor ratio",
+              "sidebandC_normalization_corrOverRaw_vs_pT.png",
+              {"Leakage-correction size on sideband-C normalization",
+               "Dashed line: no change"},
+              false,
+              true,
+              true,
+              1.0
+            );
+
+            vector<string> txt;
+            txt.push_back("Leakage correction QA summary");
+            txt.push_back("Output dir: " + qaDir);
+            txt.push_back("SIM source used: " + (simPathUsed.empty() ? string("UNAVAILABLE") : simPathUsed));
+            txt.push_back("Leakage fractions available: " + string(haveLeakFractions ? "true" : "false"));
+            txt.push_back("SIM truth-signal ABCD fractions available: " + string(haveSimSigABCD ? "true" : "false"));
+            txt.push_back("SIM purity benchmark available: " +
+                          string(havePurityBench
+                            ? TString::Format("true (%s)", purityBenchRKey.c_str()).Data()
+                            : "false"));
+            txt.push_back("");
+            txt.push_back("Formulas:");
+            txt.push_back("  S_A^raw  = A - B*C/D");
+            txt.push_back("  S_A^corr = leakage-corrected solution from SolveLeakageCorrectedSA(...)");
+            txt.push_back("  b_A^raw  = B*C/D");
+            txt.push_back("  b_A^corr = A - S_A^corr");
+            txt.push_back("  scale_C^raw  = (A - S_A^raw)/C");
+            txt.push_back("  scale_C^corr = (A - S_A^corr)/C");
+            txt.push_back("");
+            txt.push_back("Columns:");
+            txt.push_back("  pTbin  A  B  C  D  Sraw  Scorr  ScorrOverSraw  DeltaSOverA  bAraw  bAcorr  bAcorrOverRaw  scaleCraw  scaleCcorr  scaleCcorrOverRaw  fB  fC  fD  fracA_sig  fracB_sig  fracC_sig  fracD_sig  purBench");
+
+            for (int i = 0; i < kNPtBins; ++i)
+            {
+              std::ostringstream s;
+              s << PtBins()[i].label
+                << "  " << std::fixed << std::setprecision(0) << Aobs[i]
+                << "  " << Bobs[i]
+                << "  " << Cobs[i]
+                << "  " << Dobs[i]
+                << "  " << SAraw[i]
+                << "  " << SAcorr[i]
+                << "  " << std::setprecision(6) << SAratio[i]
+                << "  " << deltaSoverA[i]
+                << "  " << bAraw[i]
+                << "  " << bAcorr[i]
+                << "  " << bAratio[i]
+                << "  " << sideScaleRaw[i]
+                << "  " << sideScaleCorr[i]
+                << "  " << sideScaleRatio[i]
+                << "  " << fBsim[i]
+                << "  " << fCsim[i]
+                << "  " << fDsim[i]
+                << "  " << fracAsig[i]
+                << "  " << fracBsig[i]
+                << "  " << fracCsig[i]
+                << "  " << fracDsig[i]
+                << "  " << purBench[i];
+              txt.push_back(s.str());
+            }
+
+            WriteTextFile(JoinPath(qaDir, "summary_leakageCorrectionQA.txt"), txt);
+
+            if (fSimQA)
+            {
+              fSimQA->Close();
+              delete fSimQA;
+              fSimQA = nullptr;
+            }
+          }
+
+          // SS overlays
+          cout << ANSI_BOLD_CYN << "\n[SS OVERLAYS] " << ds.label << "\n" << ANSI_RESET;
 
         const string ssBase = JoinPath(outDir, "SS");
         EnsureDir(ssBase);

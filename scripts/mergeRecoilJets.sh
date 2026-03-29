@@ -1,105 +1,136 @@
 #!/usr/bin/env bash
 ###############################################################################
-# mergeRecoilJets.sh  —  FAST REFERENCE
+# mergeRecoilJets.sh
 #
-# ./mergeRecoilJets.sh isSim firstRound
-# ./mergeRecoilJets.sh isSim secondRound
+# Merge RecoilJets ROOT outputs produced by RecoilJets_Condor_submit.sh.
+# Supports DATA (pp, pp25, auau, oo) and SIM (isSim, isSimJet5, etc.).
 #
+# DISCOVERY-BASED — this script discovers cfg_tag subdirectories from the
+# filesystem and NEVER reads analysis_config.yaml at merge time.
 #
-# Merge the three finished variants now:
+# ═══════════════════════════════════════════════════════════════════════════════
+# DATA MERGE — 3-STEP FLOW (recommended for large datasets like AuAu)
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# STEP 1 — Per-run partials (one Condor hadd job per run number, per cfg_tag)
+#   Produces: perRun/<cfg_tag>/chunkMerge_run_<run8>.root  (e.g. 1086 files)
+#   Cleans:   rm -rf on the entire perRun/<cfg_tag>/ directory (nukes old
+#             chunkMerge_run_* AND sliceMerge_grp* files from prior runs).
+#
+#     ./mergeRecoilJets.sh condor auau
+#     ./mergeRecoilJets.sh condor pp
+#     ./mergeRecoilJets.sh condor pp test          # single-run smoke test
+#     ./mergeRecoilJets.sh condor auau firstHalf   # first half of runs only
+#
+# STEP 2 (optional) — sliceRuns intermediate merge
+#   Groups the per-run partials into batches of 200 and submits Condor jobs
+#   that produce sliceMerge_grpNNN.root files inside perRun/<cfg_tag>/.
+#   For 1086 partials → ceil(1086/200) = 6 Condor jobs per cfg_tag.
+#   This step does NOT produce a final file — it only creates the slices.
+#
+#     ./mergeRecoilJets.sh addChunks auau condor sliceRuns
+#
+# STEP 3 — Final merge (one Condor job per cfg_tag)
+#   Auto-detects: if sliceMerge_grp*.root files exist in perRun/<cfg_tag>/,
+#   merges those (e.g. 6 files). Otherwise falls back to merging all 1086
+#   chunkMerge_run_* files directly (original behavior).
+#   Produces: output/<tag>/RecoilJets_<tag>_ALL_<cfg_tag>.root
+#
+#     ./mergeRecoilJets.sh addChunks auau condor    # Condor job
+#     ./mergeRecoilJets.sh addChunks auau           # local hadd
+#
+# SAFETY: Step 1 nukes the entire perRun dir, so sliceMerge files can only
+# exist after an explicit Step 2. The detection in Step 3 is automatic.
+#
+# ─── QUICK COPY/PASTE: Full AuAu 3-step flow ────────────────────────────────
+#
+#   ./mergeRecoilJets.sh condor auau                      # step 1
+#   # (wait for all Condor jobs to finish)
+#   ./mergeRecoilJets.sh addChunks auau condor sliceRuns  # step 2
+#   # (wait for slice jobs to finish)
+#   ./mergeRecoilJets.sh addChunks auau condor            # step 3
+#
+# ─── QUICK COPY/PASTE: Skip step 2 (small datasets / pp) ────────────────────
+#
+#   ./mergeRecoilJets.sh condor pp                        # step 1
+#   ./mergeRecoilJets.sh addChunks pp condor              # step 3 directly
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+# DATA MERGE — CFG_FILTER (merge a subset of cfg_tag variants)
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Use CFG_FILTER env var to select which cfg_tags to process.
+# Recognised values:
+#   allButVariantB  — keep every tag EXCEPT those ending in _variantB
+#   variantB        — keep ONLY tags ending in _variantB
+#
 #   CFG_FILTER=allButVariantB ./mergeRecoilJets.sh condor auau
+#   CFG_FILTER=allButVariantB ./mergeRecoilJets.sh addChunks auau condor sliceRuns
 #   CFG_FILTER=allButVariantB ./mergeRecoilJets.sh addChunks auau condor
 #
-# Later, after variantB completes:
 #   CFG_FILTER=variantB ./mergeRecoilJets.sh condor auau
 #   CFG_FILTER=variantB ./mergeRecoilJets.sh addChunks auau condor
 #
-# Or merge everything (no filter, original behavior):
-#   ./mergeRecoilJets.sh condor auau
+# Omit CFG_FILTER to process all discovered cfg_tags (default).
 #
+# ═══════════════════════════════════════════════════════════════════════════════
+# DATA MERGE — INVENTORY / DRY RUN
+# ═══════════════════════════════════════════════════════════════════════════════
 #
-# PURPOSE
-#   Merge RecoilJets outputs produced by RecoilJets_Condor_submit.sh /
-#   RecoilJets_Condor.sh. Supports:
-#     • DATA (pp, auau): per-run merge → then grand-total merge
-#     • SIM  (isSim):   two-step chunk merge (firstRound → secondRound)
-#
-# DISCOVERY-BASED MERGE (YAML-immune):
-#   This script discovers cfg_tag subdirectories from the filesystem.
-#   It NEVER reads analysis_config.yaml at merge time. The YAML is
-#   submission-time only. Editing the YAML between submission and
-#   merging has NO effect on the merge.
-#
-# INPUT ROOT LOCATIONS (written by RecoilJets_Condor_submit.sh)
-#   DATA:
-#     <base>/<cfg_tag>/<run8>/*.root
-#     e.g. /sphenix/tg/tg01/bulk/jbennett/thesisAna/auau/vz30_isoR40_fixedIso4GeV_noSub/00067599/*.root
-#   SIM:
-#     <base>/<cfg_tag>/<sample>/*.root
-#     e.g. /sphenix/tg/tg01/bulk/jbennett/thesisAna/sim/jetMinPt5_7pi_8_vz30_isoR30_fixedIso2GeV/run28_photonjet10/*.root
-#
-# OUTPUT MERGE LOCATION (flat, one dir per dataset type)
-#   /sphenix/u/patsfan753/scratch/thesisAnalysis/output/<tag>/
-#     DATA: RecoilJets_<tag>_ALL_<cfg_tag>.root
-#     SIM : RecoilJets_<sampleTag>_ALL_<cfg_tag>.root
-#
-# ─────────────────────────────────────────────────────────────────────────────
-# QUICK COMMANDS (copy/paste)
-#
-# DATA: inventory only (no merges)
-#   ./mergeRecoilJets.sh checkFileOutput pp
+#   ./mergeRecoilJets.sh checkFileOutput pp       # report only, no side effects
 #   ./mergeRecoilJets.sh checkFileOutput auau
 #
-# DATA: stage-1 per-run partials (Condor; one hadd job per run)
-#   ./mergeRecoilJets.sh condor pp
-#   ./mergeRecoilJets.sh condor pp test
-#   ./mergeRecoilJets.sh condor auau firstHalf
+#   DRYRUN=1 ./mergeRecoilJets.sh condor auau     # plan only, no submissions
+#   DRYRUN=1 SKIP_TRACE=1 ./mergeRecoilJets.sh condor pp test
 #
-# DATA: stage-2 grand total (merge all per-run partials)
-#   ./mergeRecoilJets.sh addChunks pp
-#   ./mergeRecoilJets.sh addChunks pp condor
-#   ./mergeRecoilJets.sh addChunks auau
-#   ./mergeRecoilJets.sh addChunks auau condor
+# ═══════════════════════════════════════════════════════════════════════════════
+# SIM MERGE — 2-STEP FLOW
+# ═══════════════════════════════════════════════════════════════════════════════
 #
-# SIM: firstRound (Condor chunk-partials; groupSize = files per hadd)
+# STEP 1 — firstRound (group raw segment outputs into chunk-partials)
+#   ./mergeRecoilJets.sh isSim firstRound
 #   ./mergeRecoilJets.sh isSim firstRound groupSize 300 SAMPLE=run28_photonjet10
+#   ./mergeRecoilJets.sh isSimJet5 firstRound
+#   ./mergeRecoilJets.sh isSimEmbedded firstRound
 #
-# SIM: secondRound (final merge of chunk-partials)
-#   ./mergeRecoilJets.sh isSim secondRound SAMPLE=run28_photonjet10
+# STEP 2 — secondRound (merge chunk-partials into one final file per cfg_tag)
+#   ./mergeRecoilJets.sh isSim secondRound
+#   ./mergeRecoilJets.sh isSim secondRound condor
 #   ./mergeRecoilJets.sh isSim secondRound condor SAMPLE=run28_photonjet10
 #
-# ─────────────────────────────────────────────────────────────────────────────
-# WHAT EACH MODE PRODUCES
+# ═══════════════════════════════════════════════════════════════════════════════
+# OUTPUT LOCATIONS
+# ═══════════════════════════════════════════════════════════════════════════════
 #
-# DATA stage-1 outputs (per-run partials, per cfg_tag):
-#   /.../output/<pp|auau>/<cfg_tag>/chunkMerge_run_<run8>.root
+# DATA stage-1 per-run partials:
+#   output/<tag>/perRun/<cfg_tag>/chunkMerge_run_<run8>.root
 #
-# DATA stage-2 output (final, flat):
-#   /.../output/<pp|auau>/RecoilJets_<pp|auau>_ALL_<cfg_tag>.root
+# DATA sliceRuns intermediates (optional):
+#   output/<tag>/perRun/<cfg_tag>/sliceMerge_grpNNN.root
 #
-# SIM firstRound outputs (chunk-partials, per cfg_tag):
-#   /.../output/<simTag>/<cfg_tag>/chunkMerge_<sampleTag>_grpNNN.root
+# DATA final merged files:
+#   output/<tag>/RecoilJets_<tag>_ALL_<cfg_tag>.root
 #
-# SIM secondRound output (final, flat):
-#   /.../output/<simTag>/RecoilJets_<sampleTag>_ALL_<cfg_tag>.root
+# SIM firstRound chunk-partials:
+#   output/<simTag>/<cfg_tag>/chunkMerge_<sampleTag>_grpNNN.root
 #
-# ─────────────────────────────────────────────────────────────────────────────
-# SAFETY / RESUME BEHAVIOR (DATA stage-1)
-#   • This script NEVER runs condor_rm (it will not kill jobs).
-#   • When building per-run hadd lists, it EXCLUDES any output ROOT file whose
-#     producing RecoilJets_Condor.sh job is still present in condor_q
-#     (IDLE/RUNNING/HELD/TRANSFERRING/SUSPENDED). This prevents merging
-#     partially-produced outputs.
+# SIM secondRound final files:
+#   output/<simTag>/RecoilJets_<sampleTag>_ALL_<cfg_tag>.root
 #
-# TESTING (NO side effects)
-#   DRYRUN=1      → NO deletions, NO hadd, NO condor_submit (prints the plan)
-#   SKIP_TRACE=1  → prints per-run totals/busy/eligible counts
-#   Example:
-#     DRYRUN=1 SKIP_TRACE=1 ./mergeRecoilJets.sh condor pp test
+# ═══════════════════════════════════════════════════════════════════════════════
+# SAFETY / RESUME BEHAVIOR
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+#   • This script NEVER runs condor_rm (it will not kill running jobs).
+#   • Stage-1 (condor mode) EXCLUDES any output ROOT file whose producing
+#     RecoilJets_Condor.sh job is still in condor_q (IDLE/RUNNING/HELD/etc).
+#   • DRYRUN=1   → NO deletions, NO hadd, NO condor_submit (prints the plan).
+#   • SKIP_TRACE=1 → prints per-run total/busy/eligible counts.
 #
 # NOTES
 #   • Only top-level *.root files are considered (maxdepth=1).
 #   • Sorting uses: sort -V (natural ordering of chunk indices).
+#   • SLICE_BATCH_SIZE=200 (tunable constant inside the addChunks section).
 ###############################################################################
 set -euo pipefail
 
@@ -1265,6 +1296,12 @@ if [[ "$MODE" == "addChunks" ]]; then
   PREFER_CONDOR=false
   [[ "${SUBMODE:-}" == "condor" ]] && PREFER_CONDOR=true
 
+  # sliceRuns: intermediate step that groups per-run partials into batches
+  # before the final merge, reducing single-job input counts dramatically.
+  SLICE_RUNS=false
+  [[ "${4:-}" == "sliceRuns" ]] && SLICE_RUNS=true
+  SLICE_BATCH_SIZE=200   # number of per-run partials per slice hadd job
+
   DEST_DIR_ORIG="$DEST_DIR"
   _PERRUN_BASE="${OUT_BASE}/${TAG}/perRun"
 
@@ -1309,10 +1346,72 @@ if [[ "$MODE" == "addChunks" ]]; then
       _partial_dir="$_PERRUN_BASE"
     fi
 
-    # Collect partials
-    mapfile -t partials < <(ls -1 "${_partial_dir}/${PARTIAL_PREFIX}_"*.root 2>/dev/null | sort -V || true)
+    # ── sliceRuns: intermediate merge of per-run partials into batches ──
+    if $SLICE_RUNS; then
+      mapfile -t _run_partials < <(ls -1 "${_partial_dir}/${PARTIAL_PREFIX}_"*.root 2>/dev/null | sort -V || true)
+      if (( ${#_run_partials[@]} == 0 )); then
+        warn "No per-run partials in ${_partial_dir} for sliceRuns. Skipping."
+        continue
+      fi
+
+      _total=${#_run_partials[@]}
+      _ngroups=$(( (_total + SLICE_BATCH_SIZE - 1) / SLICE_BATCH_SIZE ))
+
+      say "sliceRuns: ${_total} per-run partials → ${_ngroups} slice groups (batch size ${SLICE_BATCH_SIZE})"
+
+      # Clean old sliceMerge files before writing new ones
+      rm -f "${_partial_dir}/sliceMerge_grp"*.root 2>/dev/null || true
+
+      need_cmd condor_submit
+      emit_hadd_wrapper "$CONDOR_EXEC"
+
+      SUB="${TMP_DIR}/recoil_slice_${TAG}_${_cfg:-flat}.sub"
+      rm -f "$SUB"
+      cat > "$SUB" <<EOT
+universe   = vanilla
+executable = $CONDOR_EXEC
+output     = $OUT_DIR/recoil.slice.\$(Cluster).\$(Process).out
+error      = $ERR_DIR/recoil.slice.\$(Cluster).\$(Process).err
+log        = $LOG_DIR/recoil.slice.\$(Cluster).\$(Process).log
+request_memory = 4GB
+getenv = True
+should_transfer_files = NO
+stream_output = True
+stream_error  = True
+EOT
+
+      _offset=0
+      for (( _g=1; _g<=_ngroups; _g++ )); do
+        _grpTag="$(printf "%03d" "$_g")"
+        _end=$(( _offset + SLICE_BATCH_SIZE ))
+        (( _end > _total )) && _end=$_total
+        _sz=$(( _end - _offset ))
+
+        _list="${TMP_DIR}/sliceList_${TAG}_${_cfg:-flat}_grp${_grpTag}.txt"
+        printf "%s\n" "${_run_partials[@]:${_offset}:${_sz}}" > "$_list"
+        _out="${_partial_dir}/sliceMerge_grp${_grpTag}.root"
+
+        say "  slice grp${_grpTag}: ${_sz} partials → $(basename "$_out")"
+        printf 'arguments = %s %s\nqueue\n\n' "$_list" "$_out" >> "$SUB"
+
+        (( _offset = _end ))
+      done
+
+      say "Submitting ${_ngroups} slice merge jobs → $(basename "$SUB")"
+      condor_submit "$SUB"
+      echo
+      continue
+    fi
+
+    # Collect partials: prefer sliceMerge files if present, else per-run partials
+    mapfile -t partials < <(ls -1 "${_partial_dir}/sliceMerge_grp"*.root 2>/dev/null | sort -V || true)
+    if (( ${#partials[@]} > 0 )); then
+      say "  Using ${#partials[@]} sliceMerge partials (from prior sliceRuns step)"
+    else
+      mapfile -t partials < <(ls -1 "${_partial_dir}/${PARTIAL_PREFIX}_"*.root 2>/dev/null | sort -V || true)
+    fi
     if (( ${#partials[@]} == 0 )); then
-      warn "No partials found in ${_partial_dir} (expected ${PARTIAL_PREFIX}_*.root). Skipping."
+      warn "No partials found in ${_partial_dir} (expected sliceMerge_grp*.root or ${PARTIAL_PREFIX}_*.root). Skipping."
       continue
     fi
 

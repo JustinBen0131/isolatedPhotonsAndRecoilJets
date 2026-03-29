@@ -4101,40 +4101,49 @@ bool RecoilJets::runLeadIsoTightPhotonJetLoopAllRadii(
       }
     }
 
-    // ------------------------------------------------------------------
-    // Inclusive γ–jet pairing histograms for unfolding (ATLAS-style)
-    // ------------------------------------------------------------------
-    for (std::size_t irj = 0; irj < recoJetsFid.size(); ++irj)
-    {
-      if (!recoJetsFidIsRecoil[irj]) continue;
-
-      const Jet* rj = recoJetsFid[irj];
-      if (!rj) continue;
-
-      const double jpt  = rj->get_pt();
-      const double jphi = rj->get_phi();
-      if (!std::isfinite(jpt) || jpt <= 0.0) continue;
-      if (!std::isfinite(jphi)) continue;
-
-      const double xJr     = jpt / leadPtGamma;
-      const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(jphi - leadPhiGamma));
-
-      for (const auto& trigShort : activeTrig)
+      // ------------------------------------------------------------------
+      // Inclusive γ–jet pairing histograms for unfolding (ATLAS-style)
+      //
+      // DATA reco stays unchanged.
+      // SIM reco is now truth-signal-photon anchored so the reco marginal used by
+      // RooUnfold matches the same photon-tagged signal definition as the 2D response.
+      // Pairwise truth↔reco jet matching still happens below in
+      // fillUnfoldResponseMatrixAndTruthDistributions().
+      // ------------------------------------------------------------------
+      if (!m_isSim || haveTruthPho)
       {
-        if (auto* h2 = getOrBookUnfoldRecoPtXJIncl(trigShort, rKey, effCentIdx_M))
+        for (std::size_t irj = 0; irj < recoJetsFid.size(); ++irj)
         {
-          h2->Fill(leadPtGamma, xJr);
-          bumpHistFill(trigShort, h2->GetName());
-        }
+          if (!recoJetsFidIsRecoil[irj]) continue;
 
-        // inclusive |Δphi(γ,jet)| for each recoil jet passing cuts
-        if (auto* h2d = getOrBookUnfoldRecoPtDphiIncl(trigShort, rKey, effCentIdx_M))
-        {
-          h2d->Fill(leadPtGamma, dphiAbs);
-          bumpHistFill(trigShort, h2d->GetName());
+          const Jet* rj = recoJetsFid[irj];
+          if (!rj) continue;
+
+          const double jpt  = rj->get_pt();
+          const double jphi = rj->get_phi();
+          if (!std::isfinite(jpt) || jpt <= 0.0) continue;
+          if (!std::isfinite(jphi)) continue;
+
+          const double xJr     = jpt / leadPtGamma;
+          const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(jphi - leadPhiGamma));
+
+          for (const auto& trigShort : activeTrig)
+          {
+            if (auto* h2 = getOrBookUnfoldRecoPtXJIncl(trigShort, rKey, effCentIdx_M))
+            {
+              h2->Fill(leadPtGamma, xJr);
+              bumpHistFill(trigShort, h2->GetName());
+            }
+
+            // inclusive |Δphi(γ,jet)| for each recoil jet passing cuts
+            if (auto* h2d = getOrBookUnfoldRecoPtDphiIncl(trigShort, rKey, effCentIdx_M))
+            {
+              h2d->Fill(leadPtGamma, dphiAbs);
+              bumpHistFill(trigShort, h2d->GetName());
+            }
+          }
         }
       }
-    }
 
       // ------------------------------------------------------------------
       // response matrix + truth distribution for unfolding
@@ -4394,13 +4403,18 @@ bool RecoilJets::runLeadIsoTightPhotonJetMatchingAndUnfolding(
     // -------------------- Photon-only unfolding fills (N_gamma) --------------------
     for (const auto& trigShort : activeTrig)
     {
-      // Measured reco photon spectrum (DATA + SIM): baseline selected-anchor family
-      if (auto* hR = getOrBookUnfoldRecoPhoPtGamma(trigShort, effCentIdx_M))
-      { hR->Fill(leadPtGamma); bumpHistFill(trigShort, hR->GetName()); }
+      // DATA reco stays unchanged.
+      // SIM reco is now truth-signal-photon conditioned so the measured SIM marginal
+      // handed to RooUnfold is consistent with the strict selected-anchor response.
+      if (!m_isSim || haveTruthPho)
+      {
+        if (auto* hR = getOrBookUnfoldRecoPhoPtGamma(trigShort, effCentIdx_M))
+        { hR->Fill(leadPtGamma); bumpHistFill(trigShort, hR->GetName()); }
+      }
 
       // Measured reco photon spectrum for the exploratory PPG12-style object-match family
-      // is filled per reco iso+tight photon candidate in the photon loop so that it stays
-      // inclusive and independent of event-leading competition.
+      // is filled per reco iso+tight photon candidate in the photon loop for DATA only.
+      // The SIM truth-tagged reco marginal is filled later, at the truth-object match point.
     
       if (m_isSim)
       {
@@ -5688,14 +5702,17 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
              recoIsoTightPhoPtsPPG12.push_back(pt_gamma);
 
              const int effCentIdx_PPG12 = (m_isAuAu ? centIdx : -1);
-             for (const auto& trigShort : activeTrig)
+             if (!m_isSim)
              {
-               if (auto* hRAlt = getOrBookUnfoldRecoPhoPtGammaPPG12Obj(trigShort, effCentIdx_PPG12))
+               for (const auto& trigShort : activeTrig)
                {
-                 hRAlt->Fill(pt_gamma);
-                 bumpHistFill(trigShort, hRAlt->GetName());
+                 if (auto* hRAlt = getOrBookUnfoldRecoPhoPtGammaPPG12Obj(trigShort, effCentIdx_PPG12))
+                 {
+                   hRAlt->Fill(pt_gamma);
+                   bumpHistFill(trigShort, hRAlt->GetName());
+                 }
+               }
              }
-            }
 
            // Do NOT jet-match here. If >1 photon passes iso∧tight in the same event,
            // jet-matching here would double-fill xJ/JES histograms.
@@ -6045,19 +6062,22 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                       }
                     }
 
-                    for (const auto& trigShort : activeTrig)
-                    {
-                      if (haveTruthPhoPPG12Obj)
+                      for (const auto& trigShort : activeTrig)
                       {
-                        if (auto* hRespAlt = getOrBookUnfoldResponsePhoPtGammaPPG12Obj(trigShort, effCentIdx_M))
-                        { hRespAlt->Fill(tPtPPG12, rPtAlt); bumpHistFill(trigShort, hRespAlt->GetName()); }
+                        if (haveTruthPhoPPG12Obj)
+                        {
+                          if (auto* hRAlt = getOrBookUnfoldRecoPhoPtGammaPPG12Obj(trigShort, effCentIdx_M))
+                          { hRAlt->Fill(rPtAlt); bumpHistFill(trigShort, hRAlt->GetName()); }
+
+                          if (auto* hRespAlt = getOrBookUnfoldResponsePhoPtGammaPPG12Obj(trigShort, effCentIdx_M))
+                          { hRespAlt->Fill(tPtPPG12, rPtAlt); bumpHistFill(trigShort, hRespAlt->GetName()); }
+                        }
+                        else
+                        {
+                          if (auto* hTMAlt = getOrBookUnfoldTruthPhoMissesPtGammaPPG12Obj(trigShort, effCentIdx_M))
+                          { hTMAlt->Fill(tPtPPG12); bumpHistFill(trigShort, hTMAlt->GetName()); }
+                        }
                       }
-                      else
-                      {
-                        if (auto* hTMAlt = getOrBookUnfoldTruthPhoMissesPtGammaPPG12Obj(trigShort, effCentIdx_M))
-                        { hTMAlt->Fill(tPtPPG12); bumpHistFill(trigShort, hTMAlt->GetName()); }
-                      }
-                    }
                   }
               }
             }

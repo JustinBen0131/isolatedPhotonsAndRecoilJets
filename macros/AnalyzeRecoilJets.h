@@ -36,6 +36,10 @@
 #include <TLine.h>
 #include <TGraph.h>
 #include <TGraphErrors.h>
+#include <TF1.h>
+#include <TFitResult.h>
+#include <TFitResultPtr.h>
+#include <TMatrixDSym.h>
 #include <TMultiGraph.h>
 #include <TROOT.h>
 #include <TMath.h>
