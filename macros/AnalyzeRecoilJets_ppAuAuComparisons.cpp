@@ -5950,9 +5950,15 @@ void RunPPvsAuAuDeliverables(Dataset& dsPP)
 {
   cout << ANSI_BOLD_CYN << "\n[EXTRA] PP vs Au+Au (gold-gold) photon-ID deliverables\n" << ANSI_RESET;
 
-    // --- Open AuAu gold-gold file(s) ---
-    //   (1) kInAuAuGold    : "no UE-sub" (current)
-    //   (2) kInAuAuGoldNew : "with UE-sub nodes" (new)
+    if (!dsPP.topDir)
+    {
+      cout << ANSI_BOLD_RED
+           << "[ERROR] PP dataset topDir is null (cannot read PP histograms)."
+           << ANSI_RESET << "\n";
+      return;
+    }
+
+    // --- Open AuAu gold-gold file(s) ONCE (shared across trigger iterations) ---
     const string kInAuAuPath = InputAuAu();
     TFile* fAA = TFile::Open(kInAuAuPath.c_str(), "READ");
     if (!fAA || fAA->IsZombie())
@@ -5961,17 +5967,6 @@ void RunPPvsAuAuDeliverables(Dataset& dsPP)
              << "[ERROR] Cannot open AuAu gold file: " << kInAuAuPath
              << ANSI_RESET << "\n";
         if (fAA) { fAA->Close(); delete fAA; }
-        return;
-      }
-
-      TDirectory* aaTop = fAA->GetDirectory(kTriggerAuAuGold.c_str());
-      if (!aaTop)
-      {
-        cout << ANSI_BOLD_RED
-             << "[ERROR] Missing AuAu trigger directory '" << kTriggerAuAuGold
-             << "' in file: " << kInAuAuPath
-             << ANSI_RESET << "\n";
-        fAA->Close(); delete fAA;
         return;
       }
 
@@ -5985,30 +5980,40 @@ void RunPPvsAuAuDeliverables(Dataset& dsPP)
         fAANew = nullptr;
       }
 
+    // --- Loop independently over each AuAu trigger ---
+    for (const auto& triggerAuAu : kTriggersAuAu)
+    {
+      cout << ANSI_BOLD_CYN
+           << "\n[PP_AuAu] ===== AuAu trigger: " << triggerAuAu << " =====\n"
+           << ANSI_RESET;
+
+      TDirectory* aaTop = fAA->GetDirectory(triggerAuAu.c_str());
+      if (!aaTop)
+      {
+        cout << ANSI_BOLD_YEL
+             << "[WARN] Missing AuAu trigger directory '" << triggerAuAu
+             << "' in file: " << kInAuAuPath << " -> skipping this trigger."
+             << ANSI_RESET << "\n";
+        continue;
+      }
+
       TDirectory* aaTopNew = nullptr;
       if (fAANew)
       {
-        aaTopNew = fAANew->GetDirectory(kTriggerAuAuGold.c_str());
+        aaTopNew = fAANew->GetDirectory(triggerAuAu.c_str());
         if (!aaTopNew)
         {
           cout << ANSI_BOLD_YEL
-               << "[WARN] Missing AuAu trigger directory '" << kTriggerAuAuGold
+               << "[WARN] Missing AuAu trigger directory '" << triggerAuAu
                << "' in NEW file (UE-sub overlay disabled): " << kInAuAuPath
                << ANSI_RESET << "\n";
         }
-    }
+      }
 
-    if (!dsPP.topDir)
-    {
-      cout << ANSI_BOLD_RED
-           << "[ERROR] PP dataset topDir is null (cannot read PP histograms)."
-           << ANSI_RESET << "\n";
-      fAA->Close(); delete fAA;
-      return;
-    }
-
-    // Output base (dedicated PP vs AuAu folder)
-    const string outBase = OutputPPAuAu();
+    // Output base (dedicated PP vs AuAu folder, per trigger when multi-trigger)
+    const string outBase = (kTriggersAuAu.size() > 1)
+                             ? JoinPath(OutputPPAuAu(), triggerAuAu)
+                             : OutputPPAuAu();
     EnsureDir(outBase);
 
     const auto& centBins = CentBins();
@@ -7017,6 +7022,8 @@ void RunPPvsAuAuDeliverables(Dataset& dsPP)
   cout << ANSI_BOLD_GRN
        << "  -> Wrote PP vs AuAu deliverables under: " << outBase
        << ANSI_RESET << "\n";
+
+  } // end for (triggerAuAu : kTriggersAuAu)
 
   if (fAANew)
   {

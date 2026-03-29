@@ -11880,41 +11880,47 @@ namespace ARJ
         if (doAuAu)
         {
           const auto& centBins = CentBins();
+          const bool multiTrig = (kTriggersAuAu.size() > 1);
 
-          if (centBins.empty())
+          for (const auto& trigAA : kTriggersAuAu)
           {
-            Dataset ds;
-            ds.label      = "DATA_AUAU";
-            ds.isSim      = false;
-            ds.trigger    = kTriggerAuAuGold;
-            ds.topDirName = kTriggerAuAuGold;
-            ds.inFilePath = InputAuAu();
-
-            // Fallback: no YAML centrality bins available, keep legacy AuAu output path.
-            ds.outBase = JoinPath(OutputAuAu(), ds.trigger);
-
-            datasets.push_back(std::move(ds));
-          }
-          else
-          {
-            for (const auto& cb : centBins)
+            if (centBins.empty())
             {
               Dataset ds;
-              ds.label      = TString::Format("DATA_AUAU_%d_%d", cb.lo, cb.hi).Data();
+              ds.label      = multiTrig ? ("DATA_AUAU_" + trigAA) : "DATA_AUAU";
               ds.isSim      = false;
-              ds.trigger    = kTriggerAuAuGold;
-              ds.topDirName = kTriggerAuAuGold;
+              ds.trigger    = trigAA;
+              ds.topDirName = trigAA;
               ds.inFilePath = InputAuAu();
 
-              ds.centFolder = cb.folder;
-              ds.centSuffix = cb.suffix;
-              ds.centLabel  = TString::Format("Centrality: %d-%d%%", cb.lo, cb.hi).Data();
-
-              // AuAu-only outputs are organized per-trigger, per-centrality:
-              //   <AuAu base>/<trigger>/<centFolder>/{baselineData,insituCalib,unfolding,...}
-              ds.outBase = JoinPath(JoinPath(OutputAuAu(), ds.trigger), ds.centFolder);
+              // Fallback: no YAML centrality bins available, keep legacy AuAu output path.
+              ds.outBase = JoinPath(OutputAuAu(), ds.trigger);
 
               datasets.push_back(std::move(ds));
+            }
+            else
+            {
+              for (const auto& cb : centBins)
+              {
+                Dataset ds;
+                ds.label      = multiTrig
+                                  ? TString::Format("DATA_AUAU_%s_%d_%d", trigAA.c_str(), cb.lo, cb.hi).Data()
+                                  : TString::Format("DATA_AUAU_%d_%d", cb.lo, cb.hi).Data();
+                ds.isSim      = false;
+                ds.trigger    = trigAA;
+                ds.topDirName = trigAA;
+                ds.inFilePath = InputAuAu();
+
+                ds.centFolder = cb.folder;
+                ds.centSuffix = cb.suffix;
+                ds.centLabel  = TString::Format("Centrality: %d-%d%%", cb.lo, cb.hi).Data();
+
+                // AuAu-only outputs are organized per-trigger, per-centrality:
+                //   <AuAu base>/<trigger>/<centFolder>/{baselineData,insituCalib,unfolding,...}
+                ds.outBase = JoinPath(JoinPath(OutputAuAu(), ds.trigger), ds.centFolder);
+
+                datasets.push_back(std::move(ds));
+              }
             }
           }
         }
@@ -12675,14 +12681,402 @@ namespace ARJ
                << "  (leakage correction: OFF)\n";
         }
 
-        analysis::RunABCDPurityAndSidebandSubtraction(ds, lfForThis);
-        cout << "     [OK] ABCD purity + sideband subtraction complete.\n";
-      }
+          analysis::RunABCDPurityAndSidebandSubtraction(ds, lfForThis);
+          cout << "     [OK] ABCD purity + sideband subtraction complete.\n";
+        }
 
-      // ---------------------------------------------------------------------------
-      // Sections 5A–5H: Jet QA suite per dataset (MatchCache per dataset)
-      // ---------------------------------------------------------------------------
-      cout << ANSI_BOLD_CYN << "\n[STEP 6] Sections 5A–5H: Jet QA suite (per dataset)\n" << ANSI_RESET;
+        // ---------------------------------------------------------------------------
+        // AuAu-only: raw ABCD purity overlay across centrality bins (per trigger)
+        // Output: <OutputAuAu()>/<trigger>/purityOverlays/purity_raw_DATA_centOverlay.png
+        // ---------------------------------------------------------------------------
+        if (isAuAuOnly)
+        {
+          const auto& centBinsOv = CentBins();
+          if (!centBinsOv.empty())
+          {
+            TFile* fPurOv = TFile::Open(InputAuAu().c_str(), "READ");
+            if (fPurOv && !fPurOv->IsZombie())
+            {
+              const int centColors[] = { kRed+1, kBlue+1, kGreen+2, kMagenta+1, kOrange+7, kCyan+2 };
+              const int nCentColors = (int)(sizeof(centColors)/sizeof(centColors[0]));
+
+              for (const auto& trigAA : kTriggersAuAu)
+              {
+                TDirectory* trigDir = fPurOv->GetDirectory(trigAA.c_str());
+                if (!trigDir)
+                {
+                  cout << ANSI_BOLD_YEL
+                       << "[WARN] purityOverlays: trigger dir '" << trigAA
+                       << "' not found in " << InputAuAu() << " -> skipping.\n"
+                       << ANSI_RESET;
+                  continue;
+                }
+
+                const string outDir = JoinPath(JoinPath(OutputAuAu(), trigAA), "purityOverlays");
+                EnsureDir(outDir);
+
+                TCanvas cOv("c_pur_raw_centOverlay","c_pur_raw_centOverlay",900,700);
+                ApplyCanvasMargins1D(cOv);
+
+                TH1F hFrame("hPurOvFrame","",100, kPtEdges.front(), kPtEdges.back());
+                hFrame.SetDirectory(nullptr);
+                hFrame.SetStats(0);
+                hFrame.SetMinimum(0.0);
+                hFrame.SetMaximum(1.05);
+                hFrame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                hFrame.GetYaxis()->SetTitle("Purity (raw ABCD)");
+                hFrame.Draw();
+
+                TLegend leg(0.62, 0.18, 0.92, 0.48);
+                leg.SetBorderSize(0);
+                leg.SetFillStyle(0);
+                leg.SetTextFont(42);
+                leg.SetTextSize(0.033);
+
+                vector<TGraphErrors*> keepGraphs;
+
+                for (int ic = 0; ic < (int)centBinsOv.size(); ++ic)
+                {
+                  const auto& cb = centBinsOv[ic];
+
+                  vector<double> xPur(kNPtBins), exPur(kNPtBins), yPur(kNPtBins), eyPur(kNPtBins);
+                  bool anyBin = false;
+
+                  for (int i = 0; i < kNPtBins; ++i)
+                  {
+                    const PtBin& b = PtBins()[i];
+
+                    auto Get1 = [&](const string& hname)->double {
+                      TH1* h = dynamic_cast<TH1*>(trigDir->Get(hname.c_str()));
+                      return h ? h->GetBinContent(1) : 0.0;
+                    };
+
+                    const double A = Get1("h_isIsolated_isTight"     + b.suffix + cb.suffix);
+                    const double B = Get1("h_notIsolated_isTight"    + b.suffix + cb.suffix);
+                    const double C = Get1("h_isIsolated_notTight"    + b.suffix + cb.suffix);
+                    const double D = Get1("h_notIsolated_notTight"   + b.suffix + cb.suffix);
+
+                    const double ptLo = kPtEdges[(std::size_t)i];
+                    const double ptHi = kPtEdges[(std::size_t)i + 1];
+                    xPur[i]  = 0.5 * (ptLo + ptHi);
+                    exPur[i] = 0.5 * (ptHi - ptLo);
+
+                    double Praw = 0.0;
+                    if (A > 0.0 && D > 0.0)
+                    {
+                      double Asig = A - B * (C / D);
+                      if (Asig < 0.0) Asig = 0.0;
+                      Praw = Asig / A;
+                    }
+                    yPur[i] = Praw;
+
+                    double eP = 0.0;
+                    if (A > 0.0 && D > 0.0)
+                    {
+                      const double dPdA =  (B * C) / (A * A * D);
+                      const double dPdB = -(C) / (A * D);
+                      const double dPdC = -(B) / (A * D);
+                      const double dPdD =  (B * C) / (A * D * D);
+                      double var = 0.0;
+                      if (A > 0.0) var += dPdA * dPdA * A;
+                      if (B > 0.0) var += dPdB * dPdB * B;
+                      if (C > 0.0) var += dPdC * dPdC * C;
+                      if (D > 0.0) var += dPdD * dPdD * D;
+                      eP = (var > 0.0) ? std::sqrt(var) : 0.0;
+                    }
+                    eyPur[i] = eP;
+
+                    if (A > 0.0) anyBin = true;
+                  }
+
+                  if (!anyBin) continue;
+
+                  TGraphErrors* g = new TGraphErrors(kNPtBins, &xPur[0], &yPur[0], &exPur[0], &eyPur[0]);
+                  const int col = centColors[ic % nCentColors];
+                  g->SetLineWidth(2);
+                  g->SetLineColor(col);
+                  g->SetMarkerStyle(20);
+                  g->SetMarkerSize(1.1);
+                  g->SetMarkerColor(col);
+                  g->Draw("P SAME");
+
+                  leg.AddEntry(g, TString::Format("Cent %d-%d%%", cb.lo, cb.hi).Data(), "pe");
+                  keepGraphs.push_back(g);
+                }
+
+                leg.Draw();
+
+                // Centered title
+                TLatex tTitle;
+                tTitle.SetNDC(true);
+                tTitle.SetTextFont(42);
+                tTitle.SetTextAlign(23);
+                tTitle.SetTextSize(0.045);
+                tTitle.DrawLatex(0.50, 0.96,
+                  "ABCD Purity vs p_{T}^{#gamma} for each centrality, Run3auau");
+
+                // Cut annotations derived from AuAu config
+                {
+                  const string isoConeLabel = (kAA_IsoConeR == "isoR40")
+                    ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+
+                  string isoModeLabel;
+                  if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel = "E_{T}^{iso} < 5 GeV";
+                  else                               isoModeLabel = "Sliding iso cut";
+
+                  const string vzLabel = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+
+                  TLatex tCuts;
+                  tCuts.SetNDC(true);
+                  tCuts.SetTextFont(42);
+                  tCuts.SetTextAlign(13);
+                  tCuts.SetTextSize(0.035);
+                  tCuts.DrawLatex(0.18, 0.88, isoConeLabel.c_str());
+                  tCuts.DrawLatex(0.18, 0.83, isoModeLabel.c_str());
+                  tCuts.DrawLatex(0.18, 0.78, vzLabel.c_str());
+                }
+
+                  SaveCanvas(cOv, JoinPath(outDir, "purity_raw_DATA_centOverlay.png"));
+                  cout << ANSI_BOLD_GRN << "[WROTE] " << JoinPath(outDir, "purity_raw_DATA_centOverlay.png") << ANSI_RESET << "\n";
+
+                  for (auto* g : keepGraphs) delete g;
+
+                  // ---------------------------------------------------------------
+                  // Selected-centrality (0-10, 20-40, 60-80) + PP overlay
+                  // ---------------------------------------------------------------
+                  {
+                    struct SelCent { int lo; int hi; int color; };
+                    const std::vector<SelCent> selCents = { {0,10,kBlue+1}, {20,40,kGreen+2}, {60,80,kMagenta+1} };
+
+                    // Open PP file for purity
+                    TFile* fPP = TFile::Open(InputPP(isRun25pp).c_str(), "READ");
+                    TDirectory* ppDir = nullptr;
+                    if (fPP && !fPP->IsZombie())
+                    {
+                      ppDir = fPP->GetDirectory(kTriggerPP.c_str());
+                      if (!ppDir) ppDir = fPP;
+                    }
+
+                    TCanvas cSel("c_pur_raw_centSelect","c_pur_raw_centSelect",900,700);
+                    ApplyCanvasMargins1D(cSel);
+
+                    TH1F hFrameSel("hPurSelFrame","",100, kPtEdges.front(), kPtEdges.back());
+                    hFrameSel.SetDirectory(nullptr);
+                    hFrameSel.SetStats(0);
+                    hFrameSel.SetMinimum(0.0);
+                    hFrameSel.SetMaximum(1.05);
+                    hFrameSel.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                    hFrameSel.GetYaxis()->SetTitle("Purity (raw ABCD)");
+                    hFrameSel.Draw();
+
+                    TLegend legSel(0.62, 0.18, 0.92, 0.48);
+                    legSel.SetBorderSize(0);
+                    legSel.SetFillStyle(0);
+                    legSel.SetTextFont(42);
+                    legSel.SetTextSize(0.033);
+
+                    vector<TGraphErrors*> keepSel;
+
+                    // PP purity (open red circles)
+                    if (ppDir)
+                    {
+                      vector<double> xPP(kNPtBins), exPP(kNPtBins), yPP(kNPtBins), eyPP(kNPtBins);
+                      bool anyPP = false;
+
+                      for (int i = 0; i < kNPtBins; ++i)
+                      {
+                        const PtBin& b = PtBins()[i];
+
+                        auto Get1PP = [&](const string& hname)->double {
+                          TH1* h = dynamic_cast<TH1*>(ppDir->Get(hname.c_str()));
+                          return h ? h->GetBinContent(1) : 0.0;
+                        };
+
+                        const double A = Get1PP("h_isIsolated_isTight"     + b.suffix);
+                        const double B = Get1PP("h_notIsolated_isTight"    + b.suffix);
+                        const double C = Get1PP("h_isIsolated_notTight"    + b.suffix);
+                        const double D = Get1PP("h_notIsolated_notTight"   + b.suffix);
+
+                        const double ptLo = kPtEdges[(std::size_t)i];
+                        const double ptHi = kPtEdges[(std::size_t)i + 1];
+                        xPP[i]  = 0.5 * (ptLo + ptHi);
+                        exPP[i] = 0.5 * (ptHi - ptLo);
+
+                        double Praw = 0.0;
+                        if (A > 0.0 && D > 0.0)
+                        {
+                          double Asig = A - B * (C / D);
+                          if (Asig < 0.0) Asig = 0.0;
+                          Praw = Asig / A;
+                        }
+                        yPP[i] = Praw;
+
+                        double eP = 0.0;
+                        if (A > 0.0 && D > 0.0)
+                        {
+                          const double dPdA =  (B * C) / (A * A * D);
+                          const double dPdB = -(C) / (A * D);
+                          const double dPdC = -(B) / (A * D);
+                          const double dPdD =  (B * C) / (A * D * D);
+                          double var = 0.0;
+                          if (A > 0.0) var += dPdA * dPdA * A;
+                          if (B > 0.0) var += dPdB * dPdB * B;
+                          if (C > 0.0) var += dPdC * dPdC * C;
+                          if (D > 0.0) var += dPdD * dPdD * D;
+                          eP = (var > 0.0) ? std::sqrt(var) : 0.0;
+                        }
+                        eyPP[i] = eP;
+
+                        if (A > 0.0) anyPP = true;
+                      }
+
+                      if (anyPP)
+                      {
+                        TGraphErrors* gPP = new TGraphErrors(kNPtBins, &xPP[0], &yPP[0], &exPP[0], &eyPP[0]);
+                        gPP->SetLineWidth(2);
+                        gPP->SetLineColor(kRed + 1);
+                        gPP->SetMarkerStyle(24);
+                        gPP->SetMarkerSize(1.1);
+                        gPP->SetMarkerColor(kRed + 1);
+                        gPP->Draw("P SAME");
+                        legSel.AddEntry(gPP, "pp", "pe");
+                        keepSel.push_back(gPP);
+                      }
+                    }
+
+                    // Selected AuAu centralities (closed circles)
+                    for (const auto& sc : selCents)
+                    {
+                      // Find matching CentBin
+                      const CentBin* cbMatch = nullptr;
+                      for (const auto& cb : centBinsOv)
+                      {
+                        if (cb.lo == sc.lo && cb.hi == sc.hi) { cbMatch = &cb; break; }
+                      }
+                      if (!cbMatch) continue;
+
+                      vector<double> xAA(kNPtBins), exAA(kNPtBins), yAA(kNPtBins), eyAA(kNPtBins);
+                      bool anyAA = false;
+
+                      for (int i = 0; i < kNPtBins; ++i)
+                      {
+                        const PtBin& b = PtBins()[i];
+
+                        auto Get1AA = [&](const string& hname)->double {
+                          TH1* h = dynamic_cast<TH1*>(trigDir->Get(hname.c_str()));
+                          return h ? h->GetBinContent(1) : 0.0;
+                        };
+
+                        const double A = Get1AA("h_isIsolated_isTight"     + b.suffix + cbMatch->suffix);
+                        const double B = Get1AA("h_notIsolated_isTight"    + b.suffix + cbMatch->suffix);
+                        const double C = Get1AA("h_isIsolated_notTight"    + b.suffix + cbMatch->suffix);
+                        const double D = Get1AA("h_notIsolated_notTight"   + b.suffix + cbMatch->suffix);
+
+                        const double ptLo = kPtEdges[(std::size_t)i];
+                        const double ptHi = kPtEdges[(std::size_t)i + 1];
+                        xAA[i]  = 0.5 * (ptLo + ptHi);
+                        exAA[i] = 0.5 * (ptHi - ptLo);
+
+                        double Praw = 0.0;
+                        if (A > 0.0 && D > 0.0)
+                        {
+                          double Asig = A - B * (C / D);
+                          if (Asig < 0.0) Asig = 0.0;
+                          Praw = Asig / A;
+                        }
+                        yAA[i] = Praw;
+
+                        double eP = 0.0;
+                        if (A > 0.0 && D > 0.0)
+                        {
+                          const double dPdA =  (B * C) / (A * A * D);
+                          const double dPdB = -(C) / (A * D);
+                          const double dPdC = -(B) / (A * D);
+                          const double dPdD =  (B * C) / (A * D * D);
+                          double var = 0.0;
+                          if (A > 0.0) var += dPdA * dPdA * A;
+                          if (B > 0.0) var += dPdB * dPdB * B;
+                          if (C > 0.0) var += dPdC * dPdC * C;
+                          if (D > 0.0) var += dPdD * dPdD * D;
+                          eP = (var > 0.0) ? std::sqrt(var) : 0.0;
+                        }
+                        eyAA[i] = eP;
+
+                        if (A > 0.0) anyAA = true;
+                      }
+
+                      if (!anyAA) continue;
+
+                      TGraphErrors* gAA = new TGraphErrors(kNPtBins, &xAA[0], &yAA[0], &exAA[0], &eyAA[0]);
+                      gAA->SetLineWidth(2);
+                      gAA->SetLineColor(sc.color);
+                      gAA->SetMarkerStyle(20);
+                      gAA->SetMarkerSize(1.1);
+                      gAA->SetMarkerColor(sc.color);
+                      gAA->Draw("P SAME");
+
+                      legSel.AddEntry(gAA, TString::Format("AuAu %d-%d%%", sc.lo, sc.hi).Data(), "pe");
+                      keepSel.push_back(gAA);
+                    }
+
+                    legSel.Draw();
+
+                    // Centered title
+                    TLatex tTitleSel;
+                    tTitleSel.SetNDC(true);
+                    tTitleSel.SetTextFont(42);
+                    tTitleSel.SetTextAlign(23);
+                    tTitleSel.SetTextSize(0.045);
+                    tTitleSel.DrawLatex(0.50, 0.96,
+                      "ABCD Purity vs p_{T}^{#gamma} for each centrality, Run3auau");
+
+                    // Cut annotations derived from AuAu config
+                    {
+                      const string isoConeLabel = (kAA_IsoConeR == "isoR40")
+                        ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+
+                      string isoModeLabel;
+                      if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel = "E_{T}^{iso} < 5 GeV";
+                      else                               isoModeLabel = "Sliding iso cut";
+
+                      const string vzLabel = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+
+                      TLatex tCutsSel;
+                      tCutsSel.SetNDC(true);
+                      tCutsSel.SetTextFont(42);
+                      tCutsSel.SetTextAlign(13);
+                      tCutsSel.SetTextSize(0.035);
+                      tCutsSel.DrawLatex(0.18, 0.88, isoConeLabel.c_str());
+                      tCutsSel.DrawLatex(0.18, 0.83, isoModeLabel.c_str());
+                      tCutsSel.DrawLatex(0.18, 0.78, vzLabel.c_str());
+                    }
+
+                    SaveCanvas(cSel, JoinPath(outDir, "purity_raw_centSelect_ppOverlay.png"));
+                    cout << ANSI_BOLD_GRN << "[WROTE] " << JoinPath(outDir, "purity_raw_centSelect_ppOverlay.png") << ANSI_RESET << "\n";
+
+                    for (auto* g : keepSel) delete g;
+
+                    if (fPP) { fPP->Close(); delete fPP; }
+                  }
+                }
+
+              fPurOv->Close();
+              delete fPurOv;
+            }
+            else
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] purityOverlays: cannot open " << InputAuAu() << " -> skipped.\n"
+                   << ANSI_RESET;
+              if (fPurOv) { fPurOv->Close(); delete fPurOv; }
+            }
+          }
+        }
+
+        // ---------------------------------------------------------------------------
+        // Sections 5A–5H: Jet QA suite per dataset (MatchCache per dataset)
+        // ---------------------------------------------------------------------------
+        cout << ANSI_BOLD_CYN << "\n[STEP 6] Sections 5A–5H: Jet QA suite (per dataset)\n" << ANSI_RESET;
 
       map<string, MatchCache> matchCaches;
 
