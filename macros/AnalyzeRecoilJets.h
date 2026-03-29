@@ -91,9 +91,9 @@ namespace ARJ
   //   AuAu ONLY:      isAuAuOnly=true    (all others false)
   // ---------------------------------------------------------------------------
   inline bool isPPdataOnly   = false;
-  inline bool isSimAndDataPP = true;
-  inline bool isAuAuOnly     = false;
-  inline bool isPPdataAndAUAU = false;
+  inline bool isSimAndDataPP = false;
+  inline bool isAuAuOnly     = true;
+  inline bool isPPdataAndAUAU = true;
   inline bool isRun25pp      = false;
 
   // ===========================================================================
@@ -107,34 +107,50 @@ namespace ARJ
   inline bool bothPhoton5and10sim        = false;
   inline bool bothPhoton5and20sim        = false;
   inline bool bothPhoton10and20sim       = false;
-  inline bool allPhoton5and10and20sim    = true;
+  inline bool allPhoton5and10and20sim    = false;
   //   Special SIM samples:
   inline bool isSimMB                    = false;   // MinBias DETROIT tune
   inline bool isSimJet5                  = false;   // inclusive jet5
   inline bool isSimEmbedded              = false;   // embedded photon20 in AuAu
 
-  inline bool doPhotonJetMerge = true;
+  inline bool doPhotonJetMerge = false;
 
   //   RooUnfold: true = run both non-purity and purity-corrected passes + overlay.
-  inline bool do_xJ_PPunfold = true;
+  inline bool do_xJ_PPunfold = false;
   //   Internal: selects raw vs ABCD purity-corrected reco inputs per pass.
-  inline bool gApplyPurityCorrectionForUnfolding = true;
+  inline bool gApplyPurityCorrectionForUnfolding = false;
 
   //   One-off Sam vs Justin unsmear comparison:
   inline bool doSamVsJustinUnsmearOverlays = false;
 
   // ===========================================================================
-  // 3. CUT DEFAULTS  (edit these to select any cut combination)
-  //    All input/output paths are derived automatically from these values.
+  // 3a. PP / SIM CUT DEFAULTS  (drives all PP, SIM, and SIM+PP paths)
+  //     All input/output paths are derived automatically from these values.
   // ===========================================================================
   inline const int    kJetPtMin        = 5;            // GeV: 3, 5, or 10
   inline const string kB2BCut          = "7pi_8";      // "7pi_8" or "pi_2"
   inline const int    kVzCut           = 30;            // cm: 30 or 60
   inline const string kIsoConeR        = "isoR30";     // "isoR30" or "isoR40"
   inline const string kIsoMode         = "isSliding";  // "isSliding" or "fixedIso5GeV"
-  inline const string kUEVariant       = "noSub";      // "noSub","baseVariant","variantA","variantB"
-                                                        // (only used for auau/simEmbedded)
   inline const double kPhotonEtaAbsMax = 0.7;
+
+  // ===========================================================================
+  // 3b. Au+Au CUT DEFAULTS  (independent from PP/SIM — drives all AuAu and
+  //     embedded-SIM paths; does NOT need to match the PP cuts above)
+  // ===========================================================================
+  inline const int    kAA_JetPtMin     = 5;            // GeV: 3, 5, or 10
+  inline const string kAA_B2BCut       = "7pi_8";      // "7pi_8" or "pi_2"
+  inline const int    kAA_VzCut        = 30;            // cm: 30 or 60
+  inline const string kAA_IsoConeR     = "isoR40";     // "isoR30" or "isoR40"
+  inline const string kAA_IsoMode      = "fixedIso5GeV";// "isSliding" or "fixedIso5GeV"
+  inline const string kAA_UEVariant    = "variantB";      // "noSub","baseVariant","variantA","variantB"
+  // Au+Au trigger directory name(s) inside the ROOT file.
+  // Set one, two, or all three.  Analysis runs independently for each.
+  inline const vector<string> kTriggersAuAu = {
+      "MBD_NS_geq_2_vtx_lt_150"
+      // ,"photon_10_plus_MBD_NS_geq_2_vtx_lt_150"
+      // ,"photon_12_plus_MBD_NS_geq_2_vtx_lt_150"
+  };
 
   // ===========================================================================
   // 4. BINNING  (edit these arrays to change pT / xJ / centrality slicing)
@@ -173,16 +189,31 @@ namespace ARJ
   }
 
   // --- Derived tag builders (DO NOT EDIT) ---
+  // PP / SIM tag (Section 3a defaults)
   inline string CfgTag()
   {
-      return "jetMinPt" + std::to_string(kJetPtMin) + "_" +
-             kB2BCut + "_vz" + std::to_string(kVzCut) + "_" +
-             kIsoConeR + "_" + kIsoMode;
+        return "jetMinPt" + std::to_string(kJetPtMin) + "_" +
+               kB2BCut + "_vz" + std::to_string(kVzCut) + "_" +
+               kIsoConeR + "_" + kIsoMode;
   }
 
+  // Au+Au tag (Section 3b defaults)
+  inline string CfgTagAA()
+  {
+        return "jetMinPt" + std::to_string(kAA_JetPtMin) + "_" +
+               kAA_B2BCut + "_vz" + std::to_string(kAA_VzCut) + "_" +
+               kAA_IsoConeR + "_" + kAA_IsoMode;
+  }
+
+  inline string CfgTagWithUE_AA()
+  {
+        return CfgTagAA() + "_" + kAA_UEVariant;
+  }
+
+  // Convenience alias — all existing CfgTagWithUE() call sites are AuAu-context
   inline string CfgTagWithUE()
   {
-      return CfgTag() + "_" + kUEVariant;
+        return CfgTagWithUE_AA();
   }
 
   // For overlay comparisons across different cut combos
@@ -229,11 +260,12 @@ namespace ARJ
   // FIXED INPUTS / TRIGGERS
   // =============================================================================
   inline const string kTriggerPP       = "Photon_4_GeV_plus_MBD_NS_geq_1";
-  inline const string kTriggerAuAuGold = "MBD_NS_geq_2_vtx_lt_150";
+  // Backward-compatible alias: defaults to first entry in kTriggersAuAu
+  inline const string kTriggerAuAuGold = kTriggersAuAu.front();
   inline const string kDirSIM          = "SIM";
 
   // =========================================================================
-  // INPUT PATH BUILDERS — all derived from CfgTag() / CfgTagWithUE()
+  // INPUT PATH BUILDERS — PP/SIM from CfgTag(), AuAu from CfgTagWithUE_AA()
   // =========================================================================
   inline const string kThesisBase = "/Users/patsfan753/Desktop/ThesisAnalysis";
   inline const string kInputBase  = kThesisBase + "/InputFiles";
@@ -280,10 +312,9 @@ namespace ARJ
   // Variant override for embedded (e.g. loop over UE variants)
   inline string InputSimEmbedded(const string& ueVariant)
   {
-      return kInputBase + "/simEmbedded/RecoilJets_embeddedPhoton20_ALL_" +
-             CfgTag() + "_" + ueVariant + ".root";
+    return kInputBase + "/simEmbedded/RecoilJets_embeddedPhoton20_ALL_" +
+           CfgTagAA() + "_" + ueVariant + ".root";
   }
-
   // =========================================================================
   // OUTPUT PATH BUILDERS — tag-aware, never overwrite across cut combos
   // =========================================================================
@@ -297,7 +328,7 @@ namespace ARJ
   }
   inline string OutputPPAuAu()
   {
-      return kOutputBase + "/pp_auau/" + CfgTag() + "_" + kUEVariant;
+      return kOutputBase + "/pp_auau/pp_" + CfgTag() + "__aa_" + CfgTagWithUE_AA();
   }
   inline string OutputIndividualSim(const string& simLabel)
   {

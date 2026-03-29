@@ -33,7 +33,7 @@
 # Photon + jet kinematic selection
 # -----------------------------------------------------------------------------
 photon_eta_abs_max: 0.7
-jet_pt_min: [3.0, 5.0, 10.0]
+jet_pt_min: [5.0]
 
 # Jet radii to reconstruct (R values).
 # The steering macro builds reco jets (and SIM truth jets) for each radius.
@@ -45,7 +45,7 @@ jet_radii: [0.2, 0.4, 0.6]
 #   0.5   → Δφ > π/2
 #   0.875 → Δφ > 7π/8  (ATLAS-like)
 # The macro computes: back_to_back_dphi_min_rad = fraction × π
-back_to_back_dphi_min_pi_fraction: [0.5, 0.875]
+back_to_back_dphi_min_pi_fraction: [0.875]
 
 # -----------------------------------------------------------------------------
 # Vertex selection

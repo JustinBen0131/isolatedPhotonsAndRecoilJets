@@ -12103,9 +12103,9 @@ namespace ARJ
            << "    doPhotonJetMerge = " << (doPhotonJetMerge ? "true" : "false") << "\n"
            << "    allPhoton5and10and20sim = " << (allPhoton5and10and20sim ? "true" : "false") << "\n"
            << "    isSimEmbedded           = " << (isSimEmbedded ? "true" : "false") << "\n"
-           << "      CfgTag()              = " << CfgTag() << "\n"
-           << "      kUEVariant            = " << kUEVariant << "\n"
-           << "      CfgTagWithUE()        = " << CfgTagWithUE() << "\n";
+           << "      CfgTag()  (PP/SIM)    = " << CfgTag() << "\n"
+           << "      CfgTagAA()            = " << CfgTagAA() << "\n"
+           << "      CfgTagWithUE_AA()     = " << CfgTagWithUE_AA() << "\n";
 
       // ---------------------------------------------------------------------------
       //  Multi-SIM sequential runner
@@ -12270,7 +12270,7 @@ namespace ARJ
              << "    kVzCut                          = " << kVzCut << " cm\n"
              << "    kIsoConeR                       = " << kIsoConeR << "\n"
              << "    kIsoMode                        = " << kIsoMode << "\n"
-             << "    kUEVariant                      = " << kUEVariant << "\n";
+             << "    kAA_UEVariant                   = " << kAA_UEVariant << "\n";
 
         if (ss == SimSample::kPhotonJet5And10And20Merged)
         {
