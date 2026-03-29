@@ -789,15 +789,23 @@ sim_init() {
 
   SIM_MASTER_LIST="${SIM_STAGE_DIR}/sim_${SIM_SAMPLE}_${SIM_MASTER5_NAME}"
   local _ninput; _ninput=$(wc -l < "$calo" | tr -d ' ')
-  say "    [sim_init] paste 5 matched lists (${_ninput} lines each) → master list…" >&2
+  if [[ "${ACTION:-}" != "CHECKJOBS" ]]; then
+    say "    [sim_init] paste 5 matched lists (${_ninput} lines each) → master list…" >&2
+  fi
   paste "$calo" "$g4" "$jets" "$glob" "$mbd" > "$SIM_MASTER_LIST"
-  say "    [sim_init] paste done ($(wc -l < "$SIM_MASTER_LIST" | tr -d ' ') lines)" >&2
+  if [[ "${ACTION:-}" != "CHECKJOBS" ]]; then
+    say "    [sim_init] paste done ($(wc -l < "$SIM_MASTER_LIST" | tr -d ' ') lines)" >&2
+  fi
 
   # Clean master list: strip blank lines + comment lines (keeps ALL columns)
   SIM_CLEAN_LIST="${SIM_STAGE_DIR}/sim_${SIM_SAMPLE}_PAIR_MASTER_CLEAN.list"
-  say "    [sim_init] cleaning master list (strip blanks/comments)…" >&2
+  if [[ "${ACTION:-}" != "CHECKJOBS" ]]; then
+    say "    [sim_init] cleaning master list (strip blanks/comments)…" >&2
+  fi
   grep -E -v '^[[:space:]]*($|#)' "$SIM_MASTER_LIST" > "$SIM_CLEAN_LIST" || true
-  say "    [sim_init] clean list ready: $(wc -l < "$SIM_CLEAN_LIST" | tr -d ' ') lines → $(basename "$SIM_CLEAN_LIST")" >&2
+  if [[ "${ACTION:-}" != "CHECKJOBS" ]]; then
+    say "    [sim_init] clean list ready: $(wc -l < "$SIM_CLEAN_LIST" | tr -d ' ') lines → $(basename "$SIM_CLEAN_LIST")" >&2
+  fi
   [[ -s "$SIM_CLEAN_LIST" ]] || { err "Sim master list empty after cleaning: $SIM_MASTER_LIST"; exit 22; }
 
   SIM_OUT_DIR="${DEST_BASE}/${SIM_SAMPLE}"
@@ -882,14 +890,23 @@ check_jobs_sim() {
   n_cfg=$(( ${#sim_pts[@]} * ${#sim_fracs[@]} * ${#sim_vzs[@]} * ${#sim_cones[@]} * ${#iso_tags[@]} * ${#uepipe_modes[@]} ))
 
   say "CHECKJOBS (dataset=${DATASET}, tag=${TAG})"
-  say "  YAML master        : ${master_yaml}"
-  say "  groupSize          : ${gs}"
-  say "  clusterUEpipeline  : [${uepipe_modes[*]}]"
-  say "  cfg combos         : ${n_cfg}"
-  say "  samples            : [${samples[*]}]"
-  say "  master list source : ${SIM_ROOT}"
+  say "  YAML master         : ${master_yaml}"
+  say "  groupSize           : ${gs}"
+  say "  samples             : [${samples[*]}]"
+  say "  master list source  : ${SIM_ROOT}"
   echo
 
+  say "${BOLD}Matrix dimensions:${RST}"
+  say "  jet_pt_min                        : [${sim_pts[*]}]  (${#sim_pts[@]} values)"
+  say "  back_to_back_dphi_min_pi_fraction : [${sim_fracs[*]}]  (${#sim_fracs[@]} values)"
+  say "  vz_cut_cm                         : [${sim_vzs[*]}]  (${#sim_vzs[@]} values)"
+  say "  coneR                             : [${sim_cones[*]}]  (${#sim_cones[@]} values)"
+  say "  iso modes                         : [${iso_tags[*]}]  (${#iso_tags[@]} values)"
+  say "  clusterUEpipeline                 : [${uepipe_modes[*]}]  (${#uepipe_modes[@]} values)"
+  say "  cfg combos (product)              : ${BOLD}${n_cfg}${RST}"
+  echo
+
+  say "${BOLD}Per-sample input file counts:${RST}"
   for samp in "${samples[@]}"; do
     SIM_SAMPLE="$samp"
     sim_init
@@ -900,11 +917,68 @@ check_jobs_sim() {
     per_cfg_jobs=$(( per_cfg_jobs + njobs ))
     say "  sample=${BOLD}${SIM_SAMPLE}${RST}  input_files=${nfiles}  jobs_per_cfg=${njobs}  master_list=${SIM_MASTER_LIST}"
   done
+  echo
+
+  say "${BOLD}Full cfg tag list (${n_cfg} entries × ${#samples[@]} samples = ${BOLD}$((n_cfg * ${#samples[@]}))${RST} submit blocks):${RST}"
+  printf "  ${BOLD}%3s │ %-70s │ %-5s %-6s %-7s %-7s %-18s %-12s${RST}\n" \
+         "#" "cfg_tag" "pt" "frac" "vz" "cone" "iso" "uepipe"
+  printf "  ────┼────────────────────────────────────────────────────────────────────────┼───── ────── ─────── ─────── ────────────────── ────────────\n"
+  local cfg_num=0
+  for _pt in "${sim_pts[@]}"; do
+    for _frac in "${sim_fracs[@]}"; do
+      for _vz in "${sim_vzs[@]}"; do
+        for _cone in "${sim_cones[@]}"; do
+          for (( _ci=0; _ci<${#iso_tags[@]}; _ci++ )); do
+            for _ue in "${uepipe_modes[@]}"; do
+              (( cfg_num+=1 ))
+              local _tag
+              _tag="jetMinPt$(sim_pt_tag "$_pt")_$(sim_b2b_tag "$_frac")_$(sim_vz_tag "$_vz")_$(sim_cone_tag "$_cone")_${iso_tags[$_ci]}"
+              (( uepipe_in_tag )) && _tag="${_tag}_${_ue}"
+              printf "  %3d │ %-70s │ %-5s %-6s %-7s %-7s %-18s %-12s\n" \
+                     "$cfg_num" "$_tag" "$_pt" "$_frac" "$_vz" "$_cone" "${iso_tags[$_ci]}" "$_ue"
+            done
+          done
+        done
+      done
+    done
+  done
+  echo
 
   total_jobs=$(( n_cfg * per_cfg_jobs ))
+  say "${BOLD}Job count summary:${RST}"
+  say "  cfg combos             : ${n_cfg}"
+  say "  jobs per combo (Σsamp) : ${per_cfg_jobs}"
+  say "  ─────────────────────────────────"
+  say "  ${BOLD}TOTAL CONDOR JOBS        : ${BOLD}${total_jobs}${RST}"
   echo
-  say "  jobs per cfg (Σsamp): ${per_cfg_jobs}"
-  say "  total jobs (matrix): ${total_jobs}"
+
+  say "${BOLD}groupSize sensitivity (total Condor jobs submitted):${RST}"
+  echo
+  printf "  ${BOLD}%-12s │ %-14s${RST}\n" "groupSize" "TOTAL JOBS"
+  printf "  ─────────────┼───────────────\n"
+  for _gs_try in 4 6 7 8 10; do
+    local _per_cfg_jobs_try=0
+    for samp in "${samples[@]}"; do
+      SIM_SAMPLE="$samp"
+      sim_init
+      local _nft
+      local _nj
+      _nft=$(wc -l < "$SIM_CLEAN_LIST" | awk '{print $1}')
+      _nj=$(ceil_div "$_nft" "$_gs_try")
+      _per_cfg_jobs_try=$(( _per_cfg_jobs_try + _nj ))
+    done
+    local _tj=$(( n_cfg * _per_cfg_jobs_try ))
+    local _marker=""
+    [[ "$_gs_try" -eq "$gs" ]] && _marker=" ${BOLD}← current${RST}"
+    printf "  %-12s │ %14s%s\n" "$_gs_try" "$_tj" "$_marker"
+  done
+  echo
+
+  say "Output tree: each tag becomes a subdirectory under ${DEST_BASE}/"
+  local _ex_tag
+  _ex_tag="jetMinPt$(sim_pt_tag "${sim_pts[0]}")_$(sim_b2b_tag "${sim_fracs[0]}")_$(sim_vz_tag "${sim_vzs[0]}")_$(sim_cone_tag "${sim_cones[0]}")_${iso_tags[0]}"
+  (( uepipe_in_tag )) && _ex_tag="${_ex_tag}_${uepipe_modes[0]}"
+  say "  e.g. ${DIM}${DEST_BASE}/${_ex_tag}/run28_photonjet10/*.root${RST}"
 }
 
 # Wipe previous sim outputs + sim-tagged logs/out/err (ONLY used before condorDoAll)

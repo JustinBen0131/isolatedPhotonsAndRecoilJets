@@ -587,7 +587,7 @@ build_active_skiplist() {
 make_run_list() {
   local run8="$1"
   local srcdir="${RUN_BASE}/${run8}"
-  local list="${TMP_DIR}/run_${run8}.txt"
+  local list="${TMP_DIR}/run_${_cfg:-flat}_${run8}.txt"
   local all="${list}.00_all"
 
   build_active_skiplist
