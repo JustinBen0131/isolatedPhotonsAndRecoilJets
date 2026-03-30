@@ -12117,73 +12117,71 @@ namespace ARJ
         if (ds.file) { ds.file->Close(); ds.file = nullptr; ds.topDir = nullptr; }
     }
 
-    inline vector<Dataset> BuildDatasets(RunMode mode)
-    {
-        vector<Dataset> datasets;
+  inline vector<Dataset> BuildDatasets(RunMode mode)
+  {
+      vector<Dataset> datasets;
 
-        const bool doSim = (mode == RunMode::kSimOnly ||
-                            mode == RunMode::kSimAndDataPP);
+      const bool doSim = (mode == RunMode::kSimOnly ||
+                          mode == RunMode::kSimAndDataPP ||
+                          mode == RunMode::kSimAndDataAUAU);
 
-        const bool doPP  = (mode == RunMode::kPPDataOnly ||
-                            mode == RunMode::kSimAndDataPP);
+      const bool doPP  = (mode == RunMode::kPPDataOnly ||
+                          mode == RunMode::kSimAndDataPP);
 
-        const bool doAuAu = (mode == RunMode::kAuAuOnly);
+      const bool doAuAu = (mode == RunMode::kAuAuOnly ||
+                           mode == RunMode::kSimAndDataAUAU);
 
-        const SimSample ss = CurrentSimSample();
+      const SimSample ss = CurrentSimSample();
 
-        if (doSim)
-        {
-            if (ss == SimSample::kSimEmbedded)
+      if (doSim)
+      {
+          if (IsEmbeddedSimSample(ss))
+          {
+            // Embedded SIM: per-centrality datasets (same file, filtered by centSuffix)
+            // IMPORTANT:
+            // The current embedded productions only contain:
+            //   0-10, 10-20, 20-40, 40-60, 60-80
+            // and do NOT contain 80-100 histograms. So suppress 80-100 here.
+            vector<CentBin> centBins;
+            for (const auto& cb : CentBins())
             {
-              // Embedded SIM: per-centrality datasets (same file, filtered by centSuffix)
-              // For embedded SIM, derive the cfg tag from the actual ROOT file name so the
-              // filename itself is the source of truth for vz / cone / iso / UE variant.
-              //
-              // IMPORTANT:
-              // The current embedded photon20 files were only analyzed for:
-              //   0-10, 10-20, 20-40, 40-60, 60-80
-              // and do NOT contain 80-100 histograms. So suppress 80-100 here to avoid
-              // creating empty output folders like .../80_100.
-              vector<CentBin> centBins;
-              for (const auto& cb : CentBins())
-              {
-                if (cb.lo == 80 && cb.hi == 100) continue;
-                centBins.push_back(cb);
-              }
+              if (cb.lo == 80 && cb.hi == 100) continue;
+              centBins.push_back(cb);
+            }
 
-                const string simInPath  = SimInputPathForSample(ss);
-                const string simCfgTag  = CfgTagWithUE();
-                const string simOutBase = OutputSimEmbedded();
+            const string simInPath  = SimInputPathForSample(ss);
+            const string simLabel   = SimSampleLabel(ss);
+            const string simOutBase = SimOutBaseForSample(ss);
 
-                if (centBins.empty())
-                {
-                  Dataset ds;
-                  ds.label      = "SIM_EMBEDDED_" + simCfgTag;
-                  ds.isSim      = true;
-                  ds.trigger    = "";
-                  ds.topDirName = kDirSIM;
-                  ds.inFilePath = simInPath;
-                  ds.outBase    = simOutBase;
-                  datasets.push_back(std::move(ds));
-              }
-              else
+            if (centBins.empty())
+            {
+              Dataset ds;
+              ds.label      = "SIM_EMBEDDED_" + simLabel;
+              ds.isSim      = true;
+              ds.trigger    = "";
+              ds.topDirName = kDirSIM;
+              ds.inFilePath = simInPath;
+              ds.outBase    = simOutBase;
+              datasets.push_back(std::move(ds));
+            }
+            else
+            {
+              for (const auto& cb : centBins)
               {
-                for (const auto& cb : centBins)
-                {
-                  Dataset ds;
-                  ds.label      = TString::Format("SIM_EMBEDDED_%s_%d_%d", simCfgTag.c_str(), cb.lo, cb.hi).Data();
-                  ds.isSim      = true;
-                  ds.trigger    = "";
-                  ds.topDirName = kDirSIM;
-                  ds.inFilePath = simInPath;
-                  ds.centFolder = cb.folder;
-                  ds.centSuffix = cb.suffix;
-                  ds.centLabel  = TString::Format("Centrality: %d-%d%%", cb.lo, cb.hi).Data();
-                  ds.outBase    = JoinPath(simOutBase, cb.folder);
-                  datasets.push_back(std::move(ds));
-                }
+                Dataset ds;
+                ds.label      = TString::Format("SIM_EMBEDDED_%s_%d_%d", simLabel.c_str(), cb.lo, cb.hi).Data();
+                ds.isSim      = true;
+                ds.trigger    = "";
+                ds.topDirName = kDirSIM;
+                ds.inFilePath = simInPath;
+                ds.centFolder = cb.folder;
+                ds.centSuffix = cb.suffix;
+                ds.centLabel  = TString::Format("Centrality: %d-%d%%", cb.lo, cb.hi).Data();
+                ds.outBase    = JoinPath(simOutBase, cb.folder);
+                datasets.push_back(std::move(ds));
               }
             }
+          }
           else
           {
             Dataset ds;
@@ -12195,214 +12193,184 @@ namespace ARJ
             ds.outBase    = SimOutBaseForSample(ss);
             datasets.push_back(std::move(ds));
           }
-        }
+      }
 
-        if (doPP)
-        {
-          Dataset ds;
-          ds.label      = "DATA_PP";
-          ds.isSim      = false;
-          ds.trigger    = kTriggerPP;
-          ds.topDirName = kTriggerPP;
-          ds.inFilePath = InputPP(isRun25pp);
+      if (doPP)
+      {
+        Dataset ds;
+        ds.label      = "DATA_PP";
+        ds.isSim      = false;
+        ds.trigger    = kTriggerPP;
+        ds.topDirName = kTriggerPP;
+        ds.inFilePath = InputPP(isRun25pp);
 
-            // NOTE:
-            // - Legacy single-run behavior: PP output goes to OutputPP()
-            // - Multi-run SIM+DATA behavior: PP output goes to OutputPP()/with_<simSampleLabel>
-            //   (so you can loop over multiple SIM selections without clobbering PP outputs)
-            //
-            // DATA outputs are organized per-trigger:
-            //   <PP base>/<trigger>/{baselineData,insituCalib,unfolding,...}
-            if (mode == RunMode::kPPDataOnly)
-            {
-              ds.outBase = JoinPath(OutputPP(), ds.trigger);
-            }
-            else
-            {
-              ds.outBase = JoinPath(PPOutBaseForThisRun(), ds.trigger);
-            }
-
-          datasets.push_back(std::move(ds));
-        }
-
-        if (doAuAu)
-        {
-          const auto& centBins = CentBins();
-          const bool multiTrig = (kTriggersAuAu.size() > 1);
-
-          for (const auto& trigAA : kTriggersAuAu)
+          // NOTE:
+          // - Legacy single-run behavior: PP output goes to OutputPP()
+          // - Multi-run SIM+DATA behavior: PP output goes to OutputPP()/with_<simSampleLabel>
+          //   (so you can loop over multiple SIM selections without clobbering PP outputs)
+          //
+          // DATA outputs are organized per-trigger:
+          //   <PP base>/<trigger>/{baselineData,insituCalib,unfolding,...}
+          if (mode == RunMode::kPPDataOnly)
           {
-            if (centBins.empty())
+            ds.outBase = JoinPath(OutputPP(), ds.trigger);
+          }
+          else
+          {
+            ds.outBase = JoinPath(PPOutBaseForThisRun(), ds.trigger);
+          }
+
+        datasets.push_back(std::move(ds));
+      }
+
+      if (doAuAu)
+      {
+        const auto& centBins = CentBins();
+        const bool multiTrig = (kTriggersAuAu.size() > 1);
+
+        for (const auto& trigAA : kTriggersAuAu)
+        {
+          if (centBins.empty())
+          {
+            Dataset ds;
+            ds.label      = multiTrig ? ("DATA_AUAU_" + trigAA) : "DATA_AUAU";
+            ds.isSim      = false;
+            ds.trigger    = trigAA;
+            ds.topDirName = trigAA;
+            ds.inFilePath = InputAuAu();
+
+            // Fallback: no YAML centrality bins available, keep legacy AuAu output path.
+            ds.outBase = JoinPath(OutputAuAu(), ds.trigger);
+
+            datasets.push_back(std::move(ds));
+          }
+          else
+          {
+            for (const auto& cb : centBins)
             {
               Dataset ds;
-              ds.label      = multiTrig ? ("DATA_AUAU_" + trigAA) : "DATA_AUAU";
+              ds.label      = multiTrig
+                                ? TString::Format("DATA_AUAU_%s_%d_%d", trigAA.c_str(), cb.lo, cb.hi).Data()
+                                : TString::Format("DATA_AUAU_%d_%d", cb.lo, cb.hi).Data();
               ds.isSim      = false;
               ds.trigger    = trigAA;
               ds.topDirName = trigAA;
               ds.inFilePath = InputAuAu();
 
-              // Fallback: no YAML centrality bins available, keep legacy AuAu output path.
-              ds.outBase = JoinPath(OutputAuAu(), ds.trigger);
+              ds.centFolder = cb.folder;
+              ds.centSuffix = cb.suffix;
+              ds.centLabel  = TString::Format("Centrality: %d-%d%%", cb.lo, cb.hi).Data();
+
+              // AuAu outputs are organized per-trigger, per-centrality:
+              //   <AuAu base>/<trigger>/<centFolder>/{baselineData,insituCalib,unfolding,...}
+              ds.outBase = JoinPath(JoinPath(OutputAuAu(), ds.trigger), ds.centFolder);
 
               datasets.push_back(std::move(ds));
             }
-            else
-            {
-              for (const auto& cb : centBins)
-              {
-                Dataset ds;
-                ds.label      = multiTrig
-                                  ? TString::Format("DATA_AUAU_%s_%d_%d", trigAA.c_str(), cb.lo, cb.hi).Data()
-                                  : TString::Format("DATA_AUAU_%d_%d", cb.lo, cb.hi).Data();
-                ds.isSim      = false;
-                ds.trigger    = trigAA;
-                ds.topDirName = trigAA;
-                ds.inFilePath = InputAuAu();
-
-                ds.centFolder = cb.folder;
-                ds.centSuffix = cb.suffix;
-                ds.centLabel  = TString::Format("Centrality: %d-%d%%", cb.lo, cb.hi).Data();
-
-                // AuAu-only outputs are organized per-trigger, per-centrality:
-                //   <AuAu base>/<trigger>/<centFolder>/{baselineData,insituCalib,unfolding,...}
-                ds.outBase = JoinPath(JoinPath(OutputAuAu(), ds.trigger), ds.centFolder);
-
-                datasets.push_back(std::move(ds));
-              }
-            }
           }
         }
+      }
 
-        return datasets;
-    }
+      return datasets;
+  }
 
-    inline bool MaybeBuildMergedSIM(RunMode mode)
+  inline bool MaybeBuildMergedSIM(RunMode mode)
+  {
+      // Only relevant when a SIM-including mode is running AND a merged SIM sample was selected.
+      if (mode == RunMode::kPPDataOnly || mode == RunMode::kAuAuOnly) return true;
+
+    const SimSample ss = CurrentSimSample();
+    if (!IsMergedSimSample(ss)) return true;
+
+    bool ok = true;
+
+    if (ss == SimSample::kPhotonJet5And10Merged)
     {
-        // Only relevant when a SIM-including mode is running AND a merged SIM sample was selected.
-        if (mode == RunMode::kPPDataOnly || mode == RunMode::kAuAuOnly) return true;
+        ok = BuildMergedSIMFile_PhotonSlices(
+          {InputSim("photonjet5"), InputSim("photonjet10")},
+          {kSigmaPhoton5_pb, kSigmaPhoton10_pb},
+          MergedSimPath("photonJet5and10merged_SIM", "RecoilJets_photonjet5plus10_MERGED.root"),
+          kDirSIM,
+          {"photonJet5", "photonJet10"}
+        );
+    }
+    else if (ss == SimSample::kPhotonJet5And20Merged)
+    {
+        ok = BuildMergedSIMFile_PhotonSlices(
+          {InputSim("photonjet5"), InputSim("photonjet20")},
+          {kSigmaPhoton5_pb, kSigmaPhoton20_pb},
+          MergedSimPath("photonJet5and20merged_SIM", "RecoilJets_photonjet5plus20_MERGED.root"),
+          kDirSIM,
+          {"photonJet5", "photonJet20"}
+        );
+    }
+    else if (ss == SimSample::kPhotonJet10And20Merged)
+    {
+        if (!doPhotonJetMerge)
+        {
+            const string outMerged = MergedSimPath("photonJet10and20merged_SIM", "RecoilJets_photonjet10plus20_MERGED.root");
 
-      const SimSample ss = CurrentSimSample();
-      if (!IsMergedSimSample(ss)) return true;
+            cout << ANSI_BOLD_CYN
+                 << "\n[MERGE SIM] doPhotonJetMerge=false -> skipping SIM10+20 rebuild step.\n"
+                 << "            Using existing merged output: " << outMerged << "\n"
+                 << ANSI_RESET;
 
-      bool ok = true;
-
-      if (ss == SimSample::kPhotonJet5And10Merged)
-      {
-          ok = BuildMergedSIMFile_PhotonSlices(
-            {InputSim("photonjet5"), InputSim("photonjet10")},
-            {kSigmaPhoton5_pb, kSigmaPhoton10_pb},
-            MergedSimPath("photonJet5and10merged_SIM", "RecoilJets_photonjet5plus10_MERGED.root"),
-            kDirSIM,
-            {"photonJet5", "photonJet10"}
-          );
-      }
-      else if (ss == SimSample::kPhotonJet5And20Merged)
-      {
-          ok = BuildMergedSIMFile_PhotonSlices(
-            {InputSim("photonjet5"), InputSim("photonjet20")},
-            {kSigmaPhoton5_pb, kSigmaPhoton20_pb},
-            MergedSimPath("photonJet5and20merged_SIM", "RecoilJets_photonjet5plus20_MERGED.root"),
-            kDirSIM,
-            {"photonJet5", "photonJet20"}
-          );
-      }
-      else if (ss == SimSample::kPhotonJet10And20Merged)
-      {
-          if (!doPhotonJetMerge)
-          {
-              const string outMerged = MergedSimPath("photonJet10and20merged_SIM", "RecoilJets_photonjet10plus20_MERGED.root");
-
-              cout << ANSI_BOLD_CYN
-                   << "\n[MERGE SIM] doPhotonJetMerge=false -> skipping SIM10+20 rebuild step.\n"
-                   << "            Using existing merged output: " << outMerged << "\n"
+            if (gSystem->AccessPathName(outMerged.c_str()))
+            {
+              cout << ANSI_BOLD_RED
+                   << "[MERGE SIM][FATAL] Merged SIM10+20 file not found, but doPhotonJetMerge=false:\n"
+                   << "  " << outMerged << "\n"
                    << ANSI_RESET;
+              ok = false;
+            }
+        }
+        else
+        {
+            const string outMerged =
+                MergedSimPath("photonJet10and20merged_SIM", "RecoilJets_photonjet10plus20_MERGED.root");
 
-              if (gSystem->AccessPathName(outMerged.c_str()))
-              {
-                cout << ANSI_BOLD_RED
-                     << "[MERGE SIM][FATAL] Merged SIM10+20 file not found, but doPhotonJetMerge=false:\n"
-                     << "  " << outMerged << "\n"
-                     << ANSI_RESET;
-                ok = false;
-              }
-          }
-          else
-          {
-              // Use new path builders instead of DefaultSim10and20Config
-              const string outMerged =
-                  MergedSimPath("photonJet10and20merged_SIM", "RecoilJets_photonjet10plus20_MERGED.root");
+            cout << ANSI_BOLD_CYN
+                 << "\n[MERGE SIM] Rebuilding ONLY the default SIM10+20 merged file.\n"
+                 << "            CfgTag() = " << CfgTag() << "\n"
+                 << "            in10    = " << InputSim("photonjet10") << "\n"
+                 << "            in20    = " << InputSim("photonjet20") << "\n"
+                 << "            out     = " << outMerged << "\n"
+                 << ANSI_RESET;
 
-              cout << ANSI_BOLD_CYN
-                   << "\n[MERGE SIM] Rebuilding ONLY the default SIM10+20 merged file.\n"
-                   << "            CfgTag() = " << CfgTag() << "\n"
-                   << "            in10    = " << InputSim("photonjet10") << "\n"
-                   << "            in20    = " << InputSim("photonjet20") << "\n"
-                   << "            out     = " << outMerged << "\n"
-                   << ANSI_RESET;
-
-              ok = BuildMergedSIMFile_PhotonSlices(
-                  {InputSim("photonjet10"), InputSim("photonjet20")},
-                  {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
-                  outMerged,
-                  kDirSIM,
-                  {"photonJet10", "photonJet20"}
-              );
-          }
-      }
-      else if (ss == SimSample::kPhotonJet5And10And20Merged)
-      {
-          if (!doPhotonJetMerge)
-          {
-              const string outMerged = MergedSimPath("photonJet5and10and20merged_SIM", "RecoilJets_photonjet5plus10plus20_MERGED.root");
-
-              cout << ANSI_BOLD_CYN
-                   << "\n[MERGE SIM] doPhotonJetMerge=false -> skipping SIM5+10+20 rebuild step.\n"
-                   << "            Using existing merged output: " << outMerged << "\n"
-                   << ANSI_RESET;
-
-              if (gSystem->AccessPathName(outMerged.c_str()))
-              {
-                cout << ANSI_BOLD_RED
-                     << "[MERGE SIM][FATAL] Merged SIM5+10+20 file not found, but doPhotonJetMerge=false:\n"
-                     << "  " << outMerged << "\n"
-                     << ANSI_RESET;
-                ok = false;
-              }
-          }
-          else
-          {
-              // Use new path builders instead of DefaultSim10and20Config
-
-              const string outMerged =
-                  MergedSimPath("photonJet5and10and20merged_SIM", "RecoilJets_photonjet5plus10plus20_MERGED.root");
-
-              cout << ANSI_BOLD_CYN
-                   << "\n[MERGE SIM] Rebuilding ONLY the default SIM5+10+20 merged file.\n"
-                   << "            CfgTag() = " << CfgTag() << "\n"
-                   << "            in5     = " << InputSim("photonjet5") << "\n"
-                   << "            in10    = " << InputSim("photonjet10") << "\n"
-                   << "            in20    = " << InputSim("photonjet20") << "\n"
-                   << "            out     = " << outMerged << "\n"
-                   << ANSI_RESET;
-
-              ok = BuildMergedSIMFile_PhotonSlices(
-                {InputSim("photonjet5"), InputSim("photonjet10"), InputSim("photonjet20")},
-                {kSigmaPhoton5_pb, kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+            ok = BuildMergedSIMFile_PhotonSlices(
+                {InputSim("photonjet10"), InputSim("photonjet20")},
+                {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
                 outMerged,
                 kDirSIM,
-                {"photonJet5", "photonJet10", "photonJet20"}
-              );
-          }
-      }
-
-      if (!ok)
-      {
-        cout << ANSI_BOLD_RED << "[FATAL] Failed to build merged SIM file." << ANSI_RESET << "\n";
-        return false;
-      }
-
-      return true;
+                {"photonJet10", "photonJet20"}
+            );
+        }
     }
+    else if (ss == SimSample::kEmbeddedPhoton10And20Merged)
+    {
+        if (!doPhotonJetMerge)
+        {
+            const string outMerged =
+                MergedSimEmbeddedPath("photonJet10and20merged_SIM", "RecoilJets_embeddedPhoton10plus20_MERGED.root");
+
+            cout << ANSI_BOLD_CYN
+                 << "\n[MERGE SIM] doPhotonJetMerge=false -> skipping embedded SIM10+20 rebuild step.\n"
+                 << "            Using existing merged output: " << outMerged << "\n"
+                 << ANSI_RESET;
+
+            if (gSystem->AccessPathName(outMerged.c_str()))
+            {
+              cout << ANSI_BOLD_RED
+                   << "[MERGE SIM][FATAL] Merged embedded SIM10+20 file not found, but doPhotonJetMerge=false:\n"
+                   << "  " << outMerged << "\n"
+                   << ANSI_RESET;
+              ok = false;
+            }
+        }
+        else
+        {
+            const string outMerged =
+                MergedSimEmbeddedPath("photon
   } // namespace driver
 
 
