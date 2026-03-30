@@ -123,7 +123,7 @@ namespace ARJ
   inline bool doPhotonJetMerge = true;
 
   //   RooUnfold: true = run both non-purity and purity-corrected passes + overlay.
-  inline bool do_xJ_PPunfold = true;
+  inline bool do_xJ_PPunfold = false;
   //   RooUnfold AuAu: true = run per-centrality unfolding with purity × combinatoric variants.
   inline bool do_xJ_AAunfold = true;
   //   Internal: selects raw vs ABCD purity-corrected reco inputs per pass.

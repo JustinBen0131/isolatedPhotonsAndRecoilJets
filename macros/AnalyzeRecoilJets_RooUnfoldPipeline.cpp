@@ -12179,6 +12179,7 @@
                       hTmp->SetMinimum(0.0);
                       hTmp->SetMaximum((maxY > 0.0) ? (yHeadroomScale * maxY) : 1.0);
                       hTmp->GetXaxis()->SetRangeUser(0.0, 2.0);
+                      hTmp->GetXaxis()->SetTitle("");
                       hTmp->GetXaxis()->SetTitleOffset(0.95);
                       hTmp->GetYaxis()->SetTitleOffset(1.10);
 
@@ -12236,7 +12237,7 @@
                         txHdr.SetNDC();
                         txHdr.SetTextFont(42);
                         txHdr.SetTextAlign(13);
-                        txHdr.SetTextSize(0.028);
+                        txHdr.SetTextSize(0.040);
                         txHdr.SetTextColor(kBlack);
 
                         TLatex tx;
@@ -12246,16 +12247,25 @@
                         tx.SetTextSize(0.024);
                         tx.SetTextColor(kBlack);
 
-                        txHdr.DrawLatex(0.58, 0.75, "#it{#bf{sPHENIX}}");
-                        tx.DrawLatex(0.58, 0.7, TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
-                        tx.DrawLatex(0.58, 0.65, TString::Format("|#Delta#phi| > %s", bbLabel.c_str()).Data());
-                        tx.DrawLatex(0.58, 0.6, TString::Format("p_{T}^{jet} > %.0f GeV", sphJetPtMin).Data());
-                        tx.DrawLatex(0.58, 0.55, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+                        tx.DrawLatex(0.15, 0.70, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+                        tx.DrawLatex(0.15, 0.65, TString::Format("R = %.1f", R).Data());
+                        tx.DrawLatex(0.15, 0.60, TString::Format("|#Delta#phi| > %s", bbLabel.c_str()).Data());
+                        tx.DrawLatex(0.15, 0.55, TString::Format("p_{T}^{jet} > %.0f GeV", sphJetPtMin).Data());
+                        tx.DrawLatex(0.15, 0.50, TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
 
-                        txHdr.DrawLatex(0.72, 0.75, "#bf{ATLAS} pp #sqrt{s} = 5.02 TeV");
-                        tx.DrawLatex(0.72, 0.7, "|#Delta#phi| > 7#pi/8");
-                        tx.DrawLatex(0.72, 0.65, TString::Format("p_{T}^{jet} > %.1f GeV", atlasJetPtMin).Data());
-                        tx.DrawLatex(0.72, 0.6, TString::Format("p_{T}^{#gamma} = %s", kAtlasTable1PhoPtLabel.c_str()).Data());
+                        txHdr.DrawLatex(0.66, 0.72, "#it{#bf{ATLAS}}");
+                        tx.DrawLatex(0.66, 0.67, "pp #sqrt{s} = 5.02 TeV");
+                        tx.DrawLatex(0.66, 0.62, TString::Format("p_{T}^{#gamma} = %s GeV", kAtlasTable1PhoPtLabel.c_str()).Data());
+                        tx.DrawLatex(0.66, 0.57, "R = 0.4");
+                        tx.DrawLatex(0.66, 0.52, "|#Delta#phi| > 7#pi/8");
+                        tx.DrawLatex(0.66, 0.47, TString::Format("p_{T}^{jet} > %.1f GeV", atlasJetPtMin).Data());
+
+                        TLatex txAxis;
+                        txAxis.SetNDC();
+                        txAxis.SetTextFont(42);
+                        txAxis.SetTextAlign(31);
+                        txAxis.SetTextSize(0.050);
+                        txAxis.DrawLatex(0.98, 0.03, "x_{J}");
 
                         SaveCanvas(cO, JoinPath(overlayOut, TString::Format("xJ_unfolded_perPhoton_LHCoverlay_pTbin%d.png", i + 1).Data()));
 
@@ -12272,9 +12282,9 @@
 
                     TCanvas cOEff(TString::Format("c_perPho_LHC_effCorrected_%s_%d", rKey.c_str(), i + 1).Data(), "c_perPho_LHC_effCorrected", 900, 700);
                     ApplyCanvasMargins1D(cOEff);
-                    cOEff.SetLeftMargin(0.16);
+                    cOEff.SetLeftMargin(0.18);
                     cOEff.SetRightMargin(0.05);
-                    cOEff.SetBottomMargin(0.14);
+                    cOEff.SetBottomMargin(0.16);
                     cOEff.SetTopMargin(0.08);
 
                     TH1* hTmpEff = (TH1*)perPhoHists_jetEffCorr[i]->Clone(TString::Format("hTmp_perPho_effCorrected_%s_%d", rKey.c_str(), i + 1).Data());
@@ -12308,10 +12318,9 @@
                       hTmpEff->SetMinimum(0.0);
                       hTmpEff->SetMaximum((maxY > 0.0) ? (yHeadroomScale * maxY) : 1.0);
                       hTmpEff->GetXaxis()->SetRangeUser(0.0, 2.0);
-                      hTmpEff->GetXaxis()->CenterTitle();
-                      hTmpEff->GetYaxis()->CenterTitle();
-                      hTmpEff->GetXaxis()->SetTitleOffset(1.15);
-                      hTmpEff->GetYaxis()->SetTitleOffset(1.70);
+                      hTmpEff->GetXaxis()->SetTitle("");
+                      hTmpEff->GetXaxis()->SetTitleOffset(0.95);
+                      hTmpEff->GetYaxis()->SetTitleOffset(1.10);
 
                       // Draw sPHENIX with horizontal error bars on the plot (TH1::Draw("E1") keeps x-errors)
                       hTmpEff->Draw("E1");
@@ -12341,7 +12350,7 @@
                         gSphLeg.SetLineColor(hTmpEff->GetLineColor());
                         gSphLeg.SetLineWidth(hTmpEff->GetLineWidth());
 
-                        TLegend extraLegend(0.18, 0.82, 0.46, 0.93);
+                        TLegend extraLegend(0.15, 0.78, 0.43, 0.88);
                         extraLegend.SetBorderSize(0);
                         extraLegend.SetFillStyle(0);
                         extraLegend.SetTextFont(42);
@@ -12350,13 +12359,13 @@
                         extraLegend.AddEntry((TObject*)nullptr, "p+p #sqrt{s} = 200 GeV", "");
                         extraLegend.Draw();
 
-                        TLegend leg(0.49,0.82,0.90,0.93);
+                        TLegend leg(0.49,0.79,0.90,0.89);
                         leg.SetBorderSize(0);
                         leg.SetFillStyle(0);
                         leg.SetTextFont(42);
                         leg.SetTextSize(0.029);
                         leg.AddEntry(&gSphLeg,
-                                       TString::Format("sPHENIX run24pp + jet eff. corr.").Data(),
+                                       TString::Format("sPHENIX run24pp").Data(),
                                        "pe");
                         leg.AddEntry(gAtlasPP,
                                        TString::Format("ATLAS Phys. Lett. B 789 (2019) 167").Data(),
@@ -12369,31 +12378,35 @@
                         txHdr.SetNDC();
                         txHdr.SetTextFont(42);
                         txHdr.SetTextAlign(13);
-                        txHdr.SetTextSize(0.031);
+                        txHdr.SetTextSize(0.040);
                         txHdr.SetTextColor(kBlack);
 
                         TLatex tx;
                         tx.SetNDC();
                         tx.SetTextFont(42);
                         tx.SetTextAlign(13);
-                        tx.SetTextSize(0.023);
+                        tx.SetTextSize(0.024);
                         tx.SetTextColor(kBlack);
 
-                        txHdr.DrawLatex(0.10, 0.60, "#it{#bf{sPHENIX}}");
-                        tx.DrawLatex(0.10, 0.56, "run24pp");
-                        tx.DrawLatex(0.10, 0.51, "pp #sqrt{s} = 200 GeV");
-                        tx.DrawLatex(0.10, 0.46, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
-                        tx.DrawLatex(0.10, 0.41, TString::Format("R = %.1f", sphR).Data());
-                        tx.DrawLatex(0.10, 0.36, TString::Format("|#Delta #phi| > %s", bbLabel.c_str()).Data());
-                        tx.DrawLatex(0.10, 0.31, TString::Format("p_{T}^{jet} > %.0f GeV", sphJetPtMin).Data());
-                        tx.DrawLatex(0.10, 0.26, TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
+                        tx.DrawLatex(0.15, 0.70, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+                        tx.DrawLatex(0.15, 0.65, TString::Format("R = %.1f", sphR).Data());
+                        tx.DrawLatex(0.15, 0.60, TString::Format("|#Delta#phi| > %s", bbLabel.c_str()).Data());
+                        tx.DrawLatex(0.15, 0.55, TString::Format("p_{T}^{jet} > %.0f GeV", sphJetPtMin).Data());
+                        tx.DrawLatex(0.15, 0.50, TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
 
-                        txHdr.DrawLatex(0.68, 0.60, "#it{#bf{ATLAS}}");
-                        tx.DrawLatex(0.68, 0.56, "pp #sqrt{s} = 5.02 TeV");
-                        tx.DrawLatex(0.68, 0.51, TString::Format("p_{T}^{#gamma} = %s GeV", kAtlasTable1PhoPtLabel.c_str()).Data());
-                        tx.DrawLatex(0.68, 0.46, "R = 0.4");
-                        tx.DrawLatex(0.68, 0.41, "|#Delta #phi| > 7#pi/8");
-                        tx.DrawLatex(0.68, 0.36, TString::Format("p_{T}^{jet} > %.1f GeV", atlasJetPtMin).Data());
+                        txHdr.DrawLatex(0.66, 0.72, "#it{#bf{ATLAS}}");
+                        tx.DrawLatex(0.66, 0.67, "pp #sqrt{s} = 5.02 TeV");
+                        tx.DrawLatex(0.66, 0.62, TString::Format("p_{T}^{#gamma} = %s GeV", kAtlasTable1PhoPtLabel.c_str()).Data());
+                        tx.DrawLatex(0.66, 0.57, "R = 0.4");
+                        tx.DrawLatex(0.66, 0.52, "|#Delta#phi| > 7#pi/8");
+                        tx.DrawLatex(0.66, 0.47, TString::Format("p_{T}^{jet} > %.1f GeV", atlasJetPtMin).Data());
+
+                        TLatex txAxis;
+                        txAxis.SetNDC();
+                        txAxis.SetTextFont(42);
+                        txAxis.SetTextAlign(31);
+                        txAxis.SetTextSize(0.050);
+                        txAxis.DrawLatex(0.98, 0.03, "x_{J}");
 
                         SaveCanvas(cOEff, JoinPath(overlayOutEffCorrected, TString::Format("xJ_unfolded_perPhoton_LHCoverlay_pTbin%d.png", i + 1).Data()));
 
