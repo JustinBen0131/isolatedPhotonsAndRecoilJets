@@ -12385,14 +12385,14 @@
                         tx.SetNDC();
                         tx.SetTextFont(42);
                         tx.SetTextAlign(13);
-                        tx.SetTextSize(0.024);
+                        tx.SetTextSize(0.033);
                         tx.SetTextColor(kBlack);
 
-                        tx.DrawLatex(0.15, 0.70, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
-                        tx.DrawLatex(0.15, 0.65, TString::Format("R = %.1f", sphR).Data());
-                        tx.DrawLatex(0.15, 0.60, TString::Format("|#Delta#phi| > %s", bbLabel.c_str()).Data());
-                        tx.DrawLatex(0.15, 0.55, TString::Format("p_{T}^{jet} > %.0f GeV", sphJetPtMin).Data());
-                        tx.DrawLatex(0.15, 0.50, TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
+                        tx.DrawLatex(0.25, 0.70, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+                        tx.DrawLatex(0.25, 0.65, TString::Format("R = %.1f", sphR).Data());
+                        tx.DrawLatex(0.25, 0.60, TString::Format("|#Delta#phi| > %s", bbLabel.c_str()).Data());
+                        tx.DrawLatex(0.25, 0.55, TString::Format("p_{T}^{jet} > %.0f GeV", sphJetPtMin).Data());
+                        tx.DrawLatex(0.25, 0.50, TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
 
                         txHdr.DrawLatex(0.66, 0.72, "#it{#bf{ATLAS}}");
                         tx.DrawLatex(0.66, 0.67, "pp #sqrt{s} = 5.02 TeV");
@@ -12412,14 +12412,14 @@
 
                         delete hTmpEff;
                     }
-                  }
-              }
-          }
-
-        delete hXJ;
+                }
+            }
         }
 
-        {
+        delete hXJ;
+      }
+
+      {
               // -------------------------------------------------------------------
               // 2x3 table (first 6 pT bins): ratio of statistical error magnitudes
               //   ratio(xJ) = err_cov(xJ) / err_toy(xJ)

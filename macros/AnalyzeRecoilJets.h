@@ -92,10 +92,10 @@ namespace ARJ
   //   AuAu ONLY:      isAuAuOnly=true    (all others false)
   // ---------------------------------------------------------------------------
   inline bool isPPdataOnly   = false;
-  inline bool isSimAndDataPP = false;
-  inline bool isSimAndDataAUAU = true;
-  inline bool pp_beforeChangeInRecoSimDefTruthMatched = false;
-  inline bool isAuAuOnly     = true;
+  inline bool isSimAndDataPP = true;
+  inline bool isSimAndDataAUAU = false;
+  inline bool pp_beforeChangeInRecoSimDefTruthMatched = true;
+  inline bool isAuAuOnly     = false;
   inline bool isPPdataAndAUAU = false;
   inline bool isRun25pp      = false;
 
@@ -110,11 +110,11 @@ namespace ARJ
   inline bool bothPhoton5and10sim        = false;
   inline bool bothPhoton5and20sim        = false;
   inline bool bothPhoton10and20sim       = false;
-  inline bool allPhoton5and10and20sim    = false;
+  inline bool allPhoton5and10and20sim    = true;
   //   Embedded Au+Au SIM slices / merges:
   inline bool isPhotonJet10Embedded      = false;
   inline bool isPhotonJet20Embedded      = false;
-  inline bool bothPhoton10and20simEmbedded = true;
+  inline bool bothPhoton10and20simEmbedded = false;
   //   Special SIM samples:
   inline bool isSimMB                    = false;   // MinBias DETROIT tune
   inline bool isSimJet5                  = false;   // inclusive jet5
@@ -123,13 +123,13 @@ namespace ARJ
   inline bool doPhotonJetMerge = true;
 
   //   RooUnfold: true = run both non-purity and purity-corrected passes + overlay.
-  inline bool do_xJ_PPunfold = false;
+  inline bool do_xJ_PPunfold = true;
   //   RooUnfold AuAu: true = run per-centrality unfolding with purity × combinatoric variants.
-  inline bool do_xJ_AAunfold = true;
+  inline bool do_xJ_AAunfold = false;
   //   Internal: selects raw vs ABCD purity-corrected reco inputs per pass.
   inline bool gApplyPurityCorrectionForUnfolding = true;
   //   Internal: selects whether the embedded combinatoric template is subtracted before unfolding.
-  inline bool gApplyCombinatoricSubtractionForUnfolding = true;
+  inline bool gApplyCombinatoricSubtractionForUnfolding = false;
 
   //   One-off Sam vs Justin unsmear comparison:
   inline bool doSamVsJustinUnsmearOverlays = false;
