@@ -721,7 +721,7 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simm
     case "$SIM_DATASET_TOKEN" in
       isSimJet5|isSimjet5|simjet5|SIMJET5) samples=( "run28_jet5" ) ;;
       isSimMB|simmb|SIMMB)       samples=( "run28_detroit" ) ;;
-      isSimEmbedded|issimembedded|simembedded|SIMEMBEDDED) samples=( "run28_embeddedPhoton20" ) ;;
+      isSimEmbedded|issimembedded|simembedded|SIMEMBEDDED) samples=( "run28_embeddedPhoton10" "run28_embeddedPhoton20" ) ;;
       *)                         samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
     esac
   else
@@ -739,7 +739,9 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simm
   if [[ "$SIM_ACTION" == "firstRound" ]]; then
     _discover_base="$SIM_INPUT_BASE"
   elif [[ "$SIM_ACTION" == "secondRound" ]]; then
-    _discover_base="$FLAT_OUT_DIR"
+    # Discover from TG input base (same as firstRound) so stale output-side
+    # directories from old YAML configs cannot pollute the merge.
+    _discover_base="$SIM_INPUT_BASE"
   else
     err "Unknown isSim action '${SIM_ACTION}'. Allowed: firstRound | secondRound"
     exit 2
@@ -1001,6 +1003,21 @@ EOT
     done
 
     say "====================================================================="
+  fi
+
+  # Clean up firstRound partial directories so only final merged files remain.
+  # This makes the output directory sftp/rsync-friendly (no chunk subdirs).
+  # Only run after secondRound (firstRound CREATES these directories).
+  if [[ "$SIM_ACTION" == "secondRound" ]]; then
+    say "Cleaning firstRound partial directories from ${FLAT_OUT_DIR}…"
+    for _cleanup_cfg in "${SIM_CFG_TAGS[@]}"; do
+      _partials_dir="${FLAT_OUT_DIR}/${_cleanup_cfg}"
+      if [[ -d "$_partials_dir" ]]; then
+        rm -rf "$_partials_dir"
+        say "  removed: ${_cleanup_cfg}/"
+      fi
+    done
+    say "Done. Only final merged files remain under: ${FLAT_OUT_DIR}"
   fi
 
   exit 0

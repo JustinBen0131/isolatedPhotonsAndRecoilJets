@@ -3391,38 +3391,80 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
 
   for (const auto& trigShort : activeTrig)
   {
-    // IMPORTANT:
-    // recoMatched/truthMatched must be per-trigger bookkeeping because we fill a
-    // complete set of histograms per trigger. If activeTrig has multiple entries,
-    // we must reset these flags each iteration to avoid cross-trigger state leakage.
-    std::fill(recoMatched.begin(), recoMatched.end(), 0);
-    std::fill(truthMatched.begin(), truthMatched.end(), 0);
+      // IMPORTANT:
+      // recoMatched/truthMatched must be per-trigger bookkeeping because we fill a
+      // complete set of histograms per trigger. If activeTrig has multiple entries,
+      // we must reset these flags each iteration to avoid cross-trigger state leakage.
+      std::fill(recoMatched.begin(), recoMatched.end(), 0);
+      std::fill(truthMatched.begin(), truthMatched.end(), 0);
 
-    auto* h2Reco  = getOrBookUnfoldRecoPtXJIncl(trigShort, rKey, effCentIdx_M);
-    auto* h2Truth = getOrBookUnfoldTruthPtXJIncl(trigShort, rKey, effCentIdx_M);
-    auto* hRsp    = getOrBookUnfoldResponsePtXJIncl(trigShort, rKey, effCentIdx_M);
-    auto* hFake   = getOrBookUnfoldRecoFakesPtXJIncl(trigShort, rKey, effCentIdx_M);
-    auto* hMiss   = getOrBookUnfoldTruthMissesPtXJIncl(trigShort, rKey, effCentIdx_M);
+      auto* h2Reco  = getOrBookUnfoldRecoPtXJIncl(trigShort, rKey, effCentIdx_M);
+      auto* h2Truth = getOrBookUnfoldTruthPtXJIncl(trigShort, rKey, effCentIdx_M);
+      auto* hRsp    = getOrBookUnfoldResponsePtXJIncl(trigShort, rKey, effCentIdx_M);
+      auto* hComb   = getOrBookUnfoldRecoCombinatoricPtXJIncl(trigShort, rKey, effCentIdx_M);
+      auto* hFake   = getOrBookUnfoldRecoFakesPtXJIncl(trigShort, rKey, effCentIdx_M);
+      auto* hMiss   = getOrBookUnfoldTruthMissesPtXJIncl(trigShort, rKey, effCentIdx_M);
 
-    auto* h2RecoM  = getOrBookUnfoldRecoMatchedPtXJIncl(trigShort, rKey, effCentIdx_M);
-    auto* h2TruthM = getOrBookUnfoldTruthMatchedPtXJIncl(trigShort, rKey, effCentIdx_M);
+      auto* h2RecoM  = getOrBookUnfoldRecoMatchedPtXJIncl(trigShort, rKey, effCentIdx_M);
+      auto* h2TruthM = getOrBookUnfoldTruthMatchedPtXJIncl(trigShort, rKey, effCentIdx_M);
 
-    auto* hJetEffDen = getOrBookUnfoldJetEffDenPtXJIncl(trigShort, rKey, effCentIdx_M);
-    auto* hJetEffNum = getOrBookUnfoldJetEffNumPtXJIncl(trigShort, rKey, effCentIdx_M);
+      auto* hJetEffDen = getOrBookUnfoldJetEffDenPtXJIncl(trigShort, rKey, effCentIdx_M);
+      auto* hJetEffNum = getOrBookUnfoldJetEffNumPtXJIncl(trigShort, rKey, effCentIdx_M);
 
-    auto* hFakeA   = getOrBookUnfoldRecoFakesPtXJIncl_typeA(trigShort, rKey, effCentIdx_M);
-    auto* hFakeB   = getOrBookUnfoldRecoFakesPtXJIncl_typeB(trigShort, rKey, effCentIdx_M);
-    auto* hMissA   = getOrBookUnfoldTruthMissesPtXJIncl_typeA(trigShort, rKey, effCentIdx_M);
-    auto* hMissB   = getOrBookUnfoldTruthMissesPtXJIncl_typeB(trigShort, rKey, effCentIdx_M);
+      auto* hFakeA   = getOrBookUnfoldRecoFakesPtXJIncl_typeA(trigShort, rKey, effCentIdx_M);
+      auto* hFakeB   = getOrBookUnfoldRecoFakesPtXJIncl_typeB(trigShort, rKey, effCentIdx_M);
+      auto* hMissA   = getOrBookUnfoldTruthMissesPtXJIncl_typeA(trigShort, rKey, effCentIdx_M);
+      auto* hMissB   = getOrBookUnfoldTruthMissesPtXJIncl_typeB(trigShort, rKey, effCentIdx_M);
 
-    auto* hDR           = getOrBookUnfoldJetMatchDR(trigShort, rKey, effCentIdx_M);
-    auto* hPtResp       = getOrBookUnfoldJetPtResponsePtTruth(trigShort, rKey, effCentIdx_M);
-    auto* hPtRespAll    = getOrBookUnfoldJetPtResponseAllPtTruth(trigShort, rKey, effCentIdx_M);
-    auto* hPtRespLead   = getOrBookLeadRecoilJetPtResponsePtTruth(trigShort, rKey, effCentIdx_M);
-    auto* hPtScatterLead= getOrBookLeadRecoilJetPtTruthPtReco(trigShort, rKey, effCentIdx_M);
-    auto* hDRLead       = getOrBookLeadRecoilJetMatchDR(trigShort, rKey, effCentIdx_M);
+      auto* hDR           = getOrBookUnfoldJetMatchDR(trigShort, rKey, effCentIdx_M);
+      auto* hPtResp       = getOrBookUnfoldJetPtResponsePtTruth(trigShort, rKey, effCentIdx_M);
+      auto* hPtRespAll    = getOrBookUnfoldJetPtResponseAllPtTruth(trigShort, rKey, effCentIdx_M);
+      auto* hPtRespLead   = getOrBookLeadRecoilJetPtResponsePtTruth(trigShort, rKey, effCentIdx_M);
+      auto* hPtScatterLead= getOrBookLeadRecoilJetPtTruthPtReco(trigShort, rKey, effCentIdx_M);
+      auto* hDRLead       = getOrBookLeadRecoilJetMatchDR(trigShort, rKey, effCentIdx_M);
 
-    if (!h2Reco || !h2Truth || !hRsp || !hFake || !hMiss || !hJetEffDen || !hJetEffNum) continue;
+      if (!h2Reco || !h2Truth || !hRsp || !hComb || !hFake || !hMiss || !hJetEffDen || !hJetEffNum) continue;
+
+      if (m_isAuAu && haveRecoPhoton && haveTruthPho)
+      {
+        const double combMatchDR = (std::isfinite(jetRFromKey(rKey)) ? jetRFromKey(rKey) : m_jetMatchDRMax);
+
+        for (std::size_t ir = 0; ir < recoJetsFid.size(); ++ir)
+        {
+          if (!recoJetsFidIsRecoil[ir]) continue;
+
+          const Jet* rj = recoJetsFid[ir];
+          if (!rj) continue;
+
+          const double xJr = rj->get_pt() / leadPtGamma;
+
+          bool hasNearbyTruthJet = false;
+          for (const Jet* tjAny : *truthJets)
+          {
+            if (!tjAny) continue;
+
+            const double ptj  = tjAny->get_pt();
+            const double etaj = tjAny->get_eta();
+            const double phij = tjAny->get_phi();
+
+            if (!std::isfinite(ptj) || !std::isfinite(etaj) || !std::isfinite(phij)) continue;
+            if (ptj < m_minJetPt) continue;
+
+            const double drAny = dR(rj->get_eta(), rj->get_phi(), etaj, phij);
+            if (drAny < combMatchDR)
+            {
+              hasNearbyTruthJet = true;
+              break;
+            }
+          }
+
+          if (!hasNearbyTruthJet)
+          {
+            hComb->Fill(leadPtGamma, xJr);
+            bumpHistFill(trigShort, hComb->GetName());
+          }
+        }
+      }
 
     if (haveTruthTarget)
     {
@@ -7931,6 +7973,50 @@ TH2F* RecoilJets::getOrBookUnfoldResponsePtXJIncl(const std::string& trig,
   auto* h = new TH2F(name.c_str(), title.c_str(),
                      nGlobTruth, -0.5, static_cast<double>(nGlobTruth) - 0.5,
                      nGlobReco,  -0.5, static_cast<double>(nGlobReco)  - 0.5);
+  h->Sumw2();
+
+  H[name] = h;
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+TH2F* RecoilJets::getOrBookUnfoldRecoCombinatoricPtXJIncl(const std::string& trig,
+                                                             const std::string& rKey,
+                                                             int centIdx)
+{
+  const std::string base   = "h2_unfoldRecoCombinatoric_pTgamma_xJ_incl";
+  const std::string suffix = suffixForBins(-1, centIdx);
+  const std::string name   = base + "_" + rKey + suffix;
+
+  if (trig.empty() || rKey.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+  dir->cd();
+
+    const std::vector<double>& kPtReco = m_unfoldRecoPhotonPtBins;
+    const std::vector<double>& kXJ = m_unfoldXJBins;
+
+    const int nx = static_cast<int>(kPtReco.size()) - 1;
+    const int ny = static_cast<int>(kXJ.size()) - 1;
+
+  const std::string title =
+    name + ";p_{T}^{#gamma,reco} [GeV];x_{J#gamma}^{reco} (COMBINATORIC)";
+
+  auto* h = new TH2F(name.c_str(), title.c_str(),
+                     nx, kPtReco.data(),
+                     ny, kXJ.data());
   h->Sumw2();
 
   H[name] = h;

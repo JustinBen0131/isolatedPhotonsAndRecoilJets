@@ -91,9 +91,9 @@ namespace ARJ
   //   AuAu ONLY:      isAuAuOnly=true    (all others false)
   // ---------------------------------------------------------------------------
   inline bool isPPdataOnly   = false;
-  inline bool isSimAndDataPP = false;
-  inline bool isAuAuOnly     = true;
-  inline bool isPPdataAndAUAU = true;
+  inline bool isSimAndDataPP = true;
+  inline bool isAuAuOnly     = false;
+  inline bool isPPdataAndAUAU = false;
   inline bool isRun25pp      = false;
 
   // ===========================================================================
@@ -107,18 +107,18 @@ namespace ARJ
   inline bool bothPhoton5and10sim        = false;
   inline bool bothPhoton5and20sim        = false;
   inline bool bothPhoton10and20sim       = false;
-  inline bool allPhoton5and10and20sim    = false;
+  inline bool allPhoton5and10and20sim    = true;
   //   Special SIM samples:
   inline bool isSimMB                    = false;   // MinBias DETROIT tune
   inline bool isSimJet5                  = false;   // inclusive jet5
   inline bool isSimEmbedded              = false;   // embedded photon20 in AuAu
 
-  inline bool doPhotonJetMerge = false;
+  inline bool doPhotonJetMerge = true;
 
   //   RooUnfold: true = run both non-purity and purity-corrected passes + overlay.
-  inline bool do_xJ_PPunfold = false;
+  inline bool do_xJ_PPunfold = true;
   //   Internal: selects raw vs ABCD purity-corrected reco inputs per pass.
-  inline bool gApplyPurityCorrectionForUnfolding = false;
+  inline bool gApplyPurityCorrectionForUnfolding = true;
 
   //   One-off Sam vs Justin unsmear comparison:
   inline bool doSamVsJustinUnsmearOverlays = false;
@@ -286,7 +286,13 @@ namespace ARJ
   }
   inline string InputAuAu()
   {
-      return kInputBase + "/auau25/RecoilJets_auau_ALL_" + CfgTagWithUE() + ".root";
+        return kInputBase + "/auau25/RecoilJets_auau_ALL_" + CfgTagWithUE() + ".root";
+  }
+  // Variant override for AuAu (e.g. loop over UE variants)
+  inline string InputAuAu(const string& ueVariant)
+  {
+        return kInputBase + "/auau25/RecoilJets_auau_ALL_" +
+               CfgTagAA() + "_" + ueVariant + ".root";
   }
   inline string InputSim(const string& sampleTag)
   {

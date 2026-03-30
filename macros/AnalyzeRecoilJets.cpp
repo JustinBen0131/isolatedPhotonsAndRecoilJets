@@ -3099,6 +3099,356 @@ namespace ARJ
         }
       }
 
+        // ===================================================================
+        // Au+Au DATA isolation QA: UE-subtraction variant overlay comparison
+        //   Output: auau/<CfgTagAA>/<trigger>/isoQA/UEcomparisons/<cent>/<pT>/
+        // ===================================================================
+        void RunIsoQA_UEComparisons_AuAu()
+        {
+          cout << ANSI_BOLD_CYN << "\n==============================\n"
+               << "[ISO QA] AuAu UE-subtraction variant overlay comparisons\n"
+               << "==============================" << ANSI_RESET << "\n";
+
+          const vector<string> ueVariants = {"noSub", "baseVariant", "variantA", "variantB"};
+          const vector<string> ueLabels   = {"No UE sub", "Base Variant", "Variant A", "Variant B"};
+          const vector<int>    ueColors   = {kBlack, kBlue+1, kRed+1, kGreen+2};
+
+          const auto& centBins = CentBins();
+          if (centBins.empty())
+          {
+            cout << ANSI_BOLD_YEL << "[WARN] No centrality bins defined — skipping UE comparisons\n"
+                 << ANSI_RESET;
+            return;
+          }
+
+          for (const auto& trigAA : kTriggersAuAu)
+          {
+            // Base output: auau/<CfgTagAA>/<trigger>/isoQA/UEcomparisons
+            const string trigOutBase = JoinPath(kOutputBase + "/auau/" + CfgTagAA(), trigAA);
+            const string ueCompBase = JoinPath(trigOutBase, "isoQA/UEcomparisons");
+
+            // --- Open all 4 variant files ---
+            struct VariantHandle
+            {
+              string variant;
+              string label;
+              int    color = 1;
+              TFile* file  = nullptr;
+            };
+
+            vector<VariantHandle> handles;
+            handles.reserve(ueVariants.size());
+
+            for (std::size_t iv = 0; iv < ueVariants.size(); ++iv)
+            {
+              VariantHandle H;
+              H.variant = ueVariants[iv];
+              H.label   = ueLabels[iv];
+              H.color   = ueColors[iv];
+              H.file    = TFile::Open(InputAuAu(H.variant).c_str(), "READ");
+
+              if (!H.file || H.file->IsZombie())
+              {
+                if (H.file) { H.file->Close(); delete H.file; H.file = nullptr; }
+                cout << ANSI_BOLD_YEL
+                     << "[WARN] Missing AuAu UE variant input: "
+                     << InputAuAu(H.variant)
+                     << ANSI_RESET << "\n";
+              }
+
+              handles.push_back(std::move(H));
+            }
+
+            // --- Loop centrality bins ---
+            for (const auto& cb : centBins)
+            {
+              const string centDir = JoinPath(ueCompBase, cb.folder);
+
+              // --- Loop pT bins ---
+              for (int ipt = 0; ipt < kNPtBins; ++ipt)
+              {
+                const PtBin& b = PtBins()[ipt];
+                const string ptDir = JoinPath(centDir, b.folder);
+                EnsureDir(ptDir);
+
+                // Collect histograms from each variant
+                vector<TH1*>   hs;
+                vector<string> labels;
+                vector<TObject*> keepAlive;
+                double ymax = 0.0;
+
+                for (auto& H : handles)
+                {
+                  if (!H.file) continue;
+
+                  TDirectory* tdir = H.file->GetDirectory(trigAA.c_str());
+                  if (!tdir) continue;
+
+                  const string hname = "h_Eiso" + b.suffix + cb.suffix;
+                  TH1* hSrc = dynamic_cast<TH1*>(tdir->Get(hname.c_str()));
+                  if (!hSrc) continue;
+
+                  TH1* h = CloneTH1(
+                    hSrc,
+                    TString::Format("h_Eiso_UEcomp_%s_%s_%s",
+                      cb.folder.c_str(), b.folder.c_str(), H.variant.c_str()).Data()
+                  );
+                  if (!h) continue;
+
+                  h->SetLineColor(H.color);
+                  h->SetLineWidth(2);
+                  h->SetFillStyle(0);
+
+                  ymax = std::max(ymax, h->GetMaximum());
+                  hs.push_back(h);
+                  labels.push_back(H.label);
+                  keepAlive.push_back(h);
+                }
+
+                if (hs.empty())
+                {
+                  for (auto* obj : keepAlive) delete obj;
+                  continue;
+                }
+
+                TCanvas c(
+                  TString::Format("c_UEcomp_%s_%s_%s",
+                    trigAA.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
+                  "c_UEcomp", 900, 700
+                );
+                ApplyCanvasMargins1D(c);
+                c.cd();
+
+                TH1* first = hs[0];
+                first->SetTitle("");
+                first->GetXaxis()->SetTitle("E_{iso} [GeV]");
+                first->GetYaxis()->SetTitle("Counts");
+                first->GetXaxis()->SetTitleSize(0.055);
+                first->GetYaxis()->SetTitleSize(0.055);
+                first->GetXaxis()->SetLabelSize(0.045);
+                first->GetYaxis()->SetLabelSize(0.045);
+                first->GetYaxis()->SetTitleOffset(1.15);
+                first->SetMinimum(0.0);
+                first->SetMaximum((ymax > 0.0) ? (1.25 * ymax) : 1.0);
+
+                first->Draw("hist");
+                for (std::size_t ih = 1; ih < hs.size(); ++ih) hs[ih]->Draw("hist same");
+
+                TLegend* leg = new TLegend(0.56, 0.68, 0.92, 0.90);
+                leg->SetBorderSize(0);
+                leg->SetFillStyle(0);
+                leg->SetTextFont(42);
+                leg->SetTextSize(0.032);
+                for (std::size_t ih = 0; ih < hs.size(); ++ih)
+                {
+                  leg->AddEntry(hs[ih], labels[ih].c_str(), "l");
+                }
+                leg->Draw();
+                keepAlive.push_back(leg);
+
+                // Header lines
+                TLatex ltx;
+                ltx.SetTextFont(42);
+                ltx.SetNDC();
+                ltx.SetTextSize(0.035);
+                ltx.DrawLatex(0.16, 0.92, "#it{#bf{sPHENIX}} Internal");
+                ltx.SetTextSize(0.030);
+                ltx.DrawLatex(0.16, 0.88, "Au+Au #sqrt{s_{NN}} = 200 GeV");
+                ltx.DrawLatex(0.16, 0.84,
+                  TString::Format("Centrality: %d-%d%%", cb.lo, cb.hi).Data());
+                ltx.DrawLatex(0.16, 0.80,
+                  TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data());
+                ltx.DrawLatex(0.16, 0.76, "E_{T}^{iso} UE variant comparison");
+
+                const string fp = JoinPath(ptDir,
+                  TString::Format("Eiso_UEvariantOverlay_%s_%s.png",
+                    cb.folder.c_str(), b.folder.c_str()).Data());
+                SaveCanvas(c, fp);
+
+                for (auto* obj : keepAlive) delete obj;
+              } // pT bins
+          } // centrality bins
+
+          // --- Mean E_T^{iso} vs centrality overlay (one curve per UE variant) ---
+          {
+            const int nCent = (int)centBins.size();
+
+            vector<double> xCent(nCent, 0.0);
+            vector<double> exCent(nCent, 0.0);
+
+            // Label bin centers as 1..nCent (categorical)
+            for (int ic = 0; ic < nCent; ++ic)
+            {
+              xCent[ic] = (double)(ic + 1);
+              exCent[ic] = 0.0;
+            }
+
+            // Collect mean Eiso per variant per centrality (sum all pT bins)
+            struct MeanCurve
+            {
+              string label;
+              int    color;
+              vector<double> meanVal;
+            };
+
+            vector<MeanCurve> curves;
+            curves.reserve(handles.size());
+
+            for (auto& H : handles)
+            {
+              if (!H.file) continue;
+
+              TDirectory* tdir = H.file->GetDirectory(trigAA.c_str());
+              if (!tdir) continue;
+
+              MeanCurve mc;
+              mc.label = H.label;
+              mc.color = H.color;
+              mc.meanVal.assign(nCent, 0.0);
+
+              for (int ic = 0; ic < nCent; ++ic)
+              {
+                const CentBin& cb = centBins[ic];
+
+                // Sum h_Eiso over all pT bins for this centrality
+                TH1* hSum = nullptr;
+
+                for (int ipt = 0; ipt < kNPtBins; ++ipt)
+                {
+                  const PtBin& b = PtBins()[ipt];
+                  const string hname = "h_Eiso" + b.suffix + cb.suffix;
+                  TH1* hSrc = dynamic_cast<TH1*>(tdir->Get(hname.c_str()));
+                  if (!hSrc) continue;
+
+                  if (!hSum)
+                  {
+                    hSum = CloneTH1(hSrc,
+                      TString::Format("hEiso_meanVsCent_%s_%s",
+                        H.variant.c_str(), cb.folder.c_str()).Data());
+                    if (hSum) hSum->Reset("ICES");
+                  }
+                  if (hSum) hSum->Add(hSrc);
+                }
+
+                mc.meanVal[ic] = (hSum && hSum->GetEntries() > 0.0) ? hSum->GetMean() : 0.0;
+                if (hSum) delete hSum;
+              }
+
+              curves.push_back(std::move(mc));
+            }
+
+            if (!curves.empty())
+            {
+              TCanvas cMean(
+                TString::Format("c_meanEiso_vs_cent_%s", trigAA.c_str()).Data(),
+                "c_meanEiso_vs_cent", 900, 700
+              );
+              ApplyCanvasMargins1D(cMean);
+              cMean.cd();
+
+              // Axis frame (categorical x-axis with centrality labels)
+              TH1F hFrame(
+                TString::Format("hFrame_meanEiso_%s", trigAA.c_str()).Data(),
+                "", nCent, 0.5, nCent + 0.5
+              );
+              hFrame.SetDirectory(nullptr);
+              hFrame.SetStats(0);
+
+              for (int ic = 0; ic < nCent; ++ic)
+              {
+                hFrame.GetXaxis()->SetBinLabel(ic + 1,
+                  TString::Format("%d-%d%%", centBins[ic].lo, centBins[ic].hi).Data());
+              }
+
+              // Auto y-range
+              double yMin = std::numeric_limits<double>::max();
+              double yMax = -std::numeric_limits<double>::max();
+              for (const auto& mc : curves)
+              {
+                for (double v : mc.meanVal)
+                {
+                  yMin = std::min(yMin, v);
+                  yMax = std::max(yMax, v);
+                }
+              }
+              const double pad = 0.15 * (yMax - yMin > 0.0 ? yMax - yMin : 1.0);
+              hFrame.SetMinimum(yMin - pad);
+              hFrame.SetMaximum(yMax + pad);
+
+              hFrame.GetXaxis()->SetTitle("Centrality");
+              hFrame.GetYaxis()->SetTitle("<E_{T}^{iso}> [GeV]");
+              hFrame.GetXaxis()->SetTitleSize(0.055);
+              hFrame.GetYaxis()->SetTitleSize(0.055);
+              hFrame.GetXaxis()->SetLabelSize(0.050);
+              hFrame.GetYaxis()->SetLabelSize(0.045);
+              hFrame.GetYaxis()->SetTitleOffset(1.15);
+              hFrame.Draw();
+
+              vector<TGraphErrors*> keepGraphs;
+              keepGraphs.reserve(curves.size());
+
+              vector<double> ey0(nCent, 0.0);
+
+              for (auto& mc : curves)
+              {
+                TGraphErrors* g = new TGraphErrors(nCent,
+                  &xCent[0], &mc.meanVal[0], &exCent[0], &ey0[0]);
+                g->SetLineWidth(2);
+                g->SetLineColor(mc.color);
+                g->SetMarkerStyle(20);
+                g->SetMarkerSize(1.2);
+                g->SetMarkerColor(mc.color);
+                g->Draw("P SAME");
+                keepGraphs.push_back(g);
+              }
+
+              TLegend* leg = new TLegend(0.56, 0.68, 0.92, 0.90);
+              leg->SetBorderSize(0);
+              leg->SetFillStyle(0);
+              leg->SetTextFont(42);
+              leg->SetTextSize(0.032);
+              for (std::size_t ig = 0; ig < curves.size(); ++ig)
+              {
+                leg->AddEntry(keepGraphs[ig], curves[ig].label.c_str(), "pe");
+              }
+              leg->Draw();
+
+              TLatex ltx;
+              ltx.SetTextFont(42);
+              ltx.SetNDC();
+              ltx.SetTextSize(0.035);
+              ltx.DrawLatex(0.16, 0.92, "#it{#bf{sPHENIX}} Internal");
+              ltx.SetTextSize(0.030);
+              ltx.DrawLatex(0.16, 0.88, "Au+Au #sqrt{s_{NN}} = 200 GeV");
+              ltx.DrawLatex(0.16, 0.84, "<E_{T}^{iso}> vs Centrality (all p_{T}^{#gamma} bins summed)");
+
+              const string fpMean = JoinPath(ueCompBase,
+                "meanEiso_vs_centrality_UEvariantOverlay.png");
+              SaveCanvas(cMean, fpMean);
+
+              for (auto* g : keepGraphs) delete g;
+              delete leg;
+            }
+          }
+
+          // --- Cleanup ---
+          for (auto& H : handles)
+          {
+            if (H.file)
+            {
+              H.file->Close();
+              delete H.file;
+              H.file = nullptr;
+            }
+          }
+
+          cout << ANSI_DIM
+               << "  -> UE comparison overlays written under:\n"
+               << "     " << ueCompBase << "/\n"
+               << ANSI_RESET;
+          } // triggers
+      }
+
       void RunIsolationQA(Dataset& ds)
       {
         cout << ANSI_BOLD_CYN << "\n==============================\n"
@@ -12536,7 +12886,17 @@ namespace ARJ
         cout << "  -> [Section 3] General isolation QA...\n";
         analysis::RunIsolationQA(ds);
         cout << "     [OK] Isolation QA complete.\n";
-      }
+        }
+
+        // ---------------------------------------------------------------------------
+        // AuAu-only: UE-subtraction variant overlay comparisons for isolation QA
+        // ---------------------------------------------------------------------------
+        if (isAuAuOnly)
+        {
+          cout << "  -> [isoQA] AuAu UE variant comparisons...\n";
+          analysis::RunIsoQA_UEComparisons_AuAu();
+          cout << "     [OK] UE variant comparison overlays complete.\n";
+        }
 
       // ---------------------------------------------------------------------------
       // AuAu-only: Accepted events vs centrality (one plot per trigger)
@@ -12841,26 +13201,38 @@ namespace ARJ
                 tTitle.DrawLatex(0.50, 0.96,
                   "ABCD Purity vs p_{T}^{#gamma} for each centrality, Run3auau");
 
-                // Cut annotations derived from AuAu config
-                {
-                  const string isoConeLabel = (kAA_IsoConeR == "isoR40")
-                    ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+                  // Cut annotations derived from AuAu config
+                  {
+                    std::string trigLabel;
+                    {
+                      int photonPt = 0;
+                      if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
+                        trigLabel = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                      else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                        trigLabel = "Trigger: MBD NS #geq 2, vtx < 150 cm";
+                      else
+                        trigLabel = "Trigger: " + trigAA;
+                    }
 
-                  string isoModeLabel;
-                  if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel = "E_{T}^{iso} < 5 GeV";
-                  else                               isoModeLabel = "Sliding iso cut";
+                    const string isoConeLabel = (kAA_IsoConeR == "isoR40")
+                      ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
 
-                  const string vzLabel = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+                    string isoModeLabel;
+                    if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel = "E_{T}^{iso} < 5 GeV";
+                    else                               isoModeLabel = "Sliding iso cut";
 
-                  TLatex tCuts;
-                  tCuts.SetNDC(true);
-                  tCuts.SetTextFont(42);
-                  tCuts.SetTextAlign(13);
-                  tCuts.SetTextSize(0.035);
-                  tCuts.DrawLatex(0.18, 0.88, isoConeLabel.c_str());
-                  tCuts.DrawLatex(0.18, 0.83, isoModeLabel.c_str());
-                  tCuts.DrawLatex(0.18, 0.78, vzLabel.c_str());
-                }
+                    const string vzLabel = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+
+                    TLatex tCuts;
+                    tCuts.SetNDC(true);
+                    tCuts.SetTextFont(42);
+                    tCuts.SetTextAlign(13);
+                    tCuts.SetTextSize(0.035);
+                    tCuts.DrawLatex(0.18, 0.88, trigLabel.c_str());
+                    tCuts.DrawLatex(0.18, 0.83, isoConeLabel.c_str());
+                    tCuts.DrawLatex(0.18, 0.78, isoModeLabel.c_str());
+                    tCuts.DrawLatex(0.18, 0.73, vzLabel.c_str());
+                  }
 
                   SaveCanvas(cOv, JoinPath(outDir, "purity_raw_DATA_centOverlay.png"));
                   cout << ANSI_BOLD_GRN << "[WROTE] " << JoinPath(outDir, "purity_raw_DATA_centOverlay.png") << ANSI_RESET << "\n";
@@ -13058,28 +13430,40 @@ namespace ARJ
                     tTitleSel.DrawLatex(0.50, 0.96,
                       "ABCD Purity vs p_{T}^{#gamma} for each centrality, Run3auau");
 
-                    // Cut annotations derived from AuAu config
-                    {
-                      const string isoConeLabel = (kAA_IsoConeR == "isoR40")
-                        ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+                      // Cut annotations derived from AuAu config
+                      {
+                        std::string trigLabelSel;
+                        {
+                          int photonPt = 0;
+                          if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
+                            trigLabelSel = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                          else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                            trigLabelSel = "Trigger: MBD NS #geq 2, vtx < 150 cm";
+                          else
+                            trigLabelSel = "Trigger: " + trigAA;
+                        }
 
-                      string isoModeLabel;
-                      if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel = "E_{T}^{iso} < 5 GeV";
-                      else                               isoModeLabel = "Sliding iso cut";
+                        const string isoConeLabel = (kAA_IsoConeR == "isoR40")
+                          ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
 
-                      const string vzLabel = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+                        string isoModeLabel;
+                        if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel = "E_{T}^{iso} < 5 GeV";
+                        else                               isoModeLabel = "Sliding iso cut";
 
-                      TLatex tCutsSel;
-                      tCutsSel.SetNDC(true);
-                      tCutsSel.SetTextFont(42);
-                      tCutsSel.SetTextAlign(13);
-                      tCutsSel.SetTextSize(0.035);
-                      tCutsSel.DrawLatex(0.18, 0.88, isoConeLabel.c_str());
-                      tCutsSel.DrawLatex(0.18, 0.83, isoModeLabel.c_str());
-                      tCutsSel.DrawLatex(0.18, 0.78, vzLabel.c_str());
-                    }
+                        const string vzLabel = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
 
-                    SaveCanvas(cSel, JoinPath(outDir, "purity_raw_centSelect_ppOverlay.png"));
+                        TLatex tCutsSel;
+                        tCutsSel.SetNDC(true);
+                        tCutsSel.SetTextFont(42);
+                        tCutsSel.SetTextAlign(13);
+                        tCutsSel.SetTextSize(0.035);
+                        tCutsSel.DrawLatex(0.18, 0.88, trigLabelSel.c_str());
+                        tCutsSel.DrawLatex(0.18, 0.83, isoConeLabel.c_str());
+                        tCutsSel.DrawLatex(0.18, 0.78, isoModeLabel.c_str());
+                        tCutsSel.DrawLatex(0.18, 0.73, vzLabel.c_str());
+                      }
+
+                      SaveCanvas(cSel, JoinPath(outDir, "purity_raw_centSelect_ppOverlay.png"));
                     cout << ANSI_BOLD_GRN << "[WROTE] " << JoinPath(outDir, "purity_raw_centSelect_ppOverlay.png") << ANSI_RESET << "\n";
 
                     for (auto* g : keepSel) delete g;

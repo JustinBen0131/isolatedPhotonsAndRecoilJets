@@ -878,7 +878,7 @@ check_jobs_sim() {
 
   if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
     case "$DATASET" in
-      isSimEmbedded) samples=( "run28_embeddedPhoton20" ) ;;
+      isSimEmbedded) samples=( "run28_embeddedPhoton10" "run28_embeddedPhoton20" ) ;;
       isSimJet5)     samples=( "run28_jet5" ) ;;
       isSimMB)       samples=( "run28_detroit" ) ;;
       *)             samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
@@ -1456,7 +1456,7 @@ case "$ACTION" in
       samples=()
       if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
         case "$DATASET" in
-          isSimEmbedded) samples=( "run28_embeddedPhoton20" ) ;;
+          isSimEmbedded) samples=( "run28_embeddedPhoton10" "run28_embeddedPhoton20" ) ;;
           isSimJet5)     samples=( "run28_jet5" ) ;;
           isSimMB)       samples=( "run28_detroit" ) ;;
           *)             samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
@@ -1714,7 +1714,7 @@ SUB
     samples=()
     if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
       case "$DATASET" in
-        isSimEmbedded) samples=( "run28_embeddedPhoton20" ) ;;
+        isSimEmbedded) samples=( "run28_embeddedPhoton10" "run28_embeddedPhoton20" ) ;;
         isSimJet5)     samples=( "run28_jet5" ) ;;
         isSimMB)       samples=( "run28_detroit" ) ;;
         *)             samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;

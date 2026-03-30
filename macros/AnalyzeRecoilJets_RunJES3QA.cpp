@@ -3914,19 +3914,56 @@ void RunJES3QA(Dataset& ds)
                       if (hxAA[ic]) legOv->AddEntry(hxAA[ic], centEntries[ic].label, "ep");
                     legOv->Draw();
 
-                    // Title annotation
-                    {
-                      TLatex t;
-                      t.SetNDC(true);
-                      t.SetTextFont(42);
-                      t.SetTextAlign(13);
-                      t.SetTextSize(0.042);
-                      t.DrawLatex(0.14, 0.98,
-                        TString::Format("RECO x_{J#gamma}, p_{T}^{#gamma} = %d-%d GeV, R = 0.4", pbOv.lo, pbOv.hi).Data());
-                    }
+                      // Title annotation
+                      {
+                        TLatex t;
+                        t.SetNDC(true);
+                        t.SetTextFont(42);
+                        t.SetTextAlign(13);
+                        t.SetTextSize(0.042);
+                        t.DrawLatex(0.14, 0.98,
+                          TString::Format("RECO x_{J#gamma}, p_{T}^{#gamma} = %d-%d GeV, R = 0.4", pbOv.lo, pbOv.hi).Data());
+                      }
 
-                    SaveCanvas(cOv, JoinPath(xJovDir,
-                      TString::Format("xJ_RECO_multiCent_pp_overlay_pTgamma_%s.png", ptTag.c_str()).Data()));
+                      // Cut annotations (trigger + full AuAu selection)
+                      {
+                        std::string trigLabelOv;
+                        {
+                          int photonPt = 0;
+                          if (std::sscanf(ds.trigger.c_str(), "photon_%d_plus", &photonPt) == 1)
+                            trigLabelOv = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                          else if (ds.trigger.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                            trigLabelOv = "Trigger: MBD NS #geq 2, vtx < 150 cm";
+                          else
+                            trigLabelOv = "Trigger: " + ds.trigger;
+                        }
+
+                        const string isoConeOv = (kAA_IsoConeR == "isoR40")
+                          ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+
+                        string isoModeOv;
+                        if (kAA_IsoMode == "fixedIso5GeV") isoModeOv = "E_{T}^{iso} < 5 GeV";
+                        else                               isoModeOv = "Sliding iso cut";
+
+                        const string vzOv  = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+                        const string b2bOv = TString::Format("|#Delta#phi| > %s", B2BLabelFor(kAA_B2BCut).c_str()).Data();
+                        const string ptjOv = TString::Format("p_{T}^{jet} > %d GeV", kAA_JetPtMin).Data();
+
+                        TLatex tCutsOv;
+                        tCutsOv.SetNDC(true);
+                        tCutsOv.SetTextFont(42);
+                        tCutsOv.SetTextAlign(13);
+                        tCutsOv.SetTextSize(0.032);
+                        tCutsOv.DrawLatex(0.14, 0.86, trigLabelOv.c_str());
+                        tCutsOv.DrawLatex(0.14, 0.81, isoConeOv.c_str());
+                        tCutsOv.DrawLatex(0.14, 0.76, isoModeOv.c_str());
+                        tCutsOv.DrawLatex(0.14, 0.71, vzOv.c_str());
+                        tCutsOv.DrawLatex(0.14, 0.66, b2bOv.c_str());
+                        tCutsOv.DrawLatex(0.14, 0.61, ptjOv.c_str());
+                      }
+
+                      SaveCanvas(cOv, JoinPath(xJovDir,
+                        TString::Format("xJ_RECO_multiCent_pp_overlay_pTgamma_%s.png", ptTag.c_str()).Data()));
 
                     delete legOv;
                   }
