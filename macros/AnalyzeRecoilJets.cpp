@@ -3168,20 +3168,39 @@ namespace ARJ
                 handles.push_back(std::move(H));
               }
 
-                for (const auto& cb : centBins)
+
+              const string ueCompBase = JoinPath(trigOutBase, "isoQA/UEcomparisons");
+              EnsureDir(ueCompBase);
+
+              for (auto& H : handles)
+              {
+                if (!H.file) continue;
+
+                const string variantDir = JoinPath(ueCompBase, H.variant);
+                EnsureDir(variantDir);
+
+                TDirectory* aaTop = H.file->GetDirectory(trigAA.c_str());
+                if (!aaTop) continue;
+
+                // -- accumulators for <E_T^iso> vs centrality (per pT bin) --
+                vector<vector<double>> vsCent_yPP(kNPtBins);
+                vector<vector<double>> vsCent_eyPP(kNPtBins);
+                vector<vector<double>> vsCent_yAA(kNPtBins);
+                vector<vector<double>> vsCent_eyAA(kNPtBins);
+                vector<vector<bool>>   vsCent_filled(kNPtBins, vector<bool>(centBins.size(), false));
+                for (int ip = 0; ip < kNPtBins; ++ip)
                 {
-                  const string ueCompBase = JoinPath(JoinPath(trigOutBase, cb.folder), "isoQA/UEcomparisons");
-                  EnsureDir(ueCompBase);
+                  vsCent_yPP[ip].resize(centBins.size(), 0.0);
+                  vsCent_eyPP[ip].resize(centBins.size(), 0.0);
+                  vsCent_yAA[ip].resize(centBins.size(), 0.0);
+                  vsCent_eyAA[ip].resize(centBins.size(), 0.0);
+                }
 
-                  for (auto& H : handles)
-                  {
-                    if (!H.file) continue;
-
-                    const string variantDir = JoinPath(ueCompBase, H.variant);
-                    EnsureDir(variantDir);
-
-                    TDirectory* aaTop = H.file->GetDirectory(trigAA.c_str());
-                    if (!aaTop) continue;
+                for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                {
+                  const auto& cb = centBins[ic];
+                  const string centDir = JoinPath(variantDir, cb.folder);
+                  EnsureDir(centDir);
 
                   vector<double> xPt;
                   vector<double> exPt;
@@ -3200,7 +3219,7 @@ namespace ARJ
                       for (int ipt = 0; ipt < kNPtBins; ++ipt)
                       {
                         const PtBin& b = PtBins()[ipt];
-                        const string ptDir = JoinPath(variantDir, b.folder);
+                        const string ptDir = JoinPath(centDir, b.folder);
                         EnsureDir(ptDir);
 
                         const string hPPName = "h_Eiso" + b.suffix;
@@ -3237,6 +3256,13 @@ namespace ARJ
                         yAA.push_back(hAA->GetMean());
                         eyPP.push_back((hPP->GetEntries() > 0.0) ? (hPP->GetRMS() / std::sqrt(hPP->GetEntries())) : 0.0);
                         eyAA.push_back((hAA->GetEntries() > 0.0) ? (hAA->GetRMS() / std::sqrt(hAA->GetEntries())) : 0.0);
+
+                        // accumulate for vs-centrality plot
+                        vsCent_yPP[ipt][ic]  = hPP->GetMean();
+                        vsCent_eyPP[ipt][ic] = (hPP->GetEntries() > 0.0) ? (hPP->GetRMS() / std::sqrt(hPP->GetEntries())) : 0.0;
+                        vsCent_yAA[ipt][ic]  = hAA->GetMean();
+                        vsCent_eyAA[ipt][ic] = (hAA->GetEntries() > 0.0) ? (hAA->GetRMS() / std::sqrt(hAA->GetEntries())) : 0.0;
+                        vsCent_filled[ipt][ic] = true;
 
                         const double intPP = hPP->Integral(0, hPP->GetNbinsX() + 1);
                         const double intAA = hAA->Integral(0, hAA->GetNbinsX() + 1);
@@ -3398,14 +3424,122 @@ namespace ARJ
                     t.DrawLatex(0.16, 0.84, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
                     t.DrawLatex(0.16, 0.80, TString::Format("UE subtraction: %s", H.label.c_str()).Data());
 
-                    SaveCanvas(cMean, JoinPath(variantDir,
+                    SaveCanvas(cMean, JoinPath(centDir,
                           TString::Format("meanIsoEt_pp_vs_auau_vs_pT_%s.png", H.variant.c_str()).Data()));
                   }
                 }
 
+                // ── <E_T^iso> vs centrality (one per pT bin, this variant) ──
+                for (int ipt = 0; ipt < kNPtBins; ++ipt)
+                {
+                  const PtBin& b = PtBins()[ipt];
+
+                  vector<double> xCent, exCent, yCentPP, eyCentPP, yCentAA, eyCentAA;
+                  for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                  {
+                    if (!vsCent_filled[ipt][ic]) continue;
+                    const auto& cb = centBins[ic];
+                    xCent.push_back(0.5 * (cb.lo + cb.hi));
+                    exCent.push_back(0.5 * (cb.hi - cb.lo));
+                    yCentPP.push_back(vsCent_yPP[ipt][ic]);
+                    eyCentPP.push_back(vsCent_eyPP[ipt][ic]);
+                    yCentAA.push_back(vsCent_yAA[ipt][ic]);
+                    eyCentAA.push_back(vsCent_eyAA[ipt][ic]);
+                  }
+                  if (xCent.empty()) continue;
+
+                  TCanvas cVsCent(
+                    TString::Format("c_meanIsoEtVsCent_%s_%s_%s",
+                      trigAA.c_str(), H.variant.c_str(), b.folder.c_str()).Data(),
+                    "c_meanIsoEtVsCent", 900, 700
+                  );
+                  ApplyCanvasMargins1D(cVsCent);
+                  cVsCent.cd();
+
+                  double yMin = std::numeric_limits<double>::max();
+                  double yMax = -std::numeric_limits<double>::max();
+                  for (std::size_t i = 0; i < xCent.size(); ++i)
+                  {
+                    yMin = std::min(yMin, std::min(yCentPP[i] - eyCentPP[i], yCentAA[i] - eyCentAA[i]));
+                    yMax = std::max(yMax, std::max(yCentPP[i] + eyCentPP[i], yCentAA[i] + eyCentAA[i]));
+                  }
+                  if (!std::isfinite(yMin) || !std::isfinite(yMax))
+                  {
+                    yMin = 0.0;
+                    yMax = 1.0;
+                  }
+                  const double pad = (yMax > yMin) ? (0.15 * (yMax - yMin)) : 0.25;
+
+                  const double centLo = centBins.front().lo;
+                  const double centHi = centBins.back().hi;
+
+                  TH1F hFrame(
+                    TString::Format("hFrame_meanIsoEtVsCent_%s_%s_%s",
+                      trigAA.c_str(), H.variant.c_str(), b.folder.c_str()).Data(),
+                    "", 100, centLo, centHi
+                  );
+                  hFrame.SetDirectory(nullptr);
+                  hFrame.SetStats(0);
+                  hFrame.SetMinimum(std::max(0.0, yMin - pad));
+                  hFrame.SetMaximum(yMax + pad);
+                  hFrame.GetXaxis()->SetTitle("Centrality [%]");
+                  hFrame.GetYaxis()->SetTitle("<E_{T}^{iso}> [GeV]");
+                  hFrame.GetXaxis()->SetTitleSize(0.055);
+                  hFrame.GetYaxis()->SetTitleSize(0.055);
+                  hFrame.GetXaxis()->SetLabelSize(0.045);
+                  hFrame.GetYaxis()->SetLabelSize(0.045);
+                  hFrame.GetYaxis()->SetTitleOffset(1.15);
+                  hFrame.Draw();
+
+                  TGraphErrors gPP((int)xCent.size(), &xCent[0], &yCentPP[0], &exCent[0], &eyCentPP[0]);
+                  gPP.SetLineWidth(2);
+                  gPP.SetLineColor(kRed + 1);
+                  gPP.SetMarkerColor(kRed + 1);
+                  gPP.SetMarkerStyle(24);
+                  gPP.SetMarkerSize(1.2);
+                  gPP.Draw("PE1 SAME");
+
+                  TGraphErrors gAA((int)xCent.size(), &xCent[0], &yCentAA[0], &exCent[0], &eyCentAA[0]);
+                  gAA.SetLineWidth(2);
+                  gAA.SetLineColor(kBlack);
+                  gAA.SetMarkerColor(kBlack);
+                  gAA.SetMarkerStyle(20);
+                  gAA.SetMarkerSize(1.2);
+                  gAA.Draw("PE1 SAME");
+
+                  TLegend leg(0.56, 0.68, 0.92, 0.88);
+                  leg.SetBorderSize(0);
+                  leg.SetFillStyle(0);
+                  leg.SetTextFont(42);
+                  leg.SetTextSize(0.032);
+                  leg.AddEntry(&gPP, "pp data", "ep");
+                  leg.AddEntry(&gAA, TString::Format("AuAu data (%s)", H.label.c_str()).Data(), "ep");
+                  leg.Draw();
+
+                  TLatex tTitle;
+                  tTitle.SetNDC(true);
+                  tTitle.SetTextFont(42);
+                  tTitle.SetTextAlign(23);
+                  tTitle.SetTextSize(0.045);
+                  tTitle.DrawLatex(0.50, 0.955,
+                    TString::Format("<E_{T}^{iso}> vs Centrality  p_{T}^{#gamma} %d-%d GeV", b.lo, b.hi).Data());
+
+                  TLatex t;
+                  t.SetNDC(true);
+                  t.SetTextFont(42);
+                  t.SetTextAlign(13);
+                  t.SetTextSize(0.034);
+                  t.DrawLatex(0.16, 0.88, TString::Format("Trigger: %s", trigAA.c_str()).Data());
+                  t.DrawLatex(0.16, 0.84, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
+                  t.DrawLatex(0.16, 0.80, TString::Format("UE subtraction: %s", H.label.c_str()).Data());
+
+                  SaveCanvas(cVsCent, JoinPath(variantDir,
+                        TString::Format("meanIsoEt_pp_vs_auau_vs_cent_%s.png", b.folder.c_str()).Data()));
+                }
+
                 cout << ANSI_DIM
                      << "  -> UE comparison overlays written under:\n"
-                     << "     " << ueCompBase << "/\n"
+                     << "     " << variantDir << "/\n"
                      << ANSI_RESET;
               }
 

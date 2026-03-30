@@ -1443,8 +1443,8 @@
           tInfo.SetTextFont(42);
           tInfo.SetTextAlign(33);
           tInfo.SetTextSize(0.038);
-          tInfo.DrawLatex(0.92, 0.45, "Iso cone: 0.03");
-          tInfo.DrawLatex(0.92, 0.35, "|v_{z}| < 30 cm");
+          tInfo.DrawLatex(0.92, 0.55, "Iso cone: 0.03");
+          tInfo.DrawLatex(0.92, 0.51, "|v_{z}| < 30 cm");
 
           SaveCanvas(c, JoinPath(samDir, "purity_raw_overlay_BDT_vs_BoxCuts.png"));
 
@@ -2265,10 +2265,397 @@
 
         if (!hPhoRecoData_in || !hPhoRecoSim_in || !hPhoTruthSim_in || !hPhoRespSim_in)
         {
+            auto WriteFallbackPreUnfoldXJInputs = [&]()->void
+            {
+              cout << ANSI_BOLD_YEL
+                   << "[FALLBACK] Photon unfolding inputs are incomplete.\n"
+                   << "           Writing pre-unfold x_{J#gamma} input distributions directly from read-in TH2 histograms."
+                   << ANSI_RESET << "\n";
+
+              const auto& analysisRecoBins = UnfoldAnalysisRecoPtBins();
+
+              auto CurrentVariantTag = [&]()->string
+              {
+                if (gApplyCombinatoricSubtractionForUnfolding)
+                {
+                  return gApplyPurityCorrectionForUnfolding
+                    ? "afterCombinatoricJetSubtraction_withPurityCorrection"
+                    : "afterCombinatoricJetSubtraction_noPurityCorrection";
+                }
+
+                return gApplyPurityCorrectionForUnfolding
+                  ? "afterPurityCorrection"
+                  : "beforePurityCorrection";
+              };
+
+              auto CurrentCentralityTag = [&](string& centLabel)->string
+              {
+                centLabel = "Inclusive";
+                if (dsData.centSuffix.empty()) return "inclusive";
+
+                const string key = "_cent_";
+                const size_t pos = dsData.centSuffix.find(key);
+                if (pos == string::npos) return "inclusive";
+
+                string tag = dsData.centSuffix.substr(pos + key.size());
+                if (tag.empty()) return "inclusive";
+
+                string label = tag;
+                std::replace(label.begin(), label.end(), '_', '-');
+                centLabel = label + "%";
+
+                return "cent_" + tag;
+              };
+
+              const string variantTag = CurrentVariantTag();
+              string currentCentLabel = "";
+              const string currentCentTag = CurrentCentralityTag(currentCentLabel);
+
+              const string inclusiveRecoOverlayBase =
+                JoinPath(
+                  JoinPath(
+                    JoinPath(dsSim.outBase, "inclusiveRecoCentralityOverlays"),
+                    dsData.trigger
+                  ),
+                  variantTag
+                );
+              EnsureDir(inclusiveRecoOverlayBase);
+
+              const vector<string> overlayCentTags =
+              {
+                "cent_0_20",
+                "cent_20_40",
+                "cent_40_60",
+                "cent_60_80"
+              };
+
+              const vector<string> overlayCentLabels =
+              {
+                "0-20%",
+                "20-40%",
+                "40-60%",
+                "60-80%"
+              };
+
+              const int overlayColors[] =
+              {
+                kBlack,
+                kRed + 1,
+                kBlue + 1,
+                kGreen + 2
+              };
+
+              for (const auto& rKey : kRKeys)
+              {
+                const double R = RFromKey(rKey);
+                const string rOut = JoinPath(outBase, rKey);
+                const string xjInputOut = JoinPath(rOut, "preUnfoldInputDistributions");
+                EnsureDir(xjInputOut);
+
+                const string recoXJName  = "h2_unfoldReco_pTgamma_xJ_incl_" + rKey;
+                const string truthXJName = "h2_unfoldTruth_pTgamma_xJ_incl_" + rKey;
+
+                TH2* h2RecoData_in  = GetObj<TH2>(dsData, recoXJName,  true, true, false);
+                TH2* h2TruthSim_in  = GetObj<TH2>(dsSim,  truthXJName, true, true, false);
+
+                cout << "\n  [FALLBACK xJ INPUTS] rKey=" << rKey << "\n";
+                PrintGet(dsData, recoXJName,  h2RecoData_in);
+                PrintGet(dsSim,  truthXJName, h2TruthSim_in);
+
+                if (!h2RecoData_in && !h2TruthSim_in)
+                {
+                  cout << ANSI_BOLD_YEL
+                       << "  [FALLBACK xJ INPUTS] No reco/truth inclusive x_{J#gamma} TH2 inputs found for "
+                       << rKey << ". Skipping this radius."
+                       << ANSI_RESET << "\n";
+                  continue;
+                }
+
+                for (int i = 0; i < (int)analysisRecoBins.size(); ++i)
+                {
+                  const PtBin& b = analysisRecoBins[i];
+                  const double cen = 0.5 * (b.lo + b.hi);
+
+                  const string ptOut = JoinPath(xjInputOut, b.folder);
+                  EnsureDir(ptOut);
+
+                  const string overlayPtOut = JoinPath(
+                    JoinPath(
+                      JoinPath(inclusiveRecoOverlayBase, rKey),
+                      b.folder
+                    ),
+                    "RECO"
+                  );
+                  EnsureDir(overlayPtOut);
+
+                  TH1D* hXJRecoData = nullptr;
+                  TH1D* hXJTruthSim = nullptr;
+
+                  if (h2RecoData_in)
+                  {
+                    const int ixReco = h2RecoData_in->GetXaxis()->FindBin(cen);
+                    if (ixReco >= 1 && ixReco <= h2RecoData_in->GetNbinsX())
+                    {
+                      hXJRecoData = h2RecoData_in->ProjectionY(
+                        TString::Format("h_xJRecoDataInput_%s_%s", rKey.c_str(), b.folder.c_str()).Data(),
+                        ixReco, ixReco, "e"
+                      );
+                      if (hXJRecoData)
+                      {
+                        hXJRecoData->SetDirectory(nullptr);
+                        EnsureSumw2(hXJRecoData);
+                      }
+                    }
+                  }
+
+                  if (h2TruthSim_in)
+                  {
+                    const int ixTruth = h2TruthSim_in->GetXaxis()->FindBin(cen);
+                    if (ixTruth >= 1 && ixTruth <= h2TruthSim_in->GetNbinsX())
+                    {
+                      hXJTruthSim = h2TruthSim_in->ProjectionY(
+                        TString::Format("h_xJTruthSimInput_%s_%s", rKey.c_str(), b.folder.c_str()).Data(),
+                        ixTruth, ixTruth, "e"
+                      );
+                      if (hXJTruthSim)
+                      {
+                        hXJTruthSim->SetDirectory(nullptr);
+                        EnsureSumw2(hXJTruthSim);
+                      }
+                    }
+                  }
+
+                  if (hXJRecoData)
+                  {
+                    TCanvas c(
+                      TString::Format("c_xJRecoDataInput_%s_%s", rKey.c_str(), b.folder.c_str()).Data(),
+                      "c_xJRecoDataInput", 900, 700
+                    );
+                    ApplyCanvasMargins1D(c);
+
+                    hXJRecoData->SetTitle("");
+                    hXJRecoData->SetLineColor(kBlack);
+                    hXJRecoData->SetMarkerColor(kBlack);
+                    hXJRecoData->SetMarkerStyle(20);
+                    hXJRecoData->SetMarkerSize(1.0);
+                    hXJRecoData->SetLineWidth(2);
+                    hXJRecoData->GetXaxis()->SetTitle("x_{J#gamma}");
+                    hXJRecoData->GetYaxis()->SetTitle("Counts");
+                    hXJRecoData->Draw("E1");
+
+                    vector<string> lines = DefaultHeaderLines(dsData);
+                    lines.push_back("Reco inclusive x_{J#gamma} input (before unfolding)");
+                    lines.push_back(TString::Format("R = %.1f, p_{T}^{#gamma}: %d-%d GeV", R, b.lo, b.hi).Data());
+                    DrawLatexLines(0.14, 0.92, lines, 0.034, 0.045);
+
+                    SaveCanvas(c, JoinPath(ptOut, "xJ_recoData_input.png"));
+                    SaveCanvas(c, JoinPath(overlayPtOut, TString::Format("xJ_recoData_input_%s.png", currentCentTag.c_str()).Data()));
+
+                    {
+                      const string recoStorePath = JoinPath(
+                        overlayPtOut,
+                        TString::Format("xJ_recoData_input_%s.root", currentCentTag.c_str()).Data()
+                      );
+
+                      TFile fRecoStore(recoStorePath.c_str(), "RECREATE");
+                      if (fRecoStore.IsOpen())
+                      {
+                        TH1* hStore = CloneTH1(
+                          hXJRecoData,
+                          TString::Format("h_xJRecoDataInput_store_%s_%s_%s",
+                            rKey.c_str(), b.folder.c_str(), currentCentTag.c_str()).Data()
+                        );
+                        if (hStore)
+                        {
+                          hStore->SetDirectory(nullptr);
+                          EnsureSumw2(hStore);
+                          hStore->Write("h_xJRecoData");
+                          delete hStore;
+                        }
+                        fRecoStore.Close();
+                      }
+                    }
+
+                    {
+                      vector<TH1*> hCentOverlays;
+                      vector<string> centLabelsFound;
+
+                      for (size_t ic = 0; ic < overlayCentTags.size(); ++ic)
+                      {
+                        const string recoReadPath = JoinPath(
+                          overlayPtOut,
+                          TString::Format("xJ_recoData_input_%s.root", overlayCentTags[ic].c_str()).Data()
+                        );
+
+                        TFile* fIn = TFile::Open(recoReadPath.c_str(), "READ");
+                        if (!fIn || fIn->IsZombie())
+                        {
+                          if (fIn) { fIn->Close(); delete fIn; }
+                          continue;
+                        }
+
+                        TH1* hIn = dynamic_cast<TH1*>(fIn->Get("h_xJRecoData"));
+                        if (!hIn)
+                        {
+                          fIn->Close();
+                          delete fIn;
+                          continue;
+                        }
+
+                        TH1* hClone = CloneTH1(
+                          hIn,
+                          TString::Format("h_xJRecoDataOverlay_%s_%s_%s",
+                            rKey.c_str(), b.folder.c_str(), overlayCentTags[ic].c_str()).Data()
+                        );
+                        if (hClone)
+                        {
+                          hClone->SetDirectory(nullptr);
+                          EnsureSumw2(hClone);
+                          hClone->SetTitle("");
+                          hClone->SetLineColor(overlayColors[ic]);
+                          hClone->SetMarkerColor(overlayColors[ic]);
+                          hClone->SetMarkerStyle(20);
+                          hClone->SetMarkerSize(1.0);
+                          hClone->SetLineWidth(2);
+                          hClone->GetXaxis()->SetTitle("x_{J#gamma}");
+                          hClone->GetYaxis()->SetTitle("Counts");
+                          hCentOverlays.push_back(hClone);
+                          centLabelsFound.push_back(overlayCentLabels[ic]);
+                        }
+
+                        fIn->Close();
+                        delete fIn;
+                      }
+
+                      if (!hCentOverlays.empty())
+                      {
+                        TCanvas cOv(
+                          TString::Format("c_xJRecoDataInputCentOverlay_%s_%s", rKey.c_str(), b.folder.c_str()).Data(),
+                          "c_xJRecoDataInputCentOverlay", 950, 750
+                        );
+                        ApplyCanvasMargins1D(cOv);
+
+                        double maxv = 0.0;
+                        for (auto* h : hCentOverlays)
+                        {
+                          if (!h) continue;
+                          maxv = std::max(maxv, h->GetMaximum());
+                        }
+
+                        hCentOverlays[0]->SetMaximum((maxv > 0.0) ? (1.35 * maxv) : 1.0);
+                        hCentOverlays[0]->Draw("E1");
+                        for (size_t ih = 1; ih < hCentOverlays.size(); ++ih)
+                        {
+                          hCentOverlays[ih]->Draw("E1 same");
+                        }
+
+                        TLegend leg(0.60, 0.68, 0.92, 0.88);
+                        leg.SetBorderSize(0);
+                        leg.SetFillStyle(0);
+                        leg.SetTextFont(42);
+                        leg.SetTextSize(0.034);
+                        for (size_t ih = 0; ih < hCentOverlays.size(); ++ih)
+                        {
+                          leg.AddEntry(hCentOverlays[ih], centLabelsFound[ih].c_str(), "lep");
+                        }
+                        leg.Draw();
+
+                        vector<string> lines = DefaultHeaderLines(dsData);
+                        lines.push_back("Inclusive reco x_{J#gamma} input centrality overlay");
+                        lines.push_back(TString::Format("R = %.1f, p_{T}^{#gamma}: %d-%d GeV", R, b.lo, b.hi).Data());
+                        lines.push_back(TString::Format("Organization case: %s", variantTag.c_str()).Data());
+                        DrawLatexLines(0.14, 0.92, lines, 0.032, 0.043);
+
+                        SaveCanvas(cOv, JoinPath(overlayPtOut, "xJ_recoData_input_overlay_centralities.png"));
+
+                        for (auto* h : hCentOverlays) delete h;
+                      }
+                    }
+                  }
+
+                  if (hXJTruthSim)
+                  {
+                    TCanvas c(
+                      TString::Format("c_xJTruthSimInput_%s_%s", rKey.c_str(), b.folder.c_str()).Data(),
+                      "c_xJTruthSimInput", 900, 700
+                    );
+                    ApplyCanvasMargins1D(c);
+
+                    hXJTruthSim->SetTitle("");
+                    hXJTruthSim->SetLineColor(kBlue + 1);
+                    hXJTruthSim->SetMarkerColor(kBlue + 1);
+                    hXJTruthSim->SetMarkerStyle(24);
+                    hXJTruthSim->SetMarkerSize(1.0);
+                    hXJTruthSim->SetLineWidth(2);
+                    hXJTruthSim->GetXaxis()->SetTitle("x_{J#gamma}");
+                    hXJTruthSim->GetYaxis()->SetTitle("Counts");
+                    hXJTruthSim->Draw("E1");
+
+                    vector<string> lines = DefaultHeaderLines(dsSim);
+                    lines.push_back("Truth inclusive x_{J#gamma} input");
+                    lines.push_back(TString::Format("R = %.1f, p_{T}^{#gamma}: %d-%d GeV", R, b.lo, b.hi).Data());
+                    DrawLatexLines(0.14, 0.92, lines, 0.034, 0.045);
+
+                    SaveCanvas(c, JoinPath(ptOut, "xJ_truthSim_input.png"));
+                  }
+
+                  if (hXJRecoData && hXJTruthSim)
+                  {
+                    TCanvas c(
+                      TString::Format("c_xJInputOverlay_%s_%s", rKey.c_str(), b.folder.c_str()).Data(),
+                      "c_xJInputOverlay", 900, 700
+                    );
+                    ApplyCanvasMargins1D(c);
+
+                    hXJRecoData->SetTitle("");
+                    hXJRecoData->SetLineColor(kBlack);
+                    hXJRecoData->SetMarkerColor(kBlack);
+                    hXJRecoData->SetMarkerStyle(20);
+                    hXJRecoData->SetMarkerSize(1.0);
+                    hXJRecoData->SetLineWidth(2);
+
+                    hXJTruthSim->SetLineColor(kBlue + 1);
+                    hXJTruthSim->SetMarkerColor(kBlue + 1);
+                    hXJTruthSim->SetMarkerStyle(24);
+                    hXJTruthSim->SetMarkerSize(1.0);
+                    hXJTruthSim->SetLineWidth(2);
+
+                    const double maxv = std::max(hXJRecoData->GetMaximum(), hXJTruthSim->GetMaximum());
+                    hXJRecoData->SetMaximum((maxv > 0.0) ? (1.35 * maxv) : 1.0);
+                    hXJRecoData->GetXaxis()->SetTitle("x_{J#gamma}");
+                    hXJRecoData->GetYaxis()->SetTitle("Counts");
+                    hXJRecoData->Draw("E1");
+                    hXJTruthSim->Draw("E1 same");
+
+                    TLegend leg(0.58, 0.74, 0.92, 0.88);
+                    leg.SetBorderSize(0);
+                    leg.SetFillStyle(0);
+                    leg.SetTextFont(42);
+                    leg.SetTextSize(0.034);
+                    leg.AddEntry(hXJRecoData, "DATA reco input", "lep");
+                    leg.AddEntry(hXJTruthSim, "SIM truth input", "lep");
+                    leg.Draw();
+
+                    vector<string> lines = DefaultHeaderLines(dsData);
+                    lines.push_back("Inclusive x_{J#gamma} inputs read directly from TH2 histograms");
+                    lines.push_back(TString::Format("R = %.1f, p_{T}^{#gamma}: %d-%d GeV", R, b.lo, b.hi).Data());
+                    DrawLatexLines(0.14, 0.92, lines, 0.034, 0.045);
+
+                    SaveCanvas(c, JoinPath(ptOut, "xJ_input_overlay_recoData_vs_truthSim.png"));
+                  }
+
+                  if (hXJRecoData) delete hXJRecoData;
+                  if (hXJTruthSim) delete hXJTruthSim;
+                }
+              }
+            };
+
+          WriteFallbackPreUnfoldXJInputs();
+
           cout << ANSI_BOLD_RED
                << "[ERROR] Missing one or more photon unfolding inputs.\n"
                << "        Need (DATA) h_unfoldRecoPho_pTgamma and (SIM) h_unfoldRecoPho_pTgamma, h_unfoldTruthPho_pTgamma, h2_unfoldResponsePho_pTgamma.\n"
-               << "        Aborting RooUnfold pipeline."
+               << "        Wrote fallback pre-unfold x_{J#gamma} input distributions and will now abort RooUnfold."
                << ANSI_RESET << "\n";
           return;
         }
