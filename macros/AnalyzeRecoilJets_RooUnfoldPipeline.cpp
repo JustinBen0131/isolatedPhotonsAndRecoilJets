@@ -70,8 +70,12 @@
       }
 
         const string unfoldVariant = (gApplyPurityCorrectionForUnfolding ? "purityCorrected" : "nonPurityCorrected");
+        const string combVariant   = (gApplyCombinatoricSubtractionForUnfolding ? "combinatoricSub" : "nonCombSub");
         const string simDataBase = JoinPath(dsSim.outBase, dsData.trigger);
-        const string outBase = JoinPath(simDataBase, "unfolding/" + unfoldVariant + "/radii");
+        const string unfoldSubPath = IsEmbeddedSimSample(CurrentSimSample())
+            ? ("unfolding/" + unfoldVariant + "/" + combVariant + "/radii")
+            : ("unfolding/" + unfoldVariant + "/radii");
+        const string outBase = JoinPath(simDataBase, unfoldSubPath);
         int mkrc = -999;
         if (gSystem) mkrc = gSystem->mkdir(outBase.c_str(), true);
         else EnsureDir(outBase);
@@ -9165,11 +9169,46 @@
           }
           else
           {
-            cout << ANSI_BOLD_CYN
-                 << "\n[DEBUG XJ INPUT] Using NON-purity-corrected reco input for " << rKey << "\n"
-                 << ANSI_RESET;
-            DumpTH2Summary(TString::Format("DATA reco input without purity correction (%s)", rKey.c_str()).Data(), h2RecoData);
-          }
+              cout << ANSI_BOLD_CYN
+                   << "\n[DEBUG XJ INPUT] Using NON-purity-corrected reco input for " << rKey << "\n"
+                   << ANSI_RESET;
+              DumpTH2Summary(TString::Format("DATA reco input without purity correction (%s)", rKey.c_str()).Data(), h2RecoData);
+            }
+
+            // --- Optional: ATLAS-style combinatoric jet background subtraction ---
+            // Subtract H_comb^{embed} from the reco data histogram before unfolding.
+            // The combinatoric template lives in the SIM (embedded) file.
+            if (gApplyCombinatoricSubtractionForUnfolding)
+            {
+              const string nameComb = "h2_unfoldRecoCombinatoric_pTgamma_xJ_incl_" + rKey;
+              TH2* h2Comb_in = GetObj<TH2>(dsSim, nameComb, true, true, false);
+
+              if (h2Comb_in)
+              {
+                TH2* h2Comb = CloneTH2(h2Comb_in, TString::Format("h2Comb_%s", rKey.c_str()).Data());
+                EnsureSumw2(h2Comb);
+
+                DumpTH2Summary(TString::Format("SIM combinatoric template BEFORE subtraction (%s)", rKey.c_str()).Data(), h2Comb);
+                DumpTH2Summary(TString::Format("DATA reco BEFORE combinatoric subtraction (%s)", rKey.c_str()).Data(), h2RecoData);
+
+                h2RecoData->Add(h2Comb, -1.0);
+
+                DumpTH2Summary(TString::Format("DATA reco AFTER combinatoric subtraction (%s)", rKey.c_str()).Data(), h2RecoData);
+
+                cout << ANSI_BOLD_CYN
+                     << "[COMB SUB] Subtracted combinatoric template from reco data for " << rKey << "\n"
+                     << ANSI_RESET;
+
+                delete h2Comb;
+              }
+              else
+              {
+                cout << ANSI_BOLD_YEL
+                     << "[WARN] gApplyCombinatoricSubtractionForUnfolding=true but combinatoric histogram not found: "
+                     << nameComb << " in SIM file. Proceeding without combinatoric subtraction for " << rKey << ".\n"
+                     << ANSI_RESET;
+              }
+            }
 
         DumpTH2Summary(TString::Format("SIM reco input (%s)", rKey.c_str()).Data(), h2RecoSim);
         DumpTH2Summary(TString::Format("SIM truth input (%s)", rKey.c_str()).Data(), h2TruthSim);
@@ -14186,6 +14225,87 @@
         delete fCor;
       }
     }
+    // =============================================================================
+    // Au+Au SIM+DATA unfolding wrapper
+    //
+    // Matches per-centrality SIM and DATA datasets, then for each pair runs
+    // the standard unfold pipeline with all 4 (purity × combinatoric) variants.
+    //
+    // Output structure (under each centrality SIM outBase):
+    //   <trigAA>/unfolding/{purityCorrected,nonPurityCorrected}/
+    //       {combinatoricSub,nonCombSub}/radii/<rKey>/...
+    // =============================================================================
+    void RunRooUnfoldPipeline_SimAndDataAUAU(vector<Dataset>& datasets)
+    {
+      cout << ANSI_BOLD_CYN << "\n==============================\n"
+           << "[SECTION 5I-AA] RooUnfold pipeline (SIM+DATA AuAu)\n"
+           << "==============================" << ANSI_RESET << "\n";
+
+      // --- Match SIM and DATA datasets by centrality suffix ---
+      map<string, Dataset*> simByCent;
+      map<string, Dataset*> dataByCent;
+
+      for (auto& ds : datasets)
+      {
+        if (ds.isSim) simByCent[ds.centSuffix] = &ds;
+        else          dataByCent[ds.centSuffix] = &ds;
+      }
+
+      int nPairs = 0;
+      for (auto& [cent, dsSIM] : simByCent)
+      {
+        auto it = dataByCent.find(cent);
+        if (it == dataByCent.end())
+        {
+          cout << ANSI_BOLD_YEL
+               << "[WARN] No DATA dataset matches SIM centrality '" << cent << "'. Skipping.\n"
+               << ANSI_RESET;
+          continue;
+        }
+        Dataset* dsDATA = it->second;
+
+        cout << ANSI_BOLD_CYN
+             << "\n--- AuAu unfold pair: " << dsSIM->centLabel << " ---\n"
+             << "  SIM:  " << dsSIM->label  << "  outBase=" << dsSIM->outBase << "\n"
+             << "  DATA: " << dsDATA->label << "  outBase=" << dsDATA->outBase << "\n"
+             << ANSI_RESET;
+
+        // Run 4 variants: (purity × comb) = nonPur/nonComb, nonPur/combSub, pur/nonComb, pur/combSub
+        struct Variant { bool purity; bool comb; };
+        const vector<Variant> variants = {
+          {false, false},
+          {false, true},
+          {true,  false},
+          {true,  true}
+        };
+
+        for (const auto& v : variants)
+        {
+          gApplyPurityCorrectionForUnfolding       = v.purity;
+          gApplyCombinatoricSubtractionForUnfolding = v.comb;
+
+          const string purLabel  = (v.purity ? "purityCorrected"  : "nonPurityCorrected");
+          const string combLabel = (v.comb   ? "combinatoricSub"  : "nonCombSub");
+
+          cout << "  -> [AuAu unfold] " << dsSIM->centLabel
+               << " | " << purLabel << " | " << combLabel << " ...\n";
+
+          RunRooUnfoldPipeline_SimAndDataPP(*dsDATA, *dsSIM);
+
+          cout << "     [OK] " << purLabel << " / " << combLabel << "\n";
+        }
+
+        // Reset flags
+        gApplyPurityCorrectionForUnfolding        = false;
+        gApplyCombinatoricSubtractionForUnfolding  = false;
+
+        ++nPairs;
+      }
+
+      cout << ANSI_BOLD_CYN
+           << "[DONE] AuAu unfold pipeline: processed " << nPairs << " centrality pairs.\n"
+           << ANSI_RESET;
+    }
 #else
     void RunRooUnfoldPipeline_SimAndDataPP(Dataset& dsData, Dataset& dsSim)
     {
@@ -14193,6 +14313,14 @@
       (void)dsSim;
       cout << ANSI_BOLD_YEL
            << "[WARN] RooUnfold headers not found at compile time (ARJ_HAVE_ROOUNFOLD=0). Skipping RooUnfold pipeline."
+           << ANSI_RESET << "\n";
+    }
+
+    void RunRooUnfoldPipeline_SimAndDataAUAU(vector<Dataset>& datasets)
+    {
+      (void)datasets;
+      cout << ANSI_BOLD_YEL
+           << "[WARN] RooUnfold headers not found at compile time (ARJ_HAVE_ROOUNFOLD=0). Skipping AuAu RooUnfold pipeline."
            << ANSI_RESET << "\n";
     }
 

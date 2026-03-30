@@ -12347,31 +12347,102 @@ namespace ARJ
         }
     }
     else if (ss == SimSample::kEmbeddedPhoton10And20Merged)
-    {
-        if (!doPhotonJetMerge)
         {
-            const string outMerged =
-                MergedSimEmbeddedPath("photonJet10and20merged_SIM", "RecoilJets_embeddedPhoton10plus20_MERGED.root");
-
-            cout << ANSI_BOLD_CYN
-                 << "\n[MERGE SIM] doPhotonJetMerge=false -> skipping embedded SIM10+20 rebuild step.\n"
-                 << "            Using existing merged output: " << outMerged << "\n"
-                 << ANSI_RESET;
-
-            if (gSystem->AccessPathName(outMerged.c_str()))
+            if (!doPhotonJetMerge)
             {
-              cout << ANSI_BOLD_RED
-                   << "[MERGE SIM][FATAL] Merged embedded SIM10+20 file not found, but doPhotonJetMerge=false:\n"
-                   << "  " << outMerged << "\n"
-                   << ANSI_RESET;
-              ok = false;
+                const string outMerged =
+                    MergedSimEmbeddedPath("photonJet10and20merged_SIM", "RecoilJets_embeddedPhoton10plus20_MERGED.root");
+
+                cout << ANSI_BOLD_CYN
+                     << "\n[MERGE SIM] doPhotonJetMerge=false -> skipping embedded SIM10+20 rebuild step.\n"
+                     << "            Using existing merged output: " << outMerged << "\n"
+                     << ANSI_RESET;
+
+                if (gSystem->AccessPathName(outMerged.c_str()))
+                {
+                  cout << ANSI_BOLD_RED
+                       << "[MERGE SIM][FATAL] Merged embedded SIM10+20 file not found, but doPhotonJetMerge=false:\n"
+                       << "  " << outMerged << "\n"
+                       << ANSI_RESET;
+                  ok = false;
+                }
+            }
+            else
+            {
+                const string outMerged =
+                    MergedSimEmbeddedPath("photonJet10and20merged_SIM", "RecoilJets_embeddedPhoton10plus20_MERGED.root");
+
+                cout << ANSI_BOLD_CYN
+                     << "\n[MERGE SIM] Rebuilding embedded SIM10+20 merged file.\n"
+                     << "            CfgTagWithUE() = " << CfgTagWithUE() << "\n"
+                     << "            in10    = " << InputSimEmbeddedSample("embeddedPhoton10") << "\n"
+                     << "            in20    = " << InputSimEmbeddedSample("embeddedPhoton20") << "\n"
+                     << "            out     = " << outMerged << "\n"
+                     << ANSI_RESET;
+
+                ok = BuildMergedSIMFile_PhotonSlices(
+                    {InputSimEmbeddedSample("embeddedPhoton10"), InputSimEmbeddedSample("embeddedPhoton20")},
+                    {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+                    outMerged,
+                    kDirSIM,
+                    {"embeddedPhoton10", "embeddedPhoton20"}
+                );
             }
         }
-        else
+        else if (ss == SimSample::kPhotonJet5And10And20Merged)
         {
-            const string outMerged =
-                MergedSimEmbeddedPath("photon
-  } // namespace driver
+            if (!doPhotonJetMerge)
+            {
+                const string outMerged = MergedSimPath("photonJet5and10and20merged_SIM", "RecoilJets_photonjet5plus10plus20_MERGED.root");
+
+                cout << ANSI_BOLD_CYN
+                     << "\n[MERGE SIM] doPhotonJetMerge=false -> skipping SIM5+10+20 rebuild step.\n"
+                     << "            Using existing merged output: " << outMerged << "\n"
+                     << ANSI_RESET;
+
+                if (gSystem->AccessPathName(outMerged.c_str()))
+                {
+                  cout << ANSI_BOLD_RED
+                       << "[MERGE SIM][FATAL] Merged SIM5+10+20 file not found, but doPhotonJetMerge=false:\n"
+                       << "  " << outMerged << "\n"
+                       << ANSI_RESET;
+                  ok = false;
+                }
+            }
+            else
+            {
+                const string outMerged =
+                    MergedSimPath("photonJet5and10and20merged_SIM", "RecoilJets_photonjet5plus10plus20_MERGED.root");
+
+                cout << ANSI_BOLD_CYN
+                     << "\n[MERGE SIM] Rebuilding ONLY the default SIM5+10+20 merged file.\n"
+                     << "            CfgTag() = " << CfgTag() << "\n"
+                     << "            in5     = " << InputSim("photonjet5") << "\n"
+                     << "            in10    = " << InputSim("photonjet10") << "\n"
+                     << "            in20    = " << InputSim("photonjet20") << "\n"
+                     << "            out     = " << outMerged << "\n"
+                     << ANSI_RESET;
+
+                ok = BuildMergedSIMFile_PhotonSlices(
+                  {InputSim("photonjet5"), InputSim("photonjet10"), InputSim("photonjet20")},
+                  {kSigmaPhoton5_pb, kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+                  outMerged,
+                  kDirSIM,
+                  {"photonJet5", "photonJet10", "photonJet20"}
+                );
+            }
+        }
+
+        if (!ok)
+        {
+          cout << ANSI_BOLD_RED << "[FATAL] Failed to build merged SIM file." << ANSI_RESET << "\n";
+          return false;
+        }
+
+        return true;
+      }
+
+    } // namespace driver
 
 
   // =============================================================================
@@ -13564,17 +13635,17 @@ namespace ARJ
                 }
               }
             }
-            else
-            {
-              cout << ANSI_BOLD_YEL
-                   << "[5I] Skipping RooUnfold pipeline: requires isSimAndDataPP && (bothPhoton10and20sim || allPhoton5and10and20sim) and either do_xJ_PPunfold=true or (do_xJ_PPunfold=false with gApplyPurityCorrectionForUnfolding=true).\n"
-                   << "     Current: isSimAndDataPP=" << (isSimAndDataPP ? "true" : "false")
-                   << " bothPhoton10and20sim=" << (bothPhoton10and20sim ? "true" : "false")
-                   << " allPhoton5and10and20sim=" << (allPhoton5and10and20sim ? "true" : "false")
-                   << " do_xJ_PPunfold=" << (do_xJ_PPunfold ? "true" : "false")
-                   << " gApplyPurityCorrectionForUnfolding=" << (gApplyPurityCorrectionForUnfolding ? "true" : "false")
-                   << ANSI_RESET << "\n";
-            }
+          else
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[5I] Skipping RooUnfold pipeline: requires isSimAndDataPP && (bothPhoton10and20sim || allPhoton5and10and20sim) and either do_xJ_PPunfold=true or (do_xJ_PPunfold=false with gApplyPurityCorrectionForUnfolding=true).\n"
+                 << "     Current: isSimAndDataPP=" << (isSimAndDataPP ? "true" : "false")
+                 << " bothPhoton10and20sim=" << (bothPhoton10and20sim ? "true" : "false")
+                 << " allPhoton5and10and20sim=" << (allPhoton5and10and20sim ? "true" : "false")
+                 << " do_xJ_PPunfold=" << (do_xJ_PPunfold ? "true" : "false")
+                 << " gApplyPurityCorrectionForUnfolding=" << (gApplyPurityCorrectionForUnfolding ? "true" : "false")
+                 << ANSI_RESET << "\n";
+          }
       }
 
       // ---------------------------------------------------------------------------
