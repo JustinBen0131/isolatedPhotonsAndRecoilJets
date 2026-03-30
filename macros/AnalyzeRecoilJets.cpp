@@ -3453,7 +3453,7 @@ namespace ARJ
              << "[SECTION 3] GENERAL ISOLATION QA (" << ds.label << ")\n"
              << "==============================" << ANSI_RESET << "\n";
 
-        const bool doEmbeddedVariantOverlay = (isSimEmbedded && ds.isSim && !ds.centFolder.empty());
+        const bool doEmbeddedVariantOverlay = false;
 
         string outDir;
         if (doEmbeddedVariantOverlay) outDir = JoinPath(ds.outBase, "isoQA");
@@ -3464,9 +3464,7 @@ namespace ARJ
         for (const auto& b : PtBins()) EnsureDir(JoinPath(outDir, b.folder));
 
         // ------------------------------------------------------------------
-        // Embedded photon20 special mode:
-        //   ONLY produce reco total-isolation overlays across UE variants
-        //   inside embeddedPhoton20/<cent>/isoQA/
+        // Legacy embedded photon20 special mode removed.
         // ------------------------------------------------------------------
         if (doEmbeddedVariantOverlay)
         {

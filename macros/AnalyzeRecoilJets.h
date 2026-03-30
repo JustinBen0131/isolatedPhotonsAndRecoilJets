@@ -118,7 +118,6 @@ namespace ARJ
   //   Special SIM samples:
   inline bool isSimMB                    = false;   // MinBias DETROIT tune
   inline bool isSimJet5                  = false;   // inclusive jet5
-  inline bool isSimEmbedded              = false;   // legacy embedded photon20 in AuAu
 
   inline bool doPhotonJetMerge = true;
 
@@ -2557,301 +2556,296 @@ namespace ARJ
   // =============================================================================
   enum class SimSample
   {
-          kNone,
-          kPhotonJet5,
-          kPhotonJet10,
-          kPhotonJet20,
-          kPhotonJet5And10Merged,
-          kPhotonJet5And20Merged,
-          kPhotonJet10And20Merged,
-          kPhotonJet5And10And20Merged,
-          kSimMB,
-          kSimJet5,
-          kEmbeddedPhoton10,
-          kEmbeddedPhoton20,
-          kEmbeddedPhoton10And20Merged,
-          kSimEmbedded,
-          kInvalid
-  };
+            kNone,
+            kPhotonJet5,
+            kPhotonJet10,
+            kPhotonJet20,
+            kPhotonJet5And10Merged,
+            kPhotonJet5And20Merged,
+            kPhotonJet10And20Merged,
+            kPhotonJet5And10And20Merged,
+            kSimMB,
+            kSimJet5,
+            kEmbeddedPhoton10,
+            kEmbeddedPhoton20,
+            kEmbeddedPhoton10And20Merged,
+            kSimEmbedded,
+            kInvalid
+    };
 
-  inline bool IsMergedSimSample(SimSample s)
-  {
-          return (s == SimSample::kPhotonJet5And10Merged ||
-                  s == SimSample::kPhotonJet5And20Merged ||
-                  s == SimSample::kPhotonJet10And20Merged ||
-                  s == SimSample::kPhotonJet5And10And20Merged ||
-                  s == SimSample::kEmbeddedPhoton10And20Merged);
-  }
+    inline bool IsMergedSimSample(SimSample s)
+    {
+            return (s == SimSample::kPhotonJet5And10Merged ||
+                    s == SimSample::kPhotonJet5And20Merged ||
+                    s == SimSample::kPhotonJet10And20Merged ||
+                    s == SimSample::kPhotonJet5And10And20Merged ||
+                    s == SimSample::kEmbeddedPhoton10And20Merged);
+    }
 
-  inline bool IsEmbeddedSimSample(SimSample s)
-  {
-          return (s == SimSample::kEmbeddedPhoton10 ||
-                  s == SimSample::kEmbeddedPhoton20 ||
-                  s == SimSample::kEmbeddedPhoton10And20Merged ||
-                  s == SimSample::kSimEmbedded);
-  }
+    inline bool IsEmbeddedSimSample(SimSample s)
+    {
+            return (s == SimSample::kEmbeddedPhoton10 ||
+                    s == SimSample::kEmbeddedPhoton20 ||
+                    s == SimSample::kEmbeddedPhoton10And20Merged ||
+                    s == SimSample::kSimEmbedded);
+    }
 
-  inline SimSample CurrentSimSample()
-  {
-          const int nTrue =
-            (isPhotonJet5 ? 1 : 0) +
-            (isPhotonJet10 ? 1 : 0) +
-            (isPhotonJet20 ? 1 : 0) +
-            (bothPhoton5and10sim ? 1 : 0) +
-            (bothPhoton5and20sim ? 1 : 0) +
-            (bothPhoton10and20sim ? 1 : 0) +
-            (allPhoton5and10and20sim ? 1 : 0) +
-            (isSimMB ? 1 : 0) +
-            (isSimJet5 ? 1 : 0) +
-            (isPhotonJet10Embedded ? 1 : 0) +
-            (isPhotonJet20Embedded ? 1 : 0) +
-            (bothPhoton10and20simEmbedded ? 1 : 0) +
-            (isSimEmbedded ? 1 : 0);
+    inline SimSample CurrentSimSample()
+    {
+            const int nTrue =
+              (isPhotonJet5 ? 1 : 0) +
+              (isPhotonJet10 ? 1 : 0) +
+              (isPhotonJet20 ? 1 : 0) +
+              (bothPhoton5and10sim ? 1 : 0) +
+              (bothPhoton5and20sim ? 1 : 0) +
+              (bothPhoton10and20sim ? 1 : 0) +
+              (allPhoton5and10and20sim ? 1 : 0) +
+              (isSimMB ? 1 : 0) +
+              (isSimJet5 ? 1 : 0) +
+              (isPhotonJet10Embedded ? 1 : 0) +
+              (isPhotonJet20Embedded ? 1 : 0) +
+              (bothPhoton10and20simEmbedded ? 1 : 0);
 
-          if (nTrue == 0) return SimSample::kNone;
-          if (nTrue != 1) return SimSample::kInvalid;
+            if (nTrue == 0) return SimSample::kNone;
+            if (nTrue != 1) return SimSample::kInvalid;
 
-          if (isPhotonJet5)               return SimSample::kPhotonJet5;
-          if (isPhotonJet10)              return SimSample::kPhotonJet10;
-          if (isPhotonJet20)              return SimSample::kPhotonJet20;
-          if (bothPhoton5and10sim)        return SimSample::kPhotonJet5And10Merged;
-          if (bothPhoton5and20sim)        return SimSample::kPhotonJet5And20Merged;
-          if (bothPhoton10and20sim)       return SimSample::kPhotonJet10And20Merged;
-          if (allPhoton5and10and20sim)    return SimSample::kPhotonJet5And10And20Merged;
-          if (isSimMB)                    return SimSample::kSimMB;
-          if (isSimJet5)                  return SimSample::kSimJet5;
-          if (isPhotonJet10Embedded)      return SimSample::kEmbeddedPhoton10;
-          if (isPhotonJet20Embedded)      return SimSample::kEmbeddedPhoton20;
-          if (bothPhoton10and20simEmbedded) return SimSample::kEmbeddedPhoton10And20Merged;
-          if (isSimEmbedded)              return SimSample::kSimEmbedded;
+            if (isPhotonJet5)               return SimSample::kPhotonJet5;
+            if (isPhotonJet10)              return SimSample::kPhotonJet10;
+            if (isPhotonJet20)              return SimSample::kPhotonJet20;
+            if (bothPhoton5and10sim)        return SimSample::kPhotonJet5And10Merged;
+            if (bothPhoton5and20sim)        return SimSample::kPhotonJet5And20Merged;
+            if (bothPhoton10and20sim)       return SimSample::kPhotonJet10And20Merged;
+            if (allPhoton5and10and20sim)    return SimSample::kPhotonJet5And10And20Merged;
+            if (isSimMB)                    return SimSample::kSimMB;
+            if (isSimJet5)                  return SimSample::kSimJet5;
+            if (isPhotonJet10Embedded)      return SimSample::kEmbeddedPhoton10;
+            if (isPhotonJet20Embedded)      return SimSample::kEmbeddedPhoton20;
+            if (bothPhoton10and20simEmbedded) return SimSample::kEmbeddedPhoton10And20Merged;
 
-          return SimSample::kInvalid;
-  }
+            return SimSample::kInvalid;
+    }
 
-  inline string SimSampleLabel(SimSample s)
-  {
+    inline string SimSampleLabel(SimSample s)
+    {
+          switch (s)
+          {
+            case SimSample::kNone:                       return "NONE";
+            case SimSample::kPhotonJet5:                 return "photonJet5";
+            case SimSample::kPhotonJet10:                return "photonJet10";
+            case SimSample::kPhotonJet20:                return "photonJet20";
+            case SimSample::kPhotonJet5And10Merged:      return "photonJet5and10merged";
+            case SimSample::kPhotonJet5And20Merged:      return "photonJet5and20merged";
+            case SimSample::kPhotonJet10And20Merged:     return "photonJet10and20merged";
+            case SimSample::kPhotonJet5And10And20Merged: return "photonJet5and10and20merged";
+            case SimSample::kSimMB:                      return "simMB";
+            case SimSample::kSimJet5:                    return "simJet5";
+            case SimSample::kEmbeddedPhoton10:           return "embeddedPhoton10";
+            case SimSample::kEmbeddedPhoton20:           return "embeddedPhoton20";
+            case SimSample::kEmbeddedPhoton10And20Merged:return "embeddedPhoton10and20merged";
+            case SimSample::kSimEmbedded:                return "embeddedPhoton20";
+            default:                                     return "INVALID";
+          }
+    }
+
+    inline string SimInputPathForSample(SimSample s)
+    {
         switch (s)
         {
-          case SimSample::kNone:                       return "NONE";
-          case SimSample::kPhotonJet5:                 return "photonJet5";
-          case SimSample::kPhotonJet10:                return "photonJet10";
-          case SimSample::kPhotonJet20:                return "photonJet20";
-          case SimSample::kPhotonJet5And10Merged:      return "photonJet5and10merged";
-          case SimSample::kPhotonJet5And20Merged:      return "photonJet5and20merged";
-          case SimSample::kPhotonJet10And20Merged:     return "photonJet10and20merged";
-          case SimSample::kPhotonJet5And10And20Merged: return "photonJet5and10and20merged";
-          case SimSample::kSimMB:                      return "simMB";
-          case SimSample::kSimJet5:                    return "simJet5";
-          case SimSample::kEmbeddedPhoton10:           return "embeddedPhoton10";
-          case SimSample::kEmbeddedPhoton20:           return "embeddedPhoton20";
-          case SimSample::kEmbeddedPhoton10And20Merged:return "embeddedPhoton10and20merged";
-          case SimSample::kSimEmbedded:                return "embeddedPhoton20";
-          default:                                     return "INVALID";
-        }
-  }
-
-  inline string SimInputPathForSample(SimSample s)
-  {
-      switch (s)
-      {
-        case SimSample::kPhotonJet5:                 return InputSim("photonjet5");
-        case SimSample::kPhotonJet10:                return InputSim("photonjet10");
-        case SimSample::kPhotonJet20:                return InputSim("photonjet20");
-        case SimSample::kPhotonJet5And10Merged:      return MergedSimPath("photonJet5and10merged_SIM", "RecoilJets_photonjet5plus10_MERGED.root");
-        case SimSample::kPhotonJet5And20Merged:      return MergedSimPath("photonJet5and20merged_SIM", "RecoilJets_photonjet5plus20_MERGED.root");
-        case SimSample::kPhotonJet10And20Merged:     return MergedSimPath("photonJet10and20merged_SIM", "RecoilJets_photonjet10plus20_MERGED.root");
-        case SimSample::kPhotonJet5And10And20Merged: return MergedSimPath("photonJet5and10and20merged_SIM", "RecoilJets_photonjet5plus10plus20_MERGED.root");
-        case SimSample::kSimMB:                      return InputSimMB();
-        case SimSample::kSimJet5:                    return InputSimJet5();
-        case SimSample::kEmbeddedPhoton10:           return InputSimEmbeddedSample("embeddedPhoton10");
-        case SimSample::kEmbeddedPhoton20:           return InputSimEmbeddedSample("embeddedPhoton20");
-        case SimSample::kEmbeddedPhoton10And20Merged:return MergedSimEmbeddedPath("photonJet10and20merged_SIM", "RecoilJets_embeddedPhoton10plus20_MERGED.root");
-        case SimSample::kSimEmbedded:                return InputSimEmbedded();
-        default:                                     return "";
-      }
-  }
-
-  inline string SimOutBaseForSample(SimSample s)
-  {
-        switch (s)
-        {
-          case SimSample::kPhotonJet5:                 return OutputIndividualSim("photonJet5_SIM");
-          case SimSample::kPhotonJet10:                return OutputIndividualSim("photonJet10_SIM");
-          case SimSample::kPhotonJet20:                return OutputIndividualSim("photonJet20_SIM");
-          case SimSample::kPhotonJet5And10Merged:      return OutputCombinedSimOnly("photonJet5and10merged_SIM");
-          case SimSample::kPhotonJet5And20Merged:      return OutputCombinedSimOnly("photonJet5and20merged_SIM");
-          case SimSample::kPhotonJet10And20Merged:     return OutputCombinedSimOnly("photonJet10and20merged_SIM");
-          case SimSample::kPhotonJet5And10And20Merged: return OutputCombinedSimOnly("photonJet5and10and20merged_SIM");
-          case SimSample::kSimMB:                      return OutputSimMB();
-          case SimSample::kSimJet5:                    return OutputSimJet5();
-          case SimSample::kEmbeddedPhoton10:           return OutputCombinedSimOnlyEMBEDDED("embeddedPhoton10_SIM");
-          case SimSample::kEmbeddedPhoton20:           return OutputCombinedSimOnlyEMBEDDED("embeddedPhoton20_SIM");
-          case SimSample::kEmbeddedPhoton10And20Merged:return OutputCombinedSimOnlyEMBEDDED("photonJet10and20merged_SIM");
-          case SimSample::kSimEmbedded:                return OutputSimEmbedded();
+          case SimSample::kPhotonJet5:                 return InputSim("photonjet5");
+          case SimSample::kPhotonJet10:                return InputSim("photonjet10");
+          case SimSample::kPhotonJet20:                return InputSim("photonjet20");
+          case SimSample::kPhotonJet5And10Merged:      return MergedSimPath("photonJet5and10merged_SIM", "RecoilJets_photonjet5plus10_MERGED.root");
+          case SimSample::kPhotonJet5And20Merged:      return MergedSimPath("photonJet5and20merged_SIM", "RecoilJets_photonjet5plus20_MERGED.root");
+          case SimSample::kPhotonJet10And20Merged:     return MergedSimPath("photonJet10and20merged_SIM", "RecoilJets_photonjet10plus20_MERGED.root");
+          case SimSample::kPhotonJet5And10And20Merged: return MergedSimPath("photonJet5and10and20merged_SIM", "RecoilJets_photonjet5plus10plus20_MERGED.root");
+          case SimSample::kSimMB:                      return InputSimMB();
+          case SimSample::kSimJet5:                    return InputSimJet5();
+          case SimSample::kEmbeddedPhoton10:           return InputSimEmbeddedSample("embeddedPhoton10");
+          case SimSample::kEmbeddedPhoton20:           return InputSimEmbeddedSample("embeddedPhoton20");
+          case SimSample::kEmbeddedPhoton10And20Merged:return MergedSimEmbeddedPath("photonJet10and20merged_SIM", "RecoilJets_embeddedPhoton10plus20_MERGED.root");
+          case SimSample::kSimEmbedded:                return InputSimEmbedded();
           default:                                     return "";
         }
-  }
+    }
 
-  inline bool ValidateRunConfig(string* errMsg = nullptr)
-  {
-      // Disallow contradictory run-mode toggles.
-      if (isPPdataOnly && (isSimAndDataPP || isSimAndDataAUAU))
-      {
-        if (errMsg) *errMsg = "isPPdataOnly is mutually exclusive with isSimAndDataPP and isSimAndDataAUAU. Choose only one.";
-        return false;
-      }
+    inline string SimOutBaseForSample(SimSample s)
+    {
+          switch (s)
+          {
+            case SimSample::kPhotonJet5:                 return OutputIndividualSim("photonJet5_SIM");
+            case SimSample::kPhotonJet10:                return OutputIndividualSim("photonJet10_SIM");
+            case SimSample::kPhotonJet20:                return OutputIndividualSim("photonJet20_SIM");
+            case SimSample::kPhotonJet5And10Merged:      return OutputCombinedSimOnly("photonJet5and10merged_SIM");
+            case SimSample::kPhotonJet5And20Merged:      return OutputCombinedSimOnly("photonJet5and20merged_SIM");
+            case SimSample::kPhotonJet10And20Merged:     return OutputCombinedSimOnly("photonJet10and20merged_SIM");
+            case SimSample::kPhotonJet5And10And20Merged: return OutputCombinedSimOnly("photonJet5and10and20merged_SIM");
+            case SimSample::kSimMB:                      return OutputSimMB();
+            case SimSample::kSimJet5:                    return OutputSimJet5();
+            case SimSample::kEmbeddedPhoton10:           return OutputCombinedSimOnlyEMBEDDED("embeddedPhoton10_SIM");
+            case SimSample::kEmbeddedPhoton20:           return OutputCombinedSimOnlyEMBEDDED("embeddedPhoton20_SIM");
+            case SimSample::kEmbeddedPhoton10And20Merged:return OutputCombinedSimOnlyEMBEDDED("photonJet10and20merged_SIM");
+            case SimSample::kSimEmbedded:                return OutputSimEmbedded();
+            default:                                     return "";
+          }
+    }
 
-      if (isSimAndDataPP && isSimAndDataAUAU)
-      {
-        if (errMsg) *errMsg = "isSimAndDataPP and isSimAndDataAUAU cannot both be true. Choose only one combined run mode.";
-        return false;
-      }
+    inline bool ValidateRunConfig(string* errMsg = nullptr)
+    {
+        // Disallow contradictory run-mode toggles.
+        if (isPPdataOnly && (isSimAndDataPP || isSimAndDataAUAU))
+        {
+          if (errMsg) *errMsg = "isPPdataOnly is mutually exclusive with isSimAndDataPP and isSimAndDataAUAU. Choose only one.";
+          return false;
+        }
 
-      if (isAuAuOnly && (isPPdataOnly || isSimAndDataPP || isSimAndDataAUAU))
-      {
-        if (errMsg) *errMsg = "isAuAuOnly=true is mutually exclusive with isPPdataOnly, isSimAndDataPP, and isSimAndDataAUAU. Choose only one run mode.";
-        return false;
-      }
+        if (isSimAndDataPP && isSimAndDataAUAU)
+        {
+          if (errMsg) *errMsg = "isSimAndDataPP and isSimAndDataAUAU cannot both be true. Choose only one combined run mode.";
+          return false;
+        }
 
-      const SimSample ss = CurrentSimSample();
+        if (isAuAuOnly && (isPPdataOnly || isSimAndDataPP))
+        {
+          if (errMsg) *errMsg = "isAuAuOnly=true is mutually exclusive with isPPdataOnly and isSimAndDataPP. It may be combined with isSimAndDataAUAU.";
+          return false;
+        }
 
-      // AuAu-only run: SIM sample toggles must be OFF.
-      if (isAuAuOnly)
-      {
-        if (ss != SimSample::kNone)
+        const SimSample ss = CurrentSimSample();
+
+        // Pure AuAu-only run: SIM sample toggles must be OFF.
+        if (isAuAuOnly && !isSimAndDataAUAU)
+        {
+          if (ss != SimSample::kNone)
+          {
+            if (errMsg)
+            {
+              *errMsg =
+                "AuAu-only mode selected, but a SIM sample toggle is set. "
+                "Set isPhotonJet5=false, isPhotonJet10=false, isPhotonJet20=false, "
+                "bothPhoton5and10sim=false, bothPhoton5and20sim=false, bothPhoton10and20sim=false, "
+                "allPhoton5and10and20sim=false, isSimMB=false, isSimJet5=false, "
+                "isPhotonJet10Embedded=false, isPhotonJet20Embedded=false, bothPhoton10and20simEmbedded=false.";
+            }
+            return false;
+          }
+          return true;
+        }
+
+        // PP-only run: SIM sample toggles must be OFF.
+        if (isPPdataOnly)
+        {
+          if (ss != SimSample::kNone)
+          {
+            if (errMsg)
+            {
+              *errMsg =
+                "PP-data-only mode selected, but a SIM sample toggle is set. "
+                "Set isPhotonJet5=false, isPhotonJet10=false, isPhotonJet20=false, "
+                "bothPhoton5and10sim=false, bothPhoton5and20sim=false, bothPhoton10and20sim=false, "
+                "allPhoton5and10and20sim=false, isSimMB=false, isSimJet5=false, "
+                "isPhotonJet10Embedded=false, isPhotonJet20Embedded=false, bothPhoton10and20simEmbedded=false.";
+            }
+            return false;
+          }
+          return true;
+        }
+
+        // Any non-PP-only run includes SIM (either SIM-only or SIM+DATA).
+        if (ss == SimSample::kNone)
         {
           if (errMsg)
           {
             *errMsg =
-              "AuAu-only mode selected, but a SIM sample toggle is set. "
-              "Set isPhotonJet5=false, isPhotonJet10=false, isPhotonJet20=false, "
-              "bothPhoton5and10sim=false, bothPhoton5and20sim=false, bothPhoton10and20sim=false, "
-              "allPhoton5and10and20sim=false, isSimMB=false, isSimJet5=false, "
-              "isPhotonJet10Embedded=false, isPhotonJet20Embedded=false, bothPhoton10and20simEmbedded=false, "
-              "isSimEmbedded=false.";
+              "SIM is required (SIM-only, SIM+PP, or SIM+AuAu), but no SIM sample was selected. "
+              "Set exactly one of: isPhotonJet5, isPhotonJet10, isPhotonJet20, "
+              "bothPhoton5and10sim, bothPhoton5and20sim, bothPhoton10and20sim, allPhoton5and10and20sim, "
+              "isSimMB, isSimJet5, isPhotonJet10Embedded, isPhotonJet20Embedded, "
+              "bothPhoton10and20simEmbedded.";
           }
           return false;
         }
-        return true;
-      }
 
-      // PP-only run: SIM sample toggles must be OFF.
-      if (isPPdataOnly)
-      {
-        if (ss != SimSample::kNone)
+        if (ss == SimSample::kInvalid)
         {
           if (errMsg)
           {
             *errMsg =
-              "PP-data-only mode selected, but a SIM sample toggle is set. "
-              "Set isPhotonJet5=false, isPhotonJet10=false, isPhotonJet20=false, "
-              "bothPhoton5and10sim=false, bothPhoton5and20sim=false, bothPhoton10and20sim=false, "
-              "allPhoton5and10and20sim=false, isSimMB=false, isSimJet5=false, "
-              "isPhotonJet10Embedded=false, isPhotonJet20Embedded=false, bothPhoton10and20simEmbedded=false, "
-              "isSimEmbedded=false.";
+              "Invalid SIM sample toggle combination. "
+              "Set EXACTLY ONE of: isPhotonJet5, isPhotonJet10, isPhotonJet20, "
+              "bothPhoton5and10sim, bothPhoton5and20sim, bothPhoton10and20sim, allPhoton5and10and20sim, "
+              "isSimMB, isSimJet5, isPhotonJet10Embedded, isPhotonJet20Embedded, "
+              "bothPhoton10and20simEmbedded.";
           }
           return false;
         }
-        return true;
-      }
 
-      // Any non-PP-only run includes SIM (either SIM-only or SIM+DATA).
-      if (ss == SimSample::kNone)
-      {
-        if (errMsg)
+        // SIM+PP mode contract.
+        if (isSimAndDataPP &&
+            (IsEmbeddedSimSample(ss) ||
+             (ss != SimSample::kPhotonJet10And20Merged &&
+              ss != SimSample::kPhotonJet5And10And20Merged &&
+              ss != SimSample::kSimMB &&
+              ss != SimSample::kSimJet5)))
         {
-          *errMsg =
-            "SIM is required (SIM-only, SIM+PP, or SIM+AuAu), but no SIM sample was selected. "
-            "Set exactly one of: isPhotonJet5, isPhotonJet10, isPhotonJet20, "
-            "bothPhoton5and10sim, bothPhoton5and20sim, bothPhoton10and20sim, allPhoton5and10and20sim, "
-            "isSimMB, isSimJet5, isPhotonJet10Embedded, isPhotonJet20Embedded, "
-            "bothPhoton10and20simEmbedded, isSimEmbedded.";
+          if (errMsg)
+          {
+              *errMsg =
+                "SIM+DATA PP (isSimAndDataPP=true) requires a merged photonJet10+20 or photonJet5+10+20 SIM sample, "
+                "or isSimMB=true or isSimJet5=true. "
+                "Set: bothPhoton10and20sim=true or allPhoton5and10and20sim=true or isSimMB=true or isSimJet5=true "
+                "(all embedded SIM toggles false).";
+          }
+          return false;
         }
-        return false;
-      }
 
-      if (ss == SimSample::kInvalid)
-      {
-        if (errMsg)
+        // SIM+AuAu mode contract.
+        if (isSimAndDataAUAU &&
+            ss != SimSample::kEmbeddedPhoton10 &&
+            ss != SimSample::kEmbeddedPhoton20 &&
+            ss != SimSample::kEmbeddedPhoton10And20Merged)
         {
-          *errMsg =
-            "Invalid SIM sample toggle combination. "
-            "Set EXACTLY ONE of: isPhotonJet5, isPhotonJet10, isPhotonJet20, "
-            "bothPhoton5and10sim, bothPhoton5and20sim, bothPhoton10and20sim, allPhoton5and10and20sim, "
-            "isSimMB, isSimJet5, isPhotonJet10Embedded, isPhotonJet20Embedded, "
-            "bothPhoton10and20simEmbedded, isSimEmbedded.";
-        }
-        return false;
-      }
-
-      // SIM+PP mode contract.
-      if (isSimAndDataPP &&
-          (IsEmbeddedSimSample(ss) ||
-           (ss != SimSample::kPhotonJet10And20Merged &&
-            ss != SimSample::kPhotonJet5And10And20Merged &&
-            ss != SimSample::kSimMB &&
-            ss != SimSample::kSimJet5)))
-      {
-        if (errMsg)
-        {
+          if (errMsg)
+          {
             *errMsg =
-              "SIM+DATA PP (isSimAndDataPP=true) requires a merged photonJet10+20 or photonJet5+10+20 SIM sample, "
-              "or isSimMB=true or isSimJet5=true. "
-              "Set: bothPhoton10and20sim=true or allPhoton5and10and20sim=true or isSimMB=true or isSimJet5=true "
-              "(all embedded SIM toggles false).";
+              "SIM+DATA AuAu (isSimAndDataAUAU=true) requires one embedded SIM sample. "
+              "Set exactly one of: isPhotonJet10Embedded=true, isPhotonJet20Embedded=true, "
+              "bothPhoton10and20simEmbedded=true "
+              "(all PP SIM toggles false).";
+          }
+          return false;
         }
-        return false;
-      }
 
-      // SIM+AuAu mode contract.
-      if (isSimAndDataAUAU &&
-          ss != SimSample::kEmbeddedPhoton10 &&
-          ss != SimSample::kEmbeddedPhoton20 &&
-          ss != SimSample::kEmbeddedPhoton10And20Merged &&
-          ss != SimSample::kSimEmbedded)
-      {
-        if (errMsg)
-        {
-          *errMsg =
-            "SIM+DATA AuAu (isSimAndDataAUAU=true) requires one embedded SIM sample. "
-            "Set exactly one of: isPhotonJet10Embedded=true, isPhotonJet20Embedded=true, "
-            "bothPhoton10and20simEmbedded=true, or legacy isSimEmbedded=true "
-            "(all PP SIM toggles false).";
-        }
-        return false;
-      }
+        return true;
+    }
 
-      return true;
-  }
+    // Backwards-compatible name used by older guard code paths.
+    inline bool ExactlyOneModeSet()
+    {
+        return ValidateRunConfig(nullptr);
+    }
 
-  // Backwards-compatible name used by older guard code paths.
-  inline bool ExactlyOneModeSet()
-  {
-      return ValidateRunConfig(nullptr);
-  }
+    // =============================================================================
+    // Run mode helpers
+    // =============================================================================
+    enum class RunMode
+    {
+          kPPDataOnly,
+          kAuAuOnly,
+          kSimOnly,
+          kSimAndDataPP,
+          kSimAndDataAUAU,
+          kInvalid
+    };
 
-  // =============================================================================
-  // Run mode helpers
-  // =============================================================================
-  enum class RunMode
-  {
-        kPPDataOnly,
-        kAuAuOnly,
-        kSimOnly,
-        kSimAndDataPP,
-        kSimAndDataAUAU,
-        kInvalid
-  };
-
-  inline RunMode CurrentRunMode()
-  {
-        if (!ValidateRunConfig(nullptr)) return RunMode::kInvalid;
-        if (isAuAuOnly)       return RunMode::kAuAuOnly;
-        if (isPPdataOnly)     return RunMode::kPPDataOnly;
-        if (isSimAndDataPP)   return RunMode::kSimAndDataPP;
-        if (isSimAndDataAUAU) return RunMode::kSimAndDataAUAU;
-        return RunMode::kSimOnly;
-  }
+    inline RunMode CurrentRunMode()
+    {
+          if (!ValidateRunConfig(nullptr)) return RunMode::kInvalid;
+          if (isPPdataOnly)     return RunMode::kPPDataOnly;
+          if (isSimAndDataPP)   return RunMode::kSimAndDataPP;
+          if (isSimAndDataAUAU) return RunMode::kSimAndDataAUAU;
+          if (isAuAuOnly)       return RunMode::kAuAuOnly;
+          return RunMode::kSimOnly;
+    }
 
   inline string RunModeLabel(RunMode m)
   {

@@ -8891,7 +8891,8 @@
         const int kNToysXJFinal = 600;
         const int kNToysXJScan  = 120;
 
-      std::map<std::string, std::vector<TH1*>> perPhoHistsByRKey;
+        std::map<std::string, std::vector<TH1*>> perPhoHistsByRKey;
+        std::map<std::string, std::vector<TH1*>> perPhoHistsJetEffCorrByRKey;
 
         for (const auto& rKey : kRKeys)
         {
@@ -12405,8 +12406,8 @@
                         txAxis.SetNDC();
                         txAxis.SetTextFont(42);
                         txAxis.SetTextAlign(31);
-                        txAxis.SetTextSize(0.050);
-                        txAxis.DrawLatex(0.98, 0.03, "x_{J}");
+                        txAxis.SetTextSize(0.052);
+                        txAxis.DrawLatex(0.96, 0.05, "x_{J#gamma}");
 
                         SaveCanvas(cOEff, JoinPath(overlayOutEffCorrected, TString::Format("xJ_unfolded_perPhoton_LHCoverlay_pTbin%d.png", i + 1).Data()));
 
@@ -13539,25 +13540,44 @@
             }
           }
 
-        // Keep clones for an all-radii overlay table produced after the per-radius loop
-        {
-            auto& vv = perPhoHistsByRKey[rKey];
-            vv.assign(nPtAll, nullptr);
-
-            for (int i = 0; i < nPtAll; ++i)
+            // Keep clones for an all-radii overlay table produced after the per-radius loop
             {
-              if (!perPhoHists[i]) { vv[i] = nullptr; continue; }
+                auto& vv = perPhoHistsByRKey[rKey];
+                vv.assign(nPtAll, nullptr);
 
-              vv[i] = (TH1*)perPhoHists[i]->Clone(
-                TString::Format("%s_clone_radiiOverlay_pTbin%d", perPhoHists[i]->GetName(), i + 1).Data()
-              );
-              if (vv[i])
-              {
-                vv[i]->SetDirectory(nullptr);
-                EnsureSumw2(vv[i]);
+                for (int i = 0; i < nPtAll; ++i)
+                {
+                  if (!perPhoHists[i]) { vv[i] = nullptr; continue; }
+
+                  vv[i] = (TH1*)perPhoHists[i]->Clone(
+                    TString::Format("%s_clone_radiiOverlay_pTbin%d", perPhoHists[i]->GetName(), i + 1).Data()
+                  );
+                  if (vv[i])
+                  {
+                    vv[i]->SetDirectory(nullptr);
+                    EnsureSumw2(vv[i]);
+                  }
+                }
               }
-            }
-          }
+
+            {
+                auto& vv = perPhoHistsJetEffCorrByRKey[rKey];
+                vv.assign(nPtAll, nullptr);
+
+                for (int i = 0; i < nPtAll; ++i)
+                {
+                  if (!perPhoHists_jetEffCorr[i]) { vv[i] = nullptr; continue; }
+
+                  vv[i] = (TH1*)perPhoHists_jetEffCorr[i]->Clone(
+                    TString::Format("%s_clone_radiiOverlayJetEff_pTbin%d", perPhoHists_jetEffCorr[i]->GetName(), i + 1).Data()
+                  );
+                  if (vv[i])
+                  {
+                    vv[i]->SetDirectory(nullptr);
+                    EnsureSumw2(vv[i]);
+                  }
+                }
+              }
 
           auto DrawRatioOverlaySummary =
             [&](const vector<TH1*>& hs,
@@ -13876,6 +13896,122 @@
                 }
               };
 
+              auto DrawPerPhotonOverlayPadJetEff = [&](int ipad)->void
+              {
+                auto getHist = [&](const std::string& key)->TH1*
+                {
+                  auto it = perPhoHistsJetEffCorrByRKey.find(key);
+                  if (it == perPhoHistsJetEffCorrByRKey.end()) return nullptr;
+                  if (ipad < 0 || ipad >= (int)it->second.size()) return nullptr;
+                  return it->second[ipad];
+                };
+
+                TH1* h02 = getHist("r02");
+                TH1* h04 = getHist("r04");
+                TH1* h06 = getHist("r06");
+
+                if (h02)
+                {
+                  h02->SetMarkerStyle(20);
+                  h02->SetMarkerSize(0.85);
+                  h02->SetMarkerColor(kRed + 1);
+                  h02->SetLineColor(kRed + 1);
+                  h02->SetLineWidth(2);
+                  h02->GetXaxis()->SetRangeUser(0.0, 2.0);
+                }
+                if (h04)
+                {
+                  h04->SetMarkerStyle(20);
+                  h04->SetMarkerSize(0.85);
+                  h04->SetMarkerColor(kBlue + 1);
+                  h04->SetLineColor(kBlue + 1);
+                  h04->SetLineWidth(2);
+                  h04->GetXaxis()->SetRangeUser(0.0, 2.0);
+                }
+                if (h06)
+                {
+                  h06->SetMarkerStyle(20);
+                  h06->SetMarkerSize(0.85);
+                  h06->SetMarkerColor(kGreen + 2);
+                  h06->SetLineColor(kGreen + 2);
+                  h06->SetLineWidth(2);
+                  h06->GetXaxis()->SetRangeUser(0.0, 2.0);
+                }
+
+                double maxY = 0.0;
+                auto scanMax = [&](TH1* h)->void
+                {
+                  if (!h) return;
+                  for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                  {
+                    const double v = h->GetBinContent(ib) + h->GetBinError(ib);
+                    if (std::isfinite(v) && v > maxY) maxY = v;
+                  }
+                };
+
+                scanMax(h02);
+                scanMax(h04);
+                scanMax(h06);
+
+                TH1F frame("frame","", 1, 0.0, 2.0);
+                frame.SetMinimum(0.0);
+                frame.SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
+                frame.SetTitle("");
+                frame.GetXaxis()->SetTitle("x_{J}");
+                frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                frame.Draw("axis");
+
+                if (h02) h02->Draw("E1 same");
+                if (h04) h04->Draw("E1 same");
+                if (h06) h06->Draw("E1 same");
+
+                const PtBin& b = analysisRecoBins[ipad];
+
+                {
+                  TLatex tx;
+                  tx.SetNDC();
+                  tx.SetTextFont(42);
+                  tx.SetTextAlign(22);
+                  tx.SetTextSize(0.042);
+                  tx.DrawLatex(0.52, 0.955,
+                               TString::Format("Per-photon particle-level x_{J}, p_{T}^{#gamma} %d-%d GeV",
+                                               b.lo, b.hi).Data());
+                }
+
+                {
+                  TLatex tx;
+                  tx.SetNDC();
+                  tx.SetTextFont(42);
+                  tx.SetTextAlign(31);
+                  tx.SetTextSize(0.04);
+
+                  const double xR = 0.93;
+                  tx.DrawLatex(xR, 0.67, "z_{vtx} < 60 cm");
+                  tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
+                  tx.DrawLatex(xR, 0.81, "p_{T}^{min, jet} > 5");
+                  tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
+                }
+
+                TLegend* leg = new TLegend(0.60, 0.50, 0.86, 0.68);
+                leg->SetBorderSize(0);
+                leg->SetFillStyle(0);
+                leg->SetTextFont(42);
+                leg->SetTextSize(0.040);
+
+                TGraphErrors* gLeg02 = makeVertErrLegend(h02);
+                TGraphErrors* gLeg04 = makeVertErrLegend(h04);
+                TGraphErrors* gLeg06 = makeVertErrLegend(h06);
+
+                if (gLeg02) leg->AddEntry(gLeg02, "R = 0.2", "pe");
+                if (gLeg04) leg->AddEntry(gLeg04, "R = 0.4", "pe");
+                if (gLeg06) leg->AddEntry(gLeg06, "R = 0.6", "pe");
+
+                leg->Draw();
+              };
+
+              const string dNdXJPerRadiiOut = JoinPath(outBase, "DNDXJ_perRADII");
+              EnsureDir(dNdXJPerRadiiOut);
+
               TCanvas c("c_tbl_unf_perPho_overlay_radii", "c_tbl_unf_perPho_overlay_radii", 1800, 1300);
               c.Divide(3, 3, 0.001, 0.001);
 
@@ -13892,7 +14028,7 @@
                 DrawPerPhotonOverlayPad(ipad);
               }
 
-              SaveCanvas(c, JoinPath(outBase, "table3x3_unfolded_perPhoton_dNdXJ_overlay_radii.png"));
+              SaveCanvas(c, JoinPath(dNdXJPerRadiiOut, "table3x3_unfolded_perPhoton_dNdXJ_overlay_radii.png"));
 
               for (int i = 0; i < nPtAll; ++i)
               {
@@ -13910,10 +14046,68 @@
                 SaveCanvas(
                   cSingle,
                   JoinPath(
-                    outBase,
+                    dNdXJPerRadiiOut,
                     TString::Format("unfolded_perPhoton_dNdXJ_overlay_radii_%s.png", b.folder.c_str()).Data()
                   )
                 );
+              }
+
+              bool anyJetEffOverlay = false;
+              for (const auto& kv : perPhoHistsJetEffCorrByRKey)
+              {
+                for (auto* h : kv.second)
+                {
+                  if (h)
+                  {
+                    anyJetEffOverlay = true;
+                    break;
+                  }
+                }
+                if (anyJetEffOverlay) break;
+              }
+
+              if (anyJetEffOverlay)
+              {
+                const string jetEffRadiiOverlayOut = JoinPath(outBase, "jetEffRadiiOverlayDNDXJ");
+                EnsureDir(jetEffRadiiOverlayOut);
+
+                TCanvas cJetEff("c_tbl_unf_perPho_overlay_radii_jetEffCorr", "c_tbl_unf_perPho_overlay_radii_jetEffCorr", 1800, 1300);
+                cJetEff.Divide(3, 3, 0.001, 0.001);
+
+                for (int ipad = 0; ipad < nPads; ++ipad)
+                {
+                  cJetEff.cd(ipad + 1);
+                  gPad->SetLeftMargin(0.12);
+                  gPad->SetRightMargin(0.04);
+                  gPad->SetBottomMargin(0.12);
+                  gPad->SetTopMargin(0.06);
+
+                  DrawPerPhotonOverlayPadJetEff(ipad);
+                }
+
+                SaveCanvas(cJetEff, JoinPath(jetEffRadiiOverlayOut, "table3x3_unfolded_perPhoton_dNdXJ_overlay_radii_jetEffCorr.png"));
+
+                for (int i = 0; i < nPtAll; ++i)
+                {
+                  const PtBin& b = analysisRecoBins[i];
+
+                  TCanvas cSingleJetEff(
+                    TString::Format("c_unf_perPho_overlay_radii_jetEffCorr_%s", b.folder.c_str()).Data(),
+                    "c_unf_perPho_overlay_radii_jetEffCorr_single",
+                    900, 700
+                  );
+                  ApplyCanvasMargins1D(cSingleJetEff);
+
+                  DrawPerPhotonOverlayPadJetEff(i);
+
+                  SaveCanvas(
+                    cSingleJetEff,
+                    JoinPath(
+                      jetEffRadiiOverlayOut,
+                      TString::Format("unfolded_perPhoton_dNdXJ_overlay_radii_jetEffCorr_%s.png", b.folder.c_str()).Data()
+                    )
+                  );
+                }
               }
           }
         }
@@ -13923,6 +14117,12 @@
           for (auto* h : kv.second) if (h) delete h;
         }
         perPhoHistsByRKey.clear();
+
+        for (auto& kv : perPhoHistsJetEffCorrByRKey)
+        {
+          for (auto* h : kv.second) if (h) delete h;
+        }
+        perPhoHistsJetEffCorrByRKey.clear();
 
         delete hPhoRecoData;
         delete hPhoRecoSim;
