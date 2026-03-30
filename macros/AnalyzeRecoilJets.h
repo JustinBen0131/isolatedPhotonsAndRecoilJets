@@ -92,10 +92,12 @@ namespace ARJ
   //   AuAu ONLY:      isAuAuOnly=true    (all others false)
   // ---------------------------------------------------------------------------
   inline bool isPPdataOnly   = false;
-  inline bool isSimAndDataPP = true;
-  inline bool isSimAndDataAUAU = false;
-  inline bool pp_beforeChangeInRecoSimDefTruthMatched = true;
-  inline bool isAuAuOnly     = false;
+  inline bool pp_beforeChangeInRecoSimDefTruthMatched = false;
+
+  inline bool isSimAndDataPP = false;
+  inline bool isSimAndDataAUAU = true;
+
+  inline bool isAuAuOnly     = true;
   inline bool isPPdataAndAUAU = false;
   inline bool isRun25pp      = false;
 
@@ -110,11 +112,11 @@ namespace ARJ
   inline bool bothPhoton5and10sim        = false;
   inline bool bothPhoton5and20sim        = false;
   inline bool bothPhoton10and20sim       = false;
-  inline bool allPhoton5and10and20sim    = true;
+  inline bool allPhoton5and10and20sim    = false;
   //   Embedded Au+Au SIM slices / merges:
   inline bool isPhotonJet10Embedded      = false;
   inline bool isPhotonJet20Embedded      = false;
-  inline bool bothPhoton10and20simEmbedded = false;
+  inline bool bothPhoton10and20simEmbedded = true;
   //   Special SIM samples:
   inline bool isSimMB                    = false;   // MinBias DETROIT tune
   inline bool isSimJet5                  = false;   // inclusive jet5
@@ -122,13 +124,13 @@ namespace ARJ
   inline bool doPhotonJetMerge = true;
 
   //   RooUnfold: true = run both non-purity and purity-corrected passes + overlay.
-  inline bool do_xJ_PPunfold = true;
+  inline bool do_xJ_PPunfold = false;
   //   RooUnfold AuAu: true = run per-centrality unfolding with purity × combinatoric variants.
-  inline bool do_xJ_AAunfold = false;
+  inline bool do_xJ_AAunfold = true;
   //   Internal: selects raw vs ABCD purity-corrected reco inputs per pass.
   inline bool gApplyPurityCorrectionForUnfolding = true;
   //   Internal: selects whether the embedded combinatoric template is subtracted before unfolding.
-  inline bool gApplyCombinatoricSubtractionForUnfolding = false;
+  inline bool gApplyCombinatoricSubtractionForUnfolding = true;
 
   //   One-off Sam vs Justin unsmear comparison:
   inline bool doSamVsJustinUnsmearOverlays = false;
@@ -142,7 +144,6 @@ namespace ARJ
   inline const int    kVzCut           = 30;            // cm: 30 or 60
   inline const string kIsoConeR        = "isoR30";     // "isoR30" or "isoR40"
   inline const string kIsoMode         = "isSliding";  // "isSliding" or "fixedIso5GeV"
-  inline const double kPhotonEtaAbsMax = 0.7;
 
   // ===========================================================================
   // 3b. Au+Au CUT DEFAULTS  (independent from PP/SIM — drives all AuAu and
@@ -162,6 +163,7 @@ namespace ARJ
       // ,"photon_12_plus_MBD_NS_geq_2_vtx_lt_150"
   };
 
+  inline const double kPhotonEtaAbsMax = 0.7; //consistent fiducial cut for all analyzed data
   // ===========================================================================
   // 4. BINNING  (edit these arrays to change pT / xJ / centrality slicing)
   // ===========================================================================

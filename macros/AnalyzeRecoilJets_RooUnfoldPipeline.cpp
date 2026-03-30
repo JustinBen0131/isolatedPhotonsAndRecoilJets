@@ -1668,16 +1668,67 @@
 
         auto MissingWhy = [&](Dataset& ds, const string& relName)->string
         {
-          const string fp = FullPath(ds, relName);
-          auto it = ds.missingReason.find(fp);
-          if (it == ds.missingReason.end()) return "";
-          return it->second;
+          vector<string> relNamesToTry;
+          relNamesToTry.reserve(2);
+
+          if (!ds.centSuffix.empty() && relName.find("_cent_") == string::npos)
+          {
+            relNamesToTry.push_back(relName + ds.centSuffix);
+          }
+          relNamesToTry.push_back(relName);
+
+          for (const auto& cand : relNamesToTry)
+          {
+            const string fp = FullPath(ds, cand);
+            auto it = ds.missingReason.find(fp);
+            if (it != ds.missingReason.end()) return cand + " -> " + it->second;
+          }
+          return "";
         };
 
         auto PrintGet = [&](Dataset& ds, const string& relName, TObject* obj)
         {
-          const string fp = FullPath(ds, relName);
-          cout << "  [GET] " << ds.label << " :: " << fp << " : ";
+          vector<string> relNamesToTry;
+          relNamesToTry.reserve(2);
+
+          if (!ds.centSuffix.empty() && relName.find("_cent_") == string::npos)
+          {
+            relNamesToTry.push_back(relName + ds.centSuffix);
+          }
+          relNamesToTry.push_back(relName);
+
+          string usedRelName = relName;
+          if (ds.topDir)
+          {
+            for (const auto& cand : relNamesToTry)
+            {
+              if (ds.topDir->Get(cand.c_str()))
+              {
+                usedRelName = cand;
+                break;
+              }
+            }
+          }
+
+          auto printObjSummary = [&](TObject* x)
+          {
+            cout << ANSI_BOLD_GRN << "FOUND" << ANSI_RESET << " (" << x->ClassName() << ")";
+            if (auto* h2 = dynamic_cast<TH2*>(x))
+            {
+              cout << "  entries=" << h2->GetEntries()
+                   << "  nbinsX=" << h2->GetNbinsX()
+                   << "  nbinsY=" << h2->GetNbinsY();
+              if (h2->GetEntries() <= 0.0) cout << "  ZERO_ENTRIES";
+            }
+            else if (auto* h1 = dynamic_cast<TH1*>(x))
+            {
+              cout << "  entries=" << h1->GetEntries()
+                   << "  nbinsX=" << h1->GetNbinsX();
+              if (h1->GetEntries() <= 0.0) cout << "  ZERO_ENTRIES";
+            }
+          };
+
+          cout << "  [GET] " << ds.label << " :: " << FullPath(ds, usedRelName) << " : ";
 
           if (!obj)
           {
@@ -1685,22 +1736,41 @@
             cout << ANSI_BOLD_RED << "MISSING" << ANSI_RESET;
             if (!why.empty()) cout << " (" << why << ")";
             cout << "\n";
+            cout << "        topDir=" << (ds.topDir ? ds.topDir->GetPath() : "<null>")
+                 << "  requested=" << FullPath(ds, relName)
+                 << "  centSuffix=\"" << ds.centSuffix << "\"\n";
+
+            for (const auto& cand : relNamesToTry)
+            {
+              const string candFp = FullPath(ds, cand);
+              TObject* probe = (ds.topDir ? ds.topDir->Get(cand.c_str()) : nullptr);
+
+              cout << "        candidate " << candFp << " : ";
+              if (!probe)
+              {
+                cout << "MISSING";
+              }
+              else
+              {
+                printObjSummary(probe);
+              }
+
+              auto it = ds.missingReason.find(candFp);
+              if (it != ds.missingReason.end()) cout << "  reason=" << it->second;
+              cout << "\n";
+            }
             return;
           }
 
-          cout << ANSI_BOLD_GRN << "FOUND" << ANSI_RESET << " (" << obj->ClassName() << ")";
-          if (auto* h2 = dynamic_cast<TH2*>(obj))
-          {
-            cout << "  entries=" << h2->GetEntries()
-                 << "  nbinsX=" << h2->GetNbinsX()
-                 << "  nbinsY=" << h2->GetNbinsY();
-          }
-          else if (auto* h1 = dynamic_cast<TH1*>(obj))
-          {
-            cout << "  entries=" << h1->GetEntries()
-                 << "  nbinsX=" << h1->GetNbinsX();
-          }
+          printObjSummary(obj);
           cout << "\n";
+
+          if (usedRelName != relName || relNamesToTry.size() > 1)
+          {
+            cout << "        requested=" << FullPath(ds, relName)
+                 << "  resolved=" << FullPath(ds, usedRelName)
+                 << "  centSuffix=\"" << ds.centSuffix << "\"\n";
+          }
         };
 
         auto DumpTH1Summary = [&](const string& tag, TH1* h)->void
@@ -12248,14 +12318,14 @@
                         tx.SetTextSize(0.024);
                         tx.SetTextColor(kBlack);
 
-                        tx.DrawLatex(0.15, 0.70, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
-                        tx.DrawLatex(0.15, 0.65, TString::Format("R = %.1f", R).Data());
-                        tx.DrawLatex(0.15, 0.60, TString::Format("|#Delta#phi| > %s", bbLabel.c_str()).Data());
-                        tx.DrawLatex(0.15, 0.55, TString::Format("p_{T}^{jet} > %.0f GeV", sphJetPtMin).Data());
-                        tx.DrawLatex(0.15, 0.50, TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
+                        tx.DrawLatex(0.2, 0.8, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+                        tx.DrawLatex(0.2, 0.75, TString::Format("R = %.1f", R).Data());
+                        tx.DrawLatex(0.2, 0.70, TString::Format("|#Delta#phi| > %s", bbLabel.c_str()).Data());
+                        tx.DrawLatex(0.2, 0.65, TString::Format("p_{T}^{jet} > %.0f GeV", sphJetPtMin).Data());
+                        tx.DrawLatex(0.2, 0.60, TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
 
                         txHdr.DrawLatex(0.66, 0.72, "#it{#bf{ATLAS}}");
-                        tx.DrawLatex(0.66, 0.67, "pp #sqrt{s} = 5.02 TeV");
+                        tx.DrawLatex(0.66, 0.67, "p+p #sqrt{s} = 5.02 TeV");
                         tx.DrawLatex(0.66, 0.62, TString::Format("p_{T}^{#gamma} = %s GeV", kAtlasTable1PhoPtLabel.c_str()).Data());
                         tx.DrawLatex(0.66, 0.57, "R = 0.4");
                         tx.DrawLatex(0.66, 0.52, "|#Delta#phi| > 7#pi/8");
@@ -12389,14 +12459,14 @@
                         tx.SetTextSize(0.033);
                         tx.SetTextColor(kBlack);
 
-                        tx.DrawLatex(0.25, 0.70, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
-                        tx.DrawLatex(0.25, 0.65, TString::Format("R = %.1f", sphR).Data());
-                        tx.DrawLatex(0.25, 0.60, TString::Format("|#Delta#phi| > %s", bbLabel.c_str()).Data());
-                        tx.DrawLatex(0.25, 0.55, TString::Format("p_{T}^{jet} > %.0f GeV", sphJetPtMin).Data());
-                        tx.DrawLatex(0.25, 0.50, TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
+                        tx.DrawLatex(0.24, 0.73, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+                        tx.DrawLatex(0.24, 0.68, TString::Format("R = %.1f", sphR).Data());
+                        tx.DrawLatex(0.24, 0.63, TString::Format("|#Delta#phi| > %s", bbLabel.c_str()).Data());
+                        tx.DrawLatex(0.24, 0.58, TString::Format("p_{T}^{jet} > %.0f GeV", sphJetPtMin).Data());
+                        tx.DrawLatex(0.24, 0.53, TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
 
                         txHdr.DrawLatex(0.66, 0.72, "#it{#bf{ATLAS}}");
-                        tx.DrawLatex(0.66, 0.67, "pp #sqrt{s} = 5.02 TeV");
+                        tx.DrawLatex(0.66, 0.67, "p+p #sqrt{s} = 5.02 TeV");
                         tx.DrawLatex(0.66, 0.62, TString::Format("p_{T}^{#gamma} = %s GeV", kAtlasTable1PhoPtLabel.c_str()).Data());
                         tx.DrawLatex(0.66, 0.57, "R = 0.4");
                         tx.DrawLatex(0.66, 0.52, "|#Delta#phi| > 7#pi/8");
@@ -13992,21 +14062,48 @@
                   tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
                 }
 
-                TLegend* leg = new TLegend(0.60, 0.50, 0.86, 0.68);
-                leg->SetBorderSize(0);
-                leg->SetFillStyle(0);
-                leg->SetTextFont(42);
-                leg->SetTextSize(0.040);
+                  TLegend* leg = new TLegend(0.60, 0.50, 0.86, 0.68);
+                  leg->SetBorderSize(0);
+                  leg->SetFillStyle(0);
+                  leg->SetTextFont(42);
+                  leg->SetTextSize(0.040);
 
-                TGraphErrors* gLeg02 = makeVertErrLegend(h02);
-                TGraphErrors* gLeg04 = makeVertErrLegend(h04);
-                TGraphErrors* gLeg06 = makeVertErrLegend(h06);
+                  auto makeVertErrLegend = [&](TH1* h) -> TGraphErrors*
+                  {
+                    if (!h) return nullptr;
 
-                if (gLeg02) leg->AddEntry(gLeg02, "R = 0.2", "pe");
-                if (gLeg04) leg->AddEntry(gLeg04, "R = 0.4", "pe");
-                if (gLeg06) leg->AddEntry(gLeg06, "R = 0.6", "pe");
+                    int ib0 = -1;
+                    for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                    {
+                      if (h->GetBinContent(ib) != 0.0 || h->GetBinError(ib) != 0.0) { ib0 = ib; break; }
+                    }
+                    if (ib0 < 0) ib0 = 1;
 
-                leg->Draw();
+                    const double lx  = h->GetXaxis()->GetBinCenter(ib0);
+                    const double ly  = h->GetBinContent(ib0);
+                    double ley = h->GetBinError(ib0);
+                    if (ley <= 0.0) ley = 1.0;
+
+                    TGraphErrors* g = new TGraphErrors(1);
+                    g->SetPoint(0, lx, ly);
+                    g->SetPointError(0, 0.0, ley);
+                    g->SetMarkerStyle(h->GetMarkerStyle());
+                    g->SetMarkerSize(h->GetMarkerSize());
+                    g->SetMarkerColor(h->GetMarkerColor());
+                    g->SetLineColor(h->GetLineColor());
+                    g->SetLineWidth(h->GetLineWidth());
+                    return g;
+                  };
+
+                  TGraphErrors* gLeg02 = makeVertErrLegend(h02);
+                  TGraphErrors* gLeg04 = makeVertErrLegend(h04);
+                  TGraphErrors* gLeg06 = makeVertErrLegend(h06);
+
+                  if (gLeg02) leg->AddEntry(gLeg02, "R = 0.2", "pe");
+                  if (gLeg04) leg->AddEntry(gLeg04, "R = 0.4", "pe");
+                  if (gLeg06) leg->AddEntry(gLeg06, "R = 0.6", "pe");
+
+                  leg->Draw();
               };
 
               const string dNdXJPerRadiiOut = JoinPath(outBase, "DNDXJ_perRADII");
@@ -14482,16 +14579,6 @@
       const bool oldPurity = gApplyPurityCorrectionForUnfolding;
       const bool oldComb   = gApplyCombinatoricSubtractionForUnfolding;
 
-      // --- Match each DATA trigger+centrality dataset to the SIM centrality dataset ---
-      map<string, Dataset*> simByCent;
-      vector<Dataset*> dataDatasets;
-
-      for (auto& ds : datasets)
-      {
-        if (ds.isSim) simByCent[ds.centSuffix] = &ds;
-        else          dataDatasets.push_back(&ds);
-      }
-
       struct Variant
       {
         bool purity;
@@ -14506,42 +14593,377 @@
         {true,  true,  "combinatoricJetSubtractectedWithPurityCorrection"}
       };
 
-      int nPairs = 0;
-      for (auto* dsDATA : dataDatasets)
+      struct UnfoldCentGroup
       {
-        auto it = simByCent.find(dsDATA->centSuffix);
-        if (it == simByCent.end())
+        int lo = 0;
+        int hi = 0;
+        vector<string> suffixes;
+      };
+
+      const vector<UnfoldCentGroup> centGroups = {
+        {0,  20, {"_cent_0_10", "_cent_10_20"}},
+        {20, 40, {"_cent_20_40"}},
+        {40, 60, {"_cent_40_60"}},
+        {60, 80, {"_cent_60_80"}}
+      };
+
+      map<string, Dataset*> simByCent;
+      map<string, map<string, Dataset*> > dataByTriggerCent;
+
+      for (auto& ds : datasets)
+      {
+        if (ds.isSim) simByCent[ds.centSuffix] = &ds;
+        else          dataByTriggerCent[ds.trigger][ds.centSuffix] = &ds;
+      }
+
+      auto endsWith = [&](const string& s, const string& suf)->bool
+      {
+        return (s.size() >= suf.size() &&
+                s.compare(s.size() - suf.size(), suf.size(), suf) == 0);
+      };
+
+      auto replaceTrailingSuffix = [&](const string& s,
+                                       const string& from,
+                                       const string& to)->string
+      {
+        if (!endsWith(s, from)) return s;
+        return s.substr(0, s.size() - from.size()) + to;
+      };
+
+      auto makeCentFolder = [&](int lo, int hi)->string
+      {
+        return TString::Format("%d_%d", lo, hi).Data();
+      };
+
+      auto makeCentSuffix = [&](int lo, int hi)->string
+      {
+        return TString::Format("_cent_%d_%d", lo, hi).Data();
+      };
+
+      auto makeCentLabel = [&](int lo, int hi)->string
+      {
+        return TString::Format("Centrality: %d-%d%%", lo, hi).Data();
+      };
+
+      auto collectPieces = [&](const vector<string>& suffixes,
+                               const map<string, Dataset*>& byCent)->vector<Dataset*>
+      {
+        vector<Dataset*> out;
+        for (const auto& suf : suffixes)
         {
-          cout << ANSI_BOLD_YEL
-               << "[WARN] No SIM dataset matches DATA trigger '" << dsDATA->trigger
-               << "' centrality '" << dsDATA->centSuffix << "'. Skipping.\n"
+          auto it = byCent.find(suf);
+          if (it != byCent.end() && it->second) out.push_back(it->second);
+        }
+        return out;
+      };
+
+      auto mergedOutBase = [&](const Dataset* proto,
+                               const string& centFolder)->string
+      {
+        if (!proto) return "";
+        if (proto->centFolder.empty()) return proto->outBase;
+        const string parent = DirnameFromPath(proto->outBase);
+        if (parent.empty()) return proto->outBase;
+        return JoinPath(parent, centFolder);
+      };
+
+      struct PreparedDataset
+      {
+        Dataset ds;
+        TFile* tmpFile = nullptr;
+        string tmpPath;
+      };
+
+      auto buildPreparedDataset =
+        [&](const vector<Dataset*>& pieces,
+            int lo,
+            int hi,
+            const string& tmpTag)->PreparedDataset
+      {
+        PreparedDataset P;
+        if (pieces.empty()) return P;
+
+        const Dataset* proto = pieces.front();
+        const string centFolder = makeCentFolder(lo, hi);
+        const string centSuffix = makeCentSuffix(lo, hi);
+        const string centLabel  = makeCentLabel(lo, hi);
+
+        P.ds.isSim      = proto->isSim;
+        P.ds.trigger    = proto->trigger;
+        P.ds.topDirName = proto->topDirName;
+        P.ds.inFilePath = proto->inFilePath;
+        P.ds.outBase    = mergedOutBase(proto, centFolder);
+        P.ds.centFolder = centFolder;
+        P.ds.centSuffix = centSuffix;
+        P.ds.centLabel  = centLabel;
+
+        if (pieces.size() == 1 && proto->centSuffix == centSuffix)
+        {
+          P.ds.label  = proto->label;
+          P.ds.file   = proto->file;
+          P.ds.topDir = proto->topDir;
+          return P;
+        }
+
+        if (P.ds.isSim)
+        {
+          P.ds.label = TString::Format("SIM_%d_%d", lo, hi).Data();
+        }
+        else
+        {
+          P.ds.label = TString::Format("DATA_%s_%d_%d", P.ds.trigger.c_str(), lo, hi).Data();
+        }
+
+        static long long s_tmpSerial = 0;
+        const char* tmpDirC = (gSystem ? gSystem->TempDirectory() : nullptr);
+        const string tmpDir = (tmpDirC && *tmpDirC) ? string(tmpDirC) : string("/tmp");
+
+        P.tmpPath = JoinPath(
+          tmpDir,
+          TString::Format("rooUnfoldAuAuMerge_%s_%lld.root",
+                          tmpTag.c_str(),
+                          ++s_tmpSerial).Data()
+        );
+
+        P.tmpFile = TFile::Open(P.tmpPath.c_str(), "RECREATE");
+        if (!P.tmpFile || P.tmpFile->IsZombie())
+        {
+          cout << ANSI_BOLD_RED
+               << "[ERROR] Failed to create temporary merged ROOT file: "
+               << P.tmpPath << ANSI_RESET << "\n";
+          if (P.tmpFile)
+          {
+            P.tmpFile->Close();
+            delete P.tmpFile;
+            P.tmpFile = nullptr;
+          }
+          return P;
+        }
+
+        map<string, TH1*> mergedHists;
+
+        for (const auto* part : pieces)
+        {
+          if (!part || !part->topDir) continue;
+
+          TIter nextKey(part->topDir->GetListOfKeys());
+          while (TKey* key = dynamic_cast<TKey*>(nextKey()))
+          {
+            TObject* obj = key->ReadObj();
+            if (!obj) continue;
+
+            TH1* h = dynamic_cast<TH1*>(obj);
+            if (!h)
+            {
+              delete obj;
+              continue;
+            }
+
+            const string srcName = obj->GetName();
+            if (!endsWith(srcName, part->centSuffix))
+            {
+              delete obj;
+              continue;
+            }
+
+            const string dstName = replaceTrailingSuffix(srcName, part->centSuffix, centSuffix);
+
+            auto itDst = mergedHists.find(dstName);
+            if (itDst == mergedHists.end())
+            {
+              TH1* hClone = dynamic_cast<TH1*>(h->Clone(dstName.c_str()));
+              if (!hClone)
+              {
+                delete obj;
+                continue;
+              }
+              hClone->SetDirectory(nullptr);
+              EnsureSumw2(hClone);
+              mergedHists[dstName] = hClone;
+            }
+            else
+            {
+              EnsureSumw2(itDst->second);
+              itDst->second->Add(h);
+            }
+
+            delete obj;
+          }
+        }
+
+        TDirectory* dstDir = P.tmpFile->mkdir(P.ds.topDirName.c_str());
+        if (!dstDir)
+        {
+          cout << ANSI_BOLD_RED
+               << "[ERROR] Failed to create topDir '" << P.ds.topDirName
+               << "' in temporary merged ROOT file: " << P.tmpPath
+               << ANSI_RESET << "\n";
+
+          for (auto& kv : mergedHists) delete kv.second;
+          P.tmpFile->Close();
+          delete P.tmpFile;
+          P.tmpFile = nullptr;
+          return P;
+        }
+
+        dstDir->cd();
+        for (auto& kv : mergedHists)
+        {
+          kv.second->SetDirectory(dstDir);
+          kv.second->Write(kv.first.c_str(), TObject::kOverwrite);
+          delete kv.second;
+        }
+        mergedHists.clear();
+
+        P.tmpFile->Write("", TObject::kOverwrite);
+        P.tmpFile->Close();
+        delete P.tmpFile;
+
+        P.tmpFile = TFile::Open(P.tmpPath.c_str(), "READ");
+        if (!P.tmpFile || P.tmpFile->IsZombie())
+        {
+          cout << ANSI_BOLD_RED
+               << "[ERROR] Failed to reopen temporary merged ROOT file: "
+               << P.tmpPath << ANSI_RESET << "\n";
+          if (P.tmpFile)
+          {
+            P.tmpFile->Close();
+            delete P.tmpFile;
+            P.tmpFile = nullptr;
+          }
+          return P;
+        }
+
+        P.ds.file   = P.tmpFile;
+        P.ds.topDir = P.tmpFile->GetDirectory(P.ds.topDirName.c_str());
+
+        if (!P.ds.topDir)
+        {
+          cout << ANSI_BOLD_RED
+               << "[ERROR] Reopened temporary merged ROOT file is missing topDir '"
+               << P.ds.topDirName << "': " << P.tmpPath
+               << ANSI_RESET << "\n";
+          P.tmpFile->Close();
+          delete P.tmpFile;
+          P.tmpFile = nullptr;
+          P.ds.file = nullptr;
+        }
+
+        return P;
+      };
+
+      int nPairs = 0;
+
+      for (auto& trigEntry : dataByTriggerCent)
+      {
+        const string& trigger = trigEntry.first;
+        const auto& dataCentMap = trigEntry.second;
+
+        for (const auto& G : centGroups)
+        {
+          vector<Dataset*> dataPieces = collectPieces(G.suffixes, dataCentMap);
+          vector<Dataset*> simPieces  = collectPieces(G.suffixes, simByCent);
+
+          if (dataPieces.empty())
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] No DATA dataset matches trigger '" << trigger
+                 << "' centrality group '" << makeCentSuffix(G.lo, G.hi)
+                 << "'. Skipping.\n"
+                 << ANSI_RESET;
+            continue;
+          }
+
+          if (simPieces.empty())
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] No SIM dataset matches trigger '" << trigger
+                 << "' centrality group '" << makeCentSuffix(G.lo, G.hi)
+                 << "'. Skipping.\n"
+                 << ANSI_RESET;
+            continue;
+          }
+
+          PreparedDataset prepDATA = buildPreparedDataset(
+            dataPieces,
+            G.lo,
+            G.hi,
+            TString::Format("DATA_%s_%d_%d", trigger.c_str(), G.lo, G.hi).Data()
+          );
+
+          PreparedDataset prepSIM = buildPreparedDataset(
+            simPieces,
+            G.lo,
+            G.hi,
+            TString::Format("SIM_%d_%d", G.lo, G.hi).Data()
+          );
+
+          if (!prepDATA.ds.file || !prepDATA.ds.topDir || !prepSIM.ds.file || !prepSIM.ds.topDir)
+          {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] Failed to prepare merged AuAu unfolding datasets for trigger '"
+                 << trigger << "' and " << makeCentLabel(G.lo, G.hi)
+                 << ". Skipping.\n"
+                 << ANSI_RESET;
+
+            if (prepDATA.tmpFile)
+            {
+              prepDATA.tmpFile->Close();
+              delete prepDATA.tmpFile;
+              prepDATA.tmpFile = nullptr;
+              if (!prepDATA.tmpPath.empty() && gSystem) gSystem->Unlink(prepDATA.tmpPath.c_str());
+            }
+
+            if (prepSIM.tmpFile)
+            {
+              prepSIM.tmpFile->Close();
+              delete prepSIM.tmpFile;
+              prepSIM.tmpFile = nullptr;
+              if (!prepSIM.tmpPath.empty() && gSystem) gSystem->Unlink(prepSIM.tmpPath.c_str());
+            }
+
+            continue;
+          }
+
+          cout << ANSI_BOLD_CYN
+               << "\n--- AuAu unfold pair: " << prepSIM.ds.centLabel
+               << " | trigger=" << prepDATA.ds.trigger << " ---\n"
+               << "  SIM:  " << prepSIM.ds.label  << "  outBase=" << prepSIM.ds.outBase << "\n"
+               << "  DATA: " << prepDATA.ds.label << "  outBase=" << prepDATA.ds.outBase << "\n"
                << ANSI_RESET;
-          continue;
+
+          for (const auto& v : variants)
+          {
+            gApplyPurityCorrectionForUnfolding        = v.purity;
+            gApplyCombinatoricSubtractionForUnfolding = v.comb;
+
+            cout << "  -> [AuAu unfold] " << prepSIM.ds.centLabel
+                 << " | trigger=" << prepDATA.ds.trigger
+                 << " | outputFolder=" << v.folderLabel << " ...\n";
+
+            RunRooUnfoldPipeline_SimAndDataPP(prepDATA.ds, prepSIM.ds);
+
+            cout << "     [OK] " << v.folderLabel << "\n";
+          }
+
+          ++nPairs;
+
+          if (prepDATA.tmpFile)
+          {
+            prepDATA.tmpFile->Close();
+            delete prepDATA.tmpFile;
+            prepDATA.tmpFile = nullptr;
+            if (!prepDATA.tmpPath.empty() && gSystem) gSystem->Unlink(prepDATA.tmpPath.c_str());
+          }
+
+          if (prepSIM.tmpFile)
+          {
+            prepSIM.tmpFile->Close();
+            delete prepSIM.tmpFile;
+            prepSIM.tmpFile = nullptr;
+            if (!prepSIM.tmpPath.empty() && gSystem) gSystem->Unlink(prepSIM.tmpPath.c_str());
+          }
         }
-        Dataset* dsSIM = it->second;
-
-        cout << ANSI_BOLD_CYN
-             << "\n--- AuAu unfold pair: " << dsSIM->centLabel
-             << " | trigger=" << dsDATA->trigger << " ---\n"
-             << "  SIM:  " << dsSIM->label  << "  outBase=" << dsSIM->outBase << "\n"
-             << "  DATA: " << dsDATA->label << "  outBase=" << dsDATA->outBase << "\n"
-             << ANSI_RESET;
-
-        for (const auto& v : variants)
-        {
-          gApplyPurityCorrectionForUnfolding        = v.purity;
-          gApplyCombinatoricSubtractionForUnfolding = v.comb;
-
-          cout << "  -> [AuAu unfold] " << dsSIM->centLabel
-               << " | trigger=" << dsDATA->trigger
-               << " | outputFolder=" << v.folderLabel << " ...\n";
-
-          RunRooUnfoldPipeline_SimAndDataPP(*dsDATA, *dsSIM);
-
-          cout << "     [OK] " << v.folderLabel << "\n";
-        }
-
-        ++nPairs;
       }
 
       gApplyPurityCorrectionForUnfolding        = oldPurity;
