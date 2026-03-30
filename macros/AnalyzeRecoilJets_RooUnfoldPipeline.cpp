@@ -72,15 +72,40 @@
         const string unfoldVariant = (gApplyPurityCorrectionForUnfolding ? "purityCorrected" : "nonPurityCorrected");
         const string combVariant   = (gApplyCombinatoricSubtractionForUnfolding ? "combinatoricSub" : "nonCombSub");
         const string simDataBase = JoinPath(dsSim.outBase, dsData.trigger);
-        const string unfoldSubPath = IsEmbeddedSimSample(CurrentSimSample())
-            ? ("unfolding/" + unfoldVariant + "/" + combVariant + "/radii")
-            : ("unfolding/" + unfoldVariant + "/radii");
-        const string outBase = JoinPath(simDataBase, unfoldSubPath);
+        const bool isEmbeddedAuAu = IsEmbeddedSimSample(CurrentSimSample());
+
+        string unfoldFolderLabel;
+        if (isEmbeddedAuAu)
+        {
+          if (gApplyCombinatoricSubtractionForUnfolding)
+          {
+            unfoldFolderLabel = gApplyPurityCorrectionForUnfolding
+                                  ? "combinatoricJetSubtractectedWithPurityCorrection"
+                                  : "combinatoricJetSubtractectedNoPurityCorrection";
+          }
+          else
+          {
+            unfoldFolderLabel = gApplyPurityCorrectionForUnfolding
+                                  ? "purityCorrected"
+                                  : "nonPurityCorrected";
+          }
+        }
+        else
+        {
+          unfoldFolderLabel = unfoldVariant;
+        }
+
+        const string outBase = JoinPath(simDataBase, "unfolding/" + unfoldFolderLabel + "/radii");
         int mkrc = -999;
         if (gSystem) mkrc = gSystem->mkdir(outBase.c_str(), true);
         else EnsureDir(outBase);
 
         cout << "  Unfolding variant: " << unfoldVariant << "\n";
+        if (isEmbeddedAuAu)
+        {
+          cout << "  Combinatoric variant: " << combVariant
+               << "  |  folder=" << unfoldFolderLabel << "\n";
+        }
         cout << "  Output base: " << outBase;
         if (mkrc != -999) cout << "  (mkdir rc=" << mkrc << ")";
         cout << "\n";
@@ -9178,7 +9203,7 @@
             // --- Optional: ATLAS-style combinatoric jet background subtraction ---
             // Subtract H_comb^{embed} from the reco data histogram before unfolding.
             // The combinatoric template lives in the SIM (embedded) file.
-            if (gApplyCombinatoricSubtractionForUnfolding)
+            if (gApplyCombinatoricSubtractionForUnfolding && IsEmbeddedSimSample(CurrentSimSample()))
             {
               const string nameComb = "h2_unfoldRecoCombinatoric_pTgamma_xJ_incl_" + rKey;
               TH2* h2Comb_in = GetObj<TH2>(dsSim, nameComb, true, true, false);
@@ -14241,69 +14266,76 @@
            << "[SECTION 5I-AA] RooUnfold pipeline (SIM+DATA AuAu)\n"
            << "==============================" << ANSI_RESET << "\n";
 
-      // --- Match SIM and DATA datasets by centrality suffix ---
+      const bool oldPurity = gApplyPurityCorrectionForUnfolding;
+      const bool oldComb   = gApplyCombinatoricSubtractionForUnfolding;
+
+      // --- Match each DATA trigger+centrality dataset to the SIM centrality dataset ---
       map<string, Dataset*> simByCent;
-      map<string, Dataset*> dataByCent;
+      vector<Dataset*> dataDatasets;
 
       for (auto& ds : datasets)
       {
         if (ds.isSim) simByCent[ds.centSuffix] = &ds;
-        else          dataByCent[ds.centSuffix] = &ds;
+        else          dataDatasets.push_back(&ds);
       }
 
-      int nPairs = 0;
-      for (auto& [cent, dsSIM] : simByCent)
+      struct Variant
       {
-        auto it = dataByCent.find(cent);
-        if (it == dataByCent.end())
+        bool purity;
+        bool comb;
+        const char* folderLabel;
+      };
+
+      const vector<Variant> variants = {
+        {false, false, "nonPurityCorrected"},
+        {true,  false, "purityCorrected"},
+        {false, true,  "combinatoricJetSubtractectedNoPurityCorrection"},
+        {true,  true,  "combinatoricJetSubtractectedWithPurityCorrection"}
+      };
+
+      int nPairs = 0;
+      for (auto* dsDATA : dataDatasets)
+      {
+        auto it = simByCent.find(dsDATA->centSuffix);
+        if (it == simByCent.end())
         {
           cout << ANSI_BOLD_YEL
-               << "[WARN] No DATA dataset matches SIM centrality '" << cent << "'. Skipping.\n"
+               << "[WARN] No SIM dataset matches DATA trigger '" << dsDATA->trigger
+               << "' centrality '" << dsDATA->centSuffix << "'. Skipping.\n"
                << ANSI_RESET;
           continue;
         }
-        Dataset* dsDATA = it->second;
+        Dataset* dsSIM = it->second;
 
         cout << ANSI_BOLD_CYN
-             << "\n--- AuAu unfold pair: " << dsSIM->centLabel << " ---\n"
+             << "\n--- AuAu unfold pair: " << dsSIM->centLabel
+             << " | trigger=" << dsDATA->trigger << " ---\n"
              << "  SIM:  " << dsSIM->label  << "  outBase=" << dsSIM->outBase << "\n"
              << "  DATA: " << dsDATA->label << "  outBase=" << dsDATA->outBase << "\n"
              << ANSI_RESET;
 
-        // Run 4 variants: (purity × comb) = nonPur/nonComb, nonPur/combSub, pur/nonComb, pur/combSub
-        struct Variant { bool purity; bool comb; };
-        const vector<Variant> variants = {
-          {false, false},
-          {false, true},
-          {true,  false},
-          {true,  true}
-        };
-
         for (const auto& v : variants)
         {
-          gApplyPurityCorrectionForUnfolding       = v.purity;
+          gApplyPurityCorrectionForUnfolding        = v.purity;
           gApplyCombinatoricSubtractionForUnfolding = v.comb;
 
-          const string purLabel  = (v.purity ? "purityCorrected"  : "nonPurityCorrected");
-          const string combLabel = (v.comb   ? "combinatoricSub"  : "nonCombSub");
-
           cout << "  -> [AuAu unfold] " << dsSIM->centLabel
-               << " | " << purLabel << " | " << combLabel << " ...\n";
+               << " | trigger=" << dsDATA->trigger
+               << " | outputFolder=" << v.folderLabel << " ...\n";
 
           RunRooUnfoldPipeline_SimAndDataPP(*dsDATA, *dsSIM);
 
-          cout << "     [OK] " << purLabel << " / " << combLabel << "\n";
+          cout << "     [OK] " << v.folderLabel << "\n";
         }
-
-        // Reset flags
-        gApplyPurityCorrectionForUnfolding        = false;
-        gApplyCombinatoricSubtractionForUnfolding  = false;
 
         ++nPairs;
       }
 
+      gApplyPurityCorrectionForUnfolding        = oldPurity;
+      gApplyCombinatoricSubtractionForUnfolding = oldComb;
+
       cout << ANSI_BOLD_CYN
-           << "[DONE] AuAu unfold pipeline: processed " << nPairs << " centrality pairs.\n"
+           << "[DONE] AuAu unfold pipeline: processed " << nPairs << " trigger-centrality pairs.\n"
            << ANSI_RESET;
     }
 #else

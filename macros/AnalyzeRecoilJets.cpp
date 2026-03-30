@@ -12227,6 +12227,12 @@ namespace ARJ
       {
         const auto& centBins = CentBins();
         const bool multiTrig = (kTriggersAuAu.size() > 1);
+        const bool foldAuAuDataIntoEmbeddedSim =
+          (mode == RunMode::kSimAndDataAUAU && IsEmbeddedSimSample(ss));
+
+        const string auauDataBase = foldAuAuDataIntoEmbeddedSim
+                                      ? SimOutBaseForSample(ss)
+                                      : OutputAuAu();
 
         for (const auto& trigAA : kTriggersAuAu)
         {
@@ -12239,8 +12245,7 @@ namespace ARJ
             ds.topDirName = trigAA;
             ds.inFilePath = InputAuAu();
 
-            // Fallback: no YAML centrality bins available, keep legacy AuAu output path.
-            ds.outBase = JoinPath(OutputAuAu(), ds.trigger);
+            ds.outBase = JoinPath(auauDataBase, ds.trigger);
 
             datasets.push_back(std::move(ds));
           }
@@ -12261,9 +12266,15 @@ namespace ARJ
               ds.centSuffix = cb.suffix;
               ds.centLabel  = TString::Format("Centrality: %d-%d%%", cb.lo, cb.hi).Data();
 
-              // AuAu outputs are organized per-trigger, per-centrality:
-              //   <AuAu base>/<trigger>/<centFolder>/{baselineData,insituCalib,unfolding,...}
-              ds.outBase = JoinPath(JoinPath(OutputAuAu(), ds.trigger), ds.centFolder);
+              // In SIM+DATA_AUAU, place the DATA trigger folder under the matching
+              // embedded-SIM centrality directory so the combined outputs live at:
+              //   <embedded SIM base>/<centFolder>/<trigger>/...
+              //
+              // Legacy AuAu-only layout remains:
+              //   <AuAu base>/<trigger>/<centFolder>/...
+              ds.outBase = foldAuAuDataIntoEmbeddedSim
+                             ? JoinPath(JoinPath(auauDataBase, ds.centFolder), ds.trigger)
+                             : JoinPath(JoinPath(auauDataBase, ds.trigger), ds.centFolder);
 
               datasets.push_back(std::move(ds));
             }
@@ -12486,16 +12497,27 @@ namespace ARJ
            << "    ARJ_HAVE_ROOUNFOLD       = " << ARJ_HAVE_ROOUNFOLD << "\n"
            << "    isPPdataOnly            = " << (isPPdataOnly ? "true" : "false") << "\n"
            << "    isSimAndDataPP          = " << (isSimAndDataPP ? "true" : "false") << "\n"
+           << "    isSimAndDataAUAU        = " << (isSimAndDataAUAU ? "true" : "false") << "\n"
            << "    isAuAuOnly              = " << (isAuAuOnly ? "true" : "false") << "\n"
+           << "    isPPdataAndAUAU         = " << (isPPdataAndAUAU ? "true" : "false") << "\n"
+           << "    isRun25pp               = " << (isRun25pp ? "true" : "false") << "\n"
+           << "    pp_beforeChangeInRecoSimDefTruthMatched = " << (pp_beforeChangeInRecoSimDefTruthMatched ? "true" : "false") << "\n"
            << "    isPhotonJet5            = " << (isPhotonJet5 ? "true" : "false") << "\n"
            << "    isPhotonJet10           = " << (isPhotonJet10 ? "true" : "false") << "\n"
            << "    isPhotonJet20           = " << (isPhotonJet20 ? "true" : "false") << "\n"
            << "    bothPhoton5and10sim     = " << (bothPhoton5and10sim ? "true" : "false") << "\n"
            << "    bothPhoton5and20sim     = " << (bothPhoton5and20sim ? "true" : "false") << "\n"
            << "    bothPhoton10and20sim    = " << (bothPhoton10and20sim ? "true" : "false") << "\n"
-           << "    doPhotonJetMerge = " << (doPhotonJetMerge ? "true" : "false") << "\n"
            << "    allPhoton5and10and20sim = " << (allPhoton5and10and20sim ? "true" : "false") << "\n"
+           << "    isPhotonJet10Embedded   = " << (isPhotonJet10Embedded ? "true" : "false") << "\n"
+           << "    isPhotonJet20Embedded   = " << (isPhotonJet20Embedded ? "true" : "false") << "\n"
+           << "    bothPhoton10and20simEmbedded = " << (bothPhoton10and20simEmbedded ? "true" : "false") << "\n"
            << "    isSimEmbedded           = " << (isSimEmbedded ? "true" : "false") << "\n"
+           << "    doPhotonJetMerge        = " << (doPhotonJetMerge ? "true" : "false") << "\n"
+           << "    do_xJ_PPunfold          = " << (do_xJ_PPunfold ? "true" : "false") << "\n"
+           << "    do_xJ_AAunfold          = " << (do_xJ_AAunfold ? "true" : "false") << "\n"
+           << "    gApplyPurityCorrectionForUnfolding = " << (gApplyPurityCorrectionForUnfolding ? "true" : "false") << "\n"
+           << "    gApplyCombinatoricSubtractionForUnfolding = " << (gApplyCombinatoricSubtractionForUnfolding ? "true" : "false") << "\n"
            << "      CfgTag()  (PP/SIM)    = " << CfgTag() << "\n"
            << "      CfgTagAA()            = " << CfgTagAA() << "\n"
            << "      CfgTagWithUE_AA()     = " << CfgTagWithUE_AA() << "\n";
@@ -12643,7 +12665,9 @@ namespace ARJ
       const SimSample ss   = CurrentSimSample();
 
       cout << ANSI_BOLD_YEL << "  -> Selected mode: " << RunModeLabel(mode);
-      if (mode == RunMode::kSimOnly || mode == RunMode::kSimAndDataPP)
+      if (mode == RunMode::kSimOnly ||
+          mode == RunMode::kSimAndDataPP ||
+          mode == RunMode::kSimAndDataAUAU)
       {
         cout << "  |  SIM sample: " << SimSampleLabel(ss)
              << "  |  SIM outBase: " << SimOutBaseForSample(ss);
@@ -12689,6 +12713,61 @@ namespace ARJ
         {
           cout << ANSI_DIM
                << "  [ACTIVE MERGED DATASET PATH]\n"
+               << "    SimInputPathForSample(ss)       = " << SimInputPathForSample(ss) << "\n"
+               << "    (This is the file opened in STEP 3 and used for the full analysis.)\n"
+               << ANSI_RESET;
+        }
+      }
+      else if (mode == RunMode::kSimAndDataAUAU)
+      {
+        cout << ANSI_DIM
+             << "\n  [DEFAULT CUT CONFIG]\n"
+             << "    CfgTagAA()                      = " << CfgTagAA() << "\n"
+             << "    CfgTagWithUE_AA()               = " << CfgTagWithUE_AA() << "\n"
+             << "    kAA_JetPtMin                    = " << kAA_JetPtMin << " GeV\n"
+             << "    kAA_B2BCut                      = " << kAA_B2BCut << "  (" << B2BLabelFor(kAA_B2BCut) << ")\n"
+             << "    kAA_VzCut                       = " << kAA_VzCut << " cm\n"
+             << "    kAA_IsoConeR                    = " << kAA_IsoConeR << "\n"
+             << "    kAA_IsoMode                     = " << kAA_IsoMode << "\n"
+             << "    kAA_UEVariant                   = " << kAA_UEVariant << "\n"
+             << "    InputAuAu()                     = " << InputAuAu() << "\n";
+
+        if (ss == SimSample::kEmbeddedPhoton10And20Merged)
+        {
+          cout << "    InputSimEmbeddedSample(10)      = " << InputSimEmbeddedSample("embeddedPhoton10") << "\n"
+               << "    InputSimEmbeddedSample(20)      = " << InputSimEmbeddedSample("embeddedPhoton20") << "\n"
+               << "    MergedSimEmbeddedPath(10+20)    = " << MergedSimEmbeddedPath("photonJet10and20merged_SIM", "RecoilJets_embeddedPhoton10plus20_MERGED.root") << "\n";
+        }
+        else if (ss == SimSample::kEmbeddedPhoton10)
+        {
+          cout << "    InputSimEmbeddedSample(10)      = " << InputSimEmbeddedSample("embeddedPhoton10") << "\n";
+        }
+        else if (ss == SimSample::kEmbeddedPhoton20)
+        {
+          cout << "    InputSimEmbeddedSample(20)      = " << InputSimEmbeddedSample("embeddedPhoton20") << "\n";
+        }
+        else if (ss == SimSample::kSimEmbedded)
+        {
+          cout << "    InputSimEmbedded()              = " << InputSimEmbedded() << "\n";
+        }
+
+        if (!kTriggersAuAu.empty())
+        {
+          std::ostringstream trigList;
+          for (std::size_t i = 0; i < kTriggersAuAu.size(); ++i)
+          {
+            if (i) trigList << ", ";
+            trigList << kTriggersAuAu[i];
+          }
+          cout << "    kTriggersAuAu                   = [" << trigList.str() << "]\n";
+        }
+
+        cout << ANSI_RESET;
+
+        if (IsEmbeddedSimSample(ss))
+        {
+          cout << ANSI_DIM
+               << "  [ACTIVE EMBEDDED DATASET PATH]\n"
                << "    SimInputPathForSample(ss)       = " << SimInputPathForSample(ss) << "\n"
                << "    (This is the file opened in STEP 3 and used for the full analysis.)\n"
                << ANSI_RESET;
@@ -13646,7 +13725,31 @@ namespace ARJ
                  << " gApplyPurityCorrectionForUnfolding=" << (gApplyPurityCorrectionForUnfolding ? "true" : "false")
                  << ANSI_RESET << "\n";
           }
-      }
+        }
+
+        // ---------------------------------------------------------------------------
+        // [5I-AA] RooUnfold pipeline (SIM+DATA AuAu): unfold per centrality with
+        //         purity × combinatoric subtraction variants
+        // ---------------------------------------------------------------------------
+        if (isSimAndDataAUAU && IsEmbeddedSimSample(CurrentSimSample()) && do_xJ_AAunfold)
+        {
+          cout << ANSI_BOLD_CYN
+               << "\n[5I-AA] RooUnfold AuAu gate check\n"
+               << "  isSimAndDataAUAU = true\n"
+               << "  SimSample        = " << SimSampleLabel(CurrentSimSample()) << "\n"
+               << "  datasets.size()  = " << datasets.size() << "\n"
+               << ANSI_RESET;
+
+          analysis::RunRooUnfoldPipeline_SimAndDataAUAU(datasets);
+
+          cout << ANSI_BOLD_CYN << "  [OK] AuAu RooUnfold pipeline complete.\n" << ANSI_RESET;
+        }
+        else if (isSimAndDataAUAU && IsEmbeddedSimSample(CurrentSimSample()) && !do_xJ_AAunfold)
+        {
+          cout << ANSI_BOLD_YEL
+               << "[5I-AA] Skipping AuAu RooUnfold pipeline: do_xJ_AAunfold=false.\n"
+               << ANSI_RESET;
+        }
 
       // ---------------------------------------------------------------------------
       // [5J] PPG12 SS template tables (SIM+DATA PP): Data vs Signal MC vs Background MC

@@ -9815,6 +9815,317 @@ void RunJES3QA(Dataset& ds)
         // Output (per radius):
         //   <outDir>/<rKey>/xJ_fromJES3/RECO/SamVsJustin_pTminJet3_7piOver8/overlay_SamVsJustin_JES3_RECO_pTgamma_13_15_<rKey>.png
         JES3_SamVsJustinUnsmearOverlay_MaybeRun(ds, outDir);
+
+        // -----------------------------------------------------------------------------
+        // NEW: centrality overlays of JES3 TRUTH-pure xJ shapes written OUTSIDE the
+        // per-centrality folder:
+        //   <sampleBase>/leadingXJcentralityTRUTHoverlays/<rKey>/
+        //
+        // Uses h_JES3TruthPure_pT_xJ_alpha_<rKey>_cent_* directly from the ROOT file,
+        // merges 0-10 and 10-20 mathematically by ADDING counts before normalization,
+        // skips the smallest pT bin, and writes a 3x3 pT summary table.
+        // -----------------------------------------------------------------------------
+        if (!ds.centFolder.empty() && ds.topDir)
+        {
+          static std::set<std::string> s_doneLeadingTruthCentralityOverlays;
+
+          const string sampleBaseOut = DirnameFromPath(ds.outBase);
+          const string dirTruthCentOv = JoinPath(sampleBaseOut, "leadingXJcentralityTRUTHoverlays");
+
+          if (!sampleBaseOut.empty() && !s_doneLeadingTruthCentralityOverlays.count(dirTruthCentOv))
+          {
+            s_doneLeadingTruthCentralityOverlays.insert(dirTruthCentOv);
+            EnsureDir(dirTruthCentOv);
+
+            struct TruthCentStyle
+            {
+              int lo = 0;
+              int hi = 0;
+              int color = 1;
+              int marker = 20;
+              string label;
+              vector<string> suffixes;
+            };
+
+            vector<TruthCentStyle> centStyles;
+            {
+              const int colors[]  = {kBlue + 1, kGreen + 2, kMagenta + 1, kOrange + 7, kCyan + 2, kRed + 1};
+              const int markers[] = {20, 21, 24, 25, 22, 26};
+
+              bool have0_10 = false;
+              bool have10_20 = false;
+
+              for (const auto& cb : CentBins())
+              {
+                if (cb.lo == 0  && cb.hi == 10) have0_10 = true;
+                if (cb.lo == 10 && cb.hi == 20) have10_20 = true;
+              }
+
+              int istyle = 0;
+
+              if (have0_10 || have10_20)
+              {
+                TruthCentStyle C;
+                C.lo = 0;
+                C.hi = 20;
+                C.color = colors[istyle % 6];
+                C.marker = markers[istyle % 6];
+                C.label = "0-20%";
+                if (have0_10)  C.suffixes.push_back("_cent_0_10");
+                if (have10_20) C.suffixes.push_back("_cent_10_20");
+                centStyles.push_back(C);
+                ++istyle;
+              }
+
+              for (const auto& cb : CentBins())
+              {
+                if ((cb.lo == 0  && cb.hi == 10) || (cb.lo == 10 && cb.hi == 20)) continue;
+
+                TruthCentStyle C;
+                C.lo = cb.lo;
+                C.hi = cb.hi;
+                C.color = colors[istyle % 6];
+                C.marker = markers[istyle % 6];
+                C.label = TString::Format("%d-%d%%", cb.lo, cb.hi).Data();
+                C.suffixes.push_back(cb.suffix);
+                centStyles.push_back(C);
+                ++istyle;
+              }
+            }
+
+            auto BuildTruthPureCentralityXJ =
+              [&](const string& rKeyLoc, int ib, const vector<string>& suffixes, const string& newName)->TH1*
+            {
+              TH1* sum = nullptr;
+
+              for (const auto& suf : suffixes)
+              {
+                TH3* h3 = dynamic_cast<TH3*>(ds.topDir->Get(
+                  ("h_JES3TruthPure_pT_xJ_alpha_" + rKeyLoc + suf).c_str()
+                ));
+                if (!h3) continue;
+
+                TH1* h1 = ProjectY_AtXbin_TH3(
+                  h3, ib,
+                  newName + TString::Format("%s", suf.c_str()).Data()
+                );
+                if (!h1) continue;
+
+                h1->SetDirectory(nullptr);
+                EnsureSumw2(h1);
+
+                if (!sum)
+                {
+                  sum = CloneTH1(h1, newName);
+                  if (sum)
+                  {
+                    sum->Reset("ICES");
+                    sum->SetDirectory(nullptr);
+                    EnsureSumw2(sum);
+                  }
+                }
+
+                if (sum) sum->Add(h1);
+                delete h1;
+              }
+
+              return sum;
+            };
+
+            for (const auto& rKey : kRKeys)
+            {
+              const string outR = JoinPath(dirTruthCentOv, rKey);
+              EnsureDir(outR);
+
+              TH3* hRef = nullptr;
+              for (const auto& C : centStyles)
+              {
+                for (const auto& suf : C.suffixes)
+                {
+                  hRef = dynamic_cast<TH3*>(ds.topDir->Get(
+                    ("h_JES3TruthPure_pT_xJ_alpha_" + rKey + suf).c_str()
+                  ));
+                  if (hRef) break;
+                }
+                if (hRef) break;
+              }
+
+              if (!hRef) continue;
+
+              const int nPtTruth = hRef->GetXaxis()->GetNbins();
+              if (nPtTruth <= 1) continue;
+
+              vector<int> ptBinsToDraw;
+              for (int ib = 2; ib <= nPtTruth; ++ib) ptBinsToDraw.push_back(ib);
+
+              if (ptBinsToDraw.empty()) continue;
+
+              const int nCols = 3;
+              const int nRows = 3;
+              const int perPage = nCols * nRows;
+
+              int page = 0;
+              for (int start = 0; start < (int)ptBinsToDraw.size(); start += perPage)
+              {
+                ++page;
+
+                TCanvas c(
+                  TString::Format("c_truthCentOv_%s_p%d", rKey.c_str(), page).Data(),
+                  "c_truthCentOv", 1500, 1200
+                );
+                c.Divide(nCols, nRows, 0.001, 0.001);
+
+                vector<TH1*> keep;
+                keep.reserve((std::size_t)perPage * centStyles.size());
+
+                for (int ipad = 0; ipad < perPage; ++ipad)
+                {
+                  c.cd(ipad + 1);
+
+                  gPad->SetLeftMargin(0.14);
+                  gPad->SetRightMargin(0.05);
+                  gPad->SetBottomMargin(0.14);
+                  gPad->SetTopMargin(0.10);
+                  gPad->SetLogy(false);
+
+                  const int idx = start + ipad;
+                  if (idx >= (int)ptBinsToDraw.size())
+                  {
+                    TLatex t;
+                    t.SetNDC(true);
+                    t.SetTextFont(42);
+                    t.SetTextSize(0.06);
+                    t.DrawLatex(0.20, 0.55, "EMPTY");
+                    continue;
+                  }
+
+                  const int ib = ptBinsToDraw[idx];
+
+                  vector<TH1*> hs(centStyles.size(), nullptr);
+                  double ymax = 0.0;
+
+                  for (size_t ic = 0; ic < centStyles.size(); ++ic)
+                  {
+                    const auto& C = centStyles[ic];
+
+                    TH1* h = BuildTruthPureCentralityXJ(
+                      rKey, ib, C.suffixes,
+                      TString::Format("h_truthCentOv_%s_%d_%zu", rKey.c_str(), ib, ic).Data()
+                    );
+
+                    if (!h || h->Integral(0, h->GetNbinsX() + 1) <= 0.0)
+                    {
+                      if (h) delete h;
+                      continue;
+                    }
+
+                    NormalizeToUnitArea(h);
+
+                    h->SetTitle("");
+                    h->SetLineWidth(2);
+                    h->SetMarkerStyle(C.marker);
+                    h->SetMarkerSize(0.95);
+                    h->SetLineColor(C.color);
+                    h->SetMarkerColor(C.color);
+                    h->GetXaxis()->SetTitle("x_{J#gamma}^{truth}");
+                    h->GetXaxis()->SetRangeUser(0.0, 2.0);
+                    h->GetYaxis()->SetTitle("Normalized to Unit Area");
+
+                    ymax = std::max(ymax, h->GetMaximum());
+                    hs[ic] = h;
+                    keep.push_back(h);
+                  }
+
+                  TH1* first = nullptr;
+                  for (auto* h : hs)
+                  {
+                    if (h)
+                    {
+                      first = h;
+                      break;
+                    }
+                  }
+
+                  if (!first)
+                  {
+                    TLatex t;
+                    t.SetNDC(true);
+                    t.SetTextFont(42);
+                    t.SetTextSize(0.06);
+                    t.DrawLatex(0.15, 0.55, "MISSING");
+                    continue;
+                  }
+
+                  first->SetMinimum(0.0);
+                  first->SetMaximum((ymax > 0.0) ? (ymax * 1.25) : 1.0);
+
+                  bool drawn = false;
+                  for (auto* h : hs)
+                  {
+                    if (!h) continue;
+                    if (!drawn)
+                    {
+                      h->Draw("E1");
+                      drawn = true;
+                    }
+                    else
+                    {
+                      h->Draw("E1 same");
+                    }
+                  }
+
+                  const string ptLab = AxisBinLabel(hRef->GetXaxis(), ib, "GeV", 0);
+                  const double R = RFromKey(rKey);
+
+                  TLatex tt;
+                  tt.SetNDC(true);
+                  tt.SetTextFont(42);
+                  tt.SetTextAlign(13);
+                  tt.SetTextSize(0.050);
+                  tt.DrawLatex(0.14, 0.96,
+                    TString::Format("TRUTH pure x_{J#gamma}, p_{T}^{#gamma} = %s, R = %.1f", ptLab.c_str(), R).Data()
+                  );
+
+                  TLegend leg(0.46, 0.58, 0.93, 0.90);
+                  leg.SetTextFont(42);
+                  leg.SetTextSize(0.038);
+                  leg.SetFillStyle(0);
+                  leg.SetBorderSize(0);
+
+                  for (size_t ic = 0; ic < centStyles.size(); ++ic)
+                  {
+                    if (!hs[ic]) continue;
+                    leg.AddEntry(hs[ic], centStyles[ic].label.c_str(), "ep");
+                  }
+                  leg.DrawClone();
+
+                  {
+                    TLatex tCuts;
+                    tCuts.SetNDC(true);
+                    tCuts.SetTextFont(42);
+                    tCuts.SetTextAlign(33);
+                    tCuts.SetTextSize(0.036);
+                    tCuts.DrawLatex(0.92, 0.48, TString::Format("|#Delta#phi(#gamma,jet)| > %s", B2BLabel().c_str()).Data());
+                    tCuts.DrawLatex(0.92, 0.42, TString::Format("p_{T}^{jet} > %d GeV", kJetPtMin).Data());
+                    tCuts.DrawLatex(0.92, 0.36, TString::Format("|v_{z}| < %.0f cm", vzCutCm).Data());
+                  }
+                }
+
+                const string outName =
+                  (ptBinsToDraw.size() <= (size_t)perPage)
+                    ? "table3x3_xJ_TRUTHpure_centralityOverlay_shape.png"
+                    : TString::Format("table3x3_xJ_TRUTHpure_centralityOverlay_shape_page%d.png", page).Data();
+
+                SaveCanvas(c, JoinPath(outR, outName));
+                cout << ANSI_BOLD_GRN
+                     << "  [WROTE table] " << JoinPath(outR, outName)
+                     << ANSI_RESET << "\n";
+
+                for (auto* h : keep) delete h;
+              }
+            }
+          }
+       }
     }
 
     // =============================================================================

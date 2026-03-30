@@ -93,7 +93,7 @@ namespace ARJ
   // ---------------------------------------------------------------------------
   inline bool isPPdataOnly   = false;
   inline bool isSimAndDataPP = false;
-  inline bool isSimAndDataAUAU = false;
+  inline bool isSimAndDataAUAU = true;
   inline bool pp_beforeChangeInRecoSimDefTruthMatched = false;
   inline bool isAuAuOnly     = true;
   inline bool isPPdataAndAUAU = false;
@@ -114,20 +114,22 @@ namespace ARJ
   //   Embedded Au+Au SIM slices / merges:
   inline bool isPhotonJet10Embedded      = false;
   inline bool isPhotonJet20Embedded      = false;
-  inline bool bothPhoton10and20simEmbedded = false;
+  inline bool bothPhoton10and20simEmbedded = true;
   //   Special SIM samples:
   inline bool isSimMB                    = false;   // MinBias DETROIT tune
   inline bool isSimJet5                  = false;   // inclusive jet5
   inline bool isSimEmbedded              = false;   // legacy embedded photon20 in AuAu
 
-  inline bool doPhotonJetMerge = false;
+  inline bool doPhotonJetMerge = true;
 
   //   RooUnfold: true = run both non-purity and purity-corrected passes + overlay.
-  inline bool do_xJ_PPunfold = false;
+  inline bool do_xJ_PPunfold = true;
+  //   RooUnfold AuAu: true = run per-centrality unfolding with purity × combinatoric variants.
+  inline bool do_xJ_AAunfold = true;
   //   Internal: selects raw vs ABCD purity-corrected reco inputs per pass.
-  inline bool gApplyPurityCorrectionForUnfolding = false;
+  inline bool gApplyPurityCorrectionForUnfolding = true;
   //   Internal: selects whether the embedded combinatoric template is subtracted before unfolding.
-  inline bool gApplyCombinatoricSubtractionForUnfolding = false;
+  inline bool gApplyCombinatoricSubtractionForUnfolding = true;
 
   //   One-off Sam vs Justin unsmear comparison:
   inline bool doSamVsJustinUnsmearOverlays = false;
