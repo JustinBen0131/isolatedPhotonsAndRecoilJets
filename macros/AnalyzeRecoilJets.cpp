@@ -3269,167 +3269,165 @@ namespace ARJ
               } // pT bins
           } // centrality bins
 
-          // --- Mean E_T^{iso} vs centrality overlay (one curve per UE variant) ---
-          {
-            const int nCent = (int)centBins.size();
-
-            vector<double> xCent(nCent, 0.0);
-            vector<double> exCent(nCent, 0.0);
-
-            // Label bin centers as 1..nCent (categorical)
-            for (int ic = 0; ic < nCent; ++ic)
+            // --- Mean E_T^{iso} vs centrality overlay (one curve per UE variant) ---
             {
-              xCent[ic] = (double)(ic + 1);
-              exCent[ic] = 0.0;
-            }
+              const int nCent = (int)centBins.size();
 
-            // Collect mean Eiso per variant per centrality (sum all pT bins)
-            struct MeanCurve
-            {
-              string label;
-              int    color;
-              vector<double> meanVal;
-            };
-
-            vector<MeanCurve> curves;
-            curves.reserve(handles.size());
-
-            for (auto& H : handles)
-            {
-              if (!H.file) continue;
-
-              TDirectory* tdir = H.file->GetDirectory(trigAA.c_str());
-              if (!tdir) continue;
-
-              MeanCurve mc;
-              mc.label = H.label;
-              mc.color = H.color;
-              mc.meanVal.assign(nCent, 0.0);
+              // Physical centrality bin centers and half-widths
+              vector<double> xCent(nCent, 0.0);
+              vector<double> exCent(nCent, 0.0);
 
               for (int ic = 0; ic < nCent; ++ic)
               {
-                const CentBin& cb = centBins[ic];
+                xCent[ic]  = 0.5 * (centBins[ic].lo + centBins[ic].hi);
+                exCent[ic] = 0.5 * (centBins[ic].hi - centBins[ic].lo);
+              }
 
-                // Sum h_Eiso over all pT bins for this centrality
-                TH1* hSum = nullptr;
+              // Collect mean Eiso per variant per centrality (sum all pT bins)
+              struct MeanCurve
+              {
+                string label;
+                int    color;
+                vector<double> meanVal;
+                vector<double> meanErr;  // sigma_mean = RMS / sqrt(N)
+              };
 
-                for (int ipt = 0; ipt < kNPtBins; ++ipt)
+              vector<MeanCurve> curves;
+              curves.reserve(handles.size());
+
+              for (auto& H : handles)
+              {
+                if (!H.file) continue;
+
+                TDirectory* tdir = H.file->GetDirectory(trigAA.c_str());
+                if (!tdir) continue;
+
+                MeanCurve mc;
+                mc.label = H.label;
+                mc.color = H.color;
+                mc.meanVal.assign(nCent, 0.0);
+                mc.meanErr.assign(nCent, 0.0);
+
+                for (int ic = 0; ic < nCent; ++ic)
                 {
-                  const PtBin& b = PtBins()[ipt];
-                  const string hname = "h_Eiso" + b.suffix + cb.suffix;
-                  TH1* hSrc = dynamic_cast<TH1*>(tdir->Get(hname.c_str()));
-                  if (!hSrc) continue;
+                  const CentBin& cb = centBins[ic];
 
-                  if (!hSum)
+                  // Sum h_Eiso over all pT bins for this centrality
+                  TH1* hSum = nullptr;
+
+                  for (int ipt = 0; ipt < kNPtBins; ++ipt)
                   {
-                    hSum = CloneTH1(hSrc,
-                      TString::Format("hEiso_meanVsCent_%s_%s",
-                        H.variant.c_str(), cb.folder.c_str()).Data());
-                    if (hSum) hSum->Reset("ICES");
+                    const PtBin& b = PtBins()[ipt];
+                    const string hname = "h_Eiso" + b.suffix + cb.suffix;
+                    TH1* hSrc = dynamic_cast<TH1*>(tdir->Get(hname.c_str()));
+                    if (!hSrc) continue;
+
+                    if (!hSum)
+                    {
+                      hSum = CloneTH1(hSrc,
+                        TString::Format("hEiso_meanVsCent_%s_%s",
+                          H.variant.c_str(), cb.folder.c_str()).Data());
+                      if (hSum) hSum->Reset("ICES");
+                    }
+                    if (hSum) hSum->Add(hSrc);
                   }
-                  if (hSum) hSum->Add(hSrc);
+
+                  if (hSum && hSum->GetEntries() > 0.0)
+                  {
+                    mc.meanVal[ic] = hSum->GetMean();
+                    mc.meanErr[ic] = hSum->GetRMS() / std::sqrt(hSum->GetEntries());
+                  }
+                  if (hSum) delete hSum;
                 }
 
-                mc.meanVal[ic] = (hSum && hSum->GetEntries() > 0.0) ? hSum->GetMean() : 0.0;
-                if (hSum) delete hSum;
+                curves.push_back(std::move(mc));
               }
 
-              curves.push_back(std::move(mc));
-            }
-
-            if (!curves.empty())
-            {
-              TCanvas cMean(
-                TString::Format("c_meanEiso_vs_cent_%s", trigAA.c_str()).Data(),
-                "c_meanEiso_vs_cent", 900, 700
-              );
-              ApplyCanvasMargins1D(cMean);
-              cMean.cd();
-
-              // Axis frame (categorical x-axis with centrality labels)
-              TH1F hFrame(
-                TString::Format("hFrame_meanEiso_%s", trigAA.c_str()).Data(),
-                "", nCent, 0.5, nCent + 0.5
-              );
-              hFrame.SetDirectory(nullptr);
-              hFrame.SetStats(0);
-
-              for (int ic = 0; ic < nCent; ++ic)
+              if (!curves.empty())
               {
-                hFrame.GetXaxis()->SetBinLabel(ic + 1,
-                  TString::Format("%d-%d%%", centBins[ic].lo, centBins[ic].hi).Data());
-              }
+                TCanvas cMean(
+                  TString::Format("c_meanEiso_vs_cent_%s", trigAA.c_str()).Data(),
+                  "c_meanEiso_vs_cent", 900, 700
+                );
+                ApplyCanvasMargins1D(cMean);
+                cMean.cd();
 
-              // Auto y-range
-              double yMin = std::numeric_limits<double>::max();
-              double yMax = -std::numeric_limits<double>::max();
-              for (const auto& mc : curves)
-              {
-                for (double v : mc.meanVal)
+                // Normal numeric x-axis from 0 to 80
+                TH1F hFrame(
+                  TString::Format("hFrame_meanEiso_%s", trigAA.c_str()).Data(),
+                  "", 100, 0.0, 80.0
+                );
+                hFrame.SetDirectory(nullptr);
+                hFrame.SetStats(0);
+
+                // Auto y-range including error bars
+                double yMin = std::numeric_limits<double>::max();
+                double yMax = -std::numeric_limits<double>::max();
+                for (const auto& mc : curves)
                 {
-                  yMin = std::min(yMin, v);
-                  yMax = std::max(yMax, v);
+                  for (int ic = 0; ic < nCent; ++ic)
+                  {
+                    yMin = std::min(yMin, mc.meanVal[ic] - mc.meanErr[ic]);
+                    yMax = std::max(yMax, mc.meanVal[ic] + mc.meanErr[ic]);
+                  }
                 }
+                const double pad = 0.15 * (yMax - yMin > 0.0 ? yMax - yMin : 1.0);
+                hFrame.SetMinimum(yMin - pad);
+                hFrame.SetMaximum(yMax + pad);
+
+                hFrame.GetXaxis()->SetTitle("Centrality [%]");
+                hFrame.GetYaxis()->SetTitle("<E_{T}^{iso}> [GeV]");
+                hFrame.GetXaxis()->SetTitleSize(0.055);
+                hFrame.GetYaxis()->SetTitleSize(0.055);
+                hFrame.GetXaxis()->SetLabelSize(0.045);
+                hFrame.GetYaxis()->SetLabelSize(0.045);
+                hFrame.GetYaxis()->SetTitleOffset(1.15);
+                hFrame.Draw();
+
+                vector<TGraphErrors*> keepGraphs;
+                keepGraphs.reserve(curves.size());
+
+                for (auto& mc : curves)
+                {
+                  TGraphErrors* g = new TGraphErrors(nCent,
+                    &xCent[0], &mc.meanVal[0], &exCent[0], &mc.meanErr[0]);
+                  g->SetLineWidth(2);
+                  g->SetLineColor(mc.color);
+                  g->SetMarkerStyle(20);
+                  g->SetMarkerSize(1.2);
+                  g->SetMarkerColor(mc.color);
+                  g->Draw("P SAME");
+                  keepGraphs.push_back(g);
+                }
+
+                TLegend* leg = new TLegend(0.62, 0.68, 0.93, 0.90);
+                leg->SetBorderSize(0);
+                leg->SetFillStyle(0);
+                leg->SetTextFont(42);
+                leg->SetTextSize(0.032);
+                for (std::size_t ig = 0; ig < curves.size(); ++ig)
+                {
+                  leg->AddEntry(keepGraphs[ig], curves[ig].label.c_str(), "pe");
+                }
+                leg->Draw();
+
+                TLatex ltx;
+                ltx.SetTextFont(42);
+                ltx.SetNDC();
+                ltx.SetTextSize(0.035);
+                ltx.DrawLatex(0.22, 0.58, "#it{#bf{sPHENIX}} Internal");
+                ltx.SetTextSize(0.030);
+                ltx.DrawLatex(0.22, 0.54, "Au+Au #sqrt{s_{NN}} = 200 GeV");
+                ltx.DrawLatex(0.22, 0.50, "<E_{T}^{iso}> vs Centrality (all p_{T}^{#gamma} bins summed)");
+
+                const string fpMean = JoinPath(ueCompBase,
+                  "meanEiso_vs_centrality_UEvariantOverlay.png");
+                SaveCanvas(cMean, fpMean);
+
+                for (auto* g : keepGraphs) delete g;
+                delete leg;
               }
-              const double pad = 0.15 * (yMax - yMin > 0.0 ? yMax - yMin : 1.0);
-              hFrame.SetMinimum(yMin - pad);
-              hFrame.SetMaximum(yMax + pad);
-
-              hFrame.GetXaxis()->SetTitle("Centrality");
-              hFrame.GetYaxis()->SetTitle("<E_{T}^{iso}> [GeV]");
-              hFrame.GetXaxis()->SetTitleSize(0.055);
-              hFrame.GetYaxis()->SetTitleSize(0.055);
-              hFrame.GetXaxis()->SetLabelSize(0.050);
-              hFrame.GetYaxis()->SetLabelSize(0.045);
-              hFrame.GetYaxis()->SetTitleOffset(1.15);
-              hFrame.Draw();
-
-              vector<TGraphErrors*> keepGraphs;
-              keepGraphs.reserve(curves.size());
-
-              vector<double> ey0(nCent, 0.0);
-
-              for (auto& mc : curves)
-              {
-                TGraphErrors* g = new TGraphErrors(nCent,
-                  &xCent[0], &mc.meanVal[0], &exCent[0], &ey0[0]);
-                g->SetLineWidth(2);
-                g->SetLineColor(mc.color);
-                g->SetMarkerStyle(20);
-                g->SetMarkerSize(1.2);
-                g->SetMarkerColor(mc.color);
-                g->Draw("P SAME");
-                keepGraphs.push_back(g);
-              }
-
-              TLegend* leg = new TLegend(0.56, 0.68, 0.92, 0.90);
-              leg->SetBorderSize(0);
-              leg->SetFillStyle(0);
-              leg->SetTextFont(42);
-              leg->SetTextSize(0.032);
-              for (std::size_t ig = 0; ig < curves.size(); ++ig)
-              {
-                leg->AddEntry(keepGraphs[ig], curves[ig].label.c_str(), "pe");
-              }
-              leg->Draw();
-
-              TLatex ltx;
-              ltx.SetTextFont(42);
-              ltx.SetNDC();
-              ltx.SetTextSize(0.035);
-              ltx.DrawLatex(0.16, 0.92, "#it{#bf{sPHENIX}} Internal");
-              ltx.SetTextSize(0.030);
-              ltx.DrawLatex(0.16, 0.88, "Au+Au #sqrt{s_{NN}} = 200 GeV");
-              ltx.DrawLatex(0.16, 0.84, "<E_{T}^{iso}> vs Centrality (all p_{T}^{#gamma} bins summed)");
-
-              const string fpMean = JoinPath(ueCompBase,
-                "meanEiso_vs_centrality_UEvariantOverlay.png");
-              SaveCanvas(cMean, fpMean);
-
-              for (auto* g : keepGraphs) delete g;
-              delete leg;
             }
-          }
 
           // --- Cleanup ---
           for (auto& H : handles)

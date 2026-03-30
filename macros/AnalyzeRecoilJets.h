@@ -91,8 +91,9 @@ namespace ARJ
   //   AuAu ONLY:      isAuAuOnly=true    (all others false)
   // ---------------------------------------------------------------------------
   inline bool isPPdataOnly   = false;
-  inline bool isSimAndDataPP = true;
-  inline bool isAuAuOnly     = false;
+  inline bool isSimAndDataPP = false;
+  inline bool pp_beforeChangeInRecoSimDefTruthMatched = false;
+  inline bool isAuAuOnly     = true;
   inline bool isPPdataAndAUAU = false;
   inline bool isRun25pp      = false;
 
@@ -107,18 +108,18 @@ namespace ARJ
   inline bool bothPhoton5and10sim        = false;
   inline bool bothPhoton5and20sim        = false;
   inline bool bothPhoton10and20sim       = false;
-  inline bool allPhoton5and10and20sim    = true;
+  inline bool allPhoton5and10and20sim    = false;
   //   Special SIM samples:
   inline bool isSimMB                    = false;   // MinBias DETROIT tune
   inline bool isSimJet5                  = false;   // inclusive jet5
   inline bool isSimEmbedded              = false;   // embedded photon20 in AuAu
 
-  inline bool doPhotonJetMerge = true;
+  inline bool doPhotonJetMerge = false;
 
   //   RooUnfold: true = run both non-purity and purity-corrected passes + overlay.
-  inline bool do_xJ_PPunfold = true;
+  inline bool do_xJ_PPunfold = false;
   //   Internal: selects raw vs ABCD purity-corrected reco inputs per pass.
-  inline bool gApplyPurityCorrectionForUnfolding = true;
+  inline bool gApplyPurityCorrectionForUnfolding = false;
 
   //   One-off Sam vs Justin unsmear comparison:
   inline bool doSamVsJustinUnsmearOverlays = false;
@@ -294,14 +295,22 @@ namespace ARJ
         return kInputBase + "/auau25/RecoilJets_auau_ALL_" +
                CfgTagAA() + "_" + ueVariant + ".root";
   }
+  inline string InputSimBase()
+  {
+        if (pp_beforeChangeInRecoSimDefTruthMatched)
+        {
+          return kInputBase + "/simPhotonJet/beforeChangeInRecoSimDefTruthMatched";
+        }
+        return kInputBase + "/simPhotonJet";
+  }
   inline string InputSim(const string& sampleTag)
   {
-      // sampleTag = "photonjet5", "photonjet10", "photonjet20"
-      return kInputBase + "/simPhotonJet/RecoilJets_" + sampleTag + "_ALL_" + CfgTag() + ".root";
+        // sampleTag = "photonjet5", "photonjet10", "photonjet20"
+        return InputSimBase() + "/RecoilJets_" + sampleTag + "_ALL_" + CfgTag() + ".root";
   }
   inline string InputSim(const string& sampleTag, const string& cfgTag)
   {
-      return kInputBase + "/simPhotonJet/RecoilJets_" + sampleTag + "_ALL_" + cfgTag + ".root";
+        return InputSimBase() + "/RecoilJets_" + sampleTag + "_ALL_" + cfgTag + ".root";
   }
   inline string InputSimJet5()
   {
