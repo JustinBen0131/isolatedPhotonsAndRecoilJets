@@ -3290,7 +3290,7 @@ void RunJES3QA(Dataset& ds)
                   tCuts.SetTextFont(42);
                   tCuts.SetTextAlign(33);
                   tCuts.SetTextSize(0.034);
-                  tCuts.DrawLatex(0.92, 0.74, trigLabel.c_str());
+                  tCuts.DrawLatex(0.25, 0.86, trigLabel.c_str());
                   tCuts.DrawLatex(0.92, 0.68, ptLabel.c_str());
                   tCuts.DrawLatex(0.92, 0.62, b2bLabel.c_str());
                   tCuts.DrawLatex(0.92, 0.56, jetLabel.c_str());
