@@ -2312,7 +2312,7 @@
               const string currentCentTag = CurrentCentralityTag(currentCentLabel);
 
               const string inclusiveRecoOverlayBase =
-                                JoinPath(dsSim.outBase, "inclusiveRecoCentralityOverlays");
+                                                JoinPath(DirnameFromPath(dsSim.outBase), "inclusiveRecoCentralityOverlays");
                               const string overlayStaging = JoinPath(inclusiveRecoOverlayBase, "staging");
                               EnsureDir(inclusiveRecoOverlayBase);
                               EnsureDir(overlayStaging);
@@ -2477,7 +2477,7 @@
                                     hPP->SetMarkerSize(1.1);
                                     hPP->SetLineWidth(2);
                                     hPP->GetXaxis()->SetTitle("x_{J#gamma}");
-                                    hPP->GetYaxis()->SetTitle("(1/N) dN/dx_{J#gamma}");
+                                    hPP->GetYaxis()->SetTitle("Counts (norm. to unit area)");
                                     hOverlay.push_back(hPP);
                                     legLabels.push_back("pp");
                                   }
@@ -2519,7 +2519,7 @@
                             hc->SetMarkerSize(1.0);
                             hc->SetLineWidth(2);
                             hc->GetXaxis()->SetTitle("x_{J#gamma}");
-                            hc->GetYaxis()->SetTitle("(1/N) dN/dx_{J#gamma}");
+                            hc->GetYaxis()->SetTitle("Counts (norm. to unit area)");
                             hOverlay.push_back(hc);
                             legLabels.push_back(ovCentLabels[ic]);
                           }
@@ -2568,7 +2568,67 @@
                             SaveCanvas(cOv, JoinPath(inclusiveRecoOverlayBase, overlayPng));
                             cout << ANSI_BOLD_GRN << "  [WROTE] " << JoinPath(inclusiveRecoOverlayBase, overlayPng) << ANSI_RESET << "\n";
 
-                            for (auto* h : hOverlay) delete h;
+                            // ── per-centrality + pp individual overlays ──
+                            {
+                                TH1* hPPRef = nullptr;
+                                for (size_t ih = 0; ih < hOverlay.size(); ++ih)
+                                {
+                                  if (legLabels[ih] == "pp") { hPPRef = hOverlay[ih]; break; }
+                                }
+
+                                for (size_t ih = 0; ih < hOverlay.size(); ++ih)
+                                {
+                                  if (legLabels[ih] == "pp") continue;
+
+                                  string dirTag = legLabels[ih];
+                                  dirTag.erase(std::remove(dirTag.begin(), dirTag.end(), '%'), dirTag.end());
+                                  std::replace(dirTag.begin(), dirTag.end(), '-', '_');
+
+                                  const string centOutDir = JoinPath(inclusiveRecoOverlayBase, dirTag);
+                                  EnsureDir(centOutDir);
+
+                                  TCanvas cPC(
+                                    TString::Format("c_centVsPP_%s_%s_%s", rKey.c_str(), b.folder.c_str(), dirTag.c_str()).Data(),
+                                    "c_centVsPP", 950, 750
+                                  );
+                                  ApplyCanvasMargins1D(cPC);
+
+                                  double mv = hOverlay[ih]->GetMaximum();
+                                  if (hPPRef) mv = std::max(mv, hPPRef->GetMaximum());
+
+                                  TH1* hCentDraw = (TH1*)hOverlay[ih]->Clone(
+                                    TString::Format("hPC_%s_%s_%s", rKey.c_str(), b.folder.c_str(), dirTag.c_str()).Data()
+                                  );
+                                  hCentDraw->SetDirectory(nullptr);
+                                  hCentDraw->SetMaximum((mv > 0.0) ? (1.45 * mv) : 1.0);
+                                  hCentDraw->Draw("E1");
+
+                                  if (hPPRef) hPPRef->Draw("E1 same");
+
+                                  TLegend legPC(0.62, 0.72, 0.92, 0.88);
+                                  legPC.SetBorderSize(0);
+                                  legPC.SetFillStyle(0);
+                                  legPC.SetTextFont(42);
+                                  legPC.SetTextSize(0.036);
+                                  legPC.AddEntry(hOverlay[ih], legLabels[ih].c_str(), "lep");
+                                  if (hPPRef) legPC.AddEntry(hPPRef, "pp", "lep");
+                                  legPC.Draw();
+
+                                  vector<string> pcLines = DefaultHeaderLines(dsData);
+                                  pcLines.push_back(TString::Format("Reco x_{J#gamma} %s vs pp (unit area)", legLabels[ih].c_str()).Data());
+                                  pcLines.push_back(TString::Format("R = %.1f, p_{T}^{#gamma}: %d-%d GeV", R, b.lo, b.hi).Data());
+                                  DrawLatexLines(0.14, 0.92, pcLines, 0.032, 0.043);
+
+                                  const string pcPng = TString::Format(
+                                    "xJ_reco_vs_pp_%s_%s.png", rKey.c_str(), b.folder.c_str()
+                                  ).Data();
+                                  SaveCanvas(cPC, JoinPath(centOutDir, pcPng));
+
+                                  delete hCentDraw;
+                                }
+                              }
+
+                              for (auto* h : hOverlay) delete h;
                           }
                         }
 

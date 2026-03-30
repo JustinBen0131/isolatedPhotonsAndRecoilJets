@@ -3250,7 +3250,7 @@ void RunJES3QA(Dataset& ds)
                 hxAu->Draw("E1");
                 hxPP->Draw("E1 same");
 
-                TLegend* leg = new TLegend(0.62, 0.78, 0.92, 0.90);
+                TLegend* leg = new TLegend(0.62, 0.73, 0.92, 0.85);
                 leg->SetBorderSize(0);
                 leg->SetFillStyle(0);
                 leg->SetTextFont(42);
@@ -3290,7 +3290,7 @@ void RunJES3QA(Dataset& ds)
                   tCuts.SetTextFont(42);
                   tCuts.SetTextAlign(33);
                   tCuts.SetTextSize(0.034);
-                  tCuts.DrawLatex(0.25, 0.86, trigLabel.c_str());
+                  tCuts.DrawLatex(0.72, 0.88, trigLabel.c_str());
                   tCuts.DrawLatex(0.92, 0.68, ptLabel.c_str());
                   tCuts.DrawLatex(0.92, 0.62, b2bLabel.c_str());
                   tCuts.DrawLatex(0.92, 0.56, jetLabel.c_str());

@@ -3538,13 +3538,185 @@ namespace ARJ
                     t.DrawLatex(0.16, 0.80, TString::Format("UE subtraction: %s", H.label.c_str()).Data());
 
                     SaveCanvas(cVsCent, JoinPath(variantDir,
-                          TString::Format("meanIsoEt_pp_vs_auau_vs_cent_%s.png", b.folder.c_str()).Data()));
-                  }
+                    TString::Format("meanIsoEt_pp_vs_auau_vs_cent_%s.png", b.folder.c_str()).Data()));
+                    }
 
-                  cout << ANSI_DIM
-                       << "  -> UE comparison overlays written under:\n"
-                       << "     " << variantDir << "/\n"
-                       << ANSI_RESET;
+                    // ── Centrality overlay of E_T^iso (unnormalized counts) per pT bin, this variant ──
+                    {
+                      const int centOvColors[] = {kRed+1, kBlue+1, kGreen+2, kMagenta+1, kOrange+1,
+                                                  kCyan+1, kYellow+2, kViolet+1};
+                      for (int ipt = 0; ipt < kNPtBins; ++ipt)
+                      {
+                        const PtBin& b = PtBins()[ipt];
+
+                        vector<TH1*> hCents;
+                        vector<string> cLabels;
+                        double yMaxCO = 0.0;
+
+                        for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                        {
+                          const auto& cb = centBins[ic];
+                          const string hAAName = "h_Eiso" + b.suffix + cb.suffix;
+                          TH1* hAAsrc = dynamic_cast<TH1*>(aaTop->Get(hAAName.c_str()));
+                          if (!hAAsrc) continue;
+
+                          TH1* hAA = CloneTH1(hAAsrc,
+                            TString::Format("hAA_centOvlay_%s_%s_%s_%s",
+                              trigAA.c_str(), H.variant.c_str(), b.folder.c_str(), cb.folder.c_str()).Data());
+                          if (!hAA) continue;
+
+                          EnsureSumw2(hAA);
+                          const int ci = (ic < 8) ? centOvColors[ic] : kBlack;
+                          hAA->SetLineColor(ci);
+                          hAA->SetMarkerColor(ci);
+                          hAA->SetMarkerStyle(20);
+                          hAA->SetMarkerSize(0.9);
+                          hAA->SetLineWidth(2);
+                          hAA->SetFillStyle(0);
+
+                          yMaxCO = std::max(yMaxCO, hAA->GetMaximum());
+                          hCents.push_back(hAA);
+                          cLabels.push_back(TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
+                        }
+
+                        if (hCents.empty()) continue;
+
+                        TCanvas cCO(
+                          TString::Format("c_isoCentOverlay_%s_%s_%s",
+                            trigAA.c_str(), H.variant.c_str(), b.folder.c_str()).Data(),
+                          "c_isoCentOverlay", 900, 700
+                        );
+                        ApplyCanvasMargins1D(cCO);
+                        cCO.cd();
+
+                        hCents[0]->SetTitle("");
+                        hCents[0]->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
+                        hCents[0]->GetYaxis()->SetTitle("Counts");
+                        hCents[0]->GetXaxis()->SetTitleSize(0.055);
+                        hCents[0]->GetYaxis()->SetTitleSize(0.055);
+                        hCents[0]->GetXaxis()->SetLabelSize(0.045);
+                        hCents[0]->GetYaxis()->SetLabelSize(0.045);
+                        hCents[0]->GetYaxis()->SetTitleOffset(1.15);
+                        hCents[0]->SetMinimum(0.0);
+                        hCents[0]->SetMaximum((yMaxCO > 0.0) ? (1.25 * yMaxCO) : 1.0);
+                        hCents[0]->Draw("E1");
+                        for (std::size_t ih = 1; ih < hCents.size(); ++ih) hCents[ih]->Draw("E1 SAME");
+
+                        TLegend legCO(0.72, 0.62, 0.92, 0.88);
+                        legCO.SetBorderSize(0);
+                        legCO.SetFillStyle(0);
+                        legCO.SetTextFont(42);
+                        legCO.SetTextSize(0.032);
+                        for (std::size_t ih = 0; ih < hCents.size(); ++ih)
+                          legCO.AddEntry(hCents[ih], cLabels[ih].c_str(), "ep");
+                        legCO.Draw();
+
+                        TLatex tTitleCO;
+                        tTitleCO.SetNDC(true);
+                        tTitleCO.SetTextFont(42);
+                        tTitleCO.SetTextAlign(23);
+                        tTitleCO.SetTextSize(0.040);
+                        tTitleCO.DrawLatex(0.50, 0.98,
+                          TString::Format("Au+Au (counts), centrality overlays, p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+
+                        SaveCanvas(cCO, JoinPath(variantDir,
+                              TString::Format("isoCentOverlay_counts_%s.png", b.folder.c_str()).Data()));
+
+                        for (auto* h : hCents) delete h;
+                      }
+                    }
+
+                    // ── pT overlay of E_T^iso (unnormalized counts) per centrality bin, this variant ──
+                    {
+                      const int ptOvColors[] = {kRed+1, kBlue+1, kGreen+2, kMagenta+1, kOrange+1,
+                                                kCyan+1, kViolet+1, kYellow+2, kSpring+2, kAzure+1,
+                                                kTeal+1, kPink+1};
+                      for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                      {
+                        const auto& cb = centBins[ic];
+                        const string centSubDir = JoinPath(variantDir, cb.folder);
+                        EnsureDir(centSubDir);
+
+                        vector<TH1*> hPts;
+                        vector<string> ptLabels;
+                        double yMaxPO = 0.0;
+
+                        for (int ipt = 0; ipt < kNPtBins; ++ipt)
+                        {
+                          const PtBin& b = PtBins()[ipt];
+                          const string hAAName = "h_Eiso" + b.suffix + cb.suffix;
+                          TH1* hAAsrc = dynamic_cast<TH1*>(aaTop->Get(hAAName.c_str()));
+                          if (!hAAsrc) continue;
+
+                          TH1* hAA = CloneTH1(hAAsrc,
+                            TString::Format("hAA_ptOvlay_%s_%s_%s_%s",
+                              trigAA.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
+                          if (!hAA) continue;
+
+                          EnsureSumw2(hAA);
+                          const int ci = (ipt < 12) ? ptOvColors[ipt] : kBlack;
+                          hAA->SetLineColor(ci);
+                          hAA->SetMarkerColor(ci);
+                          hAA->SetMarkerStyle(20);
+                          hAA->SetMarkerSize(0.9);
+                          hAA->SetLineWidth(2);
+                          hAA->SetFillStyle(0);
+
+                          yMaxPO = std::max(yMaxPO, hAA->GetMaximum());
+                          hPts.push_back(hAA);
+                          ptLabels.push_back(TString::Format("%d-%d GeV", b.lo, b.hi).Data());
+                        }
+
+                        if (hPts.empty()) continue;
+
+                        TCanvas cPO(
+                          TString::Format("c_isoPtOverlay_%s_%s_%s",
+                            trigAA.c_str(), H.variant.c_str(), cb.folder.c_str()).Data(),
+                          "c_isoPtOverlay", 900, 700
+                        );
+                        ApplyCanvasMargins1D(cPO);
+                        cPO.cd();
+
+                        hPts[0]->SetTitle("");
+                        hPts[0]->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
+                        hPts[0]->GetYaxis()->SetTitle("Counts");
+                        hPts[0]->GetXaxis()->SetTitleSize(0.055);
+                        hPts[0]->GetYaxis()->SetTitleSize(0.055);
+                        hPts[0]->GetXaxis()->SetLabelSize(0.045);
+                        hPts[0]->GetYaxis()->SetLabelSize(0.045);
+                        hPts[0]->GetYaxis()->SetTitleOffset(1.15);
+                        hPts[0]->SetMinimum(0.0);
+                        hPts[0]->SetMaximum((yMaxPO > 0.0) ? (1.25 * yMaxPO) : 1.0);
+                        hPts[0]->Draw("E1");
+                        for (std::size_t ih = 1; ih < hPts.size(); ++ih) hPts[ih]->Draw("E1 SAME");
+
+                        TLegend legPO(0.72, 0.50, 0.92, 0.88);
+                        legPO.SetBorderSize(0);
+                        legPO.SetFillStyle(0);
+                        legPO.SetTextFont(42);
+                        legPO.SetTextSize(0.028);
+                        for (std::size_t ih = 0; ih < hPts.size(); ++ih)
+                          legPO.AddEntry(hPts[ih], ptLabels[ih].c_str(), "ep");
+                        legPO.Draw();
+
+                        TLatex tTitlePO;
+                        tTitlePO.SetNDC(true);
+                        tTitlePO.SetTextFont(42);
+                        tTitlePO.SetTextAlign(23);
+                        tTitlePO.SetTextSize(0.040);
+                        tTitlePO.DrawLatex(0.50, 0.98,
+                          TString::Format("Au+Au (counts), p_{T}^{#gamma} overlays, cent = %d-%d%%", cb.lo, cb.hi).Data());
+
+                        SaveCanvas(cPO, JoinPath(centSubDir, "isoPtOverlay_counts.png"));
+
+                        for (auto* h : hPts) delete h;
+                      }
+                    }
+
+                    cout << ANSI_DIM
+                         << "  -> UE comparison overlays written under:\n"
+                         << "     " << variantDir << "/\n"
+                         << ANSI_RESET;
                 }
 
 
@@ -3636,24 +3808,29 @@ namespace ARJ
                     }
                     leg.Draw();
 
-                    TLatex tTitle;
-                    tTitle.SetNDC(true);
-                    tTitle.SetTextFont(42);
-                    tTitle.SetTextAlign(23);
-                    tTitle.SetTextSize(0.045);
-                    tTitle.DrawLatex(0.50, 0.955,
-                      TString::Format("Isolation overlay, all UE variants, %d-%d%% Cent AuAu", cb.lo, cb.hi).Data());
+                      TLatex tTitle;
+                      tTitle.SetNDC(true);
+                      tTitle.SetTextFont(42);
+                      tTitle.SetTextAlign(23);
+                      tTitle.SetTextSize(0.045);
+                      tTitle.DrawLatex(0.50, 0.98,
+                        TString::Format("Isolation overlay, all UE variants, %d-%d%% Cent AuAu", cb.lo, cb.hi).Data());
 
-                    TLatex t;
-                    t.SetNDC(true);
-                    t.SetTextFont(42);
-                    t.SetTextAlign(13);
-                    t.SetTextSize(0.034);
-                    t.DrawLatex(0.16, 0.88, TString::Format("Trigger: %s", trigAA.c_str()).Data());
-                    t.DrawLatex(0.16, 0.84, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
-                    t.DrawLatex(0.16, 0.80, TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data());
+                      const double coneRValOv = (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3;
+                      const int    isoEtMaxOv = (kAA_IsoMode == "fixedIso5GeV") ? 5 : -1;
 
-                    SaveCanvas(cOverlay, JoinPath(ptOverlayDir, "isolationOverlay_allVariants.png"));
+                      TLatex t;
+                      t.SetNDC(true);
+                      t.SetTextFont(42);
+                      t.SetTextAlign(13);
+                      t.SetTextSize(0.028);
+                      t.DrawLatex(0.18, 0.89, "Trigger = Photon 10 GeV + MBD NS #geq 2, vtx < 150 cm");
+                      t.DrawLatex(0.18, 0.84, TString::Format("#DeltaR_{cone} < %.1f", coneRValOv).Data());
+                      if (isoEtMaxOv > 0)
+                        t.DrawLatex(0.18, 0.8, TString::Format("E_{T}^{iso} < %d GeV", isoEtMaxOv).Data());
+                      t.DrawLatex(0.18, 0.76, TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data());
+
+                      SaveCanvas(cOverlay, JoinPath(ptOverlayDir, "isolationOverlay_allVariants.png"));
 
                     for (auto* h : hVars) delete h;
                   }
@@ -3774,11 +3951,11 @@ namespace ARJ
                   t.SetNDC(true);
                   t.SetTextFont(42);
                   t.SetTextAlign(13);
-                  t.SetTextSize(0.034);
-                  t.DrawLatex(0.16, 0.54, TString::Format("Trigger = %s", trigAA.c_str()).Data());
-                  t.DrawLatex(0.16, 0.50, TString::Format("#DeltaR_{cone} < %.1f", coneRVal).Data());
+                  t.SetTextSize(0.028);
+                  t.DrawLatex(0.20, 0.58, "Trigger = Photon 10 GeV + MBD NS #geq 2, vtx < 150 cm");
+                  t.DrawLatex(0.20, 0.54, TString::Format("#DeltaR_{cone} < %.1f", coneRVal).Data());
                   if (isoEtMax > 0)
-                    t.DrawLatex(0.16, 0.46, TString::Format("E_{T}^{iso} < %d GeV", isoEtMax).Data());
+                    t.DrawLatex(0.20, 0.50, TString::Format("E_{T}^{iso} < %d GeV", isoEtMax).Data());
 
                   SaveCanvas(cSummary, JoinPath(centralitySummaryBase,
                         TString::Format("meanIsoEt_allVariants_vs_cent_%s.png", b.folder.c_str()).Data()));
