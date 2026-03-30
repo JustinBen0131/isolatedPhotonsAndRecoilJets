@@ -2448,129 +2448,250 @@
                     lines.push_back(TString::Format("R = %.1f, p_{T}^{#gamma}: %d-%d GeV", R, b.lo, b.hi).Data());
                     DrawLatexLines(0.14, 0.92, lines, 0.034, 0.045);
 
-                    SaveCanvas(c, JoinPath(ptOut, "xJ_recoData_input.png"));
-                    SaveCanvas(c, JoinPath(overlayPtOut, TString::Format("xJ_recoData_input_%s.png", currentCentTag.c_str()).Data()));
+                      SaveCanvas(c, JoinPath(ptOut, "xJ_recoData_input.png"));
+                      SaveCanvas(c, JoinPath(overlayPtOut, TString::Format("xJ_recoData_input_%s.png", currentCentTag.c_str()).Data()));
 
-                    {
-                      const string recoStorePath = JoinPath(
-                        overlayPtOut,
-                        TString::Format("xJ_recoData_input_%s.root", currentCentTag.c_str()).Data()
-                      );
-
-                      TFile fRecoStore(recoStorePath.c_str(), "RECREATE");
-                      if (fRecoStore.IsOpen())
                       {
-                        TH1* hStore = CloneTH1(
-                          hXJRecoData,
-                          TString::Format("h_xJRecoDataInput_store_%s_%s_%s",
-                            rKey.c_str(), b.folder.c_str(), currentCentTag.c_str()).Data()
-                        );
-                        if (hStore)
-                        {
-                          hStore->SetDirectory(nullptr);
-                          EnsureSumw2(hStore);
-                          hStore->Write("h_xJRecoData");
-                          delete hStore;
-                        }
-                        fRecoStore.Close();
-                      }
-                    }
-
-                    {
-                      vector<TH1*> hCentOverlays;
-                      vector<string> centLabelsFound;
-
-                      for (size_t ic = 0; ic < overlayCentTags.size(); ++ic)
-                      {
-                        const string recoReadPath = JoinPath(
+                        const string recoStorePath = JoinPath(
                           overlayPtOut,
-                          TString::Format("xJ_recoData_input_%s.root", overlayCentTags[ic].c_str()).Data()
+                          TString::Format("xJ_recoData_input_%s.root", currentCentTag.c_str()).Data()
                         );
 
-                        TFile* fIn = TFile::Open(recoReadPath.c_str(), "READ");
-                        if (!fIn || fIn->IsZombie())
+                        TFile fRecoStore(recoStorePath.c_str(), "RECREATE");
+                        if (fRecoStore.IsOpen())
                         {
-                          if (fIn) { fIn->Close(); delete fIn; }
-                          continue;
+                          TH1* hStore = CloneTH1(
+                            hXJRecoData,
+                            TString::Format("h_xJRecoDataInput_store_%s_%s_%s",
+                              rKey.c_str(), b.folder.c_str(), currentCentTag.c_str()).Data()
+                          );
+                          if (hStore)
+                          {
+                            hStore->SetDirectory(nullptr);
+                            EnsureSumw2(hStore);
+                            hStore->Write("h_xJRecoData");
+                            delete hStore;
+                          }
+                          fRecoStore.Close();
                         }
+                      }
 
-                        TH1* hIn = dynamic_cast<TH1*>(fIn->Get("h_xJRecoData"));
-                        if (!hIn)
+                      {
+                        vector<TH1*> hCentOverlays;
+                        vector<string> centLabelsFound;
+
+                        for (size_t ic = 0; ic < overlayCentTags.size(); ++ic)
                         {
+                          const string recoReadPath = JoinPath(
+                            overlayPtOut,
+                            TString::Format("xJ_recoData_input_%s.root", overlayCentTags[ic].c_str()).Data()
+                          );
+
+                          TFile* fIn = TFile::Open(recoReadPath.c_str(), "READ");
+                          if (!fIn || fIn->IsZombie())
+                          {
+                            if (fIn) { fIn->Close(); delete fIn; }
+                            continue;
+                          }
+
+                          TH1* hIn = dynamic_cast<TH1*>(fIn->Get("h_xJRecoData"));
+                          if (!hIn)
+                          {
+                            fIn->Close();
+                            delete fIn;
+                            continue;
+                          }
+
+                          TH1* hClone = CloneTH1(
+                            hIn,
+                            TString::Format("h_xJRecoDataOverlay_%s_%s_%s",
+                              rKey.c_str(), b.folder.c_str(), overlayCentTags[ic].c_str()).Data()
+                          );
+                          if (hClone)
+                          {
+                            hClone->SetDirectory(nullptr);
+                            EnsureSumw2(hClone);
+                            hClone->SetTitle("");
+                            hClone->SetLineColor(overlayColors[ic]);
+                            hClone->SetMarkerColor(overlayColors[ic]);
+                            hClone->SetMarkerStyle(20);
+                            hClone->SetMarkerSize(1.0);
+                            hClone->SetLineWidth(2);
+                            hClone->GetXaxis()->SetTitle("x_{J#gamma}");
+                            hClone->GetYaxis()->SetTitle("Counts");
+                            hCentOverlays.push_back(hClone);
+                            centLabelsFound.push_back(overlayCentLabels[ic]);
+                          }
+
                           fIn->Close();
                           delete fIn;
-                          continue;
                         }
 
-                        TH1* hClone = CloneTH1(
-                          hIn,
-                          TString::Format("h_xJRecoDataOverlay_%s_%s_%s",
-                            rKey.c_str(), b.folder.c_str(), overlayCentTags[ic].c_str()).Data()
-                        );
-                        if (hClone)
+                        if (!hCentOverlays.empty())
                         {
-                          hClone->SetDirectory(nullptr);
-                          EnsureSumw2(hClone);
-                          hClone->SetTitle("");
-                          hClone->SetLineColor(overlayColors[ic]);
-                          hClone->SetMarkerColor(overlayColors[ic]);
-                          hClone->SetMarkerStyle(20);
-                          hClone->SetMarkerSize(1.0);
-                          hClone->SetLineWidth(2);
-                          hClone->GetXaxis()->SetTitle("x_{J#gamma}");
-                          hClone->GetYaxis()->SetTitle("Counts");
-                          hCentOverlays.push_back(hClone);
-                          centLabelsFound.push_back(overlayCentLabels[ic]);
-                        }
+                          TCanvas cOv(
+                            TString::Format("c_xJRecoDataInputCentOverlay_%s_%s", rKey.c_str(), b.folder.c_str()).Data(),
+                            "c_xJRecoDataInputCentOverlay", 950, 750
+                          );
+                          ApplyCanvasMargins1D(cOv);
 
-                        fIn->Close();
-                        delete fIn;
+                          double maxv = 0.0;
+                          for (auto* h : hCentOverlays)
+                          {
+                            if (!h) continue;
+                            maxv = std::max(maxv, h->GetMaximum());
+                          }
+
+                          hCentOverlays[0]->SetMaximum((maxv > 0.0) ? (1.35 * maxv) : 1.0);
+                          hCentOverlays[0]->Draw("E1");
+                          for (size_t ih = 1; ih < hCentOverlays.size(); ++ih)
+                          {
+                            hCentOverlays[ih]->Draw("E1 same");
+                          }
+
+                          TLegend leg(0.60, 0.68, 0.92, 0.88);
+                          leg.SetBorderSize(0);
+                          leg.SetFillStyle(0);
+                          leg.SetTextFont(42);
+                          leg.SetTextSize(0.034);
+                          for (size_t ih = 0; ih < hCentOverlays.size(); ++ih)
+                          {
+                            leg.AddEntry(hCentOverlays[ih], centLabelsFound[ih].c_str(), "lep");
+                          }
+                          leg.Draw();
+
+                          vector<string> lines = DefaultHeaderLines(dsData);
+                          lines.push_back("Inclusive reco x_{J#gamma} input centrality overlay");
+                          lines.push_back(TString::Format("R = %.1f, p_{T}^{#gamma}: %d-%d GeV", R, b.lo, b.hi).Data());
+                          lines.push_back(TString::Format("Organization case: %s", variantTag.c_str()).Data());
+                          DrawLatexLines(0.14, 0.92, lines, 0.032, 0.043);
+
+                          SaveCanvas(cOv, JoinPath(overlayPtOut, "xJ_recoData_input_overlay_centralities.png"));
+
+                          for (auto* h : hCentOverlays) delete h;
+                        }
                       }
 
-                      if (!hCentOverlays.empty())
                       {
-                        TCanvas cOv(
-                          TString::Format("c_xJRecoDataInputCentOverlay_%s_%s", rKey.c_str(), b.folder.c_str()).Data(),
-                          "c_xJRecoDataInputCentOverlay", 950, 750
-                        );
-                        ApplyCanvasMargins1D(cOv);
+                        static std::string s_ppFallbackPath = "";
+                        static TFile* s_ppFallbackFile = nullptr;
+                        static TDirectory* s_ppFallbackTop = nullptr;
 
-                        double maxv = 0.0;
-                        for (auto* h : hCentOverlays)
+                        const std::string ppFallbackPath = InputPP(isRun25pp);
+                        if (!s_ppFallbackFile || s_ppFallbackPath != ppFallbackPath)
                         {
-                          if (!h) continue;
-                          maxv = std::max(maxv, h->GetMaximum());
+                          if (s_ppFallbackFile)
+                          {
+                            s_ppFallbackFile->Close();
+                            delete s_ppFallbackFile;
+                            s_ppFallbackFile = nullptr;
+                          }
+                          s_ppFallbackTop = nullptr;
+
+                          s_ppFallbackFile = TFile::Open(ppFallbackPath.c_str(), "READ");
+                          s_ppFallbackPath = ppFallbackPath;
+
+                          if (s_ppFallbackFile && !s_ppFallbackFile->IsZombie())
+                          {
+                            s_ppFallbackTop = s_ppFallbackFile->GetDirectory(kTriggerPP.c_str());
+                            if (!s_ppFallbackTop) s_ppFallbackTop = s_ppFallbackFile;
+                          }
                         }
 
-                        hCentOverlays[0]->SetMaximum((maxv > 0.0) ? (1.35 * maxv) : 1.0);
-                        hCentOverlays[0]->Draw("E1");
-                        for (size_t ih = 1; ih < hCentOverlays.size(); ++ih)
+                        TH1D* hXJRecoPP = nullptr;
+
+                        if (s_ppFallbackTop)
                         {
-                          hCentOverlays[ih]->Draw("E1 same");
+                          TH2* h2RecoPP_in = dynamic_cast<TH2*>(s_ppFallbackTop->Get(recoXJName.c_str()));
+                          if (h2RecoPP_in)
+                          {
+                            const int ixRecoPP = h2RecoPP_in->GetXaxis()->FindBin(cen);
+                            if (ixRecoPP >= 1 && ixRecoPP <= h2RecoPP_in->GetNbinsX())
+                            {
+                              hXJRecoPP = h2RecoPP_in->ProjectionY(
+                                TString::Format("h_xJRecoPPInput_%s_%s", rKey.c_str(), b.folder.c_str()).Data(),
+                                ixRecoPP, ixRecoPP, "e"
+                              );
+                              if (hXJRecoPP)
+                              {
+                                hXJRecoPP->SetDirectory(nullptr);
+                                EnsureSumw2(hXJRecoPP);
+                              }
+                            }
+                          }
                         }
 
-                        TLegend leg(0.60, 0.68, 0.92, 0.88);
-                        leg.SetBorderSize(0);
-                        leg.SetFillStyle(0);
-                        leg.SetTextFont(42);
-                        leg.SetTextSize(0.034);
-                        for (size_t ih = 0; ih < hCentOverlays.size(); ++ih)
+                        if (hXJRecoPP)
                         {
-                          leg.AddEntry(hCentOverlays[ih], centLabelsFound[ih].c_str(), "lep");
+                          TH1* hAuShape = CloneTH1(
+                            hXJRecoData,
+                            TString::Format("h_xJRecoAuShape_%s_%s", rKey.c_str(), b.folder.c_str()).Data()
+                          );
+                          TH1* hPPShape = CloneTH1(
+                            hXJRecoPP,
+                            TString::Format("h_xJRecoPPShape_%s_%s", rKey.c_str(), b.folder.c_str()).Data()
+                          );
+
+                          if (hAuShape && hPPShape)
+                          {
+                            hAuShape->SetDirectory(nullptr);
+                            hPPShape->SetDirectory(nullptr);
+                            EnsureSumw2(hAuShape);
+                            EnsureSumw2(hPPShape);
+
+                            NormalizeToUnitArea(hAuShape);
+                            NormalizeToUnitArea(hPPShape);
+
+                            hAuShape->SetTitle("");
+                            hAuShape->SetLineColor(kBlack);
+                            hAuShape->SetMarkerColor(kBlack);
+                            hAuShape->SetMarkerStyle(20);
+                            hAuShape->SetMarkerSize(1.0);
+                            hAuShape->SetLineWidth(2);
+                            hAuShape->GetXaxis()->SetTitle("x_{J#gamma}");
+                            hAuShape->GetYaxis()->SetTitle("Fraction of entries");
+
+                            hPPShape->SetLineColor(kRed + 1);
+                            hPPShape->SetMarkerColor(kRed + 1);
+                            hPPShape->SetMarkerStyle(24);
+                            hPPShape->SetMarkerSize(1.0);
+                            hPPShape->SetLineWidth(2);
+
+                            const double maxv = std::max(hAuShape->GetMaximum(), hPPShape->GetMaximum());
+
+                            TCanvas cPP(
+                              TString::Format("c_xJRecoDataInputAuAuVsPP_%s_%s", rKey.c_str(), b.folder.c_str()).Data(),
+                              "c_xJRecoDataInputAuAuVsPP", 900, 700
+                            );
+                            ApplyCanvasMargins1D(cPP);
+
+                            hAuShape->SetMaximum((maxv > 0.0) ? (1.35 * maxv) : 1.0);
+                            hAuShape->Draw("E1");
+                            hPPShape->Draw("E1 same");
+
+                            TLegend leg(0.58, 0.74, 0.92, 0.88);
+                            leg.SetBorderSize(0);
+                            leg.SetFillStyle(0);
+                            leg.SetTextFont(42);
+                            leg.SetTextSize(0.034);
+                            leg.AddEntry(hAuShape, TString::Format("AuAu reco input (%s)", currentCentLabel.c_str()).Data(), "lep");
+                            leg.AddEntry(hPPShape, "pp reco input", "lep");
+                            leg.Draw();
+
+                            vector<string> lines = DefaultHeaderLines(dsData);
+                            lines.push_back("Normalized reco x_{J#gamma} input overlay: AuAu vs pp");
+                            lines.push_back(TString::Format("R = %.1f, p_{T}^{#gamma}: %d-%d GeV", R, b.lo, b.hi).Data());
+                            lines.push_back("Both histograms normalized to unit area");
+                            DrawLatexLines(0.14, 0.92, lines, 0.032, 0.043);
+
+                            SaveCanvas(cPP, JoinPath(ptOut, "xJ_recoData_input_overlay_auau_vs_pp_unitArea.png"));
+                          }
+
+                          if (hAuShape) delete hAuShape;
+                          if (hPPShape) delete hPPShape;
+                          delete hXJRecoPP;
                         }
-                        leg.Draw();
-
-                        vector<string> lines = DefaultHeaderLines(dsData);
-                        lines.push_back("Inclusive reco x_{J#gamma} input centrality overlay");
-                        lines.push_back(TString::Format("R = %.1f, p_{T}^{#gamma}: %d-%d GeV", R, b.lo, b.hi).Data());
-                        lines.push_back(TString::Format("Organization case: %s", variantTag.c_str()).Data());
-                        DrawLatexLines(0.14, 0.92, lines, 0.032, 0.043);
-
-                        SaveCanvas(cOv, JoinPath(overlayPtOut, "xJ_recoData_input_overlay_centralities.png"));
-
-                        for (auto* h : hCentOverlays) delete h;
                       }
-                    }
                   }
 
                   if (hXJTruthSim)
