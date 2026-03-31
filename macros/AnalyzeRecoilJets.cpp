@@ -4234,6 +4234,384 @@ namespace ARJ
             }
       }
 
+      // ===================================================================
+      // Au+Au DATA xJ QA: UE-subtraction variant overlay comparison
+      //   Output:
+      //     auau/<CfgTagAA>/<trigger>/leadingJetXJcomparisons/<rKey>/<cent>/<pT>/
+      //     auau/<CfgTagAA>/<trigger>/inclusiveXJcomparisons/<rKey>/<cent>/<pT>/
+      // ===================================================================
+      void RunXJUEComparisons_AuAu()
+      {
+        cout << ANSI_BOLD_CYN << "\n==============================\n"
+             << "[xJ QA] AuAu UE-subtraction variant xJ comparisons\n"
+             << "==============================" << ANSI_RESET << "\n";
+
+        const vector<string> ueVariants = {"noSub", "baseVariant", "variantA", "variantB"};
+        const vector<string> ueLabels   = {"No UE sub", "Base Variant", "Variant A", "Variant B"};
+        const int ueColors[4]  = {kBlack, kBlue + 1, kOrange + 7, kGreen + 2};
+        const vector<string> rKeysAA = {"r02", "r04"};
+
+        const auto& centBins = CentBins();
+        if (centBins.empty())
+        {
+          cout << ANSI_BOLD_YEL << "[WARN] No centrality bins defined — skipping xJ UE comparisons\n"
+               << ANSI_RESET;
+          return;
+        }
+
+        // Open PP file for inclusive overlay reference
+        TFile* fPPxj = TFile::Open(InputPP(isRun25pp).c_str(), "READ");
+        TDirectory* ppTopXJ = nullptr;
+        if (fPPxj && !fPPxj->IsZombie())
+        {
+          ppTopXJ = fPPxj->GetDirectory(kTriggerPP.c_str());
+          if (!ppTopXJ) ppTopXJ = fPPxj;
+        }
+        else
+        {
+          if (fPPxj) { fPPxj->Close(); delete fPPxj; fPPxj = nullptr; }
+          cout << ANSI_BOLD_YEL << "[WARN] Missing PP file for xJ inclusive overlay\n" << ANSI_RESET;
+        }
+
+        for (const auto& trigAA : kTriggersAuAu)
+        {
+          const string trigOutBase = JoinPath(kOutputBase + "/auau/" + CfgTagAA(), trigAA);
+
+          struct VarHandle
+          {
+            string variant;
+            string label;
+            int color = kBlack;
+            TFile* file = nullptr;
+          };
+
+          vector<VarHandle> vHandles;
+          vHandles.reserve(ueVariants.size());
+
+          for (std::size_t iv = 0; iv < ueVariants.size(); ++iv)
+          {
+            VarHandle V;
+            V.variant = ueVariants[iv];
+            V.label   = ueLabels[iv];
+            V.color   = ueColors[iv];
+            V.file    = TFile::Open(InputAuAu(V.variant).c_str(), "READ");
+            if (!V.file || V.file->IsZombie())
+            {
+              if (V.file) { V.file->Close(); delete V.file; V.file = nullptr; }
+              cout << ANSI_BOLD_YEL << "[WARN] Missing AuAu UE variant for xJ: "
+                   << InputAuAu(V.variant) << ANSI_RESET << "\n";
+            }
+            vHandles.push_back(std::move(V));
+          }
+
+          const string leadBase = JoinPath(trigOutBase, "leadingJetXJcomparisons");
+          const string inclBase = JoinPath(trigOutBase, "inclusiveXJcomparisons");
+          EnsureDir(leadBase);
+          EnsureDir(inclBase);
+
+          // Helper: draw xJ overlay for a set of variant indices
+          auto DrawXJOverlay =
+            [&](const vector<TH1*>& hists,
+                const vector<std::size_t>& varIdx,
+                TH1* hPP,
+                const string& outPng,
+                const string& titlePrefix,
+                const string& rKey, double R,
+                int centLo, int centHi,
+                int ptLo, int ptHi)
+          {
+            if (hists.empty()) return;
+
+            const Double_t savedErrorX = gStyle->GetErrorX();
+            gStyle->SetErrorX(0);
+
+            TCanvas cXJ(
+              TString::Format("c_xjov_%s", outPng.c_str()).Data(),
+              "c_xjov", 900, 700
+            );
+            ApplyCanvasMargins1D(cXJ);
+            cXJ.cd();
+
+            double yMax = 0.0;
+            for (auto* h : hists) if (h) yMax = std::max(yMax, h->GetMaximum());
+            if (hPP) yMax = std::max(yMax, hPP->GetMaximum());
+
+            hists[0]->SetTitle("");
+            hists[0]->GetXaxis()->SetTitle("x_{J#gamma}");
+            hists[0]->GetYaxis()->SetTitle("Normalized to unit area");
+            hists[0]->GetXaxis()->SetTitleSize(0.055);
+            hists[0]->GetYaxis()->SetTitleSize(0.055);
+            hists[0]->GetXaxis()->SetLabelSize(0.045);
+            hists[0]->GetYaxis()->SetLabelSize(0.045);
+            hists[0]->GetYaxis()->SetTitleOffset(1.15);
+            hists[0]->SetMinimum(0.0);
+            hists[0]->SetMaximum((yMax > 0.0) ? (1.15 * yMax) : 1.0);
+            hists[0]->GetXaxis()->SetRangeUser(0.0, 2.0);
+            hists[0]->Draw("E1");
+            for (std::size_t ih = 1; ih < hists.size(); ++ih) hists[ih]->Draw("E1 SAME");
+            if (hPP) hPP->Draw("E1 SAME");
+
+            TLegend leg(0.56, 0.58, 0.92, 0.88);
+            leg.SetBorderSize(0);
+            leg.SetFillStyle(0);
+            leg.SetTextFont(42);
+            leg.SetTextSize(0.030);
+            for (std::size_t ih = 0; ih < hists.size(); ++ih)
+              leg.AddEntry(hists[ih], vHandles[varIdx[ih]].label.c_str(), "ep");
+            if (hPP) leg.AddEntry(hPP, "pp", "ep");
+            leg.Draw();
+
+            TLatex tTitle;
+            tTitle.SetNDC(true);
+            tTitle.SetTextFont(42);
+            tTitle.SetTextAlign(23);
+            tTitle.SetTextSize(0.040);
+            tTitle.DrawLatex(0.50, 0.98,
+              TString::Format("%s, %d-%d%% Cent AuAu, R=%.1f", titlePrefix.c_str(), centLo, centHi, R).Data());
+
+            TLatex tCuts;
+            tCuts.SetNDC(true);
+            tCuts.SetTextFont(42);
+            tCuts.SetTextAlign(13);
+            tCuts.SetTextSize(0.028);
+            tCuts.DrawLatex(0.18, 0.89, "Trigger = Photon 10 GeV + MBD NS #geq 2, vtx < 150 cm");
+            tCuts.DrawLatex(0.18, 0.85, TString::Format("p_{T}^{#gamma}: %d-%d GeV", ptLo, ptHi).Data());
+
+            SaveCanvas(cXJ, outPng);
+
+            gStyle->SetErrorX(savedErrorX);
+          };
+
+          for (const auto& rKey : rKeysAA)
+          {
+            const double R = RFromKey(rKey);
+
+            const string leadRDir = JoinPath(leadBase, rKey);
+            const string inclRDir = JoinPath(inclBase, rKey);
+            EnsureDir(leadRDir);
+            EnsureDir(inclRDir);
+
+            for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+            {
+              const auto& cb = centBins[ic];
+
+              const string leadCentDir = JoinPath(leadRDir, cb.folder);
+              const string inclCentDir = JoinPath(inclRDir, cb.folder);
+              EnsureDir(leadCentDir);
+              EnsureDir(inclCentDir);
+
+              // ── LEADING JET (JES3 TH3) ──
+              {
+                // Collect TH3 pointers per variant
+                struct VarTH3 { std::size_t idx; TH3* h3; };
+                vector<VarTH3> varTH3s;
+
+                for (std::size_t iv = 0; iv < vHandles.size(); ++iv)
+                {
+                  if (!vHandles[iv].file) continue;
+                  TDirectory* trigDir = vHandles[iv].file->GetDirectory(trigAA.c_str());
+                  if (!trigDir) continue;
+
+                  const string h3Name = "h_JES3_pT_xJ_alpha_" + rKey + cb.suffix;
+                  TH3* h3 = dynamic_cast<TH3*>(trigDir->Get(h3Name.c_str()));
+                  if (h3) varTH3s.push_back({iv, h3});
+                }
+
+                if (!varTH3s.empty())
+                {
+                  const int nPt = varTH3s[0].h3->GetXaxis()->GetNbins();
+
+                  for (int ib = 1; ib <= nPt; ++ib)
+                  {
+                    const double ptLo = varTH3s[0].h3->GetXaxis()->GetBinLowEdge(ib);
+                    const double ptHi = varTH3s[0].h3->GetXaxis()->GetBinUpEdge(ib);
+                    const int iPtLo = (int)std::lround(ptLo);
+                    const int iPtHi = (int)std::lround(ptHi);
+                    const string ptFolder = TString::Format("pT_%d_%d", iPtLo, iPtHi).Data();
+
+                    const string ptDir = JoinPath(leadCentDir, ptFolder);
+                    EnsureDir(ptDir);
+
+                    // Project xJ for each variant
+                    vector<TH1*> hAll;
+                    vector<std::size_t> idxAll;
+                    vector<TH1*> h3V;
+                    vector<std::size_t> idx3V;
+
+                    for (const auto& vt : varTH3s)
+                    {
+                      TH1* hxj = ProjectY_AtXbin_TH3(
+                        vt.h3, ib,
+                        TString::Format("hLead_%s_%s_%s_b%d_v%d",
+                          rKey.c_str(), cb.folder.c_str(), ptFolder.c_str(), ib, (int)vt.idx).Data()
+                      );
+                      if (!hxj) continue;
+                      hxj->SetDirectory(nullptr);
+                      EnsureSumw2(hxj);
+                      const double integ = hxj->Integral(0, hxj->GetNbinsX() + 1);
+                      if (integ > 0.0) hxj->Scale(1.0 / integ);
+
+                      hxj->SetLineColor(ueColors[vt.idx]);
+                      hxj->SetMarkerColor(ueColors[vt.idx]);
+                      hxj->SetMarkerStyle(20);
+                      hxj->SetMarkerSize(1.1);
+                      hxj->SetLineWidth(2);
+                      hxj->SetFillStyle(0);
+
+                      hAll.push_back(hxj);
+                      idxAll.push_back(vt.idx);
+                      if (vt.idx <= 2) { h3V.push_back(hxj); idx3V.push_back(vt.idx); }
+                    }
+
+                    if (!hAll.empty())
+                      DrawXJOverlay(hAll, idxAll, nullptr,
+                        JoinPath(ptDir, "xJ_leading_allVariants.png"),
+                        "Leading jet x_{J}, all UE variants",
+                        rKey, R, cb.lo, cb.hi, iPtLo, iPtHi);
+
+                    if (!h3V.empty())
+                      DrawXJOverlay(h3V, idx3V, nullptr,
+                        JoinPath(ptDir, "xJ_leading_noSub_baseVar_varA.png"),
+                        "Leading jet x_{J}, noSub+baseVar+varA",
+                        rKey, R, cb.lo, cb.hi, iPtLo, iPtHi);
+
+                    for (auto* h : hAll) delete h;
+                  }
+                }
+              }
+
+              // ── INCLUSIVE (UNFOLDING RECO TH2) ──
+              {
+                struct VarTH2 { std::size_t idx; TH2* h2; };
+                vector<VarTH2> varTH2s;
+
+                for (std::size_t iv = 0; iv < vHandles.size(); ++iv)
+                {
+                  if (!vHandles[iv].file) continue;
+                  TDirectory* trigDir = vHandles[iv].file->GetDirectory(trigAA.c_str());
+                  if (!trigDir) continue;
+
+                  const string h2Name = "h2_unfoldReco_pTgamma_xJ_incl_" + rKey + cb.suffix;
+                  TH2* h2 = dynamic_cast<TH2*>(trigDir->Get(h2Name.c_str()));
+                  if (h2) varTH2s.push_back({iv, h2});
+                }
+
+                if (!varTH2s.empty())
+                {
+                  const int nPt = varTH2s[0].h2->GetXaxis()->GetNbins();
+
+                  // PP reference TH2 (no centrality suffix)
+                  TH2* h2PP = nullptr;
+                  if (ppTopXJ)
+                    h2PP = dynamic_cast<TH2*>(ppTopXJ->Get(("h2_unfoldReco_pTgamma_xJ_incl_" + rKey).c_str()));
+
+                  for (int ib = 1; ib <= nPt; ++ib)
+                  {
+                    const double ptLo = varTH2s[0].h2->GetXaxis()->GetBinLowEdge(ib);
+                    const double ptHi = varTH2s[0].h2->GetXaxis()->GetBinUpEdge(ib);
+                    const int iPtLo = (int)std::lround(ptLo);
+                    const int iPtHi = (int)std::lround(ptHi);
+                    const string ptFolder = TString::Format("pT_%d_%d", iPtLo, iPtHi).Data();
+
+                    const string ptDir = JoinPath(inclCentDir, ptFolder);
+                    EnsureDir(ptDir);
+
+                    // PP projection for this pT bin
+                    TH1* hPPproj = nullptr;
+                    if (h2PP)
+                    {
+                      const double cen = 0.5 * (ptLo + ptHi);
+                      const int ixPP = h2PP->GetXaxis()->FindBin(cen);
+                      if (ixPP >= 1 && ixPP <= h2PP->GetNbinsX())
+                      {
+                        hPPproj = h2PP->ProjectionY(
+                          TString::Format("hPPincl_%s_%s_b%d", rKey.c_str(), cb.folder.c_str(), ib).Data(),
+                          ixPP, ixPP, "e"
+                        );
+                        if (hPPproj)
+                        {
+                          hPPproj->SetDirectory(nullptr);
+                          EnsureSumw2(hPPproj);
+                          const double intPP = hPPproj->Integral(0, hPPproj->GetNbinsX() + 1);
+                          if (intPP > 0.0) hPPproj->Scale(1.0 / intPP);
+                          hPPproj->SetLineColor(kRed + 1);
+                          hPPproj->SetMarkerColor(kRed + 1);
+                          hPPproj->SetMarkerStyle(24);
+                          hPPproj->SetMarkerSize(1.1);
+                          hPPproj->SetLineWidth(2);
+                          hPPproj->SetFillStyle(0);
+                        }
+                      }
+                    }
+
+                    // Project xJ for each variant
+                    vector<TH1*> hAll;
+                    vector<std::size_t> idxAll;
+                    vector<TH1*> h3V;
+                    vector<std::size_t> idx3V;
+
+                    for (const auto& vt : varTH2s)
+                    {
+                      const double cen = 0.5 * (ptLo + ptHi);
+                      const int ix = vt.h2->GetXaxis()->FindBin(cen);
+                      if (ix < 1 || ix > vt.h2->GetNbinsX()) continue;
+
+                      TH1D* hxj = vt.h2->ProjectionY(
+                        TString::Format("hIncl_%s_%s_%s_b%d_v%d",
+                          rKey.c_str(), cb.folder.c_str(), ptFolder.c_str(), ib, (int)vt.idx).Data(),
+                        ix, ix, "e"
+                      );
+                      if (!hxj) continue;
+                      hxj->SetDirectory(nullptr);
+                      EnsureSumw2(hxj);
+                      const double integ = hxj->Integral(0, hxj->GetNbinsX() + 1);
+                      if (integ > 0.0) hxj->Scale(1.0 / integ);
+
+                      hxj->SetLineColor(ueColors[vt.idx]);
+                      hxj->SetMarkerColor(ueColors[vt.idx]);
+                      hxj->SetMarkerStyle(20);
+                      hxj->SetMarkerSize(1.1);
+                      hxj->SetLineWidth(2);
+                      hxj->SetFillStyle(0);
+
+                      hAll.push_back(hxj);
+                      idxAll.push_back(vt.idx);
+                      if (vt.idx <= 2) { h3V.push_back(hxj); idx3V.push_back(vt.idx); }
+                    }
+
+                    if (!hAll.empty())
+                      DrawXJOverlay(hAll, idxAll, hPPproj,
+                        JoinPath(ptDir, "xJ_inclusive_allVariants.png"),
+                        "Inclusive reco x_{J}, all UE variants",
+                        rKey, R, cb.lo, cb.hi, iPtLo, iPtHi);
+
+                    if (!h3V.empty())
+                      DrawXJOverlay(h3V, idx3V, hPPproj,
+                        JoinPath(ptDir, "xJ_inclusive_noSub_baseVar_varA.png"),
+                        "Inclusive reco x_{J}, noSub+baseVar+varA",
+                        rKey, R, cb.lo, cb.hi, iPtLo, iPtHi);
+
+                    for (auto* h : hAll) delete h;
+                    if (hPPproj) delete hPPproj;
+                  }
+                }
+              }
+            }
+          }
+
+          for (auto& V : vHandles)
+          {
+            if (V.file) { V.file->Close(); delete V.file; V.file = nullptr; }
+          }
+        }
+
+        if (fPPxj) { fPPxj->Close(); delete fPPxj; fPPxj = nullptr; }
+
+        cout << ANSI_BOLD_GRN
+             << "[OK] xJ UE variant comparisons written.\n"
+             << ANSI_RESET;
+      }
+  
       void RunIsolationQA(Dataset& ds)
       {
         cout << ANSI_BOLD_CYN << "\n==============================\n"
@@ -4250,9 +4628,6 @@ namespace ARJ
         EnsureDir(outDir);
         for (const auto& b : PtBins()) EnsureDir(JoinPath(outDir, b.folder));
 
-        // ------------------------------------------------------------------
-        // Legacy embedded photon20 special mode removed.
-        // ------------------------------------------------------------------
         if (doEmbeddedVariantOverlay)
         {
             struct EmbeddedIsoVariantHandle
@@ -13796,6 +14171,10 @@ namespace ARJ
             cout << "  -> [isoQA] AuAu UE variant comparisons...\n";
             analysis::RunIsoQA_UEComparisons_AuAu();
             cout << "     [OK] UE variant comparison overlays complete.\n";
+
+            cout << "  -> [xJ QA] AuAu UE variant xJ comparisons (leading + inclusive)...\n";
+            analysis::RunXJUEComparisons_AuAu();
+            cout << "     [OK] xJ UE variant comparisons complete.\n";
       }
 
       // ---------------------------------------------------------------------------

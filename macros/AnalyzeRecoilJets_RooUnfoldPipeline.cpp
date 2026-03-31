@@ -2539,7 +2539,7 @@
                               maxv = std::max(maxv, h->GetMaximum());
                             }
 
-                            hOverlay[0]->SetMaximum((maxv > 0.0) ? (1.45 * maxv) : 1.0);
+                            hOverlay[0]->SetMaximum((maxv > 0.0) ? (1.15 * maxv) : 1.0);
                             hOverlay[0]->Draw("E1");
                             for (size_t ih = 1; ih < hOverlay.size(); ++ih)
                             {
@@ -2600,7 +2600,7 @@
                                     TString::Format("hPC_%s_%s_%s", rKey.c_str(), b.folder.c_str(), dirTag.c_str()).Data()
                                   );
                                   hCentDraw->SetDirectory(nullptr);
-                                  hCentDraw->SetMaximum((mv > 0.0) ? (1.45 * mv) : 1.0);
+                                  hCentDraw->SetMaximum((mv > 0.0) ? (1.15 * mv) : 1.0);
                                   hCentDraw->Draw("E1");
 
                                   if (hPPRef) hPPRef->Draw("E1 same");
