@@ -14811,17 +14811,240 @@ namespace ARJ
                                 }
                               }
 
-                              for (auto* g : keepIsoEff) delete g;
+                                for (auto* g : keepIsoEff) delete g;
+                              }
                             }
-                          }
 
-                          if (fPPUE)
-                          {
-                            fPPUE->Close();
-                            delete fPPUE;
-                            fPPUE = nullptr;
-                            ppDirUE = nullptr;
-                          }
+                            // ---------------------------------------------------------------
+                            // UE-variant iso-pass-fraction overlays by pT bin vs centrality
+                            // Output:
+                            //   <kOutputBase>/auau/<CfgTagAA()>/<trigger>/isoEfficencyDiagnostics/<pTbin>/
+                            //     pho_isoPassFraction_vs_cent_allVariants_ppOverlay.png
+                            // ---------------------------------------------------------------
+                            {
+                              const string outDirIsoEff = JoinPath(
+                                JoinPath(kOutputBase + "/auau/" + CfgTagAA(), trigAA),
+                                "isoEfficencyDiagnostics"
+                              );
+                              EnsureDir(outDirIsoEff);
+
+                              const auto& centBins = CentBins();
+
+                              for (int ipt = 0; ipt < kNPtBins; ++ipt)
+                              {
+                                const PtBin& b = PtBins()[ipt];
+                                const string ptDirIsoEff = JoinPath(outDirIsoEff, b.folder);
+                                EnsureDir(ptDirIsoEff);
+
+                                const double centLo = centBins.front().lo;
+                                const double centHi = centBins.back().hi;
+
+                                vector<double> xCent(centBins.size()), yPPCent(centBins.size(), 0.0), eyPPCent(centBins.size(), 0.0);
+                                for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                                {
+                                  xCent[ic] = 0.5 * (centBins[ic].lo + centBins[ic].hi);
+                                }
+
+                                TCanvas cIsoEffVsCent(
+                                  TString::Format("c_isoPassFrac_allVariants_vsCent_%s_%s", trigAA.c_str(), b.folder.c_str()).Data(),
+                                  "c_isoPassFrac_allVariants_vsCent", 900, 700
+                                );
+                                ApplyCanvasMargins1D(cIsoEffVsCent);
+
+                                TH1F hFrameIsoEffVsCent("hIsoPassFracVsCentFrame","",100, centLo, centHi);
+                                hFrameIsoEffVsCent.SetDirectory(nullptr);
+                                hFrameIsoEffVsCent.SetStats(0);
+                                hFrameIsoEffVsCent.SetMinimum(0.0);
+                                hFrameIsoEffVsCent.SetMaximum(1.2);
+                                hFrameIsoEffVsCent.GetXaxis()->SetTitle("Centrality [%]");
+                                hFrameIsoEffVsCent.GetYaxis()->SetTitle("Iso pass fraction");
+                                hFrameIsoEffVsCent.Draw();
+
+                                TLegend legIsoEffVsCent(0.18, 0.14, 0.62, 0.30);
+                                legIsoEffVsCent.SetBorderSize(0);
+                                legIsoEffVsCent.SetFillStyle(0);
+                                legIsoEffVsCent.SetTextFont(42);
+                                legIsoEffVsCent.SetTextSize(0.030);
+                                legIsoEffVsCent.SetNColumns(2);
+
+                                vector<TGraphErrors*> keepIsoEffVsCent;
+                                vector<string> keepIsoEffVsCentLabels;
+
+                                printf("\n  [ISO-EFF-VS-CENT-DIAG] pT=%s  trigger=%s\n",
+                                       b.folder.c_str(), trigAA.c_str());
+
+                                for (const auto& V : ueVars)
+                                {
+                                  if (!V.dir) continue;
+
+                                  vector<double> yCent(centBins.size(), 0.0), eyCent(centBins.size(), 0.0);
+                                  bool anyEntriesUE = false;
+                                  bool anyPassUE = false;
+
+                                  printf("  [ISO-EFF-VS-CENT-DIAG] Variant=\"%s\"  label=\"%s\"\n",
+                                         V.variant.c_str(), V.label.c_str());
+                                  printf("  %8s %12s %12s %12s %10s\n",
+                                         "cent", "Npass", "Nfail", "fPass", "errF");
+
+                                  for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                                  {
+                                    const auto& cb = centBins[ic];
+                                    const string hIsoName = "h_isoDecision" + b.suffix + cb.suffix;
+                                    TH1* h = dynamic_cast<TH1*>(V.dir->Get(hIsoName.c_str()));
+
+                                    const double Npass = h ? h->GetBinContent(1) : 0.0;
+                                    const double Nfail = h ? h->GetBinContent(2) : 0.0;
+                                    const double Ntot = Npass + Nfail;
+
+                                    double fPass = (Ntot > 0.0) ? (Npass / Ntot) : 0.0;
+                                    double ePass = 0.0;
+                                    if (Ntot > 0.0)
+                                    {
+                                      if (Npass > 0.0 && Nfail > 0.0) ePass = std::sqrt(Npass * Nfail) / std::pow(Ntot, 1.5);
+                                      else                           ePass = std::sqrt(std::max(0.0, Npass)) / Ntot;
+                                    }
+
+                                    yCent[ic] = fPass;
+                                    eyCent[ic] = ePass;
+
+                                    if (Ntot > 0.0) anyEntriesUE = true;
+                                    if (Npass > 0.0) anyPassUE = true;
+
+                                    printf("  %8s %12.1f %12.1f %12.4f %10.4f\n",
+                                           cb.folder.c_str(), Npass, Nfail, fPass, ePass);
+                                  }
+
+                                  printf("  -> anyEntries=%s  anyPass=%s  (skip=%s)\n\n",
+                                         anyEntriesUE ? "true" : "false",
+                                         anyPassUE ? "true" : "false",
+                                         anyEntriesUE ? "no" : "YES, all PASS+FAIL==0");
+                                  if (!anyEntriesUE) continue;
+
+                                  TGraphErrors* gIsoEffVsCent = new TGraphErrors((int)xCent.size(), &xCent[0], &yCent[0], nullptr, &eyCent[0]);
+                                  gIsoEffVsCent->SetLineWidth(2);
+                                  gIsoEffVsCent->SetLineColor(V.color);
+                                  gIsoEffVsCent->SetMarkerStyle(V.marker);
+                                  gIsoEffVsCent->SetMarkerSize(1.1);
+                                  gIsoEffVsCent->SetMarkerColor(V.color);
+                                  gIsoEffVsCent->Draw("PE1 SAME");
+
+                                  legIsoEffVsCent.AddEntry(gIsoEffVsCent, V.label.c_str(), "pe");
+                                  keepIsoEffVsCent.push_back(gIsoEffVsCent);
+                                  keepIsoEffVsCentLabels.push_back(V.label);
+                                }
+
+                                bool anyPPEntries = false;
+                                if (ppDirUE)
+                                {
+                                  const string hIsoNamePP = "h_isoDecision" + b.suffix;
+                                  TH1* hPP = dynamic_cast<TH1*>(ppDirUE->Get(hIsoNamePP.c_str()));
+
+                                  const double NpassPP = hPP ? hPP->GetBinContent(1) : 0.0;
+                                  const double NfailPP = hPP ? hPP->GetBinContent(2) : 0.0;
+                                  const double NtotPP = NpassPP + NfailPP;
+
+                                  double fPassPP = (NtotPP > 0.0) ? (NpassPP / NtotPP) : 0.0;
+                                  double ePassPP = 0.0;
+                                  if (NtotPP > 0.0)
+                                  {
+                                    if (NpassPP > 0.0 && NfailPP > 0.0) ePassPP = std::sqrt(NpassPP * NfailPP) / std::pow(NtotPP, 1.5);
+                                    else                               ePassPP = std::sqrt(std::max(0.0, NpassPP)) / NtotPP;
+                                  }
+
+                                  printf("  [ISO-EFF-VS-CENT-DIAG] Variant=\"pp\"  label=\"pp\"\n");
+                                  printf("  %8s %12s %12s %12s %10s\n",
+                                         "source", "Npass", "Nfail", "fPass", "errF");
+                                  printf("  %8s %12.1f %12.1f %12.4f %10.4f\n",
+                                         "pp", NpassPP, NfailPP, fPassPP, ePassPP);
+                                  printf("  -> repeated across all AuAu centrality bins in overlay\n\n");
+
+                                  if (NtotPP > 0.0)
+                                  {
+                                    anyPPEntries = true;
+                                    for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                                    {
+                                      yPPCent[ic] = fPassPP;
+                                      eyPPCent[ic] = ePassPP;
+                                    }
+                                  }
+                                }
+
+                                if (!keepIsoEffVsCent.empty())
+                                {
+                                  if (anyPPEntries)
+                                  {
+                                    TGraphErrors* gPPIsoEffVsCent = new TGraphErrors((int)xCent.size(), &xCent[0], &yPPCent[0], nullptr, &eyPPCent[0]);
+                                    gPPIsoEffVsCent->SetLineWidth(2);
+                                    gPPIsoEffVsCent->SetLineColor(kRed + 1);
+                                    gPPIsoEffVsCent->SetMarkerStyle(24);
+                                    gPPIsoEffVsCent->SetMarkerSize(1.1);
+                                    gPPIsoEffVsCent->SetMarkerColor(kRed + 1);
+                                    gPPIsoEffVsCent->Draw("PE1 SAME");
+
+                                    legIsoEffVsCent.AddEntry(gPPIsoEffVsCent, "pp", "pe");
+                                    keepIsoEffVsCent.push_back(gPPIsoEffVsCent);
+                                    keepIsoEffVsCentLabels.push_back("pp");
+                                  }
+
+                                  legIsoEffVsCent.Draw();
+
+                                  TLatex tTitleIsoEffVsCent;
+                                  tTitleIsoEffVsCent.SetNDC(true);
+                                  tTitleIsoEffVsCent.SetTextFont(42);
+                                  tTitleIsoEffVsCent.SetTextAlign(23);
+                                  tTitleIsoEffVsCent.SetTextSize(0.040);
+                                  tTitleIsoEffVsCent.DrawLatex(0.50, 0.96,
+                                    TString::Format("Photon iso pass fraction vs centrality, all UE variants + pp, p_{T}^{#gamma} %d-%d GeV", b.lo, b.hi).Data());
+
+                                  {
+                                    std::string trigLabelIsoEffVsCent;
+                                    {
+                                      int photonPt = 0;
+                                      if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
+                                        trigLabelIsoEffVsCent = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                                      else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                                        trigLabelIsoEffVsCent = "Trigger: MBD NS #geq 2, vtx < 150 cm";
+                                      else
+                                        trigLabelIsoEffVsCent = "Trigger: " + trigAA;
+                                    }
+
+                                    const string isoConeLabelIsoEffVsCent = (kAA_IsoConeR == "isoR40")
+                                      ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+
+                                    string isoModeLabelIsoEffVsCent;
+                                    if (kAA_IsoMode == "fixedIso5GeV") isoModeLabelIsoEffVsCent = "E_{T}^{iso} < 5 GeV";
+                                    else                               isoModeLabelIsoEffVsCent = "Sliding iso cut";
+
+                                    const string vzLabelIsoEffVsCent = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+
+                                    TLatex tCutsIsoEffVsCent;
+                                    tCutsIsoEffVsCent.SetNDC(true);
+                                    tCutsIsoEffVsCent.SetTextFont(42);
+                                    tCutsIsoEffVsCent.SetTextAlign(13);
+                                    tCutsIsoEffVsCent.SetTextSize(0.032);
+                                    tCutsIsoEffVsCent.DrawLatex(0.18, 0.88, trigLabelIsoEffVsCent.c_str());
+                                    tCutsIsoEffVsCent.DrawLatex(0.18, 0.83, isoConeLabelIsoEffVsCent.c_str());
+                                    tCutsIsoEffVsCent.DrawLatex(0.18, 0.78, isoModeLabelIsoEffVsCent.c_str());
+                                    tCutsIsoEffVsCent.DrawLatex(0.18, 0.73, vzLabelIsoEffVsCent.c_str());
+                                  }
+
+                                  SaveCanvas(cIsoEffVsCent, JoinPath(ptDirIsoEff, "pho_isoPassFraction_vs_cent_allVariants_ppOverlay.png"));
+                                  cout << ANSI_BOLD_GRN << "[WROTE] "
+                                       << JoinPath(ptDirIsoEff, "pho_isoPassFraction_vs_cent_allVariants_ppOverlay.png")
+                                       << ANSI_RESET << "\n";
+                                }
+
+                                for (auto* g : keepIsoEffVsCent) delete g;
+                              }
+                            }
+
+                            if (fPPUE)
+                            {
+                              fPPUE->Close();
+                              delete fPPUE;
+                              fPPUE = nullptr;
+                              ppDirUE = nullptr;
+                            }
 
                           for (auto& V : ueVars)
                           {
