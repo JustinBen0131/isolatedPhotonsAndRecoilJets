@@ -3602,11 +3602,12 @@ namespace ARJ
                         hCents[0]->Draw("E1");
                         for (std::size_t ih = 1; ih < hCents.size(); ++ih) hCents[ih]->Draw("E1 SAME");
 
-                        TLegend legCO(0.72, 0.62, 0.92, 0.88);
+                        TLegend legCO(0.15, 0.72, 0.50, 0.88);
                         legCO.SetBorderSize(0);
                         legCO.SetFillStyle(0);
                         legCO.SetTextFont(42);
                         legCO.SetTextSize(0.032);
+                        legCO.SetNColumns(2);
                         for (std::size_t ih = 0; ih < hCents.size(); ++ih)
                           legCO.AddEntry(hCents[ih], cLabels[ih].c_str(), "ep");
                         legCO.Draw();
