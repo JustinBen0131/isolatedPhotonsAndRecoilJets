@@ -3831,11 +3831,262 @@ namespace ARJ
                         t.DrawLatex(0.18, 0.8, TString::Format("E_{T}^{iso} < %d GeV", isoEtMaxOv).Data());
                       t.DrawLatex(0.18, 0.76, TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data());
 
+                      for (std::size_t ih = 0; ih < hVars.size(); ++ih)
+                      {
+                        const double meanX = hVars[ih]->GetMean();
+                        TLine lMean(meanX, 0.0, meanX, hVars[0]->GetMaximum());
+                        lMean.SetLineColor(kBlack);
+                        lMean.SetLineStyle(2);
+                        lMean.SetLineWidth(2);
+                        lMean.DrawClone();
+                      }
+
                       SaveCanvas(cOverlay, JoinPath(ptOverlayDir, "isolationOverlay_allVariants.png"));
 
                     for (auto* h : hVars) delete h;
+
+                    // ------ noSub + baseVariant + variantA only overlay ------
+                    {
+                      vector<TH1*> h3Vars;
+                      vector<std::size_t> h3Indices;
+                      double yMax3 = 0.0;
+
+                      for (std::size_t iv : {std::size_t(0), std::size_t(1), std::size_t(2)})
+                      {
+                        if (iv >= handles.size()) continue;
+                        auto& H = handles[iv];
+                        if (!H.file) continue;
+
+                        TDirectory* aaTop3 = H.file->GetDirectory(trigAA.c_str());
+                        if (!aaTop3) continue;
+
+                        const string hAAName3 = "h_Eiso" + b.suffix + cb.suffix;
+                        TH1* hAAsrc3 = dynamic_cast<TH1*>(aaTop3->Get(hAAName3.c_str()));
+                        if (!hAAsrc3) continue;
+
+                        TH1* hAA3 = CloneTH1(
+                          hAAsrc3,
+                          TString::Format("hAA_3varOverlay_%s_%s_%s_%s",
+                            trigAA.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data()
+                        );
+                        if (!hAA3) continue;
+
+                        EnsureSumw2(hAA3);
+                        const double integral3 = hAA3->Integral(0, hAA3->GetNbinsX() + 1);
+                        if (integral3 > 0.0) hAA3->Scale(1.0 / integral3);
+
+                        hAA3->SetLineColor(variantColors[iv]);
+                        hAA3->SetMarkerColor(variantColors[iv]);
+                        hAA3->SetMarkerStyle(variantMarkers[iv]);
+                        hAA3->SetMarkerSize(1.1);
+                        hAA3->SetLineWidth(2);
+                        hAA3->SetFillStyle(0);
+
+                        yMax3 = std::max(yMax3, hAA3->GetMaximum());
+                        h3Vars.push_back(hAA3);
+                        h3Indices.push_back(iv);
+                      }
+
+                      if (!h3Vars.empty())
+                      {
+                        TCanvas c3V("c_isoOverlay_noSub_baseVariant_variantA",
+                                    "c_isoOverlay_noSub_baseVariant_variantA", 900, 700);
+                        ApplyCanvasMargins1D(c3V);
+                        c3V.cd();
+
+                        h3Vars[0]->SetTitle("");
+                        h3Vars[0]->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
+                        h3Vars[0]->GetYaxis()->SetTitle("Normalized to unit area");
+                        h3Vars[0]->GetXaxis()->SetTitleSize(0.055);
+                        h3Vars[0]->GetYaxis()->SetTitleSize(0.055);
+                        h3Vars[0]->GetXaxis()->SetLabelSize(0.045);
+                        h3Vars[0]->GetYaxis()->SetLabelSize(0.045);
+                        h3Vars[0]->GetYaxis()->SetTitleOffset(1.15);
+                        h3Vars[0]->SetMinimum(0.0);
+                        h3Vars[0]->SetMaximum((yMax3 > 0.0) ? (1.25 * yMax3) : 1.0);
+                        h3Vars[0]->Draw("E1");
+                        for (std::size_t ih = 1; ih < h3Vars.size(); ++ih) h3Vars[ih]->Draw("E1 SAME");
+
+                        TLegend leg3V(0.56, 0.68, 0.92, 0.88);
+                        leg3V.SetBorderSize(0);
+                        leg3V.SetFillStyle(0);
+                        leg3V.SetTextFont(42);
+                        leg3V.SetTextSize(0.032);
+                        for (std::size_t ih = 0; ih < h3Vars.size(); ++ih)
+                          leg3V.AddEntry(h3Vars[ih], handles[h3Indices[ih]].label.c_str(), "ep");
+                        leg3V.Draw();
+
+                        TLatex tTitle3V;
+                        tTitle3V.SetNDC(true);
+                        tTitle3V.SetTextFont(42);
+                        tTitle3V.SetTextAlign(23);
+                        tTitle3V.SetTextSize(0.045);
+                        tTitle3V.DrawLatex(0.50, 0.98,
+                          TString::Format("Isolation overlay, noSub + baseVariant + variantA, %d-%d%% Cent AuAu", cb.lo, cb.hi).Data());
+
+                        const double coneRVal3V = (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3;
+                        const int    isoEtMax3V = (kAA_IsoMode == "fixedIso5GeV") ? 5 : -1;
+
+                        TLatex t3V;
+                        t3V.SetNDC(true);
+                        t3V.SetTextFont(42);
+                        t3V.SetTextAlign(13);
+                        t3V.SetTextSize(0.028);
+                        t3V.DrawLatex(0.18, 0.89, "Trigger = Photon 10 GeV + MBD NS #geq 2, vtx < 150 cm");
+                        t3V.DrawLatex(0.18, 0.84, TString::Format("#DeltaR_{cone} < %.1f", coneRVal3V).Data());
+                        if (isoEtMax3V > 0)
+                          t3V.DrawLatex(0.18, 0.8, TString::Format("E_{T}^{iso} < %d GeV", isoEtMax3V).Data());
+                        t3V.DrawLatex(0.18, 0.76, TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data());
+
+                        SaveCanvas(c3V, JoinPath(ptOverlayDir, "isolationOverlay_noSub_baseVariant_variantA.png"));
+                      }
+
+                        for (auto* h : h3Vars) delete h;
+                      }
+                    }
                   }
-                }
+
+                  // ------ noSub vs variantA: <E_T^iso> vs centrality per pT bin ------
+                  {
+                    const string noSubVsVarADir = JoinPath(perVariantOverlayBase, "noSub_vsVariantA");
+                    EnsureDir(noSubVsVarADir);
+
+                    const double centLo2 = centBins.front().lo;
+                    const double centHi2 = centBins.back().hi;
+
+                    for (int ipt = 0; ipt < kNPtBins; ++ipt)
+                    {
+                      const PtBin& b = PtBins()[ipt];
+
+                      struct VarEntry { std::size_t idx; vector<double> x, y, ey; };
+                      vector<VarEntry> entries;
+
+                      double yMinNV = std::numeric_limits<double>::max();
+                      double yMaxNV = -std::numeric_limits<double>::max();
+
+                      for (std::size_t iv : {std::size_t(0), std::size_t(2)})
+                      {
+                        if (iv >= handles.size()) continue;
+                        auto& H = handles[iv];
+                        if (!H.file) continue;
+
+                        TDirectory* aaTopNV = H.file->GetDirectory(trigAA.c_str());
+                        if (!aaTopNV) continue;
+
+                        VarEntry E;
+                        E.idx = iv;
+
+                        for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                        {
+                          const auto& cb = centBins[ic];
+                          const string hName = "h_Eiso" + b.suffix + cb.suffix;
+                          TH1* hSrc = dynamic_cast<TH1*>(aaTopNV->Get(hName.c_str()));
+                          if (!hSrc) continue;
+
+                          const double mean = hSrc->GetMean();
+                          const double err  = (hSrc->GetEntries() > 0.0) ? hSrc->GetMeanError() : 0.0;
+
+                          E.x.push_back(0.5 * (cb.lo + cb.hi));
+                          E.y.push_back(mean);
+                          E.ey.push_back(err);
+
+                          yMinNV = std::min(yMinNV, mean - err);
+                          yMaxNV = std::max(yMaxNV, mean + err);
+                        }
+
+                        if (!E.x.empty()) entries.push_back(std::move(E));
+                      }
+
+                      if (entries.empty()) continue;
+
+                      if (!std::isfinite(yMinNV) || !std::isfinite(yMaxNV))
+                      {
+                        yMinNV = 0.0;
+                        yMaxNV = 1.0;
+                      }
+                      const double padNV = (yMaxNV > yMinNV) ? (0.15 * (yMaxNV - yMinNV)) : 0.25;
+
+                      TCanvas cNV(
+                        TString::Format("c_meanIsoEt_noSubVsVarA_%s_%s",
+                          trigAA.c_str(), b.folder.c_str()).Data(),
+                        "c_meanIsoEt_noSubVsVarA", 900, 700
+                      );
+                      ApplyCanvasMargins1D(cNV);
+                      cNV.cd();
+
+                      TH1F hFrameNV(
+                        TString::Format("hFrame_meanIsoEt_noSubVsVarA_%s_%s",
+                          trigAA.c_str(), b.folder.c_str()).Data(),
+                        "", 100, centLo2, centHi2
+                      );
+                      hFrameNV.SetDirectory(nullptr);
+                      hFrameNV.SetStats(0);
+                      hFrameNV.SetMinimum(yMinNV - padNV);
+                      hFrameNV.SetMaximum(yMaxNV + padNV);
+                      hFrameNV.GetXaxis()->SetTitle("Centrality [%]");
+                      hFrameNV.GetYaxis()->SetTitle("<E_{T}^{iso}> [GeV]");
+                      hFrameNV.GetXaxis()->SetTitleSize(0.055);
+                      hFrameNV.GetYaxis()->SetTitleSize(0.055);
+                      hFrameNV.GetXaxis()->SetLabelSize(0.045);
+                      hFrameNV.GetYaxis()->SetLabelSize(0.045);
+                      hFrameNV.GetYaxis()->SetTitleOffset(1.15);
+                      hFrameNV.Draw();
+
+                      vector<TGraphErrors*> keepNV;
+
+                      for (const auto& E : entries)
+                      {
+                        vector<double> exZero(E.x.size(), 0.0);
+                        TGraphErrors* g = new TGraphErrors(
+                          (int)E.x.size(),
+                          &E.x[0], &E.y[0],
+                          &exZero[0], &E.ey[0]
+                        );
+                        g->SetLineWidth(2);
+                        g->SetLineColor(variantColors[E.idx]);
+                        g->SetMarkerColor(variantColors[E.idx]);
+                        g->SetMarkerStyle(variantMarkers[E.idx]);
+                        g->SetMarkerSize(1.2);
+                        g->Draw("PE1 SAME");
+                        keepNV.push_back(g);
+                      }
+
+                      TLegend legNV(0.56, 0.75, 0.92, 0.88);
+                      legNV.SetBorderSize(0);
+                      legNV.SetFillStyle(0);
+                      legNV.SetTextFont(42);
+                      legNV.SetTextSize(0.032);
+                      for (std::size_t ig = 0; ig < keepNV.size() && ig < entries.size(); ++ig)
+                        legNV.AddEntry(keepNV[ig], handles[entries[ig].idx].label.c_str(), "ep");
+                      legNV.Draw();
+
+                      TLatex tTitleNV;
+                      tTitleNV.SetNDC(true);
+                      tTitleNV.SetTextFont(42);
+                      tTitleNV.SetTextAlign(23);
+                      tTitleNV.SetTextSize(0.045);
+                      tTitleNV.DrawLatex(0.50, 0.98,
+                        TString::Format("<E_{T}^{iso}> vs Centrality, noSub vs variantA, p_{T}^{#gamma} %d-%d GeV", b.lo, b.hi).Data());
+
+                      const double coneRValNV = (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3;
+                      const int    isoEtMaxNV = (kAA_IsoMode == "fixedIso5GeV") ? 5 : -1;
+
+                      TLatex tNV;
+                      tNV.SetNDC(true);
+                      tNV.SetTextFont(42);
+                      tNV.SetTextAlign(13);
+                      tNV.SetTextSize(0.028);
+                      tNV.DrawLatex(0.20, 0.58, "Trigger = Photon 10 GeV + MBD NS #geq 2, vtx < 150 cm");
+                      tNV.DrawLatex(0.20, 0.54, TString::Format("#DeltaR_{cone} < %.1f", coneRValNV).Data());
+                      if (isoEtMaxNV > 0)
+                        tNV.DrawLatex(0.20, 0.50, TString::Format("E_{T}^{iso} < %d GeV", isoEtMaxNV).Data());
+
+                      SaveCanvas(cNV, JoinPath(noSubVsVarADir,
+                        TString::Format("meanIsoEt_vs_cent_noSub_vsVariantA_%s.png", b.folder.c_str()).Data()));
+
+                      for (auto* g : keepNV) delete g;
+                    }
+                  }
 
                 for (int ipt = 0; ipt < kNPtBins; ++ipt)
                 {
@@ -15037,6 +15288,470 @@ namespace ARJ
                                 for (auto* g : keepIsoEffVsCent) delete g;
                               }
                             }
+
+                          // ---------------------------------------------------------------
+                          // noSub + baseVariant + variantA iso-pass-fraction overlays
+                          // Output:
+                          //   <kOutputBase>/auau/<CfgTagAA()>/<trigger>/isoEfficencyDiagnostics/noSub_baseVar_varA/
+                          //     pho_isoPassFraction_vs_pTgamma_noSub_baseVar_varA_cent_<lo>_<hi>.png
+                          //     pho_isoPassFraction_vs_pTgamma_noSub_baseVar_varA_cent_<lo>_<hi>_ppOverlay.png
+                          //     <pTbin>/pho_isoPassFraction_vs_cent_noSub_baseVar_varA_ppOverlay.png
+                          // ---------------------------------------------------------------
+                          {
+                            const string outDir3V = JoinPath(
+                              JoinPath(kOutputBase + "/auau/" + CfgTagAA(), trigAA),
+                              "isoEfficencyDiagnostics/noSub_baseVar_varA"
+                            );
+                            EnsureDir(outDir3V);
+
+                            // --- A: iso-pass-fraction vs pTgamma, by selected centrality ---
+                            for (const auto& sc : selCentsUE)
+                            {
+                              TCanvas c3V(
+                                TString::Format("c_isoPassFrac_3V_%s_%d_%d", trigAA.c_str(), sc.lo, sc.hi).Data(),
+                                "c_isoPassFrac_3V", 900, 700
+                              );
+                              ApplyCanvasMargins1D(c3V);
+
+                                TH1F hFrame3V("hIsoPassFrac3VFrame","",100, 10.0, kPtEdges.back());
+                                hFrame3V.SetDirectory(nullptr);
+                                hFrame3V.SetStats(0);
+                                hFrame3V.SetMinimum(0.0);
+                                hFrame3V.SetMaximum(1.2);
+                                hFrame3V.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                                hFrame3V.GetYaxis()->SetTitle("Iso pass fraction");
+                                hFrame3V.Draw();
+
+                                TLegend leg3V(0.18, 0.14, 0.62, 0.30);
+                                leg3V.SetBorderSize(0);
+                                leg3V.SetFillStyle(0);
+                                leg3V.SetTextFont(42);
+                                leg3V.SetTextSize(0.030);
+                                leg3V.SetNColumns(2);
+
+                              vector<TGraphErrors*> keep3V;
+                              vector<string> keep3VLabels;
+
+                              for (std::size_t iV = 0; iV < 3 && iV < ueVars.size(); ++iV)
+                              {
+                                const auto& V = ueVars[iV];
+                                if (!V.dir) continue;
+
+                                vector<double> xEff(kNPtBins), yEff(kNPtBins), eyEff(kNPtBins);
+                                bool anyEntries = false;
+
+                                for (int i = 0; i < kNPtBins; ++i)
+                                {
+                                  const PtBin& b = PtBins()[i];
+
+                                  auto GetIsoDecision1_3V = [&](const string& hname, int ibin)->double {
+                                    TH1* h = dynamic_cast<TH1*>(V.dir->Get(hname.c_str()));
+                                    return h ? h->GetBinContent(ibin) : 0.0;
+                                  };
+
+                                  double Npass = 0.0, Nfail = 0.0;
+                                  for (const auto& suf : sc.suffixes)
+                                  {
+                                    const string hIsoName = "h_isoDecision" + b.suffix + suf;
+                                    Npass += GetIsoDecision1_3V(hIsoName, 1);
+                                    Nfail += GetIsoDecision1_3V(hIsoName, 2);
+                                  }
+
+                                  const double ptLo = kPtEdges[(std::size_t)i];
+                                  const double ptHi = kPtEdges[(std::size_t)i + 1];
+                                  xEff[i] = 0.5 * (ptLo + ptHi);
+
+                                  const double Ntot = Npass + Nfail;
+                                  double fPass = (Ntot > 0.0) ? (Npass / Ntot) : 0.0;
+                                  double ePass = 0.0;
+                                  if (Ntot > 0.0)
+                                  {
+                                    if (Npass > 0.0 && Nfail > 0.0) ePass = std::sqrt(Npass * Nfail) / std::pow(Ntot, 1.5);
+                                    else                           ePass = std::sqrt(std::max(0.0, Npass)) / Ntot;
+                                  }
+
+                                  yEff[i] = fPass;
+                                  eyEff[i] = ePass;
+                                  if (Ntot > 0.0) anyEntries = true;
+                                }
+
+                                if (!anyEntries) continue;
+
+                                TGraphErrors* g = new TGraphErrors(kNPtBins, &xEff[0], &yEff[0], nullptr, &eyEff[0]);
+                                g->SetLineWidth(2);
+                                g->SetLineColor(V.color);
+                                g->SetMarkerStyle(V.marker);
+                                g->SetMarkerSize(1.1);
+                                g->SetMarkerColor(V.color);
+                                g->Draw("P SAME");
+
+                                leg3V.AddEntry(g, V.label.c_str(), "pe");
+                                keep3V.push_back(g);
+                                keep3VLabels.push_back(V.label);
+                              }
+
+                              if (!keep3V.empty())
+                              {
+                                leg3V.Draw();
+
+                                TLatex tT3V;
+                                tT3V.SetNDC(true);
+                                tT3V.SetTextFont(42);
+                                tT3V.SetTextAlign(23);
+                                tT3V.SetTextSize(0.04);
+                                tT3V.DrawLatex(0.50, 0.97,
+                                  TString::Format("Photon iso pass fraction vs p_{T}^{#gamma}, noSub + baseVariant + variantA, %d-%d%% AuAu", sc.lo, sc.hi).Data());
+
+                                {
+                                  std::string trigLabel3V;
+                                  {
+                                    int photonPt = 0;
+                                    if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
+                                      trigLabel3V = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                                    else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                                      trigLabel3V = "Trigger: MBD NS #geq 2, vtx < 150 cm";
+                                    else
+                                      trigLabel3V = "Trigger: " + trigAA;
+                                  }
+
+                                  const string isoConeLabel3V = (kAA_IsoConeR == "isoR40")
+                                    ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+
+                                  string isoModeLabel3V;
+                                  if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel3V = "E_{T}^{iso} < 5 GeV";
+                                  else                               isoModeLabel3V = "Sliding iso cut";
+
+                                  const string vzLabel3V = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+
+                                  TLatex tCuts3V;
+                                  tCuts3V.SetNDC(true);
+                                  tCuts3V.SetTextFont(42);
+                                  tCuts3V.SetTextAlign(13);
+                                  tCuts3V.SetTextSize(0.032);
+                                  tCuts3V.DrawLatex(0.18, 0.88, trigLabel3V.c_str());
+                                  tCuts3V.DrawLatex(0.18, 0.83, isoConeLabel3V.c_str());
+                                  tCuts3V.DrawLatex(0.18, 0.78, isoModeLabel3V.c_str());
+                                  tCuts3V.DrawLatex(0.18, 0.73, vzLabel3V.c_str());
+                                }
+
+                                SaveCanvas(c3V, JoinPath(outDir3V,
+                                  TString::Format("pho_isoPassFraction_vs_pTgamma_noSub_baseVar_varA_cent_%d_%d.png", sc.lo, sc.hi).Data()));
+                                cout << ANSI_BOLD_GRN << "[WROTE] "
+                                     << JoinPath(outDir3V, TString::Format("pho_isoPassFraction_vs_pTgamma_noSub_baseVar_varA_cent_%d_%d.png", sc.lo, sc.hi).Data())
+                                     << ANSI_RESET << "\n";
+                              }
+
+                              // pp overlay version
+                              if (ppDirUE)
+                              {
+                                vector<double> xPP(kNPtBins), yPP(kNPtBins), eyPP(kNPtBins);
+                                bool anyPPEntries = false;
+
+                                for (int i = 0; i < kNPtBins; ++i)
+                                {
+                                  const PtBin& b = PtBins()[i];
+                                  const string hIsoName = "h_isoDecision" + b.suffix;
+                                  TH1* h = dynamic_cast<TH1*>(ppDirUE->Get(hIsoName.c_str()));
+
+                                  const double Npass = h ? h->GetBinContent(1) : 0.0;
+                                  const double Nfail = h ? h->GetBinContent(2) : 0.0;
+                                  const double Ntot = Npass + Nfail;
+
+                                  const double ptLo = kPtEdges[(std::size_t)i];
+                                  const double ptHi = kPtEdges[(std::size_t)i + 1];
+                                  xPP[i] = 0.5 * (ptLo + ptHi);
+
+                                  double fPass = (Ntot > 0.0) ? (Npass / Ntot) : 0.0;
+                                  double ePass = 0.0;
+                                  if (Ntot > 0.0)
+                                  {
+                                    if (Npass > 0.0 && Nfail > 0.0) ePass = std::sqrt(Npass * Nfail) / std::pow(Ntot, 1.5);
+                                    else                           ePass = std::sqrt(std::max(0.0, Npass)) / Ntot;
+                                  }
+
+                                  yPP[i] = fPass;
+                                  eyPP[i] = ePass;
+                                  if (Ntot > 0.0) anyPPEntries = true;
+                                }
+
+                                if (!keep3V.empty() && anyPPEntries)
+                                {
+                                  TCanvas c3VPP(
+                                    TString::Format("c_isoPassFrac_3V_ppOverlay_%s_%d_%d", trigAA.c_str(), sc.lo, sc.hi).Data(),
+                                    "c_isoPassFrac_3V_ppOverlay", 900, 700
+                                  );
+                                  ApplyCanvasMargins1D(c3VPP);
+
+                                    TH1F hFrame3VPP("hIsoPassFrac3VPPFrame","",100, 10.0, kPtEdges.back());
+                                    hFrame3VPP.SetDirectory(nullptr);
+                                    hFrame3VPP.SetStats(0);
+                                    hFrame3VPP.SetMinimum(0.0);
+                                    hFrame3VPP.SetMaximum(1.2);
+                                    hFrame3VPP.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                                    hFrame3VPP.GetYaxis()->SetTitle("Iso pass fraction");
+                                    hFrame3VPP.Draw();
+
+                                    for (auto* g : keep3V) g->Draw("P SAME");
+
+                                    TGraphErrors gPP3V(kNPtBins, &xPP[0], &yPP[0], nullptr, &eyPP[0]);
+                                    gPP3V.SetLineWidth(2);
+                                    gPP3V.SetLineColor(kRed + 1);
+                                    gPP3V.SetMarkerStyle(24);
+                                    gPP3V.SetMarkerSize(1.1);
+                                    gPP3V.SetMarkerColor(kRed + 1);
+                                    gPP3V.Draw("P SAME");
+
+                                    TLegend leg3VPP(0.18, 0.22, 0.62, 0.45);
+                                    leg3VPP.SetBorderSize(0);
+                                    leg3VPP.SetFillStyle(0);
+                                    leg3VPP.SetTextFont(42);
+                                    leg3VPP.SetTextSize(0.03);
+                                    leg3VPP.SetNColumns(2);
+
+                                  for (std::size_t ig = 0; ig < keep3V.size(); ++ig)
+                                  {
+                                    leg3VPP.AddEntry(keep3V[ig], keep3VLabels[ig].c_str(), "pe");
+                                  }
+                                  leg3VPP.AddEntry(&gPP3V, "pp", "pe");
+                                  leg3VPP.Draw();
+
+                                  TLatex tT3VPP;
+                                  tT3VPP.SetNDC(true);
+                                  tT3VPP.SetTextFont(42);
+                                  tT3VPP.SetTextAlign(23);
+                                  tT3VPP.SetTextSize(0.04);
+                                  tT3VPP.DrawLatex(0.52, 0.975,
+                                    TString::Format("Photon iso pass fraction vs p_{T}^{#gamma}, noSub + baseVar + varA + pp, %d-%d%% AuAu", sc.lo, sc.hi).Data());
+
+                                  {
+                                    std::string trigLabel3VPP;
+                                    {
+                                      int photonPt = 0;
+                                      if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
+                                        trigLabel3VPP = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                                      else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                                        trigLabel3VPP = "Trigger: MBD NS #geq 2, vtx < 150 cm";
+                                      else
+                                        trigLabel3VPP = "Trigger: " + trigAA;
+                                    }
+
+                                    const string isoConeLabel3VPP = (kAA_IsoConeR == "isoR40")
+                                      ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+
+                                    string isoModeLabel3VPP;
+                                    if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel3VPP = "E_{T}^{iso} < 5 GeV";
+                                    else                               isoModeLabel3VPP = "Sliding iso cut";
+
+                                    const string vzLabel3VPP = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+
+                                    TLatex tCuts3VPP;
+                                    tCuts3VPP.SetNDC(true);
+                                    tCuts3VPP.SetTextFont(42);
+                                    tCuts3VPP.SetTextAlign(13);
+                                    tCuts3VPP.SetTextSize(0.032);
+                                    tCuts3VPP.DrawLatex(0.18, 0.88, trigLabel3VPP.c_str());
+                                    tCuts3VPP.DrawLatex(0.18, 0.83, isoConeLabel3VPP.c_str());
+                                    tCuts3VPP.DrawLatex(0.18, 0.78, isoModeLabel3VPP.c_str());
+                                    tCuts3VPP.DrawLatex(0.18, 0.73, vzLabel3VPP.c_str());
+                                  }
+
+                                  SaveCanvas(c3VPP, JoinPath(outDir3V,
+                                    TString::Format("pho_isoPassFraction_vs_pTgamma_noSub_baseVar_varA_cent_%d_%d_ppOverlay.png", sc.lo, sc.hi).Data()));
+                                  cout << ANSI_BOLD_GRN << "[WROTE] "
+                                       << JoinPath(outDir3V, TString::Format("pho_isoPassFraction_vs_pTgamma_noSub_baseVar_varA_cent_%d_%d_ppOverlay.png", sc.lo, sc.hi).Data())
+                                       << ANSI_RESET << "\n";
+                                }
+                              }
+
+                              for (auto* g : keep3V) delete g;
+                            }
+
+                            // --- B: iso-pass-fraction vs centrality per pT bin ---
+                            {
+                              const auto& centBins = CentBins();
+
+                              for (int ipt = 0; ipt < kNPtBins; ++ipt)
+                              {
+                                const PtBin& b = PtBins()[ipt];
+                                const string ptDir3V = JoinPath(outDir3V, b.folder);
+                                EnsureDir(ptDir3V);
+
+                                const double centLo = centBins.front().lo;
+                                const double centHi = centBins.back().hi;
+
+                                vector<double> xCent(centBins.size()), yPPCent(centBins.size(), 0.0), eyPPCent(centBins.size(), 0.0);
+                                for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                                  xCent[ic] = 0.5 * (centBins[ic].lo + centBins[ic].hi);
+
+                                TCanvas c3VCent(
+                                  TString::Format("c_isoPassFrac_3V_vsCent_%s_%s", trigAA.c_str(), b.folder.c_str()).Data(),
+                                  "c_isoPassFrac_3V_vsCent", 900, 700
+                                );
+                                ApplyCanvasMargins1D(c3VCent);
+
+                                TH1F hFrame3VCent("hIsoPassFrac3VCentFrame","",100, centLo, centHi);
+                                hFrame3VCent.SetDirectory(nullptr);
+                                hFrame3VCent.SetStats(0);
+                                hFrame3VCent.SetMinimum(0.0);
+                                hFrame3VCent.SetMaximum(1.2);
+                                hFrame3VCent.GetXaxis()->SetTitle("Centrality [%]");
+                                hFrame3VCent.GetYaxis()->SetTitle("Iso pass fraction");
+                                hFrame3VCent.Draw();
+
+                                TLegend leg3VCent(0.18, 0.22, 0.62, 0.44);
+                                leg3VCent.SetBorderSize(0);
+                                leg3VCent.SetFillStyle(0);
+                                leg3VCent.SetTextFont(42);
+                                leg3VCent.SetTextSize(0.030);
+                                leg3VCent.SetNColumns(2);
+
+                                vector<TGraphErrors*> keep3VCent;
+                                vector<string> keep3VCentLabels;
+
+                                for (std::size_t iV = 0; iV < 3 && iV < ueVars.size(); ++iV)
+                                {
+                                  const auto& V = ueVars[iV];
+                                  if (!V.dir) continue;
+
+                                  vector<double> yCent(centBins.size(), 0.0), eyCent(centBins.size(), 0.0);
+                                  bool anyEntries = false;
+
+                                  for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                                  {
+                                    const auto& cb = centBins[ic];
+                                    const string hIsoName = "h_isoDecision" + b.suffix + cb.suffix;
+                                    TH1* h = dynamic_cast<TH1*>(V.dir->Get(hIsoName.c_str()));
+
+                                    const double Npass = h ? h->GetBinContent(1) : 0.0;
+                                    const double Nfail = h ? h->GetBinContent(2) : 0.0;
+                                    const double Ntot = Npass + Nfail;
+
+                                    double fPass = (Ntot > 0.0) ? (Npass / Ntot) : 0.0;
+                                    double ePass = 0.0;
+                                    if (Ntot > 0.0)
+                                    {
+                                      if (Npass > 0.0 && Nfail > 0.0) ePass = std::sqrt(Npass * Nfail) / std::pow(Ntot, 1.5);
+                                      else                           ePass = std::sqrt(std::max(0.0, Npass)) / Ntot;
+                                    }
+
+                                    yCent[ic] = fPass;
+                                    eyCent[ic] = ePass;
+                                    if (Ntot > 0.0) anyEntries = true;
+                                  }
+
+                                  if (!anyEntries) continue;
+
+                                  TGraphErrors* g = new TGraphErrors((int)xCent.size(), &xCent[0], &yCent[0], nullptr, &eyCent[0]);
+                                  g->SetLineWidth(2);
+                                  g->SetLineColor(V.color);
+                                  g->SetMarkerStyle(V.marker);
+                                  g->SetMarkerSize(1.1);
+                                  g->SetMarkerColor(V.color);
+                                  g->Draw("PE1 SAME");
+
+                                  leg3VCent.AddEntry(g, V.label.c_str(), "pe");
+                                  keep3VCent.push_back(g);
+                                  keep3VCentLabels.push_back(V.label);
+                                }
+
+                                bool anyPPEntries = false;
+                                if (ppDirUE)
+                                {
+                                  const string hIsoNamePP = "h_isoDecision" + b.suffix;
+                                  TH1* hPP = dynamic_cast<TH1*>(ppDirUE->Get(hIsoNamePP.c_str()));
+
+                                  const double NpassPP = hPP ? hPP->GetBinContent(1) : 0.0;
+                                  const double NfailPP = hPP ? hPP->GetBinContent(2) : 0.0;
+                                  const double NtotPP = NpassPP + NfailPP;
+
+                                  double fPassPP = (NtotPP > 0.0) ? (NpassPP / NtotPP) : 0.0;
+                                  double ePassPP = 0.0;
+                                  if (NtotPP > 0.0)
+                                  {
+                                    if (NpassPP > 0.0 && NfailPP > 0.0) ePassPP = std::sqrt(NpassPP * NfailPP) / std::pow(NtotPP, 1.5);
+                                    else                               ePassPP = std::sqrt(std::max(0.0, NpassPP)) / NtotPP;
+                                  }
+
+                                  if (NtotPP > 0.0)
+                                  {
+                                    anyPPEntries = true;
+                                    for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                                    {
+                                      yPPCent[ic] = fPassPP;
+                                      eyPPCent[ic] = ePassPP;
+                                    }
+                                  }
+                                }
+
+                                if (!keep3VCent.empty())
+                                {
+                                  if (anyPPEntries)
+                                  {
+                                    TGraphErrors* gPP = new TGraphErrors((int)xCent.size(), &xCent[0], &yPPCent[0], nullptr, &eyPPCent[0]);
+                                    gPP->SetLineWidth(2);
+                                    gPP->SetLineColor(kRed + 1);
+                                    gPP->SetMarkerStyle(24);
+                                    gPP->SetMarkerSize(1.1);
+                                    gPP->SetMarkerColor(kRed + 1);
+                                    gPP->Draw("PE1 SAME");
+
+                                    leg3VCent.AddEntry(gPP, "pp", "pe");
+                                    keep3VCent.push_back(gPP);
+                                    keep3VCentLabels.push_back("pp");
+                                  }
+
+                                  leg3VCent.Draw();
+
+                                  TLatex tT3VCent;
+                                  tT3VCent.SetNDC(true);
+                                  tT3VCent.SetTextFont(42);
+                                  tT3VCent.SetTextAlign(23);
+                                  tT3VCent.SetTextSize(0.038);
+                                  tT3VCent.DrawLatex(0.52, 0.97,
+                                    TString::Format("Photon iso pass fraction vs centrality, noSub + baseVar + varA + pp, %d-%d GeV", b.lo, b.hi).Data());
+
+                                  {
+                                    std::string trigLabel3VCent;
+                                    {
+                                      int photonPt = 0;
+                                      if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
+                                        trigLabel3VCent = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                                      else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                                        trigLabel3VCent = "Trigger: MBD NS #geq 2, vtx < 150 cm";
+                                      else
+                                        trigLabel3VCent = "Trigger: " + trigAA;
+                                    }
+
+                                    const string isoConeLabel3VCent = (kAA_IsoConeR == "isoR40")
+                                      ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+
+                                    string isoModeLabel3VCent;
+                                    if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel3VCent = "E_{T}^{iso} < 5 GeV";
+                                    else                               isoModeLabel3VCent = "Sliding iso cut";
+
+                                    const string vzLabel3VCent = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+
+                                    TLatex tCuts3VCent;
+                                    tCuts3VCent.SetNDC(true);
+                                    tCuts3VCent.SetTextFont(42);
+                                    tCuts3VCent.SetTextAlign(13);
+                                    tCuts3VCent.SetTextSize(0.032);
+                                    tCuts3VCent.DrawLatex(0.18, 0.88, trigLabel3VCent.c_str());
+                                    tCuts3VCent.DrawLatex(0.18, 0.83, isoConeLabel3VCent.c_str());
+                                    tCuts3VCent.DrawLatex(0.18, 0.78, isoModeLabel3VCent.c_str());
+                                    tCuts3VCent.DrawLatex(0.18, 0.73, vzLabel3VCent.c_str());
+                                  }
+
+                                  SaveCanvas(c3VCent, JoinPath(ptDir3V, "pho_isoPassFraction_vs_cent_noSub_baseVar_varA_ppOverlay.png"));
+                                  cout << ANSI_BOLD_GRN << "[WROTE] "
+                                       << JoinPath(ptDir3V, "pho_isoPassFraction_vs_cent_noSub_baseVar_varA_ppOverlay.png")
+                                       << ANSI_RESET << "\n";
+                                }
+
+                                for (auto* g : keep3VCent) delete g;
+                              }
+                            }
+                          }
 
                             if (fPPUE)
                             {
