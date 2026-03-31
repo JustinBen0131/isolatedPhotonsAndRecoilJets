@@ -3217,6 +3217,59 @@ void RunJES3QA(Dataset& ds)
               // ----------------------------------------
               // (B) INDIVIDUAL PNG for EVERY analysis pT bin
               // ----------------------------------------
+              static std::string s_lastSimPathTruthTag = "";
+              static TFile* s_fSimTruthTag = nullptr;
+              static TDirectory* s_simTopDirTruthTag = nullptr;
+
+              TH3* h3SimTruthTagged = nullptr;
+              const std::string simPathTruthTag =
+                MergedSimPath("photonJet5and10and20merged_SIM", "RecoilJets_photonjet5plus10plus20_MERGED.root");
+
+              bool haveSimTruthTaggedFile = !gSystem->AccessPathName(simPathTruthTag.c_str());
+              if (!haveSimTruthTaggedFile && doPhotonJetMerge)
+              {
+                haveSimTruthTaggedFile = BuildMergedSIMFile_PhotonSlices(
+                  {InputSim("photonjet5"), InputSim("photonjet10"), InputSim("photonjet20")},
+                  {kSigmaPhoton5_pb, kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+                  simPathTruthTag,
+                  kDirSIM,
+                  {"photonJet5", "photonJet10", "photonJet20"}
+                );
+              }
+
+              if (haveSimTruthTaggedFile)
+              {
+                if (!s_fSimTruthTag || s_lastSimPathTruthTag != simPathTruthTag)
+                {
+                  if (s_fSimTruthTag) { s_fSimTruthTag->Close(); delete s_fSimTruthTag; s_fSimTruthTag = nullptr; }
+                  s_simTopDirTruthTag = nullptr;
+
+                  s_fSimTruthTag = TFile::Open(simPathTruthTag.c_str(), "READ");
+                  if (s_fSimTruthTag && !s_fSimTruthTag->IsZombie())
+                  {
+                    s_simTopDirTruthTag = s_fSimTruthTag->GetDirectory(kDirSIM.c_str());
+                    if (!s_simTopDirTruthTag) s_simTopDirTruthTag = s_fSimTruthTag;
+                  }
+
+                  s_lastSimPathTruthTag = simPathTruthTag;
+                }
+
+                if (s_simTopDirTruthTag)
+                {
+                  h3SimTruthTagged = dynamic_cast<TH3*>(s_simTopDirTruthTag->Get(
+                    TString::Format("h_JES3RecoTruthTagged_pT_xJ_alpha_%s", rKey.c_str()).Data()
+                  ));
+                }
+              }
+
+              auto NormalizeUnitAreaByWidth = [&](TH1* h)->void
+              {
+                if (!h) return;
+                const int nb = h->GetNbinsX();
+                const double area = h->Integral(1, nb, "width");
+                if (area > 0.0) h->Scale(1.0 / area);
+              };
+
             for (int i = 0; i < (int)recoBinsAll.size(); ++i)
             {
                 const PtBin& pb = recoBinsAll[i];
@@ -3233,10 +3286,19 @@ void RunJES3QA(Dataset& ds)
                     rKey.c_str(), tag.c_str(), pb.folder.c_str()).Data()
                 );
 
+                TH1* hxSimTruthTagged = (h3SimTruthTagged
+                  ? ProjectGroupedY_IntegratedAlpha_TH3(
+                      h3SimTruthTagged, pb,
+                      TString::Format("jes3_xJ_indiv_simTruthTagged_%s_%s_%s",
+                        rKey.c_str(), tag.c_str(), pb.folder.c_str()).Data()
+                    )
+                  : nullptr);
+
                 if (!hxAu || !hxPP)
                 {
                   if (hxAu) delete hxAu;
                   if (hxPP) delete hxPP;
+                  if (hxSimTruthTagged) delete hxSimTruthTagged;
                   continue;
                 }
 
@@ -3245,10 +3307,27 @@ void RunJES3QA(Dataset& ds)
                 EnsureSumw2(hxAu);
                 EnsureSumw2(hxPP);
 
-                NormalizeUnitArea(hxAu);
-                NormalizeUnitArea(hxPP);
+                if (hxSimTruthTagged)
+                {
+                  hxSimTruthTagged->SetDirectory(nullptr);
+                  EnsureSumw2(hxSimTruthTagged);
+                }
+
+                NormalizeUnitAreaByWidth(hxAu);
+                NormalizeUnitAreaByWidth(hxPP);
+                if (hxSimTruthTagged) NormalizeUnitAreaByWidth(hxSimTruthTagged);
 
                 StyleAuAuPP(hxAu, hxPP, true);
+
+                if (hxSimTruthTagged)
+                {
+                  hxSimTruthTagged->SetLineWidth(2);
+                  hxSimTruthTagged->SetLineColor(kBlue + 1);
+                  hxSimTruthTagged->SetMarkerColor(kBlue + 1);
+                  hxSimTruthTagged->SetMarkerStyle(24);
+                  hxSimTruthTagged->SetMarkerSize(1.0);
+                  hxSimTruthTagged->SetFillStyle(0);
+                }
 
                 const double ptMin = pb.lo;
                 const double ptMax = pb.hi;
@@ -3264,17 +3343,25 @@ void RunJES3QA(Dataset& ds)
                 c.SetLeftMargin(0.13);
                 c.SetRightMargin(0.05);
 
+                const double ymax = hxSimTruthTagged
+                  ? std::max(std::max(hxAu->GetMaximum(), hxPP->GetMaximum()), hxSimTruthTagged->GetMaximum())
+                  : std::max(hxAu->GetMaximum(), hxPP->GetMaximum());
+                hxAu->SetMaximum((ymax > 0.0) ? (1.25 * ymax) : 1.0);
+
                 hxAu->Draw("E1");
                 hxPP->Draw("E1 same");
+                if (hxSimTruthTagged) hxSimTruthTagged->Draw("E1 same");
 
-                TLegend* leg = new TLegend(0.62, 0.73, 0.92, 0.85);
+                TLegend* leg = new TLegend(0.54, 0.7, 0.92, 0.85);
                 leg->SetBorderSize(0);
                 leg->SetFillStyle(0);
                 leg->SetTextFont(42);
-                leg->SetTextSize(0.040);
+                leg->SetTextSize(0.035);
                 leg->SetEntrySeparation(0.22);
                 leg->AddEntry(hxPP, "pp",   "ep");
                 leg->AddEntry(hxAu, auauLeg.c_str(), "ep");
+                if (hxSimTruthTagged)
+                  leg->AddEntry(hxSimTruthTagged, "Sim Reco (#gamma^{truth} + jet^{truth})", "ep");
                 leg->Draw();
 
                 const double jetPtMin_GeV = static_cast<double>(kAA_JetPtMin);
@@ -3308,12 +3395,12 @@ void RunJES3QA(Dataset& ds)
                   tCuts.SetTextAlign(33);
                   tCuts.SetTextSize(0.034);
                   tCuts.DrawLatex(0.72, 0.88, trigLabel.c_str());
-                  tCuts.DrawLatex(0.92, 0.68, ptLabel.c_str());
-                  tCuts.DrawLatex(0.92, 0.62, b2bLabel.c_str());
-                  tCuts.DrawLatex(0.92, 0.56, jetLabel.c_str());
-                  tCuts.DrawLatex(0.92, 0.50, isoConeLabel.c_str());
-                  tCuts.DrawLatex(0.92, 0.44, isoModeLabel.c_str());
-                  tCuts.DrawLatex(0.92, 0.38, vzLabel.c_str());
+                  tCuts.DrawLatex(0.9, 0.63, ptLabel.c_str());
+                  tCuts.DrawLatex(0.9, 0.57, b2bLabel.c_str());
+                  tCuts.DrawLatex(0.9, 0.51, jetLabel.c_str());
+                  tCuts.DrawLatex(0.9, 0.45, isoConeLabel.c_str());
+                  tCuts.DrawLatex(0.9, 0.39, isoModeLabel.c_str());
+                  tCuts.DrawLatex(0.9, 0.33, vzLabel.c_str());
                 }
 
                 {
@@ -3335,6 +3422,7 @@ void RunJES3QA(Dataset& ds)
                 delete leg;
                 delete hxAu;
                 delete hxPP;
+                if (hxSimTruthTagged) delete hxSimTruthTagged;
             }
         };
 

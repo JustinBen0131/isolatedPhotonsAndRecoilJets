@@ -14860,7 +14860,7 @@ namespace ARJ
                                 hFrameIsoEffVsCent.GetYaxis()->SetTitle("Iso pass fraction");
                                 hFrameIsoEffVsCent.Draw();
 
-                                TLegend legIsoEffVsCent(0.18, 0.14, 0.62, 0.30);
+                                TLegend legIsoEffVsCent(0.18, 0.22, 0.62, 0.44);
                                 legIsoEffVsCent.SetBorderSize(0);
                                 legIsoEffVsCent.SetFillStyle(0);
                                 legIsoEffVsCent.SetTextFont(42);
@@ -14992,9 +14992,9 @@ namespace ARJ
                                   tTitleIsoEffVsCent.SetNDC(true);
                                   tTitleIsoEffVsCent.SetTextFont(42);
                                   tTitleIsoEffVsCent.SetTextAlign(23);
-                                  tTitleIsoEffVsCent.SetTextSize(0.040);
-                                  tTitleIsoEffVsCent.DrawLatex(0.50, 0.96,
-                                    TString::Format("Photon iso pass fraction vs centrality, all UE variants + pp, p_{T}^{#gamma} %d-%d GeV", b.lo, b.hi).Data());
+                                  tTitleIsoEffVsCent.SetTextSize(0.038);
+                                  tTitleIsoEffVsCent.DrawLatex(0.52, 0.97,
+                                    TString::Format("Photon iso pass fraction vs centrality, all UE variants + pp, %d-%d GeV", b.lo, b.hi).Data());
 
                                   {
                                     std::string trigLabelIsoEffVsCent;

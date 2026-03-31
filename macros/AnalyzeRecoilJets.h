@@ -95,7 +95,7 @@ namespace ARJ
   inline bool pp_beforeChangeInRecoSimDefTruthMatched = false;
 
   inline bool isSimAndDataPP = false;
-  inline bool isSimAndDataAUAU = true;
+  inline bool isSimAndDataAUAU = false;
 
   inline bool isAuAuOnly     = true;
   inline bool isPPdataAndAUAU = false;
@@ -116,21 +116,21 @@ namespace ARJ
   //   Embedded Au+Au SIM slices / merges:
   inline bool isPhotonJet10Embedded      = false;
   inline bool isPhotonJet20Embedded      = false;
-  inline bool bothPhoton10and20simEmbedded = true;
+  inline bool bothPhoton10and20simEmbedded = false;
   //   Special SIM samples:
   inline bool isSimMB                    = false;   // MinBias DETROIT tune
   inline bool isSimJet5                  = false;   // inclusive jet5
 
-  inline bool doPhotonJetMerge = true;
+  inline bool doPhotonJetMerge = false;
 
   //   RooUnfold: true = run both non-purity and purity-corrected passes + overlay.
   inline bool do_xJ_PPunfold = false;
   //   RooUnfold AuAu: true = run per-centrality unfolding with purity × combinatoric variants.
-  inline bool do_xJ_AAunfold = true;
+  inline bool do_xJ_AAunfold = false;
   //   Internal: selects raw vs ABCD purity-corrected reco inputs per pass.
-  inline bool gApplyPurityCorrectionForUnfolding = true;
+  inline bool gApplyPurityCorrectionForUnfolding = false;
   //   Internal: selects whether the embedded combinatoric template is subtracted before unfolding.
-  inline bool gApplyCombinatoricSubtractionForUnfolding = true;
+  inline bool gApplyCombinatoricSubtractionForUnfolding = false;
 
   //   One-off Sam vs Justin unsmear comparison:
   inline bool doSamVsJustinUnsmearOverlays = false;
@@ -1875,10 +1875,34 @@ namespace ARJ
   // =============================================================================
   inline double ReadEventCount(Dataset& ds)
   {
-    const string cntName = "cnt_" + ds.topDirName;
-    TH1* cnt = GetObj<TH1>(ds, cntName, true, true, false);
-    if (!cnt) return 0.0;
-    return cnt->GetBinContent(1);
+      if (!ds.centSuffix.empty() && !ds.centFolder.empty())
+      {
+        const std::size_t us = ds.centFolder.find('_');
+        if (us != string::npos)
+        {
+          try
+          {
+            const int centLo = std::stoi(ds.centFolder.substr(0, us));
+            const int centHi = std::stoi(ds.centFolder.substr(us + 1));
+
+            TH1* hCent = GetObj<TH1>(ds, "h_centrality", false, true, false);
+            if (hCent)
+            {
+              const int bLo = hCent->GetXaxis()->FindBin(centLo + 1e-6);
+              const int bHi = hCent->GetXaxis()->FindBin(centHi - 1e-6);
+              return hCent->Integral(bLo, bHi);
+            }
+          }
+          catch (...)
+          {
+          }
+        }
+      }
+
+      const string cntName = "cnt_" + ds.topDirName;
+      TH1* cnt = GetObj<TH1>(ds, cntName, true, true, false);
+      if (!cnt) return 0.0;
+      return cnt->GetBinContent(1);
   }
 
   inline double Read1BinCount(Dataset& ds, const string& hname)
