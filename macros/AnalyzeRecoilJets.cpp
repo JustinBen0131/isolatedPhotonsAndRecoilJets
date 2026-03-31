@@ -3372,7 +3372,7 @@ namespace ARJ
                         yMin = 0.0;
                         yMax = 1.0;
                       }
-                      const double pad = (yMax > yMin) ? (0.15 * (yMax - yMin)) : 0.25;
+                      const double pad = (yMax > yMin) ? (0.7 * (yMax - yMin)) : 0.25;
 
                       TH1F hFrame(
                         TString::Format("hFrame_meanIsoEtPPAuAu_%s_%s_%s",
@@ -3727,8 +3727,8 @@ namespace ARJ
                 }
 
 
-                const int variantColors[4]  = {kBlack, kBlue + 1, kRed + 1, kGreen + 2};
-                const int variantMarkers[4] = {20, 21, 24, 25};
+                const int variantColors[4]  = {kBlack, kBlue + 1, kOrange + 7, kGreen + 2};
+                const int variantMarkers[4] = {20, 20, 20, 20};
 
                 for (std::size_t ic = 0; ic < centBins.size(); ++ic)
                 {
@@ -4643,8 +4643,9 @@ namespace ARJ
 
                           for (std::size_t iv = 0; iv < handles.size(); ++iv)
                           {
-                            auto& H = handles[iv];
-                            if (!H.file) continue;
+                              if (iv == 1) continue;  // skip baseVariant
+                              auto& H = handles[iv];
+                              if (!H.file) continue;
 
                             TDirectory* aaTop = H.file->GetDirectory(trigAA.c_str());
                             if (!aaTop) continue;
@@ -4682,14 +4683,35 @@ namespace ARJ
                             graphIndices.push_back(iv);
                           }
 
-                          if (graphs.empty()) continue;
+                            if (graphs.empty()) continue;
 
-                          if (!std::isfinite(yMin) || !std::isfinite(yMax))
+                            // -- collect PP reference vs pT --
+                            vector<double> xPtPP, exPtPP, yPtPP, eyPtPP;
+                            if (ppTop)
+                            {
+                              for (int ipt = 0; ipt < kNPtBins; ++ipt)
+                              {
+                                const PtBin& bp = PtBins()[ipt];
+                                const string hPPName = "h_Eiso" + bp.suffix;
+                                TH1* hPPsrc = dynamic_cast<TH1*>(ppTop->Get(hPPName.c_str()));
+                                if (!hPPsrc || hPPsrc->GetEntries() <= 0.0) continue;
+
+                                xPtPP.push_back(0.5 * (kPtEdges[(std::size_t)ipt] + kPtEdges[(std::size_t)ipt + 1]));
+                                exPtPP.push_back(0.5 * (kPtEdges[(std::size_t)ipt + 1] - kPtEdges[(std::size_t)ipt]));
+                                yPtPP.push_back(hPPsrc->GetMean());
+                                eyPtPP.push_back(hPPsrc->GetMeanError());
+
+                                yMin = std::min(yMin, yPtPP.back() - eyPtPP.back());
+                                yMax = std::max(yMax, yPtPP.back() + eyPtPP.back());
+                              }
+                            }
+
+                            if (!std::isfinite(yMin) || !std::isfinite(yMax))
                           {
                             yMin = 0.0;
                             yMax = 1.0;
                           }
-                          const double pad = (yMax > yMin) ? (0.15 * (yMax - yMin)) : 0.25;
+                          const double pad = (yMax > yMin) ? (0.55 * (yMax - yMin)) : 0.25;
 
                           TCanvas cPtSummary(
                             TString::Format("c_meanIsoEtAllVariantsVsPt_%s_%s",
@@ -4717,18 +4739,32 @@ namespace ARJ
                           hFrame.GetYaxis()->SetTitleOffset(1.15);
                           hFrame.Draw();
 
-                          for (auto* g : graphs) g->Draw("PE1 SAME");
+                            for (auto* g : graphs) g->Draw("PE1 SAME");
 
-                          TLegend leg(0.56, 0.62, 0.92, 0.88);
-                          leg.SetBorderSize(0);
-                          leg.SetFillStyle(0);
-                          leg.SetTextFont(42);
-                          leg.SetTextSize(0.032);
-                          for (std::size_t ig = 0; ig < graphs.size(); ++ig)
-                          {
-                            leg.AddEntry(graphs[ig], handles[graphIndices[ig]].label.c_str(), "ep");
-                          }
-                          leg.Draw();
+                            TGraphErrors* gPPpt = nullptr;
+                            if (!xPtPP.empty())
+                            {
+                              gPPpt = new TGraphErrors((int)xPtPP.size(), &xPtPP[0], &yPtPP[0], &exPtPP[0], &eyPtPP[0]);
+                              gPPpt->SetLineWidth(2);
+                              gPPpt->SetLineColor(kRed + 1);
+                              gPPpt->SetMarkerColor(kRed + 1);
+                              gPPpt->SetMarkerStyle(24);
+                              gPPpt->SetMarkerSize(1.2);
+                              gPPpt->Draw("PE1 SAME");
+                            }
+
+                            TLegend leg(0.15, 0.75, 0.55, 0.88);
+                            leg.SetBorderSize(0);
+                            leg.SetFillStyle(0);
+                            leg.SetTextFont(42);
+                            leg.SetTextSize(0.032);
+                            leg.SetNColumns(2);
+                            for (std::size_t ig = 0; ig < graphs.size(); ++ig)
+                            {
+                              leg.AddEntry(graphs[ig], handles[graphIndices[ig]].label.c_str(), "ep");
+                            }
+                            if (gPPpt) leg.AddEntry(gPPpt, "pp reference", "ep");
+                            leg.Draw();
 
                           TLatex tTitle;
                           tTitle.SetNDC(true);
@@ -4744,19 +4780,20 @@ namespace ARJ
                           TLatex t;
                           t.SetNDC(true);
                           t.SetTextFont(42);
-                          t.SetTextAlign(13);
+                          t.SetTextAlign(33);
                           t.SetTextSize(0.028);
-                          t.DrawLatex(0.20, 0.58, "Trigger = Photon 10 GeV + MBD NS #geq 2, vtx < 150 cm");
-                          t.DrawLatex(0.20, 0.54, TString::Format("#DeltaR_{cone} < %.1f", coneRVal).Data());
+                          t.DrawLatex(0.92, 0.88, "Trigger = Photon 10 GeV + MBD NS #geq 2, vtx < 150 cm");
+                          t.DrawLatex(0.92, 0.84, TString::Format("#DeltaR_{cone} < %.1f", coneRVal).Data());
                           if (isoEtMax > 0)
-                            t.DrawLatex(0.20, 0.50, TString::Format("E_{T}^{iso} < %d GeV", isoEtMax).Data());
+                              t.DrawLatex(0.92, 0.80, TString::Format("E_{T}^{iso} < %d GeV", isoEtMax).Data());
 
                           SaveCanvas(cPtSummary, JoinPath(ptSummaryBase,
                                 TString::Format("meanIsoEt_allVariants_vs_pT_%s.png", cb.folder.c_str()).Data()));
 
-                          for (auto* g : graphs) delete g;
-                        }
-                    }
+                            for (auto* g : graphs) delete g;
+                            if (gPPpt) delete gPPpt;
+                          }
+                      }
 
                 // ====== SS_QA: shower-shape UE-variant overlays (noSub + varA + varB + PP) ======
                 // Output: SS_QA/<cent>/<pT>/table1x5_SS_UEvariantOverlay.png
@@ -4777,7 +4814,7 @@ namespace ARJ
                     // UE variant indices: 0 = noSub, 2 = variantA, 3 = variantB (skip 1 = baseVariant)
                     const vector<std::size_t> ssUEIndices = {std::size_t(0), std::size_t(2), std::size_t(3)};
                     const int ssColors[4] = {kBlack, kBlue + 1, kOrange + 7, kGreen + 2};
-                    const int ssMarkers[4] = {20, 21, 24, 25};
+                    const int ssMarkers[4] = {20, 20, 20, 20};
 
                     for (std::size_t ic = 0; ic < centBins.size(); ++ic)
                     {
