@@ -3145,38 +3145,55 @@ void RunJES3QA(Dataset& ds)
                 hxAu->Draw("E1");
                 hxPP->Draw("E1 same");
 
-                TLegend* leg = new TLegend(0.18, 0.78, 0.52, 0.90);
-                leg->SetBorderSize(0);
-                leg->SetFillStyle(0);
-                leg->SetTextFont(42);
-                leg->SetTextSize(0.038);
-                leg->SetEntrySeparation(0.22);
-                leg->AddEntry(hxPP, "pp", "ep");
-                leg->AddEntry(hxAu, auauLeg.c_str(), "ep");
-                leg->Draw();
+                  TLegend* leg = new TLegend(0.62, 0.73, 0.92, 0.85);
+                  leg->SetBorderSize(0);
+                  leg->SetFillStyle(0);
+                  leg->SetTextFont(42);
+                  leg->SetTextSize(0.040);
+                  leg->SetEntrySeparation(0.22);
+                  leg->AddEntry(hxPP, "pp",   "ep");
+                  leg->AddEntry(hxAu, auauLeg.c_str(), "ep");
+                  leg->Draw();
 
-                const double jetPtMin_GeV = static_cast<double>(kJetPtMin);
+                  const double jetPtMin_GeV = static_cast<double>(kAA_JetPtMin);
 
-                {
-                  TLatex tCuts;
-                  tCuts.SetNDC(true);
-                  tCuts.SetTextFont(42);
-                  tCuts.SetTextAlign(33);
-                  tCuts.SetTextSize(0.038);
-                  tCuts.DrawLatex(0.92, 0.62, TString::Format("|#Delta#phi(#gamma,jet)| > %s", B2BLabel().c_str()).Data());
-                  tCuts.DrawLatex(0.92, 0.54, TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data());
-                }
+                  {
+                    const double ptMin = pb.lo;
+                    const double ptMax = pb.hi;
+                    const string ptLabel = TString::Format("p_{T}^{#gamma} = %.0f-%.0f GeV", ptMin, ptMax).Data();
+                    const string b2bLabel = TString::Format("|#Delta#phi(#gamma,jet)| > %s", B2BLabelFor(kAA_B2BCut).c_str()).Data();
+                    const string jetLabel = TString::Format("p_{T}^{jet} > %.0f GeV", jetPtMin_GeV).Data();
+                    const string isoConeLabel = (kAA_IsoConeR == "isoR40")
+                      ? "#Delta R_{cone} < 0.4"
+                      : "#Delta R_{cone} < 0.3";
+                    const string isoModeLabel = (kAA_IsoMode == "fixedIso5GeV")
+                      ? "E_{T}^{iso} < 5 GeV"
+                      : "Sliding iso cut";
+                    const string vzLabel = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
 
-                {
-                  TLatex t;
-                  t.SetNDC(true);
-                  t.SetTextFont(42);
-                  t.SetTextAlign(13);
-                  t.SetTextSize(0.052);
-                  t.DrawLatex(0.14, 0.98,
-                    TString::Format("RECO x_{J#gamma}, p_{T}^{#gamma} = %d - %d GeV, R = %.1f",
-                      pb.lo, pb.hi, R).Data());
-                }
+                    TLatex tCuts;
+                    tCuts.SetNDC(true);
+                    tCuts.SetTextFont(42);
+                    tCuts.SetTextAlign(33);
+                    tCuts.SetTextSize(0.034);
+                    tCuts.DrawLatex(0.92, 0.68, ptLabel.c_str());
+                    tCuts.DrawLatex(0.92, 0.62, b2bLabel.c_str());
+                    tCuts.DrawLatex(0.92, 0.56, jetLabel.c_str());
+                    tCuts.DrawLatex(0.92, 0.50, isoConeLabel.c_str());
+                    tCuts.DrawLatex(0.92, 0.44, isoModeLabel.c_str());
+                    tCuts.DrawLatex(0.92, 0.38, vzLabel.c_str());
+                  }
+
+                  {
+                    TLatex t;
+                    t.SetNDC(true);
+                    t.SetTextFont(42);
+                    t.SetTextAlign(23);
+                    t.SetTextSize(0.050);
+                    t.DrawLatex(0.50, 0.98,
+                      TString::Format("Run24pp and Run3auau Leading Jet x_{J#gamma} Overlay, R = %.1f",
+                        R).Data());
+                  }
 
                 keep.push_back(hxAu);
                 keep.push_back(hxPP);

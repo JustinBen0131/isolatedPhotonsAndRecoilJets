@@ -1,5 +1,5 @@
 // =============================================================================
-// OPTIONAL: PP vs Au+Au (gold-gold) photon-ID deliverables
+// OPTIONAL: PP vs Au+Au photon-ID deliverables
 //
 // Deliverable Set A (SS vars): per pT × centrality
 //   - inclusive (no isolation requirement)
