@@ -4793,7 +4793,7 @@ namespace ARJ
                             for (auto* g : graphs) delete g;
                             if (gPPpt) delete gPPpt;
                           }
-                    }
+                }
 
                 // ====== SS_QA: shower-shape UE-variant overlays (noSub + varA + varB + PP) ======
                 // Output:
@@ -5207,16 +5207,16 @@ namespace ARJ
                           for (std::size_t ih = 1; ih < padHists.size(); ++ih)
                             padHists[ih]->Draw("E1 same");
 
-                          TLegend* leg = new TLegend(0.40, 0.65, 0.93, 0.85);
-                          leg->SetBorderSize(0);
-                          leg->SetFillStyle(0);
-                          leg->SetTextFont(42);
-                          leg->SetTextSize(0.045);
-                          leg->SetNColumns(2);
-                          for (std::size_t ih = 0; ih < padHists.size(); ++ih)
-                            leg->AddEntry(padHists[ih], padLabels[ih].c_str(), "ep");
-                          leg->Draw();
-                          keepLeg.push_back(leg);
+                            TLegend* leg = new TLegend(0.32, 0.65, 0.85, 0.85);
+                            leg->SetBorderSize(0);
+                            leg->SetFillStyle(0);
+                            leg->SetTextFont(42);
+                            leg->SetTextSize(0.045);
+                            leg->SetNColumns(2);
+                            for (std::size_t ih = 0; ih < padHists.size(); ++ih)
+                              leg->AddEntry(padHists[ih], padLabels[ih].c_str(), "ep");
+                            leg->Draw();
+                            keepLeg.push_back(leg);
 
                           {
                             TLatex tPad;
@@ -5246,7 +5246,8 @@ namespace ARJ
                           const vector<SSOverlayVariantCfg> ssOverlayVariantCfgs = {
                             {"variantA", {std::size_t(2)}},
                             {"variantB", {std::size_t(3)}},
-                            {"variantA_variantB", {std::size_t(2), std::size_t(3)}}
+                            {"variantA_variantB", {std::size_t(2), std::size_t(3)}},
+                            {"variantA_variantB_noSub", {std::size_t(0), std::size_t(2), std::size_t(3)}}
                           };
 
                           for (const auto& cfg : ssOverlayVariantCfgs)
@@ -5511,26 +5512,26 @@ namespace ARJ
 
                                 if (drawLegend)
                                 {
-                                  TLegend* leg = (isW ? new TLegend(0.49, 0.55, 0.93, 0.8) : new TLegend(0.16, 0.55, 0.60, 0.8));
-                                  leg->SetBorderSize(0);
-                                  leg->SetFillStyle(0);
-                                  leg->SetTextFont(42);
-                                  leg->SetTextSize(0.036);
+                                    TLegend* leg = (isW ? new TLegend(0.41, 0.55, 0.85, 0.8) : new TLegend(0.18, 0.55, 0.62, 0.8));
+                                    leg->SetBorderSize(0);
+                                    leg->SetFillStyle(0);
+                                    leg->SetTextFont(42);
+                                    leg->SetTextSize(0.036);
 
-                                  if (hPP)  leg->AddEntry(hPP,  "pp", "ep");
-                                  if (hSig) leg->AddEntry(hSig, "Signal MC", "l");
-                                  if (hBkg) leg->AddEntry(hBkg, "Background MC", "l");
-                                  for (const auto& hAAPair : hAAs)
-                                  {
-                                    leg->AddEntry(
-                                      hAAPair.second,
-                                      TString::Format("AuAu (%d-%d%%) %s", cb.lo, cb.hi, handles[hAAPair.first].label.c_str()).Data(),
-                                      "ep"
-                                    );
-                                  }
+                                    if (hPP)  leg->AddEntry(hPP,  "pp", "ep");
+                                    if (hSig) leg->AddEntry(hSig, "Signal MC", "l");
+                                    if (hBkg) leg->AddEntry(hBkg, "Background MC", "l");
+                                    for (const auto& hAAPair : hAAs)
+                                    {
+                                      leg->AddEntry(
+                                        hAAPair.second,
+                                        TString::Format("AuAu (%d-%d%%) %s", cb.lo, cb.hi, handles[hAAPair.first].label.c_str()).Data(),
+                                        "ep"
+                                      );
+                                    }
 
-                                  leg->Draw();
-                                  keepLegPP.push_back(leg);
+                                    leg->Draw();
+                                    keepLegPP.push_back(leg);
                                 }
 
                                 {
@@ -5735,6 +5736,257 @@ namespace ARJ
                     } // end cent loop
 
                     {
+                      const string perPtBinOverlayBase = JoinPath(ssQADir, "perPtBinOverlays");
+                      const string perCentralityOverlayBase = JoinPath(ssQADir, "perCentralityOverlays");
+                      EnsureDir(perPtBinOverlayBase);
+                      EnsureDir(perCentralityOverlayBase);
+
+                      const vector<std::size_t> ssTableVariantIdx = {std::size_t(0), std::size_t(2), std::size_t(3)};
+                      const int overlayColors[] = {
+                        kBlack, kRed + 1, kBlue + 1, kGreen + 2, kMagenta + 1, kOrange + 7,
+                        kCyan + 1, kViolet + 1, kAzure + 1, kSpring + 5, kPink + 1, kTeal + 2
+                      };
+
+                      auto DrawSSOverlayTable3x5 =
+                        [&](const string& outDir,
+                            const string& outName,
+                            const string& tag,
+                            bool overlayPtBins,
+                            const CentBin* fixedCent,
+                            const PtBin* fixedPt) -> void
+                      {
+                        TCanvas cTbl(
+                          TString::Format("c_ssQA_3x5_%s_%s_%s_%s",
+                            overlayPtBins ? "perPt" : "perCent",
+                            tag.c_str(),
+                            overlayPtBins ? fixedCent->folder.c_str() : fixedPt->folder.c_str(),
+                            trigAA.c_str()).Data(),
+                          "c_ssQA_3x5", 2600, 1500
+                        );
+                        cTbl.Divide(5, 3, 0.001, 0.001);
+
+                        vector<TH1*> keepAlive;
+                        keepAlive.reserve(ssVars.size() * 3 * 12);
+
+                        vector<TLegend*> keepLegs;
+                        keepLegs.reserve(3);
+
+                        bool anyPad = false;
+                        const int nOverlayColors = (int)(sizeof(overlayColors) / sizeof(overlayColors[0]));
+
+                        for (int irow = 0; irow < 3; ++irow)
+                        {
+                          const std::size_t vidx = ssTableVariantIdx[(std::size_t)irow];
+                          if (vidx >= handles.size()) continue;
+                          auto& H = handles[vidx];
+                          if (!H.file) continue;
+
+                          TDirectory* aaTopSS = H.file->GetDirectory(trigAA.c_str());
+                          if (!aaTopSS) continue;
+
+                          for (int ivar = 0; ivar < (int)ssVars.size(); ++ivar)
+                          {
+                            cTbl.cd(irow * 5 + ivar + 1);
+                            gPad->SetLeftMargin(0.14);
+                            gPad->SetRightMargin(0.05);
+                            gPad->SetBottomMargin(0.14);
+                            gPad->SetTopMargin(0.18);
+                            gPad->SetLogy(false);
+
+                            const std::string& var = ssVars[ivar].var;
+                            const std::string& vlabel = ssVars[ivar].label;
+
+                            vector<TH1*> hOverlays;
+                            vector<string> entryLabels;
+                            double yMax = 0.0;
+
+                            if (overlayPtBins)
+                            {
+                              for (int ipt2 = 0; ipt2 < kNPtBins; ++ipt2)
+                              {
+                                const PtBin& pb2 = PtBins()[ipt2];
+                                const string hName = "h_ss_" + var + "_" + tag + pb2.suffix + fixedCent->suffix;
+                                TH1* hSrc = GetTH1FromTopDir(aaTopSS, hName);
+                                if (!hSrc) continue;
+
+                                TH1* h = CloneNormalizeStyle(
+                                  hSrc,
+                                  TString::Format("ssQA_3x5_%s_%s_%s_%s_%s_pt%d",
+                                    H.variant.c_str(), tag.c_str(), var.c_str(),
+                                    fixedCent->folder.c_str(), trigAA.c_str(), ipt2).Data(),
+                                  overlayColors[ipt2 % nOverlayColors],
+                                  20
+                                );
+                                if (!h) continue;
+
+                                h->SetFillStyle(0);
+                                h->SetLineWidth(2);
+                                h->SetMarkerSize(0.90);
+
+                                for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                                  yMax = std::max(yMax, (double)(h->GetBinContent(ib) + h->GetBinError(ib)));
+
+                                hOverlays.push_back(h);
+                                entryLabels.push_back(TString::Format("%d-%d GeV", pb2.lo, pb2.hi).Data());
+                                keepAlive.push_back(h);
+                              }
+                            }
+                            else
+                            {
+                              for (std::size_t ic2 = 0; ic2 < centBins.size(); ++ic2)
+                              {
+                                const auto& cb2 = centBins[ic2];
+                                const string hName = "h_ss_" + var + "_" + tag + fixedPt->suffix + cb2.suffix;
+                                TH1* hSrc = GetTH1FromTopDir(aaTopSS, hName);
+                                if (!hSrc) continue;
+
+                                TH1* h = CloneNormalizeStyle(
+                                  hSrc,
+                                  TString::Format("ssQA_3x5_%s_%s_%s_%s_%s_cent%zu",
+                                    H.variant.c_str(), tag.c_str(), var.c_str(),
+                                    fixedPt->folder.c_str(), trigAA.c_str(), ic2).Data(),
+                                  overlayColors[(int)ic2 % nOverlayColors],
+                                  20
+                                );
+                                if (!h) continue;
+
+                                h->SetFillStyle(0);
+                                h->SetLineWidth(2);
+                                h->SetMarkerSize(0.90);
+
+                                for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                                  yMax = std::max(yMax, (double)(h->GetBinContent(ib) + h->GetBinError(ib)));
+
+                                hOverlays.push_back(h);
+                                entryLabels.push_back(TString::Format("%d-%d%%", cb2.lo, cb2.hi).Data());
+                                keepAlive.push_back(h);
+                              }
+                            }
+
+                            if (hOverlays.empty())
+                            {
+                              TLatex tMiss;
+                              tMiss.SetNDC(true);
+                              tMiss.SetTextFont(42);
+                              tMiss.SetTextAlign(22);
+                              tMiss.SetTextSize(0.075);
+                              tMiss.DrawLatex(0.50, 0.55, "MISSING");
+                              continue;
+                            }
+
+                            anyPad = true;
+
+                            TH1* hFrame = hOverlays[0];
+                            hFrame->GetXaxis()->SetTitle(vlabel.c_str());
+                            hFrame->GetYaxis()->SetTitle("Unit Normalized");
+                            hFrame->GetYaxis()->SetTitleOffset(1.45);
+                            hFrame->GetYaxis()->SetTitleSize(0.050);
+                            hFrame->GetYaxis()->SetLabelSize(0.040);
+                            hFrame->SetMinimum(0.0);
+                            hFrame->SetMaximum((yMax > 0.0) ? (yMax * 1.10) : 1.0);
+                            hFrame->Draw("E1");
+                            for (std::size_t ih = 1; ih < hOverlays.size(); ++ih) hOverlays[ih]->Draw("E1 same");
+
+                            if (ivar == 0)
+                            {
+                              TLegend* leg = new TLegend(
+                                overlayPtBins ? 0.16 : 0.18,
+                                0.52,
+                                overlayPtBins ? 0.62 : 0.56,
+                                0.88
+                              );
+                              leg->SetBorderSize(0);
+                              leg->SetFillStyle(0);
+                              leg->SetTextFont(42);
+                              leg->SetTextSize(overlayPtBins ? 0.024 : 0.030);
+                              if (overlayPtBins) leg->SetNColumns(2);
+
+                              for (std::size_t ih = 0; ih < hOverlays.size(); ++ih)
+                                leg->AddEntry(hOverlays[ih], entryLabels[ih].c_str(), "ep");
+                              leg->Draw();
+                              keepLegs.push_back(leg);
+                            }
+
+                            {
+                              TLatex th;
+                              th.SetNDC(true);
+                              th.SetTextFont(42);
+                              th.SetTextAlign(22);
+                              th.SetTextSize(0.046);
+                              th.DrawLatex(0.50, 0.91,
+                                TString::Format("%s, %s, %s",
+                                  vlabel.c_str(), TagLabel(tag).c_str(), H.label.c_str()).Data());
+                            }
+
+                            {
+                              TLatex tf;
+                              tf.SetNDC(true);
+                              tf.SetTextFont(42);
+                              tf.SetTextAlign(22);
+                              tf.SetTextSize(0.036);
+                              if (overlayPtBins)
+                              {
+                                tf.DrawLatex(0.50, 0.84,
+                                  TString::Format("AuAu %d-%d%%", fixedCent->lo, fixedCent->hi).Data());
+                              }
+                              else
+                              {
+                                tf.DrawLatex(0.50, 0.84,
+                                  TString::Format("p_{T}^{#gamma}: %d-%d GeV", fixedPt->lo, fixedPt->hi).Data());
+                              }
+                            }
+                          }
+                        }
+
+                        if (anyPad)
+                        {
+                          SaveCanvas(cTbl, JoinPath(outDir, outName));
+                        }
+
+                        for (TLegend* leg : keepLegs) delete leg;
+                        for (TH1* h : keepAlive) delete h;
+                      };
+
+                      for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                      {
+                        const auto& cb = centBins[ic];
+                        const string centOutDir = JoinPath(perPtBinOverlayBase, cb.folder);
+                        EnsureDir(centOutDir);
+
+                        for (const auto& tag : ppg12Tags)
+                        {
+                          DrawSSOverlayTable3x5(
+                            centOutDir,
+                            TString::Format("table3x5_SS_%s_overlayByPt.png", tag.c_str()).Data(),
+                            tag,
+                            true,
+                            &cb,
+                            nullptr
+                          );
+                        }
+                      }
+
+                      for (int ipt = 0; ipt < kNPtBins; ++ipt)
+                      {
+                        const PtBin& pb = PtBins()[ipt];
+                        const string ptOutDir = JoinPath(perCentralityOverlayBase, pb.folder);
+                        EnsureDir(ptOutDir);
+
+                        for (const auto& tag : ppg12Tags)
+                        {
+                          DrawSSOverlayTable3x5(
+                            ptOutDir,
+                            TString::Format("table3x5_SS_%s_overlayByCent.png", tag.c_str()).Data(),
+                            tag,
+                            false,
+                            nullptr,
+                            &pb
+                          );
+                        }
+                      }
+                    }
+
+                    {
                       const string passFracBase = JoinPath(ssQADir, "passFractions");
                       EnsureDir(passFracBase);
 
@@ -5928,16 +6180,16 @@ namespace ARJ
                               if (gVarA)  keepGraphs.push_back(gVarA);
                               if (gVarB)  keepGraphs.push_back(gVarB);
 
-                              TLegend leg(0.56, 0.66, 0.92, 0.88);
-                              leg.SetBorderSize(0);
-                              leg.SetFillStyle(0);
-                              leg.SetTextFont(42);
-                              leg.SetTextSize(0.032);
-                              if (gPP)    leg.AddEntry(gPP,    sPP.label.c_str(), "ep");
-                              if (gNoSub) leg.AddEntry(gNoSub, sNoSub.label.c_str(), "ep");
-                              if (gVarA)  leg.AddEntry(gVarA,  sVarA.label.c_str(), "ep");
-                              if (gVarB)  leg.AddEntry(gVarB,  sVarB.label.c_str(), "ep");
-                              leg.Draw();
+                                TLegend leg(0.44, 0.66, 0.80, 0.88);
+                                leg.SetBorderSize(0);
+                                leg.SetFillStyle(0);
+                                leg.SetTextFont(42);
+                                leg.SetTextSize(0.032);
+                                if (gPP)    leg.AddEntry(gPP,    sPP.label.c_str(), "ep");
+                                if (gNoSub) leg.AddEntry(gNoSub, sNoSub.label.c_str(), "ep");
+                                if (gVarA)  leg.AddEntry(gVarA,  sVarA.label.c_str(), "ep");
+                                if (gVarB)  leg.AddEntry(gVarB,  sVarB.label.c_str(), "ep");
+                                leg.Draw();
 
                               TLatex tTitle;
                               tTitle.SetNDC(true);
@@ -6382,7 +6634,13 @@ namespace ARJ
                {40, 60, {"_cent_40_60"}, "40_60"}},
               {"0_20and40_60",
                {0, 20, {"_cent_0_10", "_cent_10_20"}, "0_20"},
-               {40, 60, {"_cent_40_60"}, "40_60"}}
+               {40, 60, {"_cent_40_60"}, "40_60"}},
+              {"0_10and60_80",
+               {0, 10, {"_cent_0_10"}, "0_10"},
+               {60, 80, {"_cent_60_80"}, "60_80"}},
+              {"0_20and60_80",
+               {0, 20, {"_cent_0_10", "_cent_10_20"}, "0_20"},
+               {60, 80, {"_cent_60_80"}, "60_80"}}
             };
 
             // 3-variant overlay indices: noSub(0), variantA(2), variantB(3)
