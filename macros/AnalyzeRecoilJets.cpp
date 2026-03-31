@@ -4824,6 +4824,190 @@ namespace ARJ
 
                     const vector<string> ppg12Tags = {"pre", "tight", "nonTight"};
 
+                    auto GetTH1FromTopDir = [&](TDirectory* topDir, const string& hname) -> TH1*
+                    {
+                      if (!topDir) return nullptr;
+                      TObject* obj = topDir->Get(hname.c_str());
+                      if (!obj) return nullptr;
+                      return dynamic_cast<TH1*>(obj);
+                    };
+
+                    auto StyleOverlayHist = [&](TH1* h, int color, int mstyle) -> void
+                    {
+                      if (!h) return;
+                      h->SetLineWidth(2);
+                      h->SetLineColor(color);
+                      h->SetMarkerStyle(mstyle);
+                      h->SetMarkerSize(0.95);
+                      h->SetMarkerColor(color);
+                    };
+
+                    auto DrawMissingPad = [&](const string& titleLine) -> void
+                    {
+                      TLatex t;
+                      t.SetNDC(true);
+                      t.SetTextFont(42);
+                      t.SetTextAlign(22);
+                      t.SetTextSize(0.080);
+                      t.DrawLatex(0.50, 0.55, "MISSING");
+
+                      t.SetTextSize(0.050);
+                      t.DrawLatex(0.50, 0.42, titleLine.c_str());
+                    };
+
+                    auto CloneNormalizeStyle = [&](TH1* hIn,
+                                                   const string& newName,
+                                                   int color,
+                                                   int mstyle) -> TH1*
+                    {
+                      if (!hIn) return nullptr;
+
+                      TH1* h = CloneTH1(hIn, newName);
+                      if (!h) return nullptr;
+
+                      EnsureSumw2(h);
+
+                      const double I = h->Integral(0, h->GetNbinsX() + 1);
+                      if (I > 0.0) h->Scale(1.0 / I);
+
+                      StyleOverlayHist(h, color, mstyle);
+                      h->SetTitle("");
+
+                      return h;
+                    };
+
+                    auto PassDefValidForVar = [&](const string& var, const string& passDef) -> bool
+                    {
+                      if (passDef == "pre")
+                      {
+                        return (var == "weta" || var == "e11e33" || var == "et1" || var == "e32e35");
+                      }
+                      if (passDef == "tight")
+                      {
+                        return (var == "weta" || var == "wphi" || var == "e11e33" || var == "et1" || var == "e32e35");
+                      }
+                      return false;
+                    };
+
+                    auto PassFractionForHist = [&](TH1* h,
+                                                   const string& var,
+                                                   const string& passDef,
+                                                   double ptCenter,
+                                                   double& frac,
+                                                   double& err) -> bool
+                    {
+                      frac = 0.0;
+                      err  = 0.0;
+
+                      if (!h) return false;
+
+                      const int nb = h->GetNbinsX();
+                      const double den = h->Integral(0, nb + 1);
+                      if (!(den > 0.0)) return false;
+
+                      double num = 0.0;
+
+                      if (var == "weta")
+                      {
+                        if (passDef == "pre")
+                        {
+                          const double cut = 0.6;
+                          const int bHi = h->GetXaxis()->FindBin(cut - 1e-6);
+                          num = h->Integral(1, bHi);
+                        }
+                        else if (passDef == "tight")
+                        {
+                          const double cutLo = 0.0;
+                          const double cutHi = 0.15 + 0.006 * ptCenter;
+                          const int bLo = h->GetXaxis()->FindBin(cutLo + 1e-6);
+                          const int bHi = h->GetXaxis()->FindBin(cutHi - 1e-6);
+                          num = h->Integral(bLo, bHi);
+                        }
+                        else return false;
+                      }
+                      else if (var == "wphi")
+                      {
+                        if (passDef == "tight")
+                        {
+                          const double cutLo = 0.0;
+                          const double cutHi = 0.15 + 0.006 * ptCenter;
+                          const int bLo = h->GetXaxis()->FindBin(cutLo + 1e-6);
+                          const int bHi = h->GetXaxis()->FindBin(cutHi - 1e-6);
+                          num = h->Integral(bLo, bHi);
+                        }
+                        else return false;
+                      }
+                      else if (var == "e11e33")
+                      {
+                        if (passDef == "pre")
+                        {
+                          const double cutHi = 0.98;
+                          const int bHi = h->GetXaxis()->FindBin(cutHi - 1e-6);
+                          num = h->Integral(1, bHi);
+                        }
+                        else if (passDef == "tight")
+                        {
+                          const double cutLo = 0.4;
+                          const double cutHi = 0.98;
+                          const int bLo = h->GetXaxis()->FindBin(cutLo + 1e-6);
+                          const int bHi = h->GetXaxis()->FindBin(cutHi - 1e-6);
+                          num = h->Integral(bLo, bHi);
+                        }
+                        else return false;
+                      }
+                      else if (var == "et1")
+                      {
+                        if (passDef == "pre")
+                        {
+                          const double cutLo = 0.6;
+                          const double cutHi = 1.0;
+                          const int bLo = h->GetXaxis()->FindBin(cutLo + 1e-6);
+                          const int bHi = h->GetXaxis()->FindBin(cutHi - 1e-6);
+                          num = h->Integral(bLo, bHi);
+                        }
+                        else if (passDef == "tight")
+                        {
+                          const double cutLo = 0.9;
+                          const double cutHi = 1.0;
+                          const int bLo = h->GetXaxis()->FindBin(cutLo + 1e-6);
+                          const int bHi = h->GetXaxis()->FindBin(cutHi - 1e-6);
+                          num = h->Integral(bLo, bHi);
+                        }
+                        else return false;
+                      }
+                      else if (var == "e32e35")
+                      {
+                        if (passDef == "pre")
+                        {
+                          const double cutLo = 0.8;
+                          const double cutHi = 1.0;
+                          const int bLo = h->GetXaxis()->FindBin(cutLo + 1e-6);
+                          const int bHi = h->GetXaxis()->FindBin(cutHi - 1e-6);
+                          num = h->Integral(bLo, bHi);
+                        }
+                        else if (passDef == "tight")
+                        {
+                          const double cutLo = 0.92;
+                          const double cutHi = 1.0;
+                          const int bLo = h->GetXaxis()->FindBin(cutLo + 1e-6);
+                          const int bHi = h->GetXaxis()->FindBin(cutHi - 1e-6);
+                          num = h->Integral(bLo, bHi);
+                        }
+                        else return false;
+                      }
+                      else
+                      {
+                        return false;
+                      }
+
+                      frac = (den > 0.0) ? (num / den) : 0.0;
+                      if (frac < 0.0) frac = 0.0;
+                      if (frac > 1.0) frac = 1.0;
+
+                      err = std::sqrt(frac * std::max(0.0, 1.0 - frac) / den);
+                      return true;
+                    };
+
                     // UE variant indices: 0 = noSub, 2 = variantA, 3 = variantB (skip 1 = baseVariant)
                     const vector<std::size_t> ssUEIndices = {std::size_t(0), std::size_t(2), std::size_t(3)};
                     const int ssColors[4] = {kBlack, kBlue + 1, kOrange + 7, kGreen + 2};
@@ -5376,6 +5560,397 @@ namespace ARJ
                         }
                       } // end pT loop
                     } // end cent loop
+
+                    {
+                      const string passFracBase = JoinPath(ssQADir, "passFractions");
+                      EnsureDir(passFracBase);
+
+                      struct PFCategoryDef
+                      {
+                        string key;
+                        string histTag;
+                      };
+
+                      const vector<PFCategoryDef> pfCats = {
+                        {"inclusive", "inclusive"},
+                        {"iso", "iso"},
+                        {"nonIso", "nonIso"},
+                        {"pre", "pre"},
+                        {"tight", "tight"},
+                        {"nonTight", "nonTight"}
+                      };
+
+                      const vector<string> pfPassDefs = {"pre", "tight"};
+
+                      struct PFSeries
+                      {
+                        string label;
+                        int color = kBlack;
+                        int marker = 20;
+                        vector<double> x;
+                        vector<double> ex;
+                        vector<double> y;
+                        vector<double> ey;
+                      };
+
+                      for (const auto& sv : ssVars)
+                      {
+                        const string varDir = JoinPath(passFracBase, sv.var);
+                        EnsureDir(varDir);
+
+                        for (const auto& passDef : pfPassDefs)
+                        {
+                          if (!PassDefValidForVar(sv.var, passDef)) continue;
+
+                          const string passDir = JoinPath(varDir, passDef);
+                          EnsureDir(passDir);
+
+                          for (const auto& cat : pfCats)
+                          {
+                            const string catDir = JoinPath(passDir, cat.key);
+                            const string perCentBase = JoinPath(catDir, "perCentrality");
+                            const string perPtBase   = JoinPath(catDir, "perPt");
+                            EnsureDir(catDir);
+                            EnsureDir(perCentBase);
+                            EnsureDir(perPtBase);
+
+                            // --------------------------------------------------
+                            // perCentrality/<cent>/passFraction_vsPt.png
+                            // --------------------------------------------------
+                            for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                            {
+                              const auto& cb = centBins[ic];
+                              const string outCentDir = JoinPath(perCentBase, cb.folder);
+                              EnsureDir(outCentDir);
+
+                              PFSeries sPP;
+                              sPP.label = "pp";
+                              sPP.color = kRed + 1;
+                              sPP.marker = 24;
+
+                              PFSeries sNoSub;
+                              sNoSub.label = "No UE sub";
+                              sNoSub.color = ssColors[0];
+                              sNoSub.marker = ssMarkers[0];
+
+                              PFSeries sVarA;
+                              sVarA.label = "Variant A";
+                              sVarA.color = ssColors[2];
+                              sVarA.marker = ssMarkers[2];
+
+                              PFSeries sVarB;
+                              sVarB.label = "Variant B";
+                              sVarB.color = ssColors[3];
+                              sVarB.marker = ssMarkers[3];
+
+                              for (int ipt = 0; ipt < kNPtBins; ++ipt)
+                              {
+                                const PtBin& pb = PtBins()[ipt];
+                                const double ptCenter = 0.5 * (pb.lo + pb.hi);
+                                const double ptHalfW  = 0.5 * (pb.hi - pb.lo);
+
+                                const string hPPName = "h_ss_" + sv.var + "_" + cat.histTag + pb.suffix;
+                                TH1* hPPsrc = GetTH1FromTopDir(ppTop, hPPName);
+                                if (hPPsrc)
+                                {
+                                  double frac = 0.0, efrac = 0.0;
+                                  if (PassFractionForHist(hPPsrc, sv.var, passDef, ptCenter, frac, efrac))
+                                  {
+                                    sPP.x.push_back(ptCenter);
+                                    sPP.ex.push_back(ptHalfW);
+                                    sPP.y.push_back(frac);
+                                    sPP.ey.push_back(efrac);
+                                  }
+                                }
+
+                                auto FillVariantPoint =
+                                  [&](std::size_t idx, PFSeries& S)
+                                {
+                                  if (idx >= handles.size()) return;
+                                  auto& H = handles[idx];
+                                  if (!H.file) return;
+
+                                  TDirectory* aaTopSS = H.file->GetDirectory(trigAA.c_str());
+                                  if (!aaTopSS) return;
+
+                                  const string hAAName = "h_ss_" + sv.var + "_" + cat.histTag + pb.suffix + cb.suffix;
+                                  TH1* hAAsrc = GetTH1FromTopDir(aaTopSS, hAAName);
+                                  if (!hAAsrc) return;
+
+                                  double frac = 0.0, efrac = 0.0;
+                                  if (PassFractionForHist(hAAsrc, sv.var, passDef, ptCenter, frac, efrac))
+                                  {
+                                    S.x.push_back(ptCenter);
+                                    S.ex.push_back(ptHalfW);
+                                    S.y.push_back(frac);
+                                    S.ey.push_back(efrac);
+                                  }
+                                };
+
+                                FillVariantPoint(0, sNoSub);
+                                FillVariantPoint(2, sVarA);
+                                FillVariantPoint(3, sVarB);
+                              }
+
+                              const bool haveAny =
+                                !sPP.x.empty() || !sNoSub.x.empty() || !sVarA.x.empty() || !sVarB.x.empty();
+
+                              if (!haveAny) continue;
+
+                              TCanvas cPF(
+                                TString::Format("c_pf_vsPt_%s_%s_%s_%s_%s",
+                                  sv.var.c_str(), passDef.c_str(), cat.key.c_str(), cb.folder.c_str(), trigAA.c_str()).Data(),
+                                "c_pf_vsPt", 900, 700
+                              );
+                              ApplyCanvasMargins1D(cPF);
+                              cPF.cd();
+
+                              TH1F hFrame(
+                                TString::Format("hFrame_pf_vsPt_%s_%s_%s_%s",
+                                  sv.var.c_str(), passDef.c_str(), cat.key.c_str(), cb.folder.c_str()).Data(),
+                                "", 100, kPtEdges.front(), kPtEdges.back()
+                              );
+                              hFrame.SetDirectory(nullptr);
+                              hFrame.SetStats(0);
+                              hFrame.SetMinimum(0.0);
+                              hFrame.SetMaximum(1.05);
+                              hFrame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                              hFrame.GetYaxis()->SetTitle("Pass fraction");
+                              hFrame.GetXaxis()->SetTitleSize(0.055);
+                              hFrame.GetYaxis()->SetTitleSize(0.055);
+                              hFrame.GetXaxis()->SetLabelSize(0.045);
+                              hFrame.GetYaxis()->SetLabelSize(0.045);
+                              hFrame.GetYaxis()->SetTitleOffset(1.15);
+                              hFrame.Draw();
+
+                              vector<TGraphErrors*> keepGraphs;
+
+                              auto DrawSeries =
+                                [&](const PFSeries& S) -> TGraphErrors*
+                                {
+                                  if (S.x.empty()) return nullptr;
+                                  TGraphErrors* g = new TGraphErrors(
+                                    (int)S.x.size(),
+                                    const_cast<double*>(&S.x[0]),
+                                    const_cast<double*>(&S.y[0]),
+                                    const_cast<double*>(&S.ex[0]),
+                                    const_cast<double*>(&S.ey[0])
+                                  );
+                                  g->SetLineWidth(2);
+                                  g->SetLineColor(S.color);
+                                  g->SetMarkerColor(S.color);
+                                  g->SetMarkerStyle(S.marker);
+                                  g->SetMarkerSize(1.2);
+                                  g->Draw("PE1 SAME");
+                                  return g;
+                                };
+
+                              TGraphErrors* gPP    = DrawSeries(sPP);
+                              TGraphErrors* gNoSub = DrawSeries(sNoSub);
+                              TGraphErrors* gVarA  = DrawSeries(sVarA);
+                              TGraphErrors* gVarB  = DrawSeries(sVarB);
+
+                              if (gPP)    keepGraphs.push_back(gPP);
+                              if (gNoSub) keepGraphs.push_back(gNoSub);
+                              if (gVarA)  keepGraphs.push_back(gVarA);
+                              if (gVarB)  keepGraphs.push_back(gVarB);
+
+                              TLegend leg(0.56, 0.66, 0.92, 0.88);
+                              leg.SetBorderSize(0);
+                              leg.SetFillStyle(0);
+                              leg.SetTextFont(42);
+                              leg.SetTextSize(0.032);
+                              if (gPP)    leg.AddEntry(gPP,    sPP.label.c_str(), "ep");
+                              if (gNoSub) leg.AddEntry(gNoSub, sNoSub.label.c_str(), "ep");
+                              if (gVarA)  leg.AddEntry(gVarA,  sVarA.label.c_str(), "ep");
+                              if (gVarB)  leg.AddEntry(gVarB,  sVarB.label.c_str(), "ep");
+                              leg.Draw();
+
+                              TLatex tTitle;
+                              tTitle.SetNDC(true);
+                              tTitle.SetTextFont(42);
+                              tTitle.SetTextAlign(23);
+                              tTitle.SetTextSize(0.042);
+                              tTitle.DrawLatex(0.50, 0.965,
+                                TString::Format("%s %s pass fraction vs p_{T}^{#gamma}, %s, %d-%d%%",
+                                  sv.label.c_str(), passDef.c_str(), cat.key.c_str(), cb.lo, cb.hi).Data());
+
+                              SaveCanvas(cPF, JoinPath(outCentDir, "passFraction_vsPt.png"));
+
+                              for (auto* g : keepGraphs) delete g;
+                            }
+
+                            // --------------------------------------------------
+                            // perPt/<pTbin>/passFraction_vsCent.png
+                            // --------------------------------------------------
+                            for (int ipt = 0; ipt < kNPtBins; ++ipt)
+                            {
+                              const PtBin& pb = PtBins()[ipt];
+                              const string outPtDir = JoinPath(perPtBase, pb.folder);
+                              EnsureDir(outPtDir);
+
+                              PFSeries sPP;
+                              sPP.label = "pp";
+                              sPP.color = kRed + 1;
+                              sPP.marker = 24;
+
+                              PFSeries sNoSub;
+                              sNoSub.label = "No UE sub";
+                              sNoSub.color = ssColors[0];
+                              sNoSub.marker = ssMarkers[0];
+
+                              PFSeries sVarA;
+                              sVarA.label = "Variant A";
+                              sVarA.color = ssColors[2];
+                              sVarA.marker = ssMarkers[2];
+
+                              PFSeries sVarB;
+                              sVarB.label = "Variant B";
+                              sVarB.color = ssColors[3];
+                              sVarB.marker = ssMarkers[3];
+
+                              const double ptCenter = 0.5 * (pb.lo + pb.hi);
+
+                              for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                              {
+                                const auto& cb = centBins[ic];
+                                const double centCenter = 0.5 * (cb.lo + cb.hi);
+                                const double centHalfW  = 0.5 * (cb.hi - cb.lo);
+
+                                const string hPPName = "h_ss_" + sv.var + "_" + cat.histTag + pb.suffix;
+                                TH1* hPPsrc = GetTH1FromTopDir(ppTop, hPPName);
+                                if (hPPsrc)
+                                {
+                                  double frac = 0.0, efrac = 0.0;
+                                  if (PassFractionForHist(hPPsrc, sv.var, passDef, ptCenter, frac, efrac))
+                                  {
+                                    sPP.x.push_back(centCenter);
+                                    sPP.ex.push_back(centHalfW);
+                                    sPP.y.push_back(frac);
+                                    sPP.ey.push_back(efrac);
+                                  }
+                                }
+
+                                auto FillVariantPoint =
+                                  [&](std::size_t idx, PFSeries& S)
+                                {
+                                  if (idx >= handles.size()) return;
+                                  auto& H = handles[idx];
+                                  if (!H.file) return;
+
+                                  TDirectory* aaTopSS = H.file->GetDirectory(trigAA.c_str());
+                                  if (!aaTopSS) return;
+
+                                  const string hAAName = "h_ss_" + sv.var + "_" + cat.histTag + pb.suffix + cb.suffix;
+                                  TH1* hAAsrc = GetTH1FromTopDir(aaTopSS, hAAName);
+                                  if (!hAAsrc) return;
+
+                                  double frac = 0.0, efrac = 0.0;
+                                  if (PassFractionForHist(hAAsrc, sv.var, passDef, ptCenter, frac, efrac))
+                                  {
+                                    S.x.push_back(centCenter);
+                                    S.ex.push_back(centHalfW);
+                                    S.y.push_back(frac);
+                                    S.ey.push_back(efrac);
+                                  }
+                                };
+
+                                FillVariantPoint(0, sNoSub);
+                                FillVariantPoint(2, sVarA);
+                                FillVariantPoint(3, sVarB);
+                              }
+
+                              const bool haveAny =
+                                !sPP.x.empty() || !sNoSub.x.empty() || !sVarA.x.empty() || !sVarB.x.empty();
+
+                              if (!haveAny) continue;
+
+                              TCanvas cPF(
+                                TString::Format("c_pf_vsCent_%s_%s_%s_%s_%s",
+                                  sv.var.c_str(), passDef.c_str(), cat.key.c_str(), pb.folder.c_str(), trigAA.c_str()).Data(),
+                                "c_pf_vsCent", 900, 700
+                              );
+                              ApplyCanvasMargins1D(cPF);
+                              cPF.cd();
+
+                              TH1F hFrame(
+                                TString::Format("hFrame_pf_vsCent_%s_%s_%s_%s",
+                                  sv.var.c_str(), passDef.c_str(), cat.key.c_str(), pb.folder.c_str()).Data(),
+                                "", 100, centBins.front().lo, centBins.back().hi
+                              );
+                              hFrame.SetDirectory(nullptr);
+                              hFrame.SetStats(0);
+                              hFrame.SetMinimum(0.0);
+                              hFrame.SetMaximum(1.05);
+                              hFrame.GetXaxis()->SetTitle("Centrality [%]");
+                              hFrame.GetYaxis()->SetTitle("Pass fraction");
+                              hFrame.GetXaxis()->SetTitleSize(0.055);
+                              hFrame.GetYaxis()->SetTitleSize(0.055);
+                              hFrame.GetXaxis()->SetLabelSize(0.045);
+                              hFrame.GetYaxis()->SetLabelSize(0.045);
+                              hFrame.GetYaxis()->SetTitleOffset(1.15);
+                              hFrame.Draw();
+
+                              vector<TGraphErrors*> keepGraphs;
+
+                              auto DrawSeries =
+                                [&](const PFSeries& S) -> TGraphErrors*
+                                {
+                                  if (S.x.empty()) return nullptr;
+                                  TGraphErrors* g = new TGraphErrors(
+                                    (int)S.x.size(),
+                                    const_cast<double*>(&S.x[0]),
+                                    const_cast<double*>(&S.y[0]),
+                                    const_cast<double*>(&S.ex[0]),
+                                    const_cast<double*>(&S.ey[0])
+                                  );
+                                  g->SetLineWidth(2);
+                                  g->SetLineColor(S.color);
+                                  g->SetMarkerColor(S.color);
+                                  g->SetMarkerStyle(S.marker);
+                                  g->SetMarkerSize(1.2);
+                                  g->Draw("PE1 SAME");
+                                  return g;
+                                };
+
+                              TGraphErrors* gPP    = DrawSeries(sPP);
+                              TGraphErrors* gNoSub = DrawSeries(sNoSub);
+                              TGraphErrors* gVarA  = DrawSeries(sVarA);
+                              TGraphErrors* gVarB  = DrawSeries(sVarB);
+
+                              if (gPP)    keepGraphs.push_back(gPP);
+                              if (gNoSub) keepGraphs.push_back(gNoSub);
+                              if (gVarA)  keepGraphs.push_back(gVarA);
+                              if (gVarB)  keepGraphs.push_back(gVarB);
+
+                              TLegend leg(0.56, 0.66, 0.92, 0.88);
+                              leg.SetBorderSize(0);
+                              leg.SetFillStyle(0);
+                              leg.SetTextFont(42);
+                              leg.SetTextSize(0.032);
+                              if (gPP)    leg.AddEntry(gPP,    sPP.label.c_str(), "ep");
+                              if (gNoSub) leg.AddEntry(gNoSub, sNoSub.label.c_str(), "ep");
+                              if (gVarA)  leg.AddEntry(gVarA,  sVarA.label.c_str(), "ep");
+                              if (gVarB)  leg.AddEntry(gVarB,  sVarB.label.c_str(), "ep");
+                              leg.Draw();
+
+                              TLatex tTitle;
+                              tTitle.SetNDC(true);
+                              tTitle.SetTextFont(42);
+                              tTitle.SetTextAlign(23);
+                              tTitle.SetTextSize(0.042);
+                              tTitle.DrawLatex(0.50, 0.965,
+                                TString::Format("%s %s pass fraction vs centrality, %s, p_{T}^{#gamma} %d-%d GeV",
+                                  sv.label.c_str(), passDef.c_str(), cat.key.c_str(), pb.lo, pb.hi).Data());
+
+                              SaveCanvas(cPF, JoinPath(outPtDir, "passFraction_vsCent.png"));
+
+                              for (auto* g : keepGraphs) delete g;
+                            }
+                          }
+                        }
+                      }
+                    }
 
                     if (fSimSS)
                     {
