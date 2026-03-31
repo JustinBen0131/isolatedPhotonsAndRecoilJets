@@ -4655,7 +4655,7 @@ namespace ARJ
                             vector<double> yPt;
                             vector<double> eyPt;
 
-                            for (int ipt = 0; ipt < kNPtBins; ++ipt)
+                            for (int ipt = 1; ipt < kNPtBins; ++ipt)
                             {
                               const PtBin& b = PtBins()[ipt];
                               const string hAAName = "h_Eiso" + b.suffix + cb.suffix;
@@ -4663,7 +4663,7 @@ namespace ARJ
                               if (!hAAsrc) continue;
 
                               xPt.push_back(0.5 * (kPtEdges[(std::size_t)ipt] + kPtEdges[(std::size_t)ipt + 1]));
-                              exPt.push_back(0.5 * (kPtEdges[(std::size_t)ipt + 1] - kPtEdges[(std::size_t)ipt]));
+                              exPt.push_back(0.0);
                               yPt.push_back(hAAsrc->GetMean());
                               eyPt.push_back((hAAsrc->GetEntries() > 0.0) ? hAAsrc->GetMeanError() : 0.0);
 
@@ -4697,7 +4697,7 @@ namespace ARJ
                                 if (!hPPsrc || hPPsrc->GetEntries() <= 0.0) continue;
 
                                 xPtPP.push_back(0.5 * (kPtEdges[(std::size_t)ipt] + kPtEdges[(std::size_t)ipt + 1]));
-                                exPtPP.push_back(0.5 * (kPtEdges[(std::size_t)ipt + 1] - kPtEdges[(std::size_t)ipt]));
+                                exPtPP.push_back(0.0);
                                 yPtPP.push_back(hPPsrc->GetMean());
                                 eyPtPP.push_back(hPPsrc->GetMeanError());
 
@@ -4724,7 +4724,7 @@ namespace ARJ
                           TH1F hFrame(
                             TString::Format("hFrame_meanIsoEtAllVariantsVsPt_%s_%s",
                               trigAA.c_str(), cb.folder.c_str()).Data(),
-                            "", 100, kPtEdges.front(), kPtEdges.back()
+                                "", 100, kPtEdges[1], kPtEdges.back()
                           );
                           hFrame.SetDirectory(nullptr);
                           hFrame.SetStats(0);
@@ -4739,10 +4739,10 @@ namespace ARJ
                           hFrame.GetYaxis()->SetTitleOffset(1.15);
                           hFrame.Draw();
 
-                            for (auto* g : graphs) g->Draw("PE1 SAME");
+                          for (auto* g : graphs) g->Draw("PE1 SAME");
 
-                            TGraphErrors* gPPpt = nullptr;
-                            if (!xPtPP.empty())
+                          TGraphErrors* gPPpt = nullptr;
+                          if (!xPtPP.empty())
                             {
                               gPPpt = new TGraphErrors((int)xPtPP.size(), &xPtPP[0], &yPtPP[0], &exPtPP[0], &eyPtPP[0]);
                               gPPpt->SetLineWidth(2);
@@ -4753,11 +4753,11 @@ namespace ARJ
                               gPPpt->Draw("PE1 SAME");
                             }
 
-                            TLegend leg(0.15, 0.75, 0.55, 0.88);
+                            TLegend leg(0.20, 0.75, 0.60, 0.88);
                             leg.SetBorderSize(0);
                             leg.SetFillStyle(0);
                             leg.SetTextFont(42);
-                            leg.SetTextSize(0.032);
+                            leg.SetTextSize(0.026);
                             leg.SetNColumns(2);
                             for (std::size_t ig = 0; ig < graphs.size(); ++ig)
                             {
@@ -4782,10 +4782,10 @@ namespace ARJ
                           t.SetTextFont(42);
                           t.SetTextAlign(33);
                           t.SetTextSize(0.028);
-                          t.DrawLatex(0.92, 0.88, "Trigger = Photon 10 GeV + MBD NS #geq 2, vtx < 150 cm");
-                          t.DrawLatex(0.92, 0.84, TString::Format("#DeltaR_{cone} < %.1f", coneRVal).Data());
+                          t.DrawLatex(0.92, 0.89, "Trigger = Photon 10 GeV + MBD NS #geq 2, vtx < 150 cm");
+                          t.DrawLatex(0.92, 0.85, TString::Format("#DeltaR_{cone} < %.1f", coneRVal).Data());
                           if (isoEtMax > 0)
-                              t.DrawLatex(0.92, 0.80, TString::Format("E_{T}^{iso} < %d GeV", isoEtMax).Data());
+                                t.DrawLatex(0.92, 0.81, TString::Format("E_{T}^{iso} < %d GeV", isoEtMax).Data());
 
                           SaveCanvas(cPtSummary, JoinPath(ptSummaryBase,
                                 TString::Format("meanIsoEt_allVariants_vs_pT_%s.png", cb.folder.c_str()).Data()));
@@ -4793,14 +4793,17 @@ namespace ARJ
                             for (auto* g : graphs) delete g;
                             if (gPPpt) delete gPPpt;
                           }
-                      }
+                    }
 
                 // ====== SS_QA: shower-shape UE-variant overlays (noSub + varA + varB + PP) ======
-                // Output: SS_QA/<cent>/<pT>/table1x5_SS_UEvariantOverlay.png
+                // Output:
+                //   SS_QA/<cent>/<pT>/table1x5_SS_UEvariantOverlay.png
+                //   SS_QA/<cent>/<pT>/variantA/table1x5_PP_SS_<tag>_DataSigBkg.png
+                //   SS_QA/<cent>/<pT>/variantB/table1x5_PP_SS_<tag>_DataSigBkg.png
                 {
                     // SS_QA sits alongside isoQA under the same trigger output dir
-                    const string ssQABase = JoinPath(perVariantOverlayBase, "..");
-                    const string ssQADir  = JoinPath(ssQABase, "SS_QA");
+                    const string ssQADir  = JoinPath(trigOutBase, "SS_QA");
+                    EnsureDir(ssQADir);
 
                     struct SSVarDef { string var; string label; };
                     const vector<SSVarDef> ssVars = {
@@ -4811,15 +4814,82 @@ namespace ARJ
                       {"e32e35", "E_{32}/E_{35}"}
                     };
 
+                    auto TagLabel = [&](const string& tag) -> string
+                    {
+                      if (tag == "pre") return "Preselection";
+                      if (tag == "tight") return "Tight";
+                      if (tag == "nonTight") return "Non-tight";
+                      return tag;
+                    };
+
+                    const vector<string> ppg12Tags = {"pre", "tight", "nonTight"};
+
                     // UE variant indices: 0 = noSub, 2 = variantA, 3 = variantB (skip 1 = baseVariant)
                     const vector<std::size_t> ssUEIndices = {std::size_t(0), std::size_t(2), std::size_t(3)};
                     const int ssColors[4] = {kBlack, kBlue + 1, kOrange + 7, kGreen + 2};
                     const int ssMarkers[4] = {20, 20, 20, 20};
 
+                    // Force the SS template SIM source to the merged photonJet5+10+20 file,
+                    // independent of the current SIM toggle state.
+                    TFile* fSimSS = nullptr;
+                    TDirectory* simTopSS = nullptr;
+                    {
+                      const string simMergedSS =
+                        MergedSimPath("photonJet5and10and20merged_SIM", "RecoilJets_photonjet5plus10plus20_MERGED.root");
+
+                      bool haveMergedSS = false;
+                      if (!simMergedSS.empty() && !gSystem->AccessPathName(simMergedSS.c_str()))
+                      {
+                        haveMergedSS = true;
+                      }
+                      else
+                      {
+                        const bool okMergeSS = BuildMergedSIMFile_PhotonSlices(
+                          {InputSim("photonjet5"), InputSim("photonjet10"), InputSim("photonjet20")},
+                          {kSigmaPhoton5_pb, kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+                          simMergedSS,
+                          kDirSIM,
+                          {"photonJet5", "photonJet10", "photonJet20"}
+                        );
+                        haveMergedSS = okMergeSS && !gSystem->AccessPathName(simMergedSS.c_str());
+                      }
+
+                      if (haveMergedSS)
+                      {
+                        fSimSS = TFile::Open(simMergedSS.c_str(), "READ");
+                        if (fSimSS && !fSimSS->IsZombie())
+                        {
+                          simTopSS = fSimSS->GetDirectory(kDirSIM.c_str());
+                          if (!simTopSS)
+                          {
+                            cout << ANSI_BOLD_YEL
+                                 << "[WARN] SS_QA templates: missing topDir '" << kDirSIM
+                                 << "' in merged SIM file: " << simMergedSS
+                                 << ANSI_RESET << "\n";
+                          }
+                        }
+                        else
+                        {
+                          cout << ANSI_BOLD_YEL
+                               << "[WARN] SS_QA templates: cannot open merged SIM file: " << simMergedSS
+                               << ANSI_RESET << "\n";
+                          if (fSimSS) { fSimSS->Close(); delete fSimSS; }
+                          fSimSS = nullptr;
+                        }
+                      }
+                      else
+                      {
+                        cout << ANSI_BOLD_YEL
+                             << "[WARN] SS_QA templates: could not build merged SIM5+10+20 file: " << simMergedSS
+                             << ANSI_RESET << "\n";
+                      }
+                    }
+
                     for (std::size_t ic = 0; ic < centBins.size(); ++ic)
                     {
                       const auto& cb = centBins[ic];
                       const string centDir = JoinPath(ssQADir, cb.folder);
+                      EnsureDir(centDir);
 
                       for (int ipt = 0; ipt < kNPtBins; ++ipt)
                       {
@@ -4834,7 +4904,7 @@ namespace ARJ
                         cSS.Divide(5, 1, 0.001, 0.001);
 
                         vector<TH1*> keepH;
-                        keepH.reserve(ssVars.size() * 4);
+                        keepH.reserve(ssVars.size() * 5);
                         vector<TLegend*> keepLeg;
                         keepLeg.reserve(ssVars.size());
 
@@ -4885,6 +4955,7 @@ namespace ARJ
                             hAA->SetMarkerColor(ssColors[iu]);
                             hAA->SetMarkerStyle(ssMarkers[iu]);
                             hAA->SetMarkerSize(0.95);
+                            hAA->SetFillStyle(0);
 
                             padHists.push_back(hAA);
                             padLabels.push_back(H.label);
@@ -4918,9 +4989,10 @@ namespace ARJ
                                 hPPss->SetMarkerColor(kRed + 1);
                                 hPPss->SetMarkerStyle(24);
                                 hPPss->SetMarkerSize(0.95);
+                                hPPss->SetFillStyle(0);
 
                                 padHists.push_back(hPPss);
-                                padLabels.push_back("pp reference");
+                                padLabels.push_back("pp");
                                 keepH.push_back(hPPss);
                               }
                             }
@@ -4937,7 +5009,6 @@ namespace ARJ
                             continue;
                           }
 
-                          // Draw
                           double yMaxPad = 0.0;
                           for (auto* h : padHists)
                             yMaxPad = std::max(yMaxPad, h->GetMaximum());
@@ -4952,11 +5023,12 @@ namespace ARJ
                           for (std::size_t ih = 1; ih < padHists.size(); ++ih)
                             padHists[ih]->Draw("E1 same");
 
-                          TLegend* leg = new TLegend(0.55, 0.65, 0.93, 0.85);
+                          TLegend* leg = new TLegend(0.40, 0.65, 0.93, 0.85);
                           leg->SetBorderSize(0);
                           leg->SetFillStyle(0);
                           leg->SetTextFont(42);
                           leg->SetTextSize(0.045);
+                          leg->SetNColumns(2);
                           for (std::size_t ih = 0; ih < padHists.size(); ++ih)
                             leg->AddEntry(padHists[ih], padLabels[ih].c_str(), "ep");
                           leg->Draw();
@@ -4979,8 +5051,338 @@ namespace ARJ
 
                         for (TLegend* l : keepLeg) delete l;
                         for (TH1* h : keepH) delete h;
+
+                        // PPG12-style tables: pp vs Signal MC vs Background MC + selected AuAu variant
+                        for (std::size_t iu : {std::size_t(2), std::size_t(3)})
+                        {
+                          if (iu >= handles.size()) continue;
+                          auto& H = handles[iu];
+                          if (!H.file) continue;
+
+                          TDirectory* aaTopSS = H.file->GetDirectory(trigAA.c_str());
+                          if (!aaTopSS) continue;
+                          if (!ppTop || !simTopSS) continue;
+
+                          const string variantDir = JoinPath(ptDir, H.variant);
+                          EnsureDir(variantDir);
+
+                          for (const auto& tag : ppg12Tags)
+                          {
+                            TCanvas cPP(
+                              TString::Format("c_ssQA_ppDataSigBkg_%s_%s_%s_%s",
+                                H.variant.c_str(), tag.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
+                              "c_ssQA_ppDataSigBkg", 2600, 750
+                            );
+                            cPP.Divide(5, 1, 0.001, 0.001);
+
+                            std::vector<TH1*> keepAlive;
+                            keepAlive.reserve(ssVars.size() * 4);
+
+                            std::vector<TLegend*> keepLegPP;
+                            keepLegPP.reserve(ssVars.size());
+
+                            bool anyPad = false;
+
+                            for (int iv = 0; iv < (int)ssVars.size(); ++iv)
+                            {
+                              const std::string& var = ssVars[iv].var;
+                              const std::string& vlabel = ssVars[iv].label;
+
+                              cPP.cd(iv + 1);
+                              gPad->SetLeftMargin(0.14);
+                              gPad->SetRightMargin(0.05);
+                              gPad->SetBottomMargin(0.14);
+                              gPad->SetTopMargin(0.18);
+                              gPad->SetLogy(false);
+
+                              const bool isW = (var == "weta" || var == "wphi");
+
+                              const string hPPName  = string("h_ss_") + var + string("_") + tag + b.suffix;
+                              const string hSigName = string("h_ss_") + var + string("_") + tag + string("_sig") + b.suffix;
+                              const string hBkgName = string("h_ss_") + var + string("_") + tag + string("_bkg") + b.suffix;
+                              const string hAAName  = string("h_ss_") + var + string("_") + tag + b.suffix + cb.suffix;
+
+                              TH1* rawPP  = GetTH1FromTopDir(ppTop, hPPName);
+                              TH1* rawSig = GetTH1FromTopDir(simTopSS, hSigName);
+                              TH1* rawBkg = GetTH1FromTopDir(simTopSS, hBkgName);
+                              TH1* rawAA  = GetTH1FromTopDir(aaTopSS, hAAName);
+
+                              if (!rawPP && !rawSig && !rawBkg && !rawAA)
+                              {
+                                DrawMissingPad(TString::Format("%s, %s, %s, %s", var.c_str(), tag.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
+                                continue;
+                              }
+
+                              anyPad = true;
+
+                              TH1* hPP  = nullptr;
+                              TH1* hSig = nullptr;
+                              TH1* hBkg = nullptr;
+                              TH1* hAA  = nullptr;
+
+                              if (rawPP)
+                              {
+                                hPP = CloneNormalizeStyle(rawPP,
+                                  TString::Format("ssQA_%s_%s_%s_%s_pp", H.variant.c_str(), tag.c_str(), var.c_str(), b.folder.c_str()).Data(),
+                                  kRed + 1, 24);
+
+                                if (hPP)
+                                {
+                                  hPP->SetLineWidth(2);
+                                  hPP->SetLineColor(kRed + 1);
+                                  hPP->SetMarkerColor(kRed + 1);
+                                  hPP->SetMarkerStyle(24);
+                                  hPP->SetMarkerSize(1.00);
+                                  hPP->SetFillStyle(0);
+                                }
+                              }
+
+                              if (rawSig)
+                              {
+                                hSig = CloneNormalizeStyle(rawSig,
+                                  TString::Format("ssQA_%s_%s_%s_%s_sig", H.variant.c_str(), tag.c_str(), var.c_str(), b.folder.c_str()).Data(),
+                                  kPink + 7, 24);
+
+                                if (hSig)
+                                {
+                                  hSig->SetLineWidth(2);
+                                  hSig->SetLineColor(kPink + 7);
+                                  hSig->SetMarkerColor(kPink + 7);
+                                  hSig->SetMarkerStyle(1);
+                                  hSig->SetMarkerSize(0.0);
+                                  hSig->SetFillStyle(0);
+                                }
+                              }
+
+                              if (rawBkg)
+                              {
+                                hBkg = CloneNormalizeStyle(rawBkg,
+                                  TString::Format("ssQA_%s_%s_%s_%s_bkg", H.variant.c_str(), tag.c_str(), var.c_str(), b.folder.c_str()).Data(),
+                                  kBlue + 1, 25);
+
+                                if (hBkg)
+                                {
+                                  hBkg->SetLineWidth(2);
+                                  hBkg->SetLineColor(kBlue + 1);
+                                  hBkg->SetMarkerColor(kBlue + 1);
+                                  hBkg->SetMarkerStyle(1);
+                                  hBkg->SetMarkerSize(0.0);
+                                  hBkg->SetFillStyle(0);
+                                }
+                              }
+
+                              if (rawAA)
+                              {
+                                hAA = CloneNormalizeStyle(rawAA,
+                                  TString::Format("ssQA_%s_%s_%s_%s_aa", H.variant.c_str(), tag.c_str(), var.c_str(), b.folder.c_str()).Data(),
+                                  ssColors[iu], ssMarkers[iu]);
+
+                                if (hAA)
+                                {
+                                  hAA->SetLineWidth(2);
+                                  hAA->SetLineColor(ssColors[iu]);
+                                  hAA->SetMarkerColor(ssColors[iu]);
+                                  hAA->SetMarkerStyle(ssMarkers[iu]);
+                                  hAA->SetMarkerSize(1.00);
+                                  hAA->SetFillStyle(0);
+                                }
+                              }
+
+                              TH1* hFrame = (hSig ? hSig : (hBkg ? hBkg : (hAA ? hAA : hPP)));
+                              if (!hFrame)
+                              {
+                                DrawMissingPad(TString::Format("%s, %s, %s, %s", var.c_str(), tag.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
+                                continue;
+                              }
+
+                              hFrame->GetXaxis()->SetTitle(vlabel.c_str());
+                              hFrame->GetYaxis()->SetTitle("Unit Normalized");
+
+                              double yMax = 0.0;
+                              if (hPP)
+                              {
+                                for (int ib = 1; ib <= hPP->GetNbinsX(); ++ib)
+                                {
+                                  yMax = std::max(yMax, (double)(hPP->GetBinContent(ib) + hPP->GetBinError(ib)));
+                                }
+                              }
+                              if (hSig) yMax = std::max(yMax, (double)hSig->GetMaximum());
+                              if (hBkg) yMax = std::max(yMax, (double)hBkg->GetMaximum());
+                              if (hAA)
+                              {
+                                for (int ib = 1; ib <= hAA->GetNbinsX(); ++ib)
+                                {
+                                  yMax = std::max(yMax, (double)(hAA->GetBinContent(ib) + hAA->GetBinError(ib)));
+                                }
+                              }
+
+                              hFrame->SetMinimum(0.0);
+                              hFrame->SetMaximum((yMax > 0.0) ? (yMax * 1.35) : 1.0);
+
+                              if (hSig)
+                              {
+                                hSig->Draw("HIST");
+                              }
+                              else if (hBkg)
+                              {
+                                hBkg->Draw("HIST");
+                              }
+                              else if (hAA)
+                              {
+                                hAA->Draw("E1");
+                              }
+                              else
+                              {
+                                hPP->Draw("E1");
+                              }
+
+                              if (hBkg && hBkg != hSig) hBkg->Draw("HIST same");
+                              if (hAA)                 hAA->Draw("E1 same");
+                              if (hPP)                 hPP->Draw("E1 same");
+
+                              {
+                                TLegend* leg = (isW ? new TLegend(0.49, 0.55, 0.93, 0.8) : new TLegend(0.16, 0.55, 0.60, 0.8));
+                                leg->SetBorderSize(0);
+                                leg->SetFillStyle(0);
+                                leg->SetTextFont(42);
+                                leg->SetTextSize(0.036);
+
+                                if (hPP)  leg->AddEntry(hPP,  "pp", "ep");
+                                if (hSig) leg->AddEntry(hSig, "Signal MC", "l");
+                                if (hBkg) leg->AddEntry(hBkg, "Background MC", "l");
+                                if (hAA)  leg->AddEntry(hAA,  TString::Format("AuAu %s", H.label.c_str()).Data(), "ep");
+
+                                leg->Draw();
+                                keepLegPP.push_back(leg);
+                              }
+
+                              {
+                                TLatex th;
+                                th.SetNDC(true);
+                                th.SetTextFont(42);
+                                th.SetTextAlign(22);
+                                th.SetTextSize(0.050);
+                                th.DrawLatex(0.50, 0.91,
+                                  TString::Format("%s, %s, p_{T}^{#gamma}: %d-%d GeV",
+                                    vlabel.c_str(), TagLabel(tag).c_str(), b.lo, b.hi).Data());
+                              }
+
+                              {
+                                TLatex tcut;
+                                tcut.SetNDC(true);
+                                tcut.SetTextFont(42);
+                                tcut.SetTextAlign(13);
+                                tcut.SetTextSize(0.040);
+
+                                bool drawCuts = false;
+                                bool drawSingleCut = false;
+                                double cutLo = 0.0;
+                                double cutHi = 0.0;
+                                std::string cutText;
+
+                                if (var == "e11e33")
+                                {
+                                  cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
+                                  drawCuts = true;
+                                  cutLo = 0.4;
+                                  cutHi = 0.98;
+                                }
+                                else if (var == "e32e35")
+                                {
+                                  cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
+                                  drawCuts = true;
+                                  cutLo = 0.92;
+                                  cutHi = 1.0;
+                                }
+                                else if (var == "et1")
+                                {
+                                  cutText = "#gamma-ID: 0.9 < et1 < 1.0";
+                                  drawCuts = true;
+                                  cutLo = 0.9;
+                                  cutHi = 1.0;
+                                }
+                                else if (var == "weta")
+                                {
+                                  cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                                  drawSingleCut = true;
+                                  const double ptCenter = 0.5 * (b.lo + b.hi);
+                                  cutHi = 0.15 + 0.006 * ptCenter;
+                                }
+                                else if (var == "wphi")
+                                {
+                                  cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                                  drawSingleCut = true;
+                                  const double ptCenter = 0.5 * (b.lo + b.hi);
+                                  cutHi = 0.15 + 0.006 * ptCenter;
+                                }
+
+                                if (!cutText.empty())
+                                {
+                                  tcut.DrawLatex(0.16, 0.86, cutText.c_str());
+                                }
+
+                                if (drawCuts || drawSingleCut)
+                                {
+                                  gPad->Update();
+                                  const double yMin = gPad->GetUymin();
+                                  const double yMaxPad = gPad->GetUymax();
+
+                                  if (drawCuts)
+                                  {
+                                    TLine* l1 = new TLine(cutLo, yMin, cutLo, yMaxPad);
+                                    l1->SetLineColor(kBlack);
+                                    l1->SetLineWidth(2);
+                                    l1->SetLineStyle(2);
+                                    l1->Draw("same");
+
+                                    TLine* l2 = new TLine(cutHi, yMin, cutHi, yMaxPad);
+                                    l2->SetLineColor(kBlack);
+                                    l2->SetLineWidth(2);
+                                    l2->SetLineStyle(2);
+                                    l2->Draw("same");
+                                  }
+
+                                  if (drawSingleCut)
+                                  {
+                                    TLine* l1 = new TLine(cutHi, yMin, cutHi, yMaxPad);
+                                    l1->SetLineColor(kBlack);
+                                    l1->SetLineWidth(2);
+                                    l1->SetLineStyle(2);
+                                    l1->Draw("same");
+                                  }
+                                }
+
+                                gPad->RedrawAxis();
+                              }
+
+                              if (hPP)  keepAlive.push_back(hPP);
+                              if (hSig) keepAlive.push_back(hSig);
+                              if (hBkg) keepAlive.push_back(hBkg);
+                              if (hAA)  keepAlive.push_back(hAA);
+                            }
+
+                            if (anyPad)
+                            {
+                              SaveCanvas(cPP, JoinPath(variantDir,
+                                TString::Format("table1x5_PP_SS_%s_DataSigBkg.png", tag.c_str()).Data()));
+                            }
+
+                            for (TLegend* l : keepLegPP) delete l;
+                            keepLegPP.clear();
+
+                            for (TH1* h : keepAlive) delete h;
+                            keepAlive.clear();
+                          }
+                        }
                       } // end pT loop
                     } // end cent loop
+
+                    if (fSimSS)
+                    {
+                      fSimSS->Close();
+                      delete fSimSS;
+                      fSimSS = nullptr;
+                    }
                 }
 
                 for (auto& H : handles)
@@ -5076,296 +5478,512 @@ namespace ARJ
           const string inclBase = JoinPath(trigOutBase, "inclusiveXJcomparisons");
           EnsureDir(leadBase);
           EnsureDir(inclBase);
-
-          // Helper: draw xJ overlay for a set of variant indices
-          auto DrawXJOverlay =
-            [&](const vector<TH1*>& hists,
-                const vector<std::size_t>& varIdx,
-                TH1* hPP,
-                const string& outPng,
-                const string& titlePrefix,
-                const string& rKey, double R,
-                int centLo, int centHi,
-                int ptLo, int ptHi)
-          {
-            if (hists.empty()) return;
-
-            const Double_t savedErrorX = gStyle->GetErrorX();
-            gStyle->SetErrorX(0);
-
-            TCanvas cXJ(
-              TString::Format("c_xjov_%s", outPng.c_str()).Data(),
-              "c_xjov", 900, 700
-            );
-            ApplyCanvasMargins1D(cXJ);
-            cXJ.cd();
-
-            double yMax = 0.0;
-            for (auto* h : hists) if (h) yMax = std::max(yMax, h->GetMaximum());
-            if (hPP) yMax = std::max(yMax, hPP->GetMaximum());
-
-            hists[0]->SetTitle("");
-            hists[0]->GetXaxis()->SetTitle("x_{J#gamma}");
-            hists[0]->GetYaxis()->SetTitle("Normalized to unit area");
-            hists[0]->GetXaxis()->SetTitleSize(0.055);
-            hists[0]->GetYaxis()->SetTitleSize(0.055);
-            hists[0]->GetXaxis()->SetLabelSize(0.045);
-            hists[0]->GetYaxis()->SetLabelSize(0.045);
-            hists[0]->GetYaxis()->SetTitleOffset(1.15);
-            hists[0]->SetMinimum(0.0);
-            hists[0]->SetMaximum((yMax > 0.0) ? (1.15 * yMax) : 1.0);
-            hists[0]->GetXaxis()->SetRangeUser(0.0, 2.0);
-            hists[0]->Draw("E1");
-            for (std::size_t ih = 1; ih < hists.size(); ++ih) hists[ih]->Draw("E1 SAME");
-            if (hPP) hPP->Draw("E1 SAME");
-
-            TLegend leg(0.56, 0.58, 0.92, 0.88);
-            leg.SetBorderSize(0);
-            leg.SetFillStyle(0);
-            leg.SetTextFont(42);
-            leg.SetTextSize(0.030);
-            for (std::size_t ih = 0; ih < hists.size(); ++ih)
-              leg.AddEntry(hists[ih], vHandles[varIdx[ih]].label.c_str(), "ep");
-            if (hPP) leg.AddEntry(hPP, "pp", "ep");
-            leg.Draw();
-
-            TLatex tTitle;
-            tTitle.SetNDC(true);
-            tTitle.SetTextFont(42);
-            tTitle.SetTextAlign(23);
-            tTitle.SetTextSize(0.040);
-            tTitle.DrawLatex(0.50, 0.98,
-              TString::Format("%s, %d-%d%% Cent AuAu, R=%.1f", titlePrefix.c_str(), centLo, centHi, R).Data());
-
-            TLatex tCuts;
-            tCuts.SetNDC(true);
-            tCuts.SetTextFont(42);
-            tCuts.SetTextAlign(13);
-            tCuts.SetTextSize(0.028);
-            tCuts.DrawLatex(0.18, 0.89, "Trigger = Photon 10 GeV + MBD NS #geq 2, vtx < 150 cm");
-            tCuts.DrawLatex(0.18, 0.85, TString::Format("p_{T}^{#gamma}: %d-%d GeV", ptLo, ptHi).Data());
-
-            SaveCanvas(cXJ, outPng);
-
-            gStyle->SetErrorX(savedErrorX);
-          };
-
-          for (const auto& rKey : rKeysAA)
-          {
-            const double R = RFromKey(rKey);
-
-            const string leadRDir = JoinPath(leadBase, rKey);
-            const string inclRDir = JoinPath(inclBase, rKey);
-            EnsureDir(leadRDir);
-            EnsureDir(inclRDir);
-
-            for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+            // Helper: draw xJ overlay with explicit labels
+            auto DrawXJOverlay =
+              [&](const vector<TH1*>& hists,
+                  const vector<string>& labels,
+                  TH1* hPP,
+                  const string& ppLabel,
+                  const string& outPng,
+                  const string& titlePrefix,
+                  const string& rKey, double R,
+                  int centLo, int centHi,
+                  int ptLo, int ptHi)
             {
-              const auto& cb = centBins[ic];
+              if (hists.empty()) return;
 
-              const string leadCentDir = JoinPath(leadRDir, cb.folder);
-              const string inclCentDir = JoinPath(inclRDir, cb.folder);
-              EnsureDir(leadCentDir);
-              EnsureDir(inclCentDir);
+              const Double_t savedErrorX = gStyle->GetErrorX();
+              gStyle->SetErrorX(0);
 
-              // ── LEADING JET (JES3 TH3) ──
+              TCanvas cXJ(
+                TString::Format("c_xjov_%s", outPng.c_str()).Data(),
+                "c_xjov", 900, 700
+              );
+              ApplyCanvasMargins1D(cXJ);
+              cXJ.cd();
+
+              double yMax = 0.0;
+              for (auto* h : hists) if (h) yMax = std::max(yMax, h->GetMaximum());
+              if (hPP) yMax = std::max(yMax, hPP->GetMaximum());
+
+              hists[0]->SetTitle("");
+              hists[0]->GetXaxis()->SetTitle("x_{J#gamma}");
+              hists[0]->GetYaxis()->SetTitle("Normalized to unit area");
+              hists[0]->GetXaxis()->SetTitleSize(0.055);
+              hists[0]->GetYaxis()->SetTitleSize(0.055);
+              hists[0]->GetXaxis()->SetLabelSize(0.045);
+              hists[0]->GetYaxis()->SetLabelSize(0.045);
+              hists[0]->GetYaxis()->SetTitleOffset(1.15);
+              hists[0]->SetMinimum(0.0);
+              hists[0]->SetMaximum((yMax > 0.0) ? (1.15 * yMax) : 1.0);
+              hists[0]->GetXaxis()->SetRangeUser(0.0, 2.0);
+              hists[0]->Draw("E1");
+              for (std::size_t ih = 1; ih < hists.size(); ++ih) hists[ih]->Draw("E1 SAME");
+              if (hPP) hPP->Draw("E1 SAME");
+
+              TLegend leg(0.56, 0.58, 0.92, 0.88);
+              leg.SetBorderSize(0);
+              leg.SetFillStyle(0);
+              leg.SetTextFont(42);
+              leg.SetTextSize(0.030);
+              for (std::size_t ih = 0; ih < hists.size(); ++ih)
+                leg.AddEntry(hists[ih], labels[ih].c_str(), "ep");
+              if (hPP) leg.AddEntry(hPP, ppLabel.c_str(), "ep");
+              leg.Draw();
+
+              TLatex tTitle;
+              tTitle.SetNDC(true);
+              tTitle.SetTextFont(42);
+              tTitle.SetTextAlign(23);
+              tTitle.SetTextSize(0.040);
+              tTitle.DrawLatex(0.50, 0.98,
+                TString::Format("%s, %d-%d%% Cent AuAu, R=%.1f", titlePrefix.c_str(), centLo, centHi, R).Data());
+
+              TLatex tCuts;
+              tCuts.SetNDC(true);
+              tCuts.SetTextFont(42);
+              tCuts.SetTextAlign(13);
+              tCuts.SetTextSize(0.028);
+              tCuts.DrawLatex(0.18, 0.89, "Trigger = Photon 10 GeV + MBD NS #geq 2, vtx < 150 cm");
+              tCuts.DrawLatex(0.18, 0.85, TString::Format("p_{T}^{#gamma}: %d-%d GeV", ptLo, ptHi).Data());
+
+              SaveCanvas(cXJ, outPng);
+
+              gStyle->SetErrorX(savedErrorX);
+            };
+
+            // Helper: merge TH3 across centrality suffixes
+            auto MergeTH3 = [&](TDirectory* dir, const string& baseName,
+                                const string& rKey, const vector<string>& suffixes,
+                                const string& cloneName) -> TH3*
+            {
+              TH3* merged = nullptr;
+              for (const auto& suf : suffixes)
               {
-                // Collect TH3 pointers per variant
-                struct VarTH3 { std::size_t idx; TH3* h3; };
-                vector<VarTH3> varTH3s;
+                TH3* h = dynamic_cast<TH3*>(dir->Get((baseName + rKey + suf).c_str()));
+                if (!h) continue;
+                if (!merged) { merged = (TH3*)h->Clone(cloneName.c_str()); merged->SetDirectory(nullptr); }
+                else         { merged->Add(h); }
+              }
+              return merged;
+            };
 
-                for (std::size_t iv = 0; iv < vHandles.size(); ++iv)
+            // Helper: merge TH2 across centrality suffixes
+            auto MergeTH2 = [&](TDirectory* dir, const string& baseName,
+                                const string& rKey, const vector<string>& suffixes,
+                                const string& cloneName) -> TH2*
+            {
+              TH2* merged = nullptr;
+              for (const auto& suf : suffixes)
+              {
+                TH2* h = dynamic_cast<TH2*>(dir->Get((baseName + rKey + suf).c_str()));
+                if (!h) continue;
+                if (!merged) { merged = (TH2*)h->Clone(cloneName.c_str()); merged->SetDirectory(nullptr); }
+                else         { merged->Add(h); }
+              }
+              return merged;
+            };
+
+            // Helper: style + normalize a projected xJ histogram
+            auto StyleXJ = [&](TH1* h, int color, int marker)
+            {
+              h->SetDirectory(nullptr);
+              EnsureSumw2(h);
+              const double integ = h->Integral(0, h->GetNbinsX() + 1);
+              if (integ > 0.0) h->Scale(1.0 / integ);
+              h->SetLineColor(color);
+              h->SetMarkerColor(color);
+              h->SetMarkerStyle(marker);
+              h->SetMarkerSize(1.1);
+              h->SetLineWidth(2);
+              h->SetFillStyle(0);
+            };
+
+            // Helper: project PP xJ from TH2 at a given pT bin
+            auto ProjectPP = [&](TH2* h2PP, const string& rKey, const string& tag,
+                                 int ib, double ptLo, double ptHi) -> TH1*
+            {
+              if (!h2PP) return nullptr;
+              const double cen = 0.5 * (ptLo + ptHi);
+              const int ix = h2PP->GetXaxis()->FindBin(cen);
+              if (ix < 1 || ix > h2PP->GetNbinsX()) return nullptr;
+              TH1* h = h2PP->ProjectionY(
+                TString::Format("hPPincl_%s_%s_b%d", rKey.c_str(), tag.c_str(), ib).Data(),
+                ix, ix, "e");
+              if (!h) return nullptr;
+              StyleXJ(h, kRed + 1, 24);
+              return h;
+            };
+
+            // ── Centrality selections (including merged 0-20) ──
+            struct CentSel { int lo; int hi; vector<string> suffixes; string folder; };
+            const vector<CentSel> centSels = {
+              {0,  10, {"_cent_0_10"},                   "0_10"},
+              {10, 20, {"_cent_10_20"},                  "10_20"},
+              {0,  20, {"_cent_0_10", "_cent_10_20"},    "0_20"},
+              {20, 40, {"_cent_20_40"},                  "20_40"},
+              {40, 60, {"_cent_40_60"},                  "40_60"},
+              {60, 80, {"_cent_60_80"},                  "60_80"}
+            };
+
+            // ── Centrality-comparison pairs (per-variant only) ──
+            struct CentPairDef { string folder; CentSel a; CentSel b; };
+            const vector<CentPairDef> centPairs = {
+              {"0_10and40_60",
+               {0, 10, {"_cent_0_10"}, "0_10"},
+               {40, 60, {"_cent_40_60"}, "40_60"}},
+              {"0_20and40_60",
+               {0, 20, {"_cent_0_10", "_cent_10_20"}, "0_20"},
+               {40, 60, {"_cent_40_60"}, "40_60"}}
+            };
+
+            // 3-variant overlay indices: noSub(0), variantA(2), variantB(3)
+            const vector<std::size_t> threeVarIdx = {0, 2, 3};
+
+            // ────────────────────────────────────────────────
+            // Phase 1: Per-variant folders  (variant/rKey/cent/pT)
+            // ────────────────────────────────────────────────
+            for (std::size_t iv = 0; iv < vHandles.size(); ++iv)
+            {
+              if (!vHandles[iv].file) continue;
+              TDirectory* trigDir = vHandles[iv].file->GetDirectory(trigAA.c_str());
+              if (!trigDir) continue;
+
+              const string varLeadBase = JoinPath(leadBase, vHandles[iv].variant);
+              const string varInclBase = JoinPath(inclBase, vHandles[iv].variant);
+
+              for (const auto& rKey : rKeysAA)
+              {
+                const double R = RFromKey(rKey);
+                const string leadRDir = JoinPath(varLeadBase, rKey);
+                const string inclRDir = JoinPath(varInclBase, rKey);
+                EnsureDir(leadRDir);
+                EnsureDir(inclRDir);
+
+                // PP reference TH2 (no centrality suffix, same for all cents)
+                TH2* h2PP = ppTopXJ
+                  ? dynamic_cast<TH2*>(ppTopXJ->Get(("h2_unfoldReco_pTgamma_xJ_incl_" + rKey).c_str()))
+                  : nullptr;
+
+                // ── Standard centrality bins ──
+                for (const auto& cs : centSels)
                 {
-                  if (!vHandles[iv].file) continue;
-                  TDirectory* trigDir = vHandles[iv].file->GetDirectory(trigAA.c_str());
-                  if (!trigDir) continue;
+                  const string leadCDir = JoinPath(leadRDir, cs.folder);
+                  const string inclCDir = JoinPath(inclRDir, cs.folder);
+                  EnsureDir(leadCDir);
+                  EnsureDir(inclCDir);
 
-                  const string h3Name = "h_JES3_pT_xJ_alpha_" + rKey + cb.suffix;
-                  TH3* h3 = dynamic_cast<TH3*>(trigDir->Get(h3Name.c_str()));
-                  if (h3) varTH3s.push_back({iv, h3});
-                }
-
-                if (!varTH3s.empty())
-                {
-                  const int nPt = varTH3s[0].h3->GetXaxis()->GetNbins();
-
-                  for (int ib = 1; ib <= nPt; ++ib)
+                  // LEADING JET
                   {
-                    const double ptLo = varTH3s[0].h3->GetXaxis()->GetBinLowEdge(ib);
-                    const double ptHi = varTH3s[0].h3->GetXaxis()->GetBinUpEdge(ib);
-                    const int iPtLo = (int)std::lround(ptLo);
-                    const int iPtHi = (int)std::lround(ptHi);
-                    const string ptFolder = TString::Format("pT_%d_%d", iPtLo, iPtHi).Data();
-
-                    const string ptDir = JoinPath(leadCentDir, ptFolder);
-                    EnsureDir(ptDir);
-
-                    // Project xJ for each variant
-                    vector<TH1*> hAll;
-                    vector<std::size_t> idxAll;
-                    vector<TH1*> h3V;
-                    vector<std::size_t> idx3V;
-
-                    for (const auto& vt : varTH3s)
+                    TH3* h3 = MergeTH3(trigDir, "h_JES3_pT_xJ_alpha_", rKey, cs.suffixes,
+                      TString::Format("h3merge_lead_%s_%zu_%s", rKey.c_str(), iv, cs.folder.c_str()).Data());
+                    if (h3)
                     {
-                      TH1* hxj = ProjectY_AtXbin_TH3(
-                        vt.h3, ib,
-                        TString::Format("hLead_%s_%s_%s_b%d_v%d",
-                          rKey.c_str(), cb.folder.c_str(), ptFolder.c_str(), ib, (int)vt.idx).Data()
-                      );
-                      if (!hxj) continue;
-                      hxj->SetDirectory(nullptr);
-                      EnsureSumw2(hxj);
-                      const double integ = hxj->Integral(0, hxj->GetNbinsX() + 1);
-                      if (integ > 0.0) hxj->Scale(1.0 / integ);
+                      const int nPt = h3->GetXaxis()->GetNbins();
+                      for (int ib = 1; ib <= nPt; ++ib)
+                      {
+                        const int iPtLo = (int)std::lround(h3->GetXaxis()->GetBinLowEdge(ib));
+                        const int iPtHi = (int)std::lround(h3->GetXaxis()->GetBinUpEdge(ib));
+                        const string ptFolder = TString::Format("pT_%d_%d", iPtLo, iPtHi).Data();
+                        const string ptDir = JoinPath(leadCDir, ptFolder);
+                        EnsureDir(ptDir);
 
-                      hxj->SetLineColor(ueColors[vt.idx]);
-                      hxj->SetMarkerColor(ueColors[vt.idx]);
-                      hxj->SetMarkerStyle(20);
-                      hxj->SetMarkerSize(1.1);
-                      hxj->SetLineWidth(2);
-                      hxj->SetFillStyle(0);
+                        TH1* hxj = ProjectY_AtXbin_TH3(h3, ib,
+                          TString::Format("hLead1v_%s_%s_%s_b%d_v%zu", rKey.c_str(), cs.folder.c_str(), ptFolder.c_str(), ib, iv).Data());
+                        if (!hxj) continue;
+                        StyleXJ(hxj, vHandles[iv].color, 20);
 
-                      hAll.push_back(hxj);
-                      idxAll.push_back(vt.idx);
-                      if (vt.idx <= 2) { h3V.push_back(hxj); idx3V.push_back(vt.idx); }
+                        DrawXJOverlay({hxj}, {vHandles[iv].label}, nullptr, "pp",
+                          JoinPath(ptDir, "xJ_leading.png"),
+                          TString::Format("Leading jet x_{J}, %s", vHandles[iv].label.c_str()).Data(),
+                          rKey, R, cs.lo, cs.hi, iPtLo, iPtHi);
+                        delete hxj;
+                      }
+                      delete h3;
                     }
+                  }
 
-                    if (!hAll.empty())
-                      DrawXJOverlay(hAll, idxAll, nullptr,
-                        JoinPath(ptDir, "xJ_leading_allVariants.png"),
-                        "Leading jet x_{J}, all UE variants",
-                        rKey, R, cb.lo, cb.hi, iPtLo, iPtHi);
+                  // INCLUSIVE
+                  {
+                    TH2* h2 = MergeTH2(trigDir, "h2_unfoldReco_pTgamma_xJ_incl_", rKey, cs.suffixes,
+                      TString::Format("h2merge_incl_%s_%zu_%s", rKey.c_str(), iv, cs.folder.c_str()).Data());
+                    if (h2)
+                    {
+                      const int nPt = h2->GetXaxis()->GetNbins();
+                      for (int ib = 1; ib <= nPt; ++ib)
+                      {
+                        const double ptLo = h2->GetXaxis()->GetBinLowEdge(ib);
+                        const double ptHi = h2->GetXaxis()->GetBinUpEdge(ib);
+                        const int iPtLo = (int)std::lround(ptLo);
+                        const int iPtHi = (int)std::lround(ptHi);
+                        const string ptFolder = TString::Format("pT_%d_%d", iPtLo, iPtHi).Data();
+                        const string ptDir = JoinPath(inclCDir, ptFolder);
+                        EnsureDir(ptDir);
 
-                    if (!h3V.empty())
-                      DrawXJOverlay(h3V, idx3V, nullptr,
-                        JoinPath(ptDir, "xJ_leading_noSub_baseVar_varA.png"),
-                        "Leading jet x_{J}, noSub+baseVar+varA",
-                        rKey, R, cb.lo, cb.hi, iPtLo, iPtHi);
+                        const double cen = 0.5 * (ptLo + ptHi);
+                        const int ix = h2->GetXaxis()->FindBin(cen);
+                        if (ix < 1 || ix > h2->GetNbinsX()) continue;
 
-                    for (auto* h : hAll) delete h;
+                        TH1D* hxj = h2->ProjectionY(
+                          TString::Format("hIncl1v_%s_%s_%s_b%d_v%zu", rKey.c_str(), cs.folder.c_str(), ptFolder.c_str(), ib, iv).Data(),
+                          ix, ix, "e");
+                        if (!hxj) continue;
+                        StyleXJ(hxj, vHandles[iv].color, 20);
+
+                        TH1* hPP = ProjectPP(h2PP, rKey, TString::Format("1v_%s_%zu", cs.folder.c_str(), iv).Data(), ib, ptLo, ptHi);
+
+                        DrawXJOverlay({hxj}, {vHandles[iv].label}, hPP, "pp",
+                          JoinPath(ptDir, "xJ_inclusive.png"),
+                          TString::Format("Inclusive reco x_{J}, %s", vHandles[iv].label.c_str()).Data(),
+                          rKey, R, cs.lo, cs.hi, iPtLo, iPtHi);
+                        delete hxj;
+                        if (hPP) delete hPP;
+                      }
+                      delete h2;
+                    }
                   }
                 }
-              }
 
-              // ── INCLUSIVE (UNFOLDING RECO TH2) ──
-              {
-                struct VarTH2 { std::size_t idx; TH2* h2; };
-                vector<VarTH2> varTH2s;
-
-                for (std::size_t iv = 0; iv < vHandles.size(); ++iv)
+                // ── Centrality-comparison folders ──
+                for (const auto& cp : centPairs)
                 {
-                  if (!vHandles[iv].file) continue;
-                  TDirectory* trigDir = vHandles[iv].file->GetDirectory(trigAA.c_str());
-                  if (!trigDir) continue;
+                  const string leadPDir = JoinPath(leadRDir, cp.folder);
+                  const string inclPDir = JoinPath(inclRDir, cp.folder);
+                  EnsureDir(leadPDir);
+                  EnsureDir(inclPDir);
 
-                  const string h2Name = "h2_unfoldReco_pTgamma_xJ_incl_" + rKey + cb.suffix;
-                  TH2* h2 = dynamic_cast<TH2*>(trigDir->Get(h2Name.c_str()));
-                  if (h2) varTH2s.push_back({iv, h2});
-                }
+                  const string labelA = TString::Format("%d-%d%% AuAu", cp.a.lo, cp.a.hi).Data();
+                  const string labelB = TString::Format("%d-%d%% AuAu", cp.b.lo, cp.b.hi).Data();
+                  const int colA = kBlack;
+                  const int colB = kBlue + 1;
 
-                if (!varTH2s.empty())
-                {
-                  const int nPt = varTH2s[0].h2->GetXaxis()->GetNbins();
-
-                  // PP reference TH2 (no centrality suffix)
-                  TH2* h2PP = nullptr;
-                  if (ppTopXJ)
-                    h2PP = dynamic_cast<TH2*>(ppTopXJ->Get(("h2_unfoldReco_pTgamma_xJ_incl_" + rKey).c_str()));
-
-                  for (int ib = 1; ib <= nPt; ++ib)
+                  // LEADING JET cent-comparison
                   {
-                    const double ptLo = varTH2s[0].h2->GetXaxis()->GetBinLowEdge(ib);
-                    const double ptHi = varTH2s[0].h2->GetXaxis()->GetBinUpEdge(ib);
-                    const int iPtLo = (int)std::lround(ptLo);
-                    const int iPtHi = (int)std::lround(ptHi);
-                    const string ptFolder = TString::Format("pT_%d_%d", iPtLo, iPtHi).Data();
-
-                    const string ptDir = JoinPath(inclCentDir, ptFolder);
-                    EnsureDir(ptDir);
-
-                    // PP projection for this pT bin
-                    TH1* hPPproj = nullptr;
-                    if (h2PP)
+                    TH3* h3A = MergeTH3(trigDir, "h_JES3_pT_xJ_alpha_", rKey, cp.a.suffixes,
+                      TString::Format("h3cpA_lead_%s_%zu_%s", rKey.c_str(), iv, cp.folder.c_str()).Data());
+                    TH3* h3B = MergeTH3(trigDir, "h_JES3_pT_xJ_alpha_", rKey, cp.b.suffixes,
+                      TString::Format("h3cpB_lead_%s_%zu_%s", rKey.c_str(), iv, cp.folder.c_str()).Data());
+                    if (h3A && h3B)
                     {
-                      const double cen = 0.5 * (ptLo + ptHi);
-                      const int ixPP = h2PP->GetXaxis()->FindBin(cen);
-                      if (ixPP >= 1 && ixPP <= h2PP->GetNbinsX())
+                      const int nPt = h3A->GetXaxis()->GetNbins();
+                      for (int ib = 1; ib <= nPt; ++ib)
                       {
-                        hPPproj = h2PP->ProjectionY(
-                          TString::Format("hPPincl_%s_%s_b%d", rKey.c_str(), cb.folder.c_str(), ib).Data(),
-                          ixPP, ixPP, "e"
-                        );
-                        if (hPPproj)
+                        const int iPtLo = (int)std::lround(h3A->GetXaxis()->GetBinLowEdge(ib));
+                        const int iPtHi = (int)std::lround(h3A->GetXaxis()->GetBinUpEdge(ib));
+                        const string ptFolder = TString::Format("pT_%d_%d", iPtLo, iPtHi).Data();
+                        const string ptDir = JoinPath(leadPDir, ptFolder);
+                        EnsureDir(ptDir);
+
+                        TH1* hA = ProjectY_AtXbin_TH3(h3A, ib,
+                          TString::Format("hLeadCpA_%s_%zu_%s_b%d", rKey.c_str(), iv, cp.folder.c_str(), ib).Data());
+                        TH1* hB = ProjectY_AtXbin_TH3(h3B, ib,
+                          TString::Format("hLeadCpB_%s_%zu_%s_b%d", rKey.c_str(), iv, cp.folder.c_str(), ib).Data());
+                        if (hA && hB)
                         {
-                          hPPproj->SetDirectory(nullptr);
-                          EnsureSumw2(hPPproj);
-                          const double intPP = hPPproj->Integral(0, hPPproj->GetNbinsX() + 1);
-                          if (intPP > 0.0) hPPproj->Scale(1.0 / intPP);
-                          hPPproj->SetLineColor(kRed + 1);
-                          hPPproj->SetMarkerColor(kRed + 1);
-                          hPPproj->SetMarkerStyle(24);
-                          hPPproj->SetMarkerSize(1.1);
-                          hPPproj->SetLineWidth(2);
-                          hPPproj->SetFillStyle(0);
+                          StyleXJ(hA, colA, 20);
+                          StyleXJ(hB, colB, 20);
+                          DrawXJOverlay({hA, hB}, {labelA, labelB}, nullptr, "pp",
+                            JoinPath(ptDir, "xJ_leading_centCompare.png"),
+                            TString::Format("Leading x_{J}, %s, cent compare", vHandles[iv].label.c_str()).Data(),
+                            rKey, R, cp.a.lo, cp.b.hi, iPtLo, iPtHi);
                         }
+                        if (hA) delete hA;
+                        if (hB) delete hB;
                       }
                     }
+                    if (h3A) delete h3A;
+                    if (h3B) delete h3B;
+                  }
 
-                    // Project xJ for each variant
-                    vector<TH1*> hAll;
-                    vector<std::size_t> idxAll;
-                    vector<TH1*> h3V;
-                    vector<std::size_t> idx3V;
-
-                    for (const auto& vt : varTH2s)
+                  // INCLUSIVE cent-comparison
+                  {
+                    TH2* h2A = MergeTH2(trigDir, "h2_unfoldReco_pTgamma_xJ_incl_", rKey, cp.a.suffixes,
+                      TString::Format("h2cpA_incl_%s_%zu_%s", rKey.c_str(), iv, cp.folder.c_str()).Data());
+                    TH2* h2B = MergeTH2(trigDir, "h2_unfoldReco_pTgamma_xJ_incl_", rKey, cp.b.suffixes,
+                      TString::Format("h2cpB_incl_%s_%zu_%s", rKey.c_str(), iv, cp.folder.c_str()).Data());
+                    if (h2A && h2B)
                     {
-                      const double cen = 0.5 * (ptLo + ptHi);
-                      const int ix = vt.h2->GetXaxis()->FindBin(cen);
-                      if (ix < 1 || ix > vt.h2->GetNbinsX()) continue;
+                      const int nPt = h2A->GetXaxis()->GetNbins();
+                      for (int ib = 1; ib <= nPt; ++ib)
+                      {
+                        const double ptLo = h2A->GetXaxis()->GetBinLowEdge(ib);
+                        const double ptHi = h2A->GetXaxis()->GetBinUpEdge(ib);
+                        const int iPtLo = (int)std::lround(ptLo);
+                        const int iPtHi = (int)std::lround(ptHi);
+                        const string ptFolder = TString::Format("pT_%d_%d", iPtLo, iPtHi).Data();
+                        const string ptDir = JoinPath(inclPDir, ptFolder);
+                        EnsureDir(ptDir);
 
-                      TH1D* hxj = vt.h2->ProjectionY(
-                        TString::Format("hIncl_%s_%s_%s_b%d_v%d",
-                          rKey.c_str(), cb.folder.c_str(), ptFolder.c_str(), ib, (int)vt.idx).Data(),
-                        ix, ix, "e"
-                      );
-                      if (!hxj) continue;
-                      hxj->SetDirectory(nullptr);
-                      EnsureSumw2(hxj);
-                      const double integ = hxj->Integral(0, hxj->GetNbinsX() + 1);
-                      if (integ > 0.0) hxj->Scale(1.0 / integ);
+                        const double cen = 0.5 * (ptLo + ptHi);
+                        const int ixA = h2A->GetXaxis()->FindBin(cen);
+                        const int ixB = h2B->GetXaxis()->FindBin(cen);
+                        if (ixA < 1 || ixA > h2A->GetNbinsX()) continue;
+                        if (ixB < 1 || ixB > h2B->GetNbinsX()) continue;
 
-                      hxj->SetLineColor(ueColors[vt.idx]);
-                      hxj->SetMarkerColor(ueColors[vt.idx]);
-                      hxj->SetMarkerStyle(20);
-                      hxj->SetMarkerSize(1.1);
-                      hxj->SetLineWidth(2);
-                      hxj->SetFillStyle(0);
-
-                      hAll.push_back(hxj);
-                      idxAll.push_back(vt.idx);
-                      if (vt.idx <= 2) { h3V.push_back(hxj); idx3V.push_back(vt.idx); }
+                        TH1D* hA = h2A->ProjectionY(
+                          TString::Format("hInclCpA_%s_%zu_%s_b%d", rKey.c_str(), iv, cp.folder.c_str(), ib).Data(),
+                          ixA, ixA, "e");
+                        TH1D* hB = h2B->ProjectionY(
+                          TString::Format("hInclCpB_%s_%zu_%s_b%d", rKey.c_str(), iv, cp.folder.c_str(), ib).Data(),
+                          ixB, ixB, "e");
+                        if (hA && hB)
+                        {
+                          StyleXJ(hA, colA, 20);
+                          StyleXJ(hB, colB, 20);
+                          TH1* hPP = ProjectPP(h2PP, rKey,
+                            TString::Format("cp_%s_%zu", cp.folder.c_str(), iv).Data(), ib, ptLo, ptHi);
+                          DrawXJOverlay({hA, hB}, {labelA, labelB}, hPP, "pp",
+                            JoinPath(ptDir, "xJ_inclusive_centCompare.png"),
+                            TString::Format("Inclusive x_{J}, %s, cent compare", vHandles[iv].label.c_str()).Data(),
+                            rKey, R, cp.a.lo, cp.b.hi, iPtLo, iPtHi);
+                          if (hPP) delete hPP;
+                        }
+                        if (hA) delete hA;
+                        if (hB) delete hB;
+                      }
                     }
-
-                    if (!hAll.empty())
-                      DrawXJOverlay(hAll, idxAll, hPPproj,
-                        JoinPath(ptDir, "xJ_inclusive_allVariants.png"),
-                        "Inclusive reco x_{J}, all UE variants",
-                        rKey, R, cb.lo, cb.hi, iPtLo, iPtHi);
-
-                    if (!h3V.empty())
-                      DrawXJOverlay(h3V, idx3V, hPPproj,
-                        JoinPath(ptDir, "xJ_inclusive_noSub_baseVar_varA.png"),
-                        "Inclusive reco x_{J}, noSub+baseVar+varA",
-                        rKey, R, cb.lo, cb.hi, iPtLo, iPtHi);
-
-                    for (auto* h : hAll) delete h;
-                    if (hPPproj) delete hPPproj;
+                    if (h2A) delete h2A;
+                    if (h2B) delete h2B;
                   }
                 }
               }
             }
-          }
+
+            // ────────────────────────────────────────────────
+            // Phase 2: noSub_varA_varB overlay folder
+            // ────────────────────────────────────────────────
+            {
+              const string threeLeadBase = JoinPath(leadBase, "noSub_varA_varB");
+              const string threeInclBase = JoinPath(inclBase, "noSub_varA_varB");
+
+              for (const auto& rKey : rKeysAA)
+              {
+                const double R = RFromKey(rKey);
+                const string leadRDir = JoinPath(threeLeadBase, rKey);
+                const string inclRDir = JoinPath(threeInclBase, rKey);
+                EnsureDir(leadRDir);
+                EnsureDir(inclRDir);
+
+                TH2* h2PP = ppTopXJ
+                  ? dynamic_cast<TH2*>(ppTopXJ->Get(("h2_unfoldReco_pTgamma_xJ_incl_" + rKey).c_str()))
+                  : nullptr;
+
+                for (const auto& cs : centSels)
+                {
+                  const string leadCDir = JoinPath(leadRDir, cs.folder);
+                  const string inclCDir = JoinPath(inclRDir, cs.folder);
+                  EnsureDir(leadCDir);
+                  EnsureDir(inclCDir);
+
+                  // LEADING JET 3-variant overlay
+                  {
+                    // Collect merged TH3 per variant
+                    struct V3 { std::size_t idx; TH3* h3; };
+                    vector<V3> v3s;
+                    for (std::size_t iv : threeVarIdx)
+                    {
+                      if (!vHandles[iv].file) continue;
+                      TDirectory* trigDir = vHandles[iv].file->GetDirectory(trigAA.c_str());
+                      if (!trigDir) continue;
+                      TH3* h3 = MergeTH3(trigDir, "h_JES3_pT_xJ_alpha_", rKey, cs.suffixes,
+                        TString::Format("h3_3v_lead_%s_%zu_%s", rKey.c_str(), iv, cs.folder.c_str()).Data());
+                      if (h3) v3s.push_back({iv, h3});
+                    }
+
+                    if (!v3s.empty())
+                    {
+                      const int nPt = v3s[0].h3->GetXaxis()->GetNbins();
+                      for (int ib = 1; ib <= nPt; ++ib)
+                      {
+                        const int iPtLo = (int)std::lround(v3s[0].h3->GetXaxis()->GetBinLowEdge(ib));
+                        const int iPtHi = (int)std::lround(v3s[0].h3->GetXaxis()->GetBinUpEdge(ib));
+                        const string ptFolder = TString::Format("pT_%d_%d", iPtLo, iPtHi).Data();
+                        const string ptDir = JoinPath(leadCDir, ptFolder);
+                        EnsureDir(ptDir);
+
+                        vector<TH1*> hists;
+                        vector<string> labs;
+                        for (const auto& v : v3s)
+                        {
+                          TH1* h = ProjectY_AtXbin_TH3(v.h3, ib,
+                            TString::Format("hLead3v_%s_%s_%s_b%d_v%zu", rKey.c_str(), cs.folder.c_str(), ptFolder.c_str(), ib, v.idx).Data());
+                          if (!h) continue;
+                          StyleXJ(h, vHandles[v.idx].color, 20);
+                          hists.push_back(h);
+                          labs.push_back(vHandles[v.idx].label);
+                        }
+
+                        if (!hists.empty())
+                          DrawXJOverlay(hists, labs, nullptr, "pp",
+                            JoinPath(ptDir, "xJ_leading_noSub_varA_varB.png"),
+                            "Leading jet x_{J}, noSub+varA+varB",
+                            rKey, R, cs.lo, cs.hi, iPtLo, iPtHi);
+                        for (auto* h : hists) delete h;
+                      }
+                    }
+                    for (auto& v : v3s) delete v.h3;
+                  }
+
+                  // INCLUSIVE 3-variant overlay
+                  {
+                    struct V2 { std::size_t idx; TH2* h2; };
+                    vector<V2> v2s;
+                    for (std::size_t iv : threeVarIdx)
+                    {
+                      if (!vHandles[iv].file) continue;
+                      TDirectory* trigDir = vHandles[iv].file->GetDirectory(trigAA.c_str());
+                      if (!trigDir) continue;
+                      TH2* h2 = MergeTH2(trigDir, "h2_unfoldReco_pTgamma_xJ_incl_", rKey, cs.suffixes,
+                        TString::Format("h2_3v_incl_%s_%zu_%s", rKey.c_str(), iv, cs.folder.c_str()).Data());
+                      if (h2) v2s.push_back({iv, h2});
+                    }
+
+                    if (!v2s.empty())
+                    {
+                      const int nPt = v2s[0].h2->GetXaxis()->GetNbins();
+                      for (int ib = 1; ib <= nPt; ++ib)
+                      {
+                        const double ptLo = v2s[0].h2->GetXaxis()->GetBinLowEdge(ib);
+                        const double ptHi = v2s[0].h2->GetXaxis()->GetBinUpEdge(ib);
+                        const int iPtLo = (int)std::lround(ptLo);
+                        const int iPtHi = (int)std::lround(ptHi);
+                        const string ptFolder = TString::Format("pT_%d_%d", iPtLo, iPtHi).Data();
+                        const string ptDir = JoinPath(inclCDir, ptFolder);
+                        EnsureDir(ptDir);
+
+                        vector<TH1*> hists;
+                        vector<string> labs;
+                        for (const auto& v : v2s)
+                        {
+                          const double cen = 0.5 * (ptLo + ptHi);
+                          const int ix = v.h2->GetXaxis()->FindBin(cen);
+                          if (ix < 1 || ix > v.h2->GetNbinsX()) continue;
+                          TH1D* h = v.h2->ProjectionY(
+                            TString::Format("hIncl3v_%s_%s_%s_b%d_v%zu", rKey.c_str(), cs.folder.c_str(), ptFolder.c_str(), ib, v.idx).Data(),
+                            ix, ix, "e");
+                          if (!h) continue;
+                          StyleXJ(h, vHandles[v.idx].color, 20);
+                          hists.push_back(h);
+                          labs.push_back(vHandles[v.idx].label);
+                        }
+
+                        TH1* hPP = ProjectPP(h2PP, rKey,
+                          TString::Format("3v_%s", cs.folder.c_str()).Data(), ib, ptLo, ptHi);
+
+                        if (!hists.empty())
+                          DrawXJOverlay(hists, labs, hPP, "pp",
+                            JoinPath(ptDir, "xJ_inclusive_noSub_varA_varB.png"),
+                            "Inclusive reco x_{J}, noSub+varA+varB",
+                            rKey, R, cs.lo, cs.hi, iPtLo, iPtHi);
+                        for (auto* h : hists) delete h;
+                        if (hPP) delete hPP;
+                      }
+                    }
+                    for (auto& v : v2s) delete v.h2;
+                  }
+                }
+              }
+            }
 
           for (auto& V : vHandles)
           {
@@ -15526,6 +16144,8 @@ namespace ARJ
                     {
                       struct SelCentUE { int lo; int hi; vector<string> suffixes; };
                       const std::vector<SelCentUE> selCentsUE = {
+                        {0,  10, {"_cent_0_10"}},
+                        {10, 20, {"_cent_10_20"}},
                         {0,  20, {"_cent_0_10", "_cent_10_20"}},
                         {20, 40, {"_cent_20_40"}},
                         {40, 60, {"_cent_40_60"}},
