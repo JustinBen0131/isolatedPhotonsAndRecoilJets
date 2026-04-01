@@ -1660,74 +1660,71 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
 
 int RecoilJets::process_event(PHCompositeNode* topNode)
 {
-  /* ------------------------------------------------------------------ */
-  /* 0) Banner & counter                                                */
-  /* ------------------------------------------------------------------ */
-  ++event_count;
-  ++m_bk.evt_seen;
-  if (m_isoAuditMode) ++m_isoAuditFlowGlobal.evt_seen;
-
-  if (!m_isoAuditMode || Verbosity() >= 2)
-  {
+    /* ------------------------------------------------------------------ */
+    /* 0) Banner & counter                                                */
+    /* ------------------------------------------------------------------ */
+    ++event_count;
+    ++m_bk.evt_seen;
+    if (m_isoAuditMode) ++m_isoAuditFlowGlobal.evt_seen;
+    
     std::cout << "==================== processing event "
-              << std::setw(6) << event_count
-              << " ====================" << std::endl;
-  }
-
-  /* ------------------------------------------------------------------ */
-  /* 1) Mandatory nodes                                                 */
-  /* ------------------------------------------------------------------ */
-  LOG(4, CLR_BLUE, "  [process_event] – node sanity");
-  if (!fetchNodes(topNode))
-  {
-    LOG(4, CLR_YELLOW, "    mandatory node(s) missing → ABORTEVENT");
-    return Fun4AllReturnCodes::ABORTEVENT;
-  }
-
-  if (m_isoAuditMode)
-  {
-    ++m_isoAuditFlowGlobal.mandatory_nodes_ok;
-    ++m_isoAuditFlowGlobal.valid_reco_vertex_found;
-  }
-
-  bool auditCentValid = false;
-  int auditCentIdx = -1;
-  int auditCentBin = -1;
-
-  if (m_isoAuditMode && m_isAuAu)
-  {
-    CentralityInfo* auditCentral =
-      findNode::getClass<CentralityInfo>(topNode, "CentralityInfo");
-
-    if (auditCentral)
+    << std::setw(6) << event_count
+    << " ====================" << std::endl;
+    
+    /* ------------------------------------------------------------------ */
+    /* 1) Mandatory nodes                                                 */
+    /* ------------------------------------------------------------------ */
+    LOG(4, CLR_BLUE, "  [process_event] – node sanity");
+    if (!fetchNodes(topNode))
     {
-      const float auditCentile =
-        auditCentral->get_centrality_bin(CentralityInfo::PROP::mbd_NS);
-
-      if (std::isfinite(auditCentile) && auditCentile >= 0.f)
-      {
-        auditCentValid = true;
-        auditCentBin = static_cast<int>(auditCentile);
-        auditCentIdx = findCentBin(auditCentBin);
-
-        ++m_isoAuditFlowGlobal.valid_centrality_info;
-
-        if (auditCentIdx >= 0 && auditCentIdx < static_cast<int>(m_isoAuditFlowByCent.size()))
-        {
-          auto& flow = m_isoAuditFlowByCent[auditCentIdx];
-          ++flow.evt_seen;
-          ++flow.mandatory_nodes_ok;
-          ++flow.valid_reco_vertex_found;
-          ++flow.valid_centrality_info;
-        }
-      }
+        LOG(4, CLR_YELLOW, "    mandatory node(s) missing → ABORTEVENT");
+        return Fun4AllReturnCodes::ABORTEVENT;
     }
-  }
-
-  /* ------------------------------------------------------------------ */
-  /* 2) Trigger gating (pp & Au+Au) — unified in firstEventCuts()       */
-  /* ------------------------------------------------------------------ */
-
+    
+    if (m_isoAuditMode)
+    {
+        ++m_isoAuditFlowGlobal.mandatory_nodes_ok;
+        ++m_isoAuditFlowGlobal.valid_reco_vertex_found;
+    }
+    
+    bool auditCentValid = false;
+    int auditCentIdx = -1;
+    int auditCentBin = -1;
+    
+    if (m_isoAuditMode && m_isAuAu)
+    {
+        CentralityInfo* auditCentral =
+        findNode::getClass<CentralityInfo>(topNode, "CentralityInfo");
+        
+        if (auditCentral)
+        {
+            const float auditCentile =
+            auditCentral->get_centrality_bin(CentralityInfo::PROP::mbd_NS);
+            
+            if (std::isfinite(auditCentile) && auditCentile >= 0.f)
+            {
+                auditCentValid = true;
+                auditCentBin = static_cast<int>(auditCentile);
+                auditCentIdx = findCentBin(auditCentBin);
+                
+                ++m_isoAuditFlowGlobal.valid_centrality_info;
+                
+                if (auditCentIdx >= 0 && auditCentIdx < static_cast<int>(m_isoAuditFlowByCent.size()))
+                {
+                    auto& flow = m_isoAuditFlowByCent[auditCentIdx];
+                    ++flow.evt_seen;
+                    ++flow.mandatory_nodes_ok;
+                    ++flow.valid_reco_vertex_found;
+                    ++flow.valid_centrality_info;
+                }
+            }
+        }
+    }
+    
+    /* ------------------------------------------------------------------ */
+    /* 2) Trigger gating (pp & Au+Au) — unified in firstEventCuts()       */
+    /* ------------------------------------------------------------------ */
+    
     // DATA ONLY: doNotScale max-cluster-energy trigger-efficiency fill
     //   - baseline gate uses the event-level raw/unscaled GL1 TriggerVector bit
     //   - probe gate uses the event-level GL1 LiveVector bit
@@ -1737,313 +1734,318 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     // ------------------------------------------------------------------
     if (!m_isSim)
     {
-            Gl1Packet* gl1Packet = findNode::getClass<Gl1Packet>(topNode, "GL1Packet");
-            if (!gl1Packet) gl1Packet = findNode::getClass<Gl1Packet>(topNode, "14001");
-
-            if (gl1Packet)
+        Gl1Packet* gl1Packet = findNode::getClass<Gl1Packet>(topNode, "GL1Packet");
+        if (!gl1Packet) gl1Packet = findNode::getClass<Gl1Packet>(topNode, "14001");
+        
+        if (gl1Packet)
+        {
+            const uint64_t runNumber     = recoConsts::instance()->get_uint64Flag("TIMESTAMP", 0);
+            uint64_t triggerVector = 0;
+            uint64_t liveVector    = 0;
+            getDoNotScaleEventVectors(gl1Packet, triggerVector, liveVector);
+            
+            const bool passVzForDoNotScale =
+            (std::isfinite(m_vz) && std::fabs(m_vz) < 30.0);
+            
+            if (passVzForDoNotScale)
             {
-                const uint64_t runNumber     = recoConsts::instance()->get_uint64Flag("TIMESTAMP", 0);
-                uint64_t triggerVector = 0;
-                uint64_t liveVector    = 0;
-                getDoNotScaleEventVectors(gl1Packet, triggerVector, liveVector);
-
-                const bool passVzForDoNotScale =
-                    (std::isfinite(m_vz) && std::fabs(m_vz) < 30.0);
-
-                if (passVzForDoNotScale)
+                float max_energy_clus = 0.f;
+                
+                if (m_clus)
                 {
-                    float max_energy_clus = 0.f;
-
-                    if (m_clus)
+                    const auto range = m_clus->getClusters();
+                    for (auto it = range.first; it != range.second; ++it)
                     {
-                      const auto range = m_clus->getClusters();
-                      for (auto it = range.first; it != range.second; ++it)
-                      {
                         const RawCluster* cl = it->second;
                         if (!cl) continue;
                         const float e = cl->get_energy();
                         if (!std::isfinite(e)) continue;
                         if (e < 1.0f) continue;
                         if (e > max_energy_clus) max_energy_clus = e;
-                      }
                     }
-                    else if (m_photons)
+                }
+                else if (m_photons)
+                {
+                    const auto range = m_photons->getClusters();
+                    for (auto it = range.first; it != range.second; ++it)
                     {
-                      const auto range = m_photons->getClusters();
-                      for (auto it = range.first; it != range.second; ++it)
-                      {
                         const RawCluster* cl = it->second;
                         if (!cl) continue;
                         const float e = cl->get_energy();
                         if (!std::isfinite(e)) continue;
                         if (e < 1.0f) continue;
                         if (e > max_energy_clus) max_energy_clus = e;
-                      }
                     }
-
-                    auto fillDoNotScaleHist = [&](const std::string& histKey)
+                }
+                
+                auto fillDoNotScaleHist = [&](const std::string& histKey)
+                {
+                    const std::string histName = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + histKey;
+                    auto& histogramMap = qaHistogramsByTrigger[histKey];
+                    
+                    TH1F* h = nullptr;
+                    auto it = histogramMap.find(histName);
+                    if (it != histogramMap.end())
                     {
-                      const std::string histName = "h_maxEnergyClus_NewTriggerFilling_doNotScale_" + histKey;
-                      auto& histogramMap = qaHistogramsByTrigger[histKey];
-
-                      TH1F* h = nullptr;
-                      auto it = histogramMap.find(histName);
-                      if (it != histogramMap.end())
-                      {
                         h = dynamic_cast<TH1F*>(it->second);
-                      }
-
-                      if (!h)
-                      {
+                    }
+                    
+                    if (!h)
+                    {
                         TDirectory* dir = out->GetDirectory(histKey.c_str());
                         if (!dir) dir = out->mkdir(histKey.c_str());
                         if (!dir) return;
-
+                        
                         TDirectory* prevDir = gDirectory;
                         dir->cd();
-
+                        
                         h = new TH1F(histName.c_str(),
                                      "Max Cluster Energy; Cluster Energy [GeV]",
                                      40, 0, 20);
                         h->SetDirectory(dir);
                         histogramMap[histName] = h;
-
+                        
                         if (prevDir) prevDir->cd();
-                      }
-
-                      h->Fill(max_energy_clus);
-                      bumpHistFill(histKey, histName);
-                    };
-
-                    for (const auto& cfg : getDoNotScalePairConfigs())
+                    }
+                    
+                    h->Fill(max_energy_clus);
+                    bumpHistFill(histKey, histName);
+                };
+                
+                for (const auto& cfg : getDoNotScalePairConfigs())
+                {
+                    if (!doNotScaleRunMatch(runNumber, cfg)) continue;
+                    if (!doNotScaleBitIsSet(triggerVector, cfg.baselineBit)) continue;
+                    
+                    fillDoNotScaleHist(doNotScaleBaselineHistKey(cfg));
+                    
+                    if (doNotScaleBitIsSet(liveVector, cfg.probeBit))
                     {
-                      if (!doNotScaleRunMatch(runNumber, cfg)) continue;
-                      if (!doNotScaleBitIsSet(triggerVector, cfg.baselineBit)) continue;
-
-                      fillDoNotScaleHist(doNotScaleBaselineHistKey(cfg));
-
-                      if (doNotScaleBitIsSet(liveVector, cfg.probeBit))
-                      {
                         fillDoNotScaleHist(cfg.probeHistKey);
-                      }
-                  }
-              }
-          }
-      }
-
-      std::vector<std::string> activeTrig;
-      bool auditMinimumBiasPass = false;
-      bool auditTriggerPass = false;
-
-      const bool applyVzInFirstEventCuts = (!m_isoAuditMode);
-
-      const bool passFirstCuts =
-        firstEventCuts(topNode,
-                       activeTrig,
-                       applyVzInFirstEventCuts,
-                       &auditMinimumBiasPass,
-                       &auditTriggerPass);
-
-      if (m_isoAuditMode)
-      {
+                    }
+                }
+            }
+        }
+    }
+    
+    std::vector<std::string> activeTrig;
+    bool auditMinimumBiasPass = false;
+    bool auditTriggerPass = false;
+    
+    const bool applyVzInFirstEventCuts = (!m_isoAuditMode);
+    
+    const bool passFirstCuts =
+    firstEventCuts(topNode,
+                   activeTrig,
+                   applyVzInFirstEventCuts,
+                   &auditMinimumBiasPass,
+                   &auditTriggerPass);
+    
+    if (m_isoAuditMode)
+    {
         if (auditMinimumBiasPass) ++m_isoAuditFlowGlobal.minimum_bias_pass;
         if (auditTriggerPass) ++m_isoAuditFlowGlobal.trigger_pass;
-
+        
         if (auditCentValid && auditCentIdx >= 0 && auditCentIdx < static_cast<int>(m_isoAuditFlowByCent.size()))
         {
-          auto& flow = m_isoAuditFlowByCent[auditCentIdx];
-          if (auditMinimumBiasPass) ++flow.minimum_bias_pass;
-          if (auditTriggerPass) ++flow.trigger_pass;
+            auto& flow = m_isoAuditFlowByCent[auditCentIdx];
+            if (auditMinimumBiasPass) ++flow.minimum_bias_pass;
+            if (auditTriggerPass) ++flow.trigger_pass;
         }
-      }
-
-      if (!passFirstCuts)
-      {
+    }
+    
+    if (!passFirstCuts)
+    {
         ++m_evtNoTrig;  // keep your legacy counter
         if (m_lastReject == EventReject::Trigger) ++m_bk.evt_fail_trigger;
         else if (m_lastReject == EventReject::Vz) ++m_bk.evt_fail_vz;
-
+        
         const char* why = "UNKNOWN";
         if (m_lastReject == EventReject::Trigger) why = "Trigger";
         else if (m_lastReject == EventReject::Vz) why = "|vz|";
-
+        
         std::ostringstream os;
         os << "    event rejected by " << why << " gate – skip"
-           << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
+        << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
         if (m_useVzCut) os << " (|vz|cut=" << m_vzCut << ")";
         os << " | nActiveTrig=" << activeTrig.size();
-
+        
         if (!activeTrig.empty())
         {
-          os << " | triggers={";
-          for (std::size_t i = 0; i < activeTrig.size(); ++i)
-          {
-            if (i) os << ", ";
-            os << activeTrig[i];
-          }
-          os << "}";
+            os << " | triggers={";
+            for (std::size_t i = 0; i < activeTrig.size(); ++i)
+            {
+                if (i) os << ", ";
+                os << activeTrig[i];
+            }
+            os << "}";
         }
-
+        
         LOG(4, CLR_YELLOW, os.str());
         return Fun4AllReturnCodes::ABORTEVENT;
-  }
-  /* ------------------------------------------------------------------ */
-  /* 3) Trigger counters (one per trigger) + Vertex-z QA                */
-  /* ------------------------------------------------------------------ */
-
+    }
+    /* ------------------------------------------------------------------ */
+    /* 3) Trigger counters (one per trigger) + Vertex-z QA                */
+    /* ------------------------------------------------------------------ */
+    
     // Bump the per-trigger counter once per accepted event (and LOG fills via bumpHistFill)
     for (const auto& t : activeTrig)
     {
-      auto itTrig = qaHistogramsByTrigger.find(t);
-      if (itTrig == qaHistogramsByTrigger.end()) continue;
-
-      auto& H = itTrig->second;
-
-      // (1) per-trigger event counter
-      const std::string hcnt = "cnt_" + t;
-      if (auto hc = H.find(hcnt); hc != H.end())
-      {
-        static_cast<TH1I*>(hc->second)->Fill(1);
-        bumpHistFill(t, hcnt);
-      }
-
-      // (2) vertex-z QA
-      if (auto hvz = H.find("h_vertexZ"); hvz != H.end())
-      {
-        static_cast<TH1F*>(hvz->second)->Fill(m_vz);
-        bumpHistFill(t, "h_vertexZ");
-      }
-  }
-
-  /* ------------------------------------------------------------------ */
-  /* 4) Centrality lookup (Au+Au only)                                  */
-  /*     Keep m_centBin = -1 in pp (acts as minimum-bias)               */
-  /* ------------------------------------------------------------------ */
-  if (m_isAuAu)
-  {
-    CentralityInfo* central =
-      findNode::getClass<CentralityInfo>(topNode, "CentralityInfo");
-
-    if (!central)
-    {
-      LOG(4, CLR_YELLOW,
-          "    CentralityInfo node missing (Au+Au) – ABORTEVENT");
-      return Fun4AllReturnCodes::ABORTEVENT;
+        auto itTrig = qaHistogramsByTrigger.find(t);
+        if (itTrig == qaHistogramsByTrigger.end()) continue;
+        
+        auto& H = itTrig->second;
+        
+        // (1) per-trigger event counter
+        const std::string hcnt = "cnt_" + t;
+        if (auto hc = H.find(hcnt); hc != H.end())
+        {
+            static_cast<TH1I*>(hc->second)->Fill(1);
+            bumpHistFill(t, hcnt);
+        }
+        
+        // (2) vertex-z QA
+        if (auto hvz = H.find("h_vertexZ"); hvz != H.end())
+        {
+            static_cast<TH1F*>(hvz->second)->Fill(m_vz);
+            bumpHistFill(t, "h_vertexZ");
+        }
     }
-
-    const float centile =
-      central->get_centrality_bin(CentralityInfo::PROP::mbd_NS);
-
-    if (!std::isfinite(centile) || centile < 0.f)
+    
+    /* ------------------------------------------------------------------ */
+    /* 4) Centrality lookup (Au+Au only)                                  */
+    /*     Keep m_centBin = -1 in pp (acts as minimum-bias)               */
+    /* ------------------------------------------------------------------ */
+    if (m_isAuAu)
     {
-      LOG(4, CLR_YELLOW,
-          "    invalid mbd_NS centile – treating as minimum-bias (0–100%)");
-      m_centBin = -1;
+        CentralityInfo* central =
+        findNode::getClass<CentralityInfo>(topNode, "CentralityInfo");
+        
+        if (!central)
+        {
+            LOG(4, CLR_YELLOW,
+                "    CentralityInfo node missing (Au+Au) – ABORTEVENT");
+            return Fun4AllReturnCodes::ABORTEVENT;
+        }
+        
+        const float centile =
+        central->get_centrality_bin(CentralityInfo::PROP::mbd_NS);
+        
+        if (!std::isfinite(centile) || centile < 0.f)
+        {
+            LOG(4, CLR_YELLOW,
+                "    invalid mbd_NS centile – treating as minimum-bias (0–100%)");
+            m_centBin = -1;
+        }
+        else
+        {
+            m_centBin = static_cast<int>(centile);
+            LOG(5, CLR_GREEN, "    centrality bin = " << m_centBin << '%');
+        }
+        
+        // Fill centrality histogram if booked under each active trigger
+        if (centile >= 0.f && centile <= 100.f)
+        {
+            for (const auto& t : activeTrig)
+            {
+                auto itTrig = qaHistogramsByTrigger.find(t);
+                if (itTrig == qaHistogramsByTrigger.end()) continue;
+                
+                auto& H = itTrig->second;
+                if (auto hc = H.find("h_centrality"); hc != H.end())
+                {
+                    static_cast<TH1F*>(hc->second)->Fill(centile);
+                    bumpHistFill(t, "h_centrality");
+                }
+            }
+        }
     }
     else
     {
-      m_centBin = static_cast<int>(centile);
-      LOG(5, CLR_GREEN, "    centrality bin = " << m_centBin << '%');
+        // pp: no centrality
+        m_centBin = -1;
     }
-
-    // Fill centrality histogram if booked under each active trigger
-      if (centile >= 0.f && centile <= 100.f)
-      {
-        for (const auto& t : activeTrig)
-        {
-          auto itTrig = qaHistogramsByTrigger.find(t);
-          if (itTrig == qaHistogramsByTrigger.end()) continue;
-
-          auto& H = itTrig->second;
-          if (auto hc = H.find("h_centrality"); hc != H.end())
-          {
-            static_cast<TH1F*>(hc->second)->Fill(centile);
-            bumpHistFill(t, "h_centrality");
-          }
-        }
-      }
-  }
-  else
-  {
-    // pp: no centrality
-    m_centBin = -1;
-  }
-
-  /* ------------------------------------------------------------------ */
-  /* 5) Vertex-z guard (applies to both, primarily relevant for Au+Au)  */
-  /* ------------------------------------------------------------------ */
-  if (!std::isfinite(m_vz) || (m_useVzCut && std::fabs(m_vz) >= m_vzCut))
-  {
-      m_lastReject = EventReject::Vz;
-      ++m_bk.evt_fail_vz;
-      LOG(4, CLR_YELLOW,
-          "    Vertex-z (" << m_vz << " cm) outside bounds – skip event");
-      return Fun4AllReturnCodes::ABORTEVENT;
-  }
-
-  if (m_isoAuditMode)
-  {
-    ++m_isoAuditFlowGlobal.vz_pass;
-    ++m_isoAuditFlowGlobal.events_reaching_photon_loop;
-
-    if (auditCentValid && auditCentIdx >= 0 && auditCentIdx < static_cast<int>(m_isoAuditFlowByCent.size()))
-    {
-      auto& flow = m_isoAuditFlowByCent[auditCentIdx];
-      ++flow.vz_pass;
-      ++flow.events_reaching_photon_loop;
-    }
-  }
     
-  if (m_doPi0Analysis)
-  {
-      const bool passPi0Vz = (!m_useVzCut || std::fabs(m_vz) < m_vzCut);
-
-      if (passPi0Vz && m_clus)
-      {
-        for (const auto& t : activeTrig)
-        {
-          fillPi0MassVsPtHistograms(t, m_clus, true);
-        }
-      }
-      else if (Verbosity() >= 2)
-      {
-        LOG(2, CLR_YELLOW,
-            "    [process_event][pi0] requested pi0 fill skipped"
-            << " | passVz=" << (passPi0Vz ? "true" : "false")
-            << " | CLUSTERINFO_CEMC=" << (m_clus ? "OK" : "MISSING"));
-      }
-  }
-
-  /* ------------------------------------------------------------------ */
-  /* 6) Pure jet QA (independent of photon pipeline)                     */
-  /*     Filled once per accepted event, after centrality/vz.            */
-  /* ------------------------------------------------------------------ */
-  const int centIdxForJets = (m_isAuAu ? findCentBin(m_centBin) : -1);
-  for (const auto& kv : m_jets)
-  {
-          fillInclusiveJetQA(activeTrig, centIdxForJets, kv.first);
-  }
-
-  processCandidates(topNode, activeTrig);
-
-  ++m_bk.evt_accepted;
-
-  if (m_isoAuditMode && m_isoAuditTargetReached)
-  {
-    if (!m_isoAuditStopAnnounced)
+    /* ------------------------------------------------------------------ */
+    /* 5) Vertex-z guard (applies to both, primarily relevant for Au+Au)  */
+    /* ------------------------------------------------------------------ */
+    if (!std::isfinite(m_vz) || (m_useVzCut && std::fabs(m_vz) >= m_vzCut))
     {
-      std::cout << CLR_CYAN
-                << "[IsolationAudit] target reached after event "
-                << m_isoAuditStopEvent
-                << " → ABORTRUN"
-                << CLR_RESET << std::endl;
-      m_isoAuditStopAnnounced = true;
+        m_lastReject = EventReject::Vz;
+        ++m_bk.evt_fail_vz;
+        LOG(4, CLR_YELLOW,
+            "    Vertex-z (" << m_vz << " cm) outside bounds – skip event");
+        return Fun4AllReturnCodes::ABORTEVENT;
     }
-    return Fun4AllReturnCodes::ABORTRUN;
-  }
-
-  LOG(4, CLR_GREEN, "  [process_event] – completed OK");
-  return Fun4AllReturnCodes::EVENT_OK;
+    
+    if (m_isoAuditMode)
+    {
+        ++m_isoAuditFlowGlobal.vz_pass;
+        ++m_isoAuditFlowGlobal.events_reaching_photon_loop;
+        
+        if (auditCentValid && auditCentIdx >= 0 && auditCentIdx < static_cast<int>(m_isoAuditFlowByCent.size()))
+        {
+            auto& flow = m_isoAuditFlowByCent[auditCentIdx];
+            ++flow.vz_pass;
+            ++flow.events_reaching_photon_loop;
+        }
+    }
+    
+    if (m_doPi0Analysis)
+    {
+        const bool passPi0Vz = (!m_useVzCut || std::fabs(m_vz) < m_vzCut);
+        
+        if (passPi0Vz && m_clus)
+        {
+            for (const auto& t : activeTrig)
+            {
+                fillPi0MassVsPtHistograms(t, m_clus, true);
+            }
+        }
+        else if (Verbosity() >= 2)
+        {
+            LOG(2, CLR_YELLOW,
+                "    [process_event][pi0] requested pi0 fill skipped"
+                << " | passVz=" << (passPi0Vz ? "true" : "false")
+                << " | CLUSTERINFO_CEMC=" << (m_clus ? "OK" : "MISSING"));
+        }
+    }
+    
+    /* ------------------------------------------------------------------ */
+    /* 6) Pure jet QA (independent of photon pipeline)                     */
+    /*     Filled once per accepted event, after centrality/vz.            */
+    /* ------------------------------------------------------------------ */
+    const int centIdxForJets = (m_isAuAu ? findCentBin(m_centBin) : -1);
+    for (const auto& kv : m_jets)
+    {
+        fillInclusiveJetQA(activeTrig, centIdxForJets, kv.first);
+    }
+    
+    processCandidates(topNode, activeTrig);
+    
+    ++m_bk.evt_accepted;
+    
+    if (m_isoAuditMode)
+    {
+        printIsolationAuditProgress(m_isoAuditTargetReached);
+    }
+    
+    if (m_isoAuditMode && m_isoAuditTargetReached)
+    {
+        if (!m_isoAuditStopAnnounced)
+        {
+            std::cout << CLR_CYAN
+            << "[IsolationAudit] target reached after event "
+            << m_isoAuditStopEvent
+            << " → ABORTRUN"
+            << CLR_RESET << std::endl;
+            m_isoAuditStopAnnounced = true;
+        }
+        return Fun4AllReturnCodes::ABORTRUN;
+    }
+    
+    LOG(4, CLR_GREEN, "  [process_event] – completed OK");
+    return Fun4AllReturnCodes::EVENT_OK;
 }
 
 int RecoilJets::ResetEvent(PHCompositeNode*)
@@ -12646,6 +12648,12 @@ void RecoilJets::initIsolationAudit()
     if (v > 0) m_isoAuditTargetPerCent = v;
   }
 
+  if (const char* env = std::getenv("RJ_ISO_AUDIT_PROGRESS_EVERY_EVENTS"))
+  {
+    const int v = std::atoi(env);
+    if (v > 0) m_isoAuditProgressEveryEvents = v;
+  }
+
   if (const char* env = std::getenv("RJ_ISO_AUDIT_EXEMPLARS_PER_CELL"))
   {
     const int v = std::atoi(env);
@@ -12705,6 +12713,49 @@ bool RecoilJets::isolationAuditTargetsMet() const
   }
 
   return true;
+}
+
+void RecoilJets::printIsolationAuditProgress(bool force) const
+{
+  if (!m_isoAuditMode) return;
+
+  const unsigned long long every =
+    (m_isoAuditProgressEveryEvents > 0 ? static_cast<unsigned long long>(m_isoAuditProgressEveryEvents) : 1ULL);
+
+  if (!force)
+  {
+    if (event_count <= 0) return;
+
+    const unsigned long long evt = static_cast<unsigned long long>(event_count);
+    if (evt != 1ULL && (evt % every) != 0ULL) return;
+  }
+
+  unsigned long long nDone = 0;
+  const unsigned long long target = static_cast<unsigned long long>(m_isoAuditTargetPerCent);
+
+  std::ostringstream os;
+  os << "[IsolationAudit][progress]"
+     << " evt=" << event_count
+     << " accepted=" << m_bk.evt_accepted
+     << " photonLoop=" << m_isoAuditFlowGlobal.events_reaching_photon_loop
+     << " target/cent=" << m_isoAuditTargetPerCent;
+
+  for (std::size_t ic = 0; ic < m_isoAuditCells.size(); ++ic)
+  {
+    unsigned long long nInclusive = 0;
+    for (const auto& cell : m_isoAuditCells[ic]) nInclusive += cell.n_inclusive;
+
+    const unsigned long long nLeft = (nInclusive >= target ? 0ULL : (target - nInclusive));
+    if (nLeft == 0ULL) ++nDone;
+
+    os << " | " << isoAuditCentLabel(static_cast<int>(ic))
+       << ": " << nInclusive << "/" << target
+       << " (" << nLeft << " left)";
+  }
+
+  os << " | done=" << nDone << "/" << m_isoAuditCells.size();
+
+  std::cout << CLR_CYAN << os.str() << CLR_RESET << std::endl;
 }
 
 void RecoilJets::recordIsolationAuditInclusive(const IsoAuditSample& sample)

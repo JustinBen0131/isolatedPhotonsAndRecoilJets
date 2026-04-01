@@ -836,7 +836,8 @@ namespace ARJ
                         }
                         else
                         {
-                          fGumbel->SetParLimits(0, std::max(0.80, plateauVal - 0.02), std::min(1.0, plateauVal + 0.02));
+                          // Allow plateau to nudge up slightly (+0.015) but not down
+                          fGumbel->SetParLimits(0, plateauVal, std::min(1.0, plateauVal + 0.01));
                         }
 
                         fGumbel->SetParameter(1, muGuess);
@@ -846,15 +847,17 @@ namespace ARJ
                         if (thr <= 10)
                         {
                             // Tighter beta: force a steeper rise and sharper flattening
-                            fGumbel->SetParLimits(2, std::max(0.3, 0.50 * betaGuess), std::min(2.0, 1.2 * betaGuess));
-                        }                        else
+                            fGumbel->SetParLimits(2, std::max(0.3, 0.50 * betaGuess), std::min(1.7, 1.05 * betaGuess));
+                        }
+                        else
                         {
-                          fGumbel->SetParLimits(2, std::max(0.3, 0.40 * betaGuess), std::min(5.0, 2.50 * betaGuess));
+                            // Tighter beta for Photon 12: sharper knee into plateau
+                            fGumbel->SetParLimits(2, std::max(0.3, 0.50 * betaGuess), std::min(2.1, 1.15 * betaGuess));
                         }
                       fGumbel->SetNpx(500);
                       fGumbel->SetLineColor(colorForProbe(P.probeKey));
                       fGumbel->SetLineStyle(2);
-                      fGumbel->SetLineWidth(2);
+                      fGumbel->SetLineWidth(3);
                       return fGumbel;
                   };
                   
@@ -883,7 +886,7 @@ namespace ARJ
                       EnsureSumw2(hRatio);
                       hRatio->Divide(hProbe, hBase, 1.0, 1.0, "B");
                       hRatio->SetDirectory(nullptr);
-                      hRatio->SetMarkerStyle(markerForProbe(P.probeKey));
+                      hRatio->SetMarkerStyle(20);
                       hRatio->SetMarkerSize(1.0);
                       hRatio->SetMarkerColor(colorForProbe(P.probeKey));
                       hRatio->SetLineColor(colorForProbe(P.probeKey));
@@ -901,8 +904,8 @@ namespace ARJ
                       double plateauVal = fitPlateauConst(hRatio, 15.0);
                       TF1* fFit = buildGumbelFit(P, hRatio, plateauVal);
                       
-                      const double target80 = 0.80;
-                      double x80 = -1.0;
+                      const double target90 = 0.90;
+                      double x90 = -1.0;
                       
                       if (fFit)
                       {
@@ -921,14 +924,10 @@ namespace ARJ
                               plateauVal = fitPlateauConst(hRatio, refinedTailLo);
                               
                               fFit->SetParameter(0, plateauVal);
-                                {
-                                  const int thrLocal = extractPhotonThresholdGeV(P.probeKey);
-                                  if (thrLocal <= 10)
-                                    fFit->FixParameter(0, plateauVal);
-                                  else
-                                    fFit->SetParLimits(0, std::max(0.80, plateauVal - 0.02), std::min(1.0, plateauVal + 0.02));
-                                }
-                                fFit->SetParameter(1, mu);
+                              {
+                                fFit->FixParameter(0, plateauVal);
+                              }
+                              fFit->SetParameter(1, mu);
 
                               fitRes = hRatio->Fit(fFit, "RQS0", "", 2.0, 19.0);
                               fitStatus = fitRes;
@@ -948,27 +947,30 @@ namespace ARJ
                               // So x80 = mu + 1.500 * beta
                               const double mu   = fFit->GetParameter(1);
                               const double beta = std::fabs(fFit->GetParameter(2));
-                              const double x80Analytic = mu - beta * std::log(-std::log(0.80));
-                              if (std::isfinite(x80Analytic) && x80Analytic >= 0.0 && x80Analytic <= 20.0)
+                              // Gumbel CDF analytic: x_f = mu - beta * ln(-ln(f))
+                              // For f = 0.90: ln(-ln(0.90)) = ln(0.10536) = -2.2504
+                              // So x90 = mu + 2.2504 * beta
+                              const double x90Analytic = mu - beta * std::log(-std::log(0.90));
+                              if (std::isfinite(x90Analytic) && x90Analytic >= 0.0 && x90Analytic <= 20.0)
                               {
-                                  x80 = x80Analytic;
+                                  x90 = x90Analytic;
                               }
                               else
                               {
                                 // Numerical fallback using the fitted plateau
                                 const double fitPlat = fFit->GetParameter(0);
-                                const double x80Num = fFit->GetX(target80 * fitPlat, 0.0, 20.0);
-                                  if (std::isfinite(x80Num) && x80Num >= 0.0 && x80Num <= 20.0)
-                                      x80 = x80Num;
+                                const double x90Num = fFit->GetX(target90 * fitPlat, 0.0, 20.0);
+                                  if (std::isfinite(x90Num) && x90Num >= 0.0 && x90Num <= 20.0)
+                                      x90 = x90Num;
                               }
                           }
                       }
                       
-                      if (x80 < 0.0) x80 = findCrossingX(hRatio, target80, 2.0, 20.0);
+                      if (x90 < 0.0) x90 = findCrossingX(hRatio, target90, 2.0, 20.0);
                       
                       ratioHists.push_back(hRatio);
                       fitFuncs.push_back(fFit);
-                      x80s.push_back(x80);
+                      x80s.push_back(x90);
                       plateauVals.push_back(plateauVal);
                       
                       delete hBase;
@@ -1013,27 +1015,36 @@ namespace ARJ
                   }
                   
                   TLine l1(0.0, 1.0, 20.0, 1.0);
-                  l1.SetLineStyle(2);
-                  l1.SetLineWidth(2);
+                  l1.SetLineStyle(1);
+                  l1.SetLineWidth(3);
                   l1.SetLineColor(kBlack);
                   l1.Draw("SAME");
                   
-                  TLine l85(0.0, 0.85, 20.0, 0.85);
-                  l85.SetLineStyle(3);
-                  l85.SetLineWidth(2);
-                  l85.SetLineColor(kGray+2);
-                  l85.Draw("SAME");
-                  
-                  TLegend leg(0.18, 0.80, 0.56, 0.92);
+                  TLine l90(0.0, 0.90, 20.0, 0.90);
+                  l90.SetLineStyle(3);
+                  l90.SetLineWidth(2);
+                  l90.SetLineColor(kGray+2);
+                  l90.Draw("SAME");
+
+                  TLegend extraLegend(0.55, 0.45, 0.90, 0.55);
+                  extraLegend.SetBorderSize(0);
+                  extraLegend.SetFillStyle(0);
+                  extraLegend.SetTextFont(42);
+                  extraLegend.SetTextSize(0.040);
+                  extraLegend.AddEntry((TObject*)nullptr, "#it{#bf{sPHENIX}} Internal", "");
+                  extraLegend.AddEntry((TObject*)nullptr, "Au+Au #sqrt{s_{NN}} = 200 GeV", "");
+                  extraLegend.Draw();
+
+                  TLegend leg(0.18, 0.82, 0.56, 0.92);
                   leg.SetBorderSize(0);
                   leg.SetFillStyle(0);
-                  leg.SetTextSize(0.024);
+                  leg.SetTextSize(0.025);
                   for (std::size_t i = 0; i < loaded.size() && i < ratioHists.size(); ++i)
                   {
                       if (x80s[i] > 0.0)
                       {
                           leg.AddEntry(ratioHists[i],
-                                       TString::Format("%s (80%%=%.2f GeV)",
+                                       TString::Format("%s (90%%=%.2f GeV)",
                                                        loaded[i].probeLabel.c_str(),
                                                        x80s[i]).Data(),
                                        "pe");
@@ -1047,16 +1058,29 @@ namespace ARJ
                   }
                   leg.Draw();
                   
-                  // ── plateau annotation: bottom-right, ABOVE the x-axis title ──
+                  // ── plateau + 90% line annotation: bottom-right, ABOVE the x-axis title ──
                   {
                       TLatex tPlat;
                       tPlat.SetNDC(true);
                       tPlat.SetTextFont(42);
                       tPlat.SetTextAlign(33);
                       tPlat.SetTextSize(0.028);
-                      
-                      const double yBase = 0.22 + 0.04 * (double)(std::max((int)loaded.size(), 1) - 1);
+
+                      // Stack: fit label on top, 90% line below, then per-trigger plateaus
+                      const int nLabels = (int)loaded.size() + 2;  // +1 for fit label, +1 for 90% line
+                      const double yBase = 0.22 + 0.04 * (double)(std::max(nLabels, 1) - 1);
                       double yText = yBase;
+
+                      // Fit function label
+                      tPlat.SetTextColor(kBlack);
+                      tPlat.DrawLatex(0.93, yText, "Fit: P #cdot e^{-e^{-(x-#mu)/#beta}} (Gumbel CDF)");
+                      yText -= 0.04;
+
+                      // 90% efficiency line label
+                      tPlat.SetTextColor(kGray+2);
+                      tPlat.DrawLatex(0.93, yText, "- - - 90% efficiency");
+                      yText -= 0.04;
+
                       for (std::size_t i = 0; i < loaded.size() && i < plateauVals.size(); ++i)
                       {
                           const int thr = extractPhotonThresholdGeV(loaded[i].probeKey);
@@ -1074,7 +1098,7 @@ namespace ARJ
                       tDS.SetTextFont(42);
                       tDS.SetTextAlign(23);
                       tDS.SetTextSize(0.035);
-                      if (isAuAuOnly)
+                      if (isAuAuOnly || isSimAndDataAUAU)
                           tDS.DrawLatex(0.50, 0.97, "Run3auau Photon 10 and 12 GeV + MBD NS #geq 2, vtx < 150 cm Efficiencies");
                       else
                           tDS.DrawLatex(0.50, 0.97, isRun25pp ? "Run25pp" : "Run24pp");

@@ -563,6 +563,7 @@ private:
     bool isolationAuditTargetsMet() const;
     std::string isoAuditCentLabel(int centIdx) const;
     std::string isoAuditPtLabel(int ptIdx) const;
+    void printIsolationAuditProgress(bool force = false) const;
     void printIsolationAuditSummary() const;
 
   void fillUnfoldResponseMatrixAndTruthDistributions(
@@ -1270,6 +1271,7 @@ private:
     bool m_isoAuditTargetReached = false;
     bool m_isoAuditStopAnnounced = false;
     int m_isoAuditTargetPerCent = 200;
+    int m_isoAuditProgressEveryEvents = 1;
     int m_isoAuditExemplarsPerCell = 3;
     double m_isoAuditLargePositiveGeV = 15.0;
     double m_isoAuditNearZeroAbsGeV = 1.0;
