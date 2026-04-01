@@ -99,7 +99,7 @@ namespace ARJ
 
   inline bool isAuAuOnly     = true;
   inline bool isPPdataAndAUAU = false;
-  inline bool generateUEcomparisonSSQA = false;
+  inline bool generateUEcomparisonSSQA = true;
   inline bool isRun25pp      = false;
 
   // ===========================================================================

@@ -1327,11 +1327,12 @@ for (std::size_t ic = 0; ic < centBins.size(); ++ic)
 
             if (ivar == 0)
             {
-              TLegend* leg = new TLegend(0.18, 0.52, 0.56, 0.88);
-              leg->SetBorderSize(0);
-              leg->SetFillStyle(0);
-              leg->SetTextFont(42);
-              leg->SetTextSize(0.030);
+                TLegend* leg = new TLegend(0.45, 0.56, 0.92, 0.81);
+                leg->SetBorderSize(0);
+                leg->SetFillStyle(0);
+                leg->SetTextFont(42);
+                leg->SetTextSize(0.037);
+                leg->SetNColumns(3);
 
               for (std::size_t ih = 0; ih < hOverlays.size(); ++ih)
                 leg->AddEntry(hOverlays[ih], entryLabels[ih].c_str(), "ep");
@@ -1350,15 +1351,15 @@ for (std::size_t ic = 0; ic < centBins.size(); ++ic)
                   vlabel.c_str(), TagLabel(tag).c_str(), H.label.c_str()).Data());
             }
 
-            {
-              TLatex tf;
-              tf.SetNDC(true);
-              tf.SetTextFont(42);
-              tf.SetTextAlign(22);
-              tf.SetTextSize(0.036);
-              tf.DrawLatex(0.50, 0.84,
-                TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
-            }
+          {
+            TLatex tf;
+            tf.SetNDC(true);
+            tf.SetTextFont(42);
+            tf.SetTextAlign(32);
+            tf.SetTextSize(0.055);
+            tf.DrawLatex(0.92, 0.50,
+              TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
+          }
           }
 
           if (anyPad1x5)

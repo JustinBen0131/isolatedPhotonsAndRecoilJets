@@ -5,6 +5,7 @@
 // -----------------------------------------------------------------------------
 
 #include "AnalyzeRecoilJets.h"
+#include "AnalyzeTriggerGroupings.h"
 #include "TGraphAsymmErrors.h"
 
 #ifdef __has_include
@@ -651,136 +652,351 @@ namespace ARJ
           delete hRatio;
         };
 
-        auto drawGroupTurnOnOverlay = [&](const std::vector<LoadedPair>& loaded, const std::string& groupOutDir, const std::string& filenameTag = "")
-        {
-          std::vector<TH1*> ratioHists;
-          std::vector<double> x95s;
-          ratioHists.reserve(loaded.size());
-          x95s.reserve(loaded.size());
-
-          for (const auto& P : loaded)
+          auto drawGroupTurnOnOverlay = [&](const std::vector<LoadedPair>& loaded, const std::string& groupOutDir, const std::string& filenameTag = "")
           {
-            TH1* hBase = CloneTH1(P.hBase, TString::Format("hBase_groupTurnOn_%s", P.probeKey.c_str()).Data());
-            TH1* hProbe = CloneTH1(P.hProbe, TString::Format("hProbe_groupTurnOn_%s", P.probeKey.c_str()).Data());
-            if (!hBase || !hProbe)
-            {
-              if (hBase) delete hBase;
-              if (hProbe) delete hProbe;
-              continue;
-            }
+            std::vector<TH1*> ratioHists;
+            std::vector<TF1*> fitFuncs;
+            std::vector<double> x80s;
+            std::vector<double> plateauVals;
+            ratioHists.reserve(loaded.size());
+            fitFuncs.reserve(loaded.size());
+            x80s.reserve(loaded.size());
+            plateauVals.reserve(loaded.size());
 
-            TH1* hRatio = CloneTH1(hProbe, TString::Format("hRatio_groupTurnOn_%s", P.probeKey.c_str()).Data());
-            if (!hRatio)
+            auto findCrossingX = [&](TH1* h, double target, double xLo, double xHi) -> double
             {
+              if (!h) return -1.0;
+
+              const int nb = h->GetNbinsX();
+              for (int ib = 1; ib < nb; ++ib)
+              {
+                const double x1 = h->GetBinCenter(ib);
+                const double x2 = h->GetBinCenter(ib + 1);
+                if (x2 < xLo || x1 > xHi) continue;
+
+                const double y1 = h->GetBinContent(ib);
+                const double y2 = h->GetBinContent(ib + 1);
+                if (!std::isfinite(y1) || !std::isfinite(y2)) continue;
+
+                if (y1 == target) return x1;
+                if (y2 == target) return x2;
+
+                if ((y1 - target) * (y2 - target) < 0.0 && std::fabs(y2 - y1) > 1e-12)
+                {
+                  const double frac = (target - y1) / (y2 - y1);
+                  if (frac >= 0.0 && frac <= 1.0) return x1 + frac * (x2 - x1);
+                }
+              }
+
+              return -1.0;
+            };
+
+            auto estimatePlateau = [&](TH1* h) -> double
+            {
+              if (!h) return 0.94;
+
+              auto collectTail = [&](double xLo) -> std::vector<double>
+              {
+                std::vector<double> vals;
+                for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                {
+                  const double x = h->GetBinCenter(ib);
+                  const double y = h->GetBinContent(ib);
+                  if (x < xLo || x > 20.0) continue;
+                  if (!std::isfinite(y) || y <= 0.0) continue;
+                  vals.push_back(y);
+                }
+                return vals;
+              };
+
+              std::vector<double> tailVals = collectTail(14.0);
+              if (tailVals.size() < 3) tailVals = collectTail(12.0);
+              if (tailVals.size() < 3) tailVals = collectTail(10.0);
+
+              if (tailVals.empty())
+              {
+                const double ymax = h->GetMaximum();
+                const double fallback = (std::isfinite(ymax) && ymax > 0.0) ? ymax : 0.94;
+                return std::max(0.84, std::min(0.98, fallback));
+              }
+
+              const int useN = std::min(4, static_cast<int>(tailVals.size()));
+              double sum = 0.0;
+              for (int i = static_cast<int>(tailVals.size()) - useN; i < static_cast<int>(tailVals.size()); ++i)
+              {
+                sum += tailVals[i];
+              }
+
+              const double plateau = sum / static_cast<double>(useN);
+              return std::max(0.84, std::min(0.98, plateau));
+            };
+
+            auto buildQualitativeSigmoid = [&](const LoadedPair& P, TH1* hRatio, double plateauGuess) -> TF1*
+            {
+              const int thr = extractPhotonThresholdGeV(P.probeKey);
+
+              const double defaultX0 =
+                (thr == 10) ? 5.8 :
+                (thr == 12) ? 6.9 :
+                std::max(2.0, 0.60 * ((thr > 0) ? static_cast<double>(thr) : 8.0));
+
+              const double defaultSlope =
+                (thr == 10) ? 0.85 :
+                (thr == 12) ? 0.75 :
+                std::max(0.35, 1.00 - 0.028 * ((thr > 0) ? static_cast<double>(thr) : 8.0));
+
+              const double x20rel = findCrossingX(hRatio, 0.20 * plateauGuess, 2.0, 15.0);
+              const double x50rel = findCrossingX(hRatio, 0.50 * plateauGuess, 2.0, 15.0);
+              const double x80rel = findCrossingX(hRatio, 0.80 * plateauGuess, 2.0, 15.0);
+
+              double xOffsetGuess = (std::isfinite(x50rel) && x50rel > 0.0) ? x50rel : defaultX0;
+
+              double slopeGuess = defaultSlope;
+              double widthGuess = 2.5;
+              if (std::isfinite(x20rel) && std::isfinite(x80rel) && x80rel > x20rel)
+              {
+                widthGuess = x80rel - x20rel;
+                slopeGuess = 2.0 * std::log(4.0) / widthGuess;
+              }
+
+              slopeGuess = std::max(0.25, std::min(2.00, slopeGuess));
+              widthGuess = std::max(0.8, widthGuess);
+
+              DataStructures::FitParameters pars{};
+              pars.sigmaEstimate = 0.5;
+              pars.sigmaMin = 0.1;
+              pars.sigmaMax = 1.0;
+
+              pars.amplitudeEstimate = plateauGuess;
+              pars.amplitudeMin = std::max(0.84, plateauGuess - 0.03);
+              pars.amplitudeMax = std::min(0.98, plateauGuess + 0.03);
+
+              pars.slopeEstimate = slopeGuess;
+              pars.slopeMin = std::max(0.20, 0.65 * slopeGuess);
+              pars.slopeMax = std::min(2.50, 1.45 * slopeGuess);
+
+              pars.xOffsetEstimate = xOffsetGuess;
+              const double xHalfWindow = std::max(0.6, 0.45 * widthGuess);
+              pars.xOffsetMin = std::max(2.0, xOffsetGuess - xHalfWindow);
+              pars.xOffsetMax = std::min(20.0, xOffsetGuess + xHalfWindow);
+
+              TF1* fSig = Utils::sigmoidFit(
+                TString::Format("f_groupTurnOn_%s", P.probeKey.c_str()).Data(),
+                2.0, 20.0,
+                pars.amplitudeEstimate,
+                pars.slopeEstimate,
+                pars.xOffsetEstimate,
+                pars.amplitudeMin,
+                pars.amplitudeMax,
+                pars.slopeMin,
+                pars.slopeMax,
+                pars.xOffsetMin,
+                pars.xOffsetMax
+              );
+
+              if (!fSig) return nullptr;
+
+              fSig->SetNpx(500);
+              fSig->SetLineColor(colorForProbe(P.probeKey));
+              fSig->SetLineStyle(2);
+              fSig->SetLineWidth(2);
+              return fSig;
+            };
+
+            for (const auto& P : loaded)
+            {
+              TH1* hBase = CloneTH1(P.hBase, TString::Format("hBase_groupTurnOn_%s", P.probeKey.c_str()).Data());
+              TH1* hProbe = CloneTH1(P.hProbe, TString::Format("hProbe_groupTurnOn_%s", P.probeKey.c_str()).Data());
+              if (!hBase || !hProbe)
+              {
+                if (hBase) delete hBase;
+                if (hProbe) delete hProbe;
+                continue;
+              }
+
+              TH1* hRatio = CloneTH1(hProbe, TString::Format("hRatio_groupTurnOn_%s", P.probeKey.c_str()).Data());
+              if (!hRatio)
+              {
+                delete hBase;
+                delete hProbe;
+                continue;
+              }
+
+              EnsureSumw2(hBase);
+              EnsureSumw2(hProbe);
+              EnsureSumw2(hRatio);
+              hRatio->Divide(hProbe, hBase, 1.0, 1.0, "B");
+              hRatio->SetDirectory(nullptr);
+              hRatio->SetMarkerStyle(markerForProbe(P.probeKey));
+              hRatio->SetMarkerSize(1.0);
+              hRatio->SetMarkerColor(colorForProbe(P.probeKey));
+              hRatio->SetLineColor(colorForProbe(P.probeKey));
+              hRatio->SetLineWidth(3);
+
+              const double plateauGuess = estimatePlateau(hRatio);
+              TF1* fSig = buildQualitativeSigmoid(P, hRatio, plateauGuess);
+
+              const double target80 = 0.80;
+              double x80 = -1.0;
+              double plateauVal = plateauGuess;
+
+              if (fSig)
+              {
+                TFitResultPtr fitRes = hRatio->Fit(fSig, "RQS0", "", 2.0, 18.0);
+                int fitStatus = fitRes;
+
+                if (fitStatus == 0)
+                {
+                  fitRes = hRatio->Fit(fSig, "RQS0", "", 2.0, 18.0);
+                  fitStatus = fitRes;
+                }
+
+                if (fitStatus == 0)
+                {
+                  const double amp   = fSig->GetParameter(0);
+                  const double slope = fSig->GetParameter(1);
+                  const double x0    = fSig->GetParameter(2);
+
+                  if (std::isfinite(amp) && amp > 0.0)
+                  {
+                    plateauVal = std::max(0.84, std::min(0.98, amp));
+                  }
+
+                  if (std::isfinite(plateauVal) && std::isfinite(slope) && std::isfinite(x0) && plateauVal > target80 && slope > 0.0)
+                  {
+                    const double arg = plateauVal / target80 - 1.0;
+                    if (arg > 0.0)
+                    {
+                      const double x80Fit = x0 - std::log(arg) / slope;
+                      if (std::isfinite(x80Fit) && x80Fit >= 0.0 && x80Fit <= 20.0)
+                      {
+                        x80 = x80Fit;
+                      }
+                    }
+                  }
+                }
+              }
+
+              if (x80 < 0.0) x80 = findXAtEff(hRatio, target80);
+
+              ratioHists.push_back(hRatio);
+              fitFuncs.push_back(fSig);
+              x80s.push_back(x80);
+              plateauVals.push_back(plateauVal);
+
               delete hBase;
               delete hProbe;
-              continue;
             }
 
-            EnsureSumw2(hBase);
-            EnsureSumw2(hProbe);
-            EnsureSumw2(hRatio);
-            hRatio->Divide(hProbe, hBase, 1.0, 1.0, "B");
-            hRatio->SetDirectory(nullptr);
-            hRatio->SetMarkerStyle(markerForProbe(P.probeKey));
-            hRatio->SetMarkerSize(1.0);
-            hRatio->SetMarkerColor(colorForProbe(P.probeKey));
-            hRatio->SetLineColor(colorForProbe(P.probeKey));
-            hRatio->SetLineWidth(3);
+            if (ratioHists.empty()) return;
 
-            ratioHists.push_back(hRatio);
-            x95s.push_back(findXAtEff(hRatio, 0.95));
+            TCanvas c(TString::Format("c_trigAna_groupTurnOn_%s", loaded.front().groupFolder.c_str()).Data(),
+                      TString::Format("c_trigAna_groupTurnOn_%s", loaded.front().groupFolder.c_str()).Data(),
+                      900, 700);
+            c.cd();
+            c.SetLeftMargin(0.14);
+            c.SetRightMargin(0.05);
+            c.SetBottomMargin(0.14);
+            c.SetTopMargin(0.08);
+            c.SetTicks(1,1);
 
-            delete hBase;
-            delete hProbe;
-          }
+            ratioHists[0]->SetTitle("");
+            ratioHists[0]->GetXaxis()->SetTitle("Maximum Cluster Energy [GeV]");
+            ratioHists[0]->GetYaxis()->SetTitle("Photon X / MBD NS");
+            ratioHists[0]->GetXaxis()->SetTitleSize(0.055);
+            ratioHists[0]->GetXaxis()->SetTitleOffset(1.05);
+            ratioHists[0]->GetXaxis()->SetLabelSize(0.045);
+            ratioHists[0]->GetYaxis()->SetTitleSize(0.055);
+            ratioHists[0]->GetYaxis()->SetTitleOffset(1.20);
+            ratioHists[0]->GetYaxis()->SetLabelSize(0.045);
+            ratioHists[0]->GetXaxis()->SetRangeUser(0.0, 20.0);
+            ratioHists[0]->SetMinimum(0.0);
+            ratioHists[0]->SetMaximum(1.20);
+            ratioHists[0]->Draw("E1");
 
-          if (ratioHists.empty()) return;
-
-          TCanvas c(TString::Format("c_trigAna_groupTurnOn_%s", loaded.front().groupFolder.c_str()).Data(),
-                    TString::Format("c_trigAna_groupTurnOn_%s", loaded.front().groupFolder.c_str()).Data(),
-                    900, 700);
-          c.cd();
-          c.SetLeftMargin(0.14);
-          c.SetRightMargin(0.05);
-          c.SetBottomMargin(0.14);
-          c.SetTopMargin(0.08);
-          c.SetTicks(1,1);
-
-          const int dsThr = extractPhotonThresholdGeV(ds.trigger);
-          ratioHists[0]->SetTitle("");
-          ratioHists[0]->GetXaxis()->SetTitle("Maximum Cluster Energy [GeV]");
-          ratioHists[0]->GetYaxis()->SetTitle("Photon X / MBD NS");
-          ratioHists[0]->GetXaxis()->SetTitleSize(0.055);
-          ratioHists[0]->GetXaxis()->SetTitleOffset(1.05);
-          ratioHists[0]->GetXaxis()->SetLabelSize(0.045);
-          ratioHists[0]->GetYaxis()->SetTitleSize(0.055);
-          ratioHists[0]->GetYaxis()->SetTitleOffset(1.20);
-          ratioHists[0]->GetYaxis()->SetLabelSize(0.045);
-          ratioHists[0]->GetXaxis()->SetRangeUser(0.0, 20.0);
-          ratioHists[0]->SetMinimum(0.0);
-          ratioHists[0]->SetMaximum(1.20);
-          ratioHists[0]->Draw("E1");
-
-          for (std::size_t i = 1; i < ratioHists.size(); ++i)
-          {
-            ratioHists[i]->Draw("E1 SAME");
-          }
-
-          TLine l1(0.0, 1.0, 20.0, 1.0);
-          l1.SetLineStyle(2);
-          l1.SetLineWidth(2);
-          l1.SetLineColor(kBlack);
-          l1.Draw("SAME");
-
-          TLine l95(0.0, 0.95, 20.0, 0.95);
-          l95.SetLineStyle(3);
-          l95.SetLineWidth(2);
-          l95.SetLineColor(kGray+2);
-          l95.Draw("SAME");
-
-          TLegend leg(0.18, 0.75, 0.62, 0.90);
-          leg.SetBorderSize(0);
-          leg.SetFillStyle(0);
-          leg.SetTextSize(0.028);
-          for (std::size_t i = 0; i < loaded.size() && i < ratioHists.size(); ++i)
-          {
-            if (x95s[i] > 0.0)
+            for (std::size_t i = 1; i < ratioHists.size(); ++i)
             {
-              leg.AddEntry(ratioHists[i],
-                TString::Format("%s (95%%=%.2f GeV)",
+              ratioHists[i]->Draw("E1 SAME");
+            }
+
+            for (std::size_t i = 0; i < fitFuncs.size(); ++i)
+            {
+              if (fitFuncs[i]) fitFuncs[i]->Draw("SAME");
+            }
+
+            TLine l1(0.0, 1.0, 20.0, 1.0);
+            l1.SetLineStyle(2);
+            l1.SetLineWidth(2);
+            l1.SetLineColor(kBlack);
+            l1.Draw("SAME");
+
+            TLine l85(0.0, 0.85, 20.0, 0.85);
+            l85.SetLineStyle(3);
+            l85.SetLineWidth(2);
+            l85.SetLineColor(kGray+2);
+            l85.Draw("SAME");
+
+            TLegend leg(0.18, 0.80, 0.56, 0.92);
+            leg.SetBorderSize(0);
+            leg.SetFillStyle(0);
+            leg.SetTextSize(0.024);
+            for (std::size_t i = 0; i < loaded.size() && i < ratioHists.size(); ++i)
+            {
+              if (x80s[i] > 0.0)
+              {
+                leg.AddEntry(ratioHists[i],
+                  TString::Format("%s (80%%=%.2f GeV)",
+                    loaded[i].probeLabel.c_str(),
+                    x80s[i]).Data(),
+                  "pe");
+              }
+              else
+              {
+                leg.AddEntry(ratioHists[i],
                   loaded[i].probeLabel.c_str(),
-                  x95s[i]).Data(),
-                "pe");
+                  "pe");
+              }
             }
-            else
-            {
-              leg.AddEntry(ratioHists[i],
-                loaded[i].probeLabel.c_str(),
-                "pe");
-            }
-          }
             leg.Draw();
 
-          {
-            TLatex tDS;
-            tDS.SetNDC(true);
-            tDS.SetTextFont(42);
-            tDS.SetTextAlign(23);
-            tDS.SetTextSize(0.035);
-            if (isAuAuOnly)
-              tDS.DrawLatex(0.50, 0.97, "Run3auau Photon 10 and 12 GeV + MBD NS #geq 2, vtx < 150 cm Efficiencies");
-            else
-              tDS.DrawLatex(0.50, 0.97, isRun25pp ? "Run25pp" : "Run24pp");
-          }
+            {
+              TLatex tPlat;
+              tPlat.SetNDC(true);
+              tPlat.SetTextFont(42);
+              tPlat.SetTextAlign(33);
+              tPlat.SetTextSize(0.028);
 
-          const std::string outPng = JoinPath(groupOutDir, "hMaxClusterEnergy_groupTurnOnOverlay" + filenameTag + ".png");
-          SaveCanvas(c, outPng);
-          cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";
+              double yText = 0.14;
+              for (std::size_t i = 0; i < loaded.size() && i < plateauVals.size(); ++i)
+              {
+                const int thr = extractPhotonThresholdGeV(loaded[i].probeKey);
+                tPlat.SetTextColor(colorForProbe(loaded[i].probeKey));
+                tPlat.DrawLatex(0.93, yText,
+                  TString::Format("Photon %d plateau = %.3f", thr, plateauVals[i]).Data());
+                yText -= 0.05;
+              }
+              tPlat.SetTextColor(kBlack);
+            }
 
+            {
+              TLatex tDS;
+              tDS.SetNDC(true);
+              tDS.SetTextFont(42);
+              tDS.SetTextAlign(23);
+              tDS.SetTextSize(0.035);
+              if (isAuAuOnly)
+                tDS.DrawLatex(0.50, 0.97, "Run3auau Photon 10 and 12 GeV + MBD NS #geq 2, vtx < 150 cm Efficiencies");
+              else
+                tDS.DrawLatex(0.50, 0.97, isRun25pp ? "Run25pp" : "Run24pp");
+            }
+
+            const std::string outPng = JoinPath(groupOutDir, "hMaxClusterEnergy_groupTurnOnOverlay" + filenameTag + ".png");
+            SaveCanvas(c, outPng);
+            cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";
+
+            for (auto* f : fitFuncs) if (f) delete f;
             for (auto* h : ratioHists) delete h;
           };
-
           auto drawGroupMaxClusterOverlay = [&](const std::vector<LoadedPair>& loaded, const std::string& groupOutDir, const std::string& filenameTag = "")
           {
             if (loaded.empty()) return;
@@ -4928,50 +5144,103 @@ namespace ARJ
               hists[0]->GetXaxis()->SetLabelSize(0.045);
               hists[0]->GetYaxis()->SetLabelSize(0.045);
               hists[0]->GetYaxis()->SetTitleOffset(1.15);
-              hists[0]->SetMinimum(0.0);
-              hists[0]->SetMaximum((yMax > 0.0) ? (1.4 * yMax) : 1.0);
-              hists[0]->GetXaxis()->SetRangeUser(0.0, 2.0);
-              hists[0]->Draw("E1");
-              for (std::size_t ih = 1; ih < hists.size(); ++ih) hists[ih]->Draw("E1 SAME");
-              if (hPP) hPP->Draw("E1 SAME");
+                hists[0]->SetMinimum(0.0);
+                hists[0]->SetMaximum((yMax > 0.0) ? ((ptInTitle ? 1.55 : 1.4) * yMax) : 1.0);
+                hists[0]->GetXaxis()->SetRangeUser(0.0, 2.0);
+                hists[0]->Draw("E1");
+                for (std::size_t ih = 1; ih < hists.size(); ++ih) hists[ih]->Draw("E1 SAME");
+                if (hPP) hPP->Draw("E1 SAME");
 
-              TLegend leg(ptInTitle ? 0.65 : 0.65,
-                                        ptInTitle ? 0.75 : 0.72,
-                                        0.92, 0.88);
-              leg.SetBorderSize(0);
-              leg.SetFillStyle(0);
-              leg.SetTextFont(42);
-              leg.SetTextSize(ptInTitle ? 0.035 : 0.030);
-              for (std::size_t ih = 0; ih < hists.size(); ++ih)
-                leg.AddEntry(hists[ih], labels[ih].c_str(), "ep");
-              if (hPP) leg.AddEntry(hPP, ppLabel.c_str(), "ep");
-              leg.Draw();
+                TLegend leg(ptInTitle ? 0.62 : 0.65,
+                            ptInTitle ? 0.78 : 0.72,
+                            0.92, 0.92);
+                leg.SetBorderSize(0);
+                leg.SetFillStyle(0);
+                leg.SetTextFont(42);
+                leg.SetTextSize(ptInTitle ? 0.035 : 0.030);
+                for (std::size_t ih = 0; ih < hists.size(); ++ih)
+                  leg.AddEntry(hists[ih], labels[ih].c_str(), "ep");
+                if (hPP) leg.AddEntry(hPP, ppLabel.c_str(), "ep");
+                leg.Draw();
 
-              TLatex tTitle;
-              tTitle.SetNDC(true);
-              tTitle.SetTextFont(42);
-              tTitle.SetTextAlign(23);
-              tTitle.SetTextSize(0.040);
-              if (ptInTitle)
-                tTitle.DrawLatex(0.50, 0.98,
-                  TString::Format("%s, p_{T}^{#gamma}: %d-%d GeV, R=%.1f", titlePrefix.c_str(), ptLo, ptHi, R).Data());
-              else
-                tTitle.DrawLatex(0.50, 0.98,
-                  TString::Format("%s, %d-%d%% Cent AuAu, R=%.1f", titlePrefix.c_str(), centLo, centHi, R).Data());
+                if (ptInTitle)
+                {
+                  // ---- title (no pT, no R — those go elsewhere) ----
+                  TLatex tTitle;
+                  tTitle.SetNDC(true);
+                  tTitle.SetTextFont(42);
+                  tTitle.SetTextAlign(23);
+                  tTitle.SetTextSize(0.040);
+                  tTitle.DrawLatex(0.50, 0.98,
+                    TString::Format("%s, %d-%d%% vs %d-%d%% Cent AuAu, R=%.1f",
+                      titlePrefix.c_str(), centLo, centHi - (centHi - centLo), centHi, R).Data());
 
-              TLatex tCuts;
-              tCuts.SetNDC(true);
-              tCuts.SetTextFont(42);
-              tCuts.SetTextAlign(13);
-              tCuts.SetTextSize(0.028);
-              tCuts.DrawLatex(0.18, 0.89, "Trigger = Photon 10 GeV + MBD NS #geq 2, vtx < 150 cm");
-              if (!ptInTitle)
-                tCuts.DrawLatex(0.18, 0.85, TString::Format("p_{T}^{#gamma}: %d-%d GeV", ptLo, ptHi).Data());
+                  // ---- pTγ in large font below legend ----
+                  TLatex tPt;
+                  tPt.SetNDC(true);
+                  tPt.SetTextFont(42);
+                  tPt.SetTextAlign(13);
+                  tPt.SetTextSize(0.045);
+                  tPt.DrawLatex(0.62, 0.75,
+                    TString::Format("p_{T}^{#gamma}: %d-%d GeV", ptLo, ptHi).Data());
 
-              SaveCanvas(cXJ, outPng);
+                  // ---- cut annotations: 2-column layout under pTγ ----
+                  const string b2bLabel = (kAA_B2BCut == "7pi_8")
+                    ? "|#Delta#phi| > 7#pi/8" : "|#Delta#phi| > #pi/2";
+                  const string isoRLabel = (kAA_IsoConeR == "isoR40")
+                    ? "#DeltaR^{iso} < 0.4" : "#DeltaR^{iso} < 0.3";
+                  const string isoModeLabel = (kAA_IsoMode == "fixedIso5GeV")
+                    ? "E_{T}^{iso} < 5 GeV"
+                    : "E_{T}^{iso} < 1.08128 + 0.0299107 #times E_{T}^{#gamma}";
 
-              gStyle->SetErrorX(savedErrorX);
-            };
+                  TLatex tCuts;
+                  tCuts.SetNDC(true);
+                  tCuts.SetTextFont(42);
+                  tCuts.SetTextAlign(13);
+                  tCuts.SetTextSize(0.028);
+
+                  // col 1 (left)                        col 2 (right)
+                  tCuts.DrawLatex(0.52, 0.70, b2bLabel.c_str());
+                  tCuts.DrawLatex(0.76, 0.70,
+                    TString::Format("p_{T}^{jet} > %d GeV", kAA_JetPtMin).Data());
+                  tCuts.DrawLatex(0.52, 0.66, isoRLabel.c_str());
+                  tCuts.DrawLatex(0.76, 0.66,
+                    TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
+                  tCuts.DrawLatex(0.52, 0.62, isoModeLabel.c_str());
+
+                  // ---- sPHENIX Internal + Au+Au at bottom RHS ----
+                  TLatex tSph;
+                  tSph.SetNDC(true);
+                  tSph.SetTextFont(42);
+                  tSph.SetTextAlign(33);
+                  tSph.SetTextSize(0.048);
+                  tSph.DrawLatex(0.92, 0.18, "#bf{sPHENIX} #it{Internal}");
+                  tSph.SetTextSize(0.038);
+                  tSph.DrawLatex(0.92, 0.12, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                }
+                else
+                {
+                  TLatex tTitle;
+                  tTitle.SetNDC(true);
+                  tTitle.SetTextFont(42);
+                  tTitle.SetTextAlign(23);
+                  tTitle.SetTextSize(0.040);
+                  tTitle.DrawLatex(0.50, 0.98,
+                    TString::Format("%s, %d-%d%% Cent AuAu, R=%.1f", titlePrefix.c_str(), centLo, centHi, R).Data());
+
+                  TLatex tCuts;
+                  tCuts.SetNDC(true);
+                  tCuts.SetTextFont(42);
+                  tCuts.SetTextAlign(13);
+                  tCuts.SetTextSize(0.028);
+                  tCuts.DrawLatex(0.18, 0.89, "Trigger = Photon 10 GeV + MBD NS #geq 2, vtx < 150 cm");
+                  tCuts.DrawLatex(0.18, 0.85, TString::Format("p_{T}^{#gamma}: %d-%d GeV", ptLo, ptHi).Data());
+                }
+
+                SaveCanvas(cXJ, outPng);
+
+                gStyle->SetErrorX(savedErrorX);
+              };
 
             // Helper: merge TH3 across centrality suffixes
             auto MergeTH3 = [&](TDirectory* dir, const string& baseName,

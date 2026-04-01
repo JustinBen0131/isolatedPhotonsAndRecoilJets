@@ -3902,10 +3902,10 @@ void RunJES3QA(Dataset& ds)
               // AuAu TH3 per centrality (merged: 0-10 + 10-20 → 0-20)
               struct CentEntry { const char* suffix; const char* label; int color; };
                 const CentEntry centEntries[] = {
-                  { "_cent_0_20",  "AuAu 0-20%",  kBlue + 1    },
+                  { "_cent_0_20",  "AuAu 0-20%",  kBlack       },
                   { "_cent_20_40", "AuAu 20-40%", kMagenta + 1 },
-                  { "_cent_40_60", "AuAu 40-60%", kBlack       },
-                  { "_cent_60_80", "AuAu 60-80%", kGreen + 2   },
+                  { "_cent_40_60", "AuAu 40-60%", kGreen + 2   },
+                  { "_cent_60_80", "AuAu 60-80%", kBlue + 1    },
                 };
                 const int nCent = 4;
 
@@ -4024,7 +4024,7 @@ void RunJES3QA(Dataset& ds)
                        hPP->SetLineWidth(2);
                        hPP->SetLineColor(kRed + 1);
                        hPP->SetMarkerColor(kRed + 1);
-                       hPP->SetMarkerStyle(24);
+                       hPP->SetMarkerStyle(20);
                        hPP->SetMarkerSize(0.8);
 
                        // Style AuAu: closed circles, color per centrality
