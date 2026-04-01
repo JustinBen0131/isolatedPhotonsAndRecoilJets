@@ -6970,7 +6970,7 @@ namespace ARJ
                     const double C = Get1Bin("h_isIsolated_notTight" + suf);
                     const double D = Get1Bin("h_notIsolated_notTight" + suf);
 
-                    if (A <= 0.0 || D <= 0.0) { altOK = false; break; }
+                    if (A <= 0.0 || D <= 0.0) { yAlt[i] = 0.0; eyAlt[i] = 0.0; continue; }
 
                     double SA = A - B * (C / D);
                     if (SA < 0.0) SA = 0.0;
@@ -7014,7 +7014,7 @@ namespace ARJ
                     TCanvas cOv("c_pur_vz_ov","c_pur_vz_ov",900,700);
                     ApplyCanvasMargins1D(cOv);
 
-                    TH1F hFrOv("hPurVzOvFrame","",100, kPtEdges.front(), kPtEdges.back());
+                    TH1F hFrOv("hPurVzOvFrame","",100, 10.0, kPtEdges.back());
                     hFrOv.SetDirectory(nullptr);
                     hFrOv.SetStats(0);
                     hFrOv.SetMinimum(0.0);
@@ -7083,7 +7083,7 @@ namespace ARJ
               TCanvas c("c_pur_ov","c_pur_ov",900,700);
               ApplyCanvasMargins1D(c);
 
-              TH1F hFrame("hPurCorFrame","",100, kPtEdges.front(), kPtEdges.back());
+              TH1F hFrame("hPurCorFrame","",100, 10.0, kPtEdges.back());
               hFrame.SetDirectory(nullptr);
               hFrame.SetStats(0);
               hFrame.SetMinimum(0.0);
@@ -7127,7 +7127,260 @@ namespace ARJ
                     : "purity_raw_vs_leakageCorrected_DATA.png");
 
                 SaveCanvas(c, fp);
+            }
+
+            // ---- 4-way purity overlay: vz30/vz60 × raw/corrected + ratio subpanel (DATA only) ----
+            if (!ds.isSim && anyCorr)
+            {
+              const int altVz4 = (kVzCut == 30) ? 60 : 30;
+              const string altTag4 = CfgTagFor(kJetPtMin, kB2BCut, altVz4, kIsoConeR, kIsoMode);
+              const string altPath4 = kInputBase + "/pp24/RecoilJets_pp_ALL_" + altTag4 + ".root";
+
+              TFile* fAlt4 = TFile::Open(altPath4.c_str(), "READ");
+              if (fAlt4 && !fAlt4->IsZombie())
+              {
+                TDirectory* dAlt4 = fAlt4->GetDirectory(kTriggerPP.c_str());
+                if (!dAlt4) dAlt4 = fAlt4;
+
+                vector<double> yAltRaw(kNPtBins, 0.0),  eyAltRaw(kNPtBins, 0.0);
+                vector<double> yAltCorr(kNPtBins, 0.0), eyAltCorr(kNPtBins, 0.0);
+                vector<double> ratDef(kNPtBins, 0.0),   eRatDef(kNPtBins, 0.0);
+                vector<double> ratAlt(kNPtBins, 0.0),   eRatAlt(kNPtBins, 0.0);
+
+                auto RawPurVal = [](double A, double B, double C, double D)->double {
+                  if (A <= 0.0 || D <= 0.0) return 0.0;
+                  double SA = A - B * (C / D);
+                  return (SA > 0.0) ? SA / A : 0.0;
+                };
+
+                for (int i = 0; i < kNPtBins; ++i)
+                {
+                  const PtBin& b = PtBins()[i];
+
+                  auto Get1Alt = [&](const string& hname)->double {
+                    TH1* h = dynamic_cast<TH1*>(dAlt4->Get(hname.c_str()));
+                    return h ? h->GetBinContent(1) : 0.0;
+                  };
+
+                  const double Aa = Get1Alt("h_isIsolated_isTight"     + b.suffix);
+                  const double Ba = Get1Alt("h_notIsolated_isTight"    + b.suffix);
+                  const double Ca = Get1Alt("h_isIsolated_notTight"    + b.suffix);
+                  const double Da = Get1Alt("h_notIsolated_notTight"   + b.suffix);
+
+                  // alt raw purity + error
+                  yAltRaw[i]  = RawPurVal(Aa, Ba, Ca, Da);
+                  eyAltRaw[i] = RawPurityError(Aa, Ba, Ca, Da);
+
+                  // alt corrected purity + error (numerical differentiation)
+                  yAltCorr[i] = CorrPurityValue(Aa, Ba, Ca, Da, i);
+                  if (Aa > 0.0)
+                  {
+                    const double dA = std::sqrt(std::max(Aa, 1.0));
+                    const double dB = std::sqrt(std::max(Ba, 1.0));
+                    const double dC = std::sqrt(std::max(Ca, 1.0));
+                    const double dD = std::sqrt(std::max(Da, 1.0));
+                    const double Aup = Aa + dA, Adn = std::max(0.0, Aa - dA);
+                    const double Bup = Ba + dB, Bdn = std::max(0.0, Ba - dB);
+                    const double Cup = Ca + dC, Cdn = std::max(0.0, Ca - dC);
+                    const double Dup = Da + dD, Ddn = std::max(0.0, Da - dD);
+                    const double pA = (Aup > Adn) ? (CorrPurityValue(Aup,Ba,Ca,Da,i) - CorrPurityValue(Adn,Ba,Ca,Da,i)) / (Aup - Adn) : 0.0;
+                    const double pB = (Bup > Bdn) ? (CorrPurityValue(Aa,Bup,Ca,Da,i) - CorrPurityValue(Aa,Bdn,Ca,Da,i)) / (Bup - Bdn) : 0.0;
+                    const double pC = (Cup > Cdn) ? (CorrPurityValue(Aa,Ba,Cup,Da,i) - CorrPurityValue(Aa,Ba,Cdn,Da,i)) / (Cup - Cdn) : 0.0;
+                    const double pD = (Dup > Ddn) ? (CorrPurityValue(Aa,Ba,Ca,Dup,i) - CorrPurityValue(Aa,Ba,Ca,Ddn,i)) / (Dup - Ddn) : 0.0;
+                    double var = pA * pA * Aa + pB * pB * Ba + pC * pC * Ca + pD * pD * Da;
+                    eyAltCorr[i] = (var > 0.0) ? std::sqrt(var) : 0.0;
+                  }
+
+                  // ratio: raw / corrected  (default vz)
+                  ratDef[i] = (yCorr[i] > 0.0) ? yRaw[i] / yCorr[i] : 0.0;
+                  if (yRaw[i] > 0.0 && yCorr[i] > 0.0)
+                    eRatDef[i] = std::fabs(ratDef[i]) * std::sqrt(
+                      (eyRaw[i] / yRaw[i]) * (eyRaw[i] / yRaw[i]) +
+                      (eyCorr[i] / yCorr[i]) * (eyCorr[i] / yCorr[i]));
+
+                  // ratio: raw / corrected  (alt vz)
+                  ratAlt[i] = (yAltCorr[i] > 0.0) ? yAltRaw[i] / yAltCorr[i] : 0.0;
+                  if (yAltRaw[i] > 0.0 && yAltCorr[i] > 0.0)
+                    eRatAlt[i] = std::fabs(ratAlt[i]) * std::sqrt(
+                      (eyAltRaw[i] / yAltRaw[i]) * (eyAltRaw[i] / yAltRaw[i]) +
+                      (eyAltCorr[i] / yAltCorr[i]) * (eyAltCorr[i] / yAltCorr[i]));
+                }
+
+                // -- TGraphErrors --
+                TGraphErrors g30Raw4(kNPtBins, &x[0], &yRaw[0],      &ex[0], &eyRaw[0]);
+                TGraphErrors g30Cor4(kNPtBins, &x[0], &yCorr[0],     &ex[0], &eyCorr[0]);
+                TGraphErrors g60Raw4(kNPtBins, &x[0], &yAltRaw[0],   &ex[0], &eyAltRaw[0]);
+                TGraphErrors g60Cor4(kNPtBins, &x[0], &yAltCorr[0],  &ex[0], &eyAltCorr[0]);
+                TGraphErrors gRat30(kNPtBins,  &x[0], &ratDef[0],    &ex[0], &eRatDef[0]);
+                TGraphErrors gRat60(kNPtBins,  &x[0], &ratAlt[0],    &ex[0], &eRatAlt[0]);
+
+                // style: 30 cm = kRed+1, 60 cm = kBlue+1; raw = closed 20, corr = open 24
+                auto Sty4 = [](TGraphErrors& g, Color_t col, Style_t mkr) {
+                  g.SetLineWidth(2);  g.SetLineColor(col);
+                  g.SetMarkerStyle(mkr); g.SetMarkerSize(1.2); g.SetMarkerColor(col);
+                };
+                Sty4(g30Raw4, kRed + 1,  20);
+                Sty4(g30Cor4, kRed + 1,  24);
+                Sty4(g60Raw4, kBlue + 1, 20);
+                Sty4(g60Cor4, kBlue + 1, 24);
+                Sty4(gRat30,  kRed + 1,  20);
+                Sty4(gRat60,  kBlue + 1, 20);
+
+                // -- canvas with ratio subpanel --
+                TCanvas c4("c_pur_4way", "c_pur_4way", 900, 900);
+
+                TPad* pMain4 = new TPad("pMain4", "", 0, 0.30, 1, 1.0);
+                pMain4->SetBottomMargin(0.02);
+                pMain4->SetLeftMargin(0.14);
+                pMain4->SetRightMargin(0.04);
+                pMain4->SetTopMargin(0.06);
+                pMain4->Draw();
+
+                TPad* pRat4 = new TPad("pRat4", "", 0, 0.0, 1, 0.30);
+                pRat4->SetTopMargin(0.02);
+                pRat4->SetBottomMargin(0.32);
+                pRat4->SetLeftMargin(0.14);
+                pRat4->SetRightMargin(0.04);
+                pRat4->Draw();
+
+                // ---- main panel ----
+                pMain4->cd();
+
+                TH1F hFr4("hPur4Frame", "", 100, 10.0, kPtEdges.back());
+                hFr4.SetDirectory(nullptr);
+                hFr4.SetStats(0);
+                hFr4.SetMinimum(0.0);
+                hFr4.SetMaximum(1.05);
+                hFr4.GetXaxis()->SetLabelSize(0);
+                hFr4.GetXaxis()->SetTickLength(0.03);
+                hFr4.GetYaxis()->SetTitle("Purity");
+                hFr4.GetYaxis()->SetTitleSize(0.055);
+                hFr4.GetYaxis()->SetLabelSize(0.045);
+                hFr4.GetYaxis()->SetTitleOffset(1.1);
+                hFr4.Draw();
+
+                g30Raw4.Draw("P SAME");
+                g30Cor4.Draw("P SAME");
+                g60Raw4.Draw("P SAME");
+                g60Cor4.Draw("P SAME");
+
+                TLegend leg4(0.55, 0.68, 0.93, 0.92);
+                leg4.SetBorderSize(0);
+                leg4.SetFillStyle(0);
+                leg4.SetTextFont(42);
+                leg4.SetTextSize(0.040);
+                leg4.AddEntry(&g30Raw4, TString::Format("|v_{z}| < %d cm, raw",       kVzCut).Data(), "pe");
+                leg4.AddEntry(&g30Cor4, TString::Format("|v_{z}| < %d cm, corrected",  kVzCut).Data(), "pe");
+                leg4.AddEntry(&g60Raw4, TString::Format("|v_{z}| < %d cm, raw",       altVz4).Data(), "pe");
+                leg4.AddEntry(&g60Cor4, TString::Format("|v_{z}| < %d cm, corrected",  altVz4).Data(), "pe");
+                leg4.Draw();
+
+                const string isoConeLabel4 = (kIsoConeR == "isoR40")
+                  ? "#DeltaR^{iso} < 0.4" : "#DeltaR^{iso} < 0.3";
+
+                TLatex tAnn4;
+                tAnn4.SetNDC(true);
+                tAnn4.SetTextFont(42);
+                tAnn4.SetTextAlign(13);
+                tAnn4.SetTextSize(0.038);
+                tAnn4.DrawLatex(0.17, 0.92, "Photon 4 GeV + MBD NS #geq 1");
+                tAnn4.DrawLatex(0.17, 0.86, isoConeLabel4.c_str());
+                tAnn4.DrawLatex(0.17, 0.80, "E_{T}^{iso} < 1.08128 + 0.0299107 #times E_{T}^{#gamma}");
+                tAnn4.DrawLatex(0.17, 0.74, "reco");
+
+                // ---- ratio subpanel ----
+                pRat4->cd();
+
+                TH1F hFrR4("hPurRatFrame", "", 100, 10.0, kPtEdges.back());
+                hFrR4.SetDirectory(nullptr);
+                hFrR4.SetStats(0);
+                hFrR4.SetMinimum(0.85);
+                hFrR4.SetMaximum(1.10);
+                hFrR4.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                hFrR4.GetXaxis()->SetTitleSize(0.12);
+                hFrR4.GetXaxis()->SetLabelSize(0.10);
+                hFrR4.GetXaxis()->SetTitleOffset(1.0);
+                hFrR4.GetXaxis()->SetTickLength(0.08);
+                hFrR4.GetYaxis()->SetTitle("P_{raw} / P_{corr}");
+                hFrR4.GetYaxis()->SetTitleSize(0.10);
+                hFrR4.GetYaxis()->SetLabelSize(0.09);
+                hFrR4.GetYaxis()->SetTitleOffset(0.55);
+                hFrR4.GetYaxis()->SetNdivisions(505);
+                hFrR4.Draw();
+
+                TLine lRef4(10.0, 1.0, kPtEdges.back(), 1.0);
+                lRef4.SetLineStyle(2);
+                lRef4.SetLineColor(kGray + 2);
+                lRef4.Draw("SAME");
+
+                gRat30.Draw("P SAME");
+                gRat60.Draw("P SAME");
+
+                  c4.cd();
+                  SaveCanvas(c4, JoinPath(outDir, "purity_4way_vz_rawAndCorr_DATA.png"));
+
+                  // dump numbers to text file
+                  {
+                    const string txtPath = JoinPath(outDir, "purity_4way_vz_rawAndCorr_DATA.txt");
+                    std::ofstream ofs(txtPath);
+                    if (ofs.is_open())
+                    {
+                      ofs << std::fixed;
+                      const int w = 14;
+                      ofs << std::left << std::setw(10) << "pTbin"
+                          << std::right
+                          << std::setw(w) << "Praw_30"
+                          << std::setw(w) << "ePraw_30"
+                          << std::setw(w) << "Pcorr_30"
+                          << std::setw(w) << "ePcorr_30"
+                          << std::setw(w) << "Praw_60"
+                          << std::setw(w) << "ePraw_60"
+                          << std::setw(w) << "Pcorr_60"
+                          << std::setw(w) << "ePcorr_60"
+                          << std::setw(w) << "rat_30"
+                          << std::setw(w) << "eRat_30"
+                          << std::setw(w) << "rat_60"
+                          << std::setw(w) << "eRat_60"
+                          << "\n";
+                      ofs << std::string(10 + 12 * w, '-') << "\n";
+
+                      for (int i = 0; i < kNPtBins; ++i)
+                      {
+                        const PtBin& b = PtBins()[i];
+                        ofs << std::left << std::setw(10)
+                            << (std::to_string(b.lo) + "-" + std::to_string(b.hi))
+                            << std::right << std::setprecision(4)
+                            << std::setw(w) << yRaw[i]
+                            << std::setw(w) << eyRaw[i]
+                            << std::setw(w) << yCorr[i]
+                            << std::setw(w) << eyCorr[i]
+                            << std::setw(w) << yAltRaw[i]
+                            << std::setw(w) << eyAltRaw[i]
+                            << std::setw(w) << yAltCorr[i]
+                            << std::setw(w) << eyAltCorr[i]
+                            << std::setw(w) << ratDef[i]
+                            << std::setw(w) << eRatDef[i]
+                            << std::setw(w) << ratAlt[i]
+                            << std::setw(w) << eRatAlt[i]
+                            << "\n";
+                      }
+                      ofs.close();
+                      cout << "  [OK] Wrote " << txtPath << "\n";
+                    }
+                  }
+
+                  fAlt4->Close();
+                delete fAlt4;
               }
+              else
+              {
+                cout << ANSI_BOLD_YEL
+                     << "[WARN] 4-way purity overlay skipped: could not open " << altPath4
+                     << ANSI_RESET << "\n";
+                if (fAlt4) { fAlt4->Close(); delete fAlt4; }
+              }
+            }
+
           }
 
           if (!ds.isSim)

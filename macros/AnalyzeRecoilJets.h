@@ -94,10 +94,10 @@ namespace ARJ
   inline bool isPPdataOnly   = false;
   inline bool pp_beforeChangeInRecoSimDefTruthMatched = true;
 
-  inline bool isSimAndDataPP = true;
+  inline bool isSimAndDataPP = false;
   inline bool isSimAndDataAUAU = false;
 
-  inline bool isAuAuOnly     = false;
+  inline bool isAuAuOnly     = true;
   inline bool isPPdataAndAUAU = false;
   inline bool generateUEcomparisonSSQA = false;
   inline bool isRun25pp      = false;
@@ -113,7 +113,7 @@ namespace ARJ
   inline bool bothPhoton5and10sim        = false;
   inline bool bothPhoton5and20sim        = false;
   inline bool bothPhoton10and20sim       = false;
-  inline bool allPhoton5and10and20sim    = true;
+  inline bool allPhoton5and10and20sim    = false;
   //   Embedded Au+Au SIM slices / merges:
   inline bool isPhotonJet10Embedded      = false;
   inline bool isPhotonJet20Embedded      = false;
@@ -122,7 +122,7 @@ namespace ARJ
   inline bool isSimMB                    = false;   // MinBias DETROIT tune
   inline bool isSimJet5                  = false;   // inclusive jet5
 
-  inline bool doPhotonJetMerge = true;
+  inline bool doPhotonJetMerge = false;
 
   //   RooUnfold: true = run both non-purity and purity-corrected passes + overlay.
   inline bool do_xJ_PPunfold = false;
@@ -142,7 +142,7 @@ namespace ARJ
   // ===========================================================================
   inline const int    kJetPtMin        = 5;            // GeV: 3, 5, or 10
   inline const string kB2BCut          = "7pi_8";      // "7pi_8" or "pi_2"
-  inline const int    kVzCut           = 30;            // cm: 30 or 60
+  inline const int    kVzCut           = 60;            // cm: 30 or 60
   inline const string kIsoConeR        = "isoR30";     // "isoR30" or "isoR40"
   inline const string kIsoMode         = "isSliding";  // "isSliding" or "fixedIso5GeV"
 
@@ -169,7 +169,7 @@ namespace ARJ
   // 4. BINNING  (edit these arrays to change pT / xJ / centrality slicing)
   // ===========================================================================
   //   JES3 photon pT bin edges (drives pT-sliced QA tables + JES3 booking):
-  inline const vector<double> kJES3PhotonPtBins         = {8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35};
+  inline const vector<double> kJES3PhotonPtBins         = {10, 12, 14, 16, 18, 20, 22, 24, 26, 35};
   //   Unfolding photon pT bin edges (reco and truth, independent from JES3):
   inline const vector<double> kUnfoldRecoPhotonPtBins   = {8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35, 40};
   inline const vector<double> kUnfoldTruthPhotonPtBins  = {5, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35, 40};

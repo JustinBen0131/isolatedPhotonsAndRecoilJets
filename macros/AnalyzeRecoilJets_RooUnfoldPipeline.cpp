@@ -1441,10 +1441,10 @@
           TLatex tInfo;
           tInfo.SetNDC(true);
           tInfo.SetTextFont(42);
-          tInfo.SetTextAlign(33);
-          tInfo.SetTextSize(0.038);
-          tInfo.DrawLatex(0.92, 0.55, "Iso cone: 0.03");
-          tInfo.DrawLatex(0.92, 0.51, "|v_{z}| < 30 cm");
+          tInfo.SetTextAlign(13);
+          tInfo.SetTextSize(0.04);
+          tInfo.DrawLatex(0.22, 0.3, "Iso cone: 0.03");
+          tInfo.DrawLatex(0.22, 0.25, "|v_{z}| < 30 cm");
 
           SaveCanvas(c, JoinPath(samDir, "purity_raw_overlay_BDT_vs_BoxCuts.png"));
 
