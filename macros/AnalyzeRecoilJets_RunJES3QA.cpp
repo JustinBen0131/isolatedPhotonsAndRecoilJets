@@ -3901,12 +3901,13 @@ void RunJES3QA(Dataset& ds)
 
               // AuAu TH3 per centrality (merged: 0-10 + 10-20 → 0-20)
               struct CentEntry { const char* suffix; const char* label; int color; };
-              const CentEntry centEntries[] = {
-                { "_cent_0_20",  "AuAu 0-20%",  kBlue + 1    },
-                { "_cent_20_40", "AuAu 20-40%", kMagenta + 1 },
-                { "_cent_40_60", "AuAu 40-60%", kBlack       },
-              };
-              const int nCent = 3;
+                const CentEntry centEntries[] = {
+                  { "_cent_0_20",  "AuAu 0-20%",  kBlue + 1    },
+                  { "_cent_20_40", "AuAu 20-40%", kMagenta + 1 },
+                  { "_cent_40_60", "AuAu 40-60%", kBlack       },
+                  { "_cent_60_80", "AuAu 60-80%", kGreen + 2   },
+                };
+                const int nCent = 4;
 
               TH3* h3AA[4] = { nullptr, nullptr, nullptr, nullptr };
               bool h3AA0_isClone = false;
@@ -3924,6 +3925,7 @@ void RunJES3QA(Dataset& ds)
 
                 h3AA[1] = dynamic_cast<TH3*>(dirAAov->Get((h3name + "_cent_20_40").c_str()));
                 h3AA[2] = dynamic_cast<TH3*>(dirAAov->Get((h3name + "_cent_40_60").c_str()));
+                h3AA[3] = dynamic_cast<TH3*>(dirAAov->Get((h3name + "_cent_60_80").c_str()));
               }
 
               // All analysis pT bins: multiCent + PP overlay
@@ -4004,11 +4006,12 @@ void RunJES3QA(Dataset& ds)
 
                      for (int ib = 0; ib < nPads; ++ib)
                      {
-                       cGrid.cd(ib + 1);
-                       gPad->SetTopMargin(0.08);
-                       gPad->SetBottomMargin(0.14);
-                       gPad->SetLeftMargin(0.18);
-                       gPad->SetRightMargin(0.05);
+                         cGrid.cd(ib + 1);
+                         const bool isLeftCol = ((ib % nCols) == 0);
+                         gPad->SetTopMargin(0.08);
+                         gPad->SetBottomMargin(0.14);
+                         gPad->SetLeftMargin(isLeftCol ? 0.18 : 0.08);
+                         gPad->SetRightMargin(0.05);
 
                        TH1* hPP = allPP[ib];
                        bool anyAA = false;
@@ -4045,9 +4048,9 @@ void RunJES3QA(Dataset& ds)
                        hPP->GetXaxis()->SetRangeUser(0.0, 3.0);
                        hPP->GetXaxis()->SetTitleSize(0.055);
                        hPP->GetXaxis()->SetLabelSize(0.045);
-                       hPP->GetYaxis()->SetTitle("Normalized Counts");
-                       hPP->GetYaxis()->SetTitleSize(0.055);
-                       hPP->GetYaxis()->SetLabelSize(0.045);
+                       hPP->GetYaxis()->SetTitle(isLeftCol ? "Normalized Counts" : "");
+                       hPP->GetYaxis()->SetTitleSize(isLeftCol ? 0.055 : 0.0);
+                       hPP->GetYaxis()->SetLabelSize(isLeftCol ? 0.045 : 0.035);
                        hPP->GetYaxis()->SetTitleOffset(1.55);
                        hPP->SetMinimum(0.0);
                        hPP->SetMaximum(ymax * ymaxScale);
@@ -4076,7 +4079,7 @@ void RunJES3QA(Dataset& ds)
                          t.SetTextAlign(13);
                          t.SetTextSize(0.045);
                          t.DrawLatex(0.19, 0.98,
-                           TString::Format("RECO x_{J#gamma}, p_{T}^{#gamma} = %d-%d GeV, R = 0.4", pbOv.lo, pbOv.hi).Data());
+                         TString::Format("Leading Jet x_{J#gamma}, p_{T}^{#gamma} = %d-%d GeV, Centrality Overlay, Run3auau", pbOv.lo, pbOv.hi).Data());
                        }
                      }
 
@@ -4084,19 +4087,19 @@ void RunJES3QA(Dataset& ds)
                      for (auto* lg : legends) delete lg;
                    };
 
-                   // ---- 3x3 canvas: all 9 pT bins ----
-                   {
-                     const int nPads3x3 = std::min(nBinsAll, 9);
-                     DrawGridCanvas("c_xJov_grid_3x3", 3, 3, nPads3x3, 1.65,
-                                    2700, 2100, "xJ_RECO_multiCent_pp_overlay_allPt_3x3.png");
-                   }
+                    // ---- 3x3 canvas: all 9 pT bins ----
+                     {
+                       const int nPads3x3 = std::min(nBinsAll, 9);
+                       DrawGridCanvas("c_xJov_grid_3x3", 3, 3, nPads3x3, 1.15,
+                                      2700, 2100, "xJ_RECO_multiCent_pp_overlay_allPt_3x3.png");
+                     }
 
-                   // ---- 2x3 canvas: first 6 pT bins (10-22 GeV) ----
-                   {
-                     const int nPads2x3 = std::min(nBinsAll, 6);
-                     DrawGridCanvas("c_xJov_grid_2x3", 3, 2, nPads2x3, 1.50,
-                                    2700, 1400, "xJ_RECO_multiCent_pp_overlay_allPt_2x3.png");
-                   }
+                     // ---- 2x3 canvas: first 6 pT bins (10-22 GeV) ----
+                     {
+                       const int nPads2x3 = std::min(nBinsAll, 6);
+                       DrawGridCanvas("c_xJov_grid_2x3", 3, 2, nPads2x3, 1.15,
+                                      2700, 1400, "xJ_RECO_multiCent_pp_overlay_allPt_2x3.png");
+                     }
 
                    // Cleanup all collected histograms
                    for (int ib = 0; ib < nBinsAll; ++ib)

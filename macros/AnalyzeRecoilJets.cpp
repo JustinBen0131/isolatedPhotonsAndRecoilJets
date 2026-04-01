@@ -4935,9 +4935,9 @@ namespace ARJ
               for (std::size_t ih = 1; ih < hists.size(); ++ih) hists[ih]->Draw("E1 SAME");
               if (hPP) hPP->Draw("E1 SAME");
 
-              TLegend leg(ptInTitle ? 0.65 : 0.56,
-                          ptInTitle ? 0.75 : 0.58,
-                          0.92, 0.88);
+              TLegend leg(ptInTitle ? 0.65 : 0.65,
+                                        ptInTitle ? 0.75 : 0.72,
+                                        0.92, 0.88);
               leg.SetBorderSize(0);
               leg.SetFillStyle(0);
               leg.SetTextFont(42);
@@ -5397,9 +5397,10 @@ namespace ARJ
                           TH1* hPP = ProjectPP(h2PP, rKey,
                             TString::Format("cp_%s_%zu", cp.folder.c_str(), iv).Data(), ib, ptLo, ptHi);
                           DrawXJOverlay({hA, hB}, {labelA, labelB}, hPP, "pp",
-                            JoinPath(ptDir, "xJ_inclusive_centCompare.png"),
-                            TString::Format("Inclusive x_{J}, %s, cent compare", vHandles[iv].label.c_str()).Data(),
-                            rKey, R, cp.a.lo, cp.b.hi, iPtLo, iPtHi);
+                                                        JoinPath(ptDir, "xJ_inclusive_centCompare.png"),
+                                                        TString::Format("Inclusive x_{J}, %s, %d-%d%% vs %d-%d%% AuAu",
+                                                          vHandles[iv].label.c_str(), cp.a.lo, cp.a.hi, cp.b.lo, cp.b.hi).Data(),
+                                                        rKey, R, cp.a.lo, cp.b.hi, iPtLo, iPtHi, true);
                           if (hPP) delete hPP;
                         }
                           if (hA) delete hA;
