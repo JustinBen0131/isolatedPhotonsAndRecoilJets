@@ -160,8 +160,8 @@ namespace ARJ
   // Set one, two, or all three.  Analysis runs independently for each.
   inline const vector<string> kTriggersAuAu = {
 //        "MBD_NS_geq_2_vtx_lt_150"
-       "photon_10_plus_MBD_NS_geq_2_vtx_lt_150"
-      // ,"photon_12_plus_MBD_NS_geq_2_vtx_lt_150"
+//       "photon_10_plus_MBD_NS_geq_2_vtx_lt_150"
+       "photon_12_plus_MBD_NS_geq_2_vtx_lt_150"
   };
 
   inline const double kPhotonEtaAbsMax = 0.7; //consistent fiducial cut for all analyzed data

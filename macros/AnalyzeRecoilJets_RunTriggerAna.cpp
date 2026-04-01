@@ -912,7 +912,20 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         l90.SetLineWidth(2);
         l90.SetLineColor(kGray+2);
         l90.Draw("SAME");
-        
+
+        // Vertical dashed lines at each trigger's 90% efficiency point
+        std::vector<TLine*> vertLines;
+        for (std::size_t i = 0; i < loaded.size() && i < x80s.size(); ++i)
+        {
+            if (x80s[i] <= 0.0 || x80s[i] > 20.0) continue;
+            TLine* lv = new TLine(x80s[i], 0.0, x80s[i], 0.90);
+            lv->SetLineStyle(2);
+            lv->SetLineWidth(2);
+            lv->SetLineColor(colorForProbe(loaded[i].probeKey));
+            lv->Draw("SAME");
+            vertLines.push_back(lv);
+        }
+
         TLegend extraLegend(0.55, 0.45, 0.90, 0.55);
         extraLegend.SetBorderSize(0);
         extraLegend.SetFillStyle(0);
@@ -1007,6 +1020,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         SaveCanvas(c, outPng);
         cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";
         
+        for (auto* lv : vertLines) delete lv;
         for (auto* f : fitFuncs) if (f) delete f;
         for (auto* h : ratioHists) delete h;
     };
