@@ -3970,140 +3970,140 @@ void RunJES3QA(Dataset& ds)
                   if (I > 0.0) h->Scale(1.0 / I);
                 };
 
-                for (const auto& pbOv : recoBinsAll)
-                {
-                  const string ptTag = TString::Format("%d_%d", pbOv.lo, pbOv.hi).Data();
+                  // ---- Collect histos for all pT bins, then draw as 3x3 canvas ----
+                  const int nBinsAll = (int)recoBinsAll.size();
+                  std::vector<TH1*> allPP(nBinsAll, nullptr);
+                  std::vector<std::vector<TH1*>> allAA(nBinsAll, std::vector<TH1*>(4, nullptr));
 
-                  // Project PP
-                  TH1* hxPP = ProjectXJ(h3PP, pbOv, "xJov_pp_" + ptTag);
-                  if (hxPP) { hxPP->SetDirectory(nullptr); EnsureSumw2(hxPP); NormUnit(hxPP); }
-
-                  // Project AuAu centralities
-                  TH1* hxAA[4] = { nullptr, nullptr, nullptr, nullptr };
-                  for (int ic = 0; ic < nCent; ++ic)
+                  for (int ib = 0; ib < nBinsAll; ++ib)
                   {
-                    if (!h3AA[ic]) continue;
-                    hxAA[ic] = ProjectXJ(h3AA[ic], pbOv,
-                      TString::Format("xJov_auau%s_%s", centEntries[ic].suffix, ptTag.c_str()).Data());
-                    if (hxAA[ic]) { hxAA[ic]->SetDirectory(nullptr); EnsureSumw2(hxAA[ic]); NormUnit(hxAA[ic]); }
-                  }
+                    const auto& pbOv = recoBinsAll[ib];
+                    const string ptTag = TString::Format("%d_%d", pbOv.lo, pbOv.hi).Data();
 
-                  // Check at least PP + one AuAu exist
-                  bool anyAA = false;
-                  for (int ic = 0; ic < nCent; ++ic) if (hxAA[ic]) anyAA = true;
+                    allPP[ib] = ProjectXJ(h3PP, pbOv, "xJov_pp_" + ptTag);
+                    if (allPP[ib]) { allPP[ib]->SetDirectory(nullptr); EnsureSumw2(allPP[ib]); NormUnit(allPP[ib]); }
 
-                  if (hxPP && anyAA)
-                  {
-                    TCanvas cOv("c_xJov_multiCent", "c_xJov_multiCent", 900, 700);
-                    cOv.SetTopMargin(0.08);
-                    cOv.SetBottomMargin(0.14);
-                    cOv.SetLeftMargin(0.13);
-                    cOv.SetRightMargin(0.05);
-
-                    // Style PP: open red circles
-                    hxPP->SetLineWidth(2);
-                    hxPP->SetLineColor(kRed + 1);
-                    hxPP->SetMarkerColor(kRed + 1);
-                    hxPP->SetMarkerStyle(24);
-                    hxPP->SetMarkerSize(1.1);
-
-                    // Style AuAu: closed circles, color per centrality
                     for (int ic = 0; ic < nCent; ++ic)
                     {
-                      if (!hxAA[ic]) continue;
-                      hxAA[ic]->SetLineWidth(2);
-                      hxAA[ic]->SetLineColor(centEntries[ic].color);
-                      hxAA[ic]->SetMarkerColor(centEntries[ic].color);
-                      hxAA[ic]->SetMarkerStyle(20);
-                      hxAA[ic]->SetMarkerSize(1.0);
+                      if (!h3AA[ic]) continue;
+                      allAA[ib][ic] = ProjectXJ(h3AA[ic], pbOv,
+                        TString::Format("xJov_auau%s_%s", centEntries[ic].suffix, ptTag.c_str()).Data());
+                      if (allAA[ib][ic]) { allAA[ib][ic]->SetDirectory(nullptr); EnsureSumw2(allAA[ib][ic]); NormUnit(allAA[ib][ic]); }
                     }
-
-                    // Determine y-max across all curves
-                    double ymax = hxPP->GetMaximum();
-                    for (int ic = 0; ic < nCent; ++ic)
-                      if (hxAA[ic]) ymax = std::max(ymax, hxAA[ic]->GetMaximum());
-
-                    // Use PP as frame
-                    hxPP->SetTitle("");
-                    hxPP->GetXaxis()->SetTitle("x_{J#gamma}");
-                    hxPP->GetXaxis()->SetRangeUser(0.0, 3.0);
-                    hxPP->GetYaxis()->SetTitle("Normalized Counts");
-                    hxPP->SetMinimum(0.0);
-                    hxPP->SetMaximum(ymax * 1.35);
-
-                    hxPP->Draw("E1");
-                    for (int ic = 0; ic < nCent; ++ic)
-                      if (hxAA[ic]) hxAA[ic]->Draw("E1 same");
-
-                    // Legend in top-right
-                    TLegend* legOv = new TLegend(0.60, 0.65, 0.93, 0.92);
-                    legOv->SetBorderSize(0);
-                    legOv->SetFillStyle(0);
-                    legOv->SetTextFont(42);
-                    legOv->SetTextSize(0.035);
-                    legOv->AddEntry(hxPP, "pp", "ep");
-                    for (int ic = 0; ic < nCent; ++ic)
-                      if (hxAA[ic]) legOv->AddEntry(hxAA[ic], centEntries[ic].label, "ep");
-                    legOv->Draw();
-
-                      // Title annotation
-                      {
-                        TLatex t;
-                        t.SetNDC(true);
-                        t.SetTextFont(42);
-                        t.SetTextAlign(13);
-                        t.SetTextSize(0.042);
-                        t.DrawLatex(0.14, 0.98,
-                          TString::Format("RECO x_{J#gamma}, p_{T}^{#gamma} = %d-%d GeV, R = 0.4", pbOv.lo, pbOv.hi).Data());
-                      }
-
-                      // Cut annotations (trigger + full AuAu selection)
-                      {
-                        std::string trigLabelOv;
-                        {
-                          int photonPt = 0;
-                          if (std::sscanf(ds.trigger.c_str(), "photon_%d_plus", &photonPt) == 1)
-                            trigLabelOv = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
-                          else if (ds.trigger.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
-                            trigLabelOv = "Trigger: MBD NS #geq 2, vtx < 150 cm";
-                          else
-                            trigLabelOv = "Trigger: " + ds.trigger;
-                        }
-
-                        const string isoConeOv = (kAA_IsoConeR == "isoR40")
-                          ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
-
-                        string isoModeOv;
-                        if (kAA_IsoMode == "fixedIso5GeV") isoModeOv = "E_{T}^{iso} < 5 GeV";
-                        else                               isoModeOv = "Sliding iso cut";
-
-                        const string vzOv  = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
-                        const string b2bOv = TString::Format("|#Delta#phi| > %s", B2BLabelFor(kAA_B2BCut).c_str()).Data();
-                        const string ptjOv = TString::Format("p_{T}^{jet} > %d GeV", kAA_JetPtMin).Data();
-
-                        TLatex tCutsOv;
-                        tCutsOv.SetNDC(true);
-                        tCutsOv.SetTextFont(42);
-                        tCutsOv.SetTextAlign(13);
-                        tCutsOv.SetTextSize(0.032);
-                        tCutsOv.DrawLatex(0.14, 0.86, trigLabelOv.c_str());
-                        tCutsOv.DrawLatex(0.14, 0.81, isoConeOv.c_str());
-                        tCutsOv.DrawLatex(0.14, 0.76, isoModeOv.c_str());
-                        tCutsOv.DrawLatex(0.14, 0.71, vzOv.c_str());
-                        tCutsOv.DrawLatex(0.14, 0.66, b2bOv.c_str());
-                        tCutsOv.DrawLatex(0.14, 0.61, ptjOv.c_str());
-                      }
-
-                      SaveCanvas(cOv, JoinPath(xJovDir,
-                        TString::Format("xJ_RECO_multiCent_pp_overlay_pTgamma_%s.png", ptTag.c_str()).Data()));
-
-                    delete legOv;
                   }
 
-                  // Cleanup
-                  if (hxPP) delete hxPP;
-                  for (int ic = 0; ic < nCent; ++ic) if (hxAA[ic]) delete hxAA[ic];
-                }
+                  // ---- Helper lambda: draw one grid canvas ----
+                   auto DrawGridCanvas = [&](const char* cName, int nCols, int nRows,
+                                             int nPads, double ymaxScale,
+                                             int canW, int canH,
+                                             const char* outFileName)
+                   {
+                     TCanvas cGrid(cName, cName, canW, canH);
+                     cGrid.Divide(nCols, nRows, 0.0, 0.0);
+                     std::vector<TLegend*> legends;
+
+                     for (int ib = 0; ib < nPads; ++ib)
+                     {
+                       cGrid.cd(ib + 1);
+                       gPad->SetTopMargin(0.08);
+                       gPad->SetBottomMargin(0.14);
+                       gPad->SetLeftMargin(0.18);
+                       gPad->SetRightMargin(0.05);
+
+                       TH1* hPP = allPP[ib];
+                       bool anyAA = false;
+                       for (int ic = 0; ic < nCent; ++ic) if (allAA[ib][ic]) anyAA = true;
+                       if (!hPP || !anyAA) continue;
+
+                       const auto& pbOv = recoBinsAll[ib];
+
+                       // Style PP: open red circles
+                       hPP->SetLineWidth(2);
+                       hPP->SetLineColor(kRed + 1);
+                       hPP->SetMarkerColor(kRed + 1);
+                       hPP->SetMarkerStyle(24);
+                       hPP->SetMarkerSize(0.8);
+
+                       // Style AuAu: closed circles, color per centrality
+                       for (int ic = 0; ic < nCent; ++ic)
+                       {
+                         if (!allAA[ib][ic]) continue;
+                         allAA[ib][ic]->SetLineWidth(2);
+                         allAA[ib][ic]->SetLineColor(centEntries[ic].color);
+                         allAA[ib][ic]->SetMarkerColor(centEntries[ic].color);
+                         allAA[ib][ic]->SetMarkerStyle(20);
+                         allAA[ib][ic]->SetMarkerSize(0.7);
+                       }
+
+                       // Determine y-max with configurable buffer
+                       double ymax = hPP->GetMaximum();
+                       for (int ic = 0; ic < nCent; ++ic)
+                         if (allAA[ib][ic]) ymax = std::max(ymax, allAA[ib][ic]->GetMaximum());
+
+                       hPP->SetTitle("");
+                       hPP->GetXaxis()->SetTitle("x_{J#gamma}");
+                       hPP->GetXaxis()->SetRangeUser(0.0, 3.0);
+                       hPP->GetXaxis()->SetTitleSize(0.055);
+                       hPP->GetXaxis()->SetLabelSize(0.045);
+                       hPP->GetYaxis()->SetTitle("Normalized Counts");
+                       hPP->GetYaxis()->SetTitleSize(0.055);
+                       hPP->GetYaxis()->SetLabelSize(0.045);
+                       hPP->GetYaxis()->SetTitleOffset(1.55);
+                       hPP->SetMinimum(0.0);
+                       hPP->SetMaximum(ymax * ymaxScale);
+
+                       hPP->Draw("E1");
+                       for (int ic = 0; ic < nCent; ++ic)
+                         if (allAA[ib][ic]) allAA[ib][ic]->Draw("E1 same");
+
+                       // Legend in top-right (kept alive until after SaveCanvas)
+                       TLegend* legPad = new TLegend(0.58, 0.65, 0.93, 0.92);
+                       legPad->SetBorderSize(0);
+                       legPad->SetFillStyle(0);
+                       legPad->SetTextFont(42);
+                       legPad->SetTextSize(0.035);
+                       legPad->AddEntry(hPP, "pp", "ep");
+                       for (int ic = 0; ic < nCent; ++ic)
+                         if (allAA[ib][ic]) legPad->AddEntry(allAA[ib][ic], centEntries[ic].label, "ep");
+                       legPad->Draw();
+                       legends.push_back(legPad);
+
+                       // Title annotation only (no cut annotations)
+                       {
+                         TLatex t;
+                         t.SetNDC(true);
+                         t.SetTextFont(42);
+                         t.SetTextAlign(13);
+                         t.SetTextSize(0.045);
+                         t.DrawLatex(0.19, 0.98,
+                           TString::Format("RECO x_{J#gamma}, p_{T}^{#gamma} = %d-%d GeV, R = 0.4", pbOv.lo, pbOv.hi).Data());
+                       }
+                     }
+
+                     SaveCanvas(cGrid, JoinPath(xJovDir, outFileName));
+                     for (auto* lg : legends) delete lg;
+                   };
+
+                   // ---- 3x3 canvas: all 9 pT bins ----
+                   {
+                     const int nPads3x3 = std::min(nBinsAll, 9);
+                     DrawGridCanvas("c_xJov_grid_3x3", 3, 3, nPads3x3, 1.65,
+                                    2700, 2100, "xJ_RECO_multiCent_pp_overlay_allPt_3x3.png");
+                   }
+
+                   // ---- 2x3 canvas: first 6 pT bins (10-22 GeV) ----
+                   {
+                     const int nPads2x3 = std::min(nBinsAll, 6);
+                     DrawGridCanvas("c_xJov_grid_2x3", 3, 2, nPads2x3, 1.50,
+                                    2700, 1400, "xJ_RECO_multiCent_pp_overlay_allPt_2x3.png");
+                   }
+
+                   // Cleanup all collected histograms
+                   for (int ib = 0; ib < nBinsAll; ++ib)
+                   {
+                     if (allPP[ib]) delete allPP[ib];
+                     for (int ic = 0; ic < nCent; ++ic) if (allAA[ib][ic]) delete allAA[ib][ic];
+                   }
               }
               // Cleanup merged TH3 clone (not file-owned)
               if (h3AA0_isClone && h3AA[0]) { delete h3AA[0]; h3AA[0] = nullptr; }

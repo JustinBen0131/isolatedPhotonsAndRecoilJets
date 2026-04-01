@@ -579,11 +579,16 @@ for (std::size_t ic = 0; ic < centBins.size(); ++ic)
               }
             }
 
-            TH1* hFrame = nullptr;
-            if (includeTemplates)
-              hFrame = (hSig ? hSig : (hBkg ? hBkg : (!hAAs.empty() ? hAAs.front().second : hPP)));
-            else
-              hFrame = (!hAAs.empty() ? hAAs.front().second : hPP);
+              TH1* hFrame = nullptr;
+              if (includeTemplates)
+              {
+                if (doZoom && tag != "tight")
+                  hFrame = (hBkg ? hBkg : (!hAAs.empty() ? hAAs.front().second : hPP));
+                else
+                  hFrame = (hSig ? hSig : (hBkg ? hBkg : (!hAAs.empty() ? hAAs.front().second : hPP)));
+              }
+              else
+                hFrame = (!hAAs.empty() ? hAAs.front().second : hPP);
 
             if (!hFrame)
             {
@@ -650,8 +655,13 @@ for (std::size_t ic = 0; ic < centBins.size(); ++ic)
                 }
               };
 
-              AccumulateZoomRange(hPP);
-              for (const auto& hAAPair : hAAs) AccumulateZoomRange(hAAPair.second);
+                AccumulateZoomRange(hPP);
+                for (const auto& hAAPair : hAAs) AccumulateZoomRange(hAAPair.second);
+                if (includeTemplates)
+                {
+                  if (tag == "tight") AccumulateZoomRange(hSig);
+                  else                AccumulateZoomRange(hBkg);
+                }
 
               if (std::isfinite(xMinZoom) && std::isfinite(xMaxZoom) && xMaxZoom > xMinZoom)
               {
@@ -671,27 +681,47 @@ for (std::size_t ic = 0; ic < centBins.size(); ++ic)
             hFrame->SetMinimum(0.0);
             hFrame->SetMaximum((yMax > 0.0) ? (yMax * (doZoom ? 1.08 : 1.10)) : 1.0);
 
-            if (includeTemplates)
-            {
-              if (hSig)
+              if (includeTemplates)
               {
-                hSig->Draw("HIST");
-              }
-              else if (hBkg)
-              {
-                hBkg->Draw("HIST");
-              }
-              else if (!hAAs.empty())
-              {
-                hAAs.front().second->Draw("E1");
-              }
-              else
-              {
-                hPP->Draw("E1");
-              }
+                if (doZoom)
+                {
+                  // Zoomed row: only the relevant MC template
+                  if (tag == "tight")
+                  {
+                    if (hSig)             hSig->Draw("HIST");
+                    else if (!hAAs.empty()) hAAs.front().second->Draw("E1");
+                    else if (hPP)         hPP->Draw("E1");
+                  }
+                  else
+                  {
+                    if (hBkg)             hBkg->Draw("HIST");
+                    else if (!hAAs.empty()) hAAs.front().second->Draw("E1");
+                    else if (hPP)         hPP->Draw("E1");
+                  }
+                }
+                else
+                {
+                  // Full row: both MC templates
+                  if (hSig)
+                  {
+                    hSig->Draw("HIST");
+                  }
+                  else if (hBkg)
+                  {
+                    hBkg->Draw("HIST");
+                  }
+                  else if (!hAAs.empty())
+                  {
+                    hAAs.front().second->Draw("E1");
+                  }
+                  else
+                  {
+                    hPP->Draw("E1");
+                  }
 
-              if (hBkg && hBkg != hSig) hBkg->Draw("HIST same");
-            }
+                  if (hBkg && hBkg != hSig) hBkg->Draw("HIST same");
+                }
+              }
             else
             {
               if (!hAAs.empty())
@@ -880,10 +910,9 @@ for (std::size_t ic = 0; ic < centBins.size(); ++ic)
           TCanvas cPP2(
             TString::Format("c_ssQA_ppDataSigBkg_zoom_%s_%s_%s_%s",
               cfg.folder.c_str(), tag.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
-            "c_ssQA_ppDataSigBkg_zoom", 2600, 1500
-          );
-          cPP2.Divide(5, 2, 0.001, 0.001);
-
+             "c_ssQA_ppDataSigBkg_zoom", 2600, 1200
+           );
+           cPP2.Divide(5, 2, 0.001, 0.001);
           std::vector<TH1*> keepAlive2;
           keepAlive2.reserve(ssVars.size() * 10);
 
@@ -892,28 +921,29 @@ for (std::size_t ic = 0; ic < centBins.size(); ++ic)
 
           bool anyPad2 = false;
 
-          for (int iv = 0; iv < (int)ssVars.size(); ++iv)
-          {
-            cPP2.cd(iv + 1);
-            gPad->SetLeftMargin(0.14);
-            gPad->SetRightMargin(0.05);
-            gPad->SetBottomMargin(0.14);
-            gPad->SetTopMargin(0.18);
+            for (int iv = 0; iv < (int)ssVars.size(); ++iv)
+            {
+              cPP2.cd(iv + 1);
+              gPad->SetLeftMargin(0.14);
+              gPad->SetRightMargin(0.05);
+              gPad->SetBottomMargin(0.10);
+              gPad->SetTopMargin(0.18);
+              gPad->SetLogy(false);
+
+              if (DrawVariantPad(true, true, false, iv, keepAlive2, keepLegPP2)) anyPad2 = true;
+            }
+
+            for (int iv = 0; iv < (int)ssVars.size(); ++iv)
+            {
+              cPP2.cd(iv + 6);
+              gPad->SetLeftMargin(0.14);
+              gPad->SetRightMargin(0.05);
+              gPad->SetBottomMargin(0.14);
+              gPad->SetTopMargin(0.06);
+
             gPad->SetLogy(false);
 
-            if (DrawVariantPad(true, true, false, iv, keepAlive2, keepLegPP2)) anyPad2 = true;
-          }
-
-          for (int iv = 0; iv < (int)ssVars.size(); ++iv)
-          {
-            cPP2.cd(iv + 6);
-            gPad->SetLeftMargin(0.14);
-            gPad->SetRightMargin(0.05);
-            gPad->SetBottomMargin(0.14);
-            gPad->SetTopMargin(0.16);
-            gPad->SetLogy(false);
-
-            if (DrawVariantPad(false, false, true, iv, keepAlive2, keepLegPP2)) anyPad2 = true;
+              if (DrawVariantPad(true, false, true, iv, keepAlive2, keepLegPP2)) anyPad2 = true;
           }
 
           if (anyPad2)

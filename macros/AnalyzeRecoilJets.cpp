@@ -4935,30 +4935,17 @@ namespace ARJ
               for (std::size_t ih = 1; ih < hists.size(); ++ih) hists[ih]->Draw("E1 SAME");
               if (hPP) hPP->Draw("E1 SAME");
 
-              if (ptInTitle)
-              {
-                TLegend leg(0.65, 0.75, 0.92, 0.88);
-                leg.SetBorderSize(0);
-                leg.SetFillStyle(0);
-                leg.SetTextFont(42);
-                leg.SetTextSize(0.035);
-                for (std::size_t ih = 0; ih < hists.size(); ++ih)
-                  leg.AddEntry(hists[ih], labels[ih].c_str(), "ep");
-                if (hPP) leg.AddEntry(hPP, ppLabel.c_str(), "ep");
-                leg.Draw();
-              }
-              else
-              {
-                TLegend leg(0.56, 0.58, 0.92, 0.88);
-                leg.SetBorderSize(0);
-                leg.SetFillStyle(0);
-                leg.SetTextFont(42);
-                leg.SetTextSize(0.030);
-                for (std::size_t ih = 0; ih < hists.size(); ++ih)
-                  leg.AddEntry(hists[ih], labels[ih].c_str(), "ep");
-                if (hPP) leg.AddEntry(hPP, ppLabel.c_str(), "ep");
-                leg.Draw();
-              }
+              TLegend leg(ptInTitle ? 0.65 : 0.56,
+                          ptInTitle ? 0.75 : 0.58,
+                          0.92, 0.88);
+              leg.SetBorderSize(0);
+              leg.SetFillStyle(0);
+              leg.SetTextFont(42);
+              leg.SetTextSize(ptInTitle ? 0.035 : 0.030);
+              for (std::size_t ih = 0; ih < hists.size(); ++ih)
+                leg.AddEntry(hists[ih], labels[ih].c_str(), "ep");
+              if (hPP) leg.AddEntry(hPP, ppLabel.c_str(), "ep");
+              leg.Draw();
 
               TLatex tTitle;
               tTitle.SetNDC(true);
@@ -5171,14 +5158,151 @@ namespace ARJ
                         StyleXJ(hxj, vHandles[iv].color, 20);
 
                         TH1* hPP = ProjectPP(h2PP, rKey, TString::Format("1v_%s_%zu", cs.folder.c_str(), iv).Data(), ib, ptLo, ptHi);
+                          
+                        DrawXJOverlay({hxj}, {TString::Format("Run3auau (%d-%d%%)", cs.lo, cs.hi).Data()}, hPP, "Run24pp",
+                            JoinPath(ptDir, "xJ_inclusive.png"),
+                            TString::Format("Inclusive reco x_{J}, %s", vHandles[iv].label.c_str()).Data(),
+                            rKey, R, cs.lo, cs.hi, iPtLo, iPtHi, true);
+                          delete hxj;
+                          if (hPP) delete hPP;
+                        }
 
-                        DrawXJOverlay({hxj}, {TString::Format("AuAu (%d-%d%%)", cs.lo, cs.hi).Data()}, hPP, "pp",
-                        JoinPath(ptDir, "xJ_inclusive.png"),
-                        TString::Format("Inclusive reco x_{J}, %s", vHandles[iv].label.c_str()).Data(),
-                        rKey, R, cs.lo, cs.hi, iPtLo, iPtHi, true);
-                        delete hxj;
-                        if (hPP) delete hPP;
+                        // 3x3 table of last 9 inclusive pT bins
+                        {
+                          const Double_t savedEX = gStyle->GetErrorX();
+                          gStyle->SetErrorX(0);
+                          const int nShow = std::min(nPt, 9);
+                          const int ibStart = nPt - nShow + 1;
+
+                          TCanvas cTbl(
+                            TString::Format("c_inclTbl_%s_%zu_%s", rKey.c_str(), iv, cs.folder.c_str()).Data(),
+                            "c_inclTbl", 2700, 2100);
+                          cTbl.Divide(3, 3, 0.002, 0.002);
+
+                          vector<TH1*> keepTbl;
+                          TLegend* legTbl = nullptr;
+                          int iPad = 0;
+                          for (int ib = ibStart; ib <= nPt; ++ib)
+                          {
+                            const double ptLo = h2->GetXaxis()->GetBinLowEdge(ib);
+                            const double ptHi = h2->GetXaxis()->GetBinUpEdge(ib);
+                            const int iPtLo = (int)std::lround(ptLo);
+                            const int iPtHi = (int)std::lround(ptHi);
+                            const double cen = 0.5 * (ptLo + ptHi);
+                            const int ix = h2->GetXaxis()->FindBin(cen);
+                            if (ix < 1 || ix > h2->GetNbinsX()) continue;
+
+                            TH1D* hxj = h2->ProjectionY(
+                              TString::Format("hTbl1v_%s_%s_%zu_b%d", rKey.c_str(), cs.folder.c_str(), iv, ib).Data(),
+                              ix, ix, "e");
+                            if (!hxj) continue;
+                            StyleXJ(hxj, vHandles[iv].color, 20);
+                            keepTbl.push_back(hxj);
+
+                            TH1* hPP = ProjectPP(h2PP, rKey,
+                              TString::Format("tbl1v_%s_%zu_%d", cs.folder.c_str(), iv, ib).Data(), ib, ptLo, ptHi);
+                            if (hPP) keepTbl.push_back(hPP);
+
+                            ++iPad;
+                            cTbl.cd(iPad);
+                            gPad->SetLeftMargin(0.15);
+                            gPad->SetRightMargin(0.03);
+                            gPad->SetBottomMargin(0.13);
+                            gPad->SetTopMargin(0.08);
+
+                            double yMax = hxj->GetMaximum();
+                            if (hPP) yMax = std::max(yMax, hPP->GetMaximum());
+
+                            hxj->SetTitle("");
+                            hxj->GetXaxis()->SetTitle("x_{J#gamma}");
+                            hxj->GetYaxis()->SetTitle("Norm.");
+                            hxj->GetXaxis()->SetTitleSize(0.06);
+                            hxj->GetYaxis()->SetTitleSize(0.06);
+                            hxj->GetXaxis()->SetLabelSize(0.05);
+                            hxj->GetYaxis()->SetLabelSize(0.05);
+                            hxj->GetYaxis()->SetTitleOffset(1.0);
+                            hxj->SetMinimum(0.0);
+                            hxj->SetMaximum((yMax > 0) ? 1.4 * yMax : 1.0);
+                            hxj->GetXaxis()->SetRangeUser(0.0, 2.0);
+                            hxj->Draw("E1");
+                            if (hPP) hPP->Draw("E1 SAME");
+
+                            TLatex tPt;
+                            tPt.SetNDC(true);
+                            tPt.SetTextFont(42);
+                            tPt.SetTextSize(0.055);
+                            tPt.SetTextAlign(13);
+                            tPt.DrawLatex(0.20, 0.90,
+                              TString::Format("p_{T}^{#gamma}: %d-%d GeV", iPtLo, iPtHi).Data());
+
+                            if (iPad == 1)
+                            {
+                              legTbl = new TLegend(0.55, 0.70, 0.93, 0.90);
+                              legTbl->SetBorderSize(0);
+                              legTbl->SetFillStyle(0);
+                              legTbl->SetTextFont(42);
+                              legTbl->SetTextSize(0.045);
+                              legTbl->AddEntry(hxj, TString::Format("Run3auau (%d-%d%%)", cs.lo, cs.hi).Data(), "ep");
+                              if (hPP) legTbl->AddEntry(hPP, "Run24pp", "ep");
+                              legTbl->Draw();
+                            }
+                          }
+                          SaveCanvas(cTbl, JoinPath(inclCDir, "xJ_inclusive_table.png"));
+                          cout << ANSI_BOLD_GRN << "[WROTE] "
+                               << JoinPath(inclCDir, "xJ_inclusive_table.png")
+                               << ANSI_RESET << "\n";
+                          for (auto* h : keepTbl) delete h;
+                          if (legTbl) delete legTbl;
+                          gStyle->SetErrorX(savedEX);
+                        }
+
+                      // Integrated pT-threshold bins (>16, >20, >22 GeV)
+                      {
+                        struct IntPtBin { int threshold; string folder; };
+                        const vector<IntPtBin> intPtBins = {
+                          {16, "pT_gt_16"}, {20, "pT_gt_20"}, {22, "pT_gt_22"}
+                        };
+                        for (const auto& ipb : intPtBins)
+                        {
+                          const int ixLo = h2->GetXaxis()->FindBin((double)ipb.threshold + 0.01);
+                          const int ixHi = h2->GetNbinsX();
+                          if (ixLo < 1 || ixLo > ixHi) continue;
+
+                          const int iPtHi = (int)std::lround(h2->GetXaxis()->GetBinUpEdge(ixHi));
+                          const string ptDir = JoinPath(inclCDir, ipb.folder);
+                          EnsureDir(ptDir);
+
+                          TH1D* hxj = h2->ProjectionY(
+                            TString::Format("hIncl1v_%s_%s_%s_v%zu", rKey.c_str(), cs.folder.c_str(), ipb.folder.c_str(), iv).Data(),
+                            ixLo, ixHi, "e");
+                          if (!hxj) continue;
+                          StyleXJ(hxj, vHandles[iv].color, 20);
+
+                          TH1* hPP = nullptr;
+                          if (h2PP)
+                          {
+                            const int ppLo = h2PP->GetXaxis()->FindBin((double)ipb.threshold + 0.01);
+                            const int ppHi = h2PP->GetNbinsX();
+                            if (ppLo >= 1 && ppLo <= ppHi)
+                            {
+                              hPP = h2PP->ProjectionY(
+                                TString::Format("hPPincl_%s_%s_1v_%zu", rKey.c_str(), ipb.folder.c_str(), iv).Data(),
+                                ppLo, ppHi, "e");
+                              if (hPP) StyleXJ(hPP, kRed + 1, 24);
+                            }
+                          }
+
+                          DrawXJOverlay({hxj},
+                            {TString::Format("Run3auau (%d-%d%%)", cs.lo, cs.hi).Data()},
+                            hPP, "Run24pp",
+                            JoinPath(ptDir, "xJ_inclusive.png"),
+                            TString::Format("Inclusive reco x_{J}, %s", vHandles[iv].label.c_str()).Data(),
+                            rKey, R, cs.lo, cs.hi, ipb.threshold, iPtHi, true);
+                          delete hxj;
+                          if (hPP) delete hPP;
+                        }
                       }
+
                       delete h2;
                     }
                   }
@@ -5278,12 +5402,163 @@ namespace ARJ
                             rKey, R, cp.a.lo, cp.b.hi, iPtLo, iPtHi);
                           if (hPP) delete hPP;
                         }
-                        if (hA) delete hA;
-                        if (hB) delete hB;
+                          if (hA) delete hA;
+                          if (hB) delete hB;
+                        }
+
+                        // 3x3 table of last 9 inclusive cent-compare pT bins
+                        {
+                          const Double_t savedEX = gStyle->GetErrorX();
+                          gStyle->SetErrorX(0);
+                          const int nShow = std::min(nPt, 9);
+                          const int ibStart = nPt - nShow + 1;
+
+                          TCanvas cTbl(
+                            TString::Format("c_inclCpTbl_%s_%zu_%s", rKey.c_str(), iv, cp.folder.c_str()).Data(),
+                            "c_inclCpTbl", 2700, 2100);
+                          cTbl.Divide(3, 3, 0.002, 0.002);
+
+                          vector<TH1*> keepTbl;
+                          TLegend* legTbl = nullptr;
+                          int iPad = 0;
+                          for (int ib = ibStart; ib <= nPt; ++ib)
+                          {
+                            const double ptLo = h2A->GetXaxis()->GetBinLowEdge(ib);
+                            const double ptHi = h2A->GetXaxis()->GetBinUpEdge(ib);
+                            const int iPtLo = (int)std::lround(ptLo);
+                            const int iPtHi = (int)std::lround(ptHi);
+                            const double cen = 0.5 * (ptLo + ptHi);
+                            const int ixA = h2A->GetXaxis()->FindBin(cen);
+                            const int ixB = h2B->GetXaxis()->FindBin(cen);
+                            if (ixA < 1 || ixA > h2A->GetNbinsX()) continue;
+                            if (ixB < 1 || ixB > h2B->GetNbinsX()) continue;
+
+                            TH1D* htA = h2A->ProjectionY(
+                              TString::Format("hTblCpA_%s_%zu_%s_b%d", rKey.c_str(), iv, cp.folder.c_str(), ib).Data(),
+                              ixA, ixA, "e");
+                            TH1D* htB = h2B->ProjectionY(
+                              TString::Format("hTblCpB_%s_%zu_%s_b%d", rKey.c_str(), iv, cp.folder.c_str(), ib).Data(),
+                              ixB, ixB, "e");
+                            if (!htA || !htB) { if (htA) delete htA; if (htB) delete htB; continue; }
+                            StyleXJ(htA, colA, 20);
+                            StyleXJ(htB, colB, 20);
+                            keepTbl.push_back(htA);
+                            keepTbl.push_back(htB);
+
+                            TH1* hPP = ProjectPP(h2PP, rKey,
+                              TString::Format("tblcp_%s_%zu_%d", cp.folder.c_str(), iv, ib).Data(), ib, ptLo, ptHi);
+                            if (hPP) keepTbl.push_back(hPP);
+
+                            ++iPad;
+                            cTbl.cd(iPad);
+                            gPad->SetLeftMargin(0.15);
+                            gPad->SetRightMargin(0.03);
+                            gPad->SetBottomMargin(0.13);
+                            gPad->SetTopMargin(0.08);
+
+                            double yMax = std::max(htA->GetMaximum(), htB->GetMaximum());
+                            if (hPP) yMax = std::max(yMax, hPP->GetMaximum());
+
+                            htA->SetTitle("");
+                            htA->GetXaxis()->SetTitle("x_{J#gamma}");
+                            htA->GetYaxis()->SetTitle("Norm.");
+                            htA->GetXaxis()->SetTitleSize(0.06);
+                            htA->GetYaxis()->SetTitleSize(0.06);
+                            htA->GetXaxis()->SetLabelSize(0.05);
+                            htA->GetYaxis()->SetLabelSize(0.05);
+                            htA->GetYaxis()->SetTitleOffset(1.0);
+                            htA->SetMinimum(0.0);
+                            htA->SetMaximum((yMax > 0) ? 1.4 * yMax : 1.0);
+                            htA->GetXaxis()->SetRangeUser(0.0, 2.0);
+                            htA->Draw("E1");
+                            htB->Draw("E1 SAME");
+                            if (hPP) hPP->Draw("E1 SAME");
+
+                            TLatex tPt;
+                            tPt.SetNDC(true);
+                            tPt.SetTextFont(42);
+                            tPt.SetTextSize(0.055);
+                            tPt.SetTextAlign(13);
+                            tPt.DrawLatex(0.20, 0.90,
+                              TString::Format("p_{T}^{#gamma}: %d-%d GeV", iPtLo, iPtHi).Data());
+
+                            if (iPad == 1)
+                            {
+                              legTbl = new TLegend(0.50, 0.62, 0.93, 0.90);
+                              legTbl->SetBorderSize(0);
+                              legTbl->SetFillStyle(0);
+                              legTbl->SetTextFont(42);
+                              legTbl->SetTextSize(0.045);
+                              legTbl->AddEntry(htA, labelA.c_str(), "ep");
+                              legTbl->AddEntry(htB, labelB.c_str(), "ep");
+                              if (hPP) legTbl->AddEntry(hPP, "pp", "ep");
+                              legTbl->Draw();
+                            }
+                          }
+                          SaveCanvas(cTbl, JoinPath(inclPDir, "xJ_inclusive_centCompare_table.png"));
+                          cout << ANSI_BOLD_GRN << "[WROTE] "
+                               << JoinPath(inclPDir, "xJ_inclusive_centCompare_table.png")
+                               << ANSI_RESET << "\n";
+                          for (auto* h : keepTbl) delete h;
+                          if (legTbl) delete legTbl;
+                          gStyle->SetErrorX(savedEX);
+                        }
+
+                      // Integrated pT-threshold bins (>16, >20, >22 GeV)
+                      {
+                        struct IntPtBin { int threshold; string folder; };
+                        const vector<IntPtBin> intPtBins = {
+                          {16, "pT_gt_16"}, {20, "pT_gt_20"}, {22, "pT_gt_22"}
+                        };
+                        for (const auto& ipb : intPtBins)
+                        {
+                          const int ixLoA = h2A->GetXaxis()->FindBin((double)ipb.threshold + 0.01);
+                          const int ixHiA = h2A->GetNbinsX();
+                          const int ixLoB = h2B->GetXaxis()->FindBin((double)ipb.threshold + 0.01);
+                          const int ixHiB = h2B->GetNbinsX();
+                          if (ixLoA < 1 || ixLoA > ixHiA) continue;
+                          if (ixLoB < 1 || ixLoB > ixHiB) continue;
+
+                          const int iPtHi = (int)std::lround(h2A->GetXaxis()->GetBinUpEdge(ixHiA));
+                          const string ptDir = JoinPath(inclPDir, ipb.folder);
+                          EnsureDir(ptDir);
+
+                          TH1D* hA = h2A->ProjectionY(
+                            TString::Format("hInclCpA_%s_%zu_%s_%s", rKey.c_str(), iv, cp.folder.c_str(), ipb.folder.c_str()).Data(),
+                            ixLoA, ixHiA, "e");
+                          TH1D* hB = h2B->ProjectionY(
+                            TString::Format("hInclCpB_%s_%zu_%s_%s", rKey.c_str(), iv, cp.folder.c_str(), ipb.folder.c_str()).Data(),
+                            ixLoB, ixHiB, "e");
+                          if (!hA || !hB) { if (hA) delete hA; if (hB) delete hB; continue; }
+                          StyleXJ(hA, colA, 20);
+                          StyleXJ(hB, colB, 20);
+
+                          TH1* hPP = nullptr;
+                          if (h2PP)
+                          {
+                            const int ppLo = h2PP->GetXaxis()->FindBin((double)ipb.threshold + 0.01);
+                            const int ppHi = h2PP->GetNbinsX();
+                            if (ppLo >= 1 && ppLo <= ppHi)
+                            {
+                              hPP = h2PP->ProjectionY(
+                                TString::Format("hPPincl_%s_cp_%s_%zu_%s", rKey.c_str(), cp.folder.c_str(), iv, ipb.folder.c_str()).Data(),
+                                ppLo, ppHi, "e");
+                              if (hPP) StyleXJ(hPP, kRed + 1, 24);
+                            }
+                          }
+
+                          DrawXJOverlay({hA, hB}, {labelA, labelB}, hPP, "pp",
+                            JoinPath(ptDir, "xJ_inclusive_centCompare.png"),
+                            TString::Format("Inclusive x_{J}, %s, cent compare", vHandles[iv].label.c_str()).Data(),
+                            rKey, R, cp.a.lo, cp.b.hi, ipb.threshold, iPtHi);
+                          if (hPP) delete hPP;
+                          delete hA;
+                          delete hB;
+                        }
                       }
-                    }
-                    if (h2A) delete h2A;
-                    if (h2B) delete h2B;
+                      }
+                      if (h2A) delete h2A;
+                      if (h2B) delete h2B;
                   }
                 }
               }
@@ -5415,11 +5690,167 @@ namespace ARJ
                             JoinPath(ptDir, "xJ_inclusive_noSub_varA_varB.png"),
                             "Inclusive reco x_{J}, noSub+varA+varB",
                             rKey, R, cs.lo, cs.hi, iPtLo, iPtHi);
-                        for (auto* h : hists) delete h;
-                        if (hPP) delete hPP;
-                      }
-                    }
-                    for (auto& v : v2s) delete v.h2;
+                          for (auto* h : hists) delete h;
+                          if (hPP) delete hPP;
+                        }
+
+                        // 3x3 table of last 9 inclusive 3-variant pT bins
+                        {
+                          const Double_t savedEX = gStyle->GetErrorX();
+                          gStyle->SetErrorX(0);
+                          const int nShow = std::min(nPt, 9);
+                          const int ibStart = nPt - nShow + 1;
+
+                          TCanvas cTbl(
+                            TString::Format("c_incl3vTbl_%s_%s", rKey.c_str(), cs.folder.c_str()).Data(),
+                            "c_incl3vTbl", 2700, 2100);
+                          cTbl.Divide(3, 3, 0.002, 0.002);
+
+                          vector<TH1*> keepTbl;
+                          TLegend* legTbl = nullptr;
+                          int iPad = 0;
+                          for (int ib = ibStart; ib <= nPt; ++ib)
+                          {
+                            const double ptLo = v2s[0].h2->GetXaxis()->GetBinLowEdge(ib);
+                            const double ptHi = v2s[0].h2->GetXaxis()->GetBinUpEdge(ib);
+                            const int iPtLo = (int)std::lround(ptLo);
+                            const int iPtHi = (int)std::lround(ptHi);
+
+                            vector<TH1*> hv;
+                            vector<string> lv;
+                            for (const auto& v : v2s)
+                            {
+                              const double cen = 0.5 * (ptLo + ptHi);
+                              const int ix = v.h2->GetXaxis()->FindBin(cen);
+                              if (ix < 1 || ix > v.h2->GetNbinsX()) continue;
+                              TH1D* h = v.h2->ProjectionY(
+                                TString::Format("hTbl3v_%s_%s_b%d_v%zu", rKey.c_str(), cs.folder.c_str(), ib, v.idx).Data(),
+                                ix, ix, "e");
+                              if (!h) continue;
+                              StyleXJ(h, vHandles[v.idx].color, 20);
+                              hv.push_back(h);
+                              lv.push_back(vHandles[v.idx].label);
+                              keepTbl.push_back(h);
+                            }
+                            if (hv.empty()) continue;
+
+                            TH1* hPP = ProjectPP(h2PP, rKey,
+                              TString::Format("tbl3v_%s_%d", cs.folder.c_str(), ib).Data(), ib, ptLo, ptHi);
+                            if (hPP) keepTbl.push_back(hPP);
+
+                            ++iPad;
+                            cTbl.cd(iPad);
+                            gPad->SetLeftMargin(0.15);
+                            gPad->SetRightMargin(0.03);
+                            gPad->SetBottomMargin(0.13);
+                            gPad->SetTopMargin(0.08);
+
+                            double yMax = 0.0;
+                            for (auto* h : hv) yMax = std::max(yMax, h->GetMaximum());
+                            if (hPP) yMax = std::max(yMax, hPP->GetMaximum());
+
+                            hv[0]->SetTitle("");
+                            hv[0]->GetXaxis()->SetTitle("x_{J#gamma}");
+                            hv[0]->GetYaxis()->SetTitle("Norm.");
+                            hv[0]->GetXaxis()->SetTitleSize(0.06);
+                            hv[0]->GetYaxis()->SetTitleSize(0.06);
+                            hv[0]->GetXaxis()->SetLabelSize(0.05);
+                            hv[0]->GetYaxis()->SetLabelSize(0.05);
+                            hv[0]->GetYaxis()->SetTitleOffset(1.0);
+                            hv[0]->SetMinimum(0.0);
+                            hv[0]->SetMaximum((yMax > 0) ? 1.4 * yMax : 1.0);
+                            hv[0]->GetXaxis()->SetRangeUser(0.0, 2.0);
+                            hv[0]->Draw("E1");
+                            for (std::size_t ih = 1; ih < hv.size(); ++ih) hv[ih]->Draw("E1 SAME");
+                            if (hPP) hPP->Draw("E1 SAME");
+
+                            TLatex tPt;
+                            tPt.SetNDC(true);
+                            tPt.SetTextFont(42);
+                            tPt.SetTextSize(0.055);
+                            tPt.SetTextAlign(13);
+                            tPt.DrawLatex(0.20, 0.90,
+                              TString::Format("p_{T}^{#gamma}: %d-%d GeV", iPtLo, iPtHi).Data());
+
+                            if (iPad == 1)
+                            {
+                              legTbl = new TLegend(0.45, 0.55, 0.93, 0.90);
+                              legTbl->SetBorderSize(0);
+                              legTbl->SetFillStyle(0);
+                              legTbl->SetTextFont(42);
+                              legTbl->SetTextSize(0.040);
+                              for (std::size_t ih = 0; ih < hv.size(); ++ih)
+                                legTbl->AddEntry(hv[ih], lv[ih].c_str(), "ep");
+                              if (hPP) legTbl->AddEntry(hPP, "pp", "ep");
+                              legTbl->Draw();
+                            }
+                          }
+                          SaveCanvas(cTbl, JoinPath(inclCDir, "xJ_inclusive_noSub_varA_varB_table.png"));
+                          cout << ANSI_BOLD_GRN << "[WROTE] "
+                               << JoinPath(inclCDir, "xJ_inclusive_noSub_varA_varB_table.png")
+                               << ANSI_RESET << "\n";
+                            for (auto* h : keepTbl) delete h;
+                            if (legTbl) delete legTbl;
+                            gStyle->SetErrorX(savedEX);
+                          }
+
+                        // Integrated pT-threshold bins (>16, >20, >22 GeV)
+                        {
+                          struct IntPtBin { int threshold; string folder; };
+                          const vector<IntPtBin> intPtBins = {
+                            {16, "pT_gt_16"}, {20, "pT_gt_20"}, {22, "pT_gt_22"}
+                          };
+                          for (const auto& ipb : intPtBins)
+                          {
+                            const int ixLo = v2s[0].h2->GetXaxis()->FindBin((double)ipb.threshold + 0.01);
+                            const int ixHi = v2s[0].h2->GetNbinsX();
+                            if (ixLo < 1 || ixLo > ixHi) continue;
+
+                            const int iPtHi = (int)std::lround(v2s[0].h2->GetXaxis()->GetBinUpEdge(ixHi));
+                            const string ptDir = JoinPath(inclCDir, ipb.folder);
+                            EnsureDir(ptDir);
+
+                            vector<TH1*> hists3;
+                            vector<string> labs3;
+                            for (const auto& v : v2s)
+                            {
+                              const int vxLo = v.h2->GetXaxis()->FindBin((double)ipb.threshold + 0.01);
+                              const int vxHi = v.h2->GetNbinsX();
+                              if (vxLo < 1 || vxLo > vxHi) continue;
+                              TH1D* h = v.h2->ProjectionY(
+                                TString::Format("hIncl3v_%s_%s_%s_v%zu", rKey.c_str(), cs.folder.c_str(), ipb.folder.c_str(), v.idx).Data(),
+                                vxLo, vxHi, "e");
+                              if (!h) continue;
+                              StyleXJ(h, vHandles[v.idx].color, 20);
+                              hists3.push_back(h);
+                              labs3.push_back(vHandles[v.idx].label);
+                            }
+
+                            TH1* hPP = nullptr;
+                            if (h2PP)
+                            {
+                              const int ppLo = h2PP->GetXaxis()->FindBin((double)ipb.threshold + 0.01);
+                              const int ppHi = h2PP->GetNbinsX();
+                              if (ppLo >= 1 && ppLo <= ppHi)
+                              {
+                                hPP = h2PP->ProjectionY(
+                                  TString::Format("hPPincl_%s_3v_%s_%s", rKey.c_str(), cs.folder.c_str(), ipb.folder.c_str()).Data(),
+                                  ppLo, ppHi, "e");
+                                if (hPP) StyleXJ(hPP, kRed + 1, 24);
+                              }
+                            }
+
+                            if (!hists3.empty())
+                              DrawXJOverlay(hists3, labs3, hPP, "pp",
+                                JoinPath(ptDir, "xJ_inclusive_noSub_varA_varB.png"),
+                                "Inclusive reco x_{J}, noSub+varA+varB",
+                                rKey, R, cs.lo, cs.hi, ipb.threshold, iPtHi);
+                            for (auto* h : hists3) delete h;
+                            if (hPP) delete hPP;
+                          }
+                        }
+                        }
+                        for (auto& v : v2s) delete v.h2;
                   }
                 }
               }
@@ -6347,7 +6778,7 @@ namespace ARJ
                 TCanvas c("c_pur_raw","c_pur_raw",900,700);
                 ApplyCanvasMargins1D(c);
 
-                TH1F hFrame("hPurRawFrame","",100, kPtEdges.front(), kPtEdges.back());
+                TH1F hFrame("hPurRawFrame","",100, 10.0, kPtEdges.back());
                 hFrame.SetDirectory(nullptr);
                 hFrame.SetStats(0);
                 hFrame.SetMinimum(0.0);
@@ -6442,7 +6873,7 @@ namespace ARJ
                     TString::Format("Run24pp and Run3auau %d-%d%% centrality, Purity", centLo, centHi).Data());
 
                   // Legend at bottom-RHS
-                  TLegend leg(0.62, 0.15, 0.92, 0.30);
+                  TLegend leg(0.15, 0.75, 0.45, 0.88);
                   leg.SetBorderSize(0);
                   leg.SetFillStyle(0);
                   leg.SetTextFont(42);
@@ -6484,6 +6915,9 @@ namespace ARJ
                     tCuts.DrawLatex(0.18, 0.23, vzLabel.c_str());
                   }
 
+                  const string fp = JoinPath(outDir, "purity_raw_DATA.png");
+                  SaveCanvas(c, fp);
+
                   if (gPP) delete gPP;
                   if (fPPpur) { fPPpur->Close(); delete fPPpur; }
                 }
@@ -6497,10 +6931,10 @@ namespace ARJ
                   box.push_back("NonIso: E_{iso} > isoThresh + 1 GeV");
                   DrawLatexLines(0.2, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
                   DrawLatexLines(0.2, 0.8, box, 0.030, 0.040);
-                }
 
-                const string fp = JoinPath(outDir, ds.isSim ? "purity_raw_SIM.png" : "purity_raw_DATA.png");
-                SaveCanvas(c, fp);
+                  const string fp = JoinPath(outDir, ds.isSim ? "purity_raw_SIM.png" : "purity_raw_DATA.png");
+                  SaveCanvas(c, fp);
+                }
               }
 
               // overlay purity: vz30 vs vz60 (DATA only)
