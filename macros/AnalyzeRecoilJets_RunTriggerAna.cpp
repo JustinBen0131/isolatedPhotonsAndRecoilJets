@@ -922,10 +922,10 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         extraLegend.AddEntry((TObject*)nullptr, "Au+Au #sqrt{s_{NN}} = 200 GeV", "");
         extraLegend.Draw();
         
-        TLegend leg(0.18, 0.82, 0.56, 0.92);
+        TLegend leg(0.18, 0.81, 0.45, 0.89);
         leg.SetBorderSize(0);
         leg.SetFillStyle(0);
-        leg.SetTextSize(0.025);
+        leg.SetTextSize(0.03);
         for (std::size_t i = 0; i < loaded.size() && i < ratioHists.size(); ++i)
         {
             if (x80s[i] > 0.0)
@@ -957,18 +957,18 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             // Fit model label (larger)
             tFit.SetTextSize(24);
             tFit.SetTextColor(kBlack);
-            tFit.DrawLatex(0.93, yText, "Fit: Gumbel CDF");
+            tFit.DrawLatex(0.9, yText, "Fit: Gumbel CDF");
             yText -= 0.045;
 
             // Formula (larger)
             tFit.SetTextSize(22);
-            tFit.DrawLatex(0.93, yText, "f(x) = P #cdot exp[-exp(-(x-#mu)/#beta)]");
+            tFit.DrawLatex(0.9, yText, "f(x) = P #times exp[#minus exp(#minus(x#minus#mu)/#beta)]");
             yText -= 0.045;
 
             // 90% efficiency line label (larger)
             tFit.SetTextSize(24);
             tFit.SetTextColor(kGray+2);
-            tFit.DrawLatex(0.93, yText, "- - - 90% efficiency");
+            tFit.DrawLatex(0.9, yText, "- - - 90% efficiency");
         }
 
         // ── plateau annotations: LHS, just under the 0.90 line ──

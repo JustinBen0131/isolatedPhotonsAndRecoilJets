@@ -111,7 +111,7 @@ namespace ARJ
         delete hFixed;
       }
 
-      #include "AnalyzeRecoilJets_RunTriggerAna"
+      #include "AnalyzeRecoilJets_RunTriggerAna.cpp"
 
       void RunPi0QA(Dataset& ds)
       {

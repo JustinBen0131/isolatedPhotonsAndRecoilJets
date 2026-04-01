@@ -555,6 +555,31 @@ private:
       bool componentsFinite = false;
     };
 
+    struct IsoAuditSkipSnapshot
+    {
+      long long evt_seen = 0;
+      long long evt_accepted = 0;
+      long long pho_total = 0;
+      long long pho_early_E = 0;
+      long long pho_eta_fail = 0;
+      long long pho_etbin_out = 0;
+      long long pho_reached_pre_iso = 0;
+      long long pre_pass = 0;
+      long long pre_fail_weta = 0;
+      long long pre_fail_et1_low = 0;
+      long long pre_fail_et1_high = 0;
+      long long pre_fail_e11e33_high = 0;
+      long long pre_fail_e32e35_low = 0;
+      long long pre_fail_e32e35_high = 0;
+      long long tight_tight = 0;
+      long long tight_nonTight = 0;
+      long long tight_neither = 0;
+      unsigned long long noPhotonContainerEvents = 0;
+      unsigned long long nonFiniteKinematics = 0;
+      unsigned long long outsideConfiguredCentrality = 0;
+      unsigned long long enteredInclusive = 0;
+    };
+
     void initIsolationAudit();
     void recordIsolationAuditInclusive(const IsoAuditSample& sample);
     void recordIsolationAuditFollowup(const std::vector<std::string>& activeTrig,
@@ -564,6 +589,8 @@ private:
     std::string isoAuditCentLabel(int centIdx) const;
     std::string isoAuditPtLabel(int ptIdx) const;
     void printIsolationAuditProgress(bool force = false) const;
+    IsoAuditSkipSnapshot makeIsolationAuditSkipSnapshot() const;
+    void printIsolationAuditSkipSummary(bool force = false);
     void printIsolationAuditSummary() const;
 
   void fillUnfoldResponseMatrixAndTruthDistributions(
@@ -1272,6 +1299,7 @@ private:
     bool m_isoAuditStopAnnounced = false;
     int m_isoAuditTargetPerCent = 200;
     int m_isoAuditProgressEveryEvents = 1;
+    int m_isoAuditSkipSummaryEveryEvents = 1000;
     int m_isoAuditExemplarsPerCell = 3;
     double m_isoAuditLargePositiveGeV = 15.0;
     double m_isoAuditNearZeroAbsGeV = 1.0;
@@ -1279,6 +1307,11 @@ private:
     unsigned long long m_isoAuditStopEvent = 0;
     unsigned long long m_isoAuditRunNumber = 0;
     std::string m_isoAuditStopReason;
+
+    unsigned long long m_isoAuditNoPhotonContainerEvents = 0;
+    unsigned long long m_isoAuditNonFiniteKinematics = 0;
+    unsigned long long m_isoAuditOutsideConfiguredCentrality = 0;
+    IsoAuditSkipSnapshot m_isoAuditSkipLastSummary{};
 
     IsoAuditEventFlow m_isoAuditFlowGlobal{};
     std::vector<IsoAuditEventFlow> m_isoAuditFlowByCent;

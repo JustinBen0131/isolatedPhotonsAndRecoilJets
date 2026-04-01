@@ -1667,9 +1667,12 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     ++m_bk.evt_seen;
     if (m_isoAuditMode) ++m_isoAuditFlowGlobal.evt_seen;
     
-    std::cout << "==================== processing event "
-    << std::setw(6) << event_count
-    << " ====================" << std::endl;
+    if (m_isoAuditMode)
+    {
+        std::cout << "==================== processing event "
+                  << std::setw(6) << event_count
+                  << " ====================" << std::endl;
+    }
     
     /* ------------------------------------------------------------------ */
     /* 1) Mandatory nodes                                                 */
@@ -2028,6 +2031,7 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     if (m_isoAuditMode)
     {
         printIsolationAuditProgress(m_isoAuditTargetReached);
+        printIsolationAuditSkipSummary(false);
     }
     
     if (m_isoAuditMode && m_isoAuditTargetReached)
@@ -2211,7 +2215,11 @@ int RecoilJets::End(PHCompositeNode*)
 
       // -------------------- Photon cutflow (existing) --------------------
       printCutSummary();
-      if (m_isoAuditMode) printIsolationAuditSummary();
+      if (m_isoAuditMode)
+      {
+          printIsolationAuditSummary();
+          printIsolationAuditSkipSummary(true);
+      }
 
 
       // =========================================================================
@@ -4679,6 +4687,11 @@ void RecoilJets::fillPureIsolationQA(PHCompositeNode* topNode,
 
     if (m_isoAuditMode)
     {
+      if (centIdx < 0 || centIdx >= static_cast<int>(m_isoAuditCells.size()))
+      {
+        ++m_isoAuditOutsideConfiguredCentrality;
+      }
+
       IsoAuditSample sample;
       sample.centIdx = centIdx;
       sample.ptIdx = ptIdx;
@@ -5313,7 +5326,10 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
     for (auto tmp = prange.first; tmp != prange.second; ++tmp) ++nPho;
     LOG(4, CLR_BLUE, "    [processCandidates] photons present: " << nPho);
     if (nPho == 0)
-      LOG(3, CLR_YELLOW, "    [processCandidates] photon container is EMPTY for this event");
+    {
+          if (m_isoAuditMode) ++m_isoAuditNoPhotonContainerEvents;
+          LOG(3, CLR_YELLOW, "    [processCandidates] photon container is EMPTY for this event");
+    }
 
     // Per-event counters
     std::size_t nUsed = 0;
@@ -5427,6 +5443,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
           // If they are missing/non-finite, skip this candidate and print why.
           if (!std::isfinite(eta) || !std::isfinite(phi) || !std::isfinite(pt_gamma))
           {
+              if (m_isoAuditMode) ++m_isoAuditNonFiniteKinematics;
               LOG(0, CLR_YELLOW,
                   "      [pho#" << iPho << "] PhotonClusterBuilder kinematics are non-finite/missing: "
                   << "eta=" << eta << " phi=" << phi << " pt=" << pt_gamma
@@ -11231,9 +11248,9 @@ TH1F* RecoilJets::getOrBookIsoHist(const std::string& trig, int etIdx, int centI
   dir->cd();
 
   // Wider binning for AuAu isolation spectra while keeping 0.1 GeV/bin
-  const int    nbins = 300;
-  const double xmin  = -10.0;
-  const double xmax  = 20.0;
+  const int    nbins = 700;
+  const double xmin  = -20.0;
+  const double xmax  = 50.0;
 
   const std::string title = name + ";E_{T}^{iso} [GeV];Entries";
 
@@ -11305,9 +11322,9 @@ TH1F* RecoilJets::getOrBookIsoPartHist(const std::string& trig,
   dir->cd();
 
   // Match h_Eiso wider binning
-  const int    nbins = 300;
-  const double xmin  = -10.0;
-  const double xmax  = 20.0;
+  const int    nbins = 700;
+  const double xmin  = -20.0;
+  const double xmax  = 50.0;
 
   const std::string xlab  = (xAxisTitle.empty() ? "E_{T}^{iso} [GeV]" : xAxisTitle);
   const std::string title = name + ";" + xlab + ";Entries";
@@ -12634,6 +12651,19 @@ void RecoilJets::initIsolationAudit()
   m_isoAuditStopEvent = 0;
   m_isoAuditStopReason.clear();
 
+  m_isoAuditTargetPerCent = 200;
+  m_isoAuditProgressEveryEvents = 1;
+  m_isoAuditSkipSummaryEveryEvents = 1000;
+  m_isoAuditExemplarsPerCell = 3;
+  m_isoAuditLargePositiveGeV = 15.0;
+  m_isoAuditNearZeroAbsGeV = 1.0;
+  m_isoAuditMismatchGeV = 0.1;
+
+  m_isoAuditNoPhotonContainerEvents = 0;
+  m_isoAuditNonFiniteKinematics = 0;
+  m_isoAuditOutsideConfiguredCentrality = 0;
+  m_isoAuditSkipLastSummary = IsoAuditSkipSnapshot{};
+
   if (!m_isoAuditMode)
   {
     m_isoAuditFlowGlobal = IsoAuditEventFlow{};
@@ -12652,6 +12682,12 @@ void RecoilJets::initIsolationAudit()
   {
     const int v = std::atoi(env);
     if (v > 0) m_isoAuditProgressEveryEvents = v;
+  }
+
+  if (const char* env = std::getenv("RJ_ISO_AUDIT_SKIP_SUMMARY_EVERY_EVENTS"))
+  {
+    const int v = std::atoi(env);
+    if (v > 0) m_isoAuditSkipSummaryEveryEvents = v;
   }
 
   if (const char* env = std::getenv("RJ_ISO_AUDIT_EXEMPLARS_PER_CELL"))
@@ -12683,6 +12719,7 @@ void RecoilJets::initIsolationAudit()
   const std::size_t nPt = (m_gammaPtBins.size() > 1 ? (m_gammaPtBins.size() - 1) : 0);
   m_isoAuditFlowByCent.assign(nCent, IsoAuditEventFlow{});
   m_isoAuditCells.assign(nCent, std::vector<IsoAuditCell>(nPt));
+  m_isoAuditSkipLastSummary = makeIsolationAuditSkipSnapshot();
 }
 
 std::string RecoilJets::isoAuditCentLabel(int centIdx) const
@@ -12756,6 +12793,117 @@ void RecoilJets::printIsolationAuditProgress(bool force) const
   os << " | done=" << nDone << "/" << m_isoAuditCells.size();
 
   std::cout << CLR_CYAN << os.str() << CLR_RESET << std::endl;
+}
+
+RecoilJets::IsoAuditSkipSnapshot RecoilJets::makeIsolationAuditSkipSnapshot() const
+{
+  IsoAuditSkipSnapshot s{};
+
+  s.evt_seen = m_bk.evt_seen;
+  s.evt_accepted = m_bk.evt_accepted;
+  s.pho_total = m_bk.pho_total;
+  s.pho_early_E = m_bk.pho_early_E;
+  s.pho_eta_fail = m_bk.pho_eta_fail;
+  s.pho_etbin_out = m_bk.pho_etbin_out;
+  s.pho_reached_pre_iso = m_bk.pho_reached_pre_iso;
+  s.pre_pass = m_bk.pre_pass;
+  s.pre_fail_weta = m_bk.pre_fail_weta;
+  s.pre_fail_et1_low = m_bk.pre_fail_et1_low;
+  s.pre_fail_et1_high = m_bk.pre_fail_et1_high;
+  s.pre_fail_e11e33_high = m_bk.pre_fail_e11e33_high;
+  s.pre_fail_e32e35_low = m_bk.pre_fail_e32e35_low;
+  s.pre_fail_e32e35_high = m_bk.pre_fail_e32e35_high;
+  s.tight_tight = m_bk.tight_tight;
+  s.tight_nonTight = m_bk.tight_nonTight;
+  s.tight_neither = m_bk.tight_neither;
+  s.noPhotonContainerEvents = m_isoAuditNoPhotonContainerEvents;
+  s.nonFiniteKinematics = m_isoAuditNonFiniteKinematics;
+  s.outsideConfiguredCentrality = m_isoAuditOutsideConfiguredCentrality;
+
+  for (const auto& row : m_isoAuditCells)
+    for (const auto& cell : row)
+      s.enteredInclusive += cell.n_inclusive;
+
+  return s;
+}
+
+void RecoilJets::printIsolationAuditSkipSummary(bool force)
+{
+  if (!m_isoAuditMode) return;
+
+  const unsigned long long every =
+    (m_isoAuditSkipSummaryEveryEvents > 0 ? static_cast<unsigned long long>(m_isoAuditSkipSummaryEveryEvents) : 1000ULL);
+
+  const unsigned long long evt =
+    (event_count > 0 ? static_cast<unsigned long long>(event_count) : 0ULL);
+
+  if (!force)
+  {
+    if (evt == 0ULL) return;
+    if ((evt % every) != 0ULL) return;
+  }
+
+  const IsoAuditSkipSnapshot cur = makeIsolationAuditSkipSnapshot();
+  const IsoAuditSkipSnapshot prev = m_isoAuditSkipLastSummary;
+
+  auto diffLL = [](long long a, long long b) -> long long
+  {
+    return (a >= b ? (a - b) : 0LL);
+  };
+
+  auto diffULL = [](unsigned long long a, unsigned long long b) -> unsigned long long
+  {
+    return (a >= b ? (a - b) : 0ULL);
+  };
+
+  const unsigned long long windowEvents =
+    diffULL(static_cast<unsigned long long>(cur.evt_seen),
+            static_cast<unsigned long long>(prev.evt_seen));
+
+  std::cout << CLR_CYAN
+            << "[IsolationAudit][skip-summary] evt=" << event_count
+            << " windowEvents=" << windowEvents
+            << " cadence=" << m_isoAuditSkipSummaryEveryEvents
+            << CLR_RESET << std::endl;
+
+  std::cout << "  Δevents: accepted=" << diffLL(cur.evt_accepted, prev.evt_accepted)
+            << " noPhotonContainer=" << diffULL(cur.noPhotonContainerEvents, prev.noPhotonContainerEvents)
+            << std::endl;
+
+  std::cout << "  Δphotons: seen=" << diffLL(cur.pho_total, prev.pho_total)
+            << " nonFiniteKin=" << diffULL(cur.nonFiniteKinematics, prev.nonFiniteKinematics)
+            << " pt<5=" << diffLL(cur.pho_early_E, prev.pho_early_E)
+            << " failEta=" << diffLL(cur.pho_eta_fail, prev.pho_eta_fail)
+            << " outPtBin=" << diffLL(cur.pho_etbin_out, prev.pho_etbin_out)
+            << " outsideAuditCent=" << diffULL(cur.outsideConfiguredCentrality, prev.outsideConfiguredCentrality)
+            << " enteredInclusive=" << diffULL(cur.enteredInclusive, prev.enteredInclusive)
+            << std::endl;
+
+  std::cout << "  Δpreselection: reachedPreIso=" << diffLL(cur.pho_reached_pre_iso, prev.pho_reached_pre_iso)
+            << " pass=" << diffLL(cur.pre_pass, prev.pre_pass)
+            << " failWeta=" << diffLL(cur.pre_fail_weta, prev.pre_fail_weta)
+            << " failEt1Low=" << diffLL(cur.pre_fail_et1_low, prev.pre_fail_et1_low)
+            << " failEt1High=" << diffLL(cur.pre_fail_et1_high, prev.pre_fail_et1_high)
+            << " failE11E33=" << diffLL(cur.pre_fail_e11e33_high, prev.pre_fail_e11e33_high)
+            << " failE32E35Low=" << diffLL(cur.pre_fail_e32e35_low, prev.pre_fail_e32e35_low)
+            << " failE32E35High=" << diffLL(cur.pre_fail_e32e35_high, prev.pre_fail_e32e35_high)
+            << std::endl;
+
+  std::cout << "  Δtightness(after pre): tight=" << diffLL(cur.tight_tight, prev.tight_tight)
+            << " nonTight=" << diffLL(cur.tight_nonTight, prev.tight_nonTight)
+            << " neither=" << diffLL(cur.tight_neither, prev.tight_neither)
+            << std::endl;
+
+  std::cout << "  cumulative: seen=" << cur.pho_total
+            << " nonFiniteKin=" << cur.nonFiniteKinematics
+            << " pt<5=" << cur.pho_early_E
+            << " failEta=" << cur.pho_eta_fail
+            << " outPtBin=" << cur.pho_etbin_out
+            << " outsideAuditCent=" << cur.outsideConfiguredCentrality
+            << " enteredInclusive=" << cur.enteredInclusive
+            << std::endl;
+
+  m_isoAuditSkipLastSummary = cur;
 }
 
 void RecoilJets::recordIsolationAuditInclusive(const IsoAuditSample& sample)
