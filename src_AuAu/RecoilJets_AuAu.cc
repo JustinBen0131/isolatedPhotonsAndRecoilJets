@@ -1066,6 +1066,8 @@ int RecoilJets::Init(PHCompositeNode* topNode)
 int RecoilJets::InitRun(PHCompositeNode* /*topNode*/)
 {
   const uint64_t run = recoConsts::instance()->get_uint64Flag("TIMESTAMP", 0);
+  m_isoAuditRunNumber = run;
+
   LOG(1, CLR_BLUE, "[InitRun] ------------------------------------------------------------");
   LOG(1, CLR_BLUE, "[InitRun] Starting InitRun  –  TIMESTAMP = " << run);
 
@@ -1104,6 +1106,69 @@ int RecoilJets::InitRun(PHCompositeNode* /*topNode*/)
       LOG(1, CLR_GREEN, oc.str());
     }
   }
+
+    initIsolationAudit();
+
+    if (m_isoAuditMode)
+    {
+      auto envOr = [](const char* key, const std::string& fallback = std::string{}) -> std::string
+      {
+        const char* raw = std::getenv(key);
+        if (!raw) return fallback;
+        const std::string s(raw);
+        return (s.empty() ? fallback : s);
+      };
+
+      std::ostringstream trigList;
+      for (std::size_t i = 0; i < triggerNameMapAuAu.size(); ++i)
+      {
+        if (i) trigList << ", ";
+        trigList << triggerNameMapAuAu[i].second;
+      }
+
+      std::ostringstream centList;
+      for (std::size_t i = 0; i + 1 < m_centEdges.size(); ++i)
+      {
+        if (i) centList << ", ";
+        centList << m_centEdges[i] << "-" << m_centEdges[i + 1];
+      }
+
+      std::ostringstream ptList;
+      for (std::size_t i = 0; i + 1 < m_gammaPtBins.size(); ++i)
+      {
+        if (i) ptList << ", ";
+        ptList << m_gammaPtBins[i] << "-" << m_gammaPtBins[i + 1];
+      }
+
+      std::cout << "\n" << CLR_CYAN
+                << "==================== IsolationAudit configuration ====================\n"
+                << CLR_RESET
+                << "  dataset token           : " << envOr("RJ_ISO_AUDIT_DATASET_TOKEN", (m_isAuAu ? "auau" : "pp")) << "\n"
+                << "  selected run            : " << envOr("RJ_ISO_AUDIT_SELECTED_RUN", std::to_string(run)) << "\n"
+                << "  chunk span              : " << envOr("RJ_ISO_AUDIT_CHUNK_SPAN", "n/a") << "\n"
+                << "  chunk group size        : " << envOr("RJ_ISO_AUDIT_GROUP_SIZE", "n/a") << "\n"
+                << "  clusterUEpipeline       : " << envOr("RJ_ISO_AUDIT_CLUSTER_UEPIPELINE", "n/a") << "\n"
+                << "  photonInputClusterNode  : " << envOr("RJ_ISO_AUDIT_PHOTON_INPUT_CLUSTER_NODE", "n/a") << "\n"
+                << "  photonBuilderIsAuAu     : " << envOr("RJ_ISO_AUDIT_PHOTON_BUILDER_IS_AUAU", "false") << "\n"
+                << "  builder tower prefix    : " << envOr("RJ_ISO_AUDIT_PCB_TOWER_PREFIX", "n/a") << "\n"
+                << "  builder EMCal node      : " << envOr("RJ_ISO_AUDIT_PCB_EM_NODE", "n/a") << "\n"
+                << "  builder IHCal node      : " << envOr("RJ_ISO_AUDIT_PCB_HI_NODE", "n/a") << "\n"
+                << "  builder OHCal node      : " << envOr("RJ_ISO_AUDIT_PCB_HO_NODE", "n/a") << "\n"
+                << "  path classification     : " << envOr("RJ_ISO_AUDIT_PATH_CLASS", "n/a") << "\n"
+                << "  iso cone R              : " << m_isoConeR << "\n"
+                << "  iso mode                : " << (m_isSlidingIso ? "sliding" : "fixed") << "\n"
+                << "  iso parameters          : a=" << m_isoA
+                << " b=" << m_isoB
+                << " gap=" << m_isoGap
+                << " fixed=" << m_isoFixed << "\n"
+                << "  target / cent bin       : " << m_isoAuditTargetPerCent << "\n"
+                << "  trigger list            : " << trigList.str() << "\n"
+                << "  centrality edges        : " << centList.str() << "\n"
+                << "  photon pT bin edges     : " << ptList.str() << "\n"
+                << CLR_CYAN
+                << "=====================================================================\n"
+                << CLR_RESET << std::endl;
+    }
 
     // -------------------------------------------------------------------------
     // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
@@ -1347,10 +1412,16 @@ void RecoilJets::createHistos_Data()
 
 
 bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
-                                std::vector<std::string>& activeTrig)
+                                std::vector<std::string>& activeTrig,
+                                bool applyVzCut,
+                                bool* outMinimumBiasPass,
+                                bool* outTriggerPass)
 {
   m_lastReject = EventReject::None;
   activeTrig.clear();
+
+  if (outMinimumBiasPass) *outMinimumBiasPass = false;
+  if (outTriggerPass) *outTriggerPass = false;
 
   // Small helper for printing lists
   auto joinList = [](const std::vector<std::string>& v, const char* sep) -> std::string
@@ -1375,13 +1446,15 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
   // ------------------------------------------------------------------
   // SIMULATION MODE:
   //   - skip trigger logic
-  //   - still apply global |vz| cut if enabled
+  //   - optionally apply global |vz| cut
   // ------------------------------------------------------------------
   if (m_isSim)
   {
     activeTrig.emplace_back("SIM");
+    if (outMinimumBiasPass) *outMinimumBiasPass = true;
+    if (outTriggerPass) *outTriggerPass = true;
 
-    if (m_useVzCut && std::fabs(m_vz) >= m_vzCut)
+    if (applyVzCut && m_useVzCut && std::fabs(m_vz) >= m_vzCut)
     {
       m_lastReject = EventReject::Vz;
       if (Verbosity() >= 4)
@@ -1400,7 +1473,8 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
       std::ostringstream os;
       os << "    [firstEventCuts] ACCEPT (SIM)"
          << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
-      if (m_useVzCut) os << " (|vz|cut=" << m_vzCut << ")";
+      if (applyVzCut && m_useVzCut) os << " (|vz|cut=" << m_vzCut << ")";
+      else if (m_useVzCut) os << " (|vz|cut deferred)";
       LOG(4, CLR_GREEN, os.str());
     }
 
@@ -1414,6 +1488,8 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
   if (!m_isAuAu)
   {
     // ---------- p+p: accept if ANY configured pp trigger fired ----------
+    if (outMinimumBiasPass) *outMinimumBiasPass = true;
+
     if (!trigAna)
     {
       m_lastReject = EventReject::Trigger;
@@ -1447,7 +1523,10 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
       }
     }
 
-    if (activeTrig.empty())
+    const bool triggerPass = !activeTrig.empty();
+    if (outTriggerPass) *outTriggerPass = triggerPass;
+
+    if (!triggerPass)
     {
       m_lastReject = EventReject::Trigger;
 
@@ -1457,7 +1536,8 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
         os << "    [firstEventCuts] REJECT (p+p Trigger): no configured pp triggers fired"
            << " | checked={" << joinList(checkedLines, ", ") << "}"
            << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
-        if (m_useVzCut) os << " (|vz|cut=" << m_vzCut << ")";
+        if (applyVzCut && m_useVzCut) os << " (|vz|cut=" << m_vzCut << ")";
+        else if (m_useVzCut) os << " (|vz|cut deferred)";
         if (gl1Scaled) os << " | GL1Scaled=0x" << std::hex << gl1Scaled << std::dec;
         LOG(4, CLR_YELLOW, os.str());
       }
@@ -1479,6 +1559,7 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
     // ---------- Au+Au: require MinimumBiasInfo AND scaled GL1 bits ----------
     auto* mbInfo = findNode::getClass<MinimumBiasInfo>(topNode, "MinimumBiasInfo");
     const bool isMB = (mbInfo && mbInfo->isAuAuMinimumBias());
+    if (outMinimumBiasPass) *outMinimumBiasPass = isMB;
 
     uint64_t wScaled = 0;
     if (auto* gl1 = findNode::getClass<Gl1Packet>(topNode, "GL1Packet"))
@@ -1503,7 +1584,10 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
           activeTrig.push_back(key);
     }
 
-    if (!isMB || activeTrig.empty())
+    const bool triggerPass = !activeTrig.empty();
+    if (outTriggerPass) *outTriggerPass = triggerPass;
+
+    if (!isMB || !triggerPass)
     {
       m_lastReject = EventReject::Trigger;
 
@@ -1512,12 +1596,13 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
         std::ostringstream os;
         os << "    [firstEventCuts] REJECT (Au+Au Trigger/MB): ";
         if (!isMB) os << "MinimumBiasInfo failed";
-        if (!isMB && activeTrig.empty()) os << " and ";
-        if (activeTrig.empty()) os << "no configured scaled triggers fired";
+        if (!isMB && !triggerPass) os << " and ";
+        if (!triggerPass) os << "no configured scaled triggers fired";
         os << " | isMB=" << (isMB ? 1 : 0)
            << " | ScaledVector=0x" << std::hex << wScaled << std::dec
            << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
-        if (m_useVzCut) os << " (|vz|cut=" << m_vzCut << ")";
+        if (applyVzCut && m_useVzCut) os << " (|vz|cut=" << m_vzCut << ")";
+        else if (m_useVzCut) os << " (|vz|cut deferred)";
         LOG(4, CLR_YELLOW, os.str());
       }
       return false;
@@ -1535,7 +1620,7 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
   }
 
   // ---------- Global |vz| veto ----------
-  if (m_useVzCut && std::fabs(m_vz) >= m_vzCut)
+  if (applyVzCut && m_useVzCut && std::fabs(m_vz) >= m_vzCut)
   {
     m_lastReject = EventReject::Vz;
 
@@ -1562,7 +1647,8 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
     os << "    [firstEventCuts] ACCEPT"
        << " | triggers={" << joinList(activeTrig, ", ") << "}"
        << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
-    if (m_useVzCut) os << " (|vz|cut=" << m_vzCut << ")";
+    if (applyVzCut && m_useVzCut) os << " (|vz|cut=" << m_vzCut << ")";
+    else if (m_useVzCut) os << " (|vz|cut deferred)";
     LOG(4, CLR_GREEN, os.str());
   }
 
@@ -1579,9 +1665,14 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
   /* ------------------------------------------------------------------ */
   ++event_count;
   ++m_bk.evt_seen;
-  std::cout << "==================== processing event "
-            << std::setw(6) << event_count
-            << " ====================" << std::endl;
+  if (m_isoAuditMode) ++m_isoAuditFlowGlobal.evt_seen;
+
+  if (!m_isoAuditMode || Verbosity() >= 2)
+  {
+    std::cout << "==================== processing event "
+              << std::setw(6) << event_count
+              << " ====================" << std::endl;
+  }
 
   /* ------------------------------------------------------------------ */
   /* 1) Mandatory nodes                                                 */
@@ -1591,6 +1682,46 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
   {
     LOG(4, CLR_YELLOW, "    mandatory node(s) missing → ABORTEVENT");
     return Fun4AllReturnCodes::ABORTEVENT;
+  }
+
+  if (m_isoAuditMode)
+  {
+    ++m_isoAuditFlowGlobal.mandatory_nodes_ok;
+    ++m_isoAuditFlowGlobal.valid_reco_vertex_found;
+  }
+
+  bool auditCentValid = false;
+  int auditCentIdx = -1;
+  int auditCentBin = -1;
+
+  if (m_isoAuditMode && m_isAuAu)
+  {
+    CentralityInfo* auditCentral =
+      findNode::getClass<CentralityInfo>(topNode, "CentralityInfo");
+
+    if (auditCentral)
+    {
+      const float auditCentile =
+        auditCentral->get_centrality_bin(CentralityInfo::PROP::mbd_NS);
+
+      if (std::isfinite(auditCentile) && auditCentile >= 0.f)
+      {
+        auditCentValid = true;
+        auditCentBin = static_cast<int>(auditCentile);
+        auditCentIdx = findCentBin(auditCentBin);
+
+        ++m_isoAuditFlowGlobal.valid_centrality_info;
+
+        if (auditCentIdx >= 0 && auditCentIdx < static_cast<int>(m_isoAuditFlowByCent.size()))
+        {
+          auto& flow = m_isoAuditFlowByCent[auditCentIdx];
+          ++flow.evt_seen;
+          ++flow.mandatory_nodes_ok;
+          ++flow.valid_reco_vertex_found;
+          ++flow.valid_centrality_info;
+        }
+      }
+    }
   }
 
   /* ------------------------------------------------------------------ */
@@ -1701,7 +1832,32 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
       }
 
       std::vector<std::string> activeTrig;
-      if (!firstEventCuts(topNode, activeTrig))
+      bool auditMinimumBiasPass = false;
+      bool auditTriggerPass = false;
+
+      const bool applyVzInFirstEventCuts = (!m_isoAuditMode);
+
+      const bool passFirstCuts =
+        firstEventCuts(topNode,
+                       activeTrig,
+                       applyVzInFirstEventCuts,
+                       &auditMinimumBiasPass,
+                       &auditTriggerPass);
+
+      if (m_isoAuditMode)
+      {
+        if (auditMinimumBiasPass) ++m_isoAuditFlowGlobal.minimum_bias_pass;
+        if (auditTriggerPass) ++m_isoAuditFlowGlobal.trigger_pass;
+
+        if (auditCentValid && auditCentIdx >= 0 && auditCentIdx < static_cast<int>(m_isoAuditFlowByCent.size()))
+        {
+          auto& flow = m_isoAuditFlowByCent[auditCentIdx];
+          if (auditMinimumBiasPass) ++flow.minimum_bias_pass;
+          if (auditTriggerPass) ++flow.trigger_pass;
+        }
+      }
+
+      if (!passFirstCuts)
       {
         ++m_evtNoTrig;  // keep your legacy counter
         if (m_lastReject == EventReject::Trigger) ++m_bk.evt_fail_trigger;
@@ -1818,9 +1974,24 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
   /* ------------------------------------------------------------------ */
   if (!std::isfinite(m_vz) || (m_useVzCut && std::fabs(m_vz) >= m_vzCut))
   {
+      m_lastReject = EventReject::Vz;
+      ++m_bk.evt_fail_vz;
       LOG(4, CLR_YELLOW,
           "    Vertex-z (" << m_vz << " cm) outside bounds – skip event");
       return Fun4AllReturnCodes::ABORTEVENT;
+  }
+
+  if (m_isoAuditMode)
+  {
+    ++m_isoAuditFlowGlobal.vz_pass;
+    ++m_isoAuditFlowGlobal.events_reaching_photon_loop;
+
+    if (auditCentValid && auditCentIdx >= 0 && auditCentIdx < static_cast<int>(m_isoAuditFlowByCent.size()))
+    {
+      auto& flow = m_isoAuditFlowByCent[auditCentIdx];
+      ++flow.vz_pass;
+      ++flow.events_reaching_photon_loop;
+    }
   }
     
   if (m_doPi0Analysis)
@@ -1856,6 +2027,21 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
   processCandidates(topNode, activeTrig);
 
   ++m_bk.evt_accepted;
+
+  if (m_isoAuditMode && m_isoAuditTargetReached)
+  {
+    if (!m_isoAuditStopAnnounced)
+    {
+      std::cout << CLR_CYAN
+                << "[IsolationAudit] target reached after event "
+                << m_isoAuditStopEvent
+                << " → ABORTRUN"
+                << CLR_RESET << std::endl;
+      m_isoAuditStopAnnounced = true;
+    }
+    return Fun4AllReturnCodes::ABORTRUN;
+  }
+
   LOG(4, CLR_GREEN, "  [process_event] – completed OK");
   return Fun4AllReturnCodes::EVENT_OK;
 }
@@ -2023,6 +2209,7 @@ int RecoilJets::End(PHCompositeNode*)
 
       // -------------------- Photon cutflow (existing) --------------------
       printCutSummary();
+      if (m_isoAuditMode) printIsolationAuditSummary();
 
 
       // =========================================================================
@@ -4481,11 +4668,36 @@ void RecoilJets::fillPureIsolationQA(PHCompositeNode* topNode,
     }
   }
 
-  // Pure isolation threshold decision (signal line only)
-  double _iA, _iB, _iG;
-  getIsoParams(centIdx, _iA, _iB, _iG);
-  const double thrIso  = (m_isSlidingIso ? (_iA + _iB * pt_gamma) : m_isoFixed);
-  const bool   isoPass = (eiso_tot < thrIso);
+    // Pure isolation threshold decision (signal line only)
+    double _iA, _iB, _iG;
+    getIsoParams(centIdx, _iA, _iB, _iG);
+    const double thrIso  = (m_isSlidingIso ? (_iA + _iB * pt_gamma) : m_isoFixed);
+    const double thrNonIso = thrIso + _iG;
+    const bool   isoPass = (eiso_tot < thrIso);
+
+    if (m_isoAuditMode)
+    {
+      IsoAuditSample sample;
+      sample.centIdx = centIdx;
+      sample.ptIdx = ptIdx;
+      sample.ptGamma = pt_gamma;
+      sample.etaGamma = (pho ? pho->get_shower_shape_parameter("cluster_eta") : 0.0);
+      sample.phiGamma = (pho ? pho->get_shower_shape_parameter("cluster_phi") : 0.0);
+      sample.eisoTot = eiso_tot;
+      sample.eisoEmcal = eiso_emcal;
+      sample.eisoHcalIn = eiso_hcalin;
+      sample.eisoHcalOut = eiso_hcalout;
+      sample.thrIso = thrIso;
+      sample.thrNonIso = thrNonIso;
+      sample.supportedCone = (k_em && k_hi && k_ho);
+      sample.componentsFinite =
+        (pho && sample.supportedCone &&
+         std::isfinite(pho->get_shower_shape_parameter(k_em)) &&
+         std::isfinite(pho->get_shower_shape_parameter(k_hi)) &&
+         std::isfinite(pho->get_shower_shape_parameter(k_ho)));
+
+      recordIsolationAuditInclusive(sample);
+  }
 
   for (const auto& trigShort : activeTrig)
   {
@@ -5193,108 +5405,145 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
 
 
 
-        ++m_bk.pho_total;
+          ++m_bk.pho_total;
 
-        // --------------------------------------------------------------
-        // Use the EXACT kinematics produced by PhotonClusterBuilder:
-        //   - vertex_z    (MBD z used in builder)
-        //   - cluster_eta / cluster_phi
-        //   - cluster_pt
-        //
-        // This prevents ET/pT mismatches from recomputing with a different
-        // vertex choice or a different construction path.
-        // --------------------------------------------------------------
-        double eta      = pho->get_shower_shape_parameter("cluster_eta");
-        double phi      = pho->get_shower_shape_parameter("cluster_phi");
-        double pt_gamma = pho->get_shower_shape_parameter("cluster_pt");
-        const double energy = rc->get_energy();
+          // --------------------------------------------------------------
+          // Use the EXACT kinematics produced by PhotonClusterBuilder:
+          //   - vertex_z    (MBD z used in builder)
+          //   - cluster_eta / cluster_phi
+          //   - cluster_pt
+          //
+          // This prevents ET/pT mismatches from recomputing with a different
+          // vertex choice or a different construction path.
+          // --------------------------------------------------------------
+          double eta      = pho->get_shower_shape_parameter("cluster_eta");
+          double phi      = pho->get_shower_shape_parameter("cluster_phi");
+          double pt_gamma = pho->get_shower_shape_parameter("cluster_pt");
+          const double energy = rc->get_energy();
 
-        // Strict mode: ONLY use PhotonClusterBuilder-provided kinematics.
-        // If they are missing/non-finite, skip this candidate and print why.
-        if (!std::isfinite(eta) || !std::isfinite(phi) || !std::isfinite(pt_gamma))
-        {
-            LOG(0, CLR_YELLOW,
-                "      [pho#" << iPho << "] PhotonClusterBuilder kinematics are non-finite/missing: "
-                << "eta=" << eta << " phi=" << phi << " pt=" << pt_gamma
-                << " → skipping candidate.");
-            continue;
-        }
+          // Strict mode: ONLY use PhotonClusterBuilder-provided kinematics.
+          // If they are missing/non-finite, skip this candidate and print why.
+          if (!std::isfinite(eta) || !std::isfinite(phi) || !std::isfinite(pt_gamma))
+          {
+              LOG(0, CLR_YELLOW,
+                  "      [pho#" << iPho << "] PhotonClusterBuilder kinematics are non-finite/missing: "
+                  << "eta=" << eta << " phi=" << phi << " pt=" << pt_gamma
+                  << " → skipping candidate.");
+              continue;
+          }
 
-           // -------- reco pT^gamma floor (PPG12 reco-matching requirement) ----
-           // PPG12 requirement you stated: pT_reco > 5 GeV  (and for photons pT == ET).
-           constexpr double kMinPtGamma = 5.0; // GeV
+          const int auditPtIdx = findPtBin(pt_gamma);
+          if (m_isoAuditMode &&
+              centIdx >= 0 &&
+              centIdx < static_cast<int>(m_isoAuditCells.size()) &&
+              auditPtIdx >= 0 &&
+              auditPtIdx < static_cast<int>(m_isoAuditCells[centIdx].size()))
+          {
+            ++m_isoAuditCells[centIdx][auditPtIdx].n_seen_container;
+          }
 
-           if (pt_gamma < kMinPtGamma)
-           {
-             ++nSkipEtBin; ++m_bk.pho_early_E;
+             // -------- reco pT^gamma floor (PPG12 reco-matching requirement) ----
+             // PPG12 requirement you stated: pT_reco > 5 GeV  (and for photons pT == ET).
+             constexpr double kMinPtGamma = 5.0; // GeV
 
-             if (Verbosity() >= 6)
+             if (pt_gamma < kMinPtGamma)
              {
-               const int dbgPtIdx = findPtBin(pt_gamma);
+               ++nSkipEtBin; ++m_bk.pho_early_E;
 
-               std::ostringstream os;
-               os << "      [pho#" << iPho << "] early reject (pT^#gamma floor)"
-                  << " | pT="  << std::fixed << std::setprecision(2) << pt_gamma
-                  << " < "     << kMinPtGamma
-                  << " | E="   << std::fixed << std::setprecision(2) << energy
-                  << " | eta=" << std::fixed << std::setprecision(3) << eta
-                  << " | phi=" << std::fixed << std::setprecision(3) << phi
-                  << " | pTbinIdx=" << dbgPtIdx;
-               LOG(6, CLR_YELLOW, os.str());
+               if (Verbosity() >= 6)
+               {
+                 const int dbgPtIdx = findPtBin(pt_gamma);
+
+                 std::ostringstream os;
+                 os << "      [pho#" << iPho << "] early reject (pT^#gamma floor)"
+                    << " | pT="  << std::fixed << std::setprecision(2) << pt_gamma
+                    << " < "     << kMinPtGamma
+                    << " | E="   << std::fixed << std::setprecision(2) << energy
+                    << " | eta=" << std::fixed << std::setprecision(3) << eta
+                    << " | phi=" << std::fixed << std::setprecision(3) << phi
+                    << " | pTbinIdx=" << dbgPtIdx;
+                 LOG(6, CLR_YELLOW, os.str());
+               }
+               continue;
              }
-             continue;
-           }
 
-        // |η| fiducial cut
-        if (!std::isfinite(eta) || std::fabs(eta) >= m_etaAbsMax)
-        {
-          ++nSkipEta; ++m_bk.pho_eta_fail;
-          if (Verbosity() >= 2)
+          if (m_isoAuditMode &&
+              centIdx >= 0 &&
+              centIdx < static_cast<int>(m_isoAuditCells.size()) &&
+              auditPtIdx >= 0 &&
+              auditPtIdx < static_cast<int>(m_isoAuditCells[centIdx].size()))
           {
-            std::cout << CLR_MAGENTA
-                      << "      [skip:eta pho#" << iPho << "]"
-                      << "  pT=" << std::fixed << std::setprecision(2) << pt_gamma
-                      << "  E="  << std::fixed << std::setprecision(2) << energy
-                      << "  eta="<< std::fixed << std::setprecision(3) << eta
-                      << "  phi="<< std::fixed << std::setprecision(3) << phi
-                      << "  (|eta|>=" << m_etaAbsMax << ")"
-                      << CLR_RESET << std::endl;
+            ++m_isoAuditCells[centIdx][auditPtIdx].n_pass_pt_floor;
           }
-          continue;
-        }
 
-        // Now do your configured pT binning (drives ALL pT-sliced histograms + JES objects)
-        const int ptIdx = findPtBin(pt_gamma);
-        if (ptIdx < 0)
-        {
-          ++nSkipEtBin; ++m_bk.pho_etbin_out;
-          if (Verbosity() >= 2)
+          // |η| fiducial cut
+          if (!std::isfinite(eta) || std::fabs(eta) >= m_etaAbsMax)
           {
-            std::cout << CLR_MAGENTA
-                      << "      [skip:pTbin pho#" << iPho << "]"
-                      << "  pT=" << std::fixed << std::setprecision(2) << pt_gamma
-                      << "  E="  << std::fixed << std::setprecision(2) << energy
-                      << "  eta="<< std::fixed << std::setprecision(3) << eta
-                      << "  phi="<< std::fixed << std::setprecision(3) << phi
-                      << CLR_RESET << std::endl;
+            ++nSkipEta; ++m_bk.pho_eta_fail;
+            if (Verbosity() >= 2)
+            {
+              std::cout << CLR_MAGENTA
+                        << "      [skip:eta pho#" << iPho << "]"
+                        << "  pT=" << std::fixed << std::setprecision(2) << pt_gamma
+                        << "  E="  << std::fixed << std::setprecision(2) << energy
+                        << "  eta="<< std::fixed << std::setprecision(3) << eta
+                        << "  phi="<< std::fixed << std::setprecision(3) << phi
+                        << "  (|eta|>=" << m_etaAbsMax << ")"
+                        << CLR_RESET << std::endl;
+            }
+            continue;
           }
-          continue;
-        }
 
-        // φ to use for jet matching (used later for jet scan)
-        const double phi_gamma = phi;
+          if (m_isoAuditMode &&
+              centIdx >= 0 &&
+              centIdx < static_cast<int>(m_isoAuditCells.size()) &&
+              auditPtIdx >= 0 &&
+              auditPtIdx < static_cast<int>(m_isoAuditCells[centIdx].size()))
+          {
+            ++m_isoAuditCells[centIdx][auditPtIdx].n_pass_eta;
+          }
 
-        //  choose event-leading reco photon candidate in pT^gamma (within analysis bins),
-        // WITHOUT iso/tight requirement.
-        if (!haveLeadAnyPho || pt_gamma > leadAnyPtGamma)
-        {
-                haveLeadAnyPho  = true;
-                leadAnyPtIdx    = ptIdx;
-                leadAnyPtGamma  = pt_gamma;
-                leadAnyPhiGamma = phi_gamma;
-        }
+          // Now do your configured pT binning (drives ALL pT-sliced histograms + JES objects)
+          const int ptIdx = auditPtIdx;
+          if (ptIdx < 0)
+          {
+            ++nSkipEtBin; ++m_bk.pho_etbin_out;
+            if (Verbosity() >= 2)
+            {
+              std::cout << CLR_MAGENTA
+                        << "      [skip:pTbin pho#" << iPho << "]"
+                        << "  pT=" << std::fixed << std::setprecision(2) << pt_gamma
+                        << "  E="  << std::fixed << std::setprecision(2) << energy
+                        << "  eta="<< std::fixed << std::setprecision(3) << eta
+                        << "  phi="<< std::fixed << std::setprecision(3) << phi
+                        << CLR_RESET << std::endl;
+            }
+            continue;
+          }
 
-        fillPureIsolationQA(topNode, activeTrig, pho, rc, ptIdx, centIdx, pt_gamma);
+          if (m_isoAuditMode &&
+              centIdx >= 0 &&
+              centIdx < static_cast<int>(m_isoAuditCells.size()) &&
+              ptIdx >= 0 &&
+              ptIdx < static_cast<int>(m_isoAuditCells[centIdx].size()))
+          {
+            ++m_isoAuditCells[centIdx][ptIdx].n_in_pt_bin;
+          }
+
+          // φ to use for jet matching (used later for jet scan)
+          const double phi_gamma = phi;
+
+          //  choose event-leading reco photon candidate in pT^gamma (within analysis bins),
+          // WITHOUT iso/tight requirement.
+          if (!haveLeadAnyPho || pt_gamma > leadAnyPtGamma)
+          {
+                  haveLeadAnyPho  = true;
+                  leadAnyPtIdx    = ptIdx;
+                  leadAnyPtGamma  = pt_gamma;
+                  leadAnyPhiGamma = phi_gamma;
+          }
+
+          fillPureIsolationQA(topNode, activeTrig, pho, rc, ptIdx, centIdx, pt_gamma);
 
         // 1) Build shower-shape inputs (for preselection and tightness)
         const SSVars v = makeSSFromPhoton(pho, pt_gamma);
@@ -5418,8 +5667,13 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
             LOG(4, CLR_MAGENTA, msg.str());
           }
 
-          ++nNotTight; // keep legacy counter of “not usable” for xJ
-          continue;
+          if (haveAuditSample)
+          {
+              recordIsolationAuditFollowup(activeTrig, auditSample, TightTag::kPreselectionFail);
+            }
+
+            ++nNotTight; // keep legacy counter of “not usable” for xJ
+            continue;
         }
 
         if (Verbosity() >= 4)
@@ -5458,6 +5712,11 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
         if (tight_fails == 0)      { tightTag = TightTag::kTight;      ++m_bk.tight_tight; }
         else if (tight_fails >= 2) { tightTag = TightTag::kNonTight;   ++m_bk.tight_nonTight; }
         else                       { tightTag = TightTag::kNeither;    ++m_bk.tight_neither; }
+
+        if (haveAuditSample)
+        {
+            recordIsolationAuditFollowup(activeTrig, auditSample, tightTag);
+        }
 
         // -------------------------------------------------------------------------
         // NEW: PPG12-style SS template histograms (preselection / tight / non-tight)
@@ -12300,4 +12559,557 @@ void RecoilJets::printCutSummary() const
           "-------------------------------+-------\n";
   cout << left << setw(31) << "isolated (pass)"            << " | " << right << setw(7) << m_bk.iso_pass         << '\n';
   cout << left << setw(31) << "non-isolated (fail)"        << " | " << right << setw(7) << m_bk.iso_fail         << '\n';
+}
+
+void RecoilJets::initIsolationAudit()
+{
+  m_isoAuditMode = false;
+  if (const char* env = std::getenv("RJ_ISO_AUDIT_MODE"))
+  {
+    m_isoAuditMode = (std::atoi(env) != 0);
+  }
+
+  m_isoAuditTargetReached = false;
+  m_isoAuditStopAnnounced = false;
+  m_isoAuditStopEvent = 0;
+  m_isoAuditStopReason.clear();
+
+  if (!m_isoAuditMode)
+  {
+    m_isoAuditFlowGlobal = IsoAuditEventFlow{};
+    m_isoAuditFlowByCent.clear();
+    m_isoAuditCells.clear();
+    return;
+  }
+
+  if (const char* env = std::getenv("RJ_ISO_AUDIT_TARGET_PER_CENT"))
+  {
+    const int v = std::atoi(env);
+    if (v > 0) m_isoAuditTargetPerCent = v;
+  }
+
+  if (const char* env = std::getenv("RJ_ISO_AUDIT_EXEMPLARS_PER_CELL"))
+  {
+    const int v = std::atoi(env);
+    if (v > 0) m_isoAuditExemplarsPerCell = v;
+  }
+
+  if (const char* env = std::getenv("RJ_ISO_AUDIT_LARGE_POSITIVE_GEV"))
+  {
+    const double v = std::atof(env);
+    if (std::isfinite(v) && v > 0.0) m_isoAuditLargePositiveGeV = v;
+  }
+
+  if (const char* env = std::getenv("RJ_ISO_AUDIT_NEAR_ZERO_ABS_GEV"))
+  {
+    const double v = std::atof(env);
+    if (std::isfinite(v) && v > 0.0) m_isoAuditNearZeroAbsGeV = v;
+  }
+
+  if (const char* env = std::getenv("RJ_ISO_AUDIT_MISMATCH_GEV"))
+  {
+    const double v = std::atof(env);
+    if (std::isfinite(v) && v >= 0.0) m_isoAuditMismatchGeV = v;
+  }
+
+  m_isoAuditFlowGlobal = IsoAuditEventFlow{};
+  const std::size_t nCent = (m_centEdges.size() > 1 ? (m_centEdges.size() - 1) : 0);
+  const std::size_t nPt = (m_gammaPtBins.size() > 1 ? (m_gammaPtBins.size() - 1) : 0);
+  m_isoAuditFlowByCent.assign(nCent, IsoAuditEventFlow{});
+  m_isoAuditCells.assign(nCent, std::vector<IsoAuditCell>(nPt));
+}
+
+std::string RecoilJets::isoAuditCentLabel(int centIdx) const
+{
+  if (centIdx < 0 || centIdx + 1 >= static_cast<int>(m_centEdges.size())) return "n/a";
+  std::ostringstream os;
+  os << m_centEdges[centIdx] << "-" << m_centEdges[centIdx + 1] << "%";
+  return os.str();
+}
+
+std::string RecoilJets::isoAuditPtLabel(int ptIdx) const
+{
+  if (ptIdx < 0 || ptIdx + 1 >= static_cast<int>(m_gammaPtBins.size())) return "n/a";
+  std::ostringstream os;
+  os << m_gammaPtBins[ptIdx] << "-" << m_gammaPtBins[ptIdx + 1];
+  return os.str();
+}
+
+bool RecoilJets::isolationAuditTargetsMet() const
+{
+  if (!m_isoAuditMode || m_isoAuditCells.empty()) return false;
+
+  for (std::size_t ic = 0; ic < m_isoAuditCells.size(); ++ic)
+  {
+    unsigned long long nInclusive = 0;
+    for (const auto& cell : m_isoAuditCells[ic]) nInclusive += cell.n_inclusive;
+    if (nInclusive < static_cast<unsigned long long>(m_isoAuditTargetPerCent)) return false;
+  }
+
+  return true;
+}
+
+void RecoilJets::recordIsolationAuditInclusive(const IsoAuditSample& sample)
+{
+  if (!m_isoAuditMode) return;
+  if (sample.centIdx < 0 || sample.ptIdx < 0) return;
+  if (sample.centIdx >= static_cast<int>(m_isoAuditCells.size())) return;
+  if (sample.ptIdx >= static_cast<int>(m_isoAuditCells[sample.centIdx].size())) return;
+
+  auto& cell = m_isoAuditCells[sample.centIdx][sample.ptIdx];
+  ++cell.n_inclusive;
+
+  const bool finiteTotal = (std::isfinite(sample.eisoTot) && sample.eisoTot < 1e8);
+
+  if (!sample.supportedCone || !finiteTotal || !sample.componentsFinite)
+  {
+    ++cell.n_fail_safe_overflow;
+  }
+
+  if (!sample.componentsFinite)
+  {
+    ++cell.n_nonfinite_components;
+  }
+
+  if (finiteTotal)
+  {
+    ++cell.n_total_finite;
+    cell.total.fill(sample.eisoTot);
+
+    if (sample.eisoTot < 0.0) ++cell.n_negative_total;
+    if (sample.eisoTot < sample.thrIso) ++cell.n_isoPass;
+    else if (sample.eisoTot > sample.thrNonIso) ++cell.n_nonIso;
+    else ++cell.n_gap;
+
+    ++cell.n_decision;
+    cell.sum_thrIso += sample.thrIso;
+    cell.sum_eiso_minus_thrIso += (sample.eisoTot - sample.thrIso);
+  }
+
+  if (sample.componentsFinite)
+  {
+    cell.emcal.fill(sample.eisoEmcal);
+    cell.hcalin.fill(sample.eisoHcalIn);
+    cell.hcalout.fill(sample.eisoHcalOut);
+
+    if (sample.eisoEmcal < 0.0) ++cell.n_negative_emcal;
+
+    if (finiteTotal)
+    {
+      const double absDiff =
+        std::fabs(sample.eisoTot - (sample.eisoEmcal + sample.eisoHcalIn + sample.eisoHcalOut));
+
+      ++cell.n_sumdiff;
+      cell.sum_abs_sumdiff += absDiff;
+      if (absDiff > cell.max_abs_sumdiff) cell.max_abs_sumdiff = absDiff;
+    }
+  }
+
+  if (!m_isoAuditTargetReached && isolationAuditTargetsMet())
+  {
+    m_isoAuditTargetReached = true;
+    m_isoAuditStopEvent = event_count;
+
+    std::ostringstream os;
+    os << "inclusive target satisfied in every configured centrality bin (target="
+       << m_isoAuditTargetPerCent << ")";
+    m_isoAuditStopReason = os.str();
+  }
+}
+
+void RecoilJets::recordIsolationAuditFollowup(const std::vector<std::string>& activeTrig,
+                                              const IsoAuditSample& sample,
+                                              TightTag tightTag)
+{
+  if (!m_isoAuditMode) return;
+  if (sample.centIdx < 0 || sample.ptIdx < 0) return;
+  if (sample.centIdx >= static_cast<int>(m_isoAuditCells.size())) return;
+  if (sample.ptIdx >= static_cast<int>(m_isoAuditCells[sample.centIdx].size())) return;
+
+  auto& cell = m_isoAuditCells[sample.centIdx][sample.ptIdx];
+  const bool finiteTotal = (std::isfinite(sample.eisoTot) && sample.eisoTot < 1e8);
+
+  if (finiteTotal)
+  {
+    if (tightTag == TightTag::kTight) cell.tight.fill(sample.eisoTot);
+    else if (tightTag == TightTag::kNonTight) cell.nonTight.fill(sample.eisoTot);
+    else if (tightTag == TightTag::kNeither) cell.neither.fill(sample.eisoTot);
+  }
+
+  auto joinTriggers = [](const std::vector<std::string>& v) -> std::string
+  {
+    std::ostringstream os;
+    for (std::size_t i = 0; i < v.size(); ++i)
+    {
+      if (i) os << ",";
+      os << v[i];
+    }
+    return os.str();
+  };
+
+  const double absDiff =
+    (finiteTotal && sample.componentsFinite)
+      ? std::fabs(sample.eisoTot - (sample.eisoEmcal + sample.eisoHcalIn + sample.eisoHcalOut))
+      : 0.0;
+
+  std::string isoClass = "overflow";
+  if (finiteTotal)
+  {
+    if (sample.eisoTot < sample.thrIso) isoClass = "iso";
+    else if (sample.eisoTot > sample.thrNonIso) isoClass = "nonIso";
+    else isoClass = "gap";
+  }
+
+  std::ostringstream line;
+  line << "run=" << m_isoAuditRunNumber
+       << " evt=" << event_count
+       << " trig={" << joinTriggers(activeTrig) << "}"
+       << " cent=" << isoAuditCentLabel(sample.centIdx)
+       << " pt=" << std::fixed << std::setprecision(3) << sample.ptGamma
+       << " eta=" << std::fixed << std::setprecision(3) << sample.etaGamma
+       << " phi=" << std::fixed << std::setprecision(3) << sample.phiGamma
+       << " em=" << std::fixed << std::setprecision(3) << sample.eisoEmcal
+       << " hi=" << std::fixed << std::setprecision(3) << sample.eisoHcalIn
+       << " ho=" << std::fixed << std::setprecision(3) << sample.eisoHcalOut
+       << " tot=" << std::fixed << std::setprecision(3) << sample.eisoTot
+       << " thr=" << std::fixed << std::setprecision(3) << sample.thrIso
+       << " class=" << isoClass
+       << " tight=" << tightTagName(tightTag);
+
+  const std::string lineStr = line.str();
+
+  auto pushExample = [&](std::vector<std::string>& dest)
+  {
+    if (dest.size() < static_cast<std::size_t>(m_isoAuditExemplarsPerCell))
+      dest.push_back(lineStr);
+  };
+
+  if (!finiteTotal || !sample.supportedCone || !sample.componentsFinite)
+    pushExample(cell.ex_overflow_total);
+
+  if (finiteTotal && sample.eisoTot < 0.0)
+    pushExample(cell.ex_negative_total);
+
+  if (finiteTotal &&
+      sample.eisoTot > -m_isoAuditNearZeroAbsGeV &&
+      sample.eisoTot <  m_isoAuditNearZeroAbsGeV)
+    pushExample(cell.ex_near_zero_total);
+
+  if (finiteTotal && sample.eisoTot >= m_isoAuditLargePositiveGeV)
+    pushExample(cell.ex_large_positive_total);
+
+  if (finiteTotal && sample.componentsFinite && absDiff >= m_isoAuditMismatchGeV)
+    pushExample(cell.ex_large_sum_mismatch);
+}
+
+void RecoilJets::printIsolationAuditSummary() const
+{
+  if (!m_isoAuditMode) return;
+
+  auto envOr = [](const char* key, const std::string& fallback = std::string{}) -> std::string
+  {
+    const char* raw = std::getenv(key);
+    if (!raw) return fallback;
+    const std::string s(raw);
+    return (s.empty() ? fallback : s);
+  };
+
+  auto fmt = [](double x, int prec = 3) -> std::string
+  {
+    if (!std::isfinite(x)) return "n/a";
+    std::ostringstream os;
+    os << std::fixed << std::setprecision(prec) << x;
+    return os.str();
+  };
+
+  auto frac = [](unsigned long long num, unsigned long long den) -> std::string
+  {
+    if (den == 0) return "n/a";
+    std::ostringstream os;
+    os << std::fixed << std::setprecision(3)
+       << (static_cast<double>(num) / static_cast<double>(den));
+    return os.str();
+  };
+
+  auto meanScalar = [](const IsoAuditScalarStats& s) -> double
+  {
+    return (s.n > 0 ? (s.sum / static_cast<double>(s.n)) : std::numeric_limits<double>::quiet_NaN());
+  };
+
+  auto meanSimple = [](const IsoAuditMeanStats& s) -> double
+  {
+    return (s.n > 0 ? (s.sum / static_cast<double>(s.n)) : std::numeric_limits<double>::quiet_NaN());
+  };
+
+  auto percentile = [](const std::vector<double>& vals, double q) -> double
+  {
+    if (vals.empty()) return std::numeric_limits<double>::quiet_NaN();
+
+    std::vector<double> tmp(vals);
+    std::sort(tmp.begin(), tmp.end());
+
+    if (tmp.size() == 1) return tmp.front();
+
+    const double pos = q * static_cast<double>(tmp.size() - 1);
+    const std::size_t lo = static_cast<std::size_t>(std::floor(pos));
+    const std::size_t hi = static_cast<std::size_t>(std::ceil(pos));
+    const double fracPart = pos - static_cast<double>(lo);
+
+    if (lo == hi) return tmp[lo];
+    return (1.0 - fracPart) * tmp[lo] + fracPart * tmp[hi];
+  };
+
+  unsigned long long g_seen = 0;
+  unsigned long long g_passPt = 0;
+  unsigned long long g_passEta = 0;
+  unsigned long long g_inPt = 0;
+  unsigned long long g_inclusive = 0;
+  unsigned long long g_finite = 0;
+  unsigned long long g_neg = 0;
+  unsigned long long g_iso = 0;
+  unsigned long long g_gap = 0;
+  unsigned long long g_nonIso = 0;
+  unsigned long long g_decision = 0;
+  unsigned long long g_tight = 0;
+  unsigned long long g_nonTight = 0;
+  unsigned long long g_neither = 0;
+
+  double g_sumEm = 0.0, g_sumHi = 0.0, g_sumHo = 0.0, g_sumTot = 0.0;
+  unsigned long long g_nEm = 0, g_nHi = 0, g_nHo = 0, g_nTot = 0;
+
+  for (const auto& row : m_isoAuditCells)
+  {
+    for (const auto& cell : row)
+    {
+      g_seen += cell.n_seen_container;
+      g_passPt += cell.n_pass_pt_floor;
+      g_passEta += cell.n_pass_eta;
+      g_inPt += cell.n_in_pt_bin;
+      g_inclusive += cell.n_inclusive;
+      g_finite += cell.n_total_finite;
+      g_neg += cell.n_negative_total;
+      g_iso += cell.n_isoPass;
+      g_gap += cell.n_gap;
+      g_nonIso += cell.n_nonIso;
+      g_decision += cell.n_decision;
+      g_tight += cell.tight.n;
+      g_nonTight += cell.nonTight.n;
+      g_neither += cell.neither.n;
+
+      g_sumEm += cell.emcal.sum; g_nEm += cell.emcal.n;
+      g_sumHi += cell.hcalin.sum; g_nHi += cell.hcalin.n;
+      g_sumHo += cell.hcalout.sum; g_nHo += cell.hcalout.n;
+      g_sumTot += cell.total.sum; g_nTot += cell.total.n;
+    }
+  }
+
+  std::cout << "\n\033[1mIsolationAudit executive summary\033[0m\n";
+  std::cout << "  dataset token           : " << envOr("RJ_ISO_AUDIT_DATASET_TOKEN", (m_isAuAu ? "auau" : "pp")) << "\n";
+  std::cout << "  selected run            : " << envOr("RJ_ISO_AUDIT_SELECTED_RUN", std::to_string(m_isoAuditRunNumber)) << "\n";
+  std::cout << "  chunk span              : " << envOr("RJ_ISO_AUDIT_CHUNK_SPAN", "n/a") << "\n";
+  std::cout << "  source list             : " << envOr("RJ_ISO_AUDIT_COMBINED_LIST", "n/a") << "\n";
+  std::cout << "  clusterUEpipeline       : " << envOr("RJ_ISO_AUDIT_CLUSTER_UEPIPELINE", "n/a") << "\n";
+  std::cout << "  photonInputClusterNode  : " << envOr("RJ_ISO_AUDIT_PHOTON_INPUT_CLUSTER_NODE", "n/a") << "\n";
+  std::cout << "  photonBuilderIsAuAu     : " << envOr("RJ_ISO_AUDIT_PHOTON_BUILDER_IS_AUAU", "false") << "\n";
+  std::cout << "  builder EM/IH/OH nodes  : "
+            << envOr("RJ_ISO_AUDIT_PCB_EM_NODE", "n/a") << " | "
+            << envOr("RJ_ISO_AUDIT_PCB_HI_NODE", "n/a") << " | "
+            << envOr("RJ_ISO_AUDIT_PCB_HO_NODE", "n/a") << "\n";
+  std::cout << "  path classification     : " << envOr("RJ_ISO_AUDIT_PATH_CLASS", "n/a") << "\n";
+  std::cout << "  stop condition          : "
+            << (m_isoAuditTargetReached ? "TARGET REACHED" : "INPUT EXHAUSTED BEFORE TARGET")
+            << "\n";
+  std::cout << "  stop detail             : "
+            << (m_isoAuditStopReason.empty() ? "n/a" : m_isoAuditStopReason)
+            << "\n";
+  if (m_isoAuditTargetReached)
+    std::cout << "  stop event              : " << m_isoAuditStopEvent << "\n";
+  std::cout << "  target / cent bin       : " << m_isoAuditTargetPerCent << "\n";
+
+  std::cout << "\nEvent flow (global)\n";
+  std::cout << "  seen=" << m_isoAuditFlowGlobal.evt_seen
+            << " nodesOK=" << m_isoAuditFlowGlobal.mandatory_nodes_ok
+            << " mbPass=" << m_isoAuditFlowGlobal.minimum_bias_pass
+            << " trigPass=" << m_isoAuditFlowGlobal.trigger_pass
+            << " validCent=" << m_isoAuditFlowGlobal.valid_centrality_info
+            << " validRecoVtx=" << m_isoAuditFlowGlobal.valid_reco_vertex_found
+            << " vzPass=" << m_isoAuditFlowGlobal.vz_pass
+            << " photonLoop=" << m_isoAuditFlowGlobal.events_reaching_photon_loop
+            << "\n";
+
+  std::cout << "Inclusive photons (global)\n";
+  std::cout << "  seen=" << g_seen
+            << " passPtFloor=" << g_passPt
+            << " passEta=" << g_passEta
+            << " inPtBin=" << g_inPt
+            << " enteredInclusive=" << g_inclusive
+            << " finiteTotal=" << g_finite
+            << "\n";
+
+  std::cout << "Mean component isolation (global)\n";
+  std::cout << "  em=" << fmt(g_nEm ? (g_sumEm / static_cast<double>(g_nEm)) : std::numeric_limits<double>::quiet_NaN())
+            << " hi=" << fmt(g_nHi ? (g_sumHi / static_cast<double>(g_nHi)) : std::numeric_limits<double>::quiet_NaN())
+            << " ho=" << fmt(g_nHo ? (g_sumHo / static_cast<double>(g_nHo)) : std::numeric_limits<double>::quiet_NaN())
+            << " total=" << fmt(g_nTot ? (g_sumTot / static_cast<double>(g_nTot)) : std::numeric_limits<double>::quiet_NaN())
+            << "\n";
+
+  for (std::size_t ic = 0; ic < m_isoAuditCells.size(); ++ic)
+  {
+    const auto& flow = m_isoAuditFlowByCent[ic];
+
+    unsigned long long c_seen = 0;
+    unsigned long long c_passPt = 0;
+    unsigned long long c_passEta = 0;
+    unsigned long long c_inPt = 0;
+    unsigned long long c_inclusive = 0;
+    unsigned long long c_finite = 0;
+    unsigned long long c_neg = 0;
+    unsigned long long c_iso = 0;
+    unsigned long long c_gap = 0;
+    unsigned long long c_nonIso = 0;
+    unsigned long long c_decision = 0;
+    unsigned long long c_tight = 0;
+    unsigned long long c_nonTight = 0;
+    unsigned long long c_neither = 0;
+
+    double c_sumEm = 0.0, c_sumHi = 0.0, c_sumHo = 0.0, c_sumTot = 0.0;
+    unsigned long long c_nEm = 0, c_nHi = 0, c_nHo = 0, c_nTot = 0;
+    double c_sumTight = 0.0, c_sumNonTight = 0.0, c_sumNeither = 0.0;
+
+    for (const auto& cell : m_isoAuditCells[ic])
+    {
+      c_seen += cell.n_seen_container;
+      c_passPt += cell.n_pass_pt_floor;
+      c_passEta += cell.n_pass_eta;
+      c_inPt += cell.n_in_pt_bin;
+      c_inclusive += cell.n_inclusive;
+      c_finite += cell.n_total_finite;
+      c_neg += cell.n_negative_total;
+      c_iso += cell.n_isoPass;
+      c_gap += cell.n_gap;
+      c_nonIso += cell.n_nonIso;
+      c_decision += cell.n_decision;
+      c_tight += cell.tight.n;
+      c_nonTight += cell.nonTight.n;
+      c_neither += cell.neither.n;
+
+      c_sumEm += cell.emcal.sum; c_nEm += cell.emcal.n;
+      c_sumHi += cell.hcalin.sum; c_nHi += cell.hcalin.n;
+      c_sumHo += cell.hcalout.sum; c_nHo += cell.hcalout.n;
+      c_sumTot += cell.total.sum; c_nTot += cell.total.n;
+
+      c_sumTight += cell.tight.sum;
+      c_sumNonTight += cell.nonTight.sum;
+      c_sumNeither += cell.neither.sum;
+    }
+
+    std::cout << "\n\033[1mCentrality " << isoAuditCentLabel(static_cast<int>(ic)) << "\033[0m\n";
+    std::cout << "  evtFlow: seen=" << flow.evt_seen
+              << " nodesOK=" << flow.mandatory_nodes_ok
+              << " mbPass=" << flow.minimum_bias_pass
+              << " trigPass=" << flow.trigger_pass
+              << " validCent=" << flow.valid_centrality_info
+              << " validRecoVtx=" << flow.valid_reco_vertex_found
+              << " vzPass=" << flow.vz_pass
+              << " photonLoop=" << flow.events_reaching_photon_loop
+              << "\n";
+    std::cout << "  photons: seen=" << c_seen
+              << " passPtFloor=" << c_passPt
+              << " passEta=" << c_passEta
+              << " inPtBin=" << c_inPt
+              << " enteredInclusive=" << c_inclusive
+              << " finiteTotal=" << c_finite
+              << "\n";
+    std::cout << "  mean iso: em=" << fmt(c_nEm ? (c_sumEm / static_cast<double>(c_nEm)) : std::numeric_limits<double>::quiet_NaN())
+              << " hi=" << fmt(c_nHi ? (c_sumHi / static_cast<double>(c_nHi)) : std::numeric_limits<double>::quiet_NaN())
+              << " ho=" << fmt(c_nHo ? (c_sumHo / static_cast<double>(c_nHo)) : std::numeric_limits<double>::quiet_NaN())
+              << " total=" << fmt(c_nTot ? (c_sumTot / static_cast<double>(c_nTot)) : std::numeric_limits<double>::quiet_NaN())
+              << "\n";
+    std::cout << "  decision: fracIso=" << frac(c_iso, c_decision)
+              << " fracGap=" << frac(c_gap, c_decision)
+              << " fracNonIso=" << frac(c_nonIso, c_decision)
+              << " fracNegative=" << frac(c_neg, c_finite)
+              << "\n";
+    std::cout << "  follow-up: tight=" << c_tight
+              << " meanTight=" << fmt(c_tight ? (c_sumTight / static_cast<double>(c_tight)) : std::numeric_limits<double>::quiet_NaN())
+              << " nonTight=" << c_nonTight
+              << " meanNonTight=" << fmt(c_nonTight ? (c_sumNonTight / static_cast<double>(c_nonTight)) : std::numeric_limits<double>::quiet_NaN())
+              << " neither=" << c_neither
+              << " meanNeither=" << fmt(c_neither ? (c_sumNeither / static_cast<double>(c_neither)) : std::numeric_limits<double>::quiet_NaN())
+              << "\n";
+  }
+
+  std::cout << "\n\033[1mIsolationAudit appendix (centrality x pT)\033[0m\n";
+  std::cout << "cent      | pTγ      | N_incl | N_fin | mean_em | mean_hi | mean_ho | mean_tot | median_tot | frac_neg | frac_iso | frac_nonIso | N_tight | mean_tight | N_nonTight | mean_nonTight | N_neither | mean_neither\n";
+  std::cout << "----------+----------+--------+-------+---------+---------+---------+----------+------------+----------+----------+-------------+---------+------------+------------+---------------+-----------+-------------\n";
+
+  for (std::size_t ic = 0; ic < m_isoAuditCells.size(); ++ic)
+  {
+    for (std::size_t ip = 0; ip < m_isoAuditCells[ic].size(); ++ip)
+    {
+      const auto& cell = m_isoAuditCells[ic][ip];
+
+      std::cout << std::left << std::setw(9) << isoAuditCentLabel(static_cast<int>(ic)) << " | "
+                << std::setw(8) << isoAuditPtLabel(static_cast<int>(ip)) << " | "
+                << std::right << std::setw(6) << cell.n_inclusive << " | "
+                << std::setw(5) << cell.n_total_finite << " | "
+                << std::setw(7) << fmt(meanScalar(cell.emcal)) << " | "
+                << std::setw(7) << fmt(meanScalar(cell.hcalin)) << " | "
+                << std::setw(7) << fmt(meanScalar(cell.hcalout)) << " | "
+                << std::setw(8) << fmt(meanScalar(cell.total)) << " | "
+                << std::setw(10) << fmt(percentile(cell.total.values, 0.50)) << " | "
+                << std::setw(8) << frac(cell.n_negative_total, cell.n_total_finite) << " | "
+                << std::setw(8) << frac(cell.n_isoPass, cell.n_decision) << " | "
+                << std::setw(11) << frac(cell.n_nonIso, cell.n_decision) << " | "
+                << std::setw(7) << cell.tight.n << " | "
+                << std::setw(10) << fmt(meanSimple(cell.tight)) << " | "
+                << std::setw(10) << cell.nonTight.n << " | "
+                << std::setw(13) << fmt(meanSimple(cell.nonTight)) << " | "
+                << std::setw(9) << cell.neither.n << " | "
+                << std::setw(11) << fmt(meanSimple(cell.neither))
+                << "\n";
+    }
+  }
+
+  std::cout << "\n\033[1mIsolationAudit anomaly exemplars\033[0m\n";
+  bool printedAny = false;
+
+  auto printExamples = [&](const std::vector<std::string>& ex, const std::string& title)
+  {
+    if (ex.empty()) return;
+    printedAny = true;
+    std::cout << "    " << title << "\n";
+    for (const auto& line : ex)
+      std::cout << "      " << line << "\n";
+  };
+
+  for (std::size_t ic = 0; ic < m_isoAuditCells.size(); ++ic)
+  {
+    for (std::size_t ip = 0; ip < m_isoAuditCells[ic].size(); ++ip)
+    {
+      const auto& cell = m_isoAuditCells[ic][ip];
+      if (cell.ex_negative_total.empty() &&
+          cell.ex_near_zero_total.empty() &&
+          cell.ex_large_positive_total.empty() &&
+          cell.ex_overflow_total.empty() &&
+          cell.ex_large_sum_mismatch.empty())
+      {
+        continue;
+      }
+
+      std::cout << "  [" << isoAuditCentLabel(static_cast<int>(ic))
+                << ", pT " << isoAuditPtLabel(static_cast<int>(ip)) << "]\n";
+
+      printExamples(cell.ex_negative_total, "negative total isolation");
+      printExamples(cell.ex_near_zero_total, "near-zero total isolation");
+      printExamples(cell.ex_large_positive_total, "large positive isolation");
+      printExamples(cell.ex_overflow_total, "overflow / non-finite / unsupported cone");
+      printExamples(cell.ex_large_sum_mismatch, "large component-sum mismatch");
+    }
+  }
+
+  if (!printedAny)
+  {
+    std::cout << "  none\n";
+  }
 }

@@ -447,9 +447,123 @@ private:
     return (std::find(m_activeJetRKeys.begin(), m_activeJetRKeys.end(), rKey) != m_activeJetRKeys.end());
   }
 
-  bool fetchNodes(PHCompositeNode* topNode);
-  bool firstEventCuts(PHCompositeNode* topNode, std::vector<std::string>& activeTrig);
-  void createHistos_Data();
+    bool fetchNodes(PHCompositeNode* topNode);
+    bool firstEventCuts(PHCompositeNode* topNode,
+                        std::vector<std::string>& activeTrig,
+                        bool applyVzCut = true,
+                        bool* outMinimumBiasPass = nullptr,
+                        bool* outTriggerPass = nullptr);
+    void createHistos_Data();
+
+    struct IsoAuditScalarStats
+    {
+      unsigned long long n = 0;
+      double sum = 0.0;
+      double sumsq = 0.0;
+      std::vector<double> values;
+
+      void fill(double x)
+      {
+        if (!std::isfinite(x)) return;
+        ++n;
+        sum += x;
+        sumsq += x * x;
+        values.push_back(x);
+      }
+    };
+
+    struct IsoAuditMeanStats
+    {
+      unsigned long long n = 0;
+      double sum = 0.0;
+
+      void fill(double x)
+      {
+        if (!std::isfinite(x)) return;
+        ++n;
+        sum += x;
+      }
+    };
+
+    struct IsoAuditEventFlow
+    {
+      unsigned long long evt_seen = 0;
+      unsigned long long mandatory_nodes_ok = 0;
+      unsigned long long minimum_bias_pass = 0;
+      unsigned long long trigger_pass = 0;
+      unsigned long long valid_centrality_info = 0;
+      unsigned long long valid_reco_vertex_found = 0;
+      unsigned long long vz_pass = 0;
+      unsigned long long events_reaching_photon_loop = 0;
+    };
+
+    struct IsoAuditCell
+    {
+      unsigned long long n_seen_container = 0;
+      unsigned long long n_pass_pt_floor = 0;
+      unsigned long long n_pass_eta = 0;
+      unsigned long long n_in_pt_bin = 0;
+      unsigned long long n_inclusive = 0;
+
+      unsigned long long n_total_finite = 0;
+      unsigned long long n_fail_safe_overflow = 0;
+      unsigned long long n_nonfinite_components = 0;
+      unsigned long long n_negative_total = 0;
+      unsigned long long n_negative_emcal = 0;
+
+      IsoAuditScalarStats emcal;
+      IsoAuditScalarStats hcalin;
+      IsoAuditScalarStats hcalout;
+      IsoAuditScalarStats total;
+
+      unsigned long long n_sumdiff = 0;
+      double sum_abs_sumdiff = 0.0;
+      double max_abs_sumdiff = 0.0;
+
+      unsigned long long n_isoPass = 0;
+      unsigned long long n_gap = 0;
+      unsigned long long n_nonIso = 0;
+      unsigned long long n_decision = 0;
+      double sum_thrIso = 0.0;
+      double sum_eiso_minus_thrIso = 0.0;
+
+      IsoAuditMeanStats tight;
+      IsoAuditMeanStats nonTight;
+      IsoAuditMeanStats neither;
+
+      std::vector<std::string> ex_negative_total;
+      std::vector<std::string> ex_near_zero_total;
+      std::vector<std::string> ex_large_positive_total;
+      std::vector<std::string> ex_overflow_total;
+      std::vector<std::string> ex_large_sum_mismatch;
+    };
+
+    struct IsoAuditSample
+    {
+      int centIdx = -1;
+      int ptIdx = -1;
+      double ptGamma = 0.0;
+      double etaGamma = 0.0;
+      double phiGamma = 0.0;
+      double eisoTot = 1e9;
+      double eisoEmcal = 1e9;
+      double eisoHcalIn = 1e9;
+      double eisoHcalOut = 1e9;
+      double thrIso = 0.0;
+      double thrNonIso = 0.0;
+      bool supportedCone = false;
+      bool componentsFinite = false;
+    };
+
+    void initIsolationAudit();
+    void recordIsolationAuditInclusive(const IsoAuditSample& sample);
+    void recordIsolationAuditFollowup(const std::vector<std::string>& activeTrig,
+                                      const IsoAuditSample& sample,
+                                      TightTag tightTag);
+    bool isolationAuditTargetsMet() const;
+    std::string isoAuditCentLabel(int centIdx) const;
+    std::string isoAuditPtLabel(int ptIdx) const;
+    void printIsolationAuditSummary() const;
 
   void fillUnfoldResponseMatrixAndTruthDistributions(
             const std::vector<std::string>& activeTrig,
@@ -1127,35 +1241,52 @@ private:
   std::vector<float> m_evtDiag_best_etTower;
   std::vector<float> m_evtDiag_best_eTower;
 
-  // -------------------------------------------------------------------------
-  // Diagnostics / accounting
-  // -------------------------------------------------------------------------
-  EventReject m_lastReject = EventReject::None;
+    // -------------------------------------------------------------------------
+    // Diagnostics / accounting
+    // -------------------------------------------------------------------------
+    EventReject m_lastReject = EventReject::None;
 
-  long long event_count  = 0;
-  long long m_evtNoTrig  = 0;
+    long long event_count  = 0;
+    long long m_evtNoTrig  = 0;
 
-  Bookkeeping m_bk{};
+    Bookkeeping m_bk{};
 
-  // For End() histogram summary (counts how many times each histogram was filled)
-  std::unordered_map<std::string, long long> m_histFill;
+    // For End() histogram summary (counts how many times each histogram was filled)
+    std::unordered_map<std::string, long long> m_histFill;
 
-  // -------------------------------------------------------------------------
-  // NEW: per-pT-bin negative-isolation bookkeeping (independent of SS classification)
-  //
-  //  - "Builder"    = RecoilJets::eiso() using PhotonClusterBuilder iso_* layer sums
-  //  - "ClusterIso" = RawCluster::get_et_iso(radiusx10,false,true) (UNSUBTRACTED)
-  // -------------------------------------------------------------------------
-  std::vector<unsigned long long> m_nIsoBuilderByPt;
-  std::vector<unsigned long long> m_nIsoBuilderNegByPt;
-  std::vector<unsigned long long> m_nIsoClusterIsoByPt;
-  std::vector<unsigned long long> m_nIsoClusterIsoNegByPt;
+    // -------------------------------------------------------------------------
+    // NEW: per-pT-bin negative-isolation bookkeeping (independent of SS classification)
+    //
+    //  - "Builder"    = RecoilJets::eiso() using PhotonClusterBuilder iso_* layer sums
+    //  - "ClusterIso" = RawCluster::get_et_iso(radiusx10,false,true) (UNSUBTRACTED)
+    // -------------------------------------------------------------------------
+    std::vector<unsigned long long> m_nIsoBuilderByPt;
+    std::vector<unsigned long long> m_nIsoBuilderNegByPt;
+    std::vector<unsigned long long> m_nIsoClusterIsoByPt;
+    std::vector<unsigned long long> m_nIsoClusterIsoNegByPt;
 
-  // Histogram storage: trigger -> (name -> object*)
-  std::map<std::string, HistMap> qaHistogramsByTrigger;
+    // IsolationAudit (local-only, env-gated)
+    bool m_isoAuditMode = false;
+    bool m_isoAuditTargetReached = false;
+    bool m_isoAuditStopAnnounced = false;
+    int m_isoAuditTargetPerCent = 200;
+    int m_isoAuditExemplarsPerCell = 3;
+    double m_isoAuditLargePositiveGeV = 15.0;
+    double m_isoAuditNearZeroAbsGeV = 1.0;
+    double m_isoAuditMismatchGeV = 0.1;
+    unsigned long long m_isoAuditStopEvent = 0;
+    unsigned long long m_isoAuditRunNumber = 0;
+    std::string m_isoAuditStopReason;
 
-  // Per-trigger slice counters printed in End()
-  std::map<std::string, std::map<std::string, CatStat>> m_catByTrig;
-};
+    IsoAuditEventFlow m_isoAuditFlowGlobal{};
+    std::vector<IsoAuditEventFlow> m_isoAuditFlowByCent;
+    std::vector<std::vector<IsoAuditCell>> m_isoAuditCells;
+
+    // Histogram storage: trigger -> (name -> object*)
+    std::map<std::string, HistMap> qaHistogramsByTrigger;
+
+    // Per-trigger slice counters printed in End()
+    std::map<std::string, std::map<std::string, CatStat>> m_catByTrig;
+  };
 
 #endif // RECOILJETS_AuAu_H

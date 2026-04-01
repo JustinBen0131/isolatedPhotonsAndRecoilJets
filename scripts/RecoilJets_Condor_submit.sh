@@ -729,6 +729,33 @@ is_trigger_active() {
   [[ -n "$val" && "$val" != "-1" ]]
 }
 
+# IsolationAudit local-only run selector:
+#   - scans the existing Au+Au golden run manifest in sorted order
+#   - requires BOTH:
+#       1) per-run DST_CALOFITTING list exists and is non-empty
+#       2) photon_10_plus_MBD_NS_geq_2_vtx_lt_150 trigger path is active
+pick_first_iso_ping_run() {
+  local trig_bit="$1"
+
+  [[ -s "$GOLDEN" ]] || return 1
+
+  while IFS= read -r rn; do
+    [[ -z "$rn" || "$rn" =~ ^# ]] && continue
+    local r8
+    r8="$(run8 "$rn")"
+
+    local src="${LIST_DIR}/${LIST_PREFIX}-${r8}.list"
+    [[ -s "$src" ]] || continue
+
+    if is_trigger_active "$r8" "$trig_bit"; then
+      echo "$r8"
+      return 0
+    fi
+  done < <(grep -E '^[0-9]+' "$GOLDEN" | sort -n)
+
+  return 1
+}
+
 # Build per-run grouped list files; prints absolute paths to grouped lists, one per line
 #   make_groups <run8> <groupSize>  → writes STAGE_DIR/run<run8>_grpXXX.list files
 make_groups() {
@@ -1324,7 +1351,7 @@ tokens=( "${@:2}" )
 for (( idx=0; idx<${#tokens[@]}; idx++ )); do
   tok="${tokens[$idx]}"
   case "$tok" in
-    local|condor|splitGoldenRunList|condorTest|condorDoAll)
+    local|isLocalIsoPing|condor|splitGoldenRunList|condorTest|condorDoAll)
       ACTION="$tok"
       ;;
     groupSize)
@@ -1626,6 +1653,152 @@ case "$ACTION" in
       done
       done
     fi
+    ;;
+
+  isLocalIsoPing)
+    [[ "$IS_SIM" -eq 0 ]] || { err "isLocalIsoPing is DATA-only"; exit 2; }
+    [[ "$DATASET" == "isAuAu" ]] || { err "isLocalIsoPing is implemented only for Au+Au"; exit 2; }
+
+    need_cmd psql
+
+    # Sensible default:
+    #   200 inclusive photons per centrality bin gives stable means/medians/fractions
+    #   without forcing an excessively long local run.
+    ISO_PING_TARGET_PER_CENT="${RJ_ISO_AUDIT_TARGET_PER_CENT:-200}"
+    [[ "$ISO_PING_TARGET_PER_CENT" =~ ^[0-9]+$ ]] || { err "RJ_ISO_AUDIT_TARGET_PER_CENT must be a positive integer"; exit 2; }
+    (( ISO_PING_TARGET_PER_CENT > 0 )) || { err "RJ_ISO_AUDIT_TARGET_PER_CENT must be > 0"; exit 2; }
+
+    ISO_PING_TRIGGER_BIT=22
+    ISO_PING_TRIGGER_KEY="photon_10_plus_MBD_NS_geq_2_vtx_lt_150"
+
+    RJV="1"
+    rest=( "${@:3}" )
+    for t in "${rest[@]}"; do
+      if [[ "$t" =~ ^VERBOSE=([0-9]+)$ ]]; then
+        RJV="${BASH_REMATCH[1]}"
+      fi
+    done
+
+    data_yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
+    [[ -s "$data_yaml_src" ]] || { err "YAML source missing: $data_yaml_src"; exit 72; }
+
+    mapfile -t data_pts   < <( yaml_get_values "jet_pt_min" "$data_yaml_src" )
+    mapfile -t data_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$data_yaml_src" )
+    mapfile -t data_vzs   < <( yaml_get_values "vz_cut_cm" "$data_yaml_src" )
+    mapfile -t data_cones < <( yaml_get_values "coneR" "$data_yaml_src" )
+    (( ${#data_pts[@]} ))   || { err "No values found for jet_pt_min in $data_yaml_src"; exit 72; }
+    (( ${#data_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $data_yaml_src"; exit 72; }
+    (( ${#data_vzs[@]} ))   || { err "No values found for vz_cut_cm in $data_yaml_src"; exit 72; }
+    (( ${#data_cones[@]} )) || { err "No values found for coneR in $data_yaml_src"; exit 72; }
+
+    build_iso_modes "$data_yaml_src"
+    read_uepipe_modes "$data_yaml_src" "$TAG"
+
+    selected_uepipe="${RJ_CLUSTER_UEPIPELINE:-}"
+    selected_uepipe="$(trim_ws "$selected_uepipe")"
+    [[ -n "$selected_uepipe" ]] || selected_uepipe="${uepipe_modes[0]}"
+
+    case "$selected_uepipe" in
+      noSub|baseVariant|variantA|variantB) ;;
+      *) err "Unsupported RJ_CLUSTER_UEPIPELINE for isLocalIsoPing: ${selected_uepipe}"; exit 2 ;;
+    esac
+
+    pt0="${data_pts[0]}"
+    frac0="${data_fracs[0]}"
+    vz0="${data_vzs[0]}"
+    cone0="${data_cones[0]}"
+
+    iso_idx=0
+    dpt_tag="jetMinPt$(sim_pt_tag "$pt0")"
+    dfrac_tag="$(sim_b2b_tag "$frac0")"
+    dvz_tag="$(sim_vz_tag "$vz0")"
+    dcone_tag="$(sim_cone_tag "$cone0")"
+    data_cfg_tag="${dpt_tag}_${dfrac_tag}_${dvz_tag}_${dcone_tag}_${iso_tags[$iso_idx]}_${selected_uepipe}"
+
+    yaml_override="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}_ISOPING.yaml"
+    mkdir -p "$SIM_YAML_OVERRIDE_DIR"
+    sed -E \
+      -e "s|^([[:space:]]*jet_pt_min:).*|\\1 ${pt0}|" \
+      -e "s|^([[:space:]]*back_to_back_dphi_min_pi_fraction:).*|\\1 ${frac0}|" \
+      -e "s|^([[:space:]]*vz_cut_cm:).*|\\1 ${vz0}|" \
+      -e "s|^([[:space:]]*coneR:).*|\\1 ${cone0}|" \
+      -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${iso_sliding[$iso_idx]}|" \
+      -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[$iso_idx]}|" \
+      -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${selected_uepipe}|" \
+      "$data_yaml_src" > "$yaml_override"
+
+    r8="$(pick_first_iso_ping_run "$ISO_PING_TRIGGER_BIT")"
+    [[ -n "$r8" ]] || { err "No Au+Au run with a non-empty per-run list and active ${ISO_PING_TRIGGER_KEY} trigger"; exit 6; }
+
+    mapfile -t groups < <( make_groups "$r8" "$GROUP_SIZE" )
+    (( ${#groups[@]} )) || { err "No chunk lists were produced for run ${r8}"; exit 9; }
+
+    combined="${STAGE_DIR}/run${r8}_isLocalIsoPing_allchunks.list"
+    : > "$combined"
+    for grp in "${groups[@]}"; do
+      cat "$grp" >> "$combined"
+    done
+
+    first_group="$(basename "${groups[0]}")"
+    last_group="$(basename "${groups[$(( ${#groups[@]} - 1 ))]}")"
+    chunk_span="${first_group} .. ${last_group}"
+
+    tower_prefix="${RJ_TOWERINFO_PREFIX:-TOWERINFO_CALIB}"
+    audit_photon_input_node="CLUSTERINFO_CEMC"
+    audit_photon_builder_is_auau="false"
+    audit_pcb_em_node="${tower_prefix}_CEMC"
+    audit_pcb_hi_node="${tower_prefix}_HCALIN"
+    audit_pcb_ho_node="${tower_prefix}_HCALOUT"
+
+    case "$selected_uepipe" in
+      variantA|variantB)
+        audit_photon_input_node="CLUSTERINFO_CEMC_PHOSUB"
+        audit_pcb_em_node="${tower_prefix}_CEMC_PHOSUB"
+        audit_pcb_hi_node="${tower_prefix}_HCALIN_SUB1"
+        audit_pcb_ho_node="${tower_prefix}_HCALOUT_SUB1"
+        ;;
+      baseVariant)
+        audit_photon_builder_is_auau="true"
+        ;;
+    esac
+
+    local_dest="${BASE}/iso_ping_local/${TAG}/${data_cfg_tag}"
+    mkdir -p "$local_dest"
+
+    say "IsolationAudit local ping"
+    say "  run selection   : first sorted Au+Au run with list + active ${ISO_PING_TRIGGER_KEY} (bit ${ISO_PING_TRIGGER_BIT})"
+    say "  selected run    : ${r8}"
+    say "  chunk span      : ${chunk_span}  (nChunks=${#groups[@]}, groupSize=${GROUP_SIZE})"
+    say "  YAML override   : ${yaml_override}"
+    say "  path class      : ${selected_uepipe}"
+    say "  target / cent   : ${ISO_PING_TARGET_PER_CENT}"
+    say "  combined list   : ${combined}"
+    say "  output dir      : ${local_dest}"
+    say "Invoking wrapper locally…"
+
+    RJ_DATASET="$DATASET" \
+    RJ_VERBOSITY="$RJV" \
+    RJ_CONFIG_YAML="$yaml_override" \
+    RJ_CLUSTER_UEPIPELINE="$selected_uepipe" \
+    RJ_ISO_AUDIT_MODE="1" \
+    RJ_ISO_AUDIT_TARGET_PER_CENT="$ISO_PING_TARGET_PER_CENT" \
+    RJ_ISO_AUDIT_DATASET_TOKEN="$TAG" \
+    RJ_ISO_AUDIT_SELECTED_RUN="$r8" \
+    RJ_ISO_AUDIT_CHUNK_SPAN="$chunk_span" \
+    RJ_ISO_AUDIT_GROUP_SIZE="$GROUP_SIZE" \
+    RJ_ISO_AUDIT_COMBINED_LIST="$combined" \
+    RJ_ISO_AUDIT_CLUSTER_UEPIPELINE="$selected_uepipe" \
+    RJ_ISO_AUDIT_PATH_CLASS="$selected_uepipe" \
+    RJ_ISO_AUDIT_PHOTON_INPUT_CLUSTER_NODE="$audit_photon_input_node" \
+    RJ_ISO_AUDIT_PHOTON_BUILDER_IS_AUAU="$audit_photon_builder_is_auau" \
+    RJ_ISO_AUDIT_PCB_TOWER_PREFIX="$tower_prefix" \
+    RJ_ISO_AUDIT_PCB_EM_NODE="$audit_pcb_em_node" \
+    RJ_ISO_AUDIT_PCB_HI_NODE="$audit_pcb_hi_node" \
+    RJ_ISO_AUDIT_PCB_HO_NODE="$audit_pcb_ho_node" \
+    RJ_CRASH_BACKTRACE="1" \
+    RJ_F4A_VERBOSE="0" \
+    RJ_STEP_EVENTS="0" \
+    bash "$EXE" "$r8" "$combined" "$DATASET" LOCAL 0 1 NONE "$local_dest"
     ;;
 
   condorTest)
