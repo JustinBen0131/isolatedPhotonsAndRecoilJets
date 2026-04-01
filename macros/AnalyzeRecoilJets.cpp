@@ -4901,7 +4901,8 @@ namespace ARJ
                   const string& titlePrefix,
                   const string& rKey, double R,
                   int centLo, int centHi,
-                  int ptLo, int ptHi)
+                  int ptLo, int ptHi,
+                  bool ptInTitle = false)
             {
               if (hists.empty()) return;
 
@@ -4928,29 +4929,48 @@ namespace ARJ
               hists[0]->GetYaxis()->SetLabelSize(0.045);
               hists[0]->GetYaxis()->SetTitleOffset(1.15);
               hists[0]->SetMinimum(0.0);
-              hists[0]->SetMaximum((yMax > 0.0) ? (1.15 * yMax) : 1.0);
+              hists[0]->SetMaximum((yMax > 0.0) ? (1.4 * yMax) : 1.0);
               hists[0]->GetXaxis()->SetRangeUser(0.0, 2.0);
               hists[0]->Draw("E1");
               for (std::size_t ih = 1; ih < hists.size(); ++ih) hists[ih]->Draw("E1 SAME");
               if (hPP) hPP->Draw("E1 SAME");
 
-              TLegend leg(0.56, 0.58, 0.92, 0.88);
-              leg.SetBorderSize(0);
-              leg.SetFillStyle(0);
-              leg.SetTextFont(42);
-              leg.SetTextSize(0.030);
-              for (std::size_t ih = 0; ih < hists.size(); ++ih)
-                leg.AddEntry(hists[ih], labels[ih].c_str(), "ep");
-              if (hPP) leg.AddEntry(hPP, ppLabel.c_str(), "ep");
-              leg.Draw();
+              if (ptInTitle)
+              {
+                TLegend leg(0.65, 0.75, 0.92, 0.88);
+                leg.SetBorderSize(0);
+                leg.SetFillStyle(0);
+                leg.SetTextFont(42);
+                leg.SetTextSize(0.035);
+                for (std::size_t ih = 0; ih < hists.size(); ++ih)
+                  leg.AddEntry(hists[ih], labels[ih].c_str(), "ep");
+                if (hPP) leg.AddEntry(hPP, ppLabel.c_str(), "ep");
+                leg.Draw();
+              }
+              else
+              {
+                TLegend leg(0.56, 0.58, 0.92, 0.88);
+                leg.SetBorderSize(0);
+                leg.SetFillStyle(0);
+                leg.SetTextFont(42);
+                leg.SetTextSize(0.030);
+                for (std::size_t ih = 0; ih < hists.size(); ++ih)
+                  leg.AddEntry(hists[ih], labels[ih].c_str(), "ep");
+                if (hPP) leg.AddEntry(hPP, ppLabel.c_str(), "ep");
+                leg.Draw();
+              }
 
               TLatex tTitle;
               tTitle.SetNDC(true);
               tTitle.SetTextFont(42);
               tTitle.SetTextAlign(23);
               tTitle.SetTextSize(0.040);
-              tTitle.DrawLatex(0.50, 0.98,
-                TString::Format("%s, %d-%d%% Cent AuAu, R=%.1f", titlePrefix.c_str(), centLo, centHi, R).Data());
+              if (ptInTitle)
+                tTitle.DrawLatex(0.50, 0.98,
+                  TString::Format("%s, p_{T}^{#gamma}: %d-%d GeV, R=%.1f", titlePrefix.c_str(), ptLo, ptHi, R).Data());
+              else
+                tTitle.DrawLatex(0.50, 0.98,
+                  TString::Format("%s, %d-%d%% Cent AuAu, R=%.1f", titlePrefix.c_str(), centLo, centHi, R).Data());
 
               TLatex tCuts;
               tCuts.SetNDC(true);
@@ -4958,7 +4978,8 @@ namespace ARJ
               tCuts.SetTextAlign(13);
               tCuts.SetTextSize(0.028);
               tCuts.DrawLatex(0.18, 0.89, "Trigger = Photon 10 GeV + MBD NS #geq 2, vtx < 150 cm");
-              tCuts.DrawLatex(0.18, 0.85, TString::Format("p_{T}^{#gamma}: %d-%d GeV", ptLo, ptHi).Data());
+              if (!ptInTitle)
+                tCuts.DrawLatex(0.18, 0.85, TString::Format("p_{T}^{#gamma}: %d-%d GeV", ptLo, ptHi).Data());
 
               SaveCanvas(cXJ, outPng);
 
@@ -5151,10 +5172,10 @@ namespace ARJ
 
                         TH1* hPP = ProjectPP(h2PP, rKey, TString::Format("1v_%s_%zu", cs.folder.c_str(), iv).Data(), ib, ptLo, ptHi);
 
-                        DrawXJOverlay({hxj}, {vHandles[iv].label}, hPP, "pp",
-                          JoinPath(ptDir, "xJ_inclusive.png"),
-                          TString::Format("Inclusive reco x_{J}, %s", vHandles[iv].label.c_str()).Data(),
-                          rKey, R, cs.lo, cs.hi, iPtLo, iPtHi);
+                        DrawXJOverlay({hxj}, {TString::Format("AuAu (%d-%d%%)", cs.lo, cs.hi).Data()}, hPP, "pp",
+                        JoinPath(ptDir, "xJ_inclusive.png"),
+                        TString::Format("Inclusive reco x_{J}, %s", vHandles[iv].label.c_str()).Data(),
+                        rKey, R, cs.lo, cs.hi, iPtLo, iPtHi, true);
                         delete hxj;
                         if (hPP) delete hPP;
                       }
@@ -6314,40 +6335,173 @@ namespace ARJ
               eyCorr[i] = CorrPurityError(A, B, C, D, i);
             }
 
-            // purity_raw plot
-            {
-              TGraphErrors gRaw(kNPtBins, &x[0], &yRaw[0], &ex[0], &eyRaw[0]);
-              gRaw.SetLineWidth(2);
-              gRaw.SetLineColor(kBlack);
-              gRaw.SetMarkerStyle(20);
-              gRaw.SetMarkerSize(1.2);
-              gRaw.SetMarkerColor(kBlack);
+              // purity_raw plot
+              {
+                TGraphErrors gRaw(kNPtBins, &x[0], &yRaw[0], &ex[0], &eyRaw[0]);
+                gRaw.SetLineWidth(2);
+                gRaw.SetLineColor(kBlack);
+                gRaw.SetMarkerStyle(20);
+                gRaw.SetMarkerSize(1.2);
+                gRaw.SetMarkerColor(kBlack);
 
-              TCanvas c("c_pur_raw","c_pur_raw",900,700);
-              ApplyCanvasMargins1D(c);
+                TCanvas c("c_pur_raw","c_pur_raw",900,700);
+                ApplyCanvasMargins1D(c);
 
-              TH1F hFrame("hPurRawFrame","",100, kPtEdges.front(), kPtEdges.back());
-              hFrame.SetDirectory(nullptr);
-              hFrame.SetStats(0);
-              hFrame.SetMinimum(0.0);
-              hFrame.SetMaximum(1.05);
-              hFrame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-              hFrame.GetYaxis()->SetTitle("Purity (raw ABCD)");
-              hFrame.Draw();
+                TH1F hFrame("hPurRawFrame","",100, kPtEdges.front(), kPtEdges.back());
+                hFrame.SetDirectory(nullptr);
+                hFrame.SetStats(0);
+                hFrame.SetMinimum(0.0);
+                hFrame.SetMaximum(1.05);
+                hFrame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                hFrame.GetYaxis()->SetTitle("Purity (raw ABCD)");
+                hFrame.Draw();
 
-              gRaw.Draw("P SAME");
+                gRaw.Draw("P SAME");
 
-              vector<string> box;
-              box.push_back("ABCD purity (raw)");
-              box.push_back("Cuts: p_{T}^{#gamma} #geq 5 GeV, |#eta| < 0.7, preselection pass");
-              box.push_back("Iso: E_{iso} < 1.08128 + 0.0299107 p_{T}^{#gamma}");
-              box.push_back("NonIso: E_{iso} > isoThresh + 1 GeV");
-              DrawLatexLines(0.2, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-              DrawLatexLines(0.2, 0.8, box, 0.030, 0.040);
+                // AuAu data pathway: overlay pp purity + new style annotations
+                if (!ds.isSim && !ds.centFolder.empty())
+                {
+                  int centLo = 0, centHi = 0;
+                  std::sscanf(ds.centFolder.c_str(), "%d_%d", &centLo, &centHi);
 
-              const string fp = JoinPath(outDir, ds.isSim ? "purity_raw_SIM.png" : "purity_raw_DATA.png");
-              SaveCanvas(c, fp);
-            }
+                  TFile* fPPpur = TFile::Open(InputPP().c_str(), "READ");
+                  TDirectory* ppDirPur = nullptr;
+                  if (fPPpur && !fPPpur->IsZombie())
+                  {
+                    ppDirPur = fPPpur->GetDirectory(kTriggerPP.c_str());
+                    if (!ppDirPur) ppDirPur = fPPpur;
+                  }
+
+                  TGraphErrors* gPP = nullptr;
+                  if (ppDirPur)
+                  {
+                    vector<double> xPP(kNPtBins), yPP(kNPtBins), eyPP(kNPtBins);
+                    bool anyPP = false;
+                    for (int i = 0; i < kNPtBins; ++i)
+                    {
+                      const PtBin& bp = PtBins()[i];
+                      auto Get1PP = [&](const string& hname)->double {
+                        TH1* h = dynamic_cast<TH1*>(ppDirPur->Get(hname.c_str()));
+                        return h ? h->GetBinContent(1) : 0.0;
+                      };
+                      const double A = Get1PP("h_isIsolated_isTight"     + bp.suffix);
+                      const double B = Get1PP("h_notIsolated_isTight"    + bp.suffix);
+                      const double C = Get1PP("h_isIsolated_notTight"    + bp.suffix);
+                      const double D = Get1PP("h_notIsolated_notTight"   + bp.suffix);
+
+                      const double ptLo = kPtEdges[(std::size_t)i];
+                      const double ptHi = kPtEdges[(std::size_t)i + 1];
+                      xPP[i] = 0.5 * (ptLo + ptHi);
+
+                      double Praw = 0.0;
+                      if (A > 0.0 && D > 0.0)
+                      {
+                        double Asig = A - B * (C / D);
+                        if (Asig < 0.0) Asig = 0.0;
+                        Praw = Asig / A;
+                      }
+                      yPP[i] = Praw;
+
+                      double eP = 0.0;
+                      if (A > 0.0 && D > 0.0)
+                      {
+                        const double dPdA =  (B * C) / (A * A * D);
+                        const double dPdB = -(C) / (A * D);
+                        const double dPdC = -(B) / (A * D);
+                        const double dPdD =  (B * C) / (A * D * D);
+                        double var = 0.0;
+                        if (A > 0.0) var += dPdA * dPdA * A;
+                        if (B > 0.0) var += dPdB * dPdB * B;
+                        if (C > 0.0) var += dPdC * dPdC * C;
+                        if (D > 0.0) var += dPdD * dPdD * D;
+                        eP = (var > 0.0) ? std::sqrt(var) : 0.0;
+                      }
+                      eyPP[i] = eP;
+                      if (A > 0.0) anyPP = true;
+                    }
+
+                    if (anyPP)
+                    {
+                      gPP = new TGraphErrors(kNPtBins, &xPP[0], &yPP[0], nullptr, &eyPP[0]);
+                      gPP->SetLineWidth(2);
+                      gPP->SetLineColor(kRed + 1);
+                      gPP->SetMarkerStyle(24);
+                      gPP->SetMarkerSize(1.2);
+                      gPP->SetMarkerColor(kRed + 1);
+                      gPP->Draw("P SAME");
+                    }
+                  }
+
+                  // Title
+                  TLatex tTitle;
+                  tTitle.SetNDC(true);
+                  tTitle.SetTextFont(42);
+                  tTitle.SetTextAlign(23);
+                  tTitle.SetTextSize(0.045);
+                  tTitle.DrawLatex(0.50, 0.96,
+                    TString::Format("Run24pp and Run3auau %d-%d%% centrality, Purity", centLo, centHi).Data());
+
+                  // Legend at bottom-RHS
+                  TLegend leg(0.62, 0.15, 0.92, 0.30);
+                  leg.SetBorderSize(0);
+                  leg.SetFillStyle(0);
+                  leg.SetTextFont(42);
+                  leg.SetTextSize(0.033);
+                  leg.AddEntry(&gRaw, TString::Format("AuAu (%d-%d%%)", centLo, centHi).Data(), "pe");
+                  if (gPP) leg.AddEntry(gPP, "pp", "pe");
+                  leg.Draw();
+
+                  // Cut annotations at bottom-LHS
+                  {
+                    std::string trigLabel;
+                    {
+                      int photonPt = 0;
+                      if (std::sscanf(ds.trigger.c_str(), "photon_%d_plus", &photonPt) == 1)
+                        trigLabel = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                      else if (ds.trigger.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                        trigLabel = "Trigger: MBD NS #geq 2, vtx < 150 cm";
+                      else
+                        trigLabel = "Trigger: " + ds.trigger;
+                    }
+
+                    const string isoConeLabel = (kAA_IsoConeR == "isoR40")
+                      ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+
+                    string isoModeLabel;
+                    if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel = "E_{T}^{iso} < 5 GeV";
+                    else                               isoModeLabel = "Sliding iso cut";
+
+                    const string vzLabel = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+
+                    TLatex tCuts;
+                    tCuts.SetNDC(true);
+                    tCuts.SetTextFont(42);
+                    tCuts.SetTextAlign(13);
+                    tCuts.SetTextSize(0.035);
+                    tCuts.DrawLatex(0.18, 0.38, trigLabel.c_str());
+                    tCuts.DrawLatex(0.18, 0.33, isoConeLabel.c_str());
+                    tCuts.DrawLatex(0.18, 0.28, isoModeLabel.c_str());
+                    tCuts.DrawLatex(0.18, 0.23, vzLabel.c_str());
+                  }
+
+                  if (gPP) delete gPP;
+                  if (fPPpur) { fPPpur->Close(); delete fPPpur; }
+                }
+                else
+                {
+                  // PP / SIM: keep original annotations
+                  vector<string> box;
+                  box.push_back("ABCD purity (raw)");
+                  box.push_back("Cuts: p_{T}^{#gamma} #geq 5 GeV, |#eta| < 0.7, preselection pass");
+                  box.push_back("Iso: E_{iso} < 1.08128 + 0.0299107 p_{T}^{#gamma}");
+                  box.push_back("NonIso: E_{iso} > isoThresh + 1 GeV");
+                  DrawLatexLines(0.2, 0.92, DefaultHeaderLines(ds), 0.034, 0.045);
+                  DrawLatexLines(0.2, 0.8, box, 0.030, 0.040);
+                }
+
+                const string fp = JoinPath(outDir, ds.isSim ? "purity_raw_SIM.png" : "purity_raw_DATA.png");
+                SaveCanvas(c, fp);
+              }
 
               // overlay purity: vz30 vs vz60 (DATA only)
               if (!ds.isSim)
@@ -15642,7 +15796,7 @@ namespace ARJ
                           );
                           ApplyCanvasMargins1D(cUE);
 
-                          TH1F hFrameUE("hPurUEVarFrame","",100, kPtEdges.front(), kPtEdges.back());
+                          TH1F hFrameUE("hPurUEVarFrame","",100, 10.0, kPtEdges.back());
                           hFrameUE.SetDirectory(nullptr);
                           hFrameUE.SetStats(0);
                           hFrameUE.SetMinimum(0.0);
@@ -15651,11 +15805,12 @@ namespace ARJ
                           hFrameUE.GetYaxis()->SetTitle("Purity (raw ABCD)");
                           hFrameUE.Draw();
 
-                          TLegend legUE(0.62, 0.18, 0.92, 0.48);
+                          TLegend legUE(0.15, 0.15, 0.55, 0.28);
                           legUE.SetBorderSize(0);
                           legUE.SetFillStyle(0);
                           legUE.SetTextFont(42);
                           legUE.SetTextSize(0.033);
+                          legUE.SetNColumns(2);
 
                           vector<TGraphErrors*> keepUE;
                           vector<string> keepUELabels;
@@ -15861,30 +16016,31 @@ namespace ARJ
                                 );
                                 ApplyCanvasMargins1D(cUEPP);
 
-                                TH1F hFrameUEPP("hPurUEVarPPFrame","",100, kPtEdges.front(), kPtEdges.back());
-                                hFrameUEPP.SetDirectory(nullptr);
-                                hFrameUEPP.SetStats(0);
-                                hFrameUEPP.SetMinimum(0.0);
-                                hFrameUEPP.SetMaximum(1.25);
-                                hFrameUEPP.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                                hFrameUEPP.GetYaxis()->SetTitle("Purity (raw ABCD)");
-                                hFrameUEPP.Draw();
+                                  TH1F hFrameUEPP("hPurUEVarPPFrame","",100, 10.0, kPtEdges.back());
+                                  hFrameUEPP.SetDirectory(nullptr);
+                                  hFrameUEPP.SetStats(0);
+                                  hFrameUEPP.SetMinimum(0.0);
+                                  hFrameUEPP.SetMaximum(1.25);
+                                  hFrameUEPP.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                                  hFrameUEPP.GetYaxis()->SetTitle("Purity (raw ABCD)");
+                                  hFrameUEPP.Draw();
 
-                                for (auto* g : keepUE) g->Draw("P SAME");
+                                  for (auto* g : keepUE) g->Draw("P SAME");
 
-                                TGraphErrors gPP(kNPtBins, &xPP[0], &yPP[0], nullptr, &eyPP[0]);
-                                gPP.SetLineWidth(2);
-                                gPP.SetLineColor(kRed + 1);
-                                gPP.SetMarkerStyle(24);
-                                gPP.SetMarkerSize(1.1);
-                                gPP.SetMarkerColor(kRed + 1);
-                                gPP.Draw("P SAME");
+                                  TGraphErrors gPP(kNPtBins, &xPP[0], &yPP[0], nullptr, &eyPP[0]);
+                                  gPP.SetLineWidth(2);
+                                  gPP.SetLineColor(kRed + 1);
+                                  gPP.SetMarkerStyle(24);
+                                  gPP.SetMarkerSize(1.1);
+                                  gPP.SetMarkerColor(kRed + 1);
+                                  gPP.Draw("P SAME");
 
-                                TLegend legUEPP(0.62, 0.18, 0.92, 0.52);
-                                legUEPP.SetBorderSize(0);
-                                legUEPP.SetFillStyle(0);
-                                legUEPP.SetTextFont(42);
-                                legUEPP.SetTextSize(0.033);
+                                  TLegend legUEPP(0.15, 0.15, 0.55, 0.28);
+                                  legUEPP.SetBorderSize(0);
+                                  legUEPP.SetFillStyle(0);
+                                  legUEPP.SetTextFont(42);
+                                  legUEPP.SetTextSize(0.033);
+                                  legUEPP.SetNColumns(2);
                                 for (std::size_t ig = 0; ig < keepUE.size(); ++ig)
                                 {
                                   legUEPP.AddEntry(keepUE[ig], keepUELabels[ig].c_str(), "pe");
