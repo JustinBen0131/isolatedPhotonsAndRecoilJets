@@ -824,12 +824,33 @@ namespace ARJ
                       if (!fGumbel) return nullptr;
                       
                       fGumbel->SetParNames("Plateau", "Mu", "Beta");
-                      fGumbel->SetParameter(0, plateauVal);
-                      fGumbel->SetParLimits(0, std::max(0.80, plateauVal - 0.02), std::min(1.0, plateauVal + 0.02));
-                      fGumbel->SetParameter(1, muGuess);
-                      fGumbel->SetParameter(2, betaGuess);
-                      fGumbel->SetParLimits(1, std::max(1.0, muGuess - 3.0), std::min(18.0, muGuess + 3.0));
-                      fGumbel->SetParLimits(2, std::max(0.3, 0.40 * betaGuess), std::min(5.0, 2.50 * betaGuess));
+                        fGumbel->SetParameter(0, plateauVal);
+
+                        // Photon 10: fix plateau hard at the tail estimate — the data
+                        // clearly flattens at ~0.94 and any upward float overshoots.
+                        // Also restrict beta to be small → sharper knee into the plateau.
+                        // Photon 12+: allow ±0.02 float as before.
+                        if (thr <= 10)
+                        {
+                          fGumbel->FixParameter(0, plateauVal);
+                        }
+                        else
+                        {
+                          fGumbel->SetParLimits(0, std::max(0.80, plateauVal - 0.02), std::min(1.0, plateauVal + 0.02));
+                        }
+
+                        fGumbel->SetParameter(1, muGuess);
+                        fGumbel->SetParameter(2, betaGuess);
+                        fGumbel->SetParLimits(1, std::max(1.0, muGuess - 3.0), std::min(18.0, muGuess + 3.0));
+
+                        if (thr <= 10)
+                        {
+                            // Tighter beta: force a steeper rise and sharper flattening
+                            fGumbel->SetParLimits(2, std::max(0.3, 0.50 * betaGuess), std::min(2.0, 1.2 * betaGuess));
+                        }                        else
+                        {
+                          fGumbel->SetParLimits(2, std::max(0.3, 0.40 * betaGuess), std::min(5.0, 2.50 * betaGuess));
+                        }
                       fGumbel->SetNpx(500);
                       fGumbel->SetLineColor(colorForProbe(P.probeKey));
                       fGumbel->SetLineStyle(2);
@@ -900,8 +921,14 @@ namespace ARJ
                               plateauVal = fitPlateauConst(hRatio, refinedTailLo);
                               
                               fFit->SetParameter(0, plateauVal);
-                              fFit->SetParLimits(0, std::max(0.80, plateauVal - 0.02), std::min(1.0, plateauVal + 0.02));
-                              fFit->SetParameter(1, mu);
+                                {
+                                  const int thrLocal = extractPhotonThresholdGeV(P.probeKey);
+                                  if (thrLocal <= 10)
+                                    fFit->FixParameter(0, plateauVal);
+                                  else
+                                    fFit->SetParLimits(0, std::max(0.80, plateauVal - 0.02), std::min(1.0, plateauVal + 0.02));
+                                }
+                                fFit->SetParameter(1, mu);
 
                               fitRes = hRatio->Fit(fFit, "RQS0", "", 2.0, 19.0);
                               fitStatus = fitRes;

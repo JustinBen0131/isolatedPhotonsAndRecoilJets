@@ -1287,6 +1287,6 @@ private:
 
     // Per-trigger slice counters printed in End()
     std::map<std::string, std::map<std::string, CatStat>> m_catByTrig;
-  };
+};
 
 #endif // RECOILJETS_AuAu_H

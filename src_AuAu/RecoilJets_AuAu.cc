@@ -5560,18 +5560,76 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
 
         const double eiso_et = eiso(rc, topNode);
 
-        bool ssIso = false;
-        bool ssNonIso = false;
+        RecoilJets::IsoAuditSample auditSample;
+        bool haveAuditSample = false;
 
-        if (std::isfinite(eiso_et) && eiso_et < 1e8)
+        if (m_isoAuditMode)
         {
-              double _ssA, _ssB, _ssG;
-              getIsoParams(centIdx, _ssA, _ssB, _ssG);
-              const double thrIsoSS    = (m_isSlidingIso ? (_ssA + _ssB * pt_gamma) : m_isoFixed);
-              const double thrNonIsoSS = thrIsoSS + _ssG;
+            auditSample.centIdx = centIdx;
+            auditSample.ptIdx = ptIdx;
+            auditSample.ptGamma = pt_gamma;
+            auditSample.etaGamma = (pho ? pho->get_shower_shape_parameter("cluster_eta") : 0.0);
+            auditSample.phiGamma = (pho ? pho->get_shower_shape_parameter("cluster_phi") : 0.0);
+            auditSample.eisoTot = eiso_et;
 
-              ssIso    = (eiso_et < thrIsoSS);
-              ssNonIso = (eiso_et > thrNonIsoSS);
+            const int cone10Audit = static_cast<int>(std::lround(10.0 * m_isoConeR));
+            const char* k_em_a = nullptr;
+            const char* k_hi_a = nullptr;
+            const char* k_ho_a = nullptr;
+
+            if (cone10Audit == 3)
+            {
+              k_em_a = "iso_03_emcal";
+              k_hi_a = "iso_03_hcalin";
+              k_ho_a = "iso_03_hcalout";
+            }
+            else if (cone10Audit == 4)
+            {
+              k_em_a = "iso_04_emcal";
+              k_hi_a = "iso_04_hcalin";
+              k_ho_a = "iso_04_hcalout";
+            }
+
+            auditSample.supportedCone = (k_em_a && k_hi_a && k_ho_a);
+
+            if (pho && auditSample.supportedCone)
+            {
+              auditSample.eisoEmcal = pho->get_shower_shape_parameter(k_em_a);
+              auditSample.eisoHcalIn = pho->get_shower_shape_parameter(k_hi_a);
+              auditSample.eisoHcalOut = pho->get_shower_shape_parameter(k_ho_a);
+
+              auditSample.componentsFinite =
+                (std::isfinite(auditSample.eisoEmcal) &&
+                 std::isfinite(auditSample.eisoHcalIn) &&
+                 std::isfinite(auditSample.eisoHcalOut));
+
+              if (!auditSample.componentsFinite)
+              {
+                auditSample.eisoEmcal = 1e9;
+                auditSample.eisoHcalIn = 1e9;
+                auditSample.eisoHcalOut = 1e9;
+              }
+            }
+
+            double _auditA, _auditB, _auditG;
+            getIsoParams(centIdx, _auditA, _auditB, _auditG);
+            auditSample.thrIso = (m_isSlidingIso ? (_auditA + _auditB * pt_gamma) : m_isoFixed);
+            auditSample.thrNonIso = auditSample.thrIso + _auditG;
+            haveAuditSample = true;
+          }
+
+          bool ssIso = false;
+          bool ssNonIso = false;
+
+          if (std::isfinite(eiso_et) && eiso_et < 1e8)
+          {
+                double _ssA, _ssB, _ssG;
+                getIsoParams(centIdx, _ssA, _ssB, _ssG);
+                const double thrIsoSS    = (m_isSlidingIso ? (_ssA + _ssB * pt_gamma) : m_isoFixed);
+                const double thrNonIsoSS = thrIsoSS + _ssG;
+
+                ssIso    = (eiso_et < thrIsoSS);
+                ssNonIso = (eiso_et > thrNonIsoSS);
         }
 
         auto fillSSSpectra = [&](const std::string& trigShort, const std::string& tagKey)

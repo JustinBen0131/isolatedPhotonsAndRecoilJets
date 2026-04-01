@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 ###############################################################################
-# RecoilJets_Condor_submit.sh — one-stop driver for LOCAL testing and CONDOR
+# RecoilJets_Condor_submit.sh — one-stop driver for LOCAL testing, LOCAL
+# IsolationAudit runs, and CONDOR submission
 #
 # QUICK START
 #   isPP:
@@ -13,6 +14,11 @@
 #
 #   isAuAu:
 #     ./RecoilJets_Condor_submit.sh isAuAu local
+#     ./RecoilJets_Condor_submit.sh isAuAu isLocalIsoPing
+#     RJ_CLUSTER_UEPIPELINE=noSub       ./RecoilJets_Condor_submit.sh isAuAu isLocalIsoPing
+#     RJ_CLUSTER_UEPIPELINE=baseVariant ./RecoilJets_Condor_submit.sh isAuAu isLocalIsoPing
+#     RJ_CLUSTER_UEPIPELINE=variantA    ./RecoilJets_Condor_submit.sh isAuAu isLocalIsoPing
+#     RJ_CLUSTER_UEPIPELINE=variantB    ./RecoilJets_Condor_submit.sh isAuAu isLocalIsoPing
 #     ./RecoilJets_Condor_submit.sh isAuAu condor all
 #
 #   isOO:
@@ -39,13 +45,40 @@
 #   • This script is the top-level submission driver for:
 #       isPP, isPPrun25, isAuAu, isOO, isSim, isSimJet5, isSimMB, isSimEmbedded
 #   • DATA modes use per-run runlists and can do:
-#       local, CHECKJOBS, splitGoldenRunList, condor testJob, condor round, condor all
+#       local, isLocalIsoPing, CHECKJOBS, splitGoldenRunList,
+#       condor testJob, condor round, condor all
 #   • SIM modes use staged matched master lists and can do:
 #       local, CHECKJOBS, condorTest, condorDoAll
 #   • Jobs never mix files across runs in DATA mode.
 #   • SIM condorDoAll/local sweep over the YAML matrix:
 #       jet_pt_min × back_to_back_dphi_min_pi_fraction × vz_cut_cm × coneR × iso mode
 #       and, for AuAu-like tags, also clusterUEpipeline.
+#   • DATA condor/local matrix sweeps use the same scalar-YAML override strategy.
+#
+# NEW: AUAU LOCAL ISOLATION AUDIT MODE
+#   • Action token:
+#       isLocalIsoPing
+#   • Valid only for:
+#       isAuAu
+#   • Purpose:
+#       Run the LIVE Au+Au photon-side path locally, using the existing
+#       authoritative PhotonClusterBuilder -> RecoilJets isolation chain, and
+#       print a detailed terminal IsolationAudit summary without introducing a
+#       second isolation calculator.
+#   • Selection policy:
+#       - local only
+#       - picks the first sorted Au+Au run that has BOTH:
+#           1) a non-empty per-run DST_CALOFITTING list
+#           2) active photon_10_plus_MBD_NS_geq_2_vtx_lt_150 trigger path
+#              (checked via gl1_scaledown scaledown22 != -1)
+#       - builds a combined local input list from grouped chunk files for that run
+#       - passes env-controlled audit metadata into the live wrapper/macro path
+#   • Variant control:
+#       Select the photon-side UE variant with RJ_CLUSTER_UEPIPELINE:
+#         noSub | baseVariant | variantA | variantB
+#   • Default target:
+#       RJ_ISO_AUDIT_TARGET_PER_CENT defaults to 200 inclusive photons per
+#       centrality bin.
 #
 # DATASET TOKENS (case-insensitive)
 #   DATA:
@@ -55,24 +88,24 @@
 #     isOO        | oo         | OO
 #
 #   SIM:
-#     isSim       | sim        | SIM
-#     isSimJet5   | simjet5    | SIMJET5
-#     isSimMB     | simmb      | SIMMB
+#     isSim         | sim         | SIM
+#     isSimJet5     | simjet5     | SIMJET5
+#     isSimMB       | simmb       | SIMMB
 #     isSimEmbedded | simembedded | SIMEMBEDDED
 #
 # DATASET MATRIX
-#   ┌────────────────┬──────────────┬──────────────────────────────────────────┬─────────────────────────────┐
-#   │ dataset        │ wrapper      │ macro                                    │ standard bulk action        │
-#   ├────────────────┼──────────────┼──────────────────────────────────────────┼─────────────────────────────┤
-#   │ isPP           │ RecoilJets_Condor.sh      │ Fun4All_recoilJets.C        │ condor all                  │
-#   │ isPPrun25      │ RecoilJets_Condor.sh      │ Fun4All_recoilJets.C        │ condor all                  │
-#   │ isAuAu         │ RecoilJets_Condor_AuAu.sh │ Fun4All_recoilJets_AuAu.C   │ condor all                  │
-#   │ isOO           │ RecoilJets_Condor_AuAu.sh │ Fun4All_recoilJets_AuAu.C   │ condor all                  │
-#   │ isSim          │ RecoilJets_Condor.sh      │ Fun4All_recoilJets.C        │ condorDoAll                 │
-#   │ isSimJet5      │ RecoilJets_Condor.sh      │ Fun4All_recoilJets.C        │ condorDoAll                 │
-#   │ isSimMB        │ RecoilJets_Condor.sh      │ Fun4All_recoilJets.C        │ condorDoAll                 │
-#   │ isSimEmbedded  │ RecoilJets_Condor_AuAu.sh │ Fun4All_recoilJets_AuAu.C   │ condorDoAll                 │
-#   └────────────────┴──────────────┴──────────────────────────────────────────┴─────────────────────────────┘
+#   ┌────────────────┬─────────────────────────┬──────────────────────────────┬─────────────────────────────┐
+#   │ dataset        │ wrapper                 │ macro                        │ standard bulk action        │
+#   ├────────────────┼─────────────────────────┼──────────────────────────────┼─────────────────────────────┤
+#   │ isPP           │ RecoilJets_Condor.sh    │ Fun4All_recoilJets.C         │ condor all                  │
+#   │ isPPrun25      │ RecoilJets_Condor.sh    │ Fun4All_recoilJets.C         │ condor all                  │
+#   │ isAuAu         │ RecoilJets_Condor_AuAu.sh│ Fun4All_recoilJets_AuAu.C   │ condor all                  │
+#   │ isOO           │ RecoilJets_Condor_AuAu.sh│ Fun4All_recoilJets_AuAu.C   │ condor all                  │
+#   │ isSim          │ RecoilJets_Condor.sh    │ Fun4All_recoilJets.C         │ condorDoAll                 │
+#   │ isSimJet5      │ RecoilJets_Condor.sh    │ Fun4All_recoilJets.C         │ condorDoAll                 │
+#   │ isSimMB        │ RecoilJets_Condor.sh    │ Fun4All_recoilJets.C         │ condorDoAll                 │
+#   │ isSimEmbedded  │ RecoilJets_Condor_AuAu.sh│ Fun4All_recoilJets_AuAu.C   │ condorDoAll                 │
+#   └────────────────┴─────────────────────────┴──────────────────────────────┴─────────────────────────────┘
 #
 # LOCAL / BULK COPY-PASTE MATRIX
 #   DATA:
@@ -83,6 +116,7 @@
 #     ./RecoilJets_Condor_submit.sh isPPrun25 condor all
 #
 #     ./RecoilJets_Condor_submit.sh isAuAu local
+#     ./RecoilJets_Condor_submit.sh isAuAu isLocalIsoPing
 #     ./RecoilJets_Condor_submit.sh isAuAu condor all
 #
 #     ./RecoilJets_Condor_submit.sh isOO local
@@ -105,6 +139,8 @@
 #   DATA:
 #     • Golden run list + per-run list files.
 #     • Per-run list file contains one ROOT file path per line.
+#     • isLocalIsoPing reuses the existing Au+Au per-run list infrastructure and
+#       concatenates grouped local chunks into one combined local input list.
 #
 #   SIM:
 #     • Staged matched lists under ${BASE}/simListFiles/<sample>/.
@@ -144,6 +180,8 @@
 #     • isPPrun25   → /sphenix/tg/tg01/bulk/jbennett/thesisAna/pp25
 #     • isAuAu      → /sphenix/tg/tg01/bulk/jbennett/thesisAna/auau
 #     • isOO        → /sphenix/tg/tg01/bulk/jbennett/thesisAna/oo
+#     • isLocalIsoPing local outputs:
+#         ${BASE}/iso_ping_local/auau/<cfg_tag>/
 #
 #   SIM:
 #     • isSim         → /sphenix/tg/tg01/bulk/jbennett/thesisAna/sim
@@ -154,6 +192,8 @@
 # VERBOSITY POLICY
 #   • LOCAL mode:
 #       RJ_VERBOSITY defaults to 10, unless overridden by VERBOSE=N.
+#   • isLocalIsoPing:
+#       RJ_VERBOSITY defaults to 1 unless overridden by VERBOSE=N.
 #   • CONDOR mode:
 #       RJ_VERBOSITY is forced to 0 in submit files.
 #   • Useful debug knobs:
@@ -164,6 +204,7 @@
 # COMMAND SUMMARY
 #   DATA:
 #     $ ./RecoilJets_Condor_submit.sh <dataset> local [Nevents] [VERBOSE=N]
+#     $ ./RecoilJets_Condor_submit.sh isAuAu isLocalIsoPing [VERBOSE=N]
 #     $ ./RecoilJets_Condor_submit.sh <dataset> CHECKJOBS [groupSize N]
 #     $ ./RecoilJets_Condor_submit.sh <dataset> splitGoldenRunList [groupSize N] [maxJobs M]
 #     $ ./RecoilJets_Condor_submit.sh <dataset> condor testJob
@@ -176,6 +217,28 @@
 #     $ ./RecoilJets_Condor_submit.sh <simDataset> condorTest [SAMPLE=...]
 #     $ ./RecoilJets_Condor_submit.sh <simDataset> condorDoAll [groupSize N] [SAMPLE=...]
 #
+# ISLOCALISOPING ENVIRONMENT / CONTROLS
+#   • Required dataset:
+#       isAuAu
+#   • Variant selection:
+#       RJ_CLUSTER_UEPIPELINE=noSub|baseVariant|variantA|variantB
+#   • Audit target:
+#       RJ_ISO_AUDIT_TARGET_PER_CENT=<positive integer>
+#   • Internally exported metadata for the live RecoilJets_AuAu audit mode:
+#       RJ_ISO_AUDIT_MODE=1
+#       RJ_ISO_AUDIT_SELECTED_RUN
+#       RJ_ISO_AUDIT_CHUNK_SPAN
+#       RJ_ISO_AUDIT_GROUP_SIZE
+#       RJ_ISO_AUDIT_COMBINED_LIST
+#       RJ_ISO_AUDIT_CLUSTER_UEPIPELINE
+#       RJ_ISO_AUDIT_PATH_CLASS
+#       RJ_ISO_AUDIT_PHOTON_INPUT_CLUSTER_NODE
+#       RJ_ISO_AUDIT_PHOTON_BUILDER_IS_AUAU
+#       RJ_ISO_AUDIT_PCB_TOWER_PREFIX
+#       RJ_ISO_AUDIT_PCB_EM_NODE
+#       RJ_ISO_AUDIT_PCB_HI_NODE
+#       RJ_ISO_AUDIT_PCB_HO_NODE
+#
 # CLEANING BEHAVIOR
 #   • make_groups():
 #       removes previous run<run8>_grp*.list for that run before regenerating.
@@ -185,10 +248,12 @@
 #       wipes the dataset output tree under DEST_BASE before submission.
 #   • condorDoAll() in SIM mode:
 #       wipes previous staged group files, outputs, and tagged logs before resubmitting.
+#   • isLocalIsoPing:
+#       creates a combined local chunk list but does not alter condor segmentation.
 #
 # REQUIREMENTS
 #   • condor_submit must be on PATH for Condor submissions.
-#   • psql must be on PATH if using TRIGGER=<bit>.
+#   • psql must be on PATH if using TRIGGER=<bit> or isLocalIsoPing.
 #   • Required golden lists, per-run lists, and staged sim lists must exist.
 ###############################################################################
 set -euo pipefail
