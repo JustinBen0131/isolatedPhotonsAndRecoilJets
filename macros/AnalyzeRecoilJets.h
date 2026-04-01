@@ -99,7 +99,7 @@ namespace ARJ
 
   inline bool isAuAuOnly     = true;
   inline bool isPPdataAndAUAU = false;
-  inline bool generateUEcomparisonSSQA = true;
+  inline bool generateUEcomparisonSSQA = false;
   inline bool isRun25pp      = false;
 
   // ===========================================================================
@@ -122,16 +122,16 @@ namespace ARJ
   inline bool isSimMB                    = false;   // MinBias DETROIT tune
   inline bool isSimJet5                  = false;   // inclusive jet5
 
-  inline bool doPhotonJetMerge = false;
+  inline bool doPhotonJetMerge = true;
 
   //   RooUnfold: true = run both non-purity and purity-corrected passes + overlay.
   inline bool do_xJ_PPunfold = false;
   //   RooUnfold AuAu: true = run per-centrality unfolding with purity × combinatoric variants.
-  inline bool do_xJ_AAunfold = false;
+  inline bool do_xJ_AAunfold = true;
   //   Internal: selects raw vs ABCD purity-corrected reco inputs per pass.
-  inline bool gApplyPurityCorrectionForUnfolding = false;
+  inline bool gApplyPurityCorrectionForUnfolding = true;
   //   Internal: selects whether the embedded combinatoric template is subtracted before unfolding.
-  inline bool gApplyCombinatoricSubtractionForUnfolding = false;
+  inline bool gApplyCombinatoricSubtractionForUnfolding = true;
 
   //   One-off Sam vs Justin unsmear comparison:
   inline bool doSamVsJustinUnsmearOverlays = false;
@@ -142,7 +142,7 @@ namespace ARJ
   // ===========================================================================
   inline const int    kJetPtMin        = 5;            // GeV: 3, 5, or 10
   inline const string kB2BCut          = "7pi_8";      // "7pi_8" or "pi_2"
-  inline const int    kVzCut           = 60;            // cm: 30 or 60
+  inline const int    kVzCut           = 30;            // cm: 30 or 60
   inline const string kIsoConeR        = "isoR30";     // "isoR30" or "isoR40"
   inline const string kIsoMode         = "isSliding";  // "isSliding" or "fixedIso5GeV"
 
@@ -159,7 +159,7 @@ namespace ARJ
   // Au+Au trigger directory name(s) inside the ROOT file.
   // Set one, two, or all three.  Analysis runs independently for each.
   inline const vector<string> kTriggersAuAu = {
-  //      "MBD_NS_geq_2_vtx_lt_150"
+//        "MBD_NS_geq_2_vtx_lt_150"
        "photon_10_plus_MBD_NS_geq_2_vtx_lt_150"
       // ,"photon_12_plus_MBD_NS_geq_2_vtx_lt_150"
   };

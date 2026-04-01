@@ -653,350 +653,413 @@ namespace ARJ
         };
 
           auto drawGroupTurnOnOverlay = [&](const std::vector<LoadedPair>& loaded, const std::string& groupOutDir, const std::string& filenameTag = "")
-          {
-            std::vector<TH1*> ratioHists;
-            std::vector<TF1*> fitFuncs;
-            std::vector<double> x80s;
-            std::vector<double> plateauVals;
-            ratioHists.reserve(loaded.size());
-            fitFuncs.reserve(loaded.size());
-            x80s.reserve(loaded.size());
-            plateauVals.reserve(loaded.size());
-
-            auto findCrossingX = [&](TH1* h, double target, double xLo, double xHi) -> double
-            {
-              if (!h) return -1.0;
-
-              const int nb = h->GetNbinsX();
-              for (int ib = 1; ib < nb; ++ib)
               {
-                const double x1 = h->GetBinCenter(ib);
-                const double x2 = h->GetBinCenter(ib + 1);
-                if (x2 < xLo || x1 > xHi) continue;
-
-                const double y1 = h->GetBinContent(ib);
-                const double y2 = h->GetBinContent(ib + 1);
-                if (!std::isfinite(y1) || !std::isfinite(y2)) continue;
-
-                if (y1 == target) return x1;
-                if (y2 == target) return x2;
-
-                if ((y1 - target) * (y2 - target) < 0.0 && std::fabs(y2 - y1) > 1e-12)
-                {
-                  const double frac = (target - y1) / (y2 - y1);
-                  if (frac >= 0.0 && frac <= 1.0) return x1 + frac * (x2 - x1);
-                }
-              }
-
-              return -1.0;
-            };
-
-            auto estimatePlateau = [&](TH1* h) -> double
-            {
-              if (!h) return 0.94;
-
-              auto collectTail = [&](double xLo) -> std::vector<double>
-              {
-                std::vector<double> vals;
-                for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
-                {
-                  const double x = h->GetBinCenter(ib);
-                  const double y = h->GetBinContent(ib);
-                  if (x < xLo || x > 20.0) continue;
-                  if (!std::isfinite(y) || y <= 0.0) continue;
-                  vals.push_back(y);
-                }
-                return vals;
-              };
-
-              std::vector<double> tailVals = collectTail(14.0);
-              if (tailVals.size() < 3) tailVals = collectTail(12.0);
-              if (tailVals.size() < 3) tailVals = collectTail(10.0);
-
-              if (tailVals.empty())
-              {
-                const double ymax = h->GetMaximum();
-                const double fallback = (std::isfinite(ymax) && ymax > 0.0) ? ymax : 0.94;
-                return std::max(0.84, std::min(0.98, fallback));
-              }
-
-              const int useN = std::min(4, static_cast<int>(tailVals.size()));
-              double sum = 0.0;
-              for (int i = static_cast<int>(tailVals.size()) - useN; i < static_cast<int>(tailVals.size()); ++i)
-              {
-                sum += tailVals[i];
-              }
-
-              const double plateau = sum / static_cast<double>(useN);
-              return std::max(0.84, std::min(0.98, plateau));
-            };
-
-            auto buildQualitativeSigmoid = [&](const LoadedPair& P, TH1* hRatio, double plateauGuess) -> TF1*
-            {
-              const int thr = extractPhotonThresholdGeV(P.probeKey);
-
-              const double defaultX0 =
-                (thr == 10) ? 5.8 :
-                (thr == 12) ? 6.9 :
-                std::max(2.0, 0.60 * ((thr > 0) ? static_cast<double>(thr) : 8.0));
-
-              const double defaultSlope =
-                (thr == 10) ? 0.85 :
-                (thr == 12) ? 0.75 :
-                std::max(0.35, 1.00 - 0.028 * ((thr > 0) ? static_cast<double>(thr) : 8.0));
-
-              const double x20rel = findCrossingX(hRatio, 0.20 * plateauGuess, 2.0, 15.0);
-              const double x50rel = findCrossingX(hRatio, 0.50 * plateauGuess, 2.0, 15.0);
-              const double x80rel = findCrossingX(hRatio, 0.80 * plateauGuess, 2.0, 15.0);
-
-              double xOffsetGuess = (std::isfinite(x50rel) && x50rel > 0.0) ? x50rel : defaultX0;
-
-              double slopeGuess = defaultSlope;
-              double widthGuess = 2.5;
-              if (std::isfinite(x20rel) && std::isfinite(x80rel) && x80rel > x20rel)
-              {
-                widthGuess = x80rel - x20rel;
-                slopeGuess = 2.0 * std::log(4.0) / widthGuess;
-              }
-
-              slopeGuess = std::max(0.25, std::min(2.00, slopeGuess));
-              widthGuess = std::max(0.8, widthGuess);
-
-              DataStructures::FitParameters pars{};
-              pars.sigmaEstimate = 0.5;
-              pars.sigmaMin = 0.1;
-              pars.sigmaMax = 1.0;
-
-              pars.amplitudeEstimate = plateauGuess;
-              pars.amplitudeMin = std::max(0.84, plateauGuess - 0.03);
-              pars.amplitudeMax = std::min(0.98, plateauGuess + 0.03);
-
-              pars.slopeEstimate = slopeGuess;
-              pars.slopeMin = std::max(0.20, 0.65 * slopeGuess);
-              pars.slopeMax = std::min(2.50, 1.45 * slopeGuess);
-
-              pars.xOffsetEstimate = xOffsetGuess;
-              const double xHalfWindow = std::max(0.6, 0.45 * widthGuess);
-              pars.xOffsetMin = std::max(2.0, xOffsetGuess - xHalfWindow);
-              pars.xOffsetMax = std::min(20.0, xOffsetGuess + xHalfWindow);
-
-              TF1* fSig = Utils::sigmoidFit(
-                TString::Format("f_groupTurnOn_%s", P.probeKey.c_str()).Data(),
-                2.0, 20.0,
-                pars.amplitudeEstimate,
-                pars.slopeEstimate,
-                pars.xOffsetEstimate,
-                pars.amplitudeMin,
-                pars.amplitudeMax,
-                pars.slopeMin,
-                pars.slopeMax,
-                pars.xOffsetMin,
-                pars.xOffsetMax
-              );
-
-              if (!fSig) return nullptr;
-
-              fSig->SetNpx(500);
-              fSig->SetLineColor(colorForProbe(P.probeKey));
-              fSig->SetLineStyle(2);
-              fSig->SetLineWidth(2);
-              return fSig;
-            };
-
-            for (const auto& P : loaded)
-            {
-              TH1* hBase = CloneTH1(P.hBase, TString::Format("hBase_groupTurnOn_%s", P.probeKey.c_str()).Data());
-              TH1* hProbe = CloneTH1(P.hProbe, TString::Format("hProbe_groupTurnOn_%s", P.probeKey.c_str()).Data());
-              if (!hBase || !hProbe)
-              {
-                if (hBase) delete hBase;
-                if (hProbe) delete hProbe;
-                continue;
-              }
-
-              TH1* hRatio = CloneTH1(hProbe, TString::Format("hRatio_groupTurnOn_%s", P.probeKey.c_str()).Data());
-              if (!hRatio)
-              {
-                delete hBase;
-                delete hProbe;
-                continue;
-              }
-
-              EnsureSumw2(hBase);
-              EnsureSumw2(hProbe);
-              EnsureSumw2(hRatio);
-              hRatio->Divide(hProbe, hBase, 1.0, 1.0, "B");
-              hRatio->SetDirectory(nullptr);
-              hRatio->SetMarkerStyle(markerForProbe(P.probeKey));
-              hRatio->SetMarkerSize(1.0);
-              hRatio->SetMarkerColor(colorForProbe(P.probeKey));
-              hRatio->SetLineColor(colorForProbe(P.probeKey));
-              hRatio->SetLineWidth(3);
-
-              const double plateauGuess = estimatePlateau(hRatio);
-              TF1* fSig = buildQualitativeSigmoid(P, hRatio, plateauGuess);
-
-              const double target80 = 0.80;
-              double x80 = -1.0;
-              double plateauVal = plateauGuess;
-
-              if (fSig)
-              {
-                TFitResultPtr fitRes = hRatio->Fit(fSig, "RQS0", "", 2.0, 18.0);
-                int fitStatus = fitRes;
-
-                if (fitStatus == 0)
-                {
-                  fitRes = hRatio->Fit(fSig, "RQS0", "", 2.0, 18.0);
-                  fitStatus = fitRes;
-                }
-
-                if (fitStatus == 0)
-                {
-                  const double amp   = fSig->GetParameter(0);
-                  const double slope = fSig->GetParameter(1);
-                  const double x0    = fSig->GetParameter(2);
-
-                  if (std::isfinite(amp) && amp > 0.0)
+                  std::vector<TH1*> ratioHists;
+                  std::vector<TF1*> fitFuncs;
+                  std::vector<double> x80s;
+                  std::vector<double> plateauVals;
+                  ratioHists.reserve(loaded.size());
+                  fitFuncs.reserve(loaded.size());
+                  x80s.reserve(loaded.size());
+                  plateauVals.reserve(loaded.size());
+                  
+                  // ── helper: linear-interpolation crossing finder ──
+                  auto findCrossingX = [&](TH1* h, double target, double xLo, double xHi) -> double
                   {
-                    plateauVal = std::max(0.84, std::min(0.98, amp));
-                  }
-
-                  if (std::isfinite(plateauVal) && std::isfinite(slope) && std::isfinite(x0) && plateauVal > target80 && slope > 0.0)
-                  {
-                    const double arg = plateauVal / target80 - 1.0;
-                    if (arg > 0.0)
-                    {
-                      const double x80Fit = x0 - std::log(arg) / slope;
-                      if (std::isfinite(x80Fit) && x80Fit >= 0.0 && x80Fit <= 20.0)
+                      if (!h) return -1.0;
+                      
+                      const int nb = h->GetNbinsX();
+                      for (int ib = 1; ib < nb; ++ib)
                       {
-                        x80 = x80Fit;
+                          const double x1 = h->GetBinCenter(ib);
+                          const double x2 = h->GetBinCenter(ib + 1);
+                          if (x2 < xLo || x1 > xHi) continue;
+                          
+                          const double y1 = h->GetBinContent(ib);
+                          const double y2 = h->GetBinContent(ib + 1);
+                          if (!std::isfinite(y1) || !std::isfinite(y2)) continue;
+                          
+                          if (y1 == target) return x1;
+                          if (y2 == target) return x2;
+                          
+                          if ((y1 - target) * (y2 - target) < 0.0 && std::fabs(y2 - y1) > 1e-12)
+                          {
+                              const double frac = (target - y1) / (y2 - y1);
+                              if (frac >= 0.0 && frac <= 1.0) return x1 + frac * (x2 - x1);
+                          }
                       }
-                    }
+                      
+                      return -1.0;
+                  };
+                  
+                  // ── helper: weighted mean of tail bins (fallback when pol0 fit has too few bins) ──
+                  auto fallbackTailMean = [&](TH1* h, double xTailLo) -> double
+                  {
+                      if (!h) return 0.94;
+                      
+                      const int bLo = h->GetXaxis()->FindBin(xTailLo + 1e-6);
+                      const int bHi = h->GetXaxis()->FindBin(20.0 - 1e-6);
+                      
+                      double sumW = 0.0;
+                      double sumWY = 0.0;
+                      
+                      for (int ib = bLo; ib <= bHi; ++ib)
+                      {
+                          const double y  = h->GetBinContent(ib);
+                          const double ey = h->GetBinError(ib);
+                          if (!std::isfinite(y) || y <= 0.0) continue;
+                          
+                          double w = 1.0;
+                          if (std::isfinite(ey) && ey > 0.0) w = 1.0 / (ey * ey);
+                          
+                          sumW  += w;
+                          sumWY += w * y;
+                      }
+                      
+                      if (sumW <= 0.0)
+                      {
+                          const double ymax = h->GetMaximum();
+                          const double fallback = (std::isfinite(ymax) && ymax > 0.0) ? ymax : 0.94;
+                          return std::max(0.80, std::min(1.0, fallback));
+                      }
+                      
+                      return std::max(0.80, std::min(1.0, sumWY / sumW));
+                  };
+                  
+                  // ── helper: fit a pol0 constant to the tail region [xTailLo, 20] ──
+                  auto fitPlateauConst = [&](TH1* h, double xTailLo) -> double
+                  {
+                      if (!h) return 0.94;
+                      
+                      xTailLo = std::max(9.0, std::min(19.0, xTailLo));
+                      
+                      const int bLo = h->GetXaxis()->FindBin(xTailLo + 1e-6);
+                      const int bHi = h->GetXaxis()->FindBin(20.0 - 1e-6);
+                      if (bHi - bLo + 1 < 3) return fallbackTailMean(h, xTailLo);
+                      
+                      static int plateauCounter = 0;
+                      TF1 fPlateau(TString::Format("f_plateau_tmp_%d", plateauCounter++).Data(), "pol0", xTailLo, 20.0);
+                      fPlateau.SetLineWidth(2);
+                      
+                      TFitResultPtr r = h->Fit(&fPlateau, "RQ0NS", "", xTailLo, 20.0);
+                      const int status = r;
+                      
+                      double plateau = fallbackTailMean(h, xTailLo);
+                      if (status == 0)
+                      {
+                          const double p0 = fPlateau.GetParameter(0);
+                          if (std::isfinite(p0) && p0 > 0.0) plateau = p0;
+                      }
+                      
+                      return std::max(0.80, std::min(1.0, plateau));
+                  };
+                  
+                  // ── helper: build a Gumbel CDF fit function for turn-on curves ──
+                  //
+                  // Gumbel CDF:  F(x) = P * exp( -exp( -(x - mu) / beta ) )
+                  //
+                  // This is ASYMMETRIC — sharp rise from zero, gradual approach to
+                  // plateau — which matches trigger turn-on physics far better than
+                  // the symmetric erf.
+                  //
+                  // Parameters:
+                  //   [0] = P      (plateau, fixed from tail fit)
+                  //   [1] = mu     (location: F(mu) = P * e^{-1} ≈ 0.368*P)
+                  //   [2] = beta   (scale: controls steepness)
+                  //
+                  // Gumbel CDF math for initial guesses:
+                  //   At fraction f of plateau: x_f = mu - beta * ln(-ln(f))
+                  //   50% point: x50 = mu - beta * ln(ln2)    [ln(ln2) ≈ -0.3665]
+                  //              => mu ≈ x50 + 0.3665*beta
+                  //   80% point: x80 = mu + 1.500*beta
+                  //   20% point: x20 = mu - 0.476*beta
+                  //              => beta ≈ (x80 - x20) / 1.976
+                  //
+                  // Drawing range [0, 20]: F(0) ≈ 0 for mu ≈ 5–8, so curve hugs
+                  // the x-axis at the left edge with no visible "slop."
+                  auto buildGumbelFit = [&](const LoadedPair& P, TH1* hRatio, double plateauVal) -> TF1*
+                  {
+                      const int thr = extractPhotonThresholdGeV(P.probeKey);
+                      
+                      // Default guesses if data crossings aren't found
+                      const double defaultMu =
+                      (thr == 10) ? 4.8 :
+                      (thr == 12) ? 6.2 :
+                      std::max(2.0, 0.55 * ((thr > 0) ? static_cast<double>(thr) : 8.0));
+                      
+                      const double defaultBeta =
+                      (thr == 10) ? 1.1 :
+                      (thr == 12) ? 1.3 :
+                      1.2;
+                      
+                      // Find data crossing points relative to the plateau
+                      const double x20rel = findCrossingX(hRatio, 0.20 * plateauVal, 1.0, 15.0);
+                      const double x50rel = findCrossingX(hRatio, 0.50 * plateauVal, 1.0, 15.0);
+                      const double x80rel = findCrossingX(hRatio, 0.80 * plateauVal, 1.0, 15.0);
+                      
+                      // Estimate beta from 20%–80% rise width
+                      double betaGuess = defaultBeta;
+                      if (std::isfinite(x20rel) && std::isfinite(x80rel) && x80rel > x20rel)
+                      {
+                          betaGuess = (x80rel - x20rel) / 1.976;
+                      }
+                      betaGuess = std::max(0.4, std::min(4.0, betaGuess));
+                      
+                      // Estimate mu from 50% crossing: mu = x50 + 0.3665*beta
+                      double muGuess = defaultMu;
+                      if (std::isfinite(x50rel) && x50rel > 0.0)
+                      {
+                          muGuess = x50rel + 0.3665 * betaGuess;
+                      }
+                      
+                      // Gumbel CDF: P * exp(-exp(-(x-mu)/beta))
+                      // Drawing range [0, 20]: at x=0 with mu=5, beta=1.1:
+                      //   F(0) = P * exp(-exp(5/1.1)) = P * exp(-95) ≈ 0
+                      TF1* fGumbel = new TF1(
+                                             TString::Format("f_groupTurnOn_%s", P.probeKey.c_str()).Data(),
+                                             "[0]*exp(-exp(-((x-[1])/[2])))",
+                                             0.0, 20.0
+                                             );
+                      
+                      if (!fGumbel) return nullptr;
+                      
+                      fGumbel->SetParNames("Plateau", "Mu", "Beta");
+                      fGumbel->SetParameter(0, plateauVal);
+                      fGumbel->SetParLimits(0, std::max(0.80, plateauVal - 0.02), std::min(1.0, plateauVal + 0.02));
+                      fGumbel->SetParameter(1, muGuess);
+                      fGumbel->SetParameter(2, betaGuess);
+                      fGumbel->SetParLimits(1, std::max(1.0, muGuess - 3.0), std::min(18.0, muGuess + 3.0));
+                      fGumbel->SetParLimits(2, std::max(0.3, 0.40 * betaGuess), std::min(5.0, 2.50 * betaGuess));
+                      fGumbel->SetNpx(500);
+                      fGumbel->SetLineColor(colorForProbe(P.probeKey));
+                      fGumbel->SetLineStyle(2);
+                      fGumbel->SetLineWidth(2);
+                      return fGumbel;
+                  };
+                  
+                  // ── main loop: build ratio histograms + two-pass Gumbel fit per probe ──
+                  for (const auto& P : loaded)
+                  {
+                      TH1* hBase = CloneTH1(P.hBase, TString::Format("hBase_groupTurnOn_%s", P.probeKey.c_str()).Data());
+                      TH1* hProbe = CloneTH1(P.hProbe, TString::Format("hProbe_groupTurnOn_%s", P.probeKey.c_str()).Data());
+                      if (!hBase || !hProbe)
+                      {
+                          if (hBase) delete hBase;
+                          if (hProbe) delete hProbe;
+                          continue;
+                      }
+                      
+                      TH1* hRatio = CloneTH1(hProbe, TString::Format("hRatio_groupTurnOn_%s", P.probeKey.c_str()).Data());
+                      if (!hRatio)
+                      {
+                          delete hBase;
+                          delete hProbe;
+                          continue;
+                      }
+                      
+                      EnsureSumw2(hBase);
+                      EnsureSumw2(hProbe);
+                      EnsureSumw2(hRatio);
+                      hRatio->Divide(hProbe, hBase, 1.0, 1.0, "B");
+                      hRatio->SetDirectory(nullptr);
+                      hRatio->SetMarkerStyle(markerForProbe(P.probeKey));
+                      hRatio->SetMarkerSize(1.0);
+                      hRatio->SetMarkerColor(colorForProbe(P.probeKey));
+                      hRatio->SetLineColor(colorForProbe(P.probeKey));
+                      hRatio->SetLineWidth(3);
+                      
+                      // ────────────────────────────────────────────────────────────
+                      // TWO-PASS FIT using Gumbel CDF
+                      //
+                      // Pass 1: estimate plateau from [15, 20] GeV.
+                      //         Fit Gumbel over [2, 19] to get mu, beta.
+                      //
+                      // Pass 2: refined plateau from max(15, mu + 4*beta),
+                      //         re-fix plateau, re-fit Gumbel over [2, 19].
+                      // ────────────────────────────────────────────────────────────
+                      double plateauVal = fitPlateauConst(hRatio, 15.0);
+                      TF1* fFit = buildGumbelFit(P, hRatio, plateauVal);
+                      
+                      const double target80 = 0.80;
+                      double x80 = -1.0;
+                      
+                      if (fFit)
+                      {
+                          // Pass 1
+                          TFitResultPtr fitRes = hRatio->Fit(fFit, "RQS0", "", 2.0, 19.0);
+                          int fitStatus = fitRes;
+                          
+                          if (fitStatus == 0)
+                          {
+                              const double mu   = fFit->GetParameter(1);
+                              const double beta = std::fabs(fFit->GetParameter(2));
+                              
+                              // Pass 2: refined plateau from deep into the flat region
+                              // Gumbel reaches ~98% of plateau at mu + 4*beta
+                              const double refinedTailLo = std::max(15.0, std::min(19.0, mu + 4.0 * beta));
+                              plateauVal = fitPlateauConst(hRatio, refinedTailLo);
+                              
+                              fFit->SetParameter(0, plateauVal);
+                              fFit->SetParLimits(0, std::max(0.80, plateauVal - 0.02), std::min(1.0, plateauVal + 0.02));
+                              fFit->SetParameter(1, mu);
+
+                              fitRes = hRatio->Fit(fFit, "RQS0", "", 2.0, 19.0);
+                              fitStatus = fitRes;
+                            }
+
+                            // Read back the fitted plateau (may have shifted up from tail estimate)
+                            if (fitStatus == 0)
+                            {
+                              plateauVal = fFit->GetParameter(0);
+                            }
+
+                            // Extract 80% crossing from the converged fit
+                            if (fitStatus == 0)
+                            {
+                              // Gumbel CDF analytic: x_f = mu - beta * ln(-ln(f))
+                              // For f = 0.80: ln(-ln(0.80)) = ln(0.22314) = -1.4999
+                              // So x80 = mu + 1.500 * beta
+                              const double mu   = fFit->GetParameter(1);
+                              const double beta = std::fabs(fFit->GetParameter(2));
+                              const double x80Analytic = mu - beta * std::log(-std::log(0.80));
+                              if (std::isfinite(x80Analytic) && x80Analytic >= 0.0 && x80Analytic <= 20.0)
+                              {
+                                  x80 = x80Analytic;
+                              }
+                              else
+                              {
+                                // Numerical fallback using the fitted plateau
+                                const double fitPlat = fFit->GetParameter(0);
+                                const double x80Num = fFit->GetX(target80 * fitPlat, 0.0, 20.0);
+                                  if (std::isfinite(x80Num) && x80Num >= 0.0 && x80Num <= 20.0)
+                                      x80 = x80Num;
+                              }
+                          }
+                      }
+                      
+                      if (x80 < 0.0) x80 = findCrossingX(hRatio, target80, 2.0, 20.0);
+                      
+                      ratioHists.push_back(hRatio);
+                      fitFuncs.push_back(fFit);
+                      x80s.push_back(x80);
+                      plateauVals.push_back(plateauVal);
+                      
+                      delete hBase;
+                      delete hProbe;
                   }
-                }
-              }
-
-              if (x80 < 0.0) x80 = findXAtEff(hRatio, target80);
-
-              ratioHists.push_back(hRatio);
-              fitFuncs.push_back(fSig);
-              x80s.push_back(x80);
-              plateauVals.push_back(plateauVal);
-
-              delete hBase;
-              delete hProbe;
-            }
-
-            if (ratioHists.empty()) return;
-
-            TCanvas c(TString::Format("c_trigAna_groupTurnOn_%s", loaded.front().groupFolder.c_str()).Data(),
-                      TString::Format("c_trigAna_groupTurnOn_%s", loaded.front().groupFolder.c_str()).Data(),
-                      900, 700);
-            c.cd();
-            c.SetLeftMargin(0.14);
-            c.SetRightMargin(0.05);
-            c.SetBottomMargin(0.14);
-            c.SetTopMargin(0.08);
-            c.SetTicks(1,1);
-
-            ratioHists[0]->SetTitle("");
-            ratioHists[0]->GetXaxis()->SetTitle("Maximum Cluster Energy [GeV]");
-            ratioHists[0]->GetYaxis()->SetTitle("Photon X / MBD NS");
-            ratioHists[0]->GetXaxis()->SetTitleSize(0.055);
-            ratioHists[0]->GetXaxis()->SetTitleOffset(1.05);
-            ratioHists[0]->GetXaxis()->SetLabelSize(0.045);
-            ratioHists[0]->GetYaxis()->SetTitleSize(0.055);
-            ratioHists[0]->GetYaxis()->SetTitleOffset(1.20);
-            ratioHists[0]->GetYaxis()->SetLabelSize(0.045);
-            ratioHists[0]->GetXaxis()->SetRangeUser(0.0, 20.0);
-            ratioHists[0]->SetMinimum(0.0);
-            ratioHists[0]->SetMaximum(1.20);
-            ratioHists[0]->Draw("E1");
-
-            for (std::size_t i = 1; i < ratioHists.size(); ++i)
-            {
-              ratioHists[i]->Draw("E1 SAME");
-            }
-
-            for (std::size_t i = 0; i < fitFuncs.size(); ++i)
-            {
-              if (fitFuncs[i]) fitFuncs[i]->Draw("SAME");
-            }
-
-            TLine l1(0.0, 1.0, 20.0, 1.0);
-            l1.SetLineStyle(2);
-            l1.SetLineWidth(2);
-            l1.SetLineColor(kBlack);
-            l1.Draw("SAME");
-
-            TLine l85(0.0, 0.85, 20.0, 0.85);
-            l85.SetLineStyle(3);
-            l85.SetLineWidth(2);
-            l85.SetLineColor(kGray+2);
-            l85.Draw("SAME");
-
-            TLegend leg(0.18, 0.80, 0.56, 0.92);
-            leg.SetBorderSize(0);
-            leg.SetFillStyle(0);
-            leg.SetTextSize(0.024);
-            for (std::size_t i = 0; i < loaded.size() && i < ratioHists.size(); ++i)
-            {
-              if (x80s[i] > 0.0)
-              {
-                leg.AddEntry(ratioHists[i],
-                  TString::Format("%s (80%%=%.2f GeV)",
-                    loaded[i].probeLabel.c_str(),
-                    x80s[i]).Data(),
-                  "pe");
-              }
-              else
-              {
-                leg.AddEntry(ratioHists[i],
-                  loaded[i].probeLabel.c_str(),
-                  "pe");
-              }
-            }
-            leg.Draw();
-
-            {
-              TLatex tPlat;
-              tPlat.SetNDC(true);
-              tPlat.SetTextFont(42);
-              tPlat.SetTextAlign(33);
-              tPlat.SetTextSize(0.028);
-
-              double yText = 0.14;
-              for (std::size_t i = 0; i < loaded.size() && i < plateauVals.size(); ++i)
-              {
-                const int thr = extractPhotonThresholdGeV(loaded[i].probeKey);
-                tPlat.SetTextColor(colorForProbe(loaded[i].probeKey));
-                tPlat.DrawLatex(0.93, yText,
-                  TString::Format("Photon %d plateau = %.3f", thr, plateauVals[i]).Data());
-                yText -= 0.05;
-              }
-              tPlat.SetTextColor(kBlack);
-            }
-
-            {
-              TLatex tDS;
-              tDS.SetNDC(true);
-              tDS.SetTextFont(42);
-              tDS.SetTextAlign(23);
-              tDS.SetTextSize(0.035);
-              if (isAuAuOnly)
-                tDS.DrawLatex(0.50, 0.97, "Run3auau Photon 10 and 12 GeV + MBD NS #geq 2, vtx < 150 cm Efficiencies");
-              else
-                tDS.DrawLatex(0.50, 0.97, isRun25pp ? "Run25pp" : "Run24pp");
-            }
-
-            const std::string outPng = JoinPath(groupOutDir, "hMaxClusterEnergy_groupTurnOnOverlay" + filenameTag + ".png");
-            SaveCanvas(c, outPng);
-            cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";
-
-            for (auto* f : fitFuncs) if (f) delete f;
-            for (auto* h : ratioHists) delete h;
-          };
+                  
+                  if (ratioHists.empty()) return;
+                  
+                  // ── draw the overlay canvas ──
+                  TCanvas c(TString::Format("c_trigAna_groupTurnOn_%s", loaded.front().groupFolder.c_str()).Data(),
+                            TString::Format("c_trigAna_groupTurnOn_%s", loaded.front().groupFolder.c_str()).Data(),
+                            900, 700);
+                  c.cd();
+                  c.SetLeftMargin(0.14);
+                  c.SetRightMargin(0.05);
+                  c.SetBottomMargin(0.14);
+                  c.SetTopMargin(0.08);
+                  c.SetTicks(1,1);
+                  
+                  ratioHists[0]->SetTitle("");
+                  ratioHists[0]->GetXaxis()->SetTitle("Maximum Cluster Energy [GeV]");
+                  ratioHists[0]->GetYaxis()->SetTitle("Photon X / MBD NS");
+                  ratioHists[0]->GetXaxis()->SetTitleSize(0.055);
+                  ratioHists[0]->GetXaxis()->SetTitleOffset(1.05);
+                  ratioHists[0]->GetXaxis()->SetLabelSize(0.045);
+                  ratioHists[0]->GetYaxis()->SetTitleSize(0.055);
+                  ratioHists[0]->GetYaxis()->SetTitleOffset(1.20);
+                  ratioHists[0]->GetYaxis()->SetLabelSize(0.045);
+                  ratioHists[0]->GetXaxis()->SetRangeUser(0.0, 20.0);
+                  ratioHists[0]->SetMinimum(0.0);
+                  ratioHists[0]->SetMaximum(1.20);
+                  ratioHists[0]->Draw("E1");
+                  
+                  for (std::size_t i = 1; i < ratioHists.size(); ++i)
+                  {
+                      ratioHists[i]->Draw("E1 SAME");
+                  }
+                  
+                  for (std::size_t i = 0; i < fitFuncs.size(); ++i)
+                  {
+                      if (fitFuncs[i]) fitFuncs[i]->Draw("SAME");
+                  }
+                  
+                  TLine l1(0.0, 1.0, 20.0, 1.0);
+                  l1.SetLineStyle(2);
+                  l1.SetLineWidth(2);
+                  l1.SetLineColor(kBlack);
+                  l1.Draw("SAME");
+                  
+                  TLine l85(0.0, 0.85, 20.0, 0.85);
+                  l85.SetLineStyle(3);
+                  l85.SetLineWidth(2);
+                  l85.SetLineColor(kGray+2);
+                  l85.Draw("SAME");
+                  
+                  TLegend leg(0.18, 0.80, 0.56, 0.92);
+                  leg.SetBorderSize(0);
+                  leg.SetFillStyle(0);
+                  leg.SetTextSize(0.024);
+                  for (std::size_t i = 0; i < loaded.size() && i < ratioHists.size(); ++i)
+                  {
+                      if (x80s[i] > 0.0)
+                      {
+                          leg.AddEntry(ratioHists[i],
+                                       TString::Format("%s (80%%=%.2f GeV)",
+                                                       loaded[i].probeLabel.c_str(),
+                                                       x80s[i]).Data(),
+                                       "pe");
+                      }
+                      else
+                      {
+                          leg.AddEntry(ratioHists[i],
+                                       loaded[i].probeLabel.c_str(),
+                                       "pe");
+                      }
+                  }
+                  leg.Draw();
+                  
+                  // ── plateau annotation: bottom-right, ABOVE the x-axis title ──
+                  {
+                      TLatex tPlat;
+                      tPlat.SetNDC(true);
+                      tPlat.SetTextFont(42);
+                      tPlat.SetTextAlign(33);
+                      tPlat.SetTextSize(0.028);
+                      
+                      const double yBase = 0.22 + 0.04 * (double)(std::max((int)loaded.size(), 1) - 1);
+                      double yText = yBase;
+                      for (std::size_t i = 0; i < loaded.size() && i < plateauVals.size(); ++i)
+                      {
+                          const int thr = extractPhotonThresholdGeV(loaded[i].probeKey);
+                          tPlat.SetTextColor(colorForProbe(loaded[i].probeKey));
+                          tPlat.DrawLatex(0.93, yText,
+                                          TString::Format("Photon %d plateau = %.3f", thr, plateauVals[i]).Data());
+                          yText -= 0.04;
+                      }
+                      tPlat.SetTextColor(kBlack);
+                  }
+                  
+                  {
+                      TLatex tDS;
+                      tDS.SetNDC(true);
+                      tDS.SetTextFont(42);
+                      tDS.SetTextAlign(23);
+                      tDS.SetTextSize(0.035);
+                      if (isAuAuOnly)
+                          tDS.DrawLatex(0.50, 0.97, "Run3auau Photon 10 and 12 GeV + MBD NS #geq 2, vtx < 150 cm Efficiencies");
+                      else
+                          tDS.DrawLatex(0.50, 0.97, isRun25pp ? "Run25pp" : "Run24pp");
+                  }
+                  
+                  const std::string outPng = JoinPath(groupOutDir, "hMaxClusterEnergy_groupTurnOnOverlay" + filenameTag + ".png");
+                  SaveCanvas(c, outPng);
+                  cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";
+                  
+                  for (auto* f : fitFuncs) if (f) delete f;
+                  for (auto* h : ratioHists) delete h;
+              };
           auto drawGroupMaxClusterOverlay = [&](const std::vector<LoadedPair>& loaded, const std::string& groupOutDir, const std::string& filenameTag = "")
           {
             if (loaded.empty()) return;
@@ -3840,10 +3903,18 @@ namespace ARJ
                         tTitleCO.SetTextAlign(23);
                         tTitleCO.SetTextSize(0.040);
                         tTitleCO.DrawLatex(0.50, 0.98,
-                          TString::Format("Au+Au (counts), centrality overlays, p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+                        TString::Format("Au+Au (counts), centrality overlays, p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+
+                        TLatex tInfoCO;
+                        tInfoCO.SetNDC(true);
+                        tInfoCO.SetTextFont(42);
+                        tInfoCO.SetTextAlign(33);
+                        tInfoCO.SetTextSize(0.032);
+                        tInfoCO.DrawLatex(0.92, 0.88, trigAA.c_str());
+                        tInfoCO.DrawLatex(0.92, 0.84, H.variant.c_str());
 
                         SaveCanvas(cCO, JoinPath(variantDir,
-                              TString::Format("isoCentOverlay_counts_%s.png", b.folder.c_str()).Data()));
+                                TString::Format("isoCentOverlay_counts_%s.png", b.folder.c_str()).Data()));
 
                         for (auto* h : hCents) delete h;
                       }
@@ -5172,8 +5243,8 @@ namespace ARJ
                   tTitle.SetTextAlign(23);
                   tTitle.SetTextSize(0.040);
                   tTitle.DrawLatex(0.50, 0.98,
-                    TString::Format("%s, %d-%d%% vs %d-%d%% Cent AuAu, R=%.1f",
-                      titlePrefix.c_str(), centLo, centHi - (centHi - centLo), centHi, R).Data());
+                      TString::Format("%s, %d-%d%% Cent AuAu, R=%.1f",
+                        titlePrefix.c_str(), centLo, centHi, R).Data());
 
                   // ---- pTγ in large font below legend ----
                   TLatex tPt;
@@ -15300,63 +15371,60 @@ namespace ARJ
       }
 
       if (doAuAu)
-      {
-        const auto& centBins = CentBins();
-        const bool multiTrig = (kTriggersAuAu.size() > 1);
-        const bool foldAuAuDataIntoEmbeddedSim =
-          (mode == RunMode::kSimAndDataAUAU && IsEmbeddedSimSample(ss));
-
-        const string auauDataBase = foldAuAuDataIntoEmbeddedSim
-                                      ? SimOutBaseForSample(ss)
-                                      : OutputAuAu();
-
-        for (const auto& trigAA : kTriggersAuAu)
         {
-          if (centBins.empty())
-          {
-            Dataset ds;
-            ds.label      = multiTrig ? ("DATA_AUAU_" + trigAA) : "DATA_AUAU";
-            ds.isSim      = false;
-            ds.trigger    = trigAA;
-            ds.topDirName = trigAA;
-            ds.inFilePath = InputAuAu();
+          const auto& centBins = CentBins();
+          const bool multiTrig = (kTriggersAuAu.size() > 1);
 
-            ds.outBase = JoinPath(auauDataBase, ds.trigger);
+          // AuAu DATA output ALWAYS goes to OutputAuAu(), regardless of
+          // whether isSimAndDataAUAU is active. Only the unfolding pipeline
+          // writes its products into the SIM-specific output tree (mirroring
+          // how PP works: pure DATA plots live under pp/<cfgTag>/<trigger>/,
+          // while SIM-conditioned unfolding lives under the SIM output path).
+          const string auauDataBase = OutputAuAu();
 
-            datasets.push_back(std::move(ds));
-          }
-          else
+          for (const auto& trigAA : kTriggersAuAu)
           {
-            for (const auto& cb : centBins)
+            if (centBins.empty())
             {
               Dataset ds;
-              ds.label      = multiTrig
-                                ? TString::Format("DATA_AUAU_%s_%d_%d", trigAA.c_str(), cb.lo, cb.hi).Data()
-                                : TString::Format("DATA_AUAU_%d_%d", cb.lo, cb.hi).Data();
+              ds.label      = multiTrig ? ("DATA_AUAU_" + trigAA) : "DATA_AUAU";
               ds.isSim      = false;
               ds.trigger    = trigAA;
               ds.topDirName = trigAA;
               ds.inFilePath = InputAuAu();
 
-              ds.centFolder = cb.folder;
-              ds.centSuffix = cb.suffix;
-              ds.centLabel  = TString::Format("Centrality: %d-%d%%", cb.lo, cb.hi).Data();
-
-              // In SIM+DATA_AUAU, place the DATA trigger folder under the matching
-              // embedded-SIM centrality directory so the combined outputs live at:
-              //   <embedded SIM base>/<centFolder>/<trigger>/...
-              //
-              // Legacy AuAu-only layout remains:
-              //   <AuAu base>/<trigger>/<centFolder>/...
-              ds.outBase = foldAuAuDataIntoEmbeddedSim
-                             ? JoinPath(JoinPath(auauDataBase, ds.centFolder), ds.trigger)
-                             : JoinPath(JoinPath(auauDataBase, ds.trigger), ds.centFolder);
+              ds.outBase = JoinPath(auauDataBase, ds.trigger);
 
               datasets.push_back(std::move(ds));
             }
+            else
+            {
+              for (const auto& cb : centBins)
+              {
+                Dataset ds;
+                ds.label      = multiTrig
+                                  ? TString::Format("DATA_AUAU_%s_%d_%d", trigAA.c_str(), cb.lo, cb.hi).Data()
+                                  : TString::Format("DATA_AUAU_%d_%d", cb.lo, cb.hi).Data();
+                ds.isSim      = false;
+                ds.trigger    = trigAA;
+                ds.topDirName = trigAA;
+                ds.inFilePath = InputAuAu();
+
+                ds.centFolder = cb.folder;
+                ds.centSuffix = cb.suffix;
+                ds.centLabel  = TString::Format("Centrality: %d-%d%%", cb.lo, cb.hi).Data();
+
+                // AuAu DATA layout: <AuAu base>/<trigger>/<centFolder>/...
+                // This is consistent across isAuAuOnly and isSimAndDataAUAU.
+                // The unfolding pipeline handles writing to the SIM-specific
+                // output tree separately (parallel to the PP design).
+                ds.outBase = JoinPath(JoinPath(auauDataBase, ds.trigger), ds.centFolder);
+
+                datasets.push_back(std::move(ds));
+              }
+            }
           }
         }
-      }
 
       return datasets;
   }
@@ -16019,7 +16087,17 @@ namespace ARJ
                 t.SetTextFont(42);
                 t.SetTextAlign(23); // center, top
                 t.SetTextSize(0.045);
-                t.DrawLatex(0.50, 0.98, "Run25auau Centrality Distribution, MBD NS #geq 2 vtx < 150 cm");
+                std::string centDistTitle;
+                                  {
+                                    int photonPt = 0;
+                                    if (std::sscanf(trig.c_str(), "photon_%d_plus", &photonPt) == 1)
+                                      centDistTitle = TString::Format("Centrality Distribution, Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                                    else if (trig.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                                      centDistTitle = "Centrality Distribution, MBD NS #geq 2, vtx < 150 cm";
+                                    else
+                                      centDistTitle = "Centrality Distribution, " + trig;
+                                  }
+                                  t.DrawLatex(0.50, 0.98, centDistTitle.c_str());
 
                 c.SaveAs(outPath.c_str());
               }
