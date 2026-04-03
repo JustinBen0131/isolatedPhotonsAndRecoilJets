@@ -794,41 +794,85 @@ for (std::size_t ic = 0; ic < centBins.size(); ++ic)
               double cutHi = 0.0;
               std::string cutText;
 
-              if (var == "e11e33")
-              {
-                cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
-                drawCuts = true;
-                cutLo = 0.4;
-                cutHi = 0.98;
-              }
-              else if (var == "e32e35")
-              {
-                cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
-                drawCuts = true;
-                cutLo = 0.92;
-                cutHi = 1.0;
-              }
-              else if (var == "et1")
-              {
-                cutText = "#gamma-ID: 0.9 < et1 < 1.0";
-                drawCuts = true;
-                cutLo = 0.9;
-                cutHi = 1.0;
-              }
-              else if (var == "weta")
-              {
-                cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
-                drawSingleCut = true;
-                const double ptCenter = 0.5 * (b.lo + b.hi);
-                cutHi = 0.15 + 0.006 * ptCenter;
-              }
-              else if (var == "wphi")
-              {
-                cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
-                drawSingleCut = true;
-                const double ptCenter = 0.5 * (b.lo + b.hi);
-                cutHi = 0.15 + 0.006 * ptCenter;
-              }
+                const bool isPre = (tag == "pre");
+
+                if (var == "e11e33")
+                {
+                  if (isPre)
+                  {
+                    cutText = "pp presel: #frac{E_{11}}{E_{33}} < 0.98";
+                    drawSingleCut = true;
+                    cutHi = 0.98;
+                  }
+                  else
+                  {
+                    cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
+                    drawCuts = true;
+                    cutLo = 0.4;
+                    cutHi = 0.98;
+                  }
+                }
+                else if (var == "e32e35")
+                {
+                  if (isPre)
+                  {
+                    cutText = "pp presel: 0.8 < #frac{E_{32}}{E_{35}} < 1.0";
+                    drawCuts = true;
+                    cutLo = 0.8;
+                    cutHi = 1.0;
+                  }
+                  else
+                  {
+                    cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
+                    drawCuts = true;
+                    cutLo = 0.92;
+                    cutHi = 1.0;
+                  }
+                }
+                else if (var == "et1")
+                {
+                  if (isPre)
+                  {
+                    cutText = "pp presel: 0.6 < et1 < 1.0";
+                    drawCuts = true;
+                    cutLo = 0.6;
+                    cutHi = 1.0;
+                  }
+                  else
+                  {
+                    cutText = "#gamma-ID: 0.9 < et1 < 1.0";
+                    drawCuts = true;
+                    cutLo = 0.9;
+                    cutHi = 1.0;
+                  }
+                }
+                else if (var == "weta")
+                {
+                  if (isPre)
+                  {
+                    cutText = "pp presel: w_{#eta} < 0.6";
+                    drawSingleCut = true;
+                    cutHi = 0.6;
+                  }
+                  else
+                  {
+                    cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                    drawSingleCut = true;
+                    const double ptCenter = 0.5 * (b.lo + b.hi);
+                    cutHi = 0.15 + 0.006 * ptCenter;
+                  }
+                }
+                else if (var == "wphi")
+                {
+                  if (!isPre)
+                  {
+                    cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                    drawSingleCut = true;
+                    const double ptCenter = 0.5 * (b.lo + b.hi);
+                    cutHi = 0.15 + 0.006 * ptCenter;
+                  }
+                  // isPre: no preselection cut on wphi — no line, no text
+                }
 
               if (!cutText.empty() && !doZoom)
               {

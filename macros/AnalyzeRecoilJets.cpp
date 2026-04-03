@@ -1952,11 +1952,16 @@ namespace ARJ
           //   Output:
           //     auau/<CfgTagAA>/<trigger>/<cent>/isoQA/UEcomparisons/<variant>/<pT>/
           // ===================================================================
-          void RunIsoQA_UEComparisons_AuAu()
+          void RunIsoQA_UEComparisons_AuAu(bool forEmbeddedSim = false)
           {
             cout << ANSI_BOLD_CYN << "\n==============================\n"
-                 << "[ISO QA] AuAu UE-subtraction variant overlay comparisons\n"
+                 << "[ISO QA] " << (forEmbeddedSim ? "Embedded SIM" : "AuAu")
+                 << " UE-subtraction variant overlay comparisons\n"
                  << "==============================" << ANSI_RESET << "\n";
+
+            const string outRoot = forEmbeddedSim
+                ? (kOutputBase + "/combinedSimOnlyEMBEDDED/" + CfgTagAA() + "/embeddedPhoton20")
+                : (kOutputBase + "/auau/" + CfgTagAA());
 
             const vector<string> ueVariants = {"noSub", "baseVariant", "variantA", "variantB"};
             const vector<string> ueLabels   = {"No UE sub", "Base Variant", "Variant A", "Variant B"};
@@ -1983,9 +1988,11 @@ namespace ARJ
             TDirectory* ppTop = fPP->GetDirectory(kTriggerPP.c_str());
             if (!ppTop) ppTop = fPP;
 
-            for (const auto& trigAA : kTriggersAuAu)
+            const vector<string> embSimTrigDirs = {"SIM"};
+            const auto& trigLoop = forEmbeddedSim ? embSimTrigDirs : kTriggersAuAu;
+            for (const auto& trigAA : trigLoop)
             {
-              const string trigOutBase = JoinPath(kOutputBase + "/auau/" + CfgTagAA(), trigAA);
+              const string trigOutBase = JoinPath(outRoot, trigAA);
 
               struct VariantHandle
               {
@@ -2002,15 +2009,18 @@ namespace ARJ
                 VariantHandle H;
                 H.variant = ueVariants[iv];
                 H.label   = ueLabels[iv];
-                H.file    = TFile::Open(InputAuAu(H.variant).c_str(), "READ");
+                const string varInput = forEmbeddedSim
+                      ? InputSimEmbedded(H.variant) : InputAuAu(H.variant);
+                H.file    = TFile::Open(varInput.c_str(), "READ");
 
                 if (!H.file || H.file->IsZombie())
                 {
-                  if (H.file) { H.file->Close(); delete H.file; H.file = nullptr; }
-                  cout << ANSI_BOLD_YEL
-                       << "[WARN] Missing AuAu UE variant input: "
-                       << InputAuAu(H.variant)
-                       << ANSI_RESET << "\n";
+                    if (H.file) { H.file->Close(); delete H.file; H.file = nullptr; }
+                    cout << ANSI_BOLD_YEL
+                         << "[WARN] Missing " << (forEmbeddedSim ? "embedded SIM" : "AuAu")
+                         << " UE variant input: "
+                         << varInput
+                         << ANSI_RESET << "\n";
                 }
 
                 handles.push_back(std::move(H));
@@ -14728,6 +14738,13 @@ namespace ARJ
             cout << "  -> [isoQA] AuAu UE variant comparisons...\n";
             analysis::RunIsoQA_UEComparisons_AuAu();
             cout << "     [OK] UE variant comparison overlays complete.\n";
+
+            if (isSimAndDataAUAU)
+            {
+                cout << "  -> [isoQA] Embedded SIM UE variant comparisons...\n";
+                analysis::RunIsoQA_UEComparisons_AuAu(true);
+                cout << "     [OK] Embedded SIM UE variant comparison overlays complete.\n";
+            }
 
             cout << "  -> [xJ QA] AuAu UE variant xJ comparisons (leading + inclusive)...\n";
             analysis::RunXJUEComparisons_AuAu();

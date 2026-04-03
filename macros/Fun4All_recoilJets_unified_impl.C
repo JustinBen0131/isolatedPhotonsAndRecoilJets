@@ -2897,6 +2897,17 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             photonBuilder->set_input_cluster_node(photonInputClusterNode);
             photonBuilder->set_output_photon_node("PHOTONCLUSTER_CEMC");
 
+            double minPhotonEt = 5.0;
+            if (!cfg.jes3_photon_pt_bins.empty())
+            {
+              auto itMin = std::min_element(cfg.jes3_photon_pt_bins.begin(), cfg.jes3_photon_pt_bins.end());
+              if (itMin != cfg.jes3_photon_pt_bins.end() && std::isfinite(*itMin))
+              {
+                minPhotonEt = *itMin;
+              }
+            }
+            photonBuilder->set_ET_threshold(static_cast<float>(minPhotonEt));
+
             photonBuilder->set_use_vz_cut(cfg.use_vz_cut);
             photonBuilder->set_vz_cut_cm(cfg.vz_cut_cm);
 

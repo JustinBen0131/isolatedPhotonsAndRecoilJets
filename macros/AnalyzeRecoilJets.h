@@ -92,12 +92,12 @@ namespace ARJ
   //   AuAu ONLY:      isAuAuOnly=true    (all others false)
   // ---------------------------------------------------------------------------
   inline bool isPPdataOnly   = false;
-  inline bool pp_beforeChangeInRecoSimDefTruthMatched = true;
+  inline bool pp_beforeChangeInRecoSimDefTruthMatched = false;
 
   inline bool isSimAndDataPP = false;
-  inline bool isSimAndDataAUAU = false;
+  inline bool isSimAndDataAUAU = true;
 
-  inline bool isAuAuOnly     = true;
+  inline bool isAuAuOnly     = false;
   inline bool isPPdataAndAUAU = false;
   inline bool generateUEcomparisonSSQA = false;
   inline bool isRun25pp      = false;
@@ -116,13 +116,13 @@ namespace ARJ
   inline bool allPhoton5and10and20sim    = false;
   //   Embedded Au+Au SIM slices / merges:
   inline bool isPhotonJet10Embedded      = false;
-  inline bool isPhotonJet20Embedded      = false;
+  inline bool isPhotonJet20Embedded      = true;
   inline bool bothPhoton10and20simEmbedded = false;
   //   Special SIM samples:
   inline bool isSimMB                    = false;   // MinBias DETROIT tune
   inline bool isSimJet5                  = false;   // inclusive jet5
 
-  inline bool doPhotonJetMerge = true;
+  inline bool doPhotonJetMerge = false;
 
   //   RooUnfold: true = run both non-purity and purity-corrected passes + overlay.
   inline bool do_xJ_PPunfold = false;
@@ -160,8 +160,8 @@ namespace ARJ
   // Set one, two, or all three.  Analysis runs independently for each.
   inline const vector<string> kTriggersAuAu = {
 //        "MBD_NS_geq_2_vtx_lt_150"
-//       "photon_10_plus_MBD_NS_geq_2_vtx_lt_150"
-       "photon_12_plus_MBD_NS_geq_2_vtx_lt_150"
+       "photon_10_plus_MBD_NS_geq_2_vtx_lt_150"
+//       "photon_12_plus_MBD_NS_geq_2_vtx_lt_150"
   };
 
   inline const double kPhotonEtaAbsMax = 0.7; //consistent fiducial cut for all analyzed data
