@@ -33,8 +33,9 @@ class PhotonClusterBuilder : public SubsysReco
   explicit PhotonClusterBuilder(const std::string& name = "PhotonClusterBuilder");
   ~PhotonClusterBuilder() override = default;
 
-  int InitRun(PHCompositeNode* topNode) override;
-  int process_event(PHCompositeNode* topNode) override;
+    int InitRun(PHCompositeNode* topNode) override;
+    int process_event(PHCompositeNode* topNode) override;
+    int End(PHCompositeNode* topNode) override;
 
     void set_input_cluster_node(const std::string& n) { m_input_cluster_node = n; }
     void set_output_photon_node(const std::string& n) { m_output_photon_node = n; }
@@ -72,39 +73,87 @@ class PhotonClusterBuilder : public SubsysReco
   std::vector<int> find_closest_hcal_tower(float eta, float phi, RawTowerGeomContainer* geom, TowerInfoContainer* towerContainer, float vertex_z, bool isihcal);
   double deltaR(double eta1, double phi1, double eta2, double phi2);
   float calculate_layer_et(float seed_eta, float seed_phi, float radius, TowerInfoContainer* towerContainer, RawTowerGeomContainer* geomContainer, RawTowerDefs::CalorimeterId calo_id, float vertex_z);
-  bool m_do_bdt{false};
+    bool m_do_bdt{false};
 
-    std::string m_input_cluster_node{"CLUSTERINFO_CEMC"};
-    std::string m_output_photon_node{"PHOTONCLUSTER_CEMC"};
-    float m_min_cluster_et{8.0f};
-    float m_shape_min_tower_E{0.070f};
-    std::string m_bdt_model_file{"myBDT_5.root"};
-      std::vector<std::string> m_bdt_feature_list;
-      float m_vertex{std::numeric_limits<float>::quiet_NaN()};
-      bool m_use_vz_cut{true};
-      float m_vz_cut_cm{30.0f};
+      struct AuditSnapshot
+      {
+        unsigned long long evt_seen = 0;
+        unsigned long long evt_missing_rawclusters = 0;
+        unsigned long long evt_vertex_from_mbd = 0;
+        unsigned long long evt_vertex_from_global = 0;
+        unsigned long long evt_no_finite_vertex = 0;
+        unsigned long long evt_skip_vz = 0;
+        unsigned long long evt_zero_input_clusters = 0;
+        unsigned long long evt_zero_pass_et_clusters = 0;
+        unsigned long long evt_zero_built_after_pass_et = 0;
+        unsigned long long evt_built_photons = 0;
+        unsigned long long clusters_seen_total = 0;
+        unsigned long long clusters_pass_et_total = 0;
+        unsigned long long photons_built_total = 0;
+        unsigned long long mean_time_default_total = 0;
+        unsigned long long nonfinite_eta_total = 0;
+        unsigned long long nonfinite_phi_total = 0;
+        unsigned long long nonfinite_et_total = 0;
+      };
 
-      RawClusterContainer* m_rawclusters{nullptr};
-    RawClusterContainer* m_photon_container{nullptr};
-    std::string m_emc_tower_node{"TOWERINFO_CALIB_CEMC"};
-    TowerInfoContainer* m_emc_tower_container{nullptr};
-    RawTowerGeomContainer* m_geomEM{nullptr};
-    std::string m_ihcal_tower_node{"TOWERINFO_CALIB_HCALIN"};
-    TowerInfoContainer* m_ihcal_tower_container{nullptr};
-    RawTowerGeomContainer* m_geomIH{nullptr};
-    std::string m_ohcal_tower_node{"TOWERINFO_CALIB_HCALOUT"};
-    TowerInfoContainer* m_ohcal_tower_container{nullptr};
-    RawTowerGeomContainer* m_geomOH{nullptr};
+      AuditSnapshot make_audit_snapshot() const;
+      void print_audit_summary(bool force);
 
-    // Au+Au UE-subtracted tower nodes (used ONLY for isolation sums)
-    bool m_is_auau{false};
-    std::string m_tower_node_prefix{"TOWERINFO_CALIB"};
-    TowerInfoContainer* m_emc_tower_container_iso{nullptr};
-    RawTowerGeomContainer* m_geomEM_iso{nullptr};  // retowered CEMC uses HCALIN geometry
-    TowerInfoContainer* m_ihcal_tower_container_iso{nullptr};
-    TowerInfoContainer* m_ohcal_tower_container_iso{nullptr};
+      std::string m_input_cluster_node{"CLUSTERINFO_CEMC"};
+      std::string m_output_photon_node{"PHOTONCLUSTER_CEMC"};
+      float m_min_cluster_et{5.0f};
+      float m_shape_min_tower_E{0.070f};
+      std::string m_bdt_model_file{"myBDT_5.root"};
+        std::vector<std::string> m_bdt_feature_list;
+        float m_vertex{std::numeric_limits<float>::quiet_NaN()};
+        bool m_use_vz_cut{true};
+        float m_vz_cut_cm{30.0f};
 
-  std::unique_ptr<TMVA::Experimental::RBDT> m_bdt;
+        RawClusterContainer* m_rawclusters{nullptr};
+      RawClusterContainer* m_photon_container{nullptr};
+      std::string m_emc_tower_node{"TOWERINFO_CALIB_CEMC"};
+      TowerInfoContainer* m_emc_tower_container{nullptr};
+      RawTowerGeomContainer* m_geomEM{nullptr};
+      std::string m_ihcal_tower_node{"TOWERINFO_CALIB_HCALIN"};
+      TowerInfoContainer* m_ihcal_tower_container{nullptr};
+      RawTowerGeomContainer* m_geomIH{nullptr};
+      std::string m_ohcal_tower_node{"TOWERINFO_CALIB_HCALOUT"};
+      TowerInfoContainer* m_ohcal_tower_container{nullptr};
+      RawTowerGeomContainer* m_geomOH{nullptr};
+
+      // Au+Au UE-subtracted tower nodes (used ONLY for isolation sums)
+      bool m_is_auau{false};
+      std::string m_tower_node_prefix{"TOWERINFO_CALIB"};
+      TowerInfoContainer* m_emc_tower_container_iso{nullptr};
+      RawTowerGeomContainer* m_geomEM_iso{nullptr};  // retowered CEMC uses HCALIN geometry
+      TowerInfoContainer* m_ihcal_tower_container_iso{nullptr};
+      TowerInfoContainer* m_ohcal_tower_container_iso{nullptr};
+
+      bool m_iso_audit_mode{false};
+      int m_iso_audit_summary_every_events{1000};
+
+      unsigned long long m_evt_seen{0};
+      unsigned long long m_evt_missing_rawclusters{0};
+      unsigned long long m_evt_vertex_from_mbd{0};
+      unsigned long long m_evt_vertex_from_global{0};
+      unsigned long long m_evt_no_finite_vertex{0};
+      unsigned long long m_evt_skip_vz{0};
+      unsigned long long m_evt_zero_input_clusters{0};
+      unsigned long long m_evt_zero_pass_et_clusters{0};
+      unsigned long long m_evt_zero_built_after_pass_et{0};
+      unsigned long long m_evt_built_photons{0};
+
+      unsigned long long m_clusters_seen_total{0};
+      unsigned long long m_clusters_pass_et_total{0};
+      unsigned long long m_photons_built_total{0};
+      unsigned long long m_mean_time_default_total{0};
+      unsigned long long m_nonfinite_eta_total{0};
+      unsigned long long m_nonfinite_phi_total{0};
+      unsigned long long m_nonfinite_et_total{0};
+
+      AuditSnapshot m_audit_last_summary{};
+
+    std::unique_ptr<TMVA::Experimental::RBDT> m_bdt;
 };
 
 #endif  // CALORECO_PHOTONCLUSTERBUILDER_H

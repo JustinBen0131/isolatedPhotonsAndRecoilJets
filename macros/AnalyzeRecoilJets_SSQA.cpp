@@ -19,6 +19,14 @@ auto TagLabel = [&](const string& tag) -> string
   return tag;
 };
 
+auto TagFolder = [&](const string& tag) -> string
+{
+  if (tag == "pre") return "preselection";
+  if (tag == "tight") return "tight";
+  if (tag == "nonTight") return "nonTight";
+  return tag;
+};
+
 const vector<string> ppg12Tags = {"pre", "tight", "nonTight"};
 
 auto GetTH1FromTopDir = [&](TDirectory* topDir, const string& hname) -> TH1*
@@ -1246,24 +1254,27 @@ for (std::size_t ic = 0; ic < centBins.size(); ++ic)
     }
   }
 
-  for (int ipt = 0; ipt < kNPtBins; ++ipt)
-  {
-    const PtBin& pb = PtBins()[ipt];
-    const string ptOutDir = JoinPath(perCentralityOverlayBase, pb.folder);
-    EnsureDir(ptOutDir);
+    for (int ipt = 0; ipt < kNPtBins; ++ipt)
+      {
+        const PtBin& pb = PtBins()[ipt];
+        const string ptOutDir = JoinPath(perCentralityOverlayBase, pb.folder);
+        EnsureDir(ptOutDir);
 
-    for (const auto& tag : ppg12Tags)
-    {
-        DrawSSOverlayTable3x5(
-          ptOutDir,
-          TString::Format("table3x5_SS_%s_overlayByCent.png", tag.c_str()).Data(),
-          tag,
-          false,
-          nullptr,
-          &pb
-        );
-     }
-  }
+        for (const auto& tag : ppg12Tags)
+        {
+            const string tagDir = JoinPath(ptOutDir, TagFolder(tag));
+            EnsureDir(tagDir);
+
+            DrawSSOverlayTable3x5(
+              tagDir,
+              TString::Format("table3x5_SS_%s_overlayByCent.png", tag.c_str()).Data(),
+              tag,
+              false,
+              nullptr,
+              &pb
+            );
+         }
+      }
 
   // Per-variant 1x5 centrality-overlay tables (one PNG per variant per tag per pT bin)
   for (int ipt = 0; ipt < kNPtBins; ++ipt)
@@ -1299,6 +1310,16 @@ for (std::size_t ic = 0; ic < centBins.size(); ++ic)
           keepLegs1x5.reserve(1);
 
           bool anyPad1x5 = false;
+
+          struct VarOverlayInfo {
+            int ivar;
+            vector<TH1*> hists;
+            vector<string> labels;
+            double yMax;
+            TH1* hPP = nullptr;
+          };
+          vector<VarOverlayInfo> varInfos;
+          varInfos.reserve(ssVars.size());
 
           for (int ivar = 0; ivar < (int)ssVars.size(); ++ivar)
           {
@@ -1356,32 +1377,65 @@ for (std::size_t ic = 0; ic < centBins.size(); ++ic)
               continue;
             }
 
-            anyPad1x5 = true;
+              anyPad1x5 = true;
 
-            TH1* hFrame = hOverlays[0];
-            hFrame->GetXaxis()->SetTitle(vlabel.c_str());
-            hFrame->GetYaxis()->SetTitle("Unit Normalized");
-            hFrame->GetYaxis()->SetTitleOffset(1.45);
-            hFrame->GetYaxis()->SetTitleSize(0.050);
-            hFrame->GetYaxis()->SetLabelSize(0.040);
-            hFrame->SetMinimum(0.0);
-            hFrame->SetMaximum((yMax > 0.0) ? (yMax * 1.10) : 1.0);
-            hFrame->Draw("E1");
-            for (std::size_t ih = 1; ih < hOverlays.size(); ++ih) hOverlays[ih]->Draw("E1 same");
+              // -- pp reference (histogram line, no markers) --
+              TH1* hPPov = nullptr;
+              if (ppTop)
+              {
+                const string hPPName = "h_ss_" + var + "_" + tag + pb.suffix;
+                TH1* hPPsrc = GetTH1FromTopDir(ppTop, hPPName);
+                if (hPPsrc)
+                {
+                  hPPov = CloneNormalizeStyle(
+                    hPPsrc,
+                    TString::Format("ssQA_1x5_pp_%s_%s_%s_%s_%s",
+                      H.variant.c_str(), tag.c_str(), var.c_str(),
+                      pb.folder.c_str(), trigAA.c_str()).Data(),
+                    kGray + 1, 1
+                  );
+                  if (hPPov)
+                  {
+                    hPPov->SetMarkerSize(0);
+                    hPPov->SetLineWidth(3);
+                    hPPov->SetLineStyle(1);
+                    hPPov->SetFillStyle(0);
 
-            if (ivar == 0)
-            {
-                TLegend* leg = new TLegend(0.45, 0.56, 0.92, 0.81);
+                    for (int ib = 1; ib <= hPPov->GetNbinsX(); ++ib)
+                      yMax = std::max(yMax, (double)(hPPov->GetBinContent(ib) + hPPov->GetBinError(ib)));
+
+                    keepAlive1x5.push_back(hPPov);
+                  }
+                }
+              }
+
+              TH1* hFrame = hOverlays[0];
+              hFrame->GetXaxis()->SetTitle(vlabel.c_str());
+              hFrame->GetYaxis()->SetTitle("Unit Normalized");
+              hFrame->GetYaxis()->SetTitleOffset(1.45);
+              hFrame->GetYaxis()->SetTitleSize(0.050);
+              hFrame->GetYaxis()->SetLabelSize(0.040);
+              hFrame->SetMinimum(0.0);
+              hFrame->SetMaximum((yMax > 0.0) ? (yMax * 1.10) : 1.0);
+              hFrame->Draw("E1");
+              if (hPPov) hPPov->Draw("HIST same");
+              for (std::size_t ih = 1; ih < hOverlays.size(); ++ih) hOverlays[ih]->Draw("E1 same");
+              hOverlays[0]->Draw("E1 same");
+
+              if (ivar == 0)
+              {
+                TLegend* leg = new TLegend(0.45, 0.50, 0.92, 0.81);
                 leg->SetBorderSize(0);
                 leg->SetFillStyle(0);
                 leg->SetTextFont(42);
                 leg->SetTextSize(0.037);
                 leg->SetNColumns(3);
 
-              for (std::size_t ih = 0; ih < hOverlays.size(); ++ih)
-                leg->AddEntry(hOverlays[ih], entryLabels[ih].c_str(), "ep");
-              leg->Draw();
-              keepLegs1x5.push_back(leg);
+                if (hPPov) leg->AddEntry(hPPov, "pp", "l");
+                for (std::size_t ih = 0; ih < hOverlays.size(); ++ih)
+                    leg->AddEntry(hOverlays[ih], entryLabels[ih].c_str(), "ep");
+                leg->Draw();
+                keepLegs1x5.push_back(leg);
             }
 
             {
@@ -1395,25 +1449,102 @@ for (std::size_t ic = 0; ic < centBins.size(); ++ic)
                   vlabel.c_str(), TagLabel(tag).c_str(), H.label.c_str()).Data());
             }
 
-          {
-            TLatex tf;
-            tf.SetNDC(true);
-            tf.SetTextFont(42);
-            tf.SetTextAlign(32);
-            tf.SetTextSize(0.055);
-            tf.DrawLatex(0.92, 0.50,
-              TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
-          }
-          }
+              {
+                TLatex tf;
+                tf.SetNDC(true);
+                tf.SetTextFont(42);
+                tf.SetTextAlign(32);
+                tf.SetTextSize(0.055);
+                tf.DrawLatex(0.92, 0.50,
+                  TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
+              }
 
-          if (anyPad1x5)
-          {
-            SaveCanvas(c1x5, JoinPath(ptOutDir,
-              TString::Format("table1x5_SS_%s_centOverlay_%s.png", tag.c_str(), H.variant.c_str()).Data()));
-          }
+                if (!hOverlays.empty())
+                {
+                VarOverlayInfo vi;
+                vi.ivar = ivar;
+                vi.hists = hOverlays;
+                vi.labels = entryLabels;
+                vi.yMax = yMax;
+                vi.hPP = hPPov;
+                varInfos.push_back(vi);
+                }
+            }
 
-          for (TLegend* leg : keepLegs1x5) delete leg;
-          for (TH1* h : keepAlive1x5) delete h;
+            const string tagDir1x5 = JoinPath(ptOutDir, TagFolder(tag));
+            EnsureDir(tagDir1x5);
+
+            if (anyPad1x5)
+            {
+              SaveCanvas(c1x5, JoinPath(tagDir1x5,
+                TString::Format("table1x5_SS_%s_centOverlay_%s.png", tag.c_str(), H.variant.c_str()).Data()));
+            }
+
+              // --- Individual per-variable centrality overlay PNGs ---
+              for (const auto& vi : varInfos)
+              {
+                const std::string& var   = ssVars[vi.ivar].var;
+                const std::string& vlabel = ssVars[vi.ivar].label;
+
+                  const string varDir = JoinPath(ptOutDir, var);
+                  const string varTagDir = JoinPath(varDir, TagFolder(tag));
+                  EnsureDir(varTagDir);
+
+                TCanvas cVar(
+                  TString::Format("c_ssQA_centOv_%s_%s_%s_%s_%s",
+                    var.c_str(), H.variant.c_str(), tag.c_str(),
+                    pb.folder.c_str(), trigAA.c_str()).Data(),
+                  "c_ssQA_centOv_single", 900, 700
+                );
+                ApplyCanvasMargins1D(cVar);
+                cVar.cd();
+
+                TH1* hFrame = vi.hists[0];
+                hFrame->GetXaxis()->SetTitle(vlabel.c_str());
+                hFrame->GetYaxis()->SetTitle("Unit Normalized");
+                hFrame->GetYaxis()->SetTitleOffset(1.15);
+                hFrame->SetMinimum(0.0);
+                hFrame->SetMaximum((vi.yMax > 0.0) ? (vi.yMax * 1.25) : 1.0);
+                hFrame->Draw("E1");
+                if (vi.hPP) vi.hPP->Draw("HIST same");
+                for (std::size_t ih = 1; ih < vi.hists.size(); ++ih)
+                    vi.hists[ih]->Draw("E1 same");
+                vi.hists[0]->Draw("E1 same");
+
+                TLegend legVar(0.56, 0.58, 0.92, 0.88);
+                legVar.SetBorderSize(0);
+                legVar.SetFillStyle(0);
+                legVar.SetTextFont(42);
+                legVar.SetTextSize(0.032);
+                if (vi.hPP) legVar.AddEntry(vi.hPP, "pp", "l");
+                for (std::size_t ih = 0; ih < vi.hists.size(); ++ih)
+                    legVar.AddEntry(vi.hists[ih], vi.labels[ih].c_str(), "ep");
+                legVar.Draw();
+
+                TLatex tVar;
+                tVar.SetNDC(true);
+                tVar.SetTextFont(42);
+                tVar.SetTextAlign(23);
+                tVar.SetTextSize(0.042);
+                tVar.DrawLatex(0.50, 0.955,
+                  TString::Format("%s centrality overlay, %s, %s",
+                    vlabel.c_str(), TagLabel(tag).c_str(), H.label.c_str()).Data());
+
+                TLatex tPt;
+                tPt.SetNDC(true);
+                tPt.SetTextFont(42);
+                tPt.SetTextAlign(13);
+                tPt.SetTextSize(0.034);
+                tPt.DrawLatex(0.16, 0.88,
+                  TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
+
+                  SaveCanvas(cVar, JoinPath(varTagDir,
+                    TString::Format("centOverlay_%s_%s_%s.png",
+                      var.c_str(), tag.c_str(), H.variant.c_str()).Data()));
+              }
+
+              for (TLegend* leg : keepLegs1x5) delete leg;
+              for (TH1* h : keepAlive1x5) delete h;
       }
     }
   }

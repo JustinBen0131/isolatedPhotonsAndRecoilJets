@@ -12652,6 +12652,7 @@ void RecoilJets::initIsolationAudit()
   m_isoAuditStopReason.clear();
 
   m_isoAuditTargetPerCent = 200;
+  m_isoAuditRequiredCentBins = 0;
   m_isoAuditProgressEveryEvents = 1;
   m_isoAuditSkipSummaryEveryEvents = 1000;
   m_isoAuditExemplarsPerCell = 3;
@@ -12676,6 +12677,12 @@ void RecoilJets::initIsolationAudit()
   {
     const int v = std::atoi(env);
     if (v > 0) m_isoAuditTargetPerCent = v;
+  }
+
+  if (const char* env = std::getenv("RJ_ISO_AUDIT_REQUIRED_CENT_BINS"))
+  {
+    const int v = std::atoi(env);
+    if (v > 0) m_isoAuditRequiredCentBins = v;
   }
 
   if (const char* env = std::getenv("RJ_ISO_AUDIT_PROGRESS_EVERY_EVENTS"))
@@ -12742,7 +12749,12 @@ bool RecoilJets::isolationAuditTargetsMet() const
 {
   if (!m_isoAuditMode || m_isoAuditCells.empty()) return false;
 
-  for (std::size_t ic = 0; ic < m_isoAuditCells.size(); ++ic)
+  const std::size_t requiredCentBins =
+    (m_isoAuditRequiredCentBins > 0)
+      ? std::min<std::size_t>(static_cast<std::size_t>(m_isoAuditRequiredCentBins), m_isoAuditCells.size())
+      : m_isoAuditCells.size();
+
+  for (std::size_t ic = 0; ic < requiredCentBins; ++ic)
   {
     unsigned long long nInclusive = 0;
     for (const auto& cell : m_isoAuditCells[ic]) nInclusive += cell.n_inclusive;
@@ -12769,13 +12781,18 @@ void RecoilJets::printIsolationAuditProgress(bool force) const
 
   unsigned long long nDone = 0;
   const unsigned long long target = static_cast<unsigned long long>(m_isoAuditTargetPerCent);
+  const std::size_t requiredCentBins =
+    (m_isoAuditRequiredCentBins > 0)
+      ? std::min<std::size_t>(static_cast<std::size_t>(m_isoAuditRequiredCentBins), m_isoAuditCells.size())
+      : m_isoAuditCells.size();
 
   std::ostringstream os;
   os << "[IsolationAudit][progress]"
      << " evt=" << event_count
      << " accepted=" << m_bk.evt_accepted
      << " photonLoop=" << m_isoAuditFlowGlobal.events_reaching_photon_loop
-     << " target/cent=" << m_isoAuditTargetPerCent;
+     << " target/cent=" << m_isoAuditTargetPerCent
+     << " requiredCentBins=" << requiredCentBins;
 
   for (std::size_t ic = 0; ic < m_isoAuditCells.size(); ++ic)
   {
@@ -12783,14 +12800,14 @@ void RecoilJets::printIsolationAuditProgress(bool force) const
     for (const auto& cell : m_isoAuditCells[ic]) nInclusive += cell.n_inclusive;
 
     const unsigned long long nLeft = (nInclusive >= target ? 0ULL : (target - nInclusive));
-    if (nLeft == 0ULL) ++nDone;
+    if (ic < requiredCentBins && nLeft == 0ULL) ++nDone;
 
     os << " | " << isoAuditCentLabel(static_cast<int>(ic))
        << ": " << nInclusive << "/" << target
        << " (" << nLeft << " left)";
   }
 
-  os << " | done=" << nDone << "/" << m_isoAuditCells.size();
+  os << " | done=" << nDone << "/" << requiredCentBins;
 
   std::cout << CLR_CYAN << os.str() << CLR_RESET << std::endl;
 }
@@ -12895,15 +12912,23 @@ void RecoilJets::printIsolationAuditSkipSummary(bool force)
             << std::endl;
 
   std::cout << "  cumulative: seen=" << cur.pho_total
-            << " nonFiniteKin=" << cur.nonFiniteKinematics
-            << " pt<5=" << cur.pho_early_E
-            << " failEta=" << cur.pho_eta_fail
-            << " outPtBin=" << cur.pho_etbin_out
-            << " outsideAuditCent=" << cur.outsideConfiguredCentrality
-            << " enteredInclusive=" << cur.enteredInclusive
-            << std::endl;
+              << " nonFiniteKin=" << cur.nonFiniteKinematics
+              << " pt<5=" << cur.pho_early_E
+              << " failEta=" << cur.pho_eta_fail
+              << " outPtBin=" << cur.pho_etbin_out
+              << " outsideAuditCent=" << cur.outsideConfiguredCentrality
+              << " enteredInclusive=" << cur.enteredInclusive
+              << std::endl;
 
-  m_isoAuditSkipLastSummary = cur;
+    if (diffULL(cur.noPhotonContainerEvents, prev.noPhotonContainerEvents) > 0ULL)
+    {
+      std::cout << "  note: when noPhotonContainer>0, the photon-side counters above stay at zero because "
+                << "PHOTONCLUSTER_CEMC was empty in RecoilJets for those events. "
+                << "Use the PhotonClusterBuilder [SUMMARY]/[FINAL] lines to see the upstream zero-photon causes."
+                << std::endl;
+    }
+
+    m_isoAuditSkipLastSummary = cur;
 }
 
 void RecoilJets::recordIsolationAuditInclusive(const IsoAuditSample& sample)
@@ -12964,13 +12989,19 @@ void RecoilJets::recordIsolationAuditInclusive(const IsoAuditSample& sample)
 
   if (!m_isoAuditTargetReached && isolationAuditTargetsMet())
   {
-    m_isoAuditTargetReached = true;
-    m_isoAuditStopEvent = event_count;
+      m_isoAuditTargetReached = true;
+      m_isoAuditStopEvent = event_count;
 
-    std::ostringstream os;
-    os << "inclusive target satisfied in every configured centrality bin (target="
-       << m_isoAuditTargetPerCent << ")";
-    m_isoAuditStopReason = os.str();
+      const std::size_t requiredCentBins =
+        (m_isoAuditRequiredCentBins > 0)
+          ? std::min<std::size_t>(static_cast<std::size_t>(m_isoAuditRequiredCentBins), m_isoAuditCells.size())
+          : m_isoAuditCells.size();
+
+      std::ostringstream os;
+      os << "inclusive target satisfied in first " << requiredCentBins
+         << " configured centrality bins (target="
+         << m_isoAuditTargetPerCent << ")";
+      m_isoAuditStopReason = os.str();
   }
 }
 

@@ -270,61 +270,6 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         return -1.0;
     };
     
-    std::vector<LoadedPair> pairs;
-    
-    TIter next(ds.file->GetListOfKeys());
-    while (TKey* key = dynamic_cast<TKey*>(next()))
-    {
-        const std::string dirKey = key->GetName();
-        if (dirKey.empty()) continue;
-        if (dirKey.find(baselineTag) == 0) continue;
-        
-        TH1* hProbe = getHist(dirKey);
-        if (!hProbe) continue;
-        
-        const std::string baselineKey = baselineTag + dirKey;
-        TH1* hBase = getHist(baselineKey);
-        if (!hBase)
-        {
-            cout << ANSI_BOLD_YEL
-            << "[WARN] Missing doNotScale baseline histogram for probe " << dirKey << "\n"
-            << "       Need: " << baselineKey << "/" << prefix << baselineKey << "\n"
-            << ANSI_RESET << "\n";
-            continue;
-        }
-        
-        const std::string basisKey = deduceBasisKey(dirKey);
-        if (basisKey.empty())
-        {
-            cout << ANSI_BOLD_YEL
-            << "[WARN] Could not deduce common baseline group for probe " << dirKey
-            << ANSI_RESET << "\n";
-            continue;
-        }
-        
-        LoadedPair P;
-        P.basisKey      = basisKey;
-        P.basisLabel    = basisLabelFromKey(basisKey);
-        P.groupFolder   = groupFolderFromBasis(basisKey);
-        P.probeKey      = dirKey;
-        P.probeLabel    = probeLabelFromKey(dirKey);
-        P.baselineKey   = baselineKey;
-        P.baselineLabel = TString::Format("Baseline raw %s", P.basisLabel.c_str()).Data();
-        P.coverageText  = coverageTextForProbe(dirKey);
-        P.nRunSpans     = runSpanCountForProbe(dirKey);
-        P.hProbe        = hProbe;
-        P.hBase         = hBase;
-        pairs.push_back(P);
-    }
-    
-    if (pairs.empty())
-    {
-        cout << ANSI_BOLD_YEL
-        << "[WARN] No pairwise doNotScale numerator/baseline histogram pairs found in " << ds.inFilePath
-        << ANSI_RESET << "\n";
-        return;
-    }
-    
     const std::vector<std::string> groupOrder = {
         "commonBasis_MBD_NandS_geq_1",
         "commonBasis_MBD_NandS_geq_1_vtx_lt_10",
@@ -341,6 +286,100 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         }
         return 999;
     };
+    
+    auto collectPairsFromFile = [&](TFile* inFile, const std::string& inFilePath, bool verboseWarnings) -> std::vector<LoadedPair>
+    {
+        std::vector<LoadedPair> outPairs;
+        if (!inFile) return outPairs;
+        
+        auto getHistFromFile = [&](const std::string& dirKey)->TH1*
+        {
+            TDirectory* dir = inFile->GetDirectory(dirKey.c_str());
+            if (!dir) return nullptr;
+            
+            const std::string hname = prefix + dirKey;
+            return dynamic_cast<TH1*>(dir->Get(hname.c_str()));
+        };
+        
+        TIter nextKey(inFile->GetListOfKeys());
+        while (TKey* key = dynamic_cast<TKey*>(nextKey()))
+        {
+            const std::string dirKey = key->GetName();
+            if (dirKey.empty()) continue;
+            if (dirKey.find(baselineTag) == 0) continue;
+            
+            TH1* hProbe = getHistFromFile(dirKey);
+            if (!hProbe) continue;
+            
+            const std::string baselineKey = baselineTag + dirKey;
+            TH1* hBase = getHistFromFile(baselineKey);
+            if (!hBase)
+            {
+                if (verboseWarnings)
+                {
+                    cout << ANSI_BOLD_YEL
+                    << "[WARN] Missing doNotScale baseline histogram for probe " << dirKey << "\n"
+                    << "       Need: " << baselineKey << "/" << prefix << baselineKey << "\n"
+                    << ANSI_RESET << "\n";
+                }
+                continue;
+            }
+            
+            const std::string basisKey = deduceBasisKey(dirKey);
+            if (basisKey.empty())
+            {
+                if (verboseWarnings)
+                {
+                    cout << ANSI_BOLD_YEL
+                    << "[WARN] Could not deduce common baseline group for probe " << dirKey
+                    << ANSI_RESET << "\n";
+                }
+                continue;
+            }
+            
+            LoadedPair P;
+            P.basisKey      = basisKey;
+            P.basisLabel    = basisLabelFromKey(basisKey);
+            P.groupFolder   = groupFolderFromBasis(basisKey);
+            P.probeKey      = dirKey;
+            P.probeLabel    = probeLabelFromKey(dirKey);
+            P.baselineKey   = baselineKey;
+            P.baselineLabel = TString::Format("Baseline raw %s", P.basisLabel.c_str()).Data();
+            P.coverageText  = coverageTextForProbe(dirKey);
+            P.nRunSpans     = runSpanCountForProbe(dirKey);
+            P.hProbe        = hProbe;
+            P.hBase         = hBase;
+            outPairs.push_back(P);
+        }
+        
+        std::sort(outPairs.begin(), outPairs.end(), [&](const LoadedPair& a, const LoadedPair& b)
+                  {
+            const int ra = groupRank(a.groupFolder);
+            const int rb = groupRank(b.groupFolder);
+            if (ra != rb) return ra < rb;
+            
+            const int ta = extractPhotonThresholdGeV(a.probeKey);
+            const int tb = extractPhotonThresholdGeV(b.probeKey);
+            if (ta != tb) return ta < tb;
+            
+            return a.probeKey < b.probeKey;
+        });
+        
+        if (outPairs.empty() && verboseWarnings)
+        {
+            cout << ANSI_BOLD_YEL
+            << "[WARN] No pairwise doNotScale numerator/baseline histogram pairs found in " << inFilePath
+            << ANSI_RESET << "\n";
+        }
+        
+        return outPairs;
+    };
+    
+    std::vector<LoadedPair> pairs = collectPairsFromFile(ds.file, ds.inFilePath, true);
+    if (pairs.empty())
+    {
+        return;
+    }
     
     std::sort(pairs.begin(), pairs.end(), [&](const LoadedPair& a, const LoadedPair& b)
               {
@@ -1141,6 +1180,359 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         for (auto* h : probeHists) delete h;
     };
     
+    struct PerRunTriggerAnaItem
+    {
+        std::string runLabel;
+        std::string filePath;
+    };
+    
+    auto filterPhoton10And12FromGroup = [&](const std::vector<LoadedPair>& input, const std::string& targetGroup) -> std::vector<LoadedPair>
+    {
+        std::vector<LoadedPair> out;
+        for (const auto& P : input)
+        {
+            if (P.groupFolder != targetGroup) continue;
+            
+            const int thr = extractPhotonThresholdGeV(P.probeKey);
+            if (thr == 10 || thr == 12) out.push_back(P);
+        }
+        
+        std::sort(out.begin(), out.end(), [&](const LoadedPair& a, const LoadedPair& b)
+                  {
+            const int ta = extractPhotonThresholdGeV(a.probeKey);
+            const int tb = extractPhotonThresholdGeV(b.probeKey);
+            if (ta != tb) return ta < tb;
+            return a.probeKey < b.probeKey;
+        });
+        
+        return out;
+    };
+    
+    auto drawCompactGroupMaxClusterOverlayPad = [&](const std::vector<LoadedPair>& loaded,
+                                                    const std::string& runLabel,
+                                                    std::vector<TObject*>& keepAlive)
+    {
+        if (!gPad) return;
+        
+        gPad->SetLeftMargin(0.14);
+        gPad->SetRightMargin(0.03);
+        gPad->SetBottomMargin(0.14);
+        gPad->SetTopMargin(0.10);
+        gPad->SetTicks(1,1);
+        gPad->SetLogy();
+        
+        if (loaded.empty())
+        {
+            TLatex t;
+            t.SetNDC(true);
+            t.SetTextFont(42);
+            t.SetTextAlign(13);
+            t.SetTextSize(0.090);
+            t.DrawLatex(0.16, 0.88, runLabel.c_str());
+            t.SetTextAlign(22);
+            t.SetTextSize(0.120);
+            t.DrawLatex(0.50, 0.50, "MISSING");
+            return;
+        }
+        
+        std::vector<TH1*> probeHists;
+        TH1* hBaseGroup = nullptr;
+        
+        for (const auto& P : loaded)
+        {
+            TH1* hB = CloneTH1(P.hBase,  TString::Format("hBase_compactOverlay_%s_%s",  P.probeKey.c_str(), runLabel.c_str()).Data());
+            TH1* hP = CloneTH1(P.hProbe, TString::Format("hProbe_compactOverlay_%s_%s", P.probeKey.c_str(), runLabel.c_str()).Data());
+            if (!hB || !hP)
+            {
+                if (hB) delete hB;
+                if (hP) delete hP;
+                continue;
+            }
+            
+            if (!hBaseGroup)
+            {
+                hBaseGroup = hB;
+                keepAlive.push_back(hBaseGroup);
+            }
+            else
+            {
+                delete hB;
+            }
+            
+            hP->SetLineColor(colorForProbe(P.probeKey));
+            hP->SetLineWidth(2);
+            probeHists.push_back(hP);
+            keepAlive.push_back(hP);
+        }
+        
+        if (!hBaseGroup || probeHists.empty())
+        {
+            TLatex t;
+            t.SetNDC(true);
+            t.SetTextFont(42);
+            t.SetTextAlign(13);
+            t.SetTextSize(0.090);
+            t.DrawLatex(0.16, 0.88, runLabel.c_str());
+            t.SetTextAlign(22);
+            t.SetTextSize(0.120);
+            t.DrawLatex(0.50, 0.50, "MISSING");
+            return;
+        }
+        
+        double ymax = hBaseGroup->GetMaximum();
+        for (auto* h : probeHists) ymax = std::max(ymax, h->GetMaximum());
+        
+        double minPos = SmallestPositiveBinContent(hBaseGroup);
+        for (auto* h : probeHists)
+        {
+            const double m = SmallestPositiveBinContent(h);
+            if (m > 0.0)
+            {
+                if (minPos > 0.0) minPos = std::min(minPos, m);
+                else              minPos = m;
+            }
+        }
+        
+        hBaseGroup->SetTitle("");
+        hBaseGroup->GetXaxis()->SetTitle("Max E [GeV]");
+        hBaseGroup->GetYaxis()->SetTitle("Counts");
+        hBaseGroup->GetXaxis()->SetTitleSize(0.075);
+        hBaseGroup->GetYaxis()->SetTitleSize(0.075);
+        hBaseGroup->GetXaxis()->SetLabelSize(0.060);
+        hBaseGroup->GetYaxis()->SetLabelSize(0.060);
+        hBaseGroup->GetYaxis()->SetTitleOffset(0.95);
+        hBaseGroup->GetXaxis()->SetRangeUser(0.0, 20.0);
+        hBaseGroup->SetMinimum((minPos > 0.0) ? (0.5 * minPos) : 1e-6);
+        hBaseGroup->SetMaximum((ymax > 0.0) ? (1.25 * ymax) : 1.0);
+        hBaseGroup->SetLineColor(kBlack);
+        hBaseGroup->SetLineWidth(2);
+        hBaseGroup->Draw("HIST");
+        
+        for (auto* h : probeHists) h->Draw("HIST SAME");
+        
+        TLatex t;
+        t.SetNDC(true);
+        t.SetTextFont(42);
+        t.SetTextAlign(13);
+        t.SetTextSize(0.090);
+        t.SetTextColor(kBlack);
+        t.DrawLatex(0.16, 0.88, runLabel.c_str());
+        
+        double yText = 0.76;
+        for (const auto& P : loaded)
+        {
+            const int thr = extractPhotonThresholdGeV(P.probeKey);
+            t.SetTextColor(colorForProbe(P.probeKey));
+            t.SetTextSize(0.075);
+            t.DrawLatex(0.16, yText, TString::Format("Photon %d", thr).Data());
+            yText -= 0.08;
+        }
+        t.SetTextColor(kBlack);
+    };
+    
+    auto drawCompactGroupTurnOnOverlayPad = [&](const std::vector<LoadedPair>& loaded,
+                                                const std::string& runLabel,
+                                                std::vector<TObject*>& keepAlive)
+    {
+        if (!gPad) return;
+        
+        gPad->SetLeftMargin(0.14);
+        gPad->SetRightMargin(0.03);
+        gPad->SetBottomMargin(0.14);
+        gPad->SetTopMargin(0.10);
+        gPad->SetTicks(1,1);
+        
+        if (loaded.empty())
+        {
+            TLatex t;
+            t.SetNDC(true);
+            t.SetTextFont(42);
+            t.SetTextAlign(13);
+            t.SetTextSize(0.090);
+            t.DrawLatex(0.16, 0.88, runLabel.c_str());
+            t.SetTextAlign(22);
+            t.SetTextSize(0.120);
+            t.DrawLatex(0.50, 0.50, "MISSING");
+            return;
+        }
+        
+        std::vector<TH1*> ratioHists;
+        for (const auto& P : loaded)
+        {
+            TH1* hBase = CloneTH1(P.hBase,  TString::Format("hBase_compactTurnOn_%s_%s",  P.probeKey.c_str(), runLabel.c_str()).Data());
+            TH1* hProbe = CloneTH1(P.hProbe, TString::Format("hProbe_compactTurnOn_%s_%s", P.probeKey.c_str(), runLabel.c_str()).Data());
+            if (!hBase || !hProbe)
+            {
+                if (hBase) delete hBase;
+                if (hProbe) delete hProbe;
+                continue;
+            }
+            
+            TH1* hRatio = CloneTH1(hProbe, TString::Format("hRatio_compactTurnOn_%s_%s", P.probeKey.c_str(), runLabel.c_str()).Data());
+            if (!hRatio)
+            {
+                delete hBase;
+                delete hProbe;
+                continue;
+            }
+            
+            EnsureSumw2(hBase);
+            EnsureSumw2(hProbe);
+            EnsureSumw2(hRatio);
+            hRatio->SetDirectory(nullptr);
+            hRatio->Divide(hProbe, hBase, 1.0, 1.0, "B");
+            hRatio->SetMarkerStyle(markerForProbe(P.probeKey));
+            hRatio->SetMarkerSize(0.70);
+            hRatio->SetMarkerColor(colorForProbe(P.probeKey));
+            hRatio->SetLineColor(colorForProbe(P.probeKey));
+            hRatio->SetLineWidth(2);
+            
+            keepAlive.push_back(hBase);
+            keepAlive.push_back(hProbe);
+            keepAlive.push_back(hRatio);
+            ratioHists.push_back(hRatio);
+        }
+        
+        if (ratioHists.empty())
+        {
+            TLatex t;
+            t.SetNDC(true);
+            t.SetTextFont(42);
+            t.SetTextAlign(13);
+            t.SetTextSize(0.090);
+            t.DrawLatex(0.16, 0.88, runLabel.c_str());
+            t.SetTextAlign(22);
+            t.SetTextSize(0.120);
+            t.DrawLatex(0.50, 0.50, "MISSING");
+            return;
+        }
+        
+        ratioHists[0]->SetTitle("");
+        ratioHists[0]->GetXaxis()->SetTitle("Max E [GeV]");
+        ratioHists[0]->GetYaxis()->SetTitle("Eff.");
+        ratioHists[0]->GetXaxis()->SetTitleSize(0.075);
+        ratioHists[0]->GetYaxis()->SetTitleSize(0.075);
+        ratioHists[0]->GetXaxis()->SetLabelSize(0.060);
+        ratioHists[0]->GetYaxis()->SetLabelSize(0.060);
+        ratioHists[0]->GetYaxis()->SetTitleOffset(0.95);
+        ratioHists[0]->GetXaxis()->SetRangeUser(0.0, 20.0);
+        ratioHists[0]->SetMinimum(0.0);
+        ratioHists[0]->SetMaximum(1.15);
+        ratioHists[0]->Draw("E1");
+        
+        for (std::size_t i = 1; i < ratioHists.size(); ++i)
+        {
+            ratioHists[i]->Draw("E1 SAME");
+        }
+        
+        TLine l1(0.0, 1.0, 20.0, 1.0);
+        l1.SetLineStyle(1);
+        l1.SetLineWidth(2);
+        l1.SetLineColor(kBlack);
+        l1.DrawClone("SAME");
+        
+        TLine l90(0.0, 0.90, 20.0, 0.90);
+        l90.SetLineStyle(3);
+        l90.SetLineWidth(2);
+        l90.SetLineColor(kGray+2);
+        l90.DrawClone("SAME");
+        
+        TLatex t;
+        t.SetNDC(true);
+        t.SetTextFont(42);
+        t.SetTextAlign(13);
+        t.SetTextSize(0.090);
+        t.SetTextColor(kBlack);
+        t.DrawLatex(0.16, 0.88, runLabel.c_str());
+        
+        double yText = 0.76;
+        for (const auto& P : loaded)
+        {
+            const int thr = extractPhotonThresholdGeV(P.probeKey);
+            t.SetTextColor(colorForProbe(P.probeKey));
+            t.SetTextSize(0.075);
+            t.DrawLatex(0.16, yText, TString::Format("Photon %d", thr).Data());
+            yText -= 0.08;
+        }
+        t.SetTextColor(kBlack);
+    };
+    
+    auto writePerRunTablePages = [&](const std::vector<PerRunTriggerAnaItem>& items,
+                                     const std::string& targetGroup,
+                                     const std::string& tableOutDir,
+                                     bool makeTurnOn)
+    {
+        if (items.empty()) return;
+        
+        EnsureDir(tableOutDir);
+        const std::size_t nPerPage = 25;
+        
+        for (std::size_t pageStart = 0, pageIdx = 0; pageStart < items.size(); pageStart += nPerPage, ++pageIdx)
+        {
+            TCanvas c(TString::Format("c_perRunTrigAna_%s_%zu",
+                                      makeTurnOn ? "turnOn" : "maxCluster", pageIdx + 1).Data(),
+                      "c_perRunTrigAna", 3000, 3000);
+            c.Divide(5, 5, 0.001, 0.001);
+            
+            std::vector<TObject*> keepAlive;
+            keepAlive.reserve(nPerPage * 8);
+            
+            for (std::size_t i = 0; i < nPerPage; ++i)
+            {
+                c.cd(static_cast<int>(i + 1));
+                
+                const std::size_t idx = pageStart + i;
+                if (idx >= items.size())
+                {
+                    gPad->SetTicks(1,1);
+                    TLatex t;
+                    t.SetNDC(true);
+                    t.SetTextFont(42);
+                    t.SetTextAlign(22);
+                    t.SetTextSize(0.120);
+                    t.DrawLatex(0.50, 0.50, "EMPTY");
+                    continue;
+                }
+                
+                const auto& item = items[idx];
+                TFile* fRun = TFile::Open(item.filePath.c_str(), "READ");
+                if (!fRun || fRun->IsZombie())
+                {
+                    if (fRun) { fRun->Close(); delete fRun; }
+                    TLatex t;
+                    t.SetNDC(true);
+                    t.SetTextFont(42);
+                    t.SetTextAlign(13);
+                    t.SetTextSize(0.090);
+                    t.DrawLatex(0.16, 0.88, item.runLabel.c_str());
+                    t.SetTextAlign(22);
+                    t.SetTextSize(0.110);
+                    t.DrawLatex(0.50, 0.50, "BAD FILE");
+                    continue;
+                }
+                
+                std::vector<LoadedPair> runPairs = collectPairsFromFile(fRun, item.filePath, false);
+                std::vector<LoadedPair> filtered = filterPhoton10And12FromGroup(runPairs, targetGroup);
+                
+                if (makeTurnOn) drawCompactGroupTurnOnOverlayPad(filtered, item.runLabel, keepAlive);
+                else            drawCompactGroupMaxClusterOverlayPad(filtered, item.runLabel, keepAlive);
+                
+                fRun->Close();
+                delete fRun;
+            }
+            
+            const std::string outPng = JoinPath(
+                tableOutDir,
+                TString::Format("%s_page%03zu.png",
+                                makeTurnOn ? "turnOnRunByRunTable" : "maxClusterOverlaysRunByRunTable",
+                                pageIdx + 1).Data());
+            SaveCanvas(c, outPng);
+            cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";
+            
+            for (auto* obj : keepAlive) delete obj;
+        }
+    };
+    
     std::set<std::string> writtenGroups;
     for (const auto& folder : groupOrder)
     {
@@ -1306,6 +1698,110 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
     }
     
     WriteTextFile(JoinPath(outDir, "summary_triggerQA_doNotScale.txt"), indexLines);
+    
+    if (generatePerRunTriggerAna && datasetBucket() == "auau")
+    {
+        const std::string targetGroup = "commonBasis_MBD_NS_geq_2_vtx_lt_150";
+        const std::string perRunInputDir = JoinPath(kInputBase + "/auau25/perRun", CfgTagWithUE());
+        const std::string perRunGroupOutDir = JoinPath(JoinPath(outDir, targetGroup), "perRun");
+        EnsureDir(perRunGroupOutDir);
+        
+        std::vector<PerRunTriggerAnaItem> perRunItems;
+        std::vector<std::string> perRunSummary;
+        perRunSummary.push_back("triggerQA doNotScale per-run summary");
+        perRunSummary.push_back(string("Combined input: ") + ds.inFilePath);
+        perRunSummary.push_back(string("Per-run input dir: ") + perRunInputDir);
+        perRunSummary.push_back(string("Target group: ") + targetGroup);
+        perRunSummary.push_back("Standalone outputs: hMaxClusterEnergy_groupOverlay.png and hMaxClusterEnergy_groupTurnOnOverlay.png");
+        perRunSummary.push_back("");
+        
+        void* dirp = gSystem->OpenDirectory(perRunInputDir.c_str());
+        if (!dirp)
+        {
+            perRunSummary.push_back(string("WARNING: could not open per-run directory: ") + perRunInputDir);
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] Could not open per-run triggerQA input directory: "
+                 << perRunInputDir
+                 << ANSI_RESET << "\n";
+        }
+        else
+        {
+            std::vector<PerRunTriggerAnaItem> discovered;
+            const char* entry = nullptr;
+            while ((entry = gSystem->GetDirEntry(dirp)))
+            {
+                const std::string fname = entry;
+                if (fname == "." || fname == "..") continue;
+                if (fname.rfind("chunkMerge_run_", 0) != 0) continue;
+                if (fname.size() <= std::string("chunkMerge_run_").size() + std::string(".root").size()) continue;
+                if (fname.substr(fname.size() - 5) != ".root") continue;
+                
+                const std::string runDigits = fname.substr(std::string("chunkMerge_run_").size(),
+                                                           fname.size() - std::string("chunkMerge_run_").size() - 5);
+                if (runDigits.empty()) continue;
+                
+                PerRunTriggerAnaItem item;
+                item.runLabel = runDigits;
+                item.filePath = JoinPath(perRunInputDir, fname);
+                discovered.push_back(item);
+            }
+            gSystem->FreeDirectory(dirp);
+            
+            std::sort(discovered.begin(), discovered.end(),
+                      [&](const PerRunTriggerAnaItem& a, const PerRunTriggerAnaItem& b)
+                      {
+                          return a.runLabel < b.runLabel;
+                      });
+            
+            for (const auto& item : discovered)
+            {
+                TFile* fRun = TFile::Open(item.filePath.c_str(), "READ");
+                if (!fRun || fRun->IsZombie())
+                {
+                    perRunSummary.push_back(string("SKIP ") + item.runLabel + " : could not open file");
+                    if (fRun) { fRun->Close(); delete fRun; }
+                    continue;
+                }
+                
+                std::vector<LoadedPair> runPairs = collectPairsFromFile(fRun, item.filePath, false);
+                std::vector<LoadedPair> filtered = filterPhoton10And12FromGroup(runPairs, targetGroup);
+                
+                if (filtered.empty())
+                {
+                    perRunSummary.push_back(string("SKIP ") + item.runLabel + " : no photon 10/12 doNotScale pairs found");
+                    fRun->Close();
+                    delete fRun;
+                    continue;
+                }
+                
+                const std::string runOutDir = JoinPath(perRunGroupOutDir, item.runLabel);
+                EnsureDir(runOutDir);
+                
+                drawGroupMaxClusterOverlay(filtered, runOutDir, "");
+                drawGroupTurnOnOverlay(filtered, runOutDir, "");
+                
+                perRunItems.push_back(item);
+                perRunSummary.push_back(string("OK ") + item.runLabel + " : " + item.filePath);
+                
+                fRun->Close();
+                delete fRun;
+            }
+        }
+        
+        if (!perRunItems.empty())
+        {
+            const std::string maxTableDir = JoinPath(perRunGroupOutDir, "maxClusterOverlaysRunByRunTables");
+            const std::string turnOnTableDir = JoinPath(perRunGroupOutDir, "turnOnRunByRunTables");
+            writePerRunTablePages(perRunItems, targetGroup, maxTableDir, false);
+            writePerRunTablePages(perRunItems, targetGroup, turnOnTableDir, true);
+        }
+        else
+        {
+            perRunSummary.push_back("No per-run files produced usable photon 10/12 common-basis overlays.");
+        }
+        
+        WriteTextFile(JoinPath(perRunGroupOutDir, "summary.txt"), perRunSummary);
+    }
     
     // -------------------------------------------------------------------
     // NEW: Run24pp vs Run25pp 95% efficiency turn-on point overlay

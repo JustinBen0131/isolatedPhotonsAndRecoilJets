@@ -1733,6 +1733,10 @@ case "$ACTION" in
     [[ "$ISO_PING_TARGET_PER_CENT" =~ ^[0-9]+$ ]] || { err "RJ_ISO_AUDIT_TARGET_PER_CENT must be a positive integer"; exit 2; }
     (( ISO_PING_TARGET_PER_CENT > 0 )) || { err "RJ_ISO_AUDIT_TARGET_PER_CENT must be > 0"; exit 2; }
 
+    ISO_PING_REQUIRED_CENT_BINS="${RJ_ISO_AUDIT_REQUIRED_CENT_BINS:-3}"
+    [[ "$ISO_PING_REQUIRED_CENT_BINS" =~ ^[0-9]+$ ]] || { err "RJ_ISO_AUDIT_REQUIRED_CENT_BINS must be a positive integer"; exit 2; }
+    (( ISO_PING_REQUIRED_CENT_BINS > 0 )) || { err "RJ_ISO_AUDIT_REQUIRED_CENT_BINS must be > 0"; exit 2; }
+
     ISO_PING_TRIGGER_BIT=22
     ISO_PING_TRIGGER_KEY="photon_10_plus_MBD_NS_geq_2_vtx_lt_150"
 
@@ -1837,6 +1841,7 @@ case "$ACTION" in
     say "  YAML override   : ${yaml_override}"
     say "  path class      : ${selected_uepipe}"
     say "  target / cent   : ${ISO_PING_TARGET_PER_CENT}"
+    say "  required bins   : first ${ISO_PING_REQUIRED_CENT_BINS}"
     say "  combined list   : ${combined}"
     say "  output dir      : ${local_dest}"
     say "Invoking wrapper locally…"
@@ -1847,6 +1852,7 @@ case "$ACTION" in
     RJ_CLUSTER_UEPIPELINE="$selected_uepipe" \
     RJ_ISO_AUDIT_MODE="1" \
     RJ_ISO_AUDIT_TARGET_PER_CENT="$ISO_PING_TARGET_PER_CENT" \
+    RJ_ISO_AUDIT_REQUIRED_CENT_BINS="$ISO_PING_REQUIRED_CENT_BINS" \
     RJ_ISO_AUDIT_DATASET_TOKEN="$TAG" \
     RJ_ISO_AUDIT_SELECTED_RUN="$r8" \
     RJ_ISO_AUDIT_CHUNK_SPAN="$chunk_span" \

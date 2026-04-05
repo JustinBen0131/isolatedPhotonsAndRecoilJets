@@ -1948,6 +1948,340 @@ namespace ARJ
       }
 
           // ===================================================================
+          // Embedded SIM statistics diagnostic
+          //   Opens individual embeddedPhoton10 / embeddedPhoton20 ROOT files,
+          //   reads counting histograms, prints a multi-layer funnel table
+          //   showing where statistics die.
+          // ===================================================================
+          void RunEmbeddedSimStatsDiagnostic()
+          {
+            cout << ANSI_BOLD_CYN
+                 << "\n================================================================\n"
+                 << " EMBEDDED SIM STATISTICS DIAGNOSTIC\n"
+                 << " (individual samples, active UE variant: " << kAA_UEVariant << ")\n"
+                 << "================================================================\n"
+                 << ANSI_RESET;
+
+            const auto& centBins = CentBins();
+            const auto& ptBins   = PtBins();
+
+            struct SampleDef { string tag; string label; };
+            const vector<SampleDef> samples = {
+              {"embeddedPhoton10", "embPhoton10"},
+              {"embeddedPhoton20", "embPhoton20"}
+            };
+
+            // Helper: get integral (all bins incl overflow), -1 if missing
+            auto GetN = [](TDirectory* d, const string& hname) -> int
+            {
+              if (!d) return -1;
+              TH1* h = dynamic_cast<TH1*>(d->Get(hname.c_str()));
+              if (!h) return -1;
+              return (int)h->Integral(0, h->GetNbinsX() + 1);
+            };
+
+            auto GetN2 = [](TDirectory* d, const string& hname) -> int
+            {
+              if (!d) return -1;
+              TH2* h = dynamic_cast<TH2*>(d->Get(hname.c_str()));
+              if (!h) return -1;
+              return (int)h->Integral();
+            };
+
+            auto FmtN = [](int n) -> string
+            {
+              if (n < 0) return "   -";
+              char buf[16];
+              std::snprintf(buf, sizeof(buf), "%4d", n);
+              return string(buf);
+            };
+
+            for (const auto& sample : samples)
+            {
+              const string fpath = InputSimEmbeddedSample(sample.tag, kAA_UEVariant);
+
+              cout << ANSI_BOLD_YEL
+                   << "\n--- Sample: " << sample.label
+                   << "  (UE: " << kAA_UEVariant << ") ---\n"
+                   << ANSI_RESET
+                   << "  File: " << fpath << "\n";
+
+              TFile* f = TFile::Open(fpath.c_str(), "READ");
+              if (!f || f->IsZombie())
+              {
+                cout << ANSI_BOLD_RED << "  [SKIP] Cannot open file.\n" << ANSI_RESET;
+                if (f) { f->Close(); delete f; }
+                continue;
+              }
+
+              TDirectory* top = f->GetDirectory(kDirSIM.c_str());
+              if (!top) { top = f; }
+
+              // ============= LAYER 1: Global event counts =============
+              const int nTotal = GetN(top, "cnt_SIM");
+
+              cout << ANSI_BOLD_CYN << "\n  [Layer 1] Global event counts\n" << ANSI_RESET;
+              cout << "  cnt_SIM (total generated): " << nTotal << "\n";
+              cout << "  " << std::setw(12) << std::left << "Centrality"
+                   << std::setw(12) << std::right << "Events" << "\n";
+              cout << "  " << string(24, '-') << "\n";
+
+              for (const auto& cb : centBins)
+              {
+                int nC = GetN(top, "h_HT_r04" + cb.suffix);
+                cout << "  " << std::setw(12) << std::left << (cb.label + "%")
+                     << std::setw(12) << std::right << (nC >= 0 ? std::to_string(nC) : "-") << "\n";
+              }
+
+              // ============= LAYER 2: Photon candidate funnel =============
+              cout << ANSI_BOLD_CYN << "\n  [Layer 2] Photon candidate funnel (per centrality × pT)\n" << ANSI_RESET;
+
+              for (const auto& cb : centBins)
+              {
+                cout << "\n  Centrality " << cb.lo << "-" << cb.hi << "%:\n";
+                cout << "  " << std::setw(8) << std::left << "pT"
+                     << std::setw(7) << std::right << "Presel"
+                     << std::setw(7) << "Tight"
+                     << std::setw(7) << "NTight"
+                     << std::setw(6) << "A"
+                     << std::setw(6) << "B"
+                     << std::setw(6) << "C"
+                     << std::setw(6) << "D"
+                     << std::setw(7) << "xJ_r04"
+                     << std::setw(7) << "xJ_r02"
+                     << "\n";
+                cout << "  " << string(62, '-') << "\n";
+
+                for (const auto& pb : ptBins)
+                {
+                  const string s = pb.suffix + cb.suffix;
+                  cout << "  " << std::setw(8) << std::left << pb.label
+                       << FmtN(GetN(top, "h_Eiso" + s))
+                       << "  " << FmtN(GetN(top, "h_Eiso_tight" + s))
+                       << "  " << FmtN(GetN(top, "h_Eiso_nonTight" + s))
+                       << " " << FmtN(GetN(top, "h_Eiso_ABCD_A" + s))
+                       << " " << FmtN(GetN(top, "h_Eiso_ABCD_B" + s))
+                       << " " << FmtN(GetN(top, "h_Eiso_ABCD_C" + s))
+                       << " " << FmtN(GetN(top, "h_Eiso_ABCD_D" + s))
+                       << "  " << FmtN(GetN(top, "h_xJ_r04" + s))
+                       << "  " << FmtN(GetN(top, "h_xJ_r02" + s))
+                       << "\n";
+                }
+              }
+
+              // Also print inclusive (no cent cut) row
+              cout << "\n  Inclusive (no centrality cut):\n";
+              cout << "  " << std::setw(8) << std::left << "pT"
+                   << std::setw(7) << std::right << "Presel"
+                   << std::setw(7) << "Tight"
+                   << std::setw(7) << "NTight"
+                   << "\n";
+              cout << "  " << string(30, '-') << "\n";
+              for (const auto& pb : ptBins)
+              {
+                cout << "  " << std::setw(8) << std::left << pb.label
+                     << FmtN(GetN(top, "h_Eiso" + pb.suffix))
+                     << "  " << FmtN(GetN(top, "h_Eiso_tight" + pb.suffix))
+                     << "  " << FmtN(GetN(top, "h_Eiso_nonTight" + pb.suffix))
+                     << "\n";
+              }
+
+              // ============= LAYER 3: Unfolding response matrix population =============
+              cout << ANSI_BOLD_CYN << "\n  [Layer 3] Unfolding response matrix entries\n" << ANSI_RESET;
+
+              const vector<string> rKeys = {"r02", "r04"};
+
+              for (const auto& rKey : rKeys)
+              {
+                cout << "\n  Jet radius: " << rKey << "\n";
+                cout << "  " << std::setw(12) << std::left << "Cent"
+                     << std::setw(10) << std::right << "Truth"
+                     << std::setw(10) << "Reco"
+                     << std::setw(10) << "JEffDen"
+                     << std::setw(10) << "JEffNum"
+                     << std::setw(10) << "Misses"
+                     << std::setw(10) << "Fakes"
+                     << std::setw(10) << "TrPho"
+                     << std::setw(10) << "TrMiss"
+                     << std::setw(10) << "RcFake"
+                     << "\n";
+                cout << "  " << string(102, '-') << "\n";
+
+                // Inclusive row
+                {
+                  auto I = [&](const string& base) { return GetN2(top, base + "_" + rKey); };
+                  auto I1 = [&](const string& base) { return GetN(top, base); };
+                  cout << "  " << std::setw(12) << std::left << "Inclusive"
+                       << std::setw(10) << std::right << I("h2_unfoldTruth_pTgamma_xJ_incl")
+                       << std::setw(10) << I("h2_unfoldReco_pTgamma_xJ_incl")
+                       << std::setw(10) << I("h2_unfoldJetEffDen_pTgamma_xJ_incl")
+                       << std::setw(10) << I("h2_unfoldJetEffNum_pTgamma_xJ_incl")
+                       << std::setw(10) << I("h2_unfoldTruthMisses_pTgamma_xJ_incl")
+                       << std::setw(10) << I("h2_unfoldRecoFakes_pTgamma_xJ_incl")
+                       << std::setw(10) << I1("h_unfoldTruthPho_pTgamma")
+                       << std::setw(10) << I1("h_unfoldTruthPhoMisses_pTgamma")
+                       << std::setw(10) << I1("h_unfoldRecoPhoFakes_pTgamma")
+                       << "\n";
+                }
+
+                // Per centrality rows
+                for (const auto& cb : centBins)
+                {
+                  auto I = [&](const string& base) { return GetN2(top, base + "_" + rKey + cb.suffix); };
+                  auto I1 = [&](const string& base) { return GetN(top, base + cb.suffix); };
+                  cout << "  " << std::setw(12) << std::left << (cb.label + "%")
+                       << std::setw(10) << std::right << I("h2_unfoldTruth_pTgamma_xJ_incl")
+                       << std::setw(10) << I("h2_unfoldReco_pTgamma_xJ_incl")
+                       << std::setw(10) << I("h2_unfoldJetEffDen_pTgamma_xJ_incl")
+                       << std::setw(10) << I("h2_unfoldJetEffNum_pTgamma_xJ_incl")
+                       << std::setw(10) << I("h2_unfoldTruthMisses_pTgamma_xJ_incl")
+                       << std::setw(10) << I("h2_unfoldRecoFakes_pTgamma_xJ_incl")
+                       << std::setw(10) << I1("h_unfoldTruthPho_pTgamma")
+                       << std::setw(10) << I1("h_unfoldTruthPhoMisses_pTgamma")
+                       << std::setw(10) << I1("h_unfoldRecoPhoFakes_pTgamma")
+                       << "\n";
+                }
+              }
+
+              // ============= LAYER 4: Truth-signal ABCD leakage =============
+              cout << ANSI_BOLD_CYN << "\n  [Layer 4] Truth-signal → reco ABCD leakage (h_sigABCD_MC)\n" << ANSI_RESET;
+
+              bool anyLeakage = false;
+              for (const auto& cb : centBins)
+              {
+                for (const auto& pb : ptBins)
+                {
+                  const string hname = "h_sigABCD_MC" + pb.suffix + cb.suffix;
+                  TH1* h = dynamic_cast<TH1*>(top->Get(hname.c_str()));
+                  if (!h || h->Integral() <= 0) continue;
+
+                  if (!anyLeakage)
+                  {
+                    cout << "  " << std::setw(8) << std::left << "pT"
+                         << std::setw(10) << "Cent"
+                         << std::setw(8) << std::right << "A"
+                         << std::setw(8) << "B"
+                         << std::setw(8) << "C"
+                         << std::setw(8) << "D"
+                         << std::setw(8) << "Total"
+                         << "\n";
+                    cout << "  " << string(50, '-') << "\n";
+                    anyLeakage = true;
+                  }
+
+                  cout << "  " << std::setw(8) << std::left << pb.label
+                       << std::setw(10) << std::left << (cb.label + "%");
+                  for (int bin = 1; bin <= 4; ++bin)
+                    cout << std::setw(8) << std::right << (int)h->GetBinContent(bin);
+                  cout << std::setw(8) << std::right << (int)h->Integral() << "\n";
+                }
+              }
+              if (!anyLeakage)
+                cout << "  (no sigABCD_MC histograms with entries found)\n";
+
+              // ============= BOTTOM LINE =============
+              cout << ANSI_BOLD_CYN
+                   << "\n  [Summary] " << sample.label << ":\n"
+                   << ANSI_RESET
+                   << "  Total generated events (cnt_SIM): " << nTotal << "\n";
+
+              // Quick totals across all centrality bins for lowest pT
+              if (!ptBins.empty() && !centBins.empty())
+              {
+                const auto& pb0 = ptBins[0];
+                int sumPresel = 0, sumTight = 0, sumXJ = 0;
+                for (const auto& cb : centBins)
+                {
+                  const string s = pb0.suffix + cb.suffix;
+                  int n;
+                  n = GetN(top, "h_Eiso" + s);        if (n > 0) sumPresel += n;
+                  n = GetN(top, "h_Eiso_tight" + s);   if (n > 0) sumTight  += n;
+                  n = GetN(top, "h_xJ_r04" + s);       if (n > 0) sumXJ     += n;
+                }
+                cout << "  Lowest pT bin (" << pb0.label << " GeV) summed over all centrality:\n"
+                     << "    Presel=" << sumPresel
+                     << "  Tight+iso=" << sumTight
+                     << "  With recoil jet (r04)=" << sumXJ << "\n";
+              }
+
+              f->Close();
+              delete f;
+            }
+
+              // ============= DATA COMPARISON =============
+              cout << ANSI_BOLD_CYN
+                   << "\n--- DATA comparison (active variant: " << kAA_UEVariant << ") ---\n"
+                   << ANSI_RESET;
+
+              {
+                const string dfpath = InputAuAu(kAA_UEVariant);
+                cout << "  File: " << dfpath << "\n";
+
+                TFile* fD = TFile::Open(dfpath.c_str(), "READ");
+                if (!fD || fD->IsZombie())
+                {
+                  cout << ANSI_BOLD_RED << "  [SKIP] Cannot open data file.\n" << ANSI_RESET;
+                  if (fD) { fD->Close(); delete fD; }
+                }
+                else
+                {
+                  for (const auto& trigAA : kTriggersAuAu)
+                  {
+                    TDirectory* dTop = fD->GetDirectory(trigAA.c_str());
+                    if (!dTop) continue;
+
+                    const int nEvtData = GetN(dTop, "cnt_" + trigAA);
+
+                    cout << "\n  Trigger: " << trigAA
+                         << "  (total accepted events: " << nEvtData << ")\n";
+
+                    for (const auto& cb : centBins)
+                    {
+                      cout << "\n  DATA " << cb.label << "%:\n";
+                      cout << "  " << std::setw(8) << std::left << "pT"
+                           << std::setw(7) << std::right << "Presel"
+                           << std::setw(7) << "Tight"
+                           << std::setw(7) << "NTight"
+                           << std::setw(6) << "A"
+                           << std::setw(6) << "B"
+                           << std::setw(6) << "C"
+                           << std::setw(6) << "D"
+                           << std::setw(7) << "xJ_r04"
+                           << std::setw(7) << "xJ_r02"
+                           << "\n";
+                      cout << "  " << string(62, '-') << "\n";
+
+                      for (const auto& pb : ptBins)
+                      {
+                        const string s = pb.suffix + cb.suffix;
+                        cout << "  " << std::setw(8) << std::left << pb.label
+                             << FmtN(GetN(dTop, "h_Eiso" + s))
+                             << "  " << FmtN(GetN(dTop, "h_Eiso_tight" + s))
+                             << "  " << FmtN(GetN(dTop, "h_Eiso_nonTight" + s))
+                             << " " << FmtN(GetN(dTop, "h_Eiso_ABCD_A" + s))
+                             << " " << FmtN(GetN(dTop, "h_Eiso_ABCD_B" + s))
+                             << " " << FmtN(GetN(dTop, "h_Eiso_ABCD_C" + s))
+                             << " " << FmtN(GetN(dTop, "h_Eiso_ABCD_D" + s))
+                             << "  " << FmtN(GetN(dTop, "h_xJ_r04" + s))
+                             << "  " << FmtN(GetN(dTop, "h_xJ_r02" + s))
+                             << "\n";
+                      }
+                    }
+                  }
+                  fD->Close();
+                  delete fD;
+                }
+              }
+
+              cout << ANSI_BOLD_CYN
+                   << "\n================================================================\n"
+                   << " END EMBEDDED SIM STATISTICS DIAGNOSTIC\n"
+                   << "================================================================\n"
+                   << ANSI_RESET;
+            }
+
+
+          // ===================================================================
           // Au+Au DATA isolation QA: UE-subtraction variant overlay comparison
           //   Output:
           //     auau/<CfgTagAA>/<trigger>/<cent>/isoQA/UEcomparisons/<variant>/<pT>/
@@ -14684,6 +15018,15 @@ namespace ARJ
               cout << "    [WARN] Cannot save centrality plot (dataset not found/opened for trigger '" << trig << "')\n";
             }
           }
+      }
+
+      // ---------------------------------------------------------------------------
+      // Embedded SIM statistics diagnostic (before any analysis)
+      // ---------------------------------------------------------------------------
+      if (isSimAndDataAUAU)
+      {
+        cout << ANSI_BOLD_CYN << "\n[STEP 3b] Embedded SIM statistics diagnostic\n" << ANSI_RESET;
+        analysis::RunEmbeddedSimStatsDiagnostic();
       }
 
       // ---------------------------------------------------------------------------

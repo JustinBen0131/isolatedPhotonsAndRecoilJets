@@ -32,9 +32,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <iostream>
 #include <iomanip>   // NEW: for std::setw / std::setprecision in debug tables
 #include <set>
+#include <sstream>
 #include <stdexcept>
 
 namespace
@@ -174,8 +176,229 @@ int PhotonClusterBuilder::InitRun(PHCompositeNode* topNode)
       m_geomEM_iso = nullptr;
     }
 
+    m_iso_audit_mode = false;
+    if (const char* env = std::getenv("RJ_ISO_AUDIT_MODE"))
+    {
+      m_iso_audit_mode = (std::atoi(env) != 0);
+    }
+
+    m_iso_audit_summary_every_events = 1000;
+    if (const char* env_builder = std::getenv("RJ_ISO_AUDIT_BUILDER_SUMMARY_EVERY_EVENTS"))
+    {
+      const int v = std::atoi(env_builder);
+      if (v > 0) m_iso_audit_summary_every_events = v;
+    }
+    else if (const char* env_skip = std::getenv("RJ_ISO_AUDIT_SKIP_SUMMARY_EVERY_EVENTS"))
+    {
+      const int v = std::atoi(env_skip);
+      if (v > 0) m_iso_audit_summary_every_events = v;
+    }
+
+    m_evt_seen = 0;
+    m_evt_missing_rawclusters = 0;
+    m_evt_vertex_from_mbd = 0;
+    m_evt_vertex_from_global = 0;
+    m_evt_no_finite_vertex = 0;
+    m_evt_skip_vz = 0;
+    m_evt_zero_input_clusters = 0;
+    m_evt_zero_pass_et_clusters = 0;
+    m_evt_zero_built_after_pass_et = 0;
+    m_evt_built_photons = 0;
+    m_clusters_seen_total = 0;
+    m_clusters_pass_et_total = 0;
+    m_photons_built_total = 0;
+    m_mean_time_default_total = 0;
+    m_nonfinite_eta_total = 0;
+    m_nonfinite_phi_total = 0;
+    m_nonfinite_et_total = 0;
+    m_audit_last_summary = AuditSnapshot{};
+
+    if (m_iso_audit_mode)
+    {
+      std::cout << Name()
+                << ": [InitRun][audit]"
+                << " input=" << m_input_cluster_node
+                << " output=" << m_output_photon_node
+                << " ETthr=" << m_min_cluster_et
+                << " shapeTowerMinE=" << m_shape_min_tower_E
+                << " useVzCut=" << (m_use_vz_cut ? "true" : "false")
+                << " vzCut=" << m_vz_cut_cm
+                << " isAuAu=" << (m_is_auau ? "true" : "false")
+                << std::endl;
+
+      std::cout << Name()
+                << ": [InitRun][audit]"
+                << " towers(EM/IH/OH)="
+                << m_emc_tower_node << " / "
+                << m_ihcal_tower_node << " / "
+                << m_ohcal_tower_node
+                << " | towerPrefix=" << m_tower_node_prefix
+                << " | cadence=" << m_iso_audit_summary_every_events
+                << std::endl;
+    }
+
     CreateNodes(topNode);
+    m_audit_last_summary = make_audit_snapshot();
     return Fun4AllReturnCodes::EVENT_OK;
+}
+
+PhotonClusterBuilder::AuditSnapshot PhotonClusterBuilder::make_audit_snapshot() const
+{
+  AuditSnapshot s{};
+  s.evt_seen = m_evt_seen;
+  s.evt_missing_rawclusters = m_evt_missing_rawclusters;
+  s.evt_vertex_from_mbd = m_evt_vertex_from_mbd;
+  s.evt_vertex_from_global = m_evt_vertex_from_global;
+  s.evt_no_finite_vertex = m_evt_no_finite_vertex;
+  s.evt_skip_vz = m_evt_skip_vz;
+  s.evt_zero_input_clusters = m_evt_zero_input_clusters;
+  s.evt_zero_pass_et_clusters = m_evt_zero_pass_et_clusters;
+  s.evt_zero_built_after_pass_et = m_evt_zero_built_after_pass_et;
+  s.evt_built_photons = m_evt_built_photons;
+  s.clusters_seen_total = m_clusters_seen_total;
+  s.clusters_pass_et_total = m_clusters_pass_et_total;
+  s.photons_built_total = m_photons_built_total;
+  s.mean_time_default_total = m_mean_time_default_total;
+  s.nonfinite_eta_total = m_nonfinite_eta_total;
+  s.nonfinite_phi_total = m_nonfinite_phi_total;
+  s.nonfinite_et_total = m_nonfinite_et_total;
+  return s;
+}
+
+void PhotonClusterBuilder::print_audit_summary(bool force)
+{
+  if (!m_iso_audit_mode) return;
+
+  const unsigned long long cadence =
+      (m_iso_audit_summary_every_events > 0 ? static_cast<unsigned long long>(m_iso_audit_summary_every_events) : 1000ULL);
+
+  if (!force)
+  {
+    if (m_evt_seen == 0ULL) return;
+    if ((m_evt_seen % cadence) != 0ULL) return;
+  }
+
+  const AuditSnapshot cur = make_audit_snapshot();
+  const AuditSnapshot prev = m_audit_last_summary;
+
+  auto diff = [](unsigned long long a, unsigned long long b) -> unsigned long long
+  {
+    return (a >= b ? (a - b) : 0ULL);
+  };
+
+  const unsigned long long win_evt_seen = diff(cur.evt_seen, prev.evt_seen);
+  const unsigned long long win_evt_missing_rawclusters = diff(cur.evt_missing_rawclusters, prev.evt_missing_rawclusters);
+  const unsigned long long win_evt_vertex_from_mbd = diff(cur.evt_vertex_from_mbd, prev.evt_vertex_from_mbd);
+  const unsigned long long win_evt_vertex_from_global = diff(cur.evt_vertex_from_global, prev.evt_vertex_from_global);
+  const unsigned long long win_evt_no_finite_vertex = diff(cur.evt_no_finite_vertex, prev.evt_no_finite_vertex);
+  const unsigned long long win_evt_skip_vz = diff(cur.evt_skip_vz, prev.evt_skip_vz);
+  const unsigned long long win_evt_zero_input_clusters = diff(cur.evt_zero_input_clusters, prev.evt_zero_input_clusters);
+  const unsigned long long win_evt_zero_pass_et_clusters = diff(cur.evt_zero_pass_et_clusters, prev.evt_zero_pass_et_clusters);
+  const unsigned long long win_evt_zero_built_after_pass_et = diff(cur.evt_zero_built_after_pass_et, prev.evt_zero_built_after_pass_et);
+  const unsigned long long win_evt_built_photons = diff(cur.evt_built_photons, prev.evt_built_photons);
+
+  const unsigned long long win_clusters_seen_total = diff(cur.clusters_seen_total, prev.clusters_seen_total);
+  const unsigned long long win_clusters_pass_et_total = diff(cur.clusters_pass_et_total, prev.clusters_pass_et_total);
+  const unsigned long long win_photons_built_total = diff(cur.photons_built_total, prev.photons_built_total);
+  const unsigned long long win_mean_time_default_total = diff(cur.mean_time_default_total, prev.mean_time_default_total);
+  const unsigned long long win_nonfinite_eta_total = diff(cur.nonfinite_eta_total, prev.nonfinite_eta_total);
+  const unsigned long long win_nonfinite_phi_total = diff(cur.nonfinite_phi_total, prev.nonfinite_phi_total);
+  const unsigned long long win_nonfinite_et_total = diff(cur.nonfinite_et_total, prev.nonfinite_et_total);
+
+  const char* dominant_label = "none";
+  unsigned long long dominant_count = 0;
+
+  auto consider = [&](unsigned long long count, const char* label)
+  {
+    if (count > dominant_count)
+    {
+      dominant_count = count;
+      dominant_label = label;
+    }
+  };
+
+  consider(win_evt_no_finite_vertex, "noFiniteRecoVertex");
+  consider(win_evt_skip_vz, "skipVz");
+  consider(win_evt_zero_input_clusters, "zeroInputClusters");
+  consider(win_evt_zero_pass_et_clusters, "zeroPassET");
+  consider(win_evt_zero_built_after_pass_et, "zeroBuiltAfterPassET");
+
+  std::cout << Name()
+            << ": [" << (force ? "FINAL" : "SUMMARY") << "]"
+            << " evt=" << m_evt_seen
+            << " windowEvents=" << win_evt_seen
+            << " cadence=" << m_iso_audit_summary_every_events
+            << " | input=" << m_input_cluster_node
+            << " | output=" << m_output_photon_node
+            << " | ETthr=" << m_min_cluster_et
+            << " | vzCut=" << m_vz_cut_cm
+            << std::endl;
+
+  std::cout << "  Δevents:"
+            << " rawclustersMissing=" << win_evt_missing_rawclusters
+            << " vertex(MBD/Global)=" << win_evt_vertex_from_mbd << "/" << win_evt_vertex_from_global
+            << " noFiniteRecoVertex=" << win_evt_no_finite_vertex
+            << " skipVz=" << win_evt_skip_vz
+            << " zeroInputClusters=" << win_evt_zero_input_clusters
+            << " zeroPassET=" << win_evt_zero_pass_et_clusters
+            << " zeroBuiltAfterPassET=" << win_evt_zero_built_after_pass_et
+            << " built>0=" << win_evt_built_photons
+            << std::endl;
+
+  std::cout << "  Δclusters:"
+            << " seen=" << win_clusters_seen_total
+            << " passET=" << win_clusters_pass_et_total
+            << " built=" << win_photons_built_total
+            << " nonFinite(eta,phi,ET)=("
+            << win_nonfinite_eta_total << ","
+            << win_nonfinite_phi_total << ","
+            << win_nonfinite_et_total << ")"
+            << " mean_time=-999=" << win_mean_time_default_total
+            << std::endl;
+
+  if (dominant_count > 0ULL)
+  {
+    std::cout << "  dominant zero-photon cause in window: "
+              << dominant_label << "=" << dominant_count;
+    if (std::string(dominant_label) == "zeroPassET")
+    {
+      std::cout << " (all input clusters stayed below the ET threshold)";
+    }
+    std::cout << std::endl;
+  }
+  else
+  {
+    std::cout << "  dominant zero-photon cause in window: none" << std::endl;
+  }
+
+  std::cout << "  cumulative:"
+            << " events=" << cur.evt_seen
+            << " rawclustersMissing=" << cur.evt_missing_rawclusters
+            << " skipVz=" << cur.evt_skip_vz
+            << " zeroInputClusters=" << cur.evt_zero_input_clusters
+            << " zeroPassET=" << cur.evt_zero_pass_et_clusters
+            << " zeroBuiltAfterPassET=" << cur.evt_zero_built_after_pass_et
+            << " built>0=" << cur.evt_built_photons
+            << " clusters=" << cur.clusters_seen_total
+            << " passET=" << cur.clusters_pass_et_total
+            << " built=" << cur.photons_built_total
+            << std::endl;
+
+  if (force && win_evt_seen == 0ULL)
+  {
+    std::cout << "  note: no new events were processed since the last periodic builder summary." << std::endl;
+  }
+
+  m_audit_last_summary = cur;
+}
+
+int PhotonClusterBuilder::End(PHCompositeNode* /*topNode*/)
+{
+  if (m_iso_audit_mode)
+  {
+    print_audit_summary(true);
+  }
+  return Fun4AllReturnCodes::EVENT_OK;
 }
 
 void PhotonClusterBuilder::CreateNodes(PHCompositeNode* topNode)
@@ -197,13 +420,27 @@ void PhotonClusterBuilder::CreateNodes(PHCompositeNode* topNode)
 
 int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
 {
+    static unsigned long long s_evt = 0;
+    ++s_evt;
+    ++m_evt_seen;
+
+    auto finish_event = [&](int rc)
+    {
+      if (m_iso_audit_mode)
+      {
+        print_audit_summary(false);
+      }
+      return rc;
+    };
+
     if (!m_rawclusters)
     {
       m_rawclusters = findNode::getClass<RawClusterContainer>(topNode, m_input_cluster_node);
       if (!m_rawclusters)
       {
+        ++m_evt_missing_rawclusters;
         std::cerr << Name() << ": missing RawClusterContainer '" << m_input_cluster_node << "'" << std::endl;
-        return Fun4AllReturnCodes::ABORTEVENT;
+        return finish_event(Fun4AllReturnCodes::ABORTEVENT);
       }
     }
 
@@ -218,13 +455,12 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
     //   Use MBD vertex (DATA + SIM). Optional fallback: GlobalVertexMap (still reco).
     //   Never overwrite reco objects with TRUTH vertex.
     // ------------------------------------------------------------------
-    static unsigned long long s_evt = 0;
-    ++s_evt;
-
     const float vzCutForInfo = m_vz_cut_cm;
 
     m_vertex = std::numeric_limits<float>::quiet_NaN();
     const char* vtx_source = "NONE";
+    bool used_mbd_vertex = false;
+    bool used_global_vertex = false;
 
     // Snapshot what the maps contain (so we can print on skip)
     float mbd_z = std::numeric_limits<float>::quiet_NaN();
@@ -255,6 +491,7 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
     {
       m_vertex = mbd_z;
       vtx_source = "MBD";
+      used_mbd_vertex = true;
     }
 
     // 2) Optional fallback: GlobalVertexMap (still reco, only if finite)
@@ -262,11 +499,13 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
     {
       m_vertex = gv_z;
       vtx_source = "GlobalVertex";
+      used_global_vertex = true;
     }
 
     // If still invalid, skip
     if (!std::isfinite(m_vertex))
     {
+      ++m_evt_no_finite_vertex;
       if (Verbosity() >= 1)
       {
         std::cout << Name()
@@ -275,8 +514,11 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
                   << " | GlobalVertexMap n=" << gv_n << " z=" << (std::isfinite(gv_z) ? std::to_string(gv_z) : std::string("NaN/NA"))
                   << std::endl;
       }
-      return Fun4AllReturnCodes::EVENT_OK;
+      return finish_event(Fun4AllReturnCodes::EVENT_OK);
     }
+
+    if (used_mbd_vertex) ++m_evt_vertex_from_mbd;
+    else if (used_global_vertex) ++m_evt_vertex_from_global;
 
     const bool passVz = (!m_use_vz_cut) || (std::fabs(m_vertex) < vzCutForInfo);
 
@@ -299,6 +541,7 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
     // If vertex is outside your analysis vz window, skip building photons for this event.
     if (m_use_vz_cut && !passVz)
     {
+      ++m_evt_skip_vz;
       if (Verbosity() >= 1)
       {
         std::cout << Name()
@@ -307,7 +550,7 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
                   << " | source=" << vtx_source
                   << std::endl;
       }
-      return Fun4AllReturnCodes::EVENT_OK;
+      return finish_event(Fun4AllReturnCodes::EVENT_OK);
     }
 
   // iterate over clusters via map to have access to keys if needed
@@ -481,7 +724,32 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
       }
     }
 
-  return Fun4AllReturnCodes::EVENT_OK;
+    m_clusters_seen_total += nClusters;
+    m_clusters_pass_et_total += nPassET;
+    m_photons_built_total += nBuilt;
+    m_mean_time_default_total += nMeanTimeDefault;
+    m_nonfinite_eta_total += nNonFiniteEta;
+    m_nonfinite_phi_total += nNonFinitePhi;
+    m_nonfinite_et_total += nNonFiniteET;
+
+    if (nClusters == 0)
+    {
+      ++m_evt_zero_input_clusters;
+    }
+    else if (nPassET == 0)
+    {
+      ++m_evt_zero_pass_et_clusters;
+    }
+    else if (nBuilt == 0)
+    {
+      ++m_evt_zero_built_after_pass_et;
+    }
+    else
+    {
+      ++m_evt_built_photons;
+    }
+
+  return finish_event(Fun4AllReturnCodes::EVENT_OK);
 }
 
 void PhotonClusterBuilder::calculate_bdt_score(PhotonClusterv1* photon)

@@ -1298,6 +1298,7 @@ private:
     bool m_isoAuditTargetReached = false;
     bool m_isoAuditStopAnnounced = false;
     int m_isoAuditTargetPerCent = 200;
+    int m_isoAuditRequiredCentBins = 0;
     int m_isoAuditProgressEveryEvents = 1;
     int m_isoAuditSkipSummaryEveryEvents = 1000;
     int m_isoAuditExemplarsPerCell = 3;
