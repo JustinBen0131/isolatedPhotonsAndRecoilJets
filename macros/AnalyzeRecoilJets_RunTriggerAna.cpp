@@ -1214,6 +1214,9 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
     {
         if (!gPad) return;
         
+        const std::string runLabelShort =
+            (runLabel.rfind("000", 0) == 0 && runLabel.size() > 3) ? runLabel.substr(3) : runLabel;
+        
         gPad->SetLeftMargin(0.14);
         gPad->SetRightMargin(0.03);
         gPad->SetBottomMargin(0.14);
@@ -1226,9 +1229,9 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             TLatex t;
             t.SetNDC(true);
             t.SetTextFont(42);
-            t.SetTextAlign(13);
+            t.SetTextAlign(33);
             t.SetTextSize(0.090);
-            t.DrawLatex(0.16, 0.88, runLabel.c_str());
+            t.DrawLatex(0.95, 0.88, runLabelShort.c_str());
             t.SetTextAlign(22);
             t.SetTextSize(0.120);
             t.DrawLatex(0.50, 0.50, "MISSING");
@@ -1270,9 +1273,9 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             TLatex t;
             t.SetNDC(true);
             t.SetTextFont(42);
-            t.SetTextAlign(13);
+            t.SetTextAlign(33);
             t.SetTextSize(0.090);
-            t.DrawLatex(0.16, 0.88, runLabel.c_str());
+            t.DrawLatex(0.95, 0.88, runLabelShort.c_str());
             t.SetTextAlign(22);
             t.SetTextSize(0.120);
             t.DrawLatex(0.50, 0.50, "MISSING");
@@ -1313,21 +1316,10 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         TLatex t;
         t.SetNDC(true);
         t.SetTextFont(42);
-        t.SetTextAlign(13);
+        t.SetTextAlign(33);
         t.SetTextSize(0.090);
         t.SetTextColor(kBlack);
-        t.DrawLatex(0.16, 0.88, runLabel.c_str());
-        
-        double yText = 0.76;
-        for (const auto& P : loaded)
-        {
-            const int thr = extractPhotonThresholdGeV(P.probeKey);
-            t.SetTextColor(colorForProbe(P.probeKey));
-            t.SetTextSize(0.075);
-            t.DrawLatex(0.16, yText, TString::Format("Photon %d", thr).Data());
-            yText -= 0.08;
-        }
-        t.SetTextColor(kBlack);
+        t.DrawLatex(0.95, 0.88, runLabelShort.c_str());
     };
     
     auto drawCompactGroupTurnOnOverlayPad = [&](const std::vector<LoadedPair>& loaded,
@@ -1335,6 +1327,9 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                                                 std::vector<TObject*>& keepAlive)
     {
         if (!gPad) return;
+        
+        const std::string runLabelShort =
+            (runLabel.rfind("000", 0) == 0 && runLabel.size() > 3) ? runLabel.substr(3) : runLabel;
         
         gPad->SetLeftMargin(0.14);
         gPad->SetRightMargin(0.03);
@@ -1347,9 +1342,9 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             TLatex t;
             t.SetNDC(true);
             t.SetTextFont(42);
-            t.SetTextAlign(13);
+            t.SetTextAlign(33);
             t.SetTextSize(0.090);
-            t.DrawLatex(0.16, 0.88, runLabel.c_str());
+            t.DrawLatex(0.95, 0.88, runLabelShort.c_str());
             t.SetTextAlign(22);
             t.SetTextSize(0.120);
             t.DrawLatex(0.50, 0.50, "MISSING");
@@ -1398,9 +1393,9 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             TLatex t;
             t.SetNDC(true);
             t.SetTextFont(42);
-            t.SetTextAlign(13);
+            t.SetTextAlign(33);
             t.SetTextSize(0.090);
-            t.DrawLatex(0.16, 0.88, runLabel.c_str());
+            t.DrawLatex(0.95, 0.88, runLabelShort.c_str());
             t.SetTextAlign(22);
             t.SetTextSize(0.120);
             t.DrawLatex(0.50, 0.50, "MISSING");
@@ -1440,21 +1435,10 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         TLatex t;
         t.SetNDC(true);
         t.SetTextFont(42);
-        t.SetTextAlign(13);
+        t.SetTextAlign(33);
         t.SetTextSize(0.090);
         t.SetTextColor(kBlack);
-        t.DrawLatex(0.16, 0.88, runLabel.c_str());
-        
-        double yText = 0.76;
-        for (const auto& P : loaded)
-        {
-            const int thr = extractPhotonThresholdGeV(P.probeKey);
-            t.SetTextColor(colorForProbe(P.probeKey));
-            t.SetTextSize(0.075);
-            t.DrawLatex(0.16, yText, TString::Format("Photon %d", thr).Data());
-            yText -= 0.08;
-        }
-        t.SetTextColor(kBlack);
+        t.DrawLatex(0.95, 0.88, runLabelShort.c_str());
     };
     
     auto writePerRunTablePages = [&](const std::vector<PerRunTriggerAnaItem>& items,
@@ -1465,14 +1449,14 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         if (items.empty()) return;
         
         EnsureDir(tableOutDir);
-        const std::size_t nPerPage = 25;
+        const std::size_t nPerPage = 64;
         
         for (std::size_t pageStart = 0, pageIdx = 0; pageStart < items.size(); pageStart += nPerPage, ++pageIdx)
         {
             TCanvas c(TString::Format("c_perRunTrigAna_%s_%zu",
                                       makeTurnOn ? "turnOn" : "maxCluster", pageIdx + 1).Data(),
-                      "c_perRunTrigAna", 3000, 3000);
-            c.Divide(5, 5, 0.001, 0.001);
+                      "c_perRunTrigAna", 5200, 5200);
+            c.Divide(8, 8, 0.001, 0.001);
             
             std::vector<TObject*> keepAlive;
             keepAlive.reserve(nPerPage * 8);
@@ -1495,16 +1479,20 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                 }
                 
                 const auto& item = items[idx];
+                const std::string runLabelShort =
+                    (item.runLabel.rfind("000", 0) == 0 && item.runLabel.size() > 3) ? item.runLabel.substr(3) : item.runLabel;
+                
                 TFile* fRun = TFile::Open(item.filePath.c_str(), "READ");
                 if (!fRun || fRun->IsZombie())
                 {
                     if (fRun) { fRun->Close(); delete fRun; }
+                    gPad->SetTicks(1,1);
                     TLatex t;
                     t.SetNDC(true);
                     t.SetTextFont(42);
-                    t.SetTextAlign(13);
+                    t.SetTextAlign(33);
                     t.SetTextSize(0.090);
-                    t.DrawLatex(0.16, 0.88, item.runLabel.c_str());
+                    t.DrawLatex(0.95, 0.88, runLabelShort.c_str());
                     t.SetTextAlign(22);
                     t.SetTextSize(0.110);
                     t.DrawLatex(0.50, 0.50, "BAD FILE");
@@ -1706,19 +1694,38 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         const std::string perRunGroupOutDir = JoinPath(JoinPath(outDir, targetGroup), "perRun");
         EnsureDir(perRunGroupOutDir);
         
+        const bool perRunDirExists = !gSystem->AccessPathName(perRunInputDir.c_str());
+        
         std::vector<PerRunTriggerAnaItem> perRunItems;
         std::vector<std::string> perRunSummary;
         perRunSummary.push_back("triggerQA doNotScale per-run summary");
         perRunSummary.push_back(string("Combined input: ") + ds.inFilePath);
         perRunSummary.push_back(string("Per-run input dir: ") + perRunInputDir);
+        perRunSummary.push_back(string("Per-run directory exists: ") + (perRunDirExists ? "YES" : "NO"));
         perRunSummary.push_back(string("Target group: ") + targetGroup);
         perRunSummary.push_back("Standalone outputs: hMaxClusterEnergy_groupOverlay.png and hMaxClusterEnergy_groupTurnOnOverlay.png");
         perRunSummary.push_back("");
         
+        int nDiscoveredRuns = 0;
+        int nOpenableRuns = 0;
+        int nBadFiles = 0;
+        int nRunsWithAnyDoNotScalePairs = 0;
+        int nRunsWithoutAnyDoNotScalePairs = 0;
+        int nRunsWithTargetGroup = 0;
+        int nRunsWithoutTargetGroup = 0;
+        int nRunsWithPhoton10 = 0;
+        int nRunsWithPhoton12 = 0;
+        int nRunsWithBothPhoton10And12 = 0;
+        int nRunsRenderable = 0;
+        int nRunsTargetGroupButNoPhoton10Or12 = 0;
+        
         void* dirp = gSystem->OpenDirectory(perRunInputDir.c_str());
         if (!dirp)
         {
-            perRunSummary.push_back(string("WARNING: could not open per-run directory: ") + perRunInputDir);
+            perRunSummary.push_back("BREAKPOINT: failed before run discovery.");
+            perRunSummary.push_back(string("OpenDirectory failed for: ") + perRunInputDir);
+            perRunSummary.push_back(string("AccessPathName says exists: ") + (perRunDirExists ? "YES" : "NO"));
+            
             cout << ANSI_BOLD_YEL
                  << "[WARN] Could not open per-run triggerQA input directory: "
                  << perRunInputDir
@@ -1753,22 +1760,96 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                           return a.runLabel < b.runLabel;
                       });
             
+            nDiscoveredRuns = static_cast<int>(discovered.size());
+            perRunSummary.push_back(TString::Format("Discovered chunkMerge_run files: %d", nDiscoveredRuns).Data());
+            
+            if (discovered.empty())
+            {
+                perRunSummary.push_back("BREAKPOINT: directory opened, but zero chunkMerge_run_*.root files were found.");
+            }
+            
             for (const auto& item : discovered)
             {
                 TFile* fRun = TFile::Open(item.filePath.c_str(), "READ");
                 if (!fRun || fRun->IsZombie())
                 {
-                    perRunSummary.push_back(string("SKIP ") + item.runLabel + " : could not open file");
+                    ++nBadFiles;
+                    perRunSummary.push_back(string("RUN ") + item.runLabel + " : BAD_FILE | path=" + item.filePath);
                     if (fRun) { fRun->Close(); delete fRun; }
                     continue;
                 }
                 
+                ++nOpenableRuns;
+                
                 std::vector<LoadedPair> runPairs = collectPairsFromFile(fRun, item.filePath, false);
+                const int nAllPairs = static_cast<int>(runPairs.size());
+                
+                if (nAllPairs > 0) ++nRunsWithAnyDoNotScalePairs;
+                else               ++nRunsWithoutAnyDoNotScalePairs;
+                
+                std::vector<LoadedPair> targetPairs;
+                for (const auto& P : runPairs)
+                {
+                    if (P.groupFolder == targetGroup) targetPairs.push_back(P);
+                }
+                
+                const int nTargetPairs = static_cast<int>(targetPairs.size());
+                if (nTargetPairs > 0) ++nRunsWithTargetGroup;
+                else                  ++nRunsWithoutTargetGroup;
+                
+                bool hasPhoton10 = false;
+                bool hasPhoton12 = false;
+                for (const auto& P : targetPairs)
+                {
+                    const int thr = extractPhotonThresholdGeV(P.probeKey);
+                    if (thr == 10) hasPhoton10 = true;
+                    if (thr == 12) hasPhoton12 = true;
+                }
+                
+                if (hasPhoton10) ++nRunsWithPhoton10;
+                if (hasPhoton12) ++nRunsWithPhoton12;
+                if (hasPhoton10 && hasPhoton12) ++nRunsWithBothPhoton10And12;
+                
                 std::vector<LoadedPair> filtered = filterPhoton10And12FromGroup(runPairs, targetGroup);
+                const int nFiltered = static_cast<int>(filtered.size());
                 
                 if (filtered.empty())
                 {
-                    perRunSummary.push_back(string("SKIP ") + item.runLabel + " : no photon 10/12 doNotScale pairs found");
+                    if (nAllPairs <= 0)
+                    {
+                        perRunSummary.push_back(
+                            TString::Format("RUN %s : NO_DONOTSCALE_PAIRS | allPairs=%d | targetGroupPairs=%d | photon10=%s | photon12=%s | path=%s",
+                                            item.runLabel.c_str(),
+                                            nAllPairs,
+                                            nTargetPairs,
+                                            hasPhoton10 ? "YES" : "NO",
+                                            hasPhoton12 ? "YES" : "NO",
+                                            item.filePath.c_str()).Data());
+                    }
+                    else if (nTargetPairs <= 0)
+                    {
+                        perRunSummary.push_back(
+                            TString::Format("RUN %s : TARGET_GROUP_ABSENT | allPairs=%d | targetGroupPairs=%d | photon10=%s | photon12=%s | path=%s",
+                                            item.runLabel.c_str(),
+                                            nAllPairs,
+                                            nTargetPairs,
+                                            hasPhoton10 ? "YES" : "NO",
+                                            hasPhoton12 ? "YES" : "NO",
+                                            item.filePath.c_str()).Data());
+                    }
+                    else
+                    {
+                        ++nRunsTargetGroupButNoPhoton10Or12;
+                        perRunSummary.push_back(
+                            TString::Format("RUN %s : TARGET_GROUP_PRESENT_BUT_NO_PHOTON10_12 | allPairs=%d | targetGroupPairs=%d | photon10=%s | photon12=%s | path=%s",
+                                            item.runLabel.c_str(),
+                                            nAllPairs,
+                                            nTargetPairs,
+                                            hasPhoton10 ? "YES" : "NO",
+                                            hasPhoton12 ? "YES" : "NO",
+                                            item.filePath.c_str()).Data());
+                    }
+                    
                     fRun->Close();
                     delete fRun;
                     continue;
@@ -1780,12 +1861,50 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                 drawGroupMaxClusterOverlay(filtered, runOutDir, "");
                 drawGroupTurnOnOverlay(filtered, runOutDir, "");
                 
+                ++nRunsRenderable;
                 perRunItems.push_back(item);
-                perRunSummary.push_back(string("OK ") + item.runLabel + " : " + item.filePath);
+                perRunSummary.push_back(
+                    TString::Format("RUN %s : RENDERED | allPairs=%d | targetGroupPairs=%d | photon10=%s | photon12=%s | renderPairs=%d | outDir=%s",
+                                    item.runLabel.c_str(),
+                                    nAllPairs,
+                                    nTargetPairs,
+                                    hasPhoton10 ? "YES" : "NO",
+                                    hasPhoton12 ? "YES" : "NO",
+                                    nFiltered,
+                                    runOutDir.c_str()).Data());
                 
                 fRun->Close();
                 delete fRun;
             }
+            
+            perRunSummary.push_back("");
+            perRunSummary.push_back("[COUNTS]");
+            perRunSummary.push_back(TString::Format("Discovered runs: %d", nDiscoveredRuns).Data());
+            perRunSummary.push_back(TString::Format("Openable runs: %d", nOpenableRuns).Data());
+            perRunSummary.push_back(TString::Format("Bad/unopenable files: %d", nBadFiles).Data());
+            perRunSummary.push_back(TString::Format("Runs with any doNotScale pairs: %d", nRunsWithAnyDoNotScalePairs).Data());
+            perRunSummary.push_back(TString::Format("Runs with zero doNotScale pairs: %d", nRunsWithoutAnyDoNotScalePairs).Data());
+            perRunSummary.push_back(TString::Format("Runs with target group %s: %d", targetGroup.c_str(), nRunsWithTargetGroup).Data());
+            perRunSummary.push_back(TString::Format("Runs without target group %s: %d", targetGroup.c_str(), nRunsWithoutTargetGroup).Data());
+            perRunSummary.push_back(TString::Format("Runs with Photon 10 in target group: %d", nRunsWithPhoton10).Data());
+            perRunSummary.push_back(TString::Format("Runs with Photon 12 in target group: %d", nRunsWithPhoton12).Data());
+            perRunSummary.push_back(TString::Format("Runs with both Photon 10 and 12 in target group: %d", nRunsWithBothPhoton10And12).Data());
+            perRunSummary.push_back(TString::Format("Runs with target group but no Photon 10/12 pairs: %d", nRunsTargetGroupButNoPhoton10Or12).Data());
+            perRunSummary.push_back(TString::Format("Renderable runs (at least one Photon 10/12 pair): %d", nRunsRenderable).Data());
+            
+            perRunSummary.push_back("");
+            if (nDiscoveredRuns <= 0)
+                perRunSummary.push_back("BREAKPOINT: directory opened, but no run files were discovered.");
+            else if (nOpenableRuns <= 0)
+                perRunSummary.push_back("BREAKPOINT: run files were discovered, but none could be opened.");
+            else if (nRunsWithAnyDoNotScalePairs <= 0)
+                perRunSummary.push_back("BREAKPOINT: run files opened, but none contained any doNotScale numerator/baseline pairs.");
+            else if (nRunsWithTargetGroup <= 0)
+                perRunSummary.push_back(string("BREAKPOINT: doNotScale pairs exist, but none matched target group ") + targetGroup + ".");
+            else if (nRunsRenderable <= 0)
+                perRunSummary.push_back("BREAKPOINT: target group exists in some runs, but no Photon 10/12 pairs were present to render.");
+            else
+                perRunSummary.push_back("BREAKPOINT: none reached; usable per-run outputs were produced.");
         }
         
         if (!perRunItems.empty())
