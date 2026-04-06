@@ -1078,7 +1078,13 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             tDS.SetTextAlign(23);
             tDS.SetTextSize(0.035);
             if (isAuAuOnly || isSimAndDataAUAU)
-                tDS.DrawLatex(0.50, 0.97, "Run3auau Photon 10 and 12 GeV + MBD NS #geq 2, vtx < 150 cm Efficiencies");
+            {
+                const std::string& gf = loaded.front().groupFolder;
+                if (gf.find("vtx_lt_10") != std::string::npos)
+                    tDS.DrawLatex(0.50, 0.97, "Run3auau Photon 10 and 12 GeV + MBD NS #geq 2, vtx < 10 cm Efficiencies");
+                else
+                    tDS.DrawLatex(0.50, 0.97, "Run3auau Photon 10 and 12 GeV + MBD NS #geq 2, vtx < 150 cm Efficiencies");
+            }
             else
                 tDS.DrawLatex(0.50, 0.97, isRun25pp ? "Run25pp" : "Run24pp");
         }
@@ -1209,7 +1215,13 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             tDS.SetTextAlign(23);
             tDS.SetTextSize(0.032);
             if (isAuAuOnly || isSimAndDataAUAU)
-                tDS.DrawLatex(0.50, 0.97, "Run3auau MBD NS #geq 2, vtx < 150 cm, and Photon 10/12 Max Cluster Energy Overlay");
+            {
+                const std::string& gf = loaded.front().groupFolder;
+                if (gf.find("vtx_lt_10") != std::string::npos)
+                    tDS.DrawLatex(0.50, 0.97, "Run3auau MBD NS #geq 2, vtx < 10 cm, and Photon 10/12 Max Cluster Energy Overlay");
+                else
+                    tDS.DrawLatex(0.50, 0.97, "Run3auau MBD NS #geq 2, vtx < 150 cm, and Photon 10/12 Max Cluster Energy Overlay");
+            }
             else
                 tDS.DrawLatex(0.50, 0.97, isRun25pp ? "Run25pp" : "Run24pp");
         }
