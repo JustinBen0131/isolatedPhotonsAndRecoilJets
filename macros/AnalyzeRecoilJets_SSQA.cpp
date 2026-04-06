@@ -1071,6 +1071,68 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
         return "";
     };
     
+    auto DrawSSOverlaySelectionBlock =
+    [&](const string& tag,
+        bool overlayPtBins,
+        double ptCenter) -> bool
+    {
+        if (overlayPtBins) return false;
+        
+        TLatex tSel;
+        tSel.SetNDC(true);
+        tSel.SetTextFont(42);
+        tSel.SetTextAlign(13);
+        
+        const double xLabel = 0.58;
+        const double xColL  = 0.58;
+        const double xColR  = 0.77;
+        const double yLabel = 0.31;
+        const double yRow1  = 0.25;
+        const double yRow2  = 0.19;
+        
+        if (tag == "pre")
+        {
+            tSel.SetTextSize(0.040);
+            tSel.DrawLatex(xLabel, yLabel, "#gamma-presel:");
+            
+            tSel.SetTextSize(0.032);
+            tSel.DrawLatex(xColL, yRow1, "#frac{E_{11}}{E_{33}} < 0.98");
+            tSel.DrawLatex(xColR, yRow1, "0.6 < et1 < 1.0");
+            tSel.DrawLatex(xColL, yRow2, "0.8 < #frac{E_{32}}{E_{35}} < 1.0");
+            tSel.DrawLatex(xColR, yRow2, "w_{#eta} < 0.6");
+            return true;
+        }
+        
+        if (tag == "tight")
+        {
+            tSel.SetTextSize(0.040);
+            tSel.DrawLatex(xLabel, yLabel, "#gamma-tight:");
+            
+            tSel.SetTextSize(0.032);
+            tSel.DrawLatex(xColL, yRow1, "0.4 < #frac{E_{11}}{E_{33}} < 0.98");
+            tSel.DrawLatex(xColR, yRow1, "0.9 < et1 < 1.0");
+            tSel.DrawLatex(xColL, yRow2, "0.92 < #frac{E_{32}}{E_{35}} < 1.0");
+            tSel.DrawLatex(
+                xColR, yRow2,
+                TString::Format("0 < w_{#eta/#phi} < 0.15 + 0.006 E_{T}^{#gamma} = %.3f",
+                                0.15 + 0.006 * ptCenter).Data()
+            );
+            return true;
+        }
+        
+        if (tag == "nonTight")
+        {
+            tSel.SetTextSize(0.040);
+            tSel.DrawLatex(xLabel, yLabel, "#gamma-nonTight:");
+            
+            tSel.SetTextSize(0.032);
+            tSel.DrawLatex(xLabel, yRow1, "fail #geq 2 of 5 tight cuts");
+            return true;
+        }
+        
+        return false;
+    };
+    
     auto DrawSSOverlayCutsAndText =
     [&](const string& var,
         const string& tag,
@@ -1080,40 +1142,14 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
         double textY,
         double textSize) -> void
     {
+        const bool drewBottomRightBlock = DrawSSOverlaySelectionBlock(tag, overlayPtBins, ptCenter);
+        
         const string text = GetSSOverlaySelectionText(tag, overlayPtBins, ptCenter);
-        if (!text.empty())
+        if (!text.empty() && !drewBottomRightBlock)
         {
             double drawTextX = textX;
             double drawTextY = textY;
             double drawTextSize = textSize;
-            
-            if (!overlayPtBins)
-            {
-                if (var == "e32e35" && (tag == "pre" || tag == "tight" || tag == "nonTight"))
-                {
-                    drawTextX = textX;
-                    drawTextY = textY;
-                    drawTextSize = textSize;
-                }
-                else if (tag == "pre")
-                {
-                    drawTextX = 0.22;
-                    drawTextY = 0.81;
-                    drawTextSize = 0.030;
-                }
-                else if (tag == "tight")
-                {
-                    drawTextX = 0.20;
-                    drawTextY = 0.82;
-                    drawTextSize = 0.028;
-                }
-                else if (tag == "nonTight")
-                {
-                    drawTextX = 0.22;
-                    drawTextY = 0.81;
-                    drawTextSize = 0.030;
-                }
-            }
             
             TLatex tSel;
             tSel.SetNDC(true);

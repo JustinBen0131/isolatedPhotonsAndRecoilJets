@@ -829,6 +829,18 @@ namespace ARJ
           {
             if (!gPad) return;
 
+            string centText = "inclusive";
+            if (!ds.centFolder.empty())
+            {
+              centText = ds.centFolder;
+              std::replace(centText.begin(), centText.end(), '_', '-');
+              centText += "%";
+            }
+            else if (!ds.centLabel.empty())
+            {
+              centText = ds.centLabel;
+            }
+
             // pad layout
             if (compact)
             {
@@ -839,16 +851,16 @@ namespace ARJ
             }
             else
             {
-              gPad->SetLeftMargin(0.12);
-              gPad->SetRightMargin(0.05);
-              gPad->SetTopMargin(0.12);
-              gPad->SetBottomMargin(0.34);
+              gPad->SetLeftMargin(0.10);
+              gPad->SetRightMargin(0.03);
+              gPad->SetTopMargin(0.16);
+              gPad->SetBottomMargin(0.14);
             }
             gPad->SetTicks(1,1);
 
             double ymax = 0.0;
             for (int ib = 0; ib < 8; ++ib) ymax = std::max(ymax, vals[ib]);
-            const double yMaxPlot = (ymax > 0.0) ? (1.35 * ymax) : 1.0;
+            const double yMaxPlot = (ymax > 0.0) ? (1.22 * ymax) : 1.0;
 
             // Axis-only histogram (frame + labels)
             TH1F* hAxis = new TH1F(
@@ -869,12 +881,10 @@ namespace ARJ
             hAxis->GetXaxis()->LabelsOption("h");
 
             hAxis->GetXaxis()->SetLabelSize(compact ? 0.060 : 0.055);
-            hAxis->GetXaxis()->SetLabelOffset(compact ? 0.010 : 0.012);
-
-            // Y-axis title: bigger + closer in the 3x3 table
-            hAxis->GetYaxis()->SetTitleSize(compact ? 0.058 : 0.055);
-            hAxis->GetYaxis()->SetTitleOffset(compact ? 1.15 : 1.05);
-            hAxis->GetYaxis()->SetLabelSize(compact ? 0.046 : 0.045);
+            hAxis->GetXaxis()->SetLabelOffset(compact ? 0.010 : 0.008);
+            hAxis->GetYaxis()->SetTitleSize(compact ? 0.058 : 0.060);
+            hAxis->GetYaxis()->SetTitleOffset(compact ? 1.15 : 0.92);
+            hAxis->GetYaxis()->SetLabelSize(compact ? 0.046 : 0.050);
 
             hAxis->SetLineColor(1);
             hAxis->SetLineWidth(2);
@@ -882,7 +892,6 @@ namespace ARJ
             hAxis->Draw("hist");
 
             // Draw solid 2D bars (NO BAR2 -> avoids 3D shading)
-            // Keep alive until canvas is saved (pad stores pointers).
             for (int ib = 1; ib <= 8; ++ib)
             {
               TH1F* hb = new TH1F(
@@ -907,15 +916,14 @@ namespace ARJ
               hb->Draw("BAR SAME");
 
               if (keepAlive) keepAlive->push_back(hb);
-              else delete hb; // only safe if caller saves immediately after draw
+              else delete hb;
             }
 
             // Numeric counts above each bar
             TLatex t;
             t.SetTextFont(42);
-            t.SetTextAlign(22); // centered
+            t.SetTextAlign(22);
             t.SetTextSize(compact ? 0.050 : 0.034);
-
 
             for (int ib = 1; ib <= 8; ++ib)
             {
@@ -923,20 +931,76 @@ namespace ARJ
               if (y <= 0.0) continue;
 
               const double x = hAxis->GetXaxis()->GetBinCenter(ib);
-              const double yText = std::min(y + 0.03*yMaxPlot, 0.95*yMaxPlot);
+              const double yText = std::min(y + 0.02*yMaxPlot, 0.95*yMaxPlot);
               t.DrawLatex(x, yText, TString::Format("%.0f", y).Data());
             }
 
-            // Clean top-left annotation
-            vector<string> box;
             if (!compact)
             {
-              vector<string> hdr = DefaultHeaderLines(ds);
-              if (!hdr.empty()) box.push_back(hdr[0]);
-              box.push_back("Preselection fails (inclusive)");
-              box.push_back(TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data());
-              box.push_back("NOTE: one photon can increment multiple categories");
-              DrawLatexLines(0.15, 0.93, box, 0.032, 0.040);
+              TLatex tt;
+              tt.SetTextFont(42);
+              tt.SetNDC();
+              tt.SetTextAlign(23);
+              tt.SetTextSize(0.040);
+              tt.DrawLatex(0.50, 0.975,
+                TString::Format("Inclusive Fails (Preselection), %s centrality, p_{T}^{#gamma}: %d-%d GeV",
+                  centText.c_str(), b.lo, b.hi).Data()
+              );
+
+              TPaveText* pCol1 = new TPaveText(0.12, 0.83, 0.31, 0.93, "NDC NB");
+              pCol1->SetFillStyle(0);
+              pCol1->SetBorderSize(0);
+              pCol1->SetTextFont(42);
+              pCol1->SetTextAlign(12);
+              pCol1->SetTextSize(0.024);
+              pCol1->AddText("A: #frac{E_{11}}{E_{33}} #geq 0.98");
+              pCol1->AddText("B: et1 #leq 0.6");
+              pCol1->Draw();
+
+              TPaveText* pCol2 = new TPaveText(0.30, 0.83, 0.47, 0.93, "NDC NB");
+              pCol2->SetFillStyle(0);
+              pCol2->SetBorderSize(0);
+              pCol2->SetTextFont(42);
+              pCol2->SetTextAlign(12);
+              pCol2->SetTextSize(0.024);
+              pCol2->AddText("C: et1 #geq 1.0");
+              pCol2->AddText("D: et1 out of range");
+              pCol2->Draw();
+
+              TPaveText* pCol3 = new TPaveText(0.46, 0.83, 0.64, 0.93, "NDC NB");
+              pCol3->SetFillStyle(0);
+              pCol3->SetBorderSize(0);
+              pCol3->SetTextFont(42);
+              pCol3->SetTextAlign(12);
+              pCol3->SetTextSize(0.024);
+              pCol3->AddText("E: #frac{E_{32}}{E_{35}} #leq 0.8");
+              pCol3->AddText("F: #frac{E_{32}}{E_{35}} #geq 1.0");
+              pCol3->Draw();
+
+              TPaveText* pCol4 = new TPaveText(0.63, 0.83, 0.86, 0.93, "NDC NB");
+              pCol4->SetFillStyle(0);
+              pCol4->SetBorderSize(0);
+              pCol4->SetTextFont(42);
+              pCol4->SetTextAlign(12);
+              pCol4->SetTextSize(0.024);
+              pCol4->AddText("G: #frac{E_{32}}{E_{35}} out of range");
+              pCol4->AddText("H: w_{#eta}^{cogX} #geq 0.6");
+              pCol4->Draw();
+
+              if (keepAlive)
+              {
+                keepAlive->push_back(pCol1);
+                keepAlive->push_back(pCol2);
+                keepAlive->push_back(pCol3);
+                keepAlive->push_back(pCol4);
+              }
+              else
+              {
+                delete pCol1;
+                delete pCol2;
+                delete pCol3;
+                delete pCol4;
+              }
             }
             else
             {

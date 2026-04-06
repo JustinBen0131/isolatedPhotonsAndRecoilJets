@@ -100,8 +100,8 @@ namespace ARJ
   inline bool isAuAuOnly     = true;
   inline bool isPPdataAndAUAU = false;
 
-  inline bool generateUEcomparisonSSQA = true;
-  inline bool skipToCentralityAndPtOverlaysWithSSQA = true;
+  inline bool generateUEcomparisonSSQA = false;
+  inline bool skipToCentralityAndPtOverlaysWithSSQA = false;
 
   inline bool generatePerRunTriggerAna = false;
   inline bool generatePerRunTriggerAnaForGoodRunsOnly = false;
