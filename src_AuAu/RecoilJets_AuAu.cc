@@ -1556,10 +1556,8 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
   }
   else
   {
-    // ---------- Au+Au: require MinimumBiasInfo AND scaled GL1 bits ----------
-    auto* mbInfo = findNode::getClass<MinimumBiasInfo>(topNode, "MinimumBiasInfo");
-    const bool isMB = (mbInfo && mbInfo->isAuAuMinimumBias());
-    if (outMinimumBiasPass) *outMinimumBiasPass = isMB;
+    // ---------- Au+Au: require ONLY scaled GL1 trigger bits ----------
+    if (outMinimumBiasPass) *outMinimumBiasPass = true;
 
     uint64_t wScaled = 0;
     if (auto* gl1 = findNode::getClass<Gl1Packet>(topNode, "GL1Packet"))
@@ -1570,7 +1568,7 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
     if (Verbosity() >= 6)
     {
       std::ostringstream os;
-      os << "    [AuAu trigger] isMB=" << (isMB ? 1 : 0)
+      os << "    [AuAu trigger] scaled-trigger-only"
          << " | ScaledVector=0x" << std::hex << wScaled << std::dec
          << " (event_count=" << event_count << ")";
       LOG(6, CLR_CYAN, os.str());
@@ -1587,18 +1585,15 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
     const bool triggerPass = !activeTrig.empty();
     if (outTriggerPass) *outTriggerPass = triggerPass;
 
-    if (!isMB || !triggerPass)
+    if (!triggerPass)
     {
       m_lastReject = EventReject::Trigger;
 
       if (Verbosity() >= 4)
       {
         std::ostringstream os;
-        os << "    [firstEventCuts] REJECT (Au+Au Trigger/MB): ";
-        if (!isMB) os << "MinimumBiasInfo failed";
-        if (!isMB && !triggerPass) os << " and ";
-        if (!triggerPass) os << "no configured scaled triggers fired";
-        os << " | isMB=" << (isMB ? 1 : 0)
+        os << "    [firstEventCuts] REJECT (Au+Au scaled trigger): "
+           << "no configured scaled triggers fired"
            << " | ScaledVector=0x" << std::hex << wScaled << std::dec
            << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
         if (applyVzCut && m_useVzCut) os << " (|vz|cut=" << m_vzCut << ")";
@@ -1611,8 +1606,7 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
     if (Verbosity() >= 4)
     {
       std::ostringstream os;
-      os << "    [firstEventCuts] Trigger PASS (Au+Au)"
-         << " | isMB=1"
+      os << "    [firstEventCuts] Trigger PASS (Au+Au scaled trigger only)"
          << " | activeTrig={" << joinList(activeTrig, ", ") << "}"
          << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
       LOG(4, CLR_GREEN, os.str());

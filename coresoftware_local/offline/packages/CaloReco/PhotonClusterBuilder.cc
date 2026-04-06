@@ -221,6 +221,7 @@ int PhotonClusterBuilder::InitRun(PHCompositeNode* topNode)
                 << " output=" << m_output_photon_node
                 << " ETthr=" << m_min_cluster_et
                 << " shapeTowerMinE=" << m_shape_min_tower_E
+                << " isoTowerMinE=" << m_iso_min_tower_E
                 << " useVzCut=" << (m_use_vz_cut ? "true" : "false")
                 << " vzCut=" << m_vz_cut_cm
                 << " isAuAu=" << (m_is_auau ? "true" : "false")
@@ -1878,7 +1879,7 @@ float PhotonClusterBuilder::calculate_layer_et(float seed_eta, float seed_phi, f
     ++nInConeGood;
 
     float energy = tower->get_energy();
-    if (energy <= m_shape_min_tower_E)
+    if (energy <= m_iso_min_tower_E)
     {
       ++nBelowThreshold;
       continue;
@@ -1901,7 +1902,7 @@ float PhotonClusterBuilder::calculate_layer_et(float seed_eta, float seed_phi, f
               << " | isGood=0=" << nIsBad
               << " | geomMissing=" << nGeomMissing
               << " | inCone_good=" << nInConeGood
-              << " | inCone_E<=" << m_shape_min_tower_E << "=" << nBelowThreshold
+              << " | inCone_E<=" << m_iso_min_tower_E << "=" << nBelowThreshold
               << " | accepted=" << nAccepted
               << " | sumEt=" << layer_et
               << std::endl;

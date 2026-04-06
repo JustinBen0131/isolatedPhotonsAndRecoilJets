@@ -1820,31 +1820,43 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     }
 
 
-  if (vlevel > 0) std::cout << "Calibrating MBD" << std::endl;
-  std::unique_ptr<MbdReco> mbdreco = std::make_unique<MbdReco>();
-  se->registerSubsystem(mbdreco.release());
-
-  if (!isSim && !isPPrun25)
-  {
-    if (vlevel > 0) std::cout << "Calibrating ZDC" << std::endl;
-    auto* zdcreco = new ZdcReco();
-    zdcreco->set_zdc1_cut(0.0);
-    zdcreco->set_zdc2_cut(0.0);
-    se->registerSubsystem(zdcreco);
-  }
-  else
-  {
-    if (vlevel > 0)
+    if (isSimEmbedded)
     {
-      if (isPPrun25) std::cout << "[isPPrun25] skipping ZdcReco (CALOFITTING DST may not have TOWERS_ZDC)" << std::endl;
-      else           std::cout << "[isSim] skipping ZdcReco (sim DST has no TOWERS_ZDC)" << std::endl;
+      if (vlevel > 0)
+      {
+        std::cout << "[isSimEmbedded] skipping MbdReco (use embedded sample's existing MBD products)" << std::endl;
+        std::cout << "[isSimEmbedded] skipping ZdcReco (not needed for embedded minimal path)" << std::endl;
+        std::cout << "[isSimEmbedded] skipping GlobalVertexReco (use embedded sample's existing GlobalVertexMap)" << std::endl;
+      }
     }
+    else
+    {
+      if (vlevel > 0) std::cout << "Calibrating MBD" << std::endl;
+      std::unique_ptr<MbdReco> mbdreco = std::make_unique<MbdReco>();
+      se->registerSubsystem(mbdreco.release());
+
+      if (!isSim && !isPPrun25)
+      {
+        if (vlevel > 0) std::cout << "Calibrating ZDC" << std::endl;
+        auto* zdcreco = new ZdcReco();
+        zdcreco->set_zdc1_cut(0.0);
+        zdcreco->set_zdc2_cut(0.0);
+        se->registerSubsystem(zdcreco);
+      }
+      else
+      {
+        if (vlevel > 0)
+        {
+          if (isPPrun25) std::cout << "[isPPrun25] skipping ZdcReco (CALOFITTING DST may not have TOWERS_ZDC)" << std::endl;
+          else           std::cout << "[isSim] skipping ZdcReco (sim DST has no TOWERS_ZDC)" << std::endl;
+        }
+      }
+
+
+      if (vlevel > 0) std::cout << "Retrieving Vtx Info" << std::endl;
+      std::unique_ptr<GlobalVertexReco> gvertex = std::make_unique<GlobalVertexReco>();
+      se->registerSubsystem(gvertex.release());
   }
-
-
-  if (vlevel > 0) std::cout << "Retrieving Vtx Info" << std::endl;
-  std::unique_ptr<GlobalVertexReco> gvertex = std::make_unique<GlobalVertexReco>();
-  se->registerSubsystem(gvertex.release());
 
   bool isAuAuData = false;
   bool isAuAuLike = false;
@@ -1887,25 +1899,22 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                   << std::endl;
   }
 
-  if (isAuAuLike)
+  if (isAuAuLike && !isSimEmbedded)
   {
-      std::cout << "building minbias classifier" << std::endl;
-      auto* mb = new MinimumBiasClassifier();
-      mb->Verbosity(0);
-      mb->setOverwriteScale(
-            "/cvmfs/sphenix.sdcc.bnl.gov/calibrations/sphnxpro/cdb/CentralityScale/42/6b/426bc1b56ba544201b0213766bee9478_cdb_centrality_scale_54912.root");
-      se->registerSubsystem(mb);
-
-      if (vlevel > 0) std::cout << "building centrality classifier (Au+Au-like)" << std::endl;
-      auto* cent = new CentralityReco();
-      cent->Verbosity(0);
-      cent->setOverwriteScale(
-              "/cvmfs/sphenix.sdcc.bnl.gov/calibrations/sphnxpro/cdb/CentralityScale/42/6b/426bc1b56ba544201b0213766bee9478_cdb_centrality_scale_54912.root");
-      se->registerSubsystem(cent);
+        if (vlevel > 0) std::cout << "building centrality classifier (Au+Au-like)" << std::endl;
+        auto* cent = new CentralityReco();
+        cent->Verbosity(0);
+        cent->setOverwriteScale(
+                "/cvmfs/sphenix.sdcc.bnl.gov/calibrations/sphnxpro/cdb/CentralityScale/42/6b/426bc1b56ba544201b0213766bee9478_cdb_centrality_scale_54912.root");
+        se->registerSubsystem(cent);
   }
   else
   {
-      if (vlevel > 0) std::cout << "[pp dataset] skipping CentralityReco" << std::endl;
+        if (vlevel > 0)
+        {
+          if (isSimEmbedded) std::cout << "[isSimEmbedded] skipping CentralityReco (use embedded sample's existing centrality products)" << std::endl;
+          else               std::cout << "[pp dataset] skipping CentralityReco" << std::endl;
+        }
   }
 
   setenv("BEMCREC_CEMC_DISABLE_ASINH_POSITION", "0", 1);
@@ -2907,6 +2916,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
               }
             }
             photonBuilder->set_ET_threshold(static_cast<float>(minPhotonEt));
+            photonBuilder->set_iso_min_tower_energy(static_cast<float>(cfg.isoTowMin));
 
             photonBuilder->set_use_vz_cut(cfg.use_vz_cut);
             photonBuilder->set_vz_cut_cm(cfg.vz_cut_cm);

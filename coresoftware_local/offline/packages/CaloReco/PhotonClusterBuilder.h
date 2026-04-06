@@ -41,6 +41,7 @@ class PhotonClusterBuilder : public SubsysReco
     void set_output_photon_node(const std::string& n) { m_output_photon_node = n; }
     void set_ET_threshold(float e) { m_min_cluster_et = e; }
     void set_shower_shape_min_tower_energy(float e) { m_shape_min_tower_E = e; }
+    void set_iso_min_tower_energy(float e) { m_iso_min_tower_E = e; }
     void set_bdt_model_file(const std::string& path) { m_bdt_model_file = path; }
     void set_bdt_feature_list(const std::vector<std::string>& features) { m_bdt_feature_list = features; }
     void set_do_bdt(bool do_bdt) { m_do_bdt = do_bdt; }
@@ -99,11 +100,12 @@ class PhotonClusterBuilder : public SubsysReco
       AuditSnapshot make_audit_snapshot() const;
       void print_audit_summary(bool force);
 
-      std::string m_input_cluster_node{"CLUSTERINFO_CEMC"};
-      std::string m_output_photon_node{"PHOTONCLUSTER_CEMC"};
-      float m_min_cluster_et{5.0f};
-      float m_shape_min_tower_E{0.070f};
-      std::string m_bdt_model_file{"myBDT_5.root"};
+    std::string m_input_cluster_node{"CLUSTERINFO_CEMC"};
+    std::string m_output_photon_node{"PHOTONCLUSTER_CEMC"};
+    float m_min_cluster_et{5.0f};
+    float m_shape_min_tower_E{0.070f};
+    float m_iso_min_tower_E{0.0f};
+    std::string m_bdt_model_file{"myBDT_5.root"};
         std::vector<std::string> m_bdt_feature_list;
         float m_vertex{std::numeric_limits<float>::quiet_NaN()};
         bool m_use_vz_cut{true};

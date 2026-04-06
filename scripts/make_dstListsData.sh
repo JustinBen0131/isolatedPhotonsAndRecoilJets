@@ -1235,88 +1235,17 @@ print_compact_activation_summary() {
       done
       printf "\n" >> "$csv_file"
 
-      printf "\n%s  %-*s  %*s  %*s  %-*s  %*s" \
-        "$ANSI_BOLD" \
-        "$family_w" "Baseline" \
-        "$active_w" "Active/GRL" \
-        "$inactive_w" "Inactive" \
-        "$phoset_w" "PhoSet" \
-        "$baseonly_w" "BaseOnly"
+      local family_w=28 active_w=10 inactive_w=8 phoset_w=16 baseonly_w=8
+      local -a combo_widths=()
       for i in "${!GLOBAL_COMBO_LABELS[@]}"; do
-        printf "  %*s" "${combo_widths[$i]}" "${GLOBAL_COMBO_LABELS[$i]}"
+        local cw=${#GLOBAL_COMBO_LABELS[$i]}
+        (( cw < 6 )) && cw=6
+        combo_widths+=( "$cw" )
       done
-      printf "%s\n" "$ANSI_RESET"
-
-      printf "  "
-      hrule "$family_w"
-      printf "  "
-      hrule "$active_w"
-      printf "  "
-      hrule "$inactive_w"
-      printf "  "
-      hrule "$phoset_w"
-      printf "  "
-      hrule "$baseonly_w"
-      for i in "${!GLOBAL_COMBO_LABELS[@]}"; do
-        printf "  "
-        hrule "${combo_widths[$i]}"
-      done
-      printf "\n"
-
-      local base_active inactive_runs base_only_count combo_count combo_key active_cell inactive_cell baseonly_cell
-      for family in "${FAMILY_ORDER[@]}"; do
-        display_family="$(compact_family_label "$family")"
-        base_active="${FAMILY_BASE_ACTIVE["$family"]:-0}"
-        inactive_runs=$(( ${#RUNS_ALL[@]} - base_active ))
-        base_only_count="${FAMILY_COMBO_COUNTS["$family|0|(baseline only)"]:-0}"
-
-        declare -A _family_pho_seen=()
-        local -a family_pho_labels=()
-        local k label
-        for k in "${!FAMILY_PHOTON_PRESENT[@]}"; do
-          [[ "$k" == "$family|"* ]] || continue
-          label="${k#"$family|"}"
-          _family_pho_seen["$label"]=1
-        done
-        if ((${#_family_pho_seen[@]})); then
-          mapfile -t family_pho_labels < <(
-            for label in "${!_family_pho_seen[@]}"; do
-              printf "%s\n" "$label"
-            done | awk '{x=$0; gsub(/^Pho/,"",x); printf "%08.3f|%s\n", x+0, $0}' | sort -n | cut -d'|' -f2-
-          )
-          phoset_display="$(compact_pho_set_label "$(IFS=', '; echo "${family_pho_labels[*]}")")"
-        else
-          phoset_display="-"
-        fi
-
-        active_cell="${base_active}/${#RUNS_ALL[@]}"
-        inactive_cell="${inactive_runs}"
-        baseonly_cell="${base_only_count}"
-
-        printf "  %-*s  %*s  %*s  %-*s  %*s" \
-          "$family_w" "$display_family" \
-          "$active_w" "$active_cell" \
-          "$inactive_w" "$inactive_cell" \
-          "$phoset_w" "$phoset_display" \
-          "$baseonly_w" "$baseonly_cell"
-
-        for i in "${!GLOBAL_COMBO_KEYS[@]}"; do
-          combo_key="${GLOBAL_COMBO_KEYS[$i]}"
-          combo_count="${FAMILY_COMBO_COUNTS["$family|$(awk -v s="$combo_key" 'BEGIN{ n=split(s,a,/, */); print n+0 }')|$combo_key"]:-0}"
-          if (( combo_count > 0 )); then
-            printf "  %*d" "${combo_widths[$i]}" "$combo_count"
-          else
-            printf "  %*s" "${combo_widths[$i]}" "-"
-          fi
-        done
-        printf "\n"
 
       printf "\n%s═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════%s\n" "$ANSI_BOLD$ANSI_CYAN" "$ANSI_RESET"
       printf "%s  CANONICAL BASELINE + PHOTON ACTIVATION SNAPSHOT — %s (%d GRL runs)%s\n" "$ANSI_BOLD$ANSI_CYAN" "$LABEL" "${#RUNS_ALL[@]}" "$ANSI_RESET"
       printf "%s═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════%s\n" "$ANSI_BOLD$ANSI_CYAN" "$ANSI_RESET"
-      printf "%s  Active = scaledown ≠ -1 in gl1_scalers for that run. Bit remapping is handled internally.%s\n" "$ANSI_DIM" "$ANSI_RESET"
-      printf "%s  PhoSet = photon thresholds that appear with that baseline in at least one active run.%s\n" "$ANSI_DIM" "$ANSI_RESET"
-      printf "%s  Combo columns are exact active photon combinations; entries are run counts for that exact combo with the baseline.%s\n" "$ANSI_DIM" "$ANSI_RESET"
 
       printf "\n%s  %-*s  %*s  %*s  %-*s  %*s" \
         "$ANSI_BOLD" \
@@ -1372,9 +1301,10 @@ print_compact_activation_summary() {
           phoset_display="-"
         fi
 
-        printf "  %-*s  %*d/%-*d  %*d  %-*s  %*d" \
+        local _active_str="${base_active}/${#RUNS_ALL[@]}"
+        printf "  %-*s  %*s  %*d  %-*s  %*d" \
           "$family_w" "$display_family" \
-          "$active_w" "$base_active" 4 "${#RUNS_ALL[@]}" \
+          "$active_w" "$_active_str" \
           "$inactive_w" "$inactive_runs" \
           "$phoset_w" "$phoset_display" \
           "$baseonly_w" "$base_only_count"

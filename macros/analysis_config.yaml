@@ -33,13 +33,13 @@
 # Photon + jet kinematic selection
 # -----------------------------------------------------------------------------
 photon_eta_abs_max: 0.7
-jet_pt_min: [5.0]
+jet_pt_min: [7.0]
 
 # Jet radii to reconstruct (R values).
 # The steering macro builds reco jets (and SIM truth jets) for each radius.
 # RecoilJets processes only the radii listed here.
 # Baseline: r02 + r04 + r06
-jet_radii: [0.2, 0.4]
+jet_radii: [0.4]
 
 # Back-to-back azimuthal cut as a fraction of π.
 #   0.5   → Δφ > π/2
@@ -102,7 +102,7 @@ centrality_edges: [0, 10, 20, 40, 60, 80]
 #     shapes, isolation) is identical to variantA.
 #
 # -----------------------------------------------------------------------------
-clusterUEpipeline: [noSub, baseVariant, variantA, variantB]
+clusterUEpipeline: [noSub, baseVariant]
 
 # -----------------------------------------------------------------------------
 # Pi0 analysis (parallel no-correction cluster branch)
@@ -140,10 +140,10 @@ isSlidingIso: false
 isSlidingAndFixed: false
 
 # MATRIX AXIS: one job per fixedGeV value (when isSlidingIso is false).
-fixedGeV: [5.0]
+fixedGeV: [4.0]
 
 # MATRIX AXIS: isolation cone radius.
-coneR: [0.40]
+coneR: [0.30]
 
 # Sliding WP parameters (used when isSlidingIso is true):
 #   thrReco = aGeV + bPerGeV × pT(γ)
