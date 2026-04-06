@@ -1899,23 +1899,30 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                   << std::endl;
   }
 
-  if (isAuAuLike && !isSimEmbedded)
-  {
-        if (vlevel > 0) std::cout << "building centrality classifier (Au+Au-like)" << std::endl;
-        auto* cent = new CentralityReco();
-        cent->Verbosity(0);
-        cent->setOverwriteScale(
-                "/cvmfs/sphenix.sdcc.bnl.gov/calibrations/sphnxpro/cdb/CentralityScale/42/6b/426bc1b56ba544201b0213766bee9478_cdb_centrality_scale_54912.root");
-        se->registerSubsystem(cent);
-  }
-  else
-  {
-        if (vlevel > 0)
-        {
-          if (isSimEmbedded) std::cout << "[isSimEmbedded] skipping CentralityReco (use embedded sample's existing centrality products)" << std::endl;
-          else               std::cout << "[pp dataset] skipping CentralityReco" << std::endl;
-        }
-  }
+    if (isAuAuLike && !isSimEmbedded)
+    {
+          if (vlevel > 0) std::cout << "building minbias classifier" << std::endl;
+          auto* mb = new MinimumBiasClassifier();
+          mb->Verbosity(0);
+          mb->setOverwriteScale(
+                  "/cvmfs/sphenix.sdcc.bnl.gov/calibrations/sphnxpro/cdb/CentralityScale/42/6b/426bc1b56ba544201b0213766bee9478_cdb_centrality_scale_54912.root");
+          se->registerSubsystem(mb);
+
+          if (vlevel > 0) std::cout << "building centrality classifier (Au+Au-like)" << std::endl;
+          auto* cent = new CentralityReco();
+          cent->Verbosity(0);
+          cent->setOverwriteScale(
+                  "/cvmfs/sphenix.sdcc.bnl.gov/calibrations/sphnxpro/cdb/CentralityScale/42/6b/426bc1b56ba544201b0213766bee9478_cdb_centrality_scale_54912.root");
+          se->registerSubsystem(cent);
+    }
+    else
+    {
+          if (vlevel > 0)
+          {
+            if (isSimEmbedded) std::cout << "[isSimEmbedded] skipping MinimumBiasClassifier/CentralityReco (use embedded sample's existing centrality products)" << std::endl;
+            else               std::cout << "[pp dataset] skipping CentralityReco" << std::endl;
+          }
+    }
 
   setenv("BEMCREC_CEMC_DISABLE_ASINH_POSITION", "0", 1);
 

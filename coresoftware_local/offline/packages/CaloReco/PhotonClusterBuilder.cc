@@ -221,7 +221,7 @@ int PhotonClusterBuilder::InitRun(PHCompositeNode* topNode)
                 << " output=" << m_output_photon_node
                 << " ETthr=" << m_min_cluster_et
                 << " shapeTowerMinE=" << m_shape_min_tower_E
-                << " isoTowerMinE=" << m_iso_min_tower_E
+                << " isoTowerPolicy=no_one_sided_cut"
                 << " useVzCut=" << (m_use_vz_cut ? "true" : "false")
                 << " vzCut=" << m_vz_cut_cm
                 << " isAuAu=" << (m_is_auau ? "true" : "false")
@@ -1625,11 +1625,11 @@ void PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
                 continue;
               }
 
-              if (e <= m_shape_min_tower_E)
+              if (!std::isfinite(e))
               {
-                ++nBelowThr;
-                droppedInCone.push_back({ieta, iphi, dRval, e, 0.0, isGood, "E<=min"});
-                continue;
+                  ++nBelowThr;
+                  droppedInCone.push_back({ieta, iphi, dRval, e, 0.0, isGood, "nonfiniteE"});
+                  continue;
               }
 
               const double et = e / std::cosh(tEta);
@@ -1654,7 +1654,7 @@ void PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
                       << " | geomMissing=" << nGeomMiss
                       << " | outR=" << nOutR
                       << " | inR_notGood=" << nNotGood
-                      << " | inR_E<=min(" << m_shape_min_tower_E << ")=" << nBelowThr
+                      << " | inR_nonFiniteE=" << nBelowThr
                       << " | inR_KEPT=" << nKept
                       << " | sumEtKept=" << std::setprecision(3) << sumEtKept
                       << "\n";
@@ -1868,26 +1868,30 @@ float PhotonClusterBuilder::calculate_layer_et(float seed_eta, float seed_phi, f
       continue;
     }
 
-    double tower_eta = getTowerEta(tower_geom, 0, 0, vertex_z);
-    double tower_phi = tower_geom->get_phi();
+      double tower_eta = getTowerEta(tower_geom, 0, 0, vertex_z);
+      double tower_phi = tower_geom->get_phi();
+      if (!std::isfinite(tower_eta) || !std::isfinite(tower_phi))
+      {
+        continue;
+      }
 
-    if (deltaR(seed_eta, seed_phi, tower_eta, tower_phi) >= radius)
-    {
-      continue;
-    }
+      if (deltaR(seed_eta, seed_phi, tower_eta, tower_phi) >= radius)
+      {
+        continue;
+      }
 
-    ++nInConeGood;
+      ++nInConeGood;
 
-    float energy = tower->get_energy();
-    if (energy <= m_iso_min_tower_E)
-    {
-      ++nBelowThreshold;
-      continue;
-    }
+      float energy = tower->get_energy();
+      if (!std::isfinite(energy))
+      {
+        ++nBelowThreshold;
+        continue;
+      }
 
-    float et = energy / std::cosh(tower_eta);
-    layer_et += et;
-    ++nAccepted;
+      float et = energy / std::cosh(tower_eta);
+      layer_et += et;
+      ++nAccepted;
   }
 
   if (Verbosity() >= 4)
@@ -1902,7 +1906,7 @@ float PhotonClusterBuilder::calculate_layer_et(float seed_eta, float seed_phi, f
               << " | isGood=0=" << nIsBad
               << " | geomMissing=" << nGeomMissing
               << " | inCone_good=" << nInConeGood
-              << " | inCone_E<=" << m_iso_min_tower_E << "=" << nBelowThreshold
+              << " | inCone_nonFiniteE=" << nBelowThreshold
               << " | accepted=" << nAccepted
               << " | sumEt=" << layer_et
               << std::endl;
