@@ -276,7 +276,7 @@ TDirectory* simTopSS = nullptr;
   }
 }
 
-if (!skipToCentralityOverlaysWithSSQA)
+if (!skipToCentralityAndPtOverlaysWithSSQA)
 {
     for (std::size_t ic = 0; ic < centBins.size(); ++ic)
     {
@@ -1103,19 +1103,22 @@ if (!skipToCentralityOverlaysWithSSQA)
             TH1* hSrc = GetTH1FromTopDir(aaTopSS, hName);
             if (!hSrc) continue;
 
-            TH1* h = CloneNormalizeStyle(
-              hSrc,
-              TString::Format("ssQA_3x5_%s_%s_%s_%s_%s_pt%d",
-                H.variant.c_str(), tag.c_str(), var.c_str(),
-                fixedCent->folder.c_str(), trigAA.c_str(), ipt2).Data(),
-              overlayColors[ipt2 % nOverlayColors],
-              20
-            );
-            if (!h) continue;
+              TH1* h = CloneTH1(
+                hSrc,
+                TString::Format("ssQA_3x5_%s_%s_%s_%s_%s_pt%d",
+                  H.variant.c_str(), tag.c_str(), var.c_str(),
+                  fixedCent->folder.c_str(), trigAA.c_str(), ipt2).Data()
+              );
+              if (!h) continue;
 
-            h->SetFillStyle(0);
-            h->SetLineWidth(2);
-            h->SetMarkerSize(0.90);
+              EnsureSumw2(h);
+              h->SetTitle("");
+              h->SetLineColor(overlayColors[ipt2 % nOverlayColors]);
+              h->SetMarkerColor(overlayColors[ipt2 % nOverlayColors]);
+              h->SetMarkerStyle(20);
+              h->SetFillStyle(0);
+              h->SetLineWidth(2);
+              h->SetMarkerSize(0.90);
 
             for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
               yMax = std::max(yMax, (double)(h->GetBinContent(ib) + h->GetBinError(ib)));
@@ -1170,12 +1173,12 @@ if (!skipToCentralityOverlaysWithSSQA)
 
         anyPad = true;
 
-        TH1* hFrame = hOverlays[0];
-        hFrame->GetXaxis()->SetTitle(vlabel.c_str());
-        hFrame->GetYaxis()->SetTitle("Unit Normalized");
-        hFrame->GetYaxis()->SetTitleOffset(1.45);
-        hFrame->GetYaxis()->SetTitleSize(0.050);
-        hFrame->GetYaxis()->SetLabelSize(0.040);
+          TH1* hFrame = hOverlays[0];
+          hFrame->GetXaxis()->SetTitle(vlabel.c_str());
+          hFrame->GetYaxis()->SetTitle(overlayPtBins ? "Counts" : "Unit Normalized");
+          hFrame->GetYaxis()->SetTitleOffset(1.45);
+          hFrame->GetYaxis()->SetTitleSize(0.050);
+          hFrame->GetYaxis()->SetLabelSize(0.040);
         hFrame->SetMinimum(0.0);
         hFrame->SetMaximum((yMax > 0.0) ? (yMax * 1.10) : 1.0);
         hFrame->Draw("E1");
@@ -1241,7 +1244,6 @@ if (!skipToCentralityOverlaysWithSSQA)
     for (TH1* h : keepAlive) delete h;
   };
 
-    if (!skipToCentralityOverlaysWithSSQA)
     {
       const int nOverlayColorsPerPt = (int)(sizeof(overlayColors) / sizeof(overlayColors[0]));
 
@@ -1295,19 +1297,22 @@ if (!skipToCentralityOverlaysWithSSQA)
                 TH1* hSrc = GetTH1FromTopDir(aaTopSS, hName);
                 if (!hSrc) continue;
 
-                TH1* h = CloneNormalizeStyle(
-                  hSrc,
-                  TString::Format("ssQA_ptOverlay_%s_%s_%s_%s_%s_pt%d",
-                    H.variant.c_str(), tag.c_str(), var.c_str(),
-                    cb.folder.c_str(), trigAA.c_str(), ipt2).Data(),
-                  overlayColors[ipt2 % nOverlayColorsPerPt],
-                  20
-                );
-                if (!h) continue;
+                  TH1* h = CloneTH1(
+                    hSrc,
+                    TString::Format("ssQA_ptOverlay_%s_%s_%s_%s_%s_pt%d",
+                      H.variant.c_str(), tag.c_str(), var.c_str(),
+                      cb.folder.c_str(), trigAA.c_str(), ipt2).Data()
+                  );
+                  if (!h) continue;
 
-                h->SetFillStyle(0);
-                h->SetLineWidth(2);
-                h->SetMarkerSize(0.90);
+                  EnsureSumw2(h);
+                  h->SetTitle("");
+                  h->SetLineColor(overlayColors[ipt2 % nOverlayColorsPerPt]);
+                  h->SetMarkerColor(overlayColors[ipt2 % nOverlayColorsPerPt]);
+                  h->SetMarkerStyle(20);
+                  h->SetFillStyle(0);
+                  h->SetLineWidth(2);
+                  h->SetMarkerSize(0.90);
 
                 for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
                   yMax = std::max(yMax, (double)(h->GetBinContent(ib) + h->GetBinError(ib)));
@@ -1327,18 +1332,18 @@ if (!skipToCentralityOverlaysWithSSQA)
               ApplyCanvasMargins1D(cVarPt);
               cVarPt.cd();
 
-              TH1* hFrame = hOverlays[0];
-              hFrame->GetXaxis()->SetTitle(vlabel.c_str());
-              hFrame->GetYaxis()->SetTitle("Unit Normalized");
-              hFrame->GetYaxis()->SetTitleOffset(1.15);
-              hFrame->SetMinimum(0.0);
-              hFrame->SetMaximum((yMax > 0.0) ? (yMax * 1.25) : 1.0);
+                TH1* hFrame = hOverlays[0];
+                hFrame->GetXaxis()->SetTitle(vlabel.c_str());
+                hFrame->GetYaxis()->SetTitle("Counts");
+                hFrame->GetYaxis()->SetTitleOffset(1.15);
+                hFrame->SetMinimum(0.0);
+                hFrame->SetMaximum((yMax > 0.0) ? (yMax * 1.25) : 1.0);
               hFrame->Draw("E1");
               for (std::size_t ih = 1; ih < hOverlays.size(); ++ih)
                 hOverlays[ih]->Draw("E1 same");
               hOverlays[0]->Draw("E1 same");
 
-              TLegend legVarPt(0.14, 0.78, 0.70, 0.90);
+              TLegend legVarPt(0.2, 0.78, 0.65, 0.90);
               legVarPt.SetBorderSize(0);
               legVarPt.SetFillStyle(0);
               legVarPt.SetTextFont(42);

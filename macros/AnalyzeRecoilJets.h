@@ -101,7 +101,7 @@ namespace ARJ
   inline bool isPPdataAndAUAU = false;
 
   inline bool generateUEcomparisonSSQA = true;
-  inline bool skipToCentralityOverlaysWithSSQA = true;
+  inline bool skipToCentralityAndPtOverlaysWithSSQA = true;
 
   inline bool generatePerRunTriggerAna = false;
   inline bool generatePerRunTriggerAnaForGoodRunsOnly = false;
