@@ -276,754 +276,757 @@ TDirectory* simTopSS = nullptr;
   }
 }
 
-for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+if (!skipToCentralityOverlaysWithSSQA)
 {
-  const auto& cb = centBins[ic];
-  const string centDir = JoinPath(ssQADir, cb.folder);
-  EnsureDir(centDir);
-
-  for (int ipt = 0; ipt < kNPtBins; ++ipt)
-  {
-    const PtBin& b = PtBins()[ipt];
-    const string ptDir = JoinPath(centDir, b.folder);
-    EnsureDir(ptDir);
-
-    const string cName = TString::Format("c_ssQA_1x5_%s_%s_%s",
-      trigAA.c_str(), cb.folder.c_str(), b.folder.c_str()).Data();
-
-    TCanvas cSS(cName.c_str(), cName.c_str(), 2600, 750);
-    cSS.Divide(5, 1, 0.001, 0.001);
-
-    vector<TH1*> keepH;
-    keepH.reserve(ssVars.size() * 5);
-    vector<TLegend*> keepLeg;
-    keepLeg.reserve(ssVars.size());
-
-    for (int iv = 0; iv < (int)ssVars.size(); ++iv)
+    for (std::size_t ic = 0; ic < centBins.size(); ++ic)
     {
-      cSS.cd(iv + 1);
-      gPad->SetLeftMargin(0.14);
-      gPad->SetRightMargin(0.05);
-      gPad->SetBottomMargin(0.14);
-      gPad->SetTopMargin(0.16);
-      gPad->SetLogy(false);
-
-      const string histBase = "h_ss_" + ssVars[iv].var + "_inclusive";
-
-      // Collect AuAu variants + PP into per-pad overlays
-      vector<TH1*> padHists;
-      vector<string> padLabels;
-
-      for (std::size_t iu : ssUEIndices)
-      {
-        if (iu >= handles.size()) continue;
-        auto& H = handles[iu];
-        if (!H.file) continue;
-
-        TDirectory* aaTopSS = H.file->GetDirectory(trigAA.c_str());
-        if (!aaTopSS) continue;
-
-        const string hAAName = histBase + b.suffix + cb.suffix;
-        TH1* rawAA = dynamic_cast<TH1*>(aaTopSS->Get(hAAName.c_str()));
-        if (!rawAA) continue;
-
-        TH1* hAA = CloneTH1(rawAA,
-          TString::Format("ssQA_%s_%s_%s_%s_%s",
-            ssVars[iv].var.c_str(), H.variant.c_str(),
-            cb.folder.c_str(), b.folder.c_str(),
-            trigAA.c_str()).Data());
-        if (!hAA) continue;
-
-        EnsureSumw2(hAA);
-        hAA->GetXaxis()->UnZoom();
-        hAA->SetTitle("");
-
-        const double I = hAA->Integral(0, hAA->GetNbinsX() + 1);
-        if (I > 0.0) hAA->Scale(1.0 / I);
-
-        hAA->SetLineWidth(2);
-        hAA->SetLineColor(ssColors[iu]);
-        hAA->SetMarkerColor(ssColors[iu]);
-        hAA->SetMarkerStyle(ssMarkers[iu]);
-        hAA->SetMarkerSize(0.95);
-        hAA->SetFillStyle(0);
-
-        padHists.push_back(hAA);
-        padLabels.push_back(TString::Format("AuAu (%d-%d%%) %s", cb.lo, cb.hi, H.label.c_str()).Data());
-        keepH.push_back(hAA);
-      }
-
-      // PP overlay
-      TH1* hPPss = nullptr;
-      if (ppTop)
-      {
-        const string hPPName = histBase + b.suffix;
-        TH1* rawPP = dynamic_cast<TH1*>(ppTop->Get(hPPName.c_str()));
-        if (rawPP)
+        const auto& cb = centBins[ic];
+        const string centDir = JoinPath(ssQADir, cb.folder);
+        EnsureDir(centDir);
+        
+        for (int ipt = 0; ipt < kNPtBins; ++ipt)
         {
-          hPPss = CloneTH1(rawPP,
-            TString::Format("ssQA_pp_%s_%s_%s_%s",
-              ssVars[iv].var.c_str(),
-              cb.folder.c_str(), b.folder.c_str(),
-              trigAA.c_str()).Data());
-          if (hPPss)
-          {
-            EnsureSumw2(hPPss);
-            hPPss->GetXaxis()->UnZoom();
-            hPPss->SetTitle("");
-
-            const double Ipp = hPPss->Integral(0, hPPss->GetNbinsX() + 1);
-            if (Ipp > 0.0) hPPss->Scale(1.0 / Ipp);
-
-            hPPss->SetLineWidth(2);
-            hPPss->SetLineColor(kRed + 1);
-            hPPss->SetMarkerColor(kRed + 1);
-            hPPss->SetMarkerStyle(24);
-            hPPss->SetMarkerSize(0.95);
-            hPPss->SetFillStyle(0);
-
-            padHists.push_back(hPPss);
-            padLabels.push_back("pp");
-            keepH.push_back(hPPss);
-          }
-        }
-      }
-
-      if (padHists.empty())
-      {
-        TLatex tMiss;
-        tMiss.SetNDC(true);
-        tMiss.SetTextFont(42);
-        tMiss.SetTextAlign(22);
-        tMiss.SetTextSize(0.080);
-        tMiss.DrawLatex(0.50, 0.55, "MISSING");
-        continue;
-      }
-
-      double yMaxPad = 0.0;
-      for (auto* h : padHists)
-        yMaxPad = std::max(yMaxPad, h->GetMaximum());
-
-      padHists[0]->GetXaxis()->SetTitle(ssVars[iv].label.c_str());
-      padHists[0]->GetYaxis()->SetTitle("Normalized");
-      padHists[0]->GetYaxis()->SetTitleOffset(1.7);
-      padHists[0]->SetMinimum(0.0);
-      padHists[0]->SetMaximum(yMaxPad * 1.35);
-
-      padHists[0]->Draw("E1");
-      for (std::size_t ih = 1; ih < padHists.size(); ++ih)
-        padHists[ih]->Draw("E1 same");
-
-        TLegend* leg = new TLegend(0.32, 0.65, 0.85, 0.85);
-        leg->SetBorderSize(0);
-        leg->SetFillStyle(0);
-        leg->SetTextFont(42);
-        leg->SetTextSize(0.045);
-        leg->SetNColumns(2);
-        for (std::size_t ih = 0; ih < padHists.size(); ++ih)
-          leg->AddEntry(padHists[ih], padLabels[ih].c_str(), "ep");
-        leg->Draw();
-        keepLeg.push_back(leg);
-
-      {
-        TLatex tPad;
-        tPad.SetNDC(true);
-        tPad.SetTextFont(42);
-        tPad.SetTextAlign(22);
-        tPad.SetTextSize(0.058);
-        tPad.DrawLatex(0.50, 0.88,
-          TString::Format("%s, p_{T}^{#gamma} %d-%d GeV, %d-%d%%",
-            ssVars[iv].label.c_str(),
-            b.lo, b.hi, cb.lo, cb.hi).Data());
-      }
-    } // end SS var loop
-
-    SaveCanvas(cSS, JoinPath(ptDir, "table1x5_SS_UEvariantOverlay.png"));
-
-    for (TLegend* l : keepLeg) delete l;
-    for (TH1* h : keepH) delete h;
-
-      // PPG12-style tables: pp vs Signal MC vs Background MC + selected AuAu variant(s)
-      struct SSOverlayVariantCfg
-      {
-        string folder;
-        vector<std::size_t> indices;
-      };
-
-      const vector<SSOverlayVariantCfg> ssOverlayVariantCfgs = {
-        {"variantA", {std::size_t(2)}},
-        {"variantB", {std::size_t(3)}},
-        {"variantA_variantB", {std::size_t(2), std::size_t(3)}},
-        {"variantA_variantB_noSub", {std::size_t(0), std::size_t(2), std::size_t(3)}}
-      };
-
-      for (const auto& cfg : ssOverlayVariantCfgs)
-      {
-        bool haveAnyVariantFile = false;
-        for (std::size_t idx : cfg.indices)
-        {
-          if (idx < handles.size() && handles[idx].file) { haveAnyVariantFile = true; break; }
-        }
-        if (!haveAnyVariantFile) continue;
-        if (!ppTop || !simTopSS) continue;
-
-        const string variantDir = JoinPath(ptDir, cfg.folder);
-        EnsureDir(variantDir);
-
-        for (const auto& tag : ppg12Tags)
-        {
-          auto DrawVariantPad =
-            [&](bool includeTemplates,
-                bool drawLegend,
-                bool doZoom,
-                int iv,
-                std::vector<TH1*>& keepAlive,
-                std::vector<TLegend*>& keepLegPP) -> bool
-          {
-            const std::string& var = ssVars[iv].var;
-            const std::string& vlabel = ssVars[iv].label;
-
-            const bool isW = (var == "weta" || var == "wphi");
-
-            const string hPPName  = string("h_ss_") + var + string("_") + tag + b.suffix;
-            const string hSigName = string("h_ss_") + var + string("_") + tag + string("_sig") + b.suffix;
-            const string hBkgName = string("h_ss_") + var + string("_") + tag + string("_bkg") + b.suffix;
-            const string hAAName  = string("h_ss_") + var + string("_") + tag + b.suffix + cb.suffix;
-
-            TH1* rawPP  = GetTH1FromTopDir(ppTop, hPPName);
-            TH1* rawSig = includeTemplates ? GetTH1FromTopDir(simTopSS, hSigName) : nullptr;
-            TH1* rawBkg = includeTemplates ? GetTH1FromTopDir(simTopSS, hBkgName) : nullptr;
-
-            vector<std::pair<std::size_t, TH1*> > rawAAs;
-            for (std::size_t idx : cfg.indices)
+            const PtBin& b = PtBins()[ipt];
+            const string ptDir = JoinPath(centDir, b.folder);
+            EnsureDir(ptDir);
+            
+            const string cName = TString::Format("c_ssQA_1x5_%s_%s_%s",
+                                                 trigAA.c_str(), cb.folder.c_str(), b.folder.c_str()).Data();
+            
+            TCanvas cSS(cName.c_str(), cName.c_str(), 2600, 750);
+            cSS.Divide(5, 1, 0.001, 0.001);
+            
+            vector<TH1*> keepH;
+            keepH.reserve(ssVars.size() * 5);
+            vector<TLegend*> keepLeg;
+            keepLeg.reserve(ssVars.size());
+            
+            for (int iv = 0; iv < (int)ssVars.size(); ++iv)
             {
-              if (idx >= handles.size()) continue;
-              auto& H = handles[idx];
-              if (!H.file) continue;
-
-              TDirectory* aaTopSS = H.file->GetDirectory(trigAA.c_str());
-              if (!aaTopSS) continue;
-
-              TH1* rawAA = GetTH1FromTopDir(aaTopSS, hAAName);
-              if (rawAA) rawAAs.push_back(std::make_pair(idx, rawAA));
-            }
-
-            if (!rawPP && !rawSig && !rawBkg && rawAAs.empty())
-            {
-              DrawMissingPad(TString::Format("%s, %s, %s, %s", var.c_str(), tag.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
-              return false;
-            }
-
-            TH1* hPP  = nullptr;
-            TH1* hSig = nullptr;
-            TH1* hBkg = nullptr;
-            vector<std::pair<std::size_t, TH1*> > hAAs;
-
-            if (rawPP)
-            {
-              hPP = CloneNormalizeStyle(rawPP,
-                TString::Format("ssQA_%s_%s_%s_%s_%s_pp", cfg.folder.c_str(), tag.c_str(), var.c_str(), b.folder.c_str(), doZoom ? "zoom" : "full").Data(),
-                kRed + 1, 24);
-
-              if (hPP)
-              {
-                hPP->SetLineWidth(2);
-                hPP->SetLineColor(kRed + 1);
-                hPP->SetMarkerColor(kRed + 1);
-                hPP->SetMarkerStyle(24);
-                hPP->SetMarkerSize(1.00);
-                hPP->SetFillStyle(0);
-              }
-            }
-
-            if (rawSig)
-            {
-              hSig = CloneNormalizeStyle(rawSig,
-                TString::Format("ssQA_%s_%s_%s_%s_%s_sig", cfg.folder.c_str(), tag.c_str(), var.c_str(), b.folder.c_str(), doZoom ? "zoom" : "full").Data(),
-                kPink + 7, 24);
-
-              if (hSig)
-              {
-                hSig->SetLineWidth(2);
-                hSig->SetLineColor(kPink + 7);
-                hSig->SetMarkerColor(kPink + 7);
-                hSig->SetMarkerStyle(1);
-                hSig->SetMarkerSize(0.0);
-                hSig->SetFillStyle(0);
-              }
-            }
-
-            if (rawBkg)
-            {
-              hBkg = CloneNormalizeStyle(rawBkg,
-                TString::Format("ssQA_%s_%s_%s_%s_%s_bkg", cfg.folder.c_str(), tag.c_str(), var.c_str(), b.folder.c_str(), doZoom ? "zoom" : "full").Data(),
-                kBlue + 1, 25);
-
-              if (hBkg)
-              {
-                hBkg->SetLineWidth(2);
-                hBkg->SetLineColor(kBlue + 1);
-                hBkg->SetMarkerColor(kBlue + 1);
-                hBkg->SetMarkerStyle(1);
-                hBkg->SetMarkerSize(0.0);
-                hBkg->SetFillStyle(0);
-              }
-            }
-
-            for (const auto& rawPair : rawAAs)
-            {
-              const std::size_t idx = rawPair.first;
-              TH1* hAA = CloneNormalizeStyle(rawPair.second,
-                TString::Format("ssQA_%s_%s_%s_%s_%s_aa_%zu", cfg.folder.c_str(), tag.c_str(), var.c_str(), b.folder.c_str(), doZoom ? "zoom" : "full", idx).Data(),
-                ssColors[idx], ssMarkers[idx]);
-
-              if (hAA)
-              {
-                hAA->SetLineWidth(2);
-                hAA->SetLineColor(ssColors[idx]);
-                hAA->SetMarkerColor(ssColors[idx]);
-                hAA->SetMarkerStyle(ssMarkers[idx]);
-                hAA->SetMarkerSize(1.00);
-                hAA->SetFillStyle(0);
-                hAAs.push_back(std::make_pair(idx, hAA));
-              }
-            }
-
-              TH1* hFrame = nullptr;
-              if (includeTemplates)
-              {
-                if (doZoom && tag != "tight")
-                  hFrame = (hBkg ? hBkg : (!hAAs.empty() ? hAAs.front().second : hPP));
-                else
-                  hFrame = (hSig ? hSig : (hBkg ? hBkg : (!hAAs.empty() ? hAAs.front().second : hPP)));
-              }
-              else
-                hFrame = (!hAAs.empty() ? hAAs.front().second : hPP);
-
-            if (!hFrame)
-            {
-              DrawMissingPad(TString::Format("%s, %s, %s, %s", var.c_str(), tag.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
-              return false;
-            }
-
-            hFrame->GetXaxis()->SetTitle(vlabel.c_str());
-            hFrame->GetYaxis()->SetTitle("Unit Normalized");
-            hFrame->GetYaxis()->SetTitleOffset(1.58);
-            hFrame->GetYaxis()->SetTitleSize(0.050);
-            hFrame->GetYaxis()->SetLabelSize(0.040);
-
-            double yMax = 0.0;
-            if (includeTemplates)
-            {
-              if (hPP)
-              {
-                for (int ib = 1; ib <= hPP->GetNbinsX(); ++ib)
-                  yMax = std::max(yMax, (double)(hPP->GetBinContent(ib) + hPP->GetBinError(ib)));
-              }
-              if (hSig) yMax = std::max(yMax, (double)hSig->GetMaximum());
-              if (hBkg) yMax = std::max(yMax, (double)hBkg->GetMaximum());
-              for (const auto& hAAPair : hAAs)
-              {
-                TH1* hAA = hAAPair.second;
-                if (!hAA) continue;
-                for (int ib = 1; ib <= hAA->GetNbinsX(); ++ib)
-                  yMax = std::max(yMax, (double)(hAA->GetBinContent(ib) + hAA->GetBinError(ib)));
-              }
-            }
-            else
-            {
-              if (hPP)
-              {
-                for (int ib = 1; ib <= hPP->GetNbinsX(); ++ib)
-                  yMax = std::max(yMax, (double)(hPP->GetBinContent(ib) + hPP->GetBinError(ib)));
-              }
-              for (const auto& hAAPair : hAAs)
-              {
-                TH1* hAA = hAAPair.second;
-                if (!hAA) continue;
-                for (int ib = 1; ib <= hAA->GetNbinsX(); ++ib)
-                  yMax = std::max(yMax, (double)(hAA->GetBinContent(ib) + hAA->GetBinError(ib)));
-              }
-            }
-
-            if (doZoom)
-            {
-              double xMinZoom = std::numeric_limits<double>::max();
-              double xMaxZoom = -std::numeric_limits<double>::max();
-              double yMaxZoom = 0.0;
-
-              auto AccumulateZoomRange = [&](TH1* h)
-              {
-                if (!h) return;
-                for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                cSS.cd(iv + 1);
+                gPad->SetLeftMargin(0.14);
+                gPad->SetRightMargin(0.05);
+                gPad->SetBottomMargin(0.14);
+                gPad->SetTopMargin(0.16);
+                gPad->SetLogy(false);
+                
+                const string histBase = "h_ss_" + ssVars[iv].var + "_inclusive";
+                
+                // Collect AuAu variants + PP into per-pad overlays
+                vector<TH1*> padHists;
+                vector<string> padLabels;
+                
+                for (std::size_t iu : ssUEIndices)
                 {
-                  const double y = h->GetBinContent(ib) + h->GetBinError(ib);
-                  if (y <= 0.0) continue;
-                  xMinZoom = std::min(xMinZoom, h->GetXaxis()->GetBinLowEdge(ib));
-                  xMaxZoom = std::max(xMaxZoom, h->GetXaxis()->GetBinUpEdge(ib));
-                  yMaxZoom = std::max(yMaxZoom, y);
+                    if (iu >= handles.size()) continue;
+                    auto& H = handles[iu];
+                    if (!H.file) continue;
+                    
+                    TDirectory* aaTopSS = H.file->GetDirectory(trigAA.c_str());
+                    if (!aaTopSS) continue;
+                    
+                    const string hAAName = histBase + b.suffix + cb.suffix;
+                    TH1* rawAA = dynamic_cast<TH1*>(aaTopSS->Get(hAAName.c_str()));
+                    if (!rawAA) continue;
+                    
+                    TH1* hAA = CloneTH1(rawAA,
+                                        TString::Format("ssQA_%s_%s_%s_%s_%s",
+                                                        ssVars[iv].var.c_str(), H.variant.c_str(),
+                                                        cb.folder.c_str(), b.folder.c_str(),
+                                                        trigAA.c_str()).Data());
+                    if (!hAA) continue;
+                    
+                    EnsureSumw2(hAA);
+                    hAA->GetXaxis()->UnZoom();
+                    hAA->SetTitle("");
+                    
+                    const double I = hAA->Integral(0, hAA->GetNbinsX() + 1);
+                    if (I > 0.0) hAA->Scale(1.0 / I);
+                    
+                    hAA->SetLineWidth(2);
+                    hAA->SetLineColor(ssColors[iu]);
+                    hAA->SetMarkerColor(ssColors[iu]);
+                    hAA->SetMarkerStyle(ssMarkers[iu]);
+                    hAA->SetMarkerSize(0.95);
+                    hAA->SetFillStyle(0);
+                    
+                    padHists.push_back(hAA);
+                    padLabels.push_back(TString::Format("AuAu (%d-%d%%) %s", cb.lo, cb.hi, H.label.c_str()).Data());
+                    keepH.push_back(hAA);
                 }
-              };
-
-                AccumulateZoomRange(hPP);
-                for (const auto& hAAPair : hAAs) AccumulateZoomRange(hAAPair.second);
-                if (includeTemplates)
+                
+                // PP overlay
+                TH1* hPPss = nullptr;
+                if (ppTop)
                 {
-                  if (tag == "tight") AccumulateZoomRange(hSig);
-                  else                AccumulateZoomRange(hBkg);
+                    const string hPPName = histBase + b.suffix;
+                    TH1* rawPP = dynamic_cast<TH1*>(ppTop->Get(hPPName.c_str()));
+                    if (rawPP)
+                    {
+                        hPPss = CloneTH1(rawPP,
+                                         TString::Format("ssQA_pp_%s_%s_%s_%s",
+                                                         ssVars[iv].var.c_str(),
+                                                         cb.folder.c_str(), b.folder.c_str(),
+                                                         trigAA.c_str()).Data());
+                        if (hPPss)
+                        {
+                            EnsureSumw2(hPPss);
+                            hPPss->GetXaxis()->UnZoom();
+                            hPPss->SetTitle("");
+                            
+                            const double Ipp = hPPss->Integral(0, hPPss->GetNbinsX() + 1);
+                            if (Ipp > 0.0) hPPss->Scale(1.0 / Ipp);
+                            
+                            hPPss->SetLineWidth(2);
+                            hPPss->SetLineColor(kRed + 1);
+                            hPPss->SetMarkerColor(kRed + 1);
+                            hPPss->SetMarkerStyle(24);
+                            hPPss->SetMarkerSize(0.95);
+                            hPPss->SetFillStyle(0);
+                            
+                            padHists.push_back(hPPss);
+                            padLabels.push_back("pp");
+                            keepH.push_back(hPPss);
+                        }
+                    }
                 }
-
-              if (std::isfinite(xMinZoom) && std::isfinite(xMaxZoom) && xMaxZoom > xMinZoom)
-              {
-                const double axisMin = hFrame->GetXaxis()->GetXmin();
-                const double axisMax = hFrame->GetXaxis()->GetXmax();
-                double margin = 0.06 * (xMaxZoom - xMinZoom);
-                if (!(margin > 0.0)) margin = 0.05 * (axisMax - axisMin);
-
-                const double xLo = std::max(axisMin, xMinZoom - margin);
-                const double xHi = std::min(axisMax, xMaxZoom + margin);
-                hFrame->GetXaxis()->SetRangeUser(xLo, xHi);
-              }
-
-              if (yMaxZoom > 0.0) yMax = yMaxZoom;
-            }
-
-            hFrame->SetMinimum(0.0);
-            hFrame->SetMaximum((yMax > 0.0) ? (yMax * (doZoom ? 1.08 : 1.10)) : 1.0);
-
-              if (includeTemplates)
-              {
-                if (doZoom)
+                
+                if (padHists.empty())
                 {
-                  // Zoomed row: only the relevant MC template
-                  if (tag == "tight")
-                  {
-                    if (hSig)             hSig->Draw("HIST");
-                    else if (!hAAs.empty()) hAAs.front().second->Draw("E1");
-                    else if (hPP)         hPP->Draw("E1");
-                  }
-                  else
-                  {
-                    if (hBkg)             hBkg->Draw("HIST");
-                    else if (!hAAs.empty()) hAAs.front().second->Draw("E1");
-                    else if (hPP)         hPP->Draw("E1");
-                  }
+                    TLatex tMiss;
+                    tMiss.SetNDC(true);
+                    tMiss.SetTextFont(42);
+                    tMiss.SetTextAlign(22);
+                    tMiss.SetTextSize(0.080);
+                    tMiss.DrawLatex(0.50, 0.55, "MISSING");
+                    continue;
                 }
-                else
-                {
-                  // Full row: both MC templates
-                  if (hSig)
-                  {
-                    hSig->Draw("HIST");
-                  }
-                  else if (hBkg)
-                  {
-                    hBkg->Draw("HIST");
-                  }
-                  else if (!hAAs.empty())
-                  {
-                    hAAs.front().second->Draw("E1");
-                  }
-                  else
-                  {
-                    hPP->Draw("E1");
-                  }
-
-                  if (hBkg && hBkg != hSig) hBkg->Draw("HIST same");
-                }
-              }
-            else
-            {
-              if (!hAAs.empty())
-              {
-                hAAs.front().second->Draw("E1");
-              }
-              else if (hPP)
-              {
-                hPP->Draw("E1");
-              }
-            }
-
-            for (const auto& hAAPair : hAAs) hAAPair.second->Draw("E1 same");
-            if (hPP) hPP->Draw("E1 same");
-
-            if (drawLegend)
-            {
-                TLegend* leg = (isW ? new TLegend(0.41, 0.55, 0.85, 0.8) : new TLegend(0.18, 0.55, 0.62, 0.8));
+                
+                double yMaxPad = 0.0;
+                for (auto* h : padHists)
+                    yMaxPad = std::max(yMaxPad, h->GetMaximum());
+                
+                padHists[0]->GetXaxis()->SetTitle(ssVars[iv].label.c_str());
+                padHists[0]->GetYaxis()->SetTitle("Normalized");
+                padHists[0]->GetYaxis()->SetTitleOffset(1.7);
+                padHists[0]->SetMinimum(0.0);
+                padHists[0]->SetMaximum(yMaxPad * 1.35);
+                
+                padHists[0]->Draw("E1");
+                for (std::size_t ih = 1; ih < padHists.size(); ++ih)
+                    padHists[ih]->Draw("E1 same");
+                
+                TLegend* leg = new TLegend(0.32, 0.65, 0.85, 0.85);
                 leg->SetBorderSize(0);
                 leg->SetFillStyle(0);
                 leg->SetTextFont(42);
-                leg->SetTextSize(0.036);
-
-                if (hPP)  leg->AddEntry(hPP,  "pp", "ep");
-                if (hSig) leg->AddEntry(hSig, "Signal MC", "l");
-                if (hBkg) leg->AddEntry(hBkg, "Background MC", "l");
-                for (const auto& hAAPair : hAAs)
-                {
-                  leg->AddEntry(
-                    hAAPair.second,
-                    TString::Format("AuAu (%d-%d%%) %s", cb.lo, cb.hi, handles[hAAPair.first].label.c_str()).Data(),
-                    "ep"
-                  );
-                }
-
+                leg->SetTextSize(0.045);
+                leg->SetNColumns(2);
+                for (std::size_t ih = 0; ih < padHists.size(); ++ih)
+                    leg->AddEntry(padHists[ih], padLabels[ih].c_str(), "ep");
                 leg->Draw();
-                keepLegPP.push_back(leg);
-            }
-
-              {
-                TLatex th;
-                th.SetNDC(true);
-                th.SetTextFont(42);
-                if (doZoom)
+                keepLeg.push_back(leg);
+                
                 {
-                  th.SetTextAlign(33);
-                  th.SetTextSize(0.060);
-                  th.DrawLatex(0.93, 0.93, "Zoomed");
+                    TLatex tPad;
+                    tPad.SetNDC(true);
+                    tPad.SetTextFont(42);
+                    tPad.SetTextAlign(22);
+                    tPad.SetTextSize(0.058);
+                    tPad.DrawLatex(0.50, 0.88,
+                                   TString::Format("%s, p_{T}^{#gamma} %d-%d GeV, %d-%d%%",
+                                                   ssVars[iv].label.c_str(),
+                                                   b.lo, b.hi, cb.lo, cb.hi).Data());
                 }
-                else
-                {
-                  th.SetTextAlign(22);
-                  th.SetTextSize(0.050);
-                  th.DrawLatex(0.50, 0.91,
-                    TString::Format("%s, %s, p_{T}^{#gamma}: %d-%d GeV",
-                      vlabel.c_str(), TagLabel(tag).c_str(), b.lo, b.hi).Data());
-                }
-              }
-
+            } // end SS var loop
+            
+            SaveCanvas(cSS, JoinPath(ptDir, "table1x5_SS_UEvariantOverlay.png"));
+            
+            for (TLegend* l : keepLeg) delete l;
+            for (TH1* h : keepH) delete h;
+            
+            // PPG12-style tables: pp vs Signal MC vs Background MC + selected AuAu variant(s)
+            struct SSOverlayVariantCfg
             {
-              TLatex tcut;
-              tcut.SetNDC(true);
-              tcut.SetTextFont(42);
-              tcut.SetTextAlign(13);
-              tcut.SetTextSize(doZoom ? 0.034 : 0.040);
-
-              bool drawCuts = false;
-              bool drawSingleCut = false;
-              double cutLo = 0.0;
-              double cutHi = 0.0;
-              std::string cutText;
-
-                const bool isPre = (tag == "pre");
-
-                if (var == "e11e33")
-                {
-                  if (isPre)
-                  {
-                    cutText = "pp presel: #frac{E_{11}}{E_{33}} < 0.98";
-                    drawSingleCut = true;
-                    cutHi = 0.98;
-                  }
-                  else
-                  {
-                    cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
-                    drawCuts = true;
-                    cutLo = 0.4;
-                    cutHi = 0.98;
-                  }
-                }
-                else if (var == "e32e35")
-                {
-                  if (isPre)
-                  {
-                    cutText = "pp presel: 0.8 < #frac{E_{32}}{E_{35}} < 1.0";
-                    drawCuts = true;
-                    cutLo = 0.8;
-                    cutHi = 1.0;
-                  }
-                  else
-                  {
-                    cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
-                    drawCuts = true;
-                    cutLo = 0.92;
-                    cutHi = 1.0;
-                  }
-                }
-                else if (var == "et1")
-                {
-                  if (isPre)
-                  {
-                    cutText = "pp presel: 0.6 < et1 < 1.0";
-                    drawCuts = true;
-                    cutLo = 0.6;
-                    cutHi = 1.0;
-                  }
-                  else
-                  {
-                    cutText = "#gamma-ID: 0.9 < et1 < 1.0";
-                    drawCuts = true;
-                    cutLo = 0.9;
-                    cutHi = 1.0;
-                  }
-                }
-                else if (var == "weta")
-                {
-                  if (isPre)
-                  {
-                    cutText = "pp presel: w_{#eta} < 0.6";
-                    drawSingleCut = true;
-                    cutHi = 0.6;
-                  }
-                  else
-                  {
-                    cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
-                    drawSingleCut = true;
-                    const double ptCenter = 0.5 * (b.lo + b.hi);
-                    cutHi = 0.15 + 0.006 * ptCenter;
-                  }
-                }
-                else if (var == "wphi")
-                {
-                  if (!isPre)
-                  {
-                    cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
-                    drawSingleCut = true;
-                    const double ptCenter = 0.5 * (b.lo + b.hi);
-                    cutHi = 0.15 + 0.006 * ptCenter;
-                  }
-                  // isPre: no preselection cut on wphi — no line, no text
-                }
-
-              if (!cutText.empty() && !doZoom)
-              {
-                tcut.DrawLatex(0.16, 0.86, cutText.c_str());
-              }
-
-              if (drawCuts || drawSingleCut)
-              {
-                gPad->Update();
-                const double yMin = gPad->GetUymin();
-                const double yMaxPad = gPad->GetUymax();
-
-                if (drawCuts)
-                {
-                  TLine l1(cutLo, yMin, cutLo, yMaxPad);
-                  l1.SetLineColor(kBlack);
-                  l1.SetLineWidth(2);
-                  l1.SetLineStyle(2);
-                  l1.DrawClone("same");
-
-                  TLine l2(cutHi, yMin, cutHi, yMaxPad);
-                  l2.SetLineColor(kBlack);
-                  l2.SetLineWidth(2);
-                  l2.SetLineStyle(2);
-                  l2.DrawClone("same");
-                }
-
-                if (drawSingleCut)
-                {
-                  TLine l1(cutHi, yMin, cutHi, yMaxPad);
-                  l1.SetLineColor(kBlack);
-                  l1.SetLineWidth(2);
-                  l1.SetLineStyle(2);
-                  l1.DrawClone("same");
-                }
-              }
-
-              gPad->RedrawAxis();
-            }
-
-            if (hPP)  keepAlive.push_back(hPP);
-            if (hSig) keepAlive.push_back(hSig);
-            if (hBkg) keepAlive.push_back(hBkg);
-            for (const auto& hAAPair : hAAs) keepAlive.push_back(hAAPair.second);
-
-            return true;
-          };
-
-          TCanvas cPP(
-            TString::Format("c_ssQA_ppDataSigBkg_%s_%s_%s_%s",
-              cfg.folder.c_str(), tag.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
-            "c_ssQA_ppDataSigBkg", 2600, 750
-          );
-          cPP.Divide(5, 1, 0.001, 0.001);
-
-          std::vector<TH1*> keepAlive;
-          keepAlive.reserve(ssVars.size() * 6);
-
-          std::vector<TLegend*> keepLegPP;
-          keepLegPP.reserve(ssVars.size());
-
-          bool anyPad = false;
-
-          for (int iv = 0; iv < (int)ssVars.size(); ++iv)
-          {
-            cPP.cd(iv + 1);
-            gPad->SetLeftMargin(0.14);
-            gPad->SetRightMargin(0.05);
-            gPad->SetBottomMargin(0.14);
-            gPad->SetTopMargin(0.18);
-            gPad->SetLogy(false);
-
-            if (DrawVariantPad(true, true, false, iv, keepAlive, keepLegPP)) anyPad = true;
-          }
-
-          if (anyPad)
-          {
-            SaveCanvas(cPP, JoinPath(variantDir,
-              TString::Format("table1x5_PP_SS_%s_DataSigBkg.png", tag.c_str()).Data()));
-          }
-
-          for (TLegend* l : keepLegPP) delete l;
-          keepLegPP.clear();
-
-          for (TH1* h : keepAlive) delete h;
-          keepAlive.clear();
-
-          TCanvas cPP2(
-            TString::Format("c_ssQA_ppDataSigBkg_zoom_%s_%s_%s_%s",
-              cfg.folder.c_str(), tag.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
-             "c_ssQA_ppDataSigBkg_zoom", 2600, 1200
-           );
-           cPP2.Divide(5, 2, 0.001, 0.001);
-          std::vector<TH1*> keepAlive2;
-          keepAlive2.reserve(ssVars.size() * 10);
-
-          std::vector<TLegend*> keepLegPP2;
-          keepLegPP2.reserve(ssVars.size());
-
-          bool anyPad2 = false;
-
-            for (int iv = 0; iv < (int)ssVars.size(); ++iv)
+                string folder;
+                vector<std::size_t> indices;
+            };
+            
+            const vector<SSOverlayVariantCfg> ssOverlayVariantCfgs = {
+                {"variantA", {std::size_t(2)}},
+                {"variantB", {std::size_t(3)}},
+                {"variantA_variantB", {std::size_t(2), std::size_t(3)}},
+                {"variantA_variantB_noSub", {std::size_t(0), std::size_t(2), std::size_t(3)}}
+            };
+            
+            for (const auto& cfg : ssOverlayVariantCfgs)
             {
-              cPP2.cd(iv + 1);
-              gPad->SetLeftMargin(0.14);
-              gPad->SetRightMargin(0.05);
-              gPad->SetBottomMargin(0.10);
-              gPad->SetTopMargin(0.18);
-              gPad->SetLogy(false);
-
-              if (DrawVariantPad(true, true, false, iv, keepAlive2, keepLegPP2)) anyPad2 = true;
+                bool haveAnyVariantFile = false;
+                for (std::size_t idx : cfg.indices)
+                {
+                    if (idx < handles.size() && handles[idx].file) { haveAnyVariantFile = true; break; }
+                }
+                if (!haveAnyVariantFile) continue;
+                if (!ppTop || !simTopSS) continue;
+                
+                const string variantDir = JoinPath(ptDir, cfg.folder);
+                EnsureDir(variantDir);
+                
+                for (const auto& tag : ppg12Tags)
+                {
+                    auto DrawVariantPad =
+                    [&](bool includeTemplates,
+                        bool drawLegend,
+                        bool doZoom,
+                        int iv,
+                        std::vector<TH1*>& keepAlive,
+                        std::vector<TLegend*>& keepLegPP) -> bool
+                    {
+                        const std::string& var = ssVars[iv].var;
+                        const std::string& vlabel = ssVars[iv].label;
+                        
+                        const bool isW = (var == "weta" || var == "wphi");
+                        
+                        const string hPPName  = string("h_ss_") + var + string("_") + tag + b.suffix;
+                        const string hSigName = string("h_ss_") + var + string("_") + tag + string("_sig") + b.suffix;
+                        const string hBkgName = string("h_ss_") + var + string("_") + tag + string("_bkg") + b.suffix;
+                        const string hAAName  = string("h_ss_") + var + string("_") + tag + b.suffix + cb.suffix;
+                        
+                        TH1* rawPP  = GetTH1FromTopDir(ppTop, hPPName);
+                        TH1* rawSig = includeTemplates ? GetTH1FromTopDir(simTopSS, hSigName) : nullptr;
+                        TH1* rawBkg = includeTemplates ? GetTH1FromTopDir(simTopSS, hBkgName) : nullptr;
+                        
+                        vector<std::pair<std::size_t, TH1*> > rawAAs;
+                        for (std::size_t idx : cfg.indices)
+                        {
+                            if (idx >= handles.size()) continue;
+                            auto& H = handles[idx];
+                            if (!H.file) continue;
+                            
+                            TDirectory* aaTopSS = H.file->GetDirectory(trigAA.c_str());
+                            if (!aaTopSS) continue;
+                            
+                            TH1* rawAA = GetTH1FromTopDir(aaTopSS, hAAName);
+                            if (rawAA) rawAAs.push_back(std::make_pair(idx, rawAA));
+                        }
+                        
+                        if (!rawPP && !rawSig && !rawBkg && rawAAs.empty())
+                        {
+                            DrawMissingPad(TString::Format("%s, %s, %s, %s", var.c_str(), tag.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
+                            return false;
+                        }
+                        
+                        TH1* hPP  = nullptr;
+                        TH1* hSig = nullptr;
+                        TH1* hBkg = nullptr;
+                        vector<std::pair<std::size_t, TH1*> > hAAs;
+                        
+                        if (rawPP)
+                        {
+                            hPP = CloneNormalizeStyle(rawPP,
+                                                      TString::Format("ssQA_%s_%s_%s_%s_%s_pp", cfg.folder.c_str(), tag.c_str(), var.c_str(), b.folder.c_str(), doZoom ? "zoom" : "full").Data(),
+                                                      kRed + 1, 24);
+                            
+                            if (hPP)
+                            {
+                                hPP->SetLineWidth(2);
+                                hPP->SetLineColor(kRed + 1);
+                                hPP->SetMarkerColor(kRed + 1);
+                                hPP->SetMarkerStyle(24);
+                                hPP->SetMarkerSize(1.00);
+                                hPP->SetFillStyle(0);
+                            }
+                        }
+                        
+                        if (rawSig)
+                        {
+                            hSig = CloneNormalizeStyle(rawSig,
+                                                       TString::Format("ssQA_%s_%s_%s_%s_%s_sig", cfg.folder.c_str(), tag.c_str(), var.c_str(), b.folder.c_str(), doZoom ? "zoom" : "full").Data(),
+                                                       kPink + 7, 24);
+                            
+                            if (hSig)
+                            {
+                                hSig->SetLineWidth(2);
+                                hSig->SetLineColor(kPink + 7);
+                                hSig->SetMarkerColor(kPink + 7);
+                                hSig->SetMarkerStyle(1);
+                                hSig->SetMarkerSize(0.0);
+                                hSig->SetFillStyle(0);
+                            }
+                        }
+                        
+                        if (rawBkg)
+                        {
+                            hBkg = CloneNormalizeStyle(rawBkg,
+                                                       TString::Format("ssQA_%s_%s_%s_%s_%s_bkg", cfg.folder.c_str(), tag.c_str(), var.c_str(), b.folder.c_str(), doZoom ? "zoom" : "full").Data(),
+                                                       kBlue + 1, 25);
+                            
+                            if (hBkg)
+                            {
+                                hBkg->SetLineWidth(2);
+                                hBkg->SetLineColor(kBlue + 1);
+                                hBkg->SetMarkerColor(kBlue + 1);
+                                hBkg->SetMarkerStyle(1);
+                                hBkg->SetMarkerSize(0.0);
+                                hBkg->SetFillStyle(0);
+                            }
+                        }
+                        
+                        for (const auto& rawPair : rawAAs)
+                        {
+                            const std::size_t idx = rawPair.first;
+                            TH1* hAA = CloneNormalizeStyle(rawPair.second,
+                                                           TString::Format("ssQA_%s_%s_%s_%s_%s_aa_%zu", cfg.folder.c_str(), tag.c_str(), var.c_str(), b.folder.c_str(), doZoom ? "zoom" : "full", idx).Data(),
+                                                           ssColors[idx], ssMarkers[idx]);
+                            
+                            if (hAA)
+                            {
+                                hAA->SetLineWidth(2);
+                                hAA->SetLineColor(ssColors[idx]);
+                                hAA->SetMarkerColor(ssColors[idx]);
+                                hAA->SetMarkerStyle(ssMarkers[idx]);
+                                hAA->SetMarkerSize(1.00);
+                                hAA->SetFillStyle(0);
+                                hAAs.push_back(std::make_pair(idx, hAA));
+                            }
+                        }
+                        
+                        TH1* hFrame = nullptr;
+                        if (includeTemplates)
+                        {
+                            if (doZoom && tag != "tight")
+                                hFrame = (hBkg ? hBkg : (!hAAs.empty() ? hAAs.front().second : hPP));
+                            else
+                                hFrame = (hSig ? hSig : (hBkg ? hBkg : (!hAAs.empty() ? hAAs.front().second : hPP)));
+                        }
+                        else
+                            hFrame = (!hAAs.empty() ? hAAs.front().second : hPP);
+                        
+                        if (!hFrame)
+                        {
+                            DrawMissingPad(TString::Format("%s, %s, %s, %s", var.c_str(), tag.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
+                            return false;
+                        }
+                        
+                        hFrame->GetXaxis()->SetTitle(vlabel.c_str());
+                        hFrame->GetYaxis()->SetTitle("Unit Normalized");
+                        hFrame->GetYaxis()->SetTitleOffset(1.58);
+                        hFrame->GetYaxis()->SetTitleSize(0.050);
+                        hFrame->GetYaxis()->SetLabelSize(0.040);
+                        
+                        double yMax = 0.0;
+                        if (includeTemplates)
+                        {
+                            if (hPP)
+                            {
+                                for (int ib = 1; ib <= hPP->GetNbinsX(); ++ib)
+                                    yMax = std::max(yMax, (double)(hPP->GetBinContent(ib) + hPP->GetBinError(ib)));
+                            }
+                            if (hSig) yMax = std::max(yMax, (double)hSig->GetMaximum());
+                            if (hBkg) yMax = std::max(yMax, (double)hBkg->GetMaximum());
+                            for (const auto& hAAPair : hAAs)
+                            {
+                                TH1* hAA = hAAPair.second;
+                                if (!hAA) continue;
+                                for (int ib = 1; ib <= hAA->GetNbinsX(); ++ib)
+                                    yMax = std::max(yMax, (double)(hAA->GetBinContent(ib) + hAA->GetBinError(ib)));
+                            }
+                        }
+                        else
+                        {
+                            if (hPP)
+                            {
+                                for (int ib = 1; ib <= hPP->GetNbinsX(); ++ib)
+                                    yMax = std::max(yMax, (double)(hPP->GetBinContent(ib) + hPP->GetBinError(ib)));
+                            }
+                            for (const auto& hAAPair : hAAs)
+                            {
+                                TH1* hAA = hAAPair.second;
+                                if (!hAA) continue;
+                                for (int ib = 1; ib <= hAA->GetNbinsX(); ++ib)
+                                    yMax = std::max(yMax, (double)(hAA->GetBinContent(ib) + hAA->GetBinError(ib)));
+                            }
+                        }
+                        
+                        if (doZoom)
+                        {
+                            double xMinZoom = std::numeric_limits<double>::max();
+                            double xMaxZoom = -std::numeric_limits<double>::max();
+                            double yMaxZoom = 0.0;
+                            
+                            auto AccumulateZoomRange = [&](TH1* h)
+                            {
+                                if (!h) return;
+                                for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                                {
+                                    const double y = h->GetBinContent(ib) + h->GetBinError(ib);
+                                    if (y <= 0.0) continue;
+                                    xMinZoom = std::min(xMinZoom, h->GetXaxis()->GetBinLowEdge(ib));
+                                    xMaxZoom = std::max(xMaxZoom, h->GetXaxis()->GetBinUpEdge(ib));
+                                    yMaxZoom = std::max(yMaxZoom, y);
+                                }
+                            };
+                            
+                            AccumulateZoomRange(hPP);
+                            for (const auto& hAAPair : hAAs) AccumulateZoomRange(hAAPair.second);
+                            if (includeTemplates)
+                            {
+                                if (tag == "tight") AccumulateZoomRange(hSig);
+                                else                AccumulateZoomRange(hBkg);
+                            }
+                            
+                            if (std::isfinite(xMinZoom) && std::isfinite(xMaxZoom) && xMaxZoom > xMinZoom)
+                            {
+                                const double axisMin = hFrame->GetXaxis()->GetXmin();
+                                const double axisMax = hFrame->GetXaxis()->GetXmax();
+                                double margin = 0.06 * (xMaxZoom - xMinZoom);
+                                if (!(margin > 0.0)) margin = 0.05 * (axisMax - axisMin);
+                                
+                                const double xLo = std::max(axisMin, xMinZoom - margin);
+                                const double xHi = std::min(axisMax, xMaxZoom + margin);
+                                hFrame->GetXaxis()->SetRangeUser(xLo, xHi);
+                            }
+                            
+                            if (yMaxZoom > 0.0) yMax = yMaxZoom;
+                        }
+                        
+                        hFrame->SetMinimum(0.0);
+                        hFrame->SetMaximum((yMax > 0.0) ? (yMax * (doZoom ? 1.08 : 1.10)) : 1.0);
+                        
+                        if (includeTemplates)
+                        {
+                            if (doZoom)
+                            {
+                                // Zoomed row: only the relevant MC template
+                                if (tag == "tight")
+                                {
+                                    if (hSig)             hSig->Draw("HIST");
+                                    else if (!hAAs.empty()) hAAs.front().second->Draw("E1");
+                                    else if (hPP)         hPP->Draw("E1");
+                                }
+                                else
+                                {
+                                    if (hBkg)             hBkg->Draw("HIST");
+                                    else if (!hAAs.empty()) hAAs.front().second->Draw("E1");
+                                    else if (hPP)         hPP->Draw("E1");
+                                }
+                            }
+                            else
+                            {
+                                // Full row: both MC templates
+                                if (hSig)
+                                {
+                                    hSig->Draw("HIST");
+                                }
+                                else if (hBkg)
+                                {
+                                    hBkg->Draw("HIST");
+                                }
+                                else if (!hAAs.empty())
+                                {
+                                    hAAs.front().second->Draw("E1");
+                                }
+                                else
+                                {
+                                    hPP->Draw("E1");
+                                }
+                                
+                                if (hBkg && hBkg != hSig) hBkg->Draw("HIST same");
+                            }
+                        }
+                        else
+                        {
+                            if (!hAAs.empty())
+                            {
+                                hAAs.front().second->Draw("E1");
+                            }
+                            else if (hPP)
+                            {
+                                hPP->Draw("E1");
+                            }
+                        }
+                        
+                        for (const auto& hAAPair : hAAs) hAAPair.second->Draw("E1 same");
+                        if (hPP) hPP->Draw("E1 same");
+                        
+                        if (drawLegend)
+                        {
+                            TLegend* leg = (isW ? new TLegend(0.41, 0.55, 0.85, 0.8) : new TLegend(0.18, 0.55, 0.62, 0.8));
+                            leg->SetBorderSize(0);
+                            leg->SetFillStyle(0);
+                            leg->SetTextFont(42);
+                            leg->SetTextSize(0.036);
+                            
+                            if (hPP)  leg->AddEntry(hPP,  "pp", "ep");
+                            if (hSig) leg->AddEntry(hSig, "Signal MC", "l");
+                            if (hBkg) leg->AddEntry(hBkg, "Background MC", "l");
+                            for (const auto& hAAPair : hAAs)
+                            {
+                                leg->AddEntry(
+                                              hAAPair.second,
+                                              TString::Format("AuAu (%d-%d%%) %s", cb.lo, cb.hi, handles[hAAPair.first].label.c_str()).Data(),
+                                              "ep"
+                                              );
+                            }
+                            
+                            leg->Draw();
+                            keepLegPP.push_back(leg);
+                        }
+                        
+                        {
+                            TLatex th;
+                            th.SetNDC(true);
+                            th.SetTextFont(42);
+                            if (doZoom)
+                            {
+                                th.SetTextAlign(33);
+                                th.SetTextSize(0.060);
+                                th.DrawLatex(0.93, 0.93, "Zoomed");
+                            }
+                            else
+                            {
+                                th.SetTextAlign(22);
+                                th.SetTextSize(0.050);
+                                th.DrawLatex(0.50, 0.91,
+                                             TString::Format("%s, %s, p_{T}^{#gamma}: %d-%d GeV",
+                                                             vlabel.c_str(), TagLabel(tag).c_str(), b.lo, b.hi).Data());
+                            }
+                        }
+                        
+                        {
+                            TLatex tcut;
+                            tcut.SetNDC(true);
+                            tcut.SetTextFont(42);
+                            tcut.SetTextAlign(13);
+                            tcut.SetTextSize(doZoom ? 0.034 : 0.040);
+                            
+                            bool drawCuts = false;
+                            bool drawSingleCut = false;
+                            double cutLo = 0.0;
+                            double cutHi = 0.0;
+                            std::string cutText;
+                            
+                            const bool isPre = (tag == "pre");
+                            
+                            if (var == "e11e33")
+                            {
+                                if (isPre)
+                                {
+                                    cutText = "pp presel: #frac{E_{11}}{E_{33}} < 0.98";
+                                    drawSingleCut = true;
+                                    cutHi = 0.98;
+                                }
+                                else
+                                {
+                                    cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
+                                    drawCuts = true;
+                                    cutLo = 0.4;
+                                    cutHi = 0.98;
+                                }
+                            }
+                            else if (var == "e32e35")
+                            {
+                                if (isPre)
+                                {
+                                    cutText = "pp presel: 0.8 < #frac{E_{32}}{E_{35}} < 1.0";
+                                    drawCuts = true;
+                                    cutLo = 0.8;
+                                    cutHi = 1.0;
+                                }
+                                else
+                                {
+                                    cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
+                                    drawCuts = true;
+                                    cutLo = 0.92;
+                                    cutHi = 1.0;
+                                }
+                            }
+                            else if (var == "et1")
+                            {
+                                if (isPre)
+                                {
+                                    cutText = "pp presel: 0.6 < et1 < 1.0";
+                                    drawCuts = true;
+                                    cutLo = 0.6;
+                                    cutHi = 1.0;
+                                }
+                                else
+                                {
+                                    cutText = "#gamma-ID: 0.9 < et1 < 1.0";
+                                    drawCuts = true;
+                                    cutLo = 0.9;
+                                    cutHi = 1.0;
+                                }
+                            }
+                            else if (var == "weta")
+                            {
+                                if (isPre)
+                                {
+                                    cutText = "pp presel: w_{#eta} < 0.6";
+                                    drawSingleCut = true;
+                                    cutHi = 0.6;
+                                }
+                                else
+                                {
+                                    cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                                    drawSingleCut = true;
+                                    const double ptCenter = 0.5 * (b.lo + b.hi);
+                                    cutHi = 0.15 + 0.006 * ptCenter;
+                                }
+                            }
+                            else if (var == "wphi")
+                            {
+                                if (!isPre)
+                                {
+                                    cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
+                                    drawSingleCut = true;
+                                    const double ptCenter = 0.5 * (b.lo + b.hi);
+                                    cutHi = 0.15 + 0.006 * ptCenter;
+                                }
+                                // isPre: no preselection cut on wphi — no line, no text
+                            }
+                            
+                            if (!cutText.empty() && !doZoom)
+                            {
+                                tcut.DrawLatex(0.16, 0.86, cutText.c_str());
+                            }
+                            
+                            if (drawCuts || drawSingleCut)
+                            {
+                                gPad->Update();
+                                const double yMin = gPad->GetUymin();
+                                const double yMaxPad = gPad->GetUymax();
+                                
+                                if (drawCuts)
+                                {
+                                    TLine l1(cutLo, yMin, cutLo, yMaxPad);
+                                    l1.SetLineColor(kBlack);
+                                    l1.SetLineWidth(2);
+                                    l1.SetLineStyle(2);
+                                    l1.DrawClone("same");
+                                    
+                                    TLine l2(cutHi, yMin, cutHi, yMaxPad);
+                                    l2.SetLineColor(kBlack);
+                                    l2.SetLineWidth(2);
+                                    l2.SetLineStyle(2);
+                                    l2.DrawClone("same");
+                                }
+                                
+                                if (drawSingleCut)
+                                {
+                                    TLine l1(cutHi, yMin, cutHi, yMaxPad);
+                                    l1.SetLineColor(kBlack);
+                                    l1.SetLineWidth(2);
+                                    l1.SetLineStyle(2);
+                                    l1.DrawClone("same");
+                                }
+                            }
+                            
+                            gPad->RedrawAxis();
+                        }
+                        
+                        if (hPP)  keepAlive.push_back(hPP);
+                        if (hSig) keepAlive.push_back(hSig);
+                        if (hBkg) keepAlive.push_back(hBkg);
+                        for (const auto& hAAPair : hAAs) keepAlive.push_back(hAAPair.second);
+                        
+                        return true;
+                    };
+                    
+                    TCanvas cPP(
+                                TString::Format("c_ssQA_ppDataSigBkg_%s_%s_%s_%s",
+                                                cfg.folder.c_str(), tag.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
+                                "c_ssQA_ppDataSigBkg", 2600, 750
+                                );
+                    cPP.Divide(5, 1, 0.001, 0.001);
+                    
+                    std::vector<TH1*> keepAlive;
+                    keepAlive.reserve(ssVars.size() * 6);
+                    
+                    std::vector<TLegend*> keepLegPP;
+                    keepLegPP.reserve(ssVars.size());
+                    
+                    bool anyPad = false;
+                    
+                    for (int iv = 0; iv < (int)ssVars.size(); ++iv)
+                    {
+                        cPP.cd(iv + 1);
+                        gPad->SetLeftMargin(0.14);
+                        gPad->SetRightMargin(0.05);
+                        gPad->SetBottomMargin(0.14);
+                        gPad->SetTopMargin(0.18);
+                        gPad->SetLogy(false);
+                        
+                        if (DrawVariantPad(true, true, false, iv, keepAlive, keepLegPP)) anyPad = true;
+                    }
+                    
+                    if (anyPad)
+                    {
+                        SaveCanvas(cPP, JoinPath(variantDir,
+                                                 TString::Format("table1x5_PP_SS_%s_DataSigBkg.png", tag.c_str()).Data()));
+                    }
+                    
+                    for (TLegend* l : keepLegPP) delete l;
+                    keepLegPP.clear();
+                    
+                    for (TH1* h : keepAlive) delete h;
+                    keepAlive.clear();
+                    
+                    TCanvas cPP2(
+                                 TString::Format("c_ssQA_ppDataSigBkg_zoom_%s_%s_%s_%s",
+                                                 cfg.folder.c_str(), tag.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
+                                 "c_ssQA_ppDataSigBkg_zoom", 2600, 1200
+                                 );
+                    cPP2.Divide(5, 2, 0.001, 0.001);
+                    std::vector<TH1*> keepAlive2;
+                    keepAlive2.reserve(ssVars.size() * 10);
+                    
+                    std::vector<TLegend*> keepLegPP2;
+                    keepLegPP2.reserve(ssVars.size());
+                    
+                    bool anyPad2 = false;
+                    
+                    for (int iv = 0; iv < (int)ssVars.size(); ++iv)
+                    {
+                        cPP2.cd(iv + 1);
+                        gPad->SetLeftMargin(0.14);
+                        gPad->SetRightMargin(0.05);
+                        gPad->SetBottomMargin(0.10);
+                        gPad->SetTopMargin(0.18);
+                        gPad->SetLogy(false);
+                        
+                        if (DrawVariantPad(true, true, false, iv, keepAlive2, keepLegPP2)) anyPad2 = true;
+                    }
+                    
+                    for (int iv = 0; iv < (int)ssVars.size(); ++iv)
+                    {
+                        cPP2.cd(iv + 6);
+                        gPad->SetLeftMargin(0.14);
+                        gPad->SetRightMargin(0.05);
+                        gPad->SetBottomMargin(0.14);
+                        gPad->SetTopMargin(0.06);
+                        
+                        gPad->SetLogy(false);
+                        
+                        if (DrawVariantPad(true, false, true, iv, keepAlive2, keepLegPP2)) anyPad2 = true;
+                    }
+                    
+                    if (anyPad2)
+                    {
+                        SaveCanvas(cPP2, JoinPath(variantDir,
+                                                  TString::Format("table2x5_PP_SS_%s_DataSigBkg_zoomedPPAuAu.png", tag.c_str()).Data()));
+                    }
+                    
+                    for (TLegend* l : keepLegPP2) delete l;
+                    keepLegPP2.clear();
+                    
+                    for (TH1* h : keepAlive2) delete h;
+                    keepAlive2.clear();
+                }
             }
-
-            for (int iv = 0; iv < (int)ssVars.size(); ++iv)
-            {
-              cPP2.cd(iv + 6);
-              gPad->SetLeftMargin(0.14);
-              gPad->SetRightMargin(0.05);
-              gPad->SetBottomMargin(0.14);
-              gPad->SetTopMargin(0.06);
-
-            gPad->SetLogy(false);
-
-              if (DrawVariantPad(true, false, true, iv, keepAlive2, keepLegPP2)) anyPad2 = true;
-          }
-
-          if (anyPad2)
-          {
-            SaveCanvas(cPP2, JoinPath(variantDir,
-              TString::Format("table2x5_PP_SS_%s_DataSigBkg_zoomedPPAuAu.png", tag.c_str()).Data()));
-          }
-
-          for (TLegend* l : keepLegPP2) delete l;
-          keepLegPP2.clear();
-
-          for (TH1* h : keepAlive2) delete h;
-          keepAlive2.clear();
-        }
-      }
-  } // end pT loop
-} // end cent loop
+        } // end pT loop
+    } // end cent loop
+}
 
 {
   const string perPtBinOverlayBase = JoinPath(ssQADir, "perPtBinOverlays");
@@ -1238,24 +1241,27 @@ for (std::size_t ic = 0; ic < centBins.size(); ++ic)
     for (TH1* h : keepAlive) delete h;
   };
 
-  for (std::size_t ic = 0; ic < centBins.size(); ++ic)
-  {
-    const auto& cb = centBins[ic];
-    const string centOutDir = JoinPath(perPtBinOverlayBase, cb.folder);
-    EnsureDir(centOutDir);
-
-    for (const auto& tag : ppg12Tags)
+    if (!skipToCentralityOverlaysWithSSQA)
     {
-      DrawSSOverlayTable3x5(
-        centOutDir,
-        TString::Format("table3x5_SS_%s_overlayByPt.png", tag.c_str()).Data(),
-        tag,
-        true,
-        &cb,
-        nullptr
-      );
+      for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+      {
+        const auto& cb = centBins[ic];
+        const string centOutDir = JoinPath(perPtBinOverlayBase, cb.folder);
+        EnsureDir(centOutDir);
+
+        for (const auto& tag : ppg12Tags)
+        {
+          DrawSSOverlayTable3x5(
+            centOutDir,
+            TString::Format("table3x5_SS_%s_overlayByPt.png", tag.c_str()).Data(),
+            tag,
+            true,
+            &cb,
+            nullptr
+          );
+        }
+      }
     }
-  }
 
     for (int ipt = 0; ipt < kNPtBins; ++ipt)
       {

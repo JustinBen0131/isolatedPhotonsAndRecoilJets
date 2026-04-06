@@ -2368,6 +2368,18 @@ namespace ARJ
                 EnsureDir(centralitySummaryBase);
                 EnsureDir(perVariantOverlayBase);
 
+                if (skipToCentralityOverlaysWithSSQA && !generateUEcomparisonSSQA)
+                {
+                  cerr << ANSI_BOLD_RED
+                       << "[FATAL] skipToCentralityOverlaysWithSSQA requires generateUEcomparisonSSQA = true"
+                       << ANSI_RESET << "\n";
+                  std::exit(1);
+                }
+
+                if (generateUEcomparisonSSQA && skipToCentralityOverlaysWithSSQA) {
+                    #include "AnalyzeRecoilJets_SSQA.cpp"
+                }
+
                 for (auto& H : handles)
                 {
                   if (!H.file) continue;
@@ -3988,7 +4000,7 @@ namespace ARJ
                             if (gPPpt) delete gPPpt;
                           }
                 }
-                if (generateUEcomparisonSSQA) {
+                if (generateUEcomparisonSSQA && !skipToCentralityOverlaysWithSSQA) {
                     #include "AnalyzeRecoilJets_SSQA.cpp"
                 }
 
