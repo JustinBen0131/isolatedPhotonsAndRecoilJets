@@ -173,7 +173,7 @@ namespace ARJ
   inline const int    kAA_VzCut        = 30;            // cm: 30 or 60
   inline const string kAA_IsoConeR     = "isoR40";     // "isoR30" or "isoR40"
   inline const string kAA_IsoMode      = "fixedIso5GeV";// "isSliding" or "fixedIso5GeV"
-  inline const string kAA_UEVariant    = "variantB";      // "noSub","baseVariant","variantA","variantB"
+  inline const string kAA_UEVariant    = "noSub";      // "noSub","baseVariant","variantA","variantB"
   // Au+Au trigger directory name(s) inside the ROOT file.
   // Set one, two, or all three.  Analysis runs independently for each.
   inline const vector<string> kTriggersAuAu = {

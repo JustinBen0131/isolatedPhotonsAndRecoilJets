@@ -1035,13 +1035,172 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
   EnsureDir(perCentralityOverlayBase);
 
   const vector<std::size_t> ssTableVariantIdx = {std::size_t(0), std::size_t(2), std::size_t(3)};
-  const int overlayColors[] = {
-        kBlack, kOrange + 7, kBlue + 1, kGreen + 2, kMagenta + 1, kOrange + 7,
-        kCyan + 1, kViolet + 1, kAzure + 1, kSpring + 5, kPink + 1, kTeal + 2
-  };
-  const vector<string> centOverlayTags = {"inclusive", "pre", "tight", "nonTight"};
+    const int overlayColors[] = {
+          kBlack, kOrange + 7, kBlue + 1, kGreen + 2, kMagenta + 1, kOrange + 7,
+          kCyan + 1, kViolet + 1, kAzure + 1, kSpring + 5, kPink + 1, kTeal + 2
+    };
+    const vector<string> centOverlayTags = {"inclusive", "pre", "tight", "nonTight"};
 
-  auto DrawSSOverlayTable3x5 =
+    auto GetSSOverlaySelectionText =
+      [&](const string& tag,
+          bool overlayPtBins,
+          double ptCenter) -> string
+    {
+      if (tag == "pre")
+      {
+        return "#gamma-presel: #frac{E_{11}}{E_{33}} < 0.98, 0.6 < et1 < 1.0, 0.8 < #frac{E_{32}}{E_{35}} < 1.0, w_{#eta} < 0.6";
+      }
+
+      if (tag == "tight")
+      {
+        if (overlayPtBins)
+        {
+          return "#gamma-tight: 0.4 < #frac{E_{11}}{E_{33}} < 0.98, 0.9 < et1 < 1.0, 0.92 < #frac{E_{32}}{E_{35}} < 1.0, 0 < w_{#eta/#phi} < 0.15 + 0.006 E_{T}^{#gamma}";
+        }
+
+        const double tightWCut = 0.15 + 0.006 * ptCenter;
+        return TString::Format("#gamma-tight: 0.4 < #frac{E_{11}}{E_{33}} < 0.98, 0.9 < et1 < 1.0, 0.92 < #frac{E_{32}}{E_{35}} < 1.0, 0 < w_{#eta/#phi} < 0.15 + 0.006 E_{T}^{#gamma} = %.3f",
+                               tightWCut).Data();
+      }
+
+      if (tag == "nonTight")
+      {
+        return "#gamma-nonTight: fail #geq 2 of 5 tight cuts";
+      }
+
+      return "";
+    };
+
+    auto DrawSSOverlayCutsAndText =
+      [&](const string& var,
+          const string& tag,
+          bool overlayPtBins,
+          double ptCenter,
+          double textX,
+          double textY,
+          double textSize) -> void
+    {
+      const string text = GetSSOverlaySelectionText(tag, overlayPtBins, ptCenter);
+      if (!text.empty())
+      {
+          double drawTextX = textX;
+          double drawTextY = textY;
+          double drawTextSize = textSize;
+
+          if (!overlayPtBins && tag == "pre")
+          {
+            drawTextX = 0.22;
+            drawTextY = 0.81;
+            drawTextSize = 0.030;
+          }
+
+          TLatex tSel;
+          tSel.SetNDC(true);
+          tSel.SetTextFont(42);
+          tSel.SetTextAlign(13);
+          tSel.SetTextSize(drawTextSize);
+          tSel.DrawLatex(drawTextX, drawTextY, text.c_str());
+      }
+
+      string cutTag = tag;
+      if (cutTag == "nonTight") cutTag = "tight";
+      if (cutTag != "pre" && cutTag != "tight") return;
+
+      bool drawLo = false;
+      bool drawHi = false;
+      double cutLo = 0.0;
+      double cutHi = 0.0;
+
+      if (cutTag == "pre")
+      {
+        if (var == "e11e33")
+        {
+          drawHi = true;
+          cutHi = 0.98;
+        }
+        else if (var == "et1")
+        {
+          drawLo = true;
+          drawHi = true;
+          cutLo = 0.6;
+          cutHi = 1.0;
+        }
+        else if (var == "e32e35")
+        {
+          drawLo = true;
+          drawHi = true;
+          cutLo = 0.8;
+          cutHi = 1.0;
+        }
+        else if (var == "weta")
+        {
+          drawHi = true;
+          cutHi = 0.6;
+        }
+      }
+      else if (cutTag == "tight")
+      {
+        if (var == "e11e33")
+        {
+          drawLo = true;
+          drawHi = true;
+          cutLo = 0.4;
+          cutHi = 0.98;
+        }
+        else if (var == "et1")
+        {
+          drawLo = true;
+          drawHi = true;
+          cutLo = 0.9;
+          cutHi = 1.0;
+        }
+        else if (var == "e32e35")
+        {
+          drawLo = true;
+          drawHi = true;
+          cutLo = 0.92;
+          cutHi = 1.0;
+        }
+        else if (var == "weta" || var == "wphi")
+        {
+          if (!(overlayPtBins && (var == "weta" || var == "wphi")))
+          {
+            drawLo = true;
+            drawHi = true;
+            cutLo = 0.0;
+            cutHi = 0.15 + 0.006 * ptCenter;
+          }
+        }
+      }
+
+      if (!drawLo && !drawHi) return;
+
+      gPad->Update();
+      const double yMin = gPad->GetUymin();
+      const double yMax = gPad->GetUymax();
+
+      if (drawLo)
+      {
+        TLine lLo(cutLo, yMin, cutLo, yMax);
+        lLo.SetLineColor(kBlack);
+        lLo.SetLineWidth(2);
+        lLo.SetLineStyle(2);
+        lLo.DrawClone("same");
+      }
+
+      if (drawHi)
+      {
+        TLine lHi(cutHi, yMin, cutHi, yMax);
+        lHi.SetLineColor(kBlack);
+        lHi.SetLineWidth(2);
+        lHi.SetLineStyle(2);
+        lHi.DrawClone("same");
+      }
+
+      gPad->RedrawAxis();
+    };
+
+    auto DrawSSOverlayTable3x5 =
     [&](const string& outDir,
         const string& outName,
         const string& tag,
@@ -1323,58 +1482,60 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
 
               if (hOverlays.empty()) continue;
 
-              TCanvas cVarPt(
-                TString::Format("c_ssQA_ptOv_%s_%s_%s_%s_%s",
-                  var.c_str(), H.variant.c_str(), tag.c_str(),
-                  cb.folder.c_str(), trigAA.c_str()).Data(),
-                "c_ssQA_ptOv_single", 900, 700
-              );
-              ApplyCanvasMargins1D(cVarPt);
-              cVarPt.cd();
+                TCanvas cVarPt(
+                  TString::Format("c_ssQA_ptOv_%s_%s_%s_%s_%s",
+                    var.c_str(), H.variant.c_str(), tag.c_str(),
+                    cb.folder.c_str(), trigAA.c_str()).Data(),
+                  "c_ssQA_ptOv_single", 900, 700
+                );
+                ApplyCanvasMargins1D(cVarPt);
+                cVarPt.cd();
 
-                TH1* hFrame = hOverlays[0];
-                hFrame->GetXaxis()->SetTitle(vlabel.c_str());
-                hFrame->GetYaxis()->SetTitle("Counts");
-                hFrame->GetYaxis()->SetTitleOffset(1.15);
-                hFrame->SetMinimum(0.0);
-                hFrame->SetMaximum((yMax > 0.0) ? (yMax * 1.25) : 1.0);
-              hFrame->Draw("E1");
-              for (std::size_t ih = 1; ih < hOverlays.size(); ++ih)
-                hOverlays[ih]->Draw("E1 same");
-              hOverlays[0]->Draw("E1 same");
+                  TH1* hFrame = hOverlays[0];
+                  hFrame->GetXaxis()->SetTitle(vlabel.c_str());
+                  hFrame->GetYaxis()->SetTitle("Counts");
+                  hFrame->GetYaxis()->SetTitleOffset(1.15);
+                  hFrame->SetMinimum(0.0);
+                  hFrame->SetMaximum((yMax > 0.0) ? (yMax * 1.25) : 1.0);
+                hFrame->Draw("E1");
+                for (std::size_t ih = 1; ih < hOverlays.size(); ++ih)
+                  hOverlays[ih]->Draw("E1 same");
+                hOverlays[0]->Draw("E1 same");
 
-              TLegend legVarPt(0.2, 0.78, 0.65, 0.90);
-              legVarPt.SetBorderSize(0);
-              legVarPt.SetFillStyle(0);
-              legVarPt.SetTextFont(42);
-              legVarPt.SetTextSize(0.028);
-              legVarPt.SetNColumns(3);
-              for (std::size_t ih = 0; ih < hOverlays.size(); ++ih)
-                legVarPt.AddEntry(hOverlays[ih], ptLabels[ih].c_str(), "ep");
-              legVarPt.Draw();
+                TLegend legVarPt(0.2, 0.78, 0.65, 0.90);
+                legVarPt.SetBorderSize(0);
+                legVarPt.SetFillStyle(0);
+                legVarPt.SetTextFont(42);
+                legVarPt.SetTextSize(0.028);
+                legVarPt.SetNColumns(3);
+                for (std::size_t ih = 0; ih < hOverlays.size(); ++ih)
+                  legVarPt.AddEntry(hOverlays[ih], ptLabels[ih].c_str(), "ep");
+                legVarPt.Draw();
 
-              TLatex tVarPt;
-              tVarPt.SetNDC(true);
-              tVarPt.SetTextFont(42);
-              tVarPt.SetTextAlign(23);
-              tVarPt.SetTextSize(0.042);
-              tVarPt.DrawLatex(0.50, 0.955,
-                TString::Format("%s p_{T} overlay, %s, %s",
-                  vlabel.c_str(), TagLabel(tag).c_str(), H.label.c_str()).Data());
+                TLatex tVarPt;
+                tVarPt.SetNDC(true);
+                tVarPt.SetTextFont(42);
+                tVarPt.SetTextAlign(23);
+                tVarPt.SetTextSize(0.042);
+                tVarPt.DrawLatex(0.50, 0.955,
+                  TString::Format("%s p_{T} overlay, %s, %s",
+                    vlabel.c_str(), TagLabel(tag).c_str(), H.label.c_str()).Data());
 
-              TLatex tCentPt;
-              tCentPt.SetNDC(true);
-              tCentPt.SetTextFont(42);
-              tCentPt.SetTextAlign(33);
-              tCentPt.SetTextSize(0.042);
-              tCentPt.DrawLatex(0.93, 0.90,
-                TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
+                TLatex tCentPt;
+                tCentPt.SetNDC(true);
+                tCentPt.SetTextFont(42);
+                tCentPt.SetTextAlign(33);
+                tCentPt.SetTextSize(0.042);
+                tCentPt.DrawLatex(0.93, 0.90,
+                  TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
 
-              SaveCanvas(cVarPt, JoinPath(varTagDir,
-                TString::Format("ptOverlay_%s_%s_%s.png",
-                  var.c_str(), tag.c_str(), H.variant.c_str()).Data()));
+                DrawSSOverlayCutsAndText(var, tag, true, 0.0, 0.22, 0.735, 0.028);
 
-              for (TH1* h : hOverlays) delete h;
+                SaveCanvas(cVarPt, JoinPath(varTagDir,
+                  TString::Format("ptOverlay_%s_%s_%s.png",
+                    var.c_str(), tag.c_str(), H.variant.c_str()).Data()));
+
+                for (TH1* h : hOverlays) delete h;
             }
           }
         }
@@ -1620,68 +1781,71 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                   const string varTagDir = JoinPath(varDir, TagFolder(tag));
                   EnsureDir(varTagDir);
 
-                TCanvas cVar(
-                  TString::Format("c_ssQA_centOv_%s_%s_%s_%s_%s",
-                    var.c_str(), H.variant.c_str(), tag.c_str(),
-                    pb.folder.c_str(), trigAA.c_str()).Data(),
-                  "c_ssQA_centOv_single", 900, 700
-                );
-                ApplyCanvasMargins1D(cVar);
-                cVar.cd();
-
-                  TH1* hFrame = vi.hists[0];
-                  hFrame->GetXaxis()->SetTitle(vlabel.c_str());
-                  hFrame->GetYaxis()->SetTitle("Unit Normalized");
-                  hFrame->GetYaxis()->SetTitleOffset(1.15);
-                  hFrame->SetMinimum(0.0);
-                  hFrame->SetMaximum((vi.yMax > 0.0) ? (vi.yMax * 1.25) : 1.0);
-                  hFrame->Draw("E1");
-                  if (vi.hPP) vi.hPP->Draw("E1 same");
-                  for (std::size_t ih = 1; ih < vi.hists.size(); ++ih)
-                      vi.hists[ih]->Draw("E1 same");
-                  vi.hists[0]->Draw("E1 same");
-
-                  const bool useSpecialE11Legend = (pb.folder == "pT_10_12" && var == "e11e33");
-
-                  TLegend legVar(
-                    useSpecialE11Legend ? 0.17 : 0.56,
-                    useSpecialE11Legend ? 0.78 : 0.58,
-                    useSpecialE11Legend ? 0.69 : 0.92,
-                    useSpecialE11Legend ? 0.90 : 0.88
+                  TCanvas cVar(
+                    TString::Format("c_ssQA_centOv_%s_%s_%s_%s_%s",
+                      var.c_str(), H.variant.c_str(), tag.c_str(),
+                      pb.folder.c_str(), trigAA.c_str()).Data(),
+                    "c_ssQA_centOv_single", 900, 700
                   );
-                  legVar.SetBorderSize(0);
-                  legVar.SetFillStyle(0);
-                  legVar.SetTextFont(42);
-                  legVar.SetTextSize(useSpecialE11Legend ? 0.028 : 0.032);
-                  if (useSpecialE11Legend) legVar.SetNColumns(3);
-                  if (vi.hPP) legVar.AddEntry(vi.hPP, "pp", "ep");
-                  for (std::size_t ih = 0; ih < vi.hists.size(); ++ih)
-                      legVar.AddEntry(vi.hists[ih], vi.labels[ih].c_str(), "ep");
-                  legVar.Draw();
+                  ApplyCanvasMargins1D(cVar);
+                  cVar.cd();
 
-                  TLatex tVar;
-                  tVar.SetNDC(true);
-                  tVar.SetTextFont(42);
-                  tVar.SetTextAlign(23);
-                  tVar.SetTextSize(0.042);
-                  tVar.DrawLatex(0.50, 0.955,
-                    TString::Format("%s centrality overlay, %s, %s",
-                      vlabel.c_str(), TagLabel(tag).c_str(), H.label.c_str()).Data());
+                    TH1* hFrame = vi.hists[0];
+                    hFrame->GetXaxis()->SetTitle(vlabel.c_str());
+                    hFrame->GetYaxis()->SetTitle("Unit Normalized");
+                    hFrame->GetYaxis()->SetTitleOffset(1.15);
+                    hFrame->SetMinimum(0.0);
+                    hFrame->SetMaximum((vi.yMax > 0.0) ? (vi.yMax * 1.25) : 1.0);
+                    hFrame->Draw("E1");
+                    if (vi.hPP) vi.hPP->Draw("E1 same");
+                    for (std::size_t ih = 1; ih < vi.hists.size(); ++ih)
+                        vi.hists[ih]->Draw("E1 same");
+                    vi.hists[0]->Draw("E1 same");
 
-                  TLatex tPt;
-                  tPt.SetNDC(true);
-                  tPt.SetTextFont(42);
-                  tPt.SetTextAlign(33);
-                  tPt.SetTextSize(0.042);
-                  tPt.DrawLatex(0.93, 0.90,
-                    TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
+                    const bool useSpecialE11Legend = (pb.folder == "pT_10_12" && var == "e11e33");
 
-                  SaveCanvas(cVar, JoinPath(varTagDir,
-                    TString::Format("centOverlay_%s_%s_%s.png",
-                      var.c_str(), tag.c_str(), H.variant.c_str()).Data()));
+                    TLegend legVar(
+                      useSpecialE11Legend ? 0.17 : 0.56,
+                      useSpecialE11Legend ? 0.78 : 0.58,
+                      useSpecialE11Legend ? 0.69 : 0.92,
+                      useSpecialE11Legend ? 0.90 : 0.88
+                    );
+                    legVar.SetBorderSize(0);
+                    legVar.SetFillStyle(0);
+                    legVar.SetTextFont(42);
+                    legVar.SetTextSize(useSpecialE11Legend ? 0.028 : 0.032);
+                    if (useSpecialE11Legend) legVar.SetNColumns(3);
+                    if (vi.hPP) legVar.AddEntry(vi.hPP, "pp", "ep");
+                    for (std::size_t ih = 0; ih < vi.hists.size(); ++ih)
+                        legVar.AddEntry(vi.hists[ih], vi.labels[ih].c_str(), "ep");
+                    legVar.Draw();
 
-                  const string overlay2CentDir = JoinPath(varTagDir, "overlay2centralities");
-                  EnsureDir(overlay2CentDir);
+                    TLatex tVar;
+                    tVar.SetNDC(true);
+                    tVar.SetTextFont(42);
+                    tVar.SetTextAlign(23);
+                    tVar.SetTextSize(0.042);
+                    tVar.DrawLatex(0.50, 0.955,
+                      TString::Format("%s centrality overlay, %s, %s",
+                        vlabel.c_str(), TagLabel(tag).c_str(), H.label.c_str()).Data());
+
+                    TLatex tPt;
+                    tPt.SetNDC(true);
+                    tPt.SetTextFont(42);
+                    tPt.SetTextAlign(33);
+                    tPt.SetTextSize(0.042);
+                    tPt.DrawLatex(0.93, 0.90,
+                      TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
+
+                    const double ptCenterForCuts = 0.5 * (pb.lo + pb.hi);
+                    DrawSSOverlayCutsAndText(var, tag, false, ptCenterForCuts, 0.16, 0.84, 0.026);
+
+                    SaveCanvas(cVar, JoinPath(varTagDir,
+                      TString::Format("centOverlay_%s_%s_%s.png",
+                        var.c_str(), tag.c_str(), H.variant.c_str()).Data()));
+
+                    const string overlay2CentDir = JoinPath(varTagDir, "overlay2centralities");
+                    EnsureDir(overlay2CentDir);
 
                   vector<TH1*> reducedHists;
                   vector<string> reducedLabels;
@@ -1708,71 +1872,74 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
 
                   if (!reducedHists.empty())
                   {
-                    TCanvas cVar2(
-                      TString::Format("c_ssQA_centOv2_%s_%s_%s_%s_%s",
-                        var.c_str(), H.variant.c_str(), tag.c_str(),
-                        pb.folder.c_str(), trigAA.c_str()).Data(),
-                      "c_ssQA_centOv_single_2cent", 900, 700
-                    );
-                    ApplyCanvasMargins1D(cVar2);
-                    cVar2.cd();
-
-                      const bool zoomOverlay2CentE32E35 =
-                        (pb.folder == "pT_10_12" && var == "e32e35" && tag == "inclusive");
-                      const bool useSpecialE32Legend2 =
-                        (pb.folder == "pT_10_12" && var == "e32e35" && tag == "inclusive");
-
-                      TH1* hFrame2 = reducedHists[0];
-                      hFrame2->GetXaxis()->SetTitle(vlabel.c_str());
-                      hFrame2->GetYaxis()->SetTitle("Unit Normalized");
-                      hFrame2->GetYaxis()->SetTitleOffset(1.15);
-                      hFrame2->SetMinimum(0.0);
-                      hFrame2->SetMaximum((reducedYMax > 0.0) ? (reducedYMax * 1.25) : 1.0);
-                      if (zoomOverlay2CentE32E35) hFrame2->GetXaxis()->SetRangeUser(0.8, 1.0);
-                      hFrame2->Draw("E1");
-                      if (vi.hPP) vi.hPP->Draw("E1 same");
-                      for (std::size_t ih = 1; ih < reducedHists.size(); ++ih)
-                        reducedHists[ih]->Draw("E1 same");
-                      reducedHists[0]->Draw("E1 same");
-
-                      const bool useSpecialE11Legend2 = (pb.folder == "pT_10_12" && var == "e11e33");
-
-                      TLegend legVar2(
-                        useSpecialE32Legend2 ? 0.14 : (useSpecialE11Legend2 ? 0.17 : 0.56),
-                        useSpecialE32Legend2 ? 0.82 : (useSpecialE11Legend2 ? 0.82 : 0.58),
-                        useSpecialE32Legend2 ? 0.62 : (useSpecialE11Legend2 ? 0.69 : 0.92),
-                        useSpecialE32Legend2 ? 0.90 : (useSpecialE11Legend2 ? 0.90 : 0.88)
+                      TCanvas cVar2(
+                        TString::Format("c_ssQA_centOv2_%s_%s_%s_%s_%s",
+                          var.c_str(), H.variant.c_str(), tag.c_str(),
+                          pb.folder.c_str(), trigAA.c_str()).Data(),
+                        "c_ssQA_centOv_single_2cent", 900, 700
                       );
-                      legVar2.SetBorderSize(0);
-                      legVar2.SetFillStyle(0);
-                      legVar2.SetTextFont(42);
-                      legVar2.SetTextSize((useSpecialE11Legend2 || useSpecialE32Legend2) ? 0.030 : 0.032);
-                      if (useSpecialE11Legend2 || useSpecialE32Legend2) legVar2.SetNColumns(3);
-                      if (vi.hPP) legVar2.AddEntry(vi.hPP, "pp", "ep");
-                      for (std::size_t ih = 0; ih < reducedHists.size(); ++ih)
-                        legVar2.AddEntry(reducedHists[ih], reducedLabels[ih].c_str(), "ep");
-                      legVar2.Draw();
+                      ApplyCanvasMargins1D(cVar2);
+                      cVar2.cd();
 
-                    TLatex tVar2;
-                    tVar2.SetNDC(true);
-                    tVar2.SetTextFont(42);
-                    tVar2.SetTextAlign(23);
-                    tVar2.SetTextSize(0.042);
-                    tVar2.DrawLatex(0.50, 0.955,
-                      TString::Format("%s centrality overlay, %s, %s",
-                        vlabel.c_str(), TagLabel(tag).c_str(), H.label.c_str()).Data());
+                        const bool zoomOverlay2CentE32E35 =
+                          (pb.folder == "pT_10_12" && var == "e32e35" && tag == "inclusive");
+                        const bool useSpecialE32Legend2 =
+                          (pb.folder == "pT_10_12" && var == "e32e35" && tag == "inclusive");
 
-                      TLatex tPt2;
-                      tPt2.SetNDC(true);
-                      tPt2.SetTextFont(42);
-                      tPt2.SetTextAlign(33);
-                      tPt2.SetTextSize(0.042);
-                      tPt2.DrawLatex(0.93, 0.90,
-                        TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
+                        TH1* hFrame2 = reducedHists[0];
+                        hFrame2->GetXaxis()->SetTitle(vlabel.c_str());
+                        hFrame2->GetYaxis()->SetTitle("Unit Normalized");
+                        hFrame2->GetYaxis()->SetTitleOffset(1.15);
+                        hFrame2->SetMinimum(0.0);
+                        hFrame2->SetMaximum((reducedYMax > 0.0) ? (reducedYMax * 1.25) : 1.0);
+                        if (zoomOverlay2CentE32E35) hFrame2->GetXaxis()->SetRangeUser(0.8, 1.0);
+                        hFrame2->Draw("E1");
+                        if (vi.hPP) vi.hPP->Draw("E1 same");
+                        for (std::size_t ih = 1; ih < reducedHists.size(); ++ih)
+                          reducedHists[ih]->Draw("E1 same");
+                        reducedHists[0]->Draw("E1 same");
 
-                      SaveCanvas(cVar2, JoinPath(overlay2CentDir,
-                        TString::Format("centOverlay_%s_%s_%s.png",
-                          var.c_str(), tag.c_str(), H.variant.c_str()).Data()));
+                        const bool useSpecialE11Legend2 = (pb.folder == "pT_10_12" && var == "e11e33");
+
+                        TLegend legVar2(
+                          useSpecialE32Legend2 ? 0.14 : (useSpecialE11Legend2 ? 0.17 : 0.56),
+                          useSpecialE32Legend2 ? 0.82 : (useSpecialE11Legend2 ? 0.82 : 0.58),
+                          useSpecialE32Legend2 ? 0.62 : (useSpecialE11Legend2 ? 0.69 : 0.92),
+                          useSpecialE32Legend2 ? 0.90 : (useSpecialE11Legend2 ? 0.90 : 0.88)
+                        );
+                        legVar2.SetBorderSize(0);
+                        legVar2.SetFillStyle(0);
+                        legVar2.SetTextFont(42);
+                        legVar2.SetTextSize((useSpecialE11Legend2 || useSpecialE32Legend2) ? 0.030 : 0.032);
+                        if (useSpecialE11Legend2 || useSpecialE32Legend2) legVar2.SetNColumns(3);
+                        if (vi.hPP) legVar2.AddEntry(vi.hPP, "pp", "ep");
+                        for (std::size_t ih = 0; ih < reducedHists.size(); ++ih)
+                          legVar2.AddEntry(reducedHists[ih], reducedLabels[ih].c_str(), "ep");
+                        legVar2.Draw();
+
+                      TLatex tVar2;
+                      tVar2.SetNDC(true);
+                      tVar2.SetTextFont(42);
+                      tVar2.SetTextAlign(23);
+                      tVar2.SetTextSize(0.042);
+                      tVar2.DrawLatex(0.50, 0.955,
+                        TString::Format("%s centrality overlay, %s, %s",
+                          vlabel.c_str(), TagLabel(tag).c_str(), H.label.c_str()).Data());
+
+                        TLatex tPt2;
+                        tPt2.SetNDC(true);
+                        tPt2.SetTextFont(42);
+                        tPt2.SetTextAlign(33);
+                        tPt2.SetTextSize(0.042);
+                        tPt2.DrawLatex(0.93, 0.90,
+                          TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
+
+                        const double ptCenterForCuts2 = 0.5 * (pb.lo + pb.hi);
+                        DrawSSOverlayCutsAndText(var, tag, false, ptCenterForCuts2, 0.16, 0.84, 0.026);
+
+                        SaveCanvas(cVar2, JoinPath(overlay2CentDir,
+                          TString::Format("centOverlay_%s_%s_%s.png",
+                            var.c_str(), tag.c_str(), H.variant.c_str()).Data()));
                   }
               }
 
