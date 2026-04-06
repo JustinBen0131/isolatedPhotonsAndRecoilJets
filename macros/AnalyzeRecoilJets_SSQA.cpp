@@ -1526,9 +1526,9 @@ if (!skipToCentralityOverlaysWithSSQA)
                   const bool useSpecialE11Legend = (pb.folder == "pT_10_12" && var == "e11e33");
 
                   TLegend legVar(
-                    useSpecialE11Legend ? 0.14 : 0.56,
+                    useSpecialE11Legend ? 0.17 : 0.56,
                     useSpecialE11Legend ? 0.78 : 0.58,
-                    useSpecialE11Legend ? 0.66 : 0.92,
+                    useSpecialE11Legend ? 0.69 : 0.92,
                     useSpecialE11Legend ? 0.90 : 0.88
                   );
                   legVar.SetBorderSize(0);
@@ -1618,9 +1618,9 @@ if (!skipToCentralityOverlaysWithSSQA)
                       const bool useSpecialE11Legend2 = (pb.folder == "pT_10_12" && var == "e11e33");
 
                       TLegend legVar2(
-                        useSpecialE11Legend2 ? 0.14 : 0.56,
+                        useSpecialE11Legend2 ? 0.17 : 0.56,
                         useSpecialE11Legend2 ? 0.82 : 0.58,
-                        useSpecialE11Legend2 ? 0.66 : 0.92,
+                        useSpecialE11Legend2 ? 0.69 : 0.92,
                         useSpecialE11Legend2 ? 0.90 : 0.88
                       );
                       legVar2.SetBorderSize(0);
