@@ -99,8 +99,24 @@ namespace ARJ
 
   inline bool isAuAuOnly     = true;
   inline bool isPPdataAndAUAU = false;
+
   inline bool generateUEcomparisonSSQA = false;
+
   inline bool generatePerRunTriggerAna = true;
+  inline bool generatePerRunTriggerAnaForGoodRunsOnly = false;
+
+  /*
+    Vertex < 150 cm group
+  */
+  inline std::vector<int> goodTriggerRuns = {78280};
+  inline std::vector<int> badTriggerRuns = {68208, 68220, 68354, 68382, 68388, 68390, 68406, 68408, 68410, 68414, 68421, 68423, 68470, 68490, 68491, 68497, 68502, 68503, 68550, 68581, 71578, 71828, 71830, 71832, 71833, 71859, 72082, 72085, 72311, 72312, 74394, 74413, 74550, 74567, 75159, 75188,  75224,  75241, 75299, 75302, 75315, 75321, 75360, 75380, 75391, 75912, 76002, 76058, 76086, 76101, 76124, 76144, 76151, 76154, 76194, 76195, 76196, 76197, 76414, 76416, 76417, 77813, 77814, 77815, 77824, 77854, 77856, 77989, 78015, 78029, 78856, 71329, 71331, 71332, 71624, 71835, 72912, 72921, 73038, 74432, 74389, 74523, 75405, 76736, 76758, 78881, 78953, 78218, 78318, 78954, 71653, 71654, 71677, 71681
+  };
+  /*
+    Vertex < 10 cm group
+  */
+  inline std::vector<int> badTriggerRuns_vtx10 = {};
+  inline std::vector<int> goodTriggerRuns_vtx10 = {};
+
   inline bool isRun25pp      = false;
 
   // ===========================================================================

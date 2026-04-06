@@ -578,7 +578,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         delete hRatio;
     };
     
-    auto drawGroupTurnOnOverlay = [&](const std::vector<LoadedPair>& loaded, const std::string& groupOutDir, const std::string& filenameTag = "")
+    auto drawGroupTurnOnOverlay = [&](const std::vector<LoadedPair>& loaded, const std::string& groupOutDir, const std::string& filenameTag = "", const std::string& perRunLabel = "")
     {
         std::vector<TH1*> ratioHists;
         std::vector<TF1*> fitFuncs;
@@ -752,11 +752,18 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             fGumbel->SetParNames("Plateau", "Mu", "Beta");
             fGumbel->SetParameter(0, plateauVal);
             
+            if (generatePerRunTriggerAnaForGoodRunsOnly)
+            {
+                // Good-runs-only mode: fix plateau at 1.0 for all triggers.
+                // The tail estimate is unreliable with few runs, and we want
+                // to verify the selected runs produce a true turn-on to unity.
+                fGumbel->FixParameter(0, 1.0);
+            }
             // Photon 10: fix plateau hard at the tail estimate — the data
             // clearly flattens at ~0.94 and any upward float overshoots.
             // Also restrict beta to be small → sharper knee into the plateau.
             // Photon 12+: allow ±0.02 float as before.
-            if (thr <= 10)
+            else if (thr <= 10)
             {
                 fGumbel->FixParameter(0, plateauVal);
             }
@@ -770,7 +777,15 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             fGumbel->SetParameter(2, betaGuess);
             fGumbel->SetParLimits(1, std::max(1.0, muGuess - 3.0), std::min(18.0, muGuess + 3.0));
             
-            if (thr <= 10)
+            if (generatePerRunTriggerAnaForGoodRunsOnly)
+            {
+                // Good-runs-only: relax beta limits with plateau fixed at 1.0
+                if (thr <= 10)
+                    fGumbel->SetParLimits(2, std::max(0.3, 0.40 * betaGuess), std::max(3.5, 2.0 * betaGuess));
+                else
+                    fGumbel->SetParLimits(2, std::max(0.3, 0.40 * betaGuess), std::max(2.0, 1.1 * betaGuess));
+            }
+            else if (thr <= 10)
             {
                 // Tighter beta: force a steeper rise and sharper flattening
                 fGumbel->SetParLimits(2, std::max(0.3, 0.50 * betaGuess), std::min(1.7, 1.05 * betaGuess));
@@ -827,73 +842,84 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             // Pass 2: refined plateau from max(15, mu + 4*beta),
             //         re-fix plateau, re-fit Gumbel over [2, 19].
             // ────────────────────────────────────────────────────────────
-            double plateauVal = fitPlateauConst(hRatio, 15.0);
-            TF1* fFit = buildGumbelFit(P, hRatio, plateauVal);
-            
+            double plateauVal = 1.0;
+            TF1* fFit = nullptr;
             const double target90 = 0.90;
             double x90 = -1.0;
-            
-            if (fFit)
+            if (perRunLabel.empty())
             {
-                // Pass 1
-                TFitResultPtr fitRes = hRatio->Fit(fFit, "RQS0", "", 2.0, 19.0);
-                int fitStatus = fitRes;
+                plateauVal = fitPlateauConst(hRatio, 15.0);
+                fFit = buildGumbelFit(P, hRatio, plateauVal);
                 
-                if (fitStatus == 0)
+                if (fFit)
                 {
-                    const double mu   = fFit->GetParameter(1);
-                    const double beta = std::fabs(fFit->GetParameter(2));
+                    // Pass 1
+                    TFitResultPtr fitRes = hRatio->Fit(fFit, "RQS0", "", 2.0, 19.0);
+                    int fitStatus = fitRes;
                     
-                    // Pass 2: refined plateau from deep into the flat region
-                    // Gumbel reaches ~98% of plateau at mu + 4*beta
-                    const double refinedTailLo = std::max(15.0, std::min(19.0, mu + 4.0 * beta));
-                    plateauVal = fitPlateauConst(hRatio, refinedTailLo);
-                    
-                    fFit->SetParameter(0, plateauVal);
+                    if (fitStatus == 0)
                     {
-                        fFit->FixParameter(0, plateauVal);
+                        const double mu   = fFit->GetParameter(1);
+                        const double beta = std::fabs(fFit->GetParameter(2));
+                        
+                        // Pass 2: refined plateau from deep into the flat region
+                        // Gumbel reaches ~98% of plateau at mu + 4*beta
+                        const double refinedTailLo = std::max(15.0, std::min(19.0, mu + 4.0 * beta));
+                        if (generatePerRunTriggerAnaForGoodRunsOnly)
+                        {
+                            plateauVal = 1.0;
+                        }
+                        else
+                        {
+                            plateauVal = fitPlateauConst(hRatio, refinedTailLo);
+                        }
+                        
+                        fFit->SetParameter(0, plateauVal);
+                        {
+                            fFit->FixParameter(0, plateauVal);
+                        }
+                        fFit->SetParameter(1, mu);
+                        
+                        fitRes = hRatio->Fit(fFit, "RQS0", "", 2.0, 19.0);
+                        fitStatus = fitRes;
                     }
-                    fFit->SetParameter(1, mu);
                     
-                    fitRes = hRatio->Fit(fFit, "RQS0", "", 2.0, 19.0);
-                    fitStatus = fitRes;
+                    // Read back the fitted plateau (may have shifted up from tail estimate)
+                    if (fitStatus == 0)
+                    {
+                        plateauVal = fFit->GetParameter(0);
+                    }
+                    
+                    // Extract 80% crossing from the converged fit
+                    if (fitStatus == 0)
+                    {
+                        // Gumbel CDF analytic: x_f = mu - beta * ln(-ln(f))
+                        // For f = 0.80: ln(-ln(0.80)) = ln(0.22314) = -1.4999
+                        // So x80 = mu + 1.500 * beta
+                        const double mu   = fFit->GetParameter(1);
+                        const double beta = std::fabs(fFit->GetParameter(2));
+                        // Gumbel CDF analytic: x_f = mu - beta * ln(-ln(f))
+                        // For f = 0.90: ln(-ln(0.90)) = ln(0.10536) = -2.2504
+                        // So x90 = mu + 2.2504 * beta
+                        const double x90Analytic = mu - beta * std::log(-std::log(0.90));
+                        if (std::isfinite(x90Analytic) && x90Analytic >= 0.0 && x90Analytic <= 20.0)
+                        {
+                            x90 = x90Analytic;
+                        }
+                        else
+                        {
+                            // Numerical fallback using the fitted plateau
+                            const double fitPlat = fFit->GetParameter(0);
+                            const double x90Num = fFit->GetX(target90 * fitPlat, 0.0, 20.0);
+                            if (std::isfinite(x90Num) && x90Num >= 0.0 && x90Num <= 20.0)
+                                x90 = x90Num;
+                        }
+                    }
                 }
                 
-                // Read back the fitted plateau (may have shifted up from tail estimate)
-                if (fitStatus == 0)
-                {
-                    plateauVal = fFit->GetParameter(0);
-                }
+                if (x90 < 0.0) x90 = findCrossingX(hRatio, target90, 2.0, 20.0);
+            } // end if (perRunLabel.empty())
                 
-                // Extract 80% crossing from the converged fit
-                if (fitStatus == 0)
-                {
-                    // Gumbel CDF analytic: x_f = mu - beta * ln(-ln(f))
-                    // For f = 0.80: ln(-ln(0.80)) = ln(0.22314) = -1.4999
-                    // So x80 = mu + 1.500 * beta
-                    const double mu   = fFit->GetParameter(1);
-                    const double beta = std::fabs(fFit->GetParameter(2));
-                    // Gumbel CDF analytic: x_f = mu - beta * ln(-ln(f))
-                    // For f = 0.90: ln(-ln(0.90)) = ln(0.10536) = -2.2504
-                    // So x90 = mu + 2.2504 * beta
-                    const double x90Analytic = mu - beta * std::log(-std::log(0.90));
-                    if (std::isfinite(x90Analytic) && x90Analytic >= 0.0 && x90Analytic <= 20.0)
-                    {
-                        x90 = x90Analytic;
-                    }
-                    else
-                    {
-                        // Numerical fallback using the fitted plateau
-                        const double fitPlat = fFit->GetParameter(0);
-                        const double x90Num = fFit->GetX(target90 * fitPlat, 0.0, 20.0);
-                        if (std::isfinite(x90Num) && x90Num >= 0.0 && x90Num <= 20.0)
-                            x90 = x90Num;
-                    }
-                }
-            }
-            
-            if (x90 < 0.0) x90 = findCrossingX(hRatio, target90, 2.0, 20.0);
-            
             ratioHists.push_back(hRatio);
             fitFuncs.push_back(fFit);
             x80s.push_back(x90);
@@ -998,6 +1024,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         leg.Draw();
         
         // ── fit info: bottom-right ──
+        if (perRunLabel.empty())
         {
             TLatex tFit;
             tFit.SetNDC(true);
@@ -1024,6 +1051,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         }
 
         // ── plateau annotations: LHS, just under the 0.90 line ──
+        if (perRunLabel.empty())
         {
             TLatex tPlat;
             tPlat.SetNDC(true);
@@ -1055,6 +1083,20 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                 tDS.DrawLatex(0.50, 0.97, isRun25pp ? "Run25pp" : "Run24pp");
         }
         
+        if (!perRunLabel.empty())
+        {
+            const std::string rlShort =
+                (perRunLabel.rfind("000", 0) == 0 && perRunLabel.size() > 3)
+                ? perRunLabel.substr(3) : perRunLabel;
+            TLatex tRun;
+            tRun.SetNDC(true);
+            tRun.SetTextFont(42);
+            tRun.SetTextAlign(22);
+            tRun.SetTextSize(0.10);
+            tRun.SetTextColor(kBlack);
+            tRun.DrawLatex(0.72, 0.38, rlShort.c_str());
+        }
+        
         const std::string outPng = JoinPath(groupOutDir, "hMaxClusterEnergy_groupTurnOnOverlay" + filenameTag + ".png");
         SaveCanvas(c, outPng);
         cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";
@@ -1063,7 +1105,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         for (auto* f : fitFuncs) if (f) delete f;
         for (auto* h : ratioHists) delete h;
     };
-    auto drawGroupMaxClusterOverlay = [&](const std::vector<LoadedPair>& loaded, const std::string& groupOutDir, const std::string& filenameTag = "")
+    auto drawGroupMaxClusterOverlay = [&](const std::vector<LoadedPair>& loaded, const std::string& groupOutDir, const std::string& filenameTag = "", const std::string& perRunLabel = "")
     {
         if (loaded.empty()) return;
         
@@ -1172,6 +1214,20 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                 tDS.DrawLatex(0.50, 0.97, isRun25pp ? "Run25pp" : "Run24pp");
         }
         
+        if (!perRunLabel.empty())
+        {
+            const std::string rlShort =
+                (perRunLabel.rfind("000", 0) == 0 && perRunLabel.size() > 3)
+                ? perRunLabel.substr(3) : perRunLabel;
+            TLatex tRun;
+            tRun.SetNDC(true);
+            tRun.SetTextFont(42);
+            tRun.SetTextAlign(22);
+            tRun.SetTextSize(0.10);
+            tRun.SetTextColor(kBlack);
+            tRun.DrawLatex(0.7, 0.50, rlShort.c_str());
+        }
+        
         const std::string outPng = JoinPath(groupOutDir, "hMaxClusterEnergy_groupOverlay" + filenameTag + ".png");
         SaveCanvas(c, outPng);
         cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";
@@ -1230,8 +1286,8 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             t.SetNDC(true);
             t.SetTextFont(42);
             t.SetTextAlign(33);
-            t.SetTextSize(0.090);
-            t.DrawLatex(0.95, 0.88, runLabelShort.c_str());
+            t.SetTextSize(0.120);
+            t.DrawLatex(0.88, 0.82, runLabelShort.c_str()); 
             t.SetTextAlign(22);
             t.SetTextSize(0.120);
             t.DrawLatex(0.50, 0.50, "MISSING");
@@ -1274,8 +1330,8 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             t.SetNDC(true);
             t.SetTextFont(42);
             t.SetTextAlign(33);
-            t.SetTextSize(0.090);
-            t.DrawLatex(0.95, 0.88, runLabelShort.c_str());
+            t.SetTextSize(0.120);
+            t.DrawLatex(0.88, 0.82, runLabelShort.c_str()); 
             t.SetTextAlign(22);
             t.SetTextSize(0.120);
             t.DrawLatex(0.50, 0.50, "MISSING");
@@ -1317,7 +1373,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         t.SetNDC(true);
         t.SetTextFont(42);
         t.SetTextAlign(33);
-        t.SetTextSize(0.090);
+        t.SetTextSize(0.120);
         t.SetTextColor(kBlack);
         t.DrawLatex(0.95, 0.88, runLabelShort.c_str());
     };
@@ -1343,8 +1399,8 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             t.SetNDC(true);
             t.SetTextFont(42);
             t.SetTextAlign(33);
-            t.SetTextSize(0.090);
-            t.DrawLatex(0.95, 0.88, runLabelShort.c_str());
+            t.SetTextSize(0.120);
+            t.DrawLatex(0.88, 0.82, runLabelShort.c_str()); 
             t.SetTextAlign(22);
             t.SetTextSize(0.120);
             t.DrawLatex(0.50, 0.50, "MISSING");
@@ -1394,8 +1450,8 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             t.SetNDC(true);
             t.SetTextFont(42);
             t.SetTextAlign(33);
-            t.SetTextSize(0.090);
-            t.DrawLatex(0.95, 0.88, runLabelShort.c_str());
+            t.SetTextSize(0.120);
+            t.DrawLatex(0.88, 0.82, runLabelShort.c_str()); 
             t.SetTextAlign(22);
             t.SetTextSize(0.120);
             t.DrawLatex(0.50, 0.50, "MISSING");
@@ -1436,7 +1492,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         t.SetNDC(true);
         t.SetTextFont(42);
         t.SetTextAlign(33);
-        t.SetTextSize(0.090);
+        t.SetTextSize(0.120);
         t.SetTextColor(kBlack);
         t.DrawLatex(0.95, 0.88, runLabelShort.c_str());
     };
@@ -1444,19 +1500,21 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
     auto writePerRunTablePages = [&](const std::vector<PerRunTriggerAnaItem>& items,
                                      const std::string& targetGroup,
                                      const std::string& tableOutDir,
-                                     bool makeTurnOn)
+                                     bool makeTurnOn,
+                                     int nCols, int nRows,
+                                     int canvasW, int canvasH)
     {
         if (items.empty()) return;
         
         EnsureDir(tableOutDir);
-        const std::size_t nPerPage = 64;
+        const std::size_t nPerPage = static_cast<std::size_t>(nCols * nRows);
         
         for (std::size_t pageStart = 0, pageIdx = 0; pageStart < items.size(); pageStart += nPerPage, ++pageIdx)
         {
             TCanvas c(TString::Format("c_perRunTrigAna_%s_%zu",
                                       makeTurnOn ? "turnOn" : "maxCluster", pageIdx + 1).Data(),
-                      "c_perRunTrigAna", 5200, 5200);
-            c.Divide(8, 8, 0.001, 0.001);
+                      "c_perRunTrigAna", canvasW, canvasH);
+            c.Divide(nCols, nRows, 0.001, 0.001);
             
             std::vector<TObject*> keepAlive;
             keepAlive.reserve(nPerPage * 8);
@@ -1491,8 +1549,8 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                     t.SetNDC(true);
                     t.SetTextFont(42);
                     t.SetTextAlign(33);
-                    t.SetTextSize(0.090);
-                    t.DrawLatex(0.95, 0.88, runLabelShort.c_str());
+                    t.SetTextSize(0.120);
+                    t.DrawLatex(0.88, 0.82, runLabelShort.c_str()); 
                     t.SetTextAlign(22);
                     t.SetTextSize(0.110);
                     t.DrawLatex(0.50, 0.50, "BAD FILE");
@@ -1560,7 +1618,8 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                                               ).Data());
         }
         
-        if (isAuAuOnly && folder == "commonBasis_MBD_NS_geq_2_vtx_lt_150")
+        if (isAuAuOnly && (folder == "commonBasis_MBD_NS_geq_2_vtx_lt_150" ||
+                           folder == "commonBasis_MBD_NS_geq_2_vtx_lt_10"))
         {
             std::vector<LoadedPair> filteredAuAu;
             for (const auto& P : it->second)
@@ -1590,6 +1649,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         {
             drawGroupTurnOnOverlay(it->second, groupOutDir, "");
         }
+
         WriteTextFile(JoinPath(groupOutDir, "summary.txt"), summary);
         indexLines.push_back(folder + " -> " + it->second.front().basisLabel);
         for (const auto& P : it->second)
@@ -1640,7 +1700,8 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                                               ).Data());
         }
         
-        if (isAuAuOnly && kv.first == "commonBasis_MBD_NS_geq_2_vtx_lt_150")
+        if (isAuAuOnly && (kv.first == "commonBasis_MBD_NS_geq_2_vtx_lt_150" ||
+                           kv.first == "commonBasis_MBD_NS_geq_2_vtx_lt_10"))
         {
             std::vector<LoadedPair> filteredAuAu;
             for (const auto& P : kv.second)
@@ -1687,6 +1748,256 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
     
     WriteTextFile(JoinPath(outDir, "summary_triggerQA_doNotScale.txt"), indexLines);
     
+    if (generatePerRunTriggerAnaForGoodRunsOnly && generatePerRunTriggerAna)
+    {
+        std::cerr << ANSI_BOLD_RED
+                  << "[FATAL] generatePerRunTriggerAnaForGoodRunsOnly and generatePerRunTriggerAna "
+                     "cannot both be true. Set generatePerRunTriggerAna = false when using good-runs-only mode."
+                  << ANSI_RESET << "\n";
+        return;
+    }
+    
+    if (generatePerRunTriggerAnaForGoodRunsOnly && datasetBucket() == "auau")
+    {
+        if (goodTriggerRuns.empty())
+        {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] generatePerRunTriggerAnaForGoodRunsOnly is true but goodTriggerRuns is empty. Skipping."
+                 << ANSI_RESET << "\n";
+        }
+        else
+        {
+            const std::string targetGroup = "commonBasis_MBD_NS_geq_2_vtx_lt_150";
+            const std::string perRunInputDir = JoinPath(kInputBase + "/auau25/perRun", CfgTagWithUE());
+            const std::string groupOutDir = JoinPath(outDir, targetGroup);
+            EnsureDir(groupOutDir);
+            
+            const std::set<int> goodRunSet(goodTriggerRuns.begin(), goodTriggerRuns.end());
+            std::map<std::string, LoadedPair> accPairs;
+            int nGoodFound = 0;
+            int nGoodMissing = 0;
+            std::vector<int> missingRuns;
+            
+            cout << ANSI_BOLD_GRN
+                 << "[GOOD-RUNS-ONLY] Combining " << goodTriggerRuns.size()
+                 << " runs for group overlays..." << ANSI_RESET << "\n";
+            
+            for (int runNum : goodTriggerRuns)
+            {
+                const std::string runDigits = TString::Format("%08d", runNum).Data();
+                const std::string fname = "chunkMerge_run_" + runDigits + ".root";
+                const std::string fpath = JoinPath(perRunInputDir, fname);
+                
+                TFile* fRun = TFile::Open(fpath.c_str(), "READ");
+                if (!fRun || fRun->IsZombie())
+                {
+                    ++nGoodMissing;
+                    missingRuns.push_back(runNum);
+                    if (fRun) { fRun->Close(); delete fRun; }
+                    continue;
+                }
+                
+                std::vector<LoadedPair> runPairs = collectPairsFromFile(fRun, fpath, false);
+                std::vector<LoadedPair> filtered = filterPhoton10And12FromGroup(runPairs, targetGroup);
+                
+                if (filtered.empty())
+                {
+                    ++nGoodMissing;
+                    missingRuns.push_back(runNum);
+                    fRun->Close();
+                    delete fRun;
+                    continue;
+                }
+                
+                ++nGoodFound;
+                for (const auto& P : filtered)
+                {
+                    auto ait = accPairs.find(P.probeKey);
+                    if (ait == accPairs.end())
+                    {
+                        LoadedPair LP;
+                        LP.basisKey      = P.basisKey;
+                        LP.basisLabel    = P.basisLabel;
+                        LP.groupFolder   = P.groupFolder;
+                        LP.probeKey      = P.probeKey;
+                        LP.probeLabel    = P.probeLabel;
+                        LP.baselineKey   = P.baselineKey;
+                        LP.baselineLabel = P.baselineLabel;
+                        LP.coverageText  = "goodRunsOnly combined";
+                        LP.nRunSpans     = 1;
+                        LP.hProbe = static_cast<TH1*>(P.hProbe->Clone(
+                            TString::Format("goodAcc_probe_%s", P.probeKey.c_str())));
+                        LP.hProbe->SetDirectory(nullptr);
+                        LP.hBase = static_cast<TH1*>(P.hBase->Clone(
+                            TString::Format("goodAcc_base_%s", P.probeKey.c_str())));
+                        LP.hBase->SetDirectory(nullptr);
+                        accPairs[P.probeKey] = LP;
+                    }
+                    else
+                    {
+                        ait->second.hProbe->Add(P.hProbe);
+                        ait->second.hBase->Add(P.hBase);
+                        ait->second.nRunSpans += 1;
+                    }
+                }
+                
+                fRun->Close();
+                delete fRun;
+            }
+            
+            if (!accPairs.empty())
+            {
+                std::vector<LoadedPair> accVec;
+                accVec.reserve(accPairs.size());
+                for (auto& kv : accPairs) accVec.push_back(kv.second);
+                std::sort(accVec.begin(), accVec.end(), [&](const LoadedPair& a, const LoadedPair& b)
+                {
+                    return extractPhotonThresholdGeV(a.probeKey) < extractPhotonThresholdGeV(b.probeKey);
+                });
+                
+                drawGroupMaxClusterOverlay(accVec, groupOutDir, "");
+                drawGroupTurnOnOverlay(accVec, groupOutDir, "");
+                
+                cout << ANSI_BOLD_GRN
+                     << "[GOOD-RUNS-ONLY] Built combined overlays from " << nGoodFound
+                     << " good runs (" << nGoodMissing << " missing/empty)"
+                     << ANSI_RESET << "\n";
+                
+                if (!missingRuns.empty())
+                {
+                    cout << ANSI_BOLD_YEL << "  Missing/empty runs: ";
+                    for (std::size_t i = 0; i < missingRuns.size(); ++i)
+                    {
+                        if (i) cout << ", ";
+                        cout << missingRuns[i];
+                    }
+                    cout << ANSI_RESET << "\n";
+                }
+                
+                for (auto& kv : accPairs)
+                {
+                    delete kv.second.hProbe;
+                    delete kv.second.hBase;
+                }
+            }
+            else
+            {
+                cout << ANSI_BOLD_RED
+                     << "[GOOD-RUNS-ONLY] No usable data found from any of the "
+                     << goodTriggerRuns.size() << " listed runs."
+                     << ANSI_RESET << "\n";
+            }
+        }
+    }
+    
+    if (generatePerRunTriggerAnaForGoodRunsOnly && datasetBucket() == "auau")
+    {
+        if (!goodTriggerRuns_vtx10.empty())
+        {
+            const std::string targetGroup = "commonBasis_MBD_NS_geq_2_vtx_lt_10";
+            const std::string perRunInputDir = JoinPath(kInputBase + "/auau25/perRun", CfgTagWithUE());
+            const std::string groupOutDir = JoinPath(outDir, targetGroup);
+            EnsureDir(groupOutDir);
+            
+            std::map<std::string, LoadedPair> accPairs;
+            int nGoodFound = 0;
+            int nGoodMissing = 0;
+            std::vector<int> missingRuns;
+            
+            cout << ANSI_BOLD_GRN
+                 << "[GOOD-RUNS-ONLY vtx10] Combining " << goodTriggerRuns_vtx10.size()
+                 << " runs for group overlays..." << ANSI_RESET << "\n";
+            
+            for (int runNum : goodTriggerRuns_vtx10)
+            {
+                const std::string runDigits = TString::Format("%08d", runNum).Data();
+                const std::string fname = "chunkMerge_run_" + runDigits + ".root";
+                const std::string fpath = JoinPath(perRunInputDir, fname);
+                
+                TFile* fRun = TFile::Open(fpath.c_str(), "READ");
+                if (!fRun || fRun->IsZombie())
+                {
+                    ++nGoodMissing;
+                    missingRuns.push_back(runNum);
+                    if (fRun) { fRun->Close(); delete fRun; }
+                    continue;
+                }
+                
+                std::vector<LoadedPair> runPairs = collectPairsFromFile(fRun, fpath, false);
+                std::vector<LoadedPair> filtered = filterPhoton10And12FromGroup(runPairs, targetGroup);
+                
+                if (filtered.empty())
+                {
+                    ++nGoodMissing;
+                    missingRuns.push_back(runNum);
+                    fRun->Close();
+                    delete fRun;
+                    continue;
+                }
+                
+                ++nGoodFound;
+                for (const auto& P : filtered)
+                {
+                    auto ait = accPairs.find(P.probeKey);
+                    if (ait == accPairs.end())
+                    {
+                        LoadedPair LP;
+                        LP.basisKey      = P.basisKey;
+                        LP.basisLabel    = P.basisLabel;
+                        LP.groupFolder   = P.groupFolder;
+                        LP.probeKey      = P.probeKey;
+                        LP.probeLabel    = P.probeLabel;
+                        LP.baselineKey   = P.baselineKey;
+                        LP.baselineLabel = P.baselineLabel;
+                        LP.coverageText  = "goodRunsOnly vtx10 combined";
+                        LP.nRunSpans     = 1;
+                        LP.hProbe = static_cast<TH1*>(P.hProbe->Clone(
+                            TString::Format("goodAcc10_probe_%s", P.probeKey.c_str())));
+                        LP.hProbe->SetDirectory(nullptr);
+                        LP.hBase = static_cast<TH1*>(P.hBase->Clone(
+                            TString::Format("goodAcc10_base_%s", P.probeKey.c_str())));
+                        LP.hBase->SetDirectory(nullptr);
+                        accPairs[P.probeKey] = LP;
+                    }
+                    else
+                    {
+                        ait->second.hProbe->Add(P.hProbe);
+                        ait->second.hBase->Add(P.hBase);
+                        ait->second.nRunSpans += 1;
+                    }
+                }
+                
+                fRun->Close();
+                delete fRun;
+            }
+            
+            if (!accPairs.empty())
+            {
+                std::vector<LoadedPair> accVec;
+                accVec.reserve(accPairs.size());
+                for (auto& kv : accPairs) accVec.push_back(kv.second);
+                std::sort(accVec.begin(), accVec.end(), [&](const LoadedPair& a, const LoadedPair& b)
+                {
+                    return extractPhotonThresholdGeV(a.probeKey) < extractPhotonThresholdGeV(b.probeKey);
+                });
+                
+                drawGroupMaxClusterOverlay(accVec, groupOutDir, "");
+                drawGroupTurnOnOverlay(accVec, groupOutDir, "");
+                
+                cout << ANSI_BOLD_GRN
+                     << "[GOOD-RUNS-ONLY vtx10] Built combined overlays from " << nGoodFound
+                     << " good runs (" << nGoodMissing << " missing/empty)"
+                     << ANSI_RESET << "\n";
+                
+                for (auto& kv : accPairs)
+                {
+                    delete kv.second.hProbe;
+                    delete kv.second.hBase;
+                }
+            }
+        }
+    }
+    
     if (generatePerRunTriggerAna && datasetBucket() == "auau")
     {
         const std::string targetGroup = "commonBasis_MBD_NS_geq_2_vtx_lt_150";
@@ -1718,6 +2029,11 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         int nRunsWithBothPhoton10And12 = 0;
         int nRunsRenderable = 0;
         int nRunsTargetGroupButNoPhoton10Or12 = 0;
+        
+        const std::set<int> badRunSet(badTriggerRuns.begin(), badTriggerRuns.end());
+        std::map<std::string, LoadedPair> accPairs;
+        int nBadTriggerRunsSkipped = 0;
+        std::map<int, std::vector<std::string>> scaledMissingByPattern;
         
         void* dirp = gSystem->OpenDirectory(perRunInputDir.c_str());
         if (!dirp)
@@ -1780,6 +2096,29 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                 }
                 
                 ++nOpenableRuns;
+                
+                {
+                    static const std::string kScaledKeys[3] = {
+                        "MBD_NS_geq_2_vtx_lt_150",
+                        "photon_10_plus_MBD_NS_geq_2_vtx_lt_150",
+                        "photon_12_plus_MBD_NS_geq_2_vtx_lt_150"
+                    };
+                    int missingFlags = 0;
+                    for (int b = 0; b < 3; ++b)
+                    {
+                        const std::string cntPath = kScaledKeys[b] + "/cnt_" + kScaledKeys[b];
+                        TH1* hCnt = dynamic_cast<TH1*>(fRun->Get(cntPath.c_str()));
+                        if (!hCnt || hCnt->GetEntries() <= 0)
+                            missingFlags |= (1 << b);
+                    }
+                    if (missingFlags > 0)
+                    {
+                        const std::string shortLbl =
+                            (item.runLabel.rfind("000", 0) == 0 && item.runLabel.size() > 3)
+                            ? item.runLabel.substr(3) : item.runLabel;
+                        scaledMissingByPattern[missingFlags].push_back(shortLbl);
+                    }
+                }
                 
                 std::vector<LoadedPair> runPairs = collectPairsFromFile(fRun, item.filePath, false);
                 const int nAllPairs = static_cast<int>(runPairs.size());
@@ -1858,8 +2197,8 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                 const std::string runOutDir = JoinPath(perRunGroupOutDir, item.runLabel);
                 EnsureDir(runOutDir);
                 
-                drawGroupMaxClusterOverlay(filtered, runOutDir, "");
-                drawGroupTurnOnOverlay(filtered, runOutDir, "");
+                drawGroupMaxClusterOverlay(filtered, runOutDir, "", item.runLabel);
+                drawGroupTurnOnOverlay(filtered, runOutDir, "", item.runLabel);
                 
                 ++nRunsRenderable;
                 perRunItems.push_back(item);
@@ -1872,6 +2211,48 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                                     hasPhoton12 ? "YES" : "NO",
                                     nFiltered,
                                     runOutDir.c_str()).Data());
+                
+                if (!badRunSet.empty())
+                {
+                    const int runNumInt = std::stoi(item.runLabel);
+                    if (badRunSet.count(runNumInt))
+                    {
+                        ++nBadTriggerRunsSkipped;
+                    }
+                    else
+                    {
+                        for (const auto& P : filtered)
+                        {
+                            auto ait = accPairs.find(P.probeKey);
+                            if (ait == accPairs.end())
+                            {
+                                LoadedPair LP;
+                                LP.basisKey      = P.basisKey;
+                                LP.basisLabel    = P.basisLabel;
+                                LP.groupFolder   = P.groupFolder;
+                                LP.probeKey      = P.probeKey;
+                                LP.probeLabel    = P.probeLabel;
+                                LP.baselineKey   = P.baselineKey;
+                                LP.baselineLabel = P.baselineLabel;
+                                LP.coverageText  = "badTrigRun-filtered combined";
+                                LP.nRunSpans     = 1;
+                                LP.hProbe = static_cast<TH1*>(P.hProbe->Clone(
+                                    TString::Format("acc_probe_%s", P.probeKey.c_str())));
+                                LP.hProbe->SetDirectory(nullptr);
+                                LP.hBase = static_cast<TH1*>(P.hBase->Clone(
+                                    TString::Format("acc_base_%s", P.probeKey.c_str())));
+                                LP.hBase->SetDirectory(nullptr);
+                                accPairs[P.probeKey] = LP;
+                            }
+                            else
+                            {
+                                ait->second.hProbe->Add(P.hProbe);
+                                ait->second.hBase->Add(P.hBase);
+                                ait->second.nRunSpans += 1;
+                            }
+                        }
+                    }
+                }
                 
                 fRun->Close();
                 delete fRun;
@@ -1905,14 +2286,292 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                 perRunSummary.push_back("BREAKPOINT: target group exists in some runs, but no Photon 10/12 pairs were present to render.");
             else
                 perRunSummary.push_back("BREAKPOINT: none reached; usable per-run outputs were produced.");
+            
+            if (!badRunSet.empty() && !accPairs.empty())
+            {
+                std::vector<LoadedPair> accVec;
+                accVec.reserve(accPairs.size());
+                for (auto& kv : accPairs) accVec.push_back(kv.second);
+                std::sort(accVec.begin(), accVec.end(), [&](const LoadedPair& a, const LoadedPair& b)
+                {
+                    return extractPhotonThresholdGeV(a.probeKey) < extractPhotonThresholdGeV(b.probeKey);
+                });
+                
+                const std::string convergentGroupOutDir = JoinPath(outDir, targetGroup);
+                drawGroupMaxClusterOverlay(accVec, convergentGroupOutDir, "");
+                drawGroupTurnOnOverlay(accVec, convergentGroupOutDir, "");
+                
+                const int nGoodRuns = nRunsRenderable - nBadTriggerRunsSkipped;
+                cout << "\n" << ANSI_BOLD_GRN
+                     << "========== BAD-TRIGGER-RUN FILTER SUMMARY ==========" << ANSI_RESET << "\n"
+                     << "  Total renderable runs (with doNotScale data) : " << nRunsRenderable << "\n"
+                     << "  Runs in badTriggerRuns vector                : " << static_cast<int>(badTriggerRuns.size()) << "\n"
+                     << ANSI_BOLD_RED
+                     << "  Runs removed (in vector AND renderable)      : " << nBadTriggerRunsSkipped << ANSI_RESET << "\n"
+                     << ANSI_BOLD_GRN
+                     << "  Runs used for combined overlays               : " << nGoodRuns << ANSI_RESET << "\n"
+                     << ANSI_BOLD_GRN
+                     << "====================================================" << ANSI_RESET << "\n\n";
+                
+                perRunSummary.push_back("");
+                perRunSummary.push_back("[BAD-TRIGGER-RUN FILTER SUMMARY]");
+                perRunSummary.push_back(TString::Format(
+                    "  Total renderable runs: %d", nRunsRenderable).Data());
+                perRunSummary.push_back(TString::Format(
+                    "  Runs in badTriggerRuns vector: %d", static_cast<int>(badTriggerRuns.size())).Data());
+                perRunSummary.push_back(TString::Format(
+                    "  Runs removed: %d", nBadTriggerRunsSkipped).Data());
+                perRunSummary.push_back(TString::Format(
+                    "  Runs used for combined overlays: %d", nGoodRuns).Data());
+                
+                for (auto& kv : accPairs)
+                {
+                    delete kv.second.hProbe;
+                    delete kv.second.hBase;
+                }
+                accPairs.clear();
+            }
+        }
+        
+        if (!scaledMissingByPattern.empty())
+        {
+            const std::string T1 = "MBD_NS_geq_2_vtx_lt_150";
+            const std::string T2 = "photon_10_plus_MBD_NS_geq_2_vtx_lt_150";
+            const std::string T3 = "photon_12_plus_MBD_NS_geq_2_vtx_lt_150";
+            
+            auto joinVec = [](const std::vector<std::string>& v) -> std::string {
+                std::string s;
+                for (std::size_t i = 0; i < v.size(); ++i) { if (i) s += ", "; s += v[i]; }
+                return s;
+            };
+            
+            auto runsWithBitsMissing = [&](int requiredBits) -> std::vector<std::string> {
+                std::vector<std::string> out;
+                for (const auto& [pat, runs] : scaledMissingByPattern)
+                    if ((pat & requiredBits) == requiredBits)
+                        out.insert(out.end(), runs.begin(), runs.end());
+                std::sort(out.begin(), out.end());
+                return out;
+            };
+            
+            auto runsWithExactPattern = [&](int exact) -> std::vector<std::string> {
+                auto it = scaledMissingByPattern.find(exact);
+                if (it == scaledMissingByPattern.end()) return {};
+                auto sorted = it->second;
+                std::sort(sorted.begin(), sorted.end());
+                return sorted;
+            };
+            
+            cout << "\n" << ANSI_BOLD_YEL
+                 << "========== SCALED-TRIGGER DIAGNOSTIC (cnt_ histogram check) =========="
+                 << ANSI_RESET << "\n";
+            
+            cout << ANSI_BOLD_YEL
+                 << "  [EXCLUSIVE PATTERNS] (exactly these missing, others present)"
+                 << ANSI_RESET << "\n";
+            
+            struct PatDesc { int flag; std::string label; };
+            const std::vector<PatDesc> excPatterns = {
+                {1, "ONLY " + T1},
+                {2, "ONLY " + T2},
+                {4, "ONLY " + T3},
+                {3, T1 + " + " + T2 + " only"},
+                {5, T1 + " + " + T3 + " only"},
+                {6, T2 + " + " + T3 + " only"},
+                {7, "ALL THREE"}
+            };
+            for (const auto& pd : excPatterns)
+            {
+                auto runs = runsWithExactPattern(pd.flag);
+                if (runs.empty()) continue;
+                cout << ANSI_BOLD_RED << "    Missing " << pd.label
+                     << " : " << runs.size() << " runs" << ANSI_RESET << "\n"
+                     << "      " << joinVec(runs) << "\n";
+            }
+            
+            cout << ANSI_BOLD_YEL
+                 << "  [AGGREGATE] (any run missing at least these)"
+                 << ANSI_RESET << "\n";
+            
+            struct AggDesc { int bits; std::string label; };
+            const std::vector<AggDesc> aggPatterns = {
+                {1, T1},
+                {2, T2},
+                {4, T3},
+                {3, T1 + " AND " + T2},
+                {5, T1 + " AND " + T3},
+                {6, T2 + " AND " + T3},
+                {7, T1 + " AND " + T2 + " AND " + T3}
+            };
+            for (const auto& ad : aggPatterns)
+            {
+                auto runs = runsWithBitsMissing(ad.bits);
+                if (runs.empty()) continue;
+                cout << "    Missing (at least) " << ad.label
+                     << " : " << runs.size() << " runs\n"
+                     << "      " << joinVec(runs) << "\n";
+            }
+            
+            cout << ANSI_BOLD_YEL
+                 << "======================================================================="
+                 << ANSI_RESET << "\n\n";
+            
+            perRunSummary.push_back("");
+            perRunSummary.push_back("[SCALED-TRIGGER DIAGNOSTIC]");
+            for (const auto& pd : excPatterns)
+            {
+                auto runs = runsWithExactPattern(pd.flag);
+                if (!runs.empty())
+                    perRunSummary.push_back("  Missing " + pd.label + " : "
+                        + std::to_string(runs.size()) + " runs : " + joinVec(runs));
+            }
+            for (const auto& ad : aggPatterns)
+            {
+                auto runs = runsWithBitsMissing(ad.bits);
+                if (!runs.empty())
+                    perRunSummary.push_back("  Missing (at least) " + ad.label + " : "
+                        + std::to_string(runs.size()) + " runs : " + joinVec(runs));
+            }
+        }
+        
+        if (!badTriggerRuns.empty())
+        {
+            std::set<int> renderableRunNums;
+            for (const auto& item : perRunItems)
+                renderableRunNums.insert(std::stoi(item.runLabel));
+            
+            std::set<std::string> allMissingShortLabels;
+            for (const auto& [pat, runs] : scaledMissingByPattern)
+                allMissingShortLabels.insert(runs.begin(), runs.end());
+            
+            std::vector<int> badFound, badNotFound, badFoundAllTrigsPresent;
+            std::map<int, std::vector<int>> badByPattern;
+            
+            for (int run : badTriggerRuns)
+            {
+                const std::string shortLbl = std::to_string(run);
+                if (!renderableRunNums.count(run))
+                {
+                    badNotFound.push_back(run);
+                    continue;
+                }
+                badFound.push_back(run);
+                
+                if (!allMissingShortLabels.count(shortLbl))
+                {
+                    badFoundAllTrigsPresent.push_back(run);
+                    continue;
+                }
+                
+                for (const auto& [pat, runs] : scaledMissingByPattern)
+                {
+                    for (const auto& r : runs)
+                    {
+                        if (r == shortLbl)
+                        {
+                            badByPattern[pat].push_back(run);
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            auto joinInts = [](const std::vector<int>& v) -> std::string {
+                std::string s;
+                for (std::size_t i = 0; i < v.size(); ++i) { if (i) s += ", "; s += std::to_string(v[i]); }
+                return s;
+            };
+            
+            const std::string T1 = "MBD_NS_geq_2_vtx_lt_150";
+            const std::string T2 = "photon_10_plus_MBD_NS_geq_2_vtx_lt_150";
+            const std::string T3 = "photon_12_plus_MBD_NS_geq_2_vtx_lt_150";
+            
+            struct PatDesc { int flag; std::string label; };
+            const std::vector<PatDesc> patDescs = {
+                {1, "ONLY " + T1},
+                {2, "ONLY " + T2},
+                {4, "ONLY " + T3},
+                {3, T1 + " + " + T2 + " only"},
+                {5, T1 + " + " + T3 + " only"},
+                {6, T2 + " + " + T3 + " only"},
+                {7, "ALL THREE"}
+            };
+            
+            cout << ANSI_BOLD_YEL
+                 << "========== badTriggerRuns VECTOR QA =========="
+                 << ANSI_RESET << "\n";
+            cout << "  Total runs in badTriggerRuns vector : " << badTriggerRuns.size() << "\n";
+            cout << "  Found in renderable per-run files   : " << badFound.size() << "\n";
+            cout << "  NOT found (missing or not renderable): " << badNotFound.size() << "\n";
+            if (!badNotFound.empty())
+                cout << ANSI_BOLD_RED << "    " << joinInts(badNotFound) << ANSI_RESET << "\n";
+            
+            cout << "  Found but ALL scaled triggers present: " << badFoundAllTrigsPresent.size() << "\n";
+            if (!badFoundAllTrigsPresent.empty())
+                cout << ANSI_BOLD_YEL << "    (flagged visually, not by cnt_) " << joinInts(badFoundAllTrigsPresent) << ANSI_RESET << "\n";
+            
+            int nWithMissing = 0;
+            for (const auto& [pat, runs] : badByPattern) nWithMissing += static_cast<int>(runs.size());
+            cout << "  Found with missing scaled triggers  : " << nWithMissing << "\n";
+            
+            for (const auto& pd : patDescs)
+            {
+                auto it = badByPattern.find(pd.flag);
+                if (it == badByPattern.end() || it->second.empty()) continue;
+                cout << ANSI_BOLD_RED << "    Missing " << pd.label
+                     << " : " << it->second.size() << " runs" << ANSI_RESET << "\n"
+                     << "      " << joinInts(it->second) << "\n";
+            }
+            
+            cout << ANSI_BOLD_YEL
+                 << "==============================================="
+                 << ANSI_RESET << "\n\n";
+            
+            perRunSummary.push_back("");
+            perRunSummary.push_back("[badTriggerRuns VECTOR QA]");
+            perRunSummary.push_back("  Total in vector: " + std::to_string(badTriggerRuns.size()));
+            perRunSummary.push_back("  Found renderable: " + std::to_string(badFound.size()));
+            perRunSummary.push_back("  Not found: " + std::to_string(badNotFound.size())
+                + (badNotFound.empty() ? "" : " : " + joinInts(badNotFound)));
+            perRunSummary.push_back("  All triggers present (visual flag only): " + std::to_string(badFoundAllTrigsPresent.size())
+                + (badFoundAllTrigsPresent.empty() ? "" : " : " + joinInts(badFoundAllTrigsPresent)));
+            perRunSummary.push_back("  With missing scaled triggers: " + std::to_string(nWithMissing));
+            for (const auto& pd : patDescs)
+            {
+                auto it = badByPattern.find(pd.flag);
+                if (it != badByPattern.end() && !it->second.empty())
+                    perRunSummary.push_back("    Missing " + pd.label + " : "
+                        + std::to_string(it->second.size()) + " : " + joinInts(it->second));
+            }
         }
         
         if (!perRunItems.empty())
         {
             const std::string maxTableDir = JoinPath(perRunGroupOutDir, "maxClusterOverlaysRunByRunTables");
             const std::string turnOnTableDir = JoinPath(perRunGroupOutDir, "turnOnRunByRunTables");
-            writePerRunTablePages(perRunItems, targetGroup, maxTableDir, false);
-            writePerRunTablePages(perRunItems, targetGroup, turnOnTableDir, true);
+            writePerRunTablePages(perRunItems, targetGroup, maxTableDir, false, 12, 8, 5120, 2880);
+            writePerRunTablePages(perRunItems, targetGroup, turnOnTableDir, true, 12, 8, 5120, 2880);
+            
+            if (!badRunSet.empty())
+            {
+                std::vector<PerRunTriggerAnaItem> badItems;
+                for (const auto& item : perRunItems)
+                {
+                    const int runNum = std::stoi(item.runLabel);
+                    if (badRunSet.count(runNum))
+                        badItems.push_back(item);
+                }
+                if (!badItems.empty())
+                {
+                    const std::string badMaxTableDir = JoinPath(perRunGroupOutDir, "BAD_maxClusterOverlaysRunByRunTables");
+                    writePerRunTablePages(badItems, targetGroup, badMaxTableDir, false, 10, 5, 5120, 2880);
+                    
+                    cout << ANSI_BOLD_YEL
+                         << "[BAD-TRIGGER-RUN TABLES] Wrote " << badItems.size()
+                         << " bad-run overlays to " << badMaxTableDir
+                         << ANSI_RESET << "\n";
+                }
+            }
         }
         else
         {
@@ -1920,6 +2579,180 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         }
         
         WriteTextFile(JoinPath(perRunGroupOutDir, "summary.txt"), perRunSummary);
+    }
+    
+    if (generatePerRunTriggerAna && datasetBucket() == "auau")
+    {
+        const std::string targetGroup = "commonBasis_MBD_NS_geq_2_vtx_lt_10";
+        const std::string perRunInputDir = JoinPath(kInputBase + "/auau25/perRun", CfgTagWithUE());
+        const std::string perRunGroupOutDir = JoinPath(JoinPath(outDir, targetGroup), "perRun");
+        EnsureDir(perRunGroupOutDir);
+        
+        const std::set<int> badRunSet10(badTriggerRuns_vtx10.begin(), badTriggerRuns_vtx10.end());
+        std::map<std::string, LoadedPair> accPairs10;
+        int nBadSkipped10 = 0;
+        int nRenderable10 = 0;
+        std::vector<PerRunTriggerAnaItem> perRunItems10;
+        
+        void* dirp10 = gSystem->OpenDirectory(perRunInputDir.c_str());
+        if (dirp10)
+        {
+            std::vector<PerRunTriggerAnaItem> discovered;
+            const char* entry = nullptr;
+            while ((entry = gSystem->GetDirEntry(dirp10)))
+            {
+                const std::string fname = entry;
+                if (fname == "." || fname == "..") continue;
+                if (fname.rfind("chunkMerge_run_", 0) != 0) continue;
+                if (fname.size() <= std::string("chunkMerge_run_").size() + std::string(".root").size()) continue;
+                if (fname.substr(fname.size() - 5) != ".root") continue;
+                
+                const std::string runDigits = fname.substr(std::string("chunkMerge_run_").size(),
+                                                           fname.size() - std::string("chunkMerge_run_").size() - 5);
+                if (runDigits.empty()) continue;
+                
+                PerRunTriggerAnaItem item;
+                item.runLabel = runDigits;
+                item.filePath = JoinPath(perRunInputDir, fname);
+                discovered.push_back(item);
+            }
+            gSystem->FreeDirectory(dirp10);
+            
+            std::sort(discovered.begin(), discovered.end(),
+                      [&](const PerRunTriggerAnaItem& a, const PerRunTriggerAnaItem& b)
+                      { return a.runLabel < b.runLabel; });
+            
+            for (const auto& item : discovered)
+            {
+                TFile* fRun = TFile::Open(item.filePath.c_str(), "READ");
+                if (!fRun || fRun->IsZombie())
+                {
+                    if (fRun) { fRun->Close(); delete fRun; }
+                    continue;
+                }
+                
+                std::vector<LoadedPair> runPairs = collectPairsFromFile(fRun, item.filePath, false);
+                std::vector<LoadedPair> filtered = filterPhoton10And12FromGroup(runPairs, targetGroup);
+                
+                if (filtered.empty())
+                {
+                    fRun->Close();
+                    delete fRun;
+                    continue;
+                }
+                
+                const std::string runOutDir = JoinPath(perRunGroupOutDir, item.runLabel);
+                EnsureDir(runOutDir);
+                drawGroupMaxClusterOverlay(filtered, runOutDir, "", item.runLabel);
+                drawGroupTurnOnOverlay(filtered, runOutDir, "", item.runLabel);
+                
+                ++nRenderable10;
+                perRunItems10.push_back(item);
+                
+                if (!badRunSet10.empty())
+                {
+                    const int runNumInt = std::stoi(item.runLabel);
+                    if (badRunSet10.count(runNumInt))
+                    {
+                        ++nBadSkipped10;
+                    }
+                    else
+                    {
+                        for (const auto& P : filtered)
+                        {
+                            auto ait = accPairs10.find(P.probeKey);
+                            if (ait == accPairs10.end())
+                            {
+                                LoadedPair LP;
+                                LP.basisKey      = P.basisKey;
+                                LP.basisLabel    = P.basisLabel;
+                                LP.groupFolder   = P.groupFolder;
+                                LP.probeKey      = P.probeKey;
+                                LP.probeLabel    = P.probeLabel;
+                                LP.baselineKey   = P.baselineKey;
+                                LP.baselineLabel = P.baselineLabel;
+                                LP.coverageText  = "badTrigRun-filtered vtx10 combined";
+                                LP.nRunSpans     = 1;
+                                LP.hProbe = static_cast<TH1*>(P.hProbe->Clone(
+                                    TString::Format("acc10_probe_%s", P.probeKey.c_str())));
+                                LP.hProbe->SetDirectory(nullptr);
+                                LP.hBase = static_cast<TH1*>(P.hBase->Clone(
+                                    TString::Format("acc10_base_%s", P.probeKey.c_str())));
+                                LP.hBase->SetDirectory(nullptr);
+                                accPairs10[P.probeKey] = LP;
+                            }
+                            else
+                            {
+                                ait->second.hProbe->Add(P.hProbe);
+                                ait->second.hBase->Add(P.hBase);
+                                ait->second.nRunSpans += 1;
+                            }
+                        }
+                    }
+                }
+                
+                fRun->Close();
+                delete fRun;
+            }
+            
+            if (!badRunSet10.empty() && !accPairs10.empty())
+            {
+                std::vector<LoadedPair> accVec;
+                accVec.reserve(accPairs10.size());
+                for (auto& kv : accPairs10) accVec.push_back(kv.second);
+                std::sort(accVec.begin(), accVec.end(), [&](const LoadedPair& a, const LoadedPair& b)
+                {
+                    return extractPhotonThresholdGeV(a.probeKey) < extractPhotonThresholdGeV(b.probeKey);
+                });
+                
+                const std::string convergentGroupOutDir = JoinPath(outDir, targetGroup);
+                drawGroupMaxClusterOverlay(accVec, convergentGroupOutDir, "");
+                drawGroupTurnOnOverlay(accVec, convergentGroupOutDir, "");
+                
+                const int nGood10 = nRenderable10 - nBadSkipped10;
+                cout << "\n" << ANSI_BOLD_GRN
+                     << "========== BAD-TRIGGER-RUN FILTER SUMMARY (vtx10) ==========" << ANSI_RESET << "\n"
+                     << "  Total renderable runs (with doNotScale data) : " << nRenderable10 << "\n"
+                     << "  Runs in badTriggerRuns_vtx10 vector           : " << static_cast<int>(badTriggerRuns_vtx10.size()) << "\n"
+                     << ANSI_BOLD_RED
+                     << "  Runs removed (in vector AND renderable)       : " << nBadSkipped10 << ANSI_RESET << "\n"
+                     << ANSI_BOLD_GRN
+                     << "  Runs used for combined overlays                : " << nGood10 << ANSI_RESET << "\n"
+                     << ANSI_BOLD_GRN
+                     << "=============================================================" << ANSI_RESET << "\n\n";
+                
+                for (auto& kv : accPairs10)
+                {
+                    delete kv.second.hProbe;
+                    delete kv.second.hBase;
+                }
+                accPairs10.clear();
+            }
+        }
+        
+        if (!perRunItems10.empty())
+        {
+            const std::string maxTableDir = JoinPath(perRunGroupOutDir, "maxClusterOverlaysRunByRunTables");
+            const std::string turnOnTableDir = JoinPath(perRunGroupOutDir, "turnOnRunByRunTables");
+            writePerRunTablePages(perRunItems10, targetGroup, maxTableDir, false, 12, 8, 5120, 2880);
+            writePerRunTablePages(perRunItems10, targetGroup, turnOnTableDir, true, 12, 8, 5120, 2880);
+            
+            if (!badRunSet10.empty())
+            {
+                std::vector<PerRunTriggerAnaItem> badItems;
+                for (const auto& item : perRunItems10)
+                {
+                    const int runNum = std::stoi(item.runLabel);
+                    if (badRunSet10.count(runNum))
+                        badItems.push_back(item);
+                }
+                if (!badItems.empty())
+                {
+                    const std::string badMaxTableDir = JoinPath(perRunGroupOutDir, "BAD_maxClusterOverlaysRunByRunTables");
+                    writePerRunTablePages(badItems, targetGroup, badMaxTableDir, false, 10, 5, 5120, 2880);
+                }
+            }
+        }
     }
     
     // -------------------------------------------------------------------
