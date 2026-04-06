@@ -1601,6 +1601,8 @@ if (!skipToCentralityOverlaysWithSSQA)
 
                       const bool zoomOverlay2CentE32E35 =
                         (pb.folder == "pT_10_12" && var == "e32e35" && tag == "inclusive");
+                      const bool useSpecialE32Legend2 =
+                        (pb.folder == "pT_10_12" && var == "e32e35" && tag == "inclusive");
 
                       TH1* hFrame2 = reducedHists[0];
                       hFrame2->GetXaxis()->SetTitle(vlabel.c_str());
@@ -1608,7 +1610,7 @@ if (!skipToCentralityOverlaysWithSSQA)
                       hFrame2->GetYaxis()->SetTitleOffset(1.15);
                       hFrame2->SetMinimum(0.0);
                       hFrame2->SetMaximum((reducedYMax > 0.0) ? (reducedYMax * 1.25) : 1.0);
-                      if (zoomOverlay2CentE32E35) hFrame2->GetXaxis()->SetRangeUser(0.9, 1.0);
+                      if (zoomOverlay2CentE32E35) hFrame2->GetXaxis()->SetRangeUser(0.8, 1.0);
                       hFrame2->Draw("E1");
                       if (vi.hPP) vi.hPP->Draw("E1 same");
                       for (std::size_t ih = 1; ih < reducedHists.size(); ++ih)
@@ -1618,16 +1620,16 @@ if (!skipToCentralityOverlaysWithSSQA)
                       const bool useSpecialE11Legend2 = (pb.folder == "pT_10_12" && var == "e11e33");
 
                       TLegend legVar2(
-                        useSpecialE11Legend2 ? 0.17 : 0.56,
-                        useSpecialE11Legend2 ? 0.82 : 0.58,
-                        useSpecialE11Legend2 ? 0.69 : 0.92,
-                        useSpecialE11Legend2 ? 0.90 : 0.88
+                        useSpecialE32Legend2 ? 0.14 : (useSpecialE11Legend2 ? 0.17 : 0.56),
+                        useSpecialE32Legend2 ? 0.82 : (useSpecialE11Legend2 ? 0.82 : 0.58),
+                        useSpecialE32Legend2 ? 0.62 : (useSpecialE11Legend2 ? 0.69 : 0.92),
+                        useSpecialE32Legend2 ? 0.90 : (useSpecialE11Legend2 ? 0.90 : 0.88)
                       );
                       legVar2.SetBorderSize(0);
                       legVar2.SetFillStyle(0);
                       legVar2.SetTextFont(42);
-                      legVar2.SetTextSize(useSpecialE11Legend2 ? 0.030 : 0.032);
-                      if (useSpecialE11Legend2) legVar2.SetNColumns(3);
+                      legVar2.SetTextSize((useSpecialE11Legend2 || useSpecialE32Legend2) ? 0.030 : 0.032);
+                      if (useSpecialE11Legend2 || useSpecialE32Legend2) legVar2.SetNColumns(3);
                       if (vi.hPP) legVar2.AddEntry(vi.hPP, "pp", "ep");
                       for (std::size_t ih = 0; ih < reducedHists.size(); ++ih)
                         legVar2.AddEntry(reducedHists[ih], reducedLabels[ih].c_str(), "ep");
