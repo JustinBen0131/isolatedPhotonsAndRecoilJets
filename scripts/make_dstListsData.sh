@@ -1029,18 +1029,85 @@ run_trigger_qa() {
     print_focus_table "Vertex cut focus table" 12 36 37 38
     print_trigger_groupings
 
-    # ── Canonical baseline + photon activation summary ───────────────────────────
-    print_compact_activation_summary() {
+print_compact_activation_summary() {
       local csv_file="$1"
 
       local -A FAMILY_BASE_ACTIVE=()
       local -A FAMILY_COMBO_COUNTS=()
-      local -A FAMILY_MULT_COUNTS=()
       local -A FAMILY_PHOTON_PRESENT=()
       local -A FAMILY_FIRST_SEEN=()
+      local -A GLOBAL_PHOTON_SEEN=()
+      local -A GLOBAL_COMBO_SEEN=()
       local -a FAMILY_ORDER=()
 
       local run trg idx scaled raw live family base_thr base_vtx pho_e pho_label
+
+      compact_family_label() {
+        local s="$1"
+        s="${s/MBD N&S >= /MBD>=}"
+        s="${s/, vtx < /,vz<}"
+        s="${s/ cm/}"
+        printf "%s" "$s"
+      }
+
+      compact_combo_label() {
+        local s="$1"
+        if [[ -z "$s" || "$s" == "(none)" ]]; then
+          printf -- "-"
+          return
+        fi
+        if [[ "$s" == "(baseline only)" ]]; then
+          printf "base"
+          return
+        fi
+
+        local out=""
+        local item num
+        IFS=',' read -ra _items <<< "${s//, /,}"
+        for item in "${_items[@]}"; do
+          item="${item#"${item%%[![:space:]]*}"}"
+          item="${item%"${item##*[![:space:]]}"}"
+          [[ -z "$item" ]] && continue
+          num="${item#Pho}"
+          if [[ -n "$out" ]]; then
+            out="${out}+${num}"
+          else
+            out="${num}"
+          fi
+        done
+        [[ -z "$out" ]] && out="-"
+        printf "%s" "$out"
+      }
+
+      compact_pho_set_label() {
+        local s="$1"
+        if [[ -z "$s" || "$s" == "(none)" ]]; then
+          printf -- "-"
+          return
+        fi
+
+        local out=""
+        local item num
+        IFS=',' read -ra _items <<< "${s//, /,}"
+        for item in "${_items[@]}"; do
+          item="${item#"${item%%[![:space:]]*}"}"
+          item="${item%"${item##*[![:space:]]}"}"
+          [[ -z "$item" ]] && continue
+          num="${item#Pho}"
+          if [[ -n "$out" ]]; then
+            out="${out},${num}"
+          else
+            out="${num}"
+          fi
+        done
+        [[ -z "$out" ]] && out="-"
+        printf "%s" "$out"
+      }
+
+      hrule() {
+        local n="$1"
+        printf "%*s" "$n" "" | tr ' ' '-'
+      }
 
       for run in "${RUNS_ALL[@]}"; do
         unset RUN_BASE_ACTIVE RUN_FAMILY_PHOTONS RUN_FAMILY_PHOTON_SEEN
@@ -1088,6 +1155,8 @@ run_trigger_qa() {
               FAMILY_ORDER+=( "$family" )
             fi
 
+            GLOBAL_PHOTON_SEEN["$pho_label"]=1
+
             if [[ -z "${RUN_FAMILY_PHOTON_SEEN["$family|$pho_label"]:-}" ]]; then
               if [[ -n "${RUN_FAMILY_PHOTONS["$family"]:-}" ]]; then
                 RUN_FAMILY_PHOTONS["$family"]+=", ${pho_label}"
@@ -1105,7 +1174,7 @@ run_trigger_qa() {
                       WHERE s.runnumber = $run
                       ORDER BY s.index;")
 
-        local combo npho key mkey
+        local combo npho key
         for family in "${!RUN_BASE_ACTIVE[@]}"; do
           FAMILY_BASE_ACTIVE["$family"]=$(( ${FAMILY_BASE_ACTIVE["$family"]:-0} + 1 ))
 
@@ -1121,140 +1190,221 @@ run_trigger_qa() {
               [[ -z "$pho_label" ]] && continue
               FAMILY_PHOTON_PRESENT["$family|$pho_label"]=1
             done
+            GLOBAL_COMBO_SEEN["$combo"]=1
           fi
 
           key="${family}|${npho}|${combo}"
-          mkey="${family}|${npho}"
-
           FAMILY_COMBO_COUNTS["$key"]=$(( ${FAMILY_COMBO_COUNTS["$key"]:-0} + 1 ))
-          FAMILY_MULT_COUNTS["$mkey"]=$(( ${FAMILY_MULT_COUNTS["$mkey"]:-0} + 1 ))
         done
       done
 
-      printf "Kind,BaselineFamily,BaselineActiveRuns,TotalGRLRuns,PhotonMultiplicity,PhotonCombination,RunCount\n" > "$csv_file"
+      local -a GLOBAL_PHOTON_LABELS=()
+      if ((${#GLOBAL_PHOTON_SEEN[@]})); then
+        mapfile -t GLOBAL_PHOTON_LABELS < <(
+          for pho_label in "${!GLOBAL_PHOTON_SEEN[@]}"; do
+            printf "%s\n" "$pho_label"
+          done | awk '{x=$0; gsub(/^Pho/,"",x); printf "%08.3f|%s\n", x+0, $0}' | sort -n | cut -d'|' -f2-
+        )
+      fi
 
-      printf "\n%s══════════════════════════════════════════════════════════════════════════════════════════%s\n" "$ANSI_BOLD$ANSI_CYAN" "$ANSI_RESET"
-      printf "%s  CANONICAL BASELINE + PHOTON ACTIVATION SUMMARY — %s (%d GRL runs)%s\n" "$ANSI_BOLD$ANSI_CYAN" "$LABEL" "${#RUNS_ALL[@]}" "$ANSI_RESET"
-      printf "%s══════════════════════════════════════════════════════════════════════════════════════════%s\n" "$ANSI_BOLD$ANSI_CYAN" "$ANSI_RESET"
-      printf "%s  Active = scaledown ≠ -1 in gl1_scalers for that run%s\n" "$ANSI_DIM" "$ANSI_RESET"
-      printf "%s  Bit remapping is handled internally; the final summary is grouped by canonical trigger family names.%s\n" "$ANSI_DIM" "$ANSI_RESET"
-      printf "%s  For each baseline family below, run counts are computed only over runs where that baseline family is active.%s\n" "$ANSI_DIM" "$ANSI_RESET"
+      local -a GLOBAL_COMBO_KEYS=()
+      local -a GLOBAL_COMBO_LABELS=()
+      if ((${#GLOBAL_COMBO_SEEN[@]})); then
+        mapfile -t _combo_rows < <(
+          for combo in "${!GLOBAL_COMBO_SEEN[@]}"; do
+            npho=$(awk -v s="$combo" 'BEGIN{ n=split(s,a,/, */); print n+0 }')
+            printf "%04d|%s|%s\n" "$npho" "$(compact_combo_label "$combo")" "$combo"
+          done | sort -t'|' -k1,1n -k2,2
+        )
 
-      printf "\n%s  BASELINE FAMILY AVAILABILITY ACROSS THE FULL GRL%s\n" "$ANSI_BOLD" "$ANSI_RESET"
-      printf "%s  %-36s  %12s  %12s%s\n" "$ANSI_BOLD" "Baseline family" "ActiveRuns" "InactiveRuns" "$ANSI_RESET"
-      printf "  ────────────────────────────────────  ────────────  ────────────\n"
+        local _row _n _label _combo
+        for _row in "${_combo_rows[@]}"; do
+          IFS='|' read -r _n _label _combo <<< "$_row"
+          GLOBAL_COMBO_LABELS+=( "$_label" )
+          GLOBAL_COMBO_KEYS+=( "$_combo" )
+        done
+      fi
 
-      local family base_active inactive_runs base_color
+      printf "BaselineFamily,DisplayLabel,ActiveRuns,TotalGRLRuns,InactiveRuns,PhoSet,BaseOnlyRuns" > "$csv_file"
+      local pho_label combo_label
+      for pho_label in "${GLOBAL_PHOTON_LABELS[@]}"; do
+        printf ",Pho%s" "${pho_label#Pho}" >> "$csv_file"
+      done
+      for combo_label in "${GLOBAL_COMBO_LABELS[@]}"; do
+        printf ",Combo_%s" "${combo_label//+/_}" >> "$csv_file"
+      done
+      printf "\n" >> "$csv_file"
+
+      printf "\n%s  %-*s  %*s  %*s  %-*s  %*s" \
+        "$ANSI_BOLD" \
+        "$family_w" "Baseline" \
+        "$active_w" "Active/GRL" \
+        "$inactive_w" "Inactive" \
+        "$phoset_w" "PhoSet" \
+        "$baseonly_w" "BaseOnly"
+      for i in "${!GLOBAL_COMBO_LABELS[@]}"; do
+        printf "  %*s" "${combo_widths[$i]}" "${GLOBAL_COMBO_LABELS[$i]}"
+      done
+      printf "%s\n" "$ANSI_RESET"
+
+      printf "  "
+      hrule "$family_w"
+      printf "  "
+      hrule "$active_w"
+      printf "  "
+      hrule "$inactive_w"
+      printf "  "
+      hrule "$phoset_w"
+      printf "  "
+      hrule "$baseonly_w"
+      for i in "${!GLOBAL_COMBO_LABELS[@]}"; do
+        printf "  "
+        hrule "${combo_widths[$i]}"
+      done
+      printf "\n"
+
+      local base_active inactive_runs base_only_count combo_count combo_key active_cell inactive_cell baseonly_cell
       for family in "${FAMILY_ORDER[@]}"; do
+        display_family="$(compact_family_label "$family")"
         base_active="${FAMILY_BASE_ACTIVE["$family"]:-0}"
         inactive_runs=$(( ${#RUNS_ALL[@]} - base_active ))
-
-        base_color="$ANSI_GREEN"
-        if (( base_active == 0 )); then
-          base_color="$ANSI_RED"
-        elif (( base_active < ${#RUNS_ALL[@]} )); then
-          base_color="$ANSI_YELLOW"
-        fi
-
-        printf "  %s%-36s  %12d  %12d%s\n" "$base_color" "$family" "$base_active" "$inactive_runs" "$ANSI_RESET"
-        printf "baseline,\"%s\",%d,%d,,\"baseline active\",%d\n" \
-          "$family" "$base_active" "${#RUNS_ALL[@]}" "$base_active" >> "$csv_file"
-      done
-
-      local k label universe_count n count meaning clr sorted_keys line_key combo
-      for family in "${FAMILY_ORDER[@]}"; do
-        base_active="${FAMILY_BASE_ACTIVE["$family"]:-0}"
+        base_only_count="${FAMILY_COMBO_COUNTS["$family|0|(baseline only)"]:-0}"
 
         declare -A _family_pho_seen=()
         local -a family_pho_labels=()
-
+        local k label
         for k in "${!FAMILY_PHOTON_PRESENT[@]}"; do
           [[ "$k" == "$family|"* ]] || continue
           label="${k#"$family|"}"
           _family_pho_seen["$label"]=1
         done
-
         if ((${#_family_pho_seen[@]})); then
           mapfile -t family_pho_labels < <(
             for label in "${!_family_pho_seen[@]}"; do
               printf "%s\n" "$label"
             done | awk '{x=$0; gsub(/^Pho/,"",x); printf "%08.3f|%s\n", x+0, $0}' | sort -n | cut -d'|' -f2-
           )
-        fi
-        universe_count=${#family_pho_labels[@]}
-
-        base_color="$ANSI_GREEN"
-        if (( base_active == 0 )); then
-          base_color="$ANSI_RED"
-        elif (( base_active < ${#RUNS_ALL[@]} )); then
-          base_color="$ANSI_YELLOW"
-        fi
-
-        printf "\n%s  ┌─── %s ─── active in %s%d%s / %d runs%s\n" \
-          "$ANSI_BOLD" "$family" "$base_color$ANSI_BOLD" "$base_active" "$ANSI_RESET$ANSI_BOLD" "${#RUNS_ALL[@]}" "$ANSI_RESET"
-
-        if (( universe_count > 0 )); then
-          printf "  │  Companion photon trigger families seen with this baseline: %s\n" "$(IFS=', '; echo "${family_pho_labels[*]}")"
+          phoset_display="$(compact_pho_set_label "$(IFS=', '; echo "${family_pho_labels[*]}")")"
         else
-          printf "  │  Companion photon trigger families seen with this baseline: (none)\n"
+          phoset_display="-"
         fi
 
-        printf "  │\n"
-        printf "%s  │  Multiplicity summary (among baseline-active runs)%s\n" "$ANSI_BOLD" "$ANSI_RESET"
-        printf "%s  │  %6s  %-34s  %7s%s\n" "$ANSI_BOLD" "#Pho" "Meaning" "Runs" "$ANSI_RESET"
-        printf "  │  ──────  ──────────────────────────────────  ───────\n"
+        active_cell="${base_active}/${#RUNS_ALL[@]}"
+        inactive_cell="${inactive_runs}"
+        baseonly_cell="${base_only_count}"
 
-        for ((n=0; n<=universe_count; ++n)); do
-          count="${FAMILY_MULT_COUNTS["$family|$n"]:-0}"
+        printf "  %-*s  %*s  %*s  %-*s  %*s" \
+          "$family_w" "$display_family" \
+          "$active_w" "$active_cell" \
+          "$inactive_w" "$inactive_cell" \
+          "$phoset_w" "$phoset_display" \
+          "$baseonly_w" "$baseonly_cell"
 
-          if (( n == 0 )); then
-            meaning="baseline only"
-            clr="$ANSI_YELLOW"
-          elif (( n == universe_count && universe_count > 0 )); then
-            meaning="all listed companion photons active"
-            clr="$ANSI_GREEN"
+        for i in "${!GLOBAL_COMBO_KEYS[@]}"; do
+          combo_key="${GLOBAL_COMBO_KEYS[$i]}"
+          combo_count="${FAMILY_COMBO_COUNTS["$family|$(awk -v s="$combo_key" 'BEGIN{ n=split(s,a,/, */); print n+0 }')|$combo_key"]:-0}"
+          if (( combo_count > 0 )); then
+            printf "  %*d" "${combo_widths[$i]}" "$combo_count"
           else
-            meaning="${n} companion photon trigger(s) active"
-            clr="$ANSI_RED"
+            printf "  %*s" "${combo_widths[$i]}" "-"
           fi
-
-          printf "  │  %s%6d  %-34s  %7d%s\n" "$clr" "$n" "$meaning" "$count" "$ANSI_RESET"
-          printf "multiplicity,\"%s\",%d,%d,%d,\"%s\",%d\n" \
-            "$family" "$base_active" "${#RUNS_ALL[@]}" "$n" "$meaning" "$count" >> "$csv_file"
         done
+        printf "\n"
 
-        printf "  │\n"
-        printf "%s  │  Exact active photon combinations with this same baseline%s\n" "$ANSI_BOLD" "$ANSI_RESET"
-        printf "%s  │  %6s  %-52s  %7s%s\n" "$ANSI_BOLD" "#Pho" "Active photon combination" "Runs" "$ANSI_RESET"
-        printf "  │  ──────  ────────────────────────────────────────────────────  ───────\n"
+      printf "\n%s═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════%s\n" "$ANSI_BOLD$ANSI_CYAN" "$ANSI_RESET"
+      printf "%s  CANONICAL BASELINE + PHOTON ACTIVATION SNAPSHOT — %s (%d GRL runs)%s\n" "$ANSI_BOLD$ANSI_CYAN" "$LABEL" "${#RUNS_ALL[@]}" "$ANSI_RESET"
+      printf "%s═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════%s\n" "$ANSI_BOLD$ANSI_CYAN" "$ANSI_RESET"
+      printf "%s  Active = scaledown ≠ -1 in gl1_scalers for that run. Bit remapping is handled internally.%s\n" "$ANSI_DIM" "$ANSI_RESET"
+      printf "%s  PhoSet = photon thresholds that appear with that baseline in at least one active run.%s\n" "$ANSI_DIM" "$ANSI_RESET"
+      printf "%s  Combo columns are exact active photon combinations; entries are run counts for that exact combo with the baseline.%s\n" "$ANSI_DIM" "$ANSI_RESET"
 
-        sorted_keys="$(
-          for key in "${!FAMILY_COMBO_COUNTS[@]}"; do
-            [[ "$key" == "$family|"* ]] || continue
-            IFS='|' read -r _fam _n _combo <<< "$key"
-            printf "%04d|%s|%s\n" "$_n" "$_combo" "$key"
-          done | sort -t'|' -k1,1n -k2,2
-        )"
+      printf "\n%s  %-*s  %*s  %*s  %-*s  %*s" \
+        "$ANSI_BOLD" \
+        "$family_w" "Baseline" \
+        "$active_w" "Active/GRL" \
+        "$inactive_w" "Inactive" \
+        "$phoset_w" "PhoSet" \
+        "$baseonly_w" "BaseOnly"
+      for i in "${!GLOBAL_COMBO_LABELS[@]}"; do
+        printf "  %*s" "${combo_widths[$i]}" "${GLOBAL_COMBO_LABELS[$i]}"
+      done
+      printf "%s\n" "$ANSI_RESET"
 
-        while IFS='|' read -r _sort_n _sort_combo line_key; do
-          [[ -z "$line_key" ]] && continue
-          IFS='|' read -r _fam n combo <<< "$line_key"
-          count="${FAMILY_COMBO_COUNTS["$line_key"]:-0}"
+      printf "  "
+      hrule "$family_w"
+      printf "  "
+      hrule "$active_w"
+      printf "  "
+      hrule "$inactive_w"
+      printf "  "
+      hrule "$phoset_w"
+      printf "  "
+      hrule "$baseonly_w"
+      for i in "${!GLOBAL_COMBO_LABELS[@]}"; do
+        printf "  "
+        hrule "${combo_widths[$i]}"
+      done
+      printf "\n"
 
-          if [[ "$combo" == "(baseline only)" ]]; then
-            clr="$ANSI_YELLOW"
-          elif (( n == universe_count && universe_count > 0 )); then
-            clr="$ANSI_GREEN"
+      local base_active inactive_runs base_only_count combo_count combo_key
+      for family in "${FAMILY_ORDER[@]}"; do
+        display_family="$(compact_family_label "$family")"
+        base_active="${FAMILY_BASE_ACTIVE["$family"]:-0}"
+        inactive_runs=$(( ${#RUNS_ALL[@]} - base_active ))
+        base_only_count="${FAMILY_COMBO_COUNTS["$family|0|(baseline only)"]:-0}"
+
+        declare -A _family_pho_seen=()
+        local -a family_pho_labels=()
+        local k label
+        for k in "${!FAMILY_PHOTON_PRESENT[@]}"; do
+          [[ "$k" == "$family|"* ]] || continue
+          label="${k#"$family|"}"
+          _family_pho_seen["$label"]=1
+        done
+        if ((${#_family_pho_seen[@]})); then
+          mapfile -t family_pho_labels < <(
+            for label in "${!_family_pho_seen[@]}"; do
+              printf "%s\n" "$label"
+            done | awk '{x=$0; gsub(/^Pho/,"",x); printf "%08.3f|%s\n", x+0, $0}' | sort -n | cut -d'|' -f2-
+          )
+          phoset_display="$(compact_pho_set_label "$(IFS=', '; echo "${family_pho_labels[*]}")")"
+        else
+          phoset_display="-"
+        fi
+
+        printf "  %-*s  %*d/%-*d  %*d  %-*s  %*d" \
+          "$family_w" "$display_family" \
+          "$active_w" "$base_active" 4 "${#RUNS_ALL[@]}" \
+          "$inactive_w" "$inactive_runs" \
+          "$phoset_w" "$phoset_display" \
+          "$baseonly_w" "$base_only_count"
+
+        for i in "${!GLOBAL_COMBO_KEYS[@]}"; do
+          combo_key="${GLOBAL_COMBO_KEYS[$i]}"
+          combo_count="${FAMILY_COMBO_COUNTS["$family|$(awk -v s="$combo_key" 'BEGIN{ n=split(s,a,/, */); print n+0 }')|$combo_key"]:-0}"
+          if (( combo_count > 0 )); then
+            printf "  %*d" "${combo_widths[$i]}" "$combo_count"
           else
-            clr="$ANSI_RED"
+            printf "  %*s" "${combo_widths[$i]}" "-"
           fi
+        done
+        printf "\n"
 
-          printf "  │  %s%6d  %-52s  %7d%s\n" "$clr" "$n" "$combo" "$count" "$ANSI_RESET"
-          printf "combination,\"%s\",%d,%d,%d,\"%s\",%d\n" \
-            "$family" "$base_active" "${#RUNS_ALL[@]}" "$n" "$combo" "$count" >> "$csv_file"
-        done <<< "$sorted_keys"
+        printf "\"%s\",\"%s\",%d,%d,%d,\"%s\",%d" \
+          "$family" \
+          "$display_family" \
+          "$base_active" \
+          "${#RUNS_ALL[@]}" \
+          "$inactive_runs" \
+          "$phoset_display" \
+          "$base_only_count" >> "$csv_file"
 
-        printf "  └──────────────────────────────────────────────────────────────────────────\n"
+        for i in "${!GLOBAL_COMBO_KEYS[@]}"; do
+          combo_key="${GLOBAL_COMBO_KEYS[$i]}"
+          combo_count="${FAMILY_COMBO_COUNTS["$family|$(awk -v s="$combo_key" 'BEGIN{ n=split(s,a,/, */); print n+0 }')|$combo_key"]:-0}"
+          printf ",%d" "$combo_count" >> "$csv_file"
+        done
+        printf "\n" >> "$csv_file"
       done
 
       printf "\n%s  CSV saved to: %s%s\n\n" "$ANSI_DIM" "$csv_file" "$ANSI_RESET"

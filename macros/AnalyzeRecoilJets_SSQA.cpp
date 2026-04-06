@@ -13,6 +13,7 @@ const vector<SSVarDef> ssVars = {
 
 auto TagLabel = [&](const string& tag) -> string
 {
+  if (tag == "inclusive") return "Before preselection";
   if (tag == "pre") return "Preselection";
   if (tag == "tight") return "Tight";
   if (tag == "nonTight") return "Non-tight";
@@ -21,6 +22,7 @@ auto TagLabel = [&](const string& tag) -> string
 
 auto TagFolder = [&](const string& tag) -> string
 {
+  if (tag == "inclusive") return "beforePreselection";
   if (tag == "pre") return "preselection";
   if (tag == "tight") return "tight";
   if (tag == "nonTight") return "nonTight";
@@ -1031,9 +1033,10 @@ for (std::size_t ic = 0; ic < centBins.size(); ++ic)
 
   const vector<std::size_t> ssTableVariantIdx = {std::size_t(0), std::size_t(2), std::size_t(3)};
   const int overlayColors[] = {
-    kBlack, kRed + 1, kBlue + 1, kGreen + 2, kMagenta + 1, kOrange + 7,
-    kCyan + 1, kViolet + 1, kAzure + 1, kSpring + 5, kPink + 1, kTeal + 2
+      kBlack, kRed + 1, kBlue + 1, kGreen + 2, kMagenta + 1, kOrange + 7,
+      kCyan + 1, kViolet + 1, kAzure + 1, kSpring + 5, kPink + 1, kTeal + 2
   };
+  const vector<string> centOverlayTags = {"inclusive", "pre", "tight", "nonTight"};
 
   auto DrawSSOverlayTable3x5 =
     [&](const string& outDir,
@@ -1260,7 +1263,7 @@ for (std::size_t ic = 0; ic < centBins.size(); ++ic)
         const string ptOutDir = JoinPath(perCentralityOverlayBase, pb.folder);
         EnsureDir(ptOutDir);
 
-        for (const auto& tag : ppg12Tags)
+        for (const auto& tag : centOverlayTags)
         {
             const string tagDir = JoinPath(ptOutDir, TagFolder(tag));
             EnsureDir(tagDir);
@@ -1285,7 +1288,7 @@ for (std::size_t ic = 0; ic < centBins.size(); ++ic)
 
       const int nOverlayColors = (int)(sizeof(overlayColors) / sizeof(overlayColors[0]));
 
-      for (const auto& tag : ppg12Tags)
+      for (const auto& tag : centOverlayTags)
       {
         for (std::size_t vidx : ssTableVariantIdx)
         {
