@@ -1243,22 +1243,135 @@ if (!skipToCentralityOverlaysWithSSQA)
 
     if (!skipToCentralityOverlaysWithSSQA)
     {
+      const int nOverlayColorsPerPt = (int)(sizeof(overlayColors) / sizeof(overlayColors[0]));
+
       for (std::size_t ic = 0; ic < centBins.size(); ++ic)
       {
         const auto& cb = centBins[ic];
         const string centOutDir = JoinPath(perPtBinOverlayBase, cb.folder);
         EnsureDir(centOutDir);
 
-        for (const auto& tag : ppg12Tags)
+        for (const auto& tag : centOverlayTags)
         {
+          const string tagDir = JoinPath(centOutDir, TagFolder(tag));
+          EnsureDir(tagDir);
+
           DrawSSOverlayTable3x5(
-            centOutDir,
+            tagDir,
             TString::Format("table3x5_SS_%s_overlayByPt.png", tag.c_str()).Data(),
             tag,
             true,
             &cb,
             nullptr
           );
+
+          for (std::size_t vidx : ssTableVariantIdx)
+          {
+            if (vidx >= handles.size()) continue;
+            auto& H = handles[vidx];
+            if (!H.file) continue;
+
+            TDirectory* aaTopSS = H.file->GetDirectory(trigAA.c_str());
+            if (!aaTopSS) continue;
+
+            for (int ivar = 0; ivar < (int)ssVars.size(); ++ivar)
+            {
+              const std::string& var = ssVars[ivar].var;
+              const std::string& vlabel = ssVars[ivar].label;
+
+              const string varDir = JoinPath(centOutDir, var);
+              const string varTagDir = JoinPath(varDir, TagFolder(tag));
+              EnsureDir(varDir);
+              EnsureDir(varTagDir);
+
+              vector<TH1*> hOverlays;
+              vector<string> ptLabels;
+              double yMax = 0.0;
+
+              for (int ipt2 = 0; ipt2 < kNPtBins; ++ipt2)
+              {
+                const PtBin& pb2 = PtBins()[ipt2];
+                const string hName = "h_ss_" + var + "_" + tag + pb2.suffix + cb.suffix;
+                TH1* hSrc = GetTH1FromTopDir(aaTopSS, hName);
+                if (!hSrc) continue;
+
+                TH1* h = CloneNormalizeStyle(
+                  hSrc,
+                  TString::Format("ssQA_ptOverlay_%s_%s_%s_%s_%s_pt%d",
+                    H.variant.c_str(), tag.c_str(), var.c_str(),
+                    cb.folder.c_str(), trigAA.c_str(), ipt2).Data(),
+                  overlayColors[ipt2 % nOverlayColorsPerPt],
+                  20
+                );
+                if (!h) continue;
+
+                h->SetFillStyle(0);
+                h->SetLineWidth(2);
+                h->SetMarkerSize(0.90);
+
+                for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                  yMax = std::max(yMax, (double)(h->GetBinContent(ib) + h->GetBinError(ib)));
+
+                hOverlays.push_back(h);
+                ptLabels.push_back(TString::Format("%d-%d GeV", pb2.lo, pb2.hi).Data());
+              }
+
+              if (hOverlays.empty()) continue;
+
+              TCanvas cVarPt(
+                TString::Format("c_ssQA_ptOv_%s_%s_%s_%s_%s",
+                  var.c_str(), H.variant.c_str(), tag.c_str(),
+                  cb.folder.c_str(), trigAA.c_str()).Data(),
+                "c_ssQA_ptOv_single", 900, 700
+              );
+              ApplyCanvasMargins1D(cVarPt);
+              cVarPt.cd();
+
+              TH1* hFrame = hOverlays[0];
+              hFrame->GetXaxis()->SetTitle(vlabel.c_str());
+              hFrame->GetYaxis()->SetTitle("Unit Normalized");
+              hFrame->GetYaxis()->SetTitleOffset(1.15);
+              hFrame->SetMinimum(0.0);
+              hFrame->SetMaximum((yMax > 0.0) ? (yMax * 1.25) : 1.0);
+              hFrame->Draw("E1");
+              for (std::size_t ih = 1; ih < hOverlays.size(); ++ih)
+                hOverlays[ih]->Draw("E1 same");
+              hOverlays[0]->Draw("E1 same");
+
+              TLegend legVarPt(0.14, 0.78, 0.70, 0.90);
+              legVarPt.SetBorderSize(0);
+              legVarPt.SetFillStyle(0);
+              legVarPt.SetTextFont(42);
+              legVarPt.SetTextSize(0.028);
+              legVarPt.SetNColumns(3);
+              for (std::size_t ih = 0; ih < hOverlays.size(); ++ih)
+                legVarPt.AddEntry(hOverlays[ih], ptLabels[ih].c_str(), "ep");
+              legVarPt.Draw();
+
+              TLatex tVarPt;
+              tVarPt.SetNDC(true);
+              tVarPt.SetTextFont(42);
+              tVarPt.SetTextAlign(23);
+              tVarPt.SetTextSize(0.042);
+              tVarPt.DrawLatex(0.50, 0.955,
+                TString::Format("%s p_{T} overlay, %s, %s",
+                  vlabel.c_str(), TagLabel(tag).c_str(), H.label.c_str()).Data());
+
+              TLatex tCentPt;
+              tCentPt.SetNDC(true);
+              tCentPt.SetTextFont(42);
+              tCentPt.SetTextAlign(33);
+              tCentPt.SetTextSize(0.042);
+              tCentPt.DrawLatex(0.93, 0.90,
+                TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
+
+              SaveCanvas(cVarPt, JoinPath(varTagDir,
+                TString::Format("ptOverlay_%s_%s_%s.png",
+                  var.c_str(), tag.c_str(), H.variant.c_str()).Data()));
+
+              for (TH1* h : hOverlays) delete h;
+            }
+          }
         }
       }
     }
