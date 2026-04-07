@@ -10308,158 +10308,370 @@ namespace ARJ
                   }
               };
 
-              const std::string dirInt  = JoinPath(ovBase, "xJ_integratedAlpha");
-              const std::string dirCuts = JoinPath(ovBase, "xJ_alphaCuts");
-              EnsureDir(dirInt);
-              EnsureDir(dirCuts);
+                const std::string dirInt  = JoinPath(ovBase, "xJ_integratedAlpha");
+                const std::string dirCuts = JoinPath(ovBase, "xJ_alphaCuts");
+                EnsureDir(dirInt);
+                EnsureDir(dirCuts);
 
-              // -------------------- TRUTH (reco-conditioned, jet-matched): integrated alpha --------------------
-              TH3* hTr02 = GetObj<TH3>(ds, "h_JES3Truth_pT_xJ_alpha_r02", true, true, true);
-              TH3* hTr04 = GetObj<TH3>(ds, "h_JES3Truth_pT_xJ_alpha_r04", true, true, true);
+                struct InclusiveXJPtWindow
+                {
+                    std::string folder;
+                    std::string label;
+                    double ptLo = 0.0;
+                    double ptHi = 0.0;
+                };
 
-              if (hTr02 && hTr04)
-              {
-                  const std::string outHere = JoinPath(dirInt, "TRUTH_recoConditioned");
-                  DrawOverlayPair_TH3xJ(
-                    hTr02, hTr04, nullptr,
-                    outHere,
-                    "x_{J#gamma}^{truth}",
-                    {"TRUTH (reco-conditioned, jet-matched): x_{J#gamma}^{truth}", "Overlay: r02 red, r04 blue"},
-                    false, 0.0
-                  );
-              }
-              else
-              {
-                  cout << ANSI_BOLD_YEL
-                       << "[WARN] TRUTH reco-conditioned overlay skipped: missing h_JES3Truth_pT_xJ_alpha_r02 or r04 in dataset " << ds.label
-                       << ANSI_RESET << "\n";
-              }
+                auto ProjectXJFromTH2Window =
+                  [&](TH2* h2,
+                      double ptLo,
+                      double ptHi,
+                      const std::string& name)->TH1*
+                {
+                    if (!h2) return nullptr;
 
-              // -------------------- TRUTH (pure): integrated alpha --------------------
-              TH3* hTrPure02 = GetObj<TH3>(ds, "h_JES3TruthPure_pT_xJ_alpha_r02", true, true, true);
-              TH3* hTrPure04 = GetObj<TH3>(ds, "h_JES3TruthPure_pT_xJ_alpha_r04", true, true, true);
+                    TAxis* ax = h2->GetXaxis();
+                    const int nX = ax->GetNbins();
 
-              if (hTrPure02 && hTrPure04)
-              {
-                  const std::string outHere = JoinPath(dirInt, "TRUTH_pure");
-                  DrawOverlayPair_TH3xJ(
-                    hTrPure02, hTrPure04, nullptr,
-                    outHere,
-                    "x_{J#gamma}^{truth}",
-                    {"TRUTH (pure): x_{J#gamma}^{truth}", "Overlay: r02 red, r04 blue"},
-                    false, 0.0
-                  );
-              }
-              else
-              {
-                  cout << ANSI_BOLD_YEL
-                       << "[WARN] TRUTH pure overlay skipped: missing h_JES3TruthPure_pT_xJ_alpha_r02 or r04 in dataset " << ds.label
-                       << ANSI_RESET << "\n";
-              }
+                    int ibLo = ax->FindBin(ptLo + 1e-6);
+                    int ibHi = ax->FindBin(ptHi - 1e-6);
 
-              // -------------------- RECO (baseline): integrated alpha + alpha cuts --------------------
-              TH3* hRe02 = GetObj<TH3>(ds, "h_JES3_pT_xJ_alpha_r02", true, true, true);
-              TH3* hRe04 = GetObj<TH3>(ds, "h_JES3_pT_xJ_alpha_r04", true, true, true);
-              TH3* hRe06 = GetObj<TH3>(ds, "h_JES3_pT_xJ_alpha_r06", true, true, true);
+                    if (ibLo < 1) ibLo = 1;
+                    if (ibHi > nX) ibHi = nX;
+                    if (ibHi < ibLo) return nullptr;
 
-              if (hRe02 && hRe04 && hRe06)
-              {
-                  const std::string outHere = JoinPath(dirInt, "RECO");
-                  DrawOverlayPair_TH3xJ(
-                    hRe02, hRe04, hRe06,
-                    outHere,
-                    "x_{J#gamma}",
-                    {"RECO: x_{J#gamma}", "Overlay: r02 red, r04 blue, r06 dark green"},
-                    false, 0.0
-                  );
+                    TH1* h = h2->ProjectionY(name.c_str(), ibLo, ibHi, "e");
+                    if (!h) return nullptr;
 
-                  const std::vector<double> alphaMaxCuts = {0.20, 0.30, 0.40, 0.50};
-                  const std::string cutsBase = JoinPath(dirCuts, "RECO");
-                  EnsureDir(cutsBase);
+                    h->SetDirectory(nullptr);
+                    EnsureSumw2(h);
+                    return h;
+                };
 
-                  for (double aMax : alphaMaxCuts)
-                  {
-                      const std::string aDir = JoinPath(cutsBase, AlphaTag(aMax));
-                      DrawOverlayPair_TH3xJ(
-                        hRe02, hRe04, hRe06,
-                        aDir,
-                        "x_{J#gamma}",
-                        {"RECO: x_{J#gamma}", "Overlay: r02 red, r04 blue, r06 dark green"},
-                        true, aMax
-                      );
+                auto DrawInclusiveXJPairTH2 =
+                  [&](TH2* hA2,
+                      TH2* hB2,
+                      const InclusiveXJPtWindow& w,
+                      const std::string& rKey,
+                      const std::string& nameTag,
+                      const std::string& outPng,
+                      const std::string& labelA,
+                      const std::string& labelB,
+                      const std::string& titleLine)->void
+                {
+                    if (!hA2 || !hB2) return;
+
+                    TH1* hA = ProjectXJFromTH2Window(
+                      hA2, w.ptLo, w.ptHi,
+                      TString::Format("h_inclXJ_%s_%s_%s_A",
+                        nameTag.c_str(), rKey.c_str(), w.folder.c_str()).Data()
+                    );
+                    TH1* hB = ProjectXJFromTH2Window(
+                      hB2, w.ptLo, w.ptHi,
+                      TString::Format("h_inclXJ_%s_%s_%s_B",
+                        nameTag.c_str(), rKey.c_str(), w.folder.c_str()).Data()
+                    );
+
+                    if (!hA || !hB)
+                    {
+                        if (hA) delete hA;
+                        if (hB) delete hB;
+                        return;
+                    }
+
+                    const double intA = hA->Integral(0, hA->GetNbinsX() + 1);
+                    const double intB = hB->Integral(0, hB->GetNbinsX() + 1);
+
+                    if (!(intA > 0.0) || !(intB > 0.0))
+                    {
+                        delete hA;
+                        delete hB;
+                        return;
+                    }
+
+                    hA->Scale(1.0 / intA);
+                    hB->Scale(1.0 / intB);
+
+                    hA->GetXaxis()->SetRangeUser(0.0, 2.0);
+                    hB->GetXaxis()->SetRangeUser(0.0, 2.0);
+
+                    std::vector<std::string> extra;
+                    extra.push_back(titleLine);
+                    extra.push_back(TString::Format("R = %.1f", RFromKey(rKey)).Data());
+                    extra.push_back(w.label);
+
+                    DrawOverlayTwoTH1(
+                      ds, hA, hB,
+                      labelA, labelB,
+                      outPng,
+                      "x_{J#gamma}", "A.U.",
+                      extra,
+                      false
+                    );
+
+                    delete hA;
+                    delete hB;
+                };
+
+                // -------------------- TRUTH (reco-conditioned, jet-matched): integrated alpha --------------------
+                TH3* hTr02 = GetObj<TH3>(ds, "h_JES3Truth_pT_xJ_alpha_r02", true, true, true);
+                TH3* hTr04 = GetObj<TH3>(ds, "h_JES3Truth_pT_xJ_alpha_r04", true, true, true);
+
+                if (hTr02 && hTr04)
+                {
+                    const std::string outHere = JoinPath(dirInt, "TRUTH_recoConditioned");
+                    DrawOverlayPair_TH3xJ(
+                      hTr02, hTr04, nullptr,
+                      outHere,
+                      "x_{J#gamma}^{truth}",
+                      {"TRUTH (reco-conditioned, jet-matched): x_{J#gamma}^{truth}", "Overlay: r02 red, r04 blue"},
+                      false, 0.0
+                    );
+                }
+                else
+                {
+                    cout << ANSI_BOLD_YEL
+                         << "[WARN] TRUTH reco-conditioned overlay skipped: missing h_JES3Truth_pT_xJ_alpha_r02 or r04 in dataset " << ds.label
+                         << ANSI_RESET << "\n";
+                }
+
+                // -------------------- TRUTH (pure): integrated alpha --------------------
+                TH3* hTrPure02 = GetObj<TH3>(ds, "h_JES3TruthPure_pT_xJ_alpha_r02", true, true, true);
+                TH3* hTrPure04 = GetObj<TH3>(ds, "h_JES3TruthPure_pT_xJ_alpha_r04", true, true, true);
+
+                if (hTrPure02 && hTrPure04)
+                {
+                    const std::string outHere = JoinPath(dirInt, "TRUTH_pure");
+                    DrawOverlayPair_TH3xJ(
+                      hTrPure02, hTrPure04, nullptr,
+                      outHere,
+                      "x_{J#gamma}^{truth}",
+                      {"TRUTH (pure): x_{J#gamma}^{truth}", "Overlay: r02 red, r04 blue"},
+                      false, 0.0
+                    );
+                }
+                else
+                {
+                    cout << ANSI_BOLD_YEL
+                         << "[WARN] TRUTH pure overlay skipped: missing h_JES3TruthPure_pT_xJ_alpha_r02 or r04 in dataset " << ds.label
+                         << ANSI_RESET << "\n";
+                }
+
+                // -------------------- RECO (baseline): integrated alpha + alpha cuts --------------------
+                TH3* hRe02 = GetObj<TH3>(ds, "h_JES3_pT_xJ_alpha_r02", true, true, true);
+                TH3* hRe04 = GetObj<TH3>(ds, "h_JES3_pT_xJ_alpha_r04", true, true, true);
+                TH3* hRe06 = GetObj<TH3>(ds, "h_JES3_pT_xJ_alpha_r06", true, true, true);
+
+                if (hRe02 && hRe04 && hRe06)
+                {
+                    const std::string outHere = JoinPath(dirInt, "RECO");
+                    DrawOverlayPair_TH3xJ(
+                      hRe02, hRe04, hRe06,
+                      outHere,
+                      "x_{J#gamma}",
+                      {"RECO: x_{J#gamma}", "Overlay: r02 red, r04 blue, r06 dark green"},
+                      false, 0.0
+                    );
+
+                    const std::vector<double> alphaMaxCuts = {0.20, 0.30, 0.40, 0.50};
+                    const std::string cutsBase = JoinPath(dirCuts, "RECO");
+                    EnsureDir(cutsBase);
+
+                    for (double aMax : alphaMaxCuts)
+                    {
+                        const std::string aDir = JoinPath(cutsBase, AlphaTag(aMax));
+                        DrawOverlayPair_TH3xJ(
+                          hRe02, hRe04, hRe06,
+                          aDir,
+                          "x_{J#gamma}",
+                          {"RECO: x_{J#gamma}", "Overlay: r02 red, r04 blue, r06 dark green"},
+                          true, aMax
+                        );
+                    }
+                }
+                else
+                {
+                    cout << ANSI_BOLD_YEL
+                         << "[WARN] RECO overlays skipped: missing h_JES3_pT_xJ_alpha_r02 or r04 or r06 in dataset " << ds.label
+                         << ANSI_RESET << "\n";
+                }
+
+                // -------------------- RECO (truth-PHOTON-tagged): integrated alpha --------------------
+                TH3* hRePhoTag02 = GetObj<TH3>(ds, "h_JES3RecoTruthPhoTagged_pT_xJ_alpha_r02", true, true, true);
+                TH3* hRePhoTag04 = GetObj<TH3>(ds, "h_JES3RecoTruthPhoTagged_pT_xJ_alpha_r04", true, true, true);
+
+                if (hRePhoTag02 && hRePhoTag04)
+                {
+                    const std::string outHere = JoinPath(dirInt, "RECO_truthPhoTagged");
+                    DrawOverlayPair_TH3xJ(
+                      hRePhoTag02, hRePhoTag04, nullptr,
+                      outHere,
+                      "x_{J#gamma}",
+                      {"RECO (truth-PHOTON-tagged): x_{J#gamma}", "Overlay: r02 red, r04 blue"},
+                      false, 0.0
+                    );
+                }
+                else
+                {
+                    cout << ANSI_BOLD_YEL
+                         << "[WARN] RECO truth-PHOTON-tagged overlay skipped: missing h_JES3RecoTruthPhoTagged_pT_xJ_alpha_r02 or r04 in dataset " << ds.label
+                         << ANSI_RESET << "\n";
+                }
+
+                // -------------------- RECO (truth-tagged PHOTON+JET): integrated alpha --------------------
+                TH3* hReTag02 = GetObj<TH3>(ds, "h_JES3RecoTruthTagged_pT_xJ_alpha_r02", true, true, true);
+                TH3* hReTag04 = GetObj<TH3>(ds, "h_JES3RecoTruthTagged_pT_xJ_alpha_r04", true, true, true);
+
+                if (hReTag02 && hReTag04)
+                {
+                    const std::string outHere = JoinPath(dirInt, "RECO_truthTaggedPhoJet");
+                    DrawOverlayPair_TH3xJ(
+                      hReTag02, hReTag04, nullptr,
+                      outHere,
+                      "x_{J#gamma}",
+                      {"RECO (truth-tagged PHOTON+JET): x_{J#gamma}", "Overlay: r02 red, r04 blue"},
+                      false, 0.0
+                    );
+                }
+                else
+                {
+                    cout << ANSI_BOLD_YEL
+                         << "[WARN] RECO truth-tagged (PHOTON+JET) overlay skipped: missing h_JES3RecoTruthTagged_pT_xJ_alpha_r02 or r04 in dataset " << ds.label
+                         << ANSI_RESET << "\n";
+                }
+
+                // -------------------- TRUTH (reco-conditioned, NO jet match): integrated alpha --------------------
+                TH3* hTrNoJM02 = GetObj<TH3>(ds, "h_JES3TruthRecoCondNoJetMatch_pT_xJ_alpha_r02", true, true, true);
+                TH3* hTrNoJM04 = GetObj<TH3>(ds, "h_JES3TruthRecoCondNoJetMatch_pT_xJ_alpha_r04", true, true, true);
+
+                if (hTrNoJM02 && hTrNoJM04)
+                {
+                    const std::string outHere = JoinPath(dirInt, "TRUTH_recoConditioned_noJetMatch");
+                    DrawOverlayPair_TH3xJ(
+                      hTrNoJM02, hTrNoJM04, nullptr,
+                      outHere,
+                      "x_{J#gamma}^{truth}",
+                      {"TRUTH (reco-conditioned, NO jet match): x_{J#gamma}^{truth}", "Overlay: r02 red, r04 blue"},
+                      false, 0.0
+                    );
+                }
+                else
+                {
+                    cout << ANSI_BOLD_YEL
+                         << "[WARN] TRUTH reco-conditioned (NO jet match) overlay skipped: missing h_JES3TruthRecoCondNoJetMatch_pT_xJ_alpha_r02 or r04 in dataset " << ds.label
+                         << ANSI_RESET << "\n";
+                }
+
+                // -------------------- Inclusive xJ QA from unfolding TH2 inputs --------------------
+                if (IsEmbeddedSimSample(CurrentSimSample()))
+                {
+                    const std::string inclusiveBase = ds.centFolder.empty()
+                      ? JoinPath(ds.outBase, "Inclusive_xJQA")
+                      : JoinPath(DirnameFromPath(ds.outBase), "Inclusive_xJQA");
+                    const std::string inclusiveCentDir = JoinPath(
+                      inclusiveBase,
+                      ds.centFolder.empty() ? "inclusive" : ds.centFolder
+                    );
+                    EnsureDir(inclusiveBase);
+                    EnsureDir(inclusiveCentDir);
+
+                    std::vector<InclusiveXJPtWindow> inclusivePtWindows;
+                    inclusivePtWindows.reserve((std::size_t)kNPtBins + 3);
+
+                    for (const auto& b : PtBins())
+                    {
+                        InclusiveXJPtWindow w;
+                        w.folder = b.folder;
+                        w.label  = TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data();
+                        w.ptLo   = (double)b.lo;
+                        w.ptHi   = (double)b.hi;
+                        inclusivePtWindows.push_back(w);
+                    }
+
+                    {
+                        const double ptMax = kPtEdges.back();
+
+                        InclusiveXJPtWindow w12;
+                        w12.folder = "pT_gt_12";
+                        w12.label  = "p_{T}^{#gamma} > 12 GeV";
+                        w12.ptLo   = 12.0;
+                        w12.ptHi   = ptMax;
+                        inclusivePtWindows.push_back(w12);
+
+                        InclusiveXJPtWindow w16;
+                        w16.folder = "pT_gt_16";
+                        w16.label  = "p_{T}^{#gamma} > 16 GeV";
+                        w16.ptLo   = 16.0;
+                        w16.ptHi   = ptMax;
+                        inclusivePtWindows.push_back(w16);
+
+                        InclusiveXJPtWindow w20;
+                        w20.folder = "pT_gt_20";
+                        w20.label  = "p_{T}^{#gamma} > 20 GeV";
+                        w20.ptLo   = 20.0;
+                        w20.ptHi   = ptMax;
+                        inclusivePtWindows.push_back(w20);
+                    }
+
+                    const std::vector<std::string> inclusiveRKeys = {"r02", "r04"};
+
+                    for (const auto& rKey : inclusiveRKeys)
+                    {
+                        TH2* h2Reco = GetObj<TH2>(
+                          ds, std::string("h2_unfoldReco_pTgamma_xJ_incl_") + rKey,
+                          true, true, false
+                        );
+                        TH2* h2Truth = GetObj<TH2>(
+                          ds, std::string("h2_unfoldTruth_pTgamma_xJ_incl_") + rKey,
+                          true, true, false
+                        );
+                        TH2* h2RecoMatched = GetObj<TH2>(
+                          ds, std::string("h2_unfoldRecoMatched_pTgamma_xJ_incl_") + rKey,
+                          true, true, false
+                        );
+
+                        if (!h2Reco && !h2Truth && !h2RecoMatched)
+                        {
+                            cout << ANSI_BOLD_YEL
+                                 << "[WARN] Inclusive xJ QA skipped for " << rKey
+                                 << ": missing reco/truth/recoMatched TH2 inputs in dataset " << ds.label
+                                 << ANSI_RESET << "\n";
+                            continue;
+                        }
+
+                        for (const auto& w : inclusivePtWindows)
+                        {
+                            const std::string ptDir = JoinPath(inclusiveCentDir, w.folder);
+                            const std::string ovDir = JoinPath(ptDir, "Overlay");
+                            EnsureDir(ptDir);
+                            EnsureDir(ovDir);
+
+                            if (h2RecoMatched && h2Reco)
+                            {
+                                DrawInclusiveXJPairTH2(
+                                  h2RecoMatched, h2Reco,
+                                  w, rKey, "RecoMatchedVsReco",
+                                  JoinPath(ovDir, TString::Format(
+                                    "overlay_recoTruthTagged_vs_reco_%s.png", rKey.c_str()).Data()),
+                                  "RECO truth-tagged PHOTON+JET",
+                                  "RECO",
+                                  "Inclusive x_{J#gamma}: RECO truth-tagged PHOTON+JET vs RECO"
+                                );
+                            }
+
+                            if (h2Reco && h2Truth)
+                            {
+                                DrawInclusiveXJPairTH2(
+                                  h2Reco, h2Truth,
+                                  w, rKey, "RecoVsTruth",
+                                  JoinPath(ovDir, TString::Format(
+                                    "overlay_reco_vs_truth_%s.png", rKey.c_str()).Data()),
+                                  "RECO",
+                                  "TRUTH",
+                                  "Inclusive x_{J#gamma}: RECO vs TRUTH"
+                                );
+                          }
+                      }
                   }
-              }
-              else
-              {
-                  cout << ANSI_BOLD_YEL
-                       << "[WARN] RECO overlays skipped: missing h_JES3_pT_xJ_alpha_r02 or r04 or r06 in dataset " << ds.label
-                       << ANSI_RESET << "\n";
-              }
-
-              // -------------------- RECO (truth-PHOTON-tagged): integrated alpha --------------------
-              TH3* hRePhoTag02 = GetObj<TH3>(ds, "h_JES3RecoTruthPhoTagged_pT_xJ_alpha_r02", true, true, true);
-              TH3* hRePhoTag04 = GetObj<TH3>(ds, "h_JES3RecoTruthPhoTagged_pT_xJ_alpha_r04", true, true, true);
-
-              if (hRePhoTag02 && hRePhoTag04)
-              {
-                  const std::string outHere = JoinPath(dirInt, "RECO_truthPhoTagged");
-                  DrawOverlayPair_TH3xJ(
-                    hRePhoTag02, hRePhoTag04, nullptr,
-                    outHere,
-                    "x_{J#gamma}",
-                    {"RECO (truth-PHOTON-tagged): x_{J#gamma}", "Overlay: r02 red, r04 blue"},
-                    false, 0.0
-                  );
-              }
-              else
-              {
-                  cout << ANSI_BOLD_YEL
-                       << "[WARN] RECO truth-PHOTON-tagged overlay skipped: missing h_JES3RecoTruthPhoTagged_pT_xJ_alpha_r02 or r04 in dataset " << ds.label
-                       << ANSI_RESET << "\n";
-              }
-
-              // -------------------- RECO (truth-tagged PHOTON+JET): integrated alpha --------------------
-              TH3* hReTag02 = GetObj<TH3>(ds, "h_JES3RecoTruthTagged_pT_xJ_alpha_r02", true, true, true);
-              TH3* hReTag04 = GetObj<TH3>(ds, "h_JES3RecoTruthTagged_pT_xJ_alpha_r04", true, true, true);
-
-              if (hReTag02 && hReTag04)
-              {
-                  const std::string outHere = JoinPath(dirInt, "RECO_truthTaggedPhoJet");
-                  DrawOverlayPair_TH3xJ(
-                    hReTag02, hReTag04, nullptr,
-                    outHere,
-                    "x_{J#gamma}",
-                    {"RECO (truth-tagged PHOTON+JET): x_{J#gamma}", "Overlay: r02 red, r04 blue"},
-                    false, 0.0
-                  );
-              }
-              else
-              {
-                  cout << ANSI_BOLD_YEL
-                       << "[WARN] RECO truth-tagged (PHOTON+JET) overlay skipped: missing h_JES3RecoTruthTagged_pT_xJ_alpha_r02 or r04 in dataset " << ds.label
-                       << ANSI_RESET << "\n";
-              }
-
-              // -------------------- TRUTH (reco-conditioned, NO jet match): integrated alpha --------------------
-              TH3* hTrNoJM02 = GetObj<TH3>(ds, "h_JES3TruthRecoCondNoJetMatch_pT_xJ_alpha_r02", true, true, true);
-              TH3* hTrNoJM04 = GetObj<TH3>(ds, "h_JES3TruthRecoCondNoJetMatch_pT_xJ_alpha_r04", true, true, true);
-
-              if (hTrNoJM02 && hTrNoJM04)
-              {
-                  const std::string outHere = JoinPath(dirInt, "TRUTH_recoConditioned_noJetMatch");
-                  DrawOverlayPair_TH3xJ(
-                    hTrNoJM02, hTrNoJM04, nullptr,
-                    outHere,
-                    "x_{J#gamma}^{truth}",
-                    {"TRUTH (reco-conditioned, NO jet match): x_{J#gamma}^{truth}", "Overlay: r02 red, r04 blue"},
-                    false, 0.0
-                  );
-              }
-              else
-              {
-                  cout << ANSI_BOLD_YEL
-                       << "[WARN] TRUTH reco-conditioned (NO jet match) overlay skipped: missing h_JES3TruthRecoCondNoJetMatch_pT_xJ_alpha_r02 or r04 in dataset " << ds.label
-                       << ANSI_RESET << "\n";
               }
 
               // =============================================================================

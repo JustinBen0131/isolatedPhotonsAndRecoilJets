@@ -2031,7 +2031,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             std::cout << "[FLOW] reco/calibration branch:"
                   << " | branch=" << (isAuAuLike ? "AuAu-like HI UE subtraction + SUB1 jets + JetCalib"
                                                  : "pp-style jets + JetCalib")
-                  << " | Process_Calo_Calib=" << ((!isSim && (caloInputMode == "calofitting" || caloInputMode == "jetcalo")) ? "ON" : "OFF")
+                  << " | Process_Calo_Calib=" << (((!isSim || isSimEmbedded) && (caloInputMode == "calofitting" || caloInputMode == "jetcalo")) ? "ON" : "OFF")
                   << " | clusterUEpipeline=" << cfg.clusterUEpipeline
                   << " | towerPrefixPCB=" << towerPrefixPCB
                   << " | truthJets=" << (useDSTTruthJets ? "DST" : "BUILD")

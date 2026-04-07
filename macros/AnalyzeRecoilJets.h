@@ -135,13 +135,13 @@ namespace ARJ
   inline bool allPhoton5and10and20sim    = false;
   //   Embedded Au+Au SIM slices / merges:
   inline bool isPhotonJet10Embedded      = false;
-  inline bool isPhotonJet20Embedded      = false;
-  inline bool bothPhoton10and20simEmbedded = true;
+  inline bool isPhotonJet20Embedded      = true;
+  inline bool bothPhoton10and20simEmbedded = false;
   //   Special SIM samples:
   inline bool isSimMB                    = false;   // MinBias DETROIT tune
   inline bool isSimJet5                  = false;   // inclusive jet5
 
-  inline bool doPhotonJetMerge = true;
+  inline bool doPhotonJetMerge = false;
 
   //   RooUnfold: true = run both non-purity and purity-corrected passes + overlay.
   inline bool do_xJ_PPunfold = false;
@@ -174,7 +174,7 @@ namespace ARJ
   inline const int    kAA_VzCut        = 30;            // cm: 30 or 60
   inline const string kAA_IsoConeR     = "isoR30";     // "isoR30" or "isoR40"
   inline const string kAA_IsoMode      = "fixedIso4GeV";// "isSliding" or "fixedIso5GeV"
-  inline const string kAA_UEVariant    = "noSub";      // "noSub","baseVariant","variantA","variantB"
+  inline const string kAA_UEVariant    = "baseVariant";      // "noSub","baseVariant","variantA","variantB"
   // Au+Au trigger directory name(s) inside the ROOT file.
   // Set one, two, or all three.  Analysis runs independently for each.
   inline const vector<string> kTriggersAuAu = {
