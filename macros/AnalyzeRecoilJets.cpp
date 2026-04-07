@@ -14639,6 +14639,7 @@ namespace ARJ
            << "    isPhotonJet10Embedded   = " << (isPhotonJet10Embedded ? "true" : "false") << "\n"
            << "    isPhotonJet20Embedded   = " << (isPhotonJet20Embedded ? "true" : "false") << "\n"
            << "    bothPhoton10and20simEmbedded = " << (bothPhoton10and20simEmbedded ? "true" : "false") << "\n"
+           << "    isSimEmbeddedOnly       = " << (isSimEmbeddedOnly ? "true" : "false") << "\n"
            << "    doPhotonJetMerge        = " << (doPhotonJetMerge ? "true" : "false") << "\n"
            << "    do_xJ_PPunfold          = " << (do_xJ_PPunfold ? "true" : "false") << "\n"
            << "    do_xJ_AAunfold          = " << (do_xJ_AAunfold ? "true" : "false") << "\n"
@@ -14658,6 +14659,8 @@ namespace ARJ
       auto RequestedSamplesFromFlags = [&]() -> vector<SimSample>
       {
         vector<SimSample> v;
+
+        if (isSimEmbeddedOnly) return v;
 
         // Order matters (matches the way you'd normally run these by hand):
         //   singles (5,10,20) -> pair merges -> 3-way merge
@@ -14803,7 +14806,7 @@ namespace ARJ
       // ---------------------------------------------------------------------------
       // Explicit default CUT config printout (so it's obvious what drives the merge + analysis)
       // ---------------------------------------------------------------------------
-      if (mode == RunMode::kSimOnly || mode == RunMode::kSimAndDataPP)
+      if ((mode == RunMode::kSimOnly || mode == RunMode::kSimAndDataPP) && !IsEmbeddedSimSample(ss))
       {
         cout << ANSI_DIM
              << "\n  [DEFAULT CUT CONFIG]\n"
@@ -14844,7 +14847,7 @@ namespace ARJ
                << ANSI_RESET;
         }
       }
-      else if (mode == RunMode::kSimAndDataAUAU)
+      else if (mode == RunMode::kSimAndDataAUAU || (mode == RunMode::kSimOnly && IsEmbeddedSimSample(ss)))
       {
         cout << ANSI_DIM
              << "\n  [DEFAULT CUT CONFIG]\n"
@@ -14968,7 +14971,7 @@ namespace ARJ
       // ---------------------------------------------------------------------------
       // AuAu-only: Tabulate accepted events per centrality (and total) BEFORE any QA
       // ---------------------------------------------------------------------------
-      if (isAuAuOnly)
+      if (mode == RunMode::kAuAuOnly)
       {
         cout << ANSI_BOLD_CYN << "\n[AuAuOnly] Accepted events summary (by centrality + total)\n" << ANSI_RESET;
 
@@ -15099,10 +15102,11 @@ namespace ARJ
       // ---------------------------------------------------------------------------
       // Embedded SIM statistics diagnostic (before any analysis)
       // ---------------------------------------------------------------------------
-      if (isSimAndDataAUAU)
+      if (mode == RunMode::kSimAndDataAUAU ||
+                (mode == RunMode::kSimOnly && IsEmbeddedSimSample(CurrentSimSample())))
       {
-        cout << ANSI_BOLD_CYN << "\n[STEP 3b] Embedded SIM statistics diagnostic\n" << ANSI_RESET;
-        analysis::RunEmbeddedSimStatsDiagnostic();
+              cout << ANSI_BOLD_CYN << "\n[STEP 3b] Embedded SIM statistics diagnostic\n" << ANSI_RESET;
+              analysis::RunEmbeddedSimStatsDiagnostic();
       }
 
       // ---------------------------------------------------------------------------
@@ -15151,30 +15155,30 @@ namespace ARJ
 
         // ---------------------------------------------------------------------------
         // AuAu data modes: UE-subtraction variant overlay comparisons for isolation QA
-        // ---------------------------------------------------------------------------
-        if (isAuAuOnly || isSimAndDataAUAU)
-        {
-            cout << "  -> [isoQA] AuAu UE variant comparisons...\n";
-            analysis::RunIsoQA_UEComparisons_AuAu();
-            cout << "     [OK] UE variant comparison overlays complete.\n";
+       // ---------------------------------------------------------------------------
+       if (mode == RunMode::kAuAuOnly || mode == RunMode::kSimAndDataAUAU)
+       {
+          cout << "  -> [isoQA] AuAu UE variant comparisons...\n";
+          analysis::RunIsoQA_UEComparisons_AuAu();
+          cout << "     [OK] UE variant comparison overlays complete.\n";
 
-            if (isSimAndDataAUAU)
-            {
-                cout << "  -> [isoQA] Embedded SIM UE variant comparisons...\n";
-                analysis::RunIsoQA_UEComparisons_AuAu(true);
-                cout << "     [OK] Embedded SIM UE variant comparison overlays complete.\n";
-            }
+          if (mode == RunMode::kSimAndDataAUAU)
+          {
+              cout << "  -> [isoQA] Embedded SIM UE variant comparisons...\n";
+              analysis::RunIsoQA_UEComparisons_AuAu(true);
+              cout << "     [OK] Embedded SIM UE variant comparison overlays complete.\n";
+          }
 
-            cout << "  -> [xJ QA] AuAu UE variant xJ comparisons (leading + inclusive)...\n";
-            analysis::RunXJUEComparisons_AuAu();
-            cout << "     [OK] xJ UE variant comparisons complete.\n";
+          cout << "  -> [xJ QA] AuAu UE variant xJ comparisons (leading + inclusive)...\n";
+          analysis::RunXJUEComparisons_AuAu();
+          cout << "     [OK] xJ UE variant comparisons complete.\n";
       }
 
       // ---------------------------------------------------------------------------
       // AuAu-only: Accepted events vs centrality (one plot per trigger)
       //   Outputs to:  <kOutAuAuBase>/<trigger>/acceptedEvents_vs_centrality.png
       // ---------------------------------------------------------------------------
-      if (isAuAuOnly)
+      if (mode == RunMode::kAuAuOnly)
       {
         std::map<std::string, std::vector<std::pair<std::pair<int,int>, double>>> accByTrig;
 
@@ -15321,7 +15325,7 @@ namespace ARJ
         // AuAu-only: raw ABCD purity overlay across centrality bins (per trigger)
         // Output: <OutputAuAu()>/<trigger>/purityOverlays/purity_raw_DATA_centOverlay.png
         // ---------------------------------------------------------------------------
-        if (isAuAuOnly)
+        if (mode == RunMode::kAuAuOnly)
         {
           const auto& centBinsOv = CentBins();
           if (!centBinsOv.empty())
@@ -17294,7 +17298,7 @@ namespace ARJ
         // [5I-AA] RooUnfold pipeline (SIM+DATA AuAu): unfold per centrality with
         //         purity × combinatoric subtraction variants
         // ---------------------------------------------------------------------------
-        if (isSimAndDataAUAU && IsEmbeddedSimSample(CurrentSimSample()) && do_xJ_AAunfold)
+        if (mode == RunMode::kSimAndDataAUAU && IsEmbeddedSimSample(CurrentSimSample()) && do_xJ_AAunfold)
         {
           cout << ANSI_BOLD_CYN
                << "\n[5I-AA] RooUnfold AuAu gate check\n"
@@ -17307,7 +17311,7 @@ namespace ARJ
 
           cout << ANSI_BOLD_CYN << "  [OK] AuAu RooUnfold pipeline complete.\n" << ANSI_RESET;
         }
-        else if (isSimAndDataAUAU && IsEmbeddedSimSample(CurrentSimSample()) && !do_xJ_AAunfold)
+        else if (mode == RunMode::kSimAndDataAUAU && IsEmbeddedSimSample(CurrentSimSample()) && !do_xJ_AAunfold)
         {
           cout << ANSI_BOLD_YEL
                << "[5I-AA] Skipping AuAu RooUnfold pipeline: do_xJ_AAunfold=false.\n"

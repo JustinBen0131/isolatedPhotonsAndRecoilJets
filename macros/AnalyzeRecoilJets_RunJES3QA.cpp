@@ -2938,7 +2938,7 @@ void RunJES3QA(Dataset& ds)
           [&](const TH3* h3Au, const string& outBaseDir, const string& tag, bool logy)
           {
             if (!h3Au) return;
-            if (!(isAuAuOnly && !ds.isSim && !ds.centSuffix.empty())) return;
+            if (!((isAuAuOnly || isSimAndDataAUAU) && !ds.isSim && !ds.centSuffix.empty())) return;
             if (tag != "RECO") return;
 
             // Never produce a log-y overlay table (user requested no *_logy.png)
@@ -3430,7 +3430,7 @@ void RunJES3QA(Dataset& ds)
           [&](const TH3* h3NoUE, const string& outBaseDir, const string& tag, bool logy)
         {
           if (!h3NoUE) return;
-          if (!(isAuAuOnly && !ds.isSim && !ds.centSuffix.empty())) return;
+          if (!((isAuAuOnly || isSimAndDataAUAU) && !ds.isSim && !ds.centSuffix.empty())) return;
           if (tag != "RECO") return;
 
           // Never produce log-y overlays for this comparison
@@ -3865,8 +3865,8 @@ void RunJES3QA(Dataset& ds)
         {
           static bool s_xJoverlaysDone = false;
           if (!s_xJoverlaysDone
-              && isAuAuOnly && !ds.isSim && !ds.centSuffix.empty()
-              && rKey == "r04")
+                && (isAuAuOnly || isSimAndDataAUAU) && !ds.isSim && !ds.centSuffix.empty()
+                && rKey == "r04")
           {
             s_xJoverlaysDone = true;
 

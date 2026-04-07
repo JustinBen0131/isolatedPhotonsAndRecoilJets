@@ -96,8 +96,9 @@ namespace ARJ
 
   inline bool isSimAndDataPP = false;
   inline bool isSimAndDataAUAU = false;
+  inline bool isSimEmbeddedOnly = true;
 
-  inline bool isAuAuOnly     = true;
+  inline bool isAuAuOnly     = false;
   inline bool isPPdataAndAUAU = false;
 
   inline bool generateUEcomparisonSSQA = false;
@@ -135,12 +136,12 @@ namespace ARJ
   //   Embedded Au+Au SIM slices / merges:
   inline bool isPhotonJet10Embedded      = false;
   inline bool isPhotonJet20Embedded      = false;
-  inline bool bothPhoton10and20simEmbedded = false;
+  inline bool bothPhoton10and20simEmbedded = true;
   //   Special SIM samples:
   inline bool isSimMB                    = false;   // MinBias DETROIT tune
   inline bool isSimJet5                  = false;   // inclusive jet5
 
-  inline bool doPhotonJetMerge = false;
+  inline bool doPhotonJetMerge = true;
 
   //   RooUnfold: true = run both non-purity and purity-corrected passes + overlay.
   inline bool do_xJ_PPunfold = false;
@@ -168,11 +169,11 @@ namespace ARJ
   // 3b. Au+Au CUT DEFAULTS  (independent from PP/SIM — drives all AuAu and
   //     embedded-SIM paths; does NOT need to match the PP cuts above)
   // ===========================================================================
-  inline const int    kAA_JetPtMin     = 5;            // GeV: 3, 5, or 10
+  inline const int    kAA_JetPtMin     = 7;            // GeV: 3, 5, or 10
   inline const string kAA_B2BCut       = "7pi_8";      // "7pi_8" or "pi_2"
   inline const int    kAA_VzCut        = 30;            // cm: 30 or 60
-  inline const string kAA_IsoConeR     = "isoR40";     // "isoR30" or "isoR40"
-  inline const string kAA_IsoMode      = "fixedIso5GeV";// "isSliding" or "fixedIso5GeV"
+  inline const string kAA_IsoConeR     = "isoR30";     // "isoR30" or "isoR40"
+  inline const string kAA_IsoMode      = "fixedIso4GeV";// "isSliding" or "fixedIso5GeV"
   inline const string kAA_UEVariant    = "noSub";      // "noSub","baseVariant","variantA","variantB"
   // Au+Au trigger directory name(s) inside the ROOT file.
   // Set one, two, or all three.  Analysis runs independently for each.
@@ -2636,38 +2637,52 @@ namespace ARJ
     }
 
     inline SimSample CurrentSimSample()
-    {
-            const int nTrue =
-              (isPhotonJet5 ? 1 : 0) +
-              (isPhotonJet10 ? 1 : 0) +
-              (isPhotonJet20 ? 1 : 0) +
-              (bothPhoton5and10sim ? 1 : 0) +
-              (bothPhoton5and20sim ? 1 : 0) +
-              (bothPhoton10and20sim ? 1 : 0) +
-              (allPhoton5and10and20sim ? 1 : 0) +
-              (isSimMB ? 1 : 0) +
-              (isSimJet5 ? 1 : 0) +
-              (isPhotonJet10Embedded ? 1 : 0) +
-              (isPhotonJet20Embedded ? 1 : 0) +
-              (bothPhoton10and20simEmbedded ? 1 : 0);
-
-            if (nTrue == 0) return SimSample::kNone;
-            if (nTrue != 1) return SimSample::kInvalid;
-
-            if (isPhotonJet5)               return SimSample::kPhotonJet5;
-            if (isPhotonJet10)              return SimSample::kPhotonJet10;
-            if (isPhotonJet20)              return SimSample::kPhotonJet20;
-            if (bothPhoton5and10sim)        return SimSample::kPhotonJet5And10Merged;
-            if (bothPhoton5and20sim)        return SimSample::kPhotonJet5And20Merged;
-            if (bothPhoton10and20sim)       return SimSample::kPhotonJet10And20Merged;
-            if (allPhoton5and10and20sim)    return SimSample::kPhotonJet5And10And20Merged;
-            if (isSimMB)                    return SimSample::kSimMB;
-            if (isSimJet5)                  return SimSample::kSimJet5;
-            if (isPhotonJet10Embedded)      return SimSample::kEmbeddedPhoton10;
-            if (isPhotonJet20Embedded)      return SimSample::kEmbeddedPhoton20;
-            if (bothPhoton10and20simEmbedded) return SimSample::kEmbeddedPhoton10And20Merged;
-
-            return SimSample::kInvalid;
+{
+        if (isSimEmbeddedOnly)
+        {
+            const int nExplicitEmbedded =
+            (isPhotonJet10Embedded ? 1 : 0) +
+            (isPhotonJet20Embedded ? 1 : 0) +
+            (bothPhoton10and20simEmbedded ? 1 : 0);
+            
+            if (nExplicitEmbedded > 1) return SimSample::kInvalid;
+            if (isPhotonJet10Embedded)         return SimSample::kEmbeddedPhoton10;
+            if (isPhotonJet20Embedded)         return SimSample::kEmbeddedPhoton20;
+            if (bothPhoton10and20simEmbedded)  return SimSample::kEmbeddedPhoton10And20Merged;
+            return SimSample::kSimEmbedded;
+        }
+        
+        const int nTrue =
+        (isPhotonJet5 ? 1 : 0) +
+        (isPhotonJet10 ? 1 : 0) +
+        (isPhotonJet20 ? 1 : 0) +
+        (bothPhoton5and10sim ? 1 : 0) +
+        (bothPhoton5and20sim ? 1 : 0) +
+        (bothPhoton10and20sim ? 1 : 0) +
+        (allPhoton5and10and20sim ? 1 : 0) +
+        (isSimMB ? 1 : 0) +
+        (isSimJet5 ? 1 : 0) +
+        (isPhotonJet10Embedded ? 1 : 0) +
+        (isPhotonJet20Embedded ? 1 : 0) +
+        (bothPhoton10and20simEmbedded ? 1 : 0);
+        
+        if (nTrue == 0) return SimSample::kNone;
+        if (nTrue != 1) return SimSample::kInvalid;
+        
+        if (isPhotonJet5)               return SimSample::kPhotonJet5;
+        if (isPhotonJet10)              return SimSample::kPhotonJet10;
+        if (isPhotonJet20)              return SimSample::kPhotonJet20;
+        if (bothPhoton5and10sim)        return SimSample::kPhotonJet5And10Merged;
+        if (bothPhoton5and20sim)        return SimSample::kPhotonJet5And20Merged;
+        if (bothPhoton10and20sim)       return SimSample::kPhotonJet10And20Merged;
+        if (allPhoton5and10and20sim)    return SimSample::kPhotonJet5And10And20Merged;
+        if (isSimMB)                    return SimSample::kSimMB;
+        if (isSimJet5)                  return SimSample::kSimJet5;
+        if (isPhotonJet10Embedded)      return SimSample::kEmbeddedPhoton10;
+        if (isPhotonJet20Embedded)      return SimSample::kEmbeddedPhoton20;
+        if (bothPhoton10and20simEmbedded) return SimSample::kEmbeddedPhoton10And20Merged;
+        
+        return SimSample::kInvalid;
     }
 
     inline string SimSampleLabel(SimSample s)
@@ -2736,6 +2751,52 @@ namespace ARJ
 
     inline bool ValidateRunConfig(string* errMsg = nullptr)
     {
+        if (isSimEmbeddedOnly)
+        {
+          const int nExplicitEmbedded =
+            (isPhotonJet10Embedded ? 1 : 0) +
+            (isPhotonJet20Embedded ? 1 : 0) +
+            (bothPhoton10and20simEmbedded ? 1 : 0);
+
+          const bool anyNonEmbeddedSim =
+            isPhotonJet5 ||
+            isPhotonJet10 ||
+            isPhotonJet20 ||
+            bothPhoton5and10sim ||
+            bothPhoton5and20sim ||
+            bothPhoton10and20sim ||
+            allPhoton5and10and20sim ||
+            isSimMB ||
+            isSimJet5;
+
+          if (anyNonEmbeddedSim)
+          {
+            if (errMsg)
+            {
+              *errMsg =
+                "isSimEmbeddedOnly=true requires ONLY embedded SIM sample toggles. "
+                "Set isPhotonJet5=false, isPhotonJet10=false, isPhotonJet20=false, "
+                "bothPhoton5and10sim=false, bothPhoton5and20sim=false, bothPhoton10and20sim=false, "
+                "allPhoton5and10and20sim=false, isSimMB=false, isSimJet5=false.";
+            }
+            return false;
+          }
+
+          if (nExplicitEmbedded > 1)
+          {
+            if (errMsg)
+            {
+              *errMsg =
+                "isSimEmbeddedOnly=true allows at most ONE explicit embedded SIM selector: "
+                "isPhotonJet10Embedded, isPhotonJet20Embedded, or bothPhoton10and20simEmbedded. "
+                "If all three are false, the default combined embedded input InputSimEmbedded() is used.";
+            }
+            return false;
+          }
+
+          return true;
+        }
+
         // Disallow contradictory run-mode toggles.
         if (isPPdataOnly && (isSimAndDataPP || isSimAndDataAUAU))
         {
@@ -2885,6 +2946,7 @@ namespace ARJ
     inline RunMode CurrentRunMode()
     {
           if (!ValidateRunConfig(nullptr)) return RunMode::kInvalid;
+          if (isSimEmbeddedOnly) return RunMode::kSimOnly;
           if (isPPdataOnly)     return RunMode::kPPDataOnly;
           if (isSimAndDataPP)   return RunMode::kSimAndDataPP;
           if (isSimAndDataAUAU) return RunMode::kSimAndDataAUAU;
