@@ -1306,17 +1306,22 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                   << std::endl;
   }
 
-  auto detect_input_mode = [&](const std::string& firstFileLower) -> std::string
-  {
-    std::string forced = env_lower("RJ_CALO_INPUT_MODE");
-    if (forced == "jetcalo" || forced == "calofitting" || forced == "simdst") return forced;
-    if (isSim && !isSimEmbedded) return "simdst";
-    if (isSimEmbedded) return "calofitting";
-    if (firstFileLower.find("calofitting") != std::string::npos) return "calofitting";
-    if (firstFileLower.find("jetcalo") != std::string::npos) return "jetcalo";
-    if (isPPrun25 || isAuAuRequested) return "calofitting";
-    return "jetcalo";
-  };
+    auto detect_input_mode = [&](const std::string& firstFileLower) -> std::string
+    {
+      std::string forced = env_lower("RJ_CALO_INPUT_MODE");
+      if (forced == "jetcalo" || forced == "calofitting" || forced == "simdst") return forced;
+      if (isSim && !isSimEmbedded) return "simdst";
+      if (isSimEmbedded)
+      {
+        if (firstFileLower.find("dst_calo_") != std::string::npos) return "jetcalo";
+        if (firstFileLower.find("calofitting") != std::string::npos) return "calofitting";
+        return "jetcalo";
+      }
+      if (firstFileLower.find("calofitting") != std::string::npos) return "calofitting";
+      if (firstFileLower.find("jetcalo") != std::string::npos) return "jetcalo";
+      if (isPPrun25 || isAuAuRequested) return "calofitting";
+      return "jetcalo";
+    };
 
   std::string firstFileLower = firstFile;
   std::transform(firstFileLower.begin(), firstFileLower.end(), firstFileLower.begin(), [](unsigned char c){ return std::tolower(c); });
@@ -1767,22 +1772,14 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     //   calofitting -> real-data waveform-fit input: run Process_Calo_Calib()
     //   simdst      -> analysis DST already carries calibrated towers/clusters
     // ------------------------------------------------------------------
-    if (isSim)
+    if (isSim && !isSimEmbedded)
     {
-        if (vlevel > 0)
-        {
-            if (isSimEmbedded)
-            {
-                std::cout << "[isSimEmbedded] skipping Process_Calo_Calib() "
-                "(assuming embedded DST already has TOWERINFO_CALIB and CLUSTERINFO_CEMC)\n";
-            }
-            else
-            {
-                std::cout << "[isSim] skipping Process_Calo_Calib() "
-                "(SIM DST already has TOWERINFO_CALIB and CLUSTERINFO_CEMC)\n";
-            }
-        }
-        
+          if (vlevel > 0)
+          {
+            std::cout << "[isSim] skipping Process_Calo_Calib() "
+                         "(SIM DST already has TOWERINFO_CALIB and CLUSTERINFO_CEMC)\n";
+          }
+
         // RawClusterBuilderTemplate (used by the NOCORR pi0 branch) requires:
         //   1) the CDB geometry file for its internal BEmcRecCEMC tower map
         //   2) CaloTowerStatus to properly set isGood() flags on towers
@@ -1800,19 +1797,25 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             ingeo->AddFile(geoLocation);
             se->registerInputManager(ingeo);
             if (vlevel > 0)
-            {
-                if (isSimEmbedded)
-                    std::cout << "[isSimEmbedded][pi0] loaded CDB geometry for NOCORR cluster builder: " << geoLocation << "\n";
-                else
-                    std::cout << "[isSim][pi0] loaded CDB geometry for NOCORR cluster builder: " << geoLocation << "\n";
-            }
-        }
+            std::cout << "[isSim][pi0] loaded CDB geometry for NOCORR cluster builder: " << geoLocation << "\n";
+      }
     }
     else if (caloInputMode == "calofitting" || caloInputMode == "jetcalo")
     {
       if (vlevel > 0)
       {
-        if (caloInputMode == "calofitting")
+        if (isSimEmbedded)
+        {
+          if (caloInputMode == "calofitting")
+          {
+            std::cout << "[isSimEmbedded] running Process_Calo_Calib() on CALOFITTING input\n";
+          }
+          else
+          {
+            std::cout << "[isSimEmbedded] running Process_Calo_Calib() on DST_CALO / JETCALO input\n";
+          }
+        }
+        else if (caloInputMode == "calofitting")
         {
           std::cout << "[DATA] running Process_Calo_Calib() on CALOFITTING input\n";
         }

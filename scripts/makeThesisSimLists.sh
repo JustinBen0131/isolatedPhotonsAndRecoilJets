@@ -654,7 +654,7 @@ build_embedded_pack_lists() {
   while IFS= read -r od; do
     [[ -n "$od" ]] || continue
 
-    calo="$(find "$od" -maxdepth 1 \( -type f -o -type l \) -iname 'DST_CALOFITTING-*.root' -print | sort -V | head -n 1 || true)"
+    calo="$(find "$od" -maxdepth 1 \( -type f -o -type l \) -iname 'DST_CALO_*.root' -print | sort -V | head -n 1 || true)"
     g4="$(find "$od" -maxdepth 1 \( -type f -o -type l \) -iname 'DST_TRUTH_G4HIT_*.root' -print | sort -V | head -n 1 || true)"
     jets="$(find "$od" -maxdepth 1 \( -type f -o -type l \) -iname 'DST_TRUTH_JET_*.root' -print | sort -V | head -n 1 || true)"
     global="$(find "$od" -maxdepth 1 \( -type f -o -type l \) -iname 'DST_GLOBAL_*.root' -print | sort -V | head -n 1 || true)"
@@ -816,13 +816,13 @@ build_pack() {
     mbddir=""
     trkdir="$flatdir"
 
-    calo_pattern="DST_CALOFITTING-*.root"
+    calo_pattern="DST_CALO_*.root"
     g4_pattern="DST_TRUTH_G4HIT_*.root"
     jets_pattern="DST_TRUTH_JET_*.root"
     global_pattern="DST_GLOBAL_PhotonJet*-*.root"
     mbd_pattern=""
 
-    calo_label="DST_CALO_CLUSTER (mapped from embedded DST_CALOFITTING, flat dir) [ANCHOR]"
+    calo_label="DST_CALO_CLUSTER (mapped from embedded DST_CALO, flat dir) [ANCHOR]"
     jets_label="DST_JETS (mapped from embedded DST_TRUTH_JET, flat dir)"
     global_label="DST_GLOBAL (embedded, flat dir)"
     mbd_label="DST_MBD_EPD (placeholder NONE; no standalone embedded MBD file found)"
@@ -841,13 +841,13 @@ build_pack() {
     mbddir=""
     trkdir="$embeddir"
 
-    calo_pattern="DST_CALOFITTING-*.root"
+    calo_pattern="DST_CALO_*.root"
     g4_pattern="DST_TRUTH_G4HIT_*.root"
     jets_pattern="DST_TRUTH_JET_*.root"
     global_pattern="DST_GLOBAL_*.root"
     mbd_pattern=""
 
-    calo_label="DST_CALO_CLUSTER (mapped from embedded DST_CALOFITTING) [ANCHOR]"
+    calo_label="DST_CALO_CLUSTER (mapped from embedded DST_CALO) [ANCHOR]"
     jets_label="DST_JETS (mapped from embedded DST_TRUTH_JET)"
     global_label="DST_GLOBAL (embedded)"
     mbd_label="DST_MBD_EPD (placeholder NONE; no standalone embedded MBD file found)"
