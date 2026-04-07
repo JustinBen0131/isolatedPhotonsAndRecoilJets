@@ -1767,33 +1767,46 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     //   calofitting -> real-data waveform-fit input: run Process_Calo_Calib()
     //   simdst      -> analysis DST already carries calibrated towers/clusters
     // ------------------------------------------------------------------
-    if (isSim && !isSimEmbedded)
+    if (isSim)
     {
-          if (vlevel > 0)
-          {
-            std::cout << "[isSim] skipping Process_Calo_Calib() "
-                         "(SIM DST already has TOWERINFO_CALIB and CLUSTERINFO_CEMC)\n";
-    }
-
-    // RawClusterBuilderTemplate (used by the NOCORR pi0 branch) requires:
-    //   1) the CDB geometry file for its internal BEmcRecCEMC tower map
-    //   2) CaloTowerStatus to properly set isGood() flags on towers
-    // Process_Calo_Calib() normally provides both, but is skipped for SIM.
-    // Mirror what Process_Calo_Calib() does for SIM (see Calo_Calib.C):
-    //   - load CDB geometry
-    //   - run CaloTowerStatus with SIM hot tower map
-    // We target TOWERINFO_CALIB_CEMC directly (instead of TOWERS_CEMC)
-    // since the SIM DST already has calibrated towers and we skip CaloTowerCalib.
-    if (cfg.doPi0Analysis)
-    {
+        if (vlevel > 0)
+        {
+            if (isSimEmbedded)
+            {
+                std::cout << "[isSimEmbedded] skipping Process_Calo_Calib() "
+                "(assuming embedded DST already has TOWERINFO_CALIB and CLUSTERINFO_CEMC)\n";
+            }
+            else
+            {
+                std::cout << "[isSim] skipping Process_Calo_Calib() "
+                "(SIM DST already has TOWERINFO_CALIB and CLUSTERINFO_CEMC)\n";
+            }
+        }
+        
+        // RawClusterBuilderTemplate (used by the NOCORR pi0 branch) requires:
+        //   1) the CDB geometry file for its internal BEmcRecCEMC tower map
+        //   2) CaloTowerStatus to properly set isGood() flags on towers
+        // Process_Calo_Calib() normally provides both, but is skipped for SIM.
+        // Mirror what Process_Calo_Calib() does for SIM (see Calo_Calib.C):
+        //   - load CDB geometry
+        //   - run CaloTowerStatus with SIM hot tower map
+        // We target TOWERINFO_CALIB_CEMC directly (instead of TOWERS_CEMC)
+        // since the SIM DST already has calibrated towers and we skip CaloTowerCalib.
+        if (cfg.doPi0Analysis)
+        {
             // 1) CDB geometry for BEmcRecCEMC tower map
             std::string geoLocation = CDBInterface::instance()->getUrl("calo_geo");
             auto* ingeo = new Fun4AllRunNodeInputManager("DST_GEO_SIM");
             ingeo->AddFile(geoLocation);
             se->registerInputManager(ingeo);
             if (vlevel > 0)
-            std::cout << "[isSim][pi0] loaded CDB geometry for NOCORR cluster builder: " << geoLocation << "\n";
-      }
+            {
+                if (isSimEmbedded)
+                    std::cout << "[isSimEmbedded][pi0] loaded CDB geometry for NOCORR cluster builder: " << geoLocation << "\n";
+                else
+                    std::cout << "[isSim][pi0] loaded CDB geometry for NOCORR cluster builder: " << geoLocation << "\n";
+            }
+        }
     }
     else if (caloInputMode == "calofitting" || caloInputMode == "jetcalo")
     {
@@ -1899,8 +1912,8 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                   << std::endl;
   }
 
-    if (isAuAuLike && !isSimEmbedded)
-    {
+  if (isAuAuLike && !isSimEmbedded)
+  {
           if (vlevel > 0) std::cout << "building minbias classifier" << std::endl;
           auto* mb = new MinimumBiasClassifier();
           mb->Verbosity(0);
@@ -1914,15 +1927,15 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
           cent->setOverwriteScale(
                   "/cvmfs/sphenix.sdcc.bnl.gov/calibrations/sphnxpro/cdb/CentralityScale/42/6b/426bc1b56ba544201b0213766bee9478_cdb_centrality_scale_54912.root");
           se->registerSubsystem(cent);
-    }
-    else
-    {
+  }
+  else
+  {
           if (vlevel > 0)
           {
             if (isSimEmbedded) std::cout << "[isSimEmbedded] skipping MinimumBiasClassifier/CentralityReco (use embedded sample's existing centrality products)" << std::endl;
             else               std::cout << "[pp dataset] skipping CentralityReco" << std::endl;
           }
-    }
+  }
 
   setenv("BEMCREC_CEMC_DISABLE_ASINH_POSITION", "0", 1);
 
