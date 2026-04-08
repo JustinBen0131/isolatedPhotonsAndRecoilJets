@@ -2427,9 +2427,11 @@ namespace ARJ
 
                 const string ueCompBase = JoinPath(trigOutBase, "isoQA/UEcomparisons");
                 const string centralitySummaryBase = JoinPath(ueCompBase, "centralitySummaryPerPt");
+                const string meanIsoSummaryDir = JoinPath(centralitySummaryBase, "meanIsoSummaryPlots");
                 const string perVariantOverlayBase = JoinPath(ueCompBase, "perVariantOverlays");
                 EnsureDir(ueCompBase);
                 EnsureDir(centralitySummaryBase);
+                EnsureDir(meanIsoSummaryDir);
                 EnsureDir(perVariantOverlayBase);
 
                 if (skipToCentralityAndPtOverlaysWithSSQA && !generateUEcomparisonSSQA)
@@ -2449,7 +2451,9 @@ namespace ARJ
                   if (!H.file) continue;
 
                   const string variantDir = JoinPath(ueCompBase, H.variant);
+                  const string variantCentralitySummaryDir = JoinPath(centralitySummaryBase, H.variant);
                   EnsureDir(variantDir);
+                  EnsureDir(variantCentralitySummaryDir);
 
                   TDirectory* aaTop = H.file->GetDirectory(trigAA.c_str());
                   if (!aaTop) continue;
@@ -2896,8 +2900,8 @@ namespace ARJ
                         tInfoCO.DrawLatex(0.92, 0.88, trigAA.c_str());
                         tInfoCO.DrawLatex(0.92, 0.84, H.variant.c_str());
 
-                        SaveCanvas(cCO, JoinPath(variantDir,
-                                TString::Format("isoCentOverlay_counts_%s.png", b.folder.c_str()).Data()));
+                        SaveCanvas(cCO, JoinPath(variantCentralitySummaryDir,
+                                  TString::Format("isoCentOverlay_counts_%s.png", b.folder.c_str()).Data()));
 
                         for (auto* h : hCents) delete h;
                       }
@@ -3891,7 +3895,7 @@ namespace ARJ
                   if (isoEtMax > 0)
                     t.DrawLatex(0.20, 0.50, TString::Format("E_{T}^{iso} < %d GeV", isoEtMax).Data());
 
-                      SaveCanvas(cSummary, JoinPath(centralitySummaryBase,
+                      SaveCanvas(cSummary, JoinPath(meanIsoSummaryDir,
                             TString::Format("meanIsoEt_allVariants_vs_cent_%s.png", b.folder.c_str()).Data()));
 
                       for (auto* g : graphs) delete g;
@@ -10359,6 +10363,7 @@ namespace ARJ
                       const std::string& titleLine)->void
                 {
                     if (!hA2 || !hB2) return;
+                    (void)titleLine;
 
                     TH1* hA = ProjectXJFromTH2Window(
                       hA2, w.ptLo, w.ptHi,
@@ -10378,6 +10383,9 @@ namespace ARJ
                         return;
                     }
 
+                    EnsureSumw2(hA);
+                    EnsureSumw2(hB);
+
                     const double intA = hA->Integral(0, hA->GetNbinsX() + 1);
                     const double intB = hB->Integral(0, hB->GetNbinsX() + 1);
 
@@ -10391,22 +10399,88 @@ namespace ARJ
                     hA->Scale(1.0 / intA);
                     hB->Scale(1.0 / intB);
 
+                    hA->SetTitle("");
+                    hA->SetLineWidth(2);
+                    hA->SetLineColor(kBlack);
+                    hA->SetMarkerColor(kBlack);
+                    hA->SetMarkerStyle(20);
+                    hA->SetMarkerSize(1.0);
+                    hA->SetFillStyle(0);
+
+                    hB->SetTitle("");
+                    hB->SetLineWidth(2);
+                    hB->SetLineColor(kRed + 1);
+                    hB->SetMarkerColor(kRed + 1);
+                    hB->SetMarkerStyle(24);
+                    hB->SetMarkerSize(1.0);
+                    hB->SetFillStyle(0);
+
+                    hA->GetXaxis()->SetTitle("x_{J#gamma}");
+                    hA->GetYaxis()->SetTitle("Fraction of entries");
                     hA->GetXaxis()->SetRangeUser(0.0, 2.0);
                     hB->GetXaxis()->SetRangeUser(0.0, 2.0);
 
-                    std::vector<std::string> extra;
-                    extra.push_back(titleLine);
-                    extra.push_back(TString::Format("R = %.1f", RFromKey(rKey)).Data());
-                    extra.push_back(w.label);
+                    const double yMax = std::max(hA->GetMaximum(), hB->GetMaximum());
+                    hA->SetMinimum(0.0);
+                    hA->SetMaximum((yMax > 0.0) ? (1.25 * yMax) : 1.0);
 
-                    DrawOverlayTwoTH1(
-                      ds, hA, hB,
-                      labelA, labelB,
-                      outPng,
-                      "x_{J#gamma}", "A.U.",
-                      extra,
-                      false
+                    std::string datasetName = "Photon+Jet Embedded";
+                    if (isPhotonJet10Embedded) datasetName = "Photon+Jet Embedded 10 GeV";
+                    else if (isPhotonJet20Embedded) datasetName = "Photon+Jet Embedded 20 GeV";
+                    else if (bothPhoton10and20simEmbedded) datasetName = "Photon+Jet Embedded (10+20) GeV";
+                    else
+                    {
+                        const SimSample ss = CurrentSimSample();
+                        if (ss == SimSample::kEmbeddedPhoton10) datasetName = "Photon+Jet Embedded 10 GeV";
+                        else if (ss == SimSample::kEmbeddedPhoton20) datasetName = "Photon+Jet Embedded 20 GeV";
+                        else if (ss == SimSample::kEmbeddedPhoton10And20Merged) datasetName = "Photon+Jet Embedded (10+20) GeV";
+                    }
+
+                    std::string centText = "Inclusive";
+                    if (!ds.centFolder.empty())
+                    {
+                        centText = ds.centFolder;
+                        std::replace(centText.begin(), centText.end(), '_', '-');
+                        centText += "% Cent";
+                    }
+
+                    double ptLoTitle = w.ptLo;
+                    double ptHiTitle = w.ptHi;
+                    if (w.folder == "pT_gt_12" || w.folder == "pT_gt_16" || w.folder == "pT_gt_20")
+                    {
+                        ptHiTitle = 35.0;
+                    }
+
+                    TCanvas c(
+                      TString::Format("c_inclXJ_%s_%s_%s",
+                        nameTag.c_str(), rKey.c_str(), w.folder.c_str()).Data(),
+                      "c_inclXJ", 900, 700
                     );
+                    ApplyCanvasMargins1D(c);
+                    c.cd();
+
+                    hA->Draw("E1");
+                    hB->Draw("E1 SAME");
+
+                    TLegend leg(0.44, 0.72, 0.92, 0.88);
+                    leg.SetBorderSize(0);
+                    leg.SetFillStyle(0);
+                    leg.SetTextFont(42);
+                    leg.SetTextSize(0.032);
+                    leg.AddEntry(hA, labelA.c_str(), "ep");
+                    leg.AddEntry(hB, labelB.c_str(), "ep");
+                    leg.Draw();
+
+                    TLatex ttl;
+                    ttl.SetNDC(true);
+                    ttl.SetTextFont(42);
+                    ttl.SetTextAlign(23);
+                    ttl.SetTextSize(0.040);
+                    ttl.DrawLatex(0.50, 0.96,
+                      TString::Format("%s, %s, p_{T}^{#gamma} = %.0f-%.0f GeV",
+                        datasetName.c_str(), centText.c_str(), ptLoTitle, ptHiTitle).Data());
+
+                    SaveCanvas(c, outPng);
 
                     delete hA;
                     delete hB;
