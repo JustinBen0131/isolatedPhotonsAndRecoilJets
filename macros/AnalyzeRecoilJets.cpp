@@ -2902,42 +2902,42 @@ namespace ARJ
                                   if (hTd && hNTd && hSig)
                                   {
                                       hTd->Rebin(10); hNTd->Rebin(10); hSig->Rebin(10);
-                                      const double intTd_sb  = hTd->Integral(0, hTd->GetNbinsX()+1);
-                                      const double intNTd_sb = hNTd->Integral(0, hNTd->GetNbinsX()+1);
-                                      const double intSig_sb = hSig->Integral(0, hSig->GetNbinsX()+1);
-                                      if (!(intTd_sb>0.0) || !(intNTd_sb>0.0) || !(intSig_sb>0.0))
-                                      { if (hTd) delete hTd; if (hNTd) delete hNTd; if (hSig) delete hSig; continue; }
-                                      hTd->Scale(1.0/intTd_sb); hNTd->Scale(1.0/intNTd_sb); hSig->Scale(1.0/intSig_sb);
-                                      hSig->SetLineColor(kBlue-9); hSig->SetFillColorAlpha(kBlue-9,0.5); hSig->SetFillStyle(1001); hSig->SetLineWidth(1); hSig->SetMarkerSize(0.0);
-                                      hNTd->SetLineColor(kPink-4); hNTd->SetFillColorAlpha(kPink-4,0.5); hNTd->SetFillStyle(1001); hNTd->SetLineWidth(1); hNTd->SetMarkerSize(0.0);
-                                      for (int ib=0; ib<=hSig->GetNbinsX()+1; ++ib) hSig->SetBinError(ib,0.0);
-                                      for (int ib=0; ib<=hNTd->GetNbinsX()+1; ++ib) hNTd->SetBinError(ib,0.0);
-                                      hTd->SetLineColor(kBlack); hTd->SetMarkerColor(kBlack); hTd->SetMarkerStyle(20); hTd->SetMarkerSize(1.0); hTd->SetLineWidth(2); hTd->SetFillStyle(0);
-                                      const double ym = std::max({hTd->GetMaximum(), hNTd->GetMaximum(), hSig->GetMaximum()});
-                                      TCanvas cSB(TString::Format("c_aaSigBkg_%s_%s_%s_%s", mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(), "c_aaSigBkg", 900, 700);
-                                      ApplyCanvasMargins1D(cSB); cSB.cd();
-                                      hTd->SetTitle(""); hTd->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
-                                      hTd->GetYaxis()->SetTitle("Normalized to Unit Area");
-                                      hTd->GetXaxis()->SetTitleSize(0.055); hTd->GetYaxis()->SetTitleSize(0.055);
-                                      hTd->GetXaxis()->SetLabelSize(0.045); hTd->GetYaxis()->SetLabelSize(0.045);
-                                      hTd->GetYaxis()->SetTitleOffset(1.15);
-                                      hTd->SetMinimum(0.0); hTd->SetMaximum((ym>0)?(1.3*ym):1.0);
-                                      hTd->Draw("E1");
-                                      hNTd->Draw("hist SAME");
-                                      hSig->Draw("hist SAME");
-                                      hTd->Draw("E1 SAME");
-                                      TLatex tSBtitle; tSBtitle.SetNDC(true); tSBtitle.SetTextFont(42); tSBtitle.SetTextAlign(23); tSBtitle.SetTextSize(0.040);
-                                      tSBtitle.DrawLatex(0.50, 0.97,
-                                        TString::Format("E_{T}^{iso} overlay: AuAu data vs %s Embedded MC", mcCfg.titleTag.c_str()).Data());
-                                      TLegend lg(0.56,0.65,0.92,0.88); lg.SetBorderSize(0); lg.SetFillStyle(0); lg.SetTextFont(42); lg.SetTextSize(0.032);
-                                      lg.AddEntry(hTd, "Data (Signal)", "ep"); lg.AddEntry(hNTd, "Data (Background)", "f"); lg.AddEntry(hSig, "Signal Embedded MC", "f"); lg.Draw();
-                                    TLatex ts; ts.SetNDC(true); ts.SetTextFont(42); ts.SetTextAlign(33); ts.SetTextSize(0.048);
-                                    ts.DrawLatex(0.92,0.6,"#bf{sPHENIX} #it{Internal}"); ts.SetTextSize(0.038);
-                                    ts.DrawLatex(0.92,0.54,"p+p  #sqrt{s} = 200 GeV");
-                                    TLatex ti; ti.SetNDC(true); ti.SetTextFont(42); ti.SetTextAlign(13); ti.SetTextSize(0.045);
-                                    ti.DrawLatex(0.18,0.89,TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
-                                    SaveCanvas(cSB, JoinPath(ppSigDir, "Eiso_sigBkg_overlay.png"));
-                                    delete hStack;
+                                      const double intTd_pp  = hTd->Integral(0, hTd->GetNbinsX()+1);
+                                      const double intNTd_pp = hNTd->Integral(0, hNTd->GetNbinsX()+1);
+                                      const double intSig_pp = hSig->Integral(0, hSig->GetNbinsX()+1);
+                                      if (intTd_pp>0.0 && intNTd_pp>0.0 && intSig_pp>0.0)
+                                      {
+                                          hTd->Scale(1.0/intTd_pp); hNTd->Scale(1.0/intNTd_pp); hSig->Scale(1.0/intSig_pp);
+                                          hSig->SetLineColor(kBlue-9); hSig->SetFillColorAlpha(kBlue-9,0.5); hSig->SetFillStyle(1001); hSig->SetLineWidth(1); hSig->SetMarkerSize(0.0);
+                                          hNTd->SetLineColor(kPink-4); hNTd->SetFillColorAlpha(kPink-4,0.5); hNTd->SetFillStyle(1001); hNTd->SetLineWidth(1); hNTd->SetMarkerSize(0.0);
+                                          for (int ib=0; ib<=hSig->GetNbinsX()+1; ++ib) hSig->SetBinError(ib,0.0);
+                                          for (int ib=0; ib<=hNTd->GetNbinsX()+1; ++ib) hNTd->SetBinError(ib,0.0);
+                                          hTd->SetLineColor(kBlack); hTd->SetMarkerColor(kBlack); hTd->SetMarkerStyle(20); hTd->SetMarkerSize(1.0); hTd->SetLineWidth(2); hTd->SetFillStyle(0);
+                                          const double ym = std::max({hTd->GetMaximum(), hNTd->GetMaximum(), hSig->GetMaximum()});
+                                          TCanvas cSB(TString::Format("c_ppSigBkg_%s_%s", cb.folder.c_str(), b.folder.c_str()).Data(), "c_ppSigBkg", 900, 700);
+                                          ApplyCanvasMargins1D(cSB); cSB.cd();
+                                          hTd->SetTitle(""); hTd->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
+                                          hTd->GetYaxis()->SetTitle("Normalized to Unit Area");
+                                          hTd->GetXaxis()->SetTitleSize(0.055); hTd->GetYaxis()->SetTitleSize(0.055);
+                                          hTd->GetXaxis()->SetLabelSize(0.045); hTd->GetYaxis()->SetLabelSize(0.045);
+                                          hTd->GetYaxis()->SetTitleOffset(1.15);
+                                          hTd->SetMinimum(0.0); hTd->SetMaximum((ym>0)?(1.3*ym):1.0);
+                                          hTd->Draw("E1");
+                                          hNTd->Draw("hist SAME");
+                                          hSig->Draw("hist SAME");
+                                          hTd->Draw("E1 SAME");
+                                          TLatex tSBtitle; tSBtitle.SetNDC(true); tSBtitle.SetTextFont(42); tSBtitle.SetTextAlign(23); tSBtitle.SetTextSize(0.040);
+                                          tSBtitle.DrawLatex(0.50, 0.97,
+                                                             TString::Format("E_{T}^{iso} overlay: AuAu data vs %s Embedded MC", mcCfg.titleTag.c_str()).Data());
+                                          TLegend lg(0.56,0.65,0.92,0.88); lg.SetBorderSize(0); lg.SetFillStyle(0); lg.SetTextFont(42); lg.SetTextSize(0.032);
+                                          lg.AddEntry(hTd, "Data (Signal)", "ep"); lg.AddEntry(hNTd, "Data (Background)", "f"); lg.AddEntry(hSig, "Signal Embedded MC", "f"); lg.Draw();
+                                          TLatex ts; ts.SetNDC(true); ts.SetTextFont(42); ts.SetTextAlign(33); ts.SetTextSize(0.048);
+                                          ts.DrawLatex(0.92,0.6,"#bf{sPHENIX} #it{Internal}"); ts.SetTextSize(0.038);
+                                          ts.DrawLatex(0.92,0.54,"p+p  #sqrt{s} = 200 GeV");
+                                          TLatex ti; ti.SetNDC(true); ti.SetTextFont(42); ti.SetTextAlign(13); ti.SetTextSize(0.045);
+                                          ti.DrawLatex(0.18,0.89,TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+                                          SaveCanvas(cSB, JoinPath(ppSigDir, "Eiso_sigBkg_overlay.png"));
+                                      }
                                   }
                                   if (hTd) delete hTd; if (hNTd) delete hNTd; if (hSig) delete hSig;
                                 }
@@ -3182,7 +3182,6 @@ namespace ARJ
                                         TLatex tUE2; tUE2.SetNDC(true); tUE2.SetTextFont(42); tUE2.SetTextAlign(33); tUE2.SetTextSize(0.034);
                                         tUE2.DrawLatex(0.92,0.3,TString::Format("UE: %s", H.label.c_str()).Data());
                                         SaveCanvas(cSB, JoinPath(sigOvDir, "Eiso_sigBkg_overlay.png"));
-                                        delete hStack;
                                       }
                                       if (hTd) delete hTd; if (hNTd) delete hNTd; if (hSig) delete hSig;
                                     }
