@@ -2449,14 +2449,14 @@ namespace ARJ
               }
 
 
-                  const string ueCompBase = ueCompModeBase;
-                  const string centralitySummaryBase = JoinPath(ueCompBase, "centralitySummaryPerPt");
-                  const string meanIsoSummaryDir = JoinPath(centralitySummaryBase, "meanIsoSummaryPlots");
-                  const string perVariantOverlayBase = JoinPath(ueCompBase, "perVariantOverlays");
-                  EnsureDir(ueCompBase);
-                  EnsureDir(centralitySummaryBase);
-                  EnsureDir(meanIsoSummaryDir);
-                  EnsureDir(perVariantOverlayBase);
+                const string ueCompBase = ueCompModeBase;
+                const string centralitySummaryBase = JoinPath(ueCompBase, "centralitySummaryPerPt");
+                const string meanIsoSummaryDir = JoinPath(centralitySummaryBase, "meanIsoSummaryPlots");
+                const string perVariantOverlayBase = JoinPath(ueCompBase, "perVariantOverlays");
+                EnsureDir(ueCompBase);
+                EnsureDir(centralitySummaryBase);
+                EnsureDir(meanIsoSummaryDir);
+                EnsureDir(perVariantOverlayBase);
 
                 if (skipToCentralityAndPtOverlaysWithSSQA && !generateUEcomparisonSSQA)
                 {

@@ -101,6 +101,7 @@ PHOTONJET_SAMPLES=( "photonjet5" "photonjet10" "photonjet20" )
 JET_SAMPLES=( "jet5" )
 MB_SAMPLES=( "detroit" )
 EMBEDDED_PHOTONJET_SAMPLES=( "embeddedPhoton10" "embeddedPhoton20" )
+EMBEDDED_INCLUSIVE_SAMPLES=( "embeddedJet10" "embeddedJet20" )
 REQUESTED_SAMPLES=()
 
 MDC2_BASE="/sphenix/lustre01/sphnxpro/mdc2/js_pp200_signal"
@@ -135,7 +136,10 @@ while [[ $# -gt 0 ]]; do
     embeddedSim)
       REQUESTED_SAMPLES+=( "embeddedPhoton10" "embeddedPhoton20" ); shift 1
       ;;
-    photonjet5|photonjet10|photonjet20|jet5|detroit|embeddedPhoton10|embeddedPhoton20)
+    isInclusiveEmbedded)
+      REQUESTED_SAMPLES+=( "embeddedJet10" "embeddedJet20" ); shift 1
+      ;;
+    photonjet5|photonjet10|photonjet20|jet5|detroit|embeddedPhoton10|embeddedPhoton20|embeddedJet10|embeddedJet20)
       REQUESTED_SAMPLES+=( "$1" ); shift 1
       ;;
     *) echo "[WARN $(date '+%H:%M:%S')] Unknown arg: $1"; shift 1 ;;
@@ -804,6 +808,7 @@ build_pack() {
   local MBD_OK="true"
   local G4_OK="true"
   local embeddir=""
+  local embed_mode_note=""
 
   if [[ "$sample" == "embeddedPhoton10" ]]; then
     # Flat embedded directory (no OutDir* containers) — use standard scan+pair path
@@ -828,6 +833,7 @@ build_pack() {
     mbd_label="DST_MBD_EPD (placeholder NONE; no standalone embedded MBD file found)"
 
     MBD_OK="false"
+    embed_mode_note="embedded photon10 (flat-dir scan)"
 
   elif [[ "$sample" == "embeddedPhoton20" ]]; then
     EMBED_MODE="true"
@@ -853,6 +859,59 @@ build_pack() {
     mbd_label="DST_MBD_EPD (placeholder NONE; no standalone embedded MBD file found)"
 
     MBD_OK="false"
+    embed_mode_note="embedded photon20 (OutDir scan)"
+
+  elif [[ "$sample" == "embeddedJet10" ]]; then
+    EMBED_MODE="true"
+
+    embeddir="${EMBED_BASE}/jet10"
+
+    g4dir="$embeddir"
+    calodir="$embeddir"
+    gldir="$embeddir"
+    jetsdir="$embeddir"
+    mbddir=""
+    trkdir="$embeddir"
+
+    calo_pattern="DST_CALO_*.root"
+    g4_pattern="DST_TRUTH_G4HIT_*.root"
+    jets_pattern="DST_TRUTH_JET_*.root"
+    global_pattern="DST_GLOBAL_*.root"
+    mbd_pattern=""
+
+    calo_label="DST_CALO_CLUSTER (mapped from embedded DST_CALO) [ANCHOR]"
+    jets_label="DST_JETS (mapped from embedded DST_TRUTH_JET)"
+    global_label="DST_GLOBAL (embedded)"
+    mbd_label="DST_MBD_EPD (placeholder NONE; no standalone embedded MBD file found)"
+
+    MBD_OK="false"
+    embed_mode_note="embedded jet10 (OutDir scan)"
+
+  elif [[ "$sample" == "embeddedJet20" ]]; then
+    EMBED_MODE="true"
+
+    embeddir="${EMBED_BASE}/jet20"
+
+    g4dir="$embeddir"
+    calodir="$embeddir"
+    gldir="$embeddir"
+    jetsdir="$embeddir"
+    mbddir=""
+    trkdir="$embeddir"
+
+    calo_pattern="DST_CALO_*.root"
+    g4_pattern="DST_TRUTH_G4HIT_*.root"
+    jets_pattern="DST_TRUTH_JET_*.root"
+    global_pattern="DST_GLOBAL_*.root"
+    mbd_pattern=""
+
+    calo_label="DST_CALO_CLUSTER (mapped from embedded DST_CALO) [ANCHOR]"
+    jets_label="DST_JETS (mapped from embedded DST_TRUTH_JET)"
+    global_label="DST_GLOBAL (embedded)"
+    mbd_label="DST_MBD_EPD (placeholder NONE; no standalone embedded MBD file found)"
+
+    MBD_OK="false"
+    embed_mode_note="embedded jet20 (OutDir scan)"
   fi
 
   rule
@@ -864,7 +923,7 @@ build_pack() {
   say "  Jets       = ${jetsdir}"
   say "  Global     = ${gldir}"
   if [[ "$EMBED_MODE" == "true" ]]; then
-    say "  Mode       = embedded photonjet20"
+    say "  Mode       = ${embed_mode_note}"
     say "  Patterns   = calo='${calo_pattern}' g4='${g4_pattern}' jets='${jets_pattern}' global='${global_pattern}'"
     say "  MBD_EPD    = placeholder NONE (no standalone DST_MBD_EPD file under embedded sample)"
   fi
@@ -1243,7 +1302,7 @@ mkdir -p "$OUTROOT"
 # No aggressive glob wipe here, so building new samples never removes existing outputs.
 rm -f "${OUTROOT}/run${RUNNUM}_candidate_types_"*.txt "${OUTROOT}/run${RUNNUM}_probe_"*.log 2>/dev/null || true
 
-ALL_SAMPLES=( "${PHOTONJET_SAMPLES[@]}" "${JET_SAMPLES[@]}" "${MB_SAMPLES[@]}" "${EMBEDDED_PHOTONJET_SAMPLES[@]}" )
+ALL_SAMPLES=( "${PHOTONJET_SAMPLES[@]}" "${JET_SAMPLES[@]}" "${MB_SAMPLES[@]}" "${EMBEDDED_PHOTONJET_SAMPLES[@]}" "${EMBEDDED_INCLUSIVE_SAMPLES[@]}" )
 SAMPLES_TO_BUILD=( "${ALL_SAMPLES[@]}" )
 
 if (( ${#REQUESTED_SAMPLES[@]} > 0 )); then
