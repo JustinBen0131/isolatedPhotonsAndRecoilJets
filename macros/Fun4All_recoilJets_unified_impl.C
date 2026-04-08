@@ -1327,44 +1327,92 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
   std::transform(firstFileLower.begin(), firstFileLower.end(), firstFileLower.begin(), [](unsigned char c){ return std::tolower(c); });
   std::string caloInputMode = detect_input_mode(firstFileLower);
 
-  auto runSegPair = Fun4AllUtils::GetRunSegment(firstFile);
-  int run = runSegPair.first;
-  int seg = runSegPair.second;
+    auto runSegPair = Fun4AllUtils::GetRunSegment(firstFile);
+    int run = runSegPair.first;
+    int seg = runSegPair.second;
 
-  if (run <= 0)
-  {
-      if (isSim)
-      {
-        // If the filename doesn't encode a run number, use a safe CDB timestamp.
-        run = 1;
-        seg = 0;
+    if (run <= 0)
+    {
+        // MINIMAL / SCOPED FIX:
+        // RecoilJets_Condor_AuAu.sh exports RJ_DATASET=isSimEmbedded for both
+        // the standard embedded chain and isSimEmbeddedInclusive, so scope this
+        // special parser by the affected Jet20 embedded DST_CALO filename
+        // signature instead of datasetToken.
+        //
+        // Only embedded Jet20 files use the extra trailing token form:
+        //   DST_CALO_Jet20-...-data-00054404-00035-01794.root
+        // Recover run=54404 and seg=35 for that case only.
+        const std::size_t slashPos = firstFile.find_last_of("/\\");
+        const std::string baseName = (slashPos == std::string::npos) ? firstFile : firstFile.substr(slashPos + 1);
 
-        // Optional override if you ever want it:
-        //   export RJ_CDB_TIMESTAMP=XXXX
-        if (const char* ts = std::getenv("RJ_CDB_TIMESTAMP"))
+        const bool useEmbeddedInclusiveJet20RunParse =
+            isSimEmbedded &&
+            baseName.compare(0, std::string("DST_CALO_Jet20-").size(), "DST_CALO_Jet20-") == 0 &&
+            baseName.find("-data-") != std::string::npos;
+
+        if (useEmbeddedInclusiveJet20RunParse)
         {
-          try
+          const std::string dataTag = "-data-";
+          const std::size_t dataPos = baseName.find(dataTag);
+          const std::string tail = baseName.substr(dataPos + dataTag.size());
+          const std::size_t dash1 = tail.find('-');
+
+          if (dash1 != std::string::npos)
           {
-            const int t = std::stoi(ts);
-            if (t > 0) run = t;
+            const std::string runTok = tail.substr(0, dash1);
+            const std::string rest = tail.substr(dash1 + 1);
+            const std::size_t segEnd = rest.find_first_of("-.");
+            const std::string segTok = rest.substr(0, segEnd);
+
+            try
+            {
+              const int parsedRun = std::stoi(runTok);
+              const int parsedSeg = std::stoi(segTok);
+              if (parsedRun > 0)
+              {
+                run = parsedRun;
+                seg = (parsedSeg >= 0) ? parsedSeg : 0;
+              }
+            }
+            catch (...) { /* keep existing fallback logic below */ }
           }
-          catch (...) { /* keep default */ }
         }
 
-        if (verbose)
-          std::cout << "[INFO] Simulation mode: run/seg not in filename → using TIMESTAMP=" << run << "\n";
-      }
-      else
-      {
-        detail::bail("failed to extract run number from first file: " + firstFile);
-      }
-  }
+        if (run <= 0)
+        {
+          if (isSim)
+          {
+            // If the filename doesn't encode a run number, use a safe CDB timestamp.
+            run = 1;
+            seg = 0;
 
-  if (verbose)
-          std::cout << "[INFO] Run=" << run << "  Seg=" << seg
-                    << "  (" << filesCalo.size() << " files)\n";
+            // Optional override if you ever want it:
+            //   export RJ_CDB_TIMESTAMP=XXXX
+            if (const char* ts = std::getenv("RJ_CDB_TIMESTAMP"))
+            {
+              try
+              {
+                const int t = std::stoi(ts);
+                if (t > 0) run = t;
+              }
+              catch (...) { /* keep default */ }
+            }
 
-  // --------------------------------------------------------------------
+            if (verbose)
+              std::cout << "[INFO] Simulation mode: run/seg not in filename → using TIMESTAMP=" << run << "\n";
+          }
+          else
+          {
+            detail::bail("failed to extract run number from first file: " + firstFile);
+          }
+        }
+    }
+
+    if (verbose)
+            std::cout << "[INFO] Run=" << run << "  Seg=" << seg
+                      << "  (" << filesCalo.size() << " files)\n";
+
+    // --------------------------------------------------------------------
   // Global verbosity control (RJ_VERBOSITY from env; defaults to 10;
   // Condor detection → 0). Also silences std::cout/cerr globally when 0.
   // --------------------------------------------------------------------

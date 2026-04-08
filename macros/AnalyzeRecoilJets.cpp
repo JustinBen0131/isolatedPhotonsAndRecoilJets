@@ -2407,6 +2407,161 @@ namespace ARJ
               TDirectory* ppTop = fPP->GetDirectory(kTriggerPP.c_str());
               if (!ppTop) ppTop = fPP;
 
+              auto CountEmbeddedSelection = [](bool a, bool b, bool c) -> int
+              {
+                return (a ? 1 : 0) + (b ? 1 : 0) + (c ? 1 : 0);
+              };
+
+              const int nInclusiveEmbeddedSel =
+                CountEmbeddedSelection(isInclusiveJet10Embedded, isInclusiveJet20Embedded, bothInclusiveJet10and20simEmbedded);
+              const int nPhotonEmbeddedSel =
+                CountEmbeddedSelection(isPhotonJet10Embedded, isPhotonJet20Embedded, bothPhoton10and20simEmbedded);
+
+              auto InclusiveEmbeddedShortLabel = [&]() -> string
+              {
+                if (bothInclusiveJet10and20simEmbedded) return "(10+20)";
+                if (isInclusiveJet10Embedded) return "10";
+                if (isInclusiveJet20Embedded) return "20";
+                return "";
+              };
+
+              auto PhotonEmbeddedShortLabel = [&]() -> string
+              {
+                if (bothPhoton10and20simEmbedded) return "(10+20)";
+                if (isPhotonJet10Embedded) return "10";
+                if (isPhotonJet20Embedded) return "20";
+                return "";
+              };
+
+              const string inclusiveEmbeddedTitleTag =
+                InclusiveEmbeddedShortLabel().empty() ? "" : ("inclusive jet " + InclusiveEmbeddedShortLabel());
+              const string photonEmbeddedTitleTag =
+                PhotonEmbeddedShortLabel().empty() ? "" : ("photon+jet " + PhotonEmbeddedShortLabel());
+
+              auto ResolveInclusiveJetVariantInput = [&](const string& ueVariant) -> string
+              {
+                if (nInclusiveEmbeddedSel != 1)
+                {
+                  return "";
+                }
+
+                if (bothInclusiveJet10and20simEmbedded)
+                {
+                  const string cfgTag = CfgTagWithUEFor(
+                    kAA_JetPtMin, kAA_B2BCut, kAA_VzCut, kAA_IsoConeR, kAA_IsoMode, ueVariant
+                  );
+                  const string mergedPath = MergedSimEmbeddedPath(
+                    cfgTag,
+                    "embeddedJet10and20merged_SIM",
+                    "RecoilJets_embeddedJet10plus20_MERGED.root"
+                  );
+
+                  if (doPhotonJetMerge)
+                  {
+                    const string in10 = InputInclusiveJetEmbeddedSample("embeddedJet10", ueVariant);
+                    const string in20 = InputInclusiveJetEmbeddedSample("embeddedJet20", ueVariant);
+
+                    if (!gSystem->AccessPathName(in10.c_str()) &&
+                        !gSystem->AccessPathName(in20.c_str()))
+                    {
+                      const bool okMerge = BuildMergedSIMFile_PhotonSlices(
+                        {in10, in20},
+                        {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+                        mergedPath,
+                        kDirSIM,
+                        {"embeddedJet10", "embeddedJet20"}
+                      );
+                      if (!okMerge) return "";
+                    }
+                    else
+                    {
+                      return "";
+                    }
+                  }
+
+                  if (gSystem->AccessPathName(mergedPath.c_str())) return "";
+                  return mergedPath;
+                }
+
+                if (isInclusiveJet10Embedded)
+                {
+                  const string in10 = InputInclusiveJetEmbeddedSample("embeddedJet10", ueVariant);
+                  if (gSystem->AccessPathName(in10.c_str())) return "";
+                  return in10;
+                }
+
+                if (isInclusiveJet20Embedded)
+                {
+                  const string in20 = InputInclusiveJetEmbeddedSample("embeddedJet20", ueVariant);
+                  if (gSystem->AccessPathName(in20.c_str())) return "";
+                  return in20;
+                }
+
+                return "";
+              };
+
+              auto ResolvePhotonJetVariantInput = [&](const string& ueVariant) -> string
+              {
+                if (nPhotonEmbeddedSel != 1)
+                {
+                  return "";
+                }
+
+                if (bothPhoton10and20simEmbedded)
+                {
+                  const string cfgTag = CfgTagWithUEFor(
+                    kAA_JetPtMin, kAA_B2BCut, kAA_VzCut, kAA_IsoConeR, kAA_IsoMode, ueVariant
+                  );
+                  const string mergedPath = MergedSimEmbeddedPath(
+                    cfgTag,
+                    "photonJet10and20merged_SIM",
+                    "RecoilJets_embeddedPhoton10plus20_MERGED.root"
+                  );
+
+                  if (doPhotonJetMerge)
+                  {
+                    const string in10 = InputSimEmbeddedSample("embeddedPhoton10", ueVariant);
+                    const string in20 = InputSimEmbeddedSample("embeddedPhoton20", ueVariant);
+
+                    if (!gSystem->AccessPathName(in10.c_str()) &&
+                        !gSystem->AccessPathName(in20.c_str()))
+                    {
+                      const bool okMerge = BuildMergedSIMFile_PhotonSlices(
+                        {in10, in20},
+                        {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+                        mergedPath,
+                        kDirSIM,
+                        {"embeddedPhoton10", "embeddedPhoton20"}
+                      );
+                      if (!okMerge) return "";
+                    }
+                    else
+                    {
+                      return "";
+                    }
+                  }
+
+                  if (gSystem->AccessPathName(mergedPath.c_str())) return "";
+                  return mergedPath;
+                }
+
+                if (isPhotonJet10Embedded)
+                {
+                  const string in10 = InputSimEmbeddedSample("embeddedPhoton10", ueVariant);
+                  if (gSystem->AccessPathName(in10.c_str())) return "";
+                  return in10;
+                }
+
+                if (isPhotonJet20Embedded)
+                {
+                  const string in20 = InputSimEmbeddedSample("embeddedPhoton20", ueVariant);
+                  if (gSystem->AccessPathName(in20.c_str())) return "";
+                  return in20;
+                }
+
+                return "";
+              };
+
               const auto& trigLoop = kTriggersAuAu;
               for (const auto& trigAA : trigLoop)
               {
@@ -4092,8 +4247,252 @@ namespace ARJ
                             if (gPPpt) delete gPPpt;
                           }
                 }
-                if (generateUEcomparisonSSQA && !skipToCentralityAndPtOverlaysWithSSQA) {
-                    #include "AnalyzeRecoilJets_SSQA.cpp"
+                  if (!forEmbeddedSim)
+                  {
+                    const string tightNonTightBase = JoinPath(ueCompBase, "tightNonTightOverlays");
+                    EnsureDir(tightNonTightBase);
+
+                    auto MakeTightNonTightOverlays =
+                      [&](const string& mcOverlayFolder,
+                          const string& mcTitleTag,
+                          const string& tightMcLegend,
+                          const string& nonTightMcLegend,
+                          auto&& ResolveMCInput)
+                    {
+                      if (mcTitleTag.empty()) return;
+
+                      vector<VariantHandle> mcHandles;
+                      mcHandles.reserve(ueVariants.size());
+
+                      for (std::size_t iv = 0; iv < ueVariants.size(); ++iv)
+                      {
+                        VariantHandle M;
+                        M.variant = ueVariants[iv];
+                        M.label   = ueLabels[iv];
+
+                        const string mcInput = ResolveMCInput(M.variant);
+                        if (!mcInput.empty())
+                        {
+                          M.file = TFile::Open(mcInput.c_str(), "READ");
+                          if (!M.file || M.file->IsZombie())
+                          {
+                            if (M.file) { M.file->Close(); delete M.file; M.file = nullptr; }
+                          }
+                        }
+
+                        mcHandles.push_back(std::move(M));
+                      }
+
+                      for (std::size_t iv = 0; iv < handles.size(); ++iv)
+                      {
+                        if (iv >= mcHandles.size()) continue;
+
+                        auto& dataH = handles[iv];
+                        auto& mcH   = mcHandles[iv];
+
+                        if (!dataH.file || !mcH.file) continue;
+
+                        TDirectory* dataTop = dataH.file->GetDirectory(trigAA.c_str());
+                        TDirectory* mcTop   = mcH.file->GetDirectory(kDirSIM.c_str());
+                        if (!dataTop || !mcTop) continue;
+
+                        const string variantBaseDir = JoinPath(JoinPath(tightNonTightBase, dataH.variant), mcOverlayFolder);
+                        EnsureDir(JoinPath(tightNonTightBase, dataH.variant));
+                        EnsureDir(variantBaseDir);
+
+                        for (const auto& cb : centBins)
+                        {
+                          const string centDir = JoinPath(variantBaseDir, cb.folder);
+                          EnsureDir(centDir);
+
+                          for (const auto& b : PtBins())
+                          {
+                            const string ptDir = JoinPath(centDir, b.folder);
+                            EnsureDir(ptDir);
+
+                            const string hTightName    = "h_Eiso_tight" + b.suffix + cb.suffix;
+                            const string hNonTightName = "h_Eiso_nonTight" + b.suffix + cb.suffix;
+
+                            TH1* hTDataSrc  = dynamic_cast<TH1*>(dataTop->Get(hTightName.c_str()));
+                            TH1* hNTDataSrc = dynamic_cast<TH1*>(dataTop->Get(hNonTightName.c_str()));
+                            TH1* hTMcSrc    = dynamic_cast<TH1*>(mcTop->Get(hTightName.c_str()));
+                            TH1* hNTMcSrc   = dynamic_cast<TH1*>(mcTop->Get(hNonTightName.c_str()));
+                            if (!hTDataSrc || !hNTDataSrc || !hTMcSrc || !hNTMcSrc) continue;
+
+                            TH1* hTData = CloneTH1(
+                              hTDataSrc,
+                              TString::Format("hTightData_%s_%s_%s_%s",
+                                mcOverlayFolder.c_str(), dataH.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data()
+                            );
+                            TH1* hNTData = CloneTH1(
+                              hNTDataSrc,
+                              TString::Format("hNonTightData_%s_%s_%s_%s",
+                                mcOverlayFolder.c_str(), dataH.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data()
+                            );
+                            TH1* hTMc = CloneTH1(
+                              hTMcSrc,
+                              TString::Format("hTightMC_%s_%s_%s_%s",
+                                mcOverlayFolder.c_str(), dataH.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data()
+                            );
+                            TH1* hNTMc = CloneTH1(
+                              hNTMcSrc,
+                              TString::Format("hNonTightMC_%s_%s_%s_%s",
+                                mcOverlayFolder.c_str(), dataH.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data()
+                            );
+
+                            if (!hTData || !hNTData || !hTMc || !hNTMc)
+                            {
+                              if (hTData) delete hTData;
+                              if (hNTData) delete hNTData;
+                              if (hTMc) delete hTMc;
+                              if (hNTMc) delete hNTMc;
+                              continue;
+                            }
+
+                            EnsureSumw2(hTData);
+                            EnsureSumw2(hNTData);
+                            EnsureSumw2(hTMc);
+                            EnsureSumw2(hNTMc);
+
+                            const double intTData  = hTData->Integral(0, hTData->GetNbinsX() + 1);
+                            const double intNTData = hNTData->Integral(0, hNTData->GetNbinsX() + 1);
+                            const double intTMc    = hTMc->Integral(0, hTMc->GetNbinsX() + 1);
+                            const double intNTMc   = hNTMc->Integral(0, hNTMc->GetNbinsX() + 1);
+
+                            if (!(intTData > 0.0) || !(intNTData > 0.0) || !(intTMc > 0.0) || !(intNTMc > 0.0))
+                            {
+                              delete hTData;
+                              delete hNTData;
+                              delete hTMc;
+                              delete hNTMc;
+                              continue;
+                            }
+
+                            hTData->Scale(1.0 / intTData);
+                            hNTData->Scale(1.0 / intNTData);
+                            hTMc->Scale(1.0 / intTMc);
+                            hNTMc->Scale(1.0 / intNTMc);
+
+                            hTMc->SetTitle("");
+                            hTMc->SetLineColor(kBlack);
+                            hTMc->SetLineWidth(2);
+                            hTMc->SetFillStyle(0);
+                            hTMc->SetMarkerSize(0.0);
+
+                            hTData->SetLineColor(kBlack);
+                            hTData->SetMarkerColor(kBlack);
+                            hTData->SetMarkerStyle(20);
+                            hTData->SetMarkerSize(1.0);
+                            hTData->SetLineWidth(2);
+                            hTData->SetFillStyle(0);
+
+                            hNTMc->SetLineColor(kRed + 1);
+                            hNTMc->SetLineWidth(2);
+                            hNTMc->SetFillStyle(0);
+                            hNTMc->SetMarkerSize(0.0);
+
+                            hNTData->SetLineColor(kRed + 1);
+                            hNTData->SetMarkerColor(kRed + 1);
+                            hNTData->SetMarkerStyle(24);
+                            hNTData->SetMarkerSize(1.0);
+                            hNTData->SetLineWidth(2);
+                            hNTData->SetFillStyle(0);
+
+                            const double yMaxTNT = std::max(
+                              std::max(hTData->GetMaximum(), hNTData->GetMaximum()),
+                              std::max(hTMc->GetMaximum(), hNTMc->GetMaximum())
+                            );
+
+                            TCanvas cTNT(
+                              TString::Format("c_tightNonTight_%s_%s_%s_%s",
+                                mcOverlayFolder.c_str(), dataH.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
+                              "c_tightNonTight", 900, 700
+                            );
+                            ApplyCanvasMargins1D(cTNT);
+                            cTNT.cd();
+
+                            hTMc->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
+                            hTMc->GetYaxis()->SetTitle("Normalized to unit area");
+                            hTMc->GetXaxis()->SetTitleSize(0.055);
+                            hTMc->GetYaxis()->SetTitleSize(0.055);
+                            hTMc->GetXaxis()->SetLabelSize(0.045);
+                            hTMc->GetYaxis()->SetLabelSize(0.045);
+                            hTMc->GetYaxis()->SetTitleOffset(1.15);
+                            hTMc->SetMinimum(0.0);
+                            hTMc->SetMaximum((yMaxTNT > 0.0) ? (1.25 * yMaxTNT) : 1.0);
+
+                            hTMc->Draw("hist");
+                            hNTMc->Draw("hist SAME");
+                            hTData->Draw("E1 SAME");
+                            hNTData->Draw("E1 SAME");
+
+                            TLegend legTNT(0.58, 0.68, 0.92, 0.88);
+                            legTNT.SetBorderSize(0);
+                            legTNT.SetFillStyle(0);
+                            legTNT.SetTextFont(42);
+                            legTNT.SetTextSize(0.032);
+                            legTNT.AddEntry(hTData, "tight data", "ep");
+                            legTNT.AddEntry(hTMc, tightMcLegend.c_str(), "l");
+                            legTNT.AddEntry(hNTData, "nontight data", "ep");
+                            legTNT.AddEntry(hNTMc, nonTightMcLegend.c_str(), "l");
+                            legTNT.Draw();
+
+                            TLatex tTitleTNT;
+                            tTitleTNT.SetNDC(true);
+                            tTitleTNT.SetTextFont(42);
+                            tTitleTNT.SetTextAlign(23);
+                            tTitleTNT.SetTextSize(0.040);
+                            tTitleTNT.DrawLatex(0.50, 0.97,
+                              TString::Format("E_{T}^{iso} tight/nontight, auau data and %s embedded MC",
+                                mcTitleTag.c_str()).Data());
+
+                            TLatex tInfoTNT;
+                            tInfoTNT.SetNDC(true);
+                            tInfoTNT.SetTextFont(42);
+                            tInfoTNT.SetTextAlign(13);
+                            tInfoTNT.SetTextSize(0.050);
+                            tInfoTNT.DrawLatex(0.16, 0.88, TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
+                            tInfoTNT.DrawLatex(0.16, 0.82, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+
+                            SaveCanvas(cTNT, JoinPath(ptDir, "Eiso_tightNonTight_overlay.png"));
+
+                            delete hTData;
+                            delete hNTData;
+                            delete hTMc;
+                            delete hNTMc;
+                          }
+                        }
+                      }
+
+                      for (auto& M : mcHandles)
+                      {
+                        if (M.file)
+                        {
+                          M.file->Close();
+                          delete M.file;
+                          M.file = nullptr;
+                        }
+                      }
+                    };
+
+                    MakeTightNonTightOverlays(
+                      "inclusiveMCoverlays",
+                      inclusiveEmbeddedTitleTag,
+                      "tight inclusive MC",
+                      "nontight inclusive MC",
+                      ResolveInclusiveJetVariantInput
+                    );
+
+                    MakeTightNonTightOverlays(
+                      "photonJetOverlays",
+                      photonEmbeddedTitleTag,
+                      "tight photon+jet MC",
+                      "nontight photon+jet MC",
+                      ResolvePhotonJetVariantInput
+                    );
+                  }
+                  if (generateUEcomparisonSSQA && !skipToCentralityAndPtOverlaysWithSSQA) {
+                      #include "AnalyzeRecoilJets_SSQA.cpp"
                 }
 
                 for (auto& H : handles)

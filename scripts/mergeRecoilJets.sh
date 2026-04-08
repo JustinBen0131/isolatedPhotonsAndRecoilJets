@@ -273,6 +273,145 @@ sim_iso_tag() {
 }
 
 # ---------------------------------------------------------------------------
+# YAML-driven cfg_tag generation
+#
+# Goal:
+#   Restrict mergeRecoilJets.sh to ONLY the cfg_tag combinations that are
+#   currently present in the master analysis_config.yaml, instead of merging
+#   every historical cfg_tag directory found on disk.
+#
+# Default YAML path:
+#   ../macros/analysis_config.yaml  (relative to this script)
+# Override:
+#   export MERGE_CONFIG_YAML=/path/to/analysis_config.yaml
+# ---------------------------------------------------------------------------
+merge_yaml_path() {
+  if [[ -n "${MERGE_CONFIG_YAML:-}" ]]; then
+    printf "%s\n" "$MERGE_CONFIG_YAML"
+    return 0
+  fi
+  local here
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  printf "%s\n" "${here}/../macros/analysis_config.yaml"
+}
+
+yaml_get_scalar_bool() {
+  local yaml="$1" key="$2" default="$3"
+  local line val
+  line="$(grep -E "^[[:space:]]*${key}:" "$yaml" | head -n 1 || true)"
+  if [[ -z "$line" ]]; then
+    printf "%s\n" "$default"
+    return 0
+  fi
+  val="${line#*:}"
+  val="${val%%#*}"
+  val="$(trim_ws "$val")"
+  [[ -n "$val" ]] || val="$default"
+  printf "%s\n" "$val"
+}
+
+yaml_get_inline_list() {
+  local yaml="$1" key="$2"
+  local line inner
+  line="$(grep -E "^[[:space:]]*${key}:" "$yaml" | head -n 1 || true)"
+  [[ -n "$line" ]] || return 0
+  inner="${line#*:}"
+  inner="${inner%%#*}"
+  inner="$(trim_ws "$inner")"
+  inner="${inner#[}"
+  inner="${inner%]}"
+  awk -v s="$inner" '
+    BEGIN{
+      n=split(s,a,",");
+      for(i=1;i<=n;i++){
+        gsub(/^[[:space:]]+|[[:space:]]+$/,"",a[i]);
+        if(a[i]!="") print a[i];
+      }
+    }'
+}
+
+build_iso_mode_tags_from_yaml() {
+  local yaml="$1"
+  local isSlidingIso isSlidingAndFixed
+  isSlidingIso="$(yaml_get_scalar_bool "$yaml" "isSlidingIso" "false")"
+  isSlidingAndFixed="$(yaml_get_scalar_bool "$yaml" "isSlidingAndFixed" "false")"
+
+  mapfile -t _fixeds < <(yaml_get_inline_list "$yaml" "fixedGeV")
+  if (( ${#_fixeds[@]} == 0 )); then
+    _fixeds=( "2.0" )
+  fi
+
+  if [[ "$isSlidingAndFixed" == "true" ]]; then
+    echo "isSliding"
+    local _f
+    for _f in "${_fixeds[@]}"; do
+      sim_iso_tag "false" "$_f"
+    done
+    return 0
+  fi
+
+  if [[ "$isSlidingIso" == "true" ]]; then
+    echo "isSliding"
+    return 0
+  fi
+
+  local _f
+  for _f in "${_fixeds[@]}"; do
+    sim_iso_tag "false" "$_f"
+  done
+}
+
+build_cfg_tags_from_yaml() {
+  local dataset_token="$1"
+  local yaml
+  yaml="$(merge_yaml_path)"
+  [[ -f "$yaml" ]] || { err "YAML not found for cfg-tag generation: $yaml"; exit 40; }
+
+  local -a jet_pts b2bs vzs cones iso_tags uepipes
+  mapfile -t jet_pts  < <(yaml_get_inline_list "$yaml" "jet_pt_min")
+  mapfile -t b2bs     < <(yaml_get_inline_list "$yaml" "back_to_back_dphi_min_pi_fraction")
+  mapfile -t vzs      < <(yaml_get_inline_list "$yaml" "vz_cut_cm")
+  mapfile -t cones    < <(yaml_get_inline_list "$yaml" "coneR")
+  mapfile -t iso_tags < <(build_iso_mode_tags_from_yaml "$yaml")
+
+  if (( ${#jet_pts[@]} == 0 )); then jet_pts=( "5.0" ); fi
+  if (( ${#b2bs[@]} == 0 )); then b2bs=( "0.875" ); fi
+  if (( ${#vzs[@]} == 0 )); then vzs=( "30.0" ); fi
+  if (( ${#cones[@]} == 0 )); then cones=( "0.30" ); fi
+  if (( ${#iso_tags[@]} == 0 )); then iso_tags=( "fixedIso2GeV" ); fi
+
+  case "$dataset_token" in
+    auau|oo|isSimEmbedded|issimembedded|simembedded|SIMEMBEDDED|isSimEmbeddedInclusive|issimembeddedinclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE)
+      mapfile -t uepipes < <(yaml_get_inline_list "$yaml" "clusterUEpipeline")
+      (( ${#uepipes[@]} > 0 )) || uepipes=( "noSub" )
+      ;;
+    *)
+      uepipes=( "noSub" )
+      ;;
+  esac
+
+  local pt frac vz cone iso uep tag
+  for pt in "${jet_pts[@]}"; do
+    for frac in "${b2bs[@]}"; do
+      for vz in "${vzs[@]}"; do
+        for cone in "${cones[@]}"; do
+          for iso in "${iso_tags[@]}"; do
+            tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_dir_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso}"
+            for uep in "${uepipes[@]}"; do
+              if [[ -n "$uep" && "$uep" != "noSub" ]]; then
+                echo "${tag}_${uep}"
+              else
+                echo "${tag}_noSub"
+              fi
+            done
+          done
+        done
+      done
+    done
+  done | sort -u
+}
+
+# ---------------------------------------------------------------------------
 # Extract the analysis cfg tag directly from a ROOT file's stamped YAML.
 # Used ONLY for QA cross-checking (directory name vs stamped tag).
 # Every segment ROOT file contains a TObjString "analysis_config_yaml" with
@@ -736,8 +875,17 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simm
 
   # ---------------------------------------------------------------
   # DISCOVER cfg_tag directories from the filesystem.
-  # For firstRound: scan the TG input base (where Condor jobs wrote outputs)
-  # For secondRound: scan the output base (where firstRound wrote partials)
+  #
+  # IMPORTANT:
+  #   isSimEmbedded and isSimEmbeddedInclusive currently share the same TG
+  #   input base:
+  #     /sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded
+  #
+  #   So after the raw cfg_tag discovery, we must FILTER to only cfg_tag
+  #   directories that actually contain one of the requested sample
+  #   subdirectories for THIS dataset token. This prevents
+  #   isSimEmbeddedInclusive from trying to merge the old photon-embedded
+  #   output tree, and vice versa.
   # ---------------------------------------------------------------
   FLAT_OUT_DIR="${OUT_BASE}/${SIM_OUTPUT_TAG}"
   mkdir -p "$FLAT_OUT_DIR" "$LOG_DIR" "$OUT_DIR" "$ERR_DIR" "$TMP_DIR"
@@ -745,21 +893,48 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simm
   if [[ "$SIM_ACTION" == "firstRound" ]]; then
     _discover_base="$SIM_INPUT_BASE"
   elif [[ "$SIM_ACTION" == "secondRound" ]]; then
-    # Discover from TG input base (same as firstRound) so stale output-side
-    # directories from old YAML configs cannot pollute the merge.
+    # Keep discovery anchored to the TG input base, but filter cfg_tags below
+    # by the requested sample directories for this dataset token.
     _discover_base="$SIM_INPUT_BASE"
   else
     err "Unknown isSim action '${SIM_ACTION}'. Allowed: firstRound | secondRound"
     exit 2
   fi
 
-  mapfile -t SIM_CFG_TAGS < <(
+  mapfile -t _ALL_SIM_CFG_TAGS < <(
     find "$_discover_base" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V
   )
 
+  mapfile -t _YAML_SIM_CFG_TAGS < <(build_cfg_tags_from_yaml "$SIM_DATASET_TOKEN")
+
+  SIM_CFG_TAGS=()
+  for _cfg in "${_ALL_SIM_CFG_TAGS[@]}"; do
+    _keep_cfg=0
+
+    # First require that the cfg_tag is part of the CURRENT master YAML matrix
+    for _y in "${_YAML_SIM_CFG_TAGS[@]}"; do
+      if [[ "$_cfg" == "$_y" ]]; then
+        _keep_cfg=1
+        break
+      fi
+    done
+    (( _keep_cfg )) || continue
+
+    # Then require that this cfg_tag actually contains one of the requested samples
+    _keep_cfg=0
+    for _samp in "${samples[@]}"; do
+      if [[ -d "${_discover_base}/${_cfg}/${_samp}" ]]; then
+        _keep_cfg=1
+        break
+      fi
+    done
+    (( _keep_cfg )) && SIM_CFG_TAGS+=( "$_cfg" )
+  done
+
   if (( ${#SIM_CFG_TAGS[@]} == 0 )); then
-    err "No cfg_tag subdirectories found under ${_discover_base}"
-    err "Run RecoilJets_Condor_submit.sh isSim condorDoAll first to create the output tree."
+    err "No cfg_tag subdirectories found under ${_discover_base} that match the CURRENT YAML matrix for requested samples: ${samples[*]}"
+    err "YAML used: $(merge_yaml_path)"
+    err "Run RecoilJets_Condor_submit.sh ${SIM_DATASET_TOKEN} condorDoAll first to create the output tree."
     exit 20
   fi
 
@@ -769,7 +944,8 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simm
   say "Output base : ${FLAT_OUT_DIR}"
   say "groupSize   : ${SIM_GROUP_SIZE}"
   say "Samples     : ${samples[*]}"
-  say "Discovered cfg_tags: ${#SIM_CFG_TAGS[@]}"
+  say "YAML cfg_tags allowed: ${#_YAML_SIM_CFG_TAGS[@]}"
+  say "Discovered cfg_tags (filtered by CURRENT YAML + requested samples): ${#SIM_CFG_TAGS[@]}"
   echo
 
   # Clean TMP_DIR at start of firstRound to avoid stale listfiles/submits
@@ -1055,19 +1231,39 @@ say "Output dir: ${DEST_DIR}"
 # ---------------------------------------------------------------
 # Discover cfg_tag subdirectories under RUN_BASE.
 # Skip bare 8-digit run dirs (legacy flat layout).
-# If no cfg_tag dirs found, fall back to flat layout (empty tag).
+# Then FILTER those discovered cfg_tags against the CURRENT
+# master YAML matrix so we only merge the cfg tags that belong to
+# the current analysis configuration.
 # ---------------------------------------------------------------
-mapfile -t DATA_CFG_TAGS < <(
+mapfile -t _ALL_DATA_CFG_TAGS < <(
   find "$RUN_BASE" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' |
   grep -v -E '^[0-9]{8}$' | sort -V
 )
 
-if (( ${#DATA_CFG_TAGS[@]} == 0 )); then
+if (( ${#_ALL_DATA_CFG_TAGS[@]} == 0 )); then
   # Fallback: old flat layout (no cfg_tag subdirs, runs directly under RUN_BASE)
   DATA_CFG_TAGS=( "" )
   say "No cfg_tag subdirectories found; using flat layout (legacy)"
 else
-  say "Discovered cfg_tags: ${#DATA_CFG_TAGS[@]}"
+  mapfile -t _YAML_DATA_CFG_TAGS < <(build_cfg_tags_from_yaml "$TAG")
+  DATA_CFG_TAGS=()
+  for _ct in "${_ALL_DATA_CFG_TAGS[@]}"; do
+    for _y in "${_YAML_DATA_CFG_TAGS[@]}"; do
+      if [[ "$_ct" == "$_y" ]]; then
+        DATA_CFG_TAGS+=( "$_ct" )
+        break
+      fi
+    done
+  done
+
+  if (( ${#DATA_CFG_TAGS[@]} == 0 )); then
+    err "No discovered cfg_tag directories under ${RUN_BASE} match the CURRENT YAML matrix."
+    err "YAML used: $(merge_yaml_path)"
+    exit 21
+  fi
+
+  say "YAML cfg_tags allowed: ${#_YAML_DATA_CFG_TAGS[@]}"
+  say "Discovered cfg_tags (filtered by CURRENT YAML): ${#DATA_CFG_TAGS[@]}"
   for _ct in "${DATA_CFG_TAGS[@]}"; do say "  ${_ct}"; done
 fi
 
