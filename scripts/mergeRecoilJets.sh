@@ -647,7 +647,7 @@ make_run_list() {
 #   /sphenix/u/patsfan753/scratch/thesisAnalysis/output/<simTag>/
 #     RecoilJets_<sampleTag>_ALL_<cfg_tag>.root
 # ============================================================
-if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simmb|SIMMB|isSimEmbedded|issimembedded|simembedded|SIMEMBEDDED)$ ]]; then
+if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simmb|SIMMB|isSimEmbedded|issimembedded|simembedded|SIMEMBEDDED|isSimEmbeddedInclusive|issimembeddedinclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE)$ ]]; then
   SIM_DATASET_TOKEN="${1}"
   SIM_ACTION="${2:-}"
   shift 2
@@ -709,6 +709,11 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simm
       SIM_OUTPUT_TAG="simembedded"
       [[ "$SIM_SAMPLE_EXPLICIT" -eq 0 ]] && SIM_SAMPLE="run28_embeddedPhoton20"
       ;;
+    isSimEmbeddedInclusive|issimembeddedinclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE)
+      SIM_INPUT_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded"
+      SIM_OUTPUT_TAG="simembeddedinclusive"
+      [[ "$SIM_SAMPLE_EXPLICIT" -eq 0 ]] && SIM_SAMPLE="run28_embeddedJet20"
+      ;;
     *)
       SIM_INPUT_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/sim"
       SIM_OUTPUT_TAG="sim"
@@ -722,6 +727,7 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simm
       isSimJet5|isSimjet5|simjet5|SIMJET5) samples=( "run28_jet5" ) ;;
       isSimMB|simmb|SIMMB)       samples=( "run28_detroit" ) ;;
       isSimEmbedded|issimembedded|simembedded|SIMEMBEDDED) samples=( "run28_embeddedPhoton10" "run28_embeddedPhoton20" ) ;;
+      isSimEmbeddedInclusive|issimembeddedinclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE) samples=( "run28_embeddedJet10" "run28_embeddedJet20" ) ;;
       *)                         samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
     esac
   else
