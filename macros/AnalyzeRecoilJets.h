@@ -133,10 +133,18 @@ namespace ARJ
   inline bool bothPhoton5and20sim        = false;
   inline bool bothPhoton10and20sim       = false;
   inline bool allPhoton5and10and20sim    = false;
+
   //   Embedded Au+Au SIM slices / merges:
   inline bool isPhotonJet10Embedded      = false;
   inline bool isPhotonJet20Embedded      = true;
   inline bool bothPhoton10and20simEmbedded = false;
+
+
+  inline bool isInclusiveJet10Embedded   = false;
+  inline bool isInclusiveJet20Embedded   = false;
+  inline bool bothInclusiveJet10and20simEmbedded = false;
+
+
   //   Special SIM samples:
   inline bool isSimMB                    = false;   // MinBias DETROIT tune
   inline bool isSimJet5                  = false;   // inclusive jet5
@@ -369,6 +377,16 @@ namespace ARJ
     inline string InputSimEmbeddedSample(const string& sampleTag, const string& ueVariant)
     {
         return kInputBase + "/simEmbedded/RecoilJets_" + sampleTag + "_ALL_" +
+               CfgTagAA() + "_" + ueVariant + ".root";
+    }
+    inline string InputInclusiveJetEmbeddedSample(const string& sampleTag)
+    {
+        return kInputBase + "/InclusiveJetSIM_EMBEDDED/RecoilJets_" + sampleTag + "_ALL_" +
+               CfgTagWithUE() + ".root";
+    }
+    inline string InputInclusiveJetEmbeddedSample(const string& sampleTag, const string& ueVariant)
+    {
+        return kInputBase + "/InclusiveJetSIM_EMBEDDED/RecoilJets_" + sampleTag + "_ALL_" +
                CfgTagAA() + "_" + ueVariant + ".root";
     }
     // =========================================================================

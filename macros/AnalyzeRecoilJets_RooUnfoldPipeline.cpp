@@ -2658,28 +2658,21 @@
                           }
                         }
 
-                        TH1D* hXJRecoPP = nullptr;
+                          TH1D* hXJRecoPP = nullptr;
 
-                        if (s_ppFallbackTop)
-                        {
-                          TH2* h2RecoPP_in = dynamic_cast<TH2*>(s_ppFallbackTop->Get(recoXJName.c_str()));
-                          if (h2RecoPP_in)
+                          if (s_ppFallbackTop)
                           {
-                            const int ixRecoPP = h2RecoPP_in->GetXaxis()->FindBin(cen);
-                            if (ixRecoPP >= 1 && ixRecoPP <= h2RecoPP_in->GetNbinsX())
+                            TH2* h2RecoPP_in = dynamic_cast<TH2*>(s_ppFallbackTop->Get(recoXJName.c_str()));
+                            if (h2RecoPP_in)
                             {
-                              hXJRecoPP = h2RecoPP_in->ProjectionY(
+                              hXJRecoPP = ProjectTH2YForPtWindow(
+                                h2RecoPP_in,
+                                b,
                                 TString::Format("h_xJRecoPPInput_%s_%s", rKey.c_str(), b.folder.c_str()).Data(),
-                                ixRecoPP, ixRecoPP, "e"
+                                "e"
                               );
-                              if (hXJRecoPP)
-                              {
-                                hXJRecoPP->SetDirectory(nullptr);
-                                EnsureSumw2(hXJRecoPP);
-                              }
                             }
                           }
-                        }
 
                         if (hXJRecoPP)
                         {
@@ -9569,53 +9562,44 @@
             {
               if (!gApplyPurityCorrectionForUnfolding || !h2SideC) return;
 
-              const auto& analysisRecoBins = UnfoldAnalysisRecoPtBins();
-              const int nPtPads = (int)analysisRecoBins.size();
+              const auto& outputRecoBins = UnfoldOutputRecoPtBins();
+              const int nPtPads = (int)outputRecoBins.size();
               const int nPtCols = 3;
-              const int nPtRows = 3;
+              const int nPtRows = (nPtPads + nPtCols - 1) / nPtCols;
 
               auto DrawPuritySubtractionPad =
-                [&](int iPad)->TH1D*
+                  [&](int iPad)->TH1D*
               {
                 if (iPad < 0 || iPad >= nPtPads) return nullptr;
 
-                const PtBin& b = analysisRecoBins[iPad];
-                const double cen = 0.5 * (b.lo + b.hi);
-                const int ix = h2SideC->GetXaxis()->FindBin(cen);
+                const PtBin& b = outputRecoBins[iPad];
 
-                TH1D* hPerSideC = nullptr;
-                if (ix >= 1 && ix <= h2SideC->GetNbinsX())
-                {
-                  hPerSideC = h2SideC->ProjectionY(
+                TH1D* hPerSideC = ProjectTH2YForPtWindow(
+                    h2SideC,
+                    b,
                     TString::Format("h_puritySubtractionInput_%s_pTbin%d", rKey.c_str(), iPad + 1).Data(),
-                    ix, ix, "e"
+                    "e"
                   );
+
                   if (hPerSideC)
                   {
-                    hPerSideC->SetDirectory(nullptr);
-                    EnsureSumw2(hPerSideC);
-                  }
-                }
+                    double maxY = 0.0;
+                    const int nxb = hPerSideC->GetNbinsX();
+                    for (int ib = 1; ib <= nxb; ++ib)
+                    {
+                      const double y  = hPerSideC->GetBinContent(ib);
+                      const double ey = hPerSideC->GetBinError(ib);
+                      const double v  = y + ey;
+                      if (v > maxY) maxY = v;
+                    }
 
-                if (hPerSideC)
-                {
-                  double maxY = 0.0;
-                  const int nxb = hPerSideC->GetNbinsX();
-                  for (int ib = 1; ib <= nxb; ++ib)
-                  {
-                    const double y  = hPerSideC->GetBinContent(ib);
-                    const double ey = hPerSideC->GetBinError(ib);
-                    const double v  = y + ey;
-                    if (v > maxY) maxY = v;
-                  }
-
-                  hPerSideC->SetMinimum(0.0);
-                  hPerSideC->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
-                  hPerSideC->GetXaxis()->SetRangeUser(0.0, 2.0);
-                  hPerSideC->SetTitle("");
-                  hPerSideC->GetXaxis()->SetTitle("x_{J}");
-                  hPerSideC->GetYaxis()->SetTitle("Counts");
-                  hPerSideC->Draw("E1");
+                    hPerSideC->SetMinimum(0.0);
+                    hPerSideC->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
+                    hPerSideC->GetXaxis()->SetRangeUser(0.0, 2.0);
+                    hPerSideC->SetTitle("");
+                    hPerSideC->GetXaxis()->SetTitle("x_{J}");
+                    hPerSideC->GetYaxis()->SetTitle("Counts");
+                    hPerSideC->Draw("E1");
                 }
                 else
                 {
@@ -9667,7 +9651,7 @@
               TCanvas cTbl(
                 TString::Format("c_puritySubtractionInput_tbl_%s", rKey.c_str()).Data(),
                 "c_puritySubtractionInput_tbl",
-                1800, 1300
+                1800, 400 * nPtRows + 100
               );
               cTbl.Divide(nPtCols, nPtRows, 0.001, 0.001);
 
@@ -9711,9 +9695,8 @@
                 );
 
                 if (hKeep) delete hKeep;
-              }
-            };
-
+            }
+                
             const string nameReco      = "h2_unfoldReco_pTgamma_xJ_incl_"           + rKey;
             const string nameRecoC     = "h2_unfoldReco_pTgamma_xJ_incl_sidebandC_" + rKey;
             const string nameTruth     = "h2_unfoldTruth_pTgamma_xJ_incl_"          + rKey;
@@ -10287,11 +10270,11 @@
                 {
                   if (!h) return;
 
-                  TCanvas c(TString::Format("c_%s_%s", h->GetName(), rKey.c_str()).Data(), "c_jetEffQA_1D", 900, 700);
+                  TCanvas c(TString::Format("c_%s_%s", h->GetName(), rKey.c_str()).Data(), "c_jetEffQA_1D", 1100, 700);
                   ApplyCanvasMargins1D(c);
                   c.SetLeftMargin(0.16);
                   c.SetRightMargin(0.05);
-                  c.SetBottomMargin(0.14);
+                  c.SetBottomMargin(0.24);
                   c.SetTopMargin(0.08);
 
                   double maxY = 0.0;
@@ -10301,15 +10284,21 @@
                     if (std::isfinite(v) && v > maxY) maxY = v;
                   }
 
-                  TH1F frame("frame_jetEffInt1D", "", 1, 10.0, 35.0);
-                  frame.SetMinimum(0.0);
-                  frame.SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.05);
-                  frame.SetTitle("");
-                  frame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                  frame.GetYaxis()->SetTitle(h->GetYaxis()->GetTitle());
-                  frame.GetXaxis()->SetTitleOffset(1.10);
-                  frame.GetYaxis()->SetTitleOffset(1.55);
-                  frame.Draw("axis");
+                  TH1* hFrame = CloneTH1(h, TString::Format("%s_frame", h->GetName()).Data());
+                  if (!hFrame) return;
+
+                  hFrame->SetDirectory(nullptr);
+                  hFrame->Reset("ICES");
+                  hFrame->SetMinimum(0.0);
+                  hFrame->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.05);
+                  hFrame->SetTitle("");
+                  hFrame->GetXaxis()->SetTitle("p_{T}^{#gamma} output window");
+                  hFrame->GetYaxis()->SetTitle(h->GetYaxis()->GetTitle());
+                  hFrame->GetXaxis()->SetTitleOffset(1.10);
+                  hFrame->GetYaxis()->SetTitleOffset(1.55);
+                  hFrame->GetXaxis()->SetLabelSize(0.060);
+                  hFrame->GetXaxis()->LabelsOption("v");
+                  hFrame->Draw("axis");
 
                   h->SetMarkerStyle(20);
                   h->SetMarkerSize(1.05);
@@ -10318,7 +10307,7 @@
 
                   if (drawUnity)
                   {
-                    TLine l1(10.0, 1.0, 35.0, 1.0);
+                    TLine l1(0.5, 1.0, (double)h->GetNbinsX() + 0.5, 1.0);
                     l1.SetLineStyle(2);
                     l1.SetLineWidth(2);
                     l1.Draw("same");
@@ -10330,8 +10319,11 @@
                   tx.SetTextAlign(13);
                   tx.SetTextSize(0.034);
                   tx.DrawLatex(0.14, 0.98, titleText.c_str());
+                  tx.SetTextSize(0.032);
+                  tx.DrawLatex(0.14, 0.30, "Integrated over truth x_{J} unfolding bins");
 
                   SaveCanvas(c, outPath);
+                  delete hFrame;
                 };
 
                 auto DrawJetEffIntegratedVsXJ = [&](TH2* hNum,
@@ -10431,13 +10423,14 @@
 
                 auto MakeJetEffSliceHist = [&](TH2* hNum,
                                                TH2* hDen,
-                                               int ix,
+                                               int ixLo,
+                                               int ixHi,
                                                const char* name)->TH1D*
                 {
                   if (!hNum || !hDen) return nullptr;
-                  if (ix < 1 || ix > hDen->GetXaxis()->GetNbins()) return nullptr;
+                  if (ixLo < 1 || ixHi < ixLo || ixHi > hDen->GetXaxis()->GetNbins()) return nullptr;
 
-                  TH1D* hSlice = hDen->ProjectionY(name, ix, ix, "e");
+                  TH1D* hSlice = hDen->ProjectionY(name, ixLo, ixHi, "e");
                   if (!hSlice) return nullptr;
 
                   hSlice->SetDirectory(nullptr);
@@ -10447,10 +10440,26 @@
                   const int ny = hDen->GetYaxis()->GetNbins();
                   for (int iy = 1; iy <= ny; ++iy)
                   {
-                    const double num  = hNum->GetBinContent(ix, iy);
-                    const double eNum = hNum->GetBinError(ix, iy);
-                    const double den  = hDen->GetBinContent(ix, iy);
-                    const double eDen = hDen->GetBinError(ix, iy);
+                    double num  = 0.0;
+                    double den  = 0.0;
+                    double eNum2 = 0.0;
+                    double eDen2 = 0.0;
+
+                    for (int ix = ixLo; ix <= ixHi; ++ix)
+                    {
+                      const double num_i  = hNum->GetBinContent(ix, iy);
+                      const double eNum_i = hNum->GetBinError(ix, iy);
+                      const double den_i  = hDen->GetBinContent(ix, iy);
+                      const double eDen_i = hDen->GetBinError(ix, iy);
+
+                      if (std::isfinite(num_i))  num  += num_i;
+                      if (std::isfinite(den_i))  den  += den_i;
+                      if (std::isfinite(eNum_i)) eNum2 += eNum_i * eNum_i;
+                      if (std::isfinite(eDen_i)) eDen2 += eDen_i * eDen_i;
+                    }
+
+                    const double eNum = std::sqrt(std::max(0.0, eNum2));
+                    const double eDen = std::sqrt(std::max(0.0, eDen2));
 
                     if (!(std::isfinite(num) && std::isfinite(eNum) &&
                           std::isfinite(den) && std::isfinite(eDen) && den > 0.0))
@@ -10659,109 +10668,42 @@
                   EnsureSumw2(h2JetEff);
                   h2JetEff->Divide(h2JetEffDen_in);
 
-                  vector<double> xPt, exPt, yEff, eyEff;
-                  xPt.reserve((std::size_t)nPtAll);
-                  exPt.reserve((std::size_t)nPtAll);
-                  yEff.reserve((std::size_t)nPtAll);
-                  eyEff.reserve((std::size_t)nPtAll);
-
-                  for (int i = 0; i < nPtAll; ++i)
-                  {
-                    const PtBin& b = analysisRecoBins[i];
-                    const double ex  = 0.5 * (b.hi - b.lo);
-
-                    const int ixEff = FindExactXBinForAnalysisPt(h2JetEffDen_in->GetXaxis(), b);
-                    if (ixEff < 1 || ixEff > h2JetEffDen_in->GetXaxis()->GetNbins()) continue;
-
-                    double eNumInt = 0.0;
-                    double eDenInt = 0.0;
-
-                    const double numInt = h2JetEffNum_in->IntegralAndError(
-                      ixEff, ixEff,
-                      1, h2JetEffNum_in->GetYaxis()->GetNbins(),
-                      eNumInt
+                    TH1D* hJetEffNumIntegrated = BuildIntegratedVsPtgamma(
+                      h2JetEffNum_in,
+                      TString::Format("hJetEffNumIntegrated_%s", rKey.c_str()).Data(),
+                      "Integrated matched truth recoil-jet counts"
                     );
-                    const double denInt = h2JetEffDen_in->IntegralAndError(
-                      ixEff, ixEff,
-                      1, h2JetEffDen_in->GetYaxis()->GetNbins(),
-                      eDenInt
+                    TH1D* hJetEffDenIntegrated = BuildIntegratedVsPtgamma(
+                      h2JetEffDen_in,
+                      TString::Format("hJetEffDenIntegrated_%s", rKey.c_str()).Data(),
+                      "Integrated truth recoil-jet counts"
+                    );
+                    TH1D* hJetEffIntegrated = BuildRatio1D(
+                      hJetEffNumIntegrated,
+                      hJetEffDenIntegrated,
+                      TString::Format("hJetEffIntegrated_%s", rKey.c_str()).Data(),
+                      "Integrated jet efficiency"
                     );
 
-                    if (!(denInt > 0.0)) continue;
-
-                    const double eff = numInt / denInt;
-                    const double var = (eNumInt * eNumInt) / (denInt * denInt)
-                                     + (numInt * numInt * eDenInt * eDenInt) / (denInt * denInt * denInt * denInt);
-                    const double err = (var > 0.0 && std::isfinite(var)) ? std::sqrt(var) : 0.0;
-
-                    xPt.push_back(0.5 * (b.lo + b.hi));
-                    exPt.push_back(ex);
-                    yEff.push_back(eff);
-                    eyEff.push_back(err);
-                  }
-
-                  if (!xPt.empty())
-                  {
-                    TCanvas cJetEffPt(
-                      TString::Format("c_jetEffPt_%s", rKey.c_str()).Data(),
-                      "c_jetEffPt", 900, 700
-                    );
-                    ApplyCanvasMargins1D(cJetEffPt);
-                    cJetEffPt.SetLeftMargin(0.16);
-                    cJetEffPt.SetRightMargin(0.05);
-                    cJetEffPt.SetBottomMargin(0.14);
-                    cJetEffPt.SetTopMargin(0.08);
-
-                    TH1F frame("frame_jetEffPt","", 1, 10.0, 35.0);
-                    frame.SetMinimum(0.0);
-                    frame.SetMaximum(1.05);
-                    frame.SetTitle("");
-                    frame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                    frame.GetYaxis()->SetTitle("Integrated jet efficiency");
-                    frame.GetXaxis()->SetTitleOffset(1.10);
-                    frame.GetYaxis()->SetTitleOffset(1.55);
-                    frame.Draw("axis");
-
-                    TGraphErrors gJetEff(
-                      (int)xPt.size(),
-                      &xPt[0], &yEff[0],
-                      &exPt[0], &eyEff[0]
-                    );
-                    gJetEff.SetMarkerStyle(20);
-                    gJetEff.SetMarkerSize(1.05);
-                    gJetEff.SetMarkerColor(kBlue + 1);
-                    gJetEff.SetLineColor(kBlue + 1);
-                    gJetEff.SetLineWidth(2);
-                    gJetEff.Draw("P same");
-
-                    TLine l1(10.0, 1.0, 35.0, 1.0);
-                    l1.SetLineStyle(2);
-                    l1.SetLineWidth(2);
-                    l1.Draw("same");
-
+                    if (hJetEffIntegrated)
                     {
-                      TLatex tx;
-                      tx.SetNDC();
-                      tx.SetTextFont(42);
-                      tx.SetTextAlign(13);
-                      tx.SetTextSize(0.034);
-                      tx.DrawLatex(
-                        0.14, 0.98,
-                        TString::Format("Jet Efficiency vs p_{T}^{#gamma} (R = %.1f), Run24pp, Photon 4 GeV + MBD NS #geq 1", R).Data()
+                      hJetEffIntegrated->SetMarkerStyle(20);
+                      hJetEffIntegrated->SetMarkerSize(1.05);
+                      hJetEffIntegrated->SetMarkerColor(kBlue + 1);
+                      hJetEffIntegrated->SetLineColor(kBlue + 1);
+                      hJetEffIntegrated->SetLineWidth(2);
+
+                      DrawJetEffIntegrated1D(
+                        hJetEffIntegrated,
+                        JoinPath(withAndWithoutJetEffOut, "jetEfficiency_integrated_vs_pTgamma.png"),
+                        TString::Format("Jet Efficiency vs p_{T}^{#gamma} (R = %.1f), Run24pp, Photon 4 GeV + MBD NS #geq 1", R).Data(),
+                        true
                       );
                     }
 
-                    {
-                      TLatex tx;
-                      tx.SetNDC();
-                      tx.SetTextFont(42);
-                      tx.SetTextAlign(13);
-                      tx.SetTextSize(0.035);
-                      tx.DrawLatex(0.14, 0.30, "Integrated over truth x_{J} unfolding bins");
-                    }
-
-                    SaveCanvas(cJetEffPt, JoinPath(withAndWithoutJetEffOut, "jetEfficiency_integrated_vs_pTgamma.png"));
-                  }
+                    if (hJetEffIntegrated) delete hJetEffIntegrated;
+                    if (hJetEffDenIntegrated) delete hJetEffDenIntegrated;
+                    if (hJetEffNumIntegrated) delete hJetEffNumIntegrated;
 
                   DrawJetEffTH2Colz(
                     h2JetEffDen_in,
@@ -14809,15 +14751,10 @@
 
       EnsureDir(outBase);
 
-      auto FindStoredUnfoldPtIndexForAnalysis = [&](const PtBin& b)->int
-        {
-          const auto& analysisBins = UnfoldAnalysisRecoPtBins();
-          for (int i = 0; i < (int)analysisBins.size(); ++i)
+        auto FindStoredUnfoldPtIndexForAnalysis = [&](const PtBin& b)->int
           {
-            if (analysisBins[i].lo == b.lo && analysisBins[i].hi == b.hi) return i;
-          }
-          return -1;
-      };
+            return FindUnfoldOutputPtWindowIndex(b.lo, b.hi);
+        };
 
       for (const auto& rKey : kRKeys)
       {
@@ -14918,7 +14855,7 @@
 
           auto DrawPad = [&](int iAnalysis)->void
           {
-              const auto& analysisBins = UnfoldAnalysisRecoPtBins();
+              const auto& analysisBins = UnfoldOutputRecoPtBins();
 
               if (iAnalysis < 0 || iAnalysis >= (int)analysisBins.size())
               {
@@ -15103,11 +15040,13 @@
             if (hCor) delete hCor;
           };
 
-        TCanvas c(TString::Format("c_tbl_purityOv_%s", rKey.c_str()).Data(), "c_tbl_purityOv", 1800, 1300);
-        c.Divide(3, 3, 0.001, 0.001);
+          const auto& analysisBins = UnfoldOutputRecoPtBins();
+          const int nPads = (int)analysisBins.size();
+          const int nCols = 3;
+          const int nRows = (nPads + nCols - 1) / nCols;
 
-        const auto& analysisBins = UnfoldAnalysisRecoPtBins();
-        const int nPads = (int)analysisBins.size();
+          TCanvas c(TString::Format("c_tbl_purityOv_%s", rKey.c_str()).Data(), "c_tbl_purityOv", 1800, 400 * nRows + 100);
+          c.Divide(nCols, nRows, 0.001, 0.001);
 
         for (int ipad = 0; ipad < nPads; ++ipad)
         {
