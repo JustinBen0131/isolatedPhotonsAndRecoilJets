@@ -2357,40 +2357,64 @@ namespace ARJ
                  << " UE-subtraction variant overlay comparisons\n"
                  << "==============================" << ANSI_RESET << "\n";
 
-            const string outRoot = forEmbeddedSim
-                ? (kOutputBase + "/combinedSimOnlyEMBEDDED/" + CfgTagAA() + "/embeddedPhoton20")
-                : (kOutputBase + "/auau/" + CfgTagAA());
+              const SimSample activeEmbeddedSample = CurrentSimSample();
+              const string activeEmbeddedSimFolder =
+                  (activeEmbeddedSample == SimSample::kEmbeddedPhoton10) ? "embeddedPhoton10_SIM" :
+                  (activeEmbeddedSample == SimSample::kEmbeddedPhoton10And20Merged) ? "photonJet10and20merged_SIM" :
+                  "embeddedPhoton20_SIM";
 
-            const vector<string> ueVariants = {"noSub", "baseVariant", "variantA", "variantB"};
-            const vector<string> ueLabels   = {"No UE sub", "Base Variant", "Variant A", "Variant B"};
+              auto EmbeddedVariantInput = [&](const string& ueVariant) -> string
+              {
+                if (activeEmbeddedSample == SimSample::kEmbeddedPhoton10)
+                {
+                  return InputSimEmbeddedSample("embeddedPhoton10", ueVariant);
+                }
+                if (activeEmbeddedSample == SimSample::kEmbeddedPhoton10And20Merged)
+                {
+                  return MergedSimEmbeddedPath(
+                    CfgTagWithUEFor(kAA_JetPtMin, kAA_B2BCut, kAA_VzCut, kAA_IsoConeR, kAA_IsoMode, ueVariant),
+                    "photonJet10and20merged_SIM",
+                    "RecoilJets_embeddedPhoton10plus20_MERGED.root"
+                  );
+                }
+                return InputSimEmbedded(ueVariant);
+              };
 
-            const auto& centBins = CentBins();
-            if (centBins.empty())
-            {
-              cout << ANSI_BOLD_YEL << "[WARN] No centrality bins defined — skipping UE comparisons\n"
-                   << ANSI_RESET;
-              return;
-            }
+              const string outRoot = kOutputBase + "/auau/" + CfgTagAA();
 
-            TFile* fPP = TFile::Open(InputPP(isRun25pp).c_str(), "READ");
-            if (!fPP || fPP->IsZombie())
-            {
-              if (fPP) { fPP->Close(); delete fPP; fPP = nullptr; }
-              cout << ANSI_BOLD_YEL
-                   << "[WARN] Missing PP reference input for UE comparisons: "
-                   << InputPP(isRun25pp)
-                   << ANSI_RESET << "\n";
-              return;
-            }
+              const vector<string> ueVariants = {"noSub", "baseVariant", "variantA", "variantB"};
+              const vector<string> ueLabels   = {"No UE sub", "Base Variant", "Variant A", "Variant B"};
 
-            TDirectory* ppTop = fPP->GetDirectory(kTriggerPP.c_str());
-            if (!ppTop) ppTop = fPP;
+              const auto& centBins = CentBins();
+              if (centBins.empty())
+              {
+                cout << ANSI_BOLD_YEL << "[WARN] No centrality bins defined — skipping UE comparisons\n"
+                     << ANSI_RESET;
+                return;
+              }
 
-            const vector<string> embSimTrigDirs = {"SIM"};
-            const auto& trigLoop = forEmbeddedSim ? embSimTrigDirs : kTriggersAuAu;
-            for (const auto& trigAA : trigLoop)
-            {
-              const string trigOutBase = JoinPath(outRoot, trigAA);
+              TFile* fPP = TFile::Open(InputPP(isRun25pp).c_str(), "READ");
+              if (!fPP || fPP->IsZombie())
+              {
+                if (fPP) { fPP->Close(); delete fPP; fPP = nullptr; }
+                cout << ANSI_BOLD_YEL
+                     << "[WARN] Missing PP reference input for UE comparisons: "
+                     << InputPP(isRun25pp)
+                     << ANSI_RESET << "\n";
+                return;
+              }
+
+              TDirectory* ppTop = fPP->GetDirectory(kTriggerPP.c_str());
+              if (!ppTop) ppTop = fPP;
+
+              const auto& trigLoop = kTriggersAuAu;
+              for (const auto& trigAA : trigLoop)
+              {
+                const string trigOutBase = JoinPath(outRoot, trigAA);
+                const string sourceTopDirName = forEmbeddedSim ? kDirSIM : trigAA;
+                const string ueCompModeBase = forEmbeddedSim
+                    ? JoinPath(JoinPath(trigOutBase, "isoQA/UEcomparisons"), activeEmbeddedSimFolder)
+                    : JoinPath(trigOutBase, "isoQA/UEcomparisons");
 
               struct VariantHandle
               {
@@ -2404,12 +2428,12 @@ namespace ARJ
 
               for (std::size_t iv = 0; iv < ueVariants.size(); ++iv)
               {
-                VariantHandle H;
-                H.variant = ueVariants[iv];
-                H.label   = ueLabels[iv];
-                const string varInput = forEmbeddedSim
-                      ? InputSimEmbedded(H.variant) : InputAuAu(H.variant);
-                H.file    = TFile::Open(varInput.c_str(), "READ");
+                    VariantHandle H;
+                    H.variant = ueVariants[iv];
+                    H.label   = ueLabels[iv];
+                    const string varInput = forEmbeddedSim
+                          ? EmbeddedVariantInput(H.variant) : InputAuAu(H.variant);
+                    H.file    = TFile::Open(varInput.c_str(), "READ");
 
                 if (!H.file || H.file->IsZombie())
                 {
@@ -2425,14 +2449,14 @@ namespace ARJ
               }
 
 
-                const string ueCompBase = JoinPath(trigOutBase, "isoQA/UEcomparisons");
-                const string centralitySummaryBase = JoinPath(ueCompBase, "centralitySummaryPerPt");
-                const string meanIsoSummaryDir = JoinPath(centralitySummaryBase, "meanIsoSummaryPlots");
-                const string perVariantOverlayBase = JoinPath(ueCompBase, "perVariantOverlays");
-                EnsureDir(ueCompBase);
-                EnsureDir(centralitySummaryBase);
-                EnsureDir(meanIsoSummaryDir);
-                EnsureDir(perVariantOverlayBase);
+                  const string ueCompBase = ueCompModeBase;
+                  const string centralitySummaryBase = JoinPath(ueCompBase, "centralitySummaryPerPt");
+                  const string meanIsoSummaryDir = JoinPath(centralitySummaryBase, "meanIsoSummaryPlots");
+                  const string perVariantOverlayBase = JoinPath(ueCompBase, "perVariantOverlays");
+                  EnsureDir(ueCompBase);
+                  EnsureDir(centralitySummaryBase);
+                  EnsureDir(meanIsoSummaryDir);
+                  EnsureDir(perVariantOverlayBase);
 
                 if (skipToCentralityAndPtOverlaysWithSSQA && !generateUEcomparisonSSQA)
                 {
@@ -2455,7 +2479,7 @@ namespace ARJ
                   EnsureDir(variantDir);
                   EnsureDir(variantCentralitySummaryDir);
 
-                  TDirectory* aaTop = H.file->GetDirectory(trigAA.c_str());
+                  TDirectory* aaTop = H.file->GetDirectory(sourceTopDirName.c_str());
                   if (!aaTop) continue;
 
                   // -- accumulators for <E_T^iso> vs centrality (per pT bin) --
