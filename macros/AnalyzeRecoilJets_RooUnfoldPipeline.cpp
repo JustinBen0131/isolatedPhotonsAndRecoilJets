@@ -2319,6 +2319,7 @@
 
               for (const auto& rKey : kRKeys)
               {
+                if (isEmbeddedAuAu && rKey == "r06") continue;
                 const double R = RFromKey(rKey);
                 const string rOut = JoinPath(outBase, rKey);
                 const string xjInputOut = JoinPath(rOut, "preUnfoldInputDistributions");
@@ -2665,12 +2666,12 @@
                             TH2* h2RecoPP_in = dynamic_cast<TH2*>(s_ppFallbackTop->Get(recoXJName.c_str()));
                             if (h2RecoPP_in)
                             {
-                              hXJRecoPP = ProjectTH2YForPtWindow(
-                                h2RecoPP_in,
-                                b,
-                                TString::Format("h_xJRecoPPInput_%s_%s", rKey.c_str(), b.folder.c_str()).Data(),
-                                "e"
-                              );
+                                hXJRecoPP = ProjectTH2YForPtWindow(
+                                  h2RecoPP_in,
+                                  b,
+                                  TString::Format("h_xJRecoPPInput_%s_%s", rKey.c_str(), b.folder.c_str()).Data(),
+                                  "e"
+                                );
                             }
                           }
 
@@ -9527,6 +9528,7 @@
 
         for (const auto& rKey : kRKeys)
         {
+          if (isEmbeddedAuAu && rKey == "r06") continue;
           const double R = RFromKey(rKey);
           const string rOut = JoinPath(outBase, rKey);
           EnsureDir(rOut);
@@ -9675,34 +9677,35 @@
               for (auto* h : keepPurityTable) if (h) delete h;
               keepPurityTable.clear();
 
-              for (int i = 0; i < nPtPads; ++i)
-              {
-                TCanvas cSingle(
-                  TString::Format("c_puritySubtractionInput_%s_pTbin%d", rKey.c_str(), i + 1).Data(),
-                  "c_puritySubtractionInput_single",
-                  900, 700
-                );
-                ApplyCanvasMargins1D(cSingle);
+                for (int i = 0; i < nPtPads; ++i)
+                {
+                  TCanvas cSingle(
+                    TString::Format("c_puritySubtractionInput_%s_pTbin%d", rKey.c_str(), i + 1).Data(),
+                    "c_puritySubtractionInput_single",
+                    900, 700
+                  );
+                  ApplyCanvasMargins1D(cSingle);
 
-                TH1D* hKeep = DrawPuritySubtractionPad(i);
+                  TH1D* hKeep = DrawPuritySubtractionPad(i);
 
-                SaveCanvas(
-                  cSingle,
-                  JoinPath(
-                    purityCorrQAOut,
-                    TString::Format("puritySubtractionInput_xJ_pTbin%d.png", i + 1).Data()
-                  )
-                );
+                  SaveCanvas(
+                    cSingle,
+                    JoinPath(
+                      purityCorrQAOut,
+                      TString::Format("puritySubtractionInput_xJ_pTbin%d.png", i + 1).Data()
+                    )
+                  );
 
-                if (hKeep) delete hKeep;
-            }
-                
-            const string nameReco      = "h2_unfoldReco_pTgamma_xJ_incl_"           + rKey;
-            const string nameRecoC     = "h2_unfoldReco_pTgamma_xJ_incl_sidebandC_" + rKey;
-            const string nameTruth     = "h2_unfoldTruth_pTgamma_xJ_incl_"          + rKey;
-            const string nameRsp       = "h2_unfoldResponse_pTgamma_xJ_incl_"       + rKey;
-            const string nameJetEffDen = "h2_unfoldJetEffDen_pTgamma_xJ_incl_"      + rKey;
-            const string nameJetEffNum = "h2_unfoldJetEffNum_pTgamma_xJ_incl_"      + rKey;
+                  if (hKeep) delete hKeep;
+                }
+              };
+
+              const string nameReco      = "h2_unfoldReco_pTgamma_xJ_incl_"           + rKey;
+              const string nameRecoC     = "h2_unfoldReco_pTgamma_xJ_incl_sidebandC_" + rKey;
+              const string nameTruth     = "h2_unfoldTruth_pTgamma_xJ_incl_"          + rKey;
+              const string nameRsp       = "h2_unfoldResponse_pTgamma_xJ_incl_"       + rKey;
+              const string nameJetEffDen = "h2_unfoldJetEffDen_pTgamma_xJ_incl_"      + rKey;
+              const string nameJetEffNum = "h2_unfoldJetEffNum_pTgamma_xJ_incl_"      + rKey;
 
             TH2* h2RecoData_in       = GetObj<TH2>(dsData, nameReco,  true, true, true);
             TH2* h2RecoData_sideC_in = (gApplyPurityCorrectionForUnfolding
@@ -10534,12 +10537,13 @@
                     const PtBin& b = analysisRecoBins[i];
                     const int ix = FindExactXBinForAnalysisPt(hDen->GetXaxis(), b);
 
-                    TH1D* hSlice = MakeJetEffSliceHist(
-                      hNum,
-                      hDen,
-                      ix,
-                      TString::Format("h_jetEffSlice_%s_pTbin%d", rKey.c_str(), i + 1).Data()
-                    );
+                      TH1D* hSlice = MakeJetEffSliceHist(
+                        hNum,
+                        hDen,
+                        ix,
+                        ix,
+                        TString::Format("h_jetEffSlice_%s_pTbin%d", rKey.c_str(), i + 1).Data()
+                      );
 
                     bool haveSliceContent = false;
                     if (hSlice)
@@ -11121,8 +11125,27 @@
 
               if (!xPt.empty())
               {
-                  const double ymin = 0.95;
-                  const double ymax = 1.05;
+                  double ymin =  1e99;
+                  double ymax = -1e99;
+                  for (size_t ii = 0; ii < yRat.size(); ++ii)
+                  {
+                    ymin = std::min(ymin, yRat[ii] - eyRat[ii]);
+                    ymax = std::max(ymax, yRat[ii] + eyRat[ii]);
+                  }
+                  if (!(ymin < 1e98) || !(ymax > -1e98) || ymin >= ymax)
+                  {
+                    ymin = 0.5;
+                    ymax = 1.5;
+                  }
+                  else
+                  {
+                    const double pad = 0.15 * (ymax - ymin);
+                    ymin -= pad;
+                    ymax += pad;
+                    if (ymin < 0.0) ymin = 0.0;
+                    if (ymin > 1.0) ymin = 0.9;
+                    if (ymax < 1.0) ymax = 1.1;
+                  }
 
                   // Save the r04 closure y-range to be reused by photon closure plots
                   if (rKey == "r04")
@@ -14753,11 +14776,20 @@
 
         auto FindStoredUnfoldPtIndexForAnalysis = [&](const PtBin& b)->int
           {
-            return FindUnfoldOutputPtWindowIndex(b.lo, b.hi);
+            const auto& storedBins = UnfoldAnalysisRecoPtBins();
+            for (std::size_t i = 0; i < storedBins.size(); ++i)
+            {
+              if (storedBins[i].lo == b.lo && storedBins[i].hi == b.hi)
+              {
+                return (int)i;
+              }
+            }
+            return -1;
         };
 
       for (const auto& rKey : kRKeys)
       {
+        if (IsEmbeddedSimSample(CurrentSimSample()) && rKey == "r06") continue;
         const string uncRoot = JoinPath(JoinPath(inBaseUnc, rKey), "rooUnfold_outputs.root");
         const string corRoot = JoinPath(JoinPath(inBaseCor, rKey), "rooUnfold_outputs.root");
         const string rOut    = JoinPath(outBase, rKey);

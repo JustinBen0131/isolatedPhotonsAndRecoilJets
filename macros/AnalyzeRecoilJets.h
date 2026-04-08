@@ -101,7 +101,7 @@ namespace ARJ
 
   inline bool isPPdataAndAUAU = false;
 
-  inline bool generateUEcomparisonSSQA = true;
+  inline bool generateUEcomparisonSSQA = false;
   inline bool skipToCentralityAndPtOverlaysWithSSQA = false;
 
   inline bool generatePerRunTriggerAna = false;
@@ -140,8 +140,8 @@ namespace ARJ
   inline bool bothPhoton10and20simEmbedded = false;
 
 
-  inline bool isInclusiveJet10Embedded   = false;
-  inline bool isInclusiveJet20Embedded   = true;
+  inline bool isInclusiveJet10Embedded   = true;
+  inline bool isInclusiveJet20Embedded   = false;
   inline bool bothInclusiveJet10and20simEmbedded = false;
 
 
@@ -635,6 +635,53 @@ namespace ARJ
         }
 
         return v;
+    }
+
+    inline const vector<PtBin>& UnfoldOutputRecoPtBins()
+    {
+        return UnfoldAnalysisRecoPtBins();
+    }
+
+    inline TH1D* ProjectTH2YForPtWindow(TH2* h2,
+                                        const PtBin& b,
+                                        const string& newName,
+                                        const char* option = "e")
+    {
+        if (!h2) return nullptr;
+
+        const TAxis* ax = h2->GetXaxis();
+        if (!ax) return nullptr;
+
+        int ixLo = -1;
+        int ixHi = -1;
+
+        for (int ix = 1; ix <= ax->GetNbins(); ++ix)
+        {
+          const double lo = ax->GetBinLowEdge(ix);
+          const double hi = ax->GetBinUpEdge(ix);
+
+          const bool overlaps =
+            (hi > (double)b.lo + 1e-9) &&
+            (lo < (double)b.hi - 1e-9);
+
+          if (!overlaps) continue;
+
+          if (ixLo < 0) ixLo = ix;
+          ixHi = ix;
+        }
+
+        if (ixLo < 1 || ixHi < ixLo)
+        {
+          const double cen = 0.5 * ((double)b.lo + (double)b.hi);
+          const int ix = ax->FindBin(cen);
+          if (ix < 1 || ix > ax->GetNbins()) return nullptr;
+          ixLo = ix;
+          ixHi = ix;
+        }
+
+        TH1D* p = h2->ProjectionY(newName.c_str(), ixLo, ixHi, (option ? option : "e"));
+        if (p) p->SetDirectory(nullptr);
+        return p;
     }
 
     struct CentBin

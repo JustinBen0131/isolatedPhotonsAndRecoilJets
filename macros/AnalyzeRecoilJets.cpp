@@ -2634,10 +2634,35 @@ namespace ARJ
                   EnsureDir(variantDir);
                   EnsureDir(variantCentralitySummaryDir);
 
-                  TDirectory* aaTop = H.file->GetDirectory(sourceTopDirName.c_str());
-                  if (!aaTop) continue;
+                    TDirectory* aaTop = H.file->GetDirectory(sourceTopDirName.c_str());
+                    if (!aaTop) continue;
 
-                  // -- accumulators for <E_T^iso> vs centrality (per pT bin) --
+                    // -- open MC files for inclusive Eiso overlay (DATA mode only) --
+                    TFile* fIncMCvar = nullptr;
+                    TFile* fPhoMCvar = nullptr;
+                    TDirectory* incMCvarTop = nullptr;
+                    TDirectory* phoMCvarTop = nullptr;
+                    if (!forEmbeddedSim)
+                    {
+                      const string incIn = ResolveInclusiveJetVariantInput(H.variant);
+                      if (!incIn.empty())
+                      {
+                        fIncMCvar = TFile::Open(incIn.c_str(), "READ");
+                        if (fIncMCvar && !fIncMCvar->IsZombie())
+                          incMCvarTop = fIncMCvar->GetDirectory(kDirSIM.c_str());
+                        else { if (fIncMCvar) { fIncMCvar->Close(); delete fIncMCvar; fIncMCvar = nullptr; } }
+                      }
+                      const string phoIn = ResolvePhotonJetVariantInput(H.variant);
+                      if (!phoIn.empty())
+                      {
+                        fPhoMCvar = TFile::Open(phoIn.c_str(), "READ");
+                        if (fPhoMCvar && !fPhoMCvar->IsZombie())
+                          phoMCvarTop = fPhoMCvar->GetDirectory(kDirSIM.c_str());
+                        else { if (fPhoMCvar) { fPhoMCvar->Close(); delete fPhoMCvar; fPhoMCvar = nullptr; } }
+                      }
+                    }
+
+                    // -- accumulators for <E_T^iso> vs centrality (per pT bin) --
                   vector<vector<double>> vsCent_yPP(kNPtBins);
                   vector<vector<double>> vsCent_eyPP(kNPtBins);
                   vector<vector<double>> vsCent_yAA(kNPtBins);
@@ -2789,13 +2814,190 @@ namespace ARJ
                           t.DrawLatex(0.16, 0.80, TString::Format("UE subtraction: %s", H.label.c_str()).Data());
                           t.DrawLatex(0.16, 0.76, TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data());
 
-                          SaveCanvas(c, JoinPath(ptDir, "isolationOverlay_pp_vs_auau.png"));
+                          {
+                            const string ppAuAuDir = JoinPath(ptDir, "ppAuAuOverlay");
+                            EnsureDir(ppAuAuDir);
+                            SaveCanvas(c, JoinPath(ppAuAuDir, "isolationOverlay_pp_vs_auau.png"));
+                          }
 
-                          delete hPP;
-                          delete hAA;
-                        }
+                            delete hPP;
+                            delete hAA;
 
-                    if (!xPt.empty())
+                            // ── inclusive Eiso: DATA vs MC overlays ──
+                            if (!forEmbeddedSim)
+                            {
+                              struct MCOverlayCfg {
+                                TDirectory*  mcTop;
+                                string       folder;
+                                string       titleTag;
+                                string       mcLegend;
+                              };
+                              const vector<MCOverlayCfg> mcOvCfgs = {
+                                { incMCvarTop, "inclusiveMCoverlays", inclusiveEmbeddedTitleTag, "inclusive MC" },
+                                { phoMCvarTop, "photonJetOverlays",   photonEmbeddedTitleTag,    "photon+jet MC" }
+                              };
+
+                              for (const auto& mcCfg : mcOvCfgs)
+                              {
+                                if (!mcCfg.mcTop || mcCfg.titleTag.empty()) continue;
+
+                                const string mcOvDir = JoinPath(ptDir, mcCfg.folder);
+                                EnsureDir(mcOvDir);
+
+                                const string hAAName = "h_Eiso" + b.suffix + cb.suffix;
+                                TH1* hDataSrc = dynamic_cast<TH1*>(aaTop->Get(hAAName.c_str()));
+                                TH1* hMCSrc   = dynamic_cast<TH1*>(mcCfg.mcTop->Get(hAAName.c_str()));
+                                if (!hDataSrc || !hMCSrc) continue;
+
+                                TH1* hData = CloneTH1(hDataSrc,
+                                  TString::Format("hData_mcOv_%s_%s_%s_%s",
+                                    mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
+                                TH1* hMC = CloneTH1(hMCSrc,
+                                  TString::Format("hMC_mcOv_%s_%s_%s_%s",
+                                    mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
+                                if (!hData || !hMC) { delete hData; delete hMC; continue; }
+
+                                EnsureSumw2(hData);
+                                EnsureSumw2(hMC);
+
+                                hData->Rebin(10);
+                                hMC->Rebin(10);
+
+                                const double intData = hData->Integral(0, hData->GetNbinsX() + 1);
+                                const double intMC   = hMC->Integral(0, hMC->GetNbinsX() + 1);
+                                if (!(intData > 0.0) || !(intMC > 0.0)) { delete hData; delete hMC; continue; }
+
+                                hData->Scale(1.0 / intData);
+                                hMC->Scale(1.0 / intMC);
+
+                                hMC->SetTitle("");
+                                hMC->SetLineColor(kBlack);
+                                hMC->SetLineWidth(2);
+                                hMC->SetFillStyle(0);
+                                hMC->SetMarkerSize(0.0);
+                                for (int ib = 0; ib <= hMC->GetNbinsX() + 1; ++ib) hMC->SetBinError(ib, 0.0);
+
+                                hData->SetLineColor(kBlue + 1);
+                                hData->SetMarkerColor(kBlue + 1);
+                                hData->SetMarkerStyle(20);
+                                hData->SetMarkerSize(1.0);
+                                hData->SetLineWidth(2);
+                                hData->SetFillStyle(0);
+
+                                const double ymx = std::max(hData->GetMaximum(), hMC->GetMaximum());
+
+                                TCanvas cMcOv(
+                                  TString::Format("c_mcOv_%s_%s_%s_%s",
+                                    mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
+                                  "c_mcOv", 900, 700);
+                                ApplyCanvasMargins1D(cMcOv);
+                                cMcOv.cd();
+
+                                hMC->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
+                                hMC->GetYaxis()->SetTitle("Normalized to unit area");
+                                hMC->GetXaxis()->SetTitleSize(0.055);
+                                hMC->GetYaxis()->SetTitleSize(0.055);
+                                hMC->GetXaxis()->SetLabelSize(0.045);
+                                hMC->GetYaxis()->SetLabelSize(0.045);
+                                hMC->GetYaxis()->SetTitleOffset(1.15);
+                                hMC->SetMinimum(0.0);
+                                hMC->SetMaximum((ymx > 0.0) ? (1.25 * ymx) : 1.0);
+
+                                hMC->Draw("hist");
+                                hData->Draw("E1 SAME");
+
+                                TLegend legMcOv(0.56, 0.72, 0.92, 0.88);
+                                legMcOv.SetBorderSize(0);
+                                legMcOv.SetFillStyle(0);
+                                legMcOv.SetTextFont(42);
+                                legMcOv.SetTextSize(0.032);
+                                legMcOv.AddEntry(hData, TString::Format("AuAu data (%s)", H.label.c_str()).Data(), "ep");
+                                legMcOv.AddEntry(hMC, mcCfg.mcLegend.c_str(), "l");
+                                legMcOv.Draw();
+
+                                TLatex tMcOvTitle;
+                                tMcOvTitle.SetNDC(true);
+                                tMcOvTitle.SetTextFont(42);
+                                tMcOvTitle.SetTextAlign(23);
+                                tMcOvTitle.SetTextSize(0.040);
+                                tMcOvTitle.DrawLatex(0.50, 0.97,
+                                  TString::Format("E_{T}^{iso} overlay: AuAu data vs %s MC", mcCfg.titleTag.c_str()).Data());
+
+                                  TLatex tMcOvInfo;
+                                  tMcOvInfo.SetNDC(true);
+                                  tMcOvInfo.SetTextFont(42);
+                                  tMcOvInfo.SetTextAlign(13);
+                                  tMcOvInfo.SetTextSize(0.045);
+                                  tMcOvInfo.DrawLatex(0.18, 0.89, TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
+                                  tMcOvInfo.DrawLatex(0.18, 0.85, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+
+                                  TLatex tSph;
+                                  tSph.SetNDC(true);
+                                  tSph.SetTextFont(42);
+                                  tSph.SetTextAlign(33);
+                                  tSph.SetTextSize(0.048);
+                                  tSph.DrawLatex(0.92, 0.18, "#bf{sPHENIX} #it{Internal}");
+                                  tSph.SetTextSize(0.038);
+                                  tSph.DrawLatex(0.92, 0.12, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+
+                                  TLatex tUE;
+                                  tUE.SetNDC(true);
+                                  tUE.SetTextFont(42);
+                                  tUE.SetTextAlign(33);
+                                  tUE.SetTextSize(0.034);
+                                  tUE.DrawLatex(0.92, 0.06, TString::Format("UE: %s", H.label.c_str()).Data());
+
+                                  SaveCanvas(cMcOv, JoinPath(mcOvDir, "Eiso_dataMC_overlay.png"));
+
+                                // individual unnormalized distributions
+                                for (const auto& rv : std::vector<std::pair<TH1*,std::string>>{
+                                      {hDataSrc, "Eiso_data_raw"}, {hMCSrc, "Eiso_mc_raw"}})
+                                {
+                                  TH1* hRaw = dynamic_cast<TH1*>(rv.first->Clone(
+                                    TString::Format("hRaw_%s_%s_%s_%s_%s", rv.second.c_str(),
+                                      mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data()));
+                                  if (!hRaw) continue;
+                                  hRaw->SetDirectory(nullptr);
+                                  hRaw->SetTitle("");
+                                  hRaw->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
+                                  hRaw->GetYaxis()->SetTitle("Counts");
+                                  hRaw->GetXaxis()->SetTitleSize(0.055);
+                                  hRaw->GetYaxis()->SetTitleSize(0.055);
+                                  hRaw->GetXaxis()->SetLabelSize(0.045);
+                                  hRaw->GetYaxis()->SetLabelSize(0.045);
+                                  hRaw->GetYaxis()->SetTitleOffset(1.15);
+                                  const bool isMC = (rv.second.find("mc") != std::string::npos);
+                                  hRaw->SetLineColor(isMC ? kBlack : (kBlue + 1));
+                                  hRaw->SetLineWidth(2);
+                                  hRaw->SetFillStyle(0);
+                                  TCanvas cRaw(
+                                    TString::Format("c_raw_%s_%s_%s_%s_%s", rv.second.c_str(),
+                                      mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
+                                    "c_raw", 900, 700);
+                                  ApplyCanvasMargins1D(cRaw);
+                                  cRaw.cd();
+                                  if (isMC)
+                                    { hRaw->SetMarkerSize(0.0); hRaw->Draw("hist"); }
+                                  else
+                                    { hRaw->SetMarkerColor(kBlue + 1); hRaw->SetMarkerStyle(20); hRaw->SetMarkerSize(1.0); hRaw->Draw("E1"); }
+                                  TLatex tRawInfo;
+                                  tRawInfo.SetNDC(true);
+                                  tRawInfo.SetTextFont(42);
+                                  tRawInfo.SetTextAlign(13);
+                                  tRawInfo.SetTextSize(0.045);
+                                  tRawInfo.DrawLatex(0.16, 0.88, TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
+                                  tRawInfo.DrawLatex(0.16, 0.82, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+                                  SaveCanvas(cRaw, JoinPath(mcOvDir, rv.second + ".png"));
+                                  delete hRaw;
+                                }
+
+                                delete hData;
+                                delete hMC;
+                              }
+                            }
+                          }
+
+                      if (!xPt.empty())
                     {
                       TCanvas cMean(
                         TString::Format("c_meanIsoEtPPAuAu_%s_%s_%s",
@@ -3172,6 +3374,9 @@ namespace ARJ
                         for (auto* h : hPts) delete h;
                       }
                     }
+
+                    if (fIncMCvar) { fIncMCvar->Close(); delete fIncMCvar; fIncMCvar = nullptr; }
+                    if (fPhoMCvar) { fPhoMCvar->Close(); delete fPhoMCvar; fPhoMCvar = nullptr; }
 
                     cout << ANSI_DIM
                          << "  -> UE comparison overlays written under:\n"
@@ -4349,10 +4554,15 @@ namespace ARJ
                               continue;
                             }
 
-                            EnsureSumw2(hTData);
-                            EnsureSumw2(hNTData);
-                            EnsureSumw2(hTMc);
-                            EnsureSumw2(hNTMc);
+                              EnsureSumw2(hTData);
+                              EnsureSumw2(hNTData);
+                              EnsureSumw2(hTMc);
+                              EnsureSumw2(hNTMc);
+
+                              hTData->Rebin(10);
+                              hNTData->Rebin(10);
+                              hTMc->Rebin(10);
+                              hNTMc->Rebin(10);
 
                             const double intTData  = hTData->Integral(0, hTData->GetNbinsX() + 1);
                             const double intNTData = hNTData->Integral(0, hNTData->GetNbinsX() + 1);
@@ -4421,6 +4631,8 @@ namespace ARJ
                             hTMc->SetMinimum(0.0);
                             hTMc->SetMaximum((yMaxTNT > 0.0) ? (1.25 * yMaxTNT) : 1.0);
 
+                            for (int ib = 0; ib <= hTMc->GetNbinsX() + 1; ++ib) hTMc->SetBinError(ib, 0.0);
+                            for (int ib = 0; ib <= hNTMc->GetNbinsX() + 1; ++ib) hNTMc->SetBinError(ib, 0.0);
                             hTMc->Draw("hist");
                             hNTMc->Draw("hist SAME");
                             hTData->Draw("E1 SAME");
@@ -4454,7 +4666,64 @@ namespace ARJ
                             tInfoTNT.DrawLatex(0.16, 0.88, TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
                             tInfoTNT.DrawLatex(0.16, 0.82, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
 
-                            SaveCanvas(cTNT, JoinPath(ptDir, "Eiso_tightNonTight_overlay.png"));
+                              SaveCanvas(cTNT, JoinPath(ptDir, "Eiso_tightNonTight_overlay.png"));
+
+                              // --- save 4 individual unnormalized distributions ---
+                              {
+                                const std::vector<std::pair<TH1*,std::string>> rawVec = {
+                                  {hTDataSrc,  "Eiso_tight_data"},
+                                  {hNTDataSrc, "Eiso_nonTight_data"},
+                                  {hTMcSrc,    "Eiso_tight_mc"},
+                                  {hNTMcSrc,   "Eiso_nonTight_mc"}
+                                };
+                                for (const auto& rv : rawVec)
+                                {
+                                  TH1* hRaw = dynamic_cast<TH1*>(rv.first->Clone(
+                                    TString::Format("hRaw_%s_%s_%s", rv.second.c_str(), cb.folder.c_str(), b.folder.c_str()).Data()));
+                                  if (!hRaw) continue;
+                                  hRaw->SetDirectory(nullptr);
+                                  hRaw->SetTitle("");
+                                  hRaw->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
+                                  hRaw->GetYaxis()->SetTitle("Counts");
+                                  hRaw->GetXaxis()->SetTitleSize(0.055);
+                                  hRaw->GetYaxis()->SetTitleSize(0.055);
+                                  hRaw->GetXaxis()->SetLabelSize(0.045);
+                                  hRaw->GetYaxis()->SetLabelSize(0.045);
+                                  hRaw->GetYaxis()->SetTitleOffset(1.15);
+                                  const bool isMC = (rv.second.find("_mc") != std::string::npos);
+                                  const bool isNT = (rv.second.find("nonTight") != std::string::npos);
+                                  const Color_t col = isNT ? (kRed + 1) : kBlack;
+                                  hRaw->SetLineColor(col);
+                                  hRaw->SetLineWidth(2);
+                                  hRaw->SetFillStyle(0);
+                                  TCanvas cRaw(
+                                    TString::Format("c_raw_%s_%s_%s", rv.second.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
+                                    "c_raw", 900, 700);
+                                  ApplyCanvasMargins1D(cRaw);
+                                  cRaw.cd();
+                                  if (isMC)
+                                  {
+                                    hRaw->SetMarkerSize(0.0);
+                                    hRaw->Draw("hist");
+                                  }
+                                  else
+                                  {
+                                    hRaw->SetMarkerColor(col);
+                                    hRaw->SetMarkerStyle(isNT ? 24 : 20);
+                                    hRaw->SetMarkerSize(1.0);
+                                    hRaw->Draw("E1");
+                                  }
+                                  TLatex tRawInfo;
+                                  tRawInfo.SetNDC(true);
+                                  tRawInfo.SetTextFont(42);
+                                  tRawInfo.SetTextAlign(13);
+                                  tRawInfo.SetTextSize(0.045);
+                                  tRawInfo.DrawLatex(0.16, 0.88, TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
+                                  tRawInfo.DrawLatex(0.16, 0.82, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+                                  SaveCanvas(cRaw, JoinPath(ptDir, rv.second + ".png"));
+                                  delete hRaw;
+                                }
+                              }
 
                             delete hTData;
                             delete hNTData;
