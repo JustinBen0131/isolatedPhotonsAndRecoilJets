@@ -626,7 +626,7 @@ read_uepipe_modes() {
   local yaml="$1" tag="$2"
   uepipe_modes=()
   uepipe_in_tag=0
-  if [[ "$tag" == "auau" || "$tag" == "oo" || "$tag" == "simembedded" ]]; then
+  if [[ "$tag" == "auau" || "$tag" == "oo" || "$tag" == "simembedded" || "$tag" == "simembeddedinclusive" ]]; then
     mapfile -t uepipe_modes < <( yaml_get_values "clusterUEpipeline" "$yaml" 2>/dev/null )
     # Translate legacy bool values
     local -a cleaned=()
@@ -737,6 +737,19 @@ resolve_dataset() {
       EXE="${BASE}/RecoilJets_Condor_AuAu.sh"
       IS_SIM=1
       SIM_SAMPLE_DEFAULT="run28_embeddedPhoton20"
+      SIM_SAMPLE="$SIM_SAMPLE_DEFAULT"
+      ;;
+    isSimEmbeddedInclusive|issimembeddedinclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE)
+      DATASET="isSimEmbeddedInclusive"
+      GOLDEN=""
+      LIST_DIR=""
+      LIST_PREFIX=""
+      DEST_BASE="$SIMEMBED_DEST_BASE"
+      TAG="simembeddedinclusive"
+      MACRO="${BASE}/macros/Fun4All_recoilJets_AuAu.C"
+      EXE="${BASE}/RecoilJets_Condor_AuAu.sh"
+      IS_SIM=1
+      SIM_SAMPLE_DEFAULT="run28_embeddedJet20"
       SIM_SAMPLE="$SIM_SAMPLE_DEFAULT"
       ;;
     isSimJet5|isSimjet5|simjet5|SIMJET5)
@@ -970,10 +983,11 @@ check_jobs_sim() {
 
   if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
     case "$DATASET" in
-      isSimEmbedded) samples=( "run28_embeddedPhoton10" "run28_embeddedPhoton20" ) ;;
-      isSimJet5)     samples=( "run28_jet5" ) ;;
-      isSimMB)       samples=( "run28_detroit" ) ;;
-      *)             samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
+      isSimEmbedded)          samples=( "run28_embeddedPhoton10" "run28_embeddedPhoton20" ) ;;
+      isSimEmbeddedInclusive) samples=( "run28_embeddedJet10" "run28_embeddedJet20" ) ;;
+      isSimJet5)              samples=( "run28_jet5" ) ;;
+      isSimMB)                samples=( "run28_detroit" ) ;;
+      *)                      samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
     esac
   else
     samples=( "${SIM_SAMPLE}" )
@@ -1548,10 +1562,11 @@ case "$ACTION" in
       samples=()
       if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
         case "$DATASET" in
-          isSimEmbedded) samples=( "run28_embeddedPhoton10" "run28_embeddedPhoton20" ) ;;
-          isSimJet5)     samples=( "run28_jet5" ) ;;
-          isSimMB)       samples=( "run28_detroit" ) ;;
-          *)             samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
+          isSimEmbedded)          samples=( "run28_embeddedPhoton10" "run28_embeddedPhoton20" ) ;;
+          isSimEmbeddedInclusive) samples=( "run28_embeddedJet10" "run28_embeddedJet20" ) ;;
+          isSimJet5)              samples=( "run28_jet5" ) ;;
+          isSimMB)                samples=( "run28_detroit" ) ;;
+          *)                      samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
         esac
       else
         samples=( "${SIM_SAMPLE}" )
@@ -1958,10 +1973,11 @@ SUB
     samples=()
     if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
       case "$DATASET" in
-        isSimEmbedded) samples=( "run28_embeddedPhoton10" "run28_embeddedPhoton20" ) ;;
-        isSimJet5)     samples=( "run28_jet5" ) ;;
-        isSimMB)       samples=( "run28_detroit" ) ;;
-        *)             samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
+        isSimEmbedded)          samples=( "run28_embeddedPhoton10" "run28_embeddedPhoton20" ) ;;
+        isSimEmbeddedInclusive) samples=( "run28_embeddedJet10" "run28_embeddedJet20" ) ;;
+        isSimJet5)              samples=( "run28_jet5" ) ;;
+        isSimMB)                samples=( "run28_detroit" ) ;;
+        *)                      samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
       esac
     else
       samples=( "${SIM_SAMPLE}" )
@@ -2038,8 +2054,8 @@ SUB
     # Freeze pipeline for this bulk submission
     cleanup_bulk_snapshots_for_tag
     case "$DATASET" in
-      isSimEmbedded) create_pipeline_snapshot "auau" "$doall_stamp" ;;
-      *)             create_pipeline_snapshot "pp" "$doall_stamp" ;;
+      isSimEmbedded|isSimEmbeddedInclusive) create_pipeline_snapshot "auau" "$doall_stamp" ;;
+      *)                                    create_pipeline_snapshot "pp" "$doall_stamp" ;;
     esac
     # Clean stale .sub files and YAML overrides for SIM
     rm -f "${SUB_DIR}/RecoilJets_sim_"*.sub "${SUB_DIR}/RecoilJets_${TAG}_"*.sub 2>/dev/null || true
