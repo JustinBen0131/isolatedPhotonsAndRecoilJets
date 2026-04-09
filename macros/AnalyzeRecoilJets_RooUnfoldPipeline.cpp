@@ -16479,12 +16479,192 @@
           P.ds.file = nullptr;
         }
 
-        return P;
-      };
+          return P;
+        };
 
-      int nPairs = 0;
+        const string ppDefaultSimDataBase = JoinPath(
+          SimOutBaseForSample(SimSample::kPhotonJet10And20Merged),
+          kTriggerPP
+        );
+        const string ppDefaultLiveUnfoldDir = JoinPath(ppDefaultSimDataBase, "unfolding");
 
-      for (auto& trigEntry : dataByTriggerCent)
+        const string ppCacheKeyForAA = MakeRooUnfoldSavedOutputKey(
+          "ppRooUnfold",
+          {
+            CfgTag(),
+            kTriggerPP,
+            InputPP(isRun25pp),
+            SimInputPathForSample(SimSample::kPhotonJet10And20Merged),
+            ppDefaultSimDataBase,
+            SimSampleLabel(SimSample::kPhotonJet10And20Merged)
+          }
+        );
+
+        RooUnfoldSavedOutputSpec ppSavedOutputForAA;
+        ppSavedOutputForAA.label = "PP RooUnfold used by AuAu top-level overlays";
+        ppSavedOutputForAA.cacheDir = JoinPath(ppDefaultSimDataBase, "rooUnfoldSavedOutput/" + ppCacheKeyForAA);
+        ppSavedOutputForAA.cacheEntryNames = {"unfolding"};
+        ppSavedOutputForAA.liveDirs = {ppDefaultLiveUnfoldDir};
+        ppSavedOutputForAA.detailLines = {
+          "cfgTag = " + CfgTag(),
+          "trigger = " + string(kTriggerPP),
+          "ppData = " + InputPP(isRun25pp),
+          "ppSim = " + SimInputPathForSample(SimSample::kPhotonJet10And20Merged),
+          "simDataBase = " + ppDefaultSimDataBase,
+          "simSample = " + SimSampleLabel(SimSample::kPhotonJet10And20Merged)
+        };
+
+        RooUnfoldSavedOutputSpec aaSavedOutput;
+        {
+          const string simRootBase = SimOutBaseForSample(CurrentSimSample());
+
+          string triggersJoined;
+          for (auto it = dataByTriggerCent.begin(); it != dataByTriggerCent.end(); ++it)
+          {
+            if (!triggersJoined.empty()) triggersJoined += ",";
+            triggersJoined += it->first;
+          }
+
+          aaSavedOutput.label = "AuAu RooUnfold";
+          aaSavedOutput.cacheDir = JoinPath(
+            simRootBase,
+            "rooUnfoldSavedOutput/" +
+            MakeRooUnfoldSavedOutputKey(
+              "aaRooUnfold",
+              {
+                CfgTagWithUE_AA(),
+                InputAuAu(),
+                SimInputPathForSample(CurrentSimSample()),
+                SimSampleLabel(CurrentSimSample()),
+                InputPP(isRun25pp),
+                SimInputPathForSample(SimSample::kPhotonJet10And20Merged),
+                triggersJoined,
+                simRootBase
+              }
+            )
+          );
+          aaSavedOutput.detailLines = {
+            "cfgTagAA = " + CfgTagWithUE_AA(),
+            "aaData = " + InputAuAu(),
+            "aaSim = " + SimInputPathForSample(CurrentSimSample()),
+            "aaSimSample = " + SimSampleLabel(CurrentSimSample()),
+            "triggers = " + triggersJoined,
+            "ppDataForOverlays = " + InputPP(isRun25pp),
+            "ppSimForOverlays = " + SimInputPathForSample(SimSample::kPhotonJet10And20Merged)
+          };
+
+          std::set<string> seenLiveDirs;
+
+          auto AddSavedDir = [&](const string& cacheName, const string& liveDir)->void
+          {
+            if (liveDir.empty()) return;
+            if (!seenLiveDirs.insert(liveDir).second) return;
+
+            aaSavedOutput.cacheEntryNames.push_back(cacheName);
+            aaSavedOutput.liveDirs.push_back(liveDir);
+          };
+
+          for (auto& trigEntry : dataByTriggerCent)
+          {
+            const string& trigger = trigEntry.first;
+            const auto& dataCentMap = trigEntry.second;
+
+            for (const auto& G : centGroups)
+            {
+              vector<Dataset*> dataPieces = collectPieces(G.suffixes, dataCentMap);
+              vector<Dataset*> simPieces  = collectPieces(G.suffixes, simByCent);
+
+              if (dataPieces.empty() || simPieces.empty()) continue;
+
+              const string centFolder = makeCentFolder(G.lo, G.hi);
+              const string liveDir = JoinPath(
+                JoinPath(mergedOutBase(simPieces.front(), centFolder), trigger),
+                "unfolding"
+              );
+
+              AddSavedDir(
+                TString::Format("aa_%s_%s_unfolding", trigger.c_str(), centFolder.c_str()).Data(),
+                liveDir
+              );
+            }
+          }
+
+          AddSavedDir("aa_topLevel_unfolding", JoinPath(simRootBase, "unfolding"));
+          AddSavedDir("pp_default_unfolding", ppDefaultLiveUnfoldDir);
+        }
+
+        if (!saveRooUnfoldOutput)
+        {
+          cout << "  -> [5I-AA] Restoring saved RooUnfold output for AuAu...\n";
+
+          if (!RooUnfoldSavedOutputExists(aaSavedOutput))
+          {
+            cerr << ANSI_BOLD_RED
+                 << "[FATAL] No saved AuAu RooUnfold output exists for:\n"
+                 << RooUnfoldSavedOutputPrompt(aaSavedOutput) << "\n"
+                 << "        Turn on saveRooUnfoldOutput to build and save it first.\n"
+                 << ANSI_RESET;
+            std::exit(1);
+          }
+
+          if (!RestoreRooUnfoldSavedOutput(aaSavedOutput))
+          {
+            cerr << ANSI_BOLD_RED
+                 << "[FATAL] Failed to restore saved AuAu RooUnfold output from:\n"
+                 << "  " << aaSavedOutput.cacheDir << "\n"
+                 << ANSI_RESET;
+            std::exit(1);
+          }
+
+          gApplyPurityCorrectionForUnfolding        = oldPurity;
+          gApplyCombinatoricSubtractionForUnfolding = oldComb;
+
+          cout << "     [OK] restored saved AuAu RooUnfold output from "
+               << aaSavedOutput.cacheDir << "\n";
+          return;
+        }
+
+        const bool hadAASavedOutput = RooUnfoldSavedOutputExists(aaSavedOutput);
+        const bool hadPPSavedOutput = RooUnfoldSavedOutputExists(ppSavedOutputForAA);
+
+        if (hadAASavedOutput || hadPPSavedOutput)
+        {
+          const bool eraseOld = PromptYesNo(
+            RooUnfoldSavedOutputPrompt(aaSavedOutput) +
+            "\n  ppStandaloneCache = " + ppSavedOutputForAA.cacheDir
+          );
+
+          if (!eraseOld)
+          {
+            cerr << ANSI_BOLD_RED
+                 << "[FATAL] Existing AuAu RooUnfold saved output was left intact.\n"
+                 << "        Turn off saveRooUnfoldOutput to reuse the saved output.\n"
+                 << ANSI_RESET;
+            std::exit(1);
+          }
+        }
+
+        if (!EraseRooUnfoldSavedOutput(aaSavedOutput))
+        {
+          cerr << ANSI_BOLD_RED
+               << "[FATAL] Failed to clean previous AuAu RooUnfold output before rebuilding.\n"
+               << "  cacheDir = " << aaSavedOutput.cacheDir << "\n"
+               << ANSI_RESET;
+          std::exit(1);
+        }
+
+        if (!RemovePathRecursive(ppSavedOutputForAA.cacheDir))
+        {
+          cerr << ANSI_BOLD_RED
+               << "[FATAL] Failed to clean the standalone PP RooUnfold cache used by AuAu overlays.\n"
+               << "  cacheDir = " << ppSavedOutputForAA.cacheDir << "\n"
+               << ANSI_RESET;
+          std::exit(1);
+        }
+
+        int nPairs = 0;
+
+        for (auto& trigEntry : dataByTriggerCent)
       {
         const string& trigger = trigEntry.first;
         const auto& dataCentMap = trigEntry.second;
@@ -16599,15 +16779,38 @@
       gApplyPurityCorrectionForUnfolding        = oldPurity;
       gApplyCombinatoricSubtractionForUnfolding = oldComb;
 
-      if (nPairs > 0)
-      {
-          RunEmbeddedAuAuTopLevelUnfoldingOverlays(datasets);
-      }
+        if (nPairs > 0)
+        {
+            RunEmbeddedAuAuTopLevelUnfoldingOverlays(datasets);
 
-      cout << ANSI_BOLD_CYN
-             << "[DONE] AuAu unfold pipeline: processed " << nPairs << " trigger-centrality pairs.\n"
-             << ANSI_RESET;
-    }
+            if (!SnapshotRooUnfoldSavedOutput(aaSavedOutput))
+            {
+              cerr << ANSI_BOLD_RED
+                   << "[FATAL] Failed to save AuAu RooUnfold output to:\n"
+                   << "  " << aaSavedOutput.cacheDir << "\n"
+                   << ANSI_RESET;
+              std::exit(1);
+            }
+
+            if (!SnapshotRooUnfoldSavedOutput(ppSavedOutputForAA))
+            {
+              cerr << ANSI_BOLD_RED
+                   << "[FATAL] Failed to save the standalone PP RooUnfold output used by AuAu overlays to:\n"
+                   << "  " << ppSavedOutputForAA.cacheDir << "\n"
+                   << ANSI_RESET;
+              std::exit(1);
+            }
+
+            cout << "  [OK] saved AuAu RooUnfold output to "
+                 << aaSavedOutput.cacheDir << "\n";
+            cout << "  [OK] saved PP RooUnfold output for AuAu overlays to "
+                 << ppSavedOutputForAA.cacheDir << "\n";
+        }
+
+        cout << ANSI_BOLD_CYN
+               << "[DONE] AuAu unfold pipeline: processed " << nPairs << " trigger-centrality pairs.\n"
+               << ANSI_RESET;
+      }
 #else
     void RunRooUnfoldPipeline_SimAndDataPP(Dataset& dsData, Dataset& dsSim)
     {

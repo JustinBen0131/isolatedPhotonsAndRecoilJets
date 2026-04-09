@@ -1920,12 +1920,12 @@ if (false && !skipToCentralityAndPtOverlaysWithSSQA)
         }
         else if (isInclusiveJet20Embedded)
         {
-            inclEmbPath = InputInclusiveJetEmbeddedSample("embeddedInclusiveJet20");
+            inclEmbPath = InputInclusiveJetEmbeddedSample("embeddedJet20");
             inclEmbLabel = "Inclusive Jet 20 Embedded";
         }
         else if (isInclusiveJet10Embedded)
         {
-            inclEmbPath = InputInclusiveJetEmbeddedSample("embeddedInclusiveJet10");
+            inclEmbPath = InputInclusiveJetEmbeddedSample("embeddedJet10");
             inclEmbLabel = "Inclusive Jet 10 Embedded";
         }
         if (!inclEmbPath.empty())
@@ -3155,13 +3155,13 @@ if (false && !skipToCentralityAndPtOverlaysWithSSQA)
             }
         }
     }
-}
-
-// Close embedded SS overlay files
-for (auto& src : embeddedSSSources)
-{
-    src.topDir = nullptr;
-    if (src.file) { src.file->Close(); delete src.file; src.file = nullptr; }
+    
+    // Close embedded SS overlay files
+    for (auto& src : embeddedSSSources)
+    {
+        src.topDir = nullptr;
+        if (src.file) { src.file->Close(); delete src.file; src.file = nullptr; }
+    }
 }
 
 {

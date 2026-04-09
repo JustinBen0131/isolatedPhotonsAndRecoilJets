@@ -3178,7 +3178,27 @@
                     tInfoTNT.SetTextAlign(13);
                     tInfoTNT.SetTextSize(0.050);
                     tInfoTNT.DrawLatex(0.22, 0.88, TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
-                    tInfoTNT.DrawLatex(0.22, 0.82, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+                      tInfoTNT.DrawLatex(0.22, 0.82, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+
+                      // ---- sPHENIX Internal + Au+Au at bottom RHS ----
+                      TLatex tSph;
+                      tSph.SetNDC(true);
+                      tSph.SetTextFont(42);
+                      tSph.SetTextAlign(33);
+                      tSph.SetTextSize(0.048);
+                      tSph.DrawLatex(0.92, 0.18, "#bf{sPHENIX} #it{Internal}");
+                      tSph.SetTextSize(0.038);
+                      tSph.DrawLatex(0.92, 0.12, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+
+                      TLatex tUE;
+                      tUE.SetNDC(true);
+                      tUE.SetTextFont(42);
+                      tUE.SetTextAlign(33);
+                      tUE.SetTextSize(0.034);
+                      tUE.DrawLatex(0.92, 0.46, trigDisplayLabel.c_str());
+                      tUE.DrawLatex(0.92, 0.42, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
+                      tUE.DrawLatex(0.92, 0.38, TString::Format("UE: %s", dataH.label.c_str()).Data());
+                      tUE.DrawLatex(0.92, 0.34, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
 
                       SaveCanvas(cTNT, JoinPath(ptDir, "Eiso_tightNonTight_overlay.png"));
 

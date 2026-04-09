@@ -13398,6 +13398,7 @@ namespace ARJ
            << "    doPhotonJetMerge        = " << (doPhotonJetMerge ? "true" : "false") << "\n"
            << "    do_xJ_PPunfold          = " << (do_xJ_PPunfold ? "true" : "false") << "\n"
            << "    do_xJ_AAunfold          = " << (do_xJ_AAunfold ? "true" : "false") << "\n"
+           << "    saveRooUnfoldOutput     = " << (saveRooUnfoldOutput ? "true" : "false") << "\n"
            << "    gApplyPurityCorrectionForUnfolding = " << (gApplyPurityCorrectionForUnfolding ? "true" : "false") << "\n"
            << "    gApplyCombinatoricSubtractionForUnfolding = " << (gApplyCombinatoricSubtractionForUnfolding ? "true" : "false") << "\n"
            << "      CfgTag()  (PP/SIM)    = " << CfgTag() << "\n"
@@ -16014,25 +16015,119 @@ namespace ARJ
               {
                 const bool runOnlyPurityCorrected = (!do_xJ_PPunfold && gApplyPurityCorrectionForUnfolding);
 
-                if (!runOnlyPurityCorrected)
+                const string simDataBase = JoinPath(dsSIM->outBase, dsPP->trigger);
+                const string liveUnfoldDir = JoinPath(simDataBase, "unfolding");
+                const string ppCacheKey = MakeRooUnfoldSavedOutputKey(
+                  "ppRooUnfold",
+                  {
+                    CfgTag(),
+                    dsPP->trigger,
+                    dsPP->inFilePath,
+                    dsSIM->inFilePath,
+                    simDataBase,
+                    SimSampleLabel(CurrentSimSample())
+                  }
+                );
+
+                RooUnfoldSavedOutputSpec ppSavedOutput;
+                ppSavedOutput.label = "PP RooUnfold";
+                ppSavedOutput.cacheDir = JoinPath(simDataBase, "rooUnfoldSavedOutput/" + ppCacheKey);
+                ppSavedOutput.cacheEntryNames = {"unfolding"};
+                ppSavedOutput.liveDirs = {liveUnfoldDir};
+                ppSavedOutput.detailLines = {
+                  "cfgTag = " + CfgTag(),
+                  "trigger = " + dsPP->trigger,
+                  "ppData = " + dsPP->inFilePath,
+                  "ppSim = " + dsSIM->inFilePath,
+                  "simDataBase = " + simDataBase,
+                  "simSample = " + SimSampleLabel(CurrentSimSample())
+                };
+
+                if (!saveRooUnfoldOutput)
                 {
-                  cout << "  -> [5I] RooUnfold pipeline (SIM+DATA PP): non-purity-corrected unfold to particle level + per-photon x_{J} tables...\n";
-                  gApplyPurityCorrectionForUnfolding = false;
-                  analysis::RunRooUnfoldPipeline_SimAndDataPP(*dsPP, *dsSIM);
-                  cout << "     [OK] nonPurityCorrected\n";
+                  cout << "  -> [5I] Restoring saved RooUnfold output for PP...\n";
+
+                  if (!RooUnfoldSavedOutputExists(ppSavedOutput))
+                  {
+                    cerr << ANSI_BOLD_RED
+                         << "[FATAL] No saved PP RooUnfold output exists for:\n"
+                         << RooUnfoldSavedOutputPrompt(ppSavedOutput) << "\n"
+                         << "        Turn on saveRooUnfoldOutput to build and save it first.\n"
+                         << ANSI_RESET;
+                    std::exit(1);
+                  }
+
+                  if (!RestoreRooUnfoldSavedOutput(ppSavedOutput))
+                  {
+                    cerr << ANSI_BOLD_RED
+                         << "[FATAL] Failed to restore saved PP RooUnfold output from:\n"
+                         << "  " << ppSavedOutput.cacheDir << "\n"
+                         << ANSI_RESET;
+                    std::exit(1);
+                  }
+
+                  cout << "     [OK] restored saved PP RooUnfold output from "
+                       << ppSavedOutput.cacheDir << "\n";
                 }
-
-                cout << "  -> [5I] RooUnfold pipeline (SIM+DATA PP): purity-corrected unfold to particle level + per-photon x_{J} tables...\n";
-                gApplyPurityCorrectionForUnfolding = true;
-                analysis::RunRooUnfoldPipeline_SimAndDataPP(*dsPP, *dsSIM);
-                cout << "     [OK] purityCorrected\n";
-
-                if (!runOnlyPurityCorrected)
+                else
                 {
-                  gApplyPurityCorrectionForUnfolding = false;
-                  cout << "  -> [5I] purity-corrected vs non-purity-corrected per-photon x_{J} overlays...\n";
-                  analysis::RunPurityCorrectedUncorrectedOverlayPP(*dsPP, *dsSIM);
-                  cout << "     [OK] purityCorrectedUncorrectedOverly\n";
+                  const bool hadSavedOutput = RooUnfoldSavedOutputExists(ppSavedOutput);
+
+                  if (hadSavedOutput)
+                  {
+                    const bool eraseOld = PromptYesNo(RooUnfoldSavedOutputPrompt(ppSavedOutput));
+                    if (!eraseOld)
+                    {
+                      cerr << ANSI_BOLD_RED
+                           << "[FATAL] Existing PP RooUnfold saved output was left intact.\n"
+                           << "        Turn off saveRooUnfoldOutput to reuse the saved output.\n"
+                           << ANSI_RESET;
+                      std::exit(1);
+                    }
+                  }
+
+                  if (!EraseRooUnfoldSavedOutput(ppSavedOutput))
+                  {
+                    cerr << ANSI_BOLD_RED
+                         << "[FATAL] Failed to clean previous PP RooUnfold output before rebuilding.\n"
+                         << "  liveDir  = " << liveUnfoldDir << "\n"
+                         << "  cacheDir = " << ppSavedOutput.cacheDir << "\n"
+                         << ANSI_RESET;
+                    std::exit(1);
+                  }
+
+                  if (!runOnlyPurityCorrected)
+                  {
+                    cout << "  -> [5I] RooUnfold pipeline (SIM+DATA PP): non-purity-corrected unfold to particle level + per-photon x_{J} tables...\n";
+                    gApplyPurityCorrectionForUnfolding = false;
+                    analysis::RunRooUnfoldPipeline_SimAndDataPP(*dsPP, *dsSIM);
+                    cout << "     [OK] nonPurityCorrected\n";
+                  }
+
+                  cout << "  -> [5I] RooUnfold pipeline (SIM+DATA PP): purity-corrected unfold to particle level + per-photon x_{J} tables...\n";
+                  gApplyPurityCorrectionForUnfolding = true;
+                  analysis::RunRooUnfoldPipeline_SimAndDataPP(*dsPP, *dsSIM);
+                  cout << "     [OK] purityCorrected\n";
+
+                  if (!runOnlyPurityCorrected)
+                  {
+                    gApplyPurityCorrectionForUnfolding = false;
+                    cout << "  -> [5I] purity-corrected vs non-purity-corrected per-photon x_{J} overlays...\n";
+                    analysis::RunPurityCorrectedUncorrectedOverlayPP(*dsPP, *dsSIM);
+                    cout << "     [OK] purityCorrectedUncorrectedOverly\n";
+                  }
+
+                  if (!SnapshotRooUnfoldSavedOutput(ppSavedOutput))
+                  {
+                    cerr << ANSI_BOLD_RED
+                         << "[FATAL] Failed to save PP RooUnfold output to:\n"
+                         << "  " << ppSavedOutput.cacheDir << "\n"
+                         << ANSI_RESET;
+                    std::exit(1);
+                  }
+
+                  cout << "     [OK] saved PP RooUnfold output to "
+                       << ppSavedOutput.cacheDir << "\n";
                 }
               }
             }

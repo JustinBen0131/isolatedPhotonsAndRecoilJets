@@ -155,6 +155,9 @@ namespace ARJ
   inline bool do_xJ_PPunfold = false;
   //   RooUnfold AuAu: true = run per-centrality unfolding with purity × combinatoric variants.
   inline bool do_xJ_AAunfold = false;
+  //   Saved RooUnfold output: true = erase/rebuild/cache live unfolding output for this exact file combination;
+  //   false = restore cached unfolding output and skip all unfolding work.
+  inline bool saveRooUnfoldOutput = false;
   //   Internal: selects raw vs ABCD purity-corrected reco inputs per pass.
   inline bool gApplyPurityCorrectionForUnfolding = false;
   //   Internal: selects whether the embedded combinatoric template is subtracted before unfolding.
@@ -1926,21 +1929,282 @@ namespace ARJ
     return false;
   }
 
-  // =============================================================================
-  // Tiny shared I/O helpers (used in several sections)
-  // =============================================================================
-  inline void WriteTextFile(const string& filepath, const vector<string>& lines)
+    // =============================================================================
+    // Tiny shared I/O helpers (used in several sections)
+    // =============================================================================
+    inline void WriteTextFile(const string& filepath, const vector<string>& lines)
+    {
+      EnsureParentDirForFile(filepath);
+      std::ofstream out(filepath.c_str());
+      for (const auto& s : lines) out << s << "\n";
+    }
+
+    inline string BaseNameFromPath(const string& path)
+    {
+      const size_t pos = path.find_last_of('/');
+      if (pos == string::npos) return path;
+      return path.substr(pos + 1);
+    }
+
+    inline string SanitizeForFilename(const string& s)
+    {
+      string out;
+      out.reserve(s.size());
+
+      bool prevUnderscore = false;
+
+      for (const char ch : s)
+      {
+        const bool keep =
+          ((ch >= 'a' && ch <= 'z') ||
+           (ch >= 'A' && ch <= 'Z') ||
+           (ch >= '0' && ch <= '9'));
+
+        if (keep)
+        {
+          out.push_back(ch);
+          prevUnderscore = false;
+        }
+        else if (!prevUnderscore)
+        {
+          out.push_back('_');
+          prevUnderscore = true;
+        }
+      }
+
+      while (!out.empty() && out.front() == '_') out.erase(out.begin());
+      while (!out.empty() && out.back()  == '_') out.pop_back();
+
+      if (out.empty()) out = "unnamed";
+      return out;
+    }
+
+    inline unsigned long long HashString64_FNV1a(const string& s)
+    {
+      unsigned long long h = 1469598103934665603ULL;
+      for (const unsigned char ch : s)
+      {
+        h ^= (unsigned long long) ch;
+        h *= 1099511628211ULL;
+      }
+      return h;
+    }
+
+    inline string HexString64(unsigned long long v)
+    {
+      std::ostringstream os;
+      os << std::hex << std::nouppercase << std::setw(16) << std::setfill('0') << v;
+      return os.str();
+    }
+
+    inline string MakeRooUnfoldSavedOutputKey(const string& label, const vector<string>& fields)
+    {
+      std::ostringstream joined;
+      joined << label << "\n";
+      for (const auto& f : fields) joined << f << "\n";
+
+      string human = SanitizeForFilename(label);
+      for (const auto& f : fields)
+      {
+        if (human.size() > 120) break;
+        const string base = SanitizeForFilename(BaseNameFromPath(f));
+        if (!base.empty()) human += "__" + base;
+      }
+
+      return human + "__" + HexString64(HashString64_FNV1a(joined.str()));
+    }
+
+    inline bool PathExists(const string& path)
+    {
+      if (path.empty() || !gSystem) return false;
+      return !gSystem->AccessPathName(path.c_str(), kFileExists);
+    }
+
+    inline string ShellQuote(const string& s)
+    {
+      string out = "'";
+      for (const char ch : s)
+      {
+        if (ch == '\'') out += "'\\''";
+        else             out.push_back(ch);
+      }
+      out += "'";
+      return out;
+    }
+
+    inline bool RemovePathRecursive(const string& path)
+    {
+      if (path.empty()) return true;
+      if (!PathExists(path)) return true;
+      if (!gSystem) return false;
+      return (gSystem->Exec(TString::Format("rm -rf %s", ShellQuote(path).c_str()).Data()) == 0);
+    }
+
+    inline bool CopyPathRecursive(const string& src, const string& dst)
+    {
+      if (src.empty() || dst.empty()) return false;
+      if (!PathExists(src) || !gSystem) return false;
+
+      const string parent = DirnameFromPath(dst);
+      if (!parent.empty()) EnsureDir(parent);
+
+      RemovePathRecursive(dst);
+
+      return (gSystem->Exec(
+                TString::Format("cp -R %s %s",
+                                ShellQuote(src).c_str(),
+                                ShellQuote(dst).c_str()).Data()) == 0);
+    }
+
+    inline bool PromptYesNo(const string& question)
+    {
+      string reply;
+
+      while (true)
+      {
+        cout << question << "\n[y/n]: " << std::flush;
+        if (!(std::cin >> reply)) return false;
+
+        std::transform(
+          reply.begin(),
+          reply.end(),
+          reply.begin(),
+          [](char c) -> char
+          {
+            if (c >= 'A' && c <= 'Z') return (char) (c - 'A' + 'a');
+            return c;
+          }
+        );
+
+        if (reply == "y" || reply == "yes") return true;
+        if (reply == "n" || reply == "no")  return false;
+
+        cout << "Please enter y or n.\n";
+      }
+    }
+
+    struct RooUnfoldSavedOutputSpec
+    {
+      string label;
+      string cacheDir;
+      vector<string> cacheEntryNames;
+      vector<string> liveDirs;
+      vector<string> detailLines;
+    };
+
+    inline string RooUnfoldSavedOutputManifestPath(const RooUnfoldSavedOutputSpec& spec)
+    {
+      return JoinPath(spec.cacheDir, "rooUnfold_savedOutput_manifest.txt");
+    }
+
+    inline string RooUnfoldSavedOutputPrompt(const RooUnfoldSavedOutputSpec& spec)
+    {
+      std::ostringstream os;
+      os << "Do you want to erase previous output for combination:\n";
+      os << "  " << spec.label << "\n";
+      for (const auto& line : spec.detailLines) os << "  " << line << "\n";
+      os << "  cacheDir = " << spec.cacheDir;
+      return os.str();
+    }
+
+    inline bool RooUnfoldSavedOutputExists(const RooUnfoldSavedOutputSpec& spec)
+    {
+      if (spec.cacheDir.empty()) return false;
+      if (spec.cacheEntryNames.size() != spec.liveDirs.size()) return false;
+      if (!PathExists(RooUnfoldSavedOutputManifestPath(spec))) return false;
+
+      for (std::size_t i = 0; i < spec.cacheEntryNames.size(); ++i)
+      {
+        if (!PathExists(JoinPath(spec.cacheDir, spec.cacheEntryNames[i]))) return false;
+      }
+
+      return true;
+    }
+
+    inline bool EraseRooUnfoldLiveOutput(const RooUnfoldSavedOutputSpec& spec)
+    {
+      bool ok = true;
+      std::set<string> seen;
+
+      for (const auto& liveDir : spec.liveDirs)
+      {
+        if (!seen.insert(liveDir).second) continue;
+        if (!RemovePathRecursive(liveDir)) ok = false;
+      }
+
+      return ok;
+    }
+
+    inline bool EraseRooUnfoldSavedOutput(const RooUnfoldSavedOutputSpec& spec)
+    {
+      bool ok = true;
+
+      if (!spec.cacheDir.empty())
+      {
+        if (!RemovePathRecursive(spec.cacheDir)) ok = false;
+      }
+
+      if (!EraseRooUnfoldLiveOutput(spec)) ok = false;
+      return ok;
+    }
+
+    inline bool SnapshotRooUnfoldSavedOutput(const RooUnfoldSavedOutputSpec& spec)
+    {
+      if (spec.cacheDir.empty()) return false;
+      if (spec.cacheEntryNames.size() != spec.liveDirs.size()) return false;
+
+      if (!RemovePathRecursive(spec.cacheDir)) return false;
+      EnsureDir(spec.cacheDir);
+
+      bool ok = true;
+      vector<string> manifest;
+      manifest.push_back("RooUnfold saved output cache");
+      manifest.push_back("label = " + spec.label);
+      manifest.push_back("cacheDir = " + spec.cacheDir);
+      manifest.push_back("");
+      manifest.push_back("[DETAILS]");
+      for (const auto& line : spec.detailLines) manifest.push_back(line);
+      manifest.push_back("");
+      manifest.push_back("[ENTRIES]");
+
+      for (std::size_t i = 0; i < spec.cacheEntryNames.size(); ++i)
+      {
+        manifest.push_back(spec.cacheEntryNames[i] + " <= " + spec.liveDirs[i]);
+
+        if (!CopyPathRecursive(spec.liveDirs[i], JoinPath(spec.cacheDir, spec.cacheEntryNames[i])))
+        {
+          ok = false;
+        }
+      }
+
+      WriteTextFile(RooUnfoldSavedOutputManifestPath(spec), manifest);
+      return ok;
+    }
+
+  inline bool RestoreRooUnfoldSavedOutput(const RooUnfoldSavedOutputSpec& spec)
   {
-    EnsureParentDirForFile(filepath);
-    std::ofstream out(filepath.c_str());
-    for (const auto& s : lines) out << s << "\n";
+      if (!RooUnfoldSavedOutputExists(spec)) return false;
+      if (spec.cacheEntryNames.size() != spec.liveDirs.size()) return false;
+
+      bool ok = true;
+
+      for (std::size_t i = 0; i < spec.cacheEntryNames.size(); ++i)
+      {
+        const string src = JoinPath(spec.cacheDir, spec.cacheEntryNames[i]);
+        const string dst = spec.liveDirs[i];
+
+        if (!RemovePathRecursive(dst)) ok = false;
+        if (!CopyPathRecursive(src, dst)) ok = false;
+      }
+
+      return ok;
   }
 
   inline void WriteJetSummaryTxt(const string& filepath,
-                                const string& rKey,
-                                double Nevt,
-                                const map<string,double>& scalars,
-                                const vector<string>& notes)
+                                  const string& rKey,
+                                  double Nevt,
+                                  const map<string,double>& scalars,
+                                  const vector<string>& notes)
   {
     EnsureParentDirForFile(filepath);
     std::ofstream out(filepath.c_str());
