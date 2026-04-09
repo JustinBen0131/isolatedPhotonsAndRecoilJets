@@ -4516,7 +4516,7 @@ namespace ARJ
 
               // purity_raw plot
               {
-                TGraphErrors gRaw(kNPtBins, &x[0], &yRaw[0], &ex[0], &eyRaw[0]);
+                TGraphErrors gRaw(kNPtBins - 1, &x[1], &yRaw[1], &ex[1], &eyRaw[1]);
                 gRaw.SetLineWidth(2);
                 gRaw.SetLineColor(kBlack);
                 gRaw.SetMarkerStyle(20);
@@ -4526,7 +4526,7 @@ namespace ARJ
                 TCanvas c("c_pur_raw","c_pur_raw",900,700);
                 ApplyCanvasMargins1D(c);
 
-                TH1F hFrame("hPurRawFrame","",100, kPtEdges.front(), kPtEdges.back());
+                TH1F hFrame("hPurRawFrame","",100, kPtEdges[1], kPtEdges.back());
                 hFrame.SetDirectory(nullptr);
                 hFrame.SetStats(0);
                 hFrame.SetMinimum(0.0);
@@ -4601,7 +4601,7 @@ namespace ARJ
 
                     if (anyPP)
                     {
-                      gPP = new TGraphErrors(kNPtBins, &xPP[0], &yPP[0], nullptr, &eyPP[0]);
+                      gPP = new TGraphErrors(kNPtBins - 1, &xPP[1], &yPP[1], nullptr, &eyPP[1]);
                       gPP->SetLineWidth(2);
                       gPP->SetLineColor(kRed + 1);
                       gPP->SetMarkerStyle(24);
@@ -8993,7 +8993,8 @@ namespace ARJ
                       const std::string& outPng,
                       const std::string& labelA,
                       const std::string& labelB,
-                      const std::string& titleLine)->void
+                      const std::string& titleLine,
+                      int colorB = kRed + 1)->void
                 {
                     if (!hA2 || !hB2) return;
                     (void)titleLine;
@@ -9042,8 +9043,8 @@ namespace ARJ
 
                     hB->SetTitle("");
                     hB->SetLineWidth(2);
-                    hB->SetLineColor(kRed + 1);
-                    hB->SetMarkerColor(kRed + 1);
+                    hB->SetLineColor(colorB);
+                    hB->SetMarkerColor(colorB);
                     hB->SetMarkerStyle(24);
                     hB->SetMarkerSize(1.0);
                     hB->SetFillStyle(0);
@@ -9095,7 +9096,7 @@ namespace ARJ
                     hA->Draw("E1");
                     hB->Draw("E1 SAME");
 
-                    TLegend leg(0.44, 0.72, 0.92, 0.88);
+                    TLegend leg(0.68, 0.78, 0.92, 0.92);
                     leg.SetBorderSize(0);
                     leg.SetFillStyle(0);
                     leg.SetTextFont(42);
@@ -9103,6 +9104,32 @@ namespace ARJ
                     leg.AddEntry(hA, labelA.c_str(), "ep");
                     leg.AddEntry(hB, labelB.c_str(), "ep");
                     leg.Draw();
+
+                    {
+                        const string bbLbl = (kAA_B2BCut == "7pi_8")
+                          ? "|#Delta#phi| > 7#pi/8" : "|#Delta#phi| > #pi/2";
+                        const string isoRLbl = (kAA_IsoConeR == "isoR40")
+                          ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+                        const string isoModeLbl = (kAA_IsoMode == "fixedIso4GeV")
+                          ? "E_{T}^{iso} < 4 GeV"
+                          : (kAA_IsoMode == "fixedIso5GeV")
+                            ? "E_{T}^{iso} < 5 GeV"
+                            : "E_{T}^{iso} sliding";
+
+                        TLatex tCuts;
+                        tCuts.SetNDC(true);
+                        tCuts.SetTextFont(42);
+                        tCuts.SetTextAlign(13);
+                        tCuts.SetTextSize(0.030);
+                        double yC = 0.86;
+                        const double dy = 0.045;
+                        tCuts.DrawLatex(0.16, yC, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());                yC -= dy;
+                        tCuts.DrawLatex(0.16, yC, isoRLbl.c_str());                                                     yC -= dy;
+                        tCuts.DrawLatex(0.16, yC, isoModeLbl.c_str());                                                   yC -= dy;
+                        tCuts.DrawLatex(0.16, yC, bbLbl.c_str());                                                        yC -= dy;
+                        tCuts.DrawLatex(0.16, yC, TString::Format("p_{T}^{jet} > %d GeV", kAA_JetPtMin).Data());         yC -= dy;
+                        tCuts.DrawLatex(0.16, yC, TString::Format("UE: %s", kAA_UEVariant.c_str()).Data());
+                    }
 
                     TLatex ttl;
                     ttl.SetNDC(true);
@@ -9355,13 +9382,14 @@ namespace ARJ
                             if (h2RecoMatched && h2Reco)
                             {
                                 DrawInclusiveXJPairTH2(
-                                  h2RecoMatched, h2Reco,
+                                  h2Reco, h2RecoMatched,
                                   w, rKey, "RecoMatchedVsReco",
                                   JoinPath(ovDir, TString::Format(
                                     "overlay_recoTruthTagged_vs_reco_%s.png", rKey.c_str()).Data()),
-                                  "RECO truth-tagged PHOTON+JET",
                                   "RECO",
-                                  "Inclusive x_{J#gamma}: RECO truth-tagged PHOTON+JET vs RECO"
+                                  "RECO (#gamma + jet-truth tagged)",
+                                  "Inclusive x_{J#gamma}: RECO vs RECO truth-tagged",
+                                  kOrange + 7
                                 );
                             }
 
@@ -13506,69 +13534,69 @@ namespace ARJ
   // ARJ::Run()  (ROOT macro entrypoint called by global AnalyzeRecoilJets())
   // =============================================================================
   int Run()
-  {
+{
       static bool sDidLoadSPhenixStyle = false;
       if (!sDidLoadSPhenixStyle)
       {
           sDidLoadSPhenixStyle = true;
           if (!gROOT->GetStyle("sPHENIX"))
           {
-            gROOT->LoadMacro("sPhenixStyle.C");
-            gROOT->ProcessLine("SetsPhenixStyle();");
+              gROOT->LoadMacro("sPhenixStyle.C");
+              gROOT->ProcessLine("SetsPhenixStyle();");
           }
           else
           {
-            gROOT->SetStyle("sPHENIX");
-            gROOT->ForceStyle();
+              gROOT->SetStyle("sPHENIX");
+              gROOT->ForceStyle();
           }
       }
-
+      
       SetupGlobalStyle();
-
-        // ---------------------------------------------------------------------------
+      
+      // ---------------------------------------------------------------------------
       // Banner
       // ---------------------------------------------------------------------------
       cout << ANSI_BOLD_CYN
-           << "\n============================================================\n"
-           << " AnalyzeRecoilJets  (refactored driver + modular analysis)\n"
-           << "============================================================\n"
-           << ANSI_RESET;
-
+      << "\n============================================================\n"
+      << " AnalyzeRecoilJets  (refactored driver + modular analysis)\n"
+      << "============================================================\n"
+      << ANSI_RESET;
+      
       // ---------------------------------------------------------------------------
       // Mode validation + printout
       // ---------------------------------------------------------------------------
       cout << ANSI_BOLD_CYN << "\n[STEP 0] Run-mode validation\n" << ANSI_RESET;
-
+      
       cout << "  Toggles:\n"
-           << "    ARJ_HAVE_ROOUNFOLD       = " << ARJ_HAVE_ROOUNFOLD << "\n"
-           << "    isPPdataOnly            = " << (isPPdataOnly ? "true" : "false") << "\n"
-           << "    isSimAndDataPP          = " << (isSimAndDataPP ? "true" : "false") << "\n"
-           << "    isSimAndDataAUAU        = " << (isSimAndDataAUAU ? "true" : "false") << "\n"
-           << "    isAuAuOnly              = " << (isAuAuOnly ? "true" : "false") << "\n"
-           << "    isPPdataAndAUAU         = " << (isPPdataAndAUAU ? "true" : "false") << "\n"
-           << "    isRun25pp               = " << (isRun25pp ? "true" : "false") << "\n"
-           << "    pp_beforeChangeInRecoSimDefTruthMatched = " << (pp_beforeChangeInRecoSimDefTruthMatched ? "true" : "false") << "\n"
-           << "    isPhotonJet5            = " << (isPhotonJet5 ? "true" : "false") << "\n"
-           << "    isPhotonJet10           = " << (isPhotonJet10 ? "true" : "false") << "\n"
-           << "    isPhotonJet20           = " << (isPhotonJet20 ? "true" : "false") << "\n"
-           << "    bothPhoton5and10sim     = " << (bothPhoton5and10sim ? "true" : "false") << "\n"
-           << "    bothPhoton5and20sim     = " << (bothPhoton5and20sim ? "true" : "false") << "\n"
-           << "    bothPhoton10and20sim    = " << (bothPhoton10and20sim ? "true" : "false") << "\n"
-           << "    allPhoton5and10and20sim = " << (allPhoton5and10and20sim ? "true" : "false") << "\n"
-           << "    isPhotonJet10Embedded   = " << (isPhotonJet10Embedded ? "true" : "false") << "\n"
-           << "    isPhotonJet20Embedded   = " << (isPhotonJet20Embedded ? "true" : "false") << "\n"
-           << "    bothPhoton10and20simEmbedded = " << (bothPhoton10and20simEmbedded ? "true" : "false") << "\n"
-           << "    isSimEmbeddedOnly       = " << (isSimEmbeddedOnly ? "true" : "false") << "\n"
-           << "    doPhotonJetMerge        = " << (doPhotonJetMerge ? "true" : "false") << "\n"
-           << "    do_xJ_PPunfold          = " << (do_xJ_PPunfold ? "true" : "false") << "\n"
-           << "    do_xJ_AAunfold          = " << (do_xJ_AAunfold ? "true" : "false") << "\n"
-           << "    saveRooUnfoldOutput     = " << (saveRooUnfoldOutput ? "true" : "false") << "\n"
-           << "    gApplyPurityCorrectionForUnfolding = " << (gApplyPurityCorrectionForUnfolding ? "true" : "false") << "\n"
-           << "    gApplyCombinatoricSubtractionForUnfolding = " << (gApplyCombinatoricSubtractionForUnfolding ? "true" : "false") << "\n"
-           << "      CfgTag()  (PP/SIM)    = " << CfgTag() << "\n"
-           << "      CfgTagAA()            = " << CfgTagAA() << "\n"
-           << "      CfgTagWithUE_AA()     = " << CfgTagWithUE_AA() << "\n";
-
+      << "    ARJ_HAVE_ROOUNFOLD       = " << ARJ_HAVE_ROOUNFOLD << "\n"
+      << "    isPPdataOnly            = " << (isPPdataOnly ? "true" : "false") << "\n"
+      << "    isSimAndDataPP          = " << (isSimAndDataPP ? "true" : "false") << "\n"
+      << "    isSimAndDataAUAU        = " << (isSimAndDataAUAU ? "true" : "false") << "\n"
+      << "    isAuAuOnly              = " << (isAuAuOnly ? "true" : "false") << "\n"
+      << "    isPPdataAndAUAU         = " << (isPPdataAndAUAU ? "true" : "false") << "\n"
+      << "    isRun25pp               = " << (isRun25pp ? "true" : "false") << "\n"
+      << "    pp_beforeChangeInRecoSimDefTruthMatched = " << (pp_beforeChangeInRecoSimDefTruthMatched ? "true" : "false") << "\n"
+      << "    isPhotonJet5            = " << (isPhotonJet5 ? "true" : "false") << "\n"
+      << "    isPhotonJet10           = " << (isPhotonJet10 ? "true" : "false") << "\n"
+      << "    isPhotonJet20           = " << (isPhotonJet20 ? "true" : "false") << "\n"
+      << "    bothPhoton5and10sim     = " << (bothPhoton5and10sim ? "true" : "false") << "\n"
+      << "    bothPhoton5and20sim     = " << (bothPhoton5and20sim ? "true" : "false") << "\n"
+      << "    bothPhoton10and20sim    = " << (bothPhoton10and20sim ? "true" : "false") << "\n"
+      << "    allPhoton5and10and20sim = " << (allPhoton5and10and20sim ? "true" : "false") << "\n"
+      << "    isPhotonJet10Embedded   = " << (isPhotonJet10Embedded ? "true" : "false") << "\n"
+      << "    isPhotonJet20Embedded   = " << (isPhotonJet20Embedded ? "true" : "false") << "\n"
+      << "    bothPhoton10and20simEmbedded = " << (bothPhoton10and20simEmbedded ? "true" : "false") << "\n"
+      << "    isSimEmbeddedOnly       = " << (isSimEmbeddedOnly ? "true" : "false") << "\n"
+      << "    doPhotonJetMerge        = " << (doPhotonJetMerge ? "true" : "false") << "\n"
+      << "    do_xJ_PPunfold          = " << (do_xJ_PPunfold ? "true" : "false") << "\n"
+      << "    do_xJ_AAunfold          = " << (do_xJ_AAunfold ? "true" : "false") << "\n"
+      << "    saveRooUnfoldOutput     = " << (saveRooUnfoldOutput ? "true" : "false") << "\n"
+      << "    gApplyPurityCorrectionForUnfolding = " << (gApplyPurityCorrectionForUnfolding ? "true" : "false") << "\n"
+      << "    gApplyCombinatoricSubtractionForUnfolding = " << (gApplyCombinatoricSubtractionForUnfolding ? "true" : "false") << "\n"
+      << "      CfgTag()  (PP/SIM)    = " << CfgTag() << "\n"
+      << "      CfgTagAA()            = " << CfgTagAA() << "\n"
+      << "      CfgTagWithUE_AA()     = " << CfgTagWithUE_AA() << "\n";
+      
       // ---------------------------------------------------------------------------
       //  Multi-SIM sequential runner
       //   If multiple SIM sample toggles are true, we automatically run each selected
@@ -13578,1382 +13606,787 @@ namespace ARJ
       // ---------------------------------------------------------------------------
       auto RequestedSamplesFromFlags = [&]() -> vector<SimSample>
       {
-        vector<SimSample> v;
-
-        if (isSimEmbeddedOnly) return v;
-
-        // Order matters (matches the way you'd normally run these by hand):
-        //   singles (5,10,20) -> pair merges -> 3-way merge
-        if (isPhotonJet5)            v.push_back(SimSample::kPhotonJet5);
-        if (isPhotonJet10)           v.push_back(SimSample::kPhotonJet10);
-        if (isPhotonJet20)           v.push_back(SimSample::kPhotonJet20);
-        if (bothPhoton5and10sim)     v.push_back(SimSample::kPhotonJet5And10Merged);
-        if (bothPhoton5and20sim)     v.push_back(SimSample::kPhotonJet5And20Merged);
-        if (bothPhoton10and20sim)    v.push_back(SimSample::kPhotonJet10And20Merged);
-        if (allPhoton5and10and20sim) v.push_back(SimSample::kPhotonJet5And10And20Merged);
-
-        return v;
+          vector<SimSample> v;
+          
+          if (isSimEmbeddedOnly) return v;
+          
+          // Order matters (matches the way you'd normally run these by hand):
+          //   singles (5,10,20) -> pair merges -> 3-way merge
+          if (isPhotonJet5)            v.push_back(SimSample::kPhotonJet5);
+          if (isPhotonJet10)           v.push_back(SimSample::kPhotonJet10);
+          if (isPhotonJet20)           v.push_back(SimSample::kPhotonJet20);
+          if (bothPhoton5and10sim)     v.push_back(SimSample::kPhotonJet5And10Merged);
+          if (bothPhoton5and20sim)     v.push_back(SimSample::kPhotonJet5And20Merged);
+          if (bothPhoton10and20sim)    v.push_back(SimSample::kPhotonJet10And20Merged);
+          if (allPhoton5and10and20sim) v.push_back(SimSample::kPhotonJet5And10And20Merged);
+          
+          return v;
       };
-
+      
       static bool sInMultiRun = false;
-
+      
       const vector<SimSample> requested = RequestedSamplesFromFlags();
-
+      
       if (!sInMultiRun)
       {
-        // Clear any stale override from a previous call in the same ROOT session.
-        driver::SetPPOutBaseSubdir("");
-
-        // Multi-run is only meaningful for SIM-including modes.
-        if (!isPPdataOnly && requested.size() > 1)
-        {
-          cout << ANSI_BOLD_CYN
-               << "\n[INFO] Multiple SIM sample toggles are TRUE (N=" << requested.size() << ").\n"
-               << "       Will run each selected SIM sample sequentially in mode: "
-               << (isSimAndDataPP ? "SIM_AND_DATA_PP" : "SIM_ONLY")
-               << "\n"
-               << ANSI_RESET;
-
-          // Save original flags so we can restore at the end.
-          const bool o_isPhotonJet5            = isPhotonJet5;
-          const bool o_isPhotonJet10           = isPhotonJet10;
-          const bool o_isPhotonJet20           = isPhotonJet20;
-          const bool o_bothPhoton5and10sim     = bothPhoton5and10sim;
-          const bool o_bothPhoton5and20sim     = bothPhoton5and20sim;
-          const bool o_bothPhoton10and20sim    = bothPhoton10and20sim;
-          const bool o_allPhoton5and10and20sim = allPhoton5and10and20sim;
-
-          auto ClearAllSimFlags = [&]()
-          {
-            isPhotonJet5            = false;
-            isPhotonJet10           = false;
-            isPhotonJet20           = false;
-            bothPhoton5and10sim     = false;
-            bothPhoton5and20sim     = false;
-            bothPhoton10and20sim    = false;
-            allPhoton5and10and20sim = false;
-          };
-
-          auto SetFlagsForSample = [&](SimSample s)
-          {
-            ClearAllSimFlags();
-            switch (s)
-            {
-              case SimSample::kPhotonJet5:                 isPhotonJet5 = true; break;
-              case SimSample::kPhotonJet10:                isPhotonJet10 = true; break;
-              case SimSample::kPhotonJet20:                isPhotonJet20 = true; break;
-              case SimSample::kPhotonJet5And10Merged:      bothPhoton5and10sim = true; break;
-              case SimSample::kPhotonJet5And20Merged:      bothPhoton5and20sim = true; break;
-              case SimSample::kPhotonJet10And20Merged:     bothPhoton10and20sim = true; break;
-              case SimSample::kPhotonJet5And10And20Merged: allPhoton5and10and20sim = true; break;
-              default: break;
-            }
-          };
-
-          int worstRc = 0;
-
-          sInMultiRun = true;
-          for (size_t i = 0; i < requested.size(); ++i)
-          {
-            const SimSample s = requested[i];
-
-            cout << ANSI_BOLD_CYN
-                 << "\n============================================================\n"
-                 << "[MULTI-RUN " << (i + 1) << "/" << requested.size() << "] SIM sample: " << SimSampleLabel(s) << "\n"
-                 << "============================================================\n"
-                 << ANSI_RESET;
-
-            SetFlagsForSample(s);
-
-            // If we are doing SIM+DATA, avoid overwriting PP outputs across runs.
-            // PP outputs will go under:
-            //   kOutPPBase/with_<SimSampleLabel(s)>/
-            if (isSimAndDataPP)
-            {
-              driver::SetPPOutBaseSubdir(string("with_") + SimSampleLabel(s));
-            }
-            else
-            {
-              driver::SetPPOutBaseSubdir("");
-            }
-
-            const int rc = Run();  // recursion into the single-sample path
-            if (rc != 0) worstRc = rc;
-          }
-
-          // Restore original flags
-          isPhotonJet5            = o_isPhotonJet5;
-          isPhotonJet10           = o_isPhotonJet10;
-          isPhotonJet20           = o_isPhotonJet20;
-          bothPhoton5and10sim     = o_bothPhoton5and10sim;
-          bothPhoton5and20sim     = o_bothPhoton5and20sim;
-          bothPhoton10and20sim    = o_bothPhoton10and20sim;
-          allPhoton5and10and20sim = o_allPhoton5and10and20sim;
-
+          // Clear any stale override from a previous call in the same ROOT session.
           driver::SetPPOutBaseSubdir("");
-          sInMultiRun = false;
-
-          return worstRc;
-        }
+          
+          // Multi-run is only meaningful for SIM-including modes.
+          if (!isPPdataOnly && requested.size() > 1)
+          {
+              cout << ANSI_BOLD_CYN
+              << "\n[INFO] Multiple SIM sample toggles are TRUE (N=" << requested.size() << ").\n"
+              << "       Will run each selected SIM sample sequentially in mode: "
+              << (isSimAndDataPP ? "SIM_AND_DATA_PP" : "SIM_ONLY")
+              << "\n"
+              << ANSI_RESET;
+              
+              // Save original flags so we can restore at the end.
+              const bool o_isPhotonJet5            = isPhotonJet5;
+              const bool o_isPhotonJet10           = isPhotonJet10;
+              const bool o_isPhotonJet20           = isPhotonJet20;
+              const bool o_bothPhoton5and10sim     = bothPhoton5and10sim;
+              const bool o_bothPhoton5and20sim     = bothPhoton5and20sim;
+              const bool o_bothPhoton10and20sim    = bothPhoton10and20sim;
+              const bool o_allPhoton5and10and20sim = allPhoton5and10and20sim;
+              
+              auto ClearAllSimFlags = [&]()
+              {
+                  isPhotonJet5            = false;
+                  isPhotonJet10           = false;
+                  isPhotonJet20           = false;
+                  bothPhoton5and10sim     = false;
+                  bothPhoton5and20sim     = false;
+                  bothPhoton10and20sim    = false;
+                  allPhoton5and10and20sim = false;
+              };
+              
+              auto SetFlagsForSample = [&](SimSample s)
+              {
+                  ClearAllSimFlags();
+                  switch (s)
+                  {
+                      case SimSample::kPhotonJet5:                 isPhotonJet5 = true; break;
+                      case SimSample::kPhotonJet10:                isPhotonJet10 = true; break;
+                      case SimSample::kPhotonJet20:                isPhotonJet20 = true; break;
+                      case SimSample::kPhotonJet5And10Merged:      bothPhoton5and10sim = true; break;
+                      case SimSample::kPhotonJet5And20Merged:      bothPhoton5and20sim = true; break;
+                      case SimSample::kPhotonJet10And20Merged:     bothPhoton10and20sim = true; break;
+                      case SimSample::kPhotonJet5And10And20Merged: allPhoton5and10and20sim = true; break;
+                      default: break;
+                  }
+              };
+              
+              int worstRc = 0;
+              
+              sInMultiRun = true;
+              for (size_t i = 0; i < requested.size(); ++i)
+              {
+                  const SimSample s = requested[i];
+                  
+                  cout << ANSI_BOLD_CYN
+                  << "\n============================================================\n"
+                  << "[MULTI-RUN " << (i + 1) << "/" << requested.size() << "] SIM sample: " << SimSampleLabel(s) << "\n"
+                  << "============================================================\n"
+                  << ANSI_RESET;
+                  
+                  SetFlagsForSample(s);
+                  
+                  // If we are doing SIM+DATA, avoid overwriting PP outputs across runs.
+                  // PP outputs will go under:
+                  //   kOutPPBase/with_<SimSampleLabel(s)>/
+                  if (isSimAndDataPP)
+                  {
+                      driver::SetPPOutBaseSubdir(string("with_") + SimSampleLabel(s));
+                  }
+                  else
+                  {
+                      driver::SetPPOutBaseSubdir("");
+                  }
+                  
+                  const int rc = Run();  // recursion into the single-sample path
+                  if (rc != 0) worstRc = rc;
+              }
+              
+              // Restore original flags
+              isPhotonJet5            = o_isPhotonJet5;
+              isPhotonJet10           = o_isPhotonJet10;
+              isPhotonJet20           = o_isPhotonJet20;
+              bothPhoton5and10sim     = o_bothPhoton5and10sim;
+              bothPhoton5and20sim     = o_bothPhoton5and20sim;
+              bothPhoton10and20sim    = o_bothPhoton10and20sim;
+              allPhoton5and10and20sim = o_allPhoton5and10and20sim;
+              
+              driver::SetPPOutBaseSubdir("");
+              sInMultiRun = false;
+              
+              return worstRc;
+          }
       }
-
+      
       // ---------------------------------------------------------------------------
       // Normal single-sample path (legacy behavior)
       // ---------------------------------------------------------------------------
       string cfgErr;
       if (!ValidateRunConfig(&cfgErr))
       {
-        cout << ANSI_BOLD_RED
-             << "[FATAL] Invalid run configuration:\n"
-             << "  " << cfgErr << "\n"
-             << ANSI_RESET;
-        return 1;
+          cout << ANSI_BOLD_RED
+          << "[FATAL] Invalid run configuration:\n"
+          << "  " << cfgErr << "\n"
+          << ANSI_RESET;
+          return 1;
       }
-
+      
       const RunMode mode   = CurrentRunMode();
       const SimSample ss   = CurrentSimSample();
-
+      
       cout << ANSI_BOLD_YEL << "  -> Selected mode: " << RunModeLabel(mode);
       if (mode == RunMode::kSimOnly ||
           mode == RunMode::kSimAndDataPP ||
           mode == RunMode::kSimAndDataAUAU)
       {
-        cout << "  |  SIM sample: " << SimSampleLabel(ss)
-             << "  |  SIM outBase: " << SimOutBaseForSample(ss);
+          cout << "  |  SIM sample: " << SimSampleLabel(ss)
+          << "  |  SIM outBase: " << SimOutBaseForSample(ss);
       }
       cout << ANSI_RESET << "\n";
-
+      
       // ---------------------------------------------------------------------------
       // Explicit default CUT config printout (so it's obvious what drives the merge + analysis)
       // ---------------------------------------------------------------------------
       if ((mode == RunMode::kSimOnly || mode == RunMode::kSimAndDataPP) && !IsEmbeddedSimSample(ss))
       {
-        cout << ANSI_DIM
-             << "\n  [DEFAULT CUT CONFIG]\n"
-             << "    CfgTag()                        = " << CfgTag() << "\n"
-             << "    kJetPtMin                       = " << kJetPtMin << " GeV\n"
-             << "    B2BLabel()                      = " << B2BLabel() << "\n"
-             << "    kVzCut                          = " << kVzCut << " cm\n"
-             << "    kIsoConeR                       = " << kIsoConeR << "\n"
-             << "    kIsoMode                        = " << kIsoMode << "\n"
-             << "    kAA_UEVariant                   = " << kAA_UEVariant << "\n";
-
-        if (ss == SimSample::kPhotonJet5And10And20Merged)
-        {
-          cout << "    InputSim(photonjet5)             = " << InputSim("photonjet5") << "\n";
-        }
-
-        cout << "    InputSim(photonjet10)            = " << InputSim("photonjet10") << "\n"
-             << "    InputSim(photonjet20)            = " << InputSim("photonjet20") << "\n";
-
-        if (ss == SimSample::kPhotonJet5And10And20Merged)
-        {
-          cout << "    MergedSimPath(5+10+20)          = " << MergedSimPath("photonJet5and10and20merged_SIM", "RecoilJets_photonjet5plus10plus20_MERGED.root") << "\n";
-        }
-        else
-        {
-          cout << "    MergedSimPath(10+20)            = " << MergedSimPath("photonJet10and20merged_SIM", "RecoilJets_photonjet10plus20_MERGED.root") << "\n";
-        }
-
-        cout << ANSI_RESET;
-
-        if (ss == SimSample::kPhotonJet10And20Merged ||
-            ss == SimSample::kPhotonJet5And10And20Merged)
-        {
           cout << ANSI_DIM
-               << "  [ACTIVE MERGED DATASET PATH]\n"
-               << "    SimInputPathForSample(ss)       = " << SimInputPathForSample(ss) << "\n"
-               << "    (This is the file opened in STEP 3 and used for the full analysis.)\n"
-               << ANSI_RESET;
-        }
+          << "\n  [DEFAULT CUT CONFIG]\n"
+          << "    CfgTag()                        = " << CfgTag() << "\n"
+          << "    kJetPtMin                       = " << kJetPtMin << " GeV\n"
+          << "    B2BLabel()                      = " << B2BLabel() << "\n"
+          << "    kVzCut                          = " << kVzCut << " cm\n"
+          << "    kIsoConeR                       = " << kIsoConeR << "\n"
+          << "    kIsoMode                        = " << kIsoMode << "\n"
+          << "    kAA_UEVariant                   = " << kAA_UEVariant << "\n";
+          
+          if (ss == SimSample::kPhotonJet5And10And20Merged)
+          {
+              cout << "    InputSim(photonjet5)             = " << InputSim("photonjet5") << "\n";
+          }
+          
+          cout << "    InputSim(photonjet10)            = " << InputSim("photonjet10") << "\n"
+          << "    InputSim(photonjet20)            = " << InputSim("photonjet20") << "\n";
+          
+          if (ss == SimSample::kPhotonJet5And10And20Merged)
+          {
+              cout << "    MergedSimPath(5+10+20)          = " << MergedSimPath("photonJet5and10and20merged_SIM", "RecoilJets_photonjet5plus10plus20_MERGED.root") << "\n";
+          }
+          else
+          {
+              cout << "    MergedSimPath(10+20)            = " << MergedSimPath("photonJet10and20merged_SIM", "RecoilJets_photonjet10plus20_MERGED.root") << "\n";
+          }
+          
+          cout << ANSI_RESET;
+          
+          if (ss == SimSample::kPhotonJet10And20Merged ||
+              ss == SimSample::kPhotonJet5And10And20Merged)
+          {
+              cout << ANSI_DIM
+              << "  [ACTIVE MERGED DATASET PATH]\n"
+              << "    SimInputPathForSample(ss)       = " << SimInputPathForSample(ss) << "\n"
+              << "    (This is the file opened in STEP 3 and used for the full analysis.)\n"
+              << ANSI_RESET;
+          }
       }
       else if (mode == RunMode::kSimAndDataAUAU || (mode == RunMode::kSimOnly && IsEmbeddedSimSample(ss)))
       {
-        cout << ANSI_DIM
-             << "\n  [DEFAULT CUT CONFIG]\n"
-             << "    CfgTagAA()                      = " << CfgTagAA() << "\n"
-             << "    CfgTagWithUE_AA()               = " << CfgTagWithUE_AA() << "\n"
-             << "    kAA_JetPtMin                    = " << kAA_JetPtMin << " GeV\n"
-             << "    kAA_B2BCut                      = " << kAA_B2BCut << "  (" << B2BLabelFor(kAA_B2BCut) << ")\n"
-             << "    kAA_VzCut                       = " << kAA_VzCut << " cm\n"
-             << "    kAA_IsoConeR                    = " << kAA_IsoConeR << "\n"
-             << "    kAA_IsoMode                     = " << kAA_IsoMode << "\n"
-             << "    kAA_UEVariant                   = " << kAA_UEVariant << "\n"
-             << "    InputAuAu()                     = " << InputAuAu() << "\n";
-
-        if (ss == SimSample::kEmbeddedPhoton10And20Merged)
-        {
-          cout << "    InputSimEmbeddedSample(10)      = " << InputSimEmbeddedSample("embeddedPhoton10") << "\n"
-               << "    InputSimEmbeddedSample(20)      = " << InputSimEmbeddedSample("embeddedPhoton20") << "\n"
-               << "    MergedSimEmbeddedPath(10+20)    = " << MergedSimEmbeddedPath("photonJet10and20merged_SIM", "RecoilJets_embeddedPhoton10plus20_MERGED.root") << "\n";
-        }
-        else if (ss == SimSample::kEmbeddedPhoton10)
-        {
-          cout << "    InputSimEmbeddedSample(10)      = " << InputSimEmbeddedSample("embeddedPhoton10") << "\n";
-        }
-        else if (ss == SimSample::kEmbeddedPhoton20)
-        {
-          cout << "    InputSimEmbeddedSample(20)      = " << InputSimEmbeddedSample("embeddedPhoton20") << "\n";
-        }
-        else if (ss == SimSample::kSimEmbedded)
-        {
-          cout << "    InputSimEmbedded()              = " << InputSimEmbedded() << "\n";
-        }
-
-        if (!kTriggersAuAu.empty())
-        {
-          std::ostringstream trigList;
-          for (std::size_t i = 0; i < kTriggersAuAu.size(); ++i)
-          {
-            if (i) trigList << ", ";
-            trigList << kTriggersAuAu[i];
-          }
-          cout << "    kTriggersAuAu                   = [" << trigList.str() << "]\n";
-        }
-
-        cout << ANSI_RESET;
-
-        if (IsEmbeddedSimSample(ss))
-        {
           cout << ANSI_DIM
-               << "  [ACTIVE EMBEDDED DATASET PATH]\n"
-               << "    SimInputPathForSample(ss)       = " << SimInputPathForSample(ss) << "\n"
-               << "    (This is the file opened in STEP 3 and used for the full analysis.)\n"
-               << ANSI_RESET;
-        }
+          << "\n  [DEFAULT CUT CONFIG]\n"
+          << "    CfgTagAA()                      = " << CfgTagAA() << "\n"
+          << "    CfgTagWithUE_AA()               = " << CfgTagWithUE_AA() << "\n"
+          << "    kAA_JetPtMin                    = " << kAA_JetPtMin << " GeV\n"
+          << "    kAA_B2BCut                      = " << kAA_B2BCut << "  (" << B2BLabelFor(kAA_B2BCut) << ")\n"
+          << "    kAA_VzCut                       = " << kAA_VzCut << " cm\n"
+          << "    kAA_IsoConeR                    = " << kAA_IsoConeR << "\n"
+          << "    kAA_IsoMode                     = " << kAA_IsoMode << "\n"
+          << "    kAA_UEVariant                   = " << kAA_UEVariant << "\n"
+          << "    InputAuAu()                     = " << InputAuAu() << "\n";
+          
+          if (ss == SimSample::kEmbeddedPhoton10And20Merged)
+          {
+              cout << "    InputSimEmbeddedSample(10)      = " << InputSimEmbeddedSample("embeddedPhoton10") << "\n"
+              << "    InputSimEmbeddedSample(20)      = " << InputSimEmbeddedSample("embeddedPhoton20") << "\n"
+              << "    MergedSimEmbeddedPath(10+20)    = " << MergedSimEmbeddedPath("photonJet10and20merged_SIM", "RecoilJets_embeddedPhoton10plus20_MERGED.root") << "\n";
+          }
+          else if (ss == SimSample::kEmbeddedPhoton10)
+          {
+              cout << "    InputSimEmbeddedSample(10)      = " << InputSimEmbeddedSample("embeddedPhoton10") << "\n";
+          }
+          else if (ss == SimSample::kEmbeddedPhoton20)
+          {
+              cout << "    InputSimEmbeddedSample(20)      = " << InputSimEmbeddedSample("embeddedPhoton20") << "\n";
+          }
+          else if (ss == SimSample::kSimEmbedded)
+          {
+              cout << "    InputSimEmbedded()              = " << InputSimEmbedded() << "\n";
+          }
+          
+          if (!kTriggersAuAu.empty())
+          {
+              std::ostringstream trigList;
+              for (std::size_t i = 0; i < kTriggersAuAu.size(); ++i)
+              {
+                  if (i) trigList << ", ";
+                  trigList << kTriggersAuAu[i];
+              }
+              cout << "    kTriggersAuAu                   = [" << trigList.str() << "]\n";
+          }
+          
+          cout << ANSI_RESET;
+          
+          if (IsEmbeddedSimSample(ss))
+          {
+              cout << ANSI_DIM
+              << "  [ACTIVE EMBEDDED DATASET PATH]\n"
+              << "    SimInputPathForSample(ss)       = " << SimInputPathForSample(ss) << "\n"
+              << "    (This is the file opened in STEP 3 and used for the full analysis.)\n"
+              << ANSI_RESET;
+          }
       }
       // ---------------------------------------------------------------------------
       // Optional SIM slice merge
       // ---------------------------------------------------------------------------
       cout << ANSI_BOLD_CYN << "\n[STEP 1] Optional SIM slice merge (photonJet5/10/20 combinations)\n" << ANSI_RESET;
       cout << "  -> Checking whether merged SIM is required for this mode...\n";
-
+      
       if (!driver::MaybeBuildMergedSIM(mode))
       {
-        cout << ANSI_BOLD_RED
-             << "  [FATAL] driver::MaybeBuildMergedSIM failed. Aborting.\n"
-             << ANSI_RESET;
-        return 1;
+          cout << ANSI_BOLD_RED
+          << "  [FATAL] driver::MaybeBuildMergedSIM failed. Aborting.\n"
+          << ANSI_RESET;
+          return 1;
       }
       cout << ANSI_BOLD_GRN << "  [OK] SIM merge step complete (or not needed).\n" << ANSI_RESET;
-
+      
       // ---------------------------------------------------------------------------
       // Build datasets list
       // ---------------------------------------------------------------------------
       cout << ANSI_BOLD_CYN << "\n[STEP 2] Build dataset list for this run-mode\n" << ANSI_RESET;
-
+      
       vector<Dataset> datasets = driver::BuildDatasets(mode);
       cout << "  -> driver::BuildDatasets returned N=" << datasets.size() << "\n";
-
+      
       if (datasets.empty())
       {
-        cout << ANSI_BOLD_RED << "[FATAL] No datasets selected. Check toggles." << ANSI_RESET << "\n";
-        return 1;
+          cout << ANSI_BOLD_RED << "[FATAL] No datasets selected. Check toggles." << ANSI_RESET << "\n";
+          return 1;
       }
-
+      
       cout << "  Datasets:\n";
       for (const auto& ds : datasets)
       {
-        cout << "    - label=" << ds.label
-             << "  isSim=" << (ds.isSim ? "true" : "false")
-             << "  trigger=" << ds.trigger
-             << "  topDir=" << ds.topDirName
-             << "  inFile=" << ds.inFilePath
-             << "  outBase=" << ds.outBase
-             << "\n";
+          cout << "    - label=" << ds.label
+          << "  isSim=" << (ds.isSim ? "true" : "false")
+          << "  trigger=" << ds.trigger
+          << "  topDir=" << ds.topDirName
+          << "  inFile=" << ds.inFilePath
+          << "  outBase=" << ds.outBase
+          << "\n";
       }
-
+      
       // ---------------------------------------------------------------------------
       // Open datasets (fail-fast)
       // ---------------------------------------------------------------------------
       cout << ANSI_BOLD_CYN << "\n[STEP 3] Open all datasets (fail-fast)\n" << ANSI_RESET;
-
+      
       for (auto& ds : datasets)
       {
-        cout << "  -> Opening dataset: " << ANSI_BOLD_YEL << ds.label << ANSI_RESET << "\n";
-        cout << "     file=" << ds.inFilePath << "\n";
-        cout << "     topDir=" << ds.topDirName << "\n";
-
-        if (!driver::OpenDataset(ds))
-        {
-          cout << ANSI_BOLD_RED
-               << "  [FATAL] Failed to open dataset: " << ds.label << "\n"
-               << "         Closing any datasets already opened...\n"
-               << ANSI_RESET;
-
-          for (auto& d2 : datasets) driver::CloseDataset(d2);
-          return 1;
-        }
-
-        cout << ANSI_BOLD_GRN << "     [OK] Opened.\n" << ANSI_RESET;
+          cout << "  -> Opening dataset: " << ANSI_BOLD_YEL << ds.label << ANSI_RESET << "\n";
+          cout << "     file=" << ds.inFilePath << "\n";
+          cout << "     topDir=" << ds.topDirName << "\n";
+          
+          if (!driver::OpenDataset(ds))
+          {
+              cout << ANSI_BOLD_RED
+              << "  [FATAL] Failed to open dataset: " << ds.label << "\n"
+              << "         Closing any datasets already opened...\n"
+              << ANSI_RESET;
+              
+              for (auto& d2 : datasets) driver::CloseDataset(d2);
+              return 1;
+          }
+          
+          cout << ANSI_BOLD_GRN << "     [OK] Opened.\n" << ANSI_RESET;
       }
-
+      
       // ---------------------------------------------------------------------------
       // AuAu-only: Tabulate accepted events per centrality (and total) BEFORE any QA
       // ---------------------------------------------------------------------------
       if (mode == RunMode::kAuAuOnly)
       {
-        cout << ANSI_BOLD_CYN << "\n[AuAuOnly] Accepted events summary (by centrality + total)\n" << ANSI_RESET;
-
-        std::map<std::string, std::vector<std::pair<std::pair<int,int>, double>>> accByTrig;
-
-        auto ParseCentLoHiFromSuffix = [&](const std::string& s, int& lo, int& hi)->bool
-        {
-          lo = -1; hi = -1;
-          if (s.empty()) return false;
-
-          int a = -1, b = -1;
-          if (std::sscanf(s.c_str(), "_cent_%d_%d", &a, &b) == 2)
+          cout << ANSI_BOLD_CYN << "\n[AuAuOnly] Accepted events summary (by centrality + total)\n" << ANSI_RESET;
+          
+          std::map<std::string, std::vector<std::pair<std::pair<int,int>, double>>> accByTrig;
+          
+          auto ParseCentLoHiFromSuffix = [&](const std::string& s, int& lo, int& hi)->bool
           {
-            lo = a; hi = b;
-            return true;
+              lo = -1; hi = -1;
+              if (s.empty()) return false;
+              
+              int a = -1, b = -1;
+              if (std::sscanf(s.c_str(), "_cent_%d_%d", &a, &b) == 2)
+              {
+                  lo = a; hi = b;
+                  return true;
+              }
+              return false;
+          };
+          
+          for (auto& ds : datasets)
+          {
+              if (ds.isSim) continue;
+              if (ds.centSuffix.empty()) continue;
+              
+              int clo = -1, chi = -1;
+              if (!ParseCentLoHiFromSuffix(ds.centSuffix, clo, chi)) continue;
+              
+              const double nEvt = ReadEventCount(ds);
+              accByTrig[ds.trigger].push_back({{clo, chi}, nEvt});
           }
-          return false;
-        };
-
-        for (auto& ds : datasets)
-        {
-          if (ds.isSim) continue;
-          if (ds.centSuffix.empty()) continue;
-
-          int clo = -1, chi = -1;
-          if (!ParseCentLoHiFromSuffix(ds.centSuffix, clo, chi)) continue;
-
-          const double nEvt = ReadEventCount(ds);
-          accByTrig[ds.trigger].push_back({{clo, chi}, nEvt});
-        }
-
+          
           for (auto& kv : accByTrig)
           {
-            const std::string& trig = kv.first;
-            auto& v = kv.second;
-
-            if (v.empty()) continue;
-
-            std::sort(v.begin(), v.end(),
-                      [](const auto& a, const auto& b){ return a.first.first < b.first.first; });
-
-            cout << ANSI_BOLD_YEL << "\n  Trigger: " << trig << ANSI_RESET << "\n";
-
-            double total = 0.0;
-            for (const auto& it : v)
-            {
-              const int clo = it.first.first;
-              const int chi = it.first.second;
-              const double nEvt = it.second;
-
-              total += nEvt;
-
-              cout << "    [DATA_AUAU_" << clo << "_" << chi << "] accepted events = "
-                   << std::fixed << std::setprecision(0) << nEvt << "\n";
-            }
-
-            cout << "    [TOTAL] accepted events (sum over centrality) = "
-                 << std::fixed << std::setprecision(0) << total << "\n";
-
-            // ---------------------------------------------------------------------
-            // Also save the centrality distribution histogram to the SAME trigger dir
-            //   <kOutAuAuBase>/<trigger>/centrality_distribution.png
-            // ---------------------------------------------------------------------
-            Dataset* dsRef = nullptr;
-            for (auto& ds : datasets)
-            {
-              if (ds.isSim) continue;
-              if (ds.trigger != trig) continue;
-              dsRef = &ds;
-              break;
-            }
-
-            if (dsRef && dsRef->topDir)
-            {
-              TH1* hCent = dynamic_cast<TH1*>(dsRef->topDir->Get("h_centrality"));
-
-              if (hCent)
+              const std::string& trig = kv.first;
+              auto& v = kv.second;
+              
+              if (v.empty()) continue;
+              
+              std::sort(v.begin(), v.end(),
+                        [](const auto& a, const auto& b){ return a.first.first < b.first.first; });
+              
+              cout << ANSI_BOLD_YEL << "\n  Trigger: " << trig << ANSI_RESET << "\n";
+              
+              double total = 0.0;
+              for (const auto& it : v)
               {
-                const std::string outDir  = JoinPath(OutputAuAu(), trig);
-                const std::string outPath = JoinPath(outDir, "centrality_distribution.png");
-                EnsureDir(outDir);
-
-                TCanvas c("cCentralityDist", "", 900, 700);
-                c.SetTopMargin(0.12);
-                c.SetBottomMargin(0.14);
-                c.SetLeftMargin(0.13);
-                c.SetRightMargin(0.05);
-
-                hCent->SetTitle("");
-                hCent->SetStats(0);
-                hCent->GetXaxis()->SetTitle("Centrality [%]");
-                hCent->GetYaxis()->SetTitle("Counts");
-                hCent->GetYaxis()->SetTitleOffset(1.20);
-
-                hCent->Draw("hist");
-
-                TLatex t;
-                t.SetNDC(true);
-                t.SetTextFont(42);
-                t.SetTextAlign(23); // center, top
-                t.SetTextSize(0.045);
-                std::string centDistTitle;
-                                  {
-                                    int photonPt = 0;
-                                    if (std::sscanf(trig.c_str(), "photon_%d_plus", &photonPt) == 1)
-                                      centDistTitle = TString::Format("Centrality Distribution, Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
-                                    else if (trig.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
-                                      centDistTitle = "Centrality Distribution, MBD NS #geq 2, vtx < 150 cm";
-                                    else
-                                      centDistTitle = "Centrality Distribution, " + trig;
-                                  }
-                                  t.DrawLatex(0.50, 0.98, centDistTitle.c_str());
-
-                c.SaveAs(outPath.c_str());
+                  const int clo = it.first.first;
+                  const int chi = it.first.second;
+                  const double nEvt = it.second;
+                  
+                  total += nEvt;
+                  
+                  cout << "    [DATA_AUAU_" << clo << "_" << chi << "] accepted events = "
+                  << std::fixed << std::setprecision(0) << nEvt << "\n";
+              }
+              
+              cout << "    [TOTAL] accepted events (sum over centrality) = "
+              << std::fixed << std::setprecision(0) << total << "\n";
+              
+              // ---------------------------------------------------------------------
+              // Also save the centrality distribution histogram to the SAME trigger dir
+              //   <kOutAuAuBase>/<trigger>/centrality_distribution.png
+              // ---------------------------------------------------------------------
+              Dataset* dsRef = nullptr;
+              for (auto& ds : datasets)
+              {
+                  if (ds.isSim) continue;
+                  if (ds.trigger != trig) continue;
+                  dsRef = &ds;
+                  break;
+              }
+              
+              if (dsRef && dsRef->topDir)
+              {
+                  TH1* hCent = dynamic_cast<TH1*>(dsRef->topDir->Get("h_centrality"));
+                  
+                  if (hCent)
+                  {
+                      const std::string outDir  = JoinPath(OutputAuAu(), trig);
+                      const std::string outPath = JoinPath(outDir, "centrality_distribution.png");
+                      EnsureDir(outDir);
+                      
+                      TCanvas c("cCentralityDist", "", 900, 700);
+                      c.SetTopMargin(0.12);
+                      c.SetBottomMargin(0.14);
+                      c.SetLeftMargin(0.13);
+                      c.SetRightMargin(0.05);
+                      
+                      hCent->SetTitle("");
+                      hCent->SetStats(0);
+                      hCent->GetXaxis()->SetTitle("Centrality [%]");
+                      hCent->GetYaxis()->SetTitle("Counts");
+                      hCent->GetYaxis()->SetTitleOffset(1.20);
+                      
+                      hCent->Draw("hist");
+                      
+                      TLatex t;
+                      t.SetNDC(true);
+                      t.SetTextFont(42);
+                      t.SetTextAlign(23); // center, top
+                      t.SetTextSize(0.045);
+                      std::string centDistTitle;
+                      {
+                          int photonPt = 0;
+                          if (std::sscanf(trig.c_str(), "photon_%d_plus", &photonPt) == 1)
+                              centDistTitle = TString::Format("Centrality Distribution, Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                          else if (trig.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                              centDistTitle = "Centrality Distribution, MBD NS #geq 2, vtx < 150 cm";
+                          else
+                              centDistTitle = "Centrality Distribution, " + trig;
+                      }
+                      t.DrawLatex(0.50, 0.98, centDistTitle.c_str());
+                      
+                      c.SaveAs(outPath.c_str());
+                  }
+                  else
+                  {
+                      cout << "    [WARN] h_centrality not found for trigger '" << trig << "'\n";
+                  }
               }
               else
               {
-                cout << "    [WARN] h_centrality not found for trigger '" << trig << "'\n";
+                  cout << "    [WARN] Cannot save centrality plot (dataset not found/opened for trigger '" << trig << "')\n";
               }
-            }
-            else
-            {
-              cout << "    [WARN] Cannot save centrality plot (dataset not found/opened for trigger '" << trig << "')\n";
-            }
           }
       }
-
+      
       // ---------------------------------------------------------------------------
       // Embedded SIM statistics diagnostic (before any analysis)
       // ---------------------------------------------------------------------------
       if (mode == RunMode::kSimAndDataAUAU ||
-                (mode == RunMode::kSimOnly && IsEmbeddedSimSample(CurrentSimSample())))
+          (mode == RunMode::kSimOnly && IsEmbeddedSimSample(CurrentSimSample())))
       {
-              cout << ANSI_BOLD_CYN << "\n[STEP 3b] Embedded SIM statistics diagnostic\n" << ANSI_RESET;
-              analysis::RunEmbeddedSimStatsDiagnostic();
+          cout << ANSI_BOLD_CYN << "\n[STEP 3b] Embedded SIM statistics diagnostic\n" << ANSI_RESET;
+          analysis::RunEmbeddedSimStatsDiagnostic();
       }
-
+      
       // ---------------------------------------------------------------------------
       // Sections 1–3 (per-dataset): event-level QA, failures, isolation
       // ---------------------------------------------------------------------------
       cout << ANSI_BOLD_CYN << "\n[STEP 4] Sections 1–3 (per-dataset)\n" << ANSI_RESET;
-
+      
       for (auto& ds : datasets)
       {
-        cout << ANSI_BOLD_YEL
-             << "\n[DATASET] " << ds.label
-             << "  isSim=" << (ds.isSim ? "true" : "false")
-             << "  trigger=" << ds.trigger
-             << ANSI_RESET << "\n";
-
-        cout << "  Paths:\n"
-             << "    inFile   = " << ds.inFilePath << "\n"
-             << "    outBase  = " << ds.outBase << "\n"
-             << "    topDir   = " << ds.topDirName << "\n";
-
-        cout << "  -> Reading event count...\n";
-        const double NevtTotal = ReadEventCount(ds);
-        cout << "     NevtTotal (cnt_" << ds.topDirName << " bin1) = "
-             << std::fixed << std::setprecision(0) << NevtTotal << "\n";
-
-        cout << "  -> [Section 1] Event-level QA...\n";
-        analysis::RunEventLevelQA(ds);
-        cout << "     [OK] Event-level QA complete.\n";
-
-        cout << "  -> [triggerAna] doNotScale max-cluster-energy turn-on plots (DATA only)...\n";
-        analysis::RunTriggerAna_DoNotScaleMaxClusterEnergy(ds);
-        cout << "     [OK] triggerAna complete.\n";
-
-        cout << "  -> [pi0 QA] corrected vs no-asinh-correction overlays (DATA only)...\n";
-        analysis::RunPi0QA(ds);
-        cout << "     [OK] pi0 QA complete.\n";
-
-        cout << "  -> [Section 2] Preselection failure table...\n";
-        analysis::RunPreselectionFailureTable(ds);
-        cout << "     [OK] Preselection failure table complete.\n";
-
-        cout << "  -> [Section 3] General isolation QA...\n";
-        analysis::RunIsolationQA(ds);
-        cout << "     [OK] Isolation QA complete.\n";
-        }
-
-        // ---------------------------------------------------------------------------
-        // AuAu data modes: UE-subtraction variant overlay comparisons for isolation QA
-       // ---------------------------------------------------------------------------
-       if (mode == RunMode::kAuAuOnly || mode == RunMode::kSimAndDataAUAU)
-       {
+          cout << ANSI_BOLD_YEL
+          << "\n[DATASET] " << ds.label
+          << "  isSim=" << (ds.isSim ? "true" : "false")
+          << "  trigger=" << ds.trigger
+          << ANSI_RESET << "\n";
+          
+          cout << "  Paths:\n"
+          << "    inFile   = " << ds.inFilePath << "\n"
+          << "    outBase  = " << ds.outBase << "\n"
+          << "    topDir   = " << ds.topDirName << "\n";
+          
+          cout << "  -> Reading event count...\n";
+          const double NevtTotal = ReadEventCount(ds);
+          cout << "     NevtTotal (cnt_" << ds.topDirName << " bin1) = "
+          << std::fixed << std::setprecision(0) << NevtTotal << "\n";
+          
+          cout << "  -> [Section 1] Event-level QA...\n";
+          analysis::RunEventLevelQA(ds);
+          cout << "     [OK] Event-level QA complete.\n";
+          
+          cout << "  -> [triggerAna] doNotScale max-cluster-energy turn-on plots (DATA only)...\n";
+          analysis::RunTriggerAna_DoNotScaleMaxClusterEnergy(ds);
+          cout << "     [OK] triggerAna complete.\n";
+          
+          cout << "  -> [pi0 QA] corrected vs no-asinh-correction overlays (DATA only)...\n";
+          analysis::RunPi0QA(ds);
+          cout << "     [OK] pi0 QA complete.\n";
+          
+          cout << "  -> [Section 2] Preselection failure table...\n";
+          analysis::RunPreselectionFailureTable(ds);
+          cout << "     [OK] Preselection failure table complete.\n";
+          
+          cout << "  -> [Section 3] General isolation QA...\n";
+          analysis::RunIsolationQA(ds);
+          cout << "     [OK] Isolation QA complete.\n";
+      }
+      
+      // ---------------------------------------------------------------------------
+      // AuAu data modes: UE-subtraction variant overlay comparisons for isolation QA
+      // ---------------------------------------------------------------------------
+      if (mode == RunMode::kAuAuOnly || mode == RunMode::kSimAndDataAUAU)
+      {
           cout << "  -> [isoQA] AuAu UE variant comparisons...\n";
           analysis::RunIsoQA_UEComparisons_AuAu();
           cout << "     [OK] UE variant comparison overlays complete.\n";
-
+          
           if (mode == RunMode::kSimAndDataAUAU)
-           {
-               cout << "  -> [isoQA] Photon+Jet Embedded SIM UE variant comparisons...\n";
-               analysis::RunIsoQA_UEComparisons_AuAu(1);
-               cout << "     [OK] Photon+Jet Embedded SIM UE variant comparison overlays complete.\n";
-
-               cout << "  -> [isoQA] Inclusive Jet Embedded SIM UE variant comparisons...\n";
-               analysis::RunIsoQA_UEComparisons_AuAu(2);
-               cout << "     [OK] Inclusive Jet Embedded SIM UE variant comparison overlays complete.\n";
+          {
+              cout << "  -> [isoQA] Photon+Jet Embedded SIM UE variant comparisons...\n";
+              analysis::RunIsoQA_UEComparisons_AuAu(1);
+              cout << "     [OK] Photon+Jet Embedded SIM UE variant comparison overlays complete.\n";
+              
+              cout << "  -> [isoQA] Inclusive Jet Embedded SIM UE variant comparisons...\n";
+              analysis::RunIsoQA_UEComparisons_AuAu(2);
+              cout << "     [OK] Inclusive Jet Embedded SIM UE variant comparison overlays complete.\n";
           }
-
+          
           cout << "  -> [xJ QA] AuAu UE variant xJ comparisons (leading + inclusive)...\n";
           analysis::RunXJUEComparisons_AuAu();
           cout << "     [OK] xJ UE variant comparisons complete.\n";
       }
-
+      
       // ---------------------------------------------------------------------------
       // AuAu-only: Accepted events vs centrality (one plot per trigger)
       //   Outputs to:  <kOutAuAuBase>/<trigger>/acceptedEvents_vs_centrality.png
       // ---------------------------------------------------------------------------
       if (mode == RunMode::kAuAuOnly)
       {
-        std::map<std::string, std::vector<std::pair<std::pair<int,int>, double>>> accByTrig;
-
-        auto ParseCentLoHiFromSuffix = [&](const std::string& s, int& lo, int& hi)->bool
-        {
-          lo = -1; hi = -1;
-          if (s.empty()) return false;
-
-          // Expect: "_cent_<lo>_<hi>"
-          int a = -1, b = -1;
-          if (std::sscanf(s.c_str(), "_cent_%d_%d", &a, &b) == 2)
+          std::map<std::string, std::vector<std::pair<std::pair<int,int>, double>>> accByTrig;
+          
+          auto ParseCentLoHiFromSuffix = [&](const std::string& s, int& lo, int& hi)->bool
           {
-            lo = a; hi = b;
-            return true;
-          }
-          return false;
-        };
-
-        for (auto& ds : datasets)
-        {
-          if (ds.isSim) continue;
-          if (ds.centSuffix.empty()) continue;
-
-          int clo = -1, chi = -1;
-          if (!ParseCentLoHiFromSuffix(ds.centSuffix, clo, chi)) continue;
-
-          const double nEvt = ReadEventCount(ds);
-          accByTrig[ds.trigger].push_back({{clo, chi}, nEvt});
-        }
-
-        for (auto& kv : accByTrig)
-        {
-          const std::string& trig = kv.first;
-          auto& v = kv.second;
-
-          if (v.empty()) continue;
-
-          std::sort(v.begin(), v.end(),
-                    [](const auto& a, const auto& b){ return a.first.first < b.first.first; });
-
-          const int n = (int)v.size();
-
-          const std::string outDir  = JoinPath(OutputAuAu(), trig);
-          const std::string outPath = JoinPath(outDir, "acceptedEvents_vs_centrality.png");
-          EnsureDir(outDir);
-
-          TH1D* h = new TH1D("hAcceptedEventsVsCent", "", n, 0.0, (double)n);
-          h->SetStats(0);
-          h->GetYaxis()->SetTitle("Accepted Events");
-          h->GetXaxis()->SetTitle("Centrality [%]");
-          h->GetXaxis()->SetLabelSize(0.045);
-          h->GetYaxis()->SetTitleOffset(1.20);
-
-          for (int i = 0; i < n; ++i)
+              lo = -1; hi = -1;
+              if (s.empty()) return false;
+              
+              // Expect: "_cent_<lo>_<hi>"
+              int a = -1, b = -1;
+              if (std::sscanf(s.c_str(), "_cent_%d_%d", &a, &b) == 2)
+              {
+                  lo = a; hi = b;
+                  return true;
+              }
+              return false;
+          };
+          
+          for (auto& ds : datasets)
           {
-            const int clo = v[i].first.first;
-            const int chi = v[i].first.second;
-            const double nEvt = v[i].second;
-
-            h->SetBinContent(i + 1, nEvt);
-            h->GetXaxis()->SetBinLabel(i + 1, TString::Format("%d-%d", clo, chi).Data());
+              if (ds.isSim) continue;
+              if (ds.centSuffix.empty()) continue;
+              
+              int clo = -1, chi = -1;
+              if (!ParseCentLoHiFromSuffix(ds.centSuffix, clo, chi)) continue;
+              
+              const double nEvt = ReadEventCount(ds);
+              accByTrig[ds.trigger].push_back({{clo, chi}, nEvt});
           }
-
-          TCanvas* c = new TCanvas("cAcceptedEventsVsCent", "", 900, 650);
-          c->SetTopMargin(0.12);
-          c->SetBottomMargin(0.15);
-          c->SetLeftMargin(0.14);
-          c->SetRightMargin(0.05);
-
-          h->Draw("hist");
-
-          TLatex t;
-          t.SetNDC(true);
-          t.SetTextFont(42);
-          t.SetTextAlign(23);   // center, top
-          t.SetTextSize(0.045);
-          t.DrawLatex(0.50, 0.98, "Run25auau Accepted Events, MBD NS #geq 2 vtx < 150 cm");
-
-          c->SaveAs(outPath.c_str());
-
-          delete c;
-          delete h;
-        }
+          
+          for (auto& kv : accByTrig)
+          {
+              const std::string& trig = kv.first;
+              auto& v = kv.second;
+              
+              if (v.empty()) continue;
+              
+              std::sort(v.begin(), v.end(),
+                        [](const auto& a, const auto& b){ return a.first.first < b.first.first; });
+              
+              const int n = (int)v.size();
+              
+              const std::string outDir  = JoinPath(OutputAuAu(), trig);
+              const std::string outPath = JoinPath(outDir, "acceptedEvents_vs_centrality.png");
+              EnsureDir(outDir);
+              
+              TH1D* h = new TH1D("hAcceptedEventsVsCent", "", n, 0.0, (double)n);
+              h->SetStats(0);
+              h->GetYaxis()->SetTitle("Accepted Events");
+              h->GetXaxis()->SetTitle("Centrality [%]");
+              h->GetXaxis()->SetLabelSize(0.045);
+              h->GetYaxis()->SetTitleOffset(1.20);
+              
+              for (int i = 0; i < n; ++i)
+              {
+                  const int clo = v[i].first.first;
+                  const int chi = v[i].first.second;
+                  const double nEvt = v[i].second;
+                  
+                  h->SetBinContent(i + 1, nEvt);
+                  h->GetXaxis()->SetBinLabel(i + 1, TString::Format("%d-%d", clo, chi).Data());
+              }
+              
+              TCanvas* c = new TCanvas("cAcceptedEventsVsCent", "", 900, 650);
+              c->SetTopMargin(0.12);
+              c->SetBottomMargin(0.15);
+              c->SetLeftMargin(0.14);
+              c->SetRightMargin(0.05);
+              
+              h->Draw("hist");
+              
+              TLatex t;
+              t.SetNDC(true);
+              t.SetTextFont(42);
+              t.SetTextAlign(23);   // center, top
+              t.SetTextSize(0.045);
+              t.DrawLatex(0.50, 0.98, "Run25auau Accepted Events, MBD NS #geq 2 vtx < 150 cm");
+              
+              c->SaveAs(outPath.c_str());
+              
+              delete c;
+              delete h;
+          }
       }
-
+      
       // ---------------------------------------------------------------------------
       // Section 4: ABCD purity + sideband subtraction with optional leakage factors
       // ---------------------------------------------------------------------------
       cout << ANSI_BOLD_CYN << "\n[STEP 5] Section 4: ABCD purity + sideband subtraction\n" << ANSI_RESET;
       cout << "  Policy (preserved legacy behavior):\n"
-           << "    - Leakage factors are read from SIM if available.\n"
-           << "    - Leakage factors are applied ONLY to DATA.\n"
-           << "    - SIM runs uncorrected.\n";
-
+      << "    - Leakage factors are read from SIM if available.\n"
+      << "    - Leakage factors are applied ONLY to DATA.\n"
+      << "    - SIM runs uncorrected.\n";
+      
       LeakageFactors leakageFromSim;
-
+      
       cout << "  -> Searching datasets for first SIM source of leakage factors...\n";
       for (auto& ds : datasets)
       {
-        if (ds.isSim && !leakageFromSim.available)
-        {
-          cout << "     Attempt load leakage factors from SIM dataset: " << ds.label << "\n";
-          analysis::LoadLeakageFactorsFromSIM(ds, leakageFromSim);
-          cout << "     leakageFromSim.available = " << (leakageFromSim.available ? "true" : "false") << "\n";
-        }
+          if (ds.isSim && !leakageFromSim.available)
+          {
+              cout << "     Attempt load leakage factors from SIM dataset: " << ds.label << "\n";
+              analysis::LoadLeakageFactorsFromSIM(ds, leakageFromSim);
+              cout << "     leakageFromSim.available = " << (leakageFromSim.available ? "true" : "false") << "\n";
+          }
       }
-
+      
       if (!leakageFromSim.available)
       {
-        cout << ANSI_BOLD_YEL
-             << "  [WARN] No leakage factors found from SIM. All datasets will run uncorrected.\n"
-             << ANSI_RESET;
+          cout << ANSI_BOLD_YEL
+          << "  [WARN] No leakage factors found from SIM. All datasets will run uncorrected.\n"
+          << ANSI_RESET;
       }
       else
       {
-        cout << ANSI_BOLD_GRN
-             << "  [OK] Leakage factors loaded from SIM. Will apply to DATA only.\n"
-             << ANSI_RESET;
+          cout << ANSI_BOLD_GRN
+          << "  [OK] Leakage factors loaded from SIM. Will apply to DATA only.\n"
+          << ANSI_RESET;
       }
-
+      
       for (auto& ds : datasets)
       {
-        LeakageFactors lfForThis;
-
-        const bool applyLeakage = (!ds.isSim && leakageFromSim.available);
-        if (applyLeakage)
-        {
-          lfForThis = leakageFromSim;
-          cout << "  -> Running ABCD on DATA dataset: " << ds.label
-               << "  (leakage correction: ON)\n";
-        }
-        else
-        {
-          lfForThis.available = false;
-          cout << "  -> Running ABCD on dataset: " << ds.label
-               << "  (leakage correction: OFF)\n";
-        }
-
+          LeakageFactors lfForThis;
+          
+          const bool applyLeakage = (!ds.isSim && leakageFromSim.available);
+          if (applyLeakage)
+          {
+              lfForThis = leakageFromSim;
+              cout << "  -> Running ABCD on DATA dataset: " << ds.label
+              << "  (leakage correction: ON)\n";
+          }
+          else
+          {
+              lfForThis.available = false;
+              cout << "  -> Running ABCD on dataset: " << ds.label
+              << "  (leakage correction: OFF)\n";
+          }
+          
           analysis::RunABCDPurityAndSidebandSubtraction(ds, lfForThis);
           cout << "     [OK] ABCD purity + sideband subtraction complete.\n";
-        }
-
-        // ---------------------------------------------------------------------------
-        // AuAu-only: raw ABCD purity overlay across centrality bins (per trigger)
-        // Output: <OutputAuAu()>/<trigger>/purityOverlays/purity_raw_DATA_centOverlay.png
-        // ---------------------------------------------------------------------------
-        if (mode == RunMode::kAuAuOnly)
-        {
+      }
+      
+      // ---------------------------------------------------------------------------
+      // AuAu-only: raw ABCD purity overlay across centrality bins (per trigger)
+      // Output: <OutputAuAu()>/<trigger>/purityOverlays/purity_raw_DATA_centOverlay.png
+      // ---------------------------------------------------------------------------
+      if (mode == RunMode::kAuAuOnly)
+      {
           const auto& centBinsOv = CentBins();
           if (!centBinsOv.empty())
           {
-            TFile* fPurOv = TFile::Open(InputAuAu().c_str(), "READ");
-            if (fPurOv && !fPurOv->IsZombie())
-            {
-              const int centColors[] = { kRed+1, kBlue+1, kGreen+2, kMagenta+1, kOrange+7, kCyan+2 };
-              const int nCentColors = (int)(sizeof(centColors)/sizeof(centColors[0]));
-
-              for (const auto& trigAA : kTriggersAuAu)
+              TFile* fPurOv = TFile::Open(InputAuAu().c_str(), "READ");
+              if (fPurOv && !fPurOv->IsZombie())
               {
-                TDirectory* trigDir = fPurOv->GetDirectory(trigAA.c_str());
-                if (!trigDir)
-                {
-                  cout << ANSI_BOLD_YEL
-                       << "[WARN] purityOverlays: trigger dir '" << trigAA
-                       << "' not found in " << InputAuAu() << " -> skipping.\n"
-                       << ANSI_RESET;
-                  continue;
-                }
-
-                const string outDir = JoinPath(JoinPath(OutputAuAu(), trigAA), "purityOverlays");
-                EnsureDir(outDir);
-
-                TCanvas cOv("c_pur_raw_centOverlay","c_pur_raw_centOverlay",900,700);
-                ApplyCanvasMargins1D(cOv);
-
-                TH1F hFrame("hPurOvFrame","",100, kPtEdges.front(), kPtEdges.back());
-                hFrame.SetDirectory(nullptr);
-                hFrame.SetStats(0);
-                hFrame.SetMinimum(0.0);
-                hFrame.SetMaximum(1.20);
-                hFrame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                hFrame.GetYaxis()->SetTitle("Purity (raw ABCD)");
-                hFrame.Draw();
-
-                TLegend leg(0.73, 0.15, 0.87, 0.43);
-                leg.SetBorderSize(0);
-                leg.SetFillStyle(0);
-                leg.SetTextFont(42);
-                leg.SetTextSize(0.032);
-
-                vector<TGraphErrors*> keepGraphs;
-
-                // Build merged centrality bins for overlay (0-10 + 10-20 → 0-20)
-                struct OvCent { int lo; int hi; vector<string> suffixes; };
-                vector<OvCent> ovCents;
-                {
-                    bool have0_10 = false, have10_20 = false;
-                    string suf0_10, suf10_20;
-                    for (const auto& cb : centBinsOv)
-                    {
-                      if (cb.lo == 0  && cb.hi == 10) { have0_10 = true; suf0_10 = cb.suffix; continue; }
-                      if (cb.lo == 10 && cb.hi == 20) { have10_20 = true; suf10_20 = cb.suffix; continue; }
-                      ovCents.push_back({cb.lo, cb.hi, {cb.suffix}});
-                    }
-                    if (have0_10 || have10_20)
-                    {
-                      OvCent merged020 = {0, 20, {}};
-                      if (have0_10)  merged020.suffixes.push_back(suf0_10);
-                      if (have10_20) merged020.suffixes.push_back(suf10_20);
-                      ovCents.insert(ovCents.begin(), merged020);
-                    }
-                  }
-
-                  for (int ic = 0; ic < (int)ovCents.size(); ++ic)
+                  const int centColors[] = { kRed+1, kBlue+1, kGreen+2, kMagenta+1, kOrange+7, kCyan+2 };
+                  const int nCentColors = (int)(sizeof(centColors)/sizeof(centColors[0]));
+                  
+                  for (const auto& trigAA : kTriggersAuAu)
                   {
-                    const auto& oc = ovCents[ic];
-
-                    vector<double> xPur(kNPtBins), exPur(kNPtBins), yPur(kNPtBins), eyPur(kNPtBins);
-                    bool anyBin = false;
-
-                    for (int i = 0; i < kNPtBins; ++i)
-                    {
-                      const PtBin& b = PtBins()[i];
-
-                      auto Get1 = [&](const string& hname)->double {
-                        TH1* h = dynamic_cast<TH1*>(trigDir->Get(hname.c_str()));
-                        return h ? h->GetBinContent(1) : 0.0;
-                      };
-
-                      // Sum ABCD counts across constituent centrality suffixes
-                      double A = 0, B = 0, C = 0, D = 0;
-                      for (const auto& suf : oc.suffixes)
+                      TDirectory* trigDir = fPurOv->GetDirectory(trigAA.c_str());
+                      if (!trigDir)
                       {
-                        A += Get1("h_isIsolated_isTight"     + b.suffix + suf);
-                        B += Get1("h_notIsolated_isTight"    + b.suffix + suf);
-                        C += Get1("h_isIsolated_notTight"    + b.suffix + suf);
-                        D += Get1("h_notIsolated_notTight"   + b.suffix + suf);
-                      }
-
-                        const double ptLo = kPtEdges[(std::size_t)i];
-                      const double ptHi = kPtEdges[(std::size_t)i + 1];
-                      xPur[i]  = 0.5 * (ptLo + ptHi);
-                      exPur[i] = 0.0;
-
-                      double Praw = 0.0;
-                      if (A > 0.0 && D > 0.0)
-                      {
-                        double Asig = A - B * (C / D);
-                        if (Asig < 0.0) Asig = 0.0;
-                        Praw = Asig / A;
-                      }
-                      yPur[i] = Praw;
-
-                      double eP = 0.0;
-                      if (A > 0.0 && D > 0.0)
-                      {
-                        const double dPdA =  (B * C) / (A * A * D);
-                        const double dPdB = -(C) / (A * D);
-                        const double dPdC = -(B) / (A * D);
-                        const double dPdD =  (B * C) / (A * D * D);
-                        double var = 0.0;
-                        if (A > 0.0) var += dPdA * dPdA * A;
-                        if (B > 0.0) var += dPdB * dPdB * B;
-                        if (C > 0.0) var += dPdC * dPdC * C;
-                        if (D > 0.0) var += dPdD * dPdD * D;
-                        eP = (var > 0.0) ? std::sqrt(var) : 0.0;
-                      }
-                      eyPur[i] = eP;
-
-                      if (A > 0.0) anyBin = true;
-                    }
-
-                    if (!anyBin) continue;
-
-                    TGraphErrors* g = new TGraphErrors(kNPtBins, &xPur[0], &yPur[0], &exPur[0], &eyPur[0]);
-                    const int col = centColors[ic % nCentColors];
-                    g->SetLineWidth(2);
-                    g->SetLineColor(col);
-                    g->SetMarkerStyle(20);
-                    g->SetMarkerSize(1.1);
-                    g->SetMarkerColor(col);
-                    g->Draw("P SAME");
-
-                    leg.AddEntry(g, TString::Format("Cent %d-%d%%", oc.lo, oc.hi).Data(), "pe");
-                    keepGraphs.push_back(g);
-                }
-
-                leg.Draw();
-
-                // Centered title
-                TLatex tTitle;
-                tTitle.SetNDC(true);
-                tTitle.SetTextFont(42);
-                tTitle.SetTextAlign(23);
-                tTitle.SetTextSize(0.045);
-                tTitle.DrawLatex(0.50, 0.96,
-                  "ABCD Purity vs p_{T}^{#gamma} for each centrality, Run3auau");
-
-                // Cut annotations derived from AuAu config
-                {
-                    std::string trigLabel;
-                    {
-                      int photonPt = 0;
-                      if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
-                        trigLabel = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
-                      else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
-                        trigLabel = "Trigger: MBD NS #geq 2, vtx < 150 cm";
-                      else
-                        trigLabel = "Trigger: " + trigAA;
-                    }
-
-                    const string isoConeLabel = (kAA_IsoConeR == "isoR40")
-                      ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
-
-                    string isoModeLabel;
-                    if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel = "E_{T}^{iso} < 5 GeV";
-                    else                               isoModeLabel = "Sliding iso cut";
-
-                    const string vzLabel = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
-
-                    TLatex tCuts;
-                    tCuts.SetNDC(true);
-                    tCuts.SetTextFont(42);
-                    tCuts.SetTextAlign(13);
-                    tCuts.SetTextSize(0.035);
-                    tCuts.DrawLatex(0.18, 0.88, trigLabel.c_str());
-                    tCuts.DrawLatex(0.18, 0.83, isoConeLabel.c_str());
-                    tCuts.DrawLatex(0.18, 0.78, isoModeLabel.c_str());
-                    tCuts.DrawLatex(0.18, 0.73, vzLabel.c_str());
-                  }
-
-                  SaveCanvas(cOv, JoinPath(outDir, "purity_raw_DATA_centOverlay.png"));
-                  cout << ANSI_BOLD_GRN << "[WROTE] " << JoinPath(outDir, "purity_raw_DATA_centOverlay.png") << ANSI_RESET << "\n";
-
-                  for (auto* g : keepGraphs) delete g;
-
-                  // ---------------------------------------------------------------
-                  // Selected-centrality (0-20, 20-40, 60-80) + PP overlay
-                  // (0-20 merges ABCD counts from 0-10 + 10-20)
-                  // ---------------------------------------------------------------
-                  {
-                    struct SelCent { int lo; int hi; int color; vector<string> suffixes; };
-                    const std::vector<SelCent> selCents = {
-                    {0,  20, kBlue+1,    {"_cent_0_10", "_cent_10_20"}},
-                    {20, 40, kGreen+2,   {"_cent_20_40"}},
-                    {60, 80, kMagenta+1, {"_cent_60_80"}},
-                  };
-
-                  // Open PP file for purity
-                  TFile* fPP = TFile::Open(InputPP(isRun25pp).c_str(), "READ");
-                    TDirectory* ppDir = nullptr;
-                    if (fPP && !fPP->IsZombie())
-                    {
-                      ppDir = fPP->GetDirectory(kTriggerPP.c_str());
-                      if (!ppDir) ppDir = fPP;
-                    }
-
-                    TCanvas cSel("c_pur_raw_centSelect","c_pur_raw_centSelect",900,700);
-                    ApplyCanvasMargins1D(cSel);
-
-                    TH1F hFrameSel("hPurSelFrame","",100, kPtEdges.front(), kPtEdges.back());
-                    hFrameSel.SetDirectory(nullptr);
-                    hFrameSel.SetStats(0);
-                    hFrameSel.SetMinimum(0.0);
-                    hFrameSel.SetMaximum(1.05);
-                    hFrameSel.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                    hFrameSel.GetYaxis()->SetTitle("Purity (raw ABCD)");
-                    hFrameSel.Draw();
-
-                    TLegend legSel(0.62, 0.18, 0.92, 0.48);
-                    legSel.SetBorderSize(0);
-                    legSel.SetFillStyle(0);
-                    legSel.SetTextFont(42);
-                    legSel.SetTextSize(0.033);
-
-                    vector<TGraphErrors*> keepSel;
-
-                    // PP purity (open red circles)
-                    if (ppDir)
-                    {
-                      vector<double> xPP(kNPtBins), exPP(kNPtBins), yPP(kNPtBins), eyPP(kNPtBins);
-                      bool anyPP = false;
-
-                      for (int i = 0; i < kNPtBins; ++i)
-                      {
-                        const PtBin& b = PtBins()[i];
-
-                        auto Get1PP = [&](const string& hname)->double {
-                          TH1* h = dynamic_cast<TH1*>(ppDir->Get(hname.c_str()));
-                          return h ? h->GetBinContent(1) : 0.0;
-                        };
-
-                        const double A = Get1PP("h_isIsolated_isTight"     + b.suffix);
-                        const double B = Get1PP("h_notIsolated_isTight"    + b.suffix);
-                        const double C = Get1PP("h_isIsolated_notTight"    + b.suffix);
-                        const double D = Get1PP("h_notIsolated_notTight"   + b.suffix);
-
-                        const double ptLo = kPtEdges[(std::size_t)i];
-                        const double ptHi = kPtEdges[(std::size_t)i + 1];
-                        xPP[i]  = 0.5 * (ptLo + ptHi);
-                        exPP[i] = 0.5 * (ptHi - ptLo);
-
-                        double Praw = 0.0;
-                        if (A > 0.0 && D > 0.0)
-                        {
-                          double Asig = A - B * (C / D);
-                          if (Asig < 0.0) Asig = 0.0;
-                          Praw = Asig / A;
-                        }
-                        yPP[i] = Praw;
-
-                        double eP = 0.0;
-                        if (A > 0.0 && D > 0.0)
-                        {
-                          const double dPdA =  (B * C) / (A * A * D);
-                          const double dPdB = -(C) / (A * D);
-                          const double dPdC = -(B) / (A * D);
-                          const double dPdD =  (B * C) / (A * D * D);
-                          double var = 0.0;
-                          if (A > 0.0) var += dPdA * dPdA * A;
-                          if (B > 0.0) var += dPdB * dPdB * B;
-                          if (C > 0.0) var += dPdC * dPdC * C;
-                          if (D > 0.0) var += dPdD * dPdD * D;
-                          eP = (var > 0.0) ? std::sqrt(var) : 0.0;
-                        }
-                        eyPP[i] = eP;
-
-                        if (A > 0.0) anyPP = true;
-                      }
-
-                      if (anyPP)
-                      {
-                        TGraphErrors* gPP = new TGraphErrors(kNPtBins, &xPP[0], &yPP[0], &exPP[0], &eyPP[0]);
-                        gPP->SetLineWidth(2);
-                        gPP->SetLineColor(kRed + 1);
-                        gPP->SetMarkerStyle(24);
-                        gPP->SetMarkerSize(1.1);
-                        gPP->SetMarkerColor(kRed + 1);
-                        gPP->Draw("P SAME");
-                        legSel.AddEntry(gPP, "pp", "pe");
-                        keepSel.push_back(gPP);
-                      }
-                    }
-
-                    // Selected AuAu centralities (closed circles)
-                    for (const auto& sc : selCents)
-                    {
-                        vector<double> xAA(kNPtBins), exAA(kNPtBins), yAA(kNPtBins), eyAA(kNPtBins);
-                        bool anyAA = false;
-
-                        for (int i = 0; i < kNPtBins; ++i)
-                        {
-                          const PtBin& b = PtBins()[i];
-
-                          auto Get1AA = [&](const string& hname)->double {
-                            TH1* h = dynamic_cast<TH1*>(trigDir->Get(hname.c_str()));
-                            return h ? h->GetBinContent(1) : 0.0;
-                          };
-
-                          // Sum ABCD counts across constituent centrality suffixes
-                          double A = 0, B = 0, C = 0, D = 0;
-                          for (const auto& suf : sc.suffixes)
-                          {
-                            A += Get1AA("h_isIsolated_isTight"     + b.suffix + suf);
-                            B += Get1AA("h_notIsolated_isTight"    + b.suffix + suf);
-                            C += Get1AA("h_isIsolated_notTight"    + b.suffix + suf);
-                            D += Get1AA("h_notIsolated_notTight"   + b.suffix + suf);
-                          }
-
-                        const double ptLo = kPtEdges[(std::size_t)i];
-                        const double ptHi = kPtEdges[(std::size_t)i + 1];
-                        xAA[i]  = 0.5 * (ptLo + ptHi);
-                        exAA[i] = 0.5 * (ptHi - ptLo);
-
-                        double Praw = 0.0;
-                        if (A > 0.0 && D > 0.0)
-                        {
-                          double Asig = A - B * (C / D);
-                          if (Asig < 0.0) Asig = 0.0;
-                          Praw = Asig / A;
-                        }
-                        yAA[i] = Praw;
-
-                        double eP = 0.0;
-                        if (A > 0.0 && D > 0.0)
-                        {
-                          const double dPdA =  (B * C) / (A * A * D);
-                          const double dPdB = -(C) / (A * D);
-                          const double dPdC = -(B) / (A * D);
-                          const double dPdD =  (B * C) / (A * D * D);
-                          double var = 0.0;
-                          if (A > 0.0) var += dPdA * dPdA * A;
-                          if (B > 0.0) var += dPdB * dPdB * B;
-                          if (C > 0.0) var += dPdC * dPdC * C;
-                          if (D > 0.0) var += dPdD * dPdD * D;
-                          eP = (var > 0.0) ? std::sqrt(var) : 0.0;
-                        }
-                        eyAA[i] = eP;
-
-                        if (A > 0.0) anyAA = true;
-                      }
-
-                      if (!anyAA) continue;
-
-                      TGraphErrors* gAA = new TGraphErrors(kNPtBins, &xAA[0], &yAA[0], &exAA[0], &eyAA[0]);
-                      gAA->SetLineWidth(2);
-                      gAA->SetLineColor(sc.color);
-                      gAA->SetMarkerStyle(20);
-                      gAA->SetMarkerSize(1.1);
-                      gAA->SetMarkerColor(sc.color);
-                      gAA->Draw("P SAME");
-
-                      legSel.AddEntry(gAA, TString::Format("AuAu %d-%d%%", sc.lo, sc.hi).Data(), "pe");
-                      keepSel.push_back(gAA);
-                    }
-
-                    legSel.Draw();
-
-                    // Centered title
-                    TLatex tTitleSel;
-                    tTitleSel.SetNDC(true);
-                    tTitleSel.SetTextFont(42);
-                    tTitleSel.SetTextAlign(23);
-                    tTitleSel.SetTextSize(0.045);
-                    tTitleSel.DrawLatex(0.50, 0.96,
-                      "ABCD Purity vs p_{T}^{#gamma} for each centrality, Run3auau");
-
-                    // Cut annotations derived from AuAu config
-                    {
-                        std::string trigLabelSel;
-                        {
-                          int photonPt = 0;
-                          if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
-                            trigLabelSel = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
-                          else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
-                            trigLabelSel = "Trigger: MBD NS #geq 2, vtx < 150 cm";
-                          else
-                            trigLabelSel = "Trigger: " + trigAA;
-                        }
-
-                        const string isoConeLabel = (kAA_IsoConeR == "isoR40")
-                          ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
-
-                        string isoModeLabel;
-                        if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel = "E_{T}^{iso} < 5 GeV";
-                        else                               isoModeLabel = "Sliding iso cut";
-
-                        const string vzLabel = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
-
-                        TLatex tCutsSel;
-                        tCutsSel.SetNDC(true);
-                        tCutsSel.SetTextFont(42);
-                        tCutsSel.SetTextAlign(13);
-                        tCutsSel.SetTextSize(0.035);
-                        tCutsSel.DrawLatex(0.18, 0.88, trigLabelSel.c_str());
-                        tCutsSel.DrawLatex(0.18, 0.83, isoConeLabel.c_str());
-                        tCutsSel.DrawLatex(0.18, 0.78, isoModeLabel.c_str());
-                        tCutsSel.DrawLatex(0.18, 0.73, vzLabel.c_str());
-                    }
-
-                    SaveCanvas(cSel, JoinPath(outDir, "purity_raw_centSelect_ppOverlay.png"));
-                    cout << ANSI_BOLD_GRN << "[WROTE] " << JoinPath(outDir, "purity_raw_centSelect_ppOverlay.png") << ANSI_RESET << "\n";
-
-                    for (auto* g : keepSel) delete g;
-
-                    if (fPP) { fPP->Close(); delete fPP; }
-
-                    // ---------------------------------------------------------------
-                    // UE-variant purity overlays by selected centrality bin
-                    // Output:
-                    //   <kOutputBase>/auau/<CfgTagAA()>/<trigger>/purityUEcomparisons/
-                    //     purity_raw_allVariants_cent_<lo>_<hi>.png
-                    // ---------------------------------------------------------------
-                    {
-                      struct SelCentUE { int lo; int hi; vector<string> suffixes; };
-                      const std::vector<SelCentUE> selCentsUE = {
-                        {0,  10, {"_cent_0_10"}},
-                        {10, 20, {"_cent_10_20"}},
-                        {0,  20, {"_cent_0_10", "_cent_10_20"}},
-                        {20, 40, {"_cent_20_40"}},
-                        {40, 60, {"_cent_40_60"}},
-                        {60, 80, {"_cent_60_80"}}
-                      };
-
-                      struct UEVarHandle
-                      {
-                        string variant;
-                        string label;
-                        int color = kBlack;
-                        int marker = 20;
-                        TFile* file = nullptr;
-                        TDirectory* dir = nullptr;
-                      };
-
-                      vector<UEVarHandle> ueVars;
-                      ueVars.reserve(4);
-
-                      auto addUEVar = [&](const string& variant, const string& label, int color, int marker)
-                      {
-                        UEVarHandle V;
-                        V.variant = variant;
-                        V.label = label;
-                        V.color = color;
-                        V.marker = marker;
-                        V.file = TFile::Open(InputAuAu(variant).c_str(), "READ");
-
-                        if (V.file && !V.file->IsZombie())
-                        {
-                          V.dir = V.file->GetDirectory(trigAA.c_str());
-                          if (!V.dir) V.dir = V.file;
-                        }
-                        else
-                        {
-                          if (V.file) { V.file->Close(); delete V.file; V.file = nullptr; }
-                          V.dir = nullptr;
                           cout << ANSI_BOLD_YEL
-                               << "[WARN] purityUEcomparisons: cannot open "
-                               << InputAuAu(variant)
-                               << ANSI_RESET << "\n";
-                        }
-
-                        ueVars.push_back(std::move(V));
-                      };
-
-                        addUEVar("noSub",       "No UE sub",    kBlack,    20);
-                        addUEVar("baseVariant", "Base Variant", kBlue+1,   20);
-                        addUEVar("variantA",    "Variant A",    kOrange+7, 20);
-                        addUEVar("variantB",    "Variant B",    kGreen+2,  20);
-
-                        const string outDirUE = JoinPath(
-                          JoinPath(kOutputBase + "/auau/" + CfgTagAA(), trigAA),
-                          "purityUEcomparisons"
-                        );
-                        EnsureDir(outDirUE);
-
-                        TFile* fPPUE = TFile::Open(InputPP(isRun25pp).c_str(), "READ");
-                        TDirectory* ppDirUE = nullptr;
-                        if (fPPUE && !fPPUE->IsZombie())
-                        {
-                          ppDirUE = fPPUE->GetDirectory(kTriggerPP.c_str());
-                          if (!ppDirUE) ppDirUE = fPPUE;
-                        }
-                        else
-                        {
-                          if (fPPUE) { fPPUE->Close(); delete fPPUE; fPPUE = nullptr; }
-                        }
-
-                        for (const auto& sc : selCentsUE)
-                        {
-                          TCanvas cUE(
-                            TString::Format("c_pur_raw_allVariants_%s_%d_%d", trigAA.c_str(), sc.lo, sc.hi).Data(),
-                            "c_pur_raw_allVariants", 900, 700
-                          );
-                          ApplyCanvasMargins1D(cUE);
-
-                          TH1F hFrameUE("hPurUEVarFrame","",100, 10.0, kPtEdges.back());
-                          hFrameUE.SetDirectory(nullptr);
-                          hFrameUE.SetStats(0);
-                          hFrameUE.SetMinimum(0.0);
-                          hFrameUE.SetMaximum(1.25);
-                          hFrameUE.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                          hFrameUE.GetYaxis()->SetTitle("Purity (raw ABCD)");
-                          hFrameUE.Draw();
-
-                          TLegend legUE(0.15, 0.15, 0.55, 0.28);
-                          legUE.SetBorderSize(0);
-                          legUE.SetFillStyle(0);
-                          legUE.SetTextFont(42);
-                          legUE.SetTextSize(0.033);
-                          legUE.SetNColumns(2);
-
-                          vector<TGraphErrors*> keepUE;
-                          vector<string> keepUELabels;
-
-                          for (const auto& V : ueVars)
+                          << "[WARN] purityOverlays: trigger dir '" << trigAA
+                          << "' not found in " << InputAuAu() << " -> skipping.\n"
+                          << ANSI_RESET;
+                          continue;
+                      }
+                      
+                      const string outDir = JoinPath(JoinPath(OutputAuAu(), trigAA), "purityOverlays");
+                      EnsureDir(outDir);
+                      
+                      TCanvas cOv("c_pur_raw_centOverlay","c_pur_raw_centOverlay",900,700);
+                      ApplyCanvasMargins1D(cOv);
+                      
+                      TH1F hFrame("hPurOvFrame","",100, kPtEdges.front(), kPtEdges.back());
+                      hFrame.SetDirectory(nullptr);
+                      hFrame.SetStats(0);
+                      hFrame.SetMinimum(0.0);
+                      hFrame.SetMaximum(1.20);
+                      hFrame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                      hFrame.GetYaxis()->SetTitle("Purity (raw ABCD)");
+                      hFrame.Draw();
+                      
+                      TLegend leg(0.73, 0.15, 0.87, 0.43);
+                      leg.SetBorderSize(0);
+                      leg.SetFillStyle(0);
+                      leg.SetTextFont(42);
+                      leg.SetTextSize(0.032);
+                      
+                      vector<TGraphErrors*> keepGraphs;
+                      
+                      // Build merged centrality bins for overlay (0-10 + 10-20 → 0-20)
+                      struct OvCent { int lo; int hi; vector<string> suffixes; };
+                      vector<OvCent> ovCents;
+                      {
+                          bool have0_10 = false, have10_20 = false;
+                          string suf0_10, suf10_20;
+                          for (const auto& cb : centBinsOv)
                           {
-                            if (!V.dir) continue;
-
-                            vector<double> xUE(kNPtBins), exUE(kNPtBins), yUE(kNPtBins), eyUE(kNPtBins);
-                              bool anyUE = false;
-
-                            printf("\n  [PURITY-UE-DIAG] Variant=\"%s\"  label=\"%s\"  cent=%d-%d%%  suffixes:",
-                                     V.variant.c_str(), V.label.c_str(), sc.lo, sc.hi);
-                            for (const auto& s : sc.suffixes) printf(" %s", s.c_str());
-                            printf("\n  %6s %10s %10s %10s %10s %12s %10s %10s\n",
-                                     "pTbin", "A", "B", "C", "D", "Asig", "Praw", "errP");
-
-                              for (int i = 0; i < kNPtBins; ++i)
-                            {
+                              if (cb.lo == 0  && cb.hi == 10) { have0_10 = true; suf0_10 = cb.suffix; continue; }
+                              if (cb.lo == 10 && cb.hi == 20) { have10_20 = true; suf10_20 = cb.suffix; continue; }
+                              ovCents.push_back({cb.lo, cb.hi, {cb.suffix}});
+                          }
+                          if (have0_10 || have10_20)
+                          {
+                              OvCent merged020 = {0, 20, {}};
+                              if (have0_10)  merged020.suffixes.push_back(suf0_10);
+                              if (have10_20) merged020.suffixes.push_back(suf10_20);
+                              ovCents.insert(ovCents.begin(), merged020);
+                          }
+                      }
+                      
+                      for (int ic = 0; ic < (int)ovCents.size(); ++ic)
+                      {
+                          const auto& oc = ovCents[ic];
+                          
+                          vector<double> xPur(kNPtBins), exPur(kNPtBins), yPur(kNPtBins), eyPur(kNPtBins);
+                          bool anyBin = false;
+                          
+                          for (int i = 0; i < kNPtBins; ++i)
+                          {
                               const PtBin& b = PtBins()[i];
-
-                              auto Get1UE = [&](const string& hname)->double {
-                                TH1* h = dynamic_cast<TH1*>(V.dir->Get(hname.c_str()));
-                                return h ? h->GetBinContent(1) : 0.0;
+                              
+                              auto Get1 = [&](const string& hname)->double {
+                                  TH1* h = dynamic_cast<TH1*>(trigDir->Get(hname.c_str()));
+                                  return h ? h->GetBinContent(1) : 0.0;
                               };
-
+                              
+                              // Sum ABCD counts across constituent centrality suffixes
                               double A = 0, B = 0, C = 0, D = 0;
-                              for (const auto& suf : sc.suffixes)
+                              for (const auto& suf : oc.suffixes)
                               {
-                                A += Get1UE("h_isIsolated_isTight"     + b.suffix + suf);
-                                B += Get1UE("h_notIsolated_isTight"    + b.suffix + suf);
-                                C += Get1UE("h_isIsolated_notTight"    + b.suffix + suf);
-                                D += Get1UE("h_notIsolated_notTight"   + b.suffix + suf);
+                                  A += Get1("h_isIsolated_isTight"     + b.suffix + suf);
+                                  B += Get1("h_notIsolated_isTight"    + b.suffix + suf);
+                                  C += Get1("h_isIsolated_notTight"    + b.suffix + suf);
+                                  D += Get1("h_notIsolated_notTight"   + b.suffix + suf);
                               }
-
+                              
                               const double ptLo = kPtEdges[(std::size_t)i];
                               const double ptHi = kPtEdges[(std::size_t)i + 1];
-                              xUE[i]  = 0.5 * (ptLo + ptHi);
-                              exUE[i] = 0.5 * (ptHi - ptLo);
-
+                              xPur[i]  = 0.5 * (ptLo + ptHi);
+                              exPur[i] = 0.0;
+                              
                               double Praw = 0.0;
                               if (A > 0.0 && D > 0.0)
                               {
-                                double Asig = A - B * (C / D);
-                                if (Asig < 0.0) Asig = 0.0;
-                                Praw = Asig / A;
-                              }
-                              yUE[i] = Praw;
-
-                              double eP = 0.0;
-                              if (A > 0.0 && D > 0.0)
-                              {
-                                const double dPdA =  (B * C) / (A * A * D);
-                                const double dPdB = -(C) / (A * D);
-                                const double dPdC = -(B) / (A * D);
-                                const double dPdD =  (B * C) / (A * D * D);
-                                double var = 0.0;
-                                if (A > 0.0) var += dPdA * dPdA * A;
-                                if (B > 0.0) var += dPdB * dPdB * B;
-                                if (C > 0.0) var += dPdC * dPdC * C;
-                                if (D > 0.0) var += dPdD * dPdD * D;
-                                eP = (var > 0.0) ? std::sqrt(var) : 0.0;
-                              }
-                              eyUE[i] = eP;
-
-                              if (A > 0.0) anyUE = true;
-
-                              {
-                                  double AsigDbg = (A > 0 && D > 0) ? A - B * (C / D) : 0.0;
-                                  if (AsigDbg < 0.0) AsigDbg = 0.0;
-                                  const PtBin& bp = PtBins()[i];
-                                  printf("  %6s %10.1f %10.1f %10.1f %10.1f %12.2f %10.4f %10.4f\n",
-                                         bp.folder.c_str(), A, B, C, D, AsigDbg, yUE[i], eyUE[i]);
-                               }
-                            }
-
-                            printf("  -> anyUE=%s  (skip=%s)\n\n",
-                                     anyUE ? "true" : "false",
-                                     anyUE ? "no" : "YES, all A==0");
-                            if (!anyUE) continue;
-
-                            TGraphErrors* gUE = new TGraphErrors(kNPtBins, &xUE[0], &yUE[0], nullptr, &eyUE[0]);
-                            gUE->SetLineWidth(2);
-                            gUE->SetLineColor(V.color);
-                            gUE->SetMarkerStyle(V.marker);
-                            gUE->SetMarkerSize(1.1);
-                            gUE->SetMarkerColor(V.color);
-                            gUE->Draw("P SAME");
-
-                            legUE.AddEntry(gUE, V.label.c_str(), "pe");
-                            keepUE.push_back(gUE);
-                            keepUELabels.push_back(V.label);
-                          }
-
-                          if (!keepUE.empty())
-                          {
-                            legUE.Draw();
-
-                            TLatex tTitleUE;
-                            tTitleUE.SetNDC(true);
-                            tTitleUE.SetTextFont(42);
-                            tTitleUE.SetTextAlign(23);
-                            tTitleUE.SetTextSize(0.045);
-                            tTitleUE.DrawLatex(0.50, 0.96,
-                              TString::Format("ABCD Purity vs p_{T}^{#gamma}, all UE variants, %d-%d%% AuAu", sc.lo, sc.hi).Data());
-
-                            // Cut annotations derived from AuAu config
-                            {
-                              std::string trigLabelUE;
-                              {
-                                int photonPt = 0;
-                                if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
-                                  trigLabelUE = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
-                                else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
-                                  trigLabelUE = "Trigger: MBD NS #geq 2, vtx < 150 cm";
-                                else
-                                  trigLabelUE = "Trigger: " + trigAA;
-                              }
-
-                              const string isoConeLabel = (kAA_IsoConeR == "isoR40")
-                                ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
-
-                              string isoModeLabel;
-                              if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel = "E_{T}^{iso} < 5 GeV";
-                              else                               isoModeLabel = "Sliding iso cut";
-
-                              const string vzLabel = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
-
-                              TLatex tCutsUE;
-                              tCutsUE.SetNDC(true);
-                              tCutsUE.SetTextFont(42);
-                              tCutsUE.SetTextAlign(13);
-                              tCutsUE.SetTextSize(0.035);
-                              tCutsUE.DrawLatex(0.18, 0.88, trigLabelUE.c_str());
-                              tCutsUE.DrawLatex(0.18, 0.83, isoConeLabel.c_str());
-                              tCutsUE.DrawLatex(0.18, 0.78, isoModeLabel.c_str());
-                              tCutsUE.DrawLatex(0.18, 0.73, vzLabel.c_str());
-                            }
-
-                            SaveCanvas(cUE, JoinPath(outDirUE,
-                              TString::Format("purity_raw_allVariants_cent_%d_%d.png", sc.lo, sc.hi).Data()));
-                            cout << ANSI_BOLD_GRN << "[WROTE] "
-                                 << JoinPath(outDirUE, TString::Format("purity_raw_allVariants_cent_%d_%d.png", sc.lo, sc.hi).Data())
-                                 << ANSI_RESET << "\n";
-
-                            if (ppDirUE)
-                            {
-                              vector<double> xPP(kNPtBins), exPP(kNPtBins), yPP(kNPtBins), eyPP(kNPtBins);
-                              bool anyPP = false;
-
-                              for (int i = 0; i < kNPtBins; ++i)
-                              {
-                                const PtBin& b = PtBins()[i];
-
-                                auto Get1PP = [&](const string& hname)->double {
-                                  TH1* h = dynamic_cast<TH1*>(ppDirUE->Get(hname.c_str()));
-                                  return h ? h->GetBinContent(1) : 0.0;
-                                };
-
-                                const double A = Get1PP("h_isIsolated_isTight"     + b.suffix);
-                                const double B = Get1PP("h_notIsolated_isTight"    + b.suffix);
-                                const double C = Get1PP("h_isIsolated_notTight"    + b.suffix);
-                                const double D = Get1PP("h_notIsolated_notTight"   + b.suffix);
-
-                                const double ptLo = kPtEdges[(std::size_t)i];
-                                const double ptHi = kPtEdges[(std::size_t)i + 1];
-                                xPP[i]  = 0.5 * (ptLo + ptHi);
-                                exPP[i] = 0.5 * (ptHi - ptLo);
-
-                                double Praw = 0.0;
-                                if (A > 0.0 && D > 0.0)
-                                {
                                   double Asig = A - B * (C / D);
                                   if (Asig < 0.0) Asig = 0.0;
                                   Praw = Asig / A;
-                                }
-                                yPP[i] = Praw;
-
-                                double eP = 0.0;
-                                if (A > 0.0 && D > 0.0)
-                                {
+                              }
+                              yPur[i] = Praw;
+                              
+                              double eP = 0.0;
+                              if (A > 0.0 && D > 0.0)
+                              {
                                   const double dPdA =  (B * C) / (A * A * D);
                                   const double dPdB = -(C) / (A * D);
                                   const double dPdC = -(B) / (A * D);
@@ -14964,1378 +14397,1973 @@ namespace ARJ
                                   if (C > 0.0) var += dPdC * dPdC * C;
                                   if (D > 0.0) var += dPdD * dPdD * D;
                                   eP = (var > 0.0) ? std::sqrt(var) : 0.0;
-                                }
-                                eyPP[i] = eP;
-
-                                if (A > 0.0) anyPP = true;
                               }
-
+                              eyPur[i] = eP;
+                              
+                              if (A > 0.0) anyBin = true;
+                          }
+                          
+                          if (!anyBin) continue;
+                          
+                          TGraphErrors* g = new TGraphErrors(kNPtBins, &xPur[0], &yPur[0], &exPur[0], &eyPur[0]);
+                          const int col = centColors[ic % nCentColors];
+                          g->SetLineWidth(2);
+                          g->SetLineColor(col);
+                          g->SetMarkerStyle(20);
+                          g->SetMarkerSize(1.1);
+                          g->SetMarkerColor(col);
+                          g->Draw("P SAME");
+                          
+                          leg.AddEntry(g, TString::Format("Cent %d-%d%%", oc.lo, oc.hi).Data(), "pe");
+                          keepGraphs.push_back(g);
+                      }
+                      
+                      leg.Draw();
+                      
+                      // Centered title
+                      TLatex tTitle;
+                      tTitle.SetNDC(true);
+                      tTitle.SetTextFont(42);
+                      tTitle.SetTextAlign(23);
+                      tTitle.SetTextSize(0.045);
+                      tTitle.DrawLatex(0.50, 0.96,
+                                       "ABCD Purity vs p_{T}^{#gamma} for each centrality, Run3auau");
+                      
+                      // Cut annotations derived from AuAu config
+                      {
+                          std::string trigLabel;
+                          {
+                              int photonPt = 0;
+                              if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
+                                  trigLabel = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                              else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                                  trigLabel = "Trigger: MBD NS #geq 2, vtx < 150 cm";
+                              else
+                                  trigLabel = "Trigger: " + trigAA;
+                          }
+                          
+                          const string isoConeLabel = (kAA_IsoConeR == "isoR40")
+                          ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+                          
+                          string isoModeLabel;
+                          if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel = "E_{T}^{iso} < 5 GeV";
+                          else                               isoModeLabel = "Sliding iso cut";
+                          
+                          const string vzLabel = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+                          
+                          TLatex tCuts;
+                          tCuts.SetNDC(true);
+                          tCuts.SetTextFont(42);
+                          tCuts.SetTextAlign(13);
+                          tCuts.SetTextSize(0.035);
+                          tCuts.DrawLatex(0.18, 0.88, trigLabel.c_str());
+                          tCuts.DrawLatex(0.18, 0.83, isoConeLabel.c_str());
+                          tCuts.DrawLatex(0.18, 0.78, isoModeLabel.c_str());
+                          tCuts.DrawLatex(0.18, 0.73, vzLabel.c_str());
+                      }
+                      
+                      SaveCanvas(cOv, JoinPath(outDir, "purity_raw_DATA_centOverlay.png"));
+                      cout << ANSI_BOLD_GRN << "[WROTE] " << JoinPath(outDir, "purity_raw_DATA_centOverlay.png") << ANSI_RESET << "\n";
+                      
+                      for (auto* g : keepGraphs) delete g;
+                      
+                      // ---------------------------------------------------------------
+                      // Selected-centrality (0-20, 20-40, 60-80) + PP overlay
+                      // (0-20 merges ABCD counts from 0-10 + 10-20)
+                      // ---------------------------------------------------------------
+                      {
+                          struct SelCent { int lo; int hi; int color; vector<string> suffixes; };
+                          const std::vector<SelCent> selCents = {
+                              {0,  20, kBlue+1,    {"_cent_0_10", "_cent_10_20"}},
+                              {20, 40, kGreen+2,   {"_cent_20_40"}},
+                              {60, 80, kMagenta+1, {"_cent_60_80"}},
+                          };
+                          
+                          // Open PP file for purity
+                          TFile* fPP = TFile::Open(InputPP(isRun25pp).c_str(), "READ");
+                          TDirectory* ppDir = nullptr;
+                          if (fPP && !fPP->IsZombie())
+                          {
+                              ppDir = fPP->GetDirectory(kTriggerPP.c_str());
+                              if (!ppDir) ppDir = fPP;
+                          }
+                          
+                          TCanvas cSel("c_pur_raw_centSelect","c_pur_raw_centSelect",900,700);
+                          ApplyCanvasMargins1D(cSel);
+                          
+                          TH1F hFrameSel("hPurSelFrame","",100, kPtEdges.front(), kPtEdges.back());
+                          hFrameSel.SetDirectory(nullptr);
+                          hFrameSel.SetStats(0);
+                          hFrameSel.SetMinimum(0.0);
+                          hFrameSel.SetMaximum(1.05);
+                          hFrameSel.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                          hFrameSel.GetYaxis()->SetTitle("Purity (raw ABCD)");
+                          hFrameSel.Draw();
+                          
+                          TLegend legSel(0.62, 0.18, 0.92, 0.48);
+                          legSel.SetBorderSize(0);
+                          legSel.SetFillStyle(0);
+                          legSel.SetTextFont(42);
+                          legSel.SetTextSize(0.033);
+                          
+                          vector<TGraphErrors*> keepSel;
+                          
+                          // PP purity (open red circles)
+                          if (ppDir)
+                          {
+                              vector<double> xPP(kNPtBins), exPP(kNPtBins), yPP(kNPtBins), eyPP(kNPtBins);
+                              bool anyPP = false;
+                              
+                              for (int i = 0; i < kNPtBins; ++i)
+                              {
+                                  const PtBin& b = PtBins()[i];
+                                  
+                                  auto Get1PP = [&](const string& hname)->double {
+                                      TH1* h = dynamic_cast<TH1*>(ppDir->Get(hname.c_str()));
+                                      return h ? h->GetBinContent(1) : 0.0;
+                                  };
+                                  
+                                  const double A = Get1PP("h_isIsolated_isTight"     + b.suffix);
+                                  const double B = Get1PP("h_notIsolated_isTight"    + b.suffix);
+                                  const double C = Get1PP("h_isIsolated_notTight"    + b.suffix);
+                                  const double D = Get1PP("h_notIsolated_notTight"   + b.suffix);
+                                  
+                                  const double ptLo = kPtEdges[(std::size_t)i];
+                                  const double ptHi = kPtEdges[(std::size_t)i + 1];
+                                  xPP[i]  = 0.5 * (ptLo + ptHi);
+                                  exPP[i] = 0.5 * (ptHi - ptLo);
+                                  
+                                  double Praw = 0.0;
+                                  if (A > 0.0 && D > 0.0)
+                                  {
+                                      double Asig = A - B * (C / D);
+                                      if (Asig < 0.0) Asig = 0.0;
+                                      Praw = Asig / A;
+                                  }
+                                  yPP[i] = Praw;
+                                  
+                                  double eP = 0.0;
+                                  if (A > 0.0 && D > 0.0)
+                                  {
+                                      const double dPdA =  (B * C) / (A * A * D);
+                                      const double dPdB = -(C) / (A * D);
+                                      const double dPdC = -(B) / (A * D);
+                                      const double dPdD =  (B * C) / (A * D * D);
+                                      double var = 0.0;
+                                      if (A > 0.0) var += dPdA * dPdA * A;
+                                      if (B > 0.0) var += dPdB * dPdB * B;
+                                      if (C > 0.0) var += dPdC * dPdC * C;
+                                      if (D > 0.0) var += dPdD * dPdD * D;
+                                      eP = (var > 0.0) ? std::sqrt(var) : 0.0;
+                                  }
+                                  eyPP[i] = eP;
+                                  
+                                  if (A > 0.0) anyPP = true;
+                              }
+                              
                               if (anyPP)
                               {
-                                TCanvas cUEPP(
-                                  TString::Format("c_pur_raw_allVariants_ppOverlay_%s_%d_%d", trigAA.c_str(), sc.lo, sc.hi).Data(),
-                                  "c_pur_raw_allVariants_ppOverlay", 900, 700
-                                );
-                                ApplyCanvasMargins1D(cUEPP);
-
-                                  TH1F hFrameUEPP("hPurUEVarPPFrame","",100, 10.0, kPtEdges.back());
-                                  hFrameUEPP.SetDirectory(nullptr);
-                                  hFrameUEPP.SetStats(0);
-                                  hFrameUEPP.SetMinimum(0.0);
-                                  hFrameUEPP.SetMaximum(1.25);
-                                  hFrameUEPP.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                                  hFrameUEPP.GetYaxis()->SetTitle("Purity (raw ABCD)");
-                                  hFrameUEPP.Draw();
-
-                                  for (auto* g : keepUE) g->Draw("P SAME");
-
-                                  TGraphErrors gPP(kNPtBins, &xPP[0], &yPP[0], nullptr, &eyPP[0]);
-                                  gPP.SetLineWidth(2);
-                                  gPP.SetLineColor(kRed + 1);
-                                  gPP.SetMarkerStyle(24);
-                                  gPP.SetMarkerSize(1.1);
-                                  gPP.SetMarkerColor(kRed + 1);
-                                  gPP.Draw("P SAME");
-
-                                  TLegend legUEPP(0.15, 0.15, 0.55, 0.28);
-                                  legUEPP.SetBorderSize(0);
-                                  legUEPP.SetFillStyle(0);
-                                  legUEPP.SetTextFont(42);
-                                  legUEPP.SetTextSize(0.033);
-                                  legUEPP.SetNColumns(2);
-                                for (std::size_t ig = 0; ig < keepUE.size(); ++ig)
-                                {
-                                  legUEPP.AddEntry(keepUE[ig], keepUELabels[ig].c_str(), "pe");
-                                }
-                                legUEPP.AddEntry(&gPP, "pp", "pe");
-                                legUEPP.Draw();
-
-                                TLatex tTitleUEPP;
-                                tTitleUEPP.SetNDC(true);
-                                tTitleUEPP.SetTextFont(42);
-                                tTitleUEPP.SetTextAlign(23);
-                                tTitleUEPP.SetTextSize(0.045);
-                                tTitleUEPP.DrawLatex(0.50, 0.96,
-                                  TString::Format("ABCD Purity vs p_{T}^{#gamma}, all UE variants + pp, %d-%d%% AuAu", sc.lo, sc.hi).Data());
-
-                                // Cut annotations derived from AuAu config
-                                {
-                                  std::string trigLabelUE;
-                                  {
-                                    int photonPt = 0;
-                                    if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
-                                      trigLabelUE = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
-                                    else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
-                                      trigLabelUE = "Trigger: MBD NS #geq 2, vtx < 150 cm";
-                                    else
-                                      trigLabelUE = "Trigger: " + trigAA;
-                                  }
-
-                                  const string isoConeLabel = (kAA_IsoConeR == "isoR40")
-                                    ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
-
-                                  string isoModeLabel;
-                                  if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel = "E_{T}^{iso} < 5 GeV";
-                                  else                               isoModeLabel = "Sliding iso cut";
-
-                                  const string vzLabel = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
-
-                                  TLatex tCutsUEPP;
-                                  tCutsUEPP.SetNDC(true);
-                                  tCutsUEPP.SetTextFont(42);
-                                  tCutsUEPP.SetTextAlign(13);
-                                  tCutsUEPP.SetTextSize(0.035);
-                                  tCutsUEPP.DrawLatex(0.18, 0.88, trigLabelUE.c_str());
-                                  tCutsUEPP.DrawLatex(0.18, 0.83, isoConeLabel.c_str());
-                                  tCutsUEPP.DrawLatex(0.18, 0.78, isoModeLabel.c_str());
-                                  tCutsUEPP.DrawLatex(0.18, 0.73, vzLabel.c_str());
-                                }
-
-                                SaveCanvas(cUEPP, JoinPath(outDirUE,
-                                  TString::Format("purity_raw_allVariants_cent_%d_%d_ppOverlay.png", sc.lo, sc.hi).Data()));
-                                cout << ANSI_BOLD_GRN << "[WROTE] "
-                                     << JoinPath(outDirUE, TString::Format("purity_raw_allVariants_cent_%d_%d_ppOverlay.png", sc.lo, sc.hi).Data())
-                                     << ANSI_RESET << "\n";
+                                  TGraphErrors* gPP = new TGraphErrors(kNPtBins, &xPP[0], &yPP[0], &exPP[0], &eyPP[0]);
+                                  gPP->SetLineWidth(2);
+                                  gPP->SetLineColor(kRed + 1);
+                                  gPP->SetMarkerStyle(24);
+                                  gPP->SetMarkerSize(1.1);
+                                  gPP->SetMarkerColor(kRed + 1);
+                                  gPP->Draw("P SAME");
+                                  legSel.AddEntry(gPP, "pp", "pe");
+                                  keepSel.push_back(gPP);
                               }
-                            }
                           }
-
-                            for (auto* g : keepUE) delete g;
-                          }
-
-                          // ---------------------------------------------------------------
-                          // UE-variant iso-pass-fraction overlays by selected centrality bin
-                          // Output:
-                          //   <kOutputBase>/auau/<CfgTagAA()>/<trigger>/isoEfficencyDiagnostics/
-                          //     pho_isoPassFraction_vs_pTgamma_allVariants_cent_<lo>_<hi>.png
-                          // ---------------------------------------------------------------
+                          
+                          // Selected AuAu centralities (closed circles)
+                          for (const auto& sc : selCents)
                           {
-                            const string outDirIsoEff = JoinPath(
-                              JoinPath(kOutputBase + "/auau/" + CfgTagAA(), trigAA),
-                              "isoEfficencyDiagnostics"
-                            );
-                            EnsureDir(outDirIsoEff);
-
-                            for (const auto& sc : selCentsUE)
-                            {
-                              TCanvas cIsoEff(
-                                TString::Format("c_isoPassFrac_allVariants_%s_%d_%d", trigAA.c_str(), sc.lo, sc.hi).Data(),
-                                "c_isoPassFrac_allVariants", 900, 700
-                              );
-                              ApplyCanvasMargins1D(cIsoEff);
-
-                                TH1F hFrameIsoEff("hIsoPassFracFrame","",100, 10.0, kPtEdges.back());
-                                hFrameIsoEff.SetDirectory(nullptr);
-                                hFrameIsoEff.SetStats(0);
-                                hFrameIsoEff.SetMinimum(0.0);
-                                hFrameIsoEff.SetMaximum(1.2);
-                                hFrameIsoEff.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                                hFrameIsoEff.GetYaxis()->SetTitle("Iso pass fraction");
-                                hFrameIsoEff.Draw();
-
-                                TLegend legIsoEff(0.18, 0.14, 0.62, 0.30);
-                                legIsoEff.SetBorderSize(0);
-                                legIsoEff.SetFillStyle(0);
-                                legIsoEff.SetTextFont(42);
-                                legIsoEff.SetTextSize(0.030);
-                                legIsoEff.SetNColumns(2);
-
-                              vector<TGraphErrors*> keepIsoEff;
-                              vector<string> keepIsoEffLabels;
-
-                              for (const auto& V : ueVars)
+                              vector<double> xAA(kNPtBins), exAA(kNPtBins), yAA(kNPtBins), eyAA(kNPtBins);
+                              bool anyAA = false;
+                              
+                              for (int i = 0; i < kNPtBins; ++i)
                               {
-                                if (!V.dir) continue;
-
-                                vector<double> xIsoEff(kNPtBins), yIsoEff(kNPtBins), eyIsoEff(kNPtBins);
-                                bool anyEntriesUE = false;
-                                bool anyPassUE = false;
-
-                                printf("\n  [ISO-EFF-DIAG] Variant=\"%s\"  label=\"%s\"  cent=%d-%d%%  suffixes:",
-                                       V.variant.c_str(), V.label.c_str(), sc.lo, sc.hi);
-                                for (const auto& s : sc.suffixes) printf(" %s", s.c_str());
-                                printf("\n  %6s %12s %12s %12s %10s\n",
-                                       "pTbin", "Npass", "Nfail", "fPass", "errF");
-
-                                for (int i = 0; i < kNPtBins; ++i)
-                                {
                                   const PtBin& b = PtBins()[i];
-
-                                  auto GetIsoDecision1UE = [&](const string& hname, int ibin)->double {
-                                    TH1* h = dynamic_cast<TH1*>(V.dir->Get(hname.c_str()));
-                                    return h ? h->GetBinContent(ibin) : 0.0;
+                                  
+                                  auto Get1AA = [&](const string& hname)->double {
+                                      TH1* h = dynamic_cast<TH1*>(trigDir->Get(hname.c_str()));
+                                      return h ? h->GetBinContent(1) : 0.0;
                                   };
-
-                                  double Npass = 0.0, Nfail = 0.0;
+                                  
+                                  // Sum ABCD counts across constituent centrality suffixes
+                                  double A = 0, B = 0, C = 0, D = 0;
                                   for (const auto& suf : sc.suffixes)
                                   {
-                                    const string hIsoName = "h_isoDecision" + b.suffix + suf;
-                                    Npass += GetIsoDecision1UE(hIsoName, 1);
-                                    Nfail += GetIsoDecision1UE(hIsoName, 2);
+                                      A += Get1AA("h_isIsolated_isTight"     + b.suffix + suf);
+                                      B += Get1AA("h_notIsolated_isTight"    + b.suffix + suf);
+                                      C += Get1AA("h_isIsolated_notTight"    + b.suffix + suf);
+                                      D += Get1AA("h_notIsolated_notTight"   + b.suffix + suf);
                                   }
-
+                                  
                                   const double ptLo = kPtEdges[(std::size_t)i];
                                   const double ptHi = kPtEdges[(std::size_t)i + 1];
-                                  xIsoEff[i] = 0.5 * (ptLo + ptHi);
-
-                                  const double Ntot = Npass + Nfail;
-                                  double fPass = (Ntot > 0.0) ? (Npass / Ntot) : 0.0;
-                                  double ePass = 0.0;
-                                  if (Ntot > 0.0)
+                                  xAA[i]  = 0.5 * (ptLo + ptHi);
+                                  exAA[i] = 0.5 * (ptHi - ptLo);
+                                  
+                                  double Praw = 0.0;
+                                  if (A > 0.0 && D > 0.0)
                                   {
-                                    if (Npass > 0.0 && Nfail > 0.0) ePass = std::sqrt(Npass * Nfail) / std::pow(Ntot, 1.5);
-                                    else                           ePass = std::sqrt(std::max(0.0, Npass)) / Ntot;
+                                      double Asig = A - B * (C / D);
+                                      if (Asig < 0.0) Asig = 0.0;
+                                      Praw = Asig / A;
                                   }
-
-                                  yIsoEff[i] = fPass;
-                                  eyIsoEff[i] = ePass;
-
-                                  if (Ntot > 0.0) anyEntriesUE = true;
-                                  if (Npass > 0.0) anyPassUE = true;
-
-                                  printf("  %6s %12.1f %12.1f %12.4f %10.4f\n",
-                                         b.folder.c_str(), Npass, Nfail, fPass, ePass);
-                                }
-
-                                printf("  -> anyEntries=%s  anyPass=%s  (skip=%s)\n\n",
-                                       anyEntriesUE ? "true" : "false",
-                                       anyPassUE ? "true" : "false",
-                                       anyEntriesUE ? "no" : "YES, all PASS+FAIL==0");
-                                if (!anyEntriesUE) continue;
-
-                                TGraphErrors* gIsoEff = new TGraphErrors(kNPtBins, &xIsoEff[0], &yIsoEff[0], nullptr, &eyIsoEff[0]);
-                                gIsoEff->SetLineWidth(2);
-                                gIsoEff->SetLineColor(V.color);
-                                gIsoEff->SetMarkerStyle(V.marker);
-                                gIsoEff->SetMarkerSize(1.1);
-                                gIsoEff->SetMarkerColor(V.color);
-                                gIsoEff->Draw("P SAME");
-
-                                legIsoEff.AddEntry(gIsoEff, V.label.c_str(), "pe");
-                                keepIsoEff.push_back(gIsoEff);
-                                keepIsoEffLabels.push_back(V.label);
+                                  yAA[i] = Praw;
+                                  
+                                  double eP = 0.0;
+                                  if (A > 0.0 && D > 0.0)
+                                  {
+                                      const double dPdA =  (B * C) / (A * A * D);
+                                      const double dPdB = -(C) / (A * D);
+                                      const double dPdC = -(B) / (A * D);
+                                      const double dPdD =  (B * C) / (A * D * D);
+                                      double var = 0.0;
+                                      if (A > 0.0) var += dPdA * dPdA * A;
+                                      if (B > 0.0) var += dPdB * dPdB * B;
+                                      if (C > 0.0) var += dPdC * dPdC * C;
+                                      if (D > 0.0) var += dPdD * dPdD * D;
+                                      eP = (var > 0.0) ? std::sqrt(var) : 0.0;
+                                  }
+                                  eyAA[i] = eP;
+                                  
+                                  if (A > 0.0) anyAA = true;
                               }
-
-                              if (!keepIsoEff.empty())
-                              {
-                                legIsoEff.Draw();
-
-                                TLatex tTitleIsoEff;
-                                tTitleIsoEff.SetNDC(true);
-                                tTitleIsoEff.SetTextFont(42);
-                                tTitleIsoEff.SetTextAlign(23);
-                                tTitleIsoEff.SetTextSize(0.04);
-                                tTitleIsoEff.DrawLatex(0.50, 0.97,
-                                  TString::Format("Photon iso pass fraction vs p_{T}^{#gamma}, all UE variants, %d-%d%% AuAu", sc.lo, sc.hi).Data());
-
-                                // Cut annotations derived from AuAu config
-                                {
-                                  std::string trigLabelIsoEff;
-                                  {
-                                    int photonPt = 0;
-                                    if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
-                                      trigLabelIsoEff = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
-                                    else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
-                                      trigLabelIsoEff = "Trigger: MBD NS #geq 2, vtx < 150 cm";
-                                    else
-                                      trigLabelIsoEff = "Trigger: " + trigAA;
-                                  }
-
-                                  const string isoConeLabelIsoEff = (kAA_IsoConeR == "isoR40")
-                                    ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
-
-                                  string isoModeLabelIsoEff;
-                                  if (kAA_IsoMode == "fixedIso5GeV") isoModeLabelIsoEff = "E_{T}^{iso} < 5 GeV";
-                                  else                               isoModeLabelIsoEff = "Sliding iso cut";
-
-                                  const string vzLabelIsoEff = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
-
-                                  TLatex tCutsIsoEff;
-                                  tCutsIsoEff.SetNDC(true);
-                                  tCutsIsoEff.SetTextFont(42);
-                                  tCutsIsoEff.SetTextAlign(13);
-                                  tCutsIsoEff.SetTextSize(0.032);
-                                  tCutsIsoEff.DrawLatex(0.18, 0.88, trigLabelIsoEff.c_str());
-                                  tCutsIsoEff.DrawLatex(0.18, 0.83, isoConeLabelIsoEff.c_str());
-                                  tCutsIsoEff.DrawLatex(0.18, 0.78, isoModeLabelIsoEff.c_str());
-                                  tCutsIsoEff.DrawLatex(0.18, 0.73, vzLabelIsoEff.c_str());
-                                }
-
-                                SaveCanvas(cIsoEff, JoinPath(outDirIsoEff,
-                                  TString::Format("pho_isoPassFraction_vs_pTgamma_allVariants_cent_%d_%d.png", sc.lo, sc.hi).Data()));
-                                cout << ANSI_BOLD_GRN << "[WROTE] "
-                                     << JoinPath(outDirIsoEff, TString::Format("pho_isoPassFraction_vs_pTgamma_allVariants_cent_%d_%d.png", sc.lo, sc.hi).Data())
-                                     << ANSI_RESET << "\n";
-                              }
-
-                              if (ppDirUE)
-                              {
-                                vector<double> xPPIsoEff(kNPtBins), yPPIsoEff(kNPtBins), eyPPIsoEff(kNPtBins);
-                                bool anyPPEntries = false;
-                                bool anyPPPass = false;
-
-                                printf("\n  [ISO-EFF-DIAG] Variant=\"pp\"  label=\"pp\"  cent=%d-%d%%  suffixes: PP inclusive\n",
-                                       sc.lo, sc.hi);
-                                printf("  %6s %12s %12s %12s %10s\n",
-                                       "pTbin", "Npass", "Nfail", "fPass", "errF");
-
-                                for (int i = 0; i < kNPtBins; ++i)
-                                {
-                                  const PtBin& b = PtBins()[i];
-                                  const string hIsoName = "h_isoDecision" + b.suffix;
-                                  TH1* h = dynamic_cast<TH1*>(ppDirUE->Get(hIsoName.c_str()));
-
-                                  const double Npass = h ? h->GetBinContent(1) : 0.0;
-                                  const double Nfail = h ? h->GetBinContent(2) : 0.0;
-                                  const double Ntot = Npass + Nfail;
-
-                                  const double ptLo = kPtEdges[(std::size_t)i];
-                                  const double ptHi = kPtEdges[(std::size_t)i + 1];
-                                  xPPIsoEff[i] = 0.5 * (ptLo + ptHi);
-
-                                  double fPass = (Ntot > 0.0) ? (Npass / Ntot) : 0.0;
-                                  double ePass = 0.0;
-                                  if (Ntot > 0.0)
-                                  {
-                                    if (Npass > 0.0 && Nfail > 0.0) ePass = std::sqrt(Npass * Nfail) / std::pow(Ntot, 1.5);
-                                    else                           ePass = std::sqrt(std::max(0.0, Npass)) / Ntot;
-                                  }
-
-                                  yPPIsoEff[i] = fPass;
-                                  eyPPIsoEff[i] = ePass;
-
-                                  if (Ntot > 0.0) anyPPEntries = true;
-                                  if (Npass > 0.0) anyPPPass = true;
-
-                                  printf("  %6s %12.1f %12.1f %12.4f %10.4f\n",
-                                         b.folder.c_str(), Npass, Nfail, fPass, ePass);
-                                }
-
-                                printf("  -> anyEntries=%s  anyPass=%s  (skip=%s)\n\n",
-                                       anyPPEntries ? "true" : "false",
-                                       anyPPPass ? "true" : "false",
-                                       anyPPEntries ? "no" : "YES, all PASS+FAIL==0");
-
-                                if (!keepIsoEff.empty() && anyPPEntries)
-                                {
-                                  TCanvas cIsoEffPP(
-                                    TString::Format("c_isoPassFrac_allVariants_ppOverlay_%s_%d_%d", trigAA.c_str(), sc.lo, sc.hi).Data(),
-                                    "c_isoPassFrac_allVariants_ppOverlay", 900, 700
-                                  );
-                                  ApplyCanvasMargins1D(cIsoEffPP);
-
-                                    TH1F hFrameIsoEffPP("hIsoPassFracPPFrame","",100, 10.0, kPtEdges.back());
-                                    hFrameIsoEffPP.SetDirectory(nullptr);
-                                    hFrameIsoEffPP.SetStats(0);
-                                    hFrameIsoEffPP.SetMinimum(0.0);
-                                    hFrameIsoEffPP.SetMaximum(1.2);
-                                    hFrameIsoEffPP.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                                    hFrameIsoEffPP.GetYaxis()->SetTitle("Iso pass fraction");
-                                    hFrameIsoEffPP.Draw();
-
-                                    for (auto* g : keepIsoEff) g->Draw("P SAME");
-
-                                    TGraphErrors gPPIsoEff(kNPtBins, &xPPIsoEff[0], &yPPIsoEff[0], nullptr, &eyPPIsoEff[0]);
-                                    gPPIsoEff.SetLineWidth(2);
-                                    gPPIsoEff.SetLineColor(kRed + 1);
-                                    gPPIsoEff.SetMarkerStyle(24);
-                                    gPPIsoEff.SetMarkerSize(1.1);
-                                    gPPIsoEff.SetMarkerColor(kRed + 1);
-                                    gPPIsoEff.Draw("P SAME");
-
-                                    TLegend legIsoEffPP(0.18, 0.22, 0.62, 0.45);
-                                    legIsoEffPP.SetBorderSize(0);
-                                    legIsoEffPP.SetFillStyle(0);
-                                    legIsoEffPP.SetTextFont(42);
-                                    legIsoEffPP.SetTextSize(0.03);
-                                    legIsoEffPP.SetNColumns(2);
-                                    
-                                  for (std::size_t ig = 0; ig < keepIsoEff.size(); ++ig)
-                                  {
-                                    legIsoEffPP.AddEntry(keepIsoEff[ig], keepIsoEffLabels[ig].c_str(), "pe");
-                                  }
-                                  legIsoEffPP.AddEntry(&gPPIsoEff, "pp", "pe");
-                                  legIsoEffPP.Draw();
-
-                                  TLatex tTitleIsoEffPP;
-                                  tTitleIsoEffPP.SetNDC(true);
-                                  tTitleIsoEffPP.SetTextFont(42);
-                                  tTitleIsoEffPP.SetTextAlign(23);
-                                  tTitleIsoEffPP.SetTextSize(0.04);
-                                  tTitleIsoEffPP.DrawLatex(0.52, 0.975,
-                                    TString::Format("Photon iso pass fraction vs p_{T}^{#gamma}, all UE variants + pp, %d-%d%% AuAu", sc.lo, sc.hi).Data());
-
-                                  // Cut annotations derived from AuAu config
-                                  {
-                                    std::string trigLabelIsoEffPP;
-                                    {
-                                      int photonPt = 0;
-                                      if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
-                                        trigLabelIsoEffPP = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
-                                      else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
-                                        trigLabelIsoEffPP = "Trigger: MBD NS #geq 2, vtx < 150 cm";
-                                      else
-                                        trigLabelIsoEffPP = "Trigger: " + trigAA;
-                                    }
-
-                                    const string isoConeLabelIsoEffPP = (kAA_IsoConeR == "isoR40")
-                                      ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
-
-                                    string isoModeLabelIsoEffPP;
-                                    if (kAA_IsoMode == "fixedIso5GeV") isoModeLabelIsoEffPP = "E_{T}^{iso} < 5 GeV";
-                                    else                               isoModeLabelIsoEffPP = "Sliding iso cut";
-
-                                    const string vzLabelIsoEffPP = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
-
-                                    TLatex tCutsIsoEffPP;
-                                    tCutsIsoEffPP.SetNDC(true);
-                                    tCutsIsoEffPP.SetTextFont(42);
-                                    tCutsIsoEffPP.SetTextAlign(13);
-                                    tCutsIsoEffPP.SetTextSize(0.032);
-                                    tCutsIsoEffPP.DrawLatex(0.18, 0.88, trigLabelIsoEffPP.c_str());
-                                    tCutsIsoEffPP.DrawLatex(0.18, 0.83, isoConeLabelIsoEffPP.c_str());
-                                    tCutsIsoEffPP.DrawLatex(0.18, 0.78, isoModeLabelIsoEffPP.c_str());
-                                    tCutsIsoEffPP.DrawLatex(0.18, 0.73, vzLabelIsoEffPP.c_str());
-                                  }
-
-                                  SaveCanvas(cIsoEffPP, JoinPath(outDirIsoEff,
-                                    TString::Format("pho_isoPassFraction_vs_pTgamma_allVariants_cent_%d_%d_ppOverlay.png", sc.lo, sc.hi).Data()));
-                                  cout << ANSI_BOLD_GRN << "[WROTE] "
-                                       << JoinPath(outDirIsoEff, TString::Format("pho_isoPassFraction_vs_pTgamma_allVariants_cent_%d_%d_ppOverlay.png", sc.lo, sc.hi).Data())
-                                       << ANSI_RESET << "\n";
-                                }
-                              }
-
-                                for (auto* g : keepIsoEff) delete g;
-                              }
-                            }
-
-                            // ---------------------------------------------------------------
-                            // UE-variant iso-pass-fraction overlays by pT bin vs centrality
-                            // Output:
-                            //   <kOutputBase>/auau/<CfgTagAA()>/<trigger>/isoEfficencyDiagnostics/<pTbin>/
-                            //     pho_isoPassFraction_vs_cent_allVariants_ppOverlay.png
-                            // ---------------------------------------------------------------
-                            {
-                              const string outDirIsoEff = JoinPath(
-                                JoinPath(kOutputBase + "/auau/" + CfgTagAA(), trigAA),
-                                "isoEfficencyDiagnostics"
-                              );
-                              EnsureDir(outDirIsoEff);
-
-                              const auto& centBins = CentBins();
-
-                              for (int ipt = 0; ipt < kNPtBins; ++ipt)
-                              {
-                                const PtBin& b = PtBins()[ipt];
-                                const string ptDirIsoEff = JoinPath(outDirIsoEff, b.folder);
-                                EnsureDir(ptDirIsoEff);
-
-                                const double centLo = centBins.front().lo;
-                                const double centHi = centBins.back().hi;
-
-                                vector<double> xCent(centBins.size()), yPPCent(centBins.size(), 0.0), eyPPCent(centBins.size(), 0.0);
-                                for (std::size_t ic = 0; ic < centBins.size(); ++ic)
-                                {
-                                  xCent[ic] = 0.5 * (centBins[ic].lo + centBins[ic].hi);
-                                }
-
-                                TCanvas cIsoEffVsCent(
-                                  TString::Format("c_isoPassFrac_allVariants_vsCent_%s_%s", trigAA.c_str(), b.folder.c_str()).Data(),
-                                  "c_isoPassFrac_allVariants_vsCent", 900, 700
-                                );
-                                ApplyCanvasMargins1D(cIsoEffVsCent);
-
-                                TH1F hFrameIsoEffVsCent("hIsoPassFracVsCentFrame","",100, centLo, centHi);
-                                hFrameIsoEffVsCent.SetDirectory(nullptr);
-                                hFrameIsoEffVsCent.SetStats(0);
-                                hFrameIsoEffVsCent.SetMinimum(0.0);
-                                hFrameIsoEffVsCent.SetMaximum(1.2);
-                                hFrameIsoEffVsCent.GetXaxis()->SetTitle("Centrality [%]");
-                                hFrameIsoEffVsCent.GetYaxis()->SetTitle("Iso pass fraction");
-                                hFrameIsoEffVsCent.Draw();
-
-                                TLegend legIsoEffVsCent(0.18, 0.22, 0.62, 0.44);
-                                legIsoEffVsCent.SetBorderSize(0);
-                                legIsoEffVsCent.SetFillStyle(0);
-                                legIsoEffVsCent.SetTextFont(42);
-                                legIsoEffVsCent.SetTextSize(0.030);
-                                legIsoEffVsCent.SetNColumns(2);
-
-                                vector<TGraphErrors*> keepIsoEffVsCent;
-                                vector<string> keepIsoEffVsCentLabels;
-
-                                printf("\n  [ISO-EFF-VS-CENT-DIAG] pT=%s  trigger=%s\n",
-                                       b.folder.c_str(), trigAA.c_str());
-
-                                for (const auto& V : ueVars)
-                                {
-                                  if (!V.dir) continue;
-
-                                  vector<double> yCent(centBins.size(), 0.0), eyCent(centBins.size(), 0.0);
-                                  bool anyEntriesUE = false;
-                                  bool anyPassUE = false;
-
-                                  printf("  [ISO-EFF-VS-CENT-DIAG] Variant=\"%s\"  label=\"%s\"\n",
-                                         V.variant.c_str(), V.label.c_str());
-                                  printf("  %8s %12s %12s %12s %10s\n",
-                                         "cent", "Npass", "Nfail", "fPass", "errF");
-
-                                  for (std::size_t ic = 0; ic < centBins.size(); ++ic)
-                                  {
-                                    const auto& cb = centBins[ic];
-                                    const string hIsoName = "h_isoDecision" + b.suffix + cb.suffix;
-                                    TH1* h = dynamic_cast<TH1*>(V.dir->Get(hIsoName.c_str()));
-
-                                    const double Npass = h ? h->GetBinContent(1) : 0.0;
-                                    const double Nfail = h ? h->GetBinContent(2) : 0.0;
-                                    const double Ntot = Npass + Nfail;
-
-                                    double fPass = (Ntot > 0.0) ? (Npass / Ntot) : 0.0;
-                                    double ePass = 0.0;
-                                    if (Ntot > 0.0)
-                                    {
-                                      if (Npass > 0.0 && Nfail > 0.0) ePass = std::sqrt(Npass * Nfail) / std::pow(Ntot, 1.5);
-                                      else                           ePass = std::sqrt(std::max(0.0, Npass)) / Ntot;
-                                    }
-
-                                    yCent[ic] = fPass;
-                                    eyCent[ic] = ePass;
-
-                                    if (Ntot > 0.0) anyEntriesUE = true;
-                                    if (Npass > 0.0) anyPassUE = true;
-
-                                    printf("  %8s %12.1f %12.1f %12.4f %10.4f\n",
-                                           cb.folder.c_str(), Npass, Nfail, fPass, ePass);
-                                  }
-
-                                  printf("  -> anyEntries=%s  anyPass=%s  (skip=%s)\n\n",
-                                         anyEntriesUE ? "true" : "false",
-                                         anyPassUE ? "true" : "false",
-                                         anyEntriesUE ? "no" : "YES, all PASS+FAIL==0");
-                                  if (!anyEntriesUE) continue;
-
-                                  TGraphErrors* gIsoEffVsCent = new TGraphErrors((int)xCent.size(), &xCent[0], &yCent[0], nullptr, &eyCent[0]);
-                                  gIsoEffVsCent->SetLineWidth(2);
-                                  gIsoEffVsCent->SetLineColor(V.color);
-                                  gIsoEffVsCent->SetMarkerStyle(V.marker);
-                                  gIsoEffVsCent->SetMarkerSize(1.1);
-                                  gIsoEffVsCent->SetMarkerColor(V.color);
-                                  gIsoEffVsCent->Draw("PE1 SAME");
-
-                                  legIsoEffVsCent.AddEntry(gIsoEffVsCent, V.label.c_str(), "pe");
-                                  keepIsoEffVsCent.push_back(gIsoEffVsCent);
-                                  keepIsoEffVsCentLabels.push_back(V.label);
-                                }
-
-                                bool anyPPEntries = false;
-                                if (ppDirUE)
-                                {
-                                  const string hIsoNamePP = "h_isoDecision" + b.suffix;
-                                  TH1* hPP = dynamic_cast<TH1*>(ppDirUE->Get(hIsoNamePP.c_str()));
-
-                                  const double NpassPP = hPP ? hPP->GetBinContent(1) : 0.0;
-                                  const double NfailPP = hPP ? hPP->GetBinContent(2) : 0.0;
-                                  const double NtotPP = NpassPP + NfailPP;
-
-                                  double fPassPP = (NtotPP > 0.0) ? (NpassPP / NtotPP) : 0.0;
-                                  double ePassPP = 0.0;
-                                  if (NtotPP > 0.0)
-                                  {
-                                    if (NpassPP > 0.0 && NfailPP > 0.0) ePassPP = std::sqrt(NpassPP * NfailPP) / std::pow(NtotPP, 1.5);
-                                    else                               ePassPP = std::sqrt(std::max(0.0, NpassPP)) / NtotPP;
-                                  }
-
-                                  printf("  [ISO-EFF-VS-CENT-DIAG] Variant=\"pp\"  label=\"pp\"\n");
-                                  printf("  %8s %12s %12s %12s %10s\n",
-                                         "source", "Npass", "Nfail", "fPass", "errF");
-                                  printf("  %8s %12.1f %12.1f %12.4f %10.4f\n",
-                                         "pp", NpassPP, NfailPP, fPassPP, ePassPP);
-                                  printf("  -> repeated across all AuAu centrality bins in overlay\n\n");
-
-                                  if (NtotPP > 0.0)
-                                  {
-                                    anyPPEntries = true;
-                                    for (std::size_t ic = 0; ic < centBins.size(); ++ic)
-                                    {
-                                      yPPCent[ic] = fPassPP;
-                                      eyPPCent[ic] = ePassPP;
-                                    }
-                                  }
-                                }
-
-                                if (!keepIsoEffVsCent.empty())
-                                {
-                                  if (anyPPEntries)
-                                  {
-                                    TGraphErrors* gPPIsoEffVsCent = new TGraphErrors((int)xCent.size(), &xCent[0], &yPPCent[0], nullptr, &eyPPCent[0]);
-                                    gPPIsoEffVsCent->SetLineWidth(2);
-                                    gPPIsoEffVsCent->SetLineColor(kRed + 1);
-                                    gPPIsoEffVsCent->SetMarkerStyle(24);
-                                    gPPIsoEffVsCent->SetMarkerSize(1.1);
-                                    gPPIsoEffVsCent->SetMarkerColor(kRed + 1);
-                                    gPPIsoEffVsCent->Draw("PE1 SAME");
-
-                                    legIsoEffVsCent.AddEntry(gPPIsoEffVsCent, "pp", "pe");
-                                    keepIsoEffVsCent.push_back(gPPIsoEffVsCent);
-                                    keepIsoEffVsCentLabels.push_back("pp");
-                                  }
-
-                                  legIsoEffVsCent.Draw();
-
-                                  TLatex tTitleIsoEffVsCent;
-                                  tTitleIsoEffVsCent.SetNDC(true);
-                                  tTitleIsoEffVsCent.SetTextFont(42);
-                                  tTitleIsoEffVsCent.SetTextAlign(23);
-                                  tTitleIsoEffVsCent.SetTextSize(0.038);
-                                  tTitleIsoEffVsCent.DrawLatex(0.52, 0.97,
-                                    TString::Format("Photon iso pass fraction vs centrality, all UE variants + pp, %d-%d GeV", b.lo, b.hi).Data());
-
-                                  {
-                                    std::string trigLabelIsoEffVsCent;
-                                    {
-                                      int photonPt = 0;
-                                      if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
-                                        trigLabelIsoEffVsCent = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
-                                      else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
-                                        trigLabelIsoEffVsCent = "Trigger: MBD NS #geq 2, vtx < 150 cm";
-                                      else
-                                        trigLabelIsoEffVsCent = "Trigger: " + trigAA;
-                                    }
-
-                                    const string isoConeLabelIsoEffVsCent = (kAA_IsoConeR == "isoR40")
-                                      ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
-
-                                    string isoModeLabelIsoEffVsCent;
-                                    if (kAA_IsoMode == "fixedIso5GeV") isoModeLabelIsoEffVsCent = "E_{T}^{iso} < 5 GeV";
-                                    else                               isoModeLabelIsoEffVsCent = "Sliding iso cut";
-
-                                    const string vzLabelIsoEffVsCent = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
-
-                                    TLatex tCutsIsoEffVsCent;
-                                    tCutsIsoEffVsCent.SetNDC(true);
-                                    tCutsIsoEffVsCent.SetTextFont(42);
-                                    tCutsIsoEffVsCent.SetTextAlign(13);
-                                    tCutsIsoEffVsCent.SetTextSize(0.032);
-                                    tCutsIsoEffVsCent.DrawLatex(0.18, 0.88, trigLabelIsoEffVsCent.c_str());
-                                    tCutsIsoEffVsCent.DrawLatex(0.18, 0.83, isoConeLabelIsoEffVsCent.c_str());
-                                    tCutsIsoEffVsCent.DrawLatex(0.18, 0.78, isoModeLabelIsoEffVsCent.c_str());
-                                    tCutsIsoEffVsCent.DrawLatex(0.18, 0.73, vzLabelIsoEffVsCent.c_str());
-                                  }
-
-                                  SaveCanvas(cIsoEffVsCent, JoinPath(ptDirIsoEff, "pho_isoPassFraction_vs_cent_allVariants_ppOverlay.png"));
-                                  cout << ANSI_BOLD_GRN << "[WROTE] "
-                                       << JoinPath(ptDirIsoEff, "pho_isoPassFraction_vs_cent_allVariants_ppOverlay.png")
-                                       << ANSI_RESET << "\n";
-                                }
-
-                                for (auto* g : keepIsoEffVsCent) delete g;
-                              }
-                            }
-
-                          // ---------------------------------------------------------------
-                          // noSub + baseVariant + variantA iso-pass-fraction overlays
-                          // Output:
-                          //   <kOutputBase>/auau/<CfgTagAA()>/<trigger>/isoEfficencyDiagnostics/noSub_baseVar_varA/
-                          //     pho_isoPassFraction_vs_pTgamma_noSub_baseVar_varA_cent_<lo>_<hi>.png
-                          //     pho_isoPassFraction_vs_pTgamma_noSub_baseVar_varA_cent_<lo>_<hi>_ppOverlay.png
-                          //     <pTbin>/pho_isoPassFraction_vs_cent_noSub_baseVar_varA_ppOverlay.png
-                          // ---------------------------------------------------------------
-                          {
-                            const string outDir3V = JoinPath(
-                              JoinPath(kOutputBase + "/auau/" + CfgTagAA(), trigAA),
-                              "isoEfficencyDiagnostics/noSub_baseVar_varA"
-                            );
-                            EnsureDir(outDir3V);
-
-                            // --- A: iso-pass-fraction vs pTgamma, by selected centrality ---
-                            for (const auto& sc : selCentsUE)
-                            {
-                              TCanvas c3V(
-                                TString::Format("c_isoPassFrac_3V_%s_%d_%d", trigAA.c_str(), sc.lo, sc.hi).Data(),
-                                "c_isoPassFrac_3V", 900, 700
-                              );
-                              ApplyCanvasMargins1D(c3V);
-
-                                TH1F hFrame3V("hIsoPassFrac3VFrame","",100, 10.0, kPtEdges.back());
-                                hFrame3V.SetDirectory(nullptr);
-                                hFrame3V.SetStats(0);
-                                hFrame3V.SetMinimum(0.0);
-                                hFrame3V.SetMaximum(1.2);
-                                hFrame3V.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                                hFrame3V.GetYaxis()->SetTitle("Iso pass fraction");
-                                hFrame3V.Draw();
-
-                                TLegend leg3V(0.18, 0.14, 0.62, 0.30);
-                                leg3V.SetBorderSize(0);
-                                leg3V.SetFillStyle(0);
-                                leg3V.SetTextFont(42);
-                                leg3V.SetTextSize(0.030);
-                                leg3V.SetNColumns(2);
-
-                              vector<TGraphErrors*> keep3V;
-                              vector<string> keep3VLabels;
-
-                              for (std::size_t iV = 0; iV < 3 && iV < ueVars.size(); ++iV)
-                              {
-                                const auto& V = ueVars[iV];
-                                if (!V.dir) continue;
-
-                                vector<double> xEff(kNPtBins), yEff(kNPtBins), eyEff(kNPtBins);
-                                bool anyEntries = false;
-
-                                for (int i = 0; i < kNPtBins; ++i)
-                                {
-                                  const PtBin& b = PtBins()[i];
-
-                                  auto GetIsoDecision1_3V = [&](const string& hname, int ibin)->double {
-                                    TH1* h = dynamic_cast<TH1*>(V.dir->Get(hname.c_str()));
-                                    return h ? h->GetBinContent(ibin) : 0.0;
-                                  };
-
-                                  double Npass = 0.0, Nfail = 0.0;
-                                  for (const auto& suf : sc.suffixes)
-                                  {
-                                    const string hIsoName = "h_isoDecision" + b.suffix + suf;
-                                    Npass += GetIsoDecision1_3V(hIsoName, 1);
-                                    Nfail += GetIsoDecision1_3V(hIsoName, 2);
-                                  }
-
-                                  const double ptLo = kPtEdges[(std::size_t)i];
-                                  const double ptHi = kPtEdges[(std::size_t)i + 1];
-                                  xEff[i] = 0.5 * (ptLo + ptHi);
-
-                                  const double Ntot = Npass + Nfail;
-                                  double fPass = (Ntot > 0.0) ? (Npass / Ntot) : 0.0;
-                                  double ePass = 0.0;
-                                  if (Ntot > 0.0)
-                                  {
-                                    if (Npass > 0.0 && Nfail > 0.0) ePass = std::sqrt(Npass * Nfail) / std::pow(Ntot, 1.5);
-                                    else                           ePass = std::sqrt(std::max(0.0, Npass)) / Ntot;
-                                  }
-
-                                  yEff[i] = fPass;
-                                  eyEff[i] = ePass;
-                                  if (Ntot > 0.0) anyEntries = true;
-                                }
-
-                                if (!anyEntries) continue;
-
-                                TGraphErrors* g = new TGraphErrors(kNPtBins, &xEff[0], &yEff[0], nullptr, &eyEff[0]);
-                                g->SetLineWidth(2);
-                                g->SetLineColor(V.color);
-                                g->SetMarkerStyle(V.marker);
-                                g->SetMarkerSize(1.1);
-                                g->SetMarkerColor(V.color);
-                                g->Draw("P SAME");
-
-                                leg3V.AddEntry(g, V.label.c_str(), "pe");
-                                keep3V.push_back(g);
-                                keep3VLabels.push_back(V.label);
-                              }
-
-                              if (!keep3V.empty())
-                              {
-                                leg3V.Draw();
-
-                                TLatex tT3V;
-                                tT3V.SetNDC(true);
-                                tT3V.SetTextFont(42);
-                                tT3V.SetTextAlign(23);
-                                tT3V.SetTextSize(0.04);
-                                tT3V.DrawLatex(0.50, 0.97,
-                                  TString::Format("Photon iso pass fraction vs p_{T}^{#gamma}, noSub + baseVariant + variantA, %d-%d%% AuAu", sc.lo, sc.hi).Data());
-
-                                {
-                                  std::string trigLabel3V;
-                                  {
-                                    int photonPt = 0;
-                                    if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
-                                      trigLabel3V = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
-                                    else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
-                                      trigLabel3V = "Trigger: MBD NS #geq 2, vtx < 150 cm";
-                                    else
-                                      trigLabel3V = "Trigger: " + trigAA;
-                                  }
-
-                                  const string isoConeLabel3V = (kAA_IsoConeR == "isoR40")
-                                    ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
-
-                                  string isoModeLabel3V;
-                                  if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel3V = "E_{T}^{iso} < 5 GeV";
-                                  else                               isoModeLabel3V = "Sliding iso cut";
-
-                                  const string vzLabel3V = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
-
-                                  TLatex tCuts3V;
-                                  tCuts3V.SetNDC(true);
-                                  tCuts3V.SetTextFont(42);
-                                  tCuts3V.SetTextAlign(13);
-                                  tCuts3V.SetTextSize(0.032);
-                                  tCuts3V.DrawLatex(0.18, 0.88, trigLabel3V.c_str());
-                                  tCuts3V.DrawLatex(0.18, 0.83, isoConeLabel3V.c_str());
-                                  tCuts3V.DrawLatex(0.18, 0.78, isoModeLabel3V.c_str());
-                                  tCuts3V.DrawLatex(0.18, 0.73, vzLabel3V.c_str());
-                                }
-
-                                SaveCanvas(c3V, JoinPath(outDir3V,
-                                  TString::Format("pho_isoPassFraction_vs_pTgamma_noSub_baseVar_varA_cent_%d_%d.png", sc.lo, sc.hi).Data()));
-                                cout << ANSI_BOLD_GRN << "[WROTE] "
-                                     << JoinPath(outDir3V, TString::Format("pho_isoPassFraction_vs_pTgamma_noSub_baseVar_varA_cent_%d_%d.png", sc.lo, sc.hi).Data())
-                                     << ANSI_RESET << "\n";
-                              }
-
-                              // pp overlay version
-                              if (ppDirUE)
-                              {
-                                vector<double> xPP(kNPtBins), yPP(kNPtBins), eyPP(kNPtBins);
-                                bool anyPPEntries = false;
-
-                                for (int i = 0; i < kNPtBins; ++i)
-                                {
-                                  const PtBin& b = PtBins()[i];
-                                  const string hIsoName = "h_isoDecision" + b.suffix;
-                                  TH1* h = dynamic_cast<TH1*>(ppDirUE->Get(hIsoName.c_str()));
-
-                                  const double Npass = h ? h->GetBinContent(1) : 0.0;
-                                  const double Nfail = h ? h->GetBinContent(2) : 0.0;
-                                  const double Ntot = Npass + Nfail;
-
-                                  const double ptLo = kPtEdges[(std::size_t)i];
-                                  const double ptHi = kPtEdges[(std::size_t)i + 1];
-                                  xPP[i] = 0.5 * (ptLo + ptHi);
-
-                                  double fPass = (Ntot > 0.0) ? (Npass / Ntot) : 0.0;
-                                  double ePass = 0.0;
-                                  if (Ntot > 0.0)
-                                  {
-                                    if (Npass > 0.0 && Nfail > 0.0) ePass = std::sqrt(Npass * Nfail) / std::pow(Ntot, 1.5);
-                                    else                           ePass = std::sqrt(std::max(0.0, Npass)) / Ntot;
-                                  }
-
-                                  yPP[i] = fPass;
-                                  eyPP[i] = ePass;
-                                  if (Ntot > 0.0) anyPPEntries = true;
-                                }
-
-                                if (!keep3V.empty() && anyPPEntries)
-                                {
-                                  TCanvas c3VPP(
-                                    TString::Format("c_isoPassFrac_3V_ppOverlay_%s_%d_%d", trigAA.c_str(), sc.lo, sc.hi).Data(),
-                                    "c_isoPassFrac_3V_ppOverlay", 900, 700
-                                  );
-                                  ApplyCanvasMargins1D(c3VPP);
-
-                                    TH1F hFrame3VPP("hIsoPassFrac3VPPFrame","",100, 10.0, kPtEdges.back());
-                                    hFrame3VPP.SetDirectory(nullptr);
-                                    hFrame3VPP.SetStats(0);
-                                    hFrame3VPP.SetMinimum(0.0);
-                                    hFrame3VPP.SetMaximum(1.2);
-                                    hFrame3VPP.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                                    hFrame3VPP.GetYaxis()->SetTitle("Iso pass fraction");
-                                    hFrame3VPP.Draw();
-
-                                    for (auto* g : keep3V) g->Draw("P SAME");
-
-                                    TGraphErrors gPP3V(kNPtBins, &xPP[0], &yPP[0], nullptr, &eyPP[0]);
-                                    gPP3V.SetLineWidth(2);
-                                    gPP3V.SetLineColor(kRed + 1);
-                                    gPP3V.SetMarkerStyle(24);
-                                    gPP3V.SetMarkerSize(1.1);
-                                    gPP3V.SetMarkerColor(kRed + 1);
-                                    gPP3V.Draw("P SAME");
-
-                                    TLegend leg3VPP(0.18, 0.22, 0.62, 0.45);
-                                    leg3VPP.SetBorderSize(0);
-                                    leg3VPP.SetFillStyle(0);
-                                    leg3VPP.SetTextFont(42);
-                                    leg3VPP.SetTextSize(0.03);
-                                    leg3VPP.SetNColumns(2);
-
-                                  for (std::size_t ig = 0; ig < keep3V.size(); ++ig)
-                                  {
-                                    leg3VPP.AddEntry(keep3V[ig], keep3VLabels[ig].c_str(), "pe");
-                                  }
-                                  leg3VPP.AddEntry(&gPP3V, "pp", "pe");
-                                  leg3VPP.Draw();
-
-                                  TLatex tT3VPP;
-                                  tT3VPP.SetNDC(true);
-                                  tT3VPP.SetTextFont(42);
-                                  tT3VPP.SetTextAlign(23);
-                                  tT3VPP.SetTextSize(0.04);
-                                  tT3VPP.DrawLatex(0.52, 0.975,
-                                    TString::Format("Photon iso pass fraction vs p_{T}^{#gamma}, noSub + baseVar + varA + pp, %d-%d%% AuAu", sc.lo, sc.hi).Data());
-
-                                  {
-                                    std::string trigLabel3VPP;
-                                    {
-                                      int photonPt = 0;
-                                      if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
-                                        trigLabel3VPP = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
-                                      else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
-                                        trigLabel3VPP = "Trigger: MBD NS #geq 2, vtx < 150 cm";
-                                      else
-                                        trigLabel3VPP = "Trigger: " + trigAA;
-                                    }
-
-                                    const string isoConeLabel3VPP = (kAA_IsoConeR == "isoR40")
-                                      ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
-
-                                    string isoModeLabel3VPP;
-                                    if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel3VPP = "E_{T}^{iso} < 5 GeV";
-                                    else                               isoModeLabel3VPP = "Sliding iso cut";
-
-                                    const string vzLabel3VPP = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
-
-                                    TLatex tCuts3VPP;
-                                    tCuts3VPP.SetNDC(true);
-                                    tCuts3VPP.SetTextFont(42);
-                                    tCuts3VPP.SetTextAlign(13);
-                                    tCuts3VPP.SetTextSize(0.032);
-                                    tCuts3VPP.DrawLatex(0.18, 0.88, trigLabel3VPP.c_str());
-                                    tCuts3VPP.DrawLatex(0.18, 0.83, isoConeLabel3VPP.c_str());
-                                    tCuts3VPP.DrawLatex(0.18, 0.78, isoModeLabel3VPP.c_str());
-                                    tCuts3VPP.DrawLatex(0.18, 0.73, vzLabel3VPP.c_str());
-                                  }
-
-                                  SaveCanvas(c3VPP, JoinPath(outDir3V,
-                                    TString::Format("pho_isoPassFraction_vs_pTgamma_noSub_baseVar_varA_cent_%d_%d_ppOverlay.png", sc.lo, sc.hi).Data()));
-                                  cout << ANSI_BOLD_GRN << "[WROTE] "
-                                       << JoinPath(outDir3V, TString::Format("pho_isoPassFraction_vs_pTgamma_noSub_baseVar_varA_cent_%d_%d_ppOverlay.png", sc.lo, sc.hi).Data())
-                                       << ANSI_RESET << "\n";
-                                }
-                              }
-
-                              for (auto* g : keep3V) delete g;
-                            }
-
-                            // --- B: iso-pass-fraction vs centrality per pT bin ---
-                            {
-                              const auto& centBins = CentBins();
-
-                              for (int ipt = 0; ipt < kNPtBins; ++ipt)
-                              {
-                                const PtBin& b = PtBins()[ipt];
-                                const string ptDir3V = JoinPath(outDir3V, b.folder);
-                                EnsureDir(ptDir3V);
-
-                                const double centLo = centBins.front().lo;
-                                const double centHi = centBins.back().hi;
-
-                                vector<double> xCent(centBins.size()), yPPCent(centBins.size(), 0.0), eyPPCent(centBins.size(), 0.0);
-                                for (std::size_t ic = 0; ic < centBins.size(); ++ic)
-                                  xCent[ic] = 0.5 * (centBins[ic].lo + centBins[ic].hi);
-
-                                TCanvas c3VCent(
-                                  TString::Format("c_isoPassFrac_3V_vsCent_%s_%s", trigAA.c_str(), b.folder.c_str()).Data(),
-                                  "c_isoPassFrac_3V_vsCent", 900, 700
-                                );
-                                ApplyCanvasMargins1D(c3VCent);
-
-                                TH1F hFrame3VCent("hIsoPassFrac3VCentFrame","",100, centLo, centHi);
-                                hFrame3VCent.SetDirectory(nullptr);
-                                hFrame3VCent.SetStats(0);
-                                hFrame3VCent.SetMinimum(0.0);
-                                hFrame3VCent.SetMaximum(1.2);
-                                hFrame3VCent.GetXaxis()->SetTitle("Centrality [%]");
-                                hFrame3VCent.GetYaxis()->SetTitle("Iso pass fraction");
-                                hFrame3VCent.Draw();
-
-                                TLegend leg3VCent(0.18, 0.22, 0.62, 0.44);
-                                leg3VCent.SetBorderSize(0);
-                                leg3VCent.SetFillStyle(0);
-                                leg3VCent.SetTextFont(42);
-                                leg3VCent.SetTextSize(0.030);
-                                leg3VCent.SetNColumns(2);
-
-                                vector<TGraphErrors*> keep3VCent;
-                                vector<string> keep3VCentLabels;
-
-                                for (std::size_t iV = 0; iV < 3 && iV < ueVars.size(); ++iV)
-                                {
-                                  const auto& V = ueVars[iV];
-                                  if (!V.dir) continue;
-
-                                  vector<double> yCent(centBins.size(), 0.0), eyCent(centBins.size(), 0.0);
-                                  bool anyEntries = false;
-
-                                  for (std::size_t ic = 0; ic < centBins.size(); ++ic)
-                                  {
-                                    const auto& cb = centBins[ic];
-                                    const string hIsoName = "h_isoDecision" + b.suffix + cb.suffix;
-                                    TH1* h = dynamic_cast<TH1*>(V.dir->Get(hIsoName.c_str()));
-
-                                    const double Npass = h ? h->GetBinContent(1) : 0.0;
-                                    const double Nfail = h ? h->GetBinContent(2) : 0.0;
-                                    const double Ntot = Npass + Nfail;
-
-                                    double fPass = (Ntot > 0.0) ? (Npass / Ntot) : 0.0;
-                                    double ePass = 0.0;
-                                    if (Ntot > 0.0)
-                                    {
-                                      if (Npass > 0.0 && Nfail > 0.0) ePass = std::sqrt(Npass * Nfail) / std::pow(Ntot, 1.5);
-                                      else                           ePass = std::sqrt(std::max(0.0, Npass)) / Ntot;
-                                    }
-
-                                    yCent[ic] = fPass;
-                                    eyCent[ic] = ePass;
-                                    if (Ntot > 0.0) anyEntries = true;
-                                  }
-
-                                  if (!anyEntries) continue;
-
-                                  TGraphErrors* g = new TGraphErrors((int)xCent.size(), &xCent[0], &yCent[0], nullptr, &eyCent[0]);
-                                  g->SetLineWidth(2);
-                                  g->SetLineColor(V.color);
-                                  g->SetMarkerStyle(V.marker);
-                                  g->SetMarkerSize(1.1);
-                                  g->SetMarkerColor(V.color);
-                                  g->Draw("PE1 SAME");
-
-                                  leg3VCent.AddEntry(g, V.label.c_str(), "pe");
-                                  keep3VCent.push_back(g);
-                                  keep3VCentLabels.push_back(V.label);
-                                }
-
-                                bool anyPPEntries = false;
-                                if (ppDirUE)
-                                {
-                                  const string hIsoNamePP = "h_isoDecision" + b.suffix;
-                                  TH1* hPP = dynamic_cast<TH1*>(ppDirUE->Get(hIsoNamePP.c_str()));
-
-                                  const double NpassPP = hPP ? hPP->GetBinContent(1) : 0.0;
-                                  const double NfailPP = hPP ? hPP->GetBinContent(2) : 0.0;
-                                  const double NtotPP = NpassPP + NfailPP;
-
-                                  double fPassPP = (NtotPP > 0.0) ? (NpassPP / NtotPP) : 0.0;
-                                  double ePassPP = 0.0;
-                                  if (NtotPP > 0.0)
-                                  {
-                                    if (NpassPP > 0.0 && NfailPP > 0.0) ePassPP = std::sqrt(NpassPP * NfailPP) / std::pow(NtotPP, 1.5);
-                                    else                               ePassPP = std::sqrt(std::max(0.0, NpassPP)) / NtotPP;
-                                  }
-
-                                  if (NtotPP > 0.0)
-                                  {
-                                    anyPPEntries = true;
-                                    for (std::size_t ic = 0; ic < centBins.size(); ++ic)
-                                    {
-                                      yPPCent[ic] = fPassPP;
-                                      eyPPCent[ic] = ePassPP;
-                                    }
-                                  }
-                                }
-
-                                if (!keep3VCent.empty())
-                                {
-                                  if (anyPPEntries)
-                                  {
-                                    TGraphErrors* gPP = new TGraphErrors((int)xCent.size(), &xCent[0], &yPPCent[0], nullptr, &eyPPCent[0]);
-                                    gPP->SetLineWidth(2);
-                                    gPP->SetLineColor(kRed + 1);
-                                    gPP->SetMarkerStyle(24);
-                                    gPP->SetMarkerSize(1.1);
-                                    gPP->SetMarkerColor(kRed + 1);
-                                    gPP->Draw("PE1 SAME");
-
-                                    leg3VCent.AddEntry(gPP, "pp", "pe");
-                                    keep3VCent.push_back(gPP);
-                                    keep3VCentLabels.push_back("pp");
-                                  }
-
-                                  leg3VCent.Draw();
-
-                                  TLatex tT3VCent;
-                                  tT3VCent.SetNDC(true);
-                                  tT3VCent.SetTextFont(42);
-                                  tT3VCent.SetTextAlign(23);
-                                  tT3VCent.SetTextSize(0.038);
-                                  tT3VCent.DrawLatex(0.52, 0.97,
-                                    TString::Format("Photon iso pass fraction vs centrality, noSub + baseVar + varA + pp, %d-%d GeV", b.lo, b.hi).Data());
-
-                                  {
-                                    std::string trigLabel3VCent;
-                                    {
-                                      int photonPt = 0;
-                                      if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
-                                        trigLabel3VCent = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
-                                      else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
-                                        trigLabel3VCent = "Trigger: MBD NS #geq 2, vtx < 150 cm";
-                                      else
-                                        trigLabel3VCent = "Trigger: " + trigAA;
-                                    }
-
-                                    const string isoConeLabel3VCent = (kAA_IsoConeR == "isoR40")
-                                      ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
-
-                                    string isoModeLabel3VCent;
-                                    if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel3VCent = "E_{T}^{iso} < 5 GeV";
-                                    else                               isoModeLabel3VCent = "Sliding iso cut";
-
-                                    const string vzLabel3VCent = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
-
-                                    TLatex tCuts3VCent;
-                                    tCuts3VCent.SetNDC(true);
-                                    tCuts3VCent.SetTextFont(42);
-                                    tCuts3VCent.SetTextAlign(13);
-                                    tCuts3VCent.SetTextSize(0.032);
-                                    tCuts3VCent.DrawLatex(0.18, 0.88, trigLabel3VCent.c_str());
-                                    tCuts3VCent.DrawLatex(0.18, 0.83, isoConeLabel3VCent.c_str());
-                                    tCuts3VCent.DrawLatex(0.18, 0.78, isoModeLabel3VCent.c_str());
-                                    tCuts3VCent.DrawLatex(0.18, 0.73, vzLabel3VCent.c_str());
-                                  }
-
-                                  SaveCanvas(c3VCent, JoinPath(ptDir3V, "pho_isoPassFraction_vs_cent_noSub_baseVar_varA_ppOverlay.png"));
-                                  cout << ANSI_BOLD_GRN << "[WROTE] "
-                                       << JoinPath(ptDir3V, "pho_isoPassFraction_vs_cent_noSub_baseVar_varA_ppOverlay.png")
-                                       << ANSI_RESET << "\n";
-                                }
-
-                                for (auto* g : keep3VCent) delete g;
-                              }
-                            }
+                              
+                              if (!anyAA) continue;
+                              
+                              TGraphErrors* gAA = new TGraphErrors(kNPtBins, &xAA[0], &yAA[0], &exAA[0], &eyAA[0]);
+                              gAA->SetLineWidth(2);
+                              gAA->SetLineColor(sc.color);
+                              gAA->SetMarkerStyle(20);
+                              gAA->SetMarkerSize(1.1);
+                              gAA->SetMarkerColor(sc.color);
+                              gAA->Draw("P SAME");
+                              
+                              legSel.AddEntry(gAA, TString::Format("AuAu %d-%d%%", sc.lo, sc.hi).Data(), "pe");
+                              keepSel.push_back(gAA);
                           }
-
-                            if (fPPUE)
-                            {
-                              fPPUE->Close();
-                              delete fPPUE;
-                              fPPUE = nullptr;
-                              ppDirUE = nullptr;
-                            }
-
-                          for (auto& V : ueVars)
+                          
+                          legSel.Draw();
+                          
+                          // Centered title
+                          TLatex tTitleSel;
+                          tTitleSel.SetNDC(true);
+                          tTitleSel.SetTextFont(42);
+                          tTitleSel.SetTextAlign(23);
+                          tTitleSel.SetTextSize(0.045);
+                          tTitleSel.DrawLatex(0.50, 0.96,
+                                              "ABCD Purity vs p_{T}^{#gamma} for each centrality, Run3auau");
+                          
+                          // Cut annotations derived from AuAu config
                           {
-                            if (V.file)
-                            {
-                              V.file->Close();
-                              delete V.file;
-                              V.file = nullptr;
-                              V.dir = nullptr;
-                            }
-                         }
-                     }
+                              std::string trigLabelSel;
+                              {
+                                  int photonPt = 0;
+                                  if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
+                                      trigLabelSel = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                                  else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                                      trigLabelSel = "Trigger: MBD NS #geq 2, vtx < 150 cm";
+                                  else
+                                      trigLabelSel = "Trigger: " + trigAA;
+                              }
+                              
+                              const string isoConeLabel = (kAA_IsoConeR == "isoR40")
+                              ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+                              
+                              string isoModeLabel;
+                              if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel = "E_{T}^{iso} < 5 GeV";
+                              else                               isoModeLabel = "Sliding iso cut";
+                              
+                              const string vzLabel = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+                              
+                              TLatex tCutsSel;
+                              tCutsSel.SetNDC(true);
+                              tCutsSel.SetTextFont(42);
+                              tCutsSel.SetTextAlign(13);
+                              tCutsSel.SetTextSize(0.035);
+                              tCutsSel.DrawLatex(0.18, 0.88, trigLabelSel.c_str());
+                              tCutsSel.DrawLatex(0.18, 0.83, isoConeLabel.c_str());
+                              tCutsSel.DrawLatex(0.18, 0.78, isoModeLabel.c_str());
+                              tCutsSel.DrawLatex(0.18, 0.73, vzLabel.c_str());
+                          }
+                          
+                          SaveCanvas(cSel, JoinPath(outDir, "purity_raw_centSelect_ppOverlay.png"));
+                          cout << ANSI_BOLD_GRN << "[WROTE] " << JoinPath(outDir, "purity_raw_centSelect_ppOverlay.png") << ANSI_RESET << "\n";
+                          
+                          for (auto* g : keepSel) delete g;
+                          
+                          if (fPP) { fPP->Close(); delete fPP; }
+                          
+                          // ---------------------------------------------------------------
+                          // UE-variant purity overlays by selected centrality bin
+                          // Output:
+                          //   <kOutputBase>/auau/<CfgTagAA()>/<trigger>/purityUEcomparisons/
+                          //     purity_raw_allVariants_cent_<lo>_<hi>.png
+                          // ---------------------------------------------------------------
+                          {
+                              struct SelCentUE { int lo; int hi; vector<string> suffixes; };
+                              const std::vector<SelCentUE> selCentsUE = {
+                                  {0,  10, {"_cent_0_10"}},
+                                  {10, 20, {"_cent_10_20"}},
+                                  {0,  20, {"_cent_0_10", "_cent_10_20"}},
+                                  {20, 40, {"_cent_20_40"}},
+                                  {40, 60, {"_cent_40_60"}},
+                                  {60, 80, {"_cent_60_80"}}
+                              };
+                              
+                              struct UEVarHandle
+                              {
+                                  string variant;
+                                  string label;
+                                  int color = kBlack;
+                                  int marker = 20;
+                                  TFile* file = nullptr;
+                                  TDirectory* dir = nullptr;
+                              };
+                              
+                              vector<UEVarHandle> ueVars;
+                              ueVars.reserve(4);
+                              
+                              auto addUEVar = [&](const string& variant, const string& label, int color, int marker)
+                              {
+                                  UEVarHandle V;
+                                  V.variant = variant;
+                                  V.label = label;
+                                  V.color = color;
+                                  V.marker = marker;
+                                  V.file = TFile::Open(InputAuAu(variant).c_str(), "READ");
+                                  
+                                  if (V.file && !V.file->IsZombie())
+                                  {
+                                      V.dir = V.file->GetDirectory(trigAA.c_str());
+                                      if (!V.dir) V.dir = V.file;
+                                  }
+                                  else
+                                  {
+                                      if (V.file) { V.file->Close(); delete V.file; V.file = nullptr; }
+                                      V.dir = nullptr;
+                                      cout << ANSI_BOLD_YEL
+                                      << "[WARN] purityUEcomparisons: cannot open "
+                                      << InputAuAu(variant)
+                                      << ANSI_RESET << "\n";
+                                  }
+                                  
+                                  ueVars.push_back(std::move(V));
+                              };
+                              
+                              addUEVar("noSub",       "No UE sub",    kBlack,    20);
+                              addUEVar("baseVariant", "Base Variant", kBlue+1,   20);
+                              addUEVar("variantA",    "Variant A",    kOrange+7, 20);
+                              addUEVar("variantB",    "Variant B",    kGreen+2,  20);
+                              
+                              const string outDirUE = JoinPath(
+                                                               JoinPath(kOutputBase + "/auau/" + CfgTagAA(), trigAA),
+                                                               "purityUEcomparisons"
+                                                               );
+                              EnsureDir(outDirUE);
+                              
+                              TFile* fPPUE = TFile::Open(InputPP(isRun25pp).c_str(), "READ");
+                              TDirectory* ppDirUE = nullptr;
+                              if (fPPUE && !fPPUE->IsZombie())
+                              {
+                                  ppDirUE = fPPUE->GetDirectory(kTriggerPP.c_str());
+                                  if (!ppDirUE) ppDirUE = fPPUE;
+                              }
+                              else
+                              {
+                                  if (fPPUE) { fPPUE->Close(); delete fPPUE; fPPUE = nullptr; }
+                              }
+                              
+                              for (const auto& sc : selCentsUE)
+                              {
+                                  TCanvas cUE(
+                                              TString::Format("c_pur_raw_allVariants_%s_%d_%d", trigAA.c_str(), sc.lo, sc.hi).Data(),
+                                              "c_pur_raw_allVariants", 900, 700
+                                              );
+                                  ApplyCanvasMargins1D(cUE);
+                                  
+                                  TH1F hFrameUE("hPurUEVarFrame","",100, 10.0, kPtEdges.back());
+                                  hFrameUE.SetDirectory(nullptr);
+                                  hFrameUE.SetStats(0);
+                                  hFrameUE.SetMinimum(0.0);
+                                  hFrameUE.SetMaximum(1.25);
+                                  hFrameUE.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                                  hFrameUE.GetYaxis()->SetTitle("Purity (raw ABCD)");
+                                  hFrameUE.Draw();
+                                  
+                                  TLegend legUE(0.15, 0.15, 0.55, 0.28);
+                                  legUE.SetBorderSize(0);
+                                  legUE.SetFillStyle(0);
+                                  legUE.SetTextFont(42);
+                                  legUE.SetTextSize(0.033);
+                                  legUE.SetNColumns(2);
+                                  
+                                  vector<TGraphErrors*> keepUE;
+                                  vector<string> keepUELabels;
+                                  
+                                  for (const auto& V : ueVars)
+                                  {
+                                      if (!V.dir) continue;
+                                      
+                                      vector<double> xUE(kNPtBins), exUE(kNPtBins), yUE(kNPtBins), eyUE(kNPtBins);
+                                      bool anyUE = false;
+                                      
+                                      printf("\n  [PURITY-UE-DIAG] Variant=\"%s\"  label=\"%s\"  cent=%d-%d%%  suffixes:",
+                                             V.variant.c_str(), V.label.c_str(), sc.lo, sc.hi);
+                                      for (const auto& s : sc.suffixes) printf(" %s", s.c_str());
+                                      printf("\n  %6s %10s %10s %10s %10s %12s %10s %10s\n",
+                                             "pTbin", "A", "B", "C", "D", "Asig", "Praw", "errP");
+                                      
+                                      for (int i = 0; i < kNPtBins; ++i)
+                                      {
+                                          const PtBin& b = PtBins()[i];
+                                          
+                                          auto Get1UE = [&](const string& hname)->double {
+                                              TH1* h = dynamic_cast<TH1*>(V.dir->Get(hname.c_str()));
+                                              return h ? h->GetBinContent(1) : 0.0;
+                                          };
+                                          
+                                          double A = 0, B = 0, C = 0, D = 0;
+                                          for (const auto& suf : sc.suffixes)
+                                          {
+                                              A += Get1UE("h_isIsolated_isTight"     + b.suffix + suf);
+                                              B += Get1UE("h_notIsolated_isTight"    + b.suffix + suf);
+                                              C += Get1UE("h_isIsolated_notTight"    + b.suffix + suf);
+                                              D += Get1UE("h_notIsolated_notTight"   + b.suffix + suf);
+                                          }
+                                          
+                                          const double ptLo = kPtEdges[(std::size_t)i];
+                                          const double ptHi = kPtEdges[(std::size_t)i + 1];
+                                          xUE[i]  = 0.5 * (ptLo + ptHi);
+                                          exUE[i] = 0.5 * (ptHi - ptLo);
+                                          
+                                          double Praw = 0.0;
+                                          if (A > 0.0 && D > 0.0)
+                                          {
+                                              double Asig = A - B * (C / D);
+                                              if (Asig < 0.0) Asig = 0.0;
+                                              Praw = Asig / A;
+                                          }
+                                          yUE[i] = Praw;
+                                          
+                                          double eP = 0.0;
+                                          if (A > 0.0 && D > 0.0)
+                                          {
+                                              const double dPdA =  (B * C) / (A * A * D);
+                                              const double dPdB = -(C) / (A * D);
+                                              const double dPdC = -(B) / (A * D);
+                                              const double dPdD =  (B * C) / (A * D * D);
+                                              double var = 0.0;
+                                              if (A > 0.0) var += dPdA * dPdA * A;
+                                              if (B > 0.0) var += dPdB * dPdB * B;
+                                              if (C > 0.0) var += dPdC * dPdC * C;
+                                              if (D > 0.0) var += dPdD * dPdD * D;
+                                              eP = (var > 0.0) ? std::sqrt(var) : 0.0;
+                                          }
+                                          eyUE[i] = eP;
+                                          
+                                          if (A > 0.0) anyUE = true;
+                                          
+                                          {
+                                              double AsigDbg = (A > 0 && D > 0) ? A - B * (C / D) : 0.0;
+                                              if (AsigDbg < 0.0) AsigDbg = 0.0;
+                                              const PtBin& bp = PtBins()[i];
+                                              printf("  %6s %10.1f %10.1f %10.1f %10.1f %12.2f %10.4f %10.4f\n",
+                                                     bp.folder.c_str(), A, B, C, D, AsigDbg, yUE[i], eyUE[i]);
+                                          }
+                                      }
+                                      
+                                      printf("  -> anyUE=%s  (skip=%s)\n\n",
+                                             anyUE ? "true" : "false",
+                                             anyUE ? "no" : "YES, all A==0");
+                                      if (!anyUE) continue;
+                                      
+                                      TGraphErrors* gUE = new TGraphErrors(kNPtBins, &xUE[0], &yUE[0], nullptr, &eyUE[0]);
+                                      gUE->SetLineWidth(2);
+                                      gUE->SetLineColor(V.color);
+                                      gUE->SetMarkerStyle(V.marker);
+                                      gUE->SetMarkerSize(1.1);
+                                      gUE->SetMarkerColor(V.color);
+                                      gUE->Draw("P SAME");
+                                      
+                                      legUE.AddEntry(gUE, V.label.c_str(), "pe");
+                                      keepUE.push_back(gUE);
+                                      keepUELabels.push_back(V.label);
+                                  }
+                                  
+                                  if (!keepUE.empty())
+                                  {
+                                      legUE.Draw();
+                                      
+                                      TLatex tTitleUE;
+                                      tTitleUE.SetNDC(true);
+                                      tTitleUE.SetTextFont(42);
+                                      tTitleUE.SetTextAlign(23);
+                                      tTitleUE.SetTextSize(0.045);
+                                      tTitleUE.DrawLatex(0.50, 0.96,
+                                                         TString::Format("ABCD Purity vs p_{T}^{#gamma}, all UE variants, %d-%d%% AuAu", sc.lo, sc.hi).Data());
+                                      
+                                      // Cut annotations derived from AuAu config
+                                      {
+                                          std::string trigLabelUE;
+                                          {
+                                              int photonPt = 0;
+                                              if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
+                                                  trigLabelUE = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                                              else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                                                  trigLabelUE = "Trigger: MBD NS #geq 2, vtx < 150 cm";
+                                              else
+                                                  trigLabelUE = "Trigger: " + trigAA;
+                                          }
+                                          
+                                          const string isoConeLabel = (kAA_IsoConeR == "isoR40")
+                                          ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+                                          
+                                          string isoModeLabel;
+                                          if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel = "E_{T}^{iso} < 5 GeV";
+                                          else                               isoModeLabel = "Sliding iso cut";
+                                          
+                                          const string vzLabel = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+                                          
+                                          TLatex tCutsUE;
+                                          tCutsUE.SetNDC(true);
+                                          tCutsUE.SetTextFont(42);
+                                          tCutsUE.SetTextAlign(13);
+                                          tCutsUE.SetTextSize(0.035);
+                                          tCutsUE.DrawLatex(0.18, 0.88, trigLabelUE.c_str());
+                                          tCutsUE.DrawLatex(0.18, 0.83, isoConeLabel.c_str());
+                                          tCutsUE.DrawLatex(0.18, 0.78, isoModeLabel.c_str());
+                                          tCutsUE.DrawLatex(0.18, 0.73, vzLabel.c_str());
+                                      }
+                                      
+                                      SaveCanvas(cUE, JoinPath(outDirUE,
+                                                               TString::Format("purity_raw_allVariants_cent_%d_%d.png", sc.lo, sc.hi).Data()));
+                                      cout << ANSI_BOLD_GRN << "[WROTE] "
+                                      << JoinPath(outDirUE, TString::Format("purity_raw_allVariants_cent_%d_%d.png", sc.lo, sc.hi).Data())
+                                      << ANSI_RESET << "\n";
+                                      
+                                      if (ppDirUE)
+                                      {
+                                          vector<double> xPP(kNPtBins), exPP(kNPtBins), yPP(kNPtBins), eyPP(kNPtBins);
+                                          bool anyPP = false;
+                                          
+                                          for (int i = 0; i < kNPtBins; ++i)
+                                          {
+                                              const PtBin& b = PtBins()[i];
+                                              
+                                              auto Get1PP = [&](const string& hname)->double {
+                                                  TH1* h = dynamic_cast<TH1*>(ppDirUE->Get(hname.c_str()));
+                                                  return h ? h->GetBinContent(1) : 0.0;
+                                              };
+                                              
+                                              const double A = Get1PP("h_isIsolated_isTight"     + b.suffix);
+                                              const double B = Get1PP("h_notIsolated_isTight"    + b.suffix);
+                                              const double C = Get1PP("h_isIsolated_notTight"    + b.suffix);
+                                              const double D = Get1PP("h_notIsolated_notTight"   + b.suffix);
+                                              
+                                              const double ptLo = kPtEdges[(std::size_t)i];
+                                              const double ptHi = kPtEdges[(std::size_t)i + 1];
+                                              xPP[i]  = 0.5 * (ptLo + ptHi);
+                                              exPP[i] = 0.5 * (ptHi - ptLo);
+                                              
+                                              double Praw = 0.0;
+                                              if (A > 0.0 && D > 0.0)
+                                              {
+                                                  double Asig = A - B * (C / D);
+                                                  if (Asig < 0.0) Asig = 0.0;
+                                                  Praw = Asig / A;
+                                              }
+                                              yPP[i] = Praw;
+                                              
+                                              double eP = 0.0;
+                                              if (A > 0.0 && D > 0.0)
+                                              {
+                                                  const double dPdA =  (B * C) / (A * A * D);
+                                                  const double dPdB = -(C) / (A * D);
+                                                  const double dPdC = -(B) / (A * D);
+                                                  const double dPdD =  (B * C) / (A * D * D);
+                                                  double var = 0.0;
+                                                  if (A > 0.0) var += dPdA * dPdA * A;
+                                                  if (B > 0.0) var += dPdB * dPdB * B;
+                                                  if (C > 0.0) var += dPdC * dPdC * C;
+                                                  if (D > 0.0) var += dPdD * dPdD * D;
+                                                  eP = (var > 0.0) ? std::sqrt(var) : 0.0;
+                                              }
+                                              eyPP[i] = eP;
+                                              
+                                              if (A > 0.0) anyPP = true;
+                                          }
+                                          
+                                          if (anyPP)
+                                          {
+                                              TCanvas cUEPP(
+                                                            TString::Format("c_pur_raw_allVariants_ppOverlay_%s_%d_%d", trigAA.c_str(), sc.lo, sc.hi).Data(),
+                                                            "c_pur_raw_allVariants_ppOverlay", 900, 700
+                                                            );
+                                              ApplyCanvasMargins1D(cUEPP);
+                                              
+                                              TH1F hFrameUEPP("hPurUEVarPPFrame","",100, 10.0, kPtEdges.back());
+                                              hFrameUEPP.SetDirectory(nullptr);
+                                              hFrameUEPP.SetStats(0);
+                                              hFrameUEPP.SetMinimum(0.0);
+                                              hFrameUEPP.SetMaximum(1.25);
+                                              hFrameUEPP.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                                              hFrameUEPP.GetYaxis()->SetTitle("Purity (raw ABCD)");
+                                              hFrameUEPP.Draw();
+                                              
+                                              for (auto* g : keepUE) g->Draw("P SAME");
+                                              
+                                              TGraphErrors gPP(kNPtBins, &xPP[0], &yPP[0], nullptr, &eyPP[0]);
+                                              gPP.SetLineWidth(2);
+                                              gPP.SetLineColor(kRed + 1);
+                                              gPP.SetMarkerStyle(24);
+                                              gPP.SetMarkerSize(1.1);
+                                              gPP.SetMarkerColor(kRed + 1);
+                                              gPP.Draw("P SAME");
+                                              
+                                              TLegend legUEPP(0.15, 0.15, 0.55, 0.28);
+                                              legUEPP.SetBorderSize(0);
+                                              legUEPP.SetFillStyle(0);
+                                              legUEPP.SetTextFont(42);
+                                              legUEPP.SetTextSize(0.033);
+                                              legUEPP.SetNColumns(2);
+                                              for (std::size_t ig = 0; ig < keepUE.size(); ++ig)
+                                              {
+                                                  legUEPP.AddEntry(keepUE[ig], keepUELabels[ig].c_str(), "pe");
+                                              }
+                                              legUEPP.AddEntry(&gPP, "pp", "pe");
+                                              legUEPP.Draw();
+                                              
+                                              TLatex tTitleUEPP;
+                                              tTitleUEPP.SetNDC(true);
+                                              tTitleUEPP.SetTextFont(42);
+                                              tTitleUEPP.SetTextAlign(23);
+                                              tTitleUEPP.SetTextSize(0.045);
+                                              tTitleUEPP.DrawLatex(0.50, 0.96,
+                                                                   TString::Format("ABCD Purity vs p_{T}^{#gamma}, all UE variants + pp, %d-%d%% AuAu", sc.lo, sc.hi).Data());
+                                              
+                                              // Cut annotations derived from AuAu config
+                                              {
+                                                  std::string trigLabelUE;
+                                                  {
+                                                      int photonPt = 0;
+                                                      if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
+                                                          trigLabelUE = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                                                      else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                                                          trigLabelUE = "Trigger: MBD NS #geq 2, vtx < 150 cm";
+                                                      else
+                                                          trigLabelUE = "Trigger: " + trigAA;
+                                                  }
+                                                  
+                                                  const string isoConeLabel = (kAA_IsoConeR == "isoR40")
+                                                  ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+                                                  
+                                                  string isoModeLabel;
+                                                  if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel = "E_{T}^{iso} < 5 GeV";
+                                                  else                               isoModeLabel = "Sliding iso cut";
+                                                  
+                                                  const string vzLabel = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+                                                  
+                                                  TLatex tCutsUEPP;
+                                                  tCutsUEPP.SetNDC(true);
+                                                  tCutsUEPP.SetTextFont(42);
+                                                  tCutsUEPP.SetTextAlign(13);
+                                                  tCutsUEPP.SetTextSize(0.035);
+                                                  tCutsUEPP.DrawLatex(0.18, 0.88, trigLabelUE.c_str());
+                                                  tCutsUEPP.DrawLatex(0.18, 0.83, isoConeLabel.c_str());
+                                                  tCutsUEPP.DrawLatex(0.18, 0.78, isoModeLabel.c_str());
+                                                  tCutsUEPP.DrawLatex(0.18, 0.73, vzLabel.c_str());
+                                              }
+                                              
+                                              SaveCanvas(cUEPP, JoinPath(outDirUE,
+                                                                         TString::Format("purity_raw_allVariants_cent_%d_%d_ppOverlay.png", sc.lo, sc.hi).Data()));
+                                              cout << ANSI_BOLD_GRN << "[WROTE] "
+                                              << JoinPath(outDirUE, TString::Format("purity_raw_allVariants_cent_%d_%d_ppOverlay.png", sc.lo, sc.hi).Data())
+                                              << ANSI_RESET << "\n";
+                                          }
+                                      }
+                                  }
+                                  
+                                  for (auto* g : keepUE) delete g;
+                              }
+                              
+                              // ---------------------------------------------------------------
+                              // UE-variant iso-pass-fraction overlays by selected centrality bin
+                              // Output:
+                              //   <kOutputBase>/auau/<CfgTagAA()>/<trigger>/isoEfficencyDiagnostics/
+                              //     pho_isoPassFraction_vs_pTgamma_allVariants_cent_<lo>_<hi>.png
+                              // ---------------------------------------------------------------
+                              {
+                                  const string outDirIsoEff = JoinPath(
+                                                                       JoinPath(kOutputBase + "/auau/" + CfgTagAA(), trigAA),
+                                                                       "isoEfficencyDiagnostics"
+                                                                       );
+                                  EnsureDir(outDirIsoEff);
+                                  
+                                  for (const auto& sc : selCentsUE)
+                                  {
+                                      TCanvas cIsoEff(
+                                                      TString::Format("c_isoPassFrac_allVariants_%s_%d_%d", trigAA.c_str(), sc.lo, sc.hi).Data(),
+                                                      "c_isoPassFrac_allVariants", 900, 700
+                                                      );
+                                      ApplyCanvasMargins1D(cIsoEff);
+                                      
+                                      TH1F hFrameIsoEff("hIsoPassFracFrame","",100, 10.0, kPtEdges.back());
+                                      hFrameIsoEff.SetDirectory(nullptr);
+                                      hFrameIsoEff.SetStats(0);
+                                      hFrameIsoEff.SetMinimum(0.0);
+                                      hFrameIsoEff.SetMaximum(1.2);
+                                      hFrameIsoEff.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                                      hFrameIsoEff.GetYaxis()->SetTitle("Iso pass fraction");
+                                      hFrameIsoEff.Draw();
+                                      
+                                      TLegend legIsoEff(0.18, 0.14, 0.62, 0.30);
+                                      legIsoEff.SetBorderSize(0);
+                                      legIsoEff.SetFillStyle(0);
+                                      legIsoEff.SetTextFont(42);
+                                      legIsoEff.SetTextSize(0.030);
+                                      legIsoEff.SetNColumns(2);
+                                      
+                                      vector<TGraphErrors*> keepIsoEff;
+                                      vector<string> keepIsoEffLabels;
+                                      
+                                      for (const auto& V : ueVars)
+                                      {
+                                          if (!V.dir) continue;
+                                          
+                                          vector<double> xIsoEff(kNPtBins), yIsoEff(kNPtBins), eyIsoEff(kNPtBins);
+                                          bool anyEntriesUE = false;
+                                          bool anyPassUE = false;
+                                          
+                                          printf("\n  [ISO-EFF-DIAG] Variant=\"%s\"  label=\"%s\"  cent=%d-%d%%  suffixes:",
+                                                 V.variant.c_str(), V.label.c_str(), sc.lo, sc.hi);
+                                          for (const auto& s : sc.suffixes) printf(" %s", s.c_str());
+                                          printf("\n  %6s %12s %12s %12s %10s\n",
+                                                 "pTbin", "Npass", "Nfail", "fPass", "errF");
+                                          
+                                          for (int i = 0; i < kNPtBins; ++i)
+                                          {
+                                              const PtBin& b = PtBins()[i];
+                                              
+                                              auto GetIsoDecision1UE = [&](const string& hname, int ibin)->double {
+                                                  TH1* h = dynamic_cast<TH1*>(V.dir->Get(hname.c_str()));
+                                                  return h ? h->GetBinContent(ibin) : 0.0;
+                                              };
+                                              
+                                              double Npass = 0.0, Nfail = 0.0;
+                                              for (const auto& suf : sc.suffixes)
+                                              {
+                                                  const string hIsoName = "h_isoDecision" + b.suffix + suf;
+                                                  Npass += GetIsoDecision1UE(hIsoName, 1);
+                                                  Nfail += GetIsoDecision1UE(hIsoName, 2);
+                                              }
+                                              
+                                              const double ptLo = kPtEdges[(std::size_t)i];
+                                              const double ptHi = kPtEdges[(std::size_t)i + 1];
+                                              xIsoEff[i] = 0.5 * (ptLo + ptHi);
+                                              
+                                              const double Ntot = Npass + Nfail;
+                                              double fPass = (Ntot > 0.0) ? (Npass / Ntot) : 0.0;
+                                              double ePass = 0.0;
+                                              if (Ntot > 0.0)
+                                              {
+                                                  if (Npass > 0.0 && Nfail > 0.0) ePass = std::sqrt(Npass * Nfail) / std::pow(Ntot, 1.5);
+                                                  else                           ePass = std::sqrt(std::max(0.0, Npass)) / Ntot;
+                                              }
+                                              
+                                              yIsoEff[i] = fPass;
+                                              eyIsoEff[i] = ePass;
+                                              
+                                              if (Ntot > 0.0) anyEntriesUE = true;
+                                              if (Npass > 0.0) anyPassUE = true;
+                                              
+                                              printf("  %6s %12.1f %12.1f %12.4f %10.4f\n",
+                                                     b.folder.c_str(), Npass, Nfail, fPass, ePass);
+                                          }
+                                          
+                                          printf("  -> anyEntries=%s  anyPass=%s  (skip=%s)\n\n",
+                                                 anyEntriesUE ? "true" : "false",
+                                                 anyPassUE ? "true" : "false",
+                                                 anyEntriesUE ? "no" : "YES, all PASS+FAIL==0");
+                                          if (!anyEntriesUE) continue;
+                                          
+                                          TGraphErrors* gIsoEff = new TGraphErrors(kNPtBins, &xIsoEff[0], &yIsoEff[0], nullptr, &eyIsoEff[0]);
+                                          gIsoEff->SetLineWidth(2);
+                                          gIsoEff->SetLineColor(V.color);
+                                          gIsoEff->SetMarkerStyle(V.marker);
+                                          gIsoEff->SetMarkerSize(1.1);
+                                          gIsoEff->SetMarkerColor(V.color);
+                                          gIsoEff->Draw("P SAME");
+                                          
+                                          legIsoEff.AddEntry(gIsoEff, V.label.c_str(), "pe");
+                                          keepIsoEff.push_back(gIsoEff);
+                                          keepIsoEffLabels.push_back(V.label);
+                                      }
+                                      
+                                      if (!keepIsoEff.empty())
+                                      {
+                                          legIsoEff.Draw();
+                                          
+                                          TLatex tTitleIsoEff;
+                                          tTitleIsoEff.SetNDC(true);
+                                          tTitleIsoEff.SetTextFont(42);
+                                          tTitleIsoEff.SetTextAlign(23);
+                                          tTitleIsoEff.SetTextSize(0.04);
+                                          tTitleIsoEff.DrawLatex(0.50, 0.97,
+                                                                 TString::Format("Photon iso pass fraction vs p_{T}^{#gamma}, all UE variants, %d-%d%% AuAu", sc.lo, sc.hi).Data());
+                                          
+                                          // Cut annotations derived from AuAu config
+                                          {
+                                              std::string trigLabelIsoEff;
+                                              {
+                                                  int photonPt = 0;
+                                                  if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
+                                                      trigLabelIsoEff = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                                                  else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                                                      trigLabelIsoEff = "Trigger: MBD NS #geq 2, vtx < 150 cm";
+                                                  else
+                                                      trigLabelIsoEff = "Trigger: " + trigAA;
+                                              }
+                                              
+                                              const string isoConeLabelIsoEff = (kAA_IsoConeR == "isoR40")
+                                              ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+                                              
+                                              string isoModeLabelIsoEff;
+                                              if (kAA_IsoMode == "fixedIso5GeV") isoModeLabelIsoEff = "E_{T}^{iso} < 5 GeV";
+                                              else                               isoModeLabelIsoEff = "Sliding iso cut";
+                                              
+                                              const string vzLabelIsoEff = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+                                              
+                                              TLatex tCutsIsoEff;
+                                              tCutsIsoEff.SetNDC(true);
+                                              tCutsIsoEff.SetTextFont(42);
+                                              tCutsIsoEff.SetTextAlign(13);
+                                              tCutsIsoEff.SetTextSize(0.032);
+                                              tCutsIsoEff.DrawLatex(0.18, 0.88, trigLabelIsoEff.c_str());
+                                              tCutsIsoEff.DrawLatex(0.18, 0.83, isoConeLabelIsoEff.c_str());
+                                              tCutsIsoEff.DrawLatex(0.18, 0.78, isoModeLabelIsoEff.c_str());
+                                              tCutsIsoEff.DrawLatex(0.18, 0.73, vzLabelIsoEff.c_str());
+                                          }
+                                          
+                                          SaveCanvas(cIsoEff, JoinPath(outDirIsoEff,
+                                                                       TString::Format("pho_isoPassFraction_vs_pTgamma_allVariants_cent_%d_%d.png", sc.lo, sc.hi).Data()));
+                                          cout << ANSI_BOLD_GRN << "[WROTE] "
+                                          << JoinPath(outDirIsoEff, TString::Format("pho_isoPassFraction_vs_pTgamma_allVariants_cent_%d_%d.png", sc.lo, sc.hi).Data())
+                                          << ANSI_RESET << "\n";
+                                      }
+                                      
+                                      if (ppDirUE)
+                                      {
+                                          vector<double> xPPIsoEff(kNPtBins), yPPIsoEff(kNPtBins), eyPPIsoEff(kNPtBins);
+                                          bool anyPPEntries = false;
+                                          bool anyPPPass = false;
+                                          
+                                          printf("\n  [ISO-EFF-DIAG] Variant=\"pp\"  label=\"pp\"  cent=%d-%d%%  suffixes: PP inclusive\n",
+                                                 sc.lo, sc.hi);
+                                          printf("  %6s %12s %12s %12s %10s\n",
+                                                 "pTbin", "Npass", "Nfail", "fPass", "errF");
+                                          
+                                          for (int i = 0; i < kNPtBins; ++i)
+                                          {
+                                              const PtBin& b = PtBins()[i];
+                                              const string hIsoName = "h_isoDecision" + b.suffix;
+                                              TH1* h = dynamic_cast<TH1*>(ppDirUE->Get(hIsoName.c_str()));
+                                              
+                                              const double Npass = h ? h->GetBinContent(1) : 0.0;
+                                              const double Nfail = h ? h->GetBinContent(2) : 0.0;
+                                              const double Ntot = Npass + Nfail;
+                                              
+                                              const double ptLo = kPtEdges[(std::size_t)i];
+                                              const double ptHi = kPtEdges[(std::size_t)i + 1];
+                                              xPPIsoEff[i] = 0.5 * (ptLo + ptHi);
+                                              
+                                              double fPass = (Ntot > 0.0) ? (Npass / Ntot) : 0.0;
+                                              double ePass = 0.0;
+                                              if (Ntot > 0.0)
+                                              {
+                                                  if (Npass > 0.0 && Nfail > 0.0) ePass = std::sqrt(Npass * Nfail) / std::pow(Ntot, 1.5);
+                                                  else                           ePass = std::sqrt(std::max(0.0, Npass)) / Ntot;
+                                              }
+                                              
+                                              yPPIsoEff[i] = fPass;
+                                              eyPPIsoEff[i] = ePass;
+                                              
+                                              if (Ntot > 0.0) anyPPEntries = true;
+                                              if (Npass > 0.0) anyPPPass = true;
+                                              
+                                              printf("  %6s %12.1f %12.1f %12.4f %10.4f\n",
+                                                     b.folder.c_str(), Npass, Nfail, fPass, ePass);
+                                          }
+                                          
+                                          printf("  -> anyEntries=%s  anyPass=%s  (skip=%s)\n\n",
+                                                 anyPPEntries ? "true" : "false",
+                                                 anyPPPass ? "true" : "false",
+                                                 anyPPEntries ? "no" : "YES, all PASS+FAIL==0");
+                                          
+                                          if (!keepIsoEff.empty() && anyPPEntries)
+                                          {
+                                              TCanvas cIsoEffPP(
+                                                                TString::Format("c_isoPassFrac_allVariants_ppOverlay_%s_%d_%d", trigAA.c_str(), sc.lo, sc.hi).Data(),
+                                                                "c_isoPassFrac_allVariants_ppOverlay", 900, 700
+                                                                );
+                                              ApplyCanvasMargins1D(cIsoEffPP);
+                                              
+                                              TH1F hFrameIsoEffPP("hIsoPassFracPPFrame","",100, 10.0, kPtEdges.back());
+                                              hFrameIsoEffPP.SetDirectory(nullptr);
+                                              hFrameIsoEffPP.SetStats(0);
+                                              hFrameIsoEffPP.SetMinimum(0.0);
+                                              hFrameIsoEffPP.SetMaximum(1.2);
+                                              hFrameIsoEffPP.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                                              hFrameIsoEffPP.GetYaxis()->SetTitle("Iso pass fraction");
+                                              hFrameIsoEffPP.Draw();
+                                              
+                                              for (auto* g : keepIsoEff) g->Draw("P SAME");
+                                              
+                                              TGraphErrors gPPIsoEff(kNPtBins, &xPPIsoEff[0], &yPPIsoEff[0], nullptr, &eyPPIsoEff[0]);
+                                              gPPIsoEff.SetLineWidth(2);
+                                              gPPIsoEff.SetLineColor(kRed + 1);
+                                              gPPIsoEff.SetMarkerStyle(24);
+                                              gPPIsoEff.SetMarkerSize(1.1);
+                                              gPPIsoEff.SetMarkerColor(kRed + 1);
+                                              gPPIsoEff.Draw("P SAME");
+                                              
+                                              TLegend legIsoEffPP(0.18, 0.22, 0.62, 0.45);
+                                              legIsoEffPP.SetBorderSize(0);
+                                              legIsoEffPP.SetFillStyle(0);
+                                              legIsoEffPP.SetTextFont(42);
+                                              legIsoEffPP.SetTextSize(0.03);
+                                              legIsoEffPP.SetNColumns(2);
+                                              
+                                              for (std::size_t ig = 0; ig < keepIsoEff.size(); ++ig)
+                                              {
+                                                  legIsoEffPP.AddEntry(keepIsoEff[ig], keepIsoEffLabels[ig].c_str(), "pe");
+                                              }
+                                              legIsoEffPP.AddEntry(&gPPIsoEff, "pp", "pe");
+                                              legIsoEffPP.Draw();
+                                              
+                                              TLatex tTitleIsoEffPP;
+                                              tTitleIsoEffPP.SetNDC(true);
+                                              tTitleIsoEffPP.SetTextFont(42);
+                                              tTitleIsoEffPP.SetTextAlign(23);
+                                              tTitleIsoEffPP.SetTextSize(0.04);
+                                              tTitleIsoEffPP.DrawLatex(0.52, 0.975,
+                                                                       TString::Format("Photon iso pass fraction vs p_{T}^{#gamma}, all UE variants + pp, %d-%d%% AuAu", sc.lo, sc.hi).Data());
+                                              
+                                              // Cut annotations derived from AuAu config
+                                              {
+                                                  std::string trigLabelIsoEffPP;
+                                                  {
+                                                      int photonPt = 0;
+                                                      if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
+                                                          trigLabelIsoEffPP = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                                                      else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                                                          trigLabelIsoEffPP = "Trigger: MBD NS #geq 2, vtx < 150 cm";
+                                                      else
+                                                          trigLabelIsoEffPP = "Trigger: " + trigAA;
+                                                  }
+                                                  
+                                                  const string isoConeLabelIsoEffPP = (kAA_IsoConeR == "isoR40")
+                                                  ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+                                                  
+                                                  string isoModeLabelIsoEffPP;
+                                                  if (kAA_IsoMode == "fixedIso5GeV") isoModeLabelIsoEffPP = "E_{T}^{iso} < 5 GeV";
+                                                  else                               isoModeLabelIsoEffPP = "Sliding iso cut";
+                                                  
+                                                  const string vzLabelIsoEffPP = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+                                                  
+                                                  TLatex tCutsIsoEffPP;
+                                                  tCutsIsoEffPP.SetNDC(true);
+                                                  tCutsIsoEffPP.SetTextFont(42);
+                                                  tCutsIsoEffPP.SetTextAlign(13);
+                                                  tCutsIsoEffPP.SetTextSize(0.032);
+                                                  tCutsIsoEffPP.DrawLatex(0.18, 0.88, trigLabelIsoEffPP.c_str());
+                                                  tCutsIsoEffPP.DrawLatex(0.18, 0.83, isoConeLabelIsoEffPP.c_str());
+                                                  tCutsIsoEffPP.DrawLatex(0.18, 0.78, isoModeLabelIsoEffPP.c_str());
+                                                  tCutsIsoEffPP.DrawLatex(0.18, 0.73, vzLabelIsoEffPP.c_str());
+                                              }
+                                              
+                                              SaveCanvas(cIsoEffPP, JoinPath(outDirIsoEff,
+                                                                             TString::Format("pho_isoPassFraction_vs_pTgamma_allVariants_cent_%d_%d_ppOverlay.png", sc.lo, sc.hi).Data()));
+                                              cout << ANSI_BOLD_GRN << "[WROTE] "
+                                              << JoinPath(outDirIsoEff, TString::Format("pho_isoPassFraction_vs_pTgamma_allVariants_cent_%d_%d_ppOverlay.png", sc.lo, sc.hi).Data())
+                                              << ANSI_RESET << "\n";
+                                          }
+                                      }
+                                      
+                                      for (auto* g : keepIsoEff) delete g;
+                                  }
+                              }
+                              
+                              // ---------------------------------------------------------------
+                              // UE-variant iso-pass-fraction overlays by pT bin vs centrality
+                              // Output:
+                              //   <kOutputBase>/auau/<CfgTagAA()>/<trigger>/isoEfficencyDiagnostics/<pTbin>/
+                              //     pho_isoPassFraction_vs_cent_allVariants_ppOverlay.png
+                              // ---------------------------------------------------------------
+                              {
+                                  const string outDirIsoEff = JoinPath(
+                                                                       JoinPath(kOutputBase + "/auau/" + CfgTagAA(), trigAA),
+                                                                       "isoEfficencyDiagnostics"
+                                                                       );
+                                  EnsureDir(outDirIsoEff);
+                                  
+                                  const auto& centBins = CentBins();
+                                  
+                                  for (int ipt = 0; ipt < kNPtBins; ++ipt)
+                                  {
+                                      const PtBin& b = PtBins()[ipt];
+                                      const string ptDirIsoEff = JoinPath(outDirIsoEff, b.folder);
+                                      EnsureDir(ptDirIsoEff);
+                                      
+                                      const double centLo = centBins.front().lo;
+                                      const double centHi = centBins.back().hi;
+                                      
+                                      vector<double> xCent(centBins.size()), yPPCent(centBins.size(), 0.0), eyPPCent(centBins.size(), 0.0);
+                                      for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                                      {
+                                          xCent[ic] = 0.5 * (centBins[ic].lo + centBins[ic].hi);
+                                      }
+                                      
+                                      TCanvas cIsoEffVsCent(
+                                                            TString::Format("c_isoPassFrac_allVariants_vsCent_%s_%s", trigAA.c_str(), b.folder.c_str()).Data(),
+                                                            "c_isoPassFrac_allVariants_vsCent", 900, 700
+                                                            );
+                                      ApplyCanvasMargins1D(cIsoEffVsCent);
+                                      
+                                      TH1F hFrameIsoEffVsCent("hIsoPassFracVsCentFrame","",100, centLo, centHi);
+                                      hFrameIsoEffVsCent.SetDirectory(nullptr);
+                                      hFrameIsoEffVsCent.SetStats(0);
+                                      hFrameIsoEffVsCent.SetMinimum(0.0);
+                                      hFrameIsoEffVsCent.SetMaximum(1.2);
+                                      hFrameIsoEffVsCent.GetXaxis()->SetTitle("Centrality [%]");
+                                      hFrameIsoEffVsCent.GetYaxis()->SetTitle("Iso pass fraction");
+                                      hFrameIsoEffVsCent.Draw();
+                                      
+                                      TLegend legIsoEffVsCent(0.18, 0.22, 0.62, 0.44);
+                                      legIsoEffVsCent.SetBorderSize(0);
+                                      legIsoEffVsCent.SetFillStyle(0);
+                                      legIsoEffVsCent.SetTextFont(42);
+                                      legIsoEffVsCent.SetTextSize(0.030);
+                                      legIsoEffVsCent.SetNColumns(2);
+                                      
+                                      vector<TGraphErrors*> keepIsoEffVsCent;
+                                      vector<string> keepIsoEffVsCentLabels;
+                                      
+                                      printf("\n  [ISO-EFF-VS-CENT-DIAG] pT=%s  trigger=%s\n",
+                                             b.folder.c_str(), trigAA.c_str());
+                                      
+                                      for (const auto& V : ueVars)
+                                      {
+                                          if (!V.dir) continue;
+                                          
+                                          vector<double> yCent(centBins.size(), 0.0), eyCent(centBins.size(), 0.0);
+                                          bool anyEntriesUE = false;
+                                          bool anyPassUE = false;
+                                          
+                                          printf("  [ISO-EFF-VS-CENT-DIAG] Variant=\"%s\"  label=\"%s\"\n",
+                                                 V.variant.c_str(), V.label.c_str());
+                                          printf("  %8s %12s %12s %12s %10s\n",
+                                                 "cent", "Npass", "Nfail", "fPass", "errF");
+                                          
+                                          for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                                          {
+                                              const auto& cb = centBins[ic];
+                                              const string hIsoName = "h_isoDecision" + b.suffix + cb.suffix;
+                                              TH1* h = dynamic_cast<TH1*>(V.dir->Get(hIsoName.c_str()));
+                                              
+                                              const double Npass = h ? h->GetBinContent(1) : 0.0;
+                                              const double Nfail = h ? h->GetBinContent(2) : 0.0;
+                                              const double Ntot = Npass + Nfail;
+                                              
+                                              double fPass = (Ntot > 0.0) ? (Npass / Ntot) : 0.0;
+                                              double ePass = 0.0;
+                                              if (Ntot > 0.0)
+                                              {
+                                                  if (Npass > 0.0 && Nfail > 0.0) ePass = std::sqrt(Npass * Nfail) / std::pow(Ntot, 1.5);
+                                                  else                           ePass = std::sqrt(std::max(0.0, Npass)) / Ntot;
+                                              }
+                                              
+                                              yCent[ic] = fPass;
+                                              eyCent[ic] = ePass;
+                                              
+                                              if (Ntot > 0.0) anyEntriesUE = true;
+                                              if (Npass > 0.0) anyPassUE = true;
+                                              
+                                              printf("  %8s %12.1f %12.1f %12.4f %10.4f\n",
+                                                     cb.folder.c_str(), Npass, Nfail, fPass, ePass);
+                                          }
+                                          
+                                          printf("  -> anyEntries=%s  anyPass=%s  (skip=%s)\n\n",
+                                                 anyEntriesUE ? "true" : "false",
+                                                 anyPassUE ? "true" : "false",
+                                                 anyEntriesUE ? "no" : "YES, all PASS+FAIL==0");
+                                          if (!anyEntriesUE) continue;
+                                          
+                                          TGraphErrors* gIsoEffVsCent = new TGraphErrors((int)xCent.size(), &xCent[0], &yCent[0], nullptr, &eyCent[0]);
+                                          gIsoEffVsCent->SetLineWidth(2);
+                                          gIsoEffVsCent->SetLineColor(V.color);
+                                          gIsoEffVsCent->SetMarkerStyle(V.marker);
+                                          gIsoEffVsCent->SetMarkerSize(1.1);
+                                          gIsoEffVsCent->SetMarkerColor(V.color);
+                                          gIsoEffVsCent->Draw("PE1 SAME");
+                                          
+                                          legIsoEffVsCent.AddEntry(gIsoEffVsCent, V.label.c_str(), "pe");
+                                          keepIsoEffVsCent.push_back(gIsoEffVsCent);
+                                          keepIsoEffVsCentLabels.push_back(V.label);
+                                      }
+                                      
+                                      bool anyPPEntries = false;
+                                      if (ppDirUE)
+                                      {
+                                          const string hIsoNamePP = "h_isoDecision" + b.suffix;
+                                          TH1* hPP = dynamic_cast<TH1*>(ppDirUE->Get(hIsoNamePP.c_str()));
+                                          
+                                          const double NpassPP = hPP ? hPP->GetBinContent(1) : 0.0;
+                                          const double NfailPP = hPP ? hPP->GetBinContent(2) : 0.0;
+                                          const double NtotPP = NpassPP + NfailPP;
+                                          
+                                          double fPassPP = (NtotPP > 0.0) ? (NpassPP / NtotPP) : 0.0;
+                                          double ePassPP = 0.0;
+                                          if (NtotPP > 0.0)
+                                          {
+                                              if (NpassPP > 0.0 && NfailPP > 0.0) ePassPP = std::sqrt(NpassPP * NfailPP) / std::pow(NtotPP, 1.5);
+                                              else                               ePassPP = std::sqrt(std::max(0.0, NpassPP)) / NtotPP;
+                                          }
+                                          
+                                          printf("  [ISO-EFF-VS-CENT-DIAG] Variant=\"pp\"  label=\"pp\"\n");
+                                          printf("  %8s %12s %12s %12s %10s\n",
+                                                 "source", "Npass", "Nfail", "fPass", "errF");
+                                          printf("  %8s %12.1f %12.1f %12.4f %10.4f\n",
+                                                 "pp", NpassPP, NfailPP, fPassPP, ePassPP);
+                                          printf("  -> repeated across all AuAu centrality bins in overlay\n\n");
+                                          
+                                          if (NtotPP > 0.0)
+                                          {
+                                              anyPPEntries = true;
+                                              for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                                              {
+                                                  yPPCent[ic] = fPassPP;
+                                                  eyPPCent[ic] = ePassPP;
+                                              }
+                                          }
+                                      }
+                                      
+                                      if (!keepIsoEffVsCent.empty())
+                                      {
+                                          if (anyPPEntries)
+                                          {
+                                              TGraphErrors* gPPIsoEffVsCent = new TGraphErrors((int)xCent.size(), &xCent[0], &yPPCent[0], nullptr, &eyPPCent[0]);
+                                              gPPIsoEffVsCent->SetLineWidth(2);
+                                              gPPIsoEffVsCent->SetLineColor(kRed + 1);
+                                              gPPIsoEffVsCent->SetMarkerStyle(24);
+                                              gPPIsoEffVsCent->SetMarkerSize(1.1);
+                                              gPPIsoEffVsCent->SetMarkerColor(kRed + 1);
+                                              gPPIsoEffVsCent->Draw("PE1 SAME");
+                                              
+                                              legIsoEffVsCent.AddEntry(gPPIsoEffVsCent, "pp", "pe");
+                                              keepIsoEffVsCent.push_back(gPPIsoEffVsCent);
+                                              keepIsoEffVsCentLabels.push_back("pp");
+                                          }
+                                          
+                                          legIsoEffVsCent.Draw();
+                                          
+                                          TLatex tTitleIsoEffVsCent;
+                                          tTitleIsoEffVsCent.SetNDC(true);
+                                          tTitleIsoEffVsCent.SetTextFont(42);
+                                          tTitleIsoEffVsCent.SetTextAlign(23);
+                                          tTitleIsoEffVsCent.SetTextSize(0.038);
+                                          tTitleIsoEffVsCent.DrawLatex(0.52, 0.97,
+                                                                       TString::Format("Photon iso pass fraction vs centrality, all UE variants + pp, %d-%d GeV", b.lo, b.hi).Data());
+                                          
+                                          {
+                                              std::string trigLabelIsoEffVsCent;
+                                              {
+                                                  int photonPt = 0;
+                                                  if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
+                                                      trigLabelIsoEffVsCent = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                                                  else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                                                      trigLabelIsoEffVsCent = "Trigger: MBD NS #geq 2, vtx < 150 cm";
+                                                  else
+                                                      trigLabelIsoEffVsCent = "Trigger: " + trigAA;
+                                              }
+                                              
+                                              const string isoConeLabelIsoEffVsCent = (kAA_IsoConeR == "isoR40")
+                                              ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+                                              
+                                              string isoModeLabelIsoEffVsCent;
+                                              if (kAA_IsoMode == "fixedIso5GeV") isoModeLabelIsoEffVsCent = "E_{T}^{iso} < 5 GeV";
+                                              else                               isoModeLabelIsoEffVsCent = "Sliding iso cut";
+                                              
+                                              const string vzLabelIsoEffVsCent = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+                                              
+                                              TLatex tCutsIsoEffVsCent;
+                                              tCutsIsoEffVsCent.SetNDC(true);
+                                              tCutsIsoEffVsCent.SetTextFont(42);
+                                              tCutsIsoEffVsCent.SetTextAlign(13);
+                                              tCutsIsoEffVsCent.SetTextSize(0.032);
+                                              tCutsIsoEffVsCent.DrawLatex(0.18, 0.88, trigLabelIsoEffVsCent.c_str());
+                                              tCutsIsoEffVsCent.DrawLatex(0.18, 0.83, isoConeLabelIsoEffVsCent.c_str());
+                                              tCutsIsoEffVsCent.DrawLatex(0.18, 0.78, isoModeLabelIsoEffVsCent.c_str());
+                                              tCutsIsoEffVsCent.DrawLatex(0.18, 0.73, vzLabelIsoEffVsCent.c_str());
+                                          }
+                                          
+                                          SaveCanvas(cIsoEffVsCent, JoinPath(ptDirIsoEff, "pho_isoPassFraction_vs_cent_allVariants_ppOverlay.png"));
+                                          cout << ANSI_BOLD_GRN << "[WROTE] "
+                                          << JoinPath(ptDirIsoEff, "pho_isoPassFraction_vs_cent_allVariants_ppOverlay.png")
+                                          << ANSI_RESET << "\n";
+                                      }
+                                      
+                                      for (auto* g : keepIsoEffVsCent) delete g;
+                                  }
+                              }
+                              
+                              // ---------------------------------------------------------------
+                              // noSub + baseVariant + variantA iso-pass-fraction overlays
+                              // Output:
+                              //   <kOutputBase>/auau/<CfgTagAA()>/<trigger>/isoEfficencyDiagnostics/noSub_baseVar_varA/
+                              //     pho_isoPassFraction_vs_pTgamma_noSub_baseVar_varA_cent_<lo>_<hi>.png
+                              //     pho_isoPassFraction_vs_pTgamma_noSub_baseVar_varA_cent_<lo>_<hi>_ppOverlay.png
+                              //     <pTbin>/pho_isoPassFraction_vs_cent_noSub_baseVar_varA_ppOverlay.png
+                              // ---------------------------------------------------------------
+                              {
+                                  const string outDir3V = JoinPath(
+                                                                   JoinPath(kOutputBase + "/auau/" + CfgTagAA(), trigAA),
+                                                                   "isoEfficencyDiagnostics/noSub_baseVar_varA"
+                                                                   );
+                                  EnsureDir(outDir3V);
+                                  
+                                  // --- A: iso-pass-fraction vs pTgamma, by selected centrality ---
+                                  for (const auto& sc : selCentsUE)
+                                  {
+                                      TCanvas c3V(
+                                                  TString::Format("c_isoPassFrac_3V_%s_%d_%d", trigAA.c_str(), sc.lo, sc.hi).Data(),
+                                                  "c_isoPassFrac_3V", 900, 700
+                                                  );
+                                      ApplyCanvasMargins1D(c3V);
+                                      
+                                      TH1F hFrame3V("hIsoPassFrac3VFrame","",100, 10.0, kPtEdges.back());
+                                      hFrame3V.SetDirectory(nullptr);
+                                      hFrame3V.SetStats(0);
+                                      hFrame3V.SetMinimum(0.0);
+                                      hFrame3V.SetMaximum(1.2);
+                                      hFrame3V.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                                      hFrame3V.GetYaxis()->SetTitle("Iso pass fraction");
+                                      hFrame3V.Draw();
+                                      
+                                      TLegend leg3V(0.18, 0.14, 0.62, 0.30);
+                                      leg3V.SetBorderSize(0);
+                                      leg3V.SetFillStyle(0);
+                                      leg3V.SetTextFont(42);
+                                      leg3V.SetTextSize(0.030);
+                                      leg3V.SetNColumns(2);
+                                      
+                                      vector<TGraphErrors*> keep3V;
+                                      vector<string> keep3VLabels;
+                                      
+                                      for (std::size_t iV = 0; iV < 3 && iV < ueVars.size(); ++iV)
+                                      {
+                                          const auto& V = ueVars[iV];
+                                          if (!V.dir) continue;
+                                          
+                                          vector<double> xEff(kNPtBins), yEff(kNPtBins), eyEff(kNPtBins);
+                                          bool anyEntries = false;
+                                          
+                                          for (int i = 0; i < kNPtBins; ++i)
+                                          {
+                                              const PtBin& b = PtBins()[i];
+                                              
+                                              auto GetIsoDecision1_3V = [&](const string& hname, int ibin)->double {
+                                                  TH1* h = dynamic_cast<TH1*>(V.dir->Get(hname.c_str()));
+                                                  return h ? h->GetBinContent(ibin) : 0.0;
+                                              };
+                                              
+                                              double Npass = 0.0, Nfail = 0.0;
+                                              for (const auto& suf : sc.suffixes)
+                                              {
+                                                  const string hIsoName = "h_isoDecision" + b.suffix + suf;
+                                                  Npass += GetIsoDecision1_3V(hIsoName, 1);
+                                                  Nfail += GetIsoDecision1_3V(hIsoName, 2);
+                                              }
+                                              
+                                              const double ptLo = kPtEdges[(std::size_t)i];
+                                              const double ptHi = kPtEdges[(std::size_t)i + 1];
+                                              xEff[i] = 0.5 * (ptLo + ptHi);
+                                              
+                                              const double Ntot = Npass + Nfail;
+                                              double fPass = (Ntot > 0.0) ? (Npass / Ntot) : 0.0;
+                                              double ePass = 0.0;
+                                              if (Ntot > 0.0)
+                                              {
+                                                  if (Npass > 0.0 && Nfail > 0.0) ePass = std::sqrt(Npass * Nfail) / std::pow(Ntot, 1.5);
+                                                  else                           ePass = std::sqrt(std::max(0.0, Npass)) / Ntot;
+                                              }
+                                              
+                                              yEff[i] = fPass;
+                                              eyEff[i] = ePass;
+                                              if (Ntot > 0.0) anyEntries = true;
+                                          }
+                                          
+                                          if (!anyEntries) continue;
+                                          
+                                          TGraphErrors* g = new TGraphErrors(kNPtBins, &xEff[0], &yEff[0], nullptr, &eyEff[0]);
+                                          g->SetLineWidth(2);
+                                          g->SetLineColor(V.color);
+                                          g->SetMarkerStyle(V.marker);
+                                          g->SetMarkerSize(1.1);
+                                          g->SetMarkerColor(V.color);
+                                          g->Draw("P SAME");
+                                          
+                                          leg3V.AddEntry(g, V.label.c_str(), "pe");
+                                          keep3V.push_back(g);
+                                          keep3VLabels.push_back(V.label);
+                                      }
+                                      
+                                      if (!keep3V.empty())
+                                      {
+                                          leg3V.Draw();
+                                          
+                                          TLatex tT3V;
+                                          tT3V.SetNDC(true);
+                                          tT3V.SetTextFont(42);
+                                          tT3V.SetTextAlign(23);
+                                          tT3V.SetTextSize(0.04);
+                                          tT3V.DrawLatex(0.50, 0.97,
+                                                         TString::Format("Photon iso pass fraction vs p_{T}^{#gamma}, noSub + baseVariant + variantA, %d-%d%% AuAu", sc.lo, sc.hi).Data());
+                                          
+                                          {
+                                              std::string trigLabel3V;
+                                              {
+                                                  int photonPt = 0;
+                                                  if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
+                                                      trigLabel3V = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                                                  else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                                                      trigLabel3V = "Trigger: MBD NS #geq 2, vtx < 150 cm";
+                                                  else
+                                                      trigLabel3V = "Trigger: " + trigAA;
+                                              }
+                                              
+                                              const string isoConeLabel3V = (kAA_IsoConeR == "isoR40")
+                                              ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+                                              
+                                              string isoModeLabel3V;
+                                              if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel3V = "E_{T}^{iso} < 5 GeV";
+                                              else                               isoModeLabel3V = "Sliding iso cut";
+                                              
+                                              const string vzLabel3V = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+                                              
+                                              TLatex tCuts3V;
+                                              tCuts3V.SetNDC(true);
+                                              tCuts3V.SetTextFont(42);
+                                              tCuts3V.SetTextAlign(13);
+                                              tCuts3V.SetTextSize(0.032);
+                                              tCuts3V.DrawLatex(0.18, 0.88, trigLabel3V.c_str());
+                                              tCuts3V.DrawLatex(0.18, 0.83, isoConeLabel3V.c_str());
+                                              tCuts3V.DrawLatex(0.18, 0.78, isoModeLabel3V.c_str());
+                                              tCuts3V.DrawLatex(0.18, 0.73, vzLabel3V.c_str());
+                                          }
+                                          
+                                          SaveCanvas(c3V, JoinPath(outDir3V,
+                                                                   TString::Format("pho_isoPassFraction_vs_pTgamma_noSub_baseVar_varA_cent_%d_%d.png", sc.lo, sc.hi).Data()));
+                                          cout << ANSI_BOLD_GRN << "[WROTE] "
+                                          << JoinPath(outDir3V, TString::Format("pho_isoPassFraction_vs_pTgamma_noSub_baseVar_varA_cent_%d_%d.png", sc.lo, sc.hi).Data())
+                                          << ANSI_RESET << "\n";
+                                      }
+                                      
+                                      // pp overlay version
+                                      if (ppDirUE)
+                                      {
+                                          vector<double> xPP(kNPtBins), yPP(kNPtBins), eyPP(kNPtBins);
+                                          bool anyPPEntries = false;
+                                          
+                                          for (int i = 0; i < kNPtBins; ++i)
+                                          {
+                                              const PtBin& b = PtBins()[i];
+                                              const string hIsoName = "h_isoDecision" + b.suffix;
+                                              TH1* h = dynamic_cast<TH1*>(ppDirUE->Get(hIsoName.c_str()));
+                                              
+                                              const double Npass = h ? h->GetBinContent(1) : 0.0;
+                                              const double Nfail = h ? h->GetBinContent(2) : 0.0;
+                                              const double Ntot = Npass + Nfail;
+                                              
+                                              const double ptLo = kPtEdges[(std::size_t)i];
+                                              const double ptHi = kPtEdges[(std::size_t)i + 1];
+                                              xPP[i] = 0.5 * (ptLo + ptHi);
+                                              
+                                              double fPass = (Ntot > 0.0) ? (Npass / Ntot) : 0.0;
+                                              double ePass = 0.0;
+                                              if (Ntot > 0.0)
+                                              {
+                                                  if (Npass > 0.0 && Nfail > 0.0) ePass = std::sqrt(Npass * Nfail) / std::pow(Ntot, 1.5);
+                                                  else                           ePass = std::sqrt(std::max(0.0, Npass)) / Ntot;
+                                              }
+                                              
+                                              yPP[i] = fPass;
+                                              eyPP[i] = ePass;
+                                              if (Ntot > 0.0) anyPPEntries = true;
+                                          }
+                                          
+                                          if (!keep3V.empty() && anyPPEntries)
+                                          {
+                                              TCanvas c3VPP(
+                                                            TString::Format("c_isoPassFrac_3V_ppOverlay_%s_%d_%d", trigAA.c_str(), sc.lo, sc.hi).Data(),
+                                                            "c_isoPassFrac_3V_ppOverlay", 900, 700
+                                                            );
+                                              ApplyCanvasMargins1D(c3VPP);
+                                              
+                                              TH1F hFrame3VPP("hIsoPassFrac3VPPFrame","",100, 10.0, kPtEdges.back());
+                                              hFrame3VPP.SetDirectory(nullptr);
+                                              hFrame3VPP.SetStats(0);
+                                              hFrame3VPP.SetMinimum(0.0);
+                                              hFrame3VPP.SetMaximum(1.2);
+                                              hFrame3VPP.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                                              hFrame3VPP.GetYaxis()->SetTitle("Iso pass fraction");
+                                              hFrame3VPP.Draw();
+                                              
+                                              for (auto* g : keep3V) g->Draw("P SAME");
+                                              
+                                              TGraphErrors gPP3V(kNPtBins, &xPP[0], &yPP[0], nullptr, &eyPP[0]);
+                                              gPP3V.SetLineWidth(2);
+                                              gPP3V.SetLineColor(kRed + 1);
+                                              gPP3V.SetMarkerStyle(24);
+                                              gPP3V.SetMarkerSize(1.1);
+                                              gPP3V.SetMarkerColor(kRed + 1);
+                                              gPP3V.Draw("P SAME");
+                                              
+                                              TLegend leg3VPP(0.18, 0.22, 0.62, 0.45);
+                                              leg3VPP.SetBorderSize(0);
+                                              leg3VPP.SetFillStyle(0);
+                                              leg3VPP.SetTextFont(42);
+                                              leg3VPP.SetTextSize(0.03);
+                                              leg3VPP.SetNColumns(2);
+                                              
+                                              for (std::size_t ig = 0; ig < keep3V.size(); ++ig)
+                                              {
+                                                  leg3VPP.AddEntry(keep3V[ig], keep3VLabels[ig].c_str(), "pe");
+                                              }
+                                              leg3VPP.AddEntry(&gPP3V, "pp", "pe");
+                                              leg3VPP.Draw();
+                                              
+                                              TLatex tT3VPP;
+                                              tT3VPP.SetNDC(true);
+                                              tT3VPP.SetTextFont(42);
+                                              tT3VPP.SetTextAlign(23);
+                                              tT3VPP.SetTextSize(0.04);
+                                              tT3VPP.DrawLatex(0.52, 0.975,
+                                                               TString::Format("Photon iso pass fraction vs p_{T}^{#gamma}, noSub + baseVar + varA + pp, %d-%d%% AuAu", sc.lo, sc.hi).Data());
+                                              
+                                              {
+                                                  std::string trigLabel3VPP;
+                                                  {
+                                                      int photonPt = 0;
+                                                      if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
+                                                          trigLabel3VPP = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                                                      else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                                                          trigLabel3VPP = "Trigger: MBD NS #geq 2, vtx < 150 cm";
+                                                      else
+                                                          trigLabel3VPP = "Trigger: " + trigAA;
+                                                  }
+                                                  
+                                                  const string isoConeLabel3VPP = (kAA_IsoConeR == "isoR40")
+                                                  ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+                                                  
+                                                  string isoModeLabel3VPP;
+                                                  if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel3VPP = "E_{T}^{iso} < 5 GeV";
+                                                  else                               isoModeLabel3VPP = "Sliding iso cut";
+                                                  
+                                                  const string vzLabel3VPP = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+                                                  
+                                                  TLatex tCuts3VPP;
+                                                  tCuts3VPP.SetNDC(true);
+                                                  tCuts3VPP.SetTextFont(42);
+                                                  tCuts3VPP.SetTextAlign(13);
+                                                  tCuts3VPP.SetTextSize(0.032);
+                                                  tCuts3VPP.DrawLatex(0.18, 0.88, trigLabel3VPP.c_str());
+                                                  tCuts3VPP.DrawLatex(0.18, 0.83, isoConeLabel3VPP.c_str());
+                                                  tCuts3VPP.DrawLatex(0.18, 0.78, isoModeLabel3VPP.c_str());
+                                                  tCuts3VPP.DrawLatex(0.18, 0.73, vzLabel3VPP.c_str());
+                                              }
+                                              
+                                              SaveCanvas(c3VPP, JoinPath(outDir3V,
+                                                                         TString::Format("pho_isoPassFraction_vs_pTgamma_noSub_baseVar_varA_cent_%d_%d_ppOverlay.png", sc.lo, sc.hi).Data()));
+                                              cout << ANSI_BOLD_GRN << "[WROTE] "
+                                              << JoinPath(outDir3V, TString::Format("pho_isoPassFraction_vs_pTgamma_noSub_baseVar_varA_cent_%d_%d_ppOverlay.png", sc.lo, sc.hi).Data())
+                                              << ANSI_RESET << "\n";
+                                          }
+                                      }
+                                      
+                                      for (auto* g : keep3V) delete g;
+                                  }
+                                  
+                                  // --- B: iso-pass-fraction vs centrality per pT bin ---
+                                  {
+                                      const auto& centBins = CentBins();
+                                      
+                                      for (int ipt = 0; ipt < kNPtBins; ++ipt)
+                                      {
+                                          const PtBin& b = PtBins()[ipt];
+                                          const string ptDir3V = JoinPath(outDir3V, b.folder);
+                                          EnsureDir(ptDir3V);
+                                          
+                                          const double centLo = centBins.front().lo;
+                                          const double centHi = centBins.back().hi;
+                                          
+                                          vector<double> xCent(centBins.size()), yPPCent(centBins.size(), 0.0), eyPPCent(centBins.size(), 0.0);
+                                          for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                                              xCent[ic] = 0.5 * (centBins[ic].lo + centBins[ic].hi);
+                                          
+                                          TCanvas c3VCent(
+                                                          TString::Format("c_isoPassFrac_3V_vsCent_%s_%s", trigAA.c_str(), b.folder.c_str()).Data(),
+                                                          "c_isoPassFrac_3V_vsCent", 900, 700
+                                                          );
+                                          ApplyCanvasMargins1D(c3VCent);
+                                          
+                                          TH1F hFrame3VCent("hIsoPassFrac3VCentFrame","",100, centLo, centHi);
+                                          hFrame3VCent.SetDirectory(nullptr);
+                                          hFrame3VCent.SetStats(0);
+                                          hFrame3VCent.SetMinimum(0.0);
+                                          hFrame3VCent.SetMaximum(1.2);
+                                          hFrame3VCent.GetXaxis()->SetTitle("Centrality [%]");
+                                          hFrame3VCent.GetYaxis()->SetTitle("Iso pass fraction");
+                                          hFrame3VCent.Draw();
+                                          
+                                          TLegend leg3VCent(0.18, 0.22, 0.62, 0.44);
+                                          leg3VCent.SetBorderSize(0);
+                                          leg3VCent.SetFillStyle(0);
+                                          leg3VCent.SetTextFont(42);
+                                          leg3VCent.SetTextSize(0.030);
+                                          leg3VCent.SetNColumns(2);
+                                          
+                                          vector<TGraphErrors*> keep3VCent;
+                                          vector<string> keep3VCentLabels;
+                                          
+                                          for (std::size_t iV = 0; iV < 3 && iV < ueVars.size(); ++iV)
+                                          {
+                                              const auto& V = ueVars[iV];
+                                              if (!V.dir) continue;
+                                              
+                                              vector<double> yCent(centBins.size(), 0.0), eyCent(centBins.size(), 0.0);
+                                              bool anyEntries = false;
+                                              
+                                              for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                                              {
+                                                  const auto& cb = centBins[ic];
+                                                  const string hIsoName = "h_isoDecision" + b.suffix + cb.suffix;
+                                                  TH1* h = dynamic_cast<TH1*>(V.dir->Get(hIsoName.c_str()));
+                                                  
+                                                  const double Npass = h ? h->GetBinContent(1) : 0.0;
+                                                  const double Nfail = h ? h->GetBinContent(2) : 0.0;
+                                                  const double Ntot = Npass + Nfail;
+                                                  
+                                                  double fPass = (Ntot > 0.0) ? (Npass / Ntot) : 0.0;
+                                                  double ePass = 0.0;
+                                                  if (Ntot > 0.0)
+                                                  {
+                                                      if (Npass > 0.0 && Nfail > 0.0) ePass = std::sqrt(Npass * Nfail) / std::pow(Ntot, 1.5);
+                                                      else                           ePass = std::sqrt(std::max(0.0, Npass)) / Ntot;
+                                                  }
+                                                  
+                                                  yCent[ic] = fPass;
+                                                  eyCent[ic] = ePass;
+                                                  if (Ntot > 0.0) anyEntries = true;
+                                              }
+                                              
+                                              if (!anyEntries) continue;
+                                              
+                                              TGraphErrors* g = new TGraphErrors((int)xCent.size(), &xCent[0], &yCent[0], nullptr, &eyCent[0]);
+                                              g->SetLineWidth(2);
+                                              g->SetLineColor(V.color);
+                                              g->SetMarkerStyle(V.marker);
+                                              g->SetMarkerSize(1.1);
+                                              g->SetMarkerColor(V.color);
+                                              g->Draw("PE1 SAME");
+                                              
+                                              leg3VCent.AddEntry(g, V.label.c_str(), "pe");
+                                              keep3VCent.push_back(g);
+                                              keep3VCentLabels.push_back(V.label);
+                                          }
+                                          
+                                          bool anyPPEntries = false;
+                                          if (ppDirUE)
+                                          {
+                                              const string hIsoNamePP = "h_isoDecision" + b.suffix;
+                                              TH1* hPP = dynamic_cast<TH1*>(ppDirUE->Get(hIsoNamePP.c_str()));
+                                              
+                                              const double NpassPP = hPP ? hPP->GetBinContent(1) : 0.0;
+                                              const double NfailPP = hPP ? hPP->GetBinContent(2) : 0.0;
+                                              const double NtotPP = NpassPP + NfailPP;
+                                              
+                                              double fPassPP = (NtotPP > 0.0) ? (NpassPP / NtotPP) : 0.0;
+                                              double ePassPP = 0.0;
+                                              if (NtotPP > 0.0)
+                                              {
+                                                  if (NpassPP > 0.0 && NfailPP > 0.0) ePassPP = std::sqrt(NpassPP * NfailPP) / std::pow(NtotPP, 1.5);
+                                                  else                               ePassPP = std::sqrt(std::max(0.0, NpassPP)) / NtotPP;
+                                              }
+                                              
+                                              if (NtotPP > 0.0)
+                                              {
+                                                  anyPPEntries = true;
+                                                  for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                                                  {
+                                                      yPPCent[ic] = fPassPP;
+                                                      eyPPCent[ic] = ePassPP;
+                                                  }
+                                              }
+                                          }
+                                          
+                                          if (!keep3VCent.empty())
+                                          {
+                                              if (anyPPEntries)
+                                              {
+                                                  TGraphErrors* gPP = new TGraphErrors((int)xCent.size(), &xCent[0], &yPPCent[0], nullptr, &eyPPCent[0]);
+                                                  gPP->SetLineWidth(2);
+                                                  gPP->SetLineColor(kRed + 1);
+                                                  gPP->SetMarkerStyle(24);
+                                                  gPP->SetMarkerSize(1.1);
+                                                  gPP->SetMarkerColor(kRed + 1);
+                                                  gPP->Draw("PE1 SAME");
+                                                  
+                                                  leg3VCent.AddEntry(gPP, "pp", "pe");
+                                                  keep3VCent.push_back(gPP);
+                                                  keep3VCentLabels.push_back("pp");
+                                              }
+                                              
+                                              leg3VCent.Draw();
+                                              
+                                              TLatex tT3VCent;
+                                              tT3VCent.SetNDC(true);
+                                              tT3VCent.SetTextFont(42);
+                                              tT3VCent.SetTextAlign(23);
+                                              tT3VCent.SetTextSize(0.038);
+                                              tT3VCent.DrawLatex(0.52, 0.97,
+                                                                 TString::Format("Photon iso pass fraction vs centrality, noSub + baseVar + varA + pp, %d-%d GeV", b.lo, b.hi).Data());
+                                              
+                                              {
+                                                  std::string trigLabel3VCent;
+                                                  {
+                                                      int photonPt = 0;
+                                                      if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
+                                                          trigLabel3VCent = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                                                      else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                                                          trigLabel3VCent = "Trigger: MBD NS #geq 2, vtx < 150 cm";
+                                                      else
+                                                          trigLabel3VCent = "Trigger: " + trigAA;
+                                                  }
+                                                  
+                                                  const string isoConeLabel3VCent = (kAA_IsoConeR == "isoR40")
+                                                  ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+                                                  
+                                                  string isoModeLabel3VCent;
+                                                  if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel3VCent = "E_{T}^{iso} < 5 GeV";
+                                                  else                               isoModeLabel3VCent = "Sliding iso cut";
+                                                  
+                                                  const string vzLabel3VCent = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+                                                  
+                                                  TLatex tCuts3VCent;
+                                                  tCuts3VCent.SetNDC(true);
+                                                  tCuts3VCent.SetTextFont(42);
+                                                  tCuts3VCent.SetTextAlign(13);
+                                                  tCuts3VCent.SetTextSize(0.032);
+                                                  tCuts3VCent.DrawLatex(0.18, 0.88, trigLabel3VCent.c_str());
+                                                  tCuts3VCent.DrawLatex(0.18, 0.83, isoConeLabel3VCent.c_str());
+                                                  tCuts3VCent.DrawLatex(0.18, 0.78, isoModeLabel3VCent.c_str());
+                                                  tCuts3VCent.DrawLatex(0.18, 0.73, vzLabel3VCent.c_str());
+                                              }
+                                              
+                                              SaveCanvas(c3VCent, JoinPath(ptDir3V, "pho_isoPassFraction_vs_cent_noSub_baseVar_varA_ppOverlay.png"));
+                                              cout << ANSI_BOLD_GRN << "[WROTE] "
+                                              << JoinPath(ptDir3V, "pho_isoPassFraction_vs_cent_noSub_baseVar_varA_ppOverlay.png")
+                                              << ANSI_RESET << "\n";
+                                          }
+                                          
+                                          for (auto* g : keep3VCent) delete g;
+                                      }
+                                  }
+                              }
+                              
+                              if (fPPUE)
+                              {
+                                  fPPUE->Close();
+                                  delete fPPUE;
+                                  fPPUE = nullptr;
+                                  ppDirUE = nullptr;
+                              }
+                              
+                              for (auto& V : ueVars)
+                              {
+                                  if (V.file)
+                                  {
+                                      V.file->Close();
+                                      delete V.file;
+                                      V.file = nullptr;
+                                      V.dir = nullptr;
+                                  }
+                              }
+                          }
+                      }
                   }
+                  
+                  fPurOv->Close();
+                  delete fPurOv;
               }
-
-              fPurOv->Close();
-              delete fPurOv;
-            }
-            else
-            {
-              cout << ANSI_BOLD_YEL
-                   << "[WARN] purityOverlays: cannot open " << InputAuAu() << " -> skipped.\n"
-                   << ANSI_RESET;
-              if (fPurOv) { fPurOv->Close(); delete fPurOv; }
-            }
+              else
+              {
+                  cout << ANSI_BOLD_YEL
+                  << "[WARN] purityOverlays: cannot open " << InputAuAu() << " -> skipped.\n"
+                  << ANSI_RESET;
+                  if (fPurOv) { fPurOv->Close(); delete fPurOv; }
+              }
           }
-        }
-
-        // ---------------------------------------------------------------------------
-        // Sections 5A–5H: Jet QA suite per dataset (MatchCache per dataset)
-        // ---------------------------------------------------------------------------
-        cout << ANSI_BOLD_CYN << "\n[STEP 6] Sections 5A–5H: Jet QA suite (per dataset)\n" << ANSI_RESET;
-
+      }
+      
+      // ---------------------------------------------------------------------------
+      // Sections 5A–5H: Jet QA suite per dataset (MatchCache per dataset)
+      // ---------------------------------------------------------------------------
+      cout << ANSI_BOLD_CYN << "\n[STEP 6] Sections 5A–5H: Jet QA suite (per dataset)\n" << ANSI_RESET;
+      
       map<string, MatchCache> matchCaches;
-
+      
       for (auto& ds : datasets)
       {
-        cout << ANSI_BOLD_YEL << "\n[DATASET JET-QA] " << ds.label << ANSI_RESET << "\n";
-
-        MatchCache& mc = matchCaches[ds.label];
-        InitMatchCache(mc);
-
-        cout << "  -> [5A] General jet QA...\n";
-        analysis::RunGeneralJetQA(ds);
-        cout << "     [OK]\n";
-
-        cout << "  -> [5C] #gamma-jet match QA...\n";
-        analysis::RunMatchQA(ds, mc);
-        cout << "     [OK]\n";
-
-        cout << "  -> [5D] Selected jet QA...\n";
-        analysis::RunSelectedJetQA(ds);
-        cout << "     [OK]\n";
-
-        cout << "  -> [5E] xJ + alpha QA...\n";
-        analysis::RunXJAlphaQA(ds);
-        cout << "     [OK]\n";
-
-        cout << "  -> [5F] JES3 QA...\n";
-        analysis::RunJES3QA(ds);
-        cout << "     [OK]\n";
-
-        cout << "  -> [5G] Maps QA...\n";
-        analysis::RunMapsQA(ds);
-        cout << "     [OK]\n";
-
-        cout << "  -> [5H] Unfolding QA...\n";
-        analysis::RunUnfoldingQA(ds);
-        cout << "     [OK]\n";
+          cout << ANSI_BOLD_YEL << "\n[DATASET JET-QA] " << ds.label << ANSI_RESET << "\n";
+          
+          MatchCache& mc = matchCaches[ds.label];
+          InitMatchCache(mc);
+          
+          cout << "  -> [5A] General jet QA...\n";
+          analysis::RunGeneralJetQA(ds);
+          cout << "     [OK]\n";
+          
+          cout << "  -> [5C] #gamma-jet match QA...\n";
+          analysis::RunMatchQA(ds, mc);
+          cout << "     [OK]\n";
+          
+          cout << "  -> [5D] Selected jet QA...\n";
+          analysis::RunSelectedJetQA(ds);
+          cout << "     [OK]\n";
+          
+          cout << "  -> [5E] xJ + alpha QA...\n";
+          analysis::RunXJAlphaQA(ds);
+          cout << "     [OK]\n";
+          
+          cout << "  -> [5F] JES3 QA...\n";
+          analysis::RunJES3QA(ds);
+          cout << "     [OK]\n";
+          
+          cout << "  -> [5G] Maps QA...\n";
+          analysis::RunMapsQA(ds);
+          cout << "     [OK]\n";
+          
+          cout << "  -> [5H] Unfolding QA...\n";
+          analysis::RunUnfoldingQA(ds);
+          cout << "     [OK]\n";
       }
-
+      
       // ---------------------------------------------------------------------------
       // [5I] RooUnfold pipeline (SIM+DATA PP only): unfold photons + (pTgamma,xJ) and produce per-photon xJ tables
       // ---------------------------------------------------------------------------
       {
-        const bool simAndDataPPMergedForUnfold =
+          const bool simAndDataPPMergedForUnfold =
           (bothPhoton10and20sim || allPhoton5and10and20sim);
-
-        cout << ANSI_BOLD_CYN
-             << "\n[5I] RooUnfold gate check\n"
-             << "  ARJ_HAVE_ROOUNFOLD        = " << ARJ_HAVE_ROOUNFOLD << "\n"
-             << "  isSimAndDataPP            = " << (isSimAndDataPP ? "true" : "false") << "\n"
-             << "  bothPhoton10and20sim      = " << (bothPhoton10and20sim ? "true" : "false") << "\n"
-             << "  allPhoton5and10and20sim   = " << (allPhoton5and10and20sim ? "true" : "false") << "\n"
-             << "  datasets.size()           = " << datasets.size() << "\n"
-             << ANSI_RESET;
-
-        for (auto& ds : datasets)
-        {
-          cout << "    - " << ds.label
-               << "  isSim=" << (ds.isSim ? "true" : "false")
-               << "  topDirName=" << ds.topDirName
-               << "  inFilePath=" << ds.inFilePath
-               << "  outBase=" << ds.outBase
-               << "\n";
-        }
-
+          
+          cout << ANSI_BOLD_CYN
+          << "\n[5I] RooUnfold gate check\n"
+          << "  ARJ_HAVE_ROOUNFOLD        = " << ARJ_HAVE_ROOUNFOLD << "\n"
+          << "  isSimAndDataPP            = " << (isSimAndDataPP ? "true" : "false") << "\n"
+          << "  bothPhoton10and20sim      = " << (bothPhoton10and20sim ? "true" : "false") << "\n"
+          << "  allPhoton5and10and20sim   = " << (allPhoton5and10and20sim ? "true" : "false") << "\n"
+          << "  datasets.size()           = " << datasets.size() << "\n"
+          << ANSI_RESET;
+          
+          for (auto& ds : datasets)
+          {
+              cout << "    - " << ds.label
+              << "  isSim=" << (ds.isSim ? "true" : "false")
+              << "  topDirName=" << ds.topDirName
+              << "  inFilePath=" << ds.inFilePath
+              << "  outBase=" << ds.outBase
+              << "\n";
+          }
+          
           if (isSimAndDataPP && simAndDataPPMergedForUnfold &&
               (do_xJ_PPunfold || (!do_xJ_PPunfold && gApplyPurityCorrectionForUnfolding)))
           {
               Dataset* dsSIM = nullptr;
               Dataset* dsPP  = nullptr;
-
+              
               for (auto& ds : datasets)
               {
-                if (ds.isSim) dsSIM = &ds;
-                else         dsPP  = &ds;
+                  if (ds.isSim) dsSIM = &ds;
+                  else         dsPP  = &ds;
               }
-
+              
               if (!dsSIM || !dsPP)
               {
-                cout << ANSI_BOLD_YEL
-                     << "[WARN] RooUnfold pipeline requested, but SIM or DATA dataset is missing. Skipping."
-                     << ANSI_RESET << "\n";
+                  cout << ANSI_BOLD_YEL
+                  << "[WARN] RooUnfold pipeline requested, but SIM or DATA dataset is missing. Skipping."
+                  << ANSI_RESET << "\n";
               }
               else
               {
-                const bool runOnlyPurityCorrected = (!do_xJ_PPunfold && gApplyPurityCorrectionForUnfolding);
-
-                const string simDataBase = JoinPath(dsSIM->outBase, dsPP->trigger);
-                const string liveUnfoldDir = JoinPath(simDataBase, "unfolding");
-                const string ppCacheKey = MakeRooUnfoldSavedOutputKey(
-                  "ppRooUnfold",
+                  const bool runOnlyPurityCorrected = (!do_xJ_PPunfold && gApplyPurityCorrectionForUnfolding);
+                  
+                  const string simDataBase = JoinPath(dsSIM->outBase, dsPP->trigger);
+                  const string liveUnfoldDir = JoinPath(simDataBase, "unfolding");
+                  const string ppCacheKey = MakeRooUnfoldSavedOutputKey(
+                                                                        "ppRooUnfold",
+                                                                        {
+                                                                            CfgTag(),
+                                                                            dsPP->trigger,
+                                                                            dsPP->inFilePath,
+                                                                            dsSIM->inFilePath,
+                                                                            simDataBase,
+                                                                            SimSampleLabel(CurrentSimSample())
+                                                                        }
+                                                                        );
+                  
+                  RooUnfoldSavedOutputSpec ppSavedOutput;
+                  ppSavedOutput.label = "PP RooUnfold";
+                  ppSavedOutput.cacheDir = JoinPath(simDataBase, "rooUnfoldSavedOutput/" + ppCacheKey);
+                  ppSavedOutput.cacheEntryNames = {"unfolding"};
+                  ppSavedOutput.liveDirs = {liveUnfoldDir};
+                  ppSavedOutput.detailLines = {
+                      "cfgTag = " + CfgTag(),
+                      "trigger = " + dsPP->trigger,
+                      "ppData = " + dsPP->inFilePath,
+                      "ppSim = " + dsSIM->inFilePath,
+                      "simDataBase = " + simDataBase,
+                      "simSample = " + SimSampleLabel(CurrentSimSample())
+                  };
+                  
+                  if (!saveRooUnfoldOutput)
                   {
-                    CfgTag(),
-                    dsPP->trigger,
-                    dsPP->inFilePath,
-                    dsSIM->inFilePath,
-                    simDataBase,
-                    SimSampleLabel(CurrentSimSample())
+                      cout << "  -> [5I] Restoring saved RooUnfold output for PP...\n";
+                      
+                      if (!RooUnfoldSavedOutputExists(ppSavedOutput))
+                      {
+                          cerr << ANSI_BOLD_RED
+                          << "[FATAL] No saved PP RooUnfold output exists for:\n"
+                          << RooUnfoldSavedOutputPrompt(ppSavedOutput) << "\n"
+                          << "        Turn on saveRooUnfoldOutput to build and save it first.\n"
+                          << ANSI_RESET;
+                          std::exit(1);
+                      }
+                      
+                      if (!RestoreRooUnfoldSavedOutput(ppSavedOutput))
+                      {
+                          cerr << ANSI_BOLD_RED
+                          << "[FATAL] Failed to restore saved PP RooUnfold output from:\n"
+                          << "  " << ppSavedOutput.cacheDir << "\n"
+                          << ANSI_RESET;
+                          std::exit(1);
+                      }
+                      
+                      cout << "     [OK] restored saved PP RooUnfold output from "
+                      << ppSavedOutput.cacheDir << "\n";
                   }
-                );
-
-                RooUnfoldSavedOutputSpec ppSavedOutput;
-                ppSavedOutput.label = "PP RooUnfold";
-                ppSavedOutput.cacheDir = JoinPath(simDataBase, "rooUnfoldSavedOutput/" + ppCacheKey);
-                ppSavedOutput.cacheEntryNames = {"unfolding"};
-                ppSavedOutput.liveDirs = {liveUnfoldDir};
-                ppSavedOutput.detailLines = {
-                  "cfgTag = " + CfgTag(),
-                  "trigger = " + dsPP->trigger,
-                  "ppData = " + dsPP->inFilePath,
-                  "ppSim = " + dsSIM->inFilePath,
-                  "simDataBase = " + simDataBase,
-                  "simSample = " + SimSampleLabel(CurrentSimSample())
-                };
-
-                if (!saveRooUnfoldOutput)
-                {
-                  cout << "  -> [5I] Restoring saved RooUnfold output for PP...\n";
-
-                  if (!RooUnfoldSavedOutputExists(ppSavedOutput))
+                  else
                   {
-                    cerr << ANSI_BOLD_RED
-                         << "[FATAL] No saved PP RooUnfold output exists for:\n"
-                         << RooUnfoldSavedOutputPrompt(ppSavedOutput) << "\n"
-                         << "        Turn on saveRooUnfoldOutput to build and save it first.\n"
-                         << ANSI_RESET;
-                    std::exit(1);
+                      const bool hadSavedOutput = RooUnfoldSavedOutputExists(ppSavedOutput);
+                      
+                      if (hadSavedOutput)
+                      {
+                          const bool eraseOld = PromptYesNo(RooUnfoldSavedOutputPrompt(ppSavedOutput));
+                          if (!eraseOld)
+                          {
+                              cerr << ANSI_BOLD_RED
+                              << "[FATAL] Existing PP RooUnfold saved output was left intact.\n"
+                              << "        Turn off saveRooUnfoldOutput to reuse the saved output.\n"
+                              << ANSI_RESET;
+                              std::exit(1);
+                          }
+                      }
+                      
+                      if (!EraseRooUnfoldSavedOutput(ppSavedOutput))
+                      {
+                          cerr << ANSI_BOLD_RED
+                          << "[FATAL] Failed to clean previous PP RooUnfold output before rebuilding.\n"
+                          << "  liveDir  = " << liveUnfoldDir << "\n"
+                          << "  cacheDir = " << ppSavedOutput.cacheDir << "\n"
+                          << ANSI_RESET;
+                          std::exit(1);
+                      }
+                      
+                      if (!runOnlyPurityCorrected)
+                      {
+                          cout << "  -> [5I] RooUnfold pipeline (SIM+DATA PP): non-purity-corrected unfold to particle level + per-photon x_{J} tables...\n";
+                          gApplyPurityCorrectionForUnfolding = false;
+                          analysis::RunRooUnfoldPipeline_SimAndDataPP(*dsPP, *dsSIM);
+                          cout << "     [OK] nonPurityCorrected\n";
+                      }
+                      
+                      cout << "  -> [5I] RooUnfold pipeline (SIM+DATA PP): purity-corrected unfold to particle level + per-photon x_{J} tables...\n";
+                      gApplyPurityCorrectionForUnfolding = true;
+                      analysis::RunRooUnfoldPipeline_SimAndDataPP(*dsPP, *dsSIM);
+                      cout << "     [OK] purityCorrected\n";
+                      
+                      if (!runOnlyPurityCorrected)
+                      {
+                          gApplyPurityCorrectionForUnfolding = false;
+                          cout << "  -> [5I] purity-corrected vs non-purity-corrected per-photon x_{J} overlays...\n";
+                          analysis::RunPurityCorrectedUncorrectedOverlayPP(*dsPP, *dsSIM);
+                          cout << "     [OK] purityCorrectedUncorrectedOverly\n";
+                      }
+                      
+                      if (!SnapshotRooUnfoldSavedOutput(ppSavedOutput))
+                      {
+                          cerr << ANSI_BOLD_RED
+                          << "[FATAL] Failed to save PP RooUnfold output to:\n"
+                          << "  " << ppSavedOutput.cacheDir << "\n"
+                          << ANSI_RESET;
+                          std::exit(1);
+                      }
+                      
+                      cout << "     [OK] saved PP RooUnfold output to "
+                      << ppSavedOutput.cacheDir << "\n";
                   }
-
-                  if (!RestoreRooUnfoldSavedOutput(ppSavedOutput))
-                  {
-                    cerr << ANSI_BOLD_RED
-                         << "[FATAL] Failed to restore saved PP RooUnfold output from:\n"
-                         << "  " << ppSavedOutput.cacheDir << "\n"
-                         << ANSI_RESET;
-                    std::exit(1);
-                  }
-
-                  cout << "     [OK] restored saved PP RooUnfold output from "
-                       << ppSavedOutput.cacheDir << "\n";
-                }
-                else
-                {
-                  const bool hadSavedOutput = RooUnfoldSavedOutputExists(ppSavedOutput);
-
-                  if (hadSavedOutput)
-                  {
-                    const bool eraseOld = PromptYesNo(RooUnfoldSavedOutputPrompt(ppSavedOutput));
-                    if (!eraseOld)
-                    {
-                      cerr << ANSI_BOLD_RED
-                           << "[FATAL] Existing PP RooUnfold saved output was left intact.\n"
-                           << "        Turn off saveRooUnfoldOutput to reuse the saved output.\n"
-                           << ANSI_RESET;
-                      std::exit(1);
-                    }
-                  }
-
-                  if (!EraseRooUnfoldSavedOutput(ppSavedOutput))
-                  {
-                    cerr << ANSI_BOLD_RED
-                         << "[FATAL] Failed to clean previous PP RooUnfold output before rebuilding.\n"
-                         << "  liveDir  = " << liveUnfoldDir << "\n"
-                         << "  cacheDir = " << ppSavedOutput.cacheDir << "\n"
-                         << ANSI_RESET;
-                    std::exit(1);
-                  }
-
-                  if (!runOnlyPurityCorrected)
-                  {
-                    cout << "  -> [5I] RooUnfold pipeline (SIM+DATA PP): non-purity-corrected unfold to particle level + per-photon x_{J} tables...\n";
-                    gApplyPurityCorrectionForUnfolding = false;
-                    analysis::RunRooUnfoldPipeline_SimAndDataPP(*dsPP, *dsSIM);
-                    cout << "     [OK] nonPurityCorrected\n";
-                  }
-
-                  cout << "  -> [5I] RooUnfold pipeline (SIM+DATA PP): purity-corrected unfold to particle level + per-photon x_{J} tables...\n";
-                  gApplyPurityCorrectionForUnfolding = true;
-                  analysis::RunRooUnfoldPipeline_SimAndDataPP(*dsPP, *dsSIM);
-                  cout << "     [OK] purityCorrected\n";
-
-                  if (!runOnlyPurityCorrected)
-                  {
-                    gApplyPurityCorrectionForUnfolding = false;
-                    cout << "  -> [5I] purity-corrected vs non-purity-corrected per-photon x_{J} overlays...\n";
-                    analysis::RunPurityCorrectedUncorrectedOverlayPP(*dsPP, *dsSIM);
-                    cout << "     [OK] purityCorrectedUncorrectedOverly\n";
-                  }
-
-                  if (!SnapshotRooUnfoldSavedOutput(ppSavedOutput))
-                  {
-                    cerr << ANSI_BOLD_RED
-                         << "[FATAL] Failed to save PP RooUnfold output to:\n"
-                         << "  " << ppSavedOutput.cacheDir << "\n"
-                         << ANSI_RESET;
-                    std::exit(1);
-                  }
-
-                  cout << "     [OK] saved PP RooUnfold output to "
-                       << ppSavedOutput.cacheDir << "\n";
-                }
               }
-            }
+          }
           else
           {
-            cout << ANSI_BOLD_YEL
-                 << "[5I] Skipping RooUnfold pipeline: requires isSimAndDataPP && (bothPhoton10and20sim || allPhoton5and10and20sim) and either do_xJ_PPunfold=true or (do_xJ_PPunfold=false with gApplyPurityCorrectionForUnfolding=true).\n"
-                 << "     Current: isSimAndDataPP=" << (isSimAndDataPP ? "true" : "false")
-                 << " bothPhoton10and20sim=" << (bothPhoton10and20sim ? "true" : "false")
-                 << " allPhoton5and10and20sim=" << (allPhoton5and10and20sim ? "true" : "false")
-                 << " do_xJ_PPunfold=" << (do_xJ_PPunfold ? "true" : "false")
-                 << " gApplyPurityCorrectionForUnfolding=" << (gApplyPurityCorrectionForUnfolding ? "true" : "false")
-                 << ANSI_RESET << "\n";
+              cout << ANSI_BOLD_YEL
+              << "[5I] Skipping RooUnfold pipeline: requires isSimAndDataPP && (bothPhoton10and20sim || allPhoton5and10and20sim) and either do_xJ_PPunfold=true or (do_xJ_PPunfold=false with gApplyPurityCorrectionForUnfolding=true).\n"
+              << "     Current: isSimAndDataPP=" << (isSimAndDataPP ? "true" : "false")
+              << " bothPhoton10and20sim=" << (bothPhoton10and20sim ? "true" : "false")
+              << " allPhoton5and10and20sim=" << (allPhoton5and10and20sim ? "true" : "false")
+              << " do_xJ_PPunfold=" << (do_xJ_PPunfold ? "true" : "false")
+              << " gApplyPurityCorrectionForUnfolding=" << (gApplyPurityCorrectionForUnfolding ? "true" : "false")
+              << ANSI_RESET << "\n";
           }
-        }
-
-        // ---------------------------------------------------------------------------
-        // [5I-AA] RooUnfold pipeline (SIM+DATA AuAu): unfold per centrality with
-        //         purity × combinatoric subtraction variants
-        // ---------------------------------------------------------------------------
-        if (mode == RunMode::kSimAndDataAUAU && IsEmbeddedSimSample(CurrentSimSample()) && do_xJ_AAunfold)
-        {
+      }
+      
+      // ---------------------------------------------------------------------------
+      // [5I-AA] RooUnfold pipeline (SIM+DATA AuAu): unfold per centrality with
+      //         purity × combinatoric subtraction variants
+      // ---------------------------------------------------------------------------
+      if (mode == RunMode::kSimAndDataAUAU && IsEmbeddedSimSample(CurrentSimSample()) && do_xJ_AAunfold)
+      {
           cout << ANSI_BOLD_CYN
-               << "\n[5I-AA] RooUnfold AuAu gate check\n"
-               << "  isSimAndDataAUAU = true\n"
-               << "  SimSample        = " << SimSampleLabel(CurrentSimSample()) << "\n"
-               << "  datasets.size()  = " << datasets.size() << "\n"
-               << ANSI_RESET;
-
+          << "\n[5I-AA] RooUnfold AuAu gate check\n"
+          << "  isSimAndDataAUAU = true\n"
+          << "  SimSample        = " << SimSampleLabel(CurrentSimSample()) << "\n"
+          << "  datasets.size()  = " << datasets.size() << "\n"
+          << ANSI_RESET;
+          
           analysis::RunRooUnfoldPipeline_SimAndDataAUAU(datasets);
-
+          
           cout << ANSI_BOLD_CYN << "  [OK] AuAu RooUnfold pipeline complete.\n" << ANSI_RESET;
-        }
-        else if (mode == RunMode::kSimAndDataAUAU && IsEmbeddedSimSample(CurrentSimSample()) && !do_xJ_AAunfold)
-        {
+      }
+      else if (mode == RunMode::kSimAndDataAUAU && IsEmbeddedSimSample(CurrentSimSample()) && !do_xJ_AAunfold)
+      {
           cout << ANSI_BOLD_YEL
-               << "[5I-AA] Skipping AuAu RooUnfold pipeline: do_xJ_AAunfold=false.\n"
-               << ANSI_RESET;
-        }
-
+          << "[5I-AA] Skipping AuAu RooUnfold pipeline: do_xJ_AAunfold=false.\n"
+          << ANSI_RESET;
+      }
+      
       // ---------------------------------------------------------------------------
       // [5J] PPG12 SS template tables (SIM+DATA PP): Data vs Signal MC vs Background MC
       // Output:
@@ -16343,27 +16371,27 @@ namespace ARJ
       // ---------------------------------------------------------------------------
       if (isSimAndDataPP)
       {
-        Dataset* dsSIM = nullptr;
-        Dataset* dsPP  = nullptr;
-
-        for (auto& ds : datasets)
-        {
-          if (ds.isSim) dsSIM = &ds;
-          else         dsPP  = &ds;
-        }
-
-        if (!dsSIM || !dsPP)
-        {
-          cout << ANSI_BOLD_YEL
-               << "[WARN] PPG12 SS template tables requested (isSimAndDataPP), but SIM or DATA dataset is missing. Skipping."
-               << ANSI_RESET << "\n";
-        }
-        else
-        {
-          analysis::RunPPG12SSTables_DataSigBkg_PP(*dsPP, *dsSIM);
-        }
+          Dataset* dsSIM = nullptr;
+          Dataset* dsPP  = nullptr;
+          
+          for (auto& ds : datasets)
+          {
+              if (ds.isSim) dsSIM = &ds;
+              else         dsPP  = &ds;
+          }
+          
+          if (!dsSIM || !dsPP)
+          {
+              cout << ANSI_BOLD_YEL
+              << "[WARN] PPG12 SS template tables requested (isSimAndDataPP), but SIM or DATA dataset is missing. Skipping."
+              << ANSI_RESET << "\n";
+          }
+          else
+          {
+              analysis::RunPPG12SSTables_DataSigBkg_PP(*dsPP, *dsSIM);
+          }
       }
-
+      
       // ---------------------------------------------------------------------------
       // OPTIONAL: PP vs Au+Au (gold-gold) photon-ID deliverables (requires both PP and AuAu)
       // ---------------------------------------------------------------------------
@@ -16372,23 +16400,23 @@ namespace ARJ
           // Find the PP dataset: must match kTriggerPP (not just !isSim, which also matches AuAu)
           Dataset* dsPP = nullptr;
           for (auto& ds : datasets)
+          {
+              if (!ds.isSim && ds.trigger == kTriggerPP)
               {
-                if (!ds.isSim && ds.trigger == kTriggerPP)
-                {
                   dsPP = &ds;
                   break;
-                }
+              }
           }
-
+          
           // In kAuAuOnly mode the PP dataset is not in the datasets vector.
           // Open it on-the-fly so the PP vs AuAu overlays use the real PP data.
           Dataset ppFallback;
           TFile* ppFallbackFile = nullptr;
           if (!dsPP)
           {
-                ppFallbackFile = TFile::Open(InputPP(isRun25pp).c_str(), "READ");
-                if (ppFallbackFile && !ppFallbackFile->IsZombie())
-                {
+              ppFallbackFile = TFile::Open(InputPP(isRun25pp).c_str(), "READ");
+              if (ppFallbackFile && !ppFallbackFile->IsZombie())
+              {
                   ppFallback.label      = "DATA_PP";
                   ppFallback.isSim      = false;
                   ppFallback.trigger    = kTriggerPP;
@@ -16397,223 +16425,223 @@ namespace ARJ
                   ppFallback.outBase    = JoinPath(OutputPP(), kTriggerPP);
                   ppFallback.file       = ppFallbackFile;
                   ppFallback.topDir     = ppFallbackFile->GetDirectory(kTriggerPP.c_str());
-
+                  
                   if (ppFallback.topDir)
                   {
-                    dsPP = &ppFallback;
-                    cout << ANSI_BOLD_CYN
-                         << "[INFO] Opened PP file on-the-fly for PP vs AuAu overlays: " << InputPP(isRun25pp)
-                         << ANSI_RESET << "\n";
+                      dsPP = &ppFallback;
+                      cout << ANSI_BOLD_CYN
+                      << "[INFO] Opened PP file on-the-fly for PP vs AuAu overlays: " << InputPP(isRun25pp)
+                      << ANSI_RESET << "\n";
                   }
                   else
                   {
-                    cout << ANSI_BOLD_YEL
-                         << "[WARN] PP file opened but missing trigger dir '" << kTriggerPP
-                         << "' in: " << InputPP(isRun25pp) << ". Skipping PP vs AuAu overlays."
-                         << ANSI_RESET << "\n";
+                      cout << ANSI_BOLD_YEL
+                      << "[WARN] PP file opened but missing trigger dir '" << kTriggerPP
+                      << "' in: " << InputPP(isRun25pp) << ". Skipping PP vs AuAu overlays."
+                      << ANSI_RESET << "\n";
                   }
-                }
-                else
-                {
+              }
+              else
+              {
                   cout << ANSI_BOLD_YEL
-                       << "[WARN] isPPdataAndAUAU=true but cannot open PP file: " << InputPP(isRun25pp)
-                       << " (mode=" << RunModeLabel(mode) << "). Skipping PP vs AuAu overlays."
-                       << ANSI_RESET << "\n";
-                }
+                  << "[WARN] isPPdataAndAUAU=true but cannot open PP file: " << InputPP(isRun25pp)
+                  << " (mode=" << RunModeLabel(mode) << "). Skipping PP vs AuAu overlays."
+                  << ANSI_RESET << "\n";
+              }
           }
-
+          
           if (dsPP)
           {
-                analysis::RunPPvsAuAuDeliverables(*dsPP);
+              analysis::RunPPvsAuAuDeliverables(*dsPP);
           }
-
+          
           if (ppFallbackFile) { ppFallbackFile->Close(); delete ppFallbackFile; }
       }
-
+      
       // ---------------------------------------------------------------------------
       // Close + summary
       // ---------------------------------------------------------------------------
       cout << ANSI_BOLD_CYN << "\n[STEP 7] Summary + close\n" << ANSI_RESET;
-
+      
       cout << ANSI_BOLD_CYN << "\n[SUMMARY] Histogram coverage (requested vs in-file)" << ANSI_RESET << "\n";
-
+      
       auto IsHistLikeClass = [](const string& cls) -> bool
       {
-        // Inventory class names are like: TH1F, TH2D, TH3F, TProfile, TProfile2D, TProfile3D, ...
-        return (cls.rfind("TH", 0) == 0) || (cls.rfind("TProfile", 0) == 0);
+          // Inventory class names are like: TH1F, TH2D, TH3F, TProfile, TProfile2D, TProfile3D, ...
+          return (cls.rfind("TH", 0) == 0) || (cls.rfind("TProfile", 0) == 0);
       };
-
+      
       auto PrintTopList = [&](const vector<string>& v, const string& title, int nShow)
       {
-        if (v.empty()) return;
-        cout << "    " << title << " (showing up to " << nShow << "):\n";
-        const int n = std::min((int)v.size(), nShow);
-        for (int i = 0; i < n; ++i)
-        {
-          cout << "      - " << v[i] << "\n";
-        }
+          if (v.empty()) return;
+          cout << "    " << title << " (showing up to " << nShow << "):\n";
+          const int n = std::min((int)v.size(), nShow);
+          for (int i = 0; i < n; ++i)
+          {
+              cout << "      - " << v[i] << "\n";
+          }
       };
-
+      
       for (auto& ds : datasets)
       {
-        const string missRawPath = JoinPath(ds.outBase, "missing_hists_" + ds.label + ".txt");
-        const string missTabPath = JoinPath(ds.outBase, "missing_hists_" + ds.label + "_TABULATED.txt");
-        const string unusedPath  = JoinPath(ds.outBase, "unused_hists_" + ds.label + ".txt");
-        const string reqPath     = JoinPath(ds.outBase, "requested_hists_" + ds.label + ".txt");
-
-        // --- Requested (unique fullpaths) ---
-        std::set<string> requested;
-        for (const auto& kv : ds.requestCounts) requested.insert(kv.first);
-
-        // --- Inventory everything under topDir, then keep only histogram-like objects ---
-        vector<InvItem> items;
-        CollectInventoryRecursive(ds.topDir, ds.topDirName + "/", items);
-
-        std::set<string> available;
-        map<string, InvItem> invByPath;
-        for (const auto& it : items)
-        {
-            if (!IsHistLikeClass(it.cls)) continue;
-
-            const bool isCentHist = (it.path.find("_cent_") != string::npos);
-            if (!ds.centSuffix.empty())
-            {
-              if (isCentHist && it.path.find(ds.centSuffix) == string::npos) continue;
-            }
-
-            available.insert(it.path);
-            invByPath[it.path] = it;
-        }
-
-        // --- Requested-but-not-in-file (called by code, missing from ROOT file) ---
-        vector<string> reqMissing;
-        reqMissing.reserve(requested.size());
-        for (const auto& p : requested)
-        {
-          if (available.find(p) == available.end()) reqMissing.push_back(p);
-        }
-
-        // --- In-file-but-unused (present in ROOT, never requested by code) ---
-        vector<string> unused;
-        unused.reserve(available.size());
-        for (const auto& p : available)
-        {
-          if (requested.find(p) == requested.end()) unused.push_back(p);
-        }
-
-        // --- Write: requested list (what the code tried to read) ---
-        {
-          vector<string> lines;
-          lines.push_back("path\tcalls");
+          const string missRawPath = JoinPath(ds.outBase, "missing_hists_" + ds.label + ".txt");
+          const string missTabPath = JoinPath(ds.outBase, "missing_hists_" + ds.label + "_TABULATED.txt");
+          const string unusedPath  = JoinPath(ds.outBase, "unused_hists_" + ds.label + ".txt");
+          const string reqPath     = JoinPath(ds.outBase, "requested_hists_" + ds.label + ".txt");
+          
+          // --- Requested (unique fullpaths) ---
+          std::set<string> requested;
+          for (const auto& kv : ds.requestCounts) requested.insert(kv.first);
+          
+          // --- Inventory everything under topDir, then keep only histogram-like objects ---
+          vector<InvItem> items;
+          CollectInventoryRecursive(ds.topDir, ds.topDirName + "/", items);
+          
+          std::set<string> available;
+          map<string, InvItem> invByPath;
+          for (const auto& it : items)
+          {
+              if (!IsHistLikeClass(it.cls)) continue;
+              
+              const bool isCentHist = (it.path.find("_cent_") != string::npos);
+              if (!ds.centSuffix.empty())
+              {
+                  if (isCentHist && it.path.find(ds.centSuffix) == string::npos) continue;
+              }
+              
+              available.insert(it.path);
+              invByPath[it.path] = it;
+          }
+          
+          // --- Requested-but-not-in-file (called by code, missing from ROOT file) ---
+          vector<string> reqMissing;
+          reqMissing.reserve(requested.size());
           for (const auto& p : requested)
           {
-            const int calls = (ds.requestCounts.count(p) ? ds.requestCounts.at(p) : 0);
-            std::ostringstream s;
-            s << p << "\t" << calls;
-            lines.push_back(s.str());
+              if (available.find(p) == available.end()) reqMissing.push_back(p);
           }
-          WriteTextFile(reqPath, lines);
-        }
-
-        // --- Write: tabulated missing summary ---
-        //     Section 1: requested-but-not-in-file  (true missing)
-        //     Section 2: logged issues that DO exist in the file (e.g., ZERO_ENTRIES, WRONG_TYPE)
-        {
-          vector<string> lines;
-
-          lines.push_back("[REQUESTED_BUT_NOT_IN_FILE]");
-          lines.push_back("path\tcalls\tloggedCount\tlastReason");
-          for (const auto& p : reqMissing)
+          
+          // --- In-file-but-unused (present in ROOT, never requested by code) ---
+          vector<string> unused;
+          unused.reserve(available.size());
+          for (const auto& p : available)
           {
-            const int calls  = (ds.requestCounts.count(p) ? ds.requestCounts.at(p) : 0);
-            const int logged = (ds.missingCounts.count(p) ? ds.missingCounts.at(p) : 0);
-
-            string reason = "NOT_IN_FILE";
-            auto itR = ds.missingReason.find(p);
-            if (itR != ds.missingReason.end()) reason = itR->second;
-
-            std::ostringstream s;
-            s << p << "\t" << calls << "\t" << logged << "\t" << reason;
-            lines.push_back(s.str());
+              if (requested.find(p) == requested.end()) unused.push_back(p);
           }
-
-          lines.push_back("");
-          lines.push_back("[LOGGED_ISSUES_PRESENT_IN_FILE]");
-          lines.push_back("path\tcalls\tloggedCount\tlastReason");
-          for (const auto& kv : ds.missingCounts)
+          
+          // --- Write: requested list (what the code tried to read) ---
           {
-            const string& p = kv.first;
-
-            // If it isn't in-file, it belongs to the section above
-            if (available.find(p) == available.end()) continue;
-
-            const int calls  = (ds.requestCounts.count(p) ? ds.requestCounts.at(p) : 0);
-            const int logged = kv.second;
-
-            string reason = "(unknown)";
-            auto itR = ds.missingReason.find(p);
-            if (itR != ds.missingReason.end()) reason = itR->second;
-
-            std::ostringstream s;
-            s << p << "\t" << calls << "\t" << logged << "\t" << reason;
-            lines.push_back(s.str());
+              vector<string> lines;
+              lines.push_back("path\tcalls");
+              for (const auto& p : requested)
+              {
+                  const int calls = (ds.requestCounts.count(p) ? ds.requestCounts.at(p) : 0);
+                  std::ostringstream s;
+                  s << p << "\t" << calls;
+                  lines.push_back(s.str());
+              }
+              WriteTextFile(reqPath, lines);
           }
-
-          WriteTextFile(missTabPath, lines);
-        }
-
-        // --- Write: unused list (in-file but never requested) ---
-        {
-          vector<string> lines;
-          lines.push_back("path\tclass\tentries");
-          for (const auto& p : unused)
+          
+          // --- Write: tabulated missing summary ---
+          //     Section 1: requested-but-not-in-file  (true missing)
+          //     Section 2: logged issues that DO exist in the file (e.g., ZERO_ENTRIES, WRONG_TYPE)
           {
-            auto it = invByPath.find(p);
-            if (it == invByPath.end())
-            {
-              lines.push_back(p + "\t(n/a)\t(n/a)");
-              continue;
-            }
-
-            std::ostringstream ent;
-            if (it->second.entries < 0) ent << "n/a";
-            else ent << std::fixed << std::setprecision(0) << it->second.entries;
-
-            std::ostringstream s;
-            s << it->second.path << "\t" << it->second.cls << "\t" << ent.str();
-            lines.push_back(s.str());
+              vector<string> lines;
+              
+              lines.push_back("[REQUESTED_BUT_NOT_IN_FILE]");
+              lines.push_back("path\tcalls\tloggedCount\tlastReason");
+              for (const auto& p : reqMissing)
+              {
+                  const int calls  = (ds.requestCounts.count(p) ? ds.requestCounts.at(p) : 0);
+                  const int logged = (ds.missingCounts.count(p) ? ds.missingCounts.at(p) : 0);
+                  
+                  string reason = "NOT_IN_FILE";
+                  auto itR = ds.missingReason.find(p);
+                  if (itR != ds.missingReason.end()) reason = itR->second;
+                  
+                  std::ostringstream s;
+                  s << p << "\t" << calls << "\t" << logged << "\t" << reason;
+                  lines.push_back(s.str());
+              }
+              
+              lines.push_back("");
+              lines.push_back("[LOGGED_ISSUES_PRESENT_IN_FILE]");
+              lines.push_back("path\tcalls\tloggedCount\tlastReason");
+              for (const auto& kv : ds.missingCounts)
+              {
+                  const string& p = kv.first;
+                  
+                  // If it isn't in-file, it belongs to the section above
+                  if (available.find(p) == available.end()) continue;
+                  
+                  const int calls  = (ds.requestCounts.count(p) ? ds.requestCounts.at(p) : 0);
+                  const int logged = kv.second;
+                  
+                  string reason = "(unknown)";
+                  auto itR = ds.missingReason.find(p);
+                  if (itR != ds.missingReason.end()) reason = itR->second;
+                  
+                  std::ostringstream s;
+                  s << p << "\t" << calls << "\t" << logged << "\t" << reason;
+                  lines.push_back(s.str());
+              }
+              
+              WriteTextFile(missTabPath, lines);
           }
-          WriteTextFile(unusedPath, lines);
-        }
-
-        // --- Terminal summary (clear + actionable) ---
-        cout << ANSI_BOLD_CYN << "\n  [" << ds.label << "] Histogram I/O coverage" << ANSI_RESET << "\n";
-        cout << "    topDir                 : " << ds.topDirName << "\n";
-        cout << "    requested (unique)     : " << requested.size()
-             << "   (full list: " << reqPath << ")\n";
-        cout << "    in file (unique hists) : " << available.size() << "\n";
-        cout << "    requested but missing  : " << reqMissing.size()
-             << "   (tabulated: " << missTabPath << ")\n";
-        cout << "    in file but unused     : " << unused.size()
-             << "   (tabulated: " << unusedPath << ")\n";
-        cout << "    missing-object log     : occurrences=" << ds.missingCount
-             << "  uniqueLogged=" << ds.missingCounts.size()
-             << "  rawLog=" << missRawPath << "\n";
-
-        PrintTopList(reqMissing, "Requested-but-not-in-file", 10);
-        PrintTopList(unused, "In-file-but-unused", 10);
+          
+          // --- Write: unused list (in-file but never requested) ---
+          {
+              vector<string> lines;
+              lines.push_back("path\tclass\tentries");
+              for (const auto& p : unused)
+              {
+                  auto it = invByPath.find(p);
+                  if (it == invByPath.end())
+                  {
+                      lines.push_back(p + "\t(n/a)\t(n/a)");
+                      continue;
+                  }
+                  
+                  std::ostringstream ent;
+                  if (it->second.entries < 0) ent << "n/a";
+                  else ent << std::fixed << std::setprecision(0) << it->second.entries;
+                  
+                  std::ostringstream s;
+                  s << it->second.path << "\t" << it->second.cls << "\t" << ent.str();
+                  lines.push_back(s.str());
+              }
+              WriteTextFile(unusedPath, lines);
+          }
+          
+          // --- Terminal summary (clear + actionable) ---
+          cout << ANSI_BOLD_CYN << "\n  [" << ds.label << "] Histogram I/O coverage" << ANSI_RESET << "\n";
+          cout << "    topDir                 : " << ds.topDirName << "\n";
+          cout << "    requested (unique)     : " << requested.size()
+          << "   (full list: " << reqPath << ")\n";
+          cout << "    in file (unique hists) : " << available.size() << "\n";
+          cout << "    requested but missing  : " << reqMissing.size()
+          << "   (tabulated: " << missTabPath << ")\n";
+          cout << "    in file but unused     : " << unused.size()
+          << "   (tabulated: " << unusedPath << ")\n";
+          cout << "    missing-object log     : occurrences=" << ds.missingCount
+          << "  uniqueLogged=" << ds.missingCounts.size()
+          << "  rawLog=" << missRawPath << "\n";
+          
+          PrintTopList(reqMissing, "Requested-but-not-in-file", 10);
+          PrintTopList(unused, "In-file-but-unused", 10);
       }
-
+      
       cout << "\n  -> Closing datasets...\n";
       for (auto& ds : datasets)
       {
-        cout << "     closing: " << ds.label << "\n";
-        driver::CloseDataset(ds);
+          cout << "     closing: " << ds.label << "\n";
+          driver::CloseDataset(ds);
       }
-
+      
       cout << ANSI_BOLD_CYN << "\nDone.\n" << ANSI_RESET;
       return 0;
-    }
+  }
 
 } // namespace ARJ
 

@@ -1801,7 +1801,11 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                       hCents[0]->Draw("E1");
                       for (std::size_t ih = 1; ih < hCents.size(); ++ih) hCents[ih]->Draw("E1 SAME");
                       
-                      TLegend legCO(0.58, 0.45, 0.92, 0.65);
+                      const bool legTopLeft = (H.variant == "noSub");
+                      TLegend legCO(legTopLeft ? 0.15 : 0.58,
+                                    legTopLeft ? 0.70 : 0.45,
+                                    legTopLeft ? 0.49 : 0.92,
+                                    legTopLeft ? 0.90 : 0.65);
                       legCO.SetBorderSize(0);
                       legCO.SetFillStyle(0);
                       legCO.SetTextFont(42);
