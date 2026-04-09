@@ -15,7 +15,7 @@
     //   <triggerName>/unfolding/radii/photons/
     // =============================================================================
     void RunRooUnfoldPipeline_SimAndDataPP(Dataset& dsData, Dataset& dsSim)
-{
+    {
         cout << ANSI_BOLD_CYN << "\n==============================\n"
         << "[SECTION 5I] RooUnfold pipeline (SIM+DATA PP)\n"
         << "==============================" << ANSI_RESET << "\n";
@@ -15002,337 +15002,337 @@
 
     void RunPurityCorrectedUncorrectedOverlayPP(Dataset& dsData, Dataset& dsSim)
     {
-      const string simDataBase = JoinPath(dsSim.outBase, dsData.trigger);
-      const string inBaseUnc = JoinPath(simDataBase, "unfolding/nonPurityCorrected/radii");
-      const string inBaseCor = JoinPath(simDataBase, "unfolding/purityCorrected/radii");
-      const string outBase   = JoinPath(simDataBase, "unfolding/purityCorrectedUncorrectedOverly");
-
-      EnsureDir(outBase);
-
+        const string simDataBase = JoinPath(dsSim.outBase, dsData.trigger);
+        const string inBaseUnc = JoinPath(simDataBase, "unfolding/nonPurityCorrected/radii");
+        const string inBaseCor = JoinPath(simDataBase, "unfolding/purityCorrected/radii");
+        const string outBase   = JoinPath(simDataBase, "unfolding/purityCorrectedUncorrectedOverly");
+        
+        EnsureDir(outBase);
+        
         auto FindStoredUnfoldPtIndexForAnalysis = [&](const PtBin& b)->int
-          {
+        {
             const auto& storedBins = UnfoldAnalysisRecoPtBins();
             for (std::size_t i = 0; i < storedBins.size(); ++i)
             {
-              if (storedBins[i].lo == b.lo && storedBins[i].hi == b.hi)
-              {
-                return (int)i;
-              }
+                if (storedBins[i].lo == b.lo && storedBins[i].hi == b.hi)
+                {
+                    return (int)i;
+                }
             }
             return -1;
         };
-
-      for (const auto& rKey : kRKeys)
-      {
-        if (IsEmbeddedSimSample(CurrentSimSample()) && rKey == "r06") continue;
-        const string uncRoot = JoinPath(JoinPath(inBaseUnc, rKey), "rooUnfold_outputs.root");
-        const string corRoot = JoinPath(JoinPath(inBaseCor, rKey), "rooUnfold_outputs.root");
-        const string rOut    = JoinPath(outBase, rKey);
-
-        EnsureDir(rOut);
-
-        TFile* fUnc = TFile::Open(uncRoot.c_str(), "READ");
-        TFile* fCor = TFile::Open(corRoot.c_str(), "READ");
-
-        if (!fUnc || !fCor || fUnc->IsZombie() || fCor->IsZombie())
+        
+        for (const auto& rKey : kRKeys)
         {
-          if (fUnc) { fUnc->Close(); delete fUnc; }
-          if (fCor) { fCor->Close(); delete fCor; }
-          continue;
-        }
-
-        auto GetH = [&](TFile* f, int iStored, const string& stem)->TH1*
-        {
-            if (!f)
+            if (IsEmbeddedSimSample(CurrentSimSample()) && rKey == "r06") continue;
+            const string uncRoot = JoinPath(JoinPath(inBaseUnc, rKey), "rooUnfold_outputs.root");
+            const string corRoot = JoinPath(JoinPath(inBaseCor, rKey), "rooUnfold_outputs.root");
+            const string rOut    = JoinPath(outBase, rKey);
+            
+            EnsureDir(rOut);
+            
+            TFile* fUnc = TFile::Open(uncRoot.c_str(), "READ");
+            TFile* fCor = TFile::Open(corRoot.c_str(), "READ");
+            
+            if (!fUnc || !fCor || fUnc->IsZombie() || fCor->IsZombie())
             {
-              cout << ANSI_BOLD_RED
-                   << "[PURITY OVERLAY DEBUG] null TFile for stem=" << stem
-                   << "  iStored=" << iStored
-                   << ANSI_RESET << "\n";
-              return nullptr;
+                if (fUnc) { fUnc->Close(); delete fUnc; }
+                if (fCor) { fCor->Close(); delete fCor; }
+                continue;
             }
-
-            if (iStored < 0)
+            
+            auto GetH = [&](TFile* f, int iStored, const string& stem)->TH1*
             {
-              cout << ANSI_BOLD_YEL
-                   << "[PURITY OVERLAY DEBUG] invalid stored index for stem=" << stem
-                   << "  iStored=" << iStored
-                   << ANSI_RESET << "\n";
-              return nullptr;
-            }
-
-            const string hname = TString::Format("%s_pTbin%d", stem.c_str(), iStored + 1).Data();
-
-            cout << ANSI_BOLD_CYN
-                 << "[PURITY OVERLAY DEBUG] file=" << f->GetName()
-                 << "  requesting hist=" << hname
-                 << ANSI_RESET << "\n";
-
-            TH1* h = dynamic_cast<TH1*>(f->Get(hname.c_str()));
-            if (!h)
-            {
-              cout << ANSI_BOLD_RED
-                   << "  -> missing histogram: " << hname
-                   << ANSI_RESET << "\n";
-              return nullptr;
-            }
-
-            TH1* hc = dynamic_cast<TH1*>(h->Clone(TString::Format("%s_clone_%d", hname.c_str(), iStored + 1).Data()));
-            if (!hc)
-            {
-              cout << ANSI_BOLD_RED
-                   << "  -> clone failed for histogram: " << hname
-                   << ANSI_RESET << "\n";
-              return nullptr;
-            }
-
-            hc->SetDirectory(nullptr);
-            EnsureSumw2(hc);
-
-            cout << "  -> found " << hc->GetName()
-                 << "  nbins=" << hc->GetNbinsX()
-                 << "  integral=" << hc->Integral(1, hc->GetNbinsX())
-                 << "  integral(width)=" << hc->Integral(1, hc->GetNbinsX(), "width")
-                 << "\n";
-
-            for (int ib = 0; ib <= hc->GetNbinsX() + 1; ++ib)
-            {
-              if (ib == 0)
-              {
-                cout << "     UF  content=" << hc->GetBinContent(ib)
-                     << "  error=" << hc->GetBinError(ib) << "\n";
-              }
-              else if (ib == hc->GetNbinsX() + 1)
-              {
-                cout << "     OF  content=" << hc->GetBinContent(ib)
-                     << "  error=" << hc->GetBinError(ib) << "\n";
-              }
-              else
-              {
-                cout << "     bin " << ib
-                     << "  [" << hc->GetXaxis()->GetBinLowEdge(ib)
-                     << ","   << hc->GetXaxis()->GetBinUpEdge(ib) << "]"
-                     << "  content=" << hc->GetBinContent(ib)
-                     << "  error="   << hc->GetBinError(ib) << "\n";
-              }
-            }
-
-            return hc;
-        };
-
-          auto DrawPad = [&](int iAnalysis)->void
-          {
-              const auto& analysisBins = UnfoldOutputRecoPtBins();
-
-              if (iAnalysis < 0 || iAnalysis >= (int)analysisBins.size())
-              {
-                TH1F frame("frame","", 1, 0.0, 2.0);
-                frame.SetMinimum(0.0);
-                frame.SetMaximum(1.0);
-                frame.SetTitle("");
-                frame.GetXaxis()->SetTitle("x_{J}");
-                frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
-                frame.Draw("axis");
-                return;
-            }
-
-            const PtBin& b = analysisBins[iAnalysis];
-            const int iStored = FindStoredUnfoldPtIndexForAnalysis(b);
-
-            TH1* hUnc = GetH(fUnc, iStored, "h_xJ_unf_perPho");
-            TH1* hCor = GetH(fCor, iStored, "h_xJ_unf_perPho");
-
-            auto HasFiniteDrawableContent = [&](TH1* h)->bool
-            {
-              if (!h) return false;
-              const int nb = h->GetNbinsX();
-              for (int ib = 1; ib <= nb; ++ib)
-              {
-                const double y  = h->GetBinContent(ib);
-                const double ey = h->GetBinError(ib);
-                if (std::isfinite(y) && std::isfinite(ey) && (y != 0.0 || ey != 0.0)) return true;
-              }
-              return false;
-            };
-
-            auto SanitizeHistForDraw = [&](TH1* h)->void
-            {
-              if (!h) return;
-              const int nb = h->GetNbinsX();
-              for (int ib = 0; ib <= nb + 1; ++ib)
-              {
-                double y  = h->GetBinContent(ib);
-                double ey = h->GetBinError(ib);
-                if (!std::isfinite(y))  y  = 0.0;
-                if (!std::isfinite(ey)) ey = 0.0;
-                h->SetBinContent(ib, y);
-                h->SetBinError  (ib, ey);
-              }
-            };
-
-            SanitizeHistForDraw(hUnc);
-            SanitizeHistForDraw(hCor);
-
-            const bool haveUncFinite = HasFiniteDrawableContent(hUnc);
-            const bool haveCorFinite = HasFiniteDrawableContent(hCor);
-
-            double maxY = 0.0;
-            auto scan = [&](TH1* h)
-            {
-              if (!h) return;
-              h->GetXaxis()->SetRangeUser(0.0, 2.0);
-              const int nb = h->GetNbinsX();
-              for (int ib = 1; ib <= nb; ++ib)
-              {
-                const double y  = h->GetBinContent(ib);
-                const double ey = h->GetBinError(ib);
-                if (!std::isfinite(y) || !std::isfinite(ey)) continue;
-                if (y <= 0.0 && ey <= 0.0) continue;
-                maxY = std::max(maxY, y + ey);
-              }
-            };
-
-            if (haveUncFinite) scan(hUnc);
-            if (haveCorFinite) scan(hCor);
-
-            TH1* hBase = (haveUncFinite ? hUnc : (haveCorFinite ? hCor : nullptr));
-            TH1* hUncDraw = nullptr;
-            TH1* hCorDraw = nullptr;
-
-            if (hBase)
-            {
-                hBase->GetXaxis()->SetRangeUser(0.0, 2.0);
-                hBase->SetTitle("");
-                hBase->GetXaxis()->SetTitle("x_{J}");
-                hBase->GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
-                hBase->SetMinimum(0.0);
-                hBase->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
-                hBase->DrawClone("axis");
-            }
-            else
-              {
-                TH1F frame("frame","", 1, 0.0, 2.0);
-                frame.SetMinimum(0.0);
-                frame.SetMaximum(1.0);
-                frame.SetTitle("");
-                frame.GetXaxis()->SetTitle("x_{J}");
-                frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
-                frame.DrawCopy("axis");
-            }
-
-            if (haveUncFinite)
-            {
-                hUnc->SetLineColor(kBlack);
-                hUnc->SetMarkerColor(kBlack);
-                hUnc->SetMarkerStyle(20);
-                hUnc->SetMarkerSize(1.0);
-                hUnc->SetLineWidth(2);
-                hUncDraw = dynamic_cast<TH1*>(hUnc->DrawClone("E1 X0 same"));
-            }
-
-            if (haveCorFinite)
-            {
-                hCor->SetLineColor(kBlue + 1);
-                hCor->SetMarkerColor(kBlue + 1);
-                hCor->SetMarkerStyle(24);
-                hCor->SetMarkerSize(1.0);
-                hCor->SetLineWidth(2);
-                hCorDraw = dynamic_cast<TH1*>(hCor->DrawClone("E1 X0 same"));
-            }
-
-            TLatex tx;
-            tx.SetNDC();
-            tx.SetTextFont(42);
-            tx.SetTextAlign(22);
-            tx.SetTextSize(0.042);
-            tx.DrawLatex(0.50, 0.955,
-                           TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV",
-                                           b.lo, b.hi).Data());
-
-              if (haveUncFinite || haveCorFinite)
-              {
-                  auto MakeVerticalErrLegendProxy = [&](TH1* hSrc, const char* gname) -> TGraphErrors*
-                  {
-                    if (!hSrc) return nullptr;
-
-                    int ib0 = -1;
-                    for (int ib = 1; ib <= hSrc->GetNbinsX(); ++ib)
+                if (!f)
+                {
+                    cout << ANSI_BOLD_RED
+                    << "[PURITY OVERLAY DEBUG] null TFile for stem=" << stem
+                    << "  iStored=" << iStored
+                    << ANSI_RESET << "\n";
+                    return nullptr;
+                }
+                
+                if (iStored < 0)
+                {
+                    cout << ANSI_BOLD_YEL
+                    << "[PURITY OVERLAY DEBUG] invalid stored index for stem=" << stem
+                    << "  iStored=" << iStored
+                    << ANSI_RESET << "\n";
+                    return nullptr;
+                }
+                
+                const string hname = TString::Format("%s_pTbin%d", stem.c_str(), iStored + 1).Data();
+                
+                cout << ANSI_BOLD_CYN
+                << "[PURITY OVERLAY DEBUG] file=" << f->GetName()
+                << "  requesting hist=" << hname
+                << ANSI_RESET << "\n";
+                
+                TH1* h = dynamic_cast<TH1*>(f->Get(hname.c_str()));
+                if (!h)
+                {
+                    cout << ANSI_BOLD_RED
+                    << "  -> missing histogram: " << hname
+                    << ANSI_RESET << "\n";
+                    return nullptr;
+                }
+                
+                TH1* hc = dynamic_cast<TH1*>(h->Clone(TString::Format("%s_clone_%d", hname.c_str(), iStored + 1).Data()));
+                if (!hc)
+                {
+                    cout << ANSI_BOLD_RED
+                    << "  -> clone failed for histogram: " << hname
+                    << ANSI_RESET << "\n";
+                    return nullptr;
+                }
+                
+                hc->SetDirectory(nullptr);
+                EnsureSumw2(hc);
+                
+                cout << "  -> found " << hc->GetName()
+                << "  nbins=" << hc->GetNbinsX()
+                << "  integral=" << hc->Integral(1, hc->GetNbinsX())
+                << "  integral(width)=" << hc->Integral(1, hc->GetNbinsX(), "width")
+                << "\n";
+                
+                for (int ib = 0; ib <= hc->GetNbinsX() + 1; ++ib)
+                {
+                    if (ib == 0)
                     {
-                      const double y  = hSrc->GetBinContent(ib);
-                      const double ey = hSrc->GetBinError(ib);
-                      if (std::isfinite(y) && std::isfinite(ey) && (y != 0.0 || ey != 0.0))
-                      {
-                        ib0 = ib;
-                        break;
-                      }
+                        cout << "     UF  content=" << hc->GetBinContent(ib)
+                        << "  error=" << hc->GetBinError(ib) << "\n";
                     }
-                    if (ib0 < 0) ib0 = 1;
-
-                    const double x  = hSrc->GetXaxis()->GetBinCenter(ib0);
-                    const double y  = hSrc->GetBinContent(ib0);
-                    double ey = hSrc->GetBinError(ib0);
-                    if (!std::isfinite(ey) || ey <= 0.0) ey = 1.0;
-
-                    TGraphErrors* g = new TGraphErrors(1);
-                    g->SetName(gname);
-                    g->SetPoint(0, x, y);
-                    g->SetPointError(0, 0.0, ey);
-                    g->SetMarkerStyle(hSrc->GetMarkerStyle());
-                    g->SetMarkerSize(hSrc->GetMarkerSize());
-                    g->SetMarkerColor(hSrc->GetMarkerColor());
-                    g->SetLineColor(hSrc->GetLineColor());
-                    g->SetLineWidth(hSrc->GetLineWidth());
-                    return g;
-                  };
-
-                  TGraphErrors* gLegUnc = MakeVerticalErrLegendProxy(hUncDraw, "gLegUnc_purityOverlay");
-                  TGraphErrors* gLegCor = MakeVerticalErrLegendProxy(hCorDraw, "gLegCor_purityOverlay");
-
-                  TLegend leg(0.58, 0.72, 0.94, 0.88);
-                  leg.SetBorderSize(0);
-                  leg.SetFillStyle(0);
-                  leg.SetTextFont(42);
-                  leg.SetTextSize(0.032);
-                  if (gLegUnc) leg.AddEntry(gLegUnc, "non-purity-corrected", "pe");
-                  if (gLegCor) leg.AddEntry(gLegCor, "purity-corrected", "pe");
-                  leg.DrawClone();
-
-                  if (gLegUnc) delete gLegUnc;
-                  if (gLegCor) delete gLegCor;
-              }
-
-            if (gPad) { gPad->Modified(); gPad->Update(); }
-
-            if (hUnc) delete hUnc;
-            if (hCor) delete hCor;
-          };
-
-          const auto& analysisBins = UnfoldOutputRecoPtBins();
-          const int nPads = (int)analysisBins.size();
-          const int nCols = 3;
-          const int nRows = (nPads + nCols - 1) / nCols;
-
-          TCanvas c(TString::Format("c_tbl_purityOv_%s", rKey.c_str()).Data(), "c_tbl_purityOv", 1800, 400 * nRows + 100);
-          c.Divide(nCols, nRows, 0.001, 0.001);
-
-        for (int ipad = 0; ipad < nPads; ++ipad)
-        {
-              c.cd(ipad + 1);
-              gPad->SetLeftMargin(0.12);
-              gPad->SetRightMargin(0.04);
-              gPad->SetBottomMargin(0.12);
-              gPad->SetTopMargin(0.06);
-
-              DrawPad(ipad);
+                    else if (ib == hc->GetNbinsX() + 1)
+                    {
+                        cout << "     OF  content=" << hc->GetBinContent(ib)
+                        << "  error=" << hc->GetBinError(ib) << "\n";
+                    }
+                    else
+                    {
+                        cout << "     bin " << ib
+                        << "  [" << hc->GetXaxis()->GetBinLowEdge(ib)
+                        << ","   << hc->GetXaxis()->GetBinUpEdge(ib) << "]"
+                        << "  content=" << hc->GetBinContent(ib)
+                        << "  error="   << hc->GetBinError(ib) << "\n";
+                    }
+                }
+                
+                return hc;
+            };
+            
+            auto DrawPad = [&](int iAnalysis)->void
+            {
+                const auto& analysisBins = UnfoldOutputRecoPtBins();
+                
+                if (iAnalysis < 0 || iAnalysis >= (int)analysisBins.size())
+                {
+                    TH1F frame("frame","", 1, 0.0, 2.0);
+                    frame.SetMinimum(0.0);
+                    frame.SetMaximum(1.0);
+                    frame.SetTitle("");
+                    frame.GetXaxis()->SetTitle("x_{J}");
+                    frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                    frame.Draw("axis");
+                    return;
+                }
+                
+                const PtBin& b = analysisBins[iAnalysis];
+                const int iStored = FindStoredUnfoldPtIndexForAnalysis(b);
+                
+                TH1* hUnc = GetH(fUnc, iStored, "h_xJ_unf_perPho");
+                TH1* hCor = GetH(fCor, iStored, "h_xJ_unf_perPho");
+                
+                auto HasFiniteDrawableContent = [&](TH1* h)->bool
+                {
+                    if (!h) return false;
+                    const int nb = h->GetNbinsX();
+                    for (int ib = 1; ib <= nb; ++ib)
+                    {
+                        const double y  = h->GetBinContent(ib);
+                        const double ey = h->GetBinError(ib);
+                        if (std::isfinite(y) && std::isfinite(ey) && (y != 0.0 || ey != 0.0)) return true;
+                    }
+                    return false;
+                };
+                
+                auto SanitizeHistForDraw = [&](TH1* h)->void
+                {
+                    if (!h) return;
+                    const int nb = h->GetNbinsX();
+                    for (int ib = 0; ib <= nb + 1; ++ib)
+                    {
+                        double y  = h->GetBinContent(ib);
+                        double ey = h->GetBinError(ib);
+                        if (!std::isfinite(y))  y  = 0.0;
+                        if (!std::isfinite(ey)) ey = 0.0;
+                        h->SetBinContent(ib, y);
+                        h->SetBinError  (ib, ey);
+                    }
+                };
+                
+                SanitizeHistForDraw(hUnc);
+                SanitizeHistForDraw(hCor);
+                
+                const bool haveUncFinite = HasFiniteDrawableContent(hUnc);
+                const bool haveCorFinite = HasFiniteDrawableContent(hCor);
+                
+                double maxY = 0.0;
+                auto scan = [&](TH1* h)
+                {
+                    if (!h) return;
+                    h->GetXaxis()->SetRangeUser(0.0, 2.0);
+                    const int nb = h->GetNbinsX();
+                    for (int ib = 1; ib <= nb; ++ib)
+                    {
+                        const double y  = h->GetBinContent(ib);
+                        const double ey = h->GetBinError(ib);
+                        if (!std::isfinite(y) || !std::isfinite(ey)) continue;
+                        if (y <= 0.0 && ey <= 0.0) continue;
+                        maxY = std::max(maxY, y + ey);
+                    }
+                };
+                
+                if (haveUncFinite) scan(hUnc);
+                if (haveCorFinite) scan(hCor);
+                
+                TH1* hBase = (haveUncFinite ? hUnc : (haveCorFinite ? hCor : nullptr));
+                TH1* hUncDraw = nullptr;
+                TH1* hCorDraw = nullptr;
+                
+                if (hBase)
+                {
+                    hBase->GetXaxis()->SetRangeUser(0.0, 2.0);
+                    hBase->SetTitle("");
+                    hBase->GetXaxis()->SetTitle("x_{J}");
+                    hBase->GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                    hBase->SetMinimum(0.0);
+                    hBase->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
+                    hBase->DrawClone("axis");
+                }
+                else
+                {
+                    TH1F frame("frame","", 1, 0.0, 2.0);
+                    frame.SetMinimum(0.0);
+                    frame.SetMaximum(1.0);
+                    frame.SetTitle("");
+                    frame.GetXaxis()->SetTitle("x_{J}");
+                    frame.GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+                    frame.DrawCopy("axis");
+                }
+                
+                if (haveUncFinite)
+                {
+                    hUnc->SetLineColor(kBlack);
+                    hUnc->SetMarkerColor(kBlack);
+                    hUnc->SetMarkerStyle(20);
+                    hUnc->SetMarkerSize(1.0);
+                    hUnc->SetLineWidth(2);
+                    hUncDraw = dynamic_cast<TH1*>(hUnc->DrawClone("E1 X0 same"));
+                }
+                
+                if (haveCorFinite)
+                {
+                    hCor->SetLineColor(kBlue + 1);
+                    hCor->SetMarkerColor(kBlue + 1);
+                    hCor->SetMarkerStyle(24);
+                    hCor->SetMarkerSize(1.0);
+                    hCor->SetLineWidth(2);
+                    hCorDraw = dynamic_cast<TH1*>(hCor->DrawClone("E1 X0 same"));
+                }
+                
+                TLatex tx;
+                tx.SetNDC();
+                tx.SetTextFont(42);
+                tx.SetTextAlign(22);
+                tx.SetTextSize(0.042);
+                tx.DrawLatex(0.50, 0.955,
+                             TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV",
+                                             b.lo, b.hi).Data());
+                
+                if (haveUncFinite || haveCorFinite)
+                {
+                    auto MakeVerticalErrLegendProxy = [&](TH1* hSrc, const char* gname) -> TGraphErrors*
+                    {
+                        if (!hSrc) return nullptr;
+                        
+                        int ib0 = -1;
+                        for (int ib = 1; ib <= hSrc->GetNbinsX(); ++ib)
+                        {
+                            const double y  = hSrc->GetBinContent(ib);
+                            const double ey = hSrc->GetBinError(ib);
+                            if (std::isfinite(y) && std::isfinite(ey) && (y != 0.0 || ey != 0.0))
+                            {
+                                ib0 = ib;
+                                break;
+                            }
+                        }
+                        if (ib0 < 0) ib0 = 1;
+                        
+                        const double x  = hSrc->GetXaxis()->GetBinCenter(ib0);
+                        const double y  = hSrc->GetBinContent(ib0);
+                        double ey = hSrc->GetBinError(ib0);
+                        if (!std::isfinite(ey) || ey <= 0.0) ey = 1.0;
+                        
+                        TGraphErrors* g = new TGraphErrors(1);
+                        g->SetName(gname);
+                        g->SetPoint(0, x, y);
+                        g->SetPointError(0, 0.0, ey);
+                        g->SetMarkerStyle(hSrc->GetMarkerStyle());
+                        g->SetMarkerSize(hSrc->GetMarkerSize());
+                        g->SetMarkerColor(hSrc->GetMarkerColor());
+                        g->SetLineColor(hSrc->GetLineColor());
+                        g->SetLineWidth(hSrc->GetLineWidth());
+                        return g;
+                    };
+                    
+                    TGraphErrors* gLegUnc = MakeVerticalErrLegendProxy(hUncDraw, "gLegUnc_purityOverlay");
+                    TGraphErrors* gLegCor = MakeVerticalErrLegendProxy(hCorDraw, "gLegCor_purityOverlay");
+                    
+                    TLegend leg(0.58, 0.72, 0.94, 0.88);
+                    leg.SetBorderSize(0);
+                    leg.SetFillStyle(0);
+                    leg.SetTextFont(42);
+                    leg.SetTextSize(0.032);
+                    if (gLegUnc) leg.AddEntry(gLegUnc, "non-purity-corrected", "pe");
+                    if (gLegCor) leg.AddEntry(gLegCor, "purity-corrected", "pe");
+                    leg.DrawClone();
+                    
+                    if (gLegUnc) delete gLegUnc;
+                    if (gLegCor) delete gLegCor;
+                }
+                
+                if (gPad) { gPad->Modified(); gPad->Update(); }
+                
+                if (hUnc) delete hUnc;
+                if (hCor) delete hCor;
+            };
+            
+            const auto& analysisBins = UnfoldOutputRecoPtBins();
+            const int nPads = (int)analysisBins.size();
+            const int nCols = 3;
+            const int nRows = (nPads + nCols - 1) / nCols;
+            
+            TCanvas c(TString::Format("c_tbl_purityOv_%s", rKey.c_str()).Data(), "c_tbl_purityOv", 1800, 400 * nRows + 100);
+            c.Divide(nCols, nRows, 0.001, 0.001);
+            
+            for (int ipad = 0; ipad < nPads; ++ipad)
+            {
+                c.cd(ipad + 1);
+                gPad->SetLeftMargin(0.12);
+                gPad->SetRightMargin(0.04);
+                gPad->SetBottomMargin(0.12);
+                gPad->SetTopMargin(0.06);
+                
+                DrawPad(ipad);
+            }
+            
+            SaveCanvas(c, JoinPath(rOut, "table3x3_purityCorrected_vs_nonPurityCorrected_perPhoton_dNdXJ.png"));
+            
+            fUnc->Close();
+            fCor->Close();
+            delete fUnc;
+            delete fCor;
         }
-
-        SaveCanvas(c, JoinPath(rOut, "table3x3_purityCorrected_vs_nonPurityCorrected_perPhoton_dNdXJ.png"));
-
-        fUnc->Close();
-        fCor->Close();
-        delete fUnc;
-        delete fCor;
-      }
     }
     // =============================================================================
     // Embedded Au+Au top-level unfolding overlay builder

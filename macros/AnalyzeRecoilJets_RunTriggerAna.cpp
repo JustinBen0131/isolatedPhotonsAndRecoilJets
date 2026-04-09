@@ -919,7 +919,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                 
                 if (x90 < 0.0) x90 = findCrossingX(hRatio, target90, 2.0, 20.0);
             } // end if (perRunLabel.empty())
-                
+            
             ratioHists.push_back(hRatio);
             fitFuncs.push_back(fFit);
             x80s.push_back(x90);
@@ -977,7 +977,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         l90.SetLineWidth(2);
         l90.SetLineColor(kGray+2);
         l90.Draw("SAME");
-
+        
         // Vertical dashed lines at each trigger's 90% efficiency point
         std::vector<TLine*> vertLines;
         for (std::size_t i = 0; i < loaded.size() && i < x80s.size(); ++i)
@@ -990,7 +990,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             lv->Draw("SAME");
             vertLines.push_back(lv);
         }
-
+        
         TLegend extraLegend(0.55, 0.45, 0.90, 0.55);
         extraLegend.SetBorderSize(0);
         extraLegend.SetFillStyle(0);
@@ -1030,26 +1030,26 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             tFit.SetNDC(true);
             tFit.SetTextFont(43);
             tFit.SetTextAlign(33);
-
+            
             double yText = 0.30;
-
+            
             // Fit model label (larger)
             tFit.SetTextSize(24);
             tFit.SetTextColor(kBlack);
             tFit.DrawLatex(0.9, yText, "Fit: Gumbel CDF");
             yText -= 0.045;
-
+            
             // Formula (larger)
             tFit.SetTextSize(22);
             tFit.DrawLatex(0.9, yText, "f(x) = P #times exp[#minus exp(#minus(x#minus#mu)/#beta)]");
             yText -= 0.045;
-
+            
             // 90% efficiency line label (larger)
             tFit.SetTextSize(24);
             tFit.SetTextColor(kGray+2);
             tFit.DrawLatex(0.9, yText, "- - - 90% efficiency");
         }
-
+        
         // ── plateau annotations: LHS, just under the 0.90 line ──
         if (perRunLabel.empty())
         {
@@ -1058,7 +1058,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             tPlat.SetTextFont(43);
             tPlat.SetTextAlign(13);
             tPlat.SetTextSize(22);
-
+            
             double yText = 0.72;
             for (std::size_t i = 0; i < loaded.size() && i < plateauVals.size(); ++i)
             {
@@ -1092,8 +1092,8 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         if (!perRunLabel.empty())
         {
             const std::string rlShort =
-                (perRunLabel.rfind("000", 0) == 0 && perRunLabel.size() > 3)
-                ? perRunLabel.substr(3) : perRunLabel;
+            (perRunLabel.rfind("000", 0) == 0 && perRunLabel.size() > 3)
+            ? perRunLabel.substr(3) : perRunLabel;
             TLatex tRun;
             tRun.SetNDC(true);
             tRun.SetTextFont(42);
@@ -1198,7 +1198,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                 leg.AddEntry(probeHists[i], replGeq(loaded[i].probeLabel).c_str(), "l");
         }
         leg.Draw();
-
+        
         TLegend sphLabel(0.18, 0.18, 0.50, 0.28);
         sphLabel.SetBorderSize(0);
         sphLabel.SetFillStyle(0);
@@ -1207,7 +1207,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         sphLabel.AddEntry((TObject*)nullptr, "#it{#bf{sPHENIX}} Internal", "");
         sphLabel.AddEntry((TObject*)nullptr, "Au+Au #sqrt{s_{NN}} = 200 GeV", "");
         sphLabel.Draw();
-
+        
         {
             TLatex tDS;
             tDS.SetNDC(true);
@@ -1229,8 +1229,8 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         if (!perRunLabel.empty())
         {
             const std::string rlShort =
-                (perRunLabel.rfind("000", 0) == 0 && perRunLabel.size() > 3)
-                ? perRunLabel.substr(3) : perRunLabel;
+            (perRunLabel.rfind("000", 0) == 0 && perRunLabel.size() > 3)
+            ? perRunLabel.substr(3) : perRunLabel;
             TLatex tRun;
             tRun.SetNDC(true);
             tRun.SetTextFont(42);
@@ -1283,7 +1283,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         if (!gPad) return;
         
         const std::string runLabelShort =
-            (runLabel.rfind("000", 0) == 0 && runLabel.size() > 3) ? runLabel.substr(3) : runLabel;
+        (runLabel.rfind("000", 0) == 0 && runLabel.size() > 3) ? runLabel.substr(3) : runLabel;
         
         gPad->SetLeftMargin(0.14);
         gPad->SetRightMargin(0.03);
@@ -1299,7 +1299,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             t.SetTextFont(42);
             t.SetTextAlign(33);
             t.SetTextSize(0.120);
-            t.DrawLatex(0.88, 0.82, runLabelShort.c_str()); 
+            t.DrawLatex(0.88, 0.82, runLabelShort.c_str());
             t.SetTextAlign(22);
             t.SetTextSize(0.120);
             t.DrawLatex(0.50, 0.50, "MISSING");
@@ -1343,7 +1343,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             t.SetTextFont(42);
             t.SetTextAlign(33);
             t.SetTextSize(0.120);
-            t.DrawLatex(0.88, 0.82, runLabelShort.c_str()); 
+            t.DrawLatex(0.88, 0.82, runLabelShort.c_str());
             t.SetTextAlign(22);
             t.SetTextSize(0.120);
             t.DrawLatex(0.50, 0.50, "MISSING");
@@ -1397,7 +1397,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         if (!gPad) return;
         
         const std::string runLabelShort =
-            (runLabel.rfind("000", 0) == 0 && runLabel.size() > 3) ? runLabel.substr(3) : runLabel;
+        (runLabel.rfind("000", 0) == 0 && runLabel.size() > 3) ? runLabel.substr(3) : runLabel;
         
         gPad->SetLeftMargin(0.14);
         gPad->SetRightMargin(0.03);
@@ -1412,7 +1412,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             t.SetTextFont(42);
             t.SetTextAlign(33);
             t.SetTextSize(0.120);
-            t.DrawLatex(0.88, 0.82, runLabelShort.c_str()); 
+            t.DrawLatex(0.88, 0.82, runLabelShort.c_str());
             t.SetTextAlign(22);
             t.SetTextSize(0.120);
             t.DrawLatex(0.50, 0.50, "MISSING");
@@ -1463,7 +1463,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             t.SetTextFont(42);
             t.SetTextAlign(33);
             t.SetTextSize(0.120);
-            t.DrawLatex(0.88, 0.82, runLabelShort.c_str()); 
+            t.DrawLatex(0.88, 0.82, runLabelShort.c_str());
             t.SetTextAlign(22);
             t.SetTextSize(0.120);
             t.DrawLatex(0.50, 0.50, "MISSING");
@@ -1550,7 +1550,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                 
                 const auto& item = items[idx];
                 const std::string runLabelShort =
-                    (item.runLabel.rfind("000", 0) == 0 && item.runLabel.size() > 3) ? item.runLabel.substr(3) : item.runLabel;
+                (item.runLabel.rfind("000", 0) == 0 && item.runLabel.size() > 3) ? item.runLabel.substr(3) : item.runLabel;
                 
                 TFile* fRun = TFile::Open(item.filePath.c_str(), "READ");
                 if (!fRun || fRun->IsZombie())
@@ -1562,7 +1562,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                     t.SetTextFont(42);
                     t.SetTextAlign(33);
                     t.SetTextSize(0.120);
-                    t.DrawLatex(0.88, 0.82, runLabelShort.c_str()); 
+                    t.DrawLatex(0.88, 0.82, runLabelShort.c_str());
                     t.SetTextAlign(22);
                     t.SetTextSize(0.110);
                     t.DrawLatex(0.50, 0.50, "BAD FILE");
@@ -1580,10 +1580,10 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             }
             
             const std::string outPng = JoinPath(
-                tableOutDir,
-                TString::Format("%s_page%03zu.png",
-                                makeTurnOn ? "turnOnRunByRunTable" : "maxClusterOverlaysRunByRunTable",
-                                pageIdx + 1).Data());
+                                                tableOutDir,
+                                                TString::Format("%s_page%03zu.png",
+                                                                makeTurnOn ? "turnOnRunByRunTable" : "maxClusterOverlaysRunByRunTable",
+                                                                pageIdx + 1).Data());
             SaveCanvas(c, outPng);
             cout << ANSI_BOLD_GRN << "[WROTE] " << outPng << ANSI_RESET << "\n";
             
@@ -1661,7 +1661,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         {
             drawGroupTurnOnOverlay(it->second, groupOutDir, "");
         }
-
+        
         WriteTextFile(JoinPath(groupOutDir, "summary.txt"), summary);
         indexLines.push_back(folder + " -> " + it->second.front().basisLabel);
         for (const auto& P : it->second)
@@ -1763,9 +1763,9 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
     if (generatePerRunTriggerAnaForGoodRunsOnly && generatePerRunTriggerAna)
     {
         std::cerr << ANSI_BOLD_RED
-                  << "[FATAL] generatePerRunTriggerAnaForGoodRunsOnly and generatePerRunTriggerAna "
-                     "cannot both be true. Set generatePerRunTriggerAna = false when using good-runs-only mode."
-                  << ANSI_RESET << "\n";
+        << "[FATAL] generatePerRunTriggerAnaForGoodRunsOnly and generatePerRunTriggerAna "
+        "cannot both be true. Set generatePerRunTriggerAna = false when using good-runs-only mode."
+        << ANSI_RESET << "\n";
         return;
     }
     
@@ -1774,8 +1774,8 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         if (goodTriggerRuns.empty())
         {
             cout << ANSI_BOLD_YEL
-                 << "[WARN] generatePerRunTriggerAnaForGoodRunsOnly is true but goodTriggerRuns is empty. Skipping."
-                 << ANSI_RESET << "\n";
+            << "[WARN] generatePerRunTriggerAnaForGoodRunsOnly is true but goodTriggerRuns is empty. Skipping."
+            << ANSI_RESET << "\n";
         }
         else
         {
@@ -1791,8 +1791,8 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             std::vector<int> missingRuns;
             
             cout << ANSI_BOLD_GRN
-                 << "[GOOD-RUNS-ONLY] Combining " << goodTriggerRuns.size()
-                 << " runs for group overlays..." << ANSI_RESET << "\n";
+            << "[GOOD-RUNS-ONLY] Combining " << goodTriggerRuns.size()
+            << " runs for group overlays..." << ANSI_RESET << "\n";
             
             for (int runNum : goodTriggerRuns)
             {
@@ -1838,10 +1838,10 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                         LP.coverageText  = "goodRunsOnly combined";
                         LP.nRunSpans     = 1;
                         LP.hProbe = static_cast<TH1*>(P.hProbe->Clone(
-                            TString::Format("goodAcc_probe_%s", P.probeKey.c_str())));
+                                                                      TString::Format("goodAcc_probe_%s", P.probeKey.c_str())));
                         LP.hProbe->SetDirectory(nullptr);
                         LP.hBase = static_cast<TH1*>(P.hBase->Clone(
-                            TString::Format("goodAcc_base_%s", P.probeKey.c_str())));
+                                                                    TString::Format("goodAcc_base_%s", P.probeKey.c_str())));
                         LP.hBase->SetDirectory(nullptr);
                         accPairs[P.probeKey] = LP;
                     }
@@ -1863,7 +1863,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                 accVec.reserve(accPairs.size());
                 for (auto& kv : accPairs) accVec.push_back(kv.second);
                 std::sort(accVec.begin(), accVec.end(), [&](const LoadedPair& a, const LoadedPair& b)
-                {
+                          {
                     return extractPhotonThresholdGeV(a.probeKey) < extractPhotonThresholdGeV(b.probeKey);
                 });
                 
@@ -1871,9 +1871,9 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                 drawGroupTurnOnOverlay(accVec, groupOutDir, "");
                 
                 cout << ANSI_BOLD_GRN
-                     << "[GOOD-RUNS-ONLY] Built combined overlays from " << nGoodFound
-                     << " good runs (" << nGoodMissing << " missing/empty)"
-                     << ANSI_RESET << "\n";
+                << "[GOOD-RUNS-ONLY] Built combined overlays from " << nGoodFound
+                << " good runs (" << nGoodMissing << " missing/empty)"
+                << ANSI_RESET << "\n";
                 
                 if (!missingRuns.empty())
                 {
@@ -1895,9 +1895,9 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             else
             {
                 cout << ANSI_BOLD_RED
-                     << "[GOOD-RUNS-ONLY] No usable data found from any of the "
-                     << goodTriggerRuns.size() << " listed runs."
-                     << ANSI_RESET << "\n";
+                << "[GOOD-RUNS-ONLY] No usable data found from any of the "
+                << goodTriggerRuns.size() << " listed runs."
+                << ANSI_RESET << "\n";
             }
         }
     }
@@ -1917,8 +1917,8 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             std::vector<int> missingRuns;
             
             cout << ANSI_BOLD_GRN
-                 << "[GOOD-RUNS-ONLY vtx10] Combining " << goodTriggerRuns_vtx10.size()
-                 << " runs for group overlays..." << ANSI_RESET << "\n";
+            << "[GOOD-RUNS-ONLY vtx10] Combining " << goodTriggerRuns_vtx10.size()
+            << " runs for group overlays..." << ANSI_RESET << "\n";
             
             for (int runNum : goodTriggerRuns_vtx10)
             {
@@ -1964,10 +1964,10 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                         LP.coverageText  = "goodRunsOnly vtx10 combined";
                         LP.nRunSpans     = 1;
                         LP.hProbe = static_cast<TH1*>(P.hProbe->Clone(
-                            TString::Format("goodAcc10_probe_%s", P.probeKey.c_str())));
+                                                                      TString::Format("goodAcc10_probe_%s", P.probeKey.c_str())));
                         LP.hProbe->SetDirectory(nullptr);
                         LP.hBase = static_cast<TH1*>(P.hBase->Clone(
-                            TString::Format("goodAcc10_base_%s", P.probeKey.c_str())));
+                                                                    TString::Format("goodAcc10_base_%s", P.probeKey.c_str())));
                         LP.hBase->SetDirectory(nullptr);
                         accPairs[P.probeKey] = LP;
                     }
@@ -1989,7 +1989,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                 accVec.reserve(accPairs.size());
                 for (auto& kv : accPairs) accVec.push_back(kv.second);
                 std::sort(accVec.begin(), accVec.end(), [&](const LoadedPair& a, const LoadedPair& b)
-                {
+                          {
                     return extractPhotonThresholdGeV(a.probeKey) < extractPhotonThresholdGeV(b.probeKey);
                 });
                 
@@ -1997,9 +1997,9 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                 drawGroupTurnOnOverlay(accVec, groupOutDir, "");
                 
                 cout << ANSI_BOLD_GRN
-                     << "[GOOD-RUNS-ONLY vtx10] Built combined overlays from " << nGoodFound
-                     << " good runs (" << nGoodMissing << " missing/empty)"
-                     << ANSI_RESET << "\n";
+                << "[GOOD-RUNS-ONLY vtx10] Built combined overlays from " << nGoodFound
+                << " good runs (" << nGoodMissing << " missing/empty)"
+                << ANSI_RESET << "\n";
                 
                 for (auto& kv : accPairs)
                 {
@@ -2055,9 +2055,9 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             perRunSummary.push_back(string("AccessPathName says exists: ") + (perRunDirExists ? "YES" : "NO"));
             
             cout << ANSI_BOLD_YEL
-                 << "[WARN] Could not open per-run triggerQA input directory: "
-                 << perRunInputDir
-                 << ANSI_RESET << "\n";
+            << "[WARN] Could not open per-run triggerQA input directory: "
+            << perRunInputDir
+            << ANSI_RESET << "\n";
         }
         else
         {
@@ -2085,8 +2085,8 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             std::sort(discovered.begin(), discovered.end(),
                       [&](const PerRunTriggerAnaItem& a, const PerRunTriggerAnaItem& b)
                       {
-                          return a.runLabel < b.runLabel;
-                      });
+                return a.runLabel < b.runLabel;
+            });
             
             nDiscoveredRuns = static_cast<int>(discovered.size());
             perRunSummary.push_back(TString::Format("Discovered chunkMerge_run files: %d", nDiscoveredRuns).Data());
@@ -2126,8 +2126,8 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                     if (missingFlags > 0)
                     {
                         const std::string shortLbl =
-                            (item.runLabel.rfind("000", 0) == 0 && item.runLabel.size() > 3)
-                            ? item.runLabel.substr(3) : item.runLabel;
+                        (item.runLabel.rfind("000", 0) == 0 && item.runLabel.size() > 3)
+                        ? item.runLabel.substr(3) : item.runLabel;
                         scaledMissingByPattern[missingFlags].push_back(shortLbl);
                     }
                 }
@@ -2169,36 +2169,36 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                     if (nAllPairs <= 0)
                     {
                         perRunSummary.push_back(
-                            TString::Format("RUN %s : NO_DONOTSCALE_PAIRS | allPairs=%d | targetGroupPairs=%d | photon10=%s | photon12=%s | path=%s",
-                                            item.runLabel.c_str(),
-                                            nAllPairs,
-                                            nTargetPairs,
-                                            hasPhoton10 ? "YES" : "NO",
-                                            hasPhoton12 ? "YES" : "NO",
-                                            item.filePath.c_str()).Data());
+                                                TString::Format("RUN %s : NO_DONOTSCALE_PAIRS | allPairs=%d | targetGroupPairs=%d | photon10=%s | photon12=%s | path=%s",
+                                                                item.runLabel.c_str(),
+                                                                nAllPairs,
+                                                                nTargetPairs,
+                                                                hasPhoton10 ? "YES" : "NO",
+                                                                hasPhoton12 ? "YES" : "NO",
+                                                                item.filePath.c_str()).Data());
                     }
                     else if (nTargetPairs <= 0)
                     {
                         perRunSummary.push_back(
-                            TString::Format("RUN %s : TARGET_GROUP_ABSENT | allPairs=%d | targetGroupPairs=%d | photon10=%s | photon12=%s | path=%s",
-                                            item.runLabel.c_str(),
-                                            nAllPairs,
-                                            nTargetPairs,
-                                            hasPhoton10 ? "YES" : "NO",
-                                            hasPhoton12 ? "YES" : "NO",
-                                            item.filePath.c_str()).Data());
+                                                TString::Format("RUN %s : TARGET_GROUP_ABSENT | allPairs=%d | targetGroupPairs=%d | photon10=%s | photon12=%s | path=%s",
+                                                                item.runLabel.c_str(),
+                                                                nAllPairs,
+                                                                nTargetPairs,
+                                                                hasPhoton10 ? "YES" : "NO",
+                                                                hasPhoton12 ? "YES" : "NO",
+                                                                item.filePath.c_str()).Data());
                     }
                     else
                     {
                         ++nRunsTargetGroupButNoPhoton10Or12;
                         perRunSummary.push_back(
-                            TString::Format("RUN %s : TARGET_GROUP_PRESENT_BUT_NO_PHOTON10_12 | allPairs=%d | targetGroupPairs=%d | photon10=%s | photon12=%s | path=%s",
-                                            item.runLabel.c_str(),
-                                            nAllPairs,
-                                            nTargetPairs,
-                                            hasPhoton10 ? "YES" : "NO",
-                                            hasPhoton12 ? "YES" : "NO",
-                                            item.filePath.c_str()).Data());
+                                                TString::Format("RUN %s : TARGET_GROUP_PRESENT_BUT_NO_PHOTON10_12 | allPairs=%d | targetGroupPairs=%d | photon10=%s | photon12=%s | path=%s",
+                                                                item.runLabel.c_str(),
+                                                                nAllPairs,
+                                                                nTargetPairs,
+                                                                hasPhoton10 ? "YES" : "NO",
+                                                                hasPhoton12 ? "YES" : "NO",
+                                                                item.filePath.c_str()).Data());
                     }
                     
                     fRun->Close();
@@ -2215,14 +2215,14 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                 ++nRunsRenderable;
                 perRunItems.push_back(item);
                 perRunSummary.push_back(
-                    TString::Format("RUN %s : RENDERED | allPairs=%d | targetGroupPairs=%d | photon10=%s | photon12=%s | renderPairs=%d | outDir=%s",
-                                    item.runLabel.c_str(),
-                                    nAllPairs,
-                                    nTargetPairs,
-                                    hasPhoton10 ? "YES" : "NO",
-                                    hasPhoton12 ? "YES" : "NO",
-                                    nFiltered,
-                                    runOutDir.c_str()).Data());
+                                        TString::Format("RUN %s : RENDERED | allPairs=%d | targetGroupPairs=%d | photon10=%s | photon12=%s | renderPairs=%d | outDir=%s",
+                                                        item.runLabel.c_str(),
+                                                        nAllPairs,
+                                                        nTargetPairs,
+                                                        hasPhoton10 ? "YES" : "NO",
+                                                        hasPhoton12 ? "YES" : "NO",
+                                                        nFiltered,
+                                                        runOutDir.c_str()).Data());
                 
                 if (!badRunSet.empty())
                 {
@@ -2249,10 +2249,10 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                                 LP.coverageText  = "badTrigRun-filtered combined";
                                 LP.nRunSpans     = 1;
                                 LP.hProbe = static_cast<TH1*>(P.hProbe->Clone(
-                                    TString::Format("acc_probe_%s", P.probeKey.c_str())));
+                                                                              TString::Format("acc_probe_%s", P.probeKey.c_str())));
                                 LP.hProbe->SetDirectory(nullptr);
                                 LP.hBase = static_cast<TH1*>(P.hBase->Clone(
-                                    TString::Format("acc_base_%s", P.probeKey.c_str())));
+                                                                            TString::Format("acc_base_%s", P.probeKey.c_str())));
                                 LP.hBase->SetDirectory(nullptr);
                                 accPairs[P.probeKey] = LP;
                             }
@@ -2305,7 +2305,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                 accVec.reserve(accPairs.size());
                 for (auto& kv : accPairs) accVec.push_back(kv.second);
                 std::sort(accVec.begin(), accVec.end(), [&](const LoadedPair& a, const LoadedPair& b)
-                {
+                          {
                     return extractPhotonThresholdGeV(a.probeKey) < extractPhotonThresholdGeV(b.probeKey);
                 });
                 
@@ -2315,26 +2315,26 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                 
                 const int nGoodRuns = nRunsRenderable - nBadTriggerRunsSkipped;
                 cout << "\n" << ANSI_BOLD_GRN
-                     << "========== BAD-TRIGGER-RUN FILTER SUMMARY ==========" << ANSI_RESET << "\n"
-                     << "  Total renderable runs (with doNotScale data) : " << nRunsRenderable << "\n"
-                     << "  Runs in badTriggerRuns vector                : " << static_cast<int>(badTriggerRuns.size()) << "\n"
-                     << ANSI_BOLD_RED
-                     << "  Runs removed (in vector AND renderable)      : " << nBadTriggerRunsSkipped << ANSI_RESET << "\n"
-                     << ANSI_BOLD_GRN
-                     << "  Runs used for combined overlays               : " << nGoodRuns << ANSI_RESET << "\n"
-                     << ANSI_BOLD_GRN
-                     << "====================================================" << ANSI_RESET << "\n\n";
+                << "========== BAD-TRIGGER-RUN FILTER SUMMARY ==========" << ANSI_RESET << "\n"
+                << "  Total renderable runs (with doNotScale data) : " << nRunsRenderable << "\n"
+                << "  Runs in badTriggerRuns vector                : " << static_cast<int>(badTriggerRuns.size()) << "\n"
+                << ANSI_BOLD_RED
+                << "  Runs removed (in vector AND renderable)      : " << nBadTriggerRunsSkipped << ANSI_RESET << "\n"
+                << ANSI_BOLD_GRN
+                << "  Runs used for combined overlays               : " << nGoodRuns << ANSI_RESET << "\n"
+                << ANSI_BOLD_GRN
+                << "====================================================" << ANSI_RESET << "\n\n";
                 
                 perRunSummary.push_back("");
                 perRunSummary.push_back("[BAD-TRIGGER-RUN FILTER SUMMARY]");
                 perRunSummary.push_back(TString::Format(
-                    "  Total renderable runs: %d", nRunsRenderable).Data());
+                                                        "  Total renderable runs: %d", nRunsRenderable).Data());
                 perRunSummary.push_back(TString::Format(
-                    "  Runs in badTriggerRuns vector: %d", static_cast<int>(badTriggerRuns.size())).Data());
+                                                        "  Runs in badTriggerRuns vector: %d", static_cast<int>(badTriggerRuns.size())).Data());
                 perRunSummary.push_back(TString::Format(
-                    "  Runs removed: %d", nBadTriggerRunsSkipped).Data());
+                                                        "  Runs removed: %d", nBadTriggerRunsSkipped).Data());
                 perRunSummary.push_back(TString::Format(
-                    "  Runs used for combined overlays: %d", nGoodRuns).Data());
+                                                        "  Runs used for combined overlays: %d", nGoodRuns).Data());
                 
                 for (auto& kv : accPairs)
                 {
@@ -2375,12 +2375,12 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             };
             
             cout << "\n" << ANSI_BOLD_YEL
-                 << "========== SCALED-TRIGGER DIAGNOSTIC (cnt_ histogram check) =========="
-                 << ANSI_RESET << "\n";
+            << "========== SCALED-TRIGGER DIAGNOSTIC (cnt_ histogram check) =========="
+            << ANSI_RESET << "\n";
             
             cout << ANSI_BOLD_YEL
-                 << "  [EXCLUSIVE PATTERNS] (exactly these missing, others present)"
-                 << ANSI_RESET << "\n";
+            << "  [EXCLUSIVE PATTERNS] (exactly these missing, others present)"
+            << ANSI_RESET << "\n";
             
             struct PatDesc { int flag; std::string label; };
             const std::vector<PatDesc> excPatterns = {
@@ -2397,13 +2397,13 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                 auto runs = runsWithExactPattern(pd.flag);
                 if (runs.empty()) continue;
                 cout << ANSI_BOLD_RED << "    Missing " << pd.label
-                     << " : " << runs.size() << " runs" << ANSI_RESET << "\n"
-                     << "      " << joinVec(runs) << "\n";
+                << " : " << runs.size() << " runs" << ANSI_RESET << "\n"
+                << "      " << joinVec(runs) << "\n";
             }
             
             cout << ANSI_BOLD_YEL
-                 << "  [AGGREGATE] (any run missing at least these)"
-                 << ANSI_RESET << "\n";
+            << "  [AGGREGATE] (any run missing at least these)"
+            << ANSI_RESET << "\n";
             
             struct AggDesc { int bits; std::string label; };
             const std::vector<AggDesc> aggPatterns = {
@@ -2420,13 +2420,13 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                 auto runs = runsWithBitsMissing(ad.bits);
                 if (runs.empty()) continue;
                 cout << "    Missing (at least) " << ad.label
-                     << " : " << runs.size() << " runs\n"
-                     << "      " << joinVec(runs) << "\n";
+                << " : " << runs.size() << " runs\n"
+                << "      " << joinVec(runs) << "\n";
             }
             
             cout << ANSI_BOLD_YEL
-                 << "======================================================================="
-                 << ANSI_RESET << "\n\n";
+            << "======================================================================="
+            << ANSI_RESET << "\n\n";
             
             perRunSummary.push_back("");
             perRunSummary.push_back("[SCALED-TRIGGER DIAGNOSTIC]");
@@ -2435,14 +2435,14 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                 auto runs = runsWithExactPattern(pd.flag);
                 if (!runs.empty())
                     perRunSummary.push_back("  Missing " + pd.label + " : "
-                        + std::to_string(runs.size()) + " runs : " + joinVec(runs));
+                                            + std::to_string(runs.size()) + " runs : " + joinVec(runs));
             }
             for (const auto& ad : aggPatterns)
             {
                 auto runs = runsWithBitsMissing(ad.bits);
                 if (!runs.empty())
                     perRunSummary.push_back("  Missing (at least) " + ad.label + " : "
-                        + std::to_string(runs.size()) + " runs : " + joinVec(runs));
+                                            + std::to_string(runs.size()) + " runs : " + joinVec(runs));
             }
         }
         
@@ -2510,8 +2510,8 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
             };
             
             cout << ANSI_BOLD_YEL
-                 << "========== badTriggerRuns VECTOR QA =========="
-                 << ANSI_RESET << "\n";
+            << "========== badTriggerRuns VECTOR QA =========="
+            << ANSI_RESET << "\n";
             cout << "  Total runs in badTriggerRuns vector : " << badTriggerRuns.size() << "\n";
             cout << "  Found in renderable per-run files   : " << badFound.size() << "\n";
             cout << "  NOT found (missing or not renderable): " << badNotFound.size() << "\n";
@@ -2531,29 +2531,29 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                 auto it = badByPattern.find(pd.flag);
                 if (it == badByPattern.end() || it->second.empty()) continue;
                 cout << ANSI_BOLD_RED << "    Missing " << pd.label
-                     << " : " << it->second.size() << " runs" << ANSI_RESET << "\n"
-                     << "      " << joinInts(it->second) << "\n";
+                << " : " << it->second.size() << " runs" << ANSI_RESET << "\n"
+                << "      " << joinInts(it->second) << "\n";
             }
             
             cout << ANSI_BOLD_YEL
-                 << "==============================================="
-                 << ANSI_RESET << "\n\n";
+            << "==============================================="
+            << ANSI_RESET << "\n\n";
             
             perRunSummary.push_back("");
             perRunSummary.push_back("[badTriggerRuns VECTOR QA]");
             perRunSummary.push_back("  Total in vector: " + std::to_string(badTriggerRuns.size()));
             perRunSummary.push_back("  Found renderable: " + std::to_string(badFound.size()));
             perRunSummary.push_back("  Not found: " + std::to_string(badNotFound.size())
-                + (badNotFound.empty() ? "" : " : " + joinInts(badNotFound)));
+                                    + (badNotFound.empty() ? "" : " : " + joinInts(badNotFound)));
             perRunSummary.push_back("  All triggers present (visual flag only): " + std::to_string(badFoundAllTrigsPresent.size())
-                + (badFoundAllTrigsPresent.empty() ? "" : " : " + joinInts(badFoundAllTrigsPresent)));
+                                    + (badFoundAllTrigsPresent.empty() ? "" : " : " + joinInts(badFoundAllTrigsPresent)));
             perRunSummary.push_back("  With missing scaled triggers: " + std::to_string(nWithMissing));
             for (const auto& pd : patDescs)
             {
                 auto it = badByPattern.find(pd.flag);
                 if (it != badByPattern.end() && !it->second.empty())
                     perRunSummary.push_back("    Missing " + pd.label + " : "
-                        + std::to_string(it->second.size()) + " : " + joinInts(it->second));
+                                            + std::to_string(it->second.size()) + " : " + joinInts(it->second));
             }
         }
         
@@ -2579,9 +2579,9 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                     writePerRunTablePages(badItems, targetGroup, badMaxTableDir, false, 10, 5, 5120, 2880);
                     
                     cout << ANSI_BOLD_YEL
-                         << "[BAD-TRIGGER-RUN TABLES] Wrote " << badItems.size()
-                         << " bad-run overlays to " << badMaxTableDir
-                         << ANSI_RESET << "\n";
+                    << "[BAD-TRIGGER-RUN TABLES] Wrote " << badItems.size()
+                    << " bad-run overlays to " << badMaxTableDir
+                    << ANSI_RESET << "\n";
                 }
             }
         }
@@ -2686,10 +2686,10 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                                 LP.coverageText  = "badTrigRun-filtered vtx10 combined";
                                 LP.nRunSpans     = 1;
                                 LP.hProbe = static_cast<TH1*>(P.hProbe->Clone(
-                                    TString::Format("acc10_probe_%s", P.probeKey.c_str())));
+                                                                              TString::Format("acc10_probe_%s", P.probeKey.c_str())));
                                 LP.hProbe->SetDirectory(nullptr);
                                 LP.hBase = static_cast<TH1*>(P.hBase->Clone(
-                                    TString::Format("acc10_base_%s", P.probeKey.c_str())));
+                                                                            TString::Format("acc10_base_%s", P.probeKey.c_str())));
                                 LP.hBase->SetDirectory(nullptr);
                                 accPairs10[P.probeKey] = LP;
                             }
@@ -2713,7 +2713,7 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                 accVec.reserve(accPairs10.size());
                 for (auto& kv : accPairs10) accVec.push_back(kv.second);
                 std::sort(accVec.begin(), accVec.end(), [&](const LoadedPair& a, const LoadedPair& b)
-                {
+                          {
                     return extractPhotonThresholdGeV(a.probeKey) < extractPhotonThresholdGeV(b.probeKey);
                 });
                 
@@ -2723,15 +2723,15 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
                 
                 const int nGood10 = nRenderable10 - nBadSkipped10;
                 cout << "\n" << ANSI_BOLD_GRN
-                     << "========== BAD-TRIGGER-RUN FILTER SUMMARY (vtx10) ==========" << ANSI_RESET << "\n"
-                     << "  Total renderable runs (with doNotScale data) : " << nRenderable10 << "\n"
-                     << "  Runs in badTriggerRuns_vtx10 vector           : " << static_cast<int>(badTriggerRuns_vtx10.size()) << "\n"
-                     << ANSI_BOLD_RED
-                     << "  Runs removed (in vector AND renderable)       : " << nBadSkipped10 << ANSI_RESET << "\n"
-                     << ANSI_BOLD_GRN
-                     << "  Runs used for combined overlays                : " << nGood10 << ANSI_RESET << "\n"
-                     << ANSI_BOLD_GRN
-                     << "=============================================================" << ANSI_RESET << "\n\n";
+                << "========== BAD-TRIGGER-RUN FILTER SUMMARY (vtx10) ==========" << ANSI_RESET << "\n"
+                << "  Total renderable runs (with doNotScale data) : " << nRenderable10 << "\n"
+                << "  Runs in badTriggerRuns_vtx10 vector           : " << static_cast<int>(badTriggerRuns_vtx10.size()) << "\n"
+                << ANSI_BOLD_RED
+                << "  Runs removed (in vector AND renderable)       : " << nBadSkipped10 << ANSI_RESET << "\n"
+                << ANSI_BOLD_GRN
+                << "  Runs used for combined overlays                : " << nGood10 << ANSI_RESET << "\n"
+                << ANSI_BOLD_GRN
+                << "=============================================================" << ANSI_RESET << "\n\n";
                 
                 for (auto& kv : accPairs10)
                 {
