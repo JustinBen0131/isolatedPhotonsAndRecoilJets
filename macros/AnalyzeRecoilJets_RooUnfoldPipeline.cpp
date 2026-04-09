@@ -1454,7 +1454,7 @@
           delete fBDT;
         };
 
-        MakeSamOverlayRawPurityPlot();
+//        MakeSamOverlayRawPurityPlot();
 
         // -----------------------------------------------------------------
         // 2x2 ABCD counts comparison panel: last 2 pT bins, Box vs BDT
@@ -1651,7 +1651,7 @@
           delete fBDT2;
         };
 
-        MakeABCDComparisonPanel();
+//        MakeABCDComparisonPanel();
 
         const string phoRecoName   = "h_unfoldRecoPho_pTgamma";
         const string phoTruthName  = "h_unfoldTruthPho_pTgamma";
@@ -3092,9 +3092,41 @@
               DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
               DrawLatexLines(0.14,0.78, { "Photon unfolding: N_{#gamma}(p_{T}^{#gamma})" }, 0.030, 0.040);
 
-              SaveCanvas(c, JoinPath(phoDir, "pho_unfolded_truth_pTgamma_overlay.png"));
+                SaveCanvas(c, JoinPath(phoDir, "pho_unfolded_truth_pTgamma_overlay.png"));
 
-              // Also save a log-y version (keep the linear-y output above as-is),
+                // Individual yield PNGs: before (reco) and after (unfolded)
+                {
+                  TCanvas cBefore("c_pho_yield_before", "c_pho_yield_before", 900, 700);
+                  ApplyCanvasMargins1D(cBefore);
+                  TH1* hB = (TH1*)hRecoShape->Clone("hPhoYield_before");
+                  hB->SetDirectory(nullptr);
+                  hB->SetTitle("");
+                  hB->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                  hB->GetYaxis()->SetTitle("Counts");
+                  hB->SetMaximum(hB->GetMaximum() * 1.25);
+                  hB->Draw("E1");
+                  DrawLatexLines(0.14, 0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
+                  DrawLatexLines(0.14, 0.78, { "Photon yield: reco (before unfolding)" }, 0.030, 0.040);
+                  SaveCanvas(cBefore, JoinPath(phoYieldDir, "pho_yield_reco_before_unfolding.png"));
+                  delete hB;
+                }
+                {
+                  TCanvas cAfter("c_pho_yield_after", "c_pho_yield_after", 900, 700);
+                  ApplyCanvasMargins1D(cAfter);
+                  TH1* hA = (TH1*)hUnfShape->Clone("hPhoYield_after");
+                  hA->SetDirectory(nullptr);
+                  hA->SetTitle("");
+                  hA->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                  hA->GetYaxis()->SetTitle("Counts");
+                  hA->SetMaximum(hA->GetMaximum() * 1.25);
+                  hA->Draw("E1");
+                  DrawLatexLines(0.14, 0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
+                  DrawLatexLines(0.14, 0.78, { TString::Format("Photon yield: unfolded (truth), Bayes it=%d", kBayesIterPho).Data() }, 0.030, 0.040);
+                  SaveCanvas(cAfter, JoinPath(phoYieldDir, "pho_yield_unfolded_truth.png"));
+                  delete hA;
+                }
+
+                // Also save a log-y version (keep the linear-y output above as-is),
               // but only draw the common analysis bins (10-35 GeV) and add a ratio subpanel.
               {
                     const double xPlotMin = 10.0;
@@ -6939,12 +6971,44 @@
                     DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
                     DrawLatexLines(0.14,0.78, { "Photon unfolding: N_{#gamma}(p_{T}^{#gamma})" }, 0.030, 0.040);
       
-                    SaveCanvas(c, JoinPath(phoDir, "pho_unfolded_truth_pTgamma_overlay.png"));
-      
-                    // Also save a log-y version (keep the linear-y output above as-is),
-                    // but only draw the common analysis bins (10-35 GeV) and add a ratio subpanel.
-                    {
-                          const double xPlotMin = 10.0;
+                      SaveCanvas(c, JoinPath(phoDir, "pho_unfolded_truth_pTgamma_overlay.png"));
+
+                      // Individual yield PNGs: before (reco) and after (unfolded)
+                      {
+                        TCanvas cBefore("c_pho_yield_before_incl", "c_pho_yield_before_incl", 900, 700);
+                        ApplyCanvasMargins1D(cBefore);
+                        TH1* hB = (TH1*)hRecoShape->Clone("hPhoYield_before_incl");
+                        hB->SetDirectory(nullptr);
+                        hB->SetTitle("");
+                        hB->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                        hB->GetYaxis()->SetTitle("Counts");
+                        hB->SetMaximum(hB->GetMaximum() * 1.25);
+                        hB->Draw("E1");
+                        DrawLatexLines(0.14, 0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
+                        DrawLatexLines(0.14, 0.78, { "Photon yield: reco (before unfolding)" }, 0.030, 0.040);
+                        SaveCanvas(cBefore, JoinPath(phoYieldDir, "pho_yield_reco_before_unfolding.png"));
+                        delete hB;
+                      }
+                      {
+                        TCanvas cAfter("c_pho_yield_after_incl", "c_pho_yield_after_incl", 900, 700);
+                        ApplyCanvasMargins1D(cAfter);
+                        TH1* hA = (TH1*)hUnfShape->Clone("hPhoYield_after_incl");
+                        hA->SetDirectory(nullptr);
+                        hA->SetTitle("");
+                        hA->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                        hA->GetYaxis()->SetTitle("Counts");
+                        hA->SetMaximum(hA->GetMaximum() * 1.25);
+                        hA->Draw("E1");
+                        DrawLatexLines(0.14, 0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
+                        DrawLatexLines(0.14, 0.78, { TString::Format("Photon yield: unfolded (truth), Bayes it=%d", kBayesIterPho).Data() }, 0.030, 0.040);
+                        SaveCanvas(cAfter, JoinPath(phoYieldDir, "pho_yield_unfolded_truth.png"));
+                        delete hA;
+                      }
+        
+                      // Also save a log-y version (keep the linear-y output above as-is),
+                      // but only draw the common analysis bins (10-35 GeV) and add a ratio subpanel.
+                      {
+                            const double xPlotMin = 10.0;
                           const double xPlotMax = 35.0;
       
                           auto scanMaxInRange = [&](TH1* h)->double
