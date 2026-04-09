@@ -598,7 +598,11 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
         const CentBin& cb,
         const PtBin& b,
         const string& outRoot,
-        TDirectory* templateTopDir) -> void
+        TDirectory* templateTopDir,
+        TDirectory* bkgOverrideDir = nullptr,
+        const string& sigLegLabel  = "Signal MC",
+        const string& bkgLegLabel  = "Background MC",
+        bool shiftLegendLeft       = false) -> void
     {
         if (!HaveAllVariantFiles(cfg.indices)) return;
         if (!ppTop || !templateTopDir) return;
@@ -625,7 +629,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                 
                 TH1* rawPP  = GetTH1FromTopDir(ppTop, hPPName);
                 TH1* rawSig = GetTH1FromTopDir(templateTopDir, hSigName);
-                TH1* rawBkg = GetTH1FromTopDir(templateTopDir, hBkgName);
+                TH1* rawBkg = GetTH1FromTopDir(bkgOverrideDir ? bkgOverrideDir : templateTopDir, hBkgName);
                 
                 vector<std::pair<std::size_t, TH1*> > rawAAs;
                 for (std::size_t idx : cfg.indices)
@@ -840,15 +844,17 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                 
                 if (drawLegend)
                 {
-                    TLegend* leg = (isW ? new TLegend(0.41, 0.55, 0.85, 0.80) : new TLegend(0.18, 0.55, 0.62, 0.80));
+                    TLegend* leg = shiftLegendLeft
+                         ? (isW ? new TLegend(0.30, 0.55, 0.82, 0.80) : new TLegend(0.12, 0.55, 0.64, 0.80))
+                         : (isW ? new TLegend(0.41, 0.55, 0.85, 0.80) : new TLegend(0.18, 0.55, 0.62, 0.80));
                     leg->SetBorderSize(0);
                     leg->SetFillStyle(0);
                     leg->SetTextFont(42);
                     leg->SetTextSize(0.036);
                     
                     if (hPP)  leg->AddEntry(hPP,  "pp", "ep");
-                    if (hSig) leg->AddEntry(hSig, "Signal MC", "l");
-                    if (hBkg) leg->AddEntry(hBkg, "Background MC", "l");
+                    if (hSig) leg->AddEntry(hSig, sigLegLabel.c_str(), "l");
+                    if (hBkg) leg->AddEntry(hBkg, bkgLegLabel.c_str(), "l");
                     for (const auto& hAAPair : hAAs)
                     {
                         leg->AddEntry(
@@ -1100,6 +1106,41 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
             keepLegs2.clear();
             for (TH1* h : keepAlive2) delete h;
             keepAlive2.clear();
+
+            // ── Per-variable individual PNGs ──
+            {
+                const string varDir = JoinPath(outRoot, "perVariable/" + tag);
+                EnsureDir(varDir);
+
+                for (int iv = 0; iv < (int)ssVars.size(); ++iv)
+                {
+                    std::vector<TH1*> keepAliveVar;
+                    std::vector<TLegend*> keepLegsVar;
+
+                    TCanvas cVar(
+                        TString::Format("c_ssQA_var_%s_%s_%s_%s_%s",
+                                        cfg.folder.c_str(), tag.c_str(),
+                                        ssVars[iv].var.c_str(),
+                                        cb.folder.c_str(), b.folder.c_str()).Data(),
+                        "c_ssQA_var", 900, 700
+                    );
+                    ApplyCanvasMargins1D(cVar);
+                    cVar.cd();
+                    gPad->SetLeftMargin(0.14);
+                    gPad->SetRightMargin(0.05);
+                    gPad->SetBottomMargin(0.14);
+                    gPad->SetTopMargin(0.18);
+                    gPad->SetLogy(false);
+
+                    if (DrawVariantPad(true, false, iv, keepAliveVar, keepLegsVar))
+                    {
+                        SaveCanvas(cVar, JoinPath(varDir, ssVars[iv].var + ".png"));
+                    }
+
+                    for (TLegend* l : keepLegsVar) delete l;
+                    for (TH1* h : keepAliveVar) delete h;
+                }
+            }
         }
     };
     
@@ -1145,6 +1186,56 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
         }
     }
     
+    // ── Mixed overlay: photon+jet signal × inclusive-jet background ──
+    {
+        TDirectory* sigDir = EnsureEmbeddedTemplateTopDir();                       // photon+jet embedded
+        TDirectory* bkgDir = fInclJetSS ? fInclJetSS->GetDirectory(kDirSIM.c_str()) : nullptr;
+
+        if (sigDir && bkgDir)
+        {
+            // Build embedded-sample tag strings for legend labels
+            string photTag;
+            if (bothPhoton10and20simEmbedded)       photTag = "10+20";
+            else if (isPhotonJet10Embedded)          photTag = "10";
+            else                                     photTag = "20";
+
+            string inclTag;
+            if (bothInclusiveJet10and20simEmbedded)  inclTag = "10+20";
+            else if (isInclusiveJet10Embedded)       inclTag = "10";
+            else                                     inclTag = "20";
+
+            const string sigLabel = "Signal MC (#gamma+jet " + photTag + " emb)";
+            const string bkgLabel = "Bkg MC (inclusive jet " + inclTag + " emb)";
+
+            for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+            {
+                const auto& cb = centBins[ic];
+                const string centDir = JoinPath(ssQADir, cb.folder);
+                EnsureDir(centDir);
+
+                for (int ipt = 0; ipt < kNPtBins; ++ipt)
+                {
+                    const PtBin& b = PtBins()[ipt];
+                    const string ptDir  = JoinPath(centDir, b.folder);
+                    EnsureDir(ptDir);
+                    const string mixDir = JoinPath(ptDir, "inclusiveBACKGROUNDphotonJetSIGNALoverlay");
+                    EnsureDir(mixDir);
+
+                    for (const auto& cfg : pythiaOverlayCfgs)
+                    {
+                        if (!HaveAllVariantFiles(cfg.indices)) continue;
+
+                        const string cfgDir = JoinPath(mixDir, cfg.folder);
+                        EnsureDir(cfgDir);
+                        DrawPythiaOverlaySet(cfg, cb, b, cfgDir,
+                                             sigDir, bkgDir,
+                                             sigLabel, bkgLabel, true);
+                    }
+                }
+            }
+        }
+    }
+
     CloseTemplateFile(fSimSSEmbedded, simTopSSEmbedded);
     if (fInclJetSS) { fInclJetSS->Close(); delete fInclJetSS; fInclJetSS = nullptr; }
 }
