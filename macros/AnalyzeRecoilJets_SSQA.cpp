@@ -29,7 +29,7 @@ auto TagFolder = [&](const string& tag) -> string
   return tag;
 };
 
-const vector<string> ppg12Tags = {"pre", "tight", "nonTight"};
+const vector<string> ppg12Tags = {"inclusive", "pre", "tight", "nonTight"};
 
 const int ssQA_rebinFactor = 3;
 std::set<TH1*> ssQA_alreadyRebinned;
@@ -370,7 +370,67 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
         return simTopSSEmbedded;
     };
 
+    // --- Build vector of all SIM template sources for Pythia overlay tables ---
+    struct SSTemplateSource {
+        string folderName;
+        TDirectory* topDir;
+        TFile* ownedFile;   // non-null → we must close it
+    };
+    vector<SSTemplateSource> ssTemplateSources;
+
+    // 1. Always: merged pp photonJet5+10+20
+    if (simTopSS)
+        ssTemplateSources.push_back({"overlaysWithPythia_photonJet5and10and20merged", simTopSS, nullptr});
+
+    // 2. Photon+Jet embedded (whichever toggle is active)
+    {
+        TDirectory* photEmb = EnsureEmbeddedTemplateTopDir();
+        if (photEmb)
+        {
+            string tag = "embeddedPhoton20";
+            if (bothPhoton10and20simEmbedded)      tag = "embeddedPhoton10and20merged";
+            else if (isPhotonJet10Embedded)         tag = "embeddedPhoton10";
+            ssTemplateSources.push_back({"overlaysWithPythia_" + tag, photEmb, nullptr});
+        }
+    }
+
+    // 3. Inclusive jet embedded (whichever toggle is active)
+    TFile* fInclJetSS = nullptr;
+    {
+        string inclPath;
+        string inclTag;
+        if (bothInclusiveJet10and20simEmbedded)
+        {
+            // TODO: merged inclusive jet embedded
+        }
+        else if (isInclusiveJet20Embedded)
+        {
+            inclPath = InputInclusiveJetEmbeddedSample("embeddedJet20");
+            inclTag  = "embeddedJet20";
+        }
+        else if (isInclusiveJet10Embedded)
+        {
+            inclPath = InputInclusiveJetEmbeddedSample("embeddedJet10");
+            inclTag  = "embeddedJet10";
+        }
+        if (!inclPath.empty() && !gSystem->AccessPathName(inclPath.c_str()))
+        {
+            fInclJetSS = TFile::Open(inclPath.c_str(), "READ");
+            if (fInclJetSS && !fInclJetSS->IsZombie())
+            {
+                TDirectory* d = fInclJetSS->GetDirectory(kDirSIM.c_str());
+                if (d)
+                    ssTemplateSources.push_back({"overlaysWithPythia_" + inclTag, d, fInclJetSS});
+                else
+                { fInclJetSS->Close(); delete fInclJetSS; fInclJetSS = nullptr; }
+            }
+            else
+            { if (fInclJetSS) { fInclJetSS->Close(); delete fInclJetSS; } fInclJetSS = nullptr; }
+        }
+    }
+
     struct SSOverlayVariantCfg
+
     {
         string folder;
         vector<std::size_t> indices;
@@ -1056,11 +1116,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
             EnsureDir(ptDir);
 
             const string ueOverlayDir = JoinPath(ptDir, "UEoverlays");
-            const string pythiaDir = JoinPath(ptDir, "overlaysWithPythia");
-            const string pythiaEmbeddedDir = JoinPath(ptDir, "overlaysWithPythiaEMBEDDED");
             EnsureDir(ueOverlayDir);
-            EnsureDir(pythiaDir);
-            EnsureDir(pythiaEmbeddedDir);
 
             for (const auto& cfg : ueOverlayCfgs)
             {
@@ -1071,29 +1127,26 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                 DrawUEOverlayTable(cfg, cb, b, JoinPath(cfgDir, "table1x5_SS_UEvariantOverlay.png"));
             }
 
-            for (const auto& cfg : pythiaOverlayCfgs)
+            for (const auto& src : ssTemplateSources)
             {
-                if (!HaveAllVariantFiles(cfg.indices)) continue;
+                if (!src.topDir) continue;
+                const string srcDir = JoinPath(ptDir, src.folderName);
+                EnsureDir(srcDir);
 
-                if (simTopSS)
+                for (const auto& cfg : pythiaOverlayCfgs)
                 {
-                    const string cfgDir = JoinPath(pythiaDir, cfg.folder);
+                    if (!HaveAllVariantFiles(cfg.indices)) continue;
+
+                    const string cfgDir = JoinPath(srcDir, cfg.folder);
                     EnsureDir(cfgDir);
-                    DrawPythiaOverlaySet(cfg, cb, b, cfgDir, simTopSS);
-                }
-
-                TDirectory* embeddedTemplateTopDir = EnsureEmbeddedTemplateTopDir();
-                if (embeddedTemplateTopDir)
-                {
-                    const string cfgDirEmbedded = JoinPath(pythiaEmbeddedDir, cfg.folder);
-                    EnsureDir(cfgDirEmbedded);
-                    DrawPythiaOverlaySet(cfg, cb, b, cfgDirEmbedded, embeddedTemplateTopDir);
+                    DrawPythiaOverlaySet(cfg, cb, b, cfgDir, src.topDir);
                 }
             }
         }
     }
 
     CloseTemplateFile(fSimSSEmbedded, simTopSSEmbedded);
+    if (fInclJetSS) { fInclJetSS->Close(); delete fInclJetSS; fInclJetSS = nullptr; }
 }
 
 if (false && !skipToCentralityAndPtOverlaysWithSSQA)

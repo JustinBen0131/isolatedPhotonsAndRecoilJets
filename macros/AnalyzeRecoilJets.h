@@ -102,7 +102,7 @@ namespace ARJ
   inline bool isPPdataAndAUAU = false;
 
   inline bool generateUEcomparisonSSQA = true;
-  inline bool skipToCentralityAndPtOverlaysWithSSQA = true;
+  inline bool skipToCentralityAndPtOverlaysWithSSQA = false;
 
   inline bool generatePerRunTriggerAna = false;
   inline bool generatePerRunTriggerAnaForGoodRunsOnly = false;
@@ -154,17 +154,20 @@ namespace ARJ
   //   RooUnfold: true = run both non-purity and purity-corrected passes + overlay.
   inline bool do_xJ_PPunfold = false;
   //   RooUnfold AuAu: true = run per-centrality unfolding with purity × combinatoric variants.
-  inline bool do_xJ_AAunfold = false;
+  inline bool do_xJ_AAunfold = true;
+
   //   Saved RooUnfold output: true = erase/rebuild/cache live unfolding output for this exact file combination;
   //   false = restore cached unfolding output and skip all unfolding work.
-  inline bool saveRooUnfoldOutput = false;
+  inline bool saveRooUnfoldOutput = true;
+
+
   //   Internal: selects raw vs ABCD purity-corrected reco inputs per pass.
-  inline bool gApplyPurityCorrectionForUnfolding = false;
+  inline bool gApplyPurityCorrectionForUnfolding = true;
   //   Internal: selects whether the embedded combinatoric template is subtracted before unfolding.
-  inline bool gApplyCombinatoricSubtractionForUnfolding = false;
+  inline bool gApplyCombinatoricSubtractionForUnfolding = true;
 
   //   One-off Sam vs Justin unsmear comparison:
-  inline bool doSamVsJustinUnsmearOverlays = false;
+  inline bool doSamVsJustinUnsmearOverlays = true;
 
   // ===========================================================================
   // 3a. PP / SIM CUT DEFAULTS  (drives all PP, SIM, and SIM+PP paths)
@@ -199,7 +202,7 @@ namespace ARJ
   // 4. BINNING  (edit these arrays to change pT / xJ / centrality slicing)
   // ===========================================================================
   //   JES3 photon pT bin edges (drives pT-sliced QA tables + JES3 booking):
-  inline const vector<double> kJES3PhotonPtBins         = {10, 12, 14, 16, 18, 20, 22, 24, 26, 35};
+  inline const vector<double> kJES3PhotonPtBins         = {8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35};
   //   Unfolding photon pT bin edges (reco and truth, independent from JES3):
   inline const vector<double> kUnfoldRecoPhotonPtBins   = {8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35, 40};
   inline const vector<double> kUnfoldTruthPhotonPtBins  = {5, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35, 40};

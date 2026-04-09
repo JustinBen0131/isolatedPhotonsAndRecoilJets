@@ -81,6 +81,161 @@ namespace ARJ
         DrawAndSaveTH1_Common(ds, hFixed, outPath, "v_{z} [cm]", "Counts", lines, false);
 
         // ------------------------------------------------------------------
+        // AuAu DATA: overlay z_vtx with embedded SIM (photon+jet and inclusive jet)
+        // ------------------------------------------------------------------
+        if (!ds.isSim && !ds.centFolder.empty())
+        {
+            struct ZvtxEmbOverlay {
+                string simPath;
+                string simLabel;
+                string pngName;
+            };
+            vector<ZvtxEmbOverlay> zvtxEmbSources;
+
+            // Photon+Jet embedded
+            {
+                string path, label;
+                if (bothPhoton10and20simEmbedded)
+                {
+                    path = MergedSimEmbeddedPath("photonJet10and20merged_SIM",
+                                                  "RecoilJets_embeddedPhoton10plus20_MERGED.root");
+                    label = "Photon+Jet (10+20) Embedded";
+                }
+                else if (isPhotonJet20Embedded)
+                {
+                    path = InputSimEmbeddedSample("embeddedPhoton20");
+                    label = "Photon+Jet 20 Embedded";
+                }
+                else if (isPhotonJet10Embedded)
+                {
+                    path = InputSimEmbeddedSample("embeddedPhoton10");
+                    label = "Photon+Jet 10 Embedded";
+                }
+                if (!path.empty())
+                    zvtxEmbSources.push_back({path, label,
+                        "zvtx_DATA_photonJetEmbedded_overlay_" + ds.trigger + ".png"});
+            }
+
+            // Inclusive jet embedded
+            {
+                string path, label;
+                if (bothInclusiveJet10and20simEmbedded)
+                {
+                    // TODO: merged
+                }
+                else if (isInclusiveJet20Embedded)
+                {
+                    path = InputInclusiveJetEmbeddedSample("embeddedJet20");
+                    label = "Inclusive Jet 20 Embedded";
+                }
+                else if (isInclusiveJet10Embedded)
+                {
+                    path = InputInclusiveJetEmbeddedSample("embeddedJet10");
+                    label = "Inclusive Jet 10 Embedded";
+                }
+                if (!path.empty())
+                    zvtxEmbSources.push_back({path, label,
+                        "zvtx_DATA_inclusiveJetEmbedded_overlay_" + ds.trigger + ".png"});
+            }
+
+            for (const auto& embSrc : zvtxEmbSources)
+            {
+                if (embSrc.simPath.empty() || gSystem->AccessPathName(embSrc.simPath.c_str())) continue;
+
+                TFile* fEmb = TFile::Open(embSrc.simPath.c_str(), "READ");
+                if (!fEmb || fEmb->IsZombie()) { if (fEmb) { fEmb->Close(); delete fEmb; } continue; }
+
+                TDirectory* embTop = fEmb->GetDirectory(kDirSIM.c_str());
+                if (!embTop) { fEmb->Close(); delete fEmb; continue; }
+
+                TH1* hVemb = dynamic_cast<TH1*>(embTop->Get("h_vertexZ"));
+                if (!hVemb) { fEmb->Close(); delete fEmb; continue; }
+
+                TH1F* hEmbFixed = RebinToFixedBinWidthVertexZ(hVemb, vzCutCm);
+                if (!hEmbFixed) { fEmb->Close(); delete fEmb; continue; }
+                hEmbFixed->SetDirectory(nullptr);
+
+                // Clone data hist for shape normalization
+                TH1* hDataNorm = CloneTH1(hFixed, "hDataNorm_zvtx_emb");
+                if (!hDataNorm) { delete hEmbFixed; fEmb->Close(); delete fEmb; continue; }
+
+                NormalizeToUnitArea(hDataNorm);
+                NormalizeToUnitArea(hEmbFixed);
+
+                // Style
+                hDataNorm->SetLineColor(kBlack);
+                hDataNorm->SetLineWidth(2);
+                hDataNorm->SetMarkerStyle(20);
+                hDataNorm->SetMarkerSize(0.9);
+                hDataNorm->SetMarkerColor(kBlack);
+
+                hEmbFixed->SetLineColor(kRed + 1);
+                hEmbFixed->SetLineWidth(2);
+                hEmbFixed->SetFillStyle(0);
+
+                const double yMaxOv = 1.45 * std::max(hDataNorm->GetMaximum(), hEmbFixed->GetMaximum());
+
+                TCanvas cZov("cZov", "cZov", 900, 700);
+                ApplyCanvasMargins1D(cZov);
+                cZov.cd();
+
+                hDataNorm->SetTitle("");
+                hDataNorm->GetXaxis()->SetTitle("v_{z} [cm]");
+                hDataNorm->GetYaxis()->SetTitle("Shape normalized");
+                hDataNorm->GetYaxis()->SetTitleOffset(1.15);
+                hDataNorm->SetMinimum(0.0);
+                hDataNorm->SetMaximum(yMaxOv);
+                hDataNorm->Draw("E1");
+                hEmbFixed->Draw("HIST SAME");
+                hDataNorm->Draw("E1 SAME");
+
+                // Trigger display label
+                string trigDisplay = ds.trigger;
+                if (trigDisplay.find("photon_10") != string::npos)
+                    trigDisplay = "Photon 10 GeV + MBD N&S #geq 1";
+                else if (trigDisplay.find("photon_12") != string::npos)
+                    trigDisplay = "Photon 12 GeV + MBD N&S #geq 1";
+
+                TLegend legZov(0.55, 0.78, 0.92, 0.90);
+                legZov.SetBorderSize(0);
+                legZov.SetFillStyle(0);
+                legZov.SetTextFont(42);
+                legZov.SetTextSize(0.032);
+                legZov.AddEntry(hDataNorm, "Au+Au data", "ep");
+                legZov.AddEntry(hEmbFixed, embSrc.simLabel.c_str(), "l");
+                legZov.Draw();
+
+                TLatex tZov;
+                tZov.SetNDC(true);
+                tZov.SetTextFont(42);
+                tZov.SetTextAlign(23);
+                tZov.SetTextSize(0.040);
+                tZov.DrawLatex(0.50, 0.97,
+                    TString::Format("z_{vtx} for Au+Au and %s", embSrc.simLabel.c_str()).Data());
+
+                TLatex tInfo;
+                tInfo.SetNDC(true);
+                tInfo.SetTextFont(42);
+                tInfo.SetTextAlign(33);
+                tInfo.SetTextSize(0.034);
+                tInfo.DrawLatex(0.92, 0.74, trigDisplay.c_str());
+                tInfo.DrawLatex(0.92, 0.70, ds.centLabel.c_str());
+                tInfo.DrawLatex(0.92, 0.66,
+                    TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
+
+                const string qaDir = JoinPath(ds.outBase,
+                    ds.isSim ? "GeneralEventLevelQA" : "baselineData/GeneralEventLevelQA");
+                EnsureDir(qaDir);
+                SaveCanvas(cZov, JoinPath(qaDir, embSrc.pngName));
+
+                delete hDataNorm;
+                delete hEmbFixed;
+                fEmb->Close();
+                delete fEmb;
+            }
+        }
+
+        // ------------------------------------------------------------------
         // SIM ONLY: truth-vs-reco vertex 2D QA (pre-cut fill in RecoilJets.cc)
         //   X = v_z^truth, Y = v_z^(reco-used)
         // ------------------------------------------------------------------
@@ -4018,9 +4173,18 @@ namespace ARJ
           tt.SetTextAlign(23);
           tt.SetTextSize(0.060);
           tt.DrawLatex(0.50, 0.965,
-              TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data()
+                TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data()
           );
 
+          if (!ds.centLabel.empty())
+          {
+                TLatex tCent;
+                tCent.SetTextFont(42);
+                tCent.SetNDC();
+                tCent.SetTextAlign(13);
+                tCent.SetTextSize(0.050);
+                tCent.DrawLatex(0.19, 0.88, ds.centLabel.c_str());
+          }
           keepAlive.push_back(hAxis);
         }
 
@@ -4362,7 +4526,7 @@ namespace ARJ
                 TCanvas c("c_pur_raw","c_pur_raw",900,700);
                 ApplyCanvasMargins1D(c);
 
-                TH1F hFrame("hPurRawFrame","",100, 10.0, kPtEdges.back());
+                TH1F hFrame("hPurRawFrame","",100, kPtEdges.front(), kPtEdges.back());
                 hFrame.SetDirectory(nullptr);
                 hFrame.SetStats(0);
                 hFrame.SetMinimum(0.0);
@@ -4666,7 +4830,7 @@ namespace ARJ
               TCanvas c("c_pur_ov","c_pur_ov",900,700);
               ApplyCanvasMargins1D(c);
 
-              TH1F hFrame("hPurCorFrame","",100, 10.0, kPtEdges.back());
+              TH1F hFrame("hPurCorFrame","",100, kPtEdges.front(), kPtEdges.back());
               hFrame.SetDirectory(nullptr);
               hFrame.SetStats(0);
               hFrame.SetMinimum(0.0);
@@ -13919,10 +14083,14 @@ namespace ARJ
           cout << "     [OK] UE variant comparison overlays complete.\n";
 
           if (mode == RunMode::kSimAndDataAUAU)
-          {
-              cout << "  -> [isoQA] Embedded SIM UE variant comparisons...\n";
-              analysis::RunIsoQA_UEComparisons_AuAu(true);
-              cout << "     [OK] Embedded SIM UE variant comparison overlays complete.\n";
+           {
+               cout << "  -> [isoQA] Photon+Jet Embedded SIM UE variant comparisons...\n";
+               analysis::RunIsoQA_UEComparisons_AuAu(1);
+               cout << "     [OK] Photon+Jet Embedded SIM UE variant comparison overlays complete.\n";
+
+               cout << "  -> [isoQA] Inclusive Jet Embedded SIM UE variant comparisons...\n";
+               analysis::RunIsoQA_UEComparisons_AuAu(2);
+               cout << "     [OK] Inclusive Jet Embedded SIM UE variant comparison overlays complete.\n";
           }
 
           cout << "  -> [xJ QA] AuAu UE variant xJ comparisons (leading + inclusive)...\n";
