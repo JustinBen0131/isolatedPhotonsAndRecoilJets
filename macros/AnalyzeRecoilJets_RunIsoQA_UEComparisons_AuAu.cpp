@@ -320,15 +320,15 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
           EnsureDir(meanIsoSummaryDir);
           EnsureDir(perVariantOverlayBase);
           
-          if (skipToCentralityAndPtOverlaysWithSSQA && !generateUEcomparisonSSQA)
+          if ((skipToCentralityAndPtOverlaysWithSSQA || SSoverlayPerVAR_processONLY) && !generateUEcomparisonSSQA)
           {
               cerr << ANSI_BOLD_RED
-              << "[FATAL] skipToCentralityAndPtOverlaysWithSSQA requires generateUEcomparisonSSQA = true"
+              << "[FATAL] skipToCentralityAndPtOverlaysWithSSQA / SSoverlayPerVAR_processONLY requires generateUEcomparisonSSQA = true"
               << ANSI_RESET << "\n";
               std::exit(1);
           }
-          
-          if (generateUEcomparisonSSQA && skipToCentralityAndPtOverlaysWithSSQA) {
+            
+          if (generateUEcomparisonSSQA && (skipToCentralityAndPtOverlaysWithSSQA || SSoverlayPerVAR_processONLY)) {
 #include "AnalyzeRecoilJets_SSQA.cpp"
           }
           

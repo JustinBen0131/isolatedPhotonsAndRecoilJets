@@ -1988,6 +1988,38 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         }
     }
     
+    // Per-centrality vertex-z (Au+Au only, after vz cut passes)
+    if (m_isAuAu && m_centBin >= 0)
+    {
+        for (const auto& t : activeTrig)
+        {
+            auto itTrig = qaHistogramsByTrigger.find(t);
+            if (itTrig == qaHistogramsByTrigger.end()) continue;
+            auto& H = itTrig->second;
+
+            for (int ic = 0; ic < (int)m_centEdges.size() - 1; ++ic)
+            {
+                const int clo = m_centEdges[ic];
+                const int chi = m_centEdges[ic + 1];
+                if (m_centBin < clo || m_centBin >= chi) continue;
+
+                const std::string hname = "h_vertexZ_cent_" + std::to_string(clo) + "_" + std::to_string(chi);
+
+                if (H.find(hname) == H.end())
+                {
+                    auto* hvz = new TH1F(hname.c_str(),
+                        (hname + ";v_{z} [cm];Entries").c_str(),
+                        nbVz, vzMin, vzMax);
+                    H[hname] = hvz;
+                }
+
+                static_cast<TH1F*>(H[hname])->Fill(m_vz);
+                bumpHistFill(t, hname);
+                break;
+            }
+        }
+    }
+
     if (m_doPi0Analysis)
     {
         const bool passPi0Vz = (!m_useVzCut || std::fabs(m_vz) < m_vzCut);

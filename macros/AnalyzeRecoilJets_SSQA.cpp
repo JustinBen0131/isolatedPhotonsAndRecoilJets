@@ -616,7 +616,8 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                 bool doZoom,
                 int iv,
                 std::vector<TH1*>& keepAlive,
-                std::vector<TLegend*>& keepLegs) -> bool
+                std::vector<TLegend*>& keepLegs,
+                bool standalone = false) -> bool
             {
                 const std::string& var = ssVars[iv].var;
                 const std::string& vlabel = ssVars[iv].label;
@@ -752,9 +753,14 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                 
                 hFrame->GetXaxis()->SetTitle(vlabel.c_str());
                 hFrame->GetYaxis()->SetTitle("Unit Normalized");
-                hFrame->GetYaxis()->SetTitleOffset(1.58);
-                hFrame->GetYaxis()->SetTitleSize(0.050);
-                hFrame->GetYaxis()->SetLabelSize(0.040);
+                hFrame->GetYaxis()->SetTitleOffset(standalone ? 1.20 : 1.58);
+                hFrame->GetYaxis()->SetTitleSize(standalone ? 0.055 : 0.050);
+                hFrame->GetYaxis()->SetLabelSize(standalone ? 0.045 : 0.040);
+                if (standalone)
+                {
+                    hFrame->GetXaxis()->SetTitleSize(0.055);
+                    hFrame->GetXaxis()->SetLabelSize(0.045);
+                }
                 
                 double yMax = 0.0;
                 if (hPP)
@@ -812,7 +818,12 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                 }
                 
                 hFrame->SetMinimum(0.0);
-                hFrame->SetMaximum((yMax > 0.0) ? (yMax * (doZoom ? 1.08 : 1.10)) : 1.0);
+                {
+                    double yScale = doZoom ? 1.08 : 1.10;
+                    if (standalone)
+                        yScale = (tag == "nonTight") ? 1.55 : 1.35;
+                    hFrame->SetMaximum((yMax > 0.0) ? (yMax * yScale) : 1.0);
+                }
                 
                 if (doZoom)
                 {
@@ -844,24 +855,29 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                 
                 if (drawLegend)
                 {
-                    TLegend* leg = shiftLegendLeft
-                    ? (isW ? new TLegend(0.30, 0.55, 0.82, 0.80) : new TLegend(0.12, 0.55, 0.64, 0.80))
-                    : (isW ? new TLegend(0.41, 0.55, 0.85, 0.80) : new TLegend(0.18, 0.55, 0.62, 0.80));
+                    TLegend* leg = nullptr;
+                    if (standalone)
+                        leg = isW ? new TLegend(0.55, 0.58, 0.88, 0.78) : new TLegend(0.20, 0.66, 0.58, 0.86);
+                    else if (shiftLegendLeft)
+                        leg = isW ? new TLegend(0.30, 0.55, 0.82, 0.80) : new TLegend(0.12, 0.55, 0.64, 0.80);
+                    else
+                        leg = isW ? new TLegend(0.41, 0.55, 0.85, 0.80) : new TLegend(0.18, 0.55, 0.62, 0.80);
                     leg->SetBorderSize(0);
                     leg->SetFillStyle(0);
                     leg->SetTextFont(42);
-                    leg->SetTextSize(0.036);
+                    leg->SetTextSize(standalone ? 0.030 : 0.036);
                     
                     if (hPP)  leg->AddEntry(hPP,  "pp", "ep");
                     if (hSig) leg->AddEntry(hSig, sigLegLabel.c_str(), "l");
                     if (hBkg) leg->AddEntry(hBkg, bkgLegLabel.c_str(), "l");
                     for (const auto& hAAPair : hAAs)
                     {
-                        leg->AddEntry(
-                                      hAAPair.second,
-                                      TString::Format("AuAu (%d-%d%%) %s", cb.lo, cb.hi, handles[hAAPair.first].label.c_str()).Data(),
-                                      "ep"
-                                      );
+                        if (standalone)
+                            leg->AddEntry(hAAPair.second,
+                                          TString::Format("AuAu %s (%d-%d%%)", TagLabel(tag).c_str(), cb.lo, cb.hi).Data(), "ep");
+                        else
+                            leg->AddEntry(hAAPair.second,
+                                          TString::Format("AuAu (%d-%d%%) %s", cb.lo, cb.hi, handles[hAAPair.first].label.c_str()).Data(), "ep");
                     }
                     
                     leg->Draw();
@@ -881,10 +897,26 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                     else
                     {
                         th.SetTextAlign(22);
-                        th.SetTextSize(0.050);
-                        th.DrawLatex(0.50, 0.91,
-                                     TString::Format("%s, %s, p_{T}^{#gamma}: %d-%d GeV",
-                                                     vlabel.c_str(), TagLabel(tag).c_str(), b.lo, b.hi).Data());
+                        th.SetTextSize(standalone ? 0.042 : 0.050);
+                        if (standalone)
+                        {
+                            // Build variant label from all indices in this config
+                            string varTitle;
+                            for (std::size_t ii = 0; ii < cfg.indices.size(); ++ii) {
+                                if (ii > 0) varTitle += " + ";
+                                varTitle += handles[cfg.indices[ii]].label;
+                            }
+                            th.DrawLatex(0.50, 0.96,
+                                         TString::Format("%s, %s, p_{T}^{#gamma}: %d-%d GeV, %d-%d%%, %s",
+                                                         vlabel.c_str(), TagLabel(tag).c_str(), b.lo, b.hi,
+                                                         cb.lo, cb.hi, varTitle.c_str()).Data());
+                        }
+                        else
+                        {
+                            th.DrawLatex(0.50, 0.91,
+                                         TString::Format("%s, %s, p_{T}^{#gamma}: %d-%d GeV",
+                                                         vlabel.c_str(), TagLabel(tag).c_str(), b.lo, b.hi).Data());
+                        }
                     }
                 }
                 
@@ -902,6 +934,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                     std::string cutText;
                     
                     const bool isPre = (tag == "pre");
+                    const bool isNonTight = (tag == "nonTight");
                     
                     if (var == "e11e33")
                     {
@@ -909,6 +942,13 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                         {
                             cutText = "pp presel: #frac{E_{11}}{E_{33}} < 0.98";
                             drawSingleCut = true;
+                            cutHi = 0.98;
+                        }
+                        else if (isNonTight)
+                        {
+                            cutText = "Non-tight #gamma-ID: fail #geq 2 tight cuts";
+                            drawCuts = true;
+                            cutLo = 0.4;
                             cutHi = 0.98;
                         }
                         else
@@ -928,6 +968,13 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                             cutLo = 0.8;
                             cutHi = 1.0;
                         }
+                        else if (isNonTight)
+                        {
+                            cutText = "Non-tight #gamma-ID: fail #geq 2 tight cuts";
+                            drawCuts = true;
+                            cutLo = 0.92;
+                            cutHi = 1.0;
+                        }
                         else
                         {
                             cutText = "#gamma-ID: 0.92 < #frac{E_{32}}{E_{35}} < 1.0";
@@ -943,6 +990,13 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                             cutText = "pp presel: 0.6 < et1 < 1.0";
                             drawCuts = true;
                             cutLo = 0.6;
+                            cutHi = 1.0;
+                        }
+                        else if (isNonTight)
+                        {
+                            cutText = "Non-tight #gamma-ID: fail #geq 2 tight cuts";
+                            drawCuts = true;
+                            cutLo = 0.9;
                             cutHi = 1.0;
                         }
                         else
@@ -961,6 +1015,13 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                             drawSingleCut = true;
                             cutHi = 0.6;
                         }
+                        else if (isNonTight)
+                        {
+                            cutText = "Non-tight #gamma-ID: fail #geq 2 tight cuts";
+                            drawSingleCut = true;
+                            const double ptCenter = 0.5 * (b.lo + b.hi);
+                            cutHi = 0.15 + 0.006 * ptCenter;
+                        }
                         else
                         {
                             cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
@@ -971,7 +1032,14 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                     }
                     else if (var == "wphi")
                     {
-                        if (!isPre)
+                        if (isNonTight)
+                        {
+                            cutText = "Non-tight #gamma-ID: fail #geq 2 tight cuts";
+                            drawSingleCut = true;
+                            const double ptCenter = 0.5 * (b.lo + b.hi);
+                            cutHi = 0.15 + 0.006 * ptCenter;
+                        }
+                        else if (!isPre)
                         {
                             cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
                             drawSingleCut = true;
@@ -982,7 +1050,20 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                     
                     if (!cutText.empty() && !doZoom)
                     {
-                        tcut.DrawLatex(0.16, 0.86, cutText.c_str());
+                        if (standalone) tcut.SetTextSize(0.032);
+                        tcut.DrawLatex(standalone ? 0.22 : 0.16, standalone ? 0.92 : 0.86, cutText.c_str());
+                    }
+                    
+                    if (standalone && !doZoom)
+                    {
+                        TLatex tSph;
+                        tSph.SetNDC(true);
+                        tSph.SetTextFont(42);
+                        tSph.SetTextAlign(33);
+                        tSph.SetTextSize(0.038);
+                        tSph.DrawLatex(0.88, 0.90, "#it{#bf{sPHENIX}} Internal");
+                        tSph.SetTextSize(0.032);
+                        tSph.DrawLatex(0.88, 0.86, "Au+Au #sqrt{s_{NN}} = 200 GeV");
                     }
                     
                     if (drawCuts || drawSingleCut)
@@ -990,16 +1071,17 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                         gPad->Update();
                         const double yMin = gPad->GetUymin();
                         const double yMaxPad = gPad->GetUymax();
+                        const double yLineTop = standalone ? (yMin + 0.60 * (yMaxPad - yMin)) : yMaxPad;
                         
                         if (drawCuts)
                         {
-                            TLine l1(cutLo, yMin, cutLo, yMaxPad);
+                            TLine l1(cutLo, yMin, cutLo, yLineTop);
                             l1.SetLineColor(kBlack);
                             l1.SetLineWidth(2);
                             l1.SetLineStyle(2);
                             l1.DrawClone("same");
                             
-                            TLine l2(cutHi, yMin, cutHi, yMaxPad);
+                            TLine l2(cutHi, yMin, cutHi, yLineTop);
                             l2.SetLineColor(kBlack);
                             l2.SetLineWidth(2);
                             l2.SetLineStyle(2);
@@ -1008,7 +1090,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                         
                         if (drawSingleCut)
                         {
-                            TLine l1(cutHi, yMin, cutHi, yMaxPad);
+                            TLine l1(cutHi, yMin, cutHi, yLineTop);
                             l1.SetLineColor(kBlack);
                             l1.SetLineWidth(2);
                             l1.SetLineStyle(2);
@@ -1124,15 +1206,16 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                                                  cb.folder.c_str(), b.folder.c_str()).Data(),
                                  "c_ssQA_var", 900, 700
                                  );
-                    ApplyCanvasMargins1D(cVar);
                     cVar.cd();
-                    gPad->SetLeftMargin(0.14);
-                    gPad->SetRightMargin(0.05);
-                    gPad->SetBottomMargin(0.14);
-                    gPad->SetTopMargin(0.18);
+                    gPad->SetLeftMargin(0.18);
+                    gPad->SetRightMargin(0.10);
+                    gPad->SetBottomMargin(0.18);
+                    gPad->SetTopMargin(0.06);
                     gPad->SetLogy(false);
+                    gPad->SetTickx(1);
+                    gPad->SetTicky(1);
                     
-                    if (DrawVariantPad(true, false, iv, keepAliveVar, keepLegsVar))
+                    if (DrawVariantPad(true, false, iv, keepAliveVar, keepLegsVar, true))
                     {
                         SaveCanvas(cVar, JoinPath(varDir, ssVars[iv].var + ".png"));
                     }
@@ -1159,15 +1242,19 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
             const string ueOverlayDir = JoinPath(ptDir, "UEoverlays");
             EnsureDir(ueOverlayDir);
             
-            for (const auto& cfg : ueOverlayCfgs)
+            if (!SSoverlayPerVAR_processONLY)
             {
-                if (!HaveAllVariantFiles(cfg.indices)) continue;
-                
-                const string cfgDir = JoinPath(ueOverlayDir, cfg.folder);
-                EnsureDir(cfgDir);
-                DrawUEOverlayTable(cfg, cb, b, JoinPath(cfgDir, "table1x5_SS_UEvariantOverlay.png"));
+                for (const auto& cfg : ueOverlayCfgs)
+                {
+                    if (!HaveAllVariantFiles(cfg.indices)) continue;
+                    
+                    const string cfgDir = JoinPath(ueOverlayDir, cfg.folder);
+                    EnsureDir(cfgDir);
+                    DrawUEOverlayTable(cfg, cb, b, JoinPath(cfgDir, "table1x5_SS_UEvariantOverlay.png"));
+                }
             }
             
+            if (!SSoverlayPerVAR_processONLY)
             for (const auto& src : ssTemplateSources)
             {
                 if (!src.topDir) continue;

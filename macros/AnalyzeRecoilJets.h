@@ -101,7 +101,7 @@ namespace ARJ
 
   inline bool isPPdataAndAUAU = false;
 
-  inline bool generateUEcomparisonSSQA = false;
+  inline bool generateUEcomparisonSSQA = true;
   inline bool skipToCentralityAndPtOverlaysWithSSQA = false;
   inline bool SSoverlayPerVAR_processONLY           = true;
 
@@ -144,7 +144,6 @@ namespace ARJ
   inline bool isInclusiveJet10Embedded   = false;
   inline bool isInclusiveJet20Embedded   = true;
   inline bool bothInclusiveJet10and20simEmbedded = false;
-
 
   //   Special SIM samples:
   inline bool isSimMB                    = false;   // MinBias DETROIT tune
