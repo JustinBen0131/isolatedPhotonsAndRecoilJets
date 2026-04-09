@@ -72,7 +72,11 @@
         const string unfoldVariant = (gApplyPurityCorrectionForUnfolding ? "purityCorrected" : "nonPurityCorrected");
         const string combVariant   = (gApplyCombinatoricSubtractionForUnfolding ? "combinatoricSub" : "nonCombSub");
         const string simDataBase = JoinPath(dsSim.outBase, dsData.trigger);
-        const bool isEmbeddedAuAu = IsEmbeddedSimSample(CurrentSimSample());
+        const bool isEmbeddedAuAu =
+          (dsSim.inFilePath.find("/simEmbedded/") != string::npos) ||
+          (dsSim.inFilePath.find("/InclusiveJetSIM_EMBEDDED/") != string::npos) ||
+          (dsSim.outBase.find("/combinedSimOnlyEMBEDDED/") != string::npos) ||
+          (dsSim.outBase.find("/auau/embeddedPhoton20/") != string::npos);
 
         string unfoldFolderLabel;
         if (isEmbeddedAuAu)
@@ -9892,7 +9896,7 @@
             // --- Optional: ATLAS-style combinatoric jet background subtraction ---
             // Subtract H_comb^{embed} from the reco data histogram before unfolding.
             // The combinatoric template lives in the SIM (embedded) file.
-            if (gApplyCombinatoricSubtractionForUnfolding && IsEmbeddedSimSample(CurrentSimSample()))
+            if (gApplyCombinatoricSubtractionForUnfolding && isEmbeddedAuAu)
             {
               const string nameComb = "h2_unfoldRecoCombinatoric_pTgamma_xJ_incl_" + rKey;
               TH2* h2Comb_in = GetObj<TH2>(dsSim, nameComb, true, true, false);
@@ -14333,32 +14337,34 @@
           WriteTextFile(JoinPath(rOut, "summary_rooUnfold_pipeline.txt"), lines);
 
           {
-            const string outRoot = JoinPath(rOut, "rooUnfold_outputs.root");
-            TFile f(outRoot.c_str(), "RECREATE");
-            if (f.IsOpen())
-            {
-                if (hPhoUnfoldTruth)      hPhoUnfoldTruth->Write("h_phoTruth_unfolded_data");
-                if (hPhoUnfoldTruth_cov)  hPhoUnfoldTruth_cov->Write("h_phoTruth_unfolded_data_covariance");
-                if (h2RspSim)             h2RspSim->Write("h2_rsp_truthVsReco_global");
-                if (hRsp_measXtruth)      hRsp_measXtruth->Write("h2_rsp_recoVsTruth_global");
-                if (hMeasDataGlob)        hMeasDataGlob->Write("h_measData_global");
-                if (hMeasSimGlob)         hMeasSimGlob->Write("h_measSim_global");
-                if (hTruthSimGlob)        hTruthSimGlob->Write("h_truthSim_global");
-                if (hUnfoldTruthGlob)     hUnfoldTruthGlob->Write("h_truthUnfold_global");
-                if (hUnfoldTruthGlob_cov) hUnfoldTruthGlob_cov->Write("h_truthUnfold_global_covariance");
-                if (h2UnfoldTruth)             h2UnfoldTruth->Write("h2_truthUnfold_pTgamma_xJ");
-                if (h2UnfoldTruth_cov)         h2UnfoldTruth_cov->Write("h2_truthUnfold_pTgamma_xJ_covariance");
-                if (h2UnfoldTruth_jetEffCorr)  h2UnfoldTruth_jetEffCorr->Write("h2_truthUnfold_pTgamma_xJ_jetEffCorr");
-                if (h2JetEff)                  h2JetEff->Write("h2_jetEff_pTgamma_xJ");
+              const string outRoot = JoinPath(rOut, "rooUnfold_outputs.root");
+              TFile f(outRoot.c_str(), "RECREATE");
+              if (f.IsOpen())
+              {
+                  if (hPhoRecoData)         hPhoRecoData->Write("h_phoReco_input_data");
+                  if (hPhoUnfoldTruth)      hPhoUnfoldTruth->Write("h_phoTruth_unfolded_data");
+                  if (hPhoUnfoldTruth_cov)  hPhoUnfoldTruth_cov->Write("h_phoTruth_unfolded_data_covariance");
+                  if (h2RspSim)             h2RspSim->Write("h2_rsp_truthVsReco_global");
+                  if (hRsp_measXtruth)      hRsp_measXtruth->Write("h2_rsp_recoVsTruth_global");
+                  if (hMeasDataGlob)        hMeasDataGlob->Write("h_measData_global");
+                  if (hMeasSimGlob)         hMeasSimGlob->Write("h_measSim_global");
+                  if (hTruthSimGlob)        hTruthSimGlob->Write("h_truthSim_global");
+                  if (hUnfoldTruthGlob)     hUnfoldTruthGlob->Write("h_truthUnfold_global");
+                  if (hUnfoldTruthGlob_cov) hUnfoldTruthGlob_cov->Write("h_truthUnfold_global_covariance");
+                  if (h2UnfoldTruth)             h2UnfoldTruth->Write("h2_truthUnfold_pTgamma_xJ");
+                  if (h2UnfoldTruth_cov)         h2UnfoldTruth_cov->Write("h2_truthUnfold_pTgamma_xJ_covariance");
+                  if (h2UnfoldTruth_jetEffCorr)  h2UnfoldTruth_jetEffCorr->Write("h2_truthUnfold_pTgamma_xJ_jetEffCorr");
+                  if (h2JetEff)                  h2JetEff->Write("h2_jetEff_pTgamma_xJ");
+                  if (h2RecoData_sideC_in)       h2RecoData_sideC_in->Write("h2_recoData_sidebandC_pTgamma_xJ");
 
-                for (int i = 0; i < nPtAll; ++i)
-                {
-                    if (perPhoHists[i])             perPhoHists[i]->Write(TString::Format("h_xJ_unf_perPho_pTbin%d", i + 1).Data());
-                    if (perPhoHists_cov[i])         perPhoHists_cov[i]->Write(TString::Format("h_xJ_unf_perPho_cov_pTbin%d", i + 1).Data());
-                    if (perPhoHists_jetEffCorr[i])  perPhoHists_jetEffCorr[i]->Write(TString::Format("h_xJ_unf_perPho_jetEffCorr_pTbin%d", i + 1).Data());
-                }
+                  for (int i = 0; i < nPtAll; ++i)
+                  {
+                      if (perPhoHists[i])             perPhoHists[i]->Write(TString::Format("h_xJ_unf_perPho_pTbin%d", i + 1).Data());
+                      if (perPhoHists_cov[i])         perPhoHists_cov[i]->Write(TString::Format("h_xJ_unf_perPho_cov_pTbin%d", i + 1).Data());
+                      if (perPhoHists_jetEffCorr[i])  perPhoHists_jetEffCorr[i]->Write(TString::Format("h_xJ_unf_perPho_jetEffCorr_pTbin%d", i + 1).Data());
+                  }
 
-              f.Close();
+                f.Close();
             }
           }
 
@@ -15319,6 +15325,870 @@
       }
     }
     // =============================================================================
+    // Embedded Au+Au top-level unfolding overlay builder
+    //
+    // Builds a second output tree rooted at:
+    //   <embeddedSimOutBase>/unfolding/
+    //
+    // containing:
+    //   photonOverlays/{purityCorrected,nonPurityCorrected}/...
+    //   r02/<variant>/...
+    //   r04/<variant>/...
+    //
+    // The per-centrality unfolding products remain in their existing locations.
+    // This helper only aggregates those products into centrality+pp overlays.
+    // =============================================================================
+
+    void RunEmbeddedAuAuTopLevelUnfoldingOverlays(const vector<Dataset>& datasets)
+    {
+      if (!IsEmbeddedSimSample(CurrentSimSample())) return;
+
+      string trigger = "";
+      for (const auto& ds : datasets)
+      {
+        if (!ds.isSim && !ds.trigger.empty())
+        {
+          trigger = ds.trigger;
+          break;
+        }
+      }
+      if (trigger.empty() && !kTriggersAuAu.empty()) trigger = kTriggersAuAu.front();
+      if (trigger.empty()) return;
+
+      const string simRootBase = SimOutBaseForSample(CurrentSimSample());
+      if (simRootBase.empty()) return;
+
+      const string overlayBase = JoinPath(simRootBase, "unfolding");
+      EnsureDir(overlayBase);
+      EnsureDir(JoinPath(overlayBase, "photonOverlays"));
+      EnsureDir(JoinPath(overlayBase, "r02"));
+      EnsureDir(JoinPath(overlayBase, "r04"));
+
+      const bool savedPurity = gApplyPurityCorrectionForUnfolding;
+      const bool savedComb   = gApplyCombinatoricSubtractionForUnfolding;
+
+      Dataset dsPPData;
+      dsPPData.label      = "DATA_PP_AUX";
+      dsPPData.isSim      = false;
+      dsPPData.trigger    = kTriggerPP;
+      dsPPData.topDirName = kTriggerPP;
+      dsPPData.inFilePath = InputPP(isRun25pp);
+      dsPPData.outBase    = JoinPath(OutputPP(), kTriggerPP);
+
+      Dataset dsPPSim;
+      dsPPSim.label      = "SIM_PP_AUX";
+      dsPPSim.isSim      = true;
+      dsPPSim.trigger    = "";
+      dsPPSim.topDirName = kDirSIM;
+      dsPPSim.inFilePath = SimInputPathForSample(SimSample::kPhotonJet10And20Merged);
+      dsPPSim.outBase    = SimOutBaseForSample(SimSample::kPhotonJet10And20Merged);
+
+      if (gSystem && gSystem->AccessPathName(dsPPSim.inFilePath.c_str()))
+      {
+        BuildMergedSIMFile_PhotonSlices(
+          {InputSim("photonjet10"), InputSim("photonjet20")},
+          {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+          dsPPSim.inFilePath,
+          kDirSIM,
+          {"photonJet10", "photonJet20"}
+        );
+      }
+
+      TFile* fPPData = TFile::Open(dsPPData.inFilePath.c_str(), "READ");
+      TFile* fPPSim  = TFile::Open(dsPPSim.inFilePath.c_str(),  "READ");
+
+      if (fPPData && !fPPData->IsZombie() && fPPSim && !fPPSim->IsZombie())
+      {
+        dsPPData.file   = fPPData;
+        dsPPData.topDir = fPPData->GetDirectory(dsPPData.topDirName.c_str());
+        dsPPSim.file    = fPPSim;
+        dsPPSim.topDir  = fPPSim->GetDirectory(dsPPSim.topDirName.c_str());
+
+        if (dsPPData.topDir && dsPPSim.topDir)
+        {
+          gApplyCombinatoricSubtractionForUnfolding = false;
+
+          gApplyPurityCorrectionForUnfolding = false;
+          RunRooUnfoldPipeline_SimAndDataPP(dsPPData, dsPPSim);
+
+          gApplyPurityCorrectionForUnfolding = true;
+          RunRooUnfoldPipeline_SimAndDataPP(dsPPData, dsPPSim);
+        }
+      }
+
+      gApplyPurityCorrectionForUnfolding        = savedPurity;
+      gApplyCombinatoricSubtractionForUnfolding = savedComb;
+
+      if (fPPData) { fPPData->Close(); delete fPPData; }
+      if (fPPSim)  { fPPSim->Close();  delete fPPSim;  }
+
+      struct OverlaySpec
+      {
+        string folder;
+        vector<string> cents;
+      };
+
+      const vector<OverlaySpec> overlaySpecs =
+      {
+        {"allCentralitiesAndPP", {"0_10", "10_20", "20_40", "40_60", "60_80"}},
+        {"0_10and40_60AndPP",    {"0_10", "40_60"}},
+        {"0_20and40_60AndPP",    {"0_20", "40_60"}},
+        {"0_10and60_80AndPP",    {"0_10", "60_80"}},
+        {"0_20and60_80AndPP",    {"0_20", "60_80"}}
+      };
+
+      struct VariantSpec
+      {
+        string folder;
+        string ppFolder;
+        bool hasPurity;
+      };
+
+      const vector<VariantSpec> xjVariants =
+      {
+        {"nonPurityCorrected",                            "nonPurityCorrected", false},
+        {"purityCorrected",                               "purityCorrected",    true},
+        {"combinatoricJetSubtractectedNoPurityCorrection","purityCorrected",   false},
+        {"combinatoricJetSubtractectedWithPurityCorrection","purityCorrected", true}
+      };
+
+      const vector<string> photonVariants = {"nonPurityCorrected", "purityCorrected"};
+      const vector<string> rKeysTop = {"r02", "r04"};
+
+      struct CurveStyle
+      {
+        int color = kBlack;
+        int marker = 20;
+      };
+
+      map<string, CurveStyle> styleByCent;
+      styleByCent["0_10"]  = {kBlack, 20};
+      styleByCent["10_20"] = {kBlue + 1, 20};
+      styleByCent["0_20"]  = {kCyan + 2, 20};
+      styleByCent["20_40"] = {kGreen + 2, 20};
+      styleByCent["40_60"] = {kMagenta + 1, 20};
+      styleByCent["60_80"] = {kOrange + 7, 20};
+
+      auto CentLabelFromFolder = [&](const string& centFolder)->string
+      {
+        string s = centFolder;
+        std::replace(s.begin(), s.end(), '_', '-');
+        return s + "%";
+      };
+
+      auto FindStoredUnfoldPtIndexForAnalysis = [&](const PtBin& b)->int
+      {
+        const auto& storedBins = UnfoldAnalysisRecoPtBins();
+        for (std::size_t i = 0; i < storedBins.size(); ++i)
+        {
+          if (storedBins[i].lo == b.lo && storedBins[i].hi == b.hi) return (int)i;
+        }
+        return -1;
+      };
+
+      struct PtOverlaySpec
+      {
+        PtBin bin;
+        bool integrated = false;
+      };
+
+      vector<PtOverlaySpec> ptOverlayBins;
+      for (const auto& b : UnfoldOutputRecoPtBins())
+      {
+        PtOverlaySpec w;
+        w.bin = b;
+        w.integrated = false;
+        ptOverlayBins.push_back(w);
+      }
+
+      const int intLoBounds[] = {16, 18, 20, 22};
+      for (int intLo : intLoBounds)
+      {
+        PtOverlaySpec w;
+        w.bin.lo = intLo;
+        w.bin.hi = 40;
+        {
+          std::ostringstream s; s << intLo << "-" << 40; w.bin.label = s.str();
+        }
+        {
+          std::ostringstream s; s << "pT_" << intLo << "_" << 40; w.bin.folder = s.str();
+        }
+        {
+          std::ostringstream s; s << "_pT_" << intLo << "_" << 40; w.bin.suffix = s.str();
+        }
+        w.integrated = true;
+        ptOverlayBins.push_back(w);
+      }
+
+      map<string, TFile*> fileCache;
+
+      auto OpenCached = [&](const string& path)->TFile*
+      {
+        auto it = fileCache.find(path);
+        if (it != fileCache.end()) return it->second;
+
+        TFile* f = TFile::Open(path.c_str(), "READ");
+        if (!f || f->IsZombie())
+        {
+          if (f) { f->Close(); delete f; }
+          return nullptr;
+        }
+
+        fileCache[path] = f;
+        return f;
+      };
+
+      auto BuildAuAuRootPath = [&](const string& centFolder,
+                                   const string& variant,
+                                   const string& rKey)->string
+      {
+        return JoinPath(
+          JoinPath(
+            JoinPath(
+              JoinPath(
+                JoinPath(simRootBase, centFolder),
+                trigger
+              ),
+              "unfolding/" + variant + "/radii"
+            ),
+            rKey
+          ),
+          "rooUnfold_outputs.root"
+        );
+      };
+
+      auto BuildPPRootPath = [&](const string& variant,
+                                 const string& rKey)->string
+      {
+        const string ppBase = JoinPath(
+          SimOutBaseForSample(SimSample::kPhotonJet10And20Merged),
+          kTriggerPP
+        );
+
+        return JoinPath(
+          JoinPath(
+            JoinPath(ppBase, "unfolding/" + variant + "/radii"),
+            rKey
+          ),
+          "rooUnfold_outputs.root"
+        );
+      };
+
+      auto CloneFromRoot = [&](TFile* f, const string& name, const string& cloneName)->TH1*
+      {
+        if (!f) return nullptr;
+        TH1* h = dynamic_cast<TH1*>(f->Get(name.c_str()));
+        if (!h) return nullptr;
+        TH1* hc = dynamic_cast<TH1*>(h->Clone(cloneName.c_str()));
+        if (!hc) return nullptr;
+        hc->SetDirectory(nullptr);
+        EnsureSumw2(hc);
+        return hc;
+      };
+
+      auto LoadStoredPerPhotonXJ = [&](TFile* f,
+                                       const PtBin& b,
+                                       const string& tag)->TH1*
+      {
+        if (!f) return nullptr;
+
+        const int iStored = FindStoredUnfoldPtIndexForAnalysis(b);
+        if (iStored < 0) return nullptr;
+
+        return CloneFromRoot(
+          f,
+          TString::Format("h_xJ_unf_perPho_pTbin%d", iStored + 1).Data(),
+          TString::Format("h_overlay_%s_pTbin%d", tag.c_str(), iStored + 1).Data()
+        );
+      };
+
+      auto BuildIntegratedPerPhotonXJ = [&](TFile* f,
+                                            const PtBin& b,
+                                            const string& tag)->TH1D*
+      {
+        if (!f) return nullptr;
+
+        TH2* h2Unf = dynamic_cast<TH2*>(f->Get("h2_truthUnfold_pTgamma_xJ"));
+        TH1* hPho  = dynamic_cast<TH1*>(f->Get("h_phoTruth_unfolded_data"));
+        if (!h2Unf || !hPho) return nullptr;
+
+        TH1D* hXJ = ProjectTH2YForPtWindow(
+          h2Unf,
+          b,
+          TString::Format("h_xJ_int_%s_%s", tag.c_str(), b.folder.c_str()).Data(),
+          "e"
+        );
+        if (!hXJ) return nullptr;
+
+        hXJ->SetDirectory(nullptr);
+        EnsureSumw2(hXJ);
+
+        double Npho = 0.0;
+        double eNpho2 = 0.0;
+
+        for (int ib = 1; ib <= hPho->GetNbinsX(); ++ib)
+        {
+          const double lo = hPho->GetXaxis()->GetBinLowEdge(ib);
+          const double hi = hPho->GetXaxis()->GetBinUpEdge(ib);
+
+          if (lo + 0.01 >= (double)b.lo && hi - 0.01 <= (double)b.hi)
+          {
+            Npho += hPho->GetBinContent(ib);
+            eNpho2 += hPho->GetBinError(ib) * hPho->GetBinError(ib);
+          }
+        }
+
+        const double eNpho = std::sqrt(eNpho2);
+        if (Npho <= 0.0)
+        {
+          delete hXJ;
+          return nullptr;
+        }
+
+        TH1D* hPerPho = dynamic_cast<TH1D*>(hXJ->Clone(
+          TString::Format("h_xJ_perPho_int_%s_%s", tag.c_str(), b.folder.c_str()).Data()
+        ));
+        if (!hPerPho)
+        {
+          delete hXJ;
+          return nullptr;
+        }
+
+        hPerPho->SetDirectory(nullptr);
+        EnsureSumw2(hPerPho);
+
+        for (int ib = 0; ib <= hPerPho->GetNbinsX() + 1; ++ib)
+        {
+          if (ib == 0 || ib == hPerPho->GetNbinsX() + 1)
+          {
+            hPerPho->SetBinContent(ib, 0.0);
+            hPerPho->SetBinError(ib, 0.0);
+            continue;
+          }
+
+          const double num = hXJ->GetBinContent(ib);
+          const double eNum = hXJ->GetBinError(ib);
+          const double wid = hXJ->GetBinWidth(ib);
+
+          if (wid <= 0.0)
+          {
+            hPerPho->SetBinContent(ib, 0.0);
+            hPerPho->SetBinError(ib, 0.0);
+            continue;
+          }
+
+          const double val = num / (Npho * wid);
+
+          double relNum = 0.0;
+          if (num > 0.0) relNum = eNum / num;
+
+          double relDen = 0.0;
+          if (Npho > 0.0) relDen = eNpho / Npho;
+
+          const double err = val * std::sqrt(relNum * relNum + relDen * relDen);
+
+          hPerPho->SetBinContent(ib, val);
+          hPerPho->SetBinError(ib, err);
+        }
+
+        delete hXJ;
+        return hPerPho;
+      };
+
+      auto LoadPerPhotonXJ = [&](TFile* f,
+                                 const PtOverlaySpec& pb,
+                                 const string& tag)->TH1*
+      {
+        if (!f) return nullptr;
+        if (pb.integrated) return BuildIntegratedPerPhotonXJ(f, pb.bin, tag);
+        return LoadStoredPerPhotonXJ(f, pb.bin, tag);
+      };
+
+      auto LoadRegionCProjection = [&](TFile* f,
+                                       const PtOverlaySpec& pb,
+                                       const string& tag)->TH1D*
+      {
+        if (!f) return nullptr;
+        TH2* h2C = dynamic_cast<TH2*>(f->Get("h2_recoData_sidebandC_pTgamma_xJ"));
+        if (!h2C) return nullptr;
+
+        TH1D* h = ProjectTH2YForPtWindow(
+          h2C,
+          pb.bin,
+          TString::Format("h_regionC_%s_%s", tag.c_str(), pb.bin.folder.c_str()).Data(),
+          "e"
+        );
+        if (!h) return nullptr;
+
+        h->SetDirectory(nullptr);
+        EnsureSumw2(h);
+        return h;
+      };
+
+      auto BuildRawOverUnfoldedRatio = [&](TH1* hRaw,
+                                           TH1* hUnf,
+                                           const string& name)->TH1D*
+      {
+        if (!hRaw || !hUnf) return nullptr;
+
+        vector<double> edges;
+        for (int ib = 1; ib <= hRaw->GetNbinsX(); ++ib)
+        {
+          const double loRaw = hRaw->GetXaxis()->GetBinLowEdge(ib);
+          const double hiRaw = hRaw->GetXaxis()->GetBinUpEdge(ib);
+
+          int iuMatch = -1;
+          for (int iu = 1; iu <= hUnf->GetNbinsX(); ++iu)
+          {
+            const double loUnf = hUnf->GetXaxis()->GetBinLowEdge(iu);
+            const double hiUnf = hUnf->GetXaxis()->GetBinUpEdge(iu);
+
+            if (std::fabs(loRaw - loUnf) < 1e-9 && std::fabs(hiRaw - hiUnf) < 1e-9)
+            {
+              iuMatch = iu;
+              break;
+            }
+          }
+
+          if (iuMatch < 0) continue;
+
+          if (edges.empty()) edges.push_back(loRaw);
+          edges.push_back(hiRaw);
+        }
+
+        if (edges.size() < 2) return nullptr;
+
+        TH1D* hRatio = new TH1D(name.c_str(), "", (int)edges.size() - 1, &edges[0]);
+        hRatio->SetDirectory(nullptr);
+        hRatio->Sumw2();
+
+        for (int ib = 1; ib <= hRatio->GetNbinsX(); ++ib)
+        {
+          const double lo = hRatio->GetXaxis()->GetBinLowEdge(ib);
+          const double hi = hRatio->GetXaxis()->GetBinUpEdge(ib);
+
+          int iRaw = -1;
+          int iUnf = -1;
+
+          for (int ir = 1; ir <= hRaw->GetNbinsX(); ++ir)
+          {
+            if (std::fabs(hRaw->GetXaxis()->GetBinLowEdge(ir) - lo) < 1e-9 &&
+                std::fabs(hRaw->GetXaxis()->GetBinUpEdge(ir)  - hi) < 1e-9)
+            {
+              iRaw = ir;
+              break;
+            }
+          }
+
+          for (int iu = 1; iu <= hUnf->GetNbinsX(); ++iu)
+          {
+            if (std::fabs(hUnf->GetXaxis()->GetBinLowEdge(iu) - lo) < 1e-9 &&
+                std::fabs(hUnf->GetXaxis()->GetBinUpEdge(iu)  - hi) < 1e-9)
+            {
+              iUnf = iu;
+              break;
+            }
+          }
+
+          if (iRaw < 0 || iUnf < 0) continue;
+
+          const double num = hRaw->GetBinContent(iRaw);
+          const double eNum = hRaw->GetBinError(iRaw);
+          const double den = hUnf->GetBinContent(iUnf);
+          const double eDen = hUnf->GetBinError(iUnf);
+
+          if (den <= 0.0) continue;
+
+          const double val = num / den;
+          const double var = (eNum * eNum) / (den * den)
+                           + (num * num * eDen * eDen) / (den * den * den * den);
+
+          hRatio->SetBinContent(ib, val);
+          hRatio->SetBinError(ib, (var > 0.0 && std::isfinite(var)) ? std::sqrt(var) : 0.0);
+        }
+
+        return hRatio;
+      };
+
+      auto StyleCurve = [&](TH1* h,
+                            const string& centFolder,
+                            bool isPP)->void
+      {
+        if (!h) return;
+        h->SetDirectory(nullptr);
+        EnsureSumw2(h);
+
+        if (isPP)
+        {
+          h->SetLineColor(kRed + 1);
+          h->SetMarkerColor(kRed + 1);
+          h->SetMarkerStyle(24);
+          h->SetMarkerSize(1.0);
+          h->SetLineWidth(2);
+          return;
+        }
+
+        const auto it = styleByCent.find(centFolder);
+        const CurveStyle st = (it != styleByCent.end()) ? it->second : CurveStyle();
+
+        h->SetLineColor(st.color);
+        h->SetMarkerColor(st.color);
+        h->SetMarkerStyle(st.marker);
+        h->SetMarkerSize(1.0);
+        h->SetLineWidth(2);
+      };
+
+      auto DrawPhotonOverlay = [&](const vector<std::pair<string, TH1*> >& hs,
+                                   const string& outPath,
+                                   const string& yTitle,
+                                   const string& title)->void
+      {
+        if (hs.empty()) return;
+
+        TCanvas c("c_phoTop", "c_phoTop", 950, 750);
+        ApplyCanvasMargins1D(c);
+
+        double maxY = 0.0;
+        TH1* hBase = nullptr;
+
+        for (const auto& kv : hs)
+        {
+          TH1* h = kv.second;
+          if (!h) continue;
+          if (!hBase) hBase = h;
+          for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+          {
+            const double v = h->GetBinContent(ib) + h->GetBinError(ib);
+            if (std::isfinite(v) && v > maxY) maxY = v;
+          }
+        }
+
+        if (!hBase) return;
+
+        hBase->SetTitle("");
+        hBase->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+        hBase->GetYaxis()->SetTitle(yTitle.c_str());
+        hBase->SetMinimum(0.0);
+        hBase->SetMaximum((maxY > 0.0) ? (1.20 * maxY) : 1.0);
+        hBase->Draw("E1");
+
+        for (std::size_t i = 1; i < hs.size(); ++i)
+        {
+          if (hs[i].second) hs[i].second->Draw("E1 same");
+        }
+
+        TLegend leg(0.58, 0.52, 0.92, 0.88);
+        leg.SetBorderSize(0);
+        leg.SetFillStyle(0);
+        leg.SetTextFont(42);
+        leg.SetTextSize(0.032);
+
+        for (const auto& kv : hs)
+        {
+          if (kv.second) leg.AddEntry(kv.second, kv.first.c_str(), "pe");
+        }
+        leg.Draw();
+
+        TLatex tx;
+        tx.SetNDC();
+        tx.SetTextFont(42);
+        tx.SetTextAlign(22);
+        tx.SetTextSize(0.040);
+        tx.DrawLatex(0.50, 0.965, title.c_str());
+
+        SaveCanvas(c, outPath);
+      };
+
+      auto DrawXJOverlay = [&](const vector<std::pair<string, TH1*> >& hs,
+                               const string& outPath,
+                               const string& title,
+                               const string& yTitle)->void
+      {
+        if (hs.empty()) return;
+
+        TCanvas c("c_xjTop", "c_xjTop", 950, 750);
+        ApplyCanvasMargins1D(c);
+
+        double maxY = 0.0;
+        TH1* hBase = nullptr;
+
+        for (const auto& kv : hs)
+        {
+          TH1* h = kv.second;
+          if (!h) continue;
+          h->GetXaxis()->SetRangeUser(0.0, 2.0);
+          if (!hBase) hBase = h;
+          for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+          {
+            const double v = h->GetBinContent(ib) + h->GetBinError(ib);
+            if (std::isfinite(v) && v > maxY) maxY = v;
+          }
+        }
+
+        if (!hBase) return;
+
+        hBase->SetTitle("");
+        hBase->GetXaxis()->SetTitle("x_{J}");
+        hBase->GetYaxis()->SetTitle(yTitle.c_str());
+        hBase->SetMinimum(0.0);
+        hBase->SetMaximum((maxY > 0.0) ? (1.20 * maxY) : 1.0);
+        hBase->Draw("E1");
+
+        for (std::size_t i = 1; i < hs.size(); ++i)
+        {
+          if (hs[i].second) hs[i].second->Draw("E1 same");
+        }
+
+        TLegend leg(0.56, 0.50, 0.92, 0.88);
+        leg.SetBorderSize(0);
+        leg.SetFillStyle(0);
+        leg.SetTextFont(42);
+        leg.SetTextSize(0.032);
+
+        for (const auto& kv : hs)
+        {
+          if (kv.second) leg.AddEntry(kv.second, kv.first.c_str(), "pe");
+        }
+        leg.Draw();
+
+        TLatex tx;
+        tx.SetNDC();
+        tx.SetTextFont(42);
+        tx.SetTextAlign(22);
+        tx.SetTextSize(0.040);
+        tx.DrawLatex(0.50, 0.965, title.c_str());
+
+        SaveCanvas(c, outPath);
+      };
+
+      const string photonRKey = "r04";
+
+      for (const auto& photonVariant : photonVariants)
+      {
+        for (const auto& ov : overlaySpecs)
+        {
+          const string outDir = JoinPath(
+            JoinPath(
+              JoinPath(overlayBase, "photonOverlays"),
+              photonVariant
+            ),
+            ov.folder
+          );
+          EnsureDir(outDir);
+
+          vector<std::pair<string, TH1*> > hRaws;
+          vector<std::pair<string, TH1*> > hUnfs;
+          vector<std::pair<string, TH1*> > hRatios;
+
+          for (const auto& centFolder : ov.cents)
+          {
+            TFile* f = OpenCached(BuildAuAuRootPath(centFolder, photonVariant, photonRKey));
+            if (!f) continue;
+
+            TH1* hRaw = CloneFromRoot(
+              f,
+              "h_phoReco_input_data",
+              TString::Format("hPhoRaw_%s_%s", photonVariant.c_str(), centFolder.c_str()).Data()
+            );
+            TH1* hUnf = CloneFromRoot(
+              f,
+              "h_phoTruth_unfolded_data",
+              TString::Format("hPhoUnf_%s_%s", photonVariant.c_str(), centFolder.c_str()).Data()
+            );
+            TH1D* hRat = BuildRawOverUnfoldedRatio(
+              hRaw,
+              hUnf,
+              TString::Format("hPhoRat_%s_%s", photonVariant.c_str(), centFolder.c_str()).Data()
+            );
+
+            StyleCurve(hRaw, centFolder, false);
+            StyleCurve(hUnf, centFolder, false);
+            StyleCurve(hRat, centFolder, false);
+
+            if (hRaw) hRaws.push_back({CentLabelFromFolder(centFolder), hRaw});
+            if (hUnf) hUnfs.push_back({CentLabelFromFolder(centFolder), hUnf});
+            if (hRat) hRatios.push_back({CentLabelFromFolder(centFolder), hRat});
+          }
+
+          {
+            TFile* fPP = OpenCached(BuildPPRootPath(photonVariant, photonRKey));
+            TH1* hRawPP = CloneFromRoot(
+              fPP,
+              "h_phoReco_input_data",
+              TString::Format("hPhoRaw_%s_pp", photonVariant.c_str()).Data()
+            );
+            TH1* hUnfPP = CloneFromRoot(
+              fPP,
+              "h_phoTruth_unfolded_data",
+              TString::Format("hPhoUnf_%s_pp", photonVariant.c_str()).Data()
+            );
+            TH1D* hRatPP = BuildRawOverUnfoldedRatio(
+              hRawPP,
+              hUnfPP,
+              TString::Format("hPhoRat_%s_pp", photonVariant.c_str()).Data()
+            );
+
+            StyleCurve(hRawPP, "", true);
+            StyleCurve(hUnfPP, "", true);
+            StyleCurve(hRatPP, "", true);
+
+            if (hRawPP) hRaws.push_back({"pp", hRawPP});
+            if (hUnfPP) hUnfs.push_back({"pp", hUnfPP});
+            if (hRatPP) hRatios.push_back({"pp", hRatPP});
+          }
+
+          DrawPhotonOverlay(
+            hRaws,
+            JoinPath(outDir, "rawPhotonYield_vs_pTgamma.png"),
+            "Reco photon yield",
+            TString::Format("Photon raw-yield overlay, %s", ov.folder.c_str()).Data()
+          );
+
+          DrawPhotonOverlay(
+            hUnfs,
+            JoinPath(outDir, "unfoldedPhotonYield_vs_pTgamma.png"),
+            "Unfolded photon yield",
+            TString::Format("Photon unfolded-yield overlay, %s", ov.folder.c_str()).Data()
+          );
+
+          DrawPhotonOverlay(
+            hRatios,
+            JoinPath(outDir, "ratio_rawOverUnfoldedPhotonYield_vs_pTgamma.png"),
+            "Raw / unfolded",
+            TString::Format("Photon raw/unfolded overlay, %s", ov.folder.c_str()).Data()
+          );
+
+          for (auto& kv : hRaws)   delete kv.second;
+          for (auto& kv : hUnfs)   delete kv.second;
+          for (auto& kv : hRatios) delete kv.second;
+        }
+      }
+
+      for (const auto& rKey : rKeysTop)
+      {
+        for (const auto& variant : xjVariants)
+        {
+          for (const auto& ov : overlaySpecs)
+          {
+            const string overlayDir = JoinPath(
+              JoinPath(JoinPath(overlayBase, rKey), variant.folder),
+              ov.folder
+            );
+            EnsureDir(overlayDir);
+
+            for (const auto& pb : ptOverlayBins)
+            {
+              const string ptDir = JoinPath(overlayDir, pb.bin.folder);
+              EnsureDir(ptDir);
+
+              vector<std::pair<string, TH1*> > hs;
+
+              for (const auto& centFolder : ov.cents)
+              {
+                TFile* f = OpenCached(BuildAuAuRootPath(centFolder, variant.folder, rKey));
+                TH1* h = LoadPerPhotonXJ(
+                  f,
+                  pb,
+                  TString::Format("%s_%s_%s", variant.folder.c_str(), centFolder.c_str(), rKey.c_str()).Data()
+                );
+                if (!h) continue;
+
+                StyleCurve(h, centFolder, false);
+                hs.push_back({CentLabelFromFolder(centFolder), h});
+              }
+
+              {
+                TFile* fPP = OpenCached(BuildPPRootPath(variant.ppFolder, rKey));
+                TH1* hPP = LoadPerPhotonXJ(
+                  fPP,
+                  pb,
+                  TString::Format("%s_pp_%s", variant.folder.c_str(), rKey.c_str()).Data()
+                );
+                if (hPP)
+                {
+                  StyleCurve(hPP, "", true);
+                  hs.push_back({"pp", hPP});
+                }
+              }
+
+              DrawXJOverlay(
+                hs,
+                JoinPath(ptDir, "unfolded_dNdXJ_overlay.png"),
+                TString::Format("Unfolded dN/dx_{J}, %s, %s, %s",
+                                rKey.c_str(), variant.folder.c_str(), pb.bin.label.c_str()).Data(),
+                "(1/N_{#gamma}) dN/dx_{J}"
+              );
+
+              for (auto& kv : hs) delete kv.second;
+            }
+
+            if (variant.hasPurity)
+            {
+              const string regionCBase = JoinPath(overlayDir, "regionCoutput");
+              EnsureDir(regionCBase);
+
+              for (const auto& pb : ptOverlayBins)
+              {
+                const string ptDir = JoinPath(regionCBase, pb.bin.folder);
+                EnsureDir(ptDir);
+
+                vector<std::pair<string, TH1*> > hsC;
+
+                for (const auto& centFolder : ov.cents)
+                {
+                  TFile* f = OpenCached(BuildAuAuRootPath(centFolder, variant.folder, rKey));
+                  TH1D* h = LoadRegionCProjection(
+                    f,
+                    pb,
+                    TString::Format("%s_regionC_%s_%s", variant.folder.c_str(), centFolder.c_str(), rKey.c_str()).Data()
+                  );
+                  if (!h) continue;
+
+                  StyleCurve(h, centFolder, false);
+                  hsC.push_back({CentLabelFromFolder(centFolder), h});
+                }
+
+                {
+                  TFile* fPP = OpenCached(BuildPPRootPath("purityCorrected", rKey));
+                  TH1D* hPP = LoadRegionCProjection(
+                    fPP,
+                    pb,
+                    TString::Format("%s_regionC_pp_%s", variant.folder.c_str(), rKey.c_str()).Data()
+                  );
+                  if (hPP)
+                  {
+                    StyleCurve(hPP, "", true);
+                    hsC.push_back({"pp", hPP});
+                  }
+                }
+
+                DrawXJOverlay(
+                  hsC,
+                  JoinPath(ptDir, "regionCoutput_overlay.png"),
+                  TString::Format("Region-C x_{J} input, %s, %s, %s",
+                                  rKey.c_str(), variant.folder.c_str(), pb.bin.label.c_str()).Data(),
+                  "Counts"
+                );
+
+                for (auto& kv : hsC) delete kv.second;
+              }
+            }
+          }
+        }
+      }
+
+      for (auto& kv : fileCache)
+      {
+        if (kv.second)
+        {
+          kv.second->Close();
+          delete kv.second;
+        }
+      }
+      fileCache.clear();
+    }
+
+    // =============================================================================
     // Au+Au SIM+DATA unfolding wrapper
     //
     // Matches per-centrality SIM and DATA datasets, then for each pair runs
@@ -15729,9 +16599,14 @@
       gApplyPurityCorrectionForUnfolding        = oldPurity;
       gApplyCombinatoricSubtractionForUnfolding = oldComb;
 
+      if (nPairs > 0)
+      {
+          RunEmbeddedAuAuTopLevelUnfoldingOverlays(datasets);
+      }
+
       cout << ANSI_BOLD_CYN
-           << "[DONE] AuAu unfold pipeline: processed " << nPairs << " trigger-centrality pairs.\n"
-           << ANSI_RESET;
+             << "[DONE] AuAu unfold pipeline: processed " << nPairs << " trigger-centrality pairs.\n"
+             << ANSI_RESET;
     }
 #else
     void RunRooUnfoldPipeline_SimAndDataPP(Dataset& dsData, Dataset& dsSim)
