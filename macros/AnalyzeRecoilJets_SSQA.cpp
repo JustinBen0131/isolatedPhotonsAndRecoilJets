@@ -31,12 +31,21 @@ auto TagFolder = [&](const string& tag) -> string
 
 const vector<string> ppg12Tags = {"pre", "tight", "nonTight"};
 
+const int ssQA_rebinFactor = 3;
+std::set<TH1*> ssQA_alreadyRebinned;
+
 auto GetTH1FromTopDir = [&](TDirectory* topDir, const string& hname) -> TH1*
 {
   if (!topDir) return nullptr;
   TObject* obj = topDir->Get(hname.c_str());
   if (!obj) return nullptr;
-  return dynamic_cast<TH1*>(obj);
+  TH1* h = dynamic_cast<TH1*>(obj);
+  if (h && ssQA_rebinFactor > 1 && ssQA_alreadyRebinned.find(h) == ssQA_alreadyRebinned.end())
+  {
+    h->Rebin(ssQA_rebinFactor);
+    ssQA_alreadyRebinned.insert(h);
+  }
+  return h;
 };
 
 auto StyleOverlayHist = [&](TH1* h, int color, int mstyle) -> void
@@ -1147,6 +1156,7 @@ if (false && !skipToCentralityAndPtOverlaysWithSSQA)
                                                         trigAA.c_str()).Data());
                     if (!hAA) continue;
                     
+                    if (ssQA_rebinFactor > 1) hAA->Rebin(ssQA_rebinFactor);
                     EnsureSumw2(hAA);
                     hAA->GetXaxis()->UnZoom();
                     hAA->SetTitle("");
@@ -1181,6 +1191,7 @@ if (false && !skipToCentralityAndPtOverlaysWithSSQA)
                                                          trigAA.c_str()).Data());
                         if (hPPss)
                         {
+                            if (ssQA_rebinFactor > 1) hPPss->Rebin(ssQA_rebinFactor);
                             EnsureSumw2(hPPss);
                             hPPss->GetXaxis()->UnZoom();
                             hPPss->SetTitle("");
@@ -1852,6 +1863,79 @@ if (false && !skipToCentralityAndPtOverlaysWithSSQA)
     };
     const vector<string> centOverlayTags = {"inclusive", "pre", "tight", "nonTight"};
     
+    // --- Open embedded sim files for per-centrality overlay Signal/Bkg MC ---
+    struct EmbeddedSSOverlaySource {
+        string folderName;
+        string label;
+        TFile* file = nullptr;
+        TDirectory* topDir = nullptr;
+    };
+    
+    auto OpenEmbeddedSSFile = [&](const string& path) -> std::pair<TFile*, TDirectory*>
+    {
+        if (path.empty() || gSystem->AccessPathName(path.c_str())) return {nullptr, nullptr};
+        TFile* f = TFile::Open(path.c_str(), "READ");
+        if (!f || f->IsZombie()) { if (f) { f->Close(); delete f; } return {nullptr, nullptr}; }
+        TDirectory* d = f->GetDirectory(kDirSIM.c_str());
+        if (!d) { f->Close(); delete f; return {nullptr, nullptr}; }
+        return {f, d};
+    };
+    
+    vector<EmbeddedSSOverlaySource> embeddedSSSources;
+    
+    {
+        // PhotonJet embedded
+        string photonEmbPath;
+        string photonEmbLabel;
+        if (bothPhoton10and20simEmbedded)
+        {
+            photonEmbPath = MergedSimEmbeddedPath("photonJet10and20merged_SIM",
+                                                   "RecoilJets_embeddedPhoton10plus20_MERGED.root");
+            photonEmbLabel = "Photon+Jet Embedded (10+20)";
+        }
+        else if (isPhotonJet20Embedded)
+        {
+            photonEmbPath = InputSimEmbeddedSample("embeddedPhoton20");
+            photonEmbLabel = "Photon+Jet 20 Embedded";
+        }
+        else if (isPhotonJet10Embedded)
+        {
+            photonEmbPath = InputSimEmbeddedSample("embeddedPhoton10");
+            photonEmbLabel = "Photon+Jet 10 Embedded";
+        }
+        if (!photonEmbPath.empty())
+        {
+            auto [f, d] = OpenEmbeddedSSFile(photonEmbPath);
+            if (d) embeddedSSSources.push_back({"PhotonJetEmbedded", photonEmbLabel, f, d});
+            else if (f) { f->Close(); delete f; }
+        }
+        
+        // InclusiveJet embedded
+        string inclEmbPath;
+        string inclEmbLabel;
+        if (bothInclusiveJet10and20simEmbedded)
+        {
+            // TODO: merged inclusive jet embedded if you ever build it
+            inclEmbLabel = "Inclusive Jet Embedded (10+20)";
+        }
+        else if (isInclusiveJet20Embedded)
+        {
+            inclEmbPath = InputInclusiveJetEmbeddedSample("embeddedInclusiveJet20");
+            inclEmbLabel = "Inclusive Jet 20 Embedded";
+        }
+        else if (isInclusiveJet10Embedded)
+        {
+            inclEmbPath = InputInclusiveJetEmbeddedSample("embeddedInclusiveJet10");
+            inclEmbLabel = "Inclusive Jet 10 Embedded";
+        }
+        if (!inclEmbPath.empty())
+        {
+            auto [f, d] = OpenEmbeddedSSFile(inclEmbPath);
+            if (d) embeddedSSSources.push_back({"inclusiveJetEmbedded", inclEmbLabel, f, d});
+            else if (f) { f->Close(); delete f; }
+        }
+    }
+    
     auto GetSSOverlaySelectionText =
     [&](const string& tag,
         bool overlayPtBins,
@@ -1933,11 +2017,12 @@ if (false && !skipToCentralityAndPtOverlaysWithSSQA)
         
         if (tag == "nonTight")
         {
+            const double xNT = 0.38;
             tSel.SetTextSize(0.040);
-            tSel.DrawLatex(xLabel, yLabel, "#gamma-nonTight:");
+            tSel.DrawLatex(xNT, yLabel, "#gamma-nonTight:");
             
             tSel.SetTextSize(0.032);
-            tSel.DrawLatex(xLabel, yRow1, "fail #geq 2 of 5 tight cuts");
+            tSel.DrawLatex(xNT, yRow1, "fail #geq 2 of 5 tight cuts");
             return true;
         }
         
@@ -2823,11 +2908,260 @@ if (false && !skipToCentralityAndPtOverlaysWithSSQA)
                     }
                 }
                 
+                // --- Embedded Signal/Bkg MC overlays per SS var ---
+                for (const auto& embSrc : embeddedSSSources)
+                {
+                    if (!embSrc.topDir) continue;
+                    
+                    for (const auto& vi : varInfos)
+                    {
+                        const std::string& var   = ssVars[vi.ivar].var;
+                        const std::string& vlabel = ssVars[vi.ivar].label;
+                        
+                        const string varDir = JoinPath(ptOutDir, var);
+                        const string varTagDir = JoinPath(varDir, TagFolder(tag));
+                        const string embDir = JoinPath(varTagDir, embSrc.folderName);
+                        EnsureDir(embDir);
+                        
+                        // Fetch signal / bkg MC from embedded sim
+                        const string hSigName = "h_ss_" + var + "_" + tag + "_sig" + pb.suffix;
+                        const string hBkgName = "h_ss_" + var + "_" + tag + "_bkg" + pb.suffix;
+                        
+                        TH1* rawSig = GetTH1FromTopDir(embSrc.topDir, hSigName);
+                        TH1* rawBkg = GetTH1FromTopDir(embSrc.topDir, hBkgName);
+                        
+                        TH1* hSig = nullptr;
+                        TH1* hBkg = nullptr;
+                        vector<TH1*> embKeep;
+                        
+                        double embYMax = vi.yMax;
+                        
+                        if (rawSig)
+                        {
+                            hSig = CloneNormalizeStyle(
+                                rawSig,
+                                TString::Format("ssQA_centOv_embSig_%s_%s_%s_%s_%s_%s",
+                                    embSrc.folderName.c_str(), var.c_str(), tag.c_str(),
+                                    H.variant.c_str(), pb.folder.c_str(), trigAA.c_str()).Data(),
+                                kPink + 7, 1);
+                            if (hSig)
+                            {
+                                hSig->SetLineWidth(2);
+                                hSig->SetLineColor(kPink + 7);
+                                hSig->SetMarkerStyle(1);
+                                hSig->SetMarkerSize(0.0);
+                                hSig->SetFillStyle(0);
+                                for (int ib = 1; ib <= hSig->GetNbinsX(); ++ib)
+                                    embYMax = std::max(embYMax, (double)(hSig->GetBinContent(ib) + hSig->GetBinError(ib)));
+                                embKeep.push_back(hSig);
+                            }
+                        }
+                        
+                        if (rawBkg)
+                        {
+                            hBkg = CloneNormalizeStyle(
+                                rawBkg,
+                                TString::Format("ssQA_centOv_embBkg_%s_%s_%s_%s_%s_%s",
+                                    embSrc.folderName.c_str(), var.c_str(), tag.c_str(),
+                                    H.variant.c_str(), pb.folder.c_str(), trigAA.c_str()).Data(),
+                                kBlue + 1, 1);
+                            if (hBkg)
+                            {
+                                hBkg->SetLineWidth(2);
+                                hBkg->SetLineColor(kBlue + 1);
+                                hBkg->SetMarkerStyle(1);
+                                hBkg->SetMarkerSize(0.0);
+                                hBkg->SetFillStyle(0);
+                                for (int ib = 1; ib <= hBkg->GetNbinsX(); ++ib)
+                                    embYMax = std::max(embYMax, (double)(hBkg->GetBinContent(ib) + hBkg->GetBinError(ib)));
+                                embKeep.push_back(hBkg);
+                            }
+                        }
+                        
+                        // --- Full centrality overlay + embedded MC ---
+                        {
+                            TCanvas cEmb(
+                                TString::Format("c_ssQA_centOv_emb_%s_%s_%s_%s_%s_%s",
+                                    embSrc.folderName.c_str(), var.c_str(), H.variant.c_str(),
+                                    tag.c_str(), pb.folder.c_str(), trigAA.c_str()).Data(),
+                                "c_ssQA_centOv_emb", 900, 700);
+                            ApplyCanvasMargins1D(cEmb);
+                            cEmb.cd();
+                            
+                            TH1* hFrame = vi.hists[0];
+                            hFrame->GetXaxis()->SetTitle(vlabel.c_str());
+                            hFrame->GetYaxis()->SetTitle("Unit Normalized");
+                            hFrame->GetYaxis()->SetTitleOffset(1.15);
+                            hFrame->SetMinimum(0.0);
+                            hFrame->SetMaximum((embYMax > 0.0) ? (embYMax * 1.25) : 1.0);
+                            hFrame->Draw("E1");
+                            
+                            if (hSig) hSig->Draw("HIST same");
+                            if (hBkg) hBkg->Draw("HIST same");
+                            if (vi.hPP) vi.hPP->Draw("E1 same");
+                            for (std::size_t ih = 1; ih < vi.hists.size(); ++ih)
+                                vi.hists[ih]->Draw("E1 same");
+                            vi.hists[0]->Draw("E1 same");
+                            
+                            const bool useSpecialE11Leg = (pb.folder == "pT_10_12" && var == "e11e33");
+                            const bool useSpecialE32Leg =
+                                (pb.folder == "pT_10_12" && var == "e32e35" &&
+                                 (tag == "pre" || tag == "tight" || tag == "nonTight"));
+                            
+                            TLegend legEmb(
+                                useSpecialE32Leg ? 0.08 : (useSpecialE11Leg ? 0.17 : 0.56),
+                                useSpecialE32Leg ? 0.74 : (useSpecialE11Leg ? 0.72 : 0.50),
+                                useSpecialE32Leg ? 0.66 : (useSpecialE11Leg ? 0.69 : 0.92),
+                                useSpecialE32Leg ? 0.91 : (useSpecialE11Leg ? 0.90 : 0.88));
+                            legEmb.SetBorderSize(0);
+                            legEmb.SetFillStyle(0);
+                            legEmb.SetTextFont(42);
+                            legEmb.SetTextSize((useSpecialE11Leg || useSpecialE32Leg) ? 0.026 : 0.028);
+                            if (useSpecialE11Leg || useSpecialE32Leg) legEmb.SetNColumns(3);
+                            if (vi.hPP) legEmb.AddEntry(vi.hPP, "pp", "ep");
+                            for (std::size_t ih = 0; ih < vi.hists.size(); ++ih)
+                                legEmb.AddEntry(vi.hists[ih], vi.labels[ih].c_str(), "ep");
+                            if (hSig) legEmb.AddEntry(hSig, "Signal MC", "l");
+                            if (hBkg) legEmb.AddEntry(hBkg, "Background MC", "l");
+                            legEmb.Draw();
+                            
+                            TLatex tEmb;
+                            tEmb.SetNDC(true);
+                            tEmb.SetTextFont(42);
+                            tEmb.SetTextAlign(23);
+                            tEmb.SetTextSize(0.038);
+                            tEmb.DrawLatex(0.50, 0.955,
+                                TString::Format("%s centrality overlay, %s, %s (%s)",
+                                    vlabel.c_str(), TagLabel(tag).c_str(), H.label.c_str(),
+                                    embSrc.label.c_str()).Data());
+                            
+                            TLatex tPtEmb;
+                            tPtEmb.SetNDC(true);
+                            tPtEmb.SetTextFont(42);
+                            tPtEmb.SetTextAlign(33);
+                            tPtEmb.SetTextSize(0.042);
+                            tPtEmb.DrawLatex(0.93, 0.90,
+                                TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
+                            
+                            const double ptCE = 0.5 * (pb.lo + pb.hi);
+                            const double cutXE = useSpecialE32Leg ? 0.08 : 0.16;
+                            const double cutYE = useSpecialE32Leg ? 0.68 : 0.84;
+                            const double cutSE = useSpecialE32Leg ? 0.028 : 0.026;
+                            DrawSSOverlayCutsAndText(var, tag, false, ptCE, cutXE, cutYE, cutSE);
+                            
+                            SaveCanvas(cEmb, JoinPath(embDir,
+                                TString::Format("centOverlay_%s_%s_%s.png",
+                                    var.c_str(), tag.c_str(), H.variant.c_str()).Data()));
+                        }
+                        
+                        // --- overlay2centralities (0-10% + 60-80%) + embedded MC ---
+                        {
+                            vector<TH1*> redH;
+                            vector<string> redL;
+                            double redYMax = 0.0;
+                            
+                            for (std::size_t ih = 0; ih < vi.hists.size(); ++ih)
+                            {
+                                if (vi.labels[ih] != "0-10%" && vi.labels[ih] != "60-80%") continue;
+                                redH.push_back(vi.hists[ih]);
+                                redL.push_back(vi.labels[ih]);
+                                TH1* hT = vi.hists[ih];
+                                for (int ib = 1; ib <= hT->GetNbinsX(); ++ib)
+                                    redYMax = std::max(redYMax, (double)(hT->GetBinContent(ib) + hT->GetBinError(ib)));
+                            }
+                            if (vi.hPP)
+                                for (int ib = 1; ib <= vi.hPP->GetNbinsX(); ++ib)
+                                    redYMax = std::max(redYMax, (double)(vi.hPP->GetBinContent(ib) + vi.hPP->GetBinError(ib)));
+                            if (hSig)
+                                for (int ib = 1; ib <= hSig->GetNbinsX(); ++ib)
+                                    redYMax = std::max(redYMax, (double)(hSig->GetBinContent(ib) + hSig->GetBinError(ib)));
+                            if (hBkg)
+                                for (int ib = 1; ib <= hBkg->GetNbinsX(); ++ib)
+                                    redYMax = std::max(redYMax, (double)(hBkg->GetBinContent(ib) + hBkg->GetBinError(ib)));
+                            
+                            if (!redH.empty())
+                            {
+                                const string ov2Dir = JoinPath(embDir, "overlay2centralities");
+                                EnsureDir(ov2Dir);
+                                
+                                TCanvas cEmb2(
+                                    TString::Format("c_ssQA_centOv2_emb_%s_%s_%s_%s_%s_%s",
+                                        embSrc.folderName.c_str(), var.c_str(), H.variant.c_str(),
+                                        tag.c_str(), pb.folder.c_str(), trigAA.c_str()).Data(),
+                                    "c_ssQA_centOv2_emb", 900, 700);
+                                ApplyCanvasMargins1D(cEmb2);
+                                cEmb2.cd();
+                                
+                                TH1* hFrame2 = redH[0];
+                                hFrame2->GetXaxis()->SetTitle(vlabel.c_str());
+                                hFrame2->GetYaxis()->SetTitle("Unit Normalized");
+                                hFrame2->GetYaxis()->SetTitleOffset(1.15);
+                                hFrame2->SetMinimum(0.0);
+                                hFrame2->SetMaximum((redYMax > 0.0) ? (redYMax * 1.25) : 1.0);
+                                hFrame2->Draw("E1");
+                                
+                                if (hSig) hSig->Draw("HIST same");
+                                if (hBkg) hBkg->Draw("HIST same");
+                                if (vi.hPP) vi.hPP->Draw("E1 same");
+                                for (std::size_t ih = 1; ih < redH.size(); ++ih)
+                                    redH[ih]->Draw("E1 same");
+                                redH[0]->Draw("E1 same");
+                                
+                                TLegend legEmb2(0.56, 0.50, 0.92, 0.88);
+                                legEmb2.SetBorderSize(0);
+                                legEmb2.SetFillStyle(0);
+                                legEmb2.SetTextFont(42);
+                                legEmb2.SetTextSize(0.028);
+                                if (vi.hPP) legEmb2.AddEntry(vi.hPP, "pp", "ep");
+                                for (std::size_t ih = 0; ih < redH.size(); ++ih)
+                                    legEmb2.AddEntry(redH[ih], redL[ih].c_str(), "ep");
+                                if (hSig) legEmb2.AddEntry(hSig, "Signal MC", "l");
+                                if (hBkg) legEmb2.AddEntry(hBkg, "Background MC", "l");
+                                legEmb2.Draw();
+                                
+                                TLatex tE2;
+                                tE2.SetNDC(true);
+                                tE2.SetTextFont(42);
+                                tE2.SetTextAlign(23);
+                                tE2.SetTextSize(0.038);
+                                tE2.DrawLatex(0.50, 0.955,
+                                    TString::Format("%s centrality overlay, %s, %s (%s)",
+                                        vlabel.c_str(), TagLabel(tag).c_str(), H.label.c_str(),
+                                        embSrc.label.c_str()).Data());
+                                
+                                TLatex tPE2;
+                                tPE2.SetNDC(true);
+                                tPE2.SetTextFont(42);
+                                tPE2.SetTextAlign(33);
+                                tPE2.SetTextSize(0.042);
+                                tPE2.DrawLatex(0.93, 0.90,
+                                    TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
+                                
+                                const double ptCE2 = 0.5 * (pb.lo + pb.hi);
+                                DrawSSOverlayCutsAndText(var, tag, false, ptCE2, 0.16, 0.84, 0.026);
+                                
+                                SaveCanvas(cEmb2, JoinPath(ov2Dir,
+                                    TString::Format("centOverlay_%s_%s_%s.png",
+                                        var.c_str(), tag.c_str(), H.variant.c_str()).Data()));
+                            }
+                        }
+                        
+                        for (TH1* h : embKeep) delete h;
+                    }
+                }
+                
                 for (TLegend* leg : keepLegs1x5) delete leg;
                 for (TH1* h : keepAlive1x5) delete h;
             }
         }
     }
+}
+
+// Close embedded SS overlay files
+for (auto& src : embeddedSSSources)
+{
+    src.topDir = nullptr;
+    if (src.file) { src.file->Close(); delete src.file; src.file = nullptr; }
 }
 
 {
