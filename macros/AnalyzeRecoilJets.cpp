@@ -4521,8 +4521,8 @@ namespace ARJ
                 }
               }
 
-              // overlay purity: vz30 vs vz60 (DATA only)
-              if (!ds.isSim)
+              // overlay purity: vz30 vs vz60 (PP DATA only — AuAu has no vz variants)
+              if (!ds.isSim && ds.centFolder.empty())
               {
                 const int altVz = (kVzCut == 30) ? 60 : 30;
                 const string altTag = CfgTagFor(kJetPtMin, kB2BCut, altVz, kIsoConeR, kIsoMode);
@@ -4692,10 +4692,21 @@ namespace ARJ
               tTitle.SetTextFont(42);
               tTitle.SetTextAlign(23);
               tTitle.SetTextSize(0.045);
-              tTitle.DrawLatex(0.50, 0.96,
-                  ds.isSim
-                    ? "Purity for SIM"
-                    : "Purity for Run24pp, Photon 4 GeV + MBD NS #geq 1");
+                if (ds.isSim)
+                {
+                  tTitle.DrawLatex(0.50, 0.96, "Purity for SIM");
+                }
+                else if (!ds.centFolder.empty())
+                {
+                  int centLo = 0, centHi = 0;
+                  std::sscanf(ds.centFolder.c_str(), "%d_%d", &centLo, &centHi);
+                  tTitle.DrawLatex(0.50, 0.96,
+                    TString::Format("Au+Au Purity, %d-%d%% Centrality", centLo, centHi).Data());
+                }
+                else
+                {
+                  tTitle.DrawLatex(0.50, 0.96, "Purity for Run24pp, Photon 4 GeV + MBD NS #geq 1");
+                }
 
               TLatex tCuts;
               tCuts.SetNDC(true);
@@ -4712,8 +4723,8 @@ namespace ARJ
                 SaveCanvas(c, fp);
             }
 
-            // ---- 4-way purity overlay: vz30/vz60 × raw/corrected + ratio subpanel (DATA only) ----
-            if (!ds.isSim && anyCorr)
+              // ---- 4-way purity overlay: vz30/vz60 × raw/corrected + ratio subpanel (PP DATA only) ----
+            if (!ds.isSim && ds.centFolder.empty() && anyCorr)
             {
               const int altVz4 = (kVzCut == 30) ? 60 : 30;
               const string altTag4 = CfgTagFor(kJetPtMin, kB2BCut, altVz4, kIsoConeR, kIsoMode);
@@ -4962,6 +4973,208 @@ namespace ARJ
                      << ANSI_RESET << "\n";
                 if (fAlt4) { fAlt4->Close(); delete fAlt4; }
               }
+            }
+
+            // ---- pp vs AuAu purity overlay: raw + leakage-corrected (AuAu DATA only) ----
+            if (!ds.isSim && !ds.centFolder.empty())
+            {
+              int centLo = 0, centHi = 0;
+              std::sscanf(ds.centFolder.c_str(), "%d_%d", &centLo, &centHi);
+
+              // ---------- pp raw purity from the default pp file ----------
+              const string ppPath = InputPP();
+              TFile* fPPov = TFile::Open(ppPath.c_str(), "READ");
+              TDirectory* ppDirOv = nullptr;
+              if (fPPov && !fPPov->IsZombie())
+              {
+                ppDirOv = fPPov->GetDirectory(kTriggerPP.c_str());
+                if (!ppDirOv) ppDirOv = fPPov;
+              }
+
+              if (ppDirOv)
+              {
+                vector<double> yPPraw(kNPtBins, 0.0), eyPPraw(kNPtBins, 0.0);
+                vector<double> ppA(kNPtBins), ppB(kNPtBins), ppC(kNPtBins), ppD(kNPtBins);
+                bool anyPP = false;
+
+                for (int i = 0; i < kNPtBins; ++i)
+                {
+                  const PtBin& bp = PtBins()[i];
+                  auto Get1PP = [&](const string& hname)->double {
+                    TH1* h = dynamic_cast<TH1*>(ppDirOv->Get(hname.c_str()));
+                    return h ? h->GetBinContent(1) : 0.0;
+                  };
+                  ppA[i] = Get1PP("h_isIsolated_isTight"     + bp.suffix);
+                  ppB[i] = Get1PP("h_notIsolated_isTight"    + bp.suffix);
+                  ppC[i] = Get1PP("h_isIsolated_notTight"    + bp.suffix);
+                  ppD[i] = Get1PP("h_notIsolated_notTight"   + bp.suffix);
+
+                  if (ppA[i] > 0.0 && ppD[i] > 0.0)
+                  {
+                    double SA = ppA[i] - ppB[i] * (ppC[i] / ppD[i]);
+                    if (SA < 0.0) SA = 0.0;
+                    yPPraw[i] = SA / ppA[i];
+                    anyPP = true;
+
+                    const double dPdA =  (ppB[i] * ppC[i]) / (ppA[i] * ppA[i] * ppD[i]);
+                    const double dPdB = -(ppC[i]) / (ppA[i] * ppD[i]);
+                    const double dPdC = -(ppB[i]) / (ppA[i] * ppD[i]);
+                    const double dPdD =  (ppB[i] * ppC[i]) / (ppA[i] * ppD[i] * ppD[i]);
+                    double var = dPdA*dPdA*ppA[i] + dPdB*dPdB*ppB[i] + dPdC*dPdC*ppC[i] + dPdD*dPdD*ppD[i];
+                    eyPPraw[i] = (var > 0.0) ? std::sqrt(var) : 0.0;
+                  }
+                }
+
+                if (anyPP)
+                {
+                  // ---------- pp leakage factors from allPhoton5and10and20sim sample ----------
+                  LeakageFactors lfPP;
+                  lfPP.fB.assign(kNPtBins, 0.0);
+                  lfPP.fC.assign(kNPtBins, 0.0);
+                  lfPP.fD.assign(kNPtBins, 0.0);
+                  lfPP.available = false;
+
+                  const string ppSimPath = SimInputPathForSample(SimSample::kPhotonJet5And10And20Merged);
+                  TFile* fPPsim = TFile::Open(ppSimPath.c_str(), "READ");
+                  if (fPPsim && !fPPsim->IsZombie())
+                  {
+                    TDirectory* ppSimDir = fPPsim->GetDirectory(kDirSIM.c_str());
+                    if (!ppSimDir) ppSimDir = fPPsim;
+
+                    bool anyLF = false;
+                    for (int i = 0; i < kNPtBins; ++i)
+                    {
+                      const string hname = "h_sigABCD_MC" + PtBins()[i].suffix;
+                      TH1* h = dynamic_cast<TH1*>(ppSimDir->Get(hname.c_str()));
+                      double Asim = 0, Bsim = 0, Csim = 0, Dsim = 0;
+                      if (h)
+                      {
+                        Asim = h->GetBinContent(1);
+                        Bsim = h->GetBinContent(2);
+                        Csim = h->GetBinContent(3);
+                        Dsim = h->GetBinContent(4);
+                      }
+                      lfPP.fB[i] = (Asim > 0.0) ? (Bsim / Asim) : 0.0;
+                      lfPP.fC[i] = (Asim > 0.0) ? (Csim / Asim) : 0.0;
+                      lfPP.fD[i] = (Asim > 0.0) ? (Dsim / Asim) : 0.0;
+                      if (Asim > 0.0) anyLF = true;
+                    }
+                    lfPP.available = anyLF;
+
+                    fPPsim->Close();
+                    delete fPPsim;
+                  }
+                  else
+                  {
+                    cout << ANSI_BOLD_YEL
+                         << "[WARN] pp_auau_overlay: could not open pp SIM for leakage: "
+                         << ppSimPath << ANSI_RESET << "\n";
+                    if (fPPsim) { fPPsim->Close(); delete fPPsim; }
+                  }
+
+                  // ---------- pp corrected purity ----------
+                  vector<double> yPPcorr(kNPtBins, 0.0), eyPPcorr(kNPtBins, 0.0);
+                  for (int i = 0; i < kNPtBins; ++i)
+                  {
+                    yPPcorr[i] = yPPraw[i];
+                    eyPPcorr[i] = eyPPraw[i];
+                    if (lfPP.available)
+                    {
+                      double SA = 0.0;
+                      const bool ok = SolveLeakageCorrectedSA(ppA[i], ppB[i], ppC[i], ppD[i],
+                                        lfPP.fB[i], lfPP.fC[i], lfPP.fD[i], SA);
+                      if (ok && ppA[i] > 0.0)
+                      {
+                        yPPcorr[i] = SA / ppA[i];
+                        // numerical error propagation
+                        const double dA = std::sqrt(std::max(ppA[i], 1.0));
+                        const double dB = std::sqrt(std::max(ppB[i], 1.0));
+                        const double dC = std::sqrt(std::max(ppC[i], 1.0));
+                        const double dD = std::sqrt(std::max(ppD[i], 1.0));
+                        auto CPV = [&](double a, double b, double c, double d)->double {
+                          double sa2 = 0.0;
+                          const bool ok2 = SolveLeakageCorrectedSA(a, b, c, d, lfPP.fB[i], lfPP.fC[i], lfPP.fD[i], sa2);
+                          if (ok2 && a > 0.0) return sa2 / a;
+                          if (a > 0.0 && d > 0.0) { double s = a - b*(c/d); return (s > 0.0) ? s/a : 0.0; }
+                          return 0.0;
+                        };
+                        const double Aup = ppA[i]+dA, Adn = std::max(0.0, ppA[i]-dA);
+                        const double Bup = ppB[i]+dB, Bdn = std::max(0.0, ppB[i]-dB);
+                        const double Cup = ppC[i]+dC, Cdn = std::max(0.0, ppC[i]-dC);
+                        const double Dup = ppD[i]+dD, Ddn = std::max(0.0, ppD[i]-dD);
+                        const double pA = (Aup>Adn) ? (CPV(Aup,ppB[i],ppC[i],ppD[i])-CPV(Adn,ppB[i],ppC[i],ppD[i]))/(Aup-Adn) : 0.0;
+                        const double pB = (Bup>Bdn) ? (CPV(ppA[i],Bup,ppC[i],ppD[i])-CPV(ppA[i],Bdn,ppC[i],ppD[i]))/(Bup-Bdn) : 0.0;
+                        const double pC = (Cup>Cdn) ? (CPV(ppA[i],ppB[i],Cup,ppD[i])-CPV(ppA[i],ppB[i],Cdn,ppD[i]))/(Cup-Cdn) : 0.0;
+                        const double pD = (Dup>Ddn) ? (CPV(ppA[i],ppB[i],ppC[i],Dup)-CPV(ppA[i],ppB[i],ppC[i],Ddn))/(Dup-Ddn) : 0.0;
+                        double var = pA*pA*ppA[i] + pB*pB*ppB[i] + pC*pC*ppC[i] + pD*pD*ppD[i];
+                        eyPPcorr[i] = (var > 0.0) ? std::sqrt(var) : 0.0;
+                      }
+                    }
+                  }
+
+                  // ---------- draw overlay ----------
+                  TGraphErrors gPPr(kNPtBins, &x[0], &yPPraw[0],  &ex[0], &eyPPraw[0]);
+                  TGraphErrors gPPc(kNPtBins, &x[0], &yPPcorr[0], &ex[0], &eyPPcorr[0]);
+                  TGraphErrors gAAr(kNPtBins, &x[0], &yRaw[0],    &ex[0], &eyRaw[0]);
+                  TGraphErrors gAAc(kNPtBins, &x[0], &yCorr[0],   &ex[0], &eyCorr[0]);
+
+                  auto Sty = [](TGraphErrors& g, Color_t col, Style_t mkr) {
+                    g.SetLineWidth(2); g.SetLineColor(col);
+                    g.SetMarkerStyle(mkr); g.SetMarkerSize(1.2); g.SetMarkerColor(col);
+                  };
+                  Sty(gPPr, kRed + 1,   20);
+                  Sty(gPPc, kRed + 1,   24);
+                  Sty(gAAr, kBlue + 1,  20);
+                  Sty(gAAc, kBlue + 1,  24);
+
+                  TCanvas cPPAA("c_ppaa_ov", "c_ppaa_ov", 900, 700);
+                  ApplyCanvasMargins1D(cPPAA);
+
+                  TH1F hFrPPAA("hPurPPAAFrame", "", 100, 10.0, kPtEdges.back());
+                  hFrPPAA.SetDirectory(nullptr);
+                  hFrPPAA.SetStats(0);
+                  hFrPPAA.SetMinimum(0.0);
+                  hFrPPAA.SetMaximum(1.05);
+                  hFrPPAA.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                  hFrPPAA.GetYaxis()->SetTitle("Purity");
+                  hFrPPAA.Draw();
+
+                  gPPr.Draw("P SAME");
+                  gPPc.Draw("P SAME");
+                  gAAr.Draw("P SAME");
+                  gAAc.Draw("P SAME");
+
+                  TLegend legOv(0.15, 0.68, 0.55, 0.90);
+                  legOv.SetBorderSize(0);
+                  legOv.SetFillStyle(0);
+                  legOv.SetTextFont(42);
+                  legOv.SetTextSize(0.033);
+                  legOv.AddEntry(&gPPr, "p+p raw ABCD",             "pe");
+                  legOv.AddEntry(&gPPc, "p+p leakage-corrected",    "pe");
+                  legOv.AddEntry(&gAAr, TString::Format("Au+Au (%d-%d%%) raw ABCD",          centLo, centHi).Data(), "pe");
+                  legOv.AddEntry(&gAAc, TString::Format("Au+Au (%d-%d%%) leakage-corrected", centLo, centHi).Data(), "pe");
+                  legOv.Draw();
+
+                  TLatex tOvTitle;
+                  tOvTitle.SetNDC(true);
+                  tOvTitle.SetTextFont(42);
+                  tOvTitle.SetTextAlign(23);
+                  tOvTitle.SetTextSize(0.042);
+                  tOvTitle.DrawLatex(0.50, 0.96,
+                    TString::Format("Purity Overlay, p+p & Au+Au (%d-%d%% Centrality)", centLo, centHi).Data());
+
+                  SaveCanvas(cPPAA, JoinPath(outDir, "pp_auau_overlayRaw.png"));
+
+                  if (!lfPP.available)
+                  {
+                    cout << ANSI_BOLD_YEL
+                         << "[WARN] pp_auau_overlay: pp leakage correction unavailable; pp corrected = pp raw\n"
+                         << ANSI_RESET;
+                  }
+                }
+              }
+
+              if (fPPov) { fPPov->Close(); delete fPPov; }
             }
 
           }

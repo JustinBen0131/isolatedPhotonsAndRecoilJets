@@ -11986,7 +11986,7 @@
                     tx.DrawLatex(xR, 0.88, "Trigger = Photon 4 + MBD NS #geq 1");
                 }
 
-                SaveCanvas(c, JoinPath(finalUnfoldedOut, TString::Format("xJ_unfolded_perPhoton_pTbin%d.png", i + 1).Data()));
+                SaveCanvas(c, JoinPath(finalUnfoldedOut, TString::Format("xJ_unfolded_perPhoton_pT%d_%d.png", b.lo, b.hi).Data()));
 
                 // -------------------------------------------------------------------
                 //  Toy unfolding vs analytic covariance errors (DATA)
@@ -13021,15 +13021,170 @@
         }
 
         delete hXJ;
-      }
+        }
 
-      {
-              // -------------------------------------------------------------------
-              // 2x3 table (first 6 pT bins): ratio of statistical error magnitudes
-              //   ratio(xJ) = err_cov(xJ) / err_toy(xJ)
-              //   output: <rOut>/ToyUnfoldingVsCovariance/table2x3_ToyUnfoldingVsCovariance_errorRatio.png
-              // -------------------------------------------------------------------
+        // ---- integrated pT bins: 16-40, 18-40, 20-40, 22-40 ----
+        {
+          const int intLoBounds[] = {16, 18, 20, 22};
+          const int intHi = 40;
+          const int nIntBins = 4;
+
+          for (int iInt = 0; iInt < nIntBins; ++iInt)
+          {
+            const int intLo = intLoBounds[iInt];
+            PtBin bInt;
+            bInt.lo = intLo;
+            bInt.hi = intHi;
+            {
+              std::ostringstream s; s << intLo << "-" << intHi; bInt.label = s.str();
+            }
+            {
+              std::ostringstream s; s << "pT_" << intLo << "_" << intHi; bInt.folder = s.str();
+            }
+            {
+              std::ostringstream s; s << "_pT_" << intLo << "_" << intHi; bInt.suffix = s.str();
+            }
+
+            if (!h2UnfoldTruth || !hPhoUnfoldTruth) continue;
+
+            TH1D* hXJ_int = ProjectTH2YForPtWindow(
+              h2UnfoldTruth, bInt,
+              TString::Format("h_xJ_unfTruth_int_%s_pT%d_%d", rKey.c_str(), intLo, intHi).Data(),
+              "e"
+            );
+            if (!hXJ_int) continue;
+            hXJ_int->SetDirectory(nullptr);
+            EnsureSumw2(hXJ_int);
+
+            // sum Npho over the pT range
+            double Npho_int = 0.0, eNpho_int2 = 0.0;
+            {
+              const TAxis* axPho = hPhoUnfoldTruth->GetXaxis();
+              for (int ib = 1; ib <= axPho->GetNbins(); ++ib)
               {
+                const double lo = axPho->GetBinLowEdge(ib);
+                const double hi = axPho->GetBinUpEdge(ib);
+                if (lo + 0.01 >= (double)intLo && hi - 0.01 <= (double)intHi)
+                {
+                  Npho_int  += hPhoUnfoldTruth->GetBinContent(ib);
+                  eNpho_int2 += hPhoUnfoldTruth->GetBinError(ib) * hPhoUnfoldTruth->GetBinError(ib);
+                }
+              }
+            }
+            const double eNpho_int = std::sqrt(eNpho_int2);
+
+            if (Npho_int <= 0.0) { delete hXJ_int; continue; }
+
+            TH1D* hPerPho_int = (TH1D*)hXJ_int->Clone(
+              TString::Format("h_xJ_unf_perPho_int_%s_pT%d_%d", rKey.c_str(), intLo, intHi).Data()
+            );
+            hPerPho_int->SetDirectory(nullptr);
+            EnsureSumw2(hPerPho_int);
+
+            for (int ib = 0; ib <= hPerPho_int->GetNbinsX() + 1; ++ib)
+            {
+              if (ib == 0 || ib == hPerPho_int->GetNbinsX() + 1)
+              {
+                hPerPho_int->SetBinContent(ib, 0.0);
+                hPerPho_int->SetBinError  (ib, 0.0);
+                continue;
+              }
+
+              const double num  = hXJ_int->GetBinContent(ib);
+              const double eNum = hXJ_int->GetBinError  (ib);
+              const double wid  = hXJ_int->GetBinWidth  (ib);
+
+              if (Npho_int <= 0.0 || wid <= 0.0)
+              {
+                hPerPho_int->SetBinContent(ib, 0.0);
+                hPerPho_int->SetBinError  (ib, 0.0);
+                continue;
+              }
+
+              const double val = num / (Npho_int * wid);
+
+              double relNum = 0.0;
+              if (num > 0.0) relNum = eNum / num;
+
+              double relDen = 0.0;
+              if (Npho_int > 0.0) relDen = eNpho_int / Npho_int;
+
+              const double err = val * std::sqrt(relNum*relNum + relDen*relDen);
+
+              hPerPho_int->SetBinContent(ib, val);
+              hPerPho_int->SetBinError  (ib, err);
+            }
+
+            hPerPho_int->SetTitle("");
+            hPerPho_int->GetXaxis()->SetTitle("x_{J}");
+            hPerPho_int->GetYaxis()->SetTitle("(1/N_{#gamma}) dN/dx_{J}");
+            hPerPho_int->SetLineWidth(2);
+            hPerPho_int->SetMarkerStyle(20);
+            hPerPho_int->SetMarkerSize(0.85);
+
+            {
+              TCanvas c(TString::Format("c_perPho_int_%s_pT%d_%d", rKey.c_str(), intLo, intHi).Data(), "c_perPho_int", 900, 700);
+              ApplyCanvasMargins1D(c);
+
+              double maxY = 0.0;
+              const int nxb = hPerPho_int->GetNbinsX();
+              for (int ib = 1; ib <= nxb; ++ib)
+              {
+                const double y  = hPerPho_int->GetBinContent(ib);
+                const double ey = hPerPho_int->GetBinError(ib);
+                const double v  = y + ey;
+                if (v > maxY) maxY = v;
+              }
+
+              hPerPho_int->SetMinimum(0.0);
+              hPerPho_int->SetMaximum((maxY > 0.0) ? (1.15 * maxY) : 1.0);
+              hPerPho_int->GetXaxis()->SetRangeUser(0.0, 2.0);
+              hPerPho_int->Draw("E1");
+
+              {
+                TLatex tx;
+                tx.SetNDC();
+                tx.SetTextFont(42);
+                tx.SetTextAlign(22);
+                tx.SetTextSize(0.042);
+                tx.DrawLatex(0.52, 0.955,
+                             TString::Format("Per-photon particle-level x_{J#gamma}, p_{T}^{#gamma} %d-%d GeV, R = %.1f",
+                                             intLo, intHi, R).Data());
+              }
+
+              {
+                TLatex tx;
+                tx.SetNDC();
+                tx.SetTextFont(42);
+                tx.SetTextAlign(31);
+                tx.SetTextSize(0.04);
+
+                const double xR = 0.93;
+                tx.DrawLatex(xR, 0.60, TString::Format("Bayes it = %d", kBayesIterXJ).Data());
+                tx.DrawLatex(xR, 0.67, TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
+                tx.DrawLatex(xR, 0.74, "#Delta #phi > 7#pi/8");
+                tx.DrawLatex(xR, 0.81, TString::Format("p_{T}^{min, jet} > %d", kJetPtMin).Data());
+              }
+
+              vector<string> hdrLines = DefaultHeaderLines(dsSim);
+              if (!dsData.centLabel.empty()) hdrLines.push_back(dsData.centLabel);
+              DrawLatexLines(0.14, 0.92, hdrLines, 0.032, 0.043);
+
+              SaveCanvas(c, JoinPath(finalUnfoldedOut, TString::Format("xJ_unfolded_perPhoton_pT%d_%d.png", intLo, intHi).Data()));
+            }
+
+            delete hPerPho_int;
+            delete hXJ_int;
+          }
+        }
+
+        {
+            // -------------------------------------------------------------------
+            // 2x3 table (first 6 pT bins): ratio of statistical error magnitudes
+            //   ratio(xJ) = err_cov(xJ) / err_toy(xJ)
+            //   output: <rOut>/ToyUnfoldingVsCovariance/table2x3_ToyUnfoldingVsCovariance_errorRatio.png
+            // -------------------------------------------------------------------
+            {
                 bool anyR = false;
                 const int nPadsR = nPtAll;
                 for (int ii = 0; ii < nPadsR; ++ii)

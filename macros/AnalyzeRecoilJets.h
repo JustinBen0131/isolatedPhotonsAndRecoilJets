@@ -1088,13 +1088,16 @@ namespace ARJ
           {
             std::string simLabel = "UNKNOWN";
 
-            if (isPhotonJet5)                 simLabel = "photonJet5";
-            else if (isPhotonJet10)           simLabel = "photonJet10";
-            else if (isPhotonJet20)           simLabel = "photonJet20";
-            else if (bothPhoton5and10sim)     simLabel = "photonJet5+10 merged";
-            else if (bothPhoton5and20sim)     simLabel = "photonJet5+20 merged";
-            else if (bothPhoton10and20sim)    simLabel = "photonJet10+20 merged";
-            else if (allPhoton5and10and20sim) simLabel = "photonJet5+10+20 merged";
+            if (isPhotonJet5)                      simLabel = "photonJet5";
+            else if (isPhotonJet10)                simLabel = "photonJet10";
+            else if (isPhotonJet20)                simLabel = "photonJet20";
+            else if (bothPhoton5and10sim)           simLabel = "photonJet5+10 merged";
+            else if (bothPhoton5and20sim)           simLabel = "photonJet5+20 merged";
+            else if (bothPhoton10and20sim)          simLabel = "photonJet10+20 merged";
+            else if (allPhoton5and10and20sim)       simLabel = "photonJet5+10+20 merged";
+            else if (isPhotonJet10Embedded)         simLabel = "Photon+Jet 10 Embedded";
+            else if (isPhotonJet20Embedded)         simLabel = "Photon+Jet 20 Embedded";
+            else if (bothPhoton10and20simEmbedded)  simLabel = "Photon+Jet 10+20 Embedded";
 
             lines.push_back(std::string("Dataset: SIM (") + simLabel + ")");
           }

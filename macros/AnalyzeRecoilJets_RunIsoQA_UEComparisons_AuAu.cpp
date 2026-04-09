@@ -234,9 +234,17 @@
       {
         const string trigOutBase = JoinPath(outRoot, trigAA);
         const string sourceTopDirName = forEmbeddedSim ? kDirSIM : trigAA;
-        const string ueCompModeBase = forEmbeddedSim
-            ? JoinPath(JoinPath(trigOutBase, "isoQA/UEcomparisons"), activeEmbeddedSimFolder)
-            : JoinPath(trigOutBase, "isoQA/UEcomparisons");
+          const string ueCompModeBase = forEmbeddedSim
+              ? JoinPath(trigOutBase, "isoQA/UEcomparisons_" + activeEmbeddedSimFolder)
+              : JoinPath(trigOutBase, "isoQA/UEcomparisons");
+
+                  auto TriggerDisplayLabel = [&]() -> string
+                  {
+                    if (trigAA.find("photon_10") != string::npos) return "Photon 10 GeV + MBD NS #geq 2, vtx < 150 cm";
+                    if (trigAA.find("photon_12") != string::npos) return "Photon 12 GeV + MBD NS #geq 2, vtx < 150 cm";
+                    return "MBD NS #geq 2, vtx < 150 cm";
+                  };
+                  const string trigDisplayLabel = TriggerDisplayLabel();
 
       struct VariantHandle
       {
@@ -364,158 +372,158 @@
 
           for (std::size_t ic = 0; ic < centBins.size(); ++ic)
           {
-            const auto& cb = centBins[ic];
-            const string centDir = JoinPath(variantDir, cb.folder);
-            EnsureDir(centDir);
-
-            vector<double> xPt;
-            vector<double> exPt;
-            vector<double> yPP;
-            vector<double> eyPP;
-            vector<double> yAA;
-            vector<double> eyAA;
-
-            xPt.reserve(kNPtBins);
-            exPt.reserve(kNPtBins);
-            yPP.reserve(kNPtBins);
-            eyPP.reserve(kNPtBins);
-            yAA.reserve(kNPtBins);
-            eyAA.reserve(kNPtBins);
-
-                for (int ipt = 0; ipt < kNPtBins; ++ipt)
-                {
+              const auto& cb = centBins[ic];
+              const string centDir = JoinPath(variantDir, cb.folder);
+              EnsureDir(centDir);
+              
+              vector<double> xPt;
+              vector<double> exPt;
+              vector<double> yPP;
+              vector<double> eyPP;
+              vector<double> yAA;
+              vector<double> eyAA;
+              
+              xPt.reserve(kNPtBins);
+              exPt.reserve(kNPtBins);
+              yPP.reserve(kNPtBins);
+              eyPP.reserve(kNPtBins);
+              yAA.reserve(kNPtBins);
+              eyAA.reserve(kNPtBins);
+              
+              for (int ipt = 0; ipt < kNPtBins; ++ipt)
+              {
                   const PtBin& b = PtBins()[ipt];
                   const string ptDir = JoinPath(centDir, b.folder);
                   EnsureDir(ptDir);
-
+                  
                   const string hPPName = "h_Eiso" + b.suffix;
                   const string hAAName = "h_Eiso" + b.suffix + cb.suffix;
-
+                  
                   TH1* hPPsrc = dynamic_cast<TH1*>(ppTop->Get(hPPName.c_str()));
                   TH1* hAAsrc = dynamic_cast<TH1*>(aaTop->Get(hAAName.c_str()));
                   if (!hPPsrc || !hAAsrc) continue;
-
+                  
                   TH1* hPP = CloneTH1(
-                    hPPsrc,
-                    TString::Format("hPP_isoOverlay_%s_%s_%s",
-                      trigAA.c_str(), cb.folder.c_str(), b.folder.c_str()).Data()
-                  );
+                                      hPPsrc,
+                                      TString::Format("hPP_isoOverlay_%s_%s_%s",
+                                                      trigAA.c_str(), cb.folder.c_str(), b.folder.c_str()).Data()
+                                      );
                   TH1* hAA = CloneTH1(
-                    hAAsrc,
-                    TString::Format("hAA_isoOverlay_%s_%s_%s_%s",
-                      trigAA.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data()
-                  );
-
+                                      hAAsrc,
+                                      TString::Format("hAA_isoOverlay_%s_%s_%s_%s",
+                                                      trigAA.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data()
+                                      );
+                  
                   if (!hPP || !hAA)
                   {
-                    if (hPP) delete hPP;
-                    if (hAA) delete hAA;
-                    continue;
+                      if (hPP) delete hPP;
+                      if (hAA) delete hAA;
+                      continue;
                   }
-
+                  
                   EnsureSumw2(hPP);
                   EnsureSumw2(hAA);
-
+                  
                   xPt.push_back(0.5 * (kPtEdges[(std::size_t)ipt] + kPtEdges[(std::size_t)ipt + 1]));
                   exPt.push_back(0.5 * (kPtEdges[(std::size_t)ipt + 1] - kPtEdges[(std::size_t)ipt]));
                   yPP.push_back(hPP->GetMean());
                   yAA.push_back(hAA->GetMean());
                   eyPP.push_back((hPP->GetEntries() > 0.0) ? (hPP->GetRMS() / std::sqrt(hPP->GetEntries())) : 0.0);
                   eyAA.push_back((hAA->GetEntries() > 0.0) ? (hAA->GetRMS() / std::sqrt(hAA->GetEntries())) : 0.0);
-
+                  
                   // accumulate for vs-centrality plot
                   vsCent_yPP[ipt][ic]  = hPP->GetMean();
                   vsCent_eyPP[ipt][ic] = (hPP->GetEntries() > 0.0) ? (hPP->GetRMS() / std::sqrt(hPP->GetEntries())) : 0.0;
                   vsCent_yAA[ipt][ic]  = hAA->GetMean();
                   vsCent_eyAA[ipt][ic] = (hAA->GetEntries() > 0.0) ? (hAA->GetRMS() / std::sqrt(hAA->GetEntries())) : 0.0;
-                    vsCent_filled[ipt][ic] = true;
-
-                    // accumulate MC embedded means for summary plots
-                    if (incMCvarTop)
-                    {
+                  vsCent_filled[ipt][ic] = true;
+                  
+                  // accumulate MC embedded means for summary plots
+                  if (incMCvarTop)
+                  {
                       TH1* hIncMC = dynamic_cast<TH1*>(incMCvarTop->Get(hAAName.c_str()));
                       if (hIncMC)
                       {
-                        vsCent_yIncMC[ipt][ic]  = hIncMC->GetMean();
-                        vsCent_eyIncMC[ipt][ic] = (hIncMC->GetEntries() > 0.0)
+                          vsCent_yIncMC[ipt][ic]  = hIncMC->GetMean();
+                          vsCent_eyIncMC[ipt][ic] = (hIncMC->GetEntries() > 0.0)
                           ? (hIncMC->GetRMS() / std::sqrt(hIncMC->GetEntries())) : 0.0;
-                        vsCent_filledIncMC[ipt][ic] = true;
+                          vsCent_filledIncMC[ipt][ic] = true;
                       }
-                    }
-                    if (phoMCvarTop)
-                    {
+                  }
+                  if (phoMCvarTop)
+                  {
                       TH1* hPhoMC = dynamic_cast<TH1*>(phoMCvarTop->Get(hAAName.c_str()));
                       if (hPhoMC)
                       {
-                        vsCent_yPhoMC[ipt][ic]  = hPhoMC->GetMean();
-                        vsCent_eyPhoMC[ipt][ic] = (hPhoMC->GetEntries() > 0.0)
+                          vsCent_yPhoMC[ipt][ic]  = hPhoMC->GetMean();
+                          vsCent_eyPhoMC[ipt][ic] = (hPhoMC->GetEntries() > 0.0)
                           ? (hPhoMC->GetRMS() / std::sqrt(hPhoMC->GetEntries())) : 0.0;
                           vsCent_filledPhoMC[ipt][ic] = true;
-                          }
-                        }
-
-                      // accumulate signal (tight data + truth-sig-matched MC) means
+                      }
+                  }
+                  
+                  // accumulate signal (tight data + truth-sig-matched MC) means
+                  {
+                      const string hTightName = "h_Eiso_tight" + b.suffix + cb.suffix;
+                      TH1* hTightSrc = dynamic_cast<TH1*>(aaTop->Get(hTightName.c_str()));
+                      if (hTightSrc && hTightSrc->GetEntries() > 0.0)
                       {
-                        const string hTightName = "h_Eiso_tight" + b.suffix + cb.suffix;
-                        TH1* hTightSrc = dynamic_cast<TH1*>(aaTop->Get(hTightName.c_str()));
-                        if (hTightSrc && hTightSrc->GetEntries() > 0.0)
-                        {
                           vsCent_yTightData[ipt][ic]  = hTightSrc->GetMean();
                           vsCent_eyTightData[ipt][ic] = hTightSrc->GetMeanError();
                           vsCent_filledTightData[ipt][ic] = true;
-                        }
-                        const string hSigMCName = "h_EisoReco_truthSigMatched" + b.suffix + cb.suffix;
-                        if (incMCvarTop)
-                        {
+                      }
+                      const string hSigMCName = "h_EisoReco_truthSigMatched" + b.suffix + cb.suffix;
+                      if (incMCvarTop)
+                      {
                           TH1* hSigInc = dynamic_cast<TH1*>(incMCvarTop->Get(hSigMCName.c_str()));
                           if (hSigInc && hSigInc->GetEntries() > 0.0)
                           {
-                            vsCent_ySigIncMC[ipt][ic]  = hSigInc->GetMean();
-                            vsCent_eySigIncMC[ipt][ic] = hSigInc->GetMeanError();
-                            vsCent_filledSigIncMC[ipt][ic] = true;
+                              vsCent_ySigIncMC[ipt][ic]  = hSigInc->GetMean();
+                              vsCent_eySigIncMC[ipt][ic] = hSigInc->GetMeanError();
+                              vsCent_filledSigIncMC[ipt][ic] = true;
                           }
-                        }
-                        if (phoMCvarTop)
-                        {
+                      }
+                      if (phoMCvarTop)
+                      {
                           TH1* hSigPho = dynamic_cast<TH1*>(phoMCvarTop->Get(hSigMCName.c_str()));
                           if (hSigPho && hSigPho->GetEntries() > 0.0)
                           {
-                            vsCent_ySigPhoMC[ipt][ic]  = hSigPho->GetMean();
-                            vsCent_eySigPhoMC[ipt][ic] = hSigPho->GetMeanError();
-                            vsCent_filledSigPhoMC[ipt][ic] = true;
+                              vsCent_ySigPhoMC[ipt][ic]  = hSigPho->GetMean();
+                              vsCent_eySigPhoMC[ipt][ic] = hSigPho->GetMeanError();
+                              vsCent_filledSigPhoMC[ipt][ic] = true;
                           }
-                        }
                       }
-
-                        const double intPP = hPP->Integral(0, hPP->GetNbinsX() + 1);
+                  }
+                  
+                  const double intPP = hPP->Integral(0, hPP->GetNbinsX() + 1);
                   const double intAA = hAA->Integral(0, hAA->GetNbinsX() + 1);
                   if (intPP > 0.0) hPP->Scale(1.0 / intPP);
                   if (intAA > 0.0) hAA->Scale(1.0 / intAA);
-
+                  
                   hPP->SetLineColor(kRed + 1);
                   hPP->SetMarkerColor(kRed + 1);
                   hPP->SetMarkerStyle(24);
                   hPP->SetMarkerSize(1.1);
                   hPP->SetLineWidth(2);
                   hPP->SetFillStyle(0);
-
+                  
                   hAA->SetLineColor(kBlack);
                   hAA->SetMarkerColor(kBlack);
                   hAA->SetMarkerStyle(20);
                   hAA->SetMarkerSize(1.1);
                   hAA->SetLineWidth(2);
                   hAA->SetFillStyle(0);
-
+                  
                   const double ymax = std::max(hPP->GetMaximum(), hAA->GetMaximum());
-
+                  
                   TCanvas c(
-                    TString::Format("c_isoOverlayPPAuAu_%s_%s_%s_%s",
-                      trigAA.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
-                    "c_isoOverlayPPAuAu", 900, 700
-                  );
+                            TString::Format("c_isoOverlayPPAuAu_%s_%s_%s_%s",
+                                            trigAA.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
+                            "c_isoOverlayPPAuAu", 900, 700
+                            );
                   ApplyCanvasMargins1D(c);
                   c.cd();
-
+                  
                   hAA->SetTitle("");
                   hAA->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
                   hAA->GetYaxis()->SetTitle("Normalized to unit area");
@@ -526,10 +534,10 @@
                   hAA->GetYaxis()->SetTitleOffset(1.15);
                   hAA->SetMinimum(0.0);
                   hAA->SetMaximum((ymax > 0.0) ? (1.25 * ymax) : 1.0);
-
+                  
                   hAA->Draw("E1");
                   hPP->Draw("E1 SAME");
-
+                  
                   TLegend leg(0.56, 0.68, 0.92, 0.88);
                   leg.SetBorderSize(0);
                   leg.SetFillStyle(0);
@@ -538,15 +546,15 @@
                   leg.AddEntry(hPP, "pp data", "ep");
                   leg.AddEntry(hAA, TString::Format("AuAu data (%s)", H.label.c_str()).Data(), "ep");
                   leg.Draw();
-
+                  
                   TLatex tTitle;
                   tTitle.SetNDC(true);
                   tTitle.SetTextFont(42);
                   tTitle.SetTextAlign(23);
                   tTitle.SetTextSize(0.045);
                   tTitle.DrawLatex(0.50, 0.955,
-                    TString::Format("isolation overlay pp and %d-%d%% Cent AuAu", cb.lo, cb.hi).Data());
-
+                                   TString::Format("isolation overlay pp and %d-%d%% Cent AuAu", cb.lo, cb.hi).Data());
+                  
                   TLatex t;
                   t.SetNDC(true);
                   t.SetTextFont(42);
@@ -556,259 +564,269 @@
                   t.DrawLatex(0.16, 0.84, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
                   t.DrawLatex(0.16, 0.80, TString::Format("UE subtraction: %s", H.label.c_str()).Data());
                   t.DrawLatex(0.16, 0.76, TString::Format("p_{T}^{#gamma}: %d-%d GeV", b.lo, b.hi).Data());
-
-                    {
+                  
+                  {
                       const string ppAuAuDir = JoinPath(ptDir, "ppAuAuOverlay");
                       EnsureDir(ppAuAuDir);
                       const string furRealDir = JoinPath(ppAuAuDir, "ppAuAuOverlayFURREAL");
                       EnsureDir(furRealDir);
                       SaveCanvas(c, JoinPath(furRealDir, "isolationOverlay_pp_vs_auau.png"));
-
+                      
                       // ── pp data vs pp SIM (5+10+20) inclusive overlay ──
                       if (ppSimTop)
                       {
-                        const string ppIncDir = JoinPath(ppAuAuDir, "inclusiveIsoOverlays");
-                        EnsureDir(ppIncDir);
-                        const string hPPincName = "h_Eiso" + b.suffix;
-                        TH1* hPPdSrc = dynamic_cast<TH1*>(ppTop->Get(hPPincName.c_str()));
-                        TH1* hPPmSrc = dynamic_cast<TH1*>(ppSimTop->Get(hPPincName.c_str()));
-                        if (hPPdSrc && hPPmSrc)
-                        {
-                          TH1* hPPd = CloneTH1(hPPdSrc, TString::Format("hPPd_inc_%s_%s", cb.folder.c_str(), b.folder.c_str()).Data());
-                          TH1* hPPm = CloneTH1(hPPmSrc, TString::Format("hPPm_inc_%s_%s", cb.folder.c_str(), b.folder.c_str()).Data());
-                          if (hPPd && hPPm)
+                          const string ppIncDir = JoinPath(ppAuAuDir, "inclusiveIsoOverlays");
+                          EnsureDir(ppIncDir);
+                          const string hPPincName = "h_Eiso" + b.suffix;
+                          TH1* hPPdSrc = dynamic_cast<TH1*>(ppTop->Get(hPPincName.c_str()));
+                          TH1* hPPmSrc = dynamic_cast<TH1*>(ppSimTop->Get(hPPincName.c_str()));
+                          if (hPPdSrc && hPPmSrc)
                           {
-                            EnsureSumw2(hPPd); EnsureSumw2(hPPm);
-                            hPPd->Rebin(10); hPPm->Rebin(10);
-                            const double iD = hPPd->Integral(0, hPPd->GetNbinsX()+1);
-                            const double iM = hPPm->Integral(0, hPPm->GetNbinsX()+1);
-                            if (iD > 0.0 && iM > 0.0)
-                            {
-                              hPPd->Scale(1.0/iD); hPPm->Scale(1.0/iM);
-                              for (int ib=0; ib<=hPPm->GetNbinsX()+1; ++ib) hPPm->SetBinError(ib,0.0);
-                              hPPm->SetTitle(""); hPPm->SetLineColor(kBlack); hPPm->SetLineWidth(2);
-                              hPPm->SetFillStyle(0); hPPm->SetMarkerSize(0.0);
-                              hPPd->SetLineColor(kBlue+1); hPPd->SetMarkerColor(kBlue+1);
-                              hPPd->SetMarkerStyle(20); hPPd->SetMarkerSize(1.0); hPPd->SetLineWidth(2); hPPd->SetFillStyle(0);
-                              const double ym = std::max(hPPd->GetMaximum(), hPPm->GetMaximum());
-                              TCanvas cPI(TString::Format("c_ppInc_%s_%s", cb.folder.c_str(), b.folder.c_str()).Data(), "c_ppInc", 900, 700);
-                              ApplyCanvasMargins1D(cPI); cPI.cd();
-                              hPPm->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
-                              hPPm->GetYaxis()->SetTitle("Normalized to unit area");
-                              hPPm->GetXaxis()->SetTitleSize(0.055); hPPm->GetYaxis()->SetTitleSize(0.055);
-                              hPPm->GetXaxis()->SetLabelSize(0.045); hPPm->GetYaxis()->SetLabelSize(0.045);
-                              hPPm->GetYaxis()->SetTitleOffset(1.15);
-                              hPPm->SetMinimum(0.0); hPPm->SetMaximum((ym>0)?(1.25*ym):1.0);
-                              hPPm->Draw("hist"); hPPd->Draw("E1 SAME");
-                              TLegend lg(0.56,0.72,0.92,0.88); lg.SetBorderSize(0); lg.SetFillStyle(0); lg.SetTextFont(42); lg.SetTextSize(0.032);
-                              lg.AddEntry(hPPd, "pp data", "ep"); lg.AddEntry(hPPm, "pp MC (5+10+20)", "l"); lg.Draw();
-                              TLatex ts; ts.SetNDC(true); ts.SetTextFont(42); ts.SetTextAlign(33); ts.SetTextSize(0.048);
-                              ts.DrawLatex(0.92,0.6,"#bf{sPHENIX} #it{Internal}"); ts.SetTextSize(0.038);
-                              ts.DrawLatex(0.92,0.54,"p+p  #sqrt{s} = 200 GeV");
-                              TLatex ti; ti.SetNDC(true); ti.SetTextFont(42); ti.SetTextAlign(13); ti.SetTextSize(0.045);
-                              ti.DrawLatex(0.18,0.89,TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
-                              SaveCanvas(cPI, JoinPath(ppIncDir, "Eiso_dataMC_overlay.png"));
-                            }
-                            delete hPPd; delete hPPm;
-                          }
-                          else { if (hPPd) delete hPPd; if (hPPm) delete hPPm; }
-                        }
-
-                        // ── pp signal/bkg decomposition ──
-                        const string ppSigDir = JoinPath(ppAuAuDir, "signalIsoOverlays");
-                        EnsureDir(ppSigDir);
-                        const string hTName = "h_Eiso_tight" + b.suffix;
-                        const string hNTName = "h_Eiso_nonTight" + b.suffix;
-                        const string hSigName = "h_EisoReco_truthSigMatched" + b.suffix;
-                        TH1* hTdSrc  = dynamic_cast<TH1*>(ppTop->Get(hTName.c_str()));
-                        TH1* hNTdSrc = dynamic_cast<TH1*>(ppTop->Get(hNTName.c_str()));
-                        TH1* hSigSrc = dynamic_cast<TH1*>(ppSimTop->Get(hSigName.c_str()));
-                        if (hTdSrc && hNTdSrc && hSigSrc)
-                        {
-                          TH1* hTd  = CloneTH1(hTdSrc,  TString::Format("hTd_ppSig_%s_%s", cb.folder.c_str(), b.folder.c_str()).Data());
-                          TH1* hNTd = CloneTH1(hNTdSrc, TString::Format("hNTd_ppSig_%s_%s", cb.folder.c_str(), b.folder.c_str()).Data());
-                          TH1* hSig = CloneTH1(hSigSrc, TString::Format("hSig_ppSig_%s_%s", cb.folder.c_str(), b.folder.c_str()).Data());
-                          if (hTd && hNTd && hSig)
-                          {
-                              hTd->Rebin(10); hNTd->Rebin(10); hSig->Rebin(10);
-                              const double intTd_pp  = hTd->Integral(0, hTd->GetNbinsX()+1);
-                              const double intNTd_pp = hNTd->Integral(0, hNTd->GetNbinsX()+1);
-                              const double intSig_pp = hSig->Integral(0, hSig->GetNbinsX()+1);
-                              if (intTd_pp>0.0 && intNTd_pp>0.0 && intSig_pp>0.0)
+                              TH1* hPPd = CloneTH1(hPPdSrc, TString::Format("hPPd_inc_%s_%s", cb.folder.c_str(), b.folder.c_str()).Data());
+                              TH1* hPPm = CloneTH1(hPPmSrc, TString::Format("hPPm_inc_%s_%s", cb.folder.c_str(), b.folder.c_str()).Data());
+                              if (hPPd && hPPm)
                               {
-                                  hTd->Scale(1.0/intTd_pp); hNTd->Scale(1.0/intNTd_pp); hSig->Scale(1.0/intSig_pp);
-                                  hSig->SetLineColor(kBlue-9); hSig->SetFillColorAlpha(kBlue-9,0.5); hSig->SetFillStyle(1001); hSig->SetLineWidth(1); hSig->SetMarkerSize(0.0);
-                                  hNTd->SetLineColor(kPink-4); hNTd->SetFillColorAlpha(kPink-4,0.5); hNTd->SetFillStyle(1001); hNTd->SetLineWidth(1); hNTd->SetMarkerSize(0.0);
-                                  for (int ib=0; ib<=hSig->GetNbinsX()+1; ++ib) hSig->SetBinError(ib,0.0);
-                                  for (int ib=0; ib<=hNTd->GetNbinsX()+1; ++ib) hNTd->SetBinError(ib,0.0);
-                                  hTd->SetLineColor(kBlack); hTd->SetMarkerColor(kBlack); hTd->SetMarkerStyle(20); hTd->SetMarkerSize(1.0); hTd->SetLineWidth(2); hTd->SetFillStyle(0);
-                                  const double ym = std::max({hTd->GetMaximum(), hNTd->GetMaximum(), hSig->GetMaximum()});
-                                  TCanvas cSB(TString::Format("c_ppSigBkg_%s_%s", cb.folder.c_str(), b.folder.c_str()).Data(), "c_ppSigBkg", 900, 700);
-                                  ApplyCanvasMargins1D(cSB); cSB.cd();
-                                  hTd->SetTitle(""); hTd->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
-                                  hTd->GetYaxis()->SetTitle("Normalized to Unit Area");
-                                  hTd->GetXaxis()->SetTitleSize(0.055); hTd->GetYaxis()->SetTitleSize(0.055);
-                                  hTd->GetXaxis()->SetLabelSize(0.045); hTd->GetYaxis()->SetLabelSize(0.045);
-                                  hTd->GetYaxis()->SetTitleOffset(1.15);
-                                  hTd->SetMinimum(0.0); hTd->SetMaximum((ym>0)?(1.3*ym):1.0);
-                                  hTd->Draw("E1");
-                                  hNTd->Draw("hist SAME");
-                                  hSig->Draw("hist SAME");
-                                  hTd->Draw("E1 SAME");
-                                  TLatex tSBtitle; tSBtitle.SetNDC(true); tSBtitle.SetTextFont(42); tSBtitle.SetTextAlign(23); tSBtitle.SetTextSize(0.040);
-                                  tSBtitle.DrawLatex(0.50, 0.97,
-                                                     "E_{T}^{iso} overlay: pp data vs pp MC");
-                                  TLegend lg(0.56,0.65,0.92,0.88); lg.SetBorderSize(0); lg.SetFillStyle(0); lg.SetTextFont(42); lg.SetTextSize(0.032);
-                                  lg.AddEntry(hTd, "Data (Signal)", "ep"); lg.AddEntry(hNTd, "Data (Background)", "f"); lg.AddEntry(hSig, "Signal Embedded MC", "f"); lg.Draw();
-                                  TLatex ts; ts.SetNDC(true); ts.SetTextFont(42); ts.SetTextAlign(33); ts.SetTextSize(0.048);
-                                  ts.DrawLatex(0.92,0.6,"#bf{sPHENIX} #it{Internal}"); ts.SetTextSize(0.038);
-                                  ts.DrawLatex(0.92,0.54,"p+p  #sqrt{s} = 200 GeV");
-                                  TLatex ti; ti.SetNDC(true); ti.SetTextFont(42); ti.SetTextAlign(13); ti.SetTextSize(0.045);
-                                  ti.DrawLatex(0.18,0.89,TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
-                                  SaveCanvas(cSB, JoinPath(ppSigDir, "Eiso_sigBkg_overlay.png"));
+                                  EnsureSumw2(hPPd); EnsureSumw2(hPPm);
+                                  hPPd->Rebin(10); hPPm->Rebin(10);
+                                  const double iD = hPPd->Integral(0, hPPd->GetNbinsX()+1);
+                                  const double iM = hPPm->Integral(0, hPPm->GetNbinsX()+1);
+                                  if (iD > 0.0 && iM > 0.0)
+                                  {
+                                      hPPd->Scale(1.0/iD); hPPm->Scale(1.0/iM);
+                                      for (int ib=0; ib<=hPPm->GetNbinsX()+1; ++ib) hPPm->SetBinError(ib,0.0);
+                                      hPPm->SetTitle(""); hPPm->SetLineColor(kBlack); hPPm->SetLineWidth(2);
+                                      hPPm->SetFillStyle(0); hPPm->SetMarkerSize(0.0);
+                                      hPPd->SetLineColor(kBlue+1); hPPd->SetMarkerColor(kBlue+1);
+                                      hPPd->SetMarkerStyle(20); hPPd->SetMarkerSize(1.0); hPPd->SetLineWidth(2); hPPd->SetFillStyle(0);
+                                      const double ym = std::max(hPPd->GetMaximum(), hPPm->GetMaximum());
+                                      TCanvas cPI(TString::Format("c_ppInc_%s_%s", cb.folder.c_str(), b.folder.c_str()).Data(), "c_ppInc", 900, 700);
+                                      ApplyCanvasMargins1D(cPI); cPI.cd();
+                                      hPPm->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
+                                      hPPm->GetYaxis()->SetTitle("Normalized to unit area");
+                                      hPPm->GetXaxis()->SetTitleSize(0.055); hPPm->GetYaxis()->SetTitleSize(0.055);
+                                      hPPm->GetXaxis()->SetLabelSize(0.045); hPPm->GetYaxis()->SetLabelSize(0.045);
+                                      hPPm->GetYaxis()->SetTitleOffset(1.15);
+                                      hPPm->SetMinimum(0.0); hPPm->SetMaximum((ym>0)?(1.25*ym):1.0);
+                                      hPPm->Draw("hist"); hPPd->Draw("E1 SAME");
+                                      TLegend lg(0.56,0.72,0.92,0.88); lg.SetBorderSize(0); lg.SetFillStyle(0); lg.SetTextFont(42); lg.SetTextSize(0.032);
+                                      lg.AddEntry(hPPd, "pp data", "ep"); lg.AddEntry(hPPm, "pp MC (5+10+20)", "l"); lg.Draw();
+                                      TLatex ts; ts.SetNDC(true); ts.SetTextFont(42); ts.SetTextAlign(33); ts.SetTextSize(0.048);
+                                      ts.DrawLatex(0.92,0.6,"#bf{sPHENIX} #it{Internal}"); ts.SetTextSize(0.038);
+                                      ts.DrawLatex(0.92,0.54,"p+p  #sqrt{s} = 200 GeV");
+                                      TLatex ti; ti.SetNDC(true); ti.SetTextFont(42); ti.SetTextAlign(13); ti.SetTextSize(0.045);
+                                      ti.DrawLatex(0.18,0.89,TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+                                      SaveCanvas(cPI, JoinPath(ppIncDir, "Eiso_dataMC_overlay.png"));
+                                  }
+                                  delete hPPd; delete hPPm;
                               }
+                              else { if (hPPd) delete hPPd; if (hPPm) delete hPPm; }
                           }
-                          if (hTd) delete hTd; if (hNTd) delete hNTd; if (hSig) delete hSig;
-                        }
+                          
+                          // ── pp signal/bkg decomposition ──
+                          const string ppSigDir = JoinPath(ppAuAuDir, "signalIsoOverlays");
+                          EnsureDir(ppSigDir);
+                          const string hTName = "h_Eiso_tight" + b.suffix;
+                          const string hNTName = "h_Eiso_nonTight" + b.suffix;
+                          const string hSigName = "h_EisoReco_truthSigMatched" + b.suffix;
+                          TH1* hTdSrc  = dynamic_cast<TH1*>(ppTop->Get(hTName.c_str()));
+                          TH1* hNTdSrc = dynamic_cast<TH1*>(ppTop->Get(hNTName.c_str()));
+                          TH1* hSigSrc = dynamic_cast<TH1*>(ppSimTop->Get(hSigName.c_str()));
+                          if (hTdSrc && hNTdSrc && hSigSrc)
+                          {
+                              TH1* hTd  = CloneTH1(hTdSrc,  TString::Format("hTd_ppSig_%s_%s", cb.folder.c_str(), b.folder.c_str()).Data());
+                              TH1* hNTd = CloneTH1(hNTdSrc, TString::Format("hNTd_ppSig_%s_%s", cb.folder.c_str(), b.folder.c_str()).Data());
+                              TH1* hSig = CloneTH1(hSigSrc, TString::Format("hSig_ppSig_%s_%s", cb.folder.c_str(), b.folder.c_str()).Data());
+                              if (hTd && hNTd && hSig)
+                              {
+                                  hTd->Rebin(10); hNTd->Rebin(10); hSig->Rebin(10);
+                                  {
+                                      const double iTdN=hTd->Integral(0,hTd->GetNbinsX()+1); const double iNTdN=hNTd->Integral(0,hNTd->GetNbinsX()+1); const double iSigN=hSig->Integral(0,hSig->GetNbinsX()+1);
+                                      if (iTdN>0) hTd->Scale(1.0/iTdN); if (iNTdN>0) hNTd->Scale(1.0/iNTdN); if (iSigN>0) hSig->Scale(1.0/iSigN);
+                                      hSig->SetLineColor(kBlue-9); hSig->SetFillColorAlpha(kBlue-9,0.5); hSig->SetFillStyle(1001); hSig->SetLineWidth(1); hSig->SetMarkerSize(0.0);
+                                      hNTd->SetLineColor(kPink-4); hNTd->SetFillColorAlpha(kPink-4,0.5); hNTd->SetFillStyle(1001); hNTd->SetLineWidth(1); hNTd->SetMarkerSize(0.0);
+                                      for (int ib=0; ib<=hSig->GetNbinsX()+1; ++ib) hSig->SetBinError(ib,0.0);
+                                      for (int ib=0; ib<=hNTd->GetNbinsX()+1; ++ib) hNTd->SetBinError(ib,0.0);
+                                      hTd->SetLineColor(kBlack); hTd->SetMarkerColor(kBlack); hTd->SetMarkerStyle(20); hTd->SetMarkerSize(1.0); hTd->SetLineWidth(2); hTd->SetFillStyle(0);
+                                      TH1* hStackPP = (TH1*)hSig->Clone(TString::Format("hStack_ppSig_%s_%s", cb.folder.c_str(), b.folder.c_str()).Data());
+                                      hStackPP->SetDirectory(nullptr); hStackPP->Add(hNTd);
+                                      const double ym = std::max(hTd->GetMaximum(), hStackPP->GetMaximum());
+                                      TCanvas cSB(TString::Format("c_ppSigBkg_%s_%s", cb.folder.c_str(), b.folder.c_str()).Data(), "c_ppSigBkg", 900, 700);
+                                      ApplyCanvasMargins1D(cSB); cSB.cd();
+                                      hStackPP->SetTitle(""); hStackPP->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
+                                      hStackPP->GetYaxis()->SetTitle("Normalized to unit area");
+                                      hTd->GetXaxis()->SetTitleSize(0.055); hTd->GetYaxis()->SetTitleSize(0.055);
+                                      hTd->GetXaxis()->SetLabelSize(0.045); hTd->GetYaxis()->SetLabelSize(0.045);
+                                      hTd->GetYaxis()->SetTitleOffset(1.15);
+                                      hStackPP->GetXaxis()->SetTitleSize(0.055); hStackPP->GetYaxis()->SetTitleSize(0.055);
+                                      hStackPP->GetXaxis()->SetLabelSize(0.045); hStackPP->GetYaxis()->SetLabelSize(0.045);
+                                      hStackPP->GetYaxis()->SetTitleOffset(1.15);
+                                      hStackPP->SetMinimum(0.0); hStackPP->SetMaximum((ym>0)?(1.3*ym):1.0);
+                                      hStackPP->SetLineColor(kPink-4); hStackPP->SetFillColorAlpha(kPink-4,0.5); hStackPP->SetFillStyle(1001);
+                                      hStackPP->Draw("hist");
+                                      hSig->Draw("hist SAME");
+                                      hTd->Draw("E1 SAME");
+                                      TLatex tSBtitle; tSBtitle.SetNDC(true); tSBtitle.SetTextFont(42); tSBtitle.SetTextAlign(23); tSBtitle.SetTextSize(0.040);
+                                      tSBtitle.DrawLatex(0.50, 0.97,
+                                                         "E_{T}^{iso}, p+p data versus Photon+Jet (5+10+20) Pythia");
+                                      TLegend lg(0.56,0.65,0.92,0.88); lg.SetBorderSize(0); lg.SetFillStyle(0); lg.SetTextFont(42); lg.SetTextSize(0.032);
+                                      lg.AddEntry(hTd, "Data (Signal)", "ep"); lg.AddEntry(hNTd, "Data (Background)", "f"); lg.AddEntry(hSig, "Signal Embedded MC", "f"); lg.Draw();
+                                      TLatex ts; ts.SetNDC(true); ts.SetTextFont(42); ts.SetTextAlign(33); ts.SetTextSize(0.048);
+                                      ts.DrawLatex(0.92,0.6,"#bf{sPHENIX} #it{Internal}"); ts.SetTextSize(0.038);
+                                      ts.DrawLatex(0.92,0.54,"p+p  #sqrt{s} = 200 GeV");
+                                      TLatex tsPPinfo; tsPPinfo.SetNDC(true); tsPPinfo.SetTextFont(42); tsPPinfo.SetTextAlign(33); tsPPinfo.SetTextSize(0.034);
+                                      tsPPinfo.DrawLatex(0.92,0.46,"Photon 4 GeV + MBD NS #geq 1");
+                                      tsPPinfo.DrawLatex(0.92,0.42,TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
+                                      tsPPinfo.DrawLatex(0.92,0.38,TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                                      TLatex ti; ti.SetNDC(true); ti.SetTextFont(42); ti.SetTextAlign(13); ti.SetTextSize(0.045);
+                                      ti.DrawLatex(0.18,0.89,TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+                                      SaveCanvas(cSB, JoinPath(ppSigDir, "Eiso_sigBkg_overlay.png"));
+                                      delete hStackPP;
+                                  }
+                              }
+                              if (hTd) delete hTd; if (hNTd) delete hNTd; if (hSig) delete hSig;
+                          }
                       }
-                    }
-
-                    delete hPP;
-                    delete hAA;
-
-                    // ── inclusive Eiso: DATA vs MC overlays ──
-                    if (!forEmbeddedSim)
-                    {
-                      struct MCOverlayCfg {
-                        TDirectory*  mcTop;
-                        string       folder;
-                        string       titleTag;
-                        string       mcLegend;
-                      };
-                      const vector<MCOverlayCfg> mcOvCfgs = {
-                        { incMCvarTop, "inclusiveMCoverlays", inclusiveEmbeddedTitleTag, "inclusive MC" },
-                        { phoMCvarTop, "photonJetOverlays",   photonEmbeddedTitleTag,    "photon+jet MC" }
-                      };
-
-                      for (const auto& mcCfg : mcOvCfgs)
+                  }
+            
+              delete hPP;
+              delete hAA;
+              
+              // ── inclusive Eiso: DATA vs MC overlays ──
+              if (!forEmbeddedSim)
+              {
+                  struct MCOverlayCfg {
+                      TDirectory*  mcTop;
+                      string       folder;
+                      string       titleTag;
+                      string       mcLegend;
+                  };
+                  const vector<MCOverlayCfg> mcOvCfgs = {
+                      { incMCvarTop, "inclusiveMCoverlays", inclusiveEmbeddedTitleTag, "inclusive MC" },
+                      { phoMCvarTop, "photonJetOverlays",   photonEmbeddedTitleTag,    "photon+jet MC" }
+                  };
+                  
+                  for (const auto& mcCfg : mcOvCfgs)
+                  {
+                      if (!mcCfg.mcTop || mcCfg.titleTag.empty()) continue;
+                      
+                      const string mcOvDir = JoinPath(ptDir, mcCfg.folder);
+                      EnsureDir(mcOvDir);
+                      
+                      const string hAAName = "h_Eiso" + b.suffix + cb.suffix;
+                      TH1* hDataSrc = dynamic_cast<TH1*>(aaTop->Get(hAAName.c_str()));
+                      TH1* hMCSrc   = dynamic_cast<TH1*>(mcCfg.mcTop->Get(hAAName.c_str()));
+                      if (!hDataSrc || !hMCSrc) continue;
+                      
+                      TH1* hData = CloneTH1(hDataSrc,
+                                            TString::Format("hData_mcOv_%s_%s_%s_%s",
+                                                            mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
+                      TH1* hMC = CloneTH1(hMCSrc,
+                                          TString::Format("hMC_mcOv_%s_%s_%s_%s",
+                                                          mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
+                      if (!hData || !hMC) { delete hData; delete hMC; continue; }
+                      
+                      EnsureSumw2(hData);
+                      EnsureSumw2(hMC);
+                      
+                      hData->Rebin(10);
+                      hMC->Rebin(10);
+                      
+                      const double intData = hData->Integral(0, hData->GetNbinsX() + 1);
+                      const double intMC   = hMC->Integral(0, hMC->GetNbinsX() + 1);
+                      if (!(intData > 0.0) || !(intMC > 0.0)) { delete hData; delete hMC; continue; }
+                      
+                      hData->Scale(1.0 / intData);
+                      hMC->Scale(1.0 / intMC);
+                      
+                      hMC->SetTitle("");
+                      hMC->SetLineColor(kBlack);
+                      hMC->SetLineWidth(2);
+                      hMC->SetFillStyle(0);
+                      hMC->SetMarkerSize(0.0);
+                      for (int ib = 0; ib <= hMC->GetNbinsX() + 1; ++ib) hMC->SetBinError(ib, 0.0);
+                      
+                      hData->SetLineColor(kBlue + 1);
+                      hData->SetMarkerColor(kBlue + 1);
+                      hData->SetMarkerStyle(20);
+                      hData->SetMarkerSize(1.0);
+                      hData->SetLineWidth(2);
+                      hData->SetFillStyle(0);
+                      
+                      const double ymx = std::max(hData->GetMaximum(), hMC->GetMaximum());
+                      
+                      TCanvas cMcOv(
+                                    TString::Format("c_mcOv_%s_%s_%s_%s",
+                                                    mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
+                                    "c_mcOv", 900, 700);
+                      ApplyCanvasMargins1D(cMcOv);
+                      cMcOv.cd();
+                      
+                      hMC->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
+                      hMC->GetYaxis()->SetTitle("Normalized to unit area");
+                      hMC->GetXaxis()->SetTitleSize(0.055);
+                      hMC->GetYaxis()->SetTitleSize(0.055);
+                      hMC->GetXaxis()->SetLabelSize(0.045);
+                      hMC->GetYaxis()->SetLabelSize(0.045);
+                      hMC->GetYaxis()->SetTitleOffset(1.15);
+                      hMC->SetMinimum(0.0);
+                      hMC->SetMaximum((ymx > 0.0) ? (1.25 * ymx) : 1.0);
+                      
+                      hMC->Draw("hist");
+                      hData->Draw("E1 SAME");
+                      
+                      TLegend legMcOv(0.56, 0.72, 0.92, 0.88);
+                      legMcOv.SetBorderSize(0);
+                      legMcOv.SetFillStyle(0);
+                      legMcOv.SetTextFont(42);
+                      legMcOv.SetTextSize(0.032);
+                      legMcOv.AddEntry(hData, TString::Format("AuAu data (%s)", H.label.c_str()).Data(), "ep");
+                      legMcOv.AddEntry(hMC, mcCfg.mcLegend.c_str(), "l");
+                      legMcOv.Draw();
+                      
+                      TLatex tMcOvTitle;
+                      tMcOvTitle.SetNDC(true);
+                      tMcOvTitle.SetTextFont(42);
+                      tMcOvTitle.SetTextAlign(23);
+                      tMcOvTitle.SetTextSize(0.040);
+                      tMcOvTitle.DrawLatex(0.50, 0.97,
+                                           TString::Format("E_{T}^{iso} overlay: AuAu data vs %s Embedded MC", mcCfg.titleTag.c_str()).Data());
+                      
+                      TLatex tMcOvInfo;
+                      tMcOvInfo.SetNDC(true);
+                      tMcOvInfo.SetTextFont(42);
+                      tMcOvInfo.SetTextAlign(13);
+                      tMcOvInfo.SetTextSize(0.045);
+                      tMcOvInfo.DrawLatex(0.18, 0.89, TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
+                      tMcOvInfo.DrawLatex(0.18, 0.85, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+                      
+                      TLatex tSph;
+                      tSph.SetNDC(true);
+                      tSph.SetTextFont(42);
+                      tSph.SetTextAlign(33);
+                      tSph.SetTextSize(0.048);
+                      tSph.DrawLatex(0.92, 0.6, "#bf{sPHENIX} #it{Internal}");
+                      tSph.SetTextSize(0.038);
+                      tSph.DrawLatex(0.92, 0.54, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                      
+                      TLatex tUE;
+                      tUE.SetNDC(true);
+                      tUE.SetTextFont(42);
+                      tUE.SetTextAlign(33);
+                      tUE.SetTextSize(0.034);
+                      tUE.DrawLatex(0.92, 0.46, trigDisplayLabel.c_str());
+                      tUE.DrawLatex(0.92, 0.42, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
+                      tUE.DrawLatex(0.92, 0.38, TString::Format("UE: %s", H.label.c_str()).Data());
+                      tUE.DrawLatex(0.92, 0.34, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                      
+                      SaveCanvas(cMcOv, JoinPath(mcOvDir, "Eiso_dataMC_overlay.png"));
+                      
+                      // individual unnormalized distributions
+                      for (const auto& rv : std::vector<std::pair<TH1*,std::string>>{
+                          {hDataSrc, "Eiso_data_raw"}, {hMCSrc, "Eiso_mc_raw"}})
                       {
-                        if (!mcCfg.mcTop || mcCfg.titleTag.empty()) continue;
-
-                        const string mcOvDir = JoinPath(ptDir, mcCfg.folder);
-                        EnsureDir(mcOvDir);
-
-                        const string hAAName = "h_Eiso" + b.suffix + cb.suffix;
-                        TH1* hDataSrc = dynamic_cast<TH1*>(aaTop->Get(hAAName.c_str()));
-                        TH1* hMCSrc   = dynamic_cast<TH1*>(mcCfg.mcTop->Get(hAAName.c_str()));
-                        if (!hDataSrc || !hMCSrc) continue;
-
-                        TH1* hData = CloneTH1(hDataSrc,
-                          TString::Format("hData_mcOv_%s_%s_%s_%s",
-                            mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
-                        TH1* hMC = CloneTH1(hMCSrc,
-                          TString::Format("hMC_mcOv_%s_%s_%s_%s",
-                            mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
-                        if (!hData || !hMC) { delete hData; delete hMC; continue; }
-
-                        EnsureSumw2(hData);
-                        EnsureSumw2(hMC);
-
-                        hData->Rebin(10);
-                        hMC->Rebin(10);
-
-                        const double intData = hData->Integral(0, hData->GetNbinsX() + 1);
-                        const double intMC   = hMC->Integral(0, hMC->GetNbinsX() + 1);
-                        if (!(intData > 0.0) || !(intMC > 0.0)) { delete hData; delete hMC; continue; }
-
-                        hData->Scale(1.0 / intData);
-                        hMC->Scale(1.0 / intMC);
-
-                        hMC->SetTitle("");
-                        hMC->SetLineColor(kBlack);
-                        hMC->SetLineWidth(2);
-                        hMC->SetFillStyle(0);
-                        hMC->SetMarkerSize(0.0);
-                        for (int ib = 0; ib <= hMC->GetNbinsX() + 1; ++ib) hMC->SetBinError(ib, 0.0);
-
-                        hData->SetLineColor(kBlue + 1);
-                        hData->SetMarkerColor(kBlue + 1);
-                        hData->SetMarkerStyle(20);
-                        hData->SetMarkerSize(1.0);
-                        hData->SetLineWidth(2);
-                        hData->SetFillStyle(0);
-
-                        const double ymx = std::max(hData->GetMaximum(), hMC->GetMaximum());
-
-                        TCanvas cMcOv(
-                          TString::Format("c_mcOv_%s_%s_%s_%s",
-                            mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
-                          "c_mcOv", 900, 700);
-                        ApplyCanvasMargins1D(cMcOv);
-                        cMcOv.cd();
-
-                        hMC->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
-                        hMC->GetYaxis()->SetTitle("Normalized to unit area");
-                        hMC->GetXaxis()->SetTitleSize(0.055);
-                        hMC->GetYaxis()->SetTitleSize(0.055);
-                        hMC->GetXaxis()->SetLabelSize(0.045);
-                        hMC->GetYaxis()->SetLabelSize(0.045);
-                        hMC->GetYaxis()->SetTitleOffset(1.15);
-                        hMC->SetMinimum(0.0);
-                        hMC->SetMaximum((ymx > 0.0) ? (1.25 * ymx) : 1.0);
-
-                        hMC->Draw("hist");
-                        hData->Draw("E1 SAME");
-
-                        TLegend legMcOv(0.56, 0.72, 0.92, 0.88);
-                        legMcOv.SetBorderSize(0);
-                        legMcOv.SetFillStyle(0);
-                        legMcOv.SetTextFont(42);
-                        legMcOv.SetTextSize(0.032);
-                        legMcOv.AddEntry(hData, TString::Format("AuAu data (%s)", H.label.c_str()).Data(), "ep");
-                        legMcOv.AddEntry(hMC, mcCfg.mcLegend.c_str(), "l");
-                        legMcOv.Draw();
-
-                        TLatex tMcOvTitle;
-                        tMcOvTitle.SetNDC(true);
-                        tMcOvTitle.SetTextFont(42);
-                        tMcOvTitle.SetTextAlign(23);
-                        tMcOvTitle.SetTextSize(0.040);
-                        tMcOvTitle.DrawLatex(0.50, 0.97,
-                                                            TString::Format("E_{T}^{iso} overlay: AuAu data vs %s Embedded MC", mcCfg.titleTag.c_str()).Data());
-
-                          TLatex tMcOvInfo;
-                          tMcOvInfo.SetNDC(true);
-                          tMcOvInfo.SetTextFont(42);
-                          tMcOvInfo.SetTextAlign(13);
-                          tMcOvInfo.SetTextSize(0.045);
-                          tMcOvInfo.DrawLatex(0.18, 0.89, TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
-                          tMcOvInfo.DrawLatex(0.18, 0.85, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
-
-                          TLatex tSph;
-                          tSph.SetNDC(true);
-                          tSph.SetTextFont(42);
-                          tSph.SetTextAlign(33);
-                          tSph.SetTextSize(0.048);
-                          tSph.DrawLatex(0.92, 0.6, "#bf{sPHENIX} #it{Internal}");
-                          tSph.SetTextSize(0.038);
-                          tSph.DrawLatex(0.92, 0.54, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
-
-                          TLatex tUE;
-                          tUE.SetNDC(true);
-                          tUE.SetTextFont(42);
-                          tUE.SetTextAlign(33);
-                          tUE.SetTextSize(0.038);
-                          tUE.DrawLatex(0.92, 0.3, TString::Format("UE: %s", H.label.c_str()).Data());
-
-                          SaveCanvas(cMcOv, JoinPath(mcOvDir, "Eiso_dataMC_overlay.png"));
-
-                        // individual unnormalized distributions
-                        for (const auto& rv : std::vector<std::pair<TH1*,std::string>>{
-                              {hDataSrc, "Eiso_data_raw"}, {hMCSrc, "Eiso_mc_raw"}})
-                        {
                           TH1* hRaw = dynamic_cast<TH1*>(rv.first->Clone(
-                            TString::Format("hRaw_%s_%s_%s_%s_%s", rv.second.c_str(),
-                              mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data()));
+                                                                         TString::Format("hRaw_%s_%s_%s_%s_%s", rv.second.c_str(),
+                                                                                         mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data()));
                           if (!hRaw) continue;
                           hRaw->SetDirectory(nullptr);
                           hRaw->SetTitle("");
@@ -824,15 +842,15 @@
                           hRaw->SetLineWidth(2);
                           hRaw->SetFillStyle(0);
                           TCanvas cRaw(
-                            TString::Format("c_raw_%s_%s_%s_%s_%s", rv.second.c_str(),
-                              mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
-                            "c_raw", 900, 700);
+                                       TString::Format("c_raw_%s_%s_%s_%s_%s", rv.second.c_str(),
+                                                       mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
+                                       "c_raw", 900, 700);
                           ApplyCanvasMargins1D(cRaw);
                           cRaw.cd();
                           if (isMC)
-                            { hRaw->SetMarkerSize(0.0); hRaw->Draw("hist"); }
+                          { hRaw->SetMarkerSize(0.0); hRaw->Draw("hist"); }
                           else
-                            { hRaw->SetMarkerColor(kBlue + 1); hRaw->SetMarkerStyle(20); hRaw->SetMarkerSize(1.0); hRaw->Draw("E1"); }
+                          { hRaw->SetMarkerColor(kBlue + 1); hRaw->SetMarkerStyle(20); hRaw->SetMarkerSize(1.0); hRaw->Draw("E1"); }
                           TLatex tRawInfo;
                           tRawInfo.SetNDC(true);
                           tRawInfo.SetTextFont(42);
@@ -842,84 +860,270 @@
                           tRawInfo.DrawLatex(0.16, 0.82, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
                           SaveCanvas(cRaw, JoinPath(mcOvDir, rv.second + ".png"));
                           delete hRaw;
-                        }
-
-                          delete hData;
-                          delete hMC;
-
-                          // ── signal/bkg decomposition: AuAu data + embedded MC ──
+                      }
+                      
+                      delete hData;
+                      delete hMC;
+                      
+                      // ── signal/bkg decomposition: AuAu data + embedded MC ──
+                      {
+                          const string sigOvDir = JoinPath(mcOvDir, "signalIsoOverlays");
+                          EnsureDir(sigOvDir);
+                          const string hTName  = "h_Eiso_tight" + b.suffix + cb.suffix;
+                          const string hNTName = "h_Eiso_nonTight" + b.suffix + cb.suffix;
+                          const string hSigName = "h_EisoReco_truthSigMatched" + b.suffix + cb.suffix;
+                          TH1* hTdSrc  = dynamic_cast<TH1*>(aaTop->Get(hTName.c_str()));
+                          TH1* hNTdSrc = dynamic_cast<TH1*>(aaTop->Get(hNTName.c_str()));
+                          TH1* hSigSrc = dynamic_cast<TH1*>(mcCfg.mcTop->Get(hSigName.c_str()));
+                          if (hTdSrc && hNTdSrc && hSigSrc)
                           {
-                            const string sigOvDir = JoinPath(mcOvDir, "signalIsoOverlays");
-                            EnsureDir(sigOvDir);
-                            const string hTName  = "h_Eiso_tight" + b.suffix + cb.suffix;
-                            const string hNTName = "h_Eiso_nonTight" + b.suffix + cb.suffix;
-                            const string hSigName = "h_EisoReco_truthSigMatched" + b.suffix + cb.suffix;
-                            TH1* hTdSrc  = dynamic_cast<TH1*>(aaTop->Get(hTName.c_str()));
-                            TH1* hNTdSrc = dynamic_cast<TH1*>(aaTop->Get(hNTName.c_str()));
-                            TH1* hSigSrc = dynamic_cast<TH1*>(mcCfg.mcTop->Get(hSigName.c_str()));
-                            if (hTdSrc && hNTdSrc && hSigSrc)
-                            {
                               TH1* hTd  = CloneTH1(hTdSrc,  TString::Format("hTd_aaSig_%s_%s_%s_%s", mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
                               TH1* hNTd = CloneTH1(hNTdSrc, TString::Format("hNTd_aaSig_%s_%s_%s_%s", mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
                               TH1* hSig = CloneTH1(hSigSrc, TString::Format("hSig_aaSig_%s_%s_%s_%s", mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
                               if (hTd && hNTd && hSig)
                               {
                                   hTd->Rebin(10); hNTd->Rebin(10); hSig->Rebin(10);
-                                  const int bLo4 = hTd->FindBin(4.01);
-                                  const int bHi  = hTd->GetNbinsX();
-                                  const double tTail  = hTd->Integral(bLo4, bHi);
-                                  const double ntTail = hNTd->Integral(bLo4, bHi);
-                                  if (ntTail > 0.0) hNTd->Scale(tTail / ntTail);
-                                  const double sigInt = hSig->Integral(1, hSig->FindBin(3.99));
-                                  const double datMinusBkg = hTd->Integral(1, hTd->FindBin(3.99)) - hNTd->Integral(1, hNTd->FindBin(3.99));
-                                  if (sigInt > 0.0 && datMinusBkg > 0.0) hSig->Scale(datMinusBkg / sigInt);
-                                  for (auto* hh : {hTd, hNTd, hSig})
-                                    for (int ib=1; ib<=hh->GetNbinsX(); ++ib)
-                                    { const double w=hh->GetBinWidth(ib); if(w>0){hh->SetBinContent(ib,hh->GetBinContent(ib)/w); hh->SetBinError(ib,hh->GetBinError(ib)/w);} }
+                                  { const double iTdAA=hTd->Integral(0,hTd->GetNbinsX()+1); const double iNTdAA=hNTd->Integral(0,hNTd->GetNbinsX()+1); const double iSigAA=hSig->Integral(0,hSig->GetNbinsX()+1);
+                                  if (iTdAA>0) hTd->Scale(1.0/iTdAA); if (iNTdAA>0) hNTd->Scale(1.0/iNTdAA); if (iSigAA>0) hSig->Scale(1.0/iSigAA); }
                                   hSig->SetLineColor(kBlue-9); hSig->SetFillColorAlpha(kBlue-9,0.5); hSig->SetFillStyle(1001); hSig->SetLineWidth(1); hSig->SetMarkerSize(0.0);
-                                hNTd->SetLineColor(kPink-4); hNTd->SetFillColorAlpha(kPink-4,0.5); hNTd->SetFillStyle(1001); hNTd->SetLineWidth(1); hNTd->SetMarkerSize(0.0);
-                                for (int ib=0; ib<=hSig->GetNbinsX()+1; ++ib) hSig->SetBinError(ib,0.0);
-                                for (int ib=0; ib<=hNTd->GetNbinsX()+1; ++ib) hNTd->SetBinError(ib,0.0);
-                                hTd->SetLineColor(kBlack); hTd->SetMarkerColor(kBlack); hTd->SetMarkerStyle(20); hTd->SetMarkerSize(1.0); hTd->SetLineWidth(2); hTd->SetFillStyle(0);
-                                TH1* hStack = (TH1*)hSig->Clone(TString::Format("hStack_aaSig_%s_%s_%s_%s", mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
-                                hStack->SetDirectory(nullptr);
-                                hStack->Add(hNTd);
-                                const double ym = std::max(hTd->GetMaximum(), hStack->GetMaximum());
-                                TCanvas cSB(TString::Format("c_aaSigBkg_%s_%s_%s_%s", mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(), "c_aaSigBkg", 900, 700);
-                                ApplyCanvasMargins1D(cSB); cSB.cd();
-                                hStack->SetTitle(""); hStack->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
-                                hStack->GetYaxis()->SetTitle("Counts");
-                                hStack->GetXaxis()->SetTitleSize(0.055); hStack->GetYaxis()->SetTitleSize(0.055);
-                                hStack->GetXaxis()->SetLabelSize(0.045); hStack->GetYaxis()->SetLabelSize(0.045);
-                                hStack->GetYaxis()->SetTitleOffset(1.15);
-                                hStack->SetMinimum(0.0); hStack->SetMaximum((ym>0)?(1.3*ym):1.0);
-                                hStack->SetLineColor(kPink-4); hStack->SetFillColorAlpha(kPink-4,0.5); hStack->SetFillStyle(1001);
-                                hStack->Draw("hist");
-                                hSig->Draw("hist SAME");
-                                hTd->Draw("E1 SAME");
-                                TLatex tSBtitle; tSBtitle.SetNDC(true); tSBtitle.SetTextFont(42); tSBtitle.SetTextAlign(23); tSBtitle.SetTextSize(0.040);
-                                tSBtitle.DrawLatex(0.50, 0.97,
-                                    TString::Format("E_{T}^{iso} overlay: AuAu data vs %s Embedded MC", mcCfg.titleTag.c_str()).Data());
-                                TLegend lg(0.56,0.65,0.92,0.88); lg.SetBorderSize(0); lg.SetFillStyle(0); lg.SetTextFont(42); lg.SetTextSize(0.032);
-                                lg.AddEntry(hTd, "Data (Signal)", "ep"); lg.AddEntry(hNTd, "Data (Background)", "f"); lg.AddEntry(hSig, "Signal Embedded MC", "f"); lg.Draw();
-                                TLatex ts; ts.SetNDC(true); ts.SetTextFont(42); ts.SetTextAlign(33); ts.SetTextSize(0.048);
-                                ts.DrawLatex(0.92,0.6,"#bf{sPHENIX} #it{Internal}"); ts.SetTextSize(0.038);
-                                ts.DrawLatex(0.92,0.54,"Au+Au  #sqrt{s_{NN}} = 200 GeV");
-                                TLatex ti; ti.SetNDC(true); ti.SetTextFont(42); ti.SetTextAlign(13); ti.SetTextSize(0.045);
-                                ti.DrawLatex(0.18,0.89,TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
-                                ti.DrawLatex(0.18,0.83,TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
-                                TLatex tUE2; tUE2.SetNDC(true); tUE2.SetTextFont(42); tUE2.SetTextAlign(33); tUE2.SetTextSize(0.034);
-                                tUE2.DrawLatex(0.92,0.3,TString::Format("UE: %s", H.label.c_str()).Data());
-                                SaveCanvas(cSB, JoinPath(sigOvDir, "Eiso_sigBkg_overlay.png"));
+                                  hNTd->SetLineColor(kPink-4); hNTd->SetFillColorAlpha(kPink-4,0.5); hNTd->SetFillStyle(1001); hNTd->SetLineWidth(1); hNTd->SetMarkerSize(0.0);
+                                  for (int ib=0; ib<=hSig->GetNbinsX()+1; ++ib) hSig->SetBinError(ib,0.0);
+                                  for (int ib=0; ib<=hNTd->GetNbinsX()+1; ++ib) hNTd->SetBinError(ib,0.0);
+                                  hTd->SetLineColor(kBlack); hTd->SetMarkerColor(kBlack); hTd->SetMarkerStyle(20); hTd->SetMarkerSize(1.0); hTd->SetLineWidth(2); hTd->SetFillStyle(0);
+                                  TH1* hStack = (TH1*)hSig->Clone(TString::Format("hStack_aaSig_%s_%s_%s_%s", mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
+                                  hStack->SetDirectory(nullptr);
+                                  hStack->Add(hNTd);
+                                  const double ym = std::max(hTd->GetMaximum(), hStack->GetMaximum());
+                                  TCanvas cSB(TString::Format("c_aaSigBkg_%s_%s_%s_%s", mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(), "c_aaSigBkg", 900, 700);
+                                  ApplyCanvasMargins1D(cSB); cSB.cd();
+                                  hStack->SetTitle(""); hStack->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
+                                  hStack->GetYaxis()->SetTitle("Normalized to unit area");
+                                  hStack->GetXaxis()->SetTitleSize(0.055); hStack->GetYaxis()->SetTitleSize(0.055);
+                                  hStack->GetXaxis()->SetLabelSize(0.045); hStack->GetYaxis()->SetLabelSize(0.045);
+                                  hStack->GetYaxis()->SetTitleOffset(1.15);
+                                  hStack->SetMinimum(0.0); hStack->SetMaximum((ym>0)?(1.3*ym):1.0);
+                                  hStack->SetLineColor(kPink-4); hStack->SetFillColorAlpha(kPink-4,0.5); hStack->SetFillStyle(1001);
+                                  hStack->Draw("hist");
+                                  hSig->Draw("hist SAME");
+                                  hTd->Draw("E1 SAME");
+                                  TLatex tSBtitle; tSBtitle.SetNDC(true); tSBtitle.SetTextFont(42); tSBtitle.SetTextAlign(23); tSBtitle.SetTextSize(0.040);
+                                  tSBtitle.DrawLatex(0.50, 0.97,
+                                                     TString::Format("E_{T}^{iso} overlay: AuAu data vs %s Embedded MC", mcCfg.titleTag.c_str()).Data());
+                                  TLegend lg(0.56,0.65,0.92,0.88); lg.SetBorderSize(0); lg.SetFillStyle(0); lg.SetTextFont(42); lg.SetTextSize(0.032);
+                                  lg.AddEntry(hTd, "Data (Signal)", "ep"); lg.AddEntry(hNTd, "Data (Background)", "f"); lg.AddEntry(hSig, "Signal Embedded MC", "f"); lg.Draw();
+                                  TLatex ts; ts.SetNDC(true); ts.SetTextFont(42); ts.SetTextAlign(33); ts.SetTextSize(0.048);
+                                  ts.DrawLatex(0.92,0.6,"#bf{sPHENIX} #it{Internal}"); ts.SetTextSize(0.038);
+                                  ts.DrawLatex(0.92,0.54,"Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                                  TLatex ti; ti.SetNDC(true); ti.SetTextFont(42); ti.SetTextAlign(13); ti.SetTextSize(0.034);
+                                  ti.DrawLatex(0.18,0.89,TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
+                                  ti.DrawLatex(0.18,0.85,TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+                                  TLatex tInfo2; tInfo2.SetNDC(true); tInfo2.SetTextFont(42); tInfo2.SetTextAlign(33); tInfo2.SetTextSize(0.034);
+                                  tInfo2.DrawLatex(0.92,0.46, trigDisplayLabel.c_str());
+                                  tInfo2.DrawLatex(0.92,0.42, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
+                                  tInfo2.DrawLatex(0.92,0.38, TString::Format("UE: %s", H.label.c_str()).Data());
+                                  tInfo2.DrawLatex(0.92,0.34, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                                  SaveCanvas(cSB, JoinPath(sigOvDir, "Eiso_sigBkg_overlay.png"));
                               }
                               if (hTd) delete hTd; if (hNTd) delete hNTd; if (hSig) delete hSig;
-                            }
                           }
-                        }
+                      }
+                  }
+              }
+          }
+
+              // ── Merged pT 20–35 bin: combine last N bins where lo >= 20 ──
+              {
+                const int mergedLo = 20;
+                const int mergedHi = 35;
+                const string mergedFolder = TString::Format("pT_%d_%d", mergedLo, mergedHi).Data();
+                const string mergedSuffix = TString::Format("_pT_%d_%d", mergedLo, mergedHi).Data();
+                const string mergedPtDir = JoinPath(centDir, mergedFolder);
+                EnsureDir(mergedPtDir);
+
+                // identify which pT bins to merge
+                vector<int> mergeBins;
+                for (int ip = 0; ip < kNPtBins; ++ip)
+                {
+                  const PtBin& bp = PtBins()[ip];
+                  if (bp.lo >= mergedLo && bp.hi <= mergedHi) mergeBins.push_back(ip);
+                }
+
+                if (!mergeBins.empty())
+                {
+                  // helper: merge histograms from a TDirectory by summing bins
+                  auto MergeHists = [&](TDirectory* dir, const string& baseName, const string& centSuffix, const string& cloneName) -> TH1*
+                  {
+                    TH1* hSum = nullptr;
+                    for (int ip : mergeBins)
+                    {
+                      const PtBin& bp = PtBins()[ip];
+                      const string hName = baseName + bp.suffix + centSuffix;
+                      TH1* hSrc = dynamic_cast<TH1*>(dir->Get(hName.c_str()));
+                      if (!hSrc) continue;
+                      if (!hSum)
+                      {
+                        hSum = CloneTH1(hSrc, cloneName.c_str());
+                        if (hSum) EnsureSumw2(hSum);
+                      }
+                      else
+                      {
+                        hSum->Add(hSrc);
                       }
                     }
+                    return hSum;
+                  };
 
-                if (!xPt.empty())
+                  // --- pp vs AuAu overlay ---
+                  {
+                    TH1* hPPm = MergeHists(ppTop, "h_Eiso", "", "hPP_merged_" + mergedFolder + "_" + cb.folder);
+                    TH1* hAAm = MergeHists(aaTop, "h_Eiso", cb.suffix, "hAA_merged_" + mergedFolder + "_" + cb.folder);
+                    if (hPPm && hAAm)
+                    {
+                      const double iPP = hPPm->Integral(0, hPPm->GetNbinsX()+1);
+                      const double iAA = hAAm->Integral(0, hAAm->GetNbinsX()+1);
+                      if (iPP > 0.0) hPPm->Scale(1.0/iPP);
+                      if (iAA > 0.0) hAAm->Scale(1.0/iAA);
+                      hPPm->SetLineColor(kRed+1); hPPm->SetMarkerColor(kRed+1); hPPm->SetMarkerStyle(24); hPPm->SetMarkerSize(1.1); hPPm->SetLineWidth(2); hPPm->SetFillStyle(0);
+                      hAAm->SetLineColor(kBlack); hAAm->SetMarkerColor(kBlack); hAAm->SetMarkerStyle(20); hAAm->SetMarkerSize(1.1); hAAm->SetLineWidth(2); hAAm->SetFillStyle(0);
+                      const double ym = std::max(hPPm->GetMaximum(), hAAm->GetMaximum());
+                      TCanvas cM("c_merged_ppAuAu","c_merged_ppAuAu",900,700); ApplyCanvasMargins1D(cM); cM.cd();
+                      hAAm->SetTitle(""); hAAm->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]"); hAAm->GetYaxis()->SetTitle("Normalized to unit area");
+                      hAAm->GetXaxis()->SetTitleSize(0.055); hAAm->GetYaxis()->SetTitleSize(0.055); hAAm->GetXaxis()->SetLabelSize(0.045); hAAm->GetYaxis()->SetLabelSize(0.045); hAAm->GetYaxis()->SetTitleOffset(1.15);
+                      hAAm->SetMinimum(0.0); hAAm->SetMaximum((ym>0)?(1.25*ym):1.0);
+                      hAAm->Draw("E1"); hPPm->Draw("E1 SAME");
+                      TLegend lgM(0.56,0.68,0.92,0.88); lgM.SetBorderSize(0); lgM.SetFillStyle(0); lgM.SetTextFont(42); lgM.SetTextSize(0.032);
+                      lgM.AddEntry(hPPm,"pp data","ep"); lgM.AddEntry(hAAm,TString::Format("AuAu data (%s)",H.label.c_str()).Data(),"ep"); lgM.Draw();
+                      TLatex tMt; tMt.SetNDC(true); tMt.SetTextFont(42); tMt.SetTextAlign(23); tMt.SetTextSize(0.045);
+                      tMt.DrawLatex(0.50,0.955,TString::Format("isolation overlay pp and %d-%d%% Cent AuAu",cb.lo,cb.hi).Data());
+                      TLatex tMi; tMi.SetNDC(true); tMi.SetTextFont(42); tMi.SetTextAlign(13); tMi.SetTextSize(0.034);
+                      tMi.DrawLatex(0.16,0.88,trigDisplayLabel.c_str());
+                      tMi.DrawLatex(0.16,0.84,TString::Format("|v_{z}| < %d cm",kAA_VzCut).Data());
+                      tMi.DrawLatex(0.16,0.80,TString::Format("UE subtraction: %s",H.label.c_str()).Data());
+                      tMi.DrawLatex(0.16,0.76,TString::Format("p_{T}^{#gamma}: %d-%d GeV",mergedLo,mergedHi).Data());
+                      const string ppAuAuMDir = JoinPath(mergedPtDir,"ppAuAuOverlay");
+                      EnsureDir(ppAuAuMDir);
+                      const string furRealMDir = JoinPath(ppAuAuMDir,"ppAuAuOverlayFURREAL");
+                      EnsureDir(furRealMDir);
+                      SaveCanvas(cM,JoinPath(furRealMDir,"isolationOverlay_pp_vs_auau.png"));
+                    }
+                    if (hPPm) delete hPPm;
+                    if (hAAm) delete hAAm;
+                  }
+
+                  // --- MC overlays: inclusive + photon+jet ---
+                  if (!forEmbeddedSim)
+                  {
+                    struct MCOverlayCfgM {
+                      TDirectory* mcTop;
+                      string folder;
+                      string titleTag;
+                      string mcLegend;
+                    };
+                    const vector<MCOverlayCfgM> mcOvCfgsM = {
+                      { incMCvarTop, "inclusiveMCoverlays", inclusiveEmbeddedTitleTag, "inclusive MC" },
+                      { phoMCvarTop, "photonJetOverlays",   photonEmbeddedTitleTag,    "photon+jet MC" }
+                    };
+
+                    for (const auto& mcCfg : mcOvCfgsM)
+                    {
+                      if (!mcCfg.mcTop || mcCfg.titleTag.empty()) continue;
+                      const string mcOvDirM = JoinPath(mergedPtDir, mcCfg.folder);
+                      EnsureDir(mcOvDirM);
+
+                      TH1* hDataM = MergeHists(aaTop, "h_Eiso", cb.suffix, "hData_merged_" + mcCfg.folder + "_" + cb.folder);
+                      TH1* hMCM   = MergeHists(mcCfg.mcTop, "h_Eiso", cb.suffix, "hMC_merged_" + mcCfg.folder + "_" + cb.folder);
+                      if (hDataM && hMCM)
+                      {
+                        hDataM->Rebin(10); hMCM->Rebin(10);
+                        const double iD = hDataM->Integral(0,hDataM->GetNbinsX()+1);
+                        const double iM = hMCM->Integral(0,hMCM->GetNbinsX()+1);
+                        if (iD > 0.0 && iM > 0.0)
+                        {
+                          hDataM->Scale(1.0/iD); hMCM->Scale(1.0/iM);
+                          for (int ib=0;ib<=hMCM->GetNbinsX()+1;++ib) hMCM->SetBinError(ib,0.0);
+                          hMCM->SetTitle(""); hMCM->SetLineColor(kBlack); hMCM->SetLineWidth(2); hMCM->SetFillStyle(0); hMCM->SetMarkerSize(0.0);
+                          hDataM->SetLineColor(kBlue+1); hDataM->SetMarkerColor(kBlue+1); hDataM->SetMarkerStyle(20); hDataM->SetMarkerSize(1.0); hDataM->SetLineWidth(2); hDataM->SetFillStyle(0);
+                          const double ymx = std::max(hDataM->GetMaximum(),hMCM->GetMaximum());
+                          TCanvas cMov("c_merged_mcOv","c_merged_mcOv",900,700); ApplyCanvasMargins1D(cMov); cMov.cd();
+                          hMCM->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]"); hMCM->GetYaxis()->SetTitle("Normalized to unit area");
+                          hMCM->GetXaxis()->SetTitleSize(0.055); hMCM->GetYaxis()->SetTitleSize(0.055); hMCM->GetXaxis()->SetLabelSize(0.045); hMCM->GetYaxis()->SetLabelSize(0.045); hMCM->GetYaxis()->SetTitleOffset(1.15);
+                          hMCM->SetMinimum(0.0); hMCM->SetMaximum((ymx>0)?(1.25*ymx):1.0);
+                          hMCM->Draw("hist"); hDataM->Draw("E1 SAME");
+                          TLegend lgOv(0.56,0.72,0.92,0.88); lgOv.SetBorderSize(0); lgOv.SetFillStyle(0); lgOv.SetTextFont(42); lgOv.SetTextSize(0.032);
+                          lgOv.AddEntry(hDataM,TString::Format("AuAu data (%s)",H.label.c_str()).Data(),"ep");
+                          lgOv.AddEntry(hMCM,mcCfg.mcLegend.c_str(),"l"); lgOv.Draw();
+                          TLatex tOvT; tOvT.SetNDC(true); tOvT.SetTextFont(42); tOvT.SetTextAlign(23); tOvT.SetTextSize(0.040);
+                          tOvT.DrawLatex(0.50,0.97,TString::Format("E_{T}^{iso} overlay: AuAu data vs %s Embedded MC",mcCfg.titleTag.c_str()).Data());
+                          TLatex tOvI; tOvI.SetNDC(true); tOvI.SetTextFont(42); tOvI.SetTextAlign(13); tOvI.SetTextSize(0.045);
+                          tOvI.DrawLatex(0.18,0.89,TString::Format("%d-%d%%",cb.lo,cb.hi).Data());
+                          tOvI.DrawLatex(0.18,0.85,TString::Format("p_{T}^{#gamma} = %d-%d GeV",mergedLo,mergedHi).Data());
+                          TLatex tSphM; tSphM.SetNDC(true); tSphM.SetTextFont(42); tSphM.SetTextAlign(33); tSphM.SetTextSize(0.048);
+                          tSphM.DrawLatex(0.92,0.6,"#bf{sPHENIX} #it{Internal}"); tSphM.SetTextSize(0.038);
+                          tSphM.DrawLatex(0.92,0.54,"Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                          TLatex tUEM; tUEM.SetNDC(true); tUEM.SetTextFont(42); tUEM.SetTextAlign(33); tUEM.SetTextSize(0.034);
+                          tUEM.DrawLatex(0.92,0.46,trigDisplayLabel.c_str());
+                          tUEM.DrawLatex(0.92,0.42,TString::Format("|v_{z}| < %d cm",kAA_VzCut).Data());
+                          tUEM.DrawLatex(0.92,0.38,TString::Format("UE: %s",H.label.c_str()).Data());
+                          tUEM.DrawLatex(0.92,0.34,TString::Format("#DeltaR_{cone} < %.1f",(kAA_IsoConeR=="isoR40")?0.4:0.3).Data());
+                          SaveCanvas(cMov,JoinPath(mcOvDirM,"Eiso_dataMC_overlay.png"));
+                        }
+                      }
+                      if (hDataM) delete hDataM;
+                      if (hMCM) delete hMCM;
+
+                      // --- signal/bkg decomposition for merged bin ---
+                      {
+                        const string sigOvDirM = JoinPath(mcOvDirM,"signalIsoOverlays");
+                        EnsureDir(sigOvDirM);
+                        TH1* hTdM  = MergeHists(aaTop,      "h_Eiso_tight",    cb.suffix, "hTd_merged_"+mcCfg.folder+"_"+cb.folder);
+                        TH1* hNTdM = MergeHists(aaTop,      "h_Eiso_nonTight", cb.suffix, "hNTd_merged_"+mcCfg.folder+"_"+cb.folder);
+                        TH1* hSigM = MergeHists(mcCfg.mcTop,"h_EisoReco_truthSigMatched", cb.suffix, "hSig_merged_"+mcCfg.folder+"_"+cb.folder);
+                        if (hTdM && hNTdM && hSigM)
+                        {
+                          hTdM->Rebin(10); hNTdM->Rebin(10); hSigM->Rebin(10);
+                         { const double iTdMN=hTdM->Integral(0,hTdM->GetNbinsX()+1); const double iNTdMN=hNTdM->Integral(0,hNTdM->GetNbinsX()+1); const double iSigMN=hSigM->Integral(0,hSigM->GetNbinsX()+1);
+                          if (iTdMN>0) hTdM->Scale(1.0/iTdMN); if (iNTdMN>0) hNTdM->Scale(1.0/iNTdMN); if (iSigMN>0) hSigM->Scale(1.0/iSigMN); }
+                          hSigM->SetLineColor(kBlue-9); hSigM->SetFillColorAlpha(kBlue-9,0.5); hSigM->SetFillStyle(1001); hSigM->SetLineWidth(1); hSigM->SetMarkerSize(0.0);
+                          hNTdM->SetLineColor(kPink-4); hNTdM->SetFillColorAlpha(kPink-4,0.5); hNTdM->SetFillStyle(1001); hNTdM->SetLineWidth(1); hNTdM->SetMarkerSize(0.0);
+                          for (int ib=0;ib<=hSigM->GetNbinsX()+1;++ib) hSigM->SetBinError(ib,0.0);
+                          for (int ib=0;ib<=hNTdM->GetNbinsX()+1;++ib) hNTdM->SetBinError(ib,0.0);
+                          hTdM->SetLineColor(kBlack); hTdM->SetMarkerColor(kBlack); hTdM->SetMarkerStyle(20); hTdM->SetMarkerSize(1.0); hTdM->SetLineWidth(2); hTdM->SetFillStyle(0);
+                          TH1* hStackM = (TH1*)hSigM->Clone("hStack_merged"); hStackM->SetDirectory(nullptr); hStackM->Add(hNTdM);
+                          const double ymM = std::max(hTdM->GetMaximum(),hStackM->GetMaximum());
+                          TCanvas cSBm("c_merged_sigBkg","c_merged_sigBkg",900,700); ApplyCanvasMargins1D(cSBm); cSBm.cd();
+                          hStackM->SetTitle(""); hStackM->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]"); hStackM->GetYaxis()->SetTitle("Normalized to unit area");
+                          hStackM->GetXaxis()->SetTitleSize(0.055); hStackM->GetYaxis()->SetTitleSize(0.055); hStackM->GetXaxis()->SetLabelSize(0.045); hStackM->GetYaxis()->SetLabelSize(0.045); hStackM->GetYaxis()->SetTitleOffset(1.15);
+                          hStackM->SetMinimum(0.0); hStackM->SetMaximum((ymM>0)?(1.3*ymM):1.0);
+                          hStackM->SetLineColor(kPink-4); hStackM->SetFillColorAlpha(kPink-4,0.5); hStackM->SetFillStyle(1001);
+                          hStackM->Draw("hist"); hSigM->Draw("hist SAME"); hTdM->Draw("E1 SAME");
+                          TLatex tSBtM; tSBtM.SetNDC(true); tSBtM.SetTextFont(42); tSBtM.SetTextAlign(23); tSBtM.SetTextSize(0.040);
+                          tSBtM.DrawLatex(0.50,0.97,TString::Format("E_{T}^{iso} overlay: AuAu data vs %s Embedded MC",mcCfg.titleTag.c_str()).Data());
+                          TLegend lgSBm(0.56,0.65,0.92,0.88); lgSBm.SetBorderSize(0); lgSBm.SetFillStyle(0); lgSBm.SetTextFont(42); lgSBm.SetTextSize(0.032);
+                          lgSBm.AddEntry(hTdM,"Data (Signal)","ep"); lgSBm.AddEntry(hNTdM,"Data (Background)","f"); lgSBm.AddEntry(hSigM,"Signal Embedded MC","f"); lgSBm.Draw();
+                          TLatex tsM; tsM.SetNDC(true); tsM.SetTextFont(42); tsM.SetTextAlign(33); tsM.SetTextSize(0.048);
+                          tsM.DrawLatex(0.92,0.6,"#bf{sPHENIX} #it{Internal}"); tsM.SetTextSize(0.038);
+                          tsM.DrawLatex(0.92,0.54,"Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                          TLatex tiM; tiM.SetNDC(true); tiM.SetTextFont(42); tiM.SetTextAlign(13); tiM.SetTextSize(0.034);
+                          tiM.DrawLatex(0.18,0.89,TString::Format("%d-%d%%",cb.lo,cb.hi).Data());
+                          tiM.DrawLatex(0.18,0.85,TString::Format("p_{T}^{#gamma} = %d-%d GeV",mergedLo,mergedHi).Data());
+                          TLatex tI2M; tI2M.SetNDC(true); tI2M.SetTextFont(42); tI2M.SetTextAlign(33); tI2M.SetTextSize(0.034);
+                          tI2M.DrawLatex(0.92,0.46,trigDisplayLabel.c_str());
+                          tI2M.DrawLatex(0.92,0.42,TString::Format("|v_{z}| < %d cm",kAA_VzCut).Data());
+                          tI2M.DrawLatex(0.92,0.38,TString::Format("UE: %s",H.label.c_str()).Data());
+                          tI2M.DrawLatex(0.92,0.34,TString::Format("#DeltaR_{cone} < %.1f",(kAA_IsoConeR=="isoR40")?0.4:0.3).Data());
+                          SaveCanvas(cSBm,JoinPath(sigOvDirM,"Eiso_sigBkg_overlay.png"));
+                          delete hStackM;
+                        }
+                        if (hTdM) delete hTdM;
+                        if (hNTdM) delete hNTdM;
+                        if (hSigM) delete hSigM;
+                      }
+                    }
+                  }
+                }
+              }
+
+              if (!xPt.empty())
             {
               TCanvas cMean(
                 TString::Format("c_meanIsoEtPPAuAu_%s_%s_%s",
@@ -1014,20 +1218,26 @@
               // ── MC embedded <E_T^iso> vs pT per centrality folder ──
               {
                   struct MCvsPtCfg {
-                    const char* folderName;
-                    const char* mcLabel;
-                    const vector<vector<double>>& yMC;
-                    const vector<vector<double>>& eyMC;
-                    const vector<vector<bool>>&   filledMC;
-                    const vector<vector<double>>& ySigMC;
-                    const vector<vector<double>>& eySigMC;
-                    const vector<vector<bool>>&   filledSigMC;
-                  };
+                      const char* folderName;
+                      string mcLabel;
+                      const vector<vector<double>>& yMC;
+                      const vector<vector<double>>& eyMC;
+                      const vector<vector<bool>>&   filledMC;
+                      const vector<vector<double>>& ySigMC;
+                      const vector<vector<double>>& eySigMC;
+                      const vector<vector<bool>>&   filledSigMC;
+                    };
+                  const string incJetSampleName = InclusiveEmbeddedShortLabel().empty()
+                      ? "" : "Inclusive Jet " + InclusiveEmbeddedShortLabel();
+                  const string phoJetSampleName = PhotonEmbeddedShortLabel().empty()
+                      ? "" : "Photon+Jet " + PhotonEmbeddedShortLabel();
                   const vector<MCvsPtCfg> mcPtCfgs = {
-                      {"AuAu_InclusiveJetEmbedded_meanIsoEt_versusPT", "inclusive embedded MC",
+                      {"AuAu_InclusiveJetEmbedded_meanIsoEt_versusPT",
+                       incJetSampleName,
                        vsCent_yIncMC, vsCent_eyIncMC, vsCent_filledIncMC,
                        vsCent_ySigIncMC, vsCent_eySigIncMC, vsCent_filledSigIncMC},
-                      {"AuAu_PhotonJetEmbedded_meanIsoEt_versusPT", "photon+jet embedded MC",
+                      {"AuAu_PhotonJetEmbedded_meanIsoEt_versusPT",
+                       phoJetSampleName,
                        vsCent_yPhoMC, vsCent_eyPhoMC, vsCent_filledPhoMC,
                        vsCent_ySigPhoMC, vsCent_eySigPhoMC, vsCent_filledSigPhoMC}
                   };
@@ -1088,22 +1298,24 @@
                     gMCmc.SetMarkerStyle(20); gMCmc.SetMarkerSize(1.2);
                     gMCmc.Draw("PE1 SAME");
 
-                    TLegend lgMC(0.50, 0.68, 0.92, 0.88);
+                    TLegend lgMC(0.58, 0.58, 0.92, 0.72);
                     lgMC.SetBorderSize(0); lgMC.SetFillStyle(0); lgMC.SetTextFont(42); lgMC.SetTextSize(0.032);
                     lgMC.AddEntry(&gPPmc, TString::Format("AuAu data (%s)", H.label.c_str()).Data(), "ep");
-                    lgMC.AddEntry(&gMCmc, mcPt.mcLabel, "ep");
+                    lgMC.AddEntry(&gMCmc, TString::Format("%s Embedded MC", mcPt.mcLabel.c_str()).Data(), "ep");
                     lgMC.Draw();
 
-                  TLatex tTmc; tTmc.SetNDC(true); tTmc.SetTextFont(42); tTmc.SetTextAlign(23); tTmc.SetTextSize(0.045);
+                  TLatex tTmc; tTmc.SetNDC(true); tTmc.SetTextFont(42); tTmc.SetTextAlign(23); tTmc.SetTextSize(0.038);
                   tTmc.DrawLatex(0.50, 0.955,
-                    TString::Format("<E_{T}^{iso}> overlay AuAu and %s  %d-%d%% Cent", mcPt.mcLabel, cb.lo, cb.hi).Data());
+                                 TString::Format("<E_{T}^{iso}> Overlay, Au+Au & %s Embedded MC", mcPt.mcLabel.c_str()).Data());
 
                   TLatex tMc; tMc.SetNDC(true); tMc.SetTextFont(42); tMc.SetTextAlign(13); tMc.SetTextSize(0.034);
-                  tMc.DrawLatex(0.16, 0.88, TString::Format("Trigger: %s", trigAA.c_str()).Data());
-                  tMc.DrawLatex(0.16, 0.84, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
-                  tMc.DrawLatex(0.16, 0.80, TString::Format("UE subtraction: %s", H.label.c_str()).Data());
+                    tMc.DrawLatex(0.16, 0.88, trigDisplayLabel.c_str());
+                    tMc.DrawLatex(0.16, 0.84, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
+                    tMc.DrawLatex(0.16, 0.80, TString::Format("UE subtraction: %s", H.label.c_str()).Data());
+                    tMc.DrawLatex(0.16, 0.76, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                    tMc.DrawLatex(0.16, 0.72, TString::Format("Cent: %d-%d%%", cb.lo, cb.hi).Data());
 
-                    SaveCanvas(cMCpt, JoinPath(mcPtDir,
+                      SaveCanvas(cMCpt, JoinPath(mcPtDir,
                       TString::Format("meanIsoEt_pp_vs_%s_vs_pT_%s.png",
                         mcPt.folderName, H.variant.c_str()).Data()));
 
@@ -1163,20 +1375,22 @@
                         gSMs.SetMarkerStyle(25); gSMs.SetMarkerSize(1.2);
                         gSMs.Draw("PE1 SAME");
 
-                        TLegend lgS(0.50, 0.68, 0.92, 0.88);
-                        lgS.SetBorderSize(0); lgS.SetFillStyle(0); lgS.SetTextFont(42); lgS.SetTextSize(0.032);
-                        lgS.AddEntry(&gTDs, "Data (Signal)", "ep");
-                        lgS.AddEntry(&gSMs, "Signal Embedded MC", "ep");
-                        lgS.Draw();
+                          TLegend lgS(0.58, 0.58, 0.92, 0.72);
+                          lgS.SetBorderSize(0); lgS.SetFillStyle(0); lgS.SetTextFont(42); lgS.SetTextSize(0.032);
+                          lgS.AddEntry(&gTDs, "Data (Signal)", "ep");
+                          lgS.AddEntry(&gSMs, TString::Format("%s Signal MC", mcPt.mcLabel.c_str()).Data(), "ep");
+                          lgS.Draw();
 
-                        TLatex tTs; tTs.SetNDC(true); tTs.SetTextFont(42); tTs.SetTextAlign(23); tTs.SetTextSize(0.045);
-                        tTs.DrawLatex(0.50, 0.955,
-                                      TString::Format("<E_{T}^{iso}> signal overlay AuAu and %s  %d-%d%% Cent", mcPt.mcLabel, cb.lo, cb.hi).Data());
+                          TLatex tTs; tTs.SetNDC(true); tTs.SetTextFont(42); tTs.SetTextAlign(23); tTs.SetTextSize(0.038);
+                          tTs.DrawLatex(0.54, 0.975,
+                                        TString::Format("Signal Overlay, <E_{T}^{iso}>, Au+Au & %s Embedded MC", mcPt.mcLabel.c_str()).Data());
 
-                        TLatex tIs; tIs.SetNDC(true); tIs.SetTextFont(42); tIs.SetTextAlign(13); tIs.SetTextSize(0.034);
-                        tIs.DrawLatex(0.16, 0.88, TString::Format("Trigger: %s", trigAA.c_str()).Data());
-                        tIs.DrawLatex(0.16, 0.84, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
-                        tIs.DrawLatex(0.16, 0.80, TString::Format("UE subtraction: %s", H.label.c_str()).Data());
+                          TLatex tIs; tIs.SetNDC(true); tIs.SetTextFont(42); tIs.SetTextAlign(13); tIs.SetTextSize(0.034);
+                          tIs.DrawLatex(0.2, 0.88, trigDisplayLabel.c_str());
+                          tIs.DrawLatex(0.2, 0.84, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
+                          tIs.DrawLatex(0.2, 0.80, TString::Format("UE subtraction: %s", H.label.c_str()).Data());
+                          tIs.DrawLatex(0.2, 0.76, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                          tIs.DrawLatex(0.2, 0.72, TString::Format("Cent: %d-%d%%", cb.lo, cb.hi).Data());
 
                         SaveCanvas(cSigPt, JoinPath(sigPtDir,
                           TString::Format("meanIsoEt_signal_vs_pT_%s.png", H.variant.c_str()).Data()));
@@ -1302,7 +1516,7 @@
             {
                 struct MCvsCentCfg {
                   const char* folderName;
-                  const char* mcLabel;
+                  string mcLabel;
                   const vector<vector<double>>& yMC;
                   const vector<vector<double>>& eyMC;
                   const vector<vector<bool>>&   filledMC;
@@ -1310,11 +1524,17 @@
                   const vector<vector<double>>& eySigMC;
                   const vector<vector<bool>>&   filledSigMC;
                 };
+                const string incJetCentName = InclusiveEmbeddedShortLabel().empty()
+                    ? "" : "Inclusive Jet " + InclusiveEmbeddedShortLabel();
+                const string phoJetCentName = PhotonEmbeddedShortLabel().empty()
+                    ? "" : "Photon+Jet " + PhotonEmbeddedShortLabel();
                 const vector<MCvsCentCfg> mcCentCfgs = {
-                  {"AuAu_InclusiveJetEmbedded_meanIsoEt_versusCentralityPerPtBin", "inclusive embedded MC",
+                  {"AuAu_InclusiveJetEmbedded_meanIsoEt_versusCentralityPerPtBin",
+                   incJetCentName,
                    vsCent_yIncMC, vsCent_eyIncMC, vsCent_filledIncMC,
                    vsCent_ySigIncMC, vsCent_eySigIncMC, vsCent_filledSigIncMC},
-                  {"AuAu_PhotonJetEmbedded_meanIsoEt_versusCentralityPerPtBin", "photon+jet embedded MC",
+                  {"AuAu_PhotonJetEmbedded_meanIsoEt_versusCentralityPerPtBin",
+                   phoJetCentName,
                    vsCent_yPhoMC, vsCent_eyPhoMC, vsCent_filledPhoMC,
                    vsCent_ySigPhoMC, vsCent_eySigPhoMC, vsCent_filledSigPhoMC}
                 };
@@ -1382,22 +1602,24 @@
                     gMCc.SetMarkerStyle(25); gMCc.SetMarkerSize(1.2);
                     gMCc.Draw("PE1 SAME");
 
-                    TLegend lgC(0.50, 0.68, 0.92, 0.88);
+                    TLegend lgC(0.58, 0.58, 0.92, 0.72);
                     lgC.SetBorderSize(0); lgC.SetFillStyle(0); lgC.SetTextFont(42); lgC.SetTextSize(0.032);
                     lgC.AddEntry(&gAAc, TString::Format("AuAu data (%s)", H.label.c_str()).Data(), "ep");
-                    lgC.AddEntry(&gMCc, mcC.mcLabel, "ep");
+                    lgC.AddEntry(&gMCc, TString::Format("%s Embedded MC", mcC.mcLabel.c_str()).Data(), "ep");
                     lgC.Draw();
 
-                  TLatex tTc; tTc.SetNDC(true); tTc.SetTextFont(42); tTc.SetTextAlign(23); tTc.SetTextSize(0.045);
+                  TLatex tTc; tTc.SetNDC(true); tTc.SetTextFont(42); tTc.SetTextAlign(23); tTc.SetTextSize(0.038);
                   tTc.DrawLatex(0.50, 0.955,
-                    TString::Format("<E_{T}^{iso}> vs Centrality  p_{T}^{#gamma} %d-%d GeV", bmc.lo, bmc.hi).Data());
+                    TString::Format("<E_{T}^{iso}> Overlay, Au+Au & %s Embedded MC", mcC.mcLabel.c_str()).Data());
 
                   TLatex tCi; tCi.SetNDC(true); tCi.SetTextFont(42); tCi.SetTextAlign(13); tCi.SetTextSize(0.034);
-                  tCi.DrawLatex(0.16, 0.88, TString::Format("Trigger: %s", trigAA.c_str()).Data());
-                  tCi.DrawLatex(0.16, 0.84, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
-                  tCi.DrawLatex(0.16, 0.80, TString::Format("UE subtraction: %s", H.label.c_str()).Data());
+                    tCi.DrawLatex(0.16, 0.88, trigDisplayLabel.c_str());
+                    tCi.DrawLatex(0.16, 0.84, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
+                    tCi.DrawLatex(0.16, 0.80, TString::Format("UE subtraction: %s", H.label.c_str()).Data());
+                    tCi.DrawLatex(0.16, 0.76, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                    tCi.DrawLatex(0.16, 0.72, TString::Format("p_{T}^{#gamma}: %d-%d GeV", bmc.lo, bmc.hi).Data());
 
-                    SaveCanvas(cMCcent, JoinPath(mcCentDir,
+                      SaveCanvas(cMCcent, JoinPath(mcCentDir,
                       TString::Format("meanIsoEt_auau_vs_%s_vs_cent_%s.png",
                         mcC.folderName, bmc.folder.c_str()).Data()));
 
@@ -1461,20 +1683,22 @@
                         gSMs.SetMarkerStyle(25); gSMs.SetMarkerSize(1.2);
                         gSMs.Draw("PE1 SAME");
 
-                        TLegend lgS(0.50, 0.68, 0.92, 0.88);
-                        lgS.SetBorderSize(0); lgS.SetFillStyle(0); lgS.SetTextFont(42); lgS.SetTextSize(0.032);
-                        lgS.AddEntry(&gTDs, "Data (Signal)", "ep");
-                        lgS.AddEntry(&gSMs, "Signal Embedded MC", "ep");
-                        lgS.Draw();
+                          TLegend lgS(0.58, 0.58, 0.92, 0.72);
+                          lgS.SetBorderSize(0); lgS.SetFillStyle(0); lgS.SetTextFont(42); lgS.SetTextSize(0.032);
+                          lgS.AddEntry(&gTDs, "Data (Signal)", "ep");
+                          lgS.AddEntry(&gSMs, TString::Format("%s Signal MC", mcC.mcLabel.c_str()).Data(), "ep");
+                          lgS.Draw();
 
-                        TLatex tTs; tTs.SetNDC(true); tTs.SetTextFont(42); tTs.SetTextAlign(23); tTs.SetTextSize(0.045);
-                        tTs.DrawLatex(0.50, 0.955,
-                          TString::Format("<E_{T}^{iso}> vs Centrality  p_{T}^{#gamma} %d-%d GeV", bmc.lo, bmc.hi).Data());
+                          TLatex tTs; tTs.SetNDC(true); tTs.SetTextFont(42); tTs.SetTextAlign(23); tTs.SetTextSize(0.038);
+                          tTs.DrawLatex(0.50, 0.955,
+                            TString::Format("Signal Overlay, <E_{T}^{iso}>, Au+Au & %s Embedded MC", mcC.mcLabel.c_str()).Data());
 
-                        TLatex tIs; tIs.SetNDC(true); tIs.SetTextFont(42); tIs.SetTextAlign(13); tIs.SetTextSize(0.034);
-                        tIs.DrawLatex(0.16, 0.88, TString::Format("Trigger: %s", trigAA.c_str()).Data());
-                        tIs.DrawLatex(0.16, 0.84, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
-                        tIs.DrawLatex(0.16, 0.80, TString::Format("UE subtraction: %s", H.label.c_str()).Data());
+                          TLatex tIs; tIs.SetNDC(true); tIs.SetTextFont(42); tIs.SetTextAlign(13); tIs.SetTextSize(0.034);
+                          tIs.DrawLatex(0.16, 0.88, trigDisplayLabel.c_str());
+                          tIs.DrawLatex(0.16, 0.84, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
+                          tIs.DrawLatex(0.16, 0.80, TString::Format("UE subtraction: %s", H.label.c_str()).Data());
+                          tIs.DrawLatex(0.16, 0.76, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                          tIs.DrawLatex(0.16, 0.72, TString::Format("p_{T}^{#gamma}: %d-%d GeV", bmc.lo, bmc.hi).Data());
 
                         SaveCanvas(cSigC, JoinPath(sigCentDir,
                           TString::Format("meanIsoEt_signal_vs_cent_%s.png", bmc.folder.c_str()).Data()));
@@ -2953,8 +3177,8 @@
                     tInfoTNT.SetTextFont(42);
                     tInfoTNT.SetTextAlign(13);
                     tInfoTNT.SetTextSize(0.050);
-                    tInfoTNT.DrawLatex(0.16, 0.88, TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
-                    tInfoTNT.DrawLatex(0.16, 0.82, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+                    tInfoTNT.DrawLatex(0.22, 0.88, TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
+                    tInfoTNT.DrawLatex(0.22, 0.82, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
 
                       SaveCanvas(cTNT, JoinPath(ptDir, "Eiso_tightNonTight_overlay.png"));
 
