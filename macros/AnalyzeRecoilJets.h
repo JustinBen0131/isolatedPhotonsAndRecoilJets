@@ -140,8 +140,8 @@ namespace ARJ
   inline bool bothPhoton10and20simEmbedded = false;
 
 
-  inline bool isInclusiveJet10Embedded   = true;
-  inline bool isInclusiveJet20Embedded   = false;
+  inline bool isInclusiveJet10Embedded   = false;
+  inline bool isInclusiveJet20Embedded   = true;
   inline bool bothInclusiveJet10and20simEmbedded = false;
 
 
