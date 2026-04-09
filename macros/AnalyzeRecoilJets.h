@@ -158,7 +158,7 @@ namespace ARJ
 
   //   Saved RooUnfold output: true = erase/rebuild/cache live unfolding output for this exact file combination;
   //   false = restore cached unfolding output and skip all unfolding work.
-  inline bool saveRooUnfoldOutput = true;
+  inline bool saveRooUnfoldOutput = false;
 
 
   //   Internal: selects raw vs ABCD purity-corrected reco inputs per pass.

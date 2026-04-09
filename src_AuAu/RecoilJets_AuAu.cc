@@ -5667,10 +5667,40 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
 
         for (const auto& trigShort : activeTrig)
         {
-            fillSSSpectra(trigShort, "inclusive");
-            if (ssIso)    fillSSSpectra(trigShort, "iso");
-            if (ssNonIso) fillSSSpectra(trigShort, "nonIso");
+              fillSSSpectra(trigShort, "inclusive");
+              if (ssIso)    fillSSSpectra(trigShort, "iso");
+              if (ssNonIso) fillSSSpectra(trigShort, "nonIso");
         }
+
+        // ── SIM: fill inclusive _sig / _bkg PPG12-style SS templates (before preselection) ──
+        if (m_isSim)
+        {
+              bool isSig_incl = false;
+              double isoEtTruth_incl = std::numeric_limits<double>::quiet_NaN();
+              if (evtHepMC_SS && clustereval_SS && haveCaloEval_SS)
+                  isSig_incl = isRecoClusterTruthSignalPPG12(evtHepMC_SS, *clustereval_SS, rc, isoEtTruth_incl);
+              const std::string mcSuffix_incl = (isSig_incl ? "_sig" : "_bkg");
+              const std::string tagKey_incl   = std::string("inclusive") + mcSuffix_incl;
+
+              auto fill1_incl = [&](const std::string& trigShort, const std::string& key, double val)
+              {
+                  if (!std::isfinite(val)) return;
+                  if (auto* h = getOrBookSSHist(trigShort, key, tagKey_incl, ptIdx, effCentIdx_SS))
+                  {
+                      h->Fill(val);
+                      bumpHistFill(trigShort, "h_ss_" + key + "_" + tagKey_incl + slice_SS);
+                  }
+              };
+
+              for (const auto& trigShort : activeTrig)
+              {
+                  fill1_incl(trigShort, "weta",   v.weta_cogx);
+                  fill1_incl(trigShort, "wphi",   v.wphi_cogx);
+                  fill1_incl(trigShort, "et1",    v.et1);
+                  fill1_incl(trigShort, "e11e33", v.e11_over_e33);
+                  fill1_incl(trigShort, "e32e35", v.e32_over_e35);
+              }
+          }
 
         // ---------- Preselection breakdown (count by criterion) ----------
           

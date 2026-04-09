@@ -1525,13 +1525,28 @@ if [[ "$MODE" == "addChunks" ]]; then
   _PERRUN_BASE="${OUT_BASE}/${TAG}/perRun"
 
   # Discover cfg_tag subdirs under perRun (where stage-1 partials were written)
-  mapfile -t MERGE_CFG_TAGS < <(
+  mapfile -t _ALL_MERGE_CFG_TAGS < <(
     find "$_PERRUN_BASE" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort -V
   )
 
-  if (( ${#MERGE_CFG_TAGS[@]} == 0 )); then
+  if (( ${#_ALL_MERGE_CFG_TAGS[@]} == 0 )); then
     # Fallback: flat layout (partials directly in perRun base)
     MERGE_CFG_TAGS=( "" )
+  else
+    # Filter discovered perRun cfg_tags against the CURRENT YAML matrix
+    mapfile -t _YAML_MERGE_CFG_TAGS < <(build_cfg_tags_from_yaml "$TAG")
+    MERGE_CFG_TAGS=()
+    for _ct in "${_ALL_MERGE_CFG_TAGS[@]}"; do
+      for _y in "${_YAML_MERGE_CFG_TAGS[@]}"; do
+        [[ "$_ct" == "$_y" ]] && { MERGE_CFG_TAGS+=( "$_ct" ); break; }
+      done
+    done
+    say "YAML cfg_tags allowed: ${#_YAML_MERGE_CFG_TAGS[@]}"
+    say "Discovered cfg_tags (filtered by CURRENT YAML): ${#MERGE_CFG_TAGS[@]}"
+    for _ct in "${MERGE_CFG_TAGS[@]}"; do say "  ${_ct}"; done
+    if (( ${#MERGE_CFG_TAGS[@]} == 0 )); then
+      die "No perRun cfg_tag directories under ${_PERRUN_BASE} match the CURRENT YAML matrix."
+    fi
   fi
 
   # ── Optional CFG_FILTER (same env-var as stage-1) ──

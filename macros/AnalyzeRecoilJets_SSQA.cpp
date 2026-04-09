@@ -2721,7 +2721,7 @@ if (false && !skipToCentralityAndPtOverlaysWithSSQA)
                     
                     if (ivar == 0)
                     {
-                        TLegend* leg = new TLegend(0.45, 0.50, 0.92, 0.81);
+                        TLegend* leg = new TLegend(0.12, 0.75, 0.65, 0.92);
                         leg->SetBorderSize(0);
                         leg->SetFillStyle(0);
                         leg->SetTextFont(42);

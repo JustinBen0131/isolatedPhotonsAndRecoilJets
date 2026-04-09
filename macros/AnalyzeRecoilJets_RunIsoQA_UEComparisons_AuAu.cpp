@@ -1,10 +1,10 @@
-  // ===================================================================
-  // Au+Au DATA isolation QA: UE-subtraction variant overlay comparison
-  //   Output:
-  //     auau/<CfgTagAA>/<trigger>/<cent>/isoQA/UEcomparisons/<variant>/<pT>/
-  // ===================================================================
-  // embeddedMode: 0 = AuAu data, 1 = photon+jet embedded, 2 = inclusive jet embedded
-  void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
+// ===================================================================
+// Au+Au DATA isolation QA: UE-subtraction variant overlay comparison
+//   Output:
+//     auau/<CfgTagAA>/<trigger>/<cent>/isoQA/UEcomparisons/<variant>/<pT>/
+// ===================================================================
+// embeddedMode: 0 = AuAu data, 1 = photon+jet embedded, 2 = inclusive jet embedded
+void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
 {
       const bool forEmbeddedSim = (embeddedMode != 0);
       const string modeLabel = (embeddedMode == 2) ? "Inclusive Jet Embedded SIM"
@@ -1801,7 +1801,7 @@
                       hCents[0]->Draw("E1");
                       for (std::size_t ih = 1; ih < hCents.size(); ++ih) hCents[ih]->Draw("E1 SAME");
                       
-                      TLegend legCO(0.15, 0.72, 0.50, 0.88);
+                      TLegend legCO(0.58, 0.45, 0.92, 0.65);
                       legCO.SetBorderSize(0);
                       legCO.SetFillStyle(0);
                       legCO.SetTextFont(42);
@@ -1825,7 +1825,10 @@
                       tInfoCO.SetTextAlign(33);
                       tInfoCO.SetTextSize(0.032);
                       tInfoCO.DrawLatex(0.92, 0.88,
-                                        forEmbeddedSim ? SimSampleLabel(CurrentSimSample()).c_str() : trigAA.c_str());
+                                        forEmbeddedSim
+                                        ? (embeddedMode == 2 ? activeEmbeddedSimFolder.substr(0, activeEmbeddedSimFolder.find("_SIM")).c_str()
+                                                             : SimSampleLabel(CurrentSimSample()).c_str())
+                                        : trigAA.c_str());
                       tInfoCO.DrawLatex(0.92, 0.84, H.variant.c_str());
                       
                       SaveCanvas(cCO, JoinPath(variantCentralitySummaryDir,
