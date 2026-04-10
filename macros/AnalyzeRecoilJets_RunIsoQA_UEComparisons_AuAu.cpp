@@ -2039,15 +2039,15 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     }
                     
                     const bool legTopLeft = (H.variant == "noSub");
-                    TLegend legCO(legTopLeft ? 0.19 : 0.60,
-                                  legTopLeft ? 0.68 : 0.40,
-                                  legTopLeft ? 0.45 : 0.90,
+                    TLegend legCO(legTopLeft ? 0.15 : 0.60,
+                                  legTopLeft ? 0.70 : 0.40,
+                                  legTopLeft ? 0.41 : 0.90,
                                   legTopLeft ? 0.90 : 0.62);
                     legCO.SetColumnSeparation(-0.05);
                     legCO.SetBorderSize(0);
                     legCO.SetFillStyle(0);
                     legCO.SetTextFont(42);
-                    legCO.SetTextSize(0.042);
+                    legCO.SetTextSize(legTopLeft ? 0.036 : 0.042);
                     legCO.SetNColumns(2);
                     for (std::size_t ih = 0; ih < hCents.size(); ++ih)
                         legCO.AddEntry(hCents[ih], cLabels[ih].c_str(), "ep");
@@ -2110,7 +2110,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             yLoSub = std::min(yLoSub, subY[is] - subEY[is]);
                             yHiSub = std::max(yHiSub, subY[is] + subEY[is]);
                         }
-                        const double subPad = (yHiSub > yLoSub) ? 0.25 * (yHiSub - yLoSub) : 1.0;
+                        const double subPadFrac = (H.variant == "noSub") ? 0.45 : 0.25;
+                        const double subPad = (yHiSub > yLoSub) ? subPadFrac * (yHiSub - yLoSub) : 1.0;
                         
                         hFrSub = new TH1F(TString::Format("hFrSub_centOv_%s_%s", H.variant.c_str(), b.folder.c_str()).Data(),
                                           "", 100, centBins.front().lo, centBins.back().hi);
@@ -2129,11 +2130,14 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         hFrSub->Draw();
                         
                         vector<double> exZeroSub(subX.size(), 0.0);
-                        TLine lineSub(centBins.front().lo, 1.0, centBins.back().hi, 1.0);
-                        lineSub.SetLineColor(kBlack);
-                        lineSub.SetLineStyle(2);
-                        lineSub.SetLineWidth(1);
-                        lineSub.DrawClone();
+                        if (H.variant != "noSub")
+                        {
+                            TLine lineSub(centBins.front().lo, 1.0, centBins.back().hi, 1.0);
+                            lineSub.SetLineColor(kBlack);
+                            lineSub.SetLineStyle(2);
+                            lineSub.SetLineWidth(1);
+                            lineSub.DrawClone();
+                        }
                         
                         gSub = new TGraphErrors((int)subX.size(), &subX[0], &subY[0], &exZeroSub[0], &subEY[0]);
                         gSub->SetMarkerStyle(20);
@@ -2165,7 +2169,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             yLoSig = std::min(yLoSig, subSigY[is] - subSigEY[is]);
                             yHiSig = std::max(yHiSig, subSigY[is] + subSigEY[is]);
                         }
-                        const double sigPad = (yHiSig > yLoSig) ? 0.25 * (yHiSig - yLoSig) : 1.0;
+                        const double sigPadFrac = (H.variant == "noSub") ? 0.45 : 0.25;
+                        const double sigPad = (yHiSig > yLoSig) ? sigPadFrac * (yHiSig - yLoSig) : 1.0;
                         
                         hFrSig = new TH1F(TString::Format("hFrSig_centOv_%s_%s", H.variant.c_str(), b.folder.c_str()).Data(),
                                           "", 100, centBins.front().lo, centBins.back().hi);
