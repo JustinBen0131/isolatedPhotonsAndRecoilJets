@@ -1961,6 +1961,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         
                         hAA->Rebin(10);
                         EnsureSumw2(hAA);
+                        { double integ = hAA->Integral(); if (integ > 0.0) hAA->Scale(1.0 / integ); }
                         const int ci = (ic < 8) ? centOvColors[ic] : kBlack;
                         hAA->SetLineColor(ci);
                         hAA->SetMarkerColor(ci);
@@ -1976,8 +1977,9 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     
                     if (hCents.empty()) continue;
                     
-                    // --- Collect Gaussian means per centrality for subpanel ---
+                    // --- Collect Gaussian means & sigmas per centrality for subpanels ---
                     vector<double> subX, subEX, subY, subEY;
+                    vector<double> subSigY, subSigEY;
                     for (std::size_t icSub = 0; icSub < centBins.size(); ++icSub)
                     {
                         if (!gaussFilled[ivH][ipt][icSub]) continue;
@@ -1986,18 +1988,20 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         subEX.push_back(0.5 * (cbSub.hi - cbSub.lo));
                         subY.push_back(gaussMean[ivH][ipt][icSub]);
                         subEY.push_back(gaussMeanErr[ivH][ipt][icSub]);
+                        subSigY.push_back(gaussSigma[ivH][ipt][icSub]);
+                        subSigEY.push_back(gaussSigmaErr[ivH][ipt][icSub]);
                     }
                     
                     TCanvas cCO(
                                 TString::Format("c_isoCentOverlay_%s_%s_%s",
                                                 trigAA.c_str(), H.variant.c_str(), b.folder.c_str()).Data(),
-                                "c_isoCentOverlay", 900, 850
+                                "c_isoCentOverlay", 900, 1000
                                 );
                     cCO.cd();
                     
                     // Upper pad: histogram overlay
                     TPad* padUp = new TPad(TString::Format("padUp_%s_%s", H.variant.c_str(), b.folder.c_str()).Data(),
-                                           "padUp", 0.0, 0.28, 1.0, 1.0);
+                                           "padUp", 0.0, 0.36, 1.0, 1.0);
                     padUp->SetBottomMargin(0.10);
                     padUp->SetLeftMargin(0.14);
                     padUp->SetRightMargin(0.04);
@@ -2010,7 +2014,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     hCents[0]->GetXaxis()->SetTitleSize(0.048);
                     hCents[0]->GetXaxis()->SetLabelSize(0.04);
                     hCents[0]->GetXaxis()->SetTitleOffset(0.75);
-                    hCents[0]->GetYaxis()->SetTitle("Counts");
+                    hCents[0]->GetYaxis()->SetTitle("Normalized to Unit Area");
      
                     hCents[0]->GetYaxis()->SetTitleSize(0.060);
                     hCents[0]->GetYaxis()->SetLabelSize(0.050);
@@ -2085,12 +2089,12 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         tSph.DrawLatex(sphX1, sphY1 - 0.06, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
                     }
                     
-                    // Lower pad: Gaussian mean vs centrality
+                    // Middle pad: Gaussian mean vs centrality
                     cCO.cd();
                     TPad* padLo = new TPad(TString::Format("padLo_%s_%s", H.variant.c_str(), b.folder.c_str()).Data(),
-                                           "padLo", 0.0, 0.0, 1.0, 0.28);
+                                           "padLo", 0.0, 0.18, 1.0, 0.36);
                     padLo->SetTopMargin(0.02);
-                    padLo->SetBottomMargin(0.30);
+                    padLo->SetBottomMargin(0.00);
                     padLo->SetLeftMargin(0.14);
                     padLo->SetRightMargin(0.04);
                     padLo->Draw();
@@ -2114,15 +2118,14 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         hFrSub->SetStats(0);
                         hFrSub->SetMinimum(yLoSub - subPad);
                         hFrSub->SetMaximum(yHiSub + subPad);
-                        hFrSub->GetYaxis()->SetTitle("#mu^{Gauss}(#it{E}_{T}^{iso})");
+                        hFrSub->GetYaxis()->SetTitle("#mu^{Gauss} [GeV]");
                         hFrSub->GetYaxis()->SetTitleSize(0.12);
                         hFrSub->GetYaxis()->SetTitleOffset(0.45);
                         hFrSub->GetYaxis()->SetLabelSize(0.10);
                         hFrSub->GetYaxis()->SetNdivisions(505);
-                        hFrSub->GetXaxis()->SetTitle("Centrality [%]");
-                        hFrSub->GetXaxis()->SetTitleSize(0.12);
-                        hFrSub->GetXaxis()->SetTitleOffset(0.95);
-                        hFrSub->GetXaxis()->SetLabelSize(0.10);
+                        hFrSub->GetXaxis()->SetTitle("");
+                        hFrSub->GetXaxis()->SetTitleSize(0.0);
+                        hFrSub->GetXaxis()->SetLabelSize(0.0);
                         hFrSub->Draw();
                         
                         vector<double> exZeroSub(subX.size(), 0.0);
@@ -2141,11 +2144,63 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         gSub->Draw("PE1 SAME");
                     }
                     
+                    // Bottom pad: Gaussian sigma vs centrality
+                    cCO.cd();
+                    TPad* padBot = new TPad(TString::Format("padBot_%s_%s", H.variant.c_str(), b.folder.c_str()).Data(),
+                                            "padBot", 0.0, 0.0, 1.0, 0.18);
+                    padBot->SetTopMargin(0.00);
+                    padBot->SetBottomMargin(0.30);
+                    padBot->SetLeftMargin(0.14);
+                    padBot->SetRightMargin(0.04);
+                    padBot->Draw();
+                    padBot->cd();
+                    
+                    TH1F* hFrSig = nullptr;
+                    TGraphErrors* gSig = nullptr;
+                    if (!subX.empty())
+                    {
+                        double yLoSig = 1e30, yHiSig = -1e30;
+                        for (std::size_t is = 0; is < subSigY.size(); ++is)
+                        {
+                            yLoSig = std::min(yLoSig, subSigY[is] - subSigEY[is]);
+                            yHiSig = std::max(yHiSig, subSigY[is] + subSigEY[is]);
+                        }
+                        const double sigPad = (yHiSig > yLoSig) ? 0.25 * (yHiSig - yLoSig) : 1.0;
+                        
+                        hFrSig = new TH1F(TString::Format("hFrSig_centOv_%s_%s", H.variant.c_str(), b.folder.c_str()).Data(),
+                                          "", 100, centBins.front().lo, centBins.back().hi);
+                        hFrSig->SetDirectory(nullptr);
+                        hFrSig->SetStats(0);
+                        hFrSig->SetMinimum(yLoSig - sigPad);
+                        hFrSig->SetMaximum(yHiSig + sigPad);
+                        hFrSig->GetYaxis()->SetTitle("#sigma^{Gauss}[GeV]");
+                        hFrSig->GetYaxis()->SetTitleSize(0.12);
+                        hFrSig->GetYaxis()->SetTitleOffset(0.45);
+                        hFrSig->GetYaxis()->SetLabelSize(0.10);
+                        hFrSig->GetYaxis()->SetNdivisions(505);
+                        hFrSig->GetXaxis()->SetTitle("Centrality [%]");
+                        hFrSig->GetXaxis()->SetTitleSize(0.12);
+                        hFrSig->GetXaxis()->SetTitleOffset(0.95);
+                        hFrSig->GetXaxis()->SetLabelSize(0.10);
+                        hFrSig->Draw();
+                        
+                        vector<double> exZeroSig(subX.size(), 0.0);
+                        gSig = new TGraphErrors((int)subX.size(), &subX[0], &subSigY[0], &exZeroSig[0], &subSigEY[0]);
+                        gSig->SetMarkerStyle(20);
+                        gSig->SetMarkerSize(1.0);
+                        gSig->SetMarkerColor(kBlack);
+                        gSig->SetLineColor(kBlack);
+                        gSig->SetLineWidth(2);
+                        gSig->Draw("PE1 SAME");
+                    }
+                    
                     cCO.Modified();
                     cCO.Update();
                     SaveCanvas(cCO, JoinPath(variantCentralitySummaryDir,
                                              TString::Format("isoCentOverlay_counts_%s.png", b.folder.c_str()).Data()));
                     
+                    if (gSig) delete gSig;
+                    if (hFrSig) delete hFrSig;
                     if (gSub) delete gSub;
                     if (hFrSub) delete hFrSub;
                     
@@ -2184,6 +2239,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         
                         hAA->Rebin(10);
                         EnsureSumw2(hAA);
+                        { double integ = hAA->Integral(); if (integ > 0.0) hAA->Scale(1.0 / integ); }
                         const int ci = ((int)hPts.size() < 11) ? ptOvColors[hPts.size()] : kBlack;
                         hAA->SetLineColor(ci);
                         hAA->SetMarkerColor(ci);
@@ -2234,7 +2290,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     hPts[0]->GetXaxis()->SetTitleSize(0.048);
                     hPts[0]->GetXaxis()->SetLabelSize(0.04);
                     hPts[0]->GetXaxis()->SetTitleOffset(0.75);
-                    hPts[0]->GetYaxis()->SetTitle("Counts");
+                    hPts[0]->GetYaxis()->SetTitle("Normalized to Unit Area");
                     hPts[0]->GetYaxis()->SetTitleSize(0.060);
                     hPts[0]->GetYaxis()->SetLabelSize(0.050);
                     hPts[0]->GetYaxis()->SetTitleOffset(1.15);
