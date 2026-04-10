@@ -138,19 +138,19 @@ namespace ARJ
 
   //   Embedded Au+Au SIM slices / merges:
   inline bool isPhotonJet10Embedded      = false;
-  inline bool isPhotonJet20Embedded      = false;
-  inline bool bothPhoton10and20simEmbedded = true;
+  inline bool isPhotonJet20Embedded      = true;
+  inline bool bothPhoton10and20simEmbedded = false;
 
 
   inline bool isInclusiveJet10Embedded   = false;
-  inline bool isInclusiveJet20Embedded   = false;
-  inline bool bothInclusiveJet10and20simEmbedded = true;
+  inline bool isInclusiveJet20Embedded   = true;
+  inline bool bothInclusiveJet10and20simEmbedded = false;
 
   //   Special SIM samples:
   inline bool isSimMB                    = false;   // MinBias DETROIT tune
   inline bool isSimJet5                  = false;   // inclusive jet5
 
-  inline bool doPhotonJetMerge = true;
+  inline bool doPhotonJetMerge = false;
 
   //   RooUnfold: true = run both non-purity and purity-corrected passes + overlay.
   inline bool do_xJ_PPunfold = false;

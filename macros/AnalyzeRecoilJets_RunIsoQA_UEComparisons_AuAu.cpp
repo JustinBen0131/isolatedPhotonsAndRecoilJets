@@ -2016,7 +2016,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     hCents[0]->GetXaxis()->SetTitleOffset(0.75);
                     hCents[0]->GetYaxis()->SetTitle("Normalized to Unit Area");
      
-                    hCents[0]->GetYaxis()->SetTitleSize(0.060);
+                    hCents[0]->GetYaxis()->SetTitleSize(0.050);
                     hCents[0]->GetYaxis()->SetLabelSize(0.050);
                     hCents[0]->GetYaxis()->SetTitleOffset(1.15);
                     hCents[0]->GetXaxis()->SetRangeUser(-10.0, 50.0);
@@ -2092,7 +2092,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     // Middle pad: Gaussian mean vs centrality
                     cCO.cd();
                     TPad* padLo = new TPad(TString::Format("padLo_%s_%s", H.variant.c_str(), b.folder.c_str()).Data(),
-                                           "padLo", 0.0, 0.18, 1.0, 0.36);
+                                           "padLo", 0.0, 0.21, 1.0, 0.36);
                     padLo->SetTopMargin(0.02);
                     padLo->SetBottomMargin(0.00);
                     padLo->SetLeftMargin(0.14);
@@ -2118,10 +2118,10 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         hFrSub->SetStats(0);
                         hFrSub->SetMinimum(yLoSub - subPad);
                         hFrSub->SetMaximum(yHiSub + subPad);
-                        hFrSub->GetYaxis()->SetTitle("#mu^{Gauss} [GeV]");
-                        hFrSub->GetYaxis()->SetTitleSize(0.12);
-                        hFrSub->GetYaxis()->SetTitleOffset(0.45);
-                        hFrSub->GetYaxis()->SetLabelSize(0.10);
+                        hFrSub->GetYaxis()->SetTitle("#mu^{Gauss}[GeV]");
+                        hFrSub->GetYaxis()->SetTitleSize(0.19);
+                        hFrSub->GetYaxis()->SetTitleOffset(0.28);
+                        hFrSub->GetYaxis()->SetLabelSize(0.14);
                         hFrSub->GetYaxis()->SetNdivisions(505);
                         hFrSub->GetXaxis()->SetTitle("");
                         hFrSub->GetXaxis()->SetTitleSize(0.0);
@@ -2147,7 +2147,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     // Bottom pad: Gaussian sigma vs centrality
                     cCO.cd();
                     TPad* padBot = new TPad(TString::Format("padBot_%s_%s", H.variant.c_str(), b.folder.c_str()).Data(),
-                                            "padBot", 0.0, 0.0, 1.0, 0.18);
+                                            "padBot", 0.0, 0.0, 1.0, 0.21);
                     padBot->SetTopMargin(0.00);
                     padBot->SetBottomMargin(0.30);
                     padBot->SetLeftMargin(0.14);
@@ -2174,8 +2174,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         hFrSig->SetMinimum(yLoSig - sigPad);
                         hFrSig->SetMaximum(yHiSig + sigPad);
                         hFrSig->GetYaxis()->SetTitle("#sigma^{Gauss}[GeV]");
-                        hFrSig->GetYaxis()->SetTitleSize(0.12);
-                        hFrSig->GetYaxis()->SetTitleOffset(0.45);
+                        hFrSig->GetYaxis()->SetTitleSize(0.14);
+                        hFrSig->GetYaxis()->SetTitleOffset(0.32);
                         hFrSig->GetYaxis()->SetLabelSize(0.10);
                         hFrSig->GetYaxis()->SetNdivisions(505);
                         hFrSig->GetXaxis()->SetTitle("Centrality [%]");
@@ -2388,7 +2388,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         hFrSubPt->SetStats(0);
                         hFrSubPt->SetMinimum(yLoPt - subPadPt);
                         hFrSubPt->SetMaximum(yHiPt + subPadPt);
-                        hFrSubPt->GetYaxis()->SetTitle("#mu^{Gauss}(#it{E}_{T}^{iso})");
+                        hFrSubPt->GetYaxis()->SetTitle("#mu^{Gauss}[GeV]");
                         hFrSubPt->GetYaxis()->SetTitleSize(0.12);
                         hFrSubPt->GetYaxis()->SetTitleOffset(0.45);
                         hFrSubPt->GetYaxis()->SetLabelSize(0.10);
@@ -4706,7 +4706,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 hFrSubTNT->SetDirectory(nullptr); hFrSubTNT->SetStats(0);
                                 hFrSubTNT->SetMinimum(tntSubYLo - tntSubPad);
                                 hFrSubTNT->SetMaximum(tntSubYHi + tntSubPad);
-                                hFrSubTNT->GetYaxis()->SetTitle("#mu^{Gauss}(#it{E}_{T}^{iso})");
+                                hFrSubTNT->GetYaxis()->SetTitle("#mu^{Gauss}[GeV]");
                                 hFrSubTNT->GetYaxis()->SetTitleSize(0.12);
                                 hFrSubTNT->GetYaxis()->SetTitleOffset(0.45);
                                 hFrSubTNT->GetYaxis()->SetLabelSize(0.10);
