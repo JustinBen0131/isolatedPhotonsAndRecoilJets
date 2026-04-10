@@ -104,7 +104,7 @@ namespace ARJ
   inline bool generateUEcomparisonSSQA = false;
   inline bool skipToCentralityAndPtOverlaysWithSSQA = false;
   inline bool SSoverlayPerVAR_processONLY           = false;
-  inline bool generateISOpTcentOverlaysONLY         = true;
+  inline bool generateISOpTcentOverlaysONLY         = false;
 
   inline bool generatePerRunTriggerAna = false;
   inline bool generatePerRunTriggerAnaForGoodRunsOnly = false;
@@ -138,13 +138,13 @@ namespace ARJ
 
   //   Embedded Au+Au SIM slices / merges:
   inline bool isPhotonJet10Embedded      = false;
-  inline bool isPhotonJet20Embedded      = true;
-  inline bool bothPhoton10and20simEmbedded = false;
+  inline bool isPhotonJet20Embedded      = false;
+  inline bool bothPhoton10and20simEmbedded = true;
 
 
   inline bool isInclusiveJet10Embedded   = false;
-  inline bool isInclusiveJet20Embedded   = true;
-  inline bool bothInclusiveJet10and20simEmbedded = false;
+  inline bool isInclusiveJet20Embedded   = false;
+  inline bool bothInclusiveJet10and20simEmbedded = true;
 
   //   Special SIM samples:
   inline bool isSimMB                    = false;   // MinBias DETROIT tune

@@ -3708,7 +3708,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 yMinEff = 0.0;
                                 yMaxEff = 1.0;
                             }
-                            const double padEff = (yMaxEff > yMinEff) ? (1.2 * (yMaxEff - yMinEff)) : 0.25;
+                            const double padEff = (yMaxEff > yMinEff) ? (0.48 * (yMaxEff - yMinEff)) : 0.25;
                             
                             TCanvas cEff(
                                          TString::Format("c_ppg12IsoCutFits_%s_%s",
@@ -3776,6 +3776,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             if (haveF80) g80.Fit(&f80, "Q0");
                             if (haveF70) g70.Fit(&f70, "Q0");
                             
+                            
                             g90.Draw("PE1 SAME");
                             g80.Draw("PE1 SAME");
                             g70.Draw("PE1 SAME");
@@ -3809,7 +3810,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             }
                             if (!xCutPP.empty())
                             {
-                                const double padEffUpd = (yMaxEff > yMinEff) ? (1.2 * (yMaxEff - yMinEff)) : 0.25;
+                                const double padEffUpd = (yMaxEff > yMinEff) ? (0.48 * (yMaxEff - yMinEff)) : 0.25;
                                 hFrameEff.SetMinimum(std::max(0.0, yMinEff - padEffUpd));
                                 hFrameEff.SetMaximum(yMaxEff + padEffUpd);
                             }
@@ -3837,12 +3838,12 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             legEff.SetTextSize(0.024);
                             legEff.SetNColumns(2);
                             legEff.SetColumnSeparation(-0.02);
-                            legEff.AddEntry(&g90, "90% Efficiency (embed pythia)", "ep");
-                            if (gPP90) legEff.AddEntry(gPP90, "90% Efficiency (pythia)", "ep");
-                            legEff.AddEntry(&g80, "80% Efficiency (embed pythia)", "ep");
-                            if (gPP80) legEff.AddEntry(gPP80, "80% Efficiency (pythia)", "ep");
-                            legEff.AddEntry(&g70, "70% Efficiency (embed pythia)", "ep");
-                            if (gPP70) legEff.AddEntry(gPP70, "70% Efficiency (pythia)", "ep");
+                            legEff.AddEntry(&g90, "90% Efficiency (Pythia Emb 20)", "ep");
+                            if (gPP90) legEff.AddEntry(gPP90, "90% Efficiency (Pythia 20)", "ep");
+                            legEff.AddEntry(&g80, "80% Efficiency (Pythia Emb)", "ep");
+                            if (gPP80) legEff.AddEntry(gPP80, "80% Efficiency (Pythia 20)", "ep");
+                            legEff.AddEntry(&g70, "70% Efficiency (Pythia Emb 20)", "ep");
+                            if (gPP70) legEff.AddEntry(gPP70, "70% Efficiency (Pythia 20)", "ep");
                             legEff.Draw();
                             
                             TLatex tInfoEff;
@@ -3854,6 +3855,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             tInfoEff.DrawLatex(0.18, 0.83, TString::Format("%d-%d%% centrality", cb.lo, cb.hi).Data());
                             tInfoEff.DrawLatex(0.18, 0.78,
                                                TString::Format("|v_{z}| < %d cm,  |#eta^{#gamma}| < %.1f", kAA_VzCut, kPhotonEtaAbsMax).Data());
+                            
                             tInfoEff.DrawLatex(0.18, 0.73,
                                                TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
                             
@@ -3865,7 +3867,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 tSph.SetTextSize(0.042);
                                 tSph.DrawLatex(0.92, 0.88, "#bf{sPHENIX} #it{Internal}");
                                 tSph.SetTextSize(0.034);
-                                tSph.DrawLatex(0.92, 0.83, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                                tSph.DrawLatex(0.92, 0.83, "Pythia Emb  #sqrt{s_{NN}} = 200 GeV");
                             }
                             
                             SaveCanvas(cEff, JoinPath(baseVariantPtSummaryDir,
@@ -3930,6 +3932,18 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 gM70.SetLineWidth(2); gM70.SetLineColor(kBlue+1); gM70.SetMarkerColor(kBlue+1);
                                 gM70.SetMarkerStyle(22); gM70.SetMarkerSize(1.5); gM70.Draw("PE1 SAME");
                                 
+                                const double fitXLoM = kPtEdges[1];
+                                const double fitXHiM = kPtEdges.back();
+                                TF1 fM90("fM90_ppMerged", "pol1", fitXLoM, fitXHiM);
+                                TF1 fM80("fM80_ppMerged", "pol1", fitXLoM, fitXHiM);
+                                TF1 fM70("fM70_ppMerged", "pol1", fitXLoM, fitXHiM);
+                                fM90.SetLineColor(kMagenta+1); fM90.SetLineWidth(3);
+                                fM80.SetLineColor(kGreen+2);   fM80.SetLineWidth(3);
+                                fM70.SetLineColor(kBlue+1);    fM70.SetLineWidth(3);
+                                if (gM90.GetN() >= 2) { gM90.Fit(&fM90, "Q0"); fM90.Draw("SAME"); }
+                                if (gM80.GetN() >= 2) { gM80.Fit(&fM80, "Q0"); fM80.Draw("SAME"); }
+                                if (gM70.GetN() >= 2) { gM70.Fit(&fM70, "Q0"); fM70.Draw("SAME"); }
+                                
                                 TLegend legM(0.50, 0.62, 0.92, 0.78);
                                 legM.SetBorderSize(0); legM.SetFillStyle(0);
                                 legM.SetTextFont(42); legM.SetTextSize(0.030);
@@ -3941,19 +3955,24 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 TLatex tInfoM;
                                 tInfoM.SetNDC(true); tInfoM.SetTextFont(42);
                                 tInfoM.SetTextAlign(13); tInfoM.SetTextSize(0.030);
-                                tInfoM.DrawLatex(0.18, 0.88, "Photon+Jet Pythia (5 + 10 + 20)");
-                                tInfoM.DrawLatex(0.18, 0.83,
-                                                 TString::Format("|v_{z}| < %d cm,  |#eta^{#gamma}| < %.1f", kAA_VzCut, kPhotonEtaAbsMax).Data());
-                                tInfoM.DrawLatex(0.18, 0.78,
-                                                 TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                                tInfoM.DrawLatex(0.18, 0.88, "Pythia,  #sqrt{s} = 200 GeV");
+                                if (gM90.GetN() >= 2)
+                                    tInfoM.DrawLatex(0.18, 0.83,
+                                        TString::Format("90%%: E_{T}^{iso} = %.3f  + %.3fp_{T}", fM90.GetParameter(0), fM90.GetParameter(1)).Data());
+                                if (gM80.GetN() >= 2)
+                                    tInfoM.DrawLatex(0.18, 0.78,
+                                        TString::Format("80%%: E_{T}^{iso} = %.3f  + %.3fp_{T}", fM80.GetParameter(0), fM80.GetParameter(1)).Data());
+                                if (gM70.GetN() >= 2)
+                                    tInfoM.DrawLatex(0.18, 0.73,
+                                        TString::Format("70%%: E_{T}^{iso} = %.3f  + %.3fp_{T}", fM70.GetParameter(0), fM70.GetParameter(1)).Data());
+                                tInfoM.DrawLatex(0.18, 0.68,
+                                                 TString::Format("vtx |z| < %d cm, |#eta^{#gamma}|<%.1f", kAA_VzCut, kPhotonEtaAbsMax).Data());
                                 
                                 {
                                     TLatex tSph;
                                     tSph.SetNDC(true); tSph.SetTextFont(42); tSph.SetTextAlign(33);
                                     tSph.SetTextSize(0.042);
                                     tSph.DrawLatex(0.92, 0.88, "#bf{sPHENIX} #it{Internal}");
-                                    tSph.SetTextSize(0.034);
-                                    tSph.DrawLatex(0.92, 0.82, "pp  #sqrt{s} = 200 GeV");
                                 }
                                 
                                 SaveCanvas(cPPM, JoinPath(baseVariantPtSummaryDir,
@@ -4351,8 +4370,6 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         // Pre-pass: accumulate Gaussian means for all 4 series across pT bins
                         vector<double> tntSubTDX, tntSubTDY, tntSubTDEY;
                         vector<double> tntSubNTDX, tntSubNTDY, tntSubNTDEY;
-                        vector<double> tntSubTMX, tntSubTMY, tntSubTMEY;
-                        vector<double> tntSubNTMX, tntSubNTMY, tntSubNTMEY;
                         for (int iptPre = 0; iptPre < kNPtBins; ++iptPre)
                         {
                             const PtBin& bPre = PtBins()[iptPre];
@@ -4372,9 +4389,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 delete hTmp;
                             };
                             FitAndPush(dataTop, hTN,  tntSubTDX,  tntSubTDY,  tntSubTDEY);
-                            FitAndPush(dataTop, hNTN, tntSubNTDX, tntSubNTDY, tntSubNTDEY);
-                            FitAndPush(mcTop,   hTN,  tntSubTMX,  tntSubTMY,  tntSubTMEY);
-                            FitAndPush(mcTop,   hNTN, tntSubNTMX, tntSubNTMY, tntSubNTMEY);
+                                                        FitAndPush(dataTop, hNTN, tntSubNTDX, tntSubNTDY, tntSubNTDEY);
                         }
                         double tntSubYLo = 1e30, tntSubYHi = -1e30;
                         auto TntUpdateRange = [&](const vector<double>& y, const vector<double>& ey) {
@@ -4383,10 +4398,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 tntSubYHi = std::max(tntSubYHi, y[i] + ey[i]); } };
                         TntUpdateRange(tntSubTDY, tntSubTDEY);
                         TntUpdateRange(tntSubNTDY, tntSubNTDEY);
-                        TntUpdateRange(tntSubTMY, tntSubTMEY);
-                        TntUpdateRange(tntSubNTMY, tntSubNTMEY);
                         const bool tntHaveSub = (tntSubYHi > tntSubYLo) &&
-                             (!tntSubTDX.empty() || !tntSubNTDX.empty() || !tntSubTMX.empty() || !tntSubNTMX.empty());
+                                                     (!tntSubTDX.empty() || !tntSubNTDX.empty());
                         const double tntSubPad = tntHaveSub ? std::max(0.35 * (tntSubYHi - tntSubYLo), 0.5) : 1.0;
                         
                         for (const auto& b : PtBins())
@@ -4614,17 +4627,12 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 
                                 TGraphErrors* gTD  = MakeSubG(tntSubTDX,  tntSubTDY,  tntSubTDEY,  20, kBlack);
                                 TGraphErrors* gNTD = MakeSubG(tntSubNTDX, tntSubNTDY, tntSubNTDEY, 24, kRed+1);
-                                TGraphErrors* gTM  = MakeSubG(tntSubTMX,  tntSubTMY,  tntSubTMEY,  21, kBlue+1);
-                                TGraphErrors* gNTM = MakeSubG(tntSubNTMX, tntSubNTMY, tntSubNTMEY, 25, kGreen+2);
-                                
                                 TLegend legSubTNT(0.18, 0.70, 0.92, 0.95);
                                 legSubTNT.SetBorderSize(0); legSubTNT.SetFillStyle(0);
-                                legSubTNT.SetTextFont(42); legSubTNT.SetTextSize(0.085);
-                                legSubTNT.SetNColumns(4);
+                                legSubTNT.SetTextFont(42); legSubTNT.SetTextSize(0.10);
+                                legSubTNT.SetNColumns(2);
                                 if (gTD)  legSubTNT.AddEntry(gTD,  "tight data",   "ep");
                                 if (gNTD) legSubTNT.AddEntry(gNTD, "nontight data", "ep");
-                                if (gTM)  legSubTNT.AddEntry(gTM,  "tight MC",      "ep");
-                                if (gNTM) legSubTNT.AddEntry(gNTM, "nontight MC",   "ep");
                                 legSubTNT.Draw();
                                 
                                 // highlight current pT bin
@@ -4639,8 +4647,6 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 
                                 if (gTD)  delete gTD;
                                 if (gNTD) delete gNTD;
-                                if (gTM)  delete gTM;
-                                if (gNTM) delete gNTM;
                                 delete hFrSubTNT;
                             }
                             
