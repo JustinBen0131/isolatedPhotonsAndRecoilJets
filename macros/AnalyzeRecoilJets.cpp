@@ -13658,7 +13658,7 @@ inline vector<Dataset> BuildDatasets(RunMode mode)
                 {
                     Dataset ds;
                     ds.label      = multiTrig
-                    ?en TString::Format("DATA_AUAU_%s_%d_%d", trigAA.c_str(), cb.lo, cb.hi).Data()
+                    ? TString::Format("DATA_AUAU_%s_%d_%d", trigAA.c_str(), cb.lo, cb.hi).Data()
                     : TString::Format("DATA_AUAU_%d_%d", cb.lo, cb.hi).Data();
                     ds.isSim      = false;
                     ds.trigger    = trigAA;
