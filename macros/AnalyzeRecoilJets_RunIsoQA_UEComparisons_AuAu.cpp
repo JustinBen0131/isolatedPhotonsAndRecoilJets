@@ -540,17 +540,18 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             {
                 auto MergeLayerHist = [&](TDirectory* dir,
                                           const string& histBase,
+                                          const vector<string>& ptSuffixes,
                                           const vector<string>& centSuffixes,
                                           const string& cloneName) -> TH1*
                 {
                     if (!dir) return nullptr;
                     
                     TH1* hSum = nullptr;
-                    for (const auto& pb : PtBins())
+                    for (const auto& ptSuf : ptSuffixes)
                     {
                         for (const auto& centSuf : centSuffixes)
                         {
-                            const string hName = histBase + pb.suffix + centSuf;
+                            const string hName = histBase + ptSuf + centSuf;
                             TH1* hSrc = dynamic_cast<TH1*>(dir->Get(hName.c_str()));
                             if (!hSrc) continue;
                             
@@ -633,69 +634,167 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     {"h_Eiso_hcalout", "OHCal"}
                 };
                 
+                auto BuildMergedPtSuffixes = [&](int ptMin, int ptMax) -> vector<string>
+                {
+                    vector<string> out;
+                    for (const auto& pb : PtBins())
+                    {
+                        if (pb.lo >= ptMin && pb.hi <= ptMax) out.push_back(pb.suffix);
+                    }
+                    return out;
+                };
+                
+                struct LayerPtCfg
+                {
+                    string folder;
+                    vector<string> ptSuffixes;
+                    string label;
+                };
+                
+                vector<LayerPtCfg> layerPtCfgs;
+                layerPtCfgs.reserve(PtBins().size() + 2);
+                
+                for (const auto& pb : PtBins())
+                {
+                    LayerPtCfg cfg;
+                    cfg.folder = pb.folder;
+                    cfg.ptSuffixes.push_back(pb.suffix);
+                    cfg.label = TString::Format("%d-%d GeV", pb.lo, pb.hi).Data();
+                    layerPtCfgs.push_back(cfg);
+                }
+                
+                {
+                    LayerPtCfg cfg;
+                    cfg.folder = "pT_16_35";
+                    cfg.ptSuffixes = BuildMergedPtSuffixes(16, 35);
+                    cfg.label = "16-35 GeV";
+                    if (!cfg.ptSuffixes.empty()) layerPtCfgs.push_back(cfg);
+                }
+                
+                {
+                    LayerPtCfg cfg;
+                    cfg.folder = "pT_20_35";
+                    cfg.ptSuffixes = BuildMergedPtSuffixes(20, 35);
+                    cfg.label = "20-35 GeV";
+                    if (!cfg.ptSuffixes.empty()) layerPtCfgs.push_back(cfg);
+                }
+                
                 for (const auto& lc : layerCentCfgs)
                 {
-                    TCanvas cLayer(
-                                   TString::Format("c_layerByLayer_%s_%s", trigAA.c_str(), lc.folder.c_str()).Data(),
-                                   "c_layerByLayer", 2100, 700
-                                   );
-                    cLayer.Divide(3, 1, 0.002, 0.002);
+                    const string layerCentDir = JoinPath(layerByLayerBase, lc.folder);
+                    EnsureDir(layerCentDir);
                     
-                    vector<TH1*> keepAlive;
-                    keepAlive.reserve(9);
-                    
-                    for (std::size_t ipanel = 0; ipanel < layerPanels.size(); ++ipanel)
+                    for (const auto& lp : layerPtCfgs)
                     {
-                        cLayer.cd((int)ipanel + 1);
-                        gPad->SetLeftMargin(0.16);
-                        gPad->SetRightMargin(0.04);
-                        gPad->SetBottomMargin(0.14);
-                        gPad->SetTopMargin(0.12);
-                        gPad->SetTicks(1,1);
+                        TCanvas cLayer(
+                                       TString::Format("c_layerByLayer_%s_%s_%s", trigAA.c_str(), lc.folder.c_str(), lp.folder.c_str()).Data(),
+                                       "c_layerByLayer", 2100, 700
+                                       );
+                        cLayer.Divide(3, 1, 0.002, 0.002);
                         
-                        const auto& panel = layerPanels[ipanel];
+                        vector<TH1*> keepAlive;
+                        keepAlive.reserve(9);
                         
-                        TH1* hData = MergeLayerHist(
-                                                    aaTop,
-                                                    panel.histBase,
-                                                    lc.centSuffixes,
-                                                    TString::Format("hLayerData_%s_%s_%s_%s",
-                                                                    trigAA.c_str(), H.variant.c_str(),
-                                                                    lc.folder.c_str(), panel.histBase.c_str()).Data()
-                                                    );
-                        TH1* hPho = MergeLayerHist(
-                                                   phoMCvarTop,
-                                                   panel.histBase,
-                                                   lc.centSuffixes,
-                                                   TString::Format("hLayerPho_%s_%s_%s_%s",
-                                                                   trigAA.c_str(), H.variant.c_str(),
-                                                                   lc.folder.c_str(), panel.histBase.c_str()).Data()
-                                                   );
-                        TH1* hInc = MergeLayerHist(
-                                                   incMCvarTop,
-                                                   panel.histBase,
-                                                   lc.centSuffixes,
-                                                   TString::Format("hLayerInc_%s_%s_%s_%s",
-                                                                   trigAA.c_str(), H.variant.c_str(),
-                                                                   lc.folder.c_str(), panel.histBase.c_str()).Data()
-                                                   );
-                        
-                        if (hData) keepAlive.push_back(hData);
-                        if (hPho)  keepAlive.push_back(hPho);
-                        if (hInc)  keepAlive.push_back(hInc);
-                        
-                        const bool haveData = PrepareLayerHist(hData, true, kBlack);
-                        const bool havePho  = PrepareLayerHist(hPho,  false, kRed + 1);
-                        const bool haveInc  = PrepareLayerHist(hInc,  false, kBlue + 1);
-                        
-                        if (!haveData && !havePho && !haveInc)
+                        for (std::size_t ipanel = 0; ipanel < layerPanels.size(); ++ipanel)
                         {
-                            TLatex tMiss;
-                            tMiss.SetNDC(true);
-                            tMiss.SetTextFont(42);
-                            tMiss.SetTextAlign(22);
-                            tMiss.SetTextSize(0.080);
-                            tMiss.DrawLatex(0.50, 0.55, "MISSING");
+                            cLayer.cd((int)ipanel + 1);
+                            gPad->SetLeftMargin(0.16);
+                            gPad->SetRightMargin(0.04);
+                            gPad->SetBottomMargin(0.14);
+                            gPad->SetTopMargin(0.12);
+                            gPad->SetTicks(1,1);
+                            
+                            const auto& panel = layerPanels[ipanel];
+                            
+                            TH1* hData = MergeLayerHist(
+                                                        aaTop,
+                                                        panel.histBase,
+                                                        lp.ptSuffixes,
+                                                        lc.centSuffixes,
+                                                        TString::Format("hLayerData_%s_%s_%s_%s_%s",
+                                                                        trigAA.c_str(), H.variant.c_str(),
+                                                                        lc.folder.c_str(), lp.folder.c_str(),
+                                                                        panel.histBase.c_str()).Data()
+                                                        );
+                            TH1* hPho = MergeLayerHist(
+                                                       phoMCvarTop,
+                                                       panel.histBase,
+                                                       lp.ptSuffixes,
+                                                       lc.centSuffixes,
+                                                       TString::Format("hLayerPho_%s_%s_%s_%s_%s",
+                                                                       trigAA.c_str(), H.variant.c_str(),
+                                                                       lc.folder.c_str(), lp.folder.c_str(),
+                                                                       panel.histBase.c_str()).Data()
+                                                       );
+                            TH1* hInc = MergeLayerHist(
+                                                       incMCvarTop,
+                                                       panel.histBase,
+                                                       lp.ptSuffixes,
+                                                       lc.centSuffixes,
+                                                       TString::Format("hLayerInc_%s_%s_%s_%s_%s",
+                                                                       trigAA.c_str(), H.variant.c_str(),
+                                                                       lc.folder.c_str(), lp.folder.c_str(),
+                                                                       panel.histBase.c_str()).Data()
+                                                       );
+                            
+                            if (hData) keepAlive.push_back(hData);
+                            if (hPho)  keepAlive.push_back(hPho);
+                            if (hInc)  keepAlive.push_back(hInc);
+                            
+                            const bool haveData = PrepareLayerHist(hData, true, kBlack);
+                            const bool havePho  = PrepareLayerHist(hPho,  false, kRed + 1);
+                            const bool haveInc  = PrepareLayerHist(hInc,  false, kBlue + 1);
+                            
+                            if (!haveData && !havePho && !haveInc)
+                            {
+                                TLatex tMiss;
+                                tMiss.SetNDC(true);
+                                tMiss.SetTextFont(42);
+                                tMiss.SetTextAlign(22);
+                                tMiss.SetTextSize(0.080);
+                                tMiss.DrawLatex(0.50, 0.55, "MISSING");
+                                
+                                TLatex tPanel;
+                                tPanel.SetNDC(true);
+                                tPanel.SetTextFont(42);
+                                tPanel.SetTextAlign(23);
+                                tPanel.SetTextSize(0.060);
+                                tPanel.DrawLatex(0.50, 0.96, panel.panelTitle.c_str());
+                                continue;
+                            }
+                            
+                            TH1* hFrame = havePho ? hPho : (haveInc ? hInc : hData);
+                            double yMaxLayer = 0.0;
+                            if (haveData) yMaxLayer = std::max(yMaxLayer, hData->GetMaximum());
+                            if (havePho)  yMaxLayer = std::max(yMaxLayer, hPho->GetMaximum());
+                            if (haveInc)  yMaxLayer = std::max(yMaxLayer, hInc->GetMaximum());
+                            
+                            hFrame->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
+                            hFrame->GetYaxis()->SetTitle("Normalized to Unit Area");
+                            hFrame->GetXaxis()->SetTitleSize(0.055);
+                            hFrame->GetYaxis()->SetTitleSize(0.055);
+                            hFrame->GetXaxis()->SetLabelSize(0.045);
+                            hFrame->GetYaxis()->SetLabelSize(0.045);
+                            hFrame->GetYaxis()->SetTitleOffset(1.15);
+                            hFrame->SetMinimum(0.0);
+                            hFrame->SetMaximum((yMaxLayer > 0.0) ? (1.25 * yMaxLayer) : 1.0);
+                            
+                            if (hFrame == hData) hFrame->Draw("E1");
+                            else                 hFrame->Draw("hist");
+                            
+                            if (havePho && hPho != hFrame) hPho->Draw("hist SAME");
+                            if (haveInc && hInc != hFrame) hInc->Draw("hist SAME");
+                            if (haveData && hData != hFrame) hData->Draw("E1 SAME");
+                            
+                            TLegend legLayer(0.47, 0.68, 0.92, 0.88);
+                            legLayer.SetBorderSize(0);
+                            legLayer.SetFillStyle(0);
+                            legLayer.SetTextFont(42);
+                            legLayer.SetTextSize(0.034);
+                            if (haveData) legLayer.AddEntry(hData, "Run25 Au+Au", "ep");
+                            if (havePho)  legLayer.AddEntry(hPho, photonLegend.c_str(), "l");
+                            if (haveInc)  legLayer.AddEntry(hInc, inclusiveLegend.c_str(), "l");
+                            legLayer.Draw();
                             
                             TLatex tPanel;
                             tPanel.SetNDC(true);
@@ -703,68 +802,35 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             tPanel.SetTextAlign(23);
                             tPanel.SetTextSize(0.060);
                             tPanel.DrawLatex(0.50, 0.96, panel.panelTitle.c_str());
-                            continue;
+                            
+                            if (ipanel == 0)
+                            {
+                                TLatex tInfo;
+                                tInfo.SetNDC(true);
+                                tInfo.SetTextFont(42);
+                                tInfo.SetTextAlign(13);
+                                tInfo.SetTextSize(0.036);
+                                tInfo.DrawLatex(0.18, 0.90, "Run25 Au+Au vs embedded MC");
+                                tInfo.DrawLatex(0.18, 0.84, TString::Format("Centrality: %s", lc.label.c_str()).Data());
+                                tInfo.DrawLatex(0.18, 0.78, trigDisplayLabel.c_str());
+                                tInfo.DrawLatex(0.18, 0.72, TString::Format("UE: %s", H.label.c_str()).Data());
+                                tInfo.DrawLatex(0.18, 0.66, TString::Format("p_{T}^{#gamma}: %s", lp.label.c_str()).Data());
+                            }
                         }
                         
-                        TH1* hFrame = havePho ? hPho : (haveInc ? hInc : hData);
-                        double yMaxLayer = 0.0;
-                        if (haveData) yMaxLayer = std::max(yMaxLayer, hData->GetMaximum());
-                        if (havePho)  yMaxLayer = std::max(yMaxLayer, hPho->GetMaximum());
-                        if (haveInc)  yMaxLayer = std::max(yMaxLayer, hInc->GetMaximum());
+                        const bool isIntegratedPt =
+                        (lp.folder == "pT_16_35" || lp.folder == "pT_20_35");
                         
-                        hFrame->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
-                        hFrame->GetYaxis()->SetTitle("Normalized to Unit Area");
-                        hFrame->GetXaxis()->SetTitleSize(0.055);
-                        hFrame->GetYaxis()->SetTitleSize(0.055);
-                        hFrame->GetXaxis()->SetLabelSize(0.045);
-                        hFrame->GetYaxis()->SetLabelSize(0.045);
-                        hFrame->GetYaxis()->SetTitleOffset(1.15);
-                        hFrame->SetMinimum(0.0);
-                        hFrame->SetMaximum((yMaxLayer > 0.0) ? (1.25 * yMaxLayer) : 1.0);
+                        const string layerPtOutDir = isIntegratedPt
+                        ? JoinPath(layerCentDir, "integratedOverPt")
+                        : layerCentDir;
+                        EnsureDir(layerPtOutDir);
                         
-                        if (hFrame == hData) hFrame->Draw("E1");
-                        else                 hFrame->Draw("hist");
+                        SaveCanvas(cLayer, JoinPath(layerPtOutDir,
+                                                    TString::Format("layerByLayer_%s.png", lp.folder.c_str()).Data()));
                         
-                        if (havePho && hPho != hFrame) hPho->Draw("hist SAME");
-                        if (haveInc && hInc != hFrame) hInc->Draw("hist SAME");
-                        if (haveData && hData != hFrame) hData->Draw("E1 SAME");
-                        
-                        TLegend legLayer(0.47, 0.68, 0.92, 0.88);
-                        legLayer.SetBorderSize(0);
-                        legLayer.SetFillStyle(0);
-                        legLayer.SetTextFont(42);
-                        legLayer.SetTextSize(0.034);
-                        if (haveData) legLayer.AddEntry(hData, "Run25 Au+Au", "ep");
-                        if (havePho)  legLayer.AddEntry(hPho, photonLegend.c_str(), "l");
-                        if (haveInc)  legLayer.AddEntry(hInc, inclusiveLegend.c_str(), "l");
-                        legLayer.Draw();
-                        
-                        TLatex tPanel;
-                        tPanel.SetNDC(true);
-                        tPanel.SetTextFont(42);
-                        tPanel.SetTextAlign(23);
-                        tPanel.SetTextSize(0.060);
-                        tPanel.DrawLatex(0.50, 0.96, panel.panelTitle.c_str());
-                        
-                        if (ipanel == 0)
-                        {
-                            TLatex tInfo;
-                            tInfo.SetNDC(true);
-                            tInfo.SetTextFont(42);
-                            tInfo.SetTextAlign(13);
-                            tInfo.SetTextSize(0.036);
-                            tInfo.DrawLatex(0.18, 0.90, "Run25 Au+Au vs embedded MC");
-                            tInfo.DrawLatex(0.18, 0.84, TString::Format("Centrality: %s", lc.label.c_str()).Data());
-                            tInfo.DrawLatex(0.18, 0.78, trigDisplayLabel.c_str());
-                            tInfo.DrawLatex(0.18, 0.72, TString::Format("UE: %s", H.label.c_str()).Data());
-                            tInfo.DrawLatex(0.18, 0.66, "All p_{T}^{#gamma} bins combined");
-                        }
+                        for (auto* hKeep : keepAlive) delete hKeep;
                     }
-                    
-                    SaveCanvas(cLayer, JoinPath(layerByLayerBase,
-                                                TString::Format("layerByLayer_%s.png", lc.folder.c_str()).Data()));
-                    
-                    for (auto* hKeep : keepAlive) delete hKeep;
                 }
             }
             
