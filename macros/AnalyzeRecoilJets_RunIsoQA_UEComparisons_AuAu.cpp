@@ -2127,6 +2127,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         hFrSub->GetXaxis()->SetTitle("");
                         hFrSub->GetXaxis()->SetTitleSize(0.0);
                         hFrSub->GetXaxis()->SetLabelSize(0.0);
+                        hFrSub->GetXaxis()->SetTickLength(0.0);
                         hFrSub->Draw();
                         
                         vector<double> exZeroSub(subX.size(), 0.0);
