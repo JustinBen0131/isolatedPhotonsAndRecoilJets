@@ -3694,7 +3694,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 yMinEff = 0.0;
                                 yMaxEff = 1.0;
                             }
-                            const double padEff = (yMaxEff > yMinEff) ? (0.55 * (yMaxEff - yMinEff)) : 0.25;
+                            const double padEff = (yMaxEff > yMinEff) ? (0.85 * (yMaxEff - yMinEff)) : 0.25;
                             
                             TCanvas cEff(
                                          TString::Format("c_ppg12IsoCutFits_%s_%s",
@@ -3766,26 +3766,69 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             g80.Draw("PE1 SAME");
                             g70.Draw("PE1 SAME");
                             
-                            TLegend legEff(0.62, 0.70, 0.92, 0.88);
+                            // -- pp reference (5+10+20 merged SIM, open markers) --
+                            vector<double> xCutPP, exCutPP, y90PP, ey90PP, y80PP, ey80PP, y70PP, ey70PP;
+                            if (ppSimTop)
+                            {
+                                for (int iptPP = 1; iptPP < kNPtBins; ++iptPP)
+                                {
+                                    const PtBin& bPP = PtBins()[iptPP];
+                                    const string hPPSigName = "h_EisoReco_truthSigMatched" + bPP.suffix;
+                                    TH1* hPPSig = dynamic_cast<TH1*>(ppSimTop->Get(hPPSigName.c_str()));
+                                    if (!hPPSig || hPPSig->GetEntries() <= 0.0) continue;
+                                    double c70=0,e70=0, c80=0,e80=0, c90=0,e90=0;
+                                    if (!FindEfficiencyCut(hPPSig, 0.70, c70, e70)) continue;
+                                    if (!FindEfficiencyCut(hPPSig, 0.80, c80, e80)) continue;
+                                    if (!FindEfficiencyCut(hPPSig, 0.90, c90, e90)) continue;
+                                    xCutPP.push_back(0.5*(kPtEdges[(std::size_t)iptPP]+kPtEdges[(std::size_t)iptPP+1]));
+                                    exCutPP.push_back(0.5*(kPtEdges[(std::size_t)iptPP+1]-kPtEdges[(std::size_t)iptPP]));
+                                    y90PP.push_back(c90); ey90PP.push_back(e90);
+                                    y80PP.push_back(c80); ey80PP.push_back(e80);
+                                    y70PP.push_back(c70); ey70PP.push_back(e70);
+                                }
+                            }
+                            TGraphErrors *gPP90=nullptr, *gPP80=nullptr, *gPP70=nullptr;
+                            if (!xCutPP.empty())
+                            {
+                                gPP90 = new TGraphErrors((int)xCutPP.size(), &xCutPP[0], &y90PP[0], &exCutPP[0], &ey90PP[0]);
+                                gPP90->SetLineWidth(2); gPP90->SetLineColor(kMagenta+1); gPP90->SetMarkerColor(kMagenta+1);
+                                gPP90->SetMarkerStyle(24); gPP90->SetMarkerSize(1.4);
+                                gPP90->Draw("PE1 SAME");
+                                gPP80 = new TGraphErrors((int)xCutPP.size(), &xCutPP[0], &y80PP[0], &exCutPP[0], &ey80PP[0]);
+                                gPP80->SetLineWidth(2); gPP80->SetLineColor(kGreen+2); gPP80->SetMarkerColor(kGreen+2);
+                                gPP80->SetMarkerStyle(25); gPP80->SetMarkerSize(1.4);
+                                gPP80->Draw("PE1 SAME");
+                                gPP70 = new TGraphErrors((int)xCutPP.size(), &xCutPP[0], &y70PP[0], &exCutPP[0], &ey70PP[0]);
+                                gPP70->SetLineWidth(2); gPP70->SetLineColor(kBlue+1); gPP70->SetMarkerColor(kBlue+1);
+                                gPP70->SetMarkerStyle(26); gPP70->SetMarkerSize(1.5);
+                                gPP70->Draw("PE1 SAME");
+                            }
+                            
+                            TLegend legEff(0.55, 0.58, 0.92, 0.80);
                             legEff.SetBorderSize(0);
                             legEff.SetFillStyle(0);
                             legEff.SetTextFont(42);
-                            legEff.SetTextSize(0.042);
-                            legEff.AddEntry(&g90, "90% Efficiency", "lep");
-                            legEff.AddEntry(&g80, "80% Efficiency", "lep");
-                            legEff.AddEntry(&g70, "70% Efficiency", "lep");
+                            legEff.SetTextSize(0.028);
+                            legEff.SetNColumns(2);
+                            legEff.SetColumnSeparation(-0.02);
+                            legEff.AddEntry(&g90, "90% (Au+Au)", "ep");
+                            if (gPP90) legEff.AddEntry(gPP90, "90% (pp)", "ep");
+                            legEff.AddEntry(&g80, "80% (Au+Au)", "ep");
+                            if (gPP80) legEff.AddEntry(gPP80, "80% (pp)", "ep");
+                            legEff.AddEntry(&g70, "70% (Au+Au)", "ep");
+                            if (gPP70) legEff.AddEntry(gPP70, "70% (pp)", "ep");
                             legEff.Draw();
                             
                             TLatex tInfoEff;
                             tInfoEff.SetNDC(true);
                             tInfoEff.SetTextFont(42);
                             tInfoEff.SetTextAlign(13);
-                            tInfoEff.SetTextSize(0.038);
-                            tInfoEff.DrawLatex(0.20, 0.88, embeddedLabel.c_str());
-                            tInfoEff.DrawLatex(0.20, 0.83, TString::Format("%d-%d%% centrality", cb.lo, cb.hi).Data());
-                            tInfoEff.DrawLatex(0.20, 0.78,
+                            tInfoEff.SetTextSize(0.032);
+                            tInfoEff.DrawLatex(0.18, 0.88, embeddedLabel.c_str());
+                            tInfoEff.DrawLatex(0.18, 0.84, TString::Format("%d-%d%% centrality", cb.lo, cb.hi).Data());
+                            tInfoEff.DrawLatex(0.18, 0.80,
                                                TString::Format("|v_{z}| < %d cm,  |#eta^{#gamma}| < %.1f", kAA_VzCut, kPhotonEtaAbsMax).Data());
-                            tInfoEff.DrawLatex(0.20, 0.73,
+                            tInfoEff.DrawLatex(0.18, 0.76,
                                                TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
                             
                             {
@@ -3793,14 +3836,17 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 tSph.SetNDC(true);
                                 tSph.SetTextFont(42);
                                 tSph.SetTextAlign(33);
-                                tSph.SetTextSize(0.048);
-                                tSph.DrawLatex(0.92, 0.30, "#bf{sPHENIX} #it{Internal}");
-                                tSph.SetTextSize(0.038);
-                                tSph.DrawLatex(0.92, 0.24, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                                tSph.SetTextSize(0.042);
+                                tSph.DrawLatex(0.92, 0.88, "#bf{sPHENIX} #it{Internal}");
+                                tSph.SetTextSize(0.034);
+                                tSph.DrawLatex(0.92, 0.84, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
                             }
                             
                             SaveCanvas(cEff, JoinPath(baseVariantPtSummaryDir,
                                                       TString::Format("ppg12Style_isoCutEfficiencyFits_%s.png", cb.folder.c_str()).Data()));
+                            if (gPP90) delete gPP90;
+                            if (gPP80) delete gPP80;
+                            if (gPP70) delete gPP70;
                         }
                         
                         fPhoCut->Close();
