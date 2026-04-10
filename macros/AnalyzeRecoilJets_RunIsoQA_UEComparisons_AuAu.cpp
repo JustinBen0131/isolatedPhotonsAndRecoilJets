@@ -3656,6 +3656,45 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         ? "Photon+Jet Embedded SIM"
                         : ("Photon+Jet " + PhotonEmbeddedShortLabel() + " Embedded SIM");
                         
+                        // Open matching pp SIM (non-embedded) for PPG12 overlay
+                        TFile* fMatchedPPSim = nullptr;
+                        TDirectory* matchedPPSimTop = nullptr;
+                        string matchedPPLabel;
+                        {
+                            SimSample matchedSample = SimSample::kPhotonJet20; // default
+                            if (bothPhoton10and20simEmbedded)
+                            {
+                                matchedSample = SimSample::kPhotonJet5And10And20Merged;
+                                matchedPPLabel = "Pythia 5+10+20";
+                            }
+                            else if (isPhotonJet10Embedded)
+                            {
+                                matchedSample = SimSample::kPhotonJet10;
+                                matchedPPLabel = "Pythia 10";
+                            }
+                            else if (isPhotonJet20Embedded)
+                            {
+                                matchedSample = SimSample::kPhotonJet20;
+                                matchedPPLabel = "Pythia 20";
+                            }
+                            else
+                            {
+                                matchedPPLabel = "Pythia 20";
+                            }
+                            const string matchedPath = SimInputPathForSample(matchedSample);
+                            if (!matchedPath.empty())
+                            {
+                                fMatchedPPSim = TFile::Open(matchedPath.c_str(), "READ");
+                                if (fMatchedPPSim && !fMatchedPPSim->IsZombie())
+                                    matchedPPSimTop = fMatchedPPSim->GetDirectory(kDirSIM.c_str());
+                                else { if (fMatchedPPSim) { fMatchedPPSim->Close(); delete fMatchedPPSim; fMatchedPPSim = nullptr; } }
+                            }
+                        }
+                        
+                        // Derive embedded legend tag from active sample
+                        const string embLegTag = PhotonEmbeddedShortLabel().empty()
+                            ? "Pythia Emb" : ("Pythia Emb " + PhotonEmbeddedShortLabel());
+                        
                         for (std::size_t ic = 0; ic < centBins.size(); ++ic)
                         {
                             const auto& cb = centBins[ic];
@@ -3781,15 +3820,19 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             g80.Draw("PE1 SAME");
                             g70.Draw("PE1 SAME");
                             
-                            // -- pp reference (5+10+20 merged SIM, open markers) --
+                            // -- save embedded-only version (no pp overlay) --
+                            SaveCanvas(cEff, JoinPath(baseVariantPtSummaryDir,
+                                                      TString::Format("ppg12Style_isoCutEfficiencyFits_%s_noPP.png", cb.folder.c_str()).Data()));
+                            
+                            // -- pp reference (matched pp SIM, open markers) --
                             vector<double> xCutPP, exCutPP, y90PP, ey90PP, y80PP, ey80PP, y70PP, ey70PP;
-                            if (ppSimTop)
+                            if (matchedPPSimTop)
                             {
                                 for (int iptPP = 1; iptPP < kNPtBins; ++iptPP)
                                 {
                                     const PtBin& bPP = PtBins()[iptPP];
                                     const string hPPSigName = "h_EisoReco_truthSigMatched" + bPP.suffix;
-                                    TH1* hPPSig = dynamic_cast<TH1*>(ppSimTop->Get(hPPSigName.c_str()));
+                                    TH1* hPPSig = dynamic_cast<TH1*>(matchedPPSimTop->Get(hPPSigName.c_str()));
                                     if (!hPPSig || hPPSig->GetEntries() <= 0.0) continue;
                                     double c70=0,e70=0, c80=0,e80=0, c90=0,e90=0;
                                     if (!FindEfficiencyCut(hPPSig, 0.70, c70, e70)) continue;
@@ -3838,12 +3881,12 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             legEff.SetTextSize(0.024);
                             legEff.SetNColumns(2);
                             legEff.SetColumnSeparation(-0.02);
-                            legEff.AddEntry(&g90, "90% Efficiency (Pythia Emb 20)", "ep");
-                            if (gPP90) legEff.AddEntry(gPP90, "90% Efficiency (Pythia 20)", "ep");
-                            legEff.AddEntry(&g80, "80% Efficiency (Pythia Emb)", "ep");
-                            if (gPP80) legEff.AddEntry(gPP80, "80% Efficiency (Pythia 20)", "ep");
-                            legEff.AddEntry(&g70, "70% Efficiency (Pythia Emb 20)", "ep");
-                            if (gPP70) legEff.AddEntry(gPP70, "70% Efficiency (Pythia 20)", "ep");
+                            legEff.AddEntry(&g90, TString::Format("90%% Efficiency (%s)", embLegTag.c_str()).Data(), "ep");
+                            if (gPP90) legEff.AddEntry(gPP90, TString::Format("90%% Efficiency (%s)", matchedPPLabel.c_str()).Data(), "ep");
+                            legEff.AddEntry(&g80, TString::Format("80%% Efficiency (%s)", embLegTag.c_str()).Data(), "ep");
+                            if (gPP80) legEff.AddEntry(gPP80, TString::Format("80%% Efficiency (%s)", matchedPPLabel.c_str()).Data(), "ep");
+                            legEff.AddEntry(&g70, TString::Format("70%% Efficiency (%s)", embLegTag.c_str()).Data(), "ep");
+                            if (gPP70) legEff.AddEntry(gPP70, TString::Format("70%% Efficiency (%s)", matchedPPLabel.c_str()).Data(), "ep");
                             legEff.Draw();
                             
                             TLatex tInfoEff;
@@ -3876,6 +3919,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             if (gPP80) delete gPP80;
                             if (gPP70) delete gPP70;
                         }
+                        
+                        if (fMatchedPPSim) { fMatchedPPSim->Close(); delete fMatchedPPSim; fMatchedPPSim = nullptr; }
                         
                         // -- standalone pp 5+10+20 merged pythia-only iso-cut efficiency plot (no centrality) --
                         if (ppSimMergedTop)
