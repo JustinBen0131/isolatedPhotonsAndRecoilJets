@@ -3694,7 +3694,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 yMinEff = 0.0;
                                 yMaxEff = 1.0;
                             }
-                            const double padEff = (yMaxEff > yMinEff) ? (0.35 * (yMaxEff - yMinEff)) : 0.25;
+                            const double padEff = (yMaxEff > yMinEff) ? (0.55 * (yMaxEff - yMinEff)) : 0.25;
                             
                             TCanvas cEff(
                                          TString::Format("c_ppg12IsoCutFits_%s_%s",
@@ -3762,15 +3762,11 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             if (haveF80) g80.Fit(&f80, "Q0");
                             if (haveF70) g70.Fit(&f70, "Q0");
                             
-                            if (haveF90) f90.Draw("SAME");
-                            if (haveF80) f80.Draw("SAME");
-                            if (haveF70) f70.Draw("SAME");
-                            
                             g90.Draw("PE1 SAME");
                             g80.Draw("PE1 SAME");
                             g70.Draw("PE1 SAME");
                             
-                            TLegend legEff(0.58, 0.70, 0.90, 0.88);
+                            TLegend legEff(0.62, 0.70, 0.92, 0.88);
                             legEff.SetBorderSize(0);
                             legEff.SetFillStyle(0);
                             legEff.SetTextFont(42);
@@ -3780,41 +3776,28 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             legEff.AddEntry(&g70, "70% Efficiency", "lep");
                             legEff.Draw();
                             
-                            TLatex tHdr;
-                            tHdr.SetNDC(true);
-                            tHdr.SetTextFont(42);
-                            tHdr.SetTextAlign(13);
-                            tHdr.SetTextSize(0.060);
-                            tHdr.DrawLatex(0.06, 0.965, "#bf{sPHENIX} Internal");
+                            TLatex tInfoEff;
+                            tInfoEff.SetNDC(true);
+                            tInfoEff.SetTextFont(42);
+                            tInfoEff.SetTextAlign(13);
+                            tInfoEff.SetTextSize(0.038);
+                            tInfoEff.DrawLatex(0.20, 0.88, embeddedLabel.c_str());
+                            tInfoEff.DrawLatex(0.20, 0.83, TString::Format("%d-%d%% centrality", cb.lo, cb.hi).Data());
+                            tInfoEff.DrawLatex(0.20, 0.78,
+                                               TString::Format("|v_{z}| < %d cm,  |#eta^{#gamma}| < %.1f", kAA_VzCut, kPhotonEtaAbsMax).Data());
+                            tInfoEff.DrawLatex(0.20, 0.73,
+                                               TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
                             
-                            TLatex tTxt;
-                            tTxt.SetNDC(true);
-                            tTxt.SetTextFont(42);
-                            tTxt.SetTextAlign(13);
-                            tTxt.SetTextSize(0.034);
-                            tTxt.DrawLatex(0.10, 0.88, "Pythia, #sqrt{s_{NN}} = 200 GeV");
-                            
-                            if (haveF90)
-                                tTxt.DrawLatex(0.10, 0.82,
-                                               TString::Format("90%%: E_{T}^{iso} = %.3f + %.3fp_{T}",
-                                                               f90.GetParameter(0), f90.GetParameter(1)).Data());
-                            if (haveF80)
-                                tTxt.DrawLatex(0.10, 0.76,
-                                               TString::Format("80%%: E_{T}^{iso} = %.3f + %.3fp_{T}",
-                                                               f80.GetParameter(0), f80.GetParameter(1)).Data());
-                            if (haveF70)
-                                tTxt.DrawLatex(0.10, 0.70,
-                                               TString::Format("70%%: E_{T}^{iso} = %.3f + %.3fp_{T}",
-                                                               f70.GetParameter(0), f70.GetParameter(1)).Data());
-                            
-                            tTxt.DrawLatex(0.10, 0.62, embeddedLabel.c_str());
-                            tTxt.DrawLatex(0.10, 0.56, TString::Format("%d-%d%% centrality", cb.lo, cb.hi).Data());
-                            tTxt.DrawLatex(0.10, 0.50,
-                                           TString::Format("vtx |z| < %d cm, |#eta^{#gamma}| < %.1f",
-                                                           kAA_VzCut, kPhotonEtaAbsMax).Data());
-                            tTxt.DrawLatex(0.10, 0.44,
-                                           TString::Format("#DeltaR_{cone} < %.1f",
-                                                           (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                            {
+                                TLatex tSph;
+                                tSph.SetNDC(true);
+                                tSph.SetTextFont(42);
+                                tSph.SetTextAlign(33);
+                                tSph.SetTextSize(0.048);
+                                tSph.DrawLatex(0.92, 0.30, "#bf{sPHENIX} #it{Internal}");
+                                tSph.SetTextSize(0.038);
+                                tSph.DrawLatex(0.92, 0.24, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                            }
                             
                             SaveCanvas(cEff, JoinPath(baseVariantPtSummaryDir,
                                                       TString::Format("ppg12Style_isoCutEfficiencyFits_%s.png", cb.folder.c_str()).Data()));
@@ -4500,19 +4483,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             }
                             
                             SaveCanvas(cTNT, JoinPath(ptDir, "Eiso_tightNonTight_overlay.png"));
-                            
-                            TLatex tUE;
-                            tUE.SetNDC(true);
-                            tUE.SetTextFont(42);
-                            tUE.SetTextAlign(33);
-                            tUE.SetTextSize(0.030);
-                            tUE.DrawLatex(0.92, 0.53, trigDisplayLabel.c_str());
-                            tUE.DrawLatex(0.92, 0.49, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
-                            tUE.DrawLatex(0.92, 0.45, TString::Format("UE: %s", dataH.label.c_str()).Data());
-                            tUE.DrawLatex(0.92, 0.41, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
-                            
-                            SaveCanvas(cTNT, JoinPath(ptDir, "Eiso_tightNonTight_overlay.png"));
-                            
+                                                        
                             // --- save 4 individual unnormalized distributions ---
                             {
                                 const std::vector<std::pair<TH1*,std::string>> rawVec = {
