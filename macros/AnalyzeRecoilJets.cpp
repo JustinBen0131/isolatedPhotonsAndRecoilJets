@@ -14046,6 +14046,30 @@ namespace ARJ
       }
       
       // ---------------------------------------------------------------------------
+      // Fast path: only produce centralitySummaryPerPt + pTsummaryPerCentrality + Gaussian summaries
+      // ---------------------------------------------------------------------------
+      if (generateISOpTcentOverlaysONLY)
+      {
+          if (mode == RunMode::kAuAuOnly || mode == RunMode::kSimAndDataAUAU)
+          {
+              cout << ANSI_BOLD_CYN
+                   << "\n[generateISOpTcentOverlaysONLY] Running isolation pT/centrality overlays only...\n"
+                   << ANSI_RESET;
+              analysis::RunIsoQA_UEComparisons_AuAu();
+              cout << ANSI_BOLD_GRN
+                   << "[generateISOpTcentOverlaysONLY] Done.\n"
+                   << ANSI_RESET;
+          }
+          else
+          {
+              cout << ANSI_BOLD_YEL
+                   << "[WARN] generateISOpTcentOverlaysONLY requires kAuAuOnly or kSimAndDataAUAU mode — skipping.\n"
+                   << ANSI_RESET;
+          }
+          return 0;
+      }
+      
+      // ---------------------------------------------------------------------------
       // AuAu-only: Tabulate accepted events per centrality (and total) BEFORE any QA
       // ---------------------------------------------------------------------------
       if (mode == RunMode::kAuAuOnly)
