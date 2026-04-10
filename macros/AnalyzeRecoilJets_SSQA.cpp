@@ -624,8 +624,8 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                 const bool isW = (var == "weta" || var == "wphi");
                 
                 const string hPPName  = string("h_ss_") + var + string("_") + tag + b.suffix;
-                const string hSigName = string("h_ss_") + var + string("_") + tag + string("_sig") + b.suffix;
-                const string hBkgName = string("h_ss_") + var + string("_") + tag + string("_bkg") + b.suffix;
+                const string hSigName = string("h_ss_") + var + string("_") + tag + string("_sig") + b.suffix + cb.suffix;
+                const string hBkgName = string("h_ss_") + var + string("_") + tag + string("_bkg") + b.suffix + cb.suffix;
                 const string hAAName  = string("h_ss_") + var + string("_") + tag + b.suffix + cb.suffix;
                 
                 TH1* rawPP  = GetTH1FromTopDir(ppTop, hPPName);
@@ -720,18 +720,19 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                 for (const auto& rawPair : rawAAs)
                 {
                     const std::size_t idx = rawPair.first;
+                    const int aaCol = standalone ? kBlack : ssColors[idx];
                     TH1* hAA = CloneNormalizeStyle(
                                                    rawPair.second,
                                                    TString::Format("ssQA_%s_%s_%s_%s_%s_aa_%zu",
                                                                    cfg.folder.c_str(), tag.c_str(), var.c_str(), b.folder.c_str(), doZoom ? "zoom" : "full", idx).Data(),
-                                                   ssColors[idx], ssMarkers[idx]
+                                                   aaCol, ssMarkers[idx]
                                                    );
                     
                     if (hAA)
                     {
                         hAA->SetLineWidth(2);
-                        hAA->SetLineColor(ssColors[idx]);
-                        hAA->SetMarkerColor(ssColors[idx]);
+                        hAA->SetLineColor(aaCol);
+                        hAA->SetMarkerColor(aaCol);
                         hAA->SetMarkerStyle(ssMarkers[idx]);
                         hAA->SetMarkerSize(1.00);
                         hAA->SetFillStyle(0);
@@ -856,7 +857,9 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                 if (drawLegend)
                 {
                     TLegend* leg = nullptr;
-                    if (standalone)
+                    if (standalone && tag == "nonTight")
+                        leg = isW ? new TLegend(0.55, 0.68, 0.88, 0.86) : new TLegend(0.20, 0.68, 0.58, 0.86);
+                    else if (standalone)
                         leg = isW ? new TLegend(0.55, 0.58, 0.88, 0.78) : new TLegend(0.20, 0.66, 0.58, 0.86);
                     else if (shiftLegendLeft)
                         leg = isW ? new TLegend(0.30, 0.55, 0.82, 0.80) : new TLegend(0.12, 0.55, 0.64, 0.80);
@@ -865,7 +868,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                     leg->SetBorderSize(0);
                     leg->SetFillStyle(0);
                     leg->SetTextFont(42);
-                    leg->SetTextSize(standalone ? 0.030 : 0.036);
+                    leg->SetTextSize(standalone ? (tag == "nonTight" ? 0.028 : 0.030) : 0.036);
                     
                     if (hPP)  leg->AddEntry(hPP,  "pp", "ep");
                     if (hSig) leg->AddEntry(hSig, sigLegLabel.c_str(), "l");
@@ -1051,7 +1054,8 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                     if (!cutText.empty() && !doZoom)
                     {
                         if (standalone) tcut.SetTextSize(0.032);
-                        tcut.DrawLatex(standalone ? 0.22 : 0.16, standalone ? 0.92 : 0.86, cutText.c_str());
+                        const double cutTextY = standalone ? (isNonTight ? 0.90 : 0.92) : 0.86;
+                        tcut.DrawLatex(standalone ? 0.22 : 0.16, cutTextY, cutText.c_str());
                     }
                     
                     if (standalone && !doZoom)
