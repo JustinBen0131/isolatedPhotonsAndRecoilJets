@@ -331,12 +331,14 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
         const string ptSummaryBase = JoinPath(ueCompBase, "pTsummaryPerCentrality");
         const string ptMeanIsoSummaryDir = JoinPath(ptSummaryBase, "summaryOutput");
         const string perVariantOverlayBase = JoinPath(ueCompBase, "perVariantOverlays");
+        const string layerByLayerBase = JoinPath(ueCompBase, "layerByLayerOverlays");
         EnsureDir(ueCompBase);
         EnsureDir(centralitySummaryBase);
         EnsureDir(meanIsoSummaryDir);
         EnsureDir(ptSummaryBase);
         EnsureDir(ptMeanIsoSummaryDir);
         EnsureDir(perVariantOverlayBase);
+        EnsureDir(layerByLayerBase);
         
         if ((skipToCentralityAndPtOverlaysWithSSQA || SSoverlayPerVAR_processONLY) && !generateUEcomparisonSSQA)
         {
@@ -530,6 +532,239 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     if (fPhoMCvar && !fPhoMCvar->IsZombie())
                         phoMCvarTop = fPhoMCvar->GetDirectory(kDirSIM.c_str());
                     else { if (fPhoMCvar) { fPhoMCvar->Close(); delete fPhoMCvar; fPhoMCvar = nullptr; } }
+                }
+            }
+            
+            // -- layer-by-layer overlays (active UE variant only, written directly under UEcomparisons/) --
+            if (!forEmbeddedSim && H.variant == kAA_UEVariant)
+            {
+                auto MergeLayerHist = [&](TDirectory* dir,
+                                          const string& histBase,
+                                          const vector<string>& centSuffixes,
+                                          const string& cloneName) -> TH1*
+                {
+                    if (!dir) return nullptr;
+                    
+                    TH1* hSum = nullptr;
+                    for (const auto& pb : PtBins())
+                    {
+                        for (const auto& centSuf : centSuffixes)
+                        {
+                            const string hName = histBase + pb.suffix + centSuf;
+                            TH1* hSrc = dynamic_cast<TH1*>(dir->Get(hName.c_str()));
+                            if (!hSrc) continue;
+                            
+                            if (!hSum)
+                            {
+                                hSum = CloneTH1(hSrc, cloneName.c_str());
+                                if (hSum)
+                                {
+                                    hSum->SetDirectory(nullptr);
+                                    EnsureSumw2(hSum);
+                                    hSum->Reset("ICES");
+                                }
+                            }
+                            if (hSum) hSum->Add(hSrc);
+                        }
+                    }
+                    return hSum;
+                };
+                
+                auto PrepareLayerHist = [&](TH1* h, bool isData, int color) -> bool
+                {
+                    if (!h) return false;
+                    
+                    h->Rebin(10);
+                    EnsureSumw2(h);
+                    const double integ = h->Integral(0, h->GetNbinsX() + 1);
+                    if (!(integ > 0.0)) return false;
+                    
+                    h->Scale(1.0 / integ);
+                    h->SetTitle("");
+                    h->SetLineColor(color);
+                    h->SetMarkerColor(color);
+                    h->SetLineWidth(2);
+                    h->SetFillStyle(0);
+                    
+                    if (isData)
+                    {
+                        h->SetMarkerStyle(20);
+                        h->SetMarkerSize(1.0);
+                    }
+                    else
+                    {
+                        h->SetMarkerSize(0.0);
+                        for (int ib = 0; ib <= h->GetNbinsX() + 1; ++ib) h->SetBinError(ib, 0.0);
+                    }
+                    return true;
+                };
+                
+                const string photonLegend =
+                PhotonEmbeddedShortLabel().empty()
+                ? "#gamma+jet embedded"
+                : TString::Format("#gamma+jet %s embedded", PhotonEmbeddedShortLabel().c_str()).Data();
+                
+                const string inclusiveLegend =
+                InclusiveEmbeddedShortLabel().empty()
+                ? "inclusive jet embedded"
+                : TString::Format("inclusive jet %s embedded", InclusiveEmbeddedShortLabel().c_str()).Data();
+                
+                struct LayerCentCfg
+                {
+                    string folder;
+                    vector<string> centSuffixes;
+                    string label;
+                };
+                
+                const vector<LayerCentCfg> layerCentCfgs = {
+                    {"0_20",  {"_cent_0_10", "_cent_10_20"}, "0-20%"},
+                    {"60_80", {"_cent_60_80"},               "60-80%"}
+                };
+                
+                struct LayerPanelCfg
+                {
+                    string histBase;
+                    string panelTitle;
+                };
+                
+                const vector<LayerPanelCfg> layerPanels = {
+                    {"h_Eiso_emcal",   "EMCal"},
+                    {"h_Eiso_hcalin",  "IHCal"},
+                    {"h_Eiso_hcalout", "OHCal"}
+                };
+                
+                for (const auto& lc : layerCentCfgs)
+                {
+                    TCanvas cLayer(
+                                   TString::Format("c_layerByLayer_%s_%s", trigAA.c_str(), lc.folder.c_str()).Data(),
+                                   "c_layerByLayer", 2100, 700
+                                   );
+                    cLayer.Divide(3, 1, 0.002, 0.002);
+                    
+                    vector<TH1*> keepAlive;
+                    keepAlive.reserve(9);
+                    
+                    for (std::size_t ipanel = 0; ipanel < layerPanels.size(); ++ipanel)
+                    {
+                        cLayer.cd((int)ipanel + 1);
+                        gPad->SetLeftMargin(0.16);
+                        gPad->SetRightMargin(0.04);
+                        gPad->SetBottomMargin(0.14);
+                        gPad->SetTopMargin(0.12);
+                        gPad->SetTicks(1,1);
+                        
+                        const auto& panel = layerPanels[ipanel];
+                        
+                        TH1* hData = MergeLayerHist(
+                                                    aaTop,
+                                                    panel.histBase,
+                                                    lc.centSuffixes,
+                                                    TString::Format("hLayerData_%s_%s_%s_%s",
+                                                                    trigAA.c_str(), H.variant.c_str(),
+                                                                    lc.folder.c_str(), panel.histBase.c_str()).Data()
+                                                    );
+                        TH1* hPho = MergeLayerHist(
+                                                   phoMCvarTop,
+                                                   panel.histBase,
+                                                   lc.centSuffixes,
+                                                   TString::Format("hLayerPho_%s_%s_%s_%s",
+                                                                   trigAA.c_str(), H.variant.c_str(),
+                                                                   lc.folder.c_str(), panel.histBase.c_str()).Data()
+                                                   );
+                        TH1* hInc = MergeLayerHist(
+                                                   incMCvarTop,
+                                                   panel.histBase,
+                                                   lc.centSuffixes,
+                                                   TString::Format("hLayerInc_%s_%s_%s_%s",
+                                                                   trigAA.c_str(), H.variant.c_str(),
+                                                                   lc.folder.c_str(), panel.histBase.c_str()).Data()
+                                                   );
+                        
+                        if (hData) keepAlive.push_back(hData);
+                        if (hPho)  keepAlive.push_back(hPho);
+                        if (hInc)  keepAlive.push_back(hInc);
+                        
+                        const bool haveData = PrepareLayerHist(hData, true, kBlack);
+                        const bool havePho  = PrepareLayerHist(hPho,  false, kRed + 1);
+                        const bool haveInc  = PrepareLayerHist(hInc,  false, kBlue + 1);
+                        
+                        if (!haveData && !havePho && !haveInc)
+                        {
+                            TLatex tMiss;
+                            tMiss.SetNDC(true);
+                            tMiss.SetTextFont(42);
+                            tMiss.SetTextAlign(22);
+                            tMiss.SetTextSize(0.080);
+                            tMiss.DrawLatex(0.50, 0.55, "MISSING");
+                            
+                            TLatex tPanel;
+                            tPanel.SetNDC(true);
+                            tPanel.SetTextFont(42);
+                            tPanel.SetTextAlign(23);
+                            tPanel.SetTextSize(0.060);
+                            tPanel.DrawLatex(0.50, 0.96, panel.panelTitle.c_str());
+                            continue;
+                        }
+                        
+                        TH1* hFrame = havePho ? hPho : (haveInc ? hInc : hData);
+                        double yMaxLayer = 0.0;
+                        if (haveData) yMaxLayer = std::max(yMaxLayer, hData->GetMaximum());
+                        if (havePho)  yMaxLayer = std::max(yMaxLayer, hPho->GetMaximum());
+                        if (haveInc)  yMaxLayer = std::max(yMaxLayer, hInc->GetMaximum());
+                        
+                        hFrame->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
+                        hFrame->GetYaxis()->SetTitle("Normalized to Unit Area");
+                        hFrame->GetXaxis()->SetTitleSize(0.055);
+                        hFrame->GetYaxis()->SetTitleSize(0.055);
+                        hFrame->GetXaxis()->SetLabelSize(0.045);
+                        hFrame->GetYaxis()->SetLabelSize(0.045);
+                        hFrame->GetYaxis()->SetTitleOffset(1.15);
+                        hFrame->SetMinimum(0.0);
+                        hFrame->SetMaximum((yMaxLayer > 0.0) ? (1.25 * yMaxLayer) : 1.0);
+                        
+                        if (hFrame == hData) hFrame->Draw("E1");
+                        else                 hFrame->Draw("hist");
+                        
+                        if (havePho && hPho != hFrame) hPho->Draw("hist SAME");
+                        if (haveInc && hInc != hFrame) hInc->Draw("hist SAME");
+                        if (haveData && hData != hFrame) hData->Draw("E1 SAME");
+                        
+                        TLegend legLayer(0.47, 0.68, 0.92, 0.88);
+                        legLayer.SetBorderSize(0);
+                        legLayer.SetFillStyle(0);
+                        legLayer.SetTextFont(42);
+                        legLayer.SetTextSize(0.034);
+                        if (haveData) legLayer.AddEntry(hData, "Run25 Au+Au", "ep");
+                        if (havePho)  legLayer.AddEntry(hPho, photonLegend.c_str(), "l");
+                        if (haveInc)  legLayer.AddEntry(hInc, inclusiveLegend.c_str(), "l");
+                        legLayer.Draw();
+                        
+                        TLatex tPanel;
+                        tPanel.SetNDC(true);
+                        tPanel.SetTextFont(42);
+                        tPanel.SetTextAlign(23);
+                        tPanel.SetTextSize(0.060);
+                        tPanel.DrawLatex(0.50, 0.96, panel.panelTitle.c_str());
+                        
+                        if (ipanel == 0)
+                        {
+                            TLatex tInfo;
+                            tInfo.SetNDC(true);
+                            tInfo.SetTextFont(42);
+                            tInfo.SetTextAlign(13);
+                            tInfo.SetTextSize(0.036);
+                            tInfo.DrawLatex(0.18, 0.90, "Run25 Au+Au vs embedded MC");
+                            tInfo.DrawLatex(0.18, 0.84, TString::Format("Centrality: %s", lc.label.c_str()).Data());
+                            tInfo.DrawLatex(0.18, 0.78, trigDisplayLabel.c_str());
+                            tInfo.DrawLatex(0.18, 0.72, TString::Format("UE: %s", H.label.c_str()).Data());
+                            tInfo.DrawLatex(0.18, 0.66, "All p_{T}^{#gamma} bins combined");
+                        }
+                    }
+                    
+                    SaveCanvas(cLayer, JoinPath(layerByLayerBase,
+                                                TString::Format("layerByLayer_%s.png", lc.folder.c_str()).Data()));
+                    
+                    for (auto* hKeep : keepAlive) delete hKeep;
                 }
             }
             
@@ -3947,14 +4182,19 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             g80.Draw("PE1 SAME");
                             g70.Draw("PE1 SAME");
                             
+                            // -- bump y-range so top-left labels don't collide with high-pT points --
+                            {
+                                const double noPPpad = (yMaxEff > yMinEff) ? (0.75 * (yMaxEff - yMinEff)) : 0.25;
+                                hFrameEff.SetMaximum(yMaxEff + noPPpad);
+                            }
                             // -- legend + labels for embedded-only version (no pp overlay) --
                             {
                                 TLegend legNoPP(0.50, 0.62, 0.92, 0.78);
                                 legNoPP.SetBorderSize(0); legNoPP.SetFillStyle(0);
                                 legNoPP.SetTextFont(42); legNoPP.SetTextSize(0.030);
-                                legNoPP.AddEntry(&g90, TString::Format("90%% Efficiency (%s)", embLegTag.c_str()).Data(), "ep");
-                                legNoPP.AddEntry(&g80, TString::Format("80%% Efficiency (%s)", embLegTag.c_str()).Data(), "ep");
-                                legNoPP.AddEntry(&g70, TString::Format("70%% Efficiency (%s)", embLegTag.c_str()).Data(), "ep");
+                                legNoPP.AddEntry(&g90, "90% Efficiency", "ep");
+                                legNoPP.AddEntry(&g80, "80% Efficiency", "ep");
+                                legNoPP.AddEntry(&g70, "70% Efficiency", "ep");
                                 legNoPP.Draw();
 
                                 TLatex tInfoNoPP;
@@ -3973,11 +4213,11 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 tSphNoPP.DrawLatex(0.92, 0.88, "#bf{sPHENIX} #it{Internal}");
                                 tSphNoPP.SetTextSize(0.034);
                                 tSphNoPP.DrawLatex(0.92, 0.83, "Pythia Emb  #sqrt{s_{NN}} = 200 GeV");
+
+                                // -- save embedded-only version (no pp overlay) --
+                                SaveCanvas(cEff, JoinPath(baseVariantPtSummaryDir,
+                                                          TString::Format("ppg12Style_isoCutEfficiencyFits_%s_noPP.png", cb.folder.c_str()).Data()));
                             }
-                            
-                            // -- save embedded-only version (no pp overlay) --
-                            SaveCanvas(cEff, JoinPath(baseVariantPtSummaryDir,
-                                                      TString::Format("ppg12Style_isoCutEfficiencyFits_%s_noPP.png", cb.folder.c_str()).Data()));
                             
                             // -- pp reference (matched pp SIM, open markers) --
                             vector<double> xCutPP, exCutPP, y90PP, ey90PP, y80PP, ey80PP, y70PP, ey70PP;
