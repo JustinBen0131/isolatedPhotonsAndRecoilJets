@@ -92,17 +92,31 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
     TDirectory* ppTop = fPP->GetDirectory(kTriggerPP.c_str());
     if (!ppTop) ppTop = fPP;
     
-    // pp 5+10+20 merged SIM file (always open, independent of sim toggles)
+    // pp photonJet20 SIM file (always open, independent of sim toggles)
     TFile* fPPSim510_20 = nullptr;
     TDirectory* ppSimTop = nullptr;
     {
-        const string ppSimPath = SimInputPathForSample(SimSample::kPhotonJet5And10And20Merged);
+        const string ppSimPath = SimInputPathForSample(SimSample::kPhotonJet20);
         if (!ppSimPath.empty())
         {
             fPPSim510_20 = TFile::Open(ppSimPath.c_str(), "READ");
             if (fPPSim510_20 && !fPPSim510_20->IsZombie())
                 ppSimTop = fPPSim510_20->GetDirectory(kDirSIM.c_str());
             else { if (fPPSim510_20) { fPPSim510_20->Close(); delete fPPSim510_20; fPPSim510_20 = nullptr; } }
+        }
+    }
+    
+    // pp 5+10+20 merged SIM file for standalone pythia-only iso-cut efficiency plot
+    TFile* fPPSimMerged = nullptr;
+    TDirectory* ppSimMergedTop = nullptr;
+    {
+        const string ppMergedPath = SimInputPathForSample(SimSample::kPhotonJet5And10And20Merged);
+        if (!ppMergedPath.empty())
+        {
+            fPPSimMerged = TFile::Open(ppMergedPath.c_str(), "READ");
+            if (fPPSimMerged && !fPPSimMerged->IsZombie())
+                ppSimMergedTop = fPPSimMerged->GetDirectory(kDirSIM.c_str());
+            else { if (fPPSimMerged) { fPPSimMerged->Close(); delete fPPSimMerged; fPPSimMerged = nullptr; } }
         }
     }
     
@@ -3674,7 +3688,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 if (!FindEfficiencyCut(hSigSrc, 0.90, cut90, err90)) continue;
                                 
                                 xCut.push_back(0.5 * (kPtEdges[(std::size_t)ipt] + kPtEdges[(std::size_t)ipt + 1]));
-                                exCut.push_back(0.5 * (kPtEdges[(std::size_t)ipt + 1] - kPtEdges[(std::size_t)ipt]));
+                                exCut.push_back(0.0);
                                 
                                 y70.push_back(cut70);
                                 ey70.push_back(err70);
@@ -3694,7 +3708,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 yMinEff = 0.0;
                                 yMaxEff = 1.0;
                             }
-                            const double padEff = (yMaxEff > yMinEff) ? (0.85 * (yMaxEff - yMinEff)) : 0.25;
+                            const double padEff = (yMaxEff > yMinEff) ? (1.2 * (yMaxEff - yMinEff)) : 0.25;
                             
                             TCanvas cEff(
                                          TString::Format("c_ppg12IsoCutFits_%s_%s",
@@ -3781,11 +3795,23 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                     if (!FindEfficiencyCut(hPPSig, 0.80, c80, e80)) continue;
                                     if (!FindEfficiencyCut(hPPSig, 0.90, c90, e90)) continue;
                                     xCutPP.push_back(0.5*(kPtEdges[(std::size_t)iptPP]+kPtEdges[(std::size_t)iptPP+1]));
-                                    exCutPP.push_back(0.5*(kPtEdges[(std::size_t)iptPP+1]-kPtEdges[(std::size_t)iptPP]));
+                                    exCutPP.push_back(0.0);
                                     y90PP.push_back(c90); ey90PP.push_back(e90);
                                     y80PP.push_back(c80); ey80PP.push_back(e80);
                                     y70PP.push_back(c70); ey70PP.push_back(e70);
                                 }
+                            }
+                            // update y-range to include pp points
+                            for (std::size_t ipp = 0; ipp < xCutPP.size(); ++ipp)
+                            {
+                                yMinEff = std::min(yMinEff, std::min(y70PP[ipp]-ey70PP[ipp], std::min(y80PP[ipp]-ey80PP[ipp], y90PP[ipp]-ey90PP[ipp])));
+                                yMaxEff = std::max(yMaxEff, std::max(y70PP[ipp]+ey70PP[ipp], std::max(y80PP[ipp]+ey80PP[ipp], y90PP[ipp]+ey90PP[ipp])));
+                            }
+                            if (!xCutPP.empty())
+                            {
+                                const double padEffUpd = (yMaxEff > yMinEff) ? (1.2 * (yMaxEff - yMinEff)) : 0.25;
+                                hFrameEff.SetMinimum(std::max(0.0, yMinEff - padEffUpd));
+                                hFrameEff.SetMaximum(yMaxEff + padEffUpd);
                             }
                             TGraphErrors *gPP90=nullptr, *gPP80=nullptr, *gPP70=nullptr;
                             if (!xCutPP.empty())
@@ -3804,31 +3830,31 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 gPP70->Draw("PE1 SAME");
                             }
                             
-                            TLegend legEff(0.55, 0.58, 0.92, 0.80);
+                            TLegend legEff(0.38, 0.58, 0.92, 0.78);
                             legEff.SetBorderSize(0);
                             legEff.SetFillStyle(0);
                             legEff.SetTextFont(42);
-                            legEff.SetTextSize(0.028);
+                            legEff.SetTextSize(0.024);
                             legEff.SetNColumns(2);
                             legEff.SetColumnSeparation(-0.02);
-                            legEff.AddEntry(&g90, "90% (Au+Au)", "ep");
-                            if (gPP90) legEff.AddEntry(gPP90, "90% (pp)", "ep");
-                            legEff.AddEntry(&g80, "80% (Au+Au)", "ep");
-                            if (gPP80) legEff.AddEntry(gPP80, "80% (pp)", "ep");
-                            legEff.AddEntry(&g70, "70% (Au+Au)", "ep");
-                            if (gPP70) legEff.AddEntry(gPP70, "70% (pp)", "ep");
+                            legEff.AddEntry(&g90, "90% Efficiency (embed pythia)", "ep");
+                            if (gPP90) legEff.AddEntry(gPP90, "90% Efficiency (pythia)", "ep");
+                            legEff.AddEntry(&g80, "80% Efficiency (embed pythia)", "ep");
+                            if (gPP80) legEff.AddEntry(gPP80, "80% Efficiency (pythia)", "ep");
+                            legEff.AddEntry(&g70, "70% Efficiency (embed pythia)", "ep");
+                            if (gPP70) legEff.AddEntry(gPP70, "70% Efficiency (pythia)", "ep");
                             legEff.Draw();
                             
                             TLatex tInfoEff;
                             tInfoEff.SetNDC(true);
                             tInfoEff.SetTextFont(42);
                             tInfoEff.SetTextAlign(13);
-                            tInfoEff.SetTextSize(0.032);
+                            tInfoEff.SetTextSize(0.030);
                             tInfoEff.DrawLatex(0.18, 0.88, embeddedLabel.c_str());
-                            tInfoEff.DrawLatex(0.18, 0.84, TString::Format("%d-%d%% centrality", cb.lo, cb.hi).Data());
-                            tInfoEff.DrawLatex(0.18, 0.80,
+                            tInfoEff.DrawLatex(0.18, 0.83, TString::Format("%d-%d%% centrality", cb.lo, cb.hi).Data());
+                            tInfoEff.DrawLatex(0.18, 0.78,
                                                TString::Format("|v_{z}| < %d cm,  |#eta^{#gamma}| < %.1f", kAA_VzCut, kPhotonEtaAbsMax).Data());
-                            tInfoEff.DrawLatex(0.18, 0.76,
+                            tInfoEff.DrawLatex(0.18, 0.73,
                                                TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
                             
                             {
@@ -3839,7 +3865,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 tSph.SetTextSize(0.042);
                                 tSph.DrawLatex(0.92, 0.88, "#bf{sPHENIX} #it{Internal}");
                                 tSph.SetTextSize(0.034);
-                                tSph.DrawLatex(0.92, 0.84, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                                tSph.DrawLatex(0.92, 0.83, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
                             }
                             
                             SaveCanvas(cEff, JoinPath(baseVariantPtSummaryDir,
@@ -3849,7 +3875,94 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             if (gPP70) delete gPP70;
                         }
                         
+                        // -- standalone pp 5+10+20 merged pythia-only iso-cut efficiency plot (no centrality) --
+                        if (ppSimMergedTop)
+                        {
+                            vector<double> xPPM, exPPM, y90M, ey90M, y80M, ey80M, y70M, ey70M;
+                            double yMinM = std::numeric_limits<double>::max();
+                            double yMaxM = -std::numeric_limits<double>::max();
+                            for (int ipt = 1; ipt < kNPtBins; ++ipt)
+                            {
+                                const PtBin& b = PtBins()[ipt];
+                                const string hName = "h_EisoReco_truthSigMatched" + b.suffix;
+                                TH1* hSig = dynamic_cast<TH1*>(ppSimMergedTop->Get(hName.c_str()));
+                                if (!hSig || hSig->GetEntries() <= 0.0) continue;
+                                double c70=0,e70=0, c80=0,e80=0, c90=0,e90=0;
+                                if (!FindEfficiencyCut(hSig, 0.70, c70, e70)) continue;
+                                if (!FindEfficiencyCut(hSig, 0.80, c80, e80)) continue;
+                                if (!FindEfficiencyCut(hSig, 0.90, c90, e90)) continue;
+                                xPPM.push_back(0.5*(kPtEdges[(std::size_t)ipt]+kPtEdges[(std::size_t)ipt+1]));
+                                exPPM.push_back(0.0);
+                                y90M.push_back(c90); ey90M.push_back(e90);
+                                y80M.push_back(c80); ey80M.push_back(e80);
+                                y70M.push_back(c70); ey70M.push_back(e70);
+                                yMinM = std::min(yMinM, std::min(c70-e70, std::min(c80-e80, c90-e90)));
+                                yMaxM = std::max(yMaxM, std::max(c70+e70, std::max(c80+e80, c90+e90)));
+                            }
+                            if (!xPPM.empty())
+                            {
+                                if (!std::isfinite(yMinM) || !std::isfinite(yMaxM)) { yMinM = 0.0; yMaxM = 1.0; }
+                                const double padM = (yMaxM > yMinM) ? (1.2 * (yMaxM - yMinM)) : 0.25;
+                                TCanvas cPPM("c_ppg12IsoCutFits_ppMerged", "", 900, 700);
+                                ApplyCanvasMargins1D(cPPM);
+                                cPPM.SetTopMargin(0.10);
+                                cPPM.cd();
+                                TH1F hFrM("hFrM_ppMerged", "", 100, kPtEdges[1], kPtEdges[kNPtBins]);
+                                hFrM.SetDirectory(nullptr); hFrM.SetStats(0);
+                                hFrM.SetMinimum(std::max(0.0, yMinM - padM));
+                                hFrM.SetMaximum(yMaxM + padM);
+                                hFrM.GetXaxis()->SetTitle("Cluster p_{T} [GeV]");
+                                hFrM.GetYaxis()->SetTitle("E_{T}^{iso} Cutoff [GeV]");
+                                hFrM.GetXaxis()->SetTitleSize(0.060);
+                                hFrM.GetYaxis()->SetTitleSize(0.060);
+                                hFrM.GetXaxis()->SetLabelSize(0.050);
+                                hFrM.GetYaxis()->SetLabelSize(0.050);
+                                hFrM.GetYaxis()->SetTitleOffset(1.05);
+                                hFrM.Draw();
+                                
+                                TGraphErrors gM90((int)xPPM.size(), &xPPM[0], &y90M[0], &exPPM[0], &ey90M[0]);
+                                gM90.SetLineWidth(2); gM90.SetLineColor(kMagenta+1); gM90.SetMarkerColor(kMagenta+1);
+                                gM90.SetMarkerStyle(20); gM90.SetMarkerSize(1.4); gM90.Draw("PE1 SAME");
+                                TGraphErrors gM80((int)xPPM.size(), &xPPM[0], &y80M[0], &exPPM[0], &ey80M[0]);
+                                gM80.SetLineWidth(2); gM80.SetLineColor(kGreen+2); gM80.SetMarkerColor(kGreen+2);
+                                gM80.SetMarkerStyle(21); gM80.SetMarkerSize(1.4); gM80.Draw("PE1 SAME");
+                                TGraphErrors gM70((int)xPPM.size(), &xPPM[0], &y70M[0], &exPPM[0], &ey70M[0]);
+                                gM70.SetLineWidth(2); gM70.SetLineColor(kBlue+1); gM70.SetMarkerColor(kBlue+1);
+                                gM70.SetMarkerStyle(22); gM70.SetMarkerSize(1.5); gM70.Draw("PE1 SAME");
+                                
+                                TLegend legM(0.50, 0.62, 0.92, 0.78);
+                                legM.SetBorderSize(0); legM.SetFillStyle(0);
+                                legM.SetTextFont(42); legM.SetTextSize(0.030);
+                                legM.AddEntry(&gM90, "90% Efficiency", "ep");
+                                legM.AddEntry(&gM80, "80% Efficiency", "ep");
+                                legM.AddEntry(&gM70, "70% Efficiency", "ep");
+                                legM.Draw();
+                                
+                                TLatex tInfoM;
+                                tInfoM.SetNDC(true); tInfoM.SetTextFont(42);
+                                tInfoM.SetTextAlign(13); tInfoM.SetTextSize(0.030);
+                                tInfoM.DrawLatex(0.18, 0.88, "Photon+Jet Pythia (5 + 10 + 20)");
+                                tInfoM.DrawLatex(0.18, 0.83,
+                                                 TString::Format("|v_{z}| < %d cm,  |#eta^{#gamma}| < %.1f", kAA_VzCut, kPhotonEtaAbsMax).Data());
+                                tInfoM.DrawLatex(0.18, 0.78,
+                                                 TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                                
+                                {
+                                    TLatex tSph;
+                                    tSph.SetNDC(true); tSph.SetTextFont(42); tSph.SetTextAlign(33);
+                                    tSph.SetTextSize(0.042);
+                                    tSph.DrawLatex(0.92, 0.88, "#bf{sPHENIX} #it{Internal}");
+                                    tSph.SetTextSize(0.034);
+                                    tSph.DrawLatex(0.92, 0.82, "pp  #sqrt{s} = 200 GeV");
+                                }
+                                
+                                SaveCanvas(cPPM, JoinPath(baseVariantPtSummaryDir,
+                                                          "ppg12Style_isoCutEfficiencyFits_ppMerged.png"));
+                            }
+                        }
+                        
                         fPhoCut->Close();
+
                         delete fPhoCut;
                         fPhoCut = nullptr;
                     }
@@ -4272,8 +4385,9 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         TntUpdateRange(tntSubNTDY, tntSubNTDEY);
                         TntUpdateRange(tntSubTMY, tntSubTMEY);
                         TntUpdateRange(tntSubNTMY, tntSubNTMEY);
-                        const bool tntHaveSub = !tntSubTDX.empty() || !tntSubNTDX.empty() || !tntSubTMX.empty() || !tntSubNTMX.empty();
-                        const double tntSubPad = (tntSubYHi > tntSubYLo) ? 0.35 * (tntSubYHi - tntSubYLo) : 1.0;
+                        const bool tntHaveSub = (tntSubYHi > tntSubYLo) &&
+                             (!tntSubTDX.empty() || !tntSubNTDX.empty() || !tntSubTMX.empty() || !tntSubNTMX.empty());
+                        const double tntSubPad = tntHaveSub ? std::max(0.35 * (tntSubYHi - tntSubYLo), 0.5) : 1.0;
                         
                         for (const auto& b : PtBins())
                         {
@@ -4521,6 +4635,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 cTNT.Modified();
                                 cTNT.Update();
                                 
+                                SaveCanvas(cTNT, JoinPath(ptDir, "Eiso_tightNonTight_overlay.png"));
+                                
                                 if (gTD)  delete gTD;
                                 if (gNTD) delete gNTD;
                                 if (gTM)  delete gTM;
@@ -4528,7 +4644,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 delete hFrSubTNT;
                             }
                             
-                            SaveCanvas(cTNT, JoinPath(ptDir, "Eiso_tightNonTight_overlay.png"));
+                            if (!tntHaveSub)
+                                SaveCanvas(cTNT, JoinPath(ptDir, "Eiso_tightNonTight_overlay.png"));
                                                         
                             // --- save 4 individual unnormalized distributions ---
                             {
@@ -4641,6 +4758,12 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
         fPPSim510_20->Close();
         delete fPPSim510_20;
         fPPSim510_20 = nullptr;
+    }
+    if (fPPSimMerged)
+    {
+        fPPSimMerged->Close();
+        delete fPPSimMerged;
+        fPPSimMerged = nullptr;
     }
     if (fPP)
     {
