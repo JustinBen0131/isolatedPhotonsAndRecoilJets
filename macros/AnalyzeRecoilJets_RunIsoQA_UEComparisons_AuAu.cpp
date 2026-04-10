@@ -3888,7 +3888,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             }
         }
         
-        if (!forEmbeddedSim && !generateISOpTcentOverlaysONLY)
+        if (!forEmbeddedSim)
         {
             const string tightNonTightBase = JoinPath(ueCompBase, "tightNonTightOverlays");
             EnsureDir(tightNonTightBase);
