@@ -2047,7 +2047,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     tInfoCO.SetNDC(true);
                     tInfoCO.SetTextFont(42);
                     tInfoCO.SetTextAlign(33);
-                    tInfoCO.SetTextSize(0.040);
+                    tInfoCO.SetTextSize((H.variant == "noSub") ? 0.036 : 0.040);
                     tInfoCO.DrawLatex(0.90, 0.88,
                                       forEmbeddedSim
                                       ? (embeddedMode == 2 ? activeEmbeddedSimFolder.substr(0, activeEmbeddedSimFolder.find("_SIM")).c_str()
@@ -2064,10 +2064,11 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         tSph.SetTextFont(42);
                         tSph.SetTextAlign(33);
                         tSph.SetTextSize(0.052);
-                        const double sphY1 = (H.variant == "noSub") ? 0.56 : 0.32;
-                        tSph.DrawLatex(0.90, sphY1,        "#bf{sPHENIX} #it{Internal}");
+                        const double sphY1  = (H.variant == "noSub") ? 0.56 : 0.32;
+                        const double sphX1  = (H.variant == "noSub") ? 0.93 : 0.90;
+                        tSph.DrawLatex(sphX1, sphY1,        "#bf{sPHENIX} #it{Internal}");
                         tSph.SetTextSize(0.042);
-                        tSph.DrawLatex(0.90, sphY1 - 0.06, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                        tSph.DrawLatex(sphX1, sphY1 - 0.06, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
                     }
                     
                     // Lower pad: Gaussian mean vs centrality
@@ -2142,7 +2143,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             // ── pT overlay of E_T^iso (unnormalized counts) per centrality bin, this variant ──
             {
                 const int ptOvColors[] = {kRed+1, kBlue+1, kGreen+2, kMagenta+1, kOrange+1,
-                    kCyan+1, kViolet+1, kYellow+2, kSpring+2, kAzure+1,
+                    kViolet+1, kYellow+2, kSpring+2, kAzure+1,
                     kTeal+1, kPink+1};
                 for (std::size_t ic = 0; ic < centBins.size(); ++ic)
                 {
@@ -2157,6 +2158,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     for (int ipt = 0; ipt < kNPtBins; ++ipt)
                     {
                         const PtBin& b = PtBins()[ipt];
+                        if (b.lo < 10) continue;   // skip 8-10 GeV bin
                         const string hAAName = "h_Eiso" + b.suffix + cb.suffix;
                         TH1* hAAsrc = dynamic_cast<TH1*>(aaTop->Get(hAAName.c_str()));
                         if (!hAAsrc) continue;
@@ -2168,7 +2170,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         
                         hAA->Rebin(10);
                         EnsureSumw2(hAA);
-                        const int ci = (ipt < 12) ? ptOvColors[ipt] : kBlack;
+                        const int ci = ((int)hPts.size() < 11) ? ptOvColors[hPts.size()] : kBlack;
                         hAA->SetLineColor(ci);
                         hAA->SetMarkerColor(ci);
                         hAA->SetMarkerStyle(20);
@@ -2187,6 +2189,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     vector<double> subPtX, subPtEX, subPtY, subPtEY;
                     for (int ipt2 = 0; ipt2 < kNPtBins; ++ipt2)
                     {
+                        if (kPtEdges[(std::size_t)ipt2] < 10) continue;   // skip 8-10 GeV bin
                         if (!gaussFilled[ivH][ipt2][ic]) continue;
                         subPtX.push_back(0.5 * (kPtEdges[(std::size_t)ipt2] + kPtEdges[(std::size_t)ipt2 + 1]));
                         subPtEX.push_back(0.5 * (kPtEdges[(std::size_t)ipt2 + 1] - kPtEdges[(std::size_t)ipt2]));
@@ -2202,23 +2205,25 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     cPO.cd();
                     
                     // Upper pad: histogram overlay
+                    
                     TPad* padUpPO = new TPad(TString::Format("padUpPO_%s_%s", H.variant.c_str(), cb.folder.c_str()).Data(),
-                                             "padUpPO", 0.0, 0.25, 1.0, 1.0);
-                    padUpPO->SetBottomMargin(0.02);
+                                             "padUpPO", 0.0, 0.28, 1.0, 1.0);
+                    padUpPO->SetBottomMargin(0.10);
                     padUpPO->SetLeftMargin(0.14);
                     padUpPO->SetRightMargin(0.04);
-                    padUpPO->SetTopMargin(0.06);
+                    padUpPO->SetTopMargin(0.08);
                     padUpPO->Draw();
                     padUpPO->cd();
                     
                     hPts[0]->SetTitle("");
-                    hPts[0]->GetXaxis()->SetTitle("");
-                    hPts[0]->GetXaxis()->SetLabelSize(0.0);
+                    hPts[0]->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
+                    hPts[0]->GetXaxis()->SetTitleSize(0.048);
+                    hPts[0]->GetXaxis()->SetLabelSize(0.04);
+                    hPts[0]->GetXaxis()->SetTitleOffset(0.75);
                     hPts[0]->GetYaxis()->SetTitle("Counts");
-                    hPts[0]->GetXaxis()->SetTitleSize(0.055);
                     hPts[0]->GetYaxis()->SetTitleSize(0.060);
                     hPts[0]->GetYaxis()->SetLabelSize(0.050);
-                    hPts[0]->GetYaxis()->SetTitleOffset(1.05);
+                    hPts[0]->GetYaxis()->SetTitleOffset(1.15);
                     hPts[0]->GetXaxis()->SetRangeUser(-10.0, 50.0);
                     hPts[0]->SetMinimum(0.0);
                     {
@@ -2238,11 +2243,13 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         if (fp) gaussCurvesP.push_back(fp);
                     }
                     
-                    TLegend legPO(0.72, 0.48, 0.92, 0.90);
+                    TLegend legPO(0.48, 0.45, 0.92, 0.73);
+                    legPO.SetColumnSeparation(-0.05);
                     legPO.SetBorderSize(0);
                     legPO.SetFillStyle(0);
                     legPO.SetTextFont(42);
-                    legPO.SetTextSize(0.032);
+                    legPO.SetTextSize(0.036);
+                    legPO.SetNColumns(3);
                     for (std::size_t ih = 0; ih < hPts.size(); ++ih)
                         legPO.AddEntry(hPts[ih], ptLabels[ih].c_str(), "ep");
                     legPO.Draw();
@@ -2251,24 +2258,24 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     tTitlePO.SetNDC(true);
                     tTitlePO.SetTextFont(42);
                     tTitlePO.SetTextAlign(23);
-                    tTitlePO.SetTextSize(0.045);
-                    tTitlePO.DrawLatex(0.50, 0.97,
+                    tTitlePO.SetTextSize(0.052);
+                    tTitlePO.DrawLatex(0.50, 0.99,
                                        TString::Format("Au+Au (counts), p_{T}^{#gamma} overlays, cent = %d-%d%%", cb.lo, cb.hi).Data());
                     
                     TLatex tInfoPO;
                     tInfoPO.SetNDC(true);
                     tInfoPO.SetTextFont(42);
                     tInfoPO.SetTextAlign(33);
-                    tInfoPO.SetTextSize(0.035);
-                    tInfoPO.DrawLatex(0.90, 0.90,
+                    tInfoPO.SetTextSize(0.040);
+                    tInfoPO.DrawLatex(0.90, 0.88,
                                       forEmbeddedSim
                                       ? (embeddedMode == 2 ? activeEmbeddedSimFolder.substr(0, activeEmbeddedSimFolder.find("_SIM")).c_str()
                                          : SimSampleLabel(CurrentSimSample()).c_str())
                                       : trigDisplayLabel.c_str());
-                    tInfoPO.DrawLatex(0.90, 0.86, H.label.c_str());
+                    tInfoPO.DrawLatex(0.90, 0.84, H.label.c_str());
                     {
                         const double coneRValPO = (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3;
-                        tInfoPO.DrawLatex(0.90, 0.82, TString::Format("#DeltaR_{cone} < %.1f", coneRValPO).Data());
+                        tInfoPO.DrawLatex(0.90, 0.80, TString::Format("#DeltaR_{cone} < %.1f", coneRValPO).Data());
                     }
                     {
                         TLatex tSphPO;
@@ -2285,9 +2292,9 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     // Lower pad: Gaussian mean vs pT
                     cPO.cd();
                     TPad* padLoPO = new TPad(TString::Format("padLoPO_%s_%s", H.variant.c_str(), cb.folder.c_str()).Data(),
-                                             "padLoPO", 0.0, 0.0, 1.0, 0.25);
+                                             "padLoPO", 0.0, 0.0, 1.0, 0.28);
                     padLoPO->SetTopMargin(0.02);
-                    padLoPO->SetBottomMargin(0.35);
+                    padLoPO->SetBottomMargin(0.30);
                     padLoPO->SetLeftMargin(0.14);
                     padLoPO->SetRightMargin(0.04);
                     padLoPO->Draw();
@@ -2306,29 +2313,30 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         const double subPadPt = (yHiPt > yLoPt) ? 0.25 * (yHiPt - yLoPt) : 1.0;
                         
                         hFrSubPt = new TH1F(TString::Format("hFrSub_ptOv_%s_%s", H.variant.c_str(), cb.folder.c_str()).Data(),
-                                            "", 100, kPtEdges.front(), kPtEdges.back());
+                                            "", 100, 10.0, kPtEdges.back());
                         hFrSubPt->SetDirectory(nullptr);
                         hFrSubPt->SetStats(0);
                         hFrSubPt->SetMinimum(yLoPt - subPadPt);
                         hFrSubPt->SetMaximum(yHiPt + subPadPt);
-                        hFrSubPt->GetYaxis()->SetTitle("Gauss core #mu [GeV]");
-                        hFrSubPt->GetYaxis()->SetTitleSize(0.16);
-                        hFrSubPt->GetYaxis()->SetTitleOffset(0.35);
-                        hFrSubPt->GetYaxis()->SetLabelSize(0.13);
+                        hFrSubPt->GetYaxis()->SetTitle("#mu^{Gauss}(#it{E}_{T}^{iso})");
+                        hFrSubPt->GetYaxis()->SetTitleSize(0.12);
+                        hFrSubPt->GetYaxis()->SetTitleOffset(0.45);
+                        hFrSubPt->GetYaxis()->SetLabelSize(0.10);
                         hFrSubPt->GetYaxis()->SetNdivisions(505);
                         hFrSubPt->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                        hFrSubPt->GetXaxis()->SetTitleSize(0.16);
+                        hFrSubPt->GetXaxis()->SetTitleSize(0.12);
                         hFrSubPt->GetXaxis()->SetTitleOffset(0.95);
-                        hFrSubPt->GetXaxis()->SetLabelSize(0.13);
+                        hFrSubPt->GetXaxis()->SetLabelSize(0.10);
                         hFrSubPt->Draw();
                         
-                        TLine lineSubPt(kPtEdges.front(), 1.0, kPtEdges.back(), 1.0);
+                        TLine lineSubPt(10.0, 1.0, kPtEdges.back(), 1.0);
                         lineSubPt.SetLineColor(kBlack);
                         lineSubPt.SetLineStyle(2);
                         lineSubPt.SetLineWidth(1);
                         lineSubPt.DrawClone();
                         
-                        gSubPt = new TGraphErrors((int)subPtX.size(), &subPtX[0], &subPtY[0], &subPtEX[0], &subPtEY[0]);
+                        vector<double> exZeroSubPt(subPtX.size(), 0.0);
+                        gSubPt = new TGraphErrors((int)subPtX.size(), &subPtX[0], &subPtY[0], &exZeroSubPt[0], &subPtEY[0]);
                         gSubPt->SetMarkerStyle(20);
                         gSubPt->SetMarkerSize(1.0);
                         gSubPt->SetMarkerColor(kBlack);
