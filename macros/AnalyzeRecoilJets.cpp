@@ -13671,6 +13671,27 @@ namespace ARJ
       << ANSI_RESET;
       
       // ---------------------------------------------------------------------------
+      // saveRooUnfoldOutput safety gate (before anything else)
+      // ---------------------------------------------------------------------------
+      if (saveRooUnfoldOutput)
+      {
+          cout << ANSI_BOLD_RED
+               << "\n[WARNING] saveRooUnfoldOutput = true\n"
+               << "  This will ERASE and REBUILD all cached RooUnfold output.\n"
+               << "  Continue? (y/n): " << ANSI_RESET;
+          std::string response;
+          std::getline(std::cin, response);
+          if (response.empty() || (response[0] != 'y' && response[0] != 'Y'))
+          {
+              cerr << ANSI_BOLD_RED
+                   << "[ABORT] User declined saveRooUnfoldOutput. Exiting.\n"
+                   << ANSI_RESET;
+              std::exit(1);
+          }
+          cout << ANSI_BOLD_GRN << "  [OK] Proceeding with saveRooUnfoldOutput = true\n" << ANSI_RESET;
+      }
+      
+      // ---------------------------------------------------------------------------
       // Mode validation + printout
       // ---------------------------------------------------------------------------
       cout << ANSI_BOLD_CYN << "\n[STEP 0] Run-mode validation\n" << ANSI_RESET;
