@@ -469,57 +469,87 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             const double mode = h->GetBinCenter(maxBin);
             const double binW = h->GetBinWidth(maxBin);
             
-            double leftCore = -1.0;
-            const double coreFrac = 0.60;
+            const double leftFrac  = 0.80;
+            const double rightFrac = 0.35;
+            const double nLeftFrac  = std::sqrt(2.0 * std::log(1.0 / leftFrac));
+            const double nRightFrac = std::sqrt(2.0 * std::log(1.0 / rightFrac));
+            
+            double xLeft = mode - 0.60 * binW;
+            double xRight = mode + 1.20 * binW;
+            bool foundLeft = false;
+            bool foundRight = false;
+            
             for (int ib = maxBin - 1; ib >= 1; --ib)
             {
-                if (h->GetBinContent(ib) <= coreFrac * peakY)
+                if (h->GetBinContent(ib) <= leftFrac * peakY)
                 {
-                    leftCore = mode - h->GetBinCenter(ib);
+                    xLeft = h->GetBinCenter(ib);
+                    foundLeft = true;
+                    break;
+                }
+            }
+            for (int ib = maxBin + 1; ib <= h->GetNbinsX(); ++ib)
+            {
+                if (h->GetBinContent(ib) <= rightFrac * peakY)
+                {
+                    xRight = h->GetBinCenter(ib);
+                    foundRight = true;
                     break;
                 }
             }
             
-            const double coreScale = (leftCore > 0.0) ? leftCore : std::max(0.75 * binW, 0.25);
-            const double coreLo = mode - 1.25 * coreScale;
-            const double coreHi = mode + 0.60 * coreScale;
+            double sigL = 0.0;
+            double sigR = 0.0;
+            if (foundLeft && mode > xLeft && nLeftFrac > 0.0) sigL = (mode - xLeft) / nLeftFrac;
+            if (foundRight && xRight > mode && nRightFrac > 0.0) sigR = (xRight - mode) / nRightFrac;
             
-            double wSum = 0.0;
-            double xSum = 0.0;
-            double x2Sum = 0.0;
-            for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
-            {
-                const double x = h->GetBinCenter(ib);
-                if (x < coreLo || x > coreHi) continue;
-                
-                const double w = std::max(0.0, h->GetBinContent(ib));
-                if (!(w > 0.0)) continue;
-                
-                wSum += w;
-                xSum += w * x;
-                x2Sum += w * x * x;
-            }
-            
-            double muSeed = mode;
             double sigSeed = 0.0;
-            if (wSum > 0.0)
+            if (sigL > 0.0 && sigR > 0.0)      sigSeed = 0.5 * (sigL + sigR);
+            else if (sigL > 0.0)               sigSeed = sigL;
+            else if (sigR > 0.0)               sigSeed = sigR;
+            else                               sigSeed = std::max(0.20, 0.35 * h->GetRMS());
+            
+            if (!(sigSeed > 0.0) || !std::isfinite(sigSeed)) sigSeed = std::max(0.20, 0.60 * binW);
+            
+            double mu = mode;
+            double sig = sigSeed;
+            
+            for (int pass = 0; pass < 3; ++pass)
             {
-                muSeed = xSum / wSum;
-                const double varSeed = std::max(0.0, x2Sum / wSum - muSeed * muSeed);
-                sigSeed = std::sqrt(varSeed);
-            }
-            if (!(sigSeed > 0.0) || !std::isfinite(sigSeed))
-            {
-                sigSeed = std::max(0.20, 0.60 * coreScale);
+                const double lo = std::max(xLeft,  mu - 0.85 * sig);
+                const double hi = std::min(xRight, mu + 1.15 * sig);
+                if (!(hi > lo)) continue;
+                
+                TF1 fg(TString::Format("fg_ppasym_%p_%d", (void*)h, pass).Data(), "gaus", lo, hi);
+                fg.SetParameters(std::max(h->GetBinContent(h->FindBin(mu)), 1.0), mu, sig);
+                fg.SetParLimits(0, 0.0, 10.0 * std::max(peakY, 1.0));
+                fg.SetParLimits(1, mode - 0.50 * std::max(sig, binW), mode + 0.70 * std::max(sig, binW));
+                fg.SetParLimits(2, 0.05, 2.5 * std::max(sig, 0.15));
+                
+                const int st = h->Fit(&fg, "QNR0", "", lo, hi);
+                if (st != 0 && st != 4000) continue;
+                
+                mu = fg.GetParameter(1);
+                sig = std::abs(fg.GetParameter(2));
+                if (!(sig > 0.0) || !std::isfinite(sig)) break;
             }
             
-            const double loF = muSeed - 1.50 * sigSeed;
-            const double hiF = muSeed + 0.75 * sigSeed;
+            const double loF = std::max(xLeft,  mu - 0.80 * sig);
+            const double hiF = std::min(xRight, mu + 1.10 * sig);
+            if (!(hiF > loF))
+            {
+                outMean     = mu;
+                outSigma    = std::max(sig, 0.20);
+                outMeanErr  = 0.5 * binW;
+                outSigmaErr = 0.5 * binW;
+                return true;
+            }
+            
             TF1 gf(TString::Format("gf_ppcore_%p", (void*)h).Data(), "gaus", loF, hiF);
-            gf.SetParameters(std::max(h->GetBinContent(h->FindBin(muSeed)), 1.0), muSeed, sigSeed);
+            gf.SetParameters(std::max(h->GetBinContent(h->FindBin(mu)), 1.0), mu, sig);
             gf.SetParLimits(0, 0.0, 10.0 * std::max(peakY, 1.0));
-            gf.SetParLimits(1, mode - 0.75 * std::max(sigSeed, binW), mode + 0.75 * std::max(sigSeed, binW));
-            gf.SetParLimits(2, 0.05, 3.0 * std::max(sigSeed, 0.20));
+            gf.SetParLimits(1, mode - 0.45 * std::max(sig, binW), mode + 0.65 * std::max(sig, binW));
+            gf.SetParLimits(2, 0.05, 2.0 * std::max(sig, 0.15));
             
             const int st = h->Fit(&gf, "QNR0", "", loF, hiF);
             if (st == 0 || st == 4000)
@@ -531,8 +561,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                 if (std::isfinite(outMean) && std::isfinite(outSigma) && outSigma > 0.0) return true;
             }
             
-            outMean     = muSeed;
-            outSigma    = std::max(sigSeed, 0.20);
+            outMean     = mu;
+            outSigma    = std::max(sig, 0.20);
             outMeanErr  = 0.5 * binW;
             outSigmaErr = 0.5 * binW;
             return true;
@@ -556,9 +586,9 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                 return nullptr;
             }
             
-            const double loF = usePPRepresentative ? (mu - 1.50 * sig) : (mu - 2.0 * sig);
-            const double hiF = usePPRepresentative ? (mu + 0.75 * sig) : (mu + 1.25 * sig);
-            TF1 gf(TString::Format("gf_drawSeed_%p", (void*)h).Data(), "gaus", loF, hiF);
+            const double fitLo = usePPRepresentative ? (mu - 1.50 * sig) : (mu - 2.0 * sig);
+            const double fitHi = usePPRepresentative ? (mu + 0.75 * sig) : (mu + 1.25 * sig);
+            TF1 gf(TString::Format("gf_drawSeed_%p", (void*)h).Data(), "gaus", fitLo, fitHi);
             gf.SetParameters(std::max(hTmp->GetBinContent(hTmp->FindBin(mu)), 1.0), mu, sig);
             gf.SetParLimits(0, 0.0, 10.0 * std::max(hTmp->GetBinContent(hTmp->GetMaximumBin()), 1.0));
             if (usePPRepresentative)
@@ -572,20 +602,26 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                 gf.SetParLimits(2, 0.10, 5.0 * std::max(sig, 0.5));
             }
             
-            const int st = hTmp->Fit(&gf, "QNR0", "", loF, hiF);
+            const int st = hTmp->Fit(&gf, "QNR0", "", fitLo, fitHi);
             if (st != 0 && st != 4000)
             {
                 delete hTmp;
                 return nullptr;
             }
             
+            const double drawScale = usePPRepresentative
+                ? std::max(std::abs(gf.GetParameter(2)), 0.75 * hTmp->GetBinWidth(hTmp->GetMaximumBin()))
+                : std::abs(gf.GetParameter(2));
+            const double drawLo = usePPRepresentative ? (gf.GetParameter(1) - 2.5 * drawScale) : fitLo;
+            const double drawHi = usePPRepresentative ? (gf.GetParameter(1) + 3.5 * drawScale) : fitHi;
+            
             TF1* fDraw = new TF1(TString::Format("fGauss_%p", (void*)h).Data(),
-                                 "gaus", loF, hiF);
+                                 "gaus", drawLo, drawHi);
             fDraw->SetParameters(gf.GetParameter(0), gf.GetParameter(1), std::abs(gf.GetParameter(2)));
             fDraw->SetLineColor(color);
-            fDraw->SetLineStyle(2);
-            fDraw->SetLineWidth(2);
-            fDraw->SetNpx(400);
+            fDraw->SetLineStyle(usePPRepresentative ? 1 : 2);
+            fDraw->SetLineWidth(usePPRepresentative ? 4 : 2);
+            fDraw->SetNpx(usePPRepresentative ? 1200 : 400);
             fDraw->Draw("SAME");
             
             delete hTmp;
@@ -2489,14 +2525,6 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             lPer.SetLineWidth(2);
                             lPer.DrawClone();
                         }
-                        if (havePPGauss)
-                        {
-                            TLine lPP(ppMuOverlay, 0.0, ppMuOverlay, yLineMax);
-                            lPP.SetLineColor(kBlack);
-                            lPP.SetLineStyle(2);
-                            lPP.SetLineWidth(2);
-                            lPP.DrawClone();
-                        }
                         
                         const bool legMidRight = (H.variant == "noSub");
                         TLegend legCO(legMidRight ? 0.55 : 0.60,
@@ -2554,26 +2582,13 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             TLatex tPer;
                             tPer.SetNDC(true);
                             tPer.SetTextFont(42);
-                            tPer.SetTextAlign(13);
+                            tPer.SetTextAlign(33);
                             tPer.SetTextSize(0.032);
                             tPer.SetTextColor(peripheralColor);
-                            tPer.DrawLatex(0.18, 0.33,
+                            tPer.DrawLatex(0.90, 0.74,
                                            TString::Format("#mu^{Gauss} (60-80%%) = %.3f #pm %.4f GeV", peripheralMu, peripheralMuErr).Data());
-                            tPer.DrawLatex(0.18, 0.28,
+                            tPer.DrawLatex(0.90, 0.7,
                                            TString::Format("#sigma^{Gauss} (60-80%%) = %.3f #pm %.4f GeV", peripheralSigma, peripheralSigmaErr).Data());
-                        }
-                        if (havePPGauss)
-                        {
-                            TLatex tPP;
-                            tPP.SetNDC(true);
-                            tPP.SetTextFont(42);
-                            tPP.SetTextAlign(13);
-                            tPP.SetTextSize(0.032);
-                            tPP.SetTextColor(kBlack);
-                            tPP.DrawLatex(0.18, 0.21,
-                                          TString::Format("#mu^{Gauss} (pp) = %.3f #pm %.4f GeV", ppMuOverlay, ppMuErrOverlay).Data());
-                            tPP.DrawLatex(0.18, 0.16,
-                                          TString::Format("#sigma^{Gauss} (pp) = %.3f #pm %.4f GeV", ppSigmaOverlay, ppSigmaErrOverlay).Data());
                         }
                     };
                     
@@ -2758,7 +2773,6 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                                         trigAA.c_str(), b.folder.c_str()).Data());
                     if (!hPP) continue;
                     
-                    hPP->Rebin(10);
                     EnsureSumw2(hPP);
                     hPP->SetLineColor(kBlack);
                     hPP->SetMarkerColor(kBlack);
@@ -2795,7 +2809,21 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     hPP->Draw("E1");
                     
                     TF1* fDraw = nullptr;
-                    if (ppGaussOk) fDraw = DrawGaussFitCurve(hPP, kBlack, true);
+                    if (ppGaussOk)
+                    {
+                        const double drawSigma = std::max(ppSig, 0.30 * hPP->GetBinWidth(hPP->GetMaximumBin()));
+                        const double drawLo = ppMu - 2.5 * drawSigma;
+                        const double drawHi = ppMu + 3.5 * drawSigma;
+                        fDraw = new TF1(TString::Format("fGauss_ppStandalone_%s_%s",
+                                                        trigAA.c_str(), b.folder.c_str()).Data(),
+                                        "gaus", drawLo, drawHi);
+                        fDraw->SetParameters(std::max(hPP->GetBinContent(hPP->GetMaximumBin()), 1.0), ppMu, std::max(ppSig, 0.05));
+                        fDraw->SetLineColor(kBlack);
+                        fDraw->SetLineStyle(1);
+                        fDraw->SetLineWidth(5);
+                        fDraw->SetNpx(1600);
+                        fDraw->Draw("SAME");
+                    }
                     
                     TLatex tTitle;
                     tTitle.SetNDC(true);
