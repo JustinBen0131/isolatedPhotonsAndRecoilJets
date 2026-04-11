@@ -2532,7 +2532,111 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                 }
             }
             
+            // ── Standalone pp E_T^iso per pT bin (baseVariant only) ──
+            if (!forEmbeddedSim && H.variant == "baseVariant" && ppTop)
+            {
+                for (int ipt = 0; ipt < kNPtBins; ++ipt)
+                {
+                    const PtBin& b = PtBins()[ipt];
+                    const string hPPName = "h_Eiso" + b.suffix;
+                    TH1* hPPsrc = dynamic_cast<TH1*>(ppTop->Get(hPPName.c_str()));
+                    if (!hPPsrc) continue;
+                    
+                    TH1* hPP = CloneTH1(hPPsrc,
+                                        TString::Format("hPP_standalone_%s_%s",
+                                                        trigAA.c_str(), b.folder.c_str()).Data());
+                    if (!hPP) continue;
+                    
+                    hPP->Rebin(10);
+                    EnsureSumw2(hPP);
+                    hPP->SetLineColor(kBlack);
+                    hPP->SetMarkerColor(kBlack);
+                    hPP->SetMarkerStyle(20);
+                    hPP->SetMarkerSize(0.9);
+                    hPP->SetLineWidth(2);
+                    hPP->SetFillStyle(0);
+                    
+                    // Gaussian fit (iterative asymmetric, same as AuAu centrality overlays)
+                    double ppMu = 0.0, ppMuE = 0.0, ppSig = 0.0, ppSigE = 0.0;
+                    const bool ppGaussOk = FitGaussianIterative(hPP, ppMu, ppSig, ppMuE, ppSigE);
+                    
+                    TCanvas cPP(
+                                TString::Format("c_ppIso_%s_%s", trigAA.c_str(), b.folder.c_str()).Data(),
+                                "c_ppIso", 900, 700);
+                    cPP.cd();
+                    gPad->SetLeftMargin(0.14);
+                    gPad->SetRightMargin(0.04);
+                    gPad->SetBottomMargin(0.14);
+                    gPad->SetTopMargin(0.08);
+                    gPad->SetTicks(1,1);
+                    
+                    hPP->SetTitle("");
+                    hPP->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
+                    hPP->GetYaxis()->SetTitle("Counts");
+                    hPP->GetXaxis()->SetTitleSize(0.048);
+                    hPP->GetYaxis()->SetTitleSize(0.050);
+                    hPP->GetXaxis()->SetLabelSize(0.040);
+                    hPP->GetYaxis()->SetLabelSize(0.040);
+                    hPP->GetYaxis()->SetTitleOffset(1.15);
+                    hPP->GetXaxis()->SetRangeUser(-10.0, 50.0);
+                    hPP->SetMinimum(0.0);
+                    hPP->SetMaximum(1.15 * hPP->GetMaximum());
+                    hPP->Draw("E1");
+                    
+                    TF1* fDraw = nullptr;
+                    if (ppGaussOk) fDraw = DrawGaussFitCurve(hPP, kBlack);
+                    
+                    TLatex tTitle;
+                    tTitle.SetNDC(true);
+                    tTitle.SetTextFont(42);
+                    tTitle.SetTextAlign(23);
+                    tTitle.SetTextSize(0.048);
+                    tTitle.DrawLatex(0.50, 0.99,
+                                    TString::Format("p+p isolation, p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+                    
+                    TLatex tSph;
+                    tSph.SetNDC(true);
+                    tSph.SetTextFont(42);
+                    tSph.SetTextAlign(33);
+                    tSph.SetTextSize(0.042);
+                    tSph.DrawLatex(0.88, 0.56, "#bf{sPHENIX} #it{Internal}");
+                    tSph.SetTextSize(0.036);
+                    tSph.DrawLatex(0.88, 0.51, "p+p  #sqrt{s} = 200 GeV");
+                    
+                    if (ppGaussOk)
+                    {
+                        TLatex tGauss;
+                        tGauss.SetNDC(true);
+                        tGauss.SetTextFont(42);
+                        tGauss.SetTextAlign(33);
+                        tGauss.SetTextSize(0.034);
+                        tGauss.DrawLatex(0.88, 0.44,
+                                         TString::Format("#mu^{Gauss} = %.3f #pm %.4f GeV", ppMu, ppMuE).Data());
+                        tGauss.DrawLatex(0.88, 0.39,
+                                         TString::Format("#sigma^{Gauss} = %.3f #pm %.4f GeV", ppSig, ppSigE).Data());
+                    }
+                    
+                    {
+                        const double coneRVal = (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3;
+                        TLatex tInfo;
+                        tInfo.SetNDC(true);
+                        tInfo.SetTextFont(42);
+                        tInfo.SetTextAlign(33);
+                        tInfo.SetTextSize(0.036);
+                        tInfo.DrawLatex(0.88, 0.88, "Photon 4 GeV + MBD NS #geq 1");
+                        tInfo.DrawLatex(0.88, 0.83, TString::Format("#DeltaR_{cone} < %.1f", coneRVal).Data());
+                    }
+                    
+                    SaveCanvas(cPP, JoinPath(variantCentralitySummaryDir,
+                                             TString::Format("ppIso_counts_%s.png", b.folder.c_str()).Data()));
+                    
+                    if (fDraw) delete fDraw;
+                    delete hPP;
+                }
+            }
+            
             // ── pT overlay of E_T^iso (unnormalized counts) per centrality bin, this variant ──
+
             {
                 const int ptOvColors[] = {kRed+1, kBlue+1, kGreen+2, kMagenta+1, kOrange+1,
                     kViolet+1, kYellow+2, kSpring+2, kAzure+1,
