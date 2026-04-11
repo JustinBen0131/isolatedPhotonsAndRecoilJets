@@ -450,29 +450,127 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             return true;
         };
         
-        // Draw a Gaussian fit curve on the current pad matching a histogram's color
-        auto DrawGaussFitCurve = [&](TH1* h, int color) -> TF1*
+        // Representative pp-only Gaussian around the mode:
+        // intentionally fit a very tight core around the highest bin so the
+        // plotted #mu/#sigma track the visible peak rather than the long right tail.
+        auto FitGaussianRepresentativePP = [](TH1* h, double& outMean, double& outSigma,
+                                              double& outMeanErr, double& outSigmaErr) -> bool
         {
-            if (!h || h->GetEntries() < 30) return nullptr;
+            outMean = 0.0;
+            outSigma = 0.0;
+            outMeanErr = 0.0;
+            outSigmaErr = 0.0;
+            if (!h || h->GetEntries() < 10) return false;
+            
+            const int maxBin = h->GetMaximumBin();
+            const double peakY = h->GetBinContent(maxBin);
+            if (!(peakY > 0.0)) return false;
+            
+            const double mode = h->GetBinCenter(maxBin);
+            const double binW = h->GetBinWidth(maxBin);
+            
+            double leftCore = -1.0;
+            const double coreFrac = 0.60;
+            for (int ib = maxBin - 1; ib >= 1; --ib)
+            {
+                if (h->GetBinContent(ib) <= coreFrac * peakY)
+                {
+                    leftCore = mode - h->GetBinCenter(ib);
+                    break;
+                }
+            }
+            
+            const double coreScale = (leftCore > 0.0) ? leftCore : std::max(0.75 * binW, 0.25);
+            const double coreLo = mode - 1.25 * coreScale;
+            const double coreHi = mode + 0.60 * coreScale;
+            
+            double wSum = 0.0;
+            double xSum = 0.0;
+            double x2Sum = 0.0;
+            for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+            {
+                const double x = h->GetBinCenter(ib);
+                if (x < coreLo || x > coreHi) continue;
+                
+                const double w = std::max(0.0, h->GetBinContent(ib));
+                if (!(w > 0.0)) continue;
+                
+                wSum += w;
+                xSum += w * x;
+                x2Sum += w * x * x;
+            }
+            
+            double muSeed = mode;
+            double sigSeed = 0.0;
+            if (wSum > 0.0)
+            {
+                muSeed = xSum / wSum;
+                const double varSeed = std::max(0.0, x2Sum / wSum - muSeed * muSeed);
+                sigSeed = std::sqrt(varSeed);
+            }
+            if (!(sigSeed > 0.0) || !std::isfinite(sigSeed))
+            {
+                sigSeed = std::max(0.20, 0.60 * coreScale);
+            }
+            
+            const double loF = muSeed - 1.50 * sigSeed;
+            const double hiF = muSeed + 0.75 * sigSeed;
+            TF1 gf(TString::Format("gf_ppcore_%p", (void*)h).Data(), "gaus", loF, hiF);
+            gf.SetParameters(std::max(h->GetBinContent(h->FindBin(muSeed)), 1.0), muSeed, sigSeed);
+            gf.SetParLimits(0, 0.0, 10.0 * std::max(peakY, 1.0));
+            gf.SetParLimits(1, mode - 0.75 * std::max(sigSeed, binW), mode + 0.75 * std::max(sigSeed, binW));
+            gf.SetParLimits(2, 0.05, 3.0 * std::max(sigSeed, 0.20));
+            
+            const int st = h->Fit(&gf, "QNR0", "", loF, hiF);
+            if (st == 0 || st == 4000)
+            {
+                outMean     = gf.GetParameter(1);
+                outSigma    = std::abs(gf.GetParameter(2));
+                outMeanErr  = gf.GetParError(1);
+                outSigmaErr = gf.GetParError(2);
+                if (std::isfinite(outMean) && std::isfinite(outSigma) && outSigma > 0.0) return true;
+            }
+            
+            outMean     = muSeed;
+            outSigma    = std::max(sigSeed, 0.20);
+            outMeanErr  = 0.5 * binW;
+            outSigmaErr = 0.5 * binW;
+            return true;
+        };
+        
+        // Draw a Gaussian fit curve on the current pad matching a histogram's color
+        auto DrawGaussFitCurve = [&](TH1* h, int color, bool usePPRepresentative = false) -> TF1*
+        {
+            if (!h || h->GetEntries() < (usePPRepresentative ? 10 : 30)) return nullptr;
             
             double mu, sig, muE, sigE;
             TH1* hTmp = (TH1*)h->Clone(TString::Format("hTmp_gaussFit_%p", (void*)h).Data());
             hTmp->SetDirectory(nullptr);
             
-            const bool ok = FitGaussianIterative(hTmp, mu, sig, muE, sigE);
+            const bool ok = usePPRepresentative
+                ? FitGaussianRepresentativePP(hTmp, mu, sig, muE, sigE)
+                : FitGaussianIterative(hTmp, mu, sig, muE, sigE);
             if (!ok)
             {
                 delete hTmp;
                 return nullptr;
             }
             
-            const double loF = mu - 2.0 * sig;
-            const double hiF = mu + 1.25 * sig;
+            const double loF = usePPRepresentative ? (mu - 1.50 * sig) : (mu - 2.0 * sig);
+            const double hiF = usePPRepresentative ? (mu + 0.75 * sig) : (mu + 1.25 * sig);
             TF1 gf(TString::Format("gf_drawSeed_%p", (void*)h).Data(), "gaus", loF, hiF);
             gf.SetParameters(std::max(hTmp->GetBinContent(hTmp->FindBin(mu)), 1.0), mu, sig);
             gf.SetParLimits(0, 0.0, 10.0 * std::max(hTmp->GetBinContent(hTmp->GetMaximumBin()), 1.0));
-            gf.SetParLimits(1, mu - 1.0 * sig, mu + 1.0 * sig);
-            gf.SetParLimits(2, 0.10, 5.0 * std::max(sig, 0.5));
+            if (usePPRepresentative)
+            {
+                gf.SetParLimits(1, mu - 0.60 * std::max(sig, 0.20), mu + 0.60 * std::max(sig, 0.20));
+                gf.SetParLimits(2, 0.05, 3.0 * std::max(sig, 0.20));
+            }
+            else
+            {
+                gf.SetParLimits(1, mu - 1.0 * sig, mu + 1.0 * sig);
+                gf.SetParLimits(2, 0.10, 5.0 * std::max(sig, 0.5));
+            }
             
             const int st = hTmp->Fit(&gf, "QNR0", "", loF, hiF);
             if (st != 0 && st != 4000)
@@ -2290,6 +2388,53 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     
                     if (hCents.empty()) continue;
                     
+                    bool havePeripheralGauss = false;
+                    double peripheralMu = 0.0, peripheralMuErr = 0.0;
+                    double peripheralSigma = 0.0, peripheralSigmaErr = 0.0;
+                    int peripheralColor = kOrange + 1;
+                    for (std::size_t icSub = 0; icSub < centBins.size(); ++icSub)
+                    {
+                        const auto& cbSub = centBins[icSub];
+                        if (cbSub.lo == 60 && cbSub.hi == 80 && gaussFilled[ivH][ipt][icSub])
+                        {
+                            havePeripheralGauss = true;
+                            peripheralMu       = gaussMean[ivH][ipt][icSub];
+                            peripheralMuErr    = gaussMeanErr[ivH][ipt][icSub];
+                            peripheralSigma    = gaussSigma[ivH][ipt][icSub];
+                            peripheralSigmaErr = gaussSigmaErr[ivH][ipt][icSub];
+                            peripheralColor    = (icSub < 8) ? centOvColors[icSub] : (kOrange + 1);
+                            break;
+                        }
+                    }
+                    
+                    bool havePPGauss = false;
+                    double ppMuOverlay = 0.0, ppMuErrOverlay = 0.0;
+                    double ppSigmaOverlay = 0.0, ppSigmaErrOverlay = 0.0;
+                    TH1* hPPOverlayFit = nullptr;
+                    if (!forEmbeddedSim && ppTop)
+                    {
+                        const string hPPName = "h_Eiso" + b.suffix;
+                        TH1* hPPSrc = dynamic_cast<TH1*>(ppTop->Get(hPPName.c_str()));
+                        if (hPPSrc)
+                        {
+                            hPPOverlayFit = CloneTH1(
+                                hPPSrc,
+                                TString::Format("hPP_overlayFit_%s_%s_%s",
+                                                trigAA.c_str(), H.variant.c_str(), b.folder.c_str()).Data()
+                            );
+                            if (hPPOverlayFit)
+                            {
+                                hPPOverlayFit->Rebin(10);
+                                EnsureSumw2(hPPOverlayFit);
+                                havePPGauss = FitGaussianRepresentativePP(
+                                    hPPOverlayFit,
+                                    ppMuOverlay, ppSigmaOverlay,
+                                    ppMuErrOverlay, ppSigmaErrOverlay
+                                );
+                            }
+                        }
+                    }
+                    
                     // --- Collect Gaussian means & sigmas per centrality for subpanels ---
                     vector<double> subX, subEX, subY, subEY;
                     vector<double> subSigY, subSigEY;
@@ -2304,6 +2449,133 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         subSigY.push_back(gaussSigma[ivH][ipt][icSub]);
                         subSigEY.push_back(gaussSigmaErr[ivH][ipt][icSub]);
                     }
+                    
+                    auto DrawCentralityOverlayTop = [&](vector<TF1*>& outCurves)
+                    {
+                        hCents[0]->SetTitle("");
+                        hCents[0]->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
+                        hCents[0]->GetXaxis()->SetTitleSize(0.048);
+                        hCents[0]->GetXaxis()->SetLabelSize(0.04);
+                        hCents[0]->GetXaxis()->SetTitleOffset(0.75);
+                        hCents[0]->GetYaxis()->SetTitle("Normalized to Unit Area");
+                        
+                        hCents[0]->GetYaxis()->SetTitleSize(0.050);
+                        hCents[0]->GetYaxis()->SetLabelSize(0.050);
+                        hCents[0]->GetYaxis()->SetTitleOffset(1.15);
+                        hCents[0]->GetXaxis()->SetRangeUser(-10.0, 50.0);
+                        hCents[0]->SetMinimum(0.0);
+                        {
+                            const double yScale = (H.variant == "noSub") ? 1.20
+                                                : (H.variant == "baseVariant") ? 1.15
+                                                : 1.25;
+                            hCents[0]->SetMaximum((yMaxCO > 0.0) ? (yScale * yMaxCO) : 1.0);
+                        }
+                        hCents[0]->Draw("E1");
+                        for (std::size_t ih = 1; ih < hCents.size(); ++ih) hCents[ih]->Draw("E1 SAME");
+                        
+                        outCurves.clear();
+                        for (std::size_t ih = 0; ih < hCents.size(); ++ih)
+                        {
+                            TF1* fc = DrawGaussFitCurve(hCents[ih], hCents[ih]->GetLineColor());
+                            if (fc) outCurves.push_back(fc);
+                        }
+                        
+                        const double yLineMax = hCents[0]->GetMaximum();
+                        if (havePeripheralGauss)
+                        {
+                            TLine lPer(peripheralMu, 0.0, peripheralMu, yLineMax);
+                            lPer.SetLineColor(peripheralColor);
+                            lPer.SetLineStyle(2);
+                            lPer.SetLineWidth(2);
+                            lPer.DrawClone();
+                        }
+                        if (havePPGauss)
+                        {
+                            TLine lPP(ppMuOverlay, 0.0, ppMuOverlay, yLineMax);
+                            lPP.SetLineColor(kBlack);
+                            lPP.SetLineStyle(2);
+                            lPP.SetLineWidth(2);
+                            lPP.DrawClone();
+                        }
+                        
+                        const bool legMidRight = (H.variant == "noSub");
+                        TLegend legCO(legMidRight ? 0.55 : 0.60,
+                                      legMidRight ? 0.57 : 0.40,
+                                      legMidRight ? 0.86 : 0.90,
+                                      legMidRight ? 0.75 : 0.62);
+                        legCO.SetColumnSeparation(-0.05);
+                        legCO.SetBorderSize(0);
+                        legCO.SetFillStyle(0);
+                        legCO.SetTextFont(42);
+                        legCO.SetTextSize(legMidRight ? 0.034 : 0.042);
+                        legCO.SetNColumns(2);
+                        for (std::size_t ih = 0; ih < hCents.size(); ++ih)
+                            legCO.AddEntry(hCents[ih], cLabels[ih].c_str(), "ep");
+                        legCO.DrawClone();
+                        
+                        TLatex tTitleCO;
+                        tTitleCO.SetNDC(true);
+                        tTitleCO.SetTextFont(42);
+                        tTitleCO.SetTextAlign(23);
+                        tTitleCO.SetTextSize(0.052);
+                        tTitleCO.DrawLatex(0.50, 0.99,
+                                           TString::Format("Au+Au centrality overlays, p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+                        
+                        TLatex tInfoCO;
+                        tInfoCO.SetNDC(true);
+                        tInfoCO.SetTextFont(42);
+                        tInfoCO.SetTextAlign(33);
+                        tInfoCO.SetTextSize((H.variant == "noSub") ? 0.036 : 0.040);
+                        tInfoCO.DrawLatex(0.90, 0.88,
+                                          forEmbeddedSim
+                                          ? (embeddedMode == 2 ? activeEmbeddedSimFolder.substr(0, activeEmbeddedSimFolder.find("_SIM")).c_str()
+                                             : SimSampleLabel(CurrentSimSample()).c_str())
+                                          : trigDisplayLabel.c_str());
+                        tInfoCO.DrawLatex(0.90, 0.84, H.label.c_str());
+                        {
+                            const double coneRValCO = (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3;
+                            tInfoCO.DrawLatex(0.90, 0.80, TString::Format("#DeltaR_{cone} < %.1f", coneRValCO).Data());
+                        }
+                        {
+                            TLatex tSph;
+                            tSph.SetNDC(true);
+                            tSph.SetTextFont(42);
+                            tSph.SetTextAlign(33);
+                            tSph.SetTextSize(0.052);
+                            const double sphY1  = (H.variant == "noSub") ? 0.52 : 0.32;
+                            const double sphX1  = (H.variant == "noSub") ? 0.93 : 0.90;
+                            tSph.DrawLatex(sphX1, sphY1,        "#bf{sPHENIX} #it{Internal}");
+                            tSph.SetTextSize(0.042);
+                            tSph.DrawLatex(sphX1, sphY1 - 0.06, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                        }
+                        
+                        if (havePeripheralGauss)
+                        {
+                            TLatex tPer;
+                            tPer.SetNDC(true);
+                            tPer.SetTextFont(42);
+                            tPer.SetTextAlign(13);
+                            tPer.SetTextSize(0.032);
+                            tPer.SetTextColor(peripheralColor);
+                            tPer.DrawLatex(0.18, 0.33,
+                                           TString::Format("#mu^{Gauss} (60-80%%) = %.3f #pm %.4f GeV", peripheralMu, peripheralMuErr).Data());
+                            tPer.DrawLatex(0.18, 0.28,
+                                           TString::Format("#sigma^{Gauss} (60-80%%) = %.3f #pm %.4f GeV", peripheralSigma, peripheralSigmaErr).Data());
+                        }
+                        if (havePPGauss)
+                        {
+                            TLatex tPP;
+                            tPP.SetNDC(true);
+                            tPP.SetTextFont(42);
+                            tPP.SetTextAlign(13);
+                            tPP.SetTextSize(0.032);
+                            tPP.SetTextColor(kBlack);
+                            tPP.DrawLatex(0.18, 0.21,
+                                          TString::Format("#mu^{Gauss} (pp) = %.3f #pm %.4f GeV", ppMuOverlay, ppMuErrOverlay).Data());
+                            tPP.DrawLatex(0.18, 0.16,
+                                          TString::Format("#sigma^{Gauss} (pp) = %.3f #pm %.4f GeV", ppSigmaOverlay, ppSigmaErrOverlay).Data());
+                        }
+                    };
                     
                     TCanvas cCO(
                                 TString::Format("c_isoCentOverlay_%s_%s_%s",
@@ -2322,85 +2594,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     padUp->Draw();
                     padUp->cd();
                     
-                    hCents[0]->SetTitle("");
-                    hCents[0]->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
-                    hCents[0]->GetXaxis()->SetTitleSize(0.048);
-                    hCents[0]->GetXaxis()->SetLabelSize(0.04);
-                    hCents[0]->GetXaxis()->SetTitleOffset(0.75);
-                    hCents[0]->GetYaxis()->SetTitle("Normalized to Unit Area");
-     
-                    hCents[0]->GetYaxis()->SetTitleSize(0.050);
-                    hCents[0]->GetYaxis()->SetLabelSize(0.050);
-                    hCents[0]->GetYaxis()->SetTitleOffset(1.15);
-                    hCents[0]->GetXaxis()->SetRangeUser(-10.0, 50.0);
-                    hCents[0]->SetMinimum(0.0);
-                    {
-                        const double yScale = (H.variant == "noSub") ? 1.20
-                                            : (H.variant == "baseVariant") ? 1.15
-                                            : 1.25;
-                        hCents[0]->SetMaximum((yMaxCO > 0.0) ? (yScale * yMaxCO) : 1.0);
-                    }
-                    hCents[0]->Draw("E1");
-                    for (std::size_t ih = 1; ih < hCents.size(); ++ih) hCents[ih]->Draw("E1 SAME");
-                    
-                    // Gaussian fit curves per centrality bin
                     vector<TF1*> gaussCurvesC;
-                    for (std::size_t ih = 0; ih < hCents.size(); ++ih)
-                    {
-                        TF1* fc = DrawGaussFitCurve(hCents[ih], hCents[ih]->GetLineColor());
-                        if (fc) gaussCurvesC.push_back(fc);
-                    }
-                    
-                    const bool legMidRight = (H.variant == "noSub");
-                    TLegend legCO(legMidRight ? 0.55 : 0.60,
-                                  legMidRight ? 0.57 : 0.40,
-                                  legMidRight ? 0.86 : 0.90,
-                                  legMidRight ? 0.75 : 0.62);
-                    legCO.SetColumnSeparation(-0.05);
-                    legCO.SetBorderSize(0);
-                    legCO.SetFillStyle(0);
-                    legCO.SetTextFont(42);
-                    legCO.SetTextSize(legMidRight ? 0.034 : 0.042);
-                    legCO.SetNColumns(2);
-                    for (std::size_t ih = 0; ih < hCents.size(); ++ih)
-                        legCO.AddEntry(hCents[ih], cLabels[ih].c_str(), "ep");
-                    legCO.Draw();
-                    
-                    TLatex tTitleCO;
-                    tTitleCO.SetNDC(true);
-                    tTitleCO.SetTextFont(42);
-                    tTitleCO.SetTextAlign(23);
-                    tTitleCO.SetTextSize(0.052);
-                    tTitleCO.DrawLatex(0.50, 0.99,
-                                       TString::Format("Au+Au centrality overlays, p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
-                    
-                    TLatex tInfoCO;
-                    tInfoCO.SetNDC(true);
-                    tInfoCO.SetTextFont(42);
-                    tInfoCO.SetTextAlign(33);
-                    tInfoCO.SetTextSize((H.variant == "noSub") ? 0.036 : 0.040);
-                    tInfoCO.DrawLatex(0.90, 0.88,
-                                      forEmbeddedSim
-                                      ? (embeddedMode == 2 ? activeEmbeddedSimFolder.substr(0, activeEmbeddedSimFolder.find("_SIM")).c_str()
-                                         : SimSampleLabel(CurrentSimSample()).c_str())
-                                      : trigDisplayLabel.c_str());
-                    tInfoCO.DrawLatex(0.90, 0.84, H.label.c_str());
-                    {
-                        const double coneRValCO = (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3;
-                        tInfoCO.DrawLatex(0.90, 0.80, TString::Format("#DeltaR_{cone} < %.1f", coneRValCO).Data());
-                    }
-                    {
-                        TLatex tSph;
-                        tSph.SetNDC(true);
-                        tSph.SetTextFont(42);
-                        tSph.SetTextAlign(33);
-                        tSph.SetTextSize(0.052);
-                        const double sphY1  = (H.variant == "noSub") ? 0.52 : 0.32;
-                        const double sphX1  = (H.variant == "noSub") ? 0.93 : 0.90;
-                        tSph.DrawLatex(sphX1, sphY1,        "#bf{sPHENIX} #it{Internal}");
-                        tSph.SetTextSize(0.042);
-                        tSph.DrawLatex(sphX1, sphY1 - 0.06, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
-                    }
+                    DrawCentralityOverlayTop(gaussCurvesC);
                     
                     // Middle pad: Gaussian mean vs centrality
                     cCO.cd();
@@ -2522,6 +2717,22 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     SaveCanvas(cCO, JoinPath(variantCentralitySummaryDir,
                                              TString::Format("isoCentOverlay_counts_%s.png", b.folder.c_str()).Data()));
                     
+                    TCanvas cCOTopOnly(
+                                       TString::Format("c_isoCentOverlayTopOnly_%s_%s_%s",
+                                                       trigAA.c_str(), H.variant.c_str(), b.folder.c_str()).Data(),
+                                       "c_isoCentOverlayTopOnly", 900, 700
+                                       );
+                    ApplyCanvasMargins1D(cCOTopOnly);
+                    cCOTopOnly.cd();
+                    
+                    vector<TF1*> gaussCurvesTopOnly;
+                    DrawCentralityOverlayTop(gaussCurvesTopOnly);
+                    cCOTopOnly.Modified();
+                    cCOTopOnly.Update();
+                    SaveCanvas(cCOTopOnly, JoinPath(variantCentralitySummaryDir,
+                                                    TString::Format("isoCentOverlay_counts_topOnly_%s.png", b.folder.c_str()).Data()));
+                    for (auto* f : gaussCurvesTopOnly) delete f;
+                    
                     if (gSig) delete gSig;
                     if (hFrSig) delete hFrSig;
                     if (gSub) delete gSub;
@@ -2556,9 +2767,9 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     hPP->SetLineWidth(2);
                     hPP->SetFillStyle(0);
                     
-                    // Gaussian fit (iterative asymmetric, same as AuAu centrality overlays)
+                    // Gaussian fit (pp-only representative core fit for plotting)
                     double ppMu = 0.0, ppMuE = 0.0, ppSig = 0.0, ppSigE = 0.0;
-                    const bool ppGaussOk = FitGaussianIterative(hPP, ppMu, ppSig, ppMuE, ppSigE);
+                    const bool ppGaussOk = FitGaussianRepresentativePP(hPP, ppMu, ppSig, ppMuE, ppSigE);
                     
                     TCanvas cPP(
                                 TString::Format("c_ppIso_%s_%s", trigAA.c_str(), b.folder.c_str()).Data(),
@@ -2584,7 +2795,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     hPP->Draw("E1");
                     
                     TF1* fDraw = nullptr;
-                    if (ppGaussOk) fDraw = DrawGaussFitCurve(hPP, kBlack);
+                    if (ppGaussOk) fDraw = DrawGaussFitCurve(hPP, kBlack, true);
                     
                     TLatex tTitle;
                     tTitle.SetNDC(true);
@@ -2605,6 +2816,12 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     
                     if (ppGaussOk)
                     {
+                        TLine lPP(ppMu, 0.0, ppMu, hPP->GetMaximum());
+                        lPP.SetLineColor(kBlack);
+                        lPP.SetLineStyle(2);
+                        lPP.SetLineWidth(2);
+                        lPP.DrawClone();
+                        
                         TLatex tGauss;
                         tGauss.SetNDC(true);
                         tGauss.SetTextFont(42);
