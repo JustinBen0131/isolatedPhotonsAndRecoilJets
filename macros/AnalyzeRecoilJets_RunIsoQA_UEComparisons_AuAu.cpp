@@ -536,7 +536,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             }
             
             // -- layer-by-layer overlays (active UE variant only, written directly under UEcomparisons/) --
-            if (!forEmbeddedSim && H.variant == kAA_UEVariant)
+            if (!forEmbeddedSim && (H.variant == "noSub" || H.variant == "baseVariant"))
             {
                 auto MergeLayerHist = [&](TDirectory* dir,
                                           const string& histBase,
@@ -681,7 +681,9 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                 
                 for (const auto& lc : layerCentCfgs)
                 {
-                    const string layerCentDir = JoinPath(layerByLayerBase, lc.folder);
+                    const string layerVariantDir = JoinPath(layerByLayerBase, H.variant);
+                    EnsureDir(layerVariantDir);
+                    const string layerCentDir = JoinPath(layerVariantDir, lc.folder);
                     EnsureDir(layerCentDir);
                     
                     for (const auto& lp : layerPtCfgs)
@@ -698,10 +700,10 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         for (std::size_t ipanel = 0; ipanel < layerPanels.size(); ++ipanel)
                         {
                             cLayer.cd((int)ipanel + 1);
-                            gPad->SetLeftMargin(0.16);
+                            gPad->SetLeftMargin(0.20);
                             gPad->SetRightMargin(0.04);
                             gPad->SetBottomMargin(0.14);
-                            gPad->SetTopMargin(0.12);
+                            gPad->SetTopMargin(0.14);
                             gPad->SetTicks(1,1);
                             
                             const auto& panel = layerPanels[ipanel];
@@ -775,7 +777,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             hFrame->GetYaxis()->SetTitleSize(0.055);
                             hFrame->GetXaxis()->SetLabelSize(0.045);
                             hFrame->GetYaxis()->SetLabelSize(0.045);
-                            hFrame->GetYaxis()->SetTitleOffset(1.15);
+                            hFrame->GetYaxis()->SetTitleOffset(1.45);
                             hFrame->SetMinimum(0.0);
                             hFrame->SetMaximum((yMaxLayer > 0.0) ? (1.25 * yMaxLayer) : 1.0);
                             
@@ -786,7 +788,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             if (haveInc && hInc != hFrame) hInc->Draw("hist SAME");
                             if (haveData && hData != hFrame) hData->Draw("E1 SAME");
                             
-                            TLegend legLayer(0.47, 0.68, 0.92, 0.88);
+                            TLegend legLayer(0.55, 0.78, 0.92, 0.92);
                             legLayer.SetBorderSize(0);
                             legLayer.SetFillStyle(0);
                             legLayer.SetTextFont(42);
@@ -796,26 +798,36 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             if (haveInc)  legLayer.AddEntry(hInc, inclusiveLegend.c_str(), "l");
                             legLayer.Draw();
                             
+                            TLatex tSph;
+                            tSph.SetNDC(true);
+                            tSph.SetTextFont(42);
+                            tSph.SetTextAlign(33);
+                            tSph.SetTextSize(0.042);
+                            tSph.DrawLatex(0.92, 0.64, "#bf{sPHENIX} #it{Internal}");
+                            tSph.SetTextSize(0.034);
+                            tSph.DrawLatex(0.92, 0.59, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                            
                             TLatex tPanel;
                             tPanel.SetNDC(true);
                             tPanel.SetTextFont(42);
-                            tPanel.SetTextAlign(23);
-                            tPanel.SetTextSize(0.060);
-                            tPanel.DrawLatex(0.50, 0.96, panel.panelTitle.c_str());
-                            
-                            if (ipanel == 0)
-                            {
-                                TLatex tInfo;
-                                tInfo.SetNDC(true);
-                                tInfo.SetTextFont(42);
-                                tInfo.SetTextAlign(13);
-                                tInfo.SetTextSize(0.036);
-                                tInfo.DrawLatex(0.18, 0.90, "Run25 Au+Au vs embedded MC");
-                                tInfo.DrawLatex(0.18, 0.84, TString::Format("Centrality: %s", lc.label.c_str()).Data());
-                                tInfo.DrawLatex(0.18, 0.78, trigDisplayLabel.c_str());
-                                tInfo.DrawLatex(0.18, 0.72, TString::Format("UE: %s", H.label.c_str()).Data());
-                                tInfo.DrawLatex(0.18, 0.66, TString::Format("p_{T}^{#gamma}: %s", lp.label.c_str()).Data());
-                            }
+                            tPanel.SetTextAlign(33);
+                            tPanel.SetTextSize(0.050);
+                            tPanel.DrawLatex(0.92, 0.53, panel.panelTitle.c_str());
+                        }
+                        
+                        // -- draw canvas-wide title --
+                        {
+                            const string ueTag = (H.variant == "noSub") ? "no UE sub" : "with UE sub";
+                            const string canvasTitle = TString::Format(
+                                "Run25 Au+Au vs Photon/Inclusive Jet Embedded MC, %s, p_{T}^{#gamma} = %s, %s",
+                                lc.label.c_str(), lp.label.c_str(), ueTag.c_str()).Data();
+                            TLatex tTitle;
+                            tTitle.SetNDC(true);
+                            tTitle.SetTextFont(42);
+                            tTitle.SetTextAlign(23);
+                            tTitle.SetTextSize(0.032);
+                            cLayer.cd(0);
+                            tTitle.DrawLatex(0.50, 0.98, canvasTitle.c_str());
                         }
                         
                         const bool isIntegratedPt =
