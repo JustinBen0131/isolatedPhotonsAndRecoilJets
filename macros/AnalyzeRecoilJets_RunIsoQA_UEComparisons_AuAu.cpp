@@ -469,13 +469,13 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             const double mode = h->GetBinCenter(maxBin);
             const double binW = h->GetBinWidth(maxBin);
             
-            const double leftFrac  = 0.80;
-            const double rightFrac = 0.35;
+            const double leftFrac  = 0.75;
+            const double rightFrac = 0.55;
             const double nLeftFrac  = std::sqrt(2.0 * std::log(1.0 / leftFrac));
             const double nRightFrac = std::sqrt(2.0 * std::log(1.0 / rightFrac));
             
-            double xLeft = mode - 0.60 * binW;
-            double xRight = mode + 1.20 * binW;
+            double xLeft = mode - 0.70 * binW;
+            double xRight = mode + 0.80 * binW;
             bool foundLeft = false;
             bool foundRight = false;
             
@@ -504,27 +504,27 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             if (foundRight && xRight > mode && nRightFrac > 0.0) sigR = (xRight - mode) / nRightFrac;
             
             double sigSeed = 0.0;
-            if (sigL > 0.0 && sigR > 0.0)      sigSeed = 0.5 * (sigL + sigR);
+            if (sigL > 0.0 && sigR > 0.0)      sigSeed = 0.65 * sigL + 0.35 * sigR;
             else if (sigL > 0.0)               sigSeed = sigL;
             else if (sigR > 0.0)               sigSeed = sigR;
-            else                               sigSeed = std::max(0.20, 0.35 * h->GetRMS());
+            else                               sigSeed = std::max(0.18, 0.30 * h->GetRMS());
             
-            if (!(sigSeed > 0.0) || !std::isfinite(sigSeed)) sigSeed = std::max(0.20, 0.60 * binW);
+            if (!(sigSeed > 0.0) || !std::isfinite(sigSeed)) sigSeed = std::max(0.18, 0.50 * binW);
             
             double mu = mode;
             double sig = sigSeed;
             
             for (int pass = 0; pass < 3; ++pass)
             {
-                const double lo = std::max(xLeft,  mu - 0.85 * sig);
-                const double hi = std::min(xRight, mu + 1.15 * sig);
+                const double lo = std::max(xLeft,  mu - 0.95 * sig);
+                const double hi = std::min(xRight, mu + 0.85 * sig);
                 if (!(hi > lo)) continue;
                 
                 TF1 fg(TString::Format("fg_ppasym_%p_%d", (void*)h, pass).Data(), "gaus", lo, hi);
                 fg.SetParameters(std::max(h->GetBinContent(h->FindBin(mu)), 1.0), mu, sig);
                 fg.SetParLimits(0, 0.0, 10.0 * std::max(peakY, 1.0));
-                fg.SetParLimits(1, mode - 0.50 * std::max(sig, binW), mode + 0.70 * std::max(sig, binW));
-                fg.SetParLimits(2, 0.05, 2.5 * std::max(sig, 0.15));
+                fg.SetParLimits(1, mode - 0.45 * std::max(sig, binW), mode + 0.40 * std::max(sig, binW));
+                fg.SetParLimits(2, 0.05, 1.8 * std::max(sig, 0.12));
                 
                 const int st = h->Fit(&fg, "QNR0", "", lo, hi);
                 if (st != 0 && st != 4000) continue;
@@ -534,12 +534,12 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                 if (!(sig > 0.0) || !std::isfinite(sig)) break;
             }
             
-            const double loF = std::max(xLeft,  mu - 0.80 * sig);
-            const double hiF = std::min(xRight, mu + 1.10 * sig);
+            const double loF = std::max(xLeft,  mu - 0.90 * sig);
+            const double hiF = std::min(xRight, mu + 0.80 * sig);
             if (!(hiF > loF))
             {
                 outMean     = mu;
-                outSigma    = std::max(sig, 0.20);
+                outSigma    = std::max(sig, 0.18);
                 outMeanErr  = 0.5 * binW;
                 outSigmaErr = 0.5 * binW;
                 return true;
@@ -548,8 +548,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             TF1 gf(TString::Format("gf_ppcore_%p", (void*)h).Data(), "gaus", loF, hiF);
             gf.SetParameters(std::max(h->GetBinContent(h->FindBin(mu)), 1.0), mu, sig);
             gf.SetParLimits(0, 0.0, 10.0 * std::max(peakY, 1.0));
-            gf.SetParLimits(1, mode - 0.45 * std::max(sig, binW), mode + 0.65 * std::max(sig, binW));
-            gf.SetParLimits(2, 0.05, 2.0 * std::max(sig, 0.15));
+            gf.SetParLimits(1, mode - 0.40 * std::max(sig, binW), mode + 0.35 * std::max(sig, binW));
+            gf.SetParLimits(2, 0.05, 1.6 * std::max(sig, 0.12));
             
             const int st = h->Fit(&gf, "QNR0", "", loF, hiF);
             if (st == 0 || st == 4000)
@@ -562,7 +562,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             }
             
             outMean     = mu;
-            outSigma    = std::max(sig, 0.20);
+            outSigma    = std::max(sig, 0.18);
             outMeanErr  = 0.5 * binW;
             outSigmaErr = 0.5 * binW;
             return true;
@@ -2820,9 +2820,10 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         fDraw->SetParameters(std::max(hPP->GetBinContent(hPP->GetMaximumBin()), 1.0), ppMu, std::max(ppSig, 0.05));
                         fDraw->SetLineColor(kBlack);
                         fDraw->SetLineStyle(1);
-                        fDraw->SetLineWidth(5);
-                        fDraw->SetNpx(1600);
+                        fDraw->SetLineWidth(1);
+                        fDraw->SetNpx(800);
                         fDraw->Draw("SAME");
+                        hPP->Draw("E1 SAME");
                     }
                     
                     TLatex tTitle;
