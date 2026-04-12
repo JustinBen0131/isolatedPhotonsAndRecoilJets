@@ -1987,6 +1987,12 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
             ++flow.events_reaching_photon_loop;
         }
     }
+
+    const double vzAbs  = std::max(1.0, std::fabs(static_cast<double>(m_vzCut)));
+    const double vzBinW = 0.5; // cm/bin
+    const int    nbVz   = std::max(1, static_cast<int>(std::lround((2.0 * vzAbs) / vzBinW)));
+    const double vzMin  = -vzAbs;
+    const double vzMax  =  vzAbs;
     
     // Per-centrality vertex-z (Au+Au only, after vz cut passes)
     if (m_isAuAu && m_centBin >= 0)
