@@ -4944,30 +4944,49 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
       continue;
     }
 
-    // reco isolation distribution for TRUTH-ISOLATED signal photons (direct+frag),
-    // independent of reco shower-shape classification.
-    {
-      const std::string slice_sig = suffixForBins(ptIdx_sig, effCentIdx_sig);
-
-      for (const auto& trigShort : activeTrig)
+      // reco isolation distribution for TRUTH-ISOLATED signal photons (direct+frag),
+      // independent of reco shower-shape classification.
       {
-        if (auto* hIso = getOrBookIsoPartHist(trigShort,
-                                             "h_EisoReco_truthSigMatched",
-                                             "E_{T}^{iso,reco} [GeV] (truth iso signal match)",
-                                             ptIdx_sig, effCentIdx_sig))
+        const std::string slice_sig = suffixForBins(ptIdx_sig, effCentIdx_sig);
+
+        for (const auto& trigShort : activeTrig)
         {
-          hIso->Fill(eiso_et);
-          bumpHistFill(trigShort, std::string("h_EisoReco_truthSigMatched") + slice_sig);
+          if (auto* hIso = getOrBookIsoPartHist(trigShort,
+                                               "h_EisoReco_truthSigMatched",
+                                               "E_{T}^{iso,reco} [GeV] (truth iso signal match)",
+                                               ptIdx_sig, effCentIdx_sig))
+          {
+            hIso->Fill(eiso_et);
+            bumpHistFill(trigShort, std::string("h_EisoReco_truthSigMatched") + slice_sig);
+          }
         }
       }
-    }
 
-    // Reco-side ABCD classification (PPG12-equivalent)
-    const SSVars   v   = makeSSFromPhoton(recoPho, rPt);
-    const TightTag tag = classifyPhotonTightness(v);
+      // Reco-side ABCD classification (PPG12-equivalent)
+      const SSVars   v   = makeSSFromPhoton(recoPho, rPt);
+      const TightTag tag = classifyPhotonTightness(v);
 
-    // Exclude: preselection fail and Neither(1 fail), consistent with your ABCD logic
-    if (!(tag == TightTag::kTight || tag == TightTag::kNonTight))
+      // Blair-style reco-tight signal template:
+      // truth-signal matched reco photons that also satisfy the reco tight tag.
+      if (tag == TightTag::kTight)
+      {
+        const std::string slice_sig = suffixForBins(ptIdx_sig, effCentIdx_sig);
+
+        for (const auto& trigShort : activeTrig)
+        {
+          if (auto* hIsoT = getOrBookIsoPartHist(trigShort,
+                                                "h_EisoReco_truthSigMatched_tight",
+                                                "E_{T}^{iso,reco} [GeV] (truth iso signal match, tight reco tag)",
+                                                ptIdx_sig, effCentIdx_sig))
+          {
+            hIsoT->Fill(eiso_et);
+            bumpHistFill(trigShort, std::string("h_EisoReco_truthSigMatched_tight") + slice_sig);
+          }
+        }
+      }
+
+      // Exclude: preselection fail and Neither(1 fail), consistent with your ABCD logic
+      if (!(tag == TightTag::kTight || tag == TightTag::kNonTight))
     {
       if (Verbosity() >= 8)
       {

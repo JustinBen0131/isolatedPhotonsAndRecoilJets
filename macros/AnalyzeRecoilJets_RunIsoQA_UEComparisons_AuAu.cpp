@@ -1743,6 +1743,139 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 }
                             }
                         }
+                        
+                        // ── combined overlay: data + inclusive MC + photon+jet MC ──
+                        if (incMCvarTop && phoMCvarTop)
+                        {
+                            const string combOvDir = JoinPath(ptDir, "photonJetOverlays_inclusiveMCoverlays");
+                            EnsureDir(combOvDir);
+                            
+                            const string hAAName = "h_Eiso" + b.suffix + cb.suffix;
+                            TH1* hDataSrc = dynamic_cast<TH1*>(aaTop->Get(hAAName.c_str()));
+                            TH1* hIncSrc  = dynamic_cast<TH1*>(incMCvarTop->Get(hAAName.c_str()));
+                            TH1* hPhoSrc  = dynamic_cast<TH1*>(phoMCvarTop->Get(hAAName.c_str()));
+                            if (hDataSrc && hIncSrc && hPhoSrc)
+                            {
+                                TH1* hData = CloneTH1(hDataSrc,
+                                    TString::Format("hData_combOv_%s_%s_%s",
+                                        H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
+                                TH1* hInc = CloneTH1(hIncSrc,
+                                    TString::Format("hInc_combOv_%s_%s_%s",
+                                        H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
+                                TH1* hPho = CloneTH1(hPhoSrc,
+                                    TString::Format("hPho_combOv_%s_%s_%s",
+                                        H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
+                                if (hData && hInc && hPho)
+                                {
+                                    EnsureSumw2(hData); EnsureSumw2(hInc); EnsureSumw2(hPho);
+                                    hData->Rebin(10); hInc->Rebin(10); hPho->Rebin(10);
+                                    
+                                    const double intData = hData->Integral(0, hData->GetNbinsX() + 1);
+                                    const double intInc  = hInc->Integral(0, hInc->GetNbinsX() + 1);
+                                    const double intPho  = hPho->Integral(0, hPho->GetNbinsX() + 1);
+                                    if (intData > 0.0 && intInc > 0.0 && intPho > 0.0)
+                                    {
+                                        hData->Scale(1.0 / intData);
+                                        hInc->Scale(1.0 / intInc);
+                                        hPho->Scale(1.0 / intPho);
+                                        
+                                        hData->SetLineColor(kBlue + 1);
+                                        hData->SetMarkerColor(kBlue + 1);
+                                        hData->SetMarkerStyle(20);
+                                        hData->SetMarkerSize(1.0);
+                                        hData->SetLineWidth(2);
+                                        hData->SetFillStyle(0);
+                                        
+                                        hPho->SetTitle("");
+                                        hPho->SetLineColor(kBlack);
+                                        hPho->SetLineWidth(2);
+                                        hPho->SetFillStyle(0);
+                                        hPho->SetMarkerSize(0.0);
+                                        for (int ib = 0; ib <= hPho->GetNbinsX() + 1; ++ib) hPho->SetBinError(ib, 0.0);
+                                        
+                                        hInc->SetLineColor(kRed + 1);
+                                        hInc->SetLineWidth(2);
+                                        hInc->SetLineStyle(2);
+                                        hInc->SetFillStyle(0);
+                                        hInc->SetMarkerSize(0.0);
+                                        for (int ib = 0; ib <= hInc->GetNbinsX() + 1; ++ib) hInc->SetBinError(ib, 0.0);
+                                        
+                                        const double ymx = std::max({hData->GetMaximum(), hInc->GetMaximum(), hPho->GetMaximum()});
+                                        
+                                        TCanvas cCombOv(
+                                            TString::Format("c_combOv_%s_%s_%s",
+                                                H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
+                                            "c_combOv", 900, 700);
+                                        ApplyCanvasMargins1D(cCombOv);
+                                        cCombOv.cd();
+                                        
+                                        hPho->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
+                                        hPho->GetYaxis()->SetTitle("Normalized to unit area");
+                                        hPho->GetXaxis()->SetTitleSize(0.055);
+                                        hPho->GetYaxis()->SetTitleSize(0.055);
+                                        hPho->GetXaxis()->SetLabelSize(0.045);
+                                        hPho->GetYaxis()->SetLabelSize(0.045);
+                                        hPho->GetYaxis()->SetTitleOffset(1.15);
+                                        hPho->SetMinimum(0.0);
+                                        hPho->SetMaximum((ymx > 0.0) ? (1.25 * ymx) : 1.0);
+                                        
+                                        hPho->Draw("hist");
+                                        hInc->Draw("hist SAME");
+                                        hData->Draw("E1 SAME");
+                                        
+                                        TLegend legComb(0.50, 0.68, 0.92, 0.88);
+                                        legComb.SetBorderSize(0);
+                                        legComb.SetFillStyle(0);
+                                        legComb.SetTextFont(42);
+                                        legComb.SetTextSize(0.032);
+                                        legComb.AddEntry(hData, TString::Format("AuAu data (%s)", H.label.c_str()).Data(), "ep");
+                                        legComb.AddEntry(hPho, "photon+jet MC", "l");
+                                        legComb.AddEntry(hInc, "inclusive jet MC", "l");
+                                        legComb.Draw();
+                                        
+                                        TLatex tCombTitle;
+                                        tCombTitle.SetNDC(true);
+                                        tCombTitle.SetTextFont(42);
+                                        tCombTitle.SetTextAlign(23);
+                                        tCombTitle.SetTextSize(0.038);
+                                        tCombTitle.DrawLatex(0.50, 0.97,
+                                            "E_{T}^{iso} overlay: AuAu data vs photon+jet & inclusive embedded MC");
+                                        
+                                        TLatex tCombInfo;
+                                        tCombInfo.SetNDC(true);
+                                        tCombInfo.SetTextFont(42);
+                                        tCombInfo.SetTextAlign(13);
+                                        tCombInfo.SetTextSize(0.045);
+                                        tCombInfo.DrawLatex(0.18, 0.89, TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
+                                        tCombInfo.DrawLatex(0.18, 0.85, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+                                        
+                                        TLatex tSph;
+                                        tSph.SetNDC(true);
+                                        tSph.SetTextFont(42);
+                                        tSph.SetTextAlign(33);
+                                        tSph.SetTextSize(0.048);
+                                        tSph.DrawLatex(0.92, 0.6, "#bf{sPHENIX} #it{Internal}");
+                                        tSph.SetTextSize(0.038);
+                                        tSph.DrawLatex(0.92, 0.54, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                                        
+                                        TLatex tUE;
+                                        tUE.SetNDC(true);
+                                        tUE.SetTextFont(42);
+                                        tUE.SetTextAlign(33);
+                                        tUE.SetTextSize(0.034);
+                                        tUE.DrawLatex(0.92, 0.46, trigDisplayLabel.c_str());
+                                        tUE.DrawLatex(0.92, 0.42, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
+                                        tUE.DrawLatex(0.92, 0.38, TString::Format("UE: %s", H.label.c_str()).Data());
+                                        tUE.DrawLatex(0.92, 0.34, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                                        
+                                        SaveCanvas(cCombOv, JoinPath(combOvDir, "Eiso_dataMC_overlay.png"));
+                                    }
+                                }
+                                if (hData) delete hData;
+                                if (hInc)  delete hInc;
+                                if (hPho)  delete hPho;
+                            }
+                        }
                     }
                 }
                 
@@ -5407,8 +5540,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         EnsureDir(centDir);
                         
                         // Pre-pass: accumulate Gaussian means for all 4 series across pT bins
-                        vector<double> tntSubTDX, tntSubTDY, tntSubTDEY;
-                        vector<double> tntSubNTDX, tntSubNTDY, tntSubNTDEY;
+                        vector<double> tntSubTDX, tntSubTDY, tntSubTDEY, tntSubTDSigY, tntSubTDSigEY;
+                        vector<double> tntSubNTDX, tntSubNTDY, tntSubNTDEY, tntSubNTDSigY, tntSubNTDSigEY;
                         for (int iptPre = 0; iptPre < kNPtBins; ++iptPre)
                         {
                             const PtBin& bPre = PtBins()[iptPre];
@@ -5416,7 +5549,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             const double ptC = 0.5 * (kPtEdges[(std::size_t)iptPre] + kPtEdges[(std::size_t)iptPre + 1]);
                             const string hTN  = "h_Eiso_tight" + bPre.suffix + cb.suffix;
                             const string hNTN = "h_Eiso_nonTight" + bPre.suffix + cb.suffix;
-                            auto FitAndPush = [&](TDirectory* dir, const string& hName, vector<double>& vx, vector<double>& vy, vector<double>& vey) {
+                            auto FitAndPush = [&](TDirectory* dir, const string& hName, vector<double>& vx, vector<double>& vy, vector<double>& vey,
+                                                  vector<double>& vsy, vector<double>& vsey) {
                                 TH1* hSrc = dynamic_cast<TH1*>(dir->Get(hName.c_str()));
                                 if (!hSrc) return;
                                 TH1* hTmp = CloneTH1(hSrc, TString::Format("hPreFit_%s_%d_%p", hName.c_str(), iptPre, (void*)dir).Data());
@@ -5424,11 +5558,11 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 hTmp->Rebin(10); EnsureSumw2(hTmp);
                                 double gM, gS, gME, gSE;
                                 if (FitGaussianIterative(hTmp, gM, gS, gME, gSE))
-                                { vx.push_back(ptC); vy.push_back(gM); vey.push_back(gME); }
+                                { vx.push_back(ptC); vy.push_back(gM); vey.push_back(gME); vsy.push_back(gS); vsey.push_back(gSE); }
                                 delete hTmp;
                             };
-                            FitAndPush(dataTop, hTN,  tntSubTDX,  tntSubTDY,  tntSubTDEY);
-                                                        FitAndPush(dataTop, hNTN, tntSubNTDX, tntSubNTDY, tntSubNTDEY);
+                            FitAndPush(dataTop, hTN,  tntSubTDX,  tntSubTDY,  tntSubTDEY,  tntSubTDSigY,  tntSubTDSigEY);
+                            FitAndPush(dataTop, hNTN, tntSubNTDX, tntSubNTDY, tntSubNTDEY, tntSubNTDSigY, tntSubNTDSigEY);
                         }
                         double tntSubYLo = 1e30, tntSubYHi = -1e30;
                         auto TntUpdateRange = [&](const vector<double>& y, const vector<double>& ey) {
@@ -5440,6 +5574,15 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         const bool tntHaveSub = (tntSubYHi > tntSubYLo) &&
                                                      (!tntSubTDX.empty() || !tntSubNTDX.empty());
                         const double tntSubPad = tntHaveSub ? std::max(0.35 * (tntSubYHi - tntSubYLo), 0.5) : 1.0;
+                        
+                        double tntSigYLo = 1e30, tntSigYHi = -1e30;
+                        auto TntUpdateSigRange = [&](const vector<double>& y, const vector<double>& ey) {
+                            for (std::size_t i = 0; i < y.size(); ++i) {
+                                tntSigYLo = std::min(tntSigYLo, y[i] - ey[i]);
+                                tntSigYHi = std::max(tntSigYHi, y[i] + ey[i]); } };
+                        TntUpdateSigRange(tntSubTDSigY, tntSubTDSigEY);
+                        TntUpdateSigRange(tntSubNTDSigY, tntSubNTDSigEY);
+                        const double tntSigPad = tntHaveSub ? std::max(0.35 * (tntSigYHi - tntSigYLo), 0.5) : 1.0;
                         
                         for (const auto& b : PtBins())
                         {
@@ -5547,12 +5690,12 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             TCanvas cTNT(
                                          TString::Format("c_tightNonTight_%s_%s_%s_%s",
                                                          mcOverlayFolder.c_str(), dataH.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
-                                         "c_tightNonTight", 900, tntHaveSub ? 850 : 700
+                                         "c_tightNonTight", 900, tntHaveSub ? 1000 : 700
                                          );
                             cTNT.cd();
                             
                             // Upper pad
-                            const double tntPadLoEdge = tntHaveSub ? 0.28 : 0.0;
+                            const double tntPadLoEdge = tntHaveSub ? 0.36 : 0.0;
                             TPad* padUpTNT = new TPad("padUpTNT", "padUpTNT", 0.0, tntPadLoEdge, 1.0, 1.0);
                             padUpTNT->SetBottomMargin(tntHaveSub ? 0.10 : 0.12);
                             padUpTNT->SetLeftMargin(0.14);
@@ -5563,7 +5706,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             
                             hTMc->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
                             hTMc->GetYaxis()->SetTitle("Normalized to unit area");
-                            hTMc->GetXaxis()->SetTitleSize(0.055);
+                            hTMc->GetXaxis()->SetTitleSize(0.045);
                             hTMc->GetYaxis()->SetTitleSize(0.055);
                             hTMc->GetXaxis()->SetLabelSize(0.045);
                             hTMc->GetYaxis()->SetLabelSize(0.045);
@@ -5577,6 +5720,9 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             hNTMc->Draw("hist SAME");
                             hTData->Draw("E1 SAME");
                             hNTData->Draw("E1 SAME");
+                            
+                            TF1* fTDataGauss  = DrawGaussFitCurve(hTData,  kBlack);
+                            TF1* fNTDataGauss = DrawGaussFitCurve(hNTData, kRed+1);
                             
                             TLegend legTNT(0.58, 0.68, 0.92, 0.88);
                             legTNT.SetBorderSize(0);
@@ -5625,17 +5771,17 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             tUE.DrawLatex(0.92, 0.45, TString::Format("UE: %s", dataH.label.c_str()).Data());
                             tUE.DrawLatex(0.92, 0.41, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
                             
-                            // Lower pad: Gaussian mean vs pT summary (all 4 series)
+                            // Middle pad: Gaussian mean vs pT
                             if (tntHaveSub)
                             {
                                 cTNT.cd();
-                                TPad* padLoTNT = new TPad("padLoTNT", "padLoTNT", 0.0, 0.0, 1.0, 0.28);
-                                padLoTNT->SetTopMargin(0.02);
-                                padLoTNT->SetBottomMargin(0.30);
-                                padLoTNT->SetLeftMargin(0.14);
-                                padLoTNT->SetRightMargin(0.04);
-                                padLoTNT->Draw();
-                                padLoTNT->cd();
+                                TPad* padMidTNT = new TPad("padMidTNT", "padMidTNT", 0.0, 0.21, 1.0, 0.36);
+                                padMidTNT->SetTopMargin(0.02);
+                                padMidTNT->SetBottomMargin(0.00);
+                                padMidTNT->SetLeftMargin(0.14);
+                                padMidTNT->SetRightMargin(0.04);
+                                padMidTNT->Draw();
+                                padMidTNT->cd();
                                 
                                 TH1F* hFrSubTNT = new TH1F(
                                     TString::Format("hFrSub_tnt_%s_%s_%s_%s",
@@ -5645,14 +5791,14 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 hFrSubTNT->SetMinimum(tntSubYLo - tntSubPad);
                                 hFrSubTNT->SetMaximum(tntSubYHi + tntSubPad);
                                 hFrSubTNT->GetYaxis()->SetTitle("#mu^{Gauss}[GeV]");
-                                hFrSubTNT->GetYaxis()->SetTitleSize(0.12);
-                                hFrSubTNT->GetYaxis()->SetTitleOffset(0.45);
-                                hFrSubTNT->GetYaxis()->SetLabelSize(0.10);
+                                hFrSubTNT->GetYaxis()->SetTitleSize(0.19);
+                                hFrSubTNT->GetYaxis()->SetTitleOffset(0.28);
+                                hFrSubTNT->GetYaxis()->SetLabelSize(0.14);
                                 hFrSubTNT->GetYaxis()->SetNdivisions(505);
-                                hFrSubTNT->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                                hFrSubTNT->GetXaxis()->SetTitleSize(0.12);
-                                hFrSubTNT->GetXaxis()->SetTitleOffset(0.95);
-                                hFrSubTNT->GetXaxis()->SetLabelSize(0.10);
+                                hFrSubTNT->GetXaxis()->SetTitle("");
+                                hFrSubTNT->GetXaxis()->SetTitleSize(0.0);
+                                hFrSubTNT->GetXaxis()->SetLabelSize(0.0);
+                                hFrSubTNT->GetXaxis()->SetTickLength(0.0);
                                 hFrSubTNT->Draw();
                                 
                                 auto MakeSubG = [](const vector<double>& x, const vector<double>& y, const vector<double>& ey,
@@ -5667,16 +5813,45 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 TGraphErrors* gTD  = MakeSubG(tntSubTDX,  tntSubTDY,  tntSubTDEY,  20, kBlack);
                                 TGraphErrors* gNTD = MakeSubG(tntSubNTDX, tntSubNTDY, tntSubNTDEY, 24, kRed+1);
                                 
-                                // highlight current pT bin
-                                TLine lCur(0.5*(b.lo+b.hi), hFrSubTNT->GetMinimum(), 0.5*(b.lo+b.hi), hFrSubTNT->GetMaximum());
-                                lCur.SetLineColor(kGray+1); lCur.SetLineStyle(3); lCur.SetLineWidth(2);
-                                lCur.DrawClone();
+                                // Bottom pad: Gaussian sigma vs pT
+                                cTNT.cd();
+                                TPad* padBotTNT = new TPad("padBotTNT", "padBotTNT", 0.0, 0.0, 1.0, 0.21);
+                                padBotTNT->SetTopMargin(0.00);
+                                padBotTNT->SetBottomMargin(0.30);
+                                padBotTNT->SetLeftMargin(0.14);
+                                padBotTNT->SetRightMargin(0.04);
+                                padBotTNT->Draw();
+                                padBotTNT->cd();
+                                
+                                TH1F* hFrSigTNT = new TH1F(
+                                    TString::Format("hFrSig_tnt_%s_%s_%s_%s",
+                                        mcOverlayFolder.c_str(), dataH.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
+                                    "", 100, 10.0, kPtEdges.back());
+                                hFrSigTNT->SetDirectory(nullptr); hFrSigTNT->SetStats(0);
+                                hFrSigTNT->SetMinimum(tntSigYLo - tntSigPad);
+                                hFrSigTNT->SetMaximum(tntSigYHi + tntSigPad);
+                                hFrSigTNT->GetYaxis()->SetTitle("#sigma^{Gauss}[GeV]");
+                                hFrSigTNT->GetYaxis()->SetTitleSize(0.14);
+                                hFrSigTNT->GetYaxis()->SetTitleOffset(0.32);
+                                hFrSigTNT->GetYaxis()->SetLabelSize(0.10);
+                                hFrSigTNT->GetYaxis()->SetNdivisions(505);
+                                hFrSigTNT->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                                hFrSigTNT->GetXaxis()->SetTitleSize(0.12);
+                                hFrSigTNT->GetXaxis()->SetTitleOffset(0.95);
+                                hFrSigTNT->GetXaxis()->SetLabelSize(0.10);
+                                hFrSigTNT->Draw();
+                                
+                                TGraphErrors* gTDSig  = MakeSubG(tntSubTDX,  tntSubTDSigY,  tntSubTDSigEY,  20, kBlack);
+                                TGraphErrors* gNTDSig = MakeSubG(tntSubNTDX, tntSubNTDSigY, tntSubNTDSigEY, 24, kRed+1);
                                 
                                 cTNT.Modified();
                                 cTNT.Update();
                                 
                                 SaveCanvas(cTNT, JoinPath(ptDir, "Eiso_tightNonTight_overlay.png"));
                                 
+                                if (gTDSig)  delete gTDSig;
+                                if (gNTDSig) delete gNTDSig;
+                                delete hFrSigTNT;
                                 if (gTD)  delete gTD;
                                 if (gNTD) delete gNTD;
                                 delete hFrSubTNT;
@@ -5684,8 +5859,11 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             
                             if (!tntHaveSub)
                                 SaveCanvas(cTNT, JoinPath(ptDir, "Eiso_tightNonTight_overlay.png"));
+                            
+                            if (fTDataGauss)  delete fTDataGauss;
+                            if (fNTDataGauss) delete fNTDataGauss;
                                                         
-                            // --- save 4 individual unnormalized distributions ---
+                            // --- save 4 individual unnormalized distributions ---s
                             {
                                 const std::vector<std::pair<TH1*,std::string>> rawVec = {
                                     {hTDataSrc,  "Eiso_tight_data"},
