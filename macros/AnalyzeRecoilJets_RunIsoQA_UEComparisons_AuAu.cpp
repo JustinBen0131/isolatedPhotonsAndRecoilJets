@@ -66,9 +66,14 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
     };
     
     const string outRoot = kOutputBase + "/auau/" + CfgTagAA();
+    const bool perVariantIsoQAOnlyActive = (!forEmbeddedSim && perVariantIsoQA_ONLY);
     
-    const vector<string> ueVariants = {"noSub", "baseVariant", "variantA", "variantB"};
-    const vector<string> ueLabels   = {"No UE Sub", "with UE Sub", "Variant A", "Variant B"};
+    const vector<string> ueVariants = perVariantIsoQAOnlyActive
+    ? vector<string>{"noSub", "baseVariant"}
+    : vector<string>{"noSub", "baseVariant", "variantA", "variantB"};
+    const vector<string> ueLabels   = perVariantIsoQAOnlyActive
+    ? vector<string>{"No UE Sub", "with UE Sub"}
+    : vector<string>{"No UE Sub", "with UE Sub", "Variant A", "Variant B"};
     
     const auto& centBins = CentBins();
     if (centBins.empty())
@@ -333,12 +338,15 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
         const string perVariantOverlayBase = JoinPath(ueCompBase, "perVariantOverlays");
         const string layerByLayerBase = JoinPath(ueCompBase, "layerByLayerOverlays");
         EnsureDir(ueCompBase);
-        EnsureDir(centralitySummaryBase);
-        EnsureDir(meanIsoSummaryDir);
-        EnsureDir(ptSummaryBase);
-        EnsureDir(ptMeanIsoSummaryDir);
-        EnsureDir(perVariantOverlayBase);
-        EnsureDir(layerByLayerBase);
+        if (!perVariantIsoQAOnlyActive)
+        {
+            EnsureDir(centralitySummaryBase);
+            EnsureDir(meanIsoSummaryDir);
+            EnsureDir(ptSummaryBase);
+            EnsureDir(ptMeanIsoSummaryDir);
+            EnsureDir(perVariantOverlayBase);
+            EnsureDir(layerByLayerBase);
+        }
         
         if ((skipToCentralityAndPtOverlaysWithSSQA || SSoverlayPerVAR_processONLY) && !generateUEcomparisonSSQA)
         {
@@ -638,8 +646,11 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             const string variantPtSummaryDir = JoinPath(ptSummaryBase, H.variant);
             const bool doVariantDetailPlots = !forEmbeddedSim;
             if (doVariantDetailPlots) EnsureDir(variantDir);
-            EnsureDir(variantCentralitySummaryDir);
-            EnsureDir(variantPtSummaryDir);
+            if (!perVariantIsoQAOnlyActive)
+            {
+                EnsureDir(variantCentralitySummaryDir);
+                EnsureDir(variantPtSummaryDir);
+            }
             
             TDirectory* aaTop = H.file->GetDirectory(sourceTopDirName.c_str());
             if (!aaTop) continue;
@@ -670,7 +681,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             }
             
             // -- layer-by-layer overlays (active UE variant only, written directly under UEcomparisons/) --
-            if (!forEmbeddedSim && (H.variant == "noSub" || H.variant == "baseVariant"))
+            if (!perVariantIsoQAOnlyActive && !forEmbeddedSim && (H.variant == "noSub" || H.variant == "baseVariant"))
             {
                 auto MergeLayerHist = [&](TDirectory* dir,
                                           const string& histBase,
@@ -2782,8 +2793,9 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     
                     cCO.Modified();
                     cCO.Update();
-                    SaveCanvas(cCO, JoinPath(variantCentralitySummaryDir,
-                                             TString::Format("isoCentOverlay_counts_%s.png", b.folder.c_str()).Data()));
+                    if (!perVariantIsoQAOnlyActive)
+                        SaveCanvas(cCO, JoinPath(variantCentralitySummaryDir,
+                                                 TString::Format("isoCentOverlay_counts_%s.png", b.folder.c_str()).Data()));
                     
                     TCanvas cCOTopOnly(
                                        TString::Format("c_isoCentOverlayTopOnly_%s_%s_%s",
@@ -2797,8 +2809,9 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     DrawCentralityOverlayTop(gaussCurvesTopOnly);
                     cCOTopOnly.Modified();
                     cCOTopOnly.Update();
-                    SaveCanvas(cCOTopOnly, JoinPath(variantCentralitySummaryDir,
-                                                    TString::Format("isoCentOverlay_counts_topOnly_%s.png", b.folder.c_str()).Data()));
+                    if (!perVariantIsoQAOnlyActive)
+                        SaveCanvas(cCOTopOnly, JoinPath(variantCentralitySummaryDir,
+                                                        TString::Format("isoCentOverlay_counts_topOnly_%s.png", b.folder.c_str()).Data()));
                     for (auto* f : gaussCurvesTopOnly) delete f;
                     
                     if (gSig) delete gSig;
@@ -2926,8 +2939,9 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         tInfo.DrawLatex(0.88, 0.83, TString::Format("#DeltaR_{cone} < %.1f", coneRVal).Data());
                     }
                     
-                    SaveCanvas(cPP, JoinPath(variantCentralitySummaryDir,
-                                             TString::Format("ppIso_counts_%s.png", b.folder.c_str()).Data()));
+                    if (!perVariantIsoQAOnlyActive)
+                        SaveCanvas(cPP, JoinPath(variantCentralitySummaryDir,
+                                                 TString::Format("ppIso_counts_%s.png", b.folder.c_str()).Data()));
                     
                     if (fDraw) delete fDraw;
                     delete hPP;
@@ -3203,8 +3217,9 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     cPO.Modified();
                     cPO.Update();
                     SaveCanvas(cPO, JoinPath(centSubDir, "isoPtOverlay_counts.png"));
-                    SaveCanvas(cPO, JoinPath(variantPtSummaryDir,
-                                             TString::Format("isoPtOverlay_counts_%s.png", cb.folder.c_str()).Data()));
+                    if (!perVariantIsoQAOnlyActive)
+                        SaveCanvas(cPO, JoinPath(variantPtSummaryDir,
+                                                 TString::Format("isoPtOverlay_counts_%s.png", cb.folder.c_str()).Data()));
                     
                     if (gSubPtSig) delete gSubPtSig;
                     if (hFrSubPtSig) delete hFrSubPtSig;
@@ -3229,7 +3244,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
         const int variantColors[4]  = {kBlack, kBlue + 1, kOrange + 7, kGreen + 2};
         const int variantMarkers[4] = {20, 20, 20, 20};
         
-        if (!generateISOpTcentOverlaysONLY)
+        if (!generateISOpTcentOverlaysONLY && !perVariantIsoQAOnlyActive)
         {
             for (std::size_t ic = 0; ic < centBins.size(); ++ic)
             {
@@ -4003,7 +4018,9 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                 }
             }
             
-        } // end if (!generateISOpTcentOverlaysONLY) — perVariantOverlay + multi-variant sections
+        } // end if (!generateISOpTcentOverlaysONLY && !perVariantIsoQAOnlyActive) — perVariantOverlay + multi-variant sections
+        
+        if (perVariantIsoQAOnlyActive) continue;
         
         for (int ipt = 0; ipt < kNPtBins; ++ipt)
         {

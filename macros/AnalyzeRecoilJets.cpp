@@ -14458,6 +14458,53 @@ int Run()
     }
     
     // ---------------------------------------------------------------------------
+    // Fast paths that must run BEFORE OpenDataset(), so no extra outBase folders
+    // or missing_hists_*.txt files are created.
+    // ---------------------------------------------------------------------------
+    if (perVariantIsoQA_ONLY || generateISOpTcentOverlaysONLY)
+    {
+        if (mode == RunMode::kAuAuOnly || mode == RunMode::kSimAndDataAUAU)
+        {
+            if (perVariantIsoQA_ONLY)
+            {
+                cout << ANSI_BOLD_CYN
+                << "\n[perVariantIsoQA_ONLY] Running only noSub/baseVariant isoQA UE comparison outputs...\n"
+                << ANSI_RESET;
+                analysis::RunIsoQA_UEComparisons_AuAu();
+                cout << ANSI_BOLD_GRN
+                << "[perVariantIsoQA_ONLY] Done.\n"
+                << ANSI_RESET;
+            }
+            else
+            {
+                cout << ANSI_BOLD_CYN
+                << "\n[generateISOpTcentOverlaysONLY] Running isolation pT/centrality overlays only...\n"
+                << ANSI_RESET;
+                analysis::RunIsoQA_UEComparisons_AuAu();
+                cout << ANSI_BOLD_GRN
+                << "[generateISOpTcentOverlaysONLY] Done.\n"
+                << ANSI_RESET;
+            }
+        }
+        else
+        {
+            if (perVariantIsoQA_ONLY)
+            {
+                cout << ANSI_BOLD_YEL
+                << "[WARN] perVariantIsoQA_ONLY requires kAuAuOnly or kSimAndDataAUAU mode — skipping.\n"
+                << ANSI_RESET;
+            }
+            else
+            {
+                cout << ANSI_BOLD_YEL
+                << "[WARN] generateISOpTcentOverlaysONLY requires kAuAuOnly or kSimAndDataAUAU mode — skipping.\n"
+                << ANSI_RESET;
+            }
+        }
+        return 0;
+    }
+    
+    // ---------------------------------------------------------------------------
     // Open datasets (fail-fast)
     // ---------------------------------------------------------------------------
     cout << ANSI_BOLD_CYN << "\n[STEP 3] Open all datasets (fail-fast)\n" << ANSI_RESET;
@@ -14480,30 +14527,6 @@ int Run()
         }
         
         cout << ANSI_BOLD_GRN << "     [OK] Opened.\n" << ANSI_RESET;
-    }
-    
-    // ---------------------------------------------------------------------------
-    // Fast path: only produce centralitySummaryPerPt + pTsummaryPerCentrality + Gaussian summaries
-    // ---------------------------------------------------------------------------
-    if (generateISOpTcentOverlaysONLY)
-    {
-        if (mode == RunMode::kAuAuOnly || mode == RunMode::kSimAndDataAUAU)
-        {
-            cout << ANSI_BOLD_CYN
-            << "\n[generateISOpTcentOverlaysONLY] Running isolation pT/centrality overlays only...\n"
-            << ANSI_RESET;
-            analysis::RunIsoQA_UEComparisons_AuAu();
-            cout << ANSI_BOLD_GRN
-            << "[generateISOpTcentOverlaysONLY] Done.\n"
-            << ANSI_RESET;
-        }
-        else
-        {
-            cout << ANSI_BOLD_YEL
-            << "[WARN] generateISOpTcentOverlaysONLY requires kAuAuOnly or kSimAndDataAUAU mode — skipping.\n"
-            << ANSI_RESET;
-        }
-        return 0;
     }
     
     // ---------------------------------------------------------------------------

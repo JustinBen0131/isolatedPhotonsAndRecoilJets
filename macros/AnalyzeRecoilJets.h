@@ -97,7 +97,7 @@ namespace ARJ
   inline bool isSimAndDataPP = false;
   inline bool isSimAndDataAUAU = true;
   inline bool isSimEmbeddedOnly = false;
-  inline bool isAuAuOnly     = true;
+  inline bool isAuAuOnly     = false;
 
   inline bool isPPdataAndAUAU = false;
 
@@ -105,6 +105,7 @@ namespace ARJ
   inline bool skipToCentralityAndPtOverlaysWithSSQA = false;
   inline bool SSoverlayPerVAR_processONLY           = false;
   inline bool generateISOpTcentOverlaysONLY         = false;
+  inline bool perVariantIsoQA_ONLY                  = true;
 
   inline bool generatePerRunTriggerAna = false;
   inline bool generatePerRunTriggerAnaForGoodRunsOnly = false;
