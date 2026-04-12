@@ -97,14 +97,14 @@ namespace ARJ
   inline bool isSimAndDataPP = false;
   inline bool isSimAndDataAUAU = true;
   inline bool isSimEmbeddedOnly = false;
-  inline bool isAuAuOnly     = false;
+  inline bool isAuAuOnly     = true;
 
   inline bool isPPdataAndAUAU = false;
 
   inline bool generateUEcomparisonSSQA = false;
   inline bool skipToCentralityAndPtOverlaysWithSSQA = false;
   inline bool SSoverlayPerVAR_processONLY           = false;
-  inline bool generateISOpTcentOverlaysONLY         = true;
+  inline bool generateISOpTcentOverlaysONLY         = false;
 
   inline bool generatePerRunTriggerAna = false;
   inline bool generatePerRunTriggerAnaForGoodRunsOnly = false;

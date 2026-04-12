@@ -344,6 +344,226 @@ void RunEventLevelQA(Dataset& ds)
     }
     
     // ------------------------------------------------------------------
+    // AuAu DATA: centrality-INDEPENDENT z_vtx overlay + ratio ROOT file
+    //   Outputs directly to <trigger>/ level (parent of centFolder)
+    //   Runs once per trigger using static guard
+    // ------------------------------------------------------------------
+    if (!ds.isSim && !ds.centFolder.empty())
+    {
+        static std::set<string> zvtxCentIndepDone;
+        const string guardKey = ds.inFilePath + "|" + ds.trigger;
+        
+        if (zvtxCentIndepDone.find(guardKey) == zvtxCentIndepDone.end())
+        {
+            zvtxCentIndepDone.insert(guardKey);
+            
+            // Trigger-level output dir = parent of centFolder
+            const string trigLevelDir = ds.outBase.substr(0, ds.outBase.rfind('/'));
+            
+            struct ZvtxCISource {
+                string simPath;
+                string simLabel;
+                string tag;      // short tag for ROOT file naming
+            };
+            vector<ZvtxCISource> ciSources;
+            
+            // Photon+Jet embedded
+            {
+                string path, label, tag;
+                if (bothPhoton10and20simEmbedded)
+                {
+                    path = MergedSimEmbeddedPath("photonJet10and20merged_SIM",
+                                                 "RecoilJets_embeddedPhoton10plus20_MERGED.root");
+                    label = "Photon+Jet (10+20) Embedded";
+                    tag = "photonJet";
+                }
+                else if (isPhotonJet20Embedded)
+                {
+                    path = InputSimEmbeddedSample("embeddedPhoton20");
+                    label = "Photon+Jet 20 Embedded";
+                    tag = "photonJet";
+                }
+                else if (isPhotonJet10Embedded)
+                {
+                    path = InputSimEmbeddedSample("embeddedPhoton10");
+                    label = "Photon+Jet 10 Embedded";
+                    tag = "photonJet";
+                }
+                if (!path.empty() && !gSystem->AccessPathName(path.c_str()))
+                    ciSources.push_back({path, label, tag});
+            }
+            
+            // Inclusive jet embedded
+            {
+                string path, label, tag;
+                if (bothInclusiveJet10and20simEmbedded)
+                { /* TODO: merged */ }
+                else if (isInclusiveJet20Embedded)
+                {
+                    path = InputInclusiveJetEmbeddedSample("embeddedJet20");
+                    label = "Inclusive Jet 20 Embedded";
+                    tag = "inclusiveJet";
+                }
+                else if (isInclusiveJet10Embedded)
+                {
+                    path = InputInclusiveJetEmbeddedSample("embeddedJet10");
+                    label = "Inclusive Jet 10 Embedded";
+                    tag = "inclusiveJet";
+                }
+                if (!path.empty() && !gSystem->AccessPathName(path.c_str()))
+                    ciSources.push_back({path, label, tag});
+            }
+            
+            if (!ciSources.empty())
+            {
+                // Build area-normalized data histogram
+                TH1* hDataCI = CloneTH1(hFixed, "hDataCI_zvtx");
+                if (hDataCI)
+                {
+                    NormalizeToUnitArea(hDataCI);
+                    hDataCI->SetLineColor(kBlack);
+                    hDataCI->SetLineWidth(2);
+                    hDataCI->SetMarkerStyle(20);
+                    hDataCI->SetMarkerSize(0.9);
+                    hDataCI->SetMarkerColor(kBlack);
+                    
+                    struct CIHist { TH1F* h; TFile* f; string label; string tag; };
+                    vector<CIHist> ciHists;
+                    
+                    for (const auto& src : ciSources)
+                    {
+                        TFile* fCI = TFile::Open(src.simPath.c_str(), "READ");
+                        if (!fCI || fCI->IsZombie()) { if (fCI) { fCI->Close(); delete fCI; } continue; }
+                        TDirectory* ciTop = fCI->GetDirectory(kDirSIM.c_str());
+                        if (!ciTop) { fCI->Close(); delete fCI; continue; }
+                        TH1* hVci = dynamic_cast<TH1*>(ciTop->Get("h_vertexZ"));
+                        if (!hVci) { fCI->Close(); delete fCI; continue; }
+                        TH1F* hCIF = RebinToFixedBinWidthVertexZ(hVci, vzCutCm);
+                        if (!hCIF) { fCI->Close(); delete fCI; continue; }
+                        hCIF->SetDirectory(nullptr);
+                        hCIF->Rebin(2);
+                        NormalizeToUnitArea(hCIF);
+                        ciHists.push_back({hCIF, fCI, src.simLabel, src.tag});
+                    }
+                    
+                    if (!ciHists.empty())
+                    {
+                        const int ciColors[] = {kRed + 1, kBlue + 1};
+                        for (std::size_t ie = 0; ie < ciHists.size(); ++ie)
+                        {
+                            ciHists[ie].h->SetLineColor(ciColors[ie % 2]);
+                            ciHists[ie].h->SetLineWidth(2);
+                            ciHists[ie].h->SetFillStyle(0);
+                        }
+                        
+                        double yMaxCI = hDataCI->GetMaximum();
+                        for (auto& eh : ciHists) yMaxCI = std::max(yMaxCI, (double)eh.h->GetMaximum());
+                        
+                        TCanvas cCI("cCI_zvtx", "cCI_zvtx", 900, 700);
+                        ApplyCanvasMargins1D(cCI);
+                        cCI.cd();
+                        
+                        hDataCI->SetTitle("");
+                        hDataCI->GetXaxis()->SetTitle("v_{z} [cm]");
+                        hDataCI->GetYaxis()->SetTitle("Shape normalized");
+                        hDataCI->GetYaxis()->SetTitleOffset(1.15);
+                        hDataCI->SetMinimum(0.0);
+                        hDataCI->SetMaximum(1.45 * yMaxCI);
+                        hDataCI->Draw("E1");
+                        for (auto& eh : ciHists) eh.h->Draw("HIST SAME");
+                        hDataCI->Draw("E1 SAME");
+                        
+                        string trigDisplay = ds.trigger;
+                        if (trigDisplay.find("photon_10") != string::npos)
+                            trigDisplay = "Photon 10 GeV + MBD N&S #geq 1";
+                        else if (trigDisplay.find("photon_12") != string::npos)
+                            trigDisplay = "Photon 12 GeV + MBD N&S #geq 1";
+                        
+                        TLegend legCI(0.42, 0.78, 0.92, 0.92);
+                        legCI.SetBorderSize(0);
+                        legCI.SetFillStyle(0);
+                        legCI.SetTextFont(42);
+                        legCI.SetTextSize(0.032);
+                        legCI.AddEntry(hDataCI, "Au+Au data", "ep");
+                        for (auto& eh : ciHists) legCI.AddEntry(eh.h, eh.label.c_str(), "l");
+                        legCI.Draw();
+                        
+                        TLatex tCItitle;
+                        tCItitle.SetNDC(true);
+                        tCItitle.SetTextFont(42);
+                        tCItitle.SetTextAlign(23);
+                        tCItitle.SetTextSize(0.038);
+                        tCItitle.DrawLatex(0.50, 0.97, "z_{vtx}: Au+Au data and embedded SIM (centrality inclusive)");
+                        
+                        TLatex tCIinfo;
+                        tCIinfo.SetNDC(true);
+                        tCIinfo.SetTextFont(42);
+                        tCIinfo.SetTextAlign(33);
+                        tCIinfo.SetTextSize(0.034);
+                        tCIinfo.DrawLatex(0.92, 0.74, trigDisplay.c_str());
+                        tCIinfo.DrawLatex(0.92, 0.70, "Centrality inclusive");
+                        tCIinfo.DrawLatex(0.92, 0.66,
+                                          TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
+                        
+                        TLatex tSphCI;
+                        tSphCI.SetNDC(true);
+                        tSphCI.SetTextFont(42);
+                        tSphCI.SetTextAlign(33);
+                        tSphCI.SetTextSize(0.042);
+                        tSphCI.DrawLatex(0.92, 0.60, "#bf{sPHENIX} #it{Internal}");
+                        tSphCI.SetTextSize(0.034);
+                        tSphCI.DrawLatex(0.92, 0.55, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                        
+                        EnsureDir(trigLevelDir);
+                        SaveCanvas(cCI, JoinPath(trigLevelDir,
+                                                  "zvtx_DATA_allEmbedded_overlay_centInclusive_" + ds.trigger + ".png"));
+                        
+                        // --- ROOT file with area-normalized data/MC ratios ---
+                        {
+                            const string rootPath = JoinPath(trigLevelDir,
+                                                              "zvtx_dataMC_ratios_centInclusive_" + ds.trigger + ".root");
+                            TFile fOut(rootPath.c_str(), "RECREATE");
+                            
+                            // Save the normalized distributions
+                            TDirectory* dirDists = fOut.mkdir("normalized_distributions");
+                            dirDists->cd();
+                            hDataCI->Write("h_zvtx_data_areaNorm");
+                            for (auto& eh : ciHists)
+                                eh.h->Write(TString::Format("h_zvtx_%s_areaNorm", eh.tag.c_str()).Data());
+                            
+                            // Save data/MC ratios
+                            TDirectory* dirRatios = fOut.mkdir("data_over_MC_ratios");
+                            dirRatios->cd();
+                            for (auto& eh : ciHists)
+                            {
+                                TH1* hRatio = CloneTH1(hDataCI,
+                                    TString::Format("h_zvtx_ratio_data_over_%s", eh.tag.c_str()).Data());
+                                if (hRatio)
+                                {
+                                    hRatio->Divide(eh.h);
+                                    hRatio->SetTitle(
+                                        TString::Format("Data / %s (area-normalized)", eh.label.c_str()).Data());
+                                    hRatio->GetYaxis()->SetTitle("Data / MC");
+                                    hRatio->Write();
+                                    delete hRatio;
+                                }
+                            }
+                            
+                            fOut.Close();
+                            cout << ANSI_BOLD_GRN
+                                 << "[WROTE] " << rootPath
+                                 << ANSI_RESET << "\n";
+                        }
+                    }
+                    
+                    for (auto& eh : ciHists) { delete eh.h; eh.f->Close(); delete eh.f; }
+                    delete hDataCI;
+                }
+            }
+        }
+    }
+    
+    // ------------------------------------------------------------------
     // SIM ONLY: truth-vs-reco vertex 2D QA (pre-cut fill in RecoilJets.cc)
     //   X = v_z^truth, Y = v_z^(reco-used)
     // ------------------------------------------------------------------

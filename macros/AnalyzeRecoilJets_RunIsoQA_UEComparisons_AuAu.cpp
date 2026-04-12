@@ -705,11 +705,11 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     return hSum;
                 };
                 
-                auto PrepareLayerHist = [&](TH1* h, bool isData, int color) -> bool
+                auto PrepareLayerHist = [&](TH1* h, bool isData, int color, int rebinFactor = 1) -> bool
                 {
                     if (!h) return false;
                     
-                    h->Rebin(10);
+                    if (rebinFactor > 1) h->Rebin(rebinFactor);
                     EnsureSumw2(h);
                     const double integ = h->Integral(0, h->GetNbinsX() + 1);
                     if (!(integ > 0.0)) return false;
@@ -830,6 +830,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         
                         vector<TH1*> keepAlive;
                         keepAlive.reserve(9);
+                        vector<TObject*> keepObjs;
                         
                         for (std::size_t ipanel = 0; ipanel < layerPanels.size(); ++ipanel)
                         {
@@ -877,9 +878,10 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             if (hPho)  keepAlive.push_back(hPho);
                             if (hInc)  keepAlive.push_back(hInc);
                             
-                            const bool haveData = PrepareLayerHist(hData, true, kBlack);
-                            const bool havePho  = PrepareLayerHist(hPho,  false, kRed + 1);
-                            const bool haveInc  = PrepareLayerHist(hInc,  false, kBlue + 1);
+                            const int layerRebin = (ipanel == 0) ? 8 : 1;  // EMCal=8, IHCal/OHCal=1
+                            const bool haveData = PrepareLayerHist(hData, true, kBlack, layerRebin);
+                            const bool havePho  = PrepareLayerHist(hPho,  false, kRed + 1, layerRebin);
+                            const bool haveInc  = PrepareLayerHist(hInc,  false, kBlue + 1, layerRebin);
                             
                             if (!haveData && !havePho && !haveInc)
                             {
@@ -913,7 +915,11 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             hFrame->GetYaxis()->SetLabelSize(0.045);
                             hFrame->GetYaxis()->SetTitleOffset(1.45);
                             hFrame->SetMinimum(0.0);
-                            hFrame->SetMaximum((yMaxLayer > 0.0) ? (1.25 * yMaxLayer) : 1.0);
+                            hFrame->SetMaximum((yMaxLayer > 0.0) ? (1.45 * yMaxLayer) : 1.0);
+
+                            // per-layer x-axis zoom
+                            if (ipanel == 1)      hFrame->GetXaxis()->SetRangeUser(-5.0, 10.0);   // IHCal
+                            else if (ipanel == 2)  hFrame->GetXaxis()->SetRangeUser(-5.0, 20.0);   // OHCal
                             
                             if (hFrame == hData) hFrame->Draw("E1");
                             else                 hFrame->Draw("hist");
@@ -922,31 +928,39 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             if (haveInc && hInc != hFrame) hInc->Draw("hist SAME");
                             if (haveData && hData != hFrame) hData->Draw("E1 SAME");
                             
-                            TLegend legLayer(0.55, 0.78, 0.92, 0.92);
-                            legLayer.SetBorderSize(0);
-                            legLayer.SetFillStyle(0);
-                            legLayer.SetTextFont(42);
-                            legLayer.SetTextSize(0.034);
-                            if (haveData) legLayer.AddEntry(hData, "Run25 Au+Au", "ep");
-                            if (havePho)  legLayer.AddEntry(hPho, photonLegend.c_str(), "l");
-                            if (haveInc)  legLayer.AddEntry(hInc, inclusiveLegend.c_str(), "l");
-                            legLayer.Draw();
-                            
-                            TLatex tSph;
-                            tSph.SetNDC(true);
-                            tSph.SetTextFont(42);
-                            tSph.SetTextAlign(33);
-                            tSph.SetTextSize(0.042);
-                            tSph.DrawLatex(0.92, 0.64, "#bf{sPHENIX} #it{Internal}");
-                            tSph.SetTextSize(0.034);
-                            tSph.DrawLatex(0.92, 0.59, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
-                            
+                            // panel label (always top-right)
                             TLatex tPanel;
                             tPanel.SetNDC(true);
                             tPanel.SetTextFont(42);
                             tPanel.SetTextAlign(33);
-                            tPanel.SetTextSize(0.050);
-                            tPanel.DrawLatex(0.92, 0.53, panel.panelTitle.c_str());
+                            tPanel.SetTextSize(0.060);
+                            tPanel.DrawLatex(0.92, 0.82, panel.panelTitle.c_str());
+
+                            // sPHENIX Internal only on center pad (IHCal)
+                            if (ipanel == 1)
+                            {
+                              TLatex tSph;
+                              tSph.SetNDC(true);
+                              tSph.SetTextFont(42);
+                              tSph.SetTextAlign(33);
+                              tSph.SetTextSize(0.042);
+                              tSph.DrawLatex(0.92, 0.76, "#bf{sPHENIX} #it{Internal}");
+                              tSph.SetTextSize(0.034);
+                              tSph.DrawLatex(0.92, 0.71, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                            }
+
+                            // per-pad legend (top-left)
+                            auto* legLayer = new TLegend(0.22, 0.72, 0.58, 0.85);
+                            legLayer->SetBorderSize(0);
+                            legLayer->SetFillStyle(0);
+                            legLayer->SetTextFont(42);
+                            legLayer->SetTextSize(0.03);
+                            if (haveData) legLayer->AddEntry(hData, "Run25 Au+Au", "ep");
+                            if (havePho)  legLayer->AddEntry(hPho, photonLegend.c_str(), "l");
+                            if (haveInc)  legLayer->AddEntry(hInc, inclusiveLegend.c_str(), "l");
+                            legLayer->Draw();
+                            keepObjs.push_back(legLayer);
+
                         }
                         
                         // -- draw canvas-wide title --
@@ -959,7 +973,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             tTitle.SetNDC(true);
                             tTitle.SetTextFont(42);
                             tTitle.SetTextAlign(23);
-                            tTitle.SetTextSize(0.032);
+                            tTitle.SetTextSize(0.055);
                             cLayer.cd(0);
                             tTitle.DrawLatex(0.50, 0.98, canvasTitle.c_str());
                         }
@@ -976,6 +990,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                                     TString::Format("layerByLayer_%s.png", lp.folder.c_str()).Data()));
                         
                         for (auto* hKeep : keepAlive) delete hKeep;
+                        for (auto* o : keepObjs) delete o;
                     }
                 }
             }
@@ -1553,9 +1568,28 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                     TH1* hSig = CloneTH1(hSigSrc, TString::Format("hSig_aaSig_%s_%s_%s_%s", mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
                                     if (hTd && hNTd && hSig)
                                     {
-                                        hTd->Rebin(10); hNTd->Rebin(10); hSig->Rebin(10);
-                                        { const double iTdAA=hTd->Integral(0,hTd->GetNbinsX()+1); const double iNTdAA=hNTd->Integral(0,hNTd->GetNbinsX()+1); const double iSigAA=hSig->Integral(0,hSig->GetNbinsX()+1);
-                                            if (iTdAA>0) hTd->Scale(1.0/iTdAA); if (iNTdAA>0) hNTd->Scale(1.0/iNTdAA); if (iSigAA>0) hSig->Scale(1.0/iSigAA); }
+                                        hTd->Scale(1.0, "width");
+                                        hNTd->Scale(1.0, "width");
+                                        hSig->Scale(1.0, "width");
+                                        hTd->Rebin(10);
+                                        hNTd->Rebin(10);
+                                        hSig->Rebin(10);
+                                        
+                                        const double meanIsoET = hTd->GetMean();
+                                        const double rmsIsoET  = hTd->GetRMS();
+                                        const double normCut   = meanIsoET + 1.75 * rmsIsoET;
+                                        
+                                        const int binNormLo = hTd->FindBin(normCut);
+                                        const int binNormHi = hTd->GetNbinsX();
+                                        
+                                        const double normTight    = hTd->Integral(binNormLo, binNormHi);
+                                        const double normNonTight = hNTd->Integral(binNormLo, binNormHi);
+                                        if (normNonTight > 0.0) hNTd->Scale(normTight / normNonTight);
+                                        
+                                        const double dataSignalYield = hTd->Integral() - hNTd->Integral();
+                                        const double mcSignalYield   = hSig->Integral();
+                                        if (mcSignalYield > 0.0) hSig->Scale(dataSignalYield / mcSignalYield);
+                                        
                                         hSig->SetLineColor(kBlue-9); hSig->SetFillColorAlpha(kBlue-9,0.5); hSig->SetFillStyle(1001); hSig->SetLineWidth(1); hSig->SetMarkerSize(0.0);
                                         hNTd->SetLineColor(kPink-4); hNTd->SetFillColorAlpha(kPink-4,0.5); hNTd->SetFillStyle(1001); hNTd->SetLineWidth(1); hNTd->SetMarkerSize(0.0);
                                         for (int ib=0; ib<=hSig->GetNbinsX()+1; ++ib) hSig->SetBinError(ib,0.0);
@@ -1568,7 +1602,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                         TCanvas cSB(TString::Format("c_aaSigBkg_%s_%s_%s_%s", mcCfg.folder.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(), "c_aaSigBkg", 900, 700);
                                         ApplyCanvasMargins1D(cSB); cSB.cd();
                                         hStack->SetTitle(""); hStack->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
-                                        hStack->GetYaxis()->SetTitle("Normalized to unit area");
+                                        hStack->GetYaxis()->SetTitle("Counts / Bin Width");
                                         hStack->GetXaxis()->SetTitleSize(0.055); hStack->GetYaxis()->SetTitleSize(0.055);
                                         hStack->GetXaxis()->SetLabelSize(0.045); hStack->GetYaxis()->SetLabelSize(0.045);
                                         hStack->GetYaxis()->SetTitleOffset(1.15);
@@ -1751,9 +1785,28 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                     TH1* hSigM = MergeHists(mcCfg.mcTop,"h_EisoReco_truthSigMatched", cb.suffix, "hSig_merged_"+mcCfg.folder+"_"+cb.folder);
                                     if (hTdM && hNTdM && hSigM)
                                     {
-                                        hTdM->Rebin(10); hNTdM->Rebin(10); hSigM->Rebin(10);
-                                        { const double iTdMN=hTdM->Integral(0,hTdM->GetNbinsX()+1); const double iNTdMN=hNTdM->Integral(0,hNTdM->GetNbinsX()+1); const double iSigMN=hSigM->Integral(0,hSigM->GetNbinsX()+1);
-                                            if (iTdMN>0) hTdM->Scale(1.0/iTdMN); if (iNTdMN>0) hNTdM->Scale(1.0/iNTdMN); if (iSigMN>0) hSigM->Scale(1.0/iSigMN); }
+                                        hTdM->Scale(1.0, "width");
+                                        hNTdM->Scale(1.0, "width");
+                                        hSigM->Scale(1.0, "width");
+                                        hTdM->Rebin(10);
+                                        hNTdM->Rebin(10);
+                                        hSigM->Rebin(10);
+                                        
+                                        const double meanIsoETM = hTdM->GetMean();
+                                        const double rmsIsoETM  = hTdM->GetRMS();
+                                        const double normCutM   = meanIsoETM + 1.75 * rmsIsoETM;
+                                        
+                                        const int binNormLoM = hTdM->FindBin(normCutM);
+                                        const int binNormHiM = hTdM->GetNbinsX();
+                                        
+                                        const double normTightM    = hTdM->Integral(binNormLoM, binNormHiM);
+                                        const double normNonTightM = hNTdM->Integral(binNormLoM, binNormHiM);
+                                        if (normNonTightM > 0.0) hNTdM->Scale(normTightM / normNonTightM);
+                                        
+                                        const double dataSignalYieldM = hTdM->Integral() - hNTdM->Integral();
+                                        const double mcSignalYieldM   = hSigM->Integral();
+                                        if (mcSignalYieldM > 0.0) hSigM->Scale(dataSignalYieldM / mcSignalYieldM);
+                                        
                                         hSigM->SetLineColor(kBlue-9); hSigM->SetFillColorAlpha(kBlue-9,0.5); hSigM->SetFillStyle(1001); hSigM->SetLineWidth(1); hSigM->SetMarkerSize(0.0);
                                         hNTdM->SetLineColor(kPink-4); hNTdM->SetFillColorAlpha(kPink-4,0.5); hNTdM->SetFillStyle(1001); hNTdM->SetLineWidth(1); hNTdM->SetMarkerSize(0.0);
                                         for (int ib=0;ib<=hSigM->GetNbinsX()+1;++ib) hSigM->SetBinError(ib,0.0);
@@ -1762,7 +1815,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                         TH1* hStackM = (TH1*)hSigM->Clone("hStack_merged"); hStackM->SetDirectory(nullptr); hStackM->Add(hNTdM);
                                         const double ymM = std::max(hTdM->GetMaximum(),hStackM->GetMaximum());
                                         TCanvas cSBm("c_merged_sigBkg","c_merged_sigBkg",900,700); ApplyCanvasMargins1D(cSBm); cSBm.cd();
-                                        hStackM->SetTitle(""); hStackM->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]"); hStackM->GetYaxis()->SetTitle("Normalized to unit area");
+                                        hStackM->SetTitle(""); hStackM->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]"); hStackM->GetYaxis()->SetTitle("Counts / Bin Width");
                                         hStackM->GetXaxis()->SetTitleSize(0.055); hStackM->GetYaxis()->SetTitleSize(0.055); hStackM->GetXaxis()->SetLabelSize(0.045); hStackM->GetYaxis()->SetLabelSize(0.045); hStackM->GetYaxis()->SetTitleOffset(1.15);
                                         hStackM->SetMinimum(0.0); hStackM->SetMaximum((ymM>0)?(1.3*ymM):1.0);
                                         hStackM->SetLineColor(kPink-4); hStackM->SetFillColorAlpha(kPink-4,0.5); hStackM->SetFillStyle(1001);
