@@ -4119,321 +4119,52 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             
         } // end if (!generateISOpTcentOverlaysONLY && !perVariantIsoQAOnlyActive) — perVariantOverlay + multi-variant sections
         
-        if (perVariantIsoQAOnlyActive) continue;
-        
-        for (int ipt = 0; ipt < kNPtBins; ++ipt)
+        if (!perVariantIsoQAOnlyActive)
         {
-            const PtBin& b = PtBins()[ipt];
-            
-            vector<TGraphErrors*> graphs;
-            vector<std::size_t> graphIndices;
-            double yMin = std::numeric_limits<double>::max();
-            double yMax = -std::numeric_limits<double>::max();
-            
-            const double centLo = centBins.front().lo;
-            const double centHi = centBins.back().hi;
-            
-            for (std::size_t iv = 0; iv < handles.size(); ++iv)
-            {
-                auto& H = handles[iv];
-                if (!H.file) continue;
-                
-                TDirectory* aaTop = H.file->GetDirectory(trigAA.c_str());
-                if (!aaTop) continue;
-                
-                vector<double> xCent;
-                vector<double> exCent;
-                vector<double> yCent;
-                vector<double> eyCent;
-                
-                for (std::size_t ic = 0; ic < centBins.size(); ++ic)
-                {
-                    const auto& cb = centBins[ic];
-                    const string hAAName = "h_Eiso" + b.suffix + cb.suffix;
-                    TH1* hAAsrc = dynamic_cast<TH1*>(aaTop->Get(hAAName.c_str()));
-                    if (!hAAsrc) continue;
-                    
-                    xCent.push_back(0.5 * (cb.lo + cb.hi));
-                    exCent.push_back(0.5 * (cb.hi - cb.lo));
-                    yCent.push_back(hAAsrc->GetMean());
-                    eyCent.push_back((hAAsrc->GetEntries() > 0.0) ? hAAsrc->GetMeanError() : 0.0);
-                    yMin = std::min(yMin, yCent.back() - eyCent.back());
-                    yMax = std::max(yMax, yCent.back() + eyCent.back());
-                }
-                
-                if (xCent.empty()) continue;
-                
-                TGraphErrors* g = new TGraphErrors((int)xCent.size(), &xCent[0], &yCent[0], &exCent[0], &eyCent[0]);
-                g->SetLineWidth(2);
-                g->SetLineColor((iv < 4) ? variantColors[iv] : kBlack);
-                g->SetMarkerColor((iv < 4) ? variantColors[iv] : kBlack);
-                g->SetMarkerStyle((iv < 4) ? variantMarkers[iv] : 20);
-                g->SetMarkerSize(1.2);
-                graphs.push_back(g);
-                graphIndices.push_back(iv);
-            }
-            
-            if (graphs.empty()) continue;
-            
-            if (!std::isfinite(yMin) || !std::isfinite(yMax))
-            {
-                yMin = 0.0;
-                yMax = 1.0;
-            }
-            const double pad = (yMax > yMin) ? (0.15 * (yMax - yMin)) : 0.25;
-            
-            TCanvas cSummary(
-                             TString::Format("c_meanIsoEtAllVariantsVsCent_%s_%s",
-                                             trigAA.c_str(), b.folder.c_str()).Data(),
-                             "c_meanIsoEtAllVariantsVsCent", 900, 700
-                             );
-            ApplyCanvasMargins1D(cSummary);
-            cSummary.cd();
-            
-            TH1F hFrame(
-                        TString::Format("hFrame_meanIsoEtAllVariantsVsCent_%s_%s",
-                                        trigAA.c_str(), b.folder.c_str()).Data(),
-                        "", 100, centLo, centHi
-                        );
-            hFrame.SetDirectory(nullptr);
-            hFrame.SetStats(0);
-            hFrame.SetMinimum(yMin - pad);
-            hFrame.SetMaximum(yMax + pad);
-            hFrame.GetXaxis()->SetTitle("Centrality [%]");
-            hFrame.GetYaxis()->SetTitle("<E_{T}^{iso}> [GeV]");
-            hFrame.GetXaxis()->SetTitleSize(0.055);
-            hFrame.GetYaxis()->SetTitleSize(0.055);
-            hFrame.GetXaxis()->SetLabelSize(0.045);
-            hFrame.GetYaxis()->SetLabelSize(0.045);
-            hFrame.GetYaxis()->SetTitleOffset(1.15);
-            hFrame.Draw();
-            
-            for (auto* g : graphs) g->Draw("PE1 SAME");
-            
-            TLegend leg(0.56, 0.62, 0.92, 0.88);
-            leg.SetBorderSize(0);
-            leg.SetFillStyle(0);
-            leg.SetTextFont(42);
-            leg.SetTextSize(0.032);
-            for (std::size_t ig = 0; ig < graphs.size(); ++ig)
-            {
-                leg.AddEntry(graphs[ig], handles[graphIndices[ig]].label.c_str(), "ep");
-            }
-            leg.Draw();
-            
-            TLatex tTitle;
-            tTitle.SetNDC(true);
-            tTitle.SetTextFont(42);
-            tTitle.SetTextAlign(23);
-            tTitle.SetTextSize(0.045);
-            tTitle.DrawLatex(0.50, 0.98,
-                             TString::Format("<E_{T}^{iso}> vs Centrality, all UE variants, p_{T}^{#gamma} %d-%d GeV", b.lo, b.hi).Data());
-            
-            const double coneRVal = (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3;
-            const int    isoEtMax = (kAA_IsoMode == "fixedIso5GeV") ? 5 : -1;
-            
-            TLatex t;
-            t.SetNDC(true);
-            t.SetTextFont(42);
-            t.SetTextAlign(13);
-            t.SetTextSize(0.028);
-            t.DrawLatex(0.20, 0.58, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
-            t.DrawLatex(0.20, 0.54, TString::Format("#DeltaR_{cone} < %.1f", coneRVal).Data());
-            if (isoEtMax > 0)
-                t.DrawLatex(0.20, 0.50, TString::Format("E_{T}^{iso} < %d GeV", isoEtMax).Data());
-            
-            SaveCanvas(cSummary, JoinPath(meanIsoSummaryDir,
-                                          TString::Format("meanIsoEt_allVariants_vs_cent_%s.png", b.folder.c_str()).Data()));
-            
-            for (auto* g : graphs) delete g;
-        }
-        
-        // ====== centralitySummaryPerPt/summaryOutput: Gaussian mean & sigma vs centrality ======
-        {
-            const string gaussMeanDir  = JoinPath(meanIsoSummaryDir, "meanSummary");
-            const string gaussSigmaDir = JoinPath(meanIsoSummaryDir, "sigmaSummary");
-            EnsureDir(gaussMeanDir);
-            EnsureDir(gaussSigmaDir);
             
             for (int ipt = 0; ipt < kNPtBins; ++ipt)
             {
                 const PtBin& b = PtBins()[ipt];
-                
-                // --- Gaussian Mean vs Centrality ---
-                {
-                    vector<TGraphErrors*> gGraphs;
-                    vector<std::size_t>   gIndices;
-                    double yMinG = 1e30, yMaxG = -1e30;
-                    
-                    for (std::size_t iv = 0; iv < handles.size(); ++iv)
-                    {
-                        if (!handles[iv].file) continue;
-                        vector<double> xC, exC, yC, eyC;
-                        for (std::size_t ic = 0; ic < centBins.size(); ++ic)
-                        {
-                            if (!gaussFilled[iv][ipt][ic]) continue;
-                            xC.push_back(0.5 * (centBins[ic].lo + centBins[ic].hi));
-                            exC.push_back(0.5 * (centBins[ic].hi - centBins[ic].lo));
-                            yC.push_back(gaussMean[iv][ipt][ic]);
-                            eyC.push_back(gaussMeanErr[iv][ipt][ic]);
-                            yMinG = std::min(yMinG, yC.back() - eyC.back());
-                            yMaxG = std::max(yMaxG, yC.back() + eyC.back());
-                        }
-                        if (xC.empty()) continue;
-                        TGraphErrors* g = new TGraphErrors((int)xC.size(), &xC[0], &yC[0], &exC[0], &eyC[0]);
-                        g->SetLineWidth(2);
-                        g->SetLineColor((iv < 4) ? variantColors[iv] : kBlack);
-                        g->SetMarkerColor((iv < 4) ? variantColors[iv] : kBlack);
-                        g->SetMarkerStyle((iv < 4) ? variantMarkers[iv] : 20);
-                        g->SetMarkerSize(1.2);
-                        gGraphs.push_back(g);
-                        gIndices.push_back(iv);
-                    }
-                    if (!gGraphs.empty())
-                    {
-                        if (!std::isfinite(yMinG) || !std::isfinite(yMaxG)) { yMinG = 0; yMaxG = 1; }
-                        const double padG = (yMaxG > yMinG) ? 0.20 * (yMaxG - yMinG) : 0.5;
-                        TCanvas cGM(TString::Format("c_gaussMeanVsCent_%s", b.folder.c_str()).Data(), "", 900, 700);
-                        ApplyCanvasMargins1D(cGM); cGM.cd();
-                        TH1F hFrGM(TString::Format("hFr_gaussMeanVsCent_%s", b.folder.c_str()).Data(),
-                                   "", 100, centBins.front().lo, centBins.back().hi);
-                        hFrGM.SetDirectory(nullptr); hFrGM.SetStats(0);
-                        hFrGM.SetMinimum(yMinG - padG); hFrGM.SetMaximum(yMaxG + padG);
-                        hFrGM.GetXaxis()->SetTitle("Centrality [%]");
-                        hFrGM.GetYaxis()->SetTitle("Gaussian #mu [GeV]");
-                        hFrGM.GetXaxis()->SetTitleSize(0.055); hFrGM.GetYaxis()->SetTitleSize(0.055);
-                        hFrGM.GetXaxis()->SetLabelSize(0.045); hFrGM.GetYaxis()->SetLabelSize(0.045);
-                        hFrGM.GetYaxis()->SetTitleOffset(1.15);
-                        hFrGM.Draw();
-                        for (auto* g : gGraphs) g->Draw("PE1 SAME");
-                        TLegend lgGM(0.56, 0.62, 0.92, 0.88);
-                        lgGM.SetBorderSize(0); lgGM.SetFillStyle(0); lgGM.SetTextFont(42); lgGM.SetTextSize(0.032);
-                        for (std::size_t ig = 0; ig < gGraphs.size(); ++ig)
-                            lgGM.AddEntry(gGraphs[ig], handles[gIndices[ig]].label.c_str(), "ep");
-                        lgGM.Draw();
-                        TLatex tGM; tGM.SetNDC(true); tGM.SetTextFont(42); tGM.SetTextAlign(23); tGM.SetTextSize(0.042);
-                        tGM.DrawLatex(0.50, 0.98,
-                            TString::Format("Gaussian #mu vs Centrality, p_{T}^{#gamma} %d-%d GeV", b.lo, b.hi).Data());
-                        TLatex tGMi; tGMi.SetNDC(true); tGMi.SetTextFont(42); tGMi.SetTextAlign(13); tGMi.SetTextSize(0.028);
-                        tGMi.DrawLatex(0.20, 0.58, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
-                        tGMi.DrawLatex(0.20, 0.54, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
-                        SaveCanvas(cGM, JoinPath(gaussMeanDir,
-                            TString::Format("gaussMean_allVariants_vs_cent_%s.png", b.folder.c_str()).Data()));
-                        for (auto* g : gGraphs) delete g;
-                    }
-                }
-                
-                // --- Gaussian Sigma vs Centrality ---
-                {
-                    vector<TGraphErrors*> sGraphs;
-                    vector<std::size_t>   sIndices;
-                    double yMinS = 1e30, yMaxS = -1e30;
-                    
-                    for (std::size_t iv = 0; iv < handles.size(); ++iv)
-                    {
-                        if (!handles[iv].file) continue;
-                        vector<double> xC, exC, yC, eyC;
-                        for (std::size_t ic = 0; ic < centBins.size(); ++ic)
-                        {
-                            if (!gaussFilled[iv][ipt][ic]) continue;
-                            xC.push_back(0.5 * (centBins[ic].lo + centBins[ic].hi));
-                            exC.push_back(0.5 * (centBins[ic].hi - centBins[ic].lo));
-                            yC.push_back(gaussSigma[iv][ipt][ic]);
-                            eyC.push_back(gaussSigmaErr[iv][ipt][ic]);
-                            yMinS = std::min(yMinS, yC.back() - eyC.back());
-                            yMaxS = std::max(yMaxS, yC.back() + eyC.back());
-                        }
-                        if (xC.empty()) continue;
-                        TGraphErrors* g = new TGraphErrors((int)xC.size(), &xC[0], &yC[0], &exC[0], &eyC[0]);
-                        g->SetLineWidth(2);
-                        g->SetLineColor((iv < 4) ? variantColors[iv] : kBlack);
-                        g->SetMarkerColor((iv < 4) ? variantColors[iv] : kBlack);
-                        g->SetMarkerStyle((iv < 4) ? variantMarkers[iv] : 20);
-                        g->SetMarkerSize(1.2);
-                        sGraphs.push_back(g);
-                        sIndices.push_back(iv);
-                    }
-                    if (!sGraphs.empty())
-                    {
-                        if (!std::isfinite(yMinS) || !std::isfinite(yMaxS)) { yMinS = 0; yMaxS = 5; }
-                        const double padS = (yMaxS > yMinS) ? 0.20 * (yMaxS - yMinS) : 0.5;
-                        TCanvas cGS(TString::Format("c_gaussSigmaVsCent_%s", b.folder.c_str()).Data(), "", 900, 700);
-                        ApplyCanvasMargins1D(cGS); cGS.cd();
-                        TH1F hFrGS(TString::Format("hFr_gaussSigmaVsCent_%s", b.folder.c_str()).Data(),
-                                   "", 100, centBins.front().lo, centBins.back().hi);
-                        hFrGS.SetDirectory(nullptr); hFrGS.SetStats(0);
-                        hFrGS.SetMinimum(std::max(0.0, yMinS - padS)); hFrGS.SetMaximum(yMaxS + padS);
-                        hFrGS.GetXaxis()->SetTitle("Centrality [%]");
-                        hFrGS.GetYaxis()->SetTitle("Gaussian #sigma [GeV]");
-                        hFrGS.GetXaxis()->SetTitleSize(0.055); hFrGS.GetYaxis()->SetTitleSize(0.055);
-                        hFrGS.GetXaxis()->SetLabelSize(0.045); hFrGS.GetYaxis()->SetLabelSize(0.045);
-                        hFrGS.GetYaxis()->SetTitleOffset(1.15);
-                        hFrGS.Draw();
-                        for (auto* g : sGraphs) g->Draw("PE1 SAME");
-                        TLegend lgGS(0.56, 0.62, 0.92, 0.88);
-                        lgGS.SetBorderSize(0); lgGS.SetFillStyle(0); lgGS.SetTextFont(42); lgGS.SetTextSize(0.032);
-                        for (std::size_t ig = 0; ig < sGraphs.size(); ++ig)
-                            lgGS.AddEntry(sGraphs[ig], handles[sIndices[ig]].label.c_str(), "ep");
-                        lgGS.Draw();
-                        TLatex tGS; tGS.SetNDC(true); tGS.SetTextFont(42); tGS.SetTextAlign(23); tGS.SetTextSize(0.042);
-                        tGS.DrawLatex(0.50, 0.98,
-                            TString::Format("Gaussian #sigma vs Centrality, p_{T}^{#gamma} %d-%d GeV", b.lo, b.hi).Data());
-                        TLatex tGSi; tGSi.SetNDC(true); tGSi.SetTextFont(42); tGSi.SetTextAlign(13); tGSi.SetTextSize(0.028);
-                        tGSi.DrawLatex(0.20, 0.58, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
-                        tGSi.DrawLatex(0.20, 0.54, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
-                        SaveCanvas(cGS, JoinPath(gaussSigmaDir,
-                            TString::Format("gaussSigma_allVariants_vs_cent_%s.png", b.folder.c_str()).Data()));
-                        for (auto* g : sGraphs) delete g;
-                    }
-                }
-            }
-        }
-        
-        // ====== pTsummaryPerCentrality: <E_T^iso> vs pT for each centrality bin, all UE variants ======
-        {
-            
-            for (std::size_t ic = 0; ic < centBins.size(); ++ic)
-            {
-                const auto& cb = centBins[ic];
                 
                 vector<TGraphErrors*> graphs;
                 vector<std::size_t> graphIndices;
                 double yMin = std::numeric_limits<double>::max();
                 double yMax = -std::numeric_limits<double>::max();
                 
+                const double centLo = centBins.front().lo;
+                const double centHi = centBins.back().hi;
+                
                 for (std::size_t iv = 0; iv < handles.size(); ++iv)
                 {
-                    if (iv == 1) continue;  // skip baseVariant
                     auto& H = handles[iv];
                     if (!H.file) continue;
                     
                     TDirectory* aaTop = H.file->GetDirectory(trigAA.c_str());
                     if (!aaTop) continue;
                     
-                    vector<double> xPt;
-                    vector<double> exPt;
-                    vector<double> yPt;
-                    vector<double> eyPt;
+                    vector<double> xCent;
+                    vector<double> exCent;
+                    vector<double> yCent;
+                    vector<double> eyCent;
                     
-                    for (int ipt = 1; ipt < kNPtBins; ++ipt)
+                    for (std::size_t ic = 0; ic < centBins.size(); ++ic)
                     {
-                        const PtBin& b = PtBins()[ipt];
+                        const auto& cb = centBins[ic];
                         const string hAAName = "h_Eiso" + b.suffix + cb.suffix;
                         TH1* hAAsrc = dynamic_cast<TH1*>(aaTop->Get(hAAName.c_str()));
                         if (!hAAsrc) continue;
                         
-                        xPt.push_back(0.5 * (kPtEdges[(std::size_t)ipt] + kPtEdges[(std::size_t)ipt + 1]));
-                        exPt.push_back(0.0);
-                        yPt.push_back(hAAsrc->GetMean());
-                        eyPt.push_back((hAAsrc->GetEntries() > 0.0) ? hAAsrc->GetMeanError() : 0.0);
-                        
-                        yMin = std::min(yMin, yPt.back() - eyPt.back());
-                        yMax = std::max(yMax, yPt.back() + eyPt.back());
+                        xCent.push_back(0.5 * (cb.lo + cb.hi));
+                        exCent.push_back(0.5 * (cb.hi - cb.lo));
+                        yCent.push_back(hAAsrc->GetMean());
+                        eyCent.push_back((hAAsrc->GetEntries() > 0.0) ? hAAsrc->GetMeanError() : 0.0);
+                        yMin = std::min(yMin, yCent.back() - eyCent.back());
+                        yMax = std::max(yMax, yCent.back() + eyCent.back());
                     }
                     
-                    if (xPt.empty()) continue;
+                    if (xCent.empty()) continue;
                     
-                    TGraphErrors* g = new TGraphErrors((int)xPt.size(), &xPt[0], &yPt[0], &exPt[0], &eyPt[0]);
+                    TGraphErrors* g = new TGraphErrors((int)xCent.size(), &xCent[0], &yCent[0], &exCent[0], &eyCent[0]);
                     g->SetLineWidth(2);
                     g->SetLineColor((iv < 4) ? variantColors[iv] : kBlack);
                     g->SetMarkerColor((iv < 4) ? variantColors[iv] : kBlack);
@@ -4445,52 +4176,31 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                 
                 if (graphs.empty()) continue;
                 
-                // -- collect PP reference vs pT --
-                vector<double> xPtPP, exPtPP, yPtPP, eyPtPP;
-                if (ppTop)
-                {
-                    for (int ipt = 0; ipt < kNPtBins; ++ipt)
-                    {
-                        const PtBin& bp = PtBins()[ipt];
-                        const string hPPName = "h_Eiso" + bp.suffix;
-                        TH1* hPPsrc = dynamic_cast<TH1*>(ppTop->Get(hPPName.c_str()));
-                        if (!hPPsrc || hPPsrc->GetEntries() <= 0.0) continue;
-                        
-                        xPtPP.push_back(0.5 * (kPtEdges[(std::size_t)ipt] + kPtEdges[(std::size_t)ipt + 1]));
-                        exPtPP.push_back(0.0);
-                        yPtPP.push_back(hPPsrc->GetMean());
-                        eyPtPP.push_back(hPPsrc->GetMeanError());
-                        
-                        yMin = std::min(yMin, yPtPP.back() - eyPtPP.back());
-                        yMax = std::max(yMax, yPtPP.back() + eyPtPP.back());
-                    }
-                }
-                
                 if (!std::isfinite(yMin) || !std::isfinite(yMax))
                 {
                     yMin = 0.0;
                     yMax = 1.0;
                 }
-                const double pad = (yMax > yMin) ? (0.55 * (yMax - yMin)) : 0.25;
+                const double pad = (yMax > yMin) ? (0.15 * (yMax - yMin)) : 0.25;
                 
-                TCanvas cPtSummary(
-                                   TString::Format("c_meanIsoEtAllVariantsVsPt_%s_%s",
-                                                   trigAA.c_str(), cb.folder.c_str()).Data(),
-                                   "c_meanIsoEtAllVariantsVsPt", 900, 700
-                                   );
-                ApplyCanvasMargins1D(cPtSummary);
-                cPtSummary.cd();
+                TCanvas cSummary(
+                                 TString::Format("c_meanIsoEtAllVariantsVsCent_%s_%s",
+                                                 trigAA.c_str(), b.folder.c_str()).Data(),
+                                 "c_meanIsoEtAllVariantsVsCent", 900, 700
+                                 );
+                ApplyCanvasMargins1D(cSummary);
+                cSummary.cd();
                 
                 TH1F hFrame(
-                            TString::Format("hFrame_meanIsoEtAllVariantsVsPt_%s_%s",
-                                            trigAA.c_str(), cb.folder.c_str()).Data(),
-                            "", 100, kPtEdges[1], kPtEdges.back()
+                            TString::Format("hFrame_meanIsoEtAllVariantsVsCent_%s_%s",
+                                            trigAA.c_str(), b.folder.c_str()).Data(),
+                            "", 100, centLo, centHi
                             );
                 hFrame.SetDirectory(nullptr);
                 hFrame.SetStats(0);
                 hFrame.SetMinimum(yMin - pad);
                 hFrame.SetMaximum(yMax + pad);
-                hFrame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                hFrame.GetXaxis()->SetTitle("Centrality [%]");
                 hFrame.GetYaxis()->SetTitle("<E_{T}^{iso}> [GeV]");
                 hFrame.GetXaxis()->SetTitleSize(0.055);
                 hFrame.GetYaxis()->SetTitleSize(0.055);
@@ -4501,29 +4211,15 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                 
                 for (auto* g : graphs) g->Draw("PE1 SAME");
                 
-                TGraphErrors* gPPpt = nullptr;
-                if (!xPtPP.empty())
-                {
-                    gPPpt = new TGraphErrors((int)xPtPP.size(), &xPtPP[0], &yPtPP[0], &exPtPP[0], &eyPtPP[0]);
-                    gPPpt->SetLineWidth(2);
-                    gPPpt->SetLineColor(kRed + 1);
-                    gPPpt->SetMarkerColor(kRed + 1);
-                    gPPpt->SetMarkerStyle(24);
-                    gPPpt->SetMarkerSize(1.2);
-                    gPPpt->Draw("PE1 SAME");
-                }
-                
-                TLegend leg(0.20, 0.75, 0.60, 0.88);
+                TLegend leg(0.56, 0.62, 0.92, 0.88);
                 leg.SetBorderSize(0);
                 leg.SetFillStyle(0);
                 leg.SetTextFont(42);
-                leg.SetTextSize(0.026);
-                leg.SetNColumns(2);
+                leg.SetTextSize(0.032);
                 for (std::size_t ig = 0; ig < graphs.size(); ++ig)
                 {
                     leg.AddEntry(graphs[ig], handles[graphIndices[ig]].label.c_str(), "ep");
                 }
-                if (gPPpt) leg.AddEntry(gPPpt, "pp reference", "ep");
                 leg.Draw();
                 
                 TLatex tTitle;
@@ -4532,7 +4228,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                 tTitle.SetTextAlign(23);
                 tTitle.SetTextSize(0.045);
                 tTitle.DrawLatex(0.50, 0.98,
-                                 TString::Format("<E_{T}^{iso}> vs p_{T}^{#gamma}, all UE variants, %d-%d%% Cent AuAu", cb.lo, cb.hi).Data());
+                                 TString::Format("<E_{T}^{iso}> vs Centrality, all UE variants, p_{T}^{#gamma} %d-%d GeV", b.lo, b.hi).Data());
                 
                 const double coneRVal = (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3;
                 const int    isoEtMax = (kAA_IsoMode == "fixedIso5GeV") ? 5 : -1;
@@ -4540,811 +4236,1117 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                 TLatex t;
                 t.SetNDC(true);
                 t.SetTextFont(42);
-                t.SetTextAlign(33);
+                t.SetTextAlign(13);
                 t.SetTextSize(0.028);
-                t.DrawLatex(0.92, 0.89, "Trigger = Photon 10 GeV + MBD NS #geq 2, vtx < 150 cm");
-                t.DrawLatex(0.92, 0.85, TString::Format("#DeltaR_{cone} < %.1f", coneRVal).Data());
+                t.DrawLatex(0.20, 0.58, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
+                t.DrawLatex(0.20, 0.54, TString::Format("#DeltaR_{cone} < %.1f", coneRVal).Data());
                 if (isoEtMax > 0)
-                    t.DrawLatex(0.92, 0.81, TString::Format("E_{T}^{iso} < %d GeV", isoEtMax).Data());
+                    t.DrawLatex(0.20, 0.50, TString::Format("E_{T}^{iso} < %d GeV", isoEtMax).Data());
                 
-                SaveCanvas(cPtSummary, JoinPath(ptMeanIsoSummaryDir,
-                                                TString::Format("meanIsoEt_allVariants_vs_pT_%s.png", cb.folder.c_str()).Data()));
+                SaveCanvas(cSummary, JoinPath(meanIsoSummaryDir,
+                                              TString::Format("meanIsoEt_allVariants_vs_cent_%s.png", b.folder.c_str()).Data()));
                 
                 for (auto* g : graphs) delete g;
-                if (gPPpt) delete gPPpt;
             }
             
-            // -- baseVariant only: PPG12-style isolation cutoff fits from photon+jet embedded SIM --
-            if (!forEmbeddedSim)
+            // ====== centralitySummaryPerPt/summaryOutput: Gaussian mean & sigma vs centrality ======
             {
-                const string baseVariantPtSummaryDir = JoinPath(ptSummaryBase, "baseVariant");
-                EnsureDir(baseVariantPtSummaryDir);
+                const string gaussMeanDir  = JoinPath(meanIsoSummaryDir, "meanSummary");
+                const string gaussSigmaDir = JoinPath(meanIsoSummaryDir, "sigmaSummary");
+                EnsureDir(gaussMeanDir);
+                EnsureDir(gaussSigmaDir);
                 
-                const string phoCutIn = ResolvePhotonJetVariantInput("baseVariant");
-                if (!phoCutIn.empty())
+                for (int ipt = 0; ipt < kNPtBins; ++ipt)
                 {
-                    TFile* fPhoCut = TFile::Open(phoCutIn.c_str(), "READ");
-                    if (fPhoCut && !fPhoCut->IsZombie())
+                    const PtBin& b = PtBins()[ipt];
+                    
+                    // --- Gaussian Mean vs Centrality ---
                     {
-                        TDirectory* phoCutTop = fPhoCut->GetDirectory(kDirSIM.c_str());
-                        if (!phoCutTop) phoCutTop = fPhoCut;
+                        vector<TGraphErrors*> gGraphs;
+                        vector<std::size_t>   gIndices;
+                        double yMinG = 1e30, yMaxG = -1e30;
                         
-                        auto FindEfficiencyCut = [&](TH1* hIn, double eff, double& cut, double& cutErr) -> bool
+                        for (std::size_t iv = 0; iv < handles.size(); ++iv)
                         {
-                            cut = 0.0;
-                            cutErr = 0.0;
-                            if (!hIn) return false;
-                            
-                            const int nb = hIn->GetNbinsX();
-                            const double total = hIn->Integral(1, nb);
-                            if (!(total > 0.0)) return false;
-                            
-                            double running = 0.0;
-                            int ibCut = nb;
-                            for (int ib = 1; ib <= nb; ++ib)
+                            if (!handles[iv].file) continue;
+                            vector<double> xC, exC, yC, eyC;
+                            for (std::size_t ic = 0; ic < centBins.size(); ++ic)
                             {
-                                running += hIn->GetBinContent(ib);
-                                if ((running / total) >= eff)
+                                if (!gaussFilled[iv][ipt][ic]) continue;
+                                xC.push_back(0.5 * (centBins[ic].lo + centBins[ic].hi));
+                                exC.push_back(0.5 * (centBins[ic].hi - centBins[ic].lo));
+                                yC.push_back(gaussMean[iv][ipt][ic]);
+                                eyC.push_back(gaussMeanErr[iv][ipt][ic]);
+                                yMinG = std::min(yMinG, yC.back() - eyC.back());
+                                yMaxG = std::max(yMaxG, yC.back() + eyC.back());
+                            }
+                            if (xC.empty()) continue;
+                            TGraphErrors* g = new TGraphErrors((int)xC.size(), &xC[0], &yC[0], &exC[0], &eyC[0]);
+                            g->SetLineWidth(2);
+                            g->SetLineColor((iv < 4) ? variantColors[iv] : kBlack);
+                            g->SetMarkerColor((iv < 4) ? variantColors[iv] : kBlack);
+                            g->SetMarkerStyle((iv < 4) ? variantMarkers[iv] : 20);
+                            g->SetMarkerSize(1.2);
+                            gGraphs.push_back(g);
+                            gIndices.push_back(iv);
+                        }
+                        if (!gGraphs.empty())
+                        {
+                            if (!std::isfinite(yMinG) || !std::isfinite(yMaxG)) { yMinG = 0; yMaxG = 1; }
+                            const double padG = (yMaxG > yMinG) ? 0.20 * (yMaxG - yMinG) : 0.5;
+                            TCanvas cGM(TString::Format("c_gaussMeanVsCent_%s", b.folder.c_str()).Data(), "", 900, 700);
+                            ApplyCanvasMargins1D(cGM); cGM.cd();
+                            TH1F hFrGM(TString::Format("hFr_gaussMeanVsCent_%s", b.folder.c_str()).Data(),
+                                       "", 100, centBins.front().lo, centBins.back().hi);
+                            hFrGM.SetDirectory(nullptr); hFrGM.SetStats(0);
+                            hFrGM.SetMinimum(yMinG - padG); hFrGM.SetMaximum(yMaxG + padG);
+                            hFrGM.GetXaxis()->SetTitle("Centrality [%]");
+                            hFrGM.GetYaxis()->SetTitle("Gaussian #mu [GeV]");
+                            hFrGM.GetXaxis()->SetTitleSize(0.055); hFrGM.GetYaxis()->SetTitleSize(0.055);
+                            hFrGM.GetXaxis()->SetLabelSize(0.045); hFrGM.GetYaxis()->SetLabelSize(0.045);
+                            hFrGM.GetYaxis()->SetTitleOffset(1.15);
+                            hFrGM.Draw();
+                            for (auto* g : gGraphs) g->Draw("PE1 SAME");
+                            TLegend lgGM(0.56, 0.62, 0.92, 0.88);
+                            lgGM.SetBorderSize(0); lgGM.SetFillStyle(0); lgGM.SetTextFont(42); lgGM.SetTextSize(0.032);
+                            for (std::size_t ig = 0; ig < gGraphs.size(); ++ig)
+                                lgGM.AddEntry(gGraphs[ig], handles[gIndices[ig]].label.c_str(), "ep");
+                            lgGM.Draw();
+                            TLatex tGM; tGM.SetNDC(true); tGM.SetTextFont(42); tGM.SetTextAlign(23); tGM.SetTextSize(0.042);
+                            tGM.DrawLatex(0.50, 0.98,
+                                          TString::Format("Gaussian #mu vs Centrality, p_{T}^{#gamma} %d-%d GeV", b.lo, b.hi).Data());
+                            TLatex tGMi; tGMi.SetNDC(true); tGMi.SetTextFont(42); tGMi.SetTextAlign(13); tGMi.SetTextSize(0.028);
+                            tGMi.DrawLatex(0.20, 0.58, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
+                            tGMi.DrawLatex(0.20, 0.54, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                            SaveCanvas(cGM, JoinPath(gaussMeanDir,
+                                                     TString::Format("gaussMean_allVariants_vs_cent_%s.png", b.folder.c_str()).Data()));
+                            for (auto* g : gGraphs) delete g;
+                        }
+                    }
+                    
+                    // --- Gaussian Sigma vs Centrality ---
+                    {
+                        vector<TGraphErrors*> sGraphs;
+                        vector<std::size_t>   sIndices;
+                        double yMinS = 1e30, yMaxS = -1e30;
+                        
+                        for (std::size_t iv = 0; iv < handles.size(); ++iv)
+                        {
+                            if (!handles[iv].file) continue;
+                            vector<double> xC, exC, yC, eyC;
+                            for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                            {
+                                if (!gaussFilled[iv][ipt][ic]) continue;
+                                xC.push_back(0.5 * (centBins[ic].lo + centBins[ic].hi));
+                                exC.push_back(0.5 * (centBins[ic].hi - centBins[ic].lo));
+                                yC.push_back(gaussSigma[iv][ipt][ic]);
+                                eyC.push_back(gaussSigmaErr[iv][ipt][ic]);
+                                yMinS = std::min(yMinS, yC.back() - eyC.back());
+                                yMaxS = std::max(yMaxS, yC.back() + eyC.back());
+                            }
+                            if (xC.empty()) continue;
+                            TGraphErrors* g = new TGraphErrors((int)xC.size(), &xC[0], &yC[0], &exC[0], &eyC[0]);
+                            g->SetLineWidth(2);
+                            g->SetLineColor((iv < 4) ? variantColors[iv] : kBlack);
+                            g->SetMarkerColor((iv < 4) ? variantColors[iv] : kBlack);
+                            g->SetMarkerStyle((iv < 4) ? variantMarkers[iv] : 20);
+                            g->SetMarkerSize(1.2);
+                            sGraphs.push_back(g);
+                            sIndices.push_back(iv);
+                        }
+                        if (!sGraphs.empty())
+                        {
+                            if (!std::isfinite(yMinS) || !std::isfinite(yMaxS)) { yMinS = 0; yMaxS = 5; }
+                            const double padS = (yMaxS > yMinS) ? 0.20 * (yMaxS - yMinS) : 0.5;
+                            TCanvas cGS(TString::Format("c_gaussSigmaVsCent_%s", b.folder.c_str()).Data(), "", 900, 700);
+                            ApplyCanvasMargins1D(cGS); cGS.cd();
+                            TH1F hFrGS(TString::Format("hFr_gaussSigmaVsCent_%s", b.folder.c_str()).Data(),
+                                       "", 100, centBins.front().lo, centBins.back().hi);
+                            hFrGS.SetDirectory(nullptr); hFrGS.SetStats(0);
+                            hFrGS.SetMinimum(std::max(0.0, yMinS - padS)); hFrGS.SetMaximum(yMaxS + padS);
+                            hFrGS.GetXaxis()->SetTitle("Centrality [%]");
+                            hFrGS.GetYaxis()->SetTitle("Gaussian #sigma [GeV]");
+                            hFrGS.GetXaxis()->SetTitleSize(0.055); hFrGS.GetYaxis()->SetTitleSize(0.055);
+                            hFrGS.GetXaxis()->SetLabelSize(0.045); hFrGS.GetYaxis()->SetLabelSize(0.045);
+                            hFrGS.GetYaxis()->SetTitleOffset(1.15);
+                            hFrGS.Draw();
+                            for (auto* g : sGraphs) g->Draw("PE1 SAME");
+                            TLegend lgGS(0.56, 0.62, 0.92, 0.88);
+                            lgGS.SetBorderSize(0); lgGS.SetFillStyle(0); lgGS.SetTextFont(42); lgGS.SetTextSize(0.032);
+                            for (std::size_t ig = 0; ig < sGraphs.size(); ++ig)
+                                lgGS.AddEntry(sGraphs[ig], handles[sIndices[ig]].label.c_str(), "ep");
+                            lgGS.Draw();
+                            TLatex tGS; tGS.SetNDC(true); tGS.SetTextFont(42); tGS.SetTextAlign(23); tGS.SetTextSize(0.042);
+                            tGS.DrawLatex(0.50, 0.98,
+                                          TString::Format("Gaussian #sigma vs Centrality, p_{T}^{#gamma} %d-%d GeV", b.lo, b.hi).Data());
+                            TLatex tGSi; tGSi.SetNDC(true); tGSi.SetTextFont(42); tGSi.SetTextAlign(13); tGSi.SetTextSize(0.028);
+                            tGSi.DrawLatex(0.20, 0.58, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
+                            tGSi.DrawLatex(0.20, 0.54, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                            SaveCanvas(cGS, JoinPath(gaussSigmaDir,
+                                                     TString::Format("gaussSigma_allVariants_vs_cent_%s.png", b.folder.c_str()).Data()));
+                            for (auto* g : sGraphs) delete g;
+                        }
+                    }
+                }
+            }
+            
+            // ====== pTsummaryPerCentrality: <E_T^iso> vs pT for each centrality bin, all UE variants ======
+            {
+                
+                for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                {
+                    const auto& cb = centBins[ic];
+                    
+                    vector<TGraphErrors*> graphs;
+                    vector<std::size_t> graphIndices;
+                    double yMin = std::numeric_limits<double>::max();
+                    double yMax = -std::numeric_limits<double>::max();
+                    
+                    for (std::size_t iv = 0; iv < handles.size(); ++iv)
+                    {
+                        if (iv == 1) continue;  // skip baseVariant
+                        auto& H = handles[iv];
+                        if (!H.file) continue;
+                        
+                        TDirectory* aaTop = H.file->GetDirectory(trigAA.c_str());
+                        if (!aaTop) continue;
+                        
+                        vector<double> xPt;
+                        vector<double> exPt;
+                        vector<double> yPt;
+                        vector<double> eyPt;
+                        
+                        for (int ipt = 1; ipt < kNPtBins; ++ipt)
+                        {
+                            const PtBin& b = PtBins()[ipt];
+                            const string hAAName = "h_Eiso" + b.suffix + cb.suffix;
+                            TH1* hAAsrc = dynamic_cast<TH1*>(aaTop->Get(hAAName.c_str()));
+                            if (!hAAsrc) continue;
+                            
+                            xPt.push_back(0.5 * (kPtEdges[(std::size_t)ipt] + kPtEdges[(std::size_t)ipt + 1]));
+                            exPt.push_back(0.0);
+                            yPt.push_back(hAAsrc->GetMean());
+                            eyPt.push_back((hAAsrc->GetEntries() > 0.0) ? hAAsrc->GetMeanError() : 0.0);
+                            
+                            yMin = std::min(yMin, yPt.back() - eyPt.back());
+                            yMax = std::max(yMax, yPt.back() + eyPt.back());
+                        }
+                        
+                        if (xPt.empty()) continue;
+                        
+                        TGraphErrors* g = new TGraphErrors((int)xPt.size(), &xPt[0], &yPt[0], &exPt[0], &eyPt[0]);
+                        g->SetLineWidth(2);
+                        g->SetLineColor((iv < 4) ? variantColors[iv] : kBlack);
+                        g->SetMarkerColor((iv < 4) ? variantColors[iv] : kBlack);
+                        g->SetMarkerStyle((iv < 4) ? variantMarkers[iv] : 20);
+                        g->SetMarkerSize(1.2);
+                        graphs.push_back(g);
+                        graphIndices.push_back(iv);
+                    }
+                    
+                    if (graphs.empty()) continue;
+                    
+                    // -- collect PP reference vs pT --
+                    vector<double> xPtPP, exPtPP, yPtPP, eyPtPP;
+                    if (ppTop)
+                    {
+                        for (int ipt = 0; ipt < kNPtBins; ++ipt)
+                        {
+                            const PtBin& bp = PtBins()[ipt];
+                            const string hPPName = "h_Eiso" + bp.suffix;
+                            TH1* hPPsrc = dynamic_cast<TH1*>(ppTop->Get(hPPName.c_str()));
+                            if (!hPPsrc || hPPsrc->GetEntries() <= 0.0) continue;
+                            
+                            xPtPP.push_back(0.5 * (kPtEdges[(std::size_t)ipt] + kPtEdges[(std::size_t)ipt + 1]));
+                            exPtPP.push_back(0.0);
+                            yPtPP.push_back(hPPsrc->GetMean());
+                            eyPtPP.push_back(hPPsrc->GetMeanError());
+                            
+                            yMin = std::min(yMin, yPtPP.back() - eyPtPP.back());
+                            yMax = std::max(yMax, yPtPP.back() + eyPtPP.back());
+                        }
+                    }
+                    
+                    if (!std::isfinite(yMin) || !std::isfinite(yMax))
+                    {
+                        yMin = 0.0;
+                        yMax = 1.0;
+                    }
+                    const double pad = (yMax > yMin) ? (0.55 * (yMax - yMin)) : 0.25;
+                    
+                    TCanvas cPtSummary(
+                                       TString::Format("c_meanIsoEtAllVariantsVsPt_%s_%s",
+                                                       trigAA.c_str(), cb.folder.c_str()).Data(),
+                                       "c_meanIsoEtAllVariantsVsPt", 900, 700
+                                       );
+                    ApplyCanvasMargins1D(cPtSummary);
+                    cPtSummary.cd();
+                    
+                    TH1F hFrame(
+                                TString::Format("hFrame_meanIsoEtAllVariantsVsPt_%s_%s",
+                                                trigAA.c_str(), cb.folder.c_str()).Data(),
+                                "", 100, kPtEdges[1], kPtEdges.back()
+                                );
+                    hFrame.SetDirectory(nullptr);
+                    hFrame.SetStats(0);
+                    hFrame.SetMinimum(yMin - pad);
+                    hFrame.SetMaximum(yMax + pad);
+                    hFrame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                    hFrame.GetYaxis()->SetTitle("<E_{T}^{iso}> [GeV]");
+                    hFrame.GetXaxis()->SetTitleSize(0.055);
+                    hFrame.GetYaxis()->SetTitleSize(0.055);
+                    hFrame.GetXaxis()->SetLabelSize(0.045);
+                    hFrame.GetYaxis()->SetLabelSize(0.045);
+                    hFrame.GetYaxis()->SetTitleOffset(1.15);
+                    hFrame.Draw();
+                    
+                    for (auto* g : graphs) g->Draw("PE1 SAME");
+                    
+                    TGraphErrors* gPPpt = nullptr;
+                    if (!xPtPP.empty())
+                    {
+                        gPPpt = new TGraphErrors((int)xPtPP.size(), &xPtPP[0], &yPtPP[0], &exPtPP[0], &eyPtPP[0]);
+                        gPPpt->SetLineWidth(2);
+                        gPPpt->SetLineColor(kRed + 1);
+                        gPPpt->SetMarkerColor(kRed + 1);
+                        gPPpt->SetMarkerStyle(24);
+                        gPPpt->SetMarkerSize(1.2);
+                        gPPpt->Draw("PE1 SAME");
+                    }
+                    
+                    TLegend leg(0.20, 0.75, 0.60, 0.88);
+                    leg.SetBorderSize(0);
+                    leg.SetFillStyle(0);
+                    leg.SetTextFont(42);
+                    leg.SetTextSize(0.026);
+                    leg.SetNColumns(2);
+                    for (std::size_t ig = 0; ig < graphs.size(); ++ig)
+                    {
+                        leg.AddEntry(graphs[ig], handles[graphIndices[ig]].label.c_str(), "ep");
+                    }
+                    if (gPPpt) leg.AddEntry(gPPpt, "pp reference", "ep");
+                    leg.Draw();
+                    
+                    TLatex tTitle;
+                    tTitle.SetNDC(true);
+                    tTitle.SetTextFont(42);
+                    tTitle.SetTextAlign(23);
+                    tTitle.SetTextSize(0.045);
+                    tTitle.DrawLatex(0.50, 0.98,
+                                     TString::Format("<E_{T}^{iso}> vs p_{T}^{#gamma}, all UE variants, %d-%d%% Cent AuAu", cb.lo, cb.hi).Data());
+                    
+                    const double coneRVal = (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3;
+                    const int    isoEtMax = (kAA_IsoMode == "fixedIso5GeV") ? 5 : -1;
+                    
+                    TLatex t;
+                    t.SetNDC(true);
+                    t.SetTextFont(42);
+                    t.SetTextAlign(33);
+                    t.SetTextSize(0.028);
+                    t.DrawLatex(0.92, 0.89, "Trigger = Photon 10 GeV + MBD NS #geq 2, vtx < 150 cm");
+                    t.DrawLatex(0.92, 0.85, TString::Format("#DeltaR_{cone} < %.1f", coneRVal).Data());
+                    if (isoEtMax > 0)
+                        t.DrawLatex(0.92, 0.81, TString::Format("E_{T}^{iso} < %d GeV", isoEtMax).Data());
+                    
+                    SaveCanvas(cPtSummary, JoinPath(ptMeanIsoSummaryDir,
+                                                    TString::Format("meanIsoEt_allVariants_vs_pT_%s.png", cb.folder.c_str()).Data()));
+                    
+                    for (auto* g : graphs) delete g;
+                    if (gPPpt) delete gPPpt;
+                }
+                
+                // -- baseVariant only: PPG12-style isolation cutoff fits from photon+jet embedded SIM --
+                if (!forEmbeddedSim)
+                {
+                    const string baseVariantPtSummaryDir = JoinPath(ptSummaryBase, "baseVariant");
+                    EnsureDir(baseVariantPtSummaryDir);
+                    
+                    const string phoCutIn = ResolvePhotonJetVariantInput("baseVariant");
+                    if (!phoCutIn.empty())
+                    {
+                        TFile* fPhoCut = TFile::Open(phoCutIn.c_str(), "READ");
+                        if (fPhoCut && !fPhoCut->IsZombie())
+                        {
+                            TDirectory* phoCutTop = fPhoCut->GetDirectory(kDirSIM.c_str());
+                            if (!phoCutTop) phoCutTop = fPhoCut;
+                            
+                            auto FindEfficiencyCut = [&](TH1* hIn, double eff, double& cut, double& cutErr) -> bool
+                            {
+                                cut = 0.0;
+                                cutErr = 0.0;
+                                if (!hIn) return false;
+                                
+                                const int nb = hIn->GetNbinsX();
+                                const double total = hIn->Integral(1, nb);
+                                if (!(total > 0.0)) return false;
+                                
+                                double running = 0.0;
+                                int ibCut = nb;
+                                for (int ib = 1; ib <= nb; ++ib)
                                 {
-                                    ibCut = ib;
-                                    break;
+                                    running += hIn->GetBinContent(ib);
+                                    if ((running / total) >= eff)
+                                    {
+                                        ibCut = ib;
+                                        break;
+                                    }
+                                }
+                                
+                                const double binLo = hIn->GetXaxis()->GetBinLowEdge(ibCut);
+                                const double binHi = hIn->GetXaxis()->GetBinUpEdge(ibCut);
+                                const double prev = running - hIn->GetBinContent(ibCut);
+                                const double binC = hIn->GetBinContent(ibCut);
+                                const double target = eff * total;
+                                
+                                if (binC > 0.0)
+                                {
+                                    const double frac = std::min(1.0, std::max(0.0, (target - prev) / binC));
+                                    cut = binLo + frac * (binHi - binLo);
+                                }
+                                else
+                                {
+                                    cut = 0.5 * (binLo + binHi);
+                                }
+                                
+                                cutErr = 0.5 * (binHi - binLo);
+                                return std::isfinite(cut);
+                            };
+                            
+                            const string embeddedLabel = PhotonEmbeddedShortLabel().empty()
+                            ? "Photon+Jet Embedded SIM"
+                            : ("Photon+Jet " + PhotonEmbeddedShortLabel() + " Embedded SIM");
+                            
+                            // Open matching pp SIM (non-embedded) for PPG12 overlay
+                            TFile* fMatchedPPSim = nullptr;
+                            TDirectory* matchedPPSimTop = nullptr;
+                            string matchedPPLabel;
+                            {
+                                SimSample matchedSample = SimSample::kPhotonJet20; // default
+                                if (bothPhoton10and20simEmbedded)
+                                {
+                                    matchedSample = SimSample::kPhotonJet5And10And20Merged;
+                                    matchedPPLabel = "Pythia 5+10+20";
+                                }
+                                else if (isPhotonJet10Embedded)
+                                {
+                                    matchedSample = SimSample::kPhotonJet10;
+                                    matchedPPLabel = "Pythia 10";
+                                }
+                                else if (isPhotonJet20Embedded)
+                                {
+                                    matchedSample = SimSample::kPhotonJet20;
+                                    matchedPPLabel = "Pythia 20";
+                                }
+                                else
+                                {
+                                    matchedPPLabel = "Pythia 20";
+                                }
+                                const string matchedPath = SimInputPathForSample(matchedSample);
+                                if (!matchedPath.empty())
+                                {
+                                    fMatchedPPSim = TFile::Open(matchedPath.c_str(), "READ");
+                                    if (fMatchedPPSim && !fMatchedPPSim->IsZombie())
+                                        matchedPPSimTop = fMatchedPPSim->GetDirectory(kDirSIM.c_str());
+                                    else { if (fMatchedPPSim) { fMatchedPPSim->Close(); delete fMatchedPPSim; fMatchedPPSim = nullptr; } }
                                 }
                             }
                             
-                            const double binLo = hIn->GetXaxis()->GetBinLowEdge(ibCut);
-                            const double binHi = hIn->GetXaxis()->GetBinUpEdge(ibCut);
-                            const double prev = running - hIn->GetBinContent(ibCut);
-                            const double binC = hIn->GetBinContent(ibCut);
-                            const double target = eff * total;
-                            
-                            if (binC > 0.0)
-                            {
-                                const double frac = std::min(1.0, std::max(0.0, (target - prev) / binC));
-                                cut = binLo + frac * (binHi - binLo);
-                            }
-                            else
-                            {
-                                cut = 0.5 * (binLo + binHi);
-                            }
-                            
-                            cutErr = 0.5 * (binHi - binLo);
-                            return std::isfinite(cut);
-                        };
-                        
-                        const string embeddedLabel = PhotonEmbeddedShortLabel().empty()
-                        ? "Photon+Jet Embedded SIM"
-                        : ("Photon+Jet " + PhotonEmbeddedShortLabel() + " Embedded SIM");
-                        
-                        // Open matching pp SIM (non-embedded) for PPG12 overlay
-                        TFile* fMatchedPPSim = nullptr;
-                        TDirectory* matchedPPSimTop = nullptr;
-                        string matchedPPLabel;
-                        {
-                            SimSample matchedSample = SimSample::kPhotonJet20; // default
-                            if (bothPhoton10and20simEmbedded)
-                            {
-                                matchedSample = SimSample::kPhotonJet5And10And20Merged;
-                                matchedPPLabel = "Pythia 5+10+20";
-                            }
-                            else if (isPhotonJet10Embedded)
-                            {
-                                matchedSample = SimSample::kPhotonJet10;
-                                matchedPPLabel = "Pythia 10";
-                            }
-                            else if (isPhotonJet20Embedded)
-                            {
-                                matchedSample = SimSample::kPhotonJet20;
-                                matchedPPLabel = "Pythia 20";
-                            }
-                            else
-                            {
-                                matchedPPLabel = "Pythia 20";
-                            }
-                            const string matchedPath = SimInputPathForSample(matchedSample);
-                            if (!matchedPath.empty())
-                            {
-                                fMatchedPPSim = TFile::Open(matchedPath.c_str(), "READ");
-                                if (fMatchedPPSim && !fMatchedPPSim->IsZombie())
-                                    matchedPPSimTop = fMatchedPPSim->GetDirectory(kDirSIM.c_str());
-                                else { if (fMatchedPPSim) { fMatchedPPSim->Close(); delete fMatchedPPSim; fMatchedPPSim = nullptr; } }
-                            }
-                        }
-                        
-                        // Derive embedded legend tag from active sample
-                        const string embLegTag = PhotonEmbeddedShortLabel().empty()
+                            // Derive embedded legend tag from active sample
+                            const string embLegTag = PhotonEmbeddedShortLabel().empty()
                             ? "Pythia Emb" : ("Pythia Emb " + PhotonEmbeddedShortLabel());
+                            
+                            for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                            {
+                                const auto& cb = centBins[ic];
+                                
+                                vector<double> xCut;
+                                vector<double> exCut;
+                                vector<double> y70;
+                                vector<double> ey70;
+                                vector<double> y80;
+                                vector<double> ey80;
+                                vector<double> y90;
+                                vector<double> ey90;
+                                
+                                double yMinEff = std::numeric_limits<double>::max();
+                                double yMaxEff = -std::numeric_limits<double>::max();
+                                
+                                for (int ipt = 1; ipt < kNPtBins; ++ipt)
+                                {
+                                    const PtBin& b = PtBins()[ipt];
+                                    const string hSigName = "h_EisoReco_truthSigMatched" + b.suffix + cb.suffix;
+                                    TH1* hSigSrc = dynamic_cast<TH1*>(phoCutTop->Get(hSigName.c_str()));
+                                    if (!hSigSrc || hSigSrc->GetEntries() <= 0.0) continue;
+                                    
+                                    double cut70 = 0.0, err70 = 0.0;
+                                    double cut80 = 0.0, err80 = 0.0;
+                                    double cut90 = 0.0, err90 = 0.0;
+                                    
+                                    if (!FindEfficiencyCut(hSigSrc, 0.70, cut70, err70)) continue;
+                                    if (!FindEfficiencyCut(hSigSrc, 0.80, cut80, err80)) continue;
+                                    if (!FindEfficiencyCut(hSigSrc, 0.90, cut90, err90)) continue;
+                                    
+                                    xCut.push_back(0.5 * (kPtEdges[(std::size_t)ipt] + kPtEdges[(std::size_t)ipt + 1]));
+                                    exCut.push_back(0.0);
+                                    
+                                    y70.push_back(cut70);
+                                    ey70.push_back(err70);
+                                    y80.push_back(cut80);
+                                    ey80.push_back(err80);
+                                    y90.push_back(cut90);
+                                    ey90.push_back(err90);
+                                    
+                                    yMinEff = std::min(yMinEff, std::min(cut70 - err70, std::min(cut80 - err80, cut90 - err90)));
+                                    yMaxEff = std::max(yMaxEff, std::max(cut70 + err70, std::max(cut80 + err80, cut90 + err90)));
+                                }
+                                
+                                if (xCut.empty()) continue;
+                                
+                                if (!std::isfinite(yMinEff) || !std::isfinite(yMaxEff))
+                                {
+                                    yMinEff = 0.0;
+                                    yMaxEff = 1.0;
+                                }
+                                const double padEff = (yMaxEff > yMinEff) ? (0.48 * (yMaxEff - yMinEff)) : 0.25;
+                                
+                                TCanvas cEff(
+                                             TString::Format("c_ppg12IsoCutFits_%s_%s",
+                                                             trigAA.c_str(), cb.folder.c_str()).Data(),
+                                             "c_ppg12IsoCutFits", 1100, 800
+                                             );
+                                ApplyCanvasMargins1D(cEff);
+                                cEff.SetTopMargin(0.10);
+                                cEff.cd();
+                                
+                                TH1F hFrameEff(
+                                               TString::Format("hFrame_ppg12IsoCutFits_%s_%s",
+                                                               trigAA.c_str(), cb.folder.c_str()).Data(),
+                                               "", 100, kPtEdges[1], kPtEdges.back()
+                                               );
+                                hFrameEff.SetDirectory(nullptr);
+                                hFrameEff.SetStats(0);
+                                hFrameEff.SetMinimum(std::max(0.0, yMinEff - padEff));
+                                hFrameEff.SetMaximum(yMaxEff + padEff);
+                                hFrameEff.GetXaxis()->SetTitle("Cluster p_{T} [GeV]");
+                                hFrameEff.GetYaxis()->SetTitle("E_{T}^{iso} Cutoff [GeV]");
+                                hFrameEff.GetXaxis()->SetTitleSize(0.060);
+                                hFrameEff.GetYaxis()->SetTitleSize(0.060);
+                                hFrameEff.GetXaxis()->SetLabelSize(0.050);
+                                hFrameEff.GetYaxis()->SetLabelSize(0.050);
+                                hFrameEff.GetYaxis()->SetTitleOffset(1.05);
+                                hFrameEff.Draw();
+                                
+                                TGraphErrors g90((int)xCut.size(), &xCut[0], &y90[0], &exCut[0], &ey90[0]);
+                                g90.SetLineWidth(2);
+                                g90.SetLineColor(kMagenta + 1);
+                                g90.SetMarkerColor(kMagenta + 1);
+                                g90.SetMarkerStyle(20);
+                                g90.SetMarkerSize(1.4);
+                                
+                                TGraphErrors g80((int)xCut.size(), &xCut[0], &y80[0], &exCut[0], &ey80[0]);
+                                g80.SetLineWidth(2);
+                                g80.SetLineColor(kGreen + 2);
+                                g80.SetMarkerColor(kGreen + 2);
+                                g80.SetMarkerStyle(21);
+                                g80.SetMarkerSize(1.4);
+                                
+                                TGraphErrors g70((int)xCut.size(), &xCut[0], &y70[0], &exCut[0], &ey70[0]);
+                                g70.SetLineWidth(2);
+                                g70.SetLineColor(kBlue + 1);
+                                g70.SetMarkerColor(kBlue + 1);
+                                g70.SetMarkerStyle(22);
+                                g70.SetMarkerSize(1.5);
+                                
+                                const double fitXLo = kPtEdges[1];
+                                const double fitXHi = kPtEdges.back();
+                                
+                                TF1 f90(TString::Format("f_ppg12IsoCut90_%s_%s", trigAA.c_str(), cb.folder.c_str()).Data(), "pol1", fitXLo, fitXHi);
+                                TF1 f80(TString::Format("f_ppg12IsoCut80_%s_%s", trigAA.c_str(), cb.folder.c_str()).Data(), "pol1", fitXLo, fitXHi);
+                                TF1 f70(TString::Format("f_ppg12IsoCut70_%s_%s", trigAA.c_str(), cb.folder.c_str()).Data(), "pol1", fitXLo, fitXHi);
+                                f90.SetLineColor(kMagenta + 1); f90.SetLineWidth(3);
+                                f80.SetLineColor(kGreen + 2);   f80.SetLineWidth(3);
+                                f70.SetLineColor(kBlue + 1);    f70.SetLineWidth(3);
+                                
+                                const bool haveF90 = (g90.GetN() >= 2);
+                                const bool haveF80 = (g80.GetN() >= 2);
+                                const bool haveF70 = (g70.GetN() >= 2);
+                                
+                                if (haveF90) g90.Fit(&f90, "Q0");
+                                if (haveF80) g80.Fit(&f80, "Q0");
+                                if (haveF70) g70.Fit(&f70, "Q0");
+                                
+                                
+                                g90.Draw("PE1 SAME");
+                                g80.Draw("PE1 SAME");
+                                g70.Draw("PE1 SAME");
+                                
+                                // -- bump y-range so top-left labels don't collide with high-pT points --
+                                {
+                                    const double noPPpad = (yMaxEff > yMinEff) ? (0.75 * (yMaxEff - yMinEff)) : 0.25;
+                                    hFrameEff.SetMaximum(yMaxEff + noPPpad);
+                                }
+                                // -- legend + labels for embedded-only version (no pp overlay) --
+                                {
+                                    TLegend legNoPP(0.50, 0.62, 0.92, 0.78);
+                                    legNoPP.SetBorderSize(0); legNoPP.SetFillStyle(0);
+                                    legNoPP.SetTextFont(42); legNoPP.SetTextSize(0.030);
+                                    legNoPP.AddEntry(&g90, "90% Efficiency", "ep");
+                                    legNoPP.AddEntry(&g80, "80% Efficiency", "ep");
+                                    legNoPP.AddEntry(&g70, "70% Efficiency", "ep");
+                                    legNoPP.Draw();
+                                    
+                                    TLatex tInfoNoPP;
+                                    tInfoNoPP.SetNDC(true); tInfoNoPP.SetTextFont(42);
+                                    tInfoNoPP.SetTextAlign(13); tInfoNoPP.SetTextSize(0.030);
+                                    tInfoNoPP.DrawLatex(0.18, 0.88, embeddedLabel.c_str());
+                                    tInfoNoPP.DrawLatex(0.18, 0.83, TString::Format("%d-%d%% centrality", cb.lo, cb.hi).Data());
+                                    tInfoNoPP.DrawLatex(0.18, 0.78,
+                                                        TString::Format("|v_{z}| < %d cm,  |#eta^{#gamma}| < %.1f", kAA_VzCut, kPhotonEtaAbsMax).Data());
+                                    tInfoNoPP.DrawLatex(0.18, 0.73,
+                                                        TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                                    
+                                    TLatex tSphNoPP;
+                                    tSphNoPP.SetNDC(true); tSphNoPP.SetTextFont(42); tSphNoPP.SetTextAlign(33);
+                                    tSphNoPP.SetTextSize(0.042);
+                                    tSphNoPP.DrawLatex(0.92, 0.88, "#bf{sPHENIX} #it{Internal}");
+                                    tSphNoPP.SetTextSize(0.034);
+                                    tSphNoPP.DrawLatex(0.92, 0.83, "Pythia Emb  #sqrt{s_{NN}} = 200 GeV");
+                                    
+                                    // -- save embedded-only version (no pp overlay) --
+                                    SaveCanvas(cEff, JoinPath(baseVariantPtSummaryDir,
+                                                              TString::Format("ppg12Style_isoCutEfficiencyFits_%s_noPP.png", cb.folder.c_str()).Data()));
+                                }
+                                
+                                // -- pp reference (matched pp SIM, open markers) --
+                                vector<double> xCutPP, exCutPP, y90PP, ey90PP, y80PP, ey80PP, y70PP, ey70PP;
+                                if (matchedPPSimTop)
+                                {
+                                    for (int iptPP = 1; iptPP < kNPtBins; ++iptPP)
+                                    {
+                                        const PtBin& bPP = PtBins()[iptPP];
+                                        const string hPPSigName = "h_EisoReco_truthSigMatched" + bPP.suffix;
+                                        TH1* hPPSig = dynamic_cast<TH1*>(matchedPPSimTop->Get(hPPSigName.c_str()));
+                                        if (!hPPSig || hPPSig->GetEntries() <= 0.0) continue;
+                                        double c70=0,e70=0, c80=0,e80=0, c90=0,e90=0;
+                                        if (!FindEfficiencyCut(hPPSig, 0.70, c70, e70)) continue;
+                                        if (!FindEfficiencyCut(hPPSig, 0.80, c80, e80)) continue;
+                                        if (!FindEfficiencyCut(hPPSig, 0.90, c90, e90)) continue;
+                                        xCutPP.push_back(0.5*(kPtEdges[(std::size_t)iptPP]+kPtEdges[(std::size_t)iptPP+1]));
+                                        exCutPP.push_back(0.0);
+                                        y90PP.push_back(c90); ey90PP.push_back(e90);
+                                        y80PP.push_back(c80); ey80PP.push_back(e80);
+                                        y70PP.push_back(c70); ey70PP.push_back(e70);
+                                    }
+                                }
+                                // update y-range to include pp points
+                                for (std::size_t ipp = 0; ipp < xCutPP.size(); ++ipp)
+                                {
+                                    yMinEff = std::min(yMinEff, std::min(y70PP[ipp]-ey70PP[ipp], std::min(y80PP[ipp]-ey80PP[ipp], y90PP[ipp]-ey90PP[ipp])));
+                                    yMaxEff = std::max(yMaxEff, std::max(y70PP[ipp]+ey70PP[ipp], std::max(y80PP[ipp]+ey80PP[ipp], y90PP[ipp]+ey90PP[ipp])));
+                                }
+                                if (!xCutPP.empty())
+                                {
+                                    const double padEffUpd = (yMaxEff > yMinEff) ? (0.48 * (yMaxEff - yMinEff)) : 0.25;
+                                    hFrameEff.SetMinimum(std::max(0.0, yMinEff - padEffUpd));
+                                    hFrameEff.SetMaximum(yMaxEff + padEffUpd);
+                                }
+                                TGraphErrors *gPP90=nullptr, *gPP80=nullptr, *gPP70=nullptr;
+                                if (!xCutPP.empty())
+                                {
+                                    gPP90 = new TGraphErrors((int)xCutPP.size(), &xCutPP[0], &y90PP[0], &exCutPP[0], &ey90PP[0]);
+                                    gPP90->SetLineWidth(2); gPP90->SetLineColor(kMagenta+1); gPP90->SetMarkerColor(kMagenta+1);
+                                    gPP90->SetMarkerStyle(24); gPP90->SetMarkerSize(1.4);
+                                    gPP90->Draw("PE1 SAME");
+                                    gPP80 = new TGraphErrors((int)xCutPP.size(), &xCutPP[0], &y80PP[0], &exCutPP[0], &ey80PP[0]);
+                                    gPP80->SetLineWidth(2); gPP80->SetLineColor(kGreen+2); gPP80->SetMarkerColor(kGreen+2);
+                                    gPP80->SetMarkerStyle(25); gPP80->SetMarkerSize(1.4);
+                                    gPP80->Draw("PE1 SAME");
+                                    gPP70 = new TGraphErrors((int)xCutPP.size(), &xCutPP[0], &y70PP[0], &exCutPP[0], &ey70PP[0]);
+                                    gPP70->SetLineWidth(2); gPP70->SetLineColor(kBlue+1); gPP70->SetMarkerColor(kBlue+1);
+                                    gPP70->SetMarkerStyle(26); gPP70->SetMarkerSize(1.5);
+                                    gPP70->Draw("PE1 SAME");
+                                }
+                                
+                                TLegend legEff(0.38, 0.58, 0.92, 0.78);
+                                legEff.SetBorderSize(0);
+                                legEff.SetFillStyle(0);
+                                legEff.SetTextFont(42);
+                                legEff.SetTextSize(0.024);
+                                legEff.SetNColumns(2);
+                                legEff.SetColumnSeparation(-0.02);
+                                legEff.AddEntry(&g90, TString::Format("90%% Efficiency (%s)", embLegTag.c_str()).Data(), "ep");
+                                if (gPP90) legEff.AddEntry(gPP90, TString::Format("90%% Efficiency (%s)", matchedPPLabel.c_str()).Data(), "ep");
+                                legEff.AddEntry(&g80, TString::Format("80%% Efficiency (%s)", embLegTag.c_str()).Data(), "ep");
+                                if (gPP80) legEff.AddEntry(gPP80, TString::Format("80%% Efficiency (%s)", matchedPPLabel.c_str()).Data(), "ep");
+                                legEff.AddEntry(&g70, TString::Format("70%% Efficiency (%s)", embLegTag.c_str()).Data(), "ep");
+                                if (gPP70) legEff.AddEntry(gPP70, TString::Format("70%% Efficiency (%s)", matchedPPLabel.c_str()).Data(), "ep");
+                                legEff.Draw();
+                                
+                                TLatex tInfoEff;
+                                tInfoEff.SetNDC(true);
+                                tInfoEff.SetTextFont(42);
+                                tInfoEff.SetTextAlign(13);
+                                tInfoEff.SetTextSize(0.030);
+                                tInfoEff.DrawLatex(0.18, 0.88, embeddedLabel.c_str());
+                                tInfoEff.DrawLatex(0.18, 0.83, TString::Format("%d-%d%% centrality", cb.lo, cb.hi).Data());
+                                tInfoEff.DrawLatex(0.18, 0.78,
+                                                   TString::Format("|v_{z}| < %d cm,  |#eta^{#gamma}| < %.1f", kAA_VzCut, kPhotonEtaAbsMax).Data());
+                                
+                                tInfoEff.DrawLatex(0.18, 0.73,
+                                                   TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                                
+                                {
+                                    TLatex tSph;
+                                    tSph.SetNDC(true);
+                                    tSph.SetTextFont(42);
+                                    tSph.SetTextAlign(33);
+                                    tSph.SetTextSize(0.042);
+                                    tSph.DrawLatex(0.92, 0.88, "#bf{sPHENIX} #it{Internal}");
+                                    tSph.SetTextSize(0.034);
+                                    tSph.DrawLatex(0.92, 0.83, "Pythia Emb  #sqrt{s_{NN}} = 200 GeV");
+                                }
+                                
+                                SaveCanvas(cEff, JoinPath(baseVariantPtSummaryDir,
+                                                          TString::Format("ppg12Style_isoCutEfficiencyFits_%s.png", cb.folder.c_str()).Data()));
+                                if (gPP90) delete gPP90;
+                                if (gPP80) delete gPP80;
+                                if (gPP70) delete gPP70;
+                            }
+                            
+                            if (fMatchedPPSim) { fMatchedPPSim->Close(); delete fMatchedPPSim; fMatchedPPSim = nullptr; }
+                            
+                            // -- standalone pp 5+10+20 merged pythia-only iso-cut efficiency plot (no centrality) --
+                            if (ppSimMergedTop)
+                            {
+                                vector<double> xPPM, exPPM, y90M, ey90M, y80M, ey80M, y70M, ey70M;
+                                double yMinM = std::numeric_limits<double>::max();
+                                double yMaxM = -std::numeric_limits<double>::max();
+                                for (int ipt = 1; ipt < kNPtBins; ++ipt)
+                                {
+                                    const PtBin& b = PtBins()[ipt];
+                                    const string hName = "h_EisoReco_truthSigMatched" + b.suffix;
+                                    TH1* hSig = dynamic_cast<TH1*>(ppSimMergedTop->Get(hName.c_str()));
+                                    if (!hSig || hSig->GetEntries() <= 0.0) continue;
+                                    double c70=0,e70=0, c80=0,e80=0, c90=0,e90=0;
+                                    if (!FindEfficiencyCut(hSig, 0.70, c70, e70)) continue;
+                                    if (!FindEfficiencyCut(hSig, 0.80, c80, e80)) continue;
+                                    if (!FindEfficiencyCut(hSig, 0.90, c90, e90)) continue;
+                                    xPPM.push_back(0.5*(kPtEdges[(std::size_t)ipt]+kPtEdges[(std::size_t)ipt+1]));
+                                    exPPM.push_back(0.0);
+                                    y90M.push_back(c90); ey90M.push_back(e90);
+                                    y80M.push_back(c80); ey80M.push_back(e80);
+                                    y70M.push_back(c70); ey70M.push_back(e70);
+                                    yMinM = std::min(yMinM, std::min(c70-e70, std::min(c80-e80, c90-e90)));
+                                    yMaxM = std::max(yMaxM, std::max(c70+e70, std::max(c80+e80, c90+e90)));
+                                }
+                                if (!xPPM.empty())
+                                {
+                                    if (!std::isfinite(yMinM) || !std::isfinite(yMaxM)) { yMinM = 0.0; yMaxM = 1.0; }
+                                    const double padM = (yMaxM > yMinM) ? (1.2 * (yMaxM - yMinM)) : 0.25;
+                                    TCanvas cPPM("c_ppg12IsoCutFits_ppMerged", "", 900, 700);
+                                    ApplyCanvasMargins1D(cPPM);
+                                    cPPM.SetTopMargin(0.10);
+                                    cPPM.cd();
+                                    TH1F hFrM("hFrM_ppMerged", "", 100, kPtEdges[1], kPtEdges[kNPtBins]);
+                                    hFrM.SetDirectory(nullptr); hFrM.SetStats(0);
+                                    hFrM.SetMinimum(std::max(0.0, yMinM - padM));
+                                    hFrM.SetMaximum(yMaxM + padM);
+                                    hFrM.GetXaxis()->SetTitle("Cluster p_{T} [GeV]");
+                                    hFrM.GetYaxis()->SetTitle("E_{T}^{iso} Cutoff [GeV]");
+                                    hFrM.GetXaxis()->SetTitleSize(0.060);
+                                    hFrM.GetYaxis()->SetTitleSize(0.060);
+                                    hFrM.GetXaxis()->SetLabelSize(0.050);
+                                    hFrM.GetYaxis()->SetLabelSize(0.050);
+                                    hFrM.GetYaxis()->SetTitleOffset(1.05);
+                                    hFrM.Draw();
+                                    
+                                    TGraphErrors gM90((int)xPPM.size(), &xPPM[0], &y90M[0], &exPPM[0], &ey90M[0]);
+                                    gM90.SetLineWidth(2); gM90.SetLineColor(kMagenta+1); gM90.SetMarkerColor(kMagenta+1);
+                                    gM90.SetMarkerStyle(20); gM90.SetMarkerSize(1.4); gM90.Draw("PE1 SAME");
+                                    TGraphErrors gM80((int)xPPM.size(), &xPPM[0], &y80M[0], &exPPM[0], &ey80M[0]);
+                                    gM80.SetLineWidth(2); gM80.SetLineColor(kGreen+2); gM80.SetMarkerColor(kGreen+2);
+                                    gM80.SetMarkerStyle(21); gM80.SetMarkerSize(1.4); gM80.Draw("PE1 SAME");
+                                    TGraphErrors gM70((int)xPPM.size(), &xPPM[0], &y70M[0], &exPPM[0], &ey70M[0]);
+                                    gM70.SetLineWidth(2); gM70.SetLineColor(kBlue+1); gM70.SetMarkerColor(kBlue+1);
+                                    gM70.SetMarkerStyle(22); gM70.SetMarkerSize(1.5); gM70.Draw("PE1 SAME");
+                                    
+                                    const double fitXLoM = kPtEdges[1];
+                                    const double fitXHiM = kPtEdges.back();
+                                    TF1 fM90("fM90_ppMerged", "pol1", fitXLoM, fitXHiM);
+                                    TF1 fM80("fM80_ppMerged", "pol1", fitXLoM, fitXHiM);
+                                    TF1 fM70("fM70_ppMerged", "pol1", fitXLoM, fitXHiM);
+                                    fM90.SetLineColor(kMagenta+1); fM90.SetLineWidth(3);
+                                    fM80.SetLineColor(kGreen+2);   fM80.SetLineWidth(3);
+                                    fM70.SetLineColor(kBlue+1);    fM70.SetLineWidth(3);
+                                    if (gM90.GetN() >= 2) { gM90.Fit(&fM90, "Q0"); fM90.Draw("SAME"); }
+                                    if (gM80.GetN() >= 2) { gM80.Fit(&fM80, "Q0"); fM80.Draw("SAME"); }
+                                    if (gM70.GetN() >= 2) { gM70.Fit(&fM70, "Q0"); fM70.Draw("SAME"); }
+                                    
+                                    TLegend legM(0.50, 0.62, 0.92, 0.78);
+                                    legM.SetBorderSize(0); legM.SetFillStyle(0);
+                                    legM.SetTextFont(42); legM.SetTextSize(0.030);
+                                    legM.AddEntry(&gM90, "90% Efficiency", "ep");
+                                    legM.AddEntry(&gM80, "80% Efficiency", "ep");
+                                    legM.AddEntry(&gM70, "70% Efficiency", "ep");
+                                    legM.Draw();
+                                    
+                                    TLatex tInfoM;
+                                    tInfoM.SetNDC(true); tInfoM.SetTextFont(42);
+                                    tInfoM.SetTextAlign(13); tInfoM.SetTextSize(0.030);
+                                    tInfoM.DrawLatex(0.18, 0.88, "Pythia,  #sqrt{s} = 200 GeV");
+                                    if (gM90.GetN() >= 2)
+                                        tInfoM.DrawLatex(0.18, 0.83,
+                                                         TString::Format("90%%: E_{T}^{iso} = %.3f  + %.3fp_{T}", fM90.GetParameter(0), fM90.GetParameter(1)).Data());
+                                    if (gM80.GetN() >= 2)
+                                        tInfoM.DrawLatex(0.18, 0.78,
+                                                         TString::Format("80%%: E_{T}^{iso} = %.3f  + %.3fp_{T}", fM80.GetParameter(0), fM80.GetParameter(1)).Data());
+                                    if (gM70.GetN() >= 2)
+                                        tInfoM.DrawLatex(0.18, 0.73,
+                                                         TString::Format("70%%: E_{T}^{iso} = %.3f  + %.3fp_{T}", fM70.GetParameter(0), fM70.GetParameter(1)).Data());
+                                    tInfoM.DrawLatex(0.18, 0.68,
+                                                     TString::Format("vtx |z| < %d cm, |#eta^{#gamma}|<%.1f", kAA_VzCut, kPhotonEtaAbsMax).Data());
+                                    
+                                    {
+                                        TLatex tSph;
+                                        tSph.SetNDC(true); tSph.SetTextFont(42); tSph.SetTextAlign(33);
+                                        tSph.SetTextSize(0.042);
+                                        tSph.DrawLatex(0.92, 0.88, "#bf{sPHENIX} #it{Internal}");
+                                    }
+                                    
+                                    SaveCanvas(cPPM, JoinPath(baseVariantPtSummaryDir,
+                                                              "ppg12Style_isoCutEfficiencyFits_ppMerged.png"));
+                                }
+                            }
+                            
+                            fPhoCut->Close();
+                            
+                            delete fPhoCut;
+                            fPhoCut = nullptr;
+                        }
+                        else
+                        {
+                            if (fPhoCut) { fPhoCut->Close(); delete fPhoCut; fPhoCut = nullptr; }
+                            cout << ANSI_BOLD_YEL
+                            << "[WARN] Missing photon+jet embedded baseVariant input for PPG12-style iso-cut fits: "
+                            << phoCutIn
+                            << ANSI_RESET << "\n";
+                        }
+                    }
+                    else
+                    {
+                        cout << ANSI_BOLD_YEL
+                        << "[WARN] Photon+jet embedded SIM toggle/path is unavailable for baseVariant PPG12-style iso-cut fits."
+                        << ANSI_RESET << "\n";
+                    }
+                }
+            }
+            
+            // ====== pTsummaryPerCentrality/summaryOutput: Gaussian mean & sigma vs pT ======
+            {
+                const string gaussMeanPtDir  = JoinPath(ptMeanIsoSummaryDir, "meanSummary");
+                const string gaussSigmaPtDir = JoinPath(ptMeanIsoSummaryDir, "sigmaSummary");
+                EnsureDir(gaussMeanPtDir);
+                EnsureDir(gaussSigmaPtDir);
+                
+                for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                {
+                    const auto& cb = centBins[ic];
+                    
+                    // --- Gaussian Mean vs pT ---
+                    {
+                        vector<TGraphErrors*> gGraphs;
+                        vector<std::size_t>   gIdx;
+                        double yMinG = 1e30, yMaxG = -1e30;
+                        for (std::size_t iv = 0; iv < handles.size(); ++iv)
+                        {
+                            if (!handles[iv].file) continue;
+                            vector<double> xP, exP, yP, eyP;
+                            for (int ipt = 0; ipt < kNPtBins; ++ipt)
+                            {
+                                if (!gaussFilled[iv][ipt][ic]) continue;
+                                xP.push_back(0.5 * (kPtEdges[(std::size_t)ipt] + kPtEdges[(std::size_t)ipt + 1]));
+                                exP.push_back(0.5 * (kPtEdges[(std::size_t)ipt + 1] - kPtEdges[(std::size_t)ipt]));
+                                yP.push_back(gaussMean[iv][ipt][ic]);
+                                eyP.push_back(gaussMeanErr[iv][ipt][ic]);
+                                yMinG = std::min(yMinG, yP.back() - eyP.back());
+                                yMaxG = std::max(yMaxG, yP.back() + eyP.back());
+                            }
+                            if (xP.empty()) continue;
+                            TGraphErrors* g = new TGraphErrors((int)xP.size(), &xP[0], &yP[0], &exP[0], &eyP[0]);
+                            g->SetLineWidth(2);
+                            g->SetLineColor((iv < 4) ? variantColors[iv] : kBlack);
+                            g->SetMarkerColor((iv < 4) ? variantColors[iv] : kBlack);
+                            g->SetMarkerStyle((iv < 4) ? variantMarkers[iv] : 20);
+                            g->SetMarkerSize(1.2);
+                            gGraphs.push_back(g);
+                            gIdx.push_back(iv);
+                        }
+                        if (!gGraphs.empty())
+                        {
+                            if (!std::isfinite(yMinG) || !std::isfinite(yMaxG)) { yMinG = 0; yMaxG = 1; }
+                            const double padG = (yMaxG > yMinG) ? 0.20 * (yMaxG - yMinG) : 0.5;
+                            TCanvas cGM(TString::Format("c_gaussMeanVsPt_%s", cb.folder.c_str()).Data(), "", 900, 700);
+                            ApplyCanvasMargins1D(cGM); cGM.cd();
+                            TH1F hFr(TString::Format("hFr_gaussMeanVsPt_%s", cb.folder.c_str()).Data(),
+                                     "", 100, kPtEdges.front(), kPtEdges.back());
+                            hFr.SetDirectory(nullptr); hFr.SetStats(0);
+                            hFr.SetMinimum(yMinG - padG); hFr.SetMaximum(yMaxG + padG);
+                            hFr.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                            hFr.GetYaxis()->SetTitle("Gaussian #mu [GeV]");
+                            hFr.GetXaxis()->SetTitleSize(0.055); hFr.GetYaxis()->SetTitleSize(0.055);
+                            hFr.GetXaxis()->SetLabelSize(0.045); hFr.GetYaxis()->SetLabelSize(0.045);
+                            hFr.GetYaxis()->SetTitleOffset(1.15);
+                            hFr.Draw();
+                            for (auto* g : gGraphs) g->Draw("PE1 SAME");
+                            TLegend lgGM(0.56, 0.62, 0.92, 0.88);
+                            lgGM.SetBorderSize(0); lgGM.SetFillStyle(0); lgGM.SetTextFont(42); lgGM.SetTextSize(0.032);
+                            for (std::size_t ig = 0; ig < gGraphs.size(); ++ig)
+                                lgGM.AddEntry(gGraphs[ig], handles[gIdx[ig]].label.c_str(), "ep");
+                            lgGM.Draw();
+                            TLatex tGM; tGM.SetNDC(true); tGM.SetTextFont(42); tGM.SetTextAlign(23); tGM.SetTextSize(0.042);
+                            tGM.DrawLatex(0.50, 0.98,
+                                          TString::Format("Gaussian #mu vs p_{T}^{#gamma}, %d-%d%% Cent", cb.lo, cb.hi).Data());
+                            TLatex tGMi; tGMi.SetNDC(true); tGMi.SetTextFont(42); tGMi.SetTextAlign(13); tGMi.SetTextSize(0.028);
+                            tGMi.DrawLatex(0.20, 0.58, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
+                            tGMi.DrawLatex(0.20, 0.54, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                            SaveCanvas(cGM, JoinPath(gaussMeanPtDir,
+                                                     TString::Format("gaussMean_allVariants_vs_pT_%s.png", cb.folder.c_str()).Data()));
+                            for (auto* g : gGraphs) delete g;
+                        }
+                    }
+                    
+                    // --- Gaussian Sigma vs pT ---
+                    {
+                        vector<TGraphErrors*> sGraphs;
+                        vector<std::size_t>   sIdx;
+                        double yMinS = 1e30, yMaxS = -1e30;
+                        for (std::size_t iv = 0; iv < handles.size(); ++iv)
+                        {
+                            if (!handles[iv].file) continue;
+                            vector<double> xP, exP, yP, eyP;
+                            for (int ipt = 0; ipt < kNPtBins; ++ipt)
+                            {
+                                if (!gaussFilled[iv][ipt][ic]) continue;
+                                xP.push_back(0.5 * (kPtEdges[(std::size_t)ipt] + kPtEdges[(std::size_t)ipt + 1]));
+                                exP.push_back(0.5 * (kPtEdges[(std::size_t)ipt + 1] - kPtEdges[(std::size_t)ipt]));
+                                yP.push_back(gaussSigma[iv][ipt][ic]);
+                                eyP.push_back(gaussSigmaErr[iv][ipt][ic]);
+                                yMinS = std::min(yMinS, yP.back() - eyP.back());
+                                yMaxS = std::max(yMaxS, yP.back() + eyP.back());
+                            }
+                            if (xP.empty()) continue;
+                            TGraphErrors* g = new TGraphErrors((int)xP.size(), &xP[0], &yP[0], &exP[0], &eyP[0]);
+                            g->SetLineWidth(2);
+                            g->SetLineColor((iv < 4) ? variantColors[iv] : kBlack);
+                            g->SetMarkerColor((iv < 4) ? variantColors[iv] : kBlack);
+                            g->SetMarkerStyle((iv < 4) ? variantMarkers[iv] : 20);
+                            g->SetMarkerSize(1.2);
+                            sGraphs.push_back(g);
+                            sIdx.push_back(iv);
+                        }
+                        if (!sGraphs.empty())
+                        {
+                            if (!std::isfinite(yMinS) || !std::isfinite(yMaxS)) { yMinS = 0; yMaxS = 5; }
+                            const double padS = (yMaxS > yMinS) ? 0.20 * (yMaxS - yMinS) : 0.5;
+                            TCanvas cGS(TString::Format("c_gaussSigmaVsPt_%s", cb.folder.c_str()).Data(), "", 900, 700);
+                            ApplyCanvasMargins1D(cGS); cGS.cd();
+                            TH1F hFr(TString::Format("hFr_gaussSigmaVsPt_%s", cb.folder.c_str()).Data(),
+                                     "", 100, kPtEdges.front(), kPtEdges.back());
+                            hFr.SetDirectory(nullptr); hFr.SetStats(0);
+                            hFr.SetMinimum(std::max(0.0, yMinS - padS)); hFr.SetMaximum(yMaxS + padS);
+                            hFr.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                            hFr.GetYaxis()->SetTitle("Gaussian #sigma [GeV]");
+                            hFr.GetXaxis()->SetTitleSize(0.055); hFr.GetYaxis()->SetTitleSize(0.055);
+                            hFr.GetXaxis()->SetLabelSize(0.045); hFr.GetYaxis()->SetLabelSize(0.045);
+                            hFr.GetYaxis()->SetTitleOffset(1.15);
+                            hFr.Draw();
+                            for (auto* g : sGraphs) g->Draw("PE1 SAME");
+                            TLegend lgGS(0.56, 0.62, 0.92, 0.88);
+                            lgGS.SetBorderSize(0); lgGS.SetFillStyle(0); lgGS.SetTextFont(42); lgGS.SetTextSize(0.032);
+                            for (std::size_t ig = 0; ig < sGraphs.size(); ++ig)
+                                lgGS.AddEntry(sGraphs[ig], handles[sIdx[ig]].label.c_str(), "ep");
+                            lgGS.Draw();
+                            TLatex tGS; tGS.SetNDC(true); tGS.SetTextFont(42); tGS.SetTextAlign(23); tGS.SetTextSize(0.042);
+                            tGS.DrawLatex(0.50, 0.98,
+                                          TString::Format("Gaussian #sigma vs p_{T}^{#gamma}, %d-%d%% Cent", cb.lo, cb.hi).Data());
+                            TLatex tGSi; tGSi.SetNDC(true); tGSi.SetTextFont(42); tGSi.SetTextAlign(13); tGSi.SetTextSize(0.028);
+                            tGSi.DrawLatex(0.20, 0.58, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
+                            tGSi.DrawLatex(0.20, 0.54, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                            SaveCanvas(cGS, JoinPath(gaussSigmaPtDir,
+                                                     TString::Format("gaussSigma_allVariants_vs_pT_%s.png", cb.folder.c_str()).Data()));
+                            for (auto* g : sGraphs) delete g;
+                        }
+                    }
+                }
+            }
+            
+            // ====== ueCompBase: Gaussian mean & sigma vs pT, centrality overlay, per variant ======
+            {
+                const int centOvColors[] = {kRed+1, kBlue+1, kGreen+2, kMagenta+1, kOrange+1,
+                    kCyan+1, kYellow+2, kViolet+1};
+                
+                const string gaussCentOvBase = JoinPath(ueCompBase, "gaussianSummary_centOverlay");
+                const string gaussMeanCentOvDir  = JoinPath(gaussCentOvBase, "meanVsPt");
+                const string gaussSigmaCentOvDir = JoinPath(gaussCentOvBase, "sigmaVsPt");
+                EnsureDir(gaussCentOvBase);
+                EnsureDir(gaussMeanCentOvDir);
+                EnsureDir(gaussSigmaCentOvDir);
+                
+                for (std::size_t iv = 0; iv < handles.size(); ++iv)
+                {
+                    if (!handles[iv].file) continue;
+                    const auto& H = handles[iv];
+                    
+                    // --- Gaussian Mean vs pT, centrality overlay ---
+                    {
+                        vector<TGraphErrors*> gCent;
+                        vector<string> cLbls;
+                        double yMinG = 1e30, yMaxG = -1e30;
                         
                         for (std::size_t ic = 0; ic < centBins.size(); ++ic)
                         {
                             const auto& cb = centBins[ic];
-                            
-                            vector<double> xCut;
-                            vector<double> exCut;
-                            vector<double> y70;
-                            vector<double> ey70;
-                            vector<double> y80;
-                            vector<double> ey80;
-                            vector<double> y90;
-                            vector<double> ey90;
-                            
-                            double yMinEff = std::numeric_limits<double>::max();
-                            double yMaxEff = -std::numeric_limits<double>::max();
-                            
-                            for (int ipt = 1; ipt < kNPtBins; ++ipt)
+                            vector<double> xP, exP, yP, eyP;
+                            for (int ipt = 0; ipt < kNPtBins; ++ipt)
                             {
-                                const PtBin& b = PtBins()[ipt];
-                                const string hSigName = "h_EisoReco_truthSigMatched" + b.suffix + cb.suffix;
-                                TH1* hSigSrc = dynamic_cast<TH1*>(phoCutTop->Get(hSigName.c_str()));
-                                if (!hSigSrc || hSigSrc->GetEntries() <= 0.0) continue;
-                                
-                                double cut70 = 0.0, err70 = 0.0;
-                                double cut80 = 0.0, err80 = 0.0;
-                                double cut90 = 0.0, err90 = 0.0;
-                                
-                                if (!FindEfficiencyCut(hSigSrc, 0.70, cut70, err70)) continue;
-                                if (!FindEfficiencyCut(hSigSrc, 0.80, cut80, err80)) continue;
-                                if (!FindEfficiencyCut(hSigSrc, 0.90, cut90, err90)) continue;
-                                
-                                xCut.push_back(0.5 * (kPtEdges[(std::size_t)ipt] + kPtEdges[(std::size_t)ipt + 1]));
-                                exCut.push_back(0.0);
-                                
-                                y70.push_back(cut70);
-                                ey70.push_back(err70);
-                                y80.push_back(cut80);
-                                ey80.push_back(err80);
-                                y90.push_back(cut90);
-                                ey90.push_back(err90);
-                                
-                                yMinEff = std::min(yMinEff, std::min(cut70 - err70, std::min(cut80 - err80, cut90 - err90)));
-                                yMaxEff = std::max(yMaxEff, std::max(cut70 + err70, std::max(cut80 + err80, cut90 + err90)));
+                                if (!gaussFilled[iv][ipt][ic]) continue;
+                                xP.push_back(0.5 * (kPtEdges[(std::size_t)ipt] + kPtEdges[(std::size_t)ipt + 1]));
+                                exP.push_back(0.5 * (kPtEdges[(std::size_t)ipt + 1] - kPtEdges[(std::size_t)ipt]));
+                                yP.push_back(gaussMean[iv][ipt][ic]);
+                                eyP.push_back(gaussMeanErr[iv][ipt][ic]);
+                                yMinG = std::min(yMinG, yP.back() - eyP.back());
+                                yMaxG = std::max(yMaxG, yP.back() + eyP.back());
                             }
-                            
-                            if (xCut.empty()) continue;
-                            
-                            if (!std::isfinite(yMinEff) || !std::isfinite(yMaxEff))
-                            {
-                                yMinEff = 0.0;
-                                yMaxEff = 1.0;
-                            }
-                            const double padEff = (yMaxEff > yMinEff) ? (0.48 * (yMaxEff - yMinEff)) : 0.25;
-                            
-                            TCanvas cEff(
-                                         TString::Format("c_ppg12IsoCutFits_%s_%s",
-                                                         trigAA.c_str(), cb.folder.c_str()).Data(),
-                                         "c_ppg12IsoCutFits", 1100, 800
-                                         );
-                            ApplyCanvasMargins1D(cEff);
-                            cEff.SetTopMargin(0.10);
-                            cEff.cd();
-                            
-                            TH1F hFrameEff(
-                                           TString::Format("hFrame_ppg12IsoCutFits_%s_%s",
-                                                           trigAA.c_str(), cb.folder.c_str()).Data(),
-                                           "", 100, kPtEdges[1], kPtEdges.back()
-                                           );
-                            hFrameEff.SetDirectory(nullptr);
-                            hFrameEff.SetStats(0);
-                            hFrameEff.SetMinimum(std::max(0.0, yMinEff - padEff));
-                            hFrameEff.SetMaximum(yMaxEff + padEff);
-                            hFrameEff.GetXaxis()->SetTitle("Cluster p_{T} [GeV]");
-                            hFrameEff.GetYaxis()->SetTitle("E_{T}^{iso} Cutoff [GeV]");
-                            hFrameEff.GetXaxis()->SetTitleSize(0.060);
-                            hFrameEff.GetYaxis()->SetTitleSize(0.060);
-                            hFrameEff.GetXaxis()->SetLabelSize(0.050);
-                            hFrameEff.GetYaxis()->SetLabelSize(0.050);
-                            hFrameEff.GetYaxis()->SetTitleOffset(1.05);
-                            hFrameEff.Draw();
-                            
-                            TGraphErrors g90((int)xCut.size(), &xCut[0], &y90[0], &exCut[0], &ey90[0]);
-                            g90.SetLineWidth(2);
-                            g90.SetLineColor(kMagenta + 1);
-                            g90.SetMarkerColor(kMagenta + 1);
-                            g90.SetMarkerStyle(20);
-                            g90.SetMarkerSize(1.4);
-                            
-                            TGraphErrors g80((int)xCut.size(), &xCut[0], &y80[0], &exCut[0], &ey80[0]);
-                            g80.SetLineWidth(2);
-                            g80.SetLineColor(kGreen + 2);
-                            g80.SetMarkerColor(kGreen + 2);
-                            g80.SetMarkerStyle(21);
-                            g80.SetMarkerSize(1.4);
-                            
-                            TGraphErrors g70((int)xCut.size(), &xCut[0], &y70[0], &exCut[0], &ey70[0]);
-                            g70.SetLineWidth(2);
-                            g70.SetLineColor(kBlue + 1);
-                            g70.SetMarkerColor(kBlue + 1);
-                            g70.SetMarkerStyle(22);
-                            g70.SetMarkerSize(1.5);
-                            
-                            const double fitXLo = kPtEdges[1];
-                            const double fitXHi = kPtEdges.back();
-                            
-                            TF1 f90(TString::Format("f_ppg12IsoCut90_%s_%s", trigAA.c_str(), cb.folder.c_str()).Data(), "pol1", fitXLo, fitXHi);
-                            TF1 f80(TString::Format("f_ppg12IsoCut80_%s_%s", trigAA.c_str(), cb.folder.c_str()).Data(), "pol1", fitXLo, fitXHi);
-                            TF1 f70(TString::Format("f_ppg12IsoCut70_%s_%s", trigAA.c_str(), cb.folder.c_str()).Data(), "pol1", fitXLo, fitXHi);
-                            f90.SetLineColor(kMagenta + 1); f90.SetLineWidth(3);
-                            f80.SetLineColor(kGreen + 2);   f80.SetLineWidth(3);
-                            f70.SetLineColor(kBlue + 1);    f70.SetLineWidth(3);
-                            
-                            const bool haveF90 = (g90.GetN() >= 2);
-                            const bool haveF80 = (g80.GetN() >= 2);
-                            const bool haveF70 = (g70.GetN() >= 2);
-                            
-                            if (haveF90) g90.Fit(&f90, "Q0");
-                            if (haveF80) g80.Fit(&f80, "Q0");
-                            if (haveF70) g70.Fit(&f70, "Q0");
-                            
-                            
-                            g90.Draw("PE1 SAME");
-                            g80.Draw("PE1 SAME");
-                            g70.Draw("PE1 SAME");
-                            
-                            // -- bump y-range so top-left labels don't collide with high-pT points --
-                            {
-                                const double noPPpad = (yMaxEff > yMinEff) ? (0.75 * (yMaxEff - yMinEff)) : 0.25;
-                                hFrameEff.SetMaximum(yMaxEff + noPPpad);
-                            }
-                            // -- legend + labels for embedded-only version (no pp overlay) --
-                            {
-                                TLegend legNoPP(0.50, 0.62, 0.92, 0.78);
-                                legNoPP.SetBorderSize(0); legNoPP.SetFillStyle(0);
-                                legNoPP.SetTextFont(42); legNoPP.SetTextSize(0.030);
-                                legNoPP.AddEntry(&g90, "90% Efficiency", "ep");
-                                legNoPP.AddEntry(&g80, "80% Efficiency", "ep");
-                                legNoPP.AddEntry(&g70, "70% Efficiency", "ep");
-                                legNoPP.Draw();
-
-                                TLatex tInfoNoPP;
-                                tInfoNoPP.SetNDC(true); tInfoNoPP.SetTextFont(42);
-                                tInfoNoPP.SetTextAlign(13); tInfoNoPP.SetTextSize(0.030);
-                                tInfoNoPP.DrawLatex(0.18, 0.88, embeddedLabel.c_str());
-                                tInfoNoPP.DrawLatex(0.18, 0.83, TString::Format("%d-%d%% centrality", cb.lo, cb.hi).Data());
-                                tInfoNoPP.DrawLatex(0.18, 0.78,
-                                                    TString::Format("|v_{z}| < %d cm,  |#eta^{#gamma}| < %.1f", kAA_VzCut, kPhotonEtaAbsMax).Data());
-                                tInfoNoPP.DrawLatex(0.18, 0.73,
-                                                    TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
-
-                                TLatex tSphNoPP;
-                                tSphNoPP.SetNDC(true); tSphNoPP.SetTextFont(42); tSphNoPP.SetTextAlign(33);
-                                tSphNoPP.SetTextSize(0.042);
-                                tSphNoPP.DrawLatex(0.92, 0.88, "#bf{sPHENIX} #it{Internal}");
-                                tSphNoPP.SetTextSize(0.034);
-                                tSphNoPP.DrawLatex(0.92, 0.83, "Pythia Emb  #sqrt{s_{NN}} = 200 GeV");
-
-                                // -- save embedded-only version (no pp overlay) --
-                                SaveCanvas(cEff, JoinPath(baseVariantPtSummaryDir,
-                                                          TString::Format("ppg12Style_isoCutEfficiencyFits_%s_noPP.png", cb.folder.c_str()).Data()));
-                            }
-                            
-                            // -- pp reference (matched pp SIM, open markers) --
-                            vector<double> xCutPP, exCutPP, y90PP, ey90PP, y80PP, ey80PP, y70PP, ey70PP;
-                            if (matchedPPSimTop)
-                            {
-                                for (int iptPP = 1; iptPP < kNPtBins; ++iptPP)
-                                {
-                                    const PtBin& bPP = PtBins()[iptPP];
-                                    const string hPPSigName = "h_EisoReco_truthSigMatched" + bPP.suffix;
-                                    TH1* hPPSig = dynamic_cast<TH1*>(matchedPPSimTop->Get(hPPSigName.c_str()));
-                                    if (!hPPSig || hPPSig->GetEntries() <= 0.0) continue;
-                                    double c70=0,e70=0, c80=0,e80=0, c90=0,e90=0;
-                                    if (!FindEfficiencyCut(hPPSig, 0.70, c70, e70)) continue;
-                                    if (!FindEfficiencyCut(hPPSig, 0.80, c80, e80)) continue;
-                                    if (!FindEfficiencyCut(hPPSig, 0.90, c90, e90)) continue;
-                                    xCutPP.push_back(0.5*(kPtEdges[(std::size_t)iptPP]+kPtEdges[(std::size_t)iptPP+1]));
-                                    exCutPP.push_back(0.0);
-                                    y90PP.push_back(c90); ey90PP.push_back(e90);
-                                    y80PP.push_back(c80); ey80PP.push_back(e80);
-                                    y70PP.push_back(c70); ey70PP.push_back(e70);
-                                }
-                            }
-                            // update y-range to include pp points
-                            for (std::size_t ipp = 0; ipp < xCutPP.size(); ++ipp)
-                            {
-                                yMinEff = std::min(yMinEff, std::min(y70PP[ipp]-ey70PP[ipp], std::min(y80PP[ipp]-ey80PP[ipp], y90PP[ipp]-ey90PP[ipp])));
-                                yMaxEff = std::max(yMaxEff, std::max(y70PP[ipp]+ey70PP[ipp], std::max(y80PP[ipp]+ey80PP[ipp], y90PP[ipp]+ey90PP[ipp])));
-                            }
-                            if (!xCutPP.empty())
-                            {
-                                const double padEffUpd = (yMaxEff > yMinEff) ? (0.48 * (yMaxEff - yMinEff)) : 0.25;
-                                hFrameEff.SetMinimum(std::max(0.0, yMinEff - padEffUpd));
-                                hFrameEff.SetMaximum(yMaxEff + padEffUpd);
-                            }
-                            TGraphErrors *gPP90=nullptr, *gPP80=nullptr, *gPP70=nullptr;
-                            if (!xCutPP.empty())
-                            {
-                                gPP90 = new TGraphErrors((int)xCutPP.size(), &xCutPP[0], &y90PP[0], &exCutPP[0], &ey90PP[0]);
-                                gPP90->SetLineWidth(2); gPP90->SetLineColor(kMagenta+1); gPP90->SetMarkerColor(kMagenta+1);
-                                gPP90->SetMarkerStyle(24); gPP90->SetMarkerSize(1.4);
-                                gPP90->Draw("PE1 SAME");
-                                gPP80 = new TGraphErrors((int)xCutPP.size(), &xCutPP[0], &y80PP[0], &exCutPP[0], &ey80PP[0]);
-                                gPP80->SetLineWidth(2); gPP80->SetLineColor(kGreen+2); gPP80->SetMarkerColor(kGreen+2);
-                                gPP80->SetMarkerStyle(25); gPP80->SetMarkerSize(1.4);
-                                gPP80->Draw("PE1 SAME");
-                                gPP70 = new TGraphErrors((int)xCutPP.size(), &xCutPP[0], &y70PP[0], &exCutPP[0], &ey70PP[0]);
-                                gPP70->SetLineWidth(2); gPP70->SetLineColor(kBlue+1); gPP70->SetMarkerColor(kBlue+1);
-                                gPP70->SetMarkerStyle(26); gPP70->SetMarkerSize(1.5);
-                                gPP70->Draw("PE1 SAME");
-                            }
-                            
-                            TLegend legEff(0.38, 0.58, 0.92, 0.78);
-                            legEff.SetBorderSize(0);
-                            legEff.SetFillStyle(0);
-                            legEff.SetTextFont(42);
-                            legEff.SetTextSize(0.024);
-                            legEff.SetNColumns(2);
-                            legEff.SetColumnSeparation(-0.02);
-                            legEff.AddEntry(&g90, TString::Format("90%% Efficiency (%s)", embLegTag.c_str()).Data(), "ep");
-                            if (gPP90) legEff.AddEntry(gPP90, TString::Format("90%% Efficiency (%s)", matchedPPLabel.c_str()).Data(), "ep");
-                            legEff.AddEntry(&g80, TString::Format("80%% Efficiency (%s)", embLegTag.c_str()).Data(), "ep");
-                            if (gPP80) legEff.AddEntry(gPP80, TString::Format("80%% Efficiency (%s)", matchedPPLabel.c_str()).Data(), "ep");
-                            legEff.AddEntry(&g70, TString::Format("70%% Efficiency (%s)", embLegTag.c_str()).Data(), "ep");
-                            if (gPP70) legEff.AddEntry(gPP70, TString::Format("70%% Efficiency (%s)", matchedPPLabel.c_str()).Data(), "ep");
-                            legEff.Draw();
-                            
-                            TLatex tInfoEff;
-                            tInfoEff.SetNDC(true);
-                            tInfoEff.SetTextFont(42);
-                            tInfoEff.SetTextAlign(13);
-                            tInfoEff.SetTextSize(0.030);
-                            tInfoEff.DrawLatex(0.18, 0.88, embeddedLabel.c_str());
-                            tInfoEff.DrawLatex(0.18, 0.83, TString::Format("%d-%d%% centrality", cb.lo, cb.hi).Data());
-                            tInfoEff.DrawLatex(0.18, 0.78,
-                                               TString::Format("|v_{z}| < %d cm,  |#eta^{#gamma}| < %.1f", kAA_VzCut, kPhotonEtaAbsMax).Data());
-                            
-                            tInfoEff.DrawLatex(0.18, 0.73,
-                                               TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
-                            
-                            {
-                                TLatex tSph;
-                                tSph.SetNDC(true);
-                                tSph.SetTextFont(42);
-                                tSph.SetTextAlign(33);
-                                tSph.SetTextSize(0.042);
-                                tSph.DrawLatex(0.92, 0.88, "#bf{sPHENIX} #it{Internal}");
-                                tSph.SetTextSize(0.034);
-                                tSph.DrawLatex(0.92, 0.83, "Pythia Emb  #sqrt{s_{NN}} = 200 GeV");
-                            }
-                            
-                            SaveCanvas(cEff, JoinPath(baseVariantPtSummaryDir,
-                                                      TString::Format("ppg12Style_isoCutEfficiencyFits_%s.png", cb.folder.c_str()).Data()));
-                            if (gPP90) delete gPP90;
-                            if (gPP80) delete gPP80;
-                            if (gPP70) delete gPP70;
+                            if (xP.empty()) continue;
+                            TGraphErrors* g = new TGraphErrors((int)xP.size(), &xP[0], &yP[0], &exP[0], &eyP[0]);
+                            const int ci = (ic < 8) ? centOvColors[ic] : kBlack;
+                            g->SetLineWidth(2);
+                            g->SetLineColor(ci);
+                            g->SetMarkerColor(ci);
+                            g->SetMarkerStyle(20);
+                            g->SetMarkerSize(1.2);
+                            gCent.push_back(g);
+                            cLbls.push_back(TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
                         }
                         
-                        if (fMatchedPPSim) { fMatchedPPSim->Close(); delete fMatchedPPSim; fMatchedPPSim = nullptr; }
-                        
-                        // -- standalone pp 5+10+20 merged pythia-only iso-cut efficiency plot (no centrality) --
-                        if (ppSimMergedTop)
+                        if (!gCent.empty())
                         {
-                            vector<double> xPPM, exPPM, y90M, ey90M, y80M, ey80M, y70M, ey70M;
-                            double yMinM = std::numeric_limits<double>::max();
-                            double yMaxM = -std::numeric_limits<double>::max();
-                            for (int ipt = 1; ipt < kNPtBins; ++ipt)
+                            if (!std::isfinite(yMinG) || !std::isfinite(yMaxG)) { yMinG = 0; yMaxG = 10; }
+                            const double padG = (yMaxG > yMinG) ? 0.20 * (yMaxG - yMinG) : 0.5;
+                            TCanvas cGM(TString::Format("c_gaussMeanVsPt_centOv_%s", H.variant.c_str()).Data(), "", 900, 700);
+                            ApplyCanvasMargins1D(cGM); cGM.cd();
+                            TH1F hFr(TString::Format("hFr_gaussMeanVsPt_centOv_%s", H.variant.c_str()).Data(),
+                                     "", 100, kPtEdges.front(), kPtEdges.back());
+                            hFr.SetDirectory(nullptr); hFr.SetStats(0);
+                            hFr.SetMinimum(yMinG - padG); hFr.SetMaximum(yMaxG + padG);
+                            hFr.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                            hFr.GetYaxis()->SetTitle("Gaussian #mu [GeV]");
+                            hFr.GetXaxis()->SetTitleSize(0.055); hFr.GetYaxis()->SetTitleSize(0.055);
+                            hFr.GetXaxis()->SetLabelSize(0.045); hFr.GetYaxis()->SetLabelSize(0.045);
+                            hFr.GetYaxis()->SetTitleOffset(1.15);
+                            hFr.Draw();
+                            for (auto* g : gCent) g->Draw("PE1 SAME");
+                            TLegend lgGM(0.60, 0.62, 0.92, 0.88);
+                            lgGM.SetBorderSize(0); lgGM.SetFillStyle(0); lgGM.SetTextFont(42); lgGM.SetTextSize(0.030);
+                            for (std::size_t ig = 0; ig < gCent.size(); ++ig)
+                                lgGM.AddEntry(gCent[ig], cLbls[ig].c_str(), "ep");
+                            lgGM.Draw();
+                            TLatex tGM; tGM.SetNDC(true); tGM.SetTextFont(42); tGM.SetTextAlign(23); tGM.SetTextSize(0.042);
+                            tGM.DrawLatex(0.50, 0.98,
+                                          TString::Format("Gaussian #mu vs p_{T}^{#gamma}, centrality overlay (%s)", H.label.c_str()).Data());
+                            TLatex tGMi; tGMi.SetNDC(true); tGMi.SetTextFont(42); tGMi.SetTextAlign(13); tGMi.SetTextSize(0.028);
+                            tGMi.DrawLatex(0.18, 0.89, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
+                            tGMi.DrawLatex(0.18, 0.85, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                            tGMi.DrawLatex(0.18, 0.81, TString::Format("UE: %s", H.label.c_str()).Data());
                             {
-                                const PtBin& b = PtBins()[ipt];
-                                const string hName = "h_EisoReco_truthSigMatched" + b.suffix;
-                                TH1* hSig = dynamic_cast<TH1*>(ppSimMergedTop->Get(hName.c_str()));
-                                if (!hSig || hSig->GetEntries() <= 0.0) continue;
-                                double c70=0,e70=0, c80=0,e80=0, c90=0,e90=0;
-                                if (!FindEfficiencyCut(hSig, 0.70, c70, e70)) continue;
-                                if (!FindEfficiencyCut(hSig, 0.80, c80, e80)) continue;
-                                if (!FindEfficiencyCut(hSig, 0.90, c90, e90)) continue;
-                                xPPM.push_back(0.5*(kPtEdges[(std::size_t)ipt]+kPtEdges[(std::size_t)ipt+1]));
-                                exPPM.push_back(0.0);
-                                y90M.push_back(c90); ey90M.push_back(e90);
-                                y80M.push_back(c80); ey80M.push_back(e80);
-                                y70M.push_back(c70); ey70M.push_back(e70);
-                                yMinM = std::min(yMinM, std::min(c70-e70, std::min(c80-e80, c90-e90)));
-                                yMaxM = std::max(yMaxM, std::max(c70+e70, std::max(c80+e80, c90+e90)));
+                                TLatex tSph; tSph.SetNDC(true); tSph.SetTextFont(42); tSph.SetTextAlign(33);
+                                tSph.SetTextSize(0.048);
+                                tSph.DrawLatex(0.92, 0.55, "#bf{sPHENIX} #it{Internal}");
+                                tSph.SetTextSize(0.038);
+                                tSph.DrawLatex(0.92, 0.49, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
                             }
-                            if (!xPPM.empty())
+                            SaveCanvas(cGM, JoinPath(gaussMeanCentOvDir,
+                                                     TString::Format("gaussMean_vs_pT_centOverlay_%s.png", H.variant.c_str()).Data()));
+                            for (auto* g : gCent) delete g;
+                        }
+                    }
+                    
+                    // --- Gaussian Sigma vs pT, centrality overlay ---
+                    {
+                        vector<TGraphErrors*> sCent;
+                        vector<string> sLbls;
+                        double yMinS = 1e30, yMaxS = -1e30;
+                        
+                        for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                        {
+                            const auto& cb = centBins[ic];
+                            vector<double> xP, exP, yP, eyP;
+                            for (int ipt = 0; ipt < kNPtBins; ++ipt)
                             {
-                                if (!std::isfinite(yMinM) || !std::isfinite(yMaxM)) { yMinM = 0.0; yMaxM = 1.0; }
-                                const double padM = (yMaxM > yMinM) ? (1.2 * (yMaxM - yMinM)) : 0.25;
-                                TCanvas cPPM("c_ppg12IsoCutFits_ppMerged", "", 900, 700);
-                                ApplyCanvasMargins1D(cPPM);
-                                cPPM.SetTopMargin(0.10);
-                                cPPM.cd();
-                                TH1F hFrM("hFrM_ppMerged", "", 100, kPtEdges[1], kPtEdges[kNPtBins]);
-                                hFrM.SetDirectory(nullptr); hFrM.SetStats(0);
-                                hFrM.SetMinimum(std::max(0.0, yMinM - padM));
-                                hFrM.SetMaximum(yMaxM + padM);
-                                hFrM.GetXaxis()->SetTitle("Cluster p_{T} [GeV]");
-                                hFrM.GetYaxis()->SetTitle("E_{T}^{iso} Cutoff [GeV]");
-                                hFrM.GetXaxis()->SetTitleSize(0.060);
-                                hFrM.GetYaxis()->SetTitleSize(0.060);
-                                hFrM.GetXaxis()->SetLabelSize(0.050);
-                                hFrM.GetYaxis()->SetLabelSize(0.050);
-                                hFrM.GetYaxis()->SetTitleOffset(1.05);
-                                hFrM.Draw();
-                                
-                                TGraphErrors gM90((int)xPPM.size(), &xPPM[0], &y90M[0], &exPPM[0], &ey90M[0]);
-                                gM90.SetLineWidth(2); gM90.SetLineColor(kMagenta+1); gM90.SetMarkerColor(kMagenta+1);
-                                gM90.SetMarkerStyle(20); gM90.SetMarkerSize(1.4); gM90.Draw("PE1 SAME");
-                                TGraphErrors gM80((int)xPPM.size(), &xPPM[0], &y80M[0], &exPPM[0], &ey80M[0]);
-                                gM80.SetLineWidth(2); gM80.SetLineColor(kGreen+2); gM80.SetMarkerColor(kGreen+2);
-                                gM80.SetMarkerStyle(21); gM80.SetMarkerSize(1.4); gM80.Draw("PE1 SAME");
-                                TGraphErrors gM70((int)xPPM.size(), &xPPM[0], &y70M[0], &exPPM[0], &ey70M[0]);
-                                gM70.SetLineWidth(2); gM70.SetLineColor(kBlue+1); gM70.SetMarkerColor(kBlue+1);
-                                gM70.SetMarkerStyle(22); gM70.SetMarkerSize(1.5); gM70.Draw("PE1 SAME");
-                                
-                                const double fitXLoM = kPtEdges[1];
-                                const double fitXHiM = kPtEdges.back();
-                                TF1 fM90("fM90_ppMerged", "pol1", fitXLoM, fitXHiM);
-                                TF1 fM80("fM80_ppMerged", "pol1", fitXLoM, fitXHiM);
-                                TF1 fM70("fM70_ppMerged", "pol1", fitXLoM, fitXHiM);
-                                fM90.SetLineColor(kMagenta+1); fM90.SetLineWidth(3);
-                                fM80.SetLineColor(kGreen+2);   fM80.SetLineWidth(3);
-                                fM70.SetLineColor(kBlue+1);    fM70.SetLineWidth(3);
-                                if (gM90.GetN() >= 2) { gM90.Fit(&fM90, "Q0"); fM90.Draw("SAME"); }
-                                if (gM80.GetN() >= 2) { gM80.Fit(&fM80, "Q0"); fM80.Draw("SAME"); }
-                                if (gM70.GetN() >= 2) { gM70.Fit(&fM70, "Q0"); fM70.Draw("SAME"); }
-                                
-                                TLegend legM(0.50, 0.62, 0.92, 0.78);
-                                legM.SetBorderSize(0); legM.SetFillStyle(0);
-                                legM.SetTextFont(42); legM.SetTextSize(0.030);
-                                legM.AddEntry(&gM90, "90% Efficiency", "ep");
-                                legM.AddEntry(&gM80, "80% Efficiency", "ep");
-                                legM.AddEntry(&gM70, "70% Efficiency", "ep");
-                                legM.Draw();
-                                
-                                TLatex tInfoM;
-                                tInfoM.SetNDC(true); tInfoM.SetTextFont(42);
-                                tInfoM.SetTextAlign(13); tInfoM.SetTextSize(0.030);
-                                tInfoM.DrawLatex(0.18, 0.88, "Pythia,  #sqrt{s} = 200 GeV");
-                                if (gM90.GetN() >= 2)
-                                    tInfoM.DrawLatex(0.18, 0.83,
-                                        TString::Format("90%%: E_{T}^{iso} = %.3f  + %.3fp_{T}", fM90.GetParameter(0), fM90.GetParameter(1)).Data());
-                                if (gM80.GetN() >= 2)
-                                    tInfoM.DrawLatex(0.18, 0.78,
-                                        TString::Format("80%%: E_{T}^{iso} = %.3f  + %.3fp_{T}", fM80.GetParameter(0), fM80.GetParameter(1)).Data());
-                                if (gM70.GetN() >= 2)
-                                    tInfoM.DrawLatex(0.18, 0.73,
-                                        TString::Format("70%%: E_{T}^{iso} = %.3f  + %.3fp_{T}", fM70.GetParameter(0), fM70.GetParameter(1)).Data());
-                                tInfoM.DrawLatex(0.18, 0.68,
-                                                 TString::Format("vtx |z| < %d cm, |#eta^{#gamma}|<%.1f", kAA_VzCut, kPhotonEtaAbsMax).Data());
-                                
-                                {
-                                    TLatex tSph;
-                                    tSph.SetNDC(true); tSph.SetTextFont(42); tSph.SetTextAlign(33);
-                                    tSph.SetTextSize(0.042);
-                                    tSph.DrawLatex(0.92, 0.88, "#bf{sPHENIX} #it{Internal}");
-                                }
-                                
-                                SaveCanvas(cPPM, JoinPath(baseVariantPtSummaryDir,
-                                                          "ppg12Style_isoCutEfficiencyFits_ppMerged.png"));
+                                if (!gaussFilled[iv][ipt][ic]) continue;
+                                xP.push_back(0.5 * (kPtEdges[(std::size_t)ipt] + kPtEdges[(std::size_t)ipt + 1]));
+                                exP.push_back(0.5 * (kPtEdges[(std::size_t)ipt + 1] - kPtEdges[(std::size_t)ipt]));
+                                yP.push_back(gaussSigma[iv][ipt][ic]);
+                                eyP.push_back(gaussSigmaErr[iv][ipt][ic]);
+                                yMinS = std::min(yMinS, yP.back() - eyP.back());
+                                yMaxS = std::max(yMaxS, yP.back() + eyP.back());
                             }
+                            if (xP.empty()) continue;
+                            TGraphErrors* g = new TGraphErrors((int)xP.size(), &xP[0], &yP[0], &exP[0], &eyP[0]);
+                            const int ci = (ic < 8) ? centOvColors[ic] : kBlack;
+                            g->SetLineWidth(2);
+                            g->SetLineColor(ci);
+                            g->SetMarkerColor(ci);
+                            g->SetMarkerStyle(20);
+                            g->SetMarkerSize(1.2);
+                            sCent.push_back(g);
+                            sLbls.push_back(TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
                         }
                         
-                        fPhoCut->Close();
-
-                        delete fPhoCut;
-                        fPhoCut = nullptr;
-                    }
-                    else
-                    {
-                        if (fPhoCut) { fPhoCut->Close(); delete fPhoCut; fPhoCut = nullptr; }
-                        cout << ANSI_BOLD_YEL
-                        << "[WARN] Missing photon+jet embedded baseVariant input for PPG12-style iso-cut fits: "
-                        << phoCutIn
-                        << ANSI_RESET << "\n";
-                    }
-                }
-                else
-                {
-                    cout << ANSI_BOLD_YEL
-                    << "[WARN] Photon+jet embedded SIM toggle/path is unavailable for baseVariant PPG12-style iso-cut fits."
-                    << ANSI_RESET << "\n";
-                }
-            }
-        }
-        
-        // ====== pTsummaryPerCentrality/summaryOutput: Gaussian mean & sigma vs pT ======
-        {
-            const string gaussMeanPtDir  = JoinPath(ptMeanIsoSummaryDir, "meanSummary");
-            const string gaussSigmaPtDir = JoinPath(ptMeanIsoSummaryDir, "sigmaSummary");
-            EnsureDir(gaussMeanPtDir);
-            EnsureDir(gaussSigmaPtDir);
-            
-            for (std::size_t ic = 0; ic < centBins.size(); ++ic)
-            {
-                const auto& cb = centBins[ic];
-                
-                // --- Gaussian Mean vs pT ---
-                {
-                    vector<TGraphErrors*> gGraphs;
-                    vector<std::size_t>   gIdx;
-                    double yMinG = 1e30, yMaxG = -1e30;
-                    for (std::size_t iv = 0; iv < handles.size(); ++iv)
-                    {
-                        if (!handles[iv].file) continue;
-                        vector<double> xP, exP, yP, eyP;
-                        for (int ipt = 0; ipt < kNPtBins; ++ipt)
+                        if (!sCent.empty())
                         {
-                            if (!gaussFilled[iv][ipt][ic]) continue;
-                            xP.push_back(0.5 * (kPtEdges[(std::size_t)ipt] + kPtEdges[(std::size_t)ipt + 1]));
-                            exP.push_back(0.5 * (kPtEdges[(std::size_t)ipt + 1] - kPtEdges[(std::size_t)ipt]));
-                            yP.push_back(gaussMean[iv][ipt][ic]);
-                            eyP.push_back(gaussMeanErr[iv][ipt][ic]);
-                            yMinG = std::min(yMinG, yP.back() - eyP.back());
-                            yMaxG = std::max(yMaxG, yP.back() + eyP.back());
+                            if (!std::isfinite(yMinS) || !std::isfinite(yMaxS)) { yMinS = 0; yMaxS = 5; }
+                            const double padS = (yMaxS > yMinS) ? 0.20 * (yMaxS - yMinS) : 0.5;
+                            TCanvas cGS(TString::Format("c_gaussSigmaVsPt_centOv_%s", H.variant.c_str()).Data(), "", 900, 700);
+                            ApplyCanvasMargins1D(cGS); cGS.cd();
+                            TH1F hFr(TString::Format("hFr_gaussSigmaVsPt_centOv_%s", H.variant.c_str()).Data(),
+                                     "", 100, kPtEdges.front(), kPtEdges.back());
+                            hFr.SetDirectory(nullptr); hFr.SetStats(0);
+                            hFr.SetMinimum(std::max(0.0, yMinS - padS)); hFr.SetMaximum(yMaxS + padS);
+                            hFr.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                            hFr.GetYaxis()->SetTitle("Gaussian #sigma [GeV]");
+                            hFr.GetXaxis()->SetTitleSize(0.055); hFr.GetYaxis()->SetTitleSize(0.055);
+                            hFr.GetXaxis()->SetLabelSize(0.045); hFr.GetYaxis()->SetLabelSize(0.045);
+                            hFr.GetYaxis()->SetTitleOffset(1.15);
+                            hFr.Draw();
+                            for (auto* g : sCent) g->Draw("PE1 SAME");
+                            TLegend lgGS(0.60, 0.62, 0.92, 0.88);
+                            lgGS.SetBorderSize(0); lgGS.SetFillStyle(0); lgGS.SetTextFont(42); lgGS.SetTextSize(0.030);
+                            for (std::size_t ig = 0; ig < sCent.size(); ++ig)
+                                lgGS.AddEntry(sCent[ig], sLbls[ig].c_str(), "ep");
+                            lgGS.Draw();
+                            TLatex tGS; tGS.SetNDC(true); tGS.SetTextFont(42); tGS.SetTextAlign(23); tGS.SetTextSize(0.042);
+                            tGS.DrawLatex(0.50, 0.98,
+                                          TString::Format("Gaussian #sigma vs p_{T}^{#gamma}, centrality overlay (%s)", H.label.c_str()).Data());
+                            TLatex tGSi; tGSi.SetNDC(true); tGSi.SetTextFont(42); tGSi.SetTextAlign(13); tGSi.SetTextSize(0.028);
+                            tGSi.DrawLatex(0.18, 0.89, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
+                            tGSi.DrawLatex(0.18, 0.85, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                            tGSi.DrawLatex(0.18, 0.81, TString::Format("UE: %s", H.label.c_str()).Data());
+                            {
+                                TLatex tSph; tSph.SetNDC(true); tSph.SetTextFont(42); tSph.SetTextAlign(33);
+                                tSph.SetTextSize(0.048);
+                                tSph.DrawLatex(0.92, 0.55, "#bf{sPHENIX} #it{Internal}");
+                                tSph.SetTextSize(0.038);
+                                tSph.DrawLatex(0.92, 0.49, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                            }
+                            SaveCanvas(cGS, JoinPath(gaussSigmaCentOvDir,
+                                                     TString::Format("gaussSigma_vs_pT_centOverlay_%s.png", H.variant.c_str()).Data()));
+                            for (auto* g : sCent) delete g;
                         }
-                        if (xP.empty()) continue;
-                        TGraphErrors* g = new TGraphErrors((int)xP.size(), &xP[0], &yP[0], &exP[0], &eyP[0]);
-                        g->SetLineWidth(2);
-                        g->SetLineColor((iv < 4) ? variantColors[iv] : kBlack);
-                        g->SetMarkerColor((iv < 4) ? variantColors[iv] : kBlack);
-                        g->SetMarkerStyle((iv < 4) ? variantMarkers[iv] : 20);
-                        g->SetMarkerSize(1.2);
-                        gGraphs.push_back(g);
-                        gIdx.push_back(iv);
-                    }
-                    if (!gGraphs.empty())
-                    {
-                        if (!std::isfinite(yMinG) || !std::isfinite(yMaxG)) { yMinG = 0; yMaxG = 1; }
-                        const double padG = (yMaxG > yMinG) ? 0.20 * (yMaxG - yMinG) : 0.5;
-                        TCanvas cGM(TString::Format("c_gaussMeanVsPt_%s", cb.folder.c_str()).Data(), "", 900, 700);
-                        ApplyCanvasMargins1D(cGM); cGM.cd();
-                        TH1F hFr(TString::Format("hFr_gaussMeanVsPt_%s", cb.folder.c_str()).Data(),
-                                 "", 100, kPtEdges.front(), kPtEdges.back());
-                        hFr.SetDirectory(nullptr); hFr.SetStats(0);
-                        hFr.SetMinimum(yMinG - padG); hFr.SetMaximum(yMaxG + padG);
-                        hFr.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                        hFr.GetYaxis()->SetTitle("Gaussian #mu [GeV]");
-                        hFr.GetXaxis()->SetTitleSize(0.055); hFr.GetYaxis()->SetTitleSize(0.055);
-                        hFr.GetXaxis()->SetLabelSize(0.045); hFr.GetYaxis()->SetLabelSize(0.045);
-                        hFr.GetYaxis()->SetTitleOffset(1.15);
-                        hFr.Draw();
-                        for (auto* g : gGraphs) g->Draw("PE1 SAME");
-                        TLegend lgGM(0.56, 0.62, 0.92, 0.88);
-                        lgGM.SetBorderSize(0); lgGM.SetFillStyle(0); lgGM.SetTextFont(42); lgGM.SetTextSize(0.032);
-                        for (std::size_t ig = 0; ig < gGraphs.size(); ++ig)
-                            lgGM.AddEntry(gGraphs[ig], handles[gIdx[ig]].label.c_str(), "ep");
-                        lgGM.Draw();
-                        TLatex tGM; tGM.SetNDC(true); tGM.SetTextFont(42); tGM.SetTextAlign(23); tGM.SetTextSize(0.042);
-                        tGM.DrawLatex(0.50, 0.98,
-                            TString::Format("Gaussian #mu vs p_{T}^{#gamma}, %d-%d%% Cent", cb.lo, cb.hi).Data());
-                        TLatex tGMi; tGMi.SetNDC(true); tGMi.SetTextFont(42); tGMi.SetTextAlign(13); tGMi.SetTextSize(0.028);
-                        tGMi.DrawLatex(0.20, 0.58, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
-                        tGMi.DrawLatex(0.20, 0.54, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
-                        SaveCanvas(cGM, JoinPath(gaussMeanPtDir,
-                            TString::Format("gaussMean_allVariants_vs_pT_%s.png", cb.folder.c_str()).Data()));
-                        for (auto* g : gGraphs) delete g;
-                    }
-                }
-                
-                // --- Gaussian Sigma vs pT ---
-                {
-                    vector<TGraphErrors*> sGraphs;
-                    vector<std::size_t>   sIdx;
-                    double yMinS = 1e30, yMaxS = -1e30;
-                    for (std::size_t iv = 0; iv < handles.size(); ++iv)
-                    {
-                        if (!handles[iv].file) continue;
-                        vector<double> xP, exP, yP, eyP;
-                        for (int ipt = 0; ipt < kNPtBins; ++ipt)
-                        {
-                            if (!gaussFilled[iv][ipt][ic]) continue;
-                            xP.push_back(0.5 * (kPtEdges[(std::size_t)ipt] + kPtEdges[(std::size_t)ipt + 1]));
-                            exP.push_back(0.5 * (kPtEdges[(std::size_t)ipt + 1] - kPtEdges[(std::size_t)ipt]));
-                            yP.push_back(gaussSigma[iv][ipt][ic]);
-                            eyP.push_back(gaussSigmaErr[iv][ipt][ic]);
-                            yMinS = std::min(yMinS, yP.back() - eyP.back());
-                            yMaxS = std::max(yMaxS, yP.back() + eyP.back());
-                        }
-                        if (xP.empty()) continue;
-                        TGraphErrors* g = new TGraphErrors((int)xP.size(), &xP[0], &yP[0], &exP[0], &eyP[0]);
-                        g->SetLineWidth(2);
-                        g->SetLineColor((iv < 4) ? variantColors[iv] : kBlack);
-                        g->SetMarkerColor((iv < 4) ? variantColors[iv] : kBlack);
-                        g->SetMarkerStyle((iv < 4) ? variantMarkers[iv] : 20);
-                        g->SetMarkerSize(1.2);
-                        sGraphs.push_back(g);
-                        sIdx.push_back(iv);
-                    }
-                    if (!sGraphs.empty())
-                    {
-                        if (!std::isfinite(yMinS) || !std::isfinite(yMaxS)) { yMinS = 0; yMaxS = 5; }
-                        const double padS = (yMaxS > yMinS) ? 0.20 * (yMaxS - yMinS) : 0.5;
-                        TCanvas cGS(TString::Format("c_gaussSigmaVsPt_%s", cb.folder.c_str()).Data(), "", 900, 700);
-                        ApplyCanvasMargins1D(cGS); cGS.cd();
-                        TH1F hFr(TString::Format("hFr_gaussSigmaVsPt_%s", cb.folder.c_str()).Data(),
-                                 "", 100, kPtEdges.front(), kPtEdges.back());
-                        hFr.SetDirectory(nullptr); hFr.SetStats(0);
-                        hFr.SetMinimum(std::max(0.0, yMinS - padS)); hFr.SetMaximum(yMaxS + padS);
-                        hFr.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                        hFr.GetYaxis()->SetTitle("Gaussian #sigma [GeV]");
-                        hFr.GetXaxis()->SetTitleSize(0.055); hFr.GetYaxis()->SetTitleSize(0.055);
-                        hFr.GetXaxis()->SetLabelSize(0.045); hFr.GetYaxis()->SetLabelSize(0.045);
-                        hFr.GetYaxis()->SetTitleOffset(1.15);
-                        hFr.Draw();
-                        for (auto* g : sGraphs) g->Draw("PE1 SAME");
-                        TLegend lgGS(0.56, 0.62, 0.92, 0.88);
-                        lgGS.SetBorderSize(0); lgGS.SetFillStyle(0); lgGS.SetTextFont(42); lgGS.SetTextSize(0.032);
-                        for (std::size_t ig = 0; ig < sGraphs.size(); ++ig)
-                            lgGS.AddEntry(sGraphs[ig], handles[sIdx[ig]].label.c_str(), "ep");
-                        lgGS.Draw();
-                        TLatex tGS; tGS.SetNDC(true); tGS.SetTextFont(42); tGS.SetTextAlign(23); tGS.SetTextSize(0.042);
-                        tGS.DrawLatex(0.50, 0.98,
-                            TString::Format("Gaussian #sigma vs p_{T}^{#gamma}, %d-%d%% Cent", cb.lo, cb.hi).Data());
-                        TLatex tGSi; tGSi.SetNDC(true); tGSi.SetTextFont(42); tGSi.SetTextAlign(13); tGSi.SetTextSize(0.028);
-                        tGSi.DrawLatex(0.20, 0.58, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
-                        tGSi.DrawLatex(0.20, 0.54, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
-                        SaveCanvas(cGS, JoinPath(gaussSigmaPtDir,
-                            TString::Format("gaussSigma_allVariants_vs_pT_%s.png", cb.folder.c_str()).Data()));
-                        for (auto* g : sGraphs) delete g;
                     }
                 }
             }
-        }
-        
-        // ====== ueCompBase: Gaussian mean & sigma vs pT, centrality overlay, per variant ======
-        {
-            const int centOvColors[] = {kRed+1, kBlue+1, kGreen+2, kMagenta+1, kOrange+1,
-                kCyan+1, kYellow+2, kViolet+1};
-            
-            const string gaussCentOvBase = JoinPath(ueCompBase, "gaussianSummary_centOverlay");
-            const string gaussMeanCentOvDir  = JoinPath(gaussCentOvBase, "meanVsPt");
-            const string gaussSigmaCentOvDir = JoinPath(gaussCentOvBase, "sigmaVsPt");
-            EnsureDir(gaussCentOvBase);
-            EnsureDir(gaussMeanCentOvDir);
-            EnsureDir(gaussSigmaCentOvDir);
-            
-            for (std::size_t iv = 0; iv < handles.size(); ++iv)
-            {
-                if (!handles[iv].file) continue;
-                const auto& H = handles[iv];
-                
-                // --- Gaussian Mean vs pT, centrality overlay ---
-                {
-                    vector<TGraphErrors*> gCent;
-                    vector<string> cLbls;
-                    double yMinG = 1e30, yMaxG = -1e30;
-                    
-                    for (std::size_t ic = 0; ic < centBins.size(); ++ic)
-                    {
-                        const auto& cb = centBins[ic];
-                        vector<double> xP, exP, yP, eyP;
-                        for (int ipt = 0; ipt < kNPtBins; ++ipt)
-                        {
-                            if (!gaussFilled[iv][ipt][ic]) continue;
-                            xP.push_back(0.5 * (kPtEdges[(std::size_t)ipt] + kPtEdges[(std::size_t)ipt + 1]));
-                            exP.push_back(0.5 * (kPtEdges[(std::size_t)ipt + 1] - kPtEdges[(std::size_t)ipt]));
-                            yP.push_back(gaussMean[iv][ipt][ic]);
-                            eyP.push_back(gaussMeanErr[iv][ipt][ic]);
-                            yMinG = std::min(yMinG, yP.back() - eyP.back());
-                            yMaxG = std::max(yMaxG, yP.back() + eyP.back());
-                        }
-                        if (xP.empty()) continue;
-                        TGraphErrors* g = new TGraphErrors((int)xP.size(), &xP[0], &yP[0], &exP[0], &eyP[0]);
-                        const int ci = (ic < 8) ? centOvColors[ic] : kBlack;
-                        g->SetLineWidth(2);
-                        g->SetLineColor(ci);
-                        g->SetMarkerColor(ci);
-                        g->SetMarkerStyle(20);
-                        g->SetMarkerSize(1.2);
-                        gCent.push_back(g);
-                        cLbls.push_back(TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
-                    }
-                    
-                    if (!gCent.empty())
-                    {
-                        if (!std::isfinite(yMinG) || !std::isfinite(yMaxG)) { yMinG = 0; yMaxG = 10; }
-                        const double padG = (yMaxG > yMinG) ? 0.20 * (yMaxG - yMinG) : 0.5;
-                        TCanvas cGM(TString::Format("c_gaussMeanVsPt_centOv_%s", H.variant.c_str()).Data(), "", 900, 700);
-                        ApplyCanvasMargins1D(cGM); cGM.cd();
-                        TH1F hFr(TString::Format("hFr_gaussMeanVsPt_centOv_%s", H.variant.c_str()).Data(),
-                                 "", 100, kPtEdges.front(), kPtEdges.back());
-                        hFr.SetDirectory(nullptr); hFr.SetStats(0);
-                        hFr.SetMinimum(yMinG - padG); hFr.SetMaximum(yMaxG + padG);
-                        hFr.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                        hFr.GetYaxis()->SetTitle("Gaussian #mu [GeV]");
-                        hFr.GetXaxis()->SetTitleSize(0.055); hFr.GetYaxis()->SetTitleSize(0.055);
-                        hFr.GetXaxis()->SetLabelSize(0.045); hFr.GetYaxis()->SetLabelSize(0.045);
-                        hFr.GetYaxis()->SetTitleOffset(1.15);
-                        hFr.Draw();
-                        for (auto* g : gCent) g->Draw("PE1 SAME");
-                        TLegend lgGM(0.60, 0.62, 0.92, 0.88);
-                        lgGM.SetBorderSize(0); lgGM.SetFillStyle(0); lgGM.SetTextFont(42); lgGM.SetTextSize(0.030);
-                        for (std::size_t ig = 0; ig < gCent.size(); ++ig)
-                            lgGM.AddEntry(gCent[ig], cLbls[ig].c_str(), "ep");
-                        lgGM.Draw();
-                        TLatex tGM; tGM.SetNDC(true); tGM.SetTextFont(42); tGM.SetTextAlign(23); tGM.SetTextSize(0.042);
-                        tGM.DrawLatex(0.50, 0.98,
-                            TString::Format("Gaussian #mu vs p_{T}^{#gamma}, centrality overlay (%s)", H.label.c_str()).Data());
-                        TLatex tGMi; tGMi.SetNDC(true); tGMi.SetTextFont(42); tGMi.SetTextAlign(13); tGMi.SetTextSize(0.028);
-                        tGMi.DrawLatex(0.18, 0.89, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
-                        tGMi.DrawLatex(0.18, 0.85, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
-                        tGMi.DrawLatex(0.18, 0.81, TString::Format("UE: %s", H.label.c_str()).Data());
-                        {
-                            TLatex tSph; tSph.SetNDC(true); tSph.SetTextFont(42); tSph.SetTextAlign(33);
-                            tSph.SetTextSize(0.048);
-                            tSph.DrawLatex(0.92, 0.55, "#bf{sPHENIX} #it{Internal}");
-                            tSph.SetTextSize(0.038);
-                            tSph.DrawLatex(0.92, 0.49, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
-                        }
-                        SaveCanvas(cGM, JoinPath(gaussMeanCentOvDir,
-                            TString::Format("gaussMean_vs_pT_centOverlay_%s.png", H.variant.c_str()).Data()));
-                        for (auto* g : gCent) delete g;
-                    }
-                }
-                
-                // --- Gaussian Sigma vs pT, centrality overlay ---
-                {
-                    vector<TGraphErrors*> sCent;
-                    vector<string> sLbls;
-                    double yMinS = 1e30, yMaxS = -1e30;
-                    
-                    for (std::size_t ic = 0; ic < centBins.size(); ++ic)
-                    {
-                        const auto& cb = centBins[ic];
-                        vector<double> xP, exP, yP, eyP;
-                        for (int ipt = 0; ipt < kNPtBins; ++ipt)
-                        {
-                            if (!gaussFilled[iv][ipt][ic]) continue;
-                            xP.push_back(0.5 * (kPtEdges[(std::size_t)ipt] + kPtEdges[(std::size_t)ipt + 1]));
-                            exP.push_back(0.5 * (kPtEdges[(std::size_t)ipt + 1] - kPtEdges[(std::size_t)ipt]));
-                            yP.push_back(gaussSigma[iv][ipt][ic]);
-                            eyP.push_back(gaussSigmaErr[iv][ipt][ic]);
-                            yMinS = std::min(yMinS, yP.back() - eyP.back());
-                            yMaxS = std::max(yMaxS, yP.back() + eyP.back());
-                        }
-                        if (xP.empty()) continue;
-                        TGraphErrors* g = new TGraphErrors((int)xP.size(), &xP[0], &yP[0], &exP[0], &eyP[0]);
-                        const int ci = (ic < 8) ? centOvColors[ic] : kBlack;
-                        g->SetLineWidth(2);
-                        g->SetLineColor(ci);
-                        g->SetMarkerColor(ci);
-                        g->SetMarkerStyle(20);
-                        g->SetMarkerSize(1.2);
-                        sCent.push_back(g);
-                        sLbls.push_back(TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
-                    }
-                    
-                    if (!sCent.empty())
-                    {
-                        if (!std::isfinite(yMinS) || !std::isfinite(yMaxS)) { yMinS = 0; yMaxS = 5; }
-                        const double padS = (yMaxS > yMinS) ? 0.20 * (yMaxS - yMinS) : 0.5;
-                        TCanvas cGS(TString::Format("c_gaussSigmaVsPt_centOv_%s", H.variant.c_str()).Data(), "", 900, 700);
-                        ApplyCanvasMargins1D(cGS); cGS.cd();
-                        TH1F hFr(TString::Format("hFr_gaussSigmaVsPt_centOv_%s", H.variant.c_str()).Data(),
-                                 "", 100, kPtEdges.front(), kPtEdges.back());
-                        hFr.SetDirectory(nullptr); hFr.SetStats(0);
-                        hFr.SetMinimum(std::max(0.0, yMinS - padS)); hFr.SetMaximum(yMaxS + padS);
-                        hFr.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                        hFr.GetYaxis()->SetTitle("Gaussian #sigma [GeV]");
-                        hFr.GetXaxis()->SetTitleSize(0.055); hFr.GetYaxis()->SetTitleSize(0.055);
-                        hFr.GetXaxis()->SetLabelSize(0.045); hFr.GetYaxis()->SetLabelSize(0.045);
-                        hFr.GetYaxis()->SetTitleOffset(1.15);
-                        hFr.Draw();
-                        for (auto* g : sCent) g->Draw("PE1 SAME");
-                        TLegend lgGS(0.60, 0.62, 0.92, 0.88);
-                        lgGS.SetBorderSize(0); lgGS.SetFillStyle(0); lgGS.SetTextFont(42); lgGS.SetTextSize(0.030);
-                        for (std::size_t ig = 0; ig < sCent.size(); ++ig)
-                            lgGS.AddEntry(sCent[ig], sLbls[ig].c_str(), "ep");
-                        lgGS.Draw();
-                        TLatex tGS; tGS.SetNDC(true); tGS.SetTextFont(42); tGS.SetTextAlign(23); tGS.SetTextSize(0.042);
-                        tGS.DrawLatex(0.50, 0.98,
-                            TString::Format("Gaussian #sigma vs p_{T}^{#gamma}, centrality overlay (%s)", H.label.c_str()).Data());
-                        TLatex tGSi; tGSi.SetNDC(true); tGSi.SetTextFont(42); tGSi.SetTextAlign(13); tGSi.SetTextSize(0.028);
-                        tGSi.DrawLatex(0.18, 0.89, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
-                        tGSi.DrawLatex(0.18, 0.85, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
-                        tGSi.DrawLatex(0.18, 0.81, TString::Format("UE: %s", H.label.c_str()).Data());
-                        {
-                            TLatex tSph; tSph.SetNDC(true); tSph.SetTextFont(42); tSph.SetTextAlign(33);
-                            tSph.SetTextSize(0.048);
-                            tSph.DrawLatex(0.92, 0.55, "#bf{sPHENIX} #it{Internal}");
-                            tSph.SetTextSize(0.038);
-                            tSph.DrawLatex(0.92, 0.49, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
-                        }
-                        SaveCanvas(cGS, JoinPath(gaussSigmaCentOvDir,
-                            TString::Format("gaussSigma_vs_pT_centOverlay_%s.png", H.variant.c_str()).Data()));
-                        for (auto* g : sCent) delete g;
-                    }
-                }
-            }
-        }
+        } // end if (!perVariantIsoQAOnlyActive) — pT/cent summary sections
         
         if (!forEmbeddedSim)
         {
