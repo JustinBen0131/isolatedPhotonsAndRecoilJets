@@ -5664,13 +5664,6 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 
                                 TGraphErrors* gTD  = MakeSubG(tntSubTDX,  tntSubTDY,  tntSubTDEY,  20, kBlack);
                                 TGraphErrors* gNTD = MakeSubG(tntSubNTDX, tntSubNTDY, tntSubNTDEY, 24, kRed+1);
-                                TLegend legSubTNT(0.18, 0.70, 0.92, 0.95);
-                                legSubTNT.SetBorderSize(0); legSubTNT.SetFillStyle(0);
-                                legSubTNT.SetTextFont(42); legSubTNT.SetTextSize(0.10);
-                                legSubTNT.SetNColumns(2);
-                                if (gTD)  legSubTNT.AddEntry(gTD,  "tight data",   "ep");
-                                if (gNTD) legSubTNT.AddEntry(gNTD, "nontight data", "ep");
-                                legSubTNT.Draw();
                                 
                                 // highlight current pT bin
                                 TLine lCur(0.5*(b.lo+b.hi), hFrSubTNT->GetMinimum(), 0.5*(b.lo+b.hi), hFrSubTNT->GetMaximum());
