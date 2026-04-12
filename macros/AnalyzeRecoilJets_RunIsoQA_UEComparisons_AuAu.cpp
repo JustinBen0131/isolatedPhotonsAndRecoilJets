@@ -83,6 +83,101 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
         return;
     }
     
+    vector<CentBin> centPlotBins = centBins;
+    {
+        CentBin cb;
+        cb.lo = 0;
+        cb.hi = 20;
+        cb.label = "0-20";
+        cb.folder = "0_20";
+        cb.suffix = "_cent_0_20";
+        centPlotBins.push_back(cb);
+    }
+    {
+        CentBin cb;
+        cb.lo = 20;
+        cb.hi = 60;
+        cb.label = "20-60";
+        cb.folder = "20_60";
+        cb.suffix = "_cent_20_60";
+        centPlotBins.push_back(cb);
+    }
+    
+    auto MaterializeMergedCentralityHistogram = [&](TDirectory* dir,
+                                                    const string& outName,
+                                                    const vector<string>& srcNames) -> void
+    {
+        if (!dir) return;
+        if (dir->Get(outName.c_str())) return;
+        
+        TH1* hMerged = nullptr;
+        int nFound = 0;
+        
+        for (const auto& srcName : srcNames)
+        {
+            TH1* hSrc = dynamic_cast<TH1*>(dir->Get(srcName.c_str()));
+            if (!hSrc) continue;
+            ++nFound;
+            
+            if (!hMerged)
+            {
+                hMerged = CloneTH1(hSrc, outName);
+                if (hMerged)
+                {
+                    EnsureSumw2(hMerged);
+                    hMerged->Reset("ICES");
+                }
+            }
+            if (hMerged) hMerged->Add(hSrc);
+        }
+        
+        if (!hMerged || nFound != (int)srcNames.size())
+        {
+            if (hMerged) delete hMerged;
+            return;
+        }
+        
+        hMerged->SetName(outName.c_str());
+        hMerged->SetTitle(outName.c_str());
+        dir->Append(hMerged);
+    };
+    
+    auto MaterializeMergedCentralityHistogramsForDir = [&](TDirectory* dir) -> void
+    {
+        if (!dir) return;
+        
+        const vector<string> histBases = {
+            "h_Eiso",
+            "h_Eiso_tight",
+            "h_Eiso_nonTight",
+            "h_EisoReco_truthSigMatched"
+        };
+        
+        for (const auto& pb : PtBins())
+        {
+            for (const auto& base : histBases)
+            {
+                MaterializeMergedCentralityHistogram(
+                    dir,
+                    base + pb.suffix + "_cent_0_20",
+                    {
+                        base + pb.suffix + "_cent_0_10",
+                        base + pb.suffix + "_cent_10_20"
+                    }
+                );
+                
+                MaterializeMergedCentralityHistogram(
+                    dir,
+                    base + pb.suffix + "_cent_20_60",
+                    {
+                        base + pb.suffix + "_cent_20_40",
+                        base + pb.suffix + "_cent_40_60"
+                    }
+                );
+            }
+        }
+    };
+    
     TFile* fPP = TFile::Open(InputPP(isRun25pp).c_str(), "READ");
     if (!fPP || fPP->IsZombie())
     {
@@ -362,11 +457,11 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
         
         // ── Gaussian fit accumulators [ivH][ipt][ic] ──
         const std::size_t nVarSlots = handles.size();
-        vector<vector<vector<double>>> gaussMean(nVarSlots, vector<vector<double>>(kNPtBins, vector<double>(centBins.size(), 0.0)));
-        vector<vector<vector<double>>> gaussSigma(nVarSlots, vector<vector<double>>(kNPtBins, vector<double>(centBins.size(), 0.0)));
-        vector<vector<vector<double>>> gaussMeanErr(nVarSlots, vector<vector<double>>(kNPtBins, vector<double>(centBins.size(), 0.0)));
-        vector<vector<vector<double>>> gaussSigmaErr(nVarSlots, vector<vector<double>>(kNPtBins, vector<double>(centBins.size(), 0.0)));
-        vector<vector<vector<bool>>>   gaussFilled(nVarSlots, vector<vector<bool>>(kNPtBins, vector<bool>(centBins.size(), false)));
+        vector<vector<vector<double>>> gaussMean(nVarSlots, vector<vector<double>>(kNPtBins, vector<double>(centPlotBins.size(), 0.0)));
+        vector<vector<vector<double>>> gaussSigma(nVarSlots, vector<vector<double>>(kNPtBins, vector<double>(centPlotBins.size(), 0.0)));
+        vector<vector<vector<double>>> gaussMeanErr(nVarSlots, vector<vector<double>>(kNPtBins, vector<double>(centPlotBins.size(), 0.0)));
+        vector<vector<vector<double>>> gaussSigmaErr(nVarSlots, vector<vector<double>>(kNPtBins, vector<double>(centPlotBins.size(), 0.0)));
+        vector<vector<vector<bool>>>   gaussFilled(nVarSlots, vector<vector<bool>>(kNPtBins, vector<bool>(centPlotBins.size(), false)));
         
         // Restricted-range Gaussian around the mode (ALICE/ATLAS isolation approach):
         // seed from peak bin, fit asymmetrically weighting the left (signal) side,
@@ -679,6 +774,10 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     else { if (fPhoMCvar) { fPhoMCvar->Close(); delete fPhoMCvar; fPhoMCvar = nullptr; } }
                 }
             }
+            
+            MaterializeMergedCentralityHistogramsForDir(aaTop);
+            MaterializeMergedCentralityHistogramsForDir(incMCvarTop);
+            MaterializeMergedCentralityHistogramsForDir(phoMCvarTop);
             
             // -- layer-by-layer overlays (active UE variant only, written directly under UEcomparisons/) --
             if (!perVariantIsoQAOnlyActive && !forEmbeddedSim && (H.variant == "noSub" || H.variant == "baseVariant"))
@@ -1011,37 +1110,37 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             vector<vector<double>> vsCent_eyPP(kNPtBins);
             vector<vector<double>> vsCent_yAA(kNPtBins);
             vector<vector<double>> vsCent_eyAA(kNPtBins);
-            vector<vector<bool>>   vsCent_filled(kNPtBins, vector<bool>(centBins.size(), false));
+            vector<vector<bool>>   vsCent_filled(kNPtBins, vector<bool>(centPlotBins.size(), false));
             for (int ip = 0; ip < kNPtBins; ++ip)
             {
-                vsCent_yPP[ip].resize(centBins.size(), 0.0);
-                vsCent_eyPP[ip].resize(centBins.size(), 0.0);
-                vsCent_yAA[ip].resize(centBins.size(), 0.0);
-                vsCent_eyAA[ip].resize(centBins.size(), 0.0);
+                vsCent_yPP[ip].resize(centPlotBins.size(), 0.0);
+                vsCent_eyPP[ip].resize(centPlotBins.size(), 0.0);
+                vsCent_yAA[ip].resize(centPlotBins.size(), 0.0);
+                vsCent_eyAA[ip].resize(centPlotBins.size(), 0.0);
             }
             
             // MC mean iso accumulators [ipt][ic] for vs-centrality and vs-pT summary plots
-            vector<vector<double>> vsCent_yIncMC(kNPtBins, vector<double>(centBins.size(), 0.0));
-            vector<vector<double>> vsCent_eyIncMC(kNPtBins, vector<double>(centBins.size(), 0.0));
-            vector<vector<double>> vsCent_yPhoMC(kNPtBins, vector<double>(centBins.size(), 0.0));
-            vector<vector<double>> vsCent_eyPhoMC(kNPtBins, vector<double>(centBins.size(), 0.0));
-            vector<vector<bool>>   vsCent_filledIncMC(kNPtBins, vector<bool>(centBins.size(), false));
-            vector<vector<bool>>   vsCent_filledPhoMC(kNPtBins, vector<bool>(centBins.size(), false));
+            vector<vector<double>> vsCent_yIncMC(kNPtBins, vector<double>(centPlotBins.size(), 0.0));
+            vector<vector<double>> vsCent_eyIncMC(kNPtBins, vector<double>(centPlotBins.size(), 0.0));
+            vector<vector<double>> vsCent_yPhoMC(kNPtBins, vector<double>(centPlotBins.size(), 0.0));
+            vector<vector<double>> vsCent_eyPhoMC(kNPtBins, vector<double>(centPlotBins.size(), 0.0));
+            vector<vector<bool>>   vsCent_filledIncMC(kNPtBins, vector<bool>(centPlotBins.size(), false));
+            vector<vector<bool>>   vsCent_filledPhoMC(kNPtBins, vector<bool>(centPlotBins.size(), false));
             
             // Signal (tight data + truth-sig-matched MC) mean iso accumulators
-            vector<vector<double>> vsCent_yTightData(kNPtBins, vector<double>(centBins.size(), 0.0));
-            vector<vector<double>> vsCent_eyTightData(kNPtBins, vector<double>(centBins.size(), 0.0));
-            vector<vector<bool>>   vsCent_filledTightData(kNPtBins, vector<bool>(centBins.size(), false));
-            vector<vector<double>> vsCent_ySigIncMC(kNPtBins, vector<double>(centBins.size(), 0.0));
-            vector<vector<double>> vsCent_eySigIncMC(kNPtBins, vector<double>(centBins.size(), 0.0));
-            vector<vector<bool>>   vsCent_filledSigIncMC(kNPtBins, vector<bool>(centBins.size(), false));
-            vector<vector<double>> vsCent_ySigPhoMC(kNPtBins, vector<double>(centBins.size(), 0.0));
-            vector<vector<double>> vsCent_eySigPhoMC(kNPtBins, vector<double>(centBins.size(), 0.0));
-            vector<vector<bool>>   vsCent_filledSigPhoMC(kNPtBins, vector<bool>(centBins.size(), false));
+            vector<vector<double>> vsCent_yTightData(kNPtBins, vector<double>(centPlotBins.size(), 0.0));
+            vector<vector<double>> vsCent_eyTightData(kNPtBins, vector<double>(centPlotBins.size(), 0.0));
+            vector<vector<bool>>   vsCent_filledTightData(kNPtBins, vector<bool>(centPlotBins.size(), false));
+            vector<vector<double>> vsCent_ySigIncMC(kNPtBins, vector<double>(centPlotBins.size(), 0.0));
+            vector<vector<double>> vsCent_eySigIncMC(kNPtBins, vector<double>(centPlotBins.size(), 0.0));
+            vector<vector<bool>>   vsCent_filledSigIncMC(kNPtBins, vector<bool>(centPlotBins.size(), false));
+            vector<vector<double>> vsCent_ySigPhoMC(kNPtBins, vector<double>(centPlotBins.size(), 0.0));
+            vector<vector<double>> vsCent_eySigPhoMC(kNPtBins, vector<double>(centPlotBins.size(), 0.0));
+            vector<vector<bool>>   vsCent_filledSigPhoMC(kNPtBins, vector<bool>(centPlotBins.size(), false));
             
-            for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+            for (std::size_t ic = 0; ic < centPlotBins.size(); ++ic)
             {
-                const auto& cb = centBins[ic];
+                const auto& cb = centPlotBins[ic];
                 const string centDir = JoinPath(variantDir, cb.folder);
                 if (doVariantDetailPlots) EnsureDir(centDir);
                 
@@ -1367,7 +1466,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                         tSBtitle.DrawLatex(0.50, 0.97,
                                                            "E_{T}^{iso}, p+p data versus Photon+Jet (5+10+20) Pythia");
                                         TLegend lg(0.56,0.65,0.92,0.88); lg.SetBorderSize(0); lg.SetFillStyle(0); lg.SetTextFont(42); lg.SetTextSize(0.032);
-                                        lg.AddEntry(hTd, "Data (Signal)", "ep"); lg.AddEntry(hNTd, "Data (Background)", "f"); lg.AddEntry(hSig, "Signal Embedded MC", "f"); lg.Draw();
+                                        lg.AddEntry(hTd, "Data (Tight)", "ep"); lg.AddEntry(hNTd, "Data (Non-tight)", "f"); lg.AddEntry(hSig, "Signal Embedded MC", "f"); lg.Draw();
                                         TLatex ts; ts.SetNDC(true); ts.SetTextFont(42); ts.SetTextAlign(33); ts.SetTextSize(0.048);
                                         ts.DrawLatex(0.92,0.6,"#bf{sPHENIX} #it{Internal}"); ts.SetTextSize(0.038);
                                         ts.DrawLatex(0.92,0.54,"p+p  #sqrt{s} = 200 GeV");
@@ -1626,7 +1725,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                         tSBtitle.DrawLatex(0.50, 0.97,
                                                            TString::Format("E_{T}^{iso} overlay: AuAu data vs %s Embedded MC", mcCfg.titleTag.c_str()).Data());
                                         TLegend lg(0.56,0.65,0.92,0.88); lg.SetBorderSize(0); lg.SetFillStyle(0); lg.SetTextFont(42); lg.SetTextSize(0.032);
-                                        lg.AddEntry(hTd, "Data (Signal)", "ep"); lg.AddEntry(hNTd, "Data (Background)", "f"); lg.AddEntry(hSig, "Signal Embedded MC", "f"); lg.Draw();
+                                        lg.AddEntry(hTd, "Data (Tight)", "ep"); lg.AddEntry(hNTd, "Data (Non-tight)", "f"); lg.AddEntry(hSig, "Signal Embedded MC", "f"); lg.Draw();
                                         TLatex ts; ts.SetNDC(true); ts.SetTextFont(42); ts.SetTextAlign(33); ts.SetTextSize(0.048);
                                         ts.DrawLatex(0.92,0.6,"#bf{sPHENIX} #it{Internal}"); ts.SetTextSize(0.038);
                                         ts.DrawLatex(0.92,0.54,"Au+Au  #sqrt{s_{NN}} = 200 GeV");
@@ -1834,7 +1933,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                         TLatex tSBtM; tSBtM.SetNDC(true); tSBtM.SetTextFont(42); tSBtM.SetTextAlign(23); tSBtM.SetTextSize(0.040);
                                         tSBtM.DrawLatex(0.50,0.97,TString::Format("E_{T}^{iso} overlay: AuAu data vs %s Embedded MC",mcCfg.titleTag.c_str()).Data());
                                         TLegend lgSBm(0.56,0.65,0.92,0.88); lgSBm.SetBorderSize(0); lgSBm.SetFillStyle(0); lgSBm.SetTextFont(42); lgSBm.SetTextSize(0.032);
-                                        lgSBm.AddEntry(hTdM,"Data (Signal)","ep"); lgSBm.AddEntry(hNTdM,"Data (Background)","f"); lgSBm.AddEntry(hSigM,"Signal Embedded MC","f"); lgSBm.Draw();
+                                        lgSBm.AddEntry(hTdM,"Data (Tight)","ep"); lgSBm.AddEntry(hNTdM,"Data (Non-tight)","f"); lgSBm.AddEntry(hSigM,"Signal Embedded MC","f"); lgSBm.Draw();
                                         TLatex tsM; tsM.SetNDC(true); tsM.SetTextFont(42); tsM.SetTextAlign(33); tsM.SetTextSize(0.048);
                                         tsM.DrawLatex(0.92,0.6,"#bf{sPHENIX} #it{Internal}"); tsM.SetTextSize(0.038);
                                         tsM.DrawLatex(0.92,0.54,"Au+Au  #sqrt{s_{NN}} = 200 GeV");
@@ -2111,7 +2210,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 
                                 TLegend lgS(0.58, 0.58, 0.92, 0.72);
                                 lgS.SetBorderSize(0); lgS.SetFillStyle(0); lgS.SetTextFont(42); lgS.SetTextSize(0.032);
-                                lgS.AddEntry(&gTDs, "Data (Signal)", "ep");
+                                lgS.AddEntry(&gTDs, "Data (Tight)", "ep");
                                 lgS.AddEntry(&gSMs, TString::Format("%s Signal MC", mcPt.mcLabel.c_str()).Data(), "ep");
                                 lgS.Draw();
                                 
@@ -2421,7 +2520,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 
                                 TLegend lgS(0.58, 0.58, 0.92, 0.72);
                                 lgS.SetBorderSize(0); lgS.SetFillStyle(0); lgS.SetTextFont(42); lgS.SetTextSize(0.032);
-                                lgS.AddEntry(&gTDs, "Data (Signal)", "ep");
+                                lgS.AddEntry(&gTDs, "Data (Tight)", "ep");
                                 lgS.AddEntry(&gSMs, TString::Format("%s Signal MC", mcC.mcLabel.c_str()).Data(), "ep");
                                 lgS.Draw();
                                 
@@ -2954,9 +3053,9 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                 const int ptOvColors[] = {kRed+1, kBlue+1, kGreen+2, kMagenta+1, kOrange+1,
                     kViolet+1, kYellow+2, kSpring+2, kAzure+1,
                     kTeal+1, kPink+1};
-                for (std::size_t ic = 0; ic < centBins.size(); ++ic)
+                for (std::size_t ic = 0; ic < centPlotBins.size(); ++ic)
                 {
-                    const auto& cb = centBins[ic];
+                    const auto& cb = centPlotBins[ic];
                     const string centSubDir = JoinPath(variantDir, cb.folder);
                     EnsureDir(centSubDir);
                     
