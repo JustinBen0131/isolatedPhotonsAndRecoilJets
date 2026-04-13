@@ -3507,6 +3507,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         hPho->SetLineWidth(2);
                         hPho->SetFillStyle(0);
                         hPho->SetMarkerSize(0.0);
+                        TH1* hPhoForFit = (TH1*)hPho->Clone(TString::Format("hPhoFit_combOv_%s_%s_%s", H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
+                        hPhoForFit->SetDirectory(nullptr);
                         for (int ib = 0; ib <= hPho->GetNbinsX() + 1; ++ib) hPho->SetBinError(ib, 0.0);
                     
                         // Inclusive jet MC: blue histogram
@@ -3514,6 +3516,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         hInc->SetLineWidth(2);
                         hInc->SetFillStyle(0);
                         hInc->SetMarkerSize(0.0);
+                        TH1* hIncForFit = (TH1*)hInc->Clone(TString::Format("hIncFit_combOv_%s_%s_%s", H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
+                        hIncForFit->SetDirectory(nullptr);
                         for (int ib = 0; ib <= hInc->GetNbinsX() + 1; ++ib) hInc->SetBinError(ib, 0.0);
                     
                         const double ymx = std::max({hData->GetMaximum(), hInc->GetMaximum(), hPho->GetMaximum()});
@@ -3545,7 +3549,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         hFrame->GetYaxis()->SetLabelSize(0.045);
                         hFrame->GetYaxis()->SetTitleOffset(1.15);
                         hFrame->SetMinimum(0.0);
-                        hFrame->SetMaximum((ymx > 0.0) ? (1.25 * ymx) : 1.0);
+                        hFrame->SetMaximum((ymx > 0.0) ? (1.45 * ymx) : 1.0);
                     
                         hFrame->Draw("hist");
                         hInc->Draw("hist SAME");
@@ -3554,17 +3558,17 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     
                         // Gaussian fit curves in matching colors
                         TF1* fDataGauss = DrawGaussFitCurve(hData, kBlack);
-                        TF1* fPhoGauss  = DrawGaussFitCurve(hPho,  kRed + 1);
-                        TF1* fIncGauss  = DrawGaussFitCurve(hInc,  kBlue + 1);
+                        TF1* fPhoGauss  = DrawGaussFitCurve(hPhoForFit, kRed + 1);
+                        TF1* fIncGauss  = DrawGaussFitCurve(hIncForFit, kBlue + 1);
                     
-                        TLegend legComb(0.50, 0.65, 0.92, 0.88);
+                        TLegend legComb(0.55, 0.70, 0.95, 0.90);
                         legComb.SetBorderSize(0);
                         legComb.SetFillStyle(0);
                         legComb.SetTextFont(42);
-                        legComb.SetTextSize(0.032);
+                        legComb.SetTextSize(0.038);
                         legComb.AddEntry(hData, TString::Format("AuAu data (%s)", H.label.c_str()).Data(), "ep");
-                        legComb.AddEntry(hPho, "photon+jet MC", "l");
-                        legComb.AddEntry(hInc, "inclusive jet MC", "l");
+                        legComb.AddEntry(hPho, "photon+jet embedded MC", "l");
+                        legComb.AddEntry(hInc, "inclusive jet embedded MC", "l");
                         legComb.Draw();
                     
                         TLatex tCombTitle;
@@ -3584,25 +3588,33 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         tCombInfo.DrawLatex(0.22, 0.82, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
                     
                         {
+                            const bool combInfoRHS = (cb.lo >= 40);
+                            const int   combInfoAlign = combInfoRHS ? 33 : 13;
+                            const double combInfoX    = combInfoRHS ? 0.92 : 0.16;
+                            const double combSphY1    = combInfoRHS ? 0.60 : 0.73;
                             TLatex tSph;
                             tSph.SetNDC(true);
                             tSph.SetTextFont(42);
-                            tSph.SetTextAlign(33);
+                            tSph.SetTextAlign(combInfoAlign);
                             tSph.SetTextSize(0.042);
-                            tSph.DrawLatex(0.92, 0.60, "#bf{sPHENIX} #it{Internal}");
+                            tSph.DrawLatex(combInfoX, combSphY1, "#bf{sPHENIX} #it{Internal}");
                             tSph.SetTextSize(0.034);
-                            tSph.DrawLatex(0.92, 0.55, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                            tSph.DrawLatex(combInfoX, combSphY1 - 0.06, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
                         }
                         {
+                            const bool combInfoRHS = (cb.lo >= 40);
+                            const int   combInfoAlign = combInfoRHS ? 33 : 13;
+                            const double combInfoX    = combInfoRHS ? 0.92 : 0.16;
+                            const double combUEY1     = combInfoRHS ? 0.48 : 0.61;
                             TLatex tUE;
                             tUE.SetNDC(true);
                             tUE.SetTextFont(42);
-                            tUE.SetTextAlign(33);
+                            tUE.SetTextAlign(combInfoAlign);
                             tUE.SetTextSize(0.030);
-                            tUE.DrawLatex(0.92, 0.49, trigDisplayLabel.c_str());
-                            tUE.DrawLatex(0.92, 0.45, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
-                            tUE.DrawLatex(0.92, 0.41, TString::Format("UE: %s", H.label.c_str()).Data());
-                            tUE.DrawLatex(0.92, 0.37, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                            tUE.DrawLatex(combInfoX, combUEY1,        trigDisplayLabel.c_str());
+                            tUE.DrawLatex(combInfoX, combUEY1 - 0.04, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
+                            tUE.DrawLatex(combInfoX, combUEY1 - 0.08, TString::Format("UE: %s", H.label.c_str()).Data());
+                            tUE.DrawLatex(combInfoX, combUEY1 - 0.12, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
                         }
                     
                         // Middle pad: Gaussian mean vs pT
@@ -3644,8 +3656,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             hFrMuComb->Draw();
                         
                             TGraphErrors* gMuData = MakeSubGComb(combDataX, combDataMuY, combDataMuEY, 20, kBlack);
-                            TGraphErrors* gMuPho  = MakeSubGComb(combPhoX,  combPhoMuY,  combPhoMuEY,  1,  kRed+1);
-                            TGraphErrors* gMuInc  = MakeSubGComb(combIncX,  combIncMuY,  combIncMuEY,  1,  kBlue+1);
+                            TGraphErrors* gMuPho  = MakeSubGComb(combPhoX,  combPhoMuY,  combPhoMuEY,  24, kRed+1);
+                            TGraphErrors* gMuInc  = MakeSubGComb(combIncX,  combIncMuY,  combIncMuEY,  25, kBlue+1);
                         
                             // Bottom pad: Gaussian sigma vs pT
                             cCombOv.cd();
@@ -3675,8 +3687,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             hFrSigComb->Draw();
                         
                             TGraphErrors* gSigData = MakeSubGComb(combDataX, combDataSigY, combDataSigEY, 20, kBlack);
-                            TGraphErrors* gSigPho  = MakeSubGComb(combPhoX,  combPhoSigY,  combPhoSigEY,  1,  kRed+1);
-                            TGraphErrors* gSigInc  = MakeSubGComb(combIncX,  combIncSigY,  combIncSigEY,  1,  kBlue+1);
+                            TGraphErrors* gSigPho  = MakeSubGComb(combPhoX,  combPhoSigY,  combPhoSigEY,  24, kRed+1);
+                            TGraphErrors* gSigInc  = MakeSubGComb(combIncX,  combIncSigY,  combIncSigEY,  25, kBlue+1);
                         
                             cCombOv.Modified();
                             cCombOv.Update();
@@ -3699,10 +3711,117 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         if (fDataGauss) delete fDataGauss;
                         if (fPhoGauss)  delete fPhoGauss;
                         if (fIncGauss)  delete fIncGauss;
+                        delete hPhoForFit;
+                        delete hIncForFit;
                         delete hFrame;
                         delete hData;
                         delete hInc;
                         delete hPho;
+                    }
+
+                    // ── merged-pT combined overlay (photonJetOverlays_inclusiveMCoverlays) ──
+                    {
+                        struct MergedPtRange { int lo; int hi; };
+                        const vector<MergedPtRange> mergedRanges = { {20, 35} };
+
+                        for (const auto& mr : mergedRanges)
+                        {
+                            vector<int> mBins;
+                            for (int ip = 0; ip < kNPtBins; ++ip)
+                            {
+                                const PtBin& bp = PtBins()[ip];
+                                if (bp.lo >= mr.lo && bp.hi <= mr.hi) mBins.push_back(ip);
+                            }
+                            if (mBins.empty()) continue;
+
+                            auto MergeCombHist = [&](TDirectory* dir, const string& centSuffix, const string& cloneName) -> TH1*
+                            {
+                                TH1* hSum = nullptr;
+                                for (int ip : mBins)
+                                {
+                                    const PtBin& bp = PtBins()[ip];
+                                    const string hName = "h_Eiso" + bp.suffix + centSuffix;
+                                    TH1* hSrc = dynamic_cast<TH1*>(dir->Get(hName.c_str()));
+                                    if (!hSrc) continue;
+                                    if (!hSum) { hSum = CloneTH1(hSrc, cloneName.c_str()); if (hSum) EnsureSumw2(hSum); }
+                                    else       { hSum->Add(hSrc); }
+                                }
+                                return hSum;
+                            };
+
+                            const string mFolder = TString::Format("pT_%d_%d", mr.lo, mr.hi).Data();
+                            const string mPtDir  = JoinPath(centDirComb, mFolder);
+                            const string mCombDir = JoinPath(mPtDir, "photonJetOverlays_inclusiveMCoverlays");
+                            EnsureDir(mCombDir);
+
+                            const string mTag = H.variant + "_" + cb.folder + "_" + mFolder;
+                            TH1* hDataM = MergeCombHist(aaTop,       cb.suffix, "hData_combMerged_" + mTag);
+                            TH1* hIncM  = MergeCombHist(incMCvarTop, cb.suffix, "hInc_combMerged_"  + mTag);
+                            TH1* hPhoM  = MergeCombHist(phoMCvarTop, cb.suffix, "hPho_combMerged_"  + mTag);
+                            if (!hDataM || !hIncM || !hPhoM) { if (hDataM) delete hDataM; if (hIncM) delete hIncM; if (hPhoM) delete hPhoM; continue; }
+
+                            EnsureSumw2(hDataM); EnsureSumw2(hIncM); EnsureSumw2(hPhoM);
+                            hDataM->Rebin(10); hIncM->Rebin(10); hPhoM->Rebin(10);
+
+                            const double intD = hDataM->Integral(0, hDataM->GetNbinsX()+1);
+                            const double intI = hIncM->Integral(0,  hIncM->GetNbinsX()+1);
+                            const double intP = hPhoM->Integral(0,  hPhoM->GetNbinsX()+1);
+                            if (!(intD > 0.0) || !(intI > 0.0) || !(intP > 0.0)) { delete hDataM; delete hIncM; delete hPhoM; continue; }
+
+                            hDataM->Scale(1.0/intD); hIncM->Scale(1.0/intI); hPhoM->Scale(1.0/intP);
+
+                            hDataM->SetLineColor(kBlack); hDataM->SetMarkerColor(kBlack); hDataM->SetMarkerStyle(20);
+                            hDataM->SetMarkerSize(1.0); hDataM->SetLineWidth(2); hDataM->SetFillStyle(0);
+                            hPhoM->SetTitle(""); hPhoM->SetLineColor(kRed+1); hPhoM->SetLineWidth(2);
+                            hPhoM->SetFillStyle(0); hPhoM->SetMarkerSize(0.0);
+                            for (int ib=0; ib<=hPhoM->GetNbinsX()+1; ++ib) hPhoM->SetBinError(ib,0.0);
+                            hIncM->SetLineColor(kBlue+1); hIncM->SetLineWidth(2);
+                            hIncM->SetFillStyle(0); hIncM->SetMarkerSize(0.0);
+                            for (int ib=0; ib<=hIncM->GetNbinsX()+1; ++ib) hIncM->SetBinError(ib,0.0);
+
+                            const double ymxM = std::max({hDataM->GetMaximum(), hIncM->GetMaximum(), hPhoM->GetMaximum()});
+                            TH1* hFrM = (TH1*)hPhoM->Clone(("hFr_combMerged_" + mTag).c_str());
+                            hFrM->SetDirectory(nullptr);
+
+                            TCanvas cM(("c_combMerged_" + mTag).c_str(), "c_combMerged", 900, 700);
+                            ApplyCanvasMargins1D(cM); cM.cd();
+                            hFrM->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
+                            hFrM->GetYaxis()->SetTitle("Normalized to unit area");
+                            hFrM->GetXaxis()->SetTitleSize(0.055); hFrM->GetYaxis()->SetTitleSize(0.055);
+                            hFrM->GetXaxis()->SetLabelSize(0.045); hFrM->GetYaxis()->SetLabelSize(0.045);
+                            hFrM->GetYaxis()->SetTitleOffset(1.30);
+                            hFrM->SetMinimum(0.0); hFrM->SetMaximum((ymxM > 0.0) ? (1.25*ymxM) : 1.0);
+                            hFrM->Draw("hist"); hIncM->Draw("hist SAME"); hPhoM->Draw("hist SAME"); hDataM->Draw("E1 SAME");
+
+                            TF1* fDG = DrawGaussFitCurve(hDataM, kBlack);
+                            TF1* fPG = DrawGaussFitCurve(hPhoM,  kRed+1);
+                            TF1* fIG = DrawGaussFitCurve(hIncM,  kBlue+1);
+
+                            TLegend lgM(0.50,0.65,0.92,0.88); lgM.SetBorderSize(0); lgM.SetFillStyle(0); lgM.SetTextFont(42); lgM.SetTextSize(0.032);
+                            lgM.AddEntry(hDataM, TString::Format("AuAu data (%s)", H.label.c_str()).Data(), "ep");
+                            lgM.AddEntry(hPhoM,  "photon+jet MC", "l");
+                            lgM.AddEntry(hIncM,  "inclusive jet MC", "l");
+                            lgM.Draw();
+
+                            TLatex tMt; tMt.SetNDC(true); tMt.SetTextFont(42); tMt.SetTextAlign(23); tMt.SetTextSize(0.038);
+                            tMt.DrawLatex(0.50, 0.97, "E_{T}^{iso} overlay: AuAu data vs photon+jet & inclusive embedded MC");
+                            TLatex tMi; tMi.SetNDC(true); tMi.SetTextFont(42); tMi.SetTextAlign(13); tMi.SetTextSize(0.045);
+                            tMi.DrawLatex(0.22, 0.88, TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
+                            tMi.DrawLatex(0.22, 0.82, TString::Format("p_{T}^{#gamma} = %d-%d GeV", mr.lo, mr.hi).Data());
+                            { TLatex tS; tS.SetNDC(true); tS.SetTextFont(42); tS.SetTextAlign(33); tS.SetTextSize(0.042);
+                              tS.DrawLatex(0.92, 0.60, "#bf{sPHENIX} #it{Internal}"); tS.SetTextSize(0.034);
+                              tS.DrawLatex(0.92, 0.55, "Au+Au  #sqrt{s_{NN}} = 200 GeV"); }
+                            { TLatex tU; tU.SetNDC(true); tU.SetTextFont(42); tU.SetTextAlign(33); tU.SetTextSize(0.030);
+                              tU.DrawLatex(0.92, 0.49, trigDisplayLabel.c_str());
+                              tU.DrawLatex(0.92, 0.45, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
+                              tU.DrawLatex(0.92, 0.41, TString::Format("UE: %s", H.label.c_str()).Data());
+                              tU.DrawLatex(0.92, 0.37, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data()); }
+
+                            SaveCanvas(cM, JoinPath(mCombDir, "Eiso_dataMC_overlay.png"));
+
+                            if (fDG) delete fDG; if (fPG) delete fPG; if (fIG) delete fIG;
+                            delete hFrM; delete hDataM; delete hIncM; delete hPhoM;
+                        }
                     }
                 }
             }
