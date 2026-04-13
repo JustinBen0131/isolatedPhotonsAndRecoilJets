@@ -3404,7 +3404,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             // ── combined data + inclusive MC + photon+jet MC overlay with μ/σ subpanels ──
             if (!forEmbeddedSim && incMCvarTop && phoMCvarTop)
             {
-                for (const auto& cb : centBins)
+                for (const auto& cb : centPlotBins)
                 {
                     const string centDirComb = JoinPath(variantDir, cb.folder);
                 
@@ -3774,33 +3774,46 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             hDataM->SetMarkerSize(1.0); hDataM->SetLineWidth(2); hDataM->SetFillStyle(0);
                             hPhoM->SetTitle(""); hPhoM->SetLineColor(kRed+1); hPhoM->SetLineWidth(2);
                             hPhoM->SetFillStyle(0); hPhoM->SetMarkerSize(0.0);
+                            TH1* hPhoMForFit = (TH1*)hPhoM->Clone(("hPhoMFit_" + mTag).c_str());
+                            hPhoMForFit->SetDirectory(nullptr);
                             for (int ib=0; ib<=hPhoM->GetNbinsX()+1; ++ib) hPhoM->SetBinError(ib,0.0);
                             hIncM->SetLineColor(kBlue+1); hIncM->SetLineWidth(2);
                             hIncM->SetFillStyle(0); hIncM->SetMarkerSize(0.0);
+                            TH1* hIncMForFit = (TH1*)hIncM->Clone(("hIncMFit_" + mTag).c_str());
+                            hIncMForFit->SetDirectory(nullptr);
                             for (int ib=0; ib<=hIncM->GetNbinsX()+1; ++ib) hIncM->SetBinError(ib,0.0);
 
                             const double ymxM = std::max({hDataM->GetMaximum(), hIncM->GetMaximum(), hPhoM->GetMaximum()});
                             TH1* hFrM = (TH1*)hPhoM->Clone(("hFr_combMerged_" + mTag).c_str());
                             hFrM->SetDirectory(nullptr);
 
-                            TCanvas cM(("c_combMerged_" + mTag).c_str(), "c_combMerged", 900, 700);
-                            ApplyCanvasMargins1D(cM); cM.cd();
+                            const int mCanvasH = combHaveSub ? 1000 : 700;
+                            TCanvas cM(("c_combMerged_" + mTag).c_str(), "c_combMerged", 900, mCanvasH);
+                            cM.SetCanvasSize(900, mCanvasH);
+                            cM.cd();
+
+                            const double mPadLoEdge = combHaveSub ? 0.36 : 0.0;
+                            TPad* padUpM = new TPad("padUpM", "padUpM", 0.0, mPadLoEdge, 1.0, 1.0);
+                            padUpM->SetBottomMargin(combHaveSub ? 0.10 : 0.12);
+                            padUpM->SetLeftMargin(0.14); padUpM->SetRightMargin(0.04); padUpM->SetTopMargin(0.08);
+                            padUpM->Draw(); padUpM->cd();
+
                             hFrM->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
                             hFrM->GetYaxis()->SetTitle("Normalized to unit area");
-                            hFrM->GetXaxis()->SetTitleSize(0.055); hFrM->GetYaxis()->SetTitleSize(0.055);
+                            hFrM->GetXaxis()->SetTitleSize(0.045); hFrM->GetYaxis()->SetTitleSize(0.055);
                             hFrM->GetXaxis()->SetLabelSize(0.045); hFrM->GetYaxis()->SetLabelSize(0.045);
-                            hFrM->GetYaxis()->SetTitleOffset(1.30);
-                            hFrM->SetMinimum(0.0); hFrM->SetMaximum((ymxM > 0.0) ? (1.25*ymxM) : 1.0);
+                            hFrM->GetYaxis()->SetTitleOffset(1.15);
+                            hFrM->SetMinimum(0.0); hFrM->SetMaximum((ymxM > 0.0) ? (1.45*ymxM) : 1.0);
                             hFrM->Draw("hist"); hIncM->Draw("hist SAME"); hPhoM->Draw("hist SAME"); hDataM->Draw("E1 SAME");
 
                             TF1* fDG = DrawGaussFitCurve(hDataM, kBlack);
-                            TF1* fPG = DrawGaussFitCurve(hPhoM,  kRed+1);
-                            TF1* fIG = DrawGaussFitCurve(hIncM,  kBlue+1);
+                            TF1* fPG = DrawGaussFitCurve(hPhoMForFit, kRed+1);
+                            TF1* fIG = DrawGaussFitCurve(hIncMForFit, kBlue+1);
 
-                            TLegend lgM(0.50,0.65,0.92,0.88); lgM.SetBorderSize(0); lgM.SetFillStyle(0); lgM.SetTextFont(42); lgM.SetTextSize(0.032);
+                            TLegend lgM(0.55, 0.76, 0.95, 0.93); lgM.SetBorderSize(0); lgM.SetFillStyle(0); lgM.SetTextFont(42); lgM.SetTextSize(0.034);
                             lgM.AddEntry(hDataM, TString::Format("AuAu data (%s)", H.label.c_str()).Data(), "ep");
-                            lgM.AddEntry(hPhoM,  "photon+jet MC", "l");
-                            lgM.AddEntry(hIncM,  "inclusive jet MC", "l");
+                            lgM.AddEntry(hPhoM,  "photon+jet embedded MC", "l");
+                            lgM.AddEntry(hIncM,  "inclusive jet embedded MC", "l");
                             lgM.Draw();
 
                             TLatex tMt; tMt.SetNDC(true); tMt.SetTextFont(42); tMt.SetTextAlign(23); tMt.SetTextSize(0.038);
@@ -3808,18 +3821,97 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             TLatex tMi; tMi.SetNDC(true); tMi.SetTextFont(42); tMi.SetTextAlign(13); tMi.SetTextSize(0.045);
                             tMi.DrawLatex(0.22, 0.88, TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
                             tMi.DrawLatex(0.22, 0.82, TString::Format("p_{T}^{#gamma} = %d-%d GeV", mr.lo, mr.hi).Data());
-                            { TLatex tS; tS.SetNDC(true); tS.SetTextFont(42); tS.SetTextAlign(33); tS.SetTextSize(0.042);
-                              tS.DrawLatex(0.92, 0.60, "#bf{sPHENIX} #it{Internal}"); tS.SetTextSize(0.034);
-                              tS.DrawLatex(0.92, 0.55, "Au+Au  #sqrt{s_{NN}} = 200 GeV"); }
-                            { TLatex tU; tU.SetNDC(true); tU.SetTextFont(42); tU.SetTextAlign(33); tU.SetTextSize(0.030);
-                              tU.DrawLatex(0.92, 0.49, trigDisplayLabel.c_str());
-                              tU.DrawLatex(0.92, 0.45, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
-                              tU.DrawLatex(0.92, 0.41, TString::Format("UE: %s", H.label.c_str()).Data());
-                              tU.DrawLatex(0.92, 0.37, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data()); }
+                            {
+                                const bool mInfoRHS = (cb.lo >= 40);
+                                const int   mInfoAlign = mInfoRHS ? 33 : 13;
+                                const double mInfoX    = mInfoRHS ? 0.92 : 0.16;
+                                const double mSphY1    = mInfoRHS ? 0.60 : 0.73;
+                                TLatex tS; tS.SetNDC(true); tS.SetTextFont(42); tS.SetTextAlign(mInfoAlign);
+                                tS.SetTextSize(0.042);
+                                tS.DrawLatex(mInfoX, mSphY1, "#bf{sPHENIX} #it{Internal}");
+                                tS.SetTextSize(0.034);
+                                tS.DrawLatex(mInfoX, mSphY1 - 0.06, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                            }
+                            {
+                                const bool mInfoRHS = (cb.lo >= 40);
+                                const int   mInfoAlign = mInfoRHS ? 33 : 13;
+                                const double mInfoX    = mInfoRHS ? 0.92 : 0.16;
+                                const double mUEY1     = mInfoRHS ? 0.48 : 0.61;
+                                TLatex tU; tU.SetNDC(true); tU.SetTextFont(42); tU.SetTextAlign(mInfoAlign); tU.SetTextSize(0.030);
+                                tU.DrawLatex(mInfoX, mUEY1,        trigDisplayLabel.c_str());
+                                tU.DrawLatex(mInfoX, mUEY1 - 0.04, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
+                                tU.DrawLatex(mInfoX, mUEY1 - 0.08, TString::Format("UE: %s", H.label.c_str()).Data());
+                                tU.DrawLatex(mInfoX, mUEY1 - 0.12, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                            }
 
-                            SaveCanvas(cM, JoinPath(mCombDir, "Eiso_dataMC_overlay.png"));
+                            // Middle pad: Gaussian mean vs pT
+                            if (combHaveSub)
+                            {
+                                auto MakeSubGM = [](const vector<double>& x, const vector<double>& y, const vector<double>& ey,
+                                                    int marker, int color) -> TGraphErrors* {
+                                    if (x.empty()) return nullptr;
+                                    vector<double> ex(x.size(), 0.0);
+                                    TGraphErrors* g = new TGraphErrors((int)x.size(), &x[0], &y[0], &ex[0], &ey[0]);
+                                    g->SetMarkerStyle(marker); g->SetMarkerSize(1.0);
+                                    g->SetMarkerColor(color); g->SetLineColor(color);
+                                    g->SetLineWidth(2); g->Draw("PE1 SAME"); return g; };
+
+                                cM.cd();
+                                TPad* padMidM = new TPad("padMidM", "padMidM", 0.0, 0.21, 1.0, 0.36);
+                                padMidM->SetTopMargin(0.02); padMidM->SetBottomMargin(0.00);
+                                padMidM->SetLeftMargin(0.14); padMidM->SetRightMargin(0.04);
+                                padMidM->Draw(); padMidM->cd();
+
+                                TH1F* hFrMuM = new TH1F(("hFrMu_combM_" + mTag).c_str(), "", 100, 10.0, kPtEdges.back());
+                                hFrMuM->SetDirectory(nullptr); hFrMuM->SetStats(0);
+                                hFrMuM->SetMinimum(combMuLo - combMuPad); hFrMuM->SetMaximum(combMuHi + combMuPad);
+                                hFrMuM->GetYaxis()->SetTitle("#mu^{Gauss}[GeV]");
+                                hFrMuM->GetYaxis()->SetTitleSize(0.19); hFrMuM->GetYaxis()->SetTitleOffset(0.28);
+                                hFrMuM->GetYaxis()->SetLabelSize(0.14); hFrMuM->GetYaxis()->SetNdivisions(505);
+                                hFrMuM->GetXaxis()->SetTitle(""); hFrMuM->GetXaxis()->SetTitleSize(0.0);
+                                hFrMuM->GetXaxis()->SetLabelSize(0.0); hFrMuM->GetXaxis()->SetTickLength(0.0);
+                                hFrMuM->Draw();
+
+                                TGraphErrors* gMuDataM = MakeSubGM(combDataX, combDataMuY, combDataMuEY, 20, kBlack);
+                                TGraphErrors* gMuPhoM  = MakeSubGM(combPhoX,  combPhoMuY,  combPhoMuEY,  24, kRed+1);
+                                TGraphErrors* gMuIncM  = MakeSubGM(combIncX,  combIncMuY,  combIncMuEY,  25, kBlue+1);
+
+                                // Bottom pad: Gaussian sigma vs pT
+                                cM.cd();
+                                TPad* padBotM = new TPad("padBotM", "padBotM", 0.0, 0.0, 1.0, 0.21);
+                                padBotM->SetTopMargin(0.00); padBotM->SetBottomMargin(0.30);
+                                padBotM->SetLeftMargin(0.14); padBotM->SetRightMargin(0.04);
+                                padBotM->Draw(); padBotM->cd();
+
+                                TH1F* hFrSigM = new TH1F(("hFrSig_combM_" + mTag).c_str(), "", 100, 10.0, kPtEdges.back());
+                                hFrSigM->SetDirectory(nullptr); hFrSigM->SetStats(0);
+                                hFrSigM->SetMinimum(combSigLo - combSigPad); hFrSigM->SetMaximum(combSigHi + combSigPad);
+                                hFrSigM->GetYaxis()->SetTitle("#sigma^{Gauss}[GeV]");
+                                hFrSigM->GetYaxis()->SetTitleSize(0.14); hFrSigM->GetYaxis()->SetTitleOffset(0.32);
+                                hFrSigM->GetYaxis()->SetLabelSize(0.10); hFrSigM->GetYaxis()->SetNdivisions(505);
+                                hFrSigM->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                                hFrSigM->GetXaxis()->SetTitleSize(0.12); hFrSigM->GetXaxis()->SetTitleOffset(0.95);
+                                hFrSigM->GetXaxis()->SetLabelSize(0.10);
+                                hFrSigM->Draw();
+
+                                TGraphErrors* gSigDataM = MakeSubGM(combDataX, combDataSigY, combDataSigEY, 20, kBlack);
+                                TGraphErrors* gSigPhoM  = MakeSubGM(combPhoX,  combPhoSigY,  combPhoSigEY,  24, kRed+1);
+                                TGraphErrors* gSigIncM  = MakeSubGM(combIncX,  combIncSigY,  combIncSigEY,  25, kBlue+1);
+
+                                cM.Modified(); cM.Update();
+                                SaveCanvas(cM, JoinPath(mCombDir, "Eiso_dataMC_overlay.png"));
+
+                                if (gSigDataM) delete gSigDataM; if (gSigPhoM) delete gSigPhoM; if (gSigIncM) delete gSigIncM;
+                                delete hFrSigM;
+                                if (gMuDataM) delete gMuDataM; if (gMuPhoM) delete gMuPhoM; if (gMuIncM) delete gMuIncM;
+                                delete hFrMuM;
+                            }
+
+                            if (!combHaveSub)
+                                SaveCanvas(cM, JoinPath(mCombDir, "Eiso_dataMC_overlay.png"));
 
                             if (fDG) delete fDG; if (fPG) delete fPG; if (fIG) delete fIG;
+                            delete hPhoMForFit; delete hIncMForFit;
                             delete hFrM; delete hDataM; delete hIncM; delete hPhoM;
                         }
                     }
