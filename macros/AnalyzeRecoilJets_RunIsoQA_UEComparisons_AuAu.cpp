@@ -1732,7 +1732,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                         hStack->GetYaxis()->SetTitle("Counts / Bin Width");
                                         hStack->GetXaxis()->SetTitleSize(0.055); hStack->GetYaxis()->SetTitleSize(0.055);
                                         hStack->GetXaxis()->SetLabelSize(0.045); hStack->GetYaxis()->SetLabelSize(0.045);
-                                        hStack->GetYaxis()->SetTitleOffset(1.15);
+                                        hStack->GetYaxis()->SetTitleOffset(1.30);
                                         hStack->SetMinimum(0.0); hStack->SetMaximum((ym>0)?(1.3*ym):1.0);
                                         hStack->SetLineColor(kPink-4); hStack->SetFillColorAlpha(kPink-4,0.5); hStack->SetFillStyle(1001);
                                         hStack->Draw("hist");
@@ -1978,7 +1978,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                             const double ymM = std::max(hTdM->GetMaximum(),hStackM->GetMaximum());
                                             TCanvas cSBm(TString::Format("c_merged_sigBkg_%s_%s_%s", cloneTag.c_str(), mcCfg.folder.c_str(), cb.folder.c_str()).Data(), "c_merged_sigBkg",900,700); ApplyCanvasMargins1D(cSBm); cSBm.cd();
                                             hStackM->SetTitle(""); hStackM->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]"); hStackM->GetYaxis()->SetTitle("Counts / Bin Width");
-                                            hStackM->GetXaxis()->SetTitleSize(0.055); hStackM->GetYaxis()->SetTitleSize(0.055); hStackM->GetXaxis()->SetLabelSize(0.045); hStackM->GetYaxis()->SetLabelSize(0.045); hStackM->GetYaxis()->SetTitleOffset(1.15);
+                                            hStackM->GetXaxis()->SetTitleSize(0.055); hStackM->GetYaxis()->SetTitleSize(0.055); hStackM->GetXaxis()->SetLabelSize(0.045); hStackM->GetYaxis()->SetLabelSize(0.045); hStackM->GetYaxis()->SetTitleOffset(1.30);
                                             hStackM->SetMinimum(0.0); hStackM->SetMaximum((ymM>0)?(1.3*ymM):1.0);
                                             hStackM->SetLineColor(kPink-4); hStackM->SetFillColorAlpha(kPink-4,0.5); hStackM->SetFillStyle(1001);
                                             hStackM->Draw("hist"); hSigM->Draw("hist SAME"); hTdM->Draw("E1 SAME");
