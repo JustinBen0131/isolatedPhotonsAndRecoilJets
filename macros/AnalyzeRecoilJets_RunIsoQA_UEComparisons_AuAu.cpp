@@ -1674,7 +1674,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 TH1* hNTdSrc = dynamic_cast<TH1*>(aaTop->Get(hNTName.c_str()));
                                 TH1* hSigSrc = dynamic_cast<TH1*>(mcCfg.mcTop->Get(hSigName.c_str()));
                                 TH1* hSigTightSrc = dynamic_cast<TH1*>(mcCfg.mcTop->Get(hSigTightName.c_str()));
-                                if (hTdSrc && hNTdSrc && (hSigSrc || hSigTightSrc))
+                                TH1* hRecoTightSrc = dynamic_cast<TH1*>(mcCfg.mcTop->Get(hTName.c_str()));
+                                if (hTdSrc && hNTdSrc && (hSigSrc || hSigTightSrc || hRecoTightSrc))
                                 {
                                     auto DrawSignalBkgOverlay = [&](TH1* hSigTemplateSrc,
                                                                     const string& cloneTag,
@@ -1769,6 +1770,10 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                                          "tightTaggedTruthMatched",
                                                          "Eiso_sigBkg_overlay_TIGHT_TAGGED.png",
                                                          "Signal Embedded MC (Tight)");
+                                    DrawSignalBkgOverlay(hRecoTightSrc,
+                                                         "recoTightMC",
+                                                         "Eiso_sigBkg_overlay_RECO_TIGHT_MC.png",
+                                                         "Reco tight MC");
                                 }
                             }
                         }
@@ -1920,7 +1925,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                     TH1* hNTdMSrc = MergeHists(aaTop,      "h_Eiso_nonTight", cb.suffix, "hNTd_merged_"+mcCfg.folder+"_"+cb.folder);
                                     TH1* hSigMSrc = MergeHists(mcCfg.mcTop,"h_EisoReco_truthSigMatched", cb.suffix, "hSig_merged_"+mcCfg.folder+"_"+cb.folder);
                                     TH1* hSigTightMSrc = MergeHists(mcCfg.mcTop,"h_EisoReco_truthSigMatched_tight", cb.suffix, "hSigTight_merged_"+mcCfg.folder+"_"+cb.folder);
-                                    if (hTdMSrc && hNTdMSrc && (hSigMSrc || hSigTightMSrc))
+                                    TH1* hRecoTightMSrc = MergeHists(mcCfg.mcTop,"h_Eiso_tight", cb.suffix, "hRecoTight_merged_"+mcCfg.folder+"_"+cb.folder);
+                                    if (hTdMSrc && hNTdMSrc && (hSigMSrc || hSigTightMSrc || hRecoTightMSrc))
                                     {
                                         auto DrawMergedSignalBkgOverlay = [&](TH1* hSigTemplateSrc,
                                                                               const string& cloneTag,
@@ -2006,11 +2012,16 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                                                    "tightTaggedTruthMatched",
                                                                    "Eiso_sigBkg_overlay_TIGHT_TAGGED.png",
                                                                    "Signal Embedded MC (Tight)");
+                                        DrawMergedSignalBkgOverlay(hRecoTightMSrc,
+                                                                   "recoTightMC",
+                                                                   "Eiso_sigBkg_overlay_RECO_TIGHT_MC.png",
+                                                                   "Reco tight MC");
                                     }
                                     if (hTdMSrc) delete hTdMSrc;
                                     if (hNTdMSrc) delete hNTdMSrc;
                                     if (hSigMSrc) delete hSigMSrc;
                                     if (hSigTightMSrc) delete hSigTightMSrc;
+                                    if (hRecoTightMSrc) delete hRecoTightMSrc;
                                 }
                             }
                         }
@@ -3390,6 +3401,312 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                 }
             }
             
+            // ── combined data + inclusive MC + photon+jet MC overlay with μ/σ subpanels ──
+            if (!forEmbeddedSim && incMCvarTop && phoMCvarTop)
+            {
+                for (const auto& cb : centBins)
+                {
+                    const string centDirComb = JoinPath(variantDir, cb.folder);
+                
+                    // Pre-pass: accumulate Gaussian fit params across pT
+                    vector<double> combDataX, combDataMuY, combDataMuEY, combDataSigY, combDataSigEY;
+                    vector<double> combIncX,  combIncMuY,  combIncMuEY,  combIncSigY,  combIncSigEY;
+                    vector<double> combPhoX,  combPhoMuY,  combPhoMuEY,  combPhoSigY,  combPhoSigEY;
+                
+                    for (int iptPre = 0; iptPre < kNPtBins; ++iptPre)
+                    {
+                        const PtBin& bPre = PtBins()[iptPre];
+                        if (bPre.lo < 10) continue;
+                        const double ptC = 0.5 * (kPtEdges[(std::size_t)iptPre] + kPtEdges[(std::size_t)iptPre + 1]);
+                        const string hName = "h_Eiso" + bPre.suffix + cb.suffix;
+                    
+                        auto FitPushComb = [&](TDirectory* dir, const string& hN,
+                                               vector<double>& vx, vector<double>& vmy, vector<double>& vmey,
+                                               vector<double>& vsy, vector<double>& vsey) {
+                            TH1* hSrc = dynamic_cast<TH1*>(dir->Get(hN.c_str()));
+                            if (!hSrc) return;
+                            TH1* hTmp = CloneTH1(hSrc, TString::Format("hCombPre_%s_%d_%p", hN.c_str(), iptPre, (void*)dir).Data());
+                            if (!hTmp) return;
+                            hTmp->Rebin(10); EnsureSumw2(hTmp);
+                            double gM, gS, gME, gSE;
+                            if (FitGaussianIterative(hTmp, gM, gS, gME, gSE))
+                            { vx.push_back(ptC); vmy.push_back(gM); vmey.push_back(gME); vsy.push_back(gS); vsey.push_back(gSE); }
+                            delete hTmp;
+                        };
+                    
+                        FitPushComb(aaTop,        hName, combDataX, combDataMuY, combDataMuEY, combDataSigY, combDataSigEY);
+                        FitPushComb(incMCvarTop,  hName, combIncX,  combIncMuY,  combIncMuEY,  combIncSigY,  combIncSigEY);
+                        FitPushComb(phoMCvarTop,  hName, combPhoX,  combPhoMuY,  combPhoMuEY,  combPhoSigY,  combPhoSigEY);
+                    }
+                
+                    // Compute μ range
+                    double combMuLo = 1e30, combMuHi = -1e30;
+                    auto CombUpdateMu = [&](const vector<double>& y, const vector<double>& ey) {
+                        for (std::size_t i = 0; i < y.size(); ++i) {
+                            combMuLo = std::min(combMuLo, y[i] - ey[i]);
+                            combMuHi = std::max(combMuHi, y[i] + ey[i]); } };
+                    CombUpdateMu(combDataMuY, combDataMuEY);
+                    CombUpdateMu(combIncMuY,  combIncMuEY);
+                    CombUpdateMu(combPhoMuY,  combPhoMuEY);
+                    const bool combHaveSub = (combMuHi > combMuLo) &&
+                        (!combDataX.empty() || !combIncX.empty() || !combPhoX.empty());
+                    const double combMuPad = combHaveSub ? std::max(0.35 * (combMuHi - combMuLo), 0.5) : 1.0;
+                
+                    // Compute σ range
+                    double combSigLo = 1e30, combSigHi = -1e30;
+                    auto CombUpdateSig = [&](const vector<double>& y, const vector<double>& ey) {
+                        for (std::size_t i = 0; i < y.size(); ++i) {
+                            combSigLo = std::min(combSigLo, y[i] - ey[i]);
+                            combSigHi = std::max(combSigHi, y[i] + ey[i]); } };
+                    CombUpdateSig(combDataSigY, combDataSigEY);
+                    CombUpdateSig(combIncSigY,  combIncSigEY);
+                    CombUpdateSig(combPhoSigY,  combPhoSigEY);
+                    const double combSigPad = combHaveSub ? std::max(0.35 * (combSigHi - combSigLo), 0.5) : 1.0;
+                
+                    for (const auto& b : PtBins())
+                    {
+                        if (b.lo < 10) continue;
+                        const string ptDirComb = JoinPath(centDirComb, b.folder);
+                        const string combOvDir = JoinPath(ptDirComb, "photonJetOverlays_inclusiveMCoverlays");
+                        EnsureDir(combOvDir);
+                    
+                        const string hAAName = "h_Eiso" + b.suffix + cb.suffix;
+                        TH1* hDataSrc = dynamic_cast<TH1*>(aaTop->Get(hAAName.c_str()));
+                        TH1* hIncSrc  = dynamic_cast<TH1*>(incMCvarTop->Get(hAAName.c_str()));
+                        TH1* hPhoSrc  = dynamic_cast<TH1*>(phoMCvarTop->Get(hAAName.c_str()));
+                        if (!hDataSrc || !hIncSrc || !hPhoSrc) continue;
+                    
+                        TH1* hData = CloneTH1(hDataSrc, TString::Format("hData_combOv_%s_%s_%s", H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
+                        TH1* hInc  = CloneTH1(hIncSrc,  TString::Format("hInc_combOv_%s_%s_%s",  H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
+                        TH1* hPho  = CloneTH1(hPhoSrc,  TString::Format("hPho_combOv_%s_%s_%s",  H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
+                        if (!hData || !hInc || !hPho) { if (hData) delete hData; if (hInc) delete hInc; if (hPho) delete hPho; continue; }
+                    
+                        EnsureSumw2(hData); EnsureSumw2(hInc); EnsureSumw2(hPho);
+                        hData->Rebin(10); hInc->Rebin(10); hPho->Rebin(10);
+                    
+                        const double intData = hData->Integral(0, hData->GetNbinsX() + 1);
+                        const double intInc  = hInc->Integral(0, hInc->GetNbinsX() + 1);
+                        const double intPho  = hPho->Integral(0, hPho->GetNbinsX() + 1);
+                        if (!(intData > 0.0) || !(intInc > 0.0) || !(intPho > 0.0)) { delete hData; delete hInc; delete hPho; continue; }
+                    
+                        hData->Scale(1.0 / intData);
+                        hInc->Scale(1.0 / intInc);
+                        hPho->Scale(1.0 / intPho);
+                    
+                        // Data: black markers
+                        hData->SetLineColor(kBlack);
+                        hData->SetMarkerColor(kBlack);
+                        hData->SetMarkerStyle(20);
+                        hData->SetMarkerSize(1.0);
+                        hData->SetLineWidth(2);
+                        hData->SetFillStyle(0);
+                    
+                        // Photon+jet MC: red histogram
+                        hPho->SetTitle("");
+                        hPho->SetLineColor(kRed + 1);
+                        hPho->SetLineWidth(2);
+                        hPho->SetFillStyle(0);
+                        hPho->SetMarkerSize(0.0);
+                        for (int ib = 0; ib <= hPho->GetNbinsX() + 1; ++ib) hPho->SetBinError(ib, 0.0);
+                    
+                        // Inclusive jet MC: blue histogram
+                        hInc->SetLineColor(kBlue + 1);
+                        hInc->SetLineWidth(2);
+                        hInc->SetFillStyle(0);
+                        hInc->SetMarkerSize(0.0);
+                        for (int ib = 0; ib <= hInc->GetNbinsX() + 1; ++ib) hInc->SetBinError(ib, 0.0);
+                    
+                        const double ymx = std::max({hData->GetMaximum(), hInc->GetMaximum(), hPho->GetMaximum()});
+                    
+                        // Frame histogram for axis ownership (drawn first)
+                        TH1* hFrame = (TH1*)hPho->Clone(TString::Format("hFr_combOv_%s_%s_%s", H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
+                        hFrame->SetDirectory(nullptr);
+                    
+                        TCanvas cCombOv(
+                            TString::Format("c_combOv_%s_%s_%s", H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
+                            "c_combOv", 900, combHaveSub ? 1000 : 700);
+                        cCombOv.cd();
+                    
+                        // Upper pad
+                        const double combPadLoEdge = combHaveSub ? 0.36 : 0.0;
+                        TPad* padUpComb = new TPad("padUpComb", "padUpComb", 0.0, combPadLoEdge, 1.0, 1.0);
+                        padUpComb->SetBottomMargin(combHaveSub ? 0.10 : 0.12);
+                        padUpComb->SetLeftMargin(0.14);
+                        padUpComb->SetRightMargin(0.04);
+                        padUpComb->SetTopMargin(0.08);
+                        padUpComb->Draw();
+                        padUpComb->cd();
+                    
+                        hFrame->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
+                        hFrame->GetYaxis()->SetTitle("Normalized to unit area");
+                        hFrame->GetXaxis()->SetTitleSize(0.045);
+                        hFrame->GetYaxis()->SetTitleSize(0.055);
+                        hFrame->GetXaxis()->SetLabelSize(0.045);
+                        hFrame->GetYaxis()->SetLabelSize(0.045);
+                        hFrame->GetYaxis()->SetTitleOffset(1.15);
+                        hFrame->SetMinimum(0.0);
+                        hFrame->SetMaximum((ymx > 0.0) ? (1.25 * ymx) : 1.0);
+                    
+                        hFrame->Draw("hist");
+                        hInc->Draw("hist SAME");
+                        hPho->Draw("hist SAME");
+                        hData->Draw("E1 SAME");
+                    
+                        // Gaussian fit curves in matching colors
+                        TF1* fDataGauss = DrawGaussFitCurve(hData, kBlack);
+                        TF1* fPhoGauss  = DrawGaussFitCurve(hPho,  kRed + 1);
+                        TF1* fIncGauss  = DrawGaussFitCurve(hInc,  kBlue + 1);
+                    
+                        TLegend legComb(0.50, 0.65, 0.92, 0.88);
+                        legComb.SetBorderSize(0);
+                        legComb.SetFillStyle(0);
+                        legComb.SetTextFont(42);
+                        legComb.SetTextSize(0.032);
+                        legComb.AddEntry(hData, TString::Format("AuAu data (%s)", H.label.c_str()).Data(), "ep");
+                        legComb.AddEntry(hPho, "photon+jet MC", "l");
+                        legComb.AddEntry(hInc, "inclusive jet MC", "l");
+                        legComb.Draw();
+                    
+                        TLatex tCombTitle;
+                        tCombTitle.SetNDC(true);
+                        tCombTitle.SetTextFont(42);
+                        tCombTitle.SetTextAlign(23);
+                        tCombTitle.SetTextSize(0.038);
+                        tCombTitle.DrawLatex(0.50, 0.97,
+                            "E_{T}^{iso} overlay: AuAu data vs photon+jet & inclusive embedded MC");
+                    
+                        TLatex tCombInfo;
+                        tCombInfo.SetNDC(true);
+                        tCombInfo.SetTextFont(42);
+                        tCombInfo.SetTextAlign(13);
+                        tCombInfo.SetTextSize(0.045);
+                        tCombInfo.DrawLatex(0.22, 0.88, TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
+                        tCombInfo.DrawLatex(0.22, 0.82, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
+                    
+                        {
+                            TLatex tSph;
+                            tSph.SetNDC(true);
+                            tSph.SetTextFont(42);
+                            tSph.SetTextAlign(33);
+                            tSph.SetTextSize(0.042);
+                            tSph.DrawLatex(0.92, 0.60, "#bf{sPHENIX} #it{Internal}");
+                            tSph.SetTextSize(0.034);
+                            tSph.DrawLatex(0.92, 0.55, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                        }
+                        {
+                            TLatex tUE;
+                            tUE.SetNDC(true);
+                            tUE.SetTextFont(42);
+                            tUE.SetTextAlign(33);
+                            tUE.SetTextSize(0.030);
+                            tUE.DrawLatex(0.92, 0.49, trigDisplayLabel.c_str());
+                            tUE.DrawLatex(0.92, 0.45, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
+                            tUE.DrawLatex(0.92, 0.41, TString::Format("UE: %s", H.label.c_str()).Data());
+                            tUE.DrawLatex(0.92, 0.37, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                        }
+                    
+                        // Middle pad: Gaussian mean vs pT
+                        if (combHaveSub)
+                        {
+                            auto MakeSubGComb = [](const vector<double>& x, const vector<double>& y, const vector<double>& ey,
+                                                   int marker, int color) -> TGraphErrors* {
+                                if (x.empty()) return nullptr;
+                                vector<double> ex(x.size(), 0.0);
+                                TGraphErrors* g = new TGraphErrors((int)x.size(), &x[0], &y[0], &ex[0], &ey[0]);
+                                g->SetMarkerStyle(marker); g->SetMarkerSize(1.0);
+                                g->SetMarkerColor(color);  g->SetLineColor(color);
+                                g->SetLineWidth(2); g->Draw("PE1 SAME"); return g; };
+                        
+                            cCombOv.cd();
+                            TPad* padMidComb = new TPad("padMidComb", "padMidComb", 0.0, 0.21, 1.0, 0.36);
+                            padMidComb->SetTopMargin(0.02);
+                            padMidComb->SetBottomMargin(0.00);
+                            padMidComb->SetLeftMargin(0.14);
+                            padMidComb->SetRightMargin(0.04);
+                            padMidComb->Draw();
+                            padMidComb->cd();
+                        
+                            TH1F* hFrMuComb = new TH1F(
+                                TString::Format("hFrMu_comb_%s_%s_%s", H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
+                                "", 100, 10.0, kPtEdges.back());
+                            hFrMuComb->SetDirectory(nullptr); hFrMuComb->SetStats(0);
+                            hFrMuComb->SetMinimum(combMuLo - combMuPad);
+                            hFrMuComb->SetMaximum(combMuHi + combMuPad);
+                            hFrMuComb->GetYaxis()->SetTitle("#mu^{Gauss}[GeV]");
+                            hFrMuComb->GetYaxis()->SetTitleSize(0.19);
+                            hFrMuComb->GetYaxis()->SetTitleOffset(0.28);
+                            hFrMuComb->GetYaxis()->SetLabelSize(0.14);
+                            hFrMuComb->GetYaxis()->SetNdivisions(505);
+                            hFrMuComb->GetXaxis()->SetTitle("");
+                            hFrMuComb->GetXaxis()->SetTitleSize(0.0);
+                            hFrMuComb->GetXaxis()->SetLabelSize(0.0);
+                            hFrMuComb->GetXaxis()->SetTickLength(0.0);
+                            hFrMuComb->Draw();
+                        
+                            TGraphErrors* gMuData = MakeSubGComb(combDataX, combDataMuY, combDataMuEY, 20, kBlack);
+                            TGraphErrors* gMuPho  = MakeSubGComb(combPhoX,  combPhoMuY,  combPhoMuEY,  1,  kRed+1);
+                            TGraphErrors* gMuInc  = MakeSubGComb(combIncX,  combIncMuY,  combIncMuEY,  1,  kBlue+1);
+                        
+                            // Bottom pad: Gaussian sigma vs pT
+                            cCombOv.cd();
+                            TPad* padBotComb = new TPad("padBotComb", "padBotComb", 0.0, 0.0, 1.0, 0.21);
+                            padBotComb->SetTopMargin(0.00);
+                            padBotComb->SetBottomMargin(0.30);
+                            padBotComb->SetLeftMargin(0.14);
+                            padBotComb->SetRightMargin(0.04);
+                            padBotComb->Draw();
+                            padBotComb->cd();
+                        
+                            TH1F* hFrSigComb = new TH1F(
+                                TString::Format("hFrSig_comb_%s_%s_%s", H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
+                                "", 100, 10.0, kPtEdges.back());
+                            hFrSigComb->SetDirectory(nullptr); hFrSigComb->SetStats(0);
+                            hFrSigComb->SetMinimum(combSigLo - combSigPad);
+                            hFrSigComb->SetMaximum(combSigHi + combSigPad);
+                            hFrSigComb->GetYaxis()->SetTitle("#sigma^{Gauss}[GeV]");
+                            hFrSigComb->GetYaxis()->SetTitleSize(0.14);
+                            hFrSigComb->GetYaxis()->SetTitleOffset(0.32);
+                            hFrSigComb->GetYaxis()->SetLabelSize(0.10);
+                            hFrSigComb->GetYaxis()->SetNdivisions(505);
+                            hFrSigComb->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                            hFrSigComb->GetXaxis()->SetTitleSize(0.12);
+                            hFrSigComb->GetXaxis()->SetTitleOffset(0.95);
+                            hFrSigComb->GetXaxis()->SetLabelSize(0.10);
+                            hFrSigComb->Draw();
+                        
+                            TGraphErrors* gSigData = MakeSubGComb(combDataX, combDataSigY, combDataSigEY, 20, kBlack);
+                            TGraphErrors* gSigPho  = MakeSubGComb(combPhoX,  combPhoSigY,  combPhoSigEY,  1,  kRed+1);
+                            TGraphErrors* gSigInc  = MakeSubGComb(combIncX,  combIncSigY,  combIncSigEY,  1,  kBlue+1);
+                        
+                            cCombOv.Modified();
+                            cCombOv.Update();
+                        
+                            SaveCanvas(cCombOv, JoinPath(combOvDir, "Eiso_dataMC_overlay.png"));
+                        
+                            if (gSigData) delete gSigData;
+                            if (gSigPho)  delete gSigPho;
+                            if (gSigInc)  delete gSigInc;
+                            delete hFrSigComb;
+                            if (gMuData) delete gMuData;
+                            if (gMuPho)  delete gMuPho;
+                            if (gMuInc)  delete gMuInc;
+                            delete hFrMuComb;
+                        }
+                    
+                        if (!combHaveSub)
+                            SaveCanvas(cCombOv, JoinPath(combOvDir, "Eiso_dataMC_overlay.png"));
+                    
+                        if (fDataGauss) delete fDataGauss;
+                        if (fPhoGauss)  delete fPhoGauss;
+                        if (fIncGauss)  delete fIncGauss;
+                        delete hFrame;
+                        delete hData;
+                        delete hInc;
+                        delete hPho;
+                    }
+                }
+            }
+
             if (fIncMCvar) { fIncMCvar->Close(); delete fIncMCvar; fIncMCvar = nullptr; }
             if (fPhoMCvar) { fPhoMCvar->Close(); delete fPhoMCvar; fPhoMCvar = nullptr; }
             
@@ -5881,312 +6198,6 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                       "nontight photon+jet MC",
                                       ResolvePhotonJetVariantInput
                                       );
-        }
-                                              
-        // ── combined data + inclusive MC + photon+jet MC overlay with μ/σ subpanels ──
-        if (!forEmbeddedSim && incMCvarTop && phoMCvarTop)
-        {
-            for (const auto& cb : centBins)
-            {
-                const string centDirComb = JoinPath(variantDir, cb.folder);
-                
-                // Pre-pass: accumulate Gaussian fit params across pT
-                vector<double> combDataX, combDataMuY, combDataMuEY, combDataSigY, combDataSigEY;
-                vector<double> combIncX,  combIncMuY,  combIncMuEY,  combIncSigY,  combIncSigEY;
-                vector<double> combPhoX,  combPhoMuY,  combPhoMuEY,  combPhoSigY,  combPhoSigEY;
-                
-                for (int iptPre = 0; iptPre < kNPtBins; ++iptPre)
-                {
-                    const PtBin& bPre = PtBins()[iptPre];
-                    if (bPre.lo < 10) continue;
-                    const double ptC = 0.5 * (kPtEdges[(std::size_t)iptPre] + kPtEdges[(std::size_t)iptPre + 1]);
-                    const string hName = "h_Eiso" + bPre.suffix + cb.suffix;
-                    
-                    auto FitPushComb = [&](TDirectory* dir, const string& hN,
-                                           vector<double>& vx, vector<double>& vmy, vector<double>& vmey,
-                                           vector<double>& vsy, vector<double>& vsey) {
-                        TH1* hSrc = dynamic_cast<TH1*>(dir->Get(hN.c_str()));
-                        if (!hSrc) return;
-                        TH1* hTmp = CloneTH1(hSrc, TString::Format("hCombPre_%s_%d_%p", hN.c_str(), iptPre, (void*)dir).Data());
-                        if (!hTmp) return;
-                        hTmp->Rebin(10); EnsureSumw2(hTmp);
-                        double gM, gS, gME, gSE;
-                        if (FitGaussianIterative(hTmp, gM, gS, gME, gSE))
-                        { vx.push_back(ptC); vmy.push_back(gM); vmey.push_back(gME); vsy.push_back(gS); vsey.push_back(gSE); }
-                        delete hTmp;
-                    };
-                    
-                    FitPushComb(aaTop,        hName, combDataX, combDataMuY, combDataMuEY, combDataSigY, combDataSigEY);
-                    FitPushComb(incMCvarTop,  hName, combIncX,  combIncMuY,  combIncMuEY,  combIncSigY,  combIncSigEY);
-                    FitPushComb(phoMCvarTop,  hName, combPhoX,  combPhoMuY,  combPhoMuEY,  combPhoSigY,  combPhoSigEY);
-                }
-                
-                // Compute μ range
-                double combMuLo = 1e30, combMuHi = -1e30;
-                auto CombUpdateMu = [&](const vector<double>& y, const vector<double>& ey) {
-                    for (std::size_t i = 0; i < y.size(); ++i) {
-                        combMuLo = std::min(combMuLo, y[i] - ey[i]);
-                        combMuHi = std::max(combMuHi, y[i] + ey[i]); } };
-                CombUpdateMu(combDataMuY, combDataMuEY);
-                CombUpdateMu(combIncMuY,  combIncMuEY);
-                CombUpdateMu(combPhoMuY,  combPhoMuEY);
-                const bool combHaveSub = (combMuHi > combMuLo) &&
-                    (!combDataX.empty() || !combIncX.empty() || !combPhoX.empty());
-                const double combMuPad = combHaveSub ? std::max(0.35 * (combMuHi - combMuLo), 0.5) : 1.0;
-                
-                // Compute σ range
-                double combSigLo = 1e30, combSigHi = -1e30;
-                auto CombUpdateSig = [&](const vector<double>& y, const vector<double>& ey) {
-                    for (std::size_t i = 0; i < y.size(); ++i) {
-                        combSigLo = std::min(combSigLo, y[i] - ey[i]);
-                        combSigHi = std::max(combSigHi, y[i] + ey[i]); } };
-                CombUpdateSig(combDataSigY, combDataSigEY);
-                CombUpdateSig(combIncSigY,  combIncSigEY);
-                CombUpdateSig(combPhoSigY,  combPhoSigEY);
-                const double combSigPad = combHaveSub ? std::max(0.35 * (combSigHi - combSigLo), 0.5) : 1.0;
-                
-                for (const auto& b : PtBins())
-                {
-                    if (b.lo < 10) continue;
-                    const string ptDirComb = JoinPath(centDirComb, b.folder);
-                    const string combOvDir = JoinPath(ptDirComb, "photonJetOverlays_inclusiveMCoverlays");
-                    EnsureDir(combOvDir);
-                    
-                    const string hAAName = "h_Eiso" + b.suffix + cb.suffix;
-                    TH1* hDataSrc = dynamic_cast<TH1*>(aaTop->Get(hAAName.c_str()));
-                    TH1* hIncSrc  = dynamic_cast<TH1*>(incMCvarTop->Get(hAAName.c_str()));
-                    TH1* hPhoSrc  = dynamic_cast<TH1*>(phoMCvarTop->Get(hAAName.c_str()));
-                    if (!hDataSrc || !hIncSrc || !hPhoSrc) continue;
-                    
-                    TH1* hData = CloneTH1(hDataSrc, TString::Format("hData_combOv_%s_%s_%s", H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
-                    TH1* hInc  = CloneTH1(hIncSrc,  TString::Format("hInc_combOv_%s_%s_%s",  H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
-                    TH1* hPho  = CloneTH1(hPhoSrc,  TString::Format("hPho_combOv_%s_%s_%s",  H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
-                    if (!hData || !hInc || !hPho) { if (hData) delete hData; if (hInc) delete hInc; if (hPho) delete hPho; continue; }
-                    
-                    EnsureSumw2(hData); EnsureSumw2(hInc); EnsureSumw2(hPho);
-                    hData->Rebin(10); hInc->Rebin(10); hPho->Rebin(10);
-                    
-                    const double intData = hData->Integral(0, hData->GetNbinsX() + 1);
-                    const double intInc  = hInc->Integral(0, hInc->GetNbinsX() + 1);
-                    const double intPho  = hPho->Integral(0, hPho->GetNbinsX() + 1);
-                    if (!(intData > 0.0) || !(intInc > 0.0) || !(intPho > 0.0)) { delete hData; delete hInc; delete hPho; continue; }
-                    
-                    hData->Scale(1.0 / intData);
-                    hInc->Scale(1.0 / intInc);
-                    hPho->Scale(1.0 / intPho);
-                    
-                    // Data: black markers
-                    hData->SetLineColor(kBlack);
-                    hData->SetMarkerColor(kBlack);
-                    hData->SetMarkerStyle(20);
-                    hData->SetMarkerSize(1.0);
-                    hData->SetLineWidth(2);
-                    hData->SetFillStyle(0);
-                    
-                    // Photon+jet MC: red histogram
-                    hPho->SetTitle("");
-                    hPho->SetLineColor(kRed + 1);
-                    hPho->SetLineWidth(2);
-                    hPho->SetFillStyle(0);
-                    hPho->SetMarkerSize(0.0);
-                    for (int ib = 0; ib <= hPho->GetNbinsX() + 1; ++ib) hPho->SetBinError(ib, 0.0);
-                    
-                    // Inclusive jet MC: blue histogram
-                    hInc->SetLineColor(kBlue + 1);
-                    hInc->SetLineWidth(2);
-                    hInc->SetFillStyle(0);
-                    hInc->SetMarkerSize(0.0);
-                    for (int ib = 0; ib <= hInc->GetNbinsX() + 1; ++ib) hInc->SetBinError(ib, 0.0);
-                    
-                    const double ymx = std::max({hData->GetMaximum(), hInc->GetMaximum(), hPho->GetMaximum()});
-                    
-                    // Frame histogram for axis ownership (drawn first)
-                    TH1* hFrame = (TH1*)hPho->Clone(TString::Format("hFr_combOv_%s_%s_%s", H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
-                    hFrame->SetDirectory(nullptr);
-                    
-                    TCanvas cCombOv(
-                        TString::Format("c_combOv_%s_%s_%s", H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
-                        "c_combOv", 900, combHaveSub ? 1000 : 700);
-                    cCombOv.cd();
-                    
-                    // Upper pad
-                    const double combPadLoEdge = combHaveSub ? 0.36 : 0.0;
-                    TPad* padUpComb = new TPad("padUpComb", "padUpComb", 0.0, combPadLoEdge, 1.0, 1.0);
-                    padUpComb->SetBottomMargin(combHaveSub ? 0.10 : 0.12);
-                    padUpComb->SetLeftMargin(0.14);
-                    padUpComb->SetRightMargin(0.04);
-                    padUpComb->SetTopMargin(0.08);
-                    padUpComb->Draw();
-                    padUpComb->cd();
-                    
-                    hFrame->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
-                    hFrame->GetYaxis()->SetTitle("Normalized to unit area");
-                    hFrame->GetXaxis()->SetTitleSize(0.045);
-                    hFrame->GetYaxis()->SetTitleSize(0.055);
-                    hFrame->GetXaxis()->SetLabelSize(0.045);
-                    hFrame->GetYaxis()->SetLabelSize(0.045);
-                    hFrame->GetYaxis()->SetTitleOffset(1.15);
-                    hFrame->SetMinimum(0.0);
-                    hFrame->SetMaximum((ymx > 0.0) ? (1.25 * ymx) : 1.0);
-                    
-                    hFrame->Draw("hist");
-                    hInc->Draw("hist SAME");
-                    hPho->Draw("hist SAME");
-                    hData->Draw("E1 SAME");
-                    
-                    // Gaussian fit curves in matching colors
-                    TF1* fDataGauss = DrawGaussFitCurve(hData, kBlack);
-                    TF1* fPhoGauss  = DrawGaussFitCurve(hPho,  kRed + 1);
-                    TF1* fIncGauss  = DrawGaussFitCurve(hInc,  kBlue + 1);
-                    
-                    TLegend legComb(0.50, 0.65, 0.92, 0.88);
-                    legComb.SetBorderSize(0);
-                    legComb.SetFillStyle(0);
-                    legComb.SetTextFont(42);
-                    legComb.SetTextSize(0.032);
-                    legComb.AddEntry(hData, TString::Format("AuAu data (%s)", H.label.c_str()).Data(), "ep");
-                    legComb.AddEntry(hPho, "photon+jet MC", "l");
-                    legComb.AddEntry(hInc, "inclusive jet MC", "l");
-                    legComb.Draw();
-                    
-                    TLatex tCombTitle;
-                    tCombTitle.SetNDC(true);
-                    tCombTitle.SetTextFont(42);
-                    tCombTitle.SetTextAlign(23);
-                    tCombTitle.SetTextSize(0.038);
-                    tCombTitle.DrawLatex(0.50, 0.97,
-                        "E_{T}^{iso} overlay: AuAu data vs photon+jet & inclusive embedded MC");
-                    
-                    TLatex tCombInfo;
-                    tCombInfo.SetNDC(true);
-                    tCombInfo.SetTextFont(42);
-                    tCombInfo.SetTextAlign(13);
-                    tCombInfo.SetTextSize(0.045);
-                    tCombInfo.DrawLatex(0.22, 0.88, TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
-                    tCombInfo.DrawLatex(0.22, 0.82, TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
-                    
-                    {
-                        TLatex tSph;
-                        tSph.SetNDC(true);
-                        tSph.SetTextFont(42);
-                        tSph.SetTextAlign(33);
-                        tSph.SetTextSize(0.042);
-                        tSph.DrawLatex(0.92, 0.60, "#bf{sPHENIX} #it{Internal}");
-                        tSph.SetTextSize(0.034);
-                        tSph.DrawLatex(0.92, 0.55, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
-                    }
-                    {
-                        TLatex tUE;
-                        tUE.SetNDC(true);
-                        tUE.SetTextFont(42);
-                        tUE.SetTextAlign(33);
-                        tUE.SetTextSize(0.030);
-                        tUE.DrawLatex(0.92, 0.49, trigDisplayLabel.c_str());
-                        tUE.DrawLatex(0.92, 0.45, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
-                        tUE.DrawLatex(0.92, 0.41, TString::Format("UE: %s", H.label.c_str()).Data());
-                        tUE.DrawLatex(0.92, 0.37, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
-                    }
-                    
-                    // Middle pad: Gaussian mean vs pT
-                    if (combHaveSub)
-                    {
-                        auto MakeSubGComb = [](const vector<double>& x, const vector<double>& y, const vector<double>& ey,
-                                               int marker, int color) -> TGraphErrors* {
-                            if (x.empty()) return nullptr;
-                            vector<double> ex(x.size(), 0.0);
-                            TGraphErrors* g = new TGraphErrors((int)x.size(), &x[0], &y[0], &ex[0], &ey[0]);
-                            g->SetMarkerStyle(marker); g->SetMarkerSize(1.0);
-                            g->SetMarkerColor(color);  g->SetLineColor(color);
-                            g->SetLineWidth(2); g->Draw("PE1 SAME"); return g; };
-                        
-                        cCombOv.cd();
-                        TPad* padMidComb = new TPad("padMidComb", "padMidComb", 0.0, 0.21, 1.0, 0.36);
-                        padMidComb->SetTopMargin(0.02);
-                        padMidComb->SetBottomMargin(0.00);
-                        padMidComb->SetLeftMargin(0.14);
-                        padMidComb->SetRightMargin(0.04);
-                        padMidComb->Draw();
-                        padMidComb->cd();
-                        
-                        TH1F* hFrMuComb = new TH1F(
-                            TString::Format("hFrMu_comb_%s_%s_%s", H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
-                            "", 100, 10.0, kPtEdges.back());
-                        hFrMuComb->SetDirectory(nullptr); hFrMuComb->SetStats(0);
-                        hFrMuComb->SetMinimum(combMuLo - combMuPad);
-                        hFrMuComb->SetMaximum(combMuHi + combMuPad);
-                        hFrMuComb->GetYaxis()->SetTitle("#mu^{Gauss}[GeV]");
-                        hFrMuComb->GetYaxis()->SetTitleSize(0.19);
-                        hFrMuComb->GetYaxis()->SetTitleOffset(0.28);
-                        hFrMuComb->GetYaxis()->SetLabelSize(0.14);
-                        hFrMuComb->GetYaxis()->SetNdivisions(505);
-                        hFrMuComb->GetXaxis()->SetTitle("");
-                        hFrMuComb->GetXaxis()->SetTitleSize(0.0);
-                        hFrMuComb->GetXaxis()->SetLabelSize(0.0);
-                        hFrMuComb->GetXaxis()->SetTickLength(0.0);
-                        hFrMuComb->Draw();
-                        
-                        TGraphErrors* gMuData = MakeSubGComb(combDataX, combDataMuY, combDataMuEY, 20, kBlack);
-                        TGraphErrors* gMuPho  = MakeSubGComb(combPhoX,  combPhoMuY,  combPhoMuEY,  1,  kRed+1);
-                        TGraphErrors* gMuInc  = MakeSubGComb(combIncX,  combIncMuY,  combIncMuEY,  1,  kBlue+1);
-                        
-                        // Bottom pad: Gaussian sigma vs pT
-                        cCombOv.cd();
-                        TPad* padBotComb = new TPad("padBotComb", "padBotComb", 0.0, 0.0, 1.0, 0.21);
-                        padBotComb->SetTopMargin(0.00);
-                        padBotComb->SetBottomMargin(0.30);
-                        padBotComb->SetLeftMargin(0.14);
-                        padBotComb->SetRightMargin(0.04);
-                        padBotComb->Draw();
-                        padBotComb->cd();
-                        
-                        TH1F* hFrSigComb = new TH1F(
-                            TString::Format("hFrSig_comb_%s_%s_%s", H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
-                            "", 100, 10.0, kPtEdges.back());
-                        hFrSigComb->SetDirectory(nullptr); hFrSigComb->SetStats(0);
-                        hFrSigComb->SetMinimum(combSigLo - combSigPad);
-                        hFrSigComb->SetMaximum(combSigHi + combSigPad);
-                        hFrSigComb->GetYaxis()->SetTitle("#sigma^{Gauss}[GeV]");
-                        hFrSigComb->GetYaxis()->SetTitleSize(0.14);
-                        hFrSigComb->GetYaxis()->SetTitleOffset(0.32);
-                        hFrSigComb->GetYaxis()->SetLabelSize(0.10);
-                        hFrSigComb->GetYaxis()->SetNdivisions(505);
-                        hFrSigComb->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                        hFrSigComb->GetXaxis()->SetTitleSize(0.12);
-                        hFrSigComb->GetXaxis()->SetTitleOffset(0.95);
-                        hFrSigComb->GetXaxis()->SetLabelSize(0.10);
-                        hFrSigComb->Draw();
-                        
-                        TGraphErrors* gSigData = MakeSubGComb(combDataX, combDataSigY, combDataSigEY, 20, kBlack);
-                        TGraphErrors* gSigPho  = MakeSubGComb(combPhoX,  combPhoSigY,  combPhoSigEY,  1,  kRed+1);
-                        TGraphErrors* gSigInc  = MakeSubGComb(combIncX,  combIncSigY,  combIncSigEY,  1,  kBlue+1);
-                        
-                        cCombOv.Modified();
-                        cCombOv.Update();
-                        
-                        SaveCanvas(cCombOv, JoinPath(combOvDir, "Eiso_dataMC_overlay.png"));
-                        
-                        if (gSigData) delete gSigData;
-                        if (gSigPho)  delete gSigPho;
-                        if (gSigInc)  delete gSigInc;
-                        delete hFrSigComb;
-                        if (gMuData) delete gMuData;
-                        if (gMuPho)  delete gMuPho;
-                        if (gMuInc)  delete gMuInc;
-                        delete hFrMuComb;
-                    }
-                    
-                    if (!combHaveSub)
-                        SaveCanvas(cCombOv, JoinPath(combOvDir, "Eiso_dataMC_overlay.png"));
-                    
-                    if (fDataGauss) delete fDataGauss;
-                    if (fPhoGauss)  delete fPhoGauss;
-                    if (fIncGauss)  delete fIncGauss;
-                    delete hFrame;
-                    delete hData;
-                    delete hInc;
-                    delete hPho;
-                }
-            }
         }
         
         if (generateUEcomparisonSSQA && !skipToCentralityAndPtOverlaysWithSSQA && !SSoverlayPerVAR_processONLY) {
