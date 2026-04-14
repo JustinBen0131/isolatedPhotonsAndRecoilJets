@@ -104,8 +104,8 @@ namespace ARJ
   inline bool generateUEcomparisonSSQA = false;
   inline bool skipToCentralityAndPtOverlaysWithSSQA = false;
   inline bool SSoverlayPerVAR_processONLY           = false;
-  inline bool generateISOpTcentOverlaysONLY         = false;
-  inline bool perVariantIsoQA_ONLY                  = true;
+  inline bool generateISOpTcentOverlaysONLY         = true;
+  inline bool perVariantIsoQA_ONLY                  = false;
 
   inline bool generatePerRunTriggerAna = false;
   inline bool generatePerRunTriggerAnaForGoodRunsOnly = false;

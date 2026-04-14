@@ -5346,42 +5346,115 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 g70.SetMarkerStyle(22);
                                 g70.SetMarkerSize(1.5);
                                 
-                                const double fitXLo = kPtEdges[1];
+                                const double fitXLo = 14.0;
                                 const double fitXHi = kPtEdges.back();
                                 
-                                TF1 f90(TString::Format("f_ppg12IsoCut90_%s_%s", trigAA.c_str(), cb.folder.c_str()).Data(), "pol1", fitXLo, fitXHi);
-                                TF1 f80(TString::Format("f_ppg12IsoCut80_%s_%s", trigAA.c_str(), cb.folder.c_str()).Data(), "pol1", fitXLo, fitXHi);
-                                TF1 f70(TString::Format("f_ppg12IsoCut70_%s_%s", trigAA.c_str(), cb.folder.c_str()).Data(), "pol1", fitXLo, fitXHi);
-                                f90.SetLineColor(kMagenta + 1); f90.SetLineWidth(3);
-                                f80.SetLineColor(kGreen + 2);   f80.SetLineWidth(3);
-                                f70.SetLineColor(kBlue + 1);    f70.SetLineWidth(3);
+                                struct IsoCutCentSummaryState
+                                {
+                                    vector<double> x90, ex90, y90, ey90;
+                                    vector<double> x80, ex80, y80, ey80;
+                                    vector<double> x70, ex70, y70, ey70;
+                                };
+                                static map<string, IsoCutCentSummaryState> isoCutCentSummaryStates;
                                 
-                                const bool haveF90 = (g90.GetN() >= 2);
-                                const bool haveF80 = (g80.GetN() >= 2);
-                                const bool haveF70 = (g70.GetN() >= 2);
+                                const string effSummaryKey =
+                                    trigAA + "_" + embeddedLabel + "_" + baseVariantPtSummaryDir;
+                                auto& centSummary = isoCutCentSummaryStates[effSummaryKey];
+                                if (cb.folder == centBins.front().folder)
+                                {
+                                    centSummary = IsoCutCentSummaryState{};
+                                }
                                 
-                                if (haveF90) g90.Fit(&f90, "Q0");
-                                if (haveF80) g80.Fit(&f80, "Q0");
-                                if (haveF70) g70.Fit(&f70, "Q0");
+                                auto ComputeFlatCutoff = [&](TGraphErrors& g, double& cutoff) -> bool
+                                {
+                                    cutoff = 0.0;
+                                    
+                                    double sumW = 0.0;
+                                    double sumWY = 0.0;
+                                    int nUsed = 0;
+                                    
+                                    for (int ip = 0; ip < g.GetN(); ++ip)
+                                    {
+                                        double x = 0.0, y = 0.0;
+                                        g.GetPoint(ip, x, y);
+                                        if (x < fitXLo || x > fitXHi) continue;
+                                        
+                                        const double ey = g.GetErrorY(ip);
+                                        const double w = (ey > 0.0) ? (1.0 / (ey * ey)) : 1.0;
+                                        sumW += w;
+                                        sumWY += w * y;
+                                        ++nUsed;
+                                    }
+                                    
+                                    if (nUsed <= 0 || !(sumW > 0.0)) return false;
+                                    
+                                    cutoff = sumWY / sumW;
+                                    return std::isfinite(cutoff);
+                                };
                                 
+                                double flat90 = 0.0;
+                                double flat80 = 0.0;
+                                double flat70 = 0.0;
                                 
-                                g90.Draw("PE1 SAME");
-                                g80.Draw("PE1 SAME");
-                                g70.Draw("PE1 SAME");
+                                const bool haveF90 = ComputeFlatCutoff(g90, flat90);
+                                const bool haveF80 = ComputeFlatCutoff(g80, flat80);
+                                const bool haveF70 = ComputeFlatCutoff(g70, flat70);
+                                
+                                const double centCenter = 0.5 * (cb.lo + cb.hi);
+                                const double centHalfWidth = 0.5 * (cb.hi - cb.lo);
+                                if (haveF90)
+                                {
+                                    centSummary.x90.push_back(centCenter);
+                                    centSummary.ex90.push_back(centHalfWidth);
+                                    centSummary.y90.push_back(flat90);
+                                    centSummary.ey90.push_back(0.0);
+                                }
+                                if (haveF80)
+                                {
+                                    centSummary.x80.push_back(centCenter);
+                                    centSummary.ex80.push_back(centHalfWidth);
+                                    centSummary.y80.push_back(flat80);
+                                    centSummary.ey80.push_back(0.0);
+                                }
+                                if (haveF70)
+                                {
+                                    centSummary.x70.push_back(centCenter);
+                                    centSummary.ex70.push_back(centHalfWidth);
+                                    centSummary.y70.push_back(flat70);
+                                    centSummary.ey70.push_back(0.0);
+                                }
+                                
+                                TF1 f90(TString::Format("f_ppg12IsoCut90_%s_%s", trigAA.c_str(), cb.folder.c_str()).Data(), "[0]", fitXLo, fitXHi);
+                                TF1 f80(TString::Format("f_ppg12IsoCut80_%s_%s", trigAA.c_str(), cb.folder.c_str()).Data(), "[0]", fitXLo, fitXHi);
+                                TF1 f70(TString::Format("f_ppg12IsoCut70_%s_%s", trigAA.c_str(), cb.folder.c_str()).Data(), "[0]", fitXLo, fitXHi);
+                                if (haveF90) f90.SetParameter(0, flat90);
+                                if (haveF80) f80.SetParameter(0, flat80);
+                                if (haveF70) f70.SetParameter(0, flat70);
+                                f90.SetLineColor(kMagenta + 1); f90.SetLineWidth(3); f90.SetLineStyle(2);
+                                f80.SetLineColor(kGreen + 2);   f80.SetLineWidth(3); f80.SetLineStyle(2);
+                                f70.SetLineColor(kBlue + 1);    f70.SetLineWidth(3); f70.SetLineStyle(2);
                                 
                                 // -- bump y-range so top-left labels don't collide with high-pT points --
                                 {
                                     const double noPPpad = (yMaxEff > yMinEff) ? (0.75 * (yMaxEff - yMinEff)) : 0.25;
                                     hFrameEff.SetMaximum(yMaxEff + noPPpad);
                                 }
+                                
+                                g90.Draw("PE1 SAME");
+                                g80.Draw("PE1 SAME");
+                                g70.Draw("PE1 SAME");
+                                if (haveF90) f90.Draw("SAME");
+                                if (haveF80) f80.Draw("SAME");
+                                if (haveF70) f70.Draw("SAME");
+                                
                                 // -- legend + labels for embedded-only version (no pp overlay) --
                                 {
-                                    TLegend legNoPP(0.50, 0.62, 0.92, 0.78);
+                                    TLegend legNoPP(0.44, 0.60, 0.92, 0.79);
                                     legNoPP.SetBorderSize(0); legNoPP.SetFillStyle(0);
                                     legNoPP.SetTextFont(42); legNoPP.SetTextSize(0.030);
-                                    legNoPP.AddEntry(&g90, "90% Efficiency", "ep");
-                                    legNoPP.AddEntry(&g80, "80% Efficiency", "ep");
-                                    legNoPP.AddEntry(&g70, "70% Efficiency", "ep");
+                                    legNoPP.AddEntry(&g90, haveF90 ? TString::Format("90%% Efficiency, E_{T}^{iso} #sim %.2f", flat90).Data() : "90% Efficiency", "ep");
+                                    legNoPP.AddEntry(&g80, haveF80 ? TString::Format("80%% Efficiency, E_{T}^{iso} #sim %.2f", flat80).Data() : "80% Efficiency", "ep");
+                                    legNoPP.AddEntry(&g70, haveF70 ? TString::Format("70%% Efficiency, E_{T}^{iso} #sim %.2f", flat70).Data() : "70% Efficiency", "ep");
                                     legNoPP.Draw();
                                     
                                     TLatex tInfoNoPP;
@@ -5404,6 +5477,167 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                     // -- save embedded-only version (no pp overlay) --
                                     SaveCanvas(cEff, JoinPath(baseVariantPtSummaryDir,
                                                               TString::Format("ppg12Style_isoCutEfficiencyFits_%s_noPP.png", cb.folder.c_str()).Data()));
+                                    
+                                    const bool isLastCentBin = (cb.folder == centBins.back().folder);
+                                    if (isLastCentBin)
+                                    {
+                                        double yMinCent = std::numeric_limits<double>::max();
+                                        double yMaxCent = -std::numeric_limits<double>::max();
+                                        auto UpdateCentRange = [&](const vector<double>& yVals, const vector<double>& eyVals)
+                                        {
+                                            for (std::size_t i = 0; i < yVals.size(); ++i)
+                                            {
+                                                yMinCent = std::min(yMinCent, yVals[i] - eyVals[i]);
+                                                yMaxCent = std::max(yMaxCent, yVals[i] + eyVals[i]);
+                                            }
+                                        };
+                                        UpdateCentRange(centSummary.y90, centSummary.ey90);
+                                        UpdateCentRange(centSummary.y80, centSummary.ey80);
+                                        UpdateCentRange(centSummary.y70, centSummary.ey70);
+                                        
+                                        if (std::isfinite(yMinCent) && std::isfinite(yMaxCent))
+                                        {
+                                            const double centPad = (yMaxCent > yMinCent) ? (0.20 * (yMaxCent - yMinCent)) : 0.25;
+                                            
+                                            TCanvas cEffCentSummary(
+                                                TString::Format("c_ppg12IsoCutEffSummaryVsCent_%s", trigAA.c_str()).Data(),
+                                                "c_ppg12IsoCutEffSummaryVsCent", 900, 700
+                                            );
+                                            ApplyCanvasMargins1D(cEffCentSummary);
+                                            cEffCentSummary.cd();
+                                            
+                                            TH1F hFrameEffCent(
+                                                TString::Format("hFrame_ppg12IsoCutEffSummaryVsCent_%s", trigAA.c_str()).Data(),
+                                                "", 100, centBins.front().lo, centBins.back().hi
+                                            );
+                                            hFrameEffCent.SetDirectory(nullptr);
+                                            hFrameEffCent.SetStats(0);
+                                            hFrameEffCent.SetMinimum(std::max(0.0, yMinCent - centPad));
+                                            hFrameEffCent.SetMaximum(yMaxCent + centPad);
+                                            hFrameEffCent.GetXaxis()->SetTitle("Centrality [%]");
+                                            hFrameEffCent.GetYaxis()->SetTitle("E_{T}^{iso} Cutoff [GeV]");
+                                            hFrameEffCent.GetXaxis()->SetTitleSize(0.055);
+                                            hFrameEffCent.GetYaxis()->SetTitleSize(0.055);
+                                            hFrameEffCent.GetXaxis()->SetLabelSize(0.045);
+                                            hFrameEffCent.GetYaxis()->SetLabelSize(0.045);
+                                            hFrameEffCent.GetYaxis()->SetTitleOffset(1.15);
+                                            hFrameEffCent.Draw();
+                                            
+                                            TLegend legEffCent(0.56, 0.68, 0.92, 0.88);
+                                            legEffCent.SetBorderSize(0);
+                                            legEffCent.SetFillStyle(0);
+                                            legEffCent.SetTextFont(42);
+                                            legEffCent.SetTextSize(0.032);
+                                            
+                                            if (!centSummary.x90.empty())
+                                            {
+                                                TGraphErrors g90Cent(
+                                                    (int)centSummary.x90.size(),
+                                                    &centSummary.x90[0], &centSummary.y90[0],
+                                                    &centSummary.ex90[0], &centSummary.ey90[0]
+                                                );
+                                                g90Cent.SetLineWidth(2);
+                                                g90Cent.SetLineColor(kMagenta + 1);
+                                                g90Cent.SetMarkerColor(kMagenta + 1);
+                                                g90Cent.SetMarkerStyle(20);
+                                                g90Cent.SetMarkerSize(1.2);
+                                                g90Cent.Draw("PE1 SAME");
+                                                legEffCent.AddEntry(&g90Cent, "90% Efficiency", "ep");
+                                                
+                                                if (!centSummary.x80.empty())
+                                                {
+                                                    TGraphErrors g80Cent(
+                                                        (int)centSummary.x80.size(),
+                                                        &centSummary.x80[0], &centSummary.y80[0],
+                                                        &centSummary.ex80[0], &centSummary.ey80[0]
+                                                    );
+                                                    g80Cent.SetLineWidth(2);
+                                                    g80Cent.SetLineColor(kGreen + 2);
+                                                    g80Cent.SetMarkerColor(kGreen + 2);
+                                                    g80Cent.SetMarkerStyle(21);
+                                                    g80Cent.SetMarkerSize(1.2);
+                                                    g80Cent.Draw("PE1 SAME");
+                                                    legEffCent.AddEntry(&g80Cent, "80% Efficiency", "ep");
+                                                    
+                                                    if (!centSummary.x70.empty())
+                                                    {
+                                                        TGraphErrors g70Cent(
+                                                            (int)centSummary.x70.size(),
+                                                            &centSummary.x70[0], &centSummary.y70[0],
+                                                            &centSummary.ex70[0], &centSummary.ey70[0]
+                                                        );
+                                                        g70Cent.SetLineWidth(2);
+                                                        g70Cent.SetLineColor(kBlue + 1);
+                                                        g70Cent.SetMarkerColor(kBlue + 1);
+                                                        g70Cent.SetMarkerStyle(22);
+                                                        g70Cent.SetMarkerSize(1.2);
+                                                        g70Cent.Draw("PE1 SAME");
+                                                        legEffCent.AddEntry(&g70Cent, "70% Efficiency", "ep");
+                                                        
+                                                        legEffCent.Draw();
+                                                        
+                                                        TLatex tTitleCent;
+                                                        tTitleCent.SetNDC(true);
+                                                        tTitleCent.SetTextFont(42);
+                                                        tTitleCent.SetTextAlign(23);
+                                                        tTitleCent.SetTextSize(0.042);
+                                                        tTitleCent.DrawLatex(0.50, 0.98, "Flat E_{T}^{iso} cutoff vs centrality");
+                                                        
+                                                        TLatex tInfoCent;
+                                                        tInfoCent.SetNDC(true);
+                                                        tInfoCent.SetTextFont(42);
+                                                        tInfoCent.SetTextAlign(13);
+                                                        tInfoCent.SetTextSize(0.030);
+                                                        tInfoCent.DrawLatex(0.18, 0.88, embeddedLabel.c_str());
+                                                        tInfoCent.DrawLatex(0.18, 0.83,
+                                                                            TString::Format("flat fit over p_{T}^{#gamma} #geq %.0f GeV", fitXLo).Data());
+                                                        tInfoCent.DrawLatex(0.18, 0.78,
+                                                                            TString::Format("|v_{z}| < %d cm,  |#eta^{#gamma}| < %.1f", kAA_VzCut, kPhotonEtaAbsMax).Data());
+                                                        tInfoCent.DrawLatex(0.18, 0.73,
+                                                                            TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                                                        
+                                                        TLatex tSphCent;
+                                                        tSphCent.SetNDC(true);
+                                                        tSphCent.SetTextFont(42);
+                                                        tSphCent.SetTextAlign(33);
+                                                        tSphCent.SetTextSize(0.042);
+                                                        tSphCent.DrawLatex(0.92, 0.88, "#bf{sPHENIX} #it{Internal}");
+                                                        tSphCent.SetTextSize(0.034);
+                                                        tSphCent.DrawLatex(0.92, 0.83, "Pythia Emb  #sqrt{s_{NN}} = 200 GeV");
+                                                        
+                                                        SaveCanvas(cEffCentSummary, JoinPath(baseVariantPtSummaryDir,
+                                                                                             "ppg12Style_isoCutEfficiencyFits_vsCentrality_noPP.png"));
+                                                    }
+                                                    else
+                                                    {
+                                                        legEffCent.Draw();
+                                                        TLatex tTitleCent;
+                                                        tTitleCent.SetNDC(true);
+                                                        tTitleCent.SetTextFont(42);
+                                                        tTitleCent.SetTextAlign(23);
+                                                        tTitleCent.SetTextSize(0.042);
+                                                        tTitleCent.DrawLatex(0.50, 0.98, "Flat E_{T}^{iso} cutoff vs centrality");
+                                                        SaveCanvas(cEffCentSummary, JoinPath(baseVariantPtSummaryDir,
+                                                                                             "ppg12Style_isoCutEfficiencyFits_vsCentrality_noPP.png"));
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    legEffCent.Draw();
+                                                    TLatex tTitleCent;
+                                                    tTitleCent.SetNDC(true);
+                                                    tTitleCent.SetTextFont(42);
+                                                    tTitleCent.SetTextAlign(23);
+                                                    tTitleCent.SetTextSize(0.042);
+                                                    tTitleCent.DrawLatex(0.50, 0.98, "Flat E_{T}^{iso} cutoff vs centrality");
+                                                    SaveCanvas(cEffCentSummary, JoinPath(baseVariantPtSummaryDir,
+                                                                                         "ppg12Style_isoCutEfficiencyFits_vsCentrality_noPP.png"));
+                                                }
+                                            }
+                                            
+                                            isoCutCentSummaryStates.erase(effSummaryKey);
+                                        }
+                                    }
                                 }
                                 
                                 // -- pp reference (matched pp SIM, open markers) --
