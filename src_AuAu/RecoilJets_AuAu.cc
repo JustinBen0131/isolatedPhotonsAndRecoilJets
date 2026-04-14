@@ -594,37 +594,37 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     }
   }
 
-  // ------------------------------------------------------------------
-  // Calo towers & geometry
-  // ------------------------------------------------------------------
-  m_calo.clear();
-  for (const auto& ci : m_caloInfo)
-  {
-    const std::string node = std::get<0>(ci);
-    const std::string geo  = std::get<1>(ci);
-    const std::string lbl  = std::get<2>(ci);
-
-    auto* tw = findNode::getClass<TowerInfoContainer>(top, node);
-    auto* ge = findNode::getClass<RawTowerGeomContainer>(top, geo);
-    if (!tw || !ge)
-    {
-      LOG(2, CLR_YELLOW, "  – missing " << lbl << " nodes → skip");
-      return false;
-    }
-    m_calo[lbl] = { tw, ge, 0.0 };
-    LOG(5, CLR_BLUE, "    [fetchNodes] towers OK: " << lbl << "  node=" << node << "  geom=" << geo);
-  }
-
     // ------------------------------------------------------------------
-    // Clusters & photons
+    // Calo towers & geometry
     // ------------------------------------------------------------------
-    m_clus        = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC");
-    m_clus_nocorr = nullptr;
-    if (m_doPi0Analysis && !isSim && !isAuAu)
+    m_calo.clear();
+    for (const auto& ci : m_caloInfo)
     {
-      m_clus_nocorr = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC_NOCORR");
+      const std::string node = std::get<0>(ci);
+      const std::string geo  = std::get<1>(ci);
+      const std::string lbl  = std::get<2>(ci);
+
+      auto* tw = findNode::getClass<TowerInfoContainer>(top, node);
+      auto* ge = findNode::getClass<RawTowerGeomContainer>(top, geo);
+      if (!tw || !ge)
+      {
+        LOG(2, CLR_YELLOW, "  – missing " << lbl << " nodes → skip");
+        return false;
+      }
+      m_calo[lbl] = { tw, ge, 0.0 };
+      LOG(5, CLR_BLUE, "    [fetchNodes] towers OK: " << lbl << "  node=" << node << "  geom=" << geo);
     }
-    m_photons     = findNode::getClass<RawClusterContainer>(top, "PHOTONCLUSTER_CEMC");
+
+      // ------------------------------------------------------------------
+      // Clusters & photons
+      // ------------------------------------------------------------------
+      m_clus        = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC");
+      m_clus_nocorr = nullptr;
+      if (m_doPi0Analysis && !isSim && !isAuAu)
+      {
+        m_clus_nocorr = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC_NOCORR");
+      }
+      m_photons     = findNode::getClass<RawClusterContainer>(top, "PHOTONCLUSTER_CEMC");
 
     if (Verbosity() >= 3)
     {
@@ -1296,15 +1296,63 @@ void RecoilJets::createHistos_Data()
         H["h_vzTruthVsReco"] = h2;
       }
 
-    // Optional: if you ever run a HI-like sim with centrality available
-    if (m_isAuAu && H.find("h_centrality") == H.end())
-    {
-      auto* hc = new TH1F("h_centrality", "h_centrality;Centrality [%];Entries", 100, 0.0, 100.0);
-      H["h_centrality"] = hc;
-    }
+      // Optional: if you ever run a HI-like sim with centrality available
+      if (m_isAuAu && H.find("h_centrality") == H.end())
+      {
+        auto* hc = new TH1F("h_centrality", "h_centrality;Centrality [%];Entries", 100, 0.0, 100.0);
+        H["h_centrality"] = hc;
+      }
 
-    out->cd();
-    return;
+      if (H.find("h_mbdCharge") == H.end())
+      {
+        auto* h = new TH1F("h_mbdCharge",
+                           "h_mbdCharge;MBD total charge;Entries",
+                           800, 0.0, 8000.0);
+        H["h_mbdCharge"] = h;
+      }
+
+      if (H.find("h2_emcalEnergy_vs_mbdCharge") == H.end())
+      {
+        auto* h2 = new TH2F("h2_emcalEnergy_vs_mbdCharge",
+                            "h2_emcalEnergy_vs_mbdCharge;MBD total charge;EMCal total energy [GeV]",
+                            400, 0.0, 8000.0,
+                            400, 0.0, 8000.0);
+        h2->SetCanExtend(TH1::kAllAxes);
+        H["h2_emcalEnergy_vs_mbdCharge"] = h2;
+      }
+
+      if (H.find("h2_ihcalEnergy_vs_mbdCharge") == H.end())
+      {
+        auto* h2 = new TH2F("h2_ihcalEnergy_vs_mbdCharge",
+                            "h2_ihcalEnergy_vs_mbdCharge;MBD total charge;IHCal total energy [GeV]",
+                            400, 0.0, 8000.0,
+                            400, 0.0, 8000.0);
+        h2->SetCanExtend(TH1::kAllAxes);
+        H["h2_ihcalEnergy_vs_mbdCharge"] = h2;
+      }
+
+      if (H.find("h2_ohcalEnergy_vs_mbdCharge") == H.end())
+      {
+        auto* h2 = new TH2F("h2_ohcalEnergy_vs_mbdCharge",
+                            "h2_ohcalEnergy_vs_mbdCharge;MBD total charge;OHCal total energy [GeV]",
+                            400, 0.0, 8000.0,
+                            400, 0.0, 8000.0);
+        h2->SetCanExtend(TH1::kAllAxes);
+        H["h2_ohcalEnergy_vs_mbdCharge"] = h2;
+      }
+
+      if (H.find("h2_totalCaloEnergy_vs_mbdCharge") == H.end())
+      {
+        auto* h2 = new TH2F("h2_totalCaloEnergy_vs_mbdCharge",
+                            "h2_totalCaloEnergy_vs_mbdCharge;MBD total charge;Total calorimeter energy [GeV]",
+                            400, 0.0, 8000.0,
+                            400, 0.0, 8000.0);
+        h2->SetCanExtend(TH1::kAllAxes);
+        H["h2_totalCaloEnergy_vs_mbdCharge"] = h2;
+      }
+
+      out->cd();
+      return;
   }
 
   // ------------------------------------------------------------------
@@ -1346,31 +1394,79 @@ void RecoilJets::createHistos_Data()
           H["h_centrality"] = hc;
         }
 
-        if (m_doPi0Analysis)
-        {
-          if (H.find("h2_pi0_mass_vs_pi0pt_corr") == H.end())
+          if (m_doPi0Analysis)
           {
-            TH2F* hist = new TH2F("h2_pi0_mass_vs_pi0pt_corr",
-                                  "h2_pi0_mass_vs_pi0pt_corr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{#pi^{0}} [GeV/c]",
-                                  240, 0, 0.6,
-                                  240, 0, 60);
-            hist->SetDirectory(out);
-            H["h2_pi0_mass_vs_pi0pt_corr"] = hist;
+            if (H.find("h2_pi0_mass_vs_pi0pt_corr") == H.end())
+            {
+              TH2F* hist = new TH2F("h2_pi0_mass_vs_pi0pt_corr",
+                                    "h2_pi0_mass_vs_pi0pt_corr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{#pi^{0}} [GeV/c]",
+                                    240, 0, 0.6,
+                                    240, 0, 60);
+              hist->SetDirectory(out);
+              H["h2_pi0_mass_vs_pi0pt_corr"] = hist;
+            }
+
+            if (H.find("h2_pi0_mass_vs_leadcluspt_corr") == H.end())
+            {
+              TH2F* hist = new TH2F("h2_pi0_mass_vs_leadcluspt_corr",
+                                    "h2_pi0_mass_vs_leadcluspt_corr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{lead cluster} [GeV/c]",
+                                    240, 0, 0.6,
+                                    240, 0, 60);
+              hist->SetDirectory(out);
+              H["h2_pi0_mass_vs_leadcluspt_corr"] = hist;
+            }
           }
 
-          if (H.find("h2_pi0_mass_vs_leadcluspt_corr") == H.end())
+          if (H.find("h_mbdCharge") == H.end())
           {
-            TH2F* hist = new TH2F("h2_pi0_mass_vs_leadcluspt_corr",
-                                  "h2_pi0_mass_vs_leadcluspt_corr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{lead cluster} [GeV/c]",
-                                  240, 0, 0.6,
-                                  240, 0, 60);
-            hist->SetDirectory(out);
-            H["h2_pi0_mass_vs_leadcluspt_corr"] = hist;
+            auto* h = new TH1F("h_mbdCharge",
+                               "h_mbdCharge;MBD total charge;Entries",
+                               800, 0.0, 8000.0);
+            H["h_mbdCharge"] = h;
           }
+
+          if (H.find("h2_emcalEnergy_vs_mbdCharge") == H.end())
+          {
+            auto* h2 = new TH2F("h2_emcalEnergy_vs_mbdCharge",
+                                "h2_emcalEnergy_vs_mbdCharge;MBD total charge;EMCal total energy [GeV]",
+                                400, 0.0, 8000.0,
+                                400, 0.0, 8000.0);
+            h2->SetCanExtend(TH1::kAllAxes);
+            H["h2_emcalEnergy_vs_mbdCharge"] = h2;
+          }
+
+          if (H.find("h2_ihcalEnergy_vs_mbdCharge") == H.end())
+          {
+            auto* h2 = new TH2F("h2_ihcalEnergy_vs_mbdCharge",
+                                "h2_ihcalEnergy_vs_mbdCharge;MBD total charge;IHCal total energy [GeV]",
+                                400, 0.0, 8000.0,
+                                400, 0.0, 8000.0);
+            h2->SetCanExtend(TH1::kAllAxes);
+            H["h2_ihcalEnergy_vs_mbdCharge"] = h2;
+          }
+
+          if (H.find("h2_ohcalEnergy_vs_mbdCharge") == H.end())
+          {
+            auto* h2 = new TH2F("h2_ohcalEnergy_vs_mbdCharge",
+                                "h2_ohcalEnergy_vs_mbdCharge;MBD total charge;OHCal total energy [GeV]",
+                                400, 0.0, 8000.0,
+                                400, 0.0, 8000.0);
+            h2->SetCanExtend(TH1::kAllAxes);
+            H["h2_ohcalEnergy_vs_mbdCharge"] = h2;
+          }
+
+          if (H.find("h2_totalCaloEnergy_vs_mbdCharge") == H.end())
+          {
+            auto* h2 = new TH2F("h2_totalCaloEnergy_vs_mbdCharge",
+                                "h2_totalCaloEnergy_vs_mbdCharge;MBD total charge;Total calorimeter energy [GeV]",
+                                400, 0.0, 8000.0,
+                                400, 0.0, 8000.0);
+            h2->SetCanExtend(TH1::kAllAxes);
+            H["h2_totalCaloEnergy_vs_mbdCharge"] = h2;
+          }
+
+          out->cd();
         }
-
-        out->cd();
-      }
     }
   else
   {
@@ -1397,15 +1493,63 @@ void RecoilJets::createHistos_Data()
         H[hcnt] = h;
       }
 
-      // 2) vertex-z QA
-      if (H.find("h_vertexZ") == H.end())
-      {
-        auto* hvz = new TH1F("h_vertexZ", "h_vertexZ;v_{z} [cm];Entries", nbVz, vzMin, vzMax);
-        H["h_vertexZ"] = hvz;
-      }
+        // 2) vertex-z QA
+        if (H.find("h_vertexZ") == H.end())
+        {
+          auto* hvz = new TH1F("h_vertexZ", "h_vertexZ;v_{z} [cm];Entries", nbVz, vzMin, vzMax);
+          H["h_vertexZ"] = hvz;
+        }
 
-      out->cd();
-    }
+        if (H.find("h_mbdCharge") == H.end())
+        {
+          auto* h = new TH1F("h_mbdCharge",
+                             "h_mbdCharge;MBD total charge;Entries",
+                             800, 0.0, 8000.0);
+          H["h_mbdCharge"] = h;
+        }
+
+        if (H.find("h2_emcalEnergy_vs_mbdCharge") == H.end())
+        {
+          auto* h2 = new TH2F("h2_emcalEnergy_vs_mbdCharge",
+                              "h2_emcalEnergy_vs_mbdCharge;MBD total charge;EMCal total energy [GeV]",
+                              400, 0.0, 8000.0,
+                              400, 0.0, 8000.0);
+          h2->SetCanExtend(TH1::kAllAxes);
+          H["h2_emcalEnergy_vs_mbdCharge"] = h2;
+        }
+
+        if (H.find("h2_ihcalEnergy_vs_mbdCharge") == H.end())
+        {
+          auto* h2 = new TH2F("h2_ihcalEnergy_vs_mbdCharge",
+                              "h2_ihcalEnergy_vs_mbdCharge;MBD total charge;IHCal total energy [GeV]",
+                              400, 0.0, 8000.0,
+                              400, 0.0, 8000.0);
+          h2->SetCanExtend(TH1::kAllAxes);
+          H["h2_ihcalEnergy_vs_mbdCharge"] = h2;
+        }
+
+        if (H.find("h2_ohcalEnergy_vs_mbdCharge") == H.end())
+        {
+          auto* h2 = new TH2F("h2_ohcalEnergy_vs_mbdCharge",
+                              "h2_ohcalEnergy_vs_mbdCharge;MBD total charge;OHCal total energy [GeV]",
+                              400, 0.0, 8000.0,
+                              400, 0.0, 8000.0);
+          h2->SetCanExtend(TH1::kAllAxes);
+          H["h2_ohcalEnergy_vs_mbdCharge"] = h2;
+        }
+
+        if (H.find("h2_totalCaloEnergy_vs_mbdCharge") == H.end())
+        {
+          auto* h2 = new TH2F("h2_totalCaloEnergy_vs_mbdCharge",
+                              "h2_totalCaloEnergy_vs_mbdCharge;MBD total charge;Total calorimeter energy [GeV]",
+                              400, 0.0, 8000.0,
+                              400, 0.0, 8000.0);
+          h2->SetCanExtend(TH1::kAllAxes);
+          H["h2_totalCaloEnergy_vs_mbdCharge"] = h2;
+        }
+
+        out->cd();
+      }
   }
 }
 
@@ -2054,6 +2198,83 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     for (const auto& kv : m_jets)
     {
         fillInclusiveJetQA(activeTrig, centIdxForJets, kv.first);
+    }
+
+    if (m_mbdpmts)
+    {
+        double mbdCharge = 0.0;
+        const unsigned int nPmt = static_cast<unsigned int>(m_mbdpmts->get_npmt());
+
+        for (unsigned int ipmt = 0; ipmt < nPmt; ++ipmt)
+        {
+            MbdPmtHit* pmt = m_mbdpmts->get_pmt(ipmt);
+            if (!pmt) continue;
+
+            const double q = pmt->get_q();
+            if (!std::isfinite(q) || q <= 0.0) continue;
+            mbdCharge += q;
+        }
+
+        auto sumCaloEnergy = [&](const std::string& key) -> double
+        {
+            auto it = m_calo.find(key);
+            if (it == m_calo.end() || !it->second.towers) return 0.0;
+
+            double sum = 0.0;
+            for (unsigned int ch = 0; ch < it->second.towers->size(); ++ch)
+            {
+                TowerInfo* tower = it->second.towers->get_tower_at_channel(ch);
+                if (!tower) continue;
+
+                const double e = tower->get_energy();
+                if (!std::isfinite(e) || e <= 0.0) continue;
+                sum += e;
+            }
+            return sum;
+        };
+
+        const double emcalEnergy = sumCaloEnergy("CEMC");
+        const double ihcalEnergy = sumCaloEnergy("IHCAL");
+        const double ohcalEnergy = sumCaloEnergy("OHCAL");
+        const double totalCaloEnergy = emcalEnergy + ihcalEnergy + ohcalEnergy;
+
+        for (const auto& t : activeTrig)
+        {
+            auto itTrig = qaHistogramsByTrigger.find(t);
+            if (itTrig == qaHistogramsByTrigger.end()) continue;
+
+            auto& H = itTrig->second;
+
+            if (auto it = H.find("h_mbdCharge"); it != H.end())
+            {
+                static_cast<TH1F*>(it->second)->Fill(mbdCharge);
+                bumpHistFill(t, "h_mbdCharge");
+            }
+
+            if (auto it = H.find("h2_emcalEnergy_vs_mbdCharge"); it != H.end())
+            {
+                static_cast<TH2F*>(it->second)->Fill(mbdCharge, emcalEnergy);
+                bumpHistFill(t, "h2_emcalEnergy_vs_mbdCharge");
+            }
+
+            if (auto it = H.find("h2_ihcalEnergy_vs_mbdCharge"); it != H.end())
+            {
+                static_cast<TH2F*>(it->second)->Fill(mbdCharge, ihcalEnergy);
+                bumpHistFill(t, "h2_ihcalEnergy_vs_mbdCharge");
+            }
+
+            if (auto it = H.find("h2_ohcalEnergy_vs_mbdCharge"); it != H.end())
+            {
+                static_cast<TH2F*>(it->second)->Fill(mbdCharge, ohcalEnergy);
+                bumpHistFill(t, "h2_ohcalEnergy_vs_mbdCharge");
+            }
+
+            if (auto it = H.find("h2_totalCaloEnergy_vs_mbdCharge"); it != H.end())
+            {
+                static_cast<TH2F*>(it->second)->Fill(mbdCharge, totalCaloEnergy);
+                bumpHistFill(t, "h2_totalCaloEnergy_vs_mbdCharge");
+            }
+        }
     }
     
     processCandidates(topNode, activeTrig);

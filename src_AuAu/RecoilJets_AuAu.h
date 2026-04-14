@@ -155,162 +155,162 @@ namespace PhoIDCuts
 class RecoilJets : public SubsysReco
 {
 public:
-  // -------------------------------------------------------------------------
-  // Lightweight categorization used by photon ID QA
-  // -------------------------------------------------------------------------
-  enum class TightTag : std::uint8_t
-  {
-    kPreselectionFail = 0,
-    kTight            = 1,
-    kNonTight         = 2,  // >=2 fails
-    kNeither          = 3   // exactly 1 fail
-  };
-
-  enum class EventReject : std::uint8_t
-  {
-    None    = 0,
-    Trigger = 1,
-    Vz      = 2
-  };
-
-  // Shower-shape variables extracted from PhotonClusterv1
-  struct SSVars
-  {
-    double pt_gamma      = 0.0;
-    double weta_cogx     = 0.0;
-    double wphi_cogx     = 0.0;
-    double et1           = 0.0;
-    double e11_over_e33  = 0.0;
-    double e32_over_e35  = 0.0;
-  };
-
-  // Per-(trigger,slice) category counters printed in End()
-  struct CatStat
-  {
-    long long n_iso_tight        = 0;
-    long long n_nonIso_tight     = 0;
-    long long n_iso_nonTight     = 0;
-    long long n_nonIso_nonTight  = 0;
-    long long seen               = 0;
-  };
-
-  // Job-wide bookkeeping counters printed in printCutSummary()
-  struct Bookkeeping
-  {
-    // Event-level
-    long long evt_seen         = 0;
-    long long evt_fail_trigger = 0;
-    long long evt_fail_vz      = 0;
-    long long evt_accepted     = 0;
-
-    // Photon-level
-    long long pho_total            = 0;
-    long long pho_early_E          = 0;
-    long long pho_eta_fail         = 0;
-    long long pho_etbin_out        = 0;
-    long long pho_noRC             = 0;
-    long long pho_reached_pre_iso  = 0;
-
-    // Preselection breakdown
-    long long pre_pass              = 0;
-    long long pre_fail_weta         = 0;
-    long long pre_fail_et1_low      = 0;
-    long long pre_fail_et1_high     = 0;
-    long long pre_fail_e11e33_high  = 0;
-    long long pre_fail_e32e35_low   = 0;
-    long long pre_fail_e32e35_high  = 0;
-
-    // Tight classification breakdown
-    long long tight_tight       = 0;
-    long long tight_neither     = 0;
-    long long tight_nonTight    = 0;
-
-    // Tight per-cut fails
-    long long tight_fail_weta   = 0;
-    long long tight_fail_wphi   = 0;
-    long long tight_fail_et1    = 0;
-    long long tight_fail_e11e33 = 0;
-    long long tight_fail_e32e35 = 0;
-
-    // Isolation
-    long long iso_pass          = 0;
-    long long iso_fail          = 0;
-  };
-
-  // -------------------------------------------------------------------------
-  // Jet radius mapping (key + node names per dataset)
-  // -------------------------------------------------------------------------
-  struct JetRadiusDef
-  {
-    std::string key;      // e.g. "r02"
-    std::string pp_node;  // jet node name used in pp
-    std::string aa_node;  // jet node name used in Au+Au
-  };
-
-  // Radii to run in parallel. These are used in fetchNodes(), jet QA, matching.
-  //
-  // NOTE: Replace node names here if your DST uses different names.
-    inline static const std::array<JetRadiusDef, 2> kJetRadii = {{
-      // key   pp_node              aa_node
-      { "r02", "AntiKt_Tower_r02",  "AntiKt_Tower_r02_Sub1"  },
-      { "r04", "AntiKt_Tower_r04",  "AntiKt_Tower_r04_Sub1"  }
-    }};
-
-  // Trigger maps:
-  //  - pp:   DB/GL1 name -> short key (directory name)
-  //  - AuAu: bit index   -> short key (directory name)
-  //
-  // NOTE: These are placeholders if you don't already have your project-specific
-  //       maps. Keep/restore your exact trigger mappings here.
-  inline static const std::vector<std::pair<std::string, std::string>> triggerNameMap_pp = {
-      //     {"MBD N&S >= 1",          "MBD_NandS_geq_1"},
-      //      {"Photon 3 GeV + MBD NS >= 1","Photon_3_GeV_plus_MBD_NS_geq_1"},
-      {"Photon 4 GeV + MBD NS >= 1","Photon_4_GeV_plus_MBD_NS_geq_1"}
-      //      {"Photon 5 GeV + MBD NS >= 1","Photon_5_GeV_plus_MBD_NS_geq_1"}
-  };
+    // -------------------------------------------------------------------------
+    // Lightweight categorization used by photon ID QA
+    // -------------------------------------------------------------------------
+    enum class TightTag : std::uint8_t
+    {
+        kPreselectionFail = 0,
+        kTight            = 1,
+        kNonTight         = 2,  // >=2 fails
+        kNeither          = 3   // exactly 1 fail
+    };
     
-  // NOTE: bit 18 changed meaning across the Run-3 Au+Au GRL.
-  //   Epoch 1 (runs 67599–68155, 21 runs): bit 18 = "Photon 10 GeV + MBD NS >= 2" (no vtx cut)
-  //   Epoch 2–6 (runs 68208–78954, 1065 runs): bit 18 = "Photon 10 GeV + MBD NS >= 2, vtx < 10 cm"
-  // The photon_10_plus_MBD_NS_geq_2_vtx_lt_10 folder will therefore include some events
-  // with |vtx| > 10 cm from those 21 epoch-1 runs. Given 21/1086 runs the contamination
-  // is negligible for a first look. If needed, add a software vtx < 10 cm cut in
-  // RecoilJets_AuAu.cc specifically for the bit-18 path.
-  inline static const std::vector<std::pair<int, std::string>> triggerNameMapAuAu = {
+    enum class EventReject : std::uint8_t
+    {
+        None    = 0,
+        Trigger = 1,
+        Vz      = 2
+    };
+    
+    // Shower-shape variables extracted from PhotonClusterv1
+    struct SSVars
+    {
+        double pt_gamma      = 0.0;
+        double weta_cogx     = 0.0;
+        double wphi_cogx     = 0.0;
+        double et1           = 0.0;
+        double e11_over_e33  = 0.0;
+        double e32_over_e35  = 0.0;
+    };
+    
+    // Per-(trigger,slice) category counters printed in End()
+    struct CatStat
+    {
+        long long n_iso_tight        = 0;
+        long long n_nonIso_tight     = 0;
+        long long n_iso_nonTight     = 0;
+        long long n_nonIso_nonTight  = 0;
+        long long seen               = 0;
+    };
+    
+    // Job-wide bookkeeping counters printed in printCutSummary()
+    struct Bookkeeping
+    {
+        // Event-level
+        long long evt_seen         = 0;
+        long long evt_fail_trigger = 0;
+        long long evt_fail_vz      = 0;
+        long long evt_accepted     = 0;
+        
+        // Photon-level
+        long long pho_total            = 0;
+        long long pho_early_E          = 0;
+        long long pho_eta_fail         = 0;
+        long long pho_etbin_out        = 0;
+        long long pho_noRC             = 0;
+        long long pho_reached_pre_iso  = 0;
+        
+        // Preselection breakdown
+        long long pre_pass              = 0;
+        long long pre_fail_weta         = 0;
+        long long pre_fail_et1_low      = 0;
+        long long pre_fail_et1_high     = 0;
+        long long pre_fail_e11e33_high  = 0;
+        long long pre_fail_e32e35_low   = 0;
+        long long pre_fail_e32e35_high  = 0;
+        
+        // Tight classification breakdown
+        long long tight_tight       = 0;
+        long long tight_neither     = 0;
+        long long tight_nonTight    = 0;
+        
+        // Tight per-cut fails
+        long long tight_fail_weta   = 0;
+        long long tight_fail_wphi   = 0;
+        long long tight_fail_et1    = 0;
+        long long tight_fail_e11e33 = 0;
+        long long tight_fail_e32e35 = 0;
+        
+        // Isolation
+        long long iso_pass          = 0;
+        long long iso_fail          = 0;
+    };
+    
+    // -------------------------------------------------------------------------
+    // Jet radius mapping (key + node names per dataset)
+    // -------------------------------------------------------------------------
+    struct JetRadiusDef
+    {
+        std::string key;      // e.g. "r02"
+        std::string pp_node;  // jet node name used in pp
+        std::string aa_node;  // jet node name used in Au+Au
+    };
+    
+    // Radii to run in parallel. These are used in fetchNodes(), jet QA, matching.
+    //
+    // NOTE: Replace node names here if your DST uses different names.
+    inline static const std::array<JetRadiusDef, 2> kJetRadii = {{
+        // key   pp_node              aa_node
+        { "r02", "AntiKt_Tower_r02",  "AntiKt_Tower_r02_Sub1"  },
+        { "r04", "AntiKt_Tower_r04",  "AntiKt_Tower_r04_Sub1"  }
+    }};
+    
+    // Trigger maps:
+    //  - pp:   DB/GL1 name -> short key (directory name)
+    //  - AuAu: bit index   -> short key (directory name)
+    //
+    // NOTE: These are placeholders if you don't already have your project-specific
+    //       maps. Keep/restore your exact trigger mappings here.
+    inline static const std::vector<std::pair<std::string, std::string>> triggerNameMap_pp = {
+        //     {"MBD N&S >= 1",          "MBD_NandS_geq_1"},
+        //      {"Photon 3 GeV + MBD NS >= 1","Photon_3_GeV_plus_MBD_NS_geq_1"},
+        {"Photon 4 GeV + MBD NS >= 1","Photon_4_GeV_plus_MBD_NS_geq_1"}
+        //      {"Photon 5 GeV + MBD NS >= 1","Photon_5_GeV_plus_MBD_NS_geq_1"}
+    };
+    
+    // NOTE: bit 18 changed meaning across the Run-3 Au+Au GRL.
+    //   Epoch 1 (runs 67599–68155, 21 runs): bit 18 = "Photon 10 GeV + MBD NS >= 2" (no vtx cut)
+    //   Epoch 2–6 (runs 68208–78954, 1065 runs): bit 18 = "Photon 10 GeV + MBD NS >= 2, vtx < 10 cm"
+    // The photon_10_plus_MBD_NS_geq_2_vtx_lt_10 folder will therefore include some events
+    // with |vtx| > 10 cm from those 21 epoch-1 runs. Given 21/1086 runs the contamination
+    // is negligible for a first look. If needed, add a software vtx < 10 cm cut in
+    // RecoilJets_AuAu.cc specifically for the bit-18 path.
+    inline static const std::vector<std::pair<int, std::string>> triggerNameMapAuAu = {
         //        {10, "MBD_NS_geq_2"},
         //        {11, "MBD_NS_geq_1"},
         //        {12, "MBD_NS_geq_2_vtx_lt_10"},
         //        {13, "MBD_NS_geq_2_vtx_lt_30"},
-                {14, "MBD_NS_geq_2_vtx_lt_150"},
+        {14, "MBD_NS_geq_2_vtx_lt_150"},
         //        {15, "MBD_NS_geq_1_vtx_lt_10"},
         //        {16, "photon_6_plus_MBD_NS_geq_2_vtx_lt_10"},
         //        {17, "photon_8_plus_MBD_NS_geq_2_vtx_lt_10"},
-//                {18, "photon_10_plus_MBD_NS_geq_2_vtx_lt_10"},
+        //                {18, "photon_10_plus_MBD_NS_geq_2_vtx_lt_10"},
         //        {19, "photon_12_plus_MBD_NS_geq_2_vtx_lt_10"},
         //        {20, "photon_6_plus_MBD_NS_geq_2_vtx_lt_150"},
         //        {21, "photon_8_plus_MBD_NS_geq_2_vtx_lt_150"},
-                {22, "photon_10_plus_MBD_NS_geq_2_vtx_lt_150"},
-                {23, "photon_12_plus_MBD_NS_geq_2_vtx_lt_150"}
-  };
-
-  // -------------------------------------------------------------------------
-  // Construction / Fun4All hooks
-  // -------------------------------------------------------------------------
-  explicit RecoilJets(const std::string& outFile);
-  ~RecoilJets() override;
-
-  int Init(PHCompositeNode* topNode) override;
-  int InitRun(PHCompositeNode* topNode) override;
-  int process_event(PHCompositeNode* topNode) override;
-  int ResetEvent(PHCompositeNode* topNode) override;
-  int Reset(PHCompositeNode* topNode) override;
-  int End(PHCompositeNode* topNode) override;
-
-  // -------------------------------------------------------------------------
-  // Configuration helpers (keep names stable; safe defaults)
-  // -------------------------------------------------------------------------
-  void setDataType(const std::string& s)
-  {
+        {22, "photon_10_plus_MBD_NS_geq_2_vtx_lt_150"},
+        {23, "photon_12_plus_MBD_NS_geq_2_vtx_lt_150"}
+    };
+    
+    // -------------------------------------------------------------------------
+    // Construction / Fun4All hooks
+    // -------------------------------------------------------------------------
+    explicit RecoilJets(const std::string& outFile);
+    ~RecoilJets() override;
+    
+    int Init(PHCompositeNode* topNode) override;
+    int InitRun(PHCompositeNode* topNode) override;
+    int process_event(PHCompositeNode* topNode) override;
+    int ResetEvent(PHCompositeNode* topNode) override;
+    int Reset(PHCompositeNode* topNode) override;
+    int End(PHCompositeNode* topNode) override;
+    
+    // -------------------------------------------------------------------------
+    // Configuration helpers (keep names stable; safe defaults)
+    // -------------------------------------------------------------------------
+    void setDataType(const std::string& s)
+    {
         // Supported user-facing keys (also overridden by env RJ_DATASET / RJ_IS_SIM)
         //   "isSim"/"sim"                 -> sim
         //   "isSimEmbedded"/"simembedded" -> sim input + AuAu-like reconstruction
@@ -321,132 +321,132 @@ public:
         if (t == "isSim" || t == "sim")                 { m_isSim = true;  m_isAuAu = false; }
         if (t == "isAuAu" || t == "auau"|| t == "aa")  { m_isSim = false; m_isAuAu = true;  }
         if (t == "ispp"  || t == "pp")                 { m_isSim = false; m_isAuAu = false; }
-  }
-
-  // Optional: limit active jet radii (keys like "r02","r04"). Empty => all kJetRadii.
-  void setActiveJetRKeys(const std::vector<std::string>& keys) { m_activeJetRKeys = keys; }
-
-  void setPhotonEtaAbsMax(double v) { m_etaAbsMax = v; }
-  void setMinJetPt(double v)        { m_minJetPt = v; }
-  void setMinBackToBack(double v)   { m_minBackToBack = v; }
-
-  void setUseVzCut(bool on, double vz = 60.0)
-  {
-      m_useVzCut = on;
-      m_vzCut    = static_cast<float>(vz);
-  }
-  void setGammaPtBins(const std::vector<double>& bins)
-          {
-            // Canonical pT^gamma binning for ALL photon-binned histograms (reco + truth):
-            //   [15,17,19,21,23,26,35] GeV  (6 bins, start at 15 GeV)
-            //
-            // NOTE: Unfolding histograms book their own extended pT^gamma binning:
-            //   reco : [10,15] + (canonical bins) + [35,40]
-            //   truth: [5,10] + [10,15] + (canonical bins) + [35,40]
-            if (!bins.empty())
-            {
-              m_gammaPtBins = bins;
-            }
-  }
-
-  // Phase-1 YAML knobs (matching thresholds)
-  void setPhoMatchDRMax(double v) { m_phoMatchDRMax = v; }
-  void setJetMatchDRMax(double v) { m_jetMatchDRMax = v; }
-
-  // Phase-1 YAML knobs (unfolding explicit bin edges)
-  void setUnfoldRecoPhotonPtBins(const std::vector<double>& bins)  { m_unfoldRecoPhotonPtBins = bins; }
-  void setUnfoldTruthPhotonPtBins(const std::vector<double>& bins) { m_unfoldTruthPhotonPtBins = bins; }
-  void setUnfoldJetPtBins(const std::vector<double>& bins)         { m_unfoldJetPtBins = bins; }
-  void setUnfoldXJBins(const std::vector<double>& bins)            { m_unfoldXJBins = bins; }
-
-  // Analysis provenance stamping (written once into output ROOT by RecoilJets.cc)
-  void setAnalysisConfigYAML(const std::string& yamlText, const std::string& tag)
-  {
+    }
+    
+    // Optional: limit active jet radii (keys like "r02","r04"). Empty => all kJetRadii.
+    void setActiveJetRKeys(const std::vector<std::string>& keys) { m_activeJetRKeys = keys; }
+    
+    void setPhotonEtaAbsMax(double v) { m_etaAbsMax = v; }
+    void setMinJetPt(double v)        { m_minJetPt = v; }
+    void setMinBackToBack(double v)   { m_minBackToBack = v; }
+    
+    void setUseVzCut(bool on, double vz = 60.0)
+    {
+        m_useVzCut = on;
+        m_vzCut    = static_cast<float>(vz);
+    }
+    void setGammaPtBins(const std::vector<double>& bins)
+    {
+        // Canonical pT^gamma binning for ALL photon-binned histograms (reco + truth):
+        //   [15,17,19,21,23,26,35] GeV  (6 bins, start at 15 GeV)
+        //
+        // NOTE: Unfolding histograms book their own extended pT^gamma binning:
+        //   reco : [10,15] + (canonical bins) + [35,40]
+        //   truth: [5,10] + [10,15] + (canonical bins) + [35,40]
+        if (!bins.empty())
+        {
+            m_gammaPtBins = bins;
+        }
+    }
+    
+    // Phase-1 YAML knobs (matching thresholds)
+    void setPhoMatchDRMax(double v) { m_phoMatchDRMax = v; }
+    void setJetMatchDRMax(double v) { m_jetMatchDRMax = v; }
+    
+    // Phase-1 YAML knobs (unfolding explicit bin edges)
+    void setUnfoldRecoPhotonPtBins(const std::vector<double>& bins)  { m_unfoldRecoPhotonPtBins = bins; }
+    void setUnfoldTruthPhotonPtBins(const std::vector<double>& bins) { m_unfoldTruthPhotonPtBins = bins; }
+    void setUnfoldJetPtBins(const std::vector<double>& bins)         { m_unfoldJetPtBins = bins; }
+    void setUnfoldXJBins(const std::vector<double>& bins)            { m_unfoldXJBins = bins; }
+    
+    // Analysis provenance stamping (written once into output ROOT by RecoilJets.cc)
+    void setAnalysisConfigYAML(const std::string& yamlText, const std::string& tag)
+    {
         m_analysisConfigYAMLText = yamlText;
         m_analysisConfigTag      = tag;
-  }
-
-  void enablePi0Analysis(bool on = true) { m_doPi0Analysis = on; }
-
-  void setCentEdges(const std::vector<int>& edges)     { m_centEdges = edges; }
-
-  // Isolation WP (implemented in .cc)
-  void setIsolationWP(double aGeV, double bPerGeV,
-                                  double sideGapGeV, double coneR, double towerMin,
-                                  double fixedGeV = 2.0);
-  void setIsSlidingIso(bool on) { m_isSlidingIso = on; }
-
-  // Per-centrality sliding isolation WP (AuAu only)
-  struct CentIsoWP { double aGeV; double bPerGeV; double sideGapGeV; };
-  void setCentIsoWPs(const std::vector<CentIsoWP>& wps) { m_centIsoWPs = wps; }
-
-  // Truth isolation max (independent of sliding/fixed reco mode)
-  void setTruthIsoMaxGeV(double isoGeV)
-  {
-          if (!std::isfinite(isoGeV)) return;
-          m_truthIsoMaxGeV = isoGeV;
-          if (m_truthIsoMaxGeV < 0.0) m_truthIsoMaxGeV = 0.0;
-  }
-
-  // Photon ID cuts (PPG12 Table 4): allow YAML override while preserving baseline defaults
-  void setPhotonIDCuts(double pre_e11e33_max,
-                           double pre_et1_min,
-                           double pre_et1_max,
-                           double pre_e32e35_min,
-                           double pre_e32e35_max,
-                           double pre_weta_max,
-                           double tight_w_lo,
-                           double tight_w_hi_intercept,
-                           double tight_w_hi_slope,
-                           double tight_e11e33_min,
-                           double tight_e11e33_max,
-                           double tight_et1_min,
-                           double tight_et1_max,
-                           double tight_e32e35_min,
-                           double tight_e32e35_max)
-  {
+    }
+    
+    void enablePi0Analysis(bool on = true) { m_doPi0Analysis = on; }
+    
+    void setCentEdges(const std::vector<int>& edges)     { m_centEdges = edges; }
+    
+    // Isolation WP (implemented in .cc)
+    void setIsolationWP(double aGeV, double bPerGeV,
+                        double sideGapGeV, double coneR, double towerMin,
+                        double fixedGeV = 2.0);
+    void setIsSlidingIso(bool on) { m_isSlidingIso = on; }
+    
+    // Per-centrality sliding isolation WP (AuAu only)
+    struct CentIsoWP { double aGeV; double bPerGeV; double sideGapGeV; };
+    void setCentIsoWPs(const std::vector<CentIsoWP>& wps) { m_centIsoWPs = wps; }
+    
+    // Truth isolation max (independent of sliding/fixed reco mode)
+    void setTruthIsoMaxGeV(double isoGeV)
+    {
+        if (!std::isfinite(isoGeV)) return;
+        m_truthIsoMaxGeV = isoGeV;
+        if (m_truthIsoMaxGeV < 0.0) m_truthIsoMaxGeV = 0.0;
+    }
+    
+    // Photon ID cuts (PPG12 Table 4): allow YAML override while preserving baseline defaults
+    void setPhotonIDCuts(double pre_e11e33_max,
+                         double pre_et1_min,
+                         double pre_et1_max,
+                         double pre_e32e35_min,
+                         double pre_e32e35_max,
+                         double pre_weta_max,
+                         double tight_w_lo,
+                         double tight_w_hi_intercept,
+                         double tight_w_hi_slope,
+                         double tight_e11e33_min,
+                         double tight_e11e33_max,
+                         double tight_et1_min,
+                         double tight_et1_max,
+                         double tight_e32e35_min,
+                         double tight_e32e35_max)
+    {
         m_phoid_pre_e11e33_max = pre_e11e33_max;
         m_phoid_pre_et1_min    = pre_et1_min;
         m_phoid_pre_et1_max    = pre_et1_max;
         m_phoid_pre_e32e35_min = pre_e32e35_min;
         m_phoid_pre_e32e35_max = pre_e32e35_max;
         m_phoid_pre_weta_max   = pre_weta_max;
-
+        
         m_phoid_tight_w_lo           = tight_w_lo;
         m_phoid_tight_w_hi_intercept = tight_w_hi_intercept;
         m_phoid_tight_w_hi_slope     = tight_w_hi_slope;
-
+        
         m_phoid_tight_e11e33_min = tight_e11e33_min;
         m_phoid_tight_e11e33_max = tight_e11e33_max;
-
+        
         m_phoid_tight_et1_min    = tight_et1_min;
         m_phoid_tight_et1_max    = tight_et1_max;
-
+        
         m_phoid_tight_e32e35_min = tight_e32e35_min;
         m_phoid_tight_e32e35_max = tight_e32e35_max;
-  }
-
+    }
+    
     // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
     // When enabled, a compact per-event-per-radius TTree ("EventDisplayTree") is written to the output ROOT file.
     void enableEventDisplayDiagnostics(bool on = true) { m_evtDiagEnabled = on; }
     void setEventDisplayDiagnosticsMaxPerBin(int n)    { m_evtDiagMaxPerBin = n; }
-
-  // -------------------------------------------------------------------------
-  // Read-only state access
-  // -------------------------------------------------------------------------
-  const Bookkeeping& bookkeeping() const { return m_bk; }
-  EventReject lastReject() const         { return m_lastReject; }
-
+    
+    // -------------------------------------------------------------------------
+    // Read-only state access
+    // -------------------------------------------------------------------------
+    const Bookkeeping& bookkeeping() const { return m_bk; }
+    EventReject lastReject() const         { return m_lastReject; }
+    
 private:
-  // -------------------------------------------------------------------------
-  // Internal helpers (nodes, event selection)
-  // -------------------------------------------------------------------------
-  bool jetRKeyActive(const std::string& rKey) const
-  {
-    if (m_activeJetRKeys.empty()) return true;
-    return (std::find(m_activeJetRKeys.begin(), m_activeJetRKeys.end(), rKey) != m_activeJetRKeys.end());
-  }
-
+    // -------------------------------------------------------------------------
+    // Internal helpers (nodes, event selection)
+    // -------------------------------------------------------------------------
+    bool jetRKeyActive(const std::string& rKey) const
+    {
+        if (m_activeJetRKeys.empty()) return true;
+        return (std::find(m_activeJetRKeys.begin(), m_activeJetRKeys.end(), rKey) != m_activeJetRKeys.end());
+    }
+    
     bool fetchNodes(PHCompositeNode* topNode);
     bool firstEventCuts(PHCompositeNode* topNode,
                         std::vector<std::string>& activeTrig,
@@ -454,132 +454,132 @@ private:
                         bool* outMinimumBiasPass = nullptr,
                         bool* outTriggerPass = nullptr);
     void createHistos_Data();
-
+    
     struct IsoAuditScalarStats
     {
-      unsigned long long n = 0;
-      double sum = 0.0;
-      double sumsq = 0.0;
-      std::vector<double> values;
-
-      void fill(double x)
-      {
-        if (!std::isfinite(x)) return;
-        ++n;
-        sum += x;
-        sumsq += x * x;
-        values.push_back(x);
-      }
+        unsigned long long n = 0;
+        double sum = 0.0;
+        double sumsq = 0.0;
+        std::vector<double> values;
+        
+        void fill(double x)
+        {
+            if (!std::isfinite(x)) return;
+            ++n;
+            sum += x;
+            sumsq += x * x;
+            values.push_back(x);
+        }
     };
-
+    
     struct IsoAuditMeanStats
     {
-      unsigned long long n = 0;
-      double sum = 0.0;
-
-      void fill(double x)
-      {
-        if (!std::isfinite(x)) return;
-        ++n;
-        sum += x;
-      }
+        unsigned long long n = 0;
+        double sum = 0.0;
+        
+        void fill(double x)
+        {
+            if (!std::isfinite(x)) return;
+            ++n;
+            sum += x;
+        }
     };
-
+    
     struct IsoAuditEventFlow
     {
-      unsigned long long evt_seen = 0;
-      unsigned long long mandatory_nodes_ok = 0;
-      unsigned long long minimum_bias_pass = 0;
-      unsigned long long trigger_pass = 0;
-      unsigned long long valid_centrality_info = 0;
-      unsigned long long valid_reco_vertex_found = 0;
-      unsigned long long vz_pass = 0;
-      unsigned long long events_reaching_photon_loop = 0;
+        unsigned long long evt_seen = 0;
+        unsigned long long mandatory_nodes_ok = 0;
+        unsigned long long minimum_bias_pass = 0;
+        unsigned long long trigger_pass = 0;
+        unsigned long long valid_centrality_info = 0;
+        unsigned long long valid_reco_vertex_found = 0;
+        unsigned long long vz_pass = 0;
+        unsigned long long events_reaching_photon_loop = 0;
     };
-
+    
     struct IsoAuditCell
     {
-      unsigned long long n_seen_container = 0;
-      unsigned long long n_pass_pt_floor = 0;
-      unsigned long long n_pass_eta = 0;
-      unsigned long long n_in_pt_bin = 0;
-      unsigned long long n_inclusive = 0;
-
-      unsigned long long n_total_finite = 0;
-      unsigned long long n_fail_safe_overflow = 0;
-      unsigned long long n_nonfinite_components = 0;
-      unsigned long long n_negative_total = 0;
-      unsigned long long n_negative_emcal = 0;
-
-      IsoAuditScalarStats emcal;
-      IsoAuditScalarStats hcalin;
-      IsoAuditScalarStats hcalout;
-      IsoAuditScalarStats total;
-
-      unsigned long long n_sumdiff = 0;
-      double sum_abs_sumdiff = 0.0;
-      double max_abs_sumdiff = 0.0;
-
-      unsigned long long n_isoPass = 0;
-      unsigned long long n_gap = 0;
-      unsigned long long n_nonIso = 0;
-      unsigned long long n_decision = 0;
-      double sum_thrIso = 0.0;
-      double sum_eiso_minus_thrIso = 0.0;
-
-      IsoAuditMeanStats tight;
-      IsoAuditMeanStats nonTight;
-      IsoAuditMeanStats neither;
-
-      std::vector<std::string> ex_negative_total;
-      std::vector<std::string> ex_near_zero_total;
-      std::vector<std::string> ex_large_positive_total;
-      std::vector<std::string> ex_overflow_total;
-      std::vector<std::string> ex_large_sum_mismatch;
+        unsigned long long n_seen_container = 0;
+        unsigned long long n_pass_pt_floor = 0;
+        unsigned long long n_pass_eta = 0;
+        unsigned long long n_in_pt_bin = 0;
+        unsigned long long n_inclusive = 0;
+        
+        unsigned long long n_total_finite = 0;
+        unsigned long long n_fail_safe_overflow = 0;
+        unsigned long long n_nonfinite_components = 0;
+        unsigned long long n_negative_total = 0;
+        unsigned long long n_negative_emcal = 0;
+        
+        IsoAuditScalarStats emcal;
+        IsoAuditScalarStats hcalin;
+        IsoAuditScalarStats hcalout;
+        IsoAuditScalarStats total;
+        
+        unsigned long long n_sumdiff = 0;
+        double sum_abs_sumdiff = 0.0;
+        double max_abs_sumdiff = 0.0;
+        
+        unsigned long long n_isoPass = 0;
+        unsigned long long n_gap = 0;
+        unsigned long long n_nonIso = 0;
+        unsigned long long n_decision = 0;
+        double sum_thrIso = 0.0;
+        double sum_eiso_minus_thrIso = 0.0;
+        
+        IsoAuditMeanStats tight;
+        IsoAuditMeanStats nonTight;
+        IsoAuditMeanStats neither;
+        
+        std::vector<std::string> ex_negative_total;
+        std::vector<std::string> ex_near_zero_total;
+        std::vector<std::string> ex_large_positive_total;
+        std::vector<std::string> ex_overflow_total;
+        std::vector<std::string> ex_large_sum_mismatch;
     };
-
+    
     struct IsoAuditSample
     {
-      int centIdx = -1;
-      int ptIdx = -1;
-      double ptGamma = 0.0;
-      double etaGamma = 0.0;
-      double phiGamma = 0.0;
-      double eisoTot = 1e9;
-      double eisoEmcal = 1e9;
-      double eisoHcalIn = 1e9;
-      double eisoHcalOut = 1e9;
-      double thrIso = 0.0;
-      double thrNonIso = 0.0;
-      bool supportedCone = false;
-      bool componentsFinite = false;
+        int centIdx = -1;
+        int ptIdx = -1;
+        double ptGamma = 0.0;
+        double etaGamma = 0.0;
+        double phiGamma = 0.0;
+        double eisoTot = 1e9;
+        double eisoEmcal = 1e9;
+        double eisoHcalIn = 1e9;
+        double eisoHcalOut = 1e9;
+        double thrIso = 0.0;
+        double thrNonIso = 0.0;
+        bool supportedCone = false;
+        bool componentsFinite = false;
     };
-
+    
     struct IsoAuditSkipSnapshot
     {
-      long long evt_seen = 0;
-      long long evt_accepted = 0;
-      long long pho_total = 0;
-      long long pho_early_E = 0;
-      long long pho_eta_fail = 0;
-      long long pho_etbin_out = 0;
-      long long pho_reached_pre_iso = 0;
-      long long pre_pass = 0;
-      long long pre_fail_weta = 0;
-      long long pre_fail_et1_low = 0;
-      long long pre_fail_et1_high = 0;
-      long long pre_fail_e11e33_high = 0;
-      long long pre_fail_e32e35_low = 0;
-      long long pre_fail_e32e35_high = 0;
-      long long tight_tight = 0;
-      long long tight_nonTight = 0;
-      long long tight_neither = 0;
-      unsigned long long noPhotonContainerEvents = 0;
-      unsigned long long nonFiniteKinematics = 0;
-      unsigned long long outsideConfiguredCentrality = 0;
-      unsigned long long enteredInclusive = 0;
+        long long evt_seen = 0;
+        long long evt_accepted = 0;
+        long long pho_total = 0;
+        long long pho_early_E = 0;
+        long long pho_eta_fail = 0;
+        long long pho_etbin_out = 0;
+        long long pho_reached_pre_iso = 0;
+        long long pre_pass = 0;
+        long long pre_fail_weta = 0;
+        long long pre_fail_et1_low = 0;
+        long long pre_fail_et1_high = 0;
+        long long pre_fail_e11e33_high = 0;
+        long long pre_fail_e32e35_low = 0;
+        long long pre_fail_e32e35_high = 0;
+        long long tight_tight = 0;
+        long long tight_nonTight = 0;
+        long long tight_neither = 0;
+        unsigned long long noPhotonContainerEvents = 0;
+        unsigned long long nonFiniteKinematics = 0;
+        unsigned long long outsideConfiguredCentrality = 0;
+        unsigned long long enteredInclusive = 0;
     };
-
+    
     void initIsolationAudit();
     void recordIsolationAuditInclusive(const IsoAuditSample& sample);
     void recordIsolationAuditFollowup(const std::vector<std::string>& activeTrig,
@@ -592,696 +592,697 @@ private:
     IsoAuditSkipSnapshot makeIsolationAuditSkipSnapshot() const;
     void printIsolationAuditSkipSummary(bool force = false);
     void printIsolationAuditSummary() const;
-
-  void fillUnfoldResponseMatrixAndTruthDistributions(
-            const std::vector<std::string>& activeTrig,
-            const std::string& rKey,
-            const int effCentIdx_M,
-            const double leadPtGamma,
-            const double leadEtaGamma,
-            const double leadPhiGamma,
-            const bool haveTruthPho,
-            const double tPt,
-            const double tEta,
-            const double tPhi,
-            const std::vector<const Jet*>& recoJetsFid,
-            const std::vector<char>& recoJetsFidIsRecoil,
-            const Jet* recoil1Jet);
-
-      
-  void fillRecoTruthJES3MatchingQA(const std::vector<std::string>& activeTrig,
-                                      const std::string& rKey,
-                                      const int effCentIdx_M,
-                                      const double leadPtGamma,
-                                      const double xJ,
-                                      const double alpha,
-                                      const double tPt,
-                                      const double tEta,
-                                      const double tPhi,
-                                      const Jet* recoil1Jet);
-
-  bool runLeadIsoTightPhotonJetLoopAllRadii(
-              const std::vector<std::string>& activeTrig,
-              const int effCentIdx_M,
-              const int centIdx,
-              const int leadPhoIndex,
-              const int leadPtIdx,
-              const double leadPtGamma,
-              const double leadEtaGamma,
-              const double leadPhiGamma,
-              const bool haveTruthPho,
-              const double tPt,
-              const double tEta,
-              const double tPhi,
-              PHG4TruthInfoContainer* truth);
-
-  void runLeadIsoNonTightPhotonJetLoopAllRadii_SidebandC(
-              const std::vector<std::string>& activeTrig,
-              const int effCentIdx_M,
-              const double leadPtGamma,
-              const double leadEtaGamma,
-              const double leadPhiGamma);
-
-        
-  bool runLeadIsoTightPhotonJetMatchingAndUnfolding(
-              const std::vector<std::string>& activeTrig,
-              const int effCentIdx_M,
-              const int centIdx,
-              const int leadPhoIndex,
-              const int leadPtIdx,
-              const double leadPtGamma,
-              const double leadEtaGamma,
-              const double leadPhiGamma,
-              const bool haveTruthSigPho,
-              const double tPtSig,
-              const bool haveTruthPho,
-              const double tPt,
-              const double tEta,
-              const double tPhi,
-              PHG4TruthInfoContainer* truth);
-
-  void fillPureIsolationQA(PHCompositeNode* topNode,
-                               const std::vector<std::string>& activeTrig,
-                               const PhotonClusterv1* pho,
-                               const RawCluster* rc,
-                               const int ptIdx,
-                               const int centIdx,
-                               const double pt_gamma);
-
-  void fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
-                                           const std::vector<std::string>& activeTrig,
-                                           const int centIdx);
-
-  void processCandidates(PHCompositeNode* topNode, const std::vector<std::string>& activeTrig);
-  void fillPi0MassVsPtHistograms(const std::string& trig, RawClusterContainer* clusterContainer, bool useCorr);
-
-  bool getCentralitySlice(int& lo, int& hi, std::string& tag) const;
-
-  // Au+Au scaled trigger helper (safe default behavior)
-  static std::bitset<64> extractTriggerBits(std::uint64_t scaledVec, int /*eventNumber*/)
-  {
-    return std::bitset<64>(scaledVec);
-  }
-  static bool checkTriggerCondition(const std::bitset<64>& bits, int bit)
-  {
-    if (bit < 0 || bit >= 64) return false;
-    return bits.test(static_cast<std::size_t>(bit));
-  }
-
-  // -------------------------------------------------------------------------
-  // Photon ID helpers
-  // -------------------------------------------------------------------------
-  SSVars makeSSFromPhoton(const PhotonClusterv1* pho, double pt_gamma) const;
-  bool   passesPhotonPreselection(const SSVars& v);
-  TightTag classifyPhotonTightness(const SSVars& v);
-
-
-  // Isolation helpers
-  double eiso(const RawCluster* clus, PHCompositeNode* topNode) const;
-  bool   isIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const;
-  bool   isNonIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const;
-
-  // Unified truth-MC signal definition for "isolated prompt photon" (SIM only)
-  // Definition
-  //   |eta| < 0.7, PID=22, status=1 (final state),
-  //   prompt classification via CaloAna photon_type logic:
-  //     - walk back photon-in/photon-out vertices
-  //     - direct=1 if 2->2 with |pdg|<=22 on all legs
-  //     - frag  =2 if 1->2 with |incoming pdg|<=11 and outgoing contains incoming pid (and photon)
-  //   and truth isolation ETiso_truth < 4 GeV where (CaloAna truth-iso):
-  //     ETiso = sum_{ΔR<0.3} Et(final-state)  -  sum_{ΔR<0.001} Et(final-state)
-  //     (the ΔR<0.001 subtraction removes the photon itself, and any ultra-merged pieces).
-  bool isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
-                                            const HepMC::GenParticle* pho,
-                                            double& isoEt) const;
-      
-  // Unified truth→reco photon matching using CaloRawClusterEval.
-  // Match requirements:
-  //   - reco |eta| < 0.7, reco pT > 5 GeV
-  //   - ΔR(truth,reco) < 0.05
-  //   - reco cluster’s BEST-MATCHED truth primary (by deposited energy) has same barcode as truth photon
-  // Chooses the candidate with the largest energy contribution (tie-breaker: smallest ΔR).
-  bool findRecoPhotonMatchedToTruthSignal(const HepMC::GenEvent* evt,
-                                             const HepMC::GenParticle* truthPho,
-                                             CaloRawClusterEval& clustereval,
-                                             const RawCluster*& recoPho,
-                                             double& recoPt,
-                                             double& recoEta,
-                                             double& recoPhi,
-                                             double& drBest,
-                                             float& eContribBest) const;
-
-  // PPG12 truth-tagging for SS template overlays (SIM only)
-  //   - signal: reco cluster best-matched to a truth photon that satisfies isTruthPromptIsolatedSignalPhoton()
-  //   - background: everything else (complement of signal)
-  const HepMC::GenParticle* findHepMCParticleByBarcode(const HepMC::GenEvent* evt, int bc) const;
-  bool isRecoClusterTruthSignalPPG12(const HepMC::GenEvent* evt,
-                                     CaloRawClusterEval& clustereval,
-                                     const RawCluster* rc,
-                                     double& isoEtTruth) const;
-
-
-  // -------------------------------------------------------------------------
-  // Binning helpers
-  // -------------------------------------------------------------------------
-  int         findPtBin(double pt) const;
-  int         findCentBin(int cent) const;
-  std::string suffixForBins(int ptIdx, int centIdx) const;
-
-  // EventDisplay categories (used by the diagnostics payload stored in EventDisplayTree)
-  enum class EventDisplayCat : int { NUM = 0, MissA = 1, MissB = 2 };
-
-  // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
-  void        initEventDisplayDiagnosticsTree();
-  void        resetEventDisplayDiagnosticsBuffers();
-  bool        eventDisplayDiagnosticsNeed(const std::string& rKey, int ptBin, EventDisplayCat cat);
-  void        appendEventDisplayDiagnosticsFromJet(const Jet* jet,
-                                                      std::vector<int>& calo,
-                                                      std::vector<int>& ieta,
-                                                      std::vector<int>& iphi,
-                                                      std::vector<float>& eta,
-                                                      std::vector<float>& phi,
-                                                      std::vector<float>& et,
-                                                      std::vector<float>& e) const;
+    
+    void fillUnfoldResponseMatrixAndTruthDistributions(
+                                                       const std::vector<std::string>& activeTrig,
+                                                       const std::string& rKey,
+                                                       const int effCentIdx_M,
+                                                       const double leadPtGamma,
+                                                       const double leadEtaGamma,
+                                                       const double leadPhiGamma,
+                                                       const bool haveTruthPho,
+                                                       const double tPt,
+                                                       const double tEta,
+                                                       const double tPhi,
+                                                       const std::vector<const Jet*>& recoJetsFid,
+                                                       const std::vector<char>& recoJetsFidIsRecoil,
+                                                       const Jet* recoil1Jet);
+    
+    
+    void fillRecoTruthJES3MatchingQA(const std::vector<std::string>& activeTrig,
+                                     const std::string& rKey,
+                                     const int effCentIdx_M,
+                                     const double leadPtGamma,
+                                     const double xJ,
+                                     const double alpha,
+                                     const double tPt,
+                                     const double tEta,
+                                     const double tPhi,
+                                     const Jet* recoil1Jet);
+    
+    bool runLeadIsoTightPhotonJetLoopAllRadii(
+                                              const std::vector<std::string>& activeTrig,
+                                              const int effCentIdx_M,
+                                              const int centIdx,
+                                              const int leadPhoIndex,
+                                              const int leadPtIdx,
+                                              const double leadPtGamma,
+                                              const double leadEtaGamma,
+                                              const double leadPhiGamma,
+                                              const bool haveTruthPho,
+                                              const double tPt,
+                                              const double tEta,
+                                              const double tPhi,
+                                              PHG4TruthInfoContainer* truth);
+    
+    void runLeadIsoNonTightPhotonJetLoopAllRadii_SidebandC(
+                                                           const std::vector<std::string>& activeTrig,
+                                                           const int effCentIdx_M,
+                                                           const double leadPtGamma,
+                                                           const double leadEtaGamma,
+                                                           const double leadPhiGamma);
+    
+    
+    bool runLeadIsoTightPhotonJetMatchingAndUnfolding(
+                                                      const std::vector<std::string>& activeTrig,
+                                                      const int effCentIdx_M,
+                                                      const int centIdx,
+                                                      const int leadPhoIndex,
+                                                      const int leadPtIdx,
+                                                      const double leadPtGamma,
+                                                      const double leadEtaGamma,
+                                                      const double leadPhiGamma,
+                                                      const bool haveTruthSigPho,
+                                                      const double tPtSig,
+                                                      const bool haveTruthPho,
+                                                      const double tPt,
+                                                      const double tEta,
+                                                      const double tPhi,
+                                                      PHG4TruthInfoContainer* truth);
+    
+    void fillPureIsolationQA(PHCompositeNode* topNode,
+                             const std::vector<std::string>& activeTrig,
+                             const PhotonClusterv1* pho,
+                             const RawCluster* rc,
+                             const int ptIdx,
+                             const int centIdx,
+                             const double pt_gamma);
+    
+    void fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
+                                         const std::vector<std::string>& activeTrig,
+                                         const int centIdx);
+    
+    void processCandidates(PHCompositeNode* topNode, const std::vector<std::string>& activeTrig);
+    void fillPi0MassVsPtHistograms(const std::string& trig, RawClusterContainer* clusterContainer, bool useCorr);
+    
+    bool getCentralitySlice(int& lo, int& hi, std::string& tag) const;
+    
+    // Au+Au scaled trigger helper (safe default behavior)
+    static std::bitset<64> extractTriggerBits(std::uint64_t scaledVec, int /*eventNumber*/)
+    {
+        return std::bitset<64>(scaledVec);
+    }
+    static bool checkTriggerCondition(const std::bitset<64>& bits, int bit)
+    {
+        if (bit < 0 || bit >= 64) return false;
+        return bits.test(static_cast<std::size_t>(bit));
+    }
+    
+    // -------------------------------------------------------------------------
+    // Photon ID helpers
+    // -------------------------------------------------------------------------
+    SSVars makeSSFromPhoton(const PhotonClusterv1* pho, double pt_gamma) const;
+    bool   passesPhotonPreselection(const SSVars& v);
+    TightTag classifyPhotonTightness(const SSVars& v);
+    
+    
+    // Isolation helpers
+    double eiso(const RawCluster* clus, PHCompositeNode* topNode) const;
+    bool   isIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const;
+    bool   isNonIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const;
+    
+    // Unified truth-MC signal definition for "isolated prompt photon" (SIM only)
+    // Definition
+    //   |eta| < 0.7, PID=22, status=1 (final state),
+    //   prompt classification via CaloAna photon_type logic:
+    //     - walk back photon-in/photon-out vertices
+    //     - direct=1 if 2->2 with |pdg|<=22 on all legs
+    //     - frag  =2 if 1->2 with |incoming pdg|<=11 and outgoing contains incoming pid (and photon)
+    //   and truth isolation ETiso_truth < 4 GeV where (CaloAna truth-iso):
+    //     ETiso = sum_{ΔR<0.3} Et(final-state)  -  sum_{ΔR<0.001} Et(final-state)
+    //     (the ΔR<0.001 subtraction removes the photon itself, and any ultra-merged pieces).
+    bool isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
+                                           const HepMC::GenParticle* pho,
+                                           double& isoEt) const;
+    
+    // Unified truth→reco photon matching using CaloRawClusterEval.
+    // Match requirements:
+    //   - reco |eta| < 0.7, reco pT > 5 GeV
+    //   - ΔR(truth,reco) < 0.05
+    //   - reco cluster’s BEST-MATCHED truth primary (by deposited energy) has same barcode as truth photon
+    // Chooses the candidate with the largest energy contribution (tie-breaker: smallest ΔR).
+    bool findRecoPhotonMatchedToTruthSignal(const HepMC::GenEvent* evt,
+                                            const HepMC::GenParticle* truthPho,
+                                            CaloRawClusterEval& clustereval,
+                                            const RawCluster*& recoPho,
+                                            double& recoPt,
+                                            double& recoEta,
+                                            double& recoPhi,
+                                            double& drBest,
+                                            float& eContribBest) const;
+    
+    // PPG12 truth-tagging for SS template overlays (SIM only)
+    //   - signal: reco cluster best-matched to a truth photon that satisfies isTruthPromptIsolatedSignalPhoton()
+    //   - background: everything else (complement of signal)
+    const HepMC::GenParticle* findHepMCParticleByBarcode(const HepMC::GenEvent* evt, int bc) const;
+    bool isRecoClusterTruthSignalPPG12(const HepMC::GenEvent* evt,
+                                       CaloRawClusterEval& clustereval,
+                                       const RawCluster* rc,
+                                       double& isoEtTruth) const;
+    
+    
+    // -------------------------------------------------------------------------
+    // Binning helpers
+    // -------------------------------------------------------------------------
+    int         findPtBin(double pt) const;
+    int         findCentBin(int cent) const;
+    std::string suffixForBins(int ptIdx, int centIdx) const;
+    
+    // EventDisplay categories (used by the diagnostics payload stored in EventDisplayTree)
+    enum class EventDisplayCat : int { NUM = 0, MissA = 1, MissB = 2 };
+    
+    // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
+    void        initEventDisplayDiagnosticsTree();
+    void        resetEventDisplayDiagnosticsBuffers();
+    bool        eventDisplayDiagnosticsNeed(const std::string& rKey, int ptBin, EventDisplayCat cat);
+    void        appendEventDisplayDiagnosticsFromJet(const Jet* jet,
+                                                     std::vector<int>& calo,
+                                                     std::vector<int>& ieta,
+                                                     std::vector<int>& iphi,
+                                                     std::vector<float>& eta,
+                                                     std::vector<float>& phi,
+                                                     std::vector<float>& et,
+                                                     std::vector<float>& e) const;
     
     void        fillEventDisplayDiagnostics(const std::string& rKey,
-                                               int ptBin,
-                                               EventDisplayCat cat,
-                                               double truthGammaPt,
-                                               double truthGammaPhi,
-                                               double recoGammaPt,
-                                               double recoGammaEta,
-                                               double recoGammaPhi,
-                                               const Jet* selectedRecoilJet,
-                                               const Jet* recoTruthBest,
-                                               const Jet* truthLeadRecoilJet);
-  // -------------------------------------------------------------------------
-  // Histogram utilities (bookers)
-  // -------------------------------------------------------------------------
-  TH1I* getOrBookCountHist(const std::string& trig,
+                                            int ptBin,
+                                            EventDisplayCat cat,
+                                            double truthGammaPt,
+                                            double truthGammaPhi,
+                                            double recoGammaPt,
+                                            double recoGammaEta,
+                                            double recoGammaPhi,
+                                            const Jet* selectedRecoilJet,
+                                            const Jet* recoTruthBest,
+                                            const Jet* truthLeadRecoilJet);
+    // -------------------------------------------------------------------------
+    // Histogram utilities (bookers)
+    // -------------------------------------------------------------------------
+    TH1I* getOrBookCountHist(const std::string& trig,
                              const std::string& base,
                              int ptIdx, int centIdx);
-
-  // Isolation spectra (reco)
-  TH1F* getOrBookIsoHist(const std::string& trig, int ptIdx, int centIdx);
-  TH1F* getOrBookIsoPartHist(const std::string& trig,
-                                     const std::string& base,
-                                     const std::string& xAxisTitle,
-                                     int ptIdx, int centIdx);
-  TH1F* getOrBookPtGammaHist(const std::string& trig,
-                                 const std::string& base,
-                                 int centIdx);
-  TH1I* getOrBookIsoDecisionHist(const std::string& trig, int ptIdx, int centIdx);
-
-  // Event-level photon multiplicity diagnostic:
-  // N = number of reco photon candidates passing the SAME tight+iso+fiducial cuts
-  // used for the leading photon selection (filled once per event; binned by leading-photon pT bin).
-  TH1I* getOrBookNIsoTightPhoCandHist(const std::string& trig, int ptIdx, int centIdx);
-
-  TH2F* getOrBookIsoCompareHist(const std::string& trig, int ptIdx, int centIdx);
-
-  // -------------------------------------------------------------------------
-  // SIM ONLY: matched truth-signal → reco ABCD leakage counters (per pT[/cent] slice)
-  //   bins: 1=A, 2=B, 3=C, 4=D
-  // -------------------------------------------------------------------------
-  TH1I* getOrBookSigABCDLeakageHist(const std::string& trig, int ptIdx, int centIdx);
-
-  // Isolation QA (truth, SIM only)
-  // These are NOT sliced; they live in the trigger directory (SIM => /SIM/).
-  TH1F* getOrBookTruthIsoHist(const std::string& trig,
+    
+    // Isolation spectra (reco)
+    TH1F* getOrBookIsoHist(const std::string& trig, int ptIdx, int centIdx);
+    TH1F* getOrBookIsoPartHist(const std::string& trig,
+                               const std::string& base,
+                               const std::string& xAxisTitle,
+                               int ptIdx, int centIdx);
+    TH1F* getOrBookPtGammaHist(const std::string& trig,
+                               const std::string& base,
+                               int centIdx);
+    TH1I* getOrBookIsoDecisionHist(const std::string& trig, int ptIdx, int centIdx);
+    
+    // Event-level photon multiplicity diagnostic:
+    // N = number of reco photon candidates passing the SAME tight+iso+fiducial cuts
+    // used for the leading photon selection (filled once per event; binned by leading-photon pT bin).
+    TH1I* getOrBookNIsoTightPhoCandHist(const std::string& trig, int ptIdx, int centIdx);
+    
+    TH2F* getOrBookIsoCompareHist(const std::string& trig, int ptIdx, int centIdx);
+    
+    // -------------------------------------------------------------------------
+    // SIM ONLY: matched truth-signal → reco ABCD leakage counters (per pT[/cent] slice)
+    //   bins: 1=A, 2=B, 3=C, 4=D
+    // -------------------------------------------------------------------------
+    TH1I* getOrBookSigABCDLeakageHist(const std::string& trig, int ptIdx, int centIdx);
+    
+    // Isolation QA (truth, SIM only)
+    // These are NOT sliced; they live in the trigger directory (SIM => /SIM/).
+    TH1F* getOrBookTruthIsoHist(const std::string& trig,
                                 const std::string& name,
                                 int nbins, double xmin, double xmax);
-
-  TH1I* getOrBookTruthIsoDecisionHist(const std::string& trig,
+    
+    TH1I* getOrBookTruthIsoDecisionHist(const std::string& trig,
                                         const std::string& name);
-
-  // Shower-shape distributions
-  TH1F* getOrBookSSHist(const std::string& trig,
-                        const std::string& varKey,
-                        const std::string& tagKey,
-                        int ptIdx, int centIdx);
-
-  // Physics outputs (already radius-tagged in your .cc)
-  TH1F* getOrBookXJHist(const std::string& trig,
+    
+    // Shower-shape distributions
+    TH1F* getOrBookSSHist(const std::string& trig,
+                          const std::string& varKey,
+                          const std::string& tagKey,
+                          int ptIdx, int centIdx);
+    
+    // Physics outputs (already radius-tagged in your .cc)
+    TH1F* getOrBookXJHist(const std::string& trig,
                           const std::string& rKey,
                           int ptIdx, int centIdx);
-  TH1F* getOrBookJet1PtHist(const std::string& trig,
+    TH1F* getOrBookJet1PtHist(const std::string& trig,
                               const std::string& rKey,
                               int ptIdx, int centIdx);
-  TH1F* getOrBookJet2PtHist(const std::string& trig,
+    TH1F* getOrBookJet2PtHist(const std::string& trig,
                               const std::string& rKey,
                               int ptIdx, int centIdx);
-  TH1F* getOrBookAlphaHist(const std::string& trig,
+    TH1F* getOrBookAlphaHist(const std::string& trig,
                              const std::string& rKey,
                              int ptIdx, int centIdx);
-
-  // -------------------------------------------------------------------------
-  // inclusive γ–jet unfolding histograms (ATLAS-style 2D in (pT^γ, xJγ))
-  //
-  //  - Reco (DATA + MC):
-  //      h2_unfoldReco_pTgamma_xJ_incl_<rKey><centSuffix>
-  //
-  //  - Truth (MC):
-  //      h2_unfoldTruth_pTgamma_xJ_incl_<rKey><centSuffix>
-  //
-  //  - Response (MC, matched truth↔reco pairs):
-  //      h2_unfoldResponse_pTgamma_xJ_incl_<rKey><centSuffix>
-  //    stored as global-bin(truth) vs global-bin(reco), using TH2::FindBin().
-  //
-  //  - Fakes/Misses (MC, for closure / response completeness):
-  //      h2_unfoldRecoFakes_pTgamma_xJ_incl_<rKey><centSuffix>
-  //      h2_unfoldTruthMisses_pTgamma_xJ_incl_<rKey><centSuffix>
-  // -------------------------------------------------------------------------
-  TH2F* getOrBookUnfoldRecoPtXJIncl      (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookUnfoldRecoPtXJInclSidebandC(const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookUnfoldTruthPtXJIncl     (const std::string& trig, const std::string& rKey, int centIdx);
-
-  // inclusive |Δphi(gamma,jet)| per recoil jet that passes pT+eta+recoil Δphi cuts
-  TH2F* getOrBookUnfoldRecoPtDphiIncl    (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookUnfoldTruthPtDphiIncl   (const std::string& trig, const std::string& rKey, int centIdx);
-
-  TH2F* getOrBookUnfoldResponsePtXJIncl  (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookUnfoldRecoCombinatoricPtXJIncl(const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookUnfoldRecoFakesPtXJIncl (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookUnfoldTruthMissesPtXJIncl(const std::string& trig, const std::string& rKey, int centIdx);
-
-  // photon-only unfolding (for N_gamma normalization): DATA+SIM reco, SIM truth
-  TH1F* getOrBookUnfoldRecoPhoPtGamma        (const std::string& trig, int centIdx);
-  TH1F* getOrBookUnfoldTruthPhoPtGamma       (const std::string& trig, int centIdx);
-  TH2F* getOrBookUnfoldResponsePhoPtGamma    (const std::string& trig, int centIdx);
-  TH1F* getOrBookUnfoldRecoPhoFakesPtGamma   (const std::string& trig, int centIdx);
-  TH1F* getOrBookUnfoldTruthPhoMissesPtGamma (const std::string& trig, int centIdx);
-
-  // unfolding QA helpers (SIM only): explicit matched distributions + type-split fakes/misses
-  TH2F* getOrBookUnfoldTruthMatchedPtXJIncl      (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookUnfoldRecoMatchedPtXJIncl       (const std::string& trig, const std::string& rKey, int centIdx);
-
-  // dedicated post-unfold jet-efficiency inputs (SIM only)
-  //   Den: truth recoil jets in truth unfolding phase space
-  //   Num: subset with a selection-aware reco jet match, built independently
-  //        of the geometry-first response MissA/MissB taxonomy
-  TH2F* getOrBookUnfoldJetEffDenPtXJIncl         (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookUnfoldJetEffNumPtXJIncl         (const std::string& trig, const std::string& rKey, int centIdx);
-
-  TH2F* getOrBookUnfoldRecoFakesPtXJIncl_typeA   (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookUnfoldRecoFakesPtXJIncl_typeB   (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookUnfoldTruthMissesPtXJIncl_typeA (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookUnfoldTruthMissesPtXJIncl_typeB (const std::string& trig, const std::string& rKey, int centIdx);
-
-  // jet-match QA (SIM only): match ΔR and pT response for matched recoil jets
-  TH1F* getOrBookUnfoldJetMatchDR           (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookUnfoldJetPtResponsePtTruth (const std::string& trig, const std::string& rKey, int centIdx);
-
-  // additional JES diagnostics (SIM only):
-  //  - ALL matched fiducial jet pairs (no recoil/truth recoil-selection gating)
-  //  - lead recoil jet1-only response + ΔR sanity
-  //  - lead recoil jet1 scatter: pT(reco) vs pT(truth)
-  TH2F* getOrBookUnfoldJetPtResponseAllPtTruth   (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookLeadRecoilJetPtResponsePtTruth  (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookLeadRecoilJetPtTruthPtReco      (const std::string& trig, const std::string& rKey, int centIdx);
-  TH1F* getOrBookLeadRecoilJetMatchDR            (const std::string& trig, const std::string& rKey, int centIdx);
-
-  // -------------------------------------------------------------------------
-  // (SIM ONLY): JES3-style *leading truth recoil jet1* match bookkeeping vs truth pT^gamma
-  //   Den  : truth leading recoil jet1 exists (truth recoil definition)
-  //   Num  : Den + reco recoil jet1 matches truth jet1 (ΔR < m_jetMatchDRMax)
-  //   MissA: Den + some reco fid jet within ΔR < m_jetMatchDRMax of truth jet1, but Num failed
-  //   MissB: Den + no reco fid jet within ΔR < m_jetMatchDRMax of truth jet1
-  // -------------------------------------------------------------------------
-  TH1F* getOrBookLeadTruthRecoilMatchDenPtGammaTruth    (const std::string& trig, const std::string& rKey, int centIdx);
-  TH1F* getOrBookLeadTruthRecoilMatchNumPtGammaTruth    (const std::string& trig, const std::string& rKey, int centIdx);
-  TH1F* getOrBookLeadTruthRecoilMatchMissA_PtGammaTruth (const std::string& trig, const std::string& rKey, int centIdx);
-  TH1F* getOrBookLeadTruthRecoilMatchMissB_PtGammaTruth (const std::string& trig, const std::string& rKey, int centIdx);
-
-  // NEW: MissA subtypes (SIM-only)
-  //   MissA1: truth-matched reco jet passes recoil definition → competitor/ordering
-  //   MissA2: truth-matched reco jet fails recoil definition  → gate-exclusion
-  TH1F* getOrBookLeadTruthRecoilMatchMissA1_PtGammaTruth (const std::string& trig, const std::string& rKey, int centIdx);
-  TH1F* getOrBookLeadTruthRecoilMatchMissA2_PtGammaTruth (const std::string& trig, const std::string& rKey, int centIdx);
-  TH1I* getOrBookLeadTruthRecoilMatchMissA2_Cutflow      (const std::string& trig, const std::string& rKey, int centIdx);
-
-  // -------------------------------------------------------------------------
-  // (SIM ONLY): diagnostics for why reco xJ differs from truth-conditioned xJ
-  //   Filled inside the same DEN / NUM / MissA / MissB classification block.
-  //
-  //   NOTE: all are radius-tagged and use centrality-only suffix (like the
-  //   existing LeadTruthRecoilMatch bookkeeping).
-  // -------------------------------------------------------------------------
-
-  // (A1) pT(recoilJet1^reco) vs pT(truth-leading recoil jet), split by class
-  TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_num    (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missA  (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missA1 (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missA2 (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missB  (const std::string& trig, const std::string& rKey, int centIdx);
-
-  // (A2) pT(recoilJet1^reco) vs pT(reco jet matched to truth-leading recoil jet), for NUM / MissA
-  TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_num    (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_missA  (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_missA1 (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_missA2 (const std::string& trig, const std::string& rKey, int centIdx);
-
-  // (B3) |Δphi(γ^truth, recoilJet1^reco)| vs pTγ,truth, split by class
-  TH2F* getOrBookLeadTruthRecoilMatchDphiRecoJet1VsPtGammaTruth_num   (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookLeadTruthRecoilMatchDphiRecoJet1VsPtGammaTruth_missA (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookLeadTruthRecoilMatchDphiRecoJet1VsPtGammaTruth_missB (const std::string& trig, const std::string& rKey, int centIdx);
-
-  // (B4) ΔR(recoilJet1^reco, truth-leading recoil jet) vs pTγ,truth, split by class
-  TH2F* getOrBookLeadTruthRecoilMatchDRRecoJet1VsPtGammaTruth_num   (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookLeadTruthRecoilMatchDRRecoJet1VsPtGammaTruth_missA (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookLeadTruthRecoilMatchDRRecoJet1VsPtGammaTruth_missB (const std::string& trig, const std::string& rKey, int centIdx);
-
-  // (C5) xJ(recoilJet1^reco) vs |Δphi(γ^truth, recoilJet1^reco)|, split by class
-  TH2F* getOrBookLeadTruthRecoilMatchXJRecoJet1VsDphiRecoJet1_num   (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookLeadTruthRecoilMatchXJRecoJet1VsDphiRecoJet1_missA (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F* getOrBookLeadTruthRecoilMatchXJRecoJet1VsDphiRecoJet1_missB (const std::string& trig, const std::string& rKey, int centIdx);
-
-  // -------------------------------------------------------------------------
-  //  radius-tagged matching-QA bookers
-  //   - centrality suffix only (Au+Au)
-  //   - pT^gamma is an axis
-  //   - name pattern: <base>_<rKey><centSuffix>
-  // -------------------------------------------------------------------------
-  TH2F*     getOrBookMatchStatusVsPtGamma     (const std::string& trig, const std::string& rKey, int centIdx);
-
-  // per-jet cutflow status vs pT^gamma (NOT event-level; not iso/tight-conditioned)
-  // name: h_jetcutflow_status_vs_pTgamma_<rKey><centSuffix>
-  // y bins:
-  //   1 = FailJetPt, 2 = FailJetEta, 3 = FailBackToBack, 4 = PassAll
-  TH2F*     getOrBookJetCutflowStatusVsPtGamma(const std::string& trig, const std::string& rKey, int centIdx);
-
-  TH2F*     getOrBookMatchMaxDphiVsPtGamma    (const std::string& trig, const std::string& rKey, int centIdx);
-  TProfile* getOrBookNRecoilJetsVsPtGamma     (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F*     getOrBookMatchDphiVsPtGamma       (const std::string& trig, const std::string& rKey, int centIdx);
-  TH2F*     getOrBookRecoilIsLeadingVsPtGamma (const std::string& trig, const std::string& rKey, int centIdx);
-
-  // -------------------------------------------------------------------------
-  // radius-tagged JES3 bookers (data)
-  //   - centrality suffix only (Au+Au)
-  //   - name pattern: <base>_<rKey><centSuffix>
-  // -------------------------------------------------------------------------
-  TH3F* getOrBookJES3_xJ_alphaHist     (const std::string& trig, const std::string& rKey, int centIdx);
-  TH3F* getOrBookJES3_jet1Pt_alphaHist (const std::string& trig, const std::string& rKey, int centIdx);
-
-  // -------------------------------------------------------------------------
-  // radius-tagged Jet13 + Balance3 bookers
-  //   - no centrality suffix
-  //   - name pattern: <base>_<rKey>
-  // -------------------------------------------------------------------------
-  TH3F*       getOrBookPho3TightIso       (const std::string& trig);               // photon baseline
-  TH3F*       getOrBookJet13RecoilJet1    (const std::string& trig, const std::string& rKey);
-  TProfile3D* getOrBookBalance3           (const std::string& trig, const std::string& rKey);
-
-  // -------------------------------------------------------------------------
-  // radius-tagged JES3 bookers (truth)
-  //   - centrality suffix only (Au+Au)
-  //   - name pattern: <base>_<rKey><centSuffix>
-  // -------------------------------------------------------------------------
-  // TRUTH reco-conditioned + reco↔truth jet1 match (your existing "works too well" truth)
-  TH3F* getOrBookJES3Truth_xJ_alphaHist         (const std::string& trig, const std::string& rKey, int centIdx);
-
-  // TRUTH reco-conditioned, but WITHOUT requiring reco jet1 ↔ truth jet1 ΔR match
-  TH3F* getOrBookJES3TruthRecoCondNoJetMatch_xJ_alphaHist(const std::string& trig, const std::string& rKey, int centIdx);
-
-  TH3F* getOrBookJES3Truth_jet1Pt_alphaHist     (const std::string& trig, const std::string& rKey, int centIdx);
-
-  // PURE truth xJgamma distribution (no reco gating, no reco↔truth jet matching)
-  TH3F* getOrBookJES3TruthPure_xJ_alphaHist     (const std::string& trig, const std::string& rKey, int centIdx);
-
-  // -------------------------------------------------------------------------
-  // reco-side JES3 subsets to diagnose fakes / wrong-jet assignment
-  // -------------------------------------------------------------------------
-  // RECO xJ,alpha for events where the LEADING reco iso∧tight photon is truth-signal tagged (photon match only)
-  TH3F* getOrBookJES3RecoTruthPhoTagged_xJ_alphaHist(const std::string& trig, const std::string& rKey, int centIdx);
-
-  // RECO xJ,alpha for truth-tagged pairs (photon match + reco jet1 matched to truth jet1)
-  TH3F* getOrBookJES3RecoTruthTagged_xJ_alphaHist(const std::string& trig, const std::string& rKey, int centIdx);
-
-  // -------------------------------------------------------------------------
-  // Jet QA: generic bookers + fillers (already radius-tagged in your .cc)
-  // -------------------------------------------------------------------------
-  TH1I* getOrBookJetQA1I(const std::string& trig,
-                         const std::string& base,
-                         const std::string& xAxisTitle,
-                         const std::string& rKey,
-                         int ptIdx, int centIdx,
-                         int nbins, double xmin, double xmax);
-
-  TH1F* getOrBookJetQA1F(const std::string& trig,
-                         const std::string& base,
-                         const std::string& xAxisTitle,
-                         const std::string& rKey,
-                         int ptIdx, int centIdx,
-                         int nbins, double xmin, double xmax);
-
-  TH2F* getOrBookJetQA2F(const std::string& trig,
-                         const std::string& base,
-                         const std::string& xAxisTitle,
-                         const std::string& yAxisTitle,
-                         const std::string& rKey,
-                         int ptIdx, int centIdx,
-                         int nxbins, double xmin, double xmax,
-                         int nybins, double ymin, double ymax);
-
-  void fillInclusiveJetQA(const std::vector<std::string>& activeTrig,
-                          int centIdx,
-                          const std::string& rKey);
-
-  void fillSelectedJetQA(const std::vector<std::string>& activeTrig,
-                         int ptIdx, int centIdx,
-                         const std::string& rKey,
-                         const Jet* jet1,
-                         const Jet* jet2);
-
-  // -------------------------------------------------------------------------
-  // SS + Iso category accounting
-  // -------------------------------------------------------------------------
-  void fillIsoSSTagCounters(const std::string& trig,
-                            const RawCluster* clus,
-                            const SSVars& v,
-                            double pt_gamma,
+    
+    // -------------------------------------------------------------------------
+    // inclusive γ–jet unfolding histograms (ATLAS-style 2D in (pT^γ, xJγ))
+    //
+    //  - Reco (DATA + MC):
+    //      h2_unfoldReco_pTgamma_xJ_incl_<rKey><centSuffix>
+    //
+    //  - Truth (MC):
+    //      h2_unfoldTruth_pTgamma_xJ_incl_<rKey><centSuffix>
+    //
+    //  - Response (MC, matched truth↔reco pairs):
+    //      h2_unfoldResponse_pTgamma_xJ_incl_<rKey><centSuffix>
+    //    stored as global-bin(truth) vs global-bin(reco), using TH2::FindBin().
+    //
+    //  - Fakes/Misses (MC, for closure / response completeness):
+    //      h2_unfoldRecoFakes_pTgamma_xJ_incl_<rKey><centSuffix>
+    //      h2_unfoldTruthMisses_pTgamma_xJ_incl_<rKey><centSuffix>
+    // -------------------------------------------------------------------------
+    TH2F* getOrBookUnfoldRecoPtXJIncl      (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookUnfoldRecoPtXJInclSidebandC(const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookUnfoldTruthPtXJIncl     (const std::string& trig, const std::string& rKey, int centIdx);
+    
+    // inclusive |Δphi(gamma,jet)| per recoil jet that passes pT+eta+recoil Δphi cuts
+    TH2F* getOrBookUnfoldRecoPtDphiIncl    (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookUnfoldTruthPtDphiIncl   (const std::string& trig, const std::string& rKey, int centIdx);
+    
+    TH2F* getOrBookUnfoldResponsePtXJIncl  (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookUnfoldRecoCombinatoricPtXJIncl(const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookUnfoldRecoFakesPtXJIncl (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookUnfoldTruthMissesPtXJIncl(const std::string& trig, const std::string& rKey, int centIdx);
+    
+    // photon-only unfolding (for N_gamma normalization): DATA+SIM reco, SIM truth
+    TH1F* getOrBookUnfoldRecoPhoPtGamma        (const std::string& trig, int centIdx);
+    TH1F* getOrBookUnfoldTruthPhoPtGamma       (const std::string& trig, int centIdx);
+    TH2F* getOrBookUnfoldResponsePhoPtGamma    (const std::string& trig, int centIdx);
+    TH1F* getOrBookUnfoldRecoPhoFakesPtGamma   (const std::string& trig, int centIdx);
+    TH1F* getOrBookUnfoldTruthPhoMissesPtGamma (const std::string& trig, int centIdx);
+    
+    // unfolding QA helpers (SIM only): explicit matched distributions + type-split fakes/misses
+    TH2F* getOrBookUnfoldTruthMatchedPtXJIncl      (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookUnfoldRecoMatchedPtXJIncl       (const std::string& trig, const std::string& rKey, int centIdx);
+    
+    // dedicated post-unfold jet-efficiency inputs (SIM only)
+    //   Den: truth recoil jets in truth unfolding phase space
+    //   Num: subset with a selection-aware reco jet match, built independently
+    //        of the geometry-first response MissA/MissB taxonomy
+    TH2F* getOrBookUnfoldJetEffDenPtXJIncl         (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookUnfoldJetEffNumPtXJIncl         (const std::string& trig, const std::string& rKey, int centIdx);
+    
+    TH2F* getOrBookUnfoldRecoFakesPtXJIncl_typeA   (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookUnfoldRecoFakesPtXJIncl_typeB   (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookUnfoldTruthMissesPtXJIncl_typeA (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookUnfoldTruthMissesPtXJIncl_typeB (const std::string& trig, const std::string& rKey, int centIdx);
+    
+    // jet-match QA (SIM only): match ΔR and pT response for matched recoil jets
+    TH1F* getOrBookUnfoldJetMatchDR           (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookUnfoldJetPtResponsePtTruth (const std::string& trig, const std::string& rKey, int centIdx);
+    
+    // additional JES diagnostics (SIM only):
+    //  - ALL matched fiducial jet pairs (no recoil/truth recoil-selection gating)
+    //  - lead recoil jet1-only response + ΔR sanity
+    //  - lead recoil jet1 scatter: pT(reco) vs pT(truth)
+    TH2F* getOrBookUnfoldJetPtResponseAllPtTruth   (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookLeadRecoilJetPtResponsePtTruth  (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookLeadRecoilJetPtTruthPtReco      (const std::string& trig, const std::string& rKey, int centIdx);
+    TH1F* getOrBookLeadRecoilJetMatchDR            (const std::string& trig, const std::string& rKey, int centIdx);
+    
+    // -------------------------------------------------------------------------
+    // (SIM ONLY): JES3-style *leading truth recoil jet1* match bookkeeping vs truth pT^gamma
+    //   Den  : truth leading recoil jet1 exists (truth recoil definition)
+    //   Num  : Den + reco recoil jet1 matches truth jet1 (ΔR < m_jetMatchDRMax)
+    //   MissA: Den + some reco fid jet within ΔR < m_jetMatchDRMax of truth jet1, but Num failed
+    //   MissB: Den + no reco fid jet within ΔR < m_jetMatchDRMax of truth jet1
+    // -------------------------------------------------------------------------
+    TH1F* getOrBookLeadTruthRecoilMatchDenPtGammaTruth    (const std::string& trig, const std::string& rKey, int centIdx);
+    TH1F* getOrBookLeadTruthRecoilMatchNumPtGammaTruth    (const std::string& trig, const std::string& rKey, int centIdx);
+    TH1F* getOrBookLeadTruthRecoilMatchMissA_PtGammaTruth (const std::string& trig, const std::string& rKey, int centIdx);
+    TH1F* getOrBookLeadTruthRecoilMatchMissB_PtGammaTruth (const std::string& trig, const std::string& rKey, int centIdx);
+    
+    // NEW: MissA subtypes (SIM-only)
+    //   MissA1: truth-matched reco jet passes recoil definition → competitor/ordering
+    //   MissA2: truth-matched reco jet fails recoil definition  → gate-exclusion
+    TH1F* getOrBookLeadTruthRecoilMatchMissA1_PtGammaTruth (const std::string& trig, const std::string& rKey, int centIdx);
+    TH1F* getOrBookLeadTruthRecoilMatchMissA2_PtGammaTruth (const std::string& trig, const std::string& rKey, int centIdx);
+    TH1I* getOrBookLeadTruthRecoilMatchMissA2_Cutflow      (const std::string& trig, const std::string& rKey, int centIdx);
+    
+    // -------------------------------------------------------------------------
+    // (SIM ONLY): diagnostics for why reco xJ differs from truth-conditioned xJ
+    //   Filled inside the same DEN / NUM / MissA / MissB classification block.
+    //
+    //   NOTE: all are radius-tagged and use centrality-only suffix (like the
+    //   existing LeadTruthRecoilMatch bookkeeping).
+    // -------------------------------------------------------------------------
+    
+    // (A1) pT(recoilJet1^reco) vs pT(truth-leading recoil jet), split by class
+    TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_num    (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missA  (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missA1 (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missA2 (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missB  (const std::string& trig, const std::string& rKey, int centIdx);
+    
+    // (A2) pT(recoilJet1^reco) vs pT(reco jet matched to truth-leading recoil jet), for NUM / MissA
+    TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_num    (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_missA  (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_missA1 (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_missA2 (const std::string& trig, const std::string& rKey, int centIdx);
+    
+    // (B3) |Δphi(γ^truth, recoilJet1^reco)| vs pTγ,truth, split by class
+    TH2F* getOrBookLeadTruthRecoilMatchDphiRecoJet1VsPtGammaTruth_num   (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookLeadTruthRecoilMatchDphiRecoJet1VsPtGammaTruth_missA (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookLeadTruthRecoilMatchDphiRecoJet1VsPtGammaTruth_missB (const std::string& trig, const std::string& rKey, int centIdx);
+    
+    // (B4) ΔR(recoilJet1^reco, truth-leading recoil jet) vs pTγ,truth, split by class
+    TH2F* getOrBookLeadTruthRecoilMatchDRRecoJet1VsPtGammaTruth_num   (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookLeadTruthRecoilMatchDRRecoJet1VsPtGammaTruth_missA (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookLeadTruthRecoilMatchDRRecoJet1VsPtGammaTruth_missB (const std::string& trig, const std::string& rKey, int centIdx);
+    
+    // (C5) xJ(recoilJet1^reco) vs |Δphi(γ^truth, recoilJet1^reco)|, split by class
+    TH2F* getOrBookLeadTruthRecoilMatchXJRecoJet1VsDphiRecoJet1_num   (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookLeadTruthRecoilMatchXJRecoJet1VsDphiRecoJet1_missA (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookLeadTruthRecoilMatchXJRecoJet1VsDphiRecoJet1_missB (const std::string& trig, const std::string& rKey, int centIdx);
+    
+    // -------------------------------------------------------------------------
+    //  radius-tagged matching-QA bookers
+    //   - centrality suffix only (Au+Au)
+    //   - pT^gamma is an axis
+    //   - name pattern: <base>_<rKey><centSuffix>
+    // -------------------------------------------------------------------------
+    TH2F*     getOrBookMatchStatusVsPtGamma     (const std::string& trig, const std::string& rKey, int centIdx);
+    
+    // per-jet cutflow status vs pT^gamma (NOT event-level; not iso/tight-conditioned)
+    // name: h_jetcutflow_status_vs_pTgamma_<rKey><centSuffix>
+    // y bins:
+    //   1 = FailJetPt, 2 = FailJetEta, 3 = FailBackToBack, 4 = PassAll
+    TH2F*     getOrBookJetCutflowStatusVsPtGamma(const std::string& trig, const std::string& rKey, int centIdx);
+    
+    TH2F*     getOrBookMatchMaxDphiVsPtGamma    (const std::string& trig, const std::string& rKey, int centIdx);
+    TProfile* getOrBookNRecoilJetsVsPtGamma     (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F*     getOrBookMatchDphiVsPtGamma       (const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F*     getOrBookRecoilIsLeadingVsPtGamma (const std::string& trig, const std::string& rKey, int centIdx);
+    
+    // -------------------------------------------------------------------------
+    // radius-tagged JES3 bookers (data)
+    //   - centrality suffix only (Au+Au)
+    //   - name pattern: <base>_<rKey><centSuffix>
+    // -------------------------------------------------------------------------
+    TH3F* getOrBookJES3_xJ_alphaHist     (const std::string& trig, const std::string& rKey, int centIdx);
+    TH3F* getOrBookJES3_jet1Pt_alphaHist (const std::string& trig, const std::string& rKey, int centIdx);
+    
+    // -------------------------------------------------------------------------
+    // radius-tagged Jet13 + Balance3 bookers
+    //   - no centrality suffix
+    //   - name pattern: <base>_<rKey>
+    // -------------------------------------------------------------------------
+    TH3F*       getOrBookPho3TightIso       (const std::string& trig);               // photon baseline
+    TH3F*       getOrBookJet13RecoilJet1    (const std::string& trig, const std::string& rKey);
+    TProfile3D* getOrBookBalance3           (const std::string& trig, const std::string& rKey);
+    
+    // -------------------------------------------------------------------------
+    // radius-tagged JES3 bookers (truth)
+    //   - centrality suffix only (Au+Au)
+    //   - name pattern: <base>_<rKey><centSuffix>
+    // -------------------------------------------------------------------------
+    // TRUTH reco-conditioned + reco↔truth jet1 match (your existing "works too well" truth)
+    TH3F* getOrBookJES3Truth_xJ_alphaHist         (const std::string& trig, const std::string& rKey, int centIdx);
+    
+    // TRUTH reco-conditioned, but WITHOUT requiring reco jet1 ↔ truth jet1 ΔR match
+    TH3F* getOrBookJES3TruthRecoCondNoJetMatch_xJ_alphaHist(const std::string& trig, const std::string& rKey, int centIdx);
+    
+    TH3F* getOrBookJES3Truth_jet1Pt_alphaHist     (const std::string& trig, const std::string& rKey, int centIdx);
+    
+    // PURE truth xJgamma distribution (no reco gating, no reco↔truth jet matching)
+    TH3F* getOrBookJES3TruthPure_xJ_alphaHist     (const std::string& trig, const std::string& rKey, int centIdx);
+    
+    // -------------------------------------------------------------------------
+    // reco-side JES3 subsets to diagnose fakes / wrong-jet assignment
+    // -------------------------------------------------------------------------
+    // RECO xJ,alpha for events where the LEADING reco iso∧tight photon is truth-signal tagged (photon match only)
+    TH3F* getOrBookJES3RecoTruthPhoTagged_xJ_alphaHist(const std::string& trig, const std::string& rKey, int centIdx);
+    
+    // RECO xJ,alpha for truth-tagged pairs (photon match + reco jet1 matched to truth jet1)
+    TH3F* getOrBookJES3RecoTruthTagged_xJ_alphaHist(const std::string& trig, const std::string& rKey, int centIdx);
+    
+    // -------------------------------------------------------------------------
+    // Jet QA: generic bookers + fillers (already radius-tagged in your .cc)
+    // -------------------------------------------------------------------------
+    TH1I* getOrBookJetQA1I(const std::string& trig,
+                           const std::string& base,
+                           const std::string& xAxisTitle,
+                           const std::string& rKey,
+                           int ptIdx, int centIdx,
+                           int nbins, double xmin, double xmax);
+    
+    TH1F* getOrBookJetQA1F(const std::string& trig,
+                           const std::string& base,
+                           const std::string& xAxisTitle,
+                           const std::string& rKey,
+                           int ptIdx, int centIdx,
+                           int nbins, double xmin, double xmax);
+    
+    TH2F* getOrBookJetQA2F(const std::string& trig,
+                           const std::string& base,
+                           const std::string& xAxisTitle,
+                           const std::string& yAxisTitle,
+                           const std::string& rKey,
+                           int ptIdx, int centIdx,
+                           int nxbins, double xmin, double xmax,
+                           int nybins, double ymin, double ymax);
+    
+    void fillInclusiveJetQA(const std::vector<std::string>& activeTrig,
                             int centIdx,
-                            PHCompositeNode* topNode);
-
-  void bumpHistFill(const std::string& trig, const std::string& hnameWithSuffix);
-  void printCutSummary() const;
-
-  // -------------------------------------------------------------------------
-  // Member data
-  // -------------------------------------------------------------------------
-  std::string Outfile;
-  TFile*      out    = nullptr;
-
-  TriggerAnalyzer* trigAna = nullptr;
-
-  // Dataset flags (these may be overridden at runtime by env in fetchNodes())
-  bool m_isSim  = false;
-  bool m_isAuAu = false;
-  bool m_doPi0Analysis = false;
-
-  // Vertex / event selection
-  GlobalVertex* m_vtx = nullptr;
-  float m_vx = 0.0f;
-  float m_vy = 0.0f;
-  float m_vz = 0.0f;
-
-  bool  m_useVzCut = true;
-  float m_vzCut    = 30.0f;
-
-  // Centrality
-  int m_centBin = -1;                 // 0..99 (Au+Au), or -1 in pp
-  std::vector<int> m_centEdges;       // centrality bin edges, e.g. {0,10,20,...,100}
-
-  // Photon fiducial + binning
-  double m_etaAbsMax = 0.7;           // photon |eta| cut
-
-  std::vector<double> m_gammaPtBins = {15,17,19,21,23,26,35};  // canonical photon pT bin edges (6 bins, start at 15 GeV)
-
-  // Photon ID cuts (PPG12 Table 4) defaults (match PhoIDCuts namespace baseline)
-  double m_phoid_pre_e11e33_max = 0.98;
-  double m_phoid_pre_et1_min    = 0.60;
-  double m_phoid_pre_et1_max    = 1.00;
-  double m_phoid_pre_e32e35_min = 0.80;
-  double m_phoid_pre_e32e35_max = 1.00;
-  double m_phoid_pre_weta_max   = 0.60;
-
-  double m_phoid_tight_w_lo           = 0.0;
-  double m_phoid_tight_w_hi_intercept = 0.15;
-  double m_phoid_tight_w_hi_slope     = 0.006;
-
-  double m_phoid_tight_e11e33_min = 0.40;
-  double m_phoid_tight_e11e33_max = 0.98;
-
-  double m_phoid_tight_et1_min    = 0.90;
-  double m_phoid_tight_et1_max    = 1.00;
-
-  double m_phoid_tight_e32e35_min = 0.92;
-  double m_phoid_tight_e32e35_max = 1.00;
-
-
-  // Phase-1 YAML knobs (matching thresholds)
-  double m_phoMatchDRMax = 0.05;
-  double m_jetMatchDRMax = 0.3;
-
-  // Phase-1 YAML knobs (explicit unfolding bin edges)
-  std::vector<double> m_unfoldRecoPhotonPtBins  = {10,15,17,19,21,23,26,35,40};
-  std::vector<double> m_unfoldTruthPhotonPtBins = {5,10,15,17,19,21,23,26,35,40};
-  std::vector<double> m_unfoldJetPtBins;
-  std::vector<double> m_unfoldXJBins = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
-
-  // Analysis provenance stamping (written once into output ROOT by RecoilJets.cc)
-  std::string m_analysisConfigYAMLText = "";
-  std::string m_analysisConfigTag      = "";
-  bool        m_analysisConfigStamped  = false;
-
-
-  // Isolation WP (PPG12 nominal)
-  double m_isoA      = 1.08128;
-  double m_isoB      = 0.0299107;
-  double m_isoGap    = 1.0;
-  double m_isoFixed  = 2.0;          // used ONLY when m_isSlidingIso==false (RECO)
-  double m_truthIsoMaxGeV = 4.0;     // TRUTH isolation max (independent of sliding/fixed mode)
-  double m_isoConeR  = 0.3;
-  double m_isoTowMin = 0.0;
-  bool   m_isSlidingIso = true;
-
-  // Per-centrality sliding WPs (indexed by findCentBin result; falls back to global if empty)
-  std::vector<CentIsoWP> m_centIsoWPs;
-  void getIsoParams(int centIdx, double& outA, double& outB, double& outGap) const;
-
-  // Jet selection WP
-  //  double m_minJetPt      = 5.0;
-  double m_minJetPt      = 10.0;
-  double m_minBackToBack = 7.0 * M_PI / 8.0;    // radians
-
-  // Legacy "primary" reco jet key (still used for printing/overrides only)
-  std::string m_xjRecoJetKey = "r04";
-
-  // Nodes: photons / clusters
-  RawClusterContainer* m_clus        = nullptr;
-  RawClusterContainer* m_clus_nocorr = nullptr;
-  RawClusterContainer* m_photons     = nullptr;
-
-  // Calo tower bundles (node cache)
-  struct CaloBundle
-  {
-    TowerInfoContainer*   towers = nullptr;
-    RawTowerGeomContainer* geom  = nullptr;
-    double                sumEt  = 0.0;
-  };
-
-  std::vector<std::tuple<std::string, std::string, std::string>> m_caloInfo;
-  std::map<std::string, CaloBundle> m_calo;
-
+                            const std::string& rKey);
+    
+    void fillSelectedJetQA(const std::vector<std::string>& activeTrig,
+                           int ptIdx, int centIdx,
+                           const std::string& rKey,
+                           const Jet* jet1,
+                           const Jet* jet2);
+    
+    // -------------------------------------------------------------------------
+    // SS + Iso category accounting
+    // -------------------------------------------------------------------------
+    void fillIsoSSTagCounters(const std::string& trig,
+                              const RawCluster* clus,
+                              const SSVars& v,
+                              double pt_gamma,
+                              int centIdx,
+                              PHCompositeNode* topNode);
+    
+    void bumpHistFill(const std::string& trig, const std::string& hnameWithSuffix);
+    void printCutSummary() const;
+    
+    // -------------------------------------------------------------------------
+    // Member data
+    // -------------------------------------------------------------------------
+    std::string Outfile;
+    TFile*      out    = nullptr;
+    
+    TriggerAnalyzer* trigAna = nullptr;
+    
+    // Dataset flags (these may be overridden at runtime by env in fetchNodes())
+    bool m_isSim  = false;
+    bool m_isAuAu = false;
+    bool m_doPi0Analysis = false;
+    
+    // Vertex / event selection
+    GlobalVertex* m_vtx = nullptr;
+    float m_vx = 0.0f;
+    float m_vy = 0.0f;
+    float m_vz = 0.0f;
+    
+    bool  m_useVzCut = true;
+    float m_vzCut    = 30.0f;
+    
+    // Centrality
+    int m_centBin = -1;                 // 0..99 (Au+Au), or -1 in pp
+    std::vector<int> m_centEdges;       // centrality bin edges, e.g. {0,10,20,...,100}
+    
+    // Photon fiducial + binning
+    double m_etaAbsMax = 0.7;           // photon |eta| cut
+    
+    std::vector<double> m_gammaPtBins = {15,17,19,21,23,26,35};  // canonical photon pT bin edges (6 bins, start at 15 GeV)
+    
+    // Photon ID cuts (PPG12 Table 4) defaults (match PhoIDCuts namespace baseline)
+    double m_phoid_pre_e11e33_max = 0.98;
+    double m_phoid_pre_et1_min    = 0.60;
+    double m_phoid_pre_et1_max    = 1.00;
+    double m_phoid_pre_e32e35_min = 0.80;
+    double m_phoid_pre_e32e35_max = 1.00;
+    double m_phoid_pre_weta_max   = 0.60;
+    
+    double m_phoid_tight_w_lo           = 0.0;
+    double m_phoid_tight_w_hi_intercept = 0.15;
+    double m_phoid_tight_w_hi_slope     = 0.006;
+    
+    double m_phoid_tight_e11e33_min = 0.40;
+    double m_phoid_tight_e11e33_max = 0.98;
+    
+    double m_phoid_tight_et1_min    = 0.90;
+    double m_phoid_tight_et1_max    = 1.00;
+    
+    double m_phoid_tight_e32e35_min = 0.92;
+    double m_phoid_tight_e32e35_max = 1.00;
+    
+    
+    // Phase-1 YAML knobs (matching thresholds)
+    double m_phoMatchDRMax = 0.05;
+    double m_jetMatchDRMax = 0.3;
+    
+    // Phase-1 YAML knobs (explicit unfolding bin edges)
+    std::vector<double> m_unfoldRecoPhotonPtBins  = {10,15,17,19,21,23,26,35,40};
+    std::vector<double> m_unfoldTruthPhotonPtBins = {5,10,15,17,19,21,23,26,35,40};
+    std::vector<double> m_unfoldJetPtBins;
+    std::vector<double> m_unfoldXJBins = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
+    
+    // Analysis provenance stamping (written once into output ROOT by RecoilJets.cc)
+    std::string m_analysisConfigYAMLText = "";
+    std::string m_analysisConfigTag      = "";
+    bool        m_analysisConfigStamped  = false;
+    
+    
+    // Isolation WP (PPG12 nominal)
+    double m_isoA      = 1.08128;
+    double m_isoB      = 0.0299107;
+    double m_isoGap    = 1.0;
+    double m_isoFixed  = 2.0;          // used ONLY when m_isSlidingIso==false (RECO)
+    double m_truthIsoMaxGeV = 4.0;     // TRUTH isolation max (independent of sliding/fixed mode)
+    double m_isoConeR  = 0.3;
+    double m_isoTowMin = 0.0;
+    bool   m_isSlidingIso = true;
+    
+    // Per-centrality sliding WPs (indexed by findCentBin result; falls back to global if empty)
+    std::vector<CentIsoWP> m_centIsoWPs;
+    void getIsoParams(int centIdx, double& outA, double& outB, double& outGap) const;
+    
+    // Jet selection WP
+    //  double m_minJetPt      = 5.0;
+    double m_minJetPt      = 10.0;
+    double m_minBackToBack = 7.0 * M_PI / 8.0;    // radians
+    
+    // Legacy "primary" reco jet key (still used for printing/overrides only)
+    std::string m_xjRecoJetKey = "r04";
+    
+    // Nodes: photons / clusters
+    RawClusterContainer* m_clus        = nullptr;
+    RawClusterContainer* m_clus_nocorr = nullptr;
+    RawClusterContainer* m_photons     = nullptr;
+    
+    // Calo tower bundles (node cache)
+    struct CaloBundle
+    {
+        TowerInfoContainer*   towers = nullptr;
+        RawTowerGeomContainer* geom  = nullptr;
+        double                sumEt  = 0.0;
+    };
+    
+    std::vector<std::tuple<std::string, std::string, std::string>> m_caloInfo;
+    std::map<std::string, CaloBundle> m_calo;
+    MbdPmtContainer* m_mbdpmts = nullptr;
+    
     // -------------------------------------------------------------------------
     // parallel jet containers by radius key
     // -------------------------------------------------------------------------
     std::map<std::string, JetContainer*> m_jets;
     std::map<std::string, JetContainer*> m_jetsRaw;
-
-  // Optional: limit active jet radii (keys like "r02","r04"). Empty => all kJetRadii.
-  std::vector<std::string> m_activeJetRKeys;
-
-  // -------------------------------------------------------------------------
-  // NEW: truth jet containers by radius key (SIM only)
-  // -------------------------------------------------------------------------
-  std::map<std::string, JetContainer*> m_truthJetsByRKey;
-  std::map<std::string, std::string>   m_truthJetsNodeByRKey;
-
-  // -------------------------------------------------------------------------
-  // EventDisplay diagnostics payload support nodes (optional; never affects physics)
-  // -------------------------------------------------------------------------
-  EventHeader*           m_evtHeader          = nullptr;
-  TowerInfoContainer*    m_evtDispTowersCEMC  = nullptr;
-  TowerInfoContainer*    m_evtDispTowersIHCal = nullptr;
-  TowerInfoContainer*    m_evtDispTowersOHCal = nullptr;
-  RawTowerGeomContainer* m_evtDispGeomCEMC    = nullptr;
-  RawTowerGeomContainer* m_evtDispGeomIHCal   = nullptr;
-  RawTowerGeomContainer* m_evtDispGeomOHCal   = nullptr;
-
-  // -------------------------------------------------------------------------
-  // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
-  //
-  //  - One TTree entry per (event, rKey) when enabled.
-  //  - Stores compact "ingredients" (jet kinematics + sparse tower constituent lists)
-  //    so that single-event displays can be rendered OFFLINE without any online scanning
-  //    or Verbosity() hacks.
-  // -------------------------------------------------------------------------
-  bool m_evtDiagEnabled    = false;  // user-controlled switch (macro setter or env)
-  bool m_evtDiagNodesReady = false;  // per-event: true if required tower/geom nodes are available
-
-  int  m_evtDiagMaxPerBin = 0;       // 0 => unlimited; else limit entries per (rKey,ptBin,cat)
-  std::unordered_map<std::string, int> m_evtDiagSavedPerBin;
-
-  long long m_evtDiagNFill = 0;
-  long long m_evtDiagNFillWithSelTowers = 0;
-  long long m_evtDiagNFillWithBestTowers = 0;
-  long long m_evtDiagNFillWithAnyTowers = 0;
-  long long m_evtDiagNFillByCat[3] = {0, 0, 0};
-  long long m_evtDiagNFillWithAnyTowersByCat[3] = {0, 0, 0};
-
-  TTree* m_evtDiagTree = nullptr;
-
-  int       m_evtDiag_run        = 0;
-  int       m_evtDiag_evt        = 0;
-  long long m_evtDiag_eventCount = 0;
-  float     m_evtDiag_vz         = 0.0f;
-
-  std::string m_evtDiag_rKey;
-  int         m_evtDiag_ptBin = -1;
-  int         m_evtDiag_cat   = -1;
-  int         m_evtDiag_isSim = 0;
-
-  float m_evtDiag_ptGammaTruth  = 0.0f;
-  float m_evtDiag_phiGammaTruth = 0.0f;
-  float m_evtDiag_ptGammaReco   = 0.0f;
-  float m_evtDiag_etaGammaReco  = 0.0f;
-  float m_evtDiag_phiGammaReco  = 0.0f;
-
-  float m_evtDiag_sel_pt  = 0.0f;
-  float m_evtDiag_sel_eta = 0.0f;
-  float m_evtDiag_sel_phi = 0.0f;
-
-  float m_evtDiag_best_pt  = 0.0f;
-  float m_evtDiag_best_eta = 0.0f;
-  float m_evtDiag_best_phi = 0.0f;
-
-  float m_evtDiag_truthLead_pt  = 0.0f;
-  float m_evtDiag_truthLead_eta = 0.0f;
-  float m_evtDiag_truthLead_phi = 0.0f;
-
-  float m_evtDiag_drSelToTruthLead  = -1.0f;
-  float m_evtDiag_drBestToTruthLead = -1.0f;
-
-  std::vector<int>   m_evtDiag_sel_calo;
-  std::vector<int>   m_evtDiag_sel_ieta;
-  std::vector<int>   m_evtDiag_sel_iphi;
-  std::vector<float> m_evtDiag_sel_etaTower;
-  std::vector<float> m_evtDiag_sel_phiTower;
-  std::vector<float> m_evtDiag_sel_etTower;
-  std::vector<float> m_evtDiag_sel_eTower;
-
-  std::vector<int>   m_evtDiag_best_calo;
-  std::vector<int>   m_evtDiag_best_ieta;
-  std::vector<int>   m_evtDiag_best_iphi;
-  std::vector<float> m_evtDiag_best_etaTower;
-  std::vector<float> m_evtDiag_best_phiTower;
-  std::vector<float> m_evtDiag_best_etTower;
-  std::vector<float> m_evtDiag_best_eTower;
-
+    
+    // Optional: limit active jet radii (keys like "r02","r04"). Empty => all kJetRadii.
+    std::vector<std::string> m_activeJetRKeys;
+    
+    // -------------------------------------------------------------------------
+    // NEW: truth jet containers by radius key (SIM only)
+    // -------------------------------------------------------------------------
+    std::map<std::string, JetContainer*> m_truthJetsByRKey;
+    std::map<std::string, std::string>   m_truthJetsNodeByRKey;
+    
+    // -------------------------------------------------------------------------
+    // EventDisplay diagnostics payload support nodes (optional; never affects physics)
+    // -------------------------------------------------------------------------
+    EventHeader*           m_evtHeader          = nullptr;
+    TowerInfoContainer*    m_evtDispTowersCEMC  = nullptr;
+    TowerInfoContainer*    m_evtDispTowersIHCal = nullptr;
+    TowerInfoContainer*    m_evtDispTowersOHCal = nullptr;
+    RawTowerGeomContainer* m_evtDispGeomCEMC    = nullptr;
+    RawTowerGeomContainer* m_evtDispGeomIHCal   = nullptr;
+    RawTowerGeomContainer* m_evtDispGeomOHCal   = nullptr;
+    
+    // -------------------------------------------------------------------------
+    // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
+    //
+    //  - One TTree entry per (event, rKey) when enabled.
+    //  - Stores compact "ingredients" (jet kinematics + sparse tower constituent lists)
+    //    so that single-event displays can be rendered OFFLINE without any online scanning
+    //    or Verbosity() hacks.
+    // -------------------------------------------------------------------------
+    bool m_evtDiagEnabled    = false;  // user-controlled switch (macro setter or env)
+    bool m_evtDiagNodesReady = false;  // per-event: true if required tower/geom nodes are available
+    
+    int  m_evtDiagMaxPerBin = 0;       // 0 => unlimited; else limit entries per (rKey,ptBin,cat)
+    std::unordered_map<std::string, int> m_evtDiagSavedPerBin;
+    
+    long long m_evtDiagNFill = 0;
+    long long m_evtDiagNFillWithSelTowers = 0;
+    long long m_evtDiagNFillWithBestTowers = 0;
+    long long m_evtDiagNFillWithAnyTowers = 0;
+    long long m_evtDiagNFillByCat[3] = {0, 0, 0};
+    long long m_evtDiagNFillWithAnyTowersByCat[3] = {0, 0, 0};
+    
+    TTree* m_evtDiagTree = nullptr;
+    
+    int       m_evtDiag_run        = 0;
+    int       m_evtDiag_evt        = 0;
+    long long m_evtDiag_eventCount = 0;
+    float     m_evtDiag_vz         = 0.0f;
+    
+    std::string m_evtDiag_rKey;
+    int         m_evtDiag_ptBin = -1;
+    int         m_evtDiag_cat   = -1;
+    int         m_evtDiag_isSim = 0;
+    
+    float m_evtDiag_ptGammaTruth  = 0.0f;
+    float m_evtDiag_phiGammaTruth = 0.0f;
+    float m_evtDiag_ptGammaReco   = 0.0f;
+    float m_evtDiag_etaGammaReco  = 0.0f;
+    float m_evtDiag_phiGammaReco  = 0.0f;
+    
+    float m_evtDiag_sel_pt  = 0.0f;
+    float m_evtDiag_sel_eta = 0.0f;
+    float m_evtDiag_sel_phi = 0.0f;
+    
+    float m_evtDiag_best_pt  = 0.0f;
+    float m_evtDiag_best_eta = 0.0f;
+    float m_evtDiag_best_phi = 0.0f;
+    
+    float m_evtDiag_truthLead_pt  = 0.0f;
+    float m_evtDiag_truthLead_eta = 0.0f;
+    float m_evtDiag_truthLead_phi = 0.0f;
+    
+    float m_evtDiag_drSelToTruthLead  = -1.0f;
+    float m_evtDiag_drBestToTruthLead = -1.0f;
+    
+    std::vector<int>   m_evtDiag_sel_calo;
+    std::vector<int>   m_evtDiag_sel_ieta;
+    std::vector<int>   m_evtDiag_sel_iphi;
+    std::vector<float> m_evtDiag_sel_etaTower;
+    std::vector<float> m_evtDiag_sel_phiTower;
+    std::vector<float> m_evtDiag_sel_etTower;
+    std::vector<float> m_evtDiag_sel_eTower;
+    
+    std::vector<int>   m_evtDiag_best_calo;
+    std::vector<int>   m_evtDiag_best_ieta;
+    std::vector<int>   m_evtDiag_best_iphi;
+    std::vector<float> m_evtDiag_best_etaTower;
+    std::vector<float> m_evtDiag_best_phiTower;
+    std::vector<float> m_evtDiag_best_etTower;
+    std::vector<float> m_evtDiag_best_eTower;
+    
     // -------------------------------------------------------------------------
     // Diagnostics / accounting
     // -------------------------------------------------------------------------
     EventReject m_lastReject = EventReject::None;
-
+    
     long long event_count  = 0;
     long long m_evtNoTrig  = 0;
-
+    
     Bookkeeping m_bk{};
-
+    
     // For End() histogram summary (counts how many times each histogram was filled)
     std::unordered_map<std::string, long long> m_histFill;
-
+    
     // -------------------------------------------------------------------------
     // NEW: per-pT-bin negative-isolation bookkeeping (independent of SS classification)
     //
@@ -1292,7 +1293,7 @@ private:
     std::vector<unsigned long long> m_nIsoBuilderNegByPt;
     std::vector<unsigned long long> m_nIsoClusterIsoByPt;
     std::vector<unsigned long long> m_nIsoClusterIsoNegByPt;
-
+    
     // IsolationAudit (local-only, env-gated)
     bool m_isoAuditMode = false;
     bool m_isoAuditTargetReached = false;
@@ -1308,19 +1309,19 @@ private:
     unsigned long long m_isoAuditStopEvent = 0;
     unsigned long long m_isoAuditRunNumber = 0;
     std::string m_isoAuditStopReason;
-
+    
     unsigned long long m_isoAuditNoPhotonContainerEvents = 0;
     unsigned long long m_isoAuditNonFiniteKinematics = 0;
     unsigned long long m_isoAuditOutsideConfiguredCentrality = 0;
     IsoAuditSkipSnapshot m_isoAuditSkipLastSummary{};
-
+    
     IsoAuditEventFlow m_isoAuditFlowGlobal{};
     std::vector<IsoAuditEventFlow> m_isoAuditFlowByCent;
     std::vector<std::vector<IsoAuditCell>> m_isoAuditCells;
-
+    
     // Histogram storage: trigger -> (name -> object*)
     std::map<std::string, HistMap> qaHistogramsByTrigger;
-
+    
     // Per-trigger slice counters printed in End()
     std::map<std::string, std::map<std::string, CatStat>> m_catByTrig;
 };

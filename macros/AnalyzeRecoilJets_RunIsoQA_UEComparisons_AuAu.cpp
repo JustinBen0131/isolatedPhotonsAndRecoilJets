@@ -5497,7 +5497,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                         
                                         if (std::isfinite(yMinCent) && std::isfinite(yMaxCent))
                                         {
-                                            const double centPad = (yMaxCent > yMinCent) ? (0.20 * (yMaxCent - yMinCent)) : 0.25;
+                                            const double centPad = (yMaxCent > yMinCent) ? (0.65 * (yMaxCent - yMinCent)) : 0.60;
                                             
                                             TCanvas cEffCentSummary(
                                                 TString::Format("c_ppg12IsoCutEffSummaryVsCent_%s", trigAA.c_str()).Data(),
@@ -5523,56 +5523,80 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                             hFrameEffCent.GetYaxis()->SetTitleOffset(1.15);
                                             hFrameEffCent.Draw();
                                             
-                                            TLegend legEffCent(0.56, 0.68, 0.92, 0.88);
+                                            TLegend legEffCent(0.48, 0.62, 0.92, 0.78);
                                             legEffCent.SetBorderSize(0);
                                             legEffCent.SetFillStyle(0);
                                             legEffCent.SetTextFont(42);
-                                            legEffCent.SetTextSize(0.032);
+                                            legEffCent.SetTextSize(0.028);
                                             
                                             if (!centSummary.x90.empty())
                                             {
+                                                std::vector<double> zeroEx90(centSummary.x90.size(), 0.0);
                                                 TGraphErrors g90Cent(
                                                     (int)centSummary.x90.size(),
                                                     &centSummary.x90[0], &centSummary.y90[0],
-                                                    &centSummary.ex90[0], &centSummary.ey90[0]
+                                                    &zeroEx90[0], &centSummary.ey90[0]
                                                 );
                                                 g90Cent.SetLineWidth(2);
                                                 g90Cent.SetLineColor(kMagenta + 1);
                                                 g90Cent.SetMarkerColor(kMagenta + 1);
                                                 g90Cent.SetMarkerStyle(20);
                                                 g90Cent.SetMarkerSize(1.2);
-                                                g90Cent.Draw("PE1 SAME");
-                                                legEffCent.AddEntry(&g90Cent, "90% Efficiency", "ep");
+                                                g90Cent.Draw("P SAME");
+                                                TF1 *fit90 = new TF1("fit90", "pol1", centBins.front().lo, centBins.back().hi);
+                                                fit90->SetLineColor(kMagenta + 1);
+                                                fit90->SetLineWidth(2);
+                                                fit90->SetLineStyle(2);
+                                                g90Cent.Fit(fit90, "QNR");
+                                                fit90->Draw("SAME");
+                                                legEffCent.AddEntry(&g90Cent,
+                                                    TString::Format("90%% Eff: y = %.4fx %+.2f", fit90->GetParameter(1), fit90->GetParameter(0)).Data(), "lp");
                                                 
                                                 if (!centSummary.x80.empty())
                                                 {
+                                                    std::vector<double> zeroEx80(centSummary.x80.size(), 0.0);
                                                     TGraphErrors g80Cent(
                                                         (int)centSummary.x80.size(),
                                                         &centSummary.x80[0], &centSummary.y80[0],
-                                                        &centSummary.ex80[0], &centSummary.ey80[0]
+                                                        &zeroEx80[0], &centSummary.ey80[0]
                                                     );
                                                     g80Cent.SetLineWidth(2);
                                                     g80Cent.SetLineColor(kGreen + 2);
                                                     g80Cent.SetMarkerColor(kGreen + 2);
                                                     g80Cent.SetMarkerStyle(21);
                                                     g80Cent.SetMarkerSize(1.2);
-                                                    g80Cent.Draw("PE1 SAME");
-                                                    legEffCent.AddEntry(&g80Cent, "80% Efficiency", "ep");
+                                                    g80Cent.Draw("P SAME");
+                                                    TF1 *fit80 = new TF1("fit80", "pol1", centBins.front().lo, centBins.back().hi);
+                                                    fit80->SetLineColor(kGreen + 2);
+                                                    fit80->SetLineWidth(2);
+                                                    fit80->SetLineStyle(2);
+                                                    g80Cent.Fit(fit80, "QNR");
+                                                    fit80->Draw("SAME");
+                                                    legEffCent.AddEntry(&g80Cent,
+                                                        TString::Format("80%% Eff: y = %.4fx %+.2f", fit80->GetParameter(1), fit80->GetParameter(0)).Data(), "lp");
                                                     
                                                     if (!centSummary.x70.empty())
                                                     {
+                                                        std::vector<double> zeroEx70(centSummary.x70.size(), 0.0);
                                                         TGraphErrors g70Cent(
                                                             (int)centSummary.x70.size(),
                                                             &centSummary.x70[0], &centSummary.y70[0],
-                                                            &centSummary.ex70[0], &centSummary.ey70[0]
+                                                            &zeroEx70[0], &centSummary.ey70[0]
                                                         );
                                                         g70Cent.SetLineWidth(2);
                                                         g70Cent.SetLineColor(kBlue + 1);
                                                         g70Cent.SetMarkerColor(kBlue + 1);
                                                         g70Cent.SetMarkerStyle(22);
-                                                        g70Cent.SetMarkerSize(1.2);
-                                                        g70Cent.Draw("PE1 SAME");
-                                                        legEffCent.AddEntry(&g70Cent, "70% Efficiency", "ep");
+                                                        g70Cent.SetMarkerSize(1.5);
+                                                        g70Cent.Draw("P SAME");
+                                                        TF1 *fit70 = new TF1("fit70", "pol1", centBins.front().lo, centBins.back().hi);
+                                                        fit70->SetLineColor(kBlue + 1);
+                                                        fit70->SetLineWidth(2);
+                                                        fit70->SetLineStyle(2);
+                                                        g70Cent.Fit(fit70, "QNR");
+                                                        fit70->Draw("SAME");
+                                                        legEffCent.AddEntry(&g70Cent,
+                                                            TString::Format("70%% Eff: y = %.4fx %+.2f", fit70->GetParameter(1), fit70->GetParameter(0)).Data(), "lp");
                                                         
                                                         legEffCent.Draw();
                                                         
@@ -5590,7 +5614,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                                         tInfoCent.SetTextSize(0.030);
                                                         tInfoCent.DrawLatex(0.18, 0.88, embeddedLabel.c_str());
                                                         tInfoCent.DrawLatex(0.18, 0.83,
-                                                                            TString::Format("flat fit over p_{T}^{#gamma} #geq %.0f GeV", fitXLo).Data());
+                                                                            TString::Format("linear fit over p_{T}^{#gamma} #geq %.0f GeV", fitXLo).Data());
                                                         tInfoCent.DrawLatex(0.18, 0.78,
                                                                             TString::Format("|v_{z}| < %d cm,  |#eta^{#gamma}| < %.1f", kAA_VzCut, kPhotonEtaAbsMax).Data());
                                                         tInfoCent.DrawLatex(0.18, 0.73,
