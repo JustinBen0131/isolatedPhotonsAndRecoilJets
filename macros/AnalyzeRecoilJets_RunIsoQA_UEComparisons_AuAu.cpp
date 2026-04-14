@@ -3549,7 +3549,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         hFrame->GetYaxis()->SetLabelSize(0.045);
                         hFrame->GetYaxis()->SetTitleOffset(1.15);
                         hFrame->SetMinimum(0.0);
-                        hFrame->SetMaximum((ymx > 0.0) ? (1.45 * ymx) : 1.0);
+                        hFrame->SetMaximum((ymx > 0.0) ? (1.40 * ymx) : 1.0);
                     
                         hFrame->Draw("hist");
                         hInc->Draw("hist SAME");
@@ -3561,7 +3561,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         TF1* fPhoGauss  = DrawGaussFitCurve(hPhoForFit, kRed + 1);
                         TF1* fIncGauss  = DrawGaussFitCurve(hIncForFit, kBlue + 1);
                     
-                        TLegend legComb(0.55, 0.70, 0.95, 0.90);
+                        TLegend legComb(0.55, 0.65, 0.95, 0.85);
                         legComb.SetBorderSize(0);
                         legComb.SetFillStyle(0);
                         legComb.SetTextFont(42);
@@ -3789,7 +3789,6 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
 
                             const int mCanvasH = combHaveSub ? 1000 : 700;
                             TCanvas cM(("c_combMerged_" + mTag).c_str(), "c_combMerged", 900, mCanvasH);
-                            cM.SetCanvasSize(900, mCanvasH);
                             cM.cd();
 
                             const double mPadLoEdge = combHaveSub ? 0.36 : 0.0;
@@ -3803,14 +3802,14 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             hFrM->GetXaxis()->SetTitleSize(0.045); hFrM->GetYaxis()->SetTitleSize(0.055);
                             hFrM->GetXaxis()->SetLabelSize(0.045); hFrM->GetYaxis()->SetLabelSize(0.045);
                             hFrM->GetYaxis()->SetTitleOffset(1.15);
-                            hFrM->SetMinimum(0.0); hFrM->SetMaximum((ymxM > 0.0) ? (1.45*ymxM) : 1.0);
+                            hFrM->SetMinimum(0.0); hFrM->SetMaximum((ymxM > 0.0) ? (1.40*ymxM) : 1.0);
                             hFrM->Draw("hist"); hIncM->Draw("hist SAME"); hPhoM->Draw("hist SAME"); hDataM->Draw("E1 SAME");
 
                             TF1* fDG = DrawGaussFitCurve(hDataM, kBlack);
                             TF1* fPG = DrawGaussFitCurve(hPhoMForFit, kRed+1);
                             TF1* fIG = DrawGaussFitCurve(hIncMForFit, kBlue+1);
 
-                            TLegend lgM(0.55, 0.76, 0.95, 0.93); lgM.SetBorderSize(0); lgM.SetFillStyle(0); lgM.SetTextFont(42); lgM.SetTextSize(0.034);
+                            TLegend lgM(0.55, 0.68, 0.95, 0.88); lgM.SetBorderSize(0); lgM.SetFillStyle(0); lgM.SetTextFont(42); lgM.SetTextSize(0.034);
                             lgM.AddEntry(hDataM, TString::Format("AuAu data (%s)", H.label.c_str()).Data(), "ep");
                             lgM.AddEntry(hPhoM,  "photon+jet embedded MC", "l");
                             lgM.AddEntry(hIncM,  "inclusive jet embedded MC", "l");
@@ -3822,7 +3821,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             tMi.DrawLatex(0.22, 0.88, TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
                             tMi.DrawLatex(0.22, 0.82, TString::Format("p_{T}^{#gamma} = %d-%d GeV", mr.lo, mr.hi).Data());
                             {
-                                const bool mInfoRHS = (cb.lo >= 40);
+                                const bool mInfoRHS = (cb.lo >= 20);
                                 const int   mInfoAlign = mInfoRHS ? 33 : 13;
                                 const double mInfoX    = mInfoRHS ? 0.92 : 0.16;
                                 const double mSphY1    = mInfoRHS ? 0.60 : 0.73;
@@ -3833,12 +3832,14 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 tS.DrawLatex(mInfoX, mSphY1 - 0.06, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
                             }
                             {
-                                const bool mInfoRHS = (cb.lo >= 40);
+                                const bool mInfoRHS = (cb.lo >= 20);
                                 const int   mInfoAlign = mInfoRHS ? 33 : 13;
                                 const double mInfoX    = mInfoRHS ? 0.92 : 0.16;
                                 const double mUEY1     = mInfoRHS ? 0.48 : 0.61;
-                                TLatex tU; tU.SetNDC(true); tU.SetTextFont(42); tU.SetTextAlign(mInfoAlign); tU.SetTextSize(0.030);
+                                TLatex tU; tU.SetNDC(true); tU.SetTextFont(42); tU.SetTextAlign(mInfoAlign);
+                                tU.SetTextSize(0.026);
                                 tU.DrawLatex(mInfoX, mUEY1,        trigDisplayLabel.c_str());
+                                tU.SetTextSize(0.030);
                                 tU.DrawLatex(mInfoX, mUEY1 - 0.04, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
                                 tU.DrawLatex(mInfoX, mUEY1 - 0.08, TString::Format("UE: %s", H.label.c_str()).Data());
                                 tU.DrawLatex(mInfoX, mUEY1 - 0.12, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
