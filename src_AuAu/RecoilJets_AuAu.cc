@@ -1351,6 +1351,46 @@ void RecoilJets::createHistos_Data()
         H["h2_totalCaloEnergy_vs_mbdCharge"] = h2;
       }
 
+      if (m_isAuAu && H.find("h2_emcalEnergy_vs_centrality") == H.end())
+      {
+        auto* h2 = new TH2F("h2_emcalEnergy_vs_centrality",
+                            "h2_emcalEnergy_vs_centrality;Centrality [%];EMCal total energy [GeV]",
+                            100, 0.0, 100.0,
+                            400, 0.0, 8000.0);
+        h2->SetCanExtend(TH1::kAllAxes);
+        H["h2_emcalEnergy_vs_centrality"] = h2;
+      }
+
+      if (m_isAuAu && H.find("h2_ihcalEnergy_vs_centrality") == H.end())
+      {
+        auto* h2 = new TH2F("h2_ihcalEnergy_vs_centrality",
+                            "h2_ihcalEnergy_vs_centrality;Centrality [%];IHCal total energy [GeV]",
+                            100, 0.0, 100.0,
+                            400, 0.0, 8000.0);
+        h2->SetCanExtend(TH1::kAllAxes);
+        H["h2_ihcalEnergy_vs_centrality"] = h2;
+      }
+
+      if (m_isAuAu && H.find("h2_ohcalEnergy_vs_centrality") == H.end())
+      {
+        auto* h2 = new TH2F("h2_ohcalEnergy_vs_centrality",
+                            "h2_ohcalEnergy_vs_centrality;Centrality [%];OHCal total energy [GeV]",
+                            100, 0.0, 100.0,
+                            400, 0.0, 8000.0);
+        h2->SetCanExtend(TH1::kAllAxes);
+        H["h2_ohcalEnergy_vs_centrality"] = h2;
+      }
+
+      if (m_isAuAu && H.find("h2_totalCaloEnergy_vs_centrality") == H.end())
+      {
+        auto* h2 = new TH2F("h2_totalCaloEnergy_vs_centrality",
+                            "h2_totalCaloEnergy_vs_centrality;Centrality [%];Total calorimeter energy [GeV]",
+                            100, 0.0, 100.0,
+                            400, 0.0, 8000.0);
+        h2->SetCanExtend(TH1::kAllAxes);
+        H["h2_totalCaloEnergy_vs_centrality"] = h2;
+      }
+
       out->cd();
       return;
   }
@@ -1463,6 +1503,46 @@ void RecoilJets::createHistos_Data()
                                 400, 0.0, 8000.0);
             h2->SetCanExtend(TH1::kAllAxes);
             H["h2_totalCaloEnergy_vs_mbdCharge"] = h2;
+          }
+
+          if (H.find("h2_emcalEnergy_vs_centrality") == H.end())
+          {
+            auto* h2 = new TH2F("h2_emcalEnergy_vs_centrality",
+                                "h2_emcalEnergy_vs_centrality;Centrality [%];EMCal total energy [GeV]",
+                                100, 0.0, 100.0,
+                                400, 0.0, 8000.0);
+            h2->SetCanExtend(TH1::kAllAxes);
+            H["h2_emcalEnergy_vs_centrality"] = h2;
+          }
+
+          if (H.find("h2_ihcalEnergy_vs_centrality") == H.end())
+          {
+            auto* h2 = new TH2F("h2_ihcalEnergy_vs_centrality",
+                                "h2_ihcalEnergy_vs_centrality;Centrality [%];IHCal total energy [GeV]",
+                                100, 0.0, 100.0,
+                                400, 0.0, 8000.0);
+            h2->SetCanExtend(TH1::kAllAxes);
+            H["h2_ihcalEnergy_vs_centrality"] = h2;
+          }
+
+          if (H.find("h2_ohcalEnergy_vs_centrality") == H.end())
+          {
+            auto* h2 = new TH2F("h2_ohcalEnergy_vs_centrality",
+                                "h2_ohcalEnergy_vs_centrality;Centrality [%];OHCal total energy [GeV]",
+                                100, 0.0, 100.0,
+                                400, 0.0, 8000.0);
+            h2->SetCanExtend(TH1::kAllAxes);
+            H["h2_ohcalEnergy_vs_centrality"] = h2;
+          }
+
+          if (H.find("h2_totalCaloEnergy_vs_centrality") == H.end())
+          {
+            auto* h2 = new TH2F("h2_totalCaloEnergy_vs_centrality",
+                                "h2_totalCaloEnergy_vs_centrality;Centrality [%];Total calorimeter energy [GeV]",
+                                100, 0.0, 100.0,
+                                400, 0.0, 8000.0);
+            h2->SetCanExtend(TH1::kAllAxes);
+            H["h2_totalCaloEnergy_vs_centrality"] = h2;
           }
 
           out->cd();
@@ -2200,6 +2280,29 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         fillInclusiveJetQA(activeTrig, centIdxForJets, kv.first);
     }
 
+    auto sumCaloEnergy = [&](const std::string& key) -> double
+    {
+        auto it = m_calo.find(key);
+        if (it == m_calo.end() || !it->second.towers) return 0.0;
+
+        double sum = 0.0;
+        for (unsigned int ch = 0; ch < it->second.towers->size(); ++ch)
+        {
+            TowerInfo* tower = it->second.towers->get_tower_at_channel(ch);
+            if (!tower) continue;
+
+            const double e = tower->get_energy();
+            if (!std::isfinite(e) || e <= 0.0) continue;
+            sum += e;
+        }
+        return sum;
+    };
+
+    const double emcalEnergy = sumCaloEnergy("CEMC");
+    const double ihcalEnergy = sumCaloEnergy("IHCAL");
+    const double ohcalEnergy = sumCaloEnergy("OHCAL");
+    const double totalCaloEnergy = emcalEnergy + ihcalEnergy + ohcalEnergy;
+
     if (m_mbdpmts)
     {
         double mbdCharge = 0.0;
@@ -2214,29 +2317,6 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
             if (!std::isfinite(q) || q <= 0.0) continue;
             mbdCharge += q;
         }
-
-        auto sumCaloEnergy = [&](const std::string& key) -> double
-        {
-            auto it = m_calo.find(key);
-            if (it == m_calo.end() || !it->second.towers) return 0.0;
-
-            double sum = 0.0;
-            for (unsigned int ch = 0; ch < it->second.towers->size(); ++ch)
-            {
-                TowerInfo* tower = it->second.towers->get_tower_at_channel(ch);
-                if (!tower) continue;
-
-                const double e = tower->get_energy();
-                if (!std::isfinite(e) || e <= 0.0) continue;
-                sum += e;
-            }
-            return sum;
-        };
-
-        const double emcalEnergy = sumCaloEnergy("CEMC");
-        const double ihcalEnergy = sumCaloEnergy("IHCAL");
-        const double ohcalEnergy = sumCaloEnergy("OHCAL");
-        const double totalCaloEnergy = emcalEnergy + ihcalEnergy + ohcalEnergy;
 
         for (const auto& t : activeTrig)
         {
@@ -2273,6 +2353,43 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
             {
                 static_cast<TH2F*>(it->second)->Fill(mbdCharge, totalCaloEnergy);
                 bumpHistFill(t, "h2_totalCaloEnergy_vs_mbdCharge");
+            }
+        }
+    }
+
+    if (m_isAuAu && m_centBin >= 0)
+    {
+        const double centralityValue = static_cast<double>(m_centBin);
+
+        for (const auto& t : activeTrig)
+        {
+            auto itTrig = qaHistogramsByTrigger.find(t);
+            if (itTrig == qaHistogramsByTrigger.end()) continue;
+
+            auto& H = itTrig->second;
+
+            if (auto it = H.find("h2_emcalEnergy_vs_centrality"); it != H.end())
+            {
+                static_cast<TH2F*>(it->second)->Fill(centralityValue, emcalEnergy);
+                bumpHistFill(t, "h2_emcalEnergy_vs_centrality");
+            }
+
+            if (auto it = H.find("h2_ihcalEnergy_vs_centrality"); it != H.end())
+            {
+                static_cast<TH2F*>(it->second)->Fill(centralityValue, ihcalEnergy);
+                bumpHistFill(t, "h2_ihcalEnergy_vs_centrality");
+            }
+
+            if (auto it = H.find("h2_ohcalEnergy_vs_centrality"); it != H.end())
+            {
+                static_cast<TH2F*>(it->second)->Fill(centralityValue, ohcalEnergy);
+                bumpHistFill(t, "h2_ohcalEnergy_vs_centrality");
+            }
+
+            if (auto it = H.find("h2_totalCaloEnergy_vs_centrality"); it != H.end())
+            {
+                static_cast<TH2F*>(it->second)->Fill(centralityValue, totalCaloEnergy);
+                bumpHistFill(t, "h2_totalCaloEnergy_vs_centrality");
             }
         }
     }

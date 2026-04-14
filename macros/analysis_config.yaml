@@ -39,7 +39,7 @@ jet_pt_min: [7.0]
 # The steering macro builds reco jets (and SIM truth jets) for each radius.
 # RecoilJets processes only the radii listed here.
 # Baseline: r02 + r04 + r06
-jet_radii: [0.4]
+jet_radii: [0.3]
 
 # Back-to-back azimuthal cut as a fraction of π.
 #   0.5   → Δφ > π/2
