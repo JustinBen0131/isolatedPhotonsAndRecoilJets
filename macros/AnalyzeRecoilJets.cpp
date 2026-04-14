@@ -80,6 +80,148 @@ void RunEventLevelQA(Dataset& ds)
     vector<string> lines;
     lines.push_back(TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
     DrawAndSaveTH1_Common(ds, hFixed, outPath, "v_{z} [cm]", "Counts", lines, false);
+
+    if (!ds.isSim && !ds.centFolder.empty())
+    {
+        const string generalQaDir = JoinPath(ds.outBase, "baselineData/GeneralEventLevelQA");
+        const string centCaloDir  = JoinPath(generalQaDir, "centrality_CaloCorr");
+        const string mbdCaloDir   = JoinPath(generalQaDir, "MBD_CaloCorr");
+        const string mbdQaDir     = JoinPath(generalQaDir, "MBD_QA");
+
+        EnsureDir(generalQaDir);
+        EnsureDir(centCaloDir);
+        EnsureDir(mbdCaloDir);
+        EnsureDir(mbdQaDir);
+
+        int centLo = -1;
+        int centHi = -1;
+        {
+            const std::size_t us = ds.centFolder.find('_');
+            if (us != string::npos)
+            {
+                try
+                {
+                    centLo = std::stoi(ds.centFolder.substr(0, us));
+                    centHi = std::stoi(ds.centFolder.substr(us + 1));
+                }
+                catch (...)
+                {
+                    centLo = -1;
+                    centHi = -1;
+                }
+            }
+        }
+
+        auto drawCentCaloCorr = [&](const string& hname,
+                                    const string& pngName,
+                                    const string& yTitle)
+        {
+            TH2* h = GetObj<TH2>(ds, hname, true, true, true);
+            if (!h) return;
+
+            TH2* hc = CloneTH2(h,
+                               TString::Format("%s_%s_%s",
+                                               hname.c_str(),
+                                               ds.trigger.c_str(),
+                                               ds.centFolder.c_str()).Data());
+            if (!hc) return;
+
+            if (centLo >= 0 && centHi > centLo)
+            {
+                hc->GetXaxis()->SetRangeUser((double) centLo, (double) centHi);
+            }
+
+            vector<string> l;
+            l.push_back(ds.centLabel);
+            l.push_back(TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
+
+            DrawAndSaveTH2_Common(ds, hc,
+                                  JoinPath(centCaloDir, pngName),
+                                  "Centrality [%]",
+                                  yTitle,
+                                  "Counts",
+                                  l,
+                                  false);
+            delete hc;
+        };
+
+        auto drawMbdCaloCorr = [&](const string& hname,
+                                   const string& pngName,
+                                   const string& yTitle)
+        {
+            TH2* h = GetObj<TH2>(ds, hname, true, true, true);
+            if (!h) return;
+
+            TH2* hc = CloneTH2(h,
+                               TString::Format("%s_%s_%s",
+                                               hname.c_str(),
+                                               ds.trigger.c_str(),
+                                               ds.centFolder.c_str()).Data());
+            if (!hc) return;
+
+            vector<string> l;
+            l.push_back(ds.centLabel);
+            l.push_back(TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
+
+            DrawAndSaveTH2_Common(ds, hc,
+                                  JoinPath(mbdCaloDir, pngName),
+                                  "MBD total charge",
+                                  yTitle,
+                                  "Counts",
+                                  l,
+                                  false);
+            delete hc;
+        };
+
+        drawCentCaloCorr("h2_emcalEnergy_vs_centrality",
+                         "emcalEnergy_vs_centrality.png",
+                         "EMCal total energy [GeV]");
+        drawCentCaloCorr("h2_ihcalEnergy_vs_centrality",
+                         "ihcalEnergy_vs_centrality.png",
+                         "IHCal total energy [GeV]");
+        drawCentCaloCorr("h2_ohcalEnergy_vs_centrality",
+                         "ohcalEnergy_vs_centrality.png",
+                         "OHCal total energy [GeV]");
+        drawCentCaloCorr("h2_totalCaloEnergy_vs_centrality",
+                         "totalCaloEnergy_vs_centrality.png",
+                         "Total calorimeter energy [GeV]");
+
+        drawMbdCaloCorr("h2_emcalEnergy_vs_mbdCharge",
+                        "emcalEnergy_vs_mbdCharge.png",
+                        "EMCal total energy [GeV]");
+        drawMbdCaloCorr("h2_ihcalEnergy_vs_mbdCharge",
+                        "ihcalEnergy_vs_mbdCharge.png",
+                        "IHCal total energy [GeV]");
+        drawMbdCaloCorr("h2_ohcalEnergy_vs_mbdCharge",
+                        "ohcalEnergy_vs_mbdCharge.png",
+                        "OHCal total energy [GeV]");
+        drawMbdCaloCorr("h2_totalCaloEnergy_vs_mbdCharge",
+                        "totalCaloEnergy_vs_mbdCharge.png",
+                        "Total calorimeter energy [GeV]");
+
+        TH1* hMbd = GetObj<TH1>(ds, "h_mbdCharge", true, true, true);
+        if (hMbd)
+        {
+            TH1* hMbdClone = CloneTH1(hMbd,
+                                      TString::Format("h_mbdCharge_%s_%s",
+                                                      ds.trigger.c_str(),
+                                                      ds.centFolder.c_str()).Data());
+            if (hMbdClone)
+            {
+                vector<string> l;
+                l.push_back(ds.centLabel);
+                l.push_back(TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
+
+                DrawAndSaveTH1_Common(ds, hMbdClone,
+                                      JoinPath(mbdQaDir, "mbdCharge.png"),
+                                      "MBD total charge",
+                                      "Counts",
+                                      l,
+                                      false);
+                delete hMbdClone;
+            }
+        }
+    }
     
     // ------------------------------------------------------------------
     // AuAu DATA: overlay z_vtx with embedded SIM (photon+jet and inclusive jet)

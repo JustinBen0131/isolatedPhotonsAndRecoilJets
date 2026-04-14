@@ -2354,6 +2354,83 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
                 static_cast<TH2F*>(it->second)->Fill(mbdCharge, totalCaloEnergy);
                 bumpHistFill(t, "h2_totalCaloEnergy_vs_mbdCharge");
             }
+
+            if (m_isAuAu && m_centBin >= 0)
+            {
+                for (int ic = 0; ic < (int)m_centEdges.size() - 1; ++ic)
+                {
+                    const int clo = m_centEdges[ic];
+                    const int chi = m_centEdges[ic + 1];
+                    if (m_centBin < clo || m_centBin >= chi) continue;
+
+                    const std::string centSuffix = "_cent_" + std::to_string(clo) + "_" + std::to_string(chi);
+
+                    const std::string hMbdName = "h_mbdCharge" + centSuffix;
+                    if (H.find(hMbdName) == H.end())
+                    {
+                        auto* h = new TH1F(hMbdName.c_str(),
+                                           (hMbdName + ";MBD total charge;Entries").c_str(),
+                                           800, 0.0, 8000.0);
+                        H[hMbdName] = h;
+                    }
+                    static_cast<TH1F*>(H[hMbdName])->Fill(mbdCharge);
+                    bumpHistFill(t, hMbdName);
+
+                    const std::string hEmName = "h2_emcalEnergy_vs_mbdCharge" + centSuffix;
+                    if (H.find(hEmName) == H.end())
+                    {
+                        auto* h2 = new TH2F(hEmName.c_str(),
+                                            (hEmName + ";MBD total charge;EMCal total energy [GeV]").c_str(),
+                                            400, 0.0, 8000.0,
+                                            400, 0.0, 8000.0);
+                        h2->SetCanExtend(TH1::kAllAxes);
+                        H[hEmName] = h2;
+                    }
+                    static_cast<TH2F*>(H[hEmName])->Fill(mbdCharge, emcalEnergy);
+                    bumpHistFill(t, hEmName);
+
+                    const std::string hIhName = "h2_ihcalEnergy_vs_mbdCharge" + centSuffix;
+                    if (H.find(hIhName) == H.end())
+                    {
+                        auto* h2 = new TH2F(hIhName.c_str(),
+                                            (hIhName + ";MBD total charge;IHCal total energy [GeV]").c_str(),
+                                            400, 0.0, 8000.0,
+                                            400, 0.0, 8000.0);
+                        h2->SetCanExtend(TH1::kAllAxes);
+                        H[hIhName] = h2;
+                    }
+                    static_cast<TH2F*>(H[hIhName])->Fill(mbdCharge, ihcalEnergy);
+                    bumpHistFill(t, hIhName);
+
+                    const std::string hOhName = "h2_ohcalEnergy_vs_mbdCharge" + centSuffix;
+                    if (H.find(hOhName) == H.end())
+                    {
+                        auto* h2 = new TH2F(hOhName.c_str(),
+                                            (hOhName + ";MBD total charge;OHCal total energy [GeV]").c_str(),
+                                            400, 0.0, 8000.0,
+                                            400, 0.0, 8000.0);
+                        h2->SetCanExtend(TH1::kAllAxes);
+                        H[hOhName] = h2;
+                    }
+                    static_cast<TH2F*>(H[hOhName])->Fill(mbdCharge, ohcalEnergy);
+                    bumpHistFill(t, hOhName);
+
+                    const std::string hTotName = "h2_totalCaloEnergy_vs_mbdCharge" + centSuffix;
+                    if (H.find(hTotName) == H.end())
+                    {
+                        auto* h2 = new TH2F(hTotName.c_str(),
+                                            (hTotName + ";MBD total charge;Total calorimeter energy [GeV]").c_str(),
+                                            400, 0.0, 8000.0,
+                                            400, 0.0, 8000.0);
+                        h2->SetCanExtend(TH1::kAllAxes);
+                        H[hTotName] = h2;
+                    }
+                    static_cast<TH2F*>(H[hTotName])->Fill(mbdCharge, totalCaloEnergy);
+                    bumpHistFill(t, hTotName);
+
+                    break;
+                }
+            }
         }
     }
 
