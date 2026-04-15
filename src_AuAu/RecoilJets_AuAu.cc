@@ -2344,9 +2344,6 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         LOG(4, CLR_YELLOW, os.str());
         return Fun4AllReturnCodes::ABORTEVENT;
     }
-    /* ------------------------------------------------------------------ */
-    /* 3) Trigger counters (one per trigger) + Vertex-z QA                */
-    /* ------------------------------------------------------------------ */
     
     /* ------------------------------------------------------------------ */
     /* 3) Centrality lookup (Au+Au only)                                  */
