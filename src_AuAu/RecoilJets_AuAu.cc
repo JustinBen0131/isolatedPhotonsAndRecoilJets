@@ -233,11 +233,15 @@ namespace RJMCWeighting
   { return new WeightedTProfile(name, title, nbinsx, xbins, ylow, yup); }
 
   inline TProfile3D* RJNewTProfile3D(const char* name, const char* title,
-                                     Int_t nbinsx, const Double_t* xbins,
-                                     Int_t nbinsy, const Double_t* ybins,
-                                     Int_t nbinsz, const Double_t* zbins,
-                                     Double_t tmin, Double_t tmax)
-  { return new WeightedTProfile3D(name, title, nbinsx, xbins, nbinsy, ybins, nbinsz, zbins, tmin, tmax); }
+                                       Int_t nbinsx, const Double_t* xbins,
+                                       Int_t nbinsy, const Double_t* ybins,
+                                       Int_t nbinsz, const Double_t* zbins,
+                                       Double_t tmin, Double_t tmax)
+  {
+      (void)tmin;
+      (void)tmax;
+      return new WeightedTProfile3D(name, title, nbinsx, xbins, nbinsy, ybins, nbinsz, zbins);
+  }
 }
 
 // ============================================================================
@@ -595,8 +599,9 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
   }
 
   // Keep internal flags consistent with what this event will do
-  m_isSim  = isSim;
-  m_isAuAu = isAuAu;
+  m_isSim         = isSim;
+  m_isAuAu        = isAuAu;
+  m_isSimEmbedded = isSimEmbedded;
 
   // ------------------------------------------------------------------
   // Defaults
@@ -1266,7 +1271,7 @@ int RecoilJets::InitRun(PHCompositeNode* /*topNode*/)
       m_centralityReweightH = nullptr;
     }
 
-    if (m_isSim)
+    if (m_isSimEmbedded)
     {
       if (m_vertexReweightOn)
       {
@@ -2393,7 +2398,7 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     m_mcCentralityWeight = 1.0;
     m_mcEventWeight = 1.0;
 
-    if (m_isSim)
+    if (m_isSimEmbedded)
     {
         if (m_vertexReweightOn && m_vertexReweightH)
         {
@@ -2430,7 +2435,7 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         m_mcEventWeight = m_mcVertexWeight * m_mcCentralityWeight;
     }
 
-    RJMCWeighting::CurrentWeight() = (m_isSim ? m_mcEventWeight : 1.0);
+    RJMCWeighting::CurrentWeight() = (m_isSimEmbedded ? m_mcEventWeight : 1.0);
 
     /* ------------------------------------------------------------------ */
     /* 5) Trigger counters (one per trigger) + Vertex-z QA                */

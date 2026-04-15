@@ -318,10 +318,10 @@ public:
         //   "isAuAu"/"auau"               -> Au+Au
         //   "ispp"/"pp"                   -> pp
         const std::string t = s;
-        if (t == "isSimEmbedded" || t == "simembedded") { m_isSim = true;  m_isAuAu = true;  }
-        if (t == "isSim" || t == "sim")                 { m_isSim = true;  m_isAuAu = false; }
-        if (t == "isAuAu" || t == "auau"|| t == "aa")  { m_isSim = false; m_isAuAu = true;  }
-        if (t == "ispp"  || t == "pp")                 { m_isSim = false; m_isAuAu = false; }
+        if (t == "isSimEmbedded" || t == "simembedded") { m_isSim = true;  m_isAuAu = true;  m_isSimEmbedded = true;  }
+        if (t == "isSim" || t == "sim")                 { m_isSim = true;  m_isAuAu = false; m_isSimEmbedded = false; }
+        if (t == "isAuAu" || t == "auau"|| t == "aa")  { m_isSim = false; m_isAuAu = true;  m_isSimEmbedded = false; }
+        if (t == "ispp"  || t == "pp")                 { m_isSim = false; m_isAuAu = false; m_isSimEmbedded = false; }
     }
     
     // Optional: limit active jet radii (keys like "r02","r04"). Empty => all kJetRadii.
@@ -1101,6 +1101,7 @@ private:
     // Dataset flags (these may be overridden at runtime by env in fetchNodes())
     bool m_isSim  = false;
     bool m_isAuAu = false;
+    bool m_isSimEmbedded = false;
     bool m_doPi0Analysis = false;
     
     // Vertex / event selection
