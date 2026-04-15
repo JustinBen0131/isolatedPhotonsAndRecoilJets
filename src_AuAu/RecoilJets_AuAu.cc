@@ -7607,8 +7607,15 @@ int RecoilJets::findCentBin(int cent) const
 
 void RecoilJets::getIsoParams(int centIdx, double& outA, double& outB, double& outGap) const
 {
-    if (!m_centIsoWPs.empty() && centIdx >= 0
-        && centIdx < static_cast<int>(m_centIsoWPs.size()))
+    if (m_isAuAu && m_centIsoWPs.size() == 1 && centIdx >= 0)
+    {
+      const double cent = static_cast<double>(m_centBin);
+      outA   = m_centIsoWPs.front().aGeV + m_centIsoWPs.front().bPerGeV * cent;
+      outB   = 0.0;
+      outGap = m_centIsoWPs.front().sideGapGeV;
+    }
+    else if (!m_centIsoWPs.empty() && centIdx >= 0
+             && centIdx < static_cast<int>(m_centIsoWPs.size()))
     {
       outA   = m_centIsoWPs[centIdx].aGeV;
       outB   = m_centIsoWPs[centIdx].bPerGeV;
@@ -12761,11 +12768,13 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
     return;
   }
 
-  const double thrIso    = (m_isSlidingIso ? (m_isoA + m_isoB * pt_gamma) : m_isoFixed);
-  const double thrNonIso = thrIso + m_isoGap;
+    double _ssA, _ssB, _ssG;
+    getIsoParams(centIdx, _ssA, _ssB, _ssG);
+    const double thrIso    = (m_isSlidingIso ? (_ssA + _ssB * pt_gamma) : m_isoFixed);
+    const double thrNonIso = thrIso + _ssG;
 
-  const bool iso    = (eiso_et < thrIso);
-  const bool nonIso = (eiso_et > thrNonIso);
+    const bool iso    = (eiso_et < thrIso);
+    const bool nonIso = (eiso_et > thrNonIso);
 
   // Exclude the gap region from A–B–C–D (PPG12 definition)
   if (!iso && !nonIso)

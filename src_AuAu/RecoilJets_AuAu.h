@@ -85,6 +85,7 @@ class GlobalVertex;
 class RawCluster;
 class PhotonClusterv1;
 class Jet;
+class MbdPmtContainer;
 
 // g4eval: used for truth↔reco association of EMCal clusters
 class CaloRawClusterEval;

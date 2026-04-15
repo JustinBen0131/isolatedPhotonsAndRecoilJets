@@ -2926,16 +2926,16 @@ if (!SSoverlayPerVAR_processONLY)
                          (tag == "pre" || tag == "tight" || tag == "nonTight"));
                         
                         TLegend legVar(
-                                       useSpecialE32Legend ? 0.08 : (useSpecialE11Legend ? 0.17 : 0.56),
-                                       useSpecialE32Legend ? 0.79 : (useSpecialE11Legend ? 0.78 : 0.58),
-                                       useSpecialE32Legend ? 0.66 : (useSpecialE11Legend ? 0.69 : 0.92),
-                                       useSpecialE32Legend ? 0.91 : (useSpecialE11Legend ? 0.90 : 0.88)
+                                       useSpecialE32Legend ? 0.08 : (useSpecialE11Legend ? 0.17 : 0.10),
+                                       useSpecialE32Legend ? 0.79 : (useSpecialE11Legend ? 0.78 : 0.81),
+                                       useSpecialE32Legend ? 0.66 : (useSpecialE11Legend ? 0.69 : 0.74),
+                                       useSpecialE32Legend ? 0.91 : (useSpecialE11Legend ? 0.90 : 0.89)
                                        );
                         legVar.SetBorderSize(0);
                         legVar.SetFillStyle(0);
                         legVar.SetTextFont(42);
-                        legVar.SetTextSize((useSpecialE11Legend || useSpecialE32Legend) ? 0.028 : 0.032);
-                        if (useSpecialE11Legend || useSpecialE32Legend) legVar.SetNColumns(3);
+                        legVar.SetTextSize((useSpecialE11Legend || useSpecialE32Legend) ? 0.028 : 0.026);
+                        legVar.SetNColumns(3);
                         if (vi.hPP) legVar.AddEntry(vi.hPP, "pp", "ep");
                         for (std::size_t ih = 0; ih < vi.hists.size(); ++ih)
                             legVar.AddEntry(vi.hists[ih], vi.labels[ih].c_str(), "ep");

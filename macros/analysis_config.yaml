@@ -58,7 +58,7 @@ vz_cut_cm: [30.0]
 # -----------------------------------------------------------------------------
 # Centrality binning (AuAu only; ignored for pp/SIM)
 # -----------------------------------------------------------------------------
-centrality_edges: [0, 10, 20, 40, 60, 80]
+centrality_edges: [0, 20, 50, 80]
 
 # -----------------------------------------------------------------------------
 # Cluster UE pipeline (AuAu/OO DATA only)
@@ -136,7 +136,7 @@ doPi0Analysis: false
 # MATRIX AXIS: coneR sets the isolation cone radius.
 # PhotonClusterBuilder provides isolation sums for R=0.3 and R=0.4.
 # -----------------------------------------------------------------------------
-isSlidingIso: false
+isSlidingIso: true
 isSlidingAndFixed: false
 
 # MATRIX AXIS: one job per fixedGeV value (when isSlidingIso is false).
@@ -150,19 +150,15 @@ coneR: [0.30]
 # sideGapGeV: offset for non-isolated sideband
 # truthIsoGeV: generator-level isolation cut (SIM only)
 # towerMin: minimum tower energy for isolation sum (0 = no floor)
-isolation_wp: {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0, truthIsoGeV: 4.0, towerMin: 0.0}
+isolation_wp: {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 0.0, truthIsoGeV: 4.0, towerMin: 0.0}
 
-# Per-centrality AuAu sliding isolation working points.
-# One entry per centrality_edges interval: 0–10%, 10–20%, 20–40%, 40–60%, 60–80%.
-# Only used by RecoilJets_AuAu when isSlidingIso is active.
-# When empty or centIdx is out of range, falls back to the global isolation_wp.
-# Initialized to pp defaults; override per-bin for AuAu-specific tuning.
+# Exact Au+Au centrality-fit isolation working point.
+# With a SINGLE entry, RecoilJets_AuAu evaluates:
+#   thrReco(cent) = aGeV + bPerGeV × centrality
+# at the event centrality itself, then applies that as the event's fixed cut.
+# 90% fit shown here: thrReco(cent) = 5.99 - 0.0511 × centrality
 auau_cent_iso_wp:
-  - {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0}   # 0–10%
-  - {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0}   # 10–20%
-  - {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0}   # 20–40%
-  - {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0}   # 40–60%
-  - {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 1.0}   # 60–80%
+  - {aGeV: 5.99, bPerGeV: -0.0511, sideGapGeV: 0.0}
 
 # -----------------------------------------------------------------------------
 # Photon shower-shape ID cuts (PPG12 Table 4)
