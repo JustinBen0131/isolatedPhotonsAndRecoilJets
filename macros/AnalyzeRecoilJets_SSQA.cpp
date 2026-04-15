@@ -753,7 +753,12 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                                                 );
                     if (rawAA) rawAAs.push_back(std::make_pair(idx, rawAA));
                 }
-                if (!rawPP && !rawSig && !rawBkg && rawAAs.empty())
+                if (rawAAs.empty())
+                {
+                    DrawMissingPad(TString::Format("AuAu missing: %s, %s, %s, %s", var.c_str(), tag.c_str(), cb.folder.c_str(), ptReq.folder.c_str()).Data());
+                    return false;
+                }
+                if (!rawPP && !rawSig && !rawBkg)
                 {
                     DrawMissingPad(TString::Format("%s, %s, %s, %s", var.c_str(), tag.c_str(), cb.folder.c_str(), ptReq.folder.c_str()).Data());
                     return false;
@@ -844,6 +849,18 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                         hAA->SetMarkerSize(1.00);
                         hAA->SetFillStyle(0);
                         hAAs.push_back(std::make_pair(idx, hAA));
+                    }
+                }
+                
+                if (rawPP)  { delete rawPP;  rawPP  = nullptr; }
+                if (rawSig) { delete rawSig; rawSig = nullptr; }
+                if (rawBkg) { delete rawBkg; rawBkg = nullptr; }
+                for (auto& rawPair : rawAAs)
+                {
+                    if (rawPair.second)
+                    {
+                        delete rawPair.second;
+                        rawPair.second = nullptr;
                     }
                 }
                 

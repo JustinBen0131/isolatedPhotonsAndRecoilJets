@@ -370,6 +370,24 @@ public:
     void enablePi0Analysis(bool on = true) { m_doPi0Analysis = on; }
     
     void setCentEdges(const std::vector<int>& edges)     { m_centEdges = edges; }
+
+    void setVertexReweighting(bool on,
+                              const std::string& filePath,
+                              const std::string& histPath = "data_over_MC_ratios/h_zvtx_ratio_data_over_photonJet")
+    {
+        m_vertexReweightOn   = on;
+        m_vertexReweightFile = filePath;
+        m_vertexReweightHist = histPath;
+    }
+
+    void setCentralityReweighting(bool on,
+                                  const std::string& filePath,
+                                  const std::string& histPath = "nom_cent_rw_hist")
+    {
+        m_centralityReweightOn   = on;
+        m_centralityReweightFile = filePath;
+        m_centralityReweightHist = histPath;
+    }
     
     // Isolation WP (implemented in .cc)
     void setIsolationWP(double aGeV, double bPerGeV,
@@ -377,7 +395,12 @@ public:
                         double fixedGeV = 2.0);
     void setIsSlidingIso(bool on) { m_isSlidingIso = on; }
     
-    // Per-centrality sliding isolation WP (AuAu only)
+    // AuAu / embedded-SIM isolation WPs.
+    // If m_isSlidingIso is true and exactly ONE entry is provided, RecoilJets_AuAu
+    // interprets it as an event-centrality fit:
+    //   thrReco(cent) = aGeV + bPerGeV * centrality
+    // and applies that event's threshold as the reco isolation cut.
+    // If multiple entries are provided, the entry indexed by findCentBin() is used.
     struct CentIsoWP { double aGeV; double bPerGeV; double sideGapGeV; };
     void setCentIsoWPs(const std::vector<CentIsoWP>& wps) { m_centIsoWPs = wps; }
     
@@ -1091,6 +1114,7 @@ private:
     
     // Centrality
     int m_centBin = -1;                 // 0..99 (Au+Au), or -1 in pp
+    double m_centPercent = -1.0;        // event centrality percentile (float, used for reweighting)
     std::vector<int> m_centEdges;       // centrality bin edges, e.g. {0,10,20,...,100}
     
     // Photon fiducial + binning
@@ -1149,6 +1173,21 @@ private:
     // Per-centrality sliding WPs (indexed by findCentBin result; falls back to global if empty)
     std::vector<CentIsoWP> m_centIsoWPs;
     void getIsoParams(int centIdx, double& outA, double& outB, double& outGap) const;
+
+    // Blair-style SIM event reweighting
+    bool        m_vertexReweightOn = false;
+    std::string m_vertexReweightFile;
+    std::string m_vertexReweightHist = "data_over_MC_ratios/h_zvtx_ratio_data_over_photonJet";
+    TH1*        m_vertexReweightH = nullptr;
+
+    bool        m_centralityReweightOn = false;
+    std::string m_centralityReweightFile;
+    std::string m_centralityReweightHist = "nom_cent_rw_hist";
+    TH1*        m_centralityReweightH = nullptr;
+
+    double      m_mcVertexWeight = 1.0;
+    double      m_mcCentralityWeight = 1.0;
+    double      m_mcEventWeight = 1.0;
     
     // Jet selection WP
     //  double m_minJetPt      = 5.0;

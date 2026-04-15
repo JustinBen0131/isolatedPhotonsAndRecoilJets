@@ -103,6 +103,143 @@
 
 using namespace PhoIDCuts;
 
+namespace RJMCWeighting
+{
+  inline double& CurrentWeight()
+  {
+    static double w = 1.0;
+    return w;
+  }
+
+  inline double SafeWeight()
+  {
+    const double w = CurrentWeight();
+    return (std::isfinite(w) && w > 0.0) ? w : 1.0;
+  }
+
+  class WeightedTH1F : public TH1F
+  {
+  public:
+    using TH1F::TH1F;
+    Int_t Fill(Double_t x) override { return TH1F::Fill(x, SafeWeight()); }
+    Int_t Fill(Double_t x, Double_t w) override { return TH1F::Fill(x, w * SafeWeight()); }
+  };
+
+  class WeightedTH1D : public TH1D
+  {
+  public:
+    using TH1D::TH1D;
+    Int_t Fill(Double_t x) override { return TH1D::Fill(x, SafeWeight()); }
+    Int_t Fill(Double_t x, Double_t w) override { return TH1D::Fill(x, w * SafeWeight()); }
+  };
+
+  class WeightedTH1I : public TH1I
+  {
+  public:
+    using TH1I::TH1I;
+    Int_t Fill(Double_t x) override { return TH1I::Fill(x, SafeWeight()); }
+    Int_t Fill(Double_t x, Double_t w) override { return TH1I::Fill(x, w * SafeWeight()); }
+  };
+
+  class WeightedTH2F : public TH2F
+  {
+  public:
+    using TH2F::TH2F;
+    Int_t Fill(Double_t x, Double_t y) override { return TH2F::Fill(x, y, SafeWeight()); }
+    Int_t Fill(Double_t x, Double_t y, Double_t w) override { return TH2F::Fill(x, y, w * SafeWeight()); }
+  };
+
+  class WeightedTH2D : public TH2D
+  {
+  public:
+    using TH2D::TH2D;
+    Int_t Fill(Double_t x, Double_t y) override { return TH2D::Fill(x, y, SafeWeight()); }
+    Int_t Fill(Double_t x, Double_t y, Double_t w) override { return TH2D::Fill(x, y, w * SafeWeight()); }
+  };
+
+  class WeightedTH3F : public TH3F
+  {
+  public:
+    using TH3F::TH3F;
+    Int_t Fill(Double_t x, Double_t y, Double_t z) override { return TH3F::Fill(x, y, z, SafeWeight()); }
+    Int_t Fill(Double_t x, Double_t y, Double_t z, Double_t w) override { return TH3F::Fill(x, y, z, w * SafeWeight()); }
+  };
+
+  class WeightedTProfile : public TProfile
+  {
+  public:
+    using TProfile::TProfile;
+    Int_t Fill(Double_t x, Double_t y) override { return TProfile::Fill(x, y, SafeWeight()); }
+    Int_t Fill(Double_t x, Double_t y, Double_t w) override { return TProfile::Fill(x, y, w * SafeWeight()); }
+  };
+
+  class WeightedTProfile3D : public TProfile3D
+  {
+  public:
+    using TProfile3D::TProfile3D;
+    Int_t Fill(Double_t x, Double_t y, Double_t z, Double_t t) override { return TProfile3D::Fill(x, y, z, t, SafeWeight()); }
+    Int_t Fill(Double_t x, Double_t y, Double_t z, Double_t t, Double_t w) override { return TProfile3D::Fill(x, y, z, t, w * SafeWeight()); }
+  };
+
+  inline TH1F* RJNewTH1F(const char* name, const char* title, Int_t nbinsx, Double_t xlow, Double_t xup)
+  { return new WeightedTH1F(name, title, nbinsx, xlow, xup); }
+
+  inline TH1F* RJNewTH1F(const char* name, const char* title, Int_t nbinsx, const Double_t* xbins)
+  { return new WeightedTH1F(name, title, nbinsx, xbins); }
+
+  inline TH1D* RJNewTH1D(const char* name, const char* title, Int_t nbinsx, Double_t xlow, Double_t xup)
+  { return new WeightedTH1D(name, title, nbinsx, xlow, xup); }
+
+  inline TH1D* RJNewTH1D(const char* name, const char* title, Int_t nbinsx, const Double_t* xbins)
+  { return new WeightedTH1D(name, title, nbinsx, xbins); }
+
+  inline TH1I* RJNewTH1I(const char* name, const char* title, Int_t nbinsx, Double_t xlow, Double_t xup)
+  { return new WeightedTH1I(name, title, nbinsx, xlow, xup); }
+
+  inline TH2F* RJNewTH2F(const char* name, const char* title,
+                         Int_t nbinsx, Double_t xlow, Double_t xup,
+                         Int_t nbinsy, Double_t ylow, Double_t yup)
+  { return new WeightedTH2F(name, title, nbinsx, xlow, xup, nbinsy, ylow, yup); }
+
+  inline TH2F* RJNewTH2F(const char* name, const char* title,
+                         Int_t nbinsx, const Double_t* xbins,
+                         Int_t nbinsy, Double_t ylow, Double_t yup)
+  { return new WeightedTH2F(name, title, nbinsx, xbins, nbinsy, ylow, yup); }
+
+  inline TH2D* RJNewTH2D(const char* name, const char* title,
+                         Int_t nbinsx, Double_t xlow, Double_t xup,
+                         Int_t nbinsy, Double_t ylow, Double_t yup)
+  { return new WeightedTH2D(name, title, nbinsx, xlow, xup, nbinsy, ylow, yup); }
+
+  inline TH2D* RJNewTH2D(const char* name, const char* title,
+                         Int_t nbinsx, const Double_t* xbins,
+                         Int_t nbinsy, const Double_t* ybins)
+  { return new WeightedTH2D(name, title, nbinsx, xbins, nbinsy, ybins); }
+
+  inline TH2D* RJNewTH2D(const char* name, const char* title,
+                         Int_t nbinsx, const Double_t* xbins,
+                         Int_t nbinsy, Double_t ylow, Double_t yup)
+  { return new WeightedTH2D(name, title, nbinsx, xbins, nbinsy, ylow, yup); }
+
+  inline TH3F* RJNewTH3F(const char* name, const char* title,
+                         Int_t nbinsx, const Double_t* xbins,
+                         Int_t nbinsy, const Double_t* ybins,
+                         Int_t nbinsz, const Double_t* zbins)
+  { return new WeightedTH3F(name, title, nbinsx, xbins, nbinsy, ybins, nbinsz, zbins); }
+
+  inline TProfile* RJNewTProfile(const char* name, const char* title,
+                                 Int_t nbinsx, const Double_t* xbins,
+                                 Double_t ylow, Double_t yup)
+  { return new WeightedTProfile(name, title, nbinsx, xbins, ylow, yup); }
+
+  inline TProfile3D* RJNewTProfile3D(const char* name, const char* title,
+                                     Int_t nbinsx, const Double_t* xbins,
+                                     Int_t nbinsy, const Double_t* ybins,
+                                     Int_t nbinsz, const Double_t* zbins,
+                                     Double_t tmin, Double_t tmax)
+  { return new WeightedTProfile3D(name, title, nbinsx, xbins, nbinsy, ybins, nbinsz, zbins, tmin, tmax); }
+}
+
 // ============================================================================
 // Jet-radius helpers (single source of truth for acceptance cuts)
 //   rKey format: "r02" -> R=0.2, "r04" -> R=0.4
@@ -1109,6 +1246,103 @@ int RecoilJets::InitRun(PHCompositeNode* /*topNode*/)
 
     initIsolationAudit();
 
+    // -------------------------------------------------------------------------
+    // SIM event reweighting inputs
+    //   eventWeight = zVertexWeight × centralityWeight
+    // -------------------------------------------------------------------------
+    m_mcVertexWeight = 1.0;
+    m_mcCentralityWeight = 1.0;
+    m_mcEventWeight = 1.0;
+    RJMCWeighting::CurrentWeight() = 1.0;
+
+    if (m_vertexReweightH)
+    {
+      delete m_vertexReweightH;
+      m_vertexReweightH = nullptr;
+    }
+    if (m_centralityReweightH)
+    {
+      delete m_centralityReweightH;
+      m_centralityReweightH = nullptr;
+    }
+
+    if (m_isSim)
+    {
+      if (m_vertexReweightOn)
+      {
+        TFile* fvtx = TFile::Open(m_vertexReweightFile.c_str(), "READ");
+        if (!fvtx || fvtx->IsZombie())
+        {
+          LOG(0, CLR_RED, "[InitRun] vertex reweight file open failed: " << m_vertexReweightFile);
+          if (fvtx) { fvtx->Close(); delete fvtx; }
+          return Fun4AllReturnCodes::ABORTRUN;
+        }
+
+        TH1* htmp = dynamic_cast<TH1*>(fvtx->Get(m_vertexReweightHist.c_str()));
+        if (!htmp)
+        {
+          LOG(0, CLR_RED, "[InitRun] vertex reweight histogram missing: " << m_vertexReweightHist
+                           << " in " << m_vertexReweightFile);
+          fvtx->Close();
+          delete fvtx;
+          return Fun4AllReturnCodes::ABORTRUN;
+        }
+
+        m_vertexReweightH = dynamic_cast<TH1*>(htmp->Clone("h_vertex_reweight_clone"));
+        if (!m_vertexReweightH)
+        {
+          LOG(0, CLR_RED, "[InitRun] vertex reweight histogram clone failed: " << m_vertexReweightHist);
+          fvtx->Close();
+          delete fvtx;
+          return Fun4AllReturnCodes::ABORTRUN;
+        }
+        m_vertexReweightH->SetDirectory(nullptr);
+        m_vertexReweightH->Sumw2();
+        fvtx->Close();
+        delete fvtx;
+
+        LOG(1, CLR_GREEN, "[InitRun] vertex reweighting ON  file=" << m_vertexReweightFile
+                           << "  hist=" << m_vertexReweightHist);
+      }
+
+      if (m_centralityReweightOn)
+      {
+        TFile* fcent = TFile::Open(m_centralityReweightFile.c_str(), "READ");
+        if (!fcent || fcent->IsZombie())
+        {
+          LOG(0, CLR_RED, "[InitRun] centrality reweight file open failed: " << m_centralityReweightFile);
+          if (fcent) { fcent->Close(); delete fcent; }
+          return Fun4AllReturnCodes::ABORTRUN;
+        }
+
+        TH1* htmp = dynamic_cast<TH1*>(fcent->Get(m_centralityReweightHist.c_str()));
+        if (!htmp)
+        {
+          LOG(0, CLR_RED, "[InitRun] centrality reweight histogram missing: " << m_centralityReweightHist
+                           << " in " << m_centralityReweightFile);
+          fcent->Close();
+          delete fcent;
+          return Fun4AllReturnCodes::ABORTRUN;
+        }
+
+        m_centralityReweightH = dynamic_cast<TH1*>(htmp->Clone("h_centrality_reweight_clone"));
+        if (!m_centralityReweightH)
+        {
+          LOG(0, CLR_RED, "[InitRun] centrality reweight histogram clone failed: " << m_centralityReweightHist);
+          fcent->Close();
+          delete fcent;
+          return Fun4AllReturnCodes::ABORTRUN;
+        }
+        m_centralityReweightH->SetDirectory(nullptr);
+        m_centralityReweightH->Sumw2();
+        fcent->Close();
+        delete fcent;
+
+        LOG(1, CLR_GREEN, "[InitRun] centrality reweighting ON  file=" << m_centralityReweightFile
+                           << "  hist=" << m_centralityReweightHist);
+      }
+    }
+
     if (m_isoAuditMode)
     {
       auto envOr = [](const char* key, const std::string& fallback = std::string{}) -> std::string
@@ -1884,6 +2118,11 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     ++event_count;
     ++m_bk.evt_seen;
     if (m_isoAuditMode) ++m_isoAuditFlowGlobal.evt_seen;
+
+    m_mcVertexWeight = 1.0;
+    m_mcCentralityWeight = 1.0;
+    m_mcEventWeight = 1.0;
+    RJMCWeighting::CurrentWeight() = 1.0;
     
     if (m_isoAuditMode)
     {
@@ -2109,32 +2348,8 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     /* 3) Trigger counters (one per trigger) + Vertex-z QA                */
     /* ------------------------------------------------------------------ */
     
-    // Bump the per-trigger counter once per accepted event (and LOG fills via bumpHistFill)
-    for (const auto& t : activeTrig)
-    {
-        auto itTrig = qaHistogramsByTrigger.find(t);
-        if (itTrig == qaHistogramsByTrigger.end()) continue;
-        
-        auto& H = itTrig->second;
-        
-        // (1) per-trigger event counter
-        const std::string hcnt = "cnt_" + t;
-        if (auto hc = H.find(hcnt); hc != H.end())
-        {
-            static_cast<TH1I*>(hc->second)->Fill(1);
-            bumpHistFill(t, hcnt);
-        }
-        
-        // (2) vertex-z QA
-        if (auto hvz = H.find("h_vertexZ"); hvz != H.end())
-        {
-            static_cast<TH1F*>(hvz->second)->Fill(m_vz);
-            bumpHistFill(t, "h_vertexZ");
-        }
-    }
-    
     /* ------------------------------------------------------------------ */
-    /* 4) Centrality lookup (Au+Au only)                                  */
+    /* 3) Centrality lookup (Au+Au only)                                  */
     /*     Keep m_centBin = -1 in pp (acts as minimum-bias)               */
     /* ------------------------------------------------------------------ */
     if (m_isAuAu)
@@ -2157,34 +2372,105 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
             LOG(4, CLR_YELLOW,
                 "    invalid mbd_NS centile – treating as minimum-bias (0–100%)");
             m_centBin = -1;
+            m_centPercent = -1.0;
         }
         else
         {
             m_centBin = static_cast<int>(centile);
+            m_centPercent = static_cast<double>(centile);
             LOG(5, CLR_GREEN, "    centrality bin = " << m_centBin << '%');
-        }
-        
-        // Fill centrality histogram if booked under each active trigger
-        if (centile >= 0.f && centile <= 100.f)
-        {
-            for (const auto& t : activeTrig)
-            {
-                auto itTrig = qaHistogramsByTrigger.find(t);
-                if (itTrig == qaHistogramsByTrigger.end()) continue;
-                
-                auto& H = itTrig->second;
-                if (auto hc = H.find("h_centrality"); hc != H.end())
-                {
-                    static_cast<TH1F*>(hc->second)->Fill(centile);
-                    bumpHistFill(t, "h_centrality");
-                }
-            }
         }
     }
     else
     {
         // pp: no centrality
         m_centBin = -1;
+        m_centPercent = -1.0;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* 4) Blair-style SIM event weights                                   */
+    /*     eventWeight = zVertexWeight × centralityWeight                 */
+    /* ------------------------------------------------------------------ */
+    m_mcVertexWeight = 1.0;
+    m_mcCentralityWeight = 1.0;
+    m_mcEventWeight = 1.0;
+
+    if (m_isSim)
+    {
+        if (m_vertexReweightOn && m_vertexReweightH)
+        {
+            int bin = m_vertexReweightH->FindBin(m_vz);
+            if (bin < 1) bin = 1;
+            if (bin > m_vertexReweightH->GetNbinsX()) bin = m_vertexReweightH->GetNbinsX();
+
+            m_mcVertexWeight = m_vertexReweightH->GetBinContent(bin);
+            if (!std::isfinite(m_mcVertexWeight) || m_mcVertexWeight <= 0.0)
+            {
+                LOG(2, CLR_YELLOW,
+                    "    [reweight] invalid z-vertex weight for vz=" << std::fixed << std::setprecision(3) << m_vz
+                    << " → using 1.0");
+                m_mcVertexWeight = 1.0;
+            }
+        }
+
+        if (m_centralityReweightOn && m_centralityReweightH && m_isAuAu && m_centPercent >= 0.0)
+        {
+            int bin = m_centralityReweightH->FindBin(m_centPercent);
+            if (bin < 1) bin = 1;
+            if (bin > m_centralityReweightH->GetNbinsX()) bin = m_centralityReweightH->GetNbinsX();
+
+            m_mcCentralityWeight = m_centralityReweightH->GetBinContent(bin);
+            if (!std::isfinite(m_mcCentralityWeight) || m_mcCentralityWeight <= 0.0)
+            {
+                LOG(2, CLR_YELLOW,
+                    "    [reweight] invalid centrality weight for cent=" << std::fixed << std::setprecision(3) << m_centPercent
+                    << " → using 1.0");
+                m_mcCentralityWeight = 1.0;
+            }
+        }
+
+        m_mcEventWeight = m_mcVertexWeight * m_mcCentralityWeight;
+    }
+
+    RJMCWeighting::CurrentWeight() = (m_isSim ? m_mcEventWeight : 1.0);
+
+    /* ------------------------------------------------------------------ */
+    /* 5) Trigger counters (one per trigger) + Vertex-z QA                */
+    /* ------------------------------------------------------------------ */
+    
+    // Bump the per-trigger counter once per accepted event (and LOG fills via bumpHistFill)
+    for (const auto& t : activeTrig)
+    {
+        auto itTrig = qaHistogramsByTrigger.find(t);
+        if (itTrig == qaHistogramsByTrigger.end()) continue;
+        
+        auto& H = itTrig->second;
+        
+        // (1) per-trigger event counter
+        const std::string hcnt = "cnt_" + t;
+        if (auto hc = H.find(hcnt); hc != H.end())
+        {
+            static_cast<TH1I*>(hc->second)->Fill(1);
+            bumpHistFill(t, hcnt);
+        }
+        
+        // (2) vertex-z QA
+        if (auto hvz = H.find("h_vertexZ"); hvz != H.end())
+        {
+            static_cast<TH1F*>(hvz->second)->Fill(m_vz);
+            bumpHistFill(t, "h_vertexZ");
+        }
+
+        // (3) centrality histogram if booked under each active trigger
+        if (m_isAuAu && m_centPercent >= 0.0 && m_centPercent <= 100.0)
+        {
+            if (auto hc = H.find("h_centrality"); hc != H.end())
+            {
+                static_cast<TH1F*>(hc->second)->Fill(m_centPercent);
+                bumpHistFill(t, "h_centrality");
+            }
+        }
     }
     
     /* ------------------------------------------------------------------ */

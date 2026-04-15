@@ -105,6 +105,23 @@ centrality_edges: [0, 20, 50, 80]
 clusterUEpipeline: [noSub, baseVariant]
 
 # -----------------------------------------------------------------------------
+# SIM-only event reweighting (Blair-style)
+#
+# Applied multiplicatively in embedded MC / SIM as:
+#   eventWeight = zVertexWeight × centralityWeight
+#
+# zVertexWeight   : histogram lookup vs reco v_{z}
+# centralityWeight: histogram lookup vs event centrality percentile
+# -----------------------------------------------------------------------------
+vertex_reweight_on: false
+vertex_reweight_file: /sphenix/u/patsfan753/scratch/thesisAnalysis/zVertexWeighting/zvtx_dataMC_ratios_centInclusive_photon_10_plus_MBD_NS_geq_2_vtx_lt_150.root
+vertex_reweight_hist: data_over_MC_ratios/h_zvtx_ratio_data_over_photonJet
+
+centrality_reweight_on: false
+centrality_reweight_file: /sphenix/u/patsfan753/scratch/thesisAnalysis/reweightingDer/output/centrality_reweighting.root
+centrality_reweight_hist: nom_cent_rw_hist
+
+# -----------------------------------------------------------------------------
 # Pi0 analysis (parallel no-correction cluster branch)
 # -----------------------------------------------------------------------------
 doPi0Analysis: false
