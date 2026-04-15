@@ -113,17 +113,25 @@ doPi0Analysis: false
 # Isolation working point
 #
 # The isolation threshold for each photon candidate is determined by the
-# combination of isSlidingIso, isSlidingAndFixed, and fixedGeV:
+# combination of isSlidingIso, isSlidingAndFixed, fixedGeV, and (for AuAu-like
+# running) auau_cent_iso_wp:
 #
 #   isSlidingAndFixed  isSlidingIso   Matrix behavior
-#   ─────────────────  ────────────   ─────────────────────────────────────
+#   ─────────────────  ────────────   ─────────────────────────────────────────────
 #   false              false          Fixed only: one job per fixedGeV value.
 #                                     Each job uses thrReco = fixedGeV.
-#   false              true           Sliding only: one job total.
-#                                     thrReco = aGeV + bPerGeV × pT(γ).
-#   true               (ignored)      Both: sliding job + one fixed job per
-#                                     fixedGeV value. Allows direct comparison
-#                                     of sliding vs fixed at each threshold.
+#   false              true           Sliding-enabled: one job total.
+#                                     pp / non-AuAu SIM:
+#                                       thrReco = aGeV + bPerGeV × pT(γ)
+#                                     AuAu / embedded SIM with exactly ONE
+#                                     auau_cent_iso_wp entry:
+#                                       thrReco(cent) = aGeV + bPerGeV × centrality
+#                                     AuAu / embedded SIM with one entry per
+#                                     centrality bin:
+#                                       use the entry for that bin.
+#   true               (ignored)      Both: sliding-enabled job + one fixed job
+#                                     per fixedGeV value. Allows direct
+#                                     comparison of sliding-enabled vs fixed.
 #
 # MATRIX AXIS: the submit script calls build_iso_modes() to expand these
 # three keys into parallel arrays (iso_tags[], iso_sliding[], iso_fixed[])
@@ -145,8 +153,10 @@ fixedGeV: [4.0]
 # MATRIX AXIS: isolation cone radius.
 coneR: [0.30]
 
-# Sliding WP parameters (used when isSlidingIso is true):
+# Global sliding WP parameters.
+# Used directly for pp / non-AuAu SIM when isSlidingIso is true:
 #   thrReco = aGeV + bPerGeV × pT(γ)
+# Also used as the fallback when no AuAu-specific entry is available.
 # sideGapGeV: offset for non-isolated sideband
 # truthIsoGeV: generator-level isolation cut (SIM only)
 # towerMin: minimum tower energy for isolation sum (0 = no floor)
@@ -156,7 +166,16 @@ isolation_wp: {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 0.0, truthIsoGeV: 
 # With a SINGLE entry, RecoilJets_AuAu evaluates:
 #   thrReco(cent) = aGeV + bPerGeV × centrality
 # at the event centrality itself, then applies that as the event's fixed cut.
-# 90% fit shown here: thrReco(cent) = 5.99 - 0.0511 × centrality
+#
+# Centrality-fit options from ppg12Style_isoCutEfficiencyFits_vsCentrality_noPP:
+#   90% efficiency: thrReco(cent) = 5.99 - 0.0511 × centrality
+#                   -> {aGeV: 5.99, bPerGeV: -0.0511, sideGapGeV: 0.0}
+#   80% efficiency: thrReco(cent) = 3.84 - 0.0298 × centrality
+#                   -> {aGeV: 3.84, bPerGeV: -0.0298, sideGapGeV: 0.0}
+#   70% efficiency: thrReco(cent) = 2.45 - 0.0155 × centrality
+#                   -> {aGeV: 2.45, bPerGeV: -0.0155, sideGapGeV: 0.0}
+#
+# Example below is the 90% working point.
 auau_cent_iso_wp:
   - {aGeV: 5.99, bPerGeV: -0.0511, sideGapGeV: 0.0}
 

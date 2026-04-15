@@ -454,6 +454,80 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
         {"variantA_variantB_noSub", {std::size_t(0), std::size_t(2), std::size_t(3)}}
     };
     
+    struct SSPtBinRequest
+    {
+        string folder;
+        int lo = 0;
+        int hi = 0;
+        vector<string> suffixes;
+    };
+
+    vector<SSPtBinRequest> ssPtBinRequests;
+    ssPtBinRequests.reserve((std::size_t)kNPtBins + 1);
+
+    bool haveNativePt2035 = false;
+    for (int ipt = 0; ipt < kNPtBins; ++ipt)
+    {
+        const PtBin& b = PtBins()[ipt];
+        ssPtBinRequests.push_back({b.folder, b.lo, b.hi, {b.suffix}});
+        if (b.folder == "pT_20_35") haveNativePt2035 = true;
+    }
+
+    if (!haveNativePt2035)
+    {
+        SSPtBinRequest integrated2035;
+        integrated2035.folder = "pT_20_35";
+        integrated2035.lo = 20;
+        integrated2035.hi = 35;
+
+        for (int ipt = 0; ipt < kNPtBins; ++ipt)
+        {
+            const PtBin& b = PtBins()[ipt];
+            if (b.lo >= 20 && b.hi <= 35)
+            {
+                integrated2035.suffixes.push_back(b.suffix);
+            }
+        }
+
+        if (integrated2035.suffixes.size() >= 2)
+        {
+            ssPtBinRequests.push_back(integrated2035);
+        }
+    }
+
+    auto GetSSHistForPt =
+    [&](TDirectory* topDir,
+        const string& histStemBeforePt,
+        const SSPtBinRequest& ptReq,
+        const string& histTailAfterPt,
+        const string& newName) -> TH1*
+    {
+        if (!topDir) return nullptr;
+
+        TH1* hOut = nullptr;
+        for (const auto& ptSuffix : ptReq.suffixes)
+        {
+            const string hName = histStemBeforePt + ptSuffix + histTailAfterPt;
+            TH1* hSrc = GetTH1FromTopDir(topDir, hName);
+            if (!hSrc) continue;
+
+            if (!hOut)
+            {
+                hOut = CloneTH1(hSrc, newName);
+                if (!hOut) return nullptr;
+                EnsureSumw2(hOut);
+                hOut->SetDirectory(nullptr);
+                hOut->SetTitle("");
+            }
+            else
+            {
+                hOut->Add(hSrc);
+            }
+        }
+
+        return hOut;
+    };
+
     auto HaveAllVariantFiles = [&](const vector<std::size_t>& indices) -> bool
     {
         for (std::size_t idx : indices)
@@ -463,146 +537,154 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
         }
         return true;
     };
-    
+
     auto DrawUEOverlayTable =
-    [&](const SSOverlayVariantCfg& cfg,
-        const CentBin& cb,
-        const PtBin& b,
-        const string& outPng) -> void
-    {
-        if (!HaveAllVariantFiles(cfg.indices)) return;
-        
-        const string cName = TString::Format("c_ssQA_UE_%s_%s_%s_%s",
-                                             cfg.folder.c_str(), trigAA.c_str(), cb.folder.c_str(), b.folder.c_str()).Data();
-        
-        TCanvas cSS(cName.c_str(), cName.c_str(), 2600, 780);
-        cSS.Divide(5, 1, 0.001, 0.001);
-        
-        vector<TH1*> keepH;
-        vector<TLegend*> keepLeg;
-        keepH.reserve(ssVars.size() * cfg.indices.size());
-        keepLeg.reserve(ssVars.size());
-        
-        bool anyPad = false;
-        
-        for (int iv = 0; iv < (int)ssVars.size(); ++iv)
+        [&](const SSOverlayVariantCfg& cfg,
+            const CentBin& cb,
+            const SSPtBinRequest& ptReq,
+            const string& outPng) -> void
         {
-            cSS.cd(iv + 1);
-            gPad->SetLeftMargin(0.14);
-            gPad->SetRightMargin(0.05);
-            gPad->SetBottomMargin(0.14);
-            gPad->SetTopMargin(0.24);
-            gPad->SetLogy(false);
-            
-            const string hName = "h_ss_" + ssVars[iv].var + "_inclusive" + b.suffix + cb.suffix;
-            
-            vector<TH1*> padHists;
-            vector<string> padLabels;
-            double yMaxPad = 0.0;
-            
-            for (std::size_t idx : cfg.indices)
+            if (!HaveAllVariantFiles(cfg.indices)) return;
+
+            const string cName = TString::Format("c_ssQA_UE_%s_%s_%s_%s",
+                                                 cfg.folder.c_str(), trigAA.c_str(), cb.folder.c_str(), ptReq.folder.c_str()).Data();
+
+            TCanvas cSS(cName.c_str(), cName.c_str(), 2600, 780);
+            cSS.Divide(5, 1, 0.001, 0.001);
+
+            vector<TH1*> keepH;
+            vector<TLegend*> keepLeg;
+            keepH.reserve(ssVars.size() * cfg.indices.size());
+            keepLeg.reserve(ssVars.size());
+
+            bool anyPad = false;
+
+            for (int iv = 0; iv < (int)ssVars.size(); ++iv)
             {
-                if (idx >= handles.size()) continue;
-                auto& H = handles[idx];
-                if (!H.file) continue;
-                
-                TDirectory* aaTopSS = H.file->GetDirectory(trigAA.c_str());
-                if (!aaTopSS) continue;
-                
-                TH1* rawAA = GetTH1FromTopDir(aaTopSS, hName);
-                if (!rawAA) continue;
-                
-                TH1* hAA = CloneNormalizeStyle(
-                                               rawAA,
-                                               TString::Format("ssQA_ueOnly_%s_%s_%s_%s_%s_%zu",
-                                                               cfg.folder.c_str(), ssVars[iv].var.c_str(), cb.folder.c_str(),
-                                                               b.folder.c_str(), trigAA.c_str(), idx).Data(),
-                                               ssColors[idx], ssMarkers[idx]
-                                               );
-                if (!hAA) continue;
-                
-                hAA->GetXaxis()->UnZoom();
-                hAA->SetFillStyle(0);
-                hAA->SetLineWidth(2);
-                hAA->SetMarkerSize(0.95);
-                
-                for (int ib = 1; ib <= hAA->GetNbinsX(); ++ib)
+                cSS.cd(iv + 1);
+                gPad->SetLeftMargin(0.14);
+                gPad->SetRightMargin(0.05);
+                gPad->SetBottomMargin(0.14);
+                gPad->SetTopMargin(0.24);
+                gPad->SetLogy(false);
+
+                const string histStem = "h_ss_" + ssVars[iv].var + "_inclusive";
+
+                vector<TH1*> padHists;
+                vector<string> padLabels;
+                double yMaxPad = 0.0;
+
+                for (std::size_t idx : cfg.indices)
                 {
-                    yMaxPad = std::max(yMaxPad, (double)(hAA->GetBinContent(ib) + hAA->GetBinError(ib)));
+                    if (idx >= handles.size()) continue;
+                    auto& H = handles[idx];
+                    if (!H.file) continue;
+
+                    TDirectory* aaTopSS = H.file->GetDirectory(trigAA.c_str());
+                    if (!aaTopSS) continue;
+
+                    TH1* rawAA = GetSSHistForPt(
+                                                aaTopSS,
+                                                histStem,
+                                                ptReq,
+                                                cb.suffix,
+                                                TString::Format("ssQA_ueOnlyRaw_%s_%s_%s_%s_%s_%zu",
+                                                                cfg.folder.c_str(), ssVars[iv].var.c_str(), cb.folder.c_str(),
+                                                                ptReq.folder.c_str(), trigAA.c_str(), idx).Data()
+                                                );
+                    if (!rawAA) continue;
+
+                    TH1* hAA = CloneNormalizeStyle(
+                                                   rawAA,
+                                                   TString::Format("ssQA_ueOnly_%s_%s_%s_%s_%s_%zu",
+                                                                   cfg.folder.c_str(), ssVars[iv].var.c_str(), cb.folder.c_str(),
+                                                                   ptReq.folder.c_str(), trigAA.c_str(), idx).Data(),
+                                                   ssColors[idx], ssMarkers[idx]
+                                                   );
+                    delete rawAA;
+                    if (!hAA) continue;
+
+                    hAA->GetXaxis()->UnZoom();
+                    hAA->SetFillStyle(0);
+                    hAA->SetLineWidth(2);
+                    hAA->SetMarkerSize(0.95);
+
+                    for (int ib = 1; ib <= hAA->GetNbinsX(); ++ib)
+                    {
+                        yMaxPad = std::max(yMaxPad, (double)(hAA->GetBinContent(ib) + hAA->GetBinError(ib)));
+                    }
+
+                    padHists.push_back(hAA);
+                    padLabels.push_back(H.label);
+                    keepH.push_back(hAA);
                 }
-                
-                padHists.push_back(hAA);
-                padLabels.push_back(H.label);
-                keepH.push_back(hAA);
+
+                if (padHists.empty())
+                {
+                    DrawMissingPad(TString::Format("%s, %d-%d%%, %d-%d GeV",
+                                                   ssVars[iv].label.c_str(), cb.lo, cb.hi, ptReq.lo, ptReq.hi).Data());
+                    continue;
+                }
+
+                anyPad = true;
+
+                TH1* hFrame = padHists[0];
+                hFrame->SetTitle("");
+                hFrame->GetXaxis()->SetTitle(ssVars[iv].label.c_str());
+                hFrame->GetYaxis()->SetTitle("Normalized");
+                hFrame->GetXaxis()->SetTitleSize(0.055);
+                hFrame->GetYaxis()->SetTitleSize(0.055);
+                hFrame->GetXaxis()->SetLabelSize(0.044);
+                hFrame->GetYaxis()->SetLabelSize(0.040);
+                hFrame->GetYaxis()->SetTitleOffset(1.55);
+                hFrame->SetMinimum(0.0);
+                hFrame->SetMaximum((yMaxPad > 0.0) ? (1.12 * yMaxPad) : 1.0);
+                hFrame->Draw("E1");
+                for (std::size_t ih = 1; ih < padHists.size(); ++ih) padHists[ih]->Draw("E1 same");
+                hFrame->Draw("E1 same");
+
+                TLegend* leg = new TLegend(0.08, 0.90, 0.92, 0.985);
+                leg->SetBorderSize(0);
+                leg->SetFillStyle(0);
+                leg->SetTextFont(42);
+                leg->SetTextSize(0.036);
+                leg->SetNColumns((int)std::min<std::size_t>(cfg.indices.size(), 2));
+                for (std::size_t ih = 0; ih < padHists.size(); ++ih)
+                {
+                    leg->AddEntry(padHists[ih], padLabels[ih].c_str(), "ep");
+                }
+                leg->Draw();
+                keepLeg.push_back(leg);
+
+                TLatex tPad;
+                tPad.SetNDC(true);
+                tPad.SetTextFont(42);
+                tPad.SetTextAlign(22);
+                tPad.SetTextSize(0.050);
+                tPad.DrawLatex(0.50, 0.845,
+                               TString::Format("%s, p_{T}^{#gamma} %d-%d GeV, %d-%d%%",
+                                               ssVars[iv].label.c_str(),
+                                               ptReq.lo, ptReq.hi, cb.lo, cb.hi).Data());
             }
-            
-            if (padHists.empty())
+
+            if (anyPad)
             {
-                DrawMissingPad(TString::Format("%s, %d-%d%%, %d-%d GeV",
-                                               ssVars[iv].label.c_str(), cb.lo, cb.hi, b.lo, b.hi).Data());
-                continue;
+                SaveCanvas(cSS, outPng);
             }
-            
-            anyPad = true;
-            
-            TH1* hFrame = padHists[0];
-            hFrame->SetTitle("");
-            hFrame->GetXaxis()->SetTitle(ssVars[iv].label.c_str());
-            hFrame->GetYaxis()->SetTitle("Normalized");
-            hFrame->GetXaxis()->SetTitleSize(0.055);
-            hFrame->GetYaxis()->SetTitleSize(0.055);
-            hFrame->GetXaxis()->SetLabelSize(0.044);
-            hFrame->GetYaxis()->SetLabelSize(0.040);
-            hFrame->GetYaxis()->SetTitleOffset(1.55);
-            hFrame->SetMinimum(0.0);
-            hFrame->SetMaximum((yMaxPad > 0.0) ? (1.12 * yMaxPad) : 1.0);
-            hFrame->Draw("E1");
-            for (std::size_t ih = 1; ih < padHists.size(); ++ih) padHists[ih]->Draw("E1 same");
-            hFrame->Draw("E1 same");
-            
-            TLegend* leg = new TLegend(0.08, 0.90, 0.92, 0.985);
-            leg->SetBorderSize(0);
-            leg->SetFillStyle(0);
-            leg->SetTextFont(42);
-            leg->SetTextSize(0.036);
-            leg->SetNColumns((int)std::min<std::size_t>(cfg.indices.size(), 2));
-            for (std::size_t ih = 0; ih < padHists.size(); ++ih)
-            {
-                leg->AddEntry(padHists[ih], padLabels[ih].c_str(), "ep");
-            }
-            leg->Draw();
-            keepLeg.push_back(leg);
-            
-            TLatex tPad;
-            tPad.SetNDC(true);
-            tPad.SetTextFont(42);
-            tPad.SetTextAlign(22);
-            tPad.SetTextSize(0.050);
-            tPad.DrawLatex(0.50, 0.845,
-                           TString::Format("%s, p_{T}^{#gamma} %d-%d GeV, %d-%d%%",
-                                           ssVars[iv].label.c_str(),
-                                           b.lo, b.hi, cb.lo, cb.hi).Data());
-        }
-        
-        if (anyPad)
-        {
-            SaveCanvas(cSS, outPng);
-        }
-        
-        for (TLegend* l : keepLeg) delete l;
-        for (TH1* h : keepH) delete h;
-    };
-    
+
+            for (TLegend* l : keepLeg) delete l;
+            for (TH1* h : keepH) delete h;
+        };
     auto DrawPythiaOverlaySet =
-    [&](const SSOverlayVariantCfg& cfg,
-        const CentBin& cb,
-        const PtBin& b,
-        const string& outRoot,
-        TDirectory* templateTopDir,
-        TDirectory* bkgOverrideDir = nullptr,
-        const string& sigLegLabel  = "Signal MC",
-        const string& bkgLegLabel  = "Background MC",
-        bool shiftLegendLeft       = false) -> void
+        [&](const SSOverlayVariantCfg& cfg,
+            const CentBin& cb,
+            const SSPtBinRequest& ptReq,
+            const string& outRoot,
+            TDirectory* templateTopDir,
+            TDirectory* bkgOverrideDir = nullptr,
+            const string& sigLegLabel  = "Signal MC",
+            const string& bkgLegLabel  = "Background MC",
+            bool shiftLegendLeft       = false) -> void
     {
         if (!HaveAllVariantFiles(cfg.indices)) return;
         if (!ppTop || !templateTopDir) return;
@@ -623,14 +705,32 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                 const std::string& vlabel = ssVars[iv].label;
                 const bool isW = (var == "weta" || var == "wphi");
                 
-                const string hPPName  = string("h_ss_") + var + string("_") + tag + b.suffix;
-                const string hSigName = string("h_ss_") + var + string("_") + tag + string("_sig") + b.suffix + cb.suffix;
-                const string hBkgName = string("h_ss_") + var + string("_") + tag + string("_bkg") + b.suffix + cb.suffix;
-                const string hAAName  = string("h_ss_") + var + string("_") + tag + b.suffix + cb.suffix;
+                TH1* rawPP = GetSSHistForPt(
+                                            ppTop,
+                                            string("h_ss_") + var + string("_") + tag,
+                                            ptReq,
+                                            "",
+                                            TString::Format("ssQA_rawPP_%s_%s_%s_%s",
+                                                            cfg.folder.c_str(), tag.c_str(), var.c_str(), ptReq.folder.c_str()).Data()
+                                            );
                 
-                TH1* rawPP  = GetTH1FromTopDir(ppTop, hPPName);
-                TH1* rawSig = GetTH1FromTopDir(templateTopDir, hSigName);
-                TH1* rawBkg = GetTH1FromTopDir(bkgOverrideDir ? bkgOverrideDir : templateTopDir, hBkgName);
+                TH1* rawSig = GetSSHistForPt(
+                                             templateTopDir,
+                                             string("h_ss_") + var + string("_") + tag + string("_sig"),
+                                             ptReq,
+                                             cb.suffix,
+                                             TString::Format("ssQA_rawSig_%s_%s_%s_%s_%s",
+                                                             cfg.folder.c_str(), tag.c_str(), var.c_str(), cb.folder.c_str(), ptReq.folder.c_str()).Data()
+                                             );
+                
+                TH1* rawBkg = GetSSHistForPt(
+                                             bkgOverrideDir ? bkgOverrideDir : templateTopDir,
+                                             string("h_ss_") + var + string("_") + tag + string("_bkg"),
+                                             ptReq,
+                                             cb.suffix,
+                                             TString::Format("ssQA_rawBkg_%s_%s_%s_%s_%s",
+                                                             cfg.folder.c_str(), tag.c_str(), var.c_str(), cb.folder.c_str(), ptReq.folder.c_str()).Data()
+                                             );
                 
                 vector<std::pair<std::size_t, TH1*> > rawAAs;
                 for (std::size_t idx : cfg.indices)
@@ -642,13 +742,20 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                     TDirectory* aaTopSS = H.file->GetDirectory(trigAA.c_str());
                     if (!aaTopSS) continue;
                     
-                    TH1* rawAA = GetTH1FromTopDir(aaTopSS, hAAName);
+                    TH1* rawAA = GetSSHistForPt(
+                                                aaTopSS,
+                                                string("h_ss_") + var + string("_") + tag,
+                                                ptReq,
+                                                cb.suffix,
+                                                TString::Format("ssQA_rawAA_%s_%s_%s_%s_%s_%zu",
+                                                                cfg.folder.c_str(), tag.c_str(), var.c_str(),
+                                                                cb.folder.c_str(), ptReq.folder.c_str(), idx).Data()
+                                                );
                     if (rawAA) rawAAs.push_back(std::make_pair(idx, rawAA));
                 }
-                
                 if (!rawPP && !rawSig && !rawBkg && rawAAs.empty())
                 {
-                    DrawMissingPad(TString::Format("%s, %s, %s, %s", var.c_str(), tag.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
+                    DrawMissingPad(TString::Format("%s, %s, %s, %s", var.c_str(), tag.c_str(), cb.folder.c_str(), ptReq.folder.c_str()).Data());
                     return false;
                 }
                 
@@ -662,7 +769,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                     hPP = CloneNormalizeStyle(
                                               rawPP,
                                               TString::Format("ssQA_%s_%s_%s_%s_%s_pp",
-                                                              cfg.folder.c_str(), tag.c_str(), var.c_str(), b.folder.c_str(), doZoom ? "zoom" : "full").Data(),
+                                                              cfg.folder.c_str(), tag.c_str(), var.c_str(), ptReq.folder.c_str(), doZoom ? "zoom" : "full").Data(),
                                               kRed + 1, 24
                                               );
                     
@@ -682,7 +789,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                     hSig = CloneNormalizeStyle(
                                                rawSig,
                                                TString::Format("ssQA_%s_%s_%s_%s_%s_sig",
-                                                               cfg.folder.c_str(), tag.c_str(), var.c_str(), b.folder.c_str(), doZoom ? "zoom" : "full").Data(),
+                                                               cfg.folder.c_str(), tag.c_str(), var.c_str(), ptReq.folder.c_str(), doZoom ? "zoom" : "full").Data(),
                                                kPink + 7, 24
                                                );
                     
@@ -702,7 +809,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                     hBkg = CloneNormalizeStyle(
                                                rawBkg,
                                                TString::Format("ssQA_%s_%s_%s_%s_%s_bkg",
-                                                               cfg.folder.c_str(), tag.c_str(), var.c_str(), b.folder.c_str(), doZoom ? "zoom" : "full").Data(),
+                                                               cfg.folder.c_str(), tag.c_str(), var.c_str(), ptReq.folder.c_str(), doZoom ? "zoom" : "full").Data(),
                                                kBlue + 1, 25
                                                );
                     
@@ -724,7 +831,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                     TH1* hAA = CloneNormalizeStyle(
                                                    rawPair.second,
                                                    TString::Format("ssQA_%s_%s_%s_%s_%s_aa_%zu",
-                                                                   cfg.folder.c_str(), tag.c_str(), var.c_str(), b.folder.c_str(), doZoom ? "zoom" : "full", idx).Data(),
+                                                                   cfg.folder.c_str(), tag.c_str(), var.c_str(), ptReq.folder.c_str(), doZoom ? "zoom" : "full", idx).Data(),
                                                    aaCol, ssMarkers[idx]
                                                    );
                     
@@ -748,7 +855,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                 
                 if (!hFrame)
                 {
-                    DrawMissingPad(TString::Format("%s, %s, %s, %s", var.c_str(), tag.c_str(), cb.folder.c_str(), b.folder.c_str()).Data());
+                    DrawMissingPad(TString::Format("%s, %s, %s, %s", var.c_str(), tag.c_str(), cb.folder.c_str(), ptReq.folder.c_str()).Data());
                     return false;
                 }
                 
@@ -911,14 +1018,14 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                             }
                             th.DrawLatex(0.50, 0.96,
                                          TString::Format("%s, %s, p_{T}^{#gamma}: %d-%d GeV, %d-%d%%, %s",
-                                                         vlabel.c_str(), TagLabel(tag).c_str(), b.lo, b.hi,
+                                                         vlabel.c_str(), TagLabel(tag).c_str(), ptReq.lo, ptReq.hi,
                                                          cb.lo, cb.hi, varTitle.c_str()).Data());
                         }
                         else
                         {
                             th.DrawLatex(0.50, 0.91,
                                          TString::Format("%s, %s, p_{T}^{#gamma}: %d-%d GeV",
-                                                         vlabel.c_str(), TagLabel(tag).c_str(), b.lo, b.hi).Data());
+                                                         vlabel.c_str(), TagLabel(tag).c_str(), ptReq.lo, ptReq.hi).Data());
                         }
                     }
                 }
@@ -1022,14 +1129,14 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                         {
                             cutText = "Non-tight #gamma-ID: fail #geq 2 tight cuts";
                             drawSingleCut = true;
-                            const double ptCenter = 0.5 * (b.lo + b.hi);
+                            const double ptCenter = 0.5 * (ptReq.lo + ptReq.hi);
                             cutHi = 0.15 + 0.006 * ptCenter;
                         }
                         else
                         {
                             cutText = "#gamma-ID: 0 < w_{#eta}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
                             drawSingleCut = true;
-                            const double ptCenter = 0.5 * (b.lo + b.hi);
+                            const double ptCenter = 0.5 * (ptReq.lo + ptReq.hi);
                             cutHi = 0.15 + 0.006 * ptCenter;
                         }
                     }
@@ -1039,14 +1146,14 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                         {
                             cutText = "Non-tight #gamma-ID: fail #geq 2 tight cuts";
                             drawSingleCut = true;
-                            const double ptCenter = 0.5 * (b.lo + b.hi);
+                            const double ptCenter = 0.5 * (ptReq.lo + ptReq.hi);
                             cutHi = 0.15 + 0.006 * ptCenter;
                         }
                         else if (!isPre)
                         {
                             cutText = "#gamma-ID: 0 < w_{#phi}^{cogX} < 0.15 + 0.006 E_{T}^{#gamma}";
                             drawSingleCut = true;
-                            const double ptCenter = 0.5 * (b.lo + b.hi);
+                            const double ptCenter = 0.5 * (ptReq.lo + ptReq.hi);
                             cutHi = 0.15 + 0.006 * ptCenter;
                         }
                     }
@@ -1115,7 +1222,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
             
             TCanvas cPP(
                         TString::Format("c_ssQA_ppDataSigBkg_%s_%s_%s_%s",
-                                        cfg.folder.c_str(), tag.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
+                                        cfg.folder.c_str(), tag.c_str(), cb.folder.c_str(), ptReq.folder.c_str()).Data(),
                         "c_ssQA_ppDataSigBkg", 2600, 750
                         );
             cPP.Divide(5, 1, 0.001, 0.001);
@@ -1149,7 +1256,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
             
             TCanvas cPP2(
                          TString::Format("c_ssQA_ppDataSigBkg_zoom_%s_%s_%s_%s",
-                                         cfg.folder.c_str(), tag.c_str(), cb.folder.c_str(), b.folder.c_str()).Data(),
+                                         cfg.folder.c_str(), tag.c_str(), cb.folder.c_str(), ptReq.folder.c_str()).Data(),
                          "c_ssQA_ppDataSigBkg_zoom", 2600, 1200
                          );
             cPP2.Divide(5, 2, 0.001, 0.001);
@@ -1207,7 +1314,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                                  TString::Format("c_ssQA_var_%s_%s_%s_%s_%s",
                                                  cfg.folder.c_str(), tag.c_str(),
                                                  ssVars[iv].var.c_str(),
-                                                 cb.folder.c_str(), b.folder.c_str()).Data(),
+                                                 cb.folder.c_str(), ptReq.folder.c_str()).Data(),
                                  "c_ssQA_var", 900, 700
                                  );
                     cVar.cd();
@@ -1236,52 +1343,51 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
         const auto& cb = centBins[ic];
         const string centDir = JoinPath(ssQADir, cb.folder);
         EnsureDir(centDir);
-        
-        for (int ipt = 0; ipt < kNPtBins; ++ipt)
+
+        for (const auto& ptReq : ssPtBinRequests)
         {
-            const PtBin& b = PtBins()[ipt];
-            const string ptDir = JoinPath(centDir, b.folder);
+            const string ptDir = JoinPath(centDir, ptReq.folder);
             EnsureDir(ptDir);
-            
+
             const string ueOverlayDir = JoinPath(ptDir, "UEoverlays");
             EnsureDir(ueOverlayDir);
-            
+
             if (!SSoverlayPerVAR_processONLY)
             {
                 for (const auto& cfg : ueOverlayCfgs)
                 {
                     if (!HaveAllVariantFiles(cfg.indices)) continue;
-                    
+
                     const string cfgDir = JoinPath(ueOverlayDir, cfg.folder);
                     EnsureDir(cfgDir);
-                    DrawUEOverlayTable(cfg, cb, b, JoinPath(cfgDir, "table1x5_SS_UEvariantOverlay.png"));
+                    DrawUEOverlayTable(cfg, cb, ptReq, JoinPath(cfgDir, "table1x5_SS_UEvariantOverlay.png"));
                 }
             }
-            
+
             if (!SSoverlayPerVAR_processONLY)
             for (const auto& src : ssTemplateSources)
             {
                 if (!src.topDir) continue;
                 const string srcDir = JoinPath(ptDir, src.folderName);
                 EnsureDir(srcDir);
-                
+
                 for (const auto& cfg : pythiaOverlayCfgs)
                 {
                     if (!HaveAllVariantFiles(cfg.indices)) continue;
-                    
+
                     const string cfgDir = JoinPath(srcDir, cfg.folder);
                     EnsureDir(cfgDir);
-                    DrawPythiaOverlaySet(cfg, cb, b, cfgDir, src.topDir);
+                    DrawPythiaOverlaySet(cfg, cb, ptReq, cfgDir, src.topDir);
                 }
             }
         }
     }
-    
+
     // ── Mixed overlay: photon+jet signal × inclusive-jet background ──
     {
         TDirectory* sigDir = EnsureEmbeddedTemplateTopDir();                       // photon+jet embedded
         TDirectory* bkgDir = fInclJetSS ? fInclJetSS->GetDirectory(kDirSIM.c_str()) : nullptr;
-        
+
         if (sigDir && bkgDir)
         {
             // Build embedded-sample tag strings for legend labels
@@ -1289,36 +1395,35 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
             if (bothPhoton10and20simEmbedded)       photTag = "10+20";
             else if (isPhotonJet10Embedded)          photTag = "10";
             else                                     photTag = "20";
-            
+
             string inclTag;
             if (bothInclusiveJet10and20simEmbedded)  inclTag = "10+20";
             else if (isInclusiveJet10Embedded)       inclTag = "10";
             else                                     inclTag = "20";
-            
+
             const string sigLabel = "Signal MC (#gamma+jet " + photTag + " emb)";
             const string bkgLabel = "Bkg MC (inclusive jet " + inclTag + " emb)";
-            
+
             for (std::size_t ic = 0; ic < centBins.size(); ++ic)
             {
                 const auto& cb = centBins[ic];
                 const string centDir = JoinPath(ssQADir, cb.folder);
                 EnsureDir(centDir);
-                
-                for (int ipt = 0; ipt < kNPtBins; ++ipt)
+
+                for (const auto& ptReq : ssPtBinRequests)
                 {
-                    const PtBin& b = PtBins()[ipt];
-                    const string ptDir  = JoinPath(centDir, b.folder);
+                    const string ptDir  = JoinPath(centDir, ptReq.folder);
                     EnsureDir(ptDir);
                     const string mixDir = JoinPath(ptDir, "inclusiveBACKGROUNDphotonJetSIGNALoverlay");
                     EnsureDir(mixDir);
-                    
+
                     for (const auto& cfg : pythiaOverlayCfgs)
                     {
                         if (!HaveAllVariantFiles(cfg.indices)) continue;
-                        
+
                         const string cfgDir = JoinPath(mixDir, cfg.folder);
                         EnsureDir(cfgDir);
-                        DrawPythiaOverlaySet(cfg, cb, b, cfgDir,
+                        DrawPythiaOverlaySet(cfg, cb, ptReq, cfgDir,
                                              sigDir, bkgDir,
                                              sigLabel, bkgLabel, true);
                     }
@@ -1326,6 +1431,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
             }
         }
     }
+
     
     CloseTemplateFile(fSimSSEmbedded, simTopSSEmbedded);
     if (fInclJetSS) { fInclJetSS->Close(); delete fInclJetSS; fInclJetSS = nullptr; }

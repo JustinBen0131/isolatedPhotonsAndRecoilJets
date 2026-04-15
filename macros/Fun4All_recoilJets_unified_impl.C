@@ -3088,18 +3088,47 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 
   if (vlevel > 0)
   {
-    std::cout << "[CFG] Applied to RecoilJets:"
-              << " etaAbsMax=" << cfg.photon_eta_abs_max
-              << " jetPtMin=" << cfg.jet_pt_min
-              << " dphiMin(rad)=" << (cfg.back_to_back_dphi_min_pi_fraction * M_PI)
-              << " useVzCut=" << (cfg.use_vz_cut ? "true" : "false")
-              << " vzCut=" << cfg.vz_cut_cm
+      std::cout << "[CFG] Applied to RecoilJets:"
+      << " etaAbsMax=" << cfg.photon_eta_abs_max
+      << " jetPtMin=" << cfg.jet_pt_min
+      << " dphiMin(rad)=" << (cfg.back_to_back_dphi_min_pi_fraction * M_PI)
+      << " useVzCut=" << (cfg.use_vz_cut ? "true" : "false")
+      << " vzCut=" << cfg.vz_cut_cm
 #if defined(RJ_UNIFIED_ANALYSIS_AUAU)
-              << " centEdges_n=" << cfg.centrality_edges.size()
+      << " centEdges_n=" << cfg.centrality_edges.size()
 #endif
-              << " phoDR=" << cfg.pho_dr_max
-              << " jetDR=" << cfg.jet_dr_max
-              << "\n";
+      << " phoDR=" << cfg.pho_dr_max
+      << " jetDR=" << cfg.jet_dr_max
+      << "\n";
+      
+      std::cout << "[CFG] isolation mode:";
+      if (!cfg.isSlidingIso)
+      {
+          std::cout << " fixed (thrReco=fixedGeV=" << cfg.isoFixed << ")";
+      }
+      else
+      {
+#if defined(RJ_UNIFIED_ANALYSIS_AUAU)
+          if (cfg.auauCentIsoWP.size() == 1)
+          {
+              std::cout << " sliding -> AuAu/embedded centrality-fit"
+              << " (thrReco(cent)=" << cfg.auauCentIsoWP.front().aGeV
+              << " + " << cfg.auauCentIsoWP.front().bPerGeV << " * cent)";
+          }
+          else if (!cfg.auauCentIsoWP.empty())
+          {
+              std::cout << " sliding -> per-centrality-bin WP list"
+              << " (nCentWP=" << cfg.auauCentIsoWP.size() << ")";
+          }
+          else
+#endif
+          {
+              std::cout << " sliding -> pT-dependent"
+              << " (thrReco(pT)=" << cfg.isoA
+              << " + " << cfg.isoB << " * pTgamma)";
+          }
+      }
+      std::cout << " sideGap=" << cfg.isoGap << "\n";
   }
 
   recoilJets->enableEventDisplayDiagnostics(cfg.event_display_tree);
@@ -3107,8 +3136,8 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 
   if (vlevel > 0)
   {
-    std::cout << "[CFG] EventDisplayTree: enable=" << (cfg.event_display_tree ? "true" : "false")
-              << " max_per_bin=" << cfg.event_display_tree_max_per_bin << "\n";
+      std::cout << "[CFG] EventDisplayTree: enable=" << (cfg.event_display_tree ? "true" : "false")
+                << " max_per_bin=" << cfg.event_display_tree_max_per_bin << "\n";
   }
 
   recoilJets->Verbosity(vlevel);
