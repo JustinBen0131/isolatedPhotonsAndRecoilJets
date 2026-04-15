@@ -102,7 +102,7 @@ centrality_edges: [0, 20, 50, 80]
 #     shapes, isolation) is identical to variantA.
 #
 # -----------------------------------------------------------------------------
-clusterUEpipeline: [noSub, baseVariant]
+clusterUEpipeline: [baseVariant]
 
 # -----------------------------------------------------------------------------
 # SIM-only event reweighting (Blair-style)
