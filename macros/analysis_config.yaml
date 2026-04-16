@@ -124,7 +124,7 @@ centrality_reweight_hist: nom_cent_rw_hist
 # -----------------------------------------------------------------------------
 # Pi0 analysis (parallel no-correction cluster branch)
 # -----------------------------------------------------------------------------
-doPi0Analysis: false
+doPi0Analysis: true
 
 # -----------------------------------------------------------------------------
 # Isolation working point

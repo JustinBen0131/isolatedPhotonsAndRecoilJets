@@ -1675,24 +1675,39 @@ void RecoilJets::createHistos_Data()
 
           if (m_doPi0Analysis)
           {
-            if (H.find("h2_pi0_mass_vs_pi0pt_corr") == H.end())
+            auto bookPi0HistPair = [&](const std::string& suffix)
             {
-              TH2F* hist = new TH2F("h2_pi0_mass_vs_pi0pt_corr",
-                                    "h2_pi0_mass_vs_pi0pt_corr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{#pi^{0}} [GeV/c]",
-                                    240, 0, 0.6,
-                                    240, 0, 60);
-              hist->SetDirectory(out);
-              H["h2_pi0_mass_vs_pi0pt_corr"] = hist;
-            }
+              const std::string hMassPi0PtName = "h2_pi0_mass_vs_pi0pt_corr" + suffix;
+              if (H.find(hMassPi0PtName) == H.end())
+              {
+                TH2F* hist = new TH2F(hMassPi0PtName.c_str(),
+                                      (hMassPi0PtName + ";M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{#pi^{0}} [GeV/c]").c_str(),
+                                      240, 0, 0.6,
+                                      240, 0, 60);
+                hist->SetDirectory(out);
+                H[hMassPi0PtName] = hist;
+              }
 
-            if (H.find("h2_pi0_mass_vs_leadcluspt_corr") == H.end())
+              const std::string hMassLeadPtName = "h2_pi0_mass_vs_leadcluspt_corr" + suffix;
+              if (H.find(hMassLeadPtName) == H.end())
+              {
+                TH2F* hist = new TH2F(hMassLeadPtName.c_str(),
+                                      (hMassLeadPtName + ";M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{lead cluster} [GeV/c]").c_str(),
+                                      240, 0, 0.6,
+                                      240, 0, 60);
+                hist->SetDirectory(out);
+                H[hMassLeadPtName] = hist;
+              }
+            };
+
+            bookPi0HistPair("");
+
+            if (m_isAuAu && m_centEdges.size() >= 2)
             {
-              TH2F* hist = new TH2F("h2_pi0_mass_vs_leadcluspt_corr",
-                                    "h2_pi0_mass_vs_leadcluspt_corr;M_{#gamma#gamma} [GeV/c^{2}];p_{T}^{lead cluster} [GeV/c]",
-                                    240, 0, 0.6,
-                                    240, 0, 60);
-              hist->SetDirectory(out);
-              H["h2_pi0_mass_vs_leadcluspt_corr"] = hist;
+              for (std::size_t ic = 0; ic + 1 < m_centEdges.size(); ++ic)
+              {
+                bookPi0HistPair(suffixForBins(-1, static_cast<int>(ic)));
+              }
             }
           }
 
@@ -7152,70 +7167,110 @@ void RecoilJets::fillPi0MassVsPtHistograms(const std::string& trig,
                                              bool useCorr)
 {
     if (!m_doPi0Analysis || !clusterContainer) return;
-
+    
     auto itTrig = qaHistogramsByTrigger.find(trig);
     if (itTrig == qaHistogramsByTrigger.end()) return;
-
+    
     auto& H = itTrig->second;
-
+    
     const std::string hMassPi0PtName = useCorr ? "h2_pi0_mass_vs_pi0pt_corr" : "h2_pi0_mass_vs_pi0pt_nocorr";
     const std::string hMassLeadPtName = useCorr ? "h2_pi0_mass_vs_leadcluspt_corr" : "h2_pi0_mass_vs_leadcluspt_nocorr";
-
+    
     auto itMassPi0Pt = H.find(hMassPi0PtName);
     auto itMassLeadPt = H.find(hMassLeadPtName);
     if (itMassPi0Pt == H.end() || itMassLeadPt == H.end()) return;
-
+    
     TH2F* hMassPi0Pt = dynamic_cast<TH2F*>(itMassPi0Pt->second);
     TH2F* hMassLeadPt = dynamic_cast<TH2F*>(itMassLeadPt->second);
     if (!hMassPi0Pt || !hMassLeadPt) return;
-
+    
+    std::string hMassPi0PtCentName;
+    std::string hMassLeadPtCentName;
+    TH2F* hMassPi0PtCent = nullptr;
+    TH2F* hMassLeadPtCent = nullptr;
+    
+    if (m_isAuAu)
+    {
+        const int centIdx = findCentBin(m_centBin);
+        if (centIdx >= 0)
+        {
+            const std::string centSuffix = suffixForBins(-1, centIdx);
+            
+            hMassPi0PtCentName = hMassPi0PtName + centSuffix;
+            auto itMassPi0PtCent = H.find(hMassPi0PtCentName);
+            if (itMassPi0PtCent != H.end())
+            {
+                hMassPi0PtCent = dynamic_cast<TH2F*>(itMassPi0PtCent->second);
+            }
+            
+            hMassLeadPtCentName = hMassLeadPtName + centSuffix;
+            auto itMassLeadPtCent = H.find(hMassLeadPtCentName);
+            if (itMassLeadPtCent != H.end())
+            {
+                hMassLeadPtCent = dynamic_cast<TH2F*>(itMassLeadPtCent->second);
+            }
+        }
+    }
+    
     CLHEP::Hep3Vector vertex(0, 0, m_vz);
     RawClusterContainer::ConstRange cRange = clusterContainer->getClusters();
-
+    
     for (auto cIt1 = cRange.first; cIt1 != cRange.second; ++cIt1)
     {
-      const RawCluster* clus1 = cIt1->second;
-      if (!clus1) continue;
-
-      const CLHEP::Hep3Vector eVec1 = RawClusterUtility::GetEVec(*clus1, vertex);
-      const double e1 = eVec1.mag();
-      if (!std::isfinite(e1) || e1 <= 0.0) continue;
-
-      TLorentzVector photon1;
-      photon1.SetPxPyPzE(eVec1.x(), eVec1.y(), eVec1.z(), e1);
-
-      if (!std::isfinite(photon1.Pt()) || photon1.Pt() <= 0.0) continue;
-
-      auto cIt2 = cIt1;
-      ++cIt2;
-      for (; cIt2 != cRange.second; ++cIt2)
-      {
-        const RawCluster* clus2 = cIt2->second;
-        if (!clus2) continue;
-
-        const CLHEP::Hep3Vector eVec2 = RawClusterUtility::GetEVec(*clus2, vertex);
-        const double e2 = eVec2.mag();
-        if (!std::isfinite(e2) || e2 <= 0.0) continue;
-
-        TLorentzVector photon2;
-        photon2.SetPxPyPzE(eVec2.x(), eVec2.y(), eVec2.z(), e2);
-
-        if (!std::isfinite(photon2.Pt()) || photon2.Pt() <= 0.0) continue;
-
-        const TLorentzVector pi0 = photon1 + photon2;
-        const double mass = pi0.M();
-        const double pi0pt = pi0.Pt();
-        const double leadClusPt = std::max(photon1.Pt(), photon2.Pt());
-
-        if (!std::isfinite(mass) || !std::isfinite(pi0pt) || !std::isfinite(leadClusPt)) continue;
-
-        hMassPi0Pt->Fill(mass, pi0pt);
-        bumpHistFill(trig, hMassPi0PtName);
-
-        hMassLeadPt->Fill(mass, leadClusPt);
-        bumpHistFill(trig, hMassLeadPtName);
-      }
-   }
+        const RawCluster* clus1 = cIt1->second;
+        if (!clus1) continue;
+        
+        const CLHEP::Hep3Vector eVec1 = RawClusterUtility::GetEVec(*clus1, vertex);
+        const double e1 = eVec1.mag();
+        if (!std::isfinite(e1) || e1 <= 0.0) continue;
+        
+        TLorentzVector photon1;
+        photon1.SetPxPyPzE(eVec1.x(), eVec1.y(), eVec1.z(), e1);
+        
+        if (!std::isfinite(photon1.Pt()) || photon1.Pt() <= 0.0) continue;
+        
+        auto cIt2 = cIt1;
+        ++cIt2;
+        for (; cIt2 != cRange.second; ++cIt2)
+        {
+            const RawCluster* clus2 = cIt2->second;
+            if (!clus2) continue;
+            
+            const CLHEP::Hep3Vector eVec2 = RawClusterUtility::GetEVec(*clus2, vertex);
+            const double e2 = eVec2.mag();
+            if (!std::isfinite(e2) || e2 <= 0.0) continue;
+            
+            TLorentzVector photon2;
+            photon2.SetPxPyPzE(eVec2.x(), eVec2.y(), eVec2.z(), e2);
+            
+            if (!std::isfinite(photon2.Pt()) || photon2.Pt() <= 0.0) continue;
+            
+            const TLorentzVector pi0 = photon1 + photon2;
+            const double mass = pi0.M();
+            const double pi0pt = pi0.Pt();
+            const double leadClusPt = std::max(photon1.Pt(), photon2.Pt());
+            
+            if (!std::isfinite(mass) || !std::isfinite(pi0pt) || !std::isfinite(leadClusPt)) continue;
+            
+            hMassPi0Pt->Fill(mass, pi0pt);
+            bumpHistFill(trig, hMassPi0PtName);
+            
+            if (hMassPi0PtCent)
+            {
+                hMassPi0PtCent->Fill(mass, pi0pt);
+                bumpHistFill(trig, hMassPi0PtCentName);
+            }
+            
+            hMassLeadPt->Fill(mass, leadClusPt);
+            bumpHistFill(trig, hMassLeadPtName);
+            
+            if (hMassLeadPtCent)
+            {
+                hMassLeadPtCent->Fill(mass, leadClusPt);
+                bumpHistFill(trig, hMassLeadPtCentName);
+            }
+        }
+    }
 }
 
 
