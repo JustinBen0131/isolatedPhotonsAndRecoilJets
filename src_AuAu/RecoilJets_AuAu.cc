@@ -511,408 +511,396 @@ bool RecoilJets::getCentralitySlice(int& lo,
 
 bool RecoilJets::fetchNodes(PHCompositeNode* top)
 {
-  if (!top)
-  {
-    LOG(0, CLR_YELLOW, "  [fetchNodes] top == nullptr → skip");
-    return false;
-  }
-
-  // Small local helpers (keep this file self-contained)
-  auto trim = [](std::string s) -> std::string
-  {
-    const char* ws = " \t\r\n";
-    s.erase(0, s.find_first_not_of(ws));
-    s.erase(s.find_last_not_of(ws) + 1);
-    return s;
-  };
-
-  auto toLower = [](std::string s) -> std::string
-  {
-    std::transform(s.begin(), s.end(), s.begin(),
-                   [](unsigned char c){ return std::tolower(c); });
-    return s;
-  };
-
-  // ------------------------------------------------------------------
-  // Vertex maps
-  // ------------------------------------------------------------------
-  GlobalVertexMap* gvmap  = findNode::getClass<GlobalVertexMap>(top, "GlobalVertexMap");
-  MbdVertexMap*    mbdmap = findNode::getClass<MbdVertexMap>(top, "MbdVertexMap");
-
-  // ------------------------------------------------------------------
-  // Dataset / sim mode determination
-  //   - start from module flags (setDataType("isSim") sets m_isSim)
-  //   - allow wrapper env override (RJ_DATASET / RJ_IS_SIM)
-  // ------------------------------------------------------------------
-  bool isSim  = m_isSim;
-  bool isAuAu = m_isAuAu;
-  bool isSimEmbedded = (isSim && isAuAu);
-
-  if (const char* ds = std::getenv("RJ_DATASET"))
-  {
-      const std::string s = toLower(trim(std::string(ds)));
-
-      if (s == "isimembedded" || s == "simembedded")
-      {
-        isSim         = true;
-        isAuAu        = true;
-        isSimEmbedded = true;
-      }
-      else if (s == "issim" || s == "sim")
-      {
-        isSim         = true;
-        isAuAu        = false;
-        isSimEmbedded = false;
-      }
-      else if (s == "isauau" || s == "auau" || s == "aa")
-      {
-        isSim         = false;
-        isSim         = false;
-        isAuAu        = true;
-        isSimEmbedded = false;
-      }
-      else if (s == "ispp" || s == "pp")
-      {
-        isSim         = false;
-        isAuAu        = false;
-        isSimEmbedded = false;
-      }
-  }
-
-  if (const char* f = std::getenv("RJ_IS_SIM"))
-  {
-      // RJ_IS_SIM=1 forces sim; RJ_IS_SIM=0 forces "not sim"
-      const bool envSim = (std::atoi(f) != 0);
-      if (envSim)
-      {
-        isSim = true;
-        if (!isSimEmbedded)
-        {
-          isAuAu = false;
-        }
-      }
-      else if (!isSimEmbedded)
-      {
-        isSim = false;
-        // Do NOT force isAuAu here — RJ_DATASET should set that if needed.
-      }
-  }
-
-  // Keep internal flags consistent with what this event will do
-  m_isSim         = isSim;
-  m_isAuAu        = isAuAu;
-  m_isSimEmbedded = isSimEmbedded;
-
-  // ------------------------------------------------------------------
-  // Defaults
-  // ------------------------------------------------------------------
-  m_vtx = nullptr;
-  m_vx  = 0.0;
-  m_vy  = 0.0;
-  m_vz  = 0.0;
-
-  double gv_z    = std::numeric_limits<double>::quiet_NaN();
-  double mbd_z   = std::numeric_limits<double>::quiet_NaN();
-  double truth_z = std::numeric_limits<double>::quiet_NaN();
-
-  bool haveGVZ    = false;
-  bool haveMBDZ   = false;
-  bool haveTruthZ = false;
-
-  // ------------------------------------------------------------------
-  // SIM ONLY: truth vertex from G4TruthInfo (requires paired G4Hits DST)
-  // ------------------------------------------------------------------
-  if (isSim)
-  {
-    auto* truth = findNode::getClass<PHG4TruthInfoContainer>(top, "G4TruthInfo");
-    if (!truth)
+    if (!top)
     {
-      LOG(3, CLR_YELLOW,
-          "    [fetchNodes] isSim: G4TruthInfo missing (did you load paired G4Hits DST?)");
+        LOG(0, CLR_YELLOW, "  [fetchNodes] top == nullptr → skip");
+        return false;
+    }
+    
+    // Small local helpers (keep this file self-contained)
+    auto trim = [](std::string s) -> std::string
+    {
+        const char* ws = " \t\r\n";
+        s.erase(0, s.find_first_not_of(ws));
+        s.erase(s.find_last_not_of(ws) + 1);
+        return s;
+    };
+    
+    auto toLower = [](std::string s) -> std::string
+    {
+        std::transform(s.begin(), s.end(), s.begin(),
+                       [](unsigned char c){ return std::tolower(c); });
+        return s;
+    };
+    
+    // ------------------------------------------------------------------
+    // Vertex maps
+    // ------------------------------------------------------------------
+    GlobalVertexMap* gvmap  = findNode::getClass<GlobalVertexMap>(top, "GlobalVertexMap");
+    MbdVertexMap*    mbdmap = findNode::getClass<MbdVertexMap>(top, "MbdVertexMap");
+    
+    // ------------------------------------------------------------------
+    // Dataset / sim mode determination
+    //   - start from module flags (setDataType("isSim") sets m_isSim)
+    //   - allow wrapper env override (RJ_DATASET / RJ_IS_SIM)
+    // ------------------------------------------------------------------
+    bool isSim  = m_isSim;
+    bool isAuAu = m_isAuAu;
+    bool isSimEmbedded = (isSim && isAuAu);
+    
+    if (const char* ds = std::getenv("RJ_DATASET"))
+    {
+        const std::string s = toLower(trim(std::string(ds)));
+        
+        if (s == "isimembedded" || s == "simembedded")
+        {
+            isSim         = true;
+            isAuAu        = true;
+            isSimEmbedded = true;
+        }
+        else if (s == "issim" || s == "sim")
+        {
+            isSim         = true;
+            isAuAu        = false;
+            isSimEmbedded = false;
+        }
+        else if (s == "isauau" || s == "auau" || s == "aa")
+        {
+            isSim         = false;
+            isSim         = false;
+            isAuAu        = true;
+            isSimEmbedded = false;
+        }
+        else if (s == "ispp" || s == "pp")
+        {
+            isSim         = false;
+            isAuAu        = false;
+            isSimEmbedded = false;
+        }
+    }
+    
+    if (const char* f = std::getenv("RJ_IS_SIM"))
+    {
+        // RJ_IS_SIM=1 forces sim; RJ_IS_SIM=0 forces "not sim"
+        const bool envSim = (std::atoi(f) != 0);
+        if (envSim)
+        {
+            isSim = true;
+            if (!isSimEmbedded)
+            {
+                isAuAu = false;
+            }
+        }
+        else if (!isSimEmbedded)
+        {
+            isSim = false;
+            // Do NOT force isAuAu here — RJ_DATASET should set that if needed.
+        }
+    }
+    
+    // Keep internal flags consistent with what this event will do
+    m_isSim         = isSim;
+    m_isAuAu        = isAuAu;
+    m_isSimEmbedded = isSimEmbedded;
+    
+    // ------------------------------------------------------------------
+    // Defaults
+    // ------------------------------------------------------------------
+    m_vtx = nullptr;
+    m_vx  = 0.0;
+    m_vy  = 0.0;
+    m_vz  = 0.0;
+    
+    double gv_z    = std::numeric_limits<double>::quiet_NaN();
+    double mbd_z   = std::numeric_limits<double>::quiet_NaN();
+    double truth_z = std::numeric_limits<double>::quiet_NaN();
+    
+    bool haveGVZ    = false;
+    bool haveMBDZ   = false;
+    bool haveTruthZ = false;
+    
+    // ------------------------------------------------------------------
+    // SIM ONLY: truth vertex from G4TruthInfo (requires paired G4Hits DST)
+    // ------------------------------------------------------------------
+    if (isSim)
+    {
+        auto* truth = findNode::getClass<PHG4TruthInfoContainer>(top, "G4TruthInfo");
+        if (!truth)
+        {
+            LOG(3, CLR_YELLOW,
+                "    [fetchNodes] isSim: G4TruthInfo missing (did you load paired G4Hits DST?)");
+        }
+        else
+        {
+            auto vr = truth->GetPrimaryVtxRange();
+            if (vr.first != vr.second && vr.first->second)
+            {
+                const PHG4VtxPoint* vtx = vr.first->second;
+                truth_z = vtx->get_z();
+                haveTruthZ = std::isfinite(truth_z);
+            }
+            else
+            {
+                LOG(3, CLR_YELLOW, "    [fetchNodes] isSim: G4TruthInfo has no primary vertex");
+            }
+        }
+    }
+    
+    // QA-only: we may still compare truth_z vs reco_z elsewhere; never use truth_z as reco vertex
+    (void) truth_z;
+    (void) haveTruthZ;
+    
+    // GlobalVertex (keep pointer + x/y)
+    if (gvmap && !gvmap->empty())
+    {
+        m_vtx = gvmap->begin()->second;
+        if (m_vtx)
+        {
+            m_vx  = m_vtx->get_x();
+            m_vy  = m_vtx->get_y();
+            gv_z  = m_vtx->get_z();
+            haveGVZ = std::isfinite(gv_z);
+        }
+    }
+    
+    // MBD z (preferred for consistency with PhotonClusterBuilder)
+    if (mbdmap && !mbdmap->empty())
+    {
+        MbdVertex* mv = mbdmap->begin()->second;
+        if (mv)
+        {
+            mbd_z    = mv->get_z();
+            haveMBDZ = std::isfinite(mbd_z);
+        }
+    }
+    
+    // Choose the z we will USE (RECO vertex ONLY):
+    //   • SIM + data: MBD → else Global → else SKIP
+    //   • Never use TRUTH as a fallback for reco objects
+    const char* vz_source = "none";
+    
+    if (haveMBDZ)
+    {
+        m_vz = static_cast<float>(mbd_z);
+        vz_source = "MBD";
+    }
+    else if (haveGVZ)
+    {
+        m_vz = static_cast<float>(gv_z);
+        vz_source = "Global";
     }
     else
     {
-      auto vr = truth->GetPrimaryVtxRange();
-      if (vr.first != vr.second && vr.first->second)
-      {
-        const PHG4VtxPoint* vtx = vr.first->second;
-        truth_z = vtx->get_z();
-        haveTruthZ = std::isfinite(truth_z);
-      }
-      else
-      {
-        LOG(3, CLR_YELLOW, "    [fetchNodes] isSim: G4TruthInfo has no primary vertex");
-      }
+        LOG(1, CLR_YELLOW, "  [fetchNodes] no usable RECO vertex z (MBD/Global) → skip event");
+        return false;
     }
-  }
-
-  // QA-only: we may still compare truth_z vs reco_z elsewhere; never use truth_z as reco vertex
-  (void) truth_z;
-  (void) haveTruthZ;
-
-  // GlobalVertex (keep pointer + x/y)
-  if (gvmap && !gvmap->empty())
-  {
-    m_vtx = gvmap->begin()->second;
-    if (m_vtx)
+    
+    // Print comparison ONLY if it matters (data only)
+    if (!isSim && haveMBDZ && haveGVZ)
     {
-      m_vx  = m_vtx->get_x();
-      m_vy  = m_vtx->get_y();
-      gv_z  = m_vtx->get_z();
-      haveGVZ = std::isfinite(gv_z);
+        const double dz = mbd_z - gv_z;
+        constexpr double kDzPrint = 1e-3;
+        
+        if (std::fabs(dz) > kDzPrint || Verbosity() >= 7)
+        {
+            LOG(3, CLR_BLUE,
+                "  – vertex compare: vz(MBD)=" << std::fixed << std::setprecision(3) << mbd_z
+                << "  vz(Global)=" << std::fixed << std::setprecision(3) << gv_z
+                << "  Δz(MBD-Global)=" << std::fixed << std::setprecision(3) << dz);
+        }
     }
-  }
-
-  // MBD z (preferred for consistency with PhotonClusterBuilder)
-  if (mbdmap && !mbdmap->empty())
-  {
-    MbdVertex* mv = mbdmap->begin()->second;
-    if (mv)
+    
+    LOG(4, CLR_BLUE,
+        "    [fetchNodes] dataset=" << (isSim ? "SIM" : (isAuAu ? "Au+Au" : "p+p"))
+        << "  vz(used)=" << std::fixed << std::setprecision(2) << m_vz
+        << "  (source=" << vz_source << ")");
+    
+    // ------------------------------------------------------------------
+    // SIM QA (PRE-CUT): truth vs reco-used vertex z
+    //   - Fill here so it is recorded even if the event later fails |vz| cut
+    //   - X = truth vz (from G4TruthInfo)
+    //   - Y = reco-used vz (your chosen m_vz: MBD → Global → TRUTH fallback)
+    // ------------------------------------------------------------------
+    if (isSim && haveTruthZ)
     {
-      mbd_z    = mv->get_z();
-      haveMBDZ = std::isfinite(mbd_z);
+        auto itTrig = qaHistogramsByTrigger.find("SIM");
+        if (itTrig != qaHistogramsByTrigger.end())
+        {
+            auto& H = itTrig->second;
+            auto itH2 = H.find("h_vzTruthVsReco");
+            if (itH2 != H.end())
+            {
+                static_cast<TH2F*>(itH2->second)->Fill(static_cast<float>(truth_z), m_vz);
+                bumpHistFill("SIM", "h_vzTruthVsReco");
+            }
+        }
     }
-  }
-
-  // Choose the z we will USE (RECO vertex ONLY):
-  //   • SIM + data: MBD → else Global → else SKIP
-  //   • Never use TRUTH as a fallback for reco objects
-  const char* vz_source = "none";
-
-  if (haveMBDZ)
-  {
-    m_vz = static_cast<float>(mbd_z);
-    vz_source = "MBD";
-  }
-  else if (haveGVZ)
-  {
-    m_vz = static_cast<float>(gv_z);
-    vz_source = "Global";
-  }
-  else
-  {
-    LOG(1, CLR_YELLOW, "  [fetchNodes] no usable RECO vertex z (MBD/Global) → skip event");
-    return false;
-  }
-
-  // Print comparison ONLY if it matters (data only)
-  if (!isSim && haveMBDZ && haveGVZ)
-  {
-    const double dz = mbd_z - gv_z;
-    constexpr double kDzPrint = 1e-3;
-
-    if (std::fabs(dz) > kDzPrint || Verbosity() >= 7)
-    {
-      LOG(3, CLR_BLUE,
-          "  – vertex compare: vz(MBD)=" << std::fixed << std::setprecision(3) << mbd_z
-          << "  vz(Global)=" << std::fixed << std::setprecision(3) << gv_z
-          << "  Δz(MBD-Global)=" << std::fixed << std::setprecision(3) << dz);
-    }
-  }
-
-  LOG(4, CLR_BLUE,
-      "    [fetchNodes] dataset=" << (isSim ? "SIM" : (isAuAu ? "Au+Au" : "p+p"))
-      << "  vz(used)=" << std::fixed << std::setprecision(2) << m_vz
-      << "  (source=" << vz_source << ")");
-
-  // ------------------------------------------------------------------
-  // SIM QA (PRE-CUT): truth vs reco-used vertex z
-  //   - Fill here so it is recorded even if the event later fails |vz| cut
-  //   - X = truth vz (from G4TruthInfo)
-  //   - Y = reco-used vz (your chosen m_vz: MBD → Global → TRUTH fallback)
-  // ------------------------------------------------------------------
-  if (isSim && haveTruthZ)
-  {
-    auto itTrig = qaHistogramsByTrigger.find("SIM");
-    if (itTrig != qaHistogramsByTrigger.end())
-    {
-      auto& H = itTrig->second;
-      auto itH2 = H.find("h_vzTruthVsReco");
-      if (itH2 != H.end())
-      {
-        static_cast<TH2F*>(itH2->second)->Fill(static_cast<float>(truth_z), m_vz);
-        bumpHistFill("SIM", "h_vzTruthVsReco");
-      }
-    }
-  }
-
+    
     // ------------------------------------------------------------------
     // Calo towers & geometry
     // ------------------------------------------------------------------
     m_calo.clear();
     for (const auto& ci : m_caloInfo)
     {
-      const std::string node = std::get<0>(ci);
-      const std::string geo  = std::get<1>(ci);
-      const std::string lbl  = std::get<2>(ci);
-
-      auto* tw = findNode::getClass<TowerInfoContainer>(top, node);
-      auto* ge = findNode::getClass<RawTowerGeomContainer>(top, geo);
-      if (!tw || !ge)
-      {
-        LOG(2, CLR_YELLOW, "  – missing " << lbl << " nodes → skip");
-        return false;
-      }
-      m_calo[lbl] = { tw, ge, 0.0 };
-      LOG(5, CLR_BLUE, "    [fetchNodes] towers OK: " << lbl << "  node=" << node << "  geom=" << geo);
+        const std::string node = std::get<0>(ci);
+        const std::string geo  = std::get<1>(ci);
+        const std::string lbl  = std::get<2>(ci);
+        
+        auto* tw = findNode::getClass<TowerInfoContainer>(top, node);
+        auto* ge = findNode::getClass<RawTowerGeomContainer>(top, geo);
+        if (!tw || !ge)
+        {
+            LOG(2, CLR_YELLOW, "  – missing " << lbl << " nodes → skip");
+            return false;
+        }
+        m_calo[lbl] = { tw, ge, 0.0 };
+        LOG(5, CLR_BLUE, "    [fetchNodes] towers OK: " << lbl << "  node=" << node << "  geom=" << geo);
     }
-
-      // ------------------------------------------------------------------
-      // Clusters & photons
-      // ------------------------------------------------------------------
-      m_clus        = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC");
-      m_clus_nocorr = nullptr;
-      if (m_doPi0Analysis && !isSim && !isAuAu)
-      {
-        m_clus_nocorr = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC_NOCORR");
-      }
-      m_photons     = findNode::getClass<RawClusterContainer>(top, "PHOTONCLUSTER_CEMC");
-
+    
+    // ------------------------------------------------------------------
+    // Clusters & photons
+    // ------------------------------------------------------------------
+    m_clus        = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC");
+    m_clus_nocorr = nullptr;
+    m_photons     = findNode::getClass<RawClusterContainer>(top, "PHOTONCLUSTER_CEMC");
+    
     if (Verbosity() >= 3)
     {
-      auto countClusters = [](RawClusterContainer* c) -> size_t
-      {
-        if (!c) return 0;
-        size_t n = 0;
-        auto r = c->getClusters();
-        for (auto it = r.first; it != r.second; ++it) ++n;
-        return n;
-      };
-
-      LOG(3, CLR_CYAN,
-          "    [fetchNodes] sizes: CLUSTERINFO_CEMC=" << countClusters(m_clus)
-          << " | CLUSTERINFO_CEMC_NOCORR=" << countClusters(m_clus_nocorr)
-          << " | PHOTONCLUSTER_CEMC=" << countClusters(m_photons));
+        auto countClusters = [](RawClusterContainer* c) -> size_t
+        {
+            if (!c) return 0;
+            size_t n = 0;
+            auto r = c->getClusters();
+            for (auto it = r.first; it != r.second; ++it) ++n;
+            return n;
+        };
+        
+        LOG(3, CLR_CYAN,
+            "    [fetchNodes] sizes: CLUSTERINFO_CEMC=" << countClusters(m_clus)
+            << " | PHOTONCLUSTER_CEMC=" << countClusters(m_photons));
     }
-
-    if (m_doPi0Analysis && !isSim && !isAuAu && !m_clus_nocorr && Verbosity() >= 2)
-    {
-      LOG(2, CLR_YELLOW,
-          "    [fetchNodes] CLUSTERINFO_CEMC_NOCORR missing while doPi0Analysis is enabled");
-    }
-
     if (!m_photons)
-  {
-    LOG(0, CLR_YELLOW,
-        "    [fetchNodes] PHOTONCLUSTER_CEMC is MISSING → ABORTEVENT. "
-        "PhotonClusterBuilder likely did not run or node name mismatch.");
-    return false;
-  }
-
-  // ------------------------------------------------------------------
-  // Reco jets: cache all configured radii in parallel.
-  //
-  // Radii selection is driven by:
-  //   - setActiveJetRKeys([...]) (typically from YAML in Fun4All_recoilJets.C)
-  //   - fallback: RecoilJets::kJetRadii (baseline r02+r04)
-  //
-  // Legacy knob (still honored as a "primary" label in logs only):
-  //   export RJ_RECO_JET_KEY=r02   (or r04, etc.)
-  // ------------------------------------------------------------------
-  std::vector<std::string> rKeysToRun;
-  if (!m_activeJetRKeys.empty())
-      rKeysToRun = m_activeJetRKeys;
-  else
-  {
-      rKeysToRun.reserve(kJetRadii.size());
-      for (const auto& jnm : kJetRadii) rKeysToRun.push_back(jnm.key);
-  }
-
-  // de-dup defensively (preserve order)
-  {
-      std::vector<std::string> uniq;
-      uniq.reserve(rKeysToRun.size());
-      for (const auto& k : rKeysToRun)
-      {
-        if (k.empty()) continue;
-        if (std::find(uniq.begin(), uniq.end(), k) == uniq.end())
-          uniq.push_back(k);
-      }
-      rKeysToRun.swap(uniq);
+    {
+        LOG(0, CLR_YELLOW,
+            "    [fetchNodes] PHOTONCLUSTER_CEMC is MISSING → ABORTEVENT. "
+            "PhotonClusterBuilder likely did not run or node name mismatch.");
+        return false;
     }
-
+    
+    // ------------------------------------------------------------------
+    // Reco jets: cache all configured radii in parallel.
+    //
+    // Radii selection is driven by:
+    //   - setActiveJetRKeys([...]) (typically from YAML in Fun4All_recoilJets.C)
+    //   - fallback: RecoilJets::kJetRadii (baseline r02+r04)
+    //
+    // Legacy knob (still honored as a "primary" label in logs only):
+    //   export RJ_RECO_JET_KEY=r02   (or r04, etc.)
+    // ------------------------------------------------------------------
+    std::vector<std::string> rKeysToRun;
+    if (!m_activeJetRKeys.empty())
+        rKeysToRun = m_activeJetRKeys;
+    else
+    {
+        rKeysToRun.reserve(kJetRadii.size());
+        for (const auto& jnm : kJetRadii) rKeysToRun.push_back(jnm.key);
+    }
+    
+    // de-dup defensively (preserve order)
+    {
+        std::vector<std::string> uniq;
+        uniq.reserve(rKeysToRun.size());
+        for (const auto& k : rKeysToRun)
+        {
+            if (k.empty()) continue;
+            if (std::find(uniq.begin(), uniq.end(), k) == uniq.end())
+                uniq.push_back(k);
+        }
+        rKeysToRun.swap(uniq);
+    }
+    
     if (rKeysToRun.empty())
-      rKeysToRun = {kJetRadii.front().key};
-
+        rKeysToRun = {kJetRadii.front().key};
+    
     auto recoJetNodeForRKey = [&](const std::string& rKey) -> std::string
     {
-      // Au+Au uses UE-subtracted jet nodes written as: AntiKt_Tower_<rKey>_Sub1
-      for (const auto& jnm : kJetRadii)
-      {
-        if (jnm.key == rKey)
-          return (isAuAu ? jnm.aa_node : jnm.pp_node);
-      }
-      // default naming fallback (cover radii beyond the hard-coded table)
-      if (isAuAu) return std::string("AntiKt_Tower_") + rKey + "_Sub1";
-      return std::string("AntiKt_Tower_") + rKey;
+        // Au+Au uses UE-subtracted jet nodes written as: AntiKt_Tower_<rKey>_Sub1
+        for (const auto& jnm : kJetRadii)
+        {
+            if (jnm.key == rKey)
+                return (isAuAu ? jnm.aa_node : jnm.pp_node);
+        }
+        // default naming fallback (cover radii beyond the hard-coded table)
+        if (isAuAu) return std::string("AntiKt_Tower_") + rKey + "_Sub1";
+        return std::string("AntiKt_Tower_") + rKey;
     };
-
-
+    
+    
     std::string primaryRecoKey = trim(m_xjRecoJetKey);
     if (const char* rk = std::getenv("RJ_RECO_JET_KEY"))
-      primaryRecoKey = trim(std::string(rk));
-
+        primaryRecoKey = trim(std::string(rk));
+    
     if (primaryRecoKey.empty())
-      primaryRecoKey = rKeysToRun.front();
-
+        primaryRecoKey = rKeysToRun.front();
+    
     bool keyOK = false;
     for (const auto& k : rKeysToRun)
-      if (primaryRecoKey == k) { keyOK = true; break; }
-
+        if (primaryRecoKey == k) { keyOK = true; break; }
+    
     if (!keyOK)
     {
-      primaryRecoKey = rKeysToRun.front();
-      LOG(1, CLR_YELLOW,
-          "    [fetchNodes] requested RJ_RECO_JET_KEY not in active radii → using \"" << primaryRecoKey << "\"");
+        primaryRecoKey = rKeysToRun.front();
+        LOG(1, CLR_YELLOW,
+            "    [fetchNodes] requested RJ_RECO_JET_KEY not in active radii → using \"" << primaryRecoKey << "\"");
     }
-
+    
     // Persist (legacy) — may be printed elsewhere
     m_xjRecoJetKey = primaryRecoKey;
-
+    
     m_jets.clear();
     m_jetsRaw.clear();
     for (const auto& rKey : rKeysToRun)
     {
-      const std::string node = recoJetNodeForRKey(rKey);
-      auto* jc = findNode::getClass<JetContainer>(top, node);
-
-      if (!jc)
-      {
-        LOG(2, CLR_YELLOW, "  – reco jet node missing: " << node << " (rKey=" << rKey << ")");
-      }
-      else
-      {
-        LOG(4, CLR_GREEN,
-            "    [fetchNodes] reco jet node found: " << node
-            << "  rKey=" << rKey << "  jets=" << jc->size());
-      }
-
-      // Store even if nullptr; downstream QA/matching will skip gracefully per-radius
-      m_jets[rKey] = jc;
-
-      // If JetCalib is enabled, jets are built to "<node>_RAW" then calibrated into "<node>".
-      // RAW jets reliably retain comp_vec (tower constituents) needed for EventDisplay diagnostics.
-      const std::string nodeRaw = node + "_RAW";
-      auto* jcRaw = findNode::getClass<JetContainer>(top, nodeRaw);
-      m_jetsRaw[rKey] = jcRaw;
+        const std::string node = recoJetNodeForRKey(rKey);
+        auto* jc = findNode::getClass<JetContainer>(top, node);
+        
+        if (!jc)
+        {
+            LOG(2, CLR_YELLOW, "  – reco jet node missing: " << node << " (rKey=" << rKey << ")");
+        }
+        else
+        {
+            LOG(4, CLR_GREEN,
+                "    [fetchNodes] reco jet node found: " << node
+                << "  rKey=" << rKey << "  jets=" << jc->size());
+        }
+        
+        // Store even if nullptr; downstream QA/matching will skip gracefully per-radius
+        m_jets[rKey] = jc;
+        
+        // If JetCalib is enabled, jets are built to "<node>_RAW" then calibrated into "<node>".
+        // RAW jets reliably retain comp_vec (tower constituents) needed for EventDisplay diagnostics.
+        const std::string nodeRaw = node + "_RAW";
+        auto* jcRaw = findNode::getClass<JetContainer>(top, nodeRaw);
+        m_jetsRaw[rKey] = jcRaw;
     }
-
+    
     if (Verbosity() >= 4)
     {
-      std::ostringstream os;
-      os << "    [fetchNodes] reco jet radii cached: {";
-      for (std::size_t i = 0; i < rKeysToRun.size(); ++i)
-      {
-        if (i) os << ", ";
-        const std::string rk = rKeysToRun[i];
-        auto it = m_jets.find(rk);
-        const bool ok = (it != m_jets.end() && it->second);
-        os << rk << ":" << (ok ? "OK" : "MISSING");
-      }
-      os << "}  (primary=" << primaryRecoKey << ")";
-      LOG(4, CLR_BLUE, os.str());
+        std::ostringstream os;
+        os << "    [fetchNodes] reco jet radii cached: {";
+        for (std::size_t i = 0; i < rKeysToRun.size(); ++i)
+        {
+            if (i) os << ", ";
+            const std::string rk = rKeysToRun[i];
+            auto it = m_jets.find(rk);
+            const bool ok = (it != m_jets.end() && it->second);
+            os << rk << ":" << (ok ? "OK" : "MISSING");
+        }
+        os << "}  (primary=" << primaryRecoKey << ")";
+        LOG(4, CLR_BLUE, os.str());
     }
-
+    
     // ------------------------------------------------------------------
     // Truth jets: SIM only.
     // Cache truth jet containers for the same set of radii.
@@ -926,76 +914,76 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     // ------------------------------------------------------------------
     m_truthJetsByRKey.clear();
     m_truthJetsNodeByRKey.clear();
-
+    
     if (isSim)
     {
-      const char* tn_env_c = std::getenv("RJ_TRUTH_JETS_NODE");
-      const std::string tn_env = tn_env_c ? trim(std::string(tn_env_c)) : std::string{};
-
-      for (const auto& rKey : rKeysToRun)
-      {
-        const std::string canonicalTruth = std::string("AntiKt_Truth_") + rKey;
-        const std::string altTruth       = std::string("AntiKt_TruthFromParticles_") + rKey;
-
-        std::vector<std::string> candidates;
-        candidates.reserve(6);
-
-        if (!tn_env.empty())
+        const char* tn_env_c = std::getenv("RJ_TRUTH_JETS_NODE");
+        const std::string tn_env = tn_env_c ? trim(std::string(tn_env_c)) : std::string{};
+        
+        for (const auto& rKey : rKeysToRun)
         {
-          const std::string placeholder = "{rKey}";
-          if (tn_env.find(placeholder) != std::string::npos)
-          {
-            std::string expanded = tn_env;
-            expanded.replace(expanded.find(placeholder), placeholder.size(), rKey);
-            candidates.push_back(expanded);
-          }
-          else
-          {
-            candidates.push_back(tn_env);
-            if (tn_env.find("_" + rKey) == std::string::npos)
-              candidates.push_back(tn_env + "_" + rKey);
-          }
+            const std::string canonicalTruth = std::string("AntiKt_Truth_") + rKey;
+            const std::string altTruth       = std::string("AntiKt_TruthFromParticles_") + rKey;
+            
+            std::vector<std::string> candidates;
+            candidates.reserve(6);
+            
+            if (!tn_env.empty())
+            {
+                const std::string placeholder = "{rKey}";
+                if (tn_env.find(placeholder) != std::string::npos)
+                {
+                    std::string expanded = tn_env;
+                    expanded.replace(expanded.find(placeholder), placeholder.size(), rKey);
+                    candidates.push_back(expanded);
+                }
+                else
+                {
+                    candidates.push_back(tn_env);
+                    if (tn_env.find("_" + rKey) == std::string::npos)
+                        candidates.push_back(tn_env + "_" + rKey);
+                }
+            }
+            
+            // Always try standard truth nodes for this radius
+            candidates.push_back(canonicalTruth);
+            candidates.push_back(altTruth);
+            
+            JetContainer* tj = nullptr;
+            std::string   usedNode;
+            
+            for (const auto& node : candidates)
+            {
+                if (node.empty()) continue;
+                if (auto* tmp = findNode::getClass<JetContainer>(top, node))
+                {
+                    tj = tmp;
+                    usedNode = node;
+                    break;
+                }
+            }
+            
+            m_truthJetsByRKey[rKey] = tj;
+            m_truthJetsNodeByRKey[rKey] = usedNode;
+            
+            if (!tj)
+            {
+                LOG(2, CLR_YELLOW,
+                    "    [fetchNodes] isSim: truth jet container NOT found for rKey=" << rKey
+                    << " (tried canonical=" << canonicalTruth
+                    << ", alt=" << altTruth
+                    << (tn_env.empty() ? "" : ", plus RJ_TRUTH_JETS_NODE candidates")
+                    << "). Truth-jet QA disabled for this radius.");
+            }
+            else
+            {
+                LOG(4, CLR_GREEN,
+                    "    [fetchNodes] isSim: truth jet node found for rKey=" << rKey
+                    << ": " << usedNode << "  jets=" << tj->size());
+            }
         }
-
-        // Always try standard truth nodes for this radius
-        candidates.push_back(canonicalTruth);
-        candidates.push_back(altTruth);
-
-        JetContainer* tj = nullptr;
-        std::string   usedNode;
-
-        for (const auto& node : candidates)
-        {
-          if (node.empty()) continue;
-          if (auto* tmp = findNode::getClass<JetContainer>(top, node))
-          {
-            tj = tmp;
-            usedNode = node;
-            break;
-          }
-        }
-
-        m_truthJetsByRKey[rKey] = tj;
-        m_truthJetsNodeByRKey[rKey] = usedNode;
-
-        if (!tj)
-        {
-          LOG(2, CLR_YELLOW,
-              "    [fetchNodes] isSim: truth jet container NOT found for rKey=" << rKey
-              << " (tried canonical=" << canonicalTruth
-              << ", alt=" << altTruth
-              << (tn_env.empty() ? "" : ", plus RJ_TRUTH_JETS_NODE candidates")
-              << "). Truth-jet QA disabled for this radius.");
-        }
-        else
-        {
-          LOG(4, CLR_GREEN,
-              "    [fetchNodes] isSim: truth jet node found for rKey=" << rKey
-              << ": " << usedNode << "  jets=" << tj->size());
-        }
-      }
     }
-
+    
     // -------------------------------------------------------------------------
     // EventDisplay diagnostics payload nodes (SIM only). Optional: never affects physics.
     //
@@ -1004,7 +992,7 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     //   - If anything is missing, we simply mark diagnostics as unavailable for this event.
     // -------------------------------------------------------------------------
     m_evtDiagNodesReady = false;
-
+    
     // Always clear per-event pointers
     m_evtHeader          = nullptr;
     m_evtDispTowersCEMC  = nullptr;
@@ -1013,117 +1001,117 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     m_evtDispGeomCEMC    = nullptr;
     m_evtDispGeomIHCal   = nullptr;
     m_evtDispGeomOHCal   = nullptr;
-
+    
     if (!m_evtDiagEnabled)
     {
-      if (Verbosity() >= 5)
-      {
-        LOG(5, CLR_CYAN,
-            "[EventDisplayTree][nodes] skipped: "
-            << "isSim=" << (isSim ? "true" : "false")
-            << "  m_evtDiagEnabled=" << (m_evtDiagEnabled ? "true" : "false"));
-      }
+        if (Verbosity() >= 5)
+        {
+            LOG(5, CLR_CYAN,
+                "[EventDisplayTree][nodes] skipped: "
+                << "isSim=" << (isSim ? "true" : "false")
+                << "  m_evtDiagEnabled=" << (m_evtDiagEnabled ? "true" : "false"));
+        }
     }
     else
     {
-      LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 0] begin node fetch (event_count=" << event_count << ")");
-
-      // NOTE: do NOT assume any node exists; only set m_evtDiagNodesReady=true if ALL required are present.
-      LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 1] get EventHeader");
-      m_evtHeader = findNode::getClass<EventHeader>(top, "EventHeader");
-      LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 1] EventHeader=" << (m_evtHeader ? "OK" : "MISSING"));
-      LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 2] skipping towersAll=TOWERINFO_CALIB (use split CALIB_* containers)");
-
-      const bool usingAll = false;
-      const char* nodeTowersAll  = "TOWERINFO_CALIB";
-      const char* nodeTowersCEMC = "TOWERINFO_CALIB_CEMC";
-      const char* nodeTowersIHCal = "TOWERINFO_CALIB_HCALIN";
-      const char* nodeTowersOHCal = "TOWERINFO_CALIB_HCALOUT";
-
-      LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 3] get tower containers (usingAll=NO)");
-      m_evtDispTowersCEMC  = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_CEMC");
-      m_evtDispTowersIHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALIN");
-      m_evtDispTowersOHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALOUT");
-
-      LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 3] towers: CEMC=" << (m_evtDispTowersCEMC ? "OK" : "MISSING")
-                            << " IHCal=" << (m_evtDispTowersIHCal ? "OK" : "MISSING")
-                            << " OHCal=" << (m_evtDispTowersOHCal ? "OK" : "MISSING"));
-
-      LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 4] get geom containers");
-      m_evtDispGeomCEMC    = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_CEMC");
-      m_evtDispGeomIHCal   = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALIN");
-      m_evtDispGeomOHCal   = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALOUT");
-      LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 4] geom: CEMC=" << (m_evtDispGeomCEMC ? "OK" : "MISSING")
-                          << " IHCal=" << (m_evtDispGeomIHCal ? "OK" : "MISSING")
-                          << " OHCal=" << (m_evtDispGeomOHCal ? "OK" : "MISSING"));
-
-      const bool missing =
-          (!m_evtHeader ||
-           !m_evtDispTowersCEMC || !m_evtDispTowersIHCal || !m_evtDispTowersOHCal ||
-           !m_evtDispGeomCEMC   || !m_evtDispGeomIHCal   || !m_evtDispGeomOHCal);
-
-      if (!missing)
-      {
-        m_evtDiagNodesReady = true;
-
-        LOG(1, CLR_GREEN, "[EventDisplayTree][nodes][PHASE 5] READY=true (event_count=" << event_count << ")");
-
-        if (Verbosity() >= 6)
+        LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 0] begin node fetch (event_count=" << event_count << ")");
+        
+        // NOTE: do NOT assume any node exists; only set m_evtDiagNodesReady=true if ALL required are present.
+        LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 1] get EventHeader");
+        m_evtHeader = findNode::getClass<EventHeader>(top, "EventHeader");
+        LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 1] EventHeader=" << (m_evtHeader ? "OK" : "MISSING"));
+        LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 2] skipping towersAll=TOWERINFO_CALIB (use split CALIB_* containers)");
+        
+        const bool usingAll = false;
+        const char* nodeTowersAll  = "TOWERINFO_CALIB";
+        const char* nodeTowersCEMC = "TOWERINFO_CALIB_CEMC";
+        const char* nodeTowersIHCal = "TOWERINFO_CALIB_HCALIN";
+        const char* nodeTowersOHCal = "TOWERINFO_CALIB_HCALOUT";
+        
+        LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 3] get tower containers (usingAll=NO)");
+        m_evtDispTowersCEMC  = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_CEMC");
+        m_evtDispTowersIHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALIN");
+        m_evtDispTowersOHCal = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_HCALOUT");
+        
+        LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 3] towers: CEMC=" << (m_evtDispTowersCEMC ? "OK" : "MISSING")
+            << " IHCal=" << (m_evtDispTowersIHCal ? "OK" : "MISSING")
+            << " OHCal=" << (m_evtDispTowersOHCal ? "OK" : "MISSING"));
+        
+        LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 4] get geom containers");
+        m_evtDispGeomCEMC    = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_CEMC");
+        m_evtDispGeomIHCal   = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALIN");
+        m_evtDispGeomOHCal   = findNode::getClass<RawTowerGeomContainer>(top, "TOWERGEOM_HCALOUT");
+        LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 4] geom: CEMC=" << (m_evtDispGeomCEMC ? "OK" : "MISSING")
+            << " IHCal=" << (m_evtDispGeomIHCal ? "OK" : "MISSING")
+            << " OHCal=" << (m_evtDispGeomOHCal ? "OK" : "MISSING"));
+        
+        const bool missing =
+        (!m_evtHeader ||
+         !m_evtDispTowersCEMC || !m_evtDispTowersIHCal || !m_evtDispTowersOHCal ||
+         !m_evtDispGeomCEMC   || !m_evtDispGeomIHCal   || !m_evtDispGeomOHCal);
+        
+        if (!missing)
         {
-          const auto nC = (m_evtDispTowersCEMC  ? m_evtDispTowersCEMC->size()  : 0);
-          const auto nI = (m_evtDispTowersIHCal ? m_evtDispTowersIHCal->size() : 0);
-          const auto nO = (m_evtDispTowersOHCal ? m_evtDispTowersOHCal->size() : 0);
-          LOG(6, CLR_CYAN,
-              "[EventDisplayTree][nodes][sizes] "
-              << "CEMC=" << nC << "  HCALIN=" << nI << "  HCALOUT=" << nO
-              << "  (usingAll=" << (usingAll ? "YES" : "NO") << ")");
+            m_evtDiagNodesReady = true;
+            
+            LOG(1, CLR_GREEN, "[EventDisplayTree][nodes][PHASE 5] READY=true (event_count=" << event_count << ")");
+            
+            if (Verbosity() >= 6)
+            {
+                const auto nC = (m_evtDispTowersCEMC  ? m_evtDispTowersCEMC->size()  : 0);
+                const auto nI = (m_evtDispTowersIHCal ? m_evtDispTowersIHCal->size() : 0);
+                const auto nO = (m_evtDispTowersOHCal ? m_evtDispTowersOHCal->size() : 0);
+                LOG(6, CLR_CYAN,
+                    "[EventDisplayTree][nodes][sizes] "
+                    << "CEMC=" << nC << "  HCALIN=" << nI << "  HCALOUT=" << nO
+                    << "  (usingAll=" << (usingAll ? "YES" : "NO") << ")");
+            }
         }
-      }
-      else
-      {
-        LOG(1, CLR_YELLOW, "[EventDisplayTree][nodes][PHASE 5] READY=false (missing required nodes) (event_count=" << event_count << ")");
-
-        static bool s_warned_once = false;
-        static int  s_warned_count = 0;
-
-        if (!s_warned_once)
+        else
         {
-          LOG(1, CLR_YELLOW, "[EventDisplayTree] disabled for this event: missing required node(s) for diagnostics payload");
-          LOG(1, CLR_YELLOW, "  EventHeader            : " << (m_evtHeader ? "OK" : "MISSING"));
-          LOG(1, CLR_YELLOW, "  " << nodeTowersCEMC     << " : " << (m_evtDispTowersCEMC ? "OK" : "MISSING"));
-          LOG(1, CLR_YELLOW, "  " << nodeTowersIHCal    << " : " << (m_evtDispTowersIHCal ? "OK" : "MISSING"));
-          LOG(1, CLR_YELLOW, "  " << nodeTowersOHCal    << " : " << (m_evtDispTowersOHCal ? "OK" : "MISSING"));
-          LOG(1, CLR_YELLOW, "  TOWERGEOM_CEMC         : " << (m_evtDispGeomCEMC ? "OK" : "MISSING"));
-          LOG(1, CLR_YELLOW, "  TOWERGEOM_HCALIN       : " << (m_evtDispGeomIHCal ? "OK" : "MISSING"));
-          LOG(1, CLR_YELLOW, "  TOWERGEOM_HCALOUT      : " << (m_evtDispGeomOHCal ? "OK" : "MISSING"));
-          LOG(1, CLR_YELLOW, "  towersAll(" << nodeTowersAll << "): SKIPPED (do not query TOWERINFO_CALIB as TowerInfoContainer)");
-          s_warned_once = true;
+            LOG(1, CLR_YELLOW, "[EventDisplayTree][nodes][PHASE 5] READY=false (missing required nodes) (event_count=" << event_count << ")");
+            
+            static bool s_warned_once = false;
+            static int  s_warned_count = 0;
+            
+            if (!s_warned_once)
+            {
+                LOG(1, CLR_YELLOW, "[EventDisplayTree] disabled for this event: missing required node(s) for diagnostics payload");
+                LOG(1, CLR_YELLOW, "  EventHeader            : " << (m_evtHeader ? "OK" : "MISSING"));
+                LOG(1, CLR_YELLOW, "  " << nodeTowersCEMC     << " : " << (m_evtDispTowersCEMC ? "OK" : "MISSING"));
+                LOG(1, CLR_YELLOW, "  " << nodeTowersIHCal    << " : " << (m_evtDispTowersIHCal ? "OK" : "MISSING"));
+                LOG(1, CLR_YELLOW, "  " << nodeTowersOHCal    << " : " << (m_evtDispTowersOHCal ? "OK" : "MISSING"));
+                LOG(1, CLR_YELLOW, "  TOWERGEOM_CEMC         : " << (m_evtDispGeomCEMC ? "OK" : "MISSING"));
+                LOG(1, CLR_YELLOW, "  TOWERGEOM_HCALIN       : " << (m_evtDispGeomIHCal ? "OK" : "MISSING"));
+                LOG(1, CLR_YELLOW, "  TOWERGEOM_HCALOUT      : " << (m_evtDispGeomOHCal ? "OK" : "MISSING"));
+                LOG(1, CLR_YELLOW, "  towersAll(" << nodeTowersAll << "): SKIPPED (do not query TOWERINFO_CALIB as TowerInfoContainer)");
+                s_warned_once = true;
+            }
+            
+            if (Verbosity() >= 4 && s_warned_count < 5)
+            {
+                LOG(4, CLR_YELLOW,
+                    "[EventDisplayTree][nodes][MISSING] "
+                    << "EventHeader=" << (m_evtHeader ? "OK" : "MISSING")
+                    << "  Towers: "
+                    << nodeTowersCEMC << "=" << (m_evtDispTowersCEMC ? "OK" : "MISSING")
+                    << " " << nodeTowersIHCal << "=" << (m_evtDispTowersIHCal ? "OK" : "MISSING")
+                    << " " << nodeTowersOHCal << "=" << (m_evtDispTowersOHCal ? "OK" : "MISSING")
+                    << "  Geom: "
+                    << "TOWERGEOM_CEMC=" << (m_evtDispGeomCEMC ? "OK" : "MISSING")
+                    << " TOWERGEOM_HCALIN=" << (m_evtDispGeomIHCal ? "OK" : "MISSING")
+                    << " TOWERGEOM_HCALOUT=" << (m_evtDispGeomOHCal ? "OK" : "MISSING"));
+                ++s_warned_count;
+            }
+            
+            m_evtDiagNodesReady = false;
         }
-
-        if (Verbosity() >= 4 && s_warned_count < 5)
-        {
-          LOG(4, CLR_YELLOW,
-              "[EventDisplayTree][nodes][MISSING] "
-              << "EventHeader=" << (m_evtHeader ? "OK" : "MISSING")
-              << "  Towers: "
-              << nodeTowersCEMC << "=" << (m_evtDispTowersCEMC ? "OK" : "MISSING")
-              << " " << nodeTowersIHCal << "=" << (m_evtDispTowersIHCal ? "OK" : "MISSING")
-              << " " << nodeTowersOHCal << "=" << (m_evtDispTowersOHCal ? "OK" : "MISSING")
-              << "  Geom: "
-              << "TOWERGEOM_CEMC=" << (m_evtDispGeomCEMC ? "OK" : "MISSING")
-              << " TOWERGEOM_HCALIN=" << (m_evtDispGeomIHCal ? "OK" : "MISSING")
-              << " TOWERGEOM_HCALOUT=" << (m_evtDispGeomOHCal ? "OK" : "MISSING"));
-          ++s_warned_count;
-        }
-
-        m_evtDiagNodesReady = false;
-      }
-
-      LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 6] end node fetch (event_count=" << event_count
-                       << " ready=" << (m_evtDiagNodesReady ? "true" : "false") << ")");
+        
+        LOG(1, CLR_CYAN, "[EventDisplayTree][nodes][PHASE 6] end node fetch (event_count=" << event_count
+            << " ready=" << (m_evtDiagNodesReady ? "true" : "false") << ")");
     }
-
-  return true;
+    
+    return true;
 }
 
 
@@ -7173,8 +7161,9 @@ void RecoilJets::fillPi0MassVsPtHistograms(const std::string& trig,
     
     auto& H = itTrig->second;
     
-    const std::string hMassPi0PtName = useCorr ? "h2_pi0_mass_vs_pi0pt_corr" : "h2_pi0_mass_vs_pi0pt_nocorr";
-    const std::string hMassLeadPtName = useCorr ? "h2_pi0_mass_vs_leadcluspt_corr" : "h2_pi0_mass_vs_leadcluspt_nocorr";
+    (void)useCorr;
+    const std::string hMassPi0PtName = "h2_pi0_mass_vs_pi0pt_corr";
+    const std::string hMassLeadPtName = "h2_pi0_mass_vs_leadcluspt_corr";
     
     auto itMassPi0Pt = H.find(hMassPi0PtName);
     auto itMassLeadPt = H.find(hMassLeadPtName);

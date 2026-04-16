@@ -1855,27 +1855,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         if (vlevel > 0)
         {
             std::cout << "[isSim] skipping Process_Calo_Calib() "
-            "(SIM DST already has TOWERINFO_CALIB and CLUSTERINFO_CEMC)\n";
-        }
-        
-        // RawClusterBuilderTemplate (used by the NOCORR pi0 branch) requires:
-        //   1) the CDB geometry file for its internal BEmcRecCEMC tower map
-        //   2) CaloTowerStatus to properly set isGood() flags on towers
-        // Process_Calo_Calib() normally provides both, but is skipped for SIM.
-        // Mirror what Process_Calo_Calib() does for SIM (see Calo_Calib.C):
-        //   - load CDB geometry
-        //   - run CaloTowerStatus with SIM hot tower map
-        // We target TOWERINFO_CALIB_CEMC directly (instead of TOWERS_CEMC)
-        // since the SIM DST already has calibrated towers and we skip CaloTowerCalib.
-        if (cfg.doPi0Analysis)
-        {
-            // 1) CDB geometry for BEmcRecCEMC tower map
-            std::string geoLocation = CDBInterface::instance()->getUrl("calo_geo");
-            auto* ingeo = new Fun4AllRunNodeInputManager("DST_GEO_SIM");
-            ingeo->AddFile(geoLocation);
-            se->registerInputManager(ingeo);
-            if (vlevel > 0)
-                std::cout << "[isSim][pi0] loaded CDB geometry for NOCORR cluster builder: " << geoLocation << "\n";
+            << "(SIM DST already has TOWERINFO_CALIB and CLUSTERINFO_CEMC)\n";
         }
     }
     else if (caloInputMode == "calofitting" || caloInputMode == "jetcalo")
@@ -2024,65 +2004,9 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     {
         if (vlevel > 0)
         {
-            std::cout << "[pi0] Building parallel no-correction cluster branch -> CLUSTERINFO_CEMC_NOCORR" << std::endl;
+            std::cout << "[pi0] position-corrected-only mode: using CLUSTERINFO_CEMC only"
+                      << " (no parallel CLUSTERINFO_CEMC_NOCORR branch will be built)" << std::endl;
         }
-        
-        auto* pi0NoCorrOn = new ProcessEnvSetter("Pi0NoCorrEnvOn",
-                                                 "BEMCREC_CEMC_DISABLE_ASINH_POSITION",
-                                                 "1");
-        pi0NoCorrOn->Verbosity(0);
-        se->registerSubsystem(pi0NoCorrOn);
-        
-        auto* pi0ClusterBuilder = new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate_NOCORR");
-        pi0ClusterBuilder->Detector("CEMC");
-        pi0ClusterBuilder->set_threshold_energy(0.070);
-        
-        const char* calibroot = std::getenv("CALIBRATIONROOT");
-        if (calibroot && std::string(calibroot).size())
-        {
-            std::string emc_prof = std::string(calibroot) + "/EmcProfile/CEMCprof_Thresh30MeV.root";
-            pi0ClusterBuilder->LoadProfile(emc_prof);
-            if (vlevel > 0) std::cout << "[pp][pi0] NOCORR cluster builder LoadProfile: " << emc_prof << "\n";
-        }
-        else
-        {
-            if (vlevel > 0) std::cout << "[pp][pi0][WARN] CALIBRATIONROOT not set; NOCORR cluster profile not loaded\n";
-        }
-        
-        pi0ClusterBuilder->set_UseTowerInfo(1);
-        pi0ClusterBuilder->set_UseAltZVertex(1);
-        pi0ClusterBuilder->setInputTowerNodeName("TOWERINFO_CALIB_CEMC");
-        pi0ClusterBuilder->setOutputClusterNodeName("CLUSTERINFO_CEMC_NOCORR");
-        // In SIM, CaloTowerStatus is not run (Process_Calo_Calib skipped), so
-        // isGood() bits on deserialized towers are unreliable.  Disable the
-        // tower-selection gate for SIM only; all other CEMC consumers are unaffected.
-        if (isSim)
-        {
-            pi0ClusterBuilder->set_ApplyTowerSelection(false);
-            if (vlevel > 0)
-                std::cout << "[isSim][pi0] set_ApplyTowerSelection(false) for NOCORR builder\n";
-        }
-        
-        pi0ClusterBuilder->Verbosity(vlevel);
-        if (vlevel > 0)
-        {
-            std::cout << "[pi0] NOCORR cluster builder config:"
-            << " inputTowers=TOWERINFO_CALIB_CEMC"
-            << " outputClusters=CLUSTERINFO_CEMC_NOCORR"
-            << " threshold=0.070"
-            << " UseTowerInfo=1"
-            << " UseAltZVertex=1"
-            << " Verbosity=" << vlevel
-            << " BEMCREC_CEMC_DISABLE_ASINH_POSITION=" << (std::getenv("BEMCREC_CEMC_DISABLE_ASINH_POSITION") ? std::getenv("BEMCREC_CEMC_DISABLE_ASINH_POSITION") : "(unset)")
-            << "\n";
-        }
-        se->registerSubsystem(pi0ClusterBuilder);
-        
-        auto* pi0NoCorrOff = new ProcessEnvSetter("Pi0NoCorrEnvOff",
-                                                  "BEMCREC_CEMC_DISABLE_ASINH_POSITION",
-                                                  "0");
-        pi0NoCorrOff->Verbosity(0);
-        se->registerSubsystem(pi0NoCorrOff);
     }
     
     // ---------------------- Reco jets -----------------------------------------
