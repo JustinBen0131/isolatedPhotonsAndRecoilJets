@@ -336,9 +336,9 @@ void RunEventLevelQA(Dataset& ds)
             // Trigger display label
             string trigDisplay = ds.trigger;
             if (trigDisplay.find("photon_10") != string::npos)
-                trigDisplay = "Photon 10 GeV + MBD N&S #geq 1";
+                trigDisplay = "Photon 10 GeV + MBD NS #geq 2, vtx < 150 cm";
             else if (trigDisplay.find("photon_12") != string::npos)
-                trigDisplay = "Photon 12 GeV + MBD N&S #geq 1";
+                trigDisplay = "Photon 12 GeV + MBD NS #geq 2, vtx < 150 cm";
             
             TLegend legZov(0.55, 0.78, 0.92, 0.90);
             legZov.SetBorderSize(0);
@@ -441,9 +441,9 @@ void RunEventLevelQA(Dataset& ds)
                 
                 string trigDisplay = ds.trigger;
                 if (trigDisplay.find("photon_10") != string::npos)
-                    trigDisplay = "Photon 10 GeV + MBD N&S #geq 1";
+                    trigDisplay = "Photon 10 GeV + MBD N&S #geq 2, vtx < 150 cm";
                 else if (trigDisplay.find("photon_12") != string::npos)
-                    trigDisplay = "Photon 12 GeV + MBD N&S #geq 1";
+                    trigDisplay = "Photon 12 GeV + MBD N&S #geq 2, vtx < 150 cm";
                 
                 TLegend legC(0.42, 0.74, 0.92, 0.92);
                 legC.SetBorderSize(0);
@@ -617,9 +617,11 @@ void RunEventLevelQA(Dataset& ds)
                         
                         string trigDisplay = ds.trigger;
                         if (trigDisplay.find("photon_10") != string::npos)
-                            trigDisplay = "Photon 10 GeV + MBD N&S #geq 1";
+                            trigDisplay = "Photon 10 GeV + MBD N&S #geq 2, vtx < 150 cm";
                         else if (trigDisplay.find("photon_12") != string::npos)
-                            trigDisplay = "Photon 12 GeV + MBD N&S #geq 1";
+                            trigDisplay = "Photon 12 GeV + MBD N&S #geq 2, vtx < 150 cm";
+                        else if (trigDisplay.find("MBD_NS_geq_2_vtx_lt_150") != string::npos)
+                            trigDisplay = "MBD N&S #geq 2, vtx < 150 cm";
                         
                         TLegend legCI(0.42, 0.78, 0.92, 0.92);
                         legCI.SetBorderSize(0);
@@ -716,7 +718,7 @@ void RunEventLevelQA(Dataset& ds)
                                         hCentData->SetTitle("");
                                         hCentData->GetXaxis()->SetTitle("Centrality [%]");
                                         hCentData->GetYaxis()->SetTitle("Shape normalized");
-                                        hCentData->GetYaxis()->SetTitleOffset(1.15);
+                                        hCentData->GetYaxis()->SetTitleOffset(1.35);
                                         hCentData->GetXaxis()->SetRangeUser(0.0, 100.0);
                                         hCentData->SetMinimum(0.0);
                                         hCentData->SetMaximum(1.45 * yMaxCent);
@@ -724,7 +726,7 @@ void RunEventLevelQA(Dataset& ds)
                                         for (auto& eh : ciCentHists) eh.h->Draw("HIST SAME");
                                         hCentData->Draw("E1 SAME");
                                         
-                                        TLegend legCentCI(0.42, 0.78, 0.92, 0.92);
+                                        TLegend legCentCI(0.55, 0.75, 0.92, 0.89);
                                         legCentCI.SetBorderSize(0);
                                         legCentCI.SetFillStyle(0);
                                         legCentCI.SetTextFont(42);
@@ -740,24 +742,25 @@ void RunEventLevelQA(Dataset& ds)
                                         tCentCItitle.SetTextSize(0.038);
                                         tCentCItitle.DrawLatex(0.50, 0.97, "Centrality: Au+Au data and embedded SIM (centrality inclusive)");
                                         
+                                        // sPHENIX label and system: top-left
+                                        TLatex tSphCentCI;
+                                        tSphCentCI.SetNDC(true);
+                                        tSphCentCI.SetTextFont(42);
+                                        tSphCentCI.SetTextAlign(13);
+                                        tSphCentCI.SetTextSize(0.042);
+                                        tSphCentCI.DrawLatex(0.19, 0.89, "#bf{sPHENIX} #it{Internal}");
+                                        tSphCentCI.SetTextSize(0.034);
+                                        tSphCentCI.DrawLatex(0.19, 0.85, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                                        
+                                        // Trigger, centrality scope, and v_z cut: bottom-right
                                         TLatex tCentCIinfo;
                                         tCentCIinfo.SetNDC(true);
                                         tCentCIinfo.SetTextFont(42);
                                         tCentCIinfo.SetTextAlign(33);
-                                        tCentCIinfo.SetTextSize(0.034);
-                                        tCentCIinfo.DrawLatex(0.92, 0.74, trigDisplay.c_str());
-                                        tCentCIinfo.DrawLatex(0.92, 0.70, "Centrality inclusive");
-                                        tCentCIinfo.DrawLatex(0.92, 0.66,
+                                        tCentCIinfo.SetTextSize(0.035);
+                                        tCentCIinfo.DrawLatex(0.87, 0.45, trigDisplay.c_str());
+                                        tCentCIinfo.DrawLatex(0.87, 0.4,
                                                               TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
-                                        
-                                        TLatex tSphCentCI;
-                                        tSphCentCI.SetNDC(true);
-                                        tSphCentCI.SetTextFont(42);
-                                        tSphCentCI.SetTextAlign(33);
-                                        tSphCentCI.SetTextSize(0.042);
-                                        tSphCentCI.DrawLatex(0.92, 0.60, "#bf{sPHENIX} #it{Internal}");
-                                        tSphCentCI.SetTextSize(0.034);
-                                        tSphCentCI.DrawLatex(0.92, 0.55, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
                                         
                                         SaveCanvas(cCentCI, JoinPath(trigLevelDir,
                                                                      "centrality_DATA_allEmbedded_overlay_centInclusive_" + ds.trigger + ".png"));
@@ -15174,9 +15177,9 @@ int Run()
                 
                 string trigDisp = trig;
                 if (trigDisp.find("photon_10") != string::npos)
-                    trigDisp = "Photon 10 GeV + MBD N&S #geq 1";
+                    trigDisp = "Photon 10 GeV + MBD NS #geq 2, vtx < 150 cm";
                 else if (trigDisp.find("photon_12") != string::npos)
-                    trigDisp = "Photon 12 GeV + MBD N&S #geq 1";
+                    trigDisp = "Photon 12 GeV + MBD NS #geq 2, vtx < 150 cm";
                 
                 TLatex tZt;
                 tZt.SetNDC(true);

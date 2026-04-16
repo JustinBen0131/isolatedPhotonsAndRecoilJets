@@ -2257,7 +2257,8 @@ if (!SSoverlayPerVAR_processONLY)
         auto DrawSSOverlaySelectionBlock =
         [&](const string& tag,
             bool overlayPtBins,
-            double ptCenter) -> bool
+            double ptCenter,
+            bool useTopLeft = false) -> bool
         {
             if (overlayPtBins) return false;
             
@@ -2266,19 +2267,21 @@ if (!SSoverlayPerVAR_processONLY)
             tSel.SetTextFont(42);
             tSel.SetTextAlign(13);
             
-            const double xLabel = 0.58;
-            const double xColL  = 0.58;
-            const double xColR  = 0.77;
-            const double yLabel = 0.31;
-            const double yRow1  = 0.25;
-            const double yRow2  = 0.19;
+            const double xLabel = useTopLeft ? 0.22 : 0.58;
+            const double xColL  = useTopLeft ? 0.22 : 0.58;
+            const double xColR  = useTopLeft ? 0.40 : 0.77;
+            const double yLabel = useTopLeft ? 0.78 : 0.31;
+            const double yRow1  = useTopLeft ? 0.72 : 0.25;
+            const double yRow2  = useTopLeft ? 0.66 : 0.19;
+            const double sLabel = useTopLeft ? 0.032 : 0.040;
+            const double sRow   = useTopLeft ? 0.026 : 0.032;
             
             if (tag == "pre")
             {
-                tSel.SetTextSize(0.040);
+                tSel.SetTextSize(sLabel);
                 tSel.DrawLatex(xLabel, yLabel, "#gamma-presel:");
                 
-                tSel.SetTextSize(0.032);
+                tSel.SetTextSize(sRow);
                 tSel.DrawLatex(xColL, yRow1, "#frac{E_{11}}{E_{33}} < 0.98");
                 tSel.DrawLatex(xColR, yRow1, "0.6 < et1 < 1.0");
                 tSel.DrawLatex(xColL, yRow2, "0.8 < #frac{E_{32}}{E_{35}} < 1.0");
@@ -2288,10 +2291,10 @@ if (!SSoverlayPerVAR_processONLY)
             
             if (tag == "tight")
             {
-                tSel.SetTextSize(0.040);
+                tSel.SetTextSize(sLabel);
                 tSel.DrawLatex(xLabel, yLabel, "#gamma-tight:");
                 
-                tSel.SetTextSize(0.032);
+                tSel.SetTextSize(sRow);
                 tSel.DrawLatex(xColL, yRow1, "0.4 < #frac{E_{11}}{E_{33}} < 0.98");
                 tSel.DrawLatex(xColR, yRow1, "0.9 < et1 < 1.0");
                 tSel.DrawLatex(xColL, yRow2, "0.92 < #frac{E_{32}}{E_{35}} < 1.0");
@@ -2305,11 +2308,11 @@ if (!SSoverlayPerVAR_processONLY)
             
             if (tag == "nonTight")
             {
-                const double xNT = 0.38;
-                tSel.SetTextSize(0.040);
+                const double xNT = useTopLeft ? 0.17 : 0.38;
+                tSel.SetTextSize(sLabel);
                 tSel.DrawLatex(xNT, yLabel, "#gamma-nonTight:");
                 
-                tSel.SetTextSize(0.032);
+                tSel.SetTextSize(sRow);
                 tSel.DrawLatex(xNT, yRow1, "fail #geq 2 of 5 tight cuts");
                 return true;
             }
@@ -2324,9 +2327,10 @@ if (!SSoverlayPerVAR_processONLY)
             double ptCenter,
             double textX,
             double textY,
-            double textSize) -> void
+            double textSize,
+            bool selectionBlockTopLeft = false) -> void
         {
-            const bool drewBottomRightBlock = DrawSSOverlaySelectionBlock(tag, overlayPtBins, ptCenter);
+            const bool drewBottomRightBlock = DrawSSOverlaySelectionBlock(tag, overlayPtBins, ptCenter, selectionBlockTopLeft);
             
             const string text = GetSSOverlaySelectionText(tag, overlayPtBins, ptCenter);
             if (!text.empty() && !drewBottomRightBlock)
@@ -3049,7 +3053,7 @@ if (!SSoverlayPerVAR_processONLY)
                          (tag == "pre" || tag == "tight" || tag == "nonTight"));
                         
                         TLegend legVar(
-                                       useSpecialE32Legend ? 0.08 : (useSpecialE11Legend ? 0.17 : 0.10),
+                                       useSpecialE32Legend ? 0.08 : (useSpecialE11Legend ? 0.17 : 0.22),
                                        useSpecialE32Legend ? 0.79 : (useSpecialE11Legend ? 0.78 : 0.81),
                                        useSpecialE32Legend ? 0.66 : (useSpecialE11Legend ? 0.69 : 0.74),
                                        useSpecialE32Legend ? 0.91 : (useSpecialE11Legend ? 0.90 : 0.89)
@@ -3057,8 +3061,10 @@ if (!SSoverlayPerVAR_processONLY)
                         legVar.SetBorderSize(0);
                         legVar.SetFillStyle(0);
                         legVar.SetTextFont(42);
-                        legVar.SetTextSize((useSpecialE11Legend || useSpecialE32Legend) ? 0.028 : 0.026);
+                        legVar.SetTextSize((useSpecialE11Legend || useSpecialE32Legend) ? 0.028 : 0.024);
                         legVar.SetNColumns(3);
+                        legVar.SetColumnSeparation(0.0);
+                        legVar.SetEntrySeparation(0.08);
                         if (vi.hPP) legVar.AddEntry(vi.hPP, "pp", "ep");
                         for (std::size_t ih = 0; ih < vi.hists.size(); ++ih)
                             legVar.AddEntry(vi.hists[ih], vi.labels[ih].c_str(), "ep");
@@ -3150,18 +3156,20 @@ if (!SSoverlayPerVAR_processONLY)
                             const bool useSpecialEt1Legend2 =
                             (pb.folder == "pT_10_12" && var == "et1" &&
                              (tag == "pre" || tag == "tight" || tag == "nonTight"));
+                            const bool useTopLeft3ColLegend2 = !useSpecialE11Legend2 && !useSpecialE32Legend2 && !useSpecialEt1Legend2;
                             
                             TLegend legVar2(
-                                            useSpecialEt1Legend2 ? 0.08 : (useSpecialE32Legend2 ? 0.14 : (useSpecialE11Legend2 ? 0.17 : 0.56)),
-                                            useSpecialEt1Legend2 ? 0.79 : (useSpecialE32Legend2 ? 0.82 : (useSpecialE11Legend2 ? 0.82 : 0.58)),
-                                            useSpecialEt1Legend2 ? 0.67 : (useSpecialE32Legend2 ? 0.62 : (useSpecialE11Legend2 ? 0.69 : 0.92)),
-                                            useSpecialEt1Legend2 ? 0.91 : (useSpecialE32Legend2 ? 0.90 : (useSpecialE11Legend2 ? 0.90 : 0.88))
+                                            useSpecialEt1Legend2 ? 0.08 : (useSpecialE32Legend2 ? 0.14 : (useSpecialE11Legend2 ? 0.17 : 0.17)),
+                                            useSpecialEt1Legend2 ? 0.79 : (useSpecialE32Legend2 ? 0.82 : (useSpecialE11Legend2 ? 0.82 : 0.81)),
+                                            useSpecialEt1Legend2 ? 0.67 : (useSpecialE32Legend2 ? 0.62 : (useSpecialE11Legend2 ? 0.69 : 0.74)),
+                                            useSpecialEt1Legend2 ? 0.91 : (useSpecialE32Legend2 ? 0.90 : (useSpecialE11Legend2 ? 0.90 : 0.89))
                                             );
                             legVar2.SetBorderSize(0);
                             legVar2.SetFillStyle(0);
                             legVar2.SetTextFont(42);
-                            legVar2.SetTextSize((useSpecialE11Legend2 || useSpecialE32Legend2 || useSpecialEt1Legend2) ? 0.028 : 0.032);
-                            if (useSpecialE11Legend2 || useSpecialE32Legend2 || useSpecialEt1Legend2) legVar2.SetNColumns(3);
+                            legVar2.SetTextSize((useSpecialE11Legend2 || useSpecialE32Legend2 || useSpecialEt1Legend2 || useTopLeft3ColLegend2) ? 0.028 : 0.032);
+                            if (useSpecialE11Legend2 || useSpecialE32Legend2 || useSpecialEt1Legend2 || useTopLeft3ColLegend2) legVar2.SetNColumns(3);
+                            if (useTopLeft3ColLegend2) { legVar2.SetColumnSeparation(0.0); legVar2.SetEntrySeparation(0.08); }
                             if (vi.hPP) legVar2.AddEntry(vi.hPP, "pp", "ep");
                             for (std::size_t ih = 0; ih < reducedHists.size(); ++ih)
                                 legVar2.AddEntry(reducedHists[ih], reducedLabels[ih].c_str(), "ep");
@@ -3188,7 +3196,7 @@ if (!SSoverlayPerVAR_processONLY)
                             const double cutTextX2 = useSpecialEt1Legend2 ? 0.08 : 0.16;
                             const double cutTextY2 = useSpecialEt1Legend2 ? 0.73 : 0.84;
                             const double cutTextSize2 = useSpecialEt1Legend2 ? 0.028 : 0.026;
-                            DrawSSOverlayCutsAndText(var, tag, false, ptCenterForCuts2, cutTextX2, cutTextY2, cutTextSize2);
+                            DrawSSOverlayCutsAndText(var, tag, false, ptCenterForCuts2, cutTextX2, cutTextY2, cutTextSize2, true);
                             
                             SaveCanvas(cVar2, JoinPath(overlay2CentDir,
                                                        TString::Format("centOverlay_%s_%s_%s.png",

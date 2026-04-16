@@ -1436,32 +1436,50 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 TH1* hSig = CloneTH1(hSigSrc, TString::Format("hSig_ppSig_%s_%s", cb.folder.c_str(), b.folder.c_str()).Data());
                                 if (hTd && hNTd && hSig)
                                 {
-                                    hTd->Rebin(10); hNTd->Rebin(10); hSig->Rebin(10);
+                                    hTd->Scale(1.0, "width");
+                                    hNTd->Scale(1.0, "width");
+                                    hSig->Scale(1.0, "width");
+                                    hTd->Rebin(10);
+                                    hNTd->Rebin(10);
+                                    hSig->Rebin(10);
                                     {
-                                        const double iTdN=hTd->Integral(0,hTd->GetNbinsX()+1); const double iNTdN=hNTd->Integral(0,hNTd->GetNbinsX()+1); const double iSigN=hSig->Integral(0,hSig->GetNbinsX()+1);
-                                        if (iTdN>0) hTd->Scale(1.0/iTdN); if (iNTdN>0) hNTd->Scale(1.0/iNTdN); if (iSigN>0) hSig->Scale(1.0/iSigN);
+                                        const double meanIsoET = hTd->GetMean();
+                                        const double rmsIsoET  = hTd->GetRMS();
+                                        const double normCut   = meanIsoET + 1.75 * rmsIsoET;
+                                        
+                                        const int binNormLo = hTd->FindBin(normCut);
+                                        const int binNormHi = hTd->GetNbinsX();
+                                        
+                                        const double normTight    = hTd->Integral(binNormLo, binNormHi);
+                                        const double normNonTight = hNTd->Integral(binNormLo, binNormHi);
+                                        if (normNonTight > 0.0) hNTd->Scale(normTight / normNonTight);
+                                        
+                                        const double dataSignalYield = hTd->Integral() - hNTd->Integral();
+                                        const double mcSignalYield   = hSig->Integral();
+                                        if (mcSignalYield > 0.0) hSig->Scale(dataSignalYield / mcSignalYield);
+                                        
                                         hSig->SetLineColor(kBlue-9); hSig->SetFillColorAlpha(kBlue-9,0.5); hSig->SetFillStyle(1001); hSig->SetLineWidth(1); hSig->SetMarkerSize(0.0);
                                         hNTd->SetLineColor(kPink-4); hNTd->SetFillColorAlpha(kPink-4,0.5); hNTd->SetFillStyle(1001); hNTd->SetLineWidth(1); hNTd->SetMarkerSize(0.0);
                                         for (int ib=0; ib<=hSig->GetNbinsX()+1; ++ib) hSig->SetBinError(ib,0.0);
                                         for (int ib=0; ib<=hNTd->GetNbinsX()+1; ++ib) hNTd->SetBinError(ib,0.0);
                                         hTd->SetLineColor(kBlack); hTd->SetMarkerColor(kBlack); hTd->SetMarkerStyle(20); hTd->SetMarkerSize(1.0); hTd->SetLineWidth(2); hTd->SetFillStyle(0);
-                                        TH1* hStackPP = (TH1*)hSig->Clone(TString::Format("hStack_ppSig_%s_%s", cb.folder.c_str(), b.folder.c_str()).Data());
-                                        hStackPP->SetDirectory(nullptr); hStackPP->Add(hNTd);
-                                        const double ym = std::max(hTd->GetMaximum(), hStackPP->GetMaximum());
+                                        TH1* hSigTopPP = (TH1*)hSig->Clone(TString::Format("hSigTop_ppSig_%s_%s", cb.folder.c_str(), b.folder.c_str()).Data());
+                                        hSigTopPP->SetDirectory(nullptr); hSigTopPP->Add(hNTd);
+                                        const double ym = std::max(hTd->GetMaximum(), hSigTopPP->GetMaximum());
                                         TCanvas cSB(TString::Format("c_ppSigBkg_%s_%s", cb.folder.c_str(), b.folder.c_str()).Data(), "c_ppSigBkg", 900, 700);
                                         ApplyCanvasMargins1D(cSB); cSB.cd();
-                                        hStackPP->SetTitle(""); hStackPP->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
-                                        hStackPP->GetYaxis()->SetTitle("Normalized to unit area");
+                                        hSigTopPP->SetTitle(""); hSigTopPP->GetXaxis()->SetTitle("E_{T}^{iso} [GeV]");
+                                        hSigTopPP->GetYaxis()->SetTitle("Counts / Bin Width");
                                         hTd->GetXaxis()->SetTitleSize(0.055); hTd->GetYaxis()->SetTitleSize(0.055);
                                         hTd->GetXaxis()->SetLabelSize(0.045); hTd->GetYaxis()->SetLabelSize(0.045);
-                                        hTd->GetYaxis()->SetTitleOffset(1.15);
-                                        hStackPP->GetXaxis()->SetTitleSize(0.055); hStackPP->GetYaxis()->SetTitleSize(0.055);
-                                        hStackPP->GetXaxis()->SetLabelSize(0.045); hStackPP->GetYaxis()->SetLabelSize(0.045);
-                                        hStackPP->GetYaxis()->SetTitleOffset(1.15);
-                                        hStackPP->SetMinimum(0.0); hStackPP->SetMaximum((ym>0)?(1.3*ym):1.0);
-                                        hStackPP->SetLineColor(kPink-4); hStackPP->SetFillColorAlpha(kPink-4,0.5); hStackPP->SetFillStyle(1001);
-                                        hStackPP->Draw("hist");
-                                        hSig->Draw("hist SAME");
+                                        hTd->GetYaxis()->SetTitleOffset(1.30);
+                                        hSigTopPP->GetXaxis()->SetTitleSize(0.055); hSigTopPP->GetYaxis()->SetTitleSize(0.055);
+                                        hSigTopPP->GetXaxis()->SetLabelSize(0.045); hSigTopPP->GetYaxis()->SetLabelSize(0.045);
+                                        hSigTopPP->GetYaxis()->SetTitleOffset(1.30);
+                                        hSigTopPP->SetMinimum(0.0); hSigTopPP->SetMaximum((ym>0)?(1.3*ym):1.0);
+                                        hSigTopPP->SetLineColor(kBlue-9); hSigTopPP->SetFillColorAlpha(kBlue-9,0.5); hSigTopPP->SetFillStyle(1001);
+                                        hSigTopPP->Draw("hist");
+                                        hNTd->Draw("hist SAME");
                                         hTd->Draw("E1 SAME");
                                         TLatex tSBtitle; tSBtitle.SetNDC(true); tSBtitle.SetTextFont(42); tSBtitle.SetTextAlign(23); tSBtitle.SetTextSize(0.040);
                                         tSBtitle.DrawLatex(0.50, 0.97,
@@ -1478,7 +1496,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                         TLatex ti; ti.SetNDC(true); ti.SetTextFont(42); ti.SetTextAlign(13); ti.SetTextSize(0.045);
                                         ti.DrawLatex(0.18,0.89,TString::Format("p_{T}^{#gamma} = %d-%d GeV", b.lo, b.hi).Data());
                                         SaveCanvas(cSB, JoinPath(ppSigDir, "Eiso_sigBkg_overlay.png"));
-                                        delete hStackPP;
+                                        delete hSigTopPP;
                                     }
                                 }
                                 if (hTd) delete hTd; if (hNTd) delete hNTd; if (hSig) delete hSig;

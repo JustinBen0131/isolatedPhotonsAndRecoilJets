@@ -271,7 +271,7 @@ namespace yamlcfg
         
         bool centrality_reweight_on = false;
         std::string centrality_reweight_file = "/sphenix/u/bseidlitz/work/pj_auau/reweightingDer/output/centrality_reweighting.root";
-        std::string centrality_reweight_hist = "nom_cent_rw_hist";NO
+        std::string centrality_reweight_hist = "nom_cent_rw_hist";
         
         double isoA = 1.08128;
         double isoB = 0.0299107;
