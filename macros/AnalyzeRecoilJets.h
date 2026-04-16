@@ -101,9 +101,9 @@ namespace ARJ
 
   inline bool isPPdataAndAUAU = false;
 
-  inline bool generateUEcomparisonSSQA = true;
+  inline bool generateUEcomparisonSSQA = false;
   inline bool skipToCentralityAndPtOverlaysWithSSQA = false;
-  inline bool SSoverlayPerVAR_processONLY           = true;
+  inline bool SSoverlayPerVAR_processONLY           = false;
   inline bool generateISOpTcentOverlaysONLY         = false;
   inline bool perVariantIsoQA_ONLY                  = false;
 
@@ -193,8 +193,8 @@ namespace ARJ
   // Au+Au trigger directory name(s) inside the ROOT file.
   // Set one, two, or all three.  Analysis runs independently for each.
   inline const vector<string> kTriggersAuAu = {
-//        "MBD_NS_geq_2_vtx_lt_150"
-       "photon_10_plus_MBD_NS_geq_2_vtx_lt_150"
+       "MBD_NS_geq_2_vtx_lt_150"
+//       "photon_10_plus_MBD_NS_geq_2_vtx_lt_150"
 //       "photon_12_plus_MBD_NS_geq_2_vtx_lt_150"
   };
 

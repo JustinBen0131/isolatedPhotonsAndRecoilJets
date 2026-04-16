@@ -266,12 +266,12 @@ namespace yamlcfg
         std::vector<int> centrality_edges = {0, 10, 20, 40, 60, 80, 100};
         
         bool vertex_reweight_on = false;
-        std::string vertex_reweight_file = "";
+        std::string vertex_reweight_file = "/sphenix/u/bseidlitz/work/pj_auau/reweightingDer/output/vtxz_reweighting.root";
         std::string vertex_reweight_hist = "data_over_MC_ratios/h_zvtx_ratio_data_over_photonJet";
         
         bool centrality_reweight_on = false;
-        std::string centrality_reweight_file = "/sphenix/u/patsfan753/scratch/thesisAnalysis/reweightingDer/output/centrality_reweighting.root";
-        std::string centrality_reweight_hist = "nom_cent_rw_hist";
+        std::string centrality_reweight_file = "/sphenix/u/bseidlitz/work/pj_auau/reweightingDer/output/centrality_reweighting.root";
+        std::string centrality_reweight_hist = "nom_cent_rw_hist";NO
         
         double isoA = 1.08128;
         double isoB = 0.0299107;

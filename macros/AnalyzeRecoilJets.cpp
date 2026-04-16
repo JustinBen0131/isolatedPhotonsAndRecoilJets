@@ -660,6 +660,115 @@ void RunEventLevelQA(Dataset& ds)
                         SaveCanvas(cCI, JoinPath(trigLevelDir,
                                                   "zvtx_DATA_allEmbedded_overlay_centInclusive_" + ds.trigger + ".png"));
                         
+                        // --- Centrality-inclusive shape overlay: data + embedded SIM samples ---
+                        {
+                            TH1* hCentDataSrc = GetObj<TH1>(ds, "h_centrality", false, true, true);
+                            if (hCentDataSrc)
+                            {
+                                TH1* hCentData = CloneTH1(hCentDataSrc, "hDataCI_centrality");
+                                if (hCentData)
+                                {
+                                    NormalizeToUnitArea(hCentData);
+                                    hCentData->SetLineColor(kBlack);
+                                    hCentData->SetLineWidth(2);
+                                    hCentData->SetMarkerStyle(20);
+                                    hCentData->SetMarkerSize(0.9);
+                                    hCentData->SetMarkerColor(kBlack);
+                                    
+                                    struct CICentHist { TH1* h; TFile* f; string label; };
+                                    vector<CICentHist> ciCentHists;
+                                    
+                                    for (const auto& src : ciSources)
+                                    {
+                                        TFile* fCIc = TFile::Open(src.simPath.c_str(), "READ");
+                                        if (!fCIc || fCIc->IsZombie()) { if (fCIc) { fCIc->Close(); delete fCIc; } continue; }
+                                        TDirectory* ciTopc = fCIc->GetDirectory(kDirSIM.c_str());
+                                        if (!ciTopc) { fCIc->Close(); delete fCIc; continue; }
+                                        TH1* hCentSrc = dynamic_cast<TH1*>(ciTopc->Get("h_centrality"));
+                                        if (!hCentSrc) { fCIc->Close(); delete fCIc; continue; }
+                                        
+                                        TH1* hCent = CloneTH1(
+                                            hCentSrc,
+                                            TString::Format("h_centrality_%s_areaNorm", src.tag.c_str()).Data());
+                                        if (!hCent) { fCIc->Close(); delete fCIc; continue; }
+                                        
+                                        NormalizeToUnitArea(hCent);
+                                        ciCentHists.push_back({hCent, fCIc, src.simLabel});
+                                    }
+                                    
+                                    if (ciCentHists.size() >= 2)
+                                    {
+                                        const int ciCentColors[] = {kRed + 1, kBlue + 1};
+                                        for (std::size_t ie = 0; ie < ciCentHists.size(); ++ie)
+                                        {
+                                            ciCentHists[ie].h->SetLineColor(ciCentColors[ie % 2]);
+                                            ciCentHists[ie].h->SetLineWidth(2);
+                                            ciCentHists[ie].h->SetFillStyle(0);
+                                        }
+                                        
+                                        double yMaxCent = hCentData->GetMaximum();
+                                        for (auto& eh : ciCentHists) yMaxCent = std::max(yMaxCent, (double)eh.h->GetMaximum());
+                                        
+                                        TCanvas cCentCI("cCentCI", "cCentCI", 900, 700);
+                                        ApplyCanvasMargins1D(cCentCI);
+                                        cCentCI.cd();
+                                        
+                                        hCentData->SetTitle("");
+                                        hCentData->GetXaxis()->SetTitle("Centrality [%]");
+                                        hCentData->GetYaxis()->SetTitle("Shape normalized");
+                                        hCentData->GetYaxis()->SetTitleOffset(1.15);
+                                        hCentData->GetXaxis()->SetRangeUser(0.0, 100.0);
+                                        hCentData->SetMinimum(0.0);
+                                        hCentData->SetMaximum(1.45 * yMaxCent);
+                                        hCentData->Draw("E1");
+                                        for (auto& eh : ciCentHists) eh.h->Draw("HIST SAME");
+                                        hCentData->Draw("E1 SAME");
+                                        
+                                        TLegend legCentCI(0.42, 0.78, 0.92, 0.92);
+                                        legCentCI.SetBorderSize(0);
+                                        legCentCI.SetFillStyle(0);
+                                        legCentCI.SetTextFont(42);
+                                        legCentCI.SetTextSize(0.032);
+                                        legCentCI.AddEntry(hCentData, "Au+Au data", "ep");
+                                        for (auto& eh : ciCentHists) legCentCI.AddEntry(eh.h, eh.label.c_str(), "l");
+                                        legCentCI.Draw();
+                                        
+                                        TLatex tCentCItitle;
+                                        tCentCItitle.SetNDC(true);
+                                        tCentCItitle.SetTextFont(42);
+                                        tCentCItitle.SetTextAlign(23);
+                                        tCentCItitle.SetTextSize(0.038);
+                                        tCentCItitle.DrawLatex(0.50, 0.97, "Centrality: Au+Au data and embedded SIM (centrality inclusive)");
+                                        
+                                        TLatex tCentCIinfo;
+                                        tCentCIinfo.SetNDC(true);
+                                        tCentCIinfo.SetTextFont(42);
+                                        tCentCIinfo.SetTextAlign(33);
+                                        tCentCIinfo.SetTextSize(0.034);
+                                        tCentCIinfo.DrawLatex(0.92, 0.74, trigDisplay.c_str());
+                                        tCentCIinfo.DrawLatex(0.92, 0.70, "Centrality inclusive");
+                                        tCentCIinfo.DrawLatex(0.92, 0.66,
+                                                              TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
+                                        
+                                        TLatex tSphCentCI;
+                                        tSphCentCI.SetNDC(true);
+                                        tSphCentCI.SetTextFont(42);
+                                        tSphCentCI.SetTextAlign(33);
+                                        tSphCentCI.SetTextSize(0.042);
+                                        tSphCentCI.DrawLatex(0.92, 0.60, "#bf{sPHENIX} #it{Internal}");
+                                        tSphCentCI.SetTextSize(0.034);
+                                        tSphCentCI.DrawLatex(0.92, 0.55, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                                        
+                                        SaveCanvas(cCentCI, JoinPath(trigLevelDir,
+                                                                     "centrality_DATA_allEmbedded_overlay_centInclusive_" + ds.trigger + ".png"));
+                                    }
+                                    
+                                    for (auto& eh : ciCentHists) { delete eh.h; eh.f->Close(); delete eh.f; }
+                                    delete hCentData;
+                                }
+                            }
+                        }
+                        
                         // --- ROOT file with area-normalized data/MC ratios ---
                         {
                             const string rootPath = JoinPath(trigLevelDir,
