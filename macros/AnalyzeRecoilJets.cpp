@@ -8573,29 +8573,45 @@ void RunMatchQA(Dataset& ds, MatchCache& mc)
     // -------------------------------------------------------------------------
     for (const auto& rKey : kRKeys)
     {
+        cout << ANSI_BOLD_CYN
+             << "[DEBUG][MatchQA] BEGIN rKey=" << rKey
+             << "  ds=" << ds.label
+             << ANSI_RESET << "\n";
+        
         const MatchDirs D = MakeDirsForRKey(rKey);
         
         // Keep notes for summary.txt
         vector<string> notes;
         
-        // Match status (plots + cache fill + efficiencies + table + summary.txt)
+        cout << "[DEBUG][MatchQA] calling HandleMatchStatus(" << rKey << ")\n";
         TH2* hStatus = HandleMatchStatus(rKey, D, notes);
+        cout << "[DEBUG][MatchQA] returned HandleMatchStatus(" << rKey << ")\n";
         
-        // Other QA blocks (independent)
+        cout << "[DEBUG][MatchQA] calling HandleMaxDphi(" << rKey << ")\n";
         HandleMaxDphi(rKey, D);
+        cout << "[DEBUG][MatchQA] returned HandleMaxDphi(" << rKey << ")\n";
+        
+        cout << "[DEBUG][MatchQA] calling HandleNRecoilProfile(" << rKey << ")\n";
         HandleNRecoilProfile(rKey, D);
+        cout << "[DEBUG][MatchQA] returned HandleNRecoilProfile(" << rKey << ")\n";
         
-        // Your extended Δφ suite (only runs if h_match_dphi exists)
+        cout << "[DEBUG][MatchQA] calling HandleDeltaPhiSuite(" << rKey << ")\n";
         HandleDeltaPhiSuite(rKey, D);
+        cout << "[DEBUG][MatchQA] returned HandleDeltaPhiSuite(" << rKey << ")\n";
         
-        // recoil-is-leading
+        cout << "[DEBUG][MatchQA] calling HandleRecoilIsLeading(" << rKey << ")\n";
         HandleRecoilIsLeading(rKey, D);
+        cout << "[DEBUG][MatchQA] returned HandleRecoilIsLeading(" << rKey << ")\n";
         
         // If status histogram missing, we at least print a warning + optional note (keeps behavior safe)
         if (!hStatus && !notes.empty())
         {
             cout << ANSI_BOLD_YEL << "[WARN] MatchQA: missing status hist for " << ds.label << " " << rKey << ANSI_RESET << "\n";
         }
+        
+        cout << ANSI_BOLD_CYN
+             << "[DEBUG][MatchQA] END rKey=" << rKey
+             << ANSI_RESET << "\n";
     }
     
     // -------------------------------------------------------------------------
@@ -8604,6 +8620,30 @@ void RunMatchQA(Dataset& ds, MatchCache& mc)
     {
         const string overDir = JoinPath(baseOut, "overlays");
         EnsureDir(overDir);
+        
+        const bool haveR02 =
+            (mc.NphoLead.count("r02") && mc.NphoMatched.count("r02") &&
+             mc.NphoLead["r02"].size() == (std::size_t)kNPtBins &&
+             mc.NphoMatched["r02"].size() == (std::size_t)kNPtBins);
+        
+        const bool haveR04 =
+            (mc.NphoLead.count("r04") && mc.NphoMatched.count("r04") &&
+             mc.NphoLead["r04"].size() == (std::size_t)kNPtBins &&
+             mc.NphoMatched["r04"].size() == (std::size_t)kNPtBins);
+        
+        cout << ANSI_BOLD_CYN
+             << "[DEBUG][MatchQA] entering OVERLAYS ACROSS rKeys"
+             << "  haveR02=" << (haveR02 ? "true" : "false")
+             << "  haveR04=" << (haveR04 ? "true" : "false")
+             << ANSI_RESET << "\n";
+        
+        if (!(haveR02 && haveR04))
+        {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] Skipping MatchQA r02/r04 overlay block because required cache entries are missing."
+                 << ANSI_RESET << "\n";
+            return;
+        }
         
         // x = pT bin centers; y = matched fraction; ey = binomial stat unc on fraction
         vector<double> x(kNPtBins, 0.0), ex(kNPtBins, 0.0);

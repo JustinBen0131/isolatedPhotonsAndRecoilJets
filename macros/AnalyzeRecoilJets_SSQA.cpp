@@ -984,7 +984,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                 {
                     TLegend* leg = nullptr;
                     if (standalone && shiftLegendLeft && tag == "inclusive" && var == "e11e33")
-                        leg = new TLegend(0.18, 0.76, 0.92, 0.88);
+                        leg = new TLegend(0.18, 0.66, 0.92, 0.78);
                     else if (standalone && tag == "nonTight")
                         leg = isW ? new TLegend(0.55, 0.68, 0.88, 0.86) : new TLegend(0.20, 0.68, 0.58, 0.86);
                     else if (standalone)
@@ -996,7 +996,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                     leg->SetBorderSize(0);
                     leg->SetFillStyle(0);
                     leg->SetTextFont(42);
-                    leg->SetTextSize(standalone ? (tag == "nonTight" ? 0.028 : 0.030) : 0.036);
+                    leg->SetTextSize(standalone ? (tag == "nonTight" ? 0.028 : ((shiftLegendLeft && tag == "inclusive" && var == "e11e33") ? 0.024 : 0.030)) : 0.036);
                     if (standalone && shiftLegendLeft && tag == "inclusive" && var == "e11e33")
                         leg->SetNColumns(2);
                     
@@ -3244,7 +3244,7 @@ if (!SSoverlayPerVAR_processONLY)
                         const double cutTextX = useSpecialE32Legend ? 0.08 : 0.16;
                         const double cutTextY = useSpecialE32Legend ? 0.73 : 0.84;
                         const double cutTextSize = useSpecialE32Legend ? 0.028 : 0.026;
-                        DrawSSOverlayCutsAndText(var, tag, false, ptCenterForCuts, cutTextX, cutTextY, cutTextSize);
+                        DrawSSOverlayCutsAndText(var, tag, false, ptCenterForCuts, cutTextX, cutTextY, cutTextSize, true);
                         
                         SaveCanvas(cVar, JoinPath(varTagDir,
                                                   TString::Format("centOverlay_%s_%s_%s.png",

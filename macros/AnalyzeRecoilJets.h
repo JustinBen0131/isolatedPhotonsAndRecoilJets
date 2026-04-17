@@ -101,8 +101,8 @@ namespace ARJ
 
   inline bool isPPdataAndAUAU = false;
 
-  inline bool generateUEcomparisonSSQA = true;
-  inline bool skipToCentralityAndPtOverlaysWithSSQA = true;
+  inline bool generateUEcomparisonSSQA = false;
+  inline bool skipToCentralityAndPtOverlaysWithSSQA = false;
   inline bool SSoverlayPerVAR_processONLY           = false;
   inline bool generateISOpTcentOverlaysONLY         = false;
   inline bool perVariantIsoQA_ONLY                  = false;
@@ -475,18 +475,18 @@ namespace ARJ
   // =============================================================================
   struct BinningCfg
   {
-        vector<double> jes3_photon_pt_bins         = {8, 10,12,14,16,18,20,22,24,26,35};
-        vector<double> unfold_reco_photon_pt_bins  = {8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35, 40};
-        vector<double> unfold_truth_photon_pt_bins = {5, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35, 40};
-        vector<double> unfold_xj_bins              = {0.0,0.20,0.24,0.29,0.35,0.41,0.50,0.60,0.72,0.86,1.03,1.24,1.49,1.78,2.14,3.0};
+      vector<double> jes3_photon_pt_bins         = kJES3PhotonPtBins;
+      vector<double> unfold_reco_photon_pt_bins  = kUnfoldRecoPhotonPtBins;
+      vector<double> unfold_truth_photon_pt_bins = kUnfoldTruthPhotonPtBins;
+      vector<double> unfold_xj_bins              = kUnfoldXjBins;
 
-        // Au+Au centrality bin edges (percent) used for PP vs AuAu overlays
-        vector<double> centrality_edges             = {0, 10, 20, 40, 60, 80};
+      // Au+Au centrality bin edges (percent) used for PP vs AuAu overlays
+      vector<double> centrality_edges             = kCentralityEdges;
 
-        double unfold_jet_pt_start = 0.0;
-        double unfold_jet_pt_stop  = 60.0;
-        double unfold_jet_pt_step  = 0.5;
-        vector<double> unfold_jet_pt_edges;  // expanded from start/stop/step
+      double unfold_jet_pt_start = kUnfoldJetPtStart;
+      double unfold_jet_pt_stop  = kUnfoldJetPtStop;
+      double unfold_jet_pt_step  = kUnfoldJetPtStep;
+      vector<double> unfold_jet_pt_edges;  // expanded from start/stop/step
     };
 
     inline string Trim(std::string s)
