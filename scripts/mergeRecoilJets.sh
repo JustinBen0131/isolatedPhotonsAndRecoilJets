@@ -167,9 +167,9 @@ LOG_DIR="${BASE}/log"
 OUT_DIR="${BASE}/stdout"
 ERR_DIR="${BASE}/error"
 
-# NOTE: TMP_DIR is host-specific so merges run from sphnxuser02 and sphnxuser03
-# cannot clobber each other's skiplists/listfiles when used close together.
-TMP_DIR="${BASE}/tmp_recoil_merge_${HOSTTAG}"
+# NOTE: TMP_DIR must be invocation-specific so one SIM firstRound submission
+# cannot delete another submission's queued listfiles/wrapper before Condor runs.
+TMP_DIR="${BASE}/tmp_recoil_merge_${HOSTTAG}_$$"
 
 # Where splitGoldenRunList round files live:
 #   ${ROUND_BASE}/<pp|auau>/goldenRuns_<pp|auau>_segmentK.txt
@@ -1189,12 +1189,12 @@ EOT
 
   # Clean up firstRound partial directories so only final merged files remain.
   # This makes the output directory sftp/rsync-friendly (no chunk subdirs).
-  # Only run after secondRound (firstRound CREATES these directories).
-  if [[ "$SIM_ACTION" == "secondRound" ]]; then
+  # Only run after secondRound, and only for cfg tags that actually produced a final file.
+  if [[ "$SIM_ACTION" == "secondRound" ]] && (( ${#final_paths[@]} > 0 )); then
     say "Cleaning firstRound partial directories from ${FLAT_OUT_DIR}…"
     for _cleanup_cfg in "${SIM_CFG_TAGS[@]}"; do
       _partials_dir="${FLAT_OUT_DIR}/${_cleanup_cfg}"
-      if [[ -d "$_partials_dir" ]]; then
+      if compgen -G "${FLAT_OUT_DIR}/${FINAL_PREFIX}_*_ALL_${_cleanup_cfg}.root" > /dev/null && [[ -d "$_partials_dir" ]]; then
         rm -rf "$_partials_dir"
         say "  removed: ${_cleanup_cfg}/"
       fi
