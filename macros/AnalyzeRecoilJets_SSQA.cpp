@@ -2500,19 +2500,52 @@ if (!SSoverlayPerVAR_processONLY)
                     
                     if (overlayPtBins)
                     {
+                        struct PtOvGrp { int lo; int hi; vector<string> suffixes; };
+                        vector<PtOvGrp> ptOvGroups;
                         for (int ipt2 = 0; ipt2 < kNPtBins; ++ipt2)
                         {
                             const PtBin& pb2 = PtBins()[ipt2];
-                            const string hName = "h_ss_" + var + "_" + tag + pb2.suffix + fixedCent->suffix;
-                            TH1* hSrc = GetTH1FromTopDir(aaTopSS, hName);
-                            if (!hSrc) continue;
-                            
-                            TH1* h = CloneTH1(
-                                              hSrc,
-                                              TString::Format("ssQA_3x5_%s_%s_%s_%s_%s_pt%d",
-                                                              H.variant.c_str(), tag.c_str(), var.c_str(),
-                                                              fixedCent->folder.c_str(), trigAA.c_str(), ipt2).Data()
-                                              );
+                            if (pb2.lo >= 20 && pb2.hi <= 35) continue;
+                            ptOvGroups.push_back({pb2.lo, pb2.hi, {pb2.suffix}});
+                        }
+                        {
+                            PtOvGrp g2024{20, 24, {}};
+                            PtOvGrp g2435{24, 35, {}};
+                            for (int ipt2 = 0; ipt2 < kNPtBins; ++ipt2)
+                            {
+                                const PtBin& pb2 = PtBins()[ipt2];
+                                if (pb2.lo >= 20 && pb2.hi <= 24) g2024.suffixes.push_back(pb2.suffix);
+                                else if (pb2.lo >= 24 && pb2.hi <= 35) g2435.suffixes.push_back(pb2.suffix);
+                            }
+                            if (!g2024.suffixes.empty()) ptOvGroups.push_back(g2024);
+                            if (!g2435.suffixes.empty()) ptOvGroups.push_back(g2435);
+                        }
+                        
+                        for (std::size_t ipt2 = 0; ipt2 < ptOvGroups.size(); ++ipt2)
+                        {
+                            const PtOvGrp& g = ptOvGroups[ipt2];
+                            TH1* h = nullptr;
+                            for (std::size_t isfx = 0; isfx < g.suffixes.size(); ++isfx)
+                            {
+                                const string hName = "h_ss_" + var + "_" + tag + g.suffixes[isfx] + fixedCent->suffix;
+                                TH1* hSrc = GetTH1FromTopDir(aaTopSS, hName);
+                                if (!hSrc) continue;
+                                if (!h)
+                                {
+                                    h = CloneTH1(
+                                                 hSrc,
+                                                 TString::Format("ssQA_3x5_%s_%s_%s_%s_%s_pt%zu",
+                                                                 H.variant.c_str(), tag.c_str(), var.c_str(),
+                                                                 fixedCent->folder.c_str(), trigAA.c_str(), ipt2).Data()
+                                                 );
+                                    if (!h) continue;
+                                    h->SetDirectory(nullptr);
+                                }
+                                else
+                                {
+                                    h->Add(hSrc);
+                                }
+                            }
                             if (!h) continue;
                             
                             EnsureSumw2(h);
@@ -2528,7 +2561,7 @@ if (!SSoverlayPerVAR_processONLY)
                                 yMax = std::max(yMax, (double)(h->GetBinContent(ib) + h->GetBinError(ib)));
                             
                             hOverlays.push_back(h);
-                            entryLabels.push_back(TString::Format("%d-%d GeV", pb2.lo, pb2.hi).Data());
+                            entryLabels.push_back(TString::Format("%d-%d GeV", g.lo, g.hi).Data());
                             keepAlive.push_back(h);
                         }
                     }
@@ -2694,26 +2727,62 @@ if (!SSoverlayPerVAR_processONLY)
                             vector<string> ptLabels;
                             double yMax = 0.0;
                             
+                            struct PtOvGrp { int lo; int hi; vector<string> suffixes; };
+                            vector<PtOvGrp> ptOvGroups;
                             for (int ipt2 = 0; ipt2 < kNPtBins; ++ipt2)
                             {
                                 const PtBin& pb2 = PtBins()[ipt2];
-                                const string hName = "h_ss_" + var + "_" + tag + pb2.suffix + cb.suffix;
-                                TH1* hSrc = GetTH1FromTopDir(aaTopSS, hName);
-                                if (!hSrc) continue;
+                                if (pb2.lo >= 20 && pb2.hi <= 35) continue;
+                                ptOvGroups.push_back({pb2.lo, pb2.hi, {pb2.suffix}});
+                            }
+                            {
+                                PtOvGrp g2024{20, 24, {}};
+                                PtOvGrp g2435{24, 35, {}};
+                                for (int ipt2 = 0; ipt2 < kNPtBins; ++ipt2)
+                                {
+                                    const PtBin& pb2 = PtBins()[ipt2];
+                                    if (pb2.lo >= 20 && pb2.hi <= 24) g2024.suffixes.push_back(pb2.suffix);
+                                    else if (pb2.lo >= 24 && pb2.hi <= 35) g2435.suffixes.push_back(pb2.suffix);
+                                }
+                                if (!g2024.suffixes.empty()) ptOvGroups.push_back(g2024);
+                                if (!g2435.suffixes.empty()) ptOvGroups.push_back(g2435);
+                            }
+                            
+                            for (std::size_t ipt2 = 0; ipt2 < ptOvGroups.size(); ++ipt2)
+                            {
+                                const PtOvGrp& g = ptOvGroups[ipt2];
+                                TH1* hRaw = nullptr;
+                                for (std::size_t isfx = 0; isfx < g.suffixes.size(); ++isfx)
+                                {
+                                    const string hName = "h_ss_" + var + "_" + tag + g.suffixes[isfx] + cb.suffix;
+                                    TH1* hSrc = GetTH1FromTopDir(aaTopSS, hName);
+                                    if (!hSrc) continue;
+                                    if (!hRaw)
+                                    {
+                                        hRaw = CloneTH1(hSrc, TString::Format("ssQA_ptOverlayRaw_%s_%s_%s_%s_%s_pt%zu",
+                                                                              H.variant.c_str(), tag.c_str(), var.c_str(),
+                                                                              cb.folder.c_str(), trigAA.c_str(), ipt2).Data());
+                                        if (!hRaw) continue;
+                                        hRaw->SetDirectory(nullptr);
+                                    }
+                                    else
+                                    {
+                                        hRaw->Add(hSrc);
+                                    }
+                                }
+                                if (!hRaw) continue;
                                 
-                                TH1* h = CloneTH1(
-                                                  hSrc,
-                                                  TString::Format("ssQA_ptOverlay_%s_%s_%s_%s_%s_pt%d",
-                                                                  H.variant.c_str(), tag.c_str(), var.c_str(),
-                                                                  cb.folder.c_str(), trigAA.c_str(), ipt2).Data()
-                                                  );
+                                TH1* h = CloneNormalizeStyle(
+                                                             hRaw,
+                                                             TString::Format("ssQA_ptOverlay_%s_%s_%s_%s_%s_pt%zu",
+                                                                             H.variant.c_str(), tag.c_str(), var.c_str(),
+                                                                             cb.folder.c_str(), trigAA.c_str(), ipt2).Data(),
+                                                             overlayColors[ipt2 % nOverlayColorsPerPt],
+                                                             20
+                                                             );
+                                delete hRaw;
                                 if (!h) continue;
                                 
-                                EnsureSumw2(h);
-                                h->SetTitle("");
-                                h->SetLineColor(overlayColors[ipt2 % nOverlayColorsPerPt]);
-                                h->SetMarkerColor(overlayColors[ipt2 % nOverlayColorsPerPt]);
-                                h->SetMarkerStyle(20);
                                 h->SetFillStyle(0);
                                 h->SetLineWidth(2);
                                 h->SetMarkerSize(0.90);
@@ -2722,7 +2791,7 @@ if (!SSoverlayPerVAR_processONLY)
                                     yMax = std::max(yMax, (double)(h->GetBinContent(ib) + h->GetBinError(ib)));
                                 
                                 hOverlays.push_back(h);
-                                ptLabels.push_back(TString::Format("%d-%d GeV", pb2.lo, pb2.hi).Data());
+                                ptLabels.push_back(TString::Format("%d-%d GeV", g.lo, g.hi).Data());
                             }
                             
                             if (hOverlays.empty()) continue;
@@ -2738,8 +2807,8 @@ if (!SSoverlayPerVAR_processONLY)
                             
                             TH1* hFrame = hOverlays[0];
                             hFrame->GetXaxis()->SetTitle(vlabel.c_str());
-                            hFrame->GetYaxis()->SetTitle("Counts");
-                            hFrame->GetYaxis()->SetTitleOffset(1.15);
+                            hFrame->GetYaxis()->SetTitle("Unit Normalized");
+                            hFrame->GetYaxis()->SetTitleOffset(1.55);
                             hFrame->SetMinimum(0.0);
                             hFrame->SetMaximum((yMax > 0.0) ? (yMax * 1.25) : 1.0);
                             hFrame->Draw("E1");

@@ -102,8 +102,8 @@ namespace ARJ
   inline bool isPPdataAndAUAU = false;
 
   inline bool generateUEcomparisonSSQA = true;
-  inline bool skipToCentralityAndPtOverlaysWithSSQA = true;
-  inline bool SSoverlayPerVAR_processONLY           = false;
+  inline bool skipToCentralityAndPtOverlaysWithSSQA = false;
+  inline bool SSoverlayPerVAR_processONLY           = true;
   inline bool generateISOpTcentOverlaysONLY         = false;
   inline bool perVariantIsoQA_ONLY                  = false;
 

@@ -3002,13 +3002,13 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     recoilJets->setUseVzCut(cfg.use_vz_cut, cfg.vz_cut_cm);
 #if defined(RJ_UNIFIED_ANALYSIS_AUAU)
     recoilJets->setCentEdges(cfg.centrality_edges);
-#endif
     recoilJets->setVertexReweighting(cfg.vertex_reweight_on,
                                      cfg.vertex_reweight_file,
                                      cfg.vertex_reweight_hist);
     recoilJets->setCentralityReweighting(cfg.centrality_reweight_on,
                                          cfg.centrality_reweight_file,
                                          cfg.centrality_reweight_hist);
+#endif
     recoilJets->setActiveJetRKeys(activeJetRKeys);
     recoilJets->setIsolationWP(cfg.isoA, cfg.isoB, cfg.isoGap, cfg.isoConeR, cfg.isoTowMin, cfg.isoFixed);
     recoilJets->setIsSlidingIso(cfg.isSlidingIso);
