@@ -2862,10 +2862,12 @@ if (!SSoverlayPerVAR_processONLY)
             }
         }
         
+        const string perCentDataBase = JoinPath(perCentralityOverlayBase, "data");
+        EnsureDir(perCentDataBase);
         for (int ipt = 0; ipt < kNPtBins; ++ipt)
         {
             const PtBin& pb = PtBins()[ipt];
-            const string ptOutDir = JoinPath(perCentralityOverlayBase, pb.folder);
+            const string ptOutDir = JoinPath(perCentDataBase, pb.folder);
             EnsureDir(ptOutDir);
             
             for (const auto& tag : centOverlayTags)
@@ -2884,55 +2886,106 @@ if (!SSoverlayPerVAR_processONLY)
             }
         }
         
+        // --- Build per-centrality-overlay source list: data UE variants + 2 sim embedded samples ---
+        struct PCOEntry { string folder; TDirectory* topDir; string variant; string label; };
+        vector<PCOEntry> pcoSources;
+        for (std::size_t _hidx : ssTableVariantIdx)
+        {
+            if (_hidx >= handles.size()) continue;
+            auto& _H = handles[_hidx];
+            if (!_H.file) continue;
+            TDirectory* _d = _H.file->GetDirectory(trigAA.c_str());
+            if (!_d) continue;
+            pcoSources.push_back({"data", _d, _H.variant, _H.label});
+        }
+        
+        TFile* fPCO_PhotEmb = nullptr;
+        TDirectory* pcoPhotEmbTop = nullptr;
+        {
+            string _embTag;
+            string _embPath;
+            if (bothPhoton10and20simEmbedded)
+            {
+                _embTag  = "embeddedPhoton10and20merged";
+                _embPath = MergedSimEmbeddedPath("photonJet10and20merged_SIM", "RecoilJets_embeddedPhoton10plus20_MERGED.root");
+            }
+            else if (isPhotonJet10Embedded)
+            {
+                _embTag  = "embeddedPhoton10";
+                _embPath = InputSimEmbeddedSample("embeddedPhoton10");
+            }
+            else
+            {
+                _embTag  = "embeddedPhoton20";
+                _embPath = InputSimEmbeddedSample("embeddedPhoton20");
+            }
+            if (!_embPath.empty() && !gSystem->AccessPathName(_embPath.c_str()))
+            {
+                fPCO_PhotEmb = TFile::Open(_embPath.c_str(), "READ");
+                if (fPCO_PhotEmb && !fPCO_PhotEmb->IsZombie())
+                {
+                    pcoPhotEmbTop = fPCO_PhotEmb->GetDirectory(kDirSIM.c_str());
+                    if (pcoPhotEmbTop)
+                        pcoSources.push_back({"photonJetEmbedded", pcoPhotEmbTop, _embTag, string("#gamma+jet emb (") + _embTag + ")"});
+                }
+                else if (fPCO_PhotEmb) { fPCO_PhotEmb->Close(); delete fPCO_PhotEmb; fPCO_PhotEmb = nullptr; }
+            }
+        }
+        
+        TFile* fPCO_InclEmb = nullptr;
+        TDirectory* pcoInclEmbTop = nullptr;
+        {
+            string _inclTag;
+            string _inclPath;
+            if (isInclusiveJet20Embedded)
+            {
+                _inclTag  = "embeddedJet20";
+                _inclPath = InputInclusiveJetEmbeddedSample("embeddedJet20");
+            }
+            else if (isInclusiveJet10Embedded)
+            {
+                _inclTag  = "embeddedJet10";
+                _inclPath = InputInclusiveJetEmbeddedSample("embeddedJet10");
+            }
+            if (!_inclPath.empty() && !gSystem->AccessPathName(_inclPath.c_str()))
+            {
+                fPCO_InclEmb = TFile::Open(_inclPath.c_str(), "READ");
+                if (fPCO_InclEmb && !fPCO_InclEmb->IsZombie())
+                {
+                    pcoInclEmbTop = fPCO_InclEmb->GetDirectory(kDirSIM.c_str());
+                    if (pcoInclEmbTop)
+                        pcoSources.push_back({"inclusiveEmbedded", pcoInclEmbTop, _inclTag, string("inclusive jet emb (") + _inclTag + ")"});
+                }
+                else if (fPCO_InclEmb) { fPCO_InclEmb->Close(); delete fPCO_InclEmb; fPCO_InclEmb = nullptr; }
+            }
+        }
+        
         // Per-variant 1x5 centrality-overlay tables (one PNG per variant per tag per pT bin)
         for (int ipt = 0; ipt < kNPtBins; ++ipt)
         {
             const PtBin& pb = PtBins()[ipt];
-            const string ptOutDir = JoinPath(perCentralityOverlayBase, pb.folder);
-            EnsureDir(ptOutDir);
             
             const int nOverlayColors = (int)(sizeof(overlayColors) / sizeof(overlayColors[0]));
             
             cout << ANSI_BOLD_CYN
                  << "[SS_QA][perCentralityOverlays] pT bin = " << pb.folder
-                 << "  outDir = " << ptOutDir
                  << ANSI_RESET << "\n";
             
             for (const auto& tag : centOverlayTags)
             {
-                cout << "  [tag] " << tag
-                     << "  -> " << JoinPath(ptOutDir, TagFolder(tag)) << "\n";
+                cout << "  [tag] " << tag << "\n";
                 
-                for (std::size_t vidx = 0; vidx < ssTableVariantIdx.size(); ++vidx)
+                for (std::size_t sidx = 0; sidx < pcoSources.size(); ++sidx)
                 {
-                    const std::size_t hidx = ssTableVariantIdx[vidx];
-                    if (hidx >= handles.size())
-                    {
-                        cout << ANSI_BOLD_YEL
-                             << "    [SKIP] ssTableVariantIdx out of range: " << hidx
-                             << ANSI_RESET << "\n";
-                        continue;
-                    }
-                    auto& H = handles[hidx];
-                    if (!H.file)
-                    {
-                        cout << ANSI_BOLD_YEL
-                             << "    [SKIP] missing file handle for variant " << H.variant
-                             << ANSI_RESET << "\n";
-                        continue;
-                    }
+                    const PCOEntry& H = pcoSources[sidx];
+                    TDirectory* aaTopSS = H.topDir;
                     
-                    TDirectory* aaTopSS = H.file->GetDirectory(trigAA.c_str());
-                    if (!aaTopSS)
-                    {
-                        cout << ANSI_BOLD_YEL
-                             << "    [SKIP] missing trigger directory '" << trigAA
-                             << "' inside variant " << H.variant
-                             << ANSI_RESET << "\n";
-                        continue;
-                    }
+                    const string ptOutDir = JoinPath(JoinPath(perCentralityOverlayBase, H.folder), pb.folder);
+                    EnsureDir(JoinPath(perCentralityOverlayBase, H.folder));
+                    EnsureDir(ptOutDir);
                     
-                    cout << "    [variant] " << H.variant << "  triggerDir OK\n";
+                    cout << "    [src=" << H.folder << "] variant=" << H.variant
+                         << "  outDir=" << ptOutDir << "\n";
                     
                     TCanvas c1x5(
                                  TString::Format("c_ssQA_1x5_centOv_%s_%s_%s_%s",
@@ -3362,6 +3415,9 @@ if (!SSoverlayPerVAR_processONLY)
                 }
             }
         }
+        
+        if (fPCO_PhotEmb) { fPCO_PhotEmb->Close(); delete fPCO_PhotEmb; fPCO_PhotEmb = nullptr; }
+        if (fPCO_InclEmb) { fPCO_InclEmb->Close(); delete fPCO_InclEmb; fPCO_InclEmb = nullptr; }
     }
     
     {
