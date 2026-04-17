@@ -2893,16 +2893,46 @@ if (!SSoverlayPerVAR_processONLY)
             
             const int nOverlayColors = (int)(sizeof(overlayColors) / sizeof(overlayColors[0]));
             
+            cout << ANSI_BOLD_CYN
+                 << "[SS_QA][perCentralityOverlays] pT bin = " << pb.folder
+                 << "  outDir = " << ptOutDir
+                 << ANSI_RESET << "\n";
+            
             for (const auto& tag : centOverlayTags)
             {
-                for (std::size_t vidx : ssTableVariantIdx)
+                cout << "  [tag] " << tag
+                     << "  -> " << JoinPath(ptOutDir, TagFolder(tag)) << "\n";
+                
+                for (std::size_t vidx = 0; vidx < ssTableVariantIdx.size(); ++vidx)
                 {
-                    if (vidx >= handles.size()) continue;
-                    auto& H = handles[vidx];
-                    if (!H.file) continue;
+                    const std::size_t hidx = ssTableVariantIdx[vidx];
+                    if (hidx >= handles.size())
+                    {
+                        cout << ANSI_BOLD_YEL
+                             << "    [SKIP] ssTableVariantIdx out of range: " << hidx
+                             << ANSI_RESET << "\n";
+                        continue;
+                    }
+                    auto& H = handles[hidx];
+                    if (!H.file)
+                    {
+                        cout << ANSI_BOLD_YEL
+                             << "    [SKIP] missing file handle for variant " << H.variant
+                             << ANSI_RESET << "\n";
+                        continue;
+                    }
                     
                     TDirectory* aaTopSS = H.file->GetDirectory(trigAA.c_str());
-                    if (!aaTopSS) continue;
+                    if (!aaTopSS)
+                    {
+                        cout << ANSI_BOLD_YEL
+                             << "    [SKIP] missing trigger directory '" << trigAA
+                             << "' inside variant " << H.variant
+                             << ANSI_RESET << "\n";
+                        continue;
+                    }
+                    
+                    cout << "    [variant] " << H.variant << "  triggerDir OK\n";
                     
                     TCanvas c1x5(
                                  TString::Format("c_ssQA_1x5_centOv_%s_%s_%s_%s",
@@ -2945,12 +2975,24 @@ if (!SSoverlayPerVAR_processONLY)
                         vector<string> entryLabels;
                         double yMax = 0.0;
                         
+                        vector<string> missingHistNames;
+                        
                         for (std::size_t ic2 = 0; ic2 < centBins.size(); ++ic2)
                         {
                             const auto& cb2 = centBins[ic2];
                             const string hName = "h_ss_" + var + "_" + tag + pb.suffix + cb2.suffix;
                             TH1* hSrc = GetTH1FromTopDir(aaTopSS, hName);
-                            if (!hSrc) continue;
+                            if (!hSrc)
+                            {
+                                missingHistNames.push_back(hName);
+                                cout << ANSI_BOLD_YEL
+                                     << "      [MISS] " << H.variant << " :: " << hName
+                                     << ANSI_RESET << "\n";
+                                continue;
+                            }
+                            
+                            cout << "      [FOUND] " << H.variant << " :: " << hName
+                                 << "  entries=" << hSrc->GetEntries() << "\n";
                             
                             TH1* h = CloneNormalizeStyle(
                                                          hSrc,
@@ -2960,7 +3002,13 @@ if (!SSoverlayPerVAR_processONLY)
                                                          overlayColors[(int)ic2 % nOverlayColors],
                                                          20
                                                          );
-                            if (!h) continue;
+                            if (!h)
+                            {
+                                cout << ANSI_BOLD_YEL
+                                     << "      [SKIP] CloneNormalizeStyle failed for " << hName
+                                     << ANSI_RESET << "\n";
+                                continue;
+                            }
                             
                             h->SetFillStyle(0);
                             h->SetLineWidth(2);
@@ -2976,6 +3024,25 @@ if (!SSoverlayPerVAR_processONLY)
                         
                         if (hOverlays.empty())
                         {
+                            const string missingOutPng = JoinPath(
+                                                                  JoinPath(ptOutDir, TagFolder(tag)),
+                                                                  TString::Format("table1x5_SS_%s_centOverlay_%s.png", tag.c_str(), H.variant.c_str()).Data()
+                                                                  );
+                            
+                            cout << ANSI_BOLD_RED
+                                 << "    [NO OUTPUT][perCentralityOverlays] variant=" << H.variant
+                                 << "  tag=" << tag
+                                 << "  var=" << var
+                                 << "  pT=" << pb.folder
+                                 << "  trigger=" << trigAA
+                                 << "\n      expected output: " << missingOutPng
+                                 << ANSI_RESET << "\n";
+                            
+                            for (const auto& missName : missingHistNames)
+                            {
+                                cout << "      tried: " << missName << "\n";
+                            }
+                            
                             TLatex tMiss;
                             tMiss.SetNDC(true);
                             tMiss.SetTextFont(42);
@@ -3084,11 +3151,22 @@ if (!SSoverlayPerVAR_processONLY)
                     
                     const string tagDir1x5 = JoinPath(ptOutDir, TagFolder(tag));
                     EnsureDir(tagDir1x5);
+                    const string outPng1x5 = JoinPath(tagDir1x5,
+                                                      TString::Format("table1x5_SS_%s_centOverlay_%s.png", tag.c_str(), H.variant.c_str()).Data());
                     
                     if (anyPad1x5)
                     {
-                        SaveCanvas(c1x5, JoinPath(tagDir1x5,
-                                                  TString::Format("table1x5_SS_%s_centOverlay_%s.png", tag.c_str(), H.variant.c_str()).Data()));
+                        SaveCanvas(c1x5, outPng1x5);
+                        cout << ANSI_BOLD_GRN
+                             << "    [WROTE][perCentralityOverlays] " << outPng1x5
+                             << ANSI_RESET << "\n";
+                    }
+                    else
+                    {
+                        cout << ANSI_BOLD_YEL
+                             << "    [SKIP][perCentralityOverlays] no pads drawn for "
+                             << outPng1x5
+                             << ANSI_RESET << "\n";
                     }
                     
                     // --- Individual per-variable centrality overlay PNGs ---

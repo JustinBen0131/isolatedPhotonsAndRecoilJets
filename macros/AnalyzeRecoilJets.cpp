@@ -56,30 +56,61 @@ void RunEventLevelQA(Dataset& ds)
     std::sort(items.begin(), items.end(), [](const InvItem& a, const InvItem& b){ return a.path < b.path; });
     PrintInventoryToTerminal(ds, items);
     
+    cout << ANSI_BOLD_CYN
+    << "[EVENT-QA DEBUG] label=" << ds.label
+    << " trigger=" << (ds.trigger.empty() ? "<empty>" : ds.trigger)
+    << " topDir=" << ds.topDirName
+    << " outBase=" << ds.outBase
+    << " centFolder=" << (ds.centFolder.empty() ? "<empty>" : ds.centFolder)
+    << " centSuffix=" << (ds.centSuffix.empty() ? "<empty>" : ds.centSuffix)
+    << ANSI_RESET << "\n";
+
     TH1* hV = GetObj<TH1>(ds, "h_vertexZ", true, true, true);
     if (!hV)
     {
-        cout << ANSI_BOLD_YEL << "[WARN] Missing h_vertexZ for " << ds.label << ANSI_RESET << "\n";
+        cout << ANSI_BOLD_YEL
+        << "[WARN] Missing h_vertexZ for " << ds.label
+        << " (RunEventLevelQA returns before creating baselineData/GeneralEventLevelQA/*)"
+        << ANSI_RESET << "\n";
         return;
     }
-    
+
+    cout << ANSI_BOLD_GRN
+    << "[EVENT-QA DEBUG] FOUND h_vertexZ as " << hV->GetName()
+    << " entries=" << std::fixed << std::setprecision(0) << hV->GetEntries()
+    << " integral=" << hV->Integral(0, hV->GetNbinsX() + 1)
+    << ANSI_RESET << "\n";
+
     TH1F* hFixed = RebinToFixedBinWidthVertexZ(hV, vzCutCm);
     if (!hFixed)
     {
-        cout << ANSI_BOLD_YEL << "[WARN] Failed to build fixed-binwidth vertexZ for " << ds.label << ANSI_RESET << "\n";
+        cout << ANSI_BOLD_YEL
+        << "[WARN] Failed to build fixed-binwidth vertexZ for " << ds.label
+        << " (RunEventLevelQA returns before creating baselineData/GeneralEventLevelQA/*)"
+        << ANSI_RESET << "\n";
         return;
     }
     hFixed->Rebin(2);
-    
+
     string outPath;
     if (ds.isSim)
         outPath = JoinPath(ds.outBase, "GeneralEventLevelQA/zvtx_SIM.png");
     else
         outPath = JoinPath(ds.outBase, "baselineData/GeneralEventLevelQA/zvtx_DATA_" + ds.trigger + ".png");
-    
+
     vector<string> lines;
     lines.push_back(TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
+
+    cout << ANSI_BOLD_CYN
+    << "[EVENT-QA DEBUG] Saving vertex QA to: " << outPath
+    << ANSI_RESET << "\n";
+
     DrawAndSaveTH1_Common(ds, hFixed, outPath, "v_{z} [cm]", "Counts", lines, false);
+
+    cout << ANSI_BOLD_GRN
+    << "[EVENT-QA DEBUG] vertex plot exists after save? "
+    << (!gSystem->AccessPathName(outPath.c_str()) ? "YES" : "NO")
+    << ANSI_RESET << "\n";
 
     if (!ds.isSim && !ds.centFolder.empty())
     {
@@ -88,10 +119,32 @@ void RunEventLevelQA(Dataset& ds)
         const string mbdCaloDir   = JoinPath(generalQaDir, "MBD_CaloCorr");
         const string mbdQaDir     = JoinPath(generalQaDir, "MBD_QA");
 
+        cout << ANSI_BOLD_CYN
+        << "[EVENT-QA DEBUG] Entering centrality-scoped event QA block for trigger="
+        << ds.trigger << " centFolder=" << ds.centFolder
+        << ANSI_RESET << "\n";
+
         EnsureDir(generalQaDir);
         EnsureDir(centCaloDir);
         EnsureDir(mbdCaloDir);
         EnsureDir(mbdQaDir);
+
+        cout << ANSI_BOLD_CYN
+        << "[EVENT-QA DEBUG] generalQaDir=" << generalQaDir
+        << " exists=" << (!gSystem->AccessPathName(generalQaDir.c_str()) ? "YES" : "NO")
+        << ANSI_RESET << "\n";
+        cout << ANSI_BOLD_CYN
+        << "[EVENT-QA DEBUG] centCaloDir=" << centCaloDir
+        << " exists=" << (!gSystem->AccessPathName(centCaloDir.c_str()) ? "YES" : "NO")
+        << ANSI_RESET << "\n";
+        cout << ANSI_BOLD_CYN
+        << "[EVENT-QA DEBUG] mbdCaloDir=" << mbdCaloDir
+        << " exists=" << (!gSystem->AccessPathName(mbdCaloDir.c_str()) ? "YES" : "NO")
+        << ANSI_RESET << "\n";
+        cout << ANSI_BOLD_CYN
+        << "[EVENT-QA DEBUG] mbdQaDir=" << mbdQaDir
+        << " exists=" << (!gSystem->AccessPathName(mbdQaDir.c_str()) ? "YES" : "NO")
+        << ANSI_RESET << "\n";
 
         int centLo = -1;
         int centHi = -1;
@@ -112,19 +165,46 @@ void RunEventLevelQA(Dataset& ds)
             }
         }
 
+        cout << ANSI_BOLD_CYN
+        << "[EVENT-QA DEBUG] parsed centLo=" << centLo
+        << " centHi=" << centHi
+        << ANSI_RESET << "\n";
+
         auto drawCentCaloCorr = [&](const string& hname,
                                     const string& pngName,
                                     const string& yTitle)
         {
             TH2* h = GetObj<TH2>(ds, hname, true, true, true);
-            if (!h) return;
+            if (!h)
+            {
+                cout << ANSI_BOLD_YEL
+                << "[EVENT-QA DEBUG] MISSING " << hname
+                << " for trigger=" << ds.trigger
+                << " centFolder=" << ds.centFolder
+                << " (treatZeroAsMissing=true)"
+                << ANSI_RESET << "\n";
+                return;
+            }
+
+            cout << ANSI_BOLD_GRN
+            << "[EVENT-QA DEBUG] FOUND " << hname
+            << " as " << h->GetName()
+            << " entries=" << std::fixed << std::setprecision(0) << h->GetEntries()
+            << " integral=" << h->Integral(0, h->GetNbinsX() + 1, 0, h->GetNbinsY() + 1)
+            << ANSI_RESET << "\n";
 
             TH2* hc = CloneTH2(h,
                                TString::Format("%s_%s_%s",
                                                hname.c_str(),
                                                ds.trigger.c_str(),
                                                ds.centFolder.c_str()).Data());
-            if (!hc) return;
+            if (!hc)
+            {
+                cout << ANSI_BOLD_YEL
+                << "[EVENT-QA DEBUG] CloneTH2 failed for " << hname
+                << ANSI_RESET << "\n";
+                return;
+            }
 
             if (centLo >= 0 && centHi > centLo)
             {
@@ -135,13 +215,25 @@ void RunEventLevelQA(Dataset& ds)
             l.push_back(ds.centLabel);
             l.push_back(TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
 
+            const string savePath = JoinPath(centCaloDir, pngName);
+            cout << ANSI_BOLD_CYN
+            << "[EVENT-QA DEBUG] Writing " << savePath
+            << ANSI_RESET << "\n";
+
             DrawAndSaveTH2_Common(ds, hc,
-                                  JoinPath(centCaloDir, pngName),
+                                  savePath,
                                   "Centrality [%]",
                                   yTitle,
                                   "Counts",
                                   l,
                                   false);
+
+            cout << ANSI_BOLD_GRN
+            << "[EVENT-QA DEBUG] wrote? "
+            << (!gSystem->AccessPathName(savePath.c_str()) ? "YES" : "NO")
+            << " path=" << savePath
+            << ANSI_RESET << "\n";
+
             delete hc;
         };
 
@@ -150,26 +242,60 @@ void RunEventLevelQA(Dataset& ds)
                                    const string& yTitle)
         {
             TH2* h = GetObj<TH2>(ds, hname, true, true, true);
-            if (!h) return;
+            if (!h)
+            {
+                cout << ANSI_BOLD_YEL
+                << "[EVENT-QA DEBUG] MISSING " << hname
+                << " for trigger=" << ds.trigger
+                << " centFolder=" << ds.centFolder
+                << " (treatZeroAsMissing=true)"
+                << ANSI_RESET << "\n";
+                return;
+            }
+
+            cout << ANSI_BOLD_GRN
+            << "[EVENT-QA DEBUG] FOUND " << hname
+            << " as " << h->GetName()
+            << " entries=" << std::fixed << std::setprecision(0) << h->GetEntries()
+            << " integral=" << h->Integral(0, h->GetNbinsX() + 1, 0, h->GetNbinsY() + 1)
+            << ANSI_RESET << "\n";
 
             TH2* hc = CloneTH2(h,
                                TString::Format("%s_%s_%s",
                                                hname.c_str(),
                                                ds.trigger.c_str(),
                                                ds.centFolder.c_str()).Data());
-            if (!hc) return;
+            if (!hc)
+            {
+                cout << ANSI_BOLD_YEL
+                << "[EVENT-QA DEBUG] CloneTH2 failed for " << hname
+                << ANSI_RESET << "\n";
+                return;
+            }
 
             vector<string> l;
             l.push_back(ds.centLabel);
             l.push_back(TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
 
+            const string savePath = JoinPath(mbdCaloDir, pngName);
+            cout << ANSI_BOLD_CYN
+            << "[EVENT-QA DEBUG] Writing " << savePath
+            << ANSI_RESET << "\n";
+
             DrawAndSaveTH2_Common(ds, hc,
-                                  JoinPath(mbdCaloDir, pngName),
+                                  savePath,
                                   "MBD total charge",
                                   yTitle,
                                   "Counts",
                                   l,
                                   false);
+
+            cout << ANSI_BOLD_GRN
+            << "[EVENT-QA DEBUG] wrote? "
+            << (!gSystem->AccessPathName(savePath.c_str()) ? "YES" : "NO")
+            << " path=" << savePath
+            << ANSI_RESET << "\n";
+
             delete hc;
         };
 
@@ -200,8 +326,22 @@ void RunEventLevelQA(Dataset& ds)
                         "Total calorimeter energy [GeV]");
 
         TH1* hMbd = GetObj<TH1>(ds, "h_mbdCharge", true, true, true);
-        if (hMbd)
+        if (!hMbd)
         {
+            cout << ANSI_BOLD_YEL
+            << "[EVENT-QA DEBUG] MISSING h_mbdCharge for trigger=" << ds.trigger
+            << " centFolder=" << ds.centFolder
+            << " (treatZeroAsMissing=true)"
+            << ANSI_RESET << "\n";
+        }
+        else
+        {
+            cout << ANSI_BOLD_GRN
+            << "[EVENT-QA DEBUG] FOUND h_mbdCharge as " << hMbd->GetName()
+            << " entries=" << std::fixed << std::setprecision(0) << hMbd->GetEntries()
+            << " integral=" << hMbd->Integral(0, hMbd->GetNbinsX() + 1)
+            << ANSI_RESET << "\n";
+
             TH1* hMbdClone = CloneTH1(hMbd,
                                       TString::Format("h_mbdCharge_%s_%s",
                                                       ds.trigger.c_str(),
@@ -212,13 +352,31 @@ void RunEventLevelQA(Dataset& ds)
                 l.push_back(ds.centLabel);
                 l.push_back(TString::Format("|v_{z}| < %.0f cm", std::fabs(vzCutCm)).Data());
 
+                const string savePath = JoinPath(mbdQaDir, "mbdCharge.png");
+                cout << ANSI_BOLD_CYN
+                << "[EVENT-QA DEBUG] Writing " << savePath
+                << ANSI_RESET << "\n";
+
                 DrawAndSaveTH1_Common(ds, hMbdClone,
-                                      JoinPath(mbdQaDir, "mbdCharge.png"),
+                                      savePath,
                                       "MBD total charge",
                                       "Counts",
                                       l,
                                       false);
+
+                cout << ANSI_BOLD_GRN
+                << "[EVENT-QA DEBUG] wrote? "
+                << (!gSystem->AccessPathName(savePath.c_str()) ? "YES" : "NO")
+                << " path=" << savePath
+                << ANSI_RESET << "\n";
+
                 delete hMbdClone;
+            }
+            else
+            {
+                cout << ANSI_BOLD_YEL
+                << "[EVENT-QA DEBUG] CloneTH1 failed for h_mbdCharge"
+                << ANSI_RESET << "\n";
             }
         }
     }

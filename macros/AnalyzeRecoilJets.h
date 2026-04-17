@@ -214,7 +214,7 @@ namespace ARJ
   inline constexpr double kUnfoldJetPtStop  = 60.0;
   inline constexpr double kUnfoldJetPtStep  = 0.5;
   //   Au+Au centrality bin edges (percent):
-  inline const vector<double> kCentralityEdges          = {0, 10, 20, 40, 60, 80};
+  inline const vector<double> kCentralityEdges          = {0, 20, 50, 80};
 
 
   // ===========================================================================
