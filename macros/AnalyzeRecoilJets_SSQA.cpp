@@ -224,9 +224,9 @@ auto PassFractionForHist = [&](TH1* h,
     return true;
 };
 
-// UE variant indices: 0 = noSub, 2 = variantA, 3 = variantB (skip 1 = baseVariant)
-const vector<std::size_t> ssUEIndices = {std::size_t(0), std::size_t(2), std::size_t(3)};
-const int ssColors[4] = {kBlack, kGreen + 2, kGreen + 2, kViolet + 1};
+// UE variant indices: 0 = noSub, 1 = baseVariant, 2 = variantA, 3 = variantB
+const vector<std::size_t> ssUEIndices = {std::size_t(0), std::size_t(1), std::size_t(2), std::size_t(3)};
+const int ssColors[4] = {kBlack, kBlue + 1, kGreen + 2, kViolet + 1};
 const int ssMarkers[4] = {20, 20, 20, 20};
 
 // Force the SS template SIM source to the merged photonJet5+10+20 file,

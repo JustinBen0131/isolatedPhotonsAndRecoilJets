@@ -69,10 +69,10 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
     const bool perVariantIsoQAOnlyActive = (!forEmbeddedSim && perVariantIsoQA_ONLY);
     
     const vector<string> ueVariants = perVariantIsoQAOnlyActive
-    ? vector<string>{"noSub", "baseVariant"}
+    ? vector<string>{"baseVariant"}
     : vector<string>{"noSub", "baseVariant", "variantA", "variantB"};
     const vector<string> ueLabels   = perVariantIsoQAOnlyActive
-    ? vector<string>{"No UE Sub", "with UE Sub"}
+    ? vector<string>{"with UE Sub"}
     : vector<string>{"No UE Sub", "with UE Sub", "Variant A", "Variant B"};
     
     const auto& centBins = CentBins();
