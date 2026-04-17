@@ -113,11 +113,11 @@ clusterUEpipeline: [baseVariant]
 # zVertexWeight   : histogram lookup vs reco v_{z}
 # centralityWeight: histogram lookup vs event centrality percentile
 # -----------------------------------------------------------------------------
-vertex_reweight_on: false
+vertex_reweight_on: true
 vertex_reweight_file: /sphenix/u/bseidlitz/work/pj_auau/reweightingDer/output/vtxz_reweighting.root
 vertex_reweight_hist: data_over_MC_ratios/h_zvtx_ratio_data_over_photonJet
 
-centrality_reweight_on: false
+centrality_reweight_on: true
 centrality_reweight_file: /sphenix/u/bseidlitz/work/pj_auau/reweightingDer/output/centrality_reweighting.root
 centrality_reweight_hist: nom_cent_rw_hist
 

@@ -102,8 +102,8 @@ namespace ARJ
   inline bool isPPdataAndAUAU = false;
 
   inline bool generateUEcomparisonSSQA = true;
-  inline bool skipToCentralityAndPtOverlaysWithSSQA = false;
-  inline bool SSoverlayPerVAR_processONLY           = true;
+  inline bool skipToCentralityAndPtOverlaysWithSSQA = true;
+  inline bool SSoverlayPerVAR_processONLY           = false;
   inline bool generateISOpTcentOverlaysONLY         = false;
   inline bool perVariantIsoQA_ONLY                  = false;
 
@@ -188,7 +188,7 @@ namespace ARJ
   inline const string kAA_B2BCut       = "7pi_8";      // "7pi_8" or "pi_2"
   inline const int    kAA_VzCut        = 30;            // cm: 30 or 60
   inline const string kAA_IsoConeR     = "isoR30";     // "isoR30" or "isoR40"
-  inline const string kAA_IsoMode      = "fixedIso4GeV";// "isSliding" or "fixedIso5GeV"
+  inline const string kAA_IsoMode      = "isSliding";// "isSliding" or "fixedIso5GeV"
   inline const string kAA_UEVariant    = "baseVariant";      // "noSub","baseVariant","variantA","variantB"
   // Au+Au trigger directory name(s) inside the ROOT file.
   // Set one, two, or all three.  Analysis runs independently for each.
@@ -538,7 +538,7 @@ namespace ARJ
   inline const int kNUnfoldTruthPtBins = (int)kUnfoldTruthPtEdges.size() - 1;
 
     // Jet radii keys
-    inline const vector<string> kRKeys = {"r02","r04","r06"};
+    inline const vector<string> kRKeys = {"r03"};
 
   // =============================================================================
   // ANSI helpers
@@ -731,13 +731,14 @@ namespace ARJ
         return v;
     }
 
-    inline double RFromKey(const string& rKey)
-    {
-        if (rKey == "r02") return 0.2;
-        if (rKey == "r04") return 0.4;
-        if (rKey == "r06") return 0.6;
-        return 0.0;
-    }
+  inline double RFromKey(const string& rKey)
+  {
+      if (rKey == "r02") return 0.2;
+      if (rKey == "r03") return 0.3;
+      if (rKey == "r04") return 0.4;
+      if (rKey == "r06") return 0.6;
+      return 0.0;
+  }
 
   inline double FidEtaAbsFromKey(const string& rKey)
   {

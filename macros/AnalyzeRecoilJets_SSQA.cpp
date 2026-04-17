@@ -947,6 +947,8 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                     double yScale = doZoom ? 1.08 : 1.10;
                     if (standalone)
                         yScale = (tag == "nonTight") ? 1.55 : 1.35;
+                    if (standalone && shiftLegendLeft && tag == "inclusive" && var == "e11e33")
+                        yScale = 1.70;
                     hFrame->SetMaximum((yMax > 0.0) ? (yMax * yScale) : 1.0);
                 }
                 
@@ -981,7 +983,9 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                 if (drawLegend)
                 {
                     TLegend* leg = nullptr;
-                    if (standalone && tag == "nonTight")
+                    if (standalone && shiftLegendLeft && tag == "inclusive" && var == "e11e33")
+                        leg = new TLegend(0.18, 0.76, 0.92, 0.88);
+                    else if (standalone && tag == "nonTight")
                         leg = isW ? new TLegend(0.55, 0.68, 0.88, 0.86) : new TLegend(0.20, 0.68, 0.58, 0.86);
                     else if (standalone)
                         leg = isW ? new TLegend(0.55, 0.58, 0.88, 0.78) : new TLegend(0.20, 0.66, 0.58, 0.86);
@@ -993,6 +997,8 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                     leg->SetFillStyle(0);
                     leg->SetTextFont(42);
                     leg->SetTextSize(standalone ? (tag == "nonTight" ? 0.028 : 0.030) : 0.036);
+                    if (standalone && shiftLegendLeft && tag == "inclusive" && var == "e11e33")
+                        leg->SetNColumns(2);
                     
                     if (hPP)  leg->AddEntry(hPP,  "pp", "ep");
                     if (hSig) leg->AddEntry(hSig, sigLegLabel.c_str(), "l");
@@ -2217,7 +2223,7 @@ if (!SSoverlayPerVAR_processONLY)
         EnsureDir(perPtBinOverlayBase);
         EnsureDir(perCentralityOverlayBase);
         
-        const vector<std::size_t> ssTableVariantIdx = {std::size_t(0), std::size_t(2), std::size_t(3)};
+        const vector<std::size_t> ssTableVariantIdx = {std::size_t(1), std::size_t(2), std::size_t(3)};
         const int overlayColors[] = {
             kBlack, kOrange + 7, kBlue + 1, kGreen + 2, kMagenta + 1, kOrange + 7,
             kCyan + 1, kViolet + 1, kAzure + 1, kSpring + 5, kPink + 1, kTeal + 2
