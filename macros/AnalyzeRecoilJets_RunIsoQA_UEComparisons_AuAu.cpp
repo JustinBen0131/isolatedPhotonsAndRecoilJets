@@ -4048,7 +4048,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         
                         if (xP.empty()) continue;
                         
-                        TGraphErrors* g = new TGraphErrors((int)xP.size(), &xP[0], &yP[0], &exP[0], &eyP[0]);
+                        TGraphErrors* g = new TGraphErrors((int)xP.size(), &xP[0], &yP[0], nullptr, &eyP[0]);
                         const int ci = (ic < 8) ? centPtColors[ic] : kBlack;
                         g->SetLineWidth(2);
                         g->SetLineColor(ci);
@@ -4108,7 +4108,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         TGraphErrors* gPPMean = nullptr;
                         if (!xPPMean.empty())
                         {
-                            gPPMean = new TGraphErrors((int)xPPMean.size(), &xPPMean[0], &yPPMean[0], &exPPMean[0], &eyPPMean[0]);
+                            gPPMean = new TGraphErrors((int)xPPMean.size(), &xPPMean[0], &yPPMean[0], nullptr, &eyPPMean[0]);
                             gPPMean->SetLineWidth(2);
                             gPPMean->SetLineColor(kRed + 1);
                             gPPMean->SetMarkerColor(kRed + 1);
@@ -4119,11 +4119,11 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         
                         for (auto* g : gCentMean) g->Draw("PE1 SAME");
                         
-                        TLegend legMean(0.18, 0.66, 0.64, 0.88);
+                        TLegend legMean(0.19, 0.74, 0.47, 0.90);
                         legMean.SetBorderSize(0);
                         legMean.SetFillStyle(0);
                         legMean.SetTextFont(42);
-                        legMean.SetTextSize(0.030);
+                        legMean.SetTextSize(0.026);
                         legMean.SetNColumns(2);
                         if (gPPMean) legMean.AddEntry(gPPMean, "pp", "ep");
                         for (std::size_t ig = 0; ig < gCentMean.size(); ++ig)
@@ -4141,12 +4141,12 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         TLatex tMeanInfo;
                         tMeanInfo.SetNDC(true);
                         tMeanInfo.SetTextFont(42);
-                        tMeanInfo.SetTextAlign(13);
+                        tMeanInfo.SetTextAlign(33);
                         tMeanInfo.SetTextSize(0.028);
-                        tMeanInfo.DrawLatex(0.18, 0.58, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
-                        tMeanInfo.DrawLatex(0.18, 0.54, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
-                        tMeanInfo.DrawLatex(0.18, 0.50, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
-                        tMeanInfo.DrawLatex(0.18, 0.46, TString::Format("UE: %s", H.label.c_str()).Data());
+                        tMeanInfo.DrawLatex(0.94, 0.88, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
+                        tMeanInfo.DrawLatex(0.94, 0.84, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
+                        tMeanInfo.DrawLatex(0.94, 0.80, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                        tMeanInfo.DrawLatex(0.94, 0.76, TString::Format("UE: %s", H.label.c_str()).Data());
                         
                         SaveCanvas(cMeanPtCent, JoinPath(variantDir, "gaussMean_pp_auauCentralityOverlay_vs_pT.png"));
                         
@@ -4184,7 +4184,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         
                         if (xP.empty()) continue;
                         
-                        TGraphErrors* g = new TGraphErrors((int)xP.size(), &xP[0], &yP[0], &exP[0], &eyP[0]);
+                        
+                        TGraphErrors* g = new TGraphErrors((int)xP.size(), &xP[0], &yP[0], nullptr, &eyP[0]);
                         const int ci = (ic < 8) ? centPtColors[ic] : kBlack;
                         g->SetLineWidth(2);
                         g->SetLineColor(ci);
@@ -4230,8 +4231,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             "", 100, kPtEdges.front(), kPtEdges.back());
                         hFrameSigma.SetDirectory(nullptr);
                         hFrameSigma.SetStats(0);
-                        hFrameSigma.SetMinimum(std::max(0.0, yMinSigma - padSigma));
-                        hFrameSigma.SetMaximum(yMaxSigma + padSigma);
+                        hFrameSigma.SetMinimum(0.0);
+                        hFrameSigma.SetMaximum(1.60 * std::max(yMaxSigma, 0.1));
                         hFrameSigma.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
                         hFrameSigma.GetYaxis()->SetTitle("#sigma^{Gauss} [GeV]");
                         hFrameSigma.GetXaxis()->SetTitleSize(0.055);
@@ -4244,7 +4245,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         TGraphErrors* gPPSigma = nullptr;
                         if (!xPPSigma.empty())
                         {
-                            gPPSigma = new TGraphErrors((int)xPPSigma.size(), &xPPSigma[0], &yPPSigma[0], &exPPSigma[0], &eyPPSigma[0]);
+                            gPPSigma = new TGraphErrors((int)xPPSigma.size(), &xPPSigma[0], &yPPSigma[0], nullptr, &eyPPSigma[0]);
                             gPPSigma->SetLineWidth(2);
                             gPPSigma->SetLineColor(kRed + 1);
                             gPPSigma->SetMarkerColor(kRed + 1);
@@ -4255,11 +4256,11 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         
                         for (auto* g : gCentSigma) g->Draw("PE1 SAME");
                         
-                        TLegend legSigma(0.18, 0.66, 0.64, 0.88);
+                        TLegend legSigma(0.19, 0.74, 0.47, 0.90);
                         legSigma.SetBorderSize(0);
                         legSigma.SetFillStyle(0);
                         legSigma.SetTextFont(42);
-                        legSigma.SetTextSize(0.030);
+                        legSigma.SetTextSize(0.026);
                         legSigma.SetNColumns(2);
                         if (gPPSigma) legSigma.AddEntry(gPPSigma, "pp", "ep");
                         for (std::size_t ig = 0; ig < gCentSigma.size(); ++ig)
@@ -4277,12 +4278,12 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         TLatex tSigmaInfo;
                         tSigmaInfo.SetNDC(true);
                         tSigmaInfo.SetTextFont(42);
-                        tSigmaInfo.SetTextAlign(13);
+                        tSigmaInfo.SetTextAlign(33);
                         tSigmaInfo.SetTextSize(0.028);
-                        tSigmaInfo.DrawLatex(0.18, 0.58, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
-                        tSigmaInfo.DrawLatex(0.18, 0.54, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
-                        tSigmaInfo.DrawLatex(0.18, 0.50, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
-                        tSigmaInfo.DrawLatex(0.18, 0.46, TString::Format("UE: %s", H.label.c_str()).Data());
+                        tSigmaInfo.DrawLatex(0.94, 0.88, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
+                        tSigmaInfo.DrawLatex(0.94, 0.84, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
+                        tSigmaInfo.DrawLatex(0.94, 0.80, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                        tSigmaInfo.DrawLatex(0.94, 0.76, TString::Format("UE: %s", H.label.c_str()).Data());
                         
                         SaveCanvas(cSigmaPtCent, JoinPath(variantDir, "gaussSigma_pp_auauCentralityOverlay_vs_pT.png"));
                         
@@ -6640,7 +6641,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             yMinMean = 0.0;
                             yMaxMean = 1.0;
                         }
-                        const double padMean = (yMaxMean > yMinMean) ? (0.20 * (yMaxMean - yMinMean)) : 0.5;
+                        const double padMean = (yMaxMean > yMinMean) ? (0.45 * (yMaxMean - yMinMean)) : 0.5;
                         
                         TCanvas cMeanPtCent(
                             TString::Format("c_gaussMean_ppCentOverlay_vsPt_%s_%s",
@@ -6655,7 +6656,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             "", 100, kPtEdges.front(), kPtEdges.back());
                         hFrameMean.SetDirectory(nullptr);
                         hFrameMean.SetStats(0);
-                        hFrameMean.SetMinimum(yMinMean - padMean);
+                        hFrameMean.SetMinimum(0.0);
                         hFrameMean.SetMaximum(yMaxMean + padMean);
                         hFrameMean.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
                         hFrameMean.GetYaxis()->SetTitle("Gaussian #mu [GeV]");
@@ -6777,7 +6778,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             yMinSigma = 0.0;
                             yMaxSigma = 1.0;
                         }
-                        const double padSigma = (yMaxSigma > yMinSigma) ? (0.20 * (yMaxSigma - yMinSigma)) : 0.5;
+                        const double padSigma = (yMaxSigma > yMinSigma) ? (0.95 * (yMaxSigma - yMinSigma)) : 0.5;
                         
                         TCanvas cSigmaPtCent(
                             TString::Format("c_gaussSigma_ppCentOverlay_vsPt_%s_%s",
@@ -6792,7 +6793,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             "", 100, kPtEdges.front(), kPtEdges.back());
                         hFrameSigma.SetDirectory(nullptr);
                         hFrameSigma.SetStats(0);
-                        hFrameSigma.SetMinimum(std::max(0.0, yMinSigma - padSigma));
+                        hFrameSigma.SetMinimum(0.0);
                         hFrameSigma.SetMaximum(yMaxSigma + padSigma);
                         hFrameSigma.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
                         hFrameSigma.GetYaxis()->SetTitle("Gaussian #sigma [GeV]");
