@@ -2887,7 +2887,7 @@ if (!SSoverlayPerVAR_processONLY)
         }
         
         // --- Build per-centrality-overlay source list: data UE variants + 2 sim embedded samples ---
-        struct PCOEntry { string folder; TDirectory* topDir; string variant; string label; };
+        struct PCOEntry { string folder; TDirectory* topDir; string variant; string label; string histSuffix; };
         vector<PCOEntry> pcoSources;
         for (std::size_t _hidx : ssTableVariantIdx)
         {
@@ -2896,7 +2896,7 @@ if (!SSoverlayPerVAR_processONLY)
             if (!_H.file) continue;
             TDirectory* _d = _H.file->GetDirectory(trigAA.c_str());
             if (!_d) continue;
-            pcoSources.push_back({"data", _d, _H.variant, _H.label});
+            pcoSources.push_back({"data", _d, _H.variant, _H.label, ""});
         }
         
         TFile* fPCO_PhotEmb = nullptr;
@@ -2926,7 +2926,7 @@ if (!SSoverlayPerVAR_processONLY)
                 {
                     pcoPhotEmbTop = fPCO_PhotEmb->GetDirectory(kDirSIM.c_str());
                     if (pcoPhotEmbTop)
-                        pcoSources.push_back({"photonJetEmbedded", pcoPhotEmbTop, _embTag, string("#gamma+jet emb (") + _embTag + ")"});
+                        pcoSources.push_back({"photonJetEmbedded", pcoPhotEmbTop, _embTag, string("#gamma+jet emb (") + _embTag + ")", "_sig"});
                 }
                 else if (fPCO_PhotEmb) { fPCO_PhotEmb->Close(); delete fPCO_PhotEmb; fPCO_PhotEmb = nullptr; }
             }
@@ -2954,7 +2954,7 @@ if (!SSoverlayPerVAR_processONLY)
                 {
                     pcoInclEmbTop = fPCO_InclEmb->GetDirectory(kDirSIM.c_str());
                     if (pcoInclEmbTop)
-                        pcoSources.push_back({"inclusiveEmbedded", pcoInclEmbTop, _inclTag, string("inclusive jet emb (") + _inclTag + ")"});
+                        pcoSources.push_back({"inclusiveEmbedded", pcoInclEmbTop, _inclTag, string("inclusive jet emb (") + _inclTag + ")", "_bkg"});
                 }
                 else if (fPCO_InclEmb) { fPCO_InclEmb->Close(); delete fPCO_InclEmb; fPCO_InclEmb = nullptr; }
             }
@@ -3033,13 +3033,22 @@ if (!SSoverlayPerVAR_processONLY)
                         for (std::size_t ic2 = 0; ic2 < centBins.size(); ++ic2)
                         {
                             const auto& cb2 = centBins[ic2];
-                            const string hName = "h_ss_" + var + "_" + tag + pb.suffix + cb2.suffix;
+                            const string hNamePrimary = "h_ss_" + var + "_" + tag + H.histSuffix + pb.suffix + cb2.suffix;
+                            const string hNameFallback = "h_ss_" + var + "_" + tag + pb.suffix + cb2.suffix;
+                            string hName = hNamePrimary;
                             TH1* hSrc = GetTH1FromTopDir(aaTopSS, hName);
+                            if (!hSrc && !H.histSuffix.empty())
+                            {
+                                hName = hNameFallback;
+                                hSrc = GetTH1FromTopDir(aaTopSS, hName);
+                            }
                             if (!hSrc)
                             {
-                                missingHistNames.push_back(hName);
+                                missingHistNames.push_back(hNamePrimary);
+                                if (!H.histSuffix.empty()) missingHistNames.push_back(hNameFallback);
                                 cout << ANSI_BOLD_YEL
-                                     << "      [MISS] " << H.variant << " :: " << hName
+                                     << "      [MISS] " << H.variant << " :: " << hNamePrimary
+                                     << (H.histSuffix.empty() ? "" : (string(" (also tried ") + hNameFallback + ")"))
                                      << ANSI_RESET << "\n";
                                 continue;
                             }
@@ -3297,7 +3306,9 @@ if (!SSoverlayPerVAR_processONLY)
                         const double cutTextX = useSpecialE32Legend ? 0.08 : 0.16;
                         const double cutTextY = useSpecialE32Legend ? 0.73 : 0.84;
                         const double cutTextSize = useSpecialE32Legend ? 0.028 : 0.026;
-                        DrawSSOverlayCutsAndText(var, tag, false, ptCenterForCuts, cutTextX, cutTextY, cutTextSize, true);
+                        const bool moveSelectionBlockToBottomRight =
+                            (H.folder == "inclusiveEmbedded" && var == "weta" && tag == "pre" && pb.folder == "pT_10_12");
+                        DrawSSOverlayCutsAndText(var, tag, false, ptCenterForCuts, cutTextX, cutTextY, cutTextSize, !moveSelectionBlockToBottomRight);
                         
                         SaveCanvas(cVar, JoinPath(varTagDir,
                                                   TString::Format("centOverlay_%s_%s_%s.png",

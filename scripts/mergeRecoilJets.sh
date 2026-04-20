@@ -368,6 +368,7 @@ build_cfg_tags_from_yaml() {
   [[ -f "$yaml" ]] || { err "YAML not found for cfg-tag generation: $yaml"; exit 40; }
 
   local -a jet_pts b2bs vzs cones iso_tags uepipes
+  local include_uepipe_in_tag=0
   mapfile -t jet_pts  < <(yaml_get_inline_list "$yaml" "jet_pt_min")
   mapfile -t b2bs     < <(yaml_get_inline_list "$yaml" "back_to_back_dphi_min_pi_fraction")
   mapfile -t vzs      < <(yaml_get_inline_list "$yaml" "vz_cut_cm")
@@ -384,9 +385,11 @@ build_cfg_tags_from_yaml() {
     auau|oo|isSimEmbedded|issimembedded|simembedded|SIMEMBEDDED|isSimEmbeddedInclusive|issimembeddedinclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE)
       mapfile -t uepipes < <(yaml_get_inline_list "$yaml" "clusterUEpipeline")
       (( ${#uepipes[@]} > 0 )) || uepipes=( "noSub" )
+      include_uepipe_in_tag=1
       ;;
     *)
       uepipes=( "noSub" )
+      include_uepipe_in_tag=0
       ;;
   esac
 
@@ -398,10 +401,10 @@ build_cfg_tags_from_yaml() {
           for iso in "${iso_tags[@]}"; do
             tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_dir_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso}"
             for uep in "${uepipes[@]}"; do
-              if [[ -n "$uep" && "$uep" != "noSub" ]]; then
+              if (( include_uepipe_in_tag )); then
                 echo "${tag}_${uep}"
               else
-                echo "${tag}_noSub"
+                echo "${tag}"
               fi
             done
           done
@@ -1217,8 +1220,13 @@ fi
 # Final outputs (flat, one file per cfg_tag):
 #   output/<TAG>/RecoilJets_<TAG>_ALL_<cfg_tag>.root
 # ============================================================
-MODE="$1"
-DATASET_REQ="$2"
+if [[ "${1:-}" =~ ^(pp|PP|isPP|PP_DATA|pp_data|pp25|PP25|isPPrun25|pprun25|PP_RUN25|pp_run25|auau|AA|isAuAu|AuAu|aa|AA_DATA|auau_data|oo|OO|isOO|OO_DATA|oo_data)$ && "${2:-}" =~ ^(condor|addChunks|checkFileOutput)$ ]]; then
+  MODE="$2"
+  DATASET_REQ="$1"
+else
+  MODE="$1"
+  DATASET_REQ="$2"
+fi
 SUBMODE="${3:-}"
 
 [[ "$MODE" =~ ^(condor|addChunks|checkFileOutput)$ ]] || usage
