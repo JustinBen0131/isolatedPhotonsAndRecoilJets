@@ -2090,95 +2090,116 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         }
                     }
                 }
-                if (!xPt.empty())
                 {
-                    TCanvas cMean(
-                                  TString::Format("c_meanIsoEtPPAuAu_%s_%s_%s",
-                                                  trigAA.c_str(), H.variant.c_str(), cb.folder.c_str()).Data(),
-                                  "c_meanIsoEtPPAuAu", 900, 700
-                                  );
-                    ApplyCanvasMargins1D(cMean);
-                    cMean.cd();
+                    vector<double> xPtGauss;
+                    vector<double> exPtGauss;
+                    vector<double> yPPGauss;
+                    vector<double> eyPPGauss;
+                    vector<double> yAAGauss;
+                    vector<double> eyAAGauss;
                     
-                    double yMin = std::numeric_limits<double>::max();
-                    double yMax = -std::numeric_limits<double>::max();
-                    for (std::size_t i = 0; i < xPt.size(); ++i)
+                    for (int ipt = 0; ipt < kNPtBins; ++ipt)
                     {
-                        yMin = std::min(yMin, std::min(yPP[i] - eyPP[i], yAA[i] - eyAA[i]));
-                        yMax = std::max(yMax, std::max(yPP[i] + eyPP[i], yAA[i] + eyAA[i]));
+                        if (!ppGaussFilledByPt[ipt] || !gaussFilled[ivH][ipt][ic]) continue;
+                        
+                        xPtGauss.push_back(0.5 * (kPtEdges[(std::size_t)ipt] + kPtEdges[(std::size_t)ipt + 1]));
+                        exPtGauss.push_back(0.5 * (kPtEdges[(std::size_t)ipt + 1] - kPtEdges[(std::size_t)ipt]));
+                        yPPGauss.push_back(ppGaussMeanByPt[ipt]);
+                        eyPPGauss.push_back(ppGaussMeanErrByPt[ipt]);
+                        yAAGauss.push_back(gaussMean[ivH][ipt][ic]);
+                        eyAAGauss.push_back(gaussMeanErr[ivH][ipt][ic]);
                     }
-                    if (!std::isfinite(yMin) || !std::isfinite(yMax))
+                    
+                    if (!xPtGauss.empty())
                     {
-                        yMin = 0.0;
-                        yMax = 1.0;
-                    }
-                    const double pad = (yMax > yMin) ? (0.7 * (yMax - yMin)) : 0.25;
-                    
-                    TH1F hFrame(
-                                TString::Format("hFrame_meanIsoEtPPAuAu_%s_%s_%s",
-                                                trigAA.c_str(), H.variant.c_str(), cb.folder.c_str()).Data(),
-                                "", 100, kPtEdges.front(), kPtEdges.back()
-                                );
-                    hFrame.SetDirectory(nullptr);
-                    hFrame.SetStats(0);
-                    hFrame.SetMinimum(std::max(0.0, yMin - pad));
-                    hFrame.SetMaximum(yMax + pad);
-                    hFrame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
-                    hFrame.GetYaxis()->SetTitle("<E_{T}^{iso}> [GeV]");
-                    hFrame.GetXaxis()->SetTitleSize(0.055);
-                    hFrame.GetYaxis()->SetTitleSize(0.055);
-                    hFrame.GetXaxis()->SetLabelSize(0.045);
-                    hFrame.GetYaxis()->SetLabelSize(0.045);
-                    hFrame.GetYaxis()->SetTitleOffset(1.15);
-                    hFrame.Draw();
-                    
-                    TGraphErrors gPP((int)xPt.size(), &xPt[0], &yPP[0], &exPt[0], &eyPP[0]);
-                    gPP.SetLineWidth(2);
-                    gPP.SetLineColor(kRed + 1);
-                    gPP.SetMarkerColor(kRed + 1);
-                    gPP.SetMarkerStyle(24);
-                    gPP.SetMarkerSize(1.2);
-                    gPP.Draw("PE1 SAME");
-                    
-                    TGraphErrors gAA((int)xPt.size(), &xPt[0], &yAA[0], &exPt[0], &eyAA[0]);
-                    gAA.SetLineWidth(2);
-                    gAA.SetLineColor(kBlack);
-                    gAA.SetMarkerColor(kBlack);
-                    gAA.SetMarkerStyle(20);
-                    gAA.SetMarkerSize(1.2);
-                    gAA.Draw("PE1 SAME");
-                    
-                    TLegend leg(0.56, 0.68, 0.92, 0.88);
-                    leg.SetBorderSize(0);
-                    leg.SetFillStyle(0);
-                    leg.SetTextFont(42);
-                    leg.SetTextSize(0.032);
-                    leg.AddEntry(&gPP, "pp data", "ep");
-                    leg.AddEntry(&gAA, TString::Format("AuAu data (%s)", H.label.c_str()).Data(), "ep");
-                    leg.Draw();
-                    
-                    TLatex tTitle;
-                    tTitle.SetNDC(true);
-                    tTitle.SetTextFont(42);
-                    tTitle.SetTextAlign(23);
-                    tTitle.SetTextSize(0.045);
-                    tTitle.DrawLatex(0.50, 0.955,
-                                     TString::Format("<E_{T}^{iso}> overlay pp and %d-%d%% Cent AuAu", cb.lo, cb.hi).Data());
-                    
-                    TLatex t;
-                    t.SetNDC(true);
-                    t.SetTextFont(42);
-                    t.SetTextAlign(13);
-                    t.SetTextSize(0.034);
-                    t.DrawLatex(0.16, 0.88, TString::Format("Trigger: %s", trigAA.c_str()).Data());
-                    t.DrawLatex(0.16, 0.84, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
-                    t.DrawLatex(0.16, 0.80, TString::Format("UE subtraction: %s", H.label.c_str()).Data());
-                    
-                    {
-                        const string ppAuAuVsPtDir = JoinPath(centDir, "ppAuAu_meanIsoEt_versusPT");
-                        EnsureDir(ppAuAuVsPtDir);
-                        SaveCanvas(cMean, JoinPath(ppAuAuVsPtDir,
-                                                   TString::Format("meanIsoEt_pp_vs_auau_vs_pT_%s.png", H.variant.c_str()).Data()));
+                        TCanvas cMean(
+                                      TString::Format("c_meanIsoEtPPAuAu_%s_%s_%s",
+                                                      trigAA.c_str(), H.variant.c_str(), cb.folder.c_str()).Data(),
+                                      "c_meanIsoEtPPAuAu", 900, 700
+                                      );
+                        ApplyCanvasMargins1D(cMean);
+                        cMean.cd();
+                        
+                        double yMin = std::numeric_limits<double>::max();
+                        double yMax = -std::numeric_limits<double>::max();
+                        for (std::size_t i = 0; i < xPtGauss.size(); ++i)
+                        {
+                            yMin = std::min(yMin, std::min(yPPGauss[i] - eyPPGauss[i], yAAGauss[i] - eyAAGauss[i]));
+                            yMax = std::max(yMax, std::max(yPPGauss[i] + eyPPGauss[i], yAAGauss[i] + eyAAGauss[i]));
+                        }
+                        if (!std::isfinite(yMin) || !std::isfinite(yMax))
+                        {
+                            yMin = 0.0;
+                            yMax = 1.0;
+                        }
+                        const double pad = (yMax > yMin) ? (0.7 * (yMax - yMin)) : 0.25;
+                        
+                        TH1F hFrame(
+                                    TString::Format("hFrame_meanIsoEtPPAuAu_%s_%s_%s",
+                                                    trigAA.c_str(), H.variant.c_str(), cb.folder.c_str()).Data(),
+                                    "", 100, kPtEdges.front(), kPtEdges.back()
+                                    );
+                        hFrame.SetDirectory(nullptr);
+                        hFrame.SetStats(0);
+                        hFrame.SetMinimum(std::max(0.0, yMin - pad));
+                        hFrame.SetMaximum(yMax + pad);
+                        hFrame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                        hFrame.GetYaxis()->SetTitle("#mu^{Gauss} [GeV]");
+                        hFrame.GetXaxis()->SetTitleSize(0.055);
+                        hFrame.GetYaxis()->SetTitleSize(0.055);
+                        hFrame.GetXaxis()->SetLabelSize(0.045);
+                        hFrame.GetYaxis()->SetLabelSize(0.045);
+                        hFrame.GetYaxis()->SetTitleOffset(1.15);
+                        hFrame.Draw();
+                        
+                        TGraphErrors gPP((int)xPtGauss.size(), &xPtGauss[0], &yPPGauss[0], &exPtGauss[0], &eyPPGauss[0]);
+                        gPP.SetLineWidth(2);
+                        gPP.SetLineColor(kRed + 1);
+                        gPP.SetMarkerColor(kRed + 1);
+                        gPP.SetMarkerStyle(24);
+                        gPP.SetMarkerSize(1.2);
+                        gPP.Draw("PE1 SAME");
+                        
+                        TGraphErrors gAA((int)xPtGauss.size(), &xPtGauss[0], &yAAGauss[0], &exPtGauss[0], &eyAAGauss[0]);
+                        gAA.SetLineWidth(2);
+                        gAA.SetLineColor(kBlack);
+                        gAA.SetMarkerColor(kBlack);
+                        gAA.SetMarkerStyle(20);
+                        gAA.SetMarkerSize(1.2);
+                        gAA.Draw("PE1 SAME");
+                        
+                        TLegend leg(0.56, 0.68, 0.92, 0.88);
+                        leg.SetBorderSize(0);
+                        leg.SetFillStyle(0);
+                        leg.SetTextFont(42);
+                        leg.SetTextSize(0.032);
+                        leg.AddEntry(&gPP, "pp data", "ep");
+                        leg.AddEntry(&gAA, TString::Format("AuAu data (%s)", H.label.c_str()).Data(), "ep");
+                        leg.Draw();
+                        
+                        TLatex tTitle;
+                        tTitle.SetNDC(true);
+                        tTitle.SetTextFont(42);
+                        tTitle.SetTextAlign(23);
+                        tTitle.SetTextSize(0.045);
+                        tTitle.DrawLatex(0.50, 0.955,
+                                         TString::Format("#mu^{Gauss} overlay pp and %d-%d%% Cent AuAu", cb.lo, cb.hi).Data());
+                        
+                        TLatex t;
+                        t.SetNDC(true);
+                        t.SetTextFont(42);
+                        t.SetTextAlign(13);
+                        t.SetTextSize(0.034);
+                        t.DrawLatex(0.16, 0.88, TString::Format("Trigger: %s", trigAA.c_str()).Data());
+                        t.DrawLatex(0.16, 0.84, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
+                        t.DrawLatex(0.16, 0.80, TString::Format("UE subtraction: %s", H.label.c_str()).Data());
+                        
+                        {
+                            const string ppAuAuVsPtDir = JoinPath(centDir, "ppAuAu_meanIsoEt_versusPT");
+                            EnsureDir(ppAuAuVsPtDir);
+                            SaveCanvas(cMean, JoinPath(ppAuAuVsPtDir,
+                                                       TString::Format("meanIsoEt_pp_vs_auau_vs_pT_%s.png", H.variant.c_str()).Data()));
+                        }
                     }
                 }
                 
@@ -6185,6 +6206,12 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             }
                             SaveCanvas(cGM, JoinPath(gaussMeanCentOvDir,
                                                      TString::Format("gaussMean_vs_pT_centOverlay_%s.png", H.variant.c_str()).Data()));
+                            {
+                                const string variantGaussPtDir = JoinPath(JoinPath(ueCompBase, H.variant), "ppAuAu_meanIsoEt_versusPT");
+                                EnsureDir(variantGaussPtDir);
+                                SaveCanvas(cGM, JoinPath(variantGaussPtDir,
+                                                         TString::Format("gaussMean_auauCentOverlay_vs_pT_%s.png", H.variant.c_str()).Data()));
+                            }
                             for (auto* g : gCent) delete g;
                         }
                     }
