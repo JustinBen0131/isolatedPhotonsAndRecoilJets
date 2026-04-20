@@ -9145,69 +9145,95 @@ void RunXJAlphaQA(Dataset& ds)
         const map<string, vector<double> >& meanXJ,
         const map<string, vector<double> >& meanA)
     {
-        // mean xJ overlay
+        vector<string> drawKeys;
+        for (const auto& rKey : kRKeys)
         {
-            TCanvas c("c_ov_meanxJ","c_ov_meanxJ",900,700);
+            const auto itX = meanXJ.find(rKey);
+            const auto itA = meanA.find(rKey);
+            if (itX == meanXJ.end() || itA == meanA.end()) continue;
+            if (itX->second.size() != (std::size_t)kNPtBins) continue;
+            if (itA->second.size() != (std::size_t)kNPtBins) continue;
+            drawKeys.push_back(rKey);
+        }
+
+        if (drawKeys.size() < 2)
+        {
+            cout << ANSI_BOLD_YEL
+                 << "[WARN] Skipping mean xJ/alpha rKey overlay: need at least two available radii."
+                 << ANSI_RESET << "\n";
+            return;
+        }
+
+        const int colors[]  = {kBlack, kRed + 1, kBlue + 1, kGreen + 2, kMagenta + 1, kOrange + 7, kCyan + 1};
+        const int markers[] = {20, 24, 21, 25, 22, 26, 23};
+        const int nColors   = (int)(sizeof(colors) / sizeof(colors[0]));
+        const int nMarkers  = (int)(sizeof(markers) / sizeof(markers[0]));
+
+        auto DrawOverlay =
+        [&](const string& canvasName,
+            const map<string, vector<double> >& means,
+            const string& yTitle,
+            double yMax,
+            const string& labelLine,
+            const string& outName)
+        {
+            TCanvas c(canvasName.c_str(), canvasName.c_str(), 900, 700);
             ApplyCanvasMargins1D(c);
-            
-            TGraph g02(kNPtBins, &x[0], &meanXJ.at("r02")[0]);
-            TGraph g04(kNPtBins, &x[0], &meanXJ.at("r04")[0]);
-            g02.SetLineWidth(2); g04.SetLineWidth(2);
-            g02.SetMarkerStyle(20); g04.SetMarkerStyle(24);
-            g02.SetLineColor(1); g04.SetLineColor(2);
-            g02.SetMarkerColor(1); g04.SetMarkerColor(2);
-            
-            g02.Draw("ALP");
-            g02.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
-            g02.GetYaxis()->SetTitle("<x_{J}>");
-            g02.SetMinimum(0.0);
-            g02.SetMaximum(1.2);
-            g04.Draw("LP same");
-            
-            TLegend leg(0.62,0.78,0.92,0.90);
+
+            vector<TGraph*> graphs;
+            graphs.reserve(drawKeys.size());
+
+            for (std::size_t ik = 0; ik < drawKeys.size(); ++ik)
+            {
+                const string& rKey = drawKeys[ik];
+                TGraph* g = new TGraph(kNPtBins, &x[0], &means.at(rKey)[0]);
+                g->SetLineWidth(2);
+                g->SetMarkerStyle(markers[ik % nMarkers]);
+                g->SetLineColor(colors[ik % nColors]);
+                g->SetMarkerColor(colors[ik % nColors]);
+                graphs.push_back(g);
+            }
+
+            graphs[0]->Draw("ALP");
+            graphs[0]->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
+            graphs[0]->GetYaxis()->SetTitle(yTitle.c_str());
+            graphs[0]->SetMinimum(0.0);
+            graphs[0]->SetMaximum(yMax);
+
+            for (std::size_t ik = 1; ik < graphs.size(); ++ik)
+                graphs[ik]->Draw("LP same");
+
+            TLegend leg(0.62,0.72,0.92,0.90);
             leg.SetTextFont(42);
             leg.SetTextSize(0.033);
-            leg.AddEntry(&g02, "r02 (R=0.2)", "lp");
-            leg.AddEntry(&g04, "r04 (R=0.4)", "lp");
+            for (std::size_t ik = 0; ik < graphs.size(); ++ik)
+            {
+                const double R = RFromKey(drawKeys[ik]);
+                leg.AddEntry(graphs[ik], TString::Format("%s (R=%.1f)", drawKeys[ik].c_str(), R).Data(), "lp");
+            }
             leg.Draw();
-            
+
             DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-            DrawLatexLines(0.14,0.78, {"Overlay: <x_{J}> vs p_{T}^{#gamma}"}, 0.030, 0.040);
-            
-            SaveCanvas(c, JoinPath(overDir, "overlay_mean_xJ_r02_vs_r04.png"));
-        }
-        
-        // mean alpha overlay
-        {
-            TCanvas c("c_ov_meana","c_ov_meana",900,700);
-            ApplyCanvasMargins1D(c);
-            
-            TGraph g02(kNPtBins, &x[0], &meanA.at("r02")[0]);
-            TGraph g04(kNPtBins, &x[0], &meanA.at("r04")[0]);
-            g02.SetLineWidth(2); g04.SetLineWidth(2);
-            g02.SetMarkerStyle(20); g04.SetMarkerStyle(24);
-            g02.SetLineColor(1); g04.SetLineColor(2);
-            g02.SetMarkerColor(1); g04.SetMarkerColor(2);
-            
-            g02.Draw("ALP");
-            g02.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV] (bin centers)");
-            g02.GetYaxis()->SetTitle("<#alpha>");
-            g02.SetMinimum(0.0);
-            g02.SetMaximum(1.0);
-            g04.Draw("LP same");
-            
-            TLegend leg(0.62,0.78,0.92,0.90);
-            leg.SetTextFont(42);
-            leg.SetTextSize(0.033);
-            leg.AddEntry(&g02, "r02 (R=0.2)", "lp");
-            leg.AddEntry(&g04, "r04 (R=0.4)", "lp");
-            leg.Draw();
-            
-            DrawLatexLines(0.14,0.92, DefaultHeaderLines(ds), 0.034, 0.045);
-            DrawLatexLines(0.14,0.78, {"Overlay: <#alpha> vs p_{T}^{#gamma}"}, 0.030, 0.040);
-            
-            SaveCanvas(c, JoinPath(overDir, "overlay_mean_alpha_r02_vs_r04.png"));
-        }
+            DrawLatexLines(0.14,0.78, {labelLine}, 0.030, 0.040);
+
+            SaveCanvas(c, JoinPath(overDir, outName));
+
+            for (auto* g : graphs) delete g;
+        };
+
+        DrawOverlay("c_ov_meanxJ",
+                    meanXJ,
+                    "<x_{J}>",
+                    1.2,
+                    "Overlay: <x_{J}> vs p_{T}^{#gamma}",
+                    "overlay_mean_xJ_allRKeys.png");
+
+        DrawOverlay("c_ov_meana",
+                    meanA,
+                    "<#alpha>",
+                    1.0,
+                    "Overlay: <#alpha> vs p_{T}^{#gamma}",
+                    "overlay_mean_alpha_allRKeys.png");
     };
     
     // ---------------------------------------------------------------------------

@@ -3035,9 +3035,17 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     hPP->SetLineWidth(2);
                     hPP->SetFillStyle(0);
                     
-                    // Gaussian fit (pp-only representative core fit for plotting)
+                    // Gaussian fit: use the exact same fitter as Au+Au, but do NOT rebin for pp
                     double ppMu = 0.0, ppMuE = 0.0, ppSig = 0.0, ppSigE = 0.0;
-                    const bool ppGaussOk = FitGaussianRepresentativePP(hPP, ppMu, ppSig, ppMuE, ppSigE);
+                    TH1* hPPFit = CloneTH1(hPPsrc,
+                                           TString::Format("hPP_standalone_fit_%s_%s",
+                                                           trigAA.c_str(), b.folder.c_str()).Data());
+                    bool ppGaussOk = false;
+                    if (hPPFit)
+                    {
+                        EnsureSumw2(hPPFit);
+                        ppGaussOk = FitGaussianIterative(hPPFit, ppMu, ppSig, ppMuE, ppSigE);
+                    }
                     
                     TCanvas cPP(
                                 TString::Format("c_ppIso_%s_%s", trigAA.c_str(), b.folder.c_str()).Data(),
@@ -3063,20 +3071,16 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     hPP->Draw("E1");
                     
                     TF1* fDraw = nullptr;
-                    if (ppGaussOk)
+                    if (ppGaussOk && hPPFit)
                     {
-                        const double drawSigma = std::max(ppSig, 0.30 * hPP->GetBinWidth(hPP->GetMaximumBin()));
-                        const double drawLo = ppMu - 2.5 * drawSigma;
-                        const double drawHi = ppMu + 3.5 * drawSigma;
-                        fDraw = new TF1(TString::Format("fGauss_ppStandalone_%s_%s",
-                                                        trigAA.c_str(), b.folder.c_str()).Data(),
-                                        "gaus", drawLo, drawHi);
-                        fDraw->SetParameters(std::max(hPP->GetBinContent(hPP->GetMaximumBin()), 1.0), ppMu, std::max(ppSig, 0.05));
-                        fDraw->SetLineColor(kBlack);
-                        fDraw->SetLineStyle(1);
-                        fDraw->SetLineWidth(1);
-                        fDraw->SetNpx(800);
-                        fDraw->Draw("SAME");
+                        fDraw = DrawGaussFitCurve(hPPFit, kBlack, false);
+                        if (fDraw)
+                        {
+                            const double fitStart = fDraw->GetXmin();
+                            const double fitEnd   = fDraw->GetXmax();
+                            const double newFitEnd = ppMu + 0.85 * (fitEnd - ppMu);
+                            fDraw->SetRange(fitStart, newFitEnd);
+                        }
                         hPP->Draw("E1 SAME");
                     }
                     
@@ -3132,6 +3136,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                                  TString::Format("ppIso_counts_%s.png", b.folder.c_str()).Data()));
                     
                     if (fDraw) delete fDraw;
+                    if (hPPFit) delete hPPFit;
                     delete hPP;
                 }
             }
