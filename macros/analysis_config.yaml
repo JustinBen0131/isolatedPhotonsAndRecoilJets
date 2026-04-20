@@ -11,7 +11,7 @@
 #   2. Fun4All_recoilJets_unified_impl.C parses the (scalar) per-job YAML,
 #      validates it, prints a summary, and passes values to RecoilJets via
 #      setter calls. No YAML parsing happens inside RecoilJets itself.
-#   3. The full per-job YAML text is stamped into each output ROOT file as
+#   3. The full per-job YAML text is stamped into each output ROOT file as 
 #      a TObjString ("analysis_config_yaml") for provenance.
 #   4. mergeRecoilJets.sh extracts that stamped YAML from ROOT files to
 #      derive the cfg tag for naming merged outputs — no re-read of this

@@ -989,7 +989,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             if (hPho)  keepAlive.push_back(hPho);
                             if (hInc)  keepAlive.push_back(hInc);
                             
-                            const int layerRebin = (ipanel == 0) ? 8 : 1;  // EMCal=8, IHCal/OHCal=1
+                            const int layerRebin = (ipanel == 0) ? 10 : 1;  // EMCal=10, IHCal/OHCal=1
                             const bool haveData = PrepareLayerHist(hData, true, kBlack, layerRebin);
                             const bool havePho  = PrepareLayerHist(hPho,  false, kRed + 1, layerRebin);
                             const bool haveInc  = PrepareLayerHist(hInc,  false, kBlue + 1, layerRebin);
@@ -1112,12 +1112,47 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             vector<vector<double>> vsCent_yAA(kNPtBins);
             vector<vector<double>> vsCent_eyAA(kNPtBins);
             vector<vector<bool>>   vsCent_filled(kNPtBins, vector<bool>(centPlotBins.size(), false));
+            vector<vector<double>> vsCent_yPPgauss(kNPtBins, vector<double>(centPlotBins.size(), 0.0));
+            vector<vector<double>> vsCent_eyPPgauss(kNPtBins, vector<double>(centPlotBins.size(), 0.0));
+            vector<vector<bool>>   vsCent_filledPPgauss(kNPtBins, vector<bool>(centPlotBins.size(), false));
+            vector<double>         ppGaussMeanByPt(kNPtBins, 0.0);
+            vector<double>         ppGaussMeanErrByPt(kNPtBins, 0.0);
+            vector<bool>           ppGaussFilledByPt(kNPtBins, false);
             for (int ip = 0; ip < kNPtBins; ++ip)
             {
                 vsCent_yPP[ip].resize(centPlotBins.size(), 0.0);
                 vsCent_eyPP[ip].resize(centPlotBins.size(), 0.0);
                 vsCent_yAA[ip].resize(centPlotBins.size(), 0.0);
                 vsCent_eyAA[ip].resize(centPlotBins.size(), 0.0);
+            }
+            
+            if (ppTop)
+            {
+                for (int ipt = 0; ipt < kNPtBins; ++ipt)
+                {
+                    const PtBin& b = PtBins()[ipt];
+                    const string hPPName = "h_Eiso" + b.suffix;
+                    TH1* hPPsrc = dynamic_cast<TH1*>(ppTop->Get(hPPName.c_str()));
+                    if (!hPPsrc) continue;
+                    
+                    double ppMu = 0.0, ppMuE = 0.0, ppSig = 0.0, ppSigE = 0.0;
+                    TH1* hPPFit = CloneTH1(hPPsrc,
+                                           TString::Format("hPP_meanVsCent_fit_%s_%s_%zu",
+                                                           trigAA.c_str(), H.variant.c_str(), (std::size_t)ipt).Data());
+                    bool ppGaussOk = false;
+                    if (hPPFit)
+                    {
+                        EnsureSumw2(hPPFit);
+                        ppGaussOk = FitGaussianIterative(hPPFit, ppMu, ppSig, ppMuE, ppSigE);
+                        delete hPPFit;
+                    }
+                    
+                    if (!ppGaussOk) continue;
+                    
+                    ppGaussMeanByPt[ipt]    = ppMu;
+                    ppGaussMeanErrByPt[ipt] = ppMuE;
+                    ppGaussFilledByPt[ipt]  = true;
+                }
             }
             
             // MC mean iso accumulators [ipt][ic] for vs-centrality and vs-pT summary plots
@@ -1227,6 +1262,16 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             }
                             delete hFitTmp;
                         }
+                    }
+                    
+                    // Gaussian fit on raw pp histogram:
+                    // use the exact same pp Gaussian already used for
+                    // centralitySummaryPerPt/baseVariant/ppIso_counts_*
+                    if (ppGaussFilledByPt[ipt])
+                    {
+                        vsCent_yPPgauss[ipt][ic]      = ppGaussMeanByPt[ipt];
+                        vsCent_eyPPgauss[ipt][ic]     = ppGaussMeanErrByPt[ipt];
+                        vsCent_filledPPgauss[ipt][ic] = true;
                     }
                     
                     // accumulate MC embedded means for summary plots
@@ -2332,14 +2377,14 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                 vector<double> xCent, exCent, yCentPP, eyCentPP, yCentAA, eyCentAA;
                 for (std::size_t ic = 0; ic < centBins.size(); ++ic)
                 {
-                    if (!vsCent_filled[ipt][ic]) continue;
+                    if (!vsCent_filledPPgauss[ipt][ic] || !gaussFilled[ivH][ipt][ic]) continue;
                     const auto& cb = centBins[ic];
                     xCent.push_back(0.5 * (cb.lo + cb.hi));
                     exCent.push_back(0.5 * (cb.hi - cb.lo));
-                    yCentPP.push_back(vsCent_yPP[ipt][ic]);
-                    eyCentPP.push_back(vsCent_eyPP[ipt][ic]);
-                    yCentAA.push_back(vsCent_yAA[ipt][ic]);
-                    eyCentAA.push_back(vsCent_eyAA[ipt][ic]);
+                    yCentPP.push_back(vsCent_yPPgauss[ipt][ic]);
+                    eyCentPP.push_back(vsCent_eyPPgauss[ipt][ic]);
+                    yCentAA.push_back(gaussMean[ivH][ipt][ic]);
+                    eyCentAA.push_back(gaussMeanErr[ivH][ipt][ic]);
                 }
                 if (xCent.empty()) continue;
                 
@@ -2378,7 +2423,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                 hFrame.SetMinimum(std::max(0.0, yMin - pad));
                 hFrame.SetMaximum(yMax + pad);
                 hFrame.GetXaxis()->SetTitle("Centrality [%]");
-                hFrame.GetYaxis()->SetTitle("<E_{T}^{iso}> [GeV]");
+                hFrame.GetYaxis()->SetTitle("#mu^{Gauss} [GeV]");
                 hFrame.GetXaxis()->SetTitleSize(0.055);
                 hFrame.GetYaxis()->SetTitleSize(0.055);
                 hFrame.GetXaxis()->SetLabelSize(0.045);
@@ -2386,13 +2431,14 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                 hFrame.GetYaxis()->SetTitleOffset(1.15);
                 hFrame.Draw();
                 
-                TGraphErrors gPP((int)xCent.size(), &xCent[0], &yCentPP[0], &exCent[0], &eyCentPP[0]);
-                gPP.SetLineWidth(2);
-                gPP.SetLineColor(kRed + 1);
-                gPP.SetMarkerColor(kRed + 1);
-                gPP.SetMarkerStyle(24);
-                gPP.SetMarkerSize(1.2);
-                gPP.Draw("PE1 SAME");
+                double meanPP = 0.0;
+                for (double v : yCentPP) meanPP += v;
+                if (!yCentPP.empty()) meanPP /= (double)yCentPP.size();
+                TLine lPP(centLo, meanPP, centHi, meanPP);
+                lPP.SetLineColor(kBlack);
+                lPP.SetLineStyle(2);
+                lPP.SetLineWidth(2);
+                lPP.Draw("SAME");
                 
                 TGraphErrors gAA((int)xCent.size(), &xCent[0], &yCentAA[0], &exCent[0], &eyCentAA[0]);
                 gAA.SetLineWidth(2);
@@ -2402,12 +2448,12 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                 gAA.SetMarkerSize(1.2);
                 gAA.Draw("PE1 SAME");
                 
-                TLegend leg(0.56, 0.68, 0.92, 0.88);
+                TLegend leg(0.58, 0.17, 0.92, 0.32);
                 leg.SetBorderSize(0);
                 leg.SetFillStyle(0);
                 leg.SetTextFont(42);
                 leg.SetTextSize(0.032);
-                leg.AddEntry(&gPP, "pp data", "ep");
+                leg.AddEntry(&lPP, "pp data", "l");
                 leg.AddEntry(&gAA, TString::Format("AuAu data (%s)", H.label.c_str()).Data(), "ep");
                 leg.Draw();
                 
@@ -2416,17 +2462,17 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                 tTitle.SetTextFont(42);
                 tTitle.SetTextAlign(23);
                 tTitle.SetTextSize(0.045);
-                tTitle.DrawLatex(0.50, 0.955,
-                                 TString::Format("<E_{T}^{iso}> vs Centrality  p_{T}^{#gamma} %d-%d GeV", b.lo, b.hi).Data());
+                tTitle.DrawLatex(0.50, 0.965,
+                                 TString::Format("#mu^{Gauss} vs Centrality  p_{T}^{#gamma} %d-%d GeV", b.lo, b.hi).Data());
                 
                 TLatex t;
                 t.SetNDC(true);
                 t.SetTextFont(42);
                 t.SetTextAlign(13);
                 t.SetTextSize(0.034);
-                t.DrawLatex(0.16, 0.88, TString::Format("Trigger: %s", trigAA.c_str()).Data());
-                t.DrawLatex(0.16, 0.84, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
-                t.DrawLatex(0.16, 0.80, TString::Format("UE subtraction: %s", H.label.c_str()).Data());
+                t.DrawLatex(0.19, 0.88, trigDisplayLabel.c_str());
+                t.DrawLatex(0.19, 0.84, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
+                t.DrawLatex(0.19, 0.80, H.label.c_str());
                 
                 {
                     const string ppAuAuVsCentDir = JoinPath(variantDir, "ppAuAu_meanIsoEt_versusCentralityPerPtBin");
@@ -2769,7 +2815,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         }
                         
                         const double yLineMax = hCents[0]->GetMaximum();
-                        if (havePeripheralGauss)
+                        if (havePeripheralGauss && H.variant == "baseVariant")
                         {
                             TLine lPer(peripheralMu, 0.0, peripheralMu, yLineMax);
                             lPer.SetLineColor(peripheralColor);
@@ -2822,14 +2868,14 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             tSph.SetTextFont(42);
                             tSph.SetTextAlign(33);
                             tSph.SetTextSize(0.052);
-                            const double sphY1  = (H.variant == "noSub") ? 0.52 : 0.32;
+                            const double sphY1  = (H.variant == "noSub") ? 0.56 : 0.39;
                             const double sphX1  = (H.variant == "noSub") ? 0.93 : 0.90;
                             tSph.DrawLatex(sphX1, sphY1,        "#bf{sPHENIX} #it{Internal}");
                             tSph.SetTextSize(0.042);
                             tSph.DrawLatex(sphX1, sphY1 - 0.06, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
                         }
                         
-                        if (havePeripheralGauss)
+                        if (havePeripheralGauss && H.variant == "baseVariant")
                         {
                             TLatex tPer;
                             tPer.SetNDC(true);
@@ -2995,6 +3041,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     
                     vector<TF1*> gaussCurvesTopOnly;
                     DrawCentralityOverlayTop(gaussCurvesTopOnly);
+                    if (H.variant == "baseVariant" && b.lo == 12 && b.hi == 14)
+                        hCents[0]->GetXaxis()->SetRangeUser(-10.0, 20.0);
                     cCOTopOnly.Modified();
                     cCOTopOnly.Update();
                     if (!perVariantIsoQAOnlyActive)
@@ -3065,7 +3113,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     hPP->GetXaxis()->SetLabelSize(0.040);
                     hPP->GetYaxis()->SetLabelSize(0.040);
                     hPP->GetYaxis()->SetTitleOffset(1.15);
-                    hPP->GetXaxis()->SetRangeUser(-10.0, 50.0);
+                    hPP->GetXaxis()->SetRangeUser(-10.0, 20.0);
                     hPP->SetMinimum(0.0);
                     hPP->SetMaximum(1.15 * hPP->GetMaximum());
                     hPP->Draw("E1");
@@ -4969,7 +5017,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         if (!sGraphs.empty())
                         {
                             if (!std::isfinite(yMinS) || !std::isfinite(yMaxS)) { yMinS = 0; yMaxS = 5; }
-                            const double padS = (yMaxS > yMinS) ? 0.20 * (yMaxS - yMinS) : 0.5;
+                            const double padS = (yMaxS > yMinS) ? 0.30 * (yMaxS - yMinS) : 0.5;
                             TCanvas cGS(TString::Format("c_gaussSigmaVsCent_%s", b.folder.c_str()).Data(), "", 900, 700);
                             ApplyCanvasMargins1D(cGS); cGS.cd();
                             TH1F hFrGS(TString::Format("hFr_gaussSigmaVsCent_%s", b.folder.c_str()).Data(),
@@ -4983,7 +5031,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             hFrGS.GetYaxis()->SetTitleOffset(1.15);
                             hFrGS.Draw();
                             for (auto* g : sGraphs) g->Draw("PE1 SAME");
-                            TLegend lgGS(0.56, 0.62, 0.92, 0.88);
+                            TLegend lgGS(0.78, 0.68, 0.86, 0.92);
                             lgGS.SetBorderSize(0); lgGS.SetFillStyle(0); lgGS.SetTextFont(42); lgGS.SetTextSize(0.032);
                             for (std::size_t ig = 0; ig < sGraphs.size(); ++ig)
                                 lgGS.AddEntry(sGraphs[ig], handles[sIndices[ig]].label.c_str(), "ep");
@@ -4992,8 +5040,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             tGS.DrawLatex(0.50, 0.98,
                                           TString::Format("Gaussian #sigma vs Centrality, p_{T}^{#gamma} %d-%d GeV", b.lo, b.hi).Data());
                             TLatex tGSi; tGSi.SetNDC(true); tGSi.SetTextFont(42); tGSi.SetTextAlign(13); tGSi.SetTextSize(0.028);
-                            tGSi.DrawLatex(0.20, 0.58, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
-                            tGSi.DrawLatex(0.20, 0.54, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+                            tGSi.DrawLatex(0.20, 0.89, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
+                            tGSi.DrawLatex(0.20, 0.85, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
                             SaveCanvas(cGS, JoinPath(gaussSigmaDir,
                                                      TString::Format("gaussSigma_allVariants_vs_cent_%s.png", b.folder.c_str()).Data()));
                             for (auto* g : sGraphs) delete g;
