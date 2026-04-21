@@ -15540,9 +15540,15 @@ int Run()
     // ---------------------------------------------------------------------------
     cout << ANSI_BOLD_CYN << "\n[STEP 4] Sections 1–3 (per-dataset)\n" << ANSI_RESET;
     
+    if (DO_purityAndLeakageCHECKS_ONLY)
+        cout << ANSI_BOLD_CYN
+        << "  [DO_purityAndLeakageCHECKS_ONLY] Skipping STEP 4 per-dataset QA (Section 1–3).\n"
+        << ANSI_RESET;
+    
     for (auto& ds : datasets)
     {
         if (SSoverlayPerVAR_processONLY) break;
+        if (DO_purityAndLeakageCHECKS_ONLY) break;
         cout << ANSI_BOLD_YEL
         << "\n[DATASET] " << ds.label
         << "  isSim=" << (ds.isSim ? "true" : "false")
@@ -15583,7 +15589,7 @@ int Run()
     // ---------------------------------------------------------------------------
     // AuAu data modes: UE-subtraction variant overlay comparisons for isolation QA
     // ---------------------------------------------------------------------------
-    if (mode == RunMode::kAuAuOnly || mode == RunMode::kSimAndDataAUAU)
+    if ((mode == RunMode::kAuAuOnly || mode == RunMode::kSimAndDataAUAU) && !DO_purityAndLeakageCHECKS_ONLY)
     {
         cout << "  -> [isoQA] AuAu UE variant comparisons...\n";
         analysis::RunIsoQA_UEComparisons_AuAu();
@@ -15614,7 +15620,7 @@ int Run()
         // AuAu-only: Accepted events vs centrality (one plot per trigger)
         //   Outputs to:  <kOutAuAuBase>/<trigger>/acceptedEvents_vs_centrality.png
         // ---------------------------------------------------------------------------
-        if (mode == RunMode::kAuAuOnly)
+        if (mode == RunMode::kAuAuOnly && !DO_purityAndLeakageCHECKS_ONLY)
         {
             std::map<std::string, std::vector<std::pair<std::pair<int,int>, double>>> accByTrig;
             
@@ -17986,6 +17992,14 @@ int Run()
                     if (fPurOv) { fPurOv->Close(); delete fPurOv; }
                 }
             }
+        }
+        
+        if (DO_purityAndLeakageCHECKS_ONLY)
+        {
+            cout << ANSI_BOLD_GRN
+            << "\n[DO_purityAndLeakageCHECKS_ONLY] Done — emitted only PurityABCD per-centrality outputs and purityOverlay/ overlays.\n"
+            << ANSI_RESET;
+            return 0;
         }
         
         // ---------------------------------------------------------------------------

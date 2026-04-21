@@ -107,6 +107,7 @@ inline bool SSoverlayPerVAR_processONLY           = false;
 inline bool generateISOpTcentOverlaysONLY         = false;
 inline bool perVariantIsoQA_ONLY                  = false;
 inline bool DO_inclusiveXJcomparisons_ONLY        = false;
+inline bool DO_purityAndLeakageCHECKS_ONLY        = true;
 
 inline bool generatePerRunTriggerAna = false;
 inline bool generatePerRunTriggerAnaForGoodRunsOnly = false;
