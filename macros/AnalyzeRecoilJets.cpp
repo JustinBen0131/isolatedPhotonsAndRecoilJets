@@ -3615,7 +3615,7 @@ void RunXJUEComparisons_AuAu()
                 {
                     int photonPt = 0;
                     if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
-                        trigLabel = TString::Format("Trigger = Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                        trigLabel = TString::Format("Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
                     else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
                         trigLabel = "Trigger = MBD NS #geq 2, vtx < 150 cm";
                     else
@@ -3640,7 +3640,7 @@ void RunXJUEComparisons_AuAu()
                 else
                 {
                     isoModeLabel1 = "E_{T}^{iso} < E_{T, cut}^{iso}(cent)";
-                    isoModeLabel2 = "E_{T, cut}^{iso}(cent) = 5.99 - 0.0511 #times centrality[%] GeV";
+                    isoModeLabel2 = "E_{T, cut}^{iso}(cent) = 5.99 - 0.0511 #times cent[%] GeV";
                 }
                 
                 TLatex tTitle;
