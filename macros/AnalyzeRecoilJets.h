@@ -97,13 +97,13 @@ inline bool pp_beforeChangeInRecoSimDefTruthMatched = false;
 inline bool isSimAndDataPP = false;
 inline bool isSimAndDataAUAU = true;
 inline bool isSimEmbeddedOnly = false;
-inline bool isAuAuOnly     = false;
+inline bool isAuAuOnly     = true;
 
 inline bool isPPdataAndAUAU = false;
 
-inline bool generateUEcomparisonSSQA = false;
+inline bool generateUEcomparisonSSQA = true;
 inline bool skipToCentralityAndPtOverlaysWithSSQA = false;
-inline bool SSoverlayPerVAR_processONLY           = false;
+inline bool SSoverlayPerVAR_processONLY           = true;
 inline bool generateISOpTcentOverlaysONLY         = false;
 inline bool perVariantIsoQA_ONLY                  = false;
 
@@ -156,16 +156,16 @@ inline bool doPhotonJetMerge = false;
 //   RooUnfold: true = run both non-purity and purity-corrected passes + overlay.
 inline bool do_xJ_PPunfold = false;
 //   RooUnfold AuAu: true = run per-centrality unfolding with purity × combinatoric variants.
-inline bool do_xJ_AAunfold = true;
+inline bool do_xJ_AAunfold = false;
 
 //   Saved RooUnfold output: true = erase/rebuild/cache live unfolding output for this exact file combination;
 //   false = restore cached unfolding output and skip all unfolding work.
-inline bool saveRooUnfoldOutput = true;
+inline bool saveRooUnfoldOutput = false;
 
 //   Internal: selects raw vs ABCD purity-corrected reco inputs per pass.
-inline bool gApplyPurityCorrectionForUnfolding = true;
+inline bool gApplyPurityCorrectionForUnfolding = false;
 //   Internal: selects whether the embedded combinatoric template is subtracted before unfolding.
-inline bool gApplyCombinatoricSubtractionForUnfolding = true;
+inline bool gApplyCombinatoricSubtractionForUnfolding = false;
 
 //   One-off Sam vs Justin unsmear comparison:
 inline bool doSamVsJustinUnsmearOverlays = false;

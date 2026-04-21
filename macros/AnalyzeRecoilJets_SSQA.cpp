@@ -952,8 +952,6 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                     double yScale = doZoom ? 1.08 : 1.10;
                     if (standalone)
                         yScale = (tag == "nonTight") ? 1.55 : 1.35;
-                    if (standalone && shiftLegendLeft && tag == "inclusive" && var == "e11e33")
-                        yScale = 1.70;
                     hFrame->SetMaximum((yMax > 0.0) ? (yMax * yScale) : 1.0);
                 }
                 
@@ -989,11 +987,16 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                 {
                     TLegend* leg = nullptr;
                     if (standalone && shiftLegendLeft && tag == "inclusive" && var == "e11e33")
-                        leg = new TLegend(0.18, 0.66, 0.92, 0.78);
+                        leg = new TLegend(0.20, 0.78, 0.58, 0.93);
                     else if (standalone && tag == "nonTight")
                         leg = isW ? new TLegend(0.55, 0.56, 0.88, 0.74) : new TLegend(0.20, 0.68, 0.58, 0.86);
+                    else if (standalone && tag == "pre" && var == "e11e33")
+                        leg = new TLegend(0.20, 0.78, 0.58, 0.93);
+                    else if (standalone && tag == "tight" && var == "e11e33")
+                        leg = new TLegend(0.20, 0.78, 0.58, 0.93);
                     else if (standalone)
                         leg = isW ? new TLegend(0.40, 0.58, 0.73, 0.78) : new TLegend(0.20, 0.66, 0.58, 0.86);
+
                     else if (shiftLegendLeft)
                         leg = isW ? new TLegend(0.30, 0.55, 0.82, 0.80) : new TLegend(0.12, 0.55, 0.64, 0.80);
                     else
@@ -1001,9 +1004,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                     leg->SetBorderSize(0);
                     leg->SetFillStyle(0);
                     leg->SetTextFont(42);
-                    leg->SetTextSize(standalone ? (tag == "nonTight" ? 0.028 : ((shiftLegendLeft && tag == "inclusive" && var == "e11e33") ? 0.024 : 0.030)) : 0.036);
-                    if (standalone && shiftLegendLeft && tag == "inclusive" && var == "e11e33")
-                        leg->SetNColumns(2);
+                    leg->SetTextSize(standalone ? (tag == "nonTight" ? 0.028 : 0.030) : 0.036);
                     
                     if (hPP)  leg->AddEntry(hPP,  "pp", "ep");
                     if (hSig) leg->AddEntry(hSig, sigLegLabel.c_str(), "l");
@@ -1020,6 +1021,42 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                     
                     leg->Draw();
                     keepLegs.push_back(leg);
+                }
+                
+                // Two-column #gamma-presel block (standalone + pre + e11e33 only)
+                if (standalone && !doZoom && tag == "pre" && var == "e11e33")
+                {
+                    TLatex tSel;
+                    tSel.SetNDC(true);
+                    tSel.SetTextFont(42);
+                    tSel.SetTextAlign(13);
+                    tSel.SetTextSize(0.035);
+                    tSel.DrawLatex(0.22, 0.72, "#gamma-presel:");
+                    tSel.SetTextSize(0.026);
+                    tSel.DrawLatex(0.22, 0.66, "#frac{E_{11}}{E_{33}} < 0.98");
+                    tSel.DrawLatex(0.42, 0.66, "0.6 < et1 < 1.0");
+                    tSel.DrawLatex(0.22, 0.6, "0.8 < #frac{E_{32}}{E_{35}} < 1.0");
+                    tSel.DrawLatex(0.42, 0.6, "w_{#eta} < 0.6");
+                }
+                
+                
+                // Single-column #gamma-tight block (standalone + tight + e11e33 only)
+                if (standalone && !doZoom && tag == "tight" && var == "e11e33")
+                {
+                    const double ptCenter = 0.5 * (ptReq.lo + ptReq.hi);
+                    TLatex tSel;
+                    tSel.SetNDC(true);
+                    tSel.SetTextFont(42);
+                    tSel.SetTextAlign(13);
+                    tSel.SetTextSize(0.032);
+                    tSel.DrawLatex(0.22, 0.74, "#gamma-tight:");
+                    tSel.SetTextSize(0.026);
+                    tSel.DrawLatex(0.22, 0.68, "0.4 < #frac{E_{11}}{E_{33}} < 0.98");
+                    tSel.DrawLatex(0.22, 0.62, "0.9 < et1 < 1.0");
+                    tSel.DrawLatex(0.22, 0.56, "0.92 < #frac{E_{32}}{E_{35}} < 1.0");
+                    tSel.DrawLatex(0.22, 0.50,
+                                   TString::Format("0 < w_{#eta/#phi} < 0.15 + 0.006 E_{T}^{#gamma} = %.3f",
+                                                   0.15 + 0.006 * ptCenter).Data());
                 }
                 
                 {
@@ -1078,7 +1115,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                     {
                         if (isPre)
                         {
-                            cutText = "pp presel: #frac{E_{11}}{E_{33}} < 0.98";
+                            if (!standalone) cutText = "pp presel: #frac{E_{11}}{E_{33}} < 0.98";
                             drawSingleCut = true;
                             cutHi = 0.98;
                         }
@@ -1091,7 +1128,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                         }
                         else
                         {
-                            cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
+                            if (!standalone) cutText = "Tight #gamma-ID: 0.4 < #frac{E_{11}}{E_{33}} < 0.98";
                             drawCuts = true;
                             cutLo = 0.4;
                             cutHi = 0.98;
@@ -1186,7 +1223,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                         }
                     }
                     
-                    if (!cutText.empty() && !doZoom)
+                    if (!cutText.empty() && !doZoom && tag != "inclusive")
                     {
                         if (standalone) tcut.SetTextSize(0.032);
                         const double cutTextY = standalone ? (isNonTight ? 0.90 : 0.92) : 0.86;
@@ -1205,7 +1242,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                         tSph.DrawLatex(0.88, 0.86, "Au+Au #sqrt{s_{NN}} = 200 GeV");
                     }
                     
-                    if (drawCuts || drawSingleCut)
+                    if ((drawCuts || drawSingleCut) && tag != "inclusive")
                     {
                         gPad->Update();
                         const double yMin = gPad->GetUymin();
