@@ -1681,7 +1681,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             tUE.SetTextSize(0.034);
                             tUE.DrawLatex(0.92, 0.46, trigDisplayLabel.c_str());
                             tUE.DrawLatex(0.92, 0.42, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
-                            tUE.DrawLatex(0.92, 0.38, TString::Format("UE: %s", H.label.c_str()).Data());
+                            tUE.DrawLatex(0.92, 0.38, TString::Format("%s", H.label.c_str()).Data());
                             tUE.DrawLatex(0.92, 0.34, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
                             
                             SaveCanvas(cMcOv, JoinPath(mcOvDir, "Eiso_dataMC_overlay.png"));
@@ -1821,7 +1821,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                         TLatex tInfo2; tInfo2.SetNDC(true); tInfo2.SetTextFont(42); tInfo2.SetTextAlign(33); tInfo2.SetTextSize(0.034);
                                         tInfo2.DrawLatex(0.92,0.46, trigDisplayLabel.c_str());
                                         tInfo2.DrawLatex(0.92,0.42, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
-                                        tInfo2.DrawLatex(0.92,0.38, TString::Format("UE: %s", H.label.c_str()).Data());
+                                        tInfo2.DrawLatex(0.92,0.38, TString::Format("%s", H.label.c_str()).Data());
                                         tInfo2.DrawLatex(0.92,0.34, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
                                         SaveCanvas(cSB, JoinPath(sigOvDir, outName));
                                         
@@ -1978,7 +1978,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                         TLatex tUEM; tUEM.SetNDC(true); tUEM.SetTextFont(42); tUEM.SetTextAlign(33); tUEM.SetTextSize(0.034);
                                         tUEM.DrawLatex(0.92,0.46,trigDisplayLabel.c_str());
                                         tUEM.DrawLatex(0.92,0.42,TString::Format("|v_{z}| < %d cm",kAA_VzCut).Data());
-                                        tUEM.DrawLatex(0.92,0.38,TString::Format("UE: %s",H.label.c_str()).Data());
+                                        tUEM.DrawLatex(0.92,0.38,TString::Format("%s",H.label.c_str()).Data());
                                         tUEM.DrawLatex(0.92,0.34,TString::Format("#DeltaR_{cone} < %.1f",(kAA_IsoConeR=="isoR40")?0.4:0.3).Data());
                                         SaveCanvas(cMov,JoinPath(mcOvDirM,"Eiso_dataMC_overlay.png"));
                                     }
@@ -2064,7 +2064,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                             TLatex tI2M; tI2M.SetNDC(true); tI2M.SetTextFont(42); tI2M.SetTextAlign(33); tI2M.SetTextSize(0.034);
                                             tI2M.DrawLatex(0.92,0.46,trigDisplayLabel.c_str());
                                             tI2M.DrawLatex(0.92,0.42,TString::Format("|v_{z}| < %d cm",kAA_VzCut).Data());
-                                            tI2M.DrawLatex(0.92,0.38,TString::Format("UE: %s",H.label.c_str()).Data());
+                                            tI2M.DrawLatex(0.92,0.38,TString::Format("%s",H.label.c_str()).Data());
                                             tI2M.DrawLatex(0.92,0.34,TString::Format("#DeltaR_{cone} < %.1f",(kAA_IsoConeR=="isoR40")?0.4:0.3).Data());
                                             SaveCanvas(cSBm,JoinPath(sigOvDirM,outName));
                                             delete hSigTopM;
@@ -3711,7 +3711,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             tUE.SetTextSize(0.030);
                             tUE.DrawLatex(combInfoX, combUEY1,        trigDisplayLabel.c_str());
                             tUE.DrawLatex(combInfoX, combUEY1 - 0.04, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
-                            tUE.DrawLatex(combInfoX, combUEY1 - 0.08, TString::Format("UE: %s", H.label.c_str()).Data());
+                            tUE.DrawLatex(combInfoX, combUEY1 - 0.08, TString::Format("%s", H.label.c_str()).Data());
                             tUE.DrawLatex(combInfoX, combUEY1 - 0.12, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
                         }
                         
@@ -3939,7 +3939,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 tU.DrawLatex(mInfoX, mUEY1,        trigDisplayLabel.c_str());
                                 tU.SetTextSize(0.030);
                                 tU.DrawLatex(mInfoX, mUEY1 - 0.04, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
-                                tU.DrawLatex(mInfoX, mUEY1 - 0.08, TString::Format("UE: %s", H.label.c_str()).Data());
+                                tU.DrawLatex(mInfoX, mUEY1 - 0.08, TString::Format("%s", H.label.c_str()).Data());
                                 tU.DrawLatex(mInfoX, mUEY1 - 0.12, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
                             }
                             
@@ -4148,7 +4148,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         tMeanInfo.DrawLatex(0.94, 0.88, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
                         tMeanInfo.DrawLatex(0.94, 0.84, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
                         tMeanInfo.DrawLatex(0.94, 0.80, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
-                        tMeanInfo.DrawLatex(0.94, 0.76, TString::Format("UE: %s", H.label.c_str()).Data());
+                        tMeanInfo.DrawLatex(0.94, 0.76, TString::Format("%s", H.label.c_str()).Data());
                         
                         SaveCanvas(cMeanPtCent, JoinPath(variantDir, "gaussMean_pp_auauCentralityOverlay_vs_pT.png"));
                         
@@ -4285,7 +4285,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         tSigmaInfo.DrawLatex(0.94, 0.88, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
                         tSigmaInfo.DrawLatex(0.94, 0.84, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
                         tSigmaInfo.DrawLatex(0.94, 0.80, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
-                        tSigmaInfo.DrawLatex(0.94, 0.76, TString::Format("UE: %s", H.label.c_str()).Data());
+                        tSigmaInfo.DrawLatex(0.94, 0.76, TString::Format("%s", H.label.c_str()).Data());
                         
                         SaveCanvas(cSigmaPtCent, JoinPath(variantDir, "gaussSigma_pp_auauCentralityOverlay_vs_pT.png"));
                         
@@ -6480,7 +6480,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             TLatex tGMi; tGMi.SetNDC(true); tGMi.SetTextFont(42); tGMi.SetTextAlign(13); tGMi.SetTextSize(0.028);
                             tGMi.DrawLatex(0.18, 0.89, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
                             tGMi.DrawLatex(0.18, 0.85, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
-                            tGMi.DrawLatex(0.18, 0.81, TString::Format("UE: %s", H.label.c_str()).Data());
+                            tGMi.DrawLatex(0.18, 0.81, TString::Format("%s", H.label.c_str()).Data());
                             {
                                 TLatex tSph; tSph.SetNDC(true); tSph.SetTextFont(42); tSph.SetTextAlign(33);
                                 tSph.SetTextSize(0.048);
@@ -6560,7 +6560,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             TLatex tGSi; tGSi.SetNDC(true); tGSi.SetTextFont(42); tGSi.SetTextAlign(13); tGSi.SetTextSize(0.028);
                             tGSi.DrawLatex(0.18, 0.89, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
                             tGSi.DrawLatex(0.18, 0.85, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
-                            tGSi.DrawLatex(0.18, 0.81, TString::Format("UE: %s", H.label.c_str()).Data());
+                            tGSi.DrawLatex(0.18, 0.81, TString::Format("%s", H.label.c_str()).Data());
                             {
                                 TLatex tSph; tSph.SetNDC(true); tSph.SetTextFont(42); tSph.SetTextAlign(33);
                                 tSph.SetTextSize(0.048);
@@ -6710,7 +6710,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         tMeanInfo.DrawLatex(0.18, 0.58, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
                         tMeanInfo.DrawLatex(0.18, 0.54, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
                         tMeanInfo.DrawLatex(0.18, 0.50, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
-                        tMeanInfo.DrawLatex(0.18, 0.46, TString::Format("UE: %s", H.label.c_str()).Data());
+                        tMeanInfo.DrawLatex(0.18, 0.46, TString::Format("%s", H.label.c_str()).Data());
                         
                         SaveCanvas(cMeanPtCent, JoinPath(variantDir,
                                                          TString::Format("gaussMean_pp_vs_auauCentOverlay_vs_pT_%s.png", H.variant.c_str()).Data()));
@@ -6847,7 +6847,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         tSigmaInfo.DrawLatex(0.18, 0.58, TString::Format("Trigger = %s", trigDisplayLabel.c_str()).Data());
                         tSigmaInfo.DrawLatex(0.18, 0.54, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
                         tSigmaInfo.DrawLatex(0.18, 0.50, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
-                        tSigmaInfo.DrawLatex(0.18, 0.46, TString::Format("UE: %s", H.label.c_str()).Data());
+                        tSigmaInfo.DrawLatex(0.18, 0.46, TString::Format("%s", H.label.c_str()).Data());
                         
                         SaveCanvas(cSigmaPtCent, JoinPath(variantDir,
                                                           TString::Format("gaussSigma_pp_vs_auauCentOverlay_vs_pT_%s.png", H.variant.c_str()).Data()));
@@ -7152,7 +7152,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             tUE.SetTextSize(0.030);
                             tUE.DrawLatex(0.92, 0.53, trigDisplayLabel.c_str());
                             tUE.DrawLatex(0.92, 0.49, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
-                            tUE.DrawLatex(0.92, 0.45, TString::Format("UE: %s", dataH.label.c_str()).Data());
+                            tUE.DrawLatex(0.92, 0.45, TString::Format("%s", dataH.label.c_str()).Data());
                             tUE.DrawLatex(0.92, 0.41, TString::Format("#DeltaR_{cone} < %.1f", (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3).Data());
                             
                             // Middle pad: Gaussian mean vs pT
@@ -7408,7 +7408,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 tMeanInfo.SetTextSize(0.034);
                                 tMeanInfo.DrawLatex(0.18, 0.88, trigDisplayLabel.c_str());
                                 tMeanInfo.DrawLatex(0.18, 0.84, TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
-                                tMeanInfo.DrawLatex(0.18, 0.80, TString::Format("UE: %s", dataH.label.c_str()).Data());
+                                tMeanInfo.DrawLatex(0.18, 0.80, TString::Format("%s", dataH.label.c_str()).Data());
                                 tMeanInfo.DrawLatex(0.18, 0.76, TString::Format("#DeltaR_{cone} < %.1f", coneRValTNT).Data());
                                 
                                 TLatex tMeanSph;
@@ -7436,8 +7436,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                                            "", 100, 10.0, kPtEdges.back());
                                     hFrMeanTNTDataOnly.SetDirectory(nullptr);
                                     hFrMeanTNTDataOnly.SetStats(0);
-                                    hFrMeanTNTDataOnly.SetMinimum(std::max(0.0, tntMeanYLo - tntMeanPad));
-                                    hFrMeanTNTDataOnly.SetMaximum(tntMeanYHi + tntMeanPad);
+                                    hFrMeanTNTDataOnly.SetMinimum(tntSubYLo - tntSubPad);
+                                    hFrMeanTNTDataOnly.SetMaximum(tntSubYHi + tntSubPad);
                                     hFrMeanTNTDataOnly.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
                                     hFrMeanTNTDataOnly.GetYaxis()->SetTitle("#mu^{Gauss} [GeV]");
                                     hFrMeanTNTDataOnly.GetXaxis()->SetTitleSize(0.055);
@@ -7450,7 +7450,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                     if (gMeanTD)  gMeanTD->Draw("PE1 SAME");
                                     if (gMeanNTD) gMeanNTD->Draw("PE1 SAME");
                                     
-                                    TLegend legMeanTNTDataOnly(0.56, 0.74, 0.92, 0.88);
+                                    TLegend legMeanTNTDataOnly(0.66, 0.80, 0.92, 0.90);
                                     legMeanTNTDataOnly.SetBorderSize(0);
                                     legMeanTNTDataOnly.SetFillStyle(0);
                                     legMeanTNTDataOnly.SetTextFont(42);
@@ -7474,7 +7474,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                     tMeanInfoDataOnly.SetTextSize(0.034);
                                     tMeanInfoDataOnly.DrawLatex(0.18, 0.88, trigDisplayLabel.c_str());
                                     tMeanInfoDataOnly.DrawLatex(0.18, 0.84, TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
-                                    tMeanInfoDataOnly.DrawLatex(0.18, 0.80, TString::Format("UE: %s", dataH.label.c_str()).Data());
+                                    tMeanInfoDataOnly.DrawLatex(0.18, 0.80, TString::Format("%s", dataH.label.c_str()).Data());
                                     tMeanInfoDataOnly.DrawLatex(0.18, 0.76, TString::Format("#DeltaR_{cone} < %.1f", coneRValTNT).Data());
                                     
                                     TLatex tMeanSphDataOnly;
@@ -7482,9 +7482,9 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                     tMeanSphDataOnly.SetTextFont(42);
                                     tMeanSphDataOnly.SetTextAlign(33);
                                     tMeanSphDataOnly.SetTextSize(0.042);
-                                    tMeanSphDataOnly.DrawLatex(0.92, 0.18, "#bf{sPHENIX} #it{Internal}");
+                                    tMeanSphDataOnly.DrawLatex(0.92, 0.26, "#bf{sPHENIX} #it{Internal}");
                                     tMeanSphDataOnly.SetTextSize(0.034);
-                                    tMeanSphDataOnly.DrawLatex(0.92, 0.13, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                                    tMeanSphDataOnly.DrawLatex(0.92, 0.21, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
                                     
                                     SaveCanvas(cMeanTNTDataOnly, JoinPath(meanSummaryDir,
                                                                           TString::Format("tightNonTight_meanOverlay_dataOnly_%s.png", cb.folder.c_str()).Data()));
@@ -7568,7 +7568,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                 tSigmaInfo.SetTextSize(0.034);
                                 tSigmaInfo.DrawLatex(0.18, 0.88, trigDisplayLabel.c_str());
                                 tSigmaInfo.DrawLatex(0.18, 0.84, TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
-                                tSigmaInfo.DrawLatex(0.18, 0.80, TString::Format("UE: %s", dataH.label.c_str()).Data());
+                                tSigmaInfo.DrawLatex(0.18, 0.80, TString::Format("%s", dataH.label.c_str()).Data());
                                 tSigmaInfo.DrawLatex(0.18, 0.76, TString::Format("#DeltaR_{cone} < %.1f", coneRValTNT).Data());
                                 
                                 TLatex tSigmaSph;
@@ -7610,7 +7610,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                     if (gSigmaTD)  gSigmaTD->Draw("PE1 SAME");
                                     if (gSigmaNTD) gSigmaNTD->Draw("PE1 SAME");
                                     
-                                    TLegend legSigmaTNTDataOnly(0.56, 0.74, 0.92, 0.88);
+                                    TLegend legSigmaTNTDataOnly(0.66, 0.80, 0.92, 0.90);
                                     legSigmaTNTDataOnly.SetBorderSize(0);
                                     legSigmaTNTDataOnly.SetFillStyle(0);
                                     legSigmaTNTDataOnly.SetTextFont(42);
@@ -7634,7 +7634,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                     tSigmaInfoDataOnly.SetTextSize(0.034);
                                     tSigmaInfoDataOnly.DrawLatex(0.18, 0.88, trigDisplayLabel.c_str());
                                     tSigmaInfoDataOnly.DrawLatex(0.18, 0.84, TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
-                                    tSigmaInfoDataOnly.DrawLatex(0.18, 0.80, TString::Format("UE: %s", dataH.label.c_str()).Data());
+                                    tSigmaInfoDataOnly.DrawLatex(0.18, 0.80, TString::Format("%s", dataH.label.c_str()).Data());
                                     tSigmaInfoDataOnly.DrawLatex(0.18, 0.76, TString::Format("#DeltaR_{cone} < %.1f", coneRValTNT).Data());
                                     
                                     TLatex tSigmaSphDataOnly;
@@ -7642,9 +7642,9 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                     tSigmaSphDataOnly.SetTextFont(42);
                                     tSigmaSphDataOnly.SetTextAlign(33);
                                     tSigmaSphDataOnly.SetTextSize(0.042);
-                                    tSigmaSphDataOnly.DrawLatex(0.92, 0.18, "#bf{sPHENIX} #it{Internal}");
+                                    tSigmaSphDataOnly.DrawLatex(0.92, 0.24, "#bf{sPHENIX} #it{Internal}");
                                     tSigmaSphDataOnly.SetTextSize(0.034);
-                                    tSigmaSphDataOnly.DrawLatex(0.92, 0.13, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                                    tSigmaSphDataOnly.DrawLatex(0.92, 0.19, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
                                     
                                     SaveCanvas(cSigmaTNTDataOnly, JoinPath(sigmaSummaryDir,
                                                                            TString::Format("tightNonTight_sigmaOverlay_dataOnly_%s.png", cb.folder.c_str()).Data()));
