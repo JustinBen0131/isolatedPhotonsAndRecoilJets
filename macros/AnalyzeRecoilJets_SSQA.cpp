@@ -2265,6 +2265,80 @@ if (!SSoverlayPerVAR_processONLY)
         EnsureDir(perPtBinOverlayBase);
         EnsureDir(perCentralityOverlayBase);
         
+        struct SSPtBinRequest
+        {
+            string folder;
+            int lo = 0;
+            int hi = 0;
+            vector<string> suffixes;
+        };
+        
+        vector<SSPtBinRequest> ssPtBinRequests;
+        ssPtBinRequests.reserve((std::size_t)kNPtBins + 1);
+        
+        bool haveNativePt2035 = false;
+        for (int ipt = 0; ipt < kNPtBins; ++ipt)
+        {
+            const PtBin& b = PtBins()[ipt];
+            ssPtBinRequests.push_back({b.folder, b.lo, b.hi, {b.suffix}});
+            if (b.folder == "pT_20_35") haveNativePt2035 = true;
+        }
+        
+        if (!haveNativePt2035)
+        {
+            SSPtBinRequest integrated2035;
+            integrated2035.folder = "pT_20_35";
+            integrated2035.lo = 20;
+            integrated2035.hi = 35;
+            
+            for (int ipt = 0; ipt < kNPtBins; ++ipt)
+            {
+                const PtBin& b = PtBins()[ipt];
+                if (b.lo >= 20 && b.hi <= 35)
+                {
+                    integrated2035.suffixes.push_back(b.suffix);
+                }
+            }
+            
+            if (integrated2035.suffixes.size() >= 2)
+            {
+                ssPtBinRequests.push_back(integrated2035);
+            }
+        }
+        
+        auto GetSSHistForPt =
+        [&](TDirectory* topDir,
+            const string& histStemBeforePt,
+            const SSPtBinRequest& ptReq,
+            const string& histTailAfterPt,
+            const string& newName) -> TH1*
+        {
+            if (!topDir) return nullptr;
+            
+            TH1* hOut = nullptr;
+            for (const auto& ptSuffix : ptReq.suffixes)
+            {
+                const string hName = histStemBeforePt + ptSuffix + histTailAfterPt;
+                TH1* hSrc = GetTH1FromTopDir(topDir, hName);
+                if (!hSrc) continue;
+                
+                if (!hOut)
+                {
+                    hOut = CloneTH1(hSrc, newName);
+                    if (!hOut) return nullptr;
+                    EnsureSumw2(hOut);
+                    hOut->SetDirectory(nullptr);
+                    hOut->SetTitle("");
+                }
+                else
+                {
+                    hOut->Add(hSrc);
+                }
+            }
+            
+            return hOut;
+        };
+        
         const vector<std::size_t> ssTableVariantIdx = {std::size_t(1), std::size_t(2), std::size_t(3)};
         const int overlayColors[] = {
             kBlack, kOrange + 7, kBlue + 1, kGreen + 2, kMagenta + 1, kOrange + 7,
