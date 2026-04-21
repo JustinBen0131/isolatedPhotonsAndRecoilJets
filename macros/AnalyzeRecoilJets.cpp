@@ -16064,6 +16064,267 @@ int Run()
                         cout << ANSI_BOLD_GRN << "[WROTE] " << JoinPath(outDir, "purity_raw_DATA_centOverlay.png") << ANSI_RESET << "\n";
                         
                         for (auto* g : keepGraphs) delete g;
+                        
+                        if (DO_purityAndLeakageCHECKS_ONLY)
+                        {
+                            const string outDirLeak = JoinPath(JoinPath(OutputAuAu(), trigAA), "leakageByCentrality");
+                            EnsureDir(outDirLeak);
+                            
+                            Dataset* dsSimLeakAA = nullptr;
+                            for (auto& dsProbe : datasets)
+                            {
+                                if (!dsProbe.isSim || !dsProbe.topDir) continue;
+                                if (dsProbe.trigger == trigAA)
+                                {
+                                    dsSimLeakAA = &dsProbe;
+                                    break;
+                                }
+                                if (!dsSimLeakAA) dsSimLeakAA = &dsProbe;
+                            }
+                            
+                            const string ppLeakPath = SimInputPathForSample(SimSample::kPhotonJet5And10And20Merged);
+                            TFile* fPPLeak = TFile::Open(ppLeakPath.c_str(), "READ");
+                            TDirectory* ppLeakDir = nullptr;
+                            if (fPPLeak && !fPPLeak->IsZombie())
+                            {
+                                ppLeakDir = fPPLeak->GetDirectory(kDirSIM.c_str());
+                                if (!ppLeakDir) ppLeakDir = fPPLeak->GetDirectory(kTriggerPP.c_str());
+                                if (!ppLeakDir) ppLeakDir = fPPLeak;
+                            }
+                            else if (fPPLeak)
+                            {
+                                fPPLeak->Close();
+                                delete fPPLeak;
+                                fPPLeak = nullptr;
+                            }
+                            
+                            if (!dsSimLeakAA)
+                            {
+                                cout << ANSI_BOLD_YEL
+                                << "[WARN] leakageByCentrality: no Au+Au SIM dataset found for trigger '" << trigAA
+                                << "' -> skipping.\n"
+                                << ANSI_RESET;
+                            }
+                            else
+                            {
+                                struct LeakPlotSpec
+                                {
+                                    int regionBin;
+                                    const char* label;
+                                    const char* yTitle;
+                                    const char* outName;
+                                };
+                                
+                                const LeakPlotSpec leakSpecs[] = {
+                                    {2, "f_{B} = B_{sig}/A_{sig}", "f_{B}", "leakageFactor_fB_centOverlay_ppOverlay.png"},
+                                    {3, "f_{C} = C_{sig}/A_{sig}", "f_{C}", "leakageFactor_fC_centOverlay_ppOverlay.png"},
+                                    {4, "f_{D} = D_{sig}/A_{sig}", "f_{D}", "leakageFactor_fD_centOverlay_ppOverlay.png"}
+                                };
+                                
+                                auto RatioErr = [&](double num, double den)->double
+                                {
+                                    if (num <= 0.0 || den <= 0.0) return 0.0;
+                                    const double r = num / den;
+                                    double var = 0.0;
+                                    if (num > 0.0) var += 1.0 / num;
+                                    if (den > 0.0) var += 1.0 / den;
+                                    return (var > 0.0) ? (r * std::sqrt(var)) : 0.0;
+                                };
+                                
+                                for (const auto& spec : leakSpecs)
+                                {
+                                    TCanvas cLeak(
+                                                  TString::Format("c_leak_cent_%s_%d", trigAA.c_str(), spec.regionBin).Data(),
+                                                  "c_leak_cent", 900, 700
+                                                  );
+                                    ApplyCanvasMargins1D(cLeak);
+                                    
+                                    TH1F hFrameLeak(
+                                                    TString::Format("hLeakCentFrame_%s_%d", trigAA.c_str(), spec.regionBin).Data(),
+                                                    "", 100, kPtEdges.front(), kPtEdges.back()
+                                                    );
+                                    hFrameLeak.SetDirectory(nullptr);
+                                    hFrameLeak.SetStats(0);
+                                    hFrameLeak.SetMinimum(0.0);
+                                    hFrameLeak.SetMaximum(1.20);
+                                    hFrameLeak.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                                    hFrameLeak.GetYaxis()->SetTitle(spec.yTitle);
+                                    hFrameLeak.Draw();
+                                    
+                                    TLegend legLeak(0.55, 0.55, 0.92, 0.70);
+                                    legLeak.SetBorderSize(0);
+                                    legLeak.SetFillStyle(0);
+                                    legLeak.SetTextFont(42);
+                                    legLeak.SetTextSize(0.033);
+                                    legLeak.SetNColumns(2);
+                                    
+                                    vector<TGraphErrors*> keepLeakGraphs;
+                                    bool drewAnyLeak = false;
+                                    
+                                    if (ppLeakDir)
+                                    {
+                                        vector<double> xPP(kNPtBins), exPP(kNPtBins), yPP(kNPtBins), eyPP(kNPtBins);
+                                        bool anyPP = false;
+                                        
+                                        for (int i = 0; i < kNPtBins; ++i)
+                                        {
+                                            const PtBin& b = PtBins()[i];
+                                            TH1* hPP = dynamic_cast<TH1*>(ppLeakDir->Get(("h_sigABCD_MC" + b.suffix).c_str()));
+                                            
+                                            double Asig = 0.0;
+                                            double Nsig = 0.0;
+                                            if (hPP)
+                                            {
+                                                Asig = hPP->GetBinContent(1);
+                                                Nsig = hPP->GetBinContent(spec.regionBin);
+                                            }
+                                            
+                                            const double ptLo = kPtEdges[(std::size_t)i];
+                                            const double ptHi = kPtEdges[(std::size_t)i + 1];
+                                            xPP[i]  = 0.5 * (ptLo + ptHi);
+                                            exPP[i] = 0.0;
+                                            yPP[i]  = (Asig > 0.0) ? (Nsig / Asig) : 0.0;
+                                            eyPP[i] = RatioErr(Nsig, Asig);
+                                            
+                                            if (Asig > 0.0) anyPP = true;
+                                        }
+                                        
+                                        if (anyPP)
+                                        {
+                                            TGraphErrors* gPP = new TGraphErrors(kNPtBins, &xPP[0], &yPP[0], &exPP[0], &eyPP[0]);
+                                            gPP->SetLineWidth(2);
+                                            gPP->SetLineColor(kRed + 1);
+                                            gPP->SetMarkerStyle(24);
+                                            gPP->SetMarkerSize(1.1);
+                                            gPP->SetMarkerColor(kRed + 1);
+                                            gPP->Draw("P SAME");
+                                            legLeak.AddEntry(gPP, "pp", "pe");
+                                            keepLeakGraphs.push_back(gPP);
+                                            drewAnyLeak = true;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        cout << ANSI_BOLD_YEL
+                                        << "[WARN] leakageByCentrality: cannot open pp SIM leakage file: "
+                                        << ppLeakPath << "\n"
+                                        << ANSI_RESET;
+                                    }
+                                    
+                                    for (int ic = 0; ic < (int)ovCents.size(); ++ic)
+                                    {
+                                        const auto& oc = ovCents[ic];
+                                        
+                                        vector<double> xAA(kNPtBins), exAA(kNPtBins), yAA(kNPtBins), eyAA(kNPtBins);
+                                        bool anyAA = false;
+                                        
+                                        for (int i = 0; i < kNPtBins; ++i)
+                                        {
+                                            const PtBin& b = PtBins()[i];
+                                            
+                                            double Asig = 0.0;
+                                            double Nsig = 0.0;
+                                            for (const auto& suf : oc.suffixes)
+                                            {
+                                                TH1* hAA = GetObj<TH1>(*dsSimLeakAA, "h_sigABCD_MC" + b.suffix + suf, false, false, false);
+                                                if (!hAA) continue;
+                                                Asig += hAA->GetBinContent(1);
+                                                Nsig += hAA->GetBinContent(spec.regionBin);
+                                            }
+                                            
+                                            const double ptLo = kPtEdges[(std::size_t)i];
+                                            const double ptHi = kPtEdges[(std::size_t)i + 1];
+                                            xAA[i]  = 0.5 * (ptLo + ptHi);
+                                            exAA[i] = 0.0;
+                                            yAA[i]  = (Asig > 0.0) ? (Nsig / Asig) : 0.0;
+                                            eyAA[i] = RatioErr(Nsig, Asig);
+                                            
+                                            if (Asig > 0.0) anyAA = true;
+                                        }
+                                        
+                                        if (!anyAA) continue;
+                                        
+                                        TGraphErrors* gAA = new TGraphErrors(kNPtBins, &xAA[0], &yAA[0], &exAA[0], &eyAA[0]);
+                                        const int col = centColors[ic % nCentColors];
+                                        gAA->SetLineWidth(2);
+                                        gAA->SetLineColor(col);
+                                        gAA->SetMarkerStyle(20);
+                                        gAA->SetMarkerSize(1.1);
+                                        gAA->SetMarkerColor(col);
+                                        gAA->Draw("P SAME");
+                                        
+                                        legLeak.AddEntry(gAA, TString::Format("Cent %d-%d%%", oc.lo, oc.hi).Data(), "pe");
+                                        keepLeakGraphs.push_back(gAA);
+                                        drewAnyLeak = true;
+                                    }
+                                    
+                                    if (drewAnyLeak)
+                                    {
+                                        legLeak.Draw();
+                                        
+                                        TLatex tLeakTitle;
+                                        tLeakTitle.SetNDC(true);
+                                        tLeakTitle.SetTextFont(42);
+                                        tLeakTitle.SetTextAlign(23);
+                                        tLeakTitle.SetTextSize(0.045);
+                                        tLeakTitle.DrawLatex(
+                                                             0.50, 0.96,
+                                                             TString::Format("%s vs p_{T}^{#gamma} for each centrality, Run3auau", spec.label).Data()
+                                                             );
+                                        
+                                        {
+                                            std::string trigLabel;
+                                            {
+                                                int photonPt = 0;
+                                                if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
+                                                    trigLabel = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                                                else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                                                    trigLabel = "Trigger: MBD NS #geq 2, vtx < 150 cm";
+                                                else
+                                                    trigLabel = "Trigger: " + trigAA;
+                                            }
+                                            
+                                            const string isoConeLabel = (kAA_IsoConeR == "isoR40")
+                                            ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+                                            
+                                            string isoModeLabel;
+                                            if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel = "E_{T}^{iso} < 5 GeV";
+                                            else                               isoModeLabel = "Sliding iso cut";
+                                            
+                                            const string vzLabel = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+                                            
+                                            TLatex tCutsLeak;
+                                            tCutsLeak.SetNDC(true);
+                                            tCutsLeak.SetTextFont(42);
+                                            tCutsLeak.SetTextAlign(13);
+                                            tCutsLeak.SetTextSize(0.035);
+                                            tCutsLeak.DrawLatex(0.18, 0.88, trigLabel.c_str());
+                                            tCutsLeak.DrawLatex(0.18, 0.83, isoConeLabel.c_str());
+                                            tCutsLeak.DrawLatex(0.18, 0.78, isoModeLabel.c_str());
+                                            tCutsLeak.DrawLatex(0.18, 0.73, vzLabel.c_str());
+                                        }
+                                        
+                                        SaveCanvas(cLeak, JoinPath(outDirLeak, spec.outName));
+                                        cout << ANSI_BOLD_GRN << "[WROTE] " << JoinPath(outDirLeak, spec.outName) << ANSI_RESET << "\n";
+                                    }
+                                    else
+                                    {
+                                        cout << ANSI_BOLD_YEL
+                                        << "[WARN] leakageByCentrality: no points available for " << spec.outName
+                                        << " (trigger '" << trigAA << "')\n"
+                                        << ANSI_RESET;
+                                    }
+                                    
+                                    for (auto* gLeak : keepLeakGraphs) delete gLeak;
+                                }
+                            }
+                            
+                            if (fPPLeak)
+                            {
+                                fPPLeak->Close();
+                                delete fPPLeak;
+                            }
+                        }
                     
                         
                         // ---------------------------------------------------------------
@@ -16136,16 +16397,17 @@ int Run()
                             hFrameSel.SetDirectory(nullptr);
                             hFrameSel.SetStats(0);
                             hFrameSel.SetMinimum(0.0);
-                            hFrameSel.SetMaximum(1.05);
+                            hFrameSel.SetMaximum(1.25);
                             hFrameSel.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
                             hFrameSel.GetYaxis()->SetTitle("Purity (raw ABCD)");
                             hFrameSel.Draw();
                             
-                            TLegend legSel(0.62, 0.18, 0.92, 0.48);
+                            TLegend legSel(0.22, 0.14, 0.52, 0.28);
                             legSel.SetBorderSize(0);
                             legSel.SetFillStyle(0);
                             legSel.SetTextFont(42);
                             legSel.SetTextSize(0.033);
+                            legSel.SetNColumns(2);
                             
                             vector<TGraphErrors*> keepSel;
                             
@@ -16287,6 +16549,13 @@ int Run()
                                 legSel.AddEntry(gAA, TString::Format("AuAu %d-%d%%", sc.lo, sc.hi).Data(), "pe");
                                 keepSel.push_back(gAA);
                             }
+                            
+                            // Dashed reference line at y = 1
+                            TLine lineOneSel(kPtEdges.front(), 1.0, kPtEdges.back(), 1.0);
+                            lineOneSel.SetLineStyle(2);
+                            lineOneSel.SetLineColor(kGray + 2);
+                            lineOneSel.SetLineWidth(2);
+                            lineOneSel.Draw();
                             
                             legSel.Draw();
                             
