@@ -2987,7 +2987,7 @@ if (!SSoverlayPerVAR_processONLY)
                         tVar.SetTextFont(42);
                         tVar.SetTextAlign(23);
                         tVar.SetTextSize(0.042);
-                        tVar.DrawLatex(0.50, 0.955,
+                        tVar.DrawLatex(0.50, 0.96,
                                        TString::Format("%s centrality overlay, %s, %s",
                                                        priorityVLabel.c_str(), TagLabel(priorityTag).c_str(), priorityH.label.c_str()).Data());
                         
@@ -2996,8 +2996,17 @@ if (!SSoverlayPerVAR_processONLY)
                         tPt.SetTextFont(42);
                         tPt.SetTextAlign(33);
                         tPt.SetTextSize(0.042);
-                        tPt.DrawLatex(0.93, 0.90,
+                        tPt.DrawLatex(0.93, 0.88,
                                       TString::Format("p_{T}^{#gamma}: %d-%d GeV", priorityPb->lo, priorityPb->hi).Data());
+                        
+                        TLatex tSph;
+                        tSph.SetNDC(true);
+                        tSph.SetTextFont(42);
+                        tSph.SetTextAlign(13);
+                        tSph.SetTextSize(0.039);
+                        tSph.DrawLatex(0.22, 0.88, "#it{#bf{sPHENIX}} Internal");
+                        tSph.SetTextSize(0.032);
+                        tSph.DrawLatex(0.22, 0.83, "Au+Au #sqrt{s_{NN}} = 200 GeV");
                         
                         const double ptCenterForCuts = 0.5 * (priorityPb->lo + priorityPb->hi);
                         DrawSSOverlayCutsAndText(priorityVar, priorityTag, false, ptCenterForCuts, 0.16, 0.84, 0.026, true);
