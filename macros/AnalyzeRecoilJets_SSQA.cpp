@@ -2812,6 +2812,214 @@ if (!SSoverlayPerVAR_processONLY)
             for (TH1* h : keepAlive) delete h;
         };
         
+        if (skipToCentralityAndPtOverlaysWithSSQA)
+        {
+            const string priorityPtFolder = "pT_20_35";
+            const string priorityVar = "e11e33";
+            const string priorityTag = "inclusive";
+            const string priorityFolder = "data";
+            
+            const SSPtBinRequest* priorityPb = nullptr;
+            for (const auto& pbCandidate : ssPtBinRequests)
+            {
+                if (pbCandidate.folder == priorityPtFolder)
+                {
+                    priorityPb = &pbCandidate;
+                    break;
+                }
+            }
+            
+            std::size_t priorityHandleIdx = handles.size();
+            for (std::size_t vidx : ssTableVariantIdx)
+            {
+                if (vidx >= handles.size()) continue;
+                auto& H = handles[vidx];
+                if (!H.file) continue;
+                
+                TDirectory* aaTopSS = H.file->GetDirectory(trigAA.c_str());
+                if (!aaTopSS) continue;
+                
+                priorityHandleIdx = vidx;
+                break;
+            }
+            
+            if (priorityPb && priorityHandleIdx < handles.size())
+            {
+                auto& priorityH = handles[priorityHandleIdx];
+                TDirectory* aaTopSS = priorityH.file->GetDirectory(trigAA.c_str());
+                
+                if (aaTopSS)
+                {
+                    const int nPriorityOverlayColors = (int)(sizeof(overlayColors) / sizeof(overlayColors[0]));
+                    
+                    string priorityVLabel = priorityVar;
+                    for (const auto& sv : ssVars)
+                    {
+                        if (sv.var == priorityVar)
+                        {
+                            priorityVLabel = sv.label;
+                            break;
+                        }
+                    }
+                    
+                    const string ptOutDir = JoinPath(JoinPath(perCentralityOverlayBase, priorityFolder), priorityPb->folder);
+                    const string varDir = JoinPath(ptOutDir, priorityVar);
+                    const string varTagDir = JoinPath(varDir, TagFolder(priorityTag));
+                    EnsureDir(JoinPath(perCentralityOverlayBase, priorityFolder));
+                    EnsureDir(ptOutDir);
+                    EnsureDir(varDir);
+                    EnsureDir(varTagDir);
+                    
+                    vector<TH1*> hOverlays;
+                    vector<string> entryLabels;
+                    double yMax = 0.0;
+                    
+                    for (std::size_t ic2 = 0; ic2 < centBins.size(); ++ic2)
+                    {
+                        const auto& cb2 = centBins[ic2];
+                        
+                        TH1* hRaw = GetSSHistForPt(
+                                                  aaTopSS,
+                                                  string("h_ss_") + priorityVar + string("_") + priorityTag,
+                                                  *priorityPb,
+                                                  cb2.suffix,
+                                                  TString::Format("ssQA_priorityFirstRaw_%s_%s_%s_%s_%s_cent%zu",
+                                                                  priorityH.variant.c_str(), priorityTag.c_str(), priorityVar.c_str(),
+                                                                  priorityPb->folder.c_str(), trigAA.c_str(), ic2).Data()
+                                                  );
+                        if (!hRaw) continue;
+                        
+                        TH1* h = CloneNormalizeStyle(
+                                                     hRaw,
+                                                     TString::Format("ssQA_priorityFirst_%s_%s_%s_%s_%s_cent%zu",
+                                                                     priorityH.variant.c_str(), priorityTag.c_str(), priorityVar.c_str(),
+                                                                     priorityPb->folder.c_str(), trigAA.c_str(), ic2).Data(),
+                                                     overlayColors[(int)ic2 % nPriorityOverlayColors],
+                                                     20
+                                                     );
+                        delete hRaw;
+                        if (!h) continue;
+                        
+                        h->SetFillStyle(0);
+                        h->SetLineWidth(2);
+                        h->SetMarkerSize(0.90);
+                        
+                        for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+                            yMax = std::max(yMax, (double)(h->GetBinContent(ib) + h->GetBinError(ib)));
+                        
+                        hOverlays.push_back(h);
+                        entryLabels.push_back(TString::Format("%d-%d%%", cb2.lo, cb2.hi).Data());
+                    }
+                    
+                    TH1* hPPov = nullptr;
+                    if (ppTop)
+                    {
+                        TH1* hPPraw = GetSSHistForPt(
+                                                     ppTop,
+                                                     string("h_ss_") + priorityVar + string("_") + priorityTag,
+                                                     *priorityPb,
+                                                     "",
+                                                     TString::Format("ssQA_priorityFirstPPRaw_%s_%s_%s_%s_%s",
+                                                                     priorityH.variant.c_str(), priorityTag.c_str(), priorityVar.c_str(),
+                                                                     priorityPb->folder.c_str(), trigAA.c_str()).Data()
+                                                     );
+                        if (hPPraw)
+                        {
+                            hPPov = CloneNormalizeStyle(
+                                                        hPPraw,
+                                                        TString::Format("ssQA_priorityFirstPP_%s_%s_%s_%s_%s",
+                                                                        priorityH.variant.c_str(), priorityTag.c_str(), priorityVar.c_str(),
+                                                                        priorityPb->folder.c_str(), trigAA.c_str()).Data(),
+                                                        kRed + 1, 24
+                                                        );
+                            delete hPPraw;
+                            if (hPPov)
+                            {
+                                hPPov->SetLineWidth(2);
+                                hPPov->SetLineStyle(1);
+                                hPPov->SetFillStyle(0);
+                                hPPov->SetMarkerStyle(24);
+                                hPPov->SetMarkerSize(1.00);
+                                hPPov->SetMarkerColor(kRed + 1);
+                                hPPov->SetLineColor(kRed + 1);
+                                
+                                for (int ib = 1; ib <= hPPov->GetNbinsX(); ++ib)
+                                    yMax = std::max(yMax, (double)(hPPov->GetBinContent(ib) + hPPov->GetBinError(ib)));
+                            }
+                        }
+                    }
+                    
+                    if (!hOverlays.empty())
+                    {
+                        TCanvas cPriority(
+                                          TString::Format("c_ssQA_priorityFirst_%s_%s_%s_%s",
+                                                          priorityH.variant.c_str(), priorityTag.c_str(), priorityPb->folder.c_str(), trigAA.c_str()).Data(),
+                                          "c_ssQA_priorityFirst", 900, 700
+                                          );
+                        ApplyCanvasMargins1D(cPriority);
+                        cPriority.cd();
+                        
+                        TH1* hFrame = hOverlays[0];
+                        hFrame->GetXaxis()->SetTitle(priorityVLabel.c_str());
+                        hFrame->GetYaxis()->SetTitle("Unit Normalized");
+                        hFrame->GetYaxis()->SetTitleOffset(1.15);
+                        hFrame->SetMinimum(0.0);
+                        hFrame->SetMaximum((yMax > 0.0) ? (yMax * 1.25) : 1.0);
+                        hFrame->Draw("E1");
+                        if (hPPov) hPPov->Draw("E1 same");
+                        for (std::size_t ih = 1; ih < hOverlays.size(); ++ih)
+                            hOverlays[ih]->Draw("E1 same");
+                        hOverlays[0]->Draw("E1 same");
+                        
+                        TLegend legVar(0.58, 0.64, 0.92, 0.82);
+                        legVar.SetBorderSize(0);
+                        legVar.SetFillStyle(0);
+                        legVar.SetTextFont(42);
+                        legVar.SetTextSize(0.035);
+                        legVar.SetNColumns(2);
+                        if (hPPov) legVar.AddEntry(hPPov, "pp", "ep");
+                        for (std::size_t ih = 0; ih < hOverlays.size(); ++ih)
+                            legVar.AddEntry(hOverlays[ih], entryLabels[ih].c_str(), "ep");
+                        legVar.Draw();
+                        
+                        TLatex tVar;
+                        tVar.SetNDC(true);
+                        tVar.SetTextFont(42);
+                        tVar.SetTextAlign(23);
+                        tVar.SetTextSize(0.042);
+                        tVar.DrawLatex(0.50, 0.955,
+                                       TString::Format("%s centrality overlay, %s, %s",
+                                                       priorityVLabel.c_str(), TagLabel(priorityTag).c_str(), priorityH.label.c_str()).Data());
+                        
+                        TLatex tPt;
+                        tPt.SetNDC(true);
+                        tPt.SetTextFont(42);
+                        tPt.SetTextAlign(33);
+                        tPt.SetTextSize(0.042);
+                        tPt.DrawLatex(0.93, 0.90,
+                                      TString::Format("p_{T}^{#gamma}: %d-%d GeV", priorityPb->lo, priorityPb->hi).Data());
+                        
+                        const double ptCenterForCuts = 0.5 * (priorityPb->lo + priorityPb->hi);
+                        DrawSSOverlayCutsAndText(priorityVar, priorityTag, false, ptCenterForCuts, 0.16, 0.84, 0.026, true);
+                        
+                        const string priorityOutPng = JoinPath(
+                                                               varTagDir,
+                                                               TString::Format("centOverlay_%s_%s_%s.png",
+                                                                               priorityVar.c_str(), priorityTag.c_str(), priorityH.variant.c_str()).Data()
+                                                               );
+                        SaveCanvas(cPriority, priorityOutPng);
+                        
+                        cout << ANSI_BOLD_GRN
+                             << "    [WROTE][perCentralityOverlays][priority-first] " << priorityOutPng
+                             << ANSI_RESET << "\n";
+                    }
+                    
+                    if (hPPov) delete hPPov;
+                    for (TH1* h : hOverlays) delete h;
+                }
+            }
+        }
+        
         {
             const int nOverlayColorsPerPt = (int)(sizeof(overlayColors) / sizeof(overlayColors[0]));
             
@@ -3260,17 +3468,25 @@ if (!SSoverlayPerVAR_processONLY)
                         TH1* hPPov = nullptr;
                         if (ppTop)
                         {
-                            const string hPPName = "h_ss_" + var + "_" + tag + pb.suffix;
-                            TH1* hPPsrc = GetTH1FromTopDir(ppTop, hPPName);
-                            if (hPPsrc)
+                            TH1* hPPraw = GetSSHistForPt(
+                                                         ppTop,
+                                                         string("h_ss_") + var + string("_") + tag,
+                                                         pb,
+                                                         "",
+                                                         TString::Format("ssQA_1x5_ppRaw_%s_%s_%s_%s_%s",
+                                                                         H.variant.c_str(), tag.c_str(), var.c_str(),
+                                                                         pb.folder.c_str(), trigAA.c_str()).Data()
+                                                         );
+                            if (hPPraw)
                             {
                                 hPPov = CloneNormalizeStyle(
-                                                            hPPsrc,
+                                                            hPPraw,
                                                             TString::Format("ssQA_1x5_pp_%s_%s_%s_%s_%s",
                                                                             H.variant.c_str(), tag.c_str(), var.c_str(),
                                                                             pb.folder.c_str(), trigAA.c_str()).Data(),
                                                             kRed + 1, 24
                                                             );
+                                delete hPPraw;
                                 if (hPPov)
                                 {
                                     hPPov->SetLineWidth(2);
@@ -3406,18 +3622,19 @@ if (!SSoverlayPerVAR_processONLY)
                         const bool useSpecialE32Legend =
                         (pb.folder == "pT_10_12" && var == "e32e35" &&
                          (tag == "pre" || tag == "tight" || tag == "nonTight"));
+                        const bool useE11InclusiveLegend = (var == "e11e33" && tag == "inclusive");
                         
                         TLegend legVar(
-                                       useSpecialE32Legend ? 0.08 : (useSpecialE11Legend ? 0.17 : 0.22),
-                                       useSpecialE32Legend ? 0.79 : (useSpecialE11Legend ? 0.78 : 0.81),
-                                       useSpecialE32Legend ? 0.66 : (useSpecialE11Legend ? 0.69 : 0.74),
-                                       useSpecialE32Legend ? 0.91 : (useSpecialE11Legend ? 0.90 : 0.89)
+                                       useE11InclusiveLegend ? 0.58 : (useSpecialE32Legend ? 0.08 : (useSpecialE11Legend ? 0.17 : 0.22)),
+                                       useE11InclusiveLegend ? 0.64 : (useSpecialE32Legend ? 0.79 : (useSpecialE11Legend ? 0.78 : 0.81)),
+                                       useE11InclusiveLegend ? 0.92 : (useSpecialE32Legend ? 0.66 : (useSpecialE11Legend ? 0.69 : 0.74)),
+                                       useE11InclusiveLegend ? 0.82 : (useSpecialE32Legend ? 0.91 : (useSpecialE11Legend ? 0.90 : 0.89))
                                        );
                         legVar.SetBorderSize(0);
                         legVar.SetFillStyle(0);
                         legVar.SetTextFont(42);
-                        legVar.SetTextSize((useSpecialE11Legend || useSpecialE32Legend) ? 0.028 : 0.024);
-                        legVar.SetNColumns(3);
+                        legVar.SetTextSize(useE11InclusiveLegend ? 0.035 : ((useSpecialE11Legend || useSpecialE32Legend) ? 0.028 : 0.024));
+                        legVar.SetNColumns(useE11InclusiveLegend ? 2 : 3);
                         legVar.SetColumnSeparation(0.0);
                         legVar.SetEntrySeparation(0.08);
                         if (vi.hPP) legVar.AddEntry(vi.hPP, "pp", "ep");
@@ -3439,8 +3656,20 @@ if (!SSoverlayPerVAR_processONLY)
                         tPt.SetTextFont(42);
                         tPt.SetTextAlign(33);
                         tPt.SetTextSize(0.042);
-                        tPt.DrawLatex(0.93, 0.90,
+                        tPt.DrawLatex(0.93, 0.88,
                                       TString::Format("p_{T}^{#gamma}: %d-%d GeV", pb.lo, pb.hi).Data());
+                        
+                        if (useE11InclusiveLegend)
+                        {
+                            TLatex tSph;
+                            tSph.SetNDC(true);
+                            tSph.SetTextFont(42);
+                            tSph.SetTextAlign(13);
+                            tSph.SetTextSize(0.038);
+                            tSph.DrawLatex(0.16, 0.90, "#it{#bf{sPHENIX}} Internal");
+                            tSph.SetTextSize(0.032);
+                            tSph.DrawLatex(0.16, 0.86, "Au+Au #sqrt{s_{NN}} = 200 GeV");
+                        }
                         
                         const double ptCenterForCuts = 0.5 * (pb.lo + pb.hi);
                         const double cutTextX = useSpecialE32Legend ? 0.08 : 0.16;

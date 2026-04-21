@@ -1162,7 +1162,7 @@ print_core_summary() {
   printf "  %-42s : %12s\n" "Extra current-listed segments (not in expected)" "$(fmt_num "${TOT_EXTRA_SEG}")"
 
   subsection "C) Exact DST event availability (readable ROOT files only)"
-  printf "  %-42s : %12s\n" "Expected exact DST events" "$(fmt_num "${TOT_EXPECTED_EVT}")"
+  printf "  %-42s : %12s\n" "Expected exact: DST events" "$(fmt_num "${TOT_EXPECTED_EVT}")"
   printf "  %-42s : %12s\n" "Present expected exact DST events" "$(fmt_num "${TOT_PRESENT_EVT}")"
   printf "  %-42s : %12s  (%s)\n" "Present/expected event completeness" "$(fmt_num "${TOT_PRESENT_EVT}")" "$(fmt_pct "${TOT_PRESENT_EVT}" "${TOT_EXPECTED_EVT}")"
   printf "  %-42s : %12s\n" "Missing expected exact DST events" "$(fmt_num "${TOT_MISSING_EVT}")"
