@@ -986,9 +986,9 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                     if (standalone && shiftLegendLeft && tag == "inclusive" && var == "e11e33")
                         leg = new TLegend(0.18, 0.66, 0.92, 0.78);
                     else if (standalone && tag == "nonTight")
-                        leg = isW ? new TLegend(0.55, 0.68, 0.88, 0.86) : new TLegend(0.20, 0.68, 0.58, 0.86);
+                        leg = isW ? new TLegend(0.55, 0.56, 0.88, 0.74) : new TLegend(0.20, 0.68, 0.58, 0.86);
                     else if (standalone)
-                        leg = isW ? new TLegend(0.55, 0.58, 0.88, 0.78) : new TLegend(0.20, 0.66, 0.58, 0.86);
+                        leg = isW ? new TLegend(0.40, 0.58, 0.73, 0.78) : new TLegend(0.20, 0.66, 0.58, 0.86);
                     else if (shiftLegendLeft)
                         leg = isW ? new TLegend(0.30, 0.55, 0.82, 0.80) : new TLegend(0.12, 0.55, 0.64, 0.80);
                     else
