@@ -2769,12 +2769,11 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         }
                     }
                 }
-                
             } // end if (!generateISOpTcentOverlaysONLY) — vs-centrality & MC sections
             
             // ── Centrality overlay of E_T^iso (unnormalized counts) per pT bin, this variant ──
             {
-                const int centOvColors[] = {kRed+1, kBlue+1, kGreen+2, kMagenta+1, kOrange+1,
+                const int centOvColors[] = {kBlack, kBlue+1, kOrange+1, kMagenta+1, kGreen+3,
                     kCyan+1, kYellow+2, kViolet+1};
                 for (int ipt = 0; ipt < kNPtBins; ++ipt)
                 {
@@ -2817,7 +2816,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     bool havePeripheralGauss = false;
                     double peripheralMu = 0.0, peripheralMuErr = 0.0;
                     double peripheralSigma = 0.0, peripheralSigmaErr = 0.0;
-                    int peripheralColor = kOrange + 1;
+                    int peripheralColor = kGreen + 3;
                     for (std::size_t icSub = 0; icSub < centBins.size(); ++icSub)
                     {
                         const auto& cbSub = centBins[icSub];
@@ -2828,7 +2827,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             peripheralMuErr    = gaussMeanErr[ivH][ipt][icSub];
                             peripheralSigma    = gaussSigma[ivH][ipt][icSub];
                             peripheralSigmaErr = gaussSigmaErr[ivH][ipt][icSub];
-                            peripheralColor    = (icSub < 8) ? centOvColors[icSub] : (kOrange + 1);
+                            peripheralColor    = (icSub < 8) ? centOvColors[icSub] : (kGreen + 3);
                             break;
                         }
                     }
@@ -3168,9 +3167,9 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     if (!hPP) continue;
                     
                     EnsureSumw2(hPP);
-                    hPP->SetLineColor(kBlack);
-                    hPP->SetMarkerColor(kBlack);
-                    hPP->SetMarkerStyle(20);
+                    hPP->SetLineColor(kRed + 1);
+                    hPP->SetMarkerColor(kRed + 1);
+                    hPP->SetMarkerStyle(24);
                     hPP->SetMarkerSize(0.9);
                     hPP->SetLineWidth(2);
                     hPP->SetFillStyle(0);
@@ -3213,7 +3212,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     TF1* fDraw = nullptr;
                     if (ppGaussOk && hPPFit)
                     {
-                        fDraw = DrawGaussFitCurve(hPPFit, kBlack, false);
+                        fDraw = DrawGaussFitCurve(hPPFit, kRed + 1, false);
                         if (fDraw)
                         {
                             const double fitStart = fDraw->GetXmin();
@@ -3244,7 +3243,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     if (ppGaussOk)
                     {
                         TLine lPP(ppMu, 0.0, ppMu, hPP->GetMaximum());
-                        lPP.SetLineColor(kBlack);
+                        lPP.SetLineColor(kRed + 1);
                         lPP.SetLineStyle(2);
                         lPP.SetLineWidth(2);
                         lPP.DrawClone();
@@ -3254,6 +3253,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         tGauss.SetTextFont(42);
                         tGauss.SetTextAlign(33);
                         tGauss.SetTextSize(0.034);
+                        tGauss.SetTextColor(kRed + 1);
                         tGauss.DrawLatex(0.88, 0.44,
                                          TString::Format("#mu^{Gauss} = %.3f #pm %.4f GeV", ppMu, ppMuE).Data());
                         tGauss.DrawLatex(0.88, 0.39,
@@ -5443,7 +5443,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             TLine ppSigmaLine;
                             if (havePPGauss)
                             {
-                                ppSigmaLine.SetLineColor(kBlack);
+                                ppSigmaLine.SetLineColor(kRed + 1);
                                 ppSigmaLine.SetLineStyle(2);
                                 ppSigmaLine.SetLineWidth(2);
                                 ppSigmaLine.DrawLine(centBins.front().lo, ppSigmaCent,
@@ -5457,7 +5457,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             for (std::size_t ig = 0; ig < sGraphs.size(); ++ig)
                                 lgGS.AddEntry(sGraphs[ig], handles[sIndices[ig]].label.c_str(), "ep");
                             if (havePPGauss)
-                                lgGS.AddEntry(&ppSigmaLine, "pp #sigma^{Gauss}", "l");
+                                lgGS.AddEntry(&ppSigmaLine, "Run24pp", "l");
                             lgGS.Draw();
                             
                             TLatex tGS; tGS.SetNDC(true); tGS.SetTextFont(42); tGS.SetTextAlign(23); tGS.SetTextSize(0.042);

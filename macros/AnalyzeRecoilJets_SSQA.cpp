@@ -2499,7 +2499,7 @@ if (!SSoverlayPerVAR_processONLY)
             const string& tag,
             bool overlayPtBins,
             const CentBin* fixedCent,
-            const PtBin* fixedPt) -> void
+            const SSPtBinRequest* fixedPt) -> void
         {
             TCanvas cTbl(
                          TString::Format("c_ssQA_3x5_%s_%s_%s_%s",
@@ -2618,18 +2618,27 @@ if (!SSoverlayPerVAR_processONLY)
                         for (std::size_t ic2 = 0; ic2 < centBins.size(); ++ic2)
                         {
                             const auto& cb2 = centBins[ic2];
-                            const string hName = "h_ss_" + var + "_" + tag + fixedPt->suffix + cb2.suffix;
-                            TH1* hSrc = GetTH1FromTopDir(aaTopSS, hName);
-                            if (!hSrc) continue;
+                            
+                            TH1* hRaw = GetSSHistForPt(
+                                                      aaTopSS,
+                                                      string("h_ss_") + var + string("_") + tag,
+                                                      *fixedPt,
+                                                      cb2.suffix,
+                                                      TString::Format("ssQA_3x5_raw_%s_%s_%s_%s_%s_cent%zu",
+                                                                      H.variant.c_str(), tag.c_str(), var.c_str(),
+                                                                      fixedPt->folder.c_str(), trigAA.c_str(), ic2).Data()
+                                                      );
+                            if (!hRaw) continue;
                             
                             TH1* h = CloneNormalizeStyle(
-                                                         hSrc,
+                                                         hRaw,
                                                          TString::Format("ssQA_3x5_%s_%s_%s_%s_%s_cent%zu",
                                                                          H.variant.c_str(), tag.c_str(), var.c_str(),
                                                                          fixedPt->folder.c_str(), trigAA.c_str(), ic2).Data(),
                                                          overlayColors[(int)ic2 % nOverlayColors],
                                                          20
                                                          );
+                            delete hRaw;
                             if (!h) continue;
                             
                             h->SetFillStyle(0);
@@ -2906,9 +2915,8 @@ if (!SSoverlayPerVAR_processONLY)
         
         const string perCentDataBase = JoinPath(perCentralityOverlayBase, "data");
         EnsureDir(perCentDataBase);
-        for (int ipt = 0; ipt < kNPtBins; ++ipt)
+        for (const auto& pb : ssPtBinRequests)
         {
-            const PtBin& pb = PtBins()[ipt];
             const string ptOutDir = JoinPath(perCentDataBase, pb.folder);
             EnsureDir(ptOutDir);
             
@@ -3003,10 +3011,8 @@ if (!SSoverlayPerVAR_processONLY)
         }
         
         // Per-variant 1x5 centrality-overlay tables (one PNG per variant per tag per pT bin)
-        for (int ipt = 0; ipt < kNPtBins; ++ipt)
+        for (const auto& pb : ssPtBinRequests)
         {
-            const PtBin& pb = PtBins()[ipt];
-            
             const int nOverlayColors = (int)(sizeof(overlayColors) / sizeof(overlayColors[0]));
             
             cout << ANSI_BOLD_CYN
@@ -3075,16 +3081,31 @@ if (!SSoverlayPerVAR_processONLY)
                         for (std::size_t ic2 = 0; ic2 < centBins.size(); ++ic2)
                         {
                             const auto& cb2 = centBins[ic2];
-                            const string hNamePrimary = "h_ss_" + var + "_" + tag + H.histSuffix + pb.suffix + cb2.suffix;
-                            const string hNameFallback = "h_ss_" + var + "_" + tag + pb.suffix + cb2.suffix;
-                            string hName = hNamePrimary;
-                            TH1* hSrc = GetTH1FromTopDir(aaTopSS, hName);
-                            if (!hSrc && !H.histSuffix.empty())
+                            const string hNamePrimary = "h_ss_" + var + "_" + tag + H.histSuffix + pb.suffixes.front() + cb2.suffix;
+                            const string hNameFallback = "h_ss_" + var + "_" + tag + pb.suffixes.front() + cb2.suffix;
+                            
+                            TH1* hRaw = GetSSHistForPt(
+                                                      aaTopSS,
+                                                      string("h_ss_") + var + string("_") + tag + H.histSuffix,
+                                                      pb,
+                                                      cb2.suffix,
+                                                      TString::Format("ssQA_centOverlayRaw_%s_%s_%s_%s_%s_cent%zu",
+                                                                      H.variant.c_str(), tag.c_str(), var.c_str(),
+                                                                      pb.folder.c_str(), trigAA.c_str(), ic2).Data()
+                                                      );
+                            if (!hRaw && !H.histSuffix.empty())
                             {
-                                hName = hNameFallback;
-                                hSrc = GetTH1FromTopDir(aaTopSS, hName);
+                                hRaw = GetSSHistForPt(
+                                                     aaTopSS,
+                                                     string("h_ss_") + var + string("_") + tag,
+                                                     pb,
+                                                     cb2.suffix,
+                                                     TString::Format("ssQA_centOverlayRawFallback_%s_%s_%s_%s_%s_cent%zu",
+                                                                     H.variant.c_str(), tag.c_str(), var.c_str(),
+                                                                     pb.folder.c_str(), trigAA.c_str(), ic2).Data()
+                                                     );
                             }
-                            if (!hSrc)
+                            if (!hRaw)
                             {
                                 missingHistNames.push_back(hNamePrimary);
                                 if (!H.histSuffix.empty()) missingHistNames.push_back(hNameFallback);
@@ -3095,21 +3116,24 @@ if (!SSoverlayPerVAR_processONLY)
                                 continue;
                             }
                             
-                            cout << "      [FOUND] " << H.variant << " :: " << hName
-                                 << "  entries=" << hSrc->GetEntries() << "\n";
+                            cout << "      [FOUND] " << H.variant << " :: "
+                                 << (H.histSuffix.empty() ? hNameFallback : hNamePrimary)
+                                 << "  entries=" << hRaw->GetEntries() << "\n";
                             
                             TH1* h = CloneNormalizeStyle(
-                                                         hSrc,
+                                                         hRaw,
                                                          TString::Format("ssQA_1x5_%s_%s_%s_%s_%s_cent%zu",
                                                                          H.variant.c_str(), tag.c_str(), var.c_str(),
                                                                          pb.folder.c_str(), trigAA.c_str(), ic2).Data(),
                                                          overlayColors[(int)ic2 % nOverlayColors],
                                                          20
                                                          );
+                            delete hRaw;
                             if (!h)
                             {
                                 cout << ANSI_BOLD_YEL
-                                     << "      [SKIP] CloneNormalizeStyle failed for " << hName
+                                     << "      [SKIP] CloneNormalizeStyle failed for "
+                                     << (H.histSuffix.empty() ? hNameFallback : hNamePrimary)
                                      << ANSI_RESET << "\n";
                                 continue;
                             }
