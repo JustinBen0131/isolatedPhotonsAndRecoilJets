@@ -3899,34 +3899,78 @@ void RunJES3QA(Dataset& ds)
                     // PP TH3
                     TH3* h3PP = dynamic_cast<TH3*>(dirPPov->Get(h3name.c_str()));
                     
-                    // AuAu TH3 per centrality (merged: 0-10 + 10-20 → 0-20)
-                    struct CentEntry { const char* suffix; const char* label; int color; };
-                    const CentEntry centEntries[] = {
-                        { "_cent_0_20",  "AuAu 0-20%",  kBlack       },
-                        { "_cent_20_40", "AuAu 20-40%", kMagenta + 1 },
-                        { "_cent_40_60", "AuAu 40-60%", kGreen + 2   },
-                        { "_cent_60_80", "AuAu 60-80%", kBlue + 1    },
-                    };
-                    const int nCent = 4;
-                    
-                    TH3* h3AA[4] = { nullptr, nullptr, nullptr, nullptr };
-                    bool h3AA0_isClone = false;
+                    // AuAu TH3 per centrality (native bins, plus legacy 0-20 merge only when needed)
+                    struct CentEntry { string suffix; string label; int color; };
+                    vector<CentEntry> centEntries;
+                    vector<TH3*> h3AA;
+                    vector<bool> h3AAOwned;
                     {
-                        // Build merged 0-20% by summing 0-10 + 10-20 raw TH3s (Sumw2 propagation)
+                        const int colorPalette[] = {kBlack, kMagenta + 1, kGreen + 2, kBlue + 1, kOrange + 7, kCyan + 2};
+                        
+                        bool have0_10 = false;
+                        bool have10_20 = false;
+                        bool haveNative0_20 = false;
                         TH3* h3_0_10  = dynamic_cast<TH3*>(dirAAov->Get((h3name + "_cent_0_10").c_str()));
                         TH3* h3_10_20 = dynamic_cast<TH3*>(dirAAov->Get((h3name + "_cent_10_20").c_str()));
-                        if (h3_0_10 && h3_10_20)
-                        {
-                            h3AA[0] = CloneTH3(h3_0_10, h3name + "_cent_0_20_merged");
-                            if (h3AA[0]) { EnsureSumw2(h3AA[0]); h3AA[0]->Add(h3_10_20); h3AA0_isClone = true; }
-                        }
-                        else if (h3_0_10)  { h3AA[0] = CloneTH3(h3_0_10,  h3name + "_cent_0_20_fb0"); h3AA0_isClone = true; }
-                        else if (h3_10_20) { h3AA[0] = CloneTH3(h3_10_20, h3name + "_cent_0_20_fb1"); h3AA0_isClone = true; }
+                        have0_10 = (h3_0_10 != nullptr);
+                        have10_20 = (h3_10_20 != nullptr);
                         
-                        h3AA[1] = dynamic_cast<TH3*>(dirAAov->Get((h3name + "_cent_20_40").c_str()));
-                        h3AA[2] = dynamic_cast<TH3*>(dirAAov->Get((h3name + "_cent_40_60").c_str()));
-                        h3AA[3] = dynamic_cast<TH3*>(dirAAov->Get((h3name + "_cent_60_80").c_str()));
+                        for (const auto& cb : CentBins())
+                        {
+                            if (cb.lo == 0 && cb.hi == 20)
+                            {
+                                haveNative0_20 = true;
+                                break;
+                            }
+                        }
+                        
+                        int icol = 0;
+                        
+                        if (!haveNative0_20 && (have0_10 || have10_20))
+                        {
+                            TH3* hMerged = nullptr;
+                            
+                            if (h3_0_10 && h3_10_20)
+                            {
+                                hMerged = CloneTH3(h3_0_10, h3name + "_cent_0_20_merged");
+                                if (hMerged) { EnsureSumw2(hMerged); hMerged->Add(h3_10_20); }
+                            }
+                            else if (h3_0_10)
+                            {
+                                hMerged = CloneTH3(h3_0_10, h3name + "_cent_0_20_fb0");
+                            }
+                            else if (h3_10_20)
+                            {
+                                hMerged = CloneTH3(h3_10_20, h3name + "_cent_0_20_fb1");
+                            }
+                            
+                            if (hMerged)
+                            {
+                                centEntries.push_back({"_cent_0_20", "AuAu 0-20%", colorPalette[icol % 6]});
+                                h3AA.push_back(hMerged);
+                                h3AAOwned.push_back(true);
+                                ++icol;
+                            }
+                        }
+                        
+                        for (const auto& cb : CentBins())
+                        {
+                            if (!haveNative0_20 && ((cb.lo == 0 && cb.hi == 10) || (cb.lo == 10 && cb.hi == 20))) continue;
+                            
+                            TH3* h3 = dynamic_cast<TH3*>(dirAAov->Get((h3name + cb.suffix).c_str()));
+                            if (!h3) continue;
+                            
+                            centEntries.push_back({
+                                cb.suffix,
+                                TString::Format("AuAu %d-%d%%", cb.lo, cb.hi).Data(),
+                                colorPalette[icol % 6]
+                            });
+                            h3AA.push_back(h3);
+                            h3AAOwned.push_back(false);
+                            ++icol;
+                        }
                     }
+                    const int nCent = (int)centEntries.size();
                     
                     // All analysis pT bins: multiCent + PP overlay
                     const auto& recoBinsAll = UnfoldAnalysisRecoPtBins();
@@ -3975,7 +4019,7 @@ void RunJES3QA(Dataset& ds)
                         // ---- Collect histos for all pT bins, then draw as 3x3 canvas ----
                         const int nBinsAll = (int)recoBinsAll.size();
                         std::vector<TH1*> allPP(nBinsAll, nullptr);
-                        std::vector<std::vector<TH1*>> allAA(nBinsAll, std::vector<TH1*>(4, nullptr));
+                        std::vector<std::vector<TH1*>> allAA(nBinsAll, std::vector<TH1*>(nCent, nullptr));
                         
                         for (int ib = 0; ib < nBinsAll; ++ib)
                         {
@@ -3989,7 +4033,7 @@ void RunJES3QA(Dataset& ds)
                             {
                                 if (!h3AA[ic]) continue;
                                 allAA[ib][ic] = ProjectXJ(h3AA[ic], pbOv,
-                                                          TString::Format("xJov_auau%s_%s", centEntries[ic].suffix, ptTag.c_str()).Data());
+                                                          TString::Format("xJov_auau%s_%s", centEntries[ic].suffix.c_str(), ptTag.c_str()).Data());
                                 if (allAA[ib][ic]) { allAA[ib][ic]->SetDirectory(nullptr); EnsureSumw2(allAA[ib][ic]); NormUnit(allAA[ib][ic]); }
                             }
                         }
@@ -4067,7 +4111,7 @@ void RunJES3QA(Dataset& ds)
                                 legPad->SetTextSize(0.035);
                                 legPad->AddEntry(hPP, "pp", "ep");
                                 for (int ic = 0; ic < nCent; ++ic)
-                                    if (allAA[ib][ic]) legPad->AddEntry(allAA[ib][ic], centEntries[ic].label, "ep");
+                                    if (allAA[ib][ic]) legPad->AddEntry(allAA[ib][ic], centEntries[ic].label.c_str(), "ep");
                                 legPad->Draw();
                                 legends.push_back(legPad);
                                 
@@ -4108,8 +4152,15 @@ void RunJES3QA(Dataset& ds)
                             for (int ic = 0; ic < nCent; ++ic) if (allAA[ib][ic]) delete allAA[ib][ic];
                         }
                     }
-                    // Cleanup merged TH3 clone (not file-owned)
-                    if (h3AA0_isClone && h3AA[0]) { delete h3AA[0]; h3AA[0] = nullptr; }
+                    // Cleanup merged TH3 clones (not file-owned)
+                    for (std::size_t ic = 0; ic < h3AA.size(); ++ic)
+                    {
+                        if (h3AAOwned[ic] && h3AA[ic])
+                        {
+                            delete h3AA[ic];
+                            h3AA[ic] = nullptr;
+                        }
+                    }
                 }
                 
                 if (fPPov) { fPPov->Close(); delete fPPov; }

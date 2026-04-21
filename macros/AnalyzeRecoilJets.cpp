@@ -3731,33 +3731,96 @@ void RunXJUEComparisons_AuAu()
             return h;
         };
         
-        // ── Centrality selections (including merged 0-20) ──
+        // ── Centrality selections (including merged 0-20 only when the legacy split bins exist) ──
         struct CentSel { int lo; int hi; vector<string> suffixes; string folder; };
-        const vector<CentSel> centSels = {
-            {0,  10, {"_cent_0_10"},                   "0_10"},
-            {10, 20, {"_cent_10_20"},                  "10_20"},
-            {0,  20, {"_cent_0_10", "_cent_10_20"},    "0_20"},
-            {20, 40, {"_cent_20_40"},                  "20_40"},
-            {40, 60, {"_cent_40_60"},                  "40_60"},
-            {60, 80, {"_cent_60_80"},                  "60_80"}
-        };
+        vector<CentSel> centSels;
+        {
+            bool have0_10 = false;
+            bool have10_20 = false;
+            bool haveNative0_20 = false;
+            string suf0_10;
+            string suf10_20;
+            
+            for (const auto& cb : CentBins())
+            {
+                if (cb.lo == 0  && cb.hi == 10) { have0_10 = true; suf0_10 = cb.suffix; continue; }
+                if (cb.lo == 10 && cb.hi == 20) { have10_20 = true; suf10_20 = cb.suffix; continue; }
+                if (cb.lo == 0  && cb.hi == 20) haveNative0_20 = true;
+            }
+            
+            if (have0_10)
+            {
+                CentSel cs;
+                cs.lo = 0;
+                cs.hi = 10;
+                cs.suffixes.push_back(suf0_10);
+                cs.folder = "0_10";
+                centSels.push_back(cs);
+            }
+            if (have10_20)
+            {
+                CentSel cs;
+                cs.lo = 10;
+                cs.hi = 20;
+                cs.suffixes.push_back(suf10_20);
+                cs.folder = "10_20";
+                centSels.push_back(cs);
+            }
+            if (!haveNative0_20 && (have0_10 || have10_20))
+            {
+                CentSel cs;
+                cs.lo = 0;
+                cs.hi = 20;
+                if (have0_10)  cs.suffixes.push_back(suf0_10);
+                if (have10_20) cs.suffixes.push_back(suf10_20);
+                cs.folder = "0_20";
+                centSels.push_back(cs);
+            }
+            
+            for (const auto& cb : CentBins())
+            {
+                if (cb.lo == 0  && cb.hi == 10) continue;
+                if (cb.lo == 10 && cb.hi == 20) continue;
+                
+                CentSel cs;
+                cs.lo = cb.lo;
+                cs.hi = cb.hi;
+                cs.suffixes.push_back(cb.suffix);
+                cs.folder = cb.folder;
+                centSels.push_back(cs);
+            }
+        }
         
         // ── Centrality-comparison pairs (per-variant only) ──
         struct CentPairDef { string folder; CentSel a; CentSel b; };
-        const vector<CentPairDef> centPairs = {
-            {"0_10and40_60",
-                {0, 10, {"_cent_0_10"}, "0_10"},
-                {40, 60, {"_cent_40_60"}, "40_60"}},
-            {"0_20and40_60",
-                {0, 20, {"_cent_0_10", "_cent_10_20"}, "0_20"},
-                {40, 60, {"_cent_40_60"}, "40_60"}},
-            {"0_10and60_80",
-                {0, 10, {"_cent_0_10"}, "0_10"},
-                {60, 80, {"_cent_60_80"}, "60_80"}},
-            {"0_20and60_80",
-                {0, 20, {"_cent_0_10", "_cent_10_20"}, "0_20"},
-                {60, 80, {"_cent_60_80"}, "60_80"}}
+        vector<CentPairDef> centPairs;
+        
+        auto FindCentSelByFolder = [&](const string& folder)->const CentSel*
+        {
+            for (const auto& cs : centSels)
+            {
+                if (cs.folder == folder) return &cs;
+            }
+            return nullptr;
         };
+        
+        auto AddCentPair = [&](const string& folder, const string& aFolder, const string& bFolder) -> void
+        {
+            const CentSel* aSel = FindCentSelByFolder(aFolder);
+            const CentSel* bSel = FindCentSelByFolder(bFolder);
+            if (!aSel || !bSel) return;
+            
+            CentPairDef cp;
+            cp.folder = folder;
+            cp.a = *aSel;
+            cp.b = *bSel;
+            centPairs.push_back(cp);
+        };
+        
+        AddCentPair("0_10and40_60", "0_10", "40_60");
+        AddCentPair("0_20and40_60", "0_20", "40_60");
+        AddCentPair("0_10and60_80", "0_10", "60_80");
+        AddCentPair("0_20and60_80", "0_20", "60_80");
         
         // 3-variant overlay indices: noSub(0), variantA(2), variantB(3)
         const vector<std::size_t> threeVarIdx = {0, 2, 3};
@@ -15702,11 +15765,95 @@ int Run()
                         // ---------------------------------------------------------------
                         {
                             struct SelCent { int lo; int hi; int color; vector<string> suffixes; };
-                            const std::vector<SelCent> selCents = {
-                                {0,  20, kBlue+1,    {"_cent_0_10", "_cent_10_20"}},
-                                {20, 40, kGreen+2,   {"_cent_20_40"}},
-                                {60, 80, kMagenta+1, {"_cent_60_80"}},
-                            };
+                            std::vector<SelCent> availableSelCents;
+                            {
+                                bool have0_10 = false;
+                                bool have10_20 = false;
+                                bool haveNative0_20 = false;
+                                string suf0_10;
+                                string suf10_20;
+                                
+                                for (const auto& cb : CentBins())
+                                {
+                                    if (cb.lo == 0  && cb.hi == 10) { have0_10 = true; suf0_10 = cb.suffix; continue; }
+                                    if (cb.lo == 10 && cb.hi == 20) { have10_20 = true; suf10_20 = cb.suffix; continue; }
+                                    if (cb.lo == 0  && cb.hi == 20) haveNative0_20 = true;
+                                }
+                                
+                                if (have0_10)
+                                {
+                                    SelCent sc;
+                                    sc.lo = 0;
+                                    sc.hi = 10;
+                                    sc.color = 0;
+                                    sc.suffixes.push_back(suf0_10);
+                                    availableSelCents.push_back(sc);
+                                }
+                                if (have10_20)
+                                {
+                                    SelCent sc;
+                                    sc.lo = 10;
+                                    sc.hi = 20;
+                                    sc.color = 0;
+                                    sc.suffixes.push_back(suf10_20);
+                                    availableSelCents.push_back(sc);
+                                }
+                                if (!haveNative0_20 && (have0_10 || have10_20))
+                                {
+                                    SelCent sc;
+                                    sc.lo = 0;
+                                    sc.hi = 20;
+                                    sc.color = 0;
+                                    if (have0_10)  sc.suffixes.push_back(suf0_10);
+                                    if (have10_20) sc.suffixes.push_back(suf10_20);
+                                    availableSelCents.push_back(sc);
+                                }
+                                
+                                for (const auto& cb : CentBins())
+                                {
+                                    if (cb.lo == 0  && cb.hi == 10) continue;
+                                    if (cb.lo == 10 && cb.hi == 20) continue;
+                                    
+                                    SelCent sc;
+                                    sc.lo = cb.lo;
+                                    sc.hi = cb.hi;
+                                    sc.color = 0;
+                                    sc.suffixes.push_back(cb.suffix);
+                                    availableSelCents.push_back(sc);
+                                }
+                            }
+                            
+                            std::vector<SelCent> selCents;
+                            const bool haveLegacySelectedSet =
+                                std::any_of(availableSelCents.begin(), availableSelCents.end(), [](const SelCent& sc){ return sc.lo == 0  && sc.hi == 20; }) &&
+                                std::any_of(availableSelCents.begin(), availableSelCents.end(), [](const SelCent& sc){ return sc.lo == 20 && sc.hi == 40; }) &&
+                                std::any_of(availableSelCents.begin(), availableSelCents.end(), [](const SelCent& sc){ return sc.lo == 60 && sc.hi == 80; });
+                            
+                            if (haveLegacySelectedSet)
+                            {
+                                for (const auto& scAvail : availableSelCents)
+                                {
+                                    if (scAvail.lo == 0  && scAvail.hi == 20) { selCents.push_back(scAvail); break; }
+                                }
+                                for (const auto& scAvail : availableSelCents)
+                                {
+                                    if (scAvail.lo == 20 && scAvail.hi == 40) { selCents.push_back(scAvail); break; }
+                                }
+                                for (const auto& scAvail : availableSelCents)
+                                {
+                                    if (scAvail.lo == 60 && scAvail.hi == 80) { selCents.push_back(scAvail); break; }
+                                }
+                            }
+                            else
+                            {
+                                selCents = availableSelCents;
+                            }
+                            
+                            const int selCentColors[] = {kBlue+1, kGreen+2, kMagenta+1, kOrange+7, kCyan+2, kRed+1};
+                            for (int isc = 0; isc < (int)selCents.size(); ++isc)
+                            {
+                                selCents[isc].color = selCentColors[isc % 6];
+                            }
                             
                             // Open PP file for purity
                             TFile* fPP = TFile::Open(InputPP(isRun25pp).c_str(), "READ");
@@ -15935,14 +16082,59 @@ int Run()
                             // ---------------------------------------------------------------
                             {
                                 struct SelCentUE { int lo; int hi; vector<string> suffixes; };
-                                const std::vector<SelCentUE> selCentsUE = {
-                                    {0,  10, {"_cent_0_10"}},
-                                    {10, 20, {"_cent_10_20"}},
-                                    {0,  20, {"_cent_0_10", "_cent_10_20"}},
-                                    {20, 40, {"_cent_20_40"}},
-                                    {40, 60, {"_cent_40_60"}},
-                                    {60, 80, {"_cent_60_80"}}
-                                };
+                                std::vector<SelCentUE> selCentsUE;
+                                {
+                                    bool have0_10 = false;
+                                    bool have10_20 = false;
+                                    bool haveNative0_20 = false;
+                                    string suf0_10;
+                                    string suf10_20;
+                                    
+                                    for (const auto& cb : CentBins())
+                                    {
+                                        if (cb.lo == 0  && cb.hi == 10) { have0_10 = true; suf0_10 = cb.suffix; continue; }
+                                        if (cb.lo == 10 && cb.hi == 20) { have10_20 = true; suf10_20 = cb.suffix; continue; }
+                                        if (cb.lo == 0  && cb.hi == 20) haveNative0_20 = true;
+                                    }
+                                    
+                                    if (have0_10)
+                                    {
+                                        SelCentUE sc;
+                                        sc.lo = 0;
+                                        sc.hi = 10;
+                                        sc.suffixes.push_back(suf0_10);
+                                        selCentsUE.push_back(sc);
+                                    }
+                                    if (have10_20)
+                                    {
+                                        SelCentUE sc;
+                                        sc.lo = 10;
+                                        sc.hi = 20;
+                                        sc.suffixes.push_back(suf10_20);
+                                        selCentsUE.push_back(sc);
+                                    }
+                                    if (!haveNative0_20 && (have0_10 || have10_20))
+                                    {
+                                        SelCentUE sc;
+                                        sc.lo = 0;
+                                        sc.hi = 20;
+                                        if (have0_10)  sc.suffixes.push_back(suf0_10);
+                                        if (have10_20) sc.suffixes.push_back(suf10_20);
+                                        selCentsUE.push_back(sc);
+                                    }
+                                    
+                                    for (const auto& cb : CentBins())
+                                    {
+                                        if (cb.lo == 0  && cb.hi == 10) continue;
+                                        if (cb.lo == 10 && cb.hi == 20) continue;
+                                        
+                                        SelCentUE sc;
+                                        sc.lo = cb.lo;
+                                        sc.hi = cb.hi;
+                                        sc.suffixes.push_back(cb.suffix);
+                                        selCentsUE.push_back(sc);
+                                    }
+                                }
                                 
                                 struct UEVarHandle
                                 {

@@ -84,6 +84,28 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
     }
     
     vector<CentBin> centPlotBins = centBins;
+    bool haveCent0_10 = false;
+    bool haveCent10_20 = false;
+    bool haveCent20_40 = false;
+    bool haveCent40_60 = false;
+    bool haveNative0_20 = false;
+    bool haveNative20_60 = false;
+    string centSuffix0_10;
+    string centSuffix10_20;
+    string centSuffix20_40;
+    string centSuffix40_60;
+    
+    for (const auto& cb : centBins)
+    {
+        if (cb.lo == 0  && cb.hi == 10) { haveCent0_10 = true; centSuffix0_10 = cb.suffix; }
+        if (cb.lo == 10 && cb.hi == 20) { haveCent10_20 = true; centSuffix10_20 = cb.suffix; }
+        if (cb.lo == 20 && cb.hi == 40) { haveCent20_40 = true; centSuffix20_40 = cb.suffix; }
+        if (cb.lo == 40 && cb.hi == 60) { haveCent40_60 = true; centSuffix40_60 = cb.suffix; }
+        if (cb.lo == 0  && cb.hi == 20) haveNative0_20 = true;
+        if (cb.lo == 20 && cb.hi == 60) haveNative20_60 = true;
+    }
+    
+    if (!haveNative0_20 && (haveCent0_10 || haveCent10_20))
     {
         CentBin cb;
         cb.lo = 0;
@@ -93,6 +115,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
         cb.suffix = "_cent_0_20";
         centPlotBins.push_back(cb);
     }
+    if (!haveNative20_60 && haveCent20_40 && haveCent40_60)
     {
         CentBin cb;
         cb.lo = 20;
@@ -154,27 +177,37 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             "h_EisoReco_truthSigMatched_tight"
         };
         
+        const bool allowMerge0_20 = (!haveNative0_20 && (haveCent0_10 || haveCent10_20));
+        const bool allowMerge20_60 = (!haveNative20_60 && haveCent20_40 && haveCent40_60);
+        
         for (const auto& pb : PtBins())
         {
             for (const auto& base : histBases)
             {
-                MaterializeMergedCentralityHistogram(
-                                                     dir,
-                                                     base + pb.suffix + "_cent_0_20",
-                                                     {
-                                                         base + pb.suffix + "_cent_0_10",
-                                                         base + pb.suffix + "_cent_10_20"
-                                                     }
-                                                     );
+                if (allowMerge0_20)
+                {
+                    vector<string> srcNames020;
+                    if (haveCent0_10)  srcNames020.push_back(base + pb.suffix + centSuffix0_10);
+                    if (haveCent10_20) srcNames020.push_back(base + pb.suffix + centSuffix10_20);
+                    
+                    MaterializeMergedCentralityHistogram(
+                                                         dir,
+                                                         base + pb.suffix + "_cent_0_20",
+                                                         srcNames020
+                                                         );
+                }
                 
-                MaterializeMergedCentralityHistogram(
-                                                     dir,
-                                                     base + pb.suffix + "_cent_20_60",
-                                                     {
-                                                         base + pb.suffix + "_cent_20_40",
-                                                         base + pb.suffix + "_cent_40_60"
-                                                     }
-                                                     );
+                if (allowMerge20_60)
+                {
+                    MaterializeMergedCentralityHistogram(
+                                                         dir,
+                                                         base + pb.suffix + "_cent_20_60",
+                                                         {
+                                                             base + pb.suffix + centSuffix20_40,
+                                                             base + pb.suffix + centSuffix40_60
+                                                         }
+                                                         );
+                }
             }
         }
     };
@@ -864,10 +897,41 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     string label;
                 };
                 
-                const vector<LayerCentCfg> layerCentCfgs = {
-                    {"0_20",  {"_cent_0_10", "_cent_10_20"}, "0-20%"},
-                    {"60_80", {"_cent_60_80"},               "60-80%"}
-                };
+                vector<LayerCentCfg> layerCentCfgs;
+                if (!haveNative0_20 && (haveCent0_10 || haveCent10_20))
+                {
+                    LayerCentCfg cfg020;
+                    cfg020.folder = "0_20";
+                    if (haveCent0_10)  cfg020.centSuffixes.push_back(centSuffix0_10);
+                    if (haveCent10_20) cfg020.centSuffixes.push_back(centSuffix10_20);
+                    cfg020.label = "0-20%";
+                    layerCentCfgs.push_back(cfg020);
+                    
+                    for (const auto& cb : centBins)
+                    {
+                        if (cb.lo == 60 && cb.hi == 80)
+                        {
+                            LayerCentCfg cfg6080;
+                            cfg6080.folder = cb.folder;
+                            cfg6080.centSuffixes.push_back(cb.suffix);
+                            cfg6080.label = TString::Format("%d-%d%%", cb.lo, cb.hi).Data();
+                            layerCentCfgs.push_back(cfg6080);
+                            break;
+                        }
+                    }
+                }
+                else
+                {
+                    layerCentCfgs.reserve(centBins.size());
+                    for (const auto& cb : centBins)
+                    {
+                        LayerCentCfg cfg;
+                        cfg.folder = cb.folder;
+                        cfg.centSuffixes.push_back(cb.suffix);
+                        cfg.label = TString::Format("%d-%d%%", cb.lo, cb.hi).Data();
+                        layerCentCfgs.push_back(cfg);
+                    }
+                }
                 
                 struct LayerPanelCfg
                 {

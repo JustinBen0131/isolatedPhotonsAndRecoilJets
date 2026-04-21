@@ -2442,10 +2442,21 @@
                             
                             // ── centrality + pp overlay (built incrementally; complete on last centrality) ──
                             {
-                                const vector<string> ovCentTags  = {"cent_0_20","cent_20_40","cent_40_60","cent_60_80"};
-                                const vector<string> ovCentLabels = {"0-20%","20-40%","40-60%","60-80%"};
-                                const int    ovColors[]  = { kBlack, kBlue+1, kGreen+2, kMagenta+1 };
-                                const int    ovMarkers[] = { 20, 20, 20, 20 };
+                                vector<string> ovCentTags;
+                                vector<string> ovCentLabels;
+                                vector<int> ovColors;
+                                vector<int> ovMarkers;
+                                
+                                const int ovColorPalette[] = { kBlack, kBlue+1, kGreen+2, kMagenta+1, kOrange+7, kCyan+2 };
+                                
+                                for (std::size_t ic = 0; ic < CentBins().size(); ++ic)
+                                {
+                                    const auto& cb = CentBins()[ic];
+                                    ovCentTags.push_back(TString::Format("cent_%d_%d", cb.lo, cb.hi).Data());
+                                    ovCentLabels.push_back(TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
+                                    ovColors.push_back(ovColorPalette[ic % 6]);
+                                    ovMarkers.push_back(20);
+                                }
                                 
                                 vector<TH1*> hOverlay;
                                 vector<string> legLabels;
@@ -15432,52 +15443,87 @@
       if (fPPData) { fPPData->Close(); delete fPPData; }
       if (fPPSim)  { fPPSim->Close();  delete fPPSim;  }
 
-      struct OverlaySpec
-      {
-        string folder;
-        vector<string> cents;
-      };
+        struct OverlaySpec
+        {
+          string folder;
+          vector<string> cents;
+        };
 
-      const vector<OverlaySpec> overlaySpecs =
-      {
-        {"allCentralitiesAndPP", {"0_10", "10_20", "20_40", "40_60", "60_80"}},
-        {"0_10and40_60AndPP",    {"0_10", "40_60"}},
-        {"0_20and40_60AndPP",    {"0_20", "40_60"}},
-        {"0_10and60_80AndPP",    {"0_10", "60_80"}},
-        {"0_20and60_80AndPP",    {"0_20", "60_80"}}
-      };
+        vector<string> nativeCentFolders;
+        nativeCentFolders.reserve(CentBins().size());
 
-      struct VariantSpec
-      {
-        string folder;
-        string ppFolder;
-        bool hasPurity;
-      };
+        bool haveNative0_10 = false;
+        bool haveNative10_20 = false;
+        bool haveNative0_20 = false;
+        bool haveNative40_60 = false;
+        bool haveNative60_80 = false;
 
-      const vector<VariantSpec> xjVariants =
-      {
-        {"nonPurityCorrected",                            "nonPurityCorrected", false},
-        {"purityCorrected",                               "purityCorrected",    true},
-        {"combinatoricJetSubtractectedNoPurityCorrection","purityCorrected",   false},
-        {"combinatoricJetSubtractectedWithPurityCorrection","purityCorrected", true}
-      };
+        for (const auto& cb : CentBins())
+        {
+          nativeCentFolders.push_back(cb.folder);
+          if (cb.folder == "0_10")  haveNative0_10 = true;
+          if (cb.folder == "10_20") haveNative10_20 = true;
+          if (cb.folder == "0_20")  haveNative0_20 = true;
+          if (cb.folder == "40_60") haveNative40_60 = true;
+          if (cb.folder == "60_80") haveNative60_80 = true;
+        }
 
-      const vector<string> photonVariants = {"nonPurityCorrected", "purityCorrected"};
-      const vector<string> rKeysTop = {"r02", "r04"};
+        const bool haveMerged020ForPairs = haveNative0_20 || haveNative0_10 || haveNative10_20;
 
-      struct CurveStyle
-      {
-        int color = kBlack;
-        int marker = 20;
-      };
+        vector<OverlaySpec> overlaySpecs;
+        auto AddOverlaySpec = [&](const string& folder, const vector<string>& cents)->void
+        {
+          OverlaySpec spec;
+          spec.folder = folder;
+          spec.cents = cents;
+          overlaySpecs.push_back(spec);
+        };
 
-      map<string, CurveStyle> styleByCent;
-      styleByCent["0_10"]  = {kBlack, 20};
-      styleByCent["10_20"] = {kBlue + 1, 20};
-      styleByCent["0_20"]  = {kCyan + 2, 20};
-      styleByCent["20_40"] = {kGreen + 2, 20};
-      styleByCent["40_60"] = {kMagenta + 1, 20};
-      styleByCent["60_80"] = {kOrange + 7, 20};
+        AddOverlaySpec("allCentralitiesAndPP", nativeCentFolders);
+        if (haveNative0_10 && haveNative40_60) AddOverlaySpec("0_10and40_60AndPP", {"0_10", "40_60"});
+        if (haveMerged020ForPairs && haveNative40_60) AddOverlaySpec("0_20and40_60AndPP", {"0_20", "40_60"});
+        if (haveNative0_10 && haveNative60_80) AddOverlaySpec("0_10and60_80AndPP", {"0_10", "60_80"});
+        if (haveMerged020ForPairs && haveNative60_80) AddOverlaySpec("0_20and60_80AndPP", {"0_20", "60_80"});
+
+        struct VariantSpec
+        {
+          string folder;
+          string ppFolder;
+          bool hasPurity;
+        };
+
+        const vector<VariantSpec> xjVariants =
+        {
+          {"nonPurityCorrected",                            "nonPurityCorrected", false},
+          {"purityCorrected",                               "purityCorrected",    true},
+          {"combinatoricJetSubtractectedNoPurityCorrection","purityCorrected",   false},
+          {"combinatoricJetSubtractectedWithPurityCorrection","purityCorrected", true}
+        };
+
+        const vector<string> photonVariants = {"nonPurityCorrected", "purityCorrected"};
+        const vector<string> rKeysTop = {"r02", "r04"};
+
+        struct CurveStyle
+        {
+          int color = kBlack;
+          int marker = 20;
+        };
+
+        map<string, CurveStyle> styleByCent;
+        {
+          const int palette[] = {kBlack, kBlue + 1, kGreen + 2, kMagenta + 1, kOrange + 7, kCyan + 2};
+          int istyle = 0;
+
+          auto RegisterStyle = [&](const string& centFolder)->void
+          {
+            if (styleByCent.find(centFolder) != styleByCent.end()) return;
+            styleByCent[centFolder] = {palette[istyle % 6], 20};
+            ++istyle;
+          };
+
+          for (const auto& cb : CentBins()) RegisterStyle(cb.folder);
+          if (haveMerged020ForPairs) RegisterStyle("0_20");
+        }
 
       auto CentLabelFromFolder = [&](const string& centFolder)->string
       {
@@ -16231,21 +16277,66 @@
         {true,  true,  "combinatoricJetSubtractectedWithPurityCorrection"}
       };
 
-      struct UnfoldCentGroup
-      {
-        int lo = 0;
-        int hi = 0;
-        vector<string> suffixes;
-      };
+        struct UnfoldCentGroup
+        {
+          int lo = 0;
+          int hi = 0;
+          vector<string> suffixes;
+        };
 
-      const vector<UnfoldCentGroup> centGroups = {
-          {0,  10, {"_cent_0_10"}},
-          {10, 20, {"_cent_10_20"}},
-          {0,  20, {"_cent_0_10", "_cent_10_20"}},
-          {20, 40, {"_cent_20_40"}},
-          {40, 60, {"_cent_40_60"}},
-          {60, 80, {"_cent_60_80"}}
-      };
+        vector<UnfoldCentGroup> centGroups;
+        {
+          bool have0_10 = false;
+          bool have10_20 = false;
+          bool haveNative0_20 = false;
+          string suf0_10;
+          string suf10_20;
+
+          for (const auto& cb : CentBins())
+          {
+            if (cb.lo == 0  && cb.hi == 10) { have0_10 = true; suf0_10 = cb.suffix; continue; }
+            if (cb.lo == 10 && cb.hi == 20) { have10_20 = true; suf10_20 = cb.suffix; continue; }
+            if (cb.lo == 0  && cb.hi == 20) haveNative0_20 = true;
+          }
+
+          if (have0_10)
+          {
+            UnfoldCentGroup G;
+            G.lo = 0;
+            G.hi = 10;
+            G.suffixes.push_back(suf0_10);
+            centGroups.push_back(G);
+          }
+          if (have10_20)
+          {
+            UnfoldCentGroup G;
+            G.lo = 10;
+            G.hi = 20;
+            G.suffixes.push_back(suf10_20);
+            centGroups.push_back(G);
+          }
+          if (!haveNative0_20 && (have0_10 || have10_20))
+          {
+            UnfoldCentGroup G;
+            G.lo = 0;
+            G.hi = 20;
+            if (have0_10)  G.suffixes.push_back(suf0_10);
+            if (have10_20) G.suffixes.push_back(suf10_20);
+            centGroups.push_back(G);
+          }
+
+          for (const auto& cb : CentBins())
+          {
+            if (cb.lo == 0  && cb.hi == 10) continue;
+            if (cb.lo == 10 && cb.hi == 20) continue;
+
+            UnfoldCentGroup G;
+            G.lo = cb.lo;
+            G.hi = cb.hi;
+            G.suffixes.push_back(cb.suffix);
+            centGroups.push_back(G);
+          }
+        }
 
       map<string, Dataset*> simByCent;
       map<string, map<string, Dataset*> > dataByTriggerCent;
