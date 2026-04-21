@@ -3774,6 +3774,13 @@ void RunXJUEComparisons_AuAu()
         struct CentPairDef { string folder; CentSel a; CentSel b; };
         vector<CentPairDef> centPairs;
         
+        struct CentMultiDef
+        {
+            string folder;
+            vector<CentSel> sels;
+        };
+        vector<CentMultiDef> centMultis;
+        
         auto FindCentSelByFolder = [&](const string& folder)->const CentSel*
         {
             for (const auto& cs : centSels)
@@ -3796,10 +3803,29 @@ void RunXJUEComparisons_AuAu()
             centPairs.push_back(cp);
         };
         
+        auto AddCentMulti = [&](const string& folder, const vector<string>& folders) -> void
+        {
+            CentMultiDef cm;
+            cm.folder = folder;
+            
+            for (const auto& f : folders)
+            {
+                const CentSel* sel = FindCentSelByFolder(f);
+                if (!sel) return;
+                cm.sels.push_back(*sel);
+            }
+            
+            if (!cm.sels.empty()) centMultis.push_back(cm);
+        };
+        
         AddCentPair("0_10and40_60", "0_10", "40_60");
         AddCentPair("0_20and40_60", "0_20", "40_60");
         AddCentPair("0_10and60_80", "0_10", "60_80");
         AddCentPair("0_20and60_80", "0_20", "60_80");
+        
+        AddCentPair("0_20_OVERLAY_20_50", "0_20", "20_50");
+        AddCentPair("0_20_OVERLAY_50_80", "0_20", "50_80");
+        AddCentMulti("0_20_OVERLAY_20_50_AND_50_80", {"0_20", "20_50", "50_80"});
         
         // 3-variant overlay indices: noSub, variantA, variantB (resolved only from available files)
         vector<std::size_t> threeVarIdx;
@@ -4310,6 +4336,285 @@ void RunXJUEComparisons_AuAu()
                         }
                         if (h2A) delete h2A;
                         if (h2B) delete h2B;
+                    }
+                }
+                
+                // ── Multi-centrality overlay folders (inclusive only) ──
+                for (const auto& cm : centMultis)
+                {
+                    const string inclMDir = JoinPath(inclRDir, cm.folder);
+                    EnsureDir(inclMDir);
+                    
+                    struct VM2 { std::size_t idx; vector<TH2*> h2s; };
+                    vector<VM2> vm2s;
+                    
+                    if (cm.sels.size() < 2) continue;
+                    
+                    {
+                        VM2 vm;
+                        vm.idx = iv;
+                        
+                        for (std::size_t is = 0; is < cm.sels.size(); ++is)
+                        {
+                            TH2* h2 = MergeTH2(
+                                               trigDir,
+                                               "h2_unfoldReco_pTgamma_xJ_incl_",
+                                               rKey,
+                                               cm.sels[is].suffixes,
+                                               TString::Format("h2multi_incl_%s_%zu_%s_s%zu",
+                                                               rKey.c_str(), iv, cm.folder.c_str(), is).Data()
+                                               );
+                            if (!h2)
+                            {
+                                for (auto* hp : vm.h2s) delete hp;
+                                vm.h2s.clear();
+                                break;
+                            }
+                            vm.h2s.push_back(h2);
+                        }
+                        
+                        if (vm.h2s.size() == cm.sels.size()) vm2s.push_back(std::move(vm));
+                    }
+                    
+                    if (!vm2s.empty())
+                    {
+                        const int nPt = vm2s[0].h2s[0]->GetXaxis()->GetNbins();
+                        
+                        for (int ib = 1; ib <= nPt; ++ib)
+                        {
+                            const double ptLo = vm2s[0].h2s[0]->GetXaxis()->GetBinLowEdge(ib);
+                            const double ptHi = vm2s[0].h2s[0]->GetXaxis()->GetBinUpEdge(ib);
+                            const int iPtLo = (int)std::lround(ptLo);
+                            const int iPtHi = (int)std::lround(ptHi);
+                            const string ptFolder = TString::Format("pT_%d_%d", iPtLo, iPtHi).Data();
+                            const string ptDir = JoinPath(inclMDir, ptFolder);
+                            EnsureDir(ptDir);
+                            
+                            vector<TH1*> hists;
+                            vector<string> labs;
+                            
+                            for (std::size_t is = 0; is < cm.sels.size(); ++is)
+                            {
+                                const double cen = 0.5 * (ptLo + ptHi);
+                                const int ix = vm2s[0].h2s[is]->GetXaxis()->FindBin(cen);
+                                if (ix < 1 || ix > vm2s[0].h2s[is]->GetNbinsX()) continue;
+                                
+                                TH1D* h = vm2s[0].h2s[is]->ProjectionY(
+                                    TString::Format("hInclMulti_%s_%s_%s_b%d_s%zu_v%zu",
+                                                    rKey.c_str(), cm.folder.c_str(), ptFolder.c_str(), ib, is, iv).Data(),
+                                    ix, ix, "e");
+                                if (!h) continue;
+                                
+                                const int color = (is == 0) ? kBlack : ((is == 1) ? (kBlue + 1) : (kGreen + 2));
+                                StyleXJ(h, color, 20);
+                                hists.push_back(h);
+                                labs.push_back(TString::Format("Run3auau (%d-%d%%)", cm.sels[is].lo, cm.sels[is].hi).Data());
+                            }
+                            
+                            TH1* hPP = ProjectPP(
+                                                h2PP,
+                                                rKey,
+                                                TString::Format("multi_%s_%zu", cm.folder.c_str(), iv).Data(),
+                                                ib, ptLo, ptHi
+                                                );
+                            
+                            if (!hists.empty())
+                            {
+                                DrawXJOverlay(
+                                              hists, labs, hPP, "Run24pp",
+                                              JoinPath(ptDir, "xJ_inclusive_multiCentCompare.png"),
+                                              TString::Format("Inclusive reco x_{J}, %s, multi-centrality overlay", vHandles[iv].label.c_str()).Data(),
+                                              rKey, R, cm.sels.front().lo, cm.sels.back().hi, iPtLo, iPtHi, true
+                                              );
+                            }
+                            
+                            for (auto* h : hists) delete h;
+                            if (hPP) delete hPP;
+                        }
+                        
+                        {
+                            const Double_t savedEX = gStyle->GetErrorX();
+                            gStyle->SetErrorX(0);
+                            const int nShow = std::min(nPt, 9);
+                            const int ibStart = nPt - nShow + 1;
+                            
+                            TCanvas cTbl(
+                                         TString::Format("c_inclMultiTbl_%s_%zu_%s", rKey.c_str(), iv, cm.folder.c_str()).Data(),
+                                         "c_inclMultiTbl", 2700, 2100);
+                            cTbl.Divide(3, 3, 0.002, 0.002);
+                            
+                            vector<TH1*> keepTbl;
+                            TLegend* legTbl = nullptr;
+                            int iPad = 0;
+                            
+                            for (int ib = ibStart; ib <= nPt; ++ib)
+                            {
+                                const double ptLo = vm2s[0].h2s[0]->GetXaxis()->GetBinLowEdge(ib);
+                                const double ptHi = vm2s[0].h2s[0]->GetXaxis()->GetBinUpEdge(ib);
+                                const int iPtLo = (int)std::lround(ptLo);
+                                const int iPtHi = (int)std::lround(ptHi);
+                                
+                                vector<TH1*> hv;
+                                vector<string> lv;
+                                
+                                for (std::size_t is = 0; is < cm.sels.size(); ++is)
+                                {
+                                    const double cen = 0.5 * (ptLo + ptHi);
+                                    const int ix = vm2s[0].h2s[is]->GetXaxis()->FindBin(cen);
+                                    if (ix < 1 || ix > vm2s[0].h2s[is]->GetNbinsX()) continue;
+                                    
+                                    TH1D* h = vm2s[0].h2s[is]->ProjectionY(
+                                        TString::Format("hTblMulti_%s_%s_b%d_s%zu_v%zu",
+                                                        rKey.c_str(), cm.folder.c_str(), ib, is, iv).Data(),
+                                        ix, ix, "e");
+                                    if (!h) continue;
+                                    
+                                    const int color = (is == 0) ? kBlack : ((is == 1) ? (kBlue + 1) : (kGreen + 2));
+                                    StyleXJ(h, color, 20);
+                                    hv.push_back(h);
+                                    lv.push_back(TString::Format("Run3auau (%d-%d%%)", cm.sels[is].lo, cm.sels[is].hi).Data());
+                                    keepTbl.push_back(h);
+                                }
+                                
+                                if (hv.empty()) continue;
+                                
+                                TH1* hPP = ProjectPP(
+                                                    h2PP,
+                                                    rKey,
+                                                    TString::Format("tblmulti_%s_%zu_%d", cm.folder.c_str(), iv, ib).Data(),
+                                                    ib, ptLo, ptHi
+                                                    );
+                                if (hPP) keepTbl.push_back(hPP);
+                                
+                                ++iPad;
+                                cTbl.cd(iPad);
+                                gPad->SetLeftMargin(0.15);
+                                gPad->SetRightMargin(0.03);
+                                gPad->SetBottomMargin(0.13);
+                                gPad->SetTopMargin(0.08);
+                                
+                                double yMax = 0.0;
+                                for (auto* h : hv) yMax = std::max(yMax, h->GetMaximum());
+                                if (hPP) yMax = std::max(yMax, hPP->GetMaximum());
+                                
+                                hv[0]->SetTitle("");
+                                hv[0]->GetXaxis()->SetTitle("x_{J#gamma}");
+                                hv[0]->GetYaxis()->SetTitle("Norm.");
+                                hv[0]->GetXaxis()->SetTitleSize(0.06);
+                                hv[0]->GetYaxis()->SetTitleSize(0.06);
+                                hv[0]->GetXaxis()->SetLabelSize(0.05);
+                                hv[0]->GetYaxis()->SetLabelSize(0.05);
+                                hv[0]->GetYaxis()->SetTitleOffset(1.0);
+                                hv[0]->SetMinimum(0.0);
+                                hv[0]->SetMaximum((yMax > 0) ? 1.4 * yMax : 1.0);
+                                hv[0]->GetXaxis()->SetRangeUser(0.0, 2.0);
+                                hv[0]->Draw("E1");
+                                for (std::size_t ih = 1; ih < hv.size(); ++ih) hv[ih]->Draw("E1 SAME");
+                                if (hPP) hPP->Draw("E1 SAME");
+                                
+                                TLatex tPt;
+                                tPt.SetNDC(true);
+                                tPt.SetTextFont(42);
+                                tPt.SetTextSize(0.055);
+                                tPt.SetTextAlign(13);
+                                tPt.DrawLatex(0.20, 0.90,
+                                              TString::Format("p_{T}^{#gamma}: %d-%d GeV", iPtLo, iPtHi).Data());
+                                
+                                if (iPad == 1)
+                                {
+                                    legTbl = new TLegend(0.42, 0.50, 0.93, 0.90);
+                                    legTbl->SetBorderSize(0);
+                                    legTbl->SetFillStyle(0);
+                                    legTbl->SetTextFont(42);
+                                    legTbl->SetTextSize(0.040);
+                                    for (std::size_t ih = 0; ih < hv.size(); ++ih)
+                                        legTbl->AddEntry(hv[ih], lv[ih].c_str(), "ep");
+                                    if (hPP) legTbl->AddEntry(hPP, "Run24pp", "ep");
+                                    legTbl->Draw();
+                                }
+                            }
+                            
+                            SaveCanvas(cTbl, JoinPath(inclMDir, "xJ_inclusive_multiCentCompare_table.png"));
+                            cout << ANSI_BOLD_GRN << "[WROTE] "
+                            << JoinPath(inclMDir, "xJ_inclusive_multiCentCompare_table.png")
+                            << ANSI_RESET << "\n";
+                            
+                            for (auto* h : keepTbl) delete h;
+                            if (legTbl) delete legTbl;
+                            gStyle->SetErrorX(savedEX);
+                        }
+                        
+                        {
+                            struct IntPtBin { int threshold; string folder; };
+                            const vector<IntPtBin> intPtBins = {
+                                {16, "pT_gt_16"}, {20, "pT_gt_20"}, {22, "pT_gt_22"}
+                            };
+                            
+                            for (const auto& ipb : intPtBins)
+                            {
+                                const int ixLo = vm2s[0].h2s[0]->GetXaxis()->FindBin((double)ipb.threshold + 0.01);
+                                const int ixHi = vm2s[0].h2s[0]->GetNbinsX();
+                                if (ixLo < 1 || ixLo > ixHi) continue;
+                                
+                                const int iPtHi = (int)std::lround(vm2s[0].h2s[0]->GetXaxis()->GetBinUpEdge(ixHi));
+                                const string ptDir = JoinPath(inclMDir, ipb.folder);
+                                EnsureDir(ptDir);
+                                
+                                vector<TH1*> histsM;
+                                vector<string> labsM;
+                                
+                                for (std::size_t is = 0; is < cm.sels.size(); ++is)
+                                {
+                                    const int vxLo = vm2s[0].h2s[is]->GetXaxis()->FindBin((double)ipb.threshold + 0.01);
+                                    const int vxHi = vm2s[0].h2s[is]->GetNbinsX();
+                                    if (vxLo < 1 || vxLo > vxHi) continue;
+                                    
+                                    TH1D* h = vm2s[0].h2s[is]->ProjectionY(
+                                        TString::Format("hInclMulti_%s_%s_%s_s%zu_v%zu",
+                                                        rKey.c_str(), cm.folder.c_str(), ipb.folder.c_str(), is, iv).Data(),
+                                        vxLo, vxHi, "e");
+                                    if (!h) continue;
+                                    
+                                    const int color = (is == 0) ? kBlack : ((is == 1) ? (kBlue + 1) : (kGreen + 2));
+                                    StyleXJ(h, color, 20);
+                                    histsM.push_back(h);
+                                    labsM.push_back(TString::Format("Run3auau (%d-%d%%)", cm.sels[is].lo, cm.sels[is].hi).Data());
+                                }
+                                
+                                TH1* hPP = nullptr;
+                                if (h2PP)
+                                {
+                                    const int ppLo = h2PP->GetXaxis()->FindBin((double)ipb.threshold + 0.01);
+                                    const int ppHi = h2PP->GetNbinsX();
+                                    if (ppLo >= 1 && ppLo <= ppHi)
+                                    {
+                                        hPP = h2PP->ProjectionY(
+                                                                TString::Format("hPPincl_%s_multi_%s_%s_v%zu",
+                                                                                rKey.c_str(), cm.folder.c_str(), ipb.folder.c_str(), iv).Data(),
+                                                                ppLo, ppHi, "e");
+                                        if (hPP) StyleXJ(hPP, kRed + 1, 24);
+                                    }
+                                }
+                                
+                                if (!histsM.empty())
+                                {
+                                    DrawXJOverlay(
+                                                  histsM, labsM, hPP, "Run24pp",
+                                                  JoinPath(ptDir, "xJ_inclusive_multiCentCompare.png"),
+                                                  TString::Format("Inclusive reco x_{J}, %s, multi-centrality overlay", vHandles[iv].label.c_str()).Data(),
+                                                  rKey, R, cm.sels.front().lo, cm.sels.back().hi, ipb.threshold, iPtHi, true
+                                                  );
+                                }
+                                
+                                for (auto* h : histsM) delete h;
+                                if (hPP) delete hPP;
+                            }
+                        }
+                    }
+                    
+                    for (auto& vm : vm2s)
+                    {
+                        for (auto* h2 : vm.h2s) delete h2;
                     }
                 }
             }
