@@ -4160,7 +4160,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             "", 100, kPtEdges.front(), kPtEdges.back());
                         hFrameMean.SetDirectory(nullptr);
                         hFrameMean.SetStats(0);
-                        hFrameMean.SetMinimum(yMinMean - padMean);
+                        hFrameMean.SetMinimum(0.0);
                         hFrameMean.SetMaximum(yMaxMean + padMean);
                         hFrameMean.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
                         hFrameMean.GetYaxis()->SetTitle("#mu^{Gauss} [GeV]");

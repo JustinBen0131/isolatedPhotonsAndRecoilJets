@@ -101,9 +101,9 @@ inline bool isAuAuOnly     = true;
 
 inline bool isPPdataAndAUAU = false;
 
-inline bool generateUEcomparisonSSQA = true;
+inline bool generateUEcomparisonSSQA = false;
 inline bool skipToCentralityAndPtOverlaysWithSSQA = false;
-inline bool SSoverlayPerVAR_processONLY           = true;
+inline bool SSoverlayPerVAR_processONLY           = false;
 inline bool generateISOpTcentOverlaysONLY         = false;
 inline bool perVariantIsoQA_ONLY                  = false;
 
@@ -156,16 +156,16 @@ inline bool doPhotonJetMerge = false;
 //   RooUnfold: true = run both non-purity and purity-corrected passes + overlay.
 inline bool do_xJ_PPunfold = false;
 //   RooUnfold AuAu: true = run per-centrality unfolding with purity × combinatoric variants.
-inline bool do_xJ_AAunfold = false;
+inline bool do_xJ_AAunfold = true;
 
 //   Saved RooUnfold output: true = erase/rebuild/cache live unfolding output for this exact file combination;
 //   false = restore cached unfolding output and skip all unfolding work.
-inline bool saveRooUnfoldOutput = false;
+inline bool saveRooUnfoldOutput = true;
 
 //   Internal: selects raw vs ABCD purity-corrected reco inputs per pass.
-inline bool gApplyPurityCorrectionForUnfolding = false;
+inline bool gApplyPurityCorrectionForUnfolding = true;
 //   Internal: selects whether the embedded combinatoric template is subtracted before unfolding.
-inline bool gApplyCombinatoricSubtractionForUnfolding = false;
+inline bool gApplyCombinatoricSubtractionForUnfolding = true;
 
 //   One-off Sam vs Justin unsmear comparison:
 inline bool doSamVsJustinUnsmearOverlays = false;
