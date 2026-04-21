@@ -3752,62 +3752,20 @@ void RunXJUEComparisons_AuAu()
             return h;
         };
         
-        // ── Centrality selections (including merged 0-20 only when the legacy split bins exist) ──
+        // ── Centrality selections for overlays/comparisons ──
         struct CentSel { int lo; int hi; vector<string> suffixes; string folder; };
         vector<CentSel> centSels;
         {
-            bool have0_10 = false;
-            bool have10_20 = false;
-            bool haveNative0_20 = false;
-            string suf0_10;
-            string suf10_20;
+            const auto& overlayCentBins = OverlayCentBins();
+            centSels.reserve(overlayCentBins.size());
             
-            for (const auto& cb : CentBins())
-            {
-                if (cb.lo == 0  && cb.hi == 10) { have0_10 = true; suf0_10 = cb.suffix; continue; }
-                if (cb.lo == 10 && cb.hi == 20) { have10_20 = true; suf10_20 = cb.suffix; continue; }
-                if (cb.lo == 0  && cb.hi == 20) haveNative0_20 = true;
-            }
-            
-            if (have0_10)
+            for (const auto& ocb : overlayCentBins)
             {
                 CentSel cs;
-                cs.lo = 0;
-                cs.hi = 10;
-                cs.suffixes.push_back(suf0_10);
-                cs.folder = "0_10";
-                centSels.push_back(cs);
-            }
-            if (have10_20)
-            {
-                CentSel cs;
-                cs.lo = 10;
-                cs.hi = 20;
-                cs.suffixes.push_back(suf10_20);
-                cs.folder = "10_20";
-                centSels.push_back(cs);
-            }
-            if (!haveNative0_20 && (have0_10 || have10_20))
-            {
-                CentSel cs;
-                cs.lo = 0;
-                cs.hi = 20;
-                if (have0_10)  cs.suffixes.push_back(suf0_10);
-                if (have10_20) cs.suffixes.push_back(suf10_20);
-                cs.folder = "0_20";
-                centSels.push_back(cs);
-            }
-            
-            for (const auto& cb : CentBins())
-            {
-                if (cb.lo == 0  && cb.hi == 10) continue;
-                if (cb.lo == 10 && cb.hi == 20) continue;
-                
-                CentSel cs;
-                cs.lo = cb.lo;
-                cs.hi = cb.hi;
-                cs.suffixes.push_back(cb.suffix);
-                cs.folder = cb.folder;
+                cs.lo = ocb.lo;
+                cs.hi = ocb.hi;
+                cs.suffixes = ocb.suffixes;
+                cs.folder = ocb.folder;
                 centSels.push_back(cs);
             }
         }
@@ -15666,24 +15624,19 @@ int Run()
                         
                         vector<TGraphErrors*> keepGraphs;
                         
-                        // Build merged centrality bins for overlay (0-10 + 10-20 → 0-20)
                         struct OvCent { int lo; int hi; vector<string> suffixes; };
                         vector<OvCent> ovCents;
                         {
-                            bool have0_10 = false, have10_20 = false;
-                            string suf0_10, suf10_20;
-                            for (const auto& cb : centBinsOv)
+                            const auto& overlayCentBins = OverlayCentBins();
+                            ovCents.reserve(overlayCentBins.size());
+                            
+                            for (const auto& ocb : overlayCentBins)
                             {
-                                if (cb.lo == 0  && cb.hi == 10) { have0_10 = true; suf0_10 = cb.suffix; continue; }
-                                if (cb.lo == 10 && cb.hi == 20) { have10_20 = true; suf10_20 = cb.suffix; continue; }
-                                ovCents.push_back({cb.lo, cb.hi, {cb.suffix}});
-                            }
-                            if (have0_10 || have10_20)
-                            {
-                                OvCent merged020 = {0, 20, {}};
-                                if (have0_10)  merged020.suffixes.push_back(suf0_10);
-                                if (have10_20) merged020.suffixes.push_back(suf10_20);
-                                ovCents.insert(ovCents.begin(), merged020);
+                                OvCent oc;
+                                oc.lo = ocb.lo;
+                                oc.hi = ocb.hi;
+                                oc.suffixes = ocb.suffixes;
+                                ovCents.push_back(oc);
                             }
                         }
                         
@@ -15818,58 +15771,16 @@ int Run()
                             struct SelCent { int lo; int hi; int color; vector<string> suffixes; };
                             std::vector<SelCent> availableSelCents;
                             {
-                                bool have0_10 = false;
-                                bool have10_20 = false;
-                                bool haveNative0_20 = false;
-                                string suf0_10;
-                                string suf10_20;
+                                const auto& overlayCentBins = OverlayCentBins();
+                                availableSelCents.reserve(overlayCentBins.size());
                                 
-                                for (const auto& cb : CentBins())
-                                {
-                                    if (cb.lo == 0  && cb.hi == 10) { have0_10 = true; suf0_10 = cb.suffix; continue; }
-                                    if (cb.lo == 10 && cb.hi == 20) { have10_20 = true; suf10_20 = cb.suffix; continue; }
-                                    if (cb.lo == 0  && cb.hi == 20) haveNative0_20 = true;
-                                }
-                                
-                                if (have0_10)
+                                for (const auto& ocb : overlayCentBins)
                                 {
                                     SelCent sc;
-                                    sc.lo = 0;
-                                    sc.hi = 10;
+                                    sc.lo = ocb.lo;
+                                    sc.hi = ocb.hi;
                                     sc.color = 0;
-                                    sc.suffixes.push_back(suf0_10);
-                                    availableSelCents.push_back(sc);
-                                }
-                                if (have10_20)
-                                {
-                                    SelCent sc;
-                                    sc.lo = 10;
-                                    sc.hi = 20;
-                                    sc.color = 0;
-                                    sc.suffixes.push_back(suf10_20);
-                                    availableSelCents.push_back(sc);
-                                }
-                                if (!haveNative0_20 && (have0_10 || have10_20))
-                                {
-                                    SelCent sc;
-                                    sc.lo = 0;
-                                    sc.hi = 20;
-                                    sc.color = 0;
-                                    if (have0_10)  sc.suffixes.push_back(suf0_10);
-                                    if (have10_20) sc.suffixes.push_back(suf10_20);
-                                    availableSelCents.push_back(sc);
-                                }
-                                
-                                for (const auto& cb : CentBins())
-                                {
-                                    if (cb.lo == 0  && cb.hi == 10) continue;
-                                    if (cb.lo == 10 && cb.hi == 20) continue;
-                                    
-                                    SelCent sc;
-                                    sc.lo = cb.lo;
-                                    sc.hi = cb.hi;
-                                    sc.color = 0;
-                                    sc.suffixes.push_back(cb.suffix);
+                                    sc.suffixes = ocb.suffixes;
                                     availableSelCents.push_back(sc);
                                 }
                             }
@@ -16135,54 +16046,15 @@ int Run()
                                 struct SelCentUE { int lo; int hi; vector<string> suffixes; };
                                 std::vector<SelCentUE> selCentsUE;
                                 {
-                                    bool have0_10 = false;
-                                    bool have10_20 = false;
-                                    bool haveNative0_20 = false;
-                                    string suf0_10;
-                                    string suf10_20;
+                                    const auto& overlayCentBins = OverlayCentBins();
+                                    selCentsUE.reserve(overlayCentBins.size());
                                     
-                                    for (const auto& cb : CentBins())
-                                    {
-                                        if (cb.lo == 0  && cb.hi == 10) { have0_10 = true; suf0_10 = cb.suffix; continue; }
-                                        if (cb.lo == 10 && cb.hi == 20) { have10_20 = true; suf10_20 = cb.suffix; continue; }
-                                        if (cb.lo == 0  && cb.hi == 20) haveNative0_20 = true;
-                                    }
-                                    
-                                    if (have0_10)
+                                    for (const auto& ocb : overlayCentBins)
                                     {
                                         SelCentUE sc;
-                                        sc.lo = 0;
-                                        sc.hi = 10;
-                                        sc.suffixes.push_back(suf0_10);
-                                        selCentsUE.push_back(sc);
-                                    }
-                                    if (have10_20)
-                                    {
-                                        SelCentUE sc;
-                                        sc.lo = 10;
-                                        sc.hi = 20;
-                                        sc.suffixes.push_back(suf10_20);
-                                        selCentsUE.push_back(sc);
-                                    }
-                                    if (!haveNative0_20 && (have0_10 || have10_20))
-                                    {
-                                        SelCentUE sc;
-                                        sc.lo = 0;
-                                        sc.hi = 20;
-                                        if (have0_10)  sc.suffixes.push_back(suf0_10);
-                                        if (have10_20) sc.suffixes.push_back(suf10_20);
-                                        selCentsUE.push_back(sc);
-                                    }
-                                    
-                                    for (const auto& cb : CentBins())
-                                    {
-                                        if (cb.lo == 0  && cb.hi == 10) continue;
-                                        if (cb.lo == 10 && cb.hi == 20) continue;
-                                        
-                                        SelCentUE sc;
-                                        sc.lo = cb.lo;
-                                        sc.hi = cb.hi;
-                                        sc.suffixes.push_back(cb.suffix);
+                                        sc.lo = ocb.lo;
+                                        sc.hi = ocb.hi;
+                                        sc.suffixes = ocb.suffixes;
                                         selCentsUE.push_back(sc);
                                     }
                                 }

@@ -157,16 +157,16 @@ inline bool doPhotonJetMerge = false;
 //   RooUnfold: true = run both non-purity and purity-corrected passes + overlay.
 inline bool do_xJ_PPunfold = false;
 //   RooUnfold AuAu: true = run per-centrality unfolding with purity × combinatoric variants.
-inline bool do_xJ_AAunfold = true;
+inline bool do_xJ_AAunfold = false;
 
 //   Saved RooUnfold output: true = erase/rebuild/cache live unfolding output for this exact file combination;
 //   false = restore cached unfolding output and skip all unfolding work.
-inline bool saveRooUnfoldOutput = true;
+inline bool saveRooUnfoldOutput = false;
 
 //   Internal: selects raw vs ABCD purity-corrected reco inputs per pass.
-inline bool gApplyPurityCorrectionForUnfolding = true;
+inline bool gApplyPurityCorrectionForUnfolding = false;
 //   Internal: selects whether the embedded combinatoric template is subtracted before unfolding.
-inline bool gApplyCombinatoricSubtractionForUnfolding = true;
+inline bool gApplyCombinatoricSubtractionForUnfolding = false;
 
 //   One-off Sam vs Justin unsmear comparison:
 inline bool doSamVsJustinUnsmearOverlays = false;
@@ -951,6 +951,94 @@ inline const vector<CentBin>& CentBins()
         {
             std::ostringstream s; s << "_cent_" << b.lo << "_" << b.hi; b.suffix = s.str();
         }
+        v.push_back(b);
+    }
+    
+    return v;
+}
+
+struct OverlayCentBin
+{
+    int lo = 0;
+    int hi = 0;
+    string label;
+    string folder;
+    vector<string> suffixes;
+};
+
+// Centrality bins to use for overlay/comparison products.
+// Rules:
+//   - If the active configuration already contains a native 0-20 bin
+//     (for example 0-20, 20-50, 50-80), use ONLY the native bins.
+//   - If the active configuration is the split legacy scheme
+//     (0-10, 10-20, ...), keep those native bins and also expose a merged 0-20.
+inline const vector<OverlayCentBin>& OverlayCentBins()
+{
+    static vector<OverlayCentBin> v;
+    if (!v.empty()) return v;
+    
+    const auto& native = CentBins();
+    if (native.empty()) return v;
+    
+    bool have0_10 = false;
+    bool have10_20 = false;
+    bool haveNative0_20 = false;
+    string suf0_10;
+    string suf10_20;
+    
+    for (const auto& cb : native)
+    {
+        if (cb.lo == 0  && cb.hi == 10) { have0_10 = true; suf0_10 = cb.suffix; continue; }
+        if (cb.lo == 10 && cb.hi == 20) { have10_20 = true; suf10_20 = cb.suffix; continue; }
+        if (cb.lo == 0  && cb.hi == 20) haveNative0_20 = true;
+    }
+    
+    if (!haveNative0_20)
+    {
+        if (have0_10)
+        {
+            OverlayCentBin b;
+            b.lo = 0;
+            b.hi = 10;
+            b.label = "0-10";
+            b.folder = "0_10";
+            b.suffixes.push_back(suf0_10);
+            v.push_back(b);
+        }
+        if (have10_20)
+        {
+            OverlayCentBin b;
+            b.lo = 10;
+            b.hi = 20;
+            b.label = "10-20";
+            b.folder = "10_20";
+            b.suffixes.push_back(suf10_20);
+            v.push_back(b);
+        }
+        if (have0_10 || have10_20)
+        {
+            OverlayCentBin b;
+            b.lo = 0;
+            b.hi = 20;
+            b.label = "0-20";
+            b.folder = "0_20";
+            if (have0_10)  b.suffixes.push_back(suf0_10);
+            if (have10_20) b.suffixes.push_back(suf10_20);
+            v.push_back(b);
+        }
+    }
+    
+    for (const auto& cb : native)
+    {
+        if (!haveNative0_20 && cb.lo == 0  && cb.hi == 10) continue;
+        if (!haveNative0_20 && cb.lo == 10 && cb.hi == 20) continue;
+        
+        OverlayCentBin b;
+        b.lo = cb.lo;
+        b.hi = cb.hi;
+        b.label = cb.label;
+        b.folder = cb.folder;
+        b.suffixes.push_back(cb.suffix);
         v.push_back(b);
     }
     
