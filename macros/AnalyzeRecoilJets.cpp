@@ -3610,52 +3610,49 @@ void RunXJUEComparisons_AuAu()
             if (hPP) leg.AddEntry(hPP, ppLabel.c_str(), "ep");
             leg.Draw();
             
-            if (ptInTitle)
             {
-                // ---- title (no pT, no R — those go elsewhere) ----
+                std::string trigLabel;
+                {
+                    int photonPt = 0;
+                    if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
+                        trigLabel = TString::Format("Trigger = Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                    else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                        trigLabel = "Trigger = MBD NS #geq 2, vtx < 150 cm";
+                    else
+                        trigLabel = "Trigger = " + trigAA;
+                }
+                
+                const string b2bLabel = (kAA_B2BCut == "7pi_8")
+                ? "|#Delta #phi(#gamma, jet)| > 7#pi/8" : "|#Delta #phi(#gamma, jet)| > #pi/2";
+                const string isoConeLabel = (kAA_IsoConeR == "isoR40")
+                ? "#Delta R_{cone} < 0.4" : "#Delta R_{cone} < 0.3";
+                
+                string isoModeLabel;
+                if (kAA_IsoMode == "fixedIso4GeV")      isoModeLabel = "E_{T}^{iso} < 4 GeV";
+                else if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel = "E_{T}^{iso} < 5 GeV";
+                else                                    isoModeLabel = "E_{T}^{iso} < 1.08128 + 0.0299107 #times E_{T}^{#gamma}";
+                
                 TLatex tTitle;
                 tTitle.SetNDC(true);
                 tTitle.SetTextFont(42);
                 tTitle.SetTextAlign(23);
                 tTitle.SetTextSize(0.040);
                 tTitle.DrawLatex(0.50, 0.98,
-                                 TString::Format("%s, %d-%d%% Cent AuAu, R=%.1f",
-                                                 titlePrefix.c_str(), centLo, centHi, R).Data());
-                
-                // ---- pTγ in large font below legend ----
-                TLatex tPt;
-                tPt.SetNDC(true);
-                tPt.SetTextFont(42);
-                tPt.SetTextAlign(13);
-                tPt.SetTextSize(0.045);
-                tPt.DrawLatex(0.62, 0.75,
-                              TString::Format("p_{T}^{#gamma}: %d-%d GeV", ptLo, ptHi).Data());
-                
-                // ---- cut annotations: 2-column layout under pTγ ----
-                const string b2bLabel = (kAA_B2BCut == "7pi_8")
-                ? "|#Delta#phi| > 7#pi/8" : "|#Delta#phi| > #pi/2";
-                const string isoRLabel = (kAA_IsoConeR == "isoR40")
-                ? "#DeltaR^{iso} < 0.4" : "#DeltaR^{iso} < 0.3";
-                const string isoModeLabel = (kAA_IsoMode == "fixedIso5GeV")
-                ? "E_{T}^{iso} < 5 GeV"
-                : "E_{T}^{iso} < 1.08128 + 0.0299107 #times E_{T}^{#gamma}";
+                                 TString::Format("%s, R = %.1f, p_{T}^{#gamma} = %d-%d GeV, Run25auau",
+                                                 titlePrefix.c_str(), R, ptLo, ptHi).Data());
                 
                 TLatex tCuts;
                 tCuts.SetNDC(true);
                 tCuts.SetTextFont(42);
                 tCuts.SetTextAlign(13);
                 tCuts.SetTextSize(0.028);
+                tCuts.DrawLatex(0.18, 0.89, trigLabel.c_str());
+                tCuts.DrawLatex(0.18, 0.85, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
+                tCuts.DrawLatex(0.18, 0.81, isoConeLabel.c_str());
+                tCuts.DrawLatex(0.18, 0.77, isoModeLabel.c_str());
+                tCuts.DrawLatex(0.18, 0.73, b2bLabel.c_str());
+                tCuts.DrawLatex(0.18, 0.69, TString::Format("p_{T, min}^{jet} > %d GeV", kAA_JetPtMin).Data());
                 
-                // col 1 (left)                        col 2 (right)
-                tCuts.DrawLatex(0.52, 0.70, b2bLabel.c_str());
-                tCuts.DrawLatex(0.76, 0.70,
-                                TString::Format("p_{T}^{jet} > %d GeV", kAA_JetPtMin).Data());
-                tCuts.DrawLatex(0.52, 0.66, isoRLabel.c_str());
-                tCuts.DrawLatex(0.76, 0.66,
-                                TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
-                tCuts.DrawLatex(0.52, 0.62, isoModeLabel.c_str());
-                
-                // ---- sPHENIX Internal + Au+Au at bottom RHS ----
                 TLatex tSph;
                 tSph.SetNDC(true);
                 tSph.SetTextFont(42);
@@ -3664,24 +3661,6 @@ void RunXJUEComparisons_AuAu()
                 tSph.DrawLatex(0.92, 0.18, "#bf{sPHENIX} #it{Internal}");
                 tSph.SetTextSize(0.038);
                 tSph.DrawLatex(0.92, 0.12, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
-            }
-            else
-            {
-                TLatex tTitle;
-                tTitle.SetNDC(true);
-                tTitle.SetTextFont(42);
-                tTitle.SetTextAlign(23);
-                tTitle.SetTextSize(0.040);
-                tTitle.DrawLatex(0.50, 0.98,
-                                 TString::Format("%s, %d-%d%% Cent AuAu, R=%.1f", titlePrefix.c_str(), centLo, centHi, R).Data());
-                
-                TLatex tCuts;
-                tCuts.SetNDC(true);
-                tCuts.SetTextFont(42);
-                tCuts.SetTextAlign(13);
-                tCuts.SetTextSize(0.028);
-                tCuts.DrawLatex(0.18, 0.89, "Trigger = Photon 10 GeV + MBD NS #geq 2, vtx < 150 cm");
-                tCuts.DrawLatex(0.18, 0.85, TString::Format("p_{T}^{#gamma}: %d-%d GeV", ptLo, ptHi).Data());
             }
             
             SaveCanvas(cXJ, outPng);
@@ -4174,8 +4153,7 @@ void RunXJUEComparisons_AuAu()
                                                          TString::Format("cp_%s_%zu", cp.folder.c_str(), iv).Data(), ib, ptLo, ptHi);
                                     DrawXJOverlay({hA, hB}, {labelA, labelB}, hPP, "pp",
                                                   JoinPath(ptDir, "xJ_inclusive_centCompare.png"),
-                                                  TString::Format("Inclusive x_{J}, %s, %d-%d%% vs %d-%d%% AuAu",
-                                                                  vHandles[iv].label.c_str(), cp.a.lo, cp.a.hi, cp.b.lo, cp.b.hi).Data(),
+                                                  "Inclusive x_{J#gamma}",
                                                   rKey, R, cp.a.lo, cp.b.hi, iPtLo, iPtHi, true);
                                     if (hPP) delete hPP;
                                 }
@@ -4326,8 +4304,8 @@ void RunXJUEComparisons_AuAu()
                                     
                                     DrawXJOverlay({hA, hB}, {labelA, labelB}, hPP, "pp",
                                                   JoinPath(ptDir, "xJ_inclusive_centCompare.png"),
-                                                  TString::Format("Inclusive x_{J}, %s, cent compare", vHandles[iv].label.c_str()).Data(),
-                                                  rKey, R, cp.a.lo, cp.b.hi, ipb.threshold, iPtHi);
+                                                  "Inclusive x_{J#gamma}",
+                                                  rKey, R, cp.a.lo, cp.b.hi, ipb.threshold, iPtHi, true);
                                     if (hPP) delete hPP;
                                     delete hA;
                                     delete hB;
