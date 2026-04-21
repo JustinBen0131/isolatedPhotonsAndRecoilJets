@@ -69,10 +69,10 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
     const bool perVariantIsoQAOnlyActive = (!forEmbeddedSim && perVariantIsoQA_ONLY);
     
     const vector<string> ueVariants = perVariantIsoQAOnlyActive
-    ? vector<string>{"baseVariant"}
+    ? vector<string>{"noSub", "baseVariant"}
     : vector<string>{"noSub", "baseVariant", "variantA", "variantB"};
     const vector<string> ueLabels   = perVariantIsoQAOnlyActive
-    ? vector<string>{"with UE Sub"}
+    ? vector<string>{"No UE Sub", "with UE Sub"}
     : vector<string>{"No UE Sub", "with UE Sub", "Variant A", "Variant B"};
     
     const auto& centBins = CentBins();
@@ -776,8 +776,9 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             const string variantCentralitySummaryDir = JoinPath(centralitySummaryBase, H.variant);
             const string variantPtSummaryDir = JoinPath(ptSummaryBase, H.variant);
             const bool doVariantDetailPlots = !forEmbeddedSim;
+            const bool writeVariantCentralityPtSummaries = !forEmbeddedSim;
             if (doVariantDetailPlots) EnsureDir(variantDir);
-            if (!perVariantIsoQAOnlyActive)
+            if (writeVariantCentralityPtSummaries)
             {
                 EnsureDir(variantCentralitySummaryDir);
                 EnsureDir(variantPtSummaryDir);
@@ -3118,7 +3119,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     
                     cCO.Modified();
                     cCO.Update();
-                    if (!perVariantIsoQAOnlyActive)
+                    if (writeVariantCentralityPtSummaries)
                         SaveCanvas(cCO, JoinPath(variantCentralitySummaryDir,
                                                  TString::Format("isoCentOverlay_counts_%s.png", b.folder.c_str()).Data()));
                     
@@ -3136,7 +3137,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         hCents[0]->GetXaxis()->SetRangeUser(-10.0, 20.0);
                     cCOTopOnly.Modified();
                     cCOTopOnly.Update();
-                    if (!perVariantIsoQAOnlyActive)
+                    if (writeVariantCentralityPtSummaries)
                         SaveCanvas(cCOTopOnly, JoinPath(variantCentralitySummaryDir,
                                                         TString::Format("isoCentOverlay_counts_topOnly_%s.png", b.folder.c_str()).Data()));
                     for (auto* f : gaussCurvesTopOnly) delete f;
@@ -3270,7 +3271,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         tInfo.DrawLatex(0.88, 0.83, TString::Format("#DeltaR_{cone} < %.1f", coneRVal).Data());
                     }
                     
-                    if (!perVariantIsoQAOnlyActive)
+                    if (writeVariantCentralityPtSummaries)
                         SaveCanvas(cPP, JoinPath(variantCentralitySummaryDir,
                                                  TString::Format("ppIso_counts_%s.png", b.folder.c_str()).Data()));
                     
@@ -3549,7 +3550,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     cPO.Modified();
                     cPO.Update();
                     SaveCanvas(cPO, JoinPath(centSubDir, "isoPtOverlay_counts.png"));
-                    if (!perVariantIsoQAOnlyActive)
+                    if (writeVariantCentralityPtSummaries)
                         SaveCanvas(cPO, JoinPath(variantPtSummaryDir,
                                                  TString::Format("isoPtOverlay_counts_%s.png", cb.folder.c_str()).Data()));
                     
@@ -5359,6 +5360,39 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         vector<std::size_t>   sIndices;
                         double yMinS = 1e30, yMaxS = -1e30;
                         
+                        bool havePPGauss = false;
+                        double ppSigmaCent = 0.0, ppSigmaErrCent = 0.0;
+                        TH1* hPPSigmaCent = nullptr;
+                        if (!forEmbeddedSim && ppTop)
+                        {
+                            const string hPPName = "h_Eiso" + b.suffix;
+                            TH1* hPPSrc = dynamic_cast<TH1*>(ppTop->Get(hPPName.c_str()));
+                            if (hPPSrc)
+                            {
+                                hPPSigmaCent = CloneTH1(
+                                                        hPPSrc,
+                                                        TString::Format("hPP_gaussSigmaVsCent_%s",
+                                                                        b.folder.c_str()).Data()
+                                                        );
+                                if (hPPSigmaCent)
+                                {
+                                    hPPSigmaCent->Rebin(10);
+                                    EnsureSumw2(hPPSigmaCent);
+                                    double ppMuCent = 0.0, ppMuErrCent = 0.0;
+                                    havePPGauss = FitGaussianRepresentativePP(
+                                                                              hPPSigmaCent,
+                                                                              ppMuCent, ppSigmaCent,
+                                                                              ppMuErrCent, ppSigmaErrCent
+                                                                              );
+                                    if (havePPGauss)
+                                    {
+                                        yMinS = std::min(yMinS, ppSigmaCent - ppSigmaErrCent);
+                                        yMaxS = std::max(yMaxS, ppSigmaCent + ppSigmaErrCent);
+                                    }
+                                }
+                            }
+                        }
+                        
                         for (std::size_t iv = 0; iv < handles.size(); ++iv)
                         {
                             if (!handles[iv].file) continue;
@@ -5387,24 +5421,45 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         {
                             if (!std::isfinite(yMinS) || !std::isfinite(yMaxS)) { yMinS = 0; yMaxS = 5; }
                             const double padS = (yMaxS > yMinS) ? 0.30 * (yMaxS - yMinS) : 0.5;
+                            const double yMinFrame = std::max(0.0, std::floor(std::max(0.0, yMinS - padS)));
+                            double yMaxFrame = std::ceil(yMaxS + padS);
+                            if (yMaxFrame <= yMinFrame) yMaxFrame = yMinFrame + 1.0;
+                            
                             TCanvas cGS(TString::Format("c_gaussSigmaVsCent_%s", b.folder.c_str()).Data(), "", 900, 700);
                             ApplyCanvasMargins1D(cGS); cGS.cd();
                             TH1F hFrGS(TString::Format("hFr_gaussSigmaVsCent_%s", b.folder.c_str()).Data(),
                                        "", 100, centBins.front().lo, centBins.back().hi);
                             hFrGS.SetDirectory(nullptr); hFrGS.SetStats(0);
-                            hFrGS.SetMinimum(std::max(0.0, yMinS - padS)); hFrGS.SetMaximum(yMaxS + padS);
+                            hFrGS.SetMinimum(yMinFrame); hFrGS.SetMaximum(yMaxFrame);
                             hFrGS.GetXaxis()->SetTitle("Centrality [%]");
                             hFrGS.GetYaxis()->SetTitle("Gaussian #sigma [GeV]");
                             hFrGS.GetXaxis()->SetTitleSize(0.055); hFrGS.GetYaxis()->SetTitleSize(0.055);
                             hFrGS.GetXaxis()->SetLabelSize(0.045); hFrGS.GetYaxis()->SetLabelSize(0.045);
                             hFrGS.GetYaxis()->SetTitleOffset(1.15);
+                            hFrGS.GetXaxis()->SetNdivisions(505);
+                            hFrGS.GetYaxis()->SetNdivisions(505);
                             hFrGS.Draw();
+                            
+                            TLine ppSigmaLine;
+                            if (havePPGauss)
+                            {
+                                ppSigmaLine.SetLineColor(kBlack);
+                                ppSigmaLine.SetLineStyle(2);
+                                ppSigmaLine.SetLineWidth(2);
+                                ppSigmaLine.DrawLine(centBins.front().lo, ppSigmaCent,
+                                                     centBins.back().hi,  ppSigmaCent);
+                            }
+                            
                             for (auto* g : sGraphs) g->Draw("PE1 SAME");
-                            TLegend lgGS(0.78, 0.68, 0.86, 0.92);
+                            
+                            TLegend lgGS(0.66, 0.66, 0.92, 0.92);
                             lgGS.SetBorderSize(0); lgGS.SetFillStyle(0); lgGS.SetTextFont(42); lgGS.SetTextSize(0.032);
                             for (std::size_t ig = 0; ig < sGraphs.size(); ++ig)
                                 lgGS.AddEntry(sGraphs[ig], handles[sIndices[ig]].label.c_str(), "ep");
+                            if (havePPGauss)
+                                lgGS.AddEntry(&ppSigmaLine, "pp #sigma^{Gauss}", "l");
                             lgGS.Draw();
+                            
                             TLatex tGS; tGS.SetNDC(true); tGS.SetTextFont(42); tGS.SetTextAlign(23); tGS.SetTextSize(0.042);
                             tGS.DrawLatex(0.50, 0.98,
                                           TString::Format("Gaussian #sigma vs Centrality, p_{T}^{#gamma} %d-%d GeV", b.lo, b.hi).Data());
@@ -5415,6 +5470,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                                      TString::Format("gaussSigma_allVariants_vs_cent_%s.png", b.folder.c_str()).Data()));
                             for (auto* g : sGraphs) delete g;
                         }
+                        if (hPPSigmaCent) delete hPPSigmaCent;
                     }
                 }
             }
