@@ -3474,7 +3474,7 @@ void RunXJUEComparisons_AuAu()
     const vector<string> ueVariants = {"noSub", "baseVariant", "variantA", "variantB"};
     const vector<string> ueLabels   = {"No UE sub", "Base Variant", "Variant A", "Variant B"};
     const int ueColors[4]  = {kBlack, kBlue + 1, kOrange + 7, kGreen + 2};
-    const vector<string> rKeysAA = {"r02", "r04"};
+    const vector<string>& rKeysAA = kRKeys;
     
     const auto& centBins = CentBins();
     if (centBins.empty())
