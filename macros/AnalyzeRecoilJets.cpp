@@ -3513,6 +3513,10 @@ void RunXJUEComparisons_AuAu()
         vector<VarHandle> vHandles;
         vHandles.reserve(ueVariants.size());
         
+        bool haveNoSub = false;
+        bool haveVariantA = false;
+        bool haveVariantB = false;
+        
         for (std::size_t iv = 0; iv < ueVariants.size(); ++iv)
         {
             VarHandle V;
@@ -3525,9 +3529,26 @@ void RunXJUEComparisons_AuAu()
                 if (V.file) { V.file->Close(); delete V.file; V.file = nullptr; }
                 cout << ANSI_BOLD_YEL << "[WARN] Missing AuAu UE variant for xJ: "
                 << InputAuAu(V.variant) << ANSI_RESET << "\n";
+                continue;
             }
+            
+            if (V.variant == "noSub")    haveNoSub = true;
+            if (V.variant == "variantA") haveVariantA = true;
+            if (V.variant == "variantB") haveVariantB = true;
+            
             vHandles.push_back(std::move(V));
         }
+        
+        if (vHandles.empty()) continue;
+        
+        const auto FindVariantHandleIndex = [&](const string& variant) -> std::size_t
+        {
+            for (std::size_t iv = 0; iv < vHandles.size(); ++iv)
+            {
+                if (vHandles[iv].variant == variant) return iv;
+            }
+            return vHandles.size();
+        };
         
         const string leadBase = JoinPath(trigOutBase, "leadingJetXJcomparisons");
         const string inclBase = JoinPath(trigOutBase, "inclusiveXJcomparisons");
@@ -3822,8 +3843,21 @@ void RunXJUEComparisons_AuAu()
         AddCentPair("0_10and60_80", "0_10", "60_80");
         AddCentPair("0_20and60_80", "0_20", "60_80");
         
-        // 3-variant overlay indices: noSub(0), variantA(2), variantB(3)
-        const vector<std::size_t> threeVarIdx = {0, 2, 3};
+        // 3-variant overlay indices: noSub, variantA, variantB (resolved only from available files)
+        vector<std::size_t> threeVarIdx;
+        if (haveNoSub && haveVariantA && haveVariantB)
+        {
+            const std::size_t idxNoSub = FindVariantHandleIndex("noSub");
+            const std::size_t idxVarA  = FindVariantHandleIndex("variantA");
+            const std::size_t idxVarB  = FindVariantHandleIndex("variantB");
+            
+            if (idxNoSub < vHandles.size() && idxVarA < vHandles.size() && idxVarB < vHandles.size())
+            {
+                threeVarIdx.push_back(idxNoSub);
+                threeVarIdx.push_back(idxVarA);
+                threeVarIdx.push_back(idxVarB);
+            }
+        }
         
         // ────────────────────────────────────────────────
         // Phase 1: Per-variant folders  (variant/rKey/cent/pT)
@@ -4326,6 +4360,7 @@ void RunXJUEComparisons_AuAu()
         // ────────────────────────────────────────────────
         // Phase 2: noSub_varA_varB overlay folder
         // ────────────────────────────────────────────────
+        if (!threeVarIdx.empty())
         {
             const string threeLeadBase = JoinPath(leadBase, "noSub_varA_varB");
             const string threeInclBase = JoinPath(inclBase, "noSub_varA_varB");
@@ -15018,11 +15053,21 @@ int Run()
     // Fast paths that must run BEFORE OpenDataset(), so no extra outBase folders
     // or missing_hists_*.txt files are created.
     // ---------------------------------------------------------------------------
-    if (perVariantIsoQA_ONLY || generateISOpTcentOverlaysONLY)
+    if (perVariantIsoQA_ONLY || generateISOpTcentOverlaysONLY || DO_inclusiveXJcomparisons_ONLY)
     {
         if (mode == RunMode::kAuAuOnly || mode == RunMode::kSimAndDataAUAU)
         {
-            if (perVariantIsoQA_ONLY)
+            if (DO_inclusiveXJcomparisons_ONLY)
+            {
+                cout << ANSI_BOLD_CYN
+                << "\n[DO_inclusiveXJcomparisons_ONLY] Running only inclusive xJ UE comparison outputs...\n"
+                << ANSI_RESET;
+                analysis::RunXJUEComparisons_AuAu();
+                cout << ANSI_BOLD_GRN
+                << "[DO_inclusiveXJcomparisons_ONLY] Done.\n"
+                << ANSI_RESET;
+            }
+            else if (perVariantIsoQA_ONLY)
             {
                 cout << ANSI_BOLD_CYN
                 << "\n[perVariantIsoQA_ONLY] Running only noSub/baseVariant isoQA UE comparison outputs...\n"
@@ -15045,7 +15090,13 @@ int Run()
         }
         else
         {
-            if (perVariantIsoQA_ONLY)
+            if (DO_inclusiveXJcomparisons_ONLY)
+            {
+                cout << ANSI_BOLD_YEL
+                << "[WARN] DO_inclusiveXJcomparisons_ONLY requires kAuAuOnly or kSimAndDataAUAU mode — skipping.\n"
+                << ANSI_RESET;
+            }
+            else if (perVariantIsoQA_ONLY)
             {
                 cout << ANSI_BOLD_YEL
                 << "[WARN] perVariantIsoQA_ONLY requires kAuAuOnly or kSimAndDataAUAU mode — skipping.\n"
