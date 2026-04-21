@@ -3627,10 +3627,21 @@ void RunXJUEComparisons_AuAu()
                 const string isoConeLabel = (kAA_IsoConeR == "isoR40")
                 ? "#Delta R_{cone} < 0.4" : "#Delta R_{cone} < 0.3";
                 
-                string isoModeLabel;
-                if (kAA_IsoMode == "fixedIso4GeV")      isoModeLabel = "E_{T}^{iso} < 4 GeV";
-                else if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel = "E_{T}^{iso} < 5 GeV";
-                else                                    isoModeLabel = "E_{T}^{iso} < 1.08128 + 0.0299107 #times E_{T}^{#gamma}";
+                string isoModeLabel1;
+                string isoModeLabel2;
+                if (kAA_IsoMode == "fixedIso4GeV")
+                {
+                    isoModeLabel1 = "E_{T}^{iso} < 4 GeV";
+                }
+                else if (kAA_IsoMode == "fixedIso5GeV")
+                {
+                    isoModeLabel1 = "E_{T}^{iso} < 5 GeV";
+                }
+                else
+                {
+                    isoModeLabel1 = "E_{T}^{iso} < E_{T, cut}^{iso}(cent)";
+                    isoModeLabel2 = "E_{T, cut}^{iso}(cent) = 5.99 - 0.0511 #times centrality[%] GeV";
+                }
                 
                 TLatex tTitle;
                 tTitle.SetNDC(true);
@@ -3641,26 +3652,28 @@ void RunXJUEComparisons_AuAu()
                                  TString::Format("%s, R = %.1f, p_{T}^{#gamma} = %d-%d GeV, Run25auau",
                                                  titlePrefix.c_str(), R, ptLo, ptHi).Data());
                 
+                TLatex tSph;
+                tSph.SetNDC(true);
+                tSph.SetTextFont(42);
+                tSph.SetTextAlign(13);
+                tSph.SetTextSize(0.048);
+                tSph.DrawLatex(0.18, 0.88, "#bf{sPHENIX} #it{Internal}");
+                tSph.SetTextSize(0.038);
+                tSph.DrawLatex(0.18, 0.83, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                
                 TLatex tCuts;
                 tCuts.SetNDC(true);
                 tCuts.SetTextFont(42);
                 tCuts.SetTextAlign(13);
                 tCuts.SetTextSize(0.028);
-                tCuts.DrawLatex(0.18, 0.89, trigLabel.c_str());
-                tCuts.DrawLatex(0.18, 0.85, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
-                tCuts.DrawLatex(0.18, 0.81, isoConeLabel.c_str());
-                tCuts.DrawLatex(0.18, 0.77, isoModeLabel.c_str());
-                tCuts.DrawLatex(0.18, 0.73, b2bLabel.c_str());
-                tCuts.DrawLatex(0.18, 0.69, TString::Format("p_{T, min}^{jet} > %d GeV", kAA_JetPtMin).Data());
-                
-                TLatex tSph;
-                tSph.SetNDC(true);
-                tSph.SetTextFont(42);
-                tSph.SetTextAlign(33);
-                tSph.SetTextSize(0.048);
-                tSph.DrawLatex(0.92, 0.18, "#bf{sPHENIX} #it{Internal}");
-                tSph.SetTextSize(0.038);
-                tSph.DrawLatex(0.92, 0.12, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                tCuts.DrawLatex(0.53, 0.75, trigLabel.c_str());
+                tCuts.DrawLatex(0.53, 0.71, TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data());
+                tCuts.DrawLatex(0.53, 0.67, isoConeLabel.c_str());
+                tCuts.DrawLatex(0.53, 0.63, isoModeLabel1.c_str());
+                if (!isoModeLabel2.empty())
+                    tCuts.DrawLatex(0.53, 0.59, isoModeLabel2.c_str());
+                tCuts.DrawLatex(0.53, isoModeLabel2.empty() ? 0.59 : 0.55, b2bLabel.c_str());
+                tCuts.DrawLatex(0.53, isoModeLabel2.empty() ? 0.55 : 0.51, TString::Format("p_{T, min}^{jet} > %d GeV", kAA_JetPtMin).Data());
             }
             
             SaveCanvas(cXJ, outPng);
@@ -16045,6 +16058,234 @@ int Run()
                         cout << ANSI_BOLD_GRN << "[WROTE] " << JoinPath(outDir, "purity_raw_DATA_centOverlay.png") << ANSI_RESET << "\n";
                         
                         for (auto* g : keepGraphs) delete g;
+                        
+                        // ---------------------------------------------------------------
+                        // All available AuAu centralities + PP overlay (singular folder)
+                        // Output: <OutputAuAu()>/<trigger>/purityOverlay/purity_raw_DATA.png
+                        // ---------------------------------------------------------------
+                        {
+                            const string outDirPO = JoinPath(JoinPath(OutputAuAu(), trigAA), "purityOverlay");
+                            EnsureDir(outDirPO);
+                            
+                            TFile* fPPpo = TFile::Open(InputPP(isRun25pp).c_str(), "READ");
+                            TDirectory* ppDirPO = nullptr;
+                            if (fPPpo && !fPPpo->IsZombie())
+                            {
+                                ppDirPO = fPPpo->GetDirectory(kTriggerPP.c_str());
+                                if (!ppDirPO) ppDirPO = fPPpo;
+                            }
+                            
+                            TCanvas cPO("c_pur_raw_purityOverlay","c_pur_raw_purityOverlay",900,700);
+                            ApplyCanvasMargins1D(cPO);
+                            
+                            TH1F hFramePO("hPurPOFrame","",100, kPtEdges.front(), kPtEdges.back());
+                            hFramePO.SetDirectory(nullptr);
+                            hFramePO.SetStats(0);
+                            hFramePO.SetMinimum(0.0);
+                            hFramePO.SetMaximum(1.20);
+                            hFramePO.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                            hFramePO.GetYaxis()->SetTitle("Purity (raw ABCD)");
+                            hFramePO.Draw();
+                            
+                            TLegend legPO(0.73, 0.15, 0.87, 0.43);
+                            legPO.SetBorderSize(0);
+                            legPO.SetFillStyle(0);
+                            legPO.SetTextFont(42);
+                            legPO.SetTextSize(0.032);
+                            
+                            vector<TGraphErrors*> keepPO;
+                            
+                            // PP purity (open red circles)
+                            if (ppDirPO)
+                            {
+                                vector<double> xPP(kNPtBins), exPP(kNPtBins), yPP(kNPtBins), eyPP(kNPtBins);
+                                bool anyPP = false;
+                                
+                                for (int i = 0; i < kNPtBins; ++i)
+                                {
+                                    const PtBin& b = PtBins()[i];
+                                    
+                                    auto Get1PP = [&](const string& hname)->double {
+                                        TH1* h = dynamic_cast<TH1*>(ppDirPO->Get(hname.c_str()));
+                                        return h ? h->GetBinContent(1) : 0.0;
+                                    };
+                                    
+                                    const double A = Get1PP("h_isIsolated_isTight"     + b.suffix);
+                                    const double B = Get1PP("h_notIsolated_isTight"    + b.suffix);
+                                    const double C = Get1PP("h_isIsolated_notTight"    + b.suffix);
+                                    const double D = Get1PP("h_notIsolated_notTight"   + b.suffix);
+                                    
+                                    const double ptLo = kPtEdges[(std::size_t)i];
+                                    const double ptHi = kPtEdges[(std::size_t)i + 1];
+                                    xPP[i]  = 0.5 * (ptLo + ptHi);
+                                    exPP[i] = 0.5 * (ptHi - ptLo);
+                                    
+                                    double Praw = 0.0;
+                                    if (A > 0.0 && D > 0.0)
+                                    {
+                                        double Asig = A - B * (C / D);
+                                        if (Asig < 0.0) Asig = 0.0;
+                                        Praw = Asig / A;
+                                    }
+                                    yPP[i] = Praw;
+                                    
+                                    double eP = 0.0;
+                                    if (A > 0.0 && D > 0.0)
+                                    {
+                                        const double dPdA =  (B * C) / (A * A * D);
+                                        const double dPdB = -(C) / (A * D);
+                                        const double dPdC = -(B) / (A * D);
+                                        const double dPdD =  (B * C) / (A * D * D);
+                                        double var = 0.0;
+                                        if (A > 0.0) var += dPdA * dPdA * A;
+                                        if (B > 0.0) var += dPdB * dPdB * B;
+                                        if (C > 0.0) var += dPdC * dPdC * C;
+                                        if (D > 0.0) var += dPdD * dPdD * D;
+                                        eP = (var > 0.0) ? std::sqrt(var) : 0.0;
+                                    }
+                                    eyPP[i] = eP;
+                                    
+                                    if (A > 0.0) anyPP = true;
+                                }
+                                
+                                if (anyPP)
+                                {
+                                    TGraphErrors* gPP = new TGraphErrors(kNPtBins, &xPP[0], &yPP[0], &exPP[0], &eyPP[0]);
+                                    gPP->SetLineWidth(2);
+                                    gPP->SetLineColor(kRed + 1);
+                                    gPP->SetMarkerStyle(24);
+                                    gPP->SetMarkerSize(1.1);
+                                    gPP->SetMarkerColor(kRed + 1);
+                                    gPP->Draw("P SAME");
+                                    legPO.AddEntry(gPP, "pp", "pe");
+                                    keepPO.push_back(gPP);
+                                }
+                            }
+                            
+                            // All available AuAu centralities (closed circles)
+                            for (int ic = 0; ic < (int)ovCents.size(); ++ic)
+                            {
+                                const auto& oc = ovCents[ic];
+                                
+                                vector<double> xAA(kNPtBins), exAA(kNPtBins), yAA(kNPtBins), eyAA(kNPtBins);
+                                bool anyAA = false;
+                                
+                                for (int i = 0; i < kNPtBins; ++i)
+                                {
+                                    const PtBin& b = PtBins()[i];
+                                    
+                                    auto Get1AA = [&](const string& hname)->double {
+                                        TH1* h = dynamic_cast<TH1*>(trigDir->Get(hname.c_str()));
+                                        return h ? h->GetBinContent(1) : 0.0;
+                                    };
+                                    
+                                    double A = 0, B = 0, C = 0, D = 0;
+                                    for (const auto& suf : oc.suffixes)
+                                    {
+                                        A += Get1AA("h_isIsolated_isTight"     + b.suffix + suf);
+                                        B += Get1AA("h_notIsolated_isTight"    + b.suffix + suf);
+                                        C += Get1AA("h_isIsolated_notTight"    + b.suffix + suf);
+                                        D += Get1AA("h_notIsolated_notTight"   + b.suffix + suf);
+                                    }
+                                    
+                                    const double ptLo = kPtEdges[(std::size_t)i];
+                                    const double ptHi = kPtEdges[(std::size_t)i + 1];
+                                    xAA[i]  = 0.5 * (ptLo + ptHi);
+                                    exAA[i] = 0.5 * (ptHi - ptLo);
+                                    
+                                    double Praw = 0.0;
+                                    if (A > 0.0 && D > 0.0)
+                                    {
+                                        double Asig = A - B * (C / D);
+                                        if (Asig < 0.0) Asig = 0.0;
+                                        Praw = Asig / A;
+                                    }
+                                    yAA[i] = Praw;
+                                    
+                                    double eP = 0.0;
+                                    if (A > 0.0 && D > 0.0)
+                                    {
+                                        const double dPdA =  (B * C) / (A * A * D);
+                                        const double dPdB = -(C) / (A * D);
+                                        const double dPdC = -(B) / (A * D);
+                                        const double dPdD =  (B * C) / (A * D * D);
+                                        double var = 0.0;
+                                        if (A > 0.0) var += dPdA * dPdA * A;
+                                        if (B > 0.0) var += dPdB * dPdB * B;
+                                        if (C > 0.0) var += dPdC * dPdC * C;
+                                        if (D > 0.0) var += dPdD * dPdD * D;
+                                        eP = (var > 0.0) ? std::sqrt(var) : 0.0;
+                                    }
+                                    eyAA[i] = eP;
+                                    
+                                    if (A > 0.0) anyAA = true;
+                                }
+                                
+                                if (!anyAA) continue;
+                                
+                                TGraphErrors* gAA = new TGraphErrors(kNPtBins, &xAA[0], &yAA[0], &exAA[0], &eyAA[0]);
+                                const int col = centColors[ic % nCentColors];
+                                gAA->SetLineWidth(2);
+                                gAA->SetLineColor(col);
+                                gAA->SetMarkerStyle(20);
+                                gAA->SetMarkerSize(1.1);
+                                gAA->SetMarkerColor(col);
+                                gAA->Draw("P SAME");
+                                
+                                legPO.AddEntry(gAA, TString::Format("AuAu %d-%d%%", oc.lo, oc.hi).Data(), "pe");
+                                keepPO.push_back(gAA);
+                            }
+                            
+                            legPO.Draw();
+                            
+                            // Centered title
+                            TLatex tTitlePO;
+                            tTitlePO.SetNDC(true);
+                            tTitlePO.SetTextFont(42);
+                            tTitlePO.SetTextAlign(23);
+                            tTitlePO.SetTextSize(0.045);
+                            tTitlePO.DrawLatex(0.50, 0.96,
+                                               "Purity Overlay, Run25auau and Run24pp, Raw ABCD");
+                            
+                            // Cut annotations derived from AuAu config
+                            {
+                                std::string trigLabelPO;
+                                {
+                                    int photonPt = 0;
+                                    if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
+                                        trigLabelPO = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                                    else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                                        trigLabelPO = "Trigger: MBD NS #geq 2, vtx < 150 cm";
+                                    else
+                                        trigLabelPO = "Trigger: " + trigAA;
+                                }
+                                
+                                const string isoConeLabel = (kAA_IsoConeR == "isoR40")
+                                ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+                                
+                                string isoModeLabel;
+                                if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel = "E_{T}^{iso} < 5 GeV";
+                                else                               isoModeLabel = "Sliding iso cut";
+                                
+                                const string vzLabel = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+                                
+                                TLatex tCutsPO;
+                                tCutsPO.SetNDC(true);
+                                tCutsPO.SetTextFont(42);
+                                tCutsPO.SetTextAlign(13);
+                                tCutsPO.SetTextSize(0.035);
+                                tCutsPO.DrawLatex(0.18, 0.88, trigLabelPO.c_str());
+                                tCutsPO.DrawLatex(0.18, 0.83, isoConeLabel.c_str());
+                                tCutsPO.DrawLatex(0.18, 0.78, isoModeLabel.c_str());
+                                tCutsPO.DrawLatex(0.18, 0.73, vzLabel.c_str());
+                            }
+                            
+                            SaveCanvas(cPO, JoinPath(outDirPO, "purity_raw_DATA.png"));
+                            cout << ANSI_BOLD_GRN << "[WROTE] " << JoinPath(outDirPO, "purity_raw_DATA.png") << ANSI_RESET << "\n";
+                            
+                            for (auto* g : keepPO) delete g;
+                            if (fPPpo) { fPPpo->Close(); delete fPPpo; }
+                        }
                         
                         // ---------------------------------------------------------------
                         // Selected-centrality (0-20, 20-40, 60-80) + PP overlay
