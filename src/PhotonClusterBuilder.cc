@@ -806,661 +806,693 @@ void PhotonClusterBuilder::calculate_bdt_score(PhotonClusterv1* photon)
 
 void PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonClusterv1* photon, float cluster_eta, float cluster_phi)
 {
-  std::vector<float> showershape = rc->get_shower_shapes(m_shape_min_tower_E);
-  if (showershape.empty())
-  {
-    return;
-  }
-
-  std::pair<int, int> leadtowerindex = rc->get_lead_tower();
-  int lead_ieta = leadtowerindex.first;
-  int lead_iphi = leadtowerindex.second;
-
-  float avg_eta = showershape[4] + 0.5F;
-  float avg_phi = showershape[5] + 0.5F;
-
-
-  int maxieta = std::floor(avg_eta);
-  int maxiphi = std::floor(avg_phi);
-
-  //if (maxieta < 3 || maxieta > 92)
-  //{
-  //  return;
-  //}
-
-  // for detamax, dphimax, nsaturated
-  int detamax = 0;
-  int dphimax = 0;
-  int nsaturated = 0;
-  float clusteravgtime = 0;
-  float cluster_total_e = 0;
-  const RawCluster::TowerMap& tower_map = rc->get_towermap();
-  std::set<unsigned int> towers_in_cluster;
-  for (auto tower_iter : tower_map)
-  {
-    RawTowerDefs::keytype tower_key = tower_iter.first;
-    int ieta = RawTowerDefs::decode_index1(tower_key);
-    int iphi = RawTowerDefs::decode_index2(tower_key);
-
-    
-    unsigned int towerinfokey = TowerInfoDefs::encode_emcal(ieta, iphi);
-    towers_in_cluster.insert(towerinfokey);
-    TowerInfo* towerinfo = m_emc_tower_container->get_tower_at_key(towerinfokey);
-    if (towerinfo)
+    std::vector<float> showershape = rc->get_shower_shapes(m_shape_min_tower_E);
+    if (showershape.empty())
     {
-      clusteravgtime += towerinfo->get_time() * towerinfo->get_energy();
-      cluster_total_e += towerinfo->get_energy();
-      if (towerinfo->get_isSaturated())
-      {
-        nsaturated++;
-      }
+        return;
     }
     
-    int totalphibins = 256;
-    auto dphiwrap = [totalphibins](int towerphi, int maxiphi_arg)
+    std::pair<int, int> leadtowerindex = rc->get_lead_tower();
+    int lead_ieta = leadtowerindex.first;
+    int lead_iphi = leadtowerindex.second;
+    
+    float avg_eta = showershape[4] + 0.5F;
+    float avg_phi = showershape[5] + 0.5F;
+    
+    
+    int maxieta = std::floor(avg_eta);
+    int maxiphi = std::floor(avg_phi);
+    
+    //if (maxieta < 3 || maxieta > 92)
+    //{
+    //  return;
+    //}
+    
+    // for detamax, dphimax, nsaturated
+    int detamax = 0;
+    int dphimax = 0;
+    int nsaturated = 0;
+    float clusteravgtime = 0;
+    float cluster_total_e = 0;
+    const RawCluster::TowerMap& tower_map = rc->get_towermap();
+    std::set<unsigned int> towers_in_cluster;
+    for (auto tower_iter : tower_map)
     {
-      int idphi = towerphi - maxiphi_arg;
-      if (idphi > totalphibins / 2)
-      {
-        idphi -= totalphibins;
-      }
-      if (idphi < -totalphibins / 2)
-      {
-        idphi += totalphibins;
-      }
-      return idphi;
-    };
-
-    int deta = ieta - lead_ieta;
-    int dphi_val = dphiwrap(iphi, lead_iphi);
-
-    detamax = std::max(std::abs(deta), detamax);
-    dphimax = std::max(std::abs(dphi_val), dphimax);
-  }
-
+        RawTowerDefs::keytype tower_key = tower_iter.first;
+        int ieta = RawTowerDefs::decode_index1(tower_key);
+        int iphi = RawTowerDefs::decode_index2(tower_key);
+        
+        
+        unsigned int towerinfokey = TowerInfoDefs::encode_emcal(ieta, iphi);
+        towers_in_cluster.insert(towerinfokey);
+        TowerInfo* towerinfo = m_emc_tower_container->get_tower_at_key(towerinfokey);
+        if (towerinfo)
+        {
+            clusteravgtime += towerinfo->get_time() * towerinfo->get_energy();
+            cluster_total_e += towerinfo->get_energy();
+            if (towerinfo->get_isSaturated())
+            {
+                nsaturated++;
+            }
+        }
+        
+        int totalphibins = 256;
+        auto dphiwrap = [totalphibins](int towerphi, int maxiphi_arg)
+        {
+            int idphi = towerphi - maxiphi_arg;
+            if (idphi > totalphibins / 2)
+            {
+                idphi -= totalphibins;
+            }
+            if (idphi < -totalphibins / 2)
+            {
+                idphi += totalphibins;
+            }
+            return idphi;
+        };
+        
+        int deta = ieta - lead_ieta;
+        int dphi_val = dphiwrap(iphi, lead_iphi);
+        
+        detamax = std::max(std::abs(deta), detamax);
+        dphimax = std::max(std::abs(dphi_val), dphimax);
+    }
+    
     if (cluster_total_e > 0)
     {
-      clusteravgtime /= cluster_total_e;
+        clusteravgtime /= cluster_total_e;
     }
     else
     {
-      if (Verbosity() >= 2)
-      {
-        std::cout << Name()
-                  << ": cluster_total_e is 0, setting mean_time to -999"
-                  << " | rc_energy=" << rc->get_energy()
-                  << " | towers_in_towermap=" << tower_map.size()
-                  << std::endl;
-
-          // Diagnose WHY total_e stayed 0 (print a small sample)
-          int nFound = 0;
-          int nNonzero = 0;
-          int nPrinted = 0;
-
-          const float Epho = photon->get_energy();
-          const float ETpho = Epho / std::cosh(cluster_eta);
-
-          std::cout << "  context: E=" << Epho
-                    << " ET=" << ETpho
-                    << " eta=" << cluster_eta
-                    << " phi=" << cluster_phi
-                    << " lead(ieta,iphi)=(" << lead_ieta << "," << lead_iphi << ")"
-                    << std::endl;
-
-          for (auto tower_iter : tower_map)
-          {
-            RawTowerDefs::keytype tower_key = tower_iter.first;
-            const float weight = tower_iter.second;
-
-            int ieta = RawTowerDefs::decode_index1(tower_key);
-            int iphi = RawTowerDefs::decode_index2(tower_key);
-
-            unsigned int towerinfokey = TowerInfoDefs::encode_emcal(ieta, iphi);
-            TowerInfo* towerinfo = m_emc_tower_container->get_tower_at_key(towerinfokey);
-
-            if (towerinfo) nFound++;
-            if (towerinfo && towerinfo->get_energy() > 0) nNonzero++;
-
-            if (nPrinted < 6)
+        if (Verbosity() >= 2)
+        {
+            std::cout << Name()
+            << ": cluster_total_e is 0, setting mean_time to -999"
+            << " | rc_energy=" << rc->get_energy()
+            << " | towers_in_towermap=" << tower_map.size()
+            << std::endl;
+            
+            // Diagnose WHY total_e stayed 0 (print a small sample)
+            int nFound = 0;
+            int nNonzero = 0;
+            int nPrinted = 0;
+            
+            const float Epho = photon->get_energy();
+            const float ETpho = Epho / std::cosh(cluster_eta);
+            
+            std::cout << "  context: E=" << Epho
+            << " ET=" << ETpho
+            << " eta=" << cluster_eta
+            << " phi=" << cluster_phi
+            << " lead(ieta,iphi)=(" << lead_ieta << "," << lead_iphi << ")"
+            << std::endl;
+            
+            for (auto tower_iter : tower_map)
             {
-              if (!towerinfo)
-              {
-                std::cout << "  tow[" << nPrinted << "] (ieta,iphi)=(" << ieta << "," << iphi << ")"
-                          << " TI=MISSING"
-                          << " raw_key=" << tower_key
-                          << " ti_key=" << towerinfokey
-                          << " weight=" << weight
-                          << std::endl;
-              }
-              else
-              {
-                std::cout << "  tow[" << nPrinted << "] (ieta,iphi)=(" << ieta << "," << iphi << ")"
-                          << " TI=OK"
-                          << " isGood=" << (towerinfo->get_isGood() ? 1 : 0)
-                          << " E=" << towerinfo->get_energy()
-                          << " time=" << towerinfo->get_time()
-                          << " raw_key=" << tower_key
-                          << " ti_key=" << towerinfokey
-                          << " weight=" << weight
-                          << std::endl;
-              }
-              nPrinted++;
+                RawTowerDefs::keytype tower_key = tower_iter.first;
+                const float weight = tower_iter.second;
+                
+                int ieta = RawTowerDefs::decode_index1(tower_key);
+                int iphi = RawTowerDefs::decode_index2(tower_key);
+                
+                unsigned int towerinfokey = TowerInfoDefs::encode_emcal(ieta, iphi);
+                TowerInfo* towerinfo = m_emc_tower_container->get_tower_at_key(towerinfokey);
+                
+                if (towerinfo) nFound++;
+                if (towerinfo && towerinfo->get_energy() > 0) nNonzero++;
+                
+                if (nPrinted < 6)
+                {
+                    if (!towerinfo)
+                    {
+                        std::cout << "  tow[" << nPrinted << "] (ieta,iphi)=(" << ieta << "," << iphi << ")"
+                        << " TI=MISSING"
+                        << " raw_key=" << tower_key
+                        << " ti_key=" << towerinfokey
+                        << " weight=" << weight
+                        << std::endl;
+                    }
+                    else
+                    {
+                        std::cout << "  tow[" << nPrinted << "] (ieta,iphi)=(" << ieta << "," << iphi << ")"
+                        << " TI=OK"
+                        << " isGood=" << (towerinfo->get_isGood() ? 1 : 0)
+                        << " E=" << towerinfo->get_energy()
+                        << " time=" << towerinfo->get_time()
+                        << " raw_key=" << tower_key
+                        << " ti_key=" << towerinfokey
+                        << " weight=" << weight
+                        << std::endl;
+                    }
+                    nPrinted++;
+                }
             }
-          }
-
-          std::cout << "  towerinfo summary: found=" << nFound
-                    << " nonzeroE=" << nNonzero
-                    << " (container size=" << m_emc_tower_container->size() << ")"
-                    << std::endl;
-      }
-
-      clusteravgtime = -999.0f;
-    }
-
-  float E77[7][7] = {{0.0F}};
-  int E77_ownership[7][7] = {{0}};
-
-  for (int ieta = maxieta - 3; ieta < maxieta + 4; ieta++)
-  {
-    for (int iphi = maxiphi - 3; iphi < maxiphi + 4; iphi++)
-    {
-      //this is defensive coding, if ieta is out of range, set the energy to 0
-      //even without this, the requirement for towerinfo object will take care of it
-      if (ieta < 0 || ieta > 95)
-      {
-        E77[ieta - maxieta + 3][iphi - maxiphi + 3] = 0.0F;
-        E77_ownership[ieta - maxieta + 3][iphi - maxiphi + 3] = 0;
-        continue;
-      }
-
-      int temp_ieta = ieta;
-      int temp_iphi = iphi;
-      shift_tower_index(temp_ieta, temp_iphi, 96, 256);
-      if (temp_ieta < 0)
-      {
-        continue;
-      }
-
-      unsigned int towerinfokey = TowerInfoDefs::encode_emcal(temp_ieta, temp_iphi);
-
-      if (towers_in_cluster.contains(towerinfokey))
-      {
-        E77_ownership[ieta - maxieta + 3][iphi - maxiphi + 3] = 1;
-      }
-
-      TowerInfo* towerinfo = m_emc_tower_container->get_tower_at_key(towerinfokey);
-      if (towerinfo && towerinfo->get_isGood())
-      {
-        float energy = towerinfo->get_energy();
-        if (energy > m_shape_min_tower_E)
-        {
-          E77[ieta - maxieta + 3][iphi - maxiphi + 3] = energy;
+            
+            std::cout << "  towerinfo summary: found=" << nFound
+            << " nonzeroE=" << nNonzero
+            << " (container size=" << m_emc_tower_container->size() << ")"
+            << std::endl;
         }
-      }
+        
+        clusteravgtime = -999.0f;
     }
-  }
-
-  float e11 = E77[3][3];
-  float e33 = 0;
-  float e55 = 0;
-  float e77 = 0;
-  float e13 = 0;
-  float e15 = 0;
-  float e17 = 0;
-  float e31 = 0;
-  float e51 = 0;
-  float e71 = 0;
-  float e35 = 0;
-  float e37 = 0;
-  float e53 = 0;
-  float e73 = 0;
-  float e57 = 0;
-  float e75 = 0;
-  float weta = 0;
-  float wphi = 0;
-  float weta_cog = 0;
-  float wphi_cog = 0;
-  float weta_cogx = 0;
-  float wphi_cogx = 0;
-  float Eetaphi = 0;
-  float shift_eta = avg_eta - std::floor(avg_eta) - 0.5;
-  float shift_phi = avg_phi - std::floor(avg_phi) - 0.5;
-  float cog_eta = 3 + shift_eta;
-  float cog_phi = 3 + shift_phi;
-
-  float w32 = 0;
-  float e32 = 0;
-  float w52 = 0;
-  float e52 = 0;
-  float w72 = 0;
-  float e72 = 0;
-  float detacog = std::abs(maxieta - avg_eta);
-  float dphicog = std::abs(maxiphi - avg_phi);
-  float drad = std::sqrt(dphicog*dphicog + detacog*detacog);
-
-
-  int signphi = (avg_phi - std::floor(avg_phi)) > 0.5 ? 1 : -1;
-
-  for (int i = 0; i < 7; i++)
-  {
-    for (int j = 0; j < 7; j++)
+    
+    float E77[7][7] = {{0.0F}};
+    int E77_ownership[7][7] = {{0}};
+    
+    for (int ieta = maxieta - 3; ieta < maxieta + 4; ieta++)
     {
-      int di = std::abs(i - 3);
-      int dj = std::abs(j - 3);
-      float di_float = i - cog_eta;
-      float dj_float = j - cog_phi;
-
-      if (E77_ownership[i][j] == 1)
-      {
-        weta += E77[i][j] * di * di;
-        wphi += E77[i][j] * dj * dj;
-        weta_cog += E77[i][j] * di_float * di_float;
-        wphi_cog += E77[i][j] * dj_float * dj_float;
-        Eetaphi += E77[i][j];
-        if (i != 3 || j != 3)
+        for (int iphi = maxiphi - 3; iphi < maxiphi + 4; iphi++)
         {
-          weta_cogx += E77[i][j] * di_float * di_float;
-          wphi_cogx += E77[i][j] * dj_float * dj_float;
+            //this is defensive coding, if ieta is out of range, set the energy to 0
+            //even without this, the requirement for towerinfo object will take care of it
+            if (ieta < 0 || ieta > 95)
+            {
+                E77[ieta - maxieta + 3][iphi - maxiphi + 3] = 0.0F;
+                E77_ownership[ieta - maxieta + 3][iphi - maxiphi + 3] = 0;
+                continue;
+            }
+            
+            int temp_ieta = ieta;
+            int temp_iphi = iphi;
+            shift_tower_index(temp_ieta, temp_iphi, 96, 256);
+            if (temp_ieta < 0)
+            {
+                continue;
+            }
+            
+            unsigned int towerinfokey = TowerInfoDefs::encode_emcal(temp_ieta, temp_iphi);
+            
+            if (towers_in_cluster.contains(towerinfokey))
+            {
+                E77_ownership[ieta - maxieta + 3][iphi - maxiphi + 3] = 1;
+            }
+            
+            TowerInfo* towerinfo = m_emc_tower_container->get_tower_at_key(towerinfokey);
+            if (towerinfo && towerinfo->get_isGood())
+            {
+                float energy = towerinfo->get_energy();
+                if (energy > m_shape_min_tower_E)
+                {
+                    E77[ieta - maxieta + 3][iphi - maxiphi + 3] = energy;
+                }
+            }
         }
-      }
-
-      e77 += E77[i][j];
-      if (di <= 1 && (dj == 0 || j == (3 + signphi)))
-      {
-        w32 += E77[i][j] * (i - 3) * (i - 3);
-        e32 += E77[i][j];
-      }
-      if (di <= 2 && (dj == 0 || j == (3 + signphi)))
-      {
-        w52 += E77[i][j] * (i - 3) * (i - 3);
-        e52 += E77[i][j];
-      }
-      if (di <= 3 && (dj == 0 || j == (3 + signphi)))
-      {
-        w72 += E77[i][j] * (i - 3) * (i - 3);
-        e72 += E77[i][j];
-      }
-
-      if (di <= 0 && dj <= 1)
-      {
-        e13 += E77[i][j];
-      }
-      if (di <= 0 && dj <= 2)
-      {
-        e15 += E77[i][j];
-      }
-      if (di <= 0 && dj <= 3)
-      {
-        e17 += E77[i][j];
-      }
-      if (di <= 1 && dj <= 0)
-      {
-        e31 += E77[i][j];
-      }
-      if (di <= 2 && dj <= 0)
-      {
-        e51 += E77[i][j];
-      }
-      if (di <= 3 && dj <= 0)
-      {
-        e71 += E77[i][j];
-      }
-      if (di <= 1 && dj <= 1)
-      {
-        e33 += E77[i][j];
-      }
-      if (di <= 1 && dj <= 2)
-      {
-        e35 += E77[i][j];
-      }
-      if (di <= 1 && dj <= 3)
-      {
-        e37 += E77[i][j];
-      }
-      if (di <= 2 && dj <= 1)
-      {
-        e53 += E77[i][j];
-      }
-      if (di <= 3 && dj <= 1)
-      {
-        e73 += E77[i][j];
-      }
-      if (di <= 2 && dj <= 2)
-      {
-        e55 += E77[i][j];
-      }
-      if (di <= 2 && dj <= 3)
-      {
-        e57 += E77[i][j];
-      }
-      if (di <= 3 && dj <= 2)
-      {
-        e75 += E77[i][j];
-      }
     }
-  }
-
-  if (Eetaphi > 0)
-  {
-    weta /= Eetaphi;
-    wphi /= Eetaphi;
-    weta_cog /= Eetaphi;
-    wphi_cog /= Eetaphi;
-    weta_cogx /= Eetaphi;
-    wphi_cogx /= Eetaphi;
-  }
-  if (e32 > 0)
-  {
-    w32 /= e32;
-  }
-  if (e52 > 0)
-  {
-    w52 /= e52;
-  }
-  if (e72 > 0)
-  {
-    w72 /= e72;
-  }
-
-  photon->set_shower_shape_parameter("et1", showershape[0]);
-  photon->set_shower_shape_parameter("et2", showershape[1]);
-  photon->set_shower_shape_parameter("et3", showershape[2]);
-  photon->set_shower_shape_parameter("et4", showershape[3]);
+    
+    float e11 = E77[3][3];
+    float e33 = 0;
+    float e55 = 0;
+    float e77 = 0;
+    float e13 = 0;
+    float e15 = 0;
+    float e17 = 0;
+    float e31 = 0;
+    float e51 = 0;
+    float e71 = 0;
+    float e35 = 0;
+    float e37 = 0;
+    float e53 = 0;
+    float e73 = 0;
+    float e57 = 0;
+    float e75 = 0;
+    float weta = 0;
+    float wphi = 0;
+    float weta_cog = 0;
+    float wphi_cog = 0;
+    float weta_cogx = 0;
+    float wphi_cogx = 0;
+    float Eetaphi = 0;
+    float shift_eta = avg_eta - std::floor(avg_eta) - 0.5;
+    float shift_phi = avg_phi - std::floor(avg_phi) - 0.5;
+    float cog_eta = 3 + shift_eta;
+    float cog_phi = 3 + shift_phi;
+    
+    float w32 = 0;
+    float e32 = 0;
+    float w52 = 0;
+    float e52 = 0;
+    float w72 = 0;
+    float e72 = 0;
+    float weta35_cogx = 0;
+    float wphi53_cogx = 0;
+    float E35etaphi = 0;
+    float E53etaphi = 0;
+    float detacog = std::abs(maxieta - avg_eta);
+    float dphicog = std::abs(maxiphi - avg_phi);
+    float drad = std::sqrt(dphicog*dphicog + detacog*detacog);
+    
+    
+    int signphi = (avg_phi - std::floor(avg_phi)) > 0.5 ? 1 : -1;
+    
+    for (int i = 0; i < 7; i++)
+    {
+        for (int j = 0; j < 7; j++)
+        {
+            int di = std::abs(i - 3);
+            int dj = std::abs(j - 3);
+            float di_float = i - cog_eta;
+            float dj_float = j - cog_phi;
+            
+            if (E77_ownership[i][j] == 1)
+            {
+                weta += E77[i][j] * di * di;
+                wphi += E77[i][j] * dj * dj;
+                weta_cog += E77[i][j] * di_float * di_float;
+                wphi_cog += E77[i][j] * dj_float * dj_float;
+                Eetaphi += E77[i][j];
+                if (i != 3 || j != 3)
+                {
+                    weta_cogx += E77[i][j] * di_float * di_float;
+                    wphi_cogx += E77[i][j] * dj_float * dj_float;
+                }
+                
+                if (di <= 1 && dj <= 2)
+                {
+                    E35etaphi += E77[i][j];
+                    if (i != 3 || j != 3)
+                    {
+                        weta35_cogx += E77[i][j] * di_float * di_float;
+                    }
+                }
+                
+                if (di <= 2 && dj <= 1)
+                {
+                    E53etaphi += E77[i][j];
+                    if (i != 3 || j != 3)
+                    {
+                        wphi53_cogx += E77[i][j] * dj_float * dj_float;
+                    }
+                }
+            }
+            
+            e77 += E77[i][j];
+            if (di <= 1 && (dj == 0 || j == (3 + signphi)))
+            {
+                w32 += E77[i][j] * (i - 3) * (i - 3);
+                e32 += E77[i][j];
+            }
+            if (di <= 2 && (dj == 0 || j == (3 + signphi)))
+            {
+                w52 += E77[i][j] * (i - 3) * (i - 3);
+                e52 += E77[i][j];
+            }
+            if (di <= 3 && (dj == 0 || j == (3 + signphi)))
+            {
+                w72 += E77[i][j] * (i - 3) * (i - 3);
+                e72 += E77[i][j];
+            }
+            
+            if (di <= 0 && dj <= 1)
+            {
+                e13 += E77[i][j];
+            }
+            if (di <= 0 && dj <= 2)
+            {
+                e15 += E77[i][j];
+            }
+            if (di <= 0 && dj <= 3)
+            {
+                e17 += E77[i][j];
+            }
+            if (di <= 1 && dj <= 0)
+            {
+                e31 += E77[i][j];
+            }
+            if (di <= 2 && dj <= 0)
+            {
+                e51 += E77[i][j];
+            }
+            if (di <= 3 && dj <= 0)
+            {
+                e71 += E77[i][j];
+            }
+            if (di <= 1 && dj <= 1)
+            {
+                e33 += E77[i][j];
+            }
+            if (di <= 1 && dj <= 2)
+            {
+                e35 += E77[i][j];
+            }
+            if (di <= 1 && dj <= 3)
+            {
+                e37 += E77[i][j];
+            }
+            if (di <= 2 && dj <= 1)
+            {
+                e53 += E77[i][j];
+            }
+            if (di <= 3 && dj <= 1)
+            {
+                e73 += E77[i][j];
+            }
+            if (di <= 2 && dj <= 2)
+            {
+                e55 += E77[i][j];
+            }
+            if (di <= 2 && dj <= 3)
+            {
+                e57 += E77[i][j];
+            }
+            if (di <= 3 && dj <= 2)
+            {
+                e75 += E77[i][j];
+            }
+        }
+    }
+    
+    if (Eetaphi > 0)
+    {
+        weta /= Eetaphi;
+        wphi /= Eetaphi;
+        weta_cog /= Eetaphi;
+        wphi_cog /= Eetaphi;
+        weta_cogx /= Eetaphi;
+        wphi_cogx /= Eetaphi;
+    }
+    if (e32 > 0)
+    {
+        w32 /= e32;
+    }
+    if (e52 > 0)
+    {
+        w52 /= e52;
+    }
+    if (e72 > 0)
+    {
+        w72 /= e72;
+    }
+    if (E35etaphi > 0)
+    {
+        weta35_cogx /= E35etaphi;
+    }
+    if (E53etaphi > 0)
+    {
+        wphi53_cogx /= E53etaphi;
+    }
+    
+    photon->set_shower_shape_parameter("et1", showershape[0]);
+    photon->set_shower_shape_parameter("et2", showershape[1]);
+    photon->set_shower_shape_parameter("et3", showershape[2]);
+    photon->set_shower_shape_parameter("et4", showershape[3]);
     photon->set_shower_shape_parameter("e11", e11);
-
+    
     float e22 = -999.0F;
     if (showershape.size() >= 12)
     {
-      e22 = showershape[8] + showershape[9] + showershape[10] + showershape[11];
+        e22 = showershape[8] + showershape[9] + showershape[10] + showershape[11];
     }
     photon->set_shower_shape_parameter("e22", e22);
-
+    
     photon->set_shower_shape_parameter("e33", e33);
-  photon->set_shower_shape_parameter("e55", e55);
-  photon->set_shower_shape_parameter("e77", e77);
-  photon->set_shower_shape_parameter("e13", e13);
-  photon->set_shower_shape_parameter("e15", e15);
-  photon->set_shower_shape_parameter("e17", e17);
-  photon->set_shower_shape_parameter("e31", e31);
-  photon->set_shower_shape_parameter("e51", e51);
-  photon->set_shower_shape_parameter("e71", e71);
-  photon->set_shower_shape_parameter("e35", e35);
-  photon->set_shower_shape_parameter("e37", e37);
-  photon->set_shower_shape_parameter("e53", e53);
-  photon->set_shower_shape_parameter("e73", e73);
-  photon->set_shower_shape_parameter("e57", e57);
-  photon->set_shower_shape_parameter("e75", e75);
-  photon->set_shower_shape_parameter("weta", weta);
-  photon->set_shower_shape_parameter("wphi", wphi);
-  photon->set_shower_shape_parameter("weta_cog", weta_cog);
-  photon->set_shower_shape_parameter("wphi_cog", wphi_cog);
-  photon->set_shower_shape_parameter("weta_cogx", weta_cogx);
-  photon->set_shower_shape_parameter("wphi_cogx", wphi_cogx);
-  photon->set_shower_shape_parameter("detamax", detamax);
-  photon->set_shower_shape_parameter("dphimax", dphimax);
-  photon->set_shower_shape_parameter("nsaturated", nsaturated);
-  photon->set_shower_shape_parameter("e32", e32);
-  photon->set_shower_shape_parameter("e52", e52);
-  photon->set_shower_shape_parameter("e72", e72);
-  photon->set_shower_shape_parameter("w32", w32);
-  photon->set_shower_shape_parameter("w52", w52);
-  photon->set_shower_shape_parameter("w72", w72);
-  photon->set_shower_shape_parameter("cluster_eta", cluster_eta);
-  photon->set_shower_shape_parameter("cluster_phi", cluster_phi);
-  photon->set_shower_shape_parameter("mean_time", clusteravgtime);
-  photon->set_shower_shape_parameter("detacog", detacog);
-  photon->set_shower_shape_parameter("dphicog", dphicog);
-  photon->set_shower_shape_parameter("drad", drad);
-
-  // HCAL info
-  std::vector<int> ihcal_tower = find_closest_hcal_tower(cluster_eta, cluster_phi, m_geomIH, m_ihcal_tower_container, 0.0, true);
-  std::vector<int> ohcal_tower = find_closest_hcal_tower(cluster_eta, cluster_phi, m_geomOH, m_ohcal_tower_container, 0.0, false);
-
-  float ihcal_et = 0;
-  float ohcal_et = 0;
-  float ihcal_et22 = 0;
-  float ohcal_et22 = 0;
-  float ihcal_et33 = 0;
-  float ohcal_et33 = 0;
-
-  int ihcal_ieta = ihcal_tower[0];
-  int ihcal_iphi = ihcal_tower[1];
-  float ihcalEt33[3][3] = {{0.0F}};
-
-  int ohcal_ieta = ohcal_tower[0];
-  int ohcal_iphi = ohcal_tower[1];
-  float ohcalEt33[3][3] = {{0.0F}};
-
-  for (int ieta_h = ihcal_ieta - 1; ieta_h <= ihcal_ieta + 1; ieta_h++)
-  {
-    for (int iphi_h = ihcal_iphi - 1; iphi_h <= ihcal_iphi + 1; iphi_h++)
+    photon->set_shower_shape_parameter("e55", e55);
+    photon->set_shower_shape_parameter("e77", e77);
+    photon->set_shower_shape_parameter("e13", e13);
+    photon->set_shower_shape_parameter("e15", e15);
+    photon->set_shower_shape_parameter("e17", e17);
+    photon->set_shower_shape_parameter("e31", e31);
+    photon->set_shower_shape_parameter("e51", e51);
+    photon->set_shower_shape_parameter("e71", e71);
+    photon->set_shower_shape_parameter("e35", e35);
+    photon->set_shower_shape_parameter("e37", e37);
+    photon->set_shower_shape_parameter("e53", e53);
+    photon->set_shower_shape_parameter("e73", e73);
+    photon->set_shower_shape_parameter("e57", e57);
+    photon->set_shower_shape_parameter("e75", e75);
+    photon->set_shower_shape_parameter("weta", weta);
+    photon->set_shower_shape_parameter("wphi", wphi);
+    photon->set_shower_shape_parameter("weta_cog", weta_cog);
+    photon->set_shower_shape_parameter("wphi_cog", wphi_cog);
+    photon->set_shower_shape_parameter("weta_cogx", weta_cogx);
+    photon->set_shower_shape_parameter("wphi_cogx", wphi_cogx);
+    photon->set_shower_shape_parameter("weta35_cogx", weta35_cogx);
+    photon->set_shower_shape_parameter("wphi53_cogx", wphi53_cogx);
+    photon->set_shower_shape_parameter("detamax", detamax);
+    photon->set_shower_shape_parameter("dphimax", dphimax);
+    photon->set_shower_shape_parameter("nsaturated", nsaturated);
+    photon->set_shower_shape_parameter("e32", e32);
+    photon->set_shower_shape_parameter("e52", e52);
+    photon->set_shower_shape_parameter("e72", e72);
+    photon->set_shower_shape_parameter("w32", w32);
+    photon->set_shower_shape_parameter("w52", w52);
+    photon->set_shower_shape_parameter("w72", w72);
+    photon->set_shower_shape_parameter("cluster_eta", cluster_eta);
+    photon->set_shower_shape_parameter("cluster_phi", cluster_phi);
+    photon->set_shower_shape_parameter("mean_time", clusteravgtime);
+    photon->set_shower_shape_parameter("detacog", detacog);
+    photon->set_shower_shape_parameter("dphicog", dphicog);
+    photon->set_shower_shape_parameter("drad", drad);
+    
+    // HCAL info
+    std::vector<int> ihcal_tower = find_closest_hcal_tower(cluster_eta, cluster_phi, m_geomIH, m_ihcal_tower_container, 0.0, true);
+    std::vector<int> ohcal_tower = find_closest_hcal_tower(cluster_eta, cluster_phi, m_geomOH, m_ohcal_tower_container, 0.0, false);
+    
+    float ihcal_et = 0;
+    float ohcal_et = 0;
+    float ihcal_et22 = 0;
+    float ohcal_et22 = 0;
+    float ihcal_et33 = 0;
+    float ohcal_et33 = 0;
+    
+    int ihcal_ieta = ihcal_tower[0];
+    int ihcal_iphi = ihcal_tower[1];
+    float ihcalEt33[3][3] = {{0.0F}};
+    
+    int ohcal_ieta = ohcal_tower[0];
+    int ohcal_iphi = ohcal_tower[1];
+    float ohcalEt33[3][3] = {{0.0F}};
+    
+    for (int ieta_h = ihcal_ieta - 1; ieta_h <= ihcal_ieta + 1; ieta_h++)
     {
-      int temp_ieta = ieta_h;
-      int temp_iphi = iphi_h;
-      shift_tower_index(temp_ieta, temp_iphi, 24, 64);
-      if (temp_ieta < 0)
-      {
-        continue;
-      }
-
-      unsigned int towerinfokey = TowerInfoDefs::encode_hcal(temp_ieta, temp_iphi);
-      TowerInfo* towerinfo = m_ihcal_tower_container->get_tower_at_key(towerinfokey);
-      if (towerinfo && towerinfo->get_isGood())
-      {
-        const RawTowerDefs::keytype key = RawTowerDefs::encode_towerid(RawTowerDefs::CalorimeterId::HCALIN, temp_ieta, temp_iphi);
-        RawTowerGeom* tower_geom = m_geomIH->get_tower_geometry(key);
-        if (tower_geom)
+        for (int iphi_h = ihcal_iphi - 1; iphi_h <= ihcal_iphi + 1; iphi_h++)
         {
-          float energy = towerinfo->get_energy();
-          float eta = getTowerEta(tower_geom, 0, 0, 0);
-          float sintheta = 1.0 / std::cosh(eta);
-          float Et = energy * sintheta;
-          ihcalEt33[ieta_h - ihcal_ieta + 1][iphi_h - ihcal_iphi + 1] = Et;
+            int temp_ieta = ieta_h;
+            int temp_iphi = iphi_h;
+            shift_tower_index(temp_ieta, temp_iphi, 24, 64);
+            if (temp_ieta < 0)
+            {
+                continue;
+            }
+            
+            unsigned int towerinfokey = TowerInfoDefs::encode_hcal(temp_ieta, temp_iphi);
+            TowerInfo* towerinfo = m_ihcal_tower_container->get_tower_at_key(towerinfokey);
+            if (towerinfo && towerinfo->get_isGood())
+            {
+                const RawTowerDefs::keytype key = RawTowerDefs::encode_towerid(RawTowerDefs::CalorimeterId::HCALIN, temp_ieta, temp_iphi);
+                RawTowerGeom* tower_geom = m_geomIH->get_tower_geometry(key);
+                if (tower_geom)
+                {
+                    float energy = towerinfo->get_energy();
+                    float eta = getTowerEta(tower_geom, 0, 0, 0);
+                    float sintheta = 1.0 / std::cosh(eta);
+                    float Et = energy * sintheta;
+                    ihcalEt33[ieta_h - ihcal_ieta + 1][iphi_h - ihcal_iphi + 1] = Et;
+                }
+            }
         }
-      }
     }
-  }
-
-  for (int ieta_h = ohcal_ieta - 1; ieta_h <= ohcal_ieta + 1; ieta_h++)
-  {
-    for (int iphi_h = ohcal_iphi - 1; iphi_h <= ohcal_iphi + 1; iphi_h++)
+    
+    for (int ieta_h = ohcal_ieta - 1; ieta_h <= ohcal_ieta + 1; ieta_h++)
     {
-      int temp_ieta = ieta_h;
-      int temp_iphi = iphi_h;
-      shift_tower_index(temp_ieta, temp_iphi, 24, 64);
-      if (temp_ieta < 0)
-      {
-        continue;
-      }
-
-      unsigned int towerinfokey = TowerInfoDefs::encode_hcal(temp_ieta, temp_iphi);
-      TowerInfo* towerinfo = m_ohcal_tower_container->get_tower_at_key(towerinfokey);
-      if (towerinfo && towerinfo->get_isGood())
-      {
-        const RawTowerDefs::keytype key = RawTowerDefs::encode_towerid(RawTowerDefs::CalorimeterId::HCALOUT, temp_ieta, temp_iphi);
-        RawTowerGeom* tower_geom = m_geomOH->get_tower_geometry(key);
-        if (tower_geom)
+        for (int iphi_h = ohcal_iphi - 1; iphi_h <= ohcal_iphi + 1; iphi_h++)
         {
-          float energy = towerinfo->get_energy();
-          float eta = getTowerEta(tower_geom, 0, 0, 0);
-          float sintheta = 1.0 / std::cosh(eta);
-          float Et = energy * sintheta;
-          ohcalEt33[ieta_h - ohcal_ieta + 1][iphi_h - ohcal_iphi + 1] = Et;
+            int temp_ieta = ieta_h;
+            int temp_iphi = iphi_h;
+            shift_tower_index(temp_ieta, temp_iphi, 24, 64);
+            if (temp_ieta < 0)
+            {
+                continue;
+            }
+            
+            unsigned int towerinfokey = TowerInfoDefs::encode_hcal(temp_ieta, temp_iphi);
+            TowerInfo* towerinfo = m_ohcal_tower_container->get_tower_at_key(towerinfokey);
+            if (towerinfo && towerinfo->get_isGood())
+            {
+                const RawTowerDefs::keytype key = RawTowerDefs::encode_towerid(RawTowerDefs::CalorimeterId::HCALOUT, temp_ieta, temp_iphi);
+                RawTowerGeom* tower_geom = m_geomOH->get_tower_geometry(key);
+                if (tower_geom)
+                {
+                    float energy = towerinfo->get_energy();
+                    float eta = getTowerEta(tower_geom, 0, 0, 0);
+                    float sintheta = 1.0 / std::cosh(eta);
+                    float Et = energy * sintheta;
+                    ohcalEt33[ieta_h - ohcal_ieta + 1][iphi_h - ohcal_iphi + 1] = Et;
+                }
+            }
         }
-      }
     }
-  }
-
-  ihcal_et = ihcalEt33[1][1];
-  ohcal_et = ohcalEt33[1][1];
-
-  for (int i = 0; i < 3; i++)
-  {
-    for (int j = 0; j < 3; j++)
+    
+    ihcal_et = ihcalEt33[1][1];
+    ohcal_et = ohcalEt33[1][1];
+    
+    for (int i = 0; i < 3; i++)
     {
-      ihcal_et33 += ihcalEt33[i][j];
-      ohcal_et33 += ohcalEt33[i][j];
-      if (i == 1 || j == 1 + ihcal_tower[2])
-      {
-        if (j == 1 || i == 1 + ihcal_tower[3])
+        for (int j = 0; j < 3; j++)
         {
-          ihcal_et22 += ihcalEt33[i][j];
+            ihcal_et33 += ihcalEt33[i][j];
+            ohcal_et33 += ohcalEt33[i][j];
+            if (i == 1 || j == 1 + ihcal_tower[2])
+            {
+                if (j == 1 || i == 1 + ihcal_tower[3])
+                {
+                    ihcal_et22 += ihcalEt33[i][j];
+                }
+            }
+            if (i == 1 || j == 1 + ohcal_tower[2])
+            {
+                if (j == 1 || i == 1 + ohcal_tower[3])
+                {
+                    ohcal_et22 += ohcalEt33[i][j];
+                }
+            }
         }
-      }
-      if (i == 1 || j == 1 + ohcal_tower[2])
-      {
-        if (j == 1 || i == 1 + ohcal_tower[3])
-        {
-          ohcal_et22 += ohcalEt33[i][j];
-        }
-      }
     }
-  }
-
-  photon->set_shower_shape_parameter("ihcal_et", ihcal_et);
-  photon->set_shower_shape_parameter("ohcal_et", ohcal_et);
-  photon->set_shower_shape_parameter("ihcal_et22", ihcal_et22);
-  photon->set_shower_shape_parameter("ohcal_et22", ohcal_et22);
-  photon->set_shower_shape_parameter("ihcal_et33", ihcal_et33);
-  photon->set_shower_shape_parameter("ohcal_et33", ohcal_et33);
-  photon->set_shower_shape_parameter("ihcal_ieta", ihcal_ieta);
-  photon->set_shower_shape_parameter("ihcal_iphi", ihcal_iphi);
-  photon->set_shower_shape_parameter("ohcal_ieta", ohcal_ieta);
-  photon->set_shower_shape_parameter("ohcal_iphi", ohcal_iphi);
-
-  float E = photon->get_energy();
-  float ET = E / std::cosh(cluster_eta);
-
-  const bool use_variant_a_iso = (m_emc_tower_node.find("_PHOSUB") != std::string::npos);
-
-  auto calculate_layer_iso_signed = [&](TowerInfoContainer* towerContainer,
+    
+    photon->set_shower_shape_parameter("ihcal_et", ihcal_et);
+    photon->set_shower_shape_parameter("ohcal_et", ohcal_et);
+    photon->set_shower_shape_parameter("ihcal_et22", ihcal_et22);
+    photon->set_shower_shape_parameter("ohcal_et22", ohcal_et22);
+    photon->set_shower_shape_parameter("ihcal_et33", ihcal_et33);
+    photon->set_shower_shape_parameter("ohcal_et33", ohcal_et33);
+    photon->set_shower_shape_parameter("ihcal_ieta", ihcal_ieta);
+    photon->set_shower_shape_parameter("ihcal_iphi", ihcal_iphi);
+    photon->set_shower_shape_parameter("ohcal_ieta", ohcal_ieta);
+    photon->set_shower_shape_parameter("ohcal_iphi", ohcal_iphi);
+    
+    float E = photon->get_energy();
+    float ET = E / std::cosh(cluster_eta);
+    
+    const bool use_variant_a_iso = (m_emc_tower_node.find("_PHOSUB") != std::string::npos);
+    
+    auto calculate_layer_iso_signed = [&](TowerInfoContainer* towerContainer,
                                           RawTowerGeomContainer* geomContainer,
                                           RawTowerDefs::CalorimeterId calo_id,
                                           float radius,
                                           float core_radius)
     {
-      if (!towerContainer || !geomContainer)
-      {
-        return std::numeric_limits<float>::quiet_NaN();
-      }
-
-      float layer_et = 0.0f;
-      const unsigned int ntowers = towerContainer->size();
-      for (unsigned int channel = 0; channel < ntowers; ++channel)
-      {
-        TowerInfo* tower = towerContainer->get_tower_at_channel(channel);
-        if (!tower || !tower->get_isGood())
+        if (!towerContainer || !geomContainer)
         {
-          continue;
+            return std::numeric_limits<float>::quiet_NaN();
         }
-
-        const unsigned int towerkey = towerContainer->encode_key(channel);
-        const int ieta = towerContainer->getTowerEtaBin(towerkey);
-        const int iphi = towerContainer->getTowerPhiBin(towerkey);
-
-        const RawTowerDefs::keytype geom_key = RawTowerDefs::encode_towerid(calo_id, ieta, iphi);
-        RawTowerGeom* tower_geom = geomContainer->get_tower_geometry(geom_key);
-        if (!tower_geom)
+        
+        float layer_et = 0.0f;
+        const unsigned int ntowers = towerContainer->size();
+        for (unsigned int channel = 0; channel < ntowers; ++channel)
         {
-          continue;
+            TowerInfo* tower = towerContainer->get_tower_at_channel(channel);
+            if (!tower || !tower->get_isGood())
+            {
+                continue;
+            }
+            
+            const unsigned int towerkey = towerContainer->encode_key(channel);
+            const int ieta = towerContainer->getTowerEtaBin(towerkey);
+            const int iphi = towerContainer->getTowerPhiBin(towerkey);
+            
+            const RawTowerDefs::keytype geom_key = RawTowerDefs::encode_towerid(calo_id, ieta, iphi);
+            RawTowerGeom* tower_geom = geomContainer->get_tower_geometry(geom_key);
+            if (!tower_geom)
+            {
+                continue;
+            }
+            
+            const double tower_eta = getTowerEta(tower_geom, 0, 0, m_vertex);
+            const double tower_phi = tower_geom->get_phi();
+            if (!std::isfinite(tower_eta) || !std::isfinite(tower_phi))
+            {
+                continue;
+            }
+            
+            const double dr = deltaR(cluster_eta, cluster_phi, tower_eta, tower_phi);
+            if (dr >= radius)
+            {
+                continue;
+            }
+            if (core_radius > 0.0f && dr < core_radius)
+            {
+                continue;
+            }
+            
+            const float energy = tower->get_energy();
+            if (!std::isfinite(energy))
+            {
+                continue;
+            }
+            
+            layer_et += energy / std::cosh(tower_eta);
         }
-
-        const double tower_eta = getTowerEta(tower_geom, 0, 0, m_vertex);
-        const double tower_phi = tower_geom->get_phi();
-        if (!std::isfinite(tower_eta) || !std::isfinite(tower_phi))
-        {
-          continue;
-        }
-
-        const double dr = deltaR(cluster_eta, cluster_phi, tower_eta, tower_phi);
-        if (dr >= radius)
-        {
-          continue;
-        }
-        if (core_radius > 0.0f && dr < core_radius)
-        {
-          continue;
-        }
-
-        const float energy = tower->get_energy();
-        if (!std::isfinite(energy))
-        {
-          continue;
-        }
-
-        layer_et += energy / std::cosh(tower_eta);
-      }
-
-      return layer_et;
+        
+        return layer_et;
     };
-
+    
     auto compute_layer_iso = [&](RawTowerDefs::CalorimeterId calo_id, float radius)
     {
-      TowerInfoContainer* container = nullptr;
-      RawTowerGeomContainer* geom = nullptr;
-      RawTowerDefs::CalorimeterId geom_id = calo_id;
-
-      if (calo_id == RawTowerDefs::CalorimeterId::CEMC)
-      {
-        if (!use_variant_a_iso && m_is_auau && m_emc_tower_container_iso && m_geomEM_iso)
+        TowerInfoContainer* container = nullptr;
+        RawTowerGeomContainer* geom = nullptr;
+        RawTowerDefs::CalorimeterId geom_id = calo_id;
+        
+        if (calo_id == RawTowerDefs::CalorimeterId::CEMC)
         {
-          container = m_emc_tower_container_iso;
-          geom = m_geomEM_iso;
-          geom_id = RawTowerDefs::CalorimeterId::HCALIN;
+            if (!use_variant_a_iso && m_is_auau && m_emc_tower_container_iso && m_geomEM_iso)
+            {
+                container = m_emc_tower_container_iso;
+                geom = m_geomEM_iso;
+                geom_id = RawTowerDefs::CalorimeterId::HCALIN;
+            }
+            else
+            {
+                container = m_emc_tower_container;
+                geom = m_geomEM;
+            }
+        }
+        else if (calo_id == RawTowerDefs::CalorimeterId::HCALIN)
+        {
+            if (!use_variant_a_iso && m_is_auau && m_ihcal_tower_container_iso)
+            {
+                container = m_ihcal_tower_container_iso;
+            }
+            else
+            {
+                container = m_ihcal_tower_container;
+            }
+            geom = m_geomIH;
         }
         else
         {
-          container = m_emc_tower_container;
-          geom = m_geomEM;
+            if (!use_variant_a_iso && m_is_auau && m_ohcal_tower_container_iso)
+            {
+                container = m_ohcal_tower_container_iso;
+            }
+            else
+            {
+                container = m_ohcal_tower_container;
+            }
+            geom = m_geomOH;
         }
-      }
-      else if (calo_id == RawTowerDefs::CalorimeterId::HCALIN)
-      {
-        if (!use_variant_a_iso && m_is_auau && m_ihcal_tower_container_iso)
+        
+        if (use_variant_a_iso)
         {
-          container = m_ihcal_tower_container_iso;
-        }
-        else
-        {
-          container = m_ihcal_tower_container;
-        }
-        geom = m_geomIH;
-      }
-      else
-      {
-        if (!use_variant_a_iso && m_is_auau && m_ohcal_tower_container_iso)
-        {
-          container = m_ohcal_tower_container_iso;
-        }
-        else
-        {
-          container = m_ohcal_tower_container;
-        }
-        geom = m_geomOH;
-      }
-
-      if (use_variant_a_iso)
-      {
-        const float core_radius =
+            const float core_radius =
             (calo_id == RawTowerDefs::CalorimeterId::CEMC && radius > 0.05f) ? 0.05f : 0.0f;
-        return calculate_layer_iso_signed(container, geom, geom_id, radius, core_radius);
-      }
-
-      return calculate_layer_et(cluster_eta, cluster_phi, radius, container, geom, geom_id, m_vertex);
+            return calculate_layer_iso_signed(container, geom, geom_id, radius, core_radius);
+        }
+        
+        return calculate_layer_et(cluster_eta, cluster_phi, radius, container, geom, geom_id, m_vertex);
     };
-
-  const float emcal_et_04 = compute_layer_iso(RawTowerDefs::CalorimeterId::CEMC, 0.4);
-  const float ihcal_et_04 = compute_layer_iso(RawTowerDefs::CalorimeterId::HCALIN, 0.4);
-  const float ohcal_et_04 = compute_layer_iso(RawTowerDefs::CalorimeterId::HCALOUT, 0.4);
-
-  const float emcal_et_03 = compute_layer_iso(RawTowerDefs::CalorimeterId::CEMC, 0.3);
-  const float ihcal_et_03 = compute_layer_iso(RawTowerDefs::CalorimeterId::HCALIN, 0.3);
-  const float ohcal_et_03 = compute_layer_iso(RawTowerDefs::CalorimeterId::HCALOUT, 0.3);
-
-  const float emcal_et_02 = compute_layer_iso(RawTowerDefs::CalorimeterId::CEMC, 0.2);
-  const float emcal_et_01 = compute_layer_iso(RawTowerDefs::CalorimeterId::CEMC, 0.1);
-  const float emcal_et_005 = compute_layer_iso(RawTowerDefs::CalorimeterId::CEMC, 0.05);
-
+    
+    const float emcal_et_04 = compute_layer_iso(RawTowerDefs::CalorimeterId::CEMC, 0.4);
+    const float ihcal_et_04 = compute_layer_iso(RawTowerDefs::CalorimeterId::HCALIN, 0.4);
+    const float ohcal_et_04 = compute_layer_iso(RawTowerDefs::CalorimeterId::HCALOUT, 0.4);
+    
+    const float emcal_et_03 = compute_layer_iso(RawTowerDefs::CalorimeterId::CEMC, 0.3);
+    const float ihcal_et_03 = compute_layer_iso(RawTowerDefs::CalorimeterId::HCALIN, 0.3);
+    const float ohcal_et_03 = compute_layer_iso(RawTowerDefs::CalorimeterId::HCALOUT, 0.3);
+    
+    const float emcal_et_02 = compute_layer_iso(RawTowerDefs::CalorimeterId::CEMC, 0.2);
+    const float emcal_et_01 = compute_layer_iso(RawTowerDefs::CalorimeterId::CEMC, 0.1);
+    const float emcal_et_005 = compute_layer_iso(RawTowerDefs::CalorimeterId::CEMC, 0.05);
+    
     // -----------------------------
     // Build iso values
     // -----------------------------
@@ -1469,257 +1501,257 @@ void PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
     const float iso_02_emcal  = use_variant_a_iso ? emcal_et_02  : (emcal_et_02  - ET);
     const float iso_01_emcal  = use_variant_a_iso ? emcal_et_01  : (emcal_et_01  - ET);
     const float iso_005_emcal = use_variant_a_iso ? emcal_et_005 : (emcal_et_005 - ET);
-
+    
     // Total iso (what RecoilJets effectively uses when it adds EMCal + HCal pieces)
     const float iso03_total = iso_03_emcal + ihcal_et_03 + ohcal_et_03;
     const float iso04_total = iso_04_emcal + ihcal_et_04 + ohcal_et_04;
-
+    
     // -----------------------------
     // NEW: print ONLY when negative iso appears
     // -----------------------------
     if (Verbosity() >= 2 && (iso03_total < -0.05f || iso04_total < -0.05f))
     {
-      static int s_negPrint = 0;
-
-      std::cout << Name()
-                << ": NEG ISO detected"
-                << " | vertex_z=" << m_vertex
-                << " | eta=" << cluster_eta
-                << " phi=" << cluster_phi
-                << " | E(rc)=" << rc->get_energy()
-                << " ET=" << ET
-                << " | emcal_et_03=" << emcal_et_03
-                << " iso_03_emcal=" << iso_03_emcal
-                << " (ih=" << ihcal_et_03 << ", oh=" << ohcal_et_03 << ", total=" << iso03_total << ")"
-                << " | emcal_et_04=" << emcal_et_04
-                << " iso_04_emcal=" << iso_04_emcal
-                << " (ih=" << ihcal_et_04 << ", oh=" << ohcal_et_04 << ", total=" << iso04_total << ")"
-                << std::endl;
-
-      // Extra, cheap sanity: do the *cluster's own towers* have TowerInfo energy consistent with rc->get_energy()?
-      // (This catches the "TowerInfo energy is 0 / mismatched container" problem immediately.)
-        {
-          // ================================================================
-          // (A) Cluster-tower sanity: compare RawCluster energy vs TowerInfo energies
-          // ================================================================
-          const RawCluster::TowerMap& tower_map_dbg = rc->get_towermap();
-
-          int   nTI_found   = 0;
-          int   nTI_nonzero = 0;
-          float sumE_TI     = 0.0f;
-          float sumEt_TI    = 0.0f;
-
-          for (const auto& it : tower_map_dbg)
-          {
-            RawTowerDefs::keytype tower_key = it.first;
-            int ieta = RawTowerDefs::decode_index1(tower_key);
-            int iphi = RawTowerDefs::decode_index2(tower_key);
-
-            unsigned int towerinfokey = TowerInfoDefs::encode_emcal(ieta, iphi);
-            TowerInfo* ti = m_emc_tower_container ? m_emc_tower_container->get_tower_at_key(towerinfokey) : nullptr;
-            if (!ti) continue;
-
-            ++nTI_found;
-
-            const float e = ti->get_energy();
-            if (e > 0.0f) ++nTI_nonzero;
-            sumE_TI += e;
-
-            RawTowerDefs::keytype geom_key =
-              RawTowerDefs::encode_towerid(RawTowerDefs::CalorimeterId::CEMC, ieta, iphi);
-            RawTowerGeom* tg = m_geomEM ? m_geomEM->get_tower_geometry(geom_key) : nullptr;
-            if (tg)
-            {
-              const double tEta = getTowerEta(tg, 0, 0, m_vertex);
-              if (std::isfinite(tEta)) sumEt_TI += (e / std::cosh(tEta));
-            }
-          }
-
-          std::cout << "  [cluster TI sanity]"
-                    << " towers_in_cluster=" << tower_map_dbg.size()
-                    << " TI_found=" << nTI_found
-                    << " TI_nonzero=" << nTI_nonzero
-                    << " sumE_TI=" << sumE_TI
-                    << " sumEt_TI=" << sumEt_TI
-                    << " rc_E=" << rc->get_energy()
-                    << std::endl;
-
-          // ================================================================
-          // (B) Cone-sum audit: reproduce calculate_layer_et selection and count DROP reasons
-          //     Only meaningful for EMCal here because NEG iso is dominated by (emcal_et - ET).
-          // ================================================================
-          auto auditCone = [&](float Rcone)
-          {
-            if (!m_emc_tower_container || !m_geomEM)
-            {
-              std::cout << "  [cone audit] R=" << Rcone << " : missing TOWERINFO_CALIB_CEMC or TOWERGEOM_CEMC\n";
-              return;
-            }
-
-            const unsigned int ntowers = m_emc_tower_container->size();
-
-            // counters
-            unsigned int nNull      = 0;
-            unsigned int nNotGood   = 0;
-            unsigned int nGeomMiss  = 0;
-            unsigned int nOutR      = 0;
-            unsigned int nBelowThr  = 0;
-            unsigned int nKept      = 0;
-
-            double sumEtKept = 0.0;
-
-            struct Row
-            {
-              int ieta = -1;
-              int iphi = -1;
-              double dR = 0.0;
-              double e  = 0.0;
-              double et = 0.0;
-              int isGood = 0;
-              const char* why = "";
-            };
-
-            std::vector<Row> droppedInCone;
-            std::vector<Row> keptInCone;
-            droppedInCone.reserve(64);
-            keptInCone.reserve(64);
-
-            for (unsigned int ch = 0; ch < ntowers; ++ch)
-            {
-              TowerInfo* tower = m_emc_tower_container->get_tower_at_channel(ch);
-              if (!tower) { ++nNull; continue; }
-
-              if (!tower->get_isGood())
-              {
-                // still need dR to decide if it's "relevant" (in cone)
-                // but dR requires geometry; if geometry missing, count there.
-                // We handle dR classification below once geometry exists.
-              }
-
-              const unsigned int tkey = m_emc_tower_container->encode_key(ch);
-              const int ieta = m_emc_tower_container->getTowerEtaBin(tkey);
-              const int iphi = m_emc_tower_container->getTowerPhiBin(tkey);
-
-              RawTowerDefs::keytype geom_key =
-                RawTowerDefs::encode_towerid(RawTowerDefs::CalorimeterId::CEMC, ieta, iphi);
-              RawTowerGeom* tg = m_geomEM->get_tower_geometry(geom_key);
-              if (!tg) { ++nGeomMiss; continue; }
-
-              const double tEta = getTowerEta(tg, 0, 0, m_vertex);
-              const double tPhi = tg->get_phi();
-              if (!std::isfinite(tEta) || !std::isfinite(tPhi)) continue;
-
-              const double dRval = deltaR(cluster_eta, cluster_phi, tEta, tPhi);
-
-              // outside cone
-              if (dRval >= Rcone) { ++nOutR; continue; }
-
-              // now inside cone: classify pass/fail reasons exactly like calculate_layer_et
-              const float e = tower->get_energy();
-              const int isGood = tower->get_isGood() ? 1 : 0;
-
-              if (!tower->get_isGood())
-              {
-                ++nNotGood;
-                droppedInCone.push_back({ieta, iphi, dRval, e, 0.0, isGood, "!isGood"});
-                continue;
-              }
-
-              if (!std::isfinite(e))
-              {
-                  ++nBelowThr;
-                  droppedInCone.push_back({ieta, iphi, dRval, e, 0.0, isGood, "nonfiniteE"});
-                  continue;
-              }
-
-              const double et = e / std::cosh(tEta);
-              ++nKept;
-              sumEtKept += et;
-              keptInCone.push_back({ieta, iphi, dRval, e, et, isGood, "KEPT"});
-            }
-
-            // Sort kept towers by Et descending; dropped by E descending (just to show informative ones)
-            std::sort(keptInCone.begin(), keptInCone.end(),
-                      [](const Row& a, const Row& b){ return a.et > b.et; });
-            std::sort(droppedInCone.begin(), droppedInCone.end(),
-                      [](const Row& a, const Row& b){ return a.e > b.e; });
-
-            std::cout << "\n  [cone audit] EMCal R=" << std::fixed << std::setprecision(2) << Rcone
-                      << "  seed(eta,phi)=(" << std::setprecision(3) << cluster_eta
-                      << "," << std::setprecision(3) << cluster_phi << ")"
-                      << "  vertex_z=" << std::setprecision(2) << m_vertex
-                      << "\n"
-                      << "    ntowers=" << ntowers
-                      << " | null=" << nNull
-                      << " | geomMissing=" << nGeomMiss
-                      << " | outR=" << nOutR
-                      << " | inR_notGood=" << nNotGood
-                      << " | inR_nonFiniteE=" << nBelowThr
-                      << " | inR_KEPT=" << nKept
-                      << " | sumEtKept=" << std::setprecision(3) << sumEtKept
-                      << "\n";
-
-            auto printTable = [&](const char* title, const std::vector<Row>& rows, std::size_t maxRows)
-            {
-              std::cout << "    " << title << " (showing up to " << maxRows << ")\n";
-              std::cout << "    "
-                        << std::setw(6)  << "ieta"
-                        << std::setw(6)  << "iphi"
-                        << std::setw(10) << "dR"
-                        << std::setw(12) << "E"
-                        << std::setw(12) << "Et"
-                        << std::setw(8)  << "isGood"
-                        << "  why\n";
-              std::cout << "    ---------------------------------------------------------------\n";
-
-              const std::size_t n = std::min<std::size_t>(rows.size(), maxRows);
-              for (std::size_t i = 0; i < n; ++i)
-              {
-                const Row& r = rows[i];
-                std::cout << "    "
-                          << std::setw(6)  << r.ieta
-                          << std::setw(6)  << r.iphi
-                          << std::setw(10) << std::fixed << std::setprecision(4) << r.dR
-                          << std::setw(12) << std::fixed << std::setprecision(4) << r.e
-                          << std::setw(12) << std::fixed << std::setprecision(4) << r.et
-                          << std::setw(8)  << r.isGood
-                          << "  " << r.why
-                          << "\n";
-              }
-            };
-
-            printTable("KEPT towers inside cone (highest Et first)", keptInCone, 12);
-            if (!droppedInCone.empty())
-              printTable("DROPPED towers inside cone (highest E first)", droppedInCone, 12);
-          };
-
-          // Audit the two radii you actually use for iso fields
-          auditCone(0.30f);
-          auditCone(0.40f);
-        }
-
-      // Print only first ~15 occurrences to avoid log spam
-      ++s_negPrint;
-      if (s_negPrint >= 15)
-      {
+        static int s_negPrint = 0;
+        
         std::cout << Name()
-                  << ": NEG ISO print limit reached (15). "
-                  << "Raise/adjust this cap if you need more examples."
-                  << std::endl;
-      }
+        << ": NEG ISO detected"
+        << " | vertex_z=" << m_vertex
+        << " | eta=" << cluster_eta
+        << " phi=" << cluster_phi
+        << " | E(rc)=" << rc->get_energy()
+        << " ET=" << ET
+        << " | emcal_et_03=" << emcal_et_03
+        << " iso_03_emcal=" << iso_03_emcal
+        << " (ih=" << ihcal_et_03 << ", oh=" << ohcal_et_03 << ", total=" << iso03_total << ")"
+        << " | emcal_et_04=" << emcal_et_04
+        << " iso_04_emcal=" << iso_04_emcal
+        << " (ih=" << ihcal_et_04 << ", oh=" << ohcal_et_04 << ", total=" << iso04_total << ")"
+        << std::endl;
+        
+        // Extra, cheap sanity: do the *cluster's own towers* have TowerInfo energy consistent with rc->get_energy()?
+        // (This catches the "TowerInfo energy is 0 / mismatched container" problem immediately.)
+        {
+            // ================================================================
+            // (A) Cluster-tower sanity: compare RawCluster energy vs TowerInfo energies
+            // ================================================================
+            const RawCluster::TowerMap& tower_map_dbg = rc->get_towermap();
+            
+            int   nTI_found   = 0;
+            int   nTI_nonzero = 0;
+            float sumE_TI     = 0.0f;
+            float sumEt_TI    = 0.0f;
+            
+            for (const auto& it : tower_map_dbg)
+            {
+                RawTowerDefs::keytype tower_key = it.first;
+                int ieta = RawTowerDefs::decode_index1(tower_key);
+                int iphi = RawTowerDefs::decode_index2(tower_key);
+                
+                unsigned int towerinfokey = TowerInfoDefs::encode_emcal(ieta, iphi);
+                TowerInfo* ti = m_emc_tower_container ? m_emc_tower_container->get_tower_at_key(towerinfokey) : nullptr;
+                if (!ti) continue;
+                
+                ++nTI_found;
+                
+                const float e = ti->get_energy();
+                if (e > 0.0f) ++nTI_nonzero;
+                sumE_TI += e;
+                
+                RawTowerDefs::keytype geom_key =
+                RawTowerDefs::encode_towerid(RawTowerDefs::CalorimeterId::CEMC, ieta, iphi);
+                RawTowerGeom* tg = m_geomEM ? m_geomEM->get_tower_geometry(geom_key) : nullptr;
+                if (tg)
+                {
+                    const double tEta = getTowerEta(tg, 0, 0, m_vertex);
+                    if (std::isfinite(tEta)) sumEt_TI += (e / std::cosh(tEta));
+                }
+            }
+            
+            std::cout << "  [cluster TI sanity]"
+            << " towers_in_cluster=" << tower_map_dbg.size()
+            << " TI_found=" << nTI_found
+            << " TI_nonzero=" << nTI_nonzero
+            << " sumE_TI=" << sumE_TI
+            << " sumEt_TI=" << sumEt_TI
+            << " rc_E=" << rc->get_energy()
+            << std::endl;
+            
+            // ================================================================
+            // (B) Cone-sum audit: reproduce calculate_layer_et selection and count DROP reasons
+            //     Only meaningful for EMCal here because NEG iso is dominated by (emcal_et - ET).
+            // ================================================================
+            auto auditCone = [&](float Rcone)
+            {
+                if (!m_emc_tower_container || !m_geomEM)
+                {
+                    std::cout << "  [cone audit] R=" << Rcone << " : missing TOWERINFO_CALIB_CEMC or TOWERGEOM_CEMC\n";
+                    return;
+                }
+                
+                const unsigned int ntowers = m_emc_tower_container->size();
+                
+                // counters
+                unsigned int nNull      = 0;
+                unsigned int nNotGood   = 0;
+                unsigned int nGeomMiss  = 0;
+                unsigned int nOutR      = 0;
+                unsigned int nBelowThr  = 0;
+                unsigned int nKept      = 0;
+                
+                double sumEtKept = 0.0;
+                
+                struct Row
+                {
+                    int ieta = -1;
+                    int iphi = -1;
+                    double dR = 0.0;
+                    double e  = 0.0;
+                    double et = 0.0;
+                    int isGood = 0;
+                    const char* why = "";
+                };
+                
+                std::vector<Row> droppedInCone;
+                std::vector<Row> keptInCone;
+                droppedInCone.reserve(64);
+                keptInCone.reserve(64);
+                
+                for (unsigned int ch = 0; ch < ntowers; ++ch)
+                {
+                    TowerInfo* tower = m_emc_tower_container->get_tower_at_channel(ch);
+                    if (!tower) { ++nNull; continue; }
+                    
+                    if (!tower->get_isGood())
+                    {
+                        // still need dR to decide if it's "relevant" (in cone)
+                        // but dR requires geometry; if geometry missing, count there.
+                        // We handle dR classification below once geometry exists.
+                    }
+                    
+                    const unsigned int tkey = m_emc_tower_container->encode_key(ch);
+                    const int ieta = m_emc_tower_container->getTowerEtaBin(tkey);
+                    const int iphi = m_emc_tower_container->getTowerPhiBin(tkey);
+                    
+                    RawTowerDefs::keytype geom_key =
+                    RawTowerDefs::encode_towerid(RawTowerDefs::CalorimeterId::CEMC, ieta, iphi);
+                    RawTowerGeom* tg = m_geomEM->get_tower_geometry(geom_key);
+                    if (!tg) { ++nGeomMiss; continue; }
+                    
+                    const double tEta = getTowerEta(tg, 0, 0, m_vertex);
+                    const double tPhi = tg->get_phi();
+                    if (!std::isfinite(tEta) || !std::isfinite(tPhi)) continue;
+                    
+                    const double dRval = deltaR(cluster_eta, cluster_phi, tEta, tPhi);
+                    
+                    // outside cone
+                    if (dRval >= Rcone) { ++nOutR; continue; }
+                    
+                    // now inside cone: classify pass/fail reasons exactly like calculate_layer_et
+                    const float e = tower->get_energy();
+                    const int isGood = tower->get_isGood() ? 1 : 0;
+                    
+                    if (!tower->get_isGood())
+                    {
+                        ++nNotGood;
+                        droppedInCone.push_back({ieta, iphi, dRval, e, 0.0, isGood, "!isGood"});
+                        continue;
+                    }
+                    
+                    if (!std::isfinite(e))
+                    {
+                        ++nBelowThr;
+                        droppedInCone.push_back({ieta, iphi, dRval, e, 0.0, isGood, "nonfiniteE"});
+                        continue;
+                    }
+                    
+                    const double et = e / std::cosh(tEta);
+                    ++nKept;
+                    sumEtKept += et;
+                    keptInCone.push_back({ieta, iphi, dRval, e, et, isGood, "KEPT"});
+                }
+                
+                // Sort kept towers by Et descending; dropped by E descending (just to show informative ones)
+                std::sort(keptInCone.begin(), keptInCone.end(),
+                          [](const Row& a, const Row& b){ return a.et > b.et; });
+                std::sort(droppedInCone.begin(), droppedInCone.end(),
+                          [](const Row& a, const Row& b){ return a.e > b.e; });
+                
+                std::cout << "\n  [cone audit] EMCal R=" << std::fixed << std::setprecision(2) << Rcone
+                << "  seed(eta,phi)=(" << std::setprecision(3) << cluster_eta
+                << "," << std::setprecision(3) << cluster_phi << ")"
+                << "  vertex_z=" << std::setprecision(2) << m_vertex
+                << "\n"
+                << "    ntowers=" << ntowers
+                << " | null=" << nNull
+                << " | geomMissing=" << nGeomMiss
+                << " | outR=" << nOutR
+                << " | inR_notGood=" << nNotGood
+                << " | inR_nonFiniteE=" << nBelowThr
+                << " | inR_KEPT=" << nKept
+                << " | sumEtKept=" << std::setprecision(3) << sumEtKept
+                << "\n";
+                
+                auto printTable = [&](const char* title, const std::vector<Row>& rows, std::size_t maxRows)
+                {
+                    std::cout << "    " << title << " (showing up to " << maxRows << ")\n";
+                    std::cout << "    "
+                    << std::setw(6)  << "ieta"
+                    << std::setw(6)  << "iphi"
+                    << std::setw(10) << "dR"
+                    << std::setw(12) << "E"
+                    << std::setw(12) << "Et"
+                    << std::setw(8)  << "isGood"
+                    << "  why\n";
+                    std::cout << "    ---------------------------------------------------------------\n";
+                    
+                    const std::size_t n = std::min<std::size_t>(rows.size(), maxRows);
+                    for (std::size_t i = 0; i < n; ++i)
+                    {
+                        const Row& r = rows[i];
+                        std::cout << "    "
+                        << std::setw(6)  << r.ieta
+                        << std::setw(6)  << r.iphi
+                        << std::setw(10) << std::fixed << std::setprecision(4) << r.dR
+                        << std::setw(12) << std::fixed << std::setprecision(4) << r.e
+                        << std::setw(12) << std::fixed << std::setprecision(4) << r.et
+                        << std::setw(8)  << r.isGood
+                        << "  " << r.why
+                        << "\n";
+                    }
+                };
+                
+                printTable("KEPT towers inside cone (highest Et first)", keptInCone, 12);
+                if (!droppedInCone.empty())
+                    printTable("DROPPED towers inside cone (highest E first)", droppedInCone, 12);
+            };
+            
+            // Audit the two radii you actually use for iso fields
+            auditCone(0.30f);
+            auditCone(0.40f);
+        }
+        
+        // Print only first ~15 occurrences to avoid log spam
+        ++s_negPrint;
+        if (s_negPrint >= 15)
+        {
+            std::cout << Name()
+            << ": NEG ISO print limit reached (15). "
+            << "Raise/adjust this cap if you need more examples."
+            << std::endl;
+        }
     }
-
+    
     // -----------------------------
     // Store to PhotonClusterv1 (same names as before)
     // -----------------------------
     photon->set_shower_shape_parameter("iso_04_emcal",  iso_04_emcal);
     photon->set_shower_shape_parameter("iso_04_hcalin", ihcal_et_04);
     photon->set_shower_shape_parameter("iso_04_hcalout",ohcal_et_04);
-
+    
     photon->set_shower_shape_parameter("iso_03_emcal",  iso_03_emcal);
     photon->set_shower_shape_parameter("iso_03_hcalin", ihcal_et_03);
     photon->set_shower_shape_parameter("iso_03_hcalout",ohcal_et_03);
-
+    
     photon->set_shower_shape_parameter("iso_02_emcal",  iso_02_emcal);
     photon->set_shower_shape_parameter("iso_01_emcal",  iso_01_emcal);
     photon->set_shower_shape_parameter("iso_005_emcal", iso_005_emcal);

@@ -433,7 +433,9 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
         const string ptMeanIsoSummaryDir = JoinPath(ptSummaryBase, "summaryOutput");
         const string perVariantOverlayBase = JoinPath(ueCompBase, "perVariantOverlays");
         const string layerByLayerBase = JoinPath(ueCompBase, "layerByLayerOverlays");
+        const string tightNonTightBase = JoinPath(ueCompBase, "tightNonTightOverlays");
         EnsureDir(ueCompBase);
+        EnsureDir(tightNonTightBase);
         if (!perVariantIsoQAOnlyActive)
         {
             EnsureDir(centralitySummaryBase);
@@ -6858,9 +6860,6 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             }
             
 #endif
-            const string tightNonTightBase = JoinPath(ueCompBase, "tightNonTightOverlays");
-            EnsureDir(tightNonTightBase);
-            
             auto MakeTightNonTightOverlays =
             [&](const string& mcOverlayFolder,
                 const string& mcTitleTag,
@@ -6908,6 +6907,12 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     const string variantBaseDir = JoinPath(JoinPath(tightNonTightBase, dataH.variant), mcOverlayFolder);
                     EnsureDir(JoinPath(tightNonTightBase, dataH.variant));
                     EnsureDir(variantBaseDir);
+                    const string summaryOutputDir = JoinPath(variantBaseDir, "summaryOutput");
+                    const string meanSummaryDir = JoinPath(summaryOutputDir, "meanSummary");
+                    const string sigmaSummaryDir = JoinPath(summaryOutputDir, "sigmaSummary");
+                    EnsureDir(summaryOutputDir);
+                    EnsureDir(meanSummaryDir);
+                    EnsureDir(sigmaSummaryDir);
                     
                     for (const auto& cb : centBins)
                     {
@@ -6917,6 +6922,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         // Pre-pass: accumulate Gaussian means for all 4 series across pT bins
                         vector<double> tntSubTDX, tntSubTDY, tntSubTDEY, tntSubTDSigY, tntSubTDSigEY;
                         vector<double> tntSubNTDX, tntSubNTDY, tntSubNTDEY, tntSubNTDSigY, tntSubNTDSigEY;
+                        vector<double> tntSubTMX, tntSubTMY, tntSubTMEY, tntSubTMSigY, tntSubTMSigEY;
+                        vector<double> tntSubNTMX, tntSubNTMY, tntSubNTMEY, tntSubNTMSigY, tntSubNTMSigEY;
                         for (int iptPre = 0; iptPre < kNPtBins; ++iptPre)
                         {
                             const PtBin& bPre = PtBins()[iptPre];
@@ -6938,6 +6945,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             };
                             FitAndPush(dataTop, hTN,  tntSubTDX,  tntSubTDY,  tntSubTDEY,  tntSubTDSigY,  tntSubTDSigEY);
                             FitAndPush(dataTop, hNTN, tntSubNTDX, tntSubNTDY, tntSubNTDEY, tntSubNTDSigY, tntSubNTDSigEY);
+                            FitAndPush(mcTop,   hTN,  tntSubTMX,  tntSubTMY,  tntSubTMEY,  tntSubTMSigY,  tntSubTMSigEY);
+                            FitAndPush(mcTop,   hNTN, tntSubNTMX, tntSubNTMY, tntSubNTMEY, tntSubNTMSigY, tntSubNTMSigEY);
                         }
                         double tntSubYLo = 1e30, tntSubYHi = -1e30;
                         auto TntUpdateRange = [&](const vector<double>& y, const vector<double>& ey) {
@@ -7299,6 +7308,353 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             delete hNTData;
                             delete hTMc;
                             delete hNTMc;
+                        }
+                        
+                        {
+                            auto UpdateSummaryRange = [&](const vector<double>& y, const vector<double>& ey, double& yLo, double& yHi)
+                            {
+                                for (std::size_t i = 0; i < y.size(); ++i)
+                                {
+                                    yLo = std::min(yLo, y[i] - ey[i]);
+                                    yHi = std::max(yHi, y[i] + ey[i]);
+                                }
+                            };
+                            
+                            auto MakeSummaryG = [](const vector<double>& x, const vector<double>& y, const vector<double>& ey,
+                                                   int marker, int color) -> TGraphErrors*
+                            {
+                                if (x.empty()) return nullptr;
+                                vector<double> ex(x.size(), 0.0);
+                                TGraphErrors* g = new TGraphErrors((int)x.size(), &x[0], &y[0], &ex[0], &ey[0]);
+                                g->SetMarkerStyle(marker);
+                                g->SetMarkerSize(1.1);
+                                g->SetMarkerColor(color);
+                                g->SetLineColor(color);
+                                g->SetLineWidth(2);
+                                return g;
+                            };
+                            
+                            const double coneRValTNT = (kAA_IsoConeR == "isoR40") ? 0.4 : 0.3;
+                            
+                            double tntMeanYLo = 1e30, tntMeanYHi = -1e30;
+                            UpdateSummaryRange(tntSubTDY,   tntSubTDEY,   tntMeanYLo, tntMeanYHi);
+                            UpdateSummaryRange(tntSubNTDY,  tntSubNTDEY,  tntMeanYLo, tntMeanYHi);
+                            UpdateSummaryRange(tntSubTMY,   tntSubTMEY,   tntMeanYLo, tntMeanYHi);
+                            UpdateSummaryRange(tntSubNTMY,  tntSubNTMEY,  tntMeanYLo, tntMeanYHi);
+                            const bool haveTntMeanSummary =
+                            (!tntSubTDX.empty() || !tntSubNTDX.empty() || !tntSubTMX.empty() || !tntSubNTMX.empty());
+                            
+                            if (haveTntMeanSummary)
+                            {
+                                const double tntMeanPad = (tntMeanYHi > tntMeanYLo) ? std::max(0.25 * (tntMeanYHi - tntMeanYLo), 0.25) : 0.25;
+                                
+                                TCanvas cMeanTNT(
+                                                 TString::Format("cMeanTNT_%s_%s_%s", mcOverlayFolder.c_str(), dataH.variant.c_str(), cb.folder.c_str()).Data(),
+                                                 "cMeanTNT", 900, 700);
+                                ApplyCanvasMargins1D(cMeanTNT);
+                                cMeanTNT.cd();
+                                
+                                TH1F hFrMeanTNT(
+                                               TString::Format("hFrMeanTNT_%s_%s_%s", mcOverlayFolder.c_str(), dataH.variant.c_str(), cb.folder.c_str()).Data(),
+                                               "", 100, 10.0, kPtEdges.back());
+                                hFrMeanTNT.SetDirectory(nullptr);
+                                hFrMeanTNT.SetStats(0);
+                                hFrMeanTNT.SetMinimum(std::max(0.0, tntMeanYLo - tntMeanPad));
+                                hFrMeanTNT.SetMaximum(tntMeanYHi + tntMeanPad);
+                                hFrMeanTNT.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                                hFrMeanTNT.GetYaxis()->SetTitle("#mu^{Gauss} [GeV]");
+                                hFrMeanTNT.GetXaxis()->SetTitleSize(0.055);
+                                hFrMeanTNT.GetYaxis()->SetTitleSize(0.055);
+                                hFrMeanTNT.GetXaxis()->SetLabelSize(0.045);
+                                hFrMeanTNT.GetYaxis()->SetLabelSize(0.045);
+                                hFrMeanTNT.GetYaxis()->SetTitleOffset(1.15);
+                                hFrMeanTNT.Draw();
+                                
+                                TGraphErrors* gMeanTD   = MakeSummaryG(tntSubTDX,   tntSubTDY,   tntSubTDEY,   20, kBlack);
+                                TGraphErrors* gMeanNTD  = MakeSummaryG(tntSubNTDX,  tntSubNTDY,  tntSubNTDEY,  24, kRed + 1);
+                                TGraphErrors* gMeanTM   = MakeSummaryG(tntSubTMX,   tntSubTMY,   tntSubTMEY,   25, kBlue + 1);
+                                TGraphErrors* gMeanNTM  = MakeSummaryG(tntSubNTMX,  tntSubNTMY,  tntSubNTMEY,  26, kGreen + 2);
+                                
+                                if (gMeanTD)  gMeanTD->Draw("PE1 SAME");
+                                if (gMeanNTD) gMeanNTD->Draw("PE1 SAME");
+                                if (gMeanTM)  gMeanTM->Draw("PE1 SAME");
+                                if (gMeanNTM) gMeanNTM->Draw("PE1 SAME");
+                                
+                                TLegend legMeanTNT(0.48, 0.66, 0.92, 0.88);
+                                legMeanTNT.SetBorderSize(0);
+                                legMeanTNT.SetFillStyle(0);
+                                legMeanTNT.SetTextFont(42);
+                                legMeanTNT.SetTextSize(0.032);
+                                legMeanTNT.SetNColumns(2);
+                                if (gMeanTD)  legMeanTNT.AddEntry(gMeanTD,  "tight data", "ep");
+                                if (gMeanNTD) legMeanTNT.AddEntry(gMeanNTD, "nontight data", "ep");
+                                if (gMeanTM)  legMeanTNT.AddEntry(gMeanTM,  tightMcLegend.c_str(), "ep");
+                                if (gMeanNTM) legMeanTNT.AddEntry(gMeanNTM, nonTightMcLegend.c_str(), "ep");
+                                legMeanTNT.Draw();
+                                
+                                TLatex tMeanTitle;
+                                tMeanTitle.SetNDC(true);
+                                tMeanTitle.SetTextFont(42);
+                                tMeanTitle.SetTextAlign(23);
+                                tMeanTitle.SetTextSize(0.038);
+                                tMeanTitle.DrawLatex(0.50, 0.97,
+                                                     TString::Format("#mu^{Gauss}: tight/nontight Au+Au data vs %s embedded MC",
+                                                                     mcTitleTag.c_str()).Data());
+                                
+                                TLatex tMeanInfo;
+                                tMeanInfo.SetNDC(true);
+                                tMeanInfo.SetTextFont(42);
+                                tMeanInfo.SetTextAlign(13);
+                                tMeanInfo.SetTextSize(0.034);
+                                tMeanInfo.DrawLatex(0.18, 0.88, trigDisplayLabel.c_str());
+                                tMeanInfo.DrawLatex(0.18, 0.84, TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
+                                tMeanInfo.DrawLatex(0.18, 0.80, TString::Format("UE: %s", dataH.label.c_str()).Data());
+                                tMeanInfo.DrawLatex(0.18, 0.76, TString::Format("#DeltaR_{cone} < %.1f", coneRValTNT).Data());
+                                
+                                TLatex tMeanSph;
+                                tMeanSph.SetNDC(true);
+                                tMeanSph.SetTextFont(42);
+                                tMeanSph.SetTextAlign(33);
+                                tMeanSph.SetTextSize(0.042);
+                                tMeanSph.DrawLatex(0.92, 0.18, "#bf{sPHENIX} #it{Internal}");
+                                tMeanSph.SetTextSize(0.034);
+                                tMeanSph.DrawLatex(0.92, 0.13, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                                
+                                SaveCanvas(cMeanTNT, JoinPath(meanSummaryDir,
+                                                              TString::Format("tightNonTight_meanOverlay_%s.png", cb.folder.c_str()).Data()));
+                                
+                                if (mcOverlayFolder == "photonJetOverlays" && (gMeanTD || gMeanNTD))
+                                {
+                                    TCanvas cMeanTNTDataOnly(
+                                                             TString::Format("cMeanTNTDataOnly_%s_%s_%s", mcOverlayFolder.c_str(), dataH.variant.c_str(), cb.folder.c_str()).Data(),
+                                                             "cMeanTNTDataOnly", 900, 700);
+                                    ApplyCanvasMargins1D(cMeanTNTDataOnly);
+                                    cMeanTNTDataOnly.cd();
+                                    
+                                    TH1F hFrMeanTNTDataOnly(
+                                                           TString::Format("hFrMeanTNTDataOnly_%s_%s_%s", mcOverlayFolder.c_str(), dataH.variant.c_str(), cb.folder.c_str()).Data(),
+                                                           "", 100, 10.0, kPtEdges.back());
+                                    hFrMeanTNTDataOnly.SetDirectory(nullptr);
+                                    hFrMeanTNTDataOnly.SetStats(0);
+                                    hFrMeanTNTDataOnly.SetMinimum(std::max(0.0, tntMeanYLo - tntMeanPad));
+                                    hFrMeanTNTDataOnly.SetMaximum(tntMeanYHi + tntMeanPad);
+                                    hFrMeanTNTDataOnly.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                                    hFrMeanTNTDataOnly.GetYaxis()->SetTitle("#mu^{Gauss} [GeV]");
+                                    hFrMeanTNTDataOnly.GetXaxis()->SetTitleSize(0.055);
+                                    hFrMeanTNTDataOnly.GetYaxis()->SetTitleSize(0.055);
+                                    hFrMeanTNTDataOnly.GetXaxis()->SetLabelSize(0.045);
+                                    hFrMeanTNTDataOnly.GetYaxis()->SetLabelSize(0.045);
+                                    hFrMeanTNTDataOnly.GetYaxis()->SetTitleOffset(1.15);
+                                    hFrMeanTNTDataOnly.Draw();
+                                    
+                                    if (gMeanTD)  gMeanTD->Draw("PE1 SAME");
+                                    if (gMeanNTD) gMeanNTD->Draw("PE1 SAME");
+                                    
+                                    TLegend legMeanTNTDataOnly(0.56, 0.74, 0.92, 0.88);
+                                    legMeanTNTDataOnly.SetBorderSize(0);
+                                    legMeanTNTDataOnly.SetFillStyle(0);
+                                    legMeanTNTDataOnly.SetTextFont(42);
+                                    legMeanTNTDataOnly.SetTextSize(0.032);
+                                    if (gMeanTD)  legMeanTNTDataOnly.AddEntry(gMeanTD,  "tight data", "ep");
+                                    if (gMeanNTD) legMeanTNTDataOnly.AddEntry(gMeanNTD, "nontight data", "ep");
+                                    legMeanTNTDataOnly.Draw();
+                                    
+                                    TLatex tMeanTitleDataOnly;
+                                    tMeanTitleDataOnly.SetNDC(true);
+                                    tMeanTitleDataOnly.SetTextFont(42);
+                                    tMeanTitleDataOnly.SetTextAlign(23);
+                                    tMeanTitleDataOnly.SetTextSize(0.038);
+                                    tMeanTitleDataOnly.DrawLatex(0.50, 0.97,
+                                                                 "#mu^{Gauss}: tight/nontight Au+Au data only");
+                                    
+                                    TLatex tMeanInfoDataOnly;
+                                    tMeanInfoDataOnly.SetNDC(true);
+                                    tMeanInfoDataOnly.SetTextFont(42);
+                                    tMeanInfoDataOnly.SetTextAlign(13);
+                                    tMeanInfoDataOnly.SetTextSize(0.034);
+                                    tMeanInfoDataOnly.DrawLatex(0.18, 0.88, trigDisplayLabel.c_str());
+                                    tMeanInfoDataOnly.DrawLatex(0.18, 0.84, TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
+                                    tMeanInfoDataOnly.DrawLatex(0.18, 0.80, TString::Format("UE: %s", dataH.label.c_str()).Data());
+                                    tMeanInfoDataOnly.DrawLatex(0.18, 0.76, TString::Format("#DeltaR_{cone} < %.1f", coneRValTNT).Data());
+                                    
+                                    TLatex tMeanSphDataOnly;
+                                    tMeanSphDataOnly.SetNDC(true);
+                                    tMeanSphDataOnly.SetTextFont(42);
+                                    tMeanSphDataOnly.SetTextAlign(33);
+                                    tMeanSphDataOnly.SetTextSize(0.042);
+                                    tMeanSphDataOnly.DrawLatex(0.92, 0.18, "#bf{sPHENIX} #it{Internal}");
+                                    tMeanSphDataOnly.SetTextSize(0.034);
+                                    tMeanSphDataOnly.DrawLatex(0.92, 0.13, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                                    
+                                    SaveCanvas(cMeanTNTDataOnly, JoinPath(meanSummaryDir,
+                                                                          TString::Format("tightNonTight_meanOverlay_dataOnly_%s.png", cb.folder.c_str()).Data()));
+                                }
+                                
+                                if (gMeanTD) delete gMeanTD;
+                                if (gMeanNTD) delete gMeanNTD;
+                                if (gMeanTM) delete gMeanTM;
+                                if (gMeanNTM) delete gMeanNTM;
+                            }
+                            
+                            double tntSigmaYLo = 1e30, tntSigmaYHi = -1e30;
+                            UpdateSummaryRange(tntSubTDSigY,   tntSubTDSigEY,   tntSigmaYLo, tntSigmaYHi);
+                            UpdateSummaryRange(tntSubNTDSigY,  tntSubNTDSigEY,  tntSigmaYLo, tntSigmaYHi);
+                            UpdateSummaryRange(tntSubTMSigY,   tntSubTMSigEY,   tntSigmaYLo, tntSigmaYHi);
+                            UpdateSummaryRange(tntSubNTMSigY,  tntSubNTMSigEY,  tntSigmaYLo, tntSigmaYHi);
+                            const bool haveTntSigmaSummary =
+                            (!tntSubTDX.empty() || !tntSubNTDX.empty() || !tntSubTMX.empty() || !tntSubNTMX.empty());
+                            
+                            if (haveTntSigmaSummary)
+                            {
+                                const double tntSigmaPad = (tntSigmaYHi > tntSigmaYLo) ? std::max(0.25 * (tntSigmaYHi - tntSigmaYLo), 0.25) : 0.25;
+                                
+                                TCanvas cSigmaTNT(
+                                                  TString::Format("cSigmaTNT_%s_%s_%s", mcOverlayFolder.c_str(), dataH.variant.c_str(), cb.folder.c_str()).Data(),
+                                                  "cSigmaTNT", 900, 700);
+                                ApplyCanvasMargins1D(cSigmaTNT);
+                                cSigmaTNT.cd();
+                                
+                                TH1F hFrSigmaTNT(
+                                                TString::Format("hFrSigmaTNT_%s_%s_%s", mcOverlayFolder.c_str(), dataH.variant.c_str(), cb.folder.c_str()).Data(),
+                                                "", 100, 10.0, kPtEdges.back());
+                                hFrSigmaTNT.SetDirectory(nullptr);
+                                hFrSigmaTNT.SetStats(0);
+                                hFrSigmaTNT.SetMinimum(std::max(0.0, tntSigmaYLo - tntSigmaPad));
+                                hFrSigmaTNT.SetMaximum(tntSigmaYHi + tntSigmaPad);
+                                hFrSigmaTNT.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                                hFrSigmaTNT.GetYaxis()->SetTitle("#sigma^{Gauss} [GeV]");
+                                hFrSigmaTNT.GetXaxis()->SetTitleSize(0.055);
+                                hFrSigmaTNT.GetYaxis()->SetTitleSize(0.055);
+                                hFrSigmaTNT.GetXaxis()->SetLabelSize(0.045);
+                                hFrSigmaTNT.GetYaxis()->SetLabelSize(0.045);
+                                hFrSigmaTNT.GetYaxis()->SetTitleOffset(1.15);
+                                hFrSigmaTNT.Draw();
+                                
+                                TGraphErrors* gSigmaTD   = MakeSummaryG(tntSubTDX,   tntSubTDSigY,   tntSubTDSigEY,   20, kBlack);
+                                TGraphErrors* gSigmaNTD  = MakeSummaryG(tntSubNTDX,  tntSubNTDSigY,  tntSubNTDSigEY,  24, kRed + 1);
+                                TGraphErrors* gSigmaTM   = MakeSummaryG(tntSubTMX,   tntSubTMSigY,   tntSubTMSigEY,   25, kBlue + 1);
+                                TGraphErrors* gSigmaNTM  = MakeSummaryG(tntSubNTMX,  tntSubNTMSigY,  tntSubNTMSigEY,  26, kGreen + 2);
+                                
+                                if (gSigmaTD)  gSigmaTD->Draw("PE1 SAME");
+                                if (gSigmaNTD) gSigmaNTD->Draw("PE1 SAME");
+                                if (gSigmaTM)  gSigmaTM->Draw("PE1 SAME");
+                                if (gSigmaNTM) gSigmaNTM->Draw("PE1 SAME");
+                                
+                                TLegend legSigmaTNT(0.48, 0.66, 0.92, 0.88);
+                                legSigmaTNT.SetBorderSize(0);
+                                legSigmaTNT.SetFillStyle(0);
+                                legSigmaTNT.SetTextFont(42);
+                                legSigmaTNT.SetTextSize(0.032);
+                                legSigmaTNT.SetNColumns(2);
+                                if (gSigmaTD)  legSigmaTNT.AddEntry(gSigmaTD,  "tight data", "ep");
+                                if (gSigmaNTD) legSigmaTNT.AddEntry(gSigmaNTD, "nontight data", "ep");
+                                if (gSigmaTM)  legSigmaTNT.AddEntry(gSigmaTM,  tightMcLegend.c_str(), "ep");
+                                if (gSigmaNTM) legSigmaTNT.AddEntry(gSigmaNTM, nonTightMcLegend.c_str(), "ep");
+                                legSigmaTNT.Draw();
+                                
+                                TLatex tSigmaTitle;
+                                tSigmaTitle.SetNDC(true);
+                                tSigmaTitle.SetTextFont(42);
+                                tSigmaTitle.SetTextAlign(23);
+                                tSigmaTitle.SetTextSize(0.038);
+                                tSigmaTitle.DrawLatex(0.50, 0.97,
+                                                      TString::Format("#sigma^{Gauss}: tight/nontight Au+Au data vs %s embedded MC",
+                                                                      mcTitleTag.c_str()).Data());
+                                
+                                TLatex tSigmaInfo;
+                                tSigmaInfo.SetNDC(true);
+                                tSigmaInfo.SetTextFont(42);
+                                tSigmaInfo.SetTextAlign(13);
+                                tSigmaInfo.SetTextSize(0.034);
+                                tSigmaInfo.DrawLatex(0.18, 0.88, trigDisplayLabel.c_str());
+                                tSigmaInfo.DrawLatex(0.18, 0.84, TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
+                                tSigmaInfo.DrawLatex(0.18, 0.80, TString::Format("UE: %s", dataH.label.c_str()).Data());
+                                tSigmaInfo.DrawLatex(0.18, 0.76, TString::Format("#DeltaR_{cone} < %.1f", coneRValTNT).Data());
+                                
+                                TLatex tSigmaSph;
+                                tSigmaSph.SetNDC(true);
+                                tSigmaSph.SetTextFont(42);
+                                tSigmaSph.SetTextAlign(33);
+                                tSigmaSph.SetTextSize(0.042);
+                                tSigmaSph.DrawLatex(0.92, 0.18, "#bf{sPHENIX} #it{Internal}");
+                                tSigmaSph.SetTextSize(0.034);
+                                tSigmaSph.DrawLatex(0.92, 0.13, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                                
+                                SaveCanvas(cSigmaTNT, JoinPath(sigmaSummaryDir,
+                                                               TString::Format("tightNonTight_sigmaOverlay_%s.png", cb.folder.c_str()).Data()));
+                                
+                                if (mcOverlayFolder == "photonJetOverlays" && (gSigmaTD || gSigmaNTD))
+                                {
+                                    TCanvas cSigmaTNTDataOnly(
+                                                              TString::Format("cSigmaTNTDataOnly_%s_%s_%s", mcOverlayFolder.c_str(), dataH.variant.c_str(), cb.folder.c_str()).Data(),
+                                                              "cSigmaTNTDataOnly", 900, 700);
+                                    ApplyCanvasMargins1D(cSigmaTNTDataOnly);
+                                    cSigmaTNTDataOnly.cd();
+                                    
+                                    TH1F hFrSigmaTNTDataOnly(
+                                                             TString::Format("hFrSigmaTNTDataOnly_%s_%s_%s", mcOverlayFolder.c_str(), dataH.variant.c_str(), cb.folder.c_str()).Data(),
+                                                             "", 100, 10.0, kPtEdges.back());
+                                    hFrSigmaTNTDataOnly.SetDirectory(nullptr);
+                                    hFrSigmaTNTDataOnly.SetStats(0);
+                                    hFrSigmaTNTDataOnly.SetMinimum(std::max(0.0, tntSigmaYLo - tntSigmaPad));
+                                    hFrSigmaTNTDataOnly.SetMaximum(tntSigmaYHi + tntSigmaPad);
+                                    hFrSigmaTNTDataOnly.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                                    hFrSigmaTNTDataOnly.GetYaxis()->SetTitle("#sigma^{Gauss} [GeV]");
+                                    hFrSigmaTNTDataOnly.GetXaxis()->SetTitleSize(0.055);
+                                    hFrSigmaTNTDataOnly.GetYaxis()->SetTitleSize(0.055);
+                                    hFrSigmaTNTDataOnly.GetXaxis()->SetLabelSize(0.045);
+                                    hFrSigmaTNTDataOnly.GetYaxis()->SetLabelSize(0.045);
+                                    hFrSigmaTNTDataOnly.GetYaxis()->SetTitleOffset(1.15);
+                                    hFrSigmaTNTDataOnly.Draw();
+                                    
+                                    if (gSigmaTD)  gSigmaTD->Draw("PE1 SAME");
+                                    if (gSigmaNTD) gSigmaNTD->Draw("PE1 SAME");
+                                    
+                                    TLegend legSigmaTNTDataOnly(0.56, 0.74, 0.92, 0.88);
+                                    legSigmaTNTDataOnly.SetBorderSize(0);
+                                    legSigmaTNTDataOnly.SetFillStyle(0);
+                                    legSigmaTNTDataOnly.SetTextFont(42);
+                                    legSigmaTNTDataOnly.SetTextSize(0.032);
+                                    if (gSigmaTD)  legSigmaTNTDataOnly.AddEntry(gSigmaTD,  "tight data", "ep");
+                                    if (gSigmaNTD) legSigmaTNTDataOnly.AddEntry(gSigmaNTD, "nontight data", "ep");
+                                    legSigmaTNTDataOnly.Draw();
+                                    
+                                    TLatex tSigmaTitleDataOnly;
+                                    tSigmaTitleDataOnly.SetNDC(true);
+                                    tSigmaTitleDataOnly.SetTextFont(42);
+                                    tSigmaTitleDataOnly.SetTextAlign(23);
+                                    tSigmaTitleDataOnly.SetTextSize(0.038);
+                                    tSigmaTitleDataOnly.DrawLatex(0.50, 0.97,
+                                                                  "#sigma^{Gauss}: tight/nontight Au+Au data only");
+                                    
+                                    TLatex tSigmaInfoDataOnly;
+                                    tSigmaInfoDataOnly.SetNDC(true);
+                                    tSigmaInfoDataOnly.SetTextFont(42);
+                                    tSigmaInfoDataOnly.SetTextAlign(13);
+                                    tSigmaInfoDataOnly.SetTextSize(0.034);
+                                    tSigmaInfoDataOnly.DrawLatex(0.18, 0.88, trigDisplayLabel.c_str());
+                                    tSigmaInfoDataOnly.DrawLatex(0.18, 0.84, TString::Format("%d-%d%%", cb.lo, cb.hi).Data());
+                                    tSigmaInfoDataOnly.DrawLatex(0.18, 0.80, TString::Format("UE: %s", dataH.label.c_str()).Data());
+                                    tSigmaInfoDataOnly.DrawLatex(0.18, 0.76, TString::Format("#DeltaR_{cone} < %.1f", coneRValTNT).Data());
+                                    
+                                    TLatex tSigmaSphDataOnly;
+                                    tSigmaSphDataOnly.SetNDC(true);
+                                    tSigmaSphDataOnly.SetTextFont(42);
+                                    tSigmaSphDataOnly.SetTextAlign(33);
+                                    tSigmaSphDataOnly.SetTextSize(0.042);
+                                    tSigmaSphDataOnly.DrawLatex(0.92, 0.18, "#bf{sPHENIX} #it{Internal}");
+                                    tSigmaSphDataOnly.SetTextSize(0.034);
+                                    tSigmaSphDataOnly.DrawLatex(0.92, 0.13, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
+                                    
+                                    SaveCanvas(cSigmaTNTDataOnly, JoinPath(sigmaSummaryDir,
+                                                                           TString::Format("tightNonTight_sigmaOverlay_dataOnly_%s.png", cb.folder.c_str()).Data()));
+                                }
+                                
+                                if (gSigmaTD) delete gSigmaTD;
+                                if (gSigmaNTD) delete gSigmaNTD;
+                                if (gSigmaTM) delete gSigmaTM;
+                                if (gSigmaNTM) delete gSigmaNTM;
+                            }
                         }
                     }
                 }

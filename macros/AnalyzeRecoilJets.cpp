@@ -5238,15 +5238,20 @@ static void Make3x3Table_SSOverlay(Dataset& ds,
         double ymax = 0.0;
         for (auto* p : hc) if (p) ymax = std::max(ymax, p->GetMaximum());
         first->SetMaximum(ymax * 1.25);
+
+        const string varLabel =
+            (varKey == "weta35") ? "w_{#eta}^{3#times5}" :
+            (varKey == "wphi53") ? "w_{#phi}^{5#times3}" :
+            varKey;
         
         first->SetTitle("");
-        first->GetXaxis()->SetTitle(varKey.c_str());
+        first->GetXaxis()->SetTitle(varLabel.c_str());
         first->GetYaxis()->SetTitle("A.U.");
         first->Draw("hist");
         for (int r = 0; r < 4; ++r) if (hc[r] && hc[r] != first) hc[r]->Draw("hist same");
         
         vector<string> lines = commonLines;
-        lines.push_back(TString::Format("SS %s  pT^{#gamma}: %d-%d GeV", varKey.c_str(), b.lo, b.hi).Data());
+        lines.push_back(TString::Format("SS %s  pT^{#gamma}: %d-%d GeV", varLabel.c_str(), b.lo, b.hi).Data());
         DrawLatexLines(0.16, 0.90, lines, 0.040, 0.050);
     }
     
@@ -6873,7 +6878,7 @@ void RunABCDPurityAndSidebandSubtraction(Dataset& ds, const LeakageFactors& lf)
     const string ssBase = JoinPath(outDir, "SS");
     EnsureDir(ssBase);
     
-    const vector<string> varKeys = {"weta","wphi","e11e33","e32e35","et1"};
+    const vector<string> varKeys = {"weta","wphi","weta35","wphi53","e11e33","e32e35","et1"};
     vector<string> ssCommon;
     ssCommon.push_back("SS overlays: preselection pass");
     ssCommon.push_back("Tight: 0 fails; NonTight: #geq2 fails; (1-fail excluded)");
@@ -13814,12 +13819,17 @@ void RunPPG12SSTables_DataSigBkg_PP(const Dataset& dsPP, const Dataset& dsSIM)
     struct VarDef { std::string var; std::string label; };
     const std::vector<VarDef> vars =
     {
-        {"weta",   "w_{#eta}"},
-        {"wphi",   "w_{#phi}"},
-        {"e11e33", "E_{11}/E_{33}"},
-        {"et1",    "et1"},
-        {"e32e35", "E_{32}/E_{35}"}
+        {"weta",    "w_{#eta}"},
+        {"wphi",    "w_{#phi}"},
+        {"weta35",  "w_{#eta}^{3#times5}"},
+        {"wphi53",  "w_{#phi}^{5#times3}"},
+        {"e11e33",  "E_{11}/E_{33}"},
+        {"et1",     "et1"},
+        {"e32e35",  "E_{32}/E_{35}"}
     };
+
+    const int ssNVars = static_cast<int>(vars.size());
+    const int ssCanvasW = 520 * ssNVars;
     
     auto LabelForVar = [&](const std::string& v) -> std::string
     {
@@ -13839,9 +13849,9 @@ void RunPPG12SSTables_DataSigBkg_PP(const Dataset& dsPP, const Dataset& dsSIM)
         {
             TCanvas cPP(
                         TString::Format("c_pp_ss_%s_%s", tag.c_str(), pb.folder.c_str()).Data(),
-                        "c_pp_ss", 2600, 750
+                        "c_pp_ss", ssCanvasW, 750
                         );
-            cPP.Divide(5, 1, 0.001, 0.001);
+            cPP.Divide(ssNVars, 1, 0.001, 0.001);
             
             std::vector<TH1*> keepAlive;
             keepAlive.reserve(vars.size() * 3);
@@ -13980,7 +13990,7 @@ void RunPPG12SSTables_DataSigBkg_PP(const Dataset& dsPP, const Dataset& dsSIM)
                 
                 // Legend
                 {
-                    const bool isW = (var == "weta" || var == "wphi");
+                    const bool isW = (var == "weta" || var == "wphi" || var == "weta35" || var == "wphi53");
                     TLegend* leg = (isW ? new TLegend(0.55, 0.61, 0.93, 0.8) : new TLegend(0.16, 0.61, 0.54, 0.8));
                     leg->SetBorderSize(0);
                     leg->SetFillStyle(0);

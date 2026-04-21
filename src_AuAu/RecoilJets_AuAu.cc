@@ -3656,23 +3656,27 @@ RecoilJets::SSVars RecoilJets::makeSSFromPhoton(const PhotonClusterv1* pho, doub
     return v;
   }
 
-  // Raw stored shower-shape parameters (PhotonClusterBuilder names)
-  const double weta_cogx = pho->get_shower_shape_parameter("weta_cogx");
-  const double wphi_cogx = pho->get_shower_shape_parameter("wphi_cogx");
-  const double et1       = pho->get_shower_shape_parameter("et1");
+    // Raw stored shower-shape parameters (PhotonClusterBuilder names)
+    const double weta_cogx   = pho->get_shower_shape_parameter("weta_cogx");
+    const double wphi_cogx   = pho->get_shower_shape_parameter("wphi_cogx");
+    const double weta35_cogx = pho->get_shower_shape_parameter("weta35_cogx");
+    const double wphi53_cogx = pho->get_shower_shape_parameter("wphi53_cogx");
+    const double et1         = pho->get_shower_shape_parameter("et1");
 
-  const double e11 = pho->get_shower_shape_parameter("e11");
-  const double e33 = pho->get_shower_shape_parameter("e33");
-  const double e32 = pho->get_shower_shape_parameter("e32");
-  const double e35 = pho->get_shower_shape_parameter("e35");
+    const double e11 = pho->get_shower_shape_parameter("e11");
+    const double e33 = pho->get_shower_shape_parameter("e33");
+    const double e32 = pho->get_shower_shape_parameter("e32");
+    const double e35 = pho->get_shower_shape_parameter("e35");
 
-  // Derived ratios (protect denominators)
-  const double e11_over_e33_raw = (e33 > 0.0) ? (e11 / e33) : std::numeric_limits<double>::quiet_NaN();
-  const double e32_over_e35_raw = (e35 > 0.0) ? (e32 / e35) : std::numeric_limits<double>::quiet_NaN();
+    // Derived ratios (protect denominators)
+    const double e11_over_e33_raw = (e33 > 0.0) ? (e11 / e33) : std::numeric_limits<double>::quiet_NaN();
+    const double e32_over_e35_raw = (e35 > 0.0) ? (e32 / e35) : std::numeric_limits<double>::quiet_NaN();
 
-  v.weta_cogx    = weta_cogx;
-  v.wphi_cogx    = wphi_cogx;
-  v.et1          = et1;
+    v.weta_cogx    = weta_cogx;
+    v.wphi_cogx    = wphi_cogx;
+    v.weta35_cogx  = weta35_cogx;
+    v.wphi53_cogx  = wphi53_cogx;
+    v.et1          = et1;
 
   // Preserve NaN for invalid denominators/inputs.
   // This ensures preselection/tight cuts fail cleanly for invalid SS inputs.
@@ -6408,62 +6412,66 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 ssNonIso = (eiso_et > thrNonIsoSS);
         }
 
-        auto fillSSSpectra = [&](const std::string& trigShort, const std::string& tagKey)
-          {
-            auto fill1 = [&](const std::string& key, double val)
+          auto fillSSSpectra = [&](const std::string& trigShort, const std::string& tagKey)
             {
-              if (!std::isfinite(val)) return;
-
-              if (auto* h = getOrBookSSHist(trigShort, key, tagKey, ptIdx, effCentIdx_SS))
+              auto fill1 = [&](const std::string& key, double val)
               {
-                h->Fill(val);
-                bumpHistFill(trigShort, "h_ss_" + key + "_" + tagKey + slice_SS);
-              }
-            };
+                if (!std::isfinite(val)) return;
 
-            fill1("weta",   v.weta_cogx);
-            fill1("wphi",   v.wphi_cogx);
-            fill1("et1",    v.et1);
-            fill1("e11e33", v.e11_over_e33);
-            fill1("e32e35", v.e32_over_e35);
-        };
-
-        for (const auto& trigShort : activeTrig)
-        {
-              fillSSSpectra(trigShort, "inclusive");
-              if (ssIso)    fillSSSpectra(trigShort, "iso");
-              if (ssNonIso) fillSSSpectra(trigShort, "nonIso");
-        }
-
-        // ── SIM: fill inclusive _sig / _bkg PPG12-style SS templates (before preselection) ──
-        if (m_isSim)
-        {
-              bool isSig_incl = false;
-              double isoEtTruth_incl = std::numeric_limits<double>::quiet_NaN();
-              if (evtHepMC_SS && clustereval_SS && haveCaloEval_SS)
-                  isSig_incl = isRecoClusterTruthSignalPPG12(evtHepMC_SS, *clustereval_SS, rc, isoEtTruth_incl);
-              const std::string mcSuffix_incl = (isSig_incl ? "_sig" : "_bkg");
-              const std::string tagKey_incl   = std::string("inclusive") + mcSuffix_incl;
-
-              auto fill1_incl = [&](const std::string& trigShort, const std::string& key, double val)
-              {
-                  if (!std::isfinite(val)) return;
-                  if (auto* h = getOrBookSSHist(trigShort, key, tagKey_incl, ptIdx, effCentIdx_SS))
-                  {
-                      h->Fill(val);
-                      bumpHistFill(trigShort, "h_ss_" + key + "_" + tagKey_incl + slice_SS);
-                  }
+                if (auto* h = getOrBookSSHist(trigShort, key, tagKey, ptIdx, effCentIdx_SS))
+                {
+                  h->Fill(val);
+                  bumpHistFill(trigShort, "h_ss_" + key + "_" + tagKey + slice_SS);
+                }
               };
 
-              for (const auto& trigShort : activeTrig)
-              {
-                  fill1_incl(trigShort, "weta",   v.weta_cogx);
-                  fill1_incl(trigShort, "wphi",   v.wphi_cogx);
-                  fill1_incl(trigShort, "et1",    v.et1);
-                  fill1_incl(trigShort, "e11e33", v.e11_over_e33);
-                  fill1_incl(trigShort, "e32e35", v.e32_over_e35);
-              }
+              fill1("weta",   v.weta_cogx);
+              fill1("wphi",   v.wphi_cogx);
+              fill1("weta35", v.weta35_cogx);
+              fill1("wphi53", v.wphi53_cogx);
+              fill1("et1",    v.et1);
+              fill1("e11e33", v.e11_over_e33);
+              fill1("e32e35", v.e32_over_e35);
+          };
+
+          for (const auto& trigShort : activeTrig)
+          {
+                fillSSSpectra(trigShort, "inclusive");
+                if (ssIso)    fillSSSpectra(trigShort, "iso");
+                if (ssNonIso) fillSSSpectra(trigShort, "nonIso");
           }
+
+          // ── SIM: fill inclusive _sig / _bkg PPG12-style SS templates (before preselection) ──
+          if (m_isSim)
+          {
+                bool isSig_incl = false;
+                double isoEtTruth_incl = std::numeric_limits<double>::quiet_NaN();
+                if (evtHepMC_SS && clustereval_SS && haveCaloEval_SS)
+                    isSig_incl = isRecoClusterTruthSignalPPG12(evtHepMC_SS, *clustereval_SS, rc, isoEtTruth_incl);
+                const std::string mcSuffix_incl = (isSig_incl ? "_sig" : "_bkg");
+                const std::string tagKey_incl   = std::string("inclusive") + mcSuffix_incl;
+
+                auto fill1_incl = [&](const std::string& trigShort, const std::string& key, double val)
+                {
+                    if (!std::isfinite(val)) return;
+                    if (auto* h = getOrBookSSHist(trigShort, key, tagKey_incl, ptIdx, effCentIdx_SS))
+                    {
+                        h->Fill(val);
+                        bumpHistFill(trigShort, "h_ss_" + key + "_" + tagKey_incl + slice_SS);
+                    }
+                };
+
+                for (const auto& trigShort : activeTrig)
+                {
+                    fill1_incl(trigShort, "weta",   v.weta_cogx);
+                    fill1_incl(trigShort, "wphi",   v.wphi_cogx);
+                    fill1_incl(trigShort, "weta35", v.weta35_cogx);
+                    fill1_incl(trigShort, "wphi53", v.wphi53_cogx);
+                    fill1_incl(trigShort, "et1",    v.et1);
+                    fill1_incl(trigShort, "e11e33", v.e11_over_e33);
+                    fill1_incl(trigShort, "e32e35", v.e32_over_e35);
+                }
+            }
 
         // ---------- Preselection breakdown (count by criterion) ----------
           
@@ -6618,6 +6626,8 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
 
               fill1("weta",   v.weta_cogx);
               fill1("wphi",   v.wphi_cogx);
+              fill1("weta35", v.weta35_cogx);
+              fill1("wphi53", v.wphi53_cogx);
               fill1("et1",    v.et1);
               fill1("e11e33", v.e11_over_e33);
               fill1("e32e35", v.e32_over_e35);
@@ -7203,6 +7213,11 @@ void RecoilJets::fillPi0MassVsPtHistograms(const std::string& trig,
     
     CLHEP::Hep3Vector vertex(0, 0, m_vz);
     RawClusterContainer::ConstRange cRange = clusterContainer->getClusters();
+    const double kMaxPairAsym = 0.6;
+    const double kMaxPairDeltaR = 1.1;
+    const std::size_t kMaxNClusters = 300;
+
+    if (clusterContainer->size() > kMaxNClusters) return;
     
     for (auto cIt1 = cRange.first; cIt1 != cRange.second; ++cIt1)
     {
@@ -7233,6 +7248,14 @@ void RecoilJets::fillPi0MassVsPtHistograms(const std::string& trig,
             photon2.SetPxPyPzE(eVec2.x(), eVec2.y(), eVec2.z(), e2);
             
             if (!std::isfinite(photon2.Pt()) || photon2.Pt() <= 0.0) continue;
+            
+            const double pairAsym = std::fabs(e1 - e2) / (e1 + e2);
+            if (!std::isfinite(pairAsym) || pairAsym > kMaxPairAsym) continue;
+
+            const double deta = photon1.Eta() - photon2.Eta();
+            const double dphi = TVector2::Phi_mpi_pi(photon1.Phi() - photon2.Phi());
+            const double pairDeltaR = std::sqrt(deta * deta + dphi * dphi);
+            if (!std::isfinite(pairDeltaR) || pairDeltaR > kMaxPairDeltaR) continue;
             
             const TLorentzVector pi0 = photon1 + photon2;
             const double mass = pi0.M();
@@ -13010,7 +13033,7 @@ TH1F* RecoilJets::getOrBookSSHist(const std::string& trig,
   // Choose sane, variable-specific ranges (matches your previous defaults)
   int    nb = 120;
   double lo = 0.0, hi = 1.2;
-  if (varKey == "weta" || varKey == "wphi") { nb = 120; lo = 0.0; hi = 1.2; }
+  if (varKey == "weta" || varKey == "wphi" || varKey == "weta35" || varKey == "wphi53") { nb = 120; lo = 0.0; hi = 1.2; }
   else if (varKey == "et1")                 { nb = 120; lo = 0.0; hi = 1.2; }
   else if (varKey == "e11e33" || varKey == "e32e35") { nb = 120; lo = 0.0; hi = 1.2; }
   else
@@ -13396,11 +13419,13 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
     }
   };
 
-  fillSS("weta",   v.weta_cogx);
-  fillSS("wphi",   v.wphi_cogx);
-  fillSS("et1",    v.et1);
-  fillSS("e11e33", v.e11_over_e33);
-  fillSS("e32e35", v.e32_over_e35);
+    fillSS("weta",   v.weta_cogx);
+    fillSS("wphi",   v.wphi_cogx);
+    fillSS("weta35", v.weta35_cogx);
+    fillSS("wphi53", v.wphi53_cogx);
+    fillSS("et1",    v.et1);
+    fillSS("e11e33", v.e11_over_e33);
+    fillSS("e32e35", v.e32_over_e35);
 
   // -------------------------------------------------------------------------
   // No additional counting histograms beyond the four ABCD regions:

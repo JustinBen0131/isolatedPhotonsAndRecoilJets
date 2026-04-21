@@ -4,12 +4,17 @@ EnsureDir(ssQADir);
 
 struct SSVarDef { string var; string label; };
 const vector<SSVarDef> ssVars = {
-  {"weta",   "w_{#eta}"},
-  {"wphi",   "w_{#phi}"},
-  {"e11e33", "E_{11}/E_{33}"},
-  {"et1",    "et1"},
-  {"e32e35", "E_{32}/E_{35}"}
+  {"weta",    "w_{#eta}"},
+  {"wphi",    "w_{#phi}"},
+  {"weta35",  "w_{#eta}^{3#times5}"},
+  {"wphi53",  "w_{#phi}^{5#times3}"},
+  {"e11e33",  "E_{11}/E_{33}"},
+  {"et1",     "et1"},
+  {"e32e35",  "E_{32}/E_{35}"}
 };
+
+const int ssNVars = static_cast<int>(ssVars.size());
+const int ssCanvasW = 520 * ssNVars;
 
 auto TagLabel = [&](const string& tag) -> string
 {
@@ -549,8 +554,8 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
             const string cName = TString::Format("c_ssQA_UE_%s_%s_%s_%s",
                                                  cfg.folder.c_str(), trigAA.c_str(), cb.folder.c_str(), ptReq.folder.c_str()).Data();
 
-            TCanvas cSS(cName.c_str(), cName.c_str(), 2600, 780);
-            cSS.Divide(5, 1, 0.001, 0.001);
+            TCanvas cSS(cName.c_str(), cName.c_str(), ssCanvasW, 780);
+            cSS.Divide(ssNVars, 1, 0.001, 0.001);
 
             vector<TH1*> keepH;
             vector<TLegend*> keepLeg;
@@ -703,7 +708,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
             {
                 const std::string& var = ssVars[iv].var;
                 const std::string& vlabel = ssVars[iv].label;
-                const bool isW = (var == "weta" || var == "wphi");
+                const bool isW = (var == "weta" || var == "wphi" || var == "weta35" || var == "wphi53");
                 
                 TH1* rawPP = GetSSHistForPt(
                                             ppTop,
@@ -1246,9 +1251,9 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
             TCanvas cPP(
                         TString::Format("c_ssQA_ppDataSigBkg_%s_%s_%s_%s",
                                         cfg.folder.c_str(), tag.c_str(), cb.folder.c_str(), ptReq.folder.c_str()).Data(),
-                        "c_ssQA_ppDataSigBkg", 2600, 750
+                        "c_ssQA_ppDataSigBkg", ssCanvasW, 750
                         );
-            cPP.Divide(5, 1, 0.001, 0.001);
+            cPP.Divide(ssNVars, 1, 0.001, 0.001);
             
             std::vector<TH1*> keepAlive;
             std::vector<TLegend*> keepLegs;
@@ -1280,9 +1285,9 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
             TCanvas cPP2(
                          TString::Format("c_ssQA_ppDataSigBkg_zoom_%s_%s_%s_%s",
                                          cfg.folder.c_str(), tag.c_str(), cb.folder.c_str(), ptReq.folder.c_str()).Data(),
-                         "c_ssQA_ppDataSigBkg_zoom", 2600, 1200
+                         "c_ssQA_ppDataSigBkg_zoom", ssCanvasW, 1200
                          );
-            cPP2.Divide(5, 2, 0.001, 0.001);
+            cPP2.Divide(ssNVars, 2, 0.001, 0.001);
             
             std::vector<TH1*> keepAlive2;
             std::vector<TLegend*> keepLegs2;
@@ -1302,7 +1307,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
             
             for (int iv = 0; iv < (int)ssVars.size(); ++iv)
             {
-                cPP2.cd(iv + 6);
+                cPP2.cd(iv + ssNVars + 1);
                 gPad->SetLeftMargin(0.14);
                 gPad->SetRightMargin(0.05);
                 gPad->SetBottomMargin(0.14);
@@ -2465,9 +2470,9 @@ if (!SSoverlayPerVAR_processONLY)
                                          tag.c_str(),
                                          overlayPtBins ? fixedCent->folder.c_str() : fixedPt->folder.c_str(),
                                          trigAA.c_str()).Data(),
-                         "c_ssQA_3x5", 2600, 1500
+                         "c_ssQA_3x5", ssCanvasW, 1500
                          );
-            cTbl.Divide(5, 3, 0.001, 0.001);
+            cTbl.Divide(ssNVars, 3, 0.001, 0.001);
             
             vector<TH1*> keepAlive;
             keepAlive.reserve(ssVars.size() * 3 * 12);
@@ -2490,7 +2495,7 @@ if (!SSoverlayPerVAR_processONLY)
                 
                 for (int ivar = 0; ivar < (int)ssVars.size(); ++ivar)
                 {
-                    cTbl.cd(irow * 5 + ivar + 1);
+                    cTbl.cd(irow * ssNVars + ivar + 1);
                     gPad->SetLeftMargin(0.14);
                     gPad->SetRightMargin(0.05);
                     gPad->SetBottomMargin(0.14);
@@ -2990,9 +2995,9 @@ if (!SSoverlayPerVAR_processONLY)
                     TCanvas c1x5(
                                  TString::Format("c_ssQA_1x5_centOv_%s_%s_%s_%s",
                                                  H.variant.c_str(), tag.c_str(), pb.folder.c_str(), trigAA.c_str()).Data(),
-                                 "c_ssQA_1x5_centOv", 2600, 750
+                                 "c_ssQA_1x5_centOv", ssCanvasW, 750
                                  );
-                    c1x5.Divide(5, 1, 0.001, 0.001);
+                    c1x5.Divide(ssNVars, 1, 0.001, 0.001);
                     
                     vector<TH1*> keepAlive1x5;
                     keepAlive1x5.reserve(ssVars.size() * centBins.size());
