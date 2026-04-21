@@ -3665,10 +3665,10 @@ if (!SSoverlayPerVAR_processONLY)
                             tSph.SetNDC(true);
                             tSph.SetTextFont(42);
                             tSph.SetTextAlign(13);
-                            tSph.SetTextSize(0.038);
-                            tSph.DrawLatex(0.16, 0.90, "#it{#bf{sPHENIX}} Internal");
+                            tSph.SetTextSize(0.039);
+                            tSph.DrawLatex(0.22, 0.90, "#it{#bf{sPHENIX}} Internal");
                             tSph.SetTextSize(0.032);
-                            tSph.DrawLatex(0.16, 0.86, "Au+Au #sqrt{s_{NN}} = 200 GeV");
+                            tSph.DrawLatex(0.22, 0.85, "Au+Au #sqrt{s_{NN}} = 200 GeV");
                         }
                         
                         const double ptCenterForCuts = 0.5 * (pb.lo + pb.hi);
