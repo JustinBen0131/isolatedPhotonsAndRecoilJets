@@ -621,7 +621,9 @@ namespace dstcount
   }
 
   bool count_refbit_entries(TTree* tree,
+                            const std::string& fileLabel,
                             int refBit,
+                            int verbose,
                             Long64_t& rawCount,
                             Long64_t& liveCount,
                             Long64_t& scaledCount)
@@ -635,7 +637,14 @@ namespace dstcount
     const char* branchName = nullptr;
     if (tree->GetBranch("GL1Packet")) branchName = "GL1Packet";
     else if (tree->GetBranch("14001")) branchName = "14001";
-    else return false;
+    else
+    {
+      if (verbose > 0)
+      {
+        std::cerr << "[count_refbit_entries] no GL1 branch found in " << fileLabel << std::endl;
+      }
+      return false;
+    }
 
     tree->SetBranchStatus("*", 0);
     tree->SetBranchStatus(branchName, 1);
@@ -644,6 +653,16 @@ namespace dstcount
     tree->SetBranchAddress(branchName, &gl1);
 
     const Long64_t nentries = tree->GetEntriesFast();
+    const Long64_t evtProgressEvery = (verbose > 2 ? 1000 : 10000);
+
+    if (verbose > 1)
+    {
+      std::cerr << "[count_refbit_entries] file=" << fileLabel
+                << " branch=" << branchName
+                << " entries=" << nentries
+                << std::endl;
+    }
+
     for (Long64_t i = 0; i < nentries; ++i)
     {
       gl1 = nullptr;
@@ -660,10 +679,33 @@ namespace dstcount
         if (((liveVector   >> refBit) & 0x1ULL) != 0ULL) ++liveCount;
         if (((scaledVector >> refBit) & 0x1ULL) != 0ULL) ++scaledCount;
       }
+
+      if (verbose > 1)
+      {
+        if ((i + 1) == 1 || ((i + 1) % evtProgressEvery == 0) || (i + 1) == nentries)
+        {
+          std::cerr << "[count_refbit_entries] file=" << fileLabel
+                    << " event " << (i + 1) << " / " << nentries
+                    << " raw=" << rawCount
+                    << " live=" << liveCount
+                    << " scaled=" << scaledCount
+                    << std::endl;
+        }
+      }
     }
 
     tree->ResetBranchAddresses();
     tree->SetBranchStatus("*", 1);
+
+    if (verbose > 0)
+    {
+      std::cerr << "[count_refbit_entries] done file=" << fileLabel
+                << " raw=" << rawCount
+                << " live=" << liveCount
+                << " scaled=" << scaledCount
+                << std::endl;
+    }
+
     return true;
   }
 }
@@ -763,10 +805,23 @@ void count_dst_entries(const char* input_list,
       Long64_t refLive = 0;
       Long64_t refScaled = 0;
 
+      if (verbose > 1)
+      {
+        std::cerr << "[count_dst_entries] selected tree for " << path
+                  << " : " << treeName
+                  << " (entries=" << entries << ")"
+                  << std::endl;
+      }
+
       TTree* tree = dynamic_cast<TTree*>(f->Get(treeName.c_str()));
       if (tree)
       {
-        dstcount::count_refbit_entries(tree, ref_bit, refRaw, refLive, refScaled);
+        dstcount::count_refbit_entries(tree, path, ref_bit, verbose, refRaw, refLive, refScaled);
+      }
+      else if (verbose > 0)
+      {
+        std::cerr << "[count_dst_entries] failed to retrieve selected tree object for "
+                  << path << " : " << treeName << std::endl;
       }
 
       std::replace(treeName.begin(), treeName.end(), '\t', ' ');
@@ -1076,9 +1131,16 @@ run_local_counter_test() {
   say "Test chunk list    : ${test_chunk}"
   say "First file in test : ${first_file}"
   say "Output TSV         : ${local_out}"
-  note "This runs the same counting wrapper locally on a random run whose scaledown bit is active in psql."
+  local local_progress_every=1
+  local local_verbose="${VERBOSE}"
+  if (( local_verbose < 3 )); then
+    local_verbose=3
+  fi
 
-  bash "${TMP_WRAPPER}" "${test_chunk}" "${local_out}" "${TMP_ROOT_MACRO}" "${ROOT_PROGRESS_EVERY}" "${VERBOSE}" "${REF_TRIG_BIT}"
+  note "This runs the same counting wrapper locally on a random run whose scaledown bit is active in psql."
+  note "LOCAL debug settings: progress_every=${local_progress_every}, verbose=${local_verbose}"
+
+  bash "${TMP_WRAPPER}" "${test_chunk}" "${local_out}" "${TMP_ROOT_MACRO}" "${local_progress_every}" "${local_verbose}" "${REF_TRIG_BIT}"
 
   good "LOCAL first-pass validation completed"
   note "For the full submission, run: ./$(basename "$0") firstPass"
