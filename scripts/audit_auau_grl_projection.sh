@@ -129,6 +129,11 @@ DATASET="run3auau"
 TAG="new_newcdbtag_v008"
 PREFIX="DST_CALOFITTING"
 
+REF_TRIG_BIT=14
+REF_TRIG_NAME="MBD N&S >= 2, vtx < 150 cm"
+PSQL_HOST="sphnxdaqdbreplica"
+PSQL_DB="daq"
+
 VERBOSE=1
 RUN_PROGRESS_EVERY=100
 ROOT_PROGRESS_EVERY=250
@@ -224,6 +229,8 @@ Options:
   --dataset <token>            Default: ${DATASET}
   --tag <token>                Default: ${TAG}
   --prefix <token>             Default: ${PREFIX}
+  --trigger-bit <int>          Default: ${REF_TRIG_BIT}
+  --trigger-name <string>      Default: "${REF_TRIG_NAME}"
   --max-condor-jobs <N>        Default: ${MAX_CONDOR_JOBS}
   --run-progress-every <N>     Default: ${RUN_PROGRESS_EVERY}
   --root-progress-every <N>    Default: ${ROOT_PROGRESS_EVERY}
@@ -237,6 +244,7 @@ Examples:
   $(basename "$0") firstPass LOCAL
   $(basename "$0") secondPass
   $(basename "$0") secondPass --manifest ./audit_auau_firstPass_20260101_120000.txt
+  $(basename "$0") secondPass --trigger-bit 14 --trigger-name "MBD N&S >= 2, vtx < 150 cm"
 EOF
   exit 0
 }
@@ -344,6 +352,61 @@ append_note() {
   else
     _ref="${_ref},${_note}"
   fi
+}
+
+########################################
+# psql helpers
+########################################
+PSQL=()
+
+sql() {
+  "${PSQL[@]}" -c "$1" 2>/dev/null || true
+}
+
+check_psql_connectivity() {
+  local probe
+  probe="$(sql "SELECT 1;" | head -n 1 | tr -d '[:space:]')"
+  [[ "$probe" == "1" ]] || {
+    printf "%s[FATAL]%s unable to query psql at host=%s db=%s\n" \
+      "${RED}${BOLD}" "${RESET}" "$PSQL_HOST" "$PSQL_DB" >&2
+    exit 1
+  }
+}
+
+read_reference_trigger_stats() {
+  local run="$1"
+  local name row menu_present active raw live scaled
+
+  name="$(sql "SELECT COALESCE(triggername,'')
+               FROM gl1_triggernames
+               WHERE index=${REF_TRIG_BIT}
+                 AND ${run} BETWEEN runnumber AND runnumber_last
+               ORDER BY runnumber DESC
+               LIMIT 1;" | head -n 1 | sed 's/[[:space:]]*$//')"
+
+  if [[ -n "$name" ]]; then
+    menu_present=1
+  else
+    menu_present=0
+  fi
+
+  row="$(sql "SELECT
+                COALESCE(MAX(CASE WHEN scaled != -1 THEN 1 ELSE 0 END),0),
+                COALESCE(SUM(CASE WHEN raw    > 0 THEN raw    ELSE 0 END),0),
+                COALESCE(SUM(CASE WHEN live   > 0 THEN live   ELSE 0 END),0),
+                COALESCE(SUM(CASE WHEN scaled > 0 THEN scaled ELSE 0 END),0)
+              FROM gl1_scalers
+              WHERE runnumber=${run}
+                AND index=${REF_TRIG_BIT};" | head -n 1)"
+
+  IFS=$'\t' read -r active raw live scaled <<< "${row:-0    0    0    0}"
+  active="$(num_or_zero "${active:-0}")"
+  raw="$(num_or_zero "${raw:-0}")"
+  live="$(num_or_zero "${live:-0}")"
+  scaled="$(num_or_zero "${scaled:-0}")"
+
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "${menu_present}" "${name}" "${active}" "${raw}" "${live}" "${scaled}"
 }
 
 ########################################
@@ -482,12 +545,14 @@ write_root_counter_macro() {
 #include <TError.h>
 #include <TSystem.h>
 #include <frog/FROG.h>
+#include <ffarawobjects/Gl1Packet.h>
 
 #include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <cstdint>
 
 namespace dstcount
 {
@@ -554,14 +619,63 @@ namespace dstcount
     treeName = bestPath;
     return bestEntries;
   }
+
+  bool count_refbit_entries(TTree* tree,
+                            int refBit,
+                            Long64_t& rawCount,
+                            Long64_t& liveCount,
+                            Long64_t& scaledCount)
+  {
+    rawCount = 0;
+    liveCount = 0;
+    scaledCount = 0;
+
+    if (!tree) return false;
+
+    const char* branchName = nullptr;
+    if (tree->GetBranch("GL1Packet")) branchName = "GL1Packet";
+    else if (tree->GetBranch("14001")) branchName = "14001";
+    else return false;
+
+    tree->SetBranchStatus("*", 0);
+    tree->SetBranchStatus(branchName, 1);
+
+    Gl1Packet* gl1 = nullptr;
+    tree->SetBranchAddress(branchName, &gl1);
+
+    const Long64_t nentries = tree->GetEntriesFast();
+    for (Long64_t i = 0; i < nentries; ++i)
+    {
+      gl1 = nullptr;
+      tree->GetEntry(i);
+      if (!gl1) continue;
+
+      const std::uint64_t rawVector    = static_cast<std::uint64_t>(gl1->getTriggerVector());
+      const std::uint64_t liveVector   = static_cast<std::uint64_t>(gl1->getLiveVector());
+      const std::uint64_t scaledVector = static_cast<std::uint64_t>(gl1->lValue(0, "ScaledVector"));
+
+      if (refBit >= 0 && refBit < 64)
+      {
+        if (((rawVector    >> refBit) & 0x1ULL) != 0ULL) ++rawCount;
+        if (((liveVector   >> refBit) & 0x1ULL) != 0ULL) ++liveCount;
+        if (((scaledVector >> refBit) & 0x1ULL) != 0ULL) ++scaledCount;
+      }
+    }
+
+    tree->ResetBranchAddresses();
+    tree->SetBranchStatus("*", 1);
+    return true;
+  }
 }
 
 void count_dst_entries(const char* input_list,
                        const char* output_file,
                        int progress_every = 250,
-                       int verbose = 1)
+                       int verbose = 1,
+                       int ref_bit = 14)
 {
   gROOT->SetBatch(kTRUE);
+  gSystem->Load("libffarawobjects.so");
   gErrorIgnoreLevel = kWarning;
 
   std::ifstream in(input_list);
@@ -594,6 +708,9 @@ void count_dst_entries(const char* input_list,
   Long64_t zombies = 0;
   Long64_t no_tree = 0;
   Long64_t total_entries = 0;
+  Long64_t total_ref_raw = 0;
+  Long64_t total_ref_live = 0;
+  Long64_t total_ref_scaled = 0;
 
   for (std::size_t i = 0; i < files.size(); ++i)
   {
@@ -620,13 +737,13 @@ void count_dst_entries(const char* input_list,
     TFile* f = TFile::Open(openPath.c_str(), "READ");
     if (!f)
     {
-      out << "OPENFAIL\t0\t-\t" << path << "\n";
+      out << "OPENFAIL\t0\t0\t0\t0\t-\t" << path << "\n";
       ++bad_open;
       continue;
     }
     if (f->IsZombie())
     {
-      out << "ZOMBIE\t0\t-\t" << path << "\n";
+      out << "ZOMBIE\t0\t0\t0\t0\t-\t" << path << "\n";
       ++zombies;
       f->Close();
       delete f;
@@ -637,15 +754,33 @@ void count_dst_entries(const char* input_list,
     const Long64_t entries = dstcount::best_tree_entries(f, treeName);
     if (entries < 0)
     {
-      out << "NOTREE\t0\t-\t" << path << "\n";
+      out << "NOTREE\t0\t0\t0\t0\t-\t" << path << "\n";
       ++no_tree;
     }
     else
     {
+      Long64_t refRaw = 0;
+      Long64_t refLive = 0;
+      Long64_t refScaled = 0;
+
+      TTree* tree = dynamic_cast<TTree*>(f->Get(treeName.c_str()));
+      if (tree)
+      {
+        dstcount::count_refbit_entries(tree, ref_bit, refRaw, refLive, refScaled);
+      }
+
       std::replace(treeName.begin(), treeName.end(), '\t', ' ');
-      out << "OK\t" << entries << "\t" << treeName << "\t" << path << "\n";
+      out << "OK\t" << entries
+          << "\t" << refRaw
+          << "\t" << refLive
+          << "\t" << refScaled
+          << "\t" << treeName
+          << "\t" << path << "\n";
       ++ok_files;
       total_entries += entries;
+      total_ref_raw += refRaw;
+      total_ref_live += refLive;
+      total_ref_scaled += refScaled;
     }
 
     f->Close();
@@ -659,6 +794,9 @@ void count_dst_entries(const char* input_list,
             << " zombie=" << zombies
             << " notree=" << no_tree
             << " totalEntries=" << total_entries
+            << " totalRawBit=" << total_ref_raw
+            << " totalLiveBit=" << total_ref_live
+            << " totalScaledBit=" << total_ref_scaled
             << std::endl;
 }
 EOF
@@ -666,6 +804,9 @@ EOF
 
 declare -A FILE_STATUS=()
 declare -A FILE_ENTRIES=()
+declare -A FILE_REF_RAW_EVT=()
+declare -A FILE_REF_LIVE_EVT=()
+declare -A FILE_REF_SCALED_EVT=()
 declare -A FILE_TREE=()
 declare -A TREE_COUNT=()
 
@@ -731,6 +872,7 @@ output_tsv="${2:?output tsv required}"
 macro_path="${3:?root macro path required}"
 progress_every="${4:-250}"
 verbose="${5:-1}"
+trigger_bit="${6:-14}"
 
 export USER="${USER:-$(id -un)}"
 export LOGNAME="${LOGNAME:-$USER}"
@@ -740,7 +882,7 @@ set +u
 source /opt/sphenix/core/bin/sphenix_setup.sh -n
 set -u
 
-root -l -b -q "${macro_path}(\"${chunk_list}\",\"${output_tsv}\",${progress_every},${verbose})"
+root -l -b -q "${macro_path}(\"${chunk_list}\",\"${output_tsv}\",${progress_every},${verbose},${trigger_bit})"
 EOF
   chmod +x "${TMP_WRAPPER}"
 }
@@ -858,7 +1000,7 @@ getenv        = True
 log           = ${CONDOR_LOG_DIR}/audit_auau.${WORK_STAMP}.\$(Cluster).\$(Process).log
 output        = ${CONDOR_OUT_DIR}/audit_auau.${WORK_STAMP}.\$(Cluster).\$(Process).out
 error         = ${CONDOR_ERR_DIR}/audit_auau.${WORK_STAMP}.\$(Cluster).\$(Process).err
-request_memory= 2000MB
+request_memory= 1500MB
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
@@ -868,8 +1010,8 @@ SUB
   for chunk_list in "${TMP_CHUNK_DIR}/audit_chunk_"*.list; do
     [[ -f "${chunk_list}" ]] || continue
     out_tsv="${TMP_RESULTS_DIR}/$(basename "${chunk_list%.list}").tsv"
-    printf 'arguments = %s %s %s %s %s\nqueue\n\n' \
-      "${chunk_list}" "${out_tsv}" "${TMP_ROOT_MACRO}" "${ROOT_PROGRESS_EVERY}" "${VERBOSE}" >> "${sub}"
+    printf 'arguments = %s %s %s %s %s %s\nqueue\n\n' \
+      "${chunk_list}" "${out_tsv}" "${TMP_ROOT_MACRO}" "${ROOT_PROGRESS_EVERY}" "${VERBOSE}" "${REF_TRIG_BIT}" >> "${sub}"
     ((queued+=1))
   done
 
@@ -906,7 +1048,7 @@ run_local_counter_test() {
   say "Output TSV         : ${local_out}"
   note "This runs exactly the same counting wrapper locally on the first available file."
 
-  bash "${TMP_WRAPPER}" "${first_chunk}" "${local_out}" "${TMP_ROOT_MACRO}" "${ROOT_PROGRESS_EVERY}" "${VERBOSE}"
+  bash "${TMP_WRAPPER}" "${first_chunk}" "${local_out}" "${TMP_ROOT_MACRO}" "${ROOT_PROGRESS_EVERY}" "${VERBOSE}" "${REF_TRIG_BIT}"
 
   good "LOCAL first-pass validation completed"
   note "For the full submission, run: ./$(basename "$0") firstPass"
@@ -921,18 +1063,24 @@ collect_count_results() {
   TREE_COUNT=()
   FILE_STATUS=()
   FILE_ENTRIES=()
+  FILE_REF_RAW_EVT=()
+  FILE_REF_LIVE_EVT=()
+  FILE_REF_SCALED_EVT=()
   FILE_TREE=()
 
   local results_found=0
-  local tsv status entries tree path tree_key
+  local tsv status entries ref_raw ref_live ref_scaled tree path tree_key
 
   for tsv in "${TMP_RESULTS_DIR}"/audit_chunk_*.tsv "${TMP_RESULTS_DIR}"/audit_chunk_*_LOCAL.tsv; do
     [[ -s "${tsv}" ]] || continue
     ((results_found+=1))
-    while IFS=$'\t' read -r status entries tree path; do
+    while IFS=$'\t' read -r status entries ref_raw ref_live ref_scaled tree path; do
       [[ -n "${path:-}" ]] || continue
       FILE_STATUS["$path"]="$status"
       FILE_ENTRIES["$path"]="$(num_or_zero "${entries:-0}")"
+      FILE_REF_RAW_EVT["$path"]="$(num_or_zero "${ref_raw:-0}")"
+      FILE_REF_LIVE_EVT["$path"]="$(num_or_zero "${ref_live:-0}")"
+      FILE_REF_SCALED_EVT["$path"]="$(num_or_zero "${ref_scaled:-0}")"
       FILE_TREE["$path"]="$tree"
     done < "${tsv}"
   done
@@ -986,6 +1134,22 @@ declare -A RUN_PRESENT_EVT=()
 declare -A RUN_MISSING_EVT=()
 declare -A RUN_EXTRA_EVT=()
 
+declare -A RUN_REF_MENU_PRESENT=()
+declare -A RUN_REF_NAME=()
+declare -A RUN_REF_ACTIVE=()
+declare -A RUN_REF_RAW=()
+declare -A RUN_REF_LIVE=()
+declare -A RUN_REF_SCALED=()
+
+declare -A RUN_CURRENT_REF_RAW_EVT=()
+declare -A RUN_CURRENT_REF_LIVE_EVT=()
+declare -A RUN_CURRENT_REF_SCALED_EVT=()
+
+declare -A RUN_SEG_AVAIL_FRAC=()
+declare -A RUN_ENTRY_AVAIL_FRAC=()
+declare -A RUN_APPROX_SCALED_REPR=()
+declare -A RUN_APPROX_LIVE_REPR=()
+
 declare -A RUN_STATUS=()
 declare -A RUN_NOTES=()
 
@@ -1001,6 +1165,32 @@ TOT_PRESENT_EVT=0
 TOT_MISSING_EVT=0
 TOT_EXTRA_EVT=0
 
+TOT_REF_RAW_ALL=0
+TOT_REF_LIVE_ALL=0
+TOT_REF_SCALED_ALL=0
+TOT_REF_ACTIVE_RUNS_ALL=0
+
+TOT_REF_RAW_CURRENT=0
+TOT_REF_LIVE_CURRENT=0
+TOT_REF_SCALED_CURRENT=0
+TOT_REF_ACTIVE_RUNS_CURRENT=0
+
+TOT_CURRENT_REF_RAW_EVT=0
+TOT_CURRENT_REF_LIVE_EVT=0
+TOT_CURRENT_REF_SCALED_EVT=0
+
+TOT_REF_RAW_COMPLETE=0
+TOT_REF_LIVE_COMPLETE=0
+TOT_REF_SCALED_COMPLETE=0
+TOT_REF_ACTIVE_RUNS_COMPLETE=0
+
+TOT_APPROX_SCALED_REPR_ALL="0"
+TOT_APPROX_LIVE_REPR_ALL="0"
+TOT_APPROX_SCALED_REPR_CURRENT="0"
+TOT_APPROX_LIVE_REPR_CURRENT="0"
+TOT_APPROX_SCALED_REPR_COMPLETE="0"
+TOT_APPROX_LIVE_REPR_COMPLETE="0"
+
 RUNS_WITH_EXPECTED=0
 RUNS_WITH_CURRENT=0
 RUNS_WITH_PRESENT=0
@@ -1009,14 +1199,18 @@ RUNS_PARTIAL=0
 RUNS_ZERO_PRESENT=0
 RUNS_WITH_EXTRA=0
 RUNS_NO_EXPECTED=0
+RUNS_WITH_CURRENT_ZERO_REF_RAW=0
+RUNS_WITH_CURRENT_ZERO_REF_LIVE=0
+RUNS_WITH_CURRENT_ZERO_REF_SCALED=0
 
 audit_runs() {
   section "Step 4/5 — Run-by-run audit (DB-backed expectation vs current lists vs collected count results)"
 
   local idx=0
-  local r8 expected_list current_list
+  local r8 run expected_list current_list
   for r8 in "${RUN_ORDER[@]}"; do
     ((idx+=1))
+    run=$((10#$r8))
 
     expected_list="$(find_best_list_file "$TMP_EXPECTED_DIR" "$r8" || true)"
     current_list="$(find_best_list_file "$LIST_DIR" "$r8" || true)"
@@ -1056,6 +1250,10 @@ audit_runs() {
     local present_evt=0
     local extra_evt=0
 
+    local current_ref_raw_evt=0
+    local current_ref_live_evt=0
+    local current_ref_scaled_evt=0
+
     local status ent
     for f in "${expected_files[@]}"; do
       status="${FILE_STATUS[$f]:-UNSCANNED}"
@@ -1079,6 +1277,9 @@ audit_runs() {
       ent="${FILE_ENTRIES[$f]:-0}"
       if [[ "$status" == "OK" ]]; then
         (( current_evt += ent ))
+        (( current_ref_raw_evt += ${FILE_REF_RAW_EVT[$f]:-0} ))
+        (( current_ref_live_evt += ${FILE_REF_LIVE_EVT[$f]:-0} ))
+        (( current_ref_scaled_evt += ${FILE_REF_SCALED_EVT[$f]:-0} ))
       fi
 
       if [[ -z "${expected_set[$f]:-}" ]]; then
@@ -1101,6 +1302,10 @@ audit_runs() {
     RUN_MISSING_EVT["$r8"]="$missing_evt"
     RUN_EXTRA_EVT["$r8"]="$extra_evt"
 
+    RUN_CURRENT_REF_RAW_EVT["$r8"]="$current_ref_raw_evt"
+    RUN_CURRENT_REF_LIVE_EVT["$r8"]="$current_ref_live_evt"
+    RUN_CURRENT_REF_SCALED_EVT["$r8"]="$current_ref_scaled_evt"
+
     (( TOT_PRESENT_SEG += present_seg ))
     (( TOT_MISSING_SEG += missing_seg ))
     (( TOT_EXTRA_SEG   += extra_seg   ))
@@ -1111,17 +1316,93 @@ audit_runs() {
     (( TOT_MISSING_EVT  += missing_evt  ))
     (( TOT_EXTRA_EVT    += extra_evt    ))
 
+    (( TOT_CURRENT_REF_RAW_EVT    += current_ref_raw_evt    ))
+    (( TOT_CURRENT_REF_LIVE_EVT   += current_ref_live_evt   ))
+    (( TOT_CURRENT_REF_SCALED_EVT += current_ref_scaled_evt ))
+
+    if (( current_seg > 0 && current_ref_raw_evt == 0 )); then (( RUNS_WITH_CURRENT_ZERO_REF_RAW += 1 )); fi
+    if (( current_seg > 0 && current_ref_live_evt == 0 )); then (( RUNS_WITH_CURRENT_ZERO_REF_LIVE += 1 )); fi
+    if (( current_seg > 0 && current_ref_scaled_evt == 0 )); then (( RUNS_WITH_CURRENT_ZERO_REF_SCALED += 1 )); fi
+
     if (( present_seg > 0 )); then (( RUNS_WITH_PRESENT += 1 )); fi
     if (( expected_seg > 0 && missing_seg == 0 && extra_seg == 0 )); then (( RUNS_COMPLETE += 1 )); fi
     if (( expected_seg > 0 && missing_seg > 0 )); then (( RUNS_PARTIAL += 1 )); fi
     if (( expected_seg > 0 && present_seg == 0 )); then (( RUNS_ZERO_PRESENT += 1 )); fi
     if (( extra_seg > 0 )); then (( RUNS_WITH_EXTRA += 1 )); fi
 
+    local seg_avail_frac entry_avail_frac
+    seg_avail_frac="$(awk -v n="${present_seg}" -v d="${expected_seg}" 'BEGIN{ if (d > 0) printf "%.6f", n / d; else print "0"; }')"
+    entry_avail_frac="$(awk -v n="${present_evt}" -v d="${expected_evt}" 'BEGIN{ if (d > 0) printf "%.6f", n / d; else print "0"; }')"
+
+    RUN_SEG_AVAIL_FRAC["$r8"]="$seg_avail_frac"
+    RUN_ENTRY_AVAIL_FRAC["$r8"]="$entry_avail_frac"
+
+    local ref_menu_present ref_name ref_active ref_raw ref_live ref_scaled
+    IFS=$'\t' read -r ref_menu_present ref_name ref_active ref_raw ref_live ref_scaled < <(read_reference_trigger_stats "$run")
+
+    RUN_REF_MENU_PRESENT["$r8"]="$(num_or_zero "${ref_menu_present:-0}")"
+    RUN_REF_NAME["$r8"]="$ref_name"
+    RUN_REF_ACTIVE["$r8"]="$(num_or_zero "${ref_active:-0}")"
+    RUN_REF_RAW["$r8"]="$(num_or_zero "${ref_raw:-0}")"
+    RUN_REF_LIVE["$r8"]="$(num_or_zero "${ref_live:-0}")"
+    RUN_REF_SCALED["$r8"]="$(num_or_zero "${ref_scaled:-0}")"
+
+    (( TOT_REF_RAW_ALL    += RUN_REF_RAW["$r8"]    ))
+    (( TOT_REF_LIVE_ALL   += RUN_REF_LIVE["$r8"]   ))
+    (( TOT_REF_SCALED_ALL += RUN_REF_SCALED["$r8"] ))
+    if (( RUN_REF_ACTIVE["$r8"] != 0 )); then (( TOT_REF_ACTIVE_RUNS_ALL += 1 )); fi
+
+    if (( current_seg > 0 )); then
+      (( TOT_REF_RAW_CURRENT    += RUN_REF_RAW["$r8"]    ))
+      (( TOT_REF_LIVE_CURRENT   += RUN_REF_LIVE["$r8"]   ))
+      (( TOT_REF_SCALED_CURRENT += RUN_REF_SCALED["$r8"] ))
+      if (( RUN_REF_ACTIVE["$r8"] != 0 )); then (( TOT_REF_ACTIVE_RUNS_CURRENT += 1 )); fi
+    fi
+
+    if (( expected_seg > 0 && missing_seg == 0 && extra_seg == 0 )); then
+      (( TOT_REF_RAW_COMPLETE    += RUN_REF_RAW["$r8"]    ))
+      (( TOT_REF_LIVE_COMPLETE   += RUN_REF_LIVE["$r8"]   ))
+      (( TOT_REF_SCALED_COMPLETE += RUN_REF_SCALED["$r8"] ))
+      if (( RUN_REF_ACTIVE["$r8"] != 0 )); then (( TOT_REF_ACTIVE_RUNS_COMPLETE += 1 )); fi
+    fi
+
+    local approx_scaled_repr approx_live_repr
+    approx_scaled_repr="$(awk -v f="${entry_avail_frac}" -v x="${RUN_REF_SCALED[$r8]}" 'BEGIN{ printf "%.6f", f * x; }')"
+    approx_live_repr="$(awk -v f="${entry_avail_frac}" -v x="${RUN_REF_LIVE[$r8]}" 'BEGIN{ printf "%.6f", f * x; }')"
+
+    RUN_APPROX_SCALED_REPR["$r8"]="$approx_scaled_repr"
+    RUN_APPROX_LIVE_REPR["$r8"]="$approx_live_repr"
+
+    TOT_APPROX_SCALED_REPR_ALL="$(awk -v a="${TOT_APPROX_SCALED_REPR_ALL}" -v b="${approx_scaled_repr}" 'BEGIN{ printf "%.6f", a + b; }')"
+    TOT_APPROX_LIVE_REPR_ALL="$(awk -v a="${TOT_APPROX_LIVE_REPR_ALL}" -v b="${approx_live_repr}" 'BEGIN{ printf "%.6f", a + b; }')"
+
+    if (( current_seg > 0 )); then
+      TOT_APPROX_SCALED_REPR_CURRENT="$(awk -v a="${TOT_APPROX_SCALED_REPR_CURRENT}" -v b="${approx_scaled_repr}" 'BEGIN{ printf "%.6f", a + b; }')"
+      TOT_APPROX_LIVE_REPR_CURRENT="$(awk -v a="${TOT_APPROX_LIVE_REPR_CURRENT}" -v b="${approx_live_repr}" 'BEGIN{ printf "%.6f", a + b; }')"
+    fi
+
+    if (( expected_seg > 0 && missing_seg == 0 && extra_seg == 0 )); then
+      TOT_APPROX_SCALED_REPR_COMPLETE="$(awk -v a="${TOT_APPROX_SCALED_REPR_COMPLETE}" -v b="${approx_scaled_repr}" 'BEGIN{ printf "%.6f", a + b; }')"
+      TOT_APPROX_LIVE_REPR_COMPLETE="$(awk -v a="${TOT_APPROX_LIVE_REPR_COMPLETE}" -v b="${approx_live_repr}" 'BEGIN{ printf "%.6f", a + b; }')"
+    fi
+
     local notes=""
     if [[ -z "$expected_list" ]]; then append_note notes "NO_DB_EXPECTED_LIST"; fi
     if [[ -n "$expected_list" && ! -s "$expected_list" ]]; then append_note notes "EMPTY_DB_EXPECTED_LIST"; fi
     if [[ -z "$current_list" ]]; then append_note notes "NO_CURRENT_LIST"; fi
     if [[ -n "$current_list" && ! -s "$current_list" ]]; then append_note notes "EMPTY_CURRENT_LIST"; fi
+
+    if [[ -n "$ref_name" ]]; then
+      if [[ "$(normalize_name "$ref_name")" != "$(normalize_name "$REF_TRIG_NAME")" ]]; then
+        append_note notes "REFBIT${REF_TRIG_BIT}_NAME_MISMATCH"
+      fi
+    else
+      append_note notes "REFBIT${REF_TRIG_BIT}_NO_MENU_ENTRY"
+    fi
+
+    if (( RUN_REF_ACTIVE["$r8"] == 0 )); then
+      append_note notes "REFBIT${REF_TRIG_BIT}_OFF"
+    fi
 
     local run_status
     if (( expected_seg == 0 && current_seg == 0 )); then
@@ -1158,38 +1439,48 @@ audit_runs() {
 print_core_summary() {
   section "Step 5/5 — Final terminal summary"
 
-  note "Expected segments are the current DB-backed canonical expectation (CreateDstList.pl in the persisted first-pass work dir)."
-  note "Event totals come from collected Condor/local counting job results."
+  note "Current dst_lists_auau files are treated as the canonical project sample for this audit."
+  note "This summary reports readable DST entries from the current lists plus direct DST counts of the reference trigger bit and DAQ raw/live/scaled totals."
+  note "Scaled-bit counts from the DST sample are the closest like-to-like quantity to compare against DAQ scaled counts."
   note "No project DST list files were modified."
 
-  subsection "A) GRL / run coverage"
+  subsection "A) Current analyzable DST sample"
   printf "  %-42s : %12s\n" "GRL runs" "$(fmt_num "${#RUN_ORDER[@]}")"
-  printf "  %-42s : %12s\n" "Runs with DB-backed expected DST segments" "$(fmt_num "${RUNS_WITH_EXPECTED}")"
   printf "  %-42s : %12s\n" "Runs with current non-empty project lists" "$(fmt_num "${RUNS_WITH_CURRENT}")"
-  printf "  %-42s : %12s\n" "Runs with any expected segment currently present" "$(fmt_num "${RUNS_WITH_PRESENT}")"
-  printf "  %-42s : %12s\n" "Runs with full expected coverage" "$(fmt_num "${RUNS_COMPLETE}")"
-  printf "  %-42s : %12s\n" "Runs with partial missing expected coverage" "$(fmt_num "${RUNS_PARTIAL}")"
-  printf "  %-42s : %12s\n" "Runs with zero expected segments present" "$(fmt_num "${RUNS_ZERO_PRESENT}")"
-  printf "  %-42s : %12s\n" "Runs with extra current-listed segments" "$(fmt_num "${RUNS_WITH_EXTRA}")"
-  printf "  %-42s : %12s\n" "Runs with no DB-backed expected DST segments" "$(fmt_num "${RUNS_NO_EXPECTED}")"
-
-  subsection "B) Segment / file availability"
-  printf "  %-42s : %12s\n" "Expected segments total (DB-backed)" "$(fmt_num "${TOT_EXPECTED_SEG}")"
-  printf "  %-42s : %12s\n" "Present expected segments in current lists" "$(fmt_num "${TOT_PRESENT_SEG}")"
-  printf "  %-42s : %12s  (%s)\n" "Present/expected completeness" "$(fmt_num "${TOT_PRESENT_SEG}")" "$(fmt_pct "${TOT_PRESENT_SEG}" "${TOT_EXPECTED_SEG}")"
-  printf "  %-42s : %12s\n" "Missing expected segments" "$(fmt_num "${TOT_MISSING_SEG}")"
   printf "  %-42s : %12s\n" "Current listed segments total" "$(fmt_num "${TOT_CURRENT_SEG}")"
-  printf "  %-42s : %12s\n" "Extra current-listed segments (not in expected)" "$(fmt_num "${TOT_EXTRA_SEG}")"
+  printf "  %-42s : %12s\n" "Readable DST entries in current listed sample" "$(fmt_num "${TOT_CURRENT_EVT}")"
 
-  subsection "C) Exact DST event availability"
-  printf "  %-42s : %12s\n" "Expected exact DST events" "$(fmt_num "${TOT_EXPECTED_EVT}")"
-  printf "  %-42s : %12s\n" "Present expected exact DST events" "$(fmt_num "${TOT_PRESENT_EVT}")"
-  printf "  %-42s : %12s  (%s)\n" "Present/expected event completeness" "$(fmt_num "${TOT_PRESENT_EVT}")" "$(fmt_pct "${TOT_PRESENT_EVT}" "${TOT_EXPECTED_EVT}")"
-  printf "  %-42s : %12s\n" "Missing expected exact DST events" "$(fmt_num "${TOT_MISSING_EVT}")"
-  printf "  %-42s : %12s\n" "Current listed exact DST events" "$(fmt_num "${TOT_CURRENT_EVT}")"
-  printf "  %-42s : %12s\n" "Extra current-listed exact DST events" "$(fmt_num "${TOT_EXTRA_EVT}")"
+  subsection "B) Current-sample reference-trigger event counts"
+  note "Reference trigger bit ${REF_TRIG_BIT}: ${REF_TRIG_NAME}"
+  printf "  %-42s : %12s\n" "Current-sample raw-bit event count" "$(fmt_num "${TOT_CURRENT_REF_RAW_EVT}")"
+  printf "  %-42s : %12s\n" "Current-sample live-bit event count" "$(fmt_num "${TOT_CURRENT_REF_LIVE_EVT}")"
+  printf "  %-42s : %12s\n" "Current-sample scaled-bit event count" "$(fmt_num "${TOT_CURRENT_REF_SCALED_EVT}")"
+  printf "  %-42s : %12s\n" "Current-sample raw-bit / DAQ raw" "$(fmt_pct "${TOT_CURRENT_REF_RAW_EVT}" "${TOT_REF_RAW_CURRENT}")"
+  printf "  %-42s : %12s\n" "Current-sample live-bit / DAQ live" "$(fmt_pct "${TOT_CURRENT_REF_LIVE_EVT}" "${TOT_REF_LIVE_CURRENT}")"
+  printf "  %-42s : %12s\n" "Current-sample scaled-bit / DAQ scaled" "$(fmt_pct "${TOT_CURRENT_REF_SCALED_EVT}" "${TOT_REF_SCALED_CURRENT}")"
+  printf "  %-42s : %12s\n" "Current-list runs with zero raw-bit counts" "$(fmt_num "${RUNS_WITH_CURRENT_ZERO_REF_RAW}")"
+  printf "  %-42s : %12s\n" "Current-list runs with zero live-bit counts" "$(fmt_num "${RUNS_WITH_CURRENT_ZERO_REF_LIVE}")"
+  printf "  %-42s : %12s\n" "Current-list runs with zero scaled-bit counts" "$(fmt_num "${RUNS_WITH_CURRENT_ZERO_REF_SCALED}")"
 
-  subsection "D) Entry-count health"
+  subsection "C) Reference-trigger DAQ totals"
+  printf "  %-42s : %12s / %s\n" "Runs with reference bit active / GRL runs" "$(fmt_num "${TOT_REF_ACTIVE_RUNS_ALL}")" "$(fmt_num "${#RUN_ORDER[@]}")"
+  printf "  %-42s : %12s\n" "All-GRL raw total" "$(fmt_num "${TOT_REF_RAW_ALL}")"
+  printf "  %-42s : %12s\n" "All-GRL live total" "$(fmt_num "${TOT_REF_LIVE_ALL}")"
+  printf "  %-42s : %12s\n" "All-GRL scaled total" "$(fmt_num "${TOT_REF_SCALED_ALL}")"
+  printf "  %-42s : %12s / %s\n" "Reference-bit-active current-list runs / current-list runs" "$(fmt_num "${TOT_REF_ACTIVE_RUNS_CURRENT}")" "$(fmt_num "${RUNS_WITH_CURRENT}")"
+  printf "  %-42s : %12s\n" "Current-list raw total" "$(fmt_num "${TOT_REF_RAW_CURRENT}")"
+  printf "  %-42s : %12s\n" "Current-list live total" "$(fmt_num "${TOT_REF_LIVE_CURRENT}")"
+  printf "  %-42s : %12s\n" "Current-list scaled total" "$(fmt_num "${TOT_REF_SCALED_CURRENT}")"
+
+  subsection "D) DAQ fractions for the reference trigger"
+  printf "  %-42s : %12s\n" "All-GRL live/raw" "$(fmt_pct "${TOT_REF_LIVE_ALL}" "${TOT_REF_RAW_ALL}")"
+  printf "  %-42s : %12s\n" "All-GRL scaled/live" "$(fmt_pct "${TOT_REF_SCALED_ALL}" "${TOT_REF_LIVE_ALL}")"
+  printf "  %-42s : %12s\n" "All-GRL scaled/raw" "$(fmt_pct "${TOT_REF_SCALED_ALL}" "${TOT_REF_RAW_ALL}")"
+  printf "  %-42s : %12s\n" "Current-list-subset live/raw" "$(fmt_pct "${TOT_REF_LIVE_CURRENT}" "${TOT_REF_RAW_CURRENT}")"
+  printf "  %-42s : %12s\n" "Current-list-subset scaled/live" "$(fmt_pct "${TOT_REF_SCALED_CURRENT}" "${TOT_REF_LIVE_CURRENT}")"
+  printf "  %-42s : %12s\n" "Current-list-subset scaled/raw" "$(fmt_pct "${TOT_REF_SCALED_CURRENT}" "${TOT_REF_RAW_CURRENT}")"
+
+  subsection "E) Entry-count health"
   printf "  %-42s : %12s\n" "Unique referenced ROOT files" "$(fmt_num "${UNIQUE_FILE_COUNT}")"
   printf "  %-42s : %12s\n" "Files with counts available" "$(fmt_num "${ROOT_OK_FILES}")"
   printf "  %-42s : %12s\n" "Open failures" "$(fmt_num "${ROOT_OPENFAIL_FILES}")"
@@ -1199,55 +1490,58 @@ print_core_summary() {
 }
 
 print_ranked_tables() {
-  subsection "E) Ranked high-impact runs"
+  subsection "F) Top runs by current-sample scaled trigger counts"
 
-  printf "  %-8s | %-8s | %-8s | %-8s | %-12s | %-12s | %-10s\n" \
-    "Run" "ExpSeg" "PresSeg" "MissSeg" "PresEvt(M)" "MissEvt(M)" "Status"
-  printf "  %s-+-%s-+-%s-+-%s-+-%s-+-%s-+-%s\n" \
-    "$(printf '%*s' 8 '' | tr ' ' '-')" \
-    "$(printf '%*s' 8 '' | tr ' ' '-')" \
+  printf "  %-8s | %-8s | %-12s | %-12s | %-12s | %-10s\n" \
+    "Run" "CurSeg" "CurEvt(M)" "LiveBit(M)" "ScaledBit(M)" "S/DAQS%"
+  printf "  %s-+-%s-+-%s-+-%s-+-%s-+-%s\n" \
     "$(printf '%*s' 8 '' | tr ' ' '-')" \
     "$(printf '%*s' 8 '' | tr ' ' '-')" \
     "$(printf '%*s' 12 '' | tr ' ' '-')" \
     "$(printf '%*s' 12 '' | tr ' ' '-')" \
-    "$(printf '%*s' 10 '' | tr ' ' '-')"
-
-  while IFS=$'\t' read -r miss_evt miss_seg r8; do
-    [[ -n "${r8:-}" ]] || continue
-    printf "  %-8s | %8s | %8s | %8s | %12s | %12s | %-10s\n" \
-      "$r8" \
-      "$(fmt_num "${RUN_EXPECTED_SEG[$r8]:-0}")" \
-      "$(fmt_num "${RUN_PRESENT_SEG[$r8]:-0}")" \
-      "$(fmt_num "${RUN_MISSING_SEG[$r8]:-0}")" \
-      "$(fmt_m "${RUN_PRESENT_EVT[$r8]:-0}")" \
-      "$(fmt_m "${RUN_MISSING_EVT[$r8]:-0}")" \
-      "${RUN_STATUS[$r8]:-UNK}"
-  done < <(
-    for r8 in "${RUN_ORDER[@]}"; do
-      printf '%015d\t%015d\t%s\n' "${RUN_MISSING_EVT[$r8]:-0}" "${RUN_MISSING_SEG[$r8]:-0}" "$r8"
-    done | sort -t $'\t' -k1,1nr -k2,2nr -k3,3 | head -n 15
-  )
-
-  subsection "F) Top runs by currently available exact DST events"
-  printf "  %-8s | %-8s | %-12s | %-10s\n" \
-    "Run" "CurSeg" "CurEvt(M)" "Status"
-  printf "  %s-+-%s-+-%s-+-%s\n" \
-    "$(printf '%*s' 8 '' | tr ' ' '-')" \
-    "$(printf '%*s' 8 '' | tr ' ' '-')" \
     "$(printf '%*s' 12 '' | tr ' ' '-')" \
     "$(printf '%*s' 10 '' | tr ' ' '-')"
 
-  while IFS=$'\t' read -r cur_evt r8; do
+  while IFS=$'\t' read -r scaled_evt r8; do
     [[ -n "${r8:-}" ]] || continue
-    printf "  %-8s | %8s | %12s | %-10s\n" \
+    printf "  %-8s | %8s | %12s | %12s | %12s | %10s\n" \
       "$r8" \
       "$(fmt_num "${RUN_CURRENT_SEG[$r8]:-0}")" \
       "$(fmt_m "${RUN_CURRENT_EVT[$r8]:-0}")" \
-      "${RUN_STATUS[$r8]:-UNK}"
+      "$(fmt_m "${RUN_CURRENT_REF_LIVE_EVT[$r8]:-0}")" \
+      "$(fmt_m "${RUN_CURRENT_REF_SCALED_EVT[$r8]:-0}")" \
+      "$(fmt_pct "${RUN_CURRENT_REF_SCALED_EVT[$r8]:-0}" "${RUN_REF_SCALED[$r8]:-0}")"
   done < <(
     for r8 in "${RUN_ORDER[@]}"; do
-      printf '%015d\t%s\n' "${RUN_CURRENT_EVT[$r8]:-0}" "$r8"
+      printf '%015d\t%s\n' "${RUN_CURRENT_REF_SCALED_EVT[$r8]:-0}" "$r8"
     done | sort -t $'\t' -k1,1nr -k2,2 | head -n 15
+  )
+
+  subsection "G) Runs with zero scaled trigger counts in the current sample"
+
+  printf "  %-8s | %-8s | %-12s | %-12s | %-12s\n" \
+    "Run" "CurSeg" "CurEvt(M)" "DAQScaled(M)" "Notes"
+  printf "  %s-+-%s-+-%s-+-%s-+-%s\n" \
+    "$(printf '%*s' 8 '' | tr ' ' '-')" \
+    "$(printf '%*s' 8 '' | tr ' ' '-')" \
+    "$(printf '%*s' 12 '' | tr ' ' '-')" \
+    "$(printf '%*s' 12 '' | tr ' ' '-')" \
+    "$(printf '%*s' 12 '' | tr ' ' '-')"
+
+  while IFS=$'\t' read -r r8; do
+    [[ -n "${r8:-}" ]] || continue
+    printf "  %-8s | %8s | %12s | %12s | %-12s\n" \
+      "$r8" \
+      "$(fmt_num "${RUN_CURRENT_SEG[$r8]:-0}")" \
+      "$(fmt_m "${RUN_CURRENT_EVT[$r8]:-0}")" \
+      "$(fmt_m "${RUN_REF_SCALED[$r8]:-0}")" \
+      "$(truncate_text "${RUN_NOTES[$r8]:-}" 12)"
+  done < <(
+    for r8 in "${RUN_ORDER[@]}"; do
+      if (( ${RUN_CURRENT_SEG[$r8]:-0} > 0 )) && (( ${RUN_CURRENT_REF_SCALED_EVT[$r8]:-0} == 0 )); then
+        printf '%s\n' "$r8"
+      fi
+    done | sort
   )
 }
 
@@ -1256,33 +1550,33 @@ print_run_status_table() {
     return 0
   fi
 
-  subsection "G) Full per-run audit table"
+  subsection "H) Full per-run current-sample + trigger-bit table"
 
-  printf "  %-8s | %-6s | %-6s | %-6s | %-6s | %-6s | %-10s | %-10s | %-28s\n" \
-    "Run" "Exp" "Cur" "Pres" "Miss" "Extra" "PresEvt(M)" "MissEvt(M)" "Notes"
+  printf "  %-8s | %-8s | %-12s | %-12s | %-12s | %-12s | %-10s | %-10s | %-28s\n" \
+    "Run" "CurSeg" "CurEvt(M)" "RawBit(M)" "LiveBit(M)" "ScaledBit(M)" "L/DAQL%" "S/DAQS%" "Notes"
   printf "  %s-+-%s-+-%s-+-%s-+-%s-+-%s-+-%s-+-%s-+-%s\n" \
     "$(printf '%*s' 8 '' | tr ' ' '-')" \
-    "$(printf '%*s' 6 '' | tr ' ' '-')" \
-    "$(printf '%*s' 6 '' | tr ' ' '-')" \
-    "$(printf '%*s' 6 '' | tr ' ' '-')" \
-    "$(printf '%*s' 6 '' | tr ' ' '-')" \
-    "$(printf '%*s' 6 '' | tr ' ' '-')" \
+    "$(printf '%*s' 8 '' | tr ' ' '-')" \
+    "$(printf '%*s' 12 '' | tr ' ' '-')" \
+    "$(printf '%*s' 12 '' | tr ' ' '-')" \
+    "$(printf '%*s' 12 '' | tr ' ' '-')" \
+    "$(printf '%*s' 12 '' | tr ' ' '-')" \
     "$(printf '%*s' 10 '' | tr ' ' '-')" \
     "$(printf '%*s' 10 '' | tr ' ' '-')" \
     "$(printf '%*s' 28 '' | tr ' ' '-')"
 
   local r8
   for r8 in "${RUN_ORDER[@]}"; do
-    printf "  %-8s | %6s | %6s | %6s | %6s | %6s | %10s | %10s | %-28s\n" \
+    printf "  %-8s | %8s | %12s | %12s | %12s | %12s | %10s | %10s | %-28s\n" \
       "$r8" \
-      "$(fmt_num "${RUN_EXPECTED_SEG[$r8]:-0}")" \
       "$(fmt_num "${RUN_CURRENT_SEG[$r8]:-0}")" \
-      "$(fmt_num "${RUN_PRESENT_SEG[$r8]:-0}")" \
-      "$(fmt_num "${RUN_MISSING_SEG[$r8]:-0}")" \
-      "$(fmt_num "${RUN_EXTRA_SEG[$r8]:-0}")" \
-      "$(fmt_m "${RUN_PRESENT_EVT[$r8]:-0}")" \
-      "$(fmt_m "${RUN_MISSING_EVT[$r8]:-0}")" \
-      "$(truncate_text "${RUN_STATUS[$r8]:-UNK}${RUN_NOTES[$r8]:+,${RUN_NOTES[$r8]}}" 28)"
+      "$(fmt_m "${RUN_CURRENT_EVT[$r8]:-0}")" \
+      "$(fmt_m "${RUN_CURRENT_REF_RAW_EVT[$r8]:-0}")" \
+      "$(fmt_m "${RUN_CURRENT_REF_LIVE_EVT[$r8]:-0}")" \
+      "$(fmt_m "${RUN_CURRENT_REF_SCALED_EVT[$r8]:-0}")" \
+      "$(fmt_pct "${RUN_CURRENT_REF_LIVE_EVT[$r8]:-0}" "${RUN_REF_LIVE[$r8]:-0}")" \
+      "$(fmt_pct "${RUN_CURRENT_REF_SCALED_EVT[$r8]:-0}" "${RUN_REF_SCALED[$r8]:-0}")" \
+      "$(truncate_text "${RUN_NOTES[$r8]:-}" 28)"
   done
 }
 fatal() {
@@ -1337,6 +1631,18 @@ parse_args() {
         PREFIX="$1"
         shift
         ;;
+      --trigger-bit)
+        shift
+        [[ $# -gt 0 ]] || fatal "missing value after --trigger-bit"
+        REF_TRIG_BIT="$1"
+        shift
+        ;;
+      --trigger-name)
+        shift
+        [[ $# -gt 0 ]] || fatal "missing value after --trigger-name"
+        REF_TRIG_NAME="$1"
+        shift
+        ;;
       --max-condor-jobs)
         shift
         [[ $# -gt 0 ]] || fatal "missing value after --max-condor-jobs"
@@ -1380,6 +1686,7 @@ parse_args() {
   [[ "$RUN_PROGRESS_EVERY" =~ ^[0-9]+$ ]] || fatal "--run-progress-every must be an integer"
   [[ "$ROOT_PROGRESS_EVERY" =~ ^[0-9]+$ ]] || fatal "--root-progress-every must be an integer"
   [[ "$MAX_CONDOR_JOBS" =~ ^[0-9]+$ ]] || fatal "--max-condor-jobs must be an integer"
+  [[ "$REF_TRIG_BIT" =~ ^[0-9]+$ ]] || fatal "--trigger-bit must be an integer"
   (( MAX_CONDOR_JOBS > 0 )) || fatal "--max-condor-jobs must be > 0"
 }
 
@@ -1395,6 +1702,8 @@ print_startup_context() {
   printf "  %-24s : %s\n" "Dataset" "${DATASET}"
   printf "  %-24s : %s\n" "Tag" "${TAG}"
   printf "  %-24s : %s\n" "Prefix" "${PREFIX}"
+  printf "  %-24s : %s\n" "Reference trigger bit" "${REF_TRIG_BIT}"
+  printf "  %-24s : %s\n" "Reference trigger name" "${REF_TRIG_NAME}"
   printf "  %-24s : %s\n" "Verbosity" "${VERBOSE}"
   printf "  %-24s : %s\n" "Show full run tables" "$(yn "${SHOW_ALL_RUN_TABLES}")"
   printf "  %-24s : %s\n" "Max Condor jobs" "${MAX_CONDOR_JOBS}"
@@ -1446,6 +1755,8 @@ main() {
     note "Chunk size         : $(fmt_num "${CHUNK_SIZE}")"
     note "Chunk count        : $(fmt_num "${CHUNK_COUNT}")"
 
+    rm -f "${PWD}"/audit_auau_firstPass_*.txt 2>/dev/null || true
+
     if (( LOCAL_MODE == 1 )); then
       run_local_counter_test
     else
@@ -1453,6 +1764,10 @@ main() {
     fi
     exit 0
   fi
+
+  need_cmd psql
+  PSQL=(psql -h "${PSQL_HOST}" -d "${PSQL_DB}" -At -F $'\t' -q)
+  check_psql_connectivity
 
   if [[ -z "${MANIFEST_PATH}" ]]; then
     MANIFEST_PATH="$(latest_manifest_in_pwd)"
