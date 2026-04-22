@@ -2137,12 +2137,20 @@ void RunPreselectionFailureTable(Dataset& ds)
         
         cTbl.cd(0);
         
+        string preFailTitle = "Inclusive Fails (Preselection)";
+        if (!ds.isSim && !ds.centFolder.empty())
+        {
+            string centText = ds.centFolder;
+            std::replace(centText.begin(), centText.end(), '_', '-');
+            preFailTitle = TString::Format("Inclusive Fails %s%% (Preselection)", centText.c_str()).Data();
+        }
+        
         TLatex tGlobal;
         tGlobal.SetNDC();
         tGlobal.SetTextFont(42);
         tGlobal.SetTextAlign(13);
         tGlobal.SetTextSize(0.027);
-        tGlobal.DrawLatex(0.045, 0.983, "Inclusive Fails (Preselection)");
+        tGlobal.DrawLatex(0.045, 0.983, preFailTitle.c_str());
         
         TPaveText* pCol1 = new TPaveText(0.34, 0.915, 0.52, 0.988, "NDC NB");
         pCol1->SetFillStyle(0);
@@ -2192,6 +2200,328 @@ void RunPreselectionFailureTable(Dataset& ds)
         SaveCanvas(cTbl, JoinPath(outDir, "table3x3_preselectionFails.png"));
         
         for (auto* obj : keepTbl) delete obj;
+    }
+    
+    // ---------------------------------------------------------------------------
+    // Trigger-level centrality x pT summary for inclusive preselection fails
+    // ---------------------------------------------------------------------------
+    if (!ds.isSim && !ds.centFolder.empty() && ds.file && ds.topDir)
+    {
+        struct SummaryPtRequest
+        {
+            string label;
+            string folder;
+            vector<string> suffixes;
+        };
+        
+        struct SummaryCentRequest
+        {
+            string label;
+            string folder;
+            vector<string> suffixes;
+        };
+        
+        vector<SummaryPtRequest> summaryPtReqs;
+        summaryPtReqs.push_back({"10-12 GeV", "pT_10_12", {"_pT_10_12"}});
+        summaryPtReqs.push_back({"14-16 GeV", "pT_14_16", {"_pT_14_16"}});
+        summaryPtReqs.push_back({"18-20 GeV", "pT_18_20", {"_pT_18_20"}});
+        
+        SummaryPtRequest pt2035;
+        pt2035.label = "20-35 GeV";
+        pt2035.folder = "pT_20_35";
+        for (const auto& pb : PtBins())
+        {
+            if (pb.lo >= 20 && pb.hi <= 35)
+            {
+                pt2035.suffixes.push_back(pb.suffix);
+            }
+        }
+        if (!pt2035.suffixes.empty()) summaryPtReqs.push_back(pt2035);
+        
+        vector<SummaryCentRequest> summaryCentReqs;
+        for (const auto& ocb : OverlayCentBins())
+        {
+            if ((ocb.lo == 0  && ocb.hi == 20) ||
+                (ocb.lo == 20 && ocb.hi == 50) ||
+                (ocb.lo == 50 && ocb.hi == 80))
+            {
+                SummaryCentRequest req;
+                req.label = TString::Format("%d-%d%%", ocb.lo, ocb.hi).Data();
+                req.folder = ocb.folder;
+                req.suffixes = ocb.suffixes;
+                summaryCentReqs.push_back(req);
+            }
+        }
+        
+        auto FillSummaryVals =
+        [&](const vector<string>& ptSuffixes,
+            const vector<string>& centSuffixes,
+            double vals[8]) -> void
+        {
+            for (int ib = 0; ib < 8; ++ib) vals[ib] = 0.0;
+            
+            double weta = 0.0;
+            double et1L = 0.0;
+            double et1H = 0.0;
+            double e11H = 0.0;
+            double e32L = 0.0;
+            double e32H = 0.0;
+            
+            for (const auto& centSuffix : centSuffixes)
+            {
+                Dataset dsSel;
+                dsSel.label = ds.label;
+                dsSel.isSim = ds.isSim;
+                dsSel.trigger = ds.trigger;
+                dsSel.topDirName = ds.topDirName;
+                dsSel.inFilePath = ds.inFilePath;
+                dsSel.outBase = ds.outBase;
+                dsSel.centFolder = "";
+                dsSel.centSuffix = centSuffix;
+                dsSel.centLabel = "";
+                dsSel.file = ds.file;
+                dsSel.topDir = ds.topDir;
+                
+                for (const auto& ptSuffix : ptSuffixes)
+                {
+                    weta += Read1BinCount(dsSel, "h_preFail_weta" + ptSuffix);
+                    et1L += Read1BinCount(dsSel, "h_preFail_et1_low" + ptSuffix);
+                    et1H += Read1BinCount(dsSel, "h_preFail_et1_high" + ptSuffix);
+                    e11H += Read1BinCount(dsSel, "h_preFail_e11e33_high" + ptSuffix);
+                    e32L += Read1BinCount(dsSel, "h_preFail_e32e35_low" + ptSuffix);
+                    e32H += Read1BinCount(dsSel, "h_preFail_e32e35_high" + ptSuffix);
+                }
+            }
+            
+            vals[0] = e11H;
+            vals[1] = et1L;
+            vals[2] = et1H;
+            vals[3] = et1L + et1H;
+            vals[4] = e32L;
+            vals[5] = e32H;
+            vals[6] = e32L + e32H;
+            vals[7] = weta;
+        };
+        
+        static std::set<string> preFailCentXpTDone;
+        const string preFailGuardKey = ds.inFilePath + "|" + ds.trigger;
+        
+        if (summaryPtReqs.size() == 4 &&
+            summaryCentReqs.size() == 3 &&
+            preFailCentXpTDone.find(preFailGuardKey) == preFailCentXpTDone.end())
+        {
+            preFailCentXpTDone.insert(preFailGuardKey);
+            
+            const string triggerOutDir = DirnameFromPath(ds.outBase);
+            const string summaryOutDir = JoinPath(triggerOutDir, "preselectionInclusiveFails_centralityXpT");
+            EnsureDir(summaryOutDir);
+            
+            const int nSummaryCols = (int)summaryPtReqs.size();
+            const int nSummaryRows = (int)summaryCentReqs.size();
+            
+            TCanvas cSummary(
+                             TString::Format("c_preFail_centXpT_%s_%s", ds.trigger.c_str(), ds.centFolder.c_str()).Data(),
+                             "c_preFail_centXpT", 5600, 3300
+                             );
+            cSummary.cd();
+            cSummary.SetFillColor(0);
+            cSummary.SetFrameFillColor(0);
+            
+            vector<TObject*> keepSummary;
+            keepSummary.reserve(nSummaryCols * nSummaryRows * 12);
+            
+            const double leftSummary   = 0.065;
+            const double rightSummary  = 0.008;
+            const double topSummary    = 0.150;
+            const double bottomSummary = 0.022;
+            const double xGapSummary   = 0.006;
+            const double yGapSummary   = 0.010;
+            
+            const double rawCellW = (1.0 - leftSummary - rightSummary) / nSummaryCols;
+            const double rawCellH = (1.0 - topSummary - bottomSummary) / nSummaryRows;
+            
+            for (int irow = 0; irow < nSummaryRows; ++irow)
+            {
+                for (int icol = 0; icol < nSummaryCols; ++icol)
+                {
+                    const double x1 = leftSummary + icol * rawCellW + 0.5 * xGapSummary;
+                    const double x2 = leftSummary + (icol + 1) * rawCellW - 0.5 * xGapSummary;
+                    const double y2 = 1.0 - topSummary - irow * rawCellH - 0.5 * yGapSummary;
+                    const double y1 = 1.0 - topSummary - (irow + 1) * rawCellH + 0.5 * yGapSummary;
+                    
+                    TPad* cellPad = new TPad(
+                                             TString::Format("preFailCentXpT_pad_r%d_c%d_%s_%s",
+                                                             irow, icol, ds.trigger.c_str(), ds.centFolder.c_str()).Data(),
+                                             "",
+                                             x1, y1, x2, y2
+                                             );
+                    cellPad->SetLeftMargin(0.10);
+                    cellPad->SetRightMargin(0.025);
+                    cellPad->SetBottomMargin(0.12);
+                    cellPad->SetTopMargin(0.05);
+                    cellPad->SetTicks(1,1);
+                    cellPad->SetBorderMode(0);
+                    cellPad->SetFillColor(0);
+                    cellPad->Draw();
+                    cellPad->cd();
+                    
+                    double vv[8];
+                    FillSummaryVals(summaryPtReqs[icol].suffixes, summaryCentReqs[irow].suffixes, vv);
+                    
+                    double ymax = 0.0;
+                    for (int ib = 0; ib < 8; ++ib) ymax = std::max(ymax, vv[ib]);
+                    const double yMaxPlot = (ymax > 0.0) ? (1.30 * ymax) : 1.0;
+                    
+                    TH1F* hAxis = new TH1F(
+                                           TString::Format("h_preFailCentXpTAxis_%s_%s_%s",
+                                                           ds.trigger.c_str(),
+                                                           summaryCentReqs[irow].folder.c_str(),
+                                                           summaryPtReqs[icol].folder.c_str()).Data(),
+                                           "",
+                                           8, 0.5, 8.5
+                                           );
+                    hAxis->SetDirectory(nullptr);
+                    hAxis->SetStats(0);
+                    hAxis->SetMinimum(0.0);
+                    hAxis->SetMaximum(yMaxPlot);
+                    
+                    for (int ib = 1; ib <= 8; ++ib) hAxis->GetXaxis()->SetBinLabel(ib, xLabels[ib-1]);
+                    
+                    hAxis->GetYaxis()->SetTitle("Fail counts");
+                    hAxis->GetXaxis()->SetTitle("");
+                    hAxis->GetXaxis()->LabelsOption("h");
+                    hAxis->GetXaxis()->SetLabelFont(62);
+                    hAxis->GetXaxis()->SetLabelSize(0.064);
+                    hAxis->GetXaxis()->SetLabelOffset(0.006);
+                    hAxis->GetYaxis()->SetTitleSize(0.052);
+                    hAxis->GetYaxis()->SetTitleOffset(0.92);
+                    hAxis->GetYaxis()->SetLabelSize(0.044);
+                    hAxis->SetLineColor(1);
+                    hAxis->SetLineWidth(2);
+                    hAxis->SetFillStyle(0);
+                    hAxis->Draw("hist");
+                    
+                    for (int ib = 1; ib <= 8; ++ib)
+                    {
+                        TH1F* hb = new TH1F(
+                                            TString::Format("h_preFailCentXpTBar_%s_%s_%s_b%d",
+                                                            ds.trigger.c_str(),
+                                                            summaryCentReqs[irow].folder.c_str(),
+                                                            summaryPtReqs[icol].folder.c_str(),
+                                                            ib).Data(),
+                                            "",
+                                            8, 0.5, 8.5
+                                            );
+                        hb->SetDirectory(nullptr);
+                        hb->SetStats(0);
+                        hb->SetBinContent(ib, vv[ib-1]);
+                        hb->SetFillStyle(1001);
+                        hb->SetFillColor(binColors[ib-1]);
+                        hb->SetLineColor(1);
+                        hb->SetLineWidth(2);
+                        hb->SetBarWidth(0.90);
+                        hb->SetBarOffset(0.05);
+                        hb->Draw("BAR SAME");
+                        keepSummary.push_back(hb);
+                    }
+                    
+                    TLatex tCell;
+                    tCell.SetTextFont(62);
+                    tCell.SetTextAlign(22);
+                    tCell.SetTextSize(0.048);
+                    for (int ib = 1; ib <= 8; ++ib)
+                    {
+                        const double y = vv[ib-1];
+                        if (y <= 0.0) continue;
+                        
+                        const double x = hAxis->GetXaxis()->GetBinCenter(ib);
+                        const double yText = std::min(y + 0.024*yMaxPlot, 0.93*yMaxPlot);
+                        tCell.DrawLatex(x, yText, TString::Format("%.0f", y).Data());
+                    }
+                    
+                    keepSummary.push_back(hAxis);
+                    cSummary.cd();
+                }
+            }
+            
+            TLatex tSummaryTitle;
+            tSummaryTitle.SetNDC();
+            tSummaryTitle.SetTextFont(42);
+            tSummaryTitle.SetTextAlign(13);
+            tSummaryTitle.SetTextSize(0.030);
+            tSummaryTitle.DrawLatex(0.038, 0.982, "Inclusive Fails Run25auau (Preselection)");
+            
+            TPaveText* pSumCol1 = new TPaveText(0.31, 0.900, 0.50, 0.988, "NDC NB");
+            pSumCol1->SetFillStyle(0);
+            pSumCol1->SetBorderSize(0);
+            pSumCol1->SetTextFont(42);
+            pSumCol1->SetTextAlign(12);
+            pSumCol1->SetTextSize(0.019);
+            pSumCol1->AddText("A: #frac{E_{11}}{E_{33}} #geq 0.98");
+            pSumCol1->AddText("B: et1 #leq 0.6");
+            pSumCol1->Draw();
+            keepSummary.push_back(pSumCol1);
+            
+            TPaveText* pSumCol2 = new TPaveText(0.49, 0.900, 0.65, 0.988, "NDC NB");
+            pSumCol2->SetFillStyle(0);
+            pSumCol2->SetBorderSize(0);
+            pSumCol2->SetTextFont(42);
+            pSumCol2->SetTextAlign(12);
+            pSumCol2->SetTextSize(0.019);
+            pSumCol2->AddText("C: et1 #geq 1.0");
+            pSumCol2->AddText("D: et1 out of range");
+            pSumCol2->Draw();
+            keepSummary.push_back(pSumCol2);
+            
+            TPaveText* pSumCol3 = new TPaveText(0.64, 0.900, 0.80, 0.988, "NDC NB");
+            pSumCol3->SetFillStyle(0);
+            pSumCol3->SetBorderSize(0);
+            pSumCol3->SetTextFont(42);
+            pSumCol3->SetTextAlign(12);
+            pSumCol3->SetTextSize(0.019);
+            pSumCol3->AddText("E: #frac{E_{32}}{E_{35}} #leq 0.8");
+            pSumCol3->AddText("F: #frac{E_{32}}{E_{35}} #geq 1.0");
+            pSumCol3->Draw();
+            keepSummary.push_back(pSumCol3);
+            
+            TPaveText* pSumCol4 = new TPaveText(0.79, 0.900, 0.975, 0.988, "NDC NB");
+            pSumCol4->SetFillStyle(0);
+            pSumCol4->SetBorderSize(0);
+            pSumCol4->SetTextFont(42);
+            pSumCol4->SetTextAlign(12);
+            pSumCol4->SetTextSize(0.019);
+            pSumCol4->AddText("G: #frac{E_{32}}{E_{35}} out of range");
+            pSumCol4->AddText("H: w_{#eta}^{cogX} #geq 0.6");
+            pSumCol4->Draw();
+            keepSummary.push_back(pSumCol4);
+            
+            TLatex tCol;
+            tCol.SetNDC(true);
+            tCol.SetTextFont(42);
+            tCol.SetTextAlign(22);
+            tCol.SetTextSize(0.034);
+            for (int icol = 0; icol < nSummaryCols; ++icol)
+            {
+                const double x = leftSummary + (icol + 0.5) * rawCellW;
+                tCol.DrawLatex(x, 1.0 - topSummary + 0.010, summaryPtReqs[icol].label.c_str());
+            }
+            
+            TLatex tRow;
+            tRow.SetNDC(true);
+            tRow.SetTextFont(42);
+            tRow.SetTextAlign(22);
+            tRow.SetTextAngle(270);
+            tRow.SetTextSize(0.035);
+            for (int irow = 0; irow < nSummaryRows; ++irow)
+            {
+                const double y = 1.0 - topSummary - (irow + 0.5) * rawCellH;
+                tRow.DrawLatex(0.032, y, summaryCentReqs[irow].label.c_str());
+            }
+            
+            SaveCanvas(cSummary, JoinPath(summaryOutDir, "preselectionInclusiveFails_centralityXpT.png"));
+            
+            for (auto* obj : keepSummary) delete obj;
+        }
     }
     
     // ---------------------------------------------------------------------------
