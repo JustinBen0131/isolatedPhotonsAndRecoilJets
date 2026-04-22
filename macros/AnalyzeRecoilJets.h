@@ -101,13 +101,13 @@ inline bool isAuAuOnly     = true;
 
 inline bool isPPdataAndAUAU = false;
 
-inline bool generateUEcomparisonSSQA = true;
+inline bool generateUEcomparisonSSQA = false;
 inline bool skipToCentralityAndPtOverlaysWithSSQA = false;
-inline bool SSoverlayPerVAR_processONLY           = true;
+inline bool SSoverlayPerVAR_processONLY           = false;
 inline bool generateISOpTcentOverlaysONLY         = false;
 inline bool perVariantIsoQA_ONLY                  = false;
 inline bool DO_inclusiveXJcomparisons_ONLY        = false;
-inline bool DO_purityAndLeakageCHECKS_ONLY        = false;
+inline bool DO_purityAndLeakageCHECKS_ONLY        = true;
 
 inline bool generatePerRunTriggerAna = false;
 inline bool generatePerRunTriggerAnaForGoodRunsOnly = false;
@@ -190,7 +190,7 @@ inline const int    kAA_JetPtMin     = 7;            // GeV: 3, 5, or 10
 inline const string kAA_B2BCut       = "7pi_8";      // "7pi_8" or "pi_2"
 inline const int    kAA_VzCut        = 30;            // cm: 30 or 60
 inline const string kAA_IsoConeR     = "isoR30";     // "isoR30" or "isoR40"
-inline const string kAA_IsoMode      = "isSliding";// "isSliding" or "fixedIso4GeV"
+inline const string kAA_IsoMode      = "fixedIso4GeV";// "isSliding" or "fixedIso4GeV"
 inline const string kAA_UEVariant    = "baseVariant";      // "noSub","baseVariant","variantA","variantB"
 // Au+Au trigger directory name(s) inside the ROOT file.
 // Set one, two, or all three.  Analysis runs independently for each.

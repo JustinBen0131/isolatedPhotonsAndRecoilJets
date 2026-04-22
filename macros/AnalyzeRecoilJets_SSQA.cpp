@@ -1494,6 +1494,162 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                     }
                 }
             }
+
+            const string centPtSummaryDir = JoinPath(ssQADir, "centralityXpTsummaries");
+            EnsureDir(centPtSummaryDir);
+
+            vector<string> summaryVariantFolders;
+            summaryVariantFolders.reserve(pythiaOverlayCfgs.size());
+            for (const auto& cfg : pythiaOverlayCfgs)
+            {
+                if (!HaveAllVariantFiles(cfg.indices)) continue;
+                summaryVariantFolders.push_back(cfg.folder);
+            }
+
+            const vector<string> summaryCentFolders = {"0_20", "20_50", "50_80"};
+            const vector<string> summaryCentLabels  = {"0-20%", "20-50%", "50-80%"};
+            const vector<string> summaryPtFolders   = {"pT_10_12", "pT_14_16", "pT_18_20", "pT_20_35"};
+            const vector<string> summaryPtLabels    = {"10-12 GeV", "14-16 GeV", "18-20 GeV", "20-35 GeV"};
+
+            for (const auto& variantFolder : summaryVariantFolders)
+            {
+                const string variantSummaryDir = JoinPath(centPtSummaryDir, variantFolder);
+                EnsureDir(variantSummaryDir);
+
+                for (const auto& tag : ppg12Tags)
+                {
+                    const string tagSummaryDir = JoinPath(variantSummaryDir, tag);
+                    EnsureDir(tagSummaryDir);
+
+                    for (const auto& sv : ssVars)
+                    {
+                        const string cSummaryName =
+                            TString::Format("c_ssQA_centXpT_%s_%s_%s_%s",
+                                            variantFolder.c_str(),
+                                            tag.c_str(),
+                                            sv.var.c_str(),
+                                            trigAA.c_str()).Data();
+
+                        TCanvas cSummary(cSummaryName.c_str(), cSummaryName.c_str(), 5200, 3000);
+                        cSummary.cd();
+                        cSummary.SetFillColor(0);
+                        cSummary.SetFrameFillColor(0);
+
+                        const double leftSummary   = 0.055;
+                        const double rightSummary  = 0.010;
+                        const double topSummary    = 0.080;
+                        const double bottomSummary = 0.018;
+                        const double xGapSummary   = 0.004;
+                        const double yGapSummary   = 0.010;
+
+                        const int nSummaryRows = (int)summaryCentFolders.size();
+                        const int nSummaryCols = (int)summaryPtFolders.size();
+                        const double rawCellW = (1.0 - leftSummary - rightSummary) / nSummaryCols;
+                        const double rawCellH = (1.0 - topSummary - bottomSummary) / nSummaryRows;
+
+                        vector<TImage*> keepSummaryImages;
+                        bool anySummaryCell = false;
+
+                        for (int irow = 0; irow < nSummaryRows; ++irow)
+                        {
+                            for (int icol = 0; icol < nSummaryCols; ++icol)
+                            {
+                                const double x1 = leftSummary + icol * rawCellW + 0.5 * xGapSummary;
+                                const double x2 = leftSummary + (icol + 1) * rawCellW - 0.5 * xGapSummary;
+                                const double y2 = 1.0 - topSummary - irow * rawCellH - 0.5 * yGapSummary;
+                                const double y1 = 1.0 - topSummary - (irow + 1) * rawCellH + 0.5 * yGapSummary;
+
+                                const string padName =
+                                    TString::Format("%s_pad_r%d_c%d",
+                                                    cSummaryName.c_str(), irow, icol).Data();
+
+                                TPad* cellPad = new TPad(padName.c_str(), padName.c_str(), x1, y1, x2, y2);
+                                cellPad->SetLeftMargin(0.0);
+                                cellPad->SetRightMargin(0.0);
+                                cellPad->SetBottomMargin(0.0);
+                                cellPad->SetTopMargin(0.0);
+                                cellPad->SetBorderMode(0);
+                                cellPad->SetBorderSize(0);
+                                cellPad->SetFillColor(0);
+                                cellPad->SetFrameFillColor(0);
+                                cellPad->Draw();
+                                cellPad->cd();
+
+                                const string cellBaseDir =
+                                    JoinPath(
+                                        JoinPath(
+                                            JoinPath(
+                                                JoinPath(
+                                                    JoinPath(ssQADir, summaryCentFolders[irow]),
+                                                    summaryPtFolders[icol]),
+                                                "inclusiveBACKGROUNDphotonJetSIGNALoverlay"),
+                                            variantFolder),
+                                        "perVariable");
+
+                                const string cellTagDir = JoinPath(cellBaseDir, tag);
+                                const string cellPng = JoinPath(cellTagDir, sv.var + ".png");
+
+                                if (!gSystem->AccessPathName(cellPng.c_str()))
+                                {
+                                    TImage* img = TImage::Open(cellPng.c_str());
+                                    if (img)
+                                    {
+                                        img->Draw();
+                                        keepSummaryImages.push_back(img);
+                                        anySummaryCell = true;
+                                    }
+                                    else
+                                    {
+                                        DrawMissingPad(TString::Format("%s, %s",
+                                                                       summaryCentLabels[irow].c_str(),
+                                                                       summaryPtLabels[icol].c_str()).Data());
+                                    }
+                                }
+                                else
+                                {
+                                    DrawMissingPad(TString::Format("%s, %s",
+                                                                   summaryCentLabels[irow].c_str(),
+                                                                   summaryPtLabels[icol].c_str()).Data());
+                                }
+
+                                cSummary.cd();
+                            }
+                        }
+
+                        TLatex tCol;
+                        tCol.SetNDC(true);
+                        tCol.SetTextFont(42);
+                        tCol.SetTextAlign(22);
+                        tCol.SetTextSize(0.032);
+                        for (int icol = 0; icol < nSummaryCols; ++icol)
+                        {
+                            const double x = leftSummary + (icol + 0.5) * rawCellW;
+                            const double y = 1.0 - 0.58 * topSummary;
+                            tCol.DrawLatex(x, y, summaryPtLabels[icol].c_str());
+                        }
+
+                        TLatex tRow;
+                        tRow.SetNDC(true);
+                        tRow.SetTextFont(42);
+                        tRow.SetTextAlign(22);
+                        tRow.SetTextAngle(270);
+                        tRow.SetTextSize(0.033);
+                        for (int irow = 0; irow < nSummaryRows; ++irow)
+                        {
+                            const double x = 0.50 * leftSummary;
+                            const double y = 1.0 - topSummary - (irow + 0.5) * rawCellH;
+                            tRow.DrawLatex(x, y, summaryCentLabels[irow].c_str());
+                        }
+
+                        if (anySummaryCell)
+                        {
+                            SaveCanvas(cSummary, JoinPath(tagSummaryDir, sv.var + ".png"));
+                        }
+
+                        for (TImage* img : keepSummaryImages) delete img;
+                    }
+                }
+            }
         }
     }
 

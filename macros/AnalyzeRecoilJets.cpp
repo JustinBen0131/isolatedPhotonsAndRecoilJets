@@ -15888,7 +15888,7 @@ int Run()
                 TFile* fPurOv = TFile::Open(InputAuAu().c_str(), "READ");
                 if (fPurOv && !fPurOv->IsZombie())
                 {
-                    const int centColors[] = { kRed+1, kBlue+1, kGreen+2, kMagenta+1, kOrange+7, kCyan+2 };
+                    const int centColors[] = { kBlue+1, kGreen+2, kMagenta+1, kOrange+7, kCyan+2, kRed+1 };
                     const int nCentColors = (int)(sizeof(centColors)/sizeof(centColors[0]));
                     
                     for (const auto& trigAA : kTriggersAuAu)
@@ -16402,7 +16402,7 @@ int Run()
                             hFrameSel.GetYaxis()->SetTitle("Purity (raw ABCD)");
                             hFrameSel.Draw();
                             
-                            TLegend legSel(0.22, 0.14, 0.52, 0.28);
+                            TLegend legSel(0.15, 0.14, 0.52, 0.28);
                             legSel.SetBorderSize(0);
                             legSel.SetFillStyle(0);
                             legSel.SetTextFont(42);
