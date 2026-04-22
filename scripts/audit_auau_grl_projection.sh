@@ -545,6 +545,12 @@ write_root_counter_macro() {
 #include <TError.h>
 #include <TSystem.h>
 #include <frog/FROG.h>
+#include <fun4all/Fun4AllServer.h>
+#include <fun4all/Fun4AllDstInputManager.h>
+#include <fun4all/SubsysReco.h>
+#include <fun4all/Fun4AllReturnCodes.h>
+#include <phool/PHCompositeNode.h>
+#include <phool/getClass.h>
 #include <ffarawobjects/Gl1Packet.h>
 
 #include <fstream>
@@ -620,94 +626,128 @@ namespace dstcount
     return bestEntries;
   }
 
-  bool count_refbit_entries(TTree* tree,
-                            const std::string& fileLabel,
-                            int refBit,
-                            int verbose,
-                            Long64_t& rawCount,
-                            Long64_t& liveCount,
-                            Long64_t& scaledCount)
+  class Gl1Counter final : public SubsysReco
   {
-    rawCount = 0;
-    liveCount = 0;
-    scaledCount = 0;
-
-    if (!tree) return false;
-
-    const char* branchName = nullptr;
-    if (tree->GetBranch("GL1Packet")) branchName = "GL1Packet";
-    else if (tree->GetBranch("14001")) branchName = "14001";
-    else
+   public:
+    Gl1Counter(const std::string& name,
+               int refBit,
+               int verbose)
+      : SubsysReco(name)
+      , m_refBit(refBit)
+      , m_verbose(verbose)
     {
-      if (verbose > 0)
+    }
+
+    void beginFile(const std::string& fileLabel,
+                   Long64_t expectedEntries)
+    {
+      m_fileLabel = fileLabel;
+      m_expectedEntries = expectedEntries;
+      m_entries = 0;
+      m_rawCount = 0;
+      m_liveCount = 0;
+      m_scaledCount = 0;
+      m_sawGl1 = false;
+      m_warnedNoGl1 = false;
+      m_branchName.clear();
+    }
+
+    Long64_t entries() const { return m_entries; }
+    Long64_t rawCount() const { return m_rawCount; }
+    Long64_t liveCount() const { return m_liveCount; }
+    Long64_t scaledCount() const { return m_scaledCount; }
+    bool sawGl1() const { return m_sawGl1; }
+    const std::string& branchName() const { return m_branchName; }
+
+    int process_event(PHCompositeNode* topNode) override
+    {
+      ++m_entries;
+
+      Gl1Packet* gl1 = findNode::getClass<Gl1Packet>(topNode, "GL1Packet");
+      if (gl1)
       {
-        std::cerr << "[count_refbit_entries] no GL1 branch found in " << fileLabel << std::endl;
+        if (!m_sawGl1)
+        {
+          m_sawGl1 = true;
+          m_branchName = "GL1Packet";
+          if (m_verbose > 0)
+          {
+            std::cerr << "[Gl1Counter] file=" << m_fileLabel
+                      << " first GL1 node found as GL1Packet"
+                      << std::endl;
+          }
+        }
       }
-      return false;
-    }
+      else
+      {
+        gl1 = findNode::getClass<Gl1Packet>(topNode, "14001");
+        if (gl1 && !m_sawGl1)
+        {
+          m_sawGl1 = true;
+          m_branchName = "14001";
+          if (m_verbose > 0)
+          {
+            std::cerr << "[Gl1Counter] file=" << m_fileLabel
+                      << " first GL1 node found as 14001"
+                      << std::endl;
+          }
+        }
+      }
 
-    tree->SetBranchStatus("*", 0);
-    tree->SetBranchStatus(branchName, 1);
-
-    Gl1Packet* gl1 = nullptr;
-    tree->SetBranchAddress(branchName, &gl1);
-
-    const Long64_t nentries = tree->GetEntriesFast();
-    const Long64_t evtProgressEvery = (verbose > 2 ? 1000 : 10000);
-
-    if (verbose > 1)
-    {
-      std::cerr << "[count_refbit_entries] file=" << fileLabel
-                << " branch=" << branchName
-                << " entries=" << nentries
-                << std::endl;
-    }
-
-    for (Long64_t i = 0; i < nentries; ++i)
-    {
-      gl1 = nullptr;
-      tree->GetEntry(i);
-      if (!gl1) continue;
+      if (!gl1)
+      {
+        if (!m_warnedNoGl1 && m_verbose > 0)
+        {
+          std::cerr << "[Gl1Counter] file=" << m_fileLabel
+                    << " no GL1Packet/14001 node found in Fun4All topNode"
+                    << std::endl;
+          m_warnedNoGl1 = true;
+        }
+        return Fun4AllReturnCodes::EVENT_OK;
+      }
 
       const std::uint64_t rawVector    = static_cast<std::uint64_t>(gl1->getTriggerVector());
       const std::uint64_t liveVector   = static_cast<std::uint64_t>(gl1->getLiveVector());
       const std::uint64_t scaledVector = static_cast<std::uint64_t>(gl1->lValue(0, "ScaledVector"));
 
-      if (refBit >= 0 && refBit < 64)
+      if (m_refBit >= 0 && m_refBit < 64)
       {
-        if (((rawVector    >> refBit) & 0x1ULL) != 0ULL) ++rawCount;
-        if (((liveVector   >> refBit) & 0x1ULL) != 0ULL) ++liveCount;
-        if (((scaledVector >> refBit) & 0x1ULL) != 0ULL) ++scaledCount;
+        if (((rawVector    >> m_refBit) & 0x1ULL) != 0ULL) ++m_rawCount;
+        if (((liveVector   >> m_refBit) & 0x1ULL) != 0ULL) ++m_liveCount;
+        if (((scaledVector >> m_refBit) & 0x1ULL) != 0ULL) ++m_scaledCount;
       }
 
-      if (verbose > 1)
+      if (m_verbose > 1)
       {
-        if ((i + 1) == 1 || ((i + 1) % evtProgressEvery == 0) || (i + 1) == nentries)
+        const Long64_t evtProgressEvery = (m_verbose > 2 ? 1000 : 10000);
+        if (m_entries == 1 || (evtProgressEvery > 0 && (m_entries % evtProgressEvery) == 0) || (m_expectedEntries > 0 && m_entries == m_expectedEntries))
         {
-          std::cerr << "[count_refbit_entries] file=" << fileLabel
-                    << " event " << (i + 1) << " / " << nentries
-                    << " raw=" << rawCount
-                    << " live=" << liveCount
-                    << " scaled=" << scaledCount
+          std::cerr << "[Gl1Counter] file=" << m_fileLabel
+                    << " event " << m_entries;
+          if (m_expectedEntries > 0) std::cerr << " / " << m_expectedEntries;
+          std::cerr << " raw=" << m_rawCount
+                    << " live=" << m_liveCount
+                    << " scaled=" << m_scaledCount
                     << std::endl;
         }
       }
+
+      return Fun4AllReturnCodes::EVENT_OK;
     }
 
-    tree->ResetBranchAddresses();
-    tree->SetBranchStatus("*", 1);
-
-    if (verbose > 0)
-    {
-      std::cerr << "[count_refbit_entries] done file=" << fileLabel
-                << " raw=" << rawCount
-                << " live=" << liveCount
-                << " scaled=" << scaledCount
-                << std::endl;
-    }
-
-    return true;
-  }
+   private:
+    int m_refBit = 14;
+    int m_verbose = 1;
+    std::string m_fileLabel;
+    Long64_t m_expectedEntries = 0;
+    Long64_t m_entries = 0;
+    Long64_t m_rawCount = 0;
+    Long64_t m_liveCount = 0;
+    Long64_t m_scaledCount = 0;
+    bool m_sawGl1 = false;
+    bool m_warnedNoGl1 = false;
+    std::string m_branchName;
+  };
 }
 
 void count_dst_entries(const char* input_list,
@@ -717,7 +757,10 @@ void count_dst_entries(const char* input_list,
                        int ref_bit = 14)
 {
   gROOT->SetBatch(kTRUE);
+  gSystem->Load("libfun4all.so");
+  gSystem->Load("libphool.so");
   gSystem->Load("libffarawobjects.so");
+  gSystem->Load("libcalotrigger.so");
   gErrorIgnoreLevel = kWarning;
 
   std::ifstream in(input_list);
@@ -744,6 +787,15 @@ void count_dst_entries(const char* input_list,
     if (!line.empty() && line[0] == '#') continue;
     files.push_back(line);
   }
+
+  Fun4AllServer* se = Fun4AllServer::instance();
+  se->Verbosity(0);
+
+  auto* inman = new Fun4AllDstInputManager("DSTIN_AUDIT");
+  se->registerInputManager(inman);
+
+  auto* counter = new dstcount::Gl1Counter("AuditGl1Counter", ref_bit, verbose);
+  se->registerSubsystem(counter);
 
   Long64_t ok_files = 0;
   Long64_t bad_open = 0;
@@ -793,54 +845,83 @@ void count_dst_entries(const char* input_list,
     }
 
     std::string treeName;
-    const Long64_t entries = dstcount::best_tree_entries(f, treeName);
-    if (entries < 0)
+    const Long64_t expectedEntries = dstcount::best_tree_entries(f, treeName);
+    if (expectedEntries < 0)
     {
       out << "NOTREE\t0\t0\t0\t0\t-\t" << path << "\n";
       ++no_tree;
+      f->Close();
+      delete f;
+      continue;
     }
-    else
-    {
-      Long64_t refRaw = 0;
-      Long64_t refLive = 0;
-      Long64_t refScaled = 0;
-
-      if (verbose > 1)
-      {
-        std::cerr << "[count_dst_entries] selected tree for " << path
-                  << " : " << treeName
-                  << " (entries=" << entries << ")"
-                  << std::endl;
-      }
-
-      TTree* tree = dynamic_cast<TTree*>(f->Get(treeName.c_str()));
-      if (tree)
-      {
-        dstcount::count_refbit_entries(tree, path, ref_bit, verbose, refRaw, refLive, refScaled);
-      }
-      else if (verbose > 0)
-      {
-        std::cerr << "[count_dst_entries] failed to retrieve selected tree object for "
-                  << path << " : " << treeName << std::endl;
-      }
-
-      std::replace(treeName.begin(), treeName.end(), '\t', ' ');
-      out << "OK\t" << entries
-          << "\t" << refRaw
-          << "\t" << refLive
-          << "\t" << refScaled
-          << "\t" << treeName
-          << "\t" << path << "\n";
-      ++ok_files;
-      total_entries += entries;
-      total_ref_raw += refRaw;
-      total_ref_live += refLive;
-      total_ref_scaled += refScaled;
-    }
-
     f->Close();
     delete f;
+
+    if (verbose > 1)
+    {
+      std::cerr << "[count_dst_entries] selected tree for " << path
+                << " : " << treeName
+                << " (entries=" << expectedEntries << ")"
+                << std::endl;
+    }
+
+    counter->beginFile(path, expectedEntries);
+
+    const int openRc = se->fileopen("DSTIN_AUDIT", openPath);
+    if (openRc != 0)
+    {
+      if (verbose > 0)
+      {
+        std::cerr << "[count_dst_entries] Fun4All fileopen failed for " << openPath
+                  << " rc=" << openRc << std::endl;
+      }
+      out << "OPENFAIL\t0\t0\t0\t0\t" << treeName << "\t" << path << "\n";
+      ++bad_open;
+      se->Reset();
+      continue;
+    }
+
+    const int runRc = se->run(static_cast<int>(expectedEntries));
+    if (runRc == 0)
+    {
+      se->fileclose("DSTIN_AUDIT");
+    }
+    se->Reset();
+
+    if (runRc != 0 && counter->entries() != expectedEntries && verbose > 0)
+    {
+      std::cerr << "[count_dst_entries] Fun4All run returned rc=" << runRc
+                << " for " << path << std::endl;
+    }
+
+    if (verbose > 0 && !counter->sawGl1())
+    {
+      std::cerr << "[count_dst_entries] no GL1 node seen while processing " << path << std::endl;
+    }
+
+    if (verbose > 1 && expectedEntries != counter->entries())
+    {
+      std::cerr << "[count_dst_entries] entry mismatch for " << path
+                << " treeEntries=" << expectedEntries
+                << " fun4allEntries=" << counter->entries()
+                << std::endl;
+    }
+
+    std::replace(treeName.begin(), treeName.end(), '\t', ' ');
+    out << "OK\t" << counter->entries()
+        << "\t" << counter->rawCount()
+        << "\t" << counter->liveCount()
+        << "\t" << counter->scaledCount()
+        << "\t" << treeName
+        << "\t" << path << "\n";
+    ++ok_files;
+    total_entries += counter->entries();
+    total_ref_raw += counter->rawCount();
+    total_ref_live += counter->liveCount();
+    total_ref_scaled += counter->scaledCount();
   }
+
+  se->End();
 
   std::cerr << "[count_dst_entries] SUMMARY"
             << " files=" << files.size()
