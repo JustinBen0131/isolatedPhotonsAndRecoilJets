@@ -1778,7 +1778,7 @@ void RunPreselectionFailureTable(Dataset& ds)
         hAxis->GetXaxis()->SetLabelSize(compact ? 0.060 : 0.055);
         hAxis->GetXaxis()->SetLabelOffset(compact ? 0.010 : 0.008);
         hAxis->GetYaxis()->SetTitleSize(compact ? 0.058 : 0.060);
-        hAxis->GetYaxis()->SetTitleOffset(compact ? 1.15 : 0.92);
+        hAxis->GetYaxis()->SetTitleOffset(compact ? 1.18 : 0.94);
         hAxis->GetYaxis()->SetLabelSize(compact ? 0.046 : 0.050);
         
         hAxis->SetLineColor(1);
@@ -2355,7 +2355,7 @@ void RunPreselectionFailureTable(Dataset& ds)
                                              "",
                                              x1, y1, x2, y2
                                              );
-                    cellPad->SetLeftMargin(0.10);
+                    cellPad->SetLeftMargin(0.13);
                     cellPad->SetRightMargin(0.025);
                     cellPad->SetBottomMargin(0.12);
                     cellPad->SetTopMargin(0.05);
@@ -2394,7 +2394,7 @@ void RunPreselectionFailureTable(Dataset& ds)
                     hAxis->GetXaxis()->SetLabelSize(0.064);
                     hAxis->GetXaxis()->SetLabelOffset(0.006);
                     hAxis->GetYaxis()->SetTitleSize(0.052);
-                    hAxis->GetYaxis()->SetTitleOffset(0.92);
+                    hAxis->GetYaxis()->SetTitleOffset(1.15);
                     hAxis->GetYaxis()->SetLabelSize(0.044);
                     hAxis->SetLineColor(1);
                     hAxis->SetLineWidth(2);
@@ -2449,7 +2449,7 @@ void RunPreselectionFailureTable(Dataset& ds)
             tSummaryTitle.SetTextFont(42);
             tSummaryTitle.SetTextAlign(13);
             tSummaryTitle.SetTextSize(0.030);
-            tSummaryTitle.DrawLatex(0.038, 0.982, "Inclusive Fails Run25auau (Preselection)");
+            tSummaryTitle.DrawLatex(0.010, 0.982, "Inclusive Fails Run25auau (Preselection)");
             
             TPaveText* pSumCol1 = new TPaveText(0.31, 0.900, 0.50, 0.988, "NDC NB");
             pSumCol1->SetFillStyle(0);
@@ -2457,8 +2457,8 @@ void RunPreselectionFailureTable(Dataset& ds)
             pSumCol1->SetTextFont(42);
             pSumCol1->SetTextAlign(12);
             pSumCol1->SetTextSize(0.019);
-            pSumCol1->AddText("A: #frac{E_{11}}{E_{33}} #geq 0.98");
-            pSumCol1->AddText("B: et1 #leq 0.6");
+            ((TText*)pSumCol1->AddText("A: #frac{E_{11}}{E_{33}} #geq 0.98"))->SetTextColor(binColors[0]);
+            ((TText*)pSumCol1->AddText("B: et1 #leq 0.6"))->SetTextColor(binColors[1]);
             pSumCol1->Draw();
             keepSummary.push_back(pSumCol1);
             
@@ -2468,8 +2468,8 @@ void RunPreselectionFailureTable(Dataset& ds)
             pSumCol2->SetTextFont(42);
             pSumCol2->SetTextAlign(12);
             pSumCol2->SetTextSize(0.019);
-            pSumCol2->AddText("C: et1 #geq 1.0");
-            pSumCol2->AddText("D: et1 out of range");
+            ((TText*)pSumCol2->AddText("C: et1 #geq 1.0"))->SetTextColor(binColors[2]);
+            ((TText*)pSumCol2->AddText("D: et1 out of range"))->SetTextColor(binColors[3]);
             pSumCol2->Draw();
             keepSummary.push_back(pSumCol2);
             
@@ -2479,8 +2479,8 @@ void RunPreselectionFailureTable(Dataset& ds)
             pSumCol3->SetTextFont(42);
             pSumCol3->SetTextAlign(12);
             pSumCol3->SetTextSize(0.019);
-            pSumCol3->AddText("E: #frac{E_{32}}{E_{35}} #leq 0.8");
-            pSumCol3->AddText("F: #frac{E_{32}}{E_{35}} #geq 1.0");
+            ((TText*)pSumCol3->AddText("E: #frac{E_{32}}{E_{35}} #leq 0.8"))->SetTextColor(binColors[4]);
+            ((TText*)pSumCol3->AddText("F: #frac{E_{32}}{E_{35}} #geq 1.0"))->SetTextColor(binColors[5]);
             pSumCol3->Draw();
             keepSummary.push_back(pSumCol3);
             
@@ -2490,8 +2490,8 @@ void RunPreselectionFailureTable(Dataset& ds)
             pSumCol4->SetTextFont(42);
             pSumCol4->SetTextAlign(12);
             pSumCol4->SetTextSize(0.019);
-            pSumCol4->AddText("G: #frac{E_{32}}{E_{35}} out of range");
-            pSumCol4->AddText("H: w_{#eta}^{cogX} #geq 0.6");
+            ((TText*)pSumCol4->AddText("G: #frac{E_{32}}{E_{35}} out of range"))->SetTextColor(binColors[6]);
+            ((TText*)pSumCol4->AddText("H: w_{#eta}^{cogX} #geq 0.6"))->SetTextColor(binColors[7]);
             pSumCol4->Draw();
             keepSummary.push_back(pSumCol4);
             
@@ -2521,6 +2521,329 @@ void RunPreselectionFailureTable(Dataset& ds)
             SaveCanvas(cSummary, JoinPath(summaryOutDir, "preselectionInclusiveFails_centralityXpT.png"));
             
             for (auto* obj : keepSummary) delete obj;
+            
+            {
+                struct WetaSummaryCurve
+                {
+                    string label;
+                    int color = kBlack;
+                    int marker = 20;
+                    vector<double> x;
+                    vector<double> ex;
+                    vector<double> yCount;
+                    vector<double> yFrac;
+                };
+                
+                auto ParsePtBounds =
+                [&](const SummaryPtRequest& req, double& ptLo, double& ptHi) -> bool
+                {
+                    int lo = -1;
+                    int hi = -1;
+                    if (std::sscanf(req.folder.c_str(), "pT_%d_%d", &lo, &hi) != 2) return false;
+                    ptLo = (double) lo;
+                    ptHi = (double) hi;
+                    return true;
+                };
+                
+                auto ComputeWetaSummaryPoint =
+                [&](const Dataset& dsSrc,
+                    const vector<string>& ptSuffixes,
+                    const vector<string>& centSuffixes,
+                    double& nWeta,
+                    double& nOther,
+                    double& fWeta) -> void
+                {
+                    nWeta = 0.0;
+                    nOther = 0.0;
+                    fWeta = 0.0;
+                    
+                    vector<string> centSuffixesUse = centSuffixes;
+                    if (centSuffixesUse.empty()) centSuffixesUse.push_back("");
+                    
+                    for (const auto& centSuffix : centSuffixesUse)
+                    {
+                        Dataset dsSel;
+                        dsSel.label = dsSrc.label;
+                        dsSel.isSim = dsSrc.isSim;
+                        dsSel.trigger = dsSrc.trigger;
+                        dsSel.topDirName = dsSrc.topDirName;
+                        dsSel.inFilePath = dsSrc.inFilePath;
+                        dsSel.outBase = dsSrc.outBase;
+                        dsSel.centFolder = "";
+                        dsSel.centSuffix = centSuffix;
+                        dsSel.centLabel = "";
+                        dsSel.file = dsSrc.file;
+                        dsSel.topDir = dsSrc.topDir;
+                        
+                        for (const auto& ptSuffix : ptSuffixes)
+                        {
+                            const double weta = Read1BinCount(dsSel, "h_preFail_weta" + ptSuffix);
+                            const double et1L = Read1BinCount(dsSel, "h_preFail_et1_low" + ptSuffix);
+                            const double et1H = Read1BinCount(dsSel, "h_preFail_et1_high" + ptSuffix);
+                            const double e11H = Read1BinCount(dsSel, "h_preFail_e11e33_high" + ptSuffix);
+                            const double e32L = Read1BinCount(dsSel, "h_preFail_e32e35_low" + ptSuffix);
+                            const double e32H = Read1BinCount(dsSel, "h_preFail_e32e35_high" + ptSuffix);
+                            
+                            nWeta += weta;
+                            nOther += et1L + et1H + e11H + e32L + e32H;
+                        }
+                    }
+                    
+                    const double denom = nWeta + nOther;
+                    fWeta = (denom > 0.0) ? (nWeta / denom) : 0.0;
+                };
+                
+                const int centOverlayColors[] = {kBlue + 1, kGreen + 2, kMagenta + 1};
+                vector<WetaSummaryCurve> curves;
+                curves.reserve(summaryCentReqs.size() + 1);
+                
+                for (int icent = 0; icent < (int)summaryCentReqs.size(); ++icent)
+                {
+                    WetaSummaryCurve C;
+                    C.label = TString::Format("Au+Au %s", summaryCentReqs[icent].label.c_str()).Data();
+                    C.color = centOverlayColors[icent % 3];
+                    C.marker = 20;
+                    
+                    for (const auto& ptReq : summaryPtReqs)
+                    {
+                        double ptLo = 0.0;
+                        double ptHi = 0.0;
+                        if (!ParsePtBounds(ptReq, ptLo, ptHi)) continue;
+                        
+                        double nWeta = 0.0;
+                        double nOther = 0.0;
+                        double fWeta = 0.0;
+                        ComputeWetaSummaryPoint(ds,
+                                                ptReq.suffixes,
+                                                summaryCentReqs[icent].suffixes,
+                                                nWeta, nOther, fWeta);
+                        
+                        C.x.push_back(0.5 * (ptLo + ptHi));
+                        C.ex.push_back(0.5 * (ptHi - ptLo));
+                        C.yCount.push_back(nWeta);
+                        C.yFrac.push_back(fWeta);
+                    }
+                    
+                    if (!C.x.empty()) curves.push_back(C);
+                }
+                
+                TFile* fPPpre = TFile::Open(InputPP(isRun25pp).c_str(), "READ");
+                TDirectory* ppDirPre = nullptr;
+                if (fPPpre && !fPPpre->IsZombie())
+                {
+                    ppDirPre = fPPpre->GetDirectory(kTriggerPP.c_str());
+                    if (!ppDirPre) ppDirPre = fPPpre;
+                }
+                
+                if (ppDirPre)
+                {
+                    Dataset dsPP;
+                    dsPP.label = "DATA";
+                    dsPP.isSim = false;
+                    dsPP.trigger = kTriggerPP;
+                    dsPP.topDirName = kTriggerPP;
+                    dsPP.inFilePath = InputPP(isRun25pp);
+                    dsPP.outBase = OutputPP();
+                    dsPP.centFolder = "";
+                    dsPP.centSuffix = "";
+                    dsPP.centLabel = "";
+                    dsPP.file = fPPpre;
+                    dsPP.topDir = ppDirPre;
+                    
+                    WetaSummaryCurve CPP;
+                    CPP.label = "pp";
+                    CPP.color = kRed + 1;
+                    CPP.marker = 24;
+                    
+                    for (const auto& ptReq : summaryPtReqs)
+                    {
+                        double ptLo = 0.0;
+                        double ptHi = 0.0;
+                        if (!ParsePtBounds(ptReq, ptLo, ptHi)) continue;
+                        
+                        double nWeta = 0.0;
+                        double nOther = 0.0;
+                        double fWeta = 0.0;
+                        ComputeWetaSummaryPoint(dsPP,
+                                                ptReq.suffixes,
+                                                vector<string>(),
+                                                nWeta, nOther, fWeta);
+                        
+                        CPP.x.push_back(0.5 * (ptLo + ptHi));
+                        CPP.ex.push_back(0.5 * (ptHi - ptLo));
+                        CPP.yCount.push_back(nWeta);
+                        CPP.yFrac.push_back(fWeta);
+                    }
+                    
+                    if (!CPP.x.empty()) curves.push_back(CPP);
+                }
+                
+                auto StyleWetaGraph = [&](TGraphErrors* g, int color, int marker)
+                {
+                    if (!g) return;
+                    g->SetLineWidth(2);
+                    g->SetLineColor(color);
+                    g->SetMarkerColor(color);
+                    g->SetMarkerStyle(marker);
+                    g->SetMarkerSize(1.25);
+                };
+                
+                double xMinAxis = std::numeric_limits<double>::max();
+                double xMaxAxis = -std::numeric_limits<double>::max();
+                double yMaxCount = 0.0;
+                
+                for (const auto& C : curves)
+                {
+                    for (std::size_t ip = 0; ip < C.x.size(); ++ip)
+                    {
+                        xMinAxis = std::min(xMinAxis, C.x[ip] - C.ex[ip]);
+                        xMaxAxis = std::max(xMaxAxis, C.x[ip] + C.ex[ip]);
+                        yMaxCount = std::max(yMaxCount, C.yCount[ip]);
+                    }
+                }
+                
+                if (!std::isfinite(xMinAxis) || !std::isfinite(xMaxAxis) || !(xMaxAxis > xMinAxis))
+                {
+                    xMinAxis = 9.0;
+                    xMaxAxis = 36.0;
+                }
+                if (!(yMaxCount > 0.0)) yMaxCount = 1.0;
+                
+                TCanvas cWeta(
+                              TString::Format("c_preFail_wetaSummary_%s_%s", ds.trigger.c_str(), ds.centFolder.c_str()).Data(),
+                              "c_preFail_wetaSummary", 980, 920
+                              );
+                cWeta.Divide(1, 2, 0.0, 0.0);
+                
+                vector<TGraphErrors*> keepWetaGraphs;
+                keepWetaGraphs.reserve(2 * curves.size());
+                
+                cWeta.cd(1);
+                gPad->SetLeftMargin(0.15);
+                gPad->SetRightMargin(0.05);
+                gPad->SetBottomMargin(0.10);
+                gPad->SetTopMargin(0.12);
+                gPad->SetTicks(1,1);
+                
+                TH1F hFrameCount(
+                                 TString::Format("h_preFailWetaCountFrame_%s", ds.trigger.c_str()).Data(),
+                                 "",
+                                 100, xMinAxis, xMaxAxis
+                                 );
+                hFrameCount.SetDirectory(nullptr);
+                hFrameCount.SetStats(0);
+                hFrameCount.SetMinimum(0.0);
+                hFrameCount.SetMaximum(1.25 * yMaxCount);
+                hFrameCount.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                hFrameCount.GetYaxis()->SetTitle("N_{fail}(w_{#eta}^{cogX})");
+                hFrameCount.GetXaxis()->SetTitleSize(0.050);
+                hFrameCount.GetYaxis()->SetTitleSize(0.050);
+                hFrameCount.GetXaxis()->SetLabelSize(0.042);
+                hFrameCount.GetYaxis()->SetLabelSize(0.042);
+                hFrameCount.GetYaxis()->SetTitleOffset(1.15);
+                hFrameCount.Draw();
+                
+                TLegend legWeta(0.58, 0.62, 0.92, 0.86);
+                legWeta.SetBorderSize(0);
+                legWeta.SetFillStyle(0);
+                legWeta.SetTextFont(42);
+                legWeta.SetTextSize(0.033);
+                
+                for (const auto& C : curves)
+                {
+                    const int nPts = (int) C.x.size();
+                    if (nPts <= 0) continue;
+                    
+                    vector<double> exZero(nPts, 0.0);
+                    vector<double> eyZero(nPts, 0.0);
+                    TGraphErrors* g = new TGraphErrors(nPts, &C.x[0], &C.yCount[0], &exZero[0], &eyZero[0]);
+                    StyleWetaGraph(g, C.color, C.marker);
+                    g->Draw("PE SAME");
+                    keepWetaGraphs.push_back(g);
+                    legWeta.AddEntry(g, C.label.c_str(), "pe");
+                }
+                
+                legWeta.Draw();
+                
+                TLatex tWetaTitle;
+                tWetaTitle.SetNDC(true);
+                tWetaTitle.SetTextFont(42);
+                tWetaTitle.SetTextAlign(23);
+                tWetaTitle.SetTextSize(0.048);
+                tWetaTitle.DrawLatex(0.50, 0.96, "w_{#eta}^{cogX} preselection-fail summary, Run25auau vs pp");
+                
+                TLatex tWetaNote;
+                tWetaNote.SetNDC(true);
+                tWetaNote.SetTextFont(42);
+                tWetaNote.SetTextAlign(13);
+                tWetaNote.SetTextSize(0.032);
+                tWetaNote.DrawLatex(0.18, 0.84, "Closed circles: Au+Au centrality bins");
+                tWetaNote.DrawLatex(0.18, 0.79, "Open red circles: pp reference");
+                
+                cWeta.cd(2);
+                gPad->SetLeftMargin(0.15);
+                gPad->SetRightMargin(0.05);
+                gPad->SetBottomMargin(0.14);
+                gPad->SetTopMargin(0.06);
+                gPad->SetTicks(1,1);
+                
+                TH1F hFrameFrac(
+                                TString::Format("h_preFailWetaFracFrame_%s", ds.trigger.c_str()).Data(),
+                                "",
+                                100, xMinAxis, xMaxAxis
+                                );
+                hFrameFrac.SetDirectory(nullptr);
+                hFrameFrac.SetStats(0);
+                hFrameFrac.SetMinimum(0.0);
+                hFrameFrac.SetMaximum(1.05);
+                hFrameFrac.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                hFrameFrac.GetYaxis()->SetTitle("w_{#eta} share of inclusive fail counters");
+                hFrameFrac.GetXaxis()->SetTitleSize(0.050);
+                hFrameFrac.GetYaxis()->SetTitleSize(0.050);
+                hFrameFrac.GetXaxis()->SetLabelSize(0.042);
+                hFrameFrac.GetYaxis()->SetLabelSize(0.042);
+                hFrameFrac.GetYaxis()->SetTitleOffset(1.15);
+                hFrameFrac.Draw();
+                
+                TLine lHalf(xMinAxis, 0.5, xMaxAxis, 0.5);
+                lHalf.SetLineStyle(2);
+                lHalf.SetLineColor(kGray + 2);
+                lHalf.SetLineWidth(2);
+                lHalf.DrawClone();
+                
+                for (const auto& C : curves)
+                {
+                    const int nPts = (int) C.x.size();
+                    if (nPts <= 0) continue;
+                    
+                    vector<double> exZero(nPts, 0.0);
+                    vector<double> eyZero(nPts, 0.0);
+                    TGraphErrors* g = new TGraphErrors(nPts, &C.x[0], &C.yFrac[0], &exZero[0], &eyZero[0]);
+                    StyleWetaGraph(g, C.color, C.marker);
+                    g->Draw("PE SAME");
+                    keepWetaGraphs.push_back(g);
+                }
+                
+                TLatex tFracDef;
+                tFracDef.SetNDC(true);
+                tFracDef.SetTextFont(42);
+                tFracDef.SetTextAlign(13);
+                tFracDef.SetTextSize(0.032);
+                tFracDef.DrawLatex(0.18, 0.27, "f_{w_{#eta}} = N_{fail}(w_{#eta}) / [N_{fail}(w_{#eta}) + N_{fail}(other counters)]");
+                tFracDef.DrawLatex(0.18, 0.21, "other counters = et1 low/high + E_{11}/E_{33} high + E_{32}/E_{35} low/high");
+                tFracDef.DrawLatex(0.18, 0.15, "Inclusive counters: one cluster can contribute to multiple fail histograms");
+                
+                SaveCanvas(cWeta, JoinPath(summaryOutDir, "preselectionFails_wetaSummary_vs_pT.png"));
+                
+                for (auto* g : keepWetaGraphs) delete g;
+                
+                if (fPPpre)
+                {
+                    fPPpre->Close();
+                    delete fPPpre;
+                    fPPpre = nullptr;
+                }
+            }
         }
     }
     
