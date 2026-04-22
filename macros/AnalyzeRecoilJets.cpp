@@ -16288,8 +16288,9 @@ int Run()
                                             ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
                                             
                                             string isoModeLabel;
-                                            if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel = "E_{T}^{iso} < 5 GeV";
-                                            else                               isoModeLabel = "Sliding iso cut";
+                                            if      (kAA_IsoMode == "fixedIso4GeV") isoModeLabel = "E_{T}^{iso} <= 4 GeV";
+                                            else if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel = "E_{T}^{iso} < 5 GeV";
+                                            else                                     isoModeLabel = "Sliding iso cut";
                                             
                                             const string vzLabel = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
                                             
@@ -16306,6 +16307,140 @@ int Run()
                                         
                                         SaveCanvas(cLeak, JoinPath(outDirLeak, spec.outName));
                                         cout << ANSI_BOLD_GRN << "[WROTE] " << JoinPath(outDirLeak, spec.outName) << ANSI_RESET << "\n";
+                                        
+                                        if (kAA_IsoMode == "fixedIso4GeV" &&
+                                            string(spec.outName) == "leakageFactor_fB_centOverlay_ppOverlay.png")
+                                        {
+                                            TCanvas cLeakHiPt(
+                                                              TString::Format("c_leak_cent_%s_%d_pTge15", trigAA.c_str(), spec.regionBin).Data(),
+                                                              "c_leak_cent_pTge15", 900, 700
+                                                              );
+                                            ApplyCanvasMargins1D(cLeakHiPt);
+                                            
+                                            TH1F hFrameLeakHiPt(
+                                                                TString::Format("hLeakCentFrame_%s_%d_pTge15", trigAA.c_str(), spec.regionBin).Data(),
+                                                                "", 100, 13.0, kPtEdges.back()
+                                                                );
+                                            hFrameLeakHiPt.SetDirectory(nullptr);
+                                            hFrameLeakHiPt.SetStats(0);
+                                            hFrameLeakHiPt.SetMinimum(0.0);
+                                            hFrameLeakHiPt.SetMaximum(1.20);
+                                            hFrameLeakHiPt.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                                            hFrameLeakHiPt.GetYaxis()->SetTitle(spec.yTitle);
+                                            hFrameLeakHiPt.Draw();
+                                            
+                                            TLegend legLeakHiPt(0.55, 0.55, 0.92, 0.70);
+                                            legLeakHiPt.SetBorderSize(0);
+                                            legLeakHiPt.SetFillStyle(0);
+                                            legLeakHiPt.SetTextFont(42);
+                                            legLeakHiPt.SetTextSize(0.033);
+                                            legLeakHiPt.SetNColumns(2);
+                                            
+                                            vector<TGraphErrors*> keepLeakGraphsHiPt;
+                                            bool drewAnyLeakHiPt = false;
+                                            
+                                            for (int ig = 0; ig < (int)keepLeakGraphs.size(); ++ig)
+                                            {
+                                                TGraphErrors* gSrc = keepLeakGraphs[ig];
+                                                if (!gSrc) continue;
+                                                
+                                                TGraphErrors* gCut = dynamic_cast<TGraphErrors*>(
+                                                                                                  gSrc->Clone(TString::Format("gLeak_pTge15_%s_%d_%d", trigAA.c_str(), spec.regionBin, ig).Data())
+                                                                                                  );
+                                                if (!gCut) continue;
+                                                
+                                                while (gCut->GetN() > 0)
+                                                {
+                                                    double x0 = 0.0;
+                                                    double y0 = 0.0;
+                                                    gCut->GetPoint(0, x0, y0);
+                                                    if (x0 >= 15.0 - 1e-6) break;
+                                                    gCut->RemovePoint(0);
+                                                }
+                                                
+                                                if (gCut->GetN() <= 0)
+                                                {
+                                                    delete gCut;
+                                                    continue;
+                                                }
+                                                
+                                                gCut->Draw("P SAME");
+                                                
+                                                if (ig == 0)
+                                                {
+                                                    legLeakHiPt.AddEntry(gCut, "pp", "pe");
+                                                }
+                                                else
+                                                {
+                                                    const int ic = ig - 1;
+                                                    if (ic >= 0 && ic < (int)ovCents.size())
+                                                    {
+                                                        legLeakHiPt.AddEntry(
+                                                                            gCut,
+                                                                            TString::Format("Cent %d-%d%%", ovCents[ic].lo, ovCents[ic].hi).Data(),
+                                                                            "pe"
+                                                                            );
+                                                    }
+                                                }
+                                                
+                                                keepLeakGraphsHiPt.push_back(gCut);
+                                                drewAnyLeakHiPt = true;
+                                            }
+                                            
+                                            if (drewAnyLeakHiPt)
+                                            {
+                                                legLeakHiPt.Draw();
+                                                
+                                                TLatex tLeakTitleHiPt;
+                                                tLeakTitleHiPt.SetNDC(true);
+                                                tLeakTitleHiPt.SetTextFont(42);
+                                                tLeakTitleHiPt.SetTextAlign(23);
+                                                tLeakTitleHiPt.SetTextSize(0.045);
+                                                tLeakTitleHiPt.DrawLatex(
+                                                                         0.50, 0.96,
+                                                                         TString::Format("%s vs p_{T}^{#gamma} for each centrality, Run3auau", spec.label).Data()
+                                                                         );
+                                                
+                                                {
+                                                    std::string trigLabel;
+                                                    {
+                                                        int photonPt = 0;
+                                                        if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
+                                                            trigLabel = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                                                        else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                                                            trigLabel = "Trigger: MBD NS #geq 2, vtx < 150 cm";
+                                                        else
+                                                            trigLabel = "Trigger: " + trigAA;
+                                                    }
+                                                    
+                                                    const string isoConeLabel = (kAA_IsoConeR == "isoR40")
+                                                    ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+                                                    
+                                                    string isoModeLabel;
+                                                    if      (kAA_IsoMode == "fixedIso4GeV") isoModeLabel = "E_{T}^{iso} <= 4 GeV";
+                                                    else if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel = "E_{T}^{iso} < 5 GeV";
+                                                    else                                     isoModeLabel = "Sliding iso cut";
+                                                    
+                                                    const string vzLabel = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+                                                    
+                                                    TLatex tCutsLeakHiPt;
+                                                    tCutsLeakHiPt.SetNDC(true);
+                                                    tCutsLeakHiPt.SetTextFont(42);
+                                                    tCutsLeakHiPt.SetTextAlign(13);
+                                                    tCutsLeakHiPt.SetTextSize(0.035);
+                                                    tCutsLeakHiPt.DrawLatex(0.18, 0.88, trigLabel.c_str());
+                                                    tCutsLeakHiPt.DrawLatex(0.18, 0.83, isoConeLabel.c_str());
+                                                    tCutsLeakHiPt.DrawLatex(0.18, 0.78, isoModeLabel.c_str());
+                                                    tCutsLeakHiPt.DrawLatex(0.18, 0.73, vzLabel.c_str());
+                                                }
+                                                
+                                                const string outNameHiPt = "leakageFactor_fB_centOverlay_ppOverlay_pTge15.png";
+                                                SaveCanvas(cLeakHiPt, JoinPath(outDirLeak, outNameHiPt));
+                                                cout << ANSI_BOLD_GRN << "[WROTE] " << JoinPath(outDirLeak, outNameHiPt) << ANSI_RESET << "\n";
+                                            }
+                                            
+                                            for (auto* gLeakHiPt : keepLeakGraphsHiPt) delete gLeakHiPt;
+                                        }
                                     }
                                     else
                                     {

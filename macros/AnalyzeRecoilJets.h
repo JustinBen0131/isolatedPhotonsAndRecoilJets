@@ -190,7 +190,7 @@ inline const int    kAA_JetPtMin     = 7;            // GeV: 3, 5, or 10
 inline const string kAA_B2BCut       = "7pi_8";      // "7pi_8" or "pi_2"
 inline const int    kAA_VzCut        = 30;            // cm: 30 or 60
 inline const string kAA_IsoConeR     = "isoR30";     // "isoR30" or "isoR40"
-inline const string kAA_IsoMode      = "fixedIso4GeV";// "isSliding" or "fixedIso4GeV"
+inline const string kAA_IsoMode      = "isSliding";// "isSliding" or "fixedIso4GeV"
 inline const string kAA_UEVariant    = "baseVariant";      // "noSub","baseVariant","variantA","variantB"
 // Au+Au trigger directory name(s) inside the ROOT file.
 // Set one, two, or all three.  Analysis runs independently for each.
@@ -983,15 +983,64 @@ inline const vector<OverlayCentBin>& OverlayCentBins()
     
     bool have0_10 = false;
     bool have10_20 = false;
+    bool have20_40 = false;
+    bool have40_60 = false;
+    bool have60_80 = false;
     bool haveNative0_20 = false;
     string suf0_10;
     string suf10_20;
+    string suf20_40;
+    string suf40_60;
+    string suf60_80;
     
     for (const auto& cb : native)
     {
         if (cb.lo == 0  && cb.hi == 10) { have0_10 = true; suf0_10 = cb.suffix; continue; }
         if (cb.lo == 10 && cb.hi == 20) { have10_20 = true; suf10_20 = cb.suffix; continue; }
+        if (cb.lo == 20 && cb.hi == 40) { have20_40 = true; suf20_40 = cb.suffix; continue; }
+        if (cb.lo == 40 && cb.hi == 60) { have40_60 = true; suf40_60 = cb.suffix; continue; }
+        if (cb.lo == 60 && cb.hi == 80) { have60_80 = true; suf60_80 = cb.suffix; continue; }
         if (cb.lo == 0  && cb.hi == 20) haveNative0_20 = true;
+    }
+    
+    const bool useFixedIsoMergedSet =
+        (kAA_IsoMode == "fixedIso4GeV") &&
+        !haveNative0_20 &&
+        have0_10 && have10_20 && have20_40 && have40_60 && have60_80;
+    
+    if (useFixedIsoMergedSet)
+    {
+        {
+            OverlayCentBin b;
+            b.lo = 0;
+            b.hi = 20;
+            b.label = "0-20";
+            b.folder = "0_20";
+            b.suffixes.push_back(suf0_10);
+            b.suffixes.push_back(suf10_20);
+            v.push_back(b);
+        }
+        {
+            OverlayCentBin b;
+            b.lo = 20;
+            b.hi = 60;
+            b.label = "20-60";
+            b.folder = "20_60";
+            b.suffixes.push_back(suf20_40);
+            b.suffixes.push_back(suf40_60);
+            v.push_back(b);
+        }
+        {
+            OverlayCentBin b;
+            b.lo = 60;
+            b.hi = 80;
+            b.label = "60-80";
+            b.folder = "60_80";
+            b.suffixes.push_back(suf60_80);
+            v.push_back(b);
+        }
+        
+        return v;
     }
     
     if (!haveNative0_20)
