@@ -2496,9 +2496,12 @@ void RunPreselectionFailureTable(Dataset& ds)
                 cDisc1.SetLeftMargin(0.16); cDisc1.SetRightMargin(0.05);
                 cDisc1.SetBottomMargin(0.14); cDisc1.SetTopMargin(0.10); cDisc1.SetTicks(1,1);
                 
+                const bool moveCutsToBottomRight =
+                (ds.centFolder == "20_50" || ds.centFolder == "50_80");
+                
                 TH1F* hF1 = new TH1F("hDiscFrame1","", 100, kPtEdges.front(), kPtEdges.back());
                 hF1->SetDirectory(nullptr); hF1->SetStats(0);
-                hF1->SetMinimum(0.0); hF1->SetMaximum(1.05);
+                hF1->SetMinimum(0.0); hF1->SetMaximum(moveCutsToBottomRight ? 1.12 : 1.05);
                 hF1->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
                 hF1->GetYaxis()->SetTitle("Tight fraction");
                 hF1->GetXaxis()->SetTitleSize(0.052); hF1->GetYaxis()->SetTitleSize(0.050);
@@ -2513,7 +2516,7 @@ void RunPreselectionFailureTable(Dataset& ds)
                 if (gFtNon) gFtNon->Draw("PE same");
                 
                 {
-                    TLegend* leg1 = new TLegend(0.18, 0.74, 0.62, 0.89);
+                    TLegend* leg1 = new TLegend(0.18, 0.77, 0.62, 0.89);
                     leg1->SetBorderSize(0); leg1->SetFillStyle(0);
                     leg1->SetTextFont(42);  leg1->SetTextSize(0.036);
                     if (gFtIso) leg1->AddEntry(gFtIso, "f_{tight,iso}  = A/(A+C)", "lpe");
@@ -2523,8 +2526,64 @@ void RunPreselectionFailureTable(Dataset& ds)
                 }
                 
                 {
-                    TLatex tt1; tt1.SetNDC(); tt1.SetTextFont(42); tt1.SetTextAlign(23); tt1.SetTextSize(0.048);
-                    tt1.DrawLatex(0.50, 0.965, "Tight-ID discrimination vs p_{T}^{#gamma}");
+                    string centText = ds.centLabel;
+                    const string centPrefix = "Centrality: ";
+                    if (centText.find(centPrefix) == 0) centText = centText.substr(centPrefix.size());
+                    
+                    string trigLabel;
+                    {
+                        int photonPt = 0;
+                        if (std::sscanf(ds.trigger.c_str(), "photon_%d_plus", &photonPt) == 1)
+                            trigLabel = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                        else if (ds.trigger.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                            trigLabel = "Trigger: MBD NS #geq 2, vtx < 150 cm";
+                        else
+                            trigLabel = "Trigger: " + ds.trigger;
+                    }
+                    
+                    const string isoConeLabel = (kAA_IsoConeR == "isoR40")
+                    ? "#Delta R_{cone} < 0.4" : "#Delta R_{cone} < 0.3";
+                    
+                    string isoModeLabel;
+                    if      (kAA_IsoMode == "fixedIso4GeV") isoModeLabel = "E_{T}^{iso} < 4 GeV";
+                    else if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel = "E_{T}^{iso} < 5 GeV";
+                    else                                     isoModeLabel = "E_{T}^{iso} < 5.99 - 0.0511 #times cent[%] GeV";
+                    
+                    const string vzLabel = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+                    
+                    string titleText = "Tight-ID discrimination vs p_{T}^{#gamma}, Run25auau";
+                    if (!centText.empty())
+                        titleText = TString::Format("Tight-ID discrimination vs p_{T}^{#gamma}, %s centrality, Run25auau",
+                                                    centText.c_str()).Data();
+                    
+                    TLatex tt1;
+                    tt1.SetNDC();
+                    tt1.SetTextFont(42);
+                    tt1.SetTextAlign(23);
+                    tt1.SetTextSize(0.042);
+                    tt1.DrawLatex(0.50, 0.965, titleText.c_str());
+                    
+                    TLatex tCuts;
+                    tCuts.SetNDC(true);
+                    tCuts.SetTextFont(42);
+                    tCuts.SetTextSize(0.031);
+                    
+                    if (moveCutsToBottomRight)
+                    {
+                        tCuts.SetTextAlign(33);
+                        tCuts.DrawLatex(0.94, 0.34, trigLabel.c_str());
+                        tCuts.DrawLatex(0.94, 0.3, vzLabel.c_str());
+                        tCuts.DrawLatex(0.94, 0.26, isoConeLabel.c_str());
+                        tCuts.DrawLatex(0.94, 0.22, isoModeLabel.c_str());
+                    }
+                    else
+                    {
+                        tCuts.SetTextAlign(13);
+                        tCuts.DrawLatex(0.18, 0.73, trigLabel.c_str());
+                        tCuts.DrawLatex(0.18, 0.69, vzLabel.c_str());
+                        tCuts.DrawLatex(0.18, 0.65, isoConeLabel.c_str());
+                        tCuts.DrawLatex(0.18, 0.61, isoModeLabel.c_str());
+                    }
                 }
                 
                 SaveCanvas(cDisc1, JoinPath(qaDir, "abcd_tightFrac_discrimination_vs_pT.png"));
