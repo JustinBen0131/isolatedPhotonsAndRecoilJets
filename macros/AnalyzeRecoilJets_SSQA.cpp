@@ -2400,14 +2400,19 @@ if (!SSoverlayPerVAR_processONLY)
             
             if (tag == "pre")
             {
+                const double yLabelPre = useTopLeft ? 0.74 : yLabel;
+                const double yRow1Pre  = useTopLeft ? 0.68 : yRow1;
+                const double yRow2Pre  = useTopLeft ? 0.62 : yRow2;
+                const double xColRPre  = useTopLeft ? 0.37 : xColR;
+                
                 tSel.SetTextSize(sLabel);
-                tSel.DrawLatex(xLabel, yLabel, "#gamma-presel:");
+                tSel.DrawLatex(xLabel, yLabelPre, "#gamma-presel:");
                 
                 tSel.SetTextSize(sRow);
-                tSel.DrawLatex(xColL, yRow1, "#frac{E_{11}}{E_{33}} < 0.98");
-                tSel.DrawLatex(xColR, yRow1, "0.6 < et1 < 1.0");
-                tSel.DrawLatex(xColL, yRow2, "0.8 < #frac{E_{32}}{E_{35}} < 1.0");
-                tSel.DrawLatex(xColR, yRow2, "w_{#eta} < 0.6");
+                tSel.DrawLatex(xColL, yRow1Pre, "#frac{E_{11}}{E_{33}} < 0.98");
+                tSel.DrawLatex(xColRPre, yRow1Pre, "0.6 < et1 < 1.0");
+                tSel.DrawLatex(xColL, yRow2Pre, "0.8 < #frac{E_{32}}{E_{35}} < 1.0");
+                tSel.DrawLatex(xColRPre, yRow2Pre, "w_{#eta} < 0.6");
                 return true;
             }
             
@@ -3638,18 +3643,19 @@ if (!SSoverlayPerVAR_processONLY)
                         (pb.folder == "pT_10_12" && var == "e32e35" &&
                          (tag == "pre" || tag == "tight" || tag == "nonTight"));
                         const bool useE11InclusiveLegend = (var == "e11e33" && tag == "inclusive");
+                        const bool useE11PreLegend = (var == "e11e33" && tag == "pre");
                         
                         TLegend legVar(
-                                       useE11InclusiveLegend ? 0.58 : (useSpecialE32Legend ? 0.08 : (useSpecialE11Legend ? 0.17 : 0.22)),
-                                       useE11InclusiveLegend ? 0.64 : (useSpecialE32Legend ? 0.79 : (useSpecialE11Legend ? 0.78 : 0.81)),
-                                       useE11InclusiveLegend ? 0.92 : (useSpecialE32Legend ? 0.66 : (useSpecialE11Legend ? 0.69 : 0.74)),
-                                       useE11InclusiveLegend ? 0.82 : (useSpecialE32Legend ? 0.91 : (useSpecialE11Legend ? 0.90 : 0.89))
+                                       useE11PreLegend ? 0.2 : (useE11InclusiveLegend ? 0.58 : (useSpecialE32Legend ? 0.08 : (useSpecialE11Legend ? 0.17 : 0.22))),
+                                       useE11PreLegend ? 0.80 : (useE11InclusiveLegend ? 0.64 : (useSpecialE32Legend ? 0.79 : (useSpecialE11Legend ? 0.78 : 0.81))),
+                                       useE11PreLegend ? 0.55 : (useE11InclusiveLegend ? 0.92 : (useSpecialE32Legend ? 0.66 : (useSpecialE11Legend ? 0.69 : 0.74))),
+                                       useE11PreLegend ? 0.91 : (useE11InclusiveLegend ? 0.82 : (useSpecialE32Legend ? 0.91 : (useSpecialE11Legend ? 0.90 : 0.89)))
                                        );
                         legVar.SetBorderSize(0);
                         legVar.SetFillStyle(0);
                         legVar.SetTextFont(42);
-                        legVar.SetTextSize(useE11InclusiveLegend ? 0.035 : ((useSpecialE11Legend || useSpecialE32Legend) ? 0.028 : 0.024));
-                        legVar.SetNColumns(useE11InclusiveLegend ? 2 : 3);
+                        legVar.SetTextSize(useE11PreLegend ? 0.030 : (useE11InclusiveLegend ? 0.035 : ((useSpecialE11Legend || useSpecialE32Legend) ? 0.028 : 0.024)));
+                        legVar.SetNColumns((useE11PreLegend || useE11InclusiveLegend) ? 2 : 3);
                         legVar.SetColumnSeparation(0.0);
                         legVar.SetEntrySeparation(0.08);
                         if (vi.hPP) legVar.AddEntry(vi.hPP, "pp", "ep");

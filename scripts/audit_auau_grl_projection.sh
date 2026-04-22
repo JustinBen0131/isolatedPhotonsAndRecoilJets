@@ -7,20 +7,115 @@ shopt -s nullglob
 # audit_auau_grl_projection.sh
 #
 # Purpose
-#   Top-down, one-shot Au+Au GRL availability / projection audit.
+#   Two-pass Au+Au GRL projection audit for DST_CALOFITTING.
 #
-# What it does
-#   1) Reads the canonical Au+Au GRL.
-#   2) Builds the canonical DB-backed expected DST_CALOFITTING per-run lists
-#      on the fly via CreateDstList.pl in a TEMP dir (no permanent artifacts).
-#   3) Compares those expected lists against the CURRENT project lists in:
-#        /sphenix/u/patsfan753/scratch/thesisAnalysis/dst_lists_auau
-#   4) Counts exact available/expected DST events by opening the ROOT files and
-#      reading ONLY the event-bearing TTree entry counts (no full analysis run).
-#   5) Pulls per-run runtime / GL1 / trigger bookkeeping from psql.
-#   6) Prints meticulous terminal summaries + run-by-run tables.
+# Core idea
+#   This script separates the expensive per-file event counting from the final
+#   audit/summary logic:
 #
-# No permanent CSVs / artifacts are written.
+#     firstPass
+#       • reads the canonical Au+Au GRL
+#       • builds the canonical expected per-run DST_CALOFITTING lists with
+#         CreateDstList.pl
+#       • compares those against the current project lists in:
+#           /sphenix/u/patsfan753/scratch/thesisAnalysis/dst_lists_auau
+#       • collects the UNIQUE referenced DST ROOT filenames
+#       • splits that unique-file inventory into chunk list files
+#       • prepares a ROOT counting macro + wrapper
+#       • either:
+#           - submits Condor counting jobs for all chunks, or
+#           - runs one LOCAL validation test on the first available chunk/file
+#       • writes a persistent first-pass manifest in the CURRENT directory
+#
+#     secondPass
+#       • loads the first-pass manifest
+#       • reads all completed chunk result TSVs from the persisted work area
+#       • aggregates file-level event counts
+#       • performs the full run-by-run audit:
+#           expected lists vs current lists vs counted events
+#       • prints the final summary tables
+#
+# Supported commands
+#
+#   1) Full Condor first pass
+#        ./audit_auau_grl_projection.sh firstPass
+#
+#      What it does
+#        • creates a persisted work area under:
+#            /sphenix/u/patsfan753/scratch/thesisAnalysis/condor_snapshots/
+#              audit_auau_<timestamp>/
+#        • writes chunk lists under:
+#            .../chunks/
+#        • writes per-chunk result TSV targets under:
+#            .../results/
+#        • writes Condor submit files under:
+#            /sphenix/u/patsfan753/scratch/thesisAnalysis/condor_sub/
+#        • writes Condor logs/stdout/stderr under:
+#            /sphenix/u/patsfan753/scratch/thesisAnalysis/log/
+#            /sphenix/u/patsfan753/scratch/thesisAnalysis/stdout/
+#            /sphenix/u/patsfan753/scratch/thesisAnalysis/error/
+#        • writes a manifest in the CURRENT directory:
+#            ./audit_auau_firstPass_<timestamp>.txt
+#
+#   2) Local first-pass validation
+#        ./audit_auau_grl_projection.sh firstPass LOCAL
+#
+#      What it does
+#        • performs all first-pass planning exactly as above
+#        • does NOT submit Condor jobs
+#        • runs the counting wrapper locally on the first available chunk
+#        • prints terminal diagnostics so you can verify the parallel logic
+#        • still writes a manifest in the CURRENT directory
+#
+#   3) Final aggregation / audit
+#        ./audit_auau_grl_projection.sh secondPass
+#
+#      What it does
+#        • finds the most recent manifest in the CURRENT directory
+#        • loads the persisted work area from that manifest
+#        • reads completed chunk TSV results
+#        • performs the final audit and prints the summary
+#
+#   4) Final aggregation with an explicit manifest
+#        ./audit_auau_grl_projection.sh secondPass --manifest ./audit_auau_firstPass_<timestamp>.txt
+#
+# Important behavior
+#   • This script does NOT modify your real dst_lists_auau directory.
+#   • Expected lists produced by CreateDstList.pl are written only inside the
+#     persisted first-pass work area.
+#   • The expensive per-file event counting is done chunk-by-chunk, suitable
+#     for Condor parallelization.
+#   • The default cap is:
+#         MAX_CONDOR_JOBS=15000
+#     and chunk size is chosen automatically from the unique-file count.
+#   • secondPass is fast because it only reads completed TSV results rather
+#     than reopening all DST files itself.
+#
+# Useful options
+#   --manifest <path>          Use an explicit first-pass manifest in secondPass
+#   --grl <path>               Override the GRL
+#   --lists-dir <path>         Override the current dst list directory
+#   --dataset <token>          Override dataset token
+#   --tag <token>              Override CDB tag token
+#   --prefix <token>           Override DST prefix
+#   --max-condor-jobs <N>      Maximum number of chunk jobs to create
+#   --run-progress-every <N>   Progress cadence for run-level loops
+#   --root-progress-every <N>  Progress cadence inside the ROOT counter macro
+#   --summary-only             Suppress the full per-run table in secondPass
+#   -q / --quiet               Reduce chatter
+#   -v / --verbose             Increase chatter
+#
+# Typical workflow
+#
+#   Pass 1: submit chunk-count jobs
+#     ./audit_auau_grl_projection.sh firstPass
+#
+#   Optional validation instead of submit
+#     ./audit_auau_grl_projection.sh firstPass LOCAL
+#
+#   Pass 2: after jobs finish, aggregate + audit
+#     ./audit_auau_grl_projection.sh secondPass
+#
 ###############################################################################
 
 ########################################
@@ -34,25 +129,23 @@ DATASET="run3auau"
 TAG="new_newcdbtag_v008"
 PREFIX="DST_CALOFITTING"
 
-TRIG_BIT=14
-TRIG_EXPECT_NAME="MBD N&S >= 2, vtx < 150 cm"
-
-PSQL_HOST="sphnxdaqdbreplica"
-PSQL_DB="daq"
-
 VERBOSE=1
 RUN_PROGRESS_EVERY=100
 ROOT_PROGRESS_EVERY=250
 SHOW_ALL_RUN_TABLES=1
 
-# Optional approximate proxy block ONLY if supplied by user
-MBD_XSEC_MB=""
+MAX_CONDOR_JOBS=15000
+ACTION=""
+LOCAL_MODE=0
+MANIFEST_PATH=""
+WORK_STAMP=""
+TMP_IS_EPHEMERAL=0
 
-# Event-count method:
-#   auto = try SQL/filelist first, then ROOT fallback for unresolved files
-#   sql  = try SQL/filelist only
-#   root = use the original ROOT-per-file scan only
-COUNT_METHOD="auto"
+CONDOR_SUB_DIR="${BASE}/condor_sub"
+CONDOR_LOG_DIR="${BASE}/log"
+CONDOR_OUT_DIR="${BASE}/stdout"
+CONDOR_ERR_DIR="${BASE}/error"
+CONDOR_SNAPSHOT_ROOT="${BASE}/condor_snapshots"
 
 ########################################
 # Globals set later
@@ -64,6 +157,11 @@ TMP_EXPECTED_LOG=""
 TMP_UNIQUE_FILES=""
 TMP_ROOT_MACRO=""
 TMP_ROOT_RESULTS=""
+TMP_CHUNK_DIR=""
+TMP_RESULTS_DIR=""
+TMP_WRAPPER=""
+CHUNK_SIZE=0
+CHUNK_COUNT=0
 
 ########################################
 # ANSI styles
@@ -94,7 +192,7 @@ fi
 # Cleanup / error handling
 ########################################
 cleanup() {
-  if [[ -n "${TMP_ROOT:-}" && -d "${TMP_ROOT:-}" ]]; then
+  if [[ "${TMP_IS_EPHEMERAL:-0}" -eq 1 && -n "${TMP_ROOT:-}" && -d "${TMP_ROOT:-}" ]]; then
     rm -rf "${TMP_ROOT}"
   fi
 }
@@ -116,32 +214,32 @@ trap cleanup EXIT INT TERM
 usage() {
   cat <<EOF
 Usage:
-  $(basename "$0") [options]
+  $(basename "$0") firstPass [LOCAL] [options]
+  $(basename "$0") secondPass [options]
 
 Options:
+  --manifest <path>            Override the first-pass manifest used by secondPass
   --grl <path>                 Override GRL path
   --lists-dir <path>           Override current list directory
   --dataset <token>            Default: ${DATASET}
   --tag <token>                Default: ${TAG}
   --prefix <token>             Default: ${PREFIX}
-  --trigger-bit <int>          Default: ${TRIG_BIT}
-  --trigger-name <string>      Default: "${TRIG_EXPECT_NAME}"
-  --mbd-xsec-mb <value>        Optional approximate proxy block
+  --max-condor-jobs <N>        Default: ${MAX_CONDOR_JOBS}
   --run-progress-every <N>     Default: ${RUN_PROGRESS_EVERY}
   --root-progress-every <N>    Default: ${ROOT_PROGRESS_EVERY}
-  --summary-only               Suppress full run tables
+  --summary-only               Suppress full run tables in secondPass
   -q, --quiet                  Less chatter
   -v, --verbose                More chatter
   -h, --help                   Show this help
 
 Examples:
-  $(basename "$0")
-  $(basename "$0") --summary-only
-  $(basename "$0") --mbd-xsec-mb 25.0
+  $(basename "$0") firstPass
+  $(basename "$0") firstPass LOCAL
+  $(basename "$0") secondPass
+  $(basename "$0") secondPass --manifest ./audit_auau_firstPass_20260101_120000.txt
 EOF
   exit 0
 }
-
 say()  { printf "%s➜%s %s\n" "${BLUE}"  "${RESET}" "$*"; }
 good() { printf "%s✔%s %s\n" "${GREEN}" "${RESET}" "$*"; }
 warn() { printf "%s⚠%s %s\n" "${YELLOW}" "${RESET}" "$*" >&2; }
@@ -249,24 +347,8 @@ append_note() {
 }
 
 ########################################
-# psql helpers
+# Run-list helpers
 ########################################
-PSQL=()
-
-sql() {
-  "${PSQL[@]}" -c "$1" 2>/dev/null || true
-}
-
-check_psql_connectivity() {
-  local probe
-  probe="$(sql "SELECT 1;" | head -n 1 | tr -d '[:space:]')"
-  [[ "$probe" == "1" ]] || {
-    printf "%s[FATAL]%s unable to query psql at host=%s db=%s\n" \
-      "${RED}${BOLD}" "${RESET}" "$PSQL_HOST" "$PSQL_DB" >&2
-    exit 1
-  }
-}
-
 read_runs_from_file() {
   local f="$1"
   mapfile -t RUN_ORDER < <(
@@ -281,56 +363,6 @@ read_runs_from_file() {
     | uniq
   )
 }
-
-read_run_runtime_gl1() {
-  local run="$1"
-  local rt gl1
-  rt="$(sql "SELECT FLOOR(EXTRACT(EPOCH FROM (ertimestamp-brtimestamp)))::INT FROM run WHERE runnumber=${run};" \
-        | head -n 1 | xargs)"
-  gl1="$(sql "SELECT COALESCE(SUM(lastevent-firstevent+1),0)::BIGINT
-              FROM filelist
-              WHERE runnumber=${run}
-                AND filename LIKE '%GL1_physics_gl1daq%.evt';" \
-        | head -n 1 | xargs)"
-  printf '%s\t%s\n' "$(num_or_zero "$rt")" "$(num_or_zero "$gl1")"
-}
-
-read_trigger_stats() {
-  local run="$1"
-  local name row menu_present active raw live scaled
-
-  name="$(sql "SELECT COALESCE(triggername,'')
-               FROM gl1_triggernames
-               WHERE index=${TRIG_BIT}
-                 AND ${run} BETWEEN runnumber AND runnumber_last
-               ORDER BY runnumber DESC
-               LIMIT 1;" | head -n 1 | sed 's/[[:space:]]*$//')"
-
-  if [[ -n "$name" ]]; then
-    menu_present=1
-  else
-    menu_present=0
-  fi
-
-  row="$(sql "SELECT
-                COALESCE(MAX(CASE WHEN scaled != -1 THEN 1 ELSE 0 END),0),
-                COALESCE(SUM(CASE WHEN raw    > 0 THEN raw    ELSE 0 END),0),
-                COALESCE(SUM(CASE WHEN live   > 0 THEN live   ELSE 0 END),0),
-                COALESCE(SUM(CASE WHEN scaled > 0 THEN scaled ELSE 0 END),0)
-              FROM gl1_scalers
-              WHERE runnumber=${run}
-                AND index=${TRIG_BIT};" | head -n 1)"
-
-  IFS=$'\t' read -r active raw live scaled <<< "${row:-0    0    0    0}"
-  active="$(num_or_zero "${active:-0}")"
-  raw="$(num_or_zero "${raw:-0}")"
-  live="$(num_or_zero "${live:-0}")"
-  scaled="$(num_or_zero "${scaled:-0}")"
-
-  printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "${menu_present}" "${name}" "${active}" "${raw}" "${live}" "${scaled}"
-}
-
 ########################################
 # List-file helpers
 ########################################
@@ -671,155 +703,255 @@ collect_unique_files() {
   good "Unique ROOT files to scan: $(fmt_num "${UNIQUE_FILE_COUNT}")"
 }
 
-run_sql_entry_scan() {
-  local sql_input="${TMP_ROOT}/unique_files_sql.txt"
-  local sql_results="${TMP_ROOT}/sql_results.tsv"
-  local sql_file="${TMP_ROOT}/filelist_entry_lookup.sql"
+choose_chunk_size() {
+  local total="$1"
+  local max_jobs="$2"
 
-  awk '
-    {
-      s = $0;
-      sub(/^.*\//, "", s);
-      if (s != "") print s;
-    }' "${TMP_UNIQUE_FILES}" | sort -u > "${sql_input}"
-
-  if [[ ! -s "${sql_input}" ]]; then
-    warn "No filenames available for SQL filelist lookup."
-    return 1
-  fi
-
-  cat > "${sql_file}" <<EOF
-CREATE TEMP TABLE audit_files(filename text) ON COMMIT DROP;
-\copy audit_files(filename) FROM '${sql_input}'
-COPY (
-  SELECT a.filename,
-         COALESCE(SUM(COALESCE(f.lastevent - f.firstevent + 1, 0)),0)::BIGINT AS entries,
-         COUNT(f.filename)::BIGINT AS matches
-  FROM audit_files a
-  LEFT JOIN filelist f
-    ON f.filename = a.filename
-  GROUP BY a.filename
-  ORDER BY a.filename
-) TO STDOUT WITH (FORMAT csv, DELIMITER E'\t', HEADER false);
-EOF
-
-  "${PSQL[@]}" -f "${sql_file}" > "${sql_results}" 2>/dev/null || return 1
-
-  local -A sql_entries=()
-  local -A sql_matches=()
-
-  local fname entries matches
-  while IFS=$'\t' read -r fname entries matches; do
-    [[ -n "${fname:-}" ]] || continue
-    sql_entries["$fname"]="$(num_or_zero "${entries:-0}")"
-    sql_matches["$fname"]="$(num_or_zero "${matches:-0}")"
-  done < "${sql_results}"
-
-  local matched=0
-  local path base match_count
-  while IFS= read -r path; do
-    [[ -n "${path:-}" ]] || continue
-    base="${path##*/}"
-    match_count="$(num_or_zero "${sql_matches[$base]:-0}")"
-    if (( match_count > 0 )); then
-      FILE_STATUS["$path"]="OK"
-      FILE_ENTRIES["$path"]="${sql_entries[$base]:-0}"
-      FILE_TREE["$path"]="SQL:filelist"
-      ((matched+=1))
-    fi
-  done < "${TMP_UNIQUE_FILES}"
-
-  if (( matched > 0 )); then
-    note "SQL filelist matches found: $(fmt_num "${matched}")"
+  if (( total <= 0 )); then
+    echo 1
     return 0
   fi
 
-  warn "SQL filelist lookup returned zero matches for the referenced DST filenames."
-  return 1
+  if (( max_jobs <= 0 )); then
+    echo "$total"
+    return 0
+  fi
+
+  echo $(( (total + max_jobs - 1) / max_jobs ))
 }
 
-run_root_entry_scan() {
-  section "Step 3/5 — Event-entry counting (fast SQL/filelist first, ROOT fallback only if needed)"
+write_counter_wrapper() {
+  TMP_WRAPPER="${TMP_ROOT}/audit_auau_count_wrapper.sh"
+  cat > "${TMP_WRAPPER}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
 
-  if (( UNIQUE_FILE_COUNT == 0 )); then
-    warn "No unique files found to scan; event totals will be zero."
-    TMP_ROOT_RESULTS="${TMP_ROOT}/root_results.tsv"
-    : > "${TMP_ROOT_RESULTS}"
-    return 0
-  fi
+chunk_list="${1:?chunk list required}"
+output_tsv="${2:?output tsv required}"
+macro_path="${3:?root macro path required}"
+progress_every="${4:-250}"
+verbose="${5:-1}"
 
-  local unresolved_list="${TMP_ROOT}/unique_files_unresolved.txt"
-  : > "${unresolved_list}"
+export USER="${USER:-$(id -un)}"
+export LOGNAME="${LOGNAME:-$USER}"
+export HOME="/sphenix/u/${LOGNAME}"
 
-  if [[ "${COUNT_METHOD}" != "root" ]]; then
-    subsection "Step 3a — Fast SQL/filelist lookup"
-    if run_sql_entry_scan; then
-      :
-    else
-      if [[ "${COUNT_METHOD}" == "sql" ]]; then
-        warn "COUNT_METHOD=sql requested, but SQL lookup did not resolve the referenced DST files."
-      else
-        warn "SQL lookup unavailable or incomplete; falling back to ROOT for unresolved files."
-      fi
-    fi
-  fi
+set +u
+source /opt/sphenix/core/bin/sphenix_setup.sh -n
+set -u
 
-  local path
-  while IFS= read -r path; do
-    [[ -n "${path:-}" ]] || continue
-    if [[ -z "${FILE_STATUS[$path]:-}" ]]; then
-      printf '%s\n' "$path" >> "${unresolved_list}"
-    fi
-  done < "${TMP_UNIQUE_FILES}"
+root -l -b -q "${macro_path}(\"${chunk_list}\",\"${output_tsv}\",${progress_every},${verbose})"
+EOF
+  chmod +x "${TMP_WRAPPER}"
+}
 
-  local unresolved_count
-  unresolved_count="$(awk 'NF{n++} END{print n+0}' "${unresolved_list}")"
+prepare_persistent_workdir() {
+  mkdir -p "${CONDOR_SUB_DIR}" "${CONDOR_LOG_DIR}" "${CONDOR_OUT_DIR}" "${CONDOR_ERR_DIR}" "${CONDOR_SNAPSHOT_ROOT}"
 
+  WORK_STAMP="$(date +%Y%m%d_%H%M%S)"
+  TMP_ROOT="${CONDOR_SNAPSHOT_ROOT}/audit_auau_${WORK_STAMP}"
+  TMP_IS_EPHEMERAL=0
+
+  mkdir -p "${TMP_ROOT}"
+  TMP_EXPECTED_DIR="${TMP_ROOT}/expected_lists"
+  TMP_EXPECTED_LOG="${TMP_ROOT}/CreateDstList.log"
+  TMP_UNIQUE_FILES="${TMP_ROOT}/unique_files.txt"
+  TMP_ROOT_MACRO="${TMP_ROOT}/count_dst_entries.C"
   TMP_ROOT_RESULTS="${TMP_ROOT}/root_results.tsv"
-  : > "${TMP_ROOT_RESULTS}"
+  TMP_CHUNK_DIR="${TMP_ROOT}/chunks"
+  TMP_RESULTS_DIR="${TMP_ROOT}/results"
 
-  if [[ "${COUNT_METHOD}" == "sql" ]] && (( unresolved_count > 0 )); then
-    warn "COUNT_METHOD=sql left $(fmt_num "${unresolved_count}") files unresolved; those files will remain uncounted."
-  elif (( unresolved_count > 0 )); then
-    subsection "Step 3b — ROOT fallback for unresolved files"
-    write_root_counter_macro
+  mkdir -p "${TMP_EXPECTED_DIR}" "${TMP_CHUNK_DIR}" "${TMP_RESULTS_DIR}"
+}
 
-    say "ROOT macro        : ${TMP_ROOT_MACRO}"
-    say "Input file list   : ${unresolved_list}"
-    say "Output result file: ${TMP_ROOT_RESULTS}"
-    note "This does a fast SQL/filelist pass first, then opens only unresolved DST files in ROOT. It does NOT run your recoil analysis."
+build_count_chunks() {
+  TMP_CHUNK_DIR="${TMP_ROOT}/chunks"
+  TMP_RESULTS_DIR="${TMP_ROOT}/results"
+  mkdir -p "${TMP_CHUNK_DIR}" "${TMP_RESULTS_DIR}"
 
-    local cmd
-    cmd="${TMP_ROOT_MACRO}(\"${unresolved_list}\",\"${TMP_ROOT_RESULTS}\",${ROOT_PROGRESS_EVERY},${VERBOSE})"
+  rm -f "${TMP_CHUNK_DIR}/audit_chunk_"*.list 2>/dev/null || true
+  rm -f "${TMP_RESULTS_DIR}/audit_chunk_"*.tsv 2>/dev/null || true
 
-    root -l -b -q "${cmd}"
+  CHUNK_SIZE="$(choose_chunk_size "${UNIQUE_FILE_COUNT}" "${MAX_CONDOR_JOBS}")"
+  (( CHUNK_SIZE < 1 )) && CHUNK_SIZE=1
 
-    local status entries tree rootpath
-    while IFS=$'\t' read -r status entries tree rootpath; do
-      [[ -n "${rootpath:-}" ]] || continue
-      FILE_STATUS["$rootpath"]="$status"
-      FILE_ENTRIES["$rootpath"]="$(num_or_zero "${entries:-0}")"
-      FILE_TREE["$rootpath"]="$tree"
-    done < "${TMP_ROOT_RESULTS}"
-  else
-    good "No ROOT fallback needed; SQL resolved all referenced files."
-  fi
+  split -l "${CHUNK_SIZE}" -d -a 5 "${TMP_UNIQUE_FILES}" "${TMP_CHUNK_DIR}/audit_chunk_"
 
+  CHUNK_COUNT=0
+  local raw out
+  for raw in "${TMP_CHUNK_DIR}/audit_chunk_"*; do
+    [[ -f "$raw" ]] || continue
+    out="${raw}.list"
+    mv "$raw" "$out"
+    ((CHUNK_COUNT+=1))
+  done
+}
+
+write_firstpass_manifest() {
+  local manifest_path="$1"
+  local condor_sub_path="$2"
+
+  {
+    printf 'MANIFEST_VERSION=%q\n' "1"
+    printf 'ACTION=%q\n' "firstPass"
+    printf 'BASE=%q\n' "$BASE"
+    printf 'GRL=%q\n' "$GRL"
+    printf 'LIST_DIR=%q\n' "$LIST_DIR"
+    printf 'DATASET=%q\n' "$DATASET"
+    printf 'TAG=%q\n' "$TAG"
+    printf 'PREFIX=%q\n' "$PREFIX"
+    printf 'PREFIX_STEM=%q\n' "$PREFIX_STEM"
+    printf 'VERBOSE=%q\n' "$VERBOSE"
+    printf 'RUN_PROGRESS_EVERY=%q\n' "$RUN_PROGRESS_EVERY"
+    printf 'ROOT_PROGRESS_EVERY=%q\n' "$ROOT_PROGRESS_EVERY"
+    printf 'SHOW_ALL_RUN_TABLES=%q\n' "$SHOW_ALL_RUN_TABLES"
+    printf 'MAX_CONDOR_JOBS=%q\n' "$MAX_CONDOR_JOBS"
+    printf 'WORK_STAMP=%q\n' "$WORK_STAMP"
+    printf 'TMP_ROOT=%q\n' "$TMP_ROOT"
+    printf 'TMP_EXPECTED_DIR=%q\n' "$TMP_EXPECTED_DIR"
+    printf 'TMP_EXPECTED_LOG=%q\n' "$TMP_EXPECTED_LOG"
+    printf 'TMP_UNIQUE_FILES=%q\n' "$TMP_UNIQUE_FILES"
+    printf 'TMP_ROOT_MACRO=%q\n' "$TMP_ROOT_MACRO"
+    printf 'TMP_ROOT_RESULTS=%q\n' "$TMP_ROOT_RESULTS"
+    printf 'TMP_CHUNK_DIR=%q\n' "$TMP_CHUNK_DIR"
+    printf 'TMP_RESULTS_DIR=%q\n' "$TMP_RESULTS_DIR"
+    printf 'TMP_WRAPPER=%q\n' "$TMP_WRAPPER"
+    printf 'CHUNK_SIZE=%q\n' "$CHUNK_SIZE"
+    printf 'CHUNK_COUNT=%q\n' "$CHUNK_COUNT"
+    printf 'UNIQUE_FILE_COUNT=%q\n' "$UNIQUE_FILE_COUNT"
+    printf 'RUN_COUNT=%q\n' "${#RUN_ORDER[@]}"
+    printf 'LOCAL_MODE=%q\n' "$LOCAL_MODE"
+    printf 'CONDOR_SUB=%q\n' "$condor_sub_path"
+  } > "${manifest_path}"
+}
+
+latest_manifest_in_pwd() {
+  ls -1t ./audit_auau_firstPass_*.txt 2>/dev/null | head -n 1
+}
+
+load_firstpass_manifest() {
+  local manifest_path="$1"
+  [[ -f "${manifest_path}" ]] || fatal "manifest not found: ${manifest_path}"
+  # shellcheck disable=SC1090
+  source "${manifest_path}"
+
+  TMP_IS_EPHEMERAL=0
+  TMP_EXPECTED_DIR="${TMP_ROOT}/expected_lists"
+  TMP_EXPECTED_LOG="${TMP_ROOT}/CreateDstList.log"
+  TMP_UNIQUE_FILES="${TMP_ROOT}/unique_files.txt"
+  TMP_ROOT_MACRO="${TMP_ROOT}/count_dst_entries.C"
+  TMP_ROOT_RESULTS="${TMP_ROOT}/root_results.tsv"
+  TMP_CHUNK_DIR="${TMP_ROOT}/chunks"
+  TMP_RESULTS_DIR="${TMP_ROOT}/results"
+  TMP_WRAPPER="${TMP_ROOT}/audit_auau_count_wrapper.sh"
+}
+
+submit_condor_counter_jobs() {
+  need_cmd condor_submit
+
+  local sub="${CONDOR_SUB_DIR}/audit_auau_${WORK_STAMP}.sub"
+  cat > "${sub}" <<SUB
+universe      = vanilla
+executable    = ${TMP_WRAPPER}
+initialdir    = ${BASE}
+getenv        = True
+log           = ${CONDOR_LOG_DIR}/audit_auau.${WORK_STAMP}.\$(Cluster).\$(Process).log
+output        = ${CONDOR_OUT_DIR}/audit_auau.${WORK_STAMP}.\$(Cluster).\$(Process).out
+error         = ${CONDOR_ERR_DIR}/audit_auau.${WORK_STAMP}.\$(Cluster).\$(Process).err
+request_memory= 2000MB
+should_transfer_files = NO
+stream_output = True
+stream_error  = True
+SUB
+
+  local chunk_list out_tsv queued=0
+  for chunk_list in "${TMP_CHUNK_DIR}/audit_chunk_"*.list; do
+    [[ -f "${chunk_list}" ]] || continue
+    out_tsv="${TMP_RESULTS_DIR}/$(basename "${chunk_list%.list}").tsv"
+    printf 'arguments = %s %s %s %s %s\nqueue\n\n' \
+      "${chunk_list}" "${out_tsv}" "${TMP_ROOT_MACRO}" "${ROOT_PROGRESS_EVERY}" "${VERBOSE}" >> "${sub}"
+    ((queued+=1))
+  done
+
+  (( queued > 0 )) || fatal "no condor jobs were prepared"
+
+  say "Submitting ${queued} Condor counting jobs"
+  say "Condor submit file : ${sub}"
+  say "Chunk dir          : ${TMP_CHUNK_DIR}"
+  say "Results dir        : ${TMP_RESULTS_DIR}"
+
+  condor_submit "${sub}"
+  MANIFEST_PATH="${PWD}/audit_auau_firstPass_${WORK_STAMP}.txt"
+  write_firstpass_manifest "${MANIFEST_PATH}" "${sub}"
+  good "First-pass manifest written: ${MANIFEST_PATH}"
+  note "Run second pass later with: ./$(basename "$0") secondPass"
+}
+
+run_local_counter_test() {
+  local first_chunk
+  first_chunk="$(ls -1 "${TMP_CHUNK_DIR}"/audit_chunk_*.list 2>/dev/null | head -n 1 || true)"
+  [[ -n "${first_chunk}" ]] || fatal "no chunk list available for LOCAL test"
+
+  local first_file
+  first_file="$(head -n 1 "${first_chunk}" 2>/dev/null || true)"
+  local local_out="${TMP_RESULTS_DIR}/$(basename "${first_chunk%.list}")_LOCAL.tsv"
+
+  MANIFEST_PATH="${PWD}/audit_auau_firstPass_${WORK_STAMP}.txt"
+  write_firstpass_manifest "${MANIFEST_PATH}" "LOCAL_TEST"
+
+  subsection "LOCAL first-pass validation"
+  say "Manifest path      : ${MANIFEST_PATH}"
+  say "Test chunk list    : ${first_chunk}"
+  say "First file in test : ${first_file}"
+  say "Output TSV         : ${local_out}"
+  note "This runs exactly the same counting wrapper locally on the first available file."
+
+  bash "${TMP_WRAPPER}" "${first_chunk}" "${local_out}" "${TMP_ROOT_MACRO}" "${ROOT_PROGRESS_EVERY}" "${VERBOSE}"
+
+  good "LOCAL first-pass validation completed"
+  note "For the full submission, run: ./$(basename "$0") firstPass"
+}
+
+collect_count_results() {
   ROOT_OK_FILES=0
   ROOT_OPENFAIL_FILES=0
   ROOT_ZOMBIE_FILES=0
   ROOT_NOTREE_FILES=0
   ROOT_TOTAL_COUNTED_ENTRIES=0
   TREE_COUNT=()
+  FILE_STATUS=()
+  FILE_ENTRIES=()
+  FILE_TREE=()
 
-  local tree_key
-  while IFS= read -r path; do
-    [[ -n "${path:-}" ]] || continue
-    case "${FILE_STATUS[$path]:-UNSCANNED}" in
+  local results_found=0
+  local tsv status entries tree path tree_key
+
+  for tsv in "${TMP_RESULTS_DIR}"/audit_chunk_*.tsv "${TMP_RESULTS_DIR}"/audit_chunk_*_LOCAL.tsv; do
+    [[ -s "${tsv}" ]] || continue
+    ((results_found+=1))
+    while IFS=$'\t' read -r status entries tree path; do
+      [[ -n "${path:-}" ]] || continue
+      FILE_STATUS["$path"]="$status"
+      FILE_ENTRIES["$path"]="$(num_or_zero "${entries:-0}")"
+      FILE_TREE["$path"]="$tree"
+    done < "${tsv}"
+  done
+
+  local expected_results="${CHUNK_COUNT:-0}"
+  if (( LOCAL_MODE == 1 )); then
+    note "Collected LOCAL validation result files: $(fmt_num "${results_found}")"
+  else
+    note "Collected job result files: $(fmt_num "${results_found}") / $(fmt_num "${expected_results}")"
+  fi
+
+  local unique_path
+  while IFS= read -r unique_path; do
+    [[ -n "${unique_path:-}" ]] || continue
+    case "${FILE_STATUS[$unique_path]:-UNSCANNED}" in
       OK)
         ((ROOT_OK_FILES+=1))
-        ROOT_TOTAL_COUNTED_ENTRIES=$(( ROOT_TOTAL_COUNTED_ENTRIES + ${FILE_ENTRIES[$path]:-0} ))
-        tree_key="${FILE_TREE[$path]:-UNKNOWN}"
+        ROOT_TOTAL_COUNTED_ENTRIES=$(( ROOT_TOTAL_COUNTED_ENTRIES + ${FILE_ENTRIES[$unique_path]:-0} ))
+        tree_key="${FILE_TREE[$unique_path]:-UNKNOWN}"
         TREE_COUNT["$tree_key"]=$(( ${TREE_COUNT["$tree_key"]:-0} + 1 ))
         ;;
       OPENFAIL) ((ROOT_OPENFAIL_FILES+=1)) ;;
@@ -829,31 +961,13 @@ run_root_entry_scan() {
     esac
   done < "${TMP_UNIQUE_FILES}"
 
-  good "Entry-count scan parsed"
+  good "Collected event-count results"
   note "Files with counts available     : $(fmt_num "${ROOT_OK_FILES}")"
   note "Open failures                  : $(fmt_num "${ROOT_OPENFAIL_FILES}")"
   note "Zombie files                   : $(fmt_num "${ROOT_ZOMBIE_FILES}")"
   note "Files with no TTree            : $(fmt_num "${ROOT_NOTREE_FILES}")"
   note "Total counted entries available: $(fmt_num "${ROOT_TOTAL_COUNTED_ENTRIES}")"
-
-  if (( ${#TREE_COUNT[@]} > 0 )); then
-    subsection "Top detected count sources / event-tree paths"
-    printf "  %-40s | %12s\n" "SourceOrTreePath" "Files"
-    printf "  %s-+-%s\n" "$(printf '%*s' 40 '' | tr ' ' '-')" "$(printf '%*s' 12 '' | tr ' ' '-')"
-    while IFS=$'\t' read -r count tree; do
-      printf "  %-40s | %12s\n" "$(truncate_text "$tree" 40)" "$(fmt_num "$count")"
-    done < <(
-      for tree in "${!TREE_COUNT[@]}"; do
-        printf '%s\t%s\n' "${TREE_COUNT[$tree]}" "$tree"
-      done | sort -t $'\t' -k1,1nr -k2,2 | head -n 10
-    )
-  fi
-
-  if (( ROOT_OPENFAIL_FILES > 0 || ROOT_ZOMBIE_FILES > 0 || ROOT_NOTREE_FILES > 0 )); then
-    warn "Some files could not contribute event counts; totals below reflect only files with counts available."
-  fi
 }
-
 ########################################
 # Per-run audit storage
 ########################################
@@ -872,40 +986,8 @@ declare -A RUN_PRESENT_EVT=()
 declare -A RUN_MISSING_EVT=()
 declare -A RUN_EXTRA_EVT=()
 
-declare -A RUN_RUNTIME_S=()
-declare -A RUN_GL1_EVT=()
-
-declare -A RUN_TRIG_MENU_PRESENT=()
-declare -A RUN_TRIG_NAME=()
-declare -A RUN_TRIG_ACTIVE=()
-declare -A RUN_TRIG_RAW=()
-declare -A RUN_TRIG_LIVE=()
-declare -A RUN_TRIG_SCALED=()
-
 declare -A RUN_STATUS=()
 declare -A RUN_NOTES=()
-
-# Totals / counters
-TOT_RUNTIME_ALL=0
-TOT_GL1_ALL=0
-TOT_TRIG_RAW_ALL=0
-TOT_TRIG_LIVE_ALL=0
-TOT_TRIG_SCALED_ALL=0
-TOT_TRIG_ACTIVE_RUNS_ALL=0
-
-TOT_RUNTIME_CURRENT=0
-TOT_GL1_CURRENT=0
-TOT_TRIG_RAW_CURRENT=0
-TOT_TRIG_LIVE_CURRENT=0
-TOT_TRIG_SCALED_CURRENT=0
-TOT_TRIG_ACTIVE_RUNS_CURRENT=0
-
-TOT_RUNTIME_COMPLETE=0
-TOT_GL1_COMPLETE=0
-TOT_TRIG_RAW_COMPLETE=0
-TOT_TRIG_LIVE_COMPLETE=0
-TOT_TRIG_SCALED_COMPLETE=0
-TOT_TRIG_ACTIVE_RUNS_COMPLETE=0
 
 TOT_EXPECTED_SEG=0
 TOT_CURRENT_SEG=0
@@ -929,13 +1011,12 @@ RUNS_WITH_EXTRA=0
 RUNS_NO_EXPECTED=0
 
 audit_runs() {
-  section "Step 4/5 — Run-by-run audit (DB-backed expectation vs current lists vs exact ROOT entries vs psql)"
+  section "Step 4/5 — Run-by-run audit (DB-backed expectation vs current lists vs collected count results)"
 
   local idx=0
-  local r8 run expected_list current_list
+  local r8 expected_list current_list
   for r8 in "${RUN_ORDER[@]}"; do
     ((idx+=1))
-    run=$((10#$r8))
 
     expected_list="$(find_best_list_file "$TMP_EXPECTED_DIR" "$r8" || true)"
     current_list="$(find_best_list_file "$LIST_DIR" "$r8" || true)"
@@ -960,7 +1041,6 @@ audit_runs() {
     if (( expected_seg > 0 )); then (( RUNS_WITH_EXPECTED += 1 )); else (( RUNS_NO_EXPECTED += 1 )); fi
     if (( current_seg  > 0 )); then (( RUNS_WITH_CURRENT  += 1 )); fi
 
-    # Build sets
     local -A expected_set=()
     local -A current_set=()
     local f
@@ -1037,70 +1117,11 @@ audit_runs() {
     if (( expected_seg > 0 && present_seg == 0 )); then (( RUNS_ZERO_PRESENT += 1 )); fi
     if (( extra_seg > 0 )); then (( RUNS_WITH_EXTRA += 1 )); fi
 
-    # psql run bookkeeping
-    local rt gl1
-    IFS=$'\t' read -r rt gl1 < <(read_run_runtime_gl1 "$run")
-    rt="$(num_or_zero "$rt")"
-    gl1="$(num_or_zero "$gl1")"
-
-    RUN_RUNTIME_S["$r8"]="$rt"
-    RUN_GL1_EVT["$r8"]="$gl1"
-
-    (( TOT_RUNTIME_ALL += rt ))
-    (( TOT_GL1_ALL     += gl1 ))
-
-    # psql trigger stats
-    local menu_present trig_name trig_active trig_raw trig_live trig_scaled
-    IFS=$'\t' read -r menu_present trig_name trig_active trig_raw trig_live trig_scaled < <(read_trigger_stats "$run")
-
-    RUN_TRIG_MENU_PRESENT["$r8"]="$(num_or_zero "$menu_present")"
-    RUN_TRIG_NAME["$r8"]="$trig_name"
-    RUN_TRIG_ACTIVE["$r8"]="$(num_or_zero "$trig_active")"
-    RUN_TRIG_RAW["$r8"]="$(num_or_zero "$trig_raw")"
-    RUN_TRIG_LIVE["$r8"]="$(num_or_zero "$trig_live")"
-    RUN_TRIG_SCALED["$r8"]="$(num_or_zero "$trig_scaled")"
-
-    (( TOT_TRIG_RAW_ALL    += RUN_TRIG_RAW["$r8"]    ))
-    (( TOT_TRIG_LIVE_ALL   += RUN_TRIG_LIVE["$r8"]   ))
-    (( TOT_TRIG_SCALED_ALL += RUN_TRIG_SCALED["$r8"] ))
-    if (( RUN_TRIG_ACTIVE["$r8"] != 0 )); then (( TOT_TRIG_ACTIVE_RUNS_ALL += 1 )); fi
-
-    if (( current_seg > 0 )); then
-      (( TOT_RUNTIME_CURRENT    += rt ))
-      (( TOT_GL1_CURRENT        += gl1 ))
-      (( TOT_TRIG_RAW_CURRENT   += RUN_TRIG_RAW["$r8"]    ))
-      (( TOT_TRIG_LIVE_CURRENT  += RUN_TRIG_LIVE["$r8"]   ))
-      (( TOT_TRIG_SCALED_CURRENT+= RUN_TRIG_SCALED["$r8"] ))
-      if (( RUN_TRIG_ACTIVE["$r8"] != 0 )); then (( TOT_TRIG_ACTIVE_RUNS_CURRENT += 1 )); fi
-    fi
-
-    if (( expected_seg > 0 && missing_seg == 0 && extra_seg == 0 )); then
-      (( TOT_RUNTIME_COMPLETE     += rt ))
-      (( TOT_GL1_COMPLETE         += gl1 ))
-      (( TOT_TRIG_RAW_COMPLETE    += RUN_TRIG_RAW["$r8"]    ))
-      (( TOT_TRIG_LIVE_COMPLETE   += RUN_TRIG_LIVE["$r8"]   ))
-      (( TOT_TRIG_SCALED_COMPLETE += RUN_TRIG_SCALED["$r8"] ))
-      if (( RUN_TRIG_ACTIVE["$r8"] != 0 )); then (( TOT_TRIG_ACTIVE_RUNS_COMPLETE += 1 )); fi
-    fi
-
-    # Status / notes
     local notes=""
     if [[ -z "$expected_list" ]]; then append_note notes "NO_DB_EXPECTED_LIST"; fi
     if [[ -n "$expected_list" && ! -s "$expected_list" ]]; then append_note notes "EMPTY_DB_EXPECTED_LIST"; fi
     if [[ -z "$current_list" ]]; then append_note notes "NO_CURRENT_LIST"; fi
     if [[ -n "$current_list" && ! -s "$current_list" ]]; then append_note notes "EMPTY_CURRENT_LIST"; fi
-
-    if [[ -n "$trig_name" ]]; then
-      if [[ "$(normalize_name "$trig_name")" != "$(normalize_name "$TRIG_EXPECT_NAME")" ]]; then
-        append_note notes "BIT${TRIG_BIT}_NAME_MISMATCH"
-      fi
-    else
-      append_note notes "BIT${TRIG_BIT}_NO_MENU_ENTRY"
-    fi
-
-    if (( RUN_TRIG_ACTIVE["$r8"] == 0 )); then
-      append_note notes "BIT${TRIG_BIT}_OFF"
-    fi
 
     local run_status
     if (( expected_seg == 0 && current_seg == 0 )); then
@@ -1131,16 +1152,15 @@ audit_runs() {
 
   good "Per-run audit completed"
 }
-
 ########################################
 # Printing helpers / tables
 ########################################
 print_core_summary() {
   section "Step 5/5 — Final terminal summary"
 
-  note "Expected segments are the current DB-backed canonical expectation (CreateDstList.pl in temp dir)."
-  note "Event totals come from a fast SQL/filelist lookup first, with ROOT fallback only for unresolved files when COUNT_METHOD=auto."
-  note "No permanent CSVs or output artifacts were created."
+  note "Expected segments are the current DB-backed canonical expectation (CreateDstList.pl in the persisted first-pass work dir)."
+  note "Event totals come from collected Condor/local counting job results."
+  note "No project DST list files were modified."
 
   subsection "A) GRL / run coverage"
   printf "  %-42s : %12s\n" "GRL runs" "$(fmt_num "${#RUN_ORDER[@]}")"
@@ -1161,8 +1181,8 @@ print_core_summary() {
   printf "  %-42s : %12s\n" "Current listed segments total" "$(fmt_num "${TOT_CURRENT_SEG}")"
   printf "  %-42s : %12s\n" "Extra current-listed segments (not in expected)" "$(fmt_num "${TOT_EXTRA_SEG}")"
 
-  subsection "C) Exact DST event availability (readable ROOT files only)"
-  printf "  %-42s : %12s\n" "Expected exact: DST events" "$(fmt_num "${TOT_EXPECTED_EVT}")"
+  subsection "C) Exact DST event availability"
+  printf "  %-42s : %12s\n" "Expected exact DST events" "$(fmt_num "${TOT_EXPECTED_EVT}")"
   printf "  %-42s : %12s\n" "Present expected exact DST events" "$(fmt_num "${TOT_PRESENT_EVT}")"
   printf "  %-42s : %12s  (%s)\n" "Present/expected event completeness" "$(fmt_num "${TOT_PRESENT_EVT}")" "$(fmt_pct "${TOT_PRESENT_EVT}" "${TOT_EXPECTED_EVT}")"
   printf "  %-42s : %12s\n" "Missing expected exact DST events" "$(fmt_num "${TOT_MISSING_EVT}")"
@@ -1170,96 +1190,37 @@ print_core_summary() {
   printf "  %-42s : %12s\n" "Extra current-listed exact DST events" "$(fmt_num "${TOT_EXTRA_EVT}")"
 
   subsection "D) Entry-count health"
-  printf "  %-42s : %12s\n" "Unique referenced ROOT files scanned" "$(fmt_num "${UNIQUE_FILE_COUNT}")"
-  printf "  %-42s : %12s\n" "Readable files with event tree" "$(fmt_num "${ROOT_OK_FILES}")"
+  printf "  %-42s : %12s\n" "Unique referenced ROOT files" "$(fmt_num "${UNIQUE_FILE_COUNT}")"
+  printf "  %-42s : %12s\n" "Files with counts available" "$(fmt_num "${ROOT_OK_FILES}")"
   printf "  %-42s : %12s\n" "Open failures" "$(fmt_num "${ROOT_OPENFAIL_FILES}")"
   printf "  %-42s : %12s\n" "Zombie files" "$(fmt_num "${ROOT_ZOMBIE_FILES}")"
   printf "  %-42s : %12s\n" "Files with no tree" "$(fmt_num "${ROOT_NOTREE_FILES}")"
-
-  subsection "E) psql exposure bookkeeping — ALL GRL runs"
-  printf "  %-42s : %12s h\n" "Runtime over all GRL runs" "$(fmt_h "${TOT_RUNTIME_ALL}")"
-  printf "  %-42s : %12s\n"   "GL1 .evt over all GRL runs" "$(fmt_num "${TOT_GL1_ALL}")"
-  printf "  %-42s : %12s / %s\n" "Bit ${TRIG_BIT} active runs / GRL runs" "$(fmt_num "${TOT_TRIG_ACTIVE_RUNS_ALL}")" "$(fmt_num "${#RUN_ORDER[@]}")"
-  printf "  %-42s : %12s\n"   "Bit ${TRIG_BIT} RAW total" "$(fmt_num "${TOT_TRIG_RAW_ALL}")"
-  printf "  %-42s : %12s\n"   "Bit ${TRIG_BIT} LIVE total" "$(fmt_num "${TOT_TRIG_LIVE_ALL}")"
-  printf "  %-42s : %12s\n"   "Bit ${TRIG_BIT} SCALED total" "$(fmt_num "${TOT_TRIG_SCALED_ALL}")"
-
-  subsection "F) psql exposure bookkeeping — CURRENT analyzable subset (non-empty current lists)"
-  printf "  %-42s : %12s h\n" "Runtime over current-list subset" "$(fmt_h "${TOT_RUNTIME_CURRENT}")"
-  printf "  %-42s : %12s\n"   "GL1 .evt over current-list subset" "$(fmt_num "${TOT_GL1_CURRENT}")"
-  printf "  %-42s : %12s / %s\n" "Bit ${TRIG_BIT} active runs / current-list runs" "$(fmt_num "${TOT_TRIG_ACTIVE_RUNS_CURRENT}")" "$(fmt_num "${RUNS_WITH_CURRENT}")"
-  printf "  %-42s : %12s\n"   "Bit ${TRIG_BIT} RAW total" "$(fmt_num "${TOT_TRIG_RAW_CURRENT}")"
-  printf "  %-42s : %12s\n"   "Bit ${TRIG_BIT} LIVE total" "$(fmt_num "${TOT_TRIG_LIVE_CURRENT}")"
-  printf "  %-42s : %12s\n"   "Bit ${TRIG_BIT} SCALED total" "$(fmt_num "${TOT_TRIG_SCALED_CURRENT}")"
-
-  subsection "G) psql exposure bookkeeping — FULLY COMPLETE runs only"
-  printf "  %-42s : %12s h\n" "Runtime over fully complete runs" "$(fmt_h "${TOT_RUNTIME_COMPLETE}")"
-  printf "  %-42s : %12s\n"   "GL1 .evt over fully complete runs" "$(fmt_num "${TOT_GL1_COMPLETE}")"
-  printf "  %-42s : %12s / %s\n" "Bit ${TRIG_BIT} active runs / complete runs" "$(fmt_num "${TOT_TRIG_ACTIVE_RUNS_COMPLETE}")" "$(fmt_num "${RUNS_COMPLETE}")"
-  printf "  %-42s : %12s\n"   "Bit ${TRIG_BIT} RAW total" "$(fmt_num "${TOT_TRIG_RAW_COMPLETE}")"
-  printf "  %-42s : %12s\n"   "Bit ${TRIG_BIT} LIVE total" "$(fmt_num "${TOT_TRIG_LIVE_COMPLETE}")"
-  printf "  %-42s : %12s\n"   "Bit ${TRIG_BIT} SCALED total" "$(fmt_num "${TOT_TRIG_SCALED_COMPLETE}")"
-
-  if [[ -n "${MBD_XSEC_MB}" ]]; then
-    subsection "H) Optional approximate luminosity proxy block"
-    note "These are simple trigger-count / cross-section proxies, printed only because --mbd-xsec-mb was supplied."
-    note "Interpret with caution; this script's main mission is availability/completeness, not authoritative luminosity calibration."
-
-    local all_raw_l all_live_l all_scaled_l
-    local cur_raw_l cur_live_l cur_scaled_l
-    local comp_raw_l comp_live_l comp_scaled_l
-
-    all_raw_l="$(awk -v n="${TOT_TRIG_RAW_ALL}"    -v x="${MBD_XSEC_MB}" 'BEGIN{ if (x > 0) printf "%.6f", n / x; else print "0"; }')"
-    all_live_l="$(awk -v n="${TOT_TRIG_LIVE_ALL}"   -v x="${MBD_XSEC_MB}" 'BEGIN{ if (x > 0) printf "%.6f", n / x; else print "0"; }')"
-    all_scaled_l="$(awk -v n="${TOT_TRIG_SCALED_ALL}" -v x="${MBD_XSEC_MB}" 'BEGIN{ if (x > 0) printf "%.6f", n / x; else print "0"; }')"
-
-    cur_raw_l="$(awk -v n="${TOT_TRIG_RAW_CURRENT}"    -v x="${MBD_XSEC_MB}" 'BEGIN{ if (x > 0) printf "%.6f", n / x; else print "0"; }')"
-    cur_live_l="$(awk -v n="${TOT_TRIG_LIVE_CURRENT}"   -v x="${MBD_XSEC_MB}" 'BEGIN{ if (x > 0) printf "%.6f", n / x; else print "0"; }')"
-    cur_scaled_l="$(awk -v n="${TOT_TRIG_SCALED_CURRENT}" -v x="${MBD_XSEC_MB}" 'BEGIN{ if (x > 0) printf "%.6f", n / x; else print "0"; }')"
-
-    comp_raw_l="$(awk -v n="${TOT_TRIG_RAW_COMPLETE}"    -v x="${MBD_XSEC_MB}" 'BEGIN{ if (x > 0) printf "%.6f", n / x; else print "0"; }')"
-    comp_live_l="$(awk -v n="${TOT_TRIG_LIVE_COMPLETE}"   -v x="${MBD_XSEC_MB}" 'BEGIN{ if (x > 0) printf "%.6f", n / x; else print "0"; }')"
-    comp_scaled_l="$(awk -v n="${TOT_TRIG_SCALED_COMPLETE}" -v x="${MBD_XSEC_MB}" 'BEGIN{ if (x > 0) printf "%.6f", n / x; else print "0"; }')"
-
-    printf "  %-42s : %12s mb^-1\n" "Approx proxy L from ALL-RUN RAW / sigma" "${all_raw_l}"
-    printf "  %-42s : %12s mb^-1\n" "Approx proxy L from ALL-RUN LIVE / sigma" "${all_live_l}"
-    printf "  %-42s : %12s mb^-1\n" "Approx proxy L from ALL-RUN SCALED / sigma" "${all_scaled_l}"
-
-    printf "  %-42s : %12s mb^-1\n" "Approx proxy L from CURRENT-LIST RAW / sigma" "${cur_raw_l}"
-    printf "  %-42s : %12s mb^-1\n" "Approx proxy L from CURRENT-LIST LIVE / sigma" "${cur_live_l}"
-    printf "  %-42s : %12s mb^-1\n" "Approx proxy L from CURRENT-LIST SCALED / sigma" "${cur_scaled_l}"
-
-    printf "  %-42s : %12s mb^-1\n" "Approx proxy L from COMPLETE-RUN RAW / sigma" "${comp_raw_l}"
-    printf "  %-42s : %12s mb^-1\n" "Approx proxy L from COMPLETE-RUN LIVE / sigma" "${comp_live_l}"
-    printf "  %-42s : %12s mb^-1\n" "Approx proxy L from COMPLETE-RUN SCALED / sigma" "${comp_scaled_l}"
-  fi
+  printf "  %-42s : %12s\n" "Total counted entries available" "$(fmt_num "${ROOT_TOTAL_COUNTED_ENTRIES}")"
 }
 
 print_ranked_tables() {
-  subsection "I) Ranked high-impact runs"
+  subsection "E) Ranked high-impact runs"
 
-  printf "  %-8s | %-8s | %-8s | %-8s | %-12s | %-12s | %-8s | %-10s\n" \
-    "Run" "ExpSeg" "PresSeg" "MissSeg" "PresEvt(M)" "MissEvt(M)" "TrigOn" "Status"
-  printf "  %s-+-%s-+-%s-+-%s-+-%s-+-%s-+-%s-+-%s\n" \
+  printf "  %-8s | %-8s | %-8s | %-8s | %-12s | %-12s | %-10s\n" \
+    "Run" "ExpSeg" "PresSeg" "MissSeg" "PresEvt(M)" "MissEvt(M)" "Status"
+  printf "  %s-+-%s-+-%s-+-%s-+-%s-+-%s-+-%s\n" \
     "$(printf '%*s' 8 '' | tr ' ' '-')" \
     "$(printf '%*s' 8 '' | tr ' ' '-')" \
     "$(printf '%*s' 8 '' | tr ' ' '-')" \
     "$(printf '%*s' 8 '' | tr ' ' '-')" \
     "$(printf '%*s' 12 '' | tr ' ' '-')" \
     "$(printf '%*s' 12 '' | tr ' ' '-')" \
-    "$(printf '%*s' 8 '' | tr ' ' '-')" \
     "$(printf '%*s' 10 '' | tr ' ' '-')"
 
   while IFS=$'\t' read -r miss_evt miss_seg r8; do
     [[ -n "${r8:-}" ]] || continue
-    printf "  %-8s | %8s | %8s | %8s | %12s | %12s | %8s | %-10s\n" \
+    printf "  %-8s | %8s | %8s | %8s | %12s | %12s | %-10s\n" \
       "$r8" \
       "$(fmt_num "${RUN_EXPECTED_SEG[$r8]:-0}")" \
       "$(fmt_num "${RUN_PRESENT_SEG[$r8]:-0}")" \
       "$(fmt_num "${RUN_MISSING_SEG[$r8]:-0}")" \
       "$(fmt_m "${RUN_PRESENT_EVT[$r8]:-0}")" \
       "$(fmt_m "${RUN_MISSING_EVT[$r8]:-0}")" \
-      "$(yn "${RUN_TRIG_ACTIVE[$r8]:-0}")" \
       "${RUN_STATUS[$r8]:-UNK}"
   done < <(
     for r8 in "${RUN_ORDER[@]}"; do
@@ -1267,65 +1228,27 @@ print_ranked_tables() {
     done | sort -t $'\t' -k1,1nr -k2,2nr -k3,3 | head -n 15
   )
 
-  subsection "J) Top runs by currently available exact DST events"
-  printf "  %-8s | %-8s | %-12s | %-12s | %-8s | %-8s | %-10s\n" \
-    "Run" "CurSeg" "CurEvt(M)" "GL1evt(M)" "TrigOn" "Live(M)" "Status"
-  printf "  %s-+-%s-+-%s-+-%s-+-%s-+-%s-+-%s\n" \
+  subsection "F) Top runs by currently available exact DST events"
+  printf "  %-8s | %-8s | %-12s | %-10s\n" \
+    "Run" "CurSeg" "CurEvt(M)" "Status"
+  printf "  %s-+-%s-+-%s-+-%s\n" \
     "$(printf '%*s' 8 '' | tr ' ' '-')" \
     "$(printf '%*s' 8 '' | tr ' ' '-')" \
     "$(printf '%*s' 12 '' | tr ' ' '-')" \
-    "$(printf '%*s' 12 '' | tr ' ' '-')" \
-    "$(printf '%*s' 8 '' | tr ' ' '-')" \
-    "$(printf '%*s' 8 '' | tr ' ' '-')" \
     "$(printf '%*s' 10 '' | tr ' ' '-')"
 
   while IFS=$'\t' read -r cur_evt r8; do
     [[ -n "${r8:-}" ]] || continue
-    printf "  %-8s | %8s | %12s | %12s | %8s | %8s | %-10s\n" \
+    printf "  %-8s | %8s | %12s | %-10s\n" \
       "$r8" \
       "$(fmt_num "${RUN_CURRENT_SEG[$r8]:-0}")" \
       "$(fmt_m "${RUN_CURRENT_EVT[$r8]:-0}")" \
-      "$(fmt_m "${RUN_GL1_EVT[$r8]:-0}")" \
-      "$(yn "${RUN_TRIG_ACTIVE[$r8]:-0}")" \
-      "$(fmt_m "${RUN_TRIG_LIVE[$r8]:-0}")" \
       "${RUN_STATUS[$r8]:-UNK}"
   done < <(
     for r8 in "${RUN_ORDER[@]}"; do
       printf '%015d\t%s\n' "${RUN_CURRENT_EVT[$r8]:-0}" "$r8"
     done | sort -t $'\t' -k1,1nr -k2,2 | head -n 15
   )
-
-  subsection "K) Runs with current lists but trigger bit ${TRIG_BIT} OFF"
-  local printed=0
-  printf "  %-8s | %-8s | %-12s | %-12s | %-24s\n" \
-    "Run" "CurSeg" "CurEvt(M)" "GL1evt(M)" "Notes"
-  printf "  %s-+-%s-+-%s-+-%s-+-%s\n" \
-    "$(printf '%*s' 8 '' | tr ' ' '-')" \
-    "$(printf '%*s' 8 '' | tr ' ' '-')" \
-    "$(printf '%*s' 12 '' | tr ' ' '-')" \
-    "$(printf '%*s' 12 '' | tr ' ' '-')" \
-    "$(printf '%*s' 24 '' | tr ' ' '-')"
-
-  while IFS=$'\t' read -r r8; do
-    [[ -n "${r8:-}" ]] || continue
-    printf "  %-8s | %8s | %12s | %12s | %-24s\n" \
-      "$r8" \
-      "$(fmt_num "${RUN_CURRENT_SEG[$r8]:-0}")" \
-      "$(fmt_m "${RUN_CURRENT_EVT[$r8]:-0}")" \
-      "$(fmt_m "${RUN_GL1_EVT[$r8]:-0}")" \
-      "$(truncate_text "${RUN_NOTES[$r8]:-}" 24)"
-    ((printed+=1))
-  done < <(
-    for r8 in "${RUN_ORDER[@]}"; do
-      if (( ${RUN_CURRENT_SEG[$r8]:-0} > 0 )) && (( ${RUN_TRIG_ACTIVE[$r8]:-0} == 0 )); then
-        printf '%s\n' "$r8"
-      fi
-    done | sort
-  )
-
-  if (( printed == 0 )); then
-    printf "  %-8s | %-8s | %-12s | %-12s | %-24s\n" "-" "-" "-" "-" "none"
-  fi
 }
 
 print_run_status_table() {
@@ -1333,11 +1256,11 @@ print_run_status_table() {
     return 0
   fi
 
-  subsection "L) Full per-run audit table"
+  subsection "G) Full per-run audit table"
 
-  printf "  %-8s | %-6s | %-6s | %-6s | %-6s | %-6s | %-10s | %-10s | %-5s | %-9s | %-8s | %-28s\n" \
-    "Run" "Exp" "Cur" "Pres" "Miss" "Extra" "PresEvt(M)" "MissEvt(M)" "Bit14" "Live(M)" "GL1(M)" "Notes"
-  printf "  %s-+-%s-+-%s-+-%s-+-%s-+-%s-+-%s-+-%s-+-%s-+-%s-+-%s-+-%s\n" \
+  printf "  %-8s | %-6s | %-6s | %-6s | %-6s | %-6s | %-10s | %-10s | %-28s\n" \
+    "Run" "Exp" "Cur" "Pres" "Miss" "Extra" "PresEvt(M)" "MissEvt(M)" "Notes"
+  printf "  %s-+-%s-+-%s-+-%s-+-%s-+-%s-+-%s-+-%s-+-%s\n" \
     "$(printf '%*s' 8 '' | tr ' ' '-')" \
     "$(printf '%*s' 6 '' | tr ' ' '-')" \
     "$(printf '%*s' 6 '' | tr ' ' '-')" \
@@ -1346,14 +1269,11 @@ print_run_status_table() {
     "$(printf '%*s' 6 '' | tr ' ' '-')" \
     "$(printf '%*s' 10 '' | tr ' ' '-')" \
     "$(printf '%*s' 10 '' | tr ' ' '-')" \
-    "$(printf '%*s' 5 '' | tr ' ' '-')" \
-    "$(printf '%*s' 9 '' | tr ' ' '-')" \
-    "$(printf '%*s' 8 '' | tr ' ' '-')" \
     "$(printf '%*s' 28 '' | tr ' ' '-')"
 
   local r8
   for r8 in "${RUN_ORDER[@]}"; do
-    printf "  %-8s | %6s | %6s | %6s | %6s | %6s | %10s | %10s | %5s | %9s | %8s | %-28s\n" \
+    printf "  %-8s | %6s | %6s | %6s | %6s | %6s | %10s | %10s | %-28s\n" \
       "$r8" \
       "$(fmt_num "${RUN_EXPECTED_SEG[$r8]:-0}")" \
       "$(fmt_num "${RUN_CURRENT_SEG[$r8]:-0}")" \
@@ -1362,13 +1282,9 @@ print_run_status_table() {
       "$(fmt_num "${RUN_EXTRA_SEG[$r8]:-0}")" \
       "$(fmt_m "${RUN_PRESENT_EVT[$r8]:-0}")" \
       "$(fmt_m "${RUN_MISSING_EVT[$r8]:-0}")" \
-      "$(yn "${RUN_TRIG_ACTIVE[$r8]:-0}")" \
-      "$(fmt_m "${RUN_TRIG_LIVE[$r8]:-0}")" \
-      "$(fmt_m "${RUN_GL1_EVT[$r8]:-0}")" \
       "$(truncate_text "${RUN_STATUS[$r8]:-UNK}${RUN_NOTES[$r8]:+,${RUN_NOTES[$r8]}}" 28)"
   done
 }
-
 fatal() {
   printf "%s[FATAL]%s %s\n" "${RED}${BOLD}" "${RESET}" "$*" >&2
   exit 1
@@ -1377,6 +1293,20 @@ fatal() {
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      firstPass|secondPass)
+        ACTION="$1"
+        shift
+        ;;
+      LOCAL)
+        LOCAL_MODE=1
+        shift
+        ;;
+      --manifest)
+        shift
+        [[ $# -gt 0 ]] || fatal "missing value after --manifest"
+        MANIFEST_PATH="$1"
+        shift
+        ;;
       --grl)
         shift
         [[ $# -gt 0 ]] || fatal "missing value after --grl"
@@ -1407,22 +1337,10 @@ parse_args() {
         PREFIX="$1"
         shift
         ;;
-      --trigger-bit)
+      --max-condor-jobs)
         shift
-        [[ $# -gt 0 ]] || fatal "missing value after --trigger-bit"
-        TRIG_BIT="$1"
-        shift
-        ;;
-      --trigger-name)
-        shift
-        [[ $# -gt 0 ]] || fatal "missing value after --trigger-name"
-        TRIG_EXPECT_NAME="$1"
-        shift
-        ;;
-      --mbd-xsec-mb)
-        shift
-        [[ $# -gt 0 ]] || fatal "missing value after --mbd-xsec-mb"
-        MBD_XSEC_MB="$1"
+        [[ $# -gt 0 ]] || fatal "missing value after --max-condor-jobs"
+        MAX_CONDOR_JOBS="$1"
         shift
         ;;
       --run-progress-every)
@@ -1458,30 +1376,30 @@ parse_args() {
     esac
   done
 
-  [[ "$TRIG_BIT" =~ ^[0-9]+$ ]] || fatal "--trigger-bit must be an integer"
+  [[ -n "${ACTION}" ]] || ACTION="firstPass"
   [[ "$RUN_PROGRESS_EVERY" =~ ^[0-9]+$ ]] || fatal "--run-progress-every must be an integer"
   [[ "$ROOT_PROGRESS_EVERY" =~ ^[0-9]+$ ]] || fatal "--root-progress-every must be an integer"
-  if [[ -n "${MBD_XSEC_MB}" ]]; then
-    [[ "${MBD_XSEC_MB}" =~ ^[0-9]+([.][0-9]+)?$ ]] || fatal "--mbd-xsec-mb must be numeric"
-  fi
+  [[ "$MAX_CONDOR_JOBS" =~ ^[0-9]+$ ]] || fatal "--max-condor-jobs must be an integer"
+  (( MAX_CONDOR_JOBS > 0 )) || fatal "--max-condor-jobs must be > 0"
 }
 
 print_startup_context() {
   section "Au+Au GRL projection audit"
 
   printf "  %-24s : %s\n" "Script" "$(basename "$0")"
+  printf "  %-24s : %s\n" "Action" "${ACTION}"
+  printf "  %-24s : %s\n" "Mode" "$( [[ "${LOCAL_MODE}" -eq 1 ]] && printf 'LOCAL test' || printf 'CONDOR / aggregate' )"
   printf "  %-24s : %s\n" "BASE" "${BASE}"
   printf "  %-24s : %s\n" "GRL" "${GRL}"
   printf "  %-24s : %s\n" "Current list dir" "${LIST_DIR}"
   printf "  %-24s : %s\n" "Dataset" "${DATASET}"
   printf "  %-24s : %s\n" "Tag" "${TAG}"
   printf "  %-24s : %s\n" "Prefix" "${PREFIX}"
-  printf "  %-24s : %s\n" "Trigger bit" "${TRIG_BIT}"
-  printf "  %-24s : %s\n" "Expected trigger name" "${TRIG_EXPECT_NAME}"
   printf "  %-24s : %s\n" "Verbosity" "${VERBOSE}"
   printf "  %-24s : %s\n" "Show full run tables" "$(yn "${SHOW_ALL_RUN_TABLES}")"
-  if [[ -n "${MBD_XSEC_MB}" ]]; then
-    printf "  %-24s : %s mb\n" "Optional MBD xsec" "${MBD_XSEC_MB}"
+  printf "  %-24s : %s\n" "Max Condor jobs" "${MAX_CONDOR_JOBS}"
+  if [[ -n "${MANIFEST_PATH}" ]]; then
+    printf "  %-24s : %s\n" "Manifest" "${MANIFEST_PATH}"
   fi
 }
 
@@ -1496,8 +1414,7 @@ main() {
   need_cmd tail
   need_cmd tr
   need_cmd xargs
-  need_cmd mktemp
-  need_cmd psql
+  need_cmd split
   need_cmd root
   need_cmd CreateDstList.pl
 
@@ -1507,25 +1424,55 @@ main() {
 
   recompute_prefix_stem
 
-  TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/audit_auau_grl_projection.XXXXXX")"
-  PSQL=(psql -h "${PSQL_HOST}" -d "${PSQL_DB}" -At -F $'\t' -q)
+  if [[ "${ACTION}" == "firstPass" ]]; then
+    prepare_persistent_workdir
+    read_runs_from_file "${GRL}"
+    (( ${#RUN_ORDER[@]} > 0 )) || fatal "no valid runs found in GRL: ${GRL}"
 
-  check_psql_connectivity
+    print_startup_context
+    note "GRL runs loaded: $(fmt_num "${#RUN_ORDER[@]}")"
+
+    build_expected_lists
+    collect_unique_files
+    write_root_counter_macro
+    write_counter_wrapper
+    build_count_chunks
+
+    subsection "First-pass plan"
+    note "Persisted work dir : ${TMP_ROOT}"
+    note "Chunk dir          : ${TMP_CHUNK_DIR}"
+    note "Results dir        : ${TMP_RESULTS_DIR}"
+    note "Unique files       : $(fmt_num "${UNIQUE_FILE_COUNT}")"
+    note "Chunk size         : $(fmt_num "${CHUNK_SIZE}")"
+    note "Chunk count        : $(fmt_num "${CHUNK_COUNT}")"
+
+    if (( LOCAL_MODE == 1 )); then
+      run_local_counter_test
+    else
+      submit_condor_counter_jobs
+    fi
+    exit 0
+  fi
+
+  if [[ -z "${MANIFEST_PATH}" ]]; then
+    MANIFEST_PATH="$(latest_manifest_in_pwd)"
+  fi
+  [[ -n "${MANIFEST_PATH}" ]] || fatal "no first-pass manifest found in the current directory; run firstPass first or use --manifest"
+
+  load_firstpass_manifest "${MANIFEST_PATH}"
   read_runs_from_file "${GRL}"
   (( ${#RUN_ORDER[@]} > 0 )) || fatal "no valid runs found in GRL: ${GRL}"
 
   print_startup_context
   note "GRL runs loaded: $(fmt_num "${#RUN_ORDER[@]}")"
 
-  build_expected_lists
-  collect_unique_files
-  run_root_entry_scan
+  collect_count_results
   audit_runs
   print_core_summary
   print_ranked_tables
   print_run_status_table
 
-  good "Audit complete"
+  good "Second-pass audit complete"
 }
 
 main "$@"
