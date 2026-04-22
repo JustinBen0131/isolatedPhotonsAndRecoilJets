@@ -2522,6 +2522,250 @@ void RunPreselectionFailureTable(Dataset& ds)
             
             for (auto* obj : keepSummary) delete obj;
             
+            const char* exclusiveLabels[15] = {
+                "e11 only",
+                "et1 only",
+                "e11+et1",
+                "e32 only",
+                "e11+e32",
+                "et1+e32",
+                "e11+et1+e32",
+                "weta only",
+                "e11+weta",
+                "et1+weta",
+                "e11+et1+weta",
+                "e32+weta",
+                "e11+e32+weta",
+                "et1+e32+weta",
+                "all4"
+            };
+            
+            const int exclusiveColors[15] = {
+                kGray+1,
+                kGreen+2,
+                kSpring+5,
+                kOrange+7,
+                kOrange+2,
+                kYellow+2,
+                kYellow+1,
+                kCyan+1,
+                kAzure+1,
+                kBlue+1,
+                kViolet+1,
+                kMagenta+1,
+                kPink+7,
+                kRed+1,
+                kRed+2
+            };
+            
+            auto FillExclusiveSummaryVals =
+            [&](const vector<string>& ptSuffixes,
+                const vector<string>& centSuffixes,
+                double vals[15]) -> void
+            {
+                for (int ib = 0; ib < 15; ++ib) vals[ib] = 0.0;
+                
+                for (const auto& centSuffix : centSuffixes)
+                {
+                    Dataset dsSel;
+                    dsSel.label = ds.label;
+                    dsSel.isSim = ds.isSim;
+                    dsSel.trigger = ds.trigger;
+                    dsSel.topDirName = ds.topDirName;
+                    dsSel.inFilePath = ds.inFilePath;
+                    dsSel.outBase = ds.outBase;
+                    dsSel.centFolder = "";
+                    dsSel.centSuffix = centSuffix;
+                    dsSel.centLabel = "";
+                    dsSel.file = ds.file;
+                    dsSel.topDir = ds.topDir;
+                    
+                    for (const auto& ptSuffix : ptSuffixes)
+                    {
+                        TH1* hMask = GetObj<TH1>(dsSel, "h_preFailMask" + ptSuffix, false, false, false);
+                        if (!hMask) continue;
+                        
+                        const int nMaskBins = hMask->GetNbinsX();
+                        for (int mask = 1; mask <= 15; ++mask)
+                        {
+                            const int bin = mask + 1;
+                            if (bin > nMaskBins) break;
+                            vals[mask - 1] += hMask->GetBinContent(bin);
+                        }
+                    }
+                }
+            };
+            
+            TCanvas cExclusive(
+                               TString::Format("c_preFailExclusive_centXpT_%s_%s", ds.trigger.c_str(), ds.centFolder.c_str()).Data(),
+                               "c_preFailExclusive_centXpT", 7200, 3300
+                               );
+            cExclusive.cd();
+            cExclusive.SetFillColor(0);
+            cExclusive.SetFrameFillColor(0);
+            
+            vector<TObject*> keepExclusive;
+            keepExclusive.reserve(nSummaryCols * nSummaryRows * 32);
+            
+            const double leftExclusive   = 0.065;
+            const double rightExclusive  = 0.008;
+            const double topExclusive    = 0.145;
+            const double bottomExclusive = 0.022;
+            const double xGapExclusive   = 0.006;
+            const double yGapExclusive   = 0.010;
+            
+            const double rawCellWExclusive = (1.0 - leftExclusive - rightExclusive) / nSummaryCols;
+            const double rawCellHExclusive = (1.0 - topExclusive - bottomExclusive) / nSummaryRows;
+            
+            for (int irow = 0; irow < nSummaryRows; ++irow)
+            {
+                for (int icol = 0; icol < nSummaryCols; ++icol)
+                {
+                    const double x1 = leftExclusive + icol * rawCellWExclusive + 0.5 * xGapExclusive;
+                    const double x2 = leftExclusive + (icol + 1) * rawCellWExclusive - 0.5 * xGapExclusive;
+                    const double y2 = 1.0 - topExclusive - irow * rawCellHExclusive - 0.5 * yGapExclusive;
+                    const double y1 = 1.0 - topExclusive - (irow + 1) * rawCellHExclusive + 0.5 * yGapExclusive;
+                    
+                    TPad* cellPad = new TPad(
+                                             TString::Format("preFailExclusiveCentXpT_pad_r%d_c%d_%s_%s",
+                                                             irow, icol, ds.trigger.c_str(), ds.centFolder.c_str()).Data(),
+                                             "",
+                                             x1, y1, x2, y2
+                                             );
+                    cellPad->SetLeftMargin(0.10);
+                    cellPad->SetRightMargin(0.015);
+                    cellPad->SetBottomMargin(0.30);
+                    cellPad->SetTopMargin(0.05);
+                    cellPad->SetTicks(1,1);
+                    cellPad->SetBorderMode(0);
+                    cellPad->SetFillColor(0);
+                    cellPad->Draw();
+                    cellPad->cd();
+                    
+                    double vv[15];
+                    FillExclusiveSummaryVals(summaryPtReqs[icol].suffixes, summaryCentReqs[irow].suffixes, vv);
+                    
+                    double ymax = 0.0;
+                    for (int ib = 0; ib < 15; ++ib) ymax = std::max(ymax, vv[ib]);
+                    const double yMaxPlot = (ymax > 0.0) ? (1.30 * ymax) : 1.0;
+                    
+                    TH1F* hAxis = new TH1F(
+                                           TString::Format("h_preFailExclusiveCentXpTAxis_%s_%s_%s",
+                                                           ds.trigger.c_str(),
+                                                           summaryCentReqs[irow].folder.c_str(),
+                                                           summaryPtReqs[icol].folder.c_str()).Data(),
+                                           "",
+                                           15, 0.5, 15.5
+                                           );
+                    hAxis->SetDirectory(nullptr);
+                    hAxis->SetStats(0);
+                    hAxis->SetMinimum(0.0);
+                    hAxis->SetMaximum(yMaxPlot);
+                    
+                    for (int ib = 1; ib <= 15; ++ib) hAxis->GetXaxis()->SetBinLabel(ib, exclusiveLabels[ib-1]);
+                    
+                    hAxis->GetYaxis()->SetTitle("Rejected clusters");
+                    hAxis->GetXaxis()->SetTitle("");
+                    hAxis->GetXaxis()->LabelsOption("v");
+                    hAxis->GetXaxis()->SetLabelFont(42);
+                    hAxis->GetXaxis()->SetLabelSize(0.028);
+                    hAxis->GetXaxis()->SetLabelOffset(0.004);
+                    hAxis->GetYaxis()->SetTitleSize(0.048);
+                    hAxis->GetYaxis()->SetTitleOffset(1.00);
+                    hAxis->GetYaxis()->SetLabelSize(0.040);
+                    hAxis->SetLineColor(1);
+                    hAxis->SetLineWidth(2);
+                    hAxis->SetFillStyle(0);
+                    hAxis->Draw("hist");
+                    
+                    for (int ib = 1; ib <= 15; ++ib)
+                    {
+                        TH1F* hb = new TH1F(
+                                            TString::Format("h_preFailExclusiveCentXpTBar_%s_%s_%s_b%d",
+                                                            ds.trigger.c_str(),
+                                                            summaryCentReqs[irow].folder.c_str(),
+                                                            summaryPtReqs[icol].folder.c_str(),
+                                                            ib).Data(),
+                                            "",
+                                            15, 0.5, 15.5
+                                            );
+                        hb->SetDirectory(nullptr);
+                        hb->SetStats(0);
+                        hb->SetBinContent(ib, vv[ib-1]);
+                        hb->SetFillStyle(1001);
+                        hb->SetFillColor(exclusiveColors[ib-1]);
+                        hb->SetLineColor(1);
+                        hb->SetLineWidth(2);
+                        hb->SetBarWidth(0.88);
+                        hb->SetBarOffset(0.06);
+                        hb->Draw("BAR SAME");
+                        keepExclusive.push_back(hb);
+                    }
+                    
+                    TLatex tCell;
+                    tCell.SetTextFont(42);
+                    tCell.SetTextAlign(22);
+                    tCell.SetTextSize(0.024);
+                    for (int ib = 1; ib <= 15; ++ib)
+                    {
+                        const double y = vv[ib-1];
+                        if (y <= 0.0) continue;
+                        
+                        const double x = hAxis->GetXaxis()->GetBinCenter(ib);
+                        const double yText = std::min(y + 0.020*yMaxPlot, 0.92*yMaxPlot);
+                        tCell.DrawLatex(x, yText, TString::Format("%.0f", y).Data());
+                    }
+                    
+                    keepExclusive.push_back(hAxis);
+                    cExclusive.cd();
+                }
+            }
+            
+            TLatex tExclusiveTitle;
+            tExclusiveTitle.SetNDC();
+            tExclusiveTitle.SetTextFont(42);
+            tExclusiveTitle.SetTextAlign(13);
+            tExclusiveTitle.SetTextSize(0.030);
+            tExclusiveTitle.DrawLatex(0.010, 0.982, "Exclusive Fails Run25auau (Preselection, rejected clusters only)");
+            
+            TPaveText* pExclusiveInfo = new TPaveText(0.25, 0.900, 0.975, 0.988, "NDC NB");
+            pExclusiveInfo->SetFillStyle(0);
+            pExclusiveInfo->SetBorderSize(0);
+            pExclusiveInfo->SetTextFont(42);
+            pExclusiveInfo->SetTextAlign(12);
+            pExclusiveInfo->SetTextSize(0.018);
+            pExclusiveInfo->AddText("Exclusive preselection fail combinations from h_preFailMask");
+            pExclusiveInfo->AddText("Single-name bins mean \"only\"; each rejected cluster contributes to exactly one bar");
+            pExclusiveInfo->Draw();
+            keepExclusive.push_back(pExclusiveInfo);
+            
+            TLatex tExclusiveCol;
+            tExclusiveCol.SetNDC(true);
+            tExclusiveCol.SetTextFont(42);
+            tExclusiveCol.SetTextAlign(22);
+            tExclusiveCol.SetTextSize(0.034);
+            for (int icol = 0; icol < nSummaryCols; ++icol)
+            {
+                const double x = leftExclusive + (icol + 0.5) * rawCellWExclusive;
+                tExclusiveCol.DrawLatex(x, 1.0 - topExclusive + 0.010, summaryPtReqs[icol].label.c_str());
+            }
+            
+            TLatex tExclusiveRow;
+            tExclusiveRow.SetNDC(true);
+            tExclusiveRow.SetTextFont(42);
+            tExclusiveRow.SetTextAlign(22);
+            tExclusiveRow.SetTextAngle(270);
+            tExclusiveRow.SetTextSize(0.035);
+            for (int irow = 0; irow < nSummaryRows; ++irow)
+            {
+                const double y = 1.0 - topExclusive - (irow + 0.5) * rawCellHExclusive;
+                tExclusiveRow.DrawLatex(0.032, y, summaryCentReqs[irow].label.c_str());
+            }
+            
+            SaveCanvas(cExclusive, JoinPath(summaryOutDir, "preselectionExclusiveFails_centralityXpT.png"));
+            
+            for (auto* obj : keepExclusive) delete obj;
+            
             {
                 struct WetaSummaryCurve
                 {
