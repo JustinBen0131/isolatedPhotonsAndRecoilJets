@@ -1030,25 +1030,55 @@ SUB
 }
 
 run_local_counter_test() {
-  local first_chunk
-  first_chunk="$(ls -1 "${TMP_CHUNK_DIR}"/audit_chunk_*.list 2>/dev/null | head -n 1 || true)"
-  [[ -n "${first_chunk}" ]] || fatal "no chunk list available for LOCAL test"
+  need_cmd psql
+  PSQL=(psql -h "${PSQL_HOST}" -d "${PSQL_DB}" -At -F $'\t' -q)
+  check_psql_connectivity
 
-  local first_file
-  first_file="$(head -n 1 "${first_chunk}" 2>/dev/null || true)"
-  local local_out="${TMP_RESULTS_DIR}/$(basename "${first_chunk%.list}")_LOCAL.tsv"
+  local -a eligible_runs=()
+  local r8 current_list run_dec scaledown
+
+  for r8 in "${RUN_ORDER[@]}"; do
+    current_list="$(find_best_list_file "$LIST_DIR" "$r8" || true)"
+    [[ -n "${current_list}" && -s "${current_list}" ]] || continue
+
+    run_dec=$((10#$r8))
+    scaledown="$(sql "SELECT scaledown${REF_TRIG_BIT} FROM gl1_scaledown WHERE runnumber=${run_dec};" | head -n 1 | tr -d '[:space:]')"
+
+    [[ -n "${scaledown}" && "${scaledown}" != "-1" ]] || continue
+    eligible_runs+=( "$r8" )
+  done
+
+  (( ${#eligible_runs[@]} > 0 )) || fatal "no runs with non-empty current lists and scaledown${REF_TRIG_BIT} != -1 were found for LOCAL test"
+
+  local selected_run selected_list selected_scaledown test_chunk first_file local_out pick_idx
+  pick_idx=$(( RANDOM % ${#eligible_runs[@]} ))
+  selected_run="${eligible_runs[$pick_idx]}"
+  selected_list="$(find_best_list_file "$LIST_DIR" "$selected_run" || true)"
+  [[ -n "${selected_list}" && -s "${selected_list}" ]] || fatal "selected LOCAL test run has no readable current list: ${selected_run}"
+
+  selected_scaledown="$(sql "SELECT scaledown${REF_TRIG_BIT} FROM gl1_scaledown WHERE runnumber=$((10#$selected_run));" | head -n 1 | tr -d '[:space:]')"
+
+  test_chunk="${TMP_CHUNK_DIR}/run${selected_run}_LOCAL_random.list"
+  head -n "${CHUNK_SIZE}" "${selected_list}" > "${test_chunk}"
+  [[ -s "${test_chunk}" ]] || fatal "failed to build LOCAL test chunk for run ${selected_run}"
+
+  first_file="$(head -n 1 "${test_chunk}" 2>/dev/null || true)"
+  local_out="${TMP_RESULTS_DIR}/$(basename "${test_chunk%.list}")_LOCAL.tsv"
 
   MANIFEST_PATH="${PWD}/audit_auau_firstPass_${WORK_STAMP}.txt"
   write_firstpass_manifest "${MANIFEST_PATH}" "LOCAL_TEST"
 
   subsection "LOCAL first-pass validation"
   say "Manifest path      : ${MANIFEST_PATH}"
-  say "Test chunk list    : ${first_chunk}"
+  say "Selected run       : ${selected_run}"
+  say "scaledown${REF_TRIG_BIT}      : ${selected_scaledown}"
+  say "Source list        : ${selected_list}"
+  say "Test chunk list    : ${test_chunk}"
   say "First file in test : ${first_file}"
   say "Output TSV         : ${local_out}"
-  note "This runs exactly the same counting wrapper locally on the first available file."
+  note "This runs the same counting wrapper locally on a random run whose scaledown bit is active in psql."
 
-  bash "${TMP_WRAPPER}" "${first_chunk}" "${local_out}" "${TMP_ROOT_MACRO}" "${ROOT_PROGRESS_EVERY}" "${VERBOSE}" "${REF_TRIG_BIT}"
+  bash "${TMP_WRAPPER}" "${test_chunk}" "${local_out}" "${TMP_ROOT_MACRO}" "${ROOT_PROGRESS_EVERY}" "${VERBOSE}" "${REF_TRIG_BIT}"
 
   good "LOCAL first-pass validation completed"
   note "For the full submission, run: ./$(basename "$0") firstPass"
