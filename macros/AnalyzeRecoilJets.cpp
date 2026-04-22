@@ -16308,8 +16308,7 @@ int Run()
                                         SaveCanvas(cLeak, JoinPath(outDirLeak, spec.outName));
                                         cout << ANSI_BOLD_GRN << "[WROTE] " << JoinPath(outDirLeak, spec.outName) << ANSI_RESET << "\n";
                                         
-                                        if (kAA_IsoMode == "fixedIso4GeV" &&
-                                            string(spec.outName) == "leakageFactor_fB_centOverlay_ppOverlay.png")
+                                        if (string(spec.outName) == "leakageFactor_fB_centOverlay_ppOverlay.png")
                                         {
                                             TCanvas cLeakHiPt(
                                                               TString::Format("c_leak_cent_%s_%d_pTge15", trigAA.c_str(), spec.regionBin).Data(),
